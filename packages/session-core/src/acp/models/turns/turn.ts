@@ -1,4 +1,6 @@
 import { z } from 'zod';
+import { foregroundEndSchema } from '../../session-protocol';
+import { terminalStateSchema } from '../terminals';
 import { stopReasonSchema } from '../session';
 import { transcriptCompactionSchema } from './compaction';
 import { transcriptContextResetSchema } from './context-reset';
@@ -21,9 +23,23 @@ export const transcriptTurnInitiatorSchema = z.enum(['user', 'agent']);
 export type TranscriptTurnInitiator = z.infer<typeof transcriptTurnInitiatorSchema>;
 
 /**
- * Successful turn reasons = ACP stop reasons(用户那一轮,prompt 结算时带来)+ `cycle_end`
- * (agent **自发**的一轮:没有 prompt 在飞,它的边界是适配器在那个 cycle 的 `result` 时
- * 报上来的那条带 cost 的 usage —— 见 session-runtime cell.ts `isAgentCycleEnd`)。
+ * 这一轮是被什么起的(2026-10-28,界面据此说「在处理「gugu」群消息」,运行时据此决定主人的话插不插进去)。
+ * - `owner`:主人在会话页输入框亲手打的(origin `manual`;`typed` 不算);
+ * - `delivery`:投递起的(群消息、私聊、会话直发、`typed` 原样送进来的正文);`chatIds` 是信封里的 `chat=`,
+ *   即会话的**公开号**(如 `216125`),❌ 不是 chat uuid —— 取群名要按公开号查;几条并成一轮时是多个,没有信封时缺席;
+ * - `schedule`:到点的定时任务;
+ * - `agent`:没有一句在飞时 agent 自己开的(后台命令 / 子任务跑完的通知)。
+ * 缺席 = 旧记录或回放重建的轮次,读者按 `initiator` 退化。
+ */
+export const transcriptTurnTriggerSchema = z.object({
+  kind: z.enum(['owner', 'delivery', 'schedule', 'agent']),
+  chatIds: z.array(z.string()).optional(),
+});
+export type TranscriptTurnTrigger = z.infer<typeof transcriptTurnTriggerSchema>;
+
+/**
+ * Successful turn reasons come from foreground idle. `cycle_end` preserves a boundary
+ * whose native reason was absent, null or unknown; `foreground` retains the original fact.
  *
  * ⚠️ 这里曾经叫 `quiesced`:「250 ms 没来事件就当它讲完了」。那不是边界,是猜 ——
  * 网关流式中途任何一次 >250 ms 的停顿都会把正在写的那条消息当场封口成一轮,
@@ -36,7 +52,7 @@ export type DoneTurnReason = z.infer<typeof doneTurnReasonSchema>;
 /** Cancellation is modeled as its own outcome instead of a successful stop reason. */
 /**
  * `interrupted_for_message`:不是用户停的 —— 这一家收不了回合中途的插话,咕咕在工具边界替它停下
- * 这一轮,好让刚到的消息作为下一轮进去(`acp.midTurnSteer`,#6335)。下一轮就是接着干,
+ * 这一轮,好让刚到的消息作为下一轮进去(transport tool-boundary interruption, #6335)。下一轮就是接着干,
  * 所以界面上❌ 不给「继续 / 丢弃」。
  */
 export const cancelledTurnReasonSchema = z.enum(['cancelled', 'interrupted_for_message']);
@@ -111,12 +127,17 @@ export const transcriptTurnOutcomeSchema = z.discriminatedUnion('kind', [
 export type TranscriptTurnOutcome = z.infer<typeof transcriptTurnOutcomeSchema>;
 
 export const transcriptTurnSchema = z.object({
+  foreground: foregroundEndSchema.optional(),
   /** Reducer-generated turn id used to scope all item ids in this exchange. */
   id: z.string(),
+  /** Immutable live origin, minted when the turn opens and retained when storage renumbers display IDs. */
+  referenceId: z.string().min(1).optional(),
   /** Stable session order, assigned when the turn opens. */
   seq: z.number().int(),
   /** Who opened the turn: a user prompt or agent-originated background activity. */
   initiator: transcriptTurnInitiatorSchema,
+  /** What started it (see `transcriptTurnTriggerSchema`); absent on old or replayed turns. */
+  trigger: transcriptTurnTriggerSchema.optional(),
   /**
    * Epoch ms read off the wall clock at the moment this turn opened.
    *
@@ -139,6 +160,8 @@ export const transcriptTurnSchema = z.object({
    */
   endedAt: z.number().optional(),
   items: z.array(transcriptItemSchema),
+  /** Bounded snapshots for terminals this turn actually references. */
+  terminals: z.array(terminalStateSchema).optional(),
   /** Durable settlement for the whole turn; absent for replayed history without an explicit end. */
   outcome: transcriptTurnOutcomeSchema.optional(),
 });

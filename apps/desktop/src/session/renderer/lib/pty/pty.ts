@@ -1,3 +1,6 @@
+import { translateSessionMessage } from '@renderer/localization/locale-store';
+import { messageForUser } from '@/lib/userFacingError';
+import { toast } from '@renderer/lib/hooks/use-toast';
 import type { WebLinksAddon } from '@xterm/addon-web-links';
 import type { WebglAddon } from '@xterm/addon-webgl';
 import type { ITerminalOptions, Terminal } from '@xterm/xterm';
@@ -14,14 +17,18 @@ import { buildTerminalFontFamily } from './terminal-font';
 import { terminalHasVisibleContent } from './terminal-visible-content';
 import { ensureXtermHost } from './xterm-host';
 import { notifyPtyOutput } from '../session-output-observers';
+import {
+  isAnimationWindowVisible,
+  observeAnimationViewport,
+  subscribeAnimationWindowVisibility,
+} from '@gugu/session-shared/animation-visibility';
 
 /**
- * 每个终端视图在渲染进程里留多少行回滚。视图活到会话删除 / 归档为止(切走不释放),所以这是**每个开过的终端**都要付的价。
- * 从前是 100,000 行。mac1 A/B(同一个终端写满 15 万行输出,改前改后交替各 2 轮):渲染进程 286–288MB → 198–203MB;
+ * 每个终端视图在渲染进程里留多少行回滚。普通终端页签关闭时释放视图,重开从主进程屏幕恢复。
+ * 从前是 100,000 行。macOS A/B(同一个终端写满 15 万行输出,改前改后交替各 2 轮):渲染进程 286–288MB → 198–203MB;
  * 工作区面板「最大化 / 还原」三次 —— 每次改宽度 xterm 都把整份回滚重排一遍 —— 主线程长任务 21–24 个、最长 134–140ms
- * → 5–8 个、最长 64–65ms(读数见 gugu-base evidence/2026-10-05-terminal-scrollback)。
- * 10,000 行是 Alacritty 的默认、Windows Terminal 是 9,001;视图重建时主进程交的屏幕快照只带 1,000 行回滚
- * (pty-screen.ts 的 SCREEN_SCROLLBACK_LINES),本来就补不回更早的行。
+ * → 5–8 个、最长 64–65ms(2026-10-05 实测)。
+ * 普通终端在 LocalTerminalProvider 中使用同样的主进程回滚上限,视图重建不能丢掉更早的回滚。
  */
 const SCROLLBACK_LINES = 10_000;
 
@@ -146,8 +153,7 @@ const webglHolders: FrontendPty[] = [];
  *
  * Lifecycle: created and owned by PtySession (stores/pty-session.ts), one per
  * live session. Survives React component unmounts (e.g. navigating away from a
- * task), and is disposed only when the entity (terminal or conversation) is
- * explicitly deleted.
+ * task). Closing a normal terminal tab or deleting its entity disposes the view.
  */
 export class FrontendPty {
   /** All live FrontendPty instances — used for app-wide operations (e.g. theme updates). */
@@ -158,6 +164,15 @@ export class FrontendPty {
   readonly ownedContainer: HTMLDivElement;
   private theme?: SessionTheme;
   private offData: (() => void) | null = null;
+  /**
+   * @@@pty-stream-while-shown — use the retained surface/viewport and owning window's visibility.
+   * Hidden terminals unsubscribe immediately; showing them restores the host's screen snapshot.
+   */
+  private streaming = false;
+  private connectedOnce = false;
+  private connecting: Promise<void> | null = null;
+  private viewportVisible = true;
+  private offVisibility: (() => void) | null = null;
   private inputHandler: TerminalInputHandler | null = null;
   private readonly inputDisposable: { dispose(): void };
   /** 输入法拼音浮层放不下时挪回网格内(#6547,见 composition-fit.ts)。 */
@@ -207,7 +222,7 @@ export class FrontendPty {
 
   /** 每次写入**解析完成后**调一次；只在真的有可见内容时才放行。 */
   private noteOutput(): void {
-    if (this.sawOutput) return;
+    if (this.disposed || this.sawOutput) return;
     if (!this.hasVisibleContent()) return;
     this.sawOutput = true;
     this.onFirstOutput?.();
@@ -294,7 +309,8 @@ export class FrontendPty {
       if (text === null) return false;
 
       void rpc.app.clipboardWriteText(text).catch((error) => {
-        log.warn('FrontendPty: failed to write OSC 52 clipboard payload', { error });
+        log.error('FrontendPty: failed to write OSC 52 clipboard payload', { error });
+        toast({ title: translateSessionMessage('task.copyFailed'), description: messageForUser(error), tier: 'error' });
       });
       return true;
     });
@@ -379,8 +395,56 @@ export class FrontendPty {
    * The main process guarantees the hand-over: every batch the PTY produced up to
    * the reply is in the snapshot, and the batches after it are emitted after the reply.
    */
-  async connect(): Promise<void> {
+  connect(): Promise<void> {
+    this.connecting ??= this.attachStream().then(() => {
+      this.connecting = null;
+      this.connectedOnce = true;
+      this.syncStream();
+    }, (error: unknown) => {
+      this.connecting = null;
+      throw error;
+    });
+    return this.connecting;
+  }
+
+  /** The same visibility mechanism pauses animations and retained surfaces. */
+  private syncStream(): void {
+    if (this.disposed || !this.connectedOnce) return;
+    // 还没见过一个可见字之前照收不误,❌ 因为「没挂上」就退订:会话页要等第一个字(onFirstOutput)才把终端挂出来,
+    // 这时退订 = 新建任务那一刻快照还是空的,之后的输出一个字都收不到,页面永远停在「正在启动任务…」(1046.1 实撞)。
+    const awaitingFirstOutput = !this.sawOutput;
+    if (awaitingFirstOutput || (this.mounted && this.shown && this.viewportVisible && isAnimationWindowVisible(this.ownedContainer.ownerDocument))) {
+      if (!this.streaming && !this.connecting) {
+        this.terminal.reset();
+        void this.connect().catch((error: unknown) => log.warn('FrontendPty: stream could not resume', { error: String(error) }));
+      }
+    } else {
+      this.stopStream();
+    }
+  }
+
+  private watchVisibility(): void {
+    this.offVisibility?.();
+    this.viewportVisible = true;
+    const offWindow = subscribeAnimationWindowVisibility(() => this.syncStream(), this.ownedContainer.ownerDocument);
+    const offViewport = observeAnimationViewport(this.ownedContainer, (visible) => {
+      this.viewportVisible = visible;
+      this.syncStream();
+    });
+    this.offVisibility = () => { offWindow(); offViewport(); };
+  }
+
+  private stopStream(): void {
+    if (!this.streaming) return;
+    this.streaming = false;
+    this.offData?.();
+    this.offData = null;
+    rpc.pty.unsubscribe(this.ptySessionId).catch(() => {});
+  }
+
+  private async attachStream(): Promise<void> {
     const result = await rpc.pty.subscribe(this.ptySessionId);
+    if (this.disposed) return;
     const historical = result.success ? result.data.buffer : '';
     // 要快照之后、切出来之前才到的新输出:排在回放后面照实时写,其中 TUI 刚发的查询(DA1、光标位置…)要应答。
     // 会话在别的机器上、那边还是旧版宿主时没有这一项。
@@ -400,6 +464,7 @@ export class FrontendPty {
     // delivery path. Snapshot bytes are old terminal output, not a new
     // conversation with the PTY: xterm must parse them for the screen, but any
     // protocol replies generated by that parse must not reach the live stdin.
+    this.streaming = true;
     this.offData = events.on(
       ptyDataChannel,
       (data: string) => {
@@ -448,8 +513,8 @@ export class FrontendPty {
       this.replayingHistory = false;
       const pendingLiveData = live ? [live, ...this.pendingLiveData] : this.pendingLiveData;
       this.pendingLiveData = [];
-      for (const data of pendingLiveData) {
-        this.terminal.write(data, () => this.noteOutput());
+      if (!this.disposed) {
+        for (const data of pendingLiveData) this.terminal.write(data, () => this.noteOutput());
       }
     }
   }
@@ -486,7 +551,9 @@ export class FrontendPty {
     // 换了窗要告诉它。已经打开过的终端再 open 一次只做这件事(xterm CoreBrowserTerminal.open)。
     this.terminal.open(this.ownedContainer);
     this.mounted = true;
+    this.watchVisibility();
     if (this.shown) this.attachWebgl();
+    this.syncStream();
     // @@@repaint frame ownership — the deferred repaint belongs to this instance, not to the frame
     // queue. A remount replaces it and dispose() cancels it, so no frame can reach a terminal that
     // is gone: refreshing a disposed terminal re-arms xterm's RenderDebouncer after RenderService
@@ -516,13 +583,14 @@ export class FrontendPty {
   setShown(shown: boolean): void {
     this.shown = shown;
     if (shown && this.mounted) this.attachWebgl();
+    this.syncStream();
   }
 
   /**
    * @@@webgl-while-mounted — 挂在界面上、最近露过面的终端用 WebGL 画(个数见 @@@webgl-hot-terminals),其余的回到 DOM 渲染器。
    * DOM 渲染器每帧把每条脏行的 span 拆了重建,流式输出时样式重算、布局、绘制占满 renderer 主线程;
-   * WebGL 是一次 GPU 提交(mac1 同一终端 codex 流式 80 秒:renderer CPU 18.9 → 9.8 秒,按键上屏快 11ms,
-   * gugu-base evidence/2026-10-19-otty-codex-tui)。只给挂着的终端:每个 GL 上下文都占显存,Chromium 一页
+   * WebGL 是一次 GPU 提交(macOS 同一终端 codex 流式 80 秒:renderer CPU 18.9 → 9.8 秒,按键上屏快 11ms,
+   * 2026-10-19 实测)。只给挂着的终端:每个 GL 上下文都占显存,Chromium 一页
    * 只给十几个,开过的会话终端会一直活到删除,全开 WebGL 必然撞上限。
    * 上下文丢了(GPU 进程重启、显存被回收)xterm 会先等 3 秒看能否恢复,恢复不了才报 onContextLoss:
    * 这一次挂载退回 DOM 渲染器,下次挂载再开。换了窗(一块会话单独成窗,#7052)画布要建在新窗里,重开一个。
@@ -601,10 +669,13 @@ export class FrontendPty {
   unmount(): void {
     this.cancelReveal();
     this.mounted = false;
+    this.offVisibility?.();
+    this.offVisibility = null;
     this.detachWebgl();
     ensureXtermHost().appendChild(this.ownedContainer);
     // 回到主窗的离屏宿主:它原来所在的那扇窗可能马上就关了,xterm 要改认主窗。
     this.terminal.open(this.ownedContainer);
+    this.syncStream();
   }
 
   /**
@@ -614,6 +685,9 @@ export class FrontendPty {
    */
   dispose(): void {
     this.disposed = true;
+    this.offVisibility?.();
+    this.offVisibility = null;
+    this.streaming = false;
     this.cancelRepaintFrame();
     this.cancelReveal();
     this.detachWebgl();

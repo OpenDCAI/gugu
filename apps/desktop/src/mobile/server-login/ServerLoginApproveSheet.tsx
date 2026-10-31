@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react'
+import { messageForUser } from '@/lib/userFacingError';
+import { useLayoutEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { MachineLimitRefusal } from '@gugu/core/cloud/machineLimit'
 import { Button } from '../../components/ui/Button'
@@ -20,11 +21,13 @@ type View =
  * 批准一台跑了 `gugu-server login` 的机器(手机上点了那条链接)。机器信息摆在「允许」正上方,写明只有自己刚在那台机器上
  * 执行了登录才点 —— 与网页确认页同一条防钓鱼规矩。点完等云端答了才换结局,❌ 先报「已允许」。
  */
-export function ServerLoginApproveSheet({ code, onDone }: { code: string; onDone: () => void }) {
+export function ServerLoginApproveSheet({ code, onDone }: { code: string | null; onDone: () => void }) {
   const { t } = useTranslation('settings')
   const [view, setView] = useState<View>({ kind: 'loading' })
 
-  useEffect(() => {
+  useLayoutEffect(() => {
+    if (code === null) return
+    setView({ kind: 'loading' })
     let alive = true
     readServerLoginRequest(code).then(
       (request) => {
@@ -36,7 +39,7 @@ export function ServerLoginApproveSheet({ code, onDone }: { code: string; onDone
       (error: unknown) => {
         if (!alive) return
         const message = error instanceof Error ? error.message : String(error)
-        log.warn({ error: message }, 'server-login view failed')
+        log.error({ error: message }, 'server-login view failed')
         setView({ kind: 'failed', message: message === 'not_found' ? t('devices.approveServer.notFound') : t('devices.approveServer.loadFailed') })
       },
     )
@@ -51,14 +54,14 @@ export function ServerLoginApproveSheet({ code, onDone }: { code: string; onDone
         setView({ kind: 'final', state: decision.state, hostname: request.machine.hostname, refusal: decision.refusal })
       },
     ).catch((error: unknown) => {
-      log.warn({ error: error instanceof Error ? error.message : String(error) }, 'server-login decide failed')
-      setView({ kind: 'request', request, busy: false, error: t('devices.approveServer.decideFailed') })
+      log.error({ error: error instanceof Error ? error.message : String(error) }, 'server-login decide failed')
+      setView({ kind: 'request', request, busy: false, error: messageForUser(error) })
     })
   }
 
   const busy = view.kind === 'request' && view.busy
   return (
-    <Sheet onClose={() => { if (!busy) onDone() }} mobileFitContent desktopWidth="380px" testId="server-login-approve" ariaLabel={t('devices.approveServer.title')}>
+    <Sheet open={code !== null} onClose={() => { if (!busy) onDone() }} mobileFitContent desktopWidth="380px" testId="server-login-approve" ariaLabel={t('devices.approveServer.title')}>
       <div className="flex flex-col gap-3 px-5 pb-5 pt-6" data-approve-state={view.kind === 'final' ? view.state : view.kind}>
         {view.kind === 'loading' && <p className="text-[length:var(--font-body)] text-[var(--text-secondary)]">{t('devices.approveServer.loading')}</p>}
         {view.kind === 'failed' && (
@@ -71,11 +74,11 @@ export function ServerLoginApproveSheet({ code, onDone }: { code: string; onDone
         {view.kind === 'final' && (
           <>
             <h2 className="text-[length:var(--font-title)] font-semibold text-[var(--text-primary)]">{t(`devices.approveServer.final.${view.state}.title`)}</h2>
-            <p className="text-[length:var(--font-body)] leading-relaxed text-[var(--text-secondary)]">
+            <div className="text-[length:var(--font-body)] leading-relaxed text-[var(--text-secondary)]">
               {view.state === 'refused'
                 ? <MachineLimitNotice refusal={view.refusal} />
                 : t(`devices.approveServer.final.${view.state}.body`, { host: view.hostname ?? t('devices.approveServer.thisMachine') })}
-            </p>
+            </div>
             <Button variant="secondary" size="lg" onClick={onDone} data-testid="server-login-approve-close">{t('devices.approveServer.close')}</Button>
           </>
         )}
@@ -114,7 +117,7 @@ function RequestBody({
         ))}
       </dl>
       <p className="text-[length:var(--font-body)] leading-relaxed text-[var(--text-secondary)]">{t('devices.approveServer.warning')}</p>
-      {view.error && <p className="text-[length:var(--font-body)] text-[var(--danger)]" role="alert">{view.error}</p>}
+      {view.error && <p className="text-[length:var(--font-body)] text-[var(--danger-fg)]" role="alert">{view.error}</p>}
       <Button variant="primary" size="lg" disabled={view.busy} onClick={() => onDecide(true)} data-testid="server-login-approve-allow">
         {t('devices.approveServer.allow', { host })}
       </Button>

@@ -11,7 +11,6 @@ import {
   lastUsedDropped,
   reconcileModel,
   selectHarness,
-  selectSessionView,
   selectedModelName,
 } from '@/mobile/agent-watch/create-session-form'
 import { translateSessionMessage } from '@renderer/localization/locale-store'
@@ -42,10 +41,10 @@ const catalog = (harness: string, ids: string[]): SessionpageSessionCreateModels
 })
 
 describe('新建页的模型那一格(#5014 续)', () => {
-  it('默认不指定模型:model 为 null,能发,胶囊上不写「默认」;展示取这家给的第一种', () => {
+  it('默认不指定模型:model 为 null,能发,胶囊上不写「默认」;展示不由手机选(那台电脑按「终端」开关定)', () => {
     const selection = defaultSelection(options)
     expect(selection.model).toBeNull()
-    expect(selection.sessionView).toBe('general')
+    expect(selection).not.toHaveProperty('sessionView')
     expect(selection.permissionMode).toBeNull()
     expect(createBlocker(options, selection)).toBeNull()
     expect(createPillLabel(options, selection, catalog('codex', ['gpt-5']))).toBe('验收工作区 · Codex')
@@ -60,22 +59,16 @@ describe('新建页的模型那一格(#5014 续)', () => {
     expect(selectedModelName(null, selection)).toBe('platform:gpt-6')
   })
 
-  it('换 harness 必清模型与推理档;展示/权限档是产品词,新家也给就留、不给才退', () => {
-    const picked = { ...defaultSelection(options), model: 'gpt-5', effort: 'high', sessionView: 'code' as const, permissionMode: 'edit' as const }
+  it('换 harness 必清模型与推理档;权限档是产品词,新家也给就留、不给才退', () => {
+    const picked = { ...defaultSelection(options), model: 'gpt-5', effort: 'high', permissionMode: 'edit' as const }
     expect(selectHarness(picked, 'codex', options)).toBe(picked)
-    // claude 只给通用 ⇒ 展示退到它的第一种;edit 两家都声明 ⇒ 留
+    // edit 两家都声明 ⇒ 留
     expect(selectHarness(picked, 'claude', options)).toEqual({
-      projectId: 'p1', harness: 'claude', model: null, effort: null, sessionView: 'general', permissionMode: 'edit',
+      projectId: 'p1', harness: 'claude', model: null, effort: null, permissionMode: 'edit',
     })
     // plan 只有 claude 声明 ⇒ 换回 codex 清掉
     const plan = { ...picked, harness: 'claude', permissionMode: 'plan' as const }
     expect(selectHarness(plan, 'codex', options).permissionMode).toBeNull()
-  })
-
-  it('换展示:目录按腿算,模型与推理档重选;同一种再点不动', () => {
-    const picked = { ...defaultSelection(options), model: 'gpt-5', effort: 'high' }
-    expect(selectSessionView(picked, 'general')).toBe(picked)
-    expect(selectSessionView(picked, 'code')).toEqual({ ...picked, sessionView: 'code', model: null, effort: null })
   })
 
   it('推理档:新目录里没有就退回默认;胶囊第四段写它的名字', () => {
@@ -105,6 +98,42 @@ describe('新建页的模型那一格(#5014 续)', () => {
   })
 })
 
+describe('phone creation uses the shared available-model default', () => {
+  const own = 'gpt-6.1-sol'
+  const platform = 'platform:available-model'
+  const unsigned = {
+    ...catalog('codex', [own, platform]),
+    selected: own,
+    selectedCredential: 'uncredentialed' as const,
+    harnessAuth: 'signed-out' as const,
+  }
+
+  it('selects an offered platform model even when the unsigned-in harness lists its own models', () => {
+    expect(reconcileModel(defaultSelection(options), unsigned).model).toBe(platform)
+    expect(reconcileModel({ ...defaultSelection(options), model: own }, unsigned).model).toBe(platform)
+    expect(reconcileModel(selectHarness({ ...defaultSelection(options), harness: 'claude' }, 'codex', options), unsigned).model).toBe(platform)
+  })
+
+  it('preserves a valid remembered own choice when signed in and an explicitly chosen own default', () => {
+    const signed = { ...unsigned, selectedCredential: 'credentialed' as const, harnessAuth: 'signed-in' as const }
+    const remembered = { ...defaultSelection(options), model: own }
+    expect(reconcileModel(remembered, signed)).toBe(remembered)
+    expect(reconcileModel(defaultSelection(options), signed).model).toBeNull()
+    expect(reconcileModel(defaultSelection(options), unsigned, true).model).toBeNull()
+    expect(reconcileModel(remembered, unsigned, true)).toBe(remembered)
+  })
+
+  it('excludes hidden or membership-only platform defaults and does not confuse a catalogue with sign-in', () => {
+    const models = {
+      ...unsigned,
+      selectedCredential: 'unknown' as const,
+      models: [unsigned.models[0]!, { ...unsigned.models[1]!, hidden: true }, { ...unsigned.models[1]!, id: 'platform:locked', requires_membership: true }, { ...unsigned.models[1]!, id: 'platform:offered' }],
+    }
+    expect(reconcileModel(defaultSelection(options), models).model).toBe('platform:offered')
+    expect(reconcileModel({ ...defaultSelection(options), model: platform }, models).model).toBe('platform:offered')
+  })
+})
+
 describe('新建页沿用这台机器上次那一套(behavior mobile-session-view)', () => {
   const twoProjects: SessionpageSessionCreateOptions = {
     ...options,
@@ -117,10 +146,10 @@ describe('新建页沿用这台机器上次那一套(behavior mobile-session-vie
     expect(lastUsedDropped(options, initialSelection(options))).toEqual([])
   })
 
-  it('上次那一套都还能用:六格原样沿用,目录到了也不动,没有要说明的', () => {
+  it('上次那一套都还能用:五格原样沿用,目录到了也不动,没有要说明的', () => {
     const withLast = { ...twoProjects, lastUsed: last }
     const selection = initialSelection(withLast)
-    expect(selection).toEqual({ projectId: 'p2', harness: 'claude', sessionView: 'general', permissionMode: 'plan', model: 'sonnet', effort: 'high' })
+    expect(selection).toEqual({ projectId: 'p2', harness: 'claude', permissionMode: 'plan', model: 'sonnet', effort: 'high' })
     expect(reconcileModel(selection, catalog('claude', ['sonnet', 'opus[1m]']))).toBe(selection)
     expect(lastUsedDropped(withLast, selection)).toEqual([])
   })
@@ -143,21 +172,21 @@ describe('新建页沿用这台机器上次那一套(behavior mobile-session-vie
     expect(lastUsedDropped(withLast, selection)).toEqual(['project'])
   })
 
-  it('上次的模式这家不再提供:模式退到第一种,模型与推理档跟着回默认;只报模式', () => {
-    const withLast = { ...twoProjects, lastUsed: { ...last, harness: 'codex', sessionView: 'code' as const, permissionMode: 'edit' as const } }
-    const noCode: SessionpageSessionCreateOptions = {
-      ...withLast,
-      harnesses: withLast.harnesses.map((h) => (h.id === 'codex' ? { ...h, sessionViews: ['general' as const] } : h)),
-    }
-    const selection = initialSelection(noCode)
-    expect(selection).toMatchObject({ harness: 'codex', sessionView: 'general', permissionMode: 'edit', model: null, effort: null })
-    expect(lastUsedDropped(noCode, selection)).toEqual(['sessionView'])
-  })
-
   it('上次的模型不在这次的目录里:目录到了回默认,报模型;推理档还在就留', () => {
     const withLast = { ...twoProjects, lastUsed: { ...last, model: 'claude-sonnet-5' } }
     const reconciled = reconcileModel(initialSelection(withLast), catalog('claude', ['sonnet', 'opus[1m]']))
     expect(reconciled).toMatchObject({ model: null, effort: 'high' })
     expect(lastUsedDropped(withLast, reconciled)).toEqual(['model'])
+  })
+})
+
+// A chat continuation is usable without pretending Pi has a workspace transcript.
+describe('phone creation in the shared form', () => {
+  it('accepts an available chat host and still blocks an unreadable harness without a chat', () => {
+    const phone = { ...options, harnesses: [{ id: 'pi', name: 'Pi', status: 'available' as const, watchable: false, chatAvailable: true, sessionViews: ['general' as const], permissionModes: [] }] }
+    expect(defaultSelection(phone).harness).toBe('pi')
+    expect(createBlocker(phone, defaultSelection(phone))).toBeNull()
+    const unreadable = { ...phone, harnesses: [{ ...phone.harnesses[0]!, chatAvailable: false }] }
+    expect(createBlocker(unreadable, defaultSelection(unreadable))).toBe('no_usable_harness')
   })
 })

@@ -1,3 +1,4 @@
+import { messageForUser } from '@/lib/userFacingError';
 // @@@5856 「agent 超过几个就全员转被动」这条线的设置行 —— 群和话题**共用这一个**。
 //
 // owner 2026-09-19 的裁决:「之前说是 5 个转为 passive, 这个数字可以放在设置中,而不是硬编码。
@@ -34,7 +35,7 @@ const HINT_STYLE: CSSProperties = {
 }
 const VALUE_STYLE: CSSProperties = { fontSize: 'var(--font-body)', color: 'var(--text-tertiary)', flexShrink: 0 }
 const INPUT_STYLE: CSSProperties = {
-  width: 64, textAlign: 'right', border: '1px solid var(--border-subtle)', borderRadius: 'var(--r-md)',
+  width: 64, textAlign: 'right', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-control)',
   padding: '4px 8px', fontSize: 'var(--font-body)', color: 'var(--text-primary)',
   background: 'var(--bg-elevated)', outline: 'none', fontFamily: 'inherit', flexShrink: 0,
 }
@@ -58,7 +59,7 @@ export function AgentFloodThresholdSetting({
   const saving = useRef(false)
   const readSequence = useRef(0)
   const [busy, setBusy] = useState(false)
-  const [failed, setFailed] = useState(false)
+  const [failed, setFailed] = useState('')
   const [value, setValue] = useState<number | null>(null)
   const [effective, setEffective] = useState<number | null>(null)
   // null means no local edit; an empty string is the explicit inheritance draft.
@@ -67,7 +68,7 @@ export function AgentFloodThresholdSetting({
   useEffect(() => {
     let cancelled = false
     const sequence = ++readSequence.current
-    setFailed(false)
+    setFailed('')
     chatService.getGroupChatSettings(chatId)
       .then((settings) => {
         if (cancelled || sequence !== readSequence.current) return
@@ -78,7 +79,7 @@ export function AgentFloodThresholdSetting({
       .catch((error: unknown) => {
         if (cancelled || sequence !== readSequence.current) return
         floodLog.error({ error, chatId }, 'agent flood threshold load failed')
-        setFailed(true)
+        setFailed(messageForUser(error))
       })
     return () => { cancelled = true }
   }, [chatId, revision])
@@ -104,12 +105,12 @@ export function AgentFloodThresholdSetting({
       .catch((error: unknown) => {
         floodLog.error({ error, chatId }, 'agent flood threshold save failed')
         setDraft(null)
-        toast(t('group.settings.agentFloodSaveFailed'), 'error')
+        toast(t('group.settings.agentFloodSaveFailed'), 'error', messageForUser(error))
       })
       .finally(() => { saving.current = false; setBusy(false) })
-  }, [chatId, draft, value, editable, onSaved, t, toast])
+  }, [chatId, draft, value, editable, onSaved, toast, t])
 
-  if (failed) return <p role="alert">{t('group.settings.agentFloodLoadFailed')}</p>
+  if (failed) return <p role="alert">{failed}</p>
   if (effective === null) return null
 
   return (

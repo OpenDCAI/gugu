@@ -125,7 +125,7 @@ export const claudeSessionBundleDescriptor = {
   },
   credentialLifecycle: {
     'acp': {
-      delivery: 'credential-helper',
+      delivery: 'credential-proxy',
       originalProcessRefresh: 'supported',
       recovery: 'reopen',
       inferenceOwner: 'provider-process',
@@ -133,7 +133,7 @@ export const claudeSessionBundleDescriptor = {
       sourceChangeSession: 'preserve',
     },
     'tui': {
-      delivery: 'credential-helper',
+      delivery: 'credential-proxy',
       originalProcessRefresh: 'supported',
       recovery: 'reopen',
       inferenceOwner: 'provider-process',
@@ -167,7 +167,7 @@ export const claudeSessionBundleDescriptor = {
     evidence:
       'https://code.claude.com/docs/en/interactive-mode#general-controls 「Esc | Interrupt Claude, or close a dialog」;'
       + ' Esc 关掉 AskUserQuestion 后记录里是「User declined to answer questions」、再发一条消息 agent 照答:'
-      + ' shuxueshuxue/gugu-base@2fd64b59d evidence/2026-10-09-ask-question-phone-answer(2.1.293,11/11);取证 2026-10-09',
+      + ' 实测 Claude Code 2.1.293,11/11;取证 2026-10-09',
   },
   /**
    * spec `mcp-session-toggle` —— claude 怎么在会话级关掉 MCP server。
@@ -217,7 +217,8 @@ export const claudeSessionBundleDescriptor = {
       messageTransport: 'router',
       injection: {
         timing: 'next-tool-call',
-        evidence: 'shuxueshuxue/gugu-base@5c105347a5 evidence/2026-09-11-claude-acp-steering/: Claude Code acp busy-session product reading with the 0.75.1 steering extension.',
+        evidence: 'agentclientprotocol/claude-agent-acp@3e23c5b960b6 src/acp-agent.ts:426-431 (0.75.1): the `_session/steering` '
+          + 'extension injects a message into the in-flight turn. Claude Code acp busy-session product reading with that adapter, 2026-09-11.',
         deviations: 'ACP steering uses `_session/steering` with idleBehavior promptRequired; a boundary race falls back to one standard session/prompt. Rendezvous remains TUI-only.',
       },
     },
@@ -227,7 +228,9 @@ export const claudeSessionBundleDescriptor = {
       messageTransport: 'router',
       injection: {
         timing: 'next-tool-call',
-        evidence: 'shuxueshuxue/gugu-base@715f7d3 evidence/2026-08-31-f1-claude-codex-cells:claude/TUI F1R3 【产品】读数——聊天页建 agent(surface=tui)→云收件箱→rendezvous socket,暗号 A=11:06:55.473Z 于 sleep90 工具边界(tool_result 11:08:24.370/queue remove .373,#636 队列机制)进模型,逐字 ACK 744652df 11:08:31.941 在首轮内、单 end_turn B=11:08:48.031,PRE/POST 阳控双过；tip 843a6d982c 同形确认。',
+        evidence: 'shuxueshuxue/spexcode@e49ba3e7e551 spec-cli/src/harness.ts:429-435(Claude Code 自带的 rendezvous 控制 socket:'
+          + 'CLAUDE_BG_BACKEND=daemon + CLAUDE_BG_RENDEZVOUS_SOCK,写一行 reply 即作为输入交给活着的会话);'
+          + 'claude/TUI F1R3 【产品】读数(2026-08-31)——聊天页建 agent(surface=tui)→云收件箱→rendezvous socket,暗号 A=11:06:55.473Z 于 sleep90 工具边界(tool_result 11:08:24.370/queue remove .373,#636 队列机制)进模型,逐字 ACK 744652df 11:08:31.941 在首轮内、单 end_turn B=11:08:48.031,PRE/POST 阳控双过；tip 843a6d982c 同形确认。',
         // ⚠️ 按 ingress 记,❌ 不是"claude 这家如此":同一二进制三条 ingress(#4482
         // comment-5464690093)。R15/#4482 曾读出 rendezvous「落下一轮」,与本格 F1R3 的
         // next-tool-call 不是矛盾读数,而是 #636 队列机制的两面(督导裁定,已写入 #4500):
@@ -305,7 +308,7 @@ export const claudeSessionBundleDescriptor = {
      * `TaskUpdate`」。桥的 :4466-4470 注释对上了这一点:「Headless/SDK sessions use these instead
      * of TodoWrite」。新老引擎各走一条,落到咕咕这边都是同一个 `plan`。
      *
-     * 咕咕这一侧接得住,且不分家:`session-core/src/acp/reducer/decode.ts` 解出
+     * 咕咕这一侧接得住,且不分家:`session-core/src/acp/transport/decode.ts` 解出
      * `{ kind: 'plan', entries }`,`normalized-event.ts` 归一成结构化 entries(❌ 不是纯 markdown)。
      */
     todo: { kind: 'native', channel: 'acp-plan' },

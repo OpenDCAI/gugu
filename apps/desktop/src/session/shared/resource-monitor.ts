@@ -1,5 +1,14 @@
 import type { AgentProviderId } from '@gugu/session-plugins/agents';
 import type { RendererMetrics } from './renderer-metrics';
+export const RESOURCE_MONITOR_WINDOW_NAME = 'gugu-aux:resource-monitor';
+export type ResourceContext = {
+  unavailable?: string;
+  localTasks?: { total: number; running: number; waiting: number; scheduled: number; unknown: number };
+  windows: { id: number; title: string; focused: boolean; visible: boolean; minimized: boolean }[];
+};
+export const RESOURCE_HISTORY_LIMITS = { points: 10_000, bytes: 64 * 1024 * 1024, ageMs: 24 * 60 * 60 * 1000 };
+export type ResourcePoint = { id: number; timestamp: number; cpu?: number; memory?: number; runId: string };
+export type ResourceHistory = { points: ResourcePoint[]; count: number; bytes: number; limits: typeof RESOURCE_HISTORY_LIMITS };
 
 /**
  * Per-PTY resource sample. `cpu` is a percentage of one core (can exceed 100
@@ -31,8 +40,8 @@ export interface ResourcePtyEntry {
  * PTY child processes — those are reported per-entry to avoid double counting.
  */
 export interface ResourceAppUsage {
-  memoryBytes: number;
-  /** Sum of the processes' `cpu`; undefined until at least one process has a reading. */
+  memoryBytes?: number;
+  /** Sum of process CPU since the previous sample. */
   cpuPercent?: number;
 }
 
@@ -70,6 +79,9 @@ export interface ResourceSnapshot {
   app: ResourceAppUsage;
   appProcesses: ResourceAppProcess[];
   entries: ResourcePtyEntry[];
-  /** Only while `resourceMonitor.internals` is on: what each renderer reports about itself. */
+  runId?: string;
+  context?: ResourceContext;
+  recordingError?: string;
+  /** Only while an open monitor page has advanced diagnostics expanded. */
   internals?: { renderers: RendererMetrics[] };
 }

@@ -1,11 +1,13 @@
 import { useQuery } from '@tanstack/react-query';
 import { useMemo } from 'react';
 import { useAppSettingsKey } from '@renderer/features/settings/use-app-settings-key';
+import { useTerminalEnabled } from '@renderer/features/settings/use-terminal-enabled';
 import { rpc } from '@renderer/lib/ipc';
 import {
   getResolvedIconPath,
   getResolvedLabel,
   OPEN_IN_APPS,
+  TERMINAL_OPEN_IN_APP_IDS,
   type OpenInAppConfig,
   type OpenInAppId,
   type PlatformKey,
@@ -36,6 +38,7 @@ function supportsPlatform(app: OpenInAppConfig, platform: PlatformKey): boolean 
 
 export function useOpenInApps(): UseOpenInAppsResult {
   const { value: openIn, isLoading: settingsLoading } = useAppSettingsKey('openIn');
+  const terminalEnabled = useTerminalEnabled();
 
   const { data: platform, isLoading: platformLoading } = useQuery({
     queryKey: ['app', 'platform'],
@@ -77,12 +80,16 @@ export function useOpenInApps(): UseOpenInAppsResult {
   const installedApps = useMemo(() => {
     const hiddenApps: OpenInAppId[] = openIn?.hidden ?? [];
     if (!platform) return [];
+    // 「终端」开关关着:终端类 App 不列(设置里的默认若是它,菜单退到下一个)。
     const platformApps = Object.values(OPEN_IN_APPS).filter(
-      (app) => supportsPlatform(app, platform) && !hiddenApps.includes(app.id)
+      (app) =>
+        supportsPlatform(app, platform) &&
+        !hiddenApps.includes(app.id) &&
+        (terminalEnabled || !TERMINAL_OPEN_IN_APP_IDS.has(app.id))
     );
     if (loading) return platformApps;
     return platformApps.filter((app) => availability[app.id] && !hiddenApps.includes(app.id));
-  }, [availability, loading, openIn?.hidden, platform]);
+  }, [availability, loading, openIn?.hidden, platform, terminalEnabled]);
 
   return { icons, labels, availability, installedApps, platform, loading };
 }

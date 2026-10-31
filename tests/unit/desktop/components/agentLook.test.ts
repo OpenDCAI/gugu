@@ -6,10 +6,10 @@ import {
   buildLookUrl,
   colorSlug,
   isLookAvatar,
+  isBuiltinAgentAvatarUrl,
   lookObjectPath,
   parseAgentLook,
   pickDistinctLook,
-  planBirthLooks,
   resolveAgentLook,
   type AgentLook,
 } from '@/components/agentAvatar/look'
@@ -101,12 +101,21 @@ describe('形象地址不归任何一只 agent 管', () => {
     }
   })
 
-  it('<img> 场景画这个颜色的本地定格,❌ 去加载那个地址', () => {
+  it('image-only projections use Boring for built-in agent looks and keep human posters', () => {
     const look = { color: 7, rest: 'curious' } as const
-    for (const kind of ['agent', 'human'] as const) {
-      expect(displayAvatarUrl(lookUrl(look), 'agent-1', 'test', kind)).toBe(agentLookPoster(look, 'agent-1'))
+    expect(displayAvatarUrl(lookUrl(look), 'agent-1', 'test', 'human')).toBe(agentLookPoster(look))
+    const generated = displayAvatarUrl(null, 'agent-1', 'test', 'agent')!
+    expect(decodeURIComponent(generated)).toContain('data-agent-avatar-boring="agent-1"')
+    expect(displayAvatarUrl(lookUrl(look), 'agent-1', 'test', 'agent')).toBe(generated)
+  })
+
+  it('recognizes all v1 paths, independently of color and expression, without matching custom image queries', () => {
+    for (const url of [`${HOST}/agent-look/v1/cream.webp`, `${HOST}/agent-look/v1/future.webp?rest=future#x`]) {
+      expect(isBuiltinAgentAvatarUrl(url)).toBe(true)
     }
-    expect(displayAvatarUrl(null, 'agent-1', 'test', 'agent')).toBe(agentLookPoster(agentIdentity('agent-1'), 'agent-1'))
+    for (const url of [null, '', `${HOST}/custom.webp?from=/agent-look/v1/cream.webp`, `${HOST}/agent-look/v2/cream.webp`, 'data:image/svg+xml,hello']) {
+      expect(isBuiltinAgentAvatarUrl(url)).toBe(false)
+    }
   })
 })
 
@@ -136,50 +145,5 @@ describe('骰子:挑一个和兄弟尽量不撞的形象', () => {
     const seen = new Set<number>()
     for (let i = 0; i < 400; i++) seen.add(pickDistinctLook([], { color: 0, rest: 'neutral' }, seeded(i)).color)
     expect(seen.size).toBe(BODY_COLORS.length - 1)
-  })
-})
-
-describe('出生定形象', () => {
-  const ids = Array.from({ length: 12 }, (_, i) => `00000000-0000-4000-8000-${String(i).padStart(12, '0')}`)
-  const at = (i: number) => `2026-10-${String(1 + i).padStart(2, '0')}T00:00:00Z`
-
-  it('12 只以内:人人有形象,颜色两两不同', () => {
-    const plan = planBirthLooks(ids.map((id, i) => ({ id, avatar: null, created_at: at(i) })), seeded(1))
-    expect(plan.map((p) => p.id).sort()).toEqual([...ids].sort())
-    expect(new Set(plan.map((p) => p.look.color)).size).toBe(12)
-  })
-
-  it('能保留按 id 推出来的样子就保留(先出生的先占),撞了才换', () => {
-    const first = ids[0]
-    const plan = planBirthLooks([{ id: first, avatar: null, created_at: at(0) }], seeded(2))
-    expect(plan).toEqual([{ id: first, look: agentIdentity(first) }])
-
-    // 第二只按 id 推出来的颜色和第一只一样 → 它得换;第一只(先出生)不动
-    const clash = ids.find((id) => id !== first && agentIdentity(id).color === agentIdentity(first).color)
-      ?? Array.from({ length: 500 }, (_, i) => `clash-${i}`).find((id) => agentIdentity(id).color === agentIdentity(first).color)!
-    const two = planBirthLooks(
-      [
-        { id: clash, avatar: null, created_at: at(5) },
-        { id: first, avatar: null, created_at: at(0) },
-      ],
-      seeded(3),
-    )
-    expect(two[0]).toEqual({ id: first, look: agentIdentity(first) })
-    expect(two[1].id).toBe(clash)
-    expect(two[1].look.color).not.toBe(agentIdentity(first).color)
-  })
-
-  it('已经有形象的不动、也占着颜色;传了照片的不定形象、也不占颜色', () => {
-    const stored: AgentLook = { color: agentIdentity(ids[1]).color, rest: 'shy' }
-    const plan = planBirthLooks(
-      [
-        { id: 'has-look', avatar: lookUrl(stored), created_at: at(0) },
-        { id: 'has-photo', avatar: `${HOST}/owner.has-photo-1.png`, created_at: at(0) },
-        { id: ids[1], avatar: null, created_at: at(2) },
-      ],
-      seeded(4),
-    )
-    expect(plan.map((p) => p.id)).toEqual([ids[1]])
-    expect(plan[0].look.color).not.toBe(stored.color)
   })
 })

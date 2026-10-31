@@ -21,7 +21,7 @@ import {
   type TunnelOpenResponse,
 } from '@gugu/core/cloud/remoteTunnel'
 import type { DeviceRpcResponse } from '@gugu/core/cloud/deviceRpcProtocol'
-import { frpcConfig, startFrpc, type FrpcRunner } from './frpc-runner'
+import { frpcConfig, killStaleFrpc, startFrpc, type FrpcRunner } from './frpc-runner'
 import { buildEnsureMasterArgs, buildMuxControlArgs, type SshTarget } from './ssh-install/logic'
 import { sshBatchArgs } from './ssh-batch'
 import type { TunnelProblem, TunnelState } from '../../src/lib/tunnelMachines'
@@ -151,6 +151,18 @@ export function createTunnelMachines(deps: {
   startFrpc?: typeof startFrpc
   freePort?: () => Promise<number>
 }): TunnelMachines {
+  // 同一个桌面 profile 重启后就收掉上次崩溃留下的访问端,不等那台机器再次上线。
+  const stateDir = deps.stateDir()
+  if (fs.existsSync(stateDir)) {
+    for (const name of fs.readdirSync(stateDir)) {
+      if (!/^frpc-[A-Za-z0-9_-]{1,128}\.toml\.pid$/.test(name)) continue
+      const pidFile = path.join(stateDir, name)
+      const configFile = pidFile.slice(0, -4)
+      if (killStaleFrpc(pidFile, configFile)) deps.log('frpc left over from last run, stopped', { configFile })
+      fs.rmSync(configFile, { force: true })
+      fs.rmSync(pidFile, { force: true })
+    }
+  }
   const tunnels = new Map<string, Tunnel>()
   const problems = new Map<string, TunnelProblem>()
   const listeners = new Set<(state: TunnelState) => void>()
@@ -228,11 +240,8 @@ export function createTunnelMachines(deps: {
       teardown(tunnel)
       const userId = await deps.currentUserId()
       if (!current(tunnel)) return
-      // 登录态还没就绪 / 正在刷新凭证:过一会儿再试(❌ 一声不吭地停在「正在连接」)。
-      if (!userId) {
-        deps.log('tunnel: not signed in yet, retrying', { deviceId: tunnel.deviceId })
-        return scheduleRetry(tunnel)
-      }
+      // Without local auth, the cloud request cannot reach this machine; publish the existing failure state before retrying.
+      if (!userId) return fail(tunnel, 'unreachable', 'this computer is not signed in to Gugu')
       const binary = deps.frpcBinary()
       if (!binary) return fail(tunnel, 'local', '这台电脑的咕咕里缺 frpc')
       let key: { keyPath: string; publicKey: string }

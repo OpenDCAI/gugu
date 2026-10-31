@@ -50,10 +50,8 @@ const pixel = device('pixel', {
 })
 
 describe('连接应用 · 其他设备', () => {
-  it('能用的一组归已授权,登记了没开的归可用;一组只出一行', () => {
-    const { authorized, connectable } = otherDeviceConnectors([pixel], null)
-    expect(authorized.map((e) => `${e.device.device_id}:${e.group}`)).toEqual(['pixel:calendar'])
-    expect(connectable.map((e) => `${e.device.device_id}:${e.group}`)).toEqual(['pixel:contacts'])
+  it('does not present remote phone grants as assistant connectors', () => {
+    expect(otherDeviceConnectors([pixel], null)).toEqual({ authorized: [], connectable: [] })
   })
 
   it('这台自己、它住的那台(按管家给的 id 或设备行上的 cloud_computer)、老的云设备行、没登记清单的老版本都不出', () => {
@@ -67,7 +65,7 @@ describe('连接应用 · 其他设备', () => {
     ]
     const { authorized, connectable } = otherDeviceConnectors(rows, 'home')
     const ids = [...authorized, ...connectable].map((e) => e.device.device_id)
-    expect(new Set(ids)).toEqual(new Set(['pixel']))
+    expect(ids).toEqual([])
   })
 
   it('对照:别的电脑登记了动作就出现(判据不是「只认手机」)', () => {

@@ -24,18 +24,18 @@
 .vn-row-detail { display: inline-flex; align-items: center; gap: 8px; min-width: 0; font-size: 13px; line-height: 18px; color: var(--ta-muted); }
 .vn-status { display: inline-flex; align-items: center; gap: 4px; color: var(--ta-muted); }
 .vn-status svg { width: 12px; height: 12px; }
-.vn-status[data-tone='failed'] { color: #f0443b; }
-.vn-dot { display: inline-block; height: 6px; width: 6px; border-radius: 999px; background: #03a9f4; }
-.vn-status[data-tone='live'] .vn-dot { background: #f0443b; }
+.vn-status[data-tone='failed'] { color: var(--danger-fg); }
+.vn-dot { display: inline-block; height: 6px; width: 6px; border-radius: 999px; background: var(--live); }
+.vn-status[data-tone='live'] .vn-dot { background: var(--danger); }
 
 .vn-transcript { display: flex; flex-direction: column; gap: 16px; }
 .vn-line header { display: flex; align-items: center; gap: 8px; font-size: 13px; line-height: 18px; }
 .vn-line p { margin: 4px 0 0 18px; font-size: 15px; line-height: 1.65; color: var(--ta-fg); overflow-wrap: anywhere; }
 .vn-speaker { font-weight: 600; color: var(--ta-fg); }
 .vn-stamp { color: var(--ta-faint); font-variant-numeric: tabular-nums; }
-.vn-speaker-dot { display: inline-block; height: 10px; width: 10px; border-radius: 999px; background: linear-gradient(135deg, #ffdcb3, #ffd099); }
-.vn-speaker-dot[data-tone='1'] { background: linear-gradient(135deg, #b8eaff, #8bdeff); }
-.vn-speaker-dot[data-tone='2'] { background: linear-gradient(135deg, #feccf2, #fbacea); }
+.vn-speaker-dot { display: inline-block; height: 10px; width: 10px; border-radius: 999px; background: var(--vn-speaker-0); }
+.vn-speaker-dot[data-tone='1'] { background: var(--vn-speaker-1); }
+.vn-speaker-dot[data-tone='2'] { background: var(--vn-speaker-2); }
 
 /* 「就这次会议提问」:长得像一条输入框,点了把开头填进左边的聊天。 */
 .vn-ask {
@@ -95,7 +95,7 @@
 .vn-bar-btn svg { width: 14px; height: 14px; }
 .vn-bar-btn[data-tone='stop'] svg { fill: currentColor; width: 12px; height: 12px; }
 .vn-bar-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--ta-muted); }
-.vn-bar-label[data-tone='failed'] { color: #f0443b; }
+.vn-bar-label[data-tone='failed'] { color: var(--danger-fg); }
 .vn-bar-hint { font-size: var(--font-caption); color: var(--ta-faint); }
 .vn-bar-text-btn,
 .vn-bar-link {
@@ -117,7 +117,7 @@
 .vn-bar-sub { color: var(--ta-muted); }
 .vn-clock { font-variant-numeric: tabular-nums; color: var(--ta-fg); }
 .vn-wave { display: inline-flex; height: 24px; align-items: center; gap: 2px; }
-.vn-wave span { display: block; width: 3px; min-height: 4px; border-radius: 2px; background: #f0443b; transition: height var(--dur-fast) linear; }
+.vn-wave span { display: block; width: 3px; min-height: 4px; border-radius: 2px; background: var(--danger); transition: height var(--dur-fast) linear; }
 @media (prefers-reduced-motion: reduce) {
   .vn-wave span { transition: none; }
 }

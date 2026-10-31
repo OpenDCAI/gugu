@@ -1,5 +1,6 @@
 import { createGuguSupabaseClient } from '@gugu/core/cloud/supabase';
 import { personId } from './app-runtime-protocol';
+import type { DispatchAsk, DispatchPicked } from './app-dispatch-core';
 
 /**
  * `gugu.forum` (9): the forum App's reads and writes — the same answer on the desktop (main) and the phone (the outer gugu
@@ -9,7 +10,8 @@ import { personId } from './app-runtime-protocol';
  *
  * Posting a bounty and settling one move community points: those two only after the person confirms a sheet the host draws
  * (`bountyDraft` / `awardDraft` check the call; the sheet calls `createBountyPost` / `settle`). Assigning an agent is the
- * person's pick in a list the host draws of their own agents (`assignDraft`; the sheet calls `assign`): an App never lists them. People and agents are named
+ * person's pick of one of their own agents in the host's one 「交给谁」 sheet (DispatchSheet, in its assign form; `assign`):
+ * an App never lists them. People and agents are named
  * `user:<uuid>`, as everywhere an App sees them; posts and replies by their bare id.
  */
 
@@ -42,7 +44,6 @@ export interface ForumBounty {
 }
 export interface BountyDraft { title: string; body: string; amount: number; days: 1 | 3 | 7; visibility: 'public' | 'poster_only' }
 export interface AwardDraft { post: string; title: string; awards: { reply: string; amount: number; to: string }[] }
-export interface AssignDraft { post: string; title: string; preselect: string | null }
 
 interface BountyRow {
   amount: number; visibility: 'public' | 'poster_only'; deadline_at: string; status: ForumBounty['status'];
@@ -226,15 +227,19 @@ export function createAppForum(platform: { account(): Promise<{ token: string }>
       if (typeof on !== 'boolean') throw invalid('on is true (block) or false (unblock)');
       await rpc('forum_block', { p_user_id: userOf(userId, 'userId'), p_on: on });
     },
-    /** The host's picker for `gugu.forum.assign(postId, agentId?)`: `agentId` only preselects one. */
-    async assignDraft(postId: unknown, agentId: unknown): Promise<AssignDraft> {
+    /**
+     * `gugu.forum.assign(postId, agentId?)`: the person picks one of their own agents in the host's sheet (`pick`, its assign
+     * form, the post's title shown; `agentId` only preselects one), then the forum assigns it. Answers whom, or that they
+     * cancelled; the forum's refusal (a new account, a closed post) comes back as the App's error.
+     */
+    async assign(postId: unknown, agentId: unknown, pick: (ask: DispatchAsk) => Promise<DispatchPicked>): Promise<{ assigned: { agent: string } } | { cancelled: true }> {
       const post = idOf(postId, 'postId');
       const preselect = agentId === undefined || agentId === null ? null : personId(userOf(agentId, 'agentId'));
       const read = await rpc<{ post: { title: string } }>('forum_read_post', { p_post_id: post, p_as: null });
-      return { post, title: read.post.title, preselect };
-    },
-    async assign(postId: unknown, agentId: unknown): Promise<void> {
-      await rpc('forum_assign', { p_post_id: idOf(postId, 'postId'), p_agent: userOf(agentId, 'agentId') });
+      const picked = await pick({ assign: { title: read.post.title }, draft: false, offers: ['my-agent'], text: '', pills: [], chat: null, preselect, visible: false });
+      if (!picked || !('agent' in picked.to)) return { cancelled: true };
+      await rpc('forum_assign', { p_post_id: post, p_agent: userOf(picked.to.agent, 'agentId') });
+      return { assigned: { agent: picked.to.agent } };
     },
 
     /** Settling is a draft the host's sheet confirms (`settle`): read here so the sheet can say who gets how much. */

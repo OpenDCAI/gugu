@@ -7,8 +7,6 @@ import { RenameSessionModal } from '@renderer/features/sessions/rename-session-m
 import { RenameAgentModal } from '@renderer/features/sessions/rename-agent-modal'
 import { CreateProjectNameModal } from '@renderer/features/projects/components/create-project-name-modal'
 import { LocalFolderProjectModal } from '@renderer/features/projects/components/local-folder-project-modal'
-import { ProjectConfigImportModal } from '@renderer/features/projects/components/settings-view/project-config-import-modal'
-import { ShareProjectConfigModal } from '@renderer/features/projects/components/settings-view/share-project-config-modal'
 import { AgentSignInModal } from '@renderer/features/settings/agents-page/AgentSignInModal'
 import { GithubConnectModal } from '@renderer/features/settings/components/github-connect-modal'
 import { AddRemoteModal } from '@renderer/features/sessions/add-remote-modal'
@@ -19,24 +17,8 @@ import { ExternalLinkChoiceDialog } from '@renderer/lib/components/external-link
 import { OpenWithChooser } from '@renderer/features/extensions/open-with-chooser'
 import { GithubDeviceFlowModal } from '@renderer/lib/components/github-device-flow-modal'
 import { UnsavedChangesDialog } from '@renderer/lib/components/unsaved-changes-dialog'
-import { type ModalComponent } from '@renderer/lib/modal/modal-provider'
-
-export type ModalSize = 'xs' | 'sm' | 'md' | 'lg' | 'xl'
-export type ModalPosition = 'center' | 'top'
-
-export type ModalRegistryEntry<TProps = unknown, TResult = unknown> = {
-  component: ModalComponent<TProps, TResult>
-  size?: ModalSize
-  position?: ModalPosition
-  ignoreOutsidePressAfterWindowBlur?: boolean
-}
-
-export function createModal<TProps, TResult>(
-  component: ModalComponent<TProps, TResult>,
-  config: Omit<ModalRegistryEntry, 'component'> = {}
-): ModalRegistryEntry<TProps, TResult> {
-  return { component, ...config }
-}
+import { createModal, type ModalRegistryEntry } from '@/components/ui/modal-registry'
+export type { ModalSize, ModalPosition, ModalRegistryEntry } from '@/components/ui/modal-registry'
 
 export const modalRegistry = {
   commandPaletteModal: createModal(CommandPaletteModal, { size: 'md' }),
@@ -52,8 +34,6 @@ export const modalRegistry = {
   createPrModal: createModal(CreatePrModal, { size: 'md' }),
   renameSessionModal: createModal(RenameSessionModal, { size: 'xs' }),
   renameAgentModal: createModal(RenameAgentModal, { size: 'xs' }),
-  shareProjectConfigModal: createModal(ShareProjectConfigModal, { size: 'md' }),
-  projectConfigImportModal: createModal(ProjectConfigImportModal, { size: 'md' }),
   integrationSetupModal: createModal(IntegrationSetupModal, { size: 'md' }),
   githubConnectModal: createModal(GithubConnectModal, { size: 'md' }),
   agentSignInModal: createModal(AgentSignInModal, { size: 'lg' }),

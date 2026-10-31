@@ -7,6 +7,9 @@ vi.unmock('../../../../apps/desktop/src/components/agentAvatar/engine/runtime')
 
 const fake = vi.hoisted(() => ({
   draws: [] as unknown[],
+  sources: [] as Array<{ gl: unknown; sprite: unknown; w: number; h: number }>,
+  loadGate: null as Promise<boolean> | null,
+  handles: [] as Array<{ drawnWith: string; dpr: number; ctx: CanvasRenderingContext2D }>,
   loads: [] as boolean[],
   made: [] as Array<{ canvas: HTMLCanvasElement; loaded: Set<string>; has(id: string): boolean; room(w: number, h: number, n: number): boolean; reset(): void }>,
   allocate: null as ((w: number, h: number) => void) | null,
@@ -29,12 +32,16 @@ vi.mock('../../../../apps/desktop/src/components/agentAvatar/engine/draw', async
     lookDiff: real.lookDiff,
     glPasses: () => 1,
     paintGL: (_gl: unknown, f: unknown, o: { w: number; h: number }) => {
+      if (!fake.ids.has(f)) return { at: [0, 0], next: 0 }
       fake.allocate?.(o.w, o.h)
       fake.order.push(`paint:${fake.ids.get(f)}`)
       return { at: [0, 0], next: 0 }
     },
-    drawAvatar: (_ctx: unknown, gl: unknown, _s: unknown, f: unknown) => {
+    drawAvatar: (_ctx: unknown, gl: unknown, sprite: unknown, f: unknown, o: { w: number; h: number }) => {
+      // 只记这一条用例 boot 的头像:前面用例的运行时还挂在同一个 window 的事件上,窗口事件一来它们也会醒
+      if (!fake.ids.has(f)) return
       fake.draws.push(gl)
+      fake.sources.push({ gl, sprite, w: o.w, h: o.h })
       fake.order.push(`copy:${fake.ids.get(f)}`)
     },
     drawnLook: (f: unknown, _o: unknown, out: number[]) => {
@@ -64,7 +71,7 @@ vi.mock('../../../../apps/desktop/src/components/agentAvatar/engine/gl', () => {
       on,
     },
     loadCharacter: async (gl: { loaded: Set<string> }, ch: { id: string }) => {
-      const ok = fake.loads.shift() ?? true
+      const ok = fake.loadGate ? await fake.loadGate : fake.loads.shift() ?? true
       if (ok) gl.loaded.add(ch.id)
       return ok
     },
@@ -73,6 +80,7 @@ vi.mock('../../../../apps/desktop/src/components/agentAvatar/engine/gl', () => {
 })
 
 let frames: FrameRequestCallback[] = []
+const stops: Array<() => void> = []
 /** 一帧:时间往前走 16ms(假的 performance.now 跟着走),排着的 rAF 一起跑 */
 function step() {
   vi.advanceTimersByTime(16)
@@ -87,9 +95,13 @@ async function boot(birds = 1, dpr = 1, tracking = false) {
   const { runtime } = await import('../../../../apps/desktop/src/components/agentAvatar/engine/runtime')
   for (let i = 0; i < birds; i++) {
     const canvas = document.createElement('canvas')
+    document.body.append(canvas)
     if (i === 0) fake.canvas = canvas
     const h = runtime.register(canvas, { shape: 'free', bg: false, crop: 'full', fx: false, tracking }, 1 + i, dpr, 'fjj-beak')
+    fake.handles.push(h!)
     fake.ids.set(h!.engine.frame, `b${i}`)
+    stops.push(() => { runtime.unregister(h!); canvas.remove() })
+    fake.intersect!([{ target: canvas, isIntersecting: true }])
   }
   await Promise.resolve()
   await Promise.resolve()
@@ -99,6 +111,9 @@ const fakeClock = () => vi.useFakeTimers({ toFake: ['setTimeout', 'performance']
 
 beforeEach(() => {
   fake.draws.length = 0
+  fake.sources.length = 0
+  fake.loadGate = null
+  fake.handles.length = 0
   fake.loads.length = 0
   fake.made.length = 0
   fake.allocate = null
@@ -128,13 +143,121 @@ beforeEach(() => {
   Object.defineProperty(document, 'hidden', { configurable: true, get: () => false })
 })
 afterEach(() => {
+  for (const stop of stops.splice(0)) stop()
   vi.useRealTimers()
   vi.unstubAllGlobals()
   vi.restoreAllMocks()
 })
 
 describe('只画会变的帧、按变了多少决定什么时候画,看不见就停(Chole 上咕咕入口那只鸟 60 fps 一直画;mac1 上 24 只闲鸟半个核)', () => {
-  it('和上一张差不到半个 CSS 像素就不画、也不排 rAF(改用计时器隔 33ms 看一眼)', async () => {
+  it('draws a visible portal avatar while the opener hides, stops when both hide, and resumes in the portal window', async () => {
+    fakeClock()
+    const runtime = await boot()
+    const frame = document.createElement('iframe')
+    document.body.append(frame)
+    const doc = frame.contentDocument!, view = frame.contentWindow!
+    vi.spyOn(doc, 'hidden', 'get').mockReturnValue(false)
+    const request = vi.spyOn(view, 'requestAnimationFrame').mockImplementation((callback) => { frames.push(callback); return frames.length })
+    const canvas = document.createElement('canvas')
+    doc.body.append(canvas)
+    const portal = runtime.register(canvas, { shape: 'free', bg: false, crop: 'full', fx: false, tracking: false }, 2, 1, 'fjj-beak')!
+    fake.ids.set(portal.engine.frame, 'b1')
+    stops.push(() => { runtime.unregister(portal); canvas.remove(); frame.remove() })
+    await Promise.resolve()
+    await Promise.resolve()
+    window.dispatchEvent(new CustomEvent('__window_seen', { detail: false }))
+    fake.order.length = 0
+    fake.lookOf.set('b0', [100])
+    fake.lookOf.set('b1', [100])
+    step()
+    expect(fake.order).toContain('copy:b1')
+    expect(fake.order).not.toContain('copy:b0')
+    expect(request).toHaveBeenCalled()
+    view.dispatchEvent(new CustomEvent('__window_seen', { detail: false }))
+    fake.order.length = 0
+    fake.lookOf.set('b1', [200])
+    step()
+    await vi.advanceTimersByTimeAsync(300)
+    expect(fake.order).toEqual([])
+    view.dispatchEvent(new CustomEvent('__window_seen', { detail: true }))
+    step()
+    expect(fake.order).toContain('copy:b1')
+    window.dispatchEvent(new CustomEvent('__window_seen', { detail: true }))
+  })
+
+  it('finishes loading the initial flat body before an inert consumer holds its frame', async () => {
+    fakeClock()
+    fake.createFails = 1
+    const flat = { complete: false, naturalWidth: 0, src: '' }
+    vi.stubGlobal('Image', class { constructor() { return flat } })
+    await boot()
+    fake.canvas!.setAttribute('inert', '')
+    step()
+    expect(fake.draws).toHaveLength(1)
+    flat.complete = true
+    flat.naturalWidth = 64
+    step()
+    expect(fake.draws, 'the loaded body must replace the initial eyes-only frame').toHaveLength(2)
+    fake.look = [5]
+    step()
+    await vi.advanceTimersByTimeAsync(200)
+    expect(fake.draws, 'the complete flat frame is then held without further drawing').toHaveLength(2)
+  })
+
+  it('draws one initial frame for an inert consumer, holds it without advancing, and resumes on removal', async () => {
+    fakeClock()
+    await boot()
+    const canvas = fake.canvas!
+    canvas.setAttribute('inert', '')
+    const { GuguEngine } = await import('../../../../apps/desktop/src/components/agentAvatar/engine/engine')
+    const update = vi.spyOn(GuguEngine.prototype, 'update')
+    step()
+    expect(fake.draws, 'the visible rail must not be blank on a cold non-assistant page').toHaveLength(1)
+    expect(update).toHaveBeenCalledTimes(1)
+    fake.look = [5]
+    update.mockClear()
+    step()
+    await vi.advanceTimersByTimeAsync(5000)
+    expect(update, 'inert holds the initial frame rather than playing its animation').not.toHaveBeenCalled()
+    expect(fake.draws).toHaveLength(1)
+    canvas.removeAttribute('inert')
+    await vi.advanceTimersByTimeAsync(100)
+    expect(update).toHaveBeenCalledTimes(1)
+    expect(fake.draws).toHaveLength(2)
+    expect(fake.canvas).toBe(canvas)
+  })
+
+  for (const change of ['size', 'dpr', 'context'] as const) {
+    it(`replaces an invalid inert frame after ${change} changes, then holds it again`, async () => {
+      fakeClock()
+      await boot()
+      const canvas = fake.canvas!
+      canvas.setAttribute('inert', '')
+      step()
+      expect(fake.draws).toHaveLength(1)
+      if (change === 'size') canvas.width += 16
+      else if (change === 'dpr') fake.handles[0].dpr = 2
+      else {
+        const lost = vi.fn(() => true)
+        fake.handles[0].ctx.isContextLost = lost
+        canvas.dispatchEvent(new Event('contextlost'))
+        expect(fake.handles[0].drawnWith).toBe('')
+        step()
+        expect(fake.draws, 'lost contexts must wait for restoration').toHaveLength(1)
+        lost.mockReturnValue(false)
+        canvas.dispatchEvent(new Event('contextrestored'))
+        expect(fake.handles[0].drawnWith).toBe('')
+      }
+      step()
+      expect(fake.draws).toHaveLength(2)
+      fake.look = [20]
+      step()
+      await vi.advanceTimersByTimeAsync(300)
+      expect(fake.draws, 'the replacement must not restart inert animation').toHaveLength(2)
+    })
+  }
+
+  it('和上一张差不到半个 CSS 像素就不画、也不排 rAF(改用计时器:共用时钟的下一格或下一次眨眼,哪个先到那时看)', async () => {
     fakeClock()
     await boot()
     step()
@@ -145,7 +268,7 @@ describe('只画会变的帧、按变了多少决定什么时候画,看不见就
     expect(fake.draws, '差 0.4 个像素:同一张,不画').toHaveLength(1)
     expect(frames, '没画就不排 rAF(排着就算不画,Chromium 每帧也要出一遍帧)').toHaveLength(0)
     await vi.advanceTimersByTimeAsync(330)
-    expect(fake.draws, '计时器看了十次,都还是同一张').toHaveLength(1)
+    expect(fake.draws, '计时器看了几次,都还是同一张').toHaveLength(1)
     expect(frames).toHaveLength(0)
   })
 
@@ -156,8 +279,8 @@ describe('只画会变的帧、按变了多少决定什么时候画,看不见就
     step()
     expect(frames).toHaveLength(0)
     fake.look = [2]
-    await vi.advanceTimersByTimeAsync(33)
-    expect(fake.draws, '变了 2 个像素:马上画').toHaveLength(2)
+    await vi.advanceTimersByTimeAsync(100)
+    expect(fake.draws, '变了 2 个像素:计时器最迟下一格醒来就画').toHaveLength(2)
     expect(frames, '画了快动作回到 rAF').toHaveLength(1)
   })
 
@@ -167,7 +290,7 @@ describe('只画会变的帧、按变了多少决定什么时候画,看不见就
     step()
     step()
     const drawn = fake.draws.length
-    // 落在共用时钟一格的中段(这一格的第一趟已经过了,计时器 33ms 一趟):第一只先变,33ms 后第二只再变,都还在这一格里
+    // 落在共用时钟一格的中段(这一格的第一趟已经过了,计时器要等到下一格):第一只先变,33ms 后第二只再变,都还在这一格里
     while (performance.now() % 100 < 40 || performance.now() % 100 > 50) await vi.advanceTimersByTimeAsync(1)
     fake.look = [1]
     await vi.advanceTimersByTimeAsync(33)
@@ -189,8 +312,9 @@ describe('只画会变的帧、按变了多少决定什么时候画,看不见就
     step()
     const drawn = fake.draws.length
     fake.look = [0.8]
-    await vi.advanceTimersByTimeAsync(33)
-    expect(fake.draws.length, '差 0.8 个像素:跟光标时不等共用时钟').toBe(drawn + 1)
+    window.dispatchEvent(new MouseEvent('pointermove', { clientX: 12, clientY: 10 }))
+    step()
+    expect(fake.draws.length, '差 0.8 个像素:光标一动就醒,跟光标时不等共用时钟').toBe(drawn + 1)
     expect(frames, '接着排 rAF').toHaveLength(1)
   })
 
@@ -249,9 +373,67 @@ describe('只画会变的帧、按变了多少决定什么时候画,看不见就
     fake.intersect!([{ target: fake.canvas!, isIntersecting: true }])
     expect(frames).toHaveLength(1)
   })
+
+  it('保留布局的面板切到 inert 后不计算或绘制头像,切回不靠 IO 通知也能恢复', async () => {
+    fakeClock()
+    await boot()
+    const canvas = fake.canvas!
+    const panel = document.createElement('div')
+    document.body.append(panel)
+    panel.append(canvas)
+    const { GuguEngine } = await import('../../../../apps/desktop/src/components/agentAvatar/engine/engine')
+    const updates = vi.spyOn(GuguEngine.prototype, 'update')
+    step()
+    expect(updates).toHaveBeenCalledTimes(1)
+    expect(fake.draws).toHaveLength(1)
+    panel.setAttribute('inert', '')
+    await Promise.resolve()
+    fake.look = [5]
+    updates.mockClear()
+    step()
+    await vi.advanceTimersByTimeAsync(330)
+    expect(updates, 'IO 仍相交,但隐藏面板里的引擎不再计算').not.toHaveBeenCalled()
+    expect(fake.draws, '上一次内容保留,不重画').toHaveLength(1)
+    panel.removeAttribute('inert')
+    await vi.advanceTimersByTimeAsync(100)
+    expect(updates).toHaveBeenCalledTimes(1)
+    expect(fake.draws, '没有 IO 事件也能恢复').toHaveLength(2)
+  })
 })
 
 describe('小鸟的绘图层出岔子时不整只空白', () => {
+  it('prepares the default flat body before registration without starting GL', async () => {
+    const flat = { complete: false, naturalWidth: 0, src: '' }
+    vi.stubGlobal('Image', class { constructor() { return flat } })
+    vi.resetModules()
+    await import('../../../../apps/desktop/src/components/agentAvatar/engine/runtime')
+    const { CHARACTER_BY_ID } = await import('../../../../apps/desktop/src/components/agentAvatar/engine/characters')
+    expect(flat.src).toBe(CHARACTER_BY_ID['fjj-beak'].flat)
+    expect(fake.made).toHaveLength(0)
+  })
+
+  it('draws the flat still while GL loads and switches on the same canvas at the same size', async () => {
+    fakeClock()
+    let ready!: (ok: boolean) => void
+    fake.loadGate = new Promise((resolve) => { ready = resolve })
+    const flat = { complete: true, naturalWidth: 1000, src: '' }
+    vi.stubGlobal('Image', class { constructor() { return flat } })
+    await boot()
+    const canvas = fake.canvas!
+    step()
+    expect(fake.sources).toHaveLength(1)
+    expect(fake.sources[0]).toMatchObject({ gl: null, sprite: flat })
+    const { w, h } = fake.sources[0]
+
+    ready(true)
+    await Promise.resolve()
+    await Promise.resolve()
+    step()
+    expect(fake.sources).toHaveLength(2)
+    expect(fake.sources[1]).toEqual({ gl: fake.made[0], sprite: null, w, h })
+    expect(fake.canvas).toBe(canvas)
+  })
+
   it('小头像后绘制超出原画布的大预览:先保留已画内容,再扩容,循环继续绘制', async () => {
     fakeClock()
     const runtime = await boot()
@@ -271,9 +453,12 @@ describe('小鸟的绘图层出岔子时不整只空白', () => {
     fake.made[0].reset = allocation.reset.bind(allocation)
     fake.allocate = (w, h) => { allocation.begin(w, h) }
     const preview = document.createElement('canvas')
+    document.body.append(preview)
     preview.width = preview.height = 656
     const handle = runtime.register(preview, { shape: 'free', bg: false, crop: 'full', fx: false, tracking: false }, 2, 2, 'fjj-beak')!
     fake.ids.set(handle.engine.frame, 'preview')
+    stops.push(() => { runtime.unregister(handle); preview.remove() })
+    fake.intersect!([{ target: preview, isIntersecting: true }])
 
     expect(() => step()).not.toThrow()
     expect(fake.order).toEqual(['paint:b0', 'copy:b0', 'paint:preview', 'copy:preview'])

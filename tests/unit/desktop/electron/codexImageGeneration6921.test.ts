@@ -189,18 +189,20 @@ describe('#6921 可见客户端拿到的是同一份声明', () => {
   // (codex-rs tui/src/app_server_session.rs:1856),盖过 app-server 的进程级 -c;没有 divert 的宿主
   // (applyPlatformToPtyLaunch / main.ts 的 plain case)更是让可见 codex 自己推理 —— 必须同一句话。
   it.each([
-    ['令牌能调 gpt-image-2', GRANTED, true],
-    ['字段缺失', undefined, false],
-  ])('%s ⇒ clientArgs 与 app-server 带不带开关头一致', async (_case, routes, expected) => {
+    ['令牌能调 gpt-image-2', GRANTED, true, true],
+    ['字段缺失', undefined, false, false],
+    ['起步模型在搜索路由上', { ...GRANTED, '/v1/alpha/search': ['gpt-6-astra'] }, true, false],
+    ['搜索路由上只有别的模型', { ...GRANTED, '/v1/alpha/search': ['gpt-5.6-sol'] }, true, true],
+  ])('%s ⇒ clientArgs 的开关头、搜索开关', async (_case, routes, header, searchOffExpected) => {
     launch(routes)
     const platform = await platformModelForSession({
       surface: 'tui', sessionId: SESSION, providerId: 'codex', authProvider,
       platformModel: { modelId: 'gpt-6-astra' },
     })
     expect(platform.clientArgs).toContain('model_provider=gugu_platform')
-    expect(carriesActorHeader(platform.clientArgs)).toBe(expected)
-    const searchOff = platform.clientArgs.some((arg, index) => arg === 'web_search="disabled"' && platform.clientArgs[index - 1] === '-c')
-    expect(searchOff).toBe(expected)
+    expect(carriesActorHeader(platform.clientArgs)).toBe(header)
+    const searchOff = (args: readonly string[]) => args.some((arg, index) => arg === 'web_search="disabled"' && args[index - 1] === '-c')
+    expect(searchOff(platform.clientArgs)).toBe(searchOffExpected)
   })
 })
 

@@ -153,7 +153,7 @@ describe('Chat Service', () => {
     expect(peerAgent.id, 'created peer agent id is missing').toBeTruthy()
     expect(reserveAgent.id, 'created reserve agent id is missing').toBeTruthy()
 
-    const chatId = await chatService.createGroupChat(groupName, aliceId, [
+    const { chat_id: chatId } = await chatService.createGroupChat(groupName, aliceId, [
       agent.id,
       peerAgent.id,
       reserveAgent.id,
@@ -165,7 +165,7 @@ describe('Chat Service', () => {
     expect(joined, 'agent was not visible in group collab snapshot after group creation').toBeTruthy()
     expect(joined!.role, 'agent should join as member').toBe('member')
 
-    await chatService.setGroupAgentRole(chatId, agent.id, 'admin')
+    await chatService.setGroupMemberRole(chatId, agent.id, 'admin')
     snapshot = (await chatService.getGroupCollab(chatId)).snapshot
     joined = snapshot.agents.find((item) => item.id === agent.id)
     expect(joined?.role, 'agent role should update to admin').toBe('admin')
@@ -176,7 +176,7 @@ describe('Chat Service', () => {
     const directed = messages.find((message) => message.id === messageId)
     expect(directed?.to_user_ids, 'directed message should target the agent user id').toEqual([agent.id])
 
-    await chatService.removeGroupMember(chatId, agent.id, true)
+    await chatService.removeGroupMember(chatId, agent.id)
     snapshot = (await chatService.getGroupCollab(chatId)).snapshot
     expect(snapshot.agents.some((item) => item.id === agent.id), 'agent should be removed from group').toBe(false)
 
@@ -193,7 +193,7 @@ describe('Chat Service', () => {
     }
 
     const agent = await chatService.createOwnedAgent(agentName, { deviceId: devices[0].device_id })
-    const chatId = await chatService.createGroupChat(groupName, aliceId, [agent.id])
+    const { chat_id: chatId } = await chatService.createGroupChat(groupName, aliceId, [agent.id])
 
     const { snapshot } = await chatService.getGroupCollab(chatId)
     expect(snapshot.agents.some((item) => item.id === agent.id), 'agent should join one-invited-member group').toBe(true)

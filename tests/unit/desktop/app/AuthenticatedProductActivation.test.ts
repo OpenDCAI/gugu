@@ -62,6 +62,8 @@ vi.mock('../../../../apps/desktop/src/rpc-renderer/rendererRpc', () => ({
 
 // #7348 首次引导的门在产品之前读一次账号进度;这里的账号都是走完了的老账号(门直接放行),这条读数不算产品的数据 owner。
 vi.mock('../../../../apps/desktop/src/lib/firstRun', () => ({
+  firstRunDoneHere: vi.fn(() => false),
+  rememberFirstRunDone: vi.fn(),
   readFirstRunProgress: vi.fn(async () => ({ stage: 'done', occupation: null })),
   writeOccupation: vi.fn(),
   finishFirstRun: vi.fn(),
@@ -207,6 +209,8 @@ vi.mock('../../../../apps/desktop/src/lib/contacts', () => ({
 }))
 
 vi.mock('../../../../apps/desktop/src/lib/agentPresenceStore', () => ({
+  getAgentPresenceSnapshot: () => null,
+  subscribeAgentPresence: () => () => {},
   setPresenceBusContext: ({ currentUserId }: { currentUserId: string | null }) => {
     probe.presenceStates.push(currentUserId)
     if (currentUserId) probe.calls.push({ accountId: currentUserId, owner: 'presence' })
@@ -237,10 +241,6 @@ vi.mock('../../../../apps/desktop/src/store/chatContext', () => ({
 }))
 vi.mock('../../../../apps/desktop/src/lib/notificationSettings', () => ({
   useNotificationSettings: () => ({ messages: false, requests: false }),
-}))
-vi.mock('../../../../apps/desktop/src/lib/agentConversationEvents', () => ({
-  AGENT_SESSION_STARTED_EVENT: 'agent-conversation-started',
-  readAgentConversationStartedEvent: () => null,
 }))
 
 function setSessionUser(user: SessionUser | null) {

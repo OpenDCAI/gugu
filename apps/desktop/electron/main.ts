@@ -1,3 +1,16 @@
+import './browser-user-agent-bootstrap'
+import './page-navigation-bootstrap'
+import { noteExitReason } from './lib/exit-reason'
+import {assistantWorkHistoryPosition} from './assistant-work-history-position'
+import { createDesktopWorkReportIds } from './assistant-work-report-ids'
+import { createAssistantWorkAvailabilityNotifier } from '@gugu/core/cloud/assistantWorkAvailability'
+import { registerFileViewerMenus } from './file-viewer-context-menu'
+import { registerContentContextMenus } from './content-context-menu'
+import { configuredEndpoint } from '@gugu/core/cloud/attachmentsApi'
+import { createDesktopFileAccess } from './desktopFileAccess'
+import { createNativeFileHost, registerNativeFileIpc } from './nativeFileHost'
+import { uploadSessionFiles } from '@gugu/core/local/agent/sessionFileHandoff'
+import { resourceMonitorWindow } from './resource-monitor-window'
 import { linkProjectDevice } from './session/main/core/projects/project-device-link'
 import {
   app,
@@ -21,6 +34,7 @@ import {
   safeStorage,
   screen,
   desktopCapturer,
+  webContents,
   type OpenDialogOptions
 } from 'electron'
 import { listAgents, listDevices, listReapedAgents, provisionSessionpageAgentOneTrip, resolveMachineHardwareId, type DeviceTableClient, type RuntimeAuthProvider } from '@gugu/core'
@@ -51,6 +65,7 @@ import { homedir, hostname, platform } from 'os'
 import { dirname, join, resolve, sep } from 'path'
 import { autoUpdater } from 'electron-updater'
 import windowStateStore from 'electron-window-state'
+import { mainWindowSize } from './main-window-size'
 import {
   invokeRendererAuth,
   invokeRendererExtensions,
@@ -71,17 +86,18 @@ import {
   EXTENSION_MEMBER_FACES_METHOD,
   type ExtensionInstallConsentResult,
 } from '@shared/extensions/host-actions'
+import { givesAgentTools } from '@shared/extensions/app-places'
 import { buildProbePlatformCredentials } from './harness-catalog-probe-env'
 import { runWindowMenuCommand } from './window-menu-commands'
 import { isWindowMenuCommand } from '../shared/window-menu-commands'
 import { purgeStaleUpdaterCache, updaterCacheBaseDir } from './updaterCache'
 import { detectLocalSigning, downloadDmg, pickMacDmgFile, shouldUseDmgPath } from './macDmgUpdater'
 import type { LocalSigning } from './macDmgUpdater'
+import { createSelectAccountHandler, webAuthnKeychainGroup } from './macWebAuthn'
 import {
   cleanupRemoteFileDirectory,
   cleanupStaleRemoteFileDirectories,
-  openBytesInSystemApp,
-  REMOTE_FILE_TTL_MS,
+  trackRemoteFileDirectory,
 } from './remoteFileOpen'
 import {
   changelogUrl,
@@ -97,7 +113,9 @@ import {
 } from '../shared/update-policy'
 import { createBuiltRendererRootResolver } from './rendererRoot'
 import { ensureWindowsNpmGlobalBinInPath, hydrateLoginShellPath, loginShellEnvSnapshot } from './shellPath'
-import { makeChatClient, makeIdentityClient, supabase, electronFetch } from './supabase'
+import { makeChatClient, makeIdentityClient, supabase, electronFetch, bindElectronSupabaseAuth, refreshElectronSupabaseAuth, resumeElectronSupabaseRealtime, createElectronRealtimeClient } from './supabase'
+import { createAccountResumeHandler, installNativeResumeSource, installNativeSleepActivity, watchHostResumeGap } from './server/account-resume-wiring'
+import { applyOwnerTimeZoneContext, ownerTimeZoneFromEnvironment } from './server/owner-timezone'
 import { runDueScheduledTasksForOwner } from './scheduled-tasks-runner'
 import { handOffLegacyWechat } from './wechat/handoff'
 import { LegacyWechatStore } from './wechat/store'
@@ -123,6 +141,7 @@ import { TUNNEL_MACHINES_CHANNELS, type TunnelWant } from '../src/lib/tunnelMach
 import { machineDisplayName } from '@gugu/core/device/machineDisplayName'
 import {
   createDeviceRuntimeHostLoop,
+  stopRuntimeHostWithTimeout,
   runtimeAuthFromSupabaseTokens,
   clearHumanAuthSession,
   detectDeviceCapabilities,
@@ -147,7 +166,8 @@ import { cloudComputerEnabled, officialServicesEnabled } from '@gugu/core/cloud/
 import { createChatChannelsClient } from '@gugu/core/cloud/chatChannels'
 import type { SessionMessage } from '@shared/core/sessions/sessions'
 import { TRAFFIC_LIGHT_POSITION } from '@shared/window-chrome-native'
-import { attachAuxWindows } from './aux-window'
+import { attachAuxWindows, isOwnPage } from './aux-window'
+import { forwardWindowSeen } from './animation-visibility'
 import { installQuickChat, type QuickChat } from './quick-chat-window'
 import { installAssistantHome } from './assistant-home'
 import { receivePhoneDeviceFile } from './phone-device-file'
@@ -179,6 +199,18 @@ import {
   type GuguIdentity,
 } from '@gugu/core/local/agent/deliveryEnvelope'
 import { handleUnifiedSessionMessage, type UnifiedRecipientResult } from './unified-session-message'
+import {createDesktopAssistantWorkHistory} from './assistant-work-history'
+import { installAssistantWorkLedgerHost, enqueueAssistantWorkMessage } from './sessionpage/assistant-work-ledger'
+import { createAssistantWorkNoticeWakePump } from '@gugu/core/cloud/assistantWorkNoticeWake'
+import { isSubscribeFailure, subscribeStatusName } from '@gugu/core/cloud/deviceRpcProtocol'
+import { isOwnerReceiptEvent } from '@gugu/core/cloud/assistantWorkReconciliation'
+import { assistantWorkCoordinator } from '@gugu/core/cloud/assistantWorkRouting'
+import { createDesktopAssistantWorkReconciler } from './assistant-work-reconciliation'
+import { enqueueAssistantWorkReport } from '@gugu/core/cloud/assistantWorkReports'
+import {withAssistantWorkReply} from '@gugu/core/shared/assistantWorkReply'
+import { pickAssistant, type AssistantProvisionRow } from '@gugu/core/shared/assistantProvision'
+import { landTaskCardFirstTurn } from './sessionpage/task-card-first-turn'
+import { withQuestionCard } from './sessionpage/question-card'
 import {
   emdashAgentRegistry,
   type LocalSessionPeer,
@@ -211,6 +243,7 @@ import {
   SESSION_CACHE_KEY,
   PROJECT_CACHE_KEY,
   provisionSessionpageAgentForSession,
+  sessionpageAgentSessionForStart,
   registerExistingSessionpageAgents,
   unregisterForeignSessionpageAgents,
   refreshAgentNamingFacts,
@@ -233,6 +266,7 @@ import {
 } from './sessionpage/session-tui-host-start'
 import { resolveBootOwner, type BootOwnerAnswer } from './sessionpage/boot-owner'
 import { reconcileSessionpageAgents } from './sessionpage/sessionpage-agent-reaper'
+import { startSessionpageAgentArchivalSync } from './sessionpage/sessionpage-agent-archival'
 import { releaseDeletedOwnedAgent } from './sessionpage/owner-agent-deletion'
 import {
   createHostLocalSessionSource,
@@ -248,7 +282,7 @@ import { createSessionpageIdentityHost } from './sessionpage/sessionpage-identit
 import { createSessionpageProjectGroupHost, ensureProjectNoticeAccess } from './sessionpage/sessionpage-project-group-binding'
 import { prepareProjectAgentNotice } from './sessionpage/project-agent-notice'
 import { onProjectGroupMappingChanged } from './sessionpage/sessionpage-project-groups'
-import { readSessionpageOpenTarget, type SessionpageOpenTarget } from './sessionpage/sessionpage-agent-mapping'
+import { readSessionpageOpenTarget } from './sessionpage/sessionpage-agent-mapping'
 import {
   clearLocalSessionDeliveryFailuresForTest,
   clearLocalSessionInjectionAuditForTest,
@@ -268,6 +302,7 @@ import {
   heldPlatformModelForSession,
   expiredPlatformModelSessions,
   platformCredentialGenerationForSession,
+  platformRequestsUseCredentialProxy,
   reissueExpiredPlatformModelForSession,
   sweepStalePlatformSettingsFiles,
   releasePlatformModelsAtExit,
@@ -307,6 +342,7 @@ import { SESSION_TITLE_MODELS_CHANNEL } from '../src/session/shared/core/session
 import { sessionEvents } from './session/main/core/sessions/session-events'
 import { applyGeneratedTitle, sessionTitleIsFallback } from './session/main/core/sessions/renameSession'
 import { appSettingsService } from './session/main/core/settings/settings-service'
+import { platformWebSearchForSession } from './sessionpage/sessionpage-platform-search'
 import {
   claudeSessionDelivery,
   sweepStaleRendezvousSocksNow,
@@ -321,7 +357,8 @@ import {
   providerUsesSessionProcessConfig,
   setSessionIntegrationBridge,
   setSessionIntegrationSkillBridge,
-  setSessionBrowserBridge,
+  setBrowserUseApp,
+  setSessionWebSearchBridge,
   setSessionExtensionBridge,
   setSessionLibraryMcpBridge,
 } from './capability-bundle'
@@ -336,19 +373,21 @@ import {
   type IntegrationMcpHost,
 } from './integration-mcp-bridge'
 import {
-  buildBrowserAgentBridge,
+  browserUseAppInstalled,
   closeSessionBrowserTools,
-  createBrowserAgentMcpHost,
   createBrowserAppProgram,
-  type BrowserAgentMcpHost,
 } from './browser-agent-mcp'
-import { createComputerUsePreview, type ComputerUsePreview } from './computer-use-program'
+import { createComputerUsePreview, installedComputerUseApps, type ComputerUsePreview } from './computer-use-program'
 import { sessionOf as computerSessionOf } from './device-actions/families/computer'
 import { connectedSessionIntegrations } from './session/main/core/integrations/session-integrations'
+import { platformCredentials } from './session/main/core/integrations/platform-credentials-instance'
 import { connectedCliSkills } from './session/main/core/integrations/cli/cli-integrations'
 import { integrationCredentialStore } from './session/main/core/integrations/integration-credential-store-instance'
 import { applySessionMaterialization } from './session-materialization'
-import { personalAssistantContext, refreshAssistantContext } from './sessionpage/assistant-context'
+import { assistantHomeTaskContext, preparePersonalAssistantContext } from './sessionpage/assistant-context'
+import { startupDiscovery } from './sessionpage/startup-discovery'
+import { createAssistantPanelRuntime } from './sessionpage/assistant-panel-runtime'
+import { assistantWorkBinding, assistantWorkForAgent } from './sessionpage/assistant-work'
 import { createStableMcpPersistence, persistedMcpGrantCount, sessionpageSessionOfGrantKey } from './stable-mcp-persistence'
 import type { GuguMcpHostPersistence } from './gugu-mcp-host'
 import {
@@ -363,6 +402,7 @@ import {
 import { GUGU_PLATFORM_BLOCK, buildSessionpageProjectContextBlock } from './product-platform-prompt'
 import {
   guguAgentUserIdForSession,
+  localAgentForSession,
   resolveRuntimeForkSource,
 } from './sessionpage/sessionpage-session-agent'
 import { writeCapabilityLoadReport } from './capability-report-store'
@@ -372,7 +412,7 @@ import { EXTENSION_SCHEME } from '../src/session/shared/extensions/scheme'
 import { previewSchemePrivilege } from '../src/session/shared/preview/preview-url'
 import { setExtensionCheckAvailable } from './mcp/gugu-extension-tool'
 import { setGuideLookPicture } from './mcp/gugu-guide-tool'
-import { guguLinkScheme } from '../src/session/shared/extensions/link-scheme'
+import { guguLinkScheme } from '@gugu/core/shared/ui/guguLink'
 import { catalogAppsOf, extensionAgentPrograms } from './extension-session-mcp'
 // 仅类型:编译期擦除,不会把会话页主进程图提升到 app.setPath 之前(运行时加载见 whenReady 里的动态 import)。
 import type { SessionAction } from './sessionpage/emdash-main-bridge'
@@ -429,10 +469,15 @@ import { killAccountTmuxServer } from './server/server-layout'
 import { registerServerSshInstallIpc } from './server/ssh-install/ipc'
 import { registerServerSshUninstallIpc } from './server/ssh-uninstall-ipc'
 import { registerSshLinkIpc } from './server/ssh-link-ipc'
-import { openCloudDeviceRpcPipe, openSshDeviceRpcPipe, type SharedSshLinks } from './device-rpc-requester'
+import { openCloudDeviceRpcPipe, openSshDeviceRpcPipe } from './device-rpc-requester'
 import { createDeviceRpcRequester } from '@gugu/core/cloud/deviceRpcRequester'
 import type { DeviceRpcHandlers } from '@gugu/core/cloud/deviceRpcResponder'
+import type { AssistantWorkRpcClient } from '@gugu/core/cloud/assistantWorkOutbox'
+import type { SessionAttachmentRef, SessionFileInput } from '@gugu/core/cloud/sessionAttachments'
+import { createAssistantWorkOutboxHost, type AssistantWorkOutboxHost } from './assistant-work-outbox'
+import { subscribeAuthenticatedElectronRealtimeChannel } from './realtime-channel'
 import { CrossMachineError, createCrossMachineSessions, type CrossMachineSessions } from './cross-machine-sessions'
+import { createActivitySummaryQuery } from './activity-summary-query'
 import type { RemoteSessionCaller } from '@gugu/session-core/session-record/contract'
 import { computerName, ensureGuguKey, guguKeyComment, guguKeyDir } from './server/ssh-key-install'
 import {
@@ -449,9 +494,11 @@ import {
   sshTargetOf,
   findSshMachine,
 } from './server/ssh-machines'
-import { setAccountAccessTokenReader } from '@main/core/extensions/account-token'
-import { setPhoneHealthCaller } from '@main/core/extensions/phone-health'
+import { setAccountAccessTokenReader, setAccountFileResolver } from '@main/core/extensions/account-token'
 import { createLocalDeviceIdResolver, type DeviceHeartbeatTableClient } from '@gugu/core/cloud/deviceRuntime'
+import { announceLocalDeviceIdentity } from './local-device-identity'
+import { createDeviceProjectsPublisher, type DeviceProjectsPublisher } from '@gugu/core/cloud/deviceProjectsPublisher'
+import type { DeviceProjectsRpcClient } from '@gugu/core/cloud/deviceProjects'
 import type { AgentStreamPayload } from '@gugu/core/shared/types/agentStream'
 import { emdashPlatformReleaseIntent } from './session/main/core/acp/emdash-platform-injector'
 import type {
@@ -459,6 +506,8 @@ import type {
   SessionPromptDelivery,
 } from './session/main/core/acp/emdash-mcp-injector'
 import { createRuntimeBeforeQuitHandler, runShutdownPhase, type ShutdownPhaseEvent } from './runtime-quit'
+import { createProjectionDeviceRuntime } from './projection-device-runtime'
+import { openProjectionDevicePipe } from './projection-device-transport'
 import { createUpdateQuit } from './update-quit'
 import { createUpdateFlow } from './update-flow'
 import {
@@ -467,7 +516,7 @@ import {
   isDevtoolsLocked,
 } from './devtools-lock'
 import { applyApplicationMenu } from './app-menu'
-import { createMainRendererGoneHandler, type CrashDialogChoice } from './renderer-crash-recovery'
+import { createMainRendererGoneHandler, createMainRendererResponsivenessLog, type CrashDialogChoice } from './renderer-crash-recovery'
 import { menuOpenSettingsChannel } from '@shared/events/appEvents'
 import { pinDesktopPointerMedia } from './linux-pointer-media'
 import { enableOverlayScrollbars } from './windows-overlay-scrollbars'
@@ -495,6 +544,7 @@ function getArgValue(flag: string): string | undefined {
 }
 
 import { writeSharedUserDataPointer } from './session/headless/shared-user-data'
+import { removeLegacyBrowserLogins } from './lib/remove-legacy-browser-logins'
 
 const IS_TEST_MODE = process.env.GUGU_TEST_MODE === '1'
 // 咕咕 server(product spec):同一份主进程,没有窗口。由 server-entry.ts 置位。
@@ -609,14 +659,21 @@ pinDesktopPointerMedia(app.commandLine)
 // @@@win-overlay-scrollbar Windows 上让 Chromium 画悬浮滚动条(会话页树的 scrollbar-width: thin 默认是常驻带箭头的 10px 经典条)。
 // 同样必须在 app ready 前追加;`enable-features` 只在这一处写,细节见 windows-overlay-scrollbars.ts。
 enableOverlayScrollbars(app.commandLine)
+forwardWindowSeen()
 // @@@devtools-lock — 必须在任何窗口创建之前注册 'web-contents-created',否则主窗口漏在守卫外面。
 installDevtoolsLock((url) => {
   // 走到这里说明前面几层漏了 —— 这是要查的 bug,不是正常态,所以留证不静默。
   devtoolsLockLogger.error({ url }, 'DevTools 在锁定态下被打开,已强制关闭')
 })
+registerContentContextMenus(ipcMain)
+registerFileViewerMenus(app, () => currentHostCatalog().fileViewerMenu, (error) => {
+  processGoneLogger.error({ error: String(error) }, 'Content context menu failed')
+}, (host) => isOwnPage(host.getURL(), mainWindow?.webContents.getURL() ?? ''))
 // @@@gugu-tier - inlined at build time by vite (define in vite.config.mts), default 'production'.
 declare const __GUGU_TIER__: string
 declare const __GUGU_BUILD_DISTRIBUTION__: string
+// 给别的机器装哪条通道的 server,构建时按连的库定(vite.config.mts → scripts/build-env-preflight.mjs serverChannelForDb)。
+declare const __GUGU_SERVER_CHANNEL__: 'stable' | 'beta'
 
 // @@@home-unify - one account home shared by desktop, CLI, and runtime host. The DEFAULT instance's
 if (!process.env.GUGU_HOME) {
@@ -664,6 +721,7 @@ if (!process.env.GUGU_TIER) {
 // their {...process.env} spread. Unconditional (no `if (!...)` knob like GUGU_TIER): the reported
 // version is ground truth of the running binary — a stray shell var must not spoof the fleet inventory.
 process.env.GUGU_APP_VERSION = app.getVersion()
+process.env.GUGU_BUILD_DISTRIBUTION = __GUGU_BUILD_DISTRIBUTION__
 // ────────────────────────────────────────────────────────────────────────────
 
 const hasSingleInstanceLock = app.requestSingleInstanceLock()
@@ -673,20 +731,44 @@ if (!hasSingleInstanceLock) {
   }
   app.quit()
 }
+if (hasSingleInstanceLock) {
+  const migrationLog = createLogger('browser/saved-login-migration')
+  removeLegacyBrowserLogins(app.getPath('userData'), {
+    info: (message, fields) => migrationLog.info(fields ?? {}, message),
+    warn: (message, fields) => migrationLog.warn(fields ?? {}, message),
+  })
+}
 
 let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
 let deviceRuntimeHost: DeviceRuntimeHost | null = null
+// #113 这台机器的项目记到账号上(会话页后端 boot 之后才有)。
+let deviceProjectsPublisher: DeviceProjectsPublisher | null = null
 // @@@local-device-truth (#777) - retained so localDeviceId can resolve this machine's device id
 // instead of returning null → misrouting. Same provider the host ticks with.
 let authProvider: RuntimeAuthProvider | null = null
 // server 模式下没有渲染进程可问:登录态由主进程持有,四处 `authProvider ??= …` 因此直接拿到它。
 let serverAuth: ServerAuthProvider | null = null
+const projectionDeviceRuntime = createProjectionDeviceRuntime({
+  auth: () => desktopAuthProvider().getAuth(), runtime: () => deviceRuntimeHost?.getRuntimeLease() ?? null,
+  resources: () => process.resourcesPath,
+  capturePage: id => {
+    const bridge = loadEmdashBridge()
+    if (!bridge) throw new Error('任务页桥未加载，不能建立投影页面授权')
+    return bridge.captureSessionpageProjectionViewer(id)
+  },
+  openPipe: (deviceId, asker, handlers, signal) => openProjectionDevicePipe({
+    auth: () => desktopAuthProvider().getAuth(), createClient: createElectronRealtimeClient,
+    report: error => createLogger('projection/device').warn({ error: String(error) }, 'Late projection pipe cleanup failed'),
+  }, deviceId, asker, handlers, signal),
+  report: error => createLogger('projection/device').warn({ error: String(error) }, 'Projection device cleanup failed'),
+})
 if (SERVER_MODE) {
   serverAuth = createServerAuthProvider({
     supabaseUrl: getSupabaseUrl(),
     anonKey: getSupabaseAnonKey(),
     onAuthExpired: (message) => {
+      projectionDeviceRuntime.invalidate()
       // 登录态已清掉;这个账号的进程退出,守护进程看到它没有登录态就不再拉起(重新登录即恢复)。
       createLogger('server/auth').error({ message }, `登录已失效,需要重新登录:${SERVER_LOGIN_ACTION}`)
       setTimeout(() => process.kill(process.pid, 'SIGTERM'), 1_000)
@@ -712,6 +794,8 @@ function appInstallFrom(fromDevice: string, action: Record<string, unknown>): Re
 function desktopAuthProvider(): RuntimeAuthProvider {
   return (authProvider ??= createPushedRuntimeAuthProvider(() => pushedHumanAuth))
 }
+bindElectronSupabaseAuth(async (forceRefresh) =>
+  (await desktopAuthProvider().getAuth({ forceRefresh }))?.accessToken ?? null)
 let primaryGuguMcpHost: DesktopGuguMcpHost | null = null
 
 function hasPersistedMcpGrants(name: string): boolean {
@@ -770,30 +854,6 @@ async function integrationMcpServersFor(grantKey: string, subjectId: string): Pr
     return []
   }
 }
-let browserAgentMcpHost: BrowserAgentMcpHost | null = null
-
-function getBrowserAgentMcpHost(): BrowserAgentMcpHost {
-  return (browserAgentMcpHost ??= createBrowserAgentMcpHost(() => {
-    const emdash = loadEmdashBridge()
-    if (!emdash) throw new Error('the session page is unavailable, so there is no browser tab to drive')
-    return emdash.emdashAgentBrowser()
-  }, stableMcpPersistence('browser-mcp')))
-}
-
-/**
- * #7199 server 保留云浏览器工具;桌面浏览器经 Browser Use App 授权接入。
- * 取不到身份 / 会话页没起来就不带 —— 少一组工具 agent 照样能用,❌ 把会话拖死;但日志里看得见为什么没带。
- */
-async function browserMcpServersFor(session: { grantKey: string; sessionId: string; subjectId: string }): Promise<AcpMcpServer[]> {
-  if (!authProvider || !loadEmdashBridge()) return []
-  try {
-    const { userId } = await requireRuntimeAuth(authProvider, 'gugu browser MCP bridge')
-    return await buildBrowserAgentBridge(getBrowserAgentMcpHost(), session.grantKey, session.sessionId, userId, session.subjectId)
-  } catch (error) {
-    createLogger('browser-agent-mcp').warn({ error: (error as Error).message }, 'browser tools skipped for this session')
-    return []
-  }
-}
 let extensionGatewayHost: ExtensionGatewayHost | null = null
 
 /** #6615 扩展网关:会话经它调 main 托管的扩展程序。 */
@@ -837,6 +897,8 @@ function getSessionpageLocalDelivery(): SessionpageLocalDeliveryRouter {
   // 各家原生认领者在自己的模块里自注册)—— 这里不再手拼每家一行。
   return (sessionpageLocalDelivery ??= new SessionpageLocalDeliveryRouter(sessionpageDeliveryTargets(), {
     waitUntilReady: () => sessionpageAgentRehydration,
+    archivalState: (sessionId) => loadEmdashBridge()?.emdashSessionArchivalState(sessionId) ?? null,
+    messageRefused: (sessionId, messageId, createdAt) => loadEmdashBridge()?.emdashSessionMessageRefused(sessionId, messageId, createdAt) ?? false,
     wakeSession: async (sessionId) => {
       if (isQuitting) throw new Error('session-page host is shutting down; cannot wake a session')
       const emdash = loadEmdashBridge()
@@ -883,8 +945,10 @@ function createDeviceSessionpageBridge() {
       const emdash = loadEmdashBridge()
       if (!emdash) throw new Error('session-page agent session runtime is unavailable')
       bmark('sessionpage-loaded')
+      const existingSessionId = await sessionpageAgentSessionForStart(input.agentUserId, auth.userId)
       return emdash.startSessionpageAgentSession({
         agentUserId: input.agentUserId,
+        existingSessionId,
         displayName: input.displayName,
         agentType: input.agentType,
         projectPath: input.projectPath,
@@ -934,6 +998,7 @@ function createDeviceSessionpageBridge() {
   })
   return {
     ...bridge,
+    downloadAttachment: desktopFiles.download,
     fetchLocalSessionDirectInbox: async (agentUserId: string) => {
       // @@@4629 属主解析走认领者注册表 —— ❌ 别退回「查会话页 agent 注册表,查不到再查 local-session」:
       // 那两个是内核角色,promote 把 native 认领者(codex app-server / opencode serve-attach)扶正时正好
@@ -973,7 +1038,7 @@ function createDeviceSessionpageBridge() {
       }
       const pending = emdash.listPendingSessionDirectMessages(sessionId)
       if (pending.length === 0) {
-        createLogger('sessionpage/deliver').warn(
+        createLogger('sessionpage/deliver').debug(
           { agentUserId, sessionId },
           '本机 session-direct 投影空手:这条会话没有待投的启动委托',
         )
@@ -1332,6 +1397,50 @@ function loadMainWindowContents(): void {
 }
 
 /**
+ * @@@touchid-passkey 内置浏览器的 Touch ID 通行密钥(前提与边界见 macWebAuthn.ts 头注释)。只在包里嵌着描述文件时打开;
+ * 要在界面语言定下之后调用 —— 系统指纹框里那句「正在尝试…」用的是它。
+ */
+function enableMacTouchIdPasskeys(): void {
+  if (process.platform !== 'darwin' || !app.isPackaged) return
+  const logger = createLogger('webauthn')
+  const profilePath = join(dirname(process.execPath), '..', 'embedded.provisionprofile')
+  // 描述文件是 CMS 包着的 plist,按 latin1 读,里面那段 XML 原样可见(只取 ASCII 的应用 ID)。
+  const keychainAccessGroup = webAuthnKeychainGroup(existsSync(profilePath) ? readFileSync(profilePath, 'latin1') : null)
+  if (!keychainAccessGroup) {
+    logger.info('包里没有嵌描述文件(开发版 / 验收包 / ad-hoc 包),不开 Touch ID 通行密钥')
+    return
+  }
+  // 指纹框里那句交给系统后就定了,改界面语言要下次启动才跟上;选账号的对话框每次弹时现取(见下)。
+  app.configureWebAuthn({ touchID: { keychainAccessGroup, promptReason: currentHostCatalog().webAuthn.touchIdReason } })
+  logger.info({ keychainAccessGroup }, 'Touch ID 通行密钥已开')
+
+  // 同一网站存着多把:不接这个事件,请求就被当成取消(恰好回调一次、看不见就不问,见 createSelectAccountHandler)。
+  // 事件挂在 session 上,而内置浏览器每个档案一个 session、用到才建 ⇒ 默认那个现在挂,之后建的在 session-created 里挂。
+  const handle = createSelectAccountHandler<BrowserWindow, Electron.WebFrameMain>({
+    parentFor: (frame) => {
+      const contents = frame ? webContents.fromFrame(frame) : undefined
+      if (!contents || contents.isDestroyed()) return null
+      // 内置浏览器的网页是摆在咕咕窗口上(或停在看不见的停放窗里)的 view ⇒ 由会话页说它此刻露在哪扇窗上;
+      // 其余网页(咕咕自己的窗口)就是拥有它的那扇窗。
+      const page = loadEmdashBridge()?.emdashVisibleHostOfPage(contents)
+      if (page !== undefined) return page
+      const owner = BrowserWindow.fromWebContents(contents)
+      return owner && !owner.isDestroyed() && owner.isVisible() && !owner.isMinimized() ? owner : null
+    },
+    copy: () => currentHostCatalog().webAuthn.chooseAccount,
+    ask: async (parent, options) => (await dialog.showMessageBox(parent, { type: 'question', ...options, defaultId: 0 })).response,
+    warn: (message, error) => logger.warn({ err: error }, message),
+  })
+  const onSelectAccount = (
+    _event: Electron.Event,
+    details: Electron.SelectWebauthnAccountDetails,
+    callback: (credentialId?: string | null) => void,
+  ): void => handle(details, callback)
+  session.defaultSession.on('select-webauthn-account', onSelectAccount)
+  app.on('session-created', (created) => created.on('select-webauthn-account', onSelectAccount))
+}
+
+/**
  * 连着崩到上限:当面问 —— 重新载入还是退出。窗口可能正收在托盘里,先让它露面:
  * ❌ 把对话框挂在看不见的窗口上,那等于没问,本机 agent 的令牌也一直签不出来。
  */
@@ -1367,45 +1476,28 @@ const handleMainRendererGone = createMainRendererGoneHandler({
   },
   log: processGoneLogger,
 })
-
-// @@@default-window-size — 首启默认窗口尺寸(只在没有 window-state.json 时生效;之后由
-//   electron-window-state 记住用户自己拖的尺寸)。取「目标尺寸」与「主屏工作区」的较小者,
-//   而不是写死一个像素数:electron-window-state 5.0.3 对 defaultWidth/defaultHeight **不做任何
-//   屏幕钳制**(只有恢复旧状态那条路径才判可视性),所以写死的大默认值在 1280×800 这类小屏会把
-//   窗口撑出可视区、标题栏被顶出屏外 = 拖不动;写死的小默认值在大屏又显小。
-//   目标 1280×900 是 owner 2026-09-04 反馈「启动窗口有点小」后放大的结果(原 960×860);瓶颈是
-//   宽度——正文是居中列,960 下折行明显偏窄,而高度当时已有大片留白。
-//   ❌ 不要再往下减「留边」:workAreaSize 已经扣掉菜单栏 / Dock / 任务栏,再减就是重复扣除
-//   (实测:MBP 14" Dock 可见时工作区约 1512×883,减 80 会算出 807 —— 反而比原来的 860 还矮)。
-//   下限守住 minWidth/minHeight 的 800×600 地板,让极窄屏也不会算出小于地板的初始尺寸。
-const DEFAULT_WINDOW_TARGET = { width: 1280, height: 900 } as const
-const WINDOW_MIN = { width: 800, height: 600 } as const
-
-function defaultWindowSize(): { width: number; height: number } {
-  const workArea = screen.getPrimaryDisplay().workAreaSize
-  const fit = (target: number, available: number, min: number): number =>
-    Math.max(min, Math.min(target, available))
-  return {
-    width: fit(DEFAULT_WINDOW_TARGET.width, workArea.width, WINDOW_MIN.width),
-    height: fit(DEFAULT_WINDOW_TARGET.height, workArea.height, WINDOW_MIN.height)
-  }
-}
+const mainRendererResponsiveness = createMainRendererResponsivenessLog({
+  now: () => Date.now(),
+  rendererPid: () => mainWindow?.webContents.getOSProcessId() ?? -1,
+  gpuProcess: () => {
+    const gpu = app.getAppMetrics().find((metric) => metric.type === 'GPU')
+    return gpu ? { pid: gpu.pid, workingSetKb: gpu.memory.workingSetSize, cpuPercent: gpu.cpu.percentCPUUsage } : null
+  },
+  log: processGoneLogger,
+})
 
 function createWindow(loadContents = true): void {
-  const { width: defaultWidth, height: defaultHeight } = defaultWindowSize()
+  const { width: defaultWidth, height: defaultHeight } = mainWindowSize(screen.getPrimaryDisplay().workAreaSize)
   const winState = windowStateStore({ defaultWidth, defaultHeight })
+  const display = winState.x == null || winState.y == null
+    ? screen.getPrimaryDisplay()
+    : screen.getDisplayMatching(winState)
   const isMac = process.platform === 'darwin'
   mainWindow = new BrowserWindow({
     x: winState.x,
     y: winState.y,
-    width: winState.width,
-    height: winState.height,
-    // @@@desktop-never-mobile (#3566) — 800 是桌面三栏(侧栏 + 会话列表 + 内容区)还排得开的地板。
-    //   桌面主窗**永远不进手机 shell**(useMobileShell 对 electron 恒 false,owner 2026-09-08 拍板),
-    //   所以地板不再需要低于 720 的移动断点;#2525 曾把它降到 360 好让桌面窗口"进得去"手机 shell,
-    //   那条决策连同它的 floor guard e2e 一并作废。要再动这个数,判据是「桌面布局在该宽度下不破版」。
-    minWidth: WINDOW_MIN.width,
-    minHeight: WINDOW_MIN.height,
+    ...mainWindowSize(display.workArea, winState),
+    // @@@desktop-never-mobile (#3566): a small work area still uses the desktop shell.
     show: false,
     // @@@822 frameless 统一标题栏(跨平台一致): Mac 用 hiddenInset 保留原生交通灯并对齐 68px 导航栏
     //   ({x:5,y:14});三颗灯右侧留出少量呼吸。Windows/Linux 完全无边框(frame:false),
@@ -1486,20 +1578,18 @@ function createWindow(loadContents = true): void {
   mainWindow.webContents.on('render-process-gone', (_event, details) => {
     void handleMainRendererGone(details.reason, details.exitCode)
   })
+  mainWindow.webContents.on('unresponsive', mainRendererResponsiveness.onUnresponsive)
+  mainWindow.webContents.on('responsive', mainRendererResponsiveness.onResponsive)
 
   // @@@822 frameless: 向 renderer 同步最大化状态,自绘控制按钮据此切换 最大化/还原 图标。
   mainWindow.on('maximize', () => mainWindow?.webContents.send('window:maximized-changed', true))
   mainWindow.on('unmaximize', () => mainWindow?.webContents.send('window:maximized-changed', false))
   // 上面关了 backgroundThrottling,最小化、收进托盘时页面照样「看得见」、rAF 照跑:由这里告诉界面,小鸟据此停画。
-  // macOS 上 show / hide 跟着窗口真的露没露出来走(整个被盖住、锁屏、切到别的桌面也算 hide);别的系统只在显示 / 隐藏时有。
-  mainWindow.on('minimize', () => sendUiEvent(MAIN_UI_EVENTS.windowSeen, false))
-  mainWindow.on('hide', () => sendUiEvent(MAIN_UI_EVENTS.windowSeen, false))
-  mainWindow.on('restore', () => sendUiEvent(MAIN_UI_EVENTS.windowSeen, true))
-  mainWindow.on('show', () => sendUiEvent(MAIN_UI_EVENTS.windowSeen, true))
+  // macOS 实测遮挡不触发 windowSeen，最小化才触发；不能拿 show / hide 当遮挡检测。
 
   // window.open:咕咕子窗口(一块会话 / 一个 App 单独成窗、快速聊天小窗)放行,其余交给系统浏览器。
   quickChat ??= installQuickChat({ mainWindow: () => mainWindow, focusMain: focusMainWindow, supported: !SERVER_MODE })
-  attachAuxWindows(mainWindow, () => WINDOW_TONE_BG[readWindowTone()], [quickChat.auxWindow])
+  attachAuxWindows(mainWindow, () => WINDOW_TONE_BG[readWindowTone()], [quickChat.auxWindow, resourceMonitorWindow])
 
   setMainWindow(mainWindow)
   // A real sleep emits powerMonitor.resume, while a stopped process resumed by the OS/test
@@ -1542,17 +1632,208 @@ function createPrimaryDeviceRpcHandlers(io?: { openTopicPublisher: OpenTopicPubl
   const bridge = loadEmdashBridge()
   if (!bridge) throw new Error('任务页桥未加载,设备 RPC 的会话处理器装不上')
   // MessagePreview(#6357)只挂咕咕云频道:它往 realtime topic 推,SSH 设备连接没有这条路。
-  const base = bridge.createSessionpageSessionDeviceRpcHandlers(io ? { preview: messagePreviewHostDeps(io) } : undefined)
+  const base = projectionDeviceRuntime.track(bridge.createSessionpageSessionDeviceRpcHandlers(io
+    ? { preview: messagePreviewHostDeps(io), projection: projectionDeviceRuntime.options } : undefined))
   // #7199 第二步:别的机器上的 agent 调这台电脑的单个动作(请执行 / 结果收到)。
-  return { ...base, handlers: { ...base.handlers, ...deviceActionsRuntime().rpcHandlers(), ...tunnelRpcHandlers() } }
+  return { ...base, handlers: { ...base.handlers, ...assistantWorkDeliveryHost().rpcHandlers(), ...deviceActionsRuntime().rpcHandlers(), ...tunnelRpcHandlers(), ...desktopFiles.handlers(io ? 'realtime' : 'ssh') } }
+}
+
+let assistantWorkOutbox: AssistantWorkOutboxHost | null = null
+function assistantWorkDeliveryHost(): AssistantWorkOutboxHost {
+  if (assistantWorkOutbox) return assistantWorkOutbox
+  const context = async () => {
+    const lease = deviceRuntimeHost?.getRuntimeLease()
+    const auth = await desktopAuthProvider().getAuth()
+    if (!lease || !auth?.accessToken || lease.ownerId !== auth.userId) return null
+    return { ...lease, client: makeIdentityClient(auth.accessToken) as unknown as AssistantWorkRpcClient }
+  }
+  let assistantCache: {ownerId:string;until:number;value:ReturnType<typeof pickAssistant>} | null = null
+  const resolveAssistant = async (current:import('./assistant-work-outbox').AssistantWorkHostContext) => {
+      if (assistantCache?.ownerId === current.ownerId && assistantCache.until > Date.now()) return assistantCache.value
+      const auth = await desktopAuthProvider().getAuth()
+      if (!auth?.accessToken || auth.userId !== current.ownerId) return null
+      const {data,error} = await makeIdentityClient(auth.accessToken).from('agent_provisions').select('agent_user_id,device_id,member_key,phase,created_at')
+        .eq('owner_user_id',current.ownerId).eq('member_key','assistant')
+      if (error) throw error
+      const value = pickAssistant((data ?? []) as AssistantProvisionRow[])
+      assistantCache = {ownerId:current.ownerId,until:Date.now()+60000,value}
+      return value
+  }
+  const reconciler = createDesktopAssistantWorkReconciler({
+    context,assistant:async current=>{
+      const value=await resolveAssistant(current)
+      if(!value||value.deviceId!==current.deviceId) return null
+      const target=await readSessionpageOpenTarget(value.agentId)
+      return target?.sessionId ? {...value,sessionId:target.sessionId} : null
+    },
+    inspect: async (current, work, target) => {
+      const bridge = loadEmdashBridge()
+      if (!bridge) return null
+      const coordinator=assistantWorkCoordinator(work)
+      if (!coordinator) return null
+      const caller: RemoteSessionCaller = {deviceId:current.deviceId,deviceLabel:null,sessionId:coordinator.session_id,
+        agentUserId:current.assistantId,name:'个人助理',harness:null,transport:'acp',model:null,platformModel:null}
+      const signal = AbortSignal.timeout(5000)
+      if (target.device_id === current.deviceId) return bridge.runRemoteSessionAction(caller,{action:'get',session_id:target.session_id},signal) as Promise<import('@gugu/core/cloud/assistantWorkReconciliation').ExecutorDeliveryProof>
+      const devices = await crossMachine().listDeviceRows()
+      if (!devices.find(row => row.device_id === target.device_id)?.online) return null
+      return crossMachine().runOnDevice(target.device_id,caller,{action:'get',session_id:target.session_id},signal) as Promise<import('@gugu/core/cloud/assistantWorkReconciliation').ExecutorDeliveryProof>
+    },
+    ownerReceipts: async (current,work,events) => {
+      const pending=events.filter(event=>isOwnerReceiptEvent(event)&&event.assistant_admitted_at&&!event.owner_delivered_at)
+      if(!pending.length) return []
+      const bridge=loadEmdashBridge()
+      const auth=await desktopAuthProvider().getAuth()
+      if(!bridge||!auth?.accessToken||auth.userId!==current.ownerId) return []
+      const coordinator=assistantWorkCoordinator(work)
+      if(!coordinator) return []
+      const chatId=await openOwnerDirectChatForAgent(current.assistantId,auth.accessToken,process.env)
+      return bridge.readAssistantWorkOwnerReceipts(coordinator.session_id,pending,{chatId,ownerId:current.ownerId})
+    },
+    notify: async (current,key,text) => {
+      const auth = await desktopAuthProvider().getAuth()
+      if (!auth?.accessToken || auth.userId !== current.ownerId) throw new Error('Account changed')
+      const chatId = await openOwnerDirectChatForAgent(current.assistantId,auth.accessToken,process.env)
+      const {error} = await makeChatClient(auth.accessToken).rpc('send_message_idempotent',{
+        p_message_id:key,p_chat_id:chatId,p_sender_user_id:current.assistantId,p_to_user_ids:[current.ownerId],p_content:text,p_content_type:'text',
+        p_reply_to_message_id:null,p_thread_root_id:null,p_is_thread_root:false,p_is_whisper:false,
+      })
+      if (error) throw error
+      return {chatId,messageId:key}
+    },
+    verifyOwnerPost: async (current,posted) => {
+      const auth=await desktopAuthProvider().getAuth()
+      if(!auth?.accessToken||auth.userId!==current.ownerId) return false
+      const {data,error}=await makeChatClient(auth.accessToken).from('messages_view').select('id')
+        .eq('id',posted.messageId).eq('chat_id',posted.chatId).eq('sender_user_id',current.assistantId)
+        .is('deleted_at',null).is('retracted_at',null).not('deleted_for_user_ids','cs',JSON.stringify([current.ownerId])).maybeSingle()
+      if(error) throw error
+      return data?.id===posted.messageId
+    },
+    clean: work => assistantWorkForAgent(work.assistant_user_id)?.remove(work.work_id),
+    warn: detail => createLogger('assistant-work/reconcile').warn(detail,'Task handoff reconciliation will retry'),
+  })
+  const history=createDesktopAssistantWorkHistory({context,
+    checkpoint:assistantWorkHistoryPosition(resolveGuguHome(process.env)),
+    receipts:async (after,retry)=>loadEmdashBridge()?.readAssistantWorkReceipts(after,retry)??{entries:[],cursor:after,hasMore:false},
+    identity:async(session,owner)=>{
+      const record=await localAgentForSession(session,process.env,owner)
+      return record?.gugu_user_id ? {id:record.gugu_user_id,createdAt:record.created_at*1000} : null
+    },
+    assistant:async current=>(await resolveAssistant(current))?.agentId??null,
+    warn:detail=>createLogger('assistant-work/history').warn(detail,'Historical work will be checked on the next host cycle'),
+  })
+  const noticeWake=createAssistantWorkNoticeWakePump({
+    context,
+    rpc: async (name,args,claimed) => {
+      const live=await context()
+      if(!live||live.ownerId!==claimed.ownerId||live.runtimeInstanceId!==claimed.runtimeInstanceId) throw new Error('Notice account changed')
+      return live.client.rpc(name,args)
+    },
+    wake: (home,signal) => crossMachine().ensureReachable(home,signal),
+    request: async (home,signal) => {
+      const response=await crossMachineRequester!.call(home,'assistantWork.reconcile',{}, {timeoutMs:5000,signal})
+      if(response.error) throw response.error
+    },
+    warn: detail => createLogger('assistant-work/notice').warn(detail,'Task notice home could not be reached'),
+    retryIn: ms => assistantWorkOutbox?.kickAfter(ms),
+
+  })
+  const host = createAssistantWorkOutboxHost({
+    context,
+    unavailable: createAssistantWorkAvailabilityNotifier({
+      context,
+      assistant: async claimed => {
+        const current = await context()
+        if (!current || current.ownerId !== claimed.ownerId || current.runtimeInstanceId !== claimed.runtimeInstanceId) throw new Error('Task notice account changed')
+        return (await resolveAssistant(current))?.agentId ?? null
+      },
+      rpc: async (current, name, args, signal) => {
+        const auth = await desktopAuthProvider().getAuth()
+        if (!auth?.accessToken || auth.userId !== current.ownerId) throw new Error('Task notice account changed')
+        return makeChatClient(auth.accessToken).rpc(name, args).abortSignal(signal)
+      },
+      visible: async (current, post, signal) => {
+        const auth = await desktopAuthProvider().getAuth()
+        if (!auth?.accessToken || auth.userId !== current.ownerId) return false
+        const {data, error} = await makeChatClient(auth.accessToken).from('messages_view').select('id')
+          .eq('id', post.messageId).eq('chat_id', post.chatId).eq('sender_user_id', post.assistantId)
+          .is('deleted_at', null).is('retracted_at', null).not('deleted_for_user_ids', 'cs', JSON.stringify([current.ownerId]))
+          .abortSignal(signal).maybeSingle()
+        if (error) throw error
+        return data?.id === post.messageId
+      },
+    }),
+    active: async () => {
+      const current = await context()
+      return !current || !!(await resolveAssistant(current))
+    },
+    afterDrain: async () => {
+      void history.kick()
+      await reconciler.kick()
+      await noticeWake.kick()
+    },
+    prepareRemote: (deviceId, signal) => crossMachine().ensureReachable(deviceId, signal),
+    requestRemote: (deviceId, type, payload, signal) => crossMachineRequester!.call(deviceId, type, payload, { timeoutMs: 45_000, signal }),
+    deliverLocal: async (event, signal) => {
+      const bridge = loadEmdashBridge()
+      if (!bridge) throw Object.assign(new Error('Session host is not ready'), { code: 'SESSION_HOST_NOT_READY' })
+      const status = event.kind === 'dispatch' ? undefined
+        : ['completed', 'cancelled', 'question'].includes(event.kind) ? event.kind : 'progress'
+      const caller: RemoteSessionCaller = {
+        deviceId: event.from_device_id, deviceLabel: null, sessionId: event.from_session_id,
+        agentUserId: null, name: event.kind === 'dispatch' ? '个人助理' : '任务',
+        harness: null, transport: 'acp', model: null, platformModel: null,
+      }
+      const result = await bridge.runRemoteSessionAction(caller, {
+        action: 'message', session_ids: [event.to_session_id], text: event.content!,
+        client_message_id: event.message_id, client_message_at: event.platform_received_at,
+        attachments: event.attachment_refs as SessionAttachmentRef[] | undefined,
+        ...(status ? { work_result: { work_id: event.work_id, status } } : {}),
+      } as SessionAction, signal) as { recipients: UnifiedRecipientResult[] }
+      const receipt = result.recipients.find(row => row.message_id === event.message_id)
+      const agentId = receipt?.status === 'delivered' ? await guguAgentUserIdForSession(event.to_session_id, process.env) : null
+      return { admitted: receipt?.status === 'delivered', messageId: event.message_id, ...(agentId ? {receipt: {agent_user_id: agentId}} : {}) }
+    },
+    subscribe: async (ownerId, changed, live) => {
+      const createChannel = () => supabase.channel(`gugu:user:${ownerId}:events`, { config: { private: true } })
+        .on('broadcast', { event: 'assistant_work_changed' }, changed)
+      const off = await subscribeAuthenticatedElectronRealtimeChannel({
+        realtime: supabase.realtime, removeChannel: channel => supabase.removeChannel(channel as ReturnType<typeof createChannel>),
+      }, createChannel(), {
+        label: `assistant-work:${ownerId}`, createChannel,
+        onStatus: status => {
+          if (subscribeStatusName(status).endsWith('SUBSCRIBED')) { live(true); changed() }
+          else if (isSubscribeFailure(status)) live(false)
+        },
+        // Like the command wake: a dropped channel reconnects by itself; until then every heartbeat claims.
+        reconnectOnStatus: status => isSubscribeFailure(status),
+      })
+      return () => { void off() }
+    },
+    warn: detail => createLogger('assistant-work/outbox').warn(detail, 'Task delivery will reconcile from the cloud queue'),
+  })
+  const offLedger = installAssistantWorkLedgerHost({ context, kick: () => host.kick() })
+  app.once('will-quit', () => { offLedger(); history.stop(); reconciler.stop(); noticeWake.stop(); host.stop() })
+  return (assistantWorkOutbox = host)
 }
 
 /**
  * 远程隧道 · 这台 server 这一头(server/tunnel-endpoint.ts):账号进程起来后起一次。没起成(这个构建没配中转、
  * 包里没有 frpc、端口开不出来)就把原因留着,别的电脑来要 `tunnel.open` 时如实答 —— ❌ 装作没有这个动作。
+ * 还认不出本机设备 id(开机那一刻连不上咕咕云)不算没起成:设备运行时认出来、续上租约时再起(见 onRuntimeLeaseRenewed),
+ * ❌ 就此不起、等到下次重启(10-28:juma 每小时那一分钟断网,隧道断到重启为止)。
  */
 let tunnelEndpoint: TunnelEndpoint | null = null
 let tunnelEndpointProblem = '远程隧道还在启动'
+/** 起隧道这件事:还在起 / 起好了 / 起不了(不是缺设备 id)都不再起;只有「还没有设备 id」那一种留给下一次。 */
+let tunnelEndpointStart: Promise<void> | null = null
+let tunnelEndpointSettled = false
+
+function ensureServerTunnelEndpoint(): void {
+  if (!SERVER_MODE || tunnelEndpointSettled || tunnelEndpointStart) return
+  tunnelEndpointStart = startServerTunnelEndpoint().finally(() => { tunnelEndpointStart = null })
+}
 
 function tunnelRpcHandlers(): DeviceRpcHandlers {
   if (!SERVER_MODE) return {}
@@ -1566,6 +1847,14 @@ function tunnelRpcHandlers(): DeviceRpcHandlers {
 
 async function startServerTunnelEndpoint(): Promise<void> {
   const log = createLogger('server/tunnel')
+  // 认出设备 id 之前什么都不开(❌ 先开 ssh 监听、再发现没有 id 而丢下一个开着的端口)。
+  const deviceId = await localDeviceId()
+  if (!deviceId) {
+    tunnelEndpointProblem = '远程隧道起不来:这台机器还没有设备 id(连上咕咕云后会自己起)'
+    log.warn({}, tunnelEndpointProblem)
+    return
+  }
+  tunnelEndpointSettled = true
   if (!REMOTE_TUNNEL_OPEN) return
   const relay = resolveRelayEndpoint(process.env)
   if (!relay) {
@@ -1596,7 +1885,7 @@ async function startServerTunnelEndpoint(): Promise<void> {
     tunnelEndpoint = await startTunnelEndpoint({
       dataDir: app.getPath('userData'),
       accountUserId,
-      deviceId: () => localDeviceId(),
+      deviceId: async () => deviceId,
       relay,
       frpcBinary,
       log: { info: (message, fields) => log.info(fields ?? {}, message), warn: (message, fields) => log.warn(fields ?? {}, message) },
@@ -1649,6 +1938,7 @@ function deviceActionsRuntime(): DeviceActionsRuntime {
   if (deviceActionsRuntimeInstance) return deviceActionsRuntimeInstance
   const log = createLogger('device-actions')
   const runtime = createDeviceActionsRuntime({
+    deviceId: async () => { const id = await localDeviceId(); if (!id) throw new Error("Local device identity is unavailable"); return id },
     userData: app.getPath('userData'),
     deps: {
       clipboardRead: async () => await clipboard.readText(),
@@ -1695,7 +1985,7 @@ function deviceActionsRuntime(): DeviceActionsRuntime {
     appVersion: app.getVersion(),
     serverMode: SERVER_MODE,
     openSystemSettings: (url) => shell.openExternal(url),
-    // #7199 电脑控制:agent 不许操作咕咕自己;屏幕底部的「正在操作 · 停止」小条。
+    // 电脑控制:agent 不许操作咕咕自己;提示跟随实际目标窗口。
     selfApp: () => selfAppForComputerControl(),
     // #7317 电脑控制的开关是 Computer Use 这个 App(behavior tab-extensions):它开着这台电脑才有电脑控制。
     appSwitch: { group: 'computer', app: 'Computer Use', on: () => computerUseOn() },
@@ -1703,7 +1993,8 @@ function deviceActionsRuntime(): DeviceActionsRuntime {
     ...(SERVER_MODE
       ? {}
       : {
-          computerControlView: createComputerControlWindow({
+          computerControlView: (cua) => createComputerControlWindow({
+            readWindows: (pid, signal) => cua().callTool('list_windows', { pid, on_screen_only: true }, { signal, timeoutMs: 2_000, lane: 'gugu-computer-indicator' }),
             strings: () => {
               const bar = (hostLocaleStore?.current() === 'en-US' ? enDeviceStrings : zhDeviceStrings).devices.deviceActions.computerBar
               const fill = (template: string, name: string, app?: string) => template.replace('{{name}}', name).replace('{{app}}', app ?? '')
@@ -1772,6 +2063,7 @@ function startDeviceRuntimeWhenRendererReady(): void {
   primaryGuguMcpHost ??= createDesktopGuguMcpHost(stableMcpPersistence('gugu-mcp'))
   // 一个收口:任何一家拿得到咕咕自己那台 MCP,就同样拿得到已连接的集成(见 setSessionIntegrationBridge)。
   setSessionIntegrationBridge(integrationMcpServersFor)
+  setSessionWebSearchBridge(platformWebSearchForSession)
   // #7210 连上的官方命令行带的 skills,同一个收口:会话要能开,读不出来只让它们缺席、在日志里说出来。
   setSessionIntegrationSkillBridge(() =>
     connectedCliSkills(
@@ -1782,9 +2074,19 @@ function startDeviceRuntimeWhenRendererReady(): void {
       return []
     }),
   )
-  if (SERVER_MODE) setSessionBrowserBridge(browserMcpServersFor)
+  // #7199 浏览器只有 Browser Use App 一条路:会话开场读这台机器装没装它(Codex 的浏览器插件;server 上还有开场提示,见 setBrowserUseApp)。
+  setBrowserUseApp({
+    server: SERVER_MODE,
+    installed: () => {
+      const emdash = loadEmdashBridge()
+      if (!emdash) throw new Error('the session page is unavailable, so the installed Apps cannot be read')
+      return browserUseAppInstalled(emdash.emdashExtensionPrograms())
+    },
+  })
   deviceRuntimeHost ??= createDeviceRuntimeHostLoop({
     env: process.env,
+    // 续上租约 = 这一轮认出了设备 id、写上了心跳:开机时没起成的远程隧道(那时还没有设备 id)在这里起。
+    onRuntimeLeaseRenewed: () => { void assistantWorkDeliveryHost().tick(); ensureServerTunnelEndpoint() },
     authProvider: hostAuthProvider,
     makeIdentityClient: (accessToken) =>
       makeIdentityClient(accessToken) as unknown as DeviceRuntimeIdentityClient,
@@ -1799,6 +2101,8 @@ function startDeviceRuntimeWhenRendererReady(): void {
       supabase,
       createHandlers: (io) => createPrimaryDeviceRpcHandlers(io),
       askerLimits: deviceRpcAskerLimitsFromEnv(process.env),
+      broadcastEvents: { 'files.transfer': () => drainProjectFiles(), 'files.handoff': () => drainVersionHandoffs() },
+      onSubscribed: () => { drainProjectFiles(); drainVersionHandoffs() },
     }),
     ...heartbeatRowSources,
     // server 首次注册报的名字(deviceLabelOption):经远程 SSH 装上的报人填的 SSH 别名 / 主机(登录时记在 connect-via.json);
@@ -1853,15 +2157,8 @@ function startDeviceRuntimeWhenRendererReady(): void {
       if (sessionpageSessionId) {
         sendUiEvent(MAIN_UI_EVENTS.sessionpageDeliverFailed, {
           agentUserId: failure.agentUserId,
+          messageId: failure.messageId,
           error: failure.error,
-        })
-        const emdash = loadEmdashBridge()
-        if (!emdash) throw new Error('session-page status bridge is unavailable while settling delivery failure')
-        void emdash.emitSessionpageAgentFailure(sessionpageSessionId).catch((error) => {
-          createLogger('device-runtime').error(
-            { sessionId: sessionpageSessionId, err: error },
-            'session-page activity settlement failed',
-          )
         })
       }
     },
@@ -1912,13 +2209,19 @@ interface LocalDeviceSelfSnapshot {
 
 // 本机在当前账号下的设备 id:按 owner 记一次,第一次先登记心跳(createLocalDeviceIdResolver)。设备自查、会话页身份供给、
 // 设备动作、跨机器、server 隧道都问这一个;❌ 先等设备运行时一轮 tick(#4181 / #4320② 的等待环)。
-const localDeviceId = createLocalDeviceIdResolver({
+const resolveLocalDeviceId = createLocalDeviceIdResolver({
   getAuth: async () => (authProvider ? authProvider.getAuth() : null),
   heartbeatClient: (accessToken) => makeIdentityClient(accessToken) as unknown as DeviceHeartbeatTableClient,
   capabilities: () => localCapabilitiesOnce(),
   ...heartbeatRowSources,
   ...deviceLabelOption,
   warn: (message) => deviceHeartbeatLogger.warn({}, message),
+})
+// 认出来的那一刻告诉各个窗口(device:self-identified):登录交过来之前读的设备表分不出哪行是本机,要重读。
+const localDeviceId = announceLocalDeviceIdentity(resolveLocalDeviceId, (deviceId) => {
+  for (const window of BrowserWindow.getAllWindows()) {
+    if (!window.isDestroyed()) window.webContents.send('device:self-identified', deviceId)
+  }
 })
 
 async function getLocalDeviceSelfSnapshot(): Promise<LocalDeviceSelfSnapshot | null> {
@@ -1963,6 +2266,14 @@ ipcMain.on('window:maximize', (event) => {
 })
 ipcMain.on('window:close', (event) => BrowserWindow.fromWebContents(event.sender)?.close())
 ipcMain.handle('window:isMaximized', (event) => BrowserWindow.fromWebContents(event.sender)?.isMaximized() ?? false)
+// @@@app-active 「App 在前台」= 咕咕有一扇窗口拿着焦点(快速聊天小窗也是主窗渲染层画的,它在前台也算)。
+// 渲染层的 visibilityState 答不了这个:主窗关了 backgroundThrottling,最小化、被遮住、切到别的应用时页面照样 visible,
+// 眼前那条会话就永远不弹通知、新消息一到就被标成已读(lib/onScreenChat.ts 读的就是这里)。
+const isAppActive = (): boolean => BrowserWindow.getFocusedWindow() !== null
+ipcMain.handle('app:is-active', () => isAppActive())
+const sendAppActive = (): void => { mainWindow?.webContents.send('app:active-changed', isAppActive()) }
+app.on('browser-window-focus', sendAppActive)
+app.on('browser-window-blur', sendAppActive)
 // @@@win-titlebar-row — Windows 标题栏「编辑 / 视图」菜单的命令(清单与理由见 window-menu-commands.ts)。
 ipcMain.on('window:menu-command', (event, command: unknown) => {
   const window = BrowserWindow.fromWebContents(event.sender)
@@ -2036,31 +2347,24 @@ ipcMain.handle('updates:changelog', async (): Promise<unknown> => {
 ipcMain.handle('app:get-version', () => app.getVersion())
 const remoteFileTempRoot = join(app.getPath('userData'), 'cache', 'remote-files')
 const remoteFileOpenDirectories = new Set<string>()
-
-ipcMain.handle('file:open-bytes', async (_event, input: unknown) => {
-  const value = (input ?? {}) as { bytes?: unknown; filename?: unknown }
-  if (!(value.bytes instanceof Uint8Array)) throw new Error('file:open-bytes needs bytes')
-  const filename = requiredIpcString(value.filename, 'filename')
-  await openBytesInSystemApp({ bytes: value.bytes, filename }, {
-    tempRoot: remoteFileTempRoot,
-    openPath: (path) => {
-      // Register complete bytes before launching: failed opens keep the cache and still need cleanup.
-      const directory = dirname(path)
-      if (!remoteFileOpenDirectories.has(directory)) {
-        remoteFileOpenDirectories.add(directory)
-        const cleanupTimer = setTimeout(() => {
-          remoteFileOpenDirectories.delete(directory)
-          void cleanupRemoteFileDirectory(directory)
-        }, REMOTE_FILE_TTL_MS)
-        cleanupTimer.unref()
-      }
-      return shell.openPath(path)
-    },
-  })
+const desktopFiles = createDesktopFileAccess({ auth: () => desktopAuthProvider().getAuth(), tempRoot: remoteFileTempRoot,
+  rpc: async (name, args) => { const auth = await desktopAuthProvider().getAuth(); if (!auth) throw new Error('File reader is not signed in'); const { data, error } = await makeChatClient(auth.accessToken).rpc(name, args); if (error) throw error; return data },
+  downloads: join(resolveGuguHome(process.env), 'attachments'), fetch: electronFetch, links: () => sshLinks,
+  root: async projectId => { const bridge = loadEmdashBridge(); if (!bridge) throw new Error('Project registry is unavailable'); return bridge.emdashProjectRoot(projectId) },
 })
+function drainProjectFiles() { void desktopFiles.drain().catch(error => createLogger('files').warn({ error: String(error) }, 'Project transfer reconciliation failed')) }
+function drainVersionHandoffs() { void desktopFiles.handoffs().catch(error => createLogger('files').warn({ error: String(error) }, 'Next version handoffs failed')) }
+const nativeFiles = createNativeFileHost({ root: remoteFileTempRoot,
+  owner: async () => (await desktopAuthProvider().getAuth())?.userId ?? null,
+  alive: scope => !!webContents.fromId(scope) && !webContents.fromId(scope)!.isDestroyed(),
+  local: desktopFiles.providers.local, ssh: desktopFiles.providers.ssh, publish: (chat, file, actor, message) => desktopFiles.publish(chat, file, null, actor, undefined, { message }), publication: desktopFiles.publish.local,
+  openPath: path => shell.openPath(path), published: directory => trackRemoteFileDirectory(remoteFileOpenDirectories, directory),
+})
+registerNativeFileIpc(ipcMain, nativeFiles, error => createLogger('files').warn({ error: String(error) }, 'Native file operation failed'))
+app.on('will-quit', () => { void nativeFiles.drop().catch(error => createLogger('files').warn({ error: String(error) }, 'File handle cleanup failed')) })
+
 // @@@payment-window (#1907) - 支付在专用 BrowserWindow 原生 POST 落地,主窗不再被支付页顶掉。
 // @@@local-runtime-open - Opening a terminal window is strictly local, so it bypasses cloud device commands.
-ipcMain.handle('agent-runtime:open', (_event, agentUserId: unknown) => openAgentRuntime(agentUserId))
 // The renderer's harness selectors consume this exact main-process reachability decision.
 ipcMain.handle('agent-creation-tools:list', () => listAgentCreationTools())
 function requiredIpcString(value: unknown, field: string): string {
@@ -2105,12 +2409,7 @@ setAccountAccessTokenReader(async () => {
   const auth = await provider.getAuth()
   return auth?.accessToken ?? null
 })
-
-// #7199 健康:「助理」App 的健康页经设备动作问主人的手机,与 agent 的 device_call 同一个调用方(第一次用到时才装)。
-setPhoneHealthCaller({
-  describe: () => deviceActionCaller().describe(),
-  call: (input) => deviceActionCaller().call(input),
-})
+setAccountFileResolver(desktopFiles.resolveAccount, desktopFiles.publish)
 
 // #7337 设置页「用模型给会话起名」的候选:这个账号能在 Chat Completions 上用的在售平台模型(起名走的就是这条协议)。
 ipcMain.handle(SESSION_TITLE_MODELS_CHANNEL, async () => {
@@ -2214,8 +2513,27 @@ ipcMain.handle('notifications:show', (_event, params: unknown) => showAppNotific
 // #5906 —— 登录态的变化是**事件**,设备 runtime 靠它当场重新确立 owner 边界 / 订上命令 wake / 登出时撤订阅。
 // 宿主不再有 2 秒一轮的 tick 去「碰巧发现」登录了;不通知的话,要等一个对账周期(30 s)设备才跟上。
 function onHumanAuthSessionChanged(): void {
+  projectionDeviceRuntime.invalidate()
+  void nativeFiles.ownerChanged(typeof pushedHumanAuth === 'object' ? pushedHumanAuth?.userId ?? null : null).catch(error => createLogger('files').warn({ error: String(error) }, 'File handle cleanup failed'))
+  void refreshElectronSupabaseAuth().catch((error: unknown) => {
+    createLogger('device-runtime/auth').warn({ error: String(error) }, 'Realtime account auth update failed')
+  })
   deviceRuntimeHost?.notifyAuthChanged()
+  deviceProjectsPublisher?.notify()
+  // 登录一到就认本机(认出即通知窗口重读设备表);登出时答 null,下次登录认出来会再通知一次。
+  void localDeviceId()
   void handOffWechatIfAny()
+  refreshPlatformCredentials()
+}
+// #921 平台保管的凭据(高德):开机、登录变了就问一次平台哪些连着,本机账号表照着改 —— 另一台设备连的,这台也算连着;
+// #649 留在本机的 key 也在这一步传上去。要等会话页后端 boot 完(账号表是它建的),之前来的那一下由 boot 之后那次补上。
+let platformCredentialsBoot: Promise<unknown> | null = null
+function refreshPlatformCredentials(): void {
+  if (!platformCredentialsBoot) return
+  void platformCredentialsBoot.then(() => {
+    platformCredentials.invalidate()
+    return platformCredentials.refresh()
+  })
 }
 // 「设置 → 聊天渠道 → 微信」的收发在云电脑管家上(#7199,桌面关了照样能聊);界面直接调管家。
 // 主进程只剩一件事:桌面第一版在本机连过的微信,登录后交给管家、交完删掉本机那份(owner 不用重扫)。
@@ -2248,6 +2566,7 @@ ipcMain.handle('human-auth-session:write', async (_event, session: unknown) => {
     const mirror = session as Parameters<typeof writeHumanAuthSession>[0]
     pushedHumanAuth = undefined
     pushedHumanAuth = runtimeAuthFromSupabaseTokens({ accessToken: mirror.access_token, refreshToken: mirror.refresh_token })
+    projectionDeviceRuntime.invalidate() // Revoke the old identity before awaiting persistence.
     return await writeHumanAuthSession(mirror)
   } finally {
     onHumanAuthSessionChanged()
@@ -2256,6 +2575,7 @@ ipcMain.handle('human-auth-session:write', async (_event, session: unknown) => {
 ipcMain.handle('human-auth-session:clear', async (_event, reason: unknown) => {
   try {
     pushedHumanAuth = reason === 'lost' ? 'lost' : null
+    projectionDeviceRuntime.invalidate() // Disk deletion must not extend the old account's authority.
     return await clearHumanAuthSession()
   } finally {
     onHumanAuthSessionChanged()
@@ -2265,6 +2585,10 @@ ipcMain.handle('human-auth-session:clear', async (_event, reason: unknown) => {
 // 广播只挂在 INSERT 上 ⇒ 没有任何事件会叫醒宿主;由发起方在这里说一声。
 ipcMain.on('device-runtime:commands-changed', () => {
   deviceRuntimeHost?.notifyCommandsChanged()
+})
+// 渲染层刚建 / 改 / 删了定时任务。agent_scheduled_tasks 上没有任何事件,宿主只在兜底周期(wake 订着时 5 分钟)重读 ⇒ 由发起方说一声。
+ipcMain.on('device-runtime:scheduled-tasks-changed', () => {
+  deviceRuntimeHost?.notifyScheduledTasksChanged()
 })
 // #6396 这个账号的 agent 有变动(常见是另一台设备刚建了一个,用掉了一个号)。服务端给本账号每台设备推
 // agent_changed,收它的是渲染层的修订总线;主进程不另开一条订阅,由渲染层转一声。本机下一条会话页会话起名时
@@ -2381,7 +2705,7 @@ autoUpdater.autoInstallOnAppQuit = false
 // 显式写在这里:这一条属于产品承诺,不能靠默认值、更不能靠另一个模块的副作用。
 autoUpdater.autoRunAppAfterInstall = true
 
-// @@@5747 启动时清掉过期的更新缓存(装完之后那两份 172MB 的包不会自己走)。只清 pending/,
+// @@@5747 启动时清掉过期的 pending 和弃用的预解压目录,
 // 差分下载的底留着(updaterCache.ts @@@diff-base):装完常驻一份 —— Windows ≈200MB、mac ≈172MB;
 // 下好待装那段时间是底 + pending 两份。
 // 取的是 electron-updater 自己那套路径规则:baseCachePath + app-update.yml 里的 updaterCacheDirName。
@@ -2430,11 +2754,12 @@ const updateFeed = updateFeedUrl(updateChannel)
 const updateFeedConfig = updateFeedOptions(updateChannel, process.platform)
 
 // #6264「从桌面用 SSH 一步装好」(设置 → 设备 → 添加一台机器)。server 模式没有窗口、也没人在界面上点,不挂。
-// 装哪条通道跟桌面自己走:Beta 桌面装 Beta 的 server,其余(含开发构建)装正式版。
+// 装哪条通道跟这台桌面连的库走:连生产库装正式版,别的库装 Beta(❌ 跟 tier 走:开发构建的 tier 也是 production)。
+const serverChannel = __GUGU_SERVER_CHANNEL__
 // #6264「别的机器上的编程只给用 SSH 装上的机器」:这台桌面上用 SSH 装上的机器(本机映射,不上云)。
 const sshMachineStore = SERVER_MODE ? null : createSshMachineStore(defaultSshMachinesFile(app.getPath('userData')))
 // 这台桌面到远程 SSH 机器的设备连接,一台机器一条:窗口(经 ssh-link-ipc)与主进程(agent 的 session_* 跨机器)共用。
-let sshLinks: SharedSshLinks | null = null
+let sshLinks: ReturnType<typeof registerSshLinkIpc> | null = null
 // 远程隧道:经中转连到「只经咕咕云连着」的机器(server/tunnel-machines.ts),连通了就与远程 SSH 的机器同一套。
 let tunnelMachines: TunnelMachines | null = null
 // 收掉这台电脑上每条远程隧道(frpc 访问端 + ssh 共享连接)与问 tunnel.open 的频道;同步,停机两条路都调它。
@@ -2461,7 +2786,7 @@ if (sshMachineStore) {
     // 问 tunnel.open 只走咕咕云(要建的正是另一条路);一台机器一条频道,与窗口那条各订各的。
     const cloud = createDeviceRpcRequester({
       userId: async () => (await requireAuth()).userId,
-      openPipe: async (deviceId, handlers) => openCloudDeviceRpcPipe({ supabase, accessToken: (await requireAuth()).accessToken, deviceId, userId: async () => (await requireAuth()).userId, ...handlers }),
+      openPipe: async (deviceId, handlers) => openCloudDeviceRpcPipe({ supabase, deviceId, userId: async () => (await requireAuth()).userId, ...handlers }),
     })
     const machines = createTunnelMachines({
       currentUserId,
@@ -2511,7 +2836,8 @@ if (sshMachineStore) {
     }),
     log: (message, fields) => createLogger('server/ssh-link').info(fields ?? {}, message),
     // 那台机器的 server 太旧、连不上:当场替它升级(与添加时装同一条通道);#6264 换成和这台桌面(按设备 id 报)匹配的那一版。
-    upgradeChannel: updateChannel === 'beta' ? 'beta' : 'stable',
+    upgradeChannel: serverChannel,
+    published: parseBuildDistribution(__GUGU_BUILD_DISTRIBUTION__) === 'published',
     desktopId: async () => (await getLocalDeviceSelfSnapshot())?.device_id ?? null,
     ...(tunnelMachines ? { tunnels: tunnelMachines } : {}),
   })
@@ -2524,7 +2850,7 @@ if (!SERVER_MODE && sshMachineStore) {
   registerServerSshInstallIpc({
     getWindow: () => mainWindow,
     getAuth: () => desktopAuthProvider().getAuth(),
-    channel: updateChannel === 'beta' ? 'beta' : 'stable',
+    channel: serverChannel,
     rememberMachine: (machine) => sshMachineStore.remember(machine),
     keyDir: guguKeyDir(app.getPath('userData')),
     sharedControlPath: terminalControlPath,
@@ -2749,7 +3075,8 @@ const updateQuit = createUpdateQuit({
   markQuitIntent: () => {
     isQuitting = true
   },
-  handOff: () => autoUpdater.quitAndInstall(),
+  // NSIS shows installation progress and relaunches the app when installation finishes.
+  handOff: () => autoUpdater.quitAndInstall(false, true),
   quitApp: () => app.quit(),
   logInfo: (detail, message) => updaterLogger.info(detail, message),
   logWarn: (detail, message) => updaterLogger.warn(detail, message),
@@ -2801,10 +3128,6 @@ function startAutoUpdateChecks(): void {
   if (!updaterPolicy.enabled || IS_TEST_MODE) return
   setTimeout(() => { void checkForUpdates() }, AUTO_UPDATE_INITIAL_DELAY_MS)
   setInterval(() => { void checkForUpdates() }, AUTO_UPDATE_INTERVAL_MS)
-}
-
-async function openAgentRuntime(agentUserId: unknown): Promise<unknown> {
-  return focusSessionpageAgentSession(requiredSessionpageAgentId(agentUserId))
 }
 
 /**
@@ -2908,10 +3231,13 @@ const reportShutdownPhase = (event: ShutdownPhaseEvent): void => {
   shutdownLogger.info(event, `[shutdown] phase=${event.phase} state=${event.state} elapsedMs=${event.elapsedMs}${error}`)
 }
 
+// 正常退出:留一句,下次开机收残据此说「重启打断了这一轮」,❌ 说成没正常退出。
+app.on('before-quit', () => noteExitReason(app.getPath('userData'), 'restart'))
 app.on('before-quit', createRuntimeBeforeQuitHandler({
   getHost: () => deviceRuntimeHost,
   setQuitting: (value) => {
     isQuitting = value
+    if (value) projectionDeviceRuntime.invalidate()
     // @@@5793 停机已经开始,看门狗的使命结束 —— 别在停机中途再捅一次 app.quit()。
     if (value) updateQuit.noteShutdownStarted()
   },
@@ -2986,14 +3312,27 @@ const killEnginesOnCrash = (label: string): void => {
     appendFileSync(join(logDir, 'reap-probe.log'), `${new Date().toISOString()} reap-done  label=${label}\n`)
   } catch { /* 同上 */ }
 }
-process.on('SIGINT', () => {
-  killEnginesOnCrash('SIGINT')
-  process.exit(130) // 128 + SIGINT(2):同步收组后立退,不等异步(信号=立即终止)
-})
-process.on('SIGTERM', () => {
-  killEnginesOnCrash('SIGTERM')
-  process.exit(143) // 128 + SIGTERM(15)
-})
+// #156 server 模式下这两个信号就是「停掉服务」(`gugu-server stop`、systemd、守护进程收账号进程):先停设备循环 ——
+// 它最后把设备行标成离线,名下别的设备当场看见,❌ 等两分钟租约过期、看起来和崩溃一样 —— 再同步收组退出。
+// 有上限(停不下来照样退);再来一个信号 = 不等了。桌面上信号仍是立即终止(正常退出走 before-quit)。
+const SERVER_SIGNAL_STOP_TIMEOUT_MS = 5_000
+let signalStopping = false
+const exitOnSignal = (label: 'SIGINT' | 'SIGTERM', code: number): void => {
+  // 有人要它停(stop / systemd / 守护进程收账号进程):留一句,开机收残据此说「重启打断了这一轮」(守护进程换版时先写了 update,不改)。
+  noteExitReason(app.getPath('userData'), 'restart')
+  const finish = (): void => {
+    killEnginesOnCrash(label)
+    process.exit(code)
+  }
+  const host = deviceRuntimeHost
+  if (!SERVER_MODE || !host || signalStopping) return finish()
+  signalStopping = true
+  void stopRuntimeHostWithTimeout(host, SERVER_SIGNAL_STOP_TIMEOUT_MS)
+    .catch((error: unknown) => shutdownLogger.warn({ label, error: String(error) }, 'device runtime stop on signal failed'))
+    .finally(finish)
+}
+process.on('SIGINT', () => exitOnSignal('SIGINT', 130)) // 128 + SIGINT(2)
+process.on('SIGTERM', () => exitOnSignal('SIGTERM', 143)) // 128 + SIGTERM(15)
 process.on('SIGCONT', () => {
   // Node timers resume with wall-clock debt after SIGSTOP. Provider turn
   // completion waiters must not consume that debt as a lost turn.
@@ -3043,7 +3382,7 @@ app.on('open-url', (event, url) => {
 
 /**
  * #6387 这个版本认的链接前缀:正式版 gugu://,Beta gugu-beta://,源码起的开发版 gugu-dev://。
- * 与 electron-builder.cjs 的 protocols、扩展侧 linkTo 用的是同一条规则(link-scheme.ts)。
+ * 与 electron-builder.cjs 的 protocols、扩展侧 linkTo 用的是同一条规则(core 的 linkScheme.mjs)。
  */
 const GUGU_LINK_SCHEME = guguLinkScheme({ tier: process.env.GUGU_TIER, devLaunch: Boolean(process.defaultApp) })
 /** 会话页后端还没起来时到的链接,起来后按到达顺序处理。 */
@@ -3057,7 +3396,7 @@ function handleGuguLink(url: string): void {
     return
   }
   focusMainWindow()
-  void emdashBridge.openEmdashExtensionLink(url).then(
+  void emdashBridge.openEmdashLink(url).then(
     (outcome) => {
       if (outcome.kind !== 'failed') return
       // 人点了链接、在等:打不开要当面说清为什么,❌ 只记日志。
@@ -3098,13 +3437,13 @@ let sessionpageLocalSessionSource: HostLocalSessionSource | null = null
 async function localSessionPeers(
   emdash: EmdashBridgeModule,
   auth: RuntimeAuth,
+  sessionId?: string,
 ): Promise<LocalSessionPeer[]> {
   return resolveSessionpageSessionPeers({
     listRoster: () => listAgents(process.env, { includeGuests: true }),
     ownerUserId: auth.userId,
-    lookupIdentities: async (agentUserIds) => {
-      return loadSessionpageCanonicalAgentIdentities(auth, agentUserIds)
-    },
+    sessionId,
+    lookupIdentities: (agentUserIds) => loadSessionpageCanonicalAgentIdentities(auth, agentUserIds, Boolean(sessionId)),
     listSessionFacts: () => emdash.emdashSessionpageSessionFacts(),
   })
 }
@@ -3209,8 +3548,8 @@ function hoistDevicePictures(result: DeviceActionResult): unknown {
 }
 
 /**
- * #7199 第二步:agent 的 device_actions / device_call。调别的机器走设备 RPC(与跨机器起会话同一个请求方);
- * 调这台电脑自己不经频道(频道 self:false,自己发的自己收不到),直接交给本机那一份 host。
+ * Agent native actions stay on this computer; other devices are discovery-only.
+ * Local calls go directly to this host. Receiver-side rejection also protects against remote RPC bypasses.
  */
 function deviceActionCaller(): DeviceActionCaller {
   if (deviceActionCallerInstance) return deviceActionCallerInstance
@@ -3220,15 +3559,17 @@ function deviceActionCaller(): DeviceActionCaller {
       const auth = await desktopAuthProvider().getAuth()
       if (!auth?.accessToken || !auth.userId) throw new Error('this machine is not signed in to 咕咕')
       const thisId = await localDeviceId()
-      // 直接读 gugu_devices 全部行(❌ 经 listDevices:手机行会被「在哪跑」那一份滤掉,而手机正是能被调用的设备)。
+      // Native discovery needs every endpoint's full action manifest; the UI device list carries summaries only.
+      // Physical machine grouping is shared with the UI by createDeviceActionCaller.
       const { data, error } = await makeIdentityClient(auth.accessToken)
         .from('gugu_devices')
-        .select('device_id, label, platform, status, last_seen_at, capabilities')
+        .select('device_id, machine_id, label, platform, status, last_seen_at, capabilities')
         .eq('user_id', auth.userId)
       if (error) throw new Error(`list devices failed: ${error.message}`)
-      return ((data ?? []) as Array<{ device_id: string; label: string | null; platform: string | null; status: string; last_seen_at: string | null; capabilities: Record<string, unknown> | null }>)
+      return ((data ?? []) as Array<{ device_id: string; machine_id: string | null; label: string | null; platform: string | null; status: string; last_seen_at: string | null; capabilities: Record<string, unknown> | null }>)
         .map((d) => ({
           device_id: d.device_id,
+          machine_id: d.machine_id,
           label: d.label ?? d.device_id,
           platform: d.platform,
           online: d.status === 'online',
@@ -3263,7 +3604,7 @@ function crossMachine(): CrossMachineSessions {
     userId: async () => (await requireAuth()).userId,
     openPipe: async (deviceId, handlers) => (sshLinks && ((await sshMachine(deviceId)) || tunnelMachines?.linkMachine(deviceId))
       ? openSshDeviceRpcPipe(sshLinks, deviceId, handlers)
-      : openCloudDeviceRpcPipe({ supabase, accessToken: (await requireAuth()).accessToken, deviceId, userId: async () => (await requireAuth()).userId, ...handlers })),
+      : openCloudDeviceRpcPipe({ supabase, deviceId, userId: async () => (await requireAuth()).userId, ...handlers })),
     // #7199 第二步:设备推回来的「还在跑」与结果。「收到」之后管道本来就留着(只有超时且没有在途请求才拆),
     // 拆了也无妨:重发同一个 call_id 会重开管道,设备每 5 秒重推结果。
     onEvent: (deviceId, payload) => { deviceActionCallerInstance?.onEvent(deviceId, payload) },
@@ -3278,7 +3619,7 @@ function crossMachine(): CrossMachineSessions {
     },
     listDevices: async () => {
       const auth = await requireAuth()
-      return listDevices(makeIdentityClient(auth.accessToken) as unknown as DeviceTableClient, auth.userId)
+      return listDevices(makeIdentityClient(auth.accessToken) as unknown as DeviceTableClient, auth.userId, { includePhones: true })
     },
     lookupAgents: async ({ userIds, numbers }) => {
       const auth = await requireAuth()
@@ -3299,26 +3640,29 @@ function crossMachine(): CrossMachineSessions {
         const client = await cloudComputerClient()
         return client ? await client.state() : null
       } catch (error) {
-        // 这里没开放(云端函数还没配管家,503 not_open):和没配地址一样 = 没有云电脑这回事。
+        // 此环境未配置可选云电脑服务(云端函数还没配管家,503 not_open):和没配地址一样 = 没有云电脑这回事。
         if (isCloudComputerNotOpen(error)) return null
         createLogger('cloud-computer').warn({ err: String((error as Error)?.message ?? error) }, 'cloud computer state unavailable')
         throw error
       }
     },
-    wakeCloudComputer: async (deviceId) => {
+    wakeCloudComputer: async (deviceId, signal) => {
+      signal?.throwIfAborted()
       const client = await cloudComputerClient()
       if (!client) return false
       // 先认它是不是这个账号的云电脑:问不到管家 = 不知道 ⇒ 照普通离线说(❌ 把一台离线的笔记本说成「云电脑醒不来」)。
       try {
-        if ((await client.state()).deviceId !== deviceId) return false
+        if ((await client.state(signal)).deviceId !== deviceId) return false
       } catch (error) {
         createLogger('cloud-computer').warn({ deviceId, err: String((error as Error)?.message ?? error) }, 'cloud computer state unavailable; treating the device as plainly offline')
         return false
       }
       const auth = await requireAuth()
+      signal?.throwIfAborted()
       const outcome = await wakeCloudComputerUntilOnline({
         client,
         deviceId,
+        signal,
         isOnline: async (id) => (await listDevices(makeIdentityClient(auth.accessToken) as unknown as DeviceTableClient, auth.userId))
           .some((row) => row.device_id === id && row.is_online),
       })
@@ -3378,6 +3722,22 @@ function kickInboxForAgent(agentUserId: string, trigger: string): void {
       kickAgentInboxPull(agentUserId, deps, trigger)
     },
   })
+}
+
+const inheritedOwnerTimeZone = ownerTimeZoneFromEnvironment()
+if (inheritedOwnerTimeZone) applyOwnerTimeZoneContext(inheritedOwnerTimeZone)
+
+const resumeAccountMessaging = createAccountResumeHandler({
+  kickInbox: kickInboxForAgent,
+  reconnect: resumeElectronSupabaseRealtime,
+  reconcile: async () => { await reconcileSessionpagePlatformOnResume?.() },
+  notifyCommands: () => deviceRuntimeHost?.notifyCommandsChanged(),
+})
+
+function recordDeviceSleep(sleep: { since: number; until: number; source: 'native-power' | 'fc-confirmed' }): void {
+  try { loadEmdashBridge()?.recordConfirmedDeviceSleep(sleep) } catch (error) {
+    createLogger('host-resume').error({ error }, 'confirmed sleep could not be recorded')
+  }
 }
 
 /**
@@ -3510,12 +3870,12 @@ ipcMain.handle(SESSION_SHELL_CHANNELS.fatalBoot, (event, message: unknown) => {
 
 // This machine's rows of the canonical roster (same resolver as session_peers). The renderer adds the
 // other machines' rows from the session directory and never invents a mapping.
-handleShellChannel(SESSION_SHELL_CHANNELS.sessionPeers, async () => {
+handleShellChannel(SESSION_SHELL_CHANNELS.sessionPeers, async (_event, sessionId?: string) => {
   const auth = await authProvider?.getAuth()
   if (!auth?.accessToken || !auth.userId) throw new Error('任务页本机会话名册不可用：未登录')
   const emdash = loadEmdashBridge()
   if (!emdash) throw new Error('任务页运行时不可用')
-  return localSessionPeers(emdash, auth)
+  return localSessionPeers(emdash, auth, sessionId)
 })
 
 // @@@sessionpage TASKPAGE-FUSION 分享 — 会话页头部的分享入口需要两件事,都在这:
@@ -3593,23 +3953,6 @@ async function ensureSessionpageSessionReady(
 ): Promise<{ status: 'ready' } | { status: 'failed'; error: string }> {
   return sessionpagePlatformRecovery?.ensureReady(sessionId, trigger)
     ?? { status: 'ready' }
-}
-
-async function focusSessionpageAgentSession(agentUserId: string): Promise<SessionpageOpenTarget> {
-  const target = await readSessionpageOpenTarget(agentUserId)
-  if (!target) throw new Error('这个 Agent 在本机没有可打开的任务会话映射')
-  const emdash = loadEmdashBridge()
-  if (!emdash) throw new Error('任务页运行时不可用')
-  const ready = await ensureSessionpageSessionReady(target.sessionId, 'sessionpage-open')
-  if (ready.status === 'failed') {
-    createLogger('sessionpage/platform').error({ sessionId: target.sessionId, error: ready.error }, 'sessionpage-open platform recovery failed')
-  }
-  if (!(await emdash.emdashSessionExists(target))) {
-    throw new Error('映射的任务或 Session 已不存在')
-  }
-  if (!mainWindow || mainWindow.isDestroyed()) throw new Error('应用主窗口不可用')
-  mainWindow.webContents.send('notification:focus-session', target)
-  return target
 }
 
 /**
@@ -3734,10 +4077,6 @@ ipcMain.handle('sessionpage:retry-platform-recovery', async (_event, sessionId: 
 // (重)连接时的那一次对账:这台机器上每个 agent 此刻的条目。之后渲染层只吃 `agent-status-feed`。
 ipcMain.handle('agent-status-feed:snapshot', () => agentStatusFeed.snapshot())
 
-ipcMain.handle('sessionpage:open-agent-session', async (_event, agentUserId: unknown) => {
-  return focusSessionpageAgentSession(requiredSessionpageAgentId(agentUserId))
-})
-
 ipcMain.handle('sessionpage:open-agent-file', async (
   _event,
   agentUserId: unknown,
@@ -3751,8 +4090,7 @@ ipcMain.handle('sessionpage:open-agent-file', async (
   if (!(await emdash.emdashSessionExists(target))) {
     throw new Error('映射的任务或 Session 已不存在')
   }
-  if (!mainWindow || mainWindow.isDestroyed()) throw new Error('应用主窗口不可用')
-  mainWindow.webContents.send('notification:focus-session', target)
+  // 会话已经由打开会话的那一条路(gugu-links.openLink)打开了,这里只开它工作区里的文件。
   await emdash.emdashOpenSessionFile(target, path)
   return target
 })
@@ -3903,13 +4241,14 @@ function loadEmdashBridge(): EmdashBridgeModule | null {
         if (!mainWindow || mainWindow.isDestroyed()) return Promise.reject(new Error('Renderer not ready'))
         return invokeRendererExtensions(EXTENSION_MEMBER_FACES_METHOD, { people }, mainWindow.webContents.id) as Promise<Record<string, string>>
       },
-      listedSession: (sessionId) => {
+      listedSession: (sessionId, hint) => {
         if (!mainWindow || mainWindow.isDestroyed()) return Promise.reject(new Error('Renderer not ready'))
-        return invokeRendererExtensions(EXTENSION_LISTED_SESSION_METHOD, { sessionId }, mainWindow.webContents.id) as Promise<string | null>
+        return invokeRendererExtensions(EXTENSION_LISTED_SESSION_METHOD, { sessionId, ...hint }, mainWindow.webContents.id) as Promise<string | null>
       },
       act: async (command) => {
         if (!mainWindow || mainWindow.isDestroyed()) throw new Error('Renderer not ready')
-        await invokeRendererExtensions(EXTENSION_HOST_ACTION_METHOD, command, mainWindow.webContents.id)
+        const result = await invokeRendererExtensions(EXTENSION_HOST_ACTION_METHOD, command, mainWindow.webContents.id) as { opened?: import('../src/session/shared/extensions/host-actions').ExtensionHostActionResult }
+        return result.opened
       },
       isHostWindowFullScreen,
       onHostWindowFullScreenChange,
@@ -3949,6 +4288,7 @@ function loadEmdashBridge(): EmdashBridgeModule | null {
 
 async function stopDesktopOwnedResources(): Promise<void> {
   const hostResults = await Promise.allSettled([
+    runShutdownPhase('projection-device', () => projectionDeviceRuntime.dispose(), reportShutdownPhase),
     runShutdownPhase(
       'gugu-mcp-host',
       async () => {
@@ -4051,18 +4391,8 @@ app.whenReady().then(async () => {
   if (hasPersistedMcpGrants('extension-gateway')) {
     void getExtensionGatewayHost().start().catch((err: unknown) => createLogger('stable-endpoint').warn({ err }, '扩展网关没能提前绑回端口'))
   }
-  powerMonitor.on('resume', () => {
-    notifyRendererForeground()
-    // #5906 —— 睡着的时候 wake 是聋的,定时器也只数醒着的时间 ⇒ 醒来当场取一次,不等对账节拍也不等 realtime 重连。
-    deviceRuntimeHost?.notifyCommandsChanged()
-    const reconcile = reconcileSessionpagePlatformOnResume
-    createLogger('sessionpage/platform').info({ hasReconcile: Boolean(reconcile) }, '平台凭据恢复事件收到')
-    if (reconcile) {
-      void reconcile().catch((error) => {
-        createLogger('sessionpage/platform').error({ err: error }, '平台凭据恢复对账失败')
-      })
-    }
-  })
+  installNativeSleepActivity(powerMonitor, recordDeviceSleep)
+  installNativeResumeSource(powerMonitor, notifyRendererForeground, resumeAccountMessaging)
   // @@@test-seam host-resume(GUGU_TEST_HOST_RESUME=1 才注册)—— 上面这条与 mainWindow 的 'focus'
   // 都要求一个能切焦点的 GUI 会话,锁屏的无人测试机上两条都按不动。这个信号跑的是**同一个**
   // reconcileSessionpagePlatformOnResume,不另立语义;env 没开时不注册,生产行为逐字不变。
@@ -4097,6 +4427,11 @@ app.whenReady().then(async () => {
     join(app.getPath('userData'), HOST_LOCALE_STATE_FILE),
     app.getPreferredSystemLanguages(),
   )
+  try {
+    enableMacTouchIdPasskeys()
+  } catch (error) {
+    createLogger('webauthn').error({ err: error }, 'Touch ID 通行密钥没开成,内置浏览器照旧(网站会以为这台电脑没有指纹)')
+  }
 
   try {
     const retired = await removeRetiredCodexCapabilityRuns(process.env)
@@ -4228,8 +4563,10 @@ app.whenReady().then(async () => {
             : (invokeRendererAuth('getSessionOwner', { waitMs }) as Promise<BootOwnerAnswer>),
         ms,
       )
-    const sessionMessageRouter = async (sessionId: string, message: SessionMessage) => {
+    const sessionMessageRouter = async (sessionId: string, message: SessionMessage, signal?: AbortSignal) => {
+      signal?.throwIfAborted()
       const ready = await sessionpagePlatformRecovery?.ensureReady(sessionId, `session-message:${message.kind ?? 'ordinary'}`)
+      signal?.throwIfAborted()
       if (ready?.status === 'failed') {
         createLogger('session-message').error({ sessionId, messageId: message.id, error: ready.error }, 'platform credential recovery failed; message remains pending')
         return {
@@ -4239,6 +4576,7 @@ app.whenReady().then(async () => {
         }
       }
       const attempt = async () => {
+        signal?.throwIfAborted()
         const result = await localDelivery.tryInjectSessionMessage(sessionId, message)
         return result === false ? 'not-live' as const : result
       }
@@ -4246,7 +4584,7 @@ app.whenReady().then(async () => {
       if (message.kind === 'session-direct') {
         // #6546 冷目标:与收件箱同一个唤醒入口,等准入后再投一次;叫不醒带着原因报回发送方。
         try {
-          accepted = await localDelivery.injectWithWake(sessionId, attempt)
+          accepted = await localDelivery.injectWithWake(sessionId, attempt, signal)
         } catch (error) {
           if (!(error instanceof SessionWakeError)) throw error
           return { status: 'not-ready' as const, reason: `target session not live — ${error.message}` }
@@ -4330,7 +4668,72 @@ app.whenReady().then(async () => {
       signal: AbortSignal,
     ): Promise<unknown> => {
       signal.throwIfAborted()
+      record=await withAssistantWorkReply(record,await emdash.readCurrentAssistantWorkInput(context.sessionId),async number=>
+        (await crossMachine().messageDeps(()=>remoteCaller(auth,context),signal).locateAgents({userIds:[],numbers:[number]})).numberToUserId.get(number))
+      const prepareFiles = async (files: SessionFileInput[], targets: Array<{sessionId: string; deviceId?: string; agentId?: string}>) => {
+          await crossMachine().assertFileHandoffSupported(targets.flatMap(target => target.deviceId && !target.agentId ? [target.deviceId] : []))
+          const sender = await senderBinding(context, auth.userId)
+          if (!sender.guguAgentUserId || !auth.accessToken) throw new Error('Session file handoff requires an Agent identity')
+          const caller = await remoteCaller(auth, context)
+          const remotePeers = new Map<string, Array<Record<string, unknown>>>()
+          const recipients: string[] = []
+          for (const target of targets) {
+            let agentId: string | null = target.agentId ?? null
+            if (agentId) { recipients.push(agentId); continue }
+            if (!target.deviceId) agentId = await guguAgentUserIdForSession(target.sessionId, process.env)
+            else {
+              if (!remotePeers.has(target.deviceId)) remotePeers.set(target.deviceId, await crossMachine().runOnDevice(target.deviceId, caller, { action: 'peers' }, signal) as Array<Record<string, unknown>>)
+              const peer = remotePeers.get(target.deviceId)!.find(row => row.sessionId === target.sessionId || row.session_id === target.sessionId)
+              const identity = peer?.identity as { users?: { id?: string } } | undefined
+              agentId = typeof peer?.agentUserId === 'string' ? peer.agentUserId : typeof peer?.agent_user_id === 'string' ? peer.agent_user_id.replace(/^user:/, '') : identity?.users?.id ?? null
+            }
+            if (!agentId) throw new Error(`Session attachment recipient has no Agent identity: session:${target.sessionId}`)
+            recipients.push(agentId)
+          }
+          const endpoint = configuredEndpoint(auth.accessToken)
+          signal.throwIfAborted()
+          return uploadSessionFiles(endpoint, files, { agentId: sender.guguAgentUserId, sessionId: context.sessionId, recipients, beforeCommit: async () => signal.throwIfAborted() })
+      }
       return handleUnifiedSessionMessage(record, {
+        prepareFiles,
+        localDeviceId: () => crossMachine().thisDevice().then(row => row.deviceId),
+        enqueueWork: enqueueAssistantWorkMessage,
+        workTitle:async(intent,targets)=>{
+          const store=assistantWorkForAgent(intent.assistant_id)
+          if(!store)throw new Error('Assistant dispatch reference is unavailable')
+          // Dispatch never waits on reachability: only a local task's title is read here. A remote or
+          // unreadable one keeps the requested title; the work list projects it from the device digest.
+          const target=targets.length===1?targets[0]:undefined
+          if(!target||target.deviceId!==(await crossMachine().thisDevice()).deviceId)return intent.title
+          return store.dispatchTitle(intent.work_id,intent.operation_id,async()=>{
+            const snapshot=await emdash.runSessionAction(context,{action:'get',session_id:target.sessionId},signal)
+            const title=(snapshot as {title?:unknown})?.title
+            if(typeof title!=='string')throw new Error('Addressed task has no readable title')
+            return title
+          }).catch((error:unknown)=>{
+            if(signal.aborted)throw error
+            createLogger('assistant/work').warn({workId:intent.work_id,error:String(error)},'assistant work title unavailable; dispatching with the requested title')
+            return intent.title
+          })
+        },
+        enqueueReport: async report => {
+          const current = await assistantWorkDeliveryHost().context()
+          if (!current || current.ownerId !== auth.userId) throw new Error('Work account changed')
+          const identity = makeIdentityClient(auth.accessToken!)
+          const { data, error } = await identity.from('agent_provisions').select('agent_user_id,device_id,member_key,phase,created_at')
+            .eq('owner_user_id', auth.userId).eq('member_key', 'assistant')
+          if (error) throw error
+          const assistant = pickAssistant((data ?? []) as AssistantProvisionRow[])
+          if (!assistant) throw new Error('Personal assistant is not available')
+          const receipt = await enqueueAssistantWorkReport({
+            rpc: (name, args) => current.client.rpc(name, args),
+            prepare: (files, target) => prepareFiles(files, [target]),
+            resolveNumbers: async numbers => (await crossMachine().messageDeps(() => remoteCaller(auth, context), signal).locateAgents({userIds: [],numbers})).numberToUserId,
+            id: createDesktopWorkReportIds(context.sessionId),
+          }, {assistantId:assistant.agentId,runtimeInstanceId:current.runtimeInstanceId,deviceId:current.deviceId,sessionId:context.sessionId,record:report})
+          void assistantWorkDeliveryHost().kick()
+          return receipt
+        },
         graphMessage: async (sessionIds, text, said) => await emdash.runSessionAction(
           context,
           { action: 'message', session_ids: sessionIds, text, ...said } as SessionAction,
@@ -4355,6 +4758,7 @@ app.whenReady().then(async () => {
         remote: crossMachine().messageDeps(() => remoteCaller(auth, context), signal),
       })
     }
+    const listActivity = createActivitySummaryQuery()
     localSessionActionDispatcher = async (auth, context, action, signal) => {
       signal.throwIfAborted()
       if (!action || typeof action !== 'object') {
@@ -4365,10 +4769,24 @@ app.whenReady().then(async () => {
       const projectResult = (result: unknown) => typeof record.action === 'string' && record.action.startsWith('project_')
         ? prepareProjectAgentNotice(result, {
           agentUserId: () => senderBinding(context, auth.userId).then((binding) => binding.guguAgentUserId),
-          ensureAccess: (agent, project) => ensureProjectNoticeAccess(auth, agent, project),
+          ensureAccess: (agent, project) => ensureProjectNoticeAccess(auth, agent, project, { founding: record.action === 'project_create' }),
         })
         : result
       if (record.action === 'devices') return crossMachine().listDeviceRows()
+      if (record.action === 'activity_list') {
+        const caller = await remoteCaller(auth, context)
+        return listActivity(record, { scope: `${auth.userId}:${context.sessionId}`,
+          devices: () => crossMachine().activityDevices(),
+          query: (device, query, stepSignal) => device.this_machine
+            ? emdash.runSessionAction(context, { action: 'activity_list', ...query }, stepSignal)
+            : crossMachine().runOnDevice(device.device_id, caller, { action: 'activity_list', ...query }, stepSignal),
+        }, signal)
+      }
+      // gugu-dev#181 ⑨ 问自群里的那一句,问题卡也进那个群(question-card.ts)。
+      if (record.action === 'ask_user') {
+        const asked = await emdash.runSessionAction(context, record as SessionAction, signal)
+        return withQuestionCard({ auth, caller: await remoteCaller(auth, context), projectId: context.projectId, asked, questions: record.questions })
+      }
       // #7199 第二步:列我的设备与它们的动作 / 调某台设备的某个动作(`device` 是目标,❌ 当成「在那台机器上做」转发)。
       if (record.action === 'device_actions') {
         const device = typeof record.device === 'string' ? record.device : undefined
@@ -4392,7 +4810,15 @@ app.whenReady().then(async () => {
           name: String(record.name ?? ''),
           args: { ...(record.args && typeof record.args === 'object' ? record.args as Record<string, unknown> : {}), ...((record.name === 'recordings.read' || record.name === 'photos.read') ? { _phone_file_transport: 1 } : {}) },
         }
-        const caller = who ? { ...(who.agentUserId ? { agent_user_id: who.agentUserId } : {}), ...(who.name ? { name: who.name } : {}) } : undefined
+        const taskTitle = call.name.startsWith('computer.')
+          ? await emdash.emdashSessionpageSessionFacts().then(
+            (rows) => rows.find((row) => row.sessionId === (context.sourceSessionId ?? context.sessionId))?.title,
+            (error: unknown) => {
+              createLogger('device-actions').warn({ err: String(error) }, 'device_call task title unavailable')
+              return undefined
+            },
+          ) : undefined
+        const caller = who ? { ...(who.agentUserId ? { agent_user_id: who.agentUserId } : {}), ...(who.name ? { name: who.name } : {}), ...(taskTitle ? { task_title: taskTitle } : {}) } : undefined
         // A side chat's steps are its task's: the task's 「电脑」 tab shows them (the side chat is a view of it).
         const ended = computerStepStarted({ projectId: context.projectId, sessionId: context.sourceSessionId ?? context.sessionId,
           cursorSession: computerSessionOf({ caller }),
@@ -4452,9 +4878,10 @@ app.whenReady().then(async () => {
       // 不在流里的由调用方去问云端 presence。
       if (record.action === 'agent-status') {
         const ids = Array.isArray(record.agentUserIds) ? record.agentUserIds.filter((id): id is string => typeof id === 'string') : []
-        return ids.flatMap((agentUserId) => {
+        return ids.flatMap<{ agentUserId: string; status: string | null; detail: string | null }>((agentUserId) => {
           const entry = agentStatusFeed.get(agentUserId)
-          return entry ? [{ agentUserId, status: entry.reading?.status ?? null, detail: entry.reading?.detail ?? null }] : []
+          const archived = getSessionpageLocalDelivery().sessionArchivalForAgent(agentUserId)?.archivedAt
+          return archived ? [{ agentUserId, status: 'archived', detail: null }] : entry ? [{ agentUserId, status: entry.reading?.status ?? null, detail: entry.reading?.detail ?? null }] : []
         })
       }
       if (record.action === 'message') return unifiedSessionMessage(auth, context, record, signal)
@@ -4483,21 +4910,38 @@ app.whenReady().then(async () => {
         // approval — `consent` says hand back the ask, or install the bytes they agreed to.
         // #7290 A folder of the owner's from that machine comes over this channel part by part, then installs as a folder;
         // a card by its message.
-        run: (caller, action) => action.action !== 'app_install'
-          ? emdash.runRemoteSessionAction(caller, action as never, signal)
-          : emdash.runEmdashExtensionAction(appInstallFrom(caller.deviceId, action)),
+        run: (caller, action) => action.action === 'app_manage'
+          ? emdash.runEmdashExtensionAction({ ...action, action: 'manage', consent: action.consent ?? { kind: 'return' } })
+          : action.action === 'app_install'
+            ? emdash.runEmdashExtensionAction(appInstallFrom(caller.deviceId, action))
+            : emdash.runRemoteSessionAction(caller, action as never, signal),
         app: (caller, action) => emdash.answerAppMessage(caller, action),
+        appSpawn: (caller, action) => emdash.spawnAgentForExtension({ extensionId: caller.extensionId, extensionName: caller.extensionName, prompt: action.prompt, ...action.spawn }),
         appReadFile: (caller, action) => emdash.answerAppReadFile(caller, action),
         appCall: (caller, action) => emdash.answerAppCall(caller, action),
       })
     })
     // 归档「连同子会话」跨机器(owner 2026-10-01「一起收」):人点的与 agent 的同一个动作,都经这里到别的机器。
     emdash.setOtherMachines({
-      sessions: (since) => crossMachine().sessionsElsewhere(since),
+      devices: () => crossMachine().devices(),
+      isThisDevice: (deviceId) => crossMachine().isThisDevice(deviceId),
+      appSpawn: (app, deviceId, action) => crossMachine().appSpawn(app, deviceId, action),
+      sessions: (since, options) => crossMachine().sessionsElsewhere(since, options),
       archive: (deviceId, sessionId) => crossMachine().archiveOn(deviceId, sessionId),
       appMessage: (app, deviceId, sessionId, text, how) => crossMachine().appMessage(app, deviceId, sessionId, text, how),
       appReadFile: (app, deviceId, action) => crossMachine().appReadFile(app, deviceId, action),
       appCall: (app, deviceId, action) => crossMachine().appCall(app, deviceId, action),
+    })
+    // 打开会话只有一条路(gugu-links.openLink):agent 的会话先看本机映射,再到它所在的机器上找;本机会话打开前先做平台恢复。
+    emdash.setSessionOpening({
+      agentSession: async (agentId, deviceId) => {
+        const here = await readSessionpageOpenTarget(agentId)
+        return here ? { sessionId: here.sessionId } : crossMachine().sessionOfAgent(agentId, deviceId)
+      },
+      ensureReady: async (sessionId) => {
+        const ready = await ensureSessionpageSessionReady(sessionId, 'sessionpage-open')
+        if (ready.status === 'failed') createLogger('sessionpage/platform').error({ sessionId, error: ready.error }, 'sessionpage-open platform recovery failed')
+      },
     })
     // 触发②(agent 停下):running→false 的转变事件踢一次读者(触发④开机扫在 boot 那里)。
     agentStatusFeed.subscribe((agentUserId, entry, previous, version) => {
@@ -4517,7 +4961,7 @@ app.whenReady().then(async () => {
     // addressable BEFORE its session-page session reopens: a deliver to a mapped-but-not-live agent becomes
     // ordered local debt instead of silently passing through to a gugu-native engine spawn.
     // @@@sessionpage TASKPAGE-FUSION — deletion sync (spec ⑨「删除必同步」): reconcile the social-side
-    // projection against the session page, reaping agents whose conversation was archived/deleted and
+    // projection against the session page, reaping agents whose conversation was deleted and
     // archiving groups whose project is gone. Runs at boot (so removals made while gugu was closed still
     // converge) and on every session-page removal trigger. The reap itself is fail-loud/aggregated; here we only
     // log, because a failed reconcile must not take down the app — the next trigger retries it.
@@ -4527,6 +4971,8 @@ app.whenReady().then(async () => {
         ? { accessToken: auth.accessToken, refreshToken: auth.refreshToken ?? '', userId: auth.userId }
         : null
     }
+    app.once('will-quit', startSessionpageAgentArchivalSync({ getAuth: getSessionpageAuth, resolveDeviceId: localDeviceId,
+      inventory: () => emdash.emdashSessionpageInventory(), subscribe: (listener) => emdash.onEmdashSessionpageReapTrigger(listener) }))
     // @@@task-shell-port (#5012) 「给会话开账号」的口与网页版无头宿主共用(sessionpage-identity-host.ts);
     // 这里只喂它桌面版的四样:登录态、设备 id、项目名、会话事实。
     const sessionpageIdentityHost = createSessionpageIdentityHost({
@@ -4539,8 +4985,22 @@ app.whenReady().then(async () => {
       listSessionFacts: () => emdash.emdashSessionpageSessionFacts(),
     })
     const sessionpageIdentityDeps = sessionpageIdentityHost.provisionDeps
+    const nativeInbox = emdash.startNativeConversationInboxHost({
+      open: async target => (await sessionpageIdentityHost.ensureAgentAddress(target)).chatId,
+      failed: error => createLogger('sessionpage/personal-inbox').warn({ error: String(error) }, 'Personal conversation address remains pending'),
+    })
+    app.once('will-quit', nativeInbox.dispose)
     // 项目的跨设备身份由宿主的群对照维护；每次写入后通知渲染层重读。
     emdash.setUserLibraryOwner(async () => (await getSessionpageAuth())?.userId ?? null)
+    const assistantPanel = createAssistantPanelRuntime({
+      locale: currentHostLocale,
+      getAuth: getSessionpageAuth,
+      instanceId: () => deviceRuntimeHost?.instanceId ?? null,
+      deviceId: async () => { const id = await localDeviceId(); if (!id) throw new Error('PANEL_DEVICE_UNAVAILABLE'); return id },
+      local: emdash.assistantPanelLocal,guguHome: resolveGuguHome(process.env),kind: SERVER_MODE ? 'cloud' : 'computer',env: process.env,
+      failed: domain => createLogger('assistant-panel').warn({ domain },'Panel publication will retry during host activity'),
+    })
+    emdash.setSessionAdmissionPreparation((sessionId,text) => assistantPanel.prepare(sessionId,text))
     emdash.setProjectGroupHost(createSessionpageProjectGroupHost({ getAuth: getSessionpageAuth, env: process.env }))
     onProjectGroupMappingChanged(({ projectId }) => emdash.notifyProjectGroupBindingChanged(projectId))
     setSessionpageAgentCardRevoker(revokeAgentCards)
@@ -4600,6 +5060,7 @@ app.whenReady().then(async () => {
       isExpired: (sessionId) => expiredPlatformModelSessions().includes(sessionId),
       resolveTarget: (sessionId) => sessionpagePlatformRecoveryHooks?.targetForSession(sessionId) ?? null,
       currentGeneration: platformCredentialGenerationForSession,
+      requestCredentialsManaged: (target) => platformRequestsUseCredentialProxy(target.sessionId),
       credentialLifecycleFor: (target) => resolveSessionpageCredentialLifecycle(target.providerId, target.surface),
       refresh: async (target) => {
         if (!await reissueExpiredPlatformModelForSession(target.sessionId)) {
@@ -4675,13 +5136,34 @@ app.whenReady().then(async () => {
       knownChatId: string | null | undefined
       messageId: string
       text: string
-    }): Promise<{ chatId: string; envelope: string }> => {
+      /** gugu-dev#181 派任务:首句落成这个对话里的一张任务卡(task-card-first-turn.ts),❌ 进 agent 私聊。 */
+      taskChatId?: string
+      projectId: string
+    }): Promise<{ chatId: string; firstTurn: string; envelope: boolean }> => {
       const content = input.text.trim()
       if (!content) {
         throw new Error(`chat-page first turn for ${input.sessionId} has no text`)
       }
       const auth = await getSessionpageAuth()
       if (!auth) throw new Error('chat-page startup envelope: owner not authenticated')
+      if (input.taskChatId) {
+        const deviceId = await localDeviceId()
+        if (!deviceId) throw new Error(`task card for ${input.sessionId}: this device is not registered yet`)
+        return landTaskCardFirstTurn({
+          auth,
+          sessionId: input.sessionId,
+          projectId: input.projectId,
+          agentUserId: input.guguAgentUserId,
+          chatId: input.taskChatId,
+          messageId: input.messageId,
+          text: content,
+          deviceId,
+          machineLabel: (await getLocalDeviceSelfSnapshot())?.label || hostname(),
+          senderIdentities: await envelopeSenderIdentities(auth.userId, auth.accessToken),
+          timestamp: formatDeliveryTimestamp(new Date().toISOString()),
+          env: process.env,
+        })
+      }
       const chatId = input.knownChatId || await openOwnerDirectChatForAgent(
         input.guguAgentUserId,
         auth.accessToken,
@@ -4720,7 +5202,7 @@ app.whenReady().then(async () => {
         p_user_id: input.guguAgentUserId,
       })
       if (readError) throw new Error(`chat-page initial message read mark failed: ${readError.message}`)
-      return { chatId, envelope }
+      return { chatId, firstTurn: envelope, envelope: true }
     }
     ipcMain.removeHandler(SESSION_SHELL_CHANNELS.ensureAgentAddress)
     handleShellChannel(SESSION_SHELL_CHANNELS.ensureAgentAddress, (_event, input: unknown) =>
@@ -4740,7 +5222,7 @@ app.whenReady().then(async () => {
     })
     const runSessionpageReap = (reason: string, info?: { deadSessionId?: string }): void => {
       void reconcileSessionpageAgents({
-        // 真拆(删除/归档)时会话页后端会点名那条会话:点名把「行还在路上、只看存活状态的对账摘不到」那个窗口关掉;
+        // 真删除时会话页后端才点名:归档会话与原身份仍在清单里,不会进入删除路径;
         // detach 不点名(会话还活着)。
         deadSessionIds: info?.deadSessionId ? [info.deadSessionId] : undefined,
         getAuth: getSessionpageAuth,
@@ -4754,14 +5236,13 @@ app.whenReady().then(async () => {
         },
         env: process.env,
       })
-        .then(({ reapedAgents, archivedGroups, reapedOrphans }) => {
+        .then(({ reapedAgents, archivedGroups }) => {
           // Always log the boot passes (a silent "nothing happened" is indistinguishable from "never ran" —
           // that ambiguity already hid an ordering bug once). Per-trigger passes log only when they act,
           // since a plain tab detach fires the trigger too and would otherwise spam the log.
-          if (reason.startsWith('boot') || reapedAgents || archivedGroups || reapedOrphans) {
+          if (reason.startsWith('boot') || reapedAgents || archivedGroups) {
             console.log(
-              `[sessionpage] session-page reap (${reason}): reaped ${reapedAgents} agent(s), archived ${archivedGroups} group(s), ` +
-                `reaped ${reapedOrphans} projection orphan(s)`,
+              `[sessionpage] session-page reap (${reason}): reaped ${reapedAgents} agent(s), archived ${archivedGroups} group(s)`,
             )
           }
         })
@@ -4879,6 +5360,8 @@ app.whenReady().then(async () => {
             },
             socialBridgeDeps: {
               host: primaryGuguMcpHost,
+              resolveFile: desktopFiles.resolve,
+              publishFile: (chat, file, actor, message, next) => desktopFiles.publish(chat, file, null, actor, undefined, { message, next }),
               // grant key 用**分叉自己**的会话 id:它必须是独立一格,否则会顶掉来源会话的 grant。
               grantKey: sessionpageSurfaceKey(info.sessionId),
               runHostAction: runAction,
@@ -5006,7 +5489,7 @@ app.whenReady().then(async () => {
             : {}),
         }
       }
-      let startupQueue: Array<{ text: string; origin: 'communication' }> | undefined
+      let startupQueue: Array<{ text: string; origin: 'communication' | 'manual' }> | undefined
       let provisionedChatId = provisioned.chatId
       if (info.initialMessageId && !info.startupOrigin) {
         throw new Error(`startup first turn for ${info.sessionId} requires an explicit creation surface`)
@@ -5021,7 +5504,8 @@ app.whenReady().then(async () => {
       // 这一腿上两种不一致仍响亮失败:载荷在而稳定 id 缺(没有 id 就写不出那条幂等的聊天行);
       // 行上 sessionId 为空(首次 spawn / 重来)却没带载荷 —— 那是载荷没跟上会话行,❌ 不许静默开一条
       // 空会话冒充首轮(重来路径的载荷失联本身归 session-resume 那条票,这里只保证它响亮)。
-      const chatPageFirstTurnText = info.startupOrigin === 'chat-page' && info.lifecycle === 'fresh'
+      // gugu-dev#181:派出去的任务(taskChatId)与对话页同形 —— 首句是一条真的咕咕消息(那张任务卡)。
+      const chatPageFirstTurnText = (info.startupOrigin === 'chat-page' || info.taskChatId) && info.lifecycle === 'fresh'
         ? info.initialMessageText?.trim()
         : undefined
       // ⚠️ 闸的条件是「**承诺过**一份首句载荷却没交出来」,不是「来自聊天页」。承诺的凭据是
@@ -5054,9 +5538,11 @@ app.whenReady().then(async () => {
           knownChatId: provisionedChatId,
           messageId: info.initialMessageId,
           text: chatPageFirstTurnText,
+          taskChatId: info.taskChatId,
+          projectId: info.projectId,
         })
         provisionedChatId = delivered.chatId
-        startupQueue = [{ text: delivered.envelope, origin: 'communication' }]
+        startupQueue = [{ text: delivered.firstTurn, origin: delivered.envelope ? 'communication' : 'manual' }]
       }
       // #5323 能力注入这一段过去是个黑盒(真机实测 1.5 s,是 gugu 侧最大的一块)。逐步计时,
       // 才判得出哪一步真的必须挡在用户前面。
@@ -5085,6 +5571,7 @@ app.whenReady().then(async () => {
           const at = Date.now()
           try { return await work } finally { inputMs[name] = Date.now() - at }
         }
+        const assistantResourceOwner = (await getSessionpageAuth())?.userId ?? null
         const [processConfigPlatform, configuredMcp, identityBlock, assistantRole] = await Promise.all([
           // ⚠️ 走 hooks 的 `acpPlatformModel`,**❌ 不直接调 `platformModelForSession`**:
           //    后者开头就无条件「先撤旧、再签新」,而这一步跑在 worker 的幂等判断**之前** ——
@@ -5101,11 +5588,17 @@ app.whenReady().then(async () => {
             provisioned.guguAgentUserId,
             provisioned.agentIdentityFacts,
           )),
-          timed('assistant-role', info.providerId === 'claude'
-            ? isPersonalAssistant({ authProvider, env: process.env }, provisioned.guguAgentUserId)
-            : Promise.resolve(false)),
+          timed('assistant-role', isPersonalAssistant({ authProvider, env: process.env }, provisioned.guguAgentUserId)),
         ])
         injectMark('platform-model+mcp-list+identity-block')
+        const readAssistantResources = assistantRole ? async () => {
+          if (!assistantResourceOwner || (await getSessionpageAuth())?.userId !== assistantResourceOwner) throw new Error('Assistant resource owner changed')
+          const { assistantLocalIndex } = await import('./sessionpage/assistant-local-index')
+          const resources = await assistantLocalIndex(info.cwd, SERVER_MODE ? 'cloud' : 'computer', undefined,
+            () => emdash.assistantPanelLocal.integrationIndex())
+          if ((await getSessionpageAuth())?.userId !== assistantResourceOwner) throw new Error('Assistant resource owner changed')
+          return resources
+        } : undefined
         const projectContextBlock = buildSessionpageProjectContextBlock(provisioned.projectContext)
         const bundle = await buildSessionBundle({
           runtime: { authProvider, env: process.env },
@@ -5151,7 +5644,14 @@ app.whenReady().then(async () => {
           model: sessionBundleModelFor(info.providerId, 'acp', processConfigPlatform),
           socialBridgeDeps: {
             host: primaryGuguMcpHost,
+            resolveFile: desktopFiles.resolve,
+            publishFile: (chat, file, actor, message, next) => desktopFiles.publish(chat, file, null, actor, undefined, { message, next }),
             grantKey: sessionpageSurfaceKey(info.sessionId),
+            ...(assistantRole ? { personalAssistant: true as const, assistantWork: {
+              ...assistantWorkBinding(persistedSessionId, info.cwd, SERVER_MODE ? 'cloud' : 'computer', provisioned.guguAgentUserId),
+              currentInput: () => emdashBridge?.readCurrentActivityInput(persistedSessionId) ?? Promise.resolve(undefined),
+            } } : {}),
+            ...(readAssistantResources ? { readAssistantResources } : {}),
             runHostAction: runAction,
             runSessionAction: runAction,
             // @@@2374 不带 auth:写文件与装扩展都不代表用户去调任何云端接口。桥没
@@ -5167,8 +5667,24 @@ app.whenReady().then(async () => {
           cwd: info.cwd,
           lifecycle: info.lifecycle,
         })
-        if (assistantRole) await refreshAssistantContext(info.cwd, resolveGuguHome(process.env), SERVER_MODE ? 'cloud' : 'computer')
-        const capabilities = assistantRole ? personalAssistantContext(loaded, SERVER_MODE ? 'cloud' : 'computer') : loaded
+        const panelStatePath = assistantRole && assistantResourceOwner ? await assistantPanel.bind({
+          sessionId: persistedSessionId,assistantId: provisioned.guguAgentUserId,ownerId: assistantResourceOwner,cwd: info.cwd,
+        }) : undefined
+        const capabilities = assistantRole && info.providerId === 'claude' ? await preparePersonalAssistantContext(
+          loaded, info.cwd, resolveGuguHome(process.env), SERVER_MODE ? 'cloud' : 'computer', {
+            accountId: async () => {
+              const owner = (await getSessionpageAuth())?.userId
+              return owner && owner === assistantResourceOwner ? owner : null
+            },
+            localSources: readAssistantResources,panelStatePath,
+            run: async (action, signal) => {
+              const auth = await getSessionpageAuth()
+              if (!auth) throw new Error('Assistant startup index: owner not authenticated')
+              return runAction(action, auth, signal)
+            },
+          },
+        ) : info.providerId === 'claude' && !SERVER_MODE
+          ? assistantHomeTaskContext(loaded, info.cwd, resolveGuguHome(process.env)) : loaded
         injectMark('capabilities-loaded')
         await applySessionMaterialization({
           cwd: info.cwd,
@@ -5436,8 +5952,10 @@ app.whenReady().then(async () => {
         knownChatId: provisioned.chatId,
         messageId: request.messageId,
         text: request.text,
+        taskChatId: request.taskChatId,
+        projectId: request.projectId,
       })
-      return delivered.envelope
+      return delivered.firstTurn
     })
     // Dispose host-owned native inference transports whenever stopSession tears down the PTY.
     // A controlled platform restart uses this same boundary: the replacement must not reuse an
@@ -5472,17 +5990,6 @@ app.whenReady().then(async () => {
           }, 'claude')
         },
       })
-    })
-    // @@@sessionpage TASKPAGE-FUSION otty-state — relay the session backend's consolidated agent-attention count (how
-    // many session-page agents are BLOCKED on the human: needs_user | error) to gugu's 任务 sidebar tab,
-    // so a stuck/errored agent is visible without opening the session page. main → preload → MainLayout →
-    // Sidebar RailItem badge (mirrors the 通讯录 pendingContactsCount dot). Fires once on subscribe + on
-    // every change; mainWindow?. tolerates a not-yet/again-created window.
-    emdash.onEmdashAttentionChanged((count) => {
-      if (process.env.GUGU_SESSION_TEST_HOOKS === '1') {
-        console.log(`[otty-push] attention count=${count} → renderer (window=${mainWindow ? 'yes' : 'no'})`)
-      }
-      sendUiEvent(MAIN_UI_EVENTS.sessionpageAttentionCount, count)
     })
     // TEST-ONLY, env-gated (GUGU_SESSION_TEST_HOOKS=1) — expose the session backend's control-channel entries + the
     // registry binding on the MAIN-process globalThis so a session-page fusion e2e can drive a
@@ -5555,7 +6062,18 @@ app.whenReady().then(async () => {
         },
       }
     }
-    const emdashBoot = emdash.bootEmdashModule(ipcMain)
+    const emdashBoot = emdash.bootEmdashModule(ipcMain, {
+      scheduleDiscovery: (work) => startupDiscovery.schedule(work),
+    })
+    platformCredentialsBoot = emdashBoot.catch(() => undefined)
+    refreshPlatformCredentials()
+    void emdashBoot.then(() => {
+      emdash.onAgentStatus(change => {
+        if (change.reading?.status !== 'working') void assistantPanel.publish(change.sessionId).catch(() => {
+          createLogger('assistant-panel').warn({},'Panel state publication will retry at the next host activity')
+        })
+      })
+    }).catch(() => undefined)
     // 认回重启前留在 tmux 里的平台会话(#7120):它读 tmux 名与平台票账本,两样都是 boot 里段 2 迁移改的
     // (task-to-session 改 tmux 名、session-naming 改账本键)—— 先读就把旧名下活着的会话判死、删掉它的取票文件。
     // 所以与下面的开机重注册一样排在 boot 之后。只读本机、不等登录;boot 失败也照样跑,终端腿与启动结清都在等它落定。
@@ -5635,12 +6153,18 @@ app.whenReady().then(async () => {
             // #7199 心跳随行报「隧道最近一次有流量」(会话页宿主的心跳不算):云电脑的管家据此判闲置。
             onActivity: () => noteTunnelActivity(),
           })
-          await emdash.startSessionPtyAttachServer(app.getPath('userData'), { link }).then(
+          await emdash.startSessionPtyAttachServer(app.getPath('userData'), { link,
+            timeZone: context => applyOwnerTimeZoneContext(context), resume: since => {
+            if (since !== undefined) recordDeviceSleep({ since, until: Date.now(), source: 'fc-confirmed' })
+            resumeAccountMessaging('controller')
+          } }).then(
             (server) => createLogger('server').info({ socket: server.socketPath }, '账号进程套接字已开(设备连接 link 与 open-url 走它)'),
             (err: unknown) => createLogger('server').error({ err }, '账号进程套接字开不出来 —— 设备连接(link)与 open-url 不可用'),
           )
+          const stopResumeGapWatch = watchHostResumeGap(resumeAccountMessaging)
+          app.once('will-quit', stopResumeGapWatch)
           // 远程隧道:别的电脑经中转连到这里的终端 / 浏览器 / 端口(不挡启动,失败原因留给 tunnel.open 答)。
-          void startServerTunnelEndpoint()
+          ensureServerTunnelEndpoint()
         }
         // #6264 桌面:会话页打开 SSH 装上的机器上的「编程」会话时,问这里怎么连。
         if (sshMachineStore) {
@@ -5667,19 +6191,11 @@ app.whenReady().then(async () => {
         // #6387 扩展服务就绪之后,会话开场才读得到扩展带来的 MCP 程序与 skill;程序经扩展网关给会话(#6615)。
         const onProblem = (message: string) => createLogger('extension-session').error({ message }, 'extension contribution left out of the session')
         const programHost = { nodeExecutable: process.execPath, toolsRuntime: toolsRuntimePath(), linkPrefix: `${GUGU_LINK_SCHEME}://ext`, onProblem }
-        if (!SERVER_MODE) emdash.emdashExtensionPrograms().registerNative('browser-use', createBrowserAppProgram(() => emdash.emdashAgentBrowser()))
         if (!SERVER_MODE) {
+          emdash.emdashExtensionPrograms().registerNative('browser-use', createBrowserAppProgram(() => emdash.emdashAgentBrowser()))
           // #7317 Computer Use 的「电脑」页签:看的是 agent 经设备动作做的每一步电脑控制;App 的程序只给它的页面 preview_state。
           const programs = emdash.emdashExtensionPrograms()
-          // The Computer Use Apps installed here whose pages may reach their program (the same refusal their pages get). Read
-          // at most once a second: listing the installed programs reads every App's files, and a step asks twice.
-          let apps: { at: number; list: ReturnType<typeof programs.installed> } | null = null
-          const computerUseApps = () => {
-            if (!apps || Date.now() - apps.at > 1_000) {
-              apps = { at: Date.now(), list: programs.installed().filter((program) => program.native === 'computer-use' && !programs.agentToolsRefusal(program.extensionId)) }
-            }
-            return apps.list
-          }
+          const computerUseApps = installedComputerUseApps(programs, emdash.emdashOnInstalledAppsChanged)
           computerUsePreviewInstance = createComputerUsePreview({
             nativeCursor: process.platform === 'darwin',
             peek: (target, options) => deviceActionsRuntime().peekWindow(target, options),
@@ -5694,7 +6210,6 @@ app.whenReady().then(async () => {
           computerUseOn = () => computerUseApps().length > 0
           let computerUseWas = false
           const computerUseSwitched = () => {
-            apps = null
             const on = computerUseOn()
             if (on === computerUseWas) return
             computerUseWas = on
@@ -5717,8 +6232,8 @@ app.whenReady().then(async () => {
           sessionContext: extensionCallerSessionContext,
           // A broken skill was reported when the session opened (extensionAgentPrograms below); the catalog only leaves it out.
           skills: () => extensionAgentPrograms(emdash.emdashExtensionAgentContributions(), { ...programHost, onProblem: () => {} }).skills,
-          apps: () => emdash.emdashExtensionAgentContributions().map(({ manifest, enabled, servers, skillsDir }) => ({
-            manifest, enabled, givesAgents: servers.length > 0 || skillsDir !== null,
+          apps: () => emdash.emdashExtensionAgentContributions().map(({ manifest, enabled }) => ({
+            manifest, enabled, givesAgents: givesAgentTools(manifest),
           })),
           market: () => cloudExtensionMarket().entries(),
         })
@@ -5808,6 +6323,20 @@ app.whenReady().then(async () => {
         // unhandledRejection —— 会话页后端直接起不来(e2e 的 launchApp 阶段现形,dev 的 vite 产物顺序
         // 不同所以只在生产打包里暴露)。
         emdash.onEmdashSessionpageReapTrigger(runSessionpageReap)
+        // #113 这台机器的项目记到账号上(桌面与 server 同一份):现在记一次,之后一变就再记。订阅同上要在 boot 之后。
+        deviceProjectsPublisher ??= createDeviceProjectsPublisher({
+          getAuth: () => desktopAuthProvider().getAuth(),
+          deviceId: () => localDeviceId(),
+          client: (accessToken) => makeIdentityClient(accessToken) as unknown as DeviceProjectsRpcClient,
+          records: () => emdash.listDeviceProjectRecords(),
+          warn: (message, fields) => createLogger('device-projects').warn(fields, message),
+        })
+        try {
+          emdash.onDeviceProjectsMaybeChanged(() => deviceProjectsPublisher?.notify())
+        } catch (error) {
+          createLogger('device-projects').error({ err: error }, '订不上项目变化:账号上这台机器的项目只在开机与登录时更新')
+        }
+        deviceProjectsPublisher.notify()
         // #4008 —— 把会话页会话的 agent 状态接成咕咕侧的运行事实:「它在不在干活」是**读**会话页的状态,
         // 不再从「有没有一条投递命令正在执行」反推 —— 用户在会话页自己敲的回合、agent 之间的接力、以及
         // 一注入就返回的 transport,在咕咕的单聊/列表/群里都如实显示运行中。
@@ -5824,7 +6353,7 @@ app.whenReady().then(async () => {
         // Deletion-sync boot pass (spec ⑨) — ONLY here: it reads the session backend's DB, which the boot above is
         // what initializes, so running it any earlier races an uninitialized database.
         runSessionpageReap('boot')
-        // #4277 投影段(云端有行、本机没会话的孤儿)要以账号身份读云端,而开机那一刻归属未定、令牌
+        // 删身份、读「项目 → 群」映射都要账号令牌,而开机那一刻归属未定、令牌
         // 拿不到(#5025):归属定下来之后再对一轮。令牌在归属定下与 session 真正恢复之间还有一小段空窗,
         // 所以有界地等它到位;等不到就喊出来,留给下一次触发。不在任何关键路径上。
         void bootOwnerWithin(60_000)
@@ -5846,7 +6375,7 @@ app.whenReady().then(async () => {
             }
             createLogger('sessionpage/reap').warn(
               { ownerUserId },
-              '#4277 owner decided but no access token within 60s — projection pass left to the next trigger',
+              'owner decided but no access token within 60s — the owner-scoped reap is left to the next trigger',
             )
           })
           .catch((err) =>
@@ -5881,7 +6410,7 @@ app.whenReady().then(async () => {
   // 结尾,系统按亮/暗/毛玻璃自己着色);Windows ICO / Linux PNG 各出黑白两套,按系统深浅色换。
   if (SERVER_MODE) {
     createLogger('server').info({ userData: app.getPath('userData'), signedInAs: serverAuth?.signedInUserId() ?? null }, '咕咕 server 已启动')
-    // 忙闲写给守护进程(server-supervisor.ts、server-account-converge.ts):有会话在干活、而且换版会打断它时才等空闲。
+    // 忙闲写给守护进程(server-supervisor.ts、server-account-converge.ts):有会话或集成授权会被换版打断时才等空闲。
     // tmux 里的终端会话不随账号进程重启断,不拦换版(busyForVersionSwitch)。
     const activityFile = join(app.getPath('userData'), 'activity.json')
     // #6264 同一份读数也是升级看门狗判「新版本站稳了没有」的依据(server-upgrade-guard.ts):带上自己的版本与起始时刻。
@@ -5900,6 +6429,7 @@ app.whenReady().then(async () => {
         createLogger('server').warn({ err: error }, '忙闲写不进去')
       }
     }
+    loadEmdashBridge()?.onSessionpageAuthorizationActivityChange?.(reportActivity)
     reportActivity()
     setInterval(reportActivity, 10_000).unref()
     return

@@ -5,9 +5,8 @@ import type { ProviderPermissionModeMap } from '@gugu/session-core/acp/models/pe
  *   plan / build / edit / guarded / yolo(ZCode 自己界面上的名字:Plan / Ask before changes /
  *   Edit automatically / —— / Full access)。
  *
- * 行为读数(2026-10-17,ThinkPad,glm-4.6;每档新起会话,同一句「写一个文件,再跑一条 Bash」,
- * 客户端对每次询问都答 reject_once ⇒「问了」即「没执行」;装置 gugu-base
- * `notes/2026-10-16-zcode-harness/app-server-probe/acp-modes.mjs`,读数在同目录 gugu-acp桥-实测与上游草稿.md):
+ * 行为读数(2026-10-17,glm-4.6;每档新起会话,同一句「写一个文件,再跑一条 Bash」,
+ * 客户端对每次询问都答 reject_once ⇒「问了」即「没执行」):
  *   · `plan`  → 只申请退出计划模式(被拒),文件没写、命令没跑
  *   · `build` → Write 与 Bash **都先问**,拒后都没执行
  *   · `edit`  → Write 直接执行,Bash 先问

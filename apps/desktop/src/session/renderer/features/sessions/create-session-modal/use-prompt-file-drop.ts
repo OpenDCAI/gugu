@@ -1,5 +1,6 @@
 import { useCallback, useRef, useState } from 'react';
 import {
+  droppedFileItems,
   getDraggedWorkspaceFile,
   hasDraggedFiles,
   hasDraggedWorkspaceFile,
@@ -81,8 +82,8 @@ export function usePromptFileDrop({
       const workspaceFile = getDraggedWorkspaceFile(e.dataTransfer);
       if (workspaceFile && workspaceFile.workspaceId !== workspaceId) return;
 
-      const files = workspaceFile ? [] : Array.from(e.dataTransfer.files);
-      if (!workspaceFile && files.length === 0) return;
+      const dropped = workspaceFile ? [] : droppedFileItems(e.dataTransfer);
+      if (!workspaceFile && dropped.length === 0) return;
 
       void (async () => {
         try {
@@ -92,7 +93,9 @@ export function usePromptFileDrop({
             onDropText(formatTerminalImagePaths([workspaceFile.targetPath], platform));
             return;
           }
-          const resolved = await Promise.all(files.map((file) => resolveDroppedFile(file)));
+          const resolved = await Promise.all(
+            dropped.map(({ file, directory }) => resolveDroppedFile(file, directory))
+          );
           const paths = resolved.filter((path): path is string => Boolean(path));
           if (paths.length === 0) return;
           onDropText(formatTerminalImagePaths(paths, platform));

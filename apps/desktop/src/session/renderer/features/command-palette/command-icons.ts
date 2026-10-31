@@ -1,4 +1,4 @@
-import { Archive, History, ArrowDownToLine, ArrowLeft, ArrowRight, ArrowUpToLine, ChevronDown, ChevronUp, ExternalLink, FileDiff, Files, FolderOpen, FolderPlus, Globe, Library, MessageSquare, MessageSquarePlus, MessageSquareShare, Palette, Pin, RefreshCw, Settings, SquarePlus, SquareTerminal, Terminal, TextCursorInput, type IconComponent } from '@/lib/icons'
+import { Archive, History, ArrowDownToLine, ArrowLeft, ArrowRight, ArrowUpToLine, ChevronDown, ChevronUp, ExternalLink, FileDiff, Files, FolderOpen, FolderPlus, Globe, Library, MessageSquare, MessageSquarePlus, MessageSquareShare, Palette, Pin, RefreshCw, Settings, SquarePlus, SquareTerminal, Terminal, TextCursorInput, UserPlus, Users, Clock, type IconComponent } from '@/lib/icons'
 import { Columns2, GitPullRequest, PanelBottom, PanelRight } from 'lucide-react'
 
 /**
@@ -37,6 +37,9 @@ export const COMMAND_ICONS = {
   archive: Archive,
   'chevron-down': ChevronDown,
   'chevron-up': ChevronUp,
+  users: Users,
+  'user-plus': UserPlus,
+  clock: Clock,
 } satisfies Record<string, IconComponent>;
 
 export type CommandIconKey = keyof typeof COMMAND_ICONS;

@@ -12,11 +12,11 @@ import { page, userEvent } from 'vitest/browser'
 import { until } from '../../../../../../../tests/support/awaitCondition'
 import { SidebarMenuAction, SidebarMenuRow } from '@renderer/features/sidebar/sidebar-primitives'
 import {
-  clearDraggedSession,
-  getDraggedSession,
-  setDraggedSession,
-  SESSION_DRAG_TYPE,
-} from '@renderer/lib/drag-session'
+  clearDraggedScreenContent,
+  getDraggedScreenContent,
+  setDraggedScreenContent,
+  SCREEN_CONTENT_DRAG_TYPE,
+} from '@renderer/lib/drag-screen-content'
 import '@/styles/tokens.css'
 import '@renderer/index.css'
 
@@ -28,7 +28,7 @@ afterEach(() => {
   root = null
   host?.remove()
   host = null
-  clearDraggedSession()
+  clearDraggedScreenContent()
 })
 
 /** 拦下 setDragImage,看浏览器真正拿去当拖拽图的是哪块 DOM。 */
@@ -61,9 +61,9 @@ function mount() {
           className="flex h-8 items-center"
           draggable
           onDragStart={(e) =>
-            setDraggedSession(e.dataTransfer, { sessionId: id, title: '头像抽卡' }, e.currentTarget)
+            setDraggedScreenContent(e.dataTransfer, { kind: 'session', projectId: 'p', sessionId: id, title: '头像抽卡' }, e.currentTarget)
           }
-          onDragEnd={clearDraggedSession}
+          onDragEnd={clearDraggedScreenContent}
         >
           <SidebarMenuAction allowNativeDrag={id === 'draggable-row'}>{id}</SidebarMenuAction>
           {/* 行尾那层「置顶 / 归档 / 时间」—— 只在 hover 时显形,所以它正好是拖拽图里不该有的东西 */}
@@ -76,7 +76,8 @@ function mount() {
         onDragOver={(e) => e.preventDefault()}
         onDrop={(e) => {
           e.preventDefault()
-          dropped.push(getDraggedSession(e.dataTransfer)?.sessionId ?? null)
+          const content = getDraggedScreenContent(e.dataTransfer)
+          dropped.push(content?.kind === 'session' ? content.sessionId : null)
         }}
       >
         drop zone
@@ -113,8 +114,8 @@ test('反向对照:标题按钮仍吞掉 mousedown 的那一行,拖拽根本发�
 test('拖拽载荷只带会话标记,不带 text/plain', async () => {
   mount()
   const transfer = new DataTransfer()
-  setDraggedSession(transfer, { sessionId: 'conv-1', title: '头像抽卡' })
-  expect(transfer.types).toEqual([SESSION_DRAG_TYPE])
+  setDraggedScreenContent(transfer, { kind: 'session', projectId: 'p', sessionId: 'conv-1', title: '头像抽卡' })
+  expect(transfer.types).toEqual([SCREEN_CONTENT_DRAG_TYPE])
 })
 
 test('拖起来的那张图里没有行尾那层 hover 动作(置顶 / 归档 / 时间)', async () => {

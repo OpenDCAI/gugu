@@ -9,15 +9,13 @@ import { resolveGuguHome } from '@gugu/core/local/state/paths'
 import {
   ASSISTANT_COMPUTER_WORKDIR_NAME,
   OWNER_PROFILE_MEMORY_FILE,
-  assistantGuide,
   assistantHomePaths,
   ownerProfileMemoryFile,
-  upsertAssistantGuide,
-  withDeniedTools,
   withOwnerProfileIndex,
 } from '@gugu/core/shared/assistantPolicy'
 import type { PrepareLocalHomeInput, PrepareLocalHomeResult, WipeLocalHomeResult } from '../src/lib/assistantHomeIpc'
 import { createLogger } from './lib/logger'
+import { refreshAssistantContext } from './sessionpage/assistant-instructions'
 
 const log = createLogger('assistant-home')
 
@@ -107,8 +105,7 @@ export async function prepareLocalAssistantHome(
   await mkdir(paths.resourcesDir, { recursive: true })
   await mkdir(paths.memoryDir, { recursive: true })
   await linkClaudeMemory(paths.claudeMemoryDir, paths.memoryDir)
-  await writeAtomic(paths.instructions, upsertAssistantGuide((await readOrNull(paths.instructions)) ?? '', assistantGuide('computer')))
-  await writeAtomic(paths.settings, withDeniedTools(await readOrNull(paths.settings)))
+  await refreshAssistantContext(workdir, env.guguHome ?? resolveGuguHome(), 'computer', home)
   const profile = input.ownerProfile?.trim()
   if (profile) {
     await writeAtomic(join(paths.memoryDir, OWNER_PROFILE_MEMORY_FILE), ownerProfileMemoryFile(profile))

@@ -1,9 +1,10 @@
 import { useSyncExternalStore } from 'react'
 // #7199 引导走到哪一步(记在这台电脑上,按账号):它安好家之后「连应用 → 一切就绪」两步由会话页画,中途退出再打开接着走。
 // 没记 = 不在引导里(早就有它了 / 走完了 / 在别的设备上开通的 —— 那一边的人没看过引导,这台不补)。
+// 本机已提交开通但启动未完成 = shell;身份先到不能把仍在等待/报错的开通页卸载。
 import type { AssistantSetupStep } from './assistantShellBridge'
 
-type Stored = Exclude<AssistantSetupStep, 'shell'>
+type Stored = AssistantSetupStep
 
 const key = (ownerUserId: string) => `gugu.assistant.setup:${ownerUserId}`
 const listeners = new Set<() => void>()
@@ -12,7 +13,7 @@ export function readSetupStep(ownerUserId: string | null | undefined): Stored | 
   if (!ownerUserId) return null
   try {
     const raw = window.localStorage.getItem(key(ownerUserId))
-    return raw === 'connect' || raw === 'ready' ? raw : null
+    return raw === 'shell' || raw === 'connect' || raw === 'ready' ? raw : null
   } catch {
     return null
   }

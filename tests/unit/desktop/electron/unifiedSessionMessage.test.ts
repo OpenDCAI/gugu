@@ -122,7 +122,7 @@ describe('身份写法与 session: 走同一条投递', () => {
     expect(graphMessage).toHaveBeenCalledWith([OTHER_SESSION, OTHER_AGENT_SESSION], 'hello', {})
     expect(result.recipients).toEqual([
       { to: `session:${OTHER_SESSION}`, status: 'delivered', message_id: `m-${OTHER_SESSION}` },
-      { to: `user:${OTHER}`, status: 'delivered', message_id: `m-${OTHER_AGENT_SESSION}` },
+      { to: `user:${OTHER}`, session_id: OTHER_AGENT_SESSION, status: 'delivered', message_id: `m-${OTHER_AGENT_SESSION}` },
     ])
   })
 
@@ -276,5 +276,50 @@ describe('session_message reaches your sessions on your other machines', () => {
     await expect(handleUnifiedSessionMessage({ to: [`aid:${REMOTE_AGENT}`], text: 'x' }, deps))
       .rejects.toThrow('is not a session of yours on any of your machines')
     expect(deliver).not.toHaveBeenCalled()
+  })
+})
+
+
+it('preflights every recipient before uploading files, then passes only immutable references to delivery', async () => {
+  const prepareFiles = vi.fn(async () => [{ attachment_id: '11111111-1111-4111-8111-111111111111', file_name: 'original.bin', sha256: 'ab'.repeat(32), size_bytes: 4, content_type: 'application/octet-stream' }])
+  const { deps, graphMessage } = makeDeps({ prepareFiles })
+  await expect(handleUnifiedSessionMessage({to:[`session:${OTHER_SESSION}`,'bare-invalid'],text:'report',files:[{file_path:'/original'}]},deps)).rejects.toThrow()
+  expect(prepareFiles).not.toHaveBeenCalled()
+  await handleUnifiedSessionMessage({to:[`session:${OTHER_SESSION}`],text:'report',files:[{file_path:'/original'}]},deps)
+  expect(prepareFiles).toHaveBeenCalledWith([{file_path:'/original'}],[{sessionId:OTHER_SESSION}])
+  expect(graphMessage).toHaveBeenCalledWith([OTHER_SESSION],'report',expect.objectContaining({attachments:await prepareFiles.mock.results[0].value}))
+})
+
+
+describe('durable assistant work admission precedes reachability', () => {
+  it('reads the actual addressed task title before committing a new work', async () => {
+    const intent = { version: 1, assistant_id: SELF, work_id: OTHER, operation_id: SELF, message_id: OTHER, child_session_id: OTHER_SESSION, coordinator: { session_id: SELF_SESSION, device_id: 'here' }, title: '任务', continuation: false }
+    const enqueueWork = vi.fn(async () => ({ route: 'session-direct' as const, recipients: [] }))
+    const workTitle = vi.fn(async () => '复测回复「收到，测试正文」')
+    const f = makeDeps({ enqueueWork, workTitle, localDeviceId: async () => 'here' })
+    await handleUnifiedSessionMessage({ to: [`aid:${OTHER}`], text: '请回复', assistant_work: intent }, f.deps)
+    expect(workTitle).toHaveBeenCalledWith(intent, [{ sessionId: OTHER_AGENT_SESSION, deviceId: 'here', agentId: OTHER }])
+    expect(enqueueWork).toHaveBeenCalledWith({ ...intent, title: '复测回复「收到，测试正文」' }, '请回复', [], expect.any(Array))
+    workTitle.mockRejectedValueOnce(new Error('title unavailable'))
+    await expect(handleUnifiedSessionMessage({ to: [`aid:${OTHER}`], text: '请回复', assistant_work: intent }, f.deps)).rejects.toThrow('title unavailable')
+    expect(enqueueWork).toHaveBeenCalledOnce()
+  })
+
+  it('queues a work report without consulting a sleeping coordinator roster', async () => {
+    const enqueueReport = vi.fn(async () => ({ route: 'session-direct' as const, recipients: [{ to: `session:${OTHER_SESSION}`, status: 'accepted' as const, message_id: 'stable' }] }))
+    const f = makeDeps({ enqueueReport })
+    const result = await handleUnifiedSessionMessage({ to: [`session:${OTHER_SESSION}`], text: 'file ready', work_result: { work_id: SELF, status: 'completed' } }, f.deps)
+    expect(result.recipients[0]?.status).toBe('accepted')
+    expect(enqueueReport).toHaveBeenCalledOnce()
+    expect(f.graphMessage).not.toHaveBeenCalled()
+    expect(f.localSessionsOfAgents).not.toHaveBeenCalled()
+  })
+  it('keeps the host dispatch intent and commits before live delivery', async () => {
+    const intent = { version: 1, assistant_id: SELF, work_id: OTHER, operation_id: SELF, message_id: OTHER, child_session_id: OTHER_SESSION, coordinator: { session_id: SELF_SESSION, device_id: 'here' }, title: 'task', continuation: true }
+    const enqueueWork = vi.fn(async () => ({ route: 'session-direct' as const, recipients: [{ to: `session:${OTHER_AGENT_SESSION}`, status: 'accepted' as const }] }))
+    const f = makeDeps({ enqueueWork, localDeviceId: async () => 'here' })
+    await handleUnifiedSessionMessage({ to: [`aid:${OTHER}`], text: 'continue', assistant_work: intent }, f.deps)
+    expect(enqueueWork).toHaveBeenCalledWith(intent, 'continue', [], [{ sessionId: OTHER_AGENT_SESSION, deviceId: 'here', agentId: OTHER }])
+    expect(f.graphMessage).not.toHaveBeenCalled()
   })
 })

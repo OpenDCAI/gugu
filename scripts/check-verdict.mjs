@@ -249,6 +249,73 @@ function expandJobName(template, assignment, label) {
   return requireString(expanded, label)
 }
 
+/**
+ * @@@path-filtered-jobs — a job may be skipped by design: its `if:` is exactly
+ * `needs.<decider>.outputs.<key> == 'true'`, and the decider job (ci.yml's `changes`) decides
+ * from the changed paths whether it is due. The decider publishes the outputs it acted on as one
+ * check-run annotation titled JOB_OUTPUTS_MARKER, message `key=value key=value ...`, so this
+ * verdict reads the same decision the workflow used instead of re-deriving it.
+ *
+ * A skipped run of such a job counts as passed only when the decider succeeded and published
+ * `<key>=false`. Every other skip — decider said due, failed, is still running, or published no
+ * marker — stays non-green. Jobs whose `if:` has any other shape keep the old rule: skipped = RED.
+ */
+export const JOB_OUTPUTS_MARKER = 'ci-job-outputs'
+const PATH_FILTER_IF =
+  /^\s*(?:\$\{\{\s*)?needs\.([A-Za-z_][\w-]*)\.outputs\.([A-Za-z_][\w-]*)\s*==\s*'true'\s*(?:\}\})?\s*$/
+
+function pathFilterCondition(workflow, jobId, job, label) {
+  if (typeof job.if !== 'string') return undefined
+  const match = PATH_FILTER_IF.exec(job.if)
+  if (!match) return undefined
+  const [, deciderId, output] = match
+  const needs = typeof job.needs === 'string' ? [job.needs] : (job.needs ?? [])
+  const decider = workflow.jobs[deciderId]
+  if (!needs.includes(deciderId) || !decider || typeof decider !== 'object') {
+    throw new Error(`${label} job ${jobId} is conditioned on job ${deciderId} without needing it`)
+  }
+  if (decider.strategy?.matrix !== undefined) {
+    throw new Error(`${label} job ${jobId} is conditioned on matrix job ${deciderId}`)
+  }
+  return {
+    decider: expandJobName(String(decider.name ?? deciderId), {}, `${label} job ${deciderId} name`),
+    output
+  }
+}
+
+/** The decider's outputs from its check-run annotations; undefined unless exactly one valid marker. */
+export function parseJobOutputsAnnotations(annotations) {
+  if (!Array.isArray(annotations)) throw new Error('annotations must be an array')
+  const markers = annotations.filter((annotation) => annotation?.title === JOB_OUTPUTS_MARKER)
+  if (markers.length !== 1 || typeof markers[0].message !== 'string') return undefined
+  const outputs = {}
+  for (const token of markers[0].message.trim().split(/\s+/)) {
+    const match = /^([A-Za-z_][\w-]*)=(\S*)$/.exec(token)
+    if (!match || match[1] in outputs) return undefined
+    outputs[match[1]] = match[2]
+  }
+  return outputs
+}
+
+/**
+ * Attach the published outputs to every successful decider run the profiles rely on.
+ * `fetchAnnotations(checkRunId)` returns that check run's annotations.
+ */
+export function attachDeciderOutputs(checkRuns, profiles, fetchAnnotations) {
+  const deciders = new Set()
+  for (const profile of profiles) {
+    for (const condition of Object.values(profile.pathFiltered ?? {})) {
+      deciders.add(`${profile.eventType}\0${condition.decider}`)
+    }
+  }
+  for (const run of checkRuns) {
+    if (!deciders.has(`${run.event}\0${run.name}`)) continue
+    if (run.status !== 'completed' || run.conclusion !== 'success') continue
+    run.outputs = parseJobOutputsAnnotations(fetchAnnotations(run.id))
+  }
+  return checkRuns
+}
+
 function inventoryDigest(entries) {
   const hash = createHash('sha256')
   for (const entry of [...entries].sort((left, right) => left.path.localeCompare(right.path))) {
@@ -295,6 +362,7 @@ export function deriveCheckProfiles(events) {
         throw new Error(`${label}.jobs must be an object`)
       }
       const checks = []
+      const pathFiltered = {}
       for (const [jobId, job] of Object.entries(workflow.jobs)) {
         if (!job || typeof job !== 'object' || Array.isArray(job)) {
           throw new Error(`${label} job ${jobId} must be an object`)
@@ -305,6 +373,7 @@ export function deriveCheckProfiles(events) {
           )
         }
         const template = job.name ?? jobId
+        const condition = pathFilterCondition(workflow, jobId, job, label)
         for (const assignment of matrixAssignments(job, `${label} job ${jobId}`)) {
           const name = expandJobName(String(template), assignment, `${label} job ${jobId} name`)
           const key = `${event.type}\0${name}`
@@ -316,6 +385,7 @@ export function deriveCheckProfiles(events) {
           }
           expectedKeys.set(key, entry.path)
           checks.push(name)
+          if (condition) pathFiltered[name] = condition
         }
       }
       profiles.push({
@@ -324,7 +394,8 @@ export function deriveCheckProfiles(events) {
         inventoryRef: event.inventoryRef,
         generation,
         workflow: entry.path,
-        checks: checks.sort()
+        checks: checks.sort(),
+        pathFiltered
       })
     }
     if (matchedWorkflows === 0) {
@@ -367,6 +438,7 @@ export function classifyCheckSnapshot(profiles, checkRuns) {
   const pending = []
   const failed = []
   const successful = []
+  const skippedNotDue = []
   for (const [key, item] of expected) {
     const run = latest.get(key)
     const label = `${item.profile.eventType}/${item.name}`
@@ -382,8 +454,26 @@ export function classifyCheckSnapshot(profiles, checkRuns) {
     if (status !== 'completed')
       throw new Error(`${label} has unknown status ${JSON.stringify(status)}`)
     const conclusion = typeof run.conclusion === 'string' ? run.conclusion.toLowerCase() : null
+    const condition = item.profile.pathFiltered?.[item.name]
     if (conclusion === 'success') successful.push(label)
-    else failed.push(`${label} (${conclusion ?? 'missing conclusion'})`)
+    else if (conclusion === 'skipped' && condition) {
+      // @@@path-filtered-jobs — see JOB_OUTPUTS_MARKER.
+      const decider = latest.get(`${item.profile.eventType}\0${condition.decider}`)
+      const deciderStatus = typeof decider?.status === 'string' ? decider.status.toLowerCase() : null
+      const deciderConclusion =
+        typeof decider?.conclusion === 'string' ? decider.conclusion.toLowerCase() : null
+      const due = decider?.outputs?.[condition.output]
+      if (!decider) missing.push(label)
+      else if (PENDING_STATUSES.has(deciderStatus)) pending.push(label)
+      else if (deciderConclusion !== 'success')
+        failed.push(`${label} (skipped; ${condition.decider} ${deciderConclusion ?? 'missing conclusion'})`)
+      else if (due === 'false') {
+        successful.push(label)
+        skippedNotDue.push(label)
+      } else if (due === undefined)
+        failed.push(`${label} (skipped; ${condition.decider} published no ${JOB_OUTPUTS_MARKER} ${condition.output})`)
+      else failed.push(`${label} (skipped although ${condition.decider} reported ${condition.output}=${due})`)
+    } else failed.push(`${label} (${conclusion ?? 'missing conclusion'})`)
   }
 
   const ignoredNotApplicable = [...latest]
@@ -406,6 +496,7 @@ export function classifyCheckSnapshot(profiles, checkRuns) {
     pending: pending.sort(),
     failed: failed.sort(),
     successful: successful.sort(),
+    skippedNotDue: skippedNotDue.sort(),
     ignoredNotApplicable,
     skippedCheckRuns: checkRuns[SKIPPED_CHECK_RUNS] ?? [],
     fingerprint:
@@ -464,6 +555,7 @@ export function evaluateCheckSnapshots(profiles, snapshots) {
     pending: latest.pending,
     failed: latest.failed,
     ignoredNotApplicable: latest.ignoredNotApplicable,
+    ...(latest.skippedNotDue.length > 0 ? { skippedNotDue: latest.skippedNotDue } : {}),
     ...(latest.skippedCheckRuns.length > 0
       ? {
           skippedCheckRuns: latest.skippedCheckRuns,
@@ -689,7 +781,16 @@ export function associateCheckRunEvents(checkRuns, workflowRuns) {
   return associated
 }
 
-function fetchCheckRuns({ repo, sha, root }) {
+function ghArrayPages(endpoint, root) {
+  const gh = process.env.GUGU_GH || 'gh'
+  const pages = execJson(gh, ['api', '--paginate', '--slurp', endpoint], { cwd: root })
+  if (!Array.isArray(pages) || pages.some((page) => !Array.isArray(page))) {
+    throw new Error(`${endpoint} did not return array pages`)
+  }
+  return pages.flat()
+}
+
+function fetchCheckRuns({ repo, sha, root, profiles }) {
   if (!/^[^/]+\/[^/]+$/.test(repo)) throw new Error('--repo must be OWNER/REPO')
   const workflowRuns = ghPages(
     `repos/${repo}/actions/runs?head_sha=${encodeURIComponent(sha)}&per_page=100`,
@@ -701,7 +802,9 @@ function fetchCheckRuns({ repo, sha, root }) {
     'check_runs',
     root
   )
-  return associateCheckRunEvents(checkRuns, workflowRuns)
+  return attachDeciderOutputs(associateCheckRunEvents(checkRuns, workflowRuns), profiles, (id) =>
+    ghArrayPages(`repos/${repo}/check-runs/${id}/annotations?per_page=100`, root)
+  )
 }
 
 /** A complete Git diff includes both sides of renames; extra paths can only require extra checks. */
@@ -785,6 +888,7 @@ function printResult(result, asJson) {
     'pending',
     'failed',
     'ignoredNotApplicable',
+    'skippedNotDue',
     'skippedCheckRuns',
     'mergeState',
     'diagnostic'
@@ -872,13 +976,13 @@ async function main() {
   const snapshots = []
 
   for (;;) {
-    snapshots.push(fetchCheckRuns({ repo: values.repo, sha, root }))
+    snapshots.push(fetchCheckRuns({ repo: values.repo, sha, root, profiles }))
     if (snapshots.length > 2) snapshots.shift()
     const result = evaluateCheckSnapshots(profiles, snapshots)
     if (result.verdict === 'RED' || result.verdict === 'GREEN' || !values.watch) {
       if (result.settling && !values.watch) {
         await new Promise((resolve) => setTimeout(resolve, settleMs))
-        snapshots.push(fetchCheckRuns({ repo: values.repo, sha, root }))
+        snapshots.push(fetchCheckRuns({ repo: values.repo, sha, root, profiles }))
         if (snapshots.length > 2) snapshots.shift()
         const settled = evaluateCheckSnapshots(profiles, snapshots)
         printResult(formatResult(settled), values.json)

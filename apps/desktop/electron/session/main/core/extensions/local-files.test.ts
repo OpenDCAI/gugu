@@ -251,6 +251,7 @@ async function localService() {
   files = createLocalAppFiles({
     service,
     sync: {
+      ensureFor: (asAgent) => { relay.ensureFor(asAgent); },
       pageFor: (id) => relay.page(id)!,
       grant: (page, grant) => relay.grant(page, grant),
       ungrant: (id, docName) => relay.ungrant(id, docName),
@@ -401,6 +402,7 @@ describe('gugu.files on a working copy', () => {
     const gated = createLocalAppFiles({
       service,
       sync: {
+        ensureFor: (asAgent) => { relay.ensureFor(asAgent); },
         pageFor: (id) => relay.page(id)!,
         grant: (page, grant) => relay.grant(page, grant),
         ungrant: (id, docName) => relay.ungrant(id, docName),
@@ -430,6 +432,7 @@ describe('gugu.files on a working copy', () => {
     const gated = createLocalAppFiles({
       service,
       sync: {
+        ensureFor: (asAgent) => { relay.ensureFor(asAgent); },
         pageFor: (id) => relay.page(id)!,
         grant: (page, grant) => (grants.push(grant), relay.grant(page, grant)),
         ungrant: (id, docName) => relay.ungrant(id, docName),
@@ -457,7 +460,10 @@ describe('gugu.files on a working copy', () => {
     const granted = new Set<string>();
     const gated = createLocalAppFiles({
       service,
-      sync: { pageFor: (id) => relay.page(id)!, grant: () => undefined, ungrant: () => undefined, revoke: () => undefined },
+      sync: {
+        ensureFor: (asAgent) => { relay.ensureFor(asAgent); },
+        pageFor: (id) => relay.page(id)!, grant: () => undefined, ungrant: () => undefined, revoke: () => undefined,
+      },
       hasCapability: (_id, capability) => granted.has(capability),
       self: async () => ({ userId: 'user:x', name: 'x' }),
     });
@@ -712,7 +718,7 @@ async function runtimePage(filePath: string) {
     },
     clipboard: { writeText: async () => undefined },
   };
-  const file = (await openFile(host as never, { session: SESSION, id: filePath })) as {
+  const file = (await openFile(host as never, host.appFiles.open({ ref: { session: SESSION, id: filePath } }))) as {
     text: string;
     insert(index: number, text: string): void;
     readonly status: string;

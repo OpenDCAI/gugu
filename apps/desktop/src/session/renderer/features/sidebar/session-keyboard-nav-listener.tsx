@@ -1,3 +1,5 @@
+import { commandRegistry } from '@renderer/lib/commands/registry';
+import { useCommandProvider } from '@renderer/lib/commands/use-command-provider';
 import { detectPlatform } from '@tanstack/react-hotkeys';
 import { useEffect, useMemo } from 'react';
 import { useAppSettingsKey } from '@renderer/features/settings/use-app-settings-key';
@@ -5,7 +7,7 @@ import { getEffectiveHotkey } from '@renderer/lib/hooks/useKeyboardShortcuts';
 import { modalStore } from '@renderer/lib/modal/modal-store';
 import { setTerminalKeyboardExitHandler } from '@renderer/lib/pty/terminal-keyboard-exit';
 import { caretAtStartOf } from './caret-at-start';
-import { focusSessionComposer, sessionKeyboardNav, SESSION_NAV_FOCUS_REGION } from './session-keyboard-nav';
+import { focusSessionComposer, sessionKeyboardNav } from './session-keyboard-nav';
 import {
   deferToDefaultPrevented,
   isTerminalExitChord,
@@ -125,22 +127,22 @@ function isPrintable(event: KeyboardEvent): boolean {
 
 function runShortcut(key: SessionNavShortcutKey): boolean {
   switch (key) {
-    case 'sessionNext':
+    case 'session.next':
       return sessionKeyboardNav.move(1);
-    case 'sessionPrev':
+    case 'session.previous':
       return sessionKeyboardNav.move(-1);
-    case 'sessionFocusComposer':
+    case 'session.focusComposerFromSidebar':
       return sessionKeyboardNav.handOffToComposer();
-    case 'sessionNewInProject':
+    case 'session.projectHome':
       return sessionKeyboardNav.goToParent();
-    case 'sessionBackToList':
-    case 'sessionLeaveComposer':
+    case 'session.backToList':
+    case 'session.leaveComposer':
       return sessionKeyboardNav.leaveComposer();
-    case 'renameSession':
-      return sessionKeyboardNav.startRename();
-    case 'pinSession':
+    case 'session.rename':
+      return commandRegistry.dispatch('session.rename');
+    case 'session.pinHighlighted':
       return sessionKeyboardNav.togglePin();
-    case 'archiveHighlightedSession':
+    case 'session.archiveHighlighted':
       return sessionKeyboardNav.pressArchive();
   }
 }
@@ -155,6 +157,14 @@ function runShortcut(key: SessionNavShortcutKey): boolean {
  */
 export function SessionKeyboardNavListener() {
   const { value: keyboard } = useAppSettingsKey('keyboard');
+  useCommandProvider({
+    scopeId: 'app',
+    getCommands: () => [{
+      id: 'session.rename',
+      hideFromPalette: sessionKeyboardNav.cursor?.kind !== 'conversation',
+      execute: (task) => sessionKeyboardNav.startRename(task ? { kind: 'conversation', ...task } : undefined),
+    }],
+  });
 
   const hotkeys = useMemo<SessionNavHotkeys>(() => {
     const map: SessionNavHotkeys = {};
@@ -162,7 +172,7 @@ export function SessionKeyboardNavListener() {
     return map;
   }, [keyboard]);
 
-  const terminalExitHotkey = getEffectiveHotkey('terminalBackToList', keyboard);
+  const terminalExitHotkey = getEffectiveHotkey('session.leaveTerminal', keyboard);
 
   // behavior session-page「键盘导航」: the terminal's one concession. It is installed rather than
   // listened for because a terminal never lets a keydown reach the document — xterm consumes it
@@ -210,7 +220,7 @@ export function SessionKeyboardNavListener() {
       // behavior session-page「键盘导航」: an armed archive is cancelled by "按下任何其它键", not only by
       // the few that happen to move the cursor. Held modifiers are excluded — the second ⌃X starts
       // with a Control keydown, which would otherwise disarm the very press meant to confirm.
-      if (shortcut !== 'archiveHighlightedSession' && !MODIFIER_KEYS.has(event.key)) {
+      if (shortcut !== 'session.archiveHighlighted' && !MODIFIER_KEYS.has(event.key)) {
         sessionKeyboardNav.clearPendingArchive();
       }
       if (!shortcut) {
@@ -234,15 +244,5 @@ export function SessionKeyboardNavListener() {
     };
   }, [hotkeys]);
 
-  // The nav layer needs somewhere real to park focus: the sidebar list is virtualised, so the row
-  // the cursor sits on may have no DOM node at all. A holder outside the list keeps the keyboard
-  // reachable no matter how far the cursor has scrolled.
-  return (
-    <div
-      data-region={SESSION_NAV_FOCUS_REGION}
-      tabIndex={-1}
-      aria-hidden="true"
-      style={{ position: 'fixed', width: 0, height: 0, opacity: 0, outline: 'none' }}
-    />
-  );
+  return null;
 }

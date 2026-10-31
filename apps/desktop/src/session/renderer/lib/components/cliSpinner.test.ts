@@ -6,6 +6,8 @@ import { createElement, act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CLISpinner } from './cliSpinner';
+import { ANIMATION_WINDOW_SEEN_EVENT } from '@gugu/session-shared/animation-visibility';
+import { PageShownContext } from '@renderer/app/recent-session-pages';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -14,6 +16,7 @@ let root: Root;
 
 beforeEach(() => {
   vi.useFakeTimers();
+  window.dispatchEvent(new CustomEvent(ANIMATION_WINDOW_SEEN_EVENT, { detail: true }));
   container = document.createElement('div');
   document.body.appendChild(container);
   root = createRoot(container);
@@ -22,6 +25,8 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount());
   container.remove();
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
   vi.useRealTimers();
 });
 
@@ -40,6 +45,102 @@ function sample(ticks: number): string[] {
 }
 
 describe('CLISpinner animate', () => {
+  it.each(['1', '2'] as const)('variant %s: native minimize stops the timer and restore resumes it', (variant) => {
+    render({ variant });
+    expect(new Set(sample(3)).size).toBeGreaterThan(1);
+    act(() => window.dispatchEvent(new CustomEvent(ANIMATION_WINDOW_SEEN_EVENT, { detail: false })));
+    const paused = container.textContent;
+    expect(vi.getTimerCount()).toBe(0);
+    expect(new Set(sample(30))).toEqual(new Set([paused]));
+    act(() => window.dispatchEvent(new CustomEvent(ANIMATION_WINDOW_SEEN_EVENT, { detail: true })));
+    expect(vi.getTimerCount()).toBe(1);
+    expect(new Set(sample(3)).size).toBeGreaterThan(1);
+  });
+
+  it('does not start while its native window is hidden, including on remount', () => {
+    render({});
+    act(() => window.dispatchEvent(new CustomEvent(ANIMATION_WINDOW_SEEN_EVENT, { detail: false })));
+    render({ variant: '2' });
+    expect(vi.getTimerCount()).toBe(0);
+    act(() => window.dispatchEvent(new CustomEvent(ANIMATION_WINDOW_SEEN_EVENT, { detail: true })));
+    expect(new Set(sample(3)).size).toBeGreaterThan(1);
+  });
+
+  it('stops on document visibility changes and resumes when visible', () => {
+    let hidden = false;
+    vi.spyOn(document, 'hidden', 'get').mockImplementation(() => hidden);
+    render({});
+    hidden = true;
+    act(() => document.dispatchEvent(new Event('visibilitychange')));
+    expect(vi.getTimerCount()).toBe(0);
+    hidden = false;
+    act(() => document.dispatchEvent(new Event('visibilitychange')));
+    expect(new Set(sample(3)).size).toBeGreaterThan(1);
+  });
+
+  it('uses the existing retained page visibility and resumes on return', () => {
+    const page = (shown: boolean) => createElement(PageShownContext.Provider, { value: shown }, createElement(CLISpinner));
+    act(() => root.render(page(true)));
+    expect(new Set(sample(3)).size).toBeGreaterThan(1);
+    act(() => root.render(page(false)));
+    expect(vi.getTimerCount()).toBe(0);
+    act(() => root.render(page(true)));
+    expect(new Set(sample(3)).size).toBeGreaterThan(1);
+  });
+
+  it('uses the shared viewport observer to stop and restart offscreen motion', () => {
+    const iframe = document.createElement('iframe');
+    document.body.append(iframe);
+    const doc = iframe.contentDocument!;
+    vi.spyOn(doc, 'hidden', 'get').mockReturnValue(false);
+    doc.body.append(container);
+    let intersect!: IntersectionObserverCallback;
+    const unobserve = vi.fn();
+    Object.defineProperty(doc.defaultView!, 'IntersectionObserver', { configurable: true, value: class {
+      constructor(callback: IntersectionObserverCallback) { intersect = callback; }
+      observe() {}
+      unobserve = unobserve;
+    } });
+    render({});
+    const target = container.firstElementChild!;
+    expect(vi.getTimerCount()).toBe(0);
+    const visible = (isIntersecting: boolean) => act(() => intersect([{ target, isIntersecting } as IntersectionObserverEntry], {} as IntersectionObserver));
+    visible(true);
+    expect(new Set(sample(3)).size).toBeGreaterThan(1);
+    visible(false);
+    expect(vi.getTimerCount()).toBe(0);
+    visible(true);
+    expect(vi.getTimerCount()).toBe(1);
+    act(() => root.render(null));
+    expect(unobserve).toHaveBeenCalledWith(target);
+    expect(vi.getTimerCount()).toBe(0);
+    document.body.append(container);
+    iframe.remove();
+  });
+
+  it('uses its portal document rather than the hidden main document', () => {
+    render({});
+    act(() => window.dispatchEvent(new CustomEvent(ANIMATION_WINDOW_SEEN_EVENT, { detail: false })));
+    const iframe = document.createElement('iframe');
+    document.body.append(iframe);
+    const portalDoc = iframe.contentDocument!;
+    vi.spyOn(portalDoc, 'hidden', 'get').mockReturnValue(false);
+    const timer = vi.spyOn(portalDoc.defaultView!, 'setInterval').mockImplementation(window.setInterval.bind(window));
+    vi.spyOn(portalDoc.defaultView!, 'clearInterval').mockImplementation(window.clearInterval.bind(window));
+    act(() => root.render(null));
+    portalDoc.body.append(container);
+    render({});
+    expect(new Set(sample(3)).size).toBeGreaterThan(1);
+    expect(timer).toHaveBeenCalled();
+    act(() => portalDoc.defaultView!.dispatchEvent(new CustomEvent(ANIMATION_WINDOW_SEEN_EVENT, { detail: false })));
+    expect(vi.getTimerCount()).toBe(0);
+    act(() => portalDoc.defaultView!.dispatchEvent(new CustomEvent(ANIMATION_WINDOW_SEEN_EVENT, { detail: true })));
+    expect(new Set(sample(3)).size).toBeGreaterThan(1);
+    act(() => root.render(null));
+    document.body.append(container);
+    iframe.remove();
+  });
+
   it.each(['1', '2'] as const)('variant %s: animate=false 画同一帧、不起计时器', (variant) => {
     render({ variant, animate: false });
     expect(vi.getTimerCount(), '静止的字形不该有计时器').toBe(0);

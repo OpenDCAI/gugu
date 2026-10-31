@@ -1,6 +1,12 @@
+import type { Device } from '@gugu/core/shared/types/chat'
+import type { SessionpageSessionSummary } from '@gugu/session-core/session-record/contract'
+import { retainDeviceSessions, updateDeviceSessions } from '../../../../apps/desktop/src/session/shared/remote-sessions/session-directory'
+import { showPhoneAppView } from '../../../../apps/desktop/src/components/appSlot/phoneAppState'
 // @vitest-environment jsdom
+import { rpcQuery } from '../../../helpers/rpcQuery'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { hostAppFrame, type PhoneAppBinding } from '../../../../apps/desktop/src/components/appSlot/phoneAppHost'
+import { platform } from '../../../../apps/desktop/src/platform'
 import { PHONE_CAPABILITIES } from '../../../../apps/desktop/src/components/appSlot/phoneApps'
 import { grantableBy } from '../../../../apps/desktop/src/session/shared/extensions/attachment-install'
 import { APP_COMPOSE_EVENT, APP_FRAME_MARKER } from '../../../../apps/desktop/src/session/shared/extensions/app-runtime-protocol'
@@ -17,7 +23,11 @@ const ORIGIN = 'https://board.acct.apps.gugu.invalid'
 /** The chat compose names: one the person signed in to this page is in (`composeInChat` reads it as them). */
 const CHAT = '0b000000-0000-4000-8000-0000000000b4'
 const DECK = '0c000000-0000-4000-8000-0000000000b4'
+vi.mock('../../../../apps/desktop/src/session/renderer/features/extensions/installed-extensions-store', () => ({ installedExtensionsStore: { manifests: [], icons: {}, isEnabled: () => true, manifestFor: () => ({ id: 'board', name: 'Board' }) } }))
 const auth = vi.hoisted(() => ({ token: `h.${Buffer.from(JSON.stringify({ sub: '0a000000-0000-4000-8000-0000000000b4' })).toString('base64url')}.s` }))
+const machines = vi.hoisted(() => ({ devices: [] as Device[] }))
+vi.mock('../../../../apps/desktop/src/store/devicesCache', () => ({ readCachedDevices: () => machines.devices }))
+vi.mock('../../../../apps/desktop/src/mobile/agent-watch/sessionpage-rpc', () => ({ fetchSessionsList: vi.fn() }))
 vi.mock('../../../../apps/desktop/src/lib/sessionPublication', () => ({ getRendererAccessToken: () => auth.token }))
 vi.mock('@gugu/core/cloud/supabase', () => ({
   createGuguSupabaseClient: () => {
@@ -30,10 +40,15 @@ vi.mock('@gugu/core/cloud/supabase', () => ({
     }
     // The folder's doors, as the person: the deck by its id, who may delete what (everyone, everything).
     // (Built when asked: this client is made while the module loads, before DECK is.)
-    const rpc = async (name: string, args: Record<string, unknown>) =>
-      name === 'workspace_deletable_as'
+    const rpc = rpcQuery(async (name: string, args: Record<string, unknown>) =>
+      name === 'chat_facts'
+        ? { data: [{ id: args.p_chat_id, kind: 'group', source_chat_id: null }], error: null }
+        : name === 'workspace_deletable_as'
         ? { data: args.p_item_ids, error: null }
-        : { data: [{ id: DECK, chat_id: CHAT, kind: 'file', filename: 'deck.pptx', version: 3, parent_id: null, system_role: null, path: 'deck.pptx' }], error: null }
+        // Not a project chat: no machine keeps its files.
+        : name === 'file_project_policy_for'
+        ? { data: null, error: null }
+        : { data: [{ id: DECK, chat_id: CHAT, kind: 'file', filename: 'deck.pptx', version: 3, parent_id: null, system_role: null, path: 'deck.pptx' }], error: null })
     return { from: () => query, rpc }
   },
 }))
@@ -49,7 +64,7 @@ function start(capabilities: PhoneAppBinding['capabilities']) {
   host?.dispose()
   host = hostAppFrame(
     frame,
-    { extensionId: 'board', tabId: 'tab-1', chatId: 'chat-1', capabilities, locale: 'en-US', themeMode: 'light' },
+    { extensionId: 'board', tabId: 'tab-1', tabName: 'main', chatId: 'chat-1', capabilities, locale: 'en-US', themeMode: 'light' },
     {
       showMessage: vi.fn(),
       showSession: (sessionId: string) => {
@@ -62,6 +77,8 @@ function start(capabilities: PhoneAppBinding['capabilities']) {
   )
 }
 beforeEach(() => {
+  machines.devices = []
+  retainDeviceSessions([])
   frame = document.createElement('iframe')
   frame.src = `${ORIGIN}/index.html`
   document.body.appendChild(frame)
@@ -92,7 +109,7 @@ const gestureCalls: Record<string, Record<string, unknown>> = {
   filesDownload: { ref: { name: 'a.md' } },
   showMessage: { id: 'msg-1' },
   showSession: { id: 's-1' },
-  compose: { text: 'picked' },
+  dispatch: { text: 'picked' },
   clipboardWriteText: { text: 'hi' },
   openLink: { url: 'gugu://ext/radar/radar' },
   forumPost: { title: 't', body: 'b' },
@@ -115,32 +132,64 @@ describe('the phone refuses a verb outside the gesture it needs, in the same sen
   })
 
   it('control: inside a gesture the clipboard is written; outside one, a verb without the mark answers', async () => {
-    const writeText = vi.fn(async (_text: string) => undefined)
-    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
+    const writeText = vi.spyOn(platform, 'writeClipboardText').mockResolvedValue(undefined)
+    const browser = vi.fn().mockRejectedValue(new Error('Write permission denied.'))
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText: browser }, configurable: true })
     activation.isActive = true
     expect(await call('clipboardWriteText', { text: 'hi' })).toMatchObject({ ok: true })
     expect(writeText).toHaveBeenCalledWith('hi')
+    expect(browser).not.toHaveBeenCalled()
     activation.isActive = false
     expect(await call('setTabTitle', { title: 'Board' })).toMatchObject({ ok: true })
   })
 
-  it('control: inside a tap, compose hands the composer of the chat it names the text — no capability asked, nothing sent', async () => {
+  it('control: inside a tap, a dispatch draft hands the composer of the chat it names the text — no capability asked, nothing sent', async () => {
     const composed: unknown[] = []
-    const take = (event: Event) => composed.push((event as CustomEvent).detail)
+    const take = (event: Event) => {
+      expect(event.target).toBe(document)
+      expect(event.eventPhase).toBe(Event.BUBBLING_PHASE)
+      composed.push((event as CustomEvent).detail)
+    }
     window.addEventListener(APP_COMPOSE_EVENT, take)
     activation.isActive = true
-    expect(await call('compose', { text: '  > picked  ', chat: CHAT })).toMatchObject({ ok: true })
-    // A phone has no sessions: one named is not here.
-    expect(await call('compose', { text: 'picked', session: 'task-1' })).toMatchObject({ ok: false, code: 'not-found' })
+    expect(await call('dispatch', { text: '  > picked  ', draft: true, to: { chat: CHAT } })).toMatchObject({ ok: true, value: { to: { chat: CHAT } } })
+    // An agent absent from every current list is not found.
+    expect(await call('dispatch', { text: 'picked', draft: true, to: { agent: 'user:00000000-0000-4000-8000-000000000009' } })).toMatchObject({ ok: false, code: 'not-found' })
     // App 引用 pill: refs make pills the composer holds, as on the desktop; `about` is gone, said so.
-    expect(await call('compose', { text: '', refs: [{ file: { id: DECK }, at: { slide: 2 }, label: '第 2 页' }] })).toMatchObject({ ok: true })
-    expect(await call('compose', { text: 'x', about: { id: DECK } })).toMatchObject({ ok: false, code: 'invalid' })
+    expect(await call('dispatch', { text: '', draft: true, refs: [{ file: { id: DECK }, at: { slide: 2 }, label: '第 2 页' }] })).toMatchObject({ ok: true })
+    expect(await call('dispatch', { text: 'x', draft: true, about: { id: DECK } })).toMatchObject({ ok: false, code: 'invalid' })
     window.removeEventListener(APP_COMPOSE_EVENT, take)
     expect(composed).toEqual([
       { chatId: CHAT, text: '> picked\n' },
       { chatId: CHAT, text: '', refs: [{ label: 'deck.pptx · 第 2 页', link: `gugu-file://${DECK}?v=3#slide=2` }] },
     ])
   })
+})
+
+it('onAgentsChanged observes the existing directory, filters App scope, and stops on dispose', () => {
+  machines.devices = [{ device_id: 'computer', label: 'Computer', is_online: true, capabilities: {} } as Device]
+  const own = { conversationId: 'own', spawnedByExtensionId: 'board', agent: { userId: 'a' }, agentStatus: 'idle' } as SessionpageSessionSummary
+  const other = { ...own, conversationId: 'other', spawnedByExtensionId: 'elsewhere', agent: { userId: 'b' } }
+  updateDeviceSessions('computer', { sessions: [own, other], cached: false, loading: false, error: null })
+  start(['agents:read'])
+  const changes = () => posted.mock.calls.filter(([message]) => message.t === 'event' && message.event?.type === 'agentsChanged')
+  const next = { ...own, title: 'changed' }
+  updateDeviceSessions('computer', { sessions: [next, { ...other, title: 'other changed' }] })
+  expect(changes().map(([message]) => message.event.agentIds)).toEqual([['user:a']])
+  updateDeviceSessions('computer', { sessions: [next, other] })
+  expect(changes()).toHaveLength(1)
+  host?.dispose(); host = undefined
+  updateDeviceSessions('computer', { sessions: [] })
+  expect(changes()).toHaveLength(1)
+})
+
+it('answers getAppState and pushes actual view changes once, independent of the App context', async () => {
+  expect(await call('getAppState', {})).toMatchObject({ ok: true, value: { activeSessionId: null, activeProjectId: null, panes: [] } })
+  const next = { activeSessionId: 'shown', activeProjectId: 'project', panes: [] }
+  const clear = showPhoneAppView(next)
+  expect(await call('getAppState', {})).toMatchObject({ ok: true, value: next })
+  expect(posted.mock.calls.filter(([message]) => message.t === 'event' && message.event?.type === 'appState')).toHaveLength(1)
+  clear()
 })
 
 describe("showSession on the phone: the task tab opens the session's row, on whichever of the person's computers", () => {
@@ -170,8 +219,8 @@ describe("showSession on the phone: the task tab opens the session's row, on whi
 })
 
 describe('the phone refuses a verb whose capability the App lacks, as the desktop does (S15)', () => {
-  it('send without chat:relay is denied, naming the capability, before anything is sent', async () => {
-    expect(await call('send', { to: 'user:00000000-0000-4000-8000-000000000001', text: 'hi' })).toMatchObject({
+  it('a dispatch naming a member without chat:relay is denied, naming the capability, before anything is sent', async () => {
+    expect(await call('dispatch', { to: { chat: CHAT, member: 'user:00000000-0000-4000-8000-000000000001' }, text: 'hi' })).toMatchObject({
       ok: false,
       code: 'denied',
       message: 'Not permitted: this App does not have "chat:relay"',
@@ -184,13 +233,13 @@ describe('the phone refuses a verb whose capability the App lacks, as the deskto
       throw new Error('offline')
     })
     start(['files:read', 'files:write', 'chat:relay'])
-    const answer = await call('send', { to: 'user:00000000-0000-4000-8000-000000000001', text: 'hi' })
-    expect(answer.message).not.toMatch(/Not permitted/)
+    const answer = await call('dispatch', { to: { chat: CHAT, member: 'user:00000000-0000-4000-8000-000000000001' }, text: 'hi' })
+    expect(answer).not.toMatchObject({ code: 'denied' })
   })
 
   it('files:read:all-machines is kept when installed here and has what files:read gives: its verbs, and a watched chat changing', async () => {
     start(['chat:relay'])
-    expect(await call('filesWatch', { place: { chat: CHAT } })).toMatchObject({ ok: false, code: 'denied', message: 'Not permitted: this App does not have "files:read"' })
+    expect(await call('filesWatch', { watchId: 'source-watch', place: { chat: CHAT } })).toMatchObject({ ok: false, code: 'denied', message: 'Not permitted: this App does not have "files:read"' })
     const manifest = parseExtensionManifest({
       id: 'board',
       name: 'Board',
@@ -203,12 +252,12 @@ describe('the phone refuses a verb whose capability the App lacks, as the deskto
     const kept = grantableBy(manifest, PHONE_CAPABILITIES).permissions?.capabilities ?? []
     expect(kept).toEqual(['files:read:all-machines', 'chat:relay'])
     start(kept)
-    expect(await call('filesWatch', { place: { chat: CHAT } })).toMatchObject({ ok: true })
+    expect(await call('filesWatch', { watchId: 'source-watch', place: { chat: CHAT } })).toMatchObject({ ok: true })
     const filesChanged = () => posted.mock.calls.filter(([message]) => message.t === 'event' && message.event?.type === 'filesChanged')
     await host!.filesChanged([{ chatId: CHAT, itemIds: [DECK] }])
     expect(filesChanged()).toHaveLength(1)
     // A new theme rebinds the frame (update): what the word covers stays.
-    host!.update({ extensionId: 'board', tabId: 'tab-1', chatId: 'chat-1', capabilities: kept, locale: 'en-US', themeMode: 'dark' })
+    host!.update({ extensionId: 'board', tabId: 'tab-1', tabName: 'main', chatId: 'chat-1', capabilities: kept, locale: 'en-US', themeMode: 'dark' })
     await host!.filesChanged([{ chatId: CHAT, itemIds: [DECK] }])
     expect(filesChanged()).toHaveLength(2)
   })

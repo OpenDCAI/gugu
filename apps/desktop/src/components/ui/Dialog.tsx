@@ -1,17 +1,27 @@
 /* eslint-disable react-refresh/only-export-components -- compound component namespace is intentional. */
 
+import { useLayoutEffect, useState } from 'react'
 import { Dialog as DialogPrimitive } from '@base-ui/react/dialog'
 import { cn } from '@/lib/cn'
+import { useUiPortalContainer } from '@gugu/session-ui/react/primitives'
 
 type ClassNameProp = { className?: string }
 
 
-function DialogRoot(props: DialogPrimitive.Root.Props) {
-  return <DialogPrimitive.Root {...props} />
+function DialogRoot({ children, open, onOpenChangeComplete, ...props }: DialogPrimitive.Root.Props) {
+  // Keep the last committed portal until Base UI finishes closing.
+  const [retained, setRetained] = useState(() => children)
+  useLayoutEffect(() => { if (open && children != null) setRetained(() => children) }, [open, children])
+  return <DialogPrimitive.Root {...props} open={open} onOpenChangeComplete={(next) => {
+    if (!next && open) return
+    if (!next) setRetained(null)
+    onOpenChangeComplete?.(next)
+  }}>{children ?? retained}</DialogPrimitive.Root>
 }
 
 function DialogPortal(props: DialogPrimitive.Portal.Props) {
-  return <DialogPrimitive.Portal {...props} />
+  const container = useUiPortalContainer()
+  return <DialogPrimitive.Portal container={container} {...props} />
 }
 
 function DialogBackdrop({

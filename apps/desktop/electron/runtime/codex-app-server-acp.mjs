@@ -1,17 +1,23 @@
 #!/usr/bin/env node
+import { codexTerminalUpdate } from './codex-terminals.mjs'
 
 // Thin protocol adapter: preserve Gugu's ACP host contract while running the user's own Codex app-server.
 import { execFile } from 'node:child_process'
+import { randomUUID } from 'node:crypto'
 import { appendFileSync } from 'node:fs'
 import { createInterface } from 'node:readline'
 import { GUGU_MCP_CONFIG_KEY, normalizeGuguToolName } from '../mcp/gugu-mcp-name.mjs'
 import { joinPromptText, promptInputItems } from './codex-app-server-prompt.mjs'
+import { historyUnknownError, replayHistoryWithinBudget, resumeReplayRequest } from './codex-app-server-history.mjs'
 import { codexForkHandoffItems } from './codex-fork-handoff.mjs'
 import { memoizeSuccess, writeCodexModelCatalog } from './codex-model-catalog.mjs'
 // esbuild 把它打进 dist-electron/runtime;单测里 node 直接跑这份源码,所以写 `.ts` 全路径。
 import { spawnOwnedChild } from '../../../../packages/session-core/src/exec/owned-child.ts'
 import { codexReasoningText } from '../../../../packages/core/src/shared/reasoningText.mjs'
+import { codexFilePatches } from '../../../../packages/session-core/src/acp/transport/codex-file-patches.ts'
 import { createCodexSubagents } from './codex-subagents.mjs'
+import { CODEX_AUTONOMY_BY_MODE, CODEX_PERMISSION_MODES } from '../../../../packages/session-plugins/src/agents/impl/codex/permission-modes.ts'
+import { redactAll } from '../../../../packages/session-shared/src/logger/redact.ts'
 
 const codexBin = process.env.GUGU_CODEX_BIN?.trim()
 if (!codexBin) {
@@ -27,12 +33,9 @@ let appNextId = 1
 let appReady = false
 let sessionId = null
 let appServerThreadConfig = null
-let activePrompt = null
+let activeCycle = null
 /** `/compact` 已交给 codex、压缩那一轮还没报 `turn/started` 时,在等它的那条 ACP 请求 id。 */
-let compactAcpId = null
-let threadMaterialization = 'unmaterialized'
-/** 这条 thread 已分页 ⇒ 它从此拒绝 includeTurns 读法,别再问第二次(见 threadReadTurnsRefusal)。 */
-let threadRefusesTurnsRead = false
+let compactInsertion = null
 let established = false
 let revertingHistory = false
 let historyCanRevert = false
@@ -171,19 +174,9 @@ let loadGeneration = 0
 const appPending = new Map()
 // 流过增量的条目(→ 最近一段增量的段号):`item/completed` 时不再整条补发。有的模型思考不流增量,整条只在 completed 里(#6830)。
 const streamedItems = new Map()
-const earlyTurnCompletions = new Map()
 const toolOutcomesByTurn = new Map()
-const steeredAcpIdsByTurn = new Map()
-const pendingSteersByTurn = new Map()
-/**
- * @@@6353 turnId → (itemId → codex 的 processId):这一轮里还没结束的命令。
- * codex 的 `turn/interrupt` **故意**不杀在跑的命令 —— 它把命令转成 thread 的后台终端留着
- * (codex 自己在下一轮告诉模型「Any running unified exec processes may still be running in the
- * background」)。ACP 的 `session/cancel` 是「停掉这一轮」:这一轮起的命令归这一轮,所以取消时
- * 由这里按 processId 逐个 `thread/backgroundTerminals/terminate`。更早的轮次有意留在后台的
- * 进程(模型自己放出去的 dev server 之类)不在这张表里,不碰;它们在会话结束时随进程树一起收。
- */
-const runningCommandsByTurn = new Map()
+// itemId → native command. A null turnId means the turn ended and the host owns a background task.
+const runningCommands = new Map()
 
 const acpTestAuditPath = process.env.GUGU_SESSION_TEST_HOOKS === '1'
   ? process.env.GUGU_CODEX_ACP_TEST_AUDIT_PATH?.trim()
@@ -315,6 +308,9 @@ function hasLoopbackMcp(servers) {
  *
  * Only streamable HTTP MCP servers are accepted. Bearer values stay in env; config carries the name.
  */
+/** Allows a human to complete an MCP approval without the transport timing out first. */
+const GUGU_MCP_TOOL_TIMEOUT_SEC = 900
+
 function mcpConfig(servers) {
   const config = {}
   const env = {}
@@ -328,6 +324,10 @@ function mcpConfig(servers) {
     config[`mcp_servers.${key}.url`] = url
     // 问题 9:宿主交出的 server 都是咕咕发的,不逐次问(Codex 缺省按注解判,没注解就问)。
     config[`mcp_servers.${key}.default_tools_approval_mode`] = 'approve'
+    // A gugu tool can wait minutes for an App permission or another human decision. Codex gives every MCP call a
+    // fixed 300 s (`timed out awaiting tools/call after 300s`), and progress notifications do not extend it, so the
+    // servers we hand over get a limit above our longest wait.
+    config[`mcp_servers.${key}.tool_timeout_sec`] = GUGU_MCP_TOOL_TIMEOUT_SEC
     for (const header of server.headers ?? []) {
       const name = String(header.name ?? '')
       if (name.toLowerCase() !== 'authorization') continue
@@ -440,8 +440,9 @@ function permissionProfileDescription(profile) {
 }
 
 function permissionModeConfigOptions(selected, availableModes) {
+  if (!selected) return []
   return [{
-    id: 'mode',
+    configId: 'mode',
     name: 'Mode',
     category: 'mode',
     type: 'select',
@@ -556,9 +557,9 @@ function nearestSupportedEffort(wanted, supported) {
 }
 
 function modelConfigOptions(selected, models) {
-  if (models.length === 0) return []
+  if (models.length === 0 || !selected) return []
   return [{
-    id: 'model',
+    configId: 'model',
     name: 'Model',
     category: 'model',
     type: 'select',
@@ -579,9 +580,9 @@ function modelConfigOptions(selected, models) {
 function effortConfigOptions(selectedModelId, selectedEffortId, models) {
   const current = models.find((model) => model.id === selectedModelId)
   const efforts = current?.efforts ?? []
-  if (efforts.length === 0) return []
+  if (efforts.length === 0 || !selectedEffortId) return []
   return [{
-    id: 'effort',
+    configId: 'effort',
     name: 'Reasoning effort',
     category: 'thought_level',
     type: 'select',
@@ -793,7 +794,36 @@ if (process.env.GUGU_PLATFORM_MODELS?.trim()) {
   })
 }
 
+let sessionListRead = null
+
+// Discovery has no session MCP credentials. Release that unbound native process before
+// session setup, so listing first cannot freeze the later session's tool configuration.
+async function readSessionList(params) {
+  while (sessionListRead) await sessionListRead.catch(() => undefined)
+  if (appStarting) await appStarting
+  if (appReady) return appRequest('thread/list', params)
+  const read = (async () => {
+    try {
+      await startAppOnce([])
+      return await appRequest('thread/list', params)
+    } finally {
+      await appServer?.stop()
+      appReader?.close()
+      appServer = null
+      app = null
+      appReader = null
+      appReady = false
+      appModelCatalog?.dispose()
+      appModelCatalog = null
+    }
+  })()
+  sessionListRead = read
+  try { return await read } finally { if (sessionListRead === read) sessionListRead = null }
+}
+
 async function startApp(servers) {
+  // A discovery failure belongs to its caller; setup waits only for process release.
+  while (sessionListRead) await sessionListRead.catch(() => undefined)
   if (appReady) return
   if (appStarting) return appStarting
   appStarting = startAppOnce(servers).finally(() => {
@@ -806,6 +836,7 @@ async function startApp(servers) {
 async function startAppOnce(servers) {
   const mcp = mcpConfig(servers)
   appServerThreadConfig = mcp.config
+  appServerThreadConfig['tools.update_plan.enabled'] = true
   const reasoningSummary = process.env.GUGU_CODEX_REASONING_SUMMARY?.trim()
   if (reasoningSummary) {
     // Codex ACP is a thin bridge: argv belongs to the adapter process, while
@@ -826,10 +857,10 @@ async function startAppOnce(servers) {
     // 可选 server 首次取工具只等 1 秒(codex 的 mcp_optional_startup_grace_ms),慢一步就不在那一轮里。
     // 标 required:开场等它起好,起不来就让开场响亮地失败。
     appServerThreadConfig[`mcp_servers.${GUGU_MCP_CONFIG_KEY}.required`] = true
+    appServerThreadConfig[`mcp_servers.${GUGU_MCP_CONFIG_KEY}.omit_tools_from`] = ['deferred']
   }
-  // 哪些 server 的工具不进 code mode 的 exec 沙箱、直接上模型的工具表:声明了 alwaysLoad 的那几台(咕咕自己那台、
-  // 资源库连上的服务、人选了直接列出的 App),由物化器算好递过来(session-bundle.ts codexDirectNamespaces)。
-  // 咕咕自己那台在里面 —— #3551 当年挂住的那条路靠它挡住。
+  // Library services and full-disclosure Apps keep the materializer's direct-only namespaces.
+  // Gugu's own catalog follows Codex's native execution surface without deferred loading.
   const directNamespaces = process.env.GUGU_CODEX_DIRECT_TOOL_NAMESPACES?.trim()
   if (directNamespaces) {
     const parsed = JSON.parse(directNamespaces)
@@ -890,8 +921,42 @@ async function startAppOnce(servers) {
   appReady = true
 }
 
-function sessionUpdate(update) {
-  notify('session/update', { sessionId, update })
+const promptInsertions = new Map()
+function expectPromptInsertion(acpId, content) {
+  const clientId = randomUUID()
+  let resolve
+  const promise = new Promise(done => { resolve = done })
+  const entry = { acpId, clientId, content, promise, resolve, messageId: null, cancelled: false }
+  promptInsertions.set(clientId, entry)
+  return entry
+}
+function forgetPromptInsertion(acpId) {
+  for (const [clientId, entry] of promptInsertions) if (entry.acpId === acpId) promptInsertions.delete(clientId)
+}
+function insertedUserMessage(item) {
+  // app-server echoes the explicit clientUserMessageId as userMessage.clientId.
+  // Unsolicited messages never claim an outstanding RPC, even in the same native turn.
+  const entry = promptInsertions.get(item.clientId)
+  sessionUpdate({ sessionUpdate: 'user_message', messageId: item.id,
+    content: entry ? entry.content : [{ type: 'text', text: joinPromptText(item.content) }] })
+  if (entry && !entry.cancelled) {
+    entry.messageId = item.id
+    entry.resolve({ messageId: item.id })
+  }
+}
+async function receipt(id, entry) {
+  const result = await entry.promise
+  promptInsertions.delete(entry.clientId)
+  if (result.error) throw Object.assign(new Error(result.error), { code: result.code })
+  respond(id, result)
+}
+function throwIfInsertionCancelled(entry) {
+  if (entry.cancelled) throw Object.assign(new Error('Request cancelled before insertion'), { code: -32800 })
+}
+
+
+function sessionUpdate(update, targetSessionId = sessionId) {
+  notify('session/update', { sessionId: targetSessionId, update })
 }
 
 const subagents = createCodexSubagents({ rootId: () => sessionId, emit: sessionUpdate, request: appRequest, itemTool, reasoningText: codexReasoningText })
@@ -954,7 +1019,7 @@ async function publishAvailableCommandsInner(cwd, extraRoots) {
   }
   const seen = new Set()
   // `/compact` 是这条腿自己实现的那一条(session/prompt 里交给 `thread/compact/start`)。
-  const availableCommands = [{ name: 'compact', description: 'Compact the conversation context', input: null }]
+  const availableCommands = [{ name: 'compact', description: 'Compact the conversation context' }]
   for (const entry of Array.isArray(response?.data) ? response.data : []) {
     for (const skill of Array.isArray(entry?.skills) ? entry.skills : []) {
       const raw = typeof skill?.name === 'string' ? skill.name.trim() : ''
@@ -965,110 +1030,24 @@ async function publishAvailableCommandsInner(cwd, extraRoots) {
       availableCommands.push({
         name,
         description: String(skill?.shortDescription ?? skill?.description ?? raw),
-        input: null,
       })
     }
   }
   sessionUpdate({ sessionUpdate: 'available_commands_update', availableCommands })
 }
 
-/**
- * unified diff 的 hunk → 改前/改后两份文本。
- *
- * ⚠️ 多个 hunk 会被首尾相接:补丁里本来就没有 hunk 之间那段没改动的内容,拼起来等于把不相邻的
- * 几段呈现成相邻。展示出来的每一行都是真的,但「中间省略了多少」这个信息补丁没给,也补不出来。
- */
-function unifiedDiffTexts(patch) {
-  const before = []
-  const after = []
-  let inHunk = false
-  for (const line of String(patch ?? '').split('\n')) {
-    if (line.startsWith('@@')) { inHunk = true; continue }
-    if (!inHunk) continue
-    if (line.startsWith('\\')) continue // "\ No newline at end of file"
-    if (line.startsWith('-')) before.push(line.slice(1))
-    else if (line.startsWith('+')) after.push(line.slice(1))
-    else {
-      const text = line.startsWith(' ') ? line.slice(1) : line
-      before.push(text)
-      after.push(text)
-    }
-  }
-  if (!inHunk) return null
-  return { oldText: before.join('\n'), newText: after.join('\n') }
-}
-
-/**
- * codex 的 `fileChange.changes[]` → ACP 的 diff 内容块。
- *
- * **不带 diff 的编辑类工具条目会被宿主整条丢弃**(session-core 的 `item-fold` 里 `isEditKind` 那一支)。
- * 那不是 bug,是「别画空占位、等 diff 到」的设计:标准 ACP 流程是 `tool_call` 先到(还没 diff)、
- * `tool_call_update` 带着 diff 后到,卡片以 diff 为钥匙才建。此前这里只给标题不给 diff,那张卡片
- * 于是永远等不到 —— agent 改过的文件在界面上**一行痕迹都没有**,live 与重放同病。
- *
- * codex 给的两种形状(实测 codex-cli 0.146.0):
- *  - `kind.type === 'add'`:`diff` 就是**文件全文**,可精确还原;
- *  - `kind.type === 'update'`:`diff` 是 unified diff 的 hunk,按 hunk 还原。
- */
-/**
- * 去掉结尾那一个换行。
- *
- * 文本文件本来就以换行收尾,但渲染侧按 `\n` 切行,留着它会凭空多出一个空行 —— 只写了一行 `one`
- * 的新建文件会显示成 `+2 −0`。这不是内容,是行尾约定。
- */
-function withoutTrailingNewline(text) {
-  return text.endsWith('\n') ? text.slice(0, -1) : text
-}
-
-function fileChangeDiffs(item) {
-  const blocks = []
-  for (const change of Array.isArray(item?.changes) ? item.changes : []) {
-    const path = String(change?.path ?? '')
-    if (!path) continue
-    const kind = String(change?.kind?.type ?? '')
-    const raw = String(change?.diff ?? '')
-    if (kind === 'add') {
-      blocks.push({ type: 'diff', path, oldText: null, newText: withoutTrailingNewline(raw) })
-      continue
-    }
-    if (kind === 'delete') {
-      blocks.push({ type: 'diff', path, oldText: withoutTrailingNewline(raw), newText: '' })
-      continue
-    }
-    const texts = unifiedDiffTexts(raw)
-    // 认不出的形状宁可不发:发一个瞎猜的 diff,等于往这段历史里写没发生过的内容。
-    if (texts) {
-      blocks.push({
-        type: 'diff',
-        path,
-        oldText: withoutTrailingNewline(texts.oldText),
-        newText: withoutTrailingNewline(texts.newText),
-      })
-    }
-  }
-  return blocks
-}
-
-function itemTool(item) {
+function itemTool(item, terminalId = item?.id) {
   const type = String(item?.type ?? '')
   if (type === 'commandExecution') {
-    const { type: _type, id: _id, status: _status, aggregatedOutput, exitCode, durationMs, ...input } = item
-    const hasResult = aggregatedOutput != null || exitCode != null || durationMs != null
+    const { type: _type, id: _id, status: _status, aggregatedOutput: _output, exitCode: _exit, durationMs, ...input } = item
     return {
-      title: item.command || 'Command',
-      kind: 'execute',
-      rawInput: input,
-      ...(hasResult ? { rawOutput: { aggregatedOutput, exitCode, durationMs } } : {}),
-      ...(typeof aggregatedOutput === 'string'
-        ? { content: [{ type: 'content', content: { type: 'text', text: aggregatedOutput } }] }
-        : {}),
-      ...(typeof exitCode === 'number'
-        ? { _meta: { terminal_exit: { terminal_id: item.id, exit_code: exitCode, signal: null } } }
-        : {}),
+      title: item.command || 'Command', kind: 'execute', rawInput: input,
+      content: [{ type: 'terminal', terminalId: String(terminalId) }],
+      ...(durationMs != null ? { _meta: { durationMs } } : {}),
     }
   }
   if (type === 'fileChange') {
-    const content = fileChangeDiffs(item)
+    const content = codexFilePatches(item)
     return { title: 'Edit files', kind: 'edit', ...(content.length ? { content } : {}) }
   }
   if (type === 'mcpToolCall') {
@@ -1088,8 +1067,10 @@ function itemTool(item) {
       blocks.length > 0 &&
       blocks.every((block) => block?.type === 'text' || block?.type === 'image') &&
       Object.values(besides).every((value) => value == null || value === false)
+    const name = `mcp__${item.server || 'mcp'}__${item.tool || 'tool'}`
     return {
-      title: `mcp__${item.server || 'mcp'}__${item.tool || 'tool'}`,
+      name,
+      title: name,
       kind: 'other',
       rawInput: item.arguments,
       rawOutput: item.error ?? (carried ? undefined : item.result) ?? undefined,
@@ -1147,7 +1128,7 @@ function acpToolStatus(status, fallback) {
  *
  * `fallbackId` 兜住历史条目没有 id 的情况:共用空串会让多条工具调用折叠成同一个条目。
  */
-function replayItem(item, fallbackId, revertAnchor) {
+function replayItem(item, fallbackId, revertAnchor, steering) {
   if (subagents.replayItem(item)) return
   const type = String(item?.type ?? '')
   const messageId = String(item?.id ?? '') || fallbackId
@@ -1155,7 +1136,8 @@ function replayItem(item, fallbackId, revertAnchor) {
     // live 从不回声用户消息(客户端自己就有);重放时客户端手里是空的,这条只能由适配器补。
     // 复用 textPrompt:多段文本的连接方式必须和发送侧一致,否则重放出来的话和当初发出去的不一样。
     const text = joinPromptText(item?.content)
-    if (text) sessionUpdate({ sessionUpdate: 'user_message_chunk', messageId, content: { type: 'text', text }, ...(revertAnchor ? { _meta: { guguRevertAnchor: revertAnchor } } : {}) })
+    const meta = steering ? { guguSteering: true } : revertAnchor ? { guguRevertAnchor: revertAnchor } : null
+    if (text) sessionUpdate({ sessionUpdate: 'user_message', messageId, content: [{ type: 'text', text }], ...(meta ? { _meta: meta } : {}) })
     return
   }
   if (type === 'agentMessage') {
@@ -1172,12 +1154,14 @@ function replayItem(item, fallbackId, revertAnchor) {
     sendWholeReasoning(item, messageId)
     return
   }
-  const tool = itemTool(item)
+  const terminal = codexTerminalUpdate(item, messageId, true)
+  if (terminal) sessionUpdate(terminal)
+  const tool = itemTool(item, messageId)
   if (!tool) return
   // 历史只有终态,没有 `item/started` 那一拍。因此发 `tool_call`(建条目)而不是 `tool_call_update`
   // (改条目)—— 后者会是一条没有母体的更新。
   sessionUpdate({
-    sessionUpdate: 'tool_call',
+    sessionUpdate: 'tool_call_update',
     toolCallId: messageId,
     status: acpToolStatus(item.status, 'completed'),
     ...tool,
@@ -1297,7 +1281,7 @@ async function loadThreadTurns(threadId, deadline) {
  * transcript,重放是它重建对话的唯一来源。少了这一步,重开旧会话拿到的是零条消息,界面于是渲染
  * 「新会话空态」而不是「会话丢了」:比丢失更糟,因为它连这儿本该有东西都不知道。
  *
- * 拿不到历史只降级成「没有历史」,绝不让 `session/load` 失败 —— 会话能用比历史完整更要紧。
+ * 拿不到历史必须返回 history_unknown；宿主保留已恢复的原线程，并标记不确定的重投。
  *
  * `generation` 防的是宿主的重试:load 超时后它会隔 1s 再发一次(`LOAD_RETRY_DELAYS_MS`),而适配器
  * 对 ACP 请求不做串行化。没有这道闸,两次重放会交错写同一条会话,transcript 直接重影。
@@ -1308,9 +1292,9 @@ async function replayHistory(threadId, generation, deadline) {
     loaded = await loadThreadTurns(threadId, deadline)
   } catch (error) {
     process.stderr.write(
-      `[codex-app-server-acp] history replay skipped, session loads without it: ${error.message || String(error)}\n`,
+      `[codex-app-server-acp] history read failed: ${error.message || String(error)}\n`,
     )
-    return
+    return error.message || String(error)
   }
   if (loaded.truncated) {
     // 出声,别静默裁剪:少了的那截历史看上去和「本来就没有」一模一样。
@@ -1318,7 +1302,7 @@ async function replayHistory(threadId, generation, deadline) {
       `[codex-app-server-acp] history replay stopped by ${loaded.truncated} cap at ${loaded.turns.length} turns; older turns are NOT replayed\n`,
     )
   }
-  if (generation !== loadGeneration) return
+  if (generation !== loadGeneration) return 'history replay superseded by another load'
   // codex 给的是新→旧,对话顺序要旧→新。照数组原样重放会把整段对话倒过来。
   for (let i = loaded.turns.length - 1; i >= 0; i -= 1) {
     const turn = loaded.turns[i]
@@ -1326,13 +1310,15 @@ async function replayHistory(threadId, generation, deadline) {
     let userSeen = false
     for (let j = 0; j < items.length; j += 1) {
       // 每轮之间再查一次:重放一条长会话要写几千行,期间宿主完全可能已经重来一次 load。
-      if (generation !== loadGeneration) return
+      if (generation !== loadGeneration) return 'history replay superseded by another load'
       // A native turn may also contain steered inputs; only its leading prompt is a turn boundary.
-      replayItem(items[j], `${String(turn?.id ?? `turn-${i}`)}:${j}`, historyCanRevert && !userSeen ? turn.id : undefined)
+      // The later ones carry the same steering mark the live insert had, so reopen keeps them in this turn.
+      replayItem(items[j], `${String(turn?.id ?? `turn-${i}`)}:${j}`, historyCanRevert && !userSeen ? turn.id : undefined, userSeen)
       if (items[j]?.type === 'userMessage') userSeen = true
     }
   }
   await subagents.replayChildren(deadline)
+  return loaded.truncated ? `history replay incomplete: ${loaded.truncated}` : null
 }
 
 /**
@@ -1390,6 +1376,15 @@ function onAppNotification(message) {
   // app-server also publishes spawned agents' events. Only this thread owns the ACP session;
   // mixing child deltas here fragments messages/thinking and can overwrite the parent's state.
   if (params.threadId && params.threadId !== sessionId) return
+  if (method === 'error' && params.willRetry === true) {
+    // Codex owns both the retry count and cause. Preserve its warning through the existing
+    // ACP notice path; final errors still settle the prompt via turn/completed below.
+    const title = [params.error?.message, params.error?.additionalDetails]
+      .filter((value) => typeof value === 'string' && value.trim())
+      .join(': ')
+    if (title) sessionUpdate({ sessionUpdate: 'notice', severity: 'warning', title: redactAll(title) })
+    return
+  }
   if (method === 'thread/tokenUsage/updated') {
     emitUsageUpdate(params)
     return
@@ -1427,6 +1422,7 @@ function onAppNotification(message) {
     streamedItems.set(String(params.itemId ?? ''), 0)
     sessionUpdate({
       sessionUpdate: 'agent_message_chunk',
+      messageId: String(params.itemId),
       content: { type: 'text', text: String(params.delta ?? '') },
     })
     return
@@ -1439,24 +1435,44 @@ function onAppNotification(message) {
     streamedItems.set(itemId, part)
     sessionUpdate({
       sessionUpdate: 'agent_thought_chunk',
+      messageId: String(params.itemId),
       content: { type: 'text', text: `${previous !== undefined && previous !== part ? '\n\n' : ''}${String(params.delta ?? '')}` },
+    })
+    return
+  }
+  if (method === 'item/commandExecution/outputDelta') {
+    sessionUpdate({ sessionUpdate: 'terminal_output_chunk', terminalId: String(params.itemId), data: Buffer.from(String(params.delta ?? ''), 'utf8').toString('base64') })
+    return
+  }
+  if (method === 'turn/plan/updated') {
+    sessionUpdate({
+      sessionUpdate: 'plan',
+      entries: params.plan.map(({ step, status }) => ({
+        content: step,
+        status: status === 'inProgress' ? 'in_progress' : status,
+        priority: 'medium',
+      })),
     })
     return
   }
   if (method === 'item/plan/delta') {
     sessionUpdate({
       sessionUpdate: 'agent_thought_chunk',
+      messageId: String(params.itemId),
       content: { type: 'text', text: String(params.delta ?? '') },
     })
     return
   }
   if (method === 'item/started') {
+    if (params.item?.type === 'userMessage') { insertedUserMessage(params.item); return }
     trackRunningCommand(params, 'started')
     if (params.item?.type === 'contextCompaction') return compactionUpdate(params.item, 'in_progress')
+    const terminal = codexTerminalUpdate(params.item ?? {})
+    if (terminal) sessionUpdate(terminal)
     const tool = itemTool(params.item)
     if (tool) {
       sessionUpdate({
-        sessionUpdate: 'tool_call',
+        sessionUpdate: 'tool_call_update',
         toolCallId: String(params.item?.id ?? ''),
         status: acpToolStatus(params.item?.status, 'in_progress'),
         ...tool,
@@ -1474,10 +1490,13 @@ function onAppNotification(message) {
     if (item.type === 'agentMessage' && item.text && !streamed) {
       sessionUpdate({
         sessionUpdate: 'agent_message_chunk',
+        messageId: String(item.id),
         content: { type: 'text', text: String(item.text) },
       })
     }
     if (item.type === 'reasoning' && !streamed) sendWholeReasoning(item, String(item.id ?? ''))
+    const terminal = codexTerminalUpdate(item, item.id, true)
+    if (terminal) sessionUpdate(terminal)
     const tool = itemTool(item)
     if (tool) {
       sessionUpdate({
@@ -1489,53 +1508,60 @@ function onAppNotification(message) {
     }
     return
   }
-  if (method === 'turn/started' && compactAcpId !== null) {
-    // `thread/compact/start` 不回轮次 id;压缩那一轮在这里报到。
-    const acpId = compactAcpId
-    compactAcpId = null
-    beginPrompt(acpId, String(params.turn?.id ?? ''))
+  if (method === 'turn/started') {
+    beginCycle(String(params.turn.id))
+    sessionUpdate({ sessionUpdate: 'state_update', state: 'running' })
+    if (compactInsertion !== null) {
+      const entry = compactInsertion
+      compactInsertion = null
+      if (!entry.cancelled) insertedUserMessage({ id: `compact:${params.turn.id}`, clientId: entry.clientId })
+    }
     return
   }
   if (method === 'turn/completed') {
-    // 正常结束的轮次里还挂着的命令是模型有意放到后台的,不归取消管 ⇒ 这一轮的账随轮次一起清掉。
-    runningCommandsByTurn.delete(String(params.turn?.id ?? ''))
-    settlePrompt(params.turn)
+    for (const [toolCallId, command] of runningCommands) {
+      if (command.turnId !== params.turn?.id) continue
+      command.turnId = null
+      sessionUpdate({
+        sessionUpdate: '_async_task_spawned', asyncTaskId: command.processId, toolCallId,
+        name: command.name, description: command.name, taskType: 'Bash', showInTranscript: true, canStop: true,
+      })
+    }
+    if (!activeCycle || activeCycle.turnId === String(params.turn?.id)) {
+      sessionUpdate({ sessionUpdate: 'state_update', state: 'idle', ...turnOutcome(params.turn) })
+    }
+    settleCycle(params.turn)
+
   }
 }
 
-/** @@@6353 记账:这一轮起了哪些还没结束的命令(见 `runningCommandsByTurn`)。 */
 function trackRunningCommand(params, edge) {
   const item = params.item ?? {}
   const turnId = String(params.turnId ?? '')
   if (item.type !== 'commandExecution' || !turnId || !item.id) return
-  const running = runningCommandsByTurn.get(turnId) ?? new Map()
-  if (edge === 'started' && item.processId) running.set(String(item.id), String(item.processId))
-  else running.delete(String(item.id))
-  if (running.size) runningCommandsByTurn.set(turnId, running)
-  else runningCommandsByTurn.delete(turnId)
+  const toolCallId = String(item.id)
+  if (edge === 'started' && item.processId) {
+    runningCommands.set(toolCallId, { turnId, processId: String(item.processId), name: item.command || 'Command' })
+  } else if (edge === 'completed') {
+    const command = runningCommands.get(toolCallId)
+    runningCommands.delete(toolCallId)
+    if (command?.turnId === null) sessionUpdate({
+      sessionUpdate: '_async_task_state_update', asyncTaskId: command.processId, toolCallId,
+      state: acpToolStatus(item.status, 'completed'),
+    })
+  }
 }
 
-/**
- * @@@6353 取消这一轮 = interrupt 之后把这一轮还在跑的命令逐个 terminate。
- * 顺序是 interrupt 在前:先 terminate 的话工具调用会带着「被杀」的输出回到模型,轮次接着往下跑。
- * 这一轮的命令在发 interrupt **之前**就取走 —— `turn/completed(interrupted)` 会清掉这一轮的账。
- */
+async function terminateCommand(processId) {
+  const result = await appRequest('thread/backgroundTerminals/terminate', { threadId: sessionId, processId })
+  return { stopped: result?.terminated === true }
+}
+
+// Snapshot this turn before interrupt publishes its end; older background tasks stay owned by the host.
 async function cancelTurn(turnId) {
-  const commands = [...(runningCommandsByTurn.get(turnId)?.values() ?? [])]
+  const commands = [...runningCommands.values()].filter((command) => command.turnId === turnId)
   await appRequest('turn/interrupt', { threadId: sessionId, turnId })
-  // 每一个都要试到:前一个失败不能让后面的命令被静默留下。
-  const failures = []
-  for (const processId of commands) {
-    try {
-      const result = await appRequest('thread/backgroundTerminals/terminate', { threadId: sessionId, processId })
-      process.stderr.write(
-        `[codex-app-server-acp] cancel: terminated turn ${turnId} command processId=${processId} terminated=${result?.terminated}\n`,
-      )
-    } catch (error) {
-      failures.push(`processId=${processId}: ${error?.message ?? error}`)
-    }
-  }
-  if (failures.length) throw new Error(`could not terminate turn ${turnId} commands: ${failures.join('; ')}`)
+  await Promise.all(commands.map((command) => terminateCommand(command.processId)))
 }
 
 /**
@@ -1547,73 +1573,33 @@ function compactionUpdate(item, status) {
   sessionUpdate({ sessionUpdate: 'compaction_update', compactionId: String(item.id), status })
 }
 
-/** 这条 ACP 请求从此等 `turnId` 那一轮结束(`turn/completed` → settlePrompt)。 */
-function beginPrompt(acpId, turnId) {
+/** Native foreground has one owner; prompt receipts do not participate in its completion. */
+function beginCycle(turnId) {
+  if (activeCycle?.turnId === turnId) return
   let resolveCompletion
-  const completion = new Promise((resolve) => { resolveCompletion = resolve })
-  activePrompt = { acpId, turnId, steeredAcpIds: [], completion, resolveCompletion }
-  const earlyCompletion = earlyTurnCompletions.get(turnId)
-  if (earlyCompletion) {
-    earlyTurnCompletions.delete(turnId)
-    settlePrompt(earlyCompletion)
-  }
+  const completion = new Promise(resolve => { resolveCompletion = resolve })
+  activeCycle = { turnId, completion, resolveCompletion }
 }
-
-function settlePrompt(turn) {
+function settleCycle(turn) {
   const turnId = String(turn?.id ?? '')
-  // The provider can finish a turn before acknowledging an accepted steer. Keep its
-  // outcome (including Gugu tool failure/recovery) until every admission is known.
-  if ((pendingSteersByTurn.get(turnId) ?? 0) > 0) {
-    earlyTurnCompletions.set(turnId, turn)
-    return
-  }
-  if (!activePrompt || turnId !== activePrompt.turnId) {
-    const steeredAcpIds = steeredAcpIdsByTurn.get(turnId)
-    if (steeredAcpIds?.length) {
-      steeredAcpIdsByTurn.delete(turnId)
-      settleAcpIds(turn, steeredAcpIds, null)
-      return
-    }
-    if (turnId) earlyTurnCompletions.set(turnId, turn)
-    return
-  }
-  const prompt = activePrompt
-  activePrompt = null
-  const promptIds = [prompt.acpId, ...prompt.steeredAcpIds, ...(steeredAcpIdsByTurn.get(turnId) ?? [])]
-  steeredAcpIdsByTurn.delete(turnId)
-  settleAcpIds(turn, promptIds, prompt)
+  toolOutcomesByTurn.delete(turnId)
+  if (activeCycle?.turnId !== turnId) return
+  const cycle = activeCycle
+  activeCycle = null
+  cycle.resolveCompletion()
 }
 
-function settleAcpIds(turn, promptIds, prompt) {
+function turnOutcome(turn) {
   const status = String(turn?.status ?? 'completed')
   const failure = toolOutcomesByTurn.get(String(turn?.id ?? ''))?.failure
-  toolOutcomesByTurn.delete(String(turn?.id ?? ''))
-  if (status === 'failed') {
-    for (const acpId of promptIds) {
-      respond(acpId, null, {
-        code: -32603,
-        message: String(turn?.error?.message ?? 'local Codex turn failed'),
-        data: turn?.error ?? null,
-      })
-    }
-  } else if (status === 'completed' && failure) {
-    for (const acpId of promptIds) {
-      respond(acpId, null, {
-        code: -32603,
-        message: `local Codex turn had a failed Gugu tool call: ${failure.tool} (${failure.itemId}): ${failure.details}`,
-        data: failure,
-      })
-    }
-  } else if (status === 'completed') {
-    for (const acpId of promptIds) respond(acpId, { stopReason: 'end_turn', ...(historyCanRevert ? { _meta: { guguRevert: { before: String(turn.id) } } } : {}) })
-  } else if (status === 'interrupted') {
-    for (const acpId of promptIds) respond(acpId, { stopReason: 'cancelled', ...(historyCanRevert ? { _meta: { guguRevert: { before: String(turn.id) } } } : {}) })
-  } else {
-    for (const acpId of promptIds) {
-      respond(acpId, null, { code: -32603, message: `unexpected local Codex turn status: ${status}` })
-    }
-  }
-  prompt?.resolveCompletion?.()
+  const _meta = historyCanRevert ? { guguRevert: { before: String(turn.id) } } : undefined
+  if (status === 'interrupted') return { stopReason: 'cancelled', ...(_meta ? { _meta } : {}) }
+  if (status === 'completed' && !failure) return { stopReason: 'end_turn', ...(_meta ? { _meta } : {}) }
+  return { stopReason: 'error', error: { code: -32603,
+    message: status === 'failed' ? String(turn?.error?.message ?? 'local Codex turn failed')
+      : failure ? `local Codex turn had a failed Gugu tool call: ${failure.tool} (${failure.itemId}): ${failure.details}`
+      : `unexpected local Codex turn status: ${status}`,
+    data: turn?.error ?? failure ?? null } }
 }
 
 function activeTurnIdFromThread(value) {
@@ -1624,32 +1610,6 @@ function activeTurnIdFromThread(value) {
     const turn = turns[i]
     if (turn?.status === 'inProgress' && turn.id) return String(turn.id)
   }
-  return null
-}
-
-/**
- * Codex 拒绝 `thread/read(includeTurns=true)` 的两种说法。两种都**不是故障**,而是
- * 「这条 thread 现在(或从此)答不了这个问题」:
- *
- *   · `not materialized yet` —— 首条用户消息之前,thread 还没落地。
- *   · `paginated threads do not support …` —— thread 一旦长到分页就**永远**不再支持
- *     (codex 0.145.0 实测)。
- *   · `ephemeral threads do not support includeTurns` —— runtime-only side chat fork 永远不支持
- *     这条读取。
- *
- * 两种都必须降级成「我不知道有没有在飞的 turn」,❌ 不能把整条 `session/prompt` 打挂。
- * 之前只认第一种,于是一条会话**第一轮之后每一轮都发不出去**(第一轮 thread 还没分页,
- * 之后必然分页)—— owner 2026-09-04 实机撞到:「第一个对话百分百能回,第二个百分百回不了」。
- *
- * ❌ 别把判据收紧回 `code === -32600`:分页那条拒绝穿过 ACP 边界后只剩 message,
- * code 会丢(实测 `cause.code === null`)。
- */
-function threadReadTurnsRefusal(error) {
-  const message = typeof error?.message === 'string' ? error.message : ''
-  if (!message.includes('includeTurns')) return null
-  if (message.includes('not materialized yet')) return 'unmaterialized'
-  if (message.includes('paginated')) return 'paginated'
-  if (message.includes('ephemeral threads do not support includeTurns')) return 'ephemeral'
   return null
 }
 
@@ -1768,13 +1728,13 @@ async function askHumanChoice(
   title,
   options,
   requestKey = options[0]?.optionId ?? 'choice',
-  { requireSelection = false, rawInput } = {},
+  { requireSelection = false, rawInput, subjectToolCall } = {},
 ) {
   if (options.length === 0) return null
   const outcome = await acpRequest('session/request_permission', {
     sessionId,
-    // `:ask:` keeps this synthetic request from cloning the triggering tool call over the title.
-    toolCall: { toolCallId: `${itemId}:ask:${requestKey}`, title, ...(rawInput !== undefined ? { rawInput } : {}) },
+    title,
+    subject: { type: 'tool_call', toolCall: subjectToolCall ?? { toolCallId: `${itemId}:ask:${requestKey}`, title, ...(rawInput !== undefined ? { rawInput } : {}) } },
     options: options.map(({ optionId, name, kind }) => ({ optionId, name, kind })),
   })
   if (outcome?.outcome?.outcome !== 'selected') {
@@ -2101,7 +2061,7 @@ async function answerApproval(message, method) {
     if (choices.length === 0) {
       throw new Error(`${method} did not provide a renderable decision`)
     }
-    const selected = await askHumanChoice(itemId, title, choices, `approval:${message.id}`)
+    const selected = await askHumanChoice(itemId, title, choices, `approval:${message.id}`, { subjectToolCall: { toolCallId: itemId } })
     if (method === 'item/permissions/requestApproval') {
       result = deniedPermissionResult()
       if (selected?.value === 'turn' || selected?.value === 'session') {
@@ -2222,15 +2182,9 @@ async function handleAcpRequest(message) {
   auditAcpRequest(method, params)
   if (method === 'initialize') {
     respond(id, {
-      protocolVersion: 1,
-      // promptCapabilities 照实报:图片块由 `promptInputItems` 映射成 app-server 的 image item
-      // 送进 codex。默认值是 image:false,不写就等于对客户端说「别发图片」。
-      agentCapabilities: {
-        loadSession: true,
-        promptCapabilities: { image: true },
-        sessionCapabilities: { fork: {}, close: {} },
-      },
-      agentInfo: { name: 'codex-app-server', version: 'local' },
+      protocolVersion: 2,
+      capabilities: { session: { prompt: { image: {} }, mcp: { http: {} }, fork: {} } },
+      info: { name: 'codex-app-server', version: 'local' },
     })
     return
   }
@@ -2239,7 +2193,7 @@ async function handleAcpRequest(message) {
       throw new Error('Invalid conversation revert target')
     }
     if (!historyCanRevert) throw new Error('Conversation revert requires persisted paginated Codex history')
-    if (revertingHistory || activePrompt || runningCommandsByTurn.size) {
+    if (revertingHistory || activeCycle || runningCommands.size) {
       throw new Error('Wait for current work to finish before reverting')
     }
     revertingHistory = true
@@ -2287,7 +2241,6 @@ async function handleAcpRequest(message) {
     }
     historyCanRevert = forked?.thread?.historyMode === 'paginated' && !forked?.thread?.ephemeral
     established = true
-    threadMaterialization = 'unmaterialized'
     const activePermissionProfile = forked?.activePermissionProfile
       ?? forked?.thread?.activePermissionProfile
     const modes = await probePermissionModes(params.cwd, activePermissionProfile)
@@ -2302,8 +2255,7 @@ async function handleAcpRequest(message) {
     const models = await modelCatalogOnce()
     respond(id, {
       sessionId,
-      ...(responseModes ? { modes: responseModes } : {}),
-      configOptions: withModelConfigOptions(
+            configOptions: withModelConfigOptions(
         withPermissionModeConfigOptions(forked?.configOptions, responseModes),
         selectedModel,
         selectedEffort,
@@ -2313,6 +2265,20 @@ async function handleAcpRequest(message) {
     // fork 是侧聊那条路 —— 它同样是一条用户会在里面打 `/` 的会话。漏了它,侧聊的面板就是空的
     // (与「只在 new 里推、重开会话就空」是同一个形状,别只堵一半)。
     void publishAvailableCommands(params.cwd, params.additionalDirectories)
+    return
+  }
+  if (method === '_session/async_task/stop') {
+    const command = params.sessionId === sessionId && [...runningCommands.values()]
+      .find((entry) => entry.turnId === null && entry.processId === params.asyncTaskId)
+    respond(id, command ? await terminateCommand(command.processId) : { stopped: false })
+    return
+  }
+  if (method === 'session/list') {
+    const page = await readSessionList({ cursor: params.cursor ?? null })
+    respond(id, { sessions: (page.data ?? []).map(thread => ({ sessionId: thread.id, cwd: thread.cwd,
+      ...(thread.name || thread.preview ? { title: thread.name || thread.preview } : {}),
+      ...(thread.updatedAt ? { updatedAt: new Date(thread.updatedAt * 1000).toISOString() } : {}) })),
+      ...(page.nextCursor ? { nextCursor: page.nextCursor } : {}) })
     return
   }
   if (method === 'session/close') {
@@ -2342,7 +2308,6 @@ async function handleAcpRequest(message) {
     if (!sessionId) throw new Error('local Codex thread/start returned no thread id')
     historyCanRevert = started?.thread?.historyMode === 'paginated' && !started?.thread?.ephemeral
     established = true
-    threadMaterialization = 'unmaterialized'
     const activePermissionProfile = started?.activePermissionProfile
       ?? started?.thread?.activePermissionProfile
     const modes = await probePermissionModes(params.cwd, activePermissionProfile)
@@ -2362,8 +2327,7 @@ async function handleAcpRequest(message) {
     const models = await modelCatalogOnce()
     respond(id, {
       sessionId,
-      ...(responseModes ? { modes: responseModes } : {}),
-      configOptions: withModelConfigOptions(
+            configOptions: withModelConfigOptions(
         withPermissionModeConfigOptions(started?.configOptions, responseModes),
         selectedModel,
         selectedEffort,
@@ -2374,7 +2338,13 @@ async function handleAcpRequest(message) {
     void publishAvailableCommands(params.cwd, params.additionalDirectories)
     return
   }
-  if (method === 'session/load') {
+  if (method === 'session/resume') {
+    // #980 先认请求要不要历史(ACP v2:不带 replayFrom = 不重放),认不了的游标当场拒,❌ 接回之后才报。
+    const replayRequest = resumeReplayRequest(params)
+    if (replayRequest.error) {
+      respond(id, undefined, replayRequest.error)
+      return
+    }
     const generation = ++loadGeneration
     const loadStartedAt = Date.now()
     await startApp(params.mcpServers)
@@ -2399,25 +2369,24 @@ async function handleAcpRequest(message) {
     }
     historyCanRevert = resumed?.thread?.historyMode === 'paginated' && !resumed?.thread?.ephemeral
     established = true
-    threadMaterialization = 'materialized'
-    // 宿主可以明说不要历史。咕咕聊天那条路(acp-host)自己存消息,并且在 load 期间丢弃一切回放的
-    // session/update —— 给它拉历史是纯粹的浪费,还占着这次 load 的预算。默认仍然是重放:ACP 的
-    // 语义就是 load 要把对话流回去,不吭声的宿主按契约办。
-    const wantsReplay = params?._meta?.history?.replay !== false
+    // 宿主可以明说不要历史:会话页的历史由宿主直接读记录文件补齐(#980),给它拉历史是纯粹的浪费,
+    // 还占着这次 load 的预算。说法有两种,都认 —— ACP v2 的「不带 replayFrom」,以及老宿主的
+    // `_meta.history.replay === false`。
+    const wantsReplay = replayRequest.replay
     // 必须赶在 respond 之前:宿主拿到 load 的回包就退出 replaying 相位,之后到的历史不再算历史。
     // 截止时刻从 load 起点算 —— thread/resume 花掉的时间已经在里面了,不能当它免费。
     const replayDeadline = Math.min(
       Date.now() + REPLAY_BUDGET_MS,
       loadStartedAt + SESSION_LOAD_SOFT_BUDGET_MS,
     )
+    let historyStatus = { status: 'omitted' }
     if (!wantsReplay) {
       // 不出声:这是宿主主动选的,不是出了岔子。
-    } else if (replayDeadline <= Date.now()) {
-      process.stderr.write(
-        '[codex-app-server-acp] history replay skipped: thread/resume already spent the session/load budget\n',
-      )
     } else {
-      await replayHistory(sessionId, generation, replayDeadline)
+      historyStatus = await replayHistoryWithinBudget(replayDeadline, () => replayHistory(sessionId, generation, replayDeadline))
+      if (historyStatus.status === 'unknown') {
+        process.stderr.write(`[codex-app-server-acp] History unknown: ${historyStatus.reason}\n`)
+      }
     }
     const activePermissionProfile = resumed?.activePermissionProfile
       ?? resumed?.thread?.activePermissionProfile
@@ -2440,15 +2409,22 @@ async function handleAcpRequest(message) {
     }
     const responseModes = permissionModesWithRequestedProfile(modes, requestedPermission?.profile)
     const models = await modelCatalogOnce()
-    respond(id, {
-      ...(responseModes ? { modes: responseModes } : {}),
+    const resumedTurnId = activeTurnIdFromThread(resumed)
+    if (resumedTurnId) beginCycle(resumedTurnId)
+    sessionUpdate({ sessionUpdate: 'state_update', state: resumedTurnId ? 'running' : 'idle' })
+    const setup = {
       configOptions: withModelConfigOptions(
         withPermissionModeConfigOptions(resumed?.configOptions, responseModes),
         resumedModel,
         resumedEffort,
         models
       ),
-    })
+    }
+    // The thread and settings did recover. Keep those facts while refusing to claim known history.
+    if (historyStatus.status === 'unknown') {
+      notify('session/update', { sessionId, update: { sessionUpdate: 'config_option_update', configOptions: setup.configOptions } })
+    }
+    respond(id, setup, historyStatus.status === 'unknown' ? historyUnknownError(sessionId, historyStatus.reason) : undefined)
     // 重开的会话同样要报 —— 只在 new 里推的话,回到旧会话面板就是空的
     // (opencode 的 anomalyco#18819 正是这个形状,❌ 别自己再造一个)。
     void publishAvailableCommands(params.cwd, params.additionalDirectories)
@@ -2458,91 +2434,43 @@ async function handleAcpRequest(message) {
     if (revertingHistory) throw new Error('Conversation revert is in progress')
     if (!sessionId) throw new Error('no local Codex session')
     const input = promptInputItems(params.prompt)
-    let activeTurnId = activePrompt?.turnId ?? null
-    if (threadMaterialization !== 'unmaterialized' && !threadRefusesTurnsRead) {
-      try {
-        const thread = await appRequest('thread/read', { threadId: sessionId, includeTurns: true })
-        threadMaterialization = 'materialized'
-        activeTurnId = activeTurnIdFromThread(thread) ?? activeTurnId
-      } catch (error) {
-        const refusal = threadReadTurnsRefusal(error)
-        if (!refusal) throw error
-        // 读不到在飞的 turn 时,仍有本地记账的 activeTurnId(activePrompt) 兜底,
-        // steer 能力只在「turn 由别处发起、我们这侧没记账」时退化。
-        if (refusal === 'paginated' || refusal === 'ephemeral') threadRefusesTurnsRead = true
-        else threadMaterialization = 'unmaterialized'
-      }
-    }
-    // `/compact` 交给 codex 自己的压缩(TUI 的 /compact 是同一个入口):它不回轮次 id,压缩以一轮的形式
-    // 跑完 ⇒ 这条请求等下一个 `turn/started` 报到的那一轮。不当文字发:那样模型只会回一句「已压缩」,
-    // 什么也没压(实测 GLM 就这么答,窗口 23k 前后不变)。与 codex 自己一样,有轮次在跑时不压。
+    const insertion = expectPromptInsertion(id, params.prompt)
+    const cycle = activeCycle
+    const activeTurnId = cycle?.turnId ?? null
     if (joinPromptText(params.prompt).trim() === '/compact') {
-      if (activeTurnId) throw new Error('local Codex cannot compact while a turn is running')
-      compactAcpId = id
+      if (cycle || compactInsertion) throw new Error('local Codex cannot compact while foreground work is active')
+      compactInsertion = insertion
       try {
         await appRequest('thread/compact/start', { threadId: sessionId })
-      } catch (error) {
-        compactAcpId = null
-        throw error
+        await receipt(id, insertion)
+      } finally {
+        if (compactInsertion === insertion) compactInsertion = null
       }
       return
     }
     if (activeTurnId) {
-      const busyPrompt = activePrompt?.turnId === activeTurnId ? activePrompt : null
-      pendingSteersByTurn.set(activeTurnId, (pendingSteersByTurn.get(activeTurnId) ?? 0) + 1)
       try {
-        // This ACP shim is the only client of its `--stdio` app-server (the chat UI renders
-        // through it; no TUI attaches here). When a second Gugu prompt arrives while a turn
-        // is active, steer it into the turn instead of manufacturing a competing turn/start.
-        await appRequest('turn/steer', {
-          threadId: sessionId,
-          input,
-          expectedTurnId: activeTurnId,
-        })
-        if (activePrompt?.turnId === activeTurnId) activePrompt.steeredAcpIds.push(id)
-        else {
-          const steeredAcpIds = steeredAcpIdsByTurn.get(activeTurnId) ?? []
-          steeredAcpIds.push(id)
-          steeredAcpIdsByTurn.set(activeTurnId, steeredAcpIds)
-        }
+        await appRequest('turn/steer', { threadId: sessionId, input, expectedTurnId: activeTurnId,
+          clientUserMessageId: insertion.clientId })
+        await receipt(id, insertion)
         return
       } catch (error) {
-        // The turn can finish between the active check and the steer RPC. Wait for the
-        // original ACP request to settle before starting a replacement turn so its
-        // response is not orphaned by an activePrompt overwrite.
+        throwIfInsertionCancelled(insertion)
+        if (insertion.messageId !== null) { await receipt(id, insertion); return }
+        // A native cycle can end between observing it and the steer RPC. Wait only for that
+        // specific cycle before submitting a new one; a receipt is never an end-of-work signal.
         process.stderr.write(`[codex-app-server-acp] turn/steer failed; retrying as turn/start: ${error?.message ?? error}\n`)
-      } finally {
-        const pending = pendingSteersByTurn.get(activeTurnId) - 1
-        if (pending > 0) pendingSteersByTurn.set(activeTurnId, pending)
-        else {
-          pendingSteersByTurn.delete(activeTurnId)
-          const completed = earlyTurnCompletions.get(activeTurnId)
-          if (completed) {
-            earlyTurnCompletions.delete(activeTurnId)
-            settlePrompt(completed)
-          }
-        }
+        if (activeCycle === cycle) await cycle.completion
       }
-      // Drain the completion above before waiting on it: a rejected steer must not
-      // deadlock the original prompt or inherit its failure when starting a new turn.
-      if (busyPrompt && activePrompt === busyPrompt) await busyPrompt.completion
     }
-    const started = await appRequest('turn/start', {
-      threadId: sessionId,
-      input,
-      // ❌ 别按轮钉档位。codex 的按轮 override「作用于这一轮及其后的所有轮」(app-server
-      //    README),钉死就是每轮都把用户选的档顶掉 —— 选了只读也照样全权跑。
-      //    这一轮该用哪档,由线程自己的设置说了算(见 session/set_config_option)。
-    })
+    throwIfInsertionCancelled(insertion)
+    const started = await appRequest('turn/start', { threadId: sessionId, input,
+      clientUserMessageId: insertion.clientId })
     const turnId = String(started?.turn?.id ?? '')
     if (!turnId) throw new Error('local Codex turn/start returned no turn id')
-    threadMaterialization = 'materialized'
-    // codex's turn/start steers an already-active turn and returns that turn's id (app-server
-    // `start_or_steer_turn`). Two prompts that both saw no active turn before their turn/start then share one
-    // turn: the later answer joins it like a turn/steer, instead of replacing the earlier prompt's bookkeeping
-    // (which left that prompt unanswered forever — the task stayed "working").
-    if (activePrompt?.turnId === turnId) activePrompt.steeredAcpIds.push(id)
-    else beginPrompt(id, turnId)
+    if (insertion.cancelled && activeCycle?.turnId === turnId) await cancelTurn(turnId)
+    throwIfInsertionCancelled(insertion)
+    await receipt(id, insertion)
     return
   }
   if (method === 'session/set_config_option') {
@@ -2550,6 +2478,7 @@ async function handleAcpRequest(message) {
     // 选一档就掉到下面那条 -32601,界面上显示 "Failed to change session mode":
     // 档位列得出来、切不动。
     if (!established) throw new Error('no local Codex session')
+    if (params.type !== 'id') throw new Error('Codex config options require an id value')
     const configId = String(params.configId ?? '')
 
     // ── model / effort ────────────────────────────────────────────────────────
@@ -2638,10 +2567,16 @@ async function handleAcpRequest(message) {
     }
     // codex app-server 的 `thread/settings/update`:给**已加载**线程排队一次 next-turn
     // 设置的部分更新,不起轮次、不加 transcript 条目(app-server README)。
-    // `permissions` 就是按 id 选 profile,与 `sandboxPolicy` 互斥 —— 只传前者。
+    // `permissions` selects the sandbox profile; approvalPolicy must change with it.
     // ⚠️ 它只认内存里的线程(load_thread → get_thread 只查内存表),所以必须在
     //    thread/start / thread/resume 之后调用,established 那个前置判断不能去掉。
-    await appRequest('thread/settings/update', { threadId: sessionId, permissions: wanted })
+    const mode = Object.entries(CODEX_PERMISSION_MODES).find(([, profile]) => profile.id === wanted)?.[0]
+    const autonomy = CODEX_AUTONOMY_BY_MODE[mode]
+    await appRequest('thread/settings/update', {
+      threadId: sessionId,
+      permissions: wanted,
+      ...(autonomy ? { approvalPolicy: autonomy.approvalPolicy } : {}),
+    })
     selectedPermissionProfile = wanted || null
     // 切权限档的回包也要带上 model / thought_level 两组 —— 只回 mode 一组,
     // 宿主的 deriveConfigGroups 会把没报的那两组读成 null,界面上模型与推理档当场消失。
@@ -2664,12 +2599,17 @@ function handleAcpNotification(message) {
     return
   }
   if (message.method === 'session/cancel') {
+    for (const entry of promptInsertions.values()) if (entry.messageId === null) {
+      entry.cancelled = true
+      entry.resolve({ error: 'Request cancelled before insertion', code: -32800 })
+    }
+
     // 人撤了这一轮 => 还在等他回答的提问就地了结(落到 `answers: []`),
     // 否则那条 promise 永不 settle,codex 的 turn 会一直挂着。
     cancelAcpPending('session cancelled')
   }
-  if (message.method === 'session/cancel' && activePrompt) {
-    void cancelTurn(activePrompt.turnId).catch((error) => {
+  if (message.method === 'session/cancel' && activeCycle) {
+    void cancelTurn(activeCycle.turnId).catch((error) => {
       process.stderr.write(`[codex-app-server-acp] cancel failed: ${error.message}\n`)
     })
   }
@@ -2695,6 +2635,7 @@ reader.on('line', (line) => {
   if (message.id !== undefined && message.method) {
     const run = () =>
       handleAcpRequest(message).catch((error) => {
+        forgetPromptInsertion(message.id)
         respond(message.id, null, {
           code: typeof error.code === 'number' ? error.code : -32603,
           message: error.message || String(error),
@@ -2715,6 +2656,8 @@ function shutdown() {
   if (shuttingDown) return
   shuttingDown = true
   cancelAcpPending('ACP host connection closed')
+  for (const entry of promptInsertions.values()) entry.resolve({ error: 'ACP host connection closed' })
+  promptInsertions.clear()
   appReader?.close()
   // Let approval handlers flush their explicit denial before stopping the local server.
   // Exit only once the app-server tree is down; a tree that will not stop exits non-zero, loud.

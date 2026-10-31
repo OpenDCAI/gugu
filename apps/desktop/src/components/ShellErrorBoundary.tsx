@@ -43,7 +43,7 @@ function ShellErrorFallback({ error, onRetry, onReload }: { error: Error; onRetr
         {import.meta.env.DEV && (
           <details className="mt-4">
             <summary className="cursor-pointer select-none text-[length:var(--font-body)] leading-[var(--lh-body)] text-[var(--text-secondary)]">{t('errorBoundary.diagnostics')}</summary>
-            <pre className="mt-3 whitespace-pre-wrap break-words rounded-[var(--radius-control)] border border-[var(--border-subtle)] bg-[var(--bg-primary)] p-3 font-[family-name:var(--font-family-mono)] text-[length:var(--text-code)] leading-[var(--lh-body)] text-[var(--danger)]">{error.stack || error.message}</pre>
+            <pre className="mt-3 whitespace-pre-wrap break-words rounded-[var(--radius-control)] border border-[var(--border-subtle)] bg-[var(--bg-primary)] p-3 font-[family-name:var(--font-family-mono)] text-[length:var(--text-code)] leading-[var(--lh-body)] text-[var(--danger-fg)]">{error.stack || error.message}</pre>
           </details>
         )}
       </div>

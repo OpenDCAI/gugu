@@ -8,7 +8,7 @@ import type { AgentEvent, NotificationType } from '@shared/core/agents/agentEven
  * #6377 —— 一轮结束时 harness 报告还有后台任务在干活(Claude Stop payload 的 `background_tasks`,解析器数成
  * `payload.backgroundTasks`),会话仍是 working;60 秒后的 idle_prompt 不把它抹成 idle;后台做完后 Claude 自己
  * 注入的那一轮(UserPromptSubmit = start)结束时的 `stop`(后台为 0)才是回合结束边。进程退出照旧由退出重置写 idle。
- * 事件序列照 mac1 实测(gugu-base evidence/2026-09-24-claude-background-tasks/hooks.jsonl 第 3 轮)。
+ * 事件序列照 2026-09-24 在 macOS 上实测录下的 hooks(第 3 轮)。
  */
 const mocks = vi.hoisted(() => ({ db: undefined as AppDb | undefined, emit: vi.fn() }));
 

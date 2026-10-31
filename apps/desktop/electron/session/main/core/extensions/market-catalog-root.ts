@@ -7,6 +7,7 @@ import { log } from '@main/lib/logger';
 import { currentMarketHost } from '@shared/extensions/market';
 import { marketRefreshedChannel } from '@shared/extensions/marketEvents';
 import type { MarketSnapshotStore } from '@shared/extensions/market-snapshot';
+import { electronFetch } from '../../../../supabase';
 import feeds from '../../../../updateFeeds.json';
 import { DownloadSiteMarketBackend } from './download-site';
 import { CloudExtensionMarket } from './market-catalog';
@@ -68,10 +69,12 @@ function marketBase(): string {
 export function cloudExtensionMarket(): CloudExtensionMarket {
   if (!market) {
     const base = marketBase();
-    market = new CloudExtensionMarket(new DownloadSiteMarketBackend(base), {
+    // 读下载站走 Chromium 的网络栈和它的 HTTP 缓存:README、截图、包都是内容哈希路径、immutable,重启后从磁盘答,❌ 每次重取
+    // (Node fetch 没有缓存,owner 10-30「既然曾经缓存过,为什么又要失效又要重新读取」);目录照它自己的 max-age=60。
+    market = new CloudExtensionMarket(new DownloadSiteMarketBackend(base, undefined, electronFetch), {
       stagingRoot: path.join(marketDir(), 'staging'),
       heldRoot: path.join(marketDir(), 'held'),
-      resolveHost: async () => currentMarketHost(await resolveAppVersion()),
+      resolveHost: async () => currentMarketHost(await resolveAppVersion(), 'desktop'),
       snapshotStore: snapshotFileStore(path.join(marketDir(), 'index-snapshot.json')),
       scope: base,
       onRefreshFailure: (error) => log.warn('App market index not refreshed; the one in hand stays:', error),

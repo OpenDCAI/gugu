@@ -9,6 +9,7 @@ vi.mock('@/lib/supabase', () => ({
 }))
 import {
   getAgentPresenceSnapshot,
+  recheckUnseenAgentPresence,
   refreshObservedAgentPresenceFromRevision,
   setLocalAgentStatus,
   setPresenceBusContext,
@@ -56,7 +57,7 @@ const local = (
   statusSourceFault: null,
 })
 async function settle(): Promise<void> {
-  for (let i = 0; i < 8; i += 1) await Promise.resolve()
+  await vi.dynamicImportSettled()
 }
 // #3839 presence 缓存按**账号**划界,并且刻意地跨视图卸载存活 —— 所以每条判据必须自建它自己的
 // 账号边界。沿用同一个身份会让上一条判据留下的 entry 变成下一条的隐式前置(实测:留下的 removed
@@ -290,7 +291,8 @@ describe('agent presence revision routing', () => {
       unsubscribe()
     }
   })
-  it('uses the server-derived expiry instead of a stale imperative online value', async () => {
+  // 在不在线只看设备行与 owner 意图;载荷里的 runtime_status / derived_status(老后端还会带)一律不读。
+  it('ignores runtime_status and derived_status: a reachable device with desired online is online', async () => {
     rpcMock.mockResolvedValueOnce({
       data: payload('active', '2026-08-15T00:00:04Z', {
         runtime_status: 'online',
@@ -305,28 +307,41 @@ describe('agent presence revision routing', () => {
     const unsubscribe = subscribeAgentPresence('agent-1', () => undefined)
     await settle()
     const state = getAgentPresenceSnapshot('agent-1')
-    expect(state?.payload?.runtimeStatus).toBe('online')
-    expect(state?.payload?.derivedStatus).toBe('offline')
+    expect(state?.payload).not.toHaveProperty('derivedStatus')
     expect(state?.status).toBe('idle')
     unsubscribe()
   })
-  // spec agent-status:「进程在不在内存」不让用户感知 —— 会话正在起对用户就是 working,没有「激活中」这个词。
-  it('shows a starting runtime as working', async () => {
-    rpcMock.mockResolvedValueOnce({
-      data: payload('active', '2026-08-15T00:00:05Z', {
-        runtime_status: 'starting',
-        desired_status: 'online',
-        device_id: 'device-1',
-        device_status: 'online',
-        device_last_seen_at: new Date().toISOString(),
-      }),
-      error: null,
-    })
-    const unsubscribe = subscribeAgentPresence('agent-1', () => undefined)
-    await settle()
-    const state = getAgentPresenceSnapshot('agent-1')
-    expect(state?.payload?.runtimeStatus).toBe('starting')
-    expect(state?.status).toBe('working')
-    unsubscribe()
+})
+
+// gugu-dev#181 80e:看不到一个 agent 只是那一刻的事 —— 它审批过后进了我在的群,成员变化一到就重问,状态(含类型)拿得到。
+describe('an agent this viewer could not see', () => {
+  it('is asked again when a chat of mine changes members, and is seen once it is visible', async () => {
+    rpcMock.mockResolvedValue({ data: { results: { 'agent-1': { status: 'unauthorized' } } }, error: null })
+    const off = subscribeAgentPresence('agent-1', () => undefined)
+    try {
+      await settle()
+      expect(getAgentPresenceSnapshot('agent-1')?.error).toBeTruthy()
+      expect(getAgentPresenceSnapshot('agent-1')?.payload ?? null).toBeNull()
+      rpcMock.mockImplementation(answerAll)
+      await recheckUnseenAgentPresence(['agent-1'])
+      await settle()
+      expect(getAgentPresenceSnapshot('agent-1')?.error ?? null).toBeNull()
+      expect(getAgentPresenceSnapshot('agent-1')?.payload?.agentUserId).toBe('agent-1')
+    } finally {
+      off()
+    }
+  })
+
+  it('an agent already seen is not asked again on every member change (read watermarks move all the time)', async () => {
+    rpcMock.mockImplementation(answerAll)
+    const off = subscribeAgentPresence('agent-1', () => undefined)
+    try {
+      await settle()
+      rpcMock.mockClear()
+      await recheckUnseenAgentPresence(['agent-1', 'someone-else'])
+      expect(rpcMock).not.toHaveBeenCalled()
+    } finally {
+      off()
+    }
   })
 })

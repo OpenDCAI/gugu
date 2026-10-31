@@ -1,7 +1,6 @@
 /**
- * 会话页「资源没载入」的 fatal(sessionpage/fatal-boot.ts),2026-10-12 mac1 实测的那条链:已登录的页面正在取会话页资源时
- * 被导航一次(⌘R、自动化的 reload),进行中的 fetch 被中止 ⇒ 渲染层报 fatalBoot ⇒ 旧代码弹同步模态错误框、主线程卡死
- * (gugu-base evidence/2026-10-12-mac1-boot-hang-modal)。这里钉两件事:
+ * 会话页「资源没载入」的 fatal(sessionpage/fatal-boot.ts),2026-10-12 macOS 实测的那条链:已登录的页面正在取会话页资源时
+ * 被导航一次(⌘R、自动化的 reload),进行中的 fetch 被中止 ⇒ 渲染层报 fatalBoot ⇒ 旧代码弹同步模态错误框、主线程卡死。这里钉两件事:
  * - 报的那份文档正被导航换掉(导航已开始未提交,或发送方的帧已 detached / null):只记一行,❌ 进 fatal;
  * - 资源真坏了:照旧弹同一句话、点了才退出 —— 而且是挂在可见主窗口上的异步框(mac 上没有父窗口的 showMessageBox
  *   也是 runModal,一样堵主线程)。

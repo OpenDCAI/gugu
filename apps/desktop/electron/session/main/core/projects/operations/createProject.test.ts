@@ -1,10 +1,11 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { GitRuntime } from '@gugu/session-core/git';
 import { ok, type Result } from '@gugu/session-shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { IMPLICIT_SESSION_HOME_PROJECT_ID } from '@shared/core/projects/session-home-project';
-import { createLocalProject } from './create-local-project';
+import { createLocalProject, getLocalProjectPathStatus } from './create-local-project';
 
 const mocks = vi.hoisted(() => ({
   acquireRuntimeMock: vi.fn(),
@@ -27,6 +28,8 @@ const mocks = vi.hoisted(() => ({
   attachedOwnerMock: vi.fn(),
   rootOwnerMock: vi.fn(),
   attachFolderMock: vi.fn(),
+  updateMock: vi.fn(),
+  emitMock: vi.fn(),
 }));
 
 vi.mock('@main/core/runtime/runtime-manager', () => ({
@@ -49,6 +52,8 @@ vi.mock('./project-folders', () => ({
 
 vi.mock('./getProjects', () => ({ getLocalProjectByPath: mocks.rootOwnerMock }));
 
+vi.mock('@main/core/projects/project-events', () => ({ projectEvents: { _emit: mocks.emitMock } }));
+
 vi.mock('./ensure-repository-workspace', () => ({
   ensureRepositoryWorkspace: mocks.ensureRootMock,
 }));
@@ -57,6 +62,7 @@ vi.mock('@main/db/client', () => ({
   db: {
     insert: mocks.insertMock,
     transaction: mocks.transactionMock,
+    update: mocks.updateMock,
   },
 }));
 
@@ -334,6 +340,46 @@ describe('createLocalProject', () => {
     });
   });
 
+  it('#609 ~ picked by the person in 添加项目 is a project; ~ registered on their behalf (automatic) is a workspace', async () => {
+    const home = tempProjectPath();
+    vi.stubEnv('HOME', home);
+    mocks.returningMock.mockReturnValue([
+      { id: 'home-id', name: 'me', path: home, baseRef: 'main', createdAt: '2026-10-28 00:00:00', updatedAt: '2026-10-28 00:00:00' },
+    ]);
+    try {
+      expectOk(await createLocalProject({ id: 'home-id', name: 'me', path: home }));
+      expect(mocks.valuesMock).toHaveBeenLastCalledWith(expect.objectContaining({ kind: 'project' }));
+      expectOk(await createLocalProject({ id: 'home-id', name: 'me', path: home, automatic: true }));
+      expect(mocks.valuesMock).toHaveBeenLastCalledWith(expect.objectContaining({ kind: 'workspace' }));
+      // 替人登记、但不是咕咕自己要用的目录:照常是项目。
+      const repo = tempProjectPath();
+      expectOk(await createLocalProject({ id: 'repo-id', name: 'repo', path: repo, automatic: true }));
+      expect(mocks.valuesMock).toHaveBeenLastCalledWith(expect.objectContaining({ kind: 'project' }));
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it('#609 adding a folder that is already a workspace (~ registered on their behalf) by hand makes it a project, same id', async () => {
+    const set = vi.fn(() => ({ where: () => ({ run: vi.fn() }) }));
+    mocks.updateMock.mockReturnValue({ set });
+    const kept = { type: 'local', id: 'home-id', name: 'me', path: '/home/me', baseRef: null, kind: 'workspace' };
+    mocks.rootOwnerMock.mockResolvedValue(kept);
+
+    const claimed = expectOk(await createLocalProject({ name: 'me', path: '/home/me', allowNonGit: true }));
+    expect(claimed).toMatchObject({ id: 'home-id' });
+    expect(claimed).not.toHaveProperty('kind');
+    expect(set).toHaveBeenCalledWith(expect.objectContaining({ kind: 'project' }));
+    expect(mocks.emitMock).toHaveBeenCalledWith('project:created', claimed);
+    expect(mocks.insertMock).not.toHaveBeenCalled();
+
+    // 替人登记的入口撞上它:还是那个 workspace,❌ 改成项目。
+    set.mockClear();
+    mocks.rootOwnerMock.mockResolvedValue(kept);
+    await createLocalProject({ name: 'me', path: '/home/me', allowNonGit: true, reuseExisting: true, exactPath: true, automatic: true });
+    expect(set).not.toHaveBeenCalled();
+  });
+
   it('creates a non-git local folder as a gitless project when allowNonGit is set (使用现有文件夹)', async () => {
     const projectPath = tempProjectPath();
 
@@ -365,5 +411,56 @@ describe('createLocalProject', () => {
     expect(mocks.valuesMock).toHaveBeenCalledWith(
       expect.objectContaining({ gitless: true, baseRef: null })
     );
+  });
+
+  it('keeps other Git spawn failures as project inspection errors', async () => {
+    const projectPath = tempProjectPath();
+    const git = new GitRuntime({ executable: projectPath });
+    mocks.acquireRuntimeMock.mockResolvedValue({
+      value: { files: makeFilesRuntime(), git },
+      release: mocks.runtimeReleaseMock,
+    });
+    try {
+      await expect(getLocalProjectPathStatus(projectPath)).resolves.toMatchObject({
+        isDirectory: true, error: { type: 'inspect-failed' },
+      });
+      await expect(createLocalProject({ name: 'Project', path: projectPath, allowNonGit: true }))
+        .resolves.toMatchObject({ success: false, error: { type: 'inspect-failed' } });
+      expect(mocks.insertMock).not.toHaveBeenCalled();
+    } finally {
+      await git.dispose();
+    }
+  });
+
+  it.each([false, true])('inspects and creates a folder without Git installed (metadata: %s)', async (hasMetadata) => {
+    const projectPath = tempProjectPath();
+    if (hasMetadata) fs.mkdirSync(path.join(projectPath, '.git'));
+    const originalEntries = fs.readdirSync(projectPath);
+    const git = new GitRuntime({ executable: path.join(projectPath, 'missing-git') });
+    mocks.acquireRuntimeMock.mockResolvedValue({
+      value: { files: makeFilesRuntime(), git },
+      release: mocks.runtimeReleaseMock,
+    });
+    mocks.returningMock.mockReturnValue([{
+      id: 'project-id', name: 'Project', path: projectPath, baseRef: null,
+      createdAt: '2026-04-16T00:00:00.000Z', updatedAt: '2026-04-16T00:00:00.000Z',
+    }]);
+    try {
+      await expect(getLocalProjectPathStatus(projectPath))
+        .resolves.toEqual({ isDirectory: true, isGitRepo: false });
+      const created = expectOk(await createLocalProject({
+        id: 'project-id', name: 'Project', path: projectPath, allowNonGit: true,
+      }));
+      expect(created).toMatchObject({ path: projectPath, baseRef: null });
+      expect(mocks.valuesMock).toHaveBeenCalledWith(expect.objectContaining({ gitless: true }));
+      expect(mocks.openProjectMock).toHaveBeenCalledWith(created);
+      expect(fs.readdirSync(projectPath)).toEqual(originalEntries);
+      await expect(git.ensureRepository(projectPath, { initIfMissing: true }))
+        .resolves.toMatchObject({ success: false, error: { type: 'init-failed' } });
+      await expect(git.ensureRepository(projectPath))
+        .resolves.toMatchObject({ success: false, error: { type: 'not-repository' } });
+    } finally {
+      await git.dispose();
+    }
   });
 });

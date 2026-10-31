@@ -22,6 +22,7 @@ export interface ExtensionAgentContribution {
   /** The manifest's `name` and `description` (the base ones, not a locale's): what `<gugu_apps>` says the App is. */
   name: string
   description?: string
+  agentInstructions?: string
   rootDir: string
   dataDir: string
   /** Manifest digest: which version of the extension these programs are. */
@@ -47,6 +48,7 @@ export interface ExtensionCatalogApp {
   description?: string
   /** #7317 Computer Use, on: its tools are not in the catalog but gugu's own device_actions / device_call (`<gugu_apps>` says so). */
   computerUse?: true
+  agentInstructions?: string
 }
 
 export interface ExtensionSessionMcp {
@@ -205,20 +207,21 @@ export function extensionAgentPrograms(
  * 上下文工程第二批 P3: the Apps `<gugu_apps>` may name as having tools in the catalog — progressive ones with at least one
  * program gugu actually runs (the catalog lists exactly those, extension-gateway.ts). A program `extensionAgentPrograms`
  * left out (its tools module is not in the bundle, this build has no App runtime) puts nothing in the catalog, so its App
- * is not named: the opening says only what the catalog will show (复核 84 2(d)). Full-disclosure Apps are not named
- * either — their tools are already in the tool list. D-30 scope is the caller's (the same `inScope` the catalog uses).
+ * is not named: the opening says only what can run (复核 84 2(d)). Full-disclosure Apps are included only when
+ * they also provide standing instructions, which must not depend on tool disclosure. D-30 scope is the caller's (the same `inScope` the catalog uses).
  */
 export function catalogAppsOf(
   contributions: readonly ExtensionAgentContribution[],
   programs: readonly ExtensionProgram[],
 ): ExtensionCatalogApp[] {
-  // #7317 The computer-use host has no tools of its own (its page shows gugu's computer control), so it is not a catalog
-  // App. Running = Computer Use is on: named apart, to say the computer is operated with gugu's device tools. The owner's
-  // own test: told to press 6+6+6+6+6 on Calculator, agents scripted it with osascript or took browser tools for it.
+  // The native Computer Use host is named separately from catalog tools.
   const computerUse = new Set(programs.filter((program) => program.native === 'computer-use').map((program) => program.extensionId))
-  const running = new Set(programs.filter((program) => program.native !== 'computer-use').map((program) => program.extensionId))
-  return contributions.flatMap(({ extensionId, name, description, disclosure }): ExtensionCatalogApp[] => {
-    if (computerUse.has(extensionId)) return [{ extensionId, name, computerUse: true }]
-    return disclosure === 'progressive' && running.has(extensionId) ? [{ extensionId, name, ...(description ? { description } : {}) }] : []
+  const running = new Set(programs.map((program) => program.extensionId))
+  return contributions.flatMap(({ extensionId, name, description, disclosure, agentInstructions }): ExtensionCatalogApp[] => {
+    if (!running.has(extensionId)) return []
+    const instructions = agentInstructions ? { agentInstructions } : {}
+    if (computerUse.has(extensionId)) return [{ extensionId, name, computerUse: true, ...instructions }]
+    return disclosure === 'progressive' || agentInstructions
+      ? [{ extensionId, name, ...(description ? { description } : {}), ...instructions }] : []
   })
 }

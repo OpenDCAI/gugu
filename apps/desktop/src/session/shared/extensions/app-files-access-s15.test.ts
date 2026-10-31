@@ -1,4 +1,6 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { rpcQuery } from '../../../../../../tests/helpers/rpcQuery';
+import { verifiedFileHandle } from '../../../../../../tests/helpers/verifiedFileHandle';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 /**
  * S15 (统筹 10:20, 真源原则 9 / 13): which files a page may open, as main grants them — the person's own opens. Every call
@@ -23,6 +25,7 @@ let personSees: ReturnType<typeof rowOf>[] = [];
 
 async function rpc(name: string, args: Record<string, unknown>) {
   // Who may delete what is the folder's to say; here, everyone may delete everything.
+  if (name === 'chat_facts') return { data: [{ id: args.p_chat_id, kind: 'group', source_chat_id: null }], error: null };
   if (name === 'workspace_deletable_as') return { data: args.p_item_ids, error: null };
   if (name !== 'workspace_get_as') throw new Error(`no fake for ${name}`);
   const row = personSees.find((r) => r.id === args.p_item_id);
@@ -32,26 +35,26 @@ async function rpc(name: string, args: Record<string, unknown>) {
 
 vi.mock('@gugu/core/cloud/supabase', () => ({
   createGuguSupabaseClient: () => ({
-    rpc,
+    rpc: rpcQuery(rpc),
   }),
 }));
-// A stored file's bytes are signed by attachments/urls for that item and version (#7290 收尾: the one way).
-vi.mock('@gugu/core/cloud/attachmentsApi', async (importOriginal) => ({
-  ...(await importOriginal<object>()),
-  configuredEndpoint: (token: string) => ({ supabaseUrl: 'https://db.test', anonKey: 'anon', token }),
-  fetchAttachmentUrls: async (_endpoint: unknown, refs: { item_id: string; version: number }[]) => ({
-    urls: refs.map((ref) => ({ ...ref, message_id: null, url: `https://oss.test/${ref.item_id}`, thumb_url: null, sha256: null, width: null, height: null, expires_at: '2999-01-01T00:00:00Z' })),
-  }),
-}));
-
 const { createAppFiles } = await import('./app-files-core');
 
 let capabilities = new Set<string>();
 const grants: unknown[] = [];
+const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47]);
+const openedOriginals: string[] = [];
 const files = createAppFiles({
   account: async () => ({ token: 'token', userId: PERSON }),
+  resolveFile: async (ref, _actor, options) => {
+    if (options.localOnly) return null;
+    const row = 'id' in ref ? personSees.find(row => row.id === ref.id) : null;
+    if (!row) return { status: 'gone', sha256: null };
+    const file = await verifiedFileHandle(PNG, { item_id: row.id, version: row.version, file_name: row.filename, content_type: row.content_type });
+    return { ...file, async *stream() { openedOriginals.push(row.id); yield* file.stream(); } };
+  },
   hasCapability: (_extensionId, capability) => capabilities.has(capability),
-  sync: { pageFor: () => ({}), grant: (_page: unknown, grant: unknown) => void grants.push(grant), revoke: () => undefined, ungrant: () => undefined } as never,
+  sync: { ensureFor: () => undefined, pageFor: () => ({}), grant: (_page: unknown, grant: unknown) => void grants.push(grant), revoke: () => undefined, ungrant: () => undefined } as never,
   identities: async () => [],
   faces: async () => ({}),
   filesUrl: () => 'http://files.invalid',
@@ -107,29 +110,23 @@ describe('what a page may do with a file it was not handed (S15)', () => {
 
 describe('a stored file — an image, a clip, a sound — opens read-only, as its bytes (owner 10-07)', () => {
   const IMAGE = '88888888-8888-4888-8888-888888888888';
-  const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47]);
-  const fetched: string[] = [];
   beforeEach(() => {
     personSees.push({ ...rowOf(IMAGE, CHAT), kind: 'file', filename: 'shot.png', content_type: 'image/png', size_bytes: 4, pointer: `${CHAT}/shot.png` });
-    fetched.length = 0;
-    vi.stubGlobal('fetch', async (url: string) => (fetched.push(url), new Response(PNG)));
-  });
-  afterEach(() => {
-    vi.unstubAllGlobals();
+    openedOriginals.length = 0;
   });
 
   it('even with files:write: read-only, its bytes, and nothing granted to sync', async () => {
     const opened = await files.open(page, { ref: { chat: CHAT, id: IMAGE } });
     expect(opened).toMatchObject({ docName: '', access: 'ro', entry: { name: 'shot.png', type: 'binary', contentType: 'image/png' } });
     expect([...new Uint8Array(opened.bytes!)]).toEqual([...PNG]);
-    expect(fetched).toEqual([`https://oss.test/${IMAGE}`]);
+    expect(openedOriginals).toEqual([IMAGE]);
     expect(grants).toEqual([]);
   });
 
   it("a document's gate: neither capability is refused before a byte is read; the file handed to the page needs none", async () => {
     capabilities = new Set();
     await expect(files.open(page, { ref: { chat: CHAT, id: IMAGE } })).rejects.toMatchObject({ code: 'denied' });
-    expect(fetched).toEqual([]);
+    expect(openedOriginals).toEqual([]);
     expect((await files.open({ ...page, itemId: IMAGE }, { ref: { chat: CHAT, id: IMAGE } })).access).toBe('ro');
   });
 });

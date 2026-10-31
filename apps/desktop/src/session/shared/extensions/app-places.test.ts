@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { applyPlaceChanges, placesOfChats, type PlaceChat } from './app-places';
+import { placesOfChats, type PlaceChat } from './app-places';
 import { HERE_ALL } from './host-actions';
 
 /**
@@ -50,9 +50,5 @@ describe('the places an App can be given at (D-30)', () => {
   it('a phone lists no computer of its own; a human friend and someone else’s agent are no agents of the person', () => {
     const places = placesOfChats(chats, identities, { me: 'me', enabled: new Set() });
     expect(places.map((place) => place.id)).toEqual(['dm-helper', 'g1']);
-  });
-
-  it('switches add and remove, each at most once', () => {
-    expect(applyPlaceChanges([HERE_ALL], [{ id: 'g1', on: true }, { id: 'g1', on: true }, { id: HERE_ALL, on: false }])).toEqual(['g1']);
   });
 });

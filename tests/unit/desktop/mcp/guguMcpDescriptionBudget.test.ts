@@ -4,6 +4,7 @@ import { z } from 'zod'
 
 // @ts-expect-error -- the injectable MCP server is an untyped ESM module.
 import { TOOL_DEFS } from '../../../../apps/desktop/electron/mcp/gugu-im-server.mjs'
+import { ACTIVITY_TOOL_DEFS } from '../../../../apps/desktop/electron/mcp/gugu-activity-tool'
 import { SESSION_TOOL_DEFS } from '../../../../apps/desktop/electron/mcp/gugu-session-tool'
 import { EXTENSION_TOOL_DEFS } from '../../../../apps/desktop/electron/mcp/gugu-extension-tool'
 import { registerSessionpageTools } from '../../../../apps/desktop/electron/mcp/sessionpage-tool-registrar'
@@ -20,6 +21,7 @@ describe('gugu MCP tool descriptions stay within the Claude Code budget', () => 
   const allDefs = [
     ...(TOOL_DEFS as Array<{ name: string; description: string }>),
     ...SESSION_TOOL_DEFS,
+    ...ACTIVITY_TOOL_DEFS,
     ...EXTENSION_TOOL_DEFS,
   ]
 
@@ -31,7 +33,12 @@ describe('gugu MCP tool descriptions stay within the Claude Code budget', () => 
     // #7471 adds catalog-only group_create.
     // 10-19 app_list moved into app_search; #7520 adds the catalog-only session_ask_user.
     // 论坛 (10-20) adds the catalog-only forum_reply and forum_read.
-    expect(readings).toHaveLength(46)
+    // Group administration adds eleven catalog-only tools.
+    // Tab management adds catalog-only session_list_tabs / session_close_tab.
+    // Assistant activity adds three catalog-only tools; metadata and context reads stay separate.
+    // Topic deletion adds one catalog-only command.
+    // App resource management adds one catalog-only tool.
+    expect(readings).toHaveLength(64)
     const over = readings.filter(({ chars }) => chars > CLAUDE_CODE_MCP_TOOL_DESCRIPTION_BUDGET)
     expect(over, `${readings.length - over.length} of ${readings.length} tools fit ${CLAUDE_CODE_MCP_TOOL_DESCRIPTION_BUDGET} chars`).toEqual([])
   })

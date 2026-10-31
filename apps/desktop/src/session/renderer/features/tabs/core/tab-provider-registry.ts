@@ -1,5 +1,6 @@
 import { log } from '@renderer/utils/logger';
 import type { OpenTarget, TabProvider, TabResource } from './tab-provider';
+import type { TabReturnTo } from '@shared/view-state';
 
 // ── Type aliases ──────────────────────────────────────────────────────────────
 
@@ -48,6 +49,8 @@ export type TabOpenArgs<R extends TabRegistry> = {
  * Stripped before the args reach onBeforeOpen.
  */
 export interface TabOpenOptions {
+  /** Previous page to reveal when this tab is closed while shown. */
+  returnTo?: TabReturnTo;
   /** When true, opens as a preview tab (replaced on next preview open). */
   preview?: boolean;
   /**

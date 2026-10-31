@@ -27,6 +27,7 @@ vi.mock('@main/lib/logger', () => {
 });
 
 import { setProjectGroupHost, type ProjectGroupHost, type ProjectGroupSubject } from '../project-group-host';
+import { onActivitySignal } from '../../activity/signals';
 import {
   bindProjectToGroup,
   ensureProjectGroup,
@@ -94,6 +95,22 @@ describe('project groups (会话页一侧)', () => {
     await expect(ensureProjectGroup('project-a')).rejects.toMatchObject({ code: 'host_not_ready' });
   });
 
+  it('records only changed project-group associations after the host commits them', async () => {
+    let bound = false;
+    const activity: string[] = [];
+    const off = onActivitySignal(event => activity.push(event.kind));
+    setProjectGroupHost(fakeHost({
+      ensureGroup: async () => { const changed = !bound; bound = true; return ok({ chatId: 'chat-one', changed }); },
+      unbind: async () => { const changed = bound; bound = false; return ok({ changed }); },
+    }).host);
+    try {
+      await ensureProjectGroup('project-a'); await ensureProjectGroup('project-a');
+      await unbindProjectGroup('project-a'); await unbindProjectGroup('project-a');
+      expect((await bindProjectToGroup('missing', 'chat-one')).success).toBe(false);
+      expect(activity).toEqual(['project.group_bound', 'project.group_unbound']);
+    } finally { off(); }
+  });
+
   it('读绑定:问的是这台机器上还在的每个本地项目', async () => {
     const { host, calls } = fakeHost();
     setProjectGroupHost(host);
@@ -101,6 +118,14 @@ describe('project groups (会话页一侧)', () => {
     expect(calls).toEqual([{ op: 'list', projectIds: expect.arrayContaining(['project-a', 'project-b']) }]);
     expect((calls[0] as Extract<Call, { op: 'list' }>).projectIds).toHaveLength(2);
     expect(result).toEqual(ok(expect.arrayContaining([{ projectId: 'project-a', chatId: 'chat-of-project-a' }])));
+  });
+
+  it('#609 workspace 不问:它从前绑的群成了普通群,照常列在「聊天」里', async () => {
+    fixture.sqlite.exec(`UPDATE projects SET kind = 'workspace' WHERE id = 'project-b'`);
+    const { host, calls } = fakeHost();
+    setProjectGroupHost(host);
+    await listProjectGroupBindings();
+    expect(calls).toEqual([{ op: 'list', projectIds: ['project-a'] }]);
   });
 
   it('预留群:交给宿主的是项目名与没归档的会话;改了才叫渲染层重读,结果里不带 changed', async () => {

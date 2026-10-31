@@ -23,7 +23,12 @@ import type { SupervisorLog } from './server-supervisor'
 import { pruneVersions, touchVersion, versionManifestUrl } from './server-account-versions'
 import { pointCurrent, readBadVersions, spawnUpgradeGuard, writeUpgradeMarker } from './server-upgrade-guard'
 
-const CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000
+/**
+ * 新版本最迟半小时就发现(原先 6 小时:新 Beta 要好几个小时才到云机器上,10-27 owner 撞到)。
+ * 每次只取一行的通道清单,一台机器一天 48 次;大包只在真有新版本时下一次,下载站压力不在这。
+ * 与手机端查新版同一个间隔(capacitorAppUpdate.ts)。
+ */
+const CHECK_INTERVAL_MS = 30 * 60 * 1000
 const FIRST_CHECK_DELAY_MS = 60 * 1000
 const IDLE_POLL_MS = 30 * 1000
 
@@ -227,7 +232,7 @@ export function startServerUpdater(deps: ServerUpdaterDeps): () => void {
     if (stopped || ticking) return
     ticking = true
     try {
-      // 等空闲的那 30 s 一轮、此刻仍忙:不取清单(等的是空闲;新版本由 6 小时那一轮去发现、后台装上)。
+      // 等空闲的那 30 s 一轮、此刻仍忙:不取清单(等的是空闲;新版本由半小时那一轮去发现、后台装上)。
       if (idlePoll && waitingWith !== null && deps.isBusy()) {
         state.set('ready', waitingWith)
         return void retryWhenIdle(waitingWith)
@@ -274,7 +279,7 @@ export function startServerUpdater(deps: ServerUpdaterDeps): () => void {
       deps.shutdown()
     } catch (error) {
       log.warn('检查/下载新版本失败,下次再试', { error: error instanceof Error ? error.message : String(error) })
-      // 在等空闲时取清单失败(断网一下):照旧等,下一轮再取;❌ 一次失败就把等待丢到 6 小时以后。
+      // 在等空闲时取清单失败(断网一下):照旧等,下一轮再取;❌ 一次失败就把等待丢到半小时以后。
       if (waitingWith !== null) retryWhenIdle(waitingWith)
       else state.clear()
     } finally {

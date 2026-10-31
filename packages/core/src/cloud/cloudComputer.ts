@@ -9,7 +9,7 @@
  *  · DELETE /           销毁
  * 出错的响应体是 { error: <码>, message: <给人看的一句> };免费档 403 plan_required,积分用完 403 credits_exhausted,
  * 会员到期 403 membership_expired(管家从不因到期删 / 关机器,只拦唤醒);
- * 云端函数部署了、还没配管家 = 503 not_open(这里没开放,客户端整块不显示)。
+ * 云端函数部署了、还没配管家 = 503 not_open(环境未配置可选云电脑服务,客户端整块不显示)。
  *
  * 不碰 node / electron:渲染层(设置 → 设备、「在哪跑」)和主进程(agent 的 session_* 跨机器)共用这一份。
  */
@@ -128,15 +128,18 @@ function provisionBody(input: CloudComputerProvisionInput | undefined): Record<s
 }
 
 export type CloudComputerClient = {
+  matchVersion?(deviceId: string, start: boolean, signal?: AbortSignal): Promise<CloudVersionMatchState>
   state(signal?: AbortSignal): Promise<CloudComputerSnapshot>
   provision(input?: CloudComputerProvisionInput): Promise<void>
-  wake(input?: CloudComputerWakeInput): Promise<void>
+  wake(input?: CloudComputerWakeInput, signal?: AbortSignal): Promise<void>
   destroy(): Promise<void>
   /** 删除身份之前，核对清理接口可用且仍是确认框里这一位。 */
   prepareAssistantClose(input: { deviceId: string; assistantId: string }): Promise<void>
   /** 身份与自己的会话已关闭后，只清助理资料并等待存档完成；保留宿主。 */
   closeAssistant(input: { deviceId: string; assistantId: string }, signal?: AbortSignal): Promise<void>
 }
+
+export type CloudVersionMatchState = { status: 'idle' } | { status: 'updating' | 'ready'; version: string } | { status: 'failed'; version?: string; error: string }
 
 /**
  * 一次请求最多等多久。管家的四个接口都是立刻回的(开通、叫醒是 202 + 之后看 /state);挂住不回 = 当作连不上 ——
@@ -179,6 +182,15 @@ export function createCloudComputerClient(options: {
     return raw
   }
   return {
+    async matchVersion(deviceId, start, signal) {
+      const raw = await request(start ? 'POST' : 'GET', start ? '/version-match' : `/version-match?${new URLSearchParams({ deviceId })}`,
+        start ? { deviceId } : undefined, signal)
+      const state = JSON.parse(raw) as CloudVersionMatchState
+      if (!state || !['idle', 'updating', 'ready', 'failed'].includes(state.status)
+        || ((state.status === 'updating' || state.status === 'ready') && typeof state.version !== 'string')
+        || (state.status === 'failed' && typeof state.error !== 'string')) throw new CloudComputerError(200, 'bad_response', '云端咕咕没有返回有效的升级状态')
+      return state
+    },
     async state(signal) {
       const raw = await request('GET', '/state', undefined, signal)
       let parsed: unknown
@@ -192,8 +204,8 @@ export function createCloudComputerClient(options: {
     async provision(input) {
       await request('POST', '/provision', provisionBody(input))
     },
-    async wake(input) {
-      await request('POST', '/wake', input?.purpose ? { purpose: input.purpose } : {})
+    async wake(input, signal) {
+      await request('POST', '/wake', input?.purpose ? { purpose: input.purpose } : {}, signal)
     },
     async destroy() {
       await request('DELETE', '/')
@@ -320,7 +332,9 @@ export async function wakeCloudComputerUntilOnline(input: {
   const deadline = now() + timeoutMs
   const read = async (): Promise<CloudComputerSnapshot> => {
     try {
+      input.signal?.throwIfAborted()
       const snapshot = await input.client.state(input.signal)
+      input.signal?.throwIfAborted()
       input.onSnapshot?.(snapshot)
       return snapshot
     } catch (error) {
@@ -337,7 +351,8 @@ export async function wakeCloudComputerUntilOnline(input: {
   if (first.state === 'error') throw new CloudComputerWakeError('failed', first.error ?? 'cloud computer reported an error')
   if (first.state === 'asleep' || first.state === 'waking') {
     try {
-      await input.client.wake(input.purpose ? { purpose: input.purpose } : undefined)
+      input.signal?.throwIfAborted()
+      await input.client.wake(input.purpose ? { purpose: input.purpose } : undefined, input.signal)
     } catch (error) {
       if (error instanceof CloudComputerError) throw new CloudComputerWakeError('refused', error.message, error.code)
       throw error
@@ -394,7 +409,7 @@ export function cloudComputerFailureKindOf(failure: { reason?: string | null; co
 }
 
 /**
- * 管家那扇门(云端函数)说「这里没开放」:部署了、还没配管家地址(503 not_open)。不是出错 —— 客户端把云电脑这一块整个藏起来,
+ * 管家那扇门(云端函数)说「环境未配置可选云电脑服务」:部署了、还没配管家地址(503 not_open)。不是出错 —— 客户端把云电脑这一块整个藏起来,
  * 和拿不到管家地址同一个样子;配上以后下一次问到就出现。门在、管家连不上(502 unavailable)、云端函数没部署(404)照旧是出错:
  * 404 分不清「没部署」和「地址拼错」,藏了就是静默坏掉。
  */

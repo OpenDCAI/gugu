@@ -26,7 +26,7 @@ describe('#7514 maintained macOS driver distribution', () => {
   it('packages the maintained Mac archive, retaining upstream Windows distributions', () => {
     const mac = cuaDriverArchiveInfo('darwin-universal')
     expect(mac.asset).toContain(CUA_DRIVER_MAC_REVISION)
-    expect(mac.url).toMatch(/^https:\/\/api\.github\.com\/repos\/nmhjklnm\/gugu\/releases\/assets\/\d+$/)
+    expect(mac.url).toBe(`https://github.com/OpenDCAI/gugu/releases/download/assets/${mac.asset}`)
     expect(mac.sha256).toMatch(/^[a-f0-9]{64}$/)
     for (const arch of ['x64', 'arm64']) expect(cuaDriverArchiveInfo(`win32-${arch}`).url).toContain(`trycua/cua/releases/download/cua-driver-rs-v${CUA_DRIVER_VERSION}/`)
     expect(() => cuaDriverArchiveInfo('unknown')).toThrow('没有钉')

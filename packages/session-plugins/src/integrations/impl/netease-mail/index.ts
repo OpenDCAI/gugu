@@ -1,3 +1,4 @@
+import { summary } from './summary';
 import { MAIL_ABILITIES, MAIL_PLAYBOOKS } from '../../helpers/mail/mail-copy';
 import { verifyMailCredentials } from '../../helpers/mail/mail-verify';
 import { defineIntegrationPlugin, registerIntegrationPluginBehavior } from '../../plugin';
@@ -10,8 +11,8 @@ import { icon } from './icon';
 const plugin = defineIntegrationPlugin(
   {
     id: 'netease-mail',
-    name: '网易邮箱',
-    description: { en: 'Read, search and send 163 / 126 / yeah.net mail', 'zh-CN': '查信、读信、发信（163 / 126 / yeah.net）' },
+    name: summary.name['zh-CN'],
+    description: summary.description,
     websiteUrl: 'https://mail.163.com',
     abilities: MAIL_ABILITIES,
     playbooks: MAIL_PLAYBOOKS,

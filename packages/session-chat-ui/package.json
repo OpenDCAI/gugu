@@ -15,13 +15,17 @@
     ".": "./src/index.tsx",
     "./turn-fold": "./src/state/turn-fold.ts",
     "./tool-run": "./src/state/tool-run.ts",
+    "./background-rosters": "./src/lib/background-rosters.ts",
     "./opened-outputs": "./src/state/opened-outputs.ts",
+    "./agent-send": "./src/state/agent-send.ts",
     "./file-icons": "./src/lib/file-icons.ts",
     "./layout-geometry": "./src/layout-geometry.ts",
     "./markdown-attachment-mentions": "./src/core/markdown/attachment-mentions.ts",
     "./markdown-html": "./src/core/markdown/to-html.ts",
     "./highlight": "./src/core/highlight/highlighter.ts",
-    "./mermaid": "./src/core/mermaid/render.ts"
+    "./mermaid": "./src/core/mermaid/render.ts",
+    "./composer-layout": "./src/chat-root.css.ts",
+    "./styles/effects": "./src/styles/effects.css.ts"
   },
   "scripts": {
     "storybook": "storybook dev -p 6007",

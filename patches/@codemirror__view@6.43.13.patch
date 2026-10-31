@@ -6,8 +6,8 @@ index 224fb1129590c9c84b2b91b5d394d25bebae5f91..fffcca1eab448fc0230b6ebf85765ac9
          if (update.geometryChanged || update.docChanged || update.selectionSet)
              update.view.requestMeasure(this.measureReq);
      }
-+    // gugu: patched in (pnpm patchedDependencies) from L1's measured fix, until upstream ships it — the PR is drafted in
-+    // gugu-base evidence/2026-09-29-mobile-iframe-app/upstream-pr-draft.md, for code.haverbeke.berlin/codemirror/view;
++    // gugu: patched in (pnpm patchedDependencies) from L1's measured fix, until upstream ships it — an upstream PR is
++    // drafted for code.haverbeke.berlin/codemirror/view;
 +    // drop patches/@codemirror__view@6.43.13.patch once a release carries it.
 +    // The window starts at the start of the line that holds the start of the main selection (or CxVp.Margin before
 +    // the head, on a very long line). Changes on earlier lines, such as a collaborator typing there, then fall before
@@ -41,8 +41,8 @@ index 522f3b69e1e0bc9c8738282c2b52d0aa4a63543b..45fdda0de49ece82b150e207852f4fb0
          if (update.geometryChanged || update.docChanged || update.selectionSet)
              update.view.requestMeasure(this.measureReq);
      }
-+    // gugu: patched in (pnpm patchedDependencies) from L1's measured fix, until upstream ships it — the PR is drafted in
-+    // gugu-base evidence/2026-09-29-mobile-iframe-app/upstream-pr-draft.md, for code.haverbeke.berlin/codemirror/view;
++    // gugu: patched in (pnpm patchedDependencies) from L1's measured fix, until upstream ships it — an upstream PR is
++    // drafted for code.haverbeke.berlin/codemirror/view;
 +    // drop patches/@codemirror__view@6.43.13.patch once a release carries it.
 +    // The window starts at the start of the line that holds the start of the main selection (or CxVp.Margin before
 +    // the head, on a very long line). Changes on earlier lines, such as a collaborator typing there, then fall before

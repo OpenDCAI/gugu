@@ -1,7 +1,14 @@
+import { findToolImage, trimCursorPageForTransport, trimTurnsForTransport } from '@gugu/session-core/session-record';
 import { and, asc, desc, eq, gte, lt, sql } from 'drizzle-orm';
 import type { TranscriptTurn } from '@gugu/session-core/acp';
 import { db } from '@main/db/client';
 import { sessionTurns } from '@main/db/schema';
+import { randomUUID } from 'node:crypto';
+import { activitySignal } from '../activity/signals';
+import { noteNativeConversationReplies, truncateNativeConversationRead } from './session-conversation-read';
+import { nativeConversationActivity } from './session-conversation-activity';
+import { publishNativeConversationInbox, queueNativeConversationInbox } from './native-conversation-inbox';
+import { mayFillReplay, didFillReplay, stopFillingReplay, readableStoredRows } from './session-turn-replay';
 
 /**
  * 会话历史的落盘（#5381）。
@@ -33,8 +40,7 @@ export type CommittedTurnSource = 'live' | 'replay' | 'revision' | 'backfill';
  * 「库里那份是完整的」把重放回来的其余部分整段跳过。2026-09-10 隔离实例实撞：一条对照会话
  * 补完之后重开只剩 2 个渲染块，而补之前是 6 个。
  *
- * 用序号对齐同时也天然排除了「库里已有完整历史」那一侧：那时已存行数远大于 0，而重放的
- * 第一条序号是 0，对不上，整段跳过。
+ * 是否回填在重放第一条时固定。不能只逐条对齐数量：旧档案非空，重放尾部的编号仍可能追上它的条数。
  *
  * 新回合用 `INSERT OR IGNORE` 保持按到达序幂等；已提交回合的改口(结局或迟到的尾巴)整轮替换其最新投影行。
  * `backfill`(更早那一轮被后台命令的终态补了内容,#6582)落盘与 `revision` 同一条路:按 turn id 找行、整轮替换。
@@ -53,6 +59,11 @@ export type CommittedTurnSource = 'live' | 'replay' | 'revision' | 'backfill';
  * 重编号只动 id 那几个字段（`id` 与 `parentId`，两者都以 turn id 为前缀），
  * ❌ 不做整段 JSON 的字符串替换：消息正文里恰好出现同样的字符串就会被误伤。
  */
+function rewriteTurnId(value: string, previous: string, next: string): string {
+  if (value === previous) return next;
+  return value.startsWith(previous + ':') ? next + value.slice(previous.length) : value;
+}
+
 export function renumberStoredTurn(
   turn: TranscriptTurn,
   sessionId: string,
@@ -62,18 +73,13 @@ export function renumberStoredTurn(
   const prevTurnId = turn.id;
   if (nextTurnId === prevTurnId) return { ...turn, seq: storeSeq };
 
-  const rewrite = (value: string): string => {
-    if (value === prevTurnId) return nextTurnId;
-    if (value.startsWith(`${prevTurnId}:`)) return `${nextTurnId}${value.slice(prevTurnId.length)}`;
-    return value;
-  };
   const walk = (node: unknown): unknown => {
     if (Array.isArray(node)) return node.map(walk);
     if (node === null || typeof node !== 'object') return node;
     const out: Record<string, unknown> = {};
     for (const [key, val] of Object.entries(node as Record<string, unknown>)) {
       out[key] = (key === 'id' || key === 'parentId') && typeof val === 'string'
-        ? rewrite(val)
+        ? rewriteTurnId(val, prevTurnId, nextTurnId)
         : walk(val);
     }
     return out;
@@ -108,22 +114,25 @@ async function persistCommittedTurnNow(input: PersistInput): Promise<void> {
     if (!row) throw new Error(`Cannot revise missing stored turn: sessionId=${input.sessionId} turnId=${input.turn.id} source=${input.source}`);
     // 改口的可能是结局(进程退出改写 prompt_failed),也可能是内容(落定后才到的尾巴,#6191)
     // ⇒ 整轮按库里的序号重编号后替换,❌ 只挑某个字段写。
-    await db.update(sessionTurns).set({
-      data: JSON.stringify(renumberStoredTurn(input.turn, input.sessionId, row.seq)),
-    }).where(eq(sessionTurns.id, row.id));
+    const publish = db.transaction(tx => {
+      const revised = renumberStoredTurn(input.turn, input.sessionId, row.seq);
+      tx.update(sessionTurns).set({ data: JSON.stringify(revised) }).where(eq(sessionTurns.id, row.id)).run();
+      return noteNativeConversationReplies(input.sessionId, revised, input.turn, tx);
+    });
+    publish?.();
     return;
   }
   if (input.source === 'replay') {
     const stored = await storedTurnCount(input.sessionId);
-    if (stored !== input.turn.seq) return;
-  }
+    if (!mayFillReplay(input.sessionId, input.turn.seq, stored)) return;
+  } else stopFillingReplay(input.sessionId);
 
   // 到达序由这里分配。❌ 不复用运行时那份回合序号：重开会话后它从 0 重数，而重放只含压缩边界
   // 之后的一段，直接拿来当键必然与库里已有的行撞号。
   const next = await nextSeq(input.sessionId);
   const turn = renumberStoredTurn(input.turn, input.sessionId, next);
-  await db
-    .insert(sessionTurns)
+  const inserted = db.transaction(tx => {
+    const result = tx.insert(sessionTurns)
     .values({
       id: `${input.sessionId}:${next}`,
       sessionId: input.sessionId,
@@ -133,7 +142,86 @@ async function persistCommittedTurnNow(input: PersistInput): Promise<void> {
       turnId: input.turn.id,
       data: JSON.stringify(turn),
     })
+    .onConflictDoNothing()
+    .returning({ seq: sessionTurns.seq }).all();
+    const publish = input.source === 'live' && result.length ? noteNativeConversationReplies(input.sessionId, turn, input.turn, tx) : undefined;
+    const inbox = input.source === 'live' && result.length > 0 && nativeConversationActivity(input.sessionId, tx)?.turnSeq === turn.seq
+      ? queueNativeConversationInbox(input.sessionId, tx) : false;
+    return { rows: result, publish, inbox };
+  });
+  inserted.publish?.();
+  if (inserted.inbox) publishNativeConversationInbox();
+  if (input.source === 'replay' && inserted.rows.length) didFillReplay(input.sessionId, input.turn.seq);
+  // The activity index names a turn by this stored sequence, assigned here and nowhere else: the runtime's own turn
+  // ids restart at 0 with every run, and the provider record numbers its turns from a different stream. A replayed
+  // turn is history arriving late, not something that happened now.
+  if (input.source === 'live' && inserted.rows.length > 0) {
+    activitySignal({ event_id: `session.turn_recorded:${randomUUID()}`, kind: 'session.turn_recorded',
+      session_id: input.sessionId, turn_seq: next, occurred_at: input.turn.endedAt ?? null });
+  }
+}
+
+/**
+ * #980 记录补库与运行时落库走**同一条**按会话排队的写链:补的时候插不进一轮运行时的提交,运行时也插不进来,
+ * 补进来的几轮因此总是接在当时的库尾。
+ */
+export function withStoredTurns<T>(sessionId: string, run: () => Promise<T>): Promise<T> {
+  const previous = persistenceTails.get(sessionId) ?? Promise.resolve();
+  const result = previous.then(run, run);
+  const tail = result.then(() => undefined, () => undefined);
+  persistenceTails.set(sessionId, tail);
+  void tail.then(() => {
+    if (persistenceTails.get(sessionId) === tail) persistenceTails.delete(sessionId);
+  });
+  return result;
+}
+
+/** #980 库尾往前读,由新到旧,最多 `limit` 行。只在写链里调(`withStoredTurns`)。 */
+export async function readStoredTailNow(sessionId: string, limit: number): Promise<TranscriptTurn[]> {
+  const rows = await db
+    .select({ data: sessionTurns.data })
+    .from(sessionTurns)
+    .where(eq(sessionTurns.sessionId, sessionId))
+    .orderBy(desc(sessionTurns.seq))
+    .limit(limit);
+  return rows.map((row) => JSON.parse(row.data) as TranscriptTurn);
+}
+
+/**
+ * #980 把 agent 记录里的一轮接在库尾。只在写链里调(`withStoredTurns`)。
+ * `turn_id` 记 `record:` 开头的记录侧 id:这一行**不来自引擎的哪一轮**,界面按引擎 turn id 去重时不会把它认成谁。
+ */
+export async function appendRecordTurnNow(sessionId: string, turn: TranscriptTurn): Promise<void> {
+  const next = await nextSeq(sessionId);
+  await db
+    .insert(sessionTurns)
+    .values({
+      id: `${sessionId}:${next}`,
+      sessionId,
+      seq: next,
+      turnId: `record:${turn.id}`,
+      data: JSON.stringify(renumberStoredTurn(turn, sessionId, next)),
+    })
     .onConflictDoNothing();
+}
+
+/**
+ * #980 运行时回合序号的下一个起点。库里每一行记着它来自引擎的哪一轮(`turn_id` = `${会话}:turn:${序号}`),
+ * 取其中最大的序号 + 1。接回会话不重放时运行时从这里接着数 —— 从 0 数会撞上上一次运行留在库里的同名回合,
+ * 界面按 turn_id 认「这一轮已经落库」,撞上的那一轮就被当成重复藏起来。旧版本写的行记的是库内 id(`:turn:sN`),不算。
+ */
+export async function storedTurnIndexBase(sessionId: string): Promise<number> {
+  await persistenceTails.get(sessionId);
+  const rows = await db
+    .select({ turnId: sessionTurns.turnId })
+    .from(sessionTurns)
+    .where(eq(sessionTurns.sessionId, sessionId));
+  let max = -1;
+  for (const { turnId } of rows) {
+    const index = /:turn:(\d+)$/.exec(turnId)?.[1];
+    if (index !== undefined) max = Math.max(max, Number(index));
+  }
+  return max + 1;
 }
 
 async function storedTurnCount(sessionId: string): Promise<number> {
@@ -164,14 +252,32 @@ export async function getStoredHistory(params: {
   sessionId: string;
   before?: number;
   limit?: number;
-  /** 给了就改成「seq ≥ fromSeq 的全部行」,供界面每轮对账用;与 before/limit 互斥。 */
+  /** 给了就改成「seq ≥ fromSeq 的全部行」,供界面开场补读用;与 before/limit 互斥。 */
   fromSeq?: number;
 }): Promise<StoredTurnPage> {
-  return readStoredTurns(params.sessionId, {
+  const page = await readStoredTurns(params.sessionId, {
     before: params.before,
     limit: params.limit,
     fromSeq: params.fromSeq,
   });
+  return params.fromSeq === undefined
+    ? trimCursorPageForTransport(page)
+    : { ...page, turns: trimTurnsForTransport(page.turns) };
+}
+
+export async function getStoredToolImage(params: {
+  sessionId: string; itemId: string; index: number;
+} & ({ seq: number } | { originTurnId: string })) {
+  await persistenceTails.get(params.sessionId);
+  const [row] = await db.select({ data: sessionTurns.data, turnId: sessionTurns.turnId })
+    .from(sessionTurns).where(and(
+      eq(sessionTurns.sessionId, params.sessionId),
+      'seq' in params ? eq(sessionTurns.seq, params.seq) : eq(sessionTurns.turnId, params.originTurnId),
+    )).orderBy(desc(sessionTurns.seq)).limit(1);
+  const turn = row ? JSON.parse(row.data) as TranscriptTurn : null;
+  const itemId = row && turn && !('seq' in params)
+    ? rewriteTurnId(params.itemId, row.turnId, turn.id) : params.itemId;
+  return findToolImage(turn ? [turn] : [], itemId, params.index, Number.POSITIVE_INFINITY);
 }
 
 export interface StoredTurnPage {
@@ -194,8 +300,8 @@ export async function readStoredTurns(
   options: { before?: number; limit?: number; fromSeq?: number } = {}
 ): Promise<StoredTurnPage> {
   if (options.fromSeq !== undefined) {
-    // 「开场那一页的第一行一直到最新」—— 每轮对账用。❌ 不分页:这一段 = 开场那页 + 本次面板期间新增的,
-    // 有界;分页取反而会在两次取之间被新写进来的行错开。
+    // 「开场那一页之后新落库的行」—— 开场时补读一次用(acp-chat-store `_reloadStoredTail`)。❌ 不分页:这一段只是
+    // 开场那一刻前后落库的那几行,有界;分页取反而会在两次取之间被新写进来的行错开。
     const rows = await db
       .select({
         seq: sessionTurns.seq,
@@ -210,9 +316,10 @@ export async function readStoredTurns(
         )
       )
       .orderBy(asc(sessionTurns.seq));
+    const readable = await readableStoredRows(sessionId, rows);
     return {
-      turns: rows.map((row) => JSON.parse(row.data) as TranscriptTurn),
-      originTurnIds: rows.map((row) => row.turnId),
+      turns: readable.map(row => row.turn),
+      originTurnIds: readable.map(row => row.turnId),
       nextCursor: null,
     };
   }
@@ -233,11 +340,14 @@ export async function readStoredTurns(
     .limit(limit);
 
   const ordered = rows.slice().reverse();
-  const turns = ordered.map((row) => JSON.parse(row.data) as TranscriptTurn);
+  const readable = await readableStoredRows(sessionId, ordered);
+  if (!readable.length && rows.length === limit && rows.length) {
+    return readStoredTurns(sessionId, { before: rows.at(-1)!.seq, limit });
+  }
 
   return {
-    turns,
-    originTurnIds: ordered.map((row) => row.turnId),
+    turns: readable.map(row => row.turn),
+    originTurnIds: readable.map(row => row.turnId),
     nextCursor: rows.length < limit ? null : (rows.at(-1)?.seq ?? null),
   };
 }
@@ -258,5 +368,23 @@ export async function storedRevertBoundary(sessionId: string, anchor: string): P
 export async function truncateStoredHistory(sessionId: string, fromSeq: number | null): Promise<void> {
   await persistenceTails.get(sessionId);
   if (fromSeq === null) return;
-  await db.delete(sessionTurns).where(and(eq(sessionTurns.sessionId, sessionId), gte(sessionTurns.seq, fromSeq)));
+  stopFillingReplay(sessionId);
+  const removed = db.transaction(tx => {
+    const result = tx.delete(sessionTurns).where(and(eq(sessionTurns.sessionId, sessionId), gte(sessionTurns.seq, fromSeq))).returning({ seq: sessionTurns.seq }).all();
+    return { rows: result, publish: truncateNativeConversationRead(sessionId, fromSeq, tx) };
+  });
+  removed.publish?.();
+  // Later turns take these sequences again; the activity index reads this to stop pointing at the removed ones.
+  if (removed.rows.length > 0) {
+    activitySignal({ event_id: `session.history_reverted:${randomUUID()}`, kind: 'session.history_reverted',
+      session_id: sessionId, turn_seq: fromSeq, occurred_at: Date.now() });
+  }
+}
+
+/** One stored turn by its sequence, or null when the session's stored history no longer has it. */
+export async function readStoredTurn(sessionId: string, seq: number): Promise<TranscriptTurn | null> {
+  await persistenceTails.get(sessionId);
+  const [row] = await db.select({ data: sessionTurns.data }).from(sessionTurns)
+    .where(and(eq(sessionTurns.sessionId, sessionId), eq(sessionTurns.seq, seq))).limit(1);
+  return row ? JSON.parse(row.data) as TranscriptTurn : null;
 }

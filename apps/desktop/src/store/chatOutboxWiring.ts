@@ -4,7 +4,7 @@
 // 连带动作对「实时发送」与「重启恢复的投递」走同一条 onSent 路径——上下文一律从 refs/记录派生,
 // 不闭包捕获发送时的组件状态(恢复投递没有那个闭包)。
 
-import type { Dispatch, SetStateAction } from 'react'
+import type { SetStateAction } from 'react'
 import type { ToastType } from '../components/toastContext'
 import type { ChatItem, MessageContentType, MessageItem } from '@gugu/core/shared/types/chat'
 import { upsertMessageById } from '@gugu/core/shared/ui/messageListModels'
@@ -20,6 +20,8 @@ import {
 import { advanceReadWatermark, applyThreadSnapshot } from './chatRealtimeMutations'
 import { createChatOutbox, type ChatOutbox } from './chatOutbox'
 import { i18n } from '@/i18n'
+import { rendererLogger } from '@/lib/log'
+import { chatSendTimings, finishChatSendTiming } from '../lib/chatSendTiming'
 
 export interface OutboxWiringIo {
   getImRepository(): Promise<AccountImRepository>
@@ -27,9 +29,9 @@ export interface OutboxWiringIo {
   chats(): ChatItem[]
   identity(id: string): { type: 'human' | 'agent'; display_name: string; avatar: string | null } | undefined
   activeChatId(): string | null
-  activeThreadRootId(): string | null
+  activeThreadRootId(chatId?: string): string | null
   setMessagesAndCache(updater: (prev: MessageItem[]) => MessageItem[], chatId: string): void
-  setThreadMessages: Dispatch<SetStateAction<MessageItem[]>>
+  setThreadMessages: (updater: SetStateAction<MessageItem[]>, chatId: string) => void
   patchChat(chatId: string, partial: Partial<ChatItem>): void
   toast(message: string, type?: ToastType): void
   /** @@@4439 — store 的权威单行摄入 chokepoint(store/chat.tsx appendMessage):按 id 归并主线窗口,
@@ -42,6 +44,7 @@ export interface OutboxWiring {
   dispose(): void
   /** sendMessage 入队入口:建持久化记录并入队(乐观行由 chat.tsx 先行插入,二者同 id)。 */
   enqueue(input: {
+    submittedAt?: number
     id: string
     chatId: string
     senderUserId: string
@@ -88,6 +91,7 @@ export function outboxRecordToMessage(
     delivered: false,
     delivery_status: null,
     local_send_state: record.state === 'failed' ? 'failed' : 'sending',
+    local_send_error: record.lastError,
   }
 }
 
@@ -111,15 +115,17 @@ export function createOutboxWiring(io: OutboxWiringIo): OutboxWiring {
     if (!active) return
     const state = record.state === 'failed' ? 'failed' : 'sending'
     const patchRow = (m: MessageItem) =>
-      m.id === record.clientMessageId ? { ...m, local_send_state: state as MessageItem['local_send_state'] } : m
+      m.id === record.clientMessageId ? { ...m, local_send_state: state as MessageItem['local_send_state'], local_send_error: record.lastError } : m
     if (record.payload.threadRootId) {
-      io.setThreadMessages((prev) => prev.map(patchRow))
+      io.setThreadMessages((prev) => prev.map(patchRow), record.chatId)
     } else {
       io.setMessagesAndCache((prev) => prev.map(patchRow), record.chatId)
     }
     // fail-loud 不许失踪(#1762 评审[9]):终态 failed 时那条乐观行若不在屏上(话题已关/切了会话),
     // 「未送达」badge 无处渲染 → 用全局 toast 外化;行仍在 outbox,回到现场即可重试/丢弃。
     if (record.state === 'failed') {
+      finishChatSendTiming(record.clientMessageId)
+      rendererLogger('chat/outbox').error({ chatId: record.chatId, messageId: record.clientMessageId, error: record.lastError }, 'message send failed')
       const onScreen = record.payload.threadRootId
         ? io.activeChatId() === record.chatId && io.activeThreadRootId() === record.payload.threadRootId
         : io.activeChatId() === record.chatId
@@ -131,7 +137,7 @@ export function createOutboxWiring(io: OutboxWiringIo): OutboxWiring {
     beforeDeliverHooks.delete(record.clientMessageId)
     if (!active) return
     if (record.payload.threadRootId) {
-      io.setThreadMessages((prev) => prev.filter((m) => m.id !== record.clientMessageId))
+      io.setThreadMessages((prev) => prev.filter((m) => m.id !== record.clientMessageId), record.chatId)
     } else {
       io.setMessagesAndCache((prev) => prev.filter((m) => m.id !== record.clientMessageId), record.chatId)
     }
@@ -154,8 +160,8 @@ export function createOutboxWiring(io: OutboxWiringIo): OutboxWiring {
       ])
       if (!active) return
       applyThreadSnapshot({ chatId, rootId: threadRootId, msgs, chats: io.chats(),
-        setThreadMessages: io.setThreadMessages, patchChat: io.patchChat,
-        activeChatId: io.activeChatId, activeThreadRootId: io.activeThreadRootId })
+        setThreadMessages: (update) => io.setThreadMessages(update, chatId), patchChat: io.patchChat,
+        activeChatId: () => chatId, activeThreadRootId: () => io.activeThreadRootId(chatId) })
     } else {
       // @@@4439 ack-seq-jump — 权威 row 经 store 的单行摄入 chokepoint 落窗:appendMessage 在合并时
       // 检测权威 seq 是否越过窗口旧尾,越过即异步重验证被跳过的区间(交错落库的入站行不得沉到增量
@@ -167,6 +173,7 @@ export function createOutboxWiring(io: OutboxWiringIo): OutboxWiring {
     }
     io.patchChat(chatId, {
       last_message_preview: record.payload.content.slice(0, 100),
+      last_message_failure: null,
       last_message_at: new Date().toISOString(),
     })
   }
@@ -249,9 +256,12 @@ export function createOutboxWiring(io: OutboxWiringIo): OutboxWiring {
         updatedAt: nowIso,
       }
       if (input.beforeDeliver) beforeDeliverHooks.set(record.clientMessageId, input.beforeDeliver)
+      chatSendTimings.set(input.id, { submit: input.submittedAt ?? performance.now() })
       try {
         await outbox.enqueue(record)
+        if (!active) chatSendTimings.delete(input.id)
       } catch (err) {
+        finishChatSendTiming(input.id)
         // enqueue 拒绝 ⇒ outbox 无归属:撤掉 chat.tsx 先行插入的同 id 乐观行(否则留下永远「发送中」
         // 的幽灵气泡),失败意图的唯一归属是 composer 草稿(InputArea 的回滚恢复)。
         if (active) removeRow(record)
@@ -280,7 +290,7 @@ export function createOutboxWiring(io: OutboxWiringIo): OutboxWiring {
       if (!user) return
       const rows = outbox.pendingFor(chatId, rootId).map((r) => outboxRecordToMessage(r, user))
       if (rows.length === 0) return
-      io.setThreadMessages((prev) => rows.reduce((list, row) => upsertMessageById(list, row), prev))
+      io.setThreadMessages((prev) => rows.reduce((list, row) => upsertMessageById(list, row), prev), chatId)
     },
     retrySend(clientMessageId) {
       if (active) void outbox.retry(clientMessageId).catch((err) => { if (active) console.error('[chatOutbox] retry failed', err) })

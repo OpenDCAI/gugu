@@ -28,17 +28,15 @@ afterEach(() => {
 })
 
 describe('the places editor with every agent here given', () => {
-  for (const installing of [true, false]) {
-    it(`says nothing of 「none chosen」 while every agent here is on (${installing ? 'install sheet' : 'App row'})`, async () => {
-      await harness.render(createNode(AppPlacesEditor, { places, enabled: new Set([HERE_ALL]), onChange: () => {}, installing }))
-      expect(harness.container.textContent ?? '').not.toMatch(NOBODY)
-    })
+  it('says nothing of 「none chosen」 while every agent here is on', async () => {
+    await harness.render(createNode(AppPlacesEditor, { places, enabled: new Set([HERE_ALL]), onChange: () => {} }))
+    expect(harness.container.textContent ?? '').not.toMatch(NOBODY)
+  })
 
-    it(`[control] says it when nobody at all is given (${installing ? 'install sheet' : 'App row'})`, async () => {
-      await harness.render(createNode(AppPlacesEditor, { places, enabled: new Set<string>(), onChange: () => {}, installing }))
-      expect(harness.container.textContent ?? '').toMatch(NOBODY)
-    })
-  }
+  it('[control] says it when nobody at all is given', async () => {
+    await harness.render(createNode(AppPlacesEditor, { places, enabled: new Set<string>(), onChange: () => {} }))
+    expect(harness.container.textContent ?? '').toMatch(NOBODY)
+  })
 })
 
 // 复核 10-15: an App's row on another machine's App page — 「给哪些 agent」 is that machine's agents, named as its; before,

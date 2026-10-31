@@ -62,7 +62,7 @@ export function AssistantMoveDialog() {
             <p>{t('move.confirmItems')}</p>
             {phase.direction === 'to-cloud' ? <p className="text-[var(--muted-fg)]">{t('move.confirmCloudModel')}</p> : null}
             <p className="text-[var(--muted-fg)]">
-              {t('move.confirmSize', { files: phase.preview.files, size: formatSize(phase.preview.bytes) })}
+              {t('move.confirmSize', { count: phase.preview.files, size: formatSize(phase.preview.bytes) })}
             </p>
             {phase.preview.accounts.unsupported ? (
               <p className="text-[var(--muted-fg)]" data-testid="assistant-move-accounts-unsupported-note">{t('move.confirmAccountsUnsupported')}</p>
@@ -171,7 +171,7 @@ export function AssistantMoveDialog() {
 
         {phase.kind === 'failed' ? (
           <>
-            <div className="text-[var(--danger)] font-semibold">{t('move.failedTitle')}</div>
+            <div className="text-[var(--danger-fg)] font-semibold">{t('move.failedTitle')}</div>
             <p>{t(`move.failedReason.${phase.reason}`)}</p>
             <p className="text-[var(--muted-fg)]">
               {phase.intact ? t('move.failedIntact', { name: assistantName }) : t('move.failedResume')}

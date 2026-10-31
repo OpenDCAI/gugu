@@ -145,8 +145,8 @@ describe('claude waits: PermissionRequest / question-tool PreToolUse → wait, P
     expect(() => parse('wait_resolved', { ...common, hook_event_name: 'PostToolUse' })).toThrow(/tool_name/);
   });
 
-  // #6941 Claude 2.1.289 回合结束的 prompt_suggestion fork 发来的真实 payload(gugu-base evidence
-  // 2026-10-06-yellow-dot-fork-pretooluse r3;agent_id 原样,其余脱敏):父会话的 session_id、fork 的 agent_id、没有 agent_type。
+  // #6941 Claude 2.1.289 回合结束的 prompt_suggestion fork 发来的真实 payload(2026-10-06
+  // 录制第 3 轮;agent_id 原样,其余脱敏):父会话的 session_id、fork 的 agent_id、没有 agent_type。
   const forkAsk = {
     session_id: 'parent-session',
     transcript_path: '/claude/projects/p/parent-session.jsonl',

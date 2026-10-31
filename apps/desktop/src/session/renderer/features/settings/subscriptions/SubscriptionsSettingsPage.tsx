@@ -1,7 +1,7 @@
 import { officialServicesEnabled } from '@gugu/core/cloud/optionalServices';
 import { useIsFetching, useQuery, useQueryClient } from '@tanstack/react-query';
 import { observer } from 'mobx-react-lite';
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import type { SubscriptionUsageReading, SubscriptionUsageWindow } from '@gugu/session-core/agents/plugins';
 import { SettingsGroup, SettingsNote, SettingsPage } from '@/components/settings/SettingsPrimitives';
 import { LibraryHostProvider, machineLibraryHost } from '@renderer/features/library/library-host';
@@ -11,7 +11,7 @@ import { useAgentAuthStatus } from '@renderer/lib/stores/use-agent-auth-status';
 import { refreshSpendingPower } from '@/lib/billing';
 import { GuguSubscriptionRow } from './GuguSubscriptionRow';
 import { SubscriptionServiceRow } from './SubscriptionServiceRow';
-import { SubscriptionConnections, useSubscriptionConnections } from './SubscriptionConnections';
+import { SubscriptionConnections, useSubscriptionConnections, type SwitchNotice } from './SubscriptionConnections';
 import './subscriptions.css';
 import { AppIcon } from '@renderer/lib/components/app-icon';
 import { PageHeader } from '@renderer/lib/components/page-header';
@@ -57,8 +57,6 @@ export const SubscriptionsSettingsPage = observer(function SubscriptionsSettings
         title={translate('subscriptions.title')}
         showTitleInSettings
         aside={<SubscriptionRefresh machine={deviceId} />}
-        description={translate('subscriptions.description')}
-        remoteDescription={(device) => translate('subscriptions.remoteDescription', { device })}
       />
       <LibraryHostProvider value={host} key={host.key}>
         <SubscriptionList machine={deviceId} />
@@ -113,6 +111,7 @@ function SubscriptionList({ machine }: { machine: string | null }) {
 
 function SubscriptionRow({ agent, machine }: { agent: AgentPayload; machine: string | null }) {
   const { translate, locale } = useSessionMessages();
+  const [switchNotice, setSwitchNotice] = useState<SwitchNotice | null>(null);
   const connections = useSubscriptionConnections(machine, agent.id);
   const manageable = agent.id === 'claude' || agent.id === 'codex';
   const currentConnection = connections.data?.find((connection) => connection.current);
@@ -153,10 +152,11 @@ function SubscriptionRow({ agent, machine }: { agent: AgentPayload; machine: str
       }
       scope={
         manageable && connections.data
-          ? translate('subscriptions.connections.count', { count: String(connections.data.length) })
+          ? translate('subscriptions.connections.count', { count: connections.data.length })
           : translate('subscriptions.connections.device')
       }
-      action={manageable ? <SubscriptionConnections agent={agent} machine={machine} /> : undefined}
+      action={manageable ? <SubscriptionConnections agent={agent} machine={machine} onError={setSwitchNotice} /> : undefined}
+      notice={switchNotice ? <SwitchNoticeLine notice={switchNotice} /> : undefined}
     >
       <UsageBlock
         agentId={agent.id}
@@ -170,6 +170,37 @@ function SubscriptionRow({ agent, machine }: { agent: AgentPayload; machine: str
         {reading?.kind === 'windows' && <span data-testid={`subscription-read-at-${agent.id}`}>{formatAgo(reading.readAt, locale)}</span>}
       </div>}
     </SubscriptionServiceRow>
+  );
+}
+
+/** 被拒(有会话正在工作)是平常事,用安静的字色说,旁边给一键「关掉并切换」;真出错才红。 */
+function SwitchNoticeLine({ notice }: { notice: SwitchNotice }) {
+  const { translate } = useSessionMessages();
+  if (notice.tone !== 'gentle') return <p className="subscription-error" role="alert">{notice.text}</p>;
+  if (notice.progress !== undefined) {
+    const { closed, total } = notice.progress ?? { closed: 0, total: 0 };
+    return (
+      <div className="subscription-switch-progress" role="status">
+        <div className="subscription-quota-label">
+          <span>{notice.text}</span>
+          {total > 0 && <span data-testid="subscription-close-progress-count">{closed} / {total}</span>}
+        </div>
+        <div className="subscription-meter" role="progressbar" aria-valuemin={0} aria-valuemax={total} aria-valuenow={closed}
+          data-testid="subscription-close-progress">
+          <i style={{ width: total > 0 ? `${(closed / total) * 100}%` : '0%' }} />
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div className="subscription-switch-refusal">
+      <p className="subscription-note" role="status">{notice.text}</p>
+      {notice.closeAndSwitch && (
+        <Button variant="outline" size="sm" data-testid="subscription-close-and-switch" onClick={notice.closeAndSwitch}>
+          {translate('subscriptions.connections.closeAndSwitch')}
+        </Button>
+      )}
+    </div>
   );
 }
 

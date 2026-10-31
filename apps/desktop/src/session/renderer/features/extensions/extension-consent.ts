@@ -2,6 +2,7 @@ import type { useSessionMessages } from '@renderer/localization/use-session-mess
 import { compareExtensionVersions, programLine, type ExtensionCapability, type ExtensionManifest } from '@shared/extensions/manifest';
 import { localizedManifestText } from '@shared/extensions/catalog';
 import { addedPermissions } from '@shared/extensions/upgrade';
+import { isComputerUseView } from '@shared/extensions/app-places';
 import type { ExtensionConsentDetails } from '@shared/extensions/host-actions';
 
 /**
@@ -87,9 +88,8 @@ function describeCapabilities(
 function describeAgentTools(manifest: ExtensionManifest, translate: SessionTranslate, machine?: string): string {
   const servers = manifest.contributes.mcpServers ?? [];
   // #7317 Computer Use runs no program of its own: it is the switch of gugu's computer control on that computer (agents
-  // operate its apps once it is on), and its page shows that control at work. With skills it gives agents something more:
-  // the same test as `givesAgentTools` (app-places), ❌ two answers.
-  if (servers.length > 0 && servers.every((server) => 'host' in server && server.host === 'computer-use') && !manifest.contributes.skills) {
+  // operate its apps once it is on), and its page shows that control at work. With skills it gives agents something more.
+  if (isComputerUseView(manifest)) {
     return translate('extensions.permissionsComputerUseView', { computer: computerNamed(translate, machine) });
   }
   if (servers.length === 0) {

@@ -23,6 +23,7 @@
  */
 
 import './styles/global.css';
+import '@gugu/session-shared/animation-visibility.css';
 
 // ── Core API ──────────────────────────────────────────────────────────────────
 
@@ -45,6 +46,7 @@ export type {
 } from './state/chat-state';
 
 export { createChatView } from './chat-view';
+export { resolveConversationMessageReference } from './state/conversation-messages';
 export type {
   ChatView,
   ChatViewOptions,
@@ -84,6 +86,7 @@ export type {
   ToolNode,
   AcpPermissionRequest,
   PlanState,
+  SessionPlans,
 } from './model';
 
 // ── Transcript API ────────────────────────────────────────────────────────────
@@ -157,3 +160,7 @@ export { generateMockTranscript, mockMentionProvider } from './mock-transcript';
 
 export type { ChatCaches, SharedCaches, ParseCaches } from './core/caches';
 export { createChatCaches } from './core/caches';
+export { messageSenderTarget, type MessageSenderTarget } from './lib/sender-target';
+
+export type { DeliveryMessagePresentation } from './state/delivery-presentation';
+export { hasAttachmentDeliveryHints } from './state/delivery-presentation';

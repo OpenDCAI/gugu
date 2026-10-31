@@ -1,3 +1,5 @@
+import { messageForUser } from '@/lib/userFacingError';
+import { log } from '@renderer/utils/logger';
 import { getSessionView } from '@renderer/features/sessions/stores/session-selectors';
 import { toast } from '@renderer/lib/hooks/use-toast';
 import { rpc } from '@renderer/lib/ipc';
@@ -37,6 +39,8 @@ export function confirmOpenExternalLink(url: string, onError?: (error: unknown) 
         return;
       }
       void rpc.app.openExternal(normalizedUrl).catch((error) => {
+        log.error('opening an external link failed', { error });
+        toast({ title: translateSessionMessage('externalLink.openFailed'), description: messageForUser(error), tier: 'error' });
         onError?.(error);
       });
     },
@@ -55,32 +59,24 @@ export function openExternalLinkInBrowser(url: string, onError?: (error: unknown
   const normalizedUrl = normalizeExternalHttpUrl(url);
   if (!HTTP_URL_PATTERN.test(normalizedUrl)) return;
   void rpc.app.openExternal(normalizedUrl).catch((error) => {
+    log.error('opening an external link failed', { error });
+    toast({ title: translateSessionMessage('externalLink.openFailed'), description: messageForUser(error), tier: 'error' });
     onError?.(error);
   });
 }
 
-export async function copyExternalLink(url: string): Promise<boolean> {
+export async function copyExternalLink(url: string, done = translateSessionMessage('externalLink.linkCopied')): Promise<boolean> {
   try {
-    const result = await rpc.app.clipboardWriteText(url);
-    if (!result.success) {
-      showCopyFailure();
-      return false;
-    }
-    toast({ title: translateSessionMessage('externalLink.linkCopied') });
+    await rpc.app.clipboardWriteText(url);
+    toast({ title: done });
     return true;
-  } catch {
-    showCopyFailure();
+  } catch (error) {
+    log.error('clipboard copy failed', { error });
+    toast({ title: translateSessionMessage('externalLink.copyFailed'), description: messageForUser(error), variant: 'destructive' });
     return false;
   }
 }
 
-function showCopyFailure(): void {
-  toast({
-    title: translateSessionMessage('externalLink.copyFailed'),
-    description: translateSessionMessage('externalLink.copyFailedDescription'),
-    variant: 'destructive',
-  });
-}
 
 function getActiveSessionView() {
   if (appState.navigation.currentViewId !== 'session') return undefined;

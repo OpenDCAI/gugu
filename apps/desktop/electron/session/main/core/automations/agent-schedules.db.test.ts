@@ -7,8 +7,11 @@ import { executeAgentDelivery } from './actions/deliverToAgent';
 import { agentScheduleChangeText, restoreAgentSchedules, runAgentScheduleAction, tellAgentScheduleChanged } from './agent-schedules';
 import { AutomationScheduler, type SchedulerCallbacks } from './automation-scheduler';
 import { deleteSession } from '@main/core/sessions/deleteSession';
+import { sessionEvents } from '@main/core/sessions/session-events';
+import { projectEvents } from '@main/core/projects/project-events';
 import { AutomationsService } from './automations-service';
 import { closeSpentOneTimeAutomation, getAutomation, insertRun } from './repo';
+import { setOwnerTimeZoneContext } from '@shared/core/automations/timezone';
 
 // #7221 agent 给自己排的已安排:建、看、取消、到点送回、建它的会话不在了。读写的是真库(迁移跑到最新),
 // 投递的那一头(会话编排的 messageSessionFrom)换成记录器 —— 它本身由 session_message 那套测试守。
@@ -95,12 +98,24 @@ beforeEach(async () => {
 });
 
 afterEach(() => {
+  service.stop();
+  setOwnerTimeZoneContext(null);
   fixture.close();
   mocks.db = undefined;
   vi.useRealTimers();
 });
 
 describe('schedule_create / schedule_list / schedule_cancel', () => {
+  it('new default schedules follow the owner zone while an existing explicit schedule remains unchanged', async () => {
+    const original = await runAgentScheduleAction(AGENT, { action: 'schedule_create', prompt: 'existing', cron: '0 8 * * *', tz: 'America/Toronto' }, service);
+    const before = await getAutomation(scheduleIdOf(original));
+    const context = { time_zone: 'Pacific/Auckland', source_device_id: 'phone', source_last_seen_at: null,
+      read_at: new Date(NOW).toISOString(), status: 'device' as const };
+    setOwnerTimeZoneContext(context);
+    const created = await runAgentScheduleAction(AGENT, { action: 'schedule_create', prompt: 'new', cron: '0 8 * * *' }, service);
+    expect(created).toMatchObject({ tz: 'Pacific/Auckland', next_run_at: '2026-10-16 08:00 Pacific/Auckland', time_zone_source: context });
+    expect((await getAutomation(scheduleIdOf(original)))?.triggerConfig).toEqual(before?.triggerConfig);
+  });
   it('一次性:建好就预排那一行 scheduled,管家的查询读得到那一刻;回执按 tz 报时间', async () => {
     expect(keeperNextDue()).toBeNull();
     const created = await runAgentScheduleAction(AGENT, {
@@ -208,7 +223,7 @@ describe('到点送回建它的会话', () => {
   }
 
   it('调度器到点把交代原样送回那条会话(不开会话);一次性的跑完就关,管家不再为它醒', async () => {
-    const { id } = await dueOneTimeRun();
+    const { id, run } = await dueOneTimeRun();
     const record = recordingCallbacks();
     const scheduler = new AutomationScheduler(record.callbacks);
     await scheduler.reload();
@@ -219,7 +234,7 @@ describe('到点送回建它的会话', () => {
     const [envelope, sessionId, text, options] = mocks.messageSessionFrom.mock.calls[0]!;
     expect(sessionId).toBe(AGENT.sessionId);
     expect(text).toBe('remind them to drink water');
-    expect(options).toEqual({ keyScope: `automation:${id}` });
+    expect(options).toMatchObject({ keyScope: `automation:${id}`, receipt: { id: expect.any(String), at: new Date(run.scheduledAt!).toISOString() } });
 
     const delivered = readDeliveryEnvelope((envelope as (messageId: string, said: string) => string)('m-1', text as string));
     const facts = delivered!.segments[0]!.facts!;
@@ -253,7 +268,9 @@ describe('到点送回建它的会话', () => {
     const { id, run } = await dueOneTimeRun();
     remove();
     const automation = (await getAutomation(id))!;
-    expect(automation.agentSession).toEqual({ name: _label === '删除' ? null : '个人助理', gone: true });
+    expect(automation.agentSession).toEqual(_label === '删除'
+      ? { name: null, gone: true }
+      : { name: '个人助理', gone: false, archived: true });
 
     const started = await insertRun({
       automationId: id,
@@ -283,6 +300,40 @@ describe('到点送回建它的会话', () => {
     const failed = record.steps.find((run) => run.status === 'failed')!;
     expect(failed.automationId).toBe(id);
     expect(failed.error).toEqual({ step: 'deliver', code: 'delivery_failed', message: 'SESSION_DIRECT_NOT_LIVE: could not resume' });
+  });
+
+  it('keeps a refused scheduled reminder enabled and retries once on a later queue drain', async () => {
+    const { id } = await dueOneTimeRun();
+    mocks.messageSessionFrom.mockRejectedValue(Object.assign(new Error('not admitted'), { code: 'SESSION_DIRECT_NOT_LIVE' }));
+    const record = recordingCallbacks();
+    const scheduler = new AutomationScheduler(record.callbacks);
+    await scheduler.reload();
+    await record.when(() => record.steps.some(row => row.status === 'queued'));
+    await new Promise(resolve => setTimeout(resolve,50));
+    expect(mocks.messageSessionFrom).toHaveBeenCalledTimes(1);
+    expect(fixture.sqlite.prepare('SELECT enabled FROM automations WHERE id=?').pluck().get(id)).toBe(1);
+    expect(fixture.sqlite.prepare("SELECT status FROM automation_runs WHERE automation_id=? AND status <> 'scheduled'").pluck().get(id)).toBe('queued');
+    mocks.messageSessionFrom.mockResolvedValue({ id: 'accepted' });
+    vi.setSystemTime(Date.now() + 2000);
+    await scheduler.drainQueue();
+    await record.when(() => record.steps.some(row => row.status === 'done'));
+    expect(mocks.messageSessionFrom).toHaveBeenCalledTimes(2);
+    expect(mocks.messageSessionFrom.mock.calls[0]![3].receipt).toEqual(mocks.messageSessionFrom.mock.calls[1]![3].receipt);
+  });
+
+  it('keeps a reminder queued after a definite refusal and reuses its delivery identity on retry', async () => {
+    const { id,run } = await dueOneTimeRun();
+    const automation = (await getAutomation(id))!;
+    const started = await insertRun({ automationId: id,triggerConfigSnapshot: run.triggerConfigSnapshot,
+      agentConfigSnapshot: run.agentConfigSnapshot,scheduledAt: run.scheduledAt,status: 'creating_session',triggerKind: 'cron',startedAt: Date.now() });
+    const deliver = vi.fn().mockRejectedValueOnce(Object.assign(new Error('面板状态暂时不可用。'),{ code: 'SESSION_DIRECT_NOT_LIVE' }))
+      .mockResolvedValue({ id: 'native-admitted' });
+    const deps = { sessionPresent: async () => true,deliver };
+    expect((await executeAgentDelivery(automation,started,() => {},deps)).success).toBe(false);
+    expect(fixture.sqlite.prepare('SELECT status, finished_at FROM automation_runs WHERE id=?').get(started.id)).toMatchObject({ status: 'queued',finished_at: null });
+    expect((await executeAgentDelivery(automation,started,() => {},deps)).success).toBe(true);
+    expect(deliver.mock.calls[0]![4]).toEqual(deliver.mock.calls[1]![4]);
+    expect(deliver.mock.calls[0]![4]).toMatchObject({ id: started.id });
   });
 });
 
@@ -457,5 +508,67 @@ describe('人动了它排的那条,告诉它(owner 10-19 B)', () => {
     expect(mocks.messageSessionFrom).toHaveBeenCalledTimes(1);
     expect(mocks.messageSessionFrom.mock.calls[0]![2]).toContain('moved your schedule');
     expect(mocks.messageSessionFrom.mock.calls[0]![2]).toContain('2026-10-15 10:00 Asia/Shanghai');
+  });
+});
+
+describe('orphaned agent schedules (#933)', () => {
+  it('cleans a truly missing agent on list load through ordinary run cleanup and is idempotent', async () => {
+    const orphan = scheduleIdOf(await runAgentScheduleAction(AGENT, { action: 'schedule_create', prompt: 'orphan', at: '2026-10-15T07:00', tz: 'Asia/Shanghai' }, service));
+    const retained = scheduleIdOf(await runAgentScheduleAction(OTHER, { action: 'schedule_create', prompt: 'keep', at: '2026-10-15T07:00', tz: 'Asia/Shanghai' }, service));
+    // A completed one-time schedule without an agent target is not an orphan, even without a project.
+    fixture.sqlite.prepare('UPDATE automations SET agent_session_id = NULL, project_id = NULL, enabled = 0 WHERE id = ?').run(retained);
+    fixture.sqlite.prepare('DELETE FROM sessions WHERE id = ?').run(AGENT.sessionId);
+    expect((await service.listAutomations()).map(row => row.id)).toEqual([retained]);
+    expect(await getAutomation(orphan)).toBeNull();
+    expect(fixture.sqlite.prepare('SELECT id FROM automation_runs WHERE automation_id = ?').all(orphan)).toEqual([]);
+    expect((await service.listAutomations()).map(row => row.id)).toEqual([retained]);
+    expect((await getAutomation(retained))?.enabled).toBe(false);
+  });
+
+  it('retains archived schedules and history unchanged and shows them again after Restore', async () => {
+    const id = scheduleIdOf(await runAgentScheduleAction(AGENT, { action: 'schedule_create', prompt: 'restore', cron: '0 8 * * *', tz: 'Asia/Shanghai' }, service));
+    const before = fixture.sqlite.prepare('SELECT * FROM automations WHERE id = ?').get(id);
+    const runs = fixture.sqlite.prepare('SELECT * FROM automation_runs WHERE automation_id = ?').all(id);
+    fixture.sqlite.prepare("UPDATE sessions SET archived_at = '2026-10-15T06:01:00Z' WHERE id = ?").run(AGENT.sessionId);
+    expect(await service.listAutomations()).toEqual([]);
+    expect((await getAutomation(id))?.agentSession).toEqual({ name: '个人助理', gone: false, archived: true });
+    expect(fixture.sqlite.prepare('SELECT * FROM automations WHERE id = ?').get(id)).toEqual(before);
+    expect(fixture.sqlite.prepare('SELECT * FROM automation_runs WHERE automation_id = ?').all(id)).toEqual(runs);
+    fixture.sqlite.prepare('UPDATE sessions SET archived_at = NULL WHERE id = ?').run(AGENT.sessionId);
+    expect((await service.listAutomations()).map(row => row.id)).toEqual([id]);
+    expect(fixture.sqlite.prepare('SELECT * FROM automations WHERE id = ?').get(id)).toEqual(before);
+  });
+
+  it('keeps an orphan with an active run and reports the existing deletion refusal', async () => {
+    const id = scheduleIdOf(await runAgentScheduleAction(AGENT, { action: 'schedule_create', prompt: 'active', at: '2026-10-15T07:00', tz: 'Asia/Shanghai' }, service));
+    const run = (await service.getNextScheduledRun(id))!;
+    await insertRun({ automationId: id, triggerConfigSnapshot: run.triggerConfigSnapshot,
+      agentConfigSnapshot: run.agentConfigSnapshot, scheduledAt: run.scheduledAt, status: 'creating_session',
+      triggerKind: 'cron', startedAt: NOW });
+    fixture.sqlite.prepare('DELETE FROM sessions WHERE id = ?').run(AGENT.sessionId);
+    await expect(service.listAutomations()).rejects.toThrow('automation_runs_active');
+    expect(await getAutomation(id)).not.toBeNull();
+    expect(fixture.sqlite.prepare('SELECT deleted_at FROM automations WHERE id = ?').get(id)).toEqual({ deleted_at: null });
+  });
+
+  it.each(['session', 'project'] as const)('cleans after a real %s deletion event even without opening the list', async (kind) => {
+    const id = scheduleIdOf(await runAgentScheduleAction(AGENT, { action: 'schedule_create', prompt: 'cascade', at: '2026-10-15T07:00', tz: 'Asia/Shanghai' }, service));
+    // Exercise the real lifecycle emitter while keeping this database test out of the scheduler's timer loop.
+    const start = vi.spyOn(AutomationScheduler.prototype, 'start').mockImplementation(() => {});
+    try {
+      service.start();
+      if (kind === 'session') {
+        fixture.sqlite.prepare('DELETE FROM sessions WHERE id = ?').run(AGENT.sessionId);
+        sessionEvents._emit('session:deleted', AGENT.sessionId);
+      } else {
+        fixture.sqlite.prepare('DELETE FROM projects WHERE id = ?').run('project-1');
+        projectEvents._emit('project:deleted', 'project-1');
+      }
+      await vi.waitFor(async () => expect(await getAutomation(id)).toBeNull());
+      expect(fixture.sqlite.prepare('SELECT id FROM automation_runs WHERE automation_id = ?').all(id)).toEqual([]);
+    } finally {
+      service.stop();
+      start.mockRestore();
+    }
   });
 });

@@ -1,8 +1,10 @@
+import { stageFileHandle } from '@gugu/core/shared/fileResolver'
 import type { LocalUsageRequest, LocalUsageSnapshot } from '@gugu/core/shared/usage/dailyUsage'
 import type { Device } from '@gugu/core/shared/types/chat'
 import { normalizeDeviceRow } from '@gugu/core/cloud/devices'
 import type { HumanAuthSession } from '@gugu/core'
 import type { AppPlatform, FeedbackLogTail } from './types'
+import { writeBrowserClipboardText } from './browserClipboard'
 import { unavailableCapability } from './errors'
 import { anchorDownload } from './anchorDownload'
 import { systemSettingsUrl, type HostOs } from '../../shared/system-settings-urls'
@@ -89,6 +91,16 @@ export const electronPlatform: AppPlatform = {
     if (!api?.onAppForeground) throw unavailable('App foreground subscription')
     return api.onAppForeground(listener)
   },
+  subscribeAppActive(listener) {
+    const api = electronApi()
+    if (!api?.subscribeAppActive) throw unavailable('App active subscription')
+    return api.subscribeAppActive(listener)
+  },
+  subscribeLocalDeviceIdentified(listener) {
+    const api = electronApi()
+    if (!api?.subscribeLocalDeviceIdentified) throw unavailable('Local device identity subscription')
+    return api.subscribeLocalDeviceIdentified(listener)
+  },
   async selectDirectory() {
     const api = electronApi()
     if (!api?.selectDirectory) throw unavailable('Directory picker')
@@ -120,20 +132,23 @@ export const electronPlatform: AppPlatform = {
     if (!api?.getFeedbackLogTail) throw unavailable('Log tail')
     return (await api.getFeedbackLogTail()) as FeedbackLogTail
   },
+  async readDeviceFreeCreditsStatus() {
+    const api = electronApi()
+    if (!api?.invoke) throw unavailable('Device free credits status')
+    const status = await api.invoke('device:free-credits-status')
+    if (status === null || status === 'granted' || status === 'already_claimed' || status === 'device_full' || status === 'not_confirmed') return status
+    throw new Error('Unexpected device free credits status')
+  },
   async getAppVersion() {
     const api = electronApi()
     return api?.getAppVersion ? api.getAppVersion() : ''
   },
-  async openAgentRuntime(agentUserId) {
-    const api = electronApi()
-    if (!api?.openAgentRuntime) throw unavailable('Agent runtime')
-    return api.openAgentRuntime(agentUserId)
-  },
   saveFile: anchorDownload,
   async openRemoteFile(file, filename) {
     const api = electronApi()
-    if (!api?.openFileBytes) throw unavailable('External file open')
-    await api.openFileBytes(new Uint8Array(await (await file.bytes()).arrayBuffer()), filename)
+    if (!api?.invoke) throw unavailable('External file open')
+    const id = await stageFileHandle(file, filename, command => api.invoke('files:stage', command))
+    await api.invoke('files:stage-open', { id })
   },
   async writeClipboardText(value) {
     const api = electronApi()
@@ -141,7 +156,7 @@ export const electronPlatform: AppPlatform = {
       await api.writeClipboardText(value)
       return
     }
-    await navigator.clipboard.writeText(value)
+    await writeBrowserClipboardText(value)
   },
   setBadge(count) {
     electronApi()?.setBadge(count)
@@ -197,6 +212,11 @@ export const electronPlatform: AppPlatform = {
     const api = electronApi()
     if (!api?.notifyDeviceCommandsChanged) throw unavailable('Device runtime notification')
     api.notifyDeviceCommandsChanged()
+  },
+  notifyScheduledTasksChanged() {
+    const api = electronApi()
+    if (!api?.notifyScheduledTasksChanged) throw unavailable('Device runtime notification')
+    api.notifyScheduledTasksChanged()
   },
   notifyOwnedAgentsChanged() {
     const api = electronApi()

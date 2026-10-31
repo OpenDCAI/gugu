@@ -1,4 +1,5 @@
-import { isPhoneDevice } from '@gugu/core/cloud/devices'
+import { remoteWorkspaceDevices } from './remoteWorkspaceDevices'
+import { machineKeyOf } from '@gugu/core/shared/deviceMachines'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { serverMachineNotices } from '@gugu/core/cloud/serverMachineHealth'
 import type { SshSignInState } from '../lib/serverSshMachines'
@@ -17,11 +18,13 @@ import { tunnelFacts, wantsTunnel, type TunnelState } from '../lib/tunnelMachine
 import { sshLinkFacts } from '../lib/sshLinkOnline'
 import { useSshLinkProblems } from './useSshLinkProblems'
 import { useDevicesStore } from '../store/devicesContext'
-import { openRemoteSessionHostPipe } from '../lib/remoteSessionHost'
+import { openMachineSessionHostPipe } from '../lib/remoteSessionHost'
 import { retryServerVersionMatch } from '../lib/serverVersionRetry'
-import { chatService } from '../lib/chat'
+import { requestCloudVersionMatch } from '../lib/cloudVersionMatch'
+import { listDevicesOnceIdentified } from '../lib/listDevicesOnceIdentified'
 import { CloudComputerWakeError } from '@gugu/core/cloud/cloudComputer'
 import { wakeAndWaitOnline } from '../lib/cloudComputerStore'
+import { reconnectMachine } from '../session/renderer/lib/machine-clients'
 import { isAssistantHome } from '../lib/assistantHome'
 import { useAssistantName } from './useAssistantHomeLabel'
 import {
@@ -42,8 +45,17 @@ export function useRemoteHostsBridge(
   openAddMachine?: () => void,
 ): void {
   const { devices, cloudComputer } = useDevicesStore()
+  const currentDevice = devices.find(device => device.is_current_device)
+  const currentMachineKey = currentDevice ? machineKeyOf(currentDevice) : null
   // #7199 个人助理住的那台:会话页里说到它,说的是它本人(名字由「助理」App 的壳认出来;还没认出 = 「个人助理」)。
   const homeId = cloudComputer?.snapshot?.deviceId ?? null
+  const homeIdRef = useRef(homeId)
+  homeIdRef.current = homeId
+  useEffect(() => {
+    const ready = (event: Event) => reconnectMachine((event as CustomEvent<{ deviceId: string }>).detail.deviceId)
+    window.addEventListener('gugu:cloud-version-matched', ready)
+    return () => window.removeEventListener('gugu:cloud-version-matched', ready)
+  }, [])
   const homeName = useAssistantName()
   const sshMachines = useSshMachineIds()
   // 离线的 SSH 机器:这个账号在那台机器上的登录还在不在(侧栏与会话里说「登录已失效」而不只是「离线」)。
@@ -61,11 +73,11 @@ export function useRemoteHostsBridge(
   }, [devices, sshMachines])
   const remote = useMemo<RemoteHostDevice[]>(
     () =>
-      devices
-        // 手机(#7199)不是 agent 的运行位置:设备列表在读的那一处已经分出去了(listDevices),这里不再画它。
-        .filter((device) => !device.device_id.startsWith('cloud:') && device.is_current_device !== true && !isPhoneDevice(device))
+      remoteWorkspaceDevices(devices, { includeConfigurations: true })
         .map((device) => ({
           id: device.device_id,
+          machineId: device.machine_id,
+          ...(machineKeyOf(device) === currentMachineKey ? { isCurrentMachine: true as const } : {}),
           label: isAssistantHome(device, homeId) ? homeName : device.label,
           ...sshLinkFacts(sshMachines.has(device.device_id), linkProblems.get(device.device_id) ?? null, device.is_online),
           platform: device.platform,
@@ -85,8 +97,10 @@ export function useRemoteHostsBridge(
           ...(device.capabilities?.server_update ? { serverUpdate: device.capabilities.server_update.state } : {}),
           ...(device.cloud_computer ? { cloudComputer: device.cloud_computer } : {}),
           ...(isAssistantHome(device, homeId) ? { assistantHome: true as const } : {}),
+          ...(device.projects ? { projects: device.projects } : {}),
+          ...(device.capabilities?.home_dir ? { homeDir: device.capabilities.home_dir } : {}),
         })),
-    [devices, sshMachines, signIns, linkProblems, tunnels, homeId, homeName],
+    [devices, currentMachineKey, sshMachines, signIns, linkProblems, tunnels, homeId, homeName],
   )
   const remoteRef = useRef(remote)
   const pickFolderRef = useRef(pickFolder)
@@ -123,7 +137,7 @@ export function useRemoteHostsBridge(
         }
       },
       // 那台机器的整套会话页宿主(一套工作台):线同上,在 deviceRpc.ts 里按机器挑。
-      openSessionHost: (deviceId) => openRemoteSessionHostPipe(deviceId),
+      openSessionHost: (deviceId) => openMachineSessionHostPipe(deviceId),
       pickFolder: (deviceId, initialPath) => pickFolderRef.current(deviceId, initialPath),
       openAddMachine: () => openAddMachineRef.current?.(),
       signInSsh: async (deviceId) => (await signInSshMachine(deviceId)).ok,
@@ -131,7 +145,7 @@ export function useRemoteHostsBridge(
       wakeCloudComputer: async (deviceId) => {
         try {
           await wakeAndWaitOnline(deviceId, {
-            isOnline: async (id) => (await chatService.listDevices()).some((row) => row.device_id === id && row.is_online),
+            isOnline: async (id) => (await listDevicesOnceIdentified()).some((row) => row.device_id === id && row.is_online),
           })
         } catch (error) {
           if (error instanceof CloudComputerWakeError) throw new CloudComputerWakeFailed(error.reason, error.code, error.message)
@@ -142,7 +156,7 @@ export function useRemoteHostsBridge(
       matchServerVersion: (deviceId, options) =>
         currentSshMachineIds().has(deviceId)
           ? requestSshServerUpgrade(deviceId, { force: options?.retry === true })
-          : retryServerVersionMatch(deviceId),
+          : homeIdRef.current === deviceId ? requestCloudVersionMatch(deviceId, options?.retry === true) : retryServerVersionMatch(deviceId),
     }
     return installRemoteHostsBridge(bridge)
   }, [enabled])
@@ -174,4 +188,3 @@ function signInExpiredAt(state: SshSignInState | undefined): string | null | und
   if (state.state === 'signedOut') return null
   return undefined
 }
-

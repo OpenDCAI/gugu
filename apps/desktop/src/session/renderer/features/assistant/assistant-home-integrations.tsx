@@ -1,3 +1,5 @@
+import { useQuery } from '@tanstack/react-query';
+import { requireAssistantPanelBridge, useAssistantPanelAccountId } from '@/lib/assistantPanelBridge';
 import { observer } from 'mobx-react-lite';
 import { useCallback, useMemo, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -10,8 +12,14 @@ import { useShowModal } from '@renderer/lib/modal/modal-provider';
 import type { AssistantContext } from './assistant-context';
 import { connectorOrder } from './assistant-connector-order';
 import { homeTarget } from './assistant-home-sessions';
-import { useReadFailure } from './assistant-read-failure';
+import { useAssistantReadError, useReadFailure } from './assistant-read-failure';
+import { retryAssistantPanelRead } from '@gugu/core/cloud/assistantPanelRead';
+import { useAssistantShell } from './assistant-shell';
+import { useCloudAssistantFiles } from '@/components/assistant/assistant-panel-files';
+import { assistantPanelLibraryHost } from '@/components/assistant/assistant-panel-library-host';
 import { AssistantEmpty, AssistantRow, AssistantSection, MachineGate } from './assistant-ui';
+import { wakeAndWaitOnline } from '@/lib/cloudComputerStore';
+import { listDevicesOnceIdentified } from '@/lib/listDevicesOnceIdentified';
 
 /**
  * 「有账号的服务」(飞书、GitHub…)读写的那一份集成:存在它的家里(资源库「集成」同一份逻辑,机器钉死在它家那台),
@@ -29,7 +37,7 @@ export function useHomeLibraryHost(home: AssistantHomePlace): LibraryHost {
   const online = device?.isOnline ?? false;
   const lastSeenAt = device?.lastSeenAt ?? null;
   const hostKind = device?.hostKind;
-  return useMemo(
+  const base = useMemo(
     () =>
       local
         ? LOCAL_LIBRARY_HOST
@@ -38,6 +46,41 @@ export function useHomeLibraryHost(home: AssistantHomePlace): LibraryHost {
           ),
     [local, deviceId, label, online, lastSeenAt, hostKind]
   );
+  const shell = useAssistantShell();
+  const owner = useAssistantPanelAccountId();
+  const identity = useQuery({ queryKey: ['assistant-panel-identity',owner],enabled: !!owner && !shell?.assistant?.id,
+    queryFn: () => requireAssistantPanelBridge().personalAssistant(owner!),staleTime: Infinity,retry: retryAssistantPanelRead });
+  const assistantId = shell?.assistant?.id ?? identity.data ?? null;
+  const folder = useQuery({
+    queryKey: ['assistant-panel-folder',owner,assistantId],enabled: !!owner && !!assistantId && !shell?.chatId,
+    queryFn: async () => {
+      return requireAssistantPanelBridge().privateChat(owner!,assistantId!);
+    },staleTime: Infinity,retry: retryAssistantPanelRead,
+  });
+  const machine = useCloudAssistantFiles(assistantId,shell?.chatId ?? folder.data ?? null,home.deviceId);
+  const prepare = useCallback(async (signal?: AbortSignal) => {
+    signal?.throwIfAborted();
+    if (local) return;
+    remoteHostsStore.start();
+    if (home.kind === 'cloud') try {
+      await wakeAndWaitOnline(deviceId, {
+        signal,
+        isOnline: async id => (await listDevicesOnceIdentified()).some(row => row.device_id === id && row.is_online),
+      });
+    } catch (error) {
+      signal?.throwIfAborted();
+      const failure = error as { reason?: string; code?: string };
+      const key = failure?.code === 'credits_exhausted' ? 'authorizationCreditsExhausted'
+        : failure?.code === 'membership_expired' ? 'authorizationMembershipExpired'
+          : failure?.reason === 'timeout' ? 'authorizationTimedOut' : 'authorizationUnavailable';
+      throw Object.assign(new Error(t(`connectors.${key}`), { cause: error }), { code: failure?.code, reason: failure?.reason });
+    }
+    signal?.throwIfAborted();
+    remoteHostsStore.reconnect(deviceId);
+    // The following control read owns readiness and preserves a protocol refusal.
+    // Waiting only for `connected` here hides an already known `outdated` state.
+  },[local,home.kind,deviceId,t]);
+  return useMemo(() => assistantPanelLibraryHost(base,machine?.panel,prepare,folder.error ?? identity.error),[base,machine,prepare,folder.error,identity.error]);
 }
 
 /** 点一家直接弹它的连接框(引导里那一步:不往下钻详情页)。要在 HomeIntegrations 里头用。 */
@@ -69,7 +112,7 @@ export function accountNote(context: AssistantContext, t: (key: string, values?:
 export const HomeIntegrations = observer(function HomeIntegrations({ context, children }: { context: AssistantContext; children: ReactNode }) {
   const host = useHomeLibraryHost(context.home);
   return (
-    <MachineGate readiness={context.readiness} loading={false} error={null} onRetry={context.retryMachine}>
+    <MachineGate readiness={context.readiness} loading={context.machineLoading} error={context.machineError} onRetry={context.retryMachine}>
       <LibraryHostProvider value={host} key={host.key}>
         <IntegrationsProvider>{children}</IntegrationsProvider>
       </LibraryHostProvider>
@@ -83,7 +126,8 @@ export const ConnectorLists = observer(function ConnectorLists({ onOpen }: { onO
   const { integrations, configuredConnections, connectionStatus, hasList, listError, reloadList } = useIntegrationsContext();
   const { remote } = useLibraryHost();
   const reload = useCallback(() => void reloadList(), [reloadList]);
-  const failure = useReadFailure(hasList ? null : listError, remote?.deviceId ?? null, remote?.deviceLabel ?? '', reload);
+  const readError = useAssistantReadError(!hasList,listError,remote?.deviceId ?? '');
+  const failure = useReadFailure(hasList ? null : readError, remote?.deviceId ?? null, remote?.deviceLabel ?? '', reload);
   if (failure)
     return (
       <AssistantEmpty action={failure.retry ? <button type="button" className="ta-pill-btn" onClick={failure.retry}>{t('machine.retry')}</button> : undefined}>
@@ -99,7 +143,8 @@ export const ConnectorLists = observer(function ConnectorLists({ onOpen }: { onO
       testId={`assistant-connector-${integration.id}`}
       leading={<IntegrationIcon provider={integration.id} icon={integration.icon} size={30} />}
       title={integration.name}
-      detail={detail}
+      detail={detail || '\u00a0'}
+      detailLines={1}
       onClick={() => onOpen(integration.id)}
     />
   );

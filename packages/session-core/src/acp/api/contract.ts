@@ -2,9 +2,9 @@ import {
   defineContract,
   downloadFile,
   fallible,
-  liveLog,
   liveModel,
   liveState,
+  procedure,
   uploadFile,
 } from '@gugu/session-wire';
 import { z } from 'zod';
@@ -16,10 +16,11 @@ import {
   sessionConfigStateSchema,
   sessionUsageSchema,
 } from '../models/config';
-import { planStateSchema } from '../models/plan';
-import { promptDraftSchema } from '../models/prompt';
+import { sessionPlansSchema } from '../models/plan';
+import { promptDraftSchema, promptInputSchema } from '../models/prompt';
 import { sessionStateSchema, sessionSummarySchema } from '../models/session';
 import { transcriptTurnSchema } from '../models/turns';
+import { toolImageLookupSchema } from '../models/turns/tool-calls';
 import {
   cancelTurnCommandSchema,
   changeQueuePromptOrderCommandSchema,
@@ -65,11 +66,10 @@ import {
   acpSteerQueuedPromptErrorSchema,
   acpStopSessionErrorSchema,
 } from './errors';
-import { historyPageInputSchema, historyPageSchema, resumeResultSchema } from './queries';
+import { historyPageInputSchema, historyPageSchema, resumeResultSchema, toolImageInputSchema } from './queries';
 
 const startSessionResultSchema = z.object({ providerSessionId: z.string() });
 const sessionKeySchema = z.object({ sessionId: z.string() });
-const terminalOutputKeySchema = z.object({ terminalId: z.string() });
 
 export const acpApiContract = defineContract({
   startSession: fallible({
@@ -178,6 +178,15 @@ export const acpApiContract = defineContract({
     data: z.void(),
     error: acpAttachmentErrorSchema,
   }),
+  getToolImage: fallible({
+    input: toolImageInputSchema,
+    data: toolImageLookupSchema,
+    error: acpGetHistoryErrorSchema,
+  }),
+  getStoredQueue: procedure({
+    input: sessionKeySchema,
+    output: z.array(promptInputSchema.pick({ text: true, origin: true })),
+  }),
   getHistory: fallible({
     input: historyPageInputSchema,
     data: historyPageSchema,
@@ -195,14 +204,13 @@ export const acpApiContract = defineContract({
       state: liveState({ data: sessionStateSchema }),
       config: liveState({ data: sessionConfigStateSchema }),
       usage: liveState({ data: sessionUsageSchema.nullable() }),
-      plan: liveState({ data: planStateSchema.nullable() }),
+      plan: liveState({ data: sessionPlansSchema.nullable() }),
       agents: liveState({ data: z.array(agentStateSchema) }),
       activeTurn: liveState({ data: transcriptTurnSchema.nullable() }),
       draft: liveState({ data: promptDraftSchema.nullable() }),
       terminals: liveState({ data: z.array(terminalStateSchema) }),
     },
   }),
-  terminalOutput: liveLog({ key: terminalOutputKeySchema }),
 });
 
 export type AcpApiContract = typeof acpApiContract;

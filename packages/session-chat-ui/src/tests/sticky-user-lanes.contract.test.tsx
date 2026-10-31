@@ -12,6 +12,7 @@ import { createChatContext } from '@session-chat/chat-context';
 import { createChatView } from '@session-chat/chat-view';
 import { UNIT_REGISTRY } from '@session-chat/components/engine/unit-registry';
 import { DEFAULT_THEME } from '@session-chat/core/theme';
+import { DEFAULT_CONFIG, buildChatTheme } from '@session-chat/core/config';
 import type { ChatItem, TranscriptTurn } from '@session-chat/model';
 import { createChatState } from '@session-chat/state/chat-state';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -42,9 +43,10 @@ function longTurn(id: string, seq: number, replies: number, inserted: string[] =
 
 async function mount(
   committed: TranscriptTurn[] = [longTurn('a', 0, 150), longTurn('b', 1, 150)],
-  active?: TranscriptTurn
+  active?: TranscriptTurn,
+  theme = DEFAULT_THEME
 ) {
-  const context = createChatContext({ theme: DEFAULT_THEME });
+  const context = createChatContext({ theme });
   const state = createChatState(context);
   state.transcript.history.seed(committed);
   if (active) state.transcript.activeTurn.set(active, 'generating');
@@ -77,6 +79,17 @@ async function mount(
 }
 
 describe('sticky user lanes', () => {
+  it('paints the full-width user backdrop only while the lane is stuck', async () => {
+    const t = await mount();
+    const wrapper = t.card('a-user')!.closest('[data-index]')!.firstElementChild!;
+    expect(getComputedStyle(wrapper).backgroundColor).toBe('rgba(0, 0, 0, 0)');
+    const backdrop = () => wrapper.querySelector<HTMLElement>('[data-chat-pin-backdrop]');
+    expect(backdrop()).not.toBeNull();
+    expect(getComputedStyle(backdrop()!).opacity).toBe('0');
+    await t.scrollTo(900);
+    await until('the stuck card is backed by the opaque lane', () => getComputedStyle(backdrop()!).opacity === '1');
+    expect(t.cardTop('a-user')).toBeCloseTo(PIN_LINE, 0);
+  });
   it('sticks the user row in the same frame as the scroll, deep inside a long turn', async () => {
     const t = await mount();
     for (const st of [200, 900, 1700, 2600]) {
@@ -119,6 +132,26 @@ describe('sticky user lanes', () => {
     expect(aTop === null || aTop < 0, 'a left with its turn').toBe(true);
   });
 
+  it('a long delivered insertion in the same turn scrolls clear of the preceding pinned bubble', async () => {
+    const first = longTurn('a', 0, 1);
+    const text = '输入框遮挡 · 过程行展开 · 原消息引用回跳。请保留真实截图。\n\n'.repeat(30);
+    first.items.splice(1, 0, {
+      kind: 'message', id: 'inserted', seq: 1, role: 'user',
+      text: `<gugu_delivery route="chat" msg="msg:inserted" from="Reviewer" from_id="user:reviewer" chat="project" chat_kind="group"><![CDATA[${text}]]></gugu_delivery>`,
+    } as TranscriptTurn['items'][number]);
+    const theme = buildChatTheme(DEFAULT_CONFIG, { preset: 'double', userGutter: 72, agentConversation: true });
+    const t = await mount([first, longTurn('b', 1, 150)], undefined, theme);
+    await until('inserted bubble is rendered', () => t.card('inserted') != null);
+    const insertedTop = t.cardTop('inserted')!;
+    expect(t.card('inserted')!.getBoundingClientRect().height).toBeGreaterThan(200);
+    for (let step = 0; step < 45; step++) {
+      t.scrollEl.scrollTop = Math.max(0, insertedTop - 100 + step * 6);
+      const previous = t.card('a-user');
+      const inserted = t.card('inserted');
+      if (previous && inserted) expect(previous.getBoundingClientRect().bottom, `handoff step ${step}`).toBeLessThanOrEqual(inserted.getBoundingClientRect().top + 1);
+    }
+  });
+
   it('gives every user message of the running turn its own lane, not only the last one', async () => {
     // The running turn holds b and the message c inserted into it; before the fix only c was an
     // anchor, so a stayed stuck over all of b.
@@ -138,5 +171,28 @@ describe('sticky user lanes', () => {
     expect(aTop === null || aTop < 0, 'a left with its turn').toBe(true);
     await stuckAfter('c-user');
     expect(t.cardTop('c-user'), 'the inserted c takes over').toBeCloseTo(PIN_LINE, 0);
+  });
+  it('in the agent conversation, a delivered bubble ends the lane before it instead of sliding under its stuck copy', async () => {
+    const delivered = longTurn('b', 1, 150);
+    delivered.items[0] = { kind: 'message', id: 'b-user', seq: 0, role: 'user',
+      text: '<gugu_delivery route="chat" msg="msg:b" from="小王" from_id="user:wang"><![CDATA[来自群里的一条消息]]></gugu_delivery>' } as TranscriptTurn['items'][number];
+    const theme = buildChatTheme(DEFAULT_CONFIG, { preset: 'double', userGutter: 72, agentConversation: true });
+    const t = await mount([longTurn('a', 0, 150), delivered], undefined, theme);
+    // 投进来的那条不是钉顶单元,在对话布局里画成右侧一个气泡:按它那一行找。
+    const deliveredRow = () => t.host.querySelector<HTMLElement>('[data-row-kind="message"][data-item-id="b-user"]');
+    const rowTop = () => { const el = deliveredRow(); return el ? el.getBoundingClientRect().top - t.scrollEl.getBoundingClientRect().top : null; };
+    let st = 0;
+    while (!(rowTop() !== null && rowTop()! < 260 && rowTop()! > 80)) {
+      st += 80;
+      expect(st, 'b-user came into view').toBeLessThan(80_000);
+      await t.scrollTo(st);
+    }
+    // MBP 验收 10-28:前一条打字消息的钉顶副本一直盖着投进来的那条。
+    for (let i = 0; i < 40; i++) {
+      t.scrollEl.scrollTop = st + i * 6;
+      const a = t.card('a-user');
+      const b = deliveredRow()!;
+      if (a) expect(a.getBoundingClientRect().bottom, `step ${i}`).toBeLessThanOrEqual(b.getBoundingClientRect().top + 1);
+    }
   });
 });

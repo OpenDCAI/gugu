@@ -6,7 +6,9 @@ export * from './api/runtime-contract';
 export * from './errors';
 export * from './models';
 export * from './provider-session';
-export { decodeSessionUpdate, DRAFT_UPDATE_META_KEY, serializePayload } from './reducer/decode';
+export type * from './session-protocol';
+export { decodeSessionUpdate, decodeV2SessionUpdate, decodeConfigOptions, decodePermissionRequest } from './transport/decode';
+export { serializePayload, projectToolContent } from './models/tool-payload';
 export { createToolCallItem } from './reducer/item-fold';
 export * from './reducer/index';
 export {
@@ -18,3 +20,5 @@ export {
 } from './recent-actions';
 export { runningBackgroundCommands, type RunningBackgroundCommand } from './background-commands';
 export { ACP_AUTH_REQUIRED_CODE, isSignInFailure } from './sign-in-failure';
+export { createRequestActivity, type RequestActivityAgent } from './transport/request-activity';
+export { providerRejectedMissingSession } from './transport/missing-session';

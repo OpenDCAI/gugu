@@ -1,12 +1,12 @@
 import { agentIdsBySession } from '@main/core/sessionpage/sessionpage-session-agent';
 import { readAcpSessionSummaries } from '@main/core/acp/session-summary-reader';
-import type { SessionFailure, SessionSummary, TranscriptTurn } from '@gugu/session-core/acp';
+import type { TranscriptTurn } from '@gugu/session-core/acp';
 import type { SessionpageSessionSummary, UnreachedMachine } from '@gugu/session-core/session-record/contract';
 import { db } from '@main/db/client';
 import { sessions } from '@main/db/schema';
 import { log } from '@main/lib/logger';
 import { eq } from 'drizzle-orm';
-import { sessionPlatformModel } from '@main/core/sessions/platform-model-selection';
+import { sessionModelLabel, sessionPlatformModel } from '@main/core/sessions/platform-model-selection';
 import { sessionModelFromDecision } from '@main/core/sessions/session-model-fact';
 import { refuseItself } from '@main/core/sessions/utils';
 import type {
@@ -14,6 +14,7 @@ import type {
   ExtensionAgentMessage,
   ExtensionAgentView,
 } from '@shared/extensions/bridge-protocol';
+import { agentViewOf, type ListedSession } from '@shared/extensions/agent-view';
 import type { AgentReach } from '@shared/extensions/manifest';
 import type { AgentEvent } from '@shared/core/agents/agentEvents';
 
@@ -29,40 +30,6 @@ import type { AgentEvent } from '@shared/core/agents/agentEvents';
 //(身份与形态 —— 引擎和它的模型,是 spawnAgent 照它起一条时要传的 —— 是不是这个扩展起的 + 活着的状态)。对话内容是另一档能力,走
 // `readAgentHistoryForExtension`,不从清单那条路漏出去。
 
-/**
- * Live counters exist only where there is a live ACP session to count.
- *
- * That is narrower than "panel sessions": a terminal session never has one, and
- * a panel session that is not currently open does not have one *yet*. Both come
- * back `null` rather than `0`, because「一个都没有」and「问不出来」are different
- * answers and a surface that draws a badge must be able to tell them apart
- * (behavior:「如实给空,❌ 凑一个数字冒充」).
- *
- * ❌ 别把这个函数改成按 transport 判断:那会让一条冷的面板会话报出 `0`,即
- * 「我问过了,确实没有」——而其实没人问得到。
- */
-function countersFor(
-  summary: { pendingPermissionCount: number; queuedPromptCount: number } | undefined
-): Pick<ExtensionAgentView, 'pendingPermissionCount' | 'queuedPromptCount'> {
-  if (!summary) return { pendingPermissionCount: null, queuedPromptCount: null };
-  return {
-    pendingPermissionCount: summary.pendingPermissionCount,
-    queuedPromptCount: summary.queuedPromptCount,
-  };
-}
-
-/**
- * Why its engine went away (`lifecycle: 'lost'`), in the runtime's own words: the process exited (code / signal), or the
- * session never started. `start-failed`'s structured error stays inside — its shape is the runtime's, not this surface's.
- */
-function failureOf(failure: SessionFailure | null | undefined): ExtensionAgentView['failure'] {
-  if (!failure) return null;
-  if (failure.kind === 'adapter-exit') {
-    return { kind: failure.kind, message: failure.message, exitCode: failure.exitCode, signal: failure.signal ?? null };
-  }
-  return { kind: failure.kind, message: failure.message, exitCode: null, signal: null };
-}
-
 /** 一个扩展的一档 agent 能力够得着谁:声明的宽窄、它是谁。 */
 export interface ExtensionAgentScope {
   scope: AgentReach;
@@ -70,13 +37,13 @@ export interface ExtensionAgentScope {
 }
 
 /** 一行会话:界面那份会话列表的一行(本机或别的机器),标上它在哪台机器(本机 = null)。 */
-type ListedSession = { session: SessionpageSessionSummary; deviceId: string | null; deviceLabel: string | null };
+
 
 const agentIdOf = (session: SessionpageSessionSummary) => (session.agent ? `user:${session.agent.userId}` : null);
 
 /**
  * The one place that decides which agents a scope covers on this computer — the listing, every range check and
- * messageAgent all read it, so「能看见谁」has one answer (两处各算一次,漂了的那次一定是放行的那次)。
+ * dispatch to an agent all read it, so「能看见谁」has one answer (两处各算一次,漂了的那次一定是放行的那次)。
  * 行就是界面那份会话列表(`listSessions`:本机库 + 名录,不碰 ACP 运行时)。
  * `own` = 这个 App 自己起的(真源原则 13:位置不决定能力);`all` / `all-machines` = 这台机器上的全部。
  */
@@ -95,7 +62,7 @@ async function localSessions(options: ExtensionAgentScope): Promise<ListedSessio
 export async function sessionsElsewhere(): Promise<{ rows: ListedSession[]; unreached: UnreachedMachine[] }> {
   const { otherMachines } = await import('@main/core/sessions/session-family');
   const { sessions: listed, unreached } = await otherMachines().sessions(null);
-  const old = new Map(listed.filter(({ session }) => session.agent === undefined).map(({ deviceId, label }) => [deviceId, label]));
+  const old = new Map(listed.filter(({ listsAgents }) => !listsAgents).map(({ deviceId, label }) => [deviceId, label]));
   for (const [deviceId, label] of old) {
     unreached.push({ deviceId, label, detail: `"${label}" (device:${deviceId}) runs a gugu too old to list its agents; it updates itself when idle` });
   }
@@ -113,51 +80,6 @@ export async function visibleAgentsForExtension(options: ExtensionAgentScope): P
     const agentId = agentIdOf(session);
     return agentId ? [[agentId, session.conversationId] as const] : [];
   }));
-}
-
-/**
- * 一行会话换成 App 看到的那一行。只有这台机器读得到的活读数(`live`:ACP 活会话摘要与模型)别的机器的行没有 ——
- * 那几格给 null =「问不出来」,❌ 凑一个值。
- */
-function agentViewOf(
-  row: ListedSession,
-  agentOf: ReadonlyMap<string, string>,
-  extensionId: string,
-  live: { summary: SessionSummary | undefined; model: string | null } | null,
-): ExtensionAgentView | null {
-  const { session } = row;
-  const agentId = agentOf.get(session.conversationId);
-  if (!agentId) return null;
-  const summary = live?.summary;
-  return {
-    agentId,
-    sessionId: session.conversationId,
-    deviceId: row.deviceId,
-    deviceLabel: row.deviceLabel,
-    projectId: session.projectId,
-    title: session.title,
-    // 列表里没有 provider 的会话写 'unknown';这个面上它是 null(一个类型说「一定有」、运行时给空的字段,扩展会当真)。
-    providerId: session.harness === 'unknown' ? null : session.harness,
-    model: live?.model ?? null,
-    // 集体记忆对账第 4 条:和 session_get / session_spawn / spawnAgent 同一套词,App 照抄 row.transport 去 spawnAgent 才不会被拒。
-    transport: session.runtime === 'acp' ? 'acp' : 'pty',
-    parentAgentId: session.parentConversationId ? (agentOf.get(session.parentConversationId) ?? null) : null,
-    // 只说「是不是我起的」,❌ 给出别的扩展的 id:装了哪些别的扩展不是这个扩展该知道的事。
-    spawnedByThisExtension: session.spawnedByExtensionId === extensionId,
-    status: session.status?.status ?? null,
-    detail: session.status?.detail ?? null,
-    isGenerating: summary?.isGenerating ?? null,
-    lastStopReason: summary?.lastStopReason ?? null,
-    failure: failureOf(summary?.failure),
-    lastActionAt: typeof summary?.lastActionAt === 'number' ? new Date(summary.lastActionAt).toISOString() : null,
-    updatedAt: session.lastInteractedAt ?? null,
-    contextTokens: summary?.contextTokens ?? null,
-    // ISO like `updatedAt` and `startedAt`: one way to write a time on this surface.
-    rateLimit: summary?.rateLimit
-      ? { ...summary.rateLimit, resetsAt: summary.rateLimit.resetsAt === null ? null : new Date(summary.rateLimit.resetsAt).toISOString() }
-      : null,
-    ...countersFor(summary),
-  };
 }
 
 /**
@@ -187,11 +109,15 @@ export async function listAgentsForExtension(
   // Its model as `session_spawn` / `spawnAgent` take it back (`spawn_model_id`): a Gugu model's `platform:<id>`, else
   // the harness's own; null when the session never chose one. 只有本机的行读得到。
   const harnessModels = new Map((await db.select({ id: sessions.id, config: sessions.config }).from(sessions)).map((row) => [row.id, row.config?.model ?? null]));
-  const models = new Map(await Promise.all(here.map(async ({ session: { conversationId: id } }) =>
-    [id, sessionModelFromDecision(await sessionPlatformModel(id), harnessModels.get(id) ?? null).spawn_model_id ?? null] as const)));
+  // A Gugu model's name as the model menu shows it, kept with the session's decision (read once per session and model).
+  const models = new Map(await Promise.all(here.map(async ({ session: { conversationId: id, harness, runtime } }) => {
+    const decision = await sessionPlatformModel(id);
+    const model = sessionModelFromDecision(decision, harnessModels.get(id) ?? null).spawn_model_id ?? null;
+    return [id, { model, modelLabel: await sessionModelLabel(id, decision, harness, runtime) }] as const;
+  })));
   const agents = rows.flatMap((row) => {
     const id = row.session.conversationId;
-    return agentViewOf(row, agentOf, options.extensionId, row.deviceId === null ? { summary: summaries[id], model: models.get(id) ?? null } : null) ?? [];
+    return agentViewOf(row, agentOf, options.extensionId, row.deviceId === null ? { summary: summaries[id], model: models.get(id)?.model ?? null, modelLabel: models.get(id)?.modelLabel ?? null } : null) ?? [];
   });
   return { agents, unreached: elsewhere.unreached };
 }
@@ -386,7 +312,7 @@ export async function stopAgentForExtension(options: {
 }
 
 /**
- * `gugu.spawnAgent(prompt, { title, harness, model, transport, project, chat })`: a new agent — a session of its own —
+ * `gugu.dispatch(prompt, { to: { new: true }, spawn: { title, harness, model, transport, project, chat } })`: a new agent — a session of its own —
  * started as the person starts one, through the one spawn core `session_spawn` uses (`spawnSessionForApp`): where and on
  * what the call names, else what the person's new-session box would pick; never from the session a page sits in (真源原则 13).
  *
@@ -406,6 +332,7 @@ export async function spawnAgentForExtension(options: {
   transport?: 'acp' | 'pty';
   project?: string;
   chat?: string;
+  device?: string;
 }): Promise<{ agentId: string }> {
   const { buildExtensionEnvelope, formatDeliveryTimestamp } = await import('@gugu/core/local/agent/deliveryEnvelope');
   const { spawnSessionForApp } = await import('@main/core/sessions/session-orchestration');
@@ -420,6 +347,7 @@ export async function spawnAgentForExtension(options: {
         at: formatDeliveryTimestamp(new Date().toISOString()),
       }),
   });
+  if ('agentId' in row) return row;
   const appId = (await agentIdsBySession(process.env)).get(row.id);
   if (!appId) throw new Error('the agent was started but has no identity yet; listAgents lists it once it has one');
   return { agentId: appId };

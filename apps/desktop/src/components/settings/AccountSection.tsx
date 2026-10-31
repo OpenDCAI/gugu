@@ -1,3 +1,4 @@
+import { messageForUser } from '@/lib/userFacingError';
 import { useEffect, useRef, useState } from 'react'
 import { authService } from '../../lib/auth'
 import type { AuthUser } from '../../store/auth'
@@ -11,16 +12,19 @@ import { OCCUPATION_KEYS, OCCUPATION_OTHER_MAX, occupationComplete, type Occupat
 import { readOccupation, writeOccupation } from '../../lib/firstRun'
 import '../../i18n/registerMainCatalog'
 import { rendererLogger } from '../../lib/log'
+import { officialServicesEnabled } from '@gugu/core/cloud/optionalServices'
+import { GuguSubscriptionRow } from '../../session/renderer/features/settings/subscriptions/GuguSubscriptionRow'
 
 const log = rendererLogger('settings/account')
 
 interface AccountSectionProps {
+  mobile?: boolean
   user: AuthUser | null
   updateUser: (user: AuthUser) => void
   logout: () => Promise<{ success: boolean }>
 }
 
-export function AccountSection({ user, updateUser, logout }: AccountSectionProps) {
+export function AccountSection({ user, updateUser, logout, mobile = false }: AccountSectionProps) {
   const { t } = useTranslation('settings')
   const { t: tMain } = useTranslation('main')
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -39,13 +43,13 @@ export function AccountSection({ user, updateUser, logout }: AccountSectionProps
 
   // 身份(product spec:新账号在「认识你」里填,这里能改)。存在账号设置里、只有本人读得到,不进名片。
   // 读不到 = 这一行如实说读不到、不给改,❌ 当成没填让人覆盖掉原值。
-  const [occupation, setOccupation] = useState<{ kind: 'loading' } | { kind: 'error' } | { kind: 'ready'; saved: Occupation | null; draft: Occupation | null }>({ kind: 'loading' })
+  const [occupation, setOccupation] = useState<{ kind: 'loading' } | { kind: 'error'; message: string } | { kind: 'ready'; saved: Occupation | null; draft: Occupation | null }>({ kind: 'loading' })
   useEffect(() => {
     if (!user?.id) return
     let cancelled = false
     readOccupation(user.id)
       .then((saved) => { if (!cancelled) setOccupation({ kind: 'ready', saved, draft: saved }) })
-      .catch((e: unknown) => { log.warn({ error: String(e) }, 'read occupation failed'); if (!cancelled) setOccupation({ kind: 'error' }) })
+      .catch((e: unknown) => { log.error({ error: e }, 'read occupation failed'); if (!cancelled) setOccupation({ kind: 'error', message: messageForUser(e) }) })
     return () => { cancelled = true }
   }, [user?.id])
   const occupationDirty = occupation.kind === 'ready' && JSON.stringify(occupation.draft) !== JSON.stringify(occupation.saved)
@@ -78,8 +82,8 @@ export function AccountSection({ user, updateUser, logout }: AccountSectionProps
       try {
         await writeOccupation(user.id, occupation.draft)
       } catch (e) {
-        log.warn({ error: String(e) }, 'write occupation failed')
-        setSaving(false); setSaveError(t('account.saveFailed')); return
+        log.error({ error: e }, 'write occupation failed')
+        setSaving(false); setSaveError(messageForUser(e)); return
       }
       setOccupation({ kind: 'ready', saved: occupation.draft, draft: occupation.draft })
     }
@@ -107,8 +111,9 @@ export function AccountSection({ user, updateUser, logout }: AccountSectionProps
     setLogoutError('')
     try {
       await logout()
-    } catch {
-      setLogoutError(t('account.logoutFailed'))
+    } catch (error) {
+      log.error({ error }, 'logout failed')
+      setLogoutError(messageForUser(error))
       setLoggingOut(false)
     }
   }
@@ -121,7 +126,7 @@ export function AccountSection({ user, updateUser, logout }: AccountSectionProps
       <SettingsGroup presentation="summary">
         <SettingsRow
           title={user?.nickname ?? t('account.avatar')}
-          description={avatarError ? <span style={{ color: 'var(--danger)' }}>{avatarError}</span> : t('account.avatar')}
+          description={avatarError ? <span style={{ color: 'var(--danger-fg)' }}>{avatarError}</span> : t('account.avatar')}
           leading={(
             // 头像即按钮:ui/Button 的 ghost(键盘可达、读屏读得出),盒子与侧栏头像按钮同一组数。
             <Button
@@ -190,7 +195,7 @@ export function AccountSection({ user, updateUser, logout }: AccountSectionProps
           description={occupation.kind === 'ready' ? t('account.occupationNote') : undefined}
           control={occupation.kind !== 'ready' ? (
             <span className="gg-settings-row-value" role={occupation.kind === 'error' ? 'alert' : undefined}>
-              {occupation.kind === 'loading' ? t('account.occupationLoading') : t('account.occupationUnreadable')}
+              {occupation.kind === 'loading' ? t('account.occupationLoading') : occupation.message}
             </span>
           ) : (
             <span className="flex w-full flex-col gap-2">
@@ -239,6 +244,10 @@ export function AccountSection({ user, updateUser, logout }: AccountSectionProps
         </Button>
       </div>
 
+      {mobile && officialServicesEnabled() && (
+        <SettingsGroup presentation="summary"><GuguSubscriptionRow /></SettingsGroup>
+      )}
+
       {/* Account-wide action stays below the editor and its save feedback. */}
       <SettingsGroup
         presentation="danger"
@@ -248,7 +257,7 @@ export function AccountSection({ user, updateUser, logout }: AccountSectionProps
           title={t('account.logout')}
           description={t('account.logoutNote')}
           control={(
-            <Button variant="ghost" size="sm" onClick={() => { void handleLogout() }} disabled={loggingOut} style={{ color: 'var(--danger)' }}>
+            <Button variant="ghost" size="sm" onClick={() => { void handleLogout() }} disabled={loggingOut} style={{ color: 'var(--danger-fg)' }}>
               <LogOut size={15} />
               {loggingOut ? t('account.loggingOut') : t('account.logout')}
             </Button>

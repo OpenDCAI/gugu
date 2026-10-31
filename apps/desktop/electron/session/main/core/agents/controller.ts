@@ -39,7 +39,7 @@ import {
   type HostDependencyManager,
 } from '@gugu/session-core/deps/runtime';
 import { getDependencyDescriptor } from '../dependencies/registry';
-import { getPlugin } from './plugin-registry';
+import { getPlugin, listPlugins } from './plugin-registry';
 import { partsToInstall, partsToUpdate } from './agent-programs';
 import type { SessionpageLeg } from '@shared/core/sessions/sessions';
 import { lookupHarnessModelCatalog } from './harness-model-catalog';
@@ -136,8 +136,8 @@ export const agentsController = createRPCController({
   // 报出去**。开机的 `probeAll()` 是 fire-and-forget,渲染层完全可能抢在它前面问,于是拿到一
   // 份全员未安装的名单;composer 的「尚未安装」标签读的就是这个,会当场说谎。
   //
-  // `ensureAgentDependenciesProbed` 在所有 agent 都已有状态时立即返回,所以开机探测跑完之后
-  // 这一行是零成本;只有那个竞态窗口里会多跑一遍探测。多探一次远好过报一个编出来的结论。
+  // `ensureAgentDependenciesProbed` 在当前上架 agent 都已有状态时立即返回,所以开机探测跑完之后
+  // 这一行无需重探;开机与查询共用同一轮完成结果,不把未知状态编成未安装。
   list: async () => {
     const mgr = await getDependencyManager();
     await ensureAgentDependenciesProbed(mgr);
@@ -156,6 +156,13 @@ export const agentsController = createRPCController({
   get: async (id: string) => {
     const mgr = await getDependencyManager();
     await ensureAgentDependenciesProbed(mgr);
+    if (!listPlugins().some((provider) => provider.metadata.id === id)) {
+      for (const program of agentProgramsOf(getPlugin(id))) {
+        if (!await mgr.isPathResolutionConsistent(program.dependencyId as DependencyId)) {
+          await mgr.probe(program.dependencyId as DependencyId, { waitForInstallations: true });
+        }
+      }
+    }
     return buildAgentPayload(id, mgr.platform, mgr, enrichHostDep);
   },
 

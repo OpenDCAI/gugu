@@ -32,7 +32,8 @@ export const UPGRADE_RETRY_COOLDOWN_MS = 10 * 60_000
 
 export type SshAutoUpgrader = {
   /** 那台机器太旧:替它升级。返回 true = 此刻正在升(刚发起或早已在升);false = 冷却中 / 不归这台桌面管。 */
-  request(deviceId: string, options?: { force?: boolean; desktopTooOld?: boolean }): boolean
+  /** `now` = 人点了「现在重启更新」:那个账号有 agent 在跑也当场换(否则那台机器等它空闲,这里报 waitingIdle)。 */
+  request(deviceId: string, options?: { force?: boolean; desktopTooOld?: boolean; now?: boolean }): boolean
   upgrading(deviceId: string): boolean
 }
 
@@ -40,6 +41,7 @@ export type SshAutoUpgrader = {
 export type RunUpgrade = (
   deviceId: string,
   onState: (state: ServerSshInstallState) => void,
+  options?: { now?: boolean },
 ) => Promise<ServerSshInstallState | null>
 
 /** 下载那一步此刻的百分比(不知道总量 = null)。纯函数。 */
@@ -64,7 +66,7 @@ export function createSshAutoUpgrader(options: {
   const cooldown = options.cooldownMs ?? UPGRADE_RETRY_COOLDOWN_MS
   const log = options.log ?? (() => undefined)
 
-  const start = (deviceId: string, desktopTooOld: boolean) => {
+  const start = (deviceId: string, desktopTooOld: boolean, applyNow: boolean) => {
     running.add(deviceId)
     options.emit({ deviceId, phase: 'updating', percent: null })
     let lastPercent: number | null = null
@@ -74,7 +76,7 @@ export function createSshAutoUpgrader(options: {
         if (percent === lastPercent) return
         lastPercent = percent
         options.emit({ deviceId, phase: 'updating', percent })
-      })
+      }, { now: applyNow })
       .catch((error: unknown) => {
         log('ssh upgrade: crashed', { deviceId, error: error instanceof Error ? error.message : String(error) })
         return undefined
@@ -94,6 +96,14 @@ export function createSshAutoUpgrader(options: {
           failedAt.set(deviceId, now())
           log('ssh upgrade: desktop is the older side', { deviceId, target: match?.target ?? null, desktop: options.desktopVersion ?? null })
           options.emit({ deviceId, phase: 'desktopTooOld' })
+          return
+        }
+        // 那个账号有 agent 在跑:那台机器装好了、等它空闲再换(到时自己换,不用这台桌面再来)。问人「现在重启更新 / 稍后」;
+        // 记进冷却,❌ 每次重连都再请一遍。
+        if (final?.failure?.reason === 'agentsRunning') {
+          failedAt.set(deviceId, now())
+          log('ssh upgrade: waiting for agents to finish', { deviceId })
+          options.emit({ deviceId, phase: 'waitingIdle' })
           return
         }
         const downloaded = stepDone('download')
@@ -126,7 +136,7 @@ export function createSshAutoUpgrader(options: {
       if (running.has(deviceId)) return true
       const failed = failedAt.get(deviceId)
       if (!requestOptions?.force && failed !== undefined && now() - failed < cooldown) return false
-      start(deviceId, requestOptions?.desktopTooOld === true)
+      start(deviceId, requestOptions?.desktopTooOld === true, requestOptions?.now === true)
       return true
     },
     upgrading: (deviceId) => running.has(deviceId),
@@ -145,7 +155,7 @@ export function sshServerUpgradeRunner(options: {
   channel: 'stable' | 'beta'
   spawnSsh: SpawnSsh
 }): RunUpgrade {
-  return async (deviceId, onState) => {
+  return async (deviceId, onState, runOptions) => {
     const target = await options.targetFor(deviceId)
     if (!target) return null
     const match = (await options.matchFor?.(deviceId).catch(() => null)) ?? null
@@ -167,6 +177,7 @@ export function sshServerUpgradeRunner(options: {
         channel: options.channel,
         signal: new AbortController().signal,
         ...(match ? { match } : {}),
+        ...(runOptions?.now ? { now: true } : {}),
       })
     } finally {
       await fs.promises.rm(dir, { recursive: true, force: true }).catch(() => undefined)

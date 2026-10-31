@@ -80,8 +80,7 @@ describe('#4981 task_notification 找它说的那次调用', () => {
         toolKind: 'execute',
         status: 'in_progress',
         parentToolCallId: 'call_launch',
-        diffs: [],
-        locations: [],
+              locations: [],
       } as never,
       3
     );

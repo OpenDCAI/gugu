@@ -5,7 +5,7 @@ import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 import { FirstRunHarness } from '@/components/firstRun/FirstRunHarness';
 
 const f = vi.hoisted(() => ({ queue: vi.fn(), remember: vi.fn(), save: vi.fn(), done: vi.fn() }));
-vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
+vi.mock('react-i18next', async (importOriginal) => ({ ...(await importOriginal<typeof import('react-i18next')>()), useTranslation: () => ({ t: (key: string) => key }) }));
 vi.mock('@tanstack/react-query', () => ({ useQueryClient: () => ({ invalidateQueries: vi.fn() }) }));
 vi.mock('@renderer/features/settings/use-app-settings-key', () => ({
   useAppSettingsKey: () => ({ updateAsync: f.save, isLoading: false, isSaving: false, error: null }),
@@ -49,6 +49,6 @@ describe('first-run managed background installation (#7582)', () => {
     f.save.mockRejectedValueOnce(new Error('offline'));
     await render(); await act(async () => next().click());
     expect(f.queue).not.toHaveBeenCalled(); expect(f.done).not.toHaveBeenCalled();
-    expect(host.querySelector('[role="alert"]')?.textContent).toContain('firstRun.saveFailed');
+    expect(host.querySelector('[role="alert"]')?.textContent).toContain('offline');
   });
 });

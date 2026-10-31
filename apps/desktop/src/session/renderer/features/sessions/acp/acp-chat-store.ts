@@ -9,8 +9,11 @@ import type {
 import { connectSession, createChatState, pinTopMode, runningBackgroundTaskIds } from '@gugu/session-chat-ui';
 import {
   attachmentRefSchema,
+  permissionTitle,
+  permissionDescription,
   type AttachmentMimeType,
   type AttachmentRef,
+  type HistoryCursor,
   type GuguPermissionMode,
   isDestructivePermissionMode,
   resolveSessionPermissionMode,
@@ -19,7 +22,6 @@ import {
   type PromptInput,
   type QueuedPrompt,
   type QueuedPromptEdit,
-  toolCallLabel,
 } from '@gugu/session-core/acp/client';
 import type {
   CommandItem,
@@ -29,17 +31,22 @@ import type {
   ComposerNotice,
   ComposerQueuedPrompt,
 } from '@gugu/session-ui/react/components';
+import { findToolItem } from '@gugu/session-core/session-record/tool-image';
+import { toolImageUrl } from '@gugu/session-core/acp/client';
 import { commandToken } from '@gugu/session-core/acp/commands';
 import { permissionWaitKind } from '@gugu/session-core/acp/models/permissions';
-import type { LiveSettingResult, PermissionWaitKind } from '@gugu/session-core/acp';
+import type { AgentState, LiveSettingResult, PermissionWaitKind } from '@gugu/session-core/acp';
 import { errorDetail } from '@gugu/session-shared';
-import type { BlobSource } from '@gugu/session-wire';
+import { WireError, type BlobSource } from '@gugu/session-wire';
 import { action, computed, makeObservable, observable, runInAction, toJS } from 'mobx';
+import { batch } from 'solid-js';
 // TODO(conversations-extraction): Inject task/workspace lookups instead of importing task stores.
 import { asProvisioned, getSessionPageStore } from '@renderer/features/sessions/stores/session-selectors';
 import { workspaceRegistry } from '@renderer/features/sessions/stores/workspace-registry';
 import { AcpLiveSession, asValueSource } from '@renderer/lib/acp/acp-live-session';
 import { getAcpRuntimeClient } from '@renderer/lib/acp/runtime-client';
+import { watchRunningSession, type RunningSessionWatch } from '@renderer/lib/acp/running-sessions';
+import { machineLinkHandingOff, machineLinkState, onMachineReconnected } from '@renderer/lib/machine-clients';
 import { machineRegistry } from '@renderer/lib/machine-routing';
 import { getAgentConfigRuntimeClient } from '@renderer/lib/agent-config/runtime-client';
 import {
@@ -51,18 +58,25 @@ import { composeHistoryTurns, sideChatOwnTurns } from './history-composition';
 import { toast } from '@renderer/lib/hooks/use-toast';
 import { translateSessionMessage } from '@renderer/localization/locale-store';
 import type { SessionMessageKey } from '@renderer/localization/messages';
-import { failureText, guguFailureText } from '../gugu-reason';
+import { failureText } from '../gugu-reason';
 import { rpc } from '@renderer/lib/ipc';
 import { log } from '@renderer/utils/logger';
 import { sessionHasPriorContext } from '@shared/core/sessions/prior-context';
+import type { Session } from '@shared/core/sessions/sessions';
 import { sessionRegistry } from '../stores/session-registry';
 import { type AcpLoadError, isTerminalLoadError, resultError, toLoadError } from './acp-load-error';
 import { bindSessionTerminalOutputs } from './acp-terminal-output-binding';
 import { recordedContextUsage } from './recorded-context-usage';
 import { notifyCommittedTurn } from '@renderer/lib/session-output-observers';
 
+/**
+ * 起会话途中到那台机器的线断了,先等它这么久:换线(开机时咕咕云 → 隧道)、几秒的抖动都在这里面悄悄重开,
+ * 界面 ❌ 出「连接断了」那一行;等满了还没回来才说(那一行之后线回来时照旧自己再开)。
+ */
+export const MACHINE_LINK_GRACE_MS = 8_000;
+
 /** 宿主那边还没起完(或没起)的生命周期:停着的会话等它离开这几格再重挂。 */
-const HOST_NOT_SETTLED: ReadonlySet<string> = new Set(['closed', 'starting', 'replaying']);
+const HOST_NOT_SETTLED: ReadonlySet<string> = new Set(['closed', 'lost', 'starting', 'replaying']);
 
 /**
  * 一次实时设置改动**留给调用方**的那一件事。
@@ -99,20 +113,16 @@ type AcpFailureTitle = Extract<SessionMessageKey, `acpFailure.${string}`>;
 
 type PermissionQueueItem = {
   requestId: string;
-  toolCallId: string;
+  toolCallId: string | null;
   title: string;
+  description?: string;
   options: Array<{ optionId: string; name: string; kind: string }>;
   waitKind: PermissionWaitKind;
 };
 
-export function isVisibleQueuedPrompt(
-  prompt: QueuedPrompt,
-): prompt is QueuedPrompt & { origin: 'manual' | 'typed' } {
-  if (!prompt.origin) {
-    throw new Error(`Queued prompt ${prompt.id} has no explicit origin`);
-  }
-  return prompt.origin !== 'communication';
-}
+export { isVisibleQueuedPrompt } from '@shared/core/sessions/visible-queued-prompt';
+import { isVisibleQueuedPrompt } from '@shared/core/sessions/visible-queued-prompt';
+import { conversationQueueText, editedConversationQueueText } from '@shared/core/sessions/conversation-queue-text';
 
 export type { AcpLoadError } from './acp-load-error';
 
@@ -132,6 +142,11 @@ export class AcpChatStore {
   /** #6552 这段里用户选的模型 / 强度(已交给运行时)。会话挂上之后以活会话报的为准,这份清空。 */
   startupChoice: { model?: string; effort?: string } = {};
   messageCount = 0;
+  /**
+   * 转录每同步一次就 +1。子智能体跑的那些调用折进**已收口**那一轮的派发卡下面(`reduceSubagentStream`),
+   * 顶层条数不变 ⇒ `messageCount` 不动;后台列表的步数与悬停时间线跟它走就一直停在打开会话那一刻。
+   */
+  transcriptRevision = 0;
   draftText = '';
   queuedEditDraft: { id: string; text: string } | null = null;
   queueEditPending = false;
@@ -144,17 +159,42 @@ export class AcpChatStore {
    * 只由挂着的活会话的 sessionState 写 —— 读它走 `runningBackgroundTaskIds`。
    */
   private _runtimeBackgroundTaskIds: readonly string[] | null = [];
+  /**
+   * 运行时登记册里还在跑的子智能体(`toolCallId` 与派它那次调用的 `agentToolUseId` 都算)。
+   * 库里读出来的旧轮可能是上一个进程派的,随进程没了、永远等不来完成通知 —— 后台列表只留这里有的(与后台命令同一条,#6582)。
+   */
+  private _runtimeLiveSubagentIds: readonly string[] = [];
 
   private _view: ChatView | null = null;
   private _bootstrapped = false;
   /** 转录已放掉(`releaseTranscript`),下一次上屏时重读。 */
   private _transcriptReleased = false;
   /**
-   * #6497 宿主把这条会话停掉了(见 `_onSessionClosedByHost`),下一次发消息要把它重新起来。
-   * 只在「停了之后还没重挂」这一段为真;任何一次重新开场(`_runBootstrap`)都把它清掉。
+   * #6497 宿主把这条会话停掉了(见 `_onSessionClosedByHost`),或者 #980 打开时它就没在跑(见 `_park`):
+   * 停着,下一次发消息要把它起起来。只在「停着、还没挂上」这一段为真;任何一次重新开场(`_runBootstrap`)都把它清掉。
    */
   private _closedByHost = false;
+  /**
+   * #980 一次「打开」在路上(`_open`):画库里那份 + 问一句它在不在跑。这段**不算在起**(`starting`):
+   * 换模型 / 权限档照停着的会话记下,发一句照停着的会话起。
+   */
+  private _opening = 0;
+  /** #980 停着时盯着运行时会话表的那一格:宿主把它拉起来(投递、定时、别的设备上发的那句)就挂上去。 */
+  private _parkWatch: RunningSessionWatch | null = null;
+  /** 上一次失败出在「打开」那一步(读不到它在不在跑):再试一次 / 线回来时再打开一次,❌ 借机把它起起来。 */
+  private _reopenOnRetry = false;
   private _disposed = false;
+  /** Read-only queue snapshot while the provider is stopped. */
+  private _storedQueue: Array<Pick<PromptInput, 'text' | 'origin'>> = [];
+  private _storedQueueGeneration = 0;
+  /**
+   * 到这条会话所在那台机器的线「从断变通」了几次(本机会话不数)。线断掉的那种失败(`connection_lost`)
+   * 只在它往上跳的那一下自动再开一次 —— 每次变通至多一次,❌ 循环重试。
+   */
+  private _linkOpenings = 0;
+  private _unwatchMachineLink: (() => void) | null = null;
+  /** 在宽限里等线回来的那几次开场(`_awaitMachineLink`):线变通、会话页关掉时各叫一遍。 */
+  private readonly _linkWaiters = new Set<() => void>();
   private _visualEvidenceOverride = false;
   private _unsubs: Array<() => void> = [];
   private _draftRev = 0;
@@ -197,6 +237,17 @@ export class AcpChatStore {
    * `session/load` 重放送达,于是「打开一条会话」和「把一个 harness 拉起来」被绑成了一件事。
    */
   private _storedHistoryTurns: TranscriptTurn[] = [];
+  /** 与 `_storedHistoryTurns` 一一对应:每一行来自引擎的哪一轮(运行时原始 turn id)。引擎改了更早的一轮时据此找到库里那一行。 */
+  private _storedOrigins: string[] = [];
+  /**
+   * 引擎那侧手里这一份:库里非空时是分界之后的回合,库里为空时是开场那一页起的回合。每提交一轮只按改动游标
+   * 取新增 / 改过的那几轮并进来(@@@history-change-cursor),❌ 再从分界一页页重取、❌ 再把库从开场那一行重读一遍
+   * —— 别的机器上的会话每一字节都经咕咕云中转,10-26 事故里每提交一轮就是 7 MB × 2。
+   */
+  private _runtimeTurns: TranscriptTurn[] = [];
+  /** 引擎的改动游标与回合数(上一次读到的);下一次对账带着游标问。 */
+  private _runtimeCursor: HistoryCursor | null = null;
+  private _runtimeCount = 0;
   /**
    * 引擎那侧「开场时已有」与「之后新增」的分界:开场时最后一轮的 seq + 1(#5381 评审 #2)。
    * seq 小于它的回合开场前就在引擎里(重放回来的、或面板重挂前聊过的),库里那份已覆盖。
@@ -207,7 +258,7 @@ export class AcpChatStore {
   private _runtimeReplayEndSeq = 0;
   /** 库里为空、只翻引擎时,开场那一页第一轮的 seq。往上翻的都在它之前,对账从它取起,中间不断档。 */
   private _runtimeWindowStartSeq = 0;
-  /** 开场那一页库里第一行的 seq(库内序号,只增不减);null = 开场时库里为空。对账从它重读。 */
+  /** 开场那一页库里第一行的 seq(库内序号,只增不减);null = 开场时库里为空。 */
   private _storedBaseSeq: number | null = null;
   /** 开场读库那一刻库里最后一行的 seq。比它新的行,就是本次面板期间才落库的回合。 */
   private _storedBootstrapMaxSeq = -1;
@@ -257,12 +308,15 @@ export class AcpChatStore {
       this.commands.map((command) => command.name)
     );
 
-    makeObservable<this, '_bootstrapped' | '_bootstrapsInFlight' | '_runtimeBackgroundTaskIds' | '_startupQueued' | '_startupRunningId'>(this, {
+    makeObservable<this, '_bootstrapped' | '_bootstrapsInFlight' | '_runtimeBackgroundTaskIds' | '_runtimeLiveSubagentIds' | '_startupQueued' | '_storedQueue' | '_startupRunningId'>(this, {
       _bootstrapped: observable,
       _startupQueued: observable.ref,
+      _storedQueue: observable.ref,
       _startupRunningId: observable,
       _runtimeBackgroundTaskIds: observable.ref,
       runningBackgroundTaskIds: computed,
+      _runtimeLiveSubagentIds: observable.ref,
+      liveSubagentIds: computed,
       session: observable.ref,
       pendingPermissionMode: observable.ref,
       historyLoading: observable,
@@ -271,6 +325,7 @@ export class AcpChatStore {
       starting: computed,
       startupChoice: observable.ref,
       messageCount: observable,
+      transcriptRevision: observable,
       draftText: observable,
       queuedEditDraft: observable.ref,
       queueEditPending: observable,
@@ -444,8 +499,9 @@ export class AcpChatStore {
   get permissionQueue(): PermissionQueueItem[] {
     return (this.session?.sessionState.current().pendingPermissions ?? []).map((request) => ({
       requestId: request.requestId,
-      toolCallId: request.toolCall.toolCallId,
-      title: toolCallLabel(request.toolCall),
+      toolCallId: request.toolCall?.toolCallId ?? null,
+      title: permissionTitle(request),
+      description: permissionDescription(request),
       options: request.options.map((option) => ({
         optionId: option.optionId,
         name: option.name,
@@ -465,9 +521,17 @@ export class AcpChatStore {
   }
 
   get queuedPrompts(): ComposerQueuedPrompt[] {
-    if (!this.session) return this._startupQueued.map((prompt) => ({ ...prompt, locked: true }));
+    if (!this.session) return [
+      ...this._storedQueue.flatMap((prompt, index): ComposerQueuedPrompt[] => {
+        if (!prompt.origin) throw new Error(`Stored queued prompt ${index} has no explicit origin`);
+        return prompt.origin === 'communication' ? [] : [{
+          id: `stored:${index}`, text: prompt.text, origin: prompt.origin, locked: true,
+        }];
+      }),
+      ...this._startupQueued.map((prompt) => ({ ...prompt, locked: true })),
+    ];
     return this._queuedPromptModels().filter(isVisibleQueuedPrompt).map(
-      (prompt) => ({ id: prompt.id, text: prompt.text, origin: prompt.origin })
+      (prompt) => ({ id: prompt.id, text: conversationQueueText(prompt.text), origin: prompt.origin })
     );
   }
 
@@ -538,6 +602,19 @@ export class AcpChatStore {
     return this.session ? this._runtimeBackgroundTaskIds : [];
   }
 
+  /** 没挂着活会话 = 一个都不在跑。 */
+  get liveSubagentIds(): readonly string[] {
+    return this.session ? this._runtimeLiveSubagentIds : [];
+  }
+
+  private _syncLiveSubagentIds(agents: readonly AgentState[]): void {
+    const next = agents
+      .filter((agent) => agent.status === 'running')
+      .flatMap((agent) => (agent.agentToolUseId ? [agent.toolCallId, agent.agentToolUseId] : [agent.toolCallId]));
+    const previous = this._runtimeLiveSubagentIds;
+    if (next.length !== previous.length || next.some((id, index) => id !== previous[index])) this._runtimeLiveSubagentIds = next;
+  }
+
   private _syncRuntimeBackgroundTaskIds(state: Parameters<typeof runningBackgroundTaskIds>[0]): void {
     const next = runningBackgroundTaskIds(state);
     const previous = this._runtimeBackgroundTaskIds;
@@ -605,29 +682,35 @@ export class AcpChatStore {
       if (this.session !== session || generation !== this._historyGeneration) return false;
       runInAction(() => {
         this._storedHistoryTurns = [];
+        this._storedOrigins = [];
         this._olderHistoryTurns = [];
         this._storedBaseSeq = null;
         this._storedBootstrapMaxSeq = -1;
         this._persistedRuntimeTurnIds = new Set();
         this._runtimeReplayEndSeq = 0;
         this._runtimeWindowStartSeq = 0;
+        this._runtimeTurns = [];
         this._olderCursor = undefined;
       });
-      const [stored, history] = await Promise.all([
-        rpc.sessions.getStoredHistory({ sessionId: this.sessionId, limit: 100 }),
-        session.getHistory(undefined, 100),
-      ]);
+      const stored = await rpc.sessions.getStoredHistory({ sessionId: this.sessionId, limit: 100 });
+      // 库里非空时引擎那一页只用来定分界和改动游标(同开场)。
+      const history = await session.getHistory(undefined, stored.turns.length ? 1 : 100);
       if (!history.success) throw history.error;
       if (this.session !== session || generation !== this._historyGeneration) return false;
       runInAction(() => {
         this._storedHistoryTurns = stored.turns;
+        this._storedOrigins = stored.originTurnIds;
         this._storedBaseSeq = stored.turns[0]?.seq ?? null;
         this._storedBootstrapMaxSeq = stored.turns.at(-1)?.seq ?? -1;
         this._persistedRuntimeTurnIds = new Set(stored.originTurnIds);
-        this._olderCursor = stored.nextCursor;
+        this._olderCursor = stored.turns.length ? stored.nextCursor : history.data.nextCursor;
         this._olderSource = stored.turns.length ? 'stored' : 'runtime';
         this._runtimeReplayEndSeq = stored.turns.length ? (history.data.turns.at(-1)?.seq ?? -1) + 1 : 0;
-        this.chatState.transcript.history.seed(this._composedHistory(history.data.turns));
+        this._runtimeWindowStartSeq = stored.turns.length ? 0 : (history.data.turns[0]?.seq ?? 0);
+        this._runtimeTurns = stored.turns.length ? [] : history.data.turns;
+        this._runtimeCursor = history.data.cursor;
+        this._runtimeCount = history.data.count;
+        this.chatState.transcript.history.seed(this._composedHistory());
         this.chatState.transcript.activeTurn.set(null);
         this.chatState.session.setPendingPrompt(null);
         if (restoreDraft && this.draftText === draftBefore) this.setDraftText(item.text);
@@ -696,7 +779,7 @@ export class AcpChatStore {
     if (this._bootstrapped) return;
     this._bootstrapped = true;
     if (this._disposed) return;
-    void this._runBootstrap();
+    void this._open();
   }
 
   /**
@@ -721,6 +804,7 @@ export class AcpChatStore {
       || this._view !== null
       || this.historyLoading
       || this._bootstrapsInFlight > 0
+      || this._opening > 0
     ) {
       return;
     }
@@ -743,20 +827,30 @@ export class AcpChatStore {
       this.reattachAfterHostReload();
       return;
     }
-    // 没有活会话(宿主停了它 / 起不来):只重读库里那份,停着的就让它停着 —— 下一次发消息才起(#6497)。
+    // 没有活会话(宿主停了它 / 打开时就没在跑 / 起不来):只重读库里那份,停着的就让它停着 —— 下一次发消息才起
+    // (#6497、#980)。切回来等于重新打开:agent 自己的记录里新有的那几轮照打开时一样补进来。
     this.historyLoading = true;
     this._resetHistoryState();
     const generation = this._historyGeneration;
-    void this._loadStoredFirstPage(generation).finally(() =>
+    void this._loadStoredFirstPage(generation).finally(() => {
       runInAction(() => {
         if (generation !== this._historyGeneration) return;
         this.historyLoading = false;
         this._syncMessageCount();
-      })
-    );
+      });
+      void this._syncStoredHistoryFromRecord(generation);
+    });
   }
 
   retry(): void {
+    this._retry(this._reopenOnRetry ? 'open' : 'start');
+  }
+
+  /**
+   * `open`:上一次失败出在打开那一步(读不到它在不在跑),再打开一次 —— ❌ 借「再试一次」把它起起来(#980);
+   * `start`:上一次失败出在起它的那一步(或这一下就是要起它:停着时发了一句),重新起。
+   */
+  private _retry(mode: 'open' | 'start'): void {
     // Terminal load errors stay put so remounts and generic retry callers do not
     // respawn/provision again — which ones are terminal lives in acp-load-error.
     if (this.historyLoading || !this.loadError || isTerminalLoadError(this.loadError)) return;
@@ -764,9 +858,12 @@ export class AcpChatStore {
     this.session?.dispose();
     this.session = null;
     this._closedByHost = false;
+    this._storedQueue = [];
+    this._storedQueueGeneration += 1;
     this.historyLoading = true;
     this.loadError = null;
-    void this._runBootstrap();
+    this._reopenOnRetry = false;
+    void (mode === 'open' ? this._open() : this._runBootstrap());
   }
 
   /**
@@ -779,11 +876,14 @@ export class AcpChatStore {
    */
   reattachAfterHostReload(): void {
     if (this._disposed || !this._bootstrapped) return;
+    const keepStoredPage = this._storedPageReusable();
     this._unsubs.splice(0).forEach((unsub) => unsub());
     this.session?.dispose();
     this.session = null;
     this._closedByHost = false;
-    this.historyLoading = true;
+    this._storedQueue = [];
+    this._storedQueueGeneration += 1;
+    if (!keepStoredPage) this.historyLoading = true;
     this.loadError = null;
     // ⚠️ `attachOnly` —— **重新附着,不是再建立一次**(#5550)。
     // 宿主刚刚完整地「停 → 改记录 → 起」过一次,那就是这次操作的**那一次**建立;
@@ -792,7 +892,19 @@ export class AcpChatStore {
     // 把凭据轮换一遍 —— 于是先起来的那个适配器手里那张票当场作废,用户的下一句 401。
     // 实测(2026-09-13 mac1):点一次「Restart and continue」= 两次 start,相隔 1.148s,
     // 第一次签的 `47f1134e` 被第二次撤销 ⇒ 下一句 `Failed to send / prompt_failed`。
-    void this._runBootstrap({ attachOnly: true });
+    void this._runBootstrap(keepStoredPage ? { attachOnly: true, keepStoredPage: true } : { attachOnly: true });
+  }
+
+  /**
+   * #980 停着(打开时它就没在跑)时画上去的库里那页还是对的:起它 / 挂上它时沿用,只补读那页之后新落库的
+   * (`_reloadStoredTail`),往上翻出来的也留着 —— ❌ 再读一遍(一页中位 1.3MB,别的机器上的每字节经咕咕云中转),
+   * ❌ 把「加载中」再亮一次。挂过活会话的(有改动游标,走只取改动那条)、转录放掉了的不在此列。
+   */
+  private _storedPageReusable(): boolean {
+    return this.session === null
+      && this._runtimeCursor == null
+      && this._storedBaseSeq !== null
+      && !this._transcriptReleased;
   }
 
   bindView(view: ChatView | null): void {
@@ -812,18 +924,16 @@ export class AcpChatStore {
       throw new Error('session chat visual evidence fixtures are available only in dev builds');
     }
     this._visualEvidenceOverride = true;
+    this._setParkWatch(null);
     this._unsubs.splice(0).forEach((unsub) => unsub());
     this.session?.dispose();
     this.session = null;
     this.chatState.transcript.history.seed(turns);
-    for (const terminal of terminals) {
-      if (terminal.outputText !== undefined) {
-        this.chatState.session.setTerminalOutput(terminal.terminalId, terminal.outputText);
-      }
-      if (terminal.exitStatus !== undefined) {
-        this.chatState.session.setTerminalExitStatus(terminal.terminalId, terminal.exitStatus);
-      }
-    }
+    this.chatState.session.setTerminals(terminals.map(terminal => ({
+      terminalId: terminal.terminalId, owner: 'agent', canKill: false,
+      command: '', args: [], cwd: '', truncated: false,
+      output: terminal.outputText ?? '', exitStatus: terminal.exitStatus ?? null,
+    })));
     for (const id of collapsedIds) this.chatState.viewState.setCollapsed(id, true);
     this.historyLoading = false;
     this.loadError = null;
@@ -831,26 +941,47 @@ export class AcpChatStore {
   }
 
   async uploadAttachment(input: {
+    uploadId?: string;
     data?: Uint8Array;
     source?: BlobSource;
     size?: number;
     mimeType: AttachmentMimeType;
     name?: string;
     originalPath?: string;
+    signal?: AbortSignal;
+    onProgress?: (progress: { sent: number; total?: number }) => void;
   }): Promise<AttachmentRef | null> {
+    const result = await this.session?.uploadAttachment(input);
+    if (!result) throw new WireError('DISCONNECTED', 'ACP session is not connected');
+    if (!result.success) throw result.error;
+    return result.data;
+  }
+
+  async resolveToolImage(itemId: string, index: number): Promise<string | null> {
+    const generation = this._historyGeneration;
+    const stored = findToolItem(this._storedHistoryTurns, itemId)
+      ?? (this._olderSource === 'stored' ? findToolItem(this._olderHistoryTurns, itemId) : null);
+    const runtime = !stored ? findToolItem(this._runtimeTurns, itemId)
+      ?? (this._olderSource === 'runtime' ? findToolItem(this._olderHistoryTurns, itemId) : null) : null;
     try {
-      const result = await this.session?.uploadAttachment(input);
-      if (!result) {
-        this._toastError('acpFailure.attachment', new Error('ACP session is not connected'));
+      const result = stored
+        ? await rpc.sessions.getStoredToolImage({ sessionId: this.sessionId, seq: stored.turn.seq, itemId, index })
+        : this.session
+          ? await this.session.getToolImage(itemId, index).then(result => {
+              if (!result.success) throw result.error;
+              return result.data;
+            })
+          : runtime
+            ? await rpc.sessions.getStoredToolImage({ sessionId: this.sessionId, originTurnId: runtime.turn.id, itemId, index })
+            : null;
+      if (this._disposed || generation !== this._historyGeneration) return null;
+      if (!result?.ok) {
+        if (result) log.warn('Tool image unavailable', { code: result.code });
         return null;
       }
-      if (!result.success) {
-        this._toastError('acpFailure.attachment', result.error);
-        return null;
-      }
-      return result.data;
+      return toolImageUrl(result.image);
     } catch (error) {
-      this._toastError('acpFailure.attachment', error);
+      log.warn('Failed to fetch tool image', { error });
       return null;
     }
   }
@@ -1048,9 +1179,12 @@ export class AcpChatStore {
     // 不挂,上屏的那一句会永远停在「处理中」。
     if (this._closedByHost) {
       this._closedByHost = false;
-      void this._runBootstrap();
+      this._storedQueue = [];
+      this._storedQueueGeneration += 1;
+      void this._runBootstrap(this._storedPageReusable() ? { keepStoredPage: true } : undefined);
     } else if (!this.starting) {
-      if (this.loadError) this.retry();
+      // 发一句就是要它起来:哪怕上一次失败出在打开那一步,也按「起」重来(❌ `retry()` 那条再打开一次)。
+      if (this.loadError) this._retry('start');
       else void this._runBootstrap();
     }
     // 发出就要看得见(behavior session-page「打开速度」):没有别的在跑 ⇒ 这一句上屏、显示「处理中」,与第一条
@@ -1342,7 +1476,7 @@ export class AcpChatStore {
     const existing = session.sessionState.current().queuedPrompts.find((prompt) => prompt.id === id);
     if (!existing) return false;
     const input: PromptInput = {
-      text, hiddenContext: existing.hiddenContext, attachments: existing.attachments,
+      text: editedConversationQueueText(existing.text, text), hiddenContext: existing.hiddenContext, attachments: existing.attachments,
       ...(existing.origin ? { origin: existing.origin } : {}),
     };
     try {
@@ -1361,7 +1495,7 @@ export class AcpChatStore {
     if (!prompt) return;
     this.queueEditPending = true;
     try {
-      await this.editQueuedPrompt(id, prompt.text, { draftText: prompt.text, originalDraftText: this.draftText });
+      await this.editQueuedPrompt(id, conversationQueueText(prompt.text), { draftText: conversationQueueText(prompt.text), originalDraftText: this.draftText });
     } finally {
       runInAction(() => { this.queueEditPending = false; });
     }
@@ -1377,7 +1511,7 @@ export class AcpChatStore {
       const current = this.queuedPromptEdit;
       const prompt = this._queuedPromptModels().find((entry) => entry.id === edit.id);
       if (!current || current.id !== edit.id || !prompt) return;
-      void this.editQueuedPrompt(edit.id, prompt.text, {
+      void this.editQueuedPrompt(edit.id, conversationQueueText(prompt.text), {
         draftText: current.text, originalDraftText: current.originalDraftText,
       });
     }, 300);
@@ -1392,7 +1526,7 @@ export class AcpChatStore {
     this._queueEditTimer = null;
     this.queueEditPending = true;
     try {
-      const saved = await this.editQueuedPrompt(edit.id, text ?? prompt.text, null);
+      const saved = await this.editQueuedPrompt(edit.id, text ?? conversationQueueText(prompt.text), null);
       if (saved) runInAction(() => { this.queuedEditDraft = null; });
     } finally {
       runInAction(() => { this.queueEditPending = false; });
@@ -1457,6 +1591,10 @@ export class AcpChatStore {
       this._draftTimer = null;
     }
     this._unsubs.splice(0).forEach((unsub) => unsub());
+    this._setParkWatch(null);
+    this._unwatchMachineLink?.();
+    this._unwatchMachineLink = null;
+    for (const wake of [...this._linkWaiters]) wake();
     if (this.isTransient && this.session) void this._stopTransientSession(this.session);
     this.session?.dispose();
     this.chatState.dispose();
@@ -1471,14 +1609,23 @@ export class AcpChatStore {
   private _resetHistoryState(): void {
     this._historyGeneration += 1;
     this._storedHistoryTurns = [];
+    this._storedOrigins = [];
     this._storedBaseSeq = null;
     this._storedBootstrapMaxSeq = -1;
     this._persistedRuntimeTurnIds = new Set<string>();
-    this._runtimeReplayEndSeq = 0;
-    this._runtimeWindowStartSeq = 0;
+    this._resetRuntimeHistoryState();
     this._olderHistoryTurns = [];
     this._olderCursor = undefined;
     this._olderSource = 'runtime';
+  }
+
+  /** 只清引擎那一侧(库里那页沿用时,见 `keepStoredPage`)。 */
+  private _resetRuntimeHistoryState(): void {
+    this._runtimeReplayEndSeq = 0;
+    this._runtimeWindowStartSeq = 0;
+    this._runtimeTurns = [];
+    this._runtimeCursor = null;
+    this._runtimeCount = 0;
   }
 
   /**
@@ -1488,8 +1635,9 @@ export class AcpChatStore {
    * 重算整份会话级注入(能力包、平台凭据),而凭据轮换是**一条会话一份、新的一来就撤旧的**。
    * 所以「明明不需要建立却传了 start 输入」不是冗余,是**副作用**。谁已经建立好了,谁就该被附着,
    * ❌ 不再建立一次。
+   * @param keepStoredPage #980 库里那页这次打开已经画上了(停着时 / 打开那一下读的):沿用,❌ 再读一遍。
    */
-  private async _runBootstrap(options?: { attachOnly?: boolean }): Promise<void> {
+  private async _runBootstrap(options?: { attachOnly?: boolean; keepStoredPage?: boolean }): Promise<void> {
     runInAction(() => {
       this._bootstrapsInFlight += 1;
     });
@@ -1503,12 +1651,287 @@ export class AcpChatStore {
     }
   }
 
-  private async _runBootstrapInner(options?: { attachOnly?: boolean }): Promise<void> {
+  /**
+   * 别的机器上的会话:开始数到那台机器的线「从断变通」的次数,线断掉的那种失败在下一次变通时自动再开。
+   *
+   * 2026-10-27 owner 重启咕咕撞上的:开机时到 d22 的线先走咕咕云,会话照常开起来;隧道通了之后设备 RPC 换通道,
+   * 开着的宿主窗口随之关掉重开(remoteSessionHost `channel resubscribed`),在途的那次起会话被拒成
+   * `Wire transport disconnected`。一秒后线就重新通了,可这一侧停在「引擎没能启动」,要人点「再试一次」。
+   */
+  private _watchMachineLink(): void {
+    if (this._unwatchMachineLink || this._disposed) return;
+    const machine = machineRegistry.machineOf(this.runtimeSessionId);
+    if (!machine) return;
+    this._unwatchMachineLink = onMachineReconnected(machine, () => {
+      this._linkOpenings += 1;
+      for (const wake of [...this._linkWaiters]) wake();
+      if (this.loadError?.kind !== 'connection_lost') return;
+      log.info('ACP chat machine link reopened; starting the session again', { sessionId: this.sessionId, machine });
+      runInAction(() => this.retry());
+    });
+  }
+
+  /**
+   * 起会话途中线断了:最多等 MACHINE_LINK_GRACE_MS 让它连回来。连回来了(这次开场之后变通过、此刻通着、不在换线)= true;
+   * 等满了 / 会话页关了 = false。
+   */
+  private _awaitMachineLink(deviceId: string, openingAtStart: number): Promise<boolean> {
+    const back = () => this._linkOpenings > openingAtStart && machineLinkState(deviceId) === 'open' && !machineLinkHandingOff(deviceId);
+    if (back()) return Promise.resolve(true);
+    return new Promise((resolve) => {
+      const finish = (value: boolean) => {
+        clearTimeout(timer);
+        this._linkWaiters.delete(wake);
+        resolve(value);
+      };
+      const wake = () => {
+        if (this._disposed) finish(false);
+        else if (back()) finish(true);
+      };
+      const timer = setTimeout(() => finish(false), MACHINE_LINK_GRACE_MS);
+      this._linkWaiters.add(wake);
+    });
+  }
+
+  /** 开场 / 打开途中的失败归哪一种(acp-load-error)。 */
+  private _loadErrorOf(error: unknown, openingAtStart: number): AcpLoadError {
+    const loadError = toLoadError(error, machineRegistry.machineOf(this.runtimeSessionId));
+    // 到那台机器的线这一路都通着(断的只是这一条 wire,窗口没关、也不在换线):没有「连上」可等,❌ 说「连上后会自动
+    // 重新打开」—— 照旧按原话说,由人点重试。
+    if (
+      loadError.kind === 'connection_lost'
+      && this._linkOpenings === openingAtStart
+      && machineLinkState(loadError.deviceId) === 'open'
+      && !machineLinkHandingOff(loadError.deviceId)
+    ) {
+      return toLoadError(error);
+    }
+    return loadError;
+  }
+
+  /**
+   * #980 打开一条会话 = 把对话画出来,❌ 把它的 agent 叫起来(behavior session-page「打开会话不叫醒 agent」):
+   * 点开、切到、重启后摆回来都走这里(`bootstrap`)。此前「打开」就是「起引擎」,重启后摆回的 9 条一起起、一起卡了约 7 分钟。
+   *
+   * 先画库里那份,同时问运行时它在不在跑(会话表,不碰这条会话本身):
+   *  · 在跑 ⇒ 只挂上,❌ 再建立一次(理由同 `reattachAfterHostReload`);库里那页已经画了,不再读一遍。
+   *  · 没在跑 / 正被宿主拉起来 ⇒ 停着(`_park`)。
+   * 照旧走原来那条开场的几种见 `_opensThroughStartup`。
+   */
+  private async _open(): Promise<void> {
+    if (this._opensThroughStartup()) {
+      await this._runBootstrap();
+      return;
+    }
+    this._reopenOnRetry = false;
+    this._resetHistoryState();
+    const generation = this._historyGeneration;
+    this._watchMachineLink();
+    const openingAtStart = this._linkOpenings;
+    this._opening += 1;
+    // 会话表那份是几页共用的:别的页订着时,这边还在等的这一刻它也会响 —— 那时还没有句柄,不理。
+    let watch: RunningSessionWatch | null = null;
+    try {
+      // 两件事并行:库里那份读到就地上屏(`_loadStoredFirstPage`),不等「在不在跑」。
+      const storedReady = this._loadStoredFirstPage(generation);
+      const opened = await watchRunningSession(this.runtimeSessionId, {
+        onChange: () => { if (watch) this._onRunningChange(watch); },
+        onGone: () => { if (watch) this._onRunningGone(watch); },
+      });
+      watch = opened;
+      await storedReady;
+      // 这期间有人发了一句(那一句已经把它起起来了)、页关了、重新开了场:这次打开作废。
+      if (this._disposed || generation !== this._historyGeneration || this._visualEvidenceOverride) {
+        opened.dispose();
+        return;
+      }
+      if (opened.phase() === 'running') {
+        opened.dispose();
+        void this._runBootstrap({ attachOnly: true, keepStoredPage: this._storedBaseSeq !== null });
+        return;
+      }
+      this._park(opened, generation);
+    } catch (error) {
+      watch?.dispose();
+      if (this._disposed || generation !== this._historyGeneration) return;
+      await this._openFailed(error, generation, openingAtStart);
+    } finally {
+      this._opening -= 1;
+    }
+  }
+
+  /**
+   * 读不到「它在不在跑」= 到那台机器 / 运行时的线不通。与开场失败同一个说法与去路:线断了先在宽限里悄悄等,
+   * 回来了就再打开一次;等满了才是失败那一行,线回来时(或点「再试一次」)再**打开**一次 —— ❌ 借机起它。
+   */
+  private async _openFailed(error: unknown, generation: number, openingAtStart: number): Promise<void> {
+    const loadError = this._loadErrorOf(error, openingAtStart);
+    if (loadError.kind === 'connection_lost') {
+      const back = await this._awaitMachineLink(loadError.deviceId, openingAtStart);
+      if (this._disposed || generation !== this._historyGeneration) return;
+      if (back) {
+        void this._open();
+        return;
+      }
+    }
+    log.warn('ACP chat could not tell whether the session is running', { sessionId: this.sessionId, error });
+    runInAction(() => {
+      this.historyLoading = false;
+      this.loadError = loadError;
+      this._reopenOnRetry = true;
+      this._syncMessageCount();
+    });
+  }
+
+  /**
+   * 打开时照旧走原来那条开场的几种:
+   *  · 侧边聊天:它就是为这一问开出来的运行时分叉;
+   *  · 新建会话带着第一句、还没认领首启:那句话是人已经发出去的,当场起、当场显示「正在思考…」;
+   *  · 持久分叉还没分出去:分叉这一步就发生在首启;
+   *  · 上一次没跑起来、留在屏上的那一句(再起时运行时先发它);
+   *  · provider 那侧的会话已失效:那条路不起,只画库里那份并说原因。
+   * 判据与 `_startInput` 是同一组函数,❌ 各判各的。
+   */
+  private _opensThroughStartup(): boolean {
+    if (this.isTransient || this._heldStartupPrompt) return true;
+    const record = this._sessionRecord();
+    if (!record) return false;
+    return record.providerSessionState === 'missing'
+      || pendingInitialQueue(record) !== undefined
+      || pendingPersistentFork(record) !== undefined;
+  }
+
+  /**
+   * #980 打开时它没在跑(或正被宿主拉起来):停着 —— 与宿主停掉它之后同一个状态(`_closedByHost`,#6497)。
+   *  · 库里那份就是屏上那份,❌「正在启动 / 正在连接」、❌ 骨架、❌ 失败那一行;输入框照常能用,下一句按停着的会话起
+   *    (`_queuePromptDuringStartup`:与新建会话的第一句一样当场上屏、显示「正在思考…」)。
+   *  · 宿主自己把它拉起来(投递、定时、别的设备上发的那句)⇒ 跟着运行时会话表挂上去(`_onRunningChange`),❌ 等人发一句。
+   *  · agent 自己的记录里有、库里没有的那几轮(编程模式里跑的、咕咕外面跑的、库还空着的老会话)请主进程补进库。
+   */
+  private _park(watch: RunningSessionWatch, generation: number): void {
+    runInAction(() => {
+      this._setParkWatch(watch);
+      this._closedByHost = true;
+      this.historyLoading = false;
+      this.loadError = null;
+      this._syncMessageCount();
+    });
+    this._loadStoredQueue((error) => log.warn('stored queue of a parked session unavailable', { sessionId: this.sessionId, error }));
+    void this._syncStoredHistoryFromRecord(generation);
+    // 读表与停下之间它可能已经起完了:那一下变化已经过去,这里补看一眼。
+    this._onRunningChange(watch);
+  }
+
+  private _setParkWatch(watch: RunningSessionWatch | null): void {
+    const previous = this._parkWatch;
+    this._parkWatch = watch;
+    if (previous && previous !== watch) previous.dispose();
+  }
+
+  /**
+   * 停着时会话表变了:它起完了(不在 starting / replaying)就挂上去 —— 与宿主停掉之后又拉起来同一条重挂(只附着)。
+   * 开场在路上(有人发了一句、正在重挂)时不动:那一次会挂上它,❌ 挂第二次。
+   */
+  private _onRunningChange(watch: RunningSessionWatch): void {
+    if (this._disposed || this._parkWatch !== watch || watch.phase() !== 'running') return;
+    if (this.session || this._bootstrapsInFlight > 0) return;
+    log.info('ACP session was started by its host while parked; attaching', { sessionId: this.sessionId });
+    runInAction(() => this.reattachAfterHostReload());
+  }
+
+  /** 会话表那份副本没了:还停着就重新订一份,❌ 就此再也等不到宿主拉起它。 */
+  private _onRunningGone(watch: RunningSessionWatch): void {
+    if (this._disposed || this._parkWatch !== watch) return;
+    this._parkWatch = null;
+    watch.dispose();
+    let next: RunningSessionWatch | null = null;
+    void watchRunningSession(this.runtimeSessionId, {
+      onChange: () => { if (next) this._onRunningChange(next); },
+      onGone: () => { if (next) this._onRunningGone(next); },
+    }).then(
+      (watched) => {
+        if (this._disposed || this.session || this._parkWatch !== null) {
+          watched.dispose();
+          return;
+        }
+        next = watched;
+        this._setParkWatch(watched);
+        this._onRunningChange(watched);
+      },
+      (error: unknown) => log.warn('ACP running-session list unavailable; a host start will show on the next open', { sessionId: this.sessionId, error })
+    );
+  }
+
+  /**
+   * #980 会话页的历史以 agent 自己的记录为准,库只是缓存:停着的会话打开时,请主进程把记录里有、库里还没有的那几轮补进库
+   * (behavior session-page「对话里的历史与 agent 自己的记录一致」)。补进了就把库里那份就地重读。
+   * 补不了(主进程不认这个口、记录读不懂、读失败)⇒ 屏上照旧 —— ❌ 当错误报,spec「会话能用 > 历史完整」。
+   */
+  private async _syncStoredHistoryFromRecord(generation: number): Promise<void> {
+    if (this.isTransient || this._disposed) return;
+    let inserted = 0;
+    try {
+      inserted = (await rpc.sessions.syncStoredHistoryFromRecord(this.sessionId))?.inserted ?? 0;
+    } catch (error) {
+      log.warn('record backfill unavailable; keeping the stored history on screen', { sessionId: this.sessionId, error });
+      return;
+    }
+    if (!(inserted > 0) || !this._stillParkedIn(generation)) return;
+    await this._reloadStoredInPlace(generation, inserted);
+  }
+
+  /** 这一代的历史还在屏上、而且还停着(没挂上、也没在起)。 */
+  private _stillParkedIn(generation: number): boolean {
+    return !this._disposed && generation === this._historyGeneration && !this.session && this._bootstrapsInFlight === 0;
+  }
+
+  /**
+   * 补进来几轮之后把库里那份重读一遍,原地换上:❌「加载中」、❌ 跳动。读的窗口盖住屏上已有的(往上翻出来的也算)
+   * 再加补进来的那几轮 —— 读者停着的那一行还在,视图的锚点就还在;停在底部的照旧在底部。
+   * 读失败照旧留着屏上那份。
+   */
+  private async _reloadStoredInPlace(generation: number, inserted: number): Promise<void> {
+    const shown = this._storedHistoryTurns.length + (this._olderSource === 'stored' ? this._olderHistoryTurns.length : 0);
+    try {
+      const page = await rpc.sessions.getStoredHistory({ sessionId: this.sessionId, limit: Math.max(100, shown + inserted) });
+      if (!this._stillParkedIn(generation)) return;
+      runInAction(() => {
+        this._storedHistoryTurns = page.turns;
+        this._storedOrigins = page.originTurnIds;
+        this._storedBaseSeq = page.turns[0]?.seq ?? null;
+        this._storedBootstrapMaxSeq = page.turns.at(-1)?.seq ?? -1;
+        this._persistedRuntimeTurnIds = new Set(page.originTurnIds);
+        this._olderHistoryTurns = [];
+        this._olderSource = 'stored';
+        this._olderCursor = page.nextCursor;
+        this.chatState.transcript.history.seed(this._composedHistory());
+        this._syncMessageCount();
+      });
+    } catch (error) {
+      log.warn('stored session history reload after record backfill failed; keeping what is on screen', {
+        sessionId: this.sessionId,
+        error,
+      });
+    }
+  }
+
+  private async _runBootstrapInner(options?: { attachOnly?: boolean; keepStoredPage?: boolean }): Promise<void> {
     let providerId: string | undefined;
     let bootstrapSession: AcpLiveSession | undefined;
     let firstPrompt: PendingPrompt | null = null;
     this._closedByHost = false;
-    this._resetHistoryState();
+    this._reopenOnRetry = false;
+    this._storedQueue = [];
+    this._storedQueueGeneration += 1;
+    this._watchMachineLink();
+    const openingAtStart = this._linkOpenings;
+    const resuming = options?.attachOnly && this._runtimeCursor != null;
+    const keepStoredPage = !resuming && options?.keepStoredPage === true;
+    if (resuming) this._historyGeneration += 1;
+    else if (keepStoredPage) {
+      this._historyGeneration += 1;
+      this._resetRuntimeHistoryState();
+    } else this._resetHistoryState();
     const generation = this._historyGeneration;
     try {
       // #5381 先把库里那份画出来,不等引擎。侧边对话跳过:它的上下文开在主对话那条上,
@@ -1520,7 +1943,7 @@ export class AcpChatStore {
       //
       // 读到就地上屏(在 then 里,不等下面任何一步),所以哪怕起引擎这一路整条失败,
       // 用户仍然看得到自己说过的话。
-      const storedHistoryReady = this.isTransient
+      const storedHistoryReady = this.isTransient || resuming || keepStoredPage
         ? Promise.resolve()
         : this._loadStoredFirstPage(generation);
 
@@ -1581,54 +2004,85 @@ export class AcpChatStore {
       const clientSession = await clientSessionReady;
       bootstrapSession = clientSession;
 
-      const history = await clientSession.getHistory(undefined, 100);
-      if (!history.success) throw resultError(history.error);
-      // A spawned child has a durable first utterance. Once its ACP cell is ready and idle,
-      // an empty history is a record-integrity failure, not a valid empty conversation. Surface it
-      // instead of rendering a silent blank panel (the old Claude rendezvous bypass shape, #4949).
-      const childSession = session?.spawnedBySessionId;
-      const stateAfterLoad = clientSession.sessionState.current();
-      if (
-        childSession
-        && session?.firstUtterance
-        && history.data.turns.length === 0
-        && stateAfterLoad.lifecycle === 'ready'
-        && !stateAfterLoad.isGenerating
-        && stateAfterLoad.queuedPrompts.length === 0
-      ) {
-        throw new Error('Spawned session is ready but its ACP transcript is empty; reload the session to recover provider history.');
-      }
-      // `reattachAfterHostReload()` 不看「上一次开场跑完没有」就重跑一次开场(#5550 那条路本来
-      // 就该重挂)⇒ 慢的那次会在快的那次**之后**回到这里。没有这道代次闸的话,它会把自己那份
-      // 陈的 history + 陈的 session handle 提交进 `this.session`,而界面上选中的是新的那条。
-      if (this._disposed || generation !== this._historyGeneration) {
-        if (this.isTransient) await this._stopTransientSession(clientSession);
-        clientSession.dispose();
-        return;
-      }
-      if (this._visualEvidenceOverride) {
-        clientSession.dispose();
-        return;
-      }
-
-      // 开场时引擎已有的回合,库里那份已经覆盖(重放回来的、或面板重挂前聊过的);之后新增的按 seq 认。
-      const lastRuntimeSeq = history.data.turns.at(-1)?.seq;
-      this._runtimeReplayEndSeq = lastRuntimeSeq === undefined ? 0 : lastRuntimeSeq + 1;
-      if (this._storedBaseSeq === null) {
-        // 库里为空 ⇒ 引擎是唯一来源,往上翻也只能翻它;对账从这一页的第一轮取起。
-        this._olderSource = 'runtime';
-        this._olderCursor = history.data.nextCursor;
-        this._runtimeWindowStartSeq = history.data.turns[0]?.seq ?? 0;
-      } else {
-        // 评审 #3:引擎就绪后**再读一次库**。读库与起引擎并行,开场那一刻恰好提交的那一轮可能
-        // 引擎里已有、第一次读库时还没落盘 —— 它的 seq 落在分界之前,引擎那侧不会再出它,只能靠这里带出来。
-        await this._reloadStoredTail(generation);
+      if (resuming) {
+        const delta = await this._mergeRuntimeChanges(clientSession, generation);
         if (this._disposed || generation !== this._historyGeneration) {
           clientSession.dispose();
           return;
         }
+        if (delta && 'reset' in delta) {
+          // Like the phone timeline, a different host epoch invalidates the cursor.
+          clientSession.dispose();
+          this._runtimeCursor = null;
+          return this._runBootstrapInner(options);
+        }
+        if (delta) throw resultError(delta.error);
+      } else {
+        // 库里非空时引擎那一页只用来定分界(最后一轮的 seq)和改动游标:要一轮就够,❌ 要 100 轮再整页丢掉。
+        const history = await clientSession.getHistory(undefined, this._storedBaseSeq === null ? 100 : 1);
+        if (!history.success) throw resultError(history.error);
+        // A spawned child has a durable first utterance. Once its ACP cell is ready and idle,
+        // an empty history is a record-integrity failure, not a valid empty conversation. Surface it
+        // instead of rendering a silent blank panel (the old Claude rendezvous bypass shape, #4949).
+        // 只在库里也是空的时候才算:适配器退出后按 `resume-unspecified` 接上的引擎不重放旧轮次,
+        // 引擎那页空、库里有 ⇒ 照库上屏,❌ 报「transcript 为空」(那样重试是同一个判断,次次都红)。
+        const childSession = session?.spawnedBySessionId;
+        const stateAfterLoad = clientSession.sessionState.current();
+        if (
+          childSession
+          && session?.firstUtterance
+          && history.data.turns.length === 0
+          && this._storedBaseSeq === null
+          && stateAfterLoad.lifecycle === 'ready'
+          && !stateAfterLoad.isGenerating
+          && stateAfterLoad.queuedPrompts.length === 0
+        ) {
+          throw new Error('Spawned session is ready but its ACP transcript is empty; reload the session to recover provider history.');
+        }
+        // `reattachAfterHostReload()` 不看「上一次开场跑完没有」就重跑一次开场(#5550 那条路本来
+        // 就该重挂)⇒ 慢的那次会在快的那次**之后**回到这里。没有这道代次闸的话,它会把自己那份
+        // 陈的 history + 陈的 session handle 提交进 `this.session`,而界面上选中的是新的那条。
+        if (this._disposed || generation !== this._historyGeneration) {
+          if (this.isTransient) await this._stopTransientSession(clientSession);
+          clientSession.dispose();
+          return;
+        }
+        if (this._visualEvidenceOverride) {
+          clientSession.dispose();
+          return;
+        }
+
+        // 开场时引擎已有的回合,库里那份已经覆盖(重放回来的、或面板重挂前聊过的);之后新增的按 seq 认。
+        const lastRuntimeSeq = history.data.turns.at(-1)?.seq;
+        this._runtimeReplayEndSeq = lastRuntimeSeq === undefined ? 0 : lastRuntimeSeq + 1;
+        this._runtimeCursor = history.data.cursor;
+        this._runtimeCount = history.data.count;
+        if (this._storedBaseSeq === null && session?.providerSessionId) {
+          // #980 开场读库时库还是空的(这次改动之前建的老会话)。接回不再重放,它的历史只在宿主起会话之前
+          // 从 agent 的记录补进库的那份里 ⇒ 引擎就绪后再读一次库,读到了就照库上屏。
+          await this._loadStoredFirstPage(generation);
+          if (this._disposed || generation !== this._historyGeneration) {
+            clientSession.dispose();
+            return;
+          }
+        }
+        if (this._storedBaseSeq === null) {
+          // 库里为空 ⇒ 引擎是唯一来源,往上翻也只能翻它;之后的对账并进这一页。
+          this._olderSource = 'runtime';
+          this._olderCursor = history.data.nextCursor;
+          this._runtimeWindowStartSeq = history.data.turns[0]?.seq ?? 0;
+          this._runtimeTurns = history.data.turns;
+        } else {
+          // 评审 #3:引擎就绪后**再读一次库**。读库与起引擎并行,开场那一刻恰好提交的那一轮可能
+          // 引擎里已有、第一次读库时还没落盘 —— 它的 seq 落在分界之前,引擎那侧不会再出它,只能靠这里带出来。
+          await this._reloadStoredTail(generation);
+          if (this._disposed || generation !== this._historyGeneration) {
+            clientSession.dispose();
+            return;
+          }
+        }
       }
-      const visibleTurns = this._composedHistory(history.data.turns);
+      const visibleTurns = this._composedHistory();
 
       runInAction(() => {
         this.session?.dispose();
@@ -1666,7 +2120,27 @@ export class AcpChatStore {
         });
         return;
       }
-      const loadError = toLoadError(error);
+      const machine = machineRegistry.machineOf(this.runtimeSessionId);
+      const loadError = this._loadErrorOf(error, openingAtStart);
+      // 线断了:先在宽限里等它回来,回来了就悄悄再开一次(换线 / 几秒的抖动 ❌ 出那一行);等满了才说。
+      if (loadError.kind === 'connection_lost') {
+        const back = await this._awaitMachineLink(loadError.deviceId, openingAtStart);
+        if (this._disposed || generation !== this._historyGeneration) {
+          bootstrapSession?.dispose();
+          return;
+        }
+        if (back) {
+          log.info('ACP chat machine link came back within the grace; starting the session again', { sessionId: this.sessionId, machine });
+          bootstrapSession?.dispose();
+          // 与「再试一次」同一条路:在跑的那一句先留住,再开时换回在跑的样子(sentAt 不变)。
+          runInAction(() => {
+            const pending = this.chatState.session.state.pendingPrompt;
+            this._holdStartupPrompt(pending && this._startupPendingIds.has(pending.id) ? pending : null);
+          });
+          void this._runBootstrap(options);
+          return;
+        }
+      }
       const details = {
         sessionId: this.sessionId,
         projectId: this.projectId,
@@ -1674,6 +2148,8 @@ export class AcpChatStore {
       };
       if (loadError.kind === 'provider_session_missing') {
         log.info('ACP provider session is missing', details);
+      } else if (loadError.kind === 'connection_lost') {
+        log.warn('ACP chat bootstrap lost the machine link; starting again once it reconnects', { ...details, machine });
       } else {
         log.error('ACP chat bootstrap failed', details);
       }
@@ -1741,21 +2217,14 @@ export class AcpChatStore {
     const workspace = workspaceRegistry.get(this.projectId, page.workspaceId);
     if (!workspace) throw new Error('Workspace not found');
 
-    const initialQueue =
-      session.providerSessionId === undefined && session.initialQueue?.length
-        ? toJS(session.initialQueue)
-        : undefined;
+    const queued = pendingInitialQueue(session);
+    const initialQueue = queued ? toJS(queued) : undefined;
 
     // 两种分叉在这条载荷上的区别就是**带不带 `sourceConversationId`**,运行时靠它分路:
     //  · 运行时分叉(侧边聊天)= 带 —— 不落库、不进会话列表,产出的 id 就是来源的。
     //  · 持久分叉(spec session-fork-share 的 fork)= 不带 —— 走 `session/fork` 拿一个
     //    **独立**的新 id 落进这条会话,此后它就是一条普通 ACP 会话。
-    // ⚠️ 持久分叉只在**还没认领首启**时发起:`sessionId` 一旦有值,分叉早已发生过,
-    //    再发一次就会凭空多出一条分叉。
-    const persistentForkFromProviderSessionId =
-      !this.runtimeView && session.providerSessionId == null
-        ? session.forkFromProviderSessionId
-        : undefined;
+    const persistentForkFromProviderSessionId = this.runtimeView ? undefined : pendingPersistentFork(session);
 
     return {
       sessionId: this.runtimeSessionId,
@@ -1774,6 +2243,7 @@ export class AcpChatStore {
       providerSessionId: session.providerSessionId ?? null,
       ...(session.startupOrigin ? { startupOrigin: session.startupOrigin } : {}),
       ...(session.initialMessageId ? { initialMessageId: session.initialMessageId } : {}),
+      ...(session.taskChatId ? { taskChatId: session.taskChatId } : {}),
       model: session.model ?? null,
       effort: session.effort ?? null,
       // Runtime translates this intent after session/new exposes provider mode ids and before
@@ -1851,6 +2321,8 @@ export class AcpChatStore {
 
   private _subscribeLiveSession(session: AcpLiveSession): void {
     this._unsubs.splice(0).forEach((unsub) => unsub());
+    // 挂上了:停着时盯会话表的那一格交还 —— 之后它停没停由这条会话自己的状态说(`_onSessionClosedByHost`)。
+    this._setParkWatch(null);
     const initialState = session.sessionState.current();
     let refreshingChildren = false;
     let childrenChanged = false;
@@ -1864,13 +2336,17 @@ export class AcpChatStore {
       } finally { refreshingChildren = false; }
     };
     this._unsubs.push(() => { unsubscribed = true; }, session.agents.onChange((agents) => {
+      runInAction(() => this._syncLiveSubagentIds(agents));
       if (agents.some((agent) => agent.subagentSessionId && agent.launchTurnId !== session.activeTurn.current()?.id)) {
         void refreshChildHistory();
       }
     }));
     this._lastQueuedPrompts = [...initialState.queuedPrompts];
     this._lastActiveTurnId = initialState.activeTurnId;
-    runInAction(() => this._syncRuntimeBackgroundTaskIds(initialState));
+    runInAction(() => {
+      this._syncRuntimeBackgroundTaskIds(initialState);
+      this._syncLiveSubagentIds(session.agents.current());
+    });
     const disconnectChatSession = connectSession(
       this.chatState,
       {
@@ -1915,7 +2391,10 @@ export class AcpChatStore {
           this._lastQueuedPrompts = [...next.queuedPrompts];
           this._lastActiveTurnId = next.activeTurnId;
           this._syncRuntimeBackgroundTaskIds(next);
-          if (next.lifecycle === 'lost') this._onSessionLost(next);
+          if (next.lifecycle === 'lost' && this.session === session) {
+            this._onSessionLost(next);
+            this._onSessionClosedByHost(session, this.loadError);
+          }
           if (next.lifecycle === 'closed') this._onSessionClosedByHost(session);
           this._syncMessageCount();
         })
@@ -1998,12 +2477,7 @@ export class AcpChatStore {
   }
 
   private _bindTerminalOutputs(session: AcpLiveSession): () => void {
-    return bindSessionTerminalOutputs(
-      session,
-      (terminalId, text) => this.chatState.session.setTerminalOutput(terminalId, text),
-      (terminalId, exitStatus) =>
-        this.chatState.session.setTerminalExitStatus(terminalId, exitStatus)
-    );
+    return bindSessionTerminalOutputs(session, terminals => this.chatState.session.setTerminals(terminals));
   }
 
   /** 库里最新那一页(100 轮),读到就地上屏。读失败只记日志 —— 历史退回由重放供给(见开场处的注释)。 */
@@ -2015,6 +2489,7 @@ export class AcpChatStore {
         if (generation !== this._historyGeneration) return;
         runInAction(() => {
           this._storedHistoryTurns = stored.turns;
+          this._storedOrigins = stored.originTurnIds;
           this._storedBaseSeq = stored.turns[0]!.seq;
           this._storedBootstrapMaxSeq = stored.turns.at(-1)!.seq;
           // 往上翻从这里接着翻:库里那份是完整的,一直翻它。
@@ -2041,10 +2516,10 @@ export class AcpChatStore {
    * 上屏用的完整历史 = 往上翻出来的 + 库里那份 + 引擎里还没落库的(#5381)。
    * 判重按身份(seq 分界 + 运行时原始 turn id),❌ 不按条数 —— 规则与理由见 `composeHistoryTurns`。
    */
-  private _composedHistory(turns: TranscriptTurn[]): TranscriptTurn[] {
+  private _composedHistory(): TranscriptTurn[] {
     return composeHistoryTurns({
       stored: this._storedHistoryTurns,
-      runtime: this._visibleHistoryTurns(turns),
+      runtime: this._visibleHistoryTurns(this._runtimeTurns),
       runtimeReplayEndSeq: this._runtimeReplayEndSeq,
       persistedRuntimeTurnIds: this._persistedRuntimeTurnIds,
       older: this._olderHistoryTurns,
@@ -2110,62 +2585,25 @@ export class AcpChatStore {
   }
 
   /**
-   * 一轮讲完后跟后端对一次账。对账期间**画面上保留着刚讲完的那一帧**（见 chat-state.syncActiveTurn）：
-   * 已提交列表只由这里的 seed 填充，若提交时就把活的那一轮抹掉，这一次往返（实测 ~100ms）里
-   * transcript 会整段空掉、输入框退回空会话占位再弹回来 —— 也就是「答完了反而闪一下」。
-   * 拿到结果（成功或失败）都要把那一帧交还，否则它会一直压在最新内容上面。
-   */
-  /**
-   * 引擎侧 seq ≥ fromSeq 的**全部**已提交回合,由旧到新(#5381 评审 #2)。
+   * 开场时补读一次库里「开场那一页之后」新落库的行(#5381 评审 #3):读库与起引擎并行,开场那一刻恰好提交的那一轮
+   * 可能引擎里已有、第一次读库时还没落盘 —— 它的 seq 落在分界之前,引擎那侧不会再出它,只能靠这里带出来。
+   * 只读 `_storedBootstrapMaxSeq` 之后的那几行并接在后面,❌ 从开场那页第一行整段重读。
    *
-   * ❌ 不能只取「最新 100 轮」那一页:它是滑动窗口,本次面板期间聊得一多,分界之后的前几轮就滑出窗口,
-   * 从屏幕上消失。这里从最新往回一页页取,直到这一页已经够到分界为止。
-   */
-  private async _runtimeTurnsFrom(
-    session: AcpLiveSession,
-    fromSeq: number
-  ): ReturnType<AcpLiveSession['getHistory']> {
-    const collected: TranscriptTurn[] = [];
-    let before: number | undefined;
-    for (;;) {
-      const page = await session.getHistory(before, 100);
-      if (!page.success) return page;
-      collected.unshift(...page.data.turns);
-      const first = page.data.turns[0];
-      if (page.data.nextCursor === null || !first || first.seq <= fromSeq) {
-        return {
-          ...page,
-          data: { ...page.data, turns: collected.filter((turn) => turn.seq >= fromSeq), nextCursor: null },
-        };
-      }
-      before = page.data.nextCursor;
-    }
-  }
-
-  /**
-   * 重读库里「开场那页第一行 → 最新」(#5381 评审 #2 / #3)。库内 seq 只增不减,从同一个起点读,
-   * 中间写进来多少行都不会和往上翻出来的旧页断档;顺带认出本次面板期间落库的那几轮来自引擎的哪一轮。
-   *
-   * 读失败**不许**把会话拖垮:沿用上一次读到的那份,只记日志 —— spec「会话能用 > 历史完整」。
+   * 读失败**不许**把会话拖垮:沿用已有的那份,只记日志 —— spec「会话能用 > 历史完整」。
    */
   private async _reloadStoredTail(generation: number): Promise<void> {
-    const base = this._storedBaseSeq;
-    if (base === null || this.isTransient) return;
+    if (this._storedBaseSeq === null || this.isTransient) return;
     try {
       const page = await rpc.sessions.getStoredHistory({
         sessionId: this.sessionId,
-        fromSeq: base,
+        fromSeq: this._storedBootstrapMaxSeq + 1,
       });
       if (this._disposed || generation !== this._historyGeneration || page.turns.length === 0) return;
-      const persisted = new Set<string>();
-      page.turns.forEach((turn, index) => {
-        if (turn.seq <= this._storedBootstrapMaxSeq) return;
-        const origin = page.originTurnIds[index];
-        if (origin) persisted.add(origin);
-      });
       runInAction(() => {
-        this._storedHistoryTurns = page.turns;
-        this._persistedRuntimeTurnIds = persisted;
+        this._storedHistoryTurns = [...this._storedHistoryTurns, ...page.turns];
+        this._storedOrigins = [...this._storedOrigins, ...page.originTurnIds];
+        // 这几行来自引擎的哪几轮:引擎那侧据此不再重复出它们。
+        this._persistedRuntimeTurnIds = new Set([...this._persistedRuntimeTurnIds, ...page.originTurnIds]);
       });
     } catch (error) {
       log.warn('stored session history reload failed; keeping the previous read', {
@@ -2173,6 +2611,70 @@ export class AcpChatStore {
         error,
       });
     }
+  }
+
+  /**
+   * 按改动游标并进引擎那侧新增 / 改过的回合(@@@history-change-cursor)。分界之后的直接并进手里那份;更早的那一轮
+   * 被改了(后台命令的终态、子智能体的进展改的是起它的那一轮),它画的是库里那一行 —— 只重读那一行。
+   * @returns 读失败时的那个结果(调用方弹错),成功为 null。
+   */
+  private async _mergeRuntimeChanges(session: AcpLiveSession, generation: number): Promise<{ error: unknown } | { reset: true } | null> {
+    const changes = await session.getHistory(undefined, 100, this._runtimeCursor ?? undefined);
+    if (!changes.success) return { error: changes.error };
+    if (generation !== this._historyGeneration) return null;
+    if (changes.data.reset) return { reset: true };
+    const floor = this._storedBaseSeq !== null ? this._runtimeReplayEndSeq : this._runtimeWindowStartSeq;
+    const bySeq = new Map(this._runtimeTurns.map((turn) => [turn.seq, turn]));
+    const olderRevised: TranscriptTurn[] = [];
+    for (const turn of changes.data.turns) {
+      if (turn.seq >= floor) bySeq.set(turn.seq, turn);
+      else olderRevised.push(turn);
+    }
+    // 回合数变少 = 有回合被拿掉了(回退、分叉):手里比它多出来的那几轮不再画。
+    if (changes.data.count < this._runtimeCount) {
+      for (const seq of [...bySeq.keys()]) if (seq >= changes.data.count) bySeq.delete(seq);
+    }
+    const storedRows = olderRevised.length > 0 && this._storedBaseSeq !== null
+      ? await this._rereadStoredRows(olderRevised.map((turn) => turn.id))
+      : [];
+    if (generation !== this._historyGeneration) return null;
+    // Concurrent commit/child reconciliations can finish in reverse order. A stale count is
+    // not a revert: keep the newer turns and cursor already applied by the other request.
+    if (this._runtimeCursor && this._runtimeCursor.epoch === changes.data.cursor.epoch && this._runtimeCursor.seq > changes.data.cursor.seq) return null;
+    runInAction(() => {
+      this._runtimeTurns = [...bySeq.values()].sort((a, b) => a.seq - b.seq);
+      this._runtimeCursor = changes.data.cursor;
+      this._runtimeCount = changes.data.count;
+      if (this._storedBaseSeq === null) {
+        // 库里为空:更早的轮是往上翻出来的引擎页,按 seq 换掉。
+        const revised = new Map(olderRevised.map((turn) => [turn.seq, turn]));
+        if (revised.size > 0) this._olderHistoryTurns = this._olderHistoryTurns.map((turn) => revised.get(turn.seq) ?? turn);
+      }
+      for (const { index, turn } of storedRows) {
+        const next = [...this._storedHistoryTurns];
+        next[index] = turn;
+        this._storedHistoryTurns = next;
+      }
+    });
+    return null;
+  }
+
+  /** 引擎这几轮(运行时原始 turn id)在库里的那一行各重读一遍:同一个原始 id 取最后那一行,与落库时改哪一行同一个判据。 */
+  private async _rereadStoredRows(originIds: string[]): Promise<Array<{ index: number; turn: TranscriptTurn }>> {
+    const rows: Array<{ index: number; turn: TranscriptTurn }> = [];
+    for (const origin of originIds) {
+      const index = this._storedOrigins.lastIndexOf(origin);
+      const seq = index >= 0 ? this._storedHistoryTurns[index]?.seq : undefined;
+      if (seq === undefined) continue;
+      try {
+        const page = await rpc.sessions.getStoredHistory({ sessionId: this.sessionId, before: seq + 1, limit: 1 });
+        const turn = page.turns[0];
+        if (turn?.seq === seq) rows.push({ index, turn });
+      } catch (error) {
+        log.warn('stored session row reread failed; keeping the previous read', { sessionId: this.sessionId, seq, error });
+      }
+    }
+    return rows;
   }
 
   /**
@@ -2207,7 +2709,7 @@ export class AcpChatStore {
    * 起它的是用户的下一句(`_queuePromptDuringStartup`),或者宿主自己(定时、投递、重开):句柄的副本跟着会话 id 走
    * (session-wire @@@follow-key),宿主把它再拉起来时重新 seed,这一侧随即重挂,❌ 等人发一句(10-19 实撞)。
    */
-  private _onSessionClosedByHost(closed: AcpLiveSession): void {
+  private _onSessionClosedByHost(closed: AcpLiveSession, loadError: AcpLoadError | null = null): void {
     if (this.session !== closed) return;
     this._unsubs.splice(0).forEach((unsub) => unsub());
     this.session = null;
@@ -2220,8 +2722,21 @@ export class AcpChatStore {
       () => closed.dispose()
     );
     this._closedByHost = true;
+    this._loadStoredQueue((error) => this._toastError('acpFailure.refreshHistory', error));
     this.historyLoading = false;
-    this.loadError = null;
+    this.loadError = loadError;
+  }
+
+  /** 停着时运行时替它存着的那份队列(只读、锁着显示);下一次起时运行时先发它们。只读存档,❌ 叫醒它。 */
+  private _loadStoredQueue(onError: (error: unknown) => void): void {
+    const generation = ++this._storedQueueGeneration;
+    void getAcpRuntimeClient(machineRegistry.machineOf(this.runtimeSessionId))
+      .then((client) => client.getStoredQueue({ sessionId: this.runtimeSessionId }))
+      .then((queue) => {
+        if (this._disposed || !this._closedByHost || generation !== this._storedQueueGeneration) return;
+        runInAction(() => { this._storedQueue = queue; });
+      })
+      .catch(onError);
   }
 
   private _onSessionLost(next: { failure?: { message?: string } | null }): void {
@@ -2233,6 +2748,13 @@ export class AcpChatStore {
     void this._refreshHistory();
   }
 
+  /**
+   * 一轮讲完后跟后端对一次账。对账期间**画面上保留着刚讲完的那一帧**（见 chat-state.syncActiveTurn）：
+   * 已提交列表只由这里的 seed 填充，若提交时就把活的那一轮抹掉，这一次往返（实测 ~100ms）里
+   * transcript 会整段空掉、输入框退回空会话占位再弹回来 —— 也就是「答完了反而闪一下」。
+   * 拿到结果（成功或失败）都要把那一帧交还，否则它会一直压在最新内容上面。
+   * 只取改动游标之后的那几轮(`_mergeRuntimeChanges`)。
+   */
   private async _refreshHistory(options?: { preserveLiveTurn?: boolean }): Promise<void> {
     if (this.reverting) return;
     const refreshGeneration = this._historyGeneration;
@@ -2243,19 +2765,16 @@ export class AcpChatStore {
     const retainedFrame = this.chatState.transcript.state.activeTurnSnapshot;
     const retainedFrameId = retainedFrame?.id ?? null;
     const retainedPending = this.chatState.session.state.pendingPrompt;
-    let history: Awaited<ReturnType<NonNullable<typeof this.session>['getHistory']>> | undefined;
+    let merged = false;
     const session = this._requireSession('acpFailure.refreshHistory');
     if (session) {
       try {
-        // 评审 #2:取全分界之后的那一段(❌ 只取最新 100 轮的窗口),同时从开场那页的第一行重读库。
-        const fromSeq =
-          this._storedBaseSeq !== null ? this._runtimeReplayEndSeq : this._runtimeWindowStartSeq;
-        const generation = this._historyGeneration;
-        [history] = await Promise.all([
-          this._runtimeTurnsFrom(session, fromSeq),
-          this._reloadStoredTail(generation),
-        ]);
-        if (!history.success) this._toastError('acpFailure.refreshHistory', history.error);
+        const failed = await this._mergeRuntimeChanges(session, refreshGeneration);
+        if (failed && 'reset' in failed) {
+          this._runtimeCursor = null;
+          this.reattachAfterHostReload();
+        } else if (failed) this._toastError('acpFailure.refreshHistory', failed.error);
+        else merged = true;
       } catch (error) {
         // 对账本身失败也要把帧交还，否则它会一直压在最新内容上面；❌ 静默吞掉这次失败。
         log.warn('Failed to reconcile transcript after a committed turn', {
@@ -2265,12 +2784,15 @@ export class AcpChatStore {
       }
     }
     if (refreshGeneration !== this._historyGeneration) return;
-    runInAction(() => {
-      if (history?.success) {
+    // seed 先把活动轮清掉、下面再放回去:两步必须是转录的同一次更新(Solid `batch`)。分成两次的话,
+    // 活动轮的每一行都会被卸掉重挂 —— 正在流式的那几段话淡入从头再放一遍,整段一闪(owner 10-27 录像:
+    // 前一轮派出的后台 agent 每报一次进度,这一轮已经写出的话就闪一下)。
+    runInAction(() => batch(() => {
+      if (merged) {
         const currentFrame = this.chatState.transcript.state.activeTurnSnapshot;
         const newerFrame = (currentFrame?.id ?? null) !== retainedFrameId;
         const liveFrame = options?.preserveLiveTurn ? session?.activeTurn.current() : null;
-        this.chatState.transcript.history.seed(this._composedHistory(history.data.turns));
+        this.chatState.transcript.history.seed(this._composedHistory());
         // history.seed resets activeTurn by contract. If another turn started while this history
         // request was in flight, put that newer frame back instead of erasing it until commit.
         if (newerFrame && currentFrame) {
@@ -2292,7 +2814,7 @@ export class AcpChatStore {
         this.chatState.transcript.activeTurn.set(null);
       }
       this._syncMessageCount();
-    });
+    }));
   }
 
   /** 会话连上了:连上之前画出来的那几句交给真的那一轮 / 运行时队列。 */
@@ -2381,33 +2903,23 @@ export class AcpChatStore {
     const activeCount = state.activeTurnSnapshot?.items.length ?? 0;
     const pendingPromptCount = this.chatState.session.state.pendingPrompt ? 1 : 0;
     this.messageCount = committedCount + activeCount + pendingPromptCount;
+    this.transcriptRevision += 1;
   }
 
-  /**
-   * 标题说没做成哪件事(按界面语言);正文按原因表说(#7103):带原因码的说那一句,其余都是「咕咕这边出错了」——
-   * 原文只进日志,❌ 上屏(它常常是 `ACP session is not connected` 这类写给开发者的英文,或者带着本机地址)。
-   */
+  /** Keep the failure reason visible through the existing one-line sanitizer, and persist its full detail. */
   private _toastError(title: AcpFailureTitle, error: unknown): void {
     const cause = describeFailureCause(error);
-    log.warn('ACP chat action failed', { sessionId: this.sessionId, title, error: cause });
+    log.error('ACP chat action failed', { sessionId: this.sessionId, title, error: cause });
     toast({
       title: translateSessionMessage(title),
-      // #7103 谁拒绝谁说话:agent 拒的(ACP 那侧带病因的 Result)递它的原话一行;咕咕自己这一侧(运行时、宿主、这个 store)
-      // 按原因码说,不带码就是「咕咕这边出错了」,原文只进上面那行日志。
-      description: (refusedByAgent(error) ? failureText : guguFailureText)(cause ?? '', translateSessionMessage),
+      description: failureText(cause ?? '', translateSessionMessage),
       variant: 'destructive',
     });
   }
 }
 
-/** ACP 那侧带病因的失败(`acpErr.promptFailed(cause)` 一类 `{ type, cause }`):拒绝方是 agent 自己。 */
-function refusedByAgent(error: unknown): boolean {
-  return typeof error === 'object' && error !== null && !(error instanceof Error) && 'cause' in error;
-}
-
 /**
- * 把失败的**病因**取出来 —— 给日志与原因表用(#7103 起,弹窗正文按原因表说:带原因码说那一句,
- * 其余「咕咕这边出错了」;病因原文只进日志。失败的那一轮本身由转录里「回合失败」那一行说,原文在它的详情里)。
+ * 把失败的**病因**取出来,供日志与弹窗共用。失败的那一轮本身由转录里「回合失败」那一行说,原文在它的详情里。
  *
  * ⚠️ 这条路上的失败大多**不是 `Error` 实例** —— 它们是 Result 的错误对象
  * (`{ type, message }`)或 ACP 的 `RequestError`。原来的写法是
@@ -2468,6 +2980,21 @@ export function firstPromptPreview(
   const first = input?.initialQueue?.[0];
   if (!first || input.startupOrigin === 'chat-page' || first.origin === 'communication') return null;
   return { id: `first-prompt:${input.sessionId}`, text: first.text };
+}
+
+type StartRecord = Pick<Session, 'providerSessionId' | 'initialQueue' | 'forkFromProviderSessionId'>;
+
+/** 新建会话还没认领首启时带着的那几句(第一句在队首):有就交给首启,打开它就当场起(#980 照旧)。 */
+function pendingInitialQueue(record: StartRecord): Session['initialQueue'] {
+  return record.providerSessionId === undefined && record.initialQueue?.length ? record.initialQueue : undefined;
+}
+
+/**
+ * 持久分叉还没分出去时的来源 provider 会话。⚠️ 只在**还没认领首启**时发起:`providerSessionId` 一旦有值,
+ * 分叉早已发生过,再发一次就会凭空多出一条分叉。侧边聊天(运行时分叉)不走这里。
+ */
+function pendingPersistentFork(record: StartRecord): string | undefined {
+  return record.providerSessionId == null ? record.forkFromProviderSessionId : undefined;
 }
 
 function heldFirstPromptTurnId(prompt: PendingPrompt): string {

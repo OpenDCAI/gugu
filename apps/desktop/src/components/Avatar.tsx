@@ -7,10 +7,11 @@ import type { AgentDisplayStatus, GroupAvatarMember } from '@gugu/core/shared/ty
 import { dicebearAvatarDataUri } from '../lib/dicebearAvatar'
 import { AgentNeedsUserGlyph } from './AgentNeedsUserGlyph'
 import { AgentHarnessBadge } from './AgentHarnessIdentity'
-import { AgentAvatar } from './agentAvatar/AgentAvatar'
-import { colorSlug, parseAgentLook, type AgentLook } from './agentAvatar/look'
-import { agentLookPoster, useAgentLookPoster, useAgentLookPostersVersion } from './agentAvatar/posters'
-import { useAgentLook } from './agentAvatar/useAgentLook'
+import { BoringAgentAvatar } from './BoringAgentAvatar'
+import { AssistantDefaultAvatar } from './assistant/AssistantDefaultAvatar'
+import { useAvatarIdentity, useIsAssistantAvatar } from '../lib/avatarIdentity'
+import { isBuiltinAgentAvatarUrl, parseAgentLook } from './agentAvatar/look'
+import { agentLookPoster, useAgentLookPostersVersion } from './agentAvatar/posters'
 
 export interface AvatarProps {
   name: string
@@ -24,15 +25,15 @@ export interface AvatarProps {
   isAgent?: boolean
   // Runtime status is separate from the persistent bottom-right harness identity.
   agentStatus?: AgentDisplayStatus
-  // 精确的一格状态(presentAgentStatus 的 label:等你批准 / 等你回答 …)。给了就压过粗分类 agentStatus;
-  // 只有咕咕小鸟(agent 没上传头像)会读它 —— 小鸟用身体变形说状态,粗分类说不出「在等什么」。
+  // The assistant expresses the precise status with its 3D figure; other agents use the status badge.
   statusLabel?: AgentStatusLabel
   // 右下角的 harness 品牌小图标。默认画;单聊头部那只大头像不画(头栏那句「状态 · 位置 · 引擎」已经说了引擎)。
   harnessBadge?: boolean
   // 鼠标移上去小鸟就被拍一拍(只对会动的小鸟生效;照片 / 真人 / 群不变)。单聊头栏那只大头像用。
   hoverPoke?: boolean
-  // 静止:agent 的小鸟画成它那个颜色的定格图,不动、不占每帧的绘制(#7243:群聊消息旁一条消息一只,只数随消息涨)。
-  // 定格说不出状态,状态改挂右上角角标(同上传了照片的 agent)。
+  /** Extra drawing room for the assistant figure; layout and custom-photo size stay unchanged. */
+  canvasPaddingX?: number
+  // The assistant can use its still poster in dense rows. Ordinary agents are always static SVGs.
   still?: boolean
   variant?: 'default' | 'group'
   imageMatteColor?: string
@@ -106,11 +107,17 @@ function CompositeTile({
   radius: number
 }) {
   const [failed, setFailed] = useState(false)
+  const memberKey = (member.id ?? '').trim()
+  const identity = useAvatarIdentity(memberKey)
+  const assistant = useIsAssistantAvatar(memberKey)
   const memberUrl = normalizeAvatarUrl(member.avatar)
   // 成员的头像是形象地址(agent 的颜色 + 表情 + 装扮)→ 组合格里画这个形象的定格(引擎画的,画好前是同色那张),不去加载那张图。
   useAgentLookPostersVersion()
   const memberLook = parseAgentLook(memberUrl)
-  const customUrl = memberLook ? agentLookPoster(memberLook, (member.id ?? '').trim()) : memberUrl
+  const boring = identity?.type === 'agent' && !assistant
+    && (member.avatar == null || isBuiltinAgentAvatarUrl(memberUrl))
+  const assistantDefault = identity?.type === 'agent' && assistant && (member.avatar == null || isBuiltinAgentAvatarUrl(memberUrl))
+  const customUrl = boring || assistantDefault || (!identity && isBuiltinAgentAvatarUrl(memberUrl)) ? null : memberLook ? agentLookPoster(memberLook) : memberUrl
   // 脏哨兵串（给了值但归一后为空）是上游 bug，与主 Avatar 同口径 fail loud —— 留空槽，
   // ❌ 不用生成脸盖掉（否则组合里显示一张正常的脸、本人自己的行却是错误态，必有一处在说谎）。
   const invalidExplicit = member.avatar != null && memberUrl == null
@@ -123,8 +130,7 @@ function CompositeTile({
   // 自定义头像加载失败 = 错误，留明确空槽而不是换成默认脸（#2383 的正确部分：不用另一张脸盖掉失败）。
   // seed 只认 member.id：姓名永不入 seed（改名会变脸、同名会撞脸）。缺 id 同样进空槽。
   // @@@2470 trim：纯空白 id 不是身份 key，必须留空槽而不是落到共用脸。
-  const memberKey = (member.id ?? '').trim()
-  const generatedUrl = customUrl || invalidExplicit || !memberKey ? null : dicebearAvatarDataUri(memberKey)
+  const generatedUrl = !customUrl && !invalidExplicit && memberKey && identity?.type === 'human' ? dicebearAvatarDataUri(memberKey) : null
   // @@@composite-gap - shrink each tile by gapPx/2 on each side; the canvas background
   const half = gapPx / 2
   const w = Math.max(1, rect.w * canvasPx - gapPx)
@@ -141,13 +147,13 @@ function CompositeTile({
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    color: 'white',
+    color: 'var(--color-white)',
     fontSize: Math.max(8, Math.round(Math.min(w, h) * 0.5)),
     fontWeight: 600,
   }
   return (
     <span style={tileStyle}>
-      {useCustom ? (
+      {assistantDefault ? <AssistantDefaultAvatar id={memberKey} avatar={memberUrl} name={member.name} size={Math.min(w, h)} still /> : boring && memberKey ? <BoringAgentAvatar id={memberKey} name={member.name} size={Math.min(w, h)} /> : useCustom ? (
         <img
           src={customUrl!}
           alt={member.name}
@@ -219,55 +225,34 @@ function AgentStatusBadge({ status, size }: { status: AgentDisplayStatus; size: 
   )
 }
 
-/**
- * 静止的那只小鸟:长相与会动的那只同一套读法(useAgentLook:身份缓存里存的 > 手里的头像 > 按 id 推),
- * 画成那个颜色的定格图。不剪成圆、透明底,和会动的那只一样是自由轮廓。
- */
-function StillAgentBird({ id, avatar, look, name, px }: {
-  id: string
-  avatar: string | null
-  look: AgentLook | null
-  name: string
-  px: number
-}) {
-  const resolved = useAgentLook(id, look, avatar)
-  const poster = useAgentLookPoster(resolved, id)
-  return (
-    <img
-      src={poster}
-      alt={name}
-      aria-label={name}
-      draggable={false}
-      data-agent-avatar-still={colorSlug(resolved.color)}
-      width={px}
-      height={px}
-      className="block shrink-0 object-contain"
-    />
-  )
-}
-
 export function Avatar({
   name,
   avatarUrl,
   seed,
   size = 'md',
-  isAgent = false,
+  isAgent,
   agentStatus,
   statusLabel,
   harnessBadge = true,
   hoverPoke = false,
+  canvasPaddingX = 0,
   still = false,
   variant = 'default',
   imageMatteColor,
   memberAvatars,
 }: AvatarProps) {
   const [imgFailed, setImgFailed] = useState(false)
+  const identityKey = (seed ?? '').trim()
+  const identity = useAvatarIdentity(isAgent === undefined && variant !== 'group' ? identityKey : '')
+  const agent = isAgent ?? (identity ? identity.type === 'agent' : undefined)
+  const assistant = useIsAssistantAvatar(identityKey)
   // @@@1482 规范化：字符串 "undefined"/"null"/空 视作无头像；不渲染破图。
   const normalized = normalizeAvatarUrl(avatarUrl)
   // @@@agent-look 形象地址(agentAvatar/look.ts:颜色 + 休息表情)不是一张要去加载的图 —— agent 画会动的小鸟、
   // 按它说的颜色与表情;真人的头像位上万一出现形象地址,画那个颜色的定格(人的头像不会变成会动的小鸟)。
   const look = parseAgentLook(normalized)
-  const url = look ? (isAgent ? null : agentLookPoster(look, (seed ?? '').trim())) : normalized
+  const url = agent !== false && isBuiltinAgentAvatarUrl(normalized) ? null
+    : look ? (agent ? null : agentLookPoster(look)) : normalized
   // @@@1482 url 变化时在 render 期重置加载失败态（React 官方「按 prop 变化调整 state」模式，非 useEffect）：
   // useEffect 在 render 之后才跑，下方 DEV throw 守卫会在同一帧用旧 imgFailed 对新有效 url 误抛。
   // render 期重置确保新 url 进来即 imgFailed=false，throw 守卫不会对有效新头像误触。
@@ -338,18 +323,11 @@ export function Avatar({
   const memberCount = memberAvatars?.length ?? 0
   // A member composite represents an unset group avatar, never a replacement for an explicit failed identity.
   const showComposite = variant === 'group' && !hasCustomAvatar && !hasInvalidExplicit && memberCount > 0
-  // @@@2470 没有自定义头像 → 按稳定 seed 生成默认脸。群不适用（群不是一张人脸，它要么有显式群头像、
-  // 要么用成员组合表达）；自定义头像坏掉时也不生成——那要留明确错误态，不能用另一张脸盖掉。
-  // @@@2470-r2 身份 key 只能是稳定 id。姓名**永远不得**当 seed：那会让同一身份在不同 surface
-  // 两张脸、改名变脸、同名撞脸（复审 F2 在 4 个 surface 实锤）。没有 key 就不造脸，进可诊断空态。
-  const identityKey = (seed ?? '').trim()
   const wantsGeneratedFace = !showImg && !avatarError && variant !== 'group'
-  // @@@animated-agent-avatar: agent 没上传头像 → 默认脸是咕咕小鸟(会动,状态靠身体变形说,不挂角标);真人与群仍是
-  // 上面那张生成脸。上传了图的 agent 仍是那张图 —— 图说不出状态,所以它继续带右上角状态角标。
-  const agentBird = isAgent && wantsGeneratedFace && (identityKey !== '' || look != null)
-  const animatedAgent = agentBird && !still
-  const generatedUrl = wantsGeneratedFace && !agentBird && identityKey ? dicebearAvatarDataUri(identityKey) : null
-  const missingIdentityKey = wantsGeneratedFace && !identityKey && !look
+  const agentDefault = agent === true && wantsGeneratedFace && !!identityKey
+  const animatedAssistant = agentDefault && assistant && !still
+  const generatedUrl = wantsGeneratedFace && agent === false && identityKey ? dicebearAvatarDataUri(identityKey) : null
+  const missingIdentityKey = wantsGeneratedFace && !identityKey
   useEffect(() => {
     if (!missingIdentityKey) return
     console.error(`[Avatar] missing identity key for "${name}" — a generated default face needs a stable id; display name must never seed it`)
@@ -374,7 +352,7 @@ export function Avatar({
   // 脸(上传图 / 组合 / 默认脸 / 空态)一律不挂原生 title:头像常被放进别人的悬停浮层(账号 Hint、
   // 运行中 agent 的预览卡),名字由外层自己说,挂了就是两个浮层叠在一起。读屏的名字在 alt / aria-label。
   return (
-    <div style={base} data-agent={isAgent ? '' : undefined}>
+    <div style={base} data-agent={agent ? '' : undefined}>
       {showImg ? (
         imageMatteColor ? (
           <span data-avatar-matte style={matteStyle}>
@@ -406,18 +384,11 @@ export function Avatar({
             />
           ))}
         </div>
-      ) : animatedAgent ? (
-        <AgentAvatar
-          id={identityKey}
-          avatar={normalized}
-          look={identityKey ? null : look}
-          name={name}
-          size={px}
-          hoverPoke={hoverPoke}
-          state={statusLabel ?? (agentStatus ? labelOfDisplayStatus(agentStatus) : null)}
-        />
-      ) : agentBird ? (
-        <StillAgentBird id={identityKey} avatar={normalized} look={identityKey ? null : look} name={name} px={px} />
+      ) : agentDefault ? (
+        assistant ? (
+          <AssistantDefaultAvatar id={identityKey} avatar={normalized} name={name} size={px} still={still} hoverPoke={hoverPoke} canvasPaddingX={canvasPaddingX}
+            state={statusLabel ?? (agentStatus ? labelOfDisplayStatus(agentStatus) : null)} />
+        ) : <BoringAgentAvatar id={identityKey} name={name} size={px} />
       ) : generatedUrl ? (
         // @@@2470 生成默认脸（#961 Notionists，CC0/本地生成/离线）：这个身份还没设置头像。
         // 它诚实表达「系统派生」而非冒充某人挑过的作品，且组合空间足够大 → 不同身份不撞脸。
@@ -436,8 +407,8 @@ export function Avatar({
           style={emptyStyle}
         />
       )}
-      {isAgent && harnessBadge && variant !== 'group' ? <AgentHarnessBadge agentId={seed} avatarSize={px} /> : null}
-      {agentStatus && !animatedAgent ? (
+      {agent && harnessBadge && variant !== 'group' ? <AgentHarnessBadge agentId={seed} avatarSize={px} /> : null}
+      {agentStatus && !animatedAssistant ? (
         <AgentStatusBadge status={agentStatus} size={badgeSize} />
       ) : null}
     </div>

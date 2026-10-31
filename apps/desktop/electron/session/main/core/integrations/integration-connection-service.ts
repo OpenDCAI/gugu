@@ -1,4 +1,4 @@
-import type { IntegrationCredentials, IntegrationError } from '@gugu/session-plugins/integrations';
+import type { IntegrationCliTool, IntegrationCredentials, IntegrationError } from '@gugu/session-plugins/integrations';
 import {
   accessTokenExpiresSoon,
   integrationPluginRegistry,
@@ -14,7 +14,7 @@ import { cliMethodOf, publishCliLauncher, removeCliLauncher } from './cli/cli-in
 import { outputTail, readCliLoginStatus, startCliLogin, type CliLoginRun } from './cli/cli-login';
 import { cliToolsRoot } from './cli/cli-paths';
 import { startFeishuLogin, verifyFeishuLogin, setFeishuUserIdentity } from './cli/feishu-login';
-import { cliInstallProgress, ensureCliTool, installedCliTool, isCliToolInstalled, type InstalledCliTool } from './cli/cli-tool-installer';
+import { cliInstallProgress, ensureCliTool, installedCliTool, isCliToolInstalled, isCliToolInstalling, type InstalledCliTool } from './cli/cli-tool-installer';
 import { cliToolRecipe, type CliLoginPrompt, type CliToolRecipe } from './cli/cli-tools';
 import {
   DEFAULT_INTEGRATION_ACCOUNT_ID,
@@ -26,6 +26,7 @@ import {
   McpReauthorizationRequiredError,
   refreshMcpCredentials,
 } from './mcp-oauth-flow';
+import { platformCredentials } from './platform-credentials-instance';
 
 type ConnectResult =
   | { success: true; displayName?: string; displayDetail?: string }
@@ -41,15 +42,23 @@ export type CliLoginWaitResult =
   | { status: 'connected' }
   | { status: 'failed'; error: string };
 
+/** `cliToolPrepare` 一问的回答:装好了、还在装(进度看 `cliLoginProgress`)、或装失败(原话)。 */
+export type CliToolPrepareResult =
+  | { status: 'ready' }
+  | { status: 'installing' }
+  | { status: 'failed'; error: string };
+
 type PendingCliLogin = {
   recipe: CliToolRecipe;
   installed: InstalledCliTool;
   run: CliLoginRun;
+  activityToken: symbol;
   result?: Promise<Exclude<CliLoginWaitResult, { status: 'pending' }>>;
 };
 
 /** 一次 `cliLoginWait` 最多挂这么久就回「还在等」:界面再问一次。远程机器上的调用不会被长连接拖断。 */
 const CLI_LOGIN_WAIT_SLICE_MS = 20_000;
+const AUTHORIZATION_ACTIVITY_LIMIT_MS = 30 * 60_000;
 
 export type IntegrationAccountSummary = {
   accountId: string;
@@ -85,6 +94,49 @@ export class IntegrationConnectionService {
   private readonly cliLogins = new Map<string, PendingCliLogin>();
   /** 正在装 / 正在起登录的那一次连接的号(见 cliLoginStart)。 */
   private readonly cliStarts = new Map<string, symbol>();
+  /** 后台装失败、还没交给界面的那一句(按工具)。 */
+  private readonly cliInstallFailures = new Map<IntegrationCliTool, string>();
+  /** 已经挂上结果处理的那份安装(同一份 Promise 只挂一次)。 */
+  private readonly watchedCliInstalls = new WeakSet<Promise<unknown>>();
+  private readonly authorizationActivityListeners = new Set<() => void>();
+  private readonly authorizationActivity = new Map<AbortController | symbol, NodeJS.Timeout>();
+  private authorizationActive = false;
+
+  /** A person confirming authorization is account work even without a running
+   * agent. Result entries outlive their process until a later poll, so map
+   * membership alone cannot prove that authorization is still active. */
+  hasPendingAuthorizations(): boolean {
+    return this.authorizationActivity.size > 0;
+  }
+
+  private startAuthorizationActivity(token: AbortController | symbol): void {
+    // This bounds the busy signal only. Provider login deadlines, process
+    // cancellation and the eventual login result remain owned by that flow.
+    const timer = setTimeout(() => this.stopAuthorizationActivity(token), AUTHORIZATION_ACTIVITY_LIMIT_MS);
+    timer.unref();
+    this.authorizationActivity.set(token, timer);
+    this.reportAuthorizationActivity();
+  }
+
+  private stopAuthorizationActivity(token: AbortController | symbol): void {
+    const timer = this.authorizationActivity.get(token);
+    if (!timer) return;
+    clearTimeout(timer);
+    this.authorizationActivity.delete(token);
+    this.reportAuthorizationActivity();
+  }
+
+  onAuthorizationActivityChange(listener: () => void): () => void {
+    this.authorizationActivityListeners.add(listener);
+    return () => { this.authorizationActivityListeners.delete(listener); };
+  }
+
+  private reportAuthorizationActivity(): void {
+    const active = this.hasPendingAuthorizations();
+    if (active === this.authorizationActive) return;
+    this.authorizationActive = active;
+    for (const listener of this.authorizationActivityListeners) listener();
+  }
 
   /** Browser authorization for `mcp-oauth` integrations; resolves once the account is stored. */
   async authorize(integrationId: string): Promise<ConnectResult> {
@@ -116,6 +168,8 @@ export class IntegrationConnectionService {
     this.pendingAuthorizations.get(integrationId)?.abort();
     const controller = new AbortController();
     this.pendingAuthorizations.set(integrationId, controller);
+    this.startAuthorizationActivity(controller);
+    controller.signal.addEventListener('abort', () => this.stopAuthorizationActivity(controller), { once: true });
     try {
       const credentials = await authorizeMcpServer({
         serverUrl,
@@ -134,16 +188,20 @@ export class IntegrationConnectionService {
       if (this.pendingAuthorizations.get(integrationId) === controller) {
         this.pendingAuthorizations.delete(integrationId);
       }
+      this.stopAuthorizationActivity(controller);
     }
   }
 
   cancelAuthorization(integrationId: string): void {
     this.pendingAuthorizations.get(integrationId)?.abort();
     // 还在装 / 还在起的那一次:撤掉它的号,它醒来见号不对就自己收手(见 cliLoginStart)。
+    const attempt = this.cliStarts.get(integrationId);
     this.cliStarts.delete(integrationId);
+    if (attempt) this.stopAuthorizationActivity(attempt);
     const login = this.cliLogins.get(integrationId);
     if (login) {
       this.cliLogins.delete(integrationId);
+      this.stopAuthorizationActivity(login.activityToken);
       login.run.cancel();
     }
   }
@@ -158,7 +216,50 @@ export class IntegrationConnectionService {
    */
   cliLoginProgress(integrationId: string) {
     const method = cliMethodOf(integrationId);
-    return method && this.cliStarts.has(integrationId) ? cliInstallProgress(method.tool) ?? null : null;
+    // 进度只在真在装的时候有(装完就删):`cliToolPrepare` 起的那一次也要看得见。
+    return method ? cliInstallProgress(method.tool) ?? null : null;
+  }
+
+  /**
+   * 第零半:把这一家的命令行装好(第一次要下载)。一问最多挂 `CLI_LOGIN_WAIT_SLICE_MS`,界面接着问。
+   * 远程机器(云电脑拉 GitHub 只有几十 KB/s)装一次要十来分钟:❌ 把它绑在 `cliLoginStart` 一次远程调用上 ——
+   * 链路一断,在途调用全判失败,界面只能说「连不上」,重点一次又从头等。装在后台跑(同一工具只装一份),
+   * 断了重连接着问;装好了 `cliLoginStart` 当场就能起登录。
+   */
+  async cliToolPrepare(integrationId: string): Promise<CliToolPrepareResult> {
+    const plugin = integrationPluginRegistry.get(integrationId);
+    const method = cliMethodOf(integrationId);
+    if (!plugin || !method) {
+      return { status: 'failed', error: `${plugin?.metadata.name ?? integrationId} does not connect through a command-line tool.` };
+    }
+    if (isCliToolInstalled(method.tool)) return { status: 'ready' };
+    // 上一次在后台装失败了、还没人来取:先把失败交出去(❌ 悄悄再装一遍,让界面永远停在「还在装」)。
+    const failed = this.cliInstallFailures.get(method.tool);
+    if (failed !== undefined && !isCliToolInstalling(method.tool)) {
+      this.cliInstallFailures.delete(method.tool);
+      return { status: 'failed', error: failed };
+    }
+    const pending = ensureCliTool(method.tool);
+    // 装的那十来分钟里每 20 秒会来问一次:结果只记一回(❌ 失败时同一条日志打几十遍)。
+    if (!this.watchedCliInstalls.has(pending)) {
+      this.watchedCliInstalls.add(pending);
+      pending.then(
+        () => this.cliInstallFailures.delete(method.tool),
+        (error: unknown) => {
+          log.warn('Integration command-line tool could not be installed', { integrationId, error });
+          this.cliInstallFailures.set(method.tool, error instanceof Error ? error.message : String(error));
+        }
+      );
+    }
+    let timer: NodeJS.Timeout | undefined;
+    const outcome = await Promise.race([
+      pending.then(() => 'ready' as const, () => 'failed' as const),
+      new Promise<'installing'>((resolve) => (timer = setTimeout(() => resolve('installing'), CLI_LOGIN_WAIT_SLICE_MS))),
+    ]).finally(() => clearTimeout(timer));
+    if (outcome !== 'failed') return { status: outcome };
+    const error = this.cliInstallFailures.get(method.tool) ?? 'The command-line tool could not be installed.';
+    this.cliInstallFailures.delete(method.tool);
+    return { status: 'failed', error };
   }
 
   async cliLoginStart(integrationId: string): Promise<CliLoginStartResult> {
@@ -170,6 +271,7 @@ export class IntegrationConnectionService {
     this.cancelAuthorization(integrationId);
     const attempt = Symbol(integrationId);
     this.cliStarts.set(integrationId, attempt);
+    this.startAuthorizationActivity(attempt);
     const current = () => this.cliStarts.get(integrationId) === attempt;
     const superseded = { success: false as const, error: 'This connection attempt was cancelled.' };
     const recipe = cliToolRecipe(method.tool);
@@ -206,7 +308,8 @@ export class IntegrationConnectionService {
       }
       const run = method.tool === 'lark-cli' ? startFeishuLogin(installed, work) : startCliLogin(recipe, installed, work);
       void run.done.then(() => fs.rm(work, { recursive: true, force: true }));
-      entry = { recipe, installed, run };
+      void run.done.then(() => this.stopAuthorizationActivity(attempt));
+      entry = { recipe, installed, run, activityToken: attempt };
       this.cliLogins.set(integrationId, entry);
       const prompt = await run.prompt;
       if (!current() || this.cliLogins.get(integrationId) !== entry) {
@@ -217,12 +320,14 @@ export class IntegrationConnectionService {
     } catch (error) {
       log.warn('Integration command-line login could not start', { integrationId, error });
       if (entry) {
+        this.stopAuthorizationActivity(attempt);
         entry.run.cancel();
         if (this.cliLogins.get(integrationId) === entry) this.cliLogins.delete(integrationId);
       }
       return { success: false, error: error instanceof Error ? error.message : String(error) };
     } finally {
       if (this.cliStarts.get(integrationId) === attempt) this.cliStarts.delete(integrationId);
+      if (!entry) this.stopAuthorizationActivity(attempt);
     }
   }
 
@@ -317,6 +422,12 @@ export class IntegrationConnectionService {
   ): Promise<ConnectResult> {
     const plugin = integrationPluginRegistry.get(integrationId);
     if (!plugin) return { success: false, error: `Unknown integration: ${integrationId}` };
+    // #921 凭据由平台保管:表单交给平台(它先向对方验过再存),本机只记一行,❌ 进本机凭据库。
+    // 只有这个安装压根没有这项平台服务时(`keepHere`),才照下面的老路存在这台电脑上。
+    if (platformCredentials.isPlatformProvider(integrationId)) {
+      const kept = await platformCredentials.connect(integrationId, input, { editing: !!editAccountId });
+      if (!('keepHere' in kept)) return kept;
+    }
     let credentials = input;
     if (editAccountId) {
       try {
@@ -406,6 +517,11 @@ export class IntegrationConnectionService {
   async checkAccounts(integrationId: string): Promise<IntegrationAccountCheck[]> {
     const plugin = integrationPluginRegistry.get(integrationId);
     if (!plugin) throw new Error(`Unknown integration: ${integrationId}`);
+    if (platformCredentials.custody(integrationId) === 'platform') {
+      const checked = await platformCredentials.checkAccounts(integrationId);
+      // 这一问才发现这个安装没有这项服务:改核本机保管的那份。
+      if (platformCredentials.custody(integrationId) === 'platform') return checked;
+    }
     const accounts = await integrationCredentialStore.listAccounts(integrationId);
     return Promise.all(
       accounts.map(async (account): Promise<IntegrationAccountCheck> => {
@@ -424,7 +540,9 @@ export class IntegrationConnectionService {
     );
   }
 
-  async disconnect(integrationId: string, accountId?: string): Promise<{ success: boolean; error?: string }> {
+  async disconnect(integrationId: string, accountId?: string): Promise<{ success: boolean; error?: string; errorType?: IntegrationError['type'] }> {
+    // #921 平台上删(一个人一份):所有设备一起断。
+    if (platformCredentials.custody(integrationId) === 'platform') return platformCredentials.disconnect(integrationId);
     if (accountId) {
       // #7240 多账号里断开一个:只删这一个(提示「只会断开 %s」)。
       try {
@@ -469,6 +587,12 @@ export class IntegrationConnectionService {
         error: `Unknown integration: ${integrationId}`,
         capabilities,
       };
+    }
+    // #921 设备上没有凭据可验:问平台。存着但对方不认了 = 要重连(authorization_expired),❌ 说成登录问题。
+    if (platformCredentials.custody(integrationId) === 'platform') {
+      const checked = await platformCredentials.check(integrationId);
+      // 这一问才发现这个安装没有这项服务:改核本机保管的那份。
+      if (platformCredentials.custody(integrationId) === 'platform') return { ...checked, capabilities };
     }
 
     let account: IntegrationAccountRecord | null;

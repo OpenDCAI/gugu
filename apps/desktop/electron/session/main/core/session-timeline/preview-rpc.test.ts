@@ -10,6 +10,7 @@ const state = vi.hoisted(() => ({
 }));
 
 vi.mock('./service', () => ({
+  nativeRecord: vi.fn(), nativeToolImage: vi.fn(), nativeAttachment: vi.fn(),
   subscribe: (...args: unknown[]) => state.subscribe(...args),
   unsubscribe: (...args: unknown[]) => state.unsubscribe(...args),
   snapshot: (...args: unknown[]) => state.snapshot(...args),
@@ -174,6 +175,23 @@ describe('MessagePreview 宿主', () => {
     expect(state.subscribe).not.toHaveBeenCalled();
   });
 
+  it('记录读不到(record_not_found):原错误码经预览 topic 推给查看端,这份留到退订才拆', async () => {
+    const notFound = { code: 'record_not_found', message: '找不到 claude 会话记录：sessionId=s-1' };
+    state.subscribe = vi.fn(async () => ({ ok: false, error: notFound }));
+    state.snapshot = vi.fn(async () => ({ ok: false, error: notFound }));
+    const { host, sent, opened, closed } = setup();
+    const reply = await host.handlers[MESSAGE_PREVIEW_RPC.subscribe]!(request('v1'), ctx);
+    await flush();
+    expect(reply).toEqual({ error: notFound });
+    expect(opened).toEqual([`gugu:preview:${CHAT}:${AGENT}`]);
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({ chatId: CHAT, agentId: AGENT, rev: 1, running: false, entries: [], error: notFound });
+    expect(host.watchCount()).toBe(1);
+    await host.handlers[MESSAGE_PREVIEW_RPC.unsubscribe]!(request('v1'), ctx);
+    expect(closed).toEqual([`gugu:preview:${CHAT}:${AGENT}`]);
+    expect(host.watchCount()).toBe(0);
+  });
+
   it('载荷不全:invalid_payload', async () => {
     const { host } = setup();
     const reply = await host.handlers[MESSAGE_PREVIEW_RPC.subscribe]!({ chatId: CHAT }, ctx);
@@ -219,4 +237,3 @@ describe('MessagePreview 宿主', () => {
     expect(opened).toEqual([]);
   });
 });
-

@@ -109,9 +109,9 @@ export function AgentTasksPane({ agent }: AgentSettingsPaneProps) {
 
   return (
     <div className={agentSettingsPaneClass(true)} data-pane="tasks">
-      <div className={asClass.secretsHead}>
-        <div className={asClass.secretsH2}>{t('settings.tasks.title', { count: tasks.length })}</div>
-        <button className={asClass.secretsButton} onClick={() => setShowForm((v) => !v)} data-testid="agent-task-add">
+      <div className={asClass.tasksHead}>
+        <div className={asClass.tasksHeading}>{t('settings.tasks.title', { count: tasks.length })}</div>
+        <button className={asClass.tasksAddButton} onClick={() => setShowForm((v) => !v)} data-testid="agent-task-add">
           <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24">
             <g fill="none" stroke="currentColor" strokeWidth="1.5">
               <path d="M2 12c0-4.714 0-7.071 1.464-8.536C4.93 2 7.286 2 12 2s7.071 0 8.535 1.464C22 4.93 22 7.286 22 12s0 7.071-1.465 8.535C19.072 22 16.714 22 12 22s-7.071 0-8.536-1.465C2 19.072 2 16.714 2 12Z" />
@@ -120,10 +120,6 @@ export function AgentTasksPane({ agent }: AgentSettingsPaneProps) {
           </svg>
           {showForm ? t('common.collapse') : t('common.add')}
         </button>
-      </div>
-
-      <div className={asClass.secretsArd}>
-        {t('settings.tasks.description')}
       </div>
 
       {showForm && (
@@ -164,16 +160,16 @@ export function AgentTasksPane({ agent }: AgentSettingsPaneProps) {
               ))}
             </select>
           </div>
-          <button className={asClass.profileSave} disabled={!canSubmit} onClick={handleCreate} data-testid="agent-task-save">
+          <button className={asClass.tasksSave} disabled={!canSubmit} onClick={handleCreate} data-testid="agent-task-save">
             {busy ? t('settings.tasks.creating') : t('settings.tasks.create')}
           </button>
         </div>
       )}
 
-      {error && <div style={{ fontSize: 'var(--font-body)', color: 'var(--danger)', marginBottom: 10 }}>{error}</div>}
+      {error && <div style={{ fontSize: 'var(--font-body)', color: 'var(--danger-fg)', marginBottom: 10 }}>{error}</div>}
 
       {loading ? (
-        <div className={asClass.secretsEmpty}>{t('settings.tasks.loading')}</div>
+        <div className={asClass.tasksLoading}>{t('settings.tasks.loading')}</div>
       ) : tasks.length === 0 ? (
         <div className={asClass.tasksEmpty}>
           <div className={asClass.tasksIconBox}>
@@ -186,7 +182,6 @@ export function AgentTasksPane({ agent }: AgentSettingsPaneProps) {
             </svg>
           </div>
           <div>{t('settings.tasks.empty')}</div>
-          <div className={asClass.tasksSub}>{t('settings.tasks.emptyHint')}</div>
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -241,7 +236,7 @@ export function AgentTasksPane({ agent }: AgentSettingsPaneProps) {
                   borderRadius: 'var(--radius-control)',
                   border: '1px solid var(--border-subtle)',
                   background: 'var(--bg-elevated)',
-                  color: 'var(--danger)',
+                  color: 'var(--danger-fg)',
                   cursor: 'pointer',
                   display: 'flex',
                   alignItems: 'center',

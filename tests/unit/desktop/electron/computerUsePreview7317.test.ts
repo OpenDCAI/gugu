@@ -15,6 +15,7 @@ import { peekWindow } from '../../../../apps/desktop/electron/device-actions/fam
 import { createComputerControl } from '../../../../apps/desktop/electron/device-actions/computer-control'
 import { catalogAppsOf, type ExtensionAgentContribution } from '../../../../apps/desktop/electron/extension-session-mcp'
 import { COMPUTER_USE_LINE, guguAppsBlock } from '../../../../apps/desktop/electron/capability-bundle'
+import { SESSION_TOOL_DEFS } from '../../../../apps/desktop/electron/mcp/gugu-session-tool'
 
 /**
  * #7317 Computer Use 的「电脑」页签:agent 经设备动作(`device_call computer.*`)做的每一步,按宿主知道的任务记下,
@@ -484,7 +485,7 @@ describe('#7317 Computer Use 「电脑」 page', () => {
 
   // The owner's test (67f2a4fc): told 「用我的电脑计算器按一个 6+6+6+6+6 的和」, agents scripted Calculator with osascript
   // or took the browser's mouse for computer control; device_actions was in their list all along.
-  it('on, it tells every agent to operate the computer with device_actions / device_call; off, it says nothing', () => {
+  it('on, it routes the person\'s apps through device_actions / device_call without banning test-app debugging; off, it says nothing', () => {
     const contribution = (extensionId: string) => ({ extensionId, name: extensionId === 'computer-use' ? 'Computer Use' : extensionId, disclosure: 'progressive' }) as unknown as ExtensionAgentContribution
     const program = (extensionId: string, native?: 'computer-use' | 'browser-use') => ({ extensionId, server: extensionId, ...(native ? { native } : {}) }) as ExtensionProgram
     const on = catalogAppsOf([contribution('computer-use'), contribution('browser-use'), contribution('board')],
@@ -492,7 +493,10 @@ describe('#7317 Computer Use 「电脑」 page', () => {
     expect(on).toEqual([{ extensionId: 'computer-use', name: 'Computer Use', computerUse: true }, { extensionId: 'browser-use', name: 'browser-use' }, { extensionId: 'board', name: 'board' }])
     const block = guguAppsBlock(on, [])
     expect(block).toContain(COMPUTER_USE_LINE)
-    expect(COMPUTER_USE_LINE).toMatch(/device_actions with group computer, then device_call/)
+    expect(COMPUTER_USE_LINE.length).toBeLessThanOrEqual(250)
+    expect(COMPUTER_USE_LINE).toBe('Computer Use is on: use browser_* tools for webpages in this session\'s own browser tabs. Use device_actions with group computer, then device_call, only for the person\'s other desktop apps.')
+    expect(SESSION_TOOL_DEFS.find((tool) => tool.name === 'device_actions')?.description)
+      .toBe('Inspect native actions; Computer Use: control macOS/Windows desktop apps (screen, mouse, keys; computer). Omit device: devices/status/timezone/groups. With device: actions; group/name: read schema first. Other-device work: session_spawn there. available:false has unavailable_detail.')
     // It has no tools in the catalog: not one of the Apps that say "run them with catalog_call".
     expect(block).not.toMatch(/- Computer Use \(computer-use\)/)
     expect(block).toMatch(/- browser-use \(browser-use\)/)

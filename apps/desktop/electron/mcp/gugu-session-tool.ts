@@ -1,4 +1,4 @@
-import { parseConversationLink } from '@gugu/core/shared/ui/conversationLink'
+import { parseConversationLink } from '@gugu/core/shared/ui/guguLink'
 // session_* 域 —— 会话页会话管理的十个原子工具(发现 harness/model、列任务、起子会话、读、停、归档、开 tab)。
 // 与社交域、extension 域注册在同一个会话 MCP server 上;是否注册只取决于这条 grant 是否属于
 // 会话页会话。单 server 下「域」是架构一等公民(#4191):本文件只有这个域的定义,注册机制在
@@ -11,6 +11,7 @@ import { parseConversationLink } from '@gugu/core/shared/ui/conversationLink'
 import type { GuguMcpRequestTracker } from '../gugu-mcp-host'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { z } from 'zod'
+import { workReportSchema } from '../../src/session/shared/assistant-work'
 import { SESSION_MESSAGE_REPLY_TO, SESSION_MESSAGE_THEN } from '@gugu/core/local/agent/deliveryEnvelope'
 import {
   registerSessionpageTools,
@@ -32,11 +33,15 @@ export type SessionTransport = 'acp' | 'pty'
 // 参数从哪来只在一处写(上下文工程第一批 P5):session_id 在 session_get 上,device 在 session_spawn 上。
 const SESSION_ID_DESCRIPTION = 'session:<id>.'
 const sessionIdSchema = z.string().min(1)
+const arrayArgument = (value: unknown) => {
+  if (typeof value !== 'string' || !value.trim().startsWith('[')) return value
+  try { return JSON.parse(value) as unknown } catch { return value }
+}
 
 /** agent 的 session_* 跨机器(owner 2026-09-30 拍板):「在哪台机器上做」—— 只给还没有地址的动作;有地址的会话自己带路。 */
 const DEVICE_DESCRIPTION = 'device:<id> from session_devices; omit for this machine.'
 const deviceSchema = z.string().min(1)
-const sourceLinkSchema = z.string().trim().refine((value) => !!parseConversationLink(value)?.messageId, 'source_link requires gugu-chat://chatUUID/messageUUID').describe('Original source_link from delivery.')
+const sourceLinkSchema = z.string().trim().refine((value) => !!parseConversationLink(value)?.messageId, 'source_link requires gugu-chat://chatUUID/messageUUID').describe('Copy delivery source_link; omit if absent.')
 
 /** 置顶筛选:行上的 `pinned` 是本机任务库那一列(侧栏读的同一格)。 */
 const keepPinned = (row: Record<string, unknown>, args: Record<string, unknown>) =>
@@ -52,7 +57,8 @@ const SESSION_ROWS: SessionpageListSpec = {
   filterKeys: ['status', 'pinned'],
   statusFilter: true,
   keep: (row, args) =>
-    matchesAgentStatus(row as { status?: string | null; detail?: string | null }, args.status as string | undefined)
+    (row.status !== 'archived' || args.status === 'archived')
+    && matchesAgentStatus(row as { status?: string | null; detail?: string | null }, args.status as string | undefined)
     && keepPinned(row, args),
   eachItem: async (row, call) => {
     if (row.status === 'archived') return row
@@ -67,24 +73,24 @@ const SESSION_ROWS: SessionpageListSpec = {
 export const SESSION_TOOL_DEFS: readonly SessionpageToolDef[] = [
   {
     name: 'session_devices',
-    description: 'List your machines — this one and the other computers and 咕咕 servers on your account — with whether each is online and when it was last seen. Your cloud computer carries cloud_computer (asleep, waking or awake): asleep is not offline, and passing it as device wakes it first. Pass a device_id as device to session_spawn, session_peers, session_list_harnesses or session_list_models to work on that machine.',
+    description: 'List your devices, including phones without a task host, with online status, last seen time and task_runtime (capability and installed runtimes). Task hosting is separate from device_actions native-data grants. Your cloud computer carries cloud_computer (asleep, waking or awake): asleep is not offline, and passing it as device wakes it first. Pass a device_id as device to session_spawn, session_peers, session_list_harnesses or session_list_models to work on that machine.',
     schema: z.object({ ...listWindowShape }).strict(),
     action: 'devices',
     list: { namesOf: (row) => [row.label], catalog: true },
   },
   {
     name: 'device_actions',
-    description: 'Computer Use: control macOS/Windows desktop apps (open, view, click, type, mouse, keys; group computer). Also calendar, reminders, contacts, notes, mail, messages, files, clipboard, location, screen, notifications, Shortcuts, phone SMS/recordings/photos/health. Use device_actions then device_call; never scripts or deny access. No device: devices/status/timezone/groups; device: actions; group/name: full schema to read first. available:false: unavailable_detail says where to enable.',
+    description: 'Inspect native actions; Computer Use: control macOS/Windows desktop apps (screen, mouse, keys; computer). Omit device: devices/status/timezone/groups. With device: actions; group/name: read schema first. Other-device work: session_spawn there. available:false has unavailable_detail.',
     schema: z.object({
       device: deviceSchema.describe('Omit for all devices.').optional(),
-      group: z.string().min(1).describe('e.g. calendar').optional(),
-      name: z.string().min(1).describe('e.g. calendar.events.create').optional(),
+      group: z.string().min(1).optional(),
+      name: z.string().min(1).optional(),
     }).strict(),
     action: 'device_actions',
   },
   {
     name: 'device_call',
-    description: 'Run one action from device_actions and wait: {ok:true, data} or {ok:false, code, message}. device_offline / no_answer: it may not have run. not_granted / os_permission: tell the person where to turn it on. needs_confirmation: ask the person confirm.question; only if they agree, call again with confirmed:true — never set it yourself. Times without an offset are in the device\'s timezone.',
+    description: 'Run one listed action on your host; elsewhere session_spawn (enable its host first). Returns ok/data or ok:false/code/message. no_answer may have run. not_granted/os_permission: explain enablement. needs_confirmation: ask confirm.question; only after agreement retry confirmed:true. Unzoned times use device timezone.',
     schema: z.object({
       device: deviceSchema,
       name: z.string().min(1).describe('As device_actions lists it.'),
@@ -115,15 +121,15 @@ export const SESSION_TOOL_DEFS: readonly SessionpageToolDef[] = [
   },
   {
     name: 'session_spawn',
-    description: 'Start a persistent Gugu agent with its own identity. Omit transport to inherit your chat or terminal UI. Returns session_id and model.',
+    description: 'Start a persistent Gugu agent; returns stable session_id and model. Omit transport to inherit your chat or terminal UI.',
     schema: z.object({
       prompt: z.string().min(1),
       source_link: sourceLinkSchema.optional(),
-      title: z.string().min(1).describe('Its name; short. Default: automatic (Codex 3 …).').optional(),
+      title: z.string().min(1).describe('Short name; default automatic.').optional(),
       device: deviceSchema.describe(DEVICE_DESCRIPTION).optional(),
       // #7331 先复用:描述只说「新目录当场登记」时,agent 把每个自己切的 worktree 都传进来,对方机器上一个 worktree 一个项目。
-      project: z.string().min(1).describe('Existing project:<id> or its root folder. New folders register projects: only when requested; put subfolders/worktrees in prompt. Omit: current directory (remote: home).').optional(),
-      nest: z.boolean().describe('List it under you (session_children): for helpers / 子会话 / 小弟 that report back, not a standalone session. Default: true without project.').optional(),
+      project: z.string().min(1).describe('Existing project:<id> or root. New projects only when requested; subfolders/worktrees go in prompt. Omit: current directory (remote: home).').optional(),
+      nest: z.boolean().describe('Child reporting to you, listed in session_children. Default true without project.').optional(),
       transport: z.enum(['acp', 'pty']).optional(),
       harness: z.string().describe('From session_list_harnesses; default: your sub-agent default.').optional(),
       model: z.string().describe('From session_list_models (verbatim) or model.spawn_model_id; platform: ids bill Gugu credits.').optional(),
@@ -147,7 +153,7 @@ export const SESSION_TOOL_DEFS: readonly SessionpageToolDef[] = [
   },
   {
     name: 'session_children',
-    description: 'Direct children of this session (or of session_id), most recent first; preview.ended = how each one\'s last turn ended.',
+    description: 'Children/current state, not history; what happened when: activity_list. Newest first (default yours); archived: status:"archived"; preview.ended = last turn end.',
     schema: z.object({
       session_id: sessionIdSchema.optional(),
       ...listWindowShape,
@@ -159,7 +165,7 @@ export const SESSION_TOOL_DEFS: readonly SessionpageToolDef[] = [
   },
   {
     name: 'session_message',
-    description: 'Message your sessions on any machine directly: session:<id>, aid:<Agent ID> or gugu:<number> from session_peers. A stopped one is resumed first; each recipient reports delivered or failed (SESSION_DIRECT_NOT_LIVE). Assistant ↔ task agent exchanges are shown to their owner in that task chat. Chat members: message_send.',
+    description: 'Message sessions across devices: session:<id>, aid:<Agent ID>, gugu:<number> from session_peers. Resumes stopped recipients; reports delivery. Owner sees task exchanges. Chat members: message_send.',
     schema: z.strictObject({
       // ACP XML/JSON bridges sometimes serialize array parameters as JSON strings。协议边界兼容是
       // im-mcp spec 的既有合同(「合法的 JSON 序列化数组继续在协议边界兼容,裸字符串或非法 JSON
@@ -189,9 +195,12 @@ export const SESSION_TOOL_DEFS: readonly SessionpageToolDef[] = [
       // 地址写法顶层描述已列,拒绝时 refine 的原话再说一遍 —— 字段上不重复(#7335 预算)。
       ),
       text: z.string().min(1),
+      work_id: z.string().uuid().optional(),
+      work_result: workReportSchema.optional(),
+      files: z.preprocess(arrayArgument, z.array(z.object({ file_path: z.string().min(1), file_name: z.string().optional(), mime_type: z.string().optional() }).strict()).min(1).max(8)).optional(),
       source_link: sourceLinkSchema.optional(),
       // owner 10-17:发信方自己说发完以后去向,收件方在信封上读到(then="…")。是协议,不是程序推出的状态。
-      then: z.enum(SESSION_MESSAGE_THEN).describe('What you do next: continue, wait (on what: say) or stop.').optional(),
+      then: z.enum(SESSION_MESSAGE_THEN).describe('Your next step as sender: continue/wait/stop; this never stops recipients.').optional(),
       // 与 message_send 同名;取值是收到的那条信封的 msg。只核写法(与编排层同一个 regex),不查存在(发信方的话)。
       // refine 不进 JSON schema:不多花工具描述预算。
       reply_to_message_id: z.string().refine((value) => SESSION_MESSAGE_REPLY_TO.test(value), 'reply_to_message_id must be a msg:<uuid> as a delivery\'s msg gives it').optional(),
@@ -230,6 +239,18 @@ export const SESSION_TOOL_DEFS: readonly SessionpageToolDef[] = [
     action: 'open_in_tab',
   },
   {
+    name: 'session_list_tabs',
+    description: 'List the live tabs in your own task, including their ids and titles. Conversation tabs cannot be closed.',
+    schema: z.object({}).strict(),
+    action: 'list_tabs',
+  },
+  {
+    name: 'session_close_tab',
+    description: 'Close one supplementary tab in your own task. Unsaved files keep their usual confirmation; closed:false means the tab stayed open.',
+    schema: z.object({ tab_id: z.string().min(1).describe('From session_list_tabs or session_open_in_tab.') }).strict(),
+    action: 'close_tab',
+  },
+  {
     name: 'session_get',
     description: 'Read this session (omit session_id) or another of yours: project_id, transport, status, model, preview. Pass model.spawn_model_id, not model.id, to session_spawn.',
     schema: z.object({ session_id: sessionIdSchema.describe(SESSION_ID_DESCRIPTION).optional() }).strict(),
@@ -243,7 +264,7 @@ export const SESSION_TOOL_DEFS: readonly SessionpageToolDef[] = [
   },
   {
     name: 'session_archive',
-    description: 'Archive another session of yours, whoever spawned it — the same archive a person does on the session page: its process stops, it leaves the session list and its agent identity is removed, and a person can restore it from session history; session_children and session_get keep listing it with status "archived". with_children=true archives its whole subtree with it; default false archives only this one. Deleting a session is a person\'s action; there is no tool for it.',
+    description: 'Archive another session of yours: stop its process and hide it from lists, keeping its identity, name, history and group seats. It receives no messages while archived; restoring does not replay that interval. A person can restore it from history. session_get still reads it; session_children requires status:"archived". with_children=true archives its subtree; default false archives only this one. Only a person can delete a session.',
     schema: z.object({
       session_id: sessionIdSchema,
       with_children: z.boolean().describe('Also archive every session under it (its children, transitively, on any of your machines) — the "together with its child sessions" box on the session page. Machines that could not be reached are listed in not_reached.').optional(),
@@ -264,7 +285,10 @@ export const SESSION_TOOL_DEFS: readonly SessionpageToolDef[] = [
 /**
  * 把 session_* 原子工具注册进已有 MCP server，动作交给宿主的会话分派器。
  *
- * 定义一字不随 grant 变(摩擦单 F54):工具清单是模型前缀的一段,按会话变就让每个新会话的首轮吃不到缓存。
+ * F54: keep fixed definitions within each role. The coordinator omits device_call;
+ * executors retain it, including those in the assistant's workspace. These are two
+ * fixed surfaces, not per-session variants; assistants share their own prefix and
+ * already have a different system prompt from executors. No shared settings deny.
  * 调用方自己是终端还是面板(#4378 曾写进 session_spawn 的说明)由会话的 surface 自述块说
  * (capability-bundle.ts guguSessionSurfaceBody)。
  */
@@ -272,6 +296,11 @@ export function registerGuguSessionTools(
   server: McpServer,
   runAction: SessionDispatcher | undefined,
   track: GuguMcpRequestTracker,
+  personalAssistant = false,
 ): void {
-  registerSessionpageTools(server, SESSION_TOOL_DEFS, runAction, (tool) => `${tool} is unavailable for this grant`, track)
+  const defs = personalAssistant ? SESSION_TOOL_DEFS.filter(def => def.name !== 'device_call').map(def=>def.name==='session_message'?{
+    ...def,description:'Send to session:/aid:/gugu: from session_peers. Chats: message_send.',
+    schema:(def.schema as z.ZodObject).extend({purpose:z.enum(['reply','task','new']).describe('reply: relay/question; task: result required; new: unrelated task.')}),
+  }:def) : SESSION_TOOL_DEFS
+  registerSessionpageTools(server, defs, runAction, (tool) => `${tool} is unavailable for this grant`, track)
 }

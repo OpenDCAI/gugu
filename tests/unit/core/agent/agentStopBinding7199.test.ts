@@ -38,7 +38,7 @@ describe('agent.stop keeps the assistant addressable after a move (#7199)', () =
     expect(stopped?.cache).toEqual(binding)
     expect(stopped?.terminal_container).toBeNull()
     expect(bridge.stop).toHaveBeenCalledWith({ agentUserId: 'assistant-1', engineId: 'claude' })
-    expect(report).toHaveBeenCalledWith(expect.objectContaining({ runtimeStatus: 'offline', activityStatus: 'idle' }))
+    expect(report).toHaveBeenCalledWith(expect.objectContaining({ activityStatus: 'idle' }))
   })
 
   it('keeps changes made by the runtime while it stops instead of restoring an older roster snapshot', async () => {

@@ -5,14 +5,21 @@
 // `gugu-bundle-emdash-taskpage` esbuild plugin (vite.config.mts) has a stable entry point to bundle
 // → dist-electron/taskpage/emdash-main-bridge.cjs. The host (gugu main.ts) requires that .cjs and calls
 // the ONE entry + bridges IPC — it never reaches into the session backend's DB / pty / services individually.
+export { injectEmdashPromptDetached } from '../session/main/core/acp/inject-prompt'
+export { recordConfirmedDeviceSleep } from '../session/main/core/activity/collector'
+export { readAssistantWorkOwnerReceipts } from '../session/main/core/sessions/assistant-work-owner-receipts'
 export {
   bootEmdashModule,
+  startNativeConversationInboxHost,
+  setSessionAdmissionPreparation,
+  assistantPanelLocal,
+  readCurrentActivityInput,
+  readCurrentAssistantWorkInput,
   disposeEmdashModule,
   emdashRpcRouter,
   // @@@sessionpage TASKPAGE-FUSION — control-channel entries: the host injects a new ACP turn into a
   // live session-page conversation (inter-agent messaging in the 任务 tab) + reads live-session summaries for
   // a liveness pre-check. Both fail-loud; never a pty write.
-  injectEmdashPromptDetached,
   cancelEmdashTurn,
   ensureEmdashSession,
   reloadEmdashSession,
@@ -25,6 +32,7 @@ export {
   // @@@sessionpage TASKPAGE-FUSION — a project's display name, so the host can name the gugu group it
   // mirrors that project onto (spec ⑨「项目 = 群」) without deep-importing the session backend's projects/DB layer.
   emdashProjectName,
+  emdashProjectRoot,
   emdashTakeBirthGroup,
   // 资源库 → MCP:这条任务带上的那几台(会话能力包的桥问它)。
   emdashLibraryMcpForSession,
@@ -48,18 +56,23 @@ export {
   emdashOpenSessionFile,
   // @@@sessionpage TASKPAGE-FUSION — the live-conversation set + a "something may have been removed"
   // trigger, so the host can reconcile its contacts/groups projection and reap agents whose conversation
-  // was archived or deleted (spec ⑨ 删除必同步 — 不能只同步增).
+  // was truly deleted; archived conversations keep their original identities.
   emdashSessionpageInventory,
+  emdashSessionArchivalState,
+  emdashSessionMessageRefused,
   onEmdashSessionpageReapTrigger,
   runSessionAction,
   // agent 的 session_* 跨机器(owner 2026-09-30):别的机器发来的动作、本机发起方的自述、「这个 id 在不在本机」。
   // 同 runEmdashExtensionAction 那条教训:漏在这张清单外只会在真有人跨机器时才炸。
   runRemoteSessionAction,
+  readAssistantWorkReceipts,
   sessionCallerFacts,
   localSessionIds,
   // 宿主的唤醒入口要读它:引擎进程在不在跑、归宿主还是 tmux(漏在这里只会在唤醒时才发现)。
   sessionProcess,
   setOtherMachines,
+  // 打开会话那一条路上只有宿主知道的两件事(agent 的会话在哪、本机会话的平台恢复)。
+  setSessionOpening,
   // #7341 第二步 项目跨设备:`projects.*` 的项目群四件事由宿主实现(sessionpage-project-group-binding.ts),
   // 对照变了经 notify 让渲染层重读。漏在这张清单外只会在有人「并进来」时才炸。
   setProjectGroupHost,
@@ -68,6 +81,7 @@ export {
   // agent 的 session_* 跨机器:别的机器问 `agentSession.*` 时由宿主答;别的机器上的 App 发来的消息由这台的 App 发信答。
   setAgentSessionHost,
   answerAppMessage,
+  spawnAgentForExtension,
   answerAppReadFile,
   answerAppCall,
   // @@@2374 —— `gugu_session` 的 app_* 动作分派。宿主(main.ts)按 `EmdashBridgeModule`
@@ -77,7 +91,7 @@ export {
   // 全是坏的(dev 上实证)。
   runEmdashExtensionAction,
   // #6387 系统交给咕咕的 gugu://ext/… 链接。同上一条教训:漏在这里只会在有人点链接时才发现。
-  openEmdashExtensionLink,
+  openEmdashLink,
   // #6387 每条会话开场时读:已启用扩展带来的 MCP 程序与 skill。
   emdashExtensionAgentContributions,
   // #6615 扩展网关经它调 main 托管的扩展程序。
@@ -88,9 +102,6 @@ export {
   emdashExtensionCheckAvailable,
   // 少了它,guide_read apps-ui 只有字没有图 —— agent 写之前看不到咕咕的样子长什么样。
   emdashLookPicture,
-  // @@@sessionpage TASKPAGE-FUSION otty-state — subscribe to the consolidated agent-attention count
-  // (agents blocked on the human) so the host can badge the 任务 sidebar tab.
-  onEmdashAttentionChanged,
   // #4008 —— 会话页会话的 agent 状态(working/…)是「这个 agent 在不在干活」的事实源;宿主读它、发布成
   // 权威 activity,咕咕的单聊/会话列表/群于是显示同一件事,而不再各自从投递命令的执行区间反推。
   onAgentStatus,
@@ -99,7 +110,6 @@ export {
   // TEST-ONLY (host exposes env-gated) — feed a real AgentEvent into the real pipeline for the otty e2e.
   emitSessionpageAgentEventForTest,
   emitSessionpageAgentEvent,
-  emitSessionpageAgentFailure,
   // @@@sessionpage TASKPAGE-FUSION — register a gugu-built MCP injector so session-page codex sessions get
   // the gugu MCP send tool + gugu identity at session start (enables the target agent to reply).
   // @@@5301 会话页 agent 通知正文的注入口(见 notification-copy.ts)。
@@ -130,10 +140,12 @@ export {
   // 手机看管 agent 的设备 RPC 处理器。经桥拿 ⇒ 与 router / conversation provider 同一份实例;
   // 宿主直接 import 会打出第二份,写侧的运行时状态就都看不见了。
   createSessionpageSessionDeviceRpcHandlers,
+  captureSessionpageProjectionViewer,
   // 随心跳上云的会话状态摘要:机器离线后手机只剩它可读。同上,经桥拿。
   sessionpageSessionDigest,
   // server 换版看的忙闲(activity.json)。同上,经桥拿。
   sessionpageBusyForVersionSwitch,
+  onSessionpageAuthorizationActivityChange,
   setSessionLiveNotifier,
   listPendingSessionDirectMessages,
   acceptPendingSessionDirectMessage,
@@ -168,6 +180,8 @@ export { registerWebviewAttachPolicy } from '@main/app/webview-policy'
 export { agentSessionContext as emdashAgentSessionContext } from '@main/core/extensions/extension-agent-context'
 // #7191 会话的 agent 操作它会话页里的浏览器页签:宿主的 MCP 层(Playwright 工具)经它拿到连那个页签的 transport。
 export { agentBrowserBridge as emdashAgentBrowser } from '@main/core/browser/agent-browser'
+// @@@touchid-passkey 网页要选通行密钥时,对话框挂在那张网页此刻所在、看得见的咕咕窗口上(停放着 / 窗口收起 ⇒ 无)。
+export { visibleHostOfPage as emdashVisibleHostOfPage } from '@main/core/browser/browser-page-views'
 // #7317 Computer Use 的「电脑」页签:宿主告诉 App 的页面「有新的一步」,任务第一次用电脑时把那一页开到任务里。
 export { notifyFromNativeProgram as emdashNotifyFromNativeProgram } from '@main/core/extensions/extension-programs'
 export { openTaskPagesOfApp as emdashOpenTaskPagesOfApp } from '@main/core/sessions/session-orchestration'
@@ -179,3 +193,5 @@ export { onInstalledAppsChanged as emdashOnInstalledAppsChanged } from '@main/co
 export { startSessionPtyAttachServer } from '@main/core/pty/attach/start-attach-server'
 export { broadcastDeviceSessionHostEvent, setDeviceSessionHostShellHandlers } from '@main/host-ws/device-session-host'
 export { setDirectTerminalResolver, type DirectTerminalResolver } from '@main/core/pty/direct-terminal/controller'
+// #113 这台机器的项目记到账号上:那一份,与「它可能变了」的信号(订阅在 boot 之后,同 onEmdashSessionpageReapTrigger)。
+export { listDeviceProjectRecords, onDeviceProjectsMaybeChanged } from '@main/core/projects/operations/device-project-records'

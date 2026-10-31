@@ -26,6 +26,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { translateSessionMessage } from '@renderer/localization/locale-store';
 import { reaction, runInAction } from 'mobx';
+import { WireError } from '@gugu/session-wire';
+import { log } from '@renderer/utils/logger';
 
 const startupQueue = vi.fn().mockResolvedValue({ success: true, data: { queued: true } });
 vi.mock('@renderer/lib/acp/runtime-client', () => ({
@@ -116,15 +118,14 @@ describe('#7103 发送失败只说一次', () => {
     expect(toasts).toEqual([]);
   });
 
-  it('[阳性对照] 没结算成一轮的失败照样弹,正文 ❌ 原文', async () => {
-    const { store, answered } = liveStore({ type: 'invalid_state', message: 'session is closing at 127.0.0.1:4242' });
+  it('shows a sanitized reason for a runtime refusal that did not settle a turn', async () => {
+    const { store, answered } = liveStore({ type: 'invalid_state', message: 'session is closing in /Users/someone/runtime\n    at close' });
     store.submitPrompt('hi');
     await answered;
     await Promise.resolve();
     expect(toasts).toHaveLength(1);
     expect(toasts[0]?.title).toBe(translateSessionMessage('acpFailure.sendMessage'));
-    expect(toasts[0]?.description).toBe(translateSessionMessage('guguCatalog.reason.service-unavailable'));
-    expect(toasts[0]?.description).not.toContain('127.0.0.1');
+    expect(toasts[0]?.description).toBe('session is closing in [path]');
   });
 
   // #4657 / #7103 D1:拒绝方是 agent 自己(ACP 那侧带病因)时递它的原话 —— 一行,去掉本机路径。
@@ -323,8 +324,7 @@ describe('#3507 会话不在时的其余副作用', () => {
     const store = makeStore();
     await invoke(store);
     expect(toasts.some((entry) => entry.title === title), `${title} was silently skipped`).toBe(true);
-    // #7103 原文只进日志:正文按原因表说,没有原因码的就是「咕咕这边出错了」。
-    expect(toasts.at(-1)?.description).toBe(translateSessionMessage('guguCatalog.reason.service-unavailable'));
+    expect(toasts.at(-1)?.description).toBe('ACP session is not connected');
     expect(toasts.at(-1)?.variant).toBe('destructive');
   });
 
@@ -356,6 +356,26 @@ describe('#3507 会话不在时的其余副作用', () => {
       }
     )._refreshHistory();
     expect(toasts.some((entry) => entry.title === translateSessionMessage('acpFailure.refreshHistory'))).toBe(true);
+  });
+
+  it('explains a disconnected history refresh and persists its cause at error level', async () => {
+    const store = makeStore();
+    store.session = { getHistory: async () => { throw new WireError('DISCONNECTED', 'Wire transport disconnected'); } } as never;
+    const logged = vi.spyOn(log, 'error').mockImplementation(() => {});
+    try {
+      await (store as unknown as { _refreshHistory: () => Promise<void> })._refreshHistory();
+      expect(toasts.at(-1)).toMatchObject({
+        title: translateSessionMessage('acpFailure.refreshHistory'),
+        description: translateSessionMessage('taskError.connectionLost'),
+      });
+      expect(logged).toHaveBeenCalledWith('ACP chat action failed', {
+        sessionId: store.sessionId,
+        title: 'acpFailure.refreshHistory',
+        error: 'Wire transport disconnected\ncode=DISCONNECTED',
+      });
+    } finally {
+      logged.mockRestore();
+    }
   });
 
   it('history reconciliation does not erase a newer active turn', async () => {

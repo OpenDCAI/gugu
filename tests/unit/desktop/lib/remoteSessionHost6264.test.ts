@@ -3,7 +3,8 @@ import { describe, expect, it, vi } from 'vitest'
 // 线本身由注入的 deps 替掉;真的 deviceRpc 模块在测试里不求值(它一加载就挂 Supabase / 渲染层全局)。
 vi.mock('@/lib/deviceRpc', () => ({ callDeviceRpc: vi.fn(), subscribeDeviceRpcEvents: vi.fn() }))
 import { MIN_SERVER_PROTOCOL, REMOTE_PROTOCOL_VERSION } from '@gugu/core/cloud/serverMachineHealth'
-import { openRemoteSessionHostPipe, SessionHostTooOldError } from '@/lib/remoteSessionHost'
+import { DeviceRpcChannelError, DeviceRpcTimeoutError } from '@gugu/core/cloud/deviceRpcRequester'
+import { HEARTBEAT_REPLY_TIMEOUT_MS, openRemoteSessionHostPipe, SessionHostTooOldError, type DeviceRpcDeps } from '@/lib/remoteSessionHost'
 import { SESSION_HOST_FRAME_EVENT, SESSION_HOST_READY_EVENT } from '@/session/shared/lib/ipc/session-host-device-frames'
 
 type Call = { type: string; payload: Record<string, unknown> }
@@ -14,7 +15,8 @@ function fakeDevice(reply: (call: Call) => Reply, options: { ssh?: boolean } = {
   const upgrades: string[] = []
   let listener: ((payload: unknown) => void) | null = null
   let resubscribed: ((rejoin: boolean) => void) | undefined
-  const deps = {
+  let switching: (() => unknown) | undefined
+  const deps: DeviceRpcDeps = {
     call: (async (_device: string, type: string, payload: unknown) => {
       const call = { type, payload: payload as Record<string, unknown> }
       calls.push(call)
@@ -23,10 +25,11 @@ function fakeDevice(reply: (call: Call) => Reply, options: { ssh?: boolean } = {
     subscribe: ((
       _device: string,
       cb: (payload: unknown) => void,
-      options?: { onChannelResubscribed?: (rejoin: boolean) => void },
+      options?: { onChannelResubscribed?: (rejoin: boolean) => void; onChannelSwitching?: () => unknown },
     ) => {
       listener = cb
       resubscribed = options?.onChannelResubscribed
+      switching = options?.onChannelSwitching
       return () => {
         listener = null
       }
@@ -38,12 +41,30 @@ function fakeDevice(reply: (call: Call) => Reply, options: { ssh?: boolean } = {
       return true
     },
   }
-  return { deps, calls, upgrades, push: (payload: unknown) => listener?.(payload), resubscribe: (rejoin = true) => resubscribed?.(rejoin) }
+  return { deps, calls, upgrades, push: (payload: unknown) => listener?.(payload), resubscribe: (rejoin = true) => resubscribed?.(rejoin), switchChannel: () => switching?.() }
 }
 
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0))
 
 describe('remote task host pipe over device RPC', () => {
+  it('waits for the tunnel event before subscribing or starting the taskhost.open RPC budget', async () => {
+    vi.useFakeTimers()
+    try {
+      const device = fakeDevice(() => ({ result: { opened: true, protocol: REMOTE_PROTOCOL_VERSION } }))
+      let ready!: () => void
+      const tunnel = new Promise<void>((resolve) => { ready = resolve })
+      const opening = openRemoteSessionHostPipe('dev', { ...device.deps, waitForTunnel: () => tunnel })({ onFrame: () => undefined, onClose: () => undefined })
+      await vi.advanceTimersByTimeAsync(60_000)
+      expect(device.calls).toEqual([])
+      ready()
+      const pipe = await opening
+      expect(device.calls.map((call) => call.type)).toEqual(['taskhost.open'])
+      pipe.close()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('opens, batches frames into one request, and delivers pushes in seq order', async () => {
     const device = fakeDevice(() => ({ result: { ok: true, protocol: REMOTE_PROTOCOL_VERSION } }))
     const frames: unknown[] = []
@@ -104,6 +125,16 @@ describe('remote task host pipe over device RPC', () => {
     expect(device.upgrades).toEqual(['d22'])
   })
 
+  it.each(['attach-refusal', 'open-refusal'])('requests the existing desktop version-matching upgrade after a server_outdated %s', async kind => {
+    const device = fakeDevice(() => {
+      if (kind === 'attach-refusal') throw Object.assign(new Error('please update the remote machine'), { code: 'server_outdated' })
+      return { error: { code: 'server_outdated', message: 'please update the remote machine' } }
+    }, { ssh: true })
+    const error = await openRemoteSessionHostPipe('old-account-process', device.deps)({ onFrame: () => undefined, onClose: () => undefined }).catch((e: unknown) => e)
+    expect(error).toBeInstanceOf(SessionHostTooOldError)
+    expect(device.upgrades).toEqual(['old-account-process'])
+  })
+
   it('升级只因为版本:开线的其它失败(拒绝、出错、超时、传输断了)都照实抛出,❌ 替它升级', async () => {
     for (const code of ['internal_error', 'not_found', 'ssh_unreachable', 'ssh_link_refused', 'device_offline', 'forbidden']) {
       const device = fakeDevice(() => ({ error: { code, message: 'nope' } }), { ssh: true })
@@ -141,7 +172,7 @@ describe('remote task host pipe over device RPC', () => {
     pipe.send('{"t":"hb"}')
     await flush()
     await flush()
-    expect(reasons).toEqual(['frame rejected: not_open'])
+    expect(reasons).toEqual(['frame rejected: not_open (client client00000001)'])
   })
 
   it('closes when the channel comes back after a drop (pushes in the gap are gone)', async () => {
@@ -150,6 +181,33 @@ describe('remote task host pipe over device RPC', () => {
     await openRemoteSessionHostPipe('dev', device.deps)({ onFrame: () => undefined, onClose: (r) => reasons.push(r) })
     device.resubscribe()
     expect(reasons).toEqual(['channel resubscribed'])
+  })
+
+  // 2026-10-27 owner「每次打开都闪一下」:开机时频道从咕咕云换到设备连接是计划内的,窗口关掉要标明是交接,
+  // 客户端据此当场开新窗口、界面照「通着」。❌ 标成交接 = 照旧读成断线(侧栏掉点、文件树「无响应」)。
+  it('频道换通道(新的那条已接好):开着的窗口以交接关掉', async () => {
+    const device = fakeDevice(() => ({ result: { protocol: REMOTE_PROTOCOL_VERSION } }))
+    const closes: Array<[string, { handoff?: boolean } | undefined]> = []
+    await openRemoteSessionHostPipe('dev', device.deps)({ onFrame: () => undefined, onClose: (r, o) => closes.push([r, o]) })
+    // #625 交接的窗口让旧通道撤掉前替它说一声关(那台机器按通道收窗口,❌ 等心跳丢了)。
+    expect(device.switchChannel()).toEqual({ type: 'taskhost.close', payload: { client: 'client00000001' } })
+    expect(closes).toEqual([['channel switching transport', { handoff: true }]])
+    // 新管道接好时的那一声(rejoin=false)不再关一次。
+    device.resubscribe(false)
+    expect(closes).toHaveLength(1)
+  })
+
+  it('频道换通道时开线那一问还在旧通道上:当场放弃,客户端当场再开(与重接上同一个码)', async () => {
+    let answer: (reply: Reply) => void = () => undefined
+    const device = fakeDevice((call) =>
+      call.type === 'taskhost.open' ? (new Promise<Reply>((resolve) => { answer = resolve }) as unknown as Reply) : { result: { closed: true } },
+    )
+    const opening = openRemoteSessionHostPipe('dev', device.deps)({ onFrame: () => undefined, onClose: () => undefined }).catch((e: unknown) => e)
+    await flush()
+    expect(device.switchChannel(), '还没开好的窗口那台机器上没有,❌ 替它说关').toBeUndefined()
+    // ❌ 放弃时它会一直挂到开线超时:这里只给一拍。
+    expect(await Promise.race([opening, flush().then(() => 'still opening')])).toMatchObject({ code: 'channel_resubscribed' })
+    answer({ result: { opened: true, protocol: REMOTE_PROTOCOL_VERSION } })
   })
 
   it('#6264 开窗口时报这台桌面是哪一版(那台咕咕 server 据此让这个账号跑匹配的版本);拿不到就不报', async () => {
@@ -240,5 +298,244 @@ describe('remote task host pipe over device RPC', () => {
     const unwatch = openRemoteSessionHostPipe('ssh-dev', device.deps).watchPeerRestart!(() => undefined)
     expect(subscribe).not.toHaveBeenCalled()
     unwatch()
+  })
+})
+
+// #156 那台机器收下一批就当场回:桌面连它时,只装着心跳的那一批回得慢 = 那台机器没了。
+describe('heartbeat-only batches are a liveness probe on the desktop (#156)', () => {
+  const PROBE = { heartbeatReplyTimeoutMs: HEARTBEAT_REPLY_TIMEOUT_MS }
+  function timedDevice(answer: (type: string, payload: { seq?: number }) => Promise<Reply>) {
+    const frameTimeouts: Array<number | undefined> = []
+    let listener: ((payload: unknown) => void) | null = null
+    const deps = {
+      ...fakeDevice(() => ({ result: { ok: true, protocol: REMOTE_PROTOCOL_VERSION } })).deps,
+      call: (async (_device: string, type: string, payload: { seq?: number }, options?: { timeoutMs?: number }) => {
+        if (type === 'taskhost.open') return { result: { ok: true, protocol: REMOTE_PROTOCOL_VERSION } }
+        if (type === 'taskhost.frame') frameTimeouts.push(options?.timeoutMs)
+        return answer(type, payload)
+      }) as never,
+      subscribe: ((_device: string, cb: (payload: unknown) => void) => {
+        listener = cb
+        return () => { listener = null }
+      }) as never,
+    }
+    return { deps, frameTimeouts, push: (payload: unknown) => listener?.(payload) }
+  }
+  const later = () => {
+    let settle: (outcome: Reply | Error) => void = () => undefined
+    const promise = new Promise<Reply>((resolve, reject) => {
+      settle = (outcome) => (outcome instanceof Error ? reject(outcome) : resolve(outcome))
+    })
+    return { promise, settle }
+  }
+
+  it('waits only a few seconds for a heartbeat-only batch; a batch that carries work keeps the long wait', async () => {
+    const device = timedDevice(async () => ({ result: { ok: true } }))
+    const pipe = await openRemoteSessionHostPipe('dev', device.deps, PROBE)({ onFrame: () => undefined, onClose: () => undefined })
+    pipe.send('{"t":"hb"}', 'heartbeat')
+    await flush()
+    pipe.send('{"t":"hb"}', 'heartbeat')
+    pipe.send('{"t":"sub","channel":"x"}')
+    await flush()
+    pipe.send('{"t":"sub","channel":"y"}')
+    await flush()
+    expect(device.frameTimeouts).toEqual([HEARTBEAT_REPLY_TIMEOUT_MS, 20_000, 20_000])
+    expect(HEARTBEAT_REPLY_TIMEOUT_MS).toBeLessThanOrEqual(5_000)
+  })
+
+  it('the phone does not probe: its heartbeats wait as long as work (a cellular handover is not a dead machine)', async () => {
+    const device = timedDevice(async () => ({ result: { ok: true } }))
+    const pipe = await openRemoteSessionHostPipe('dev', device.deps)({ onFrame: () => undefined, onClose: () => undefined })
+    pipe.send('{"t":"hb"}', 'heartbeat')
+    await flush()
+    expect(device.frameTimeouts).toEqual([20_000])
+  })
+
+  it('a heartbeat queued behind a batch still waiting for its answer is not a probe (a slow upload is not a dead machine)', async () => {
+    const upload = later()
+    const device = timedDevice((type, payload) => (payload.seq === 0 ? upload.promise : Promise.resolve({ result: { ok: true } })))
+    const pipe = await openRemoteSessionHostPipe('dev', device.deps, PROBE)({ onFrame: () => undefined, onClose: () => undefined })
+    pipe.send('{"t":"invoke","big":true}')
+    await flush()
+    pipe.send('{"t":"hb"}', 'heartbeat')
+    await flush()
+    upload.settle({ result: { ok: true } })
+    await flush()
+    pipe.send('{"t":"hb"}', 'heartbeat')
+    await flush()
+    expect(device.frameTimeouts).toEqual([20_000, 20_000, HEARTBEAT_REPLY_TIMEOUT_MS])
+  })
+
+  it('a heartbeat that gets no answer closes the link, so the client reconnects and the machine reads as reconnecting', async () => {
+    const device = timedDevice(async (type) => {
+      if (type === 'taskhost.frame') throw new Error(`no reply to ${type} within ${HEARTBEAT_REPLY_TIMEOUT_MS} ms (asked twice)`)
+      return { result: { ok: true } }
+    })
+    const closed: string[] = []
+    const pipe = await openRemoteSessionHostPipe('dev', device.deps, PROBE)({ onFrame: () => undefined, onClose: (reason) => closed.push(reason) })
+    pipe.send('{"t":"hb"}', 'heartbeat')
+    await flush()
+    await flush()
+    expect(closed).toEqual([`frame not delivered: Error: no reply to taskhost.frame within ${HEARTBEAT_REPLY_TIMEOUT_MS} ms (asked twice) (client client00000001)`])
+  })
+
+  it('no answer to the probe, but the machine was heard from meanwhile: the link stays (it is busy, not gone)', async () => {
+    const probe = later()
+    const device = timedDevice(() => probe.promise)
+    const closed: string[] = []
+    const frames: unknown[] = []
+    const pipe = await openRemoteSessionHostPipe('dev', device.deps, PROBE)({ onFrame: (f) => frames.push(f), onClose: (reason) => closed.push(reason) })
+    pipe.send('{"t":"hb"}', 'heartbeat')
+    await flush()
+    device.push({ type: SESSION_HOST_FRAME_EVENT, client: 'client00000001', seq: 0, frames: [{ f: 'a big read result' }] })
+    probe.settle(new Error('no reply to taskhost.frame within 4000 ms (asked twice)'))
+    await flush()
+    expect(frames).toEqual(['a big read result'])
+    expect(closed).toEqual([])
+  })
+})
+
+describe('device-link frame timeout recovery', () => {
+  it.each([1, 2])('keeps the same window and batch after %i missing acknowledgements', async (timeouts) => {
+    const device = fakeDevice(() => ({ result: { protocol: REMOTE_PROTOCOL_VERSION } }))
+    const attempts: unknown[] = []
+    const call = device.deps.call
+    device.deps.call = (async (deviceId: string, type: string, payload: unknown) => {
+      if (type !== 'taskhost.frame') return call(deviceId, type, payload)
+      attempts.push(payload)
+      if (attempts.length <= timeouts) throw new DeviceRpcTimeoutError('lost acknowledgement')
+      return { result: { ok: true } }
+    }) as never
+    const closed = vi.fn()
+    const pipe = await openRemoteSessionHostPipe('dev', { ...device.deps, usesDeviceLink: () => true })({ onFrame: () => undefined, onClose: closed })
+    pipe.send('operation')
+    await flush()
+    expect(attempts).toHaveLength(timeouts + 1)
+    expect(attempts.every((batch) => batch === attempts[0])).toBe(true)
+    expect(closed).not.toHaveBeenCalled()
+    pipe.send('next operation')
+    await flush()
+    expect(attempts.at(-1)).toMatchObject({ seq: 1 })
+  })
+
+  it.each([false, true])('the real host acknowledges duplicate seqs and fills sequence gaps without repeating operations (first batch lost: %s)', async (lostBatch) => {
+    const { createSessionHostDeviceRpcHandlers } = await import('../../../../apps/desktop/electron/session/main/host-ws/device-session-host')
+    type Host = import('../../../../apps/desktop/electron/session/main/host-ws/frame-host').FrameSessionHost
+    type Socket = import('../../../../apps/desktop/electron/session/main/host-ws/frame-host').FrameSocket
+    type Context = import('@gugu/core/cloud/deviceRpcResponder').DeviceRpcHandlerContext
+    const delivered: unknown[] = []
+    const host = createSessionHostDeviceRpcHandlers({ host: () => ({
+      attach: (socket: Socket) => { socket.onFrame((frame) => delivered.push(frame)) },
+    }) as unknown as Host })
+    const replies: unknown[] = []
+    let attempts = 0
+    let rejectFirst!: (error: Error) => void
+    const device = fakeDevice(() => ({}))
+    const ctx = { publishEvent: () => undefined, request: { user_id: 'owner' } } as unknown as Context
+    const closed = vi.fn()
+    try {
+      const pipe = await openRemoteSessionHostPipe('dev', {
+        ...device.deps,
+        usesDeviceLink: () => true,
+        call: (async (_device: string, type: string, payload: unknown) => {
+          const first = type === 'taskhost.frame' && ++attempts === 1
+          if (first && lostBatch) return new Promise((_, reject) => { rejectFirst = reject })
+          const reply = await host.handlers[type]!(payload, ctx)
+          if (type === 'taskhost.frame') {
+            replies.push(reply)
+            if (first) return new Promise((_, reject) => { rejectFirst = reject })
+          }
+          return reply
+        }) as never,
+      })({ onFrame: () => undefined, onClose: closed })
+      pipe.send('execute once')
+      await flush()
+      pipe.send('next operation')
+      await flush()
+      expect(delivered).toEqual(lostBatch ? [] : ['execute once', 'next operation'])
+      rejectFirst(new DeviceRpcTimeoutError('lost batch or acknowledgement'))
+      await flush()
+      expect(replies).toEqual(Array.from({ length: lostBatch ? 2 : 3 }, () => ({ result: { ok: true } })))
+      expect(delivered).toEqual(['execute once', 'next operation'])
+      expect(closed).not.toHaveBeenCalled()
+    } finally {
+      host.dispose()
+    }
+  })
+
+  it('an eight-second probe stall recovers on the third attempt; a persistent stall closes after twelve seconds', async () => {
+    vi.useFakeTimers()
+    try {
+      for (const recovers of [true, false]) {
+        const device = fakeDevice(() => ({ result: { protocol: REMOTE_PROTOCOL_VERSION } }))
+        let attempts = 0
+        const closed = vi.fn()
+        const call = device.deps.call
+        const pipe = await openRemoteSessionHostPipe('dev', {
+          ...device.deps,
+          usesDeviceLink: () => true,
+          call: (async (id: string, type: string, payload: unknown) => {
+            if (type !== 'taskhost.frame') return call(id, type, payload)
+            attempts += 1
+            if (recovers && attempts === 3) return { result: { ok: true } }
+            return new Promise((_, reject) => setTimeout(() => reject(new DeviceRpcTimeoutError('probe deadline')), 4_000))
+          }) as never,
+        }, { heartbeatReplyTimeoutMs: 4_000 })({ onFrame: () => undefined, onClose: closed })
+        pipe.send('heartbeat', 'heartbeat')
+        await vi.advanceTimersByTimeAsync(8_000)
+        expect(attempts).toBe(3)
+        expect(closed).not.toHaveBeenCalled()
+        await vi.advanceTimersByTimeAsync(4_000)
+        expect(closed).toHaveBeenCalledTimes(recovers ? 0 : 1)
+        expect(attempts).toBe(3)
+      }
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it.each([false, true])('preserves cloud behavior and never retries a confirmed transport closure (device link: %s)', async (deviceLink) => {
+    const device = fakeDevice(() => ({ result: { protocol: REMOTE_PROTOCOL_VERSION } }))
+    let attempts = 0
+    const call = device.deps.call
+    const closed = vi.fn()
+    const pipe = await openRemoteSessionHostPipe('dev', {
+      ...device.deps,
+      usesDeviceLink: () => deviceLink,
+      call: (async (id: string, type: string, payload: unknown) => {
+        if (type !== 'taskhost.frame') return call(id, type, payload)
+        attempts += 1
+        if (deviceLink) throw new DeviceRpcChannelError('SSH heartbeat failed', 'closed')
+        throw new DeviceRpcTimeoutError('cloud timeout')
+      }) as never,
+    })({ onFrame: () => undefined, onClose: closed })
+    pipe.send('operation')
+    await flush()
+    expect(attempts).toBe(1)
+    expect(closed).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not retry after the window was closed while its frame acknowledgement was pending', async () => {
+    const device = fakeDevice(() => ({ result: { protocol: REMOTE_PROTOCOL_VERSION } }))
+    let reject!: (error: Error) => void
+    let attempts = 0
+    const call = device.deps.call
+    const closed = vi.fn()
+    const pipe = await openRemoteSessionHostPipe('dev', {
+      ...device.deps,
+      usesDeviceLink: () => true,
+      call: (async (id: string, type: string, payload: unknown) => {
+        if (type !== 'taskhost.frame') return call(id, type, payload)
+        attempts += 1
+        return new Promise((_, fail) => { reject = fail })
+      }) as never,
+    })({ onFrame: () => undefined, onClose: closed })
+    pipe.send('operation')
+    await flush()
+    pipe.close()
+    reject(new DeviceRpcTimeoutError('late deadline'))
+    await flush()
+    expect(attempts).toBe(1)
+    expect(closed).toHaveBeenCalledTimes(1)
   })
 })

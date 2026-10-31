@@ -10,6 +10,7 @@ import {
   buildStandardCommand,
   miseDependency,
   passthroughMcpAdapter,
+  BARE_VERSION_LINE,
 } from '@gugu/session-core/agents/plugins/helpers';
 import { createNativeAcpBehavior } from '../../helpers/acp-stdio';
 import {
@@ -31,7 +32,7 @@ const sessionBundle = codebuddySessionBundleDescriptor satisfies SessionBundleDe
 
 /**
  * CodeBuddy Code —— 腾讯的终端 agent。命令行、hooks、settings、stream-json 的形状几乎就是 Claude Code,
- * 实现是它自己的(原生 ACP、自己的转录格式)。调研与实测:gugu-base `notes/2026-10-19-codebuddy-harness/`。
+ * 实现是它自己的(原生 ACP、自己的转录格式)。调研与实测在 2026-10-19。
  */
 export const plugin = definePlugin(
   {
@@ -51,7 +52,7 @@ export const plugin = definePlugin(
       kind: 'not-required',
       evidence:
         '2.169.0 隔离 HOME:无凭据 → session/new -32000 Authentication required;CODEBUDDY_BASE_URL + CODEBUDDY_API_KEY → '
-        + 'session/new 成功、POST {base}/chat/completions 落在给定网关(gugu-base notes/2026-10-19-codebuddy-harness 实测 A/B)',
+        + 'session/new 成功、POST {base}/chat/completions 落在给定网关(实测 A/B,2026-10-19)',
     },
     // `--effort <level>` —— `codebuddy --help` 原文「Reasoning effort level (minimal, low, medium, high, xhigh, max)」;
     // ACP 腿另有 configOptions `thought_level`(实测 B)。
@@ -124,18 +125,18 @@ export const plugin = definePlugin(
       kind: 'supported',
       scope: 'global',
       supportedTransports: ['stdio', 'http'],
-      toolNames: { kind: 'listed', prefix: 'mcp__gugu__', evidence: 'mac1 实测 F:session/new 注入的 echo server 带 `_meta.defer_loading:false` 后直接上工具表,名字是 mcp__echo__echo(gugu-base notes/2026-10-19-codebuddy-harness)' },
+      toolNames: { kind: 'listed', prefix: 'mcp__gugu__', evidence: 'macOS 实测 F(2026-10-19):session/new 注入的 echo server 带 `_meta.defer_loading:false` 后直接上工具表,名字是 mcp__echo__echo' },
     },
     // 托管安装(npm backend):本体是 JS(`bin/codebuddy` → `dist/codebuddy.js`),node-pty 等原生件是
     // optionalDependencies,按本机平台挑。npm `bin` 同时发 `codebuddy` / `cbc` / `codebuddy-code`。
-    hostDependency: miseDependency({
+    hostDependency: { ...miseDependency({
       id: 'codebuddy',
       aliases: ['cbc', 'codebuddy-code'],
       backend: 'npm',
       package: '@tencent-ai/codebuddy-code',
       node: MANAGED_NODE_VERSION,
       installDocs: 'https://www.codebuddy.ai/docs/cli/quickstart',
-    }),
+    }), versionLine: BARE_VERSION_LINE },
     // 记忆文件 —— `CODEBUDDY.md`(发行包里 19 处,与 Claude 的 CLAUDE.md 同一个位置)。
     memory: {
       kind: 'files',

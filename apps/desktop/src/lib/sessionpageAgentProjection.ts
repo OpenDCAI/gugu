@@ -1,10 +1,10 @@
 export type ProviderReviewGate = 'mcp'
 export type ProviderBlocker = {
   kind: 'provider'
-  reason: 'workspace-trust' | 'auth' | 'account' | 'config'
+  reason: 'workspace-trust' | 'hook-trust' | 'auth' | 'account' | 'config'
   message: string
 }
-const PROVIDER_BLOCKER_REASONS = new Set<ProviderBlocker['reason']>(['workspace-trust', 'auth', 'account', 'config'])
+const PROVIDER_BLOCKER_REASONS = new Set<ProviderBlocker['reason']>(['workspace-trust', 'hook-trust', 'auth', 'account', 'config'])
 export type PlatformRecovery = {
   status: 'live' | 'expired' | 'reopening' | 'failed'
   error?: string

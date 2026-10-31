@@ -31,7 +31,17 @@ import type {
   ChatViewOptions,
   TranscriptTurn,
 } from '@gugu/session-chat-ui';
-import { createElement, useEffect, useLayoutEffect, useRef } from 'react';
+import { createElement, Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { Hint } from '@/components/ui/Tooltip';
+import { ConversationSourcePopover } from './conversation-source-popover';
+import { toast } from '@renderer/lib/hooks/use-toast';
+import { messageForUser } from '@/lib/userFacingError';
+import { translateSessionMessage } from '@renderer/localization/locale-store';
+import { platform } from '@/platform';
+
+const onCopyError = (error: unknown) => toast({ title: translateSessionMessage('task.copyFailed'), description: messageForUser(error), tier: 'error' });
+const writeClipboardText = (text: string) => platform.writeClipboardText(text);
 
 export type ChatTranscriptProps = Pick<
   ChatViewOptions,
@@ -97,6 +107,11 @@ export function ChatTranscript(props: ChatTranscriptProps): React.ReactElement {
   propsRef.current = props;
 
   const viewRef = useRef<ChatView | null>(null);
+  const [tooltips, setTooltips] = useState<Parameters<NonNullable<ChatCommands['onTooltipMount']>>[0][]>([]);
+  const onTooltipMount = useCallback<NonNullable<ChatCommands['onTooltipMount']>>(target => {
+    setTooltips(current => [...current, target]);
+    return () => setTooltips(current => current.filter(entry => entry !== target));
+  }, []);
 
   // 模块已经加载过(`loadChatUi`)就在 layout effect 里同步建视图:**第一次绘制之前**就有正文。❌ passive effect / 每次 import():
   // 先画一帧空容器、过几百 ms 才长出正文 —— 手机把它嵌在思考行里,一进页那一行先 0 高再撑开,
@@ -132,7 +147,7 @@ export function ChatTranscript(props: ChatTranscriptProps): React.ReactElement {
         pinUserMessages: p.pinUserMessages,
         class: p.class,
         contentClass: p.contentClass,
-        commands: p.commands ?? {},
+        commands: { onCopyError, onTooltipMount, ...p.commands, writeClipboardText },
         padTop: p.padTop,
         embedded: p.embedded,
         // Thread stable wrappers that read from propsRef at call time — never stale.
@@ -174,9 +189,7 @@ export function ChatTranscript(props: ChatTranscriptProps): React.ReactElement {
 
   // Push command callbacks reactively so inline functions are never stale.
   useEffect(() => {
-    if (props.commands !== undefined) {
-      viewRef.current?.setCommands(props.commands);
-    }
+    viewRef.current?.setCommands({ onCopyError, onTooltipMount, ...props.commands, writeClipboardText });
   }, [props.commands]);
 
   // Layout lives on the process-long context (measurement-coupled), not on the
@@ -188,11 +201,14 @@ export function ChatTranscript(props: ChatTranscriptProps): React.ReactElement {
     }
   }, [props.context, props.layout]);
 
-  return createElement('div', {
+  return createElement(Fragment, null, createElement('div', {
     ref,
     style: { height: '100%', ...props.style },
     className: props.className,
-  });
+  }), tooltips.map((entry, index) => createPortal(entry.onOpenOriginal ? createElement(ConversationSourcePopover,
+    { text: entry.text, label: entry.originalLabel ?? entry.text, onOpenOriginal: entry.onOpenOriginal }) : createElement(Hint, { label: entry.text, side: 'top', children:
+    createElement('span', { style: { display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', width: '100%' } }, entry.text),
+  }), entry.root, String(index))));
 }
 
 // Re-export imperative types so consumers don't need to import from @gugu/session-chat-ui directly.

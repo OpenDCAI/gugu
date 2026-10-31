@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, StrictMode } from 'react'
+import { act, StrictMode, useEffect } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { MessageItem } from '@gugu/core/shared/types/chat'
 import {
@@ -11,6 +11,7 @@ import {
 } from '../../../support/testHarness'
 const {
   authUser,
+  authOverride,
   setUserMock,
   notificationSettings,
   chatServiceMock,
@@ -22,6 +23,7 @@ const {
 } =
   vi.hoisted(() => ({
     authUser: { id: 'user-1', email: 'user@example.test', nickname: 'User One' },
+    authOverride: { current: null as null | { id: string; email: string; nickname: string } },
     setUserMock: vi.fn(),
     notificationSettings: { messages: false },
     chatServiceMock: {
@@ -55,7 +57,7 @@ type ChatHarness = ReturnType<typeof createReactHarness>
 let harness: ChatHarness | null = null
 vi.mock('../../../../apps/desktop/src/store/auth', () => ({
   useAuth: () => ({
-    user: authUser,
+    user: authOverride.current ?? authUser,
     loading: false,
     setUser: setUserMock
   })
@@ -221,6 +223,8 @@ function Probe() {
   const store = useChatStore()
   latestStore = store
   useReportChatOnScreen(store.activeChatId)
+  const { activeChatId, setFollowingTail } = store
+  useEffect(() => { setFollowingTail(true) }, [activeChatId, setFollowingTail])
   return createNode(
     'div',
     { 'data-testid': 'messages' },
@@ -281,6 +285,7 @@ async function resolveDeferred<T>(item: ReturnType<typeof deferred<T>>, value: T
   })
 }
 beforeEach(async () => {
+  authOverride.current = null
   latestStore = null
   revisionListeners.clear()
   revisionCoordinatorMock.start.mockClear()
@@ -332,6 +337,24 @@ afterEach(() => {
   harness?.cleanup()
 })
 describe('ChatProvider repository ownership', () => {
+  it('does not rehydrate or reattach account resources when the validated profile changes', async () => {
+    const rendered = await renderChatProvider()
+    const initialReads = serverChatList.mock.calls.length
+    const initialSubscriptions = revisionCoordinatorMock.subscribe.mock.calls.length
+    const listener = revisionListeners.get('chat_changed')
+    authOverride.current = { ...authUser, nickname: 'Updated profile' }
+    await rendered.render(createNode(ChatProvider, null, createNode(Probe)))
+    await flushReact()
+    expect(serverChatList).toHaveBeenCalledTimes(initialReads)
+    expect(revisionCoordinatorMock.subscribe).toHaveBeenCalledTimes(initialSubscriptions)
+    expect(revisionListeners.get('chat_changed')).toBe(listener)
+    expect(openImRepositoryMock).toHaveBeenCalledTimes(1)
+
+    projectionStub.rows = [chat({ id: 'chat-1', name: 'Changed by revision' })]
+    await emitRevision('chat_changed', { chat_id: 'chat-1' })
+    expect(latestStore?.chats[0]?.name).toBe('Changed by revision')
+  })
+
   it('keeps repository, outbox and realtime owners inert until shell activation', async () => {
     await renderChatProvider(false)
     expect(openImRepositoryMock).not.toHaveBeenCalled()

@@ -4,7 +4,7 @@ import type { AgentStatusReading } from '@gugu/core/shared/agentStatus';
 
 export type ProviderReviewGate = 'mcp';
 /** 阻塞的种类;它归哪一个活动态由 provider-review-gate.ts 的 PROVIDER_BLOCKER_STATUS 那张表决定。 */
-export type ProviderBlockerReason = 'workspace-trust' | 'auth' | 'account' | 'config';
+export type ProviderBlockerReason = 'workspace-trust' | 'hook-trust' | 'auth' | 'account' | 'config';
 export type ProviderBlocker = {
   kind: 'provider';
   reason: ProviderBlockerReason;
@@ -15,6 +15,10 @@ export const sessionChangedChannel = defineEvent<{
   sessionId: string;
   projectId: string;
   changes: {
+    /** Native personal replies still unseen; independent of the project attention flag. */
+    nativeUnreadCount?: number;
+    /** The host's native preview changed; list subscribers reread the canonical summary. */
+    nativeLastMessage?: true;
     /**
      * 这条会话的 provider 会话 id。**`null` = 清空**(这条会话现在没有可续的 provider 会话)。
      *
@@ -112,11 +116,11 @@ export const sessionAgentStatusChangedChannel = defineEvent<
   }
 >('session:agent-status-changed');
 
-/** A queued session-page message reached a terminal delivery failure. */
+/** Session-page work failed after the initiating request returned. */
 export const sessionDeliveryFailedChannel = defineEvent<{
   sessionId: string;
   projectId: string;
-  messageId: string;
+  messageId?: string;
   message: string;
 }>('session:delivery-failed');
 

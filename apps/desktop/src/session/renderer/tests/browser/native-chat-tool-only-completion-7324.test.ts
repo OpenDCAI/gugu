@@ -1,4 +1,5 @@
 import { afterEach, expect, it, vi } from 'vitest';
+import { page, userEvent } from 'vitest/browser';
 import { createChatContext } from '@session-chat/chat-context';
 import { createChatView } from '@session-chat/chat-view';
 import { createChatState } from '@session-chat/state/chat-state';
@@ -22,21 +23,32 @@ const TURN: TranscriptTurn = {
 let dispose: (() => void) | undefined;
 afterEach(() => { dispose?.(); dispose = undefined; vi.restoreAllMocks(); });
 
-function mount(composer: 'slot' | 'none' = 'none') {
-  const context = createChatContext({ layout: { preset: 'double', userGutter: 72 }, translator: defaultChatTranslator });
+function mount(composer: 'slot' | 'none' = 'none', agentConversation = false) {
+  const context = createChatContext({ layout: { preset: 'double', userGutter: 72, agentConversation }, translator: defaultChatTranslator });
   const state = createChatState(context);
   const host = document.createElement('div');
   host.className = nativeChatAppearance;
   host.style.cssText = 'position:fixed;top:0;left:0;width:640px;height:500px';
   document.body.append(host);
-  const view = createChatView({ context, state, parent: host, composer });
+  const writeClipboardText = vi.fn(async (_text: string) => {});
+  const view = createChatView({ context, state, parent: host, composer, commands: { writeClipboardText } });
   dispose = () => { view.dispose(); context.dispose(); state.dispose(); host.remove(); };
   const header = () => host.querySelector<HTMLElement>('[data-slot="turn-process"]');
-  return { state, context, host, header, view };
+  return { state, context, host, header, view, writeClipboardText };
+}
+
+/** Park the pointer on a spot below the transcript, so no row is hovered. */
+async function hoverAway(host: HTMLElement) {
+  const away = document.createElement('div');
+  away.dataset.testid = 'copy-hover-away';
+  away.style.cssText = `position:fixed;left:0;top:${host.getBoundingClientRect().bottom + 10}px;width:10px;height:10px`;
+  document.body.append(away);
+  await page.getByTestId('copy-hover-away').hover();
+  away.remove();
 }
 
 it('shows end actions only after done; preserves inspection, the divider, and measured row height', async () => {
-  const { state, context, host, header } = mount();
+  const { state, context, host, header, writeClipboardText } = mount();
   state.transcript.activeTurn.set(TURN);
   await until('live tool-only header', () => header()?.dataset.live === 'true');
   expect(host.querySelector('[data-slot="turn-completion"]')).toBeNull();
@@ -58,10 +70,66 @@ it('shows end actions only after done; preserves inspection, the divider, and me
   const caches = createChatCaches();
   const completion = host.querySelector<HTMLElement>('[data-slot="turn-completion"]')!;
   const button = completion.querySelector('button')!;
-  expect(getComputedStyle(button).opacity).toBe('1');
-  const writeText = vi.spyOn(navigator.clipboard, 'writeText').mockResolvedValue();
+  // #1041: same as the reply's footer copy — hidden until the row is hovered, and it only says "Copy".
+  expect(button.textContent).toBe('Copy');
+  expect(button.getAttribute('aria-label')).toBe('Copy');
+  await hoverAway(host);
+  await untilStable('unhovered copy settles', () => getComputedStyle(button).opacity);
+  expect(getComputedStyle(button).opacity, 'the copy button shows without hover').toBe('0');
+  await userEvent.hover(completion);
+  await until('hovered copy shows', () => getComputedStyle(button).opacity === '1');
+  const writeText = vi.spyOn(navigator.clipboard, 'writeText').mockRejectedValue(new Error('WebView clipboard denied'));
   button.click();
-  expect(writeText).toHaveBeenCalledWith('message_send\nreplied (id=msg:sent)');
+  expect(writeClipboardText).toHaveBeenCalledExactlyOnceWith('message_send\nreplied (id=msg:sent)');
+  expect(writeText).not.toHaveBeenCalled();
+  const measured = turnCompletionUnitDef.measure(
+    { kind: 'turn-completion', id: 'tool-only:completion', turnId: TURN.id, text: 'message_send' },
+    { theme: context.theme, width: 640, isCollapsed: () => false, expanded: () => false, caches, expandedId: null },
+    turnCompletionUnitDef.vars!,
+  );
+  expect(completion.offsetHeight).toBe(measured);
+  caches.clearAll();
+});
+
+it('in the conversation layout it is the reply bubble\'s own copy action, revealed only by hovering its row (#1041)', async () => {
+  const { state, context, host, writeClipboardText } = mount('none', true);
+  state.transcript.history.seed([
+    { ...TURN, id: 'replied', seq: 0, endedAt: 9_000, outcome: { kind: 'done' },
+      items: [{ ...TURN.items[0], id: 'prompt-0' }, { kind: 'message', id: 'answer', seq: 1, role: 'assistant', text: 'Answer.' }] },
+    { ...TURN, endedAt: 17_000, outcome: { kind: 'done', reason: 'end_turn' } },
+  ]);
+  await until('end actions mounted', () => host.querySelector('[data-slot="turn-completion"] button') != null);
+  const completion = host.querySelector<HTMLElement>('[data-slot="turn-completion"]')!;
+  const button = completion.querySelector<HTMLButtonElement>('[data-user-message-actions] button')!;
+  completion.dataset.testid = 'completion-copy-row';
+  button.dataset.testid = 'completion-copy-button';
+  const replyCopy = host.querySelector<HTMLButtonElement>('[data-item-id="answer"] [data-user-message-actions] button')!;
+  expect(replyCopy, 'the reply bubble has its own copy action').not.toBeNull();
+  expect(completion.querySelectorAll('button')).toHaveLength(1);
+  expect(button.className).toBe(replyCopy.className);
+  expect(button.textContent).toBe('');
+  expect([button.getAttribute('aria-label'), button.title]).toEqual(['Copy', 'Copy']);
+  expect([replyCopy.getAttribute('aria-label'), replyCopy.title]).toEqual(['Copy', 'Copy']);
+  await hoverAway(host);
+  await untilStable('unhovered copy settles', () => getComputedStyle(button).opacity);
+  expect(getComputedStyle(button).opacity, 'the copy button shows without hover').toBe('0');
+  expect(getComputedStyle(button).pointerEvents).toBe('none');
+  await page.getByTestId('completion-copy-row').hover();
+  await untilStable('hovered copy settles', () => getComputedStyle(button).opacity);
+  expect(completion.matches(':hover'), 'the real pointer is on the end row').toBe(true);
+  expect(getComputedStyle(button).opacity, 'hovering reveals the actual copy control').toBe('1');
+  expect(getComputedStyle(button).pointerEvents).toBe('auto');
+  expect(getComputedStyle(replyCopy).opacity, 'hovering the end row leaked into the reply above').toBe('0');
+  await page.getByTestId('completion-copy-button').click();
+  expect(writeClipboardText).toHaveBeenCalledExactlyOnceWith('message_send\nreplied (id=msg:sent)');
+  const reply = host.querySelector<HTMLElement>('[data-agent-conversation-message="answer"]')!;
+  reply.dataset.testid = 'reply-copy-row';
+  // A focused action stays visible; clicking the other row releases that focus.
+  await page.getByTestId('reply-copy-row').click();
+  await until('reply copy shows without the end action leaking', () => getComputedStyle(replyCopy).opacity === '1' && getComputedStyle(button).opacity === '0');
+  expect(getComputedStyle(replyCopy).pointerEvents).toBe('auto');
+  expect(getComputedStyle(button).pointerEvents).toBe('none');
+  const caches = createChatCaches();
   const measured = turnCompletionUnitDef.measure(
     { kind: 'turn-completion', id: 'tool-only:completion', turnId: TURN.id, text: 'message_send' },
     { theme: context.theme, width: 640, isCollapsed: () => false, expanded: () => false, caches, expandedId: null },

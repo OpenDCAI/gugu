@@ -30,6 +30,7 @@ export function readFileOpFromItem(
   return {
     kind: 'file-op',
     id: item.id,
+    ...(item.trimmedChars ? { transportNote: ctx.translate('transcript.outputTrimmed', { chars: item.trimmedChars }) } : {}),
     op: 'read',
     status: item.status,
     ...(item.rawInput !== undefined ? { request: item.rawInput } : {}),
@@ -38,24 +39,6 @@ export function readFileOpFromItem(
     awaitingPermission: ctx.pendingToolCallIds().has(item.toolCallId),
     ops: item.path || item.resource ? [{ path: item.path ?? item.resource! }] : [],
     // 同 diff:这一格从没被赋过值,FileOperation.tsx 却把它当 title 显示(#4981)。
-    ...(toolFailureReason(item) !== undefined ? { error: toolFailureReason(item) } : {}),
-  };
-}
-
-export function deleteFileOpFromItem(
-  item: Extract<ToolNode, { kind: 'delete-file-tool-call' }>,
-  ctx: SegmentCtx
-): ChatFileOpToolCall {
-  return {
-    kind: 'file-op',
-    id: item.id,
-    op: 'delete',
-    status: item.status,
-    ...(item.rawInput !== undefined ? { request: item.rawInput } : {}),
-    ...((item.outputText ?? item.rawOutput) !== undefined
-      ? { result: item.outputText ?? item.rawOutput } : {}),
-    awaitingPermission: ctx.pendingToolCallIds().has(item.toolCallId),
-    ops: [{ path: item.path }],
     ...(toolFailureReason(item) !== undefined ? { error: toolFailureReason(item) } : {}),
   };
 }

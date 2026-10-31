@@ -1,3 +1,4 @@
+import { rpcQuery } from '../../../../../../tests/helpers/rpcQuery';
 import { randomUUID } from 'node:crypto';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -14,6 +15,8 @@ const AGENT = '22222222-2222-4222-8222-222222222222';
 const CHAT = '33333333-3333-4333-8333-333333333333';
 const OTHER_CHAT = '44444444-4444-4444-8444-444444444444';
 const MESSAGE = '55555555-5555-4555-8555-555555555555';
+const TOPIC = '66666666-6666-4666-8666-666666666666';
+const OTHER_TOPIC = '77777777-7777-4777-8777-777777777777';
 
 const rows: Row[] = [];
 const versions = new Map<string, Row[]>();
@@ -43,6 +46,10 @@ async function rpc(name: string, args: Row) {
   doors.push(`rpc ${name}`);
   const actor = String(args.p_as_user_id);
   const isIn = (chat: unknown) => chatsOf.get(actor)?.has(String(chat)) ?? false;
+  if (name === 'chat_facts') {
+    const source = args.p_chat_id === TOPIC ? CHAT : args.p_chat_id === OTHER_TOPIC ? OTHER_CHAT : null;
+    return { data: isIn(source ?? args.p_chat_id) ? [{ id: args.p_chat_id, kind: source ? 'topic' : 'group', source_chat_id: source }] : [], error: null };
+  }
   const item = rows.find((row) => row.id === args.p_item_id);
   if ('p_item_id' in args && (!item || !isIn(item.chat_id))) return notFound(args.p_item_id);
   if ('p_chat_id' in args && !isIn(args.p_chat_id)) return notMember(args.p_chat_id);
@@ -88,7 +95,7 @@ async function rpc(name: string, args: Row) {
 vi.mock('@gugu/core/cloud/supabase', () => ({
   createGuguSupabaseClient: () => ({
     from: table,
-    rpc,
+    rpc: rpcQuery(rpc),
     storage: {
       from: () => ({
         remove: async (pointers: string[]) => (removed.push(...pointers), { error: null }),
@@ -102,7 +109,7 @@ const { createAppFiles, sourceMessageIdsOf, AppFileError } = await import('./app
 const files = createAppFiles({
   account: async () => ({ token: 'token', userId: OWNER }),
   hasCapability: () => true,
-  sync: { pageFor: () => ({}), grant: () => undefined, revoke: () => undefined, ungrant: () => undefined } as never,
+  sync: { ensureFor: () => undefined, pageFor: () => ({}), grant: () => undefined, revoke: () => undefined, ungrant: () => undefined } as never,
   identities: async () => [],
   faces: async () => ({}),
   filesUrl: () => 'http://files.invalid',
@@ -211,7 +218,7 @@ describe('groupEntries: the named files of a chat as list gives them, and the id
     expect(read.entries.map((entry) => [entry.name, entry.version]).sort()).toEqual([['notes.md', 4], ['plan.md', 1]]);
     expect(read.gone.sort()).toEqual([elsewhere.id as string, missing].sort());
     // Each named id once (the list is not read).
-    expect(doors).toEqual(Array(4).fill('rpc workspace_get_as'));
+    expect(doors).toEqual([...Array(4).fill('rpc workspace_get_as'), 'rpc chat_facts']);
   });
 
   it('as an agent: through its door, one file at a time — what it cannot see is gone for it', async () => {
@@ -225,6 +232,32 @@ describe('groupEntries: the named files of a chat as list gives them, and the id
   it('no ids (or none that is an id): no read at all', async () => {
     expect(await files.groupEntries(CHAT, ['not-an-id'])).toEqual({ entries: [], gone: [] });
     expect(doors).toEqual([]);
+  });
+});
+
+describe('topic references use the actor’s source container', () => {
+  it('an explicit topic reference opens its source file; another source is still refused', async () => {
+    const notes = file(CHAT, 'notes.md');
+    const ref = { chat: TOPIC, id: String(notes.id) };
+    expect(await files.openTarget(asPerson, { ref })).toMatchObject({ chatId: CHAT, itemId: notes.id });
+    await expect(files.openTarget(asPerson, { ref: { ...ref, chat: OTHER_TOPIC } })).rejects.toMatchObject({ code: 'invalid' });
+    expect(await files.groupFile(TOPIC, String(notes.id))).toMatchObject({ chatId: CHAT, itemId: notes.id });
+    await expect(files.groupFile(OTHER_TOPIC, String(notes.id))).rejects.toMatchObject({ code: 'not-found' });
+  });
+
+  it('the actor is in the source while its owner is outside: normalized file reads still act as the agent', async () => {
+    chatsOf.set(OWNER, new Set());
+    const notes = file(CHAT, 'agent-notes.md');
+    expect(await files.openTarget(asAgent, { ref: { chat: TOPIC, id: String(notes.id) } })).toMatchObject({ chatId: CHAT });
+    expect(await files.groupEntries(TOPIC, [String(notes.id)], { asAgent: AGENT })).toMatchObject({ entries: [{ chat: CHAT, id: notes.id }], gone: [] });
+    await expect(files.openTarget(asPerson, { ref: { id: String(notes.id) } })).rejects.toMatchObject({ code: 'not-found' });
+  });
+
+  it('the owner’s membership never substitutes for an agent outside the source', async () => {
+    chatsOf.set(AGENT, new Set());
+    const notes = file(CHAT, 'owner-notes.md');
+    await expect(files.openTarget(asAgent, { ref: { chat: TOPIC, id: String(notes.id) } })).rejects.toMatchObject({ code: 'not-found' });
+    expect(await files.groupEntries(TOPIC, [String(notes.id)], { asAgent: AGENT })).toEqual({ entries: [], gone: [notes.id] });
   });
 });
 

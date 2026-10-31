@@ -1,22 +1,21 @@
-import { useState } from 'react'
-import { officialServicesEnabled } from '@gugu/core/cloud/optionalServices'
+import { lazy, Suspense, useRef, useState } from 'react'
 import { useAuth } from '../store/auth'
 import { useContactsStore } from '../store/contactsContext'
 import { useDevicesStore } from '../store/devicesContext'
 import { useMyAssistantContact } from '../lib/myAssistant'
+import { membershipSettingsSection } from '../lib/billing/settingsDestination'
 import { AboutSection } from './settings/AboutSection'
 import { AccountSection } from './settings/AccountSection'
 import { AssistantSection, type AssistantPageTab } from './settings/AssistantSection'
 import { ConnectorsSection } from './settings/ConnectorsSection'
-import { SettingsNote } from './settings/SettingsPrimitives'
 import { DevicesSection } from './settings/DevicesSection'
+import { FileStorageSection } from './settings/FileStorageSection'
 import { GeneralSection } from './settings/GeneralSection'
 import { ModelSection } from './settings/ModelSection'
 import { UsageSection } from './usage/UsageSection'
-import { ActivitySection } from './usage/ActivitySection'
 import { PermissionsSection } from './settings/PermissionsSection'
-import { AppsSection } from './settings/AppsSection'
-import { ChannelsSection } from './settings/channels/ChannelsSection'
+import { SettingsDetailNavigation, type SettingsDetailState } from './settings/SettingsDetailNavigation'
+import { usePanelScroll } from '../session/renderer/features/assistant/use-panel-scroll'
 import { PhoneDeviceActionsPage } from '../mobile/phone-device/PhoneDeviceActionsPage'
 import { SettingsNav } from './settings/SettingsNav'
 import { SessionSettingsSection } from './sessionpage/SessionSettingsSection'
@@ -24,6 +23,7 @@ import { ChevronLeft, X } from '@/lib/icons'
 import { Sheet } from './ui/Sheet'
 import { Pane, PaneHeader } from './ui/Pane'
 import { IconButton } from './ui/IconButton'
+import { useBackLayer } from './ui/sheetStack'
 import { platform } from '../platform'
 import { UI_EVENTS } from '../lib/uiEvents'
 import { appState } from '../session/renderer/lib/stores/app-state'
@@ -40,7 +40,6 @@ import { useTranslation } from 'react-i18next'
  * ❌ 桌面手机各写一个判断:
  * - 「权限」只在读得到系统权限真值的宿主上(product spec);
  * - 「App」只在手机壳上:那里的 App 由这一页自己的 App 仓管(L9);桌面在最左栏的「App」里管,网页不装 App;
- * - 「聊天渠道」只在桌面版上:微信客户端跑在这台电脑的主进程里;
  * - 「这台手机」只在手机壳上(#7199 手机当设备:那几个动作要安卓的系统接口;桌面的「这台电脑能做的事」在「设备」里);
  * - 会话页那几格只在有会话页宿主的桌面形态上(它们是会话页的组件);手机「我的」不画。
  * - 「咕咕」组:云上可开通、已经有它、或桌面可在本机安家时显示;手机的连接应用复用资料页里的授权流程。
@@ -48,8 +47,7 @@ import { useTranslation } from 'react-i18next'
 const sectionsFor = (mobile: boolean): ActiveSection[] =>
   SETTINGS_SECTIONS.filter(
     (section) =>
-      (section !== 'usage' || officialServicesEnabled()) &&
-      (section !== 'permissions' || platform.systemPermissions.length > 0) &&
+      (section !== 'permissions' || platform.kind === 'electron' || platform.systemPermissions.length > 0) &&
       (section !== 'apps' || platform.kind === 'capacitor') &&
       (section !== 'phone' || platform.kind === 'capacitor') &&
       (!SESSION_HOST_SETTINGS_SECTIONS.includes(section) || (mobile && section === 'connectors') || (!mobile && platform.capabilities.sessionHost)),
@@ -58,7 +56,7 @@ const MOBILE_SECTIONS_FOR_PLATFORM = sectionsFor(true)
 const DESKTOP_SECTIONS_FOR_PLATFORM = sectionsFor(false)
 const ASSISTANT_SECTIONS: readonly ActiveSection[] = ['assistant', 'connectors']
 /** 内页自己没有一句话说明的几页:由这里补在最上面(其余各页自己有,❌ 重复)。 */
-const PAGE_LEDE_SECTIONS: readonly ActiveSection[] = ['general', 'activity']
+const MobileAppsSection = lazy(() => import('./settings/MobileAppsSection').then((module) => ({ default: module.MobileAppsSection })))
 
 /**
  * 会话页那几格的浮层(下拉、提示、确认框)落在 SessionSettingsSection 的浮层层里,不在壳的层栈(sheetStack)上:
@@ -69,13 +67,14 @@ const sessionOverlayOpen = (): boolean =>
 
 // ─── SettingsPanel ────────────────────────────────────────────────────────────
 
-export function SettingsPanel({ mobile = false, inline = false, onClose, initialSection = 'account', section, onSectionChange, pane, onPaneChange }: {
+export function SettingsPanel({ mobile = false, inline = false, onClose, initialSection = 'account', section, onSectionChange, pane, onPaneChange, appDetail }: {
+  appDetail?: import('@gugu/core/shared/ui/guguLink').AppDetailLink
   mobile?: boolean
   // @@@1787 owner:「我的」是底部 tab 之一 → 移动端作 tab 页内联渲染(无 Sheet 壳),nav 层保留底部 tab 栏
   inline?: boolean
   onClose?: () => void
   initialSection?: ActiveSection
-  // 弹窗形态由 MainLayout 受控:弹窗开着时别处再要一格(如「仓库」页机器选择器里的「添加一台机器」→ 设备),
+  // 弹窗形态由 MainLayout 受控:弹窗开着时别处再要一格(如「任务」里机器选择器的「添加一台机器」→ 设备),
   // 要的就是换到那一格 —— 只在挂载时读一次 initialSection 会把这次请求吞掉。
   section?: ActiveSection
   onSectionChange?: (section: ActiveSection) => void
@@ -95,30 +94,43 @@ export function SettingsPanel({ mobile = false, inline = false, onClose, initial
 
   // @@@1507 初始 section 可由调用方指定(如侧栏「额度」直接开到 quota);缺省 account。
   const [internalSection, setInternalSection] = useState<ActiveSection>(initialSection)
-  const activeSection = section ?? internalSection
+  const requestedSection = section ?? internalSection
+  const activeSection = requestedSection === 'channels' ? 'connectors' : requestedSection
   const setActiveSection = onSectionChange ?? setInternalSection
   const [internalPane, setInternalPane] = useState<'nav' | 'detail'>(mobile ? 'nav' : 'detail')
   const mobilePane = pane ?? internalPane
   const setMobilePane = onPaneChange ?? setInternalPane
+  const [detailPage, setDetailPage] = useState<SettingsDetailState>(null)
+  const bodyRef = useRef<HTMLDivElement>(null)
+  const attachBody = usePanelScroll(bodyRef, `${activeSection}:${detailPage?.key ?? ''}`)
+  const [parentSection, setParentSection] = useState<ActiveSection | null>(null)
+  const back = () => {
+    if (detailPage) return detailPage.back()
+    if (parentSection) {
+      setActiveSection(parentSection)
+      setParentSection(null)
+    } else setMobilePane('nav')
+  }
+  useBackLayer(back, mobile && mobilePane === 'detail')
 
   function renderSection() {
     switch (activeSection) {
       case 'assistant': return <AssistantSection available={sections} onOpenSection={selectSection} onOpenAssistantPage={openAssistantPage} />
       case 'connectors': return <ConnectorsSection />
-      case 'account':  return <AccountSection user={user} updateUser={updateUser} logout={logout} />
+      case 'account':  return <AccountSection user={user} updateUser={updateUser} logout={logout} mobile={mobile} />
       case 'general':  return <GeneralSection onOpenPermissions={() => selectSection('permissions')} />
-      case 'devices':  return <DevicesSection onUpgrade={() => selectSection('usage')} />
+      case 'devices':  return <DevicesSection onUpgrade={() => selectSection(membershipSettingsSection(mobile))} />
+      // This is a primary page now; keep its content while opting out of nested-page navigation.
+      case 'files':    return <SettingsDetailNavigation.Provider value={null}><FileStorageSection onBack={back} /></SettingsDetailNavigation.Provider>
       case 'model':    return <ModelSection />
       case 'usage':    return <UsageSection />
-      case 'activity': return <ActivitySection />
       case 'about':    return <AboutSection />
       case 'permissions': return <PermissionsSection />
-      case 'apps':     return <AppsSection />
-      case 'channels': return <ChannelsSection />
+      case 'apps':     return <Suspense fallback={null}><MobileAppsSection appDetail={appDetail} /></Suspense>
       case 'phone':    return <PhoneDeviceActionsPage />
       case 'sessions':
       case 'interface':
-      case 'repository':
+      case 'resource-monitor':
       case 'browser':
       case 'subscriptions': return <SessionSettingsSection section={activeSection} />
       default:         return null
@@ -140,6 +152,7 @@ export function SettingsPanel({ mobile = false, inline = false, onClose, initial
       window.dispatchEvent(new Event(UI_EVENTS.openAssistantConnectors))
       return
     }
+    if (mobile) setParentSection(mobilePane === 'detail' ? activeSection : null)
     setActiveSection(section)
     if (mobile) setMobilePane('detail')
   }
@@ -169,25 +182,23 @@ export function SettingsPanel({ mobile = false, inline = false, onClose, initial
           <Pane paneRole="detail" mobile={mobile} className="gg-settings-detail">
             <PaneHeader
               mobile={mobile}
-              // 手机上同样写这一页自己的名字:「我的」是上一层,它已经由返回箭头(aria:返回我的)代表了;
-              // 标题再写一遍「我的」,每一个设置子页都长一个样,人分不清自己在哪一页。
-              title={sectionTitle}
-              leading={mobile ? (
-                <IconButton size="lg" aria-label={t('settings.backToMy')} onClick={() => setMobilePane('nav')}>
+              title={detailPage?.title ?? sectionTitle}
+              titleLevel={mobile ? 'panel' : undefined}
+              leading={mobile || detailPage ? (
+                <IconButton shape="pill" className="bg-foreground/[0.06]" size="lg" aria-label={t(detailPage || parentSection ? 'settings.back' : 'settings.backToMy')} onClick={back}>
                   <ChevronLeft />
                 </IconButton>
               ) : undefined}
               actions={!mobile ? (
                 // @@@1787 owner: ✗ 是桌面弹窗逻辑;移动端出口统一为左上返回箭头(SettingsNav onBack),✗ 只留桌面
-                <IconButton aria-label={t('settings.close')} onClick={onClose}>
+                <IconButton shape="pill" size="lg" className="bg-foreground/[0.06]" aria-label={t('settings.close')} onClick={onClose}>
                   <X />
                 </IconButton>
               ) : undefined}
             />
             {/* @@@6436 内页排版(桌面与手机的内边距差别也在内)全在 settings/settings.css。 */}
-            <div className="gg-settings-body window-no-drag-region">
-              {PAGE_LEDE_SECTIONS.includes(activeSection) ? <SettingsNote className="gg-settings-lede">{t(`settings.page.${activeSection}`)}</SettingsNote> : null}
-              {renderSection()}
+            <div ref={attachBody} className="gg-settings-body window-no-drag-region">
+              <SettingsDetailNavigation.Provider value={setDetailPage}>{renderSection()}</SettingsDetailNavigation.Provider>
             </div>
           </Pane>
         )}
@@ -203,7 +214,7 @@ export function SettingsPanel({ mobile = false, inline = false, onClose, initial
       <div
         data-testid={AUTOMATION_TEST_IDS.settingsPanel}
         aria-label={t('settings.my')}
-        style={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0, minHeight: 0, background: 'var(--bg)' }}
+        style={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0, minHeight: 0, background: mobile ? 'transparent' : 'var(--bg)' }}
       >
         {card}
       </div>

@@ -1,11 +1,15 @@
 import type { HookNotice } from './lib/hook-notice';
+import type { BackgroundCommandEntry } from './lib/background-command-roster';
+import type { SubagentRosterEntry } from './lib/subagent-roster';
 import type { DeliveryReading } from '@gugu/core/local/agent/deliveryEnvelope';
+import type { AgentSend } from '@gugu/session-core/session-record/reply-process';
 import type {
   AcpPermissionRequest,
   OpenedOutput,
   PlanEntryPriority,
   PlanEntryStatus,
   PlanState,
+  SessionPlans,
   TerminalExit,
   ToolNode,
   ToolStatus,
@@ -15,6 +19,7 @@ import type {
   TranscriptTurn,
   TranscriptTurnOutcome,
 } from '@gugu/session-core/acp/client';
+import type { ToolRunNow } from '@session-chat/state/tool-run';
 
 export type {
   AcpPermissionRequest,
@@ -22,6 +27,7 @@ export type {
   PlanEntryPriority,
   PlanEntryStatus,
   PlanState,
+  SessionPlans,
   TerminalExit,
   ToolNode,
   ToolStatus,
@@ -46,6 +52,8 @@ export type ThinkingStatus = 'thinking' | 'done';
 export type ChatAttachment = {
   id: string;
   name: string;
+  /** A canonical sent-file reference, opened by the host's existing link handler. */
+  href?: string;
   /**
    * 画成缩略图还是画成一枚文件 chip。缺席 = `'image'`(历史生产者只送图)。
    *
@@ -63,12 +71,16 @@ export type ChatImageAttachment = ChatAttachment;
 export type ChatMessage = {
   kind: 'message';
   id: string;
+  /** View-only durable source; null means the runtime row has no safe persistent identity yet. */
+  sourceItemId?: string | null;
   seq?: number;
   role: ChatRole;
   /** Markdown source text. */
   text: string;
   /** True while the agent is still writing to this message. */
   streaming?: boolean;
+  /** View-only confirmed file send; normalized to the existing attachment card before painting. */
+  sentAttachment?: import('@gugu/session-core/session-record/sent-attachment').SentAttachment;
   /** Image attachments rendered as a thumbnail strip above the text (user messages). */
   attachments?: ChatAttachment[];
   /**
@@ -79,10 +91,54 @@ export type ChatMessage = {
   /** Parsed Gugu delivery metadata; populated by the message unit, never by ordinary transcript producers. */
   guguDelivery?: DeliveryReading;
   /**
+   * View-only reference to the message this one explicitly replies to. Only a real anchor counts
+   * (the delivery's `reply_to`, or the `reply_to_message_id` the agent passed to message_send) —
+   * ❌ guessed from "the previous input" (owner 10-28: 参数里有什么就传什么). `from` is the quoted
+   * message's own sender (an agent or a person), `self` marks a quote of this agent's own earlier send,
+   * `chatId` the group the quoted message was said in (absent for a DM).
+   */
+  conversationReply?: { itemId: string; messageId?: string; text: string; from?: string; fromId?: string; self?: boolean; chatId?: string; unloaded?: boolean };
+  /** The `reply_to_message_id` (without `msg:`) of the message_send this `:sent:` row came from. */
+  sentReplyTo?: string;
+  /** Density uses actual previous-message identity; absent/unknown senders never merge. */
+  conversationPreviousSpeaker?: string;
+  /**
+   * View-only: something the agent said along the way (not the turn's reply). Drawn as one gray line among the
+   * steps under the process line (design 0), ❌ a bubble of its own.
+   */
+  conversationNarration?: boolean;
+  /** A Stop hook's final reason remains visible below its counted process. */
+  conversationTerminalReason?: boolean;
+  /** The answer immediately before Stop is always shown in full. */
+  conversationFull?: boolean;
+  /** The replay segment is live and this reply is its last event (not merely an active turn). */
+  conversationCaret?: boolean;
+  /** View-only: the closing reply of a finished turn — the only agent bubble with the time / copy row (design 0 `tail`). */
+  conversationTail?: boolean;
+  /** Where this message_send output went (same reading as the session page's 「发到 …」 line, `agentSendOf`). */
+  sentTo?: AgentSend['to'];
+  /** The `chat_id` that message_send went to — names the group when this row is itself quoted later. */
+  sentChat?: string;
+  /** View-only disclosure of the completed thinking/execution segment. */
+  conversationProcess?: { live?: boolean; id: string; startedAt?: number; endedAt?: number; idleMs?: number; steps?: number; empty?: boolean };
+  /**
+   * View-only split of one agent-conversation reply (owner 0 号图): `head` draws the name and the
+   * process line, each `body` only a bubble. The process steps go between them, so they never land
+   * under the bubble; every output of the turn (message_send ones too) is its own bubble.
+   */
+  conversationPart?: 'head' | 'body';
+  /** A `body`'s head row — background tasks still hang on that process line. */
+  conversationHead?: string;
+  /**
    * 这条其实是某个 hook 说的话，不是 agent 的回复（#4981）。与 `guguDelivery` 同一路数：
    * 由消息单元从正文里解出来（见 `lib/hook-notice.ts`），❌ transcript 生产者不写它。
    */
   hookNotice?: HookNotice;
+  /**
+   * 这条用户消息其实是宿主替主人交来的回答(`<gugu_question_answer>`,gugu-dev#181 ⑨):画成一行「你回答了：X」,
+   * ❌ 把那段 XML 原样摆进气泡。由消息单元从正文里解出来,与 `hookNotice` 同一路数。`answer` = null:问题被收回了。
+   */
+  questionAnswer?: { answer: string | null };
 };
 
 export type ChatToolCall = {
@@ -113,11 +169,15 @@ export type ChatToolCall = {
   request?: string;
   /** What the tool returned, shown in the expanded result panel. */
   result?: string;
+  /** A measured disclosure explaining transport-shortened tool content. */
+  transportNote?: string;
   /**
    * 工具交回来的图(画图用的地址),在头下面画成一条缩略图 —— 不用点开就看得见,见 tool-images.ts。
    * 缺席 = 这次调用没交图,行和从前一样。
    */
   images?: string[];
+  /** Includes pictures represented by lazy transport references. */
+  imageCount?: number;
   /** Id of the parent tool call (for hierarchical rendering). */
   parentId?: string;
 };
@@ -162,6 +222,8 @@ export type ChatSubagentToolCall = {
   agentId?: string;
   request?: string;
   result?: string;
+  /** A measured disclosure explaining transport-shortened tool content. */
+  transportNote?: string;
   /**
    * 这个子任务被要求做什么（#4981）——供应商在派活时给的那句描述。
    *
@@ -169,9 +231,7 @@ export type ChatSubagentToolCall = {
    * 不是它从哪个传输字段来的。
    *
    * 没有它的时候,并行派出去的 N 个子任务在界面上是 N 行一模一样的「Agent 已完成」——
-   * owner 真机验收时一次就摞了 8 行(2026-09-05)。链路上其实一直有这句话:
-   * claude 的 enrich 从 Task 工具的 `rawInput.description` 提出来,`upsertSpecialEvent`
-   * 也存进了条目的 `inputSummary`,**只有这一层没读**。
+   * 入口解码保留原生派活描述，领域条目通过 `inputSummary` 传到这里，按任务正文展示。
    */
   task?: string;
   background?: boolean;
@@ -228,6 +288,8 @@ export type ChatFileOpToolCall = {
   status: ToolStatus;
   request?: string;
   result?: string;
+  /** A measured disclosure explaining transport-shortened tool content. */
+  transportNote?: string;
   awaitingPermission?: boolean;
   /** Optional failure message shown in the error icon's native tooltip. */
   error?: string;
@@ -261,6 +323,8 @@ export type ChatExecute = {
   outputText?: string;
   request?: string;
   result?: string;
+  /** A measured disclosure explaining transport-shortened tool content. */
+  transportNote?: string;
   status: ToolStatus;
   awaitingPermission?: boolean;
   /** Optional failure message shown in the error icon's native tooltip. */
@@ -273,10 +337,8 @@ export type ChatExecute = {
   /**
    * How the embedded terminal's process ended, once it has ended.
    *
-   * First-hand: the client spawns the process for `terminal/create`, so this is
-   * our own reading of our own child rather than anything the provider reports.
-   * Absent means "not known" — the command is still running, the agent never
-   * asked for a client terminal, or the exit landed outside this view's lifetime.
+   * Read from the shared snapshot, whether the agent or host owns the process.
+   * Missing means no exit was reported; it grants no control of that process.
    * Absent is never rendered as success.
    */
   exitStatus?: TerminalExit;
@@ -284,25 +346,13 @@ export type ChatExecute = {
   parentId?: string;
 };
 
-/**
- * A diff preview row — produced by ACP `kind: 'edit'` tool calls.
- *
- * Renders a compact, non-scrollable preview of the first changed region
- * (capped at 12 lines with ±1 context), with syntax + diff highlighting.
- * One `ChatDiff` is created per changed file within a single tool call.
- *
- * `oldText` is the replaced region (old_string). `null` means a new file —
- * all `newText` lines are additions.
- */
+/** One tool's canonical patch blocks, projected without rebuilding file contents. */
 export type ChatDiff = {
   kind: 'diff';
-  /** `${toolCallId}:${path}` — unique per file within a tool call. */
+  /** The same tool identity in preview and result. */
   id: string;
-  /** Full path; basename and extension derived in the component. */
-  path: string;
-  /** The replaced region, or null for new files. */
-  oldText: string | null;
-  newText: string;
+  /** Full canonical blocks; this view never reconstructs file contents. */
+  patches: import('@gugu/session-core/acp').SessionPatch[];
   status: ToolStatus;
   awaitingPermission?: boolean;
   /** Optional failure message shown in the error icon's native tooltip. */
@@ -386,6 +436,7 @@ export type ChatPlan = {
   kind: 'plan';
   id: string;
   entries: ChatPlanEntry[];
+  body?: { type: 'markdown'; content: string } | { type: 'file'; uri: string };
   /** True while tasks are still being appended (drives preview auto-scroll + shimmer). */
   streaming?: boolean;
 };
@@ -403,7 +454,6 @@ export type TurnOutcomeItem = {
    */
   prompt?: string;
 };
-
 
 /**
  * 一轮交出来的一份东西,画成一张附件卡,挂在这一轮最后那条回复下面。
@@ -446,8 +496,8 @@ export type DaySeparatorItem = {
  * 完成后,时间头是对过程的折叠」。
  * ⇒ 跑着的时候「已处理 16s」在数、底下的内容摊开着看得见；跑完了同一条头收起整轮过程
  * （不分几步，点开还原），写总时长。语义句（`tool-run`）是过程**里**的折叠，头是整轮的。
- * ❌ 不再写「过程 · N 步」；❌ agent 自发的一轮（完成通知、后续 cycle）没有头 ——
- * 头回答的是「这一问花了多久」。
+ * ❌ 不再写「过程 · N 步」。agent 自己开头的一轮（后台命令跑完、完成通知把它叫醒）同样有头、
+ * 只留最后一句话（#69，owner 2026-10-22，推翻 09-06「自发轮没有头」）；跑完却一句话没留下的不套头。
  *
  * 由 `flattenTier` 在宿主开了 `SegmentCtx.foldTurnProcess`（Base 视图）时插进单元流；
  * 展开与否读的是 ViewState 的那一把折叠开关（同 tool-group），所以切 tab、重挂 view
@@ -459,14 +509,32 @@ export type DaySeparatorItem = {
  * 所以缺席也折，判据见 `planTurnFold`。
  */
 export type TurnProcessItem = {
+  conversationPreviousSpeaker?: string;
   kind: 'turn-process';
   id: string;
   turnId: string;
+  /** This segment explicitly chose silence; a status label, never an assistant reply. */
+  silent?: boolean;
+  /** A retained acknowledgement with no expandable agent activity. */
+  empty?: boolean;
   /**
    * 这一轮还在跑：头上的时间在数、带微光，底下的内容**默认摊开**（点一下收起）；
    * 落定后同一条头默认收起、写的是总时长（点开还原）。
    */
   live?: boolean;
+  /**
+   * 头底下看得见这一轮的内容(摊开着的过程,或它占位时下面那句话)。有内容时「agent 在动」由那些行自己的
+   * 微光负责,头不带微光(同屏两处一起扫就是闪);一轮刚发出、下面还空着,或人把头收起来了,头是这一轮
+   * 唯一的动静,才自己微光。
+   */
+  withBody?: boolean;
+  /** 对话布局:过程行上写的「· N 步」(折在这条头下面的行数)。还没出回复、只有头的那一轮也要写(owner 0 号图「执行中 · 9m16s · 39 步」)。 */
+  steps?: number;
+  /**
+   * 占位:跑着、还没有可折的过程(`placeholderTurnHeader`)。写「正在思考…」、不数秒、没有箭头 ——
+   * 下面没有可展开的东西,点了没反应的箭头比没有箭头更糟;过程一到,同一个 id 的头接手。
+   */
+  placeholder?: boolean;
   /**
    * 这一轮什么时候开始的（`TranscriptTurn.startedAt`）。缺席 = 不知道（回放来的），
    * 那就不写时间 —— 一个会少报的计时器比没有计时器更糟（`turn-process.def.tsx` 头注）。
@@ -495,7 +563,8 @@ export type TurnCompletionItem = {
  * 展开还原成原始行；两条起折，一条就是一行。切段规则见 `state/tool-run.ts`。
  *
  * 与 `turn-process` 的关系：人问的那一轮外面套一条时间头（语义折叠后还剩两行以上才有开合，
- * 只剩这一句时头只写时长、不折）；agent 自发的一轮没有头，这一句自己就是折叠。
+ * 只剩这一句时头只写时长、不折）；agent 自己开头的一轮同样套头（#69），只有一句话都没留下的那种平铺，
+ * 这一句自己就是折叠。
  * 展开与否读的是同一把 ViewState 开关。
  */
 export type ToolRunItem = {
@@ -508,6 +577,8 @@ export type ToolRunItem = {
   stepCount: number;
   /** 这一段里还有在跑的调用（活动层）⇒ 头上微光。 */
   live?: boolean;
+  /** 跑着的这一段此刻在做什么(`toolRunNow`):在跑的命令或在思考;只在活动层、只在有的时候写。 */
+  now?: ToolRunNow;
 };
 
 /**
@@ -566,22 +637,58 @@ export type SessionConditionCode =
    * 这条会话用的咕咕模型要开会员才能用(会员中途到期,#7056)。下一轮之前就停下说清,给两条去路:
    * 换一个模型、去网页续费 —— ❌ 悄悄换模型接着跑。
    */
-  | 'membership-required';
+  | 'membership-required'
+  /** 上一轮被宿主的退出打断了(更新 / 重启 / 没正常退出):开机收残记下的,下一轮开工就没了。宿主总是给 label。 */
+  | 'turn-interrupted';
 
 export type SessionCondition = Omit<SessionConditionItem, 'kind' | 'id' | 'hasVisibleHistory'>;
+
+/**
+ * 还在跑的后台任务 —— 主智能体起的后台命令、派出去的子智能体 —— 贴在消息列表**最后一行**。
+ *
+ * owner 2026-10-27:右上角「摘要」按钮去掉,后台任务直接放进主对话。它们不挂住这一轮(后台命令轮当场收口、
+ * 进程照跑),所以「还有东西在跑」只能由列表末尾这一行来说;点开就地展开成一张逐行的单子,能停、能收起。
+ *
+ * 与 `session-condition` 同族:视图按此刻的状态当场造出来,❌ 不进历史 —— 跑完、停掉、收起,这一行就没了。
+ */
+export type BackgroundTasksItem = {
+  kind: 'background-tasks';
+  id: string;
+  commands: readonly BackgroundCommandEntry[];
+  subagents: readonly SubagentRosterEntry[];
+  /** 单子展开着没有(人点那一行切换;默认收着)。 */
+  expanded: boolean;
+};
+
+/**
+ * agent 经 message_send / session_message 说出去的一段话,画成它说的话、标明发到了哪里。
+ * 由 `flattenTier` 从那次调用造出来(判据 `agentSendOf`),在它原来的位置上顶替那一行工具;id 就是那次调用的 id。
+ */
+export type AgentSendItem = {
+  kind: 'agent-send';
+  id: string;
+  turnId: string;
+  send: AgentSend;
+  /** 还在发 / 已发出(那次调用的状态;发失败的不造这一项,照常是一行工具)。 */
+  status: 'running' | 'done';
+};
 
 /** Successful file edits presented once below a settled turn's reply. */
 export type FileChangeSummaryItem = {
   kind: 'file-change-summary';
   id: string;
   turnId: string;
-  files: { path: string; diffs: ChatDiff[]; adds: number; dels: number }[];
+  files: { path: string; diffs: ChatDiff[]; adds: number | null; dels: number | null }[];
+  adds: number | null;
+  dels: number | null;
 };
 
 export type SyntheticItem =
   | SessionConditionItem
+  | BackgroundTasksItem
   | TurnOutcomeItem
   | OpenedOutputItem
+  | AgentSendItem
   | FileChangeSummaryItem
   | DaySeparatorItem
   | TurnProcessItem

@@ -1,7 +1,9 @@
-import type { DeviceActionsCapability } from '../deviceActions'
+import type { DeviceActionsSummary } from '../deviceActions'
 import type { AgentType } from '@gugu/core/agentTypes'
 import type { AgentStatusView } from '../agentStatus'
 import type { CloudComputerPresence, DeviceHostInfo } from './deviceHost'
+import type { DeviceProject } from './deviceProject'
+import type { AgentFailureReason } from '../agentQuotaReason'
 export type { AgentType } from '@gugu/core/agentTypes'
 
 // @@@1514 channel 概念已抹除(collapse 进 group)：公开 agent 好友会话原是独立 'channel' kind，
@@ -32,6 +34,11 @@ export type ChatUnreadLocator = {
   message_id: string | null
   message_seq: number | null
   unread_count: number
+  /**
+   * 未读里叫到你的条数:点名你、@all,或回复你说的那条(服务端 list_unread_locators.addressed_count)。手动标未读算 1。
+   * 缺 = 后端早于 gugu-supabase#73,或这一行是那之前的版本落的盘:按全部未读算(unreadForYou)。
+   */
+  addressed_count?: number
   cursor_seq: number
   version: number
   is_marked_unread: boolean
@@ -44,6 +51,8 @@ export interface ChatItem {
   status: ChatStatus
   peer_user_id?: string | null
   peer_alias?: string | null
+  /** Private group display name owned by the signed-in account. */
+  alias?: string | null
   avatar?: string | null
   member_user_ids?: string[]
   name: string
@@ -52,6 +61,8 @@ export interface ChatItem {
   created_at: string
   last_message_at: string | null
   last_message_preview: string | null
+  /** The last message is an agent's failure row: the list says this reason in the viewer's language, not the preview. */
+  last_message_failure?: AgentFailureReason | null
   unread_count: number
   /** The server-owned stream/message locator for the first unread projection. */
   unread_locator?: ChatUnreadLocator | null
@@ -95,7 +106,7 @@ export interface MessageItem {
   to_user_ids: string[] | null
   // @@@whisper (#820) - true = 定向私密消息（仅 sender + to_user_ids 可见，RLS 强制）；与「@提及定向(公开)」区分。
   is_whisper?: boolean
-  // App 用 gugu.send 以人的名义发的那一行:App 的 id(= manifest id);其余 null(#6835)。
+  // App 用 gugu.dispatch 以人的名义发的那一行:App 的 id(= manifest id);其余 null(#6835)。
   via_app?: string | null
   /** Public AI-sent marker; the source identity is visible only to the human sender. */
   sent_by_agent?: boolean
@@ -120,7 +131,9 @@ export interface MessageItem {
   // @@@per-message-read (#598) - user_ids of recipients that have read THIS message (from message_deliveries
   // 'read' rows), independent of the monotonic last_read_seq watermark. Drives precise directed read receipts.
   readers?: string[]
-  local_send_state?: 'sending' | 'failed' | null
+  delivery_blocks?: Array<{ agent_user_id: string; reason: 'agent_archived' }>
+  local_send_state?: 'sending' | 'failed' | 'unknown' | null
+  local_send_error?: string | null
   forwarded_from_message_id?: string | null
   // @@@threads (#957) — 非空 = 此消息是某话题(thread_root_id 指向的 root)下的回复；
   // 主时间线过滤掉这些(不刷屏主线)、thread 视图按 root 聚合。root 消息本身 thread_root_id 为 null。
@@ -133,7 +146,8 @@ export interface MessageItem {
   edited_at?: string | null
 }
 
-export type MessageSendState = 'sending' | 'sent' | 'delivered' | 'read' | 'failed'
+/** queued = persisted, but an agent it wakes has not taken it yet (shared/ui/systemNotice.ts queuedMessageIds). */
+export type MessageSendState = 'sending' | 'queued' | 'sent' | 'delivered' | 'read' | 'failed' | 'unknown'
 
 export interface ReactionGroup {
   emoji: string
@@ -153,7 +167,7 @@ export type AgentActivityStatus = 'idle' | 'running'
  * pending(spec agent-status)。「进程在不在内存」不让用户感知:没有活 runtime 但可达 = idle,会话正在起 = working。
  * 它是 `presentAgentStatus` 的输出折出来的(`displayStatusOf`),❌ 另有推导;文案与颜色读完整的 presentation。
  */
-export type AgentDisplayStatus = 'pending' | 'idle' | 'working' | 'parked' | 'needs_user' | 'offline' | 'removed' | 'error'
+export type AgentDisplayStatus = 'pending' | 'idle' | 'working' | 'parked' | 'needs_user' | 'offline' | 'archived' | 'removed' | 'error'
 export type AgentConversationActivityStatus =
   | Extract<AgentRuntimeStatus, 'starting'>
   | AgentActivityStatus
@@ -262,6 +276,8 @@ export interface Device {
   platform: string
   status: DeviceStatus
   last_seen_at: string
+  /** When the row first appeared: a reinstall or a new data directory is a new row, created later. */
+  created_at?: string
   is_online: boolean
   is_current_device?: boolean
   /**
@@ -269,6 +285,8 @@ export interface Device {
    * 两个 build 是两条设备行;通讯录等「按电脑归类」的展示要拿这一列归并,❌ 把一台电脑显示成两台。
    */
   machine_id?: string | null
+  /** Registered build/configuration name; absent on older cached rows. */
+  tier?: string
   capabilities: DeviceCapabilities
   /**
    * 这台机器上会话的**状态摘要**（identity.gugu_devices.session_digest，随心跳写）。
@@ -279,6 +297,12 @@ export interface Device {
    */
   session_digest?: DeviceSessionSummary[]
   /**
+   * #113 账号上记着的这台机器上的项目与文件夹(identity.device_projects,那台机器自己写)。这台机器离线时,
+   * 各端照这一份列它的项目与文件夹。缺席 = 这一端还没读到过账号上的那份(由用到的地方说「读不到」);
+   * 读到了而那台机器没记过项目 = 空列表。
+   */
+  projects?: DeviceProject[]
+  /**
    * #7199 这一行是这个账号的云电脑时,它此刻的样子(休眠中 / 正在唤醒 / 运行中)。库里没有这一列:客户端按云电脑管家
    * 的 /state 补上(管家给的 deviceId 认是哪一行)。睡着时 `is_online` 照实为 false,但 ❌ 按离线处理 —— 见
    * `deviceAcceptsWork`。不是云电脑 = 缺席。
@@ -288,6 +312,9 @@ export interface Device {
 
 /** 摘要里的一条会话。只有状态，没有正文 —— 「内容不在手机落库」那条边界没有放开。 */
 export interface DeviceSessionSummary {
+  nativeInputVersion?: 1
+  runtime?: 'acp' | 'pty' | 'unknown'
+  nativeUnreadCount?: number
   conversationId: string
   projectId: string
   projectName: string
@@ -323,11 +350,13 @@ export interface DeviceCapabilities extends Partial<DeviceHostInfo> {
   // @@@fleet-version (#663) - build version of the app reporting the heartbeat; absent = host predating
   // the field (UI shows 版本未知, never fabricates one).
   app_version?: string
+  /** Published desktop builds only; development versions never select a cloud host package. */
+  published_desktop_version?: string
   /** #7199 这台设备能被调用的动作(设备心跳登记;老设备缺席)。 */
-  actions?: DeviceActionsCapability
+  actions?: DeviceActionsSummary
 }
 
-export type GuguSettingsScope = 'user' | `device:${string}`
+export type GuguSettingsScope = 'user' | `device:${string}` | `chat:${string}`
 
 export interface GuguSettingsRow {
   scope: GuguSettingsScope

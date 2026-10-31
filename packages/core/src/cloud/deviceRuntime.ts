@@ -14,11 +14,9 @@ import {
   handleAgentRetireDeviceCommand,
   handleAgentStopDeviceCommand,
   handleAgentSetModelDeviceCommand,
-  pruneStaleGuestRecords,
   createDeviceCommandHoldingResolver,
   isDisclosedUndeliverableAgentCommand,
   resolveGuguIds,
-  syncAgentRuntimeSessions,
   type AgentRuntimeBridgeOptions
 } from '../local/agent/deviceCommandRuntime'
 
@@ -61,6 +59,7 @@ export interface DeviceCapabilities {
   // @@@fleet-version (#663) - build version of the reporting app; kept in sync with the reader-side
   // DeviceCapabilities in shared/types/chat.ts (same two-sided convention as #647).
   app_version?: string
+  published_desktop_version?: string
 }
 
 // @@@host-runtime-capability-value (#647) - bump when a critical host capability lands, then raise the DB
@@ -68,11 +67,17 @@ export const HOST_RUNTIME_CAPABILITY = 1
 
 type DeviceHeartbeatResult = {
   error: { message: string } | null
+  data?: { runtimes: string[] | null }[] | null
 }
 
 export interface DeviceHeartbeatTableClient {
   from(table: 'gugu_devices'): {
     upsert(value: never, options: { onConflict: string }): PromiseLike<DeviceHeartbeatResult>
+    update(value: { status: 'online' | 'offline'; updated_at: string }): {
+      eq(column: 'device_id', value: string): PromiseLike<DeviceHeartbeatResult> & {
+        select(columns: 'runtimes:capabilities->runtimes'): PromiseLike<DeviceHeartbeatResult>
+      }
+    }
     select(columns: string): {
       eq(column: 'user_id', value: string): {
         eq(column: 'machine_id', value: string): {
@@ -134,6 +139,8 @@ export type DeviceIdCacheWriter = (
  * 「内容不在手机落库」那条边界没有放开。
  */
 export type DeviceSessionDigestEntry = {
+  nativeInputVersion?: 1
+  runtime?: 'acp' | 'pty' | 'unknown'
   conversationId: string
   projectId: string
   projectName: string
@@ -154,7 +161,7 @@ export type DeviceSessionDigestEntry = {
   unseen?: boolean
   parentConversationId?: string | null
   /** 这条会话的 agent id(#7199,见 `DeviceSessionSummary.agentUserId`);宿主还没读到花名册时不带。 */
-  agentUserId?: string | null
+  agentUserId?: string | null; nativeUnreadCount?: number
 }
 
 /** 摘要由宿主提供（会话在它手里）。缺省 = 这台机器不报摘要，列写 `[]`。 */
@@ -204,6 +211,8 @@ export interface DeviceRuntimeTickInput extends AgentRuntimeBridgeOptions {
   deviceIdCacheWriter?: DeviceIdCacheWriter
   operationTimeouts?: DeviceOperationTimeoutOverrides
   recoverOrphanedCommands?: boolean
+  /** 认领命令之前每一段结束时报一声(宿主拿它给慢的那一段计时);最后一声是 'claim'。 */
+  onPhase?: (phase: string) => void
   onHeartbeatError?: (error: unknown) => void
   // @@@1676 — 本 runtime 进程的实例 id(每进程启动生成一次,host loop 注入)。命令认领写进 claimed_by,
   // 每 tick 刷新实例心跳;orphan 恢复据此区分「活兄弟在途」与「死实例孤儿」。缺省=单实例 legacy 语义。
@@ -224,6 +233,8 @@ export interface DeviceRuntimeTickInput extends AgentRuntimeBridgeOptions {
 // #2115 — deliver 终态失败的最小路由信息(commandId 供 renderer「重试」CAS error→pending 重排原命令)。
 export interface AgentDeliverFailure {
   commandId: string
+  /** Original source message; retries of it must not inflate the visible message count. */
+  messageId?: string | null
   agentUserId: string
   chatId: string
   threadRootId: string | null
@@ -771,7 +782,8 @@ function resolveDeviceActions(source: DeviceActionsSource | undefined): { action
 export async function syncDeviceHeartbeat(
   client: DeviceHeartbeatTableClient,
   options: DeviceHeartbeatOptions,
-  env: NodeJS.ProcessEnv = process.env
+  env: NodeJS.ProcessEnv = process.env,
+  publishedCapabilities?: Map<string, string>,
 ): Promise<void> {
   const now = (options.nowIso ?? nowIso)()
   const detectedCapabilities = await resolveDeviceCapabilities(
@@ -781,11 +793,14 @@ export async function syncDeviceHeartbeat(
   // @@@fleet-version (#663) - fold the build version in at row-assembly so every capabilities source
   // (default probe or injected) reports it; heartbeat is the single writer of gugu_devices rows.
   const appVersion = resolveAppVersion(env)
+  const hostInfo = (options.hostInfo ?? resolveDeviceHostInfo)(env)
   // #6264 设置 → 设备每一行要写清是台什么机器(桌面/server、系统、架构、server 升级到哪了),同样在组行时折进来。
   const capabilities = {
     ...detectedCapabilities,
     ...(appVersion ? { app_version: appVersion } : {}),
-    ...(options.hostInfo ?? resolveDeviceHostInfo)(env),
+    ...(appVersion && env.GUGU_BUILD_DISTRIBUTION === 'published' && hostInfo.host_kind === 'desktop'
+      ? { published_desktop_version: appVersion } : {}),
+    ...hostInfo,
     ...resolveDeviceActions(options.deviceActions),
   }
   const timeouts = resolveDeviceOperationTimeouts(options.operationTimeouts)
@@ -808,7 +823,7 @@ export async function syncDeviceHeartbeat(
       })
   const deviceHostname = (options.hostname ?? hostname)()
   const tier = resolveTier(env)
-  const row = {
+  const registration = {
     device_id: identity.deviceId,
     user_id: options.userId,
     // 这台电脑的名字(❌ 主机名直接截:macOS 上它常常是 IP,见 device/machineDisplayName.ts)。
@@ -817,16 +832,48 @@ export async function syncDeviceHeartbeat(
     machine_id: identity.machineId,
     platform: (options.platform ?? platform)(),
     tier,
-    status: 'online',
+    capabilities,
+  }
+  const presence = {
+    status: 'online' as const,
     last_seen_at: now,
     updated_at: now,
-    capabilities,
     session_digest: resolveSessionDigest(options.sessionDigest)
   }
+  const content = JSON.stringify(registration)
+  const write = (register: boolean) => runDeviceRequest(
+    'device heartbeat write', timeouts.heartbeatUpsertMs, () => register
+      ? client.from('gugu_devices').upsert(dbPayload({ ...registration, ...presence }), { onConflict: 'device_id' })
+      // A missing/cleared registration is restored through the same full upsert.
+      : client.from('gugu_devices').update(presence).eq('device_id', identity.deviceId).select('runtimes:capabilities->runtimes'),
+  )
+  try {
+    const register = publishedCapabilities?.get(identity.deviceId) !== content
+    let result = await write(register)
+    if (!result.error && !register && result.data?.[0]?.runtimes == null) result = await write(true)
+    if (result.error) throw new Error(result.error.message)
+    publishedCapabilities?.set(identity.deviceId, content)
+  } catch (error) {
+    publishedCapabilities?.delete(identity.deviceId)
+    throw error
+  }
+}
+
+/**
+ * 这台机器要走了(退出咕咕 / 停掉服务):当场把设备行标成离线,名下别的设备马上看见 ——
+ * ❌ 不说一声就走,让它们等租约过期(DEVICE_ONLINE_STALE_MS)由清扫者翻,那与崩溃看起来一模一样(#156)。
+ * 只改状态:last_seen_at 是心跳的事,不动。下一次心跳照常写回在线。
+ */
+export async function markDeviceOffline(
+  client: DeviceHeartbeatTableClient,
+  deviceId: string,
+  options: { nowIso?: () => string; operationTimeouts?: DeviceOperationTimeoutOverrides } = {},
+): Promise<void> {
+  const timeouts = resolveDeviceOperationTimeouts(options.operationTimeouts)
   const { error } = await runDeviceRequest(
-    'device heartbeat upsert',
+    'device offline update',
     timeouts.heartbeatUpsertMs,
-    () => client.from('gugu_devices').upsert(dbPayload(row), { onConflict: 'device_id' }),
+    () => client.from('gugu_devices').update({ status: 'offline', updated_at: (options.nowIso ?? nowIso)() }).eq('device_id', deviceId),
   )
   if (error) throw new Error(error.message)
 }
@@ -892,14 +939,6 @@ export async function runDeviceRuntimeTick(
       input.onHeartbeatError?.(error)
     }
   }
-  await pruneStaleGuestRecords({ env })
-  // @@@push-fresh-session - Owner's GoTrue session rotates on every refresh,
-  await syncAgentRuntimeSessions({
-    env,
-    accessToken: input.accessToken,
-    refreshToken: input.refreshToken,
-    ownerUserId: input.userId
-  })
   // @@@1676 — 实例心跳必须在 orphan 恢复 + 认领之前:保证认领命令时本实例心跳已新鲜,不被兄弟误回收。
   if (input.instanceId && !input.skipInstanceLeaseRenewal) {
     await reportRuntimeInstanceHeartbeat(
@@ -909,10 +948,12 @@ export async function runDeviceRuntimeTick(
       input.operationTimeouts,
     )
   }
+  input.onPhase?.('lease')
   let recoveredOrphans = 0
   if (input.recoverOrphanedCommands) {
     recoveredOrphans = await recoverOrphanedDeviceCommands(input.commandClient, deviceId, input.operationTimeouts)
   }
+  input.onPhase?.('orphans')
   // @@@2175 deliver 回合结局记录(连续异常计数)best-effort 收口:记录失败仅告警(fail-loud 可 grep),
   // 绝不影响命令流转——灯是派生信号,数据源写失败不能反过来弄失败回合本身。
   const recordDeliverOutcomeBestEffort = (outcome: AgentDeliverOutcomeInput): void => {
@@ -1018,6 +1059,7 @@ export async function runDeviceRuntimeTick(
         nowMs: () => Date.parse((input.nowIso ?? (() => new Date().toISOString()))()),
       })
     : undefined
+  input.onPhase?.('claim')
   const commands = await processPendingDeviceCommandsOnce(
     input.commandClient,
     deviceId,
@@ -1063,6 +1105,7 @@ export async function runDeviceRuntimeTick(
         const threadRootId = typeof payload.thread_root_id === 'string' && payload.thread_root_id ? payload.thread_root_id : null
         input.onAgentDeliverFailure?.({
           commandId: command.id,
+          messageId: typeof payload.message_id === 'string' ? payload.message_id : null,
           agentUserId,
           chatId,
           threadRootId,

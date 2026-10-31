@@ -1,3 +1,4 @@
+import { verifiedFileHandle } from '../../../helpers/verifiedFileHandle'
 import { createHash } from 'node:crypto'
 import { mkdtempSync, readFileSync, truncateSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -72,12 +73,21 @@ function sparseFixture(name: string, size: number): string {
   return full
 }
 
+function replyHistory(h: ReturnType<typeof harness>, rows: Array<Record<string, unknown>>) {
+  const restRpc = h.deps.restRpc
+  h.deps.restRpc = async (name, body, profile) => {
+    if (name !== 'message_history_as') return restRpc(name, body, profile)
+    h.calls.rpcs.push([name, body])
+    return rows
+  }
+}
+
 function harness(members: string[] = [], groupPrompt: string | null = null) {
   let currentGroupPrompt = groupPrompt
   const workspaceRows: Array<Record<string, unknown>> = [
     {
       id: W_DOC,
-      chat_id: 'c1',
+      chat_id: '00000000-0000-4000-8000-000000000001',
       kind: 'document',
       filename: 'brief.md',
       content_type: 'text/markdown',
@@ -92,12 +102,12 @@ function harness(members: string[] = [], groupPrompt: string | null = null) {
     },
     {
       id: W_FILE,
-      chat_id: 'c1',
+      chat_id: '00000000-0000-4000-8000-000000000001',
       kind: 'file',
       filename: 'deck.pdf',
       content_type: 'application/pdf',
       size_bytes: 123,
-      pointer: 'c1/owner-1/uuid-deck.pdf',
+      pointer: '00000000-0000-4000-8000-000000000001/owner-1/uuid-deck.pdf',
       inline_text: null,
       source_message_ids: [],
       created_by: 'owner-1',
@@ -172,11 +182,11 @@ function harness(members: string[] = [], groupPrompt: string | null = null) {
   const deps = {
     // 显式返回类型:用例里会整体替换 restGet,返回形状各不相同(#6492 去掉 workspace 行之后推断出的联合太窄)。
     restGet: async (path: string): Promise<Array<Record<string, unknown>>> => {
-      if (path.includes('chat_members') && path.includes('user_id=eq.')) return [{ chat_id: 'c1', last_read_seq: 0 }]
+      if (path.includes('chat_members') && path.includes('user_id=eq.')) return [{ chat_id: '00000000-0000-4000-8000-000000000001', last_read_seq: 0 }]
       if (path.includes('chat_members')) return members.map((user_id) => ({ user_id, role: 'member', listen_mode: 'active' }))
-      if (path.includes('chats?id=in')) return [{ id: 'c1', name: 'Group', kind: 'group', status: 'active' }]
+      if (path.includes('chats?id=in')) return [{ id: '00000000-0000-4000-8000-000000000001', name: 'Group', kind: 'group', status: 'active' }]
       if (path.includes('chats?id=eq')) {
-        const id = path.match(/chats\?id=eq\.([^&]+)/)?.[1] ?? 'c1'
+        const id = path.match(/chats\?id=eq\.([^&]+)/)?.[1] ?? '00000000-0000-4000-8000-000000000001'
         return [{ id, name: 'Group', kind: 'group', group_prompt: currentGroupPrompt }]
       }
       if (path.includes('users?id=eq')) return [{ gugu_number: 42, display_name: 'Agent', avatar: null, bio: null }]
@@ -190,11 +200,11 @@ function harness(members: string[] = [], groupPrompt: string | null = null) {
       // @@@5856 chat 的基本事实与成员名单改走**按 actor** 的 DEFINER RPC(MCP 用主人的 JWT,
       // 直连 REST 时 agent 在「主人不在的线」上开的话题一行都读不到)。桩照着服务端的形状答。
       if (name === 'chat_facts') {
-        const id = String(body.p_chat_id ?? 'c1')
+        const id = String(body.p_chat_id ?? '00000000-0000-4000-8000-000000000001')
         return [{ id, name: 'Group', kind: 'group', source_chat_id: null, group_prompt: currentGroupPrompt }]
       }
       if (name === 'list_my_chats_as') {
-        return [{ chat_id: 'c1', public_id: 101, kind: 'group', status: 'active', name: 'Group', role: 'member', listen_mode: 'active', last_message_at: null, last_message_preview: null }]
+        return [{ chat_id: '00000000-0000-4000-8000-000000000001', public_id: 101, kind: 'group', status: 'active', name: 'Group', role: 'member', listen_mode: 'active', last_message_at: null, last_message_preview: null }]
       }
       if (name === 'list_member_ids') {
         return members.map((user_id) => ({ user_id, role: 'member', listen_mode: 'active' }))
@@ -242,10 +252,11 @@ function harness(members: string[] = [], groupPrompt: string | null = null) {
     // #7290 gugu-3:附件经 attachments 函数(core 的客户端)—— upload 给表单、表单传到 OSS、commit 发消息。uploads 记成
     // [桶, 暂存键, 类型, 字节](第 4 位是真正传上去的字节,#5828);commit 记进 inserts,正文照服务端那样由信封生成。
     attachmentsEndpoint: async () => ({ supabaseUrl: 'https://db.test', anonKey: 'anon', token: 'token', fetch: attachmentsFetch }),
-    // 新式附件的签名链接:条目指回它那次上传的字节。
-    attachmentUrls: async (refs: Array<{ item_id?: string; version?: number; message_id?: string }>) => ({
-      urls: refs.map((ref) => ({ ...ref, message_id: ref.message_id ?? null, url: `https://oss.test/${String(ref.item_id).slice('item:'.length)}`, thumb_url: null, sha256: null, width: null, height: null, expires_at: '2999-01-01T00:00:00Z' })),
-    }),
+    resolveFile: async (ref: { message_id: string }) => {
+      const message = calls.inserts.map(([, row]) => row as Record<string, unknown>).find(row => row.id === ref.message_id)
+      const bytes = stagedBytes.get(String(message?.file_item_id).slice('item:'.length))
+      return bytes ? verifiedFileHandle(bytes) : { status: 'gone', sha256: null }
+    },
   }
   return {
     setGroupPrompt: (v: string | null) => { currentGroupPrompt = v }, failCommit: (error: Error) => { commitError = error }, loseCommitAnswers: (n: number) => { lostAnswers = n }, commitBodies, deps, calls }
@@ -353,7 +364,7 @@ describe('the gugu MCP server requires an explicit chat target', () => {
     for (const [toolName, args] of cases) {
       const tool = TOOL_DEFS.find((candidate: { name: string }) => candidate.name === toolName)
       expect(tool?.schema.safeParse(args).success, `${toolName} accepted missing chat_id`).toBe(false)
-      expect(tool?.schema.safeParse({ ...args, chat_id: 'c1' }).success, `${toolName} rejected explicit chat_id`).toBe(true)
+      expect(tool?.schema.safeParse({ ...args, chat_id: '00000000-0000-4000-8000-000000000001' }).success, `${toolName} rejected explicit chat_id`).toBe(true)
     }
   })
   test('chat_id schema rejects empty and whitespace values for every chat tool', () => {
@@ -372,7 +383,7 @@ describe('the gugu MCP server requires an explicit chat target', () => {
           `${toolName} schema accepted chat_id=${JSON.stringify(chatId)}`,
         ).toBe(false)
       }
-      for (const chatId of ['c1', '211983']) {
+      for (const chatId of ['00000000-0000-4000-8000-000000000001', '211983']) {
         expect(
           tool?.schema.safeParse({ ...args, chat_id: chatId }).success,
           `${toolName} schema rejected chat_id=${chatId}`,
@@ -544,7 +555,7 @@ describe('gugu 原子工具 MCP server（#1060 SDK 迁移 → #4191 原子化）
     expect(retiredBadArgs).toMatch(/not found|unknown tool/i)
     expect(retiredBadArgs).toContain('message_send_local')
     // message_reply 并入 message_send(回复 = 带 reply_to_message_id 的一次发送):旧名同样是响亮的未知工具。
-    const retiredReply = await callText('message_reply', { chat_id: 'c1', text: 'hi', reply_to_message_id: 'msg:m1' })
+    const retiredReply = await callText('message_reply', { chat_id: '00000000-0000-4000-8000-000000000001', text: 'hi', reply_to_message_id: 'msg:m1' })
     expect(retiredReply).toMatch(/not found|unknown tool/i)
     expect(retiredReply).toContain('message_reply')
     const liveBadArgs = await callText('message_send', { nonsense: 42 })
@@ -556,10 +567,10 @@ describe('gugu 原子工具 MCP server（#1060 SDK 迁移 → #4191 原子化）
     const client = await connect(harness().deps)
     const { tools } = await client.listTools()
     expect(tools.map((t) => t.name).sort()).toEqual([
-      'contact_friend', 'forum_read', 'forum_reply', 'group_add_agent', 'group_create', 'group_list', 'group_update', 'message_conversations', 'message_download_file', 'message_history', 'message_invitations', 'message_invite', 'message_members',
+      'activity_chat_list', 'contact_friend', 'forum_read', 'forum_reply', 'group_add_agent', 'group_announcement_delete', 'group_announcement_post', 'group_announcement_update', 'group_avatar_set', 'group_create', 'group_flood_undo', 'group_info', 'group_join_decide', 'group_join_requests', 'group_leave', 'group_list', 'group_remove_member', 'group_set_role', 'group_update', 'message_conversations', 'message_download_file', 'message_history', 'message_invitations', 'message_invite', 'message_members',
       'message_rules', 'message_search', 'message_send', 'message_send_as_owner', 'message_send_file', 'message_send_file_as_owner',
       'owner_friends_list', 'profile_lookup', 'profile_update', 'profile_whoami', 'session_peers',
-      'topic_invite', 'topic_list', 'topic_members', 'topic_open',
+      'topic_delete', 'topic_invite', 'topic_list', 'topic_members', 'topic_open',
     ])
     for (const tool of tools) {
       expect(tool.inputSchema.type, tool.name).toBe('object')
@@ -576,8 +587,8 @@ describe('gugu 原子工具 MCP server（#1060 SDK 迁移 → #4191 原子化）
     expect(sendDescription).not.toContain('message_send_local')
     const fileDescription = tools.find((tool) => tool.name === 'message_send_file')?.description ?? ''
     expect(fileDescription).toContain('delivery tool')
-    // The folder is the App's now: the native tool that delivers points at it, so an agent asked for a kept file finds it.
-    expect(fileDescription).toContain('workspace__create in the catalog')
+    // Every attachment is a file of the chat's folder: the tool that delivers says it shows one by reference.
+    expect(fileDescription).toContain('chat-folder file by its gugu-file://')
     await client.close()
   })
   test('session_peers groups UUID and display aliases under one identity in registry order', async () => {
@@ -594,7 +605,7 @@ describe('gugu 原子工具 MCP server（#1060 SDK 迁移 → #4191 原子化）
     const client = await connect({ ...h.deps, callSessionHost: async () => hostPeers })
     const rows = JSON.parse(text(await client.callTool({ name: 'session_peers', arguments: {} }))).items as typeof hostPeers
     expect(rows.map((row) => row.identity.users.id)).toEqual(memberIds.map((id) => `user:${id}`))
-    const members = JSON.parse(text(await client.callTool({ name: 'message_members', arguments: { chat_id: 'c1' } }))).items as Array<{ user_id: string }>
+    const members = JSON.parse(text(await client.callTool({ name: 'message_members', arguments: { chat_id: '00000000-0000-4000-8000-000000000001' } }))).items as Array<{ user_id: string }>
     // 同一批身份、同一种 user: 写法;顺序各按各的(名录按最近活动,成员按名字)。
     expect(rows.map((row) => row.identity.users.id).sort()).toEqual(members.map((member) => member.user_id).sort())
     expect(rows[0].identity.users.display_name).toBe('Codex 1')
@@ -673,7 +684,7 @@ describe('gugu 原子工具 MCP server（#1060 SDK 迁移 → #4191 原子化）
     const client = await connect({ ...h.deps, callSessionHost: async () => [childPeer] })
     const result = await client.callTool({
       name: 'message_send',
-      arguments: { chat_id: 'c1', text: '行动开始', to_user_ids: ['session:child-conversation'] },
+      arguments: { chat_id: '00000000-0000-4000-8000-000000000001', text: '行动开始', to_user_ids: ['session:child-conversation'] },
     })
     expect(text(result)).toMatch(/^sent/)
     expect(h.calls.inserts).toHaveLength(1)
@@ -691,7 +702,7 @@ describe('gugu 原子工具 MCP server（#1060 SDK 迁移 → #4191 原子化）
     const client = await connect({ ...h.deps, callSessionHost: async () => [childPeer] })
     await client.callTool({
       name: 'message_send',
-      arguments: { chat_id: 'c1', text: '行动开始', to_user_ids: [`user:${CHILD_USER_ID}`] },
+      arguments: { chat_id: '00000000-0000-4000-8000-000000000001', text: '行动开始', to_user_ids: [`user:${CHILD_USER_ID}`] },
     })
     expect((h.calls.inserts[0][1] as Record<string, unknown>).to_user_ids).toEqual([CHILD_USER_ID])
     await client.close()
@@ -701,7 +712,7 @@ describe('gugu 原子工具 MCP server（#1060 SDK 迁移 → #4191 原子化）
     const client = await connect({ ...h.deps, callSessionHost: async () => [] })
     const result = await client.callTool({
       name: 'message_send',
-      arguments: { chat_id: 'c1', text: '行动开始', to_user_ids: ['session:child-conversation'] },
+      arguments: { chat_id: '00000000-0000-4000-8000-000000000001', text: '行动开始', to_user_ids: ['session:child-conversation'] },
     })
     expect(result.isError).toBe(true)
     expect(text(result)).toMatch(/not an addressable session on this machine/)
@@ -732,7 +743,7 @@ describe('gugu 原子工具 MCP server（#1060 SDK 迁移 → #4191 原子化）
     const client = await connect({ ...h.deps, callSessionHost: async () => [childPeer] })
     const result = await client.callTool({
       name: 'message_send',
-      arguments: { chat_id: 'c1', text: '行动开始', to_user_ids: [CHILD_USER_ID] },
+      arguments: { chat_id: '00000000-0000-4000-8000-000000000001', text: '行动开始', to_user_ids: [CHILD_USER_ID] },
     })
     expect(result.isError).toBe(true)
     expect(h.calls.inserts).toHaveLength(0)
@@ -764,7 +775,7 @@ describe('gugu 原子工具 MCP server（#1060 SDK 迁移 → #4191 原子化）
       const client = await connect(h.deps)
       const result = await client.callTool({
         name: 'message_send',
-        arguments: { chat_id: 'c1', text: '行动开始', to_user_ids: ['gugu:1003'] },
+        arguments: { chat_id: '00000000-0000-4000-8000-000000000001', text: '行动开始', to_user_ids: ['gugu:1003'] },
       })
       expect(text(result)).toMatch(/^sent/)
       expect(h.rpcs.filter(([name]) => name === 'search_users')).toEqual([['search_users', { p_query: '1003' }]])
@@ -778,7 +789,7 @@ describe('gugu 原子工具 MCP server（#1060 SDK 迁移 → #4191 原子化）
       const client = await connect(h.deps)
       const result = await client.callTool({
         name: 'message_send',
-        arguments: { chat_id: 'c1', text: '行动开始', to_user_ids: ['gugu:4242'] },
+        arguments: { chat_id: '00000000-0000-4000-8000-000000000001', text: '行动开始', to_user_ids: ['gugu:4242'] },
       })
       expect(result.isError).toBe(true)
       expect(text(result)).toMatch(/no person or public agent with Gugu number 4242/)
@@ -790,7 +801,7 @@ describe('gugu 原子工具 MCP server（#1060 SDK 迁移 → #4191 原子化）
       const client = await connect(h.deps)
       const result = await client.callTool({
         name: 'message_send',
-        arguments: { chat_id: 'c1', text: '行动开始', to_user_ids: ['1003'] },
+        arguments: { chat_id: '00000000-0000-4000-8000-000000000001', text: '行动开始', to_user_ids: ['1003'] },
       })
       expect(result.isError).toBe(true)
       expect(text(result)).toMatch(/to_user_ids\[0\].*bare value "1003".*gugu:<number>/)
@@ -824,13 +835,13 @@ describe('gugu 原子工具 MCP server（#1060 SDK 迁移 → #4191 原子化）
       const [ct, st] = InMemoryTransport.createLinkedPair()
       const client = new Client({ name: 'test', version: '1.0.0' })
       await Promise.all([server.connect(st), client.connect(ct)])
-      const sent = await client.callTool({ name: 'message_send', arguments: { chat_id: 'c1', text: '收到', to_user_ids: ['gugu:7'] } })
+      const sent = await client.callTool({ name: 'message_send', arguments: { chat_id: '00000000-0000-4000-8000-000000000001', text: '收到', to_user_ids: ['gugu:7'] } })
       expect(text(sent)).toMatch(/^sent/)
       expect((h.calls.inserts[0][1] as Record<string, unknown>).to_user_ids).toEqual([OWNER])
       expect(gets.filter((path) => path.includes('gugu_number=eq.7'))).toEqual([
         `users?id=eq.${OWNER}&gugu_number=eq.7&select=id,display_name,type,gugu_number,agent_public`,
       ])
-      const miss = await client.callTool({ name: 'message_send', arguments: { chat_id: 'c1', text: '收到', to_user_ids: ['gugu:8'] } })
+      const miss = await client.callTool({ name: 'message_send', arguments: { chat_id: '00000000-0000-4000-8000-000000000001', text: '收到', to_user_ids: ['gugu:8'] } })
       expect(miss.isError).toBe(true)
       expect(text(miss)).toMatch(/Gugu number 8/)
       expect(h.calls.inserts).toHaveLength(1)
@@ -880,8 +891,8 @@ describe('gugu 原子工具 MCP server（#1060 SDK 迁移 → #4191 原子化）
     const reject = async (name: string, args: Record<string, unknown>) => {
       try { return (await client.callTool({ name, arguments: args })).isError === true } catch { return true }
     }
-    expect(await reject('message_send', { chat_id: 'c1' })).toBe(true) // 缺 text
-    expect(await reject('message_nope', { chat_id: 'c1' })).toBe(true) // 原子化后没有 action 可猜:错名字整调用拒绝
+    expect(await reject('message_send', { chat_id: '00000000-0000-4000-8000-000000000001' })).toBe(true) // 缺 text
+    expect(await reject('message_nope', { chat_id: '00000000-0000-4000-8000-000000000001' })).toBe(true) // 原子化后没有 action 可猜:错名字整调用拒绝
     await client.close()
   })
   test('message_send rejects harness SendMessage shape with a corrective route', async () => {
@@ -899,7 +910,7 @@ describe('gugu 原子工具 MCP server（#1060 SDK 迁移 → #4191 原子化）
     const client = await connect(harness(['alice']).deps)
     const result = await client.callTool({
       name: 'message_send',
-      arguments: { chat_id: 'c1' },
+      arguments: { chat_id: '00000000-0000-4000-8000-000000000001' },
     })
     expect(result.isError).toBe(true)
     expect(text(result)).toContain('text')
@@ -924,7 +935,7 @@ describe('gugu 原子工具 MCP server（#1060 SDK 迁移 → #4191 原子化）
       return baseRestRpc(name, body, profile)
     }
     const client = await connect(h.deps)
-    const result = await client.callTool({ name: 'message_send', arguments: { chat_id: 'c1', text: '首次直接回帖' } })
+    const result = await client.callTool({ name: 'message_send', arguments: { chat_id: '00000000-0000-4000-8000-000000000001', text: '首次直接回帖' } })
     expect(result.isError).not.toBe(true)
     expect(h.calls.inserts).toHaveLength(1)
     expect(pulls).toBe(0)
@@ -933,11 +944,27 @@ describe('gugu 原子工具 MCP server（#1060 SDK 迁移 → #4191 原子化）
   test('message_send（成员合法）→ insert messages.text', async () => {
     const h = harness(['alice'])
     const client = await connect(h.deps)
-    const r = await client.callTool({ name: 'message_send', arguments: { chat_id: 'c1', text: 'hi', to_user_ids: ['user:alice'] } })
+    const r = await client.callTool({ name: 'message_send', arguments: { chat_id: '00000000-0000-4000-8000-000000000001', text: 'hi', to_user_ids: ['user:alice'] } })
     expect(text(r)).toMatch(/^sent/)
     expect(h.calls.inserts).toHaveLength(1)
     expect(h.calls.inserts[0][0]).toBe('messages')
     expect((h.calls.inserts[0][1] as Record<string, unknown>).content_type).toBe('text')
+    await client.close()
+  })
+  test('message_send reports the persisted archived-recipient refusal while keeping the message in history', async () => {
+    const h = harness(['alice'])
+    const get = h.deps.restGet
+    h.deps.restGet = async (path: string) => path.startsWith('message_agent_delivery_blocks?')
+      ? [{ agent_user_id: 'alice', reason: 'agent_archived' }] : get(path)
+    const client = await connect(h.deps)
+    const result = await client.callTool({ name: 'message_send', arguments: {
+      chat_id: '00000000-0000-4000-8000-000000000001', text: 'Archive marker', to_user_ids: ['user:alice'],
+    } })
+    expect(result.isError).not.toBe(true)
+    expect(text(result)).toContain('对方已归档、未送达')
+    expect(text(result)).toContain('agent_archived')
+    expect(text(result)).toContain('no replay after restoration')
+    expect(h.calls.inserts).toHaveLength(1)
     await client.close()
   })
   // @@@5856 名单读不到时必须说「读不到」,❌ 不许当空集(会把它说成「这些人不是成员」,与事实相反)、
@@ -952,9 +979,9 @@ describe('gugu 原子工具 MCP server（#1060 SDK 迁移 → #4191 原子化）
       name === 'list_member_ids' ? rows : baseRestRpc(name, body, profile)
     )
     const client = await connect(h.deps)
-    const r = await client.callTool({ name: 'message_send', arguments: { chat_id: 'c1', text: 'hi', to_user_ids: ['user:alice'] } })
+    const r = await client.callTool({ name: 'message_send', arguments: { chat_id: '00000000-0000-4000-8000-000000000001', text: 'hi', to_user_ids: ['user:alice'] } })
     expect(r.isError).toBe(true)
-    expect(text(r)).toContain('读不到 chat(c1)的成员名单')
+    expect(text(r)).toContain('读不到 chat(00000000-0000-4000-8000-000000000001)的成员名单')
     expect(text(r)).not.toContain('不在本 chat')
     expect(h.calls.inserts).toHaveLength(0)
     await client.close()
@@ -1050,26 +1077,26 @@ describe('gugu 原子工具 MCP server（#1060 SDK 迁移 → #4191 原子化）
     const target = '11111111-1111-4111-8111-111111111111'
     const h = harness(['agent-1'])
     const baseRpc = h.deps.restRpc
-    const rpc = vi.fn(async (name: string, body: Record<string, unknown>, profile?: string) => name === 'request_agent_group_invitation'
-      ? { status: 'pending', chat_id: 'c1', invitation_id: 'invite-1', invitee_user_id: target }
+    const rpc = vi.fn(async (name: string, body: Record<string, unknown>, profile?: string) => name === 'request_group_invitation_as'
+      ? { status: 'pending', chat_id: '00000000-0000-4000-8000-000000000001', invitation_id: 'invite-1', invitee_user_id: target }
       : baseRpc(name, body, profile))
     h.deps.restRpc = rpc
-    const result = JSON.parse(await callTool('message_invite', { chat_id: 'c1', to_user_ids: [`user:${target}`], text: '请协助评审' }, h.deps))
-    expect(rpc).toHaveBeenCalledWith('request_agent_group_invitation', {
-      p_chat_id: 'c1', p_agent_user_id: 'agent-1', p_invitee_user_id: target, p_message: '请协助评审',
+    const result = JSON.parse(await callTool('message_invite', { chat_id: '00000000-0000-4000-8000-000000000001', to_user_ids: [`user:${target}`], text: '请协助评审' }, h.deps))
+    expect(rpc).toHaveBeenCalledWith('request_group_invitation_as', {
+      p_chat_id: '00000000-0000-4000-8000-000000000001', p_as_user_id: 'agent-1', p_invitee_user_id: target, p_message: '请协助评审',
     })
     expect(result).toMatchObject({ status: 'pending', invitee_user_id: `user:${target}` })
     expect(h.calls.inserts).toHaveLength(0)
   })
   test('message_invite does not substitute recipients or hide permission failures', async () => {
     const h = harness(['agent-1'])
-    await expect(callTool('message_invite', { chat_id: 'c1', to_user_ids: [], text: '请加入' }, h.deps)).rejects.toThrow(/exactly one/)
+    await expect(callTool('message_invite', { chat_id: '00000000-0000-4000-8000-000000000001', to_user_ids: [], text: '请加入' }, h.deps)).rejects.toThrow(/exactly one/)
     const rpc = h.deps.restRpc
     h.deps.restRpc = async (name: string, body: Record<string, unknown>, profile?: string) => {
-      if (name === 'request_agent_group_invitation') throw new Error('Group does not allow this member to invite')
+      if (name === 'request_group_invitation_as') throw new Error('Group does not allow this member to invite')
       return rpc(name, body, profile)
     }
-    await expect(callTool('message_invite', { chat_id: 'c1', to_user_ids: ['user:someone'], text: '请加入' }, h.deps)).rejects.toThrow(/does not allow/)
+    await expect(callTool('message_invite', { chat_id: '00000000-0000-4000-8000-000000000001', to_user_ids: ['user:someone'], text: '请加入' }, h.deps)).rejects.toThrow(/does not allow/)
     expect(h.calls.inserts).toHaveLength(0)
   })
   test('message_invitations queries only the current Agent invitation history', async () => {
@@ -1077,7 +1104,7 @@ describe('gugu 原子工具 MCP server（#1060 SDK 迁移 → #4191 原子化）
     const rpc = vi.fn(async () => [{ id: 'inv-1', status: 'rejected' }])
     h.deps.restRpc = rpc
     const result = JSON.parse(await callTool('message_invitations', {}, h.deps))
-    expect(rpc).toHaveBeenCalledWith('list_agent_group_invitations', { p_agent_user_id: 'agent-1' })
+    expect(rpc).toHaveBeenCalledWith('list_group_invitations_as', { p_as_user_id: 'agent-1', p_sent: true, p_include_decided: true })
     expect(result).toEqual({ total: 1, rows: '1-1', next: null, items: [{ id: 'inv-1', status: 'rejected' }] })
   })
   test('message_send validator follows renderer markdown/math boundaries', () => {
@@ -1141,7 +1168,7 @@ describe('gugu 原子工具 MCP server（#1060 SDK 迁移 → #4191 原子化）
       const client = await connect(blocked.deps)
       const result = await client.callTool({
         name: 'message_send',
-        arguments: { chat_id: 'c1', text: escapedText, to_user_ids: ['user:alice'] },
+        arguments: { chat_id: '00000000-0000-4000-8000-000000000001', text: escapedText, to_user_ids: ['user:alice'] },
       })
       expect(result.isError).toBe(true)
       expect(text(result)).toMatch(/字面.*\\n|真实换行/)
@@ -1154,7 +1181,7 @@ describe('gugu 原子工具 MCP server（#1060 SDK 迁移 → #4191 原子化）
     const codeText = '正文说明：`\\n` 是字面量。\n```ts\nconst escaped = "\\n"\n```'
     const result = await client.callTool({
       name: 'message_send',
-      arguments: { chat_id: 'c1', text: codeText, to_user_ids: ['user:alice'] },
+      arguments: { chat_id: '00000000-0000-4000-8000-000000000001', text: codeText, to_user_ids: ['user:alice'] },
     })
     expect(result.isError).not.toBe(true)
     expect((allowed.calls.inserts[0][1] as Record<string, unknown>).content).toBe(codeText)
@@ -1170,7 +1197,7 @@ describe('gugu 原子工具 MCP server（#1060 SDK 迁移 → #4191 原子化）
       const client = await connect(blocked.deps)
       const result = await client.callTool({
         name: 'message_send',
-        arguments: { chat_id: 'c1', text: rawMath, to_user_ids: ['user:alice'] },
+        arguments: { chat_id: '00000000-0000-4000-8000-000000000001', text: rawMath, to_user_ids: ['user:alice'] },
       })
       expect(result.isError).toBe(true)
       expect(text(result)).toMatch(/TeX|LaTeX|分隔符/)
@@ -1183,7 +1210,7 @@ describe('gugu 原子工具 MCP server（#1060 SDK 迁移 → #4191 原子化）
     const delimited = '已证明：\\(\\operatorname{Min}(R)=(x),(y)\\)\n\\[(xy)=(x)\\cap(y)\\]'
     const result = await client.callTool({
       name: 'message_send',
-      arguments: { chat_id: 'c1', text: delimited, to_user_ids: ['user:alice'] },
+      arguments: { chat_id: '00000000-0000-4000-8000-000000000001', text: delimited, to_user_ids: ['user:alice'] },
     })
     expect(result.isError).not.toBe(true)
     expect((allowed.calls.inserts[0][1] as Record<string, unknown>).content).toBe(delimited)
@@ -1209,7 +1236,7 @@ describe('gugu 原子工具 MCP server（#1060 SDK 迁移 → #4191 原子化）
       const client = await connect(blocked.deps)
       const result = await client.callTool({
         name: 'message_send',
-        arguments: { chat_id: 'c1', text: corruptedMath, to_user_ids: ['user:alice'] },
+        arguments: { chat_id: '00000000-0000-4000-8000-000000000001', text: corruptedMath, to_user_ids: ['user:alice'] },
       })
       expect(result.isError).toBe(true)
       expect(text(result)).toMatch(/TeX|LaTeX|转义|破损/)
@@ -1230,7 +1257,7 @@ describe('gugu 原子工具 MCP server（#1060 SDK 迁移 → #4191 原子化）
     const codeText = '损坏示例：`mathbb R`。\n```text\nd heta, frac{1}{2}\n```'
     const result = await client.callTool({
       name: 'message_send',
-      arguments: { chat_id: 'c1', text: codeText, to_user_ids: ['user:alice'] },
+      arguments: { chat_id: '00000000-0000-4000-8000-000000000001', text: codeText, to_user_ids: ['user:alice'] },
     })
     expect(result.isError).not.toBe(true)
     expect((allowed.calls.inserts[0][1] as Record<string, unknown>).content).toBe(codeText)
@@ -1242,7 +1269,7 @@ describe('gugu 原子工具 MCP server（#1060 SDK 迁移 → #4191 原子化）
     const result = await client.callTool({
       name: 'message_send',
       arguments: {
-        chat_id: 'c1',
+        chat_id: '00000000-0000-4000-8000-000000000001',
         text: '错误混装：\\(f(\\theta)=调和且闭\\)',
         to_user_ids: ['user:alice'],
       },
@@ -1257,7 +1284,7 @@ describe('gugu 原子工具 MCP server（#1060 SDK 迁移 → #4191 原子化）
     const cleanText = '调和且闭的条件是 \\(f(\\theta)=c\\)，且 \\([d\\theta]\\in H^1(S^1;\\mathbb R)\\)。'
     const allowedResult = await allowedClient.callTool({
       name: 'message_send',
-      arguments: { chat_id: 'c1', text: cleanText, to_user_ids: ['user:alice'] },
+      arguments: { chat_id: '00000000-0000-4000-8000-000000000001', text: cleanText, to_user_ids: ['user:alice'] },
     })
     expect(allowedResult.isError).not.toBe(true)
     expect((allowed.calls.inserts[0][1] as Record<string, unknown>).content).toBe(cleanText)
@@ -1266,20 +1293,20 @@ describe('gugu 原子工具 MCP server（#1060 SDK 迁移 → #4191 原子化）
   test('message_send accepts JSON-string arrays but rejects raw strings', async () => {
     const h = harness(['alice'])
     const client = await connect(h.deps)
-    const serialized = await client.callTool({ name: 'message_send', arguments: { chat_id: 'c1', text: 'hi', to_user_ids: '["user:alice"]' } })
+    const serialized = await client.callTool({ name: 'message_send', arguments: { chat_id: '00000000-0000-4000-8000-000000000001', text: 'hi', to_user_ids: '["user:alice"]' } })
     expect(text(serialized)).toMatch(/^sent/)
     expect((h.calls.inserts[0][1] as Record<string, unknown>).to_user_ids).toEqual(['alice'])
-    const raw = await client.callTool({ name: 'message_send', arguments: { chat_id: 'c1', text: 'hi', to_user_ids: 'alice' } })
+    const raw = await client.callTool({ name: 'message_send', arguments: { chat_id: '00000000-0000-4000-8000-000000000001', text: 'hi', to_user_ids: 'alice' } })
     expect(raw.isError).toBe(true)
     expect(text(raw)).toContain('to_user_ids')
     expect(h.calls.inserts).toHaveLength(1)
     for (const value of ['', '   ']) {
-      const empty = await client.callTool({ name: 'message_send', arguments: { chat_id: 'c1', text: 'hi', to_user_ids: value } })
+      const empty = await client.callTool({ name: 'message_send', arguments: { chat_id: '00000000-0000-4000-8000-000000000001', text: 'hi', to_user_ids: value } })
       expect(empty.isError).toBe(true)
       expect(text(empty)).toContain('to_user_ids')
     }
     for (const value of [[' '], ['\t'], ['alice', '   ']]) {
-      const invalidItem = await client.callTool({ name: 'message_send', arguments: { chat_id: 'c1', text: 'hi', to_user_ids: value } })
+      const invalidItem = await client.callTool({ name: 'message_send', arguments: { chat_id: '00000000-0000-4000-8000-000000000001', text: 'hi', to_user_ids: value } })
       expect(invalidItem.isError).toBe(true)
       expect(text(invalidItem)).toContain('to_user_ids')
     }
@@ -1289,7 +1316,7 @@ describe('gugu 原子工具 MCP server（#1060 SDK 迁移 → #4191 原子化）
   test('#849 仍生效：非成员收件人 → isError、不投递', async () => {
     const h = harness(['alice'])
     const client = await connect(h.deps)
-    const r = await client.callTool({ name: 'message_send', arguments: { chat_id: 'c1', text: 'hi', to_user_ids: ['user:ghost'] } })
+    const r = await client.callTool({ name: 'message_send', arguments: { chat_id: '00000000-0000-4000-8000-000000000001', text: 'hi', to_user_ids: ['user:ghost'] } })
     expect(r.isError).toBe(true)
     expect(text(r)).toMatch(/不在本 chat/)
     expect(h.calls.inserts).toHaveLength(0)
@@ -1326,6 +1353,7 @@ describe('gugu 原子工具 MCP server（#1060 SDK 迁移 → #4191 原子化）
     ]
     function addressedHarness() {
       const h = harness(['agent-1', ...directory.map((member) => member.id)])
+      replyHistory(h, [{ id: 'm-peer', sender_user_id: 'agent-long', is_whisper: false }])
       const restGet = h.deps.restGet
       h.deps.restGet = async (path: string) => {
         if (path.startsWith('users?id=in.')) return directory
@@ -1357,7 +1385,7 @@ describe('gugu 原子工具 MCP server（#1060 SDK 迁移 → #4191 原子化）
       const client = await connect(h.deps)
       const result = await client.callTool({
         name: 'message_send',
-        arguments: { chat_id: 'c1', text: message, to_user_ids: [] },
+        arguments: { chat_id: '00000000-0000-4000-8000-000000000001', text: message, to_user_ids: [] },
       })
       expect(result.isError).toBe(true)
       expect(text(result)).toContain(expectedName)
@@ -1371,7 +1399,7 @@ describe('gugu 原子工具 MCP server（#1060 SDK 迁移 → #4191 原子化）
       const client = await connect(h.deps)
       const result = await client.callTool({
         name: 'message_send',
-        arguments: { chat_id: 'c1', text: 'Ada, 分析甲你看下', to_user_ids: [] },
+        arguments: { chat_id: '00000000-0000-4000-8000-000000000001', text: 'Ada, 分析甲你看下', to_user_ids: [] },
       })
       expect(result.isError).toBe(true)
       expect(text(result)).toContain('正文叫了 Ada、分析甲')
@@ -1384,37 +1412,37 @@ describe('gugu 原子工具 MCP server（#1060 SDK 迁移 → #4191 原子化）
       {
         name: 'explicit mention',
         tool: 'message_send',
-        args: { chat_id: 'c1', text: '@分析甲 你看下', to_user_ids: ['user:agent-long'] },
+        args: { chat_id: '00000000-0000-4000-8000-000000000001', text: '@分析甲 你看下', to_user_ids: ['user:agent-long'] },
       },
       {
         name: 'reply identity',
         tool: 'message_send',
-        args: { chat_id: 'c1', text: '分析甲，收到', reply_to_message_id: 'msg:m-peer', to_user_ids: ['user:agent-long'] },
+        args: { chat_id: '00000000-0000-4000-8000-000000000001', text: '分析甲，收到', reply_to_message_id: 'msg:m-peer', to_user_ids: ['user:agent-long'] },
       },
       {
         name: 'another explicit recipient',
         tool: 'message_send',
-        args: { chat_id: 'c1', text: '分析甲，供参考', to_user_ids: ['user:human-exec'] },
+        args: { chat_id: '00000000-0000-4000-8000-000000000001', text: '分析甲，供参考', to_user_ids: ['user:human-exec'] },
       },
       {
         name: 'human bare name',
         tool: 'message_send',
-        args: { chat_id: 'c1', text: '执行乙，请看', to_user_ids: [] },
+        args: { chat_id: '00000000-0000-4000-8000-000000000001', text: '执行乙，请看', to_user_ids: [] },
       },
       {
         name: 'long human name claims an agent short-name prefix',
         tool: 'message_send',
-        args: { chat_id: 'c1', text: '分析结果很好', to_user_ids: [] },
+        args: { chat_id: '00000000-0000-4000-8000-000000000001', text: '分析结果很好', to_user_ids: [] },
       },
       {
         name: 'single-code-point agent name',
         tool: 'message_send',
-        args: { chat_id: 'c1', text: '甲，请看', to_user_ids: [] },
+        args: { chat_id: '00000000-0000-4000-8000-000000000001', text: '甲，请看', to_user_ids: [] },
       },
       {
         name: 'ASCII name inside a larger word',
         tool: 'message_send',
-        args: { chat_id: 'c1', text: 'xAdaY remains one token', to_user_ids: [] },
+        args: { chat_id: '00000000-0000-4000-8000-000000000001', text: 'xAdaY remains one token', to_user_ids: [] },
       },
     ])('$name remains allowed', async ({ tool, args }) => {
       const h = addressedHarness()
@@ -1444,21 +1472,21 @@ describe('gugu 原子工具 MCP server（#1060 SDK 迁移 → #4191 原子化）
     const client = await connect(h.deps)
     const history = JSON.parse(text(await client.callTool({
       name: 'message_history',
-      arguments: { chat_id: 'c1', thread_root_id: 'msg:thread-1', before_seq: 42, limit: 12 },
+      arguments: { chat_id: '00000000-0000-4000-8000-000000000001', thread_root_id: 'msg:thread-1', before_seq: 42, limit: 12 },
     }))) as Array<{ seq?: number }>
     const search = JSON.parse(text(await client.callTool({
       name: 'message_search',
-      arguments: { chat_id: 'c1', query: 'hi', before_seq: 42, limit: 13 },
+      arguments: { chat_id: '00000000-0000-4000-8000-000000000001', query: 'hi', before_seq: 42, limit: 13 },
     }))) as Array<{ seq?: number }>
     expect(history).toEqual([expect.objectContaining({ seq: 7 })])
     expect(search).toEqual([expect.objectContaining({ seq: 7 })])
     expect(rpcs).toEqual([
-      ['message_history_as', { p_chat_id: 'c1', p_as_user_id: 'agent-1', p_thread_root_id: 'thread-1', p_before_seq: 42, p_limit: 12 }],
-      ['message_search_as', { p_chat_id: 'c1', p_query: 'hi', p_as_user_id: 'agent-1', p_before_seq: 42, p_limit: 13 }],
+      ['message_history_as', { p_chat_id: '00000000-0000-4000-8000-000000000001', p_as_user_id: 'agent-1', p_thread_root_id: 'thread-1', p_before_seq: 42, p_limit: 12 }],
+      ['message_search_as', { p_chat_id: '00000000-0000-4000-8000-000000000001', p_query: 'hi', p_as_user_id: 'agent-1', p_before_seq: 42, p_limit: 13 }],
     ])
     // 主线历史:thread 为 null(= 只看主线),不是「不限 thread」。
-    await client.callTool({ name: 'message_history', arguments: { chat_id: 'c1' } })
-    expect(rpcs[2]).toEqual(['message_history_as', { p_chat_id: 'c1', p_as_user_id: 'agent-1', p_thread_root_id: null, p_before_seq: null, p_limit: 20 }])
+    await client.callTool({ name: 'message_history', arguments: { chat_id: '00000000-0000-4000-8000-000000000001' } })
+    expect(rpcs[2]).toEqual(['message_history_as', { p_chat_id: '00000000-0000-4000-8000-000000000001', p_as_user_id: 'agent-1', p_thread_root_id: null, p_before_seq: null, p_limit: 20 }])
     // 主人凭证的 messages_view 直读一条都不许再有。
     expect(paths.filter((path) => path.startsWith('messages_view'))).toEqual([])
     const { tools } = await client.listTools()
@@ -1469,23 +1497,17 @@ describe('gugu 原子工具 MCP server（#1060 SDK 迁移 → #4191 原子化）
   })
   test.each(['dm', 'ai'])('%s direct reply derives its recipient from the same-chat source and unique peer', async (kind) => {
     const h = harness(['agent-1', 'owner-1'])
-    const restGet = h.deps.restGet
+    replyHistory(h, [{ id: 'source-message', sender_user_id: 'owner-1', is_whisper: false }])
     const restRpc = h.deps.restRpc
-    h.deps.restGet = async (path: string) => {
-      if (path.startsWith('messages?id=eq.source-message&chat_id=eq.c1')) {
-        return [{ chat_id: 'c1', sender_user_id: 'owner-1' }]
-      }
-      return restGet(path)
-    }
     // @@@5856 kind 改从 chat_facts 这条按 actor 的 RPC 读(见 chatFactsOf 的注释)。
     h.deps.restRpc = async (name: string, body: Record<string, unknown>, profile?: string) => (
-      name === 'chat_facts' ? [{ id: 'c1', kind, source_chat_id: null, group_prompt: null }] : restRpc(name, body, profile)
+      name === 'chat_facts' ? [{ id: '00000000-0000-4000-8000-000000000001', kind, source_chat_id: null, group_prompt: null }] : restRpc(name, body, profile)
     )
     const client = await connect(h.deps)
     const result = await client.callTool({
       name: 'message_send',
       arguments: {
-        chat_id: 'c1',
+        chat_id: '00000000-0000-4000-8000-000000000001',
         reply_to_message_id: 'msg:source-message',
         text: 'ordinary reply',
       },
@@ -1493,7 +1515,7 @@ describe('gugu 原子工具 MCP server（#1060 SDK 迁移 → #4191 原子化）
     expect(result.isError).not.toBe(true)
     expect(h.calls.inserts).toHaveLength(1)
     expect(h.calls.inserts[0]?.[1]).toMatchObject({
-      chat_id: 'c1',
+      chat_id: '00000000-0000-4000-8000-000000000001',
       reply_to_message_id: 'source-message',
       to_user_ids: null,
     })
@@ -1501,14 +1523,15 @@ describe('gugu 原子工具 MCP server（#1060 SDK 迁移 → #4191 原子化）
   })
   test('group reply requires explicit recipients even when a source message exists', async () => {
     const h = harness(['agent-1', 'owner-1'])
+    replyHistory(h, [{ id: 'source-message', sender_user_id: 'owner-1', is_whisper: false }])
     const restRpc = h.deps.restRpc
     h.deps.restRpc = async (name: string, body: Record<string, unknown>, profile?: string) => (
-      name === 'chat_facts' ? [{ id: 'c1', kind: 'group', source_chat_id: null, group_prompt: null }] : restRpc(name, body, profile)
+      name === 'chat_facts' ? [{ id: '00000000-0000-4000-8000-000000000001', kind: 'group', source_chat_id: null, group_prompt: null }] : restRpc(name, body, profile)
     )
     const client = await connect(h.deps)
     const result = await client.callTool({
       name: 'message_send',
-      arguments: { chat_id: 'c1', reply_to_message_id: 'msg:source-message', text: 'group reply' },
+      arguments: { chat_id: '00000000-0000-4000-8000-000000000001', reply_to_message_id: 'msg:source-message', text: 'group reply' },
     })
     expect(result.isError).toBe(true)
     expect(text(result)).toContain('group chat requires explicit to_user_ids')
@@ -1519,13 +1542,13 @@ describe('gugu 原子工具 MCP server（#1060 SDK 迁移 → #4191 原子化）
     const h = harness(['agent-1', 'owner-1'])
     const restRpc = h.deps.restRpc
     h.deps.restRpc = async (name: string, body: Record<string, unknown>, profile?: string) => (
-      name === 'chat_facts' ? [{ id: 'c1', kind: 'group', source_chat_id: null, group_prompt: null }] : restRpc(name, body, profile)
+      name === 'chat_facts' ? [{ id: '00000000-0000-4000-8000-000000000001', kind: 'group', source_chat_id: null, group_prompt: null }] : restRpc(name, body, profile)
     )
     const client = await connect(h.deps)
-    const result = await client.callTool({ name: 'message_send', arguments: { chat_id: 'c1', text: 'group note' } })
+    const result = await client.callTool({ name: 'message_send', arguments: { chat_id: '00000000-0000-4000-8000-000000000001', text: 'group note' } })
     expect(result.isError).not.toBe(true)
     expect(h.calls.inserts).toHaveLength(1)
-    expect(h.calls.inserts[0]?.[1]).toMatchObject({ chat_id: 'c1', reply_to_message_id: null })
+    expect(h.calls.inserts[0]?.[1]).toMatchObject({ chat_id: '00000000-0000-4000-8000-000000000001', reply_to_message_id: null })
     await client.close()
   })
   test.each([
@@ -1533,30 +1556,26 @@ describe('gugu 原子工具 MCP server（#1060 SDK 迁移 → #4191 原子化）
       name: 'source outside the chat',
       members: ['agent-1', 'owner-1'],
       source: [],
-      error: 'must belong to this chat and its unique peer',
+      error: 'reply source is unavailable in this chat',
     },
     {
       name: 'non-unique peer membership',
       members: ['agent-1', 'owner-1', 'other-1'],
-      source: [{ chat_id: 'c1', sender_user_id: 'owner-1' }],
+      source: [{ chat_id: '00000000-0000-4000-8000-000000000001', sender_user_id: 'owner-1' }],
       error: 'requires the current agent and one unique peer',
     },
   ])('exact DM reply fails before insertion for $name', async ({ members, source, error }) => {
     const h = harness(members)
-    const restGet = h.deps.restGet
+    replyHistory(h, source.map((row) => ({ ...row, id: 'source-message', is_whisper: false })))
     const restRpc = h.deps.restRpc
-    h.deps.restGet = async (path: string) => {
-      if (path.startsWith('messages?id=eq.source-message&chat_id=eq.c1')) return source
-      return restGet(path)
-    }
     h.deps.restRpc = async (name: string, body: Record<string, unknown>, profile?: string) => (
-      name === 'chat_facts' ? [{ id: 'c1', kind: 'dm', source_chat_id: null, group_prompt: null }] : restRpc(name, body, profile)
+      name === 'chat_facts' ? [{ id: '00000000-0000-4000-8000-000000000001', kind: 'dm', source_chat_id: null, group_prompt: null }] : restRpc(name, body, profile)
     )
     const client = await connect(h.deps)
     const result = await client.callTool({
       name: 'message_send',
       arguments: {
-        chat_id: 'c1',
+        chat_id: '00000000-0000-4000-8000-000000000001',
         reply_to_message_id: 'msg:source-message',
         text: 'ordinary reply',
       },
@@ -1568,20 +1587,16 @@ describe('gugu 原子工具 MCP server（#1060 SDK 迁移 → #4191 原子化）
   })
   test('agent DM reply also validates its same-chat source and unique peer', async () => {
     const h = harness(['agent-1', 'owner-1', 'other-1'])
-    const restGet = h.deps.restGet
+    replyHistory(h, [{ id: 'source-message', sender_user_id: 'owner-1', is_whisper: false }])
     const restRpc = h.deps.restRpc
-    h.deps.restGet = async (path: string) => {
-      if (path.startsWith('messages?id=eq.source-message&chat_id=eq.c1')) return []
-      return restGet(path)
-    }
     h.deps.restRpc = async (name: string, body: Record<string, unknown>, profile?: string) => (
-      name === 'chat_facts' ? [{ id: 'c1', kind: 'ai', source_chat_id: null, group_prompt: null }] : restRpc(name, body, profile)
+      name === 'chat_facts' ? [{ id: '00000000-0000-4000-8000-000000000001', kind: 'ai', source_chat_id: null, group_prompt: null }] : restRpc(name, body, profile)
     )
     const client = await connect(h.deps)
     const result = await client.callTool({
       name: 'message_send',
       arguments: {
-        chat_id: 'c1',
+        chat_id: '00000000-0000-4000-8000-000000000001',
         reply_to_message_id: 'msg:source-message',
         text: 'ordinary reply',
       },
@@ -1593,12 +1608,12 @@ describe('gugu 原子工具 MCP server（#1060 SDK 迁移 → #4191 原子化）
   })
   test('message_members / message_conversations / message_rules', async () => {
     const client = await connect(harness(['alice', 'bob'], 'be nice').deps)
-    const members = JSON.parse(text(await client.callTool({ name: 'message_members', arguments: { chat_id: 'c1' } })))
+    const members = JSON.parse(text(await client.callTool({ name: 'message_members', arguments: { chat_id: '00000000-0000-4000-8000-000000000001' } })))
     expect(members.items).toHaveLength(2)
     // 不带筛选时 total 就是人数(人和 agent 都算):只要人数,取一条就够。
-    expect(JSON.parse(text(await client.callTool({ name: 'message_members', arguments: { chat_id: 'c1', rows: '1' } })))).toMatchObject({ total: 2, rows: '1-1', next: '2-2' })
+    expect(JSON.parse(text(await client.callTool({ name: 'message_members', arguments: { chat_id: '00000000-0000-4000-8000-000000000001', rows: '1' } })))).toMatchObject({ total: 2, rows: '1-1', next: '2-2' })
     expect(JSON.parse(text(await client.callTool({ name: 'message_conversations', arguments: {} }))).items).toHaveLength(1)
-    expect(JSON.parse(text(await client.callTool({ name: 'message_rules', arguments: { chat_id: 'c1' } }))).group_prompt).toBe('be nice')
+    expect(JSON.parse(text(await client.callTool({ name: 'message_rules', arguments: { chat_id: '00000000-0000-4000-8000-000000000001' } }))).group_prompt).toBe('be nice')
     await client.close()
   })
   test('message_rules returns a one-time join history hint without gating the first send', async () => {
@@ -1618,18 +1633,18 @@ describe('gugu 原子工具 MCP server（#1060 SDK 迁移 → #4191 原子化）
       return baseRestRpc(name, body, profile)
     }
     const client = await connect(h.deps)
-    const first = JSON.parse(text(await client.callTool({ name: 'message_rules', arguments: { chat_id: 'c1' } })))
+    const first = JSON.parse(text(await client.callTool({ name: 'message_rules', arguments: { chat_id: '00000000-0000-4000-8000-000000000001' } })))
     expect(first.join_context).toMatchObject({
       joined_at: '2026-09-09T00:00:00Z',
       skipped_before_join: 3,
       before_seq: 4,
     })
-    expect(first.join_context.message_history.chat_id).toBe('c1')
-    const second = JSON.parse(text(await client.callTool({ name: 'message_rules', arguments: { chat_id: 'c1' } })))
+    expect(first.join_context.message_history.chat_id).toBe('00000000-0000-4000-8000-000000000001')
+    const second = JSON.parse(text(await client.callTool({ name: 'message_rules', arguments: { chat_id: '00000000-0000-4000-8000-000000000001' } })))
     expect(second.join_context).toBeUndefined()
     const sent = await client.callTool({
       name: 'message_send',
-      arguments: { chat_id: 'c1', text: 'first reply without history' },
+      arguments: { chat_id: '00000000-0000-4000-8000-000000000001', text: 'first reply without history' },
     })
     expect(sent.isError).not.toBe(true)
     await client.close()
@@ -1659,12 +1674,14 @@ describe('gugu 原子工具 MCP server（#1060 SDK 迁移 → #4191 原子化）
       if (path.startsWith('users?id=eq.agent-1&')) return [{ gugu_number: 42, display_name: 'Agent', avatar: null, bio: null, owner_user_id: 'owner-1' }]
       // 置顶是主人自己的状态:只读主人自己那几行里置顶的(与界面 setChatPinned 写的是同一列)。
       if (path === 'chat_members?user_id=eq.owner-1&is_pinned=is.true&select=chat_id') return [{ chat_id: 'g-2' }]
+      // #84 message_conversations 也列主人与好友的私聊(好友表是主人自己的);这里主人没有好友私聊,见 guguOwnerFriendDm84。
+      if (path.startsWith('friendships?')) return []
       throw new Error(`unexpected direct read: ${path}`)
     }
     const rpcs: unknown[][] = []
     const restRpc = async (name: string, body: Record<string, unknown>) => {
       rpcs.push([name, body])
-      if (name === 'list_my_chats_as') return chats
+      if (name === 'list_my_chats_as') return body.p_as_user_id === 'agent-1' ? chats : []
       throw new Error(`unexpected rpc: ${name}`)
     }
     const client = await connect({ ...h.deps, restGet, restRpc })
@@ -1776,7 +1793,7 @@ describe('gugu 原子工具 MCP server（#1060 SDK 迁移 → #4191 原子化）
       'gugu_message', 'gugu_conv', 'gugu_profile', 'gugu_peers', 'gugu_file', 'gugu_workspace',
       'gugu_ask', 'gugu_widget', 'gugu_thread',
     ]) {
-      const retired = await client.callTool({ name: retiredName, arguments: { action: 'send', chat_id: 'c1', text: 'topic' } })
+      const retired = await client.callTool({ name: retiredName, arguments: { action: 'send', chat_id: '00000000-0000-4000-8000-000000000001', text: 'topic' } })
       expect(retired.isError, retiredName).toBe(true)
     }
     expect(h.calls.inserts).toHaveLength(0)
@@ -1786,36 +1803,36 @@ describe('gugu 原子工具 MCP server（#1060 SDK 迁移 → #4191 原子化）
   // 摩擦单 F40:app_install { chat_id, data } 建群里的数据文件 —— 以 agent 本人建,判据和上传同一个;同名已有就留着用。
   test('groupDataFileOf: makes the data file as the agent, keeps one already there, refuses a .json that is not an object', async () => {
     const h = harness()
-    const made = await groupDataFileOf(TEST_CONTEXT, { chatId: 'c1', name: 'friday.vote.json', content: { question: 'Friday?', votes: {} } }, h.deps)
+    const made = await groupDataFileOf(TEST_CONTEXT, { chatId: '00000000-0000-4000-8000-000000000001', name: 'friday.vote.json', content: { question: 'Friday?', votes: {} } }, h.deps)
     const body = h.calls.rpcs.find(([name]) => name === 'workspace_create_document_as')?.[1] as Record<string, unknown>
-    expect(body).toMatchObject({ p_chat_id: 'c1', p_title: 'friday.vote.json', p_content_type: 'application/json', p_as_user_id: 'agent-1' })
+    expect(body).toMatchObject({ p_chat_id: '00000000-0000-4000-8000-000000000001', p_title: 'friday.vote.json', p_content_type: 'application/json', p_as_user_id: 'agent-1' })
     expect(JSON.parse(String(body.p_content))).toEqual({ question: 'Friday?', votes: {} })
     expect(made).toMatchObject({ item: { id: W_NEW }, link: `[friday.vote.json](gugu-file://${W_NEW})`, reused: false })
     // A reinstall after a fix: brief.md is already there under that name — kept, nothing made.
     const creates = h.calls.rpcs.filter(([name]) => name === 'workspace_create_document_as').length
-    const kept = await groupDataFileOf(TEST_CONTEXT, { chatId: 'c1', name: 'brief.md', content: 'new text' }, h.deps)
+    const kept = await groupDataFileOf(TEST_CONTEXT, { chatId: '00000000-0000-4000-8000-000000000001', name: 'brief.md', content: 'new text' }, h.deps)
     expect(kept).toMatchObject({ item: { id: W_DOC }, reused: true })
     expect(h.calls.rpcs.filter(([name]) => name === 'workspace_create_document_as')).toHaveLength(creates)
     // An App's data file is at the top (子文件夹): looked for there only, by its name as the database keeps names (p_exact).
     expect(h.calls.rpcs.filter(([name]) => name === 'workspace_list_as').at(-1)?.[1]).toMatchObject({ p_folder: '', p_name: 'brief.md', p_exact: true })
-    expect(await groupDataFileOf(TEST_CONTEXT, { chatId: 'c1', name: 'Brief.MD', content: 'new text' }, h.deps)).toMatchObject({ item: { id: W_DOC }, reused: true })
+    expect(await groupDataFileOf(TEST_CONTEXT, { chatId: '00000000-0000-4000-8000-000000000001', name: 'Brief.MD', content: 'new text' }, h.deps)).toMatchObject({ item: { id: W_DOC }, reused: true })
     expect(h.calls.rpcs.filter(([name]) => name === 'workspace_create_document_as')).toHaveLength(creates)
-    await expect(groupDataFileOf(TEST_CONTEXT, { chatId: 'c1', name: 'list.vote.json', content: [1, 2] }, h.deps))
+    await expect(groupDataFileOf(TEST_CONTEXT, { chatId: '00000000-0000-4000-8000-000000000001', name: 'list.vote.json', content: [1, 2] }, h.deps))
       .rejects.toThrow('the data file list.vote.json was not made: a JSON file lives as an object at the top ({...}); this one is not')
   })
   // 摩擦单 F102(S20):数据已经在群里(B 上传的 catalog.json)—— 用那个文件本身,以 agent 本人读;❌ 另建一份、❌ 抄进包。
   test('groupDataFileOf { itemId }: the file already in the group, read as the agent, nothing made — another chat\'s or a stored file refused', async () => {
     const h = harness()
-    const there = await groupDataFileOf(TEST_CONTEXT, { chatId: 'c1', itemId: W_DOC }, h.deps)
+    const there = await groupDataFileOf(TEST_CONTEXT, { chatId: '00000000-0000-4000-8000-000000000001', itemId: W_DOC }, h.deps)
     expect(there).toMatchObject({ item: { id: W_DOC, filename: 'brief.md' }, link: `[brief.md](gugu-file://${W_DOC})`, reused: true })
     expect(h.calls.rpcs.find(([name]) => name === 'workspace_get_as')?.[1]).toMatchObject({ p_item_id: W_DOC, p_as_user_id: 'agent-1' })
     expect(h.calls.rpcs.filter(([name]) => name === 'workspace_create_document_as')).toHaveLength(0)
-    await expect(groupDataFileOf(TEST_CONTEXT, { chatId: 'c1', itemId: W_OTHER }, h.deps)).rejects.toThrow(`data.item_id ${W_OTHER} is a file of another chat, not c1`)
-    await expect(groupDataFileOf(TEST_CONTEXT, { chatId: 'c1', itemId: W_FILE }, h.deps)).rejects.toThrow('(deck.pdf) is a stored file, not a document an App opens')
+    await expect(groupDataFileOf(TEST_CONTEXT, { chatId: '00000000-0000-4000-8000-000000000001', itemId: W_OTHER }, h.deps)).rejects.toThrow(`data.item_id ${W_OTHER} is a file of another chat, not 00000000-0000-4000-8000-000000000001`)
+    await expect(groupDataFileOf(TEST_CONTEXT, { chatId: '00000000-0000-4000-8000-000000000001', itemId: W_FILE }, h.deps)).rejects.toThrow('(deck.pdf) is a stored file, not a document an App opens')
   })
   // 摩擦单 F10:名字里的方括号会提前截断 markdown 链接文字 —— 转义掉,链接仍是一整条。
   test('workspaceFileLink escapes brackets in the name', () => {
-    expect(workspaceFileLink({ filename: 'a]b[c.md', chat_id: 'c1', id: W_DOC })).toBe(String.raw`[a\]b\[c.md](gugu-file://` + `${W_DOC})`)
+    expect(workspaceFileLink({ filename: 'a]b[c.md', chat_id: '00000000-0000-4000-8000-000000000001', id: W_DOC })).toBe(String.raw`[a\]b\[c.md](gugu-file://` + `${W_DOC})`)
   })
   // 摩擦单 F15(L7-d):app_pack { chat_id } 打完包就以卡片发进群 —— 走的就是 message_send_file 这条路,以 agent 本人发。
   // F31(L5 S1 第三轮):同一版本带 chat_id 再装一次,又发了一张卡。一张卡是一个 App 的一个版本:群里已有同名(<id>-<版本>)
@@ -1826,17 +1843,13 @@ describe('gugu 原子工具 MCP server（#1060 SDK 迁移 → #4191 原子化）
     const deps = {
       ...h.deps,
       // The group's messages as the harness stored them: the newest first, like the query asks.
-      restGet: async (path: string): Promise<Array<Record<string, unknown>>> => path.startsWith('messages?chat_id=eq.c1&content_type=eq.attachment')
+      restGet: async (path: string): Promise<Array<Record<string, unknown>>> => path.startsWith('messages?chat_id=eq.00000000-0000-4000-8000-000000000001&content_type=eq.attachment')
         ? h.calls.inserts.map(([, row]) => row as Record<string, unknown>).filter((row) => row.content_type === 'attachment').reverse()
         : h.deps.restGet(path),
-      // A card's bytes, as the signed link serves them back.
-      fetch: async (url: string) => {
-        const upload = h.calls.uploads.find(([, objectPath]) => url.endsWith(String(objectPath)))
-        return new Response(upload ? new Uint8Array(upload[3] as Uint8Array) : null, { status: upload ? 200 : 404 })
-      },
+
     }
     const send = (fileName: string, bytes: string) =>
-      sendExtensionCardOf(TEST_CONTEXT, { chatId: 'c1', filePath: fixtureFile(fileName, bytes), fileName, sha256: sha(bytes) }, deps)
+      sendExtensionCardOf(TEST_CONTEXT, { chatId: '00000000-0000-4000-8000-000000000001', filePath: fixtureFile(fileName, bytes), fileName, sha256: sha(bytes) }, deps)
 
     const first = await send('dinner-vote-1.0.0.guguext', 'v1-bytes')
     const row = h.calls.inserts[0][1] as Record<string, unknown>
@@ -1852,8 +1865,8 @@ describe('gugu 原子工具 MCP server（#1060 SDK 迁移 → #4191 原子化）
     // Its bytes cannot be read back: answered as there, contents unknown — never a second card on a guess.
     const unreadable = await sendExtensionCardOf(
       TEST_CONTEXT,
-      { chatId: 'c1', filePath: fixtureFile('again.guguext', 'v1-bytes'), fileName: 'dinner-vote-1.0.0.guguext', sha256: sha('v1-bytes') },
-      { ...deps, fetch: async () => new Response(null, { status: 503 }) },
+      { chatId: '00000000-0000-4000-8000-000000000001', filePath: fixtureFile('again.guguext', 'v1-bytes'), fileName: 'dinner-vote-1.0.0.guguext', sha256: sha('v1-bytes') },
+      { ...deps, resolveFile: async () => { throw new Error('503') } },
     )
     expect(unreadable).toEqual({ messageId: String(row.id), alreadyThere: true, differs: null })
     expect(h.calls.inserts).toHaveLength(1)
@@ -1867,11 +1880,11 @@ describe('gugu 原子工具 MCP server（#1060 SDK 迁移 → #4191 原子化）
   test('message_send_file → 字节经 attachments/upload 传到 OSS,commit 以 agent 本人发附件消息(#7290)', async () => {
     const h = harness()
     const client = await connect(h.deps)
-    const r = await client.callTool({ name: 'message_send_file', arguments: { chat_id: 'c1', file_name: 'a b.png', file_path: fixtureFile('src.png', Buffer.from([1, 2, 3])), mime_type: 'image/png' } })
-    expect(text(r)).toMatch(/^file sent \(id=/)
+    const r = await client.callTool({ name: 'message_send_file', arguments: { chat_id: '00000000-0000-4000-8000-000000000001', file_name: 'a b.png', file_path: fixtureFile('src.png', Buffer.from([1, 2, 3])), mime_type: 'image/png' } })
+    expect(JSON.parse(text(r))).toMatchObject({ status: 'sent', file_name: 'a b.png', source_link: expect.stringMatching(/^gugu-chat:\/\/00000000-0000-4000-8000-000000000001\//) })
     expect(h.calls.uploads[0][0]).toBe('oss')
     const row = h.calls.inserts[0][1] as Record<string, unknown>
-    expect(row).toMatchObject({ content_type: 'attachment', chat_id: 'c1', sender_user_id: 'agent-1', file_item_id: `item:${String(h.calls.uploads[0][1])}` })
+    expect(row).toMatchObject({ content_type: 'attachment', chat_id: '00000000-0000-4000-8000-000000000001', sender_user_id: 'agent-1', file_item_id: `item:${String(h.calls.uploads[0][1])}` })
     expect(String(row.content)).toContain('[附件] a b.png')
     await client.close()
   })
@@ -1883,10 +1896,10 @@ describe('gugu 原子工具 MCP server（#1060 SDK 迁移 → #4191 原子化）
   ])('message_send_file → .png %s 仍记成 image/png 图片', async (_label, mimeType) => {
     const h = harness()
     const client = await connect(h.deps)
-    const args: Record<string, unknown> = { chat_id: 'c1', file_path: fixtureFile('chart.PNG', Buffer.from([1, 2, 3])) }
+    const args: Record<string, unknown> = { chat_id: '00000000-0000-4000-8000-000000000001', file_path: fixtureFile('chart.PNG', Buffer.from([1, 2, 3])) }
     if (mimeType) args.mime_type = mimeType
     const r = await client.callTool({ name: 'message_send_file', arguments: args })
-    expect(text(r)).toMatch(/^file sent/)
+    expect(JSON.parse(text(r)).status).toBe('sent')
     expect(h.calls.uploads[0][2]).toBe('image/png')
     const content = String((h.calls.inserts[0][1] as Record<string, unknown>).content)
     expect(content).toContain('[附件] chart.PNG (image/png)')
@@ -1906,9 +1919,9 @@ describe('gugu 原子工具 MCP server（#1060 SDK 迁移 → #4191 原子化）
     const src = fixtureFile('payload.bin', payload)
     const r = await client.callTool({
       name: 'message_send_file',
-      arguments: { chat_id: 'c1', file_path: src, mime_type: 'application/octet-stream' },
+      arguments: { chat_id: '00000000-0000-4000-8000-000000000001', file_path: src, mime_type: 'application/octet-stream' },
     })
-    expect(text(r)).toMatch(/^file sent/)
+    expect(JSON.parse(text(r)).status).toBe('sent')
     const sent = h.calls.uploads[0][3] as Buffer
     expect(Buffer.isBuffer(sent)).toBe(true)
     expect(sent.equals(payload)).toBe(true)
@@ -1925,9 +1938,9 @@ describe('gugu 原子工具 MCP server（#1060 SDK 迁移 → #4191 原子化）
     const src = fixtureFile('咕咕的资本叙事与竞品地图.html', '<p>x</p>')
     const r = await client.callTool({
       name: 'message_send_file',
-      arguments: { chat_id: 'c1', file_path: src, mime_type: 'text/html' },
+      arguments: { chat_id: '00000000-0000-4000-8000-000000000001', file_path: src, mime_type: 'text/html' },
     })
-    expect(text(r)).toMatch(/^file sent/)
+    expect(JSON.parse(text(r)).status).toBe('sent')
     // 不给 file_name，就用盘上那个名字——用户看到的是中文原文
     const row = h.calls.inserts[0][1] as Record<string, unknown>
     expect(String(row.content)).toContain('[附件] 咕咕的资本叙事与竞品地图.html')
@@ -1939,7 +1952,7 @@ describe('gugu 原子工具 MCP server（#1060 SDK 迁移 → #4191 原子化）
     ['文件不存在', { file_path: '/nonexistent-5828/report.html' }, /cannot read/],
   ])('message_send_file 拒绝 %s，且不上传、不插消息', async (_label, extra, pattern) => {
     const h = harness()
-    const err = await callTool('message_send_file', { chat_id: 'c1', ...extra }, h.deps)
+    const err = await callTool('message_send_file', { chat_id: '00000000-0000-4000-8000-000000000001', ...extra }, h.deps)
       .then(() => null, (e: unknown) => e)
     expect(String((err as Error)?.message ?? err)).toMatch(pattern)
     expect(h.calls.uploads).toHaveLength(0)
@@ -1952,7 +1965,7 @@ describe('gugu 原子工具 MCP server（#1060 SDK 迁移 → #4191 原子化）
     const h = harness()
     const client = await connect(h.deps)
     const args: Record<string, unknown> = {
-      chat_id: 'c1',
+      chat_id: '00000000-0000-4000-8000-000000000001',
       file_name: 'report.pdf',
       file_path: fixtureFile('report.pdf', Buffer.alloc(size)),
       mime_type: 'application/pdf',
@@ -1972,7 +1985,7 @@ describe('gugu 原子工具 MCP server（#1060 SDK 迁移 → #4191 原子化）
     const client = await connect(h.deps)
     const result = await client.callTool({
       name: 'message_send_file',
-      arguments: { chat_id: 'c1', file_name: 'report.pdf', file_path: fixtureFile('report.pdf') },
+      arguments: { chat_id: '00000000-0000-4000-8000-000000000001', file_name: 'report.pdf', file_path: fixtureFile('report.pdf') },
     })
     expect(result.isError).toBe(true)
     expect(text(result)).toContain('the group only lets admins send files')
@@ -1982,7 +1995,7 @@ describe('gugu 原子工具 MCP server（#1060 SDK 迁移 → #4191 原子化）
   })
   test('名字只是标签(B5b):message_send_file 按盘上文件定类型,图照样是图', async () => {
     const h = harness()
-    await callTool('message_send_file', { chat_id: 'c1', file_path: fixtureFile('chart.png', Buffer.from([1, 2, 3])), file_name: '销售图 v2.0' }, h.deps)
+    await callTool('message_send_file', { chat_id: '00000000-0000-4000-8000-000000000001', file_path: fixtureFile('chart.png', Buffer.from([1, 2, 3])), file_name: '销售图 v2.0' }, h.deps)
     expect(h.calls.uploads[0][2]).toBe('image/png')
     expect(String((h.calls.inserts[0][1] as Record<string, unknown>).content)).toContain('[附件] 销售图 v2.0 (image/png)')
   })
@@ -1990,21 +2003,21 @@ describe('gugu 原子工具 MCP server（#1060 SDK 迁移 → #4191 原子化）
   test('message_send_file:回答丢了 ⇒ 同一次上传、同一个消息 id 重放,只出一条消息;服务端明确拒的(4xx)不重放', async () => {
     const h = harness()
     h.loseCommitAnswers(1)
-    const sent = await callTool('message_send_file', { chat_id: 'c1', file_path: fixtureFile('lost.png', Buffer.from([1, 2, 3])) }, h.deps)
+    const sent = await callTool('message_send_file', { chat_id: '00000000-0000-4000-8000-000000000001', file_path: fixtureFile('lost.png', Buffer.from([1, 2, 3])) }, h.deps)
     expect(h.commitBodies).toHaveLength(2)
     expect(h.commitBodies[1]).toEqual(h.commitBodies[0])
     expect(h.calls.inserts).toHaveLength(1)
-    expect(sent).toBe(`file sent (id=msg:${String(h.commitBodies[0]!.message_id)})`)
+    expect(JSON.parse(sent)).toMatchObject({ status: 'sent', message_id: `msg:${String(h.commitBodies[0]!.message_id)}`, source_link: `gugu-chat://00000000-0000-4000-8000-000000000001/${String(h.commitBodies[0]!.message_id)}` })
     const refused = harness()
     refused.failCommit(new Error('the group only lets admins send files'))
-    await expect(callTool('message_send_file', { chat_id: 'c1', file_path: fixtureFile('no.png', Buffer.from([1])) }, refused.deps)).rejects.toThrow(/only lets admins/)
+    await expect(callTool('message_send_file', { chat_id: '00000000-0000-4000-8000-000000000001', file_path: fixtureFile('no.png', Buffer.from([1])) }, refused.deps)).rejects.toThrow(/only lets admins/)
     expect(refused.commitBodies).toHaveLength(1)
   })
 
   test('file tools reject payloads above their backend object limits before upload', async () => {
     const h = harness()
     const chatResult = await callTool('message_send_file', {
-      chat_id: 'c1',
+      chat_id: '00000000-0000-4000-8000-000000000001',
       file_name: 'too-large.bin',
       file_path: sparseFixture('too-large.bin', (25 * 1024 * 1024) + 1),
     }, h.deps)
@@ -2015,8 +2028,8 @@ describe('gugu 原子工具 MCP server（#1060 SDK 迁移 → #4191 原子化）
   // #1244 thread 归属由会话决定:message_send 没有 thread_root_id 这个参数。写类不认识的键直接拒、点名报回去,
   // ❌ 静默删掉照发(那样模型以为自己指定了 thread)。
   test.each([
-    ['send', { chat_id: 'c1', text: 'hi', thread_root_id: 'msg:OTHER-THREAD' }],
-    ['reply', { chat_id: 'c1', text: 'ok', reply_to_message_id: 'msg:m1', to_user_ids: ['user:alice'], thread_root_id: 'msg:OTHER-THREAD' }],
+    ['send', { chat_id: '00000000-0000-4000-8000-000000000001', text: 'hi', thread_root_id: 'msg:OTHER-THREAD' }],
+    ['reply', { chat_id: '00000000-0000-4000-8000-000000000001', text: 'ok', reply_to_message_id: 'msg:m1', to_user_ids: ['user:alice'], thread_root_id: 'msg:OTHER-THREAD' }],
   ])('%s: thread_root_id is not a parameter — refused by name, nothing written (#1244)', async (_, args) => {
     const h = harness(['alice'])
     const client = await connect(h.deps)
@@ -2067,7 +2080,7 @@ describe('message_members = 可寻址名录(spec ⑨)', () => {
   }
   test('成员名单带 display_name / type / 咕咕号 → 可按名字反查 user_id', async () => {
     const client = await connect(directoryHarness().deps)
-    const rows = JSON.parse(text(await client.callTool({ name: 'message_members', arguments: { chat_id: 'c1' } }))).items as DirectoryRow[]
+    const rows = JSON.parse(text(await client.callTool({ name: 'message_members', arguments: { chat_id: '00000000-0000-4000-8000-000000000001' } }))).items as DirectoryRow[]
     const byName = new Map(rows.map((r) => [r.display_name, r]))
     expect(byName.get('Codex 8')?.user_id).toBe('user:codex-8-id')
     expect(byName.get('Codex 8')?.type).toBe('agent')
@@ -2077,7 +2090,7 @@ describe('message_members = 可寻址名录(spec ⑨)', () => {
   })
   test('标出 is_self,agent 不会把自己当收件人', async () => {
     const client = await connect(directoryHarness().deps)
-    const rows = JSON.parse(text(await client.callTool({ name: 'message_members', arguments: { chat_id: 'c1' } }))).items as DirectoryRow[]
+    const rows = JSON.parse(text(await client.callTool({ name: 'message_members', arguments: { chat_id: '00000000-0000-4000-8000-000000000001' } }))).items as DirectoryRow[]
     expect(rows.find((r) => r.user_id === 'user:agent-1')?.is_self).toBe(true)
     expect(rows.find((r) => r.user_id === 'user:codex-8-id')?.is_self).toBe(false)
     await client.close()
@@ -2111,7 +2124,7 @@ describe('message_members = 可寻址名录(spec ⑨)', () => {
       },
     })
     const members = async (args: Record<string, unknown>) =>
-      JSON.parse(text(await client.callTool({ name: 'message_members', arguments: { chat_id: 'c1', ...args } }))) as {
+      JSON.parse(text(await client.callTool({ name: 'message_members', arguments: { chat_id: '00000000-0000-4000-8000-000000000001', ...args } }))) as {
         total: number; items: Array<Record<string, unknown>>
       }
     const all = await members({})
@@ -2147,7 +2160,7 @@ describe('message_members = 可寻址名录(spec ⑨)', () => {
       return baseRpc(name, body, profile)
     }
     const client = await connect({ ...h.deps, callSessionHost: async () => [] })
-    const rows = JSON.parse(text(await client.callTool({ name: 'message_members', arguments: { chat_id: 'c1' } }))).items as Array<Record<string, unknown>>
+    const rows = JSON.parse(text(await client.callTool({ name: 'message_members', arguments: { chat_id: '00000000-0000-4000-8000-000000000001' } }))).items as Array<Record<string, unknown>>
     expect(rows.find((row) => row.display_name === 'Codex 8')).toMatchObject({ status_from: 'cloud', host_online: true })
     await client.close()
   })
@@ -2160,14 +2173,14 @@ describe('message_members = 可寻址名录(spec ⑨)', () => {
       return baseRpc(name, body, profile)
     }
     const client = await connect({ ...h.deps, callSessionHost: async () => { throw new Error('host bridge closed') } })
-    const out = JSON.parse(text(await client.callTool({ name: 'message_members', arguments: { chat_id: 'c1' } })))
+    const out = JSON.parse(text(await client.callTool({ name: 'message_members', arguments: { chat_id: '00000000-0000-4000-8000-000000000001' } })))
     expect(out.total).toBe(3)
     expect(out.items.map((row: DirectoryRow) => row.display_name).sort()).toEqual(['Codex 1', 'Codex 8', '老板'])
     expect(out.status_unavailable).toContain('this machine: host bridge closed')
     expect(out.status_unavailable).toContain('cloud presence: command RPC HTTP 503')
     for (const row of out.items) expect(row).not.toHaveProperty('status')
 
-    const typo = await client.callTool({ name: 'message_members', arguments: { chat_id: 'c1', name: 'nobody', status: 'ready' } })
+    const typo = await client.callTool({ name: 'message_members', arguments: { chat_id: '00000000-0000-4000-8000-000000000001', name: 'nobody', status: 'ready' } })
     expect(typo.isError).toBe(true)
     expect(text(typo)).toContain('status must be one of idle, working')
     await client.close()
@@ -2178,7 +2191,7 @@ describe('message_members = 可寻址名录(spec ⑨)', () => {
     const orig = h.deps.restGet
     h.deps.restGet = async (p: string) => { paths.push(p); return orig(p) }
     const client = await connect(h.deps)
-    expect(JSON.parse(text(await client.callTool({ name: 'message_members', arguments: { chat_id: 'c1' } })))).toEqual({ total: 0, rows: null, next: null, items: [] })
+    expect(JSON.parse(text(await client.callTool({ name: 'message_members', arguments: { chat_id: '00000000-0000-4000-8000-000000000001' } })))).toEqual({ total: 0, rows: null, next: null, items: [] })
     expect(paths.some((p) => p.startsWith('users?id=in'))).toBe(false)
     await client.close()
   })
@@ -2217,7 +2230,7 @@ describe('id 列表不整张拼进一条 URL:每条读 ≤ IN_LIST_BATCH 个 id'
 
   test('message_members:120 人的群按批读身份,total 是全部人数', async () => {
     const { h, userReads } = bigGroup()
-    const out = JSON.parse(await callTool('message_members', { chat_id: 'c1', rows: '1' }, h.deps))
+    const out = JSON.parse(await callTool('message_members', { chat_id: '00000000-0000-4000-8000-000000000001', rows: '1' }, h.deps))
     expect(out.total).toBe(120)
     expect(userReads).toHaveLength(Math.ceil(120 / IN_LIST_BATCH))
     for (const path of userReads) expect(idsIn(path, 'id').length).toBeLessThanOrEqual(IN_LIST_BATCH)
@@ -2227,7 +2240,7 @@ describe('id 列表不整张拼进一条 URL:每条读 ≤ IN_LIST_BATCH 个 id'
   test('message_send:在 120 人的群里点名,核 @ 用的成员身份也按批读', async () => {
     const { h, userReads } = bigGroup()
     const client = await connect(h.deps)
-    const r = await client.callTool({ name: 'message_send', arguments: { chat_id: 'c1', text: 'hi', to_user_ids: [`user:${big[0]}`] } })
+    const r = await client.callTool({ name: 'message_send', arguments: { chat_id: '00000000-0000-4000-8000-000000000001', text: 'hi', to_user_ids: [`user:${big[0]}`] } })
     expect(text(r)).toMatch(/^sent/)
     expect(userReads.length).toBeGreaterThan(1)
     for (const path of userReads) expect(idsIn(path, 'id').length).toBeLessThanOrEqual(IN_LIST_BATCH)
@@ -2307,7 +2320,10 @@ describe('MCP 工具对外声明的入参 schema', () => {
     await Promise.all([server.connect(serverTransport), client.connect(clientTransport)])
     const { tools } = await client.listTools()
     const violations = tools.flatMap((tool) =>
-      findAgentOwnedMessageIdFields(tool.inputSchema).map((field) => `${tool.name}.${field}`),
+      findAgentOwnedMessageIdFields(tool.inputSchema)
+        // This is an existing admission record to decide, rather than a caller-created message ID.
+        .filter((field) => !(tool.name === 'group_join_decide' && field === 'request_id'))
+        .map((field) => `${tool.name}.${field}`),
     )
     expect(violations).toEqual([])
     const reply = tools.find((tool) => tool.name === 'message_send')
@@ -2396,26 +2412,26 @@ describe('MCP 工具对外声明的入参 schema', () => {
     const replyDef = TOOL_DEFS.find((tool: { name: string }) => tool.name === 'message_send')
     const historyDef = TOOL_DEFS.find((tool: { name: string }) => tool.name === 'message_history')
     const searchDef = TOOL_DEFS.find((tool: { name: string }) => tool.name === 'message_search')
-    expect(sendDef?.schema.safeParse({ chat_id: 'c1', text: 'x', to_user_ids: ['user:u1', 'user:u2'] }).success).toBe(true)
-    expect(replyDef?.schema.safeParse({ chat_id: 'c1', text: 'x', reply_to_message_id: 'msg:m1' }).success).toBe(true)
-    expect(historyDef?.schema.safeParse({ chat_id: 'c1' }).success).toBe(true)
-    expect(searchDef?.schema.safeParse({ chat_id: 'c1', query: 'x' }).success).toBe(true)
-    expect(sendDef?.schema.safeParse({ chat_id: 'c1', text: 'x', to_user_ids: '["u1"]' }).success).toBe(true)
-    expect(sendDef?.schema.safeParse({ chat_id: 'c1', text: 'x', to_user_ids: 'u1' }).success).toBe(false)
-    expect(sendDef?.schema.safeParse({ chat_id: 'c1', text: 'x', to_user_ids: '' }).success).toBe(false)
-    expect(sendDef?.schema.safeParse({ chat_id: 'c1', text: 'x', to_user_ids: '   ' }).success).toBe(false)
-    expect(sendDef?.schema.safeParse({ chat_id: 'c1', text: 'x', to_user_ids: '[bad]' }).success).toBe(false)
-    expect(sendDef?.schema.safeParse({ chat_id: 'c1', text: 'x', to_user_ids: [1] }).success).toBe(false)
-    expect(sendDef?.schema.safeParse({ chat_id: 'c1', text: 'x', to_user_ids: [' '] }).success).toBe(false)
-    expect(sendDef?.schema.safeParse({ chat_id: 'c1', text: 'x', to_user_ids: ['\t'] }).success).toBe(false)
-    expect(sendDef?.schema.safeParse({ chat_id: 'c1', text: 'x', to_user_ids: ['user:u1', ' '] }).success).toBe(false)
+    expect(sendDef?.schema.safeParse({ chat_id: '00000000-0000-4000-8000-000000000001', text: 'x', to_user_ids: ['user:u1', 'user:u2'] }).success).toBe(true)
+    expect(replyDef?.schema.safeParse({ chat_id: '00000000-0000-4000-8000-000000000001', text: 'x', reply_to_message_id: 'msg:m1' }).success).toBe(true)
+    expect(historyDef?.schema.safeParse({ chat_id: '00000000-0000-4000-8000-000000000001' }).success).toBe(true)
+    expect(searchDef?.schema.safeParse({ chat_id: '00000000-0000-4000-8000-000000000001', query: 'x' }).success).toBe(true)
+    expect(sendDef?.schema.safeParse({ chat_id: '00000000-0000-4000-8000-000000000001', text: 'x', to_user_ids: '["u1"]' }).success).toBe(true)
+    expect(sendDef?.schema.safeParse({ chat_id: '00000000-0000-4000-8000-000000000001', text: 'x', to_user_ids: 'u1' }).success).toBe(false)
+    expect(sendDef?.schema.safeParse({ chat_id: '00000000-0000-4000-8000-000000000001', text: 'x', to_user_ids: '' }).success).toBe(false)
+    expect(sendDef?.schema.safeParse({ chat_id: '00000000-0000-4000-8000-000000000001', text: 'x', to_user_ids: '   ' }).success).toBe(false)
+    expect(sendDef?.schema.safeParse({ chat_id: '00000000-0000-4000-8000-000000000001', text: 'x', to_user_ids: '[bad]' }).success).toBe(false)
+    expect(sendDef?.schema.safeParse({ chat_id: '00000000-0000-4000-8000-000000000001', text: 'x', to_user_ids: [1] }).success).toBe(false)
+    expect(sendDef?.schema.safeParse({ chat_id: '00000000-0000-4000-8000-000000000001', text: 'x', to_user_ids: [' '] }).success).toBe(false)
+    expect(sendDef?.schema.safeParse({ chat_id: '00000000-0000-4000-8000-000000000001', text: 'x', to_user_ids: ['\t'] }).success).toBe(false)
+    expect(sendDef?.schema.safeParse({ chat_id: '00000000-0000-4000-8000-000000000001', text: 'x', to_user_ids: ['user:u1', ' '] }).success).toBe(false)
     await client.close()
   })
   describe('#3643 message_send 未读群规即拒', () => {
     test('有群规且未读 ⇒ 拒绝、打出规矩原文、且一个字节都没落库', async () => {
       const h = harness(['alice'], '本群规矩：先给检索式再给结论。')
       const client = await connect(h.deps)
-      const r = await client.callTool({ name: 'message_send', arguments: { chat_id: 'c1', text: 'hi', to_user_ids: ['user:alice'] } })
+      const r = await client.callTool({ name: 'message_send', arguments: { chat_id: '00000000-0000-4000-8000-000000000001', text: 'hi', to_user_ids: ['user:alice'] } })
       expect(r.isError).toBe(true)
       expect(text(r)).toContain('本群规矩：先给检索式再给结论。')
       expect(h.calls.inserts).toHaveLength(0)
@@ -2424,8 +2440,8 @@ describe('MCP 工具对外声明的入参 schema', () => {
     test('被拒之后重发即通过 —— 拒的同时已记为已读,不死循环', async () => {
       const h = harness(['alice'], '规矩A')
       const client = await connect(h.deps)
-      await client.callTool({ name: 'message_send', arguments: { chat_id: 'c1', text: 'hi', to_user_ids: ['user:alice'] } })
-      const again = await client.callTool({ name: 'message_send', arguments: { chat_id: 'c1', text: 'hi', to_user_ids: ['user:alice'] } })
+      await client.callTool({ name: 'message_send', arguments: { chat_id: '00000000-0000-4000-8000-000000000001', text: 'hi', to_user_ids: ['user:alice'] } })
+      const again = await client.callTool({ name: 'message_send', arguments: { chat_id: '00000000-0000-4000-8000-000000000001', text: 'hi', to_user_ids: ['user:alice'] } })
       expect(text(again)).toMatch(/^sent/)
       expect(h.calls.inserts).toHaveLength(1)
       await client.close()
@@ -2433,19 +2449,19 @@ describe('MCP 工具对外声明的入参 schema', () => {
     test('先主动 message_rules 再发 ⇒ 一次都不被拒（快路径:规矩在开口前就到位）', async () => {
       const h = harness(['alice'], '规矩A')
       const client = await connect(h.deps)
-      await client.callTool({ name: 'message_rules', arguments: { chat_id: 'c1' } })
-      const r = await client.callTool({ name: 'message_send', arguments: { chat_id: 'c1', text: 'hi', to_user_ids: ['user:alice'] } })
+      await client.callTool({ name: 'message_rules', arguments: { chat_id: '00000000-0000-4000-8000-000000000001' } })
+      const r = await client.callTool({ name: 'message_send', arguments: { chat_id: '00000000-0000-4000-8000-000000000001', text: 'hi', to_user_ids: ['user:alice'] } })
       expect(text(r)).toMatch(/^sent/)
       await client.close()
     })
     test('群规中途改了 ⇒ 再拒一次（否则 agent 会按一份已作废的规矩行事）', async () => {
       const h = harness(['alice'], '规矩A')
       const client = await connect(h.deps)
-      await client.callTool({ name: 'message_rules', arguments: { chat_id: 'c1' } })
-      const ok = await client.callTool({ name: 'message_send', arguments: { chat_id: 'c1', text: 'a', to_user_ids: ['user:alice'] } })
+      await client.callTool({ name: 'message_rules', arguments: { chat_id: '00000000-0000-4000-8000-000000000001' } })
+      const ok = await client.callTool({ name: 'message_send', arguments: { chat_id: '00000000-0000-4000-8000-000000000001', text: 'a', to_user_ids: ['user:alice'] } })
       expect(text(ok)).toMatch(/^sent/)
       h.setGroupPrompt('规矩B（改过了）')
-      const blocked = await client.callTool({ name: 'message_send', arguments: { chat_id: 'c1', text: 'b', to_user_ids: ['user:alice'] } })
+      const blocked = await client.callTool({ name: 'message_send', arguments: { chat_id: '00000000-0000-4000-8000-000000000001', text: 'b', to_user_ids: ['user:alice'] } })
       expect(blocked.isError).toBe(true)
       expect(text(blocked)).toContain('规矩B（改过了）')
       await client.close()
@@ -2453,25 +2469,25 @@ describe('MCP 工具对外声明的入参 schema', () => {
     test('#3641 message_send_file 同样过闸:未见过群规 ⇒ 拒,且一个字节都没上传', async () => {
       const h = harness(['alice'], '附件先说明用途')
       const client = await connect(h.deps)
-      const args = { chat_id: 'c1', file_path: fixtureFile('a.txt', 'x'), mime_type: 'text/plain' }
+      const args = { chat_id: '00000000-0000-4000-8000-000000000001', file_path: fixtureFile('a.txt', 'x'), mime_type: 'text/plain' }
       const blocked = await client.callTool({ name: 'message_send_file', arguments: args })
       expect(blocked.isError).toBe(true)
       expect(text(blocked)).toContain('附件先说明用途')
       expect(h.calls.uploads).toHaveLength(0)
       expect(h.calls.inserts).toHaveLength(0)
       // 正对照:拒过一次即记为已读,重发通过。
-      expect(text(await client.callTool({ name: 'message_send_file', arguments: args }))).toMatch(/^file sent/)
+      expect(JSON.parse(text(await client.callTool({ name: 'message_send_file', arguments: args }))).status).toBe('sent')
       await client.close()
     })
     test('#3641 投递已送达当前版本(落盘记录)⇒ 第一次发言就放行;记录的是旧版本 ⇒ 照拒', async () => {
       const ledger = memoryGroupRulesLedger()
-      await ledger.write('agent-1', 'c1', { version: groupRulesVersion('规矩A'), contextKey: 'conv:s1' })
+      await ledger.write('agent-1', '00000000-0000-4000-8000-000000000001', { version: groupRulesVersion('规矩A'), contextKey: 'conv:s1' })
       const h = harness(['alice'], '规矩A')
       const client = await connect({ ...h.deps, groupRulesLedger: ledger })
-      const ok = await client.callTool({ name: 'message_send', arguments: { chat_id: 'c1', text: 'hi', to_user_ids: ['user:alice'] } })
+      const ok = await client.callTool({ name: 'message_send', arguments: { chat_id: '00000000-0000-4000-8000-000000000001', text: 'hi', to_user_ids: ['user:alice'] } })
       expect(text(ok)).toMatch(/^sent/)
       h.setGroupPrompt('规矩B')
-      const blocked = await client.callTool({ name: 'message_send', arguments: { chat_id: 'c1', text: 'b', to_user_ids: ['user:alice'] } })
+      const blocked = await client.callTool({ name: 'message_send', arguments: { chat_id: '00000000-0000-4000-8000-000000000001', text: 'b', to_user_ids: ['user:alice'] } })
       expect(blocked.isError).toBe(true)
       expect(text(blocked)).toContain('规矩B')
       await client.close()
@@ -2496,7 +2512,7 @@ describe('MCP 工具对外声明的入参 schema', () => {
     test('无群规 ⇒ 一次都不拒（非目标合取项必须保持绿）', async () => {
       const h = harness(['alice'], null)
       const client = await connect(h.deps)
-      const r = await client.callTool({ name: 'message_send', arguments: { chat_id: 'c1', text: 'hi', to_user_ids: ['user:alice'] } })
+      const r = await client.callTool({ name: 'message_send', arguments: { chat_id: '00000000-0000-4000-8000-000000000001', text: 'hi', to_user_ids: ['user:alice'] } })
       expect(text(r)).toMatch(/^sent/)
       await client.close()
     })
@@ -2532,7 +2548,7 @@ describe('#3805 运行时分叉:IM 工具注册照旧,执行一律拒', () => {
     const client = await connectWith(forkContext)
     const r = await client.callTool({
       name: 'message_send',
-      arguments: { chat_id: 'c1', text: 'hi', to_user_ids: ['user:alice'] },
+      arguments: { chat_id: '00000000-0000-4000-8000-000000000001', text: 'hi', to_user_ids: ['user:alice'] },
     })
     expect(r.isError).toBe(true)
     expect(text(r)).toContain('Codex 3')
@@ -2560,7 +2576,7 @@ describe('message_send whisper (#6835)', () => {
     const client = new Client({ name: 'test', version: '1.0.0' })
     await Promise.all([server.connect(st), client.connect(ct)])
     try {
-      return await client.callTool({ name: 'message_send', arguments: { chat_id: 'c1', text: 'psst', ...args } })
+      return await client.callTool({ name: 'message_send', arguments: { chat_id: '00000000-0000-4000-8000-000000000001', text: 'psst', ...args } })
     } finally {
       await client.close()
     }
@@ -2568,10 +2584,10 @@ describe('message_send whisper (#6835)', () => {
   function asChat(h: ReturnType<typeof harness>, kind: string, topicMembers?: string[]) {
     const baseRestRpc = h.deps.restRpc
     h.deps.restRpc = async (name: string, body: Record<string, unknown>, profile?: string) => {
-      if (name === 'chat_facts' && body.p_chat_id === 'c1') {
-        return [{ id: 'c1', name: 'Chat', kind, source_chat_id: kind === 'topic' ? 'g1' : null, group_prompt: null }]
+      if (name === 'chat_facts' && body.p_chat_id === '00000000-0000-4000-8000-000000000001') {
+        return [{ id: '00000000-0000-4000-8000-000000000001', name: 'Chat', kind, source_chat_id: kind === 'topic' ? 'g1' : null, group_prompt: null }]
       }
-      if (name === 'list_member_ids' && body.p_chat_id === 'c1' && topicMembers) return topicMembers.map((user_id) => ({ user_id }))
+      if (name === 'list_member_ids' && body.p_chat_id === '00000000-0000-4000-8000-000000000001' && topicMembers) return topicMembers.map((user_id) => ({ user_id }))
       return baseRestRpc(name, body, profile)
     }
   }
@@ -2594,9 +2610,63 @@ describe('message_send whisper (#6835)', () => {
   // 回复预览本来就按读的人可见性给,挂着不漏任何东西。
   test('a whisper may reply to a message', async () => {
     const h = harness(['agent-1', 'alice'])
+    replyHistory(h, [{ id: 'm1', sender_user_id: 'alice', is_whisper: false }])
     const r = await send(h, { whisper: true, to_user_ids: ['user:alice'], reply_to_message_id: 'msg:m1' })
     expect(text(r)).toMatch(/^replied/)
     expect(h.calls.inserts[0][1]).toMatchObject({ is_whisper: true, to_user_ids: ['alice'], reply_to_message_id: 'm1' })
+  })
+
+  test.each([
+    { sender_user_id: 'alice', to_user_ids: ['agent-1'] },
+    { sender_user_id: 'agent-1', to_user_ids: ['alice'] },
+  ])('inherits the private pair for $sender_user_id → $to_user_ids without requiring recipients', async (pair) => {
+    const h = harness(['agent-1', 'alice', 'bob'])
+    replyHistory(h, [{ id: 'm1', ...pair, is_whisper: true }])
+    const restGet = vi.fn(h.deps.restGet)
+    h.deps.restGet = restGet
+    const r = await send(h, { reply_to_message_id: 'msg:m1' })
+    expect(r.isError).not.toBe(true)
+    expect(h.calls.inserts[0][1]).toMatchObject({ is_whisper: true, to_user_ids: ['alice'], reply_to_message_id: 'm1' })
+    expect(h.calls.rpcs).toContainEqual(['message_history_as', expect.objectContaining({ p_as_user_id: 'agent-1', p_chat_id: '00000000-0000-4000-8000-000000000001' })])
+    expect(restGet.mock.calls.some(([path]) => path.startsWith('messages?id=eq.m1'))).toBe(false)
+  })
+  test('only whisper:false makes a reply to a whisper public', async () => {
+    const h = harness(['agent-1', 'alice'])
+    replyHistory(h, [{ id: 'm1', sender_user_id: 'alice', to_user_ids: ['agent-1'], is_whisper: true }])
+    const r = await send(h, { reply_to_message_id: 'msg:m1', to_user_ids: ['user:alice'], whisper: false })
+    expect(r.isError).not.toBe(true)
+    expect(h.calls.inserts[0][1]).toMatchObject({ to_user_ids: ['alice'], reply_to_message_id: 'm1' })
+    expect(h.calls.inserts[0][1]).not.toHaveProperty('is_whisper')
+  })
+  test('refuses a whisper reply whose original peer is unavailable', async () => {
+    const h = harness(['agent-1', 'alice'])
+    replyHistory(h, [{ id: 'm1', sender_user_id: null, to_user_ids: ['agent-1'], is_whisper: true }])
+    const r = await send(h, { reply_to_message_id: 'msg:m1' })
+    expect(r.isError).toBe(true)
+    expect(text(r)).toContain('cannot resolve the participants')
+    expect(h.calls.inserts).toEqual([])
+  })
+  test('refuses old history responses without privacy metadata instead of publishing', async () => {
+    const h = harness(['agent-1', 'alice'])
+    replyHistory(h, [{ id: 'm1', sender_user_id: 'alice', to_user_ids: ['agent-1'] }])
+    const r = await send(h, { reply_to_message_id: 'msg:m1', to_user_ids: ['user:alice'] })
+    expect(text(r)).toContain('update the backend')
+    expect(h.calls.inserts).toEqual([])
+  })
+  test('reads older reply sources through the same paginated agent history', async () => {
+    const h = harness(['agent-1', 'alice'])
+    const base = h.deps.restRpc
+    const historyCalls: Record<string, unknown>[] = []
+    h.deps.restRpc = async (name, body, profile) => {
+      if (name !== 'message_history_as') return base(name, body, profile)
+      historyCalls.push(body)
+      return body.p_before_seq === null
+        ? Array.from({ length: 100 }, (_, i) => ({ id: `newer-${i}`, seq: 200 - i, is_whisper: false }))
+        : [{ id: 'm1', seq: 100, sender_user_id: 'alice', to_user_ids: ['agent-1'], is_whisper: true }]
+    }
+    expect((await send(h, { reply_to_message_id: 'msg:m1' })).isError).not.toBe(true)
+    expect(historyCalls.map((body) => body.p_before_seq)).toEqual([null, 101])
+    expect(h.calls.inserts[0][1]).toMatchObject({ is_whisper: true, to_user_ids: ['alice'] })
   })
 
   // 私聊里不另拦:两个人的私聊漏不出去,判据只在库里一处(gugu-supabase #84 不按 chat 种类拦)。
@@ -2612,7 +2682,7 @@ describe('message_send whisper (#6835)', () => {
   test('the ordinary non-member check still applies to a whisper', async () => {
     const h = harness(['agent-1', 'alice'])
     const r = await send(h, { whisper: true, to_user_ids: ['user:carol'] })
-    expect(text(r)).toMatch(/收件人不在本 chat（c1）成员里/)
+    expect(text(r)).toMatch(/收件人不在本 chat（00000000-0000-4000-8000-000000000001）成员里/)
     expect(h.calls.inserts).toHaveLength(0)
   })
 
@@ -2621,7 +2691,7 @@ describe('message_send whisper (#6835)', () => {
   test.each([
     ['to itself', { to_user_ids: ['user:agent-1'] }, 'group', 'A whisper cannot be sent to yourself'],
     ['to two people', { to_user_ids: ['user:alice', 'user:bob'] }, 'group', 'A whisper goes to exactly one person: to_user_ids holds 2 recipients'],
-    ['in a topic, to a source-group member outside the topic', { to_user_ids: ['user:bob'] }, 'topic', 'A whisper goes to a member of this chat: bob is not a member of c1'],
+    ['in a topic, to a source-group member outside the topic', { to_user_ids: ['user:bob'] }, 'topic', 'A whisper goes to a member of this chat: bob is not a member of 00000000-0000-4000-8000-000000000001'],
   ])('hands the database’s refusal of a whisper %s to the agent word for word', async (_, args, kind, refusal) => {
     const h = harness(['agent-1', 'alice', 'bob'])
     asChat(h, kind, kind === 'topic' ? ['agent-1', 'alice'] : undefined)
@@ -2652,16 +2722,16 @@ describe('write tools refuse unknown keys (#6840)', () => {
   test('a write tool names the unknown key and lists its legal parameters, and does nothing', async () => {
     const h = harness(['agent-1', 'alice'])
     const client = await connect(h.deps)
-    const r = await client.callTool({ name: 'message_invite', arguments: { chat_id: 'c1', to_user_ids: ['user:alice'], text: 'join us', force: true } })
+    const r = await client.callTool({ name: 'message_invite', arguments: { chat_id: '00000000-0000-4000-8000-000000000001', to_user_ids: ['user:alice'], text: 'join us', force: true } })
     expect(r.isError).toBe(true)
     expect(text(r)).toMatch(/不认识的参数 force;合法参数:chat_id、to_user_ids、text/)
-    expect(h.calls.rpcs.map(([name]) => name)).not.toContain('request_agent_group_invitation')
+    expect(h.calls.rpcs.map(([name]) => name)).not.toContain('request_group_invitation_as')
   })
 
   test('a read tool still ignores a key it does not know', async () => {
     const h = harness(['agent-1', 'alice'])
     const client = await connect(h.deps)
-    const r = await client.callTool({ name: 'message_history', arguments: { chat_id: 'c1', newest_first: true } })
+    const r = await client.callTool({ name: 'message_history', arguments: { chat_id: '00000000-0000-4000-8000-000000000001', newest_first: true } })
     expect(r.isError).toBeFalsy()
   })
 
@@ -2671,7 +2741,7 @@ describe('write tools refuse unknown keys (#6840)', () => {
     const { tools } = await client.listTools()
     const writers = (TOOL_DEFS as Array<{ name: string; writer?: boolean }>).filter((def) => def.writer).map((def) => def.name)
     // Includes both delegated text and attachment writers; workspace writers live in the folder App.
-    expect(writers).toHaveLength(12)
+    expect(writers).toHaveLength(22)
     for (const name of writers) {
       expect(tools.find((tool) => tool.name === name)?.inputSchema, name).toMatchObject({ additionalProperties: false })
     }

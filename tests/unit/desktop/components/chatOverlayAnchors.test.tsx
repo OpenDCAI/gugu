@@ -6,7 +6,7 @@ import { MemberProfilePopover } from '../../../../apps/desktop/src/components/Me
 import { ReadReceiptPopover } from '../../../../apps/desktop/src/components/ReadReceiptPopover'
 import { Menu, MenuItem } from '../../../../apps/desktop/src/components/ui/Menu'
 import { Popover } from '../../../../apps/desktop/src/components/ui/Popover'
-import { createNode, createReactHarness, message, renderWithAppProviders } from '../../../support/testHarness'
+import { createNode, createReactHarness, message, renderWithAppProviders, waitForCondition } from '../../../support/testHarness'
 
 vi.mock('../../../../apps/desktop/src/hooks/useAgentHarnessIdentity', () => ({ useAgentHarnessIdentity: () => 'codex' }))
 
@@ -27,6 +27,16 @@ async function settle() {
   for (let i = 0; i < 5; i += 1) {
     await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)) })
   }
+}
+
+async function hoverBubble(compactMobile = false) {
+  const bubble = harness.container.querySelector('[data-testid="message-bubble-action-target"]')!
+  const over = new MouseEvent('pointerover', { bubbles: true })
+  Object.defineProperty(over, 'pointerType', { value: 'mouse' })
+  const row = bubble.closest('[data-message-bubble-row]')!
+  await act(async () => { row.dispatchEvent(over); row.dispatchEvent(new MouseEvent('mouseenter')) })
+  if (!compactMobile) await waitForCondition(() => !!document.querySelector('[data-testid="message-hover-actions"]'), 'hover pill opens')
+  await settle()
 }
 
 function buttonAt(rect: { x: number; y: number }) {
@@ -76,17 +86,19 @@ describe('overlay anchors (2a)', () => {
 
   it.each([
     ['更多', '.gg-menu-positioner'],
-    ['表情回应', '[data-slot="popover-positioner"]'],
+    ['表情回应', '[data-slot="popover-positioner"]:has([role="toolbar"][aria-label="快速回应"])'],
   ])('message hover-bar 「%s」 anchors its overlay to the button itself', async (title, selector) => {
     await renderWithAppProviders(harness, createNode(MessageBubble, {
       msg: message({ id: 'msg-1', content: 'hi', is_mine: false, sender_user_id: 'sender-1', created_at: '2026-05-24T00:00:00.000Z' }),
       onReaction: vi.fn(), memberReadSeqs: {}, onQuote: vi.fn(), onForward: vi.fn(), onDelete: vi.fn(), isGroup: true,
     }))
-    const button = harness.container.querySelector(`button[title="${title}"]`) as HTMLButtonElement
+    await hoverBubble()
+    const button = document.querySelector(`button[title="${title}"]`) as HTMLButtonElement
     expect(button).not.toBeNull()
     let rect = new DOMRect(500, 300, 32, 32)
     button.getBoundingClientRect = () => rect
     await act(async () => { button.click() })
+    await act(async () => { await vi.dynamicImportSettled() })
     await settle()
     const node = () => document.querySelector(selector) as HTMLElement
     expect(node().style.transform).toBe('translate(500px, 338px)')
@@ -101,12 +113,10 @@ describe('overlay anchors (2a)', () => {
       msg: message({ id: 'msg-1', content: 'hi', is_mine: false, sender_user_id: 'sender-1', created_at: '2026-05-24T00:00:00.000Z' }),
       onReaction: vi.fn(), memberReadSeqs: {}, onQuote: vi.fn(), onForward: vi.fn(), onDelete: vi.fn(), isGroup: true, compactMobile,
     }))
-    const bubble = harness.container.querySelector('[data-testid="message-bubble-action-target"]') as HTMLElement
-    const over = new MouseEvent('pointerover', { bubbles: true })
-    Object.defineProperty(over, 'pointerType', { value: 'mouse' })
-    await act(async () => { bubble.dispatchEvent(over) })
-    const bar = (harness.container.querySelector('button[title="更多"]') as HTMLElement).parentElement as HTMLElement
-    expect(bar.style.display).toBe(display)
+    await hoverBubble(compactMobile)
+    const bar = document.querySelector<HTMLElement>('[data-testid="message-hover-actions"]')
+    if (compactMobile) expect(bar).toBeNull()
+    else expect(bar?.style.display).toBe(display)
   })
 
   it.each([true, false])('hover action bar sits on the bubble row, not the message column edge (isMine=%s)', async (isMine) => {
@@ -114,16 +124,22 @@ describe('overlay anchors (2a)', () => {
       msg: message({ id: 'msg-1', content: 'hi', is_mine: isMine, sender_user_id: 'sender-1', created_at: '2026-05-24T00:00:00.000Z' }),
       onReaction: vi.fn(), memberReadSeqs: {}, onQuote: vi.fn(), onForward: vi.fn(), onDelete: vi.fn(), isGroup: true,
     }))
-    const bar = (harness.container.querySelector('button[title="更多"]') as HTMLElement).parentElement as HTMLElement
-    const anchor = bar.parentElement as HTMLElement
     const bubble = harness.container.querySelector('[data-testid="message-bubble-action-target"]') as HTMLElement
-    expect(anchor.dataset.messageBubbleRow).toBe('true')
-    expect(anchor.style.position).toBe('relative')
+    const anchor = bubble.closest('[data-message-bubble-row]') as HTMLElement
+    const readAnchor = vi.spyOn(anchor, 'getBoundingClientRect').mockReturnValue(new DOMRect(400, 300, 100, 40))
+    const composer = document.createElement('input')
+    document.body.append(composer)
+    composer.focus()
+    await hoverBubble()
+    const bar = document.querySelector<HTMLElement>('[data-testid="message-hover-actions"]')!
+    expect(bar).not.toBeNull()
+    expect(readAnchor).toHaveBeenCalled()
     expect(anchor.style.width).toBe('fit-content')
     expect(anchor.style.marginLeft).toBe(isMine ? 'auto' : '')
-    expect(anchor.contains(bubble)).toBe(true)
-    expect(bar.style.position).toBe('absolute')
-    expect(isMine ? bar.style.left : bar.style.right).toBe('0px')
+    expect(harness.container.contains(bar)).toBe(false)
+    expect(bar.closest<HTMLElement>('[data-slot="popover-positioner"]')?.style.position).toBe('fixed')
+    expect(document.activeElement).toBe(composer)
+    composer.remove()
   })
 
   it.each(['member profile card', 'read receipt list'])('%s follows the element that opened it', async (kind) => {

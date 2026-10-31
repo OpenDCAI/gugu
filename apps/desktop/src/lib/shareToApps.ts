@@ -1,6 +1,6 @@
 import { parseAttachmentContent, type AttachmentSource } from '@gugu/core/shared/ui/attachmentModels'
 import { parseVoiceAttachmentContent } from '@gugu/core/shared/ui/voiceAttachmentModels'
-import type { AttachmentResolution } from '@gugu/core/shared/attachmentUrls'
+import type { ResolvedFile } from '@gugu/core/shared/fileResolver'
 import type { MessageItem } from '@gugu/core/shared/types/chat'
 import type { ShareToAppsPayload } from '../platform/types'
 
@@ -13,11 +13,11 @@ export interface SharePlan {
 }
 
 /** 点下「分享」时把附件签成链接;条目删了就抛(整组不分享,❌ 悄悄漏掉)。 */
-export async function resolveSharePlan(plan: SharePlan, resolve: (source: AttachmentSource) => Promise<AttachmentResolution>): Promise<ShareToAppsPayload> {
+export async function resolveSharePlan(plan: SharePlan, resolve: (source: AttachmentSource) => Promise<ResolvedFile>): Promise<ShareToAppsPayload> {
   const files = await Promise.all((plan.files ?? []).map(async ({ source, name, mimeType }) => {
     const link = await resolve(source)
-    if (link.status === 'gone') throw new Error(`${name} was deleted`)
-    return { url: link.url, name, ...(mimeType ? { mimeType } : {}) }
+    if (link.status !== 'ready') throw new Error(`${name} was deleted`)
+    return { file: link, name, ...(mimeType ? { mimeType } : {}) }
   }))
   return { ...(plan.text ? { text: plan.text } : {}), ...(files.length > 0 ? { files } : {}) }
 }

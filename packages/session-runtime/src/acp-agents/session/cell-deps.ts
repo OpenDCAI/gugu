@@ -1,6 +1,7 @@
-import type { PromptAttachment, ProviderPermissionModeMap } from '@gugu/session-core/acp';
+import type { AttachmentRef, PromptAttachment, ProviderPermissionModeMap } from '@gugu/session-core/acp';
 import type {
   AcpAgentApi,
+  IAcpBehavior,
   LiveSettingCapability,
   LiveSettingsCapability,
 } from '@gugu/session-core/agents/plugins';
@@ -11,6 +12,8 @@ import type { Logger } from '@gugu/session-shared/logger';
 export interface ResolvedPromptAttachment {
   data: string;
   mimeType: string;
+  /** The immutable copy retained by the runtime, also used by transcript clients. */
+  ref?: AttachmentRef;
 }
 
 export type ResolvePromptAttachment = (
@@ -18,10 +21,14 @@ export type ResolvePromptAttachment = (
 ) => Promise<ResolvedPromptAttachment>;
 
 export interface SessionCellCallbacks {
+  /** A real mid-turn input was admitted; the host may release only registered human-tool waits. */
+  onPromptSteered?: () => void;
   onSessionStateChanged?: () => void;
   onTranscriptChanged?: () => void;
   onDraftChanged?: () => void;
   onClosed?: (exitCode: number | null) => void;
+  /** v2 native admission failed internally. Retire the executor through the existing lifecycle. */
+  onPromptRejected?: () => Promise<void>;
   onAgentEvent?: (phase: 'start' | 'stop' | 'error') => void;
 }
 
@@ -68,6 +75,8 @@ export interface SessionCellDeps {
   liveSettings?: LiveSettingsCapability;
   /** Stable ACP modes are a permission source unless the provider explicitly says otherwise. */
   sessionModes?: 'permission' | 'none';
+  /** Provider-declared replay evidence and native/original prompt binding. */
+  historyRecovery?: IAcpBehavior['historyRecovery'];
   /**
    * 会话开出来时用户选的档是不是完全访问(`isAutoApproveIntent(input)`)。
    * 是 ⇒ `session/request_permission` 由 cell 当场替用户作答,不进待决、不带状态。
@@ -84,8 +93,10 @@ export interface SessionCellDeps {
   acceptsImagePrompts?: boolean;
   /** Whether initialize negotiated the ACP `_session/steering` extension. */
   supportsSteering?: boolean;
-  /** 忙时插话的送法(插件 `acp.midTurnSteer`,语义见那里)。缺席 = 并发 `session/prompt`。 */
-  midTurnSteer?: 'interrupt-at-tool-boundary';
+  /** Host-verified personal assistant owner; absent for task agents and ordinary sessions. */
+  assistantOwnerId?: string;
+  /** Synchronous queue persistence must have succeeded before cancelling a replied continuation. */
+  queuedPromptsPersisted?: () => boolean;
   /** 这一家「失败报成正常结束」的识别(插件 `acp.turnFailure`,语义见那里)。 */
   turnFailure?: {
     fromAgentMessage?: (text: string) => string | null;
@@ -100,6 +111,8 @@ export interface SessionCellDeps {
    * (那正是 #4429 删掉的第二属主)。缺省不注入时,多条信封**响亮失败**,❌ 不悄悄退回逐条发。
    */
   mergeEnvelopes?: (texts: readonly string[]) => string;
+  /** Core-owned envelope identity and uncertainty marking, injected by the host. */
+  recoverDelivery?: (text: string, replayedUserInputs: readonly string[], historyUnknown: boolean, receivedMessageIds?: ReadonlySet<string>) => string | null;
   logger: Logger;
   /**
    * behavior `agent-context-injection` 的 **③**:走用户级载体的会话级系统提示词。

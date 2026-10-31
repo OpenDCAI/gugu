@@ -1,3 +1,4 @@
+import { messageForUser } from '@/lib/userFacingError';
 import { useCallback, useEffect, useId, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useTopicsOfChat } from '../../hooks/useTopics'
@@ -15,11 +16,11 @@ function TopicThreshold({ chatId, revision }: { chatId: string; revision: number
   const { user } = useAuth()
   const { t } = useTranslation('messaging')
   const [editable, setEditable] = useState(false)
-  const [failed, setFailed] = useState(false)
+  const [failed, setFailed] = useState('')
   const [attempt, setAttempt] = useState(0)
   useEffect(() => {
     let cancelled = false
-    setFailed(false)
+    setFailed('')
     void chatService.getGroupCollab(chatId).then(({ snapshot }) => {
       if (cancelled) return
       const role = snapshot.humans.find((member) => member.id === user?.id)?.role
@@ -29,14 +30,14 @@ function TopicThreshold({ chatId, revision }: { chatId: string; revision: number
       setEditable(false)
       if (error instanceof GroupCollabEmptyError) return
       log.error({ error, chatId }, 'topic threshold permissions load failed')
-      setFailed(true)
+      setFailed(messageForUser(error))
     })
     return () => { cancelled = true }
   }, [chatId, user?.id, attempt, revision])
   return <>
     <AgentFloodThresholdSetting chatId={chatId} editable={editable} inherits revision={revision} />
     {failed ? <div role="alert">
-      {t('group.settings.agentFloodPermissionsFailed')}
+      {failed}
       <Button variant="ghost" size="sm" onClick={() => setAttempt((value) => value + 1)}>{t('common.retry')}</Button>
     </div> : null}
   </>
@@ -77,7 +78,7 @@ function TopicThresholds({ chatId }: { chatId: string }) {
   return <>
     {loading ? <p className="text-sm text-[var(--text-tertiary)]">{t('common.loading')}</p> : null}
     {error ? <div role="alert">
-      {t('group.settings.agentFloodTopicsFailed')}
+      {messageForUser(error)}
       <Button variant="ghost" size="sm" onClick={reload}>{t('common.retry')}</Button>
     </div> : null}
     {selected ? <>

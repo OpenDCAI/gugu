@@ -41,18 +41,20 @@ export const TITLEBAR_ACTION_EDGE_GAP_PX = 8
 export const TITLEBAR_LEFT_EDGE_GAP_PX = 8
 
 /**
- * 侧栏收起时,主内容区左上角浮着一枚 28px 的「展开侧栏」按钮(shell-titlebar.tsx 的
- * <ShellSidebarRestoreButton>)。它是零高度浮层里的 absolute 元素,**不占版面** —— 于是同处这条
- * 40px 带、且自己就贴着主内容区左缘的容器,必须自己让开这条车道:
- *     左缘呼吸 8 + 按钮 28 + 一道行内间距 4 = 40px。
+ * When the sidebar is closed only the collapse toggle stays at the workspace's left edge (the layout button belongs to the
+ * list and goes with it, owner 2026-10-23). Reserve its slot plus the shared edge and gap before title content.
  *
  * 不让开就是「浮动按钮压住内容」:实机(#4129 那张图)工作区面板全屏 + 侧栏收起时,首个页签的
  * 文件图标和这枚按钮叠成一团。会话栏 header 早就在让(session-chat-column.tsx),页签条没跟上。
  *
- * ❌ 别在调用点另写 40:按钮改档时这里是唯一要动的地方。
+ * ❌ 别在调用点手写车道宽度:按钮改档时这里是唯一要动的地方。
  */
 export const SHELL_RESTORE_LANE_PX =
-  TITLEBAR_LEFT_EDGE_GAP_PX + TITLEBAR_ACTION_SLOT_WIDTH_PX + TITLEBAR_ACTION_SLOT_GAP_PX
+  TITLEBAR_LEFT_EDGE_GAP_PX + titlebarActionsWidth(1) + TITLEBAR_ACTION_SLOT_GAP_PX
+
+/** While the sidebar shows, its header row starts after both controls: collapse, then layout. */
+export const SIDEBAR_HEADER_CONTROLS_PX =
+  TITLEBAR_LEFT_EDGE_GAP_PX + titlebarActionsWidth(2) + TITLEBAR_ACTION_SLOT_GAP_PX
 
 /** n 个 28px 槽位 + (n-1) 道间距;n=0 时该组不占宽。 */
 export function titlebarActionsWidth(slotCount: number): number {
@@ -81,16 +83,24 @@ export function hasWindowTitlebarRow(platform: string | undefined): boolean {
 }
 
 /**
- * 内容区实际要让出的那条侧栏开关车道(SHELL_RESTORE_LANE_PX)。Windows 上开关住在标题栏行(#6753),
- * 不压内容 ⇒ 0;其余平台它浮在内容左上角,照旧让。
+ * Sidebar controls share the content header on every desktop platform.
  */
-export function shellRestoreLane(platform: string | undefined): number {
-  return hasWindowTitlebarRow(platform) ? 0 : SHELL_RESTORE_LANE_PX
+export function shellRestoreLane(_platform: string | undefined): number {
+  return SHELL_RESTORE_LANE_PX
 }
 
 /** 标题栏行占掉的竖直高度;没有这一行的平台为 0,内容从窗口顶端起。 */
 export function windowTitlebarHeight(platform: string | undefined): number {
   return hasWindowTitlebarRow(platform) ? WINDOW_TITLEBAR_HEIGHT_PX : 0
+}
+
+/**
+ * 画哪种窗口外壳。桌面 app 由它自己的 preload 桥(window.desktopWindow,每个桌面平台都有)认出来,❌ 看 UA 里的
+ * "Electron/x.y.z":app 为内嵌网页把它从 UA 里去掉了(#146),自己的渲染层也跟着没了它 —— 那时 Windows 上标题栏行
+ * 和窗口按钮都没画,只剩给别的平台的拖拽带能拖窗口。web 版没有这座桥 ⇒ 'other'。
+ */
+export function rendererPlatformFor(hostOs: RendererPlatform, desktopBridge: unknown): RendererPlatform {
+  return desktopBridge !== undefined ? hostOs : 'other'
 }
 
 export function readRendererPlatform(
@@ -102,37 +112,9 @@ export function readRendererPlatform(
 
 /**
  * 内容区右上角要给窗口按钮**让出**的宽度 —— 只有按钮压在内容上时才非 0(Linux)。
- * Windows 的按钮在标题栏行里,不压内容,所以是 0:下面两个预留函数与 main.tsx 写的
- * `--titlebar-controls-width` 都从这里取,一处改全处跟。
+ * Windows 的按钮在标题栏行里,不压内容,所以是 0:main.tsx 写的 `--titlebar-controls-width` 从这里取,
+ * 页签条右端那格留白(titlebar-actions.tsx)读的就是那个变量,一处改全处跟。
  */
 export function windowControlsWidth(platform: string | undefined): number {
   return hasCustomWindowControls(platform) && !hasWindowTitlebarRow(platform) ? WINDOW_CONTROLS_WIDTH_PX : 0
-}
-
-export function titlebarActionsRight(platform: string | undefined): number {
-  return windowControlsWidth(platform) + TITLEBAR_ACTION_EDGE_GAP_PX
-}
-
-/**
- * 同处一行的其它内容必须预留的右侧空间 = 窗口控制条 + 固定簇实宽 + 边缘呼吸 + 一道普通间距。
- *
- * 末尾那道就是 SLOT_GAP —— 于是「消息栏最后一个按钮 → 固定簇第一个按钮」和「同组内两个按钮」
- * 是同一个数,整排看上去就是等距的一排,不靠任何视觉把戏暗示分组。
- *
- * slotCount 由固定簇的成员清单推导(见 titlebar-actions.tsx),❌ 别在调用点手写数字:
- * 手写的槽位数是会过期的护栏 —— 簇里加一个按钮而这里忘了跟,预留就短一截,两边当场重叠。
- */
-export function titlebarActionsReserve(platform: string | undefined, slotCount: number): number {
-  // 簇里一个成员都没有时,它自己的 28px 与那道 4px 组内间距都该消失 —— 但 EDGE_GAP 不该:
-  // 那 8px 是**这一行右端**与窗口(或窗口控制条)之间的呼吸,谁排在最后谁享有它。
-  // ❌ 别把它一起短路掉:那样 mac 上最后一个按钮会贴死窗口右缘,Windows 上会贴死最小化键 ——
-  // 正是本模块存在的理由(「浮动按钮压住按钮」)。
-  // 留着它,「每加一个槽位就宽 SLOT_WIDTH + SLOT_GAP」这条律对 n=0 同样成立(见单测)。
-  if (slotCount <= 0) return windowControlsWidth(platform) + TITLEBAR_ACTION_EDGE_GAP_PX
-  return (
-    windowControlsWidth(platform) +
-    titlebarActionsWidth(slotCount) +
-    TITLEBAR_ACTION_EDGE_GAP_PX +
-    TITLEBAR_ACTION_SLOT_GAP_PX
-  )
 }

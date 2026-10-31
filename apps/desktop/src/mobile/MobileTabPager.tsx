@@ -6,10 +6,11 @@ import { TAB_POSITION_VAR, settledTab, tabPosition } from './settledTab'
 // 跟手、惯性、吸附、方向(手指往左 = 露出右边那页)、首尾页不越界(平台自己的 overscroll 效果)、
 // 竖滑优先、页内能横滚的东西先滚,全由浏览器给。❌ 自己跟 touchmove 算位移/速度/阻尼 —— #3284 那版
 // 只在抬手时判一次位移,拖动时页面不动,方向还判反了。
-// 顺序只有一份:MainLayout 交进来的 `tabs`(手机 = mobileTabs,开得了个人助理时它排第一),底部 tab 栏按同一份排。
+// 顺序只有一份:MainLayout 交进来的 `tabs`(手机 = MOBILE_TABS「消息 / 伙伴」),底部 tab 栏按同一份排。
 
 // 桌面壳不分页:两层包裹都是 display:contents,各页照旧直接参与主区的 flex 布局;
 // 包裹在两种壳里是同一批元素,web 目标跨 720px 断点时各页不重挂。
+// inert 只给手机:横滑时相邻页看得见,只能摘掉焦点与点击;桌面上藏着的页自己用 RETAINED_SURFACE_HIDDEN_STYLE 藏。
 const CONTENTS: CSSProperties = { display: 'contents' }
 const PAGE: CSSProperties = {
   flex: '0 0 100%',
@@ -24,11 +25,13 @@ const PAGE: CSSProperties = {
   scrollSnapStop: 'always',
 }
 
-export function MobileTabPager({ mobile, tabs, activeTab, swipeable, onSettle, tabBarRef, pages }: {
+export function MobileTabPager({ mobile, tabs, activeTab, covered = false, swipeable, onSettle, tabBarRef, pages }: {
   mobile: boolean
   /** 这一刻有哪几页、什么顺序(底部 tab 栏按同一份排);桌面壳就是 SIDEBAR_TABS。 */
   tabs: readonly SidebarTab[]
   activeTab: SidebarTab
+  /** 手机上有一层推在上面(PhoneLayer):每一页都 inert,停着的那页也摘掉焦点与点击。 */
+  covered?: boolean
   /** 只在 tab 的浏览层(底部 tab 栏在的地方)能横滑;钻进全屏子页就锁住。 */
   swipeable: boolean
   onSettle: (tab: SidebarTab) => void
@@ -37,12 +40,13 @@ export function MobileTabPager({ mobile, tabs, activeTab, swipeable, onSettle, t
   pages: Partial<Record<SidebarTab, ReactNode>>
 }) {
   const pagerRef = useRef<HTMLDivElement>(null)
-  // 任何入口改了 activeTab(点 tab 栏、通知进会话、返回键)都瞬时对齐到那一页;首帧也在绘制前落位。
+  // 点击 tab 即时落位;只有手势横滑才走原生跟手、惯性和吸附。
   useLayoutEffect(() => {
     const pager = pagerRef.current
     if (!mobile || !pager) return
     const index = tabs.indexOf(activeTab)
-    pager.scrollLeft = index * pager.getBoundingClientRect().width
+    const left = index * pager.getBoundingClientRect().width
+    pager.scrollTo({ left, behavior: 'instant' })
     tabBarRef.current?.style.setProperty(TAB_POSITION_VAR, String(index))
   }, [mobile, tabs, activeTab, tabBarRef])
 
@@ -55,7 +59,7 @@ export function MobileTabPager({ mobile, tabs, activeTab, swipeable, onSettle, t
     const position = tabPosition(pager.scrollLeft, width, tabs.length)
     if (position !== null) tabBarRef.current?.style.setProperty(TAB_POSITION_VAR, String(position))
     const tab = settledTab(pager.scrollLeft, width, tabs)
-    if (tab && tab !== activeTab) onSettle(tab)
+    if (swipeable && !covered && tab && tab !== activeTab) onSettle(tab)
   }
 
   return (
@@ -76,7 +80,7 @@ export function MobileTabPager({ mobile, tabs, activeTab, swipeable, onSettle, t
       } : CONTENTS}
     >
       {tabs.map((tab) => (
-        <div key={tab} data-mobile-tab-page={mobile ? tab : undefined} inert={activeTab !== tab} style={mobile ? PAGE : CONTENTS}>
+        <div key={tab} data-mobile-tab-page={mobile ? tab : undefined} inert={mobile && (covered || activeTab !== tab)} style={mobile ? PAGE : CONTENTS}>
           {pages[tab]}
         </div>
       ))}

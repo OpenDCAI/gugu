@@ -1,3 +1,5 @@
+import { translateSessionMessage } from '@renderer/localization/locale-store';
+import { messageForUser } from '@/lib/userFacingError';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import React, { createContext, useCallback, useContext, useEffect } from 'react';
 import { events, rpc } from '@renderer/lib/ipc';
@@ -84,8 +86,8 @@ export function GithubContextProvider({ children }: { children: React.ReactNode 
   const handleDeviceFlowError = useCallback(
     (error: string) => {
       toast({
-        title: 'Authentication Failed',
-        description: error,
+        title: translateSessionMessage('github.authFailed'),
+        description: messageForUser(error),
         variant: 'destructive',
       });
     },

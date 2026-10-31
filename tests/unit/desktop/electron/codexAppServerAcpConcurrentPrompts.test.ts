@@ -1,3 +1,4 @@
+import { observeCodexForegroundCompletion } from '../../../support/codexForegroundCompletion';
 // @@@vitest-environment node
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { chmodSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
@@ -8,7 +9,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 
 import { awaitFact } from '../../../support/awaitFact'
 
-// 编辑重发时恰好收到一条消息,任务一直显示在工作(10-18 mac1 实撞,gugu-base evidence/2026-10-18-revert-end-kick)。
+// 编辑重发时恰好收到一条消息,任务一直显示在工作(10-18 在 macOS 上实撞)。
 //
 // 两条 session/prompt 几乎同时进桥:两条都还没看见在跑的轮,都发了 turn/start。codex 的 turn/start 遇到在跑的轮
 // 不另开,而是插进去、回那一轮的 id(openai/codex app-server turn_processor.rs `start_or_steer_turn`)。
@@ -31,6 +32,7 @@ const starts = []
 const turn = { id: 'turn-1', status: 'inProgress' }
 rl.on('line', (line) => {
   const m = JSON.parse(line)
+  if (m.method === 'turn/start' || m.method === 'turn/steer') process.stdout.write(JSON.stringify({ method: 'item/started', params: { item: { type: 'userMessage', id: 'user-' + m.id, clientId: m.params.clientUserMessageId, content: m.params.input } } }) + '\\n')
   if (m.id === undefined || !m.method) return
   record({ method: m.method })
   if (m.method === 'thread/start') return out({ id: m.id, result: { thread: { id: 'th-c' }, model: 'm' } })
@@ -83,10 +85,10 @@ async function twoPromptsAtOnce(order: 'later-first' | 'earlier-first', finish: 
   })
   adapter = child
   const responses = new Map<number, unknown>()
-  createInterface({ input: child.stdout }).on('line', (line) => {
+  createInterface({ input: child.stdout }).on('line', observeCodexForegroundCompletion((line) => {
     const m = JSON.parse(line)
     if (m.id !== undefined && !m.method) responses.set(m.id, m.error ?? m.result)
-  })
+  }))
   let nextId = 1
   const send = (method: string, params: unknown) => {
     const id = nextId++
@@ -99,7 +101,7 @@ async function twoPromptsAtOnce(order: 'later-first' | 'earlier-first', finish: 
     awaitFact(what, () => (responses.has(id) ? responses.get(id) : undefined), { producer: child })
   const requests = () => readFileSync(recordPath, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l) as { method?: string; answered?: number })
 
-  await reply(send('initialize', { protocolVersion: 1, clientCapabilities: {} }), 'initialize')
+  await reply(send('initialize', { protocolVersion: 2, capabilities: {} }), 'initialize')
   const { sessionId } = (await reply(send('session/new', { cwd: dir, mcpServers: [] }), 'session/new')) as { sessionId: string }
   const edited = send('session/prompt', { sessionId, prompt: [{ type: 'text', text: 'the edited message, resent' }] })
   const delivered = send('session/prompt', { sessionId, prompt: [{ type: 'text', text: 'a chat message that arrived at the same moment' }] })
@@ -122,7 +124,7 @@ describe('codex ACP bridge: two prompts that land in the same native turn both s
     // The fake wrote both answers; the bridge reads them on another stream than this cancel. One more round trip
     // through the fake first (a model change makes the bridge ask the fake for model/list): its answer comes after
     // those two on the same pipe, so once the bridge has answered it, it holds the shared turn.
-    await rig.reply(rig.send('session/set_config_option', { sessionId: rig.sessionId, configId: 'model', value: 'm' }), 'one more round trip')
+    await rig.reply(rig.send('session/set_config_option', { sessionId: rig.sessionId, type: 'id', configId: 'model', value: 'm' }), 'one more round trip')
     expect(rig.requests().some((r) => r.method === 'model/list')).toBe(true)
     rig.notify('session/cancel', { sessionId: rig.sessionId })
     expect(await rig.reply(rig.edited, 'the edited prompt is cancelled')).toMatchObject({ stopReason: 'cancelled' })

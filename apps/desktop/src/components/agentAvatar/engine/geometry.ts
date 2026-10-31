@@ -50,10 +50,11 @@ export interface BodyParams {
   hop: number // 离地高度（素材像素）
   wob: number // 果冻波幅度（素材像素）
   wobPhase: number // 果冻波相位
-  fx: number // 脸区随视线滑动的位移（素材像素；只有带「脸区」的角色用，如有小嘴版）
+  fx: number // 喙随视线在球面上滑的位移（素材像素；rig.ts 的喙用，身体网格不滑）
   fy: number
-  wl: number // 翅膀：-1 垂下 … 0 收着 … +1 高举（没有翅膀的角色忽略）
+  wl: number // 翅膀：-1 垂下 … 0 收着 … +1 高举（1 = rig.ts WING_DEG 度；翅膀是刚体部件，不扭身体网格）
   wr: number
+  yaw: number // 绕身体竖轴转的角度（度）：部件和眼睛转，身体底图不变（rig.ts）
 }
 
 export const NEUTRAL_BODY: BodyParams = {
@@ -70,40 +71,15 @@ export const NEUTRAL_BODY: BodyParams = {
   fx: 0,
   fy: 0,
   wl: 0,
-  wr: 0
+  wr: 0,
+  yaw: 0
 }
 
-/** 把素材里一点 (x,y) 送到变形后的位置。网格顶点、眼睛、腮红、特效锚点都走这一个函数，所以永远贴在身上 */
+/** 把素材里一点 (x,y) 送到变形后的位置。网格顶点、眼睛、腮红、刚体部件的挂点、特效锚点都走这一个函数，所以永远贴在身上 */
 export function warp(x: number, y: number, b: BodyParams, out: [number, number], ch: Pack): void {
   const { pivot: P, neck: N } = ch
   let X = x
   let Y = y
-  // 0) 脸区随视线滑（有小嘴版：小嘴要跟着眼睛一起转，不然眼睛在球面上滑、嘴钉在原地）
-  const F = ch.face
-  if (F && (b.fx !== 0 || b.fy !== 0)) {
-    const g = 1 - smoothstep(0.3 * F.R, F.R, Math.hypot(x - F.x, y - F.y))
-    X += b.fx * g
-    Y += b.fy * g
-  }
-  // 0b) 翅膀：绕各自的根部转，离根越远动得越多
-  const W = ch.wings
-  if (W && (b.wl !== 0 || b.wr !== 0)) {
-    for (let i = 0; i < 2; i++) {
-      const v = i === 0 ? b.wl : b.wr
-      if (v === 0) continue
-      const wg = i === 0 ? W.l : W.r
-      const d = Math.hypot((x - wg.x) / (wg.rx * 1.35), (y - wg.y) / (wg.ry * 1.2))
-      const g = 1 - smoothstep(0.55, 1.1, d)
-      if (g <= 0) continue
-      const ang = (i === 0 ? 1 : -1) * v * 0.62 * g // 弧度
-      const rx = x - wg.rootX,
-        ry = y - wg.rootY
-      const c = Math.cos(ang),
-        s = Math.sin(ang)
-      X += wg.rootX + rx * c - ry * s - x
-      Y += wg.rootY + rx * s + ry * c - y
-    }
-  }
   // 1) 头部：越靠近头顶越"刚"，脖子到肩的过渡区被柔和地扭过去，像绒毛玩偶
   const w = 1 - smoothstep(ch.headBand[0], ch.headBand[1], y)
   if (w > 0) {

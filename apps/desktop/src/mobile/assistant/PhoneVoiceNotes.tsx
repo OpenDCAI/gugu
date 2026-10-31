@@ -7,10 +7,11 @@ import { askAboutNoteDraft, formatTimestamp, groupVoiceNotesByWeek, speakersOf, 
 import { Markdown } from '@/components/markdown/Markdown'
 import { useToast } from '@/components/toastContext'
 import { Button } from '@/components/ui/Button'
+import { SegmentedTabs } from '@/components/ui/SegmentedTabs'
 import { AlertCircle, MessageCircle, Trash2 } from '@/lib/icons'
 import { LoadingIndicator } from '@/lib/loading/LoadingIndicator'
 import type { AssistantMachine } from '@/session/renderer/features/assistant/assistant-machine-core'
-import { AssistantEmpty, PageHead, WideSegments } from '@/session/renderer/features/assistant/assistant-ui-parts'
+import { AssistantEmpty, PageHead } from '@/session/renderer/features/assistant/assistant-ui-parts'
 import type { PhonePageProps } from './MobileAssistantApp'
 import { PhoneConfirmDialog } from './PhoneConfirmDialog'
 import { PhoneMachineView, ReadView, type OpenedPageProps } from './PhoneMachineView'
@@ -25,13 +26,13 @@ export function PhoneVoiceNotes(props: PhonePageProps) {
   const { t } = useTranslation('voiceNotes')
   const id = props.sub?.startsWith('voice:') ? props.sub.slice('voice:'.length) : null
   const name = props.assistant.display_name
-  const ready = props.readiness === 'ready' && props.machine.state === 'ready' ? props.machine.machine : null
+  const ready = props.machine.state === 'ready' ? props.machine.machine : null
   if (ready && id) return <VoiceNoteDetail key={id} {...props} machine={ready} id={id} />
   return (
     <div className="ta-page" data-testid={id ? 'assistant-voice-note' : 'assistant-voice-notes'}>
       <PageHead title={t('title')} />
-      <PhoneMachineView readiness={props.readiness} machine={props.machine} name={name}>
-        {(machine) => (id ? null : <VoiceNotesList machine={machine} name={name} go={props.go} />)}
+      <PhoneMachineView machine={props.machine} name={name}>
+        {(machine) => (id ? null : <VoiceNotesList machine={machine} go={props.go} />)}
       </PhoneMachineView>
     </div>
   )
@@ -91,7 +92,7 @@ function itemTitle(t: (key: string) => string, item: { title: string | null; vie
   return item.view.kind === 'processing' ? t('preparing') : t('untitled')
 }
 
-function VoiceNotesList({ machine, name, go }: { machine: AssistantMachine; name: string; go: PhonePageProps['go'] }) {
+function VoiceNotesList({ machine, go }: { machine: AssistantMachine; go: PhonePageProps['go'] }) {
   const { t } = useTranslation('voiceNotes')
   const { t: ta } = useTranslation('assistant')
   const time = useNoteTime()
@@ -103,7 +104,7 @@ function VoiceNotesList({ machine, name, go }: { machine: AssistantMachine; name
       {(items: PhoneVoiceItem[]) =>
         items.length === 0 ? (
           <div className="ta-card">
-            <AssistantEmpty title={ta('memory.voiceNotesEmptyTitle')}>{ta('memory.voiceNotesEmpty', { name })}</AssistantEmpty>
+            <AssistantEmpty title={ta('memory.voiceNotesEmptyTitle')} />
           </div>
         ) : (
           groupVoiceNotesByWeek(items, (item) => item.createdAt, new Date()).map((group) => (
@@ -159,7 +160,7 @@ function VoiceNoteDetail({ machine, id, assistant, askInChat, go }: OpenedPagePr
   const [tab, setTab] = useState<'summary' | 'transcript'>('summary')
   const [confirming, setConfirming] = useState(false)
   const read = usePhoneRead(`voice-note|${machineKey(machine)}|${id}`, () => readVoiceNote(machine, id), 'read voice note', (data) =>
-    data?.item.view.kind === 'processing' ? voicePollMs(true) : null,
+    data && (data.item.view.kind === 'processing' || data.item.view.kind === 'queued') ? voicePollMs(data.item.view.kind === 'processing') : null,
   )
   // 在读 / 读失败(说是语音笔记没读到)/ 读到了却没有这一条(被删了)。
   if (read.state !== 'ok' || !read.data)
@@ -226,14 +227,17 @@ function VoiceNoteDetail({ machine, id, assistant, askInChat, go }: OpenedPagePr
       )
     return (
       <>
-        <WideSegments<'summary' | 'transcript'>
-          items={[
-            { id: 'summary', label: t('summary') },
-            { id: 'transcript', label: t('transcript') },
-          ]}
-          value={tab}
-          onChange={setTab}
-        />
+        <div className="ta-phone-page-segments">
+          <SegmentedTabs
+            items={[
+              { value: 'summary', label: t('summary'), testId: 'assistant-seg-summary' },
+              { value: 'transcript', label: t('transcript'), testId: 'assistant-seg-transcript' },
+            ]}
+            value={tab}
+            onChange={setTab}
+            ariaLabel={title}
+          />
+        </div>
         {tab === 'summary' ? (
           <div className="ta-card ta-prose" data-testid="assistant-voice-summary">
             <Markdown trust="chat" content={summaryBody(summary ?? '')} />
@@ -255,21 +259,21 @@ function VoiceNoteDetail({ machine, id, assistant, askInChat, go }: OpenedPagePr
     <div className="ta-page" data-testid="assistant-voice-note">
       <PageHead title={title} sub={sub || undefined} />
       {body}
-      {confirming ? (
-        <PhoneConfirmDialog
+      <PhoneConfirmDialog
+          open={confirming}
           title={t('deleteTitle', { name: title })}
           body={t('deleteBody')}
           confirmLabel={t('delete')}
           failedText={t('deleteFailed')}
           testId="assistant-voice-delete-dialog"
           onClose={() => setConfirming(false)}
+          onConfirmed={() => go('voice')}
           onConfirm={async () => {
             await deleteVoiceNote(machine, id)
             toast(t('deleted'), 'success')
-            go('voice')
           }}
         />
-      ) : null}
+
     </div>
   )
 }

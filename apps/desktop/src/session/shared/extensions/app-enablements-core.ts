@@ -41,7 +41,7 @@ export async function readEnablements(token: string, userId: string, chatIds?: r
 
 /**
  * The Apps (`<publisher>/<id>`) a person gave to the agents of a chat this agent is in: their rows, narrowed to the chats
- * the agent is a member of — a group it is in, or its own private chat with them.
+ * the agent is a member of — a group it is in, or its own private chat with them — that are in use (`active`).
  */
 export async function appsGivenTo(token: string, ownerId: string, agentUserId: string): Promise<Set<string>> {
   const rows = await readEnablements(token, ownerId);
@@ -52,23 +52,29 @@ export async function appsGivenTo(token: string, ownerId: string, agentUserId: s
     .eq('user_id', agentUserId)
     .in('chat_id', [...new Set(rows.map((row) => row.chatId))]);
   if (error) throw new Error(error.message);
-  const its = new Set(((data as { chat_id: string }[] | null) ?? []).map((row) => row.chat_id));
+  const member = ((data as { chat_id: string }[] | null) ?? []).map((row) => row.chat_id);
+  if (member.length === 0) return new Set();
+  // Only a chat in use gives (architecture I5): an archived or stopped one is not listed where the person picks places, so it
+  // cannot give what they cannot see — the same chats the 「已给」 picker draws (placesOfChats: status 'active').
+  const live = await chat(token).from('chats').select('id').in('id', member).eq('status', 'active');
+  if (live.error) throw new Error(live.error.message);
+  const its = new Set(((live.data as { id: string }[] | null) ?? []).map((row) => row.id));
   return new Set(rows.filter((row) => its.has(row.chatId)).map((row) => appKey(row.app)));
 }
 
 /**
  * The chat an App is given at for a chat a card or an install is in. A topic goes by the chat it grew out of: its people are
- * that chat's, and that is where tools reach. `null`: none (a chat it cannot read).
+ * that chat's, and that is where tools reach — with its name, as a sheet says it. `null`: none (a chat it cannot read).
  */
-export async function enablementChatOf(token: string, chatId: string): Promise<string | null> {
+export async function enablementChatOf(token: string, chatId: string): Promise<{ id: string; name: string } | null> {
   const read = async (id: string) => {
-    const { data, error } = await chat(token).from('chats').select('id, kind, source_chat_id').eq('id', id).maybeSingle();
+    const { data, error } = await chat(token).from('chats').select('id, kind, name, source_chat_id').eq('id', id).maybeSingle();
     if (error) throw new Error(error.message);
-    return data as { id: string; kind: string; source_chat_id: string | null } | null;
+    return data as { id: string; kind: string; name: string | null; source_chat_id: string | null } | null;
   };
   const row = await read(chatId);
   const place = row?.kind === 'topic' && row.source_chat_id ? await read(row.source_chat_id) : row;
-  return place && (place.kind === 'group' || place.kind === 'dm') ? place.id : null;
+  return place && (place.kind === 'group' || place.kind === 'dm') ? { id: place.id, name: place.name ?? '' } : null;
 }
 
 /** The person gives (`on`) or stops giving an App at a chat — their own row; giving twice changes nothing. */

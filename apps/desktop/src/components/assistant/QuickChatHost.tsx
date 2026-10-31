@@ -30,7 +30,7 @@ export function QuickChatHost({
   assistant: QuickChatAssistant | null
   assistantState: 'found' | 'loading' | 'none' | 'unreadable'
   chatId: string | null
-  chatFailed: boolean
+  chatFailed: { error: string } | null
   retryChat: () => void
 }) {
   const { t } = useTranslation('assistant')

@@ -16,18 +16,23 @@ import { localWorkspaceBackend } from '@renderer/features/sessions/workspace-bac
 import type { WorkspaceBrowserAttachment, WorkspaceBrowserBackend } from '@renderer/features/sessions/workspace-backend/workspace-browser-backend';
 import {
   registerWorkspaceBackend,
+  workspaceEvents,
   type WorkspaceBackend,
   type WorkspaceRpc,
 } from '@renderer/features/sessions/workspace-backend/workspace-backend';
 import { setWorkspaceReachResolver } from '@renderer/features/sessions/workspace-backend/workspace-surface';
 import type { WorkspaceTreeBackend, WorkspaceTreeScope } from '@renderer/features/sessions/workspace-backend/workspace-tree-backend';
-import { events, rpc, rpcOn } from '@renderer/lib/ipc';
+import { events, onMachineEvent, rpc, rpcOn } from '@renderer/lib/ipc';
+import type { EventDefinition } from '@shared/lib/ipc/events';
+import { fileChangesChannel, fileTreeProjectionChannel } from '@shared/core/fs/fsEvents';
+import { gitRepoUpdateChannel, gitWorktreeUpdateChannel } from '@shared/core/git/events';
 import { machineRegistry } from '@renderer/lib/machine-routing';
 import { translateSessionMessage } from '@renderer/localization/locale-store';
 import { log } from '@renderer/utils/logger';
 import { remotePortKey, remotePortLinkChannel, type RemotePortLink, type RemotePortReason } from '@shared/remote-port-link';
 import type { SshPrompt } from '@shared/ssh-prompt';
 import { remoteErrorCode } from '../remote-failure-copy';
+import { hostStatusLabel, machineNoticeLabel } from '../connection-status';
 import { remoteHostsStore } from '../remote-hosts-store';
 import { downloadEntry, uploadItems } from './remote-file-actions';
 import { dropUploadItems, fileUploadItem } from './remote-drop-items';
@@ -128,8 +133,7 @@ function machineTree(deviceId: string): WorkspaceTreeBackend {
     download(scope, entry) {
       return downloadEntry(
         transfers(scope),
-        { name: entry.name, path: entry.path, isDirectory: entry.kind === 'directory', size: entry.size ?? 0 },
-        describe
+        { name: entry.name, path: entry.path, isDirectory: entry.kind === 'directory', size: entry.size ?? 0 }
       );
     },
     transfers: (scope) => transfers(scope).active,
@@ -321,6 +325,11 @@ function backendFor(deviceId: string): WorkspaceBackend {
       },
     };
     backends.set(deviceId, found);
+    // 工作区的事件(文件变了 / 文件树投影 / git 状态)在那台机器上订,由这里在渲染层发出(workspace-backend.ts 抬头):
+    // 用到那台机器上的工作区时才有这份后端,所以只有打开着的远程项目才收它的文件与 git 推送。
+    for (const event of [fileChangesChannel, fileTreeProjectionChannel, gitWorktreeUpdateChannel, gitRepoUpdateChannel] as EventDefinition<unknown>[]) {
+      onMachineEvent(deviceId, event, (data) => workspaceEvents.emit(event, data));
+    }
   }
   return found;
 }
@@ -339,8 +348,13 @@ export function ensureMachineWorkspaceBackend(): void {
   setWorkspaceReachResolver((projectId) => {
     const deviceId = machineOfProject(projectId);
     if (!deviceId) return null;
+    const device = remoteHostsStore.device(deviceId);
+    const versionNotice = machineNoticeLabel(device?.notices, deviceLabel(deviceId), translateSessionMessage, { protocolOnly: true });
+    if (versionNotice) return versionNotice;
     const state = remoteHostsStore.connectionState(deviceId);
     if (state === 'connected' || state === 'connecting') return null;
+    // Older desktops report their protocol when opening the link, without heartbeat notices.
+    if (state === 'outdated') return hostStatusLabel(state, deviceLabel(deviceId), device?.lastSeenAt, Date.now(), translateSessionMessage);
     const reach = remoteToolReach(remoteHostsStore.device(deviceId) ?? null, Date.now(), translateSessionMessage);
     return reach.ok ? translateSessionMessage('remoteWorkspace.noAnswer', { device: deviceLabel(deviceId) }) : reach.label;
   });

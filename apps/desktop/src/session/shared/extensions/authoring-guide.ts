@@ -25,7 +25,7 @@ import { EXTENSION_API_VERSION } from './bridge-protocol';
  *   迭代时 agent 会每次重装都去请人点同意。
  *   `apps` 这篇贴着字节上限(guguGuide6614):补的这半句,由第 5 步删掉的「Installing and testing your own App never
  *   needs it」抵掉 —— 开头那段已经说清装和进群各走哪条。
- * 第 4 条:`listAgents` 的 transport 和 `spawnAgent` / `session_spawn` 同一套词 `acp` / `pty`(真源原则 12),
+ * 第 4 条:`listAgents` 的 transport 和 `dispatch` 的 `spawn` / `session_spawn` 同一套词 `acp` / `pty`(真源原则 12),
  *   所以「照着一个 agent 起一个」能把 transport 原样传回去。
  */
 export const EXTENSION_GUIDE_START = `# Making a gugu App — start here
@@ -40,11 +40,13 @@ card — the others install it from that card, or when they open one of its file
 It is a folder: \`manifest.json\` plus its files. HTML tabs open in tasks or, with \`opensFiles.chat\`,
 in chats. Tools-only Apps need no HTML: \`apps-settings\` explains their host settings page.
 
-More guides — \`guide_read\` each when you get there:
+More \`guide_read\` topics:
 - \`apps-page\` — the \`window.gugu\` API your page calls: the same wherever it is, and what each host has.
-- \`apps-agents\` — what the app is showing, and seeing and driving the person's agents.
-- \`apps-programs\` — your own tools for agents (MCP programs, skills), called from your page too.
-- \`apps-files\` — \`gugu.files\`: a chat's files and a session's working copy, edited live together.
+- \`apps-agents\` — app state and agents.
+- \`apps-sessions\` — external CLI history and context (API 17).
+- \`apps-programs\` — agent tools and skills.
+- \`apps-projection\` — local picture/input.
+- \`apps-files\` — \`gugu.files\`: chat files and working copies, edited live.
 - \`apps-editors\` — an editor (a textarea, CodeMirror), keeping others' letters.
 - \`apps-together\` — several people in one App at once: presence, a game loop, secrets.
 - \`apps-messages\` — your chats, who is in them, their messages.
@@ -53,10 +55,11 @@ More guides — \`guide_read\` each when you get there:
 
 \`\`\`json
 {
-  "id": "csv-lens",              // lowercase, digits, dashes. NO dots.
+  "id": "csv-lens",              // [a-z0-9-]+; no dots
   "name": "CSV Lens",
   "version": "1.0.0",            // x.y.z, digits only
   "apiVersion": ${EXTENSION_API_VERSION},
+  "platforms": ["desktop"],       // desktop, phone, or both
   "entry": "main.html",          // bundle-relative, no "..", no leading "/"
   "background": { "entry": "background.html" },  // optional, see below
   "permissions": {
@@ -67,7 +70,7 @@ More guides — \`guide_read\` each when you get there:
     "tabs": [
       {
         "name": "main",          // stable machine name, lowercase
-        "title": "CSV",          // shown to the person, <= 48 chars
+        "title": "CSV",          // <= 48 chars
         "opensFiles": { "session": [".csv"] },  // claim: a session's .csv opens THIS tab
         "fileIcons": { ".csv": "csv.png" },  // icon per claim (else generic)
         "menu":    [{ "id": "reload",  "title": "Reload" }],   // <= 8
@@ -172,28 +175,31 @@ export const EXTENSION_GUIDE_PAGE = `# window.gugu — the API your page calls
 
 ## Where your page runs
 
-Where a page is open decides only what its context holds — never which calls it may make, nor what they mean.
-A session's tab has \`session\`; a chat's side panel (a group's, topic's or DM's; a phone's too) has \`chat\`;
-the dock and the background page have neither; opened for a file, \`file\` names it. Read the context first, then draw:
-where (\`chat\` / \`session\`), who (\`chat.members\`), what you may do (\`capabilities\`).
-- \`gugu.files\` (chats' files, sessions' working copies): open, list, create, rename,
-  remove — the one way to open and edit a session's file. Each call names its file or place (\`apps-files\`).
-- \`setTabTitle\` / \`setTabBadge\`: your page's tab, or the side panel's title. \`reportError\`: there too, and
-  in the App's error log, which \`app_check\` reads back (a phone: its console).
+Location fills context, never changes authority: a task has \`session\`, a chat panel has \`chat\`, a file page has \`file\`;
+the dock/background have neither chat nor session. Read context before drawing.
+- \`gugu.files\`: open, list, create, rename, remove — the one way to open and edit a session's file. Name its target (\`apps-files\`).
+- \`setTabTitle\` / \`setTabBadge\`: your tab/panel. \`reportError\`: there and in the App error log, read by \`app_check\`.
 - \`openBrowserTab\`: a browser tab in a session; the system browser elsewhere (a phone: a new window).
 - What a host cannot do is not on its \`gugu\` (\`typeof gugu.x\`): the background page and a program have no tab
-  or gesture (no \`setTabTitle\`, \`compose\`, \`clipboard\`, picker); a phone has no background page, \`notify\`,
-  programs (a session's tab calls its computer's), \`linkTo\`, agents or working copies — no cookies: \`localStorage\` / IndexedDB or \`writeData\`.
-- \`gugu.clipboard.writeText\`: only from a click or key, everywhere — a pick of your own \`menu\` / \`toolbar\`
-  entry (\`onCommand\`) counts as one. They are drawn on the side panel's header in a chat, as on the tab in a session.
-- A chat's side panel opens 520 px wide, a topic's 340: lay out for narrow first, widen with a media or container query.
-- No \`alert\` / \`confirm\` / \`prompt\`: a dialog would freeze the host — ask on the page.
+  or gesture (no \`setTabTitle\`, \`dispatch\` without \`to\`, \`clipboard\`, picker); a phone has no background page, \`notify\`,
+  programs (a session's tab calls its computer's), agents or working copies — no cookies: \`localStorage\` / IndexedDB or \`writeData\`.
+- \`gugu.clipboard.writeText\`: click/key only, including your \`menu\` / \`toolbar\` entries (\`onCommand\`), drawn on the tab/panel header.
+- Chat panels open at 520 px: design narrow first, widen with a media/container query.
+- No \`alert\` / \`confirm\` / \`prompt\`: use \`gugu.modal\` below.
 
-Free (they only concern your own tab):
+## Custom modals (apiVersion 11)
 
-- \`getContext()\` → \`{ apiVersion, tabId?, chat?, session?, file?, operator, locale, themeMode, capabilities, layout? }\`.
-  \`chat\`: \`{ id, name, kind: 'group' | 'topic' | 'dm', groupId, members }\` (\`groupId\`: the group; null in a private
-  chat and its topics). \`members\`: \`{ id: 'user:<uuid>', name, kind: 'human' | 'agent', avatar? }\`, current through
+\`await gugu.modal.open({ entry: 'new.html', title: 'New card', size: 'md', data })\` opens your bundle's HTML in
+gugu's window-level dialog (phone: fullscreen). Sizes: xs/sm/md/lg/xl. No new consent.
+The page stays sandboxed with the opener's context/grants; \`(await gugu.getContext()).modal.data\` holds \`data\`.
+Save, then \`gugu.modal.close(result)\`: the opener receives the result; cancellation returns null.
+The host handles Escape, Tab traversal, Back and focus restoration.
+
+Free:
+
+- \`getContext()\` → \`{ apiVersion, tabId?, chat?, session?, file?, modal?, operator, locale, themeMode, capabilities, layout? }\`.
+  \`chat\`: \`{ id, name, kind: 'group' | 'dm', groupId, members }\` (\`groupId\`: the group; null in a private
+  chat). Topics open Apps in their source chat's shared panel. \`members\`: \`{ id: 'user:<uuid>', name, kind: 'human' | 'agent', avatar? }\`, current through
   \`onContextChanged\`; \`avatar\`: their face, a \`data:\` image for \`<img src>\`. Pick people and agents from it;
   never copy it into a file. \`session\`: \`{ id, agentId?, projectId?, root?, deviceId?, deviceLabel? }\` — its agent
   (\`user:<uuid>\`), project, working copy's path (with \`files:*\`); \`deviceId\`: on another computer (no \`root\`). \`file\`: what this page was opened for — \`files.open(ctx.file)\`.
@@ -201,42 +207,37 @@ Free (they only concern your own tab):
   \`capabilities\` is what you may do RIGHT NOW, after any revocation — not what you asked for.
 - \`onContextChanged(fn)\` → theme, language, visibility, size and members changes. Returns an unsubscribe.
 - \`onCommand(fn)\` → the person picked one of your declared menu/toolbar entries; you get your own id back.
-- What the whole app shows (panes, which session): \`apps-agents\`.
-- \`setTabTitle(title)\` → renames your tab (48 at most).
+- \`showContextMenu({ x, y, items: [{ id, label, enabled? }, { type: "separator" }] })\` (API 18, page): App-local point, shared host menu; returns id or null.
+- \`setTabTitle(title)\` → title (max 48); file tabs use it as a tooltip. Host Back closes the file tab.
 - \`setTabBadge(badge)\` → a count (99+ at most, <=0 none), a string (a dot), or \`null\` (none).
 - \`openBrowserTab(url)\` → http(s) only.
 - \`reportError(message)\` → shown to the person. Never fail silently.
-- \`sendToBackground(message)\` → view → your own background page (none: rejects); the host stamps \`from\`.
-- \`onBackgroundMessage(fn)\` → what the background broadcast; views paint from this.
-- \`broadcastToViews(message)\` → background → every live view of this App; resolves
-  \`{ delivered }\` (0 is normal).
-- \`onViewMessage(fn)\` → \`(message, from)\`: \`from\` is the sending page's context, as the host knows it; the
-  background hears its views here.
+- \`sendToBackground(message)\` → your background page (none: rejects); host stamps \`from\`.
+- \`onBackgroundMessage(fn)\` → paint the background's broadcasts.
+- \`broadcastToViews(message)\` → background → live views, resolves \`{ delivered }\` (0 is normal).
+- \`onViewMessage(fn)\` → background hears \`(message, from)\`; \`from\`: host-stamped sender context.
 
-Needs \`chat:relay\`:
+Handing something to someone (\`apiVersion\` 15):
 
-- \`send(to, text, { chat } | { refs })\` → \`{ id }\`: tells an agent — or another person ("tell me when it is
-  full") — the moment something happens in your App, no @ needed: a whisper in the operator's name, from your App,
-  in the chat you name — \`{ chat: ctx.chat.id }\`, or the one its \`refs\` point into (pills under the
-  text). \`text\` says only what happened ("your move"); the state stays in the file. \`to\` is the
-  one it concerns (a card's owner, who asked), never everyone: a \`user:<uuid>\` from \`chat.members\`. One of your
-  agents here: \`messageAgent\` (\`apps-agents\`).
-  Refused: \`not-found\` — \`to\` cannot get it (left, never was, yourself): drop it from what you keep; \`denied\` —
-  no capability; \`rate-limited\` — over 30 a minute per person and App: send less, later; \`invalid\` — fix the call. For agents to follow what happens, give them a
-  tool (\`apps-programs\`): gugu tells it which agent calls, which no agent can fake — never a
-  list they write their own ids into. Keep followers in your data; in \`onContextChanged\` drop
-  the ones no longer in \`chat.members\`.
+- \`dispatch(text, { to?, draft?, refs?, images?, visible?, delivery?, key?, spawn?, offer? })\` → \`{ to, id?, deferred? }\` |
+  \`{ cancelled: true }\`. \`to\`: \`{ chat, member }\` (a whisper as the operator; \`visible: true\`: the chat sees it),
+  \`{ agent }\` (as \`session_message\`; \`delivery: 'queue' | 'defer'\`, \`key\` replaces your waiting one), \`{ new: true }\`
+  (\`spawn\`: \`session_spawn\`'s words; answers \`{ to: { agent } }\`). \`draft: true\`: only into \`{ chat }\`'s / \`{ agent }\`'s
+  composer (or \`refs\`' chat; \`images: [blob]\` a chat's) — they send it, or not.
+- No \`to\` (a click or key): gugu's sheet shows the text (theirs to edit), the pills and whom — the chat's agents and people,
+  their own agents, a new agent (\`offer\`: \`chat\` \`agent-in-chat\` \`person-in-chat\` \`my-agent\` \`new-agent\`); their press is the
+  consent, no capability. Never a picker of your own.
+- Naming \`to\` sends at once: \`{ chat, member }\` needs \`chat:relay\`, \`{ agent }\` / \`{ new }\` \`agents:control\`
+  (\`apps-agents\`); a program or background page must name it. Tell only whom it concerns; keep state in the file.
+  Phones reach computers' agents too (see \`apps-agents\`).
+  Refused: \`not-found\` (left, yourself, absent), \`failed\` (computer unread), \`denied\`, \`rate-limited\`
+  (30/minute to a chat), \`invalid\`. Agents following changes: a tool (\`apps-programs\`), gugu stamps its caller.
 
 Free, from a click or key (they read and write no data):
 
 - \`showMessage(id)\` → its chat comes up, scrolled to it (a file's \`sourceMessageIds\`). \`not-found\`: not in its chat.
 - \`showSession(id)\` → that session comes up, as a click on it in the task list (\`ctx.session.id\`, a tool's
   \`call.session\`). \`not-found\`: not in that list. \`{ peek: true }\`: beside your page, left as it is.
-- \`compose(text, { chat } | { session } | { refs })\` → puts \`text\` in the composer the call names — a chat's
-  (\`ctx.chat.id\`, or the one its \`refs\` point into), or a session's agent's — after what is there, and brings it
-  up. Nothing is sent: the person @s whom they like and sends it as their own message, or not. For "cite this":
-  a ref per place they picked — never a member picker or a composer of your own; a chat's takes
-  \`images: [blob]\` too. \`not-found\`: a chat you are not in, a session not here.
 - \`refs: [{ file, at?, label?, version? }]\`: pills to places in one chat's files, "file · \`label\`": \`file\` its
   entry or \`ctx.file\`; \`at\` where (\`{ slide: 3, shape: 12 }\`), back as the \`onLink\` \`query\`
   of the App a click opens it in; \`version\` picked on (else the entry's). Only with refs may \`text\` be empty.
@@ -253,40 +254,62 @@ Needs \`notifications\`:
 
 Free:
 
-- \`linkTo({ tab?, path?, query?, chat? | session? })\` → a link, from anywhere outside gugu (a README, an
-  email), that opens your \`tab\` (default: your first) in that session, you in that chat's panel, or your own
-  page. Never spell the scheme: it differs per build.
+- \`linkTo(target)\` (API 13), desktop/phone/programs → a resource link: \`{ kind: 'chat', chat, message? }\`;
+  \`{ kind: 'file', file, at?, version? }\` (file id or entry); \`{ kind: 'session', session }\`;
+  \`{ kind: 'project', project }\`; \`{ kind: 'app', app?, tab?, path?, query?, chat?, session? }\`.
+  App defaults: yourself, your first tab; at most one chat/session. Stored chat/file links are build-independent;
+  \`external: true\` uses the build scheme for OS invocation (email/browser), as App/session/project links do. Never spell schemes.
+- \`openLink(url)\` (API 13), desktop/phone → opens the resource, no capability. Page click/key required (including native \`<a>\` and \`gugu.markdown\`);
+  programs/background pages only generate links.
 - \`onLink(fn)\` → \`{ tab, path, query, file }\`: that link, a pill to your file (\`refs\`; \`file\`: id) or (API 7)
   a task chat's \`path#k=v\` link (\`file\`: path), also if it opens your page; phones too.
 
 ## Every one of these can reject — let it show
 
-\`.catch(() => {})\` on a \`window.gugu.*\` call is the costliest habit in this API: in ten shipped examples an
-outage (five verbs rejecting EVERY call) looked like empty states.
-On rejection, show the message: an inline line, a disabled control with the reason, or \`reportError\`.
-Ignoring one on purpose: say why in a comment — ❌ never a bare \`.catch(() => {})\`. "Nothing here" and "the call
-failed" never render the same.
+Show rejections inline, disable the control with its reason, or call \`reportError\`.
+❌ Bare \`.catch(() => {})\` hides failures as empty states; intentional ignores need a comment explaining why.
 
-❌ \`const gugu = window.gugu\` at the top level of a script. \`gugu\` is a global the host
-defines and it cannot be redeclared: that one line is a SyntaxError and NOTHING in the file
-runs, no error drawn. Use \`window.gugu.x\` or another name.
+❌ Top-level \`const gugu = window.gugu\` redeclares the host's global: SyntaxError, no script or error UI runs.
+Use \`window.gugu.x\` or another name.
+`;
+
+export const EXTENSION_GUIDE_SESSIONS = `# External session history and observed context
+
+Needs \`agents:history:all\` (API 17, including external CLI sessions):
+
+- \`gugu.sessions.index({ project?, source?, offset?, limit?, device?, groupPaths? })\` →
+  \`{ rows, groups, total, pending, stale, nextOffset }\`. Rows: \`{ source, providerSessionId, title, cwd, updatedAt, sizeBytes, filePath, group: { key, label, repositoryUrl? } }\`.
+  Grouping matches task history: repository/worktree, registered project, or \`gugu:task-home\` for standalone tasks; unknown cwd has a null key.
+  \`groupPaths\` accepts absolute directories, including zero-task paths; \`groups:[{path,group}]\` uses the same grouping.
+  \`repositoryUrl\` is the normalized origin from registered project remotes or native Git; absent means no cross-machine repository identity.
+  Sources are \`claude-code\` / \`codex\`; subagents are excluded by the host's import parser.
+  \`project\` is a project id or absolute cwd on that machine, matched exactly; worktrees are separate.
+  \`pending > 0\`: indexing is incomplete; call again. Page with offset/limit; default 100 rows.
+- \`gugu.sessions.read({ filePath, source, offset?, limit?, view?, device? })\` reads only an indexed path within the source's
+  native transcript roots. Default conversation view: \`{ source, providerSessionId, title, cwd, fileName, turns, total, nextOffset }\`;
+  turns are \`{ role, content, createdAt }\`, default 50. No thinking/tool output.
+  \`view:'context'\` instead returns compact \`loaded, nested, refs\` with the same metadata, no bodies:
+  loaded \`[{path:null|string,kind:'instruction-file'|'rendered-total'|'base-instructions',scope:null|string,chars,truncated,at}]\`;
+  nested \`[{path,at}]\`; refs are distinct paths from file/shell tool inputs, including Codex code-mode exec. Claude records rendered totals and instruction
+  attachments; Codex records base instructions and world_state AGENTS.md snapshots. Missing observations stay absent.
+  Timestamps can be null. Context is one summary per transcript, not a turns page.
+- Both follow a task's machine by default; \`device:'device:<id>'\` explicitly chooses a computer without any task.
+  It must have this same App/version and grant this permission. Cross-machine requests/answers are at most 1 MB; page large results.
+
 `;
 
 export const EXTENSION_GUIDE_AGENTS = `# Seeing and driving agents from your page
 
-These \`window.gugu\` verbs reach this computer's agents; \`:all-machines\` read and control also reach the person's
-other computers (history never leaves this one). Each tier is its own capability,
-consented to on its own; the rest of the API is in \`apps-page\`. A phone has none of them. Where your page is
-plays no part: the plain words reach the agents you started, \`:all\` every one here. Work that watches agents
-with no page open — a clock — goes in the background page.
+These \`window.gugu\` verbs reach agents by consented scope, independent of page location: plain words reach agents you
+started, \`:all\` everyone here, \`:all-machines\` other computers too. readAgentHistory stays local; sessions.index/read
+can name a device. Other APIs: \`apps-page\`. Monitoring without an open page belongs in the background page.
 
 Free — what the app is showing:
 
 - \`getAppState()\` → what the APP is showing, as opposed to where you sit:
   \`{ windowFocused, activeSessionId, activeProjectId, panes: [{ paneId, focused, activeTab: { tabId, kind, agentId?, filePath? } | null }] }\`.
-  \`activeProjectId\`: the project, ungated — ❌ not fished out of \`listAgents\` (that needs \`agents:read\`, an agent in the pane and a second call).
-  **\`panes\` is a list because the workspace panel splits** — ❌ never \`panes[0]\`; walk them, \`focused\` holds the
-  keyboard. \`kind\` is the host's own word, NOT a closed set (Apps register kinds too) — ignore unknown ones.
+  \`activeProjectId\` is ungated. Walk \`panes\`: the workspace splits, so never assume \`panes[0]\` is focused.
+  \`focused\` holds the keyboard; \`kind\` is open-ended (Apps register kinds), so ignore unknown ones.
   \`agentId\` needs \`agents:read\`, \`filePath\` needs \`files:read\`; absent means "not granted", not "not that sort of tab".
   \`panes\` says what is OPEN, not painted: a zero-width pane or a collapsed panel still lists its tab. For whether YOUR OWN
   surface is on screen read \`getContext().layout.visible\`; per-pane visibility is not exposed.
@@ -299,7 +322,7 @@ Free — what the app is showing:
 Needs \`agents:read\` (or \`agents:read:all\` / \`agents:read:all-machines\`, which cover it):
 
 - \`listAgents()\` → every agent you may see, as \`{ agentId (user:<uuid>), sessionId, deviceId, deviceLabel, projectId, title,
-  providerId, model, transport, parentAgentId, spawnedByThisExtension, status, detail, isGenerating,
+  providerId, model, modelLabel (its name in the model menu; null: show model), transport, parentAgentId, spawnedByThisExtension, status, detail, isGenerating,
   lastStopReason, failure, lastActionAt, pendingPermissionCount, queuedPromptCount, contextTokens, rateLimit,
   updatedAt }\`.
   \`detail\` refines \`status\`: \`running\` | \`parked\` (only background work); \`approval\` | \`question\` |
@@ -310,22 +333,23 @@ Needs \`agents:read\` (or \`agents:read:all\` / \`agents:read:all-machines\`, wh
   \`contextTokens\` is the context its engine last reported in use — what its next turn reads back.
   \`rateLimit\` is the account limit its engine last reported: \`{ status: 'allowed' | 'allowed_warning' |
   'rejected', resetsAt, window, utilization }\` — back off at a warning, resume after \`resetsAt\`.
-- Scope is NOT an argument. \`agents:read\` answers with the agents you started
-  (\`spawnedByThisExtension: true\`, each in a session of its own); \`agents:read:all\` with every
-  one on the machine — the agent of your page's session (\`ctx.session.agentId\`) among them. Which one you
-  get was settled when the user installed you. \`agents:read:all-machines\` adds the agents on the person's other
-  online computers (\`deviceId\`/\`deviceLabel\`; \`null\` = here), live fields \`null\`; offline or too-old ones absent. Declare only ONE word of a family — two is refused by the schema.
+- Scope comes from installation consent, never an argument: \`agents:read\` sees agents you started
+  (\`spawnedByThisExtension:true\`); \`:all\` sees everyone here; \`:all-machines\` adds other online computers
+  (\`deviceId\`/\`deviceLabel\`; \`null\` = here), with null live counters. Offline/old machines are absent from agent rows.
+  Declare ONE word per capability family; the schema refuses two.
 - \`transport\` is \`'acp'\` (a chat panel) or \`'pty'\` (a terminal). **Live counters are \`null\` unless that agent is
   open right now**: \`isGenerating\`, \`pendingPermissionCount\`, \`queuedPromptCount\`, \`contextTokens\`,
   \`rateLimit\` and \`lastActionAt\` are \`null\` for every terminal agent and for any panel agent not open now. \`null\` means
   "cannot be asked", NOT zero: a "0 waiting" badge drawn from a \`null\` is a lie.
-- \`pendingPermissionCount > 0\` means that agent is blocked on a human. That plus a stale
-  \`updatedAt\` is the whole "who is waiting?" question, answered without reading anything.
-- \`onAgentsChanged(fn)\` → these agents moved: started, stopped, began generating, finished, now
-  waiting on a human. **Ids only**: call \`listAgents()\` for the details of the ones
-  you care about. Ids are filtered to your declared scope, so plain
-  \`agents:read\` hears only of the ones you started; only this computer's, even with \`:all-machines\`.
-  A deleted agent does NOT arrive here: that channel does not exist yet.
+- \`pendingPermissionCount > 0\` means the agent is waiting for a human.
+- \`onAgentsChanged(fn)\` gives scoped local agent IDs for status changes; call \`listAgents()\` for details.
+  It reports neither deletions nor remote changes, even with \`:all-machines\`; poll for those.
+- \`listAgents({ report: true })\` → \`{ agents, devices, unreached, checkedAt }\`, same scope. Rows add \`statusFrom\`
+  (\`this_machine\` / \`device\`) and ISO \`statusAt\` (observation time). \`unreached\`: \`{ deviceId, label, detail }\`;
+  null deviceId means remote listing failed. Missing there is unknown, not deleted. Poll for remote changes.
+  With \`agents:read:all-machines\`, \`devices\` is the host machine directory, including zero-task machines:
+  \`[{deviceId,label,online,thisMachine,checkedAt}]\`. Other scopes receive \`[]\`. IDs are raw; call with \`device:<id>\`.
+  \`thisMachine\` identifies this native host; always false on phones. The directory includes zero-task hosts.
 
 Needs \`agents:history\` (or \`agents:history:all\`):
 
@@ -351,28 +375,67 @@ Needs \`agents:history\` (or \`agents:history:all\`):
 
 Needs \`agents:control\` (or \`agents:control:all\` / \`agents:control:all-machines\`):
 
-- \`spawnAgent(prompt, { title?, harness?, model?, transport?, project?, chat? })\` → \`{ agentId }\`. Starts a new
-  agent in a NEW session of its own, on the words \`session_spawn\` takes; what you leave out is what the person's
-  new-session box would pick (the engine they last started, else settings' default agent). To start one like an agent
-  you see, pass its row's \`providerId\` (as \`harness\`), \`model\`, \`transport\` and \`projectId\` (as \`project\`). \`chat\`: born in that
-  group, as its rules allow. \`prompt\` arrives marked as from your App. It stays in your scope: \`listAgents\` lists it
-  with \`spawnedByThisExtension: true\`.
-- \`messageAgent(agentId, text, { queue?, defer?, key? })\` → \`{ id, deferred? }\`: tells an agent you reach, as
-  \`session_message\` does (a stopped one is woken first); the state stays in your data. Busy, it joins the current turn
-  if its engine can. \`queue: true\`: after that turn (not for \`'pty'\` agents). \`defer: true\`: no wake — sent when it
-  next starts working. \`key\` (with either): your waiting message of that key is replaced.
+Phones: listAgents reads the computers' current lists (own / all-machines scope); live counters are null. Tells/drafts reach their agents. New agents use the context's computer, else the most recently online one;
+the sheet lets the person change it. \`agents:control\` starts agents and tells those this App started; \`:all-machines\`
+can tell any of the person's agents. A sheet pick needs no capability.
+
+- Starting and telling an agent is \`dispatch\` (\`to: { new: true }\`, \`{ agent }\`): what \`spawn\` leaves out is what the
+  person's new-session box would pick; to start one like an agent you see, pass its row's \`providerId\` (as
+  \`harness\`), \`model\`, \`transport\`, \`projectId\` (as \`project\`). It stays in your scope (\`spawnedByThisExtension\`).
   \`:all-machines\` reaches your other computers too.
+  API 17: \`spawn.device:'device:<id>'\` explicitly starts there, requiring \`agents:control:all-machines\`.
+  The target computer chooses its defaults and records the agent as started by this App.
 - \`stopAgent(agentId)\` → stops one you can see on this computer, panel or terminal. It does not undo the work
   already done.
-- \`spawnAgent\` and a message to an agent **spend the person's quota**. There is no second prompt at
+- Starting an agent and a message to one **spend the person's quota**. There is no second prompt at
   call time: they agreed when they installed you. That is exactly why you should not loop.
 - Anything you start is recorded as started by YOU, and stays marked that way even after the
   person uninstalls you.
 `;
 
+export const EXTENSION_GUIDE_PROJECTION = `# Local App picture and input resources
+
+Needs \`agents:tools\`
+
+API 22 — scoped local previews and human input (desktop, \`agents:tools\`):
+
+- In your Node program's task tool call, \`gugu.projection.create(driver)\` returns \`{ id, publish, close }\`.
+  Main stamps the App and calling task; arguments cannot choose a different task, window, or webContents.
+  \`driver\` supplies \`driver.refresh()\`, \`driver.input(event, { viewer, frame, signal })\`, \`driver.disconnect(viewer)\`, and \`driver.close()\`.
+  Your App owns capture, target selection, permissions, and native input code. The host supplies transport and lifetime.
+  \`resource.publish({ width, height, mime, data })\` takes a PNG/JPEG/WebP base64 picture, at most 512 KiB decoded;
+  dimensions describe the source's input coordinates. It resolves with the runtime-assigned sequence.
+  Keep that receipt mapped to the captured target. Before applying any input (including keys/text), check that
+  \`frame.sequence\` still names the active target; reject target changes even when dimensions are unchanged.
+  \`input\` receives normalized pointer/wheel coordinates, key down/up, or committed text (Chinese/clipboard once).
+  Text carries \`source: 'typing' | 'ime' | 'paste'\`; \`paste\` names the local event, not proof of a remote clipboard
+  or paste event. Your driver must distinguish plain text insertion from native paste and reject unsupported content.
+  Finish or clean up native work before resolving it, including on \`signal.abort\`. A resolved void means applied;
+  return \`{ status: 'rejected', reason }\` only if nothing was applied, or \`{ status: 'unknown', reason }\` when uncertain.
+  A thrown error after dispatch is uncertain. No input is automatically replayed.
+  \`driver.disconnect(viewer)\` releases that viewer's held keys/buttons before another viewer's input; \`driver.close()\` stops capture
+  and input, and resolves after cleanup. Only one viewer drives at a time; others can still watch. App revocation,
+  task archive/deletion, project deletion or withdrawn App access closes resources. An active task keeps its resources even without viewers.
+- In the same App's task page, \`gugu.projection.mount(element, id, { state?, error? })\` returns \`{ close, pendingText, discardPendingText }\`.
+  It draws the picture and accepts input there, with no extra text form. State is \`connecting\`, \`live\`, \`input-paused\`, or \`closed\`;
+  input is disabled until a fresh picture paints. Disconnects discard queued input; reconnects require a new generation.
+  For the local preview feed, only one unacknowledged picture and the newest pending picture are retained.
+  Focus loss invalidates the old input generation and releases its held input before fresh input is admitted.
+  Rejection drops that operation and leaves the viewer usable. Unknown outcomes require a fresh generation.
+  \`view.pendingText()\` returns \`{ id, text, state: 'not-sent' | 'unconfirmed', reason? }\` records.
+  Read them before disposal if keeping a draft; explicitly discard one with \`view.discardPendingText(id)\`.
+  Move/wheel events coalesce within the same frame and generation; discrete operations remain ordered.
+  Your App decides where to mount a mirror; original local Browser pages already receive native input.
+  Pictures never travel through App-wide program notifications or replayable tool calls.
+  This bitmap feed is local only. A page on another computer requires the shared media transport; there is no
+  bitmap-over-network, tool-result, cloud-notification or relay fallback.
+
+Use \`resource.close()\` to release the source and \`view.close()\` to remove the mounted viewer.
+`;
+
 export const EXTENSION_GUIDE_PROGRAMS = `# Giving agents your own tools
 
-Programs and skills for this computer's agents. Configuration: \`apps-settings\`; page calls: \`apps-page\`.
+Local programs/skills. Configuration: \`apps-settings\`; page calls: \`apps-page\`.
 
 Needs \`agents:tools\`:
 
@@ -393,31 +456,29 @@ export const follow = {
 }
 \`\`\`
 
-  — and the page, when that card changes, \`gugu.send\`s each follower of it. \`agent\` is the calling
+  — and the page, when that card changes, \`gugu.dispatch\`es to each follower of it. \`agent\` is the calling
   agent's \`user:<uuid>\`, stamped by gugu: no agent can fake it, so never ask for it in an argument.
-  \`session\`, \`workspaceRoot\` and \`model\` come stamped the same way: its session (a \`{ session }\` place; keep it, and a
-  click takes the person there with \`showSession\`), that working copy's absolute path, and the model gugu runs it on,
-  as \`listAgents\` gives it (not one switched in its own terminal); each absent when there is none.
-  What run returns is the answer (a string as it is, anything else as JSON); what it throws, the
-  error the agent reads. An export that is not a tool stops the file with an error naming it: keep
-  helpers unexported, or in another module \`tools.js\` imports. It may import your bundle's files
-  and Node's built-ins (no \`node_modules\`).
-- Your tools run only on the computers the App is installed on, with that person's full rights.
-  Another person's agent has them once its owner installs the card too —
-  ask them to; never have agents write their ids into your data.
+  \`session\`, \`workspaceRoot\`, \`model\`: the calling session, absolute working-copy path and host-chosen model, stamped
+  like agent; absent if unknown. Keep session for \`showSession\`; \`listAgents\` gives the same model.
+  API 21: run receives non-enumerable \`signal\` (AbortSignal). Pass it to drivers; abort queued actions, never replay unknown results.
+  Return human steps immediately; the agent asks via existing questions/messages, then retries.
+  run returns a string verbatim or JSON; a throw is the error the agent reads. A non-tool export stops the module,
+  naming it. Keep helpers unexported or in imported bundle files. Node built-ins work; \`node_modules\` does not.
+- Tools run with the person's full rights only where installed. Another owner must install the App to give its agent
+  these tools; never have agents write their ids into your data.
 - Another language, or an existing MCP server: \`{ "name", "command", "args"? }\`, MCP over stdio.
   \`command\` \`node\` runs on gugu's own runtime; \`./x\` is a program in your bundle; anything else
   is found on PATH (\`npx\`, \`uvx\`, \`python3\`). An argument naming a file in your bundle is passed
   as its absolute path; the install sheet shows the command verbatim. Answer every request with its
   \`id\`, errors too: an error reply without one fails every call in flight. Each call's \`_meta\`
-  carries the same stamp: \`"gugu/agent"\`, \`"gugu/sessionId"\`, \`"gugu/workspaceRoot"\`, \`"gugu/model"\`. A long tool reports progress on the
+  carries the same stamp: \`gugu/agent\`, \`gugu/sessionId\`, \`gugu/workspaceRoot\`, \`gugu/model\`, \`gugu/modelLabel\`. A long tool reports progress on the
   call's \`progressToken\` at least every 60 seconds, or Claude aborts it at 300 seconds.
 - Either way the working directory is your bundle, with \`GUGU_EXTENSION_ID\` and
   \`GUGU_EXTENSION_DATA_DIR\` — the folder your pages reach with \`readData\`/\`writeData\`. One copy
   serves every session; gugu starts it on first use and stops it when idle (never while it holds a chat file open).
   A program on \`node\` has the global \`gugu\` — a page's, but for the page's own verbs; a \`worker_threads\`
   worker has none (relay through the main thread yourself). It opens a chat file it
-  is handed by its id, \`{ id }\`, and \`gugu.send(to, text, { refs: [{ file: f.entry }] })\` whispers in that file's chat.
+  is handed by its id, \`{ id }\`, and \`gugu.dispatch(text, { to: { chat, member }, refs })\` whispers in that file's chat.
   A file it makes goes in with \`gugu.files.upload(place, file)\` (\`files:write\`) — into the chat of a file an agent
   handed it, as that agent, judged by the agent's membership; a stored file it is handed
   gets its next version with \`gugu.files.replace(file, blob, { expectedVersion: entry.version })\` (needed;
@@ -447,16 +508,15 @@ export const follow = {
 - Agents reach your tools through the catalog (\`catalog_list\` / \`catalog_call\`), named
   \`<App id>__<tool>\` whichever program gives it, in every session the moment you are installed; the person can have them
   listed natively instead, from the next session on. \`contributes.toolsListed: true\` asks for that at the first install
-  (the person can switch it back). The person can switch \`agents:tools\` off without uninstalling you; running
-  sessions' calls are refused from then on.
+  (the person can switch it back). Withdrawing \`agents:tools\` refuses further calls; lifecycle: \`apps-settings\`.
 
 Free — your own programs and data folder:
 
-- \`callProgram(tool, args?, server?)\` → calls a tool of your own MCP program and resolves its
-  result (\`{ content, structuredContent?, isError? }\`). Only tools whose \`_meta.ui.visibility\`
-  includes \`"app"\` (MCP Apps; absent: both): mark agent-only tools
-  \`["model"]\`, and page-only ones \`["app"]\` — agents never see those. \`server\` only when you
-  run several. Stamped \`"gugu/caller": "app"\`, the tab's session and its working copy, and on a page an agent
+
+- \`callProgram(tool, args?, { server?, device? })\` → your MCP tool's \`{ content, structuredContent?, isError? }\`.
+  \`_meta.ui.visibility\` must include \`"app"\` (absent: both); \`["model"]\` hides it from pages, \`["app"]\` from agents.
+  \`server\` selects one of several (a server string also works); API 17 \`device:'device:<id>'\` chooses a computer without a task.
+  Stamped \`"gugu/caller": "app"\`, the tab's session and its working copy, and on a page an agent
   works its \`"gugu/agent"\`. Refused while \`agents:tools\` is off.
   A tab of a session on another computer (\`ctx.session.deviceId\`) runs it THERE:
   \`not-installed\`, \`version-mismatch\`, \`unavailable\` (offline, too old, or silent 75 s: it may have run);
@@ -481,22 +541,34 @@ const save = () => gugu.writeData('save.json', JSON.stringify(state))
  * `gugu.files` — the platform runtime's shared files (L3; notes/2026-09-29-app-platform/workspace-app/
  * L3-runtime-interface.md). The page an agent reads before writing a vote, a game or an editor.
  */
-export const EXTENSION_GUIDE_FILES = `# gugu.files — an App's chat files, edited live by people and agents together
+export const EXTENSION_GUIDE_FILES = `# gugu.files — shared live files
 
-An App's data is a file where it lives (a chat's workspace, a folder here). Data already there is
-that file: claim its name or suffix and open it — never a copy in your bundle (\`app_install\` data \`{ item_id }\`).
-Open it: a live copy — yours show at once, others' arrive on their own.
-Top-level \`await\` needs \`<script type="module">\`.
+Claim an existing data file's name or suffix and open it live; never copy it into your bundle
+(\`app_install\` data \`{ item_id }\`). Top-level \`await\` needs \`<script type="module">\`.
+
+## App data (API 18)
+
+Create internal state with \`files.create(target, content, { appData: true })\`;
+mark existing state when opening it with \`files.open(ref, { appData: true })\`.
+The host stamps installed {publisher,id} into \`entry.metadata.app\`, preserving other keys.
+Write access required; no folders/working copies. Markers follow rename/move. Leave user/Office documents
+unmarked. No filename rules. Only the folder view hides marked files; APIs, agents and links retain access.
+\`gugu.files.viewPreferences({ chat }, { showAppData: true })\` sets the person's source-chat preference;
+no options: read it.
 
 ## Which files you may open
+
+Topic file addresses resolve to their source chat; messages keep the topic's.
 
 Each call names its file or place. A file: an entry (from \`list\`) or \`ctx.file\` as it is; by name,
 \`{ chat | session | project, name }\`. A place: \`{ chat: id }\`, \`{ session: id }\` or
 \`{ project: id }\` — a project's folder, as a working copy (\`gugu.projects.list()\` → \`{ projects: [{ id, name }] }\`).
 
-- The file you were opened for (\`ctx.file\`) — the person clicked it and the host picked your App by its claim
-  (\`opensFiles\`, e.g. \`{ "chat": [".vote.json"] }\`; the most specific wins), or they chose it under "open with".
+- The file you were opened for (\`ctx.file\`) — the host picked your App by its claim
+  (\`opensFiles\`, e.g. \`{ "chat": [".vote.json"] }\`; most specific wins) or picked via "open with".
   No capability; a session's claims go under \`"session"\`.
+- \`"chatFile": "x.board.json"\` on it (API 14): opened in a chat, \`ctx.file\` is that top-level file, \`{}\` at first: fill it.
+- \`"sideWidth": 480\` (API 16): a tab's px beside a chat; none: half.
 - A name claims that one file (\`"session": ["TODO.md"]\`); a suffix is for a format of your own. Keep what your App
   does not understand as is. Changing course, remove the topics and files you made, or ask. A session file
   in a folder the search index skips hears the disk only when written.
@@ -505,25 +577,26 @@ Each call names its file or place. A file: an entry (from \`list\`) or \`ctx.fil
 - \`gugu.files.list(place)\` needs \`files:read\`; \`gugu.files.create({ ...place, name }, content)\`,
   \`gugu.files.rename(entry, name)\` and \`gugu.files.remove(entry)\` need \`files:write\`. JSON content: an object at the top.
 - \`gugu.files.search({ query, suffixes, limit })\` (\`files:read\`): all the reader's chats' files by part of the
-  path, newest first, with \`chatName\`; \`gugu.files.recent({ limit })\`: those this person opened last (\`openedAt\`).
+  path, with \`chatName\`; \`gugu.files.recent({ limit })\`: those this person opened last (\`openedAt\`).
 - A chat's subfolders: \`gugu.files.list({ chat, folder })\` lists one (path or id, \`''\` the top; none: all;
   \`'folder'\` entries are listed, never opened);
   create and upload take \`folder\` too (made if missing); \`gugu.files.mkdir({ chat, path })\`,
   \`gugu.files.move(entry, { folder, name })\`; remove takes a folder with all in it. A name the folder has (any case):
   a new file gets \` (2)\`, a rename or move is \`name-taken\`. 「附件」 (\`systemRole\`) stays put.
 - \`gugu.files.onChanged(place, fn)\` → unsubscribe. Chat: \`{ kind: 'entries', entries, gone }\`. A folder here: \`{ kind: 'changes', changes }\` or \`resync\` (list again).
-- \`gugu.files.openWith(entry)\` (a click or key) opens it where it lives with the App they use for
-  it (most specific claim, or "always use"). \`{ ask: true }\`: they pick among all;
-  \`{ at }\`: a place, the opener's \`link\`. \`not-found\`: none opens it. \`{ peek: true }\`: beside
-  your page, as it is (none opens it: gugu's preview); a project's file always.
-- \`gugu.files.upload(place)\` (\`files:write\`) opens the file picker (a click or key) → the new entries (\`[]\`);
-  given a File, uploads it. Over 25 MB: \`too-large\`. \`gugu.files.download(entry)\` asks where to save (a click or
-  key) → \`true\` saved.
+- \`gugu.files.openWith(entry)\` (a click or key) uses the most specific claim or "always use". \`{ ask: true }\`: they pick among all;
+  \`{ at }\`: a place, the opener's \`link\`. No App claims it: gugu's file preview, or details and download.
+  \`{ peek: true }\`: beside your page; always for project files. \`not-found\`: gone or unreadable.
+- \`gugu.files.upload(place)\` (\`files:write\`, a click or key) opens the picker → the new entries (\`[]\`);
+  given a File, uploads it. Over 25 MB: \`too-large\`. \`gugu.files.download(entry)\` (a click or key) asks where
+  to save → \`true\` saved.
 - An image, a clip, a sound opens read-only: \`URL.createObjectURL(await f.blob())\`; \`files.replace(entry,
   blob, { expectedVersion: entry.version })\` makes its next version (needed; else \`content-changed\`).
   \`files.versions(entry)\` / \`files.readVersion(entry, n)\`: its history.
-- An entry: \`{ id, chat | session | project, name, contentType, type (text|json|binary|folder), parentId, path, systemRole, size,
-  version, createdAt, updatedAt, createdBy: { id, name, kind: human|agent|system }, sourceMessageIds, canDelete }\`.
+- Entry: \`{id,chat|session|project,name,contentType,type,parentId,path,systemRole,size,version,
+  createdAt,updatedAt,createdBy,updatedBy,sourceMessageIds,canDelete,metadata}\`.
+  Both authors: \`{id,name,kind:human|agent|system}\`; unknown/local editor is null.
+- API 19: \`keep: {expiresAt,mine}|null\`; \`gugu.files.keep(entry, 'temporary'|'permanent')\`; 20: [], as download.
 
 ## A text file (markdown)
 
@@ -531,11 +604,9 @@ Its handle — \`f.text\`, \`f.edit(old, new)\`, anchors — and an editor bound
 
 ## A JSON file
 
-Design the data first. The file keeps every write, so what changes every frame — a cursor, a drag, a
-stroke being drawn — goes in \`f.presence\` (\`apps-together\`); the file gets events and results.
-The file is data only: what agents should do with it goes in your tools (\`apps-programs\`), never a note in it;
-its own id is \`f.entry.id\`. A new version that changes that shape reads the old one too, writes the new, and
-raises \`version\`.
+The file keeps every write: frame-by-frame motion belongs in \`f.presence\` (\`apps-together\`),
+results in the file. Agent instructions belong in tools (\`apps-programs\`), never in data.
+Its id is \`f.entry.id\`. Shape changes must read old data, migrate it and raise \`version\`.
 
 \`f.data\` is a live object: read and write it as any object, spread included. An object assigned
 over one merges key by key — the keys you list, all the way down; the keys you saw and left out go —
@@ -556,28 +627,13 @@ Key per-person data by \`f.presence.self.userId\` (\`user:<uuid>\`, server-stamp
 name) — ❌ never ask the person who they are. ❌ No locks or "being edited by" fields of your own (they lock
 people out and still lose letters): show who edits what with presence.
 
-\`\`\`js
-const f = await gugu.files.open((await gugu.getContext()).file)   // { question, options, votes: {} }
-const me = f.presence.self.userId
-const render = () => {
-  title.textContent = f.data.question
-  list.replaceChildren(...f.data.options.map((o, i) => {
-    const b = document.createElement('button')
-    b.textContent = \`\${o} · \${Object.values(f.data.votes).filter((v) => v === i).length}\`
-    b.onclick = () => { f.data.votes[me] = i }
-    return b
-  }))
-}
-f.onChange(render); render()
-\`\`\`
-
-Text others wrote goes in with \`textContent\` or the template's \`render\` with html\`…\` (it escapes every \${…}),
-never joined into \`innerHTML\` — markup in a title could draw a fake button. On a change, redraw with \`render\`: it
-patches by \`data-key\`; an input showing the file's value goes in it, and the one someone is in stays as it is (focus,
-half-typed text, IME). A draft not yet submitted, and \`gugu.bind.text\` boxes, go outside it (\`#controls\`, drawn
-once) — \`render\` gives an unfocused input its markup's value again. ❌ \`innerHTML\` or \`replaceChildren\` on a
-change: the input goes, and its half value lands in the file as a change. To point at
-another file, store its entry's \`id\` and open it on click with \`gugu.files.openWith(entry)\`; a name alone is text nobody can open.
+Others' text goes in with \`textContent\` or \`render\` with html\`…\` (it escapes every \${…}), never joined into
+\`innerHTML\` — markup in a title could draw a fake button. On a change, redraw with \`render\`: it patches by
+\`data-key\`; an input showing the file's value goes in it, and the one someone is in stays (focus, half-typed text,
+IME). Drafts not yet submitted and \`gugu.bind.text\` boxes go outside it (\`#controls\`, drawn once): \`render\`
+resets an unfocused input to its markup's value. ❌ \`innerHTML\` or \`replaceChildren\` on a change: the input goes,
+its half value lands in the file. To point at another file, store its entry's \`id\` and open it with
+\`gugu.files.openWith(entry)\`; a name alone is text nobody can open.
 
 ## When things go wrong
 
@@ -729,8 +785,8 @@ the reason word (\`account_too_new\`, \`blocked_by_poster\`, \`owner_identity_li
   new post arrives on \`gugu.forum.onChanged('feed', …)\`.
 - \`gugu.forum.reply(postId, text, { replyTo? })\` → \`{ reply }\` · \`gugu.forum.react({ kind: 'post'|'reply', id, emoji, on })\`
   · \`gugu.forum.remove({ reply } | { post })\` · \`gugu.forum.block(userId, on)\`.
-- \`gugu.forum.assign(postId, agentId?)\`: the host lists the person's own agents and they pick one (\`agentId\` only
-  preselects; you never list them), answering \`{ confirming: true }\`; \`onChanged\` says \`assigned\`. The agent is
+- \`gugu.forum.assign(postId, agentId?)\`: gugu's sheet lists the person's own agents and they pick one (\`agentId\` only
+  preselects; you never list them), answering \`{ assigned: { agent } }\` or \`{ cancelled: true }\`. The agent is
   woken with the post and answers with its own \`forum_reply\`.
 - \`gugu.forum.award(postId, [{ reply, amount }])\`: 1–3 answers adding up to the bounty, from 24 hours after posting
   to 24 hours after the deadline; \`[]\` ends it without accepting. The host draws the confirmation, answers
@@ -766,7 +822,7 @@ program reads as that agent: \`chats.list\` its chats, the rest only a chat it h
   \`limit\` 1–100 (50). A chat the reader is not in has none.
 - A message: \`{ id, seq, chat, thread, sender: { id, name }, text, contentType, createdAt, refs }\`. \`sender.id\` is
   \`user:<uuid>\`, as \`chat.members\`; \`null\` for a line gugu wrote (\`system\`: someone joined). \`text\` is as written. \`refs\` is every file link in
-  it, read for you: \`{ file, version?, at? }\` — \`at\` is the place your \`refs\` / \`compose\` named.
+  it, read for you: \`{ file, version?, at? }\` — \`at\` is the place your \`refs\` named.
 
 \`{ file }\` finds every message citing that file, anywhere in it. To count one place, keep the ones whose \`at\` is that
 place — the search does not:
@@ -789,7 +845,7 @@ export const EXTENSION_GUIDE_UI = `# How an App page looks — gugu's look is th
 
 Every App page gets gugu's own look before its first line: a stylesheet, all of it in \`@layer gugu\` (the lowest, so
 anything you write wins — no \`!important\`), and four elements of the host. Plain semantic HTML looks like gugu, in
-light and dark, in a chat's side panel (520 px), a topic (340), on a phone (412, touch sizes) and full screen. The
+light and dark, in a chat's shared side panel (520 px), on a phone (412, touch sizes) and full screen. The
 picture below this text is every piece, each captioned with the markup that draws it.
 
 ## Four rules
@@ -797,7 +853,7 @@ picture below this text is every piece, each captioned with the markup that draw
 1. Write semantic HTML: it is styled already.
 2. Set no fonts, font sizes, colours or corner radii. Drawing something of your own (a board, a chart): only the tokens below.
 3. Icons are \`<gugu-icon name="…">\`, people are \`<gugu-avatar user="…">\` — never an emoji, an initial or a coloured box.
-4. Read \`gugu.getContext()\` first: \`chat\` is the chat (a group, topic or private chat) the page is open in, \`chat.members\` who is in it. Default to that chat; never make the person pick it.
+4. Read \`gugu.getContext()\` first: \`chat\` is the source group or private chat the page is open in, \`chat.members\` who is in it. Default to that chat; never make the person pick it.
 
 ## Elements — one line each
 
@@ -832,10 +888,11 @@ md.render(element, f.text, { density: 'comfortable', frontmatter: true, file: f.
 \`density\`: \`'compact'\` (the default, a chat's rhythm) or \`'comfortable'\` (a document). \`frontmatter: true\` shows a
 file's leading \`---\` YAML block as code instead of reading it as text. \`sourceLines: true\` marks each block with the
 lines it was written on (\`data-line="3-5"\`), to find a line's block. \`trust: 'chat'\` (the default) is for others'
-words: raw HTML stays text, no image loads; \`'document'\` only for text your App wrote. Links go the ways a page has:
-\`#…\` in place, http(s) a browser tab, a chat file or a relative link (beside \`file\`) \`gugu.files.openWith\`, which
-needs \`files:read\` — without it that click does nothing. There is no HTML string to put through \`innerHTML\` — never
-write others' text in as markup.
+words: raw HTML stays text; \`'document'\` only for text your App wrote. Links: \`#…\` in place,
+http(s) a browser tab, gugu resources through \`openLink\` (API 13, no capability), relative files beside \`file\`
+through \`gugu.files.openWith\` (needs \`files:read\`). Failures call \`reportError\`. Never put others' text through \`innerHTML\`.
+Images: a chat file's (\`gugu-file://\`, a path beside \`file\`) are drawn, web ones stay links; one pasted
+into \`bind.codemirror\` uploads beside it.
 
 ## Drawing your own
 
@@ -882,29 +939,131 @@ What the card, the detail sheet and the installed list show comes from manifest.
 
 export const EXTENSION_GUIDE_SETTINGS = `# Tools-only Apps and host settings
 
+## Platform declarations
+
+Declare human UI hosts in \`platforms\` (API 12): desktop, phone, or both. A phone UI may declare agent
+capabilities; those features run only on computers. Phone plus \`notifications\` is refused at publication and install.
+
+## Standing agent behavior
+
+\`contributes.agentInstructions\`: 1–8000 characters of standing behavior, placed in the platform prompt
+without waiting for Skill discovery. Requires \`agents:tools\`, a runnable MCP program, and the same enabled,
+authorized App scope as tools. Works with native-listed and catalog tools. User instructions take precedence.
+New sessions receive it in full; restart existing sessions after enabling or changing it. Revoked tools are
+refused immediately, but an existing session's prompt is not rewritten. Use skills for detailed procedures.
+
+## Configuration
+
 An App with only programs or skills may omit \`entry\` and \`contributes.tabs\` (API 5). Clicking it
 opens the host's configuration/status page. No blank HTML or custom frontend is needed. An HTML App
 may also declare \`{ "name":"settings", "title":"Settings", "hostPage":"settings" }\` as a tab.
 Optional top-level \`settings\` declares up to 32 fields: \`{ "key":"mode", "title":"Mode",
 "type":"string", "default":"local" }\`. Types: \`string\`, \`boolean\`, or \`select\` with
 \`options:[{"value":"local","title":"Local"}]\`; \`description\` and a typed \`default\` are optional.
-Programs read \`JSON.parse(process.env.GUGU_APP_SETTINGS)\`. Values survive upgrades; saving retires
-the old program after in-flight calls finish, and new calls start with the new values. Uninstall clears them.
+Programs read \`JSON.parse(process.env.GUGU_APP_SETTINGS)\`. Values survive upgrades; after a change,
+new calls start with the new values. Uninstall clears them.
+Switching the App off, withdrawing \`agents:tools\`, or uninstalling cancels pending calls (agent/page,
+including startup), closes program IPC authority and stops its process tree. Other Apps are unaffected.
+Single-call cancellation does not stop other sessions sharing the program. Upgrades/settings drain already-running
+stdio calls; calls still starting may be interrupted.
 A program's real failures reach the agent in its tool result and the person on the App's page; installed does not mean running.
 Native host resources use \`contributes.mcpServers:[{"name":"browser-use","host":"browser-use"}]\`
 (API 5, desktop GUI). They use the same App permissions, Agent scope, catalog and disclosure as stdio
-programs; \`browser-use\` operates only the calling session's browser tab. Optional \`startUrl\` in
+programs; \`browser-use\` operates only the calling local session's browser tab; it is not available on Gugu server. Optional \`startUrl\` in
 \`settings\` supplies the initial URL when that session has no tab; an explicit navigation wins.
 \`"host":"computer-use"\` gives agents no tools: they control the computer with gugu's \`device_call\` (\`computer.*\`).
 It gives the App's own pages \`preview_state\`: the page's session's latest frame (a real screenshot) and its recent
 computer actions; \`notifications/computer-use/changed\` says there is a newer one.
 A tab with \`"perSession": true\` has one page in each session, never moved between them — two sessions side by side
-each show their own (not with \`opensFiles\` or \`hostPage\`). A computer-use App's per-session tabs come up beside a
+each show their own (not with \`opensFiles\` or \`"hostPage":"settings"\`). A computer-use App's per-session tabs come up beside a
 session's conversation at that session's first computer action, once.
 Use the existing \`agents:tools\` capability for programs/skills (see \`apps-programs\`).
 Tool Apps run and are configured on Gugu Desktop. Phone package installs refuse host pages explicitly.
 \`app_check\` drives custom HTML pages; open a host page with the \`tab_kind\` returned by \`app_install\`
 or \`app_search\` and check its configuration and connection as a person would.
+`;
+
+export const EXTENSION_GUIDE_FORK = `# Change an existing App — a fork
+
+When a person asks an App to do something it does not support, or its own code has a bug,
+offer to fork a version for them. Ask before starting: "This App does not support that yet.
+Shall I fork a version for you?" Do not work around its missing feature with shell commands,
+edit its installed files, or build a substitute. Check its tools and app_search first; a missing
+feature need not produce an error. A fork cannot fix environment problems such as network,
+login, missing permission, a stopped program or an offline device: do not offer one for those.
+A tool saying it does not support an operation describes the current App, not whether its
+code can be changed. Offer the fork before declaring the requested feature impossible or
+proposing another tool. Investigate feasibility in the fork after agreement; do not promise
+that a fork can add host capabilities which are unavailable.
+Ask once; if they decline, do not ask again.
+
+A fork is another variant of the SAME App. Only one variant runs on this computer at a time.
+Data, chat enablement and already granted permissions belong to the App, so switching code
+keeps them. A variant asking for additional permissions still needs the person's consent.
+Never change the manifest id or break the existing data format. Do not clear, replace or
+migrate their data to make your new code work.
+
+## After the person agrees
+
+1. Call \`app_create {fork_of:"<app-id>", name:"remote-watch"}\`. The variant name is an ASCII
+   slug matching \`^[a-z0-9][a-z0-9-]{0,62}$\`. It checks out the exact
+   installed upstream commit into a git working directory and returns where to edit. Use
+   that returned directory, never the installed bundle. The upstream remote is \`upstream\`.
+   A connected GitHub account gets a real fork as \`origin\`; without one, the local repo works.
+2. Read the App's code and the relevant \`apps-*\` guides. Make the requested change in that
+   working directory with your normal editing tools. Preserve data and the App's identity;
+   keep its upstream version, and commit your code. Do not add permissions unless needed.
+3. Call \`app_install {source_dir:"<returned-source-directory>"}\`: the host recognizes the
+   fork, installs it as a variant and makes it active. Explain any new permissions; only the
+   person can approve them in the existing consent panel. A refusal leaves it uninstalled.
+4. Call \`app_check\` with the returned \`tab_kind\` (and \`item_id\` for a chat file). Exercise
+   the requested feature using the App's actual tools or page, and verify the person's
+   existing data is still there. Fix, reinstall and check until it works; then report the
+   active variant and what changed. Do not call it done from an install result alone.
+
+## Switch variants
+
+\`app_install {market:"<app-id>", variant:"<name>"}\` selects an installed variant.
+\`variant:"upstream"\` returns to the original. The person can also select a variant on the
+App's detail page. No fork or data copying is needed to switch.
+
+## An App resource URL
+
+A link like \`<scheme>://app/<id>?device=<device-id>&variant=<slug>\` names that
+installed fork on that registered device. Use \`app_manage\` with \`{url}\` to read its metadata,
+source directory, base and upstream status; never look up a local namesake or pack its cache.
+\`app_manage {url, operation:"switch"}\` activates it. \`operation:"remove"\` asks the
+person, switches an active fork to upstream, then deletes only its registration and cache.
+Original, App data, source Git directory, identity, settings and grants remain. Do not use
+uninstall to remove one fork. Opening the URL only locates its detail, without switching.
+
+## Bring in an upstream update
+
+The App's row shows the upstream version and how many releases the active fork is behind.
+Pin the target to that upstream version's published commit.
+Read that repo's status first; preserve uncommitted work. Fetch \`upstream\` and merge the
+specified commit with git's three-way merge, resolving conflicts in the fork. Before merging,
+find its merge-base with the fork's HEAD and read the fork's diff from that base. List the
+custom behaviors and stored fields it added; record the existing data's IDs and values.
+After resolving conflicts, compare against both parents and verify each custom behavior and
+old data format still works, including when a device is offline. Similar upstream code is
+not proof that the fork's behavior was preserved. Do not replace
+your fork's files with a fresh upstream bundle or merge a moving branch tip in place of that
+commit. Keep the same data format, commit, then app_install the source directory and app_check
+again. Read back the same data IDs and values and exercise the custom behaviors: app_check's
+ok or an empty page is not proof that data survived. Missing data is a failed merge, not done.
+A conflict or failed check is work
+to finish, not grounds to silently discard the person's changes.
+
+## Push or contribute, when asked
+
+If the local repo has no \`origin\`, connect the person's GitHub account or use their gh CLI
+to fork the upstream repo; add their fork as \`origin\`. Push the variant branch there. Do
+not push to upstream. For a contribution, open a PR from that branch to upstream's default
+branch, describing the change and actual checks. First-party Apps share gugu-apps: only change
+\`sources/<app-id>\`, and target its \`main\` branch. Other Apps use their own upstream repo.
+Pushing, opening a PR and merging upstream are requests the person makes to you, not actions
+to take merely because you created a local fork.
 `;
 
 /** The App guides \`guide_read\` serves, one topic each — see GUIDE_TOPIC_BYTE_BUDGET in gugu-guide-tool.ts. */
@@ -919,6 +1078,11 @@ export const EXTENSION_GUIDE_TOPICS: readonly { topic: string; about: string; te
     about: 'How a page looks: gugu\'s look is in every App page already — semantic HTML, <gugu-icon>, <gugu-avatar>, <gugu-time>, <gugu-empty>, one line each, with a picture of them all; app_check\'s snapshot and steps; and the App on the market card (description, icon, engines).',
     text: EXTENSION_GUIDE_UI,
     picture: 'look',
+  },
+  {
+    topic: 'apps-fork',
+    about: 'An App cannot do what the person asks, or has a bug: offer a fork, then change, install and switch variants while keeping data; merge upstream updates or contribute when asked.',
+    text: EXTENSION_GUIDE_FORK,
   },
   {
     topic: 'apps-page',
@@ -941,6 +1105,11 @@ export const EXTENSION_GUIDE_TOPICS: readonly { topic: string; about: string; te
     text: EXTENSION_GUIDE_PROGRAMS,
   },
   {
+    topic: 'apps-projection',
+    about: 'Local picture and input resources: a program supplies capture and input, a task page mounts the shared viewer; authorization, painted frames and cleanup.',
+    text: EXTENSION_GUIDE_PROJECTION,
+  },
+  {
     topic: 'apps-files',
     about: 'gugu.files: a chat\'s files, and a session\'s working copy — edited live by several people and agents together: text, live JSON, errors.',
     text: EXTENSION_GUIDE_FILES,
@@ -959,6 +1128,11 @@ export const EXTENSION_GUIDE_TOPICS: readonly { topic: string; about: string; te
     topic: 'apps-messages',
     about: 'gugu.chats and gugu.messages (chat:read): the chats you are in and who is in one; a chat\'s timeline, one thread, the ones holding a text, and the ones citing a file, to count and show where a passage was discussed.',
     text: EXTENSION_GUIDE_MESSAGES,
+  },
+  {
+    topic: 'apps-sessions',
+    about: 'External CLI history and observed context (API 17): index, paginated conversation, instruction metadata, nested memory and tool-input file references, on a selected computer.',
+    text: EXTENSION_GUIDE_SESSIONS,
   },
   {
     topic: 'apps-forum',

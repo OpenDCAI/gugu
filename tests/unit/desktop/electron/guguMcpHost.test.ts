@@ -1,6 +1,7 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
+import { Server as McpLowLevelServer } from '@modelcontextprotocol/sdk/server/index.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
 import { Agent, request as httpRequest, type Server } from 'node:http'
 import type { Socket } from 'node:net'
@@ -9,6 +10,7 @@ import { z } from 'zod'
 import { awaitPending } from '../../../support/awaitFact'
 import {
   GuguMcpHost,
+  TOOL_CALL_PROGRESS_MS,
   type GuguMcpGrant,
   type GuguMcpServerFactory,
 } from '../../../../apps/desktop/electron/gugu-mcp-host'
@@ -451,7 +453,7 @@ describe('GuguMcpHost', () => {
 
   // 摩擦单 F45:Node 默认在回答之后给连接挂 5 s(+1 s 余量)的闲置计时器、到点由 host 关;Codex 的连接池闲 90 s,隔 6 s 左右的
   // 调用就写进 host 刚关的连接。host 建在 agentEndpointServer 上:回答之后这头的连接上没有闲置计时器,由复用它的客户端关。
-  // 真竞态(reqwest 客户端 × 0.5 ms 扫过关闭那一刻)的读数在 gugu-base evidence/2026-09-30-l4-f45-keepalive。
+  // 真竞态(reqwest 客户端 × 0.5 ms 扫过关闭那一刻)是 2026-09-30 实测的。
   it('F45: after an answer the host arms no idle timer on the connection — the pool that reuses it closes it', async () => {
     const { host } = await startHost()
     const grant = await host.grant('alpha', context('alpha', 'A'))
@@ -522,5 +524,66 @@ describe('tools/list as state for a reattached claude', () => {
     }
     // teardown 调了 release:这张卡上不再有就绪订阅。
     expect((host as unknown as { toolsListedListeners: Map<string, Set<() => void>> }).toolsListedListeners.has(key)).toBe(false)
+  })
+})
+
+describe('a tool call that waits for minutes keeps telling its caller it is still running', () => {
+  function waitingFactory(release: { now: () => void }) {
+    return vi.fn<GuguMcpServerFactory<TestContext>>(async () => {
+      const server = new McpServer({ name: 'gugu-host-test', version: '1.0.0' })
+      server.registerTool('wait_for_person', { inputSchema: z.object({}) }, async () => {
+        await new Promise<void>((resolve) => { release.now = resolve })
+        return { content: [{ type: 'text' as const, text: 'answered' }] }
+      })
+      return server
+    })
+  }
+
+  it('sends progress on that call every interval while it waits, and stops when it returns', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+    try {
+      const release = { now: () => {} }
+      const { host } = await startHost(waitingFactory(release))
+      const client = await connect(await host.grant('alpha', context('alpha', 'A')))
+      const seen: number[] = []
+      const call = client.callTool({ name: 'wait_for_person', arguments: {} }, undefined, { onprogress: ({ progress }) => { seen.push(progress) } })
+      const initial = release.now
+      await vi.waitFor(() => expect(release.now).not.toBe(initial))
+      for (let i = 0; i < 3; i++) {
+        await vi.advanceTimersByTimeAsync(TOOL_CALL_PROGRESS_MS)
+        await vi.waitFor(() => expect(seen).toHaveLength(i + 1))
+      }
+      expect(seen).toEqual([1, 2, 3])
+      release.now()
+      await expect(call).resolves.toMatchObject({ content: [{ type: 'text', text: 'answered' }] })
+      await vi.advanceTimersByTimeAsync(TOOL_CALL_PROGRESS_MS * 3)
+      expect(seen).toEqual([1, 2, 3])
+
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('sends nothing to a caller that sent no progressToken (the spec allows no progress then)', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+    const sent = vi.spyOn(McpLowLevelServer.prototype, 'notification')
+    try {
+      const release = { now: () => {} }
+      const { host } = await startHost(waitingFactory(release))
+      const client = await connect(await host.grant('beta', context('beta', 'B')))
+      const initial = release.now
+      const call = client.callTool({ name: 'wait_for_person', arguments: {} })
+      await vi.waitFor(() => expect(release.now).not.toBe(initial))
+      await vi.advanceTimersByTimeAsync(TOOL_CALL_PROGRESS_MS * 3)
+      release.now()
+      await expect(call).resolves.toMatchObject({ content: [{ type: 'text', text: 'answered' }] })
+      expect(sent.mock.calls.filter(([notification]) => notification.method === 'notifications/progress')).toHaveLength(0)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('is well inside both limits the Claude CLI applies to a silent MCP call (300 s idle, 360 s without a byte)', () => {
+    expect(TOOL_CALL_PROGRESS_MS).toBeLessThan(300_000)
   })
 })

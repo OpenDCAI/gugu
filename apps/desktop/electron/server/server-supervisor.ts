@@ -10,13 +10,16 @@
  *  ⑤ #6264 每个账号跑和自己桌面匹配的那一版(server-account-versions.ts):各账号可以跑不同版本,换版只重启那一个账号。
  */
 import { SERVER_LOGIN_ACTION } from '@gugu/core/cloud/remoteTunnel'
+import { readVersionSwitchRequest } from '@gugu/core/cloud/serverDesktopVersions'
 import { onErrorEvents } from '@gugu/session-shared'
 import { spawn, type ChildProcess } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
 import { isOwnProcessAlive, SERVER_PROCESS_MARK } from './process-alive'
 import { applyLoginShell, clearStopped, liveKeeperPid, markStopped, startKeeper, SUPERVISOR_EXIT_ALREADY_RUNNING } from './server-keeper'
-import { accountIsBusy, listAccounts, serverHome, supervisorDataDir } from './server-layout'
+import { noteExitReason } from '../lib/exit-reason'
+import { removeLegacyBrowserLogins } from '../lib/remove-legacy-browser-logins'
+import { accountDataDir, accountIsBusy, listAccounts, serverHome, supervisorDataDir } from './server-layout'
 import { rotateByCopyTruncate, rotateByRename, SERVICE_LOG_CHECK_MS } from './server-log-rotate'
 import { ensureUpgradeGuard, writeSupervisorHealth, SUPERVISOR_HEALTH_MS } from './server-upgrade-guard'
 import { createAccountVersionConverger } from './server-account-converge'
@@ -105,6 +108,8 @@ export async function runSupervisor(): Promise<void> {
     process.exit(SUPERVISOR_EXIT_ALREADY_RUNNING)
   }
   process.on('exit', release)
+  // Include signed-out accounts: their saved website logins must not wait for another sign-in.
+  for (const account of listAccounts()) removeLegacyBrowserLogins(account.dataDir, log)
   const home = serverHome()
   const startedAt = Date.now()
   // 正在跑 = 没有人要它停:上一次 stop 留下的记号作废(看门人据此判断要不要再拉起)。
@@ -125,11 +130,17 @@ export async function runSupervisor(): Promise<void> {
   let stopping = false
 
   const layout = managedLayout()
+  const followSupervisor = process.env.GUGU_CLOUD_COMPUTER === '1'
   const versions = createAccountVersionConverger({
     layout,
+    followSupervisor,
     log,
     running: (userId) => (children.has(userId) ? (children.get(userId)?.version ?? null) : undefined),
-    restart: (userId) => children.get(userId)?.process.kill('SIGTERM'),
+    // 换版:先留一句「更新」,账号进程开机收残据此说清在跑的那一轮是被更新打断的。
+    restart: (userId) => {
+      noteExitReason(accountDataDir(userId), 'update')
+      children.get(userId)?.process.kill('SIGTERM')
+    },
   })
 
   const start = (userId: string): void => {
@@ -170,6 +181,8 @@ export async function runSupervisor(): Promise<void> {
   const reconcile = (): void => {
     if (stopping) return
     const signedIn = listAccounts().filter((account) => account.signedIn)
+    // 受控云电脑先纠正旧 pin 再冷启动,避免先起桌面报告留下的旧包。
+    if (followSupervisor) versions.converge(signedIn)
     const wanted = new Set(signedIn.map((account) => account.userId))
     for (const userId of wanted) {
       if (children.has(userId)) continue
@@ -183,7 +196,7 @@ export async function runSupervisor(): Promise<void> {
       child.process.kill('SIGTERM')
     }
     // #6264 各账号对一对版本:只读每个账号目录里的两个小文件,要换的只重启那一个账号。
-    versions.converge(signedIn)
+    if (!followSupervisor) versions.converge(signedIn)
   }
 
   const stopAll = async (): Promise<void> => {
@@ -202,6 +215,7 @@ export async function runSupervisor(): Promise<void> {
   const shutdown = (reason: string): void => {
     if (stopping) return
     log.info('守护进程停止', { reason })
+    if (reason === 'upgrade') for (const userId of children.keys()) noteExitReason(accountDataDir(userId), 'update')
     void stopAll().then(() => process.exit(0))
   }
   // 有人要它停(stop、systemctl stop、Ctrl-C):记下来,看门人就不再拉起。
@@ -219,6 +233,7 @@ export async function runSupervisor(): Promise<void> {
     version: process.env.GUGU_TASK_HOST_VERSION ?? null,
     accounts: accounts.map((account) => account.email ?? account.userId),
     supervisedBy: process.env.GUGU_SERVER_SUPERVISED || 'none',
+    followSupervisor,
     shell,
   })
   // #6264 升级看门狗读这份「我起来了、还活着」(没有账号登录时它是唯一的健康读数);每 30 秒续写一次。
@@ -240,7 +255,11 @@ export async function runSupervisor(): Promise<void> {
 
   startServerUpdater({
     log,
-    isBusy: () => listAccounts().some((account) => children.has(account.userId) && accountIsBusy(account.dataDir)),
+    // 人在这个账号上点了「现在重启更新」:它的 agent 不再挡守护进程自己的升级(别的账号的照样挡)。
+    isBusy: () =>
+      listAccounts().some(
+        (account) => children.has(account.userId) && accountIsBusy(account.dataDir) && !readVersionSwitchRequest(account.dataDir)?.confirmed,
+      ),
     shutdown: () => shutdown('upgrade'),
     inUse: () => versions.inUse(),
   })

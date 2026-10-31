@@ -17,12 +17,13 @@ vi.mock('@renderer/features/assistant/assistant-shell', () => ({ useAssistantShe
 vi.mock('@renderer/features/assistant/assistant-home-sessions', () => ({ localHomeSessions: { sessions: [] } }));
 vi.mock('@renderer/features/settings/use-app-settings-key', () => ({ useAppSettingsKey: () => ({ value: {} }) }));
 vi.mock('@renderer/lib/layout/navigation-provider', () => ({ useNavigate: () => ({ navigate: () => {} }), useWorkspaceSlots: () => ({ currentView: 'home' }), isCurrentView: (current: string, view: string) => current === view }));
-vi.mock('@renderer/lib/stores/app-state', () => ({ appState: { projects: { projects: new Map(), ensureMounted: vi.fn() } }, sidebarStore: { projectsCollapsed: true, setStateGroupsEnabled: () => {}, setAssistantAgentId: () => {}, setAssistantHomeProjectId: () => {}, setAgentNameOnHoverEnabled: () => {} } }));
+vi.mock('@renderer/lib/stores/app-state', () => ({ appState: { projects: { projects: new Map(), ensureMounted: vi.fn() }, navigation: { currentViewId: 'home', viewParamsStore: {} } }, sidebarStore: { projectsCollapsed: true, listLayout: 'split', listPage: 'projects', projectsNeedYouCount: 0, sidebarProjects: [], setStateGroupsEnabled: () => {}, setAssistantAgentId: () => {}, setAssistantHomeProjectId: () => {}, setAgentNameOnHoverEnabled: () => {} } }));
+vi.mock('@renderer/features/projects/stores/project-groups-store', () => ({ projectGroupsStore: { chatIdOf: () => undefined } }));
 vi.mock('@renderer/features/sidebar/session-keyboard-nav', () => ({ sessionKeyboardNav: { cursor: null, syncCursorFromPointer: () => {} } }));
 vi.mock('@renderer/features/sidebar/use-sidebar-drop', () => ({ useSidebarDrop: () => ({ isDragOver: false }) }));
 vi.mock('@renderer/features/sidebar/pinned-session-list', () => ({ SidebarPinnedSessionList: () => null }));
 vi.mock('@renderer/features/sidebar/projects-group-label', () => ({ ProjectsGroupLabel: () => null }));
-vi.mock('@renderer/features/sidebar/sidebar-search-trigger', () => ({ SidebarSearchInput: () => null }));
+vi.mock('@renderer/features/sidebar/sidebar-search-trigger', () => ({ SidebarSearchTrigger: () => null }));
 vi.mock('@renderer/features/sidebar/sidebar-space', () => ({ SidebarSpace: () => null }));
 vi.mock('@renderer/features/sidebar/sidebar-sessions-section', () => ({ SidebarSessionsSection: () => null }));
 vi.mock('@renderer/features/sidebar/sidebar-virtual-list', () => ({ SidebarVirtualList: () => null }));

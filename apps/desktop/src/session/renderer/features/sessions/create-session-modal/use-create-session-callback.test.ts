@@ -32,7 +32,6 @@ vi.mock('@renderer/utils/logger', () => ({ log: { error: mocks.logError, warn: m
 vi.mock('@renderer/lib/hooks/use-toast', () => ({ toast: mocks.toast }));
 
 const { useCreateSessionCallback } = await import('./use-create-session-callback');
-const { translateSessionMessage } = await import('@renderer/localization/locale-store');
 
 type HookResult = ReturnType<typeof useCreateSessionCallback>;
 let latest: HookResult | undefined;
@@ -104,9 +103,11 @@ let attachmentEditSeq = 0;
 function Probe({
   creationSurface = 'chat-page',
   birthChatId,
+  taskChatId,
 }: {
   creationSurface?: 'chat-page' | 'session-page'
   birthChatId?: string
+  taskChatId?: string
 }) {
   latest = useCreateSessionCallback({
     selectedProjectId: 'project-1',
@@ -117,6 +118,7 @@ function Probe({
     onCreated: mocks.onCreated,
     creationSurface,
     birthChatId,
+    taskChatId,
   });
   return null;
 }
@@ -161,6 +163,9 @@ describe('useCreateSessionCallback ordinary messaging', () => {
       sendMessageToChat: mocks.sendMessageToChat,
       sendAttachmentsToChat: mocks.sendAttachmentsToChat,
       openAgentChat: mocks.openAgentChat,
+      sendCardToChat: () => { throw new Error('not used here'); },
+      rememberedTaskProject: () => { throw new Error('not used here'); },
+      rememberTaskProject: () => { throw new Error('not used here'); },
     };
     Object.assign(dom.window, {
       electronAPI: { invoke: mocks.invoke },
@@ -242,18 +247,26 @@ describe('useCreateSessionCallback ordinary messaging', () => {
   });
 
   // 群成员里「新建 Agent」:托盘上那个群原样进建会话的参数(主进程据此在身份建出来时进群);没群就没有这一格。
-  it('从群里建:birthChatId 进落库参数;不从群里建就不出现', async () => {
+  it('从群里建:birthGroup 进落库参数,群成员里建的是普通座位;不从群里建就不出现', async () => {
     await act(async () => root.render(React.createElement(Probe, { birthChatId: 'chat-group-1' })));
     act(() => latest?.handleCreateSession());
     await act(async () => {});
-    expect(mocks.createSession.mock.calls[0]?.[0]).toEqual(expect.objectContaining({ birthChatId: 'chat-group-1' }));
+    expect(mocks.createSession.mock.calls[0]?.[0]).toEqual(expect.objectContaining({ birthGroup: { chatId: 'chat-group-1', asTask: false } }));
   });
 
-  it('不从群里建:落库参数里没有 birthChatId', async () => {
+  // gugu-dev#181:对话里派的新任务(带着任务卡的落点)坐任务座位(不发入群提示)。
+  it('对话里派的新任务:birthGroup 是任务座位', async () => {
+    await act(async () => root.render(React.createElement(Probe, { creationSurface: 'session-page', birthChatId: 'chat-group-1', taskChatId: 'chat-group-1' })));
+    act(() => latest?.handleCreateSession());
+    await act(async () => {});
+    expect(mocks.createSession.mock.calls[0]?.[0]).toEqual(expect.objectContaining({ birthGroup: { chatId: 'chat-group-1', asTask: true } }));
+  });
+
+  it('不从群里建:落库参数里没有 birthGroup', async () => {
     await act(async () => root.render(React.createElement(Probe)));
     act(() => latest?.handleCreateSession());
     await act(async () => {});
-    expect(mocks.createSession.mock.calls[0]?.[0]).not.toHaveProperty('birthChatId');
+    expect(mocks.createSession.mock.calls[0]?.[0]).not.toHaveProperty('birthGroup');
   });
 
   it('startup-capable session-page provider puts the first text in the create payload and skips post-create delivery', async () => {
@@ -388,9 +401,8 @@ describe('useCreateSessionCallback ordinary messaging', () => {
     expect(mocks.localSendMessage).toHaveBeenCalledWith(expect.objectContaining({ text: 'make one task' }));
     expect(mocks.navigate).toHaveBeenCalledWith('session', expect.objectContaining({ projectId: 'project-1' }));
     expect(mocks.onClose).toHaveBeenCalled();
-    expect(mocks.logError).not.toHaveBeenCalled();
-    expect(mocks.logWarn).toHaveBeenCalledWith('remember the started configuration failed', { error: 'settings unavailable' });
-    expect(mocks.toast).toHaveBeenCalledWith({ title: translateSessionMessage('task.newSessionMemoryNotSaved'), tier: 'warning' });
+    expect(mocks.logError).toHaveBeenCalledWith('remember the started configuration failed', { error: 'settings unavailable' });
+    expect(mocks.toast).toHaveBeenCalledWith({ title: 'Couldn’t save defaults', description: 'settings unavailable', tier: 'warning' });
   });
 
   it('retries the same created task and stable id after an ambiguous router failure', async () => {

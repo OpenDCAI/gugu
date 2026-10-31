@@ -1,3 +1,4 @@
+import { messageForUser } from '@/lib/userFacingError';
 import { Circle, CircleCheck, Plus, X } from '@/lib/icons'
 import { Github } from 'lucide-react'
 import {
@@ -90,8 +91,7 @@ export function GitHubAccountRows({
     if (!result.success) {
       toast({
         title: translate('github.setDefaultFailed'),
-        // @@@raw detail — 服务端错误原文不改写。
-        description: result.error,
+        description: messageForUser(result.error),
         variant: 'destructive',
       });
       return;
@@ -107,7 +107,7 @@ export function GitHubAccountRows({
     if (!result.success) {
       toast({
         title: translate('github.removeFailed'),
-        description: result.error,
+        description: messageForUser(result.error),
         variant: 'destructive',
       });
       return;

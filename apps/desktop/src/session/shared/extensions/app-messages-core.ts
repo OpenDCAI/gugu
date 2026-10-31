@@ -1,5 +1,5 @@
 import { createGuguSupabaseClient } from '@gugu/core/cloud/supabase';
-import { parseGroupFileLink } from '@gugu/core/shared/ui/fileLink';
+import { groupFileLink, parseGroupFileLink } from '@gugu/core/shared/ui/guguLink';
 import { personId, placeOf } from './app-runtime-protocol';
 
 /**
@@ -88,7 +88,7 @@ function queryOf(args: Record<string, unknown>): string {
   }
   const id = typeof file === 'string' ? file : (file as { id?: unknown } | null)?.id;
   if (typeof id !== 'string' || !/^[0-9a-f-]{36}$/i.test(id)) throw invalid("file is a chat file's entry, or its id");
-  return `gugu-file://${id.toLowerCase()}`;
+  return groupFileLink(id.toLowerCase());
 }
 
 export function createAppMessages(platform: { account(): Promise<{ token: string }> }) {

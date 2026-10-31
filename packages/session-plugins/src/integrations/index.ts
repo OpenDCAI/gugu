@@ -37,6 +37,7 @@ export {
   toIntegrationCredentials,
   type McpOAuthCredentials,
 } from './helpers/mcp-oauth';
+export { keyedMcpUrl } from './helpers/keyed-mcp';
 export type {
   IIntegrationAuthBehavior,
   IntegrationAuthDescriptor,
@@ -44,5 +45,6 @@ export type {
   IntegrationAuthMethod,
   IntegrationCliMethod,
   IntegrationCliTool,
+  IntegrationKeyedMcp,
   VerifyResult,
 } from './capabilities/auth';

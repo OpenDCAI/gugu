@@ -1,8 +1,9 @@
 import { BrowserWindow, shell, type BrowserWindowConstructorOptions } from 'electron'
-import { isAgentOverlayWindowRequest, isAuxWindowRequest } from '@shared/aux-window'
+import { BUILD_TAG_WINDOW_NAME, isAgentOverlayWindowRequest, isAuxWindowRequest, isBuildTagWindowName } from '@shared/aux-window'
 import { TRAFFIC_LIGHT_POSITION } from '@shared/window-chrome-native'
 import { hardenWebPreferences } from './devtools-lock'
-import { createBuildTagAuxWindow } from './build-tag-window'
+import { openBuildTagLayer } from './build-tag-window'
+import { serveWindowLayers, windowLayerOptions, windowLayerResponse } from './window-layers'
 
 /**
  * 咕咕的子窗口(一整块会话、一个 App 单独成窗,照 VS Code 的浮动编辑器窗口):渲染层 `window.open` 一扇同源空白窗,
@@ -46,37 +47,6 @@ export type SpecialAuxWindow = {
 }
 
 /**
- * #7274 盖在会话浏览器网页上的那扇透明子窗(agent 的鼠标、「agent 正在操作」小条):网页是画在界面之上的独立 view,
- * 界面自己的元素盖不住它,只能另开一扇更高的窗。它点不着(主进程随后 setIgnoreMouseEvents,人的鼠标穿过去落到网页上)、
- * 拿不到焦点(focusable:false —— 人点小条也不会把窗口焦点从聊天框拿走,实测 exp10)、不进任务栏、跟着父窗走。
- * 与咕咕子窗口同进程(sandbox:false 的理由同上),界面直接画进去。
- */
-function agentOverlayWindowOptions(parent: BrowserWindow): BrowserWindowConstructorOptions {
-  return {
-    parent,
-    show: false,
-    frame: false,
-    transparent: true,
-    backgroundColor: '#00000000',
-    hasShadow: false,
-    focusable: false,
-    resizable: false,
-    movable: false,
-    minimizable: false,
-    maximizable: false,
-    fullscreenable: false,
-    skipTaskbar: true,
-    roundedCorners: false,
-    webPreferences: hardenWebPreferences({
-      sandbox: false,
-      contextIsolation: true,
-      nodeIntegration: false,
-      backgroundThrottling: false,
-    }),
-  }
-}
-
-/**
  * 主窗能换到的页面：应用自己的页面(同一协议、同一 host 和端口：重载、AgentJoinRoute 回首页)。❌ 比 origin:
  * `blob:gugu-app://app/…` 的源就是应用的源;主进程的 URL 对 gugu-app: 这种非特殊协议又只给 'null'。
  */
@@ -91,21 +61,28 @@ export function isOwnPage(target: string, current: string): boolean {
 }
 
 /**
- * 主窗的 `window.open`:咕咕子窗口放行(带上面的外观),其余一律交给系统浏览器(原来的行为)。
+ * 主窗的 `window.open`:浮在网页上的那几层(构建角标、agent 的鼠标与小条)装进窗口里的层(window-layers.ts),
+ * 咕咕子窗口放行(带上面的外观),其余一律交给系统浏览器(原来的行为)。
  * 主窗一重载 / 换页,子窗里画的东西就没了主人 —— 一并关掉,❌ 留一扇空白窗。
  */
 export function attachAuxWindows(main: BrowserWindow, backgroundColor: () => string, special: readonly SpecialAuxWindow[] = []): void {
-  const ownWindows = [...special, createBuildTagAuxWindow(main)]
+  const ownWindows = [...special]
   const children = new Set<BrowserWindow>()
   const specialChildren = new WeakSet<BrowserWindow>()
+  serveWindowLayers(BUILD_TAG_WINDOW_NAME, {
+    accepts: isBuildTagWindowName,
+    options: () => windowLayerOptions({ enablePreferredSizeMode: true }),
+    open: (host, _frameName, content) => openBuildTagLayer(host, content),
+  })
   main.webContents.setWindowOpenHandler(({ url, frameName }) => {
+    const layer = windowLayerResponse(main, url, frameName)
+    if (layer) return layer
     if (isAuxWindowRequest(url, frameName)) {
       const own = ownWindows.find((entry) => entry.name === frameName)
       return { action: 'allow', overrideBrowserWindowOptions: own ? own.options(backgroundColor()) : auxWindowOptions(backgroundColor()) }
     }
-    if (isAgentOverlayWindowRequest(url, frameName)) {
-      return { action: 'allow', overrideBrowserWindowOptions: agentOverlayWindowOptions(main) }
-    }
+    // agent 浮层由会话页主进程那边接;它还没加载时 ❌ 把 about:blank 交给系统浏览器。
+    if (isAgentOverlayWindowRequest(url, frameName)) return { action: 'deny' }
     void shell.openExternal(url)
     return { action: 'deny' }
   })
@@ -129,11 +106,11 @@ export function attachAuxWindows(main: BrowserWindow, backgroundColor: () => str
     // 「File Edit View Window」(2026-10-10 win-dev 实拍)。这扇窗不要菜单(Electron 文档:win.removeMenu 去掉单扇窗的菜单);
     // 顺带去掉它的快捷键 —— 「重新加载」会把这扇窗换成空白页,画在里面的那块跟着没了。
     if (process.platform !== 'darwin') child.removeMenu()
-    // 子窗里点到的外链同主窗:交给系统浏览器。挪进这扇窗的浏览器页签,agent 的鼠标 / 小条那扇浮窗挂在它上面。
+    // 子窗里点到的外链同主窗:交给系统浏览器。挪进这扇窗的浏览器页签,agent 的鼠标 / 小条是这扇窗里的层。
     child.webContents.setWindowOpenHandler(({ url, frameName }) => {
-      if (isAgentOverlayWindowRequest(url, frameName)) {
-        return { action: 'allow', overrideBrowserWindowOptions: agentOverlayWindowOptions(child) }
-      }
+      const layer = windowLayerResponse(child, url, frameName)
+      if (layer) return layer
+      if (isAgentOverlayWindowRequest(url, frameName)) return { action: 'deny' }
       void shell.openExternal(url)
       return { action: 'deny' }
     })

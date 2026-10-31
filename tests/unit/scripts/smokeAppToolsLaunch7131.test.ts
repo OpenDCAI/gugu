@@ -8,8 +8,7 @@ import { extensionAgentPrograms, type ExtensionAgentContribution } from '../../.
 import { launchOf } from '../../../scripts/gugu-server/smoke-app-tools.mjs';
 
 /*
- * #7131 出包冒烟照抄产品的两样东西,抄的那一份不跟,冒烟就悄悄失去意义(评审 gugu-base
- * notes/reviews/2026-10-11-server-preinstalled-apps-r2-0e02e9a.md 第 1、2 节):
+ * #7131 出包冒烟照抄产品的两样东西,抄的那一份不跟,冒烟就悄悄失去意义(2026-10-11 评审第 1、2 节):
  * 1. smoke-app-tools.mjs 起预装 App 程序的样子 —— 产品哪天多要一样东西(参数、环境变量、stdio 约定),冒烟没跟就照样绿,
  *    产品却起不来。这里拿每个预装 App 真实的 manifest,把 launchOf 和 extensionAgentPrograms 逐项比。
  * 2. ci-linux-packages.sh grep 的那句「替身缺成员」提示 —— server-entry.ts 改了措辞,grep 就悄悄不命中。

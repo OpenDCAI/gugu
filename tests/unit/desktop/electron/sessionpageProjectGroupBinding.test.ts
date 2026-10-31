@@ -1,5 +1,5 @@
 // #7341 第二步 项目跨设备(product spec「挂文件夹」):项目的跨设备身份 = 它的项目群。
-// 宿主这一侧的四件事 —— 读绑定 / 预留群 / 并进来(owner 2026-10-17 选 A)/ 撤销 —— 打在真的「项目 → 群」对照文件上,
+// 宿主这一侧的四件事 —— 读绑定 / 建群 / 并进来(owner 2026-10-17 选 A)/ 撤销 —— 打在真的「项目 → 群」对照文件上,
 // 名册与云端用替身。
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -47,7 +47,6 @@ vi.mock('@gugu/core/cloud/config', () => ({
   getSupabaseAnonKey: () => 'anon-public-not-a-secret',
 }))
 vi.mock('@gugu/core/cloud/agentIdentityReconcile', () => ({
-  listOwnedCloudAgentsViaSupabase: vi.fn(async () => []),
   listAgentNameSerialsViaSupabase: vi.fn(async () => new Map()),
 }))
 vi.mock('../../../../apps/desktop/electron/sessionpage/emdash-agent-registry', () => ({
@@ -116,9 +115,17 @@ function fakeChat() {
       if (name === 'add_group_agent') {
         const answer = addGroupAgent(args)
         if (!answer.error && (answer.data as { status?: string } | undefined)?.status === 'joined') {
-          groups.get(String(args.p_chat_id))?.members.set(String(args.p_agent_user_id), { listen_mode: 'mention' })
+          // 主动入座(任务座位 p_as_task 只是不发入群提示)—— 与 chat.add_group_agent 同口径。
+          groups.get(String(args.p_chat_id))?.members.set(String(args.p_agent_user_id), { listen_mode: 'active' })
         }
-        return answer
+        return { ...answer, data: answer.data ? { ...answer.data as Record<string, unknown>, chat_id: String(args.p_chat_id) } : answer.data }
+      }
+      if (name === 'set_agent_listen_mode_as') {
+        const chatId = String(args.p_chat_id), userId = String(args.p_agent_user_id), mode = String(args.p_mode)
+        memberUpdates.push({ chatId, userId, patch: { listen_mode: mode } })
+        const member = groups.get(chatId)?.members.get(userId)
+        if (member) member.listen_mode = mode
+        return { data: { chat_id: chatId, user_id: userId, listen_mode: mode }, error: null }
       }
       return { data: null, error: null }
     },
@@ -213,8 +220,8 @@ describe('读绑定', () => {
     expect(result).toEqual({
       success: true,
       data: [
-        { projectId: 'proj-a', chatId: 'chat-a', representative: true },
-        { projectId: 'proj-legacy', chatId: 'chat-legacy', representative: false },
+        { projectId: 'proj-a', chatId: 'chat-a' },
+        { projectId: 'proj-legacy', chatId: 'chat-legacy' },
       ],
     })
   })
@@ -228,8 +235,8 @@ describe('读绑定', () => {
   })
 })
 
-describe('预留群(项目还没开过会话)', () => {
-  it('第一次预留一个群 id 并记进对照;再问还是它;云端不建空群', async () => {
+describe('建群(建项目即建群,gugu-dev#181)', () => {
+  it('第一次在云端建一个只有群主的群并记进对照;再问还是它,不再建', async () => {
     const host = await makeHost()
     const first = await host.ensureGroup(subjectA)
     expect(first).toMatchObject({ success: true, data: { changed: true } })
@@ -238,7 +245,17 @@ describe('预留群(项目还没开过会话)', () => {
     const { readProjectGroupId } = await import(MAPPING)
     expect(await readProjectGroupId('proj-a', OWNER, env)).toBe(chatId)
     expect(await host.ensureGroup(subjectA)).toEqual({ success: true, data: { chatId, changed: false } })
-    expect(rpcCalls.filter((c) => c.name === 'create_gugu_group'), '云端不许只有群主一个人的群 —— 由第一个 agent 建').toEqual([])
+    const created = rpcCalls.filter((c) => c.name === 'create_gugu_group')
+    expect(created).toHaveLength(1)
+    expect(created[0]!.args).toMatchObject({ p_chat_id: chatId, p_owner_user_id: OWNER, p_initial_members: [] })
+    expect([...groups.get(chatId)!.members.keys()]).toEqual([OWNER])
+  })
+
+  it('对照里是老版本预留、云端还没建的群 ⇒ 就按那个 id 建', async () => {
+    const { rememberProjectGroupId } = await import(MAPPING)
+    await rememberProjectGroupId('proj-a', 'chat-reserved', OWNER, env)
+    expect(await (await makeHost()).ensureGroup(subjectA)).toEqual({ success: true, data: { chatId: 'chat-reserved', changed: false } })
+    expect(groups.get('chat-reserved')?.members.has(OWNER)).toBe(true)
   })
 
   it('同时问两次 ⇒ 同一个群(与开会话同一把锁,❌ 各记各的)', async () => {
@@ -287,10 +304,10 @@ describe('预留群(项目还没开过会话)', () => {
 })
 
 describe('并进来(owner 2026-10-17 选 A)', () => {
-  it('这个项目的 agent 都加进那个群、听全部消息;对照与名册改指它;原来的群不动,作为 previousChatId 回来', async () => {
+  it('这个项目的 agent 都加进那个群(座位就是加人给的那一档);对照与名册改指它;原来的群不动,作为 previousChatId 回来', async () => {
     const { rememberProjectGroupId, readProjectGroupId } = await import(MAPPING)
     const old = seedGroup('chat-old', { members: [OWNER, 'agent-1', 'agent-2'] })
-    const target = seedGroup('chat-target')
+    seedGroup('chat-target')
     await rememberProjectGroupId('proj-a', 'chat-old', OWNER, env)
     seedAgent('agent-1', 's-1', { sessionpage_group_chat_id: 'chat-old' })
     seedAgent('agent-2', 's-2', { sessionpage_group_chat_id: 'chat-old' })
@@ -302,8 +319,9 @@ describe('并进来(owner 2026-10-17 选 A)', () => {
 
     expect(result).toEqual({ success: true, data: { movedAgents: 2, previousChatId: 'chat-old', changed: true } })
     expect(rpcCalls.filter((c) => c.name === 'add_group_agent').map((c) => c.args.p_agent_user_id)).toEqual(['agent-1', 'agent-2'])
-    expect(target.members.get('agent-1')?.listen_mode).toBe('active')
-    expect(target.members.get('agent-2')?.listen_mode).toBe('active')
+    // 项目里的 agent 是任务 agent:补进项目群坐任务座位(主动、不发入群提示),❌ 进群之后再补一道改档位。
+    expect(rpcCalls.filter((c) => c.name === 'add_group_agent').every((c) => c.args.p_as_task === true)).toBe(true)
+    expect(rpcCalls.some((c) => c.name === 'set_agent_listen_mode_as')).toBe(false)
     expect(await readProjectGroupId('proj-a', OWNER, env)).toBe('chat-target')
     expect(pinOf('agent-1')).toBe('chat-target')
     expect(pinOf('agent-2')).toBe('chat-target')
@@ -339,28 +357,21 @@ describe('并进来(owner 2026-10-17 选 A)', () => {
     expect(pinOf('agent-1')).toBe('chat-old')
   })
 
-  it('那个群是另一台机器预留的、云端还没建 ⇒ 这个项目的 agent 当第一批成员把它建出来(就用那个 id)', async () => {
+  it('那个群是老版本另一台机器预留的、云端还没建 ⇒ 按那个 id 建一个只有群主的群,再和已有的群一样加人', async () => {
     seedAgent('agent-1', 's-1', { sessionpage_group_chat_id: 'chat-old' })
     const result = await (await makeHost()).bindToGroup(subjectA, 'chat-reserved-on-a')
     // 名册钉着的 chat-old 云端从没建出来(预留了、没落地)⇒ 没有「原来的群」可留作历史。
     expect(result).toMatchObject({ success: true, data: { movedAgents: 1, previousChatId: null } })
-    const created = rpcCalls.filter((c) => c.name === 'create_gugu_group')
-    expect(created).toHaveLength(1)
-    expect(created[0]!.args).toMatchObject({
-      p_chat_id: 'chat-reserved-on-a',
-      p_name: '咕咕',
-      p_owner_user_id: OWNER,
-      p_initial_members: [{ user_id: 'agent-1', role: 'member' }],
-    })
-    expect(groups.get('chat-reserved-on-a')?.members.get('agent-1')?.listen_mode).toBe('active')
+    expect(rpcCalls.map((c) => c.name)).toEqual(['create_gugu_group', 'add_group_agent'])
+    expect(rpcCalls[0]!.args).toMatchObject({ p_chat_id: 'chat-reserved-on-a', p_name: '咕咕', p_owner_user_id: OWNER, p_initial_members: [] })
     expect(pinOf('agent-1')).toBe('chat-reserved-on-a')
   })
 
-  it('预留的群、这边也还没有 agent ⇒ 只记下对照(第一个会话会用这个 id 建群)', async () => {
+  it('预留的群、这边也还没有 agent ⇒ 建出只有群主的群,记下对照', async () => {
     const { readProjectGroupId } = await import(MAPPING)
     const result = await (await makeHost()).bindToGroup({ ...subjectA, sessionIds: [] }, 'chat-reserved-on-a')
     expect(result).toEqual({ success: true, data: { movedAgents: 0, previousChatId: null, changed: true } })
-    expect(rpcCalls).toEqual([])
+    expect(rpcCalls.map((c) => c.name)).toEqual(['create_gugu_group'])
     expect(await readProjectGroupId('proj-a', OWNER, env)).toBe('chat-reserved-on-a')
   })
 
@@ -372,7 +383,6 @@ describe('并进来(owner 2026-10-17 选 A)', () => {
     const result = await (await makeHost()).bindToGroup(subjectA, 'chat-raced')
     expect(result).toMatchObject({ success: true, data: { movedAgents: 1 } })
     expect(rpcCalls.map((c) => c.name), '建群撞主键之后走了「加人」那一支').toEqual(['create_gugu_group', 'add_group_agent'])
-    expect(groups.get('chat-raced')?.members.get('agent-1')?.listen_mode).toBe('active')
     expect(pinOf('agent-1')).toBe('chat-raced')
   })
 
@@ -467,7 +477,7 @@ describe('撤销', () => {
     expect(target.members.has('agent-1'), '已经加进去的 agent 留在那个群里').toBe(true)
     expect(rpcCalls).toEqual([])
     // 名册回到原来的群之后,读绑定退回名册 —— 正是撤销想要的那个群。
-    expect(await host.listBindings(['proj-a'])).toEqual({ success: true, data: [{ projectId: 'proj-a', chatId: 'chat-old', representative: false }] })
+    expect(await host.listBindings(['proj-a'])).toEqual({ success: true, data: [{ projectId: 'proj-a', chatId: 'chat-old' }] })
   })
 
   it('没绑过 ⇒ 什么都不改', async () => {
@@ -487,18 +497,42 @@ describe('操作 agent 的项目群公告权限', () => {
     expect(agent).toEqual(before)
     expect(memberUpdates).toEqual([])
   })
-  it('已有群只补当前成员,重复调用不再加人', async () => {
+  // gugu-dev#181:建项目的 agent 补进已有的项目群,坐任务座位(主动、不发入群提示)。
+  it('the founding agent joins an existing project group in a task seat', async () => {
     seedGroup('chat-new')
+    const { ensureProjectNoticeAccess } = await import(SUT)
+    await ensureProjectNoticeAccess(auth, 'caller', project, { founding: true })
+    expect(rpcCalls.filter((call) => call.name === 'add_group_agent').map((call) => call.args)).toEqual([
+      { p_chat_id: 'chat-new', p_agent_user_id: 'caller', p_message: null, p_as_user_id: OWNER, p_as_task: true },
+    ])
+    expect(groups.get('chat-new')?.members.get('caller')?.listen_mode).toBe('active')
+  })
+  it('an existing member may announce repeatedly without any join mutation', async () => {
+    seedGroup('chat-new', { members: [OWNER, 'caller'] })
     const { ensureProjectNoticeAccess } = await import(SUT)
     await ensureProjectNoticeAccess(auth, 'caller', project)
     await ensureProjectNoticeAccess(auth, 'caller', project)
-    expect(rpcCalls.filter((call) => call.name === 'add_group_agent')).toHaveLength(1)
+    expect(rpcCalls.filter((call) => call.name === 'add_group_agent')).toHaveLength(0)
   })
-  it('待审批没有被伪报成可以公告', async () => {
+  it('an absent Agent is not silently re-added, including while approval is pending', async () => {
     seedGroup('chat-new')
     addGroupAgent = () => ({ data: { status: 'pending_approval' }, error: null })
     const { ensureProjectNoticeAccess } = await import(SUT)
-    await expect(ensureProjectNoticeAccess(auth, 'caller', project)).rejects.toThrow('等待审批')
+    await expect(ensureProjectNoticeAccess(auth, 'caller', project)).rejects.toThrow('明确重新加入')
+    expect(rpcCalls.filter((call) => call.name === 'add_group_agent')).toHaveLength(0)
+  })
+  it('建项目的 agent(founding):项目群建项目时就有了、只有群主 ⇒ 它在这里入座,再发群通知', async () => {
+    seedGroup('chat-new')
+    const { ensureProjectNoticeAccess } = await import(SUT)
+    await ensureProjectNoticeAccess(auth, 'caller', project, { founding: true })
+    expect(rpcCalls.filter((call) => call.name === 'add_group_agent').map((call) => call.args.p_agent_user_id)).toEqual(['caller'])
+    expect(groups.get('chat-new')?.members.has('caller')).toBe(true)
+  })
+  it('founding 也不越过审批:群要审批 ⇒ 如实报错', async () => {
+    seedGroup('chat-new')
+    addGroupAgent = () => ({ data: { status: 'pending_approval' }, error: null })
+    const { ensureProjectNoticeAccess } = await import(SUT)
+    await expect(ensureProjectNoticeAccess(auth, 'caller', project, { founding: true })).rejects.toThrow('需审批')
   })
 })
 

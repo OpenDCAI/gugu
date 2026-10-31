@@ -3,11 +3,9 @@ import { describe, expect, it } from 'vitest'
 import {
   hasCustomWindowControls,
   hasWindowTitlebarRow,
-  TITLEBAR_ACTION_EDGE_GAP_PX,
+  rendererPlatformFor,
   TITLEBAR_ACTIONS_LANE_PX,
   titlebarActionsLane,
-  titlebarActionsReserve,
-  titlebarActionsRight,
   WINDOW_CONTROLS_WIDTH_PX,
   WINDOW_TITLEBAR_HEIGHT_PX,
   windowControlsWidth,
@@ -15,6 +13,15 @@ import {
 } from '../../../../apps/desktop/src/lib/window-chrome'
 
 describe('window-chrome 标题栏行(#6597)', () => {
+  it('desktop app is told apart by its preload bridge, not by an Electron token in the UA (#146 strips it)', () => {
+    const bridge = { minimize() {} }
+    for (const os of ['win', 'mac', 'linux'] as const) expect(rendererPlatformFor(os, bridge)).toBe(os)
+    // web build: same OS, no bridge
+    for (const os of ['win', 'mac', 'linux', 'other'] as const) expect(rendererPlatformFor(os, undefined)).toBe('other')
+    expect(rendererPlatformFor('other', bridge)).toBe('other')
+    expect(hasWindowTitlebarRow(rendererPlatformFor('win', bridge))).toBe(true)
+  })
+
   it('只有 Windows 有标题栏行;Windows 仍然自绘窗口按钮', () => {
     expect(hasWindowTitlebarRow('win')).toBe(true)
     expect(hasCustomWindowControls('win')).toBe(true)
@@ -29,10 +36,6 @@ describe('window-chrome 标题栏行(#6597)', () => {
     expect(windowControlsWidth('win')).toBe(0)
     expect(windowControlsWidth('linux')).toBe(WINDOW_CONTROLS_WIDTH_PX)
     expect(windowControlsWidth('mac')).toBe(0)
-    // 预留随之与 mac 同形:只剩边缘呼吸,不再多出 138px
-    expect(titlebarActionsRight('win')).toBe(TITLEBAR_ACTION_EDGE_GAP_PX)
-    expect(titlebarActionsReserve('win', 1)).toBe(titlebarActionsReserve('mac', 1))
-    expect(titlebarActionsReserve('linux', 1) - titlebarActionsReserve('mac', 1)).toBe(WINDOW_CONTROLS_WIDTH_PX)
   })
 
   it('转瞬层车道在有标题栏行的平台整体下移一行', () => {

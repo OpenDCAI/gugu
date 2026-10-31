@@ -157,6 +157,8 @@ export interface EmdashPtyChatStartupRequest {
   messageId: string;
   /** 用户真打的那句话(未裹信封)。 */
   text: string;
+  /** gugu-dev#181:派这件任务的那个对话 —— 首句落成那里的一张任务卡,而不是 agent 私聊里的一条消息。 */
+  taskChatId?: string;
 }
 
 /** Returns the route=chat envelope to hand the provider's startup slot. May throw (fail-loud). */

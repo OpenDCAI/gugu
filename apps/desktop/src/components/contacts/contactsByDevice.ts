@@ -1,4 +1,5 @@
 import type { Device } from '@gugu/core/shared/types/chat'
+import { machineKeyOf } from '@gugu/core/shared/deviceMachines'
 import type { ContactGroupChat, ContactUser } from '@gugu/core/shared/types/contacts'
 
 // #5019 通讯录按设备分段(product spec「通讯录按设备分段」):会话页会话的 agent 和群是「这台电脑上的
@@ -39,15 +40,16 @@ export interface ContactsDevicePartition {
   primaryKey: string
 }
 
+/** A folded device section still contains contacts; empty states use all partitions. */
+export function contactsAreEmpty(people: readonly ContactUser[], agents: readonly ContactUser[], groups: readonly ContactGroupChat[]): boolean {
+  return people.length === 0 && agents.length === 0 && groups.length === 0
+}
+
 export const CLOUD_DEVICE_PREFIX = 'cloud:'
 
 // #4277 段按**电脑**归并,不按设备行(三句模型「设备是电脑」)。设备 id 由(机器, 账号, tier)派生(#523),同一台
 // 电脑上正式版与测试版是两条设备行、两个 device_id;没有这一步归并,通讯录会把一台 Mac 显示成两段
 // (真机:「本机」+「apple-macbook-pro gugu」并列,owner 定为 bug)。machine_id 缺席的老行退回按 device_id。
-export function machineKeyOf(device: Device): string {
-  return device.machine_id || device.device_id
-}
-
 function sectionKeyFor(deviceId: string | null | undefined, devices: Device[]): { key: string; scope: ContactsDeviceScope; device: Device | null } {
   if (deviceId && deviceId.startsWith(CLOUD_DEVICE_PREFIX)) return { key: 'cloud', scope: 'cloud', device: null }
   const device = deviceId ? devices.find((d) => d.device_id === deviceId) ?? null : null

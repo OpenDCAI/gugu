@@ -1,4 +1,8 @@
-import { dissolveScreenGroup, isSessionGrouped, showSessionBeside, takeSessionOutOfGroup } from '@renderer/app/screen-layout-actions';
+import { platform } from '@/platform';
+import { messageForUser } from '@/lib/userFacingError';
+import { safeFailureLine } from '../sessions/gugu-reason';
+import { commandRegistry } from '@renderer/lib/commands/registry';
+import { dissolveScreenGroup, isScreenView, showSessionBeside, takeSessionOutOfGroup } from '@renderer/app/screen-layout-actions';
 import { AlertTriangle, Archive, Copy, LayoutGrid, Pencil, Pin, PinOff, Scissors, Sparkles, SquareMinus } from '@/lib/icons'
 import { GitFork } from 'lucide-react'
 import { installedExtensionsStore } from '@renderer/features/extensions/installed-extensions-store';
@@ -30,18 +34,21 @@ import { ContextMenuItem, ContextMenuSeparator } from '@renderer/lib/ui/context-
 import { hasStatusSource } from '@shared/core/sessions/initial-agent-status';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@renderer/lib/ui/tooltip';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
-import { clearDraggedSession, setDraggedSession } from '@renderer/lib/drag-session';
+import { clearDraggedScreenContent, setDraggedScreenContent } from '@renderer/lib/drag-screen-content';
 import { appState, sidebarStore } from '@renderer/lib/stores/app-state';
 import { sessionKeyboardNav } from './session-keyboard-nav';
 import { SessionRowShell } from './sidebar-session-row';
 import { useSessionDropTarget } from './use-session-drop-target';
-import { LocalHostBadge, ProjectBadge, RemoteHostBadge } from './remote-host-chip';
+import { ProjectBadge } from './remote-host-chip';
 import { machineRegistry } from '@renderer/lib/machine-routing';
 import { SidebarIdentityCard, sidebarIdentityCard, useSidebarIdentityCardTrigger } from './sidebar-identity-card';
 import { sessionAgentNames } from '@renderer/features/sessions/stores/session-agent-names';
 import { showModal } from '@renderer/lib/modal/modal-provider';
-import type { RemoteSidebarSession, SidebarJoin } from './sidebar-store';
-import { remoteAgentStatus } from './session-groups';
+import type { SidebarJoin } from '@/lib/sidebarJoinedGroups';
+import type { RemoteSidebarSession } from './sidebar-store';
+import { sessionPresentation, sessionReading } from '@/mobile/agent-watch/watch-status';
+import { taskStatusPresentation } from '@/lib/taskAgentStatus';
+import { useShownAgentStatus } from '@/components/chat/useAgentsOnCloudComputer';
 import { withMountedSession } from './with-mounted-session';
 import { useSessionSchedules } from '@renderer/features/automations/use-session-schedules';
 import type { SessionpageScheduleDigest } from '@gugu/session-core/session-record/contract';
@@ -91,6 +98,7 @@ export const SidebarSessionItem = observer(function SidebarSessionItem({
   const { params } = useParams('session');
   const { data: agents } = useAgents();
   const { translate } = useSessionMessages();
+  const shownStatus = useShownAgentStatus();
   const assistantName = useAssistantShell()?.assistant?.display_name ?? null;
   // 这一行是谁 —— 指针停在行上,右侧弹出身份卡(#6092;#7334 起只有任务名 / agent 名,点一行复制「标签：值」)。
   // 它取代了 #5818 那次「标题就地翻成 agent 名」。会话 ID 不在卡上,在下面右键菜单的「复制会话 ID」。
@@ -106,7 +114,7 @@ export const SidebarSessionItem = observer(function SidebarSessionItem({
 
   // 挂着的会话读它自己的 store;别的机器上还没挂的读会话目录那一行(列出不挂载,见 sidebar-store)。
   const session = sessionRegistry.get(sessionId)?.sessions.get(sessionId);
-  const listed = session ? null : sidebarStore.remoteSession(projectId, sessionId);
+  const listed = sidebarStore.remoteSession(projectId, sessionId);
   const machine = machineRegistry.machineOf(projectId);
   // 它给自己排的定时,一台机器一个来源:本机的问本机(automation:* 事件驱动);别的机器上的(挂没挂着都一样)读那台机器
   // 推来的会话目录里那一格 —— 与置顶、未读同一条腿,❌ 再为挂着的那几条各开一条跨网问答。
@@ -117,6 +125,12 @@ export const SidebarSessionItem = observer(function SidebarSessionItem({
       ? sessionScheduleDigest(localSchedules)
       : (listed ?? sidebarStore.remoteSession(projectId, sessionId))?.summary.schedule;
   const row = session ? rowOfStore(session, schedule) : rowOfListing(listed!);
+  const agentUserId = agentIdentity?.agentUserId ?? listed?.summary.agent?.userId;
+  const presentation = shownStatus.presentation(agentUserId, session
+    ? taskStatusPresentation(agentUserId
+      ? { kind: 'agent', agentUserId }
+      : { kind: 'task', reading: row.status ? { status: row.status, detail: row.detail } : null, unseen: !row.seen, online: true })
+    : sessionPresentation(listed!.summary, listed!.live, agentUserId));
   const sessionIsActive =
     currentView === 'session' && params.sessionId === sessionId && params.projectId === projectId;
   const sessionView = getSessionView(projectId, sessionId);
@@ -131,7 +145,7 @@ export const SidebarSessionItem = observer(function SidebarSessionItem({
   // #6206:没有状态源(终端腿 + 这一家 hooks 为 none)的会话,宿主不陈述任何一态 ⇒ 行上如实说「状态不可用」。
   // 只在 status 为 null 时出现:provider 阻塞等确定事实写出的状态照常优先。
   const statusUnavailable =
-    row.status === null &&
+    !agentUserId && row.status === null &&
     harness !== undefined &&
     !hasStatusSource({ runtime: row.runtime, hooksKind: harness.capabilities.hooks.kind });
   const title = formatSessionTitleForDisplay(providerId, row.title);
@@ -157,10 +171,10 @@ export const SidebarSessionItem = observer(function SidebarSessionItem({
     // behavior session-page「键盘导航」: the highlight is the cursor, so a click moves the cursor too —
     // pressing ↓ right after clicking must continue from the row you just clicked.
     sessionKeyboardNav.syncCursorFromPointer({ kind: 'conversation', projectId, sessionId });
-    // ⌘ 点 = 并排放在正看着那块的右边(spec session-page「一屏几块」);只在会话页上才有「正看着那块」。
-    if (beside && appState.navigation.currentViewId === 'session') {
-      showSessionBeside({ projectId, sessionId });
-      openSessionInSessionWhenReady({ projectId, sessionId });
+    // ⌘ 点 = 并排放在正看着那块的右边(spec session-page「一屏几块」);只在看这屏的视图上才有「正看着那块」。
+    if (beside && isScreenView(appState.navigation.currentViewId)) {
+      // The block is placed only once the task can open: one that never gets ready leaves nothing behind.
+      openSessionInSessionWhenReady({ projectId, sessionId, onReady: () => showSessionBeside({ projectId, sessionId }) });
       return;
     }
     navigate('session', { projectId, sessionId: sessionId });
@@ -179,7 +193,8 @@ export const SidebarSessionItem = observer(function SidebarSessionItem({
   const requestArchive = () => withMountedSession(projectId, sessionId, () => requestArchiveSession({ projectId, sessionId }));
 
   const isPinned = row.isPinned;
-  const grouped = isSessionGrouped(sessionId);
+  // 右键给不给「从这一组拿出来 / 拆开这一组」= 这一行在不在框里。
+  const grouped = join !== undefined;
   const setPinned = (pinned: boolean) => {
     withMountedSession(projectId, sessionId, (_session, manager) => void manager.setSessionPinned(sessionId, pinned));
   };
@@ -191,14 +206,14 @@ export const SidebarSessionItem = observer(function SidebarSessionItem({
     agents?.find((agent) => agent.id === providerId)?.capabilities.sessions.fork === 'supported';
 
   // #7334 会话 ID 平时不摆出来(身份卡只给名字),要的人从右键主动拿。复制**完整** ID:菜单里没有显示宽度
-  // 的顾虑,截断的 ID 拿去寻址什么也找不到。菜单点完就收,反馈只能是提示条;失败原因进日志,❌ 原文拼进提示条。
+  // 的顾虑,截断的 ID 拿去寻址什么也找不到。菜单点完就收,失败原因去敏后显示并记录。
   const copySessionId = async () => {
     try {
-      await navigator.clipboard.writeText(sessionId);
+      await platform.writeClipboardText(sessionId);
       toast({ title: translate('sidebar.sessionIdCopied') });
     } catch (error) {
-      log.warn({ error, sessionId }, 'sidebar copy session id failed');
-      toast({ title: translate('task.copyFailed'), variant: 'destructive' });
+      log.error({ error, sessionId }, 'sidebar copy session id failed');
+      toast({ title: translate('task.copyFailed'), description: safeFailureLine(String((error as Error)?.message ?? error)), variant: 'destructive' });
     }
   };
 
@@ -224,7 +239,7 @@ export const SidebarSessionItem = observer(function SidebarSessionItem({
           .catch((error: unknown) => {
             toast({
               title: translate('sidebar.forkFailed'),
-              description: error instanceof Error ? error.message : String(error),
+              description: messageForUser(error),
               variant: 'destructive',
             });
           });
@@ -254,31 +269,12 @@ export const SidebarSessionItem = observer(function SidebarSessionItem({
   );
 
   // @@@done-unread 「做完未读」= idle + 未 seen —— 表达方式见 sidebar-session-row。
-  const doneUnread = row.status === 'idle' && !row.seen;
+  const doneUnread = agentUserId ? presentation?.emphasis === true : row.status === 'idle' && !row.seen;
 
-  // 行首的机器标记:这一行与它上面那一行不在同一台机器上时才画。挂在父会话下的跟父会话比(owner 2026-10-01:
-  // 别的机器上的 agent 挂在本机会话下面要有标识;本机的挂在别的机器的会话下面标「本机」);置顶 / 任务区的根会话
-  // 没有项目行替它说,按本机比;项目下面的根会话不画,项目行已经说了。
-  const above =
-    parentProjectId !== undefined
-      ? machineRegistry.machineOf(parentProjectId)
-      : rowVariant === 'section'
-        ? null
-        : machine;
-  // 一行只标一样(owner 2026-10-08):机器跟上面那一行不同 ⇒ 只标机器,悬停里写它属于哪个项目;
-  // 机器相同、项目不同(挂在父会话下的 child,nest 不再限于同一个目录)⇒ 只标项目;都相同 ⇒ 不标。
+  // owner 10-28:会话列表里不标机器(机器只在悬停卡里写)。只剩一样:挂在父会话下、与父会话不在同一个项目行的 child 标它的项目。
   const projectLabel =
     parentProjectId !== undefined ? sidebarStore.nestedProjectLabel(projectId, parentProjectId) : null;
-  const badge =
-    machine !== above ? (
-      machine ? (
-        <RemoteHostBadge deviceId={machine} project={sidebarStore.projectLabel(projectId)} />
-      ) : (
-        <LocalHostBadge project={sidebarStore.projectLabel(projectId)} />
-      )
-    ) : projectLabel ? (
-      <ProjectBadge label={projectLabel} />
-    ) : null;
+  const badge = projectLabel ? <ProjectBadge label={projectLabel} /> : null;
 
   const badges = (
     <>
@@ -361,8 +357,7 @@ export const SidebarSessionItem = observer(function SidebarSessionItem({
       title={title}
       harness={harness ? { id: providerId, name: harness.name } : null}
       badges={badges}
-      status={row.status}
-      detail={row.detail}
+      presentation={presentation}
       statusUnavailable={statusUnavailable}
       lastInteractedAt={row.lastInteractedAt}
       schedule={row.schedule ?? null}
@@ -384,9 +379,9 @@ export const SidebarSessionItem = observer(function SidebarSessionItem({
           // 拖起来就不是在看这张卡了。
           identityCard.dismiss();
           // 带上项目:落在一块的边上时,分出来的那块要开这条会话的页(spec session-page「一屏几块」)。
-          setDraggedSession(e.dataTransfer, { sessionId, title, projectId }, e.currentTarget);
+          setDraggedScreenContent(e.dataTransfer, { kind: 'session', sessionId, title, projectId }, e.currentTarget);
         },
-        onDragEnd: clearDraggedSession,
+        onDragEnd: clearDraggedScreenContent,
         ...nestHere,
         onPointerEnter: identityCard.onPointerEnter,
         onPointerLeave: identityCard.onPointerLeave,
@@ -396,6 +391,7 @@ export const SidebarSessionItem = observer(function SidebarSessionItem({
       after={
         identityCardOpen ? (
           <SidebarIdentityCard
+            projectId={projectId}
             sessionId={sessionId}
             title={title}
             anchor={rowAnchor}
@@ -441,13 +437,7 @@ export const SidebarSessionItem = observer(function SidebarSessionItem({
         会话页 ⋯ 菜单里仍然可见可点,不是只剩快捷键。 */}
     <ContextMenuItem
       onClick={() => {
-        // Pass the row explicitly: the modal must rename the row under the pointer even when
-        // the main view and keyboard cursor are on another conversation.
-        sessionKeyboardNav.startRename({
-          kind: 'conversation',
-          projectId,
-          sessionId,
-        });
+        commandRegistry.dispatch('session.rename', { projectId, sessionId });
       }}
     >
       <Pencil className="size-4" />
@@ -520,9 +510,9 @@ function rowOfStore(session: SessionInRegistry, schedule: SessionpageScheduleDig
   };
 }
 
-/** 会话目录里的一行:不是此刻的读数(底稿 / 离线)时「在跑」不算数,与手机同一口径。 */
-function rowOfListing({ summary, live }: RemoteSidebarSession): SidebarRowData {
-  const reading = remoteAgentStatus(summary, live);
+/** Metadata plus identity-free task readings; identified agents use presence above. */
+function rowOfListing({ summary }: RemoteSidebarSession): SidebarRowData {
+  const reading = summary.agent?.userId ? null : sessionReading(summary);
   return {
     providerId: summary.harness,
     title: summary.title,

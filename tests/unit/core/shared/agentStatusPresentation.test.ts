@@ -46,7 +46,7 @@ describe('presentAgentStatus — the one table', () => {
   })
 
   it('reachability outranks the reading', () => {
-    for (const reachability of ['removed', 'offline', 'pending'] as const) {
+    for (const reachability of ['removed', 'archived', 'offline', 'pending'] as const) {
       expect(presentAgentStatus({ reading: r('working', 'running'), reachability })).toMatchObject({ tone: reachability, label: reachability, animate: false })
     }
   })
@@ -86,18 +86,19 @@ describe('chat folds the presentation into its coarse status', () => {
   })
 
   it('reachability: removed > device offline > owner intent', () => {
-    const base = { accountStatus: 'active' as const, desiredStatus: 'online' as const, runtimeStatus: 'online' as const, deviceOnline: true }
+    // 设备可达、没有活会话仍是在线(收到消息会被宿主恢复,#6168):在不在线只看设备行与 owner 意图。
+    const base = { accountStatus: 'active' as const, desiredStatus: 'online' as const, deviceOnline: true }
     expect(deriveAgentReachability(base)).toBe('online')
     expect(deriveAgentReachability({ ...base, accountStatus: 'removed' })).toBe('removed')
     expect(deriveAgentReachability({ ...base, deviceOnline: false })).toBe('offline')
     expect(deriveAgentReachability({ ...base, desiredStatus: 'offline' })).toBe('offline')
-    // 设备可达、没有活会话仍是在线(收到消息会被宿主恢复,#6168)。
-    expect(deriveAgentReachability({ ...base, runtimeStatus: 'offline' })).toBe('online')
+    expect(deriveAgentReachability({ ...base, sessionArchivedAt: '2026-10-28T09:00:00Z' })).toBe('archived')
+    expect(deriveAgentReachability({ ...base, deviceOnline: false, sessionArchivedAt: '2026-10-28T09:00:00Z' })).toBe('archived')
+    expect(agentStatusColorVar('archived')).toBe('var(--agent-tone-muted)')
   })
 
   it('an old host with no reading still says "running" through its projection, and nothing else', () => {
-    expect(readingOfPresenceProjection({ runtimeStatus: 'starting', activityStatus: 'idle' })).toEqual({ status: 'working', detail: 'running' })
-    expect(readingOfPresenceProjection({ runtimeStatus: 'online', activityStatus: 'running' })).toEqual({ status: 'working', detail: 'running' })
-    expect(readingOfPresenceProjection({ runtimeStatus: 'online', activityStatus: 'idle' })).toBeNull()
+    expect(readingOfPresenceProjection({ activityStatus: 'running' })).toEqual({ status: 'working', detail: 'running' })
+    expect(readingOfPresenceProjection({ activityStatus: 'idle' })).toBeNull()
   })
 })

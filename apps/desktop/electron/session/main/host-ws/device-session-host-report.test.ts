@@ -8,7 +8,7 @@ import { MIN_CLIENT_PROTOCOL, REMOTE_PROTOCOL_VERSION } from '@gugu/core/cloud/s
 import { DESKTOP_REPORT_REFRESH_MS, readDesktopReports, readVersionSwitchRequest, VERSION_SWITCH_FILE } from '@gugu/core/cloud/serverDesktopVersions';
 import type { DeviceRpcHandlerContext } from '@gugu/core/cloud/deviceRpcResponder';
 import { createSessionHostDeviceRpcHandlers } from './device-session-host';
-import type { FrameSessionHost } from './frame-host';
+import { FrameSessionHost } from './frame-host';
 
 const saved = { mode: process.env.GUGU_SERVER_MODE, data: process.env.GUGU_TASK_HOST_USER_DATA };
 afterEach(() => {
@@ -18,7 +18,7 @@ afterEach(() => {
   if (saved.data === undefined) delete process.env.GUGU_TASK_HOST_USER_DATA;
 });
 
-const ctx = { publishEvent: () => undefined } as unknown as DeviceRpcHandlerContext;
+const ctx = { publishEvent: () => undefined, request: { user_id: 'owner' } } as unknown as DeviceRpcHandlerContext;
 const host = { attach: vi.fn() } as unknown as FrameSessionHost;
 
 describe('taskhost.open 带来的桌面版本', () => {
@@ -122,6 +122,39 @@ describe('taskhost.open 带来的桌面版本', () => {
 });
 
 describe('taskhost.call(一问一答,不开窗口)', () => {
+  it('can read and edit the host books while window controls and unlisted app calls remain refused', async () => {
+    const frameHost = new FrameSessionHost();
+    const entry = { id: 'phone-trial', content: 'old' };
+    frameHost.ipcMain.handle('app.getUserLibrary', () => ({ capabilities: [entry] }));
+    frameHost.ipcMain.handle('app.getUserLibraryVolume', (_event, kind) => ({ volume: { kind }, items: [entry] }));
+    frameHost.ipcMain.handle('app.readUserLibraryEntry', (_event, kind, id) => ({ kind, id, content: entry.content }));
+    const assistantApp = vi.fn((_event, verb, args, expectedOwnerId) => ({ verb, args, expectedOwnerId }));
+    frameHost.ipcMain.handle('app.assistantAppCall', assistantApp);
+    frameHost.ipcMain.handle('app.writeUserLibraryEntry', (_event, input) => {
+      entry.content = (input as { content: string }).content;
+      return entry;
+    });
+    const forbidden = vi.fn();
+    for (const channel of ['app.closeWindow', 'app.getUserLibraryVolumeExtra', 'app.assistantAppCallExtra', 'browser.open']) frameHost.ipcMain.handle(channel, forbidden);
+    const { handlers } = createSessionHostDeviceRpcHandlers({ host: () => frameHost });
+    const call = (channel: string, args: unknown[] = []) => handlers['taskhost.call']!({ channel, args }, ctx);
+    expect(await call('app.getUserLibrary')).toMatchObject({ result: { value: { capabilities: [entry] } } });
+    expect(await call('app.getUserLibraryVolume', ['capabilities'])).toMatchObject({ result: { value: { volume: { kind: 'capabilities' } } } });
+    expect(await call('app.writeUserLibraryEntry', [{ kind: 'capabilities', id: entry.id, content: 'new' }])).toMatchObject({ result: { value: { content: 'new' } } });
+    expect(await call('app.readUserLibraryEntry', ['capabilities', entry.id])).toMatchObject({ result: { value: { content: 'new' } } });
+    expect(await call('app.assistantAppCall', ['callProgram', { name: 'assistant_work_list', arguments: {} }, 'owner']))
+      .toMatchObject({ result: { value: { verb: 'callProgram', args: { name: 'assistant_work_list', arguments: {} }, expectedOwnerId: 'owner' } } });
+    expect(assistantApp).toHaveBeenCalledOnce();
+    expect(await call('app.assistantAppCall', ['callProgram', { name: 'library_write', arguments: {} }, 'owner']))
+      .toMatchObject({ error: { message: expect.stringContaining('No handler registered') } });
+    expect(await handlers['taskhost.call']!({ channel: 'app.assistantAppCall', args: ['callProgram', { name: 'assistant_work_clear' }, 'owner'] },
+      { ...ctx, request: { ...ctx.request, user_id: 'other' } }))
+      .toMatchObject({ error: { message: expect.stringContaining('No handler registered') } });
+    expect(assistantApp).toHaveBeenCalledOnce();
+    for (const channel of ['app.closeWindow', 'app.getUserLibraryVolumeExtra', 'app.assistantAppCallExtra', 'browser.open']) expect(await call(channel)).toMatchObject({ error: { message: expect.stringContaining('No handler registered') } });
+    expect(forbidden).not.toHaveBeenCalled();
+  });
+
   it('runs the call through the host with the remote policy; a failure comes back as {code, message}; a bad payload is refused', async () => {
     const invokeOnce = vi.fn(async (channel: string, _args: unknown[], _policy?: (channel: string) => boolean) => {
       if (channel === 'boom.now') throw Object.assign(new Error('nope'), { code: 'session_not_found' });
@@ -129,7 +162,7 @@ describe('taskhost.call(一问一答,不开窗口)', () => {
     });
     const { handlers } = createSessionHostDeviceRpcHandlers({ host: () => ({ invokeOnce }) as unknown as FrameSessionHost });
     const call = handlers['taskhost.call']!;
-    expect(await call({ channel: 'sessionTimeline.sessionAfter', args: [{ conversationId: 'c1' }] }, ctx)).toEqual({ result: { value: { ok: true, value: 1 } } });
+    expect(await call({ channel: 'sessionTimeline.sessionAfter', args: [{ conversationId: 'c1' }] }, ctx)).toEqual({ result: { value: { ok: true, value: 1 }, protocol: REMOTE_PROTOCOL_VERSION } });
     expect(invokeOnce).toHaveBeenCalledWith('sessionTimeline.sessionAfter', [{ conversationId: 'c1' }], expect.any(Function));
     // the remote policy is the one windows get: the viewing computer's namespaces stay refused
     const policy = invokeOnce.mock.calls[0]![2]!;

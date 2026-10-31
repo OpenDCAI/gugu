@@ -377,8 +377,7 @@ export function declaresSessionTuiLeg(descriptor: {
  * 为什么八条一起建:它们不是八件事,是同一件事(咕咕的 harness 抽象只覆盖了接入、没覆盖共处)
  * 的八个切面。分期补,等于把「抽象不完备」分八次暴露 —— 那正是要解决的问题本身(#3889)。
  *
- * ⚠️ 声明的是**咕咕接没接通**,不是**厂商有没有**。厂商侧的事实是外部证据,归
- * gugu-base `notes/harness-capability-evidence/harness-capability-evidence.json`
+ * ⚠️ 声明的是**咕咕接没接通**,不是**厂商有没有**。厂商侧的事实是外部证据,不在本声明里
  * (来自 #3889 的 36 家官方调研)。对照这两者:
  * - 厂商有、咕咕 `none + unverified` = 待办(诚实)
  * - 厂商有、咕咕 `none + unsupported-channel` = **把「我们没接」说成「它做不到」**,违规
@@ -783,7 +782,8 @@ export interface SessionBundleDescriptor {
   acpConfigRoot?: AcpConfigRoot;
   surfaces: readonly HarnessSessionSurface[];
   sessionpage: Partial<Record<SessionpageSessionSurface, SessionpageSessionIntegration>>;
-  runtimeCompatibility?: Partial<Record<HarnessSessionSurface, SessionRuntimeCompatibility>>;
+  /** 数组中的条件都必须通过,例如同时要求 harness 与它的 Node 解释器版本。 */
+  runtimeCompatibility?: Partial<Record<HarnessSessionSurface, SessionRuntimeCompatibility | SessionRuntimeCompatibility[]>>;
   units: {
     mcp: SurfaceScopedUnitDelivery<
       | 'plugin-manifest'
@@ -1030,9 +1030,10 @@ export function requiredExactRuntimeCompatibility(
  * 上移下界，不必回头改这里的结构常量。❌ 不允许更低：那等于插件单方面放宽核心的已知下界。
  */
 export function matchesRuntimeCompatibility(
-  declared: SessionRuntimeCompatibility,
+  declared: SessionRuntimeCompatibility | SessionRuntimeCompatibility[],
   required: SessionRuntimeCompatibility,
 ): boolean {
+  if (Array.isArray(declared)) return declared.some((entry) => matchesRuntimeCompatibility(entry, required));
   if (declared.kind !== required.kind) return false;
   if (declared.runtime !== required.runtime) return false;
   if (declared.versionArgs.length !== required.versionArgs.length
@@ -1183,8 +1184,8 @@ export interface SessionModelCapability {
   platformSettingsEnv?: Readonly<Record<string, string>>
   /**
    * The issue response's `callable_routes` (#6921): gateway route, verbatim → the models this session
-   * token may call there. Only for a harness deciding whether to turn on one of its own built-in tools
-   * (codex image generation); never a picker input. Absent = an older server = none.
+   * token may call there. Gates tool availability (Codex image generation/standalone search and
+   * host-provided search); never a picker input. Absent = an older server = none.
    */
   platformCallableRoutes?: PlatformCallableRoutes
 }
@@ -1348,6 +1349,13 @@ export interface SessionCapabilityBundle {
   mcpDisabled?: readonly string[];
   /** #6387 Skills installed extensions bring to this session. */
   extensionSkills?: readonly ExtensionSkill[];
+  /**
+   * #7199 The Browser Use App is installed, on and allowed to give agents tools on this machine: the session's browser is
+   * its `browser_*` tools. Set by the host when the session opens; absent = no Gugu browser in this session.
+   */
+  browserUse?: true;
+  /** The host disables harness-owned browser plugins even when its Browser Use App is unavailable. */
+  disableNativeBrowser?: true;
   env: Readonly<Record<string, string | undefined>>;
   model: SessionModelCapability | null;
   autonomy: SessionAutonomyCapability | null;
@@ -1886,9 +1894,9 @@ const sessionBundleDescriptorSchema: z.ZodType<SessionBundleDescriptor> = z.obje
     'tui': sessionpageSessionIntegrationSchema.optional(),
   }),
   runtimeCompatibility: z.object({
-    'acp': sessionRuntimeCompatibilitySchema.optional(),
-    'tui': sessionRuntimeCompatibilitySchema.optional(),
-    'app-server': sessionRuntimeCompatibilitySchema.optional(),
+    'acp': z.union([sessionRuntimeCompatibilitySchema, z.array(sessionRuntimeCompatibilitySchema).min(1)]).optional(),
+    'tui': z.union([sessionRuntimeCompatibilitySchema, z.array(sessionRuntimeCompatibilitySchema).min(1)]).optional(),
+    'app-server': z.union([sessionRuntimeCompatibilitySchema, z.array(sessionRuntimeCompatibilitySchema).min(1)]).optional(),
   }).strict().optional(),
   units: z.object({
     mcp: surfaceScopedDeliverySchema([

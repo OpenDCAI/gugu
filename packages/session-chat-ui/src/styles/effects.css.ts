@@ -8,14 +8,18 @@
  * The keyframe names are scoped by VE so they never collide in the host app.
  */
 
-import { keyframes, style } from '@vanilla-extract/css';
+import { globalStyle, keyframes, style } from '@vanilla-extract/css';
 import { vars } from './theme.css';
 
 // ── Keyframes ─────────────────────────────────────────────────────────────────
 
-const shimmerMove = keyframes({
-  from: { backgroundPosition: '200% 0' },
-  to: { backgroundPosition: '-200% 0' },
+const shimmerSweep = keyframes({
+  from: { transform: 'translateX(0)' },
+  to: { transform: 'translateX(var(--text-shimmer-sweep-end, 50%))' },
+});
+const shimmerInk = keyframes({
+  from: { transform: 'translateX(0)' },
+  to: { transform: 'translateX(var(--text-shimmer-ink-end, -200%))' },
 });
 
 const planSpin = keyframes({
@@ -57,41 +61,83 @@ export const artifactSurface = {
  * 在动的是这一轮的时间头（turn-process 行，同样经 CollapseHeader 微光）。
  */
 export const textShimmer = style({
-  background: `linear-gradient(
-    90deg,
-    ${vars.fgPassive} 0%,
-    ${vars.fgPassive} 30%,
-    ${vars.fgMuted} 50%,
-    ${vars.fgPassive} 70%,
-    ${vars.fgPassive} 100%
-  )`,
-  backgroundSize: '200% 100%',
-  backgroundClip: 'text',
-  WebkitBackgroundClip: 'text',
+  position: 'relative',
   color: 'transparent',
   WebkitTextFillColor: 'transparent',
-  animation: `${shimmerMove} 3s linear infinite`,
-  /**
-   * ⚠️ 这里必须把**渐变本身**也撤掉，不能只写 `animation: none`。
-   * 文字的颜色是 `transparent` + `background-clip: text` 画出来的：动画停下后
-   * `background-position` 落在 `0% 0%`，于是每个标签都冻结成一道固定的亮暗渐变 ——
-   * 静止的花纹比动着的 shimmer 更奇怪，而且每个标签的花纹还随自己的宽度不同。
-   * ⇒ 退回 `fgPassive` 平色，正好是这些行不在跑时本来的颜色。
-   *
-   * 本仓其它动效（`create-height-tween` / `tween-registry` / `ChatRoot:404`）都读这条
-   * media query，只有这个记号漏了；#3334 把三处「agent 在动」合成一件时一并补上。
-   */
-  '@media': {
-    '(prefers-reduced-motion: reduce)': {
-      animation: 'none',
-      background: 'none',
-      backgroundClip: 'border-box',
-      WebkitBackgroundClip: 'border-box',
-      color: vars.fgPassive,
-      WebkitTextFillColor: vars.fgPassive,
-    },
+  vars: { '--chat-shimmer-viewport-paused': 'paused' },
+  selectors: {
+    '&[data-shimmer-visible="true"]': { vars: { '--chat-shimmer-viewport-paused': 'initial' } },
   },
+  '@media': { '(prefers-reduced-motion: reduce)': { color: vars.fgPassive, WebkitTextFillColor: vars.fgPassive } },
 });
+
+export const textShimmerClip = style({
+  position: 'absolute',
+  inset: 0,
+  overflow: 'hidden',
+  pointerEvents: 'none',
+  isolation: 'isolate',
+  contain: 'paint',
+  animationDelay: 'inherit',
+  // Reduced motion keeps the same flat passive text as before, with no frozen band.
+  '@media': { '(prefers-reduced-motion: reduce)': { display: 'none' } },
+});
+
+// Each sweep moves one repeat in one second at 20 steps. It then finishes;
+// ShimmerText waits one second before rewinding the same animations.
+// Opposite glyph transforms keep text still.
+// Complementary masks plus additive blending preserve glyph alpha, so the
+// moving light does not double the antialiased edges or make the text bolder.
+const sweep = {
+  position: 'absolute',
+  top: 0,
+  bottom: 0,
+  left: 'var(--text-shimmer-left, -200%)',
+  width: 'var(--text-shimmer-width, 400%)',
+  maskSize: 'var(--text-shimmer-mask-size, 50% 100%)',
+  transform: 'translateX(var(--text-shimmer-idle-sweep, 0%))',
+  maskRepeat: 'repeat',
+  animation: `${shimmerSweep} var(--text-shimmer-duration, 1s) var(--text-shimmer-easing, steps(20, end)) var(--text-shimmer-iterations, 1) forwards`,
+  animationDelay: 'inherit',
+} as const;
+
+export const textShimmerBaseSweep = style({
+  ...sweep,
+  maskImage: 'var(--text-shimmer-base-mask, linear-gradient(90deg, white 30%, transparent 50%, white 70%))',
+});
+
+export const textShimmerSweep = style({
+  ...sweep,
+  maskImage: 'var(--text-shimmer-light-mask, linear-gradient(90deg, transparent 30%, white 50%, transparent 70%))',
+  mixBlendMode: 'plus-lighter',
+});
+
+export const textShimmerInk = style({
+  display: 'block',
+  width: 'var(--text-shimmer-ink-width, 25%)',
+  marginLeft: 'var(--text-shimmer-ink-left, 50%)',
+  transform: 'translateX(var(--text-shimmer-idle-ink, 0%))',
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  whiteSpace: 'nowrap',
+  color: `var(--text-shimmer-base, ${vars.fgPassive})`,
+  WebkitTextFillColor: `var(--text-shimmer-base, ${vars.fgPassive})`,
+  animation: `${shimmerInk} var(--text-shimmer-duration, 1s) var(--text-shimmer-easing, steps(20, end)) var(--text-shimmer-iterations, 1) forwards`,
+  animationDelay: 'inherit',
+  '::before': { content: 'attr(data-shimmer-text)' },
+});
+
+export const textShimmerLightInk = style({
+  color: `var(--text-shimmer-light, ${vars.fgMuted})`,
+  WebkitTextFillColor: `var(--text-shimmer-light, ${vars.fgMuted})`,
+});
+
+/** Shared with the host message viewport; paint only, never intercept selection or scrolling. */
+export const viewportTopFade = {
+  height: 16,
+  pointerEvents: 'none',
+  background: 'linear-gradient(to bottom, var(--chat-bg), transparent)',
+} as const;
 
 // ── fade-overlay-top ──────────────────────────────────────────────────────────
 
@@ -127,3 +173,7 @@ export const planSpinner = style({
     },
   },
 });
+
+/** Multiline labels use the same measured line breaks in the composited glyph texture. */
+export const textShimmerMultiline = style({});
+globalStyle(`${textShimmerMultiline} ${textShimmerInk}`, { whiteSpace: 'inherit', overflowWrap: 'inherit', textOverflow: 'clip' });

@@ -40,6 +40,12 @@ describe('device cloud helpers', () => {
     })
   })
 
+  it('keeps a reported tier for configuration details and does not invent one for old rows', () => {
+    const row = { device_id: 'mac-beta', label: 'Mac', hostname: 'mac', platform: 'darwin', status: 'online', last_seen_at: '2026-10-27T00:00:00Z' }
+    expect(normalizeDeviceRow({ ...row, tier: 'beta' }).tier).toBe('beta')
+    expect(normalizeDeviceRow(row)).not.toHaveProperty('tier')
+  })
+
   // @@@5912 在线只看 status。一行 status='online' 而 last_seen_at 很旧,改前会被算成**离线**
   // (客户端自己拿时间戳推),改后就是在线:租约过期与否由库的清扫者判。这一格红过。
   it.each([
@@ -100,10 +106,36 @@ describe('device cloud helpers', () => {
     ).toBeUndefined()
   })
 
+  it('keeps action summaries usable without fabricating full action documentation', () => {
+    const action = {
+      name: 'files.read', group: 'files', title: 'Read file', available: false,
+      risk: 'low', confirm: 'never', unavailable_reason: 'not_granted', unavailable_detail: 'Enable files',
+    }
+    const actions = {
+      v: 1, timezone: 'Asia/Shanghai', actions: [action],
+      switched_off: [{ group: 'computer', detail: 'Enable the computer app' }],
+    }
+    const device = normalizeDeviceRow({
+      device_id: 'device-1', label: 'Mac', hostname: 'fixture', platform: 'darwin', status: 'online',
+      last_seen_at: '2026-10-24T00:00:00Z',
+      capabilities: { terminals: ['terminal'], runtimes: ['codex'], actions },
+    })
+    expect(device.capabilities.actions).toEqual(actions)
+    expect(device.capabilities.actions?.actions[0]).not.toHaveProperty('description')
+    expect(device.capabilities.actions?.actions[0]).not.toHaveProperty('input_schema')
+  })
+
   it('fails loudly on invalid device rows', () => {
     expect(() => normalizeDeviceRow({ device_id: 'device-1', status: 'weird' })).toThrow(
       'Invalid device status: weird'
     )
+  })
+
+  it('surfaces a missing computed field instead of retrying the full manifest query', async () => {
+    const client = {
+      from: () => ({ select: () => ({ eq: () => ({ order: async () => ({ data: null, error: { message: 'device_list_capabilities is not installed' } }) }) }) }),
+    } as unknown as Parameters<typeof listDevices>[0]
+    await expect(listDevices(client, 'owner-1')).rejects.toThrow('device_list_capabilities is not installed')
   })
 
   // @@@1962 列表必须按 owner 显式过滤(user_id = ownerId)——多账号同机时不混入他人 online 设备行。
@@ -114,13 +146,14 @@ describe('device cloud helpers', () => {
         expect(table).toBe('gugu_devices')
         return {
           select(columns: string) {
-            expect(columns).toBe('device_id, label, hostname, platform, status, last_seen_at, capabilities, machine_id, session_digest')
+            expect(columns).toBe('device_id, label, hostname, platform, status, last_seen_at, created_at, capabilities:device_list_capabilities, machine_id, tier, session_digest')
             return {
               eq(column: string, value: string) {
                 expect(column).toBe('user_id')       // 必须按 owner 过滤,绝不全表列举
                 expect(value).toBe('owner-1')
                 eqCalled = true
                 return {
+                  in() { throw new Error('a full list names no devices') },
                   async order(column: string, options: { ascending: boolean }) {
                     expect(column).toBe('last_seen_at')
                     expect(options).toEqual({ ascending: false })
@@ -155,6 +188,18 @@ describe('device cloud helpers', () => {
       capabilities: { terminals: ['kitty'], runtimes: ['codex'] },
     }])
     expect(eqCalled).toBe(true)
+  })
+
+  it('reads only the named rows of the owner when a revision names them', async () => {
+    const asked: unknown[] = []
+    const row = { device_id: 'device-2', label: 'B', hostname: 'b', platform: 'linux', status: 'online', last_seen_at: '2026-10-27T00:00:00.000Z', capabilities: { terminals: [], runtimes: [] } }
+    const order = async () => ({ data: [row], error: null })
+    const client = { from: () => ({ select: () => ({ eq: (column: string, value: string) => {
+      asked.push([column, value])
+      return { in: (inColumn: string, ids: readonly string[]) => { asked.push([inColumn, ids]); return { order } }, order: () => { throw new Error('must not read every row') } }
+    } }) }) }
+    await expect(listDevices(client, 'owner-1', { deviceIds: ['device-2'] })).resolves.toMatchObject([{ device_id: 'device-2' }])
+    expect(asked).toEqual([['user_id', 'owner-1'], ['device_id', ['device-2']]])
   })
 
   // @@@1962 无 owner 作用域拒绝列举(fail-loud)——绝不退回全表/他人设备。

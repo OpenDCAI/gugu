@@ -1,15 +1,8 @@
 /** #6264 「这个 agent 在哪台机器上」各面同一个判据、同一个叫法。 */
-import { describe, expect, it, vi } from 'vitest'
-
-vi.mock('@/i18n', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/i18n')>()
-  const words: Record<string, string> = { 'chatArea.agentLocation.local': '本机', 'chatArea.agentLocation.cloud': '咕咕云' }
-  return { ...actual, i18n: { ...actual.i18n, t: (key: string) => words[key] ?? key } }
-})
+import { describe, expect, it } from 'vitest'
 
 import type { Device } from '@gugu/core/shared/types/chat'
 import { agentLocationText, resolveAgentLocation } from '../../../../apps/desktop/src/lib/agentRunningStatusModels'
-import { agentDeviceTag } from '../../../../apps/desktop/src/lib/chatRowTag'
 
 const row = (over: Partial<Device>): Device => ({
   device_id: 'x', label: 'x', hostname: 'x', platform: 'linux', status: 'online', last_seen_at: '', capabilities: null,
@@ -30,11 +23,5 @@ describe('agent 所在机器', () => {
     expect(agentLocationText(resolveAgentLocation('linux2', devices), words)).toBe('Linux 2')
     expect(agentLocationText(resolveAgentLocation('cloud:u', devices), words)).toBe('咕咕云')
     expect(agentLocationText(resolveAgentLocation('gone', devices), words)).toBeNull()
-  })
-
-  it('会话列表标签与聊天标题栏说同一个词', () => {
-    for (const id of ['mbp', 'mbp-beta', 'linux2', 'cloud:u']) {
-      expect(agentDeviceTag(id, devices)).toBe(agentLocationText(resolveAgentLocation(id, devices), words))
-    }
   })
 })

@@ -77,9 +77,8 @@ export const text = style({
 });
 
 const oneLine = {
-  overflow: 'hidden',
-  textOverflow: 'ellipsis',
-  whiteSpace: 'nowrap',
+  whiteSpace: 'pre-wrap',
+  overflowWrap: 'normal',
 } as const;
 
 // #7333 文字两行(名字 14/20 + 说明 12/18 = 38)落在 72 的行里;名字是紧凑界面档,说明是标注档。
@@ -104,9 +103,10 @@ export const detail = style({
  * 主干可缩、带省略号;后缀不缩。
  */
 export const nameRow = style({
-  display: 'flex',
+  display: 'block',
   minWidth: 0,
-  overflow: 'hidden',
+  whiteSpace: 'pre-wrap',
+  overflowWrap: 'normal',
   fontSize: vars.typeChromeFontSize,
   lineHeight: '20px',
   fontWeight: 500,

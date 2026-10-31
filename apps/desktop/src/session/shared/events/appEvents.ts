@@ -1,7 +1,10 @@
+import type { GuguLinkTarget } from '@gugu/core/shared/ui/guguLink';
 import type { AgentInstallProgress } from '@gugu/session-core/workspace-server';
+import type { SessionPaneTab, SessionPaneTabsResult } from '@gugu/session-core/session-record/contract';
 import type { AgentInstallationStatus } from '@shared/core/agents/agent-payload';
 import { defineEvent } from '@shared/lib/ipc/events';
-import type { ShortcutSettingsKey, TabNavigationDirection } from '@shared/shortcuts';
+import type { CommandId } from '@shared/commands';
+import type { TabNavigationDirection } from '@shared/shortcuts';
 
 // App editing actions (renderer → main, no payload)
 export const appUndoChannel = defineEvent<void>('app:undo');
@@ -39,12 +42,16 @@ export const tabNavigationShortcutChannel = defineEvent<{
 
 export const browserAppShortcutChannel = defineEvent<{
   source: { kind: 'browser'; browserId: string };
-  shortcutKey: ShortcutSettingsKey;
+  commandId: CommandId;
 }>('browser:app-shortcut');
 
 export const notificationFocusSessionChannel = defineEvent<{
   projectId: string;
   sessionId: string;
+  /** On the screen view: beside what is there, the layout kept (a task card's click). */
+  beside?: true;
+  /** Receipt for one group participant click; ordinary task opens never carry it. */
+  groupParticipantRequestId?: string;
 }>('notification:focus-session');
 
 /** Host-validated request to open a file without navigating away from the user's current surface. */
@@ -75,6 +82,7 @@ export const sessionOpenFileInPaneResultChannel = defineEvent<{
   error?: string;
   openedWith?: string | null;
   browserId?: string;
+  tabs?: SessionPaneTab[];
 }>('session:open-file-in-pane-result');
 
 /** Host-validated request to open an HTTP(S) URL in the caller task's browser pane. */
@@ -83,6 +91,7 @@ export const sessionOpenBrowserInPaneChannel = defineEvent<{
   projectId: string;
   sessionId: string;
   url: string;
+  linkTarget?: GuguLinkTarget;
   intent: 'preview' | 'pinned';
   /** Browser Use resolves a persisted tab before restoring its page; ordinary open_in_tab still opens a URL. */
   acquire?: { browserId?: string; createIfMissing: boolean; deadline: number };
@@ -94,10 +103,21 @@ export const sessionOpenBrowserInPaneResultChannel = defineEvent<{
   success: boolean;
   error?: string;
   browserId?: string;
+  /** Browser Use 这一次新开了页签(会话原来一个浏览器页签都没有):宿主据此把它记成这条会话的产出。 */
+  created?: boolean;
+  tabs?: SessionPaneTab[];
 }>('session:open-browser-in-pane-result');
 
 /** Cancel a Browser Use acquisition that timed out or whose caller ended before the pane replied. */
 export const sessionCancelBrowserAcquireChannel = defineEvent<{ requestId: string }>('session:cancel-browser-acquire');
+
+export const sessionManageTabsChannel = defineEvent<{
+  requestId: string; projectId: string; sessionId: string; tabId?: string;
+}>('session:manage-tabs');
+
+export const sessionManageTabsResultChannel = defineEvent<SessionPaneTabsResult & {
+  requestId: string; success: boolean; error?: string;
+}>('session:manage-tabs-result');
 
 /**
  * #6264 预览要别的机器上的一块字节(`gugu-preview://` 的远端登记,见 preview-protocol.ts):
@@ -147,6 +167,7 @@ export const sessionOpenExtensionInPaneChannel = defineEvent<{
 
 /** Renderer acknowledgement for a host-requested extension tab. */
 export const sessionOpenExtensionInPaneResultChannel = defineEvent<{
+  tabs?: SessionPaneTab[];
   requestId: string;
   success: boolean;
   error?: string;

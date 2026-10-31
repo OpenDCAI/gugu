@@ -4,7 +4,7 @@
 // `next-tool-call` 才合)。它从前拿 `liveSessionIdByAgent`(产品 conversation)直接去问
 // `sessionProviderSurface`,而 codex 的 `sessionProviderSurface` 按 threadId 键 —— 恒为 null。注入口走的是
 // conversation → `deliveryKeyForSession`(codex 报 threadId)→ `sessionProviderSurface`,那条路一直是对的。
-// 产品面实测(gugu-base evidence/2026-10-05-6927-codex-delivery-timing):codex 一批 rows 3 / units 3,
+// 产品面实测(2026-10-05):codex 一批 rows 3 / units 3,
 // claude rows 3 / units 1。
 //
 // 可证伪:把 `deliveryTimingForAgent` 改回「拿 liveSessionIdByAgent 去查」,第一条转红(null)。

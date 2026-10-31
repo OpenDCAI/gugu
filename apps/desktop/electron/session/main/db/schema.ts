@@ -21,6 +21,32 @@ import type { TerminalShellId } from '@shared/core/terminals/terminal-settings';
 import { workspaceConfig } from '@shared/core/workspaces/workspace-config';
 import { workspaceProviderData } from '@shared/core/workspaces/workspace-provider-data';
 
+export const activityEvents = sqliteTable('activity_events', {
+  seq: integer('seq').primaryKey({ autoIncrement: true }),
+  eventId: text('event_id').notNull().unique(),
+  occurredAt: integer('occurred_at'),
+  observedAt: integer('observed_at').notNull(),
+  kind: text('kind').notNull(),
+  sessionId: text('session_id'),
+  projectId: text('project_id'),
+  data: text('data').notNull(),
+}, table => ({ time: index('activity_events_time').on(table.occurredAt, table.seq),
+  session: index('activity_events_session').on(table.sessionId, table.seq),
+  project: index('activity_events_project').on(table.projectId, table.seq) }));
+
+export const activityCoverage = sqliteTable('activity_coverage', {
+  id: text('id').primaryKey(),
+  startedAt: integer('started_at').notNull(),
+  lastSeenAt: integer('last_seen_at').notNull(),
+  endedAt: integer('ended_at'),
+});
+
+/** Written by a trigger on `sessions` (migration 0038); the activity journal reads it to place events in projects. */
+export const activitySessionProjects = sqliteTable('activity_session_projects', {
+  sessionId: text('session_id').primaryKey(),
+  projectId: text('project_id').notNull(),
+});
+
 /**
  * SSH 远程已下架(#6264):表与引用它的列只为保留旧行而留在库里,产品代码不再读写。
  */
@@ -69,6 +95,8 @@ export const projects = sqliteTable(
     repositoryWorkspaceId: text('repository_workspace_id'),
     /** The root workspace remains available to historical sessions after its folder is detached. */
     rootFolderDetached: integer('root_folder_detached', { mode: 'boolean' }).notNull().default(false),
+    /** #609: 'project' = the person created or opened it; 'workspace' = a directory the app keeps for its own needs. */
+    kind: text('kind').$type<'project' | 'workspace'>().notNull().default('project'),
     createdAt: text('created_at')
       .notNull()
       .default(sql`CURRENT_TIMESTAMP`),
@@ -298,7 +326,8 @@ export const automations = sqliteTable(
     deletedAt: integer('deleted_at'),
     /**
      * #7221 非空 = agent 给自己排的:到点把 prompt 送回这条会话,不新开会话。
-     * ❌ 外键:会话删了这一格也得留着,到点才说得出「建它的 agent 已不在」。
+     * No FK cascade: true deletion uses the automation service's run cleanup/barrier; list load repairs older orphans.
+     * Archiving retains this identity and its schedule so Restore can show it again.
      */
     agentSessionId: text('agent_session_id'),
   },

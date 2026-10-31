@@ -26,7 +26,7 @@ import { rendererLogger } from './log'
 const log = rendererLogger('cloud-computer')
 
 export type CloudComputerStoreState = {
-  /** 拿得到管家地址、且那扇门没说「这里没开放」(503 not_open):false ⇒ 这个功能不显示。 */
+  /** 拿得到管家地址、且那扇门没说「环境未配置可选云电脑服务」(503 not_open):false ⇒ 这个功能不显示。 */
   available: boolean
   /** 还没问到 = null。 */
   snapshot: CloudComputerSnapshot | null
@@ -53,6 +53,8 @@ let issued = 0
 let applied = 0
 /** 换账号时停掉在途的叫醒(❌ 拿新账号的 /state 接着等旧账号的那台)。 */
 let wakeAbort = new AbortController()
+type ConnectionWake = { promise: Promise<void>; abort: AbortController; users: number; settled: boolean }
+const connectionWakes = new Map<string, ConnectionWake>()
 
 /** 管家说出错时那句原因只进日志(界面说「云电脑那边出了问题」);同一句只记一次。 */
 let loggedSnapshotError: string | null = null
@@ -81,6 +83,7 @@ export function resetCloudComputerState(): void {
   generation += 1
   wakeAbort.abort()
   wakeAbort = new AbortController()
+  connectionWakes.clear()
   set({ available: rendererCloudComputerClient() !== null, snapshot: null, loadError: null, wakeRefused: null })
 }
 
@@ -101,7 +104,7 @@ function requireClient() {
   return client
 }
 
-/** 问一次管家。没配地址 / 这里没开放 = null;问不到就记下原因再抛(调用方决定要不要说给人听)。 */
+/** 问一次管家。没配地址 / 环境未配置可选云电脑服务 = null;问不到就记下原因再抛(调用方决定要不要说给人听)。 */
 export async function refreshCloudComputer(): Promise<CloudComputerSnapshot | null> {
   const client = rendererCloudComputerClient()
   if (!client) {
@@ -118,16 +121,16 @@ export async function refreshCloudComputer(): Promise<CloudComputerSnapshot | nu
     }
     return snapshot
   } catch (error) {
-    // 门说「这里没开放」:整块不显示(❌ 给所有人报「读不到云电脑的状态」);配上以后登录、切回窗口时问到就出现。
+    // 门说「环境未配置可选云电脑服务」:整块不显示(❌ 给所有人报「读不到云电脑的状态」);配上以后登录、切回窗口时问到就出现。
     if (isCloudComputerNotOpen(error)) {
       if (asked === generation && mine > applied) {
         applied = mine
         set({ available: false, snapshot: null, loadError: null })
       }
-      log.info({ code: 'not_open' }, 'cloud computer is not open on this backend')
+      log.info({ code: 'not_open' }, 'cloud computer manager is not configured on this backend')
       return null
     }
-    // 别的没问到(管家连不上、云端函数没部署……)照旧说「读不到」—— 之前门说过「没开放」也一样:门配上了才会回别的。
+    // 别的没问到(管家连不上、云端函数没部署……)照旧说「读不到」—— 之前门说过「未配置」也一样:门配上了才会回别的。
     if (asked === generation) set({ available: true, loadError: cloudComputerFailureKind(error) })
     log.warn({ err: String((error as Error)?.message ?? error) }, 'cloud computer state failed')
     throw error
@@ -227,21 +230,53 @@ export function cloudComputerPollMs(snapshot: CloudComputerSnapshot | null, devi
  * 在它上面开会话 / 打开它上面的会话这类要一条活连接的动作之前:叫醒它,等到它真的在线(每问到一次 /state 都更新界面)。
  * 原因见 CloudComputerWakeError;不是这个账号的云电脑也当失败说(调用方只对云电脑那一行调它)。
  */
-export async function wakeAndWaitOnline(deviceId: string, deps: { isOnline: (deviceId: string) => Promise<boolean> }): Promise<void> {
-  const asked = generation
-  const outcome = await wakeCloudComputerUntilOnline({
-    client: requireClient(),
-    deviceId,
-    isOnline: deps.isOnline,
-    onSnapshot: (snapshot) => {
-      if (asked !== generation) return
-      // 刚问到的这一次就是最新的:比它早发出、还在路上的那些不再认。
-      applied = ++issued
-      set({ available: true, snapshot, loadError: null })
-    },
-    signal: wakeAbort.signal,
-  }).catch(noteWakeFailure)
-  if (outcome === 'not-cloud') throw new CloudComputerWakeError('failed', `device ${deviceId} is not this account's cloud computer`)
+export function wakeAndWaitOnline(deviceId: string, deps: { isOnline: (deviceId: string) => Promise<boolean>; signal?: AbortSignal }): Promise<void> {
+  deps.signal?.throwIfAborted()
+  let entry = connectionWakes.get(deviceId)
+  if (!entry) {
+    const asked = generation
+    const abort = new AbortController()
+    const signal = AbortSignal.any([wakeAbort.signal, abort.signal])
+    // Explicit operations own resume; background pipe retries stay read-only.
+    const pending = wakeCloudComputerUntilOnline({
+      client: requireClient(), deviceId, isOnline: deps.isOnline, signal,
+      onSnapshot: snapshot => {
+        if (asked !== generation || signal.aborted) return
+        applied = ++issued
+        set({ available: true, snapshot, loadError: null })
+      },
+    }).catch(error => { if (signal.aborted) throw error; return noteWakeFailure(error) }).then(outcome => {
+      if (outcome === 'not-cloud') throw new CloudComputerWakeError('failed', `device ${deviceId} is not this account's cloud computer`)
+    }).finally(() => {
+      created.settled = true
+      if (connectionWakes.get(deviceId) === created) connectionWakes.delete(deviceId)
+    })
+    const created: ConnectionWake = { promise: pending, abort, users: 0, settled: false }
+    entry = created
+    connectionWakes.set(deviceId, entry)
+  }
+  entry.users++
+  if (!deps.signal) return entry.promise
+  const shared = entry
+  return new Promise<void>((resolve, reject) => {
+    let finished = false
+    const finish = (action: () => void) => {
+      if (finished) return
+      finished = true
+      deps.signal!.removeEventListener('abort', onAbort)
+      shared.users--
+      if (!shared.users && !shared.settled) {
+        shared.abort.abort()
+        if (connectionWakes.get(deviceId) === shared) connectionWakes.delete(deviceId)
+      }
+      action()
+    }
+    const onAbort = () => finish(() => reject(deps.signal!.reason))
+    // Cancelling one consumer leaves another explicit operation's wake alive.
+    deps.signal!.addEventListener('abort', onAbort, { once: true })
+    shared.promise.then(() => finish(resolve), error => finish(() => reject(error)))
+    if (deps.signal!.aborted) onAbort()
+  })
 }
 
 /** 这一行是不是要先叫醒的云电脑(睡着 / 正在醒)。 */

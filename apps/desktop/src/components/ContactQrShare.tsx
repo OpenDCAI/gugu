@@ -1,8 +1,10 @@
+import { messageForUser } from '@/lib/userFacingError';
 import { useEffect, useMemo, useState } from 'react'
 import QRCode from 'qrcode'
 import { createContactQrPayload, createGuguQrScanUrl } from '@gugu/core/shared/qrPayload'
 import { GUGU_ANDROID_DOWNLOAD_URL } from '../lib/appLinks'
 import { useTranslation } from 'react-i18next'
+import { qrColors } from '../lib/qrColors'
 
 // @@@contact-qr (#537) - the current user's personal "add me" QR. Encodes their 咕咕号 (gugu_number) on the
 export function ContactQrShare({ guguNumber }: { guguNumber: number | null | undefined }) {
@@ -22,7 +24,7 @@ export function ContactQrShare({ guguNumber }: { guguNumber: number | null | und
       return
     }
     let cancelled = false
-    QRCode.toDataURL(payloadText, { width: 132, margin: 1, color: { dark: '#1f2933', light: '#ffffff' } })
+    QRCode.toDataURL(payloadText, { width: 132, margin: 1, color: qrColors() })
       .then((url) => {
         if (!cancelled) {
           setQrDataUrl(url)
@@ -33,13 +35,13 @@ export function ContactQrShare({ guguNumber }: { guguNumber: number | null | und
         console.error('[ContactQrShare] QR generation failed', error)
         if (!cancelled) {
           setQrDataUrl(null)
-          setQrError(t('sharing.qrFailed'))
+          setQrError(messageForUser(error))
         }
       })
     return () => {
       cancelled = true
     }
-  }, [payloadText, t])
+  }, [payloadText])
 
   if (!payloadText) {
     return <div style={{ fontSize: 'var(--font-body)', color: 'var(--text-tertiary)' }}>{t('friendSearch.guguNumberUnassigned')}</div>

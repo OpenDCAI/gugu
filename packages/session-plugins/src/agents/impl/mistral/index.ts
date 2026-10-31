@@ -42,7 +42,7 @@ const sessionBundle = {
     //    pendingPermissions 由 session-chat-ui/src/state/chat-state.ts 的 setPermissions 递到界面。
     //    ❌ 澄清型(mcp-elicitation / native-tool)咕咕没通,不在此声明 —— 本目录 hooks.ts 那条
     //    钉 ask_user_question 的 before_tool 只是往咕咕推一个 permission_prompt 通知,不是问答通道。
-    //  · plan:acp/reducer/decode.ts 解出 { kind:'plan', entries } 后折进 transcript。
+    //  · plan:acp/transport/decode.ts 解出 { kind:'plan', entries } 后折进 transcript。
     pause: { kind: 'native', channel: 'protocol-cancel' },
     observability: { kind: 'native', channel: 'acp-update' },
     askUser: { kind: 'native', channel: 'permission-ask' },
@@ -61,7 +61,7 @@ const sessionBundle = {
      * (impl/auggie/session-bundle.ts 的 introspection 段)。
      *
      * 咕咕这一侧是通用装配、不分家:`available_commands_update` 这条 session/update 经
-     * `session-core/src/acp/reducer/decode.ts:260` 解出 → `reducer.ts:511-525` 写进
+     * `session-core/src/acp/transport/decode.ts:260` 解出 → `reducer.ts:511-525` 写进
      * `config.availableCommands` → `apps/desktop/src/session/renderer/features/sessions/acp/
      * acp-chat-store.ts:196` 的 `get commands()` 摆进 composer 的命令列表。
      *

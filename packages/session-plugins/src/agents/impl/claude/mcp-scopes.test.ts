@@ -27,7 +27,7 @@ const echo = (tag: string) => ({ type: 'stdio', command: 'node', args: ['echo.mj
 
 /**
  * 10-07 资源库体检:Claude 会话装载了本地级与项目级的 server,资源库与 `/mcp` 面板一台都没列。
- * 判据照 Claude Code 2.1.267 实测的读法(gugu-base evidence/2026-10-07-library-audit/readings/fix-plan-measurements.md)。
+ * 判据照 Claude Code 2.1.267 实测的读法。
  */
 const stateOf = (server: { enabled?: boolean }) => (server.enabled === false ? 'disabled' : 'enabled');
 const rows = (scoped: { kind: string; dir: string; servers: { name: string; enabled?: boolean }[] }[]) =>
@@ -35,8 +35,7 @@ const rows = (scoped: { kind: string; dir: string; servers: { name: string; enab
 
 /**
  * 10-07 资源库体检补了本地级与项目级;10-17 资源库 MCP 核查补了插件层与两份关闭 / 批准名单。
- * 判据照 Claude 自己的列法:mac1 隔离 HOME、claude 2.1.293 的 `claude mcp list` + 咕咕 Claude 任务的 echo 账本
- * (gugu-base evidence/2026-10-17-library-mcp)。
+ * 判据照 Claude 自己的列法:macOS 隔离 HOME、claude 2.1.293 的 `claude mcp list` + 咕咕 Claude 任务的 echo 账本。
  */
 describe('claudeMcpAdapter.readScopedServers', () => {
   const home = memoryFs({

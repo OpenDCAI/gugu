@@ -1,9 +1,9 @@
 import type { PermissionOptionKind } from '@agentclientprotocol/sdk';
-import type { LiveSettingsCapability } from '@gugu/session-core/agents/plugins';
+import type { AcpAgentApi, LiveSettingsCapability } from '@gugu/session-core/agents/plugins';
 import { isOk } from '@gugu/session-shared';
 import { noopLogger } from '@gugu/session-shared/logger';
 import { describe, expect, it, vi } from 'vitest';
-import { permissionWaitKind } from '@gugu/session-core/acp';
+import { decodePermissionRequest, createRequestActivity, permissionWaitKind, type SessionPromptReceipt } from '@gugu/session-core/acp';
 import { FakeAcpAgent } from '../acp-test-support';
 import { SessionCell } from './cell';
 
@@ -37,18 +37,21 @@ const TEST_LIVE_SETTINGS: LiveSettingsCapability = {
 };
 
 function makeCell(agent = new FakeAcpAgent(), extra: Record<string, unknown> = {}) {
+  const boundary = createRequestActivity(new Proxy(agent, { get(target, key) { const value = Reflect.get(target, key); return typeof value === 'function' ? value.bind(target) : value; } }) as never, ({ event }) => cell.push(event), { interruptAtToolBoundary: extra.midTurnSteer === 'interrupt-at-tool-boundary' });
   const cell = new SessionCell({
     mergeEnvelopes: stubMergeEnvelopes,
     sessionId: 'conv-1',
     projectId: 'proj-1',
     providerId: 'claude',
     acpSessionId: 'session-1',
-    agent,
+    agent: boundary.agent,
     liveSettings: TEST_LIVE_SETTINGS,
     resolveAttachment: vi.fn().mockResolvedValue({ data: '', mimeType: 'image/png' }),
     logger: noopLogger,
     ...extra,
   });
+  const push = cell.push.bind(cell);
+  cell.push = event => { boundary.observe('session-1', event); push(event); };
   cell.applySessionReady();
   return { cell, agent };
 }
@@ -62,6 +65,47 @@ async function flushDrains(): Promise<void> {
 }
 
 describe('SessionCell prompts', () => {
+  it('gives repeated runtime turn IDs distinct durable reference identities across restarts', async () => {
+    const first = makeCell().cell, restarted = makeCell().cell;
+    try {
+      expect((await first.prompt({ text: 'same words' })).success).toBe(true);
+      expect((await restarted.prompt({ text: 'same words' })).success).toBe(true);
+      const a = first.history().committed[0]!, b = restarted.history().committed[0]!;
+      expect(a.id).toBe(b.id);
+      expect(a.referenceId).toMatch(/^source:[0-9a-f-]{36}$/);
+      expect(b.referenceId).toMatch(/^source:[0-9a-f-]{36}$/);
+      expect(a.referenceId).not.toBe(b.referenceId);
+    } finally { first.dispose(); restarted.dispose(); }
+  });
+
+  it.each(['prompt', 'queueBehindTurn'] as const)('keeps a newer draft when %s receives delayed native admission', async (method) => {
+    const receipt = Promise.withResolvers<SessionPromptReceipt>();
+    const prompt = vi.fn((_params: unknown, dispatch: { requestId: string }) => {
+      void dispatch;
+      return receipt.promise;
+    });
+    const cell = new SessionCell({ mergeEnvelopes: stubMergeEnvelopes, sessionId: 'conv-1', projectId: 'proj-1', providerId: 'claude',
+      acpSessionId: 'session-1', agent: { prompt, cancel: vi.fn(async () => {}) } as unknown as AcpAgentApi,
+      liveSettings: TEST_LIVE_SETTINGS, resolveAttachment: vi.fn().mockResolvedValue({ data: '', mimeType: 'image/png' }), logger: noopLogger });
+    cell.applySessionReady();
+    try {
+      cell.setPromptDraft({ rev: 1, input: { text: 'submitted draft' } });
+      const running = cell[method]({ text: 'submitted draft', origin: 'manual' });
+      await vi.waitFor(() => expect(prompt).toHaveBeenCalledTimes(1));
+      cell.setPromptDraft({ rev: 100, input: { text: 'newer unsent draft' } });
+      expect(cell.promptDraft?.text).toBe('newer unsent draft');
+      cell.push({ kind: 'agent_state', source: 'agent', state: 'running' });
+      cell.push({ kind: 'message', role: 'user', messageId: 'native', text: 'submitted draft', contentMode: 'replace' });
+      receipt.resolve({ status: 'accepted', requestId: prompt.mock.calls[0]![1].requestId, messageId: 'native' });
+      await receipt.promise;
+      cell.push({ kind: 'agent_state', source: 'agent', state: 'idle', stopReason: 'end_turn' });
+      expect((await running).success).toBe(true);
+      expect(cell.promptDraft?.text).toBe('newer unsent draft');
+    } finally {
+      cell.dispose();
+    }
+  });
+
   it('does not project a non-permission stable modes mirror into session config', () => {
     const { cell } = makeCell(undefined, { sessionModes: 'none' });
     const modes = {
@@ -225,8 +269,11 @@ describe('SessionCell prompts', () => {
     cell.setPromptDraft({ rev: 1, input: { text: 'send' } });
 
     const sending = cell.prompt({ text: 'send', origin: 'manual' });
-    const draftAfterAdmission = cell.promptDraft;
     await vi.waitFor(() => expect(agent.prompt).toHaveBeenCalledTimes(1));
+    // Admission (the provider's first event on v1) consumes the draft before the turn completes.
+    cell.push({ kind: 'thinking', messageId: 'started', text: 'Sending.' });
+    await flushDrains();
+    const draftAfterAdmission = cell.promptDraft;
     finish({ stopReason: 'end_turn' });
     await sending;
 
@@ -648,7 +695,7 @@ describe('SessionCell prompts', () => {
     expect(cell.sessionState.queuedPrompts).toHaveLength(0);
     expect(cell.sessionState.lifecycle).toBe('working');
 
-    // 合入同一 turn 生命周期(gugu-base@3336de9 的读数形状:两个响应在轮末先后到齐)。
+    // 合入同一 turn 生命周期(opencode 实测读数的形状:两个响应在轮末先后到齐)。
     // steer 响应先回也不许结算 —— 结算权属于主 RPC。
     resolveSteer({ stopReason: 'end_turn' });
     await expect(steer).resolves.toEqual({ success: true, data: { queued: false } });
@@ -696,6 +743,26 @@ describe('SessionCell prompts', () => {
       reason: 'prompt_failed',
       detail: 'Agent run failed: cascade ID mismatch',
     });
+  });
+
+  it('a failure reported as end_turn fails the caller with its cause, so a delivery cannot complete as done (MiMo quota)', async () => {
+    const agent = new FakeAcpAgent();
+    const { cell } = makeCell(agent, { turnFailure: { watchesStderr: true } });
+    agent.prompt = vi.fn(async () => {
+      setTimeout(() => cell.noteProviderStderrFailure("You've hit your usage limit. Upgrade or try again later."), 50);
+      return { stopReason: 'end_turn' };
+    });
+    const failed = await cell.prompt({ text: 'hi' });
+    expect(failed).toMatchObject({
+      success: false,
+      error: { type: 'prompt_failed', cause: { message: "You've hit your usage limit. Upgrade or try again later." } },
+    });
+    // Control: a turn that answered stays a success.
+    agent.prompt = vi.fn(async () => {
+      cell.push({ kind: 'message', role: 'assistant', messageId: null, text: 'ok' });
+      return { stopReason: 'end_turn' };
+    });
+    expect((await cell.prompt({ text: 'again' })).success).toBe(true);
   });
 
   it('a stderr failure the provider marks as a credential failure settles with signInRequired (MiMo, 10-07)', async () => {
@@ -872,7 +939,7 @@ describe('SessionCell prompts', () => {
 
     const first = cell.prompt({ text: 'long task' });
     await flushDrains();
-    const tool = { toolCallId: 'bash-1', title: 'sleep 8', toolKind: 'execute' as const, parentToolCallId: null, diffs: [], locations: [] };
+    const tool = { toolCallId: 'bash-1', title: 'sleep 8', toolKind: 'execute' as const, parentToolCallId: null, locations: [] };
     cell.push({ kind: 'tool_call', ...tool, status: 'in_progress' });
 
     const steer = await cell.prompt({ text: 'mid-turn message' }, { steerIfBusy: true });
@@ -883,7 +950,7 @@ describe('SessionCell prompts', () => {
 
     agent.prompt = vi.fn().mockResolvedValue({ stopReason: 'end_turn' });
     cell.push({ kind: 'tool_update', ...tool, status: 'completed' });
-    expect(agent.cancel).toHaveBeenCalledTimes(1);
+    await vi.waitFor(() => expect(agent.cancel).toHaveBeenCalledTimes(1));
 
     await first;
     await flushDrains();
@@ -924,7 +991,7 @@ describe('SessionCell prompts', () => {
 
     const first = cell.prompt({ text: 'long task' });
     await flushDrains();
-    const tool = { toolCallId: 'bash-1', title: 'sleep 8', toolKind: 'execute' as const, parentToolCallId: null, diffs: [], locations: [] };
+    const tool = { toolCallId: 'bash-1', title: 'sleep 8', toolKind: 'execute' as const, parentToolCallId: null, locations: [] };
     cell.push({ kind: 'tool_call', ...tool, status: 'in_progress' });
     await cell.prompt({ text: 'mid-turn message' }, { steerIfBusy: true });
 
@@ -983,8 +1050,7 @@ describe('SessionCell prompts', () => {
       toolKind: 'execute',
       status: 'in_progress',
       parentToolCallId: null,
-      diffs: [],
-      locations: [],
+          locations: [],
     });
 
     await expect(cell.prompt({ text: 'add a marker' }, { steerIfBusy: true })).resolves.toMatchObject({
@@ -1053,10 +1119,8 @@ describe('SessionCell prompts', () => {
     );
     await flushDrains();
 
-    await expect(steer).resolves.toMatchObject({
-      success: true,
-      data: { queued: true, requeuedAfterTokenBoundary: true },
-    });
+    await expect(steer).resolves.toMatchObject({ success: true, data: { queued: false } });
+    // Dispatch returns first; the refusal event owns retention in the target queue.
     expect(cell.sessionState.queuedPrompts.map((prompt) => prompt.text)).toEqual([
       '<gugu_delivery from="sender"/>',
     ]);
@@ -1094,7 +1158,7 @@ describe('SessionCell prompts', () => {
 
   // 跨家读数(#4472 comment-5464601764:qwen 3/3 主 RPC cancelled 而工作照常、steer end_turn 收尾;
   // droid 同形):并发 steer 引发的主 RPC cancelled 不是真取消,结算权移交给 steer。
-  it('hands settlement to the steer when the primary reports a concurrency-induced cancelled (qwen/droid shape)', async () => {
+  it('waits for all request activity after a concurrency-induced cancelled result (qwen/droid shape)', async () => {
     const { cell, agent } = makeCell();
     let resolveFirst!: (value: { stopReason: string }) => void;
     let resolveSteer!: (value: { stopReason: string }) => void;
@@ -1108,18 +1172,19 @@ describe('SessionCell prompts', () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     resolveFirst({ stopReason: 'cancelled' });
-    await first;
+    await Promise.resolve();
     // 一轮活着的对话不落 cancelled 终态:turn 仍在飞,等 steer 的 RPC 收尾。
     expect(cell.sessionState.lifecycle).toBe('working');
     expect(cell.sessionState.lastStopReason).toBeNull();
 
     resolveSteer({ stopReason: 'end_turn' });
     await steer;
+    await first;
     expect(cell.sessionState.lifecycle).toBe('ready');
     expect(cell.sessionState.lastStopReason).toBe('end_turn');
   });
 
-  it('still settles a REAL cancellation immediately even with a steer in flight (own Cancel is the discriminator)', async () => {
+  it('keeps real cancellation pending until every request has stopped', async () => {
     const { cell, agent } = makeCell();
     let resolveFirst!: (value: { stopReason: string }) => void;
     let resolveSteer!: (value: { stopReason: string }) => void;
@@ -1134,14 +1199,14 @@ describe('SessionCell prompts', () => {
 
     await cell.cancel();
     resolveFirst({ stopReason: 'cancelled' });
-    await first;
-    // 我们自己发的 Cancel ⇒ cancelled 是真取消,立即结算,❌ 不被移交守卫吞掉。
-    expect(cell.sessionState.lifecycle).toBe('ready');
-    expect(cell.sessionState.lastStopReason).toBe('cancelled');
+    await Promise.resolve();
+    expect(cell.sessionState.lifecycle).toBe('cancelling');
 
     resolveSteer({ stopReason: 'end_turn' });
     await steer;
+    await first;
     expect(cell.sessionState.lifecycle).toBe('ready');
+    expect(cell.sessionState.lastStopReason).toBe('cancelled');
   });
 
   // #6448 park 照收投递(owner 定):只剩后台子代理在跑时没有回合在飞,新来的一句当场开一轮,
@@ -1171,6 +1236,35 @@ describe('SessionCell prompts', () => {
     expect(cell.sessionState.backgroundAgentCount, 'the background agent keeps running').toBe(1);
   });
 
+  // ACP v2:父回合在自己的结果处结束,有自己会话的子智能体照跑,它的结局由它自己报。
+  it('keeps a subagent with its own session running past the end of the turn that launched it', async () => {
+    const { cell, agent } = makeCell();
+    let resolvePrompt!: (value: { stopReason: 'end_turn' }) => void;
+    agent.prompt = vi.fn(
+      () => new Promise<{ stopReason: 'end_turn' }>((resolve) => { resolvePrompt = resolve; })
+    );
+    const sent = cell.prompt({ text: 'launch a child', origin: 'typed' });
+    cell.push({
+      kind: 'subagent',
+      toolCallId: 'child-1',
+      subagentSessionId: 'child-1',
+      title: 'general-purpose',
+      status: 'in_progress',
+      parentToolCallId: null,
+      canCancel: true,
+    });
+    await vi.waitFor(() => expect(agent.prompt).toHaveBeenCalled());
+    resolvePrompt({ stopReason: 'end_turn' });
+    await sent;
+
+    expect(cell.sessionState.lifecycle).toBe('ready');
+    expect(cell.transcript.agents.find((a) => a.agentId === 'child-1')?.status).toBe('running');
+    expect(cell.sessionState.backgroundAgentCount).toBe(1);
+
+    cell.push({ kind: 'subagent_done', toolCallId: 'child-1', agentId: 'child-1', subagentSessionId: 'child-1', status: 'completed' });
+    expect(cell.transcript.agents.find((a) => a.agentId === 'child-1')?.status).toBe('completed');
+  });
+
   // #6448 Claude 的 `run_in_background` Bash 不挂住回合:轮当场收口、命令还在跑。状态要数到它(park),
   // 但它不让会话变忙、也不开取消 —— 命令在自己的卡上停。事件序列照真机:spawned 不带归属,progress 才带(#5117)。
   it('counts a background command that outlives its turn, without making the session busy', async () => {
@@ -1189,8 +1283,7 @@ describe('SessionCell prompts', () => {
       toolKind: 'execute',
       status: 'completed',
       parentToolCallId: null,
-      diffs: [],
-      locations: [],
+          locations: [],
     });
     cell.push({
       kind: 'async_task',
@@ -1234,8 +1327,7 @@ describe('SessionCell prompts', () => {
       toolKind: 'execute',
       status: 'completed',
       parentToolCallId: null,
-      diffs: [],
-      locations: [],
+          locations: [],
     });
     cell.push({ kind: 'async_task_progress', asyncTaskId: 'task-1', toolCallId: 'bash-1' });
     cell.endReplay();
@@ -1269,11 +1361,11 @@ describe('SessionCell prompts', () => {
 describe('SessionCell permissions', () => {
   it('brokers permission requests through the per-cell broker', async () => {
     const { cell } = makeCell();
-    const permission = cell.requestPermission({
+    const permission = cell.requestPermission(decodePermissionRequest({
       sessionId: 'session-1',
       toolCall: { toolCallId: 'tool-1', title: 'Read a file', kind: 'read' },
       options: [{ optionId: 'allow', name: 'Allow', kind: 'allow_once' as PermissionOptionKind }],
-    });
+    }));
 
     expect(cell.sessionState.pendingPermissions).toHaveLength(1);
     expect(cell.sessionState.pendingPermissions[0].toolCall).toMatchObject({
@@ -1292,13 +1384,49 @@ describe('SessionCell permissions', () => {
     expect(cell.sessionState.pendingPermissions).toHaveLength(0);
   });
 
+  it.each([
+    { type: 'command', command: 'ls -la', cwd: '/work', toolCallId: 'call', terminalId: 'terminal', _meta: { vendor: { data: 1 } } },
+    { type: 'future_subject', vendorField: { preserved: true } },
+    null,
+    undefined,
+  ])('keeps non-tool permission subjects without inventing transcript tools: %j', async (subject) => {
+    const { cell } = makeCell();
+    const response = cell.requestPermission(decodePermissionRequest({
+      sessionId: 'session-1', title: 'Approval title', description: 'Approval details',
+      ...(subject === undefined ? {} : { subject }), _meta: { requestContext: 1 },
+      options: [{ optionId: 'allow', name: 'Allow', kind: 'allow_once' }],
+    }));
+    const pending = cell.sessionState.pendingPermissions[0];
+    expect(pending).toMatchObject({ title: 'Approval title', description: 'Approval details', _meta: { requestContext: 1 } });
+    if (subject !== undefined) expect(pending.subject).toEqual(subject);
+    expect(pending).not.toHaveProperty('toolCall');
+    expect(cell.history().committed).toEqual([]);
+    cell.resolvePermission(pending.requestId, 'allow');
+    await expect(response).resolves.toEqual({ outcome: { outcome: 'selected', optionId: 'allow' } });
+    cell.dispose();
+  });
+
+  it('keeps the approval title separate from the subject tool title', async () => {
+    const { cell } = makeCell();
+    const subject = { type: 'tool_call', toolCall: { toolCallId: 't', name: 'Bash', title: 'Tool title', kind: 'execute', rawInput: { command: 'ls' }, _meta: { vendor: 1 } } };
+    const response = cell.requestPermission(decodePermissionRequest({
+      sessionId: 'session-1', title: 'Approval title', subject,
+      options: [{ optionId: 'allow', name: 'Allow', kind: 'allow_once' }],
+    }));
+    const pending = cell.sessionState.pendingPermissions[0];
+    expect(pending).toMatchObject({ title: 'Approval title', subject, toolCall: { title: 'Tool title', toolName: 'Bash' } });
+    cell.resolvePermission(pending.requestId, 'allow');
+    await response;
+    cell.dispose();
+  });
+
   it('keeps the rawInput of a request that names no call in the turn (a Codex MCP approval, #6900)', () => {
     const { cell } = makeCell();
-    void cell.requestPermission({
+    void cell.requestPermission(decodePermissionRequest({
       sessionId: 'session-1',
       toolCall: { toolCallId: 'item-9:ask:mcp-elicitation:4', title: 'mcp__l3dice__roll', rawInput: { sides: 20 } },
       options: [{ optionId: 'allow', name: 'Allow', kind: 'allow_once' as PermissionOptionKind }],
-    });
+    }));
 
     expect(cell.sessionState.pendingPermissions[0].toolCall).toMatchObject({
       kind: 'mcp-tool-call',
@@ -1311,13 +1439,13 @@ describe('SessionCell permissions', () => {
 
   it('drains pending permissions on dispose', async () => {
     const { cell } = makeCell();
-    const permission = cell.requestPermission({
+    const permission = cell.requestPermission(decodePermissionRequest({
       sessionId: 'session-1',
       toolCall: { toolCallId: 'tool-2', title: 'Write a file', kind: 'edit' },
       options: [
         { optionId: 'reject', name: 'Reject', kind: 'reject_once' as PermissionOptionKind },
       ],
-    });
+    }));
 
     cell.dispose();
 
@@ -1337,7 +1465,7 @@ describe('SessionCell permissions', () => {
   it('answers a full-access session by standard kind without leaving a pending request', async () => {
     const { cell } = makeCell(new FakeAcpAgent(), { autoApprovePermissions: true });
     const permission = cell.requestPermission(
-      shellRequest('tool-auto', ['allow_always', 'allow_once', 'reject_once'])
+      decodePermissionRequest(shellRequest('tool-auto', ['allow_always', 'allow_once', 'reject_once']))
     );
 
     await expect(permission).resolves.toEqual({
@@ -1349,20 +1477,20 @@ describe('SessionCell permissions', () => {
   it('falls to allow_always only when the request offers no allow_once', async () => {
     const { cell } = makeCell(new FakeAcpAgent(), { autoApprovePermissions: true });
     await expect(
-      cell.requestPermission(shellRequest('tool-always', ['allow_always', 'reject_once']))
+      cell.requestPermission(decodePermissionRequest(shellRequest('tool-always', ['allow_always', 'reject_once'])))
     ).resolves.toEqual({ outcome: { outcome: 'selected', optionId: 'allow-always' } });
   });
 
   it('never answers a question or plan approval on the user\'s behalf, even in full access', async () => {
     const { cell } = makeCell(new FakeAcpAgent(), { autoApprovePermissions: true });
-    void cell.requestPermission({
+    void cell.requestPermission(decodePermissionRequest({
       sessionId: 'session-1',
       toolCall: { toolCallId: 'tool-plan', title: 'ExitPlanMode', kind: 'switch_mode' },
       options: [
         { optionId: 'default', name: 'Yes', kind: 'allow_once' as PermissionOptionKind },
         { optionId: 'plan', name: 'Keep planning', kind: 'reject_once' as PermissionOptionKind },
       ],
-    });
+    }));
     expect(cell.sessionState.pendingPermissions).toHaveLength(1);
   });
 
@@ -1370,27 +1498,27 @@ describe('SessionCell permissions', () => {
   // `choice-0` 替用户答了这道题。判据是请求的结构(一个选项都拒绝不了 = 让人挑一个,不是批准),❌ 看标题文案。
   it('never answers a choose-one request (no refusal option) for the user, even in full access', async () => {
     const { cell } = makeCell(new FakeAcpAgent(), { autoApprovePermissions: true });
-    void cell.requestPermission({
+    void cell.requestPermission(decodePermissionRequest({
       sessionId: 'session-1',
       toolCall: { toolCallId: 'pi-ui-7', title: 'Pick a deployment target', kind: 'other' },
       options: [
         { optionId: 'choice-0', name: 'staging', kind: 'allow_once' as PermissionOptionKind },
         { optionId: 'choice-1', name: 'production', kind: 'allow_once' as PermissionOptionKind },
       ],
-    });
+    }));
     expect(cell.sessionState.pendingPermissions).toHaveLength(1);
   });
 
   it('never fails a question whose options carry no standard kind (codex requestUserInput) in full access', async () => {
     const { cell } = makeCell(new FakeAcpAgent(), { autoApprovePermissions: true });
-    const answer = cell.requestPermission({
+    const answer = cell.requestPermission(decodePermissionRequest({
       sessionId: 'session-1',
       toolCall: { toolCallId: 'item-1:ask:q1', title: 'Which approach?' },
       options: [
         { optionId: '0', name: 'A', kind: 'other' as PermissionOptionKind },
         { optionId: '1', name: 'B', kind: 'other' as PermissionOptionKind },
       ],
-    });
+    }));
     expect(cell.sessionState.pendingPermissions).toHaveLength(1);
     cell.resolvePermission(cell.sessionState.pendingPermissions[0].requestId, '1');
     await expect(answer).resolves.toEqual({ outcome: { outcome: 'selected', optionId: '1' } });
@@ -1399,7 +1527,7 @@ describe('SessionCell permissions', () => {
   it('fails loudly when a full-access session gets no standard allow option', async () => {
     const { cell } = makeCell(new FakeAcpAgent(), { autoApprovePermissions: true });
     await expect(
-      cell.requestPermission(shellRequest('tool-none', ['reject_once']))
+      cell.requestPermission(decodePermissionRequest(shellRequest('tool-none', ['reject_once'])))
     ).rejects.toMatchObject({ name: 'AcpPermissionResolutionError' });
     expect(cell.sessionState.pendingPermissions).toHaveLength(0);
   });
@@ -1427,20 +1555,20 @@ describe('SessionCell permissions', () => {
     cell.applySessionMeta(modeConfig('agent'));
 
     // 受限档:进待决,等人点(阳性对照 —— 同一个 cell、同一种请求)。
-    void cell.requestPermission(shellRequest('tool-before', ['allow_once']));
+    void cell.requestPermission(decodePermissionRequest(shellRequest('tool-before', ['allow_once'])));
     expect(cell.sessionState.pendingPermissions).toHaveLength(1);
     cell.resolvePermission(cell.sessionState.pendingPermissions[0].requestId, 'allow-once');
 
     agent.setSessionConfigOption = vi.fn().mockResolvedValue(modeConfig('agent-full-access'));
     expect(isOk(await cell.setMode('agent-full-access'))).toBe(true);
     await expect(
-      cell.requestPermission(shellRequest('tool-up', ['allow_once']))
+      cell.requestPermission(decodePermissionRequest(shellRequest('tool-up', ['allow_once'])))
     ).resolves.toEqual({ outcome: { outcome: 'selected', optionId: 'allow-once' } });
     expect(cell.sessionState.pendingPermissions).toHaveLength(0);
 
     agent.setSessionConfigOption = vi.fn().mockResolvedValue(modeConfig('agent'));
     expect(isOk(await cell.setMode('agent'))).toBe(true);
-    void cell.requestPermission(shellRequest('tool-down', ['allow_once']));
+    void cell.requestPermission(decodePermissionRequest(shellRequest('tool-down', ['allow_once'])));
     expect(cell.sessionState.pendingPermissions).toHaveLength(1);
   });
 
@@ -1481,7 +1609,7 @@ describe('SessionCell permissions', () => {
     });
     expect(isOk(await cell.setMode('agent', { startupOnly: true }))).toBe(true);
     await expect(
-      cell.requestPermission(shellRequest('tool-startup', ['allow_once']))
+      cell.requestPermission(decodePermissionRequest(shellRequest('tool-startup', ['allow_once'])))
     ).resolves.toEqual({ outcome: { outcome: 'selected', optionId: 'allow-once' } });
   });
 
@@ -1513,12 +1641,12 @@ describe('SessionCell permissions', () => {
     await flushDrains();
     cell.push({
       kind: 'tool_call', toolCallId: 'call-plan', title: 'ExitPlanMode', toolName: 'exit_plan_mode', toolKind: 'switch_mode',
-      status: 'pending', parentToolCallId: null, diffs: [], locations: [], rawInput: '{}',
+      status: 'pending', parentToolCallId: null, locations: [], rawInput: '{}',
     });
 
-    void cell.requestPermission(qwenPlanRequest);
+    void cell.requestPermission(decodePermissionRequest(qwenPlanRequest));
     const pending = cell.sessionState.pendingPermissions[0];
-    expect(JSON.parse(pending.toolCall.rawInput ?? 'null')).toEqual({ plan: PLAN });
+    expect(JSON.parse(pending.toolCall!.rawInput ?? 'null')).toEqual({ plan: PLAN });
     expect(permissionWaitKind(pending)).toBe('plan');
 
     cell.resolvePermission(pending.requestId, 'cancel');
@@ -1539,11 +1667,11 @@ describe('SessionCell permissions', () => {
     await flushDrains();
     cell.push({
       kind: 'tool_call', toolCallId: 'call-plan', title: 'Approve Plan', toolName: 'ExitPlanMode', toolKind: 'switch_mode',
-      status: 'pending', parentToolCallId: null, diffs: [], locations: [], rawInput: '{"plan":"from the stream"}', outputText: 'stream text',
+      status: 'pending', parentToolCallId: null, locations: [], rawInput: '{"plan":"from the stream"}', outputText: 'stream text',
     });
 
-    void cell.requestPermission(qwenPlanRequest);
-    const row = cell.sessionState.pendingPermissions[0].toolCall;
+    void cell.requestPermission(decodePermissionRequest(qwenPlanRequest));
+    const row = cell.sessionState.pendingPermissions[0].toolCall!;
     expect(row.rawInput).toBe('{"plan":"from the stream"}');
     expect(row.outputText).toBe('stream text');
     expect(row.toolName).toBe('ExitPlanMode');
@@ -1554,7 +1682,7 @@ describe('SessionCell permissions', () => {
   // 完全访问档就不替人批。
   it('names a request that arrives before its row from the vendor _meta, so full access leaves the plan to the user', () => {
     const { cell } = makeCell(new FakeAcpAgent(), { autoApprovePermissions: true });
-    void cell.requestPermission({
+    void cell.requestPermission(decodePermissionRequest({
       sessionId: 'session-1',
       toolCall: {
         toolCallId: 'qoder-plan', title: 'Ready to start implementation?', kind: 'other',
@@ -1565,10 +1693,10 @@ describe('SessionCell permissions', () => {
         { optionId: 'default', name: 'Yes, and manually approve edits', kind: 'allow_once' as PermissionOptionKind },
         { optionId: 'plan', name: 'No, keep planning', kind: 'reject_once' as PermissionOptionKind },
       ],
-    });
+    }));
     const pending = cell.sessionState.pendingPermissions;
     expect(pending).toHaveLength(1);
-    expect(pending[0].toolCall.toolName).toBe('ExitPlanMode');
+    expect(pending[0].toolCall!.toolName).toBe('ExitPlanMode');
     expect(permissionWaitKind(pending[0])).toBe('plan');
     cell.dispose();
   });
@@ -1580,7 +1708,7 @@ describe('SessionCell permissions', () => {
     agent.prompt = vi.fn(() => new Promise(() => {}));
     void cell.prompt({ text: 'plan it' });
     await flushDrains();
-    void cell.requestPermission({
+    void cell.requestPermission(decodePermissionRequest({
       sessionId: 'session-1',
       toolCall: {
         toolCallId: 'qoder-plan', title: 'Ready to start implementation?', kind: 'other',
@@ -1588,10 +1716,10 @@ describe('SessionCell permissions', () => {
         _meta: { qoder: { toolName: 'ExitPlanMode' } },
       },
       options: [{ optionId: 'plan', name: 'No, keep planning', kind: 'reject_once' as PermissionOptionKind }],
-    });
+    }));
     cell.push({
       kind: 'tool_call', toolCallId: 'qoder-plan', title: 'Ready to start implementation?', toolKind: 'other',
-      status: 'pending', parentToolCallId: null, diffs: [], locations: [], rawInput: '{}',
+      status: 'pending', parentToolCallId: null, locations: [], rawInput: '{}',
     });
 
     const row = cell.transcript.activeTurn?.items.find((item) => 'toolCallId' in item && item.toolCallId === 'qoder-plan');
@@ -2208,7 +2336,7 @@ describe('SessionCell config options', () => {
 /** 自报状态的家(claude 桥接 1.3.0 起):在不在干活只听它的 `state_update`。 */
 function reportingCell() {
   const made = makeCell();
-  made.cell.setReportsState(true);
+  made.cell.setAgent(made.agent);
   return made;
 }
 
@@ -2274,7 +2402,7 @@ describe('SessionCell idle turns and queue commands', () => {
 
   it('自报状态的家:agent 自己开工就忙,只有它报 idle 才停 —— 谁开的工都一样(#7087)', () => {
     const { cell } = reportingCell();
-    cell.push({ kind: 'agent_state', state: 'running' });
+    cell.push({ kind: 'agent_state', source: 'agent', state: 'running' });
     expect(cell.sessionState.lifecycle).toBe('working');
     cell.push({ kind: 'message', role: 'assistant', messageId: 'resp_1', text: '子任务跑完了' });
     expect(cell.history().active?.initiator).toBe('agent');
@@ -2284,15 +2412,17 @@ describe('SessionCell idle turns and queue commands', () => {
       usage: { contextUsed: 1, contextSize: 200_000, cost: { amount: 0.01, currency: 'USD' } },
     });
     expect(cell.sessionState.lifecycle).toBe('working');
-    cell.push({ kind: 'agent_state', state: 'idle' });
+    cell.push({ kind: 'agent_state', source: 'agent', state: 'idle' });
     expect(cell.sessionState.lifecycle).toBe('ready');
     expect(cell.history().active).toBeNull();
     expect(cell.history().committed.at(-1)?.outcome).toEqual({ kind: 'done', reason: 'cycle_end' });
   });
 
-  it('❌ 阴控:不自报状态的家收到 state_update 不动(它没声明,这条不是它的事实)', () => {
+  it('consumes normalized foreground events without a protocol capability switch', () => {
     const { cell } = makeCell();
-    cell.push({ kind: 'agent_state', state: 'running' });
+    cell.push({ kind: 'agent_state', source: 'agent', state: 'running' });
+    expect(cell.sessionState.lifecycle).toBe('working');
+    cell.push({ kind: 'agent_state', source: 'agent', state: 'idle', stopReason: 'end_turn' });
     expect(cell.sessionState.lifecycle).toBe('ready');
   });
 
@@ -2310,7 +2440,7 @@ describe('SessionCell idle turns and queue commands', () => {
     try {
       const { cell } = reportingCell();
 
-      cell.push({ kind: 'agent_state', state: 'running' });
+      cell.push({ kind: 'agent_state', source: 'agent', state: 'running' });
       cell.push({ kind: 'message', role: 'assistant', messageId: 'resp_1', text: '此前提供的三段正文可直接使用' });
       expect(cell.history().active?.initiator).toBe('agent');
 
@@ -2330,28 +2460,36 @@ describe('SessionCell idle turns and queue commands', () => {
     }
   });
 
-  it('自报状态的家:请求先答复、idle 随后到 —— 在 idle 落定,用请求带来的结局', async () => {
+  it('a receipt never closes work; native idle supplies its complete outcome', async () => {
     const { cell, agent } = reportingCell();
-    let resolvePrompt!: (value: { stopReason: string }) => void;
-    agent.prompt = vi.fn().mockImplementationOnce(() => new Promise((resolve) => { resolvePrompt = resolve; }));
-    const sent = cell.prompt({ text: 'hi', origin: 'typed' });
-    await Promise.resolve();
-    expect(cell.sessionState.lifecycle, '发出去不等于开工:等它报 running').toBe('ready');
-    cell.push({ kind: 'agent_state', state: 'running' });
-    expect(cell.sessionState.lifecycle).toBe('working');
-    cell.push({ kind: 'message', role: 'assistant', messageId: 'r1', text: '好' });
-    resolvePrompt({ stopReason: 'max_tokens' });
-    await sent;
-    expect(cell.sessionState.lifecycle, '请求答复了,agent 还没报 idle').toBe('working');
+    // A v2 provider echoes the input before its receipt.
+    agent.prompt = vi.fn(async () => {
+      cell.push({ kind: 'message', role: 'user', messageId: 'native', text: 'hi', contentMode: 'replace' });
+      return { status: 'accepted', requestId: 'r', messageId: 'native' };
+    });
+    const sent = cell.promptDetached({ text: 'hi', origin: 'typed' });
+    await sent.admission;
+    await vi.waitFor(() => expect(agent.prompt).toHaveBeenCalled());
+    cell.push({ kind: 'agent_state', source: 'agent', state: 'running' });
+    cell.push({ kind: 'message', role: 'assistant', messageId: 'r1', text: 'ok' });
     expect(cell.history().committed).toHaveLength(0);
-    cell.push({ kind: 'agent_state', state: 'idle' });
-    expect(cell.sessionState.lifecycle).toBe('ready');
+    cell.push({ kind: 'agent_state', source: 'agent', state: 'idle', stopReason: 'max_tokens' });
+    await sent.completion;
     expect(cell.history().committed.at(-1)?.outcome).toEqual({ kind: 'done', reason: 'max_tokens' });
   });
 
-  it('自报状态的家:这一句根本没开工(本地命令,没报 running)—— 请求答复就落定,不卡在忙', async () => {
-    const { cell } = reportingCell();
-    await cell.prompt({ text: '/context', origin: 'typed' });
+  it('local commands also require an explicit idle boundary, without a fabricated running event', async () => {
+    const { cell, agent } = reportingCell();
+    // A v2 provider echoes the input before its receipt.
+    agent.prompt = vi.fn(async () => {
+      cell.push({ kind: 'message', role: 'user', messageId: 'native', text: '/context', contentMode: 'replace' });
+      return { status: 'accepted', requestId: 'r', messageId: 'native' };
+    });
+    const sent = cell.promptDetached({ text: '/context', origin: 'typed' });
+    await sent.admission;
+    await vi.waitFor(() => expect(agent.prompt).toHaveBeenCalled());
+    cell.push({ kind: 'agent_state', source: 'agent', state: 'idle', stopReason: 'end_turn' });
+    await sent.completion;
     expect(cell.sessionState.lifecycle).toBe('ready');
     expect(cell.history().active).toBeNull();
     expect(cell.history().committed.at(-1)?.outcome?.kind).toBe('done');
@@ -2653,6 +2791,8 @@ describe('#6387 extension messages: same-key replacement and attached context', 
     agent.prompt = vi.fn(() => new Promise<{ stopReason: 'end_turn' }>(() => {}));
     void cell.prompt({ text: 'busy', origin: 'typed' });
     const steered = cell.promptDetached({ text: 'mid', origin: 'communication' }, { steerIfBusy: true });
+    await vi.waitFor(() => expect(agent.prompt).toHaveBeenCalledTimes(2));
+    cell.push({ kind: 'thinking', messageId: 'started', text: 'Working.' });
     await expect(steered.admission).resolves.toEqual({ success: true, data: { queued: false, steered: true } });
     const queued = cell.promptDetached({ text: 'later', origin: 'communication' });
     await expect(queued.admission).resolves.toEqual({ success: true, data: { queued: true } });
@@ -2668,7 +2808,7 @@ describe('SessionCell.steerQueuedPrompt', () => {
       .filter((item) => item.kind === 'message')
       .map((item) => item as { id: string; text: string });
 
-  function busyCellWithQueue(extra: Record<string, unknown> = {}) {
+  async function busyCellWithQueue(extra: Record<string, unknown> = {}) {
     const agent = new FakeAcpAgent();
     const { cell } = makeCell(agent, extra);
     let resolveFirst!: (value: { stopReason: string }) => void;
@@ -2678,6 +2818,7 @@ describe('SessionCell.steerQueuedPrompt', () => {
       .mockResolvedValue({ stopReason: 'end_turn' });
     agent.cancel = vi.fn(async () => ({}));
     const first = cell.prompt({ text: 'first' });
+    await vi.waitFor(() => expect(agent.prompt).toHaveBeenCalledTimes(1));
     expect(isOk(cell.queuePrompt({ text: 'a', origin: 'manual' }))).toBe(true);
     expect(isOk(cell.queuePrompt({ text: 'b', origin: 'manual' }))).toBe(true);
     const [, b] = queuedIds(cell);
@@ -2685,7 +2826,7 @@ describe('SessionCell.steerQueuedPrompt', () => {
   }
 
   it('native steering: the chosen entry leaves the queue into the running turn; nothing is cancelled, the draft stays', async () => {
-    const { cell, agent, first, b, resolveFirst } = busyCellWithQueue({ supportsSteering: true });
+    const { cell, agent, first, b, resolveFirst } = await busyCellWithQueue({ supportsSteering: true });
     agent.extMethod = vi.fn().mockResolvedValue({ outcome: 'injected' });
     // 排队那两下各清过一次草稿(版本号随之上涨),所以这里要用更新的版本号;先证明它确实存进去了。
     expect(isOk(cell.setPromptDraft({ rev: 100, input: { text: 'typing the next one' } }))).toBe(true);
@@ -2714,7 +2855,7 @@ describe('SessionCell.steerQueuedPrompt', () => {
   });
 
   it('native steering refused (#7087): no row is drawn, the entry stays at the front of the queue', async () => {
-    const { cell, agent, first, b, resolveFirst } = busyCellWithQueue({ supportsSteering: true });
+    const { cell, agent, first, b, resolveFirst } = await busyCellWithQueue({ supportsSteering: true });
     agent.extMethod = vi.fn().mockResolvedValue({ outcome: 'promptRequired', reason: 'noRunningTurn' });
 
     await expect(cell.steerQueuedPrompt(b)).resolves.toEqual({ success: true, data: undefined });
@@ -2735,7 +2876,7 @@ describe('SessionCell.steerQueuedPrompt', () => {
   });
 
   it('native steering request fails: the failure goes back to the caller and the row stays drawn (#4660)', async () => {
-    const { cell, agent, first, b, resolveFirst } = busyCellWithQueue({ supportsSteering: true });
+    const { cell, agent, first, b, resolveFirst } = await busyCellWithQueue({ supportsSteering: true });
     agent.extMethod = vi.fn().mockRejectedValue(new Error('steering transport closed'));
 
     const result = await cell.steerQueuedPrompt(b);
@@ -2748,7 +2889,7 @@ describe('SessionCell.steerQueuedPrompt', () => {
   });
 
   it('concurrent session/prompt lane: sends the entry as a second prompt right away, without cancelling', async () => {
-    const { cell, agent, first, b, resolveFirst } = busyCellWithQueue();
+    const { cell, agent, first, b, resolveFirst } = await busyCellWithQueue();
     const steered = cell.steerQueuedPrompt(b);
     await flushDrains();
 
@@ -2763,7 +2904,7 @@ describe('SessionCell.steerQueuedPrompt', () => {
   });
 
   it('no turn to join (being cancelled): moves the entry to the front so the next drain takes it', async () => {
-    const { cell, agent, first, b, resolveFirst } = busyCellWithQueue();
+    const { cell, agent, first, b, resolveFirst } = await busyCellWithQueue();
     await cell.cancel();
     expect(cell.sessionState.lifecycle).toBe('cancelling');
 
@@ -2778,7 +2919,7 @@ describe('SessionCell.steerQueuedPrompt', () => {
   });
 
   it('an id that is no longer queued is a no-op', async () => {
-    const { cell, agent, first, resolveFirst } = busyCellWithQueue();
+    const { cell, agent, first, resolveFirst } = await busyCellWithQueue();
     await expect(cell.steerQueuedPrompt('gone')).resolves.toEqual({ success: true, data: undefined });
     expect(queuedTexts(cell)).toEqual(['a', 'b']);
     expect(agent.prompt).toHaveBeenCalledTimes(1);
@@ -2903,7 +3044,6 @@ describe('SessionCell arrival order between typed prompts and deliveries', () =>
     expect(cell.sessionState.lifecycle).toBe('ready');
   });
 });
-
 
 describe('native in-place conversation revert', () => {
   it('keeps the native ID, removes the suffix, and holds admission until display history is committed', async () => {

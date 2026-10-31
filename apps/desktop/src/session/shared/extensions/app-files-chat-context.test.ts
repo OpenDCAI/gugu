@@ -75,11 +75,11 @@ describe('getContext().chat (extensionChatOf)', () => {
   });
 
   it('a topic goes by the group it grew out of', async () => {
-    await expect(extensionChatOf('token', TOPIC, A, people)).resolves.toEqual({ id: TOPIC, name: '周六路线', kind: 'topic', groupId: GROUP });
+    await expect(extensionChatOf('token', TOPIC, A, people)).resolves.toEqual({ id: GROUP, name: '周末出游', kind: 'group', groupId: GROUP });
   });
 
   it('a topic of a private chat belongs to no group', async () => {
-    await expect(extensionChatOf('token', DM_TOPIC, A, people)).resolves.toEqual({ id: DM_TOPIC, name: '私聊里的话题', kind: 'topic', groupId: null });
+    await expect(extensionChatOf('token', DM_TOPIC, A, people)).resolves.toEqual({ id: DM, name: '小北', kind: 'dm', groupId: null });
   });
 
   it('a private chat is a chat of no group, called by the other one in it — each side sees the other', async () => {
@@ -99,13 +99,13 @@ describe('getContext().chat (extensionChatOf)', () => {
     const files = createAppFiles({
       account: async () => ({ token: 'token', userId: A }),
       hasCapability: () => true,
-      sync: {} as never,
+      sync: { ensureFor: () => undefined,} as never,
       identities: people.identities,
       faces: async () => ({}),
       filesUrl: () => 'http://files.invalid',
       warn: () => undefined,
     });
-    await expect(files.chat(TOPIC)).resolves.toMatchObject({ kind: 'topic', groupId: GROUP });
+    await expect(files.chat(TOPIC)).resolves.toMatchObject({ id: GROUP, kind: 'group', groupId: GROUP });
     await expect(files.chat(DM)).resolves.toMatchObject({ kind: 'dm', name: '小北' });
   });
 });
@@ -123,7 +123,7 @@ describe('getContext().chat.members[].avatar', () => {
     const files = createAppFiles({
       account: async () => ({ token: 'token', userId: A }),
       hasCapability: () => true,
-      sync: {} as never,
+      sync: { ensureFor: () => undefined,} as never,
       identities: async (_token, ids) => ids.map((id) => ({ id, name: id === A ? 'A' : 'B', avatar: id === A ? 'upload-1' : null, kind: 'human' as const })),
       faces,
       filesUrl: () => 'http://files.invalid',

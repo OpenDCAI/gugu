@@ -1,11 +1,15 @@
+import { appStateOf } from '@shared/extensions/app-state';
+import { groupFileLink } from '@gugu/core/shared/ui/guguLink';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { clipboard, ipcMain, shell, webContents, type IpcMainInvokeEvent, type WebContents } from 'electron';
 import { extensionIdForSession } from '@main/core/extensions/extension-session';
-import { extensionBackgroundWebContentsId, runningExtensionBackgrounds } from '@main/core/extensions/extension-background';
+import { extensionBackgroundWebContentsId, runningExtensionBackgrounds, postExtensionBackground } from '@main/core/extensions/extension-background';
 import { extensionsService } from '@main/core/extensions/extensions-root';
+import { AppModalSessions } from '@shared/extensions/app-modal';
+import { extensionPartition, extensionResourceUrl } from '@shared/extensions/partition';
 import { onExtensionProgramNotification } from '@main/core/extensions/extension-programs';
-import type { LinkPlace } from '@main/core/extensions/extension-links';
+import { extensionProjections } from './extension-projection-bridge';
 import { log } from '@main/lib/logger';
 import { events } from '@main/lib/events';
 import { extensionProgramNotifiedChannel } from '@shared/extensions/marketEvents';
@@ -26,7 +30,6 @@ import {
   type ExtensionOperator,
   type ExtensionPageFrom,
   type ExtensionSession,
-  type ExtensionPaneTab,
   type ExtensionSurfaceMetrics,
   type ExtensionBridgeMethod,
   type MachineVerb,
@@ -34,8 +37,8 @@ import {
   type CheckReadings,
   type PageCounts,
   verbFacts,
+  needsGesture,
   callRefusal,
-  CALLER_WORDS,
 } from '@shared/extensions/bridge-protocol';
 import {
   watchWorkspaceForSurface,
@@ -44,14 +47,16 @@ import {
 import type {
   ExtensionHostAction,
   ExtensionHostActionOrigin,
+  ExtensionHostActionResult,
 } from '@shared/extensions/host-actions';
 import { fileSync } from '@main/core/extensions/file-sync';
-import { fileRefOf, isLocal, placeKey, placeOf, type AppFileEntry, type AppFileRef, type AppPlace, type LocalPlace } from '@shared/extensions/app-runtime-protocol';
-import { noOpenerError, placeFor, placeLink, type FileOpenerCandidate } from '@shared/extensions/file-openers';
-import type { FilePlace } from '@gugu/core/shared/ui/fileLink';
+import { fileRefOf, isLocal, placeKey, placeOf, sessionIdOf, type AppFileEntry, type AppFileRef, type AppPlace, type LocalPlace, type PreparedChatFile } from '@shared/extensions/app-runtime-protocol';
+import { placeFor, placeLink, type FileOpenerCandidate } from '@shared/extensions/file-openers';
+import type { FilePlace } from '@gugu/core/shared/ui/guguLink';
 import { rosterMoved, type MemberChange } from '@shared/extensions/app-files-core';
 import { coalescedReads } from '@shared/extensions/coalesced-reads';
-import { changedGroupFiles, type DesktopFilePage } from '@main/core/extensions/app-files';
+import { agentReport } from '@shared/extensions/agent-view';
+import { changedGroupFiles, resourceChatOf, type DesktopFilePage } from '@main/core/extensions/app-files';
 
 /**
  * The host side of the extension bridge.
@@ -72,6 +77,7 @@ import { changedGroupFiles, type DesktopFilePage } from '@main/core/extensions/a
 
 /** What the host knows about one live extension surface. */
 interface SurfaceBinding {
+  opening?: PreparedChatFile;
   extensionId: string;
   /**
    * The session this surface is drawn in (a session's tab) — `null` for one in none (a chat's panel, the dock). A fact
@@ -108,6 +114,7 @@ interface SurfaceBinding {
   /** Who is working this page (`getContext().operator`): the person for every page the host draws; an agent for its `app_check` page. */
   operator: ExtensionOperator;
   metrics: ExtensionSurfaceMetrics;
+  modal?: { id: string; data?: unknown };
   /**
    * The theme this page is shown in, when it is not the host's: only a page an agent works (`app_check`'s), which takes
    * its pictures in light and dark (`showAgentPageInTheme`). Null for every surface a person sees — those follow the host.
@@ -115,7 +122,31 @@ interface SurfaceBinding {
   themeMode: 'light' | 'dark' | null;
 }
 
+type BindingChange = { previousSession: string | null };
+const bindingChanges = new Map<number, BindingChange>();
 const bindings = new Map<number, SurfaceBinding>();
+function restoreBindingChange(id: number, prior: SurfaceBinding | undefined, change: BindingChange, error: unknown): never {
+  if (bindingChanges.get(id) === change) {
+    bindingChanges.delete(id);
+    if (prior && bindings.get(id) === prior) { prior.sessionId = change.previousSession; pushContext(id); }
+  }
+  throw error;
+}
+const appModals = new AppModalSessions<SurfaceBinding>(async (modal) => {
+  await deliver(modal.binding, { kind: 'closeAppModal', id: modal.id }).catch((reason: unknown) => {
+    log.warn('An App modal closed after its window went away', { reason: String(reason) });
+  });
+});
+
+const observedContents = new WeakSet<WebContents>();
+
+/** Pages and backgrounds share the same document boundary, even before a watch finishes registering. */
+function observeDocument(contents: WebContents): void {
+  if (observedContents.has(contents)) return;
+  observedContents.add(contents);
+  contents.on('did-navigate', () => newDocument(contents.id));
+  contents.once('destroyed', () => unbindExtensionSurface(contents.id));
+}
 
 /**
  * Who calls (真源原则 13: where a page is only fills its context): one of the App's pages, its background page, or its
@@ -130,7 +161,9 @@ export interface BridgeCaller {
   /** Its id with the file relay: a page's webContents id, a program's own (negative). */
   pageId: number;
   /** As the files code sees this call: which file it may open without a capability (`ctx.file`; a program's, handed). */
-  filePage(args: Record<string, unknown>): DesktopFilePage;
+  filePage(args: Record<string, unknown>, resource?: boolean): DesktopFilePage;
+  /** File scope as a resource container; only a program derives its authority from the named parameters. */
+  resourcePage(args: Record<string, unknown>): DesktopFilePage | Promise<DesktopFilePage>;
   /** Where its events go (`filesChanged`). */
   hear(event: ExtensionHostEvent): void;
   /**
@@ -138,17 +171,33 @@ export interface BridgeCaller {
    * gugu does not know which — and it works on chats only as that agent (`asCallingAgent`). Absent: in no agent's call.
    */
   callingAgent?: string | null;
+  /** The task stamped by main for this exact program call; never read from the tool arguments. */
+  callingSession?: string;
 }
 
 /** Events to a page or the background page: their webContents, while it lives. */
-function hearOn(webContentsId: number): (event: ExtensionHostEvent) => void {
+function hearOn(webContentsId: number): (event: ExtensionHostEvent) => boolean {
   return (event) => {
+    if (process.env.GUGU_SERVER_MODE === '1' && postExtensionBackground(webContentsId, event)) return true;
     const contents = webContents.fromId(webContentsId);
-    if (contents && !contents.isDestroyed()) sendEvent(contents, event);
+    if (!contents || contents.isDestroyed()) return false;
+    sendEvent(contents, event);
+    return true;
   };
 }
 
 function pageCaller(binding: SurfaceBinding, webContentsId: number): BridgeCaller {
+  const filePage = () => ({
+    takeOpening: () => {
+      const opening = binding.opening;
+      delete binding.opening;
+      return opening;
+    },
+    pageId: webContentsId,
+    extensionId: binding.extensionId,
+    handed: handedFileOf(binding),
+    ...(binding.operator.kind === 'agent' ? { asAgent: binding.operator.id.replace(/^user:/, '') } : {}),
+  });
   return {
     extensionId: binding.extensionId,
     kind: 'page',
@@ -156,23 +205,44 @@ function pageCaller(binding: SurfaceBinding, webContentsId: number): BridgeCalle
     pageId: webContentsId,
     // Owner 10-14: a chat's files are opened, written and listed as whoever works the page — an agent through its own
     // door (`*_as`: its membership, its name on what it makes, its presence), as a program's call for an agent is.
-    filePage: () => ({
-      pageId: webContentsId,
-      extensionId: binding.extensionId,
-      handed: handedFileOf(binding),
-      ...(binding.operator.kind === 'agent' ? { asAgent: binding.operator.id.replace(/^user:/, '') } : {}),
-    }),
+    filePage,
+    resourcePage: filePage,
     hear: hearOn(webContentsId),
   };
 }
 
+/** Internal host entry, absent from App verbs: derive all scope from this live webContents. */
+export async function captureSessionpageProjectionViewer(webContentsId: number) {
+  const binding = bindings.get(webContentsId), contents = webContents.fromId(webContentsId);
+  if (!binding || !contents || contents.isDestroyed() || !binding.sessionId) throw new Error('Projection viewer page is unavailable');
+  const page = extensionProjections.viewerPage(pageCaller(binding, webContentsId));
+  try {
+    const version = extensionsService().get(binding.extensionId).manifest.version;
+    const assertCurrent = () => {
+      try {
+        page.assertCurrent();
+        const service = extensionsService();
+        if (contents.isDestroyed() || bindings.get(webContentsId) !== binding || service.get(binding.extensionId).manifest.version !== version
+          || !service.isEnabled(binding.extensionId) || !service.hasCapability(binding.extensionId, 'agents:tools')) {
+          throw new Error('Projection viewer App or page changed');
+        }
+      } catch (error) { page.release(); throw error; }
+    };
+    assertCurrent(); const deviceId = knownSessionMachine(page.sessionId)?.deviceId;
+    if (!deviceId) throw new Error('Projection task has no remote host');
+    return Object.freeze({ ...page, deviceId, version, assertCurrent });
+  } catch (error) { page.release(); throw error; }
+}
+
 function backgroundCaller(extensionId: string, webContentsId: number): BridgeCaller {
+  const filePage = () => ({ pageId: webContentsId, extensionId, handed: null });
   return {
     extensionId,
     kind: 'background',
     binding: null,
     pageId: webContentsId,
-    filePage: () => ({ pageId: webContentsId, extensionId, handed: null }),
+    filePage,
+    resourcePage: filePage,
     hear: hearOn(webContentsId),
   };
 }
@@ -201,11 +271,11 @@ export function checkReadingsOf(webContentsId: number): CheckReadings | null {
  * with its own tools (owner 10-14). One it cannot open is refused, as the save would be.
  */
 async function handToAgent(caller: BridgeCaller, page: AgentPage, verb: string, args: Record<string, unknown>): Promise<void> {
-  if (verb === 'filesDownload' && !isLocal(fileRefOf(args.ref))) {
+  if (verb === 'filesDownload' && args.ref !== undefined && !isLocal(fileRefOf(args.ref))) {
     const files = await import('@main/core/extensions/app-files');
     const found = await files.openWithTarget(caller.filePage(args), { ref: args.ref });
     if (found.kind === 'chat') {
-      page.shown.push({ verb, detail: `gugu-file://${found.target.itemId}` });
+      page.shown.push({ verb, detail: groupFileLink(found.target.itemId) });
       return;
     }
   }
@@ -270,8 +340,8 @@ function recordExtensionError(caller: BridgeCaller, message: string, level: 'err
  * slot alike; the renderer keeps it by page. A page drawn nowhere (`app_check`'s) has no header: the call succeeds.
  * It lasts as long as the document that said it: see `newDocument`.
  */
-function sayAboutPage(binding: SurfaceBinding, action: ExtensionHostAction): Promise<void> {
-  return binding.embedderId === null ? Promise.resolve() : deliver(binding, action);
+async function sayAboutPage(binding: SurfaceBinding, action: ExtensionHostAction): Promise<void> {
+  if (binding.embedderId !== null) await deliver(binding, action);
 }
 
 /**
@@ -280,6 +350,10 @@ function sayAboutPage(binding: SurfaceBinding, action: ExtensionHostAction): Pro
  * end there (file-sync.ts). Main hears the commit (`did-navigate`) ahead of the new document's first call.
  */
 function newDocument(webContentsId: number): void {
+  bindingChanges.delete(webContentsId);
+  extensionProjections.closePage(webContentsId);
+  void appModals.pageGone(webContentsId);
+  stopPageWatches(webContentsId);
   const binding = bindings.get(webContentsId);
   if (!binding) return;
   void sayAboutPage(binding, { kind: 'newDocument' }).catch((error: unknown) => {
@@ -330,10 +404,17 @@ export function watchExtensionSurfaceErrors(webContentsId: number, onError: (mes
 
 /**
  * Where each caller asked to hear that files changed (`files.onChanged(place, fn)`, `filesWatch`) — a page, the
- * background page, a program — by `placeKey`: a chat (told by `notifyGroupWorkspaceChanged`) or a session's working copy
+ * background page, a program — by subscription: a chat (told by `notifyGroupWorkspaceChanged`) or a session's working copy
  * (its own disk watch). Torn down with the caller.
  */
-const pageWatches = new Map<number, { caller: BridgeCaller; places: Map<string, { place: AppPlace; disk: WorkspaceWatch | null }> }>();
+const pageWatches = new Map<number, Map<string, { caller: BridgeCaller; place: AppPlace; resource: AppPlace; disk: WorkspaceWatch | null }>>();
+
+/** The map itself is the document's identity; navigation removes it before a later document can subscribe. */
+function fileWatchesFor(pageId: number) {
+  let watching = pageWatches.get(pageId);
+  if (!watching) pageWatches.set(pageId, watching = new Map());
+  return watching;
+}
 
 /** Each page's forum subscriptions (`gugu.forum.onChanged`), by post id or 'feed': torn down with the page's other watches. */
 const forumWatches = new Map<number, Map<string, () => void>>();
@@ -360,39 +441,38 @@ export function stopPageWatches(pageId: number): void {
   for (const stop of forumWatches.get(pageId)?.values() ?? []) stop();
   forumWatches.delete(pageId);
   const watching = pageWatches.get(pageId);
-  for (const watch of watching?.places.values() ?? []) watch.disk?.stop();
+  for (const watch of watching?.values() ?? []) watch.disk?.stop();
   pageWatches.delete(pageId);
-  for (const { place } of watching?.places.values() ?? []) forgetUnheard(place, watching!.caller);
+  for (const { resource, caller } of watching?.values() ?? []) forgetUnheard(resource, caller);
 }
 
 /** Start (or stop) telling a caller that files changed in one place. Rides on `files:read`, re-read at every batch. */
-async function watchFiles(caller: BridgeCaller, place: AppPlace, on: boolean): Promise<void> {
-  const key = placeKey(place);
-  const watching = pageWatches.get(caller.pageId);
-  const existing = watching?.places.get(key);
+async function watchFiles(caller: BridgeCaller, watchId: string, place: AppPlace, on: boolean): Promise<void> {
+  let watching = pageWatches.get(caller.pageId);
+  const existing = watching?.get(watchId);
   if (!on) {
     existing?.disk?.stop();
-    watching?.places.delete(key);
-    if (existing) forgetUnheard(existing.place, caller);
+    watching?.delete(watchId);
+    if (existing) forgetUnheard(existing.resource, existing.caller);
     return;
   }
-  if (existing) return;
+  watching = fileWatchesFor(caller.pageId);
+  const resource = 'chat' in place ? { chat: await resourceChatOf(place.chat, { asAgent: caller.callingAgent ?? caller.filePage({ place }, true).asAgent ?? null }) } : place;
+  if (pageWatches.get(caller.pageId) !== watching) return;
+  asCallingAgent(caller, caller.filePage({ place: resource }, true), { place });
+  if (watching.has(watchId)) throw Object.assign(new Error('This file watch is already registered'), { code: 'invalid' });
   let disk: WorkspaceWatch | null = null;
   if (isLocal(place)) {
     const { localRootOf } = await import('@main/core/extensions/app-files');
+    const { workspaceRoot } = await localRootOf(place);
+    if (pageWatches.get(caller.pageId) !== watching) return;
     disk = watchWorkspaceForSurface({
       extensionId: caller.extensionId,
-      workspaceRoot: (await localRootOf(place)).workspaceRoot,
-      deliver: (change) => caller.hear({ type: 'filesChanged', place, change }),
+      workspaceRoot,
+      deliver: (change) => caller.hear({ type: 'filesChanged', watchId, place, change }),
     });
   }
-  if (!watching) {
-    pageWatches.set(caller.pageId, { caller, places: new Map([[key, { place, disk }]]) });
-    // A page's go with its binding (`unbindExtensionSurface`), a program's with it; the background page's with its window.
-    if (caller.kind === 'background') webContents.fromId(caller.pageId)?.once('destroyed', () => stopPageWatches(caller.pageId));
-    return;
-  }
-  watching.places.set(key, { place, disk });
+  watching.set(watchId, { caller, place, resource, disk });
 }
 
 /**
@@ -472,6 +552,7 @@ function waitForBinding(webContentsId: number): Promise<void> {
 }
 
 export async function bindExtensionSurface(input: {
+  opening?: PreparedChatFile;
   webContentsId: number;
   extensionId: string;
   /** Absent for a surface that is not in a session (a chat's side panel, the dock). */
@@ -486,6 +567,7 @@ export async function bindExtensionSurface(input: {
   itemId?: string;
   /** Who works it: the person unless main binds it for an agent (`app_check`); never the renderer's to say. */
   operator?: ExtensionOperator;
+  modal?: { id: string; data?: unknown };
 }): Promise<void> {
   const contents = webContents.fromId(input.webContentsId);
   if (!contents) throw new Error(`No such webContents: ${input.webContentsId}`);
@@ -508,24 +590,36 @@ export async function bindExtensionSurface(input: {
     throw new Error(`Tab kind "${input.tabKind}" does not belong to "${sessionExtensionId}"`);
   }
   const projectId = input.filePath && !input.sessionId ? (input.projectId ?? null) : null;
-  const filePath = await workspaceRelativeFile(input.sessionId ? { session: input.sessionId } : projectId ? { project: projectId } : null, input.filePath);
+  const prior = bindings.get(input.webContentsId);
+  const change = { previousSession: bindingChanges.get(input.webContentsId)?.previousSession ?? prior?.sessionId ?? null };
+  bindingChanges.set(input.webContentsId, change);
+  if (prior && prior.sessionId !== (input.sessionId ?? null)) {
+    prior.sessionId = null;
+    extensionProjections.closePage(input.webContentsId);
+  }
+  const recover = (error: unknown) => restoreBindingChange(input.webContentsId, prior, change, error);
+  const filePath = await workspaceRelativeFile(input.sessionId ? { session: input.sessionId } : projectId ? { project: projectId } : null, input.filePath).catch(recover);
   // Bound again for another group or file (the host normally retargets instead): the open files the
   // page holds were granted under the old binding, so they go, as in `retargetExtensionSurface`.
+  const chatId = await surfaceResourceChat(input.chatId, input.operator).catch(recover);
+  if (bindingChanges.get(input.webContentsId) !== change) throw new Error('That surface binding changed');
   const previous = bindings.get(input.webContentsId);
-  if (previous && (previous.chatId !== (input.chatId ?? null) || previous.itemId !== (input.itemId ?? null))) {
+  if (previous && (previous.chatId !== chatId || previous.itemId !== (input.itemId ?? null))) {
     fileSync.revoke(input.webContentsId, 'unbound');
   }
   bindings.set(input.webContentsId, {
+    ...(input.opening ? { opening: input.opening } : {}),
     extensionId: sessionExtensionId,
     sessionId: input.sessionId ?? null,
     tabId: input.tabId,
     tabName,
     filePath,
     projectId,
-    chatId: input.chatId ?? null,
+    chatId,
     itemId: input.itemId ?? null,
     embedderId: contents.hostWebContents?.id ?? null,
     operator: input.operator ?? { kind: 'person' },
+    ...(input.modal ? { modal: input.modal } : {}),
     // Zero until the pane reports its box. Stated rather than guessed: a made-up
     // size would be indistinguishable from a measured one.
     metrics: { visible: true, width: 0, height: 0 },
@@ -540,9 +634,8 @@ export async function bindExtensionSurface(input: {
       log.warn('[extensions] a page\'s session was found on no machine; it hears no machine\'s program', { sessionId, error: error instanceof Error ? error.message : String(error) });
     });
   }
-  contents.once('destroyed', () => unbindExtensionSurface(input.webContentsId));
-  // Bound again (a task's tab binds at every dom-ready): it already listens.
-  if (!previous) contents.on('did-navigate', () => newDocument(input.webContentsId));
+  bindingChanges.delete(input.webContentsId);
+  observeDocument(contents);
   // 在这条线上等着的那些调用,现在可以往下走了。
   resolveBindingWaiters(input.webContentsId);
   flushQueuedSurfaceEvents(input.webContentsId, bindings.get(input.webContentsId)!);
@@ -594,7 +687,8 @@ function flushQueuedSurfaceEvents(webContentsId: number, binding: SurfaceBinding
   for (let i = 0; i < queuedSurfaceEvents.length; ) {
     const queued = queuedSurfaceEvents[i]!;
     const mine = queued.extensionId === binding.extensionId && queued.where === where
-      && (queued.item === null ? !itemsOnly : queued.item === fileOf(binding));
+      && (queued.event.type !== 'link' || queued.event.tab === binding.tabName)
+      && (queued.item === null ? !itemsOnly && (queued.event.type !== 'link' || queued.event.file !== null || fileOf(binding) === null) : queued.item === fileOf(binding));
     if (queued.expiresAt < now || mine) {
       queuedSurfaceEvents.splice(i, 1);
       if (queued.expiresAt >= now) due.push(queued.event);
@@ -621,16 +715,13 @@ export function deliverToExtension(
 ): { background: boolean; views: number } {
   let background = false;
   const backgroundId = extensionBackgroundWebContentsId(extensionId);
-  const backgroundContents = backgroundId === null ? null : webContents.fromId(backgroundId);
-  if (backgroundContents && !backgroundContents.isDestroyed()) {
-    sendEvent(backgroundContents, event);
-    background = true;
-  }
+  if (backgroundId !== null) background = hearOn(backgroundId)(event);
   let views = 0;
   if (opened) {
     const where = whereKey(opened);
     for (const [webContentsId, binding] of bindings) {
       if (binding.extensionId !== extensionId || whereOf(binding) !== where) continue;
+      if (event.type === 'link' && (event.tab !== binding.tabName || (event.file === null && fileOf(binding) !== null))) continue;
       const contents = webContents.fromId(webContentsId);
       if (!contents || contents.isDestroyed()) continue;
       sendEvent(contents, event);
@@ -698,6 +789,7 @@ export function currentOrLastSession(): { sessionId: string; projectId: string }
  * 尺寸留着:新的一格换完会再报一次,一样大就什么都不推,不一样大才再推一次(摩擦单 F115:原来清零,每换一次都推两遍)。
  */
 export async function retargetExtensionSurface(input: {
+  opening?: PreparedChatFile;
   webContentsId: number;
   sessionId?: string;
   tabId: string;
@@ -710,10 +802,20 @@ export async function retargetExtensionSurface(input: {
   const contents = webContents.fromId(input.webContentsId);
   if (!contents || contents.isDestroyed()) throw new Error(`No such webContents: ${input.webContentsId}`);
   const sessionId = input.sessionId ?? null;
-  const filePath = await workspaceRelativeFile(sessionId ? { session: sessionId } : null, input.filePath);
+  const change = { previousSession: bindingChanges.get(input.webContentsId)?.previousSession ?? binding.sessionId };
+  bindingChanges.set(input.webContentsId, change);
+  const previousSession = change.previousSession;
+  if (previousSession !== sessionId) {
+    binding.sessionId = null;
+    extensionProjections.closePage(input.webContentsId);
+  }
+  const recover = (error: unknown) => restoreBindingChange(input.webContentsId, binding, change, error);
+  const filePath = await workspaceRelativeFile(sessionId ? { session: sessionId } : null, input.filePath).catch(recover);
+  const chatId = await surfaceResourceChat(input.chatId, binding.operator).catch(recover);
+  if (bindings.get(input.webContentsId) !== binding || bindingChanges.get(input.webContentsId) !== change) throw new Error('That surface binding changed');
   // Another handed-over file: the one it could open without a capability was the old one, so its open files go (it is
   // told, and reopens what it may). Its other files were never the place's to give.
-  if (sessionId !== binding.sessionId || filePath !== binding.filePath || (input.itemId ?? null) !== binding.itemId) {
+  if (sessionId !== previousSession || filePath !== binding.filePath || (input.itemId ?? null) !== binding.itemId) {
     fileSync.revoke(input.webContentsId, 'unbound');
   }
   const was = fileOf(binding);
@@ -721,14 +823,19 @@ export async function retargetExtensionSurface(input: {
   binding.tabId = input.tabId;
   binding.filePath = filePath;
   binding.projectId = null;
-  binding.chatId = input.chatId ?? null;
+  binding.chatId = chatId;
   binding.itemId = input.itemId ?? null;
+  binding.opening = input.opening;
+  bindingChanges.delete(input.webContentsId);
   pushContext(input.webContentsId);
   // Moved to a file a pill or a link is waiting to open: its place is this page's now.
   if (fileOf(binding) !== null && fileOf(binding) !== was) flushQueuedSurfaceEvents(input.webContentsId, binding, true);
 }
 
 export function unbindExtensionSurface(webContentsId: number): void {
+  bindingChanges.delete(webContentsId);
+  extensionProjections.closePage(webContentsId);
+  void appModals.pageGone(webContentsId);
   bindings.delete(webContentsId);
   agentPages.delete(webContentsId);
   // Its open files rested on the binding — but only a page that lives on (uninstall, disable) loses
@@ -774,16 +881,18 @@ function asCallingAgent(caller: BridgeCaller, page: DesktopFilePage, args: Recor
 }
 
 /** Who reads a chat's files for a caller: the person, or the agent its page works as (`*_as`). */
-const readerOf = (caller: BridgeCaller, chatId: string): string | null => caller.filePage({ place: { chat: chatId } }).asAgent ?? null;
-const hearsFiles = (caller: BridgeCaller) => extensionsService().hasCapability(caller.extensionId, 'files:read');
+const readerOf = (caller: BridgeCaller, chatId: string): string | null => caller.filePage({ place: { chat: chatId } }, true).asAgent ?? null;
+const hearsFiles = (caller: BridgeCaller, chatId: string) => extensionsService().hasCapability(caller.extensionId, 'files:read')
+  && (caller.callingAgent === undefined || readerOf(caller, chatId) !== null);
 const readKey = (chatId: string, reader: string | null) => `${chatId}:${reader ?? 'person'}`;
 
 /** A chat no caller hears as `caller`'s reader any more (it stopped, or its page went): what was kept for it goes. */
 function forgetUnheard(place: AppPlace, caller: BridgeCaller): void {
   if (!('chat' in place)) return;
-  const key = placeKey(place);
   const reader = readerOf(caller, place.chat);
-  for (const { caller: other, places } of pageWatches.values()) if (places.has(key) && readerOf(other, place.chat) === reader) return;
+  for (const places of pageWatches.values()) for (const watch of places.values()) {
+    if (placeKey(watch.resource) === placeKey(place) && hearsFiles(watch.caller, place.chat) && readerOf(watch.caller, place.chat) === reader) return;
+  }
   groupReads.forget(readKey(place.chat, reader));
 }
 
@@ -803,7 +912,9 @@ export function notifyGroupWorkspaceChanged(changes: readonly GroupFilesChange[]
   for (const { chatId, itemIds } of changes) {
     const key = placeKey({ chat: chatId });
     const readers = new Set<string | null>();
-    for (const { caller, places } of pageWatches.values()) if (places.has(key) && hearsFiles(caller)) readers.add(readerOf(caller, chatId));
+    for (const places of pageWatches.values()) for (const watch of places.values()) {
+      if (placeKey(watch.resource) === key && hearsFiles(watch.caller, chatId)) readers.add(readerOf(watch.caller, chatId));
+    }
     for (const reader of readers) {
       reads.push(groupReads.want(readKey(chatId, reader), itemIds, async (wanted) => {
         const change = await changedGroupFiles(chatId, reader, wanted);
@@ -816,10 +927,9 @@ export function notifyGroupWorkspaceChanged(changes: readonly GroupFilesChange[]
 
 function tellGroupFiles(chatId: string, reader: string | null, change: { entries: AppFileEntry[]; gone: string[] }): void {
   const key = placeKey({ chat: chatId });
-  for (const { caller, places } of pageWatches.values()) {
-    const watched = places.get(key);
-    if (!watched || !hearsFiles(caller) || readerOf(caller, chatId) !== reader) continue;
-    caller.hear({ type: 'filesChanged', place: watched.place, change: { kind: 'entries', ...change } });
+  for (const places of pageWatches.values()) for (const [watchId, watched] of places) {
+    if (placeKey(watched.resource) !== key || !hearsFiles(watched.caller, chatId) || readerOf(watched.caller, chatId) !== reader) continue;
+    watched.caller.hear({ type: 'filesChanged', watchId, place: watched.place, change: { kind: 'entries', ...change } });
   }
 }
 
@@ -848,7 +958,7 @@ export function notifyInstalledAppsChanged(): Promise<void> {
     }
   }
   const chats = new Set<string>();
-  for (const { places } of pageWatches.values()) for (const { place } of places.values()) if ('chat' in place) chats.add(place.chat);
+  for (const places of pageWatches.values()) for (const { resource } of places.values()) if ('chat' in resource) chats.add(resource.chat);
   return notifyGroupWorkspaceChanged([...chats].map((chatId) => ({ chatId, itemIds: 'all' as const })));
 }
 
@@ -888,7 +998,7 @@ export interface ExtensionBridgeHost {
   deliver(
     origin: ExtensionHostActionOrigin & { embedderId: number | null },
     action: ExtensionHostAction
-  ): Promise<void>;
+  ): Promise<ExtensionHostActionResult>;
   /**
    * Host-side facts main cannot compute on its own (language, theme) plus the
    * window state it can (fullscreen), read together so one call answers「用户此刻
@@ -921,7 +1031,7 @@ function requireHost(): ExtensionBridgeHost {
 }
 
 /** Sends one action to the renderer that draws this surface: a tab of a task, or a slot in no task (`sessionId` null). */
-function deliver(binding: SurfaceBinding, action: ExtensionHostAction): Promise<void> {
+function deliver(binding: SurfaceBinding, action: ExtensionHostAction): Promise<ExtensionHostActionResult> {
   return requireHost().deliver(
     {
       extensionId: binding.extensionId,
@@ -937,7 +1047,7 @@ function deliver(binding: SurfaceBinding, action: ExtensionHostAction): Promise<
  * A session brought up the way a click on its row in the task list brings it, from any page of gugu — the way an agent's
  * banner brings its session up (notificationFocusSessionChannel): `showSession`, and a session's `compose`.
  */
-async function bringSessionUp(session: { sessionId: string; projectId: string }): Promise<void> {
+export async function bringSessionUp(session: { sessionId: string; projectId: string; beside?: true; groupParticipantRequestId?: string }): Promise<void> {
   const [{ events }, { notificationFocusSessionChannel }] = await Promise.all([import('@main/lib/events'), import('@shared/events/appEvents')]);
   events.emit(notificationFocusSessionChannel, session);
 }
@@ -948,6 +1058,14 @@ async function bringSessionUp(session: { sessionId: string; projectId: string })
  * (the window says so, `chatMembersChanged`); every page of the chat is then told (`onContextChanged`).
  */
 const chatsDrawnIn = new Map<string, { chat: ExtensionChat | null; members: NonNullable<ExtensionHostContext['chat']>['members'] }>();
+
+/** A person's live chat context already names its resource container. Agent membership is checked as that agent. */
+async function surfaceResourceChat(chatId: string | undefined, operator?: ExtensionOperator): Promise<string | null> {
+  if (!chatId) return null;
+  const asAgent = operator?.kind === 'agent' ? operator.id.replace(/^user:/, '') : null;
+  const chat = asAgent ? undefined : chatsDrawnIn.get(chatId)?.chat;
+  return chat?.id ?? resourceChatOf(chatId, { asAgent });
+}
 
 async function readChatMembers(chatId: string): Promise<void> {
   if (![...bindings.values()].some((binding) => binding.chatId === chatId)) {
@@ -1023,7 +1141,7 @@ async function sessionMachineOf(sessionId: string): Promise<SessionMachine | nul
 
 /** The file this page was opened for (`ctx.file`), named where it lives. */
 function handedFileOf(binding: SurfaceBinding): (AppFileRef & { id: string }) | null {
-  if (binding.chatId && binding.itemId) return { chat: binding.chatId, id: binding.itemId };
+  if (binding.chatId && binding.itemId) return { chat: binding.chatId, id: binding.itemId, ...(binding.opening ? { version: binding.opening.entry.version } : {}) };
   if (binding.sessionId && binding.filePath) return { session: binding.sessionId, id: binding.filePath };
   if (binding.projectId && binding.filePath) return { project: binding.projectId, id: binding.filePath };
   return null;
@@ -1045,6 +1163,7 @@ function contextFor(binding: SurfaceBinding, session: ExtensionSession | undefin
   return {
     apiVersion: EXTENSION_API_VERSION,
     tabId: binding.tabId,
+    ...(binding.modal ? { modal: { data: binding.modal.data } } : {}),
     ...(drawnIn?.chat ? { chat: { ...drawnIn.chat, members: drawnIn.members } } : {}),
     ...(session ? { session } : {}),
     // Absent stays absent: a tab opened from the entry rail has no file.
@@ -1193,30 +1312,7 @@ function appStateFor(extensionId: string): ExtensionAppState {
   const { windowFocused } = requireHost().presentation();
   const mayReadAgents = extensionsService().hasCapability(extensionId, 'agents:read');
   const mayReachWorkspace = capabilities.includes('files:read') || capabilities.includes('files:write');
-  return {
-    windowFocused,
-    activeSessionId: appView.activeSessionId,
-    activeProjectId: appView.activeProjectId,
-    panes: appView.panes.map((pane) => ({
-      paneId: pane.paneId,
-      focused: pane.focused,
-      activeTab: pane.activeTab ? redactTab(pane.activeTab, mayReadAgents, mayReachWorkspace) : null,
-    })),
-  };
-}
-
-/** Absent means「没给我看」— never「这个 tab 不是 agent」, which `kind` answers. */
-function redactTab(
-  tab: { tabId: string; kind: string; agentId?: string; filePath?: string },
-  mayReadAgents: boolean,
-  mayReachWorkspace: boolean
-): ExtensionPaneTab {
-  return {
-    tabId: tab.tabId,
-    kind: tab.kind,
-    ...(mayReadAgents && tab.agentId && appViewAgentIds.has(tab.agentId) ? { agentId: appViewAgentIds.get(tab.agentId) } : {}),
-    ...(mayReachWorkspace && tab.filePath ? { filePath: tab.filePath } : {}),
-  };
+  return appStateOf(appView, windowFocused, { agents: mayReadAgents, files: mayReachWorkspace }, appViewAgentIds);
 }
 
 /** Pushes the current app state to every page and background page. Silent for one that has gone away. */
@@ -1289,9 +1385,7 @@ async function flushAgentChanges(changed: string[]): Promise<void> {
     // `changed` are sessions; the App hears of them by the id it names agents with (F35).
     const agentIds = [...visible].filter(([, conversationId]) => changed.includes(conversationId)).map(([agentId]) => agentId);
     if (agentIds.length === 0) continue;
-    const contents = webContents.fromId(id);
-    if (!contents || contents.isDestroyed()) continue;
-    sendEvent(contents, { type: 'agentsChanged', agentIds });
+    hearOn(id)({ type: 'agentsChanged', agentIds });
   }
 }
 
@@ -1327,7 +1421,7 @@ function denied(message: string): ExtensionBridgeResponse {
  */
 function failure(extensionId: string, method: string, error: unknown): ExtensionBridgeResponse {
   const failed = bridgeFailure(error);
-  log.warn('Extension bridge call failed', { extensionId, method, message: failed.message });
+  log.error('Extension bridge call failed', { extensionId, method, message: failed.message });
   return { ok: false, ...failed };
 }
 
@@ -1339,8 +1433,7 @@ function deliverToEveryPage(extensionId: string, event: ExtensionHostEvent, keep
     if (binding.extensionId === extensionId && keep(binding)) ids.add(webContentsId);
   }
   for (const id of ids) {
-    const contents = webContents.fromId(id);
-    if (contents && !contents.isDestroyed()) sendEvent(contents, event);
+    hearOn(id)(event);
   }
 }
 
@@ -1350,6 +1443,10 @@ function deliverToEveryPage(extensionId: string, event: ExtensionHostEvent, keep
  * holds and in the few verbs about a page itself.
  */
 export async function answerCall(caller: BridgeCaller, method: string, args: Record<string, unknown>): Promise<ExtensionBridgeResponse> {
+  if (extensionProjections.isCleanup(caller, method, args)) {
+    try { return { ok: true, value: await extensionProjections.call(caller, method, args) }; }
+    catch (error) { return failure(caller.extensionId, method, error); }
+  }
   // The gesture was read in the preload's world (and a program has none): not here.
   const refusal = callRefusal(method, args, { kind: caller.kind, has: (capability) => extensionsService().hasCapability(caller.extensionId, capability) });
   if (refusal) return { ok: false, ...refusal };
@@ -1358,7 +1455,7 @@ export async function answerCall(caller: BridgeCaller, method: string, args: Rec
   // the capability, so a verb the App may not use is refused there as anywhere.
   const agentPage = caller.binding?.operator.kind === 'agent' ? agentPages.get(caller.pageId) : undefined;
   try {
-    if (agentPage && facts.toAgent && (facts.gesture !== 'to-pick' || args.pick === true)) {
+    if (agentPage && facts.toAgent && (facts.gesture === undefined || needsGesture(method, args))) {
       await handToAgent(caller, agentPage, method, args);
       return { ok: true, value: facts.toAgent.answer };
     }
@@ -1398,10 +1495,15 @@ function agentScope(extensionId: string, word: 'agents:read' | 'agents:history' 
  */
 async function machineCall(caller: BridgeCaller, method: MachineVerb, args: Record<string, unknown>): Promise<unknown> {
   const { binding, extensionId } = caller;
-  if (binding?.sessionId) {
+  if (args.device !== undefined || binding?.sessionId) {
     const manifest = extensionsService().get(extensionId).manifest;
-    const { followsSessionMachine } = await import('@shared/extensions/machine-call');
-    if (followsSessionMachine(manifest, method, args)) {
+    const { followsSessionMachine, appDeviceId } = await import('@shared/extensions/machine-call');
+    if (args.device !== undefined) {
+      const { callOnSessionMachine } = await import('./app-programs-elsewhere');
+      const { device, ...callArgs } = args;
+      const done = await callOnSessionMachine({ extensionId, manifest }, { deviceId: appDeviceId(device) }, method, callArgs, binding?.operator.kind === 'agent');
+      if (done.there) return done.value;
+    } else if (binding?.sessionId && followsSessionMachine(manifest, method, args)) {
       const { callOnSessionMachine } = await import('./app-programs-elsewhere');
       const done = await callOnSessionMachine({ extensionId, manifest }, binding.sessionId, method, args, binding.operator.kind === 'agent');
       if (done.there) return done.value;
@@ -1415,9 +1517,34 @@ async function machineCall(caller: BridgeCaller, method: MachineVerb, args: Reco
 }
 
 async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, args: Record<string, unknown>): Promise<unknown> {
+  if (method.startsWith('projection')) return await extensionProjections.call(caller, method, args);
   if (isMachineVerb(method)) return await machineCall(caller, method, args);
   const { binding, extensionId } = caller;
   switch (method) {
+    case 'modalOpen': {
+      const source = thePage(caller);
+      const modal = appModals.open(caller.pageId, { ...source }, args);
+      try {
+        const installed = extensionsService().get(extensionId);
+        if (!fs.statSync(path.join(installed.rootDir, modal.options.entry), { throwIfNoEntry: false })?.isFile()) throw new Error(`App modal page not found: ${modal.options.entry}`);
+        await deliver(source, { kind: 'openAppModal', page: {
+          id: modal.id, extensionId, appName: installed.manifest.name,
+          title: modal.options.title, size: modal.options.size,
+          partition: extensionPartition(extensionId), entryUrl: extensionResourceUrl(extensionId, modal.options.entry),
+        } });
+      } catch (error) {
+        await appModals.close(modal.id, null, error instanceof Error ? error.message : String(error));
+      }
+      return await appModals.result(modal);
+    }
+    case 'modalClose':
+      return await appModals.close(appModals.forPage(caller.pageId).id, args.result ?? null);
+    case 'modalKey': {
+      const modal = appModals.forPage(caller.pageId);
+      if (args.key !== 'tab') throw Object.assign(new Error('Unknown modal keyboard action'), { code: 'invalid' });
+      await deliver(modal.binding, { kind: 'focusAppModalClose', id: modal.id });
+      return undefined;
+    }
     case 'getContext':
       if (!binding) return contextOutside(extensionId);
       // In a chat, the members and the chat come with the first answer (not a moment later). The chat unread is said (the
@@ -1476,10 +1603,9 @@ async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, arg
       const backgroundId = extensionBackgroundWebContentsId(extensionId);
       // 没声明 background 的扩展、或后台已经没了 —— 响亮失败。静默丢一条消息,
       // 在作者那儿的样子是「我发了,它没反应」,查起来最费。
-      const contents = backgroundId === null ? undefined : webContents.fromId(backgroundId);
-      if (!contents || contents.isDestroyed()) throw new Error('This App has no background instance');
+      if (backgroundId === null) throw new Error('This App has no background instance');
       // 宿主填的,不是视图自报 —— 一个能自报上下文的视图等于能冒充别的会话。形状就是它 context 里的那几项。
-      sendEvent(contents, { type: 'from-view', message: args.message, from: await pageFrom(thePage(caller)) });
+      hearOn(backgroundId)({ type: 'from-view', message: args.message, from: await pageFrom(thePage(caller)) });
       return undefined;
     }
 
@@ -1497,40 +1623,37 @@ async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, arg
       return { delivered };
     }
 
-    case 'spawnAgent': {
-      const { spawnAgentForExtension } = await import('@main/core/extensions/extension-agents');
-      // 新 agent 是一条独立的会话,照调用点名的起(引擎、模型、形态、项目、出生的对话),没点名的照这个人上次新建会话的
-      // 选择 —— ❌ 不看这一页开在哪条会话旁边(真源原则 13)。
-      // 不是字符串就当没给,❌ 别 `String(x)`:`spawnAgent(p, { title: x ?? null })` 会变成一条叫 null 的会话。
-      const text = (key: string) => (typeof args[key] === 'string' && args[key] ? { [key]: args[key] as string } : {});
-      if (args.transport !== undefined && args.transport !== 'acp' && args.transport !== 'pty') {
-        throw Object.assign(new Error('transport is "acp" (a chat UI session) or "pty" (a terminal session)'), { code: 'invalid' });
-      }
-      return await spawnAgentForExtension({
+    case 'dispatch': {
+      // 15: the one way an App hands something to someone (app-dispatch-core.ts) — the shared answer with this computer's
+      // sheet, composers and agents. As whoever works the page (owner 10-14): its agent writes to a chat as itself, and is
+      // the one telling or starting an agent. The sheet lists the page's chat and who is in it, the page's session first.
+      const { dispatchForApp } = await import('@main/core/extensions/extension-send');
+      const page = caller.binding;
+      const drawnIn = page?.chatId ? chatsDrawnIn.get(page.chatId) : undefined;
+      const operator = page?.operator;
+      return await dispatchForApp(
         extensionId,
-        bySession: await operatorSession(caller),
-        // 首轮信封上给人看的名字,与 gugu.send 同源:装着的那份清单。
-        extensionName: extensionsService().get(extensionId).manifest.name,
-        prompt: String(args.prompt ?? ''),
-        ...text('title'),
-        ...text('harness'),
-        ...text('model'),
-        ...(args.transport === 'acp' || args.transport === 'pty' ? { transport: args.transport } : {}),
-        ...text('project'),
-        ...text('chat'),
-      });
-    }
-
-    case 'send':
-    case 'messageAgent': {
-      const { sendFromApp, messageAgentFromApp } = await import('@main/core/extensions/extension-send');
-      // As whoever works the page (owner 10-14): its agent writes the whisper as itself, and is the one telling an agent.
-      const operator = binding?.operator;
-      const sent =
-        method === 'send'
-          ? await sendFromApp(extensionId, { to: args.to, text: args.text, chat: args.chat, refs: args.refs, about: args.about }, operator?.kind === 'agent' ? { as: operator.id.replace(/^user:/, '') } : {})
-          : await messageAgentFromApp(extensionId, { agentId: args.agentId, text: args.text, queue: args.queue, defer: args.defer, key: args.key }, { from: await operatorSession(caller) });
-      return { id: sent.id, ...('deferred' in sent && sent.deferred ? { deferred: true } : {}) };
+        args,
+        {
+          chat: drawnIn?.chat ? { id: drawnIn.chat.id, name: drawnIn.chat.name, members: drawnIn.members } : null,
+          session: page?.sessionId ?? null,
+          ...(operator?.kind === 'agent' ? { as: operator.id.replace(/^user:/, '') } : {}),
+        },
+        {
+          pick: async (ask) => {
+            const { pickDispatchTarget } = await import('@main/core/extensions/extension-bridge-relay');
+            return pickDispatchTarget(thePage(caller).embedderId, ask);
+          },
+          draftInChat: async (detail) => { await deliver(thePage(caller), { kind: 'compose', detail }); },
+          draftInSession: async (session, text) => {
+            // Opened the one way a session is opened, then the draft in its composer.
+            const opened = await (await import('./gugu-links')).openLink({ kind: 'session', sessionId: session.id, projectId: session.projectId });
+            if (opened.kind === 'failed') throw new Error(`The session did not open: ${opened.reason}${opened.detail ? ` (${opened.detail})` : ''}`);
+            await deliver(thePage(caller), { kind: 'compose', sessionId: session.id, text });
+          },
+          from: await operatorSession(caller),
+        },
+      );
     }
 
     case 'messagesHistory':
@@ -1582,10 +1705,11 @@ async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, arg
           await deliver(thePage(caller), { kind: 'forumConsent', detail: { type: 'bounty', draft: forum.bountyDraft(args) } });
           return { confirming: true };
         }
-        case 'forumAssign':
-          // The person picks one of their own agents in the window's list (ForumConsent): an App never lists them.
-          await deliver(thePage(caller), { kind: 'forumConsent', detail: { type: 'assign', draft: await forum.assignDraft(args.postId, args.agentId) } });
-          return { confirming: true };
+        case 'forumAssign': {
+          // The person picks one of their own agents in the window's 「交给谁」 sheet (DispatchSheet): an App never lists them.
+          const { pickDispatchTarget } = await import('@main/core/extensions/extension-bridge-relay');
+          return await forum.assign(args.postId, args.agentId, (ask) => pickDispatchTarget(thePage(caller).embedderId, ask));
+        }
         default: {
           await deliver(thePage(caller), { kind: 'forumConsent', detail: { type: 'award', draft: await forum.awardDraft(args.postId, args.awards) } });
           return { confirming: true };
@@ -1637,24 +1761,16 @@ async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, arg
       // 范围在这里定,而且只在这里定:门禁查的是窄的那个词,宽窄之差不体现为「能不能调」,而体现为「答得多宽」。
       // 惰性 import:静态引它会把会话/DB/日志整条栈拖进桥的模块图;桥是每次 IPC 都要过的路,它的依赖越少越好。
       const { listAgentsForExtension } = await import('@main/core/extensions/extension-agents');
-      const { agents, unreached } = await listAgentsForExtension({ scope: agentScope(extensionId, 'agents:read'), extensionId });
+      const scope = agentScope(extensionId, 'agents:read');
+      const { agents, unreached } = await listAgentsForExtension({ scope, extensionId });
       // 问不到的机器(离线、太旧、没回话)不在清单里,记一条,❌ 静默。
       for (const machine of unreached) log.warn('listAgents: another machine was not read', { extensionId, ...machine });
-      return agents;
-    }
-
-    case 'compose': {
-      // Whose composer the call names (真源原则 13), never the page's: a chat's (brought up by the window), or a session's
-      // — brought on screen first, as a banner's click brings it.
-      const { composeTarget } = await import('@main/core/extensions/extension-send');
-      const target = await composeTarget({ text: args.text, chat: args.chat, session: args.session, refs: args.refs, about: args.about, images: args.images });
-      if ('session' in target) {
-        await bringSessionUp({ sessionId: target.session.id, projectId: target.session.projectId });
-        await deliver(thePage(caller), { kind: 'compose', sessionId: target.session.id, text: target.text });
-        return undefined;
+      // Monitoring must distinguish an unreachable computer from a removed agent. Scope and rows stay the same.
+      if (args.report === true) {
+        const devices = scope === 'all-machines' ? await (await import('@main/core/sessions/session-family')).otherMachines().devices() : [];
+        return agentReport(agents, unreached, devices);
       }
-      await deliver(thePage(caller), { kind: 'compose', detail: target });
-      return undefined;
+      return agents;
     }
 
     case 'notify': {
@@ -1664,19 +1780,14 @@ async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, arg
     }
 
     case 'linkTo': {
-      const { extensionLink } = await import('@main/core/extensions/extension-links');
-      const tab = typeof args.tab === 'string' ? args.tab : undefined;
-      const named = (value: unknown) => value !== undefined && value !== null;
-      // Where it opens, as the call names it: a session's tab, the App in a chat's panel, or its own page.
-      if (named(args.chat) && named(args.session)) throw Object.assign(new Error('A link opens in one place: { chat } or { session }'), { code: 'invalid' });
-      const place = named(args.chat) || named(args.session) ? (placeOf(named(args.chat) ? { chat: args.chat } : { session: args.session }) as LinkPlace) : null;
-      return extensionLink({
-        extensionId,
-        ...(tab ? { tab } : {}),
-        path: typeof args.path === 'string' ? args.path : '',
-        query: (args.query ?? {}) as Record<string, unknown>,
-        place,
-      });
+      const { linkTo } = await import('./gugu-links');
+      const { linkTargetOf } = await import('@gugu/core/shared/ui/guguLink');
+      return linkTo(linkTargetOf(args, extensionsService().get(extensionId).manifest), args.external === true);
+    }
+
+    case 'showContextMenu': {
+      const { showAppContextMenu } = await import('./app-context-menu');
+      return showAppContextMenu(caller.pageId, args);
     }
 
     case 'filesOpen':
@@ -1685,18 +1796,20 @@ async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, arg
     case 'filesList':
     case 'filesSearch':
     case 'filesRecent':
+    case 'filesViewPreferences':
     case 'filesCreate':
     case 'filesRemove':
     case 'filesReplace':
     case 'filesVersions':
     case 'filesReadVersion':
     case 'filesRename':
+    case 'filesKeep':
     case 'filesMkdir':
     case 'filesMove': {
       const files = await import('@main/core/extensions/app-files');
       // Every call names where its file is (真源原则 13); the caller only says which file it may open as handed. Closing
       // what it opened is never refused.
-      const page = method === 'filesClose' ? caller.filePage(args) : asCallingAgent(caller, caller.filePage(args), args);
+      const page = method === 'filesClose' ? caller.filePage(args) : asCallingAgent(caller, await caller.resourcePage(args), args);
       const verbs = {
         filesOpen: 'openAppFile',
         filesReopen: 'reopenAppFile',
@@ -1705,8 +1818,10 @@ async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, arg
         filesSearch: 'searchAppFiles',
         filesRecent: 'recentAppFiles',
         filesCreate: 'createAppFile',
+        filesViewPreferences: 'appFileViewPreferences',
         filesRemove: 'removeAppFile',
         filesRename: 'renameAppFile',
+        filesKeep: 'keepAppFile',
         filesMkdir: 'makeAppFolder',
         filesMove: 'moveAppFile',
         filesReplace: 'replaceAppFile',
@@ -1717,19 +1832,16 @@ async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, arg
     }
 
     case 'filesWatch':
-      if (args.on !== false) asCallingAgent(caller, caller.filePage(args), args);
-      await watchFiles(caller, placeOf(args.place), args.on !== false);
+      if (typeof args.watchId !== 'string' || !args.watchId) throw Object.assign(new Error('A file watch needs its subscription id'), { code: 'invalid' });
+      await watchFiles(caller, args.watchId, placeOf(args.place), args.on !== false);
       return undefined;
 
     case 'filesUpload': {
       const files = await import('@main/core/extensions/app-files');
-      const page = asCallingAgent(caller, caller.filePage(args), args);
+      const page = asCallingAgent(caller, await caller.resourcePage(args), args);
       const place = placeOf(args.place);
-      // `pick` only ever arrives from the preload's gesture-checked path — a page's: a background page or a program
-      // uploads bytes it has (G5), it never opens the person's picker.
-      if (args.pick === true && caller.kind !== 'page') {
-        throw Object.assign(new Error(`files.upload(place, file): ${CALLER_WORDS[caller.kind]} uploads the bytes it has; only a page opens the picker`), { code: 'invalid' });
-      }
+      // `pick` is a page's, in its gesture (the door refuses it from anyone else): a background page or a program uploads
+      // the bytes it has (G5), it never opens the person's picker.
       // The window the page is drawn in: the picker sits on it.
       const shown = args.pick === true ? thePage(caller) : null;
       const owner = shown?.embedderId == null ? null : (webContents.fromId(shown.embedderId) ?? null);
@@ -1737,6 +1849,7 @@ async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, arg
       if (!Array.isArray(picked)) throw Object.assign(new Error('files.upload takes files, or none to pick'), { code: 'invalid' });
       // 子文件夹: the folder they go in, when the call names one.
       if (picked.length === 0) return [];
+      if (args.keep !== undefined) return await files.uploadAppFiles(page, place, picked, args.sourceMessageIds, args.folder, args.keep);
       return args.folder === undefined
         ? await files.uploadAppFiles(page, place, picked, args.sourceMessageIds)
         : await files.uploadAppFiles(page, place, picked, args.sourceMessageIds, args.folder);
@@ -1747,7 +1860,7 @@ async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, arg
     case 'showMessage': {
       const files = await import('@main/core/extensions/app-files');
       const shown = thePage(caller);
-      const page = caller.filePage(args);
+      const page = method === 'showMessage' ? caller.filePage(args) : await caller.resourcePage(args);
       // The window the page is drawn in: dialogs sit on it, and it is the one that shows chats.
       const owner = shown.embedderId === null ? null : (webContents.fromId(shown.embedderId) ?? null);
       if (method === 'filesDownload') return await files.downloadAppFile(page, args as never, owner);
@@ -1760,18 +1873,37 @@ async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, arg
         // the host's preview there, so nothing is refused for want of an App.
         const ask = (args as { ask?: unknown }).ask === true;
         const peek = (args as { peek?: unknown }).peek === true;
-        const target = await files.openWithTarget(page, { ref: args.ref, ask, peek });
+        const ref = fileRefOf(args.ref);
+        // A live file already has its authorized replica. Show its existing tab before validating metadata again.
+        const opened = !ask && !peek && !args.at && !isLocal(ref) && 'id' in ref && shown.operator.kind === 'person'
+          ? [...bindings.entries()].filter(([id, binding]) => binding.itemId === ref.id && binding.chatId === shown.chatId
+            && (ref.chat === undefined || ref.chat === binding.chatId)
+            && binding.embedderId === shown.embedderId && binding.operator.kind === 'person' && fileSync.openCount(id) > 0)
+          : [];
+        const current = opened.length === 1 ? opened[0] : undefined;
+        const resumed = current && current[1].chatId ? await deliver(shown, {
+          kind: 'openChatFile', chatId: current[1].chatId, itemId: current[1].itemId!,
+          onlyIfOpen: `${current[1].extensionId}.${current[1].tabName}`,
+        }) : undefined;
+        let target: Awaited<ReturnType<typeof files.openWithTarget>>;
+        try {
+          target = await files.openWithTarget(page, { ref, ask, peek });
+        } catch (error) {
+          if (resumed && current && bindings.get(current[0]) === current[1]
+            && error instanceof files.AppFileError && (error.code === 'not-found' || error.code === 'denied')) {
+            void fileSync.revoke(current[0], 'removed-from-group', (grant) => grant.itemId === current[1].itemId);
+          }
+          throw error;
+        }
         if (target.kind === 'session') return undefined;
         if (target.kind === 'peek') return void (await deliver(shown, { kind: 'peek', target: target.target }));
         const choice = files.openerChoice(target.target.typedName, ask);
         const { chatId, itemId } = target.target;
         const place = placeFor(choice, (args as { at?: unknown }).at);
         if (place) deliverToOpeningPage(place.candidate.extensionId, placeLink(place.candidate, place.at, itemId), { chat: chatId }, itemId);
-        const { file, ...detail } = target.target;
-        if (peek) return void (await deliver(shown, { kind: 'peek', target: { kind: 'chat', detail: { ...detail, choice }, file } }));
-        await deliver(shown, { kind: 'openWith', detail: { ...detail, choice } });
-        // Nobody here opens it: the window offers the App that would (`none`), and the App is told as before.
-        if (choice.kind === 'none') throw noOpenerError(target.target.typedName);
+        const detail = { ...target.target, choice, ...(resumed ? { background: true } : {}) };
+        if (peek) return void (await deliver(shown, { kind: 'peek', target: { kind: 'chat', detail } }));
+        await deliver(shown, { kind: 'openWith', detail });
         return undefined;
       }
       await deliver(shown, { kind: 'showMessage', detail: await files.messageToShow(args as never) });
@@ -1786,31 +1918,34 @@ async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, arg
         import('@main/core/extensions/extension-bridge-relay'),
       ]);
       // `peek` (G1): the session's own page beside the page that asked, in its slot — found the same way.
-      const bringUp = (args as { peek?: unknown }).peek === true
-        ? (session: { sessionId: string; projectId: string }) => deliver(thePage(caller), { kind: 'peek', target: { kind: 'session', ...session } })
-        : bringSessionUp;
-      await showSession(args.id, { projectHere: sessionHere, projectListed: listedSessionProject, bringUp });
+      if ((args as { peek?: unknown }).peek === true) {
+        const bringUp = async (session: { sessionId: string; projectId: string }) => { await deliver(thePage(caller), { kind: 'peek', target: { kind: 'session', ...session } }); };
+        await showSession(args.id, { projectHere: sessionHere, projectListed: listedSessionProject, bringUp });
+        return undefined;
+      }
+      // Otherwise it opens the one way every session is opened (gugu-links.openLink); its failure in this API's codes.
+      const { openLink } = await import('./gugu-links');
+      const outcome = await openLink({ kind: 'session', sessionId: sessionIdOf(args.id) });
+      if (outcome.kind === 'failed') {
+        throw Object.assign(new Error(outcome.reason === 'no-session'
+          ? `Session ${sessionIdOf(args.id)} is not on this computer or in your task list`
+          : `The task page did not answer (${outcome.detail ?? outcome.reason}): try again once it shows`), { code: outcome.reason === 'no-session' ? 'not-found' : 'failed' });
+      }
       return undefined;
     }
 
     case 'openLink': {
-      // The gesture was checked in the preload. Only a link of gugu's own, by its structure (scheme, `ext`, an App, one
-      // of its tabs) — and then the very opener a link from outside gugu goes through.
-      const { currentLinkScheme, openExtensionLink, parseExtensionLink } = await import('@main/core/extensions/extension-links');
-      const url = typeof args.url === 'string' ? args.url : '';
-      if (!parseExtensionLink(url, currentLinkScheme())) {
-        throw Object.assign(new Error('Only links of gugu\'s own (gugu.linkTo) open from a page; open others with gugu.openBrowserTab(url).'), { code: 'invalid' });
-      }
-      const outcome = await openExtensionLink(url);
-      if (outcome.kind === 'failed') {
-        throw Object.assign(new Error(`That link did not open: ${outcome.reason}${outcome.detail ? ` (${outcome.detail})` : ''}`), { code: 'failed' });
+      const { openLink } = await import('./gugu-links');
+      const outcome = await openLink(typeof args.url === 'string' ? args.url : '');
+      if (outcome.kind !== 'opened') {
+        throw Object.assign(new Error(outcome.kind === 'failed' ? `That link did not open: ${outcome.reason}${outcome.detail ? ` (${outcome.detail})` : ''}` : 'Only gugu resource links open here; use gugu.openBrowserTab for a web page.'), { code: outcome.kind === 'failed' ? 'failed' : 'invalid' });
       }
       return undefined;
     }
 
     case 'clipboardWriteText':
       // The gesture was checked in the preload (the only world a page cannot reach).
-      clipboard.writeText(pageArgument('clipboardWriteText', args));
+      await clipboard.writeText(pageArgument('clipboardWriteText', args));
       return undefined;
 
     default:
@@ -1859,11 +1994,61 @@ export function registerExtensionBridge(): void {
       const method = typeof request.method === 'string' ? request.method : '';
       const args = (request.args ?? {}) as Record<string, unknown>;
 
+      // Shell controls share the App request channel, restricted to the recorded owning window.
+      if (method === 'modalHost') {
+        try {
+          const modal = appModals.get(String(args.id ?? ''));
+          if (event.sender.id !== modal.binding.embedderId) return denied("Only this modal's host window may control it");
+          switch (args.type) {
+            case 'bind': {
+              if (typeof args.webContentsId !== 'number') throw new Error('Missing modal content page');
+              const source = modal.binding;
+              const child = webContents.fromId(args.webContentsId);
+              if (!bindings.has(modal.opener) || !child || child.hostWebContents?.id !== source.embedderId) {
+                throw new Error('The App modal and its opener must be in the same window');
+              }
+              appModals.bind(modal.id, args.webContentsId);
+              try {
+                await bindExtensionSurface({
+                  webContentsId: args.webContentsId, extensionId: source.extensionId,
+                  tabId: source.tabId, tabKind: `${source.extensionId}.${source.tabName}`,
+                  ...(source.sessionId ? { sessionId: source.sessionId } : {}),
+                  ...(source.chatId ? { chatId: source.chatId } : {}),
+                  ...(source.itemId ? { itemId: source.itemId } : {}),
+                  ...(source.filePath ? { filePath: source.filePath } : {}),
+                  ...(source.projectId ? { projectId: source.projectId } : {}),
+                  operator: source.operator, modal: { id: modal.id, data: modal.options.data },
+                });
+              } catch (error) {
+                await appModals.close(modal.id, null, error instanceof Error ? error.message : String(error));
+                throw error;
+              }
+              break;
+            }
+            case 'dismiss':
+              await appModals.close(modal.id, null, typeof args.error === 'string' ? args.error : undefined);
+              break;
+            case 'focus':
+              if (args.edge !== 'first' && args.edge !== 'last') throw new Error('Unknown modal focus edge');
+              if (modal.child !== null) hearOn(modal.child)({ type: 'modalFocus', edge: args.edge });
+              break;
+            default: throw new Error('Unknown modal host action');
+          }
+          return { ok: true, value: undefined };
+        } catch (error) { return failure('host', 'modalHost', error); }
+      }
+
       // Identity from the session the call arrived on. Everything else in the
       // payload is data an untrusted page chose.
       const extensionId = extensionIdForSession(event.sender.session);
       if (!extensionId) {
         return denied('This surface is not an App surface');
+      }
+      // A runtime may subscribe before its host binds it. Capture its document before that first wait too.
+      const documentWatches = method === 'filesWatch' ? fileWatchesFor(event.sender.id) : null;
+      if (documentWatches) {
+        const contents = webContents.fromId(event.sender.id);
+        if (contents) observeDocument(contents);
       }
 
       // 后台实例没有绑定,也不该有 —— 它不是一格面,没有会话、没有 tab、没有布局。身份仍旧由 session 认
@@ -1874,6 +2059,7 @@ export function registerExtensionBridge(): void {
       // 还没绑上就先等一等 —— 扩展启动时调的动词跑在绑定之前是常态,不是错误。
       // 见 `waitForBinding` 上面那段:等待有上限,等不到照旧响亮失败。
       if (!bindings.has(event.sender.id)) await waitForBinding(event.sender.id);
+      if (documentWatches && pageWatches.get(event.sender.id) !== documentWatches) return { ok: true, value: undefined };
       const binding = bindings.get(event.sender.id);
       if (!binding || binding.extensionId !== extensionId) {
         return { ok: false, code: 'failed', message: 'This page is not bound yet' };

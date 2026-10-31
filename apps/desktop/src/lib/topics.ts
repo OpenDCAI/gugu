@@ -1,3 +1,4 @@
+import { currentGroupAdmin } from './groupAdmin'
 // 话题(topic)的服务层 —— product spec。
 //
 // 话题本身就是一条 chat(kind='topic'),所以**发消息、读历史、已读水位、成员管理一律复用现有
@@ -9,7 +10,7 @@
 //   · 参与者维护 —— 归数据库触发器(说话/被 @ 当场入列),客户端 ❌ 不许直写 chat_members。
 //   · 沉降 —— 纯列表位置,由 last_message_at 派生,不落任何状态位。
 import type { TopicSummary } from '@gugu/core/shared/types/chat'
-import { chatDb } from './supabase'
+import { chatDb, getCurrentAuthUserId } from './supabase'
 
 export type CreateTopicInput = {
   sourceChatId: string
@@ -55,6 +56,18 @@ export type TopicSourceState =
   | { kind: 'gone' }
 
 export const topicService = {
+  /** Archive as the signed-in human; the backend checks source-conversation authority. */
+  async archiveTopic(chatId: string): Promise<void> {
+    const { data, error } = await chatDb.rpc('archive_topic_as', {
+      p_chat_id: chatId,
+      p_as_user_id: await getCurrentAuthUserId(),
+    })
+    if (error) throw new Error(error.message)
+    if (data?.chat_id !== chatId || data?.status !== 'archived') {
+      throw new Error('archive_topic_as: database did not confirm topic deletion')
+    }
+  },
+
   /**
    * 从一条已有消息开一条话题。一步完成 —— ❌ 没有成员勾选、没有可见性开关、没有确认按钮。
    * 必须有来源:服务端校验来源线存在、我在里面、来源消息真属于它,话题上不许再开话题。
@@ -150,11 +163,7 @@ export const topicService = {
 
   /** 一键全撤:把自动转成的 passive 全部还原。撤回不解除「每个群只做一次」的闸门。 */
   async undoAgentFloodAdjustment(adjustmentId: string): Promise<number> {
-    const { data, error } = await chatDb.rpc('undo_agent_flood_adjustment', {
-      p_adjustment_id: adjustmentId,
-    })
-    if (error) throw new Error(error.message)
-    const row = (Array.isArray(data) ? data[0] : data) as { restored?: unknown } | undefined
-    return Number(row?.restored ?? 0)
+    const result = await (await currentGroupAdmin()).undoFlood(adjustmentId)
+    return result.restored as number
   },
 }

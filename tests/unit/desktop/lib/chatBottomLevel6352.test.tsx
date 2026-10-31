@@ -6,7 +6,7 @@
 import { act } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createNode, createReactHarness } from '../../../support/testHarness'
-import { useFollowingTail } from '../../../../apps/desktop/src/components/chat/useFollowingTail'
+import { useFollowingTail, useTailPinning } from '../../../../apps/desktop/src/components/chat/useFollowingTail'
 import { useChatHistoryPagination } from '../../../../apps/desktop/src/components/chat/useChatHistoryPagination'
 import { ChatHistoryWindow, HISTORY_START_INDEX, type HistoryWindow } from '../../../../apps/desktop/src/store/chatHistoryWindow'
 import { message } from '../../../support/testHarness'
@@ -170,5 +170,104 @@ describe('a tail-following window slides instead of shrinking in bulk', () => {
     const window = new ChatHistoryWindow('user-1')
     window.reset('chat-1', rows(101, 200))
     expect(window.getSnapshot().messages).toHaveLength(40)
+  })
+})
+
+
+describe('shared conversation tail pinning', () => {
+  async function setup() {
+    let resized = () => {}
+    vi.stubGlobal('ResizeObserver', class {
+      constructor(callback: () => void) { resized = callback }
+      observe() {}
+      disconnect() {}
+    })
+    const scroller = document.createElement('div')
+    let height = 600
+    Object.defineProperties(scroller, {
+      scrollHeight: { get: () => 12_000 }, clientHeight: { get: () => height },
+    })
+    const isAtBottomRef = { current: true }
+    const autoscrollToBottom = vi.fn()
+    const input = { resetKey: 'chat#1', messages: Array.from({ length: 120 }, (_, i) => ({ id: `m${i}`, is_mine: false })),
+      enabled: true, messageWindow: { hasNewer: false, loading: null, navigation: 'reset', navigationVersion: 0 } as Pick<HistoryWindow, 'hasNewer' | 'loading' | 'navigation' | 'navigationVersion'> }
+    const callbacks = { isPreservingPosition: () => false, prepareForSavedPosition: vi.fn(() => false),
+      forgetSavedPosition: vi.fn(), returnToLatest: vi.fn(async () => {}), onError: vi.fn() }
+    const refs = { scrollerRef: { current: scroller }, listRef: { current: { autoscrollToBottom, scrollToIndex: vi.fn() } }, isAtBottomRef }
+    let actions: ReturnType<typeof useTailPinning>
+    function Probe() { actions = useTailPinning({ ...input, ...callbacks, ...refs, scrollerEl: scroller }); return null }
+    const render = () => harness.render(createNode(Probe))
+    await render()
+    autoscrollToBottom.mockClear()
+    return { input, callbacks, scroller, isAtBottomRef, autoscrollToBottom, render,
+      resize: (next: number) => { height = next; resized() }, pin: () => actions.pinToBottom() }
+  }
+  afterEach(() => vi.unstubAllGlobals())
+
+  it('pins every received tail row while a full window slides without changing height', async () => {
+    const view = await setup()
+    for (let seq = 120; seq < 180; seq++) {
+      view.scroller.scrollTop = 11_200
+      view.input.messages = [...view.input.messages.slice(1), { id: `m${seq}`, is_mine: false }]
+      await view.render()
+      expect(view.scroller.scrollTop).toBe(12_000)
+    }
+    expect(view.autoscrollToBottom).toHaveBeenCalledTimes(60)
+  })
+
+  it('does not pin a received row while the reader is above the tail', async () => {
+    const view = await setup()
+    view.isAtBottomRef.current = false
+    view.scroller.scrollTop = 500
+    view.input.messages = [...view.input.messages.slice(1), { id: 'received', is_mine: false }]
+    await view.render()
+    expect(view.scroller.scrollTop).toBe(500)
+    expect(view.autoscrollToBottom).not.toHaveBeenCalled()
+  })
+
+  it.each(['cached-own-row', 'own-row-from-another-device'])('keeps the historical anchor when %s arrives without a local send intent', async (id) => {
+    const view = await setup()
+    view.isAtBottomRef.current = false
+    view.scroller.scrollTop = 500
+    view.callbacks.forgetSavedPosition.mockClear()
+    view.input.messageWindow = { ...view.input.messageWindow, hasNewer: true }
+    view.input.messages = [...view.input.messages, { id, is_mine: true }]
+    await view.render()
+    expect(view.scroller.scrollTop).toBe(500)
+    expect(view.autoscrollToBottom).not.toHaveBeenCalled()
+    expect(view.callbacks.forgetSavedPosition).not.toHaveBeenCalled()
+    expect(view.callbacks.returnToLatest).not.toHaveBeenCalled()
+  })
+
+  it('pins a local optimistic send through explicit latest navigation while reading history', async () => {
+    const view = await setup()
+    view.isAtBottomRef.current = false
+    view.scroller.scrollTop = 500
+    view.input.messageWindow = { ...view.input.messageWindow, navigation: 'latest', navigationVersion: 1 }
+    view.input.messages = [...view.input.messages, { id: 'local-optimistic', is_mine: true }]
+    await view.render()
+    expect(view.scroller.scrollTop).toBe(12_000)
+    expect(view.autoscrollToBottom).toHaveBeenCalledOnce()
+  })
+
+  it.each(['older', 'newer', 'anchor'] as const)('leaves %s navigation in control of its landing', async (navigation) => {
+    const view = await setup()
+    view.input.messageWindow = { ...view.input.messageWindow, navigation, navigationVersion: 1 }
+    view.input.messages = [{ id: 'anchor', is_mine: false }]
+    await view.render()
+    expect(view.autoscrollToBottom).not.toHaveBeenCalled()
+  })
+
+  it('retains the main window resize rule and returns to latest through the history controller', async () => {
+    const view = await setup()
+    view.resize(400)
+    expect(view.autoscrollToBottom).toHaveBeenCalledOnce()
+    view.isAtBottomRef.current = false
+    view.resize(300)
+    expect(view.autoscrollToBottom).toHaveBeenCalledOnce()
+    view.input.messageWindow = { ...view.input.messageWindow, hasNewer: true }
+    await view.render()
+    view.pin()
+    expect(view.callbacks.returnToLatest).toHaveBeenCalledOnce()
   })
 })

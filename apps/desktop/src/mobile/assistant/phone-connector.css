@@ -3,7 +3,7 @@
  * 字号一律走 --ta-* 变量;能点的至少 44 高(咕咕手机触控规范)。
  */
 
-.ta-phone-setup { display: flex; flex-direction: column; gap: 14px; }
+.ta-phone-setup { display: flex; min-width: 0; flex-direction: column; gap: 16px; }
 
 /* 表单一格:输入框占满,保密的那格右边叠一个「显示 / 隐藏」。 */
 .ta-phone-setup-field { position: relative; display: block; }
@@ -24,7 +24,7 @@
 /* 等回跳:三步说明(编号在字外,换行对齐)。 */
 .ta-phone-setup-steps {
   margin: 0;
-  padding: 0 6px 0 28px;
+  padding: 0 0 0 24px;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -33,12 +33,12 @@
   color: var(--ta-fg);
 }
 
-.ta-phone-setup-actions { display: flex; flex-direction: column; gap: 10px; }
+.ta-phone-setup-actions { display: flex; flex-direction: column; gap: 8px; }
 .ta-phone-setup-wait {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding-inline: 6px;
+  flex-wrap: wrap;
   font-size: var(--ta-fs-note);
   line-height: var(--ta-lh-note);
   color: var(--ta-muted);
@@ -46,9 +46,9 @@
 
 /* 设备码:大一号、等宽、字距拉开,方便隔着屏幕核对;可整段选。 */
 .ta-phone-setup-code {
-  border-radius: 16px;
+  border-radius: var(--radius-control);
   background: var(--ta-glass-strong);
-  padding: 18px 16px;
+  padding: 16px;
   text-align: center;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: var(--ta-fs-page);
@@ -65,18 +65,17 @@
   align-self: center;
   width: 200px;
   height: 200px;
-  border-radius: 16px;
-  background: #fff;
+  border-radius: var(--radius-surface);
+  background: var(--qr-paper);
   padding: 8px;
 }
 
-.ta-phone-setup-prereq { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; padding: 14px 16px; }
+.ta-phone-setup-prereq { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; padding: 16px; }
 
 /* 失败:先一句哪一步没成,对方的话作小字,再一个「重试」。 */
 .ta-phone-setup-fail { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
 .ta-phone-setup-detail {
   margin: 0;
-  padding-inline: 6px;
   font-size: var(--ta-fs-sub);
   line-height: var(--ta-lh-sub);
   color: var(--ta-muted);
@@ -87,4 +86,13 @@
 .ta-phone-warn { color: var(--warn); }
 .ta-phone-setup .ta-wide-btn,
 .ta-wide-btn[data-tone='danger'] { min-height: 44px; }
-.ta-wide-btn[data-tone='danger'] { color: var(--danger); }
+.ta-wide-btn[data-tone='danger'] { color: var(--danger-fg); }
+
+/* One app, one row action; the detail page owns connection controls. */
+.ta-phone-connectors-inline { display: flex; flex-direction: column; gap: 24px; }
+.ta-phone .ta-phone-connectors-inline .ta-row,
+.ta-phone .ta-phone-connectors-page .ta-row { min-height: 64px; padding-block: 8px; }
+.ta-phone .ta-phone-connectors-inline .ta-row-body,
+.ta-phone .ta-phone-connectors-page .ta-row-body { gap: 4px; }
+.ta-phone .ta-phone-connectors-inline .ta-row-sub,
+.ta-phone .ta-phone-connectors-page .ta-row-sub { display: block; white-space: nowrap; }

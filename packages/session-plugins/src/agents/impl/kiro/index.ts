@@ -95,7 +95,7 @@ const sessionBundle = {
     //  · 问人:走**授权型**——cell.ts 的 requestPermission → resolvePermission,
     //    pendingPermissions 由 session-chat-ui/src/state/chat-state.ts 的 setPermissions 递到界面。
     //    ❌ 澄清型(mcp-elicitation / native-tool)咕咕没通,不在此声明。
-    //  · plan:acp/reducer/decode.ts 解出 { kind:'plan', entries } 后折进 transcript。
+    //  · plan:acp/transport/decode.ts 解出 { kind:'plan', entries } 后折进 transcript。
     pause: { kind: 'native', channel: 'protocol-cancel' },
     observability: { kind: 'native', channel: 'acp-update' },
     askUser: { kind: 'native', channel: 'permission-ask' },

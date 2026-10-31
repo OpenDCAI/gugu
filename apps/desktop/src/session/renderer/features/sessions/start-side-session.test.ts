@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AgentPayload } from '@shared/core/agents/agent-payload';
+import { createTabProvider, createTabRegistry } from '@renderer/features/tabs/core/tab-provider-registry';
+import { PaneLayoutStore } from '@renderer/features/tabs/pane-layout-store';
 
 const mocks = vi.hoisted(() => ({
   open: vi.fn(),
@@ -10,13 +12,13 @@ const mocks = vi.hoisted(() => ({
   askedMachines: [] as Array<string | null>,
   toast: vi.fn(),
   logError: vi.fn(),
+  layout: undefined as PaneLayoutStore | undefined,
   source: {
     id: 'source-conversation',
     providerId: 'codex',
     runtime: 'acp' as 'acp' | 'pty',
     providerSessionId: 'source-provider-session' as string | null,
   },
-  groups: [{ paneId: 'chat-pane' }] as Array<{ paneId: string }>,
 }));
 
 vi.mock('@renderer/features/sessions/stores/session-registry', () => ({
@@ -29,9 +31,8 @@ vi.mock('@renderer/features/projects/stores/project-selectors', () => ({
 }));
 vi.mock('@renderer/features/sessions/stores/session-selectors', () => ({
   getSessionView: () => ({
-    paneLayout: {
+    paneLayout: mocks.layout ?? {
       activePaneId: 'chat-pane',
-      groups: mocks.groups,
       open: mocks.open,
       setActiveGroup: mocks.setActiveGroup,
     },
@@ -76,11 +77,12 @@ describe('runtime-only side chat entry', () => {
     vi.clearAllMocks();
     mocks.source.runtime = 'acp';
     mocks.source.providerSessionId = 'source-provider-session';
-    mocks.groups.splice(0, mocks.groups.length, { paneId: 'chat-pane' });
     mocks.askedMachines.length = 0;
+    mocks.layout = undefined;
     vi.stubGlobal('crypto', { randomUUID: () => 'view-uuid' });
   });
   afterEach(() => {
+    mocks.layout?.dispose();
     vi.unstubAllGlobals();
     machineRegistry.forgetMachine('dev-d22');
   });
@@ -132,7 +134,7 @@ describe('runtime-only side chat entry', () => {
       expect.objectContaining({
         runtimeView: expect.objectContaining({ forkFromProviderSessionId: 'source-conversation' }),
       }),
-      { preview: false }
+      { preview: false, beside: true }
     );
   });
 
@@ -154,30 +156,60 @@ describe('runtime-only side chat entry', () => {
           forkedFromSessionId: 'source-conversation',
         },
       },
-      { preview: false }
+      { preview: false, beside: true }
     );
-    expect(mocks.setActiveGroup).toHaveBeenCalledWith('chat-pane');
     expect(mocks.setFocusedRegion).toHaveBeenCalledWith('main');
     expect(mocks.toast).not.toHaveBeenCalled();
   });
 
-  // #7052 侧边聊天是会话的一枚附页:开在正显示着这条会话的那一格,❌ 另一格(从前的「工作区面板」)。
-  it('opens next to the conversation it forks, even when another pane exists', async () => {
-    mocks.groups.push({ paneId: 'workspace-pane' });
-    mocks.getAgent.mockResolvedValueOnce(agent('supported'));
+  it.each(['fresh', 'already split', 'moved split', 'closed side', 'separate views'] as const)(
+    'opens beside the source using the existing layout rules: %s',
+    async (state) => {
+      vi.unstubAllGlobals();
+      const registry = createTabRegistry(['acp-chat', 'side-chat', 'file'].map((kind) => createTabProvider({
+        kind,
+        resourceKey: (data: { sessionId: string }) => data.sessionId,
+        initialize: () => ({ dispose: () => {} }),
+        dispose: () => {},
+        TabBarItem: () => null,
+        TabBarItemDragPreview: () => null,
+        TabContent: () => null,
+      })));
+      const layout = mocks.layout = new PaneLayoutStore(registry, { viewId: 'task-1' }, undefined, { singleStrip: true });
+      layout.open('acp-chat', { sessionId: mocks.source.id });
+      const { paneId, pane } = layout.groups[0];
+      const sourceTabId = pane.tabOrder[0];
+      layout.setPairAnchor(() => ({ paneId, tabId: sourceTabId }));
+      if (state !== 'fresh') {
+        layout.open(state === 'closed side' ? 'side-chat' : 'file', { sessionId: 'file-1' }, { beside: true });
+        if (state === 'moved split') pane.splitBeside(pane.livePair!.side, 'bottom');
+        if (state === 'closed side') pane.closeTab(pane.livePair!.side);
+        if (state === 'separate views') pane.separatePair();
+      }
+      mocks.getAgent.mockResolvedValueOnce(agent('supported'));
 
-    const opened = nextCall(mocks.open);
-    startSideSession('project-1', 'task-1');
-    await opened;
-    expect(mocks.open).toHaveBeenCalledTimes(1);
+      const opened = nextCall(mocks.setFocusedRegion);
+      startSideSession('project-1', 'task-1');
+      await opened;
 
-    expect(mocks.open).toHaveBeenCalledWith('side-chat', expect.any(Object), { preview: false });
-    expect(mocks.setActiveGroup).toHaveBeenCalledWith('chat-pane');
-    expect(mocks.setActiveGroup).not.toHaveBeenCalledWith('workspace-pane');
-    expect(mocks.setActiveGroup.mock.invocationCallOrder[0]).toBeLessThan(
-      mocks.open.mock.invocationCallOrder[0]!
-    );
-  });
+      const sideTabId = pane.tabOrder.find((id) => pane.entries.get(id)?.kind === 'side-chat')!;
+      expect(sideTabId).toBeDefined();
+      expect(layout.groups).toHaveLength(1);
+      expect(pane.activeTabId).toBe(sideTabId);
+      // 「拆开」只记被拆开的那一类(owner 10-28):拆开过文件页,侧边聊天是另一类,照旧开在旁边并排。
+      if (state === 'separate views') expect(pane.splitDeclinedKinds.has('side-chat')).toBe(false);
+      expect(pane.livePair).toMatchObject({
+        anchor: sourceTabId,
+        side: sideTabId,
+        sideAt: state === 'moved split' ? 'bottom' : 'right',
+      });
+      expect(pane.shownTabIds).toEqual([sourceTabId, sideTabId]);
+      pane.setDimensions(400, 300);
+      expect(pane.shownTabIds).toEqual([sideTabId]);
+      pane.setDimensions(800, 600);
+      expect(pane.shownTabIds).toEqual([sourceTabId, sideTabId]);
+    }
+  );
 
   it('fails visibly when the capability changes before the action runs', async () => {
     mocks.getAgent.mockResolvedValueOnce(agent('none'));

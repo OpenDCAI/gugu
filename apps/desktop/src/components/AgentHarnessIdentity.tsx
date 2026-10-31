@@ -3,8 +3,9 @@ import type { CSSProperties } from 'react'
 import { agentIcons } from '@gugu/session-plugins/agent-icons'
 import { pluginIdForAgentType } from '@gugu/core/agentTypes'
 import { engineLabel } from '../lib/usage/engineLabel'
-import { Bot, CircleAlert, Cloud, Clock, UserMinus, type IconComponent } from '@/lib/icons'
+import { CircleAlert, Cloud, Clock, UserMinus, type IconComponent } from '@/lib/icons'
 import { useAgentHarnessIdentity } from '../hooks/useAgentHarnessIdentity'
+import { useKnownPhoneAgent } from '../hooks/useKnownPhoneAgent'
 import { htmlProp } from '../lib/innerHtml'
 import { useTheme } from '../store/theme'
 import { pickIconVariant } from '../session/renderer/lib/components/agent-icon-variant'
@@ -16,7 +17,7 @@ import './AgentHarnessIdentity.css'
  * `agentIcons` 覆盖 `VALID_AGENT_TYPES` 里除 `gugu-cloud` 外的全部类型 ⇒ 落到兜底分支的
  * 实际有四种语义:`pending`(presence 还没到、类型未确认)、`removed`(墓碑)、`unavailable`
  * (权威 payload 说不出类型)、以及 `gugu-cloud`(产品自己的云 agent,`agentTypes.ts` 的
- * `CLOUD_AGENT_TYPE`,UI 叫 Gagent)。从前四者共用一个 `<Bot>`,只有 `aria-label`/`title` 不同
+ * `CLOUD_AGENT_TYPE`,UI 叫 Gagent)。从前四者共用一个通用字形,只有 `aria-label`/`title` 不同
  * —— 读屏分得出,眼睛分不出,而 #6002 要的是「首次尚未取得类型时**明确显示**确认中」。
  * ⇒ 一档一个字形;着色见 `AgentHarnessIdentity.css`。
  * ❌ 别把 `gugu-cloud` 加进 `agentIcons`:那张表是 agent **插件**的品牌资产,云 agent 不是插件。
@@ -34,15 +35,18 @@ function sizeStyle(size: number): CSSProperties {
 
 function useHarness(agentId: string | undefined) {
   const type = useAgentHarnessIdentity(agentId)
+  const phone = useKnownPhoneAgent(agentId) && type !== 'removed'
   const { t } = useTranslation('messaging')
-  const icon = agentIcons[pluginIdForAgentType(type)]
-  const label = icon?.alt ?? t(`agent.identity.${type === 'gugu-cloud' ? 'cloud' : type === 'removed' ? 'removed' : type === 'pending' ? 'pending' : 'unavailable'}`)
+  const icon = phone ? undefined : agentIcons[pluginIdForAgentType(type)]
+  const label = phone ? t('agent.identity.phone') : icon?.alt ?? t(`agent.identity.${type === 'gugu-cloud' ? 'cloud' : type === 'removed' ? 'removed' : type === 'pending' ? 'pending' : 'unavailable'}`)
   return { type, icon, label }
 }
 
 export function AgentHarnessBadge({ agentId, avatarSize }: { agentId: string | undefined; avatarSize: number }) {
+  const identity = useHarness(agentId)
   const size = Math.max(10, Math.min(24, Math.round(avatarSize * 0.44)))
-  return <span className="agent-harness-badge" style={sizeStyle(size)}><AgentHarnessIcon agentId={agentId} size={size - 4} /></span>
+  if (!identity.icon && !FALLBACK_GLYPHS[identity.type]) return null
+  return <span className="agent-harness-badge" style={sizeStyle(size)}><HarnessGlyph {...identity} size={size - 4} /></span>
 }
 
 /** An inline harness glyph for status rows and other surfaces without an avatar. */
@@ -65,7 +69,8 @@ function HarnessGlyph({ type, icon, label, size }: { type: string; icon: (typeof
   const { theme } = useTheme()
   const variant = icon ? pickIconVariant(icon.variants, size) : null
   const content = theme === 'dark' && variant?.dark ? variant.dark : variant?.light
-  const Glyph = FALLBACK_GLYPHS[type] ?? Bot
+  const Glyph = FALLBACK_GLYPHS[type]
+  if (!icon && !Glyph) return <span className="sr-only" data-agent-harness={type} role="img" aria-label={label} />
   // ❌ 原生 title:这枚字形多半画在头像角标上,被放进别人的悬停浮层(运行中 agent 的预览卡),
   // 两个浮层会叠在一起。引擎名给读屏走 aria-label,给眼睛由外层自己说。
   return (
@@ -75,12 +80,7 @@ function HarnessGlyph({ type, icon, label, size }: { type: string; icon: (typeof
         <span aria-hidden="true" className={theme === 'dark' && icon.invertInDark ? 'agent-harness-artwork--inverted' : undefined}>
           {icon.kind === 'image' ? <img src={content} alt="" /> : <span dangerouslySetInnerHTML={htmlProp(content)} />}
         </span>
-      ) : <Glyph size={size} />}
+      ) : Glyph ? <Glyph size={size} /> : null}
     </span>
   )
-}
-
-export function AgentHarnessLabel({ agentId }: { agentId: string }) {
-  const { type, label } = useHarness(agentId)
-  return <span data-agent-harness-label={type}>{label}</span>
 }

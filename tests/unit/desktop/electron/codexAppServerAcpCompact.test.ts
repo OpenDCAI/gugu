@@ -1,3 +1,4 @@
+import { observeCodexForegroundCompletion } from '../../../support/codexForegroundCompletion';
 // @@@vitest-environment node
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { chmodSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
@@ -30,6 +31,7 @@ const record = (m) => fs.appendFileSync(process.env.FIXTURE_RECORD, JSON.stringi
 let turnSeq = 0
 rl.on('line', (line) => {
   const m = JSON.parse(line)
+  if (m.method === 'turn/start' || m.method === 'turn/steer') process.stdout.write(JSON.stringify({ method: 'item/started', params: { item: { type: 'userMessage', id: 'user-' + m.id, clientId: m.params.clientUserMessageId, content: m.params.input } } }) + '\\n')
   if (m.id === undefined || !m.method) return
   record({ method: m.method })
   if (m.method === 'thread/start') return out({ id: m.id, result: { thread: { id: 'th-compact' }, model: 'm' } })
@@ -82,7 +84,7 @@ function start() {
   const responses = new Map<number, unknown>()
   const compactions: string[] = []
   let commands: string[] | null = null
-  createInterface({ input: child.stdout }).on('line', (line) => {
+  createInterface({ input: child.stdout }).on('line', observeCodexForegroundCompletion((line) => {
     const m = JSON.parse(line)
     if (m.id !== undefined && !m.method) responses.set(m.id, m.error ?? m.result)
     const update = m.method === 'session/update' ? m.params?.update : null
@@ -90,7 +92,7 @@ function start() {
       commands = (update.availableCommands as { name: string }[]).map((c) => c.name)
     }
     if (update?.sessionUpdate === 'compaction_update') compactions.push(`${update.compactionId}:${update.status}`)
-  })
+  }))
   let nextId = 1
   const send = (method: string, params: unknown) => {
     const id = nextId++
@@ -110,7 +112,7 @@ const prompt = (text: string) => [{ type: 'text', text }]
 describe('codex ACP bridge: /compact is codex’s own compaction', () => {
   it('starts thread/compact/start, waits for that turn, and advertises the command', async () => {
     const rig = start()
-    await rig.reply(rig.send('initialize', { protocolVersion: 1, clientCapabilities: {} }), 'initialize')
+    await rig.reply(rig.send('initialize', { protocolVersion: 2, capabilities: {} }), 'initialize')
     const created = (await rig.reply(rig.send('session/new', { cwd: dir, mcpServers: [] }), 'session/new')) as { sessionId: string }
     expect(await rig.advertised()).toContain('compact')
 

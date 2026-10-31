@@ -1,7 +1,7 @@
-import { revalidateScreenSessions } from '@renderer/app/screen-layout-actions';
+import { forgetProjectOnScreen, revalidateScreenSessions } from '@renderer/app/screen-layout-actions';
 import { err, ok, type Result } from '@gugu/session-shared';
 import { makeObservable, observable, runInAction } from 'mobx';
-import { eventSourceMachine, events, rpc, rpcOn } from '@renderer/lib/ipc';
+import { events, rpc, rpcOn } from '@renderer/lib/ipc';
 import { machineRegistry } from '@renderer/lib/machine-routing';
 import { machineLinkState, subscribeMachineLink } from '@renderer/lib/machine-clients';
 import { appState } from '@renderer/lib/stores/app-state';
@@ -30,6 +30,9 @@ import type {
   StartProjectCreationResult,
 } from './project-creation-types';
 import { ProjectPathConflictError } from './project-creation-error';
+import { reportAssistantAppChange } from '@/components/assistant/assistant-app-client';
+import { cachedDevicesAccount } from '@/store/devicesCache';
+import { libraryDeviceId } from '@/components/assistant/assistant-library-client';
 
 export class ProjectManagerStore {
   projects = observable.map<string, ProjectStore>();
@@ -46,13 +49,15 @@ export class ProjectManagerStore {
   constructor() {
     makeObservable(this, { projects: observable, pendingCreationIds: observable });
 
+    // 这条订阅只收这台电脑自己的(别的机器上建的项目由 remote-hosts-store 订那台的):是本机项目,认领不走。
     this._disposeProjectCreatedEvent = events.on(projectCreatedChannel, ({ project }) => {
-      // #6264 别的机器上新建的项目(不带 topic 的推送各台机器合流):先记到那台机器名下,之后的调用才走得对。
-      const machine = eventSourceMachine();
-      if (machine) machineRegistry.register(machine, [project.id]);
       let added = false;
+      machineRegistry.claimLocal([project.id]);
       runInAction(() => {
-        if (this.projects.has(project.id)) return;
+        const known = this.projects.get(project.id);
+        // #609 已有的 workspace 被人亲手加成了项目:同一个 id,只换 kind。
+        if (known?.data && known.data.kind !== project.kind) known.data = { ...known.data, kind: project.kind };
+        if (known) return;
         this.projects.set(project.id, createUnmountedProject(project, 'idle'));
         added = true;
       });
@@ -74,8 +79,6 @@ export class ProjectManagerStore {
       appState.navigation.revalidate();
     });
     this._disposeProjectVisibilityEvent = events.on(projectVisibilityChangedChannel, ({ projectId, project }) => {
-      const machine = eventSourceMachine();
-      if (machine) machineRegistry.register(machine, [projectId]);
       if (project) {
         runInAction(() => {
           if (!this.projects.has(projectId)) this.projects.set(projectId, createUnmountedProject(project, 'idle'));
@@ -149,8 +152,14 @@ export class ProjectManagerStore {
     const rawProjects = await rpc.projects.getProjects();
     const toMount: string[] = [];
     runInAction(() => {
+      // #581 本机的清单说了算:别的机器先登记过的同一个 id(它的账号副本 / 应答里写着这台电脑的项目)换成本机这一份,
+      // 从此认不走(claimLocal);❌ 见它已在表里就跳过 —— 那样本机项目只剩一份指向那台机器的副本。
+      const claimed = rawProjects.filter((p) => machineRegistry.machineOf(p.id) !== null).map((p) => p.id);
+      machineRegistry.claimLocal(rawProjects.map((p) => p.id));
       for (const p of rawProjects) {
-        if (this.projects.has(p.id)) continue;
+        const existing = this.projects.get(p.id);
+        if (existing && !claimed.includes(p.id)) continue;
+        existing?.mountedProject?.dispose();
         this.projects.set(p.id, createUnmountedProject(p, 'idle'));
         toMount.push(p.id);
       }
@@ -182,10 +191,17 @@ export class ProjectManagerStore {
     // #6264 在别的机器上建:先把这个 id 记到那台机器名下,之后的挂载、任务调用才走得对。
     const machine = projectType.machine ?? null;
     if (machine) machineRegistry.register(machine, [projectId]);
+    else machineRegistry.claimLocal([projectId]);
     const targetPath = data.mode === 'pick' ? data.path : `${data.path}/${data.name}`;
     const inspection = await rpcOn(machine).projects.inspectProjectPath({ type: 'local', path: targetPath });
     if (inspection.existingProject) {
       if (machine) machineRegistry.register(machine, [inspection.existingProject.id]);
+      else machineRegistry.claimLocal([inspection.existingProject.id]);
+      // #609 这个目录是替人登记的 workspace(~):人亲手加 ⇒ 交给那台机器把它记成项目(同一个 id)。
+      if (inspection.existingProject.kind === 'workspace' && !(data.mode === 'pick' && data.automatic)) {
+        const claimed = await rpcOn(machine).projects.createProject({ type: 'local', path: targetPath, name: data.name, allowNonGit: true });
+        if (!claimed.success) throw new Error(claimed.error.type);
+      }
       if (inspection.existingProject.rootFolderDetached) {
         const attached = await rpcOn(machine).projects.attachProjectFolder(inspection.existingProject.id, targetPath);
         if (!attached.success) throw new Error(attached.error.message);
@@ -220,6 +236,7 @@ export class ProjectManagerStore {
     projectId: string,
     targetPath: string
   ): Promise<ProjectCreationCompletion> {
+    const ownerId = cachedDevicesAccount();
     const rpc = rpcOn(projectType.machine ?? null);
 
     let result: ProjectCreationCompletion;
@@ -234,6 +251,7 @@ export class ProjectManagerStore {
             createDirectory: data.createDirectory,
             initGitRepository: data.initGitRepository,
             allowNonGit: data.allowNonGit,
+            automatic: data.automatic,
           });
           if (!projectResult.success) {
             result = err(projectResult.error);
@@ -325,6 +343,8 @@ export class ProjectManagerStore {
     }
 
     if (!result.success) this._markCreationError(projectId, result.error);
+    else void reportAssistantAppChange(null, undefined, { resource: 'projects', operation: 'created', id: projectId,
+      deviceId: projectType.machine ?? libraryDeviceId(null), after: { name: data.name, path: targetPath } }, ownerId);
     return result;
   }
 
@@ -475,6 +495,8 @@ export class ProjectManagerStore {
         this.projects.delete(id);
       }
     });
+    // 那台机器的清单(连上读到的 / 账号上那份)并进来了:停在它的某个项目 / 会话上「还不知道」的那一页按此刻的重判。
+    appState.navigation.revalidate();
   }
 
   /** 那台机器又连上了:已挂着的项目重读任务列表(断开那段时间的推送收不到)。 */
@@ -502,13 +524,17 @@ export class ProjectManagerStore {
   }
 
   async deleteProject(projectId: string): Promise<void> {
+    const ownerId = cachedDevicesAccount();
+    const deviceId = machineRegistry.machineOf(projectId) ?? libraryDeviceId(null);
     const snapshot = this.projects.get(projectId);
     runInAction(() => {
       this.projects.delete(projectId);
     });
+    forgetProjectOnScreen(projectId);
     appState.navigation.revalidate();
     try {
       await rpc.projects.deleteProject(projectId);
+      void reportAssistantAppChange(null, undefined, { resource: 'projects', operation: 'removed', id: projectId, deviceId }, ownerId);
     } catch (err) {
       runInAction(() => {
         if (snapshot) this.projects.set(projectId, snapshot);

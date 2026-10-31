@@ -1,6 +1,8 @@
 import type React from 'react';
-import type { ShortcutSettingsKey } from '@shared/shortcuts';
+import type { CommandId } from '@shared/commands';
+import type { TabReturnTo } from '@shared/view-state';
 import type { TabBarItemProps, TabContentProps } from './tab-host';
+import type { TabOpenOptions } from './tab-provider-registry';
 
 /**
  * Plain-data identity for a single open tab.
@@ -12,6 +14,8 @@ export interface TabEntry<S = unknown> {
   readonly tabId: string;
   /** Mutable so the engine can promote a preview to a stable tab (handle.pin()). */
   isPreview: boolean;
+  /** Engine navigation metadata, independent of the provider's state. */
+  returnTo?: TabReturnTo;
   /**
    * Reactive, serializable domain state for this tab.
    * Mutated in-place; the snapshot serializer reads it directly (no per-kind hook).
@@ -70,7 +74,7 @@ export interface TabHandle {
   open(
     kind: string,
     args: Record<string, unknown>,
-    config?: { target?: OpenTarget; preview?: boolean; overrideState?: boolean }
+    config?: TabOpenOptions
   ): void;
 }
 
@@ -91,7 +95,7 @@ export interface CommandEntry<T> {
   // oxlint-disable-next-line typescript/no-explicit-any
   exec(resource: T, ...args: any[]): void;
   isAvailable?(resource: T): boolean;
-  shortcut?: ShortcutSettingsKey | (() => string | undefined);
+  shortcut?: CommandId | (() => string | undefined);
 }
 
 /**
@@ -106,6 +110,10 @@ export type TabCloseRequest = { alone: boolean };
 export interface TabViewContext {
   /** Stable identifier for the view that owns this pane (e.g. conversationId). */
   viewId: string;
+  /** The host's place, for providers shared by task and chat views. */
+  place?:
+    | { kind: 'session'; sessionId: string; projectId: string }
+    | { kind: 'chat'; chatId: string };
 }
 
 /**
@@ -169,6 +177,19 @@ export interface TabProvider<
    * 挪进另一份 = 重新挂一次,网页就重新加载了(spec session-page「并排」)。
    */
   placesPairItself?: boolean;
+
+  /**
+   * 格里有这一枚,这一类的内容层就一直挂着(没上屏时照常藏起、不画)。对话那一类:群信息、群文件、话题的页和对话的名字、
+   * 右端按钮都由对话画进各自的格子 —— 启动时亮着的是别的页签,对话没挂上,它们就都是空的。
+   */
+  keepMounted?: boolean;
+
+  /**
+   * How wide (px) this page wants to be beside another, as the narrow one of a pair (spec session-page「并排」: a group's
+   * info, its folder, an App's page beside its chat). None: the two are peers, half each. The pair keeps it until the
+   * divider is dragged; at most half the pane.
+   */
+  sideWidth?(state: S): number | undefined;
 
   /**
    * Normalize/validate open args, perform synchronous side-effects

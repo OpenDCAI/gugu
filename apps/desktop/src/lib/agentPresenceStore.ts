@@ -1,4 +1,5 @@
 import { recordPresenceBatch } from './perfCounters'
+import { readMemberRosterRevision, type AccountRevisionEvent, type AccountRevisionListener } from './accountRevisionCoordinator'
 // 渲染层**唯一**的那张 agent 状态表:键是 agentId,值是「关于这个 agent 我观测到什么」。
 // 会话列表、标题栏、头像、群成员、群汇总、会话里的运行条、composer 忙态 —— 全部读它,读法只有一种。
 // ❌ 这里没有「按会话」的任何一维:一个 agent 在不在干活是它自己的事实,不是某条会话的属性
@@ -11,7 +12,6 @@ import { recordPresenceBatch } from './perfCounters'
 // 读数只有一个写入者,走两条路:这台机器就是它的宿主时读本机流(宿主按 agent 的流,同一个写入者、路更短),
 // 否则读云端那一行上的读数(宿主写 presence 时带上的同一句)。❌ 两条路比版本:本机有就是本机的。
 
-import { dataClient } from './supabase'
 import {
   parseAgentPresencePayload,
   type AgentPresencePayload,
@@ -151,6 +151,38 @@ export async function refreshObservedAgentPresenceFromRevision(payloads: readonl
     if (entry.listeners.size === 0) entry.dirty = true
     else await fetchSnapshot(entry, true)
   }))
+}
+
+/**
+ * 我在的一个群里成员变了(进群、换角色、挪读水位,`chat_members_changed`):先前问不到的 agent 可能此刻看得到了 ——
+ * 它刚进了我在的群(审批过后才进群的 agent,卡上早已画着它)。服务端说「看不到」只是**那一刻**的事实,❌ 当成这个 agent
+ * 的终态一直留着;但这条修订连每一次读水位都发,所以只重问上次没问到的(gugu-dev#181 80e)。
+ */
+export async function recheckUnseenAgentPresence(memberIds: readonly string[]): Promise<void> {
+  await Promise.all([...new Set(memberIds)].map(async (id) => {
+    const entry = entries.get(id)
+    if (!entry || !entry.state.error) return
+    if (entry.listeners.size === 0) entry.dirty = true
+    // 还是看不到也是正常的答案(另一个成员挪了读水位),照旧记在这一条上,❌ 当成修订失败抛出去。
+    else await fetchSnapshot(entry)
+  }))
+}
+
+/**
+ * 在线状态的两条修订都归这张表(❌ 归会话列表):`presence_changed` 刷新看过的 agent;`chat_members_changed`
+ * —— 一个 agent 进了我在的群,它的状态我才看得到(80e),成员变了就重问上次没问到的那几个。返回一个退订。
+ */
+export function subscribeAgentPresenceRevisions(
+  subscribe: (event: AccountRevisionEvent, listener: AccountRevisionListener) => () => void,
+): () => void {
+  const unsubscribes = [
+    subscribe('presence_changed', async (operations) => { await refreshObservedAgentPresenceFromRevision(operations.map((operation) => operation.payload)) }),
+    subscribe('chat_members_changed', async (operations) => {
+      await recheckUnseenAgentPresence(operations.map((operation) => readMemberRosterRevision(operation.payload))
+        .flatMap((change) => (change.left || !change.memberId ? [] : [change.memberId])))
+    }),
+  ]
+  return () => { for (const unsubscribe of unsubscribes) unsubscribe() }
 }
 
 /**
@@ -363,10 +395,8 @@ function presentationOf(
 ): AgentStatusPresentation {
   const reachability = deriveAgentReachability({
     accountStatus: payload.accountStatus,
+    sessionArchivedAt: payload.sessionArchivedAt,
     desiredStatus: payload.desiredStatus,
-    // The server-derived status expires stale runtime heartbeats. Older payloads that predate the
-    // field still fall back to the imperative column instead of inventing a state client-side.
-    runtimeStatus: payload.derivedStatus ?? payload.runtimeStatus,
     deviceOnline,
   })
   return presentAgentStatus({ reading: reading ?? (local ? null : readingOfPresenceProjection(payload)), reachability })
@@ -391,6 +421,7 @@ type BatchWaiter = {
 
 let batchQueue: BatchWaiter[] = []
 let batchScheduled = false
+let presenceClient: Promise<typeof import('./supabase')> | null = null
 
 function fetchSnapshot(entry: Entry, throwOnError = false): Promise<void> {
   if (entry.snapshotPromise) return entry.snapshotPromise
@@ -437,6 +468,8 @@ async function runSnapshotBatch(waiters: BatchWaiter[]): Promise<void> {
   if (waiters.length === 0) return
   const ids = waiters.map((waiter) => waiter.entry.agentUserId)
   try {
+    // Reading presence is platform-independent; initialize browser auth only for network I/O.
+    const { dataClient } = await (presenceClient ??= import('./supabase'))
     recordPresenceBatch(ids.length)
     const { data, error } = await dataClient
       .schema('identity')

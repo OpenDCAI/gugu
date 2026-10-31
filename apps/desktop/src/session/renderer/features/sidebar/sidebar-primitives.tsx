@@ -58,10 +58,10 @@ export const sidebarHeaderDropTargetClass =
  * 这里落在 14 档(text-sm)。三个分区头引用同一个常量,❌ 各写一遍手抄同一串覆盖类:
  * 手抄三份正是「项目」曾经掉队成 12px、和「任务」的 14px 不一致的成因(见 projects-group-label)。
  */
-export const sidebarGroupTitleClass = 'font-medium text-sm text-foreground-passive';
+export const sidebarGroupTitleClass = 'font-medium text-sm text-foreground-muted';
 
 /** 标题旁的数量(状态分组「需要你 3」、收起的分区头「置顶 3」)。@@@sidebar-type-scale — 归 12(text-xs)。 */
-export const sidebarCountClass = 'text-xs leading-none tabular-nums text-foreground-passive select-none';
+export const sidebarCountClass = 'text-xs leading-none tabular-nums text-foreground-muted select-none';
 
 /**
  * 分区头右侧的小图标钮(排序 / 新建项目 / 新建任务)与顶条折叠钮共用的一种视觉。
@@ -70,13 +70,14 @@ export const sidebarCountClass = 'text-xs leading-none tabular-nums text-foregro
  * **hover 底色取 `background-tertiary-*`**,即侧栏那一族 —— 改动前它们 hover 到
  * `background-1`(主壳那一族),画在 `bg-background-tertiary` 的侧栏上是另一个产品的按钮。
  *
- * @@@sidebar-ink-tiers — 静止态字色是 `foreground-passive`,与它同一行的分区头标签同档。
+ * @@@sidebar-ink-tiers — 静止态字色是 `foreground-muted`,与它同一行的分区头标签同档(10-28 从 passive 提上来:
+ * passive = --faint-fg,标题和这排图标在侧栏上只有 2.96〜3.89:1;muted 5.22〜6.10,仍比行字浅一档)。
  * 上一轮把标签从 tertiary-passive(#7B7B7B)提到 passive(#9A9AA2)时漏了这些图标,结果
  * **图标比它自己的标题还深**:标签退成了背景,图标没退,一行里两个层级。
  * hover/展开仍到 `foreground-tertiary`(最深),交互反馈没丢。
  */
 export const sidebarHeaderIconButtonClass =
-  'flex size-6 shrink-0 items-center justify-center rounded-md text-foreground-passive transition-colors hover:bg-row-hover hover:text-foreground-tertiary active:bg-row-press aria-expanded:bg-row-selected aria-expanded:hover:bg-row-selected aria-expanded:active:bg-row-selected aria-expanded:hover:state-hover-layer aria-expanded:active:state-press-layer aria-expanded:text-foreground-tertiary [&_svg]:size-4';
+  'flex size-6 shrink-0 items-center justify-center rounded-md text-foreground-muted transition-colors hover:bg-row-hover hover:text-foreground-tertiary active:bg-row-press aria-expanded:bg-row-selected aria-expanded:hover:bg-row-selected aria-expanded:active:bg-row-selected aria-expanded:hover:state-hover-layer aria-expanded:active:state-press-layer aria-expanded:text-foreground-tertiary [&_svg]:size-4';
 
 /**
  * 行尾键帽的显隐 —— 指针落到这一行(或键盘停在这一行)才淡入,静止态不画。
@@ -110,17 +111,17 @@ export const sidebarRowShortcutClass =
  * 的一片空。现在两层认的是同一个 `group/row-actions`(声明在 `sidebarRowActionsSlotClass` 上),
  * 一层亮的条件就是另一层灭的条件,不会再出现两层同时缺席的缝。
  *
- * 隐去用的是 opacity 而不是不渲染(与 `sidebarRowShortcutClass` 同一条):那一格照旧占位,
- * 指针进出时标题的截断宽度不会抖。
+ * 两层都保留挂载以便键盘能到达按钮;只有此刻可见的那层参与宽度布局。
+ * 静止时标题只让出时间/状态的宽度,悬浮或按钮获得焦点时才让出动作的实际宽度。
  */
 export const sidebarRowActionsSlotClass =
   'group/row-actions relative ml-2 flex h-6 shrink-0 items-center justify-end';
 
 export const sidebarRowHoverActionsClass =
-  'pointer-events-none absolute inset-y-0 right-0 z-10 flex translate-x-1 items-center justify-end gap-1 opacity-0 transition-opacity duration-[var(--dur-fast,120ms)] ease-out group-hover/row:pointer-events-auto group-hover/row:translate-x-0 group-hover/row:opacity-100 group-focus-within/row-actions:pointer-events-auto group-focus-within/row-actions:translate-x-0 group-focus-within/row-actions:opacity-100';
+  'pointer-events-none absolute inset-y-0 right-0 z-10 flex translate-x-1 items-center justify-end gap-1 opacity-0 transition-opacity duration-[var(--dur-fast,120ms)] ease-out group-hover/row:relative group-hover/row:pointer-events-auto group-hover/row:translate-x-0 group-hover/row:opacity-100 group-focus-within/row-actions:relative group-focus-within/row-actions:pointer-events-auto group-focus-within/row-actions:translate-x-0 group-focus-within/row-actions:opacity-100';
 
 export const sidebarRowRestActionsClass =
-  'pointer-events-none flex shrink-0 items-center justify-end opacity-100 transition-opacity duration-[var(--dur-fast,120ms)] group-hover/row:opacity-0 group-focus-within/row-actions:opacity-0';
+  'pointer-events-none inset-y-0 right-0 flex shrink-0 items-center justify-end opacity-100 transition-opacity duration-[var(--dur-fast,120ms)] group-hover/row:absolute group-hover/row:opacity-0 group-focus-within/row-actions:absolute group-focus-within/row-actions:opacity-0';
 
 export const SidebarContainer = React.forwardRef<
   HTMLDivElement,

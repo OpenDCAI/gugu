@@ -35,10 +35,17 @@ import {
 /** 某一版在这台机器上失败过(下载 / 试跑失败、换过去起不来)之后多久不再自己试。 */
 export const VERSION_FAILURE_COOLDOWN_MS = 6 * 60 * 60 * 1000
 /**
- * 下载站上还没有这一版(server 包比桌面包晚发):不算失败,设备行照旧「正在下载」,隔这么久再取一次清单。
- * 5 分钟:和拿不到额度时最慢的重试间隔同一量级;一台机器一小时最多取 12 次几十字节的清单。
+ * 下载站上还没有这一版(server 包比桌面包晚发,或者这个版本号压根没发布过):不算失败;这期间选目标时它让位给
+ * 次新的那一版(planAccountVersion 的 unpublished),隔这么久再取一次清单。第一次 5 分钟(晚发的包通常几分钟就到),
+ * 之后每次翻倍、最多 6 小时 —— 从没发布过的号(没打后缀的测试包)❌ 每 5 分钟 404 一次到报告过期(2026-10-27 实撞)。
  */
 export const VERSION_NOT_PUBLISHED_RETRY_MS = 5 * 60 * 1000
+export const VERSION_NOT_PUBLISHED_MAX_RETRY_MS = 6 * 60 * 60 * 1000
+
+/** 第 attempts 次 404 之后隔多久再看(attempts 从 1 起)。纯函数。 */
+export function notPublishedRetryMs(attempts: number): number {
+  return Math.min(VERSION_NOT_PUBLISHED_RETRY_MS * 2 ** Math.max(0, attempts - 1), VERSION_NOT_PUBLISHED_MAX_RETRY_MS)
+}
 /** 换过去之后这么久里秒退了几次就算「这一版在这里起不来」。 */
 const QUICK_EXITS_TO_ROLL_BACK = 3
 const ROLLBACK_WINDOW_MS = 10 * 60 * 1000
@@ -57,6 +64,8 @@ export type AccountVersionConverger = {
 
 export function createAccountVersionConverger(options: {
   layout: Layout | null
+  /** 受控云电脑跟随控制器启动的守护包;普通 SSH 仍按桌面报告选包。 */
+  followSupervisor?: boolean
   log: SupervisorLog
   /** 这个账号的进程此刻跑的哪一版;没在跑 = undefined。 */
   running: (userId: string) => string | null | undefined
@@ -73,6 +82,7 @@ export function createAccountVersionConverger(options: {
   exists?: (file: string) => boolean
 }): AccountVersionConverger {
   const { layout, log } = options
+  const followSupervisor = options.followSupervisor === true
   const now = options.now ?? Date.now
   const exists = options.exists ?? ((file: string) => fs.existsSync(file))
   const busy = options.busy ?? ((dataDir: string) => accountIsBusy(dataDir))
@@ -117,12 +127,16 @@ export function createAccountVersionConverger(options: {
         fs.rmSync(incoming.manifest, { force: true })
       }
     })
-  /** 正在装的版本(Infinity),或下载站上还没有、到这个时刻再试的版本。 */
-  const staging = new Map<string, number>()
+  /** 正在装的版本。 */
+  const staging = new Set<string>()
+  /** 下载站上还没有的版本:连着 404 了几次、到哪个时刻再看。 */
+  const notPublished = new Map<string, { attempts: number; until: number }>()
+  const unpublished = (version: string): boolean => now() < (notPublished.get(version)?.until ?? 0)
   const failedAt = new Map<string, number>()
   const switches = new Map<string, { version: string; previous: string | null; at: number; quickExits: number }>()
   /** 刚请它换过去、旧进程还在收尾的账号:等它退干净再说,❌ 每一轮都再结束一次。 */
   const pending = new Map<string, string>()
+  let missingSupervisorWarnAt = -Infinity
 
   const installed = (version: string): boolean => !!layout && exists(versionBinary(layout.versions, version))
   /**
@@ -155,22 +169,25 @@ export function createAccountVersionConverger(options: {
 
   const startStaging = (account: ServerAccount, version: string, state: ServerUpdateStateWriter): void => {
     state.set('downloading', version)
-    if (now() < (staging.get(version) ?? 0)) return
-    staging.set(version, Infinity)
-    log.info('这个账号的桌面是另一版,后台装上那一版', { account: account.userId, version })
+    if (staging.has(version)) return
+    staging.add(version)
+    log.info('目标包尚未安装,后台准备那一版', { account: account.userId, version })
     void stage(version)
       .then(() => {
         if (layout) touchVersion(layout.versions, version)
         log.info('那一版装好了', { version })
         staging.delete(version)
+        notPublished.delete(version)
       })
       .catch((error: unknown) => {
+        staging.delete(version)
         if (error instanceof VersionNotPublishedError) {
-          staging.set(version, now() + VERSION_NOT_PUBLISHED_RETRY_MS)
-          log.info('下载站上还没有那一版,过几分钟再看', { version, error: error.message })
+          const attempts = (notPublished.get(version)?.attempts ?? 0) + 1
+          const retryInMs = notPublishedRetryMs(attempts)
+          notPublished.set(version, { attempts, until: now() + retryInMs })
+          log.info('下载站上还没有那一版,先跑次新的那一版,过一阵再看', { version, attempts, retryInMs, error: error.message })
           return
         }
-        staging.delete(version)
         failedAt.set(version, now())
         state.set('failed', version, error instanceof DownloadSiteUnreachableError ? 'unreachable' : undefined)
         log.warn('装那一版失败,过一阵再试', { version, error: error instanceof Error ? error.message : String(error) })
@@ -184,7 +201,7 @@ export function createAccountVersionConverger(options: {
     fs.rmSync(path.join(account.dataDir, VERSION_SWITCH_FILE), { force: true })
     switches.set(account.userId, { version, previous: from, at: now(), quickExits: 0 })
     pending.set(account.userId, version)
-    log.info('这个账号换到和桌面匹配的那一版', { account: account.userId, from, to: version, urgent })
+    log.info(followSupervisor ? '这个账号跟随守护进程的包' : '这个账号换到和桌面匹配的那一版', { account: account.userId, from, to: version, urgent })
     if (options.running(account.userId) !== undefined) options.restart(account.userId)
     try {
       const removed = pruneVersions(layout.versions, [...inUse(), version])
@@ -200,8 +217,17 @@ export function createAccountVersionConverger(options: {
     converge(accounts) {
       if (!layout) return
       for (const account of accounts) {
-        const reports = readDesktopReports(account.dataDir)
-        if (Object.keys(reports).length === 0) continue
+        const reports = followSupervisor ? {} : readDesktopReports(account.dataDir)
+        if (!followSupervisor && Object.keys(reports).length === 0) continue
+        // 控制器已经校验并启动了这个包。文件缺失应修复安装,不能按桌面目标反复下载自己的版本。
+        if (followSupervisor && !installed(layout.version)) {
+          stateOf(account).set('failed', layout.version)
+          if (now() - missingSupervisorWarnAt >= 60_000) {
+            missingSupervisorWarnAt = now()
+            log.warn('守护进程的包不完整,账号保持现有版本', { version: layout.version })
+          }
+          continue
+        }
         const current = options.running(account.userId)
         const waiting = pending.get(account.userId)
         if (waiting && current !== undefined && current !== waiting) continue
@@ -214,15 +240,18 @@ export function createAccountVersionConverger(options: {
           reports,
           now: now(),
           running: effective,
-          switchRequested: request !== null,
+          switchRequested: !followSupervisor && request !== null,
+          switchConfirmed: request?.confirmed === true,
           installed,
           busy: current !== undefined && busy(account.dataDir),
-          failed: (version) => failed(version, request),
+          failed: (version) => failed(version, followSupervisor && !request?.confirmed ? null : request),
           fallback: layout.version,
+          unpublished,
         })
         switch (plan.kind) {
           case 'none':
-            if (plan.clearSwitchRequest && request) fs.rmSync(path.join(account.dataDir, VERSION_SWITCH_FILE), { force: true })
+            // 人点的「现在重启更新」留着(它自己 10 分钟过期):这个账号已对得上时,它是给守护进程自己的升级看的(server-supervisor.ts isBusy)。
+            if (plan.clearSwitchRequest && request && !request.confirmed) fs.rmSync(path.join(account.dataDir, VERSION_SWITCH_FILE), { force: true })
             state.clear()
             break
           case 'failed':

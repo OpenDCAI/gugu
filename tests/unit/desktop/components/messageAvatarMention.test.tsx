@@ -1,11 +1,14 @@
 // @vitest-environment jsdom
 // 右键群聊消息的发送者头像 → 输入框 @ 他。插入本身走 rowProps.onMentionMember(主线里就是点运行中头像
 // 用的那个 setMentionToInsert),这里判的是:哪一次右键会调它、调的时候带什么、什么时候不碰原生菜单。
+import { topicHistoryStub } from '../../../support/chatWindowStub'
+import { readComposer } from '../../../support/composerEditor'
 import { act, createElement } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { MessageItem } from '@gugu/core/shared/types/chat'
 import type { MemberProfileCardModel } from '../../../../apps/desktop/src/components/MemberProfileCard'
 import { MessageList, type ChatListRowItem, type MessageListRowProps } from '../../../../apps/desktop/src/components/chat/MessageList'
+import { TopicSplitPane } from '../../../../apps/desktop/src/components/chat/TopicSplitPane'
 import { createReactHarness, message, renderWithAppProviders } from '../../../support/testHarness'
 
 vi.mock('../../../../apps/desktop/src/hooks/useAgentHarnessIdentity', () => ({ useAgentHarnessIdentity: () => 'codex' }))
@@ -36,8 +39,10 @@ async function renderList(overrides: Partial<MessageListRowProps> = {}) {
   const rows: ChatListRowItem[] = messages.map((msg) => ({ type: 'message', message: msg }))
   const onMentionMember = vi.fn()
   const rowProps: MessageListRowProps = {
-    rows, messages, isFiltering: false, mobile: false, memberReadSeqs: {}, isAgentChat: false, isGroupChat: true, memberProfiles,
+    rows, messages, isFiltering: false, mobile: false, memberReadSeqs: {}, queuedIds: new Set(), isGroupChat: true, memberProfiles,
     onReaction: noop, onQuote: noop, onForward: noop, onDelete: noop, onVisible: noop, onOpenMemberProfile: noop, onMentionMember,
+    highlight: undefined, flashMessageId: undefined, threeParty: undefined, onShowReadReceipt: undefined, onOpenTopic: undefined, topicAnchors: undefined, onOpenTopicAnchor: undefined,
+    agentFloodNoticeMessageId: undefined, onAgentFloodUndone: undefined, onOpenFile: undefined, onOpenLocalFileLink: undefined,
     selectMode: false, selectedIds: new Set(), onToggleSelect: noop, onEnterSelectMode: noop, ...overrides,
   }
   await renderWithAppProviders(harness, createElement(MessageList, { rows, rowProps, resetKey: 'chat-1' }))
@@ -89,5 +94,43 @@ describe('右键群聊消息头像 → @ 他', () => {
     harness = createReactHarness()
     await renderList({ onMentionMember: undefined })
     expect(rightClick(avatarOf('m-alice'))).toBe(false)
+  })
+
+  // owner 10-22:「在话题中右键 agent 头像没有那个 @ 的功能 …… 说明链路不统一」。分栏手拼的 rowProps 漏了
+  // onMentionMember;现在每个键都是必填,漏接是编译错。这一格从分栏真的组件走一遍:@ 进的是话题自己的输入框。
+  it('话题分栏:右键头像,@ 进话题自己的输入框', async () => {
+    await renderWithAppProviders(harness, createElement(TopicSplitPane, {
+      topic: { chatId: 'topic-1', name: '分片下载失败' }, messages, loading: false, memberProfiles, memberReadSeqs: {}, visibleChats: [],
+      sourceMessagePreview: 'pending', onSend: async () => {}, onSendAttachments: async () => {},
+      onClose: noop, currentUserId: 'user-1', history: topicHistoryStub(), mentionMembers: [], onOpenMemberProfile: noop,
+    }))
+    expect(rightClick(avatarOf('m-claude'))).toBe(true)
+    const composer = harness.container.querySelector('[data-topic-split-composer] [contenteditable]')!
+    expect(readComposer(composer)).toBe('@Claude 5 ')
+  })
+})
+
+// owner 10-25:Telegram 式头像 —— 一组连续消息只在组尾画一个头像(sticky 贴滚动区底边),组首留标记、其余留占位。
+describe('group avatar sits on the last message of a run', () => {
+  it('a run of three from one sender draws one avatar, on the last row; single messages keep their own', async () => {
+    const run: MessageItem[] = [
+      message({ id: 'r-1', seq: 1, sender_user_id: 'u-alice', content: 'one' }),
+      message({ id: 'r-2', seq: 2, sender_user_id: 'u-alice', content: 'two' }),
+      message({ id: 'r-3', seq: 3, sender_user_id: 'u-alice', content: 'three' }),
+      message({ id: 'r-4', seq: 4, sender_user_id: 'u-claude', content: 'solo' }),
+    ]
+    const rows: ChatListRowItem[] = run.map((msg) => ({ type: 'message', message: msg }))
+    const rowProps: MessageListRowProps = {
+      rows, messages: run, isFiltering: false, mobile: false, memberReadSeqs: {}, queuedIds: new Set(), isGroupChat: true, memberProfiles,
+      onReaction: noop, onQuote: noop, onForward: noop, onDelete: noop, onVisible: noop, onOpenMemberProfile: noop, onMentionMember: noop,
+      highlight: undefined, flashMessageId: undefined, threeParty: undefined, onShowReadReceipt: undefined, onOpenTopic: undefined, topicAnchors: undefined, onOpenTopicAnchor: undefined,
+      agentFloodNoticeMessageId: undefined, onAgentFloodUndone: undefined, onOpenFile: undefined, onOpenLocalFileLink: undefined,
+      selectMode: false, selectedIds: new Set(), onToggleSelect: noop, onEnterSelectMode: noop,
+    }
+    await renderWithAppProviders(harness, createElement(MessageList, { rows, rowProps, resetKey: 'chat-run' }))
+    const avatarIn = (id: string) => harness.container.querySelector(`[data-msg-id="${id}"] [data-message-sender-id]`)
+    expect([avatarIn('r-1'), avatarIn('r-2'), avatarIn('r-3') !== null, avatarIn('r-4') !== null]).toEqual([null, null, true, true])
+    expect(harness.container.querySelector('[data-msg-id="r-1"] [data-avatar-group-top]')).not.toBeNull()
+    expect(harness.container.querySelector('[data-msg-id="r-2"] [data-avatar-group-top]')).toBeNull()
   })
 })

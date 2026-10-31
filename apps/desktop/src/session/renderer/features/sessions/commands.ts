@@ -12,15 +12,16 @@ import {
   getSessionView,
 } from '@renderer/features/sessions/stores/session-selectors';
 import type { CommandProvider } from '@renderer/lib/commands/types';
-import { toast } from '@renderer/lib/hooks/use-toast';
+import { copyExternalLink } from '@renderer/lib/open-external-link';
 import { rpc } from '@renderer/lib/ipc';
 import { normalizeBrowserUrl } from '@shared/browser';
-import { SESSION_COMMAND_DEFS, type CommandDef, type SessionCommandId } from '@shared/commands';
+import { COMMANDS, type CommandId } from '@shared/commands';
 import { runGitFetch, runGitPublishBranch, runGitPull, runGitPush } from './git-action-handlers';
 import { startSideSession } from './start-side-session';
+import { terminalEnabledSnapshot } from '@renderer/features/settings/use-terminal-enabled';
 
-function sessionDef(id: SessionCommandId): CommandDef {
-  return SESSION_COMMAND_DEFS.find((d) => d.id === id)!;
+function sessionDef<T extends CommandId>(id: T): (typeof COMMANDS)[T] {
+  return COMMANDS[id];
 }
 
 /**
@@ -46,7 +47,6 @@ export function createSessionCommandProvider(projectId: string, sessionId: strin
 
       const sessionView = getSessionView(projectId, sessionId);
       const activePane = sessionView?.activePane;
-      const hasTabs = (activePane?.resolvedTabs.length ?? 0) > 0;
 
       const git = getSessionGitWorktreeStore(projectId, sessionId);
       const repository = git ? getGitRepositoryStore(projectId) : undefined;
@@ -85,11 +85,7 @@ export function createSessionCommandProvider(projectId: string, sessionId: strin
       return [
         // ── Conversations ──────────────────────────────────────────────────
         {
-          id: sideSessionDef.id,
-          label: sideSessionDef.label,
-          description: sideSessionDef.description,
-          shortcutKey: sideSessionDef.shortcutKey,
-          group: sideSessionDef.group,
+          ...sideSessionDef,
           // spec session-resume:任务内没有「新建会话」这个动作了 —— 新建必须带首轮,
           // 而那个只填标题的弹窗给不出首轮。这里给的是从当前会话分一支临时的侧边任务;
           // 真正的新建走 app.newSession(⌘N),它带着第一句话。
@@ -98,11 +94,7 @@ export function createSessionCommandProvider(projectId: string, sessionId: strin
           },
         },
         {
-          id: sidebarChangesDef.id,
-          label: sidebarChangesDef.label,
-          description: sidebarChangesDef.description,
-          shortcutKey: sidebarChangesDef.shortcutKey,
-          group: sidebarChangesDef.group,
+          ...sidebarChangesDef,
           // #6780 旧侧栏的两个页签由会话里的 review / file-browser 页签接班(旧的 setSidebarTab 已无处挂载)。
           // 开页签与空态、「+」菜单点按钮是同一个动作;两种都是 single 挂载,已开着就只激活、❌ 开第二个。
           execute() {
@@ -110,54 +102,40 @@ export function createSessionCommandProvider(projectId: string, sessionId: strin
           },
         },
         {
-          id: sidebarFilesDef.id,
-          label: sidebarFilesDef.label,
-          description: sidebarFilesDef.description,
-          shortcutKey: sidebarFilesDef.shortcutKey,
-          group: sidebarFilesDef.group,
+          ...sidebarFilesDef,
           execute() {
             sessionView?.paneLayout.open('file-browser', {}, { preview: false });
           },
         },
-        {
-          id: viewTerminalsDef.id,
-          label: viewTerminalsDef.label,
-          description: viewTerminalsDef.description,
-          group: viewTerminalsDef.group,
-          execute() {
-            // spec 会话页: terminals are workspace tabs, not a drawer — open one as a tab.
-            void sessionView?.openTerminalAsTab();
-          },
-        },
-
         // ── Terminals ─────────────────────────────────────────────────────
+        // 「终端」开关关着:命令面板和快捷键里都没有终端(设置 → 通用)。
+        ...(terminalEnabledSnapshot()
+          ? [
+              {
+                ...viewTerminalsDef,
+                execute() {
+                  // spec 会话页: terminals are workspace tabs, not a drawer — open one as a tab.
+                  void sessionView?.openTerminalAsTab();
+                },
+              },
+              {
+                ...newTerminalDef,
+                execute() {
+                  // spec 会话页: a new terminal opens as a workspace tab (unified), not the legacy drawer.
+                  void sessionView?.openTerminalAsTab();
+                },
+              },
+            ]
+          : []),
         {
-          id: newTerminalDef.id,
-          label: newTerminalDef.label,
-          description: newTerminalDef.description,
-          shortcutKey: newTerminalDef.shortcutKey,
-          group: newTerminalDef.group,
-          execute() {
-            // spec 会话页: a new terminal opens as a workspace tab (unified), not the legacy drawer.
-            void sessionView?.openTerminalAsTab();
-          },
-        },
-        {
-          id: openBrowserDef.id,
-          label: openBrowserDef.label,
-          description: openBrowserDef.description,
-          shortcutKey: openBrowserDef.shortcutKey,
-          group: openBrowserDef.group,
+          ...openBrowserDef,
           execute() {
             sessionView?.paneLayout.open('browser', {});
             sessionView?.setFocusedRegion('main');
           },
         },
         {
-          id: browserGoBackDef.id,
-          label: browserGoBackDef.label,
-          description: browserGoBackDef.description,
-          group: browserGoBackDef.group,
+          ...browserGoBackDef,
           enabled: activeBrowserResource != null && (activeBrowserSession?.canGoBack ?? false),
           execute() {
             if (!activeBrowserResource) return;
@@ -166,10 +144,7 @@ export function createSessionCommandProvider(projectId: string, sessionId: strin
           },
         },
         {
-          id: browserGoForwardDef.id,
-          label: browserGoForwardDef.label,
-          description: browserGoForwardDef.description,
-          group: browserGoForwardDef.group,
+          ...browserGoForwardDef,
           enabled: activeBrowserResource != null && (activeBrowserSession?.canGoForward ?? false),
           execute() {
             if (!activeBrowserResource) return;
@@ -178,10 +153,7 @@ export function createSessionCommandProvider(projectId: string, sessionId: strin
           },
         },
         {
-          id: browserReloadDef.id,
-          label: browserReloadDef.label,
-          description: browserReloadDef.description,
-          group: browserReloadDef.group,
+          ...browserReloadDef,
           enabled: activeBrowserResource != null,
           execute() {
             if (!activeBrowserResource) return;
@@ -189,10 +161,7 @@ export function createSessionCommandProvider(projectId: string, sessionId: strin
           },
         },
         {
-          id: browserFocusUrlDef.id,
-          label: browserFocusUrlDef.label,
-          description: browserFocusUrlDef.description,
-          group: browserFocusUrlDef.group,
+          ...browserFocusUrlDef,
           enabled: activeBrowserResource != null,
           execute() {
             if (!activeBrowserResource) return;
@@ -200,10 +169,7 @@ export function createSessionCommandProvider(projectId: string, sessionId: strin
           },
         },
         {
-          id: browserOpenExternalDef.id,
-          label: browserOpenExternalDef.label,
-          description: browserOpenExternalDef.description,
-          group: browserOpenExternalDef.group,
+          ...browserOpenExternalDef,
           enabled: activeBrowserResource != null,
           execute() {
             if (!activeBrowserResource || !activeBrowserSession) return;
@@ -219,114 +185,40 @@ export function createSessionCommandProvider(projectId: string, sessionId: strin
         ...(activeBrowserSession
           ? [
               {
-                id: browserCopyUrlDef.id,
-                label: browserCopyUrlDef.label,
-                description: browserCopyUrlDef.description,
-                shortcutKey: browserCopyUrlDef.shortcutKey,
-                group: browserCopyUrlDef.group,
+                ...browserCopyUrlDef,
                 execute() {
                   const normalized = normalizeBrowserUrl(activeBrowserSession.currentUrl, {
                     allowSearchQueries: false,
                   });
                   if (!normalized.ok) return;
-                  void navigator.clipboard
-                    .writeText(normalized.url)
-                    .then(() => {
-                      toast({ title: 'Browser URL copied' });
-                    })
-                    .catch(() => {
-                      toast({ title: 'Could not copy browser URL', variant: 'destructive' });
-                    });
+                  void copyExternalLink(normalized.url, 'Browser URL copied');
                 },
               },
             ]
           : []),
 
-        // ── Tab management ─────────────────────────────────────────────────
-        {
-          id: 'session.tabClose',
-          label: 'Close Tab',
-          description: 'Close the active tab',
-          shortcutKey: 'tabClose',
-          group: 'Tabs',
-          enabled: hasTabs,
-          execute() {
-            const activeId = activePane?.activeTabId;
-            if (activePane && activeId) activePane.requestCloseTab(activeId);
-          },
-        },
-        {
-          id: 'session.tabReopen',
-          label: 'Reopen Closed Tab',
-          description: 'Reopen the most recently closed tab',
-          shortcutKey: 'tabReopen',
-          group: 'Tabs',
-          execute() {
-            activePane?.reopenClosedTab();
-          },
-        },
-        {
-          id: 'session.tabNext',
-          label: 'Next Tab',
-          description: 'Switch to the next tab',
-          shortcutKey: 'tabNext',
-          group: 'Tabs',
-          enabled: hasTabs,
-          execute() {
-            activePane?.setNextTabActive();
-          },
-        },
-        {
-          id: 'session.tabPrev',
-          label: 'Previous Tab',
-          description: 'Switch to the previous tab',
-          shortcutKey: 'tabPrev',
-          group: 'Tabs',
-          enabled: hasTabs,
-          execute() {
-            activePane?.setPreviousTabActive();
-          },
-        },
-        ...([1, 2, 3, 4, 5, 6, 7, 8, 9] as const).map((n) => ({
-          id: `session.tab${n}`,
-          label: `Go to Tab ${n}`,
-          description: `Switch to tab ${n}`,
-          group: 'Tabs',
-          enabled: hasTabs,
-          execute() {
-            activePane?.setTabActiveIndex(n - 1);
-          },
-        })),
-
         // ── Git ────────────────────────────────────────────────────────────
         {
-          id: gitFetchDef.id,
-          label: gitFetchDef.label,
-          description: gitFetchDef.description,
-          group: gitFetchDef.group,
+          ...gitFetchDef,
           enabled: repository != null,
           execute() {
             if (repository) void runGitFetch(repository);
           },
         },
         {
-          id: gitPullDef.id,
-          label: gitPullDef.label,
-          description: gitPullDef.description,
-          group: gitPullDef.group,
+          ...gitPullDef,
           enabled: git != null,
           execute() {
             if (git) void runGitPull(git);
           },
         },
         {
-          id: gitPushDef.id,
+          ...gitPushDef,
           // Dynamic label: push vs publish branch
           label: git?.isBranchPublished ? 'Git Push' : 'Git Publish Branch',
           description: git?.isBranchPublished
             ? 'Push commits to remote'
             : 'Publish this branch to remote',
-          group: gitPushDef.group,
           enabled: git != null,
           execute() {
             if (!git) return;
@@ -345,11 +237,7 @@ export function createSessionCommandProvider(projectId: string, sessionId: strin
 
         // ── Task actions ───────────────────────────────────────────────────
         {
-          id: archiveDef.id,
-          label: archiveDef.label,
-          description: archiveDef.description,
-          shortcutKey: archiveDef.shortcutKey,
-          group: archiveDef.group,
+          ...archiveDef,
           // 它点名的是**当前打开的那条会话**(spec session-graph:标签说「归档任务」,动的是这条
           // conversation)。没有打开任何会话时这一格灰掉 —— ❌ 让一个按键去归档一个它没点名的东西。
           enabled: sessionData != null && !sessionData.archivedAt && archiveTargetSessionId() != null,
@@ -368,11 +256,7 @@ export function createSessionCommandProvider(projectId: string, sessionId: strin
 
         // ── Focus & accessibility ─────────────────────────────────────────
         {
-          id: focusSidebarDef.id,
-          label: focusSidebarDef.label,
-          description: focusSidebarDef.description,
-          shortcutKey: focusSidebarDef.shortcutKey,
-          group: focusSidebarDef.group,
+          ...focusSidebarDef,
           execute() {
             // behavior session-page「键盘导航」: 落点必须是导航层光标,不是「侧栏里第一个能聚焦的东西」。
             // 原来抓到的是侧栏顶上的一个按钮,于是 ⌘0 之后 ↑↓ 走不动会话 —— 「切到会话列再切回来」
@@ -386,24 +270,18 @@ export function createSessionCommandProvider(projectId: string, sessionId: strin
           },
         },
         {
-          id: pinDef.id,
+          ...pinDef,
           label: sessionData?.isPinned ? 'Unpin Task' : 'Pin Task',
           description: sessionData?.isPinned
             ? 'Remove this task from pinned'
             : 'Pin this task to keep it at the top',
-          shortcutKey: pinDef.shortcutKey,
-          group: pinDef.group,
           enabled: sessionData != null,
           execute() {
             if (sessionData) void sessionPageStore?.setPinned(!sessionData.isPinned);
           },
         },
         {
-          id: focusComposerDef.id,
-          label: focusComposerDef.label,
-          description: focusComposerDef.description,
-          shortcutKey: focusComposerDef.shortcutKey,
-          group: focusComposerDef.group,
+          ...focusComposerDef,
           execute() {
             // Target the TipTap ProseMirror editor specifically, falling back to
             // any contenteditable or textarea within the composer region.
@@ -416,22 +294,14 @@ export function createSessionCommandProvider(projectId: string, sessionId: strin
           },
         },
         {
-          id: stageAllDef.id,
-          label: stageAllDef.label,
-          description: stageAllDef.description,
-          shortcutKey: stageAllDef.shortcutKey,
-          group: stageAllDef.group,
+          ...stageAllDef,
           enabled: git != null,
           execute() {
             if (git) void git.stageAllFiles();
           },
         },
         {
-          id: timelineNextDef.id,
-          label: timelineNextDef.label,
-          description: timelineNextDef.description,
-          shortcutKey: timelineNextDef.shortcutKey,
-          group: timelineNextDef.group,
+          ...timelineNextDef,
           execute() {
             const timeline = document.querySelector<HTMLElement>(
               '[data-region="session-timeline"]'
@@ -446,11 +316,7 @@ export function createSessionCommandProvider(projectId: string, sessionId: strin
           },
         },
         {
-          id: timelinePrevDef.id,
-          label: timelinePrevDef.label,
-          description: timelinePrevDef.description,
-          shortcutKey: timelinePrevDef.shortcutKey,
-          group: timelinePrevDef.group,
+          ...timelinePrevDef,
           execute() {
             const timeline = document.querySelector<HTMLElement>(
               '[data-region="session-timeline"]'

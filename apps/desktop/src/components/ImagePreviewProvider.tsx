@@ -1,19 +1,25 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
+import { messageForUser } from '@/lib/userFacingError';
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import type PhotoSwipe from 'photoswipe'
 import type { Bounds, PhotoSwipeOptions, SlideData } from 'photoswipe'
 import 'photoswipe/style.css'
 import './imagePreview.css'
-import { X, Download, Copy, ChevronLeft, ChevronRight } from '@/lib/icons'
+import { X, Download, Copy, ChevronLeft, ChevronRight, Pencil } from '@/lib/icons'
 import { DUR_SLOW_MS, EASE } from '@/styles/motion'
 import { useToast } from './toastContext'
 import { useBackLayer } from './ui/sheetStack'
 import { IconButton } from './ui/IconButton'
+import { bindFileViewerMenu } from './preview/file-viewer-menu'
+import { quoteChatFile } from './preview/quote-preview-file'
 import { AUTOMATION_TEST_IDS } from '../lib/automationDom'
 import { fetchBlob, downloadRemoteFile } from '../lib/download'
 import { canWriteImageToClipboard, writeImageBlobToClipboard } from '../lib/imageClipboard'
 import { rendererLogger } from '../lib/log'
+import { safeFailureLine } from '@/session/renderer/features/sessions/gugu-reason'
+import { UiPortalContainerProvider } from '@gugu/session-ui/react/primitives'
+import { commandRegistry } from '@renderer/lib/commands/registry'
 import { useMobileShell } from '../hooks/useMobileShell'
 import { readRendererPlatform, windowTitlebarHeight } from '../lib/window-chrome'
 import {
@@ -31,6 +37,7 @@ import {
 // 查看器开着时接住返回键与 Esc。调用方经 lib/imageViewer 进来。
 
 const log = rendererLogger('media/image-viewer')
+const AnnotateEditor = lazy(() => import('./imageAnnotate/AnnotateEditor'))
 /** PhotoSwipe 处理完的方向键不再冒泡到底下的页面。 */
 const VIEWER_KEYS = new Set(['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'])
 const PRELOADER_DELAY_MS = 300
@@ -121,6 +128,7 @@ function viewerOptions(request: ImageViewerRequest, mobile: boolean, errorMsg: s
     easing: `cubic-bezier(${EASE.join(', ')})`,
     bgOpacity: mobile ? 1 : 0.9,
     loop: false,
+    escKey: false,
     wheelToZoom: true,
     tapAction: 'close',
     errorMsg,
@@ -256,7 +264,7 @@ function ViewerButton({ label, testId, className, side, onClick, children }: {
   )
 }
 
-function ImageViewerChrome({ viewer, mobile }: { viewer: OpenViewer; mobile: boolean }) {
+function ImageViewerChrome({ viewer, mobile, onEdit }: { viewer: OpenViewer; mobile: boolean; onEdit: () => void }) {
   const { t } = useTranslation('main')
   const { toast } = useToast()
   const [copying, setCopying] = useState(false)
@@ -266,8 +274,9 @@ function ImageViewerChrome({ viewer, mobile }: { viewer: OpenViewer; mobile: boo
   const handleDownload = useCallback(async () => {
     try {
       await downloadRemoteFile(current.full ? await current.full() : current.url, downloadNameFor(current))
-    } catch {
-      toast(t('shell.imagePreview.downloadFailed'), 'error')
+    } catch (error) {
+      rendererLogger('chat/file-open').error({ error }, 'image download failed')
+      toast(t('shell.imagePreview.downloadFailed'), 'error', safeFailureLine(String((error as Error)?.message ?? error)))
     }
   }, [current, t, toast])
 
@@ -282,8 +291,8 @@ function ImageViewerChrome({ viewer, mobile }: { viewer: OpenViewer; mobile: boo
       // blob-first(#1892):先 await 拿到 Blob 再写剪贴板
       await writeImageBlobToClipboard(await fetchImageAsPngBlob(current.full ? await current.full() : current.url))
       toast(t('shell.imagePreview.copied'), 'success')
-    } catch {
-      toast(t('shell.imagePreview.copyFailed'), 'error')
+    } catch (error) {
+      toast(t('shell.imagePreview.copyFailed'), 'error', safeFailureLine(String((error as Error)?.message ?? error)))
     } finally {
       setCopying(false)
     }
@@ -300,6 +309,7 @@ function ImageViewerChrome({ viewer, mobile }: { viewer: OpenViewer; mobile: boo
       <div className="gg-image-viewer__bar">
         {mobile ? close : null}
         <div className="gg-image-viewer__spacer" />
+        <ViewerButton label={t('imageAnnotate.edit')} testId="image-preview-edit" onClick={onEdit}><Pencil /></ViewerButton>
         <ViewerButton label={t('shell.imagePreview.copy')} testId={AUTOMATION_TEST_IDS.imagePreviewCopy} onClick={() => void handleCopy()}>
           <Copy />
         </ViewerButton>
@@ -328,6 +338,14 @@ export function ImagePreviewProvider({ children }: { children: ReactNode }) {
   const mobile = useMobileShell()
   const { toast } = useToast()
   const [viewer, setViewer] = useState<OpenViewer | null>(null)
+  const [editing, setEditing] = useState<ImageViewerItem | null>(null)
+  const annotating = editing !== null
+  useLayoutEffect(() => {
+    if (!annotating) return
+    const paused = commandRegistry.shortcutsPaused
+    commandRegistry.setShortcutsPaused(true)
+    return () => commandRegistry.setShortcutsPaused(paused)
+  }, [annotating])
   // 宿主只登记一次,打开时读最新的形态与文案
   const latest = useRef({ t, mobile, toast })
   latest.current = { t, mobile, toast }
@@ -343,19 +361,39 @@ export function ImagePreviewProvider({ children }: { children: ReactNode }) {
           active?.destroy()
           const pswp = new PhotoSwipeCtor(viewerOptions(request, isMobile, translate('shell.imagePreview.loadFailed')))
           wireViewer(pswp, translate('shell.imagePreview.dialog'))
-          pswp.on('change', () => setViewer((open) => (open?.pswp === pswp ? { ...open, index: pswp.currIndex } : open)))
+          let unbindMenu: (() => void) | undefined
+          const bindMenu = () => {
+            unbindMenu?.()
+            const { quote, resource } = request.items[pswp.currIndex] ?? {}
+            unbindMenu = (quote || resource) && pswp.element ? bindFileViewerMenu(pswp.element, () => ({ resource, quote: () => {
+              pswp.close()
+              if (quote) return quote()
+              if (resource?.target.kind === 'file' && resource.target.version !== undefined) return quoteChatFile(resource.target.itemId, resource.target.version, null)
+              throw new Error('This image has no file reference to quote')
+            }, canSelectAll: false }), (error) => {
+              log.error({ error: String(error) }, 'image citation failed')
+              latest.current.toast(String(error), 'error')
+            }) : undefined
+          }
+          pswp.on('change', () => {
+            bindMenu()
+            setViewer((open) => (open?.pswp === pswp ? { ...open, index: pswp.currIndex } : open))
+          })
           pswp.on('destroy', () => {
+            unbindMenu?.()
             if (active === pswp) active = null
             setViewer((open) => (open?.pswp === pswp ? null : open))
+            setEditing(null)
           })
           active = pswp
           pswp.init()
           if (!pswp.element) throw new Error('PhotoSwipe did not create its root element')
+          bindMenu()
           setViewer({ pswp, root: pswp.element, items: request.items, index: pswp.currIndex })
         })
         .catch((error: unknown) => {
           log.error({ error: String(error), count: request.items.length }, 'failed to open image viewer')
-          latest.current.toast(latest.current.t('shell.imagePreview.openFailed'), 'error')
+          latest.current.toast(latest.current.t('shell.imagePreview.openFailed'), 'error', messageForUser(error))
         })
     })
     return () => {
@@ -367,25 +405,55 @@ export function ImagePreviewProvider({ children }: { children: ReactNode }) {
 
   const openPswp = viewer?.pswp
   // 开着的查看器与 Sheet 同进一个栈:返回键 / Esc 只归栈顶,MainLayout 见 isSheetOpen() 就不动下面的页面
-  useBackLayer(openPswp ? () => openPswp.close() : undefined)
+  const isTopLayer = useBackLayer(openPswp ? () => editing ? setEditing(null) : openPswp.close() : undefined)
+  useEffect(() => {
+    if (!viewer || !editing) return
+    const previous = viewer.pswp.options.arrowKeys
+    const label = viewer.root.getAttribute('aria-label')
+    viewer.pswp.options.arrowKeys = false
+    viewer.root.dataset.annotating = 'true'
+    viewer.root.setAttribute('aria-label', t('imageAnnotate.title'))
+    return () => {
+      viewer.pswp.options.arrowKeys = previous
+      delete viewer.root.dataset.annotating
+      if (label) viewer.root.setAttribute('aria-label', label)
+      viewer.root.focus()
+    }
+  }, [viewer, editing, t])
+  useEffect(() => {
+    if (!viewer || editing) return
+    const editKey = (event: KeyboardEvent) => {
+      if (event.isComposing || event.ctrlKey || event.metaKey || event.altKey || event.key.toLowerCase() !== 'e' || !isTopLayer()) return
+      if (event.target instanceof HTMLElement && event.target.closest('input,textarea,[contenteditable="true"]')) return
+      event.preventDefault(); event.stopPropagation(); setEditing(viewer.items[viewer.index])
+    }
+    window.addEventListener('keydown', editKey, true)
+    return () => window.removeEventListener('keydown', editKey, true)
+  }, [viewer, editing, isTopLayer])
   useEffect(() => {
     if (!openPswp) return
     // Esc:不在栈里的 Base UI 对话框在 document 上听 Esc。window 捕获阶段先于所有 document 监听,
     // 在这里关查看器并截住这一下,压在下面的对话框才不会跟着关。
     const onEscapeCapture = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape' || event.isComposing) return
+      if (event.key !== 'Escape' || event.isComposing || !isTopLayer()) return
       event.stopPropagation()
       event.preventDefault()
-      openPswp.close()
+      if (editing && event.target instanceof HTMLElement && event.target.closest('input,textarea,[contenteditable="true"]')) {
+        event.target.blur()
+        viewer?.root.querySelector<HTMLElement>('.ia-editor')?.focus()
+      } else if (editing) setEditing(null)
+      else openPswp.close()
     }
     window.addEventListener('keydown', onEscapeCapture, { capture: true })
     return () => window.removeEventListener('keydown', onEscapeCapture, { capture: true })
-  }, [openPswp])
+  }, [openPswp, editing, isTopLayer, viewer])
 
   return (
     <>
       {children}
-      {viewer ? createPortal(<ImageViewerChrome viewer={viewer} mobile={mobile} />, viewer.root) : null}
+      {viewer ? createPortal(editing ? <Suspense fallback={<div role="status">{t('imageAnnotate.loading')}</div>}>
+        <UiPortalContainerProvider value={viewer.root}><AnnotateEditor item={editing} mobile={mobile} onCancel={() => setEditing(null)} onDone={() => viewer.pswp.close()} /></UiPortalContainerProvider>
+      </Suspense> : <ImageViewerChrome viewer={viewer} mobile={mobile} onEdit={() => setEditing(viewer.items[viewer.index])} />, viewer.root) : null}
     </>
   )
 }

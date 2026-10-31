@@ -31,13 +31,6 @@ describe('任务词表里按 count 取词的英文单复数 (#6800)', () => {
     return { en, zh: translateSessionMessage(key, { count }) }
   }
 
-  it('子 agent 卡片上的步数', async () => {
-    expect(await both('task.subagentSteps', 1)).toEqual({ en: '1 step', zh: '1 步' })
-    expect(await both('task.subagentSteps', 5)).toEqual({ en: '5 steps', zh: '5 步' })
-    // count 是字符串时 i18next 不走单复数,去找已经不存在的裸 key ⇒ 调用方必须传数字(session-subagents-section)。
-    expect(() => translateSessionMessage('task.subagentSteps', { count: '1' })).toThrow(/Missing session translation/)
-  })
-
   it('侧栏项目行「有会话在等你」', async () => {
     expect(await both('sidebar.sessionsNeedYou', 1)).toEqual({ en: '1 task needs you', zh: '1 个会话需要你' })
     expect(await both('sidebar.sessionsNeedYou', 2)).toEqual({ en: '2 tasks need you', zh: '2 个会话需要你' })

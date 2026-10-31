@@ -28,6 +28,7 @@ import {
 import { createRPCController, withSender } from '@shared/lib/ipc/rpc';
 import * as create from './create-session';
 import * as service from './service';
+import { markNativeConversationVisible, nativeConversationUnread } from '../sessions/session-conversation-read';
 import { readTaskExchanges, watchTaskExchanges, unwatchTaskExchanges } from './task-exchanges';
 import type { TaskExchangeRequest } from '@shared/core/sessions/task-collaboration';
 import { taskExchangeChannel } from '@shared/core/session-timeline/sessionTimelineEvents';
@@ -94,6 +95,11 @@ export const sessionTimelineController = createRPCController({
     if (owned.get(sender)?.exchanges.delete(subscriptionId)) unwatchTaskExchanges(`${sender}:${subscriptionId}`);
   }),
   sessionsList: async () => service.listSessions(),
+  sessionNativeRecord: service.nativeRecord,
+  sessionNativeToolImage: service.nativeToolImage,
+  sessionNativeAttachment: service.nativeAttachment,
+  sessionReadState: (input: { conversationId: string }) => ({ unreadKeys: nativeConversationUnread(input.conversationId) }),
+  sessionVisible: (input: { conversationId: string; itemIds: string[] }) => ({ unreadKeys: markNativeConversationVisible(input.conversationId, input.itemIds) }),
   sessionSnapshot: async (input: SessionpageSessionSnapshotRequest) =>
     trimmed(await service.snapshot(input), input.trim, trimSnapshotForTransport),
   sessionAfter: async (input: SessionpageSessionAfterRequest) =>
@@ -126,7 +132,12 @@ export const sessionTimelineController = createRPCController({
   }),
   /** 手机点开附件卡(#7193):这条会话打开给人看的那份文件,按块读;只认它真的打开过的。 */
   sessionOpenedFileRead: (input: SessionpageOpenedFileReadRequest) => service.readOpenedFile(input),
-  sessionSend: (input: SessionpageSessionSendRequest) => service.send(input.conversationId, input.text),
+  /** 这条会话给人打开过什么(桌面「输出」、手机):会话所在这台机器上的那一份(sessions/session-outputs.ts)。 */
+  sessionOutputs: (input: { conversationId: string }) => service.outputs(input),
+  sessionBackgroundTasks: (input: { conversationId: string }) => service.backgroundTasks(input),
+  sessionStopBackgroundTask: (input: { conversationId: string; stopId: string }) => service.stopBackgroundTask(input),
+  sessionQueue: (input: Parameters<typeof service.changeQueue>[0]) => service.changeQueue(input),
+  sessionSend: (input: SessionpageSessionSendRequest) => service.send(input.conversationId, input.text, input.clientMessageId, input.attachments),
   sessionRespond: (input: SessionpageSessionRespondRequest) => service.respond(input),
   sessionCancel: (input: SessionpageSessionCancelRequest) => service.cancel(input.conversationId),
   sessionUpdate: (input: SessionpageSessionUpdateRequest) => service.updateSession(input),
@@ -137,6 +148,11 @@ export const sessionTimelineController = createRPCController({
   sessionCreateOptions: () => create.createOptions(),
   /** 选定的 harness 在这台机器上能跑哪些模型。 */
   sessionCreateModels: (input: SessionpageSessionCreateModelsRequest) => create.createModels(input),
+  /**
+   * 起一条建好了、还没开起来的会话(「再试一次」那一步;第一句话随之投递)。gugu-dev#181:建完不打开的创建
+   * (项目里、聊天里派任务)没有会话页去起它,建完就调这一句。已经起过的什么都不做。
+   */
+  sessionStart: (input: { conversationId: string }) => create.startSession(input.conversationId),
   /** 在这台机器上开一条新会话;应答带上列表里那一行,调用方不必再列一遍。 */
   sessionCreate: async (input: SessionpageSessionCreateRequest) => {
     const created = await create.createSession(input);

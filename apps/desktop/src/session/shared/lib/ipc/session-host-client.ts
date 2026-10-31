@@ -20,14 +20,16 @@ import {
 
 /** 一条接上了的线。send 在线已断时抛错。 */
 export type SessionHostPipe = {
-  send(frame: string | Uint8Array): void
+  /** `heartbeat` = 这一帧只是心跳:管道可以按「探活」对待它(例如等应答等得更短),❌ 当成要办的事。 */
+  send(frame: string | Uint8Array, kind?: 'heartbeat'): void
   close(): void
 }
 
 /** 开一条线:接上了才 resolve;之后收到的帧与断开经 handlers 报回来。 */
 export type SessionHostPipeOpener = ((handlers: {
   onFrame(frame: string | Uint8Array): void
-  onClose(reason: string): void
+  /** `handoff`:计划内换线(这条窗口所在的频道换到了另一条通道上),❌ 断线 —— 客户端当场开新窗口,状态记成 switching。 */
+  onClose(reason: string, options?: { handoff?: boolean }): void
 }) => Promise<SessionHostPipe>) & {
   /**
    * 听「那台机器上的宿主刚(重新)起来了」。挂在客户端「想连着它」的整段上(开线中、退避等着、窗口开着),❌ 挂在某一条管道上 ——
@@ -63,7 +65,11 @@ export type SessionHostBridgeApi = {
   requestWirePort(channel: string): Promise<void>
 }
 
-export type SessionHostConnectionState = 'connecting' | 'open' | 'closed'
+/**
+ * `switching`:计划内换线(开机时到那台机器的频道从咕咕云换到设备连接):旧窗口随旧频道关了、新窗口正在开。
+ * 这不是断线 —— 界面照「通着」画(machine-clients),新窗口开好就回到 open;开不成才落到 closed。
+ */
+export type SessionHostConnectionState = 'connecting' | 'open' | 'switching' | 'closed'
 
 export type SessionHostHello = { protocol: number; appVersion: string | null }
 
@@ -77,7 +83,7 @@ export type SessionHostClient = {
   hello(): SessionHostHello | null
   connect(): Promise<void>
   /** 别等退避了,现在就再连一次(那台机器刚上线 / 刚登上)。 */
-  reconnectNow(): void
+  reconnectNow(options?: { automatic?: boolean }): void
   close(): void
 }
 
@@ -92,6 +98,11 @@ export type SessionHostClientOptions = {
   subscribeEvents?: boolean
   /** 客户端心跳间隔;线没有自己的 ping 时要开(设备连接)。0 = 不发。 */
   heartbeatMs?: number
+  /** 已确认不可达(含云电脑休眠)时不开线、不发心跳、不退避；变化后恢复原订阅。 */
+  isReachable?: () => boolean
+  subscribeReachability?: (listener: () => void) => () => void
+  /** A version refusal is retried automatically only after this advertised peer version changes. */
+  peerVersion?: () => string | null
   /** 重连退避上限。 */
   retryMaxMs?: number
   /** 宿主为某个 wire channel 宣告了端口、又没人经 openWireTransport 等它时:交给页面(浏览器形态)。 */
@@ -132,6 +143,9 @@ export function createSessionHostClient(open: SessionHostPipeOpener, options: Se
   let beat: ReturnType<typeof setInterval> | null = null
   let state: SessionHostConnectionState = 'closed'
   let opening: Promise<void> | null = null
+  // 作废的是一次物理开线,不是等连接的调用。立即叫醒旧调用,让它跟随新的那次;
+  // 不能等旧 opener 自己结算(它可能正卡在断掉的网络上)。
+  let abandonOpening: (() => void) | null = null
   let lastHello: SessionHostHello | null = null
   let nextId = 1
   let retryDelay = 1000
@@ -139,6 +153,17 @@ export function createSessionHostClient(open: SessionHostPipeOpener, options: Se
   let disposed = false
   /** 头一回想连时挂上,close 时摘掉:收到就 reconnectNow(在开线就作废这一问,在退避就取消计时、立刻重开,开着就换一条)。 */
   let unwatchPeer: (() => void) | null = null
+  let unwatchReachability: (() => void) | null = null
+  let versionRefusal: { version: string | null; error: Error } | null = null
+  const peerVersion = () => options.peerVersion?.() ?? null
+  const refusalUnchanged = () => {
+    // Without a version source (for example the browser WebSocket adapter), a
+    // later explicit connect is the only available signal that the peer changed.
+    if (!versionRefusal || !options.peerVersion) return false
+    const currentVersion = peerVersion()
+    return currentVersion === null || versionRefusal.version === currentVersion
+  }
+  const reachable = () => options.isReachable?.() ?? true
   const pending = new Map<number, Pending>()
   const eventListeners = new Map<string, Set<(data: unknown) => void>>()
   const stateListeners = new Set<(state: SessionHostConnectionState) => void>()
@@ -166,6 +191,16 @@ export function createSessionHostClient(open: SessionHostPipeOpener, options: Se
       send(message)
     } catch {
       /* 断着:重连时订阅会重报 */
+    }
+  }
+
+  // 心跳标明是心跳:管道据此把它当探活(设备连接上那一问回得慢 = 对面没了,见 remoteSessionHost)。
+  const sendHeartbeat = (): void => {
+    if (!pipe || state !== 'open') return
+    try {
+      pipe.send(encodeHostWsMessage({ t: 'hb' }), 'heartbeat')
+    } catch {
+      /* 断着:重连之后照常 */
     }
   }
 
@@ -255,7 +290,7 @@ export function createSessionHostClient(open: SessionHostPipeOpener, options: Se
   }
 
   const scheduleRetry = () => {
-    if (disposed || retryTimer) return
+    if (disposed || retryTimer || !reachable()) return
     retryTimer = setTimeout(() => {
       retryTimer = null
       void connect().catch(() => undefined)
@@ -270,17 +305,29 @@ export function createSessionHostClient(open: SessionHostPipeOpener, options: Se
     beat = null
   }
 
-  const onClosed = (gen: number, reason: string) => {
+  const onClosed = (gen: number, reason: string, handoff = false) => {
     if (gen !== generation) return
+    // 开着的窗口因为计划内换线而关:当场开新的那条(❌ 等 1 s 退避),这一段 ❌ 记成断线(2026-10-27「每次打开都闪一下」)。
+    const switching = handoff && state === 'open'
     generation += 1
     pipe = null
     stopTimers()
     opening = null
-    setState('closed')
+    abandonOpening?.()
+    abandonOpening = null
+    setState(switching ? 'switching' : 'closed')
     // 原因进日志,用户文案只留下一步(user-copy-leak 棘轮)。
-    warn('会话页宿主连接关闭', { reason })
+    warn(switching ? '会话页宿主换线,当场开新窗口' : '会话页宿主连接关闭', { reason })
+    // 旧窗口上在途的问随它一起没了(窗口不能跨频道搬,宿主那头按频道记窗口):照旧当场失败,由各自的调用方重来。
     failAll(failureText('hostConnectionLost'))
-    scheduleRetry()
+    if (!switching) {
+      scheduleRetry()
+      return
+    }
+    if (retryTimer) clearTimeout(retryTimer)
+    retryTimer = null
+    retryDelay = 1000
+    void connect().catch(() => undefined)
   }
 
   const reopen = (reason: string): void => {
@@ -290,17 +337,23 @@ export function createSessionHostClient(open: SessionHostPipeOpener, options: Se
       const dead = pipe
       onClosed(generation, reason)
       dead?.close()
-    } else if (state === 'connecting') {
-      // 在路上的那一次作废:它迟到的回包按代数认不出来(成了也当场关掉,❌ 盖掉新线),等它的调用方照旧拿到它的结果
+    } else if (state === 'connecting' || state === 'switching') {
+      // 在路上的那一次作废:等它的调用方当场跟随新线,迟到的回包只负责清理。
       generation += 1
       opening = null
+      abandonOpening?.()
+      abandonOpening = null
     }
     if (retryTimer) clearTimeout(retryTimer)
     retryTimer = null
     retryDelay = 1000
     void connect().catch(() => undefined)
   }
-  const reconnectNow = (): void => reopen('reconnect requested')
+  const reconnectNow = (request?: { automatic?: boolean }): void => {
+    if (request?.automatic && refusalUnchanged()) return
+    versionRefusal = null
+    reopen('reconnect requested')
+  }
 
   /**
    * @@@silent-window - 窗口多半已死的判据,看门狗按拍判、发问前当场判,都走这里。两个信号,各按宿主的关窗规矩定门槛:
@@ -319,22 +372,63 @@ export function createSessionHostClient(open: SessionHostPipeOpener, options: Se
     return true
   }
 
+  const suspend = (): void => {
+    generation += 1
+    if (retryTimer) clearTimeout(retryTimer)
+    retryTimer = null
+    stopTimers()
+    const dead = pipe
+    pipe = null
+    opening = null
+    abandonOpening?.()
+    abandonOpening = null
+    setState('closed')
+    dead?.close()
+    failAll(failureText('hostNotConnected'))
+  }
+
   const connect = (): Promise<void> => {
     if (disposed) return Promise.reject(new Error('[session-host] client disposed'))
+    unwatchReachability ??= options.subscribeReachability?.(() => {
+      if (disposed) return
+      if (!reachable()) suspend()
+      else if (state === 'closed') reconnectNow({ automatic: true })
+    }) ?? null
+    if (!reachable()) {
+      suspend()
+      return Promise.reject(Object.assign(new Error(failureText('hostNotConnected')), { code: 'unreachable' }))
+    }
+    if (refusalUnchanged()) return Promise.reject(versionRefusal!.error)
+    versionRefusal = null
     if (pipe && state === 'open' && !dropIfSilent()) return Promise.resolve()
     if (opening) return opening
-    unwatchPeer ??= open.watchPeerRestart?.(() => reconnectNow()) ?? null
-    setState('connecting')
+    // A real taskhost.ready is evidence of a new host even when its device
+    // directory has not published an app version yet. Ordinary heartbeats are not.
+    unwatchPeer ??= open.watchPeerRestart?.(() => reconnectNow({ automatic: peerVersion() !== null })) ?? null
+    // 换线中开的那一条:开好之前照旧是 switching(❌ 掉回 connecting,界面会读成重连)。
+    if (state !== 'switching') setState('connecting')
+    const attemptPeerVersion = peerVersion()
     const gen = ++generation
-    opening = open({
+    const abandoned = new Promise<never>((_resolve, reject) => {
+      abandonOpening = () => reject(new Error('[session-host] opening replaced or closed'))
+    })
+    const attempt = open({
       onFrame: (frame) => {
         if (gen !== generation) return
         lastSeenAt = now()
         const decoded = decodeHostWsMessage(frame)
         if (decoded) handle(decoded as HostWsServerMessage)
       },
-      onClose: (reason) => onClosed(gen, reason),
-    }).then(
+      onClose: (reason, closeOptions) => onClosed(gen, reason, closeOptions?.handoff === true),
+    }).then((opened) => {
+      // race 已经把等待者交给新线,旧 opener 仍可能迟到成功。这里拥有那条管道的清理。
+      if (gen !== generation || disposed) {
+        opened.close()
+        throw new Error('[session-host] obsolete opening')
+      }
+      return opened
+    })
+    opening = Promise.race([attempt, abandoned]).then(
       (opened) => {
         if (gen !== generation || disposed) {
           // 这一次已被后来的一次取代:等它的调用方接着等现在那一次,❌ 拿一句「连不上」(disposed 时 connect 自己拒)
@@ -351,9 +445,10 @@ export function createSessionHostClient(open: SessionHostPipeOpener, options: Se
         watchdog = setInterval(() => {
           if (gen === generation && !dropIfSilent()) lastTickAt = now()
         }, Math.max(1000, Math.floor(Math.min(staleMs, frozenMs) / 4)))
-        if (heartbeatMs > 0) beat = setInterval(() => trySend({ t: 'hb' }), heartbeatMs)
+        if (heartbeatMs > 0) beat = setInterval(sendHeartbeat, heartbeatMs)
         setState('open')
         opening = null
+        abandonOpening = null
         if (options.subscribeEvents) {
           for (const channel of eventListeners.keys()) trySend({ t: 'sub', channel })
         }
@@ -374,10 +469,22 @@ export function createSessionHostClient(open: SessionHostPipeOpener, options: Se
         if (gen === generation) {
           generation += 1
           opening = null
+          abandonOpening = null
+          if (code === 'client_outdated' || code === 'server_outdated') {
+            versionRefusal = {
+              version: attemptPeerVersion,
+              error: Object.assign(new Error(code === 'server_outdated' ? failureText('hostTooOld') : failureText('clientTooOld')), { code }),
+            }
+          }
           setState('closed')
-          warn('会话页宿主连不上', { error: String(error) })
-          options.onOpenFailed?.(error)
-          scheduleRetry()
+          // 开线器说那台机器此刻够不着(离线):这就是离线,❌ 记成「连不上」、❌ 退避空转 —— 停在 closed,
+          // 它回来时由调用方 reconnectNow;有人要用它时再 connect 一次(当场又说够不着,不出网)。
+          if (code !== 'unreachable') {
+            warn('会话页宿主连不上', { error: String(error) })
+            options.onOpenFailed?.(error)
+            // A protocol mismatch needs an upgraded endpoint; retrying the same versions cannot repair it.
+            if (code !== 'client_outdated' && code !== 'server_outdated') scheduleRetry()
+          }
         }
         // 开线失败的原因码(那台机器的咕咕 server 太旧 / SSH 要先登录……)带给调用方,界面按码说人话;原文只进日志。
         // 版本错位说清是哪一边旧(两边各报协议,见 taskhost.open);别的失败一律「连不上」。
@@ -488,8 +595,13 @@ export function createSessionHostClient(open: SessionHostPipeOpener, options: Se
       disposed = true
       unwatchPeer?.()
       unwatchPeer = null
+      unwatchReachability?.()
+      unwatchReachability = null
       if (retryTimer) clearTimeout(retryTimer)
       generation += 1
+      abandonOpening?.()
+      abandonOpening = null
+      opening = null
       stopTimers()
       pipe?.close()
       pipe = null

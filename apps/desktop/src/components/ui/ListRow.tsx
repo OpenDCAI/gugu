@@ -54,7 +54,6 @@ export function ListRow({
   ref,
   ...rest
 }: ListRowProps) {
-  const secondLine = subtitle !== undefined || trailing !== undefined
   return (
     <div
       {...rest}
@@ -67,12 +66,25 @@ export function ListRow({
       data-mobile={mobile || undefined}
       className={cn('gg-list-row gg-row', className)}
     >
+      <ListRowContent leading={leading} title={title} accessory={accessory} meta={meta} subtitle={subtitle} trailing={trailing} mobile={mobile} />
+    </div>
+  )
+}
+
+/** The same entity-row geometry inside a native Button, without nesting interactive roots. */
+export function ListRowContent({ leading, title, accessory, meta, subtitle, trailing, mobile }: Pick<ListRowProps, 'leading' | 'title' | 'accessory' | 'meta' | 'subtitle' | 'trailing' | 'mobile'>) {
+  // 手机没有预览就只占一行；角标随标题居中，不能为它留下空的预览行。
+  const singleLine = mobile && (subtitle == null || subtitle === '' || subtitle === false)
+  const secondLine = !singleLine && (subtitle !== undefined || trailing !== undefined)
+  return (
+    <>
       {leading ? <div className="gg-list-row-leading">{leading}</div> : null}
       <div className="gg-list-row-body">
         <div className="gg-list-row-line">
           <span className="gg-list-row-title">{title}</span>
           {accessory}
           {meta !== undefined ? <span className="gg-list-row-meta">{meta}</span> : null}
+          {singleLine && trailing !== undefined ? <span className="gg-list-row-trailing">{trailing}</span> : null}
         </div>
         {secondLine ? (
           <div className="gg-list-row-line">
@@ -81,6 +93,6 @@ export function ListRow({
           </div>
         ) : null}
       </div>
-    </div>
+    </>
   )
 }

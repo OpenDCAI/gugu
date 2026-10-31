@@ -9,7 +9,7 @@
  * 那条凭空多出来的行就是 owner 说的「子智能体的事泄露到主 agent 这儿」。
  */
 import { describe, expect, it } from 'vitest';
-import { decodeSessionUpdate } from './decode';
+import { decodeSessionUpdate, decodeV2SessionUpdate } from '../transport/decode';
 import { AcpTranscriptParser } from './parser';
 import type { TranscriptItem, TranscriptTurn } from '../models/turns';
 
@@ -40,8 +40,7 @@ function launchBackgroundCommand(p: AcpTranscriptParser): void {
       toolKind: 'execute',
       status: 'completed',
       parentToolCallId: null,
-      diffs: [],
-      locations: [],
+          locations: [],
     } as never,
     2
   );
@@ -363,5 +362,50 @@ describe('#5117 子智能体会话的解码', () => {
       content: { type: 'text', text: '你好' },
     } as never);
     expect(event.kind).toBe('message');
+  });
+});
+
+describe('子智能体的 RFD 形态与 v2 的扩展更新名', () => {
+  const decode = (update: Record<string, unknown>) => decodeSessionUpdate(update as never);
+
+  it('宣布:带名字与取消能力的 `subagent_update` 立起一个子会话', () => {
+    expect(decode({
+      sessionUpdate: 'subagent_update',
+      sessionId: 'agent-1',
+      title: 'general-purpose',
+      description: 'Review the diff',
+      capabilities: { cancel: {} },
+      state: { state: 'running' },
+    })).toEqual({
+      kind: 'subagent',
+      toolCallId: 'agent-1',
+      subagentSessionId: 'agent-1',
+      title: 'general-purpose',
+      inputSummary: 'Review the diff',
+      status: 'in_progress',
+      parentToolCallId: null,
+      canCancel: true,
+    });
+  });
+
+  it('只带状态的报它在跑或停下;cancelled 是被叫停,error 是跑砸', () => {
+    expect(decode({ sessionUpdate: 'subagent_update', sessionId: 'a', state: { state: 'running' } }))
+      .toMatchObject({ kind: 'subagent_update', subagentSessionId: 'a', status: 'in_progress' });
+    expect(decode({ sessionUpdate: 'subagent_update', sessionId: 'a', state: { state: 'idle', stopReason: 'end_turn' } }))
+      .toMatchObject({ kind: 'subagent_done', subagentSessionId: 'a', status: 'completed' });
+    expect(decode({ sessionUpdate: 'subagent_update', sessionId: 'a', state: { state: 'idle', stopReason: 'cancelled' } }))
+      .toMatchObject({ kind: 'subagent_done', status: 'stopped' });
+    expect(decode({ sessionUpdate: 'subagent_update', sessionId: 'a', state: { state: 'idle', stopReason: 'error' } }))
+      .toMatchObject({ kind: 'subagent_done', status: 'failed' });
+  });
+
+  it('v2 的 `_async_task_*` 与 v1 的 `async_task_*` 解成同一件事', () => {
+    const spawned = { asyncTaskId: 'bash_1', name: 'sleep', taskType: 'local_bash', description: 'sleep 100', showInTranscript: true, canStop: true, toolCallId: 'toolu_bg' };
+    expect(decodeV2SessionUpdate({ sessionUpdate: '_async_task_spawned', ...spawned }))
+      .toEqual(decode({ sessionUpdate: 'async_task_spawned', ...spawned }));
+    expect(decodeV2SessionUpdate({ sessionUpdate: '_async_task_state_update', asyncTaskId: 'bash_1', state: 'stopped' }))
+      .toMatchObject({ kind: 'async_task_state', asyncTaskId: 'bash_1', state: 'stopped' });
+    expect(decodeV2SessionUpdate({ sessionUpdate: '_async_task_progress', asyncTaskId: 'bash_1', summary: 'still' }))
+      .toMatchObject({ kind: 'async_task_progress', asyncTaskId: 'bash_1', summary: 'still' });
   });
 });

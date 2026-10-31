@@ -4,6 +4,7 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CliLoginOutcome, CliLoginRun } from './cli/cli-login';
 import type { CliLoginPrompt } from './cli/cli-tools';
+import type { McpOAuthCredentials } from '@gugu/session-plugins/integrations';
 import { installedCliTool } from './cli/cli-tool-installer';
 
 /**
@@ -37,6 +38,15 @@ const fake = vi.hoisted(() => ({
   publishFails: false,
   storeFails: false,
   launchers: new Set<string>(),
+  oauth: null as null | ((signal: AbortSignal) => Promise<McpOAuthCredentials>),
+}));
+
+vi.mock('./mcp-oauth-flow', async (importActual) => ({
+  ...await importActual<typeof import('./mcp-oauth-flow')>(),
+  authorizeMcpServer: (options: { signal: AbortSignal }) => {
+    if (!fake.oauth) throw new Error('No browser authorization fixture');
+    return fake.oauth(options.signal);
+  },
 }));
 
 vi.mock('./cli/cli-tool-installer', async (importActual) => {
@@ -123,6 +133,10 @@ vi.mock('./cli/cli-integrations', async (importActual) => {
   };
 });
 
+// #921 平台保管凭据那一侧不在本文件的范围:替成「没有平台保管的那几家」,❌ 牵进真的账号表与钥匙串。
+vi.mock('./platform-credentials-instance', () => ({
+  platformCredentials: { isPlatformProvider: () => false, custody: () => null },
+}));
 vi.mock('./integration-credential-store-instance', () => ({
   integrationCredentialStore: {
     isConfigured: async (id: string) => fake.records.has(id),
@@ -191,10 +205,12 @@ beforeEach(() => {
   fake.verifyStarted = false;
   fake.publishFails = false;
   fake.storeFails = false;
+  fake.oauth = null;
   starts = [];
 });
 
 afterEach(async () => {
+  vi.restoreAllMocks();
   // 先让一切停下来,再删目录 —— 用例中途红了也一样(❌ 一边删、服务一边还在里面建目录 = ENOTEMPTY)。
   fake.install?.resolve(undefined);
   for (const entry of fake.runs) entry.stop();
@@ -256,6 +272,153 @@ describe('cliLoginStart —— 一次连接只收拾自己', () => {
     expect(fake.records.get('dingtalk')).toMatchObject({ tool: 'dws' });
     expect(fake.launchers.has('dws')).toBe(true);
   }, TIMEOUT);
+});
+
+describe('authorization activity reported by the account', () => {
+  it('stays busy while waiting beyond seven minutes without requiring result polling', async () => {
+    const service = new IntegrationConnectionService();
+    const activity: boolean[] = [];
+    service.onAuthorizationActivityChange(() => activity.push(service.hasPendingAuthorizations()));
+    expect(service.hasPendingAuthorizations()).toBe(false);
+    const started = start(service);
+    const run = await runAt(0);
+    expect(service.hasPendingAuthorizations()).toBe(true);
+    expect(activity).toEqual([true]);
+    run.showPrompt(DEVICE);
+    await started;
+    vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 8 * 60_000);
+    expect(service.hasPendingAuthorizations()).toBe(true);
+  });
+
+  it.each<CliLoginOutcome>([
+    { kind: 'exited', code: 0, output: '' },
+    { kind: 'exited', code: 1, output: 'refused' },
+    { kind: 'cancelled', output: '' },
+    { kind: 'timed-out', output: '' },
+  ])('releases busy after $kind (exit $code), even when the result map has not been polled', async (outcome) => {
+    const service = new IntegrationConnectionService();
+    const activity: boolean[] = [];
+    service.onAuthorizationActivityChange(() => activity.push(service.hasPendingAuthorizations()));
+    const started = start(service);
+    const run = await runAt(0);
+    run.showPrompt(DEVICE);
+    await started;
+    expect(service.hasPendingAuthorizations()).toBe(true);
+    run.exit(outcome);
+    await run.run.done;
+    expect(service.hasPendingAuthorizations()).toBe(false);
+    expect(activity).toEqual([true, false]);
+    // The unpolled result remains available, without extending account activity.
+    await expect(service.cliLoginWait('dingtalk')).resolves.toMatchObject({ status: outcome.kind === 'exited' && outcome.code === 0 ? 'connected' : 'failed' });
+  });
+
+  it('releases busy immediately on cancellation even before the child has exited', async () => {
+    const service = new IntegrationConnectionService();
+    const changed = vi.fn();
+    service.onAuthorizationActivityChange(changed);
+    const started = start(service);
+    const run = await runAt(0);
+    run.showPrompt(DEVICE);
+    await started;
+    service.cancelAuthorization('dingtalk');
+    expect(run.cancelled).toBe(true);
+    expect(service.hasPendingAuthorizations()).toBe(false);
+    expect(changed).toHaveBeenCalledTimes(2);
+  });
+
+  it('counts preparation until cancelled and does not retain an obsolete attempt', async () => {
+    const service = new IntegrationConnectionService();
+    const finishInstall = holdInstall();
+    const started = start(service);
+    expect(service.hasPendingAuthorizations()).toBe(true);
+    service.cancelAuthorization('dingtalk');
+    expect(service.hasPendingAuthorizations()).toBe(false);
+    finishInstall();
+    await started;
+    expect(service.hasPendingAuthorizations()).toBe(false);
+  });
+
+  it('does not let the old login exit clear a replacement authorization', async () => {
+    const service = new IntegrationConnectionService();
+    const first = start(service);
+    const old = await runAt(0);
+    old.showPrompt(DEVICE);
+    await first;
+    const second = start(service);
+    const current = await runAt(1);
+    current.showPrompt(DEVICE);
+    await second;
+    old.exit({ kind: 'cancelled', output: '' });
+    await old.run.done;
+    expect(service.hasPendingAuthorizations()).toBe(true);
+    current.exit({ kind: 'timed-out', output: '' });
+    await current.run.done;
+    expect(service.hasPendingAuthorizations()).toBe(false);
+  });
+
+  it('unsubscribes an account activity observer', async () => {
+    const service = new IntegrationConnectionService();
+    const changed = vi.fn();
+    const unsubscribe = service.onAuthorizationActivityChange(changed);
+    unsubscribe();
+    const finishInstall = holdInstall();
+    const started = start(service);
+    expect(changed).not.toHaveBeenCalled();
+    service.cancelAuthorization('dingtalk');
+    finishInstall();
+    await started;
+    expect(changed).not.toHaveBeenCalled();
+  });
+
+  it('caps busy at thirty minutes without cancelling or changing the pending login', async () => {
+    const service = new IntegrationConnectionService();
+    const activity: boolean[] = [];
+    service.onAuthorizationActivityChange(() => activity.push(service.hasPendingAuthorizations()));
+    // Start the timer under fake time, but allow the real asynchronous file
+    // setup to finish before advancing it.
+    vi.useFakeTimers();
+    try {
+      const started = start(service);
+      const run = await runAt(0);
+      run.showPrompt(DEVICE);
+      await started;
+      await vi.advanceTimersByTimeAsync(30 * 60_000 - 1);
+      expect(service.hasPendingAuthorizations()).toBe(true);
+      expect(run.cancelled).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(run.cancelled).toBe(false);
+      expect(service.hasPendingAuthorizations()).toBe(false);
+      expect(activity).toEqual([true, false]);
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(service.hasPendingAuthorizations()).toBe(false);
+      expect(run.cancelled).toBe(false);
+      run.exit({ kind: 'exited', code: 0, output: '' });
+      await expect(service.cliLoginWait('dingtalk')).resolves.toEqual({ status: 'connected' });
+    } finally { vi.useRealTimers(); }
+  });
+
+  it.each(['completed', 'cancelled', 'timed-out'])('releases browser authorization activity when %s', async (outcome) => {
+    const service = new IntegrationConnectionService();
+    const activity: boolean[] = [];
+    service.onAuthorizationActivityChange(() => activity.push(service.hasPendingAuthorizations()));
+    let resolve!: (value: McpOAuthCredentials) => void;
+    let reject!: (error: Error) => void;
+    fake.oauth = (signal) => new Promise((yes, no) => {
+      resolve = yes; reject = no;
+      signal.addEventListener('abort', () => no(new Error('cancelled')), { once: true });
+    });
+    const authorization = service.acquireAuthorization('notion');
+    expect(service.hasPendingAuthorizations()).toBe(true);
+    if (outcome === 'cancelled') {
+      service.cancelAuthorization('notion');
+      expect(service.hasPendingAuthorizations()).toBe(false);
+    } else if (outcome === 'timed-out') reject(new Error('authorization timed out'));
+    else resolve({ serverUrl: 'https://mcp.notion.com/mcp', redirectUrl: 'http://127.0.0.1/callback',
+      clientInformation: { client_id: 'test-client' }, tokens: { access_token: 'test-token', token_type: 'bearer' }, obtainedAt: Date.now() });
+    await expect(authorization).resolves.toMatchObject({ success: outcome === 'completed' });
+    expect(service.hasPendingAuthorizations()).toBe(false);
+    expect(activity).toEqual([true, false]);
+  });
 });
 
 describe('cliLoginWait —— 记录与命令同进同退', () => {

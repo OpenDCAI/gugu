@@ -1,3 +1,4 @@
+import type { TerminalState } from '@gugu/session-core/acp/client';
 /**
  * ChatState — per-conversation, width-independent state.
  *
@@ -33,17 +34,19 @@
  */
 
 import { createMemo, createRoot, createSignal } from 'solid-js';
+import type { BackgroundCommandEntry } from '@session-chat/lib/background-command-roster';
+import type { SubagentRosterEntry } from '@session-chat/lib/subagent-roster';
 import type { ChatContext } from '../chat-context';
 import { createParseCaches } from '../core/caches';
 import type { ParseCaches } from '../core/caches';
 import type {
   AcpPermissionRequest,
-  PlanState,
+  SessionPlans,
   SessionCondition,
-  TerminalExit,
   TranscriptTurn,
 } from '../model';
 import { createTranscript } from './transcript';
+import type { DeliveryMessagePresentation } from './delivery-presentation';
 import type { TranscriptApi } from './transcript';
 import { createViewState } from './view-state';
 import type { ViewState } from './view-state';
@@ -78,19 +81,23 @@ export type HeightmapStore = {
 export type ChatSessionState = {
   readonly state: ChatSessionSnapshot;
   setPermissions(permissions: readonly AcpPermissionRequest[]): void;
-  setPlan(plan: PlanState | null): void;
+  setPlan(plan: SessionPlans | null): void;
   setPendingPrompt(prompt: PendingPrompt | null): void;
-  setTerminalOutput(terminalId: string, text: string | null): void;
-  setTerminalOutputs(outputs: ReadonlyMap<string, string>): void;
-  setTerminalExitStatus(terminalId: string, exitStatus: TerminalExit): void;
+  setTerminals(terminals: readonly TerminalState[]): void;
   setGenerating(generating: boolean): void;
   /** 写这条会话此刻的状态；null = 没有条件要说。 */
   setCondition(condition: SessionCondition | null): void;
+  /**
+   * 此刻还在跑的后台任务(宿主按花名册算好、滤掉人按过 × 的);没有就给空的。
+   * 转录把它画成列表末尾的一行,见 `BackgroundTasksItem`。
+   */
+  setBackgroundTasks(tasks: BackgroundTasks): void;
+  setDeliveredMessages(messages: ReadonlyMap<string, DeliveryMessagePresentation>): void;
 };
 
 export type ChatSessionSnapshot = {
   readonly permissions: readonly AcpPermissionRequest[];
-  readonly plan: PlanState | null;
+  readonly plan: SessionPlans | null;
   readonly pendingToolCallIds: Set<string>;
   readonly pendingPrompt: PendingPrompt | null;
   /**
@@ -104,8 +111,10 @@ export type ChatSessionSnapshot = {
    * 由宿主写；转录把它画成列表末尾的一行。❌ 它不是历史，见 `SessionConditionItem` 抬头。
    */
   readonly condition: SessionCondition | null;
-  terminalOutputText(terminalId: string): string | null;
-  terminalExitStatus(terminalId: string): TerminalExit | null;
+  /** 见 `setBackgroundTasks`。 */
+  readonly backgroundTasks: BackgroundTasks;
+  readonly deliveredMessages?: ReadonlyMap<string, DeliveryMessagePresentation>;
+  terminalSnapshot(terminalId: string): TerminalState | null;
 };
 
 export type { PendingPrompt } from './pending-prompt';
@@ -118,13 +127,13 @@ type LiveReadable<T> = {
 
 export type ConnectSessionSource = {
   activeTurn: LiveReadable<TranscriptTurn | null>;
-  plan: LiveReadable<PlanState | null>;
+  plan: LiveReadable<SessionPlans | null>;
   sessionState: LiveReadable<{
     pendingPermissions: readonly AcpPermissionRequest[];
     /** runtime 投影出来的忙态(见 session-runtime machine `projectSessionState`)。 */
     isGenerating?: boolean;
   }>;
-  terminalOutputs?: LiveReadable<ReadonlyMap<string, string>>;
+  terminals?: LiveReadable<readonly TerminalState[]>;
 };
 
 export type ConnectSessionOptions = {
@@ -229,7 +238,7 @@ export function createChatState(ctx: ChatContext, opts?: ChatStateOptions): Chat
     parseCaches = createParseCaches(ctx.mentionProvider, ctx.commandProvider, opts?.uri);
     viewState = createViewState();
     [getExpandedUserId, setExpandedUserId] = createSignal<string | null>(null);
-    session = createSessionState();
+    session = createSessionState(transcript);
   });
 
   // Scroll mode — plain mutable value; not reactive (ChatRoot reads it once on
@@ -281,32 +290,44 @@ export function createChatState(ctx: ChatContext, opts?: ChatStateOptions): Chat
   };
 }
 
-function createSessionState(): ChatSessionState {
+export type BackgroundTasks = {
+  readonly commands: readonly BackgroundCommandEntry[];
+  readonly subagents: readonly SubagentRosterEntry[];
+};
+
+export const NO_BACKGROUND_TASKS: BackgroundTasks = { commands: [], subagents: [] };
+
+/** 画出来会不会不一样:条目、名字、子智能体的起点与走到第几步、能不能停。 */
+function sameBackgroundTasks(a: BackgroundTasks, b: BackgroundTasks): boolean {
+  const same = <T,>(x: readonly T[], y: readonly T[], key: (item: T) => string) =>
+    x.length === y.length && x.every((item, i) => key(item) === key(y[i]));
+  return (
+    same(a.commands, b.commands, (c) => `${c.id}|${c.taskId}|${c.name}`) &&
+    // 每一步的 id 与状态也要比:新一步开始时完成数不变,只比完成数的话「进行中」那一行永远进不了悬停时间线。
+    same(a.subagents, b.subagents, (g) =>
+      `${g.id}|${g.name}|${g.model ?? ''}|${g.startedAt ?? ''}|${g.completedSteps}|${g.canCancel ? 1 : 0}|${g.calls.map((c) => `${c.toolCallId}:${c.status}:${c.title}:${c.category}:${c.detail}`).join(',')}`)
+  );
+}
+
+function createSessionState(transcript: TranscriptApi): ChatSessionState {
+  const [deliveredMessages, setDeliveredMessages] = createSignal<ReadonlyMap<string, DeliveryMessagePresentation>>(new Map());
   const [permissions, setPermissions] = createSignal<readonly AcpPermissionRequest[]>([]);
-  const [plan, setPlan] = createSignal<PlanState | null>(null);
+  const [plan, setPlan] = createSignal<SessionPlans | null>(null);
   const [pendingPrompt, setPendingPrompt] = createSignal<PendingPrompt | null>(null);
   const [generating, setGenerating] = createSignal(false);
   const [condition, setCondition] = createSignal<SessionCondition | null>(null);
-  const [terminalOutputs, setTerminalOutputs] = createSignal<ReadonlyMap<string, string>>(
-    new Map()
-  );
-  // @@@exit statuses latch, outputs do not.
-  //
-  // Live output tracks a terminal that exists: when the agent releases the
-  // terminal the binding clears the entry and the row falls back to the static
-  // tool output it already had. An exit status has no such fallback — it exists
-  // only in the client's own terminal registry, and the agent typically releases
-  // the terminal moments after reading the code. So this map is only ever written
-  // to, never cleared per-terminal: what we saw happen to a process stays true
-  // after the handle to that process is gone. Terminal ids are per-terminal
-  // UUIDs, so entries never collide, and the map's lifetime is the conversation's.
-  const [terminalExits, setTerminalExits] = createSignal<ReadonlyMap<string, TerminalExit>>(
-    new Map()
-  );
+  // 宿主每来一条消息都会重算一遍花名册;内容没变就别惊动转录(那会重排最后一档)。
+  const [backgroundTasks, setBackgroundTasks] = createSignal<BackgroundTasks>(NO_BACKGROUND_TASKS, {
+    equals: sameBackgroundTasks,
+  });
+  const [terminals, setTerminals] = createSignal<ReadonlyMap<string, TerminalState>>(new Map());
+  const recordedTerminals = createMemo(() => new Map(
+    transcript.state.committedTurns.flatMap(turn => turn.terminals ?? []).map(terminal => [terminal.terminalId, terminal])
+  ));
   const pendingToolCallIds = createMemo(() => {
     const ids = new Set<string>();
     for (const request of permissions()) {
-      ids.add(request.toolCall.toolCallId);
+      if (request.toolCall) ids.add(request.toolCall.toolCallId);
     }
     return ids;
   });
@@ -330,11 +351,12 @@ function createSessionState(): ChatSessionState {
     get condition() {
       return condition();
     },
-    terminalOutputText(terminalId) {
-      return terminalOutputs().get(terminalId) ?? null;
+    get deliveredMessages() { return deliveredMessages(); },
+    get backgroundTasks() {
+      return backgroundTasks();
     },
-    terminalExitStatus(terminalId) {
-      return terminalExits().get(terminalId) ?? null;
+    terminalSnapshot(terminalId) {
+      return terminals().get(terminalId) ?? recordedTerminals().get(terminalId) ?? null;
     },
   };
 
@@ -345,35 +367,9 @@ function createSessionState(): ChatSessionState {
     setPendingPrompt,
     setGenerating,
     setCondition,
-    setTerminalOutput(terminalId, text) {
-      setTerminalOutputs((previous) => {
-        const next = new Map(previous);
-        if (text === null) {
-          next.delete(terminalId);
-        } else {
-          next.set(terminalId, text);
-        }
-        return next;
-      });
-    },
-    setTerminalOutputs: (next) => setTerminalOutputs(new Map(next)),
-    setTerminalExitStatus(terminalId, exitStatus) {
-      setTerminalExits((previous) => {
-        // Compared field-wise, not by identity: the binding re-reads the whole
-        // terminals list on every live change, so an unchanged exit status
-        // arrives as a fresh object each time and identity would re-render
-        // every row on every output chunk.
-        const current = previous.get(terminalId);
-        if (
-          current &&
-          current.exitCode === exitStatus.exitCode &&
-          current.signal === exitStatus.signal
-        ) {
-          return previous;
-        }
-        return new Map(previous).set(terminalId, exitStatus);
-      });
-    },
+    setBackgroundTasks,
+    setDeliveredMessages,
+    setTerminals: (next) => setTerminals(new Map(next.map(terminal => [terminal.terminalId, terminal]))),
   };
 }
 
@@ -382,7 +378,7 @@ export function connectSession(
   source: ConnectSessionSource,
   options: ConnectSessionOptions
 ): () => void {
-  let hadActiveTurn = source.activeTurn.getSnapshot() !== null;
+  let activeTurnId = source.activeTurn.getSnapshot()?.id ?? null;
 
   const syncSessionState = (): void => {
     const snapshot = source.sessionState.getSnapshot();
@@ -397,32 +393,35 @@ export function connectSession(
   const syncActiveTurn = (): void => {
     const turn = source.activeTurn.getSnapshot() ?? null;
     if (turn) state.session.setPendingPrompt(null);
-    if (!turn && hadActiveTurn) {
+    if (activeTurnId !== null && activeTurnId !== (turn?.id ?? null)) {
       // ❌ 别在这里就把刚讲完的那一轮抹掉。调用方收到这个回调后要去后端对账（实测一次往返 ~100ms），
       // 而已提交列表只由对账结果 seed 填充 —— 先抹掉就等于让画面整段空掉一百毫秒：transcript 消失、
       // 输入框退回空会话的占位文案再弹回来。用户看到的是「答完了反而闪一下」。
       // 保留最后这一帧，由对账落地时的 seed 覆盖它（失败也会清，见 acp-chat-store._refreshHistory）。
       options.onTurnCommitted();
+      // 连续排队时,显示节拍可能直接从 A 发到 B,中间没有空帧。同样要对账 A,但立即画 B;
+      // 先通知再换帧,让宿主保留 A 的身份,历史请求回来时才不会把仍在流式的 B 清掉。
+      if (turn) state.transcript.activeTurn.set(turn);
     } else {
       state.transcript.activeTurn.set(turn);
     }
-    hadActiveTurn = turn !== null;
+    activeTurnId = turn?.id ?? null;
   };
-  const syncTerminalOutputs = (): void => {
-    if (!source.terminalOutputs) return;
-    state.session.setTerminalOutputs(source.terminalOutputs.getSnapshot() ?? new Map());
+  const syncTerminals = (): void => {
+    if (!source.terminals) return;
+    state.session.setTerminals(source.terminals.getSnapshot() ?? []);
   };
 
   syncSessionState();
   syncPlan();
   syncActiveTurn();
-  syncTerminalOutputs();
+  syncTerminals();
 
   const unsubs = [
     source.sessionState.subscribe(syncSessionState),
     source.plan.subscribe(syncPlan),
     source.activeTurn.subscribe(syncActiveTurn),
-    ...(source.terminalOutputs ? [source.terminalOutputs.subscribe(syncTerminalOutputs)] : []),
+    ...(source.terminals ? [source.terminals.subscribe(syncTerminals)] : []),
   ];
   return () => {
     for (const unsub of unsubs) unsub();

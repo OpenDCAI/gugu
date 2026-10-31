@@ -6,6 +6,7 @@
 //   · WebSocket(浏览器形态 / dev 口,host-ws/server.ts)
 //   · 设备连接(别的桌面经 SSH 或咕咕云连进来,host-ws/device-session-host.ts)
 // 两种都只实现 FrameSocket;请求分发、wire 端口、事件订阅只有这一份。
+import { protocol14FileChanges } from '@gugu/session-core/session-record/contract';
 import type { MessagePortMainLike } from '@gugu/session-wire/api';
 import {
   decodeHostWsMessage,
@@ -18,6 +19,7 @@ import {
 } from '@shared/lib/ipc/host-ws-protocol';
 import type { HostIpc, HostIpcInvokeEvent, HostIpcMain } from '../lib/host-ipc';
 import { log } from '../lib/logger';
+import type { RemotePtyPacer } from './remote-pty-pacer';
 
 type InvokeListener = (event: HostIpcInvokeEvent, ...args: unknown[]) => unknown;
 type EventListener = (event: HostIpcInvokeEvent, ...args: unknown[]) => void;
@@ -37,7 +39,7 @@ export type FrameSocket = {
  * 对端连进来之后可以调什么。本机窗口与浏览器形态不设限;别的桌面连进来时,只给那些「在这台机器上做才有意义」的
  * (窗口、剪贴板、对话框、内置浏览器这类属于看界面的那台电脑,❌ 让别的电脑遥控这台机器的界面)。
  */
-export type FrameInvokePolicy = (channel: string) => boolean;
+export type FrameInvokePolicy = (channel: string, args?: readonly unknown[]) => boolean;
 
 const FIRST_SENDER_ID = 1_000_000;
 /**
@@ -120,13 +122,17 @@ class HostPort implements MessagePortMainLike {
 class Connection {
   readonly ports = new Map<number, HostPort>();
   readonly sender: HostIpcInvokeEvent['sender'];
-  /** 对端报过订阅之后只推它订的频道(别的桌面经网络连进来时,不能把整台机器的事件都推过去)。 */
-  private subscriptions: Set<string> | null = null;
+  /** 只推对端明确订阅的频道,包括还没完成开窗的连接。 */
+  private readonly subscriptions = new Set<string>();
 
   constructor(
     readonly id: number,
     private readonly socket: FrameSocket,
-    private readonly host: FrameSessionHost
+    private readonly host: FrameSessionHost,
+    /** 这条线往外发的每一帧先过它(别的电脑经设备连接时:终端输出合帧限速,remote-pty-pacer.ts)。 */
+    private readonly outgoing?: RemotePtyPacer,
+    /** 对端开窗时报的协议;差一档时线上降级(protocol14FileChanges,协议下次升级时删掉)。缺席 = 同版。 */
+    private readonly peerProtocol?: number,
   ) {
     this.sender = {
       id,
@@ -143,20 +149,27 @@ class Connection {
   }
 
   wants(channel: string): boolean {
-    return this.subscriptions === null || this.subscriptions.has(channel);
+    return this.subscriptions.has(channel);
   }
 
   subscribe(channel: string): void {
-    (this.subscriptions ??= new Set()).add(channel);
+    this.subscriptions.add(channel);
   }
 
   unsubscribe(channel: string): void {
-    (this.subscriptions ??= new Set()).delete(channel);
+    this.subscriptions.delete(channel);
+    this.outgoing?.unsubscribe(channel);
   }
 
   send(message: HostWsServerMessage): void {
+    if (this.outgoing) this.outgoing.outgoing(message, (paced) => this.write(paced));
+    else this.write(message);
+  }
+
+  private write(message: HostWsServerMessage): void {
     try {
-      this.socket.send(encodeHostWsMessage(message));
+      const wire = this.peerProtocol === undefined ? message : protocol14FileChanges(message, this.peerProtocol, 'to-peer');
+      this.socket.send(encodeHostWsMessage(wire));
     } catch (error) {
       log.warn('[session-host] send failed', { sender: this.id, error: String(error) });
     }
@@ -167,6 +180,7 @@ class Connection {
   }
 
   dispose(): void {
+    this.outgoing?.dispose();
     for (const port of [...this.ports.values()]) port.detach();
     this.ports.clear();
   }
@@ -228,7 +242,7 @@ export class FrameSessionHost implements HostIpc {
    * 它名下若记了东西(订阅),当场按「线断了」收掉:推送只走窗口,❌ 留一条没人收的订阅。
    */
   async invokeOnce(channel: string, args: unknown[], policy?: FrameInvokePolicy): Promise<unknown> {
-    const handler = policy && !policy(channel) ? undefined : (this.handlers.get(channel) ?? this.fallback?.(channel));
+    const handler = policy && !policy(channel, args) ? undefined : (this.handlers.get(channel) ?? this.fallback?.(channel));
     if (!handler) throw new Error(`No handler registered for '${channel}'`);
     const id = nextSenderId++;
     const sender: HostIpcInvokeEvent['sender'] = {
@@ -286,10 +300,10 @@ export class FrameSessionHost implements HostIpc {
   }
 
   /** 接上一条线。返回断开它的函数。 */
-  attach(socket: FrameSocket, options: { remote?: string; policy?: FrameInvokePolicy } = {}): () => void {
+  attach(socket: FrameSocket, options: { remote?: string; policy?: FrameInvokePolicy; outgoing?: RemotePtyPacer; peerProtocol?: number } = {}): () => void {
     const remote = options.remote ?? '?';
     const label = this.options.label ?? 'task-host';
-    const connection = new Connection(nextSenderId++, socket, this);
+    const connection = new Connection(nextSenderId++, socket, this, options.outgoing, options.peerProtocol);
     this.connections.add(connection);
     log.info(`[${label}] client connected`, { sender: connection.id, remote });
     connection.send({
@@ -352,7 +366,7 @@ export class FrameSessionHost implements HostIpc {
     switch (message.t) {
       case 'invoke': {
         const handler =
-          policy && !policy(message.channel)
+          policy && !policy(message.channel, message.args)
             ? undefined
             : (this.handlers.get(message.channel) ?? this.fallback?.(message.channel));
         if (!handler) {

@@ -49,6 +49,10 @@ vi.mock('@main/db/client', () => {
   };
 });
 
+// 这台电脑的「终端」开关开着:新任务也照样走通用(owner 10-28)。
+vi.mock('@main/core/settings/settings-service', () => ({
+  appSettingsService: { get: async (key: string) => (key === 'terminal' ? { enabled: true } : {}) },
+}));
 vi.mock('../sessions/platform-model-selection', () => ({ sessionPlatformModel: async () => undefined }));
 
 vi.mock('@main/core/agents/controller', () => ({
@@ -76,6 +80,15 @@ vi.mock('@shared/core/agents/agent-payload', () => ({
 
 vi.mock('@main/core/projects/operations/openProject', () => ({
   openProject: async () => ({ success: true, data: { repositoryWorkspaceId: 'ws-1' } }),
+}));
+
+vi.mock('@main/core/projects/operations/project-folders', () => ({
+  listProjectFolderRefs: async (projectId: string) => projectId === 'proj-1'
+    ? [
+        { workspaceId: 'ws-1', kind: 'root', path: '/work/site', attachedAt: null },
+        { workspaceId: 'ws-docs', kind: 'attached', path: '/work/docs', attachedAt: '2026-10-20T00:00:00.000Z' },
+      ]
+    : undefined,
 }));
 
 vi.mock('@main/core/sessions/name-generation/generateSessionName', () => ({ generateRandom: () => 'task-name' }));
@@ -184,6 +197,15 @@ describe('createSession:所选 harness 在这台机器上还没装', () => {
     state.warned = Promise.withResolvers<void>();
   });
 
+  // #639 后续(owner 10-28):「终端」开关只管终端入口显不显示,新任务没说展示时永远走通用 —— 群里「新任务」卡片交给
+  // agent 的那一条也是这样;要编程(终端)的人在会话里再开终端页签。
+  it('没说展示:走通用(acp),❌ 跟终端开关进编程', async () => {
+    const result = await createSession({ projectId: 'proj-1', harness: 'codex', prompt: 'hi' }, { ensureAgentInstalled: async () => {} });
+    expect(result.ok).toBe(true);
+    expect(state.calls).toContain('acp.startSession');
+    expect(state.calls).not.toContain('hydrateSession');
+  });
+
   for (const sessionView of ['general', 'code'] as const) {
     it(`${sessionView}:先装(同一个 ensureAgentInstalled),装完再建任务、起会话`, async () => {
       const ensureAgentInstalled = vi.fn(async () => {
@@ -211,12 +233,43 @@ describe('createSession:所选 harness 在这台机器上还没装', () => {
     expect(state.createParams[0]).not.toHaveProperty('taskType');
   });
 
-  // 手机从群成员里建:请求带的群原样交给建会话那一步(birthChatId),不带就不出现这一格。
-  it('请求带了群:交给建会话的 birthChatId', async () => {
+  // 手机从群成员里建:请求带的群原样交给建会话那一步(birthGroup),不带就不出现这一格。
+  it('请求带了群:交给建会话的 birthGroup(群成员里建的,不是任务座位)', async () => {
     await createSession({ projectId: 'proj-1', harness: 'codex', prompt: 'hi', sessionView: 'general', chatId: 'chat-group-1' }, { ensureAgentInstalled: async () => {} });
     await createSession({ projectId: 'proj-1', harness: 'codex', prompt: 'hi', sessionView: 'general' }, { ensureAgentInstalled: async () => {} });
-    expect(state.createParams[0]).toMatchObject({ birthChatId: 'chat-group-1' });
-    expect(state.createParams[1]).not.toHaveProperty('birthChatId');
+    expect(state.createParams[0]).toMatchObject({ birthGroup: { chatId: 'chat-group-1', asTask: false } });
+    expect(state.createParams[1]).not.toHaveProperty('birthGroup');
+  });
+
+  // OpenDCAI/gugu#446 手机在项目里派任务:首句落成那个群里的任务卡(稳定 id 回给手机),agent 坐任务座位。
+  it('派任务:首句带上卡的稳定 id 与派出的群,进群坐任务座位,卡的 id 回给发起方', async () => {
+    const result = await createSession(
+      { projectId: 'proj-1', harness: 'codex', prompt: '修好登录页', sessionView: 'general', chatId: 'chat-project-1', taskChatId: 'chat-project-1' },
+      { ensureAgentInstalled: async () => {} }
+    );
+    expect(result.ok).toBe(true);
+    const taskMessageId = result.ok ? result.value.taskMessageId : undefined;
+    expect(taskMessageId).toMatch(/^[0-9a-f-]{36}$/);
+    expect(state.createParams[0]).toMatchObject({
+      birthGroup: { chatId: 'chat-project-1', asTask: true },
+      sessionConfig: { initialSession: { taskChatId: 'chat-project-1', initialMessageId: taskMessageId, startupOrigin: 'session-page' } },
+    });
+  });
+
+  it('不派任务:不铸卡的 id,回执里也没有这一格', async () => {
+    const result = await createSession({ projectId: 'proj-1', harness: 'codex', prompt: 'hi', sessionView: 'general' }, { ensureAgentInstalled: async () => {} });
+    expect(result.ok && result.value).not.toHaveProperty('taskMessageId');
+    const initialSession = (state.createParams[0] as unknown as { sessionConfig: { initialSession: Record<string, unknown> } }).sessionConfig.initialSession;
+    expect(initialSession).not.toHaveProperty('taskChatId');
+    expect(initialSession).not.toHaveProperty('initialMessageId');
+  });
+
+  it('cwd:在项目挂的那个文件夹里开工;不是这个项目的文件夹就拒,一行都不写', async () => {
+    await createSession({ projectId: 'proj-1', harness: 'codex', prompt: 'hi', sessionView: 'general', cwd: '/work/docs/' }, { ensureAgentInstalled: async () => {} });
+    expect(state.createParams[0]).toMatchObject({ workspaceConfig: { workspace: { kind: 'repository-instance', workspaceId: 'ws-docs' } } });
+    const rejected = await createSession({ projectId: 'proj-1', harness: 'codex', prompt: 'hi', sessionView: 'general', cwd: '/elsewhere' }, { ensureAgentInstalled: async () => {} });
+    expect(rejected).toMatchObject({ ok: false, error: { code: 'folder_not_in_project' } });
+    expect(state.createParams).toHaveLength(1);
   });
 
   it('已经装好:不去装', async () => {

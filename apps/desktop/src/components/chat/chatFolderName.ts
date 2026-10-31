@@ -8,8 +8,13 @@ import { useChatStore } from '../../store/chatContext'
  * the name branches; the workspace App reads the same rule from `ctx.chat.groupId`.
  */
 export function chatFolderNameKey(chatId: string | null, chats: readonly ChatItem[]): 'header.groupFolder' | 'header.folder' {
-  const chat = chats.find((row) => row.id === chatId)
-  const place = chat?.kind === 'topic' ? chats.find((row) => row.id === chat.source_chat_id) : chat
+  return chatFolderNameKeyOf(chatId, (id) => chats.find((row) => row.id === id) ?? null)
+}
+
+/** The same rule over any way of reading a chat (the session page reads the shell's chat summaries). */
+export function chatFolderNameKeyOf(chatId: string | null, chatOf: (id: string) => { kind: string | null; source_chat_id?: string | null } | null): 'header.groupFolder' | 'header.folder' {
+  const chat = chatId ? chatOf(chatId) : null
+  const place = chat?.kind === 'topic' && chat.source_chat_id ? chatOf(chat.source_chat_id) : chat
   return place?.kind === 'group' ? 'header.groupFolder' : 'header.folder'
 }
 

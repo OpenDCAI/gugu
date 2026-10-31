@@ -22,8 +22,8 @@ import { join } from 'node:path';
 
 /**
  * CodeBuddy Code(`@tencent-ai/codebuddy-code`)的会话包。一手出处:发行包 2.169.0 的
- * `dist/codebuddy.js`(`npm pack` 解开)与 mac1 上的实测,读数在
- * gugu-base `notes/2026-10-19-codebuddy-harness/`(下文「实测 X」都指那份读数)。
+ * `dist/codebuddy.js`(`npm pack` 解开)与 2026-10-19 在 macOS 上的实测
+ * (下文「实测 X」是那批读数的编号)。
  */
 const VERSION = '2.169.0';
 

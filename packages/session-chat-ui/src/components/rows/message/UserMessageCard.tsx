@@ -11,7 +11,7 @@ import { blockPlainText } from '@session-chat/core/markdown/plain-text';
 import { pxTokens } from '@session-chat/styles/px-tokens';
 import { vars as themeVars } from '@session-chat/styles/theme.css';
 import { assignInlineVars } from '@vanilla-extract/dynamic';
-import { For, Show, createMemo, createResource } from 'solid-js';
+import { For, Show, createEffect, createMemo, createResource, createSignal, onCleanup, type JSX } from 'solid-js';
 import type { ChatAttachment, ChatMessage } from '@session-chat/model';
 import {
   attachChipHeight,
@@ -26,7 +26,10 @@ import {
 import { isDoubleColumnLayout } from '@session-chat/core/layout/preset';
 import { srOnly } from './message.css';
 import { useChatTranslator } from '@session-chat/localization';
+import { conversationDestinationLayout } from './conversation-destination';
+import { ConversationDestination } from './ConversationDestination';
 import { UserMessageActions } from './UserMessageActions';
+import { CONVERSATION_EXPAND_H, conversationBubbleKey, hasConversationActions } from './conversation-body';
 import { UserMessageEditor } from './UserMessageEditor';
 import { messageEditorMetrics } from './message-editor-metrics';
 import {
@@ -42,12 +45,26 @@ import {
   cardVars,
   stopButtonOverlay,
   userCardGroup,
+  userMessageExpand,
+  userMessageExpandRow,
 } from './user-message.css';
 
-export function UserMessageCard(props: { data: ChatMessage; ctx: RenderCtx; vars: MessageVars }) {
+export function UserMessageCard(props: { data: ChatMessage; ctx: RenderCtx; vars: MessageVars; conversation?: boolean; sender?: () => string | null; footerReference?: () => JSX.Element }) {
   const translate = useChatTranslator();
   const commands = useCommands();
+  const [textRoot, setTextRoot] = createSignal<HTMLDivElement>();
+  const [menuRoot, setMenuRoot] = createSignal<HTMLDivElement>();
+  const textMount = createMemo(() => commands().onMessageTextMount);
+  const textMessageId = createMemo(() => props.data.id);
+  createEffect(() => {
+    const root = textRoot(), bubble = menuRoot(), mount = textMount(), itemId = textMessageId();
+    if (!props.conversation || !root || !mount) return;
+    const cleanup = mount({ root, menuRoot: bubble, itemId, message: () => props.data, sender: () => props.sender?.() ?? null });
+    if (cleanup) onCleanup(cleanup);
+  });
   const turn = useTurnState();
+  const destination = () => props.conversation && props.ctx.measureCtx ? conversationDestinationLayout(props.data, props.ctx.measureCtx(), innerWidth()) : null;
+
   const mCtx = () => props.ctx.measureCtx?.();
   // Layout-resolved geometry (#4874): `base` narrows padding, drops the border
   // and reserves a left gutter. Same helper as measureMessage so the painted
@@ -90,7 +107,7 @@ export function UserMessageCard(props: { data: ChatMessage; ctx: RenderCtx; vars
   const stack = createMemo<Measured<StackLayout> | null>(() => {
     const ctx = mCtx();
     if (!ctx) return null;
-    const blocks = ctx.caches.parseBlocks(props.data.id, props.data.text);
+    const blocks = props.data.streaming ? ctx.caches.parseBlocksStreaming(props.data.id, props.data.text) : ctx.caches.parseBlocks(props.data.id, props.data.text);
     if (blocks.length === 0) return null;
     const innerCtx = { ...ctx, width: innerWidth() };
     return layoutBlockStack(blocks, innerCtx, { isCollapsed: ctx.isCollapsed });
@@ -105,10 +122,9 @@ export function UserMessageCard(props: { data: ChatMessage; ctx: RenderCtx; vars
     const v = vars();
     if (!ctx) return v.collapsedMaxH;
     const innerW = userInnerWidth(availableWidth(), v);
-    const blocks = ctx.caches.parseBlocks(props.data.id, props.data.text);
-    if (blocks.length === 0) {
-      return ctx.theme.fonts.body.lineHeight + 2 * v.userCardPadY + 2 * v.cardBorder;
-    }
+    const blocks = props.data.streaming ? ctx.caches.parseBlocksStreaming(props.data.id, props.data.text) : ctx.caches.parseBlocks(props.data.id, props.data.text);
+    // 还在流、一个字没到:先占一行的气泡;收口了还没正文(只有附件)就没有气泡。
+    if (blocks.length === 0) return props.data.streaming ? ctx.theme.fonts.body.lineHeight + 2 * v.userCardPadY + 2 * v.cardBorder : 0;
     const innerCtx = { ...ctx, width: innerW };
     const s = layoutBlockStack(blocks, innerCtx, { isCollapsed: ctx.isCollapsed });
     return s.height + 2 * v.userCardPadY + 2 * v.cardBorder;
@@ -134,13 +150,15 @@ export function UserMessageCard(props: { data: ChatMessage; ctx: RenderCtx; vars
     const available = availableWidth();
     if (!isDoubleColumnLayout(layout())) return available;
     const s = stack();
-    return userPillWidth(available, s ? s.width : null, vars(), layout());
+    return userPillWidth(available, s ? Math.max(s.width, destination()?.width ?? 0) : null, vars(), layout());
   });
 
   const isExpanded = () => mCtx()?.expandedId === props.data.id;
   const maxH = () => (isExpanded() ? vars().expandedMaxH : vars().collapsedMaxH);
   const clampedH = () => Math.min(fullContentH(), maxH());
   const isOverflowing = () => fullContentH() > maxH();
+  const canCollapse = () => props.conversation && mCtx()?.expanded(conversationBubbleKey(props.data))
+    && mCtx()?.latestConversationMessageId !== props.data.id && fullContentH() > vars().collapsedMaxH;
 
   // Track the animated clip edge during expand/collapse tween so the bottom
   // border and rounded corners are never hidden by the UnitRow overflow clip.
@@ -163,12 +181,13 @@ export function UserMessageCard(props: { data: ChatMessage; ctx: RenderCtx; vars
 
   return (
     <div
+      data-conversation-body={props.conversation ? props.data.role : undefined}
       class={userMessageRoot}
       style={{
         ...assignInlineVars(cardVars, pxTokens({ ...styleVars(), height: 0 })),
         // `base`:整条右对齐到与气泡同一条边(owner 给的参考是 Kimi 那个形状)。
         ...(isDoubleColumnLayout(layout())
-          ? { width: `${availableWidth()}px`, 'margin-left': 'auto' }
+          ? { width: `${availableWidth()}px`, 'margin-left': props.conversation && props.data.role === 'assistant' ? '0' : 'auto' }
           : {}),
       }}
     >
@@ -180,7 +199,7 @@ export function UserMessageCard(props: { data: ChatMessage; ctx: RenderCtx; vars
           style={{
             height: `${attachStripH()}px`,
             // `base`:整条右对齐到与气泡同一条边。
-            ...(isDoubleColumnLayout(layout()) ? { 'justify-content': 'flex-end' } : {}),
+            ...(isDoubleColumnLayout(layout()) ? { 'justify-content': props.conversation && props.data.role === 'assistant' ? 'flex-start' : 'flex-end' } : {}),
           }}
         >
           <For each={props.data.attachments}>
@@ -189,16 +208,23 @@ export function UserMessageCard(props: { data: ChatMessage; ctx: RenderCtx; vars
         </div>
       </Show>
     <Show when={edit()} fallback={<>
+    {/* 只有附件、没有正文(长文本自动转成的 pasted-text.txt 就是这样):不画气泡 —— 空气泡是一条整行宽的色带。 */}
+    <Show when={!mCtx() || stack() || props.data.streaming}>
     <div
+      ref={setMenuRoot}
       data-user-card={props.data.id}
+      data-conversation-bubble-key={props.conversation ? conversationBubbleKey(props.data) : undefined}
+      data-user-card-expandable={props.conversation && !isExpanded() && isOverflowing() ? 'true' : undefined}
+      data-conversation-caret={props.data.conversationCaret ? 'true' : undefined}
       class={`${card({ state: isOverflowing() && !isExpanded() ? 'overflowing' : 'static', current: isGenerating() })} ${cardRoot} ${userCardGroup}`}
       style={{
-        ...assignInlineVars(cardVars, pxTokens({ ...styleVars(), height: cardH() })),
-        ...assignInlineVars({ [themeVars.fgBody]: themeVars.bubbleUserFg, [themeVars.link]: themeVars.bubbleUserFg }),
+        ...assignInlineVars(cardVars, pxTokens({ ...styleVars(), height: cardH() + (destination()?.height ?? 0) })),
+        // 对话布局里人那一侧的字色由 conversation-message.css 给(跟着气泡底色反色),这里只管 agent 那一侧。
+        ...(props.conversation && props.data.role !== 'assistant' ? {} : assignInlineVars({ [themeVars.fgBody]: props.conversation ? themeVars.fg : themeVars.bubbleUserFg, [themeVars.link]: props.conversation ? themeVars.fg : themeVars.bubbleUserFg })),
         // `base` pill: explicit hug width + right alignment. Left as-is in
         // classic so the card keeps spanning the column (no inline width).
         ...(isDoubleColumnLayout(layout())
-          ? { width: `${paintedWidth()}px`, 'margin-left': 'auto' }
+          ? { width: `${paintedWidth()}px`, 'margin-left': props.conversation && props.data.role === 'assistant' ? '0' : 'auto' }
           : {}),
         // Force overflow:hidden while the UnitRow tween is in flight to avoid
         // a transient scrollbar mid-animation; restore auto only when expanded
@@ -208,12 +234,14 @@ export function UserMessageCard(props: { data: ChatMessage; ctx: RenderCtx; vars
       }}
     >
       <div class={srOnly}>{plainText()}</div>
-      <div>
+      <div ref={setTextRoot} data-conversation-text={props.conversation ? props.data.id : undefined}
+        style={destination() ? { height: `${Math.max(0, cardH() - 2 * vars().userCardPadY - 2 * vars().cardBorder)}px`, overflow: 'hidden' } : undefined}>
         <Show when={stack()}>{(s) => <BlockStackView node={s()} />}</Show>
       </div>
       <Show when={!isExpanded() && isOverflowing()}>
-        <div class={cardFadeOverlay} />
+        <div class={cardFadeOverlay} style={destination() ? { bottom: `${destination()!.height}px` } : undefined} />
       </Show>
+      <Show when={destination()}>{target => <ConversationDestination text={target().text} width={target().width} />}</Show>
       <Show when={showStop()}>
         <button
           type="button"
@@ -228,8 +256,31 @@ export function UserMessageCard(props: { data: ChatMessage; ctx: RenderCtx; vars
         </button>
       </Show>
     </div>
+    </Show>
+    <Show when={!stack() && !props.data.streaming && Boolean(props.data.attachments?.length) && destination()}>{target =>
+      <div data-attachment-destination style={{ display: 'flex', 'justify-content': props.data.role === 'assistant' ? 'flex-start' : 'flex-end' }}>
+        <ConversationDestination text={target().text} width={target().width} />
+      </div>
+    }</Show>
+    {/* 对话布局里气泡折着:气泡下面单起一行「展开全文」,再下面才是时间那一行(owner 定稿 0 号图)。点了和点气泡一样展开(ChatRoot 认 `data-expand-user-card`)。 */}
+    <Show when={props.conversation && isOverflowing() && !isExpanded()}>
+      <div class={userMessageExpandRow} style={{ height: `${CONVERSATION_EXPAND_H}px` }}>
+        <button type="button" class={userMessageExpand} data-expand-user-card={props.data.id}
+          data-conversation-bubble-key={conversationBubbleKey(props.data)}>{translate('transcript.showFullText')}</button>
+      </div>
+    </Show>
+    <Show when={canCollapse()}>
+      <div class={userMessageExpandRow} style={{ height: `${CONVERSATION_EXPAND_H}px` }}>
+        <button type="button" class={userMessageExpand} data-collapse-id={conversationBubbleKey(props.data)}
+          data-collapse-anchor={props.data.id}>{translate('transcript.collapseFullText')}</button>
+      </div>
+    </Show>
+    <Show when={!props.conversation || hasConversationActions(props.data) || props.footerReference}>
     <UserMessageActions itemId={props.data.id} text={props.data.text} at={props.data.at}
-      generating={isGenerating()} readOnly={Boolean(props.data.guguDelivery)} vars={props.vars} />
+      reference={props.footerReference}
+      onQuote={props.conversation && props.data.sourceItemId && commands().onQuoteMessage && commands().canQuoteMessage?.(props.data) !== false ? () => commands().onQuoteMessage?.({ message: props.data, sender: props.sender?.() ?? '' }) : undefined}
+      generating={isGenerating()} readOnly={Boolean(props.data.guguDelivery) || (props.conversation && props.data.role === 'assistant')} vars={props.vars} />
+    </Show>
     </>}>
       {(editing) => <UserMessageEditor edit={editing()} height={editorMetrics().height} textHeight={editorMetrics().textHeight} />}
     </Show>
@@ -271,6 +322,7 @@ function AttachmentChip(props: { attachment: ChatAttachment; itemId: string }) {
       )}
       onClick={(e) => {
         e.stopPropagation();
+        if (props.attachment.href) { commands().onOpenLink?.(props.attachment.href); return; }
         commands().onViewAttachment?.({
           attachment: { ...props.attachment, ...(dataUrl() ? { dataUrl: dataUrl() } : {}) },
           itemId: props.itemId,

@@ -1,3 +1,5 @@
+import { isImplicitSessionHomeProjectId } from '@gugu/core/shared/sessionProject'
+import { createGroupAdmin } from '@gugu/core/cloud/groupAdmin'
 // @@@sessionpage TASKPAGE-FUSION — AUTO-PROVISIONING (Part C, the real thing). Turns a session-page session
 // whose exact provider/surface declares addressable identity into a gugu agent at session start, so agents can
 // message each other in the shipped product with NO test hook. Two delivery transports feed the SAME
@@ -27,6 +29,7 @@
 // mint a fresh task group. Fail-loud: any step that can't complete (no owner auth, no device id, group
 // insert error) THROWS so session start fails rather than launching a codex agent that silently can't
 // message back.
+import type { BirthGroup } from '../../src/session/shared/core/sessions/create-session'
 import { randomUUID } from 'node:crypto'
 import { createLogger } from '../lib/logger'
 import {
@@ -58,7 +61,6 @@ import {
 } from './sessionpage-delivery-owner-registry'
 import { forgetProjectGroupId, readProjectGroupId, rememberProjectGroupId } from './sessionpage-project-groups'
 import { agentNameSerial, nextAgentDefaultName, uniqueAgentDisplayName } from '../../src/lib/agentDefaultName'
-import { parseGroupAgentJoinOutcome } from '../../src/lib/groupAgentJoin'
 import { listAgentNameSerialsViaSupabase } from '@gugu/core/cloud/agentIdentityReconcile'
 import { registerOfflineLocalSessionDelivery, unregisterLocalSessionDeliveryForAgent } from './local-session-delivery'
 import {
@@ -98,10 +100,9 @@ const FALLBACK_PROJECT_GROUP_NAME = '任务项目'
  * The session page's sentinel "implicit task-home project" — the execution context it gives a task created BEFORE the
  * user opens a repository. The session page never renders it as a selectable project, so to the user such a
  * conversation has NO project, and spec ⑨ makes its agent a plain DM contact rather than a group member.
- * Mirrored here (rather than imported) because it lives in the session page's RENDERER constants while this is host
- * main-process code; taskpageImplicitProject.test.ts reads that renderer file and fails loud if the two drift.
+ * The marker is shared by host, renderer and cloud readers in core/shared/sessionProject.
  */
-export const IMPLICIT_SESSION_HOME_PROJECT_ID = '00000000-0000-4000-8000-000000000001'
+export { IMPLICIT_SESSION_HOME_PROJECT_ID } from '@gugu/core/shared/sessionProject'
 
 /**
  * @@@task-home-cwd — a conversation on the implicit task-home project runs in gugu's OWN app-owned
@@ -113,9 +114,7 @@ export const IMPLICIT_SESSION_HOME_PROJECT_ID = '00000000-0000-4000-8000-0000000
  * never from that shared workspace — whereas an agent opened in a real user repo keeps reading its repo
  * `.opencode`. So the boundary is directory ownership, keyed off this sentinel id.
  */
-export function isImplicitSessionHomeProjectId(projectId: string | null | undefined): boolean {
-  return projectId === IMPLICIT_SESSION_HOME_PROJECT_ID
-}
+export { isImplicitSessionHomeProjectId } from '@gugu/core/shared/sessionProject'
 
 /**
  * 建群看的项目 id:用户眼里「没有项目」的会话不建、不进项目群,agent 只是私聊联系人(spec ⑨ 的群只对用户看得见的项目成立)。
@@ -278,7 +277,7 @@ export interface SessionpageProvisionDeps {
    * spawn and taken here when its identity is first minted (birth-groups.ts) — once: an agent later removed from the
    * group, or that left it, is not put back.
    */
-  takeBirthGroup?: (sessionId: string) => Promise<string | null | undefined>
+  takeBirthGroup?: (sessionId: string) => Promise<BirthGroup | null | undefined>
   /**
    * #4277 老名册行没记 owner:问云端一次「这个 agent 归当前账号吗」。缺席 ⇒ 按「归我」认领(老行为,
    * 单账号机器上永远正确);在场 ⇒ 别家的行被停放、当前账号自己登记一个。
@@ -399,12 +398,12 @@ export function assertSessionpageIdentityForReattach(sessionId: string): void {
  * (cap, approval queue). Nothing here fails the identity: what happened is logged, and a pending approval is the
  * group's to settle.
  */
-async function joinBirthGroup(accessToken: string, chatId: string | null | undefined, agentUserId: string, log: ReturnType<typeof createLogger>): Promise<void> {
-  if (!chatId) return
+async function joinBirthGroup(accessToken: string, ownerUserId: string, group: BirthGroup | null | undefined, agentUserId: string, log: ReturnType<typeof createLogger>): Promise<void> {
+  if (!group) return
+  const { chatId, asTask } = group
   try {
-    const { data, error } = await makeChatClient(accessToken).rpc('add_group_agent', { p_chat_id: chatId, p_agent_user_id: agentUserId })
-    if (error) throw new Error(error.message)
-    log.info({ agentUserId, chatId, status: parseGroupAgentJoinOutcome(data) }, 'agent born in a chat: asked to join it, the group answered')
+    const data = await createGroupAdmin(makeChatClient(accessToken), ownerUserId).addAgent(chatId, agentUserId, { asTask })
+    log.info({ agentUserId, chatId, asTask, status: data.status }, 'agent born in a chat: asked to join it, the group answered')
   } catch (error) {
     log.warn({ agentUserId, chatId, error: error instanceof Error ? error.message : String(error) }, 'agent born in a chat could not join it')
   }
@@ -608,6 +607,14 @@ function serialize<T>(
 export function cacheString(cache: Record<string, unknown> | null | undefined, key: string): string {
   const value = cache?.[key]
   return typeof value === 'string' ? value : ''
+}
+
+/** Replay a create against its durable roster binding, never the process-local registry. */
+export async function sessionpageAgentSessionForStart(agentUserId: string, ownerUserId: string): Promise<string | undefined> {
+  const agent = (await listAgents()).find((row) => row.gugu_user_id === agentUserId)
+  if (!agent) return undefined
+  if (!agentMayBelongTo(agent, ownerUserId)) throw new Error('agent.create roster owner mismatch')
+  return cacheString(agent.cache, SESSION_CACHE_KEY) || cacheString(agent.cache, PARKED_SESSION_CACHE_KEY) || undefined
 }
 
 /**
@@ -863,7 +870,7 @@ async function provisionLockedBody(
           afterBinding,
           provisionalLocalRow: false,
           // The creation's cloud send never landed, so this is still its first mint — it still joins where it was born.
-          ...(deps.takeBirthGroup ? { birthChatId: () => deps.takeBirthGroup!(info.sessionId) } : {}),
+          ...(deps.takeBirthGroup ? { birthGroup: () => deps.takeBirthGroup!(info.sessionId) } : {}),
         })
       }
     }
@@ -1102,7 +1109,7 @@ async function provisionFreshLocalFirst(
     groupChatId,
     afterBinding,
     provisionalLocalRow: true,
-    ...(deps.takeBirthGroup ? { birthChatId: () => deps.takeBirthGroup!(info.sessionId) } : {}),
+    ...(deps.takeBirthGroup ? { birthGroup: () => deps.takeBirthGroup!(info.sessionId) } : {}),
   })
   return { guguAgentUserId, displayName, groupChatId, projectName }
 }
@@ -1142,7 +1149,7 @@ function startCloudProvision(job: {
    */
   provisionalLocalRow: boolean
   /** The chat it was born in — given only while the identity has never landed (its creation, or a retry of it). */
-  birthChatId?: () => Promise<string | null | undefined>
+  birthGroup?: () => Promise<BirthGroup | null | undefined>
 }): void {
   const log = createLogger('sessionpage/provision')
   // 同一个身份只许有一发在途。❌ 少了这道闸就会并发铸两次:会话本体起了一发,平台令牌那条腿随后走
@@ -1204,7 +1211,7 @@ function startCloudProvision(job: {
     }
     // Born in a chat — joined now, once, while the identity is new: what reads this agent's groups waits for this
     // work (awaitSessionpageCloudIdentity), so its first session already counts that group.
-    if (job.birthChatId) await joinBirthGroup(job.ownerAuth.accessToken, await job.birthChatId(), job.guguAgentUserId, log)
+    if (job.birthGroup) await joinBirthGroup(job.ownerAuth.accessToken, job.ownerAuth.userId, await job.birthGroup(), job.guguAgentUserId, log)
     const current = (await listAgents(job.env, { includeGuests: true })).find((a) => a.gugu_user_id === job.guguAgentUserId)
     await updateAgent({ guguUserId: job.guguAgentUserId }, {
       ...patch,
@@ -1589,13 +1596,10 @@ async function joinProjectGroup(
     await forgetProjectGroupId(projectId, ownerUserId, env)
   }
   const takeSeat = async (groupId: string): Promise<string> => {
-    const { error } = await chat
-      .from('chat_members')
-      .insert({ chat_id: groupId, user_id: guguAgentUserId, role: 'member', listen_mode: 'active' })
-    // A brand-new agent can't already be a member; only a genuine duplicate is benign.
-    if (error && !/duplicate|conflict|unique/i.test(error.message)) {
-      throw new Error(`add session-page agent to project group failed: ${error.message}`)
-    }
+    const admin = createGroupAdmin(chat, ownerUserId)
+    // 任务 agent 进项目群坐任务座位:主动、不发入群提示(gugu-dev#181)。
+    const result = await admin.addAgent(groupId, guguAgentUserId, { asTask: true })
+    if (result.status === 'pending_approval') throw new Error('Project Agent join requires approval')
     await rememberProjectGroupId(projectId, groupId, ownerUserId, env)
     return groupId
   }
@@ -1623,12 +1627,8 @@ async function joinProjectGroup(
     ;({ error } = await createGroup(chatId))
   }
   if (error) throw new Error(`create project group failed: ${error.message}`)
-  const { error: modeError } = await chat
-    .from('chat_members')
-    .update({ listen_mode: 'active' })
-    .eq('chat_id', chatId)
-    .eq('user_id', guguAgentUserId)
-  if (modeError) throw new Error(`set session agent listen_mode failed: ${modeError.message}`)
+  // 建群时它是初始成员(建群不发入群提示);任务座位是主动档,与 takeSeat、provision_taskpage_agent 同一档。
+  await createGroupAdmin(chat, ownerUserId).setListenMode(chatId, guguAgentUserId, 'active')
   await rememberProjectGroupId(projectId, chatId, ownerUserId, env)
   return chatId
 }
@@ -1698,9 +1698,15 @@ export async function registerExistingSessionpageAgents(
   env: NodeJS.ProcessEnv = process.env,
   options: { ownerUserId?: string | null } = {},
 ): Promise<number> {
+  const log = createLogger('sessionpage/boot')
+  const startedAt = Date.now()
+  log.info({}, 'persisted binding roster read started')
+  const roster = await listAgents(env, { includeGuests: true })
+  const readMs = Date.now() - startedAt
+  log.info({ readMs, rows: roster.length }, 'persisted binding roster read finished')
   let count = 0
   const incompleteCapabilityRows: string[] = []
-  for (const agent of await listAgents(env, { includeGuests: true })) {
+  for (const agent of roster) {
     // #4277 别家账号的行不注册:它在这个账号的进程里既收不到投递也拉不到收件箱,挂着只会每次
     // 开机扫出一行 400。没记 owner 的老行照旧;不知道当前是谁(未登录)也照旧。
     if (!agentMayBelongTo(agent, options.ownerUserId)) continue
@@ -1739,6 +1745,7 @@ export async function registerExistingSessionpageAgents(
       `session-page capability cache is incomplete or invalid for agent record(s): ${incompleteCapabilityRows.join(', ')}`,
     )
   }
+  log.info({ readMs, registerMs: Date.now() - startedAt - readMs, bindings: count }, 'persisted binding reconstruction finished')
   return count
 }
 

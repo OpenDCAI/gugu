@@ -1,5 +1,5 @@
 import { appsGivenTo } from '../src/session/shared/extensions/app-enablements-core'
-import { HERE_ALL } from '../src/session/shared/extensions/host-actions'
+import { hereGives } from '../src/session/shared/extensions/app-places'
 import { awaitSessionpageCloudIdentity } from './sessionpage/emdash-agent-provisioning'
 
 /**
@@ -27,6 +27,6 @@ export async function inAppScope(
   app: string | null,
   scope: () => Promise<ReadonlySet<string>>,
 ): Promise<boolean> {
-  if (here === null || here.includes(HERE_ALL)) return true
+  if (hereGives(here)) return true
   return app !== null && (await scope()).has(app)
 }

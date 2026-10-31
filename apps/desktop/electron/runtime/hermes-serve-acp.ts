@@ -3,6 +3,7 @@
 // Gugu is a Hermes desktop client: sessions, per-session model / reasoning / approvals, steering, slash commands
 // and history are Hermes' own, through the same calls its desktop makes. Design: builds/hermes/SERVE-BRIDGE-DESIGN.md.
 import { createInterface } from 'node:readline';
+import { hermesPromptText as promptText } from '../../../../packages/session-core/src/acp/hermes-prompt.ts';
 import { platformModelFacts } from './codex-model-catalog.mjs';
 import { connectGateway, GatewayError, type Gateway, type GatewayEvent } from './hermes-serve/gateway.ts';
 import {
@@ -139,7 +140,7 @@ async function ensureGateway(mcpServers: AcpMcpServer[] | undefined): Promise<Ga
       await connected.request('client.capabilities', { server_requests: true });
       // Upstream bug: MCP servers only the managed overlay declares are never discovered (the discovery gate reads
       // the user's own config.yaml), so Gugu's MCP comes in through Hermes' own reload, before any session exists
-      // (gugu-base evidence/2026-10-04-hermes-serve-bridge/mcp). Delete once the supported Hermes discovers them.
+      // (measured 2026-10-04). Delete once the supported Hermes discovers them.
       if (mcpServers?.length) await connected.request('reload.mcp', { confirm: true });
       gateway = connected;
       return connected;
@@ -233,7 +234,7 @@ async function setConfigOption(params: Json): Promise<Json> {
     const efforts = models.find((choice) => choice.value === selected.model)?.efforts ?? [];
     if (!efforts.includes(value)) throw invalid(`unknown reasoning effort: ${value}; this model offers ${efforts.join(', ')}`);
     // Upstream bug: a `config.set reasoning` that lands while Hermes builds the session's agent is acknowledged and
-    // lost (gugu-base evidence/2026-10-04-hermes-serve-bridge/race). It waits for the built agent, as Hermes' own
+    // lost (measured 2026-10-04). It waits for the built agent, as Hermes' own
     // model setter does. Delete the wait once the supported Hermes applies a mid-build pick.
     await agentBuilt;
     // Hermes Desktop's composer path: session-scoped, takes effect on the next request, never writes config.yaml.
@@ -304,21 +305,6 @@ function settle(prompt: PendingPrompt, result: Json | null, error?: Json) {
   const index = prompts.indexOf(prompt);
   if (index >= 0) prompts.splice(index, 1);
   for (const acpId of [prompt.acpId, ...prompt.joined]) respond(acpId, result, error);
-}
-
-function promptText(blocks: unknown): { text: string; images: { data: string; mimeType: string }[] } {
-  const list = Array.isArray(blocks) ? (blocks as Json[]) : [];
-  const texts: string[] = [];
-  const images: { data: string; mimeType: string }[] = [];
-  for (const block of list) {
-    if (block.type === 'text' && typeof block.text === 'string') texts.push(block.text);
-    else if (block.type === 'image' && typeof block.data === 'string') images.push({ data: block.data, mimeType: String(block.mimeType ?? 'image/png') });
-    else if (block.type === 'resource_link' && typeof block.uri === 'string') texts.push(block.uri);
-    else if (block.type === 'resource' && typeof (block.resource as Json | undefined)?.text === 'string') {
-      texts.push(String((block.resource as Json).text));
-    }
-  }
-  return { text: texts.join('\n'), images };
 }
 
 async function handlePrompt(id: unknown, params: Json) {

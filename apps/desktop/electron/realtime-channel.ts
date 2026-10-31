@@ -3,9 +3,23 @@ export type ElectronManagedRealtimeChannel = {
   subscribe: (callback: (status: string, err?: Error) => void) => ElectronManagedRealtimeChannel
 }
 
+/** 一条订着的私有频道上能发广播的那一面。 */
+export type BroadcastChannel = {
+  send: (message: { type: 'broadcast'; event: string; payload: unknown }) => Promise<unknown>
+}
+
+/**
+ * 发一条广播,发不出去就失败。realtime-js 的 `send` 从不 reject:被拒(超过单条上限、限流)或等不到确认时只回
+ * 'error' / 'timed out' —— 不在这里变成失败,调用方就当它发出去了,丢掉的那一帧悄无声息(远程会话页按 seq 等它,一直等)。
+ */
+export async function sendBroadcast(channel: BroadcastChannel, event: string, payload: unknown): Promise<void> {
+  const result = await channel.send({ type: 'broadcast', event, payload })
+  if (result !== 'ok') throw new Error(`broadcast ${event} not delivered: ${String(result)}`)
+}
+
 export type ElectronRealtimeClient = {
   realtime: {
-    setAuth: (accessToken: string) => unknown | Promise<unknown>
+    setAuth: () => unknown | Promise<unknown>
   }
   removeChannel: (channel: ElectronManagedRealtimeChannel) => unknown
 }
@@ -29,7 +43,6 @@ export type ElectronRealtimeChannelRegistryEntry = {
 }
 
 export type SubscribeElectronRealtimeChannelOptions = {
-  accessToken: string
   label: string
   createChannel?: () => ElectronManagedRealtimeChannel
   onStatus?: (status: string, err?: Error) => void
@@ -38,7 +51,6 @@ export type SubscribeElectronRealtimeChannelOptions = {
 }
 
 type InternalElectronRealtimeChannelRegistryEntry = ElectronRealtimeChannelRegistryEntry & {
-    accessToken: string
     channel: ElectronManagedRealtimeChannel
     client: ElectronRealtimeClient
     createChannel: (() => ElectronManagedRealtimeChannel) | null
@@ -52,8 +64,17 @@ type InternalElectronRealtimeChannelRegistryEntry = ElectronRealtimeChannelRegis
   }
 
 const registry = new Map<string, InternalElectronRealtimeChannelRegistryEntry>()
+const reconnectFlights = new Map<string, Promise<void>>()
 const debugStatusHandlers = new Map<string, (status: string, err?: Error) => void>()
 let nextChannelId = 1
+let paused = false
+
+/** Resume authentication owns this barrier; stale tickets must not auto-rejoin. */
+export function pauseElectronRealtimeChannels(): () => void {
+  paused = true
+  for (const id of registry.keys()) clearReconnectTimer(id)
+  return () => { paused = false }
+}
 
 const RECONNECT_DELAYS_MS = [1000, 2000, 5000, 10000, 30000]
 
@@ -72,7 +93,6 @@ export async function subscribeAuthenticatedElectronRealtimeChannel(
     lastError: null,
     createdAt: now,
     updatedAt: now,
-    accessToken: options.accessToken,
     channel,
     client,
     createChannel: options.createChannel ?? null,
@@ -110,6 +130,12 @@ export function listElectronRealtimeChannelRegistry(): ElectronRealtimeChannelRe
   }))
 }
 
+/** After an explicit host resume, replace stale physical subscriptions now,
+ * without waiting for CHANNEL_ERROR or the normal reconnect backoff. */
+export async function reconnectElectronRealtimeChannels(): Promise<void> {
+  await Promise.all([...registry.keys()].map(id => retryNow(id)))
+}
+
 // TEST-ONLY, env-gated (GUGU_DEVICE_RUNTIME_ACCOUNT_SWITCH_TEST_HOOKS=1). The flag is fixed at
 // Electron process startup, so this module-level assignment is stable for the full runtime.
 // Unset in production -> NOT assigned -> no product surface / no runtime probe.
@@ -125,10 +151,12 @@ if (process.env.GUGU_DEVICE_RUNTIME_ACCOUNT_SWITCH_TEST_HOOKS === '1') {
 }
 
 export function _resetElectronRealtimeChannelRegistryForTesting(): void {
+  paused = false
   for (const entry of registry.values()) {
     if (entry.reconnectTimer) clearTimeout(entry.reconnectTimer)
   }
   registry.clear()
+  reconnectFlights.clear()
   debugStatusHandlers.clear()
   nextChannelId = 1
 }
@@ -151,6 +179,7 @@ export function debugEmitElectronRealtimeChannelStatus(
 async function subscribeRegistryEntry(id: string, reconnecting: boolean): Promise<void> {
   const entry = registry.get(id)
   if (!entry?.active) return
+  if (paused) { setRegistryStatus(id, 'reconnecting'); return }
   let subscribed = false
   let unsubscribeRequested = false
   const removeCurrentChannel = () => {
@@ -164,14 +193,15 @@ async function subscribeRegistryEntry(id: string, reconnecting: boolean): Promis
 
   setRegistryStatus(id, reconnecting ? 'reconnecting' : 'authenticating')
   try {
-    await entry.client.realtime.setAuth(entry.accessToken)
+    // 认证由账号客户端现取;频道重连不能拿创建时的旧令牌覆盖共享连接。
+    await entry.client.realtime.setAuth()
   } catch (error) {
     setRegistryStatus(id, 'auth_error', errorMessage(error))
     scheduleReconnect(id)
     return
   }
   const current = registry.get(id)
-  if (!current?.active) return
+  if (!current?.active || paused) return
   setRegistryStatus(id, 'subscribing')
   const subscribedChannel = current.channel
   const handleSubscribeStatus = (status: string, err?: Error) => {
@@ -190,12 +220,15 @@ async function subscribeRegistryEntry(id: string, reconnecting: boolean): Promis
       setRegistryStatus(id, 'subscribed')
       return
     }
-    if (latest.subscribedOnce && latest.reconnectOnStatus(status, err)) {
+    // One-shot subscriptions may deliberately hand initial failures back to their owner.
+    // Managed persistent channels must retry even when their very first join failed.
+    const shouldUnsubscribe = latest.unsubscribeOnStatus(status, err)
+    if (latest.reconnectOnStatus(status, err) && (latest.subscribedOnce || !shouldUnsubscribe)) {
       setRegistryStatus(id, name === 'CLOSED' ? 'closed' : 'error', name)
       scheduleReconnect(id)
       return
     }
-    if (!latest.unsubscribeOnStatus(status, err)) return
+    if (!shouldUnsubscribe) return
     if (subscribed) {
       removeCurrentChannel()
       return
@@ -225,7 +258,7 @@ function setRegistryStatus(
 
 function scheduleReconnect(id: string): void {
   const entry = registry.get(id)
-  if (!entry || entry.reconnectTimer || !entry.createChannel) return
+  if (paused || !entry || entry.reconnectTimer || !entry.createChannel) return
   const delay = RECONNECT_DELAYS_MS[Math.min(entry.reconnectAttempt, RECONNECT_DELAYS_MS.length - 1)]
   entry.reconnectAttempt += 1
   entry.reconnectTimer = setTimeout(() => {
@@ -240,7 +273,18 @@ function clearReconnectTimer(id: string): void {
   entry.reconnectTimer = null
 }
 
-async function retryNow(id: string): Promise<void> {
+function retryNow(id: string): Promise<void> {
+  if (paused) return Promise.resolve()
+  const existing = reconnectFlights.get(id)
+  if (existing) return existing
+  const flight = replacePhysicalChannel(id).finally(() => {
+    if (reconnectFlights.get(id) === flight) reconnectFlights.delete(id)
+  })
+  reconnectFlights.set(id, flight)
+  return flight
+}
+
+async function replacePhysicalChannel(id: string): Promise<void> {
   const entry = registry.get(id)
   if (!entry?.active || !entry.createChannel) return
   clearReconnectTimer(id)

@@ -200,7 +200,7 @@ import {
   pastedTextFile,
   readImageAttachment,
 } from './composer-attachment-file';
-import { ComposerAttachmentChip } from './composer-attachment-chip';
+import { ComposerAttachmentStrip } from './composer-attachment-strip';
 import { ComposerModelMenu, resolveComposerModelPanel } from './composer-model-menu';
 import { ComposerAgentLoading, ComposerAgentSelector } from './composer-agent-selector';
 // ── Props ─────────────────────────────────────────────────────────────────────
@@ -208,8 +208,11 @@ import { ComposerAgentLoading, ComposerAgentSelector } from './composer-agent-se
 export type ComposerQueuedPromptEdit = { id: string; text: string; originalDraftText: string; pending?: boolean };
 
 export interface ChatComposerProps {
+  editorOptions?: Pick<import('../prompt-editor/types').PromptEditorProps, 'inputTestId' | 'inputRef' | 'enterBehavior' | 'clearOnSubmit'>;
+  mobile?: boolean;
   disabled?: boolean;
   isWorking?: boolean;
+  stopDisabled?: boolean;
   /** False while the session is still starting up. Blocks Send/Enter but keeps the editor typeable. */
   canSubmit?: boolean;
   /** Hide the submit/stop control for draft-only composer surfaces. */
@@ -293,6 +296,8 @@ export interface ChatComposerProps {
    * Hosts can override image handling with `onImageFilesDropped`.
    */
   attachments?: ComposerAttachment[];
+  /** Automatic-send waiting hint, displayed beside the attachment chips. */
+  attachmentStatus?: string;
   onAttachmentsChange?: (next: ComposerAttachment[]) => void;
   /**
    * Called with pasted or dropped image files before the default data-url attachment path.
@@ -378,21 +383,30 @@ export interface ChatComposerProps {
   onEditQueuedPrompt?: (id: string, text: string) => void;
   /** Controlled runtime reservation; omission keeps the component's local queue editor. */
   queuedPromptEdit?: ComposerQueuedPromptEdit | null;
-  onBeginEditQueuedPrompt?: (id: string) => void;
+  onBeginEditQueuedPrompt?: (id: string, originalDraftText?: string) => void;
   onChangeQueuedPromptEdit?: (text: string) => void;
   onFinishQueuedPromptEdit?: (text: string | null) => void;
   onDeleteQueuedPrompt?: (id: string) => void;
   onReorderQueuedPrompts?: (ids: string[]) => void;
   onSendQueuedPromptNow?: (id: string) => void;
+  /**
+   * 这一框此刻不是发消息而是新任务:框整张换成那件事的色,`leading` 那枚标签
+   * 排在输入行的最前面、紧挨占位文字。
+   */
+  tone?: 'task';
+  leading?: React.ReactNode;
   className?: string;
 }
 
 // ── Main component ────────────────────────────────────────────────────────────
 
 export function ChatComposer({
+  editorOptions,
+  mobile = false,
   disabled = false,
   isWorking = false,
-  canSubmit = true,
+  stopDisabled = false,
+  canSubmit: hostCanSubmit,
   showSubmitButton = true,
   placeholder,
   disabledPlaceholder,
@@ -428,6 +442,7 @@ export function ChatComposer({
   onAttach,
   contextUsage,
   attachments = [],
+  attachmentStatus,
   onAttachmentsChange,
   onImageFilesDropped,
   onFilesDropped,
@@ -457,9 +472,12 @@ export function ChatComposer({
   onReorderQueuedPrompts,
   onSendQueuedPromptNow,
   getPromptHistory,
+  tone,
+  leading,
   className,
 }: ChatComposerProps) {
   const { translate } = useMessages();
+  const rootRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<PromptEditorRef | null>(null);
   // 底排放不下时按档把标签收成图标(渐进披露),见 use-toolbar-disclosure.ts
   const toolbarDisclosure = useToolbarDisclosure();
@@ -487,7 +505,7 @@ export function ChatComposer({
 
   const beginQueueEdit = (id: string, text: string) => {
     if (queueEdit) return;
-    if (onBeginEditQueuedPrompt) { onBeginEditQueuedPrompt(id); return; }
+    if (onBeginEditQueuedPrompt) { onBeginEditQueuedPrompt(id, editorRef.current?.getText() ?? ''); return; }
     setLocalQueueEdit({ id, text, originalDraftText: editorRef.current?.getText() ?? '' });
   };
   const changeQueueEdit = (text: string) => {
@@ -524,10 +542,11 @@ export function ChatComposer({
     };
   }, []);
 
+  const canSubmit = hostCanSubmit ?? true;
   const handleSubmit = (text: string) => {
     if (queueEdit) { finishQueueEdit(text); return; }
     // Attachment-only sends are valid for both images and ordinary files.
-    if (!text.trim() && attachments.length === 0) return;
+    if (!text.trim() && attachments.length === 0 && hostCanSubmit !== true) return;
     // While the agent is actively working, route to the host's conflict handler
     // (e.g. queueing or a cancel-and-send confirmation) instead of submitting.
     if (isWorking) {
@@ -536,6 +555,11 @@ export function ChatComposer({
     }
     if (disabled || !canSubmit) return;
     onSubmit(text);
+    // Every phone host (chat, agent thread, new task) submits here. Settle focus
+    // synchronously: a deferred refocus reopens the keyboard and jumps the shell.
+    // Scope the blur to this composer so another input never loses its focus.
+    const active = rootRef.current?.ownerDocument.activeElement;
+    if (mobile && active instanceof HTMLElement && rootRef.current?.contains(active)) active.blur();
   };
 
   /**
@@ -688,6 +712,12 @@ export function ChatComposer({
     !!onSendQueuedPromptNow;
   // The permission band takes priority over the notice band.
   const hasBand = !!(permissionRequest ?? notice);
+  const receiveEditor = React.useCallback((handle: PromptEditorRef | null) => {
+    editorRef.current = handle;
+    if (typeof editorApiRef === 'function') editorApiRef(handle);
+    else if (editorApiRef) (editorApiRef as React.MutableRefObject<PromptEditorRef | null>).current = handle;
+  }, [editorApiRef]);
+
   const shouldHandleSubmitAttempt = !disabled && !queueEdit?.pending && (queueEdit ? true : isWorking ? !!onSubmitWhileWorking : canSubmit);
   const resolvedPlaceholder = disabled
     ? (disabledPlaceholder ?? translate('composer.sessionClosed'))
@@ -695,8 +725,29 @@ export function ChatComposer({
       ? translate('composer.followUpPlaceholder')
       : (placeholder ?? translate('composer.messagePlaceholder'));
 
+  const promptEditor = (
+    <PromptEditor
+      {...editorOptions}
+      ref={receiveEditor}
+      placeholder={resolvedPlaceholder}
+      disabled={disabled || !!queueEdit?.pending}
+      onChange={queueEdit ? changeQueueEdit : onInputChange}
+      onPasteText={queueEdit ? undefined : handlePastedText}
+      clearOnSubmit={queueEdit ? false : (editorOptions?.clearOnSubmit ?? true)}
+      hostDropTypes={onDataDropped ? dataDropTypes : undefined}
+      onSubmit={shouldHandleSubmitAttempt ? handleSubmit : undefined}
+      onMentionInsert={onMentionInsert}
+      mentionProvider={mentionProvider}
+      renderMentionIcon={renderMentionIcon}
+      queryMentions={queryMentions}
+      queryCommands={queryCommands}
+      onCommand={onCommand}
+      getPromptHistory={queueEdit ? undefined : getPromptHistory}
+    />
+  );
+
   return (
-    <div data-slot="composer" className={cx(styles.composerRoot, className)} onKeyDown={(event) => {
+    <div ref={rootRef} data-slot="composer" data-mobile={mobile || undefined} className={cx(styles.composerRoot, className)} onKeyDown={(event) => {
       if (queueEdit && event.key === 'Escape' && !event.defaultPrevented && !event.nativeEvent.isComposing && event.keyCode !== 229) {
         event.preventDefault(); finishQueueEdit(null);
       }
@@ -742,26 +793,15 @@ export function ChatComposer({
       <div
         data-slot="composer-bar"
         data-drag-active={dragActive || undefined}
-        className={styles.composerShell({ hasBand: !!hasBand, dragActive })}
+        className={styles.composerShell({ hasBand: !!hasBand, dragActive, tone })}
         onPaste={queueEdit ? undefined : handlePaste}
         onDragOver={queueEdit ? undefined : handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={queueEdit ? undefined : handleDrop}
       >
         {/* Attachment chips — anatomy vendored from assistant-ui (#5269), see composer-attachment-chip.tsx */}
-        {!queueEdit && attachments.length > 0 && (
-          <div data-slot="composer-attachments" className={styles.attachmentStrip}>
-            {attachments.map((att) => (
-              <ComposerAttachmentChip
-                key={att.id}
-                attachment={att}
-                onView={onViewAttachment}
-                onRemove={onAttachmentsChange ? removeAttachment : undefined}
-                onRetry={onRetryAttachment}
-              />
-            ))}
-          </div>
-        )}
+        {!queueEdit && <ComposerAttachmentStrip attachments={attachments} status={attachmentStatus}
+          onView={onViewAttachment} onRemove={onAttachmentsChange ? removeAttachment : undefined} onRetry={onRetryAttachment} />}
 
         {/* Editor area */}
         <div
@@ -780,32 +820,12 @@ export function ChatComposer({
             editorRef.current?.focus();
           }}
         >
-          <PromptEditor
-            ref={(handle) => {
-              editorRef.current = handle;
-              if (editorApiRef) {
-                if (typeof editorApiRef === 'function') {
-                  editorApiRef(handle);
-                } else {
-                  (editorApiRef as React.MutableRefObject<PromptEditorRef | null>).current = handle;
-                }
-              }
-            }}
-            placeholder={resolvedPlaceholder}
-            disabled={disabled || !!queueEdit?.pending}
-            onChange={queueEdit ? changeQueueEdit : onInputChange}
-            onPasteText={queueEdit ? undefined : handlePastedText}
-            clearOnSubmit={!queueEdit}
-            hostDropTypes={onDataDropped ? dataDropTypes : undefined}
-            onSubmit={shouldHandleSubmitAttempt ? handleSubmit : undefined}
-            onMentionInsert={onMentionInsert}
-            mentionProvider={mentionProvider}
-            renderMentionIcon={renderMentionIcon}
-            queryMentions={queryMentions}
-            queryCommands={queryCommands}
-            onCommand={onCommand}
-            getPromptHistory={queueEdit ? undefined : getPromptHistory}
-          />
+          {leading ? (
+            <div className={styles.editorLeadRow}>
+              <span className={styles.editorLead}>{leading}</span>
+              <div className={styles.editorLeadBody}>{promptEditor}</div>
+            </div>
+          ) : promptEditor}
         </div>
 
         {/* Toolbar */}
@@ -976,6 +996,8 @@ export function ChatComposer({
                   //    "这会中断正在跑的东西",不该被换成与正文同色的墨点。
                   className={styles.sendButtonRound}
                   data-composer-action="stop"
+                  disabled={disabled || stopDisabled}
+                  aria-busy={stopDisabled || undefined}
                   onClick={onStop}
                   aria-label={translate('composer.stopGeneration')}
                 >

@@ -8,7 +8,6 @@ import { Avatar } from '../../components/Avatar'
 import { IconButton } from '../../components/ui/IconButton'
 import { ListRow } from '../../components/ui/ListRow'
 import { SearchField } from '../../components/ui/SearchField'
-import { Sheet } from '../../components/ui/Sheet'
 import { UI_EVENTS } from '../../lib/uiEvents'
 import { useChatStore } from '../../store/chatContext'
 import { mergeShareIntoDraft, shareTargetChats } from './shareTargets'
@@ -51,10 +50,10 @@ function SharePreview({ share }: { share: IncomingShare }) {
  * 「发送到」页(product spec):选一条会话,内容放进它的输入框,由用户按发送。
  * ❌ 选完直接发 —— 发送、上传、大小限制都走输入框那一条链路。
  */
-export function ShareIntakeSheet({ share, onDone }: { share: IncomingShare; onDone: () => void }) {
+export function ShareIntakeContent({ share, onDone }: { share: IncomingShare; onDone: (afterClose?: () => void) => void }) {
   const { t } = useTranslation('messaging')
-  const { chats, identitiesById, activeChatId, drafts, draftAttachments, setDraft, setDraftAttachments } = useChatStore(
-    'chats', 'identitiesById', 'activeChatId', 'drafts', 'draftAttachments', 'setDraft', 'setDraftAttachments',
+  const { chats, identitiesById, activeChatId, drafts, draftAttachments, writeDraft, setDraftAttachments } = useChatStore(
+    'chats', 'identitiesById', 'activeChatId', 'drafts', 'draftAttachments', 'writeDraft', 'setDraftAttachments',
   )
   const [query, setQuery] = useState('')
   const displayName = useCallback(
@@ -74,23 +73,20 @@ export function ShareIntakeSheet({ share, onDone }: { share: IncomingShare; onDo
 
   const sendTo = (chat: ChatItem) => {
     const next = mergeShareIntoDraft(
-      { text: drafts[chat.id] ?? '', attachments: draftAttachments[chat.id] ?? [] },
+      { text: '', attachments: draftAttachments[chat.id] ?? [] },
       share,
       () => crypto.randomUUID(),
     )
-    setDraft(chat.id, next.text)
+    if (next.text) writeDraft(chat.id, { at: 'end', text: next.text })
     setDraftAttachments(chat.id, next.attachments)
     // 与点通知进会话同一条路:选中、切到对话、手机壳下钻到会话页、聚焦输入框。
-    window.dispatchEvent(new CustomEvent(UI_EVENTS.notificationClicked, { detail: { chatId: chat.id } }))
-    onDone()
+    onDone(() => window.dispatchEvent(new CustomEvent(UI_EVENTS.notificationClicked, { detail: { chatId: chat.id } })))
   }
 
   return (
-    // 安卓返回键 = 左上返回 = 放弃这次分享:Sheet 自己把返回键当 Escape 接住,走 onClose。
-    <Sheet onClose={onDone} fullScreenMobile testId="share-intake-sheet" ariaLabel={t('shareIntake.title')}>
       <div className="gg-si">
         <div className="gg-si-head">
-          <IconButton aria-label={t('shareIntake.back')} size="lg" onClick={onDone}>
+          <IconButton aria-label={t('shareIntake.back')} size="lg" onClick={() => onDone()}>
             <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" d="M15 5l-7 7l7 7" /></svg>
           </IconButton>
           <span className="gg-si-title">{t('shareIntake.title')}</span>
@@ -147,6 +143,5 @@ export function ShareIntakeSheet({ share, onDone }: { share: IncomingShare; onDo
           </div>
         )}
       </div>
-    </Sheet>
   )
 }

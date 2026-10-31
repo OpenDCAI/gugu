@@ -86,8 +86,7 @@ export function describeAgentShare(
   if (rejected) problems.push(t('inviteAgent.rejected', { ns: 'contacts', names: rejected }))
   if (failed.length > 0) {
     problems.push(t('inviteAgent.failedFor', { ns: 'contacts', names: list.format(failed.map((outcome) => nameOf(outcome.friendUserId))) }))
-    // 只有断网 / 没权限这类用户能据此行动的原因才另起一句说出来(已是本地化文案);其余只说谁没成,原文已进日志。
-    const hint = messageForUser(failed[0].error, '')
+    const hint = messageForUser(failed[0].error)
     if (hint) problems.push(hint)
   }
 

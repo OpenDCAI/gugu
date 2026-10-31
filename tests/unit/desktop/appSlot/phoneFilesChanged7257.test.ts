@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { rpcQuery } from '../../../helpers/rpcQuery'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { hostAppFrame } from '../../../../apps/desktop/src/components/appSlot/phoneAppHost'
 import { APP_FRAME_MARKER } from '../../../../apps/desktop/src/session/shared/extensions/app-runtime-protocol'
@@ -14,14 +15,16 @@ import { until } from '../../../support/awaitCondition'
 const ORIGIN = 'https://board.acct.apps.gugu.invalid'
 const CHAT = '0b000000-0000-4000-8000-000000007257'
 const OTHER_CHAT = '0b000000-0000-4000-8000-000000007258'
+const TOPIC = '0b000000-0000-4000-8000-000000007259'
 const [A, B, C] = ['0f000000-0000-4000-8000-00000000000a', '0f000000-0000-4000-8000-00000000000b', '0f000000-0000-4000-8000-00000000000c']
 const auth = vi.hoisted(() => ({ token: `h.${Buffer.from(JSON.stringify({ sub: '0a000000-0000-4000-8000-000000007257' })).toString('base64url')}.s` }))
 /**
  * Each read of the named files — the door's reads started together (one `workspace_get_as` per id, in one go) are one read:
  * its ids; the chat's lists; a way to hold a read open until the test lets it answer; reads to fail.
  */
-const db = vi.hoisted(() => ({ reads: [] as string[][], lists: 0, hold: null as Promise<void> | null, fail: 0 }))
+const db = vi.hoisted(() => ({ reads: [] as string[][], lists: 0, hold: null as Promise<void> | null, fail: 0, openingName: 'a.md', factsHold: null as Promise<void> | null, factsEntered: null as (() => void) | null }))
 vi.mock('../../../../apps/desktop/src/lib/sessionPublication', () => ({ getRendererAccessToken: () => auth.token }))
+vi.mock('../../../../apps/desktop/src/lib/identityReadAdapter', () => ({ readDisplayIdentities: async () => [] }))
 vi.mock('@gugu/core/cloud/supabase', () => {
   let open: { ids: string[]; fail: boolean } | null = null
   const read = () => {
@@ -33,14 +36,18 @@ vi.mock('@gugu/core/cloud/supabase', () => {
     }
     return open
   }
-  const row = (id: string, filename: string) => ({ id, chat_id: id === C ? OTHER_CHAT : CHAT, filename, version: 5, parent_id: null, system_role: null, path: filename })
+  const row = (id: string, filename: string) => ({ id, chat_id: id === C ? OTHER_CHAT : CHAT, filename, version: 5, content_type: filename.endsWith('.mp4') ? 'video/mp4' : 'text/plain', size_bytes: 3276, parent_id: null, system_role: null, path: filename })
   return {
     createGuguSupabaseClient: () => ({
       from: () => {
         const query = { select: () => query, eq: () => query, maybeSingle: async () => ({ data: { id: CHAT }, error: null }) }
         return query
       },
-      rpc: async (name: string, args: Record<string, unknown>) => {
+      rpc: rpcQuery(async (name: string, args: Record<string, unknown>) => {
+        if (name === 'chat_facts') {
+          if (db.factsHold) { db.factsEntered?.(); await db.factsHold }
+          return { data: [{ id: args.p_chat_id, kind: args.p_chat_id === TOPIC ? 'topic' : 'group', source_chat_id: args.p_chat_id === TOPIC ? CHAT : null }], error: null }
+        }
         if (name === 'workspace_deletable_as') return { data: args.p_item_ids, error: null }
         // Every file of the chat: A.
         if (name === 'workspace_list_as') {
@@ -55,12 +62,15 @@ vi.mock('@gugu/core/cloud/supabase', () => {
         if (db.hold) await db.hold
         if (batch.fail) return { data: null, error: { message: 'offline' } }
         if (id === B) return { data: null, error: { message: `workspace item not found: ${id}`, hint: 'workspace_item_not_found' } }
-        return { data: [row(id, `${id.slice(-1)}.md`)], error: null }
-      },
+        return { data: [row(id, db.openingName === 'a.md' ? `${id.slice(-1)}.md` : db.openingName)], error: null }
+      }),
     }),
   }
 })
 
+const activation = Object.getOwnPropertyDescriptor(navigator, 'userActivation')
+const opened = vi.fn()
+const peeked = vi.fn()
 let frame: HTMLIFrameElement
 let posted: ReturnType<typeof vi.fn>
 let host: ReturnType<typeof hostAppFrame> | undefined
@@ -68,7 +78,12 @@ beforeEach(() => {
   db.reads.length = 0
   db.lists = 0
   db.hold = null
+  db.factsHold = null
+  db.factsEntered = null
   db.fail = 0
+  db.openingName = 'a.md'
+  opened.mockClear()
+  peeked.mockClear()
   frame = document.createElement('iframe')
   frame.src = `${ORIGIN}/index.html`
   document.body.appendChild(frame)
@@ -76,14 +91,16 @@ beforeEach(() => {
   Object.defineProperty(frame.contentWindow!, 'postMessage', { value: posted, configurable: true })
   host = hostAppFrame(
     frame,
-    { extensionId: 'board', tabId: 'tab-1', chatId: CHAT, capabilities: ['files:read'], locale: 'en-US', themeMode: 'light' },
-    { showMessage: vi.fn(), showSession: () => ({ shown: true }), openWith: vi.fn(), chrome: vi.fn() },
+    { extensionId: 'board', tabId: 'tab-1', tabName: 'main', chatId: CHAT, capabilities: ['files:read'], locale: 'en-US', themeMode: 'light' },
+    { showMessage: vi.fn(), showSession: () => ({ shown: true }), openWith: opened, peek: peeked, chrome: vi.fn() },
   )
 })
 afterEach(() => {
   host?.dispose()
   host = undefined
   frame.remove()
+  if (activation) Object.defineProperty(navigator, 'userActivation', activation)
+  else Reflect.deleteProperty(navigator, 'userActivation')
 })
 
 let nextId = 1
@@ -98,15 +115,60 @@ const changes = () =>
     .filter((message) => message.t === 'event' && message.event?.type === 'filesChanged').map((message) => message.event!.change)
 
 describe('a watched chat\'s files changed: the page hears those files (#7257)', () => {
+  it('an old document pending watch cannot replace a new document watch with the same id', async () => {
+    let release!: () => void
+    let entered!: () => void
+    db.factsHold = new Promise<void>(resolve => { release = resolve })
+    const started = new Promise<void>(resolve => { entered = resolve })
+    db.factsEntered = entered
+    const old = call('filesWatch', { watchId: '1', place: { chat: CHAT } })
+    await started
+    window.dispatchEvent(new MessageEvent('message', { data: { m: APP_FRAME_MARKER, t: 'hello' }, source: frame.contentWindow, origin: ORIGIN }))
+    db.factsHold = null
+    expect(await call('filesWatch', { watchId: '1', place: { chat: OTHER_CHAT } })).toMatchObject({ ok: true })
+    release()
+    await old
+    posted.mockClear()
+    db.reads.length = 0
+    await host!.filesChanged([{ chatId: CHAT, itemIds: [A] }])
+    expect(changes()).toEqual([])
+    expect(db.reads).toEqual([])
+  })
+
+  it('a new document stops the old watches and can register the same subscription id again', async () => {
+    const args = { watchId: 'source-watch', place: { chat: CHAT } }
+    expect(await call('filesWatch', args)).toMatchObject({ ok: true })
+    window.dispatchEvent(new MessageEvent('message', { data: { m: APP_FRAME_MARKER, t: 'hello' }, source: frame.contentWindow, origin: ORIGIN }))
+    await host!.filesChanged([{ chatId: CHAT, itemIds: [A] }])
+    expect(changes()).toEqual([])
+    expect(await call('filesWatch', args)).toMatchObject({ ok: true })
+    await host!.filesChanged([{ chatId: CHAT, itemIds: [A] }])
+    expect(changes()).toHaveLength(1)
+  })
+
+  it('topic and source subscriptions both follow source revisions, with their original event addresses', async () => {
+    expect(await call('filesWatch', { watchId: 'topic-watch', place: { chat: TOPIC } })).toMatchObject({ ok: true })
+    expect(await call('filesWatch', { watchId: 'source-watch', place: { chat: CHAT } })).toMatchObject({ ok: true })
+    await host!.filesChanged([{ chatId: CHAT, itemIds: [A] }])
+    const places = posted.mock.calls.map(([message]) => message as { t?: string; event?: { type: string; place?: unknown } })
+      .filter((message) => message.t === 'event' && message.event?.type === 'filesChanged').map((message) => message.event!.place)
+    expect(places).toEqual([{ chat: TOPIC }, { chat: CHAT }])
+    expect(db.reads).toEqual([[A]])
+    expect(await call('filesWatch', { watchId: 'topic-watch', place: { chat: TOPIC }, on: false })).toMatchObject({ ok: true })
+    posted.mockClear()
+    await host!.filesChanged([{ chatId: CHAT, itemIds: [A] }])
+    expect(changes()).toHaveLength(1)
+  })
+
   it('the named files as they are now and the ids not there — one read; an unwatched chat, nothing', async () => {
-    expect(await call('filesWatch', { place: { chat: CHAT } })).toMatchObject({ ok: true })
+    expect(await call('filesWatch', { watchId: 'source-watch', place: { chat: CHAT } })).toMatchObject({ ok: true })
     await host!.filesChanged([{ chatId: CHAT, itemIds: [A, B, C] }, { chatId: OTHER_CHAT, itemIds: [A] }])
     expect(db.reads).toEqual([[A, B, C]])
     expect(changes()).toEqual([{ kind: 'entries', entries: [expect.objectContaining({ id: A, chat: CHAT, name: 'a.md', version: 5 })], gone: [B, C] }])
   }, 60_000)
 
   it('ids named while a read is on its way wait for it, and go together in exactly one more', async () => {
-    expect(await call('filesWatch', { place: { chat: CHAT } })).toMatchObject({ ok: true })
+    expect(await call('filesWatch', { watchId: 'source-watch', place: { chat: CHAT } })).toMatchObject({ ok: true })
     let release!: () => void
     db.hold = new Promise<void>((resolve) => (release = resolve))
     const first = host!.filesChanged([{ chatId: CHAT, itemIds: [A] }])
@@ -122,7 +184,7 @@ describe('a watched chat\'s files changed: the page hears those files (#7257)', 
   }, 60_000)
 
   it('a read that fails twice: its files go with the next ones named, so the page is not left on the old ones', async () => {
-    expect(await call('filesWatch', { place: { chat: CHAT } })).toMatchObject({ ok: true })
+    expect(await call('filesWatch', { watchId: 'source-watch', place: { chat: CHAT } })).toMatchObject({ ok: true })
     db.fail = 2
     await host!.filesChanged([{ chatId: CHAT, itemIds: [A] }])
     expect(db.reads).toEqual([[A], [A]])
@@ -133,7 +195,7 @@ describe('a watched chat\'s files changed: the page hears those files (#7257)', 
   }, 60_000)
 
   it('more ids kept than a read names one by one: one list of the chat, and a kept id not in it said gone', async () => {
-    expect(await call('filesWatch', { place: { chat: CHAT } })).toMatchObject({ ok: true })
+    expect(await call('filesWatch', { watchId: 'source-watch', place: { chat: CHAT } })).toMatchObject({ ok: true })
     const kept = Array.from({ length: MAX_HELD_IDS }, (_, i) => `0f000000-0000-4000-8000-${String(i).padStart(12, '0')}`)
     db.fail = 2
     await host!.filesChanged([{ chatId: CHAT, itemIds: kept }])
@@ -146,12 +208,30 @@ describe('a watched chat\'s files changed: the page hears those files (#7257)', 
   }, 60_000)
 
   it('the page stops hearing the chat: what was kept for it goes', async () => {
-    expect(await call('filesWatch', { place: { chat: CHAT } })).toMatchObject({ ok: true })
+    expect(await call('filesWatch', { watchId: 'source-watch', place: { chat: CHAT } })).toMatchObject({ ok: true })
     db.fail = 2
     await host!.filesChanged([{ chatId: CHAT, itemIds: [A] }])
-    expect(await call('filesWatch', { place: { chat: CHAT }, on: false })).toMatchObject({ ok: true })
-    expect(await call('filesWatch', { place: { chat: CHAT } })).toMatchObject({ ok: true })
+    expect(await call('filesWatch', { watchId: 'source-watch', place: { chat: CHAT }, on: false })).toMatchObject({ ok: true })
+    expect(await call('filesWatch', { watchId: 'source-watch', place: { chat: CHAT } })).toMatchObject({ ok: true })
     await host!.filesChanged([{ chatId: CHAT, itemIds: [B] }])
     expect(db.reads).toEqual([[A], [A], [B]])
   }, 60_000)
+})
+
+
+describe('the phone openWith bridge hands unclaimed files to the host preview (#7663)', () => {
+  it.each([false, true])('ordinary and peek openings carry the same file metadata (peek=%s)', async (peek) => {
+    db.openingName = 'clip.mp4'
+    Object.defineProperty(navigator, 'userActivation', { configurable: true, value: { isActive: true } })
+    const result = await call('filesOpenWith', { ref: { id: A }, ...(peek ? { peek: true } : {}) })
+    expect(result).toMatchObject({ ok: true })
+    const detail = { chatId: CHAT, itemId: A, name: 'clip.mp4', choice: { kind: 'none' }, file: { document: false, contentType: 'video/mp4', version: 5, size: 3276 } }
+    if (peek) {
+      expect(peeked).toHaveBeenCalledWith(expect.objectContaining({ kind: 'chat', detail: expect.objectContaining(detail) }))
+      expect(opened).not.toHaveBeenCalled()
+    } else {
+      expect(opened).toHaveBeenCalledWith(expect.objectContaining(detail))
+      expect(peeked).not.toHaveBeenCalled()
+    }
+  })
 })

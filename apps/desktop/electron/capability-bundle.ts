@@ -38,6 +38,7 @@ import type { GuguPermissionMode } from '@gugu/session-core/acp'
 import { GUGU_PLATFORM_BLOCK, estimatePromptTokens } from './product-platform-prompt'
 import { firstSentence } from './mcp/first-sentence'
 import { mcpEnvSuffix } from '../src/session/shared/mcp-library'
+import { createLogger } from './lib/logger'
 
 export { PRODUCT_CAPABILITY_PACKAGES } from '@gugu/session-plugins/agents'
 
@@ -71,6 +72,15 @@ export interface SessionCapabilityBundle {
   extensionApps: readonly ExtensionCatalogApp[]
   /** #6387 Which extension each extension program in `mcpServers` came from (for the `/mcp` panel). */
   extensionServerOrigins: readonly { name: string; extensionId: string }[]
+  /** #7199 这台机器上 Browser Use App 装着、开着、许给 agent 工具(buildSessionBundle 读一次;交给各家物化器,见 core 那一格)。 */
+  browserUse?: true
+  /** Disable harness-owned browser routes independently of App availability. */
+  disableNativeBrowser?: true
+  /**
+   * Remote hosts explicitly report that Browser Use is not available yet.
+   * Absent for desktop sessions or hosts without the App probe.
+   */
+  browserRule?: 'unavailable'
 }
 
 // Keep the Electron-side declaration available at this boundary as well. The core and
@@ -424,17 +434,27 @@ export function setSessionIntegrationBridge(
 }
 
 /**
- * #7191 这条会话的浏览器工具(agent 操作会话页右侧的浏览器页签,见 browser-agent-mcp.ts)。
- * 宿主装上;没装(咕咕 server、测试)= 不带。只给本机会话:参数里的会话编号从卡上认出来,认不出就不带。
+ * #7199 这台机器装没装 Browser Use App(装着、开着、许给 agent 工具),宿主装上探针;`server` = 这是咕咕 server。
+ * 每条会话开场读一次:本机装着时 Codex 据它关掉自己的浏览器插件;server 明确提示暂不可用 ——
+ * 桌面的 App 经 `<gugu_apps>` / 它自己的工具说明说话。浏览器工具只有 App 那一条路(经扩展网关 / catalog),这里 ❌ 另给工具。
+ * 没装探针(测试、无 app 环境)= 两样都没有。
  */
-let sessionBrowserBridge:
-  | ((session: { grantKey: string; sessionId: string; subjectId: string }) => Promise<AcpMcpServer[]>)
-  | null = null
+let browserUseApp: { installed: () => boolean; server: boolean } | null = null
 
-export function setSessionBrowserBridge(
-  bridge: ((session: { grantKey: string; sessionId: string; subjectId: string }) => Promise<AcpMcpServer[]>) | null,
-): void {
-  sessionBrowserBridge = bridge
+export function setBrowserUseApp(probe: { installed: () => boolean; server: boolean } | null): void {
+  browserUseApp = probe
+}
+
+/** The remote Browser Use implementation has been removed; installing the shell App cannot enable it. */
+function browserUseOf(personalAssistant: boolean): Pick<SessionCapabilityBundle, 'browserUse' | 'browserRule' | 'disableNativeBrowser'> {
+  if (!browserUseApp) return {}
+  if (browserUseApp.server) return { disableNativeBrowser: true, ...(!personalAssistant ? { browserRule: 'unavailable' as const } : {}) }
+  try {
+    return browserUseApp.installed() ? { browserUse: true } : {}
+  } catch (error) {
+    createLogger('capability-bundle').warn({ error: (error as Error).message }, 'could not read whether Browser Use is installed; the session has no browser')
+    return {}
+  }
 }
 
 /**
@@ -475,14 +495,25 @@ export function setSessionIntegrationSkillBridge(bridge: (() => Promise<Extensio
   sessionIntegrationSkillBridge = bridge
 }
 
+/** Host-owned search; availability is read after the platform injector has finished. */
+let sessionWebSearchBridge: ((sessionId: string) => import('./mcp/gugu-web-search-tool').SessionWebSearch) | null = null
+
+export function setSessionWebSearchBridge(bridge: typeof sessionWebSearchBridge): void {
+  sessionWebSearchBridge = bridge
+}
+
 export async function buildSessionBundle(
   deps: BuildSessionBundleDeps,
 ): Promise<SessionCapabilityBundle> {
+  const searchSessionId = sessionpageSessionOfGrantKey(deps.socialBridgeDeps.grantKey)
   const socialBridge = await buildSocialBridge(
     deps.runtime,
     deps.agentUserId,
     deps.threadRootId,
-    deps.socialBridgeDeps,
+    {
+      ...deps.socialBridgeDeps,
+      ...(sessionWebSearchBridge && searchSessionId ? { webSearch: sessionWebSearchBridge(searchSessionId) } : {}),
+    },
   )
   const integrations = sessionIntegrationBridge
     ? await sessionIntegrationBridge(deps.socialBridgeDeps.grantKey, deps.agentUserId)
@@ -494,12 +525,8 @@ export async function buildSessionBundle(
     ? await sessionExtensionBridge({ grantKey: deps.socialBridgeDeps.grantKey, subjectId: deps.agentUserId, ...(agentId ? { agentId } : {}), ...(deps.extensionTools ? { extensionTools: deps.extensionTools } : {}) })
     : { servers: [], skills: [], apps: [], origins: [] }
   const integrationSkills = sessionIntegrationSkillBridge ? await sessionIntegrationSkillBridge() : []
-  const browserSessionId = sessionpageSessionOfGrantKey(deps.socialBridgeDeps.grantKey)
-  const browser = sessionBrowserBridge && browserSessionId
-    ? await sessionBrowserBridge({ grantKey: deps.socialBridgeDeps.grantKey, sessionId: browserSessionId, subjectId: deps.agentUserId })
-    : []
   const bootstrap = buildSessionBootstrapBundle(deps)
-  const taken = [...bootstrap.mcpServers, ...socialBridge, ...integrations, ...browser, ...extensions.servers]
+  const taken = [...bootstrap.mcpServers, ...socialBridge, ...integrations, ...extensions.servers]
   // 密钥(env 值、Authorization)与用户自己的那批同一种转换:换成 GUGU_SESSION_MCP_ENV_* 引用,值随 env 走。
   const picked = sessionLibraryMcpBridge && agentId ? await sessionLibraryMcpBridge(agentId) : null
   const library = picked ? canonicalMcpServersToSessionServers(picked.servers) : { servers: [], env: {} }
@@ -517,6 +544,7 @@ export async function buildSessionBundle(
     extensionSkills: [...extensions.skills, ...integrationSkills],
     extensionApps: extensions.apps,
     extensionServerOrigins: extensions.origins,
+    ...browserUseOf(deps.socialBridgeDeps.personalAssistant === true),
     mcpServers,
     // ⚠️ 这一行就是断过的那一跳。bootstrap 服务 pty 腿、恒为 `undefined`,
     //    ACP 腿的关闭集合必须在这里接回来;`[]` 原样递,❌ 不归一成 undefined。
@@ -793,6 +821,8 @@ function toCoreSessionBundle(bundle: SessionCapabilityBundle): CoreSessionCapabi
     promptBlocks: bundle.promptBlocks,
     packages: bundle.packages,
     extensionSkills: bundle.extensionSkills,
+    ...(bundle.browserUse ? { browserUse: true as const } : {}),
+    ...(bundle.disableNativeBrowser ? { disableNativeBrowser: true as const } : {}),
   }
 }
 
@@ -983,14 +1013,7 @@ export function providerUsesSessionAcpSessionAdapter(providerId: string): boolea
 // session_* is deliberately absent from Gugu social/chat-driven ACP sessions. The explicit
 // distinction matters because several harnesses expose their own Task/Agent worker and the generic
 // platform routing rule otherwise classifies "start an agent" as ordinary work.
-const SESSION_SPAWN_ROUTING_RULE = `You are on the Gugu platform. Creating a Gugu session agent is a platform
-operation, not local work. Asked to create, start, spawn or make a Gugu agent/session/child — "start an
-agent", "起一个 agent", "创建一个小弟" — default to \`session_spawn\`. Harness-native \`Task\`, \`Agent\`,
-\`subagent\` or \`spawn_agent\` stay available when the request explicitly asks for an internal worker; such a
-worker is not a session agent — invisible, unable to receive Gugu session messages, dead when your turn ends
-— so do not substitute one for the other, never report one as a Gugu agent/session/child, and if you cannot
-start a requested Gugu session, say so and say why.
-The returned \`session_id\` is the stable product address.
+const SESSION_SPAWN_ROUTING_RULE = `For a persistent Gugu agent/session/child (「起一个 agent」「创建一个小弟」), use \`session_spawn\`. Only use a harness-internal worker when explicitly requested; it is not a session agent and cannot receive Gugu messages. Never substitute one for a requested Gugu session; report inability to start it and why.
 On a turn a person typed straight into this panel, when you create or materially change a file for them to
 inspect, call \`session_open_in_tab\` immediately after writing it instead of only reporting its path.`
 
@@ -1015,10 +1038,10 @@ function guguSessionSurfaceBody(surface: HarnessSessionSurface): string {
 
 /**
  * @@@tool-naming-line (#6192) — 这条会话的 harness 把咕咕工具叫什么,**只从** adapter 的能力声明
- * `capabilities.mcp.toolNames` 渲染;平台块只说 canonical 名。它对本会话每一轮都真、随 harness 变,
+ * `capabilities.mcp.toolNames` 渲染。它对本会话每一轮都真、随 harness 变,
  * 所以与 surface 自述同属 L2。
  * ❌ 别回到平台块里那张「Pi/Claude/Codex」清单:清单漏掉的那一家(qwen),模型按裸名去找就落空。
- * `unmeasured` 不写这一行 —— 那一家的模型只拿到平台块的通用规则,欠账留在声明里。
+ * `unmeasured` 只给照工具表调用的通用规则，不猜前缀；也归 surface 这一处。
  */
 function guguToolNamingLine(
   providerId: string,
@@ -1037,50 +1060,32 @@ function guguToolNamingLine(
   const names = mcpToolNamesOn(mcp.toolNames, surface === 'tui' ? 'tui' : 'acp')
   switch (names.kind) {
     case 'listed':
-      return `Your harness lists each 咕咕 tool as \`${names.prefix}<tool>\` (e.g. \`${names.prefix}message_send\`); call that name directly.\n`
+      return `Your harness lists each 咕咕 tool as \`${names.prefix}<tool>\` (e.g. \`${names.prefix}message_send\`); follow that tool definition's invocation form.\n`
     case 'proxied':
       return `Your harness does not list 咕咕 tools one by one: call them through its \`${names.proxyTool}\` tool, naming the tool \`${names.prefix}<tool>\` (e.g. \`${names.prefix}message_send\`).\n`
     case 'namespaced':
-      // #6615 问题 11 模型眼里是「这个命名空间里的裸名」,❌ 拼一个 `<namespace>__<tool>` —— 那个字符串不在它的工具表里。
-      return `Your harness lists 咕咕 tools in its \`${names.namespace}\` namespace under their bare names (e.g. \`message_send\` there); call them there directly.\n`
+      // Codex advertises the native name or an exec declaration, depending on its model tool mode.
+      return `Your harness exposes 咕咕 tools under \`${names.namespace}\`; follow each tool definition's advertised invocation form.\n`
     case 'server-proxied':
       // server 名就是咕咕那台 server 注册时用的名字 —— 与写进配置的键同一个常量,❌ 别另写一个字面量。
       return `Your harness does not list 咕咕 tools one by one: call them through its \`${names.proxyTool}\` tool with \`${names.serverArg}\` set to \`${GUGU_MCP_SERVER_NAME}\` and \`${names.toolArg}\` set to the bare tool name (e.g. \`message_send\`).\n`
     case 'unmeasured':
-      return ''
+      return 'Call the tool exactly as your tool list names it, not by the bare suffix.\n'
   }
 }
 
-/**
- * #7191 这条会话带着浏览器工具(`gugu-browser`)时,告诉 agent 用它们操作网页。
- * ❌ 不说:agent 默认会自己另起 Playwright / Chrome —— 抢焦点、人看不到过程、没有人的登录。Codex 自己也栽过相邻的一半:应用内浏览器在、控制工具没递到 agent 手上(openai/codex#39562)。
- */
-const SESSION_BROWSER_RULE = `
-To work with a web page (open, read, click, type, screenshot), use the \`browser_*\` tools of the \`gugu-browser\` MCP
-server: they drive the browser tab in this session's pane, which the person watches live and which has their logins.
-Do not launch your own browser, Playwright or Chrome for that. If a tool says the person took over the tab, stop and
-tell them what you did; do not retry.`
-
-/** #7199 咕咕 server(云电脑)上:浏览器是这台机器上的 Chrome,人在和你的聊天里看着、能接管(cloud/cloud-browser.ts)。 */
-const CLOUD_BROWSER_RULE = `
-To work with a web page (open, read, click, type, screenshot), use the \`browser_*\` tools of the \`gugu-browser\` MCP
-server: they drive your own browser, which the person watches live in their chat with you and can take over; it
-keeps the logins they made there. When you talk about it, call it your browser: do not tell the person which machine or
-server it runs on. Do not launch another browser, Playwright or Chrome for that. When a page needs
-the person's login, call \`browser_request_login\` (they type it into a password vault, you never see it); never ask
-for a password in chat. When a step needs the person (CAPTCHA, SMS or 2FA code, a payment confirmation), call
-\`browser_request_takeover\`. If a tool says the person took over or stopped the browser, stop and tell them what you
-did; do not retry.`
+/** Removed host browser implementation: the App must supply its own remote control before it can be used here. */
+export const BROWSER_UNAVAILABLE_RULE = 'Browser Use is not available on this machine yet. If a task needs browser control, tell the person this directly. Installing the current Browser Use App does not enable it here. Do not launch a replacement browser, Playwright, Chrome or a headless scraper, and do not claim to have viewed a page.'
 
 export function guguSessionSurfaceBlock(
   surface: HarnessSessionSurface,
   providerId: string,
   carriesGuguMcp: boolean,
-  carriesBrowser = false,
+  browserRule?: 'unavailable',
 ): string {
   return `<gugu_session_surface>
 ${guguSessionSurfaceBody(surface)}
-${guguToolNamingLine(providerId, surface, carriesGuguMcp)}${SESSION_SPAWN_ROUTING_RULE}${carriesBrowser ? (process.env.GUGU_SERVER_MODE === '1' ? CLOUD_BROWSER_RULE : SESSION_BROWSER_RULE) : ''}
+${guguToolNamingLine(providerId, surface, carriesGuguMcp)}${SESSION_SPAWN_ROUTING_RULE}${browserRule ? `\n${BROWSER_UNAVAILABLE_RULE}` : ''}
 </gugu_session_surface>
 `
 }
@@ -1111,12 +1116,12 @@ function withSurfaceSelfDescription(
   const apps = guguAppsBlock(bundle.extensionApps, nativeSkills ? [] : bundle.extensionSkills)
   return {
     ...bundle,
-    promptBlocks: { ...bundle.promptBlocks, platform: `${platform}${guguSessionSurfaceBlock(surface, providerId, bundle.mcpServers.some((server) => server.owner === 'gugu'), bundle.mcpServers.some((server) => server.name === 'gugu-browser'))}${apps}` },
+    promptBlocks: { ...bundle.promptBlocks, platform: `${platform}${guguSessionSurfaceBlock(surface, providerId, bundle.mcpServers.some((server) => server.owner === 'gugu'), bundle.browserRule)}${apps}` },
   }
 }
 
 /** #7317 What `<gugu_apps>` says while Computer Use is on (off: nothing, no token). */
-export const COMPUTER_USE_LINE = 'Computer Use is on: to operate the apps of a computer (open one, see its window, click, type), use device_actions with group computer, then device_call; not osascript, AppleScript or browser tools.'
+export const COMPUTER_USE_LINE = 'Computer Use is on: use browser_* tools for webpages in this session\'s own browser tabs. Use device_actions with group computer, then device_call, only for the person\'s other desktop apps.'
 
 /** 上下文工程第二批 P3 (owner 10-07 chose (c), D-27): one App line is at most this many characters… */
 export const GUGU_APPS_LINE_MAX_CHARS = 120
@@ -1153,7 +1158,7 @@ function appLines(apps: readonly ExtensionCatalogApp[]): string[] {
 export const GUGU_APPS_SEARCH_LINE = [
   'An App not listed here may have been installed since, be switched off or be only in the market.',
   'Before you answer a message that names an App (「记账 App」) or a game, look it up with catalog_call app_search { query } — even when a tool of your own could do it (a device\'s calendar, hosting the game yourself): the person asked for the App, and a game\'s App keeps the game for everyone in the chat.',
-  'Installing an App or changing its version is app_install; switching one on is your owner\'s, on its 「App」 page. Never edit an App\'s installed files.',
+  'To install an App or change its version, use app_install. If an App cannot do what is asked, ask "Shall I fork a version?" before inspecting source or using shell (guide_read apps-fork).',
   '> (from Wei) 来一局狼人杀',
   'catalog_call app_search { query: "狼人杀" } → an App row → use its tools, or do what its next says',
 ].join('\n')
@@ -1162,9 +1167,9 @@ export const GUGU_APPS_SEARCH_LINE = [
  * `<gugu_apps>`: what the Apps installed in 咕咕 give this session, as facts.
  * - The Apps whose tools are in the catalog (上下文工程第二批 P3): their name and what they do — the first sentence of the
  *   manifest's description — so an agent knows, before any catalog_list, that a capability is in there. Before this, web
- *   search and library docs went 0/12 through the catalog (gugu-base evidence/2026-10-07-context-engineering).
+ *   search and library docs went 0/12 through the catalog (measured 2026-10-07).
  *   The heading says once, for every App, that they run with catalog_call, so a line can spend its 120 characters on
- *   the tools themselves (群文件夹: names and parameters, gugu-base notes/2026-10-11-workspace-tools-to-app, 10-12).
+ *   the tools themselves (群文件夹: names and parameters, 10-12).
  * - #6387 App skills, for a harness with no plugin folder to mount them in: the same two facts a native skill list shows
  *   (name, when to use it) plus where SKILL.md is, read in place.
  * Rides the platform block, so it follows the same lifecycle (not repeated on resume).
@@ -1174,11 +1179,17 @@ export const GUGU_APPS_SEARCH_LINE = [
 export function guguAppsBlock(apps: readonly ExtensionCatalogApp[], skills: readonly ExtensionSkill[]): string {
   if (apps.length === 0 && skills.length === 0) return ''
   const parts: string[] = []
-  // #7317 Computer Use on: the one thing to know, said before an agent reaches for osascript or a browser's mouse.
+  // Computer Use stays on the device API path, independently of App tool disclosure.
   if (apps.some((app) => app.computerUse)) parts.push(COMPUTER_USE_LINE)
   const catalogApps = apps.filter((app) => !app.computerUse)
   if (catalogApps.length > 0) {
-    parts.push(['Apps installed on this computer whose tools are in the catalog (run them with catalog_call):', ...appLines(catalogApps)].join('\n'))
+    parts.push(['Apps available in this session (use their listed tools, or catalog_list / catalog_call):', ...appLines(catalogApps)].join('\n'))
+  }
+  // Standing behavior is not an App summary: keep the complete authorized rule.
+  for (const app of apps) {
+    if (app.agentInstructions) {
+      parts.push(`Standing instructions from App ${app.extensionId} (apply while its tools remain available; user instructions take precedence):\n${app.agentInstructions}`)
+    }
   }
   if (skills.length > 0) {
     const lines = skills.map((skill) => `- ${skill.name} (App ${skill.extensionId}): ${skill.description}\n  ${join(skill.dir, 'SKILL.md')}`)

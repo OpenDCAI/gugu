@@ -1,11 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { CSSProperties, ReactNode } from 'react'
 import { buildGroupInviteShareUrl } from '../../lib/groupInviteShareUrl'
 import { useMobileShell } from '../../hooks/useMobileShell'
 import type { ChatItem, GroupCollabSnapshot, NotificationLevel } from '@gugu/core/shared/types/chat'
 import { resolveOrLoud } from '@gugu/core/shared/resolveOrLoud'
-import { GroupNameInlineEdit } from './GroupNameInlineEdit'
+import { GroupNameRow } from './GroupNameRow'
 import { Avatar } from '../Avatar'
 import { Button } from '../ui/Button'
 import { displayAvatarUrl } from '../../lib/dicebearAvatar'
@@ -21,7 +21,8 @@ import { GroupSettingsManagePage } from './GroupSettingsManagePage'
 import { MemberListPanel, type MemberListPanelProps } from './MemberListPanel'
 import { AnnouncementDrawer } from './AnnouncementDrawer'
 import { useGroupChatSettings } from './useGroupChatSettings'
-import { GroupInviteLinkBlock, SettingsNavRow, SettingsPageFrame, SettingsPageHead } from './groupSettingsUi'
+import { useSettingsPages } from './useSettingsPages'
+import { MemberInviteLink, SettingsNavRow, SettingsPageFrame, SettingsPageHead } from './groupSettingsUi'
 import {
   settingsBodyStyle,
   settingsErrorStyle,
@@ -31,11 +32,7 @@ import {
   settingsTextareaStyle,
 } from './groupSettingsStyles'
 
-// @@@6418 群聊设置抽屉 = 一个页面栈。成员相关的一切(看、找、邀请、改角色、移出、倾听模式)归群成员面板(与 👥 同一个
-// MemberListPanel),一级页只留一行入口 ⇒ 不再有第二份名单(#2178 的头像网格)与第二套成员操作。一级页:群资料 / 成员入口 /
-// 公告·规则·描述 / 聊天(查找·通知·置顶·清空,与单聊同一份) / 群管理入口 / 离开·解散。群成员、群公告、群管理(仅群主/管理员)、
-// 规则、描述各是一页,页头同一个、返回回一级页。所有改动即时生效,没有底部「保存」。
-type SettingsPage = 'main' | 'members' | 'announcement' | 'manage' | 'rules' | 'description'
+// @@@6418 群聊设置 = 一个页面栈(useSettingsPages):成员、公告、群管理、规则、描述各是一页。
 
 const profileRowStyle: CSSProperties = { display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }
 const avatarFrameStyle: CSSProperties = {
@@ -50,11 +47,11 @@ const avatarUploadingStyle: CSSProperties = {
 }
 const hiddenStyle: CSSProperties = { display: 'none' }
 const profileTextStyle: CSSProperties = { flex: 1, minWidth: 0 }
-const memberCountStyle: CSSProperties = { fontSize: 'var(--font-body)', color: 'var(--text-tertiary)', marginTop: 3 }
+const memberCountStyle: CSSProperties = { fontSize: 'var(--font-body)', color: 'var(--muted-fg)', marginTop: 3 }
 const memberStackStyle: CSSProperties = { display: 'inline-flex', alignItems: 'center', marginRight: 8 }
 const memberStackItemStyle: CSSProperties = { display: 'inline-flex', marginLeft: -6, borderRadius: 'var(--radius-circle)' }
 const leaveStyle: CSSProperties = {
-  marginTop: 20, textAlign: 'center', color: 'var(--danger)', fontSize: 'var(--font-body)', fontWeight: 500,
+  marginTop: 20, textAlign: 'center', color: 'var(--danger-fg)', fontSize: 'var(--font-body)', fontWeight: 500,
   cursor: 'pointer', padding: 11, borderRadius: 'var(--radius-xl)', background: 'var(--danger-tint)',
 }
 const confirmStyle: CSSProperties = { marginTop: 20 }
@@ -70,7 +67,9 @@ function firstLine(text: string | null | undefined): string | null {
 
 export function GroupMembersSection({
   chat,
+  initialPage,
   snapshot,
+  snapshotError,
   currentUserId,
   onReload,
   onClose,
@@ -84,11 +83,14 @@ export function GroupMembersSection({
   onClearMessages,
 }: {
   chat: ChatItem
+  /** Opened at the members' list or the announcement (the info tab's members button); back: the first page. */
+  initialPage?: 'main' | 'members' | 'announcement'
   snapshot: GroupCollabSnapshot
+  snapshotError?: MemberListPanelProps['error']
   currentUserId: string | null
   onReload: () => Promise<void>
   onClose: () => void
-  /** 可能是 async —— await 它,失败才进得了错误行(#1730)。缺省走 chatService.leaveGroup。 */
+  /** 可能是 async —— await 它,失败才进得了错误行(#1730)。缺省走 chatService.removeGroupMember。 */
   onLeaveGroup?: () => void | Promise<void>
   /** 群主解散;同样 await(#1731)。 */
   onDissolveGroup?: () => void | Promise<void>
@@ -104,11 +106,7 @@ export function GroupMembersSection({
   const { identitiesById } = useChatStore('identitiesById')
   const { toast } = useToast()
   const mobileShell = useMobileShell()
-  const [pages, setPages] = useState<SettingsPage[]>(['main'])
-  const page = pages[pages.length - 1]
-  const push = useCallback((next: SettingsPage) => setPages((stack) => [...stack, next]), [])
-  const pop = useCallback(() => setPages((stack) => (stack.length > 1 ? stack.slice(0, -1) : stack)), [])
-  useEffect(() => { setPages(['main']) }, [chatId])
+  const { page, push, pop } = useSettingsPages(chatId, initialPage)
 
   const { settings, error: settingsError, setError: setSettingsError, update, setAvatarUrl } = useGroupChatSettings(chatId)
   const viewerRole = useMemo(
@@ -139,7 +137,7 @@ export function GroupMembersSection({
   )
   // @@@445/#2470 海报 canvas 不走 React Avatar → 按同一口径预解析成员头像;小鸟的定格画好了会重渲染,这里跟着重读(海报按 URL 串判变)。
   useAgentLookPostersVersion()
-  const posterMemberUrls = groupAvatarMembers.map((m) => displayAvatarUrl(m.avatar, m.id, `poster member "${m.name || m.id}"`))
+  const posterMemberUrls = groupAvatarMembers.map((m) => identitiesById[m.id] ? displayAvatarUrl(m.avatar, m.id, `poster member "${m.name || m.id}"`, identitiesById[m.id].type) : null)
 
   // @@@group-avatar (#1164 G1) manager 选/拖图 → 校验(image/* + ≤5MB) → 上传 → 即时换头像。
   const handleAvatarFile = useCallback(async (file: File | null | undefined) => {
@@ -175,7 +173,7 @@ export function GroupMembersSection({
       } else if (onLeaveGroup) {
         await onLeaveGroup()
       } else {
-        await chatService.leaveGroup(chatId, currentUserId)
+        await chatService.removeGroupMember(chatId, currentUserId)
         await onReload()
       }
       setConfirmExit(false)
@@ -206,10 +204,10 @@ export function GroupMembersSection({
   const canExit = viewerRole !== 'owner' || Boolean(onDissolveGroup)
   const groupName = settings?.name ?? chat.name ?? null
 
-  const subHead = (title: ReactNode, action?: ReactNode) => <SettingsPageHead title={title} action={action} onBack={pop} onClose={onClose} mobile={mobileShell} />
+  const subHead = (title: ReactNode, action?: ReactNode) => <SettingsPageHead title={title} action={action} onBack={pop} onClose={mobileShell ? onClose : undefined} mobile={mobileShell} />
   let content: ReactNode
   if (page === 'members') {
-    content = <MemberListPanel chatId={chatId} chatKind="group" onMembersChanged={onReload} onOpenUserChat={onOpenUserChat} onWhisper={onWhisper} head={subHead} />
+    content = <MemberListPanel chatId={chatId} chatKind="group" snapshot={snapshot} error={snapshotError} onReload={onReload} onOpenUserChat={onOpenUserChat} onWhisper={onWhisper} head={subHead} />
   } else if (page === 'announcement') {
     content = <AnnouncementDrawer chatId={chatId} isAdmin={viewerIsManager} head={subHead} />
   } else if (page === 'manage' && settings) {
@@ -258,7 +256,8 @@ export function GroupMembersSection({
     const preview = unifiedMembers.slice(0, MEMBER_PREVIEW_COUNT)
     content = (
       <>
-        <SettingsPageHead title={t('group.settings.title')} onClose={onClose} mobile={mobileShell} />
+        {/* 桌面上群信息是一枚页签:它自己就是标题和 ×,只有二级页画返回;手机整页照旧左上返回 = 关。 */}
+        {mobileShell ? <SettingsPageHead title={t('group.settings.title')} onClose={onClose} mobile /> : null}
         <div style={bodyStyle}>
           <div style={profileRowStyle}>
             {/* .gi 52px 群头像。@@@group-avatar (#1164 G1):manager 点击/拖入更换;非 manager 只读。 */}
@@ -279,7 +278,7 @@ export function GroupMembersSection({
               ) : null}
             </div>
             <div style={profileTextStyle}>
-              <GroupNameInlineEdit name={groupName} canEdit={viewerIsManager && Boolean(settings)} onCommit={handleRename} wrap />
+              <GroupNameRow chat={chat} name={groupName} canEdit={viewerIsManager && Boolean(settings)} onCommit={handleRename} />
               <div style={memberCountStyle}>{t('group.settings.memberCount', { count: totalMembers })}</div>
             </div>
           </div>
@@ -305,12 +304,7 @@ export function GroupMembersSection({
           <SettingsNavRow title={t('group.settings.rules')} testId="group-settings-rules" value={settings ? firstLine(settings.group_prompt) ?? t('group.settings.rulesUnset') : undefined} onClick={() => openTextPage('rules')} />
           <SettingsNavRow title={t('group.settings.description')} testId="group-settings-description" value={settings ? firstLine(settings.description) ?? t('group.settings.descriptionUnset') : undefined} onClick={() => openTextPage('description')} />
           {/* 邀请链接本身所有成员都能分享;管理者在「群管理」里看到同一块(连同开关)。 */}
-          {!viewerIsManager && settings?.invite_link_enabled && inviteLink ? (
-            <>
-              <div style={settingsSectionLabelStyle}>{t('group.settings.inviteLink')}</div>
-              <GroupInviteLinkBlock inviteLink={inviteLink} onOpenPoster={() => setShowSharePoster(true)} />
-            </>
-          ) : null}
+          <MemberInviteLink chatId={chatId} inviteLink={!viewerIsManager && settings?.invite_link_enabled ? inviteLink : null} onOpenPoster={() => setShowSharePoster(true)} />
           {viewerIsManager && settings ? (
             <SettingsNavRow title={t('group.settings.manage')} testId="group-settings-manage" onClick={() => push('manage')} />
           ) : null}

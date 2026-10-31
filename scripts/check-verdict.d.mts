@@ -23,7 +23,14 @@ export interface CheckProfile {
   generation: string
   workflow: string | null
   checks: string[]
+  /** Checks a decider job may skip by design: check name -> decider check name and its output key. */
+  pathFiltered?: Record<string, PathFilterCondition>
   noMatchReason?: 'event' | 'paths'
+}
+
+export interface PathFilterCondition {
+  decider: string
+  output: string
 }
 
 export interface CheckRunSnapshot {
@@ -32,6 +39,8 @@ export interface CheckRunSnapshot {
   name: string
   status: string
   conclusion: string | null
+  /** A successful decider's published outputs (see JOB_OUTPUTS_MARKER). */
+  outputs?: Record<string, string>
 }
 
 export interface SnapshotClassification {
@@ -40,6 +49,7 @@ export interface SnapshotClassification {
   pending: string[]
   failed: string[]
   successful: string[]
+  skippedNotDue: string[]
   ignoredNotApplicable: string[]
   fingerprint: string | null
 }
@@ -59,6 +69,7 @@ export interface CheckVerdict {
   pending: string[]
   failed: string[]
   ignoredNotApplicable: string[]
+  skippedNotDue?: string[]
   skippedCheckRuns?: Array<{ id: number; checkSuiteId: number | null; reason: string }>
   mergeState?: { mergeable: string; mergeStateStatus: string }
   diagnostic?: string
@@ -66,6 +77,19 @@ export interface CheckVerdict {
 
 /** GitHub PR files API 的 3000 文件上限;到达即说明拿到的不是全量清单。 */
 export const GITHUB_PR_FILES_API_CAP: number
+
+/** Title of the check-run annotation in which a decider job publishes its outputs (`key=value ...`). */
+export const JOB_OUTPUTS_MARKER: string
+
+export function parseJobOutputsAnnotations(
+  annotations: Array<{ title?: string | null; message?: string | null }>
+): Record<string, string> | undefined
+
+export function attachDeciderOutputs<T extends CheckRunSnapshot>(
+  checkRuns: T[],
+  profiles: CheckProfile[],
+  fetchAnnotations: (checkRunId: number) => Array<{ title?: string | null; message?: string | null }>
+): T[]
 
 export function requireExactSha(value: unknown, label: string): string
 

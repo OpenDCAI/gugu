@@ -12,6 +12,7 @@
 import { Show } from 'solid-js';
 import { IconCheck, IconCopy } from './icons';
 import { createClipboard } from './use-clipboard';
+import { useCommands } from '../contexts/CommandsContext';
 import { copyButtonInline, copyButtonOverlay } from './copy-button.css';
 import { useChatTranslator, type ChatTranslationKey } from '@session-chat/localization';
 
@@ -30,7 +31,8 @@ export type CopyButtonProps = {
 };
 
 export function CopyButton(props: CopyButtonProps) {
-  const { copied, copy } = createClipboard();
+  const commands = useCommands();
+  const { copied, copy } = createClipboard((error) => commands().onCopyError?.(error));
   const translate = useChatTranslator();
   /**
    * 可访问名与可见标签的**单一来源**。

@@ -13,7 +13,7 @@ const MINUTE = 60_000;
 function harness(opts: {
   live?: LiveSession[];
   facts?: Record<string, SessionFacts | null>;
-  displayed?: string | null;
+  onScreen?: string[];
   terminals?: string[];
   watched?: string[];
   stopFails?: boolean;
@@ -25,7 +25,7 @@ function harness(opts: {
   const state = {
     live: opts.live ?? [],
     facts: opts.facts ?? {},
-    displayed: opts.displayed ?? null,
+    onScreen: new Set(opts.onScreen ?? []),
     terminals: new Set(opts.terminals ?? []),
     watched: new Set(opts.watched ?? []),
     stopFails: opts.stopFails ?? false,
@@ -34,7 +34,7 @@ function harness(opts: {
     now: () => now,
     listLive: () => state.live,
     facts: (id) => (id in state.facts ? state.facts[id] ?? null : { status: 'idle', resumable: true }),
-    displayedSessionId: () => state.displayed,
+    onScreen: (id) => state.onScreen.has(id),
     watchedRemotely: (id) => state.watched.has(id),
     sessionsWithLiveTerminals: () => state.terminals,
     stop: async (target) => {
@@ -66,6 +66,26 @@ const acp = (id: string, atRest: boolean): LiveSession => ({
 });
 
 describe('IdleReclaimer', () => {
+  it('starts a fresh idle window after a confirmed three-hour sleep and an immediate incoming message', async () => {
+    const h = harness({ live: [acp('a', true)] });
+    await h.reclaimer.tick();
+    h.advance(9 * MINUTE);
+    const since = 1_000_000 + 9 * MINUTE;
+    h.advance(3 * 60 * MINUTE);
+    h.reclaimer.resumedFromConfirmedSleep({ since, until: since + 3 * 60 * MINUTE });
+    expect(await h.reclaimer.tick()).toEqual([]);
+    h.reclaimer.observeStatus('a', 'working');
+    h.state.facts.a = { status: 'working', resumable: true };
+    expect(await h.reclaimer.tick()).toEqual([]);
+    expect(h.stopped).toEqual([]);
+    h.reclaimer.observeStatus('a', 'idle');
+    h.state.facts.a = { status: 'idle', resumable: true };
+    h.advance(IDLE_RECLAIM_AFTER_MS - 1);
+    expect(await h.reclaimer.tick()).toEqual([]);
+    h.advance(1);
+    expect(await h.reclaimer.tick()).toHaveLength(1);
+  });
+
   it('stops a live idle session once it has been idle for the full window, then tells the renderer', async () => {
     const h = harness({ live: [pty('a')] });
     // 第一次看见:从现在起算,❌ 往前补。
@@ -101,7 +121,7 @@ describe('IdleReclaimer', () => {
     ['no status source', { facts: { a: { status: null, resumable: true } } }],
     ['row gone', { facts: { a: null } }],
     ['cannot come back as the same conversation', { facts: { a: { status: 'idle', resumable: false } } }],
-    ['it is on screen', { displayed: 'a' }],
+    ['it is on screen', { onScreen: ['a'] }],
     ['it has a live terminal shell', { terminals: ['a'] }],
     ['a remote desktop is watching it', { watched: ['a'] }],
   ] as const)('keeps a session running when %s', async (_why, opts) => {

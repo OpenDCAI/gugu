@@ -32,7 +32,7 @@ import {
   collapseStatusError,
   collapseStatusPermission,
 } from './collapse-header.css';
-import { textShimmer } from '@session-chat/styles/effects.css';
+import { ShimmerText } from './ShimmerText';
 import { useChatTranslator } from '@session-chat/localization';
 
 export type CollapseHeaderProps = {
@@ -62,6 +62,10 @@ export type CollapseHeaderProps = {
   awaitingPermission?: boolean;
   /** Explicit pixel height for the header row. */
   height: number;
+  /** Wrapped summaries use off-screen line breaks and an explicitly measured height. */
+  wrap?: boolean;
+  labelSize?: number;
+  labelLineHeight?: number;
   children: JSX.Element;
   /**
    * A short reading that sits beside the label and must not share its fate.
@@ -83,7 +87,7 @@ export function CollapseHeader(props: CollapseHeaderProps) {
     <div
       class={collapseHeader}
       classList={{ [collapsibleRow]: props.collapsible }}
-      style={{ height: `${props.height}px` }}
+      style={{ height: `${props.height}px`, width: props.wrap ? '100%' : undefined }}
       // The header's identity, which does not depend on whether it is a toggle.
       // `data-collapse-id` cannot carry it: that attribute *is* the toggle wiring
       // and is absent on rows with nothing to reveal, so anything addressing the
@@ -98,9 +102,9 @@ export function CollapseHeader(props: CollapseHeaderProps) {
       aria-expanded={props.collapsible ? (props.expanded ? 'true' : 'false') : undefined}
       data-collapse-id={props.collapsible ? props.id : undefined}
     >
-      <span class={collapseHeaderLabel} classList={{ [textShimmer]: !!props.active }}>
+      <ShimmerText multiline={props.wrap} class={collapseHeaderLabel} active={!!props.active} style={props.wrap ? { 'white-space': 'pre-wrap', overflow: 'visible', 'overflow-wrap': 'normal', 'font-size': `${props.labelSize ?? 12}px`, 'line-height': `${props.labelLineHeight ?? 18}px`, flex: '1 1 auto' } : undefined}>
         {props.children}
-      </span>
+      </ShimmerText>
       {props.trailing}
       <Show when={props.collapsible}>
         <span class={chevron} classList={{ [chevronExpanded]: props.expanded }} aria-hidden="true">

@@ -11,7 +11,8 @@ import {
   type SessionTreeNode,
 } from '@/session/renderer/features/sessions/session-tree'
 import { assistantDescendants, isAssistantSession } from '@/session/renderer/features/assistant/assistant-lineage'
-import { remoteAgentStatus, sidebarStateGroup } from '@/session/renderer/features/sidebar/session-groups'
+import { sidebarStateGroup } from '@/session/renderer/features/sidebar/session-groups'
+import { sessionPresentation } from './watch-status'
 import type { SessionDirectoryRow } from '@/session/shared/remote-sessions/session-directory'
 
 export type SessionNode = SessionTreeNode<{
@@ -24,8 +25,8 @@ export type SessionNode = SessionTreeNode<{
 
 /**
  * `pinned` = 顶部的「置顶」分区;`assistant` = 个人助理派出的那一组(组名是它,不按项目 / 机器分);
- * 其余是一台机器上的一个项目分区,`project` 为 null = 那台机器上未归入项目的会话。
- * `deviceId` = 项目分区所在的机器(置顶与个人助理那两格不属于哪台机器,为 null)。
+ * `project` 为 null 的另一格是「任务」:所有机器上不属于项目的会话(workspace 里的、项目没报上来的)平铺一张(#609)。
+ * 其余是一台机器上的一个项目分区。`deviceId` = 项目分区所在的机器(其余几格不属于哪台机器,为 null)。
  * `key` = 这一格在本机折叠记录里的键;`folded` = 收进「展开显示」的闲置家族数(置顶分区不折,恒为 0);
  * `count` = 整格的会话数(含收起的),分区折起来时页头标它。
  */
@@ -52,12 +53,16 @@ export type SectionFold = {
 const PINNED_SECTION_KEY = '\u0000pinned'
 export const ASSISTANT_SECTION_KEY = '\u0000assistant'
 // 哨兵键用转义写法,❌ 把裸 NUL 字节敲进源码:git 会判整个文件是二进制。
-const UNGROUPED = '\u0000ungrouped'
+export const TASKS_SECTION_KEY = '\u0000tasks'
 
 /** 两台机器上可以有同名甚至同 id 的项目:格的键带机器,各是各的一格。 */
-export function projectSectionKey(deviceId: string, projectId: string | null): string {
-  return `${deviceId}|${projectId ?? UNGROUPED}`
+export function projectSectionKey(deviceId: string, projectId: string): string {
+  return `${deviceId}|${projectId}`
 }
+
+/** #609 那台机器报上来的项目里真正是项目的(workspace 不成格,它的会话进「任务」)。 */
+const projectsOf = (machine: SectionMachine): readonly SessionpageProjectSummary[] =>
+  machine.projects.filter((project) => project.kind !== 'workspace')
 
 const lastActive = (session: SessionpageSessionSummary): number =>
   (session.lastInteractedAt && Date.parse(session.lastInteractedAt)) || 0
@@ -85,11 +90,11 @@ export function assistantGroupIds(
  * 手机「项目」页的分区,与桌面侧栏同一种结构:
  *   · 顶部「置顶」收拢置顶的子树(最近动静在前,不分机器);
  *   · 个人助理派出的会话是**一组**(组名是它),❌ 再按项目 / 机器散进别的分区;它自己那条不列;
- *   · 其余每台机器的每个项目一格(机器是这一格的属性,不是上一层):最近有动静的在前,项目行没回来的会话归
- *     那台机器的「未归入项目」,排最后,❌ 拿 projectId 当项目名冒充。
+ *   · 其余每台机器的每个项目一格(机器是这一格的属性,不是上一层):最近有动静的在前;workspace 里的、项目行没回来的
+ *     会话归最后那一格「任务」(所有机器平铺一张,#609),❌ 拿 projectId 当项目名冒充。
  * 树用所有机器的行一起建,一家子跟着根走(familiesByRoot,桌面同):画根所在的那一格,child 可以在别的项目、
  * 别的机器上(owner 2026-10-01 / 10-09)。项目分区按桌面同一条折法收起多出来的闲置家族(foldIdleFamilies),
- * 闲置的读法与桌面画别的机器的会话相同(remoteAgentStatus → sidebarStateGroup);`expanded` 里的格全露。
+ * 闲置的读法与桌面画别的机器的会话相同(sessionPresentation → sidebarStateGroup);`expanded` 里的格全露。
  * `rows` 要带**全部**机器的行(含不列出的云端宿主):助理那组的后代就在里面。
  */
 export function sessionSections(
@@ -109,17 +114,19 @@ export function sessionSections(
       deviceId,
       session,
     }))
-  const known = new Map(machines.map((machine) => [machine.deviceId, new Set(machine.projects.map((project) => project.id))]))
+  const known = new Map(machines.map((machine) => [machine.deviceId, new Set(projectsOf(machine).map((project) => project.id))]))
   // 助理那组的根与列出机器上的根才画;别的行(同一台电脑上旧实例的那条设备行)只作子会话出现,与从前一样。
   const roots = buildSessionTree(items).filter(({ item }) => group.has(item.id) || known.has(item.deviceId))
   const pinned = pinnedSubtreeRoots(roots)
   const cellOf = (root: SessionNode['item']): string =>
     group.has(root.id)
       ? ASSISTANT_SECTION_KEY
-      : projectSectionKey(root.deviceId, known.get(root.deviceId)?.has(root.session.projectId) ? root.session.projectId : null)
+      : known.get(root.deviceId)?.has(root.session.projectId)
+        ? projectSectionKey(root.deviceId, root.session.projectId)
+        : TASKS_SECTION_KEY
   const families = familiesByRoot(withoutPinnedSubtrees(roots), cellOf)
   const isIdle = (item: SessionNode['item']): boolean =>
-    sidebarStateGroup(remoteAgentStatus(item.session, fold.online(item.deviceId))?.status ?? null) === null
+    sidebarStateGroup(sessionPresentation(item.session, fold.online(item.deviceId))) === null
 
   const cell = (
     key: string,
@@ -136,15 +143,15 @@ export function sessionSections(
   type Cell = NonNullable<ReturnType<typeof cell>>
   const present = (list: (Cell | null)[]): Cell[] => list.filter((entry): entry is Cell => entry !== null)
   const projectCells = present(machines.flatMap((machine) =>
-    machine.projects.map((project) =>
+    projectsOf(machine).map((project) =>
       cell(projectSectionKey(machine.deviceId, project.id), { assistant: false, project, deviceId: machine.deviceId }))))
   const assistantCell = cell(ASSISTANT_SECTION_KEY, { assistant: true, project: null, deviceId: null })
   // 最近有动静的在前;同一刻的保持机器 / 宿主给的次序(Array.sort 稳定)。
   const ordered = present([...projectCells, assistantCell]).sort((a, b) => b.latest - a.latest)
-  const ungrouped = present(machines.map((machine) =>
-    cell(projectSectionKey(machine.deviceId, null), { assistant: false, project: null, deviceId: machine.deviceId })))
+  // 「任务」排最后,与桌面侧栏「项目」之后的「任务」同序;一格,❌ 按机器分。
+  const tasks = present([cell(TASKS_SECTION_KEY, { assistant: false, project: null, deviceId: null })])
 
-  const groups = [...ordered, ...ungrouped].map(({ section }) => section)
+  const groups = [...ordered, ...tasks].map(({ section }) => section)
   pinned.sort((a, b) => lastActive(b.item.session) - lastActive(a.item.session))
   return pinned.length > 0
     ? [{ pinned: true, assistant: false, project: null, deviceId: null, key: PINNED_SECTION_KEY, roots: pinned, folded: 0, count: countSessions(pinned) }, ...groups]

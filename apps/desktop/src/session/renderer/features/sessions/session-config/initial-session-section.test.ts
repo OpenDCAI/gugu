@@ -3,6 +3,10 @@ import { JSDOM } from 'jsdom';
 import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+vi.mock('@/lib/supabase', () => ({
+  dataClient: () => { throw new Error('Initial composer tests must not access the cloud'); },
+}));
 import {
   SESSIONPAGE_PLATFORM_CATALOG_CHANNEL,
   type PlatformModelCatalogResponse,
@@ -22,6 +26,7 @@ import {
   InitialSessionField,
   resolvePlatformModel,
   sessionpageLegForCreation,
+  terminalLegUnstartableForCreation,
   useInitialSessionState,
   type InitialSessionState,
 } from './initial-session-section';
@@ -75,8 +80,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('@gugu/session-ui/react/components', () => ({
-  // 底排渐进披露的最后一档会把「编程 | 通用」收成下拉(见 session-view-control 的
-  // @@@session-view-collapsed)。这些用例验的是完整的两段形态,所以这里恒回「还有地方」。
+  // 底排渐进披露:这些用例验的是完整形态,所以这里恒回「还有地方」。
   // 收起形态另有真机取证;❌ 别在这里让它随档位变 —— 那会把两种形态混进同一批断言。
   useToolbarOutOfRoom: () => false,
   ChatComposer: (props: unknown) => {
@@ -497,7 +501,6 @@ vi.mock('@renderer/lib/ipc', () => {
         : mod.rpc,
     // 平台模型目录那一问经宿主通道走(本机 = electronApi().invoke)。
     invokeOnMachine: (_machine: string | null, channel: string, ...args: unknown[]) => mocks.invoke(channel, ...args),
-    eventSourceMachine: () => null,
     onMachineEvent: () => () => {},
     ...mod,
   };
@@ -532,6 +535,14 @@ vi.mock('@renderer/features/settings/use-app-settings-key', async () => {
         settingsStore.set(key, { ...((settingsStore.get(key) as object | undefined) ?? {}), ...partial });
       },
     }),
+  };
+});
+// 新任务框给不给「终端 | 通用」跟本机开关(应用设置 terminal.enabled)走:同一份内存设置里的 `terminal`。
+vi.mock('@renderer/features/settings/use-terminal-enabled', async () => {
+  const { useSyncExternalStore } = await import('react');
+  return {
+    useTerminalEnabled: () =>
+      useSyncExternalStore(settingsStore.subscribe, () => (settingsStore.get('terminal') as { enabled?: boolean | null } | undefined)?.enabled === true),
   };
 });
 const EMPTY_MEMORY = { lastPicked: null, lastStarted: null, sessionView: 'code' as const };
@@ -724,6 +735,15 @@ describe('推理档目录:平台模型按模型取交集 (#6447)', () => {
       .toEqual({ options: pick(['low', 'high', 'max']), defaultId: 'high' });
   });
 
+  it('会话内保留 harness 的 default 复位项,具体档仍按平台模型取交集', () => {
+    const reset = { name: 'Default' };
+    const live = { options: { default: reset, ...six }, defaultId: 'default' };
+    expect(resolveEffortCatalog(null, live, 'platform', GLM_53.reasoningEfforts))
+      .toEqual({ options: { default: reset, ...pick(['low', 'high', 'max']) }, defaultId: 'default' });
+    expect(resolveEffortCatalog(null, { options: six, defaultId: null }, 'platform', GLM_53.reasoningEfforts))
+      .toEqual({ options: pick(['low', 'high', 'max']), defaultId: null });
+  });
+
   it('目录没有这条事实(null)或说没有这根轴(`[]`)⇒ 这个模型不画推理档,❌ 不拿一张全局表补', () => {
     expect(resolveCreateEfforts({ ...create, state: probe, platformModel: { reasoningEfforts: null } })).toBeNull();
     expect(resolveCreateEfforts({ ...create, state: probe, platformModel: { reasoningEfforts: [] } })).toBeNull();
@@ -905,7 +925,7 @@ describe('useInitialSessionState', () => {
     expect(latestState?.prompt).toBe('Keep this automation prompt');
   });
 
-  // product spec ④:编程视角是默认,通用视角是可选的第二种展示。
+  // 终端开关默认关:新会话走通用视角。
   it('defaults to the general view when the provider supports ACP', async () => {
     await renderProbe('project-1');
 
@@ -991,26 +1011,93 @@ describe('useInitialSessionState', () => {
       },
     };
 
-    expect(sessionpageLegForCreation({
+    const legFrom = (creationSurface: 'session-page' | 'chat-page') => sessionpageLegForCreation({
       sessionpage: kimiSessionpage,
       preferred: 'tui',
-      creationSurface: 'session-page',
-    })).toBe('tui');
-    expect(sessionpageLegForCreation({
-      sessionpage: kimiSessionpage,
-      preferred: 'tui',
-      creationSurface: 'chat-page',
-    })).toBe('acp');
+      terminalUnstartable: terminalLegUnstartableForCreation({
+        sessionpage: kimiSessionpage, prompt: { kind: 'argv' }, creationSurface, dispatchesToChat: false,
+      }),
+    });
+    expect(legFrom('session-page')).toBe('tui');
+    expect(legFrom('chat-page')).toBe('acp');
   });
 
-  it('persists the chosen view in the new-session memory, where main reads it too', async () => {
+  // 派进群里的任务(项目里的新任务)首句是任务卡:终端腿要有吃得下消息首句的启动通道,
+  // 与主进程起 pty 时那道闸同一个函数(providerTakesMessageStartupInPty)。
+  it('locks Terminal for a dispatched task when the terminal leg cannot take the task card at startup', () => {
+    const codexLike = {
+      sessionpage: {
+        'acp': { identity: 'addressable' as const, messageTransport: 'router' as const },
+        'tui': { identity: 'addressable' as const, messageTransport: 'router' as const },
+      },
+      prompt: { kind: 'argv', startupDelivery: 'delivery-bridge' as const },
+    };
+    const unstartable = (prompt: typeof codexLike.prompt | { kind: string }, dispatchesToChat: boolean) =>
+      terminalLegUnstartableForCreation({ sessionpage: codexLike.sessionpage, prompt, creationSurface: 'session-page', dispatchesToChat });
+
+    expect(unstartable(codexLike.prompt, true)).toBe(true);
+    expect(unstartable({ kind: 'argv' }, true)).toBe(false);
+    // 不派任务(新建页)首句不是消息,codex 的终端照样可选。
+    expect(unstartable(codexLike.prompt, false)).toBe(false);
+  });
+
+  it('a dispatching box shows Terminal locked to General with a reason when the agent cannot start there', async () => {
+    settingsStore.set('terminal', { enabled: true });
+    // 渲染一次让 fixture 落地,再改 claude 的启动通道声明。
+    await renderProbe('project-1');
+    const claude = (agentFixtureRef.current as Array<{ id: string; capabilities: { prompt?: unknown } }> | undefined)
+      ?.find((agent) => agent.id === 'claude');
+    const original = claude?.capabilities.prompt;
+    try {
+      claude!.capabilities.prompt = { kind: 'argv', startupDelivery: 'delivery-bridge' };
+      await act(async () => root.unmount());
+      root = createRoot(container);
+      await renderProbe('project-1', { dispatchesToChat: true });
+      expect(latestState?.sessionViewLock).toEqual({ view: 'general', reason: 'general-required-here' });
+      await act(async () => { latestState?.setSessionView('code'); });
+      expect(latestState?.sessionView).toBe('general');
+      expect(buildInitialSession(latestState!)?.type).toBe('acp');
+
+      claude!.capabilities.prompt = { kind: 'argv' };
+      await act(async () => root.unmount());
+      root = createRoot(container);
+      await renderProbe('project-1', { dispatchesToChat: true });
+      expect(latestState?.sessionViewLock).toBeNull();
+      await act(async () => { latestState?.setSessionView('code'); });
+      expect(buildInitialSession(latestState!)?.type).toBe('pty');
+    } finally {
+      claude!.capabilities.prompt = original;
+    }
+  });
+
+  // owner 10-30:「允许以终端（TUI）模式启动 agent」关着,新任务一律通用、框里没有选择;
+  // 开着,框里给「终端 | 通用」,默认通用,选终端建出来的是 pty。
+  it('offers the Terminal / General choice only when the terminal switch is on', async () => {
+    await renderProbe('project-1');
+    expect(latestState?.sessionViewOffered).toBe(false);
+    expect(latestState?.sessionView).toBe('general');
+    expect(buildInitialSession(latestState!)?.type).toBe('acp');
+
+    await act(async () => settingsStore.set('terminal', { enabled: true }));
+    expect(latestState?.sessionViewOffered).toBe(true);
+    expect(latestState?.sessionView).toBe('general');
+    expect(buildInitialSession(latestState!)?.type).toBe('acp');
+
+    await act(async () => { latestState?.setSessionView('code'); });
+    expect(latestState?.sessionView).toBe('code');
+    expect(buildInitialSession(latestState!)?.type).toBe('pty');
+  });
+
+  it('a stored record\'s own view (automations) overrides only this box, never a global setting', async () => {
     await renderProbe('project-1');
 
     await act(async () => {
-      latestState?.setSessionView('general');
+      latestState?.setSessionView('code');
     });
 
-    expect(remembered()?.sessionView).toBe('general');
+    expect(latestState?.sessionView).toBe('code');
+    expect(settingsStore.get('terminal')).toBeUndefined();
+    expect(remembered()?.sessionView).toBeUndefined();
 
     await act(async () => root.unmount());
     root = createRoot(container);
@@ -1672,11 +1759,11 @@ describe('InitialSessionField', () => {
     expect(payload?.platformModel).toEqual({ modelId: 'glm-5.2' });
   });
 
-  // 上一条是「切过去的过程中」,这条是「一进来就停在通用视角」(偏好持久化在应用设置 newSessionMemory):
+  // 上一条是「切过去的过程中」,这条是「一进来就停在通用视角」(终端开关关着):
   // 预选、分组、载荷都得与编程视角一致,而不是靠切一次才回来。
   it('offers the platform group when the composer opens in the general view', async () => {
     platformCatalog({ models: [GLM], agentDefault: { modelId: 'glm-5.2' } });
-    settingsStore.set('newSessionMemory', { ...EMPTY_MEMORY, sessionView: 'general' });
+    settingsStore.set('terminal', { enabled: false });
 
     await renderField();
 
@@ -1731,6 +1818,34 @@ describe('InitialSessionField', () => {
     expect(text).not.toContain('net::');
     expect(text).toContain('harnessCatalog.retry');
     expect(latestState?.retryPlatformCatalog).toBeTypeOf('function');
+  });
+
+  // #137 owner 2026-10-23:「已经说了设备下线,这里有必要再说一个错误的提示吗」—— 目录是问那台机器要的,
+  // 机器没连上时问不到是机器的事,由右下角机器的提示说;这一格 ❌ 再报「模型列表尚未就绪」+「重试」。
+  it('says nothing about the platform catalog while the chosen machine is not connected', async () => {
+    // 机器停了之后要过一会儿这边才知道:那段时间里问的那一次已经落成了「尚未就绪」。
+    platformCatalog({ models: [], agentDefault: null, catalogError: 'gugu-models:host-not-ready' });
+    const renderOn = async (online: boolean) => {
+      await act(async () => {
+        root.render(
+          React.createElement(
+            LibraryHostProvider,
+            { value: machineLibraryHost({ deviceId: 'dev-off', deviceLabel: 'Mac 1', online, lastSeenAt: null }) },
+            React.createElement(FieldProbe, {})
+          )
+        );
+      });
+      await act(async () => {});
+    };
+    await renderOn(true);
+    expect(latestState?.platformNotice).toBe('guguCatalog.reason.host-not-ready');
+    // 这边知道它没连上了:那句是机器离线的结果,不再说
+    await renderOn(false);
+
+    expect(latestState?.platformNotice).toBeNull();
+    expect(latestState?.retryPlatformCatalog).toBeUndefined();
+    expect(toolbarText()).not.toContain('guguCatalog.reason');
+    expect(toolbarText()).not.toContain('harnessCatalog.retry');
   });
 
   it('never puts a raw server message on screen (#6264 d22: "model access server is not configured")', async () => {

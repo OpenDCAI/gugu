@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { conversationLink, parseConversationLink } from '../../../../packages/core/src/shared/ui/conversationLink'
+import { conversationLink, parseConversationLink } from '../../../../packages/core/src/shared/ui/guguLink'
 
 const chat = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee'
 const message = '11111111-2222-4333-8444-555555555555'

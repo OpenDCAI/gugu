@@ -265,14 +265,14 @@ describe('AgentAiModelPane', () => {
     expect([...harness.container.querySelectorAll('button')].some((button) => button.textContent === '保存')).toBe(false)
   })
 
-  it('says a plain sentence when the catalog fails, never the server text (#6264)', async () => {
+  it('keeps the catalog failure cause readable', async () => {
     fetchPlatformModelCatalog.mockReset().mockRejectedValue(new Error('model access server is not configured'))
     await harness.render(createNode(AgentAiModelPane, { agent }))
     await waitForCondition(
-      () => harness.container.textContent?.includes('咕咕模型暂不可用') === true,
+      () => harness.container.textContent?.includes('model access server is not configured') === true,
       'catalog failure explanation did not render',
     )
-    expect(harness.container.textContent).not.toContain('model access server')
+    expect(harness.container.textContent).not.toContain('咕咕模型暂不可用')
   })
 
   // #6212 copilot runs on Gugu's models (its injection contract is wired, protocol openai-responses); the pane

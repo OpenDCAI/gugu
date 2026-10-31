@@ -1,3 +1,4 @@
+import type { AppDetailLink } from '@gugu/core/shared/ui/guguLink';
 import { action, observable } from 'mobx';
 import { observer } from 'mobx-react-lite';
 import { AppErrorDetails, AppErrorMark } from '@/components/appSlot/AppErrorMark';
@@ -7,7 +8,7 @@ import type { ViewDefinition } from '@renderer/app/view-registry';
 import { SquareArrowOutUpRight } from '@/lib/icons';
 import { openAppInWindow } from '@renderer/features/extensions/app-dock';
 import { ExtensionSharedSlot } from '@renderer/features/extensions/extension-shared-slot';
-import { extensionSurfaceStore } from '@renderer/features/extensions/extension-surface-store';
+import { extensionSurfaceStore, extensionTabTitle } from '@renderer/features/extensions/extension-surface-store';
 import { installedExtensionsStore } from '@renderer/features/extensions/installed-extensions-store';
 import { ExtensionsLibraryPage } from '@renderer/features/library/extensions-library-page';
 import { LibraryHostProvider } from '@renderer/features/library/library-host';
@@ -28,13 +29,14 @@ import { useSessionMessages } from '@renderer/localization/use-session-messages'
  */
 const AppsMainPanel = observer(function AppsMainPanel() {
   const host = useSelectedLibraryHost();
+  const { params } = useParams('apps');
   return (
     <PageLayout>
       {/* 照 Google Play 的应用首页铺满这一页(页面那层最宽 1060,owner 10-10「这个是我想要的」)。 */}
       <PageContent className="max-w-none">
         <DeviceScopeProvider store={libraryDeviceStore}>
           <LibraryHostProvider value={host} key={host.key}>
-            <ExtensionsLibraryPage />
+            <ExtensionsLibraryPage detail={params.detail} />
           </LibraryHostProvider>
         </DeviceScopeProvider>
       </PageContent>
@@ -42,13 +44,18 @@ const AppsMainPanel = observer(function AppsMainPanel() {
   );
 });
 
+type AppsViewParams = { detail?: AppDetailLink };
+function AppsViewWrapper({ children }: { children: ReactNode } & AppsViewParams) { return <>{children}</>; }
+
 export const appsView = {
+  WrapView: AppsViewWrapper,
+  transientParams: ['detail'],
   TitlebarSlot: ShellTitlebar,
   MainPanel: AppsMainPanel,
   withoutSessionSidebar: true,
-} satisfies ViewDefinition;
+} satisfies ViewDefinition<AppsViewParams>;
 
-type AppViewParams = { appId?: string };
+type AppViewParams = { appId?: string; tab?: string };
 
 /** Draws nothing: a view's params are typed from its WrapView's props (`WrapParams`), so `useParams('app')` knows appId. */
 function AppViewWrapper({ children }: { children: ReactNode } & AppViewParams) {
@@ -73,15 +80,16 @@ const pageError = () => extensionSurfaceStore.said(null, 'dock').error;
 const AppTitlebar = observer(function AppTitlebar() {
   const { translate } = useSessionMessages();
   const { params } = useParams('app');
-  const main = params.appId ? installedExtensionsStore.mainTabOf(params.appId) : null;
+  const main = params.tab ? installedExtensionsStore.allTabContributions.find((entry) => entry.extensionId === params.appId && entry.kind === `${params.appId}.${params.tab}`) : params.appId ? installedExtensionsStore.mainTabOf(params.appId) : null;
   const error = main ? pageError() : null;
+  const heading = main ? extensionTabTitle(extensionSurfaceStore.said(null, 'dock'), main.extensionName) : null;
   const openInWindowLabel = translate('tabs.openInWindow');
   return (
     <ShellTitlebar
       leftSlot={
         main ? (
           <span className="flex min-w-0 items-center gap-1">
-            <span className="text-sm font-medium">{main.extensionName}</span>
+            <span className="text-sm font-medium" title={heading?.tooltip}>{heading?.label}</span>
             {error ? <AppErrorMark error={error} onToggle={() => toggleErrorDetails(main.kind)} testId="app-page-error" /> : null}
           </span>
         ) : null
@@ -89,7 +97,7 @@ const AppTitlebar = observer(function AppTitlebar() {
     >
       {main?.enabled && params.appId ? (
         <div className="absolute top-0 right-0 flex" style={{ height: WINDOW_CONTROL_BAR_HEIGHT_PX }}>
-          <TabBarActionRow atWindowEdge fixedCluster={false}>
+          <TabBarActionRow atWindowEdge>
             <Button
               variant="ghost"
               size="icon-sm"
@@ -115,7 +123,7 @@ const AppTitlebar = observer(function AppTitlebar() {
 const AppMainPanel = observer(function AppMainPanel() {
   const { translate } = useSessionMessages();
   const { params } = useParams('app');
-  const main = params.appId ? installedExtensionsStore.mainTabOf(params.appId) : null;
+  const main = params.tab ? installedExtensionsStore.allTabContributions.find((entry) => entry.extensionId === params.appId && entry.kind === `${params.appId}.${params.tab}`) : params.appId ? installedExtensionsStore.mainTabOf(params.appId) : null;
   const error = main?.enabled ? pageError() : null;
   // The title bar is a zero-height band over the top of the main area (the App's name, the window's handle): the page
   // starts under it, as a session's tabs do (tab-bar.tsx) — an App drawing from its top edge sat beneath its own name

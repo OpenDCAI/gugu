@@ -3,6 +3,7 @@ import { JSDOM } from 'jsdom';
 import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { until } from '../../../../../../../../tests/support/awaitCondition';
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -23,6 +24,9 @@ const h = vi.hoisted(() => {
   const offline = async () => ({ success: false, error: 'offline' });
   const api = {
     list: vi.fn(answer({ extensions: [manifest('1.0.0')], invalid: [], icons: {}, disabled: [] })),
+    switchVariant: vi.fn(),
+    marketReadme: vi.fn(answer({ readme: null })),
+    marketHistory: vi.fn(answer([])),
     revoked: vi.fn(answer({ notes: ['files:read'] })),
     agentStatus: vi.fn(answer({})),
     marketUpdates: vi.fn(answer({ checkedAt: '2026-09-28T00:00:00.000Z', updates: {}, yanked: {}, deprecated: {} })),
@@ -32,11 +36,13 @@ const h = vi.hoisted(() => {
     installFromFolder: vi.fn(),
     uninstall: vi.fn(async () => ({ success: true })),
   };
-  return { manifest, api, showConfirm: vi.fn(), pickFolder: vi.fn(async () => '/tmp/notes-next') };
+  return { manifest, api, ranking: vi.fn(async () => ({ data: [], error: null })), showConfirm: vi.fn(), pickFolder: vi.fn(async () => '/tmp/notes-next') };
 });
 
+vi.mock('@/lib/supabase', () => ({ chatDb: { rpc: h.ranking } }));
+
 vi.mock('@renderer/lib/ipc', () => ({
-  rpc: { extensions: {}, app: {} },
+  rpc: { extensions: {}, viewState: { save: vi.fn(async () => ({ success: true })) } },
   rpcOn: () => ({}),
   events: { on: () => () => undefined },
   onMachineEvent: () => () => undefined,
@@ -86,7 +92,7 @@ describe('Install from folder over a folder install (quiet upgrade)', () => {
         ? { success: true, data: { outcome: 'ask', ask: { manifest: next, manifestDigest: 'digest-next', installed: h.manifest('1.0.0'), revokedPermissions: ['files:read'] }, asks } }
         : { success: true, data: { outcome: 'confirmed', manifest: next } })
     await act(async () => {
-      root.render(React.createElement(SessionLocalizationProvider, null, React.createElement(ExtensionsSettingsCard)));
+      root.render(React.createElement(QueryClientProvider, { client: new QueryClient() }, React.createElement(SessionLocalizationProvider, null, React.createElement(ExtensionsSettingsCard))));
     });
     await settle();
     const button = [...dom.window.document.querySelectorAll('button')].find((node) =>
@@ -165,7 +171,7 @@ describe('Install from folder over a folder install (quiet upgrade)', () => {
     } as never);
     try {
       await act(async () => {
-        root.render(React.createElement(SessionLocalizationProvider, null, React.createElement(ExtensionsSettingsCard)));
+        root.render(React.createElement(QueryClientProvider, { client: new QueryClient() }, React.createElement(SessionLocalizationProvider, null, React.createElement(ExtensionsSettingsCard))));
       });
       await settle();
       await showInstalled(dom);
@@ -188,7 +194,7 @@ describe('Install from folder over a folder install (quiet upgrade)', () => {
     });
     try {
       await act(async () => {
-        root.render(React.createElement(SessionLocalizationProvider, null, React.createElement(ExtensionsSettingsCard)));
+        root.render(React.createElement(QueryClientProvider, { client: new QueryClient() }, React.createElement(SessionLocalizationProvider, null, React.createElement(ExtensionsSettingsCard))));
       });
       await settle();
       await showInstalled(dom);
@@ -198,7 +204,7 @@ describe('Install from folder over a folder install (quiet upgrade)', () => {
       expect(h.showConfirm).toHaveBeenCalledOnce();
       await act(async () => void (h.showConfirm.mock.calls[0][0] as { onSuccess: () => void }).onSuccess());
       await settle();
-      expect(h.api.uninstall).toHaveBeenCalledWith({ extensionId: 'old-notes' });
+      expect(h.api.uninstall).toHaveBeenCalledWith({ extensionId: 'old-notes', lastAnywhere: true });
     } finally {
       h.api.list.mockImplementation(listed!);
     }
@@ -215,7 +221,7 @@ describe('Install from folder over a folder install (quiet upgrade)', () => {
     h.api.uninstall.mockRejectedValueOnce(new Error('device offline'));
     try {
       await act(async () => {
-        root.render(React.createElement(SessionLocalizationProvider, null, React.createElement(ExtensionsSettingsCard)));
+        root.render(React.createElement(QueryClientProvider, { client: new QueryClient() }, React.createElement(SessionLocalizationProvider, null, React.createElement(ExtensionsSettingsCard))));
       });
       await settle();
       await showInstalled(dom);
@@ -247,7 +253,7 @@ describe('Installing one version from the market: the sheet speaks of that versi
   const source = { repo: 'shuxueshuxue/promo-skills', path: '.', commit: '6f46446' + 'a'.repeat(33) };
   const cloudOf = (version: string, releaseNotes: string) => ({
     version, bundleSha256: 'a'.repeat(64), bundleBytes: 10, apiVersion: 3, minAppVersion: '0.2.40', releaseNotes,
-    publishedAt: '2026-10-07T00:00:00Z', iconUrl: null, deprecated: null, compat: null, newerNeedsApp: null, source,
+    publishedAt: '2026-10-07T00:00:00Z', firstPublishedAt: '2026-10-07T00:00:00Z', firstRun: false, iconUrl: null, deprecated: null, compat: null, newerNeedsApp: null, source,
   });
   const entryOf = (version: string, releaseNotes: string) => ({
     manifest: h.manifest(version, version === '2.0.0' ? ['api.example.com'] : []),
@@ -265,7 +271,7 @@ describe('Installing one version from the market: the sheet speaks of that versi
     root = createRoot(dom.window.document.getElementById('root') as HTMLDivElement);
     h.api.market.mockResolvedValue({
       success: true,
-      data: { extensions: [entryOf('1.0.0', 'the old notes')], featured: [], home: { newest: [], shelves: [] }, invalid: [], errorKind: null, error: null, total: 1, page: 0, hasMore: false, fetchedAt: null },
+      data: { extensions: [entryOf('1.0.0', 'the old notes')], invalid: [], errorKind: null, error: null, total: 1, page: 0, hasMore: false, fetchedAt: null },
     } as never);
     h.api.marketEntry.mockResolvedValue({ success: true, data: entryOf('3.0.0', 'what 3.0.0 changed') } as never);
     h.api.marketUpdates.mockResolvedValue({
@@ -296,7 +302,7 @@ describe('Installing one version from the market: the sheet speaks of that versi
 
   it('the sheet says what the installed version changed and that it came from the market', async () => {
     await act(async () => {
-      root.render(React.createElement(SessionLocalizationProvider, null, React.createElement(ExtensionsSettingsCard)));
+      root.render(React.createElement(QueryClientProvider, { client: new QueryClient() }, React.createElement(SessionLocalizationProvider, null, React.createElement(ExtensionsSettingsCard))));
     });
     await settle();
     await showInstalled(dom);
@@ -330,7 +336,7 @@ describe('市场页 (#7059)', () => {
     ref: { extensionId: id, version: '1.0.0' },
     cloud: {
       version: '1.0.0', bundleSha256: 'a'.repeat(64), bundleBytes: 10, apiVersion: 3, minAppVersion: '0.2.40', releaseNotes: '',
-      publishedAt: '2026-10-07T00:00:00Z', iconUrl: null, deprecated: null, compat: null, newerNeedsApp: null, source, featured: id === 'pomo',
+      publishedAt: '2026-10-07T00:00:00Z', firstPublishedAt: '2026-10-07T00:00:00Z', firstRun: false, iconUrl: null, deprecated: null, compat: null, newerNeedsApp: null, source, featured: id === 'pomo',
     },
   });
   const listing = [app('arxiv', ['research'], ['export.arxiv.org']), app('pomo', ['productivity']), app('trace', ['developer'])];
@@ -344,9 +350,11 @@ describe('市场页 (#7059)', () => {
     vi.stubGlobal('Event', dom.window.Event);
     root = createRoot(dom.window.document.getElementById('root') as HTMLDivElement);
     queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    Object.defineProperty(dom.window.HTMLImageElement.prototype, 'decode', { configurable: true, value: vi.fn(async () => undefined) });
+    h.ranking.mockResolvedValue({ data: [], error: null });
     h.api.market.mockResolvedValue({
       success: true,
-      data: { extensions: listing, featured: [listing[1]], home: { newest: [], shelves: [] }, invalid: [], errorKind: null, error: null, total: 3, page: 0, hasMore: false, fetchedAt: null },
+      data: { extensions: listing, invalid: [], errorKind: null, error: null, total: 3, page: 0, hasMore: false, fetchedAt: null },
     } as never);
     (h.api as Record<string, unknown>).marketReadme = vi.fn(async () => ({ success: true, data: { readme: null } }));
     (h.api as Record<string, unknown>).marketHistory = vi.fn(async () => ({ success: true, data: [] }));
@@ -370,6 +378,7 @@ describe('市场页 (#7059)', () => {
     vi.unstubAllGlobals();
     vi.clearAllMocks();
     h.api.market.mockImplementation(saved.market!);
+    delete (h.api as Record<string, unknown>).marketRead;
     dom.window.close();
   });
 
@@ -379,11 +388,12 @@ describe('市场页 (#7059)', () => {
       { client: queryClient },
       React.createElement(SessionLocalizationProvider, null, React.createElement(ExtensionsSettingsCard))
     );
-  const render = async () => {
+  const render = async (browseAll = true) => {
     await act(async () => {
       root.render(page());
     });
     await settle();
+    if (browseAll) await press('[data-testid="extensions-tab-all"]');
   };
   const press = async (selector: string) => {
     const node = dom.window.document.querySelector(selector) as HTMLElement | null;
@@ -392,8 +402,8 @@ describe('市场页 (#7059)', () => {
     await settle();
   };
 
-  it('进来先是市场:精选在顶上,类别那排照清单的次序(全部 → 研究 → 效率 → 开发),选一类只剩那一类', async () => {
-    await render();
+  it('opens on recommendations with no repeated featured App, and categories browse the complete catalog', async () => {
+    await render(false);
     const document = dom.window.document;
     expect(document.querySelector('[data-testid="app-featured-pomo"]')).not.toBeNull();
     const chips = [...document.querySelectorAll('[data-testid^="extensions-market-chip-"]')].map((node) =>
@@ -401,13 +411,54 @@ describe('市场页 (#7059)', () => {
     );
     expect(chips).toEqual(['all', 'research', 'productivity', 'developer']);
     const tiles = () => [...document.querySelectorAll('[data-testid^="extension-card-"]')].map((node) => node.getAttribute('data-testid'));
-    expect(tiles()).toEqual(['extension-card-arxiv', 'extension-card-pomo', 'extension-card-trace']);
-    // 主进程没给「热门」(近期安装分数不够数,或另一台旧版咕咕根本不带这个字段):这一排不画。
-    expect(document.querySelector('[data-testid="extensions-market-popular"]')).toBeNull();
+    expect(tiles()).toEqual(['extension-card-arxiv', 'extension-card-trace']);
     await press('[data-testid="extensions-market-chip-developer"]');
     expect(tiles()).toEqual(['extension-card-trace']);
     // 选了一类,精选那张不再画(它不一定是这一类的)。
     expect(document.querySelector('[data-testid="app-featured-pomo"]')).toBeNull();
+  });
+
+  it('keeps a placeholder until the README and final artwork are ready', async () => {
+    let answer!: (value: { success: boolean; data: { readme: string } }) => void;
+    let decoded!: () => void;
+    const readme = new Promise<{ success: boolean; data: { readme: string } }>((resolve) => { answer = resolve; });
+    const image = new Promise<void>((resolve) => { decoded = resolve; });
+    (h.api as Record<string, unknown>).marketReadme = vi.fn(() => readme);
+    vi.mocked(dom.window.HTMLImageElement.prototype.decode).mockReturnValueOnce(image);
+    await render(false);
+    const art = () => dom.window.document.querySelector('[data-testid="app-featured-pomo"] .mk-hero-art');
+    expect(art()?.querySelector('[aria-busy="true"]')).not.toBeNull();
+    expect(art()?.querySelector('.mk-hero-big')).toBeNull();
+    await act(async () => answer({ success: true, data: { readme: '# Pomo\n\n![Pomo](https://dl.example/pomo/shot.png)\n' } }));
+    await settle();
+    expect(art()?.querySelector('[aria-busy="true"]')).not.toBeNull();
+    expect(art()?.querySelector('img')).toBeNull();
+    await act(async () => decoded());
+    await settle();
+    expect(art()?.querySelector('img')?.getAttribute('src')).toBe('https://dl.example/pomo/shot.png');
+    expect(art()?.querySelector('[aria-busy="true"]')).toBeNull();
+    expect(art()?.querySelector('.mk-hero-big')).toBeNull();
+  });
+
+  it.each(['README', 'image'])('shows a %s failure and retries without substituting an icon design', async (failure) => {
+    // 读不到的一直读不到(这一页画过的那份目录在、重读也会再取一次),直到点「重试」时才读得到。
+    const readme = vi.fn(async () => (failure === 'README' ? { success: false, error: 'unreadable' }
+      // 一张这次运行里没解码过的图(解码好的图这次运行里留着,不再解)。
+      : { success: true, data: { readme: '![Pomo](https://dl.example/pomo/unreadable.png)' } }));
+    (h.api as Record<string, unknown>).marketReadme = readme;
+    if (failure === 'image') vi.mocked(dom.window.HTMLImageElement.prototype.decode).mockRejectedValue(new Error('image unreadable'));
+    await render(false);
+    const card = () => dom.window.document.querySelector('[data-testid="app-featured-pomo"]');
+    expect(card()?.querySelector('[role="alert"]')?.textContent).toContain(translateSessionMessage('extensions.loadFailed'));
+    expect(card()?.querySelector('.mk-hero-big')).toBeNull();
+    readme.mockResolvedValue({ success: true, data: { readme: null } } as never);
+    const before = readme.mock.calls.length;
+    await press('[data-testid="app-featured-pomo"] [role="alert"] button');
+    expect(readme).toHaveBeenCalledTimes(before + 1);
+    expect(card()?.querySelector('[role="alert"]')).toBeNull();
+    // A successful README with no artwork is the one case that uses the icon design.
+    expect(card()?.querySelector('.mk-hero-big')).not.toBeNull();
+    expect(dom.window.document.querySelector('[data-testid="app-product-page"]')).toBeNull();
   });
 
   // owner 10-20「每次点进去 apps 页面里面整个 banner image 都是要变一下」:从项目页回来这一页是重新挂上的,精选卡先画图标版、
@@ -415,7 +466,7 @@ describe('市场页 (#7059)', () => {
   it('精选卡的截图:离开再进来,第一帧就是截图,不先画图标版', async () => {
     const readme = vi.fn(async () => ({ success: true, data: { readme: '# Pomo\n\n![番茄钟](https://dl.example/pomo/shot.png)\n' } }));
     (h.api as Record<string, unknown>).marketReadme = readme;
-    await render();
+    await render(false);
     const art = () => dom.window.document.querySelector('[data-testid="app-featured-pomo"] .mk-hero-art');
     expect(art()?.className).toBe('mk-hero-art is-shot');
     await act(async () => root.render(null));
@@ -428,30 +479,219 @@ describe('市场页 (#7059)', () => {
     expect(readme).toHaveBeenCalledTimes(1);
   });
 
-  it('精选下面:「最新」一排、「热门」一排(主进程给了才画),够数的类别各一排(最多 6 个,多了「查看全部」= 选上那一类);选了一类就都不画', async () => {
-    const many = ['a', 'b', 'c', 'd', 'e', 'f', 'g'].map((id) => app(`p${id}`, ['productivity']));
+  // owner 10-30「既然曾经缓存过,为什么又要失效又要重新读取……只有新精选图要出来的时候,直接原子替换」。
+  const pomoAt = (version: string) => {
+    const pomo = listing.find((item) => item.manifest.id === 'pomo')!;
+    return { ...pomo, manifest: { ...pomo.manifest, version }, ref: { ...pomo.ref, version }, cloud: { ...pomo.cloud, version } };
+  };
+  const listingWith = (version: string) => {
+    const extensions = listing.map((item) => (item.manifest.id === 'pomo' ? pomoAt(version) : item));
     h.api.market.mockResolvedValue({
       success: true,
-      data: {
-        extensions: [...listing, ...many], featured: [listing[1]], home: { newest: [listing[2], listing[0]], popular: [listing[1], listing[2], listing[0]], shelves: [{ category: 'productivity', items: many }] },
-        invalid: [], errorKind: null, error: null, total: 10, page: 0, hasMore: false, fetchedAt: null,
-      },
+      data: { extensions, invalid: [], errorKind: null, error: null, total: extensions.length, page: 0, hasMore: false, fetchedAt: null },
     } as never);
-    await render();
+  };
+  const shotOf = (version: string) => `https://dl.example/market/media/pomo/${version}.png`;
+  const readmeOf = (version: string) => ({ success: true, data: { readme: `# Pomo\n\n![Pomo](${shotOf(version)})\n` } });
+  const heroArt = () => dom.window.document.querySelector('[data-testid="app-featured-pomo"] .mk-hero-art');
+  const reopen = async () => {
+    await act(async () => root.render(null));
+    act(() => root.render(page()));
+  };
+
+  it('精选卡的截图:离开 15 分钟再进来,第一帧照旧是截图,README 不再取', async () => {
+    // 浏览器里 react-query 默认 5 分钟回收没人看的查询(这里 window 是后来才换上的,它当自己在服务端、默认不回收):照浏览器的来。
+    queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 5 * 60_000 } } });
+    const readme = vi.fn(async ({ version }: { version: string }) => readmeOf(version));
+    (h.api as Record<string, unknown>).marketReadme = readme;
+    await render(false);
+    expect(heroArt()?.querySelector('img')?.getAttribute('src')).toBe(shotOf('1.0.0'));
+    const calls = readme.mock.calls.length;
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      await act(async () => root.render(null));
+      vi.advanceTimersByTime(15 * 60_000);
+    } finally {
+      vi.useRealTimers();
+    }
+    act(() => root.render(page()));
+    expect(heroArt()?.querySelector('[aria-busy="true"]')).toBeNull();
+    expect(heroArt()?.querySelector('img')?.getAttribute('src')).toBe(shotOf('1.0.0'));
+    // 这次运行里解码过的图:重新挂上的卡片直接画它,❌ 先藏起来等再解一遍。
+    expect((heroArt()?.querySelector('img') as HTMLImageElement).style.visibility).toBe('');
+    await settle();
+    expect(readme).toHaveBeenCalledTimes(calls);
+  });
+
+  it('精选出了新一版:新截图解码好之前一直画旧的,解码好整张换上,中间没有骨架', async () => {
+    let answer!: () => void;
+    let decoded!: () => void;
+    const readme = vi.fn(async ({ version }: { version: string }) => {
+      if (version === '1.1.0') await new Promise<void>((resolve) => { answer = resolve; });
+      return readmeOf(version);
+    });
+    (h.api as Record<string, unknown>).marketReadme = readme;
+    await render(false);
+    expect(heroArt()?.querySelector('img')?.getAttribute('src')).toBe(shotOf('1.0.0'));
+
+    listingWith('1.1.0');
+    vi.mocked(dom.window.HTMLImageElement.prototype.decode).mockReturnValueOnce(new Promise<void>((resolve) => { decoded = resolve; }));
+    await reopen();
+    const stillOld = () => {
+      expect(heroArt()?.querySelector('[aria-busy="true"]')).toBeNull();
+      expect(heroArt()?.querySelector('img')?.getAttribute('src')).toBe(shotOf('1.0.0'));
+    };
+    stillOld();
+    await settle();
+    expect(readme.mock.calls.some(([args]) => args.version === '1.1.0')).toBe(true);
+    stillOld();
+    await act(async () => answer());
+    await settle();
+    stillOld();
+    await act(async () => decoded());
+    await settle();
+    expect(heroArt()?.querySelector('[aria-busy="true"]')).toBeNull();
+    expect(heroArt()?.querySelector('img')?.getAttribute('src')).toBe(shotOf('1.1.0'));
+  });
+
+  it('下载站连不上:新一版的 README 取不到,画着的那份一直留着,❌ 骨架、❌ 错误面板', async () => {
+    (h.api as Record<string, unknown>).marketReadme = vi.fn(async ({ version }: { version: string }) =>
+      version === '1.0.0' ? readmeOf(version) : { success: false, error: 'download site unreachable' });
+    await render(false);
+    expect(heroArt()?.querySelector('img')?.getAttribute('src')).toBe(shotOf('1.0.0'));
+
+    listingWith('1.1.0');
+    await reopen();
+    await settle();
+    await settle();
+    expect(heroArt()?.querySelector('[aria-busy="true"]')).toBeNull();
+    expect(heroArt()?.querySelector('[role="alert"]')).toBeNull();
+    expect(heroArt()?.querySelector('img')?.getAttribute('src')).toBe(shotOf('1.0.0'));
+  });
+
+  // 重启:渲染进程是新的(这一页的进程内缓存、查询缓存都是空的),上次画的那份在 localStorage(kept-shelf.ts)。
+  it('重启后第一帧:画上次那份清单,精选卡先画占位图、大图解码好再换上;❌ 骨架,❌ 空着的图', async () => {
+    const stored = new Map<string, string>();
+    vi.stubGlobal('localStorage', {
+      getItem: (key: string) => stored.get(key) ?? null,
+      setItem: (key: string, value: string) => void stored.set(key, value),
+    });
+    // 占位图:经 marketRead 读到图的字节,缩成一张小 JPEG(jsdom 没有画布,这里只判走的是这条路、存下的是它)。
+    const placeholder = 'data:image/jpeg;base64,c21hbGw=';
+    const marketRead = vi.fn(async () => ({ success: true, data: { base64: btoa('png bytes') } }));
+    (h.api as Record<string, unknown>).marketRead = marketRead;
+    vi.stubGlobal('createImageBitmap', vi.fn(async () => ({ width: 1600, height: 900, close: () => undefined })));
+    vi.spyOn(dom.window.HTMLCanvasElement.prototype, 'getContext').mockReturnValue({ drawImage: () => undefined } as never);
+    vi.spyOn(dom.window.HTMLCanvasElement.prototype, 'toDataURL').mockReturnValue(placeholder);
+    (h.api as Record<string, unknown>).marketReadme = vi.fn(async ({ version }: { version: string }) => readmeOf(version));
+    await render(false);
+    expect(heroArt()?.querySelector('img')?.getAttribute('src')).toBe(shotOf('1.0.0'));
+    expect(marketRead).toHaveBeenCalledWith({ path: 'media/pomo/1.0.0.png' });
+    await act(async () => root.render(null));
+
+    // 新的渲染进程:模块里的缓存、解码过的图都没有了,手上只有 localStorage 那份。
+    vi.resetModules();
+    const { ExtensionsSettingsCard: FreshCard } = await import('./ExtensionsSettingsCard');
+    const { SessionLocalizationProvider: FreshLocalization } = await import('@renderer/localization/localization-provider');
+    // 下载站那一趟没回来之前:第一帧全靠手上那份。
+    h.api.market.mockImplementation(() => new Promise(() => undefined));
+    let decoded!: () => void;
+    vi.mocked(dom.window.HTMLImageElement.prototype.decode).mockReturnValueOnce(new Promise<void>((resolve) => { decoded = resolve; }));
+    act(() => root.render(React.createElement(QueryClientProvider, { client: new QueryClient() },
+      React.createElement(FreshLocalization, null, React.createElement(FreshCard)))));
     const document = dom.window.document;
-    const rowsIn = (section: string) =>
-      [...document.querySelectorAll(`[data-testid="${section}"] [data-testid^="extension-card-"]`)].map((node) => node.getAttribute('data-testid'));
-    // 次序是主进程给的(searchApps 排好的),界面照画。
-    expect(rowsIn('extensions-market-newest')).toEqual(['extension-card-trace', 'extension-card-arxiv']);
-    expect(rowsIn('extensions-market-popular')).toEqual(['extension-card-pomo', 'extension-card-trace', 'extension-card-arxiv']);
-    // 「热门」排在「最新」和类别那几排中间。
-    const sections = [...document.querySelectorAll('[data-testid^="extensions-market-"][data-testid$="newest"], [data-testid="extensions-market-popular"], [data-testid^="extensions-market-shelf-"]')].map((node) => node.getAttribute('data-testid'));
-    expect(sections).toEqual(['extensions-market-newest', 'extensions-market-popular', 'extensions-market-shelf-productivity']);
-    expect(rowsIn('extensions-market-shelf-productivity')).toEqual(many.slice(0, 6).map((item) => `extension-card-${item.manifest.id}`));
-    await press('[data-testid="extensions-market-see-all-productivity"]');
-    expect(document.querySelector('[data-testid="extensions-market-newest"]')).toBeNull();
-    expect(document.querySelector('[data-testid="extensions-market-shelf-productivity"]')).toBeNull();
-    expect(rowsIn('extensions-market-section-productivity')).toEqual(['extension-card-pomo', ...many.map((item) => `extension-card-${item.manifest.id}`)]);
+    const img = () => heroArt()?.querySelector('img') as HTMLImageElement | null;
+    expect(document.querySelector('[aria-busy="true"]')).toBeNull();
+    expect(document.querySelector('[data-testid="extension-card-arxiv"]')).not.toBeNull();
+    expect(img()?.getAttribute('src')).toBe(placeholder);
+    expect(img()?.style.visibility).toBe('');
+    await act(async () => decoded());
+    expect(img()?.getAttribute('src')).toBe(shotOf('1.0.0'));
+    expect(img()?.style.visibility).toBe('');
+  });
+
+  // 全新安装、什么都没存:骨架第一次换成图时,新挂上的 <img> 自己解码好才露出来(真机 DPR3 上先画了约 6 帧空的)。
+  it('第一次进来:新的 <img> 自己解码好之前骨架留着,❌ 先画一帧空的', async () => {
+    const src = 'https://dl.example/market/media/pomo/first-visit.png';
+    (h.api as Record<string, unknown>).marketReadme = vi.fn(async () => ({ success: true, data: { readme: `![Pomo](${src})` } }));
+    let painted!: () => void;
+    vi.mocked(dom.window.HTMLImageElement.prototype.decode)
+      .mockResolvedValueOnce(undefined)
+      .mockReturnValueOnce(new Promise<void>((resolve) => { painted = resolve; }));
+    await render(false);
+    const img = () => heroArt()?.querySelector('img') as HTMLImageElement | null;
+    expect(img()?.getAttribute('src')).toBe(src);
+    expect(img()?.style.visibility).toBe('hidden');
+    expect(heroArt()?.querySelector('[aria-busy="true"]')).not.toBeNull();
+    await act(async () => painted());
+    expect(img()?.style.visibility).toBe('');
+    expect(heroArt()?.querySelector('[aria-busy="true"]')).toBeNull();
+  });
+
+  it('老版本的机器没有 marketRead:没有占位图就是没有,❌ 重试、❌ 报错', async () => {
+    const marketRead = vi.fn(async () => {
+      throw new Error('No handler registered for extensions.marketRead');
+    });
+    (h.api as Record<string, unknown>).marketRead = marketRead;
+    (h.api as Record<string, unknown>).marketReadme = vi.fn(async () => readmeOf('1.0.0'));
+    await render(false);
+    expect(marketRead).toHaveBeenCalledTimes(1);
+    expect(heroArt()?.querySelector('[role="alert"]')).toBeNull();
+    expect(heroArt()?.querySelector('img')?.getAttribute('src')).toBe(shotOf('1.0.0'));
+  });
+
+  it('browses complete New and Popular pages without subtracting featured Apps or capping at six', async () => {
+    const many = ['a', 'b', 'c', 'd', 'e', 'f', 'g'].map((id) => app(`p${id}`, ['productivity']));
+    many[0]!.cloud.firstPublishedAt = '2026-10-25T00:00:00Z';
+    const entries = [...listing, ...many];
+    h.api.market.mockResolvedValue({ success: true, data: {
+      extensions: entries, invalid: [], errorKind: null, error: null, total: 10, page: 0, hasMore: false, fetchedAt: null,
+    } } as never);
+    h.ranking.mockResolvedValue({ data: [
+      { app_id: 'trace', score: 5 }, { app_id: 'pomo', score: 3 }, { app_id: 'pa', score: 2 }, { app_id: 'arxiv', score: 1 },
+    ], error: null } as never);
+    await render(false);
+    const document = dom.window.document;
+    const rows = () => [...document.querySelectorAll('[data-testid^="extension-card-"]')].map((node) => node.getAttribute('data-testid')!.replace('extension-card-', ''));
+    const hero = [...document.querySelectorAll('[role="listitem"][data-testid^="app-featured-"]')].map((node) => node.getAttribute('data-testid')!.replace('app-featured-', ''));
+    expect(hero).toEqual(['trace', 'pomo', 'pa']);
+    expect([...hero, ...rows()].sort()).toEqual(entries.map((item) => item.manifest.id).sort());
+    await press('[data-testid="extensions-tab-newest"]');
+    expect(document.querySelector('[data-testid="app-featured-pomo"]')).toBeNull();
+    expect(rows()).toEqual(['pa', 'arxiv', 'pb', 'pc', 'pd', 'pe', 'pf', 'pg', 'pomo', 'trace']);
+    await press('[data-testid="extensions-tab-popular"]');
+    expect(rows()).toEqual(['trace', 'pomo', 'pa', 'arxiv']);
+    await press('[data-testid="extensions-tab-all"]');
+    expect(rows()).toEqual(entries.map((item) => item.manifest.id));
+    await press('[data-testid="extensions-market-chip-productivity"]');
+    expect(rows()).toEqual(['pomo', ...many.map((item) => item.manifest.id)]);
+  });
+
+  it('shows a retry on ranking failure and a distinct empty state after a successful empty retry', async () => {
+    h.ranking.mockResolvedValue({ data: null, error: { message: 'ranking denied' } } as never);
+    await render(false);
+    await press('[data-testid="extensions-tab-popular"]');
+    const document = dom.window.document;
+    const failed = () => document.querySelector('[data-testid="extensions-market-ranking-error"]');
+    expect(failed()?.textContent).toContain(translateSessionMessage('extensions.rankingUnavailable'));
+    expect(document.querySelector('[data-testid^="extension-card-"]')).toBeNull();
+    h.ranking.mockResolvedValue({ data: [], error: null });
+    await press('[data-testid="extensions-market-ranking-error"] button');
+    expect(failed()).toBeNull();
+    expect(document.querySelector('.mk-empty')?.textContent).toBe(translateSessionMessage('extensions.noPopular'));
+  });
+
+  it('reads every catalog page before selecting recommendations and complete New results', async () => {
+    const entries = Array.from({ length: 14 }, (_, i) => app(`app-${i}`, ['productivity']));
+    h.api.market.mockImplementation((async ({ page }: { page: number }) => ({ success: true, data: {
+      extensions: entries.slice(page * 12, (page + 1) * 12), invalid: [], errorKind: null, error: null,
+      total: 14, page, hasMore: page === 0, fetchedAt: null,
+    } })) as never);
+    await render(false);
+    expect(h.api.market).toHaveBeenCalledWith({ page: 1, query: '' });
+    expect(dom.window.document.querySelectorAll('[data-testid^="extension-card-"]')).toHaveLength(14);
+    await press('[data-testid="extensions-tab-newest"]');
+    expect(dom.window.document.querySelectorAll('[data-testid^="extension-card-"]')).toHaveLength(14);
   });
 
   it('第一次装、什么权限都不要的:产品页头上点「安装」就装,不弹框', async () => {
@@ -485,7 +725,7 @@ describe('市场页 (#7059)', () => {
     ];
     h.api.market.mockResolvedValue({
       success: true,
-      data: { extensions: entries, featured: [], home: { newest: [], shelves: [] }, invalid: [], errorKind: null, error: null, total: 3, page: 0, hasMore: false, fetchedAt: null },
+      data: { extensions: entries, invalid: [], errorKind: null, error: null, total: 3, page: 0, hasMore: false, fetchedAt: null },
     } as never);
     await render();
     const document = dom.window.document;
@@ -511,7 +751,7 @@ describe('市场页 (#7059)', () => {
       const newer = { ...here, manifest: { ...here.manifest, version: '1.1.0' }, ref: { extensionId: 'pomo', version: '1.1.0' }, cloud: { ...here.cloud, version: '1.1.0' } };
       h.api.market.mockResolvedValue({
         success: true,
-        data: { extensions: [newer], featured: [], home: { newest: [], shelves: [] }, invalid: [], errorKind: null, error: null, total: 1, page: 0, hasMore: false, fetchedAt: null },
+        data: { extensions: [newer], invalid: [], errorKind: null, error: null, total: 1, page: 0, hasMore: false, fetchedAt: null },
       } as never);
       h.api.list.mockResolvedValueOnce({ success: true, data: { extensions: [here.manifest], invalid: [], icons: {}, disabled: [], origins } } as never);
       await render();
@@ -527,7 +767,7 @@ describe('市场页 (#7059)', () => {
     const twin = app('focus', ['productivity']);
     h.api.market.mockResolvedValue({
       success: true,
-      data: { extensions: [...listing, twin], featured: [], home: { newest: [], shelves: [] }, invalid: [], errorKind: null, error: null, total: 4, page: 0, hasMore: false, fetchedAt: null },
+      data: { extensions: [...listing, twin], invalid: [], errorKind: null, error: null, total: 4, page: 0, hasMore: false, fetchedAt: null },
     } as never);
     await render();
     const document = dom.window.document;
@@ -546,5 +786,126 @@ describe('市场页 (#7059)', () => {
     expect(dom.window.document.querySelector('[data-testid="extensions-store"]')).toBeNull();
     await press('[data-testid="app-product-back"]');
     expect(dom.window.document.querySelector('[data-testid="extensions-store"]')).not.toBeNull();
+  });
+});
+
+describe('App variant switching uses the existing install consent', () => {
+  let dom: JSDOM;
+  let root: Root;
+  let queryClient: QueryClient;
+  let active: string;
+  let asks: boolean;
+  const originalList = h.api.list.getMockImplementation();
+  const originalUpdates = h.api.marketUpdates.getMockImplementation();
+  const originalEntry = h.api.marketEntry.getMockImplementation();
+  const variants = ['upstream', 'timeline'].map((name) => ({
+    name, base: '1.0.0', dir: name === 'upstream' ? null : '/work/notes@timeline',
+    repo: 'https://github.com/example/apps', path: 'notes', commit: 'a'.repeat(40), sha256: 'b'.repeat(64), bytes: 10,
+  }));
+  const doc = () => dom.window.document;
+  const press = async (selector: string) => {
+    const element = doc().querySelector<HTMLElement>(selector);
+    expect(element, selector).not.toBeNull();
+    await act(async () => element!.click());
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    active = 'timeline';
+    asks = false;
+    dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>');
+    for (const key of ['window', 'document', 'HTMLElement', 'HTMLInputElement', 'Element', 'Node', 'Event', 'navigator', 'MutationObserver'] as const) vi.stubGlobal(key, dom.window[key]);
+    vi.stubGlobal('getComputedStyle', dom.window.getComputedStyle.bind(dom.window));
+    root = createRoot(doc().querySelector('#root')!);
+    queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    h.api.list.mockImplementation(async () => ({ success: true, data: { extensions: [h.manifest('1.0.0')], invalid: [], icons: {}, disabled: [], origins: { notes: active === 'upstream' ? 'market' : 'fork' }, variants: { notes: { active, variants } } } }));
+    h.api.switchVariant.mockImplementation(async (_id: string, name: string, consent: { kind: string }) => {
+      const manifest = h.manifest('1.0.0', [], asks ? ['files:read', 'notifications'] : ['files:read']);
+      if (consent.kind === 'return') return { success: true, data: { outcome: 'ask', asks, ask: { manifest, manifestDigest: 'variant-digest', installed: h.manifest('1.0.0'), revokedPermissions: [] } } };
+      active = name;
+      return { success: true, data: { outcome: 'confirmed', manifest } };
+    });
+  });
+  afterEach(() => {
+    act(() => root.unmount());
+    queryClient.clear();
+    dom.window.close();
+    vi.unstubAllGlobals();
+    h.api.list.mockImplementation(originalList!);
+    h.api.marketUpdates.mockImplementation(originalUpdates!);
+    h.api.marketEntry.mockImplementation(originalEntry!);
+    h.api.switchVariant.mockReset();
+  });
+
+  async function openVariantList() {
+    await render();
+    await showInstalled(dom);
+    await until('the installed Notes row', () => !!doc().querySelector('[data-testid="extension-row-notes"]'));
+    await press('[data-testid="extension-row-notes"] .mk-name');
+    await until('the Notes variants', () => !!doc().querySelector('[data-testid="app-variant-upstream"]'));
+  }
+
+  async function render() {
+    await act(async () => root.render(React.createElement(QueryClientProvider, { client: queryClient },
+      React.createElement(SessionLocalizationProvider, null, React.createElement(ExtensionsSettingsCard)))));
+  }
+
+  it('switches without a dialog when no new permission is needed, then reads the active variant again', async () => {
+    await openVariantList();
+    await press('[data-testid="app-variant-upstream"]');
+    expect(h.showConfirm).not.toHaveBeenCalled();
+    expect(h.api.switchVariant.mock.calls).toEqual([
+      ['notes', 'upstream', { kind: 'return' }],
+      ['notes', 'upstream', { kind: 'given', digest: 'variant-digest' }],
+    ]);
+    await until('the upstream variant is selected', () => doc().querySelector('[data-testid="app-variant-upstream"]')?.getAttribute('aria-checked') === 'true');
+  });
+
+  it.each([false, true])('opens the active fork instead of replacing it with a market update (update listed: %s)', async (listed) => {
+    const installFromMarket = vi.fn();
+    (h.api as Record<string, unknown>).installFromMarket = installFromMarket;
+    h.api.marketEntry.mockResolvedValue({ success: true, data: {
+      manifest: h.manifest('2.0.0'), cloud: { compat: null }, ref: { extensionId: 'notes', version: '2.0.0' },
+    } } as never);
+    h.api.marketUpdates.mockResolvedValue({ success: true, data: {
+      checkedAt: '2026-10-26T00:00:00.000Z', yanked: {}, deprecated: {},
+      updates: listed ? { notes: { version: '2.0.0' } } : {},
+      forkBehind: { notes: { upstream: '2.0.0', behind: 1, commit: 'c'.repeat(40) } },
+    } } as never);
+    await openVariantList();
+    await until('the newer market entry is loaded', () => h.api.marketEntry.mock.calls.length > 0);
+    expect(doc().querySelector('[data-testid="app-product-action"]')?.getAttribute('data-lifecycle')).toBe('open');
+    expect(doc().querySelector('.mk-banner .xp-note')?.textContent).toContain('2.0.0');
+    await press('[data-testid="app-product-action"]');
+    expect(installFromMarket).not.toHaveBeenCalled();
+    expect(h.showConfirm).not.toHaveBeenCalled();
+  });
+
+  it('keeps Apps listed when one has no readable variant metadata', async () => {
+    h.api.list.mockImplementation(async () => ({ success: true, data: {
+      extensions: [h.manifest('1.0.0'), { ...h.manifest('1.0.0'), id: 'other', name: 'Other' }],
+      invalid: [], icons: {}, disabled: [], variants: { other: { active, variants } },
+    } }));
+    await render();
+    await showInstalled(dom);
+    await until('both installed Apps', () => !!doc().querySelector('[data-testid="extension-row-notes"]') && !!doc().querySelector('[data-testid="extension-row-other"]'));
+    expect(h.api.list).toHaveBeenCalledOnce();
+    await press('[data-testid="extension-row-notes"]');
+    expect(doc().querySelector('[data-testid="app-product-page"]')).not.toBeNull();
+    expect(doc().querySelector('[data-testid="app-variants"]')).toBeNull();
+    await press('[data-testid="app-product-back"]');
+    await press('[data-testid="extension-row-other"]');
+    expect(doc().querySelector('[data-testid="app-variants"]')).not.toBeNull();
+  });
+
+  it('waits for the existing consent dialog before installing a variant with additional permissions', async () => {
+    asks = true;
+    await openVariantList();
+    await press('[data-testid="app-variant-upstream"]');
+    expect(h.api.switchVariant).toHaveBeenCalledExactlyOnceWith('notes', 'upstream', { kind: 'return' });
+    expect(h.showConfirm).toHaveBeenCalledOnce();
+    const prompt = h.showConfirm.mock.calls[0]![0] as { onSuccess: () => void };
+    await act(async () => prompt.onSuccess());
+    expect(h.api.switchVariant).toHaveBeenLastCalledWith('notes', 'upstream', { kind: 'given', digest: 'variant-digest' });
   });
 });

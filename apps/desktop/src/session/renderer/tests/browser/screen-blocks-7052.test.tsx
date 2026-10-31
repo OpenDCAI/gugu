@@ -1,14 +1,16 @@
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { page } from 'vitest/browser';
-import { BlockGrip, ScreenFrame, screenDropHandlers, startSessionBlockDrag } from '@renderer/app/screen-frame';
+import { BlockDropPreviewLayer, BlockGrip, ScreenFrame, screenDropHandlers, startSessionBlockDrag } from '@renderer/app/screen-frame';
 import { blockDropPreview, resolveBlockDrop, setBlockDropPreview } from '@renderer/app/screen-layout-actions';
-import { clearDraggedSession, hasDraggedSession, setDraggedSession } from '@renderer/lib/drag-session';
+import { clearDraggedScreenContent, hasDraggedScreenContent, setDraggedScreenContent } from '@renderer/lib/drag-screen-content';
 import { shieldNativeDrags } from '@renderer/lib/drag-shield';
 import { screenLayout } from '@renderer/app/screen-layout';
 import '@/styles/tokens.css';
 import '@renderer/index.css';
+import { drainTopicSplitRequest } from '@/lib/topicSplitRequest';
 import { until } from '../../../../../../../tests/support/awaitCondition';
+import { WorkspaceLayoutContextProvider } from '@renderer/lib/layout/layout-provider';
 
 // #7052 一屏几块:真组件(ScreenFrame + react-resizable-panels)、真几何。判据钉的是 2026-10-09 实机撞过的几件:
 //  · 块与块之间一根 1px 线,和会话列表右边那根同色(owner「怎么会没有任何分割线」→「这么粗的线…不能统一吗」);
@@ -21,6 +23,7 @@ let host: HTMLDivElement | null = null;
 const s = (sessionId: string) => ({ projectId: 'p', sessionId });
 
 beforeEach(async () => {
+  vi.stubGlobal('electronAPI', { invoke: async (channel: string) => { if (channel !== 'viewState.save') throw new Error(`unexpected IPC: ${channel}`); }, eventOn: () => () => {} });
   await page.viewport(1200, 700);
   document.body.style.margin = '0';
   host = document.createElement('div');
@@ -35,7 +38,9 @@ afterEach(() => {
   host?.remove();
   root = null;
   host = null;
-  for (const { sessionId } of screenLayout.sessions) screenLayout.forgetSession(sessionId);
+  for (const block of [...screenLayout.blocks.values(), ...screenLayout.parkedContents]) screenLayout.forgetContent(block);
+  clearDraggedScreenContent();
+  setBlockDropPreview(null);
 });
 
 const nextFrames = async (count: number) => {
@@ -46,7 +51,84 @@ const blockWidths = () =>
 const separator = () => document.querySelector<HTMLElement>('[data-screen-frame] [data-slot="resizable-handle"]');
 
 describe('一屏几块的骨架 (#7052)', () => {
-  it('两块之间一根 1px 线,和 border 同色;会话页压在两边时线两边那几 px 仍抓得到', async () => {
+  it.each([
+    ['left', 0.3, 0.4], ['right', 0.7, 0.4], ['top', 0.4, 0.3], ['bottom', 0.6, 0.7],
+  ] as const)('previews and splits a task dropped in the chat centre nearest its %s edge', async (edge, x, y) => {
+    screenLayout.show({ kind: 'chat', chatId: 'chat-centre' });
+    root!.render(<WorkspaceLayoutContextProvider><ScreenFrame /><BlockDropPreviewLayer /></WorkspaceLayoutContextProvider>);
+    await until('chat block rendered', () => blockWidths().length === 1);
+    const blockId = screenLayout.order[0];
+    const block = host!.querySelector<HTMLElement>('[data-screen-block]')!;
+    const rect = block.getBoundingClientRect();
+    const dataTransfer = new DataTransfer();
+    setDraggedScreenContent(dataTransfer, { kind: 'session', ...s('incoming'), title: 'Incoming' });
+    const handlers = screenDropHandlers(true);
+    const event = { dataTransfer, target: block, clientX: rect.left + rect.width * x, clientY: rect.top + rect.height * y, preventDefault: vi.fn(), stopPropagation: vi.fn() };
+    handlers.onDragOverCapture(event as never);
+    expect(blockDropPreview.get()).toEqual({ blockId, edge });
+    await until('split preview rendered', () => document.querySelector(`[data-block-drop-preview="${edge}"]`) !== null);
+    handlers.onDropCapture(event as never);
+    expect(screenLayout.order).toHaveLength(2);
+    expect(screenLayout.blockOfSession('incoming')).toBeDefined();
+    expect(blockDropPreview.get()).toBeNull();
+  });
+
+  it('leaves a chat composer drop to its own mention handler even near an edge', async () => {
+    screenLayout.show({ kind: 'chat', chatId: 'chat-composer' });
+    root!.render(<WorkspaceLayoutContextProvider><ScreenFrame /></WorkspaceLayoutContextProvider>);
+    await until('chat block rendered', () => blockWidths().length === 1);
+    const block = host!.querySelector<HTMLElement>('[data-screen-block]')!;
+    const rect = block.getBoundingClientRect();
+    const composer = document.createElement('div');
+    composer.dataset.slot = 'composer-bar';
+    block.appendChild(composer);
+    const dataTransfer = new DataTransfer();
+    setDraggedScreenContent(dataTransfer, { kind: 'session', ...s('incoming'), title: 'Incoming' });
+    const event = { dataTransfer, target: composer, clientX: rect.left + 5, clientY: rect.bottom - 5, preventDefault: vi.fn(), stopPropagation: vi.fn() };
+    const handlers = screenDropHandlers(true);
+    handlers.onDragOverCapture(event as never);
+    handlers.onDropCapture(event as never);
+    expect(event.preventDefault).not.toHaveBeenCalled();
+    expect(blockDropPreview.get()).toBeNull();
+    expect(screenLayout.order).toHaveLength(1);
+    composer.remove();
+  });
+
+  it('opens a topic only after its source chat lands in a workspace split', async () => {
+    screenLayout.show(s('a'));
+    root!.render(<ScreenFrame />);
+    await until('one block', () => blockWidths().length === 1);
+    const rect = host!.querySelector('[data-screen-block]')!.getBoundingClientRect();
+    const dataTransfer = new DataTransfer();
+    setDraggedScreenContent(dataTransfer, { kind: 'chat', chatId: 'group', title: 'Topic', topic: { chatId: 'topic', name: 'Topic' } });
+    const handlers = screenDropHandlers(true);
+    const event = { dataTransfer, target: host, clientX: rect.left + 5, clientY: rect.top + rect.height / 2, preventDefault: vi.fn(), stopPropagation: vi.fn() };
+    const composer = document.createElement('div');
+    composer.dataset.slot = 'composer-bar';
+    handlers.onDropCapture({ ...event, target: composer } as never);
+    expect(drainTopicSplitRequest('group')).toBeNull();
+    handlers.onDropCapture(event as never);
+    expect(screenLayout.order).toHaveLength(2);
+    expect(drainTopicSplitRequest('group')).toEqual({ chatId: 'topic', name: 'Topic', sourceChatId: 'group', focusComposer: true });
+    screenLayout.close(screenLayout.order.find((id) => screenLayout.blocks.get(id)?.kind === 'chat')!);
+    clearDraggedScreenContent();
+  });
+
+  it('can move an existing block beside its neighbour using the space its old block releases', async () => {
+    host!.style.width = '800px';
+    screenLayout.show(s('a'));
+    screenLayout.showBeside(s('b'));
+    root!.render(<ScreenFrame />);
+    await until('two narrow blocks', () => blockWidths().length === 2 && blockWidths().every((w) => w > 390 && w < 410));
+    const blockId = screenLayout.blockOfSession('b')!;
+    const rect = document.querySelector<HTMLElement>(`[data-screen-block="${blockId}"]`)!.getBoundingClientRect();
+    // Each current block is narrower than two 220px panes, but moving a releases its old 400px.
+    expect(resolveBlockDrop(rect.right - 5, rect.top + rect.height / 2, { kind: 'session', ...s('a') })).toEqual({ blockId, edge: 'right' });
+    // A new third block would really have to fit inside those 400px.
+    expect(resolveBlockDrop(rect.right - 5, rect.top + rect.height / 2, { kind: 'session', ...s('c') })).toBeNull();
+  });
+
+  it('两块之间一根 1px 线,和别处的分界线(话题分栏、右栏)同一个 token;会话页压在两边时线两边那几 px 仍抓得到', async () => {
     screenLayout.show(s('a'));
     screenLayout.showBeside(s('b'));
     root!.render(<ScreenFrame />);
@@ -56,7 +138,7 @@ describe('一屏几块的骨架 (#7052)', () => {
     const rect = line.getBoundingClientRect();
     expect(Math.round(rect.width)).toBe(1);
     const reference = document.createElement('div');
-    reference.className = 'bg-border';
+    reference.className = 'bg-[var(--border-subtle)]';
     host!.appendChild(reference);
     expect(getComputedStyle(line).backgroundColor).toBe(getComputedStyle(reference).backgroundColor);
     reference.remove();
@@ -142,10 +224,10 @@ describe('一屏几块的骨架 (#7052)', () => {
     const handlers = screenDropHandlers(true);
     const dragOver = (sessionId: string, x: number) => {
       const dataTransfer = new DataTransfer();
-      setDraggedSession(dataTransfer, { sessionId, title: sessionId, projectId: 'p' });
+      setDraggedScreenContent(dataTransfer, { kind: 'session', sessionId, title: sessionId, projectId: 'p' });
       const preventDefault = vi.fn();
       handlers.onDragOverCapture({ dataTransfer, target: transcript, clientX: x, clientY: midY, preventDefault, stopPropagation: vi.fn() } as never);
-      clearDraggedSession();
+      clearDraggedScreenContent();
       return preventDefault;
     };
 
@@ -168,7 +250,7 @@ describe('一屏几块的骨架 (#7052)', () => {
   // 拖 ⋮⋮ 也要开拖拽遮罩:它的 onDragStart 曾经 stopPropagation,React 19 把原生 dragstart 停在根容器上,document 上的
   // shieldNativeDrags 听不到 —— 拖着经过 HTML 预览时指针进了 iframe(复核 659bafb7f 在真 React 上量到)。真组件、真 React 根。
   it('拖 ⋮⋮ 时遮罩开、拖完关', async () => {
-    const stop = shieldNativeDrags(document, hasDraggedSession, () => {});
+    const stop = shieldNativeDrags(document, hasDraggedScreenContent, () => {});
     try {
       root!.render(<BlockGrip label="grip" onDragStart={(event) => startSessionBlockDrag(event, { projectId: 'p', sessionId: 'g', title: 'G' })} />);
       await nextFrames(2);
@@ -180,7 +262,7 @@ describe('一屏几块的骨架 (#7052)', () => {
       expect(document.documentElement.hasAttribute('data-gugu-dragging')).toBe(false);
     } finally {
       stop();
-      clearDraggedSession();
+      clearDraggedScreenContent();
     }
   });
 });

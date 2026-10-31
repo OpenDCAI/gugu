@@ -12,9 +12,15 @@ import {
   type MovableIntegrationAccount,
 } from './integration-move';
 import { buildIntegrationListPayload } from './integration-payload-builder';
+import { platformCredentials } from './platform-credentials-instance';
 
 const moveDeps: IntegrationMoveDeps = {
-  integrationIds: () => integrationPluginRegistry.getAll().map((plugin) => plugin.metadata.id),
+  // #921 平台保管的那几家不随助理搬:平台是按人存的,新家本来就连着。存在这台电脑上的(没有平台服务的安装)照旧搬。
+  integrationIds: () =>
+    integrationPluginRegistry
+      .getAll()
+      .map((plugin) => plugin.metadata.id)
+      .filter((integrationId) => platformCredentials.custody(integrationId) !== 'platform'),
   isCli: (integrationId) => cliMethodOf(integrationId) !== null,
   hasIntegration: (integrationId) => integrationPluginRegistry.get(integrationId) !== undefined,
   listAccounts: (integrationId) => integrationCredentialStore.listAccountsDetailed(integrationId),
@@ -24,7 +30,11 @@ const moveDeps: IntegrationMoveDeps = {
 
 export const integrationsController = createRPCController({
   /** `locale` = 请求方的界面语言(插件的中英两份在这里解析成字符串);老桌面不传 ⇒ en。 */
-  list: async (locale?: string) => buildIntegrationListPayload(locale),
+  list: async (locale?: string) => {
+    // #921 连接页要说凭据在哪保管:还不知道这个安装有没有平台服务就先问一次。
+    await platformCredentials.knowCustody();
+    return buildIntegrationListPayload(locale, (integrationId) => platformCredentials.custody(integrationId));
+  },
 
   /** 资源库那一页:注册表里每一家连没连上(检查一次)/ 存没存着凭据(不联网)。 */
   checkAllConnections: async () => checkAllIntegrationConnections(),
@@ -62,6 +72,8 @@ export const integrationsController = createRPCController({
    * 授权链接 / 二维码;之后 `cliLoginWait` 一问一答等它登上(每问最多 20 秒)。远程机器上也是那台机器自己跑。
    */
   cliLoginStart: async (integrationId: string) => integrationConnectionService.cliLoginStart(integrationId),
+  /** 起登录前先装好工具:一问最多 20 秒,装得慢(远程机器上十来分钟)也不绑在一次调用上。 */
+  cliToolPrepare: async (integrationId: string) => integrationConnectionService.cliToolPrepare(integrationId),
 
   cliLoginWait: async (integrationId: string) => integrationConnectionService.cliLoginWait(integrationId),
   cliLoginProgress: async (integrationId: string) => integrationConnectionService.cliLoginProgress(integrationId),

@@ -1,4 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import * as asks from '../asks';
+import type { QueuedPrompt } from '@gugu/session-core/acp/client';
 import type {
   PendingRequest,
   RecordCursor,
@@ -28,6 +30,8 @@ const state = vi.hoisted(() => ({
   /** 这台机器上会话给自己排的定时(repo.listSessionSchedules 的桩);多数用例没有。 */
   schedules: [] as unknown[],
   deliverText: vi.fn(),
+  nativeUnread: [] as string[],
+  storedHistory: vi.fn(),
   deliverPermission: vi.fn(),
   prepareQuestion: vi.fn(),
   deliverQuestion: vi.fn(),
@@ -39,18 +43,24 @@ const state = vi.hoisted(() => ({
   pendingWatchCalls: [] as string[],
   pendingWatchDisposed: 0,
   /** 用例手里的那根线：调它就等于运行时报了一批新的待答审批。 */
-  emitPending: null as null | ((requests: PendingRequest[], queuedPrompts: { id: string; text: string }[]) => void),
+  emitPending: null as null | ((requests: PendingRequest[], queuedPrompts: Pick<QueuedPrompt, 'id' | 'text' | 'origin'>[], reply?: null, terminals?: readonly import('@gugu/session-core/acp/client').TerminalState[], active?: import('@gugu/session-core/acp/client').TranscriptTurn | null) => void),
   /** 活运行时报的会话选项(live-options 的桩);默认三格都没有。 */
   readOptions: vi.fn(async (): Promise<Record<string, unknown>> => ({ mode: null, model: null, effort: null })),
   /** D-31 The waits the host reported to the status writer, in order. */
   hostWaits: [] as Array<{ sessionId: string; id: string; open: boolean }>,
+  /** 聊天腿的 agent 此刻在不在跑(write-bridge `acpSessionLive` 的桩)。 */
+  acpLive: false,
+  /** 唤醒(write-bridge `ensureAcpSessionLive` 的桩):默认 ❌ —— 谁走到这里就是叫醒了它。 */
+  wake: vi.fn(async (_id: string): Promise<void> => {
+    throw new Error('❌ 没开起来的会话不许走唤醒');
+  }),
 }));
 
 const persistedQuestions = vi.hoisted(() => new Map<string, Settlement[]>());
 vi.mock('../sessions/agent-question-store', () => ({
   readAgentQuestionRecords: (id: string) => persistedQuestions.get(id) ?? [],
   rememberAgentQuestion: (id: string, item: PendingRequest | Settlement) => {
-    if (item.host?.kind !== 'agent-question') return;
+    if (item.origin?.source !== 'agent-question') return;
     const items = persistedQuestions.get(id) ?? [];
     if (!items.some(old => old.itemId === item.itemId)) persistedQuestions.set(id, [...items, 'state' in item ? item : { ...item, state: 'pending', optionId: null, resolvedBy: null, resolvedAt: null } as Settlement]);
   },
@@ -58,6 +68,11 @@ vi.mock('../sessions/agent-question-store', () => ({
     persistedQuestions.set(id, (persistedQuestions.get(id) ?? []).map(item => item.itemId === itemId ? { ...item, state: result.state, optionId: result.optionId, resolvedBy: result.by } : item));
   },
 }));
+
+vi.mock('../sessions/session-conversation-read', () => ({ nativeConversationUnread: () => state.nativeUnread, nativeConversationAliases: () => ({}) }));
+vi.mock('../sessions/session-conversation-activity', () => ({ nativeConversationActivity: () => null }));
+
+vi.mock('../sessions/session-turn-store', () => ({ getStoredHistory: (...args: unknown[]) => state.storedHistory(...args), getStoredToolImage: vi.fn() }));
 
 vi.mock('@main/db/client', () => ({
   db: {
@@ -73,6 +88,16 @@ vi.mock('@main/db/client', () => ({
 }));
 
 vi.mock('@main/lib/logger', () => ({ log: { warn: vi.fn(), info: vi.fn(), error: vi.fn() } }));
+const openedOutputs = vi.hoisted(() => new Map<string, ({ kind: 'file'; path: string } | { kind: 'page'; url: string })[]>());
+const attachmentCopies = vi.hoisted(() => new Map<string, string>());
+vi.mock('../sessions/attachments/session-attachment-store', () => ({
+  findSessionAttachmentCopy: async (sessionId: string, path: string) => attachmentCopies.get(`${sessionId}:${path}`) ?? null,
+}));
+vi.mock('../sessions/session-outputs', () => ({
+  sessionOutputs: async (sessionId: string) => openedOutputs.get(sessionId) ?? [],
+  sessionOpenedFile: async (sessionId: string, path: string) =>
+    (openedOutputs.get(sessionId) ?? []).some((output) => output.kind === 'file' && output.path === path),
+}));
 vi.mock('../sessions/sendMessage', () => ({ sendMessage: (...args: unknown[]) => state.questionSend(...args) }));
 vi.mock('@main/core/automations/repo', () => ({ listSessionSchedules: () => state.schedules }));
 /** 主进程推给渲染层的事件的旁听者(tapMainEvents);用例直接调它们,等于「主进程广播了一条」。 */
@@ -128,10 +153,8 @@ vi.mock('./write-bridge', () => {
   return {
     SessionWriteError,
     deliverSessionText: (...args: unknown[]) => state.deliverText(...args),
-    acpSessionLive: async () => false,
-    ensureAcpSessionLive: async () => {
-      throw new Error('❌ 没开起来的会话不许走唤醒');
-    },
+    acpSessionLive: async () => state.acpLive,
+    ensureAcpSessionLive: (id: string) => state.wake(id),
     deliverPermissionDecision: (...args: unknown[]) => state.deliverPermission(...args),
     permissionChannelError: (...args: unknown[]) => state.permissionChannelError(...args),
     prepareQuestionAnswer: (...args: unknown[]) => state.prepareQuestion(...args),
@@ -172,6 +195,10 @@ vi.mock('@main/core/sessions/platform-model-selection', () => ({
 vi.mock('@main/core/agents/session-discovery', () => ({
   listLocalModels: async () => ({ models: [{ id: 'platform:gpt-5', name: 'GPT-5' }] }),
 }));
+// 真实现要把平台模型目录、agent 控制器一起拉进来;这一组只问「附没附上菜单」。
+vi.mock('./session-model-menu', () => ({
+  readSessionModelMenu: async (sessionId: string) => ({ agentName: `menu-of-${sessionId}`, platformModels: [], ownCatalog: null, ownAuth: null }),
+}));
 
 // 本机名录:只有 conv-1 有 agent 身份。
 const roster = vi.hoisted(() => ({ read: async (): Promise<Map<string, string>> => new Map([['conv-1', 'user:agent-1']]) }));
@@ -181,11 +208,11 @@ vi.mock('@main/core/sessionpage/sessionpage-session-agent', () => ({
 vi.mock('./live-permissions', () => ({
   watchSessionState: async (
     conversationId: string,
-    onChange: (requests: PendingRequest[], queuedPrompts: { id: string; text: string }[]) => void
+    onChange: (requests: PendingRequest[], queuedPrompts: Pick<QueuedPrompt, 'id' | 'text' | 'origin'>[], reply?: null, terminals?: readonly import('@gugu/session-core/acp/client').TerminalState[], active?: import('@gugu/session-core/acp/client').TranscriptTurn | null) => void
   ) => {
     state.pendingWatchCalls.push(conversationId);
     if (!state.pendingWatchAvailable) return null;
-    state.emitPending = onChange;
+    state.emitPending = (requests, queue, reply, terminals = [], active) => onChange(requests, queue, reply, terminals, active);
     return {
       dispose: () => {
         state.pendingWatchDisposed += 1;
@@ -292,7 +319,7 @@ function makeTimeline(onCatchUp: () => void = () => undefined) {
           kind: request.kind,
           title: request.title,
           ...(request.options.length > 0 ? { options: request.options } : {}),
-          ...(request.host ? { host: request.host } : {}),
+          ...(request.origin ? { origin: request.origin } : {}),
           ...(request.questions ? { questions: request.questions, askedAt: request.askedAt } : {}),
           state: 'pending',
           optionId: null,
@@ -305,6 +332,7 @@ function makeTimeline(onCatchUp: () => void = () => undefined) {
         settlements.set(itemId, { ...settlement, state: 'cancelled', resolvedAt: 3 });
       }
     },
+    syncTerminals: () => {},
     syncLiveReply: () => undefined,
     syncQueuedPrompts: (prompts) => {
       queuedPrompts = prompts.map(({ id, text }) => ({ id, text }));
@@ -351,10 +379,13 @@ describe('session timeline service', () => {
     persistedQuestions.clear();
     service.resetSessionTimelineService();
     service.setSessionTimelineFactory(null);
+    service.setConnectionConfigRootResolver(null);
     state.pendingWatchAvailable = true;
     state.pendingWatchCalls = [];
     state.pendingWatchDisposed = 0;
     state.emitPending = null;
+    state.nativeUnread = [];
+    state.storedHistory.mockReset();
     state.rows = [row()];
     state.projects = [];
     state.deliverText = vi.fn(async () => ({ accepted: 'started' as const }));
@@ -363,6 +394,27 @@ describe('session timeline service', () => {
     state.deliverQuestion = vi.fn();
     state.permissionChannelError = vi.fn(() => null);
     state.questionSend.mockReset().mockResolvedValue({ status: 'delivered' });
+    state.acpLive = false;
+    state.wake.mockReset().mockImplementation(async () => {
+      throw new Error('❌ 没开起来的会话不许走唤醒');
+    });
+    state.readOptions.mockClear();
+  });
+
+  it('uses the native archive at the first unread stored identity, with bounded older/newer pages and the real active turn', async () => {
+    state.rows = [row({ runtime: 'acp' })];
+    service.setSessionTimelineFactory(async () => makeTimeline().timeline);
+    state.nativeUnread = ['conv-1:turn:s5:message:auto:assistant:0'];
+    const turns = Array.from({ length: 10 }, (_, seq) => ({ id: `conv-1:turn:s${seq}`, seq, initiator: 'user', items: [] }));
+    state.storedHistory.mockImplementation(async ({ before, limit }: { before?: number; limit: number }) => {
+      const page = turns.filter(turn => before === undefined || turn.seq < before).slice(-limit);
+      return { turns: page, nextCursor: page[0]?.seq || null, originTurnIds: page.map(turn => `live:${turn.seq}`) };
+    });
+    expect(await service.nativeRecord({ conversationId: 'conv-1', limit: 3 })).toMatchObject({ ok: true, value: { turns: [{ seq: 5 }, { seq: 6 }, { seq: 7 }], hasNewer: true } });
+    const active = { id: 'live:10', seq: 10, initiator: 'user' as const, items: [] };
+    state.emitPending?.([], [], null, [], active);
+    expect(await service.nativeRecord({ conversationId: 'conv-1', tail: true, limit: 3 })).toMatchObject({ ok: true, value: { turns: [{ seq: 7 }, { seq: 8 }, { seq: 9 }], activeTurn: active, hasNewer: false } });
+    expect(await service.nativeRecord({ conversationId: 'conv-1', after: 7, limit: 3 })).toMatchObject({ ok: true, value: { turns: [{ seq: 8 }, { seq: 9 }], hasNewer: false } });
   });
 
   it('listSessions 按 projects 分组，supported 如实', async () => {
@@ -456,6 +508,42 @@ describe('session timeline service', () => {
     ).resolves.toMatchObject({ ok: false, error: { code: 'session_not_started' } });
   });
 
+  it('单一目录之前绑在非原生连接上的会话:用户根优先,那条连接自己的配置根排最后兜底;原生会话不带它', async () => {
+    const factory = vi.fn(async () => makeTimeline().timeline);
+    service.setSessionTimelineFactory(factory);
+    service.setConnectionConfigRootResolver((provider, id) => (provider === 'claude' && id !== 'native' ? `/conn/${id}/.claude` : null));
+    const rootsOf = () => (factory.mock.calls.at(-1) as unknown as [{ locator: { roots: string[] } }])[0].locator.roots;
+
+    state.rows = [row({ config: { type: 'acp', subscriptionConnectionId: 'conn-1' } })];
+    await service.snapshot({ conversationId: 'conv-1' });
+    // 搬家后新内容只长在用户根里;连接根里那份是搬家时的旧副本,只给搬失败的兜底。
+    expect(rootsOf().at(-1)).toBe('/conn/conn-1/.claude/projects');
+    expect(rootsOf().length).toBeGreaterThan(1);
+
+    service.resetSessionTimelineService();
+    state.rows = [row({ config: { type: 'acp', subscriptionConnectionId: 'native' } })];
+    await service.snapshot({ conversationId: 'conv-1' });
+    expect(rootsOf().some((root) => root.startsWith('/conn/'))).toBe(false);
+  });
+
+  it('还没启动过的外部 fork 没有自己的绑定:顺着 forkedFrom 用源会话那条连接的根;解析器抛错只退回默认根', async () => {
+    const factory = vi.fn(async () => makeTimeline().timeline);
+    service.setSessionTimelineFactory(factory);
+    service.setConnectionConfigRootResolver((_provider, id) => `/conn/${id}/.claude`);
+    const rootsOf = () => (factory.mock.calls.at(-1) as unknown as [{ locator: { roots: string[] } }])[0].locator.roots;
+    state.rows = [
+      row({ id: 'src', providerSessionId: 'sess-src', config: { type: 'acp', subscriptionConnectionId: 'conn-1' } }),
+      row({ id: 'fork', providerSessionId: 'sess-fork', config: { type: 'pty', forkedFrom: { sessionId: 'src', title: 's' } } }),
+    ];
+    await service.snapshot({ conversationId: 'fork' });
+    expect(rootsOf().at(-1)).toBe('/conn/conn-1/.claude/projects');
+
+    service.resetSessionTimelineService();
+    service.setConnectionConfigRootResolver(() => { throw new Error('userData unavailable'); });
+    await service.snapshot({ conversationId: 'fork' });
+    expect(rootsOf().some((root) => root.startsWith('/conn/'))).toBe(false);
+  });
+
   it('从没开起来的会话(不论有没有记下原因码):发消息先按「再试一次」那条路起来,读选项不唤醒、报建时选的模型', async () => {
     startCalls.length = 0;
     state.deliverText.mockResolvedValue({ accepted: 'started' });
@@ -484,6 +572,46 @@ describe('session timeline service', () => {
       ok: true,
       value: { mode, model: null, effort: null },
     });
+  });
+
+  // #980 打开会话不叫醒 agent,手机上也一样 —— 手机一打开会话就来读这一份(SessionOptionsPill)。
+  // 判据能判假:把 sessionOptions 里「没在跑就报记录那一档」那一支删掉,第一条用例红(走到唤醒)。
+  it('#980 开起来过、此刻没在跑:读选项 ❌ 唤醒,报记录里那一档模型、附模型菜单', async () => {
+    state.rows = [row()];
+    const result = await service.sessionOptions({ conversationId: 'conv-1' });
+    expect(state.wake, '打开就把 agent 拉起来了').not.toHaveBeenCalled();
+    expect(state.readOptions, '没在跑就没有活的那一份可读').not.toHaveBeenCalled();
+    expect(result).toEqual({
+      ok: true,
+      value: {
+        mode: null,
+        effort: null,
+        model: { selected: 'platform:gpt-5', available: [{ id: 'platform:gpt-5', name: 'GPT-5' }] },
+        modelMenu: expect.objectContaining({ agentName: 'menu-of-conv-1' }),
+      },
+    });
+  });
+
+  it('#980 在跑:读活的那一份,同样不走唤醒', async () => {
+    state.acpLive = true;
+    const effort = { selected: 'high', available: [{ id: 'high', name: 'High' }] };
+    state.readOptions.mockResolvedValueOnce({ mode: null, model: null, effort });
+    expect(await service.sessionOptions({ conversationId: 'conv-1' })).toEqual({
+      ok: true,
+      value: { mode: null, model: null, effort },
+    });
+    expect(state.wake).not.toHaveBeenCalled();
+  });
+
+  it('#980 改一档是人点的:没在跑就这一刻起;从没开起来的 ❌ 起(唤醒不带第一句话)', async () => {
+    state.wake.mockResolvedValueOnce(undefined);
+    expect(await service.setSessionOptionValue({ conversationId: 'conv-1', dimension: 'effort', value: 'high' })).toMatchObject({ ok: true });
+    expect(state.wake).toHaveBeenCalledWith('conv-1');
+
+    state.wake.mockClear();
+    state.rows = [row({ providerSessionId: null, config: { type: 'acp', initialQueue: [{ text: 'hi' }] } })];
+    await service.setSessionOptionValue({ conversationId: 'conv-1', dimension: 'effort', value: 'high' });
+    expect(state.wake).not.toHaveBeenCalled();
   });
 
   it('会话列表说清为什么没有记录、上次起它失败的原因码', async () => {
@@ -530,6 +658,43 @@ describe('session timeline service', () => {
     expect(await service.toolImage({ conversationId: 'conv-1', itemId: 'tool-1', index: 1 })).toMatchObject({ ok: false, error: { code: 'no_such_image' } });
     expect(await service.toolImage({ conversationId: 'conv-1', itemId: 'gone', index: 0 })).toMatchObject({ ok: false, error: { code: 'no_such_item' } });
     expect(await service.toolImage({ conversationId: 'no-such-conv', itemId: 'tool-1', index: 0 })).toMatchObject({ ok: false, error: { code: 'session_not_found' } });
+  });
+
+  // #980:存档装回来的轮里图只剩位置,快照里找不到;有 `toolImage` 口的时间线由它从记录里读回来,读不回来照实转达。
+  it('时间线自己会取图(存档里只存位置)⇒ 问它,不在快照里找', async () => {
+    const fake = makeTimeline();
+    const shot = { mimeType: 'image/png', data: 'iVBORAAAA' };
+    fake.timeline.toolImage = async ({ itemId, index }) => itemId === 'restored' && index === 0
+      ? { ok: true, image: shot }
+      : { ok: false, code: 'no_such_image', message: `picture #${index} of tool item ${itemId} could not be read back from its record` };
+    service.setSessionTimelineFactory(async () => fake.timeline);
+    expect(await service.toolImage({ conversationId: 'conv-1', itemId: 'restored', index: 0 })).toEqual({ ok: true, value: shot });
+    expect(await service.toolImage({ conversationId: 'conv-1', itemId: 'restored', index: 1 })).toMatchObject({ ok: false, error: { code: 'no_such_image' } });
+  });
+
+  // #980:抄进库的那几轮要带真图 —— 库里那份没有别处可以再取。读不回来的那张保持只有字数。
+  it('从记录挑出来要抄进库的轮,存档里只剩位置的图先读回来;读不回来的照旧只有字数', async () => {
+    const fake = makeTimeline();
+    const shot = { mimeType: 'image/png', data: 'iVBORAAAA' };
+    const ref = { mimeType: 'image/png', chars: 9 };
+    const tool = (id: string, extra: Record<string, unknown> = {}) => ({ kind: 'mcp-tool-call', id, seq: 1, toolCallId: id, title: 'shot', status: 'done', ...extra });
+    const snapshot = fake.timeline.getSnapshot();
+    fake.timeline.getSnapshot = () => ({
+      ...snapshot,
+      turns: [{ id: 't1', seq: 1, initiator: 'user', items: [
+        tool('restored', { imageRefs: [ref] }),
+        tool('group', { kind: 'tool-group', children: [tool('gone', { imageRefs: [ref] })] }),
+      ] }],
+    }) as unknown as TimelineSnapshot;
+    fake.timeline.toolImage = async ({ itemId }) => itemId === 'restored'
+      ? { ok: true, image: shot }
+      : { ok: false, code: 'no_such_image', message: 'could not be read back' };
+    service.setSessionTimelineFactory(async () => fake.timeline);
+    const picked = await service.pickRecordTurns('conv-1', async (turns) => turns);
+    expect(picked.ok && picked.turns?.[0].items).toEqual([
+      tool('restored', { images: [shot] }),
+      tool('group', { kind: 'tool-group', children: [tool('gone', { imageRefs: [ref] })] }),
+    ]);
   });
 
   it('结算只成功一次：后答的一端拿到那条既有结算，provider 只被调一次', async () => {
@@ -851,7 +1016,7 @@ describe('session timeline service', () => {
     const { timeline } = makeTimeline();
     service.setSessionTimelineFactory(async () => timeline);
     await service.snapshot({ conversationId: 'conv-1' });
-    state.emitPending?.([], [{ id: 'qp-1', text: '排着的那句' }]);
+    state.emitPending?.([], [{ id: 'qp-1', text: '排着的那句', origin: 'manual' }]);
     expect(await service.snapshot({ conversationId: 'conv-1' })).toMatchObject({
       ok: true,
       value: { queuedPrompts: [{ id: 'qp-1', text: '排着的那句' }] },
@@ -1107,7 +1272,7 @@ describe('session timeline service', () => {
         { optionId: 'install', name: 'Install', kind: 'allow_once' },
         { optionId: 'decline', name: "Don't install", kind: 'reject_once' },
       ],
-      host: { kind: 'app-install' as const, payload: { request: { manifestDigest: 'digest-r' } } },
+      origin: { source: 'app-install' as const, payload: { request: { manifestDigest: 'digest-r' } } },
     });
     const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
     const settled = (promise: Promise<unknown>) => Promise.race([promise, flush().then(() => 'still asked')]);
@@ -1118,10 +1283,10 @@ describe('session timeline service', () => {
     it('a host question works on ACP, validates answers and commits only the first explicit answer', async () => {
       state.rows = [row({ runtime: 'acp' })];
       service.setSessionTimelineFactory(async () => makeTimeline().timeline);
-      const answered = service.askHost('conv-1', {
+      const answered = asks.ask('conv-1', {
         itemId: 'agent-question:budget', kind: 'question', title: '预算？',
         questions: [{ question: '预算？', multiSelect: false, options: [{ optionId: '300', name: '300 元' }, { optionId: '500', name: '500 元' }] }],
-        options: [], askedAt: 123, host: { kind: 'agent-question', payload: {} },
+        options: [], askedAt: 123, origin: { source: 'agent-question', payload: {} },
       }, { signal: new AbortController().signal });
       const snapshot = await service.snapshot({ conversationId: 'conv-1' });
       expect(snapshot).toMatchObject({ ok: true, value: { settlements: [expect.objectContaining({ questions: [expect.objectContaining({ question: '预算？' })], state: 'pending' })] } });
@@ -1135,20 +1300,22 @@ describe('session timeline service', () => {
       expect(state.permissionChannelError).not.toHaveBeenCalled();
     });
 
-    it('a detached question stays answerable without blocking the assistant and is withdrawn on interruption', async () => {
+    it('a question keeps the session waiting on the person (a question wait) until it is withdrawn on interruption', async () => {
       state.rows = [row({ runtime: 'acp' })];
       service.setSessionTimelineFactory(async () => makeTimeline().timeline);
-      const answered = service.askHost('conv-1', {
+      const answered = asks.ask('conv-1', {
         itemId: 'agent-question:async', kind: 'question', title: 'Which?',
         questions: [{ question: 'Which?', multiSelect: false, options: [{ optionId: 'one', name: 'One' }] }],
-        options: [], host: { kind: 'agent-question', payload: {} },
-      }, { signal: new AbortController().signal, background: true });
+        options: [], origin: { source: 'agent-question', payload: {} },
+      }, { signal: new AbortController().signal });
       await service.snapshot({ conversationId: 'conv-1' });
       await vi.dynamicImportSettled();
-      expect(state.hostWaits).toEqual([]);
+      expect(state.hostWaits).toEqual([{ sessionId: 'conv-1', id: 'host-ask:agent-question:async', open: true, waitKind: 'question' }]);
       expect(await settled(answered)).toBe('still asked');
-      service.withdrawHostQuestions('conv-1');
+      asks.withdrawAll('conv-1', 'agent-question');
       await expect(answered).resolves.toBe('withdrawn');
+      await vi.dynamicImportSettled();
+      expect(state.hostWaits.at(-1)).toEqual({ sessionId: 'conv-1', id: 'host-ask:agent-question:async', open: false, waitKind: 'question' });
       expect(await service.respond({ conversationId: 'conv-1', itemId: 'agent-question:async', kind: 'question', answers: [{ selected: ['one'] }], by: 'desktop' }))
         .toMatchObject({ ok: true, value: { accepted: false, settlement: { state: 'cancelled' } } });
     });
@@ -1156,7 +1323,7 @@ describe('session timeline service', () => {
     it('a disconnected host question is withdrawn; an old answer cannot revive it', async () => {
       service.setSessionTimelineFactory(async () => makeTimeline().timeline);
       const clock = new AbortController();
-      const answered = service.askHost('conv-1', { itemId: 'agent-question:gone', kind: 'question', title: '继续？', questions: [{ question: '继续？', multiSelect: false, options: [] }], options: [], host: { kind: 'agent-question', payload: {} } }, { signal: clock.signal });
+      const answered = asks.ask('conv-1', { itemId: 'agent-question:gone', kind: 'question', title: '继续？', questions: [{ question: '继续？', multiSelect: false, options: [] }], options: [], origin: { source: 'agent-question', payload: {} } }, { signal: clock.signal });
       await service.snapshot({ conversationId: 'conv-1' });
       clock.abort();
       await expect(answered).resolves.toBe('withdrawn');
@@ -1168,20 +1335,20 @@ describe('session timeline service', () => {
       state.rows = [row({ runtime: 'pty' })];
       service.setSessionTimelineFactory(async () => makeTimeline().timeline);
       await service.snapshot({ conversationId: 'conv-1' });
-      const answered = service.askHost('conv-1', ask(), { signal: new AbortController().signal });
+      const answered = asks.ask('conv-1', ask(), { signal: new AbortController().signal });
       const before = await service.snapshot({ conversationId: 'conv-1' });
-      expect(before).toMatchObject({ ok: true, value: { settlements: [{ itemId: 'host-1', state: 'pending', host: { kind: 'app-install' } }] } });
-      const result = await service.respond({ conversationId: 'conv-1', itemId: 'host-1', kind: 'permission', optionId: 'install', digest: 'digest-r', enableIn: ['g1'], by: 'phone' });
+      expect(before).toMatchObject({ ok: true, value: { settlements: [{ itemId: 'host-1', state: 'pending', origin: { source: 'app-install' } }] } });
+      const result = await service.respond({ conversationId: 'conv-1', itemId: 'host-1', kind: 'permission', optionId: 'install', digest: 'digest-r', by: 'phone' });
       expect(result).toMatchObject({ ok: true, value: { accepted: true, settlement: { resolvedBy: 'phone' } } });
-      await expect(answered).resolves.toEqual({ optionId: 'install', by: 'phone', digest: 'digest-r', enableIn: ['g1'] });
+      await expect(answered).resolves.toEqual({ optionId: 'install', by: 'phone', digest: 'digest-r' });
       // The terminal leg has no channel for the harness's approvals: never asked, never consulted for the host's.
       expect(state.deliverPermission).not.toHaveBeenCalled();
       expect(state.permissionChannelError).not.toHaveBeenCalled();
       // The status writer is imported when first asked: let that import land, then both edges are in, in order.
       await vi.dynamicImportSettled();
       expect(state.hostWaits).toEqual([
-        { sessionId: 'conv-1', id: 'host-ask:host-1', open: true },
-        { sessionId: 'conv-1', id: 'host-ask:host-1', open: false },
+        { sessionId: 'conv-1', id: 'host-ask:host-1', open: true, waitKind: 'approval' },
+        { sessionId: 'conv-1', id: 'host-ask:host-1', open: false, waitKind: 'approval' },
       ]);
     });
 
@@ -1190,7 +1357,7 @@ describe('session timeline service', () => {
       service.setSessionTimelineFactory(async () => timeline);
       await service.snapshot({ conversationId: 'conv-1' });
       const clock = new AbortController();
-      const answered = service.askHost('conv-1', ask(), { signal: clock.signal });
+      const answered = asks.ask('conv-1', ask(), { signal: clock.signal });
       // The runtime reports its own set (none now, then one): the host's ask is not its to drop.
       state.emitPending?.([], []);
       state.emitPending?.([{ itemId: 'req-1', kind: 'permission', title: 'Run a command', options: [{ optionId: 'allow', name: 'Allow', kind: 'allow_once' }] }], []);
@@ -1205,7 +1372,7 @@ describe('session timeline service', () => {
 
     it('an answer the host refuses leaves it asked; a taken one settles it — once', async () => {
       service.setSessionTimelineFactory(async () => makeTimeline().timeline);
-      const answered = service.askHost('conv-1', ask(), {
+      const answered = asks.ask('conv-1', ask(), {
         signal: new AbortController().signal,
         refuse: (answer) => (answer.optionId === 'install' && answer.digest !== 'digest-r' ? 'nobody saw what it may do' : null),
       });
@@ -1223,7 +1390,7 @@ describe('session timeline service', () => {
       service.setSessionTimelineFactory(async () => makeTimeline().timeline);
       await service.snapshot({ conversationId: 'conv-1' });
       const clock = new AbortController();
-      const answered = service.askHost('conv-1', ask(), { signal: clock.signal });
+      const answered = asks.ask('conv-1', ask(), { signal: clock.signal });
       clock.abort();
       await expect(answered).resolves.toBe('withdrawn');
       const late = await service.respond({ conversationId: 'conv-1', itemId: 'host-1', kind: 'permission', optionId: 'install', digest: 'digest-r', by: 'phone' });
@@ -1231,7 +1398,33 @@ describe('session timeline service', () => {
     });
 
     it('no such session here: unavailable (the host asks in its window alone)', async () => {
-      await expect(service.askHost('conv-nope', ask(), { signal: new AbortController().signal })).resolves.toBe('unavailable');
+      await expect(asks.ask('conv-nope', ask(), { signal: new AbortController().signal })).resolves.toBe('unavailable');
+    });
+
+    it('the registered App deadline withdraws the same settlement at 280 seconds', async () => {
+      vi.useFakeTimers();
+      try {
+        state.rows = [row()];
+        const fake = makeTimeline();
+        service.setSessionTimelineFactory(async () => fake.timeline);
+        const answer = asks.ask('conv-1', ask(), {});
+        await service.snapshot({ conversationId: 'conv-1' });
+        await vi.advanceTimersByTimeAsync(279_999);
+        expect(fake.timeline.getSnapshot().settlements.find(item => item.itemId === 'host-1')?.state).toBe('pending');
+        await vi.advanceTimersByTimeAsync(1);
+        await expect(answer).resolves.toBe('timeout');
+        expect(await service.snapshot({ conversationId: 'conv-1' })).toMatchObject({ ok: true, value: { settlements: [expect.objectContaining({ itemId: 'host-1', state: 'cancelled' })] } });
+      } finally { vi.useRealTimers(); }
+    });
+
+    it.each(['browser-assistance', 'retired-host-feature', 'toString'])('cancels an unknown archived Ask source %s without making the session unreadable', async source => {
+      const { timeline } = makeTimeline();
+      timeline.syncPendingRequests([{ ...ask('removed-host-request'), origin: { source } } as unknown as Parameters<typeof timeline.syncPendingRequests>[0][number]]);
+      service.setSessionTimelineFactory(async () => timeline);
+      expect(await service.snapshot({ conversationId: 'conv-1' })).toMatchObject({ ok: true, value: {
+        settlements: [expect.objectContaining({ itemId: 'removed-host-request', state: 'cancelled' })],
+      } });
+      expect(await service.respond({ conversationId: 'conv-1', itemId: 'removed-host-request', kind: 'permission', optionId: 'install', by: 'desktop' })).toMatchObject({ ok: true, value: { accepted: false } });
     });
 
     it('one the archive brings back pending, asked by a process that is gone: over, never shown as still asked', async () => {
@@ -1246,7 +1439,7 @@ describe('session timeline service', () => {
     const archivedQuestion = (state: Settlement['state'] = 'pending'): Settlement => ({
       itemId: 'agent-question:11111111-1111-4111-8111-111111111111', kind: 'question', title: 'Which Node?',
       questions: [{ question: 'Which Node?', multiSelect: false, options: [{ optionId: 'PATH', name: 'PATH' }] }],
-      host: { kind: 'agent-question', payload: { sourceLink: 'gugu-chat://22222222-2222-4222-8222-222222222222/33333333-3333-4333-8333-333333333333' } },
+      origin: { source: 'agent-question', payload: { sourceLink: 'gugu-chat://22222222-2222-4222-8222-222222222222/33333333-3333-4333-8333-333333333333' } },
       state, optionId: state === 'resolved' ? '[{"selected":["PATH"]}]' : null, resolvedBy: null, resolvedAt: null,
     });
 
@@ -1279,10 +1472,10 @@ describe('session timeline service', () => {
 
     it('replays only versioned resolved cards through the same outbox id; cancelled and legacy resolved cards stay closed', async () => {
       const fake = makeTimeline(); const pending = archivedQuestion();
-      const payload = { sourceLink: (pending.host!.payload as { sourceLink: string }).sourceLink, deliveryVersion: 1, answerMessageId: '44444444-4444-4444-8444-444444444444' };
-      fake.put({ ...archivedQuestion('resolved'), host: { kind: 'agent-question', payload } });
+      const payload = { sourceLink: (pending.origin!.payload as { sourceLink: string }).sourceLink, deliveryVersion: 1, answerMessageId: '44444444-4444-4444-8444-444444444444' };
+      fake.put({ ...archivedQuestion('resolved'), origin: { source: 'agent-question', payload } });
       fake.put({ ...archivedQuestion('resolved'), itemId: 'agent-question:55555555-5555-4555-8555-555555555555' });
-      fake.put({ ...archivedQuestion('cancelled'), itemId: 'agent-question:66666666-6666-4666-8666-666666666666', host: { kind: 'agent-question', payload } });
+      fake.put({ ...archivedQuestion('cancelled'), itemId: 'agent-question:66666666-6666-4666-8666-666666666666', origin: { source: 'agent-question', payload } });
       service.setSessionTimelineFactory(async () => fake.timeline);
       await service.snapshot({ conversationId: 'conv-1' });
       await vi.waitFor(() => expect(state.questionSend).toHaveBeenCalledTimes(1));
@@ -1296,7 +1489,7 @@ describe('session timeline service', () => {
       timeline.syncPendingRequests([ask('host-live')]);
       service.setSessionTimelineFactory(async () => timeline);
       const clock = new AbortController();
-      const answered = service.askHost('conv-1', ask('host-live'), { signal: clock.signal });
+      const answered = asks.ask('conv-1', ask('host-live'), { signal: clock.signal });
       await service.snapshot({ conversationId: 'conv-1' });
       await expect(settled(answered)).resolves.toBe('still asked');
       expect(timeline.getSnapshot().settlements.map((one) => [one.itemId, one.state])).toEqual([['host-live', 'pending']]);
@@ -1308,8 +1501,8 @@ describe('session timeline service', () => {
 });
 
 /**
- * 手机点开附件卡(#7193):机器只读这条会话**真的**用 open_in_tab 打开过的文件,依据是它自己的记录。
- * 判据喂合成记录 + 临时文件;阴控是同一个文件、记录里没打开过它 —— 必须被拒。
+ * 手机点开附件卡(#7193):机器只读这条会话**真的**打开过的文件,依据是宿主记下的那一份(sessions/session-outputs.ts)。
+ * 判据喂记录 + 临时文件;阴控是同一个目录里、记录里没有的文件 —— 必须被拒。
  */
 const { mkdtempSync, writeFileSync } = await import('node:fs');
 const { tmpdir } = await import('node:os');
@@ -1322,36 +1515,21 @@ describe('readOpenedFile', () => {
   writeFileSync(report, '<h1>汇报</h1>');
   writeFileSync(other, 'not for the phone');
 
-  const openCall = (path: string, status: 'done' | 'error' = 'done') => ({
-    kind: 'mcp-tool-call',
-    id: `t1:tool:${path}`,
-    seq: 0,
-    toolCallId: path,
-    title: 'mcp__gugu__session_open_in_tab',
-    server: 'gugu',
-    tool: 'session_open_in_tab',
-    status,
-    rawInput: JSON.stringify({ path }),
-    outputText: JSON.stringify({ opened: true, path, intent: 'pinned' }),
+  beforeEach(() => {
+    openedOutputs.clear();
+    attachmentCopies.clear();
   });
 
-  function timelineWith(items: unknown[]) {
-    const fake = makeTimeline();
-    const getSnapshot = fake.timeline.getSnapshot;
-    fake.timeline.getSnapshot = (options) => ({
-      ...getSnapshot(options),
-      turns: [{ id: 't1', seq: 1, initiator: 'user', items } as unknown as TimelineSnapshot['turns'][number]],
-    });
-    return fake.timeline;
-  }
-
-  beforeEach(() => {
-    service.resetSessionTimelineService();
-    state.rows = [row()];
+  it('reads this session’s registered attachment copy even when the original was not opened', async () => {
+    attachmentCopies.set('conv-1:/deleted/original.html', report);
+    const result = await service.readOpenedFile({ conversationId: 'conv-1', path: '/deleted/original.html', offset: 0, length: 1024 });
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(Buffer.from(result.value.data, 'base64').toString('utf8')).toBe('<h1>汇报</h1>');
+    expect(await service.readOpenedFile({ conversationId: 'conv-2', path: '/deleted/original.html', offset: 0, length: 1024 })).toMatchObject({ ok: false, error: { code: 'not_opened' } });
   });
 
   it('打开过的文件:按块读出原字节', async () => {
-    service.setSessionTimelineFactory(async () => timelineWith([openCall(report)]));
+    openedOutputs.set('conv-1', [{ kind: 'file', path: report }]);
     const result = await service.readOpenedFile({ conversationId: 'conv-1', path: report, offset: 0, length: 1024 });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -1359,55 +1537,22 @@ describe('readOpenedFile', () => {
     expect(result.value.size).toBe(Buffer.byteLength('<h1>汇报</h1>'));
   });
 
-  it('记录里没打开过的文件:拒,哪怕它就在同一个目录里', async () => {
-    service.setSessionTimelineFactory(async () => timelineWith([openCall(report)]));
-    const result = await service.readOpenedFile({ conversationId: 'conv-1', path: other, offset: 0, length: 1024 });
-    expect(result).toMatchObject({ ok: false, error: { code: 'not_opened' } });
-  });
-
-  it('打开失败的那一次不算打开过', async () => {
-    service.setSessionTimelineFactory(async () => timelineWith([openCall(other, 'error')]));
+  it('记录里没打开过的文件:拒,哪怕它就在同一个目录里;别的会话打开过的也不算', async () => {
+    openedOutputs.set('conv-1', [{ kind: 'file', path: report }]);
+    openedOutputs.set('conv-2', [{ kind: 'file', path: other }]);
     const result = await service.readOpenedFile({ conversationId: 'conv-1', path: other, offset: 0, length: 1024 });
     expect(result).toMatchObject({ ok: false, error: { code: 'not_opened' } });
   });
 
   it('打开过、后来被删了:如实说文件不在了', async () => {
     const gone = join(dir, 'gone.html');
-    service.setSessionTimelineFactory(async () => timelineWith([openCall(gone)]));
+    openedOutputs.set('conv-1', [{ kind: 'file', path: gone }]);
     const result = await service.readOpenedFile({ conversationId: 'conv-1', path: gone, offset: 0, length: 1024 });
     expect(result).toMatchObject({ ok: false, error: { code: 'file_missing' } });
   });
 
-  it('同一份文件后面那几块不再翻整条记录(一份 20 MB 的文件要 40 块);没打开过的照旧拒', async () => {
-    let snapshots = 0;
-    service.setSessionTimelineFactory(async () => {
-      const timeline = timelineWith([openCall(report)]);
-      const getSnapshot = timeline.getSnapshot;
-      timeline.getSnapshot = (options) => {
-        snapshots += 1;
-        return getSnapshot(options);
-      };
-      return timeline;
-    });
-    expect((await service.readOpenedFile({ conversationId: 'conv-1', path: report, offset: 0, length: 4 })).ok).toBe(true);
-    const afterFirst = snapshots;
-    expect(afterFirst).toBeGreaterThan(0);
-    for (const offset of [4, 8]) {
-      const result = await service.readOpenedFile({ conversationId: 'conv-1', path: report, offset, length: 4 });
-      expect(result.ok).toBe(true);
-    }
-    expect(snapshots).toBe(afterFirst);
-    // 阴控:记住的是「这条会话 + 这个路径」,换一个没打开过的路径照样去核对、照样拒
-    const denied = await service.readOpenedFile({ conversationId: 'conv-1', path: other, offset: 0, length: 4 });
-    expect(denied).toMatchObject({ ok: false, error: { code: 'not_opened' } });
-    expect(snapshots).toBeGreaterThan(afterFirst);
-    // 别的会话没核对过:同一个路径也不走记住的那条近路(这台机器上没有 conv-2,近路会照样读出来)
-    const otherSession = await service.readOpenedFile({ conversationId: 'conv-2', path: report, offset: 0, length: 4 });
-    expect(otherSession).toMatchObject({ ok: false, error: { code: 'session_not_found' } });
-  });
-
   it('打开的是一个目录:不读', async () => {
-    service.setSessionTimelineFactory(async () => timelineWith([openCall(dir)]));
+    openedOutputs.set('conv-1', [{ kind: 'file', path: dir }]);
     const result = await service.readOpenedFile({ conversationId: 'conv-1', path: dir, offset: 0, length: 1024 });
     expect(result).toMatchObject({ ok: false, error: { code: 'not_a_file' } });
   });

@@ -22,13 +22,16 @@ import {
 } from '@gugu/session-shared/markdown/dialect'
 import { readEffectiveHostTheme, subscribeToHostTheme } from '@renderer/lib/theme/host-theme'
 import { MermaidDiagram } from '@renderer/lib/ui/mermaid-diagram'
-import { parseGroupFileLink } from '@gugu/core/shared/ui/fileLink'
-import { isMentionMarkerUrl } from '../../lib/mentionMdast'
+import { parseGroupFileLink } from '@gugu/core/shared/ui/guguLink'
+import { displayAgentReferences, isMentionMarkerUrl } from '../../lib/mentionMdast'
 import { markdownCodeHighlighter } from './codeHighlight'
+import { PlatformCodeBlock } from './PlatformCodeBlock'
+import { PlatformTable } from './PlatformTable'
+import { useMobileShell } from '@/hooks/useMobileShell'
 import { FILE_PILL_CLASS, hookFilePillCopy, rehypeGroupFilePills } from './filePills'
 import { GroupFileName } from './GroupFileName'
 import { revealMarkdownAnchor } from './revealAnchor'
-import { openConversationLink } from '../../lib/conversationLinks'
+import { followLink } from '../../lib/guguLinks'
 
 export type MarkdownDensity = 'compact' | 'comfortable'
 
@@ -36,6 +39,8 @@ export interface MarkdownProps {
   content: string
   /** Whose words these are — decides raw HTML, images and code/table controls (see the dialect). */
   trust: MarkdownTrust
+  /** Expose only code copying on chat surfaces; the chat dialect stays unchanged. */
+  codeCopy?: boolean
   density?: MarkdownDensity
   hardBreaks?: boolean
   frontmatter?: boolean
@@ -97,6 +102,7 @@ export const Markdown = memo(function Markdown({
   content,
   trust,
   density = 'compact',
+  codeCopy = false,
   hardBreaks = false,
   frontmatter = false,
   mentionMarker,
@@ -119,9 +125,14 @@ export const Markdown = memo(function Markdown({
   useEffect(() => hookFilePillCopy(), [])
 
   const plugins = pluginsFor({ trust, hardBreaks, frontmatter })
-  const source = useMemo(() => normalizeMarkdownSource(content), [content])
+  const source = useMemo(() => normalizeMarkdownSource(displayAgentReferences(content)), [content])
+  const mobile = useMobileShell()
+  const phoneTable = mobile && trust === 'document'
+  const copyCode = trust === 'document' || codeCopy
   const components = useMemo(
     () => ({
+      ...(copyCode ? { code: PlatformCodeBlock } : {}),
+      ...(phoneTable ? { table: PlatformTable } : {}),
       a: ({ href, children, node: _node, ...rest }: ComponentPropsWithoutRef<'a'> & { node?: unknown }) => {
         // Only this render's nonce is a mention; any other `#ggm-*` (forged, stale) renders as plain text.
         if (mentionMarker && href === mentionMarker) return <span data-mention="true">{children}</span>
@@ -143,7 +154,7 @@ export const Markdown = memo(function Markdown({
         }
         const onClick = (event: { preventDefault(): void }) => {
           // A link the host did not claim goes to the system browser only if it is a web, mail or phone link.
-          if ((href && (openConversationLink(href) || openLinkRef.current?.(href))) || !EXTERNAL_LINK.test(href ?? '')) event.preventDefault()
+          if ((href && (followLink(href) || openLinkRef.current?.(href))) || !EXTERNAL_LINK.test(href ?? '')) event.preventDefault()
         }
         // App 引用 pill: `@` + a group file's link (rehypeGroupFilePills) is the transcript's file pill; its click is the
         // link's, so it opens where that link opens — at the place it points at.
@@ -184,18 +195,18 @@ export const Markdown = memo(function Markdown({
           }
         : {}),
     }),
-    [mentionMarker, hasImageRenderer]
+    [mentionMarker, hasImageRenderer, copyCode, phoneTable]
   )
 
   if (!content) return null
   return (
     <DensityContext.Provider value={density}>
       <Streamdown
-        key={`${trust}|${hardBreaks}|${frontmatter}|${mentionMarker ?? ''}|${hasImageRenderer}`}
+        key={`${trust}|${hardBreaks}|${frontmatter}|${mentionMarker ?? ''}|${hasImageRenderer}|${copyCode}|${phoneTable}`}
         mode="static"
         parseIncompleteMarkdown={false}
         lineNumbers={false}
-        controls={trust === 'document' ? { code: { download: false } } : false}
+        controls={trust === 'document' ? { code: { copy: false, download: false } } : false}
         linkSafety={{ enabled: false }}
         remarkPlugins={plugins.remark}
         rehypePlugins={plugins.rehype}
@@ -207,4 +218,14 @@ export const Markdown = memo(function Markdown({
       </Streamdown>
     </DensityContext.Provider>
   )
-})
+}, sameMarkdownProps)
+
+// onOpenLink / renderImage are read through refs above, so a new identity is no reason to render and parse again:
+// callers pass inline arrows (a message bubble does on every render). Whether one is given still counts, since that
+// changes the element mapping.
+function sameMarkdownProps(prev: MarkdownProps, next: MarkdownProps): boolean {
+  for (const key of new Set([...Object.keys(prev), ...Object.keys(next)]) as Set<keyof MarkdownProps>) {
+    if (key === 'onOpenLink' || key === 'renderImage' ? !prev[key] !== !next[key] : prev[key] !== next[key]) return false
+  }
+  return true
+}

@@ -3,6 +3,8 @@ package app.gugu.chat;
 import android.Manifest;
 import android.app.NotificationManager;
 import android.content.ComponentName;
+import android.content.ContentProviderOperation;
+import android.content.ContentProviderResult;
 import android.content.ContentResolver;
 import android.content.ContentUris;
 import android.content.ContentValues;
@@ -21,7 +23,6 @@ import android.os.Handler;
 import android.os.Looper;
 import android.provider.AlarmClock;
 import android.provider.CalendarContract;
-import android.provider.ContactsContract;
 import android.provider.Settings;
 
 import androidx.core.content.ContextCompat;
@@ -37,9 +38,6 @@ import com.getcapacitor.annotation.CapacitorPlugin;
 import com.getcapacitor.annotation.Permission;
 import com.getcapacitor.annotation.PermissionCallback;
 
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -115,6 +113,9 @@ public class GuguPhoneActionsPlugin extends Plugin {
 
     @PluginMethod
     public void deviceInfo(PluginCall call) {
+        PhoneInstallationIdentity.Identity installation;
+        try { installation = GuguPhoneInstallation.identity(getContext()); }
+        catch (RuntimeException error) { call.reject("无法验证这次手机安装，请重试", "failed"); return; }
         JSObject out = new JSObject();
         out.put("manufacturer", Build.MANUFACTURER);
         out.put("brand", Build.BRAND);
@@ -133,25 +134,13 @@ public class GuguPhoneActionsPlugin extends Plugin {
             out.put("app_version", JSObject.NULL);
         }
         out.put("package", getContext().getPackageName());
-        out.put("install_key", installKey());
-        call.resolve(out);
-    }
-
-    /**
-     * ANDROID_ID(安卓 8 起按签名 + 用户 + 这台手机各不相同,换手机从备份恢复也不跟过去)的摘要。网页只拿它在本机比对
-     * 「安装标识是不是从别的手机的备份里来的」,❌ 上传;读不到 = null(照旧用存着的标识)。
-     */
-    private String installKey() {
-        try {
-            String id = Settings.Secure.getString(getContext().getContentResolver(), Settings.Secure.ANDROID_ID);
-            if (id == null || id.isEmpty()) return null;
-            byte[] digest = MessageDigest.getInstance("SHA-256").digest(id.getBytes(StandardCharsets.UTF_8));
-            StringBuilder hex = new StringBuilder();
-            for (int i = 0; i < 8; i++) hex.append(String.format(Locale.ROOT, "%02x", digest[i]));
-            return hex.toString();
-        } catch (NoSuchAlgorithmException | RuntimeException error) {
-            return null;
+        out.put("install_key", installation.key);
+        if (installation.previousKey != null) out.put("previous_install_key", installation.previousKey);
+        if (call.getString("ownerId") != null) {
+            try { out.put("registration_id", GuguPhoneRegistration.resolve(getContext(), installation, call.getString("ownerId"), call.getString("cachedInstallId"), call.getString("cachedBinding"))); }
+            catch (Exception error) { call.reject("无法迁移这台手机的设备登记，请重试", "failed"); return; }
         }
+        call.resolve(out);
     }
 
     /** 厂商系统名与版本(权限引导、后台常驻的说法各家不同);读不到 = null。 */
@@ -270,39 +259,13 @@ public class GuguPhoneActionsPlugin extends Plugin {
         Long end = call.getLong("end_ms");
         if (start == null || end == null || end <= start) { call.reject("start_ms / end_ms 不对", "invalid_args"); return; }
         int limit = clamp(call.getInt("limit", 100), 1, 500);
-        Uri.Builder uri = CalendarContract.Instances.CONTENT_URI.buildUpon();
-        ContentUris.appendId(uri, start);
-        ContentUris.appendId(uri, end);
-        String[] projection = {
-            CalendarContract.Instances.EVENT_ID, CalendarContract.Instances.TITLE, CalendarContract.Instances.BEGIN,
-            CalendarContract.Instances.END, CalendarContract.Instances.ALL_DAY, CalendarContract.Instances.EVENT_LOCATION,
-            CalendarContract.Instances.DESCRIPTION, CalendarContract.Instances.CALENDAR_DISPLAY_NAME, CalendarContract.Instances.CALENDAR_ID,
-        };
-        JSArray events = new JSArray();
-        try (Cursor c = getContext().getContentResolver().query(uri.build(), projection, CalendarContract.Instances.VISIBLE + "=1", null,
-            CalendarContract.Instances.BEGIN + " ASC")) {
-            while (c != null && c.moveToNext() && events.length() < limit) {
-                JSObject e = new JSObject();
-                e.put("event_id", String.valueOf(c.getLong(0)));
-                e.put("title", nz(c.getString(1)));
-                e.put("start_ms", c.getLong(2));
-                e.put("end_ms", c.getLong(3));
-                e.put("all_day", c.getInt(4) == 1);
-                e.put("location", nz(c.getString(5)));
-                e.put("description", nz(c.getString(6)));
-                e.put("calendar", nz(c.getString(7)));
-                e.put("calendar_id", String.valueOf(c.getLong(8)));
-                events.put(e);
-            }
+        try {
+            call.resolve(PhoneCalendarReader.read(getContext(), start, end, limit));
         } catch (SecurityException error) {
-            call.reject("没有日历权限", "os_permission"); return;
+            call.reject("没有日历权限", "os_permission");
         } catch (RuntimeException error) {
-            call.reject("读日历失败:" + error.getMessage(), "failed"); return;
+            call.reject("读日历失败:" + error.getMessage(), "failed");
         }
-        JSObject out = new JSObject();
-        out.put("events", events);
-        out.put("timezone", TimeZone.getDefault().getID());
-        call.resolve(out);
     }
 
     @PluginMethod
@@ -330,24 +293,25 @@ public class GuguPhoneActionsPlugin extends Plugin {
             if (location != null) v.put(CalendarContract.Events.EVENT_LOCATION, location);
             String description = call.getString("description");
             if (description != null) v.put(CalendarContract.Events.DESCRIPTION, description);
-            Uri inserted = cr.insert(CalendarContract.Events.CONTENT_URI, v);
-            if (inserted == null) { call.reject("日历没接受这条日程", "failed"); return; }
-            long eventId = ContentUris.parseId(inserted);
+            ArrayList<ContentProviderOperation> operations = new ArrayList<>();
             Integer reminder = call.getInt("reminder_minutes");
             if (reminder != null && reminder >= 0) {
-                ContentValues r = new ContentValues();
-                r.put(CalendarContract.Reminders.EVENT_ID, eventId);
-                r.put(CalendarContract.Reminders.MINUTES, reminder);
-                r.put(CalendarContract.Reminders.METHOD, CalendarContract.Reminders.METHOD_ALERT);
-                cr.insert(CalendarContract.Reminders.CONTENT_URI, r);
+                v.put(CalendarContract.Events.HAS_ALARM, 1);
             }
+            operations.add(ContentProviderOperation.newInsert(CalendarContract.Events.CONTENT_URI).withValues(v).build());
+            if (reminder != null && reminder >= 0) operations.add(ContentProviderOperation.newInsert(CalendarContract.Reminders.CONTENT_URI)
+                .withValueBackReference(CalendarContract.Reminders.EVENT_ID, 0).withValue(CalendarContract.Reminders.MINUTES, reminder)
+                .withValue(CalendarContract.Reminders.METHOD, CalendarContract.Reminders.METHOD_ALERT).build());
+            ContentProviderResult[] inserted = cr.applyBatch(CalendarContract.AUTHORITY, operations);
+            if (inserted.length == 0 || inserted[0].uri == null) { call.reject("日历没接受这条日程", "failed"); return; }
+            long eventId = ContentUris.parseId(inserted[0].uri);
             JSObject out = new JSObject();
             out.put("event_id", String.valueOf(eventId));
             out.put("calendar_id", String.valueOf(calendarId));
             call.resolve(out);
         } catch (SecurityException error) {
             call.reject("没有日历权限", "os_permission");
-        } catch (RuntimeException error) {
+        } catch (Exception error) {
             call.reject("建日程失败:" + error.getMessage(), "failed");
         }
     }
@@ -370,6 +334,14 @@ public class GuguPhoneActionsPlugin extends Plugin {
         if (description != null) v.put(CalendarContract.Events.DESCRIPTION, description);
         if (v.size() == 0) { call.reject("没有要改的字段", "invalid_args"); return; }
         try {
+            try (Cursor existing = getContext().getContentResolver().query(ContentUris.withAppendedId(CalendarContract.Events.CONTENT_URI, eventId),
+                new String[] {CalendarContract.Events.DTSTART, CalendarContract.Events.DTEND}, null, null, null)) {
+                if (existing == null) throw new IllegalStateException("日历服务未返回这条日程");
+                if (!existing.moveToFirst()) { call.reject("没找到这条日程", "invalid_args"); return; }
+                long effectiveStart = start == null ? existing.getLong(0) : start;
+                Long effectiveEnd = end == null ? (existing.isNull(1) ? null : existing.getLong(1)) : end;
+                if (effectiveEnd != null && effectiveEnd <= effectiveStart) { call.reject("改后的结束时间要晚于开始时间", "invalid_args"); return; }
+            }
             int n = getContext().getContentResolver().update(ContentUris.withAppendedId(CalendarContract.Events.CONTENT_URI, eventId), v, null, null);
             if (n == 0) { call.reject("没找到这条日程", "invalid_args"); return; }
             JSObject out = new JSObject();
@@ -408,7 +380,8 @@ public class GuguPhoneActionsPlugin extends Plugin {
         Long first = null;
         Long primary = null;
         try (Cursor c = cr.query(CalendarContract.Calendars.CONTENT_URI, projection, selection, null, null)) {
-            while (c != null && c.moveToNext()) {
+            if (c == null) throw new IllegalStateException("日历服务未返回账户列表");
+            while (c.moveToNext()) {
                 long id = c.getLong(0);
                 if (wanted != null && wanted.equals(String.valueOf(id))) return id;
                 if (first == null) first = id;
@@ -424,46 +397,13 @@ public class GuguPhoneActionsPlugin extends Plugin {
     @PluginMethod
     public void contactsList(PluginCall call) {
         if (!granted("contacts")) { call.reject("没有通讯录权限", "os_permission"); return; }
-        String query = call.getString("query");
-        int limit = clamp(call.getInt("limit", 50), 1, 500);
-        ContentResolver cr = getContext().getContentResolver();
-        Uri uri = query != null && !query.trim().isEmpty()
-            ? Uri.withAppendedPath(ContactsContract.Contacts.CONTENT_FILTER_URI, Uri.encode(query.trim()))
-            : ContactsContract.Contacts.CONTENT_URI;
-        JSArray contacts = new JSArray();
-        try (Cursor c = cr.query(uri, new String[] { ContactsContract.Contacts._ID, ContactsContract.Contacts.DISPLAY_NAME_PRIMARY },
-            null, null, ContactsContract.Contacts.DISPLAY_NAME_PRIMARY + " ASC")) {
-            while (c != null && c.moveToNext() && contacts.length() < limit) {
-                long id = c.getLong(0);
-                JSObject row = new JSObject();
-                row.put("contact_id", String.valueOf(id));
-                row.put("name", nz(c.getString(1)));
-                row.put("phones", contactData(cr, id, ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
-                    ContactsContract.CommonDataKinds.Phone.CONTACT_ID, ContactsContract.CommonDataKinds.Phone.NUMBER));
-                row.put("emails", contactData(cr, id, ContactsContract.CommonDataKinds.Email.CONTENT_URI,
-                    ContactsContract.CommonDataKinds.Email.CONTACT_ID, ContactsContract.CommonDataKinds.Email.ADDRESS));
-                contacts.put(row);
-            }
+        try {
+            call.resolve(PhoneContactsReader.read(getContext(), call.getString("query"), clamp(call.getInt("limit", 50), 1, 500)));
         } catch (SecurityException error) {
-            call.reject("没有通讯录权限", "os_permission"); return;
+            call.reject("没有通讯录权限", "os_permission");
         } catch (RuntimeException error) {
-            call.reject("读通讯录失败:" + error.getMessage(), "failed"); return;
+            call.reject("读通讯录失败:" + error.getMessage(), "failed");
         }
-        JSObject out = new JSObject();
-        out.put("contacts", contacts);
-        call.resolve(out);
-    }
-
-    private static JSArray contactData(ContentResolver cr, long contactId, Uri uri, String idColumn, String valueColumn) {
-        JSArray out = new JSArray();
-        try (Cursor c = cr.query(uri, new String[] { valueColumn }, idColumn + "=?", new String[] { String.valueOf(contactId) }, null)) {
-            java.util.HashSet<String> seen = new java.util.HashSet<>();
-            while (c != null && c.moveToNext()) {
-                String value = c.getString(0);
-                if (value != null && seen.add(value.replace(" ", ""))) out.put(value);
-            }
-        }
-        return out;
     }
 
     // ── 定位 ─────────────────────────────────────────────────────────────────
@@ -597,19 +537,9 @@ public class GuguPhoneActionsPlugin extends Plugin {
 
     @PluginMethod
     public void notificationsList(PluginCall call) {
-        if (!GuguNotificationListener.isEnabled(getContext())) {
-            call.reject("没给咕咕「通知使用权」", "os_permission");
-            return;
-        }
-        int limit = clamp(call.getInt("limit", 50), 1, GuguNotificationListener.RECENT_LIMIT);
-        JSArray rows = GuguNotificationListener.snapshot(getContext(), limit);
-        if (rows == null) {
-            call.reject("读通知的服务还没连上:到系统「通知使用权」里把咕咕关掉再打开一次", "failed");
-            return;
-        }
-        JSObject out = new JSObject();
-        out.put("notifications", rows);
-        call.resolve(out);
+        try { call.resolve(PhoneNotificationsReader.read(getContext(), clamp(call.getInt("limit", 50), 1, GuguNotificationListener.RECENT_LIMIT))); }
+        catch (SecurityException error) { call.reject(error.getMessage(), "os_permission"); }
+        catch (RuntimeException error) { call.reject(error.getMessage(), "failed"); }
     }
 
     @PluginMethod
@@ -696,6 +626,8 @@ public class GuguPhoneActionsPlugin extends Plugin {
     // ── 健康(Health Connect,只读)───────────────────────────────────────────
 
     private final ExecutorService healthExecutor = Executors.newSingleThreadExecutor();
+    void closeReadExecutor() { healthExecutor.shutdownNow(); }
+    @Override protected void handleOnDestroy() { closeReadExecutor(); }
 
     @PluginMethod
     public void healthStatus(PluginCall call) {

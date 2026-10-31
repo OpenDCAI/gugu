@@ -28,7 +28,7 @@ afterEach(() => {
 });
 
 /** One page (or program: `program`) with the runtime loaded afresh, its sync port on the real relay, the relay on the fake service. */
-async function loadOnRelay(type: 'text' | 'json', options: { program?: boolean } = {}) {
+async function loadOnRelay(type: 'text' | 'json', options: { program?: boolean; readOnly?: boolean } = {}) {
   vi.resetModules();
   const service = new FakeService();
   /** Wills main delivered on its own connection: a write that reached the service on the page's own needs none. */
@@ -100,6 +100,7 @@ async function loadOnRelay(type: 'text' | 'json', options: { program?: boolean }
   setSyncPortSource(async () => port);
   const { openFile } = await import('./files-entry');
   const opened = fileOpened(type);
+  if (options.readOnly) opened.access = 'ro';
   const closed: string[] = [];
   const host = {
     apiVersion: EXTENSION_API_VERSION,
@@ -108,7 +109,7 @@ async function loadOnRelay(type: 'text' | 'json', options: { program?: boolean }
     onFilesChanged: () => () => undefined,
     appFiles: {
       open: vi.fn(async () => {
-        relay.grant(page, { docName: opened.docName, itemId: opened.entry.id, access: 'rw', needs: null });
+        relay.grant(page, { docName: opened.docName, itemId: opened.entry.id, access: opened.access, needs: null });
         return structuredClone(opened);
       }),
       // What main's `reopen` does: the file at its epoch now granted, the old epoch retired (`revoke` … null).
@@ -117,7 +118,7 @@ async function loadOnRelay(type: 'text' | 'json', options: { program?: boolean }
         for (let epoch = service.superseded.get(docName); epoch !== undefined; epoch = service.superseded.get(docName)) {
           docName = `${docName.slice(0, docName.lastIndexOf('@') + 1)}${epoch}`;
         }
-        relay.grant(page, { docName, itemId: opened.entry.id, access: 'rw', needs: null });
+        relay.grant(page, { docName, itemId: opened.entry.id, access: opened.access, needs: null });
         relay.revoke(PAGE, null, (grant) => grant.itemId === opened.entry.id && grant.docName !== docName);
         return { ...structuredClone(opened), docName };
       }),
@@ -129,12 +130,57 @@ async function loadOnRelay(type: 'text' | 'json', options: { program?: boolean }
     },
     clipboard: { writeText: async () => undefined },
   };
-  const open = <File>() => openFile(host as never, { id: opened.entry.id }) as Promise<File>;
+  const open = <File>() => openFile(host as never, host.appFiles.open()) as Promise<File>;
   const handed = (grant: Grant) => grant.itemId === opened.entry.id && grant.needs === null;
   return { service, relay, open, closed, willKeys, sentKeys, told, control, handed, PAGE, page, net, host };
 }
 
 describe('a write reaches the file service before main takes the file back (摩擦单 F106)', () => {
+  it('a write refused by a read-only grant ends the replica without leaving a will to retry', async () => {
+    const { service, relay, open, host, page, PAGE } = await loadOnRelay('json');
+    const file = await open<JsonFile>();
+    await until(() => file.saved);
+    page.grants.get('item-1@1')!.access = 'ro';
+    file.data.refused = true;
+    await until(() => file.status === 'gone');
+    file.close();
+    await until(() => page.grants.size === 0);
+    expect(host.reportError).toHaveBeenCalledTimes(1);
+    expect(host.reportError).toHaveBeenCalledWith(expect.stringContaining('read-only'));
+    expect(service.docOf('item-1@1').getMap('root').toJSON()).toEqual({});
+    expect(page.wills.size).toBe(0);
+    relay.pageGone(PAGE);
+  });
+
+  it.each(['text', 'json'] as const)('a read-only %s replica with deletion history finishes syncing and keeps receiving changes', async (type) => {
+    const { service, relay, open, host, told, PAGE } = await loadOnRelay(type, { readOnly: true });
+    const doc = service.docOf('item-1@1');
+    if (type === 'json') {
+      doc.getMap('root').set('status', 'old');
+      doc.getMap('root').set('status', 'current');
+    } else {
+      doc.getText('content').insert(0, 'old');
+      doc.getText('content').delete(0, 3);
+      doc.getText('content').insert(0, 'current');
+    }
+    const file = await open<JsonFile | TextFile>();
+    await until(() => file.saved);
+    expect(file.status).toBe('online');
+    if ('data' in file) {
+      expect(file.data.status).toBe('current');
+      doc.getMap('root').set('status', 'next');
+      await until(() => file.data.status === 'next');
+    } else {
+      expect(file.text).toBe('current');
+      service.write('item-1@1', ' next');
+      await until(() => file.text === 'current next');
+    }
+    expect(told.filter((message) => message.t === 'denied')).toEqual([]);
+    expect(host.reportError).not.toHaveBeenCalled();
+    file.close();
+    relay.pageGone(PAGE);
+  });
+
   it('a program writes twice and returns at once; the call ends: both writes are at the service by then', async () => {
     const { service, relay, open, willKeys, handed, PAGE, page } = await loadOnRelay('json', { program: true });
     service.docOf('item-1@1').getMap('root').set('subscribers', new Y.Map());

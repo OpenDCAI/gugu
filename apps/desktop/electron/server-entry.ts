@@ -59,8 +59,12 @@ moduleInternals._load = function patchedLoad(this: unknown, request: string, ...
 process.env.GUGU_SERVER_MODE = '1'
 // 设备 id 按 tier 派生(deviceRuntime.resolveTier)。main.ts 顶层也设同一个值;这里提前设,是因为
 // `login` 不加载 main.ts,却要报出账号进程上线后的设备 id(#6264 SSH 直连终端认机器靠它)。
+// 守护进程(`run` / 不带命令)不设:tier 是构建的属性,它拉起的账号进程可能是另一版构建(#6264 账号跟着桌面换版),
+// 环境里有了守护进程这一版的 tier,账号进程就不用自己的 —— 同一台机器按另一个 tier 认成新设备(10-28 Linux 3)。
+// 人显式设的 GUGU_TIER(开发覆盖)照旧原样传下去。
 declare const __GUGU_TIER__: string
-if (!process.env.GUGU_TIER) process.env.GUGU_TIER = __GUGU_TIER__
+const supervisorCommand = process.argv[2] === undefined || process.argv[2] === 'run'
+if (!process.env.GUGU_TIER && !supervisorCommand) process.env.GUGU_TIER = __GUGU_TIER__
 const serverHome = resolveServerHome()
 process.env.GUGU_SERVER_HOME = serverHome
 // 数据目录的根只归本人(0700):里面的登录态、密钥、会话记录,以及运行期后来再建的一切,别人都够不着。
@@ -79,7 +83,7 @@ const USAGE = `用法:
   gugu-server login              ${REMOTE_TUNNEL_OPEN ? '在这台服务器上登录一个咕咕账号(链接 + 短码,不需要浏览器)' : '远程隧道暂未开放:在咕咕桌面用远程 SSH 添加这台机器'}
                                  一台服务器可以登录好几个人,互不影响
   gugu-server login --grant-stdin 用咕咕桌面经 SSH 递来的一次性凭证登录(桌面自动调用,不用手敲)
-                                 [--name 名字] 这台机器在设备列表里的默认名(桌面带上人填的 SSH 别名)
+  gugu-server login [--name 名字] 这台机器在设备列表里的默认名(两种登法都认;桌面带上人填的 SSH 别名)
   gugu-server logout [邮箱]      退出登录(登录了好几个人时写上是谁)
   gugu-server status [--json]    看看版本、登录了谁、在不在跑、数据放在哪;登录失效 / 被移除的账号也列出来
   gugu-server --version          只打出这份咕咕 server 的版本号
@@ -93,6 +97,8 @@ const USAGE = `用法:
                                  把标准输入输出接到这个账号的咕咕 server 上(远程 SSH:桌面经 SSH 自动调用)
   gugu-server open-url <网址或文件>
                                  在正看着这台机器的咕咕桌面上打开网页(这台机器上的 $BROWSER 就是它)
+  gugu-server resume --account <账号 id>
+                                 通知保留的账号进程恢复连接并立即补收消息
   gugu-server match-version --account <账号 id> (--desktop <桌面 id> --version <版本> | --apply <版本>)
                                  让这个账号跑和桌面匹配的那一版(桌面经 SSH 自动调用)`
 
@@ -250,16 +256,17 @@ async function runCommand(command: string | undefined, args: string[]): Promise<
       out(`运行状态:${running ? `在运行(进程 ${running.pid}${running.version ? `,版本 ${running.version}` : ''})` : '没在运行'}`)
       out(`常驻服务:${describeService()}`)
       const { formatAccountLines, formatStatusJson, statusAccounts } = await import('./server/server-status')
+      const { readAccountRuntime, installedPackageVersion } = await import('./server/server-account-runtime')
       const all = listAccounts()
+      const runtimes = new Map(all.map((account) => [account.userId, readAccountRuntime(account.dataDir)]))
       const pidOf = (userId: string) => {
-        const account = all.find((a) => a.userId === userId)
-        return account ? lockHolder(account.dataDir) : null
+        return runtimes.get(userId)?.pid ?? null
       }
-      const accounts = statusAccounts(all, (account) => pidOf(account.userId) !== null)
+      const accounts = statusAccounts(all, (account) => pidOf(account.userId) !== null, (account) => runtimes.get(account.userId)?.version ?? null)
       for (const line of formatAccountLines(accounts, pidOf)) out(line)
       // 咕咕桌面经 SSH 读的那一份(机器显示离线时,问清是没开机还是登录没了)。
       if (args.includes('--json')) {
-        process.stdout.write(formatStatusJson({ version: process.env.GUGU_TASK_HOST_VERSION ?? null, accounts }))
+        process.stdout.write(formatStatusJson({ version: process.env.GUGU_TASK_HOST_VERSION ?? null, installedVersion: installedPackageVersion(serverHome), supervisorVersion: running?.version ?? null, accounts }))
       }
       return process.exit(0)
     }
@@ -348,6 +355,10 @@ async function runCommand(command: string | undefined, args: string[]): Promise<
     case 'open-url': {
       const { runOpenUrl } = await import('./server/open-url-cli')
       return process.exit(await runOpenUrl(args))
+    }
+    case 'resume': {
+      const { runResume } = await import('./server/resume-cli')
+      return process.exit(await runResume(args))
     }
     case 'match-version': {
       const { runMatchVersion } = await import('./server/match-version-cli')

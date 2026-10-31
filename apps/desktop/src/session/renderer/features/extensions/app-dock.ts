@@ -1,10 +1,11 @@
+import type { LinkPlace } from '@gugu/core/shared/ui/guguLink';
 import { events, rpc } from '@renderer/lib/ipc';
 import { appState } from '@renderer/lib/stores/app-state';
 import { log } from '@renderer/utils/logger';
 import { extensionsQuitChangedChannel } from '@shared/extensions/marketEvents';
 import { extensionViewStore } from './extension-view-store';
 import { installedExtensionsStore } from './installed-extensions-store';
-import { openInWindow, revealAppBlock, takeAppOffScreen } from '@renderer/app/screen-layout-actions';
+import { openInWindow, returnToScreen, revealAppBlock, takeAppOffScreen } from '@renderer/app/screen-layout-actions';
 import { appPlacementStore } from './app-placement-store';
 
 /**
@@ -42,25 +43,22 @@ export function appIsRunning(extensionId: string): boolean {
   const store = installedExtensionsStore;
   if (store.isEnabled(extensionId) && !store.quit.includes(extensionId) && store.manifestFor(extensionId)?.background?.entry) return true;
   const kinds = new Set<string>(store.allTabContributions.filter((entry) => entry.extensionId === extensionId).map((entry) => entry.kind));
-  return (
-    [...extensionViewStore.residentPages.values()].some((page) => kinds.has(page.kind)) ||
-    [...extensionViewStore.filePages.values()].some((page) => kinds.has(page.kind))
-  );
+  return [...extensionViewStore.residentPages.values()].some((page) => kinds.has(page.kind));
 }
 
 /**
  * 点左栏一个 App 的图标(或右键「App」里的一行、它右键的「打开」)= **去它现在在的地方**:摆在某条会话里就去那条会话、
  * 把它那一枚翻到前面;哪都没摆着才整页打开(behavior tab-extensions「一个 App 只有一份、放在哪就在哪」,#7052)。
  */
-export function openApp(extensionId: string): void {
-  const main = installedExtensionsStore.mainTabOf(extensionId);
+export function openApp(extensionId: string, tab?: string): LinkPlace | 'own' {
+  const main = tab ? installedExtensionsStore.allTabContributions.find((entry) => entry.extensionId === extensionId && entry.kind === `${extensionId}.${tab}`) : installedExtensionsStore.mainTabOf(extensionId);
   // 它正自己占着一块(spec session-page「一屏几块」):去会话页、看那一块。
-  if (main && revealAppBlock(main.kind)) return;
+  if (main && revealAppBlock(main.kind)) return 'own';
   const placed = main ? appPlacementStore.of(main.kind) : undefined;
   const navigation = appState.navigation;
   if (!main || !placed) {
-    navigation.navigate('app', { appId: extensionId });
-    return;
+    navigation.navigate('app', { appId: extensionId, ...(tab ? { tab } : {}) });
+    return 'own';
   }
   navigation.navigate('session', { projectId: placed.projectId, sessionId: placed.sessionId });
   // 那条会话页可能还没在内存里:等它就绪再把那一枚翻到前面(和 agent 开一个 App 页签同一条路)。
@@ -76,6 +74,7 @@ export function openApp(extensionId: string): void {
       },
     })
   );
+  return { session: placed.sessionId };
 }
 
 /**
@@ -89,13 +88,11 @@ export function openAppInWindow(extensionId: string): void {
   openInWindow({ kind: 'app', tabKind: main.kind });
 }
 
-/** 正看着这个 App 的整页:回到它后面那一页 —— 上次看的任务,没有就任务的首页(和点「任务」一样)。 */
+/** 正看着这个 App 的整页:回到消息工作区,与消息栏同一个恢复动作。 */
 function leaveAppPage(extensionId: string): void {
   const navigation = appState.navigation;
   if (navigation.currentViewId !== 'app' || navigation.viewParamsStore.app?.appId !== extensionId) return;
-  const last = navigation.viewParamsStore.session;
-  if (last) navigation.navigate('session', last);
-  else navigation.navigate('home');
+  returnToScreen();
 }
 
 /**
@@ -103,7 +100,7 @@ function leaveAppPage(extensionId: string): void {
  * 再点它、或从「+」放进来,就从头开始 —— 主进程在它的页被要的那一刻撤销退出、拉起后台。
  *
  * 「摆着的地方」:它在某条会话里的那一枚(拿走它的摆放,那条会话自己就收掉,#7052)、它的整页
- * (正看着就回到任务)、群右栏里开着它的那一格(GroupAppSlot 看到退出了自己关)。收完之后,藏着活的页一并销毁。
+ * (正看着就回到任务)、群里开着它的那个页签(GroupTabContent 看到退出了自己关)。收完之后,藏着活的页一并销毁。
  */
 export async function quitApp(extensionId: string): Promise<void> {
   const store = installedExtensionsStore;

@@ -1,6 +1,11 @@
+import { messageForUser } from '@/lib/userFacingError';
+import { rendererLogger } from '@/lib/log';
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { MessageItem } from '@gugu/core/shared/types/chat'
+import { visibleDeliveryMessages } from '@gugu/core/shared/ui/systemNotice'
+import { projectTurnFailureMessages } from '../../lib/projectTurnFailureMessages'
+import { SystemMessageNotice } from '../chat/SystemMessageNotice'
 import { Avatar } from '../Avatar'
 import { Markdown } from '../markdown/Markdown'
 import { Button } from '../ui/Button'
@@ -9,7 +14,8 @@ import { ArrowUp, SquareArrowOutUpRight, X } from '../../lib/icons'
 import { LoadingIndicator } from '../../lib/loading/LoadingIndicator'
 import { useReportChatOnScreen } from '../../lib/onScreenChat'
 import { useChatStore } from '../../store/chatContext'
-import { useChatLineClaim } from '../../store/chatLine'
+import { useChatConversation } from '../../store/useChatConversation'
+import { useQueuedMessageIds } from '../../hooks/useQueuedMessageIds'
 import './quick-chat.css'
 
 export type QuickChatAssistant = { id: string; display_name: string; avatar: string | null }
@@ -20,7 +26,7 @@ const RECENT = 40
 /**
  * #7199「快速聊天」小窗里那一块:顶上一条可拖的横栏(左关、中间它、右「打开咕咕」),
  * 中间是和它那条私聊最近的几条,底下一个输入框(Enter 发、Shift+Enter 换行)。草稿只在小窗里,❌ 混进主窗那条的草稿。
- * 摆出来时把那条活的线借过来(store/chatLine.ts),收起就还。
+ * 按 chatId 订阅账户的聊天窗口,不改变主面的选中。
  * 还没有它 / 还在认 / 那条聊天没打开 / 一条都还没说过,各说各的。
  */
 export function QuickChat({
@@ -37,7 +43,7 @@ export function QuickChat({
   assistant: QuickChatAssistant | null
   assistantState: 'found' | 'loading' | 'none' | 'unreadable'
   chatId: string | null
-  chatFailed: boolean
+  chatFailed: { error: string } | null
   retryChat: () => void
   visible: boolean
   shortcut: string
@@ -47,7 +53,7 @@ export function QuickChat({
   const { t } = useTranslation('assistant')
   const name = assistant?.display_name ?? t('quickChat.assistant')
   return (
-    <div className="qc" data-testid="quick-chat">
+    <div className="qc" data-testid="quick-chat" inert={!visible}>
       <header className="qc-head">
         <IconButton size="sm" onClick={onClose} aria-label={t('quickChat.close')} title={t('quickChat.close')} data-testid="quick-chat-close">
           <X />
@@ -65,7 +71,7 @@ export function QuickChat({
       ) : assistantState === 'unreadable' ? (
         <QuickNote title={t('quickChat.unreadableTitle')} body={t('quickChat.unreadable')} action={t('quickChat.openApp')} onAction={onOpenMain} testId="quick-chat-unreadable" />
       ) : chatFailed ? (
-        <QuickNote title={t('quickChat.chatFailedTitle', { name })} body={t('quickChat.chatFailed')} action={t('machine.retry')} onAction={retryChat} testId="quick-chat-failed" />
+        <QuickNote title={t('quickChat.chatFailedTitle', { name })} body={chatFailed.error} action={t('machine.retry')} onAction={retryChat} testId="quick-chat-failed" />
       ) : assistantState === 'loading' || !chatId ? (
         <QuickNote loading body={t('quickChat.opening', { name })} />
       ) : (
@@ -90,18 +96,19 @@ function QuickNote({ title, body, action, onAction, loading, testId }: { title?:
   )
 }
 
-/** 摆出来时借线、报「在看」;读的是线上那条的消息(线在它身上才算数)。 */
+/** 按自己的 chatId 订阅消息,并报告是否可见。 */
 function QuickThread({ chatId, name, visible }: { chatId: string; name: string; visible: boolean }) {
   const { t } = useTranslation('assistant')
-  useChatLineClaim(chatId, visible)
   useReportChatOnScreen(visible ? chatId : null)
-  const { activeChatId, messages, loadingMessages, sendMessageToChat } = useChatStore('activeChatId', 'messages', 'loadingMessages', 'sendMessageToChat')
-  const onLine = activeChatId === chatId
-  const recent = onLine ? messages.filter((message) => !message.thread_root_id && !message.retracted_at).slice(-RECENT) : []
+  const { conversations } = useChatStore('conversations')
+  const { messages, loadingMessages, sendMessage, setFollowingTail, memberReadSeqs } = useChatConversation(chatId, conversations)
+  const queuedIds = useQueuedMessageIds(messages, memberReadSeqs)
+  useEffect(() => { setFollowingTail(visible ? true : undefined) }, [visible, setFollowingTail])
+  const recent = projectTurnFailureMessages(visibleDeliveryMessages(messages).filter((message) => !message.thread_root_id && !message.retracted_at)).slice(-RECENT)
   const list = useRef<HTMLDivElement>(null)
   const input = useRef<HTMLTextAreaElement>(null)
   const [draft, setDraft] = useState('')
-  const [sendFailed, setSendFailed] = useState(false)
+  const [sendFailed, setSendFailed] = useState('')
 
   // 每次摆出来都把光标放进输入框(小窗被叫出来就是要说一句)。
   useEffect(() => {
@@ -118,12 +125,12 @@ function QuickThread({ chatId, name, visible }: { chatId: string; name: string; 
     const text = draft.trim()
     if (!text) return
     setDraft('')
-    setSendFailed(false)
+    setSendFailed('')
     try {
-      await sendMessageToChat(chatId, text)
-    } catch {
-      setDraft(text)
-      setSendFailed(true)
+      await sendMessage(text)
+    } catch (error) {
+      rendererLogger('assistant/quick-chat').error({ error }, 'send failed'); setDraft(text)
+      setSendFailed(messageForUser(error))
     }
   }
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -136,7 +143,7 @@ function QuickThread({ chatId, name, visible }: { chatId: string; name: string; 
   return (
     <>
       <div className="qc-list" ref={list} data-testid="quick-chat-messages">
-        {!onLine || (loadingMessages && recent.length === 0) ? (
+        {loadingMessages && recent.length === 0 ? (
           <div className="qc-note">
             <LoadingIndicator size="inline" />
           </div>
@@ -146,11 +153,11 @@ function QuickThread({ chatId, name, visible }: { chatId: string; name: string; 
             <span>{t('quickChat.empty')}</span>
           </div>
         ) : (
-          recent.map((message) => <QuickMessage key={message.id} message={message} />)
+          recent.map((message) => <QuickMessage key={message.id} message={message} queued={queuedIds.has(message.id)} senderName={name} />)
         )}
       </div>
       <footer className="qc-compose">
-        {sendFailed ? <span className="qc-error">{t('quickChat.sendFailed')}</span> : null}
+        {sendFailed ? <span className="qc-error">{sendFailed}</span> : null}
         <div className="qc-box">
           <textarea
             ref={input}
@@ -170,9 +177,11 @@ function QuickThread({ chatId, name, visible }: { chatId: string; name: string; 
   )
 }
 
-function QuickMessage({ message }: { message: MessageItem }) {
+function QuickMessage({ message, queued, senderName }: { message: MessageItem; queued: boolean; senderName: string }) {
   const { t } = useTranslation('assistant')
-  if (message.content_type === 'system') return <div className="qc-system">{message.content}</div>
+  if (message.content_type === 'system') {
+    return <SystemMessageNotice message={message} senderName={senderName} />
+  }
   const body =
     message.content_type === 'text' ? (
       message.is_mine ? (
@@ -184,9 +193,10 @@ function QuickMessage({ message }: { message: MessageItem }) {
       <span className="qc-other">{t('quickChat.inApp')}</span>
     )
   return (
-    <div className="qc-msg" data-mine={message.is_mine || undefined} data-sending={message.local_send_state ?? undefined} data-testid={`quick-chat-message-${message.id}`}>
+    <div className="qc-msg" data-mine={message.is_mine || undefined} data-sending={queued ? 'queued' : message.local_send_state ?? undefined}
+      title={queued ? t('message.sendStatus.queued', { ns: 'messaging' }) : undefined} data-testid={`quick-chat-message-${message.id}`}>
       {body}
-      {message.local_send_state === 'failed' ? <span className="qc-error">{t('quickChat.notSent')}</span> : null}
+      {message.local_send_state === 'failed' ? <span className="qc-error" title={message.local_send_error ? messageForUser(message.local_send_error) : undefined}>{t('quickChat.notSent')}</span> : null}
     </div>
   )
 }

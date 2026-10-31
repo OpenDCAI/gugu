@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { EXTENSION_API_VERSION, parseExtensionManifest, safeParseExtensionManifest } from './manifest';
-import { guguLinkScheme } from './link-scheme';
+import { guguLinkScheme } from '@gugu/core/shared/ui/guguLink';
 
 /**
  * #6387 What a manifest must say before an extension may give agents its own MCP programs and

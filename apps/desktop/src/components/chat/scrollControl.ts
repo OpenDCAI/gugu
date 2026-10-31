@@ -3,7 +3,8 @@
 // The chat list needs one authoritative decision, per message-window change, about how the
 // viewport should react — mirroring WeChat/Feishu IM semantics:
 //   - at the bottom  → any new message (mine OR received) snaps to the TRUE bottom (no "差一截").
-//   - scrolled up    → a received message does NOT yank the viewport; it raises the unread bubble.
+//   - scrolled up    → arriving rows leave the viewport in place, regardless of sender.
+// Local sends use the history window's explicit latest navigation.
 // (A load-older prepend needs no decision here: lib/flowList.ts keeps the row being read in place.)
 //
 // Keeping this as a pure function (no React, no refs) makes the IM semantics unit-testable in isolation,
@@ -22,7 +23,7 @@ export interface FeedItem {
 }
 
 export interface FeedChange {
-  /** True when the viewport should snap to the true bottom (at-bottom new message, or own message). */
+  /** True when a new tail row arrives while this viewport is at the bottom. */
   pin: boolean
 }
 
@@ -39,11 +40,6 @@ export function classifyFeedChange(
 
   const lastId = feed[feed.length - 1].id
 
-  // — back-grow (a new newest message): pin, or leave the viewport alone (scrolled up + received: the
-  // unread bubble is counted by the history window, which also sees rows cropped out of the window).
-  // #1315 fix: previously only `is_mine` pinned — a RECEIVED message while at the bottom fell through
-  // to the list's follow-output + 80px threshold and stopped ~80px short ("差一截"). At the bottom,
-  // both sent and received now snap to the true bottom.
-  const pin = lastId !== prev.lastId && lastId != null && (feed[feed.length - 1]?.is_mine === true || isAtBottom)
+  const pin = lastId !== prev.lastId && lastId != null && isAtBottom
   return { pin }
 }

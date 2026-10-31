@@ -1,3 +1,4 @@
+import { followLink, openLinkTarget } from '../../lib/guguLinks'
 import { reaction } from 'mobx'
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -6,11 +7,8 @@ import { extensionSurfaceStore } from '../../session/renderer/features/extension
 import { installedExtensionsStore } from '../../session/renderer/features/extensions/installed-extensions-store'
 import {
   APP_SESSION_FRAME_NAME,
-  APP_SHOW_MESSAGE_EVENT,
-  APP_SHOW_SESSION_EVENT,
   type AppOpenWithDetail,
   type AppShowMessageDetail,
-  type AppShowSessionDetail,
 } from '../../session/shared/extensions/app-runtime-protocol'
 import type { ExtensionCapability } from '../../session/shared/extensions/manifest'
 import { extensionProgramNotifiedChannel } from '../../session/shared/extensions/marketEvents'
@@ -30,7 +28,7 @@ interface FramedPage {
 }
 
 /**
- * One App frame on the phone, wherever it is drawn — a chat's panel (GroupAppSlot), a session's tab, an App's own page
+ * One App frame on the phone, wherever it is drawn — a chat's tab (GroupTabContent), a session's tab, an App's own page
  * (SessionAppFrame): one host, one set of what it hears, so a page answers the same in each.
  *
  * The App is what the phone's App store has installed now (`installedExtensionsStore`): updated, the frame reloads on the
@@ -67,6 +65,7 @@ export function PhoneAppFrame({
   missingTestId: string
 }) {
   const extensionId = kind.split('.')[0] ?? kind
+  const tabName = kind.slice(extensionId.length + 1)
   const frameRef = useRef<HTMLIFrameElement | null>(null)
   const hostRef = useRef<ReturnType<typeof hostAppFrame> | null>(null)
   const onOpenWithRef = useRef(onOpenWith)
@@ -84,7 +83,6 @@ export function PhoneAppFrame({
 
   // The App as installed here now, and where its page is (a new version is another page).
   useEffect(() => {
-    const tabName = kind.split('.').slice(1).join('.')
     return reaction(
       () => {
         const manifest = installedExtensionsStore.isLoaded && installedExtensionsStore.isEnabled(extensionId) ? installedExtensionsStore.manifestFor(extensionId) : undefined
@@ -109,13 +107,14 @@ export function PhoneAppFrame({
       },
       { fireImmediately: true, equals: (a, b) => a.loaded === b.loaded && a.manifest === b.manifest },
     )
-  }, [extensionId, kind])
+  }, [extensionId, tabName])
 
   // What the host is told about where it is; read when the host starts and on every change.
-  const bindingRef = useRef<Omit<PhoneAppBinding, 'capabilities'>>({ extensionId, tabId, chatId, locale: i18n.language, themeMode: 'light' })
+  const bindingRef = useRef<Omit<PhoneAppBinding, 'capabilities'>>({ extensionId, tabId, tabName, chatId, locale: i18n.language, themeMode: 'light' })
   bindingRef.current = {
     extensionId,
     tabId,
+    tabName,
     chatId,
     ...(session ? { session } : {}),
     ...(itemId ? { itemId } : {}),
@@ -128,13 +127,13 @@ export function PhoneAppFrame({
     const frame = frameRef.current
     if (!frame || !app) return undefined
     const host = hostAppFrame(frame, { ...bindingRef.current, capabilities: app.capabilities }, {
-      showMessage: (detail: AppShowMessageDetail) => window.dispatchEvent(new CustomEvent(APP_SHOW_MESSAGE_EVENT, { detail })),
+      showMessage: async (detail: AppShowMessageDetail) => { await openLinkTarget({ kind: 'chat', chatId: detail.chatId, messageId: detail.messageId }) },
       showSession: (sessionId, peek) => {
         const listed = listedSession(devicesRef.current, liveDeviceSessions(), sessionId)
         if (!('row' in listed)) return listed
         // Beside the page (G1): its timeline over this frame; else the task tab opens its row.
         if (peek) peekStore.open(null, bindingRef.current.tabId, { kind: 'session', sessionId, projectId: listed.row.session.projectId, deviceId: listed.row.deviceId })
-        else window.dispatchEvent(new CustomEvent<AppShowSessionDetail>(APP_SHOW_SESSION_EVENT, { detail: listed.row }))
+        else followLink({ kind: 'session', sessionId, deviceId: listed.row.deviceId })
         return { shown: true }
       },
       openWith: (detail) => onOpenWithRef.current(detail),

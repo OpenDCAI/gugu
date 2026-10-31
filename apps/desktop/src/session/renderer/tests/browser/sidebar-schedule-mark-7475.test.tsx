@@ -4,6 +4,7 @@ import { userEvent } from 'vitest/browser';
 import { until } from '../../../../../../../tests/support/awaitCondition';
 import type { SessionpageScheduleDigest } from '@gugu/session-core/session-record/contract';
 import type { AgentStatus } from '@shared/core/agents/agentEvents';
+import { presentAgentStatus } from '@gugu/core/shared/agentStatusPresentation';
 import { SessionRowShell } from '@renderer/features/sidebar/sidebar-session-row';
 import { SessionLocalizationProvider } from '@renderer/localization/localization-provider';
 import '@/styles/tokens.css';
@@ -40,7 +41,7 @@ async function mount(status: AgentStatus | null, schedule: SessionpageScheduleDi
     <SessionLocalizationProvider>
       <SessionRowShell
         sessionId="s-1" rowVariant="tree" depth={0} hasChildren={false} expanded={false}
-        needsAttention={false} title="盯一下 CI" harness={null} status={status}
+        needsAttention={false} title="盯一下 CI" harness={null} presentation={status ? presentAgentStatus({ reading: { status, detail: null } }) : null}
         lastInteractedAt={new Date(Date.now() - 3 * 3600_000).toISOString()} schedule={schedule}
         doneUnread={false} isActive={false} isCursor={false} isPendingArchive={false}
         quickActions={{ isPinned: false, onSetPinned: () => {}, archiveLabel: 'Archive', onArchive: () => {} }}

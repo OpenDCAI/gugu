@@ -4,20 +4,17 @@ import '@/session/renderer/features/assistant/voice-notes/voice-notes.css'
 import './phone-voice-bar.css'
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
-import { cloudComputerFailureKind, type CloudComputerFailureKind } from '@gugu/core/cloud/cloudComputer'
 import { formatClock } from '@gugu/core/shared/voiceNotes'
 import { useToast } from '@/components/toastContext'
+import { openPhonePermissions } from '../phone-device/phonePermissionsNavigation'
 import { Button } from '@/components/ui/Button'
-import { wakeCloudComputer } from '@/lib/cloudComputerStore'
 import { ChevronRight, Pause, Play, RefreshCw, Square, X } from '@/lib/icons'
-import { rendererLogger } from '@/lib/log'
 import type { PhoneRoute } from './MobileAssistantApp'
 import { PhoneConfirmDialog } from './PhoneConfirmDialog'
 import type { VoiceJobView } from './phoneVoiceJobs'
-import { openMicrophoneSettings, phoneVoiceJobs, phoneVoiceRecorder, useRecorder, useVoiceJobs, type PhoneVoice } from './phoneVoiceRuntime'
+import { phoneVoiceJobs, phoneVoiceRecorder, useRecorder, useVoiceJobs, type PhoneVoice } from './phoneVoiceRuntime'
 import { voiceFailureText } from './phoneVoiceNotesData'
 
-const log = rendererLogger('mobile/assistant')
 
 /** 「已传上去」那条挂多久(之后自己收起,笔记在记忆 → 语音笔记里,标「等转写」)。 */
 const READY_LINGER_MS = 15_000
@@ -89,18 +86,12 @@ export function PhoneVoiceBar({
   open: (route: PhoneRoute) => void
 }) {
   const { t } = useTranslation('voiceNotes')
-  const { t: ta } = useTranslation('assistant')
-  const { t: tc } = useTranslation('common')
   const { toast } = useToast()
   const recorder = useRecorder()
   const jobs = useVoiceJobs()
   const readySince = useRef(new Map<string, number>())
   const [now, setNow] = useState(() => Date.now())
   const [confirming, setConfirming] = useState(false)
-  // 为哪条录音叫过它住的宿主(每条只叫一次;没叫起来留下原因,由人点重试)。
-  const wokeFor = useRef(new Set<string>())
-  // 叫醒没成的原因记在哪一条录音名下:换了一条 / 那条之后连上了(正在醒)就不再说它(❌ 拿旧原因说正在连接的那一条)。
-  const [wakeIssue, setWakeIssue] = useState<{ jobId: string; kind: CloudComputerFailureKind } | null>(null)
   const anyJob = jobs.length > 0
   useEffect(() => {
     if (!anyJob) return
@@ -124,29 +115,6 @@ export function PhoneVoiceBar({
     phoneVoiceJobs.dismiss(id)
     open({ tab: 'memory', sub: `voice:${id}` })
   }
-  const wake = (jobId: string) => {
-    setWakeIssue(null)
-    void wakeCloudComputer().catch((error: unknown) => {
-      log.warn({ error: error instanceof Error ? error.message : String(error) }, 'wake cloud computer failed')
-      setWakeIssue({ jobId, kind: cloudComputerFailureKind(error) })
-    })
-  }
-  // 有录音在等它家里、它住的云端宿主收回着:系统叫起来(录音本来就是要交给它的)。叫起来之后它又被收回、录音还没交上:
-  // 还有活要交,再叫一次(这一条看到过它在醒就把记号放掉)。
-  const pendingJob = job && job.phase !== 'recording' && job.phase !== 'failed' ? job : null
-  const heldAsleep = pendingJob?.held === 'asleep' ? pendingJob.id : null
-  const heldWaking = pendingJob?.held === 'waking' ? pendingJob.id : null
-  useEffect(() => {
-    if (!heldWaking) return
-    wokeFor.current.delete(heldWaking)
-    setWakeIssue((issue) => (issue?.jobId === heldWaking ? null : issue))
-  }, [heldWaking])
-  useEffect(() => {
-    if (!heldAsleep || wokeFor.current.has(heldAsleep)) return
-    wokeFor.current.add(heldAsleep)
-    wake(heldAsleep)
-  }, [heldAsleep])
-
   let content: ReactNode = null
   let notice = false
   if (recorder.phase === 'starting') {
@@ -208,8 +176,8 @@ export function PhoneVoiceBar({
           {t('mic.deniedPhone')}
         </span>
         <div className="vn-bar-actions">
-          <Button variant="ghost" className="vn-bar-text-btn" onClick={() => void openMicrophoneSettings()} data-testid="phone-voice-bar-settings">
-            {t('mic.openSettings')}
+          <Button variant="ghost" className="vn-bar-text-btn" onClick={openPhonePermissions} data-testid="phone-voice-bar-settings">
+            {t('mic.permissions')}
           </Button>
           <Button variant="ghost" className="vn-bar-btn" aria-label={t('bar.close')} title={t('bar.close')} onClick={voice.clearMicDenied}>
             <X />
@@ -239,21 +207,12 @@ export function PhoneVoiceBar({
     } else if (job.held) {
       // 录音还在手机上、它家里读写不了:说清在等什么;没叫起来说原因 + 重试。
       notice = true
-      const failedKind = job.held === 'asleep' && wakeIssue?.jobId === job.id ? wakeIssue.kind : null
-      const failed = failedKind !== null
       content = (
         <>
-          <span className="vn-bar-label" data-testid="phone-voice-bar-held" data-held={failed ? 'connect-failed' : job.held}>
-            {failed
-              ? <>{ta('machine.connectFailed', { name })}{tc(`cloudComputer.reason.${failedKind}`)}{t('bar.heldKept')}</>
-              : t(job.held === 'unreachable' ? 'bar.heldUnreachable' : 'bar.heldConnecting', { name })}
+          <span className="vn-bar-label" data-testid="phone-voice-bar-held" data-held={job.held}>
+            {t('bar.heldKept')}
           </span>
           <div className="vn-bar-actions">
-            {failed ? (
-              <Button variant="ghost" className="vn-bar-text-btn" onClick={() => wake(job.id)} data-testid="phone-voice-bar-retry-connect">
-                {ta('machine.retry')}
-              </Button>
-            ) : null}
             <Button variant="ghost" className="vn-bar-btn" aria-label={t('bar.close')} title={t('bar.close')} onClick={() => phoneVoiceJobs.dismiss(job.id)}>
               <X />
             </Button>
@@ -302,8 +261,8 @@ export function PhoneVoiceBar({
           {content}
         </div>
       ) : null}
-      {confirming ? (
-        <PhoneConfirmDialog
+      <PhoneConfirmDialog
+          open={confirming}
           title={t('bar.discardTitle')}
           body={t('bar.discardBody')}
           confirmLabel={t('bar.discardConfirm')}
@@ -313,10 +272,9 @@ export function PhoneVoiceBar({
           onConfirm={async () => {
             if (recording) phoneVoiceJobs.discard(recording.id)
             else phoneVoiceRecorder.stop()
-            setConfirming(false)
           }}
         />
-      ) : null}
+
     </>
   )
 }

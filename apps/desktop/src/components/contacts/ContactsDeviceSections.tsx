@@ -8,7 +8,8 @@ import { useDevicesStore } from '../../store/devicesContext'
 import { useDisplayDevices } from '@/hooks/useAssistantHomeLabel'
 import { ContactsAgentSectionState, ContactsGroupSectionState } from './ContactsSectionState'
 import { ContactsCreateAgentButton } from './ContactsCreateAgentButton'
-import { partitionContactsByDevice, type ContactsDeviceSection } from './contactsByDevice'
+import { contactsAreEmpty, partitionContactsByDevice, type ContactsDeviceSection } from './contactsByDevice'
+import { sidebarCountClass } from '../../session/renderer/features/sidebar/sidebar-primitives'
 
 // #5019 桌面三段侧栏的「设备段」:本机 → 其他设备(各成一段) → 咕咕云 → (设备表未到时的)Agent,
 // 每段里先 agent 行再群行;之后是 personSection(个人),最后是「群组」= 没有我 agent 的群(云段)。
@@ -29,6 +30,7 @@ const chevronClass = (collapsed: boolean) =>
 
 export function ContactsDeviceSections({
   agents,
+  people,
   groups,
   currentUserId,
   onCreateAgent,
@@ -38,6 +40,7 @@ export function ContactsDeviceSections({
   personSection,
 }: {
   agents: ContactUser[]
+  people: ContactUser[]
   groups: ContactGroupChat[]
   currentUserId?: string | null
   onCreateAgent?: () => void
@@ -53,6 +56,7 @@ export function ContactsDeviceSections({
     () => partitionContactsByDevice(agents, groups, devices, currentUserId),
     [agents, groups, devices, currentUserId],
   )
+  const empty = contactsAreEmpty(people, agents, groups)
   const [openByKey, setOpenByKey] = useState<Record<string, boolean>>({})
   const isOpen = (key: string) => openByKey[key] ?? defaultOpen(key)
   const toggle = (key: string) => setOpenByKey((prev) => ({ ...prev, [key]: !(prev[key] ?? defaultOpen(key)) }))
@@ -75,7 +79,7 @@ export function ContactsDeviceSections({
               interactive
               className={sectionLabelClass}
               leading={<span className={chevronClass(!open)}><ChevronDown size={16} /></span>}
-              trailing={isPrimary ? <ContactsCreateAgentButton className={sectionAddClass} onCreate={onCreateAgent} /> : undefined}
+              trailing={<>{!open && <span className={sidebarCountClass}>{section.agents.length + section.groups.length}</span>}{isPrimary && <ContactsCreateAgentButton className={sectionAddClass} onCreate={onCreateAgent} />}</>}
               onClick={() => toggle(section.key)}
             >
               {titleOf(section)}
@@ -84,7 +88,7 @@ export function ContactsDeviceSections({
               {section.agents.map(renderAgent)}
               {section.groups.map(renderGroup)}
               {isPrimary ? (
-                <ContactsAgentSectionState isEmpty={section.agents.length === 0} onCreateAgent={onCreateAgent} />
+                <ContactsAgentSectionState isEmpty={empty} onCreateAgent={onCreateAgent} />
               ) : null}
             </Collapse>
           </div>
@@ -97,13 +101,14 @@ export function ContactsDeviceSections({
         interactive
         className={sectionLabelClass}
         leading={<span className={chevronClass(!isOpen(GROUPS_KEY))}><ChevronDown size={16} /></span>}
+        trailing={!isOpen(GROUPS_KEY) ? <span className={sidebarCountClass}>{partition.cloudGroups.length}</span> : undefined}
         onClick={() => toggle(GROUPS_KEY)}
       >
         {t('panel.groupSectionTitle')}
       </SectionLabel>
       <Collapse open={isOpen(GROUPS_KEY)} className="gg-c-sec-body">
         {partition.cloudGroups.map(renderGroup)}
-        <ContactsGroupSectionState isEmpty={partition.cloudGroups.length === 0} onCreateGroup={onCreateGroup} />
+        <ContactsGroupSectionState isEmpty={empty} onCreateGroup={onCreateGroup} />
       </Collapse>
     </>
   )

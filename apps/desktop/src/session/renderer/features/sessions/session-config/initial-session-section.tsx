@@ -7,7 +7,7 @@ import {
   strictestDeclaredPermissionMode,
   type GuguPermissionMode,
 } from '@gugu/session-core/acp/client';
-import type { ResolvedModelEfforts } from '@gugu/session-core/agents/plugins';
+import { providerTakesMessageStartupInPty, type ResolvedModelEfforts } from '@gugu/session-core/agents/plugins';
 import type { AgentProviderId } from '@gugu/session-plugins/agents';
 import { nativeComposerAppearance } from '@renderer/lib/chat/native-chat-appearance.css';
 import {
@@ -32,6 +32,7 @@ import {
   useState,
   type ChangeEvent,
   type Dispatch,
+  type ReactNode,
   type SetStateAction,
 } from 'react';
 import {
@@ -62,14 +63,16 @@ import {
   type SessionView,
 } from '@shared/core/sessions/sessions';
 import { UNATTENDED_SESSION_PERMISSION_MODE } from '@shared/core/sessions/unattended-session-autonomy';
-import { SessionViewControl, type SessionViewLockState } from './session-view-control';
-import { useSessionViewPreference } from './session-view-preference';
+import type { SessionViewLockState } from './session-view-lock';
+import { SessionViewControl } from './session-view-control';
+import { useTerminalEnabled } from '@renderer/features/settings/use-terminal-enabled';
+import { DEFAULT_SESSION_VIEW } from '@shared/core/sessions/new-session-defaults';
 import { toast } from '@renderer/lib/hooks/use-toast';
 import { safeFailureLine } from '@renderer/features/sessions/gugu-reason';
 import { stringifyMention } from '@gugu/session-shared/markdown';
 import { log } from '@renderer/utils/logger';
 import { composerAttachmentSource } from '@renderer/features/sessions/acp/composer-attachment-source';
-import { isHeicLikeFile, isUnstableDropPath } from '@renderer/lib/pty/terminal-image-paths';
+import { isHeicLikeFile, mustCopyRatherThanReference } from '@renderer/lib/pty/terminal-image-paths';
 import { electronApi } from '@renderer/lib/electron-api';
 import { rpcOn } from '@renderer/lib/ipc';
 import {
@@ -116,8 +119,8 @@ import { droppedDirectoryMention } from '@renderer/lib/drag-files';
 import {
   createLocalSessionMentionProvider,
   localSessionMentionHiddenContext,
-  useSessionAgentCreationTools,
 } from '@renderer/lib/chat/local-session-mention-provider';
+import { useSessionAgentCreationTools } from '@renderer/lib/chat/use-session-agent-creation-tools';
 import { useSessionMentionDrop } from '@renderer/lib/chat/use-session-mention-drop';
 import { remoteHostsStore } from '@renderer/features/remote-hosts/remote-hosts-store';
 import { entryUploadItems, type DropEntry } from '@renderer/features/remote-hosts/workspace/remote-drop-items';
@@ -265,13 +268,16 @@ export type InitialSessionState = {
   /**
    * 这条会话以哪一种**展示**开:`'code'` 编程视角(harness 自己的原生 TUI 跑在终端里),
    * `'general'` 通用视角(咕咕渲染的结构化聊天面板)。这是**生效值**:用户的持久偏好经这一家的
-   * 能力与入口解析之后的结果,可能与偏好不同(见 `generalForcedByInbound`、只有通用视角的 agent)。
+   * 能力与入口解析之后的结果,可能与偏好不同(见 `generalForcedHere`、只有通用视角的 agent)。
    * ⚠️ 运行时起哪种进程(pty / acp)是另一层事实,只在构造载荷那一刻翻译一次。
    */
   sessionView: SessionView;
-  /** 用户选展示:写的是持久偏好,生效值随之重算。 */
+  /** 人在框里选展示,或一条已存记录(自动化)自己的展示:只覆盖这一个框,生效值随之重算。 */
   setSessionView: (next: SessionView) => void;
-  /** 这一家有没有第二种展示可选。没有就不渲染控件 —— 只有一种展示的 harness 没什么可切。 */
+  /**
+   * 框里给不给「终端 | 通用」那个选择。两个条件都要:本机设置开着「允许以终端（TUI）模式启动 agent」
+   * (`terminal.enabled`),且这一家有第二种展示(只有一种展示的 harness 没什么可切)。
+   */
   sessionViewOffered: boolean;
   /**
    * 这一家在这个入口下被钉在某一种展示上。`view` 与 `sessionView` 一定相等 —— 控件显示的
@@ -362,23 +368,40 @@ interface InitialSessionStateOptions {
    */
   initialPrompt?: string;
   initialAttachmentDraft?: ComposerAttachmentDraft;
+  /** 这个框把首句派成群里的一张任务卡(`taskChatId`):首句是一条真的咕咕消息,见 `terminalLegUnstartableForCreation`。 */
+  dispatchesToChat?: boolean;
 }
 
-/** Resolve the leg for this creation surface without retiring a still-targeted TUI form. */
+/**
+ * 从这里建,终端腿起不来:首句要终端腿接住一条真的咕咕消息,而它接不住。
+ *  · 对话页:终端腿收不到入站(`inbound: 'none'`,kimi 那一格);同一家在会话页上终端照样可选。
+ *  · 派进群里的任务(项目里的新任务):首句是那张任务卡,终端腿要有吃得下消息首句的启动通道
+ *    (`providerTakesMessageStartupInPty`,codex 那一格)—— 主进程起 pty 时那道闸问的是同一个函数,
+ *    所以框里给得出「终端」的,起得来。
+ */
+export function terminalLegUnstartableForCreation(input: {
+  sessionpage: AgentCapabilities['sessionpage'] | null | undefined;
+  prompt: AgentCapabilities['prompt'] | null | undefined;
+  creationSurface: SessionCreationSurface;
+  dispatchesToChat: boolean;
+}): boolean {
+  const tui = input.sessionpage?.['tui'];
+  if (!tui) return false;
+  if (input.creationSurface === 'chat-page') return tui.inbound === 'none';
+  return input.dispatchesToChat && !providerTakesMessageStartupInPty(input.prompt ?? undefined, tui.messageTransport);
+}
+
+/** Resolve the leg for this creation without retiring a still-targeted TUI form. */
 export function sessionpageLegForCreation(input: {
   sessionpage: AgentCapabilities['sessionpage'] | null | undefined;
   preferred: 'acp' | 'tui';
-  creationSurface: SessionCreationSurface;
+  /** `terminalLegUnstartableForCreation` 的答案。 */
+  terminalUnstartable: boolean;
 }): 'acp' | 'tui' {
-  const preferredIntegration = input.sessionpage?.[input.preferred];
-  const shouldResolveFallback =
-    preferredIntegration === undefined
-    || (
-      input.creationSurface === 'chat-page'
-      && input.preferred === 'tui'
-      && preferredIntegration.inbound === 'none'
-    );
-  if (!shouldResolveFallback) return input.preferred;
+  if (input.preferred === 'tui' && input.terminalUnstartable) {
+    return sessionpageLegFor(input.sessionpage ?? undefined, 'acp') ?? input.preferred;
+  }
+  if (input.sessionpage?.[input.preferred] !== undefined) return input.preferred;
   return sessionpageLegFor(input.sessionpage ?? undefined, input.preferred) ?? input.preferred;
 }
 
@@ -505,6 +528,7 @@ export function useInitialSessionState(
     unattended = false,
     creationSurface = 'session-page',
     initialPrompt = '',
+    dispatchesToChat = false,
   } = options;
   const { translate } = useSessionMessages();
   // 新建会话的记忆 —— 应用设置 `newSessionMemory`,这台设备一份;主进程的 spawnAgent 读的是同一份(L11 复核 58)。
@@ -512,7 +536,11 @@ export function useInitialSessionState(
   const lastStartedConfiguration = memory?.lastStarted ?? null;
   /** 正在编辑一条已存记录(自动化)—— 它的 agent 是那条记录的属性,❌ 不写进全局的「我上次选的」。 */
   const editingStoredRecord = initialProvider !== undefined;
-  const [sessionViewPreference, setSessionViewPreference] = useSessionViewPreference();
+  // 新会话默认通用。设置里开着「允许以终端（TUI）模式启动 agent」时,框里给「终端 | 通用」由人选(owner 10-30);
+  // 编辑一条已存的自动化时,先由那条记录自己的展示播种。两者都只覆盖这一个框(`setSessionView`,❌ 写回任何全局设置)。
+  const terminalEnabled = useTerminalEnabled();
+  const [sessionViewOverride, setSessionViewOverride] = useState<SessionView | null>(null);
+  const sessionViewPreference = sessionViewOverride ?? DEFAULT_SESSION_VIEW;
   // #6264 远端创建框:只经云端连着的机器只有聊天界面那条腿(终端画面走不了云端消息通道),
   // 所以钉在它上面 —— 显示「编程」却建出「通用」就是界面说假话。
   // 在这台桌面上用 SSH 装上的机器和本机一样两种都给(behavior「别的机器上的编程只给用 SSH 装上的机器」)。
@@ -614,7 +642,7 @@ export function useInitialSessionState(
       const originalPath = machine ? '' : electronApi().getPathForFile(file).trim();
       const source = composerAttachmentSource({
         originalPath,
-        isUnstableDropPath: isUnstableDropPath(originalPath),
+        mustCopy: mustCopyRatherThanReference(originalPath),
         isHeicLike: isHeicLikeFile(file),
       });
       const name = file.name || originalPath.split('/').pop() || 'attachment';
@@ -825,18 +853,20 @@ export function useInitialSessionState(
   // 面的 identity / messageTransport 仍是 none 而接不通时,这条会话只能用编程视角 —— 偏好里存着
   // 「通用」也不算数,否则控件显示编程、载荷却是 acp,两边说的不是同一条会话。
   //
-  // 判据与会话页 ⋯ 菜单的「切换为通用/编程模式」共用同一份(`agentOffersSessionView`):建会话时
-  // 问的和会话中途换展示时问的是同一件事,❌ 两处各写一份组合就会漂。
+  // 判据与主进程建会话(create-session.ts)共用同一份(`agentOffersSessionView`),❌ 两处各写一份组合就会漂。
   const generalWired = agentOffersSessionView(capabilities, 'general');
   const resolvablePreferredSurface =
     sessionViewOffered && !generalOnlyAgent && !generalWired ? 'tui' : preferredSessionpageLeg;
-  // Chat-page's first sentence needs a receiving leg. Kimi's TUI row intentionally remains
-  // selectable on session-page for the native channel work; only the chat-page + terminal-preference
-  // path resolves its inbound:none declaration to the ACP leg.
+  const terminalUnstartable = terminalLegUnstartableForCreation({
+    sessionpage: capabilities?.sessionpage,
+    prompt: capabilities?.prompt,
+    creationSurface,
+    dispatchesToChat,
+  });
   const sessionpageSurface = sessionpageLegForCreation({
     sessionpage: capabilities?.sessionpage,
     preferred: resolvablePreferredSurface,
-    creationSurface,
+    terminalUnstartable,
   });
   // 目录按这条会话会落的那条腿取(#6246):两条腿的配置根可能不同(pi:终端腿读用户自己的根,
   // ACP 腿读咕咕自有的根),拿另一条腿的清单当菜单,就会列出这条腿跑不了的、或漏掉跑得了的。
@@ -866,13 +896,9 @@ export function useInitialSessionState(
     harnessCatalogState,
     staticModelsCapability?.modelOptions
   );
-  // 判据用解析后的腿(resolvablePreferredSurface),不用原始偏好:偏好是通用、但通用视角没接通
-  // 被折回编程、编程视角又收不到首句 ⇒ 最终仍落在通用,这一条也属于「从这里发起只能通用」。
-  const generalForcedByInbound =
-    creationSurface === 'chat-page'
-    && resolvablePreferredSurface === 'tui'
-    && capabilities?.sessionpage?.['tui']?.inbound === 'none'
-    && sessionpageSurface === 'acp';
+  // 从这里建终端起不来 ⇒ 不管偏好是哪头都锁在通用(❌ 等人点了终端才变灰);只在通用那条腿真能落时锁,
+  // 锁显示的才等于这条会话真实的展示。
+  const generalForcedHere = terminalUnstartable && sessionpageSurface === 'acp';
   const sessionView = sessionViewOfLeg(sessionpageSurface);
   // 展示控件的锁:三种「选不了」各有各的含义,控件显示的必须等于这条会话真实的展示(上面那个
   // `sessionView`),❌ 不是偏好。owner 2026-08-28 实测过反例:「这里写死了,没法切换,没法测」。
@@ -883,7 +909,7 @@ export function useInitialSessionState(
       ? { view: 'general', reason: creationSurface === 'chat-page' ? 'general-required-here' : 'remote-needs-ssh' }
       : generalOnlyAgent
       ? { view: 'general', reason: 'general-only' }
-      : generalForcedByInbound
+      : generalForcedHere
         ? { view: 'general', reason: 'general-required-here' }
         : !generalWired
           ? { view: 'code', reason: 'code-only' }
@@ -994,11 +1020,12 @@ export function useInitialSessionState(
   //    `harnessCatalogState` 恒停在 `'unknown'`,这一格就会永远显示「正在读取可用模型…」——
   //    一个不会结束的进度。从前它被 providerError 顺带挡住了(那时「没选」是一条错误);
   //    #5740 把「没选」改成合法空态之后,这一项必须自己写出来。
-  // 选的是别的机器、此刻没连上:为什么连不上由新建框那一行说(版本太旧正在更新 / 离线 / 要先登录),
-  // ❌ 这里再报一句「读取 X 的模型失败」—— 那不是 X 的问题。
-  const harnessNoticeMessage = !providerId || providerError || platformModel || byokLoginOptional || (remoteHost && !remoteHost.online)
+  // 选的是别的机器、此刻没连上:为什么连不上由右下角那台机器的提示说(重连中 / 离线 / 要先登录 / 版本太旧,
+  // 见 remote-hosts/machine-notice.ts),❌ 这里再报一句「读取 X 的模型失败」—— 那不是 X 的问题,是机器的。
+  const machineUnreachable = Boolean(remoteHost && !remoteHost.online);
+  const harnessNoticeMessage = !providerId || providerError || platformModel || byokLoginOptional || machineUnreachable
     ? null
-    : harnessCatalogNotice(harnessCatalogState, agentDisplayName);
+    : harnessCatalogNotice(harnessCatalogState, agentDisplayName, translate);
 
   // 切到一家**强制登录**的 harness 时,给一次提示并留一条退路(spec: harness-vendor-account)。
   // 判据本体在上面 `needsVendorLogin`。
@@ -1177,7 +1204,8 @@ export function useInitialSessionState(
   // ❌ 别再在这里自己编一句「咕咕模型尚未对 X 开通」:原来「已安排」那一面关掉分组时就这么写,
   //    而那时咕咕的模型明明对 X 开着,是界面自己没去读。
   // 宿主报的是原因码,这里按界面语言说成人话;认不出的原文(老版本宿主)❌ 上屏。
-  const platformCatalogNotice = guguCatalogNotice(platformCatalog.catalogError, translate);
+  // 机器没连上时同理:咕咕模型的目录也是问那台机器要的,问不到是机器离线的结果,❌ 说成「模型列表尚未就绪」再给个「重试」。
+  const platformCatalogNotice = machineUnreachable ? null : guguCatalogNotice(platformCatalog.catalogError, translate);
   const platformNotice = platformCatalogNotice?.text ?? null;
   // 失败细节 ❌ 不拼进上面那句内联文案:那是 composer 工具栏,而 reason 是长度不可控的外部串,拼进去会把
   // 工具栏撑破、溢出到卡片外(真机上就是这么炸的)。工具栏留一句定性(「读取 X 的模型失败」),原因就地
@@ -1421,8 +1449,8 @@ export function useInitialSessionState(
       });
     },
     sessionView,
-    setSessionView: setSessionViewPreference,
-    sessionViewOffered,
+    setSessionView: setSessionViewOverride,
+    sessionViewOffered: sessionViewOffered && terminalEnabled,
     sessionViewLock,
     providerSelectionSurface: sessionpageSurface,
     machine,
@@ -1483,13 +1511,22 @@ function promptHasIssueMention(text: string, token: string): boolean {
   return extractIssueMentionTargets(text).some((target) => target.token === token);
 }
 
+/** 框此刻是哪件事、标签长什么样(见 ComposerVerbTag);标签上画所选 agent 的标,所以给成 agent 的函数。 */
+export interface ComposerVerbLook {
+  tone: 'task';
+  tag: (agentId: string | undefined) => ReactNode;
+}
+
 interface InitialSessionFieldProps {
   state: InitialSessionState;
   linkedIssue?: LinkedIssue;
   includeIssueContextByDefault: boolean;
   enableMentions?: boolean;
   onPromptBlur?: () => void;
-  placeholder?: string;
+  /** 给成函数 = 随所选 agent 变(「想让 Claude 做点什么？」)。 */
+  placeholder?: string | ((agentName: string) => string);
+  /** 这一框是一件事(新任务 / 定时任务,gugu-dev#181):框换那件事的色,标签排在输入行最前面。 */
+  verb?: ComposerVerbLook;
   textareaClassName?: string;
   showAutoApproveToggle?: boolean;
   /**
@@ -1510,6 +1547,7 @@ export function InitialSessionField({
   enableMentions = true,
   onPromptBlur,
   placeholder,
+  verb,
   textareaClassName,
   showAutoApproveToggle = true,
   enableAttachments = true,
@@ -1523,11 +1561,12 @@ export function InitialSessionField({
   const localMentionItemsRef = useRef<MentionItem[]>([]);
   const { value: promptLibrary } = usePromptLibrary();
   const harnessModelOptions = useHarnessModelOptions(state.provider, sessionpageLegOfView(state.sessionView));
-  const { data: agents, isPending: agentsPending } = useAgents();
+  const { data: agents, isLoading: agentsLoading } = useAgents();
   // #6264 名单要跨云问另一台机器时,那一格画「正在读取」,❌ 空着让人以为那台机器上什么都开不了。
+  // 只在真在读时画(isLoading):那台机器没连上就不问,❌ 一直转到它回来(原因由机器的提示说)。
   const remoteCreateForActions = useLibraryHost().remote !== null;
-  const agentOptionsLoading = remoteCreateForActions && agentsPending;
-  const { tools: agentCreationTools, error: agentCreationToolsError } = useSessionAgentCreationTools();
+  const agentOptionsLoading = remoteCreateForActions && agentsLoading;
+  const { tools: agentCreationTools, renderMentionIcon: renderAgentMentionIcon } = useSessionAgentCreationTools();
   const agentCreationToolsByEngine = useMemo(
     () => new Map<string, (typeof agentCreationTools)[number]>(agentCreationTools.map((tool) => [tool.engine, tool])),
     [agentCreationTools],
@@ -1649,16 +1688,14 @@ export function InitialSessionField({
     }
   }, [linkedIssueMention, state.issueContext, state.prompt]);
 
-  const renderMentionIcon = useCallback<RenderMentionIcon>(({ id, kind, engine }) => {
-    if (kind === 'custom' && engine) {
-      const iconUrl = agentCreationToolsByEngine.get(engine)?.icon?.trim() || '';
-      return iconUrl ? <img src={iconUrl} alt="" width={16} height={16} /> : null;
-    }
+  const renderMentionIcon = useCallback<RenderMentionIcon>((attrs) => {
+    const { id, kind } = attrs;
+    if (kind === 'custom') return renderAgentMentionIcon(attrs);
     if (kind !== 'issue') return null;
     const target = parseIssueMentionToken(id);
     if (!target) return null;
     return <IntegrationIcon provider={target.provider} size={12} />;
-  }, [agentCreationToolsByEngine]);
+  }, [renderAgentMentionIcon]);
 
   // Automation prompts use this field as a plain text input. Keep their existing contract while
   // the normal New task composer shares the session mention provider with in-session ACP chat.
@@ -1667,10 +1704,9 @@ export function InitialSessionField({
       enableMentions
         ? createLocalSessionMentionProvider({
             creationToolsByEngine: agentCreationToolsByEngine,
-            creationToolsError: agentCreationToolsError,
           })
         : null,
-    [agentCreationToolsByEngine, agentCreationToolsError, enableMentions]
+    [agentCreationToolsByEngine, enableMentions]
   );
 
   // 侧栏会话行拖进来 = 与 @ 弹层同一枚 pill(behavior session-page「把会话拖成 @」)。这里还要**先记账**:
@@ -1864,25 +1900,6 @@ export function InitialSessionField({
     [chatAttachmentChannel, remoteMachine, state, translate]
   );
 
-  // owner: composer 底栏一排四控件 — Agent → Model → 权限(询问) → 展示。前三个是 ChatComposer
-  // 自带的 toolbar-left 选择器,展示作为第 4 个经 toolbarExtra 塞进同一排。
-  // 展示是「编程 | 通用」(Code | Work)两段各有名字的分段控件,❌ 不再是一个只给一头起名的
-  // "Chat UI" 开关(product spec:实现术语不直接展示给用户)。
-  // owner 2026-08-21:**声明没闭合 ≠ 不支持**。选不了的那一头要**留在原地并说明原因**,❌ 不是
-  // 凭空消失 —— 消失让用户以为界面坏了,而 product spec 要的是「不适用的项隐藏或明确
-  // 禁用,不能形成无响应的假控件」。三种锁的判定与「这条会话真实用哪一种展示」一起在 hook 里算
-  // (`sessionViewLock`),这里只负责把 reason 翻成人话。
-  // 压根没声明通用视角的 harness(如 Pi:surfaces 只有 tui)没有第二种展示,不出现。
-  const sessionViewControl = state.sessionViewOffered ? (
-    <SessionViewControl
-      value={state.sessionView}
-      onChange={state.setSessionView}
-      lock={state.sessionViewLock}
-      agentName={selectedAgentName}
-      disabled={!state.provider}
-    />
-  ) : undefined;
-
   // 平台分组缺席的原因,贴在模型选择器同一排。ChatComposer 的模型列表是平铺的
   // `DropdownMenu.RadioItem`,`ComposerModelOption` 没有 disabled/说明行的位置(组件在
   // packages/session-ui),所以这句话只能落在工具栏里 —— 不可点、无边框、跟 Chat UI 标签同一档
@@ -1937,6 +1954,18 @@ export function InitialSessionField({
   // 打开就看见的那一面。
   const [attachmentViewer, setAttachmentViewer] = useState<ComposerAttachment | null>(null);
 
+  // 「终端 | 通用」经 toolbarExtra 进底排(给不给见 `sessionViewOffered`)。选不了的那一头留在原地、
+  // 灰掉并说明原因(`sessionViewLock`),❌ 凭空消失(owner 2026-08-21)。
+  const sessionViewControl = state.sessionViewOffered ? (
+    <SessionViewControl
+      value={state.sessionView}
+      onChange={state.setSessionView}
+      lock={state.sessionViewLock}
+      agentName={selectedAgentName}
+      disabled={!state.provider}
+    />
+  ) : undefined;
+
   const toolbarExtra =
     sessionViewControl || platformNotice || harnessNotice || grokPermissionNotice ? (
       <>
@@ -1974,8 +2003,11 @@ export function InitialSessionField({
           canSubmit={canSubmit}
           showSubmitButton={!!onSubmit}
           placeholder={
-            placeholder ?? 'Describe what the agent should do, or use / to select a prompt...'
+            (typeof placeholder === 'function' ? placeholder(selectedAgentName) : placeholder) ??
+            'Describe what the agent should do, or use / to select a prompt...'
           }
+          tone={verb?.tone}
+          leading={verb?.tag(state.providerError ? undefined : (state.provider ?? undefined))}
           onSubmit={() => onSubmit?.()}
           onInputChange={handleComposerInputChange}
           editorApiRef={editorApiRef}

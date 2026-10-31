@@ -24,7 +24,7 @@ vi.mock('../stores/session-registry', () => ({
   },
 }));
 vi.mock('@renderer/lib/acp/runtime-client', () => ({
-  getAcpRuntimeClient: async () => ({ queuePrompt: vi.fn() }),
+  getAcpRuntimeClient: async () => ({ getStoredQueue: vi.fn().mockResolvedValue([]), queuePrompt: vi.fn() }),
 }));
 const toasts = vi.hoisted(() => [] as unknown[]);
 vi.mock('@renderer/lib/hooks/use-toast', () => ({ toast: (arg: unknown) => toasts.push(arg) }));

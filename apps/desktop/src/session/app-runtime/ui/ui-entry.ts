@@ -48,7 +48,9 @@ function context(): Promise<Context> {
   return current;
 }
 function setTheme(themeMode: Context['themeMode']): void {
-  if (themeMode === 'light' || themeMode === 'dark') document.documentElement.dataset.guguTheme = themeMode;
+  if ((themeMode === 'light' || themeMode === 'dark') && document.documentElement.dataset.guguTheme !== themeMode) {
+    document.documentElement.dataset.guguTheme = themeMode;
+  }
 }
 
 // ── <gugu-icon> ─────────────────────────────────────────────────────────────────────────────────────────────────────

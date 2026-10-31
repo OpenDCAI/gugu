@@ -1,12 +1,12 @@
 import { execFileSync, spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, existsSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterAll, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@main/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
 
-import { buildTmuxShellLine, tmuxTakeClientEnvironment } from './tmux-session-name';
+import { buildTmuxShellLine, listTmuxSessionNames, tmuxTakeClientEnvironment } from './tmux-session-name';
 
 function tmuxBinary(): string | null {
   const found = spawnSync('/bin/sh', ['-c', 'command -v tmux'], { encoding: 'utf8' });
@@ -56,5 +56,30 @@ describe('tmux 新建会话拿这次 spawn 的环境(#6264)', () => {
     const second = run('two', 'second');
     expect(second).toContain('GUGU_PTY_ID=second');
     expect(second).toContain('BROWSER=second-browser');
+  });
+});
+
+describe('listTmuxSessionNames: 服务器套接字还不存在时不 fork tmux', () => {
+  const env = { label: process.env.GUGU_TMUX_SOCKET_LABEL, tmpdir: process.env.TMUX_TMPDIR };
+  const socketDir = mkdtempSync(path.join(tmpdir(), 'tmux-sock-'));
+  afterAll(() => {
+    if (env.label === undefined) delete process.env.GUGU_TMUX_SOCKET_LABEL; else process.env.GUGU_TMUX_SOCKET_LABEL = env.label;
+    if (env.tmpdir === undefined) delete process.env.TMUX_TMPDIR; else process.env.TMUX_TMPDIR = env.tmpdir;
+    rmSync(socketDir, { recursive: true, force: true });
+  });
+
+  it.skipIf(process.platform === 'win32')('没有套接字 = 空集且不调用 tmux;套接字在 = 照常问 tmux', async () => {
+    process.env.GUGU_TMUX_SOCKET_LABEL = 'gugu-idle-probe';
+    process.env.TMUX_TMPDIR = socketDir;
+    const exec = vi.fn(async () => ({ stdout: 'gugu-a\n', stderr: '' }));
+    const ctx = { supportsLocalSpawn: true, exec } as unknown as Parameters<typeof listTmuxSessionNames>[0];
+    expect(await listTmuxSessionNames(ctx)).toEqual(new Set());
+    expect(exec).not.toHaveBeenCalled();
+
+    const serverDir = path.join(socketDir, `tmux-${process.getuid!()}`);
+    mkdirSync(serverDir, { recursive: true });
+    writeFileSync(path.join(serverDir, 'gugu-idle-probe'), '');
+    expect(await listTmuxSessionNames(ctx)).toEqual(new Set(['gugu-a']));
+    expect(exec).toHaveBeenCalledTimes(1);
   });
 });

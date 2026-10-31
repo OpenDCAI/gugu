@@ -529,10 +529,8 @@ export async function captureExternalForks(projectId: string, sessionId: string)
   if (managed.length === 0) return;
   const owner = managed[0]!;
   if (owner.provider !== 'claude' && owner.provider !== 'codex') return;
-  // Native transcripts live with the session's credentials, even after the default account changes.
-  const { resolveHarnessConnection } = await import('@main/core/agents/harness-connections');
-  const connection = await resolveHarnessConnection(owner.provider, { sessionId: owner.id });
-  const transcriptEnv = { ...process.env, ...connection.configRootEnv };
+  // 两家的会话都跑在用户自己的配置根上(#26),记录也在那里,换了默认订阅也不挪。
+  const transcriptEnv = process.env;
   // 运行时自己 fork 出、只活在运行时里的会话(#4236)不进侧栏 —— 这一条的、同目录别的会话的都一样。
   // ❌ 以前遇到「别的会话的」就抛错:而一个工作目录挂多条会话是常态,于是每一趟都在半路
   // 抛错退出,外部 fork 永远认领不到(正式版日志每小时 1400+ 条 `forkCapture: scan failed`)。

@@ -1,21 +1,29 @@
 // 全 app 唯一的看图查看器(PhotoSwipe,宿主是 components/ImagePreviewProvider)的入口与纯函数。
 // 入口是模块函数而不是 React context:会话页是另一棵 React 树,context 伸不过去。
 
+import type { ResourceContext } from '@/session/shared/resource-actions'
+
 export interface ImageViewerItem {
+  /** Actual origin, never inferred from whichever conversation is behind the viewer. */
+  source?: { chatId: string; messageId?: string }
+  resource?: ResourceContext
   url: string
   alt: string
   /** 页面上那张缩略图:从它放大进入、关闭时缩回去,并提前知道原图尺寸;没有就淡入淡出。 */
   thumb?: HTMLElement | null
   /** 气泡里画的是缩略图时:取原图(object URL)。查看器先用 url 打开,翻到这一张再换成原图。 */
   full?: () => Promise<string>
+  /** File previews keep their existing citation producer when opening the shared image viewer. */
+  quote?: () => Promise<void> | void
 }
 
 /** 缩略图 <img> → 取它原图的办法(附件进群文件夹 ③:气泡用 CDN 缩略图,原图到看的时候才下)。 */
-const fullImageLoaders = new WeakMap<HTMLImageElement, () => Promise<string>>()
-export function registerFullImage(thumb: HTMLImageElement, load: () => Promise<string>): () => void {
-  fullImageLoaders.set(thumb, load)
+const fullImageLoaders = new WeakMap<HTMLImageElement, Pick<ImageViewerItem, 'full' | 'resource' | 'source'>>()
+export function registerFullImage(thumb: HTMLImageElement, load: () => Promise<string>, resource?: ResourceContext, source?: ImageViewerItem['source']): () => void {
+  const entry = { full: load, resource, ...(source ? { source } : {}) }
+  fullImageLoaders.set(thumb, entry)
   return () => {
-    if (fullImageLoaders.get(thumb) === load) fullImageLoaders.delete(thumb)
+    if (fullImageLoaders.get(thumb) === entry) fullImageLoaders.delete(thumb)
   }
 }
 
@@ -112,8 +120,7 @@ export const IMAGE_VIEWER_SRC_ATTR = 'data-image-viewer-src'
 function itemFromThumb(thumb: HTMLImageElement): ImageViewerItem {
   const url = thumb.getAttribute(IMAGE_VIEWER_SRC_ATTR)
   if (!url) throw new Error(`image thumbnail is missing ${IMAGE_VIEWER_SRC_ATTR}`)
-  const full = fullImageLoaders.get(thumb)
-  return { url, alt: thumb.alt, thumb, ...(full ? { full } : {}) }
+  return { url, alt: thumb.alt, thumb, ...fullImageLoaders.get(thumb) }
 }
 
 export function galleryAround(thumb: HTMLImageElement): ImageViewerRequest {

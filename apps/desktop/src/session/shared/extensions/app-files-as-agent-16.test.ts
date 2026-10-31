@@ -1,3 +1,4 @@
+import { rpcQuery } from '../../../../../../tests/helpers/rpcQuery';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 /**
@@ -23,7 +24,7 @@ const rpcCalls: unknown[] = [];
 
 vi.mock('@gugu/core/cloud/supabase', () => ({
   createGuguSupabaseClient: () => ({
-    rpc: async (name: string, args: { p_item_id: string; p_as_user_id: string }) => {
+    rpc: rpcQuery(async (name: string, args: { p_item_id: string; p_as_user_id: string }) => {
       // Who may delete what is the folder's to say; here, everyone may delete everything.
       if (name === 'workspace_deletable_as') return { data: (args as unknown as { p_item_ids: string[] }).p_item_ids, error: null };
       rpcCalls.push({ name, args });
@@ -31,7 +32,7 @@ vi.mock('@gugu/core/cloud/supabase', () => ({
       return seen?.id === args.p_item_id
         ? { data: [{ ...seen, parent_id: null, system_role: null, path: seen.filename }], error: null }
         : { data: null, error: { message: `workspace item not found: ${args.p_item_id}`, hint: 'workspace_item_not_found' } };
-    },
+    }),
   }),
 }));
 
@@ -41,7 +42,7 @@ const grants: unknown[] = [];
 const files = createAppFiles({
   account: async () => ({ token: 'token', userId: PERSON }),
   hasCapability: () => false,
-  sync: { pageFor: () => ({}), grant: (_page: unknown, grant: unknown) => void grants.push(grant), revoke: () => undefined, ungrant: () => undefined } as never,
+  sync: { ensureFor: () => undefined, pageFor: () => ({}), grant: (_page: unknown, grant: unknown) => void grants.push(grant), revoke: () => undefined, ungrant: () => undefined } as never,
   identities: async (_token, ids) => ids.map((id) => ({ id, name: 'Helper', avatar: null, kind: 'agent' as const })),
   faces: async () => ({}),
   filesUrl: () => 'http://files.invalid',

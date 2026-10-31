@@ -1,4 +1,6 @@
 import type { ToolNode, TranscriptItem, TranscriptTurn } from './../model';
+import { toolRunCategory, type ToolRunCategory } from '@session-chat/state/tool-run';
+import { toolStepDetail } from './tool-step-detail';
 
 /**
  * 还没回话的子智能体花名册(#4981)。
@@ -53,6 +55,8 @@ export type SubagentRosterEntry = {
   calls: readonly SubagentCall[];
   /** 派出去到现在过了多久(毫秒);拿不到起点时是 0。 */
   elapsedMs: number;
+  /** 派出去的那一刻(毫秒);拿不到就没有。转录末尾那一行自己按它走秒,❌ 等花名册重算。 */
+  startedAt?: number;
   canCancel?: boolean;
 };
 
@@ -75,6 +79,10 @@ export type SubagentCall = {
   toolCallId: string;
   /** 供应商给这次调用起的名字。拿不到就是空串 —— ❌ 不编。 */
   title: string;
+  /** The observed tool kind, localized when rendered rather than parsed from its title. */
+  category: ToolRunCategory;
+  /** Full real arguments; the compact row only clips their visual presentation. */
+  detail: string;
   status: ToolNode['status'];
   seq: number;
 };
@@ -88,12 +96,14 @@ function collectCalls(
     // 正好该被这几个 `in` 挡在外面,所以这里不是为了迁就类型。
     const parent = 'parentToolCallId' in item ? item.parentToolCallId : undefined;
     const callId = 'toolCallId' in item ? item.toolCallId : undefined;
-    if (parent && callId) {
+    if (parent && callId && item.kind !== 'tool-group') {
       const byId = out.get(parent) ?? new Map<string, SubagentCall>();
       // 同一次调用会来好几条事件 ⇒ 按它自己的 toolCallId 去重,后到的覆盖先到的。
       byId.set(callId, {
         toolCallId: callId,
         title: ('title' in item ? item.title : undefined) ?? '',
+        category: toolRunCategory(item, true) ?? 'tool',
+        detail: toolStepDetail(item) ?? item.title,
         status: item.status,
         seq: item.seq,
       });
@@ -204,6 +214,7 @@ export function collectSubagentRoster(
       // 按时序 —— 面板那条时间线照这个顺序画。
       calls: [...calls].sort((a, b) => a.seq - b.seq),
       elapsedMs,
+      ...(startedAt !== undefined ? { startedAt } : {}),
       canCancel: item.canCancel === true,
     });
   }

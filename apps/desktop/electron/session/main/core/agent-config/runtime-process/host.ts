@@ -27,6 +27,7 @@ import { loginShellEnv } from '@main/utils/userEnv';
 import { err, ok, type Result } from '@gugu/session-shared';
 import type { AgentConfigAuthError } from '@gugu/session-core/workspace-server';
 import { createHarnessConnection, listHarnessConnections, removeHarnessConnection, selectHarnessConnection, sessionHarnessConnectionId } from '@main/core/agents/harness-connections';
+import { connectionFailure } from '@main/core/sessions/subscription-sessions-busy';
 
 const AGENT_CONFIG_WIRE_CHANNEL = 'agent-config-wire';
 
@@ -53,7 +54,6 @@ const agentConfigWorker = lazyWorker(
   }),
   {
     onSpawned: (handle) => {
-      installRendererWire(withHostResolvedCli(handle.client));
       wireHostDependencyLedger(handle);
     },
   }
@@ -111,6 +111,7 @@ export type AgentConfigRuntimeClient = ContractClient<AgentConfigContract>;
 let rendererWireDispose: (() => void) | null = null;
 
 export async function initializeAgentConfigRuntimeProcess(): Promise<AgentConfigRuntimeHandle> {
+  rendererWireDispose ??= exposeRendererWire();
   return agentConfigWorker.get();
 }
 
@@ -130,7 +131,7 @@ export async function getAgentConfigRuntimeClient(): Promise<AgentConfigRuntimeC
  * 不是登录失效了,❌ 标上(10-07 mac1:没 key 的 MiMo 一轮被拒,重启后模型清单写「MiMo Code 登录已失效」)。
  */
 export async function markAgentAuthExpired(providerId: string, sessionId?: string): Promise<void> {
-  const connectionId = sessionHarnessConnectionId(sessionId);
+  const connectionId = await sessionHarnessConnectionId(sessionId);
   if (sessionId && !connectionId) return;
   const reading = await (await getAgentConfigRuntimeClient()).refreshAuthStatus({ providerId, connectionId });
   if (reading.success && reading.data.kind === 'unauthenticated' && reading.data.reason !== 'expired') return;
@@ -140,7 +141,7 @@ export async function markAgentAuthExpired(providerId: string, sessionId?: strin
 }
 
 export async function clearAgentAuthExpired(providerId: string, sessionId?: string): Promise<void> {
-  const connectionId = sessionHarnessConnectionId(sessionId);
+  const connectionId = await sessionHarnessConnectionId(sessionId);
   if (sessionId && !connectionId) return;
   const handle = await getAgentConfigRuntimeHandle();
   const result = await handle.client.clearAuthExpired({ providerId, connectionId });
@@ -183,11 +184,17 @@ function withHostResolvedCli(
       const cancelled = await client.cancelLogin(input);
       if (!cancelled.success) throw new Error('Connection removed, but its sign-in process could not be cancelled');
     }),
-    selectConnection: (input) => connectionOperation(async () => {
+    selectConnection: ({ stopBusySessions, ...input }) => connectionOperation(async () => {
       const status = await client.refreshAuthStatus({ ...input, runContext: await runContextFor(input) });
       if (!status.success) throw new Error('Cannot read the connection’s sign-in status');
       if (input.connectionId !== 'native' && status.data.kind !== 'authenticated') throw new Error('Sign in before using this connection');
-      await selectHarnessConnection(input.providerId, input.connectionId);
+      if (input.providerId === 'codex' || input.providerId === 'claude') {
+        // 已有会话跟着默认订阅走:换凭据前要先停掉在跑的会话(#26)。
+        const { switchSubscription } = await import('@main/core/sessions/subscription-switch');
+        await switchSubscription(input.providerId, input.connectionId, (await runContextFor({ providerId: input.providerId })).env, { stopBusySessions });
+      } else {
+        await selectHarnessConnection(input.providerId, input.connectionId);
+      }
       // Main-provider reading follows the selection; connection login state remains separate.
       const refreshed = await client.refreshAuthStatus({ providerId: input.providerId, runContext: await runContextFor({ providerId: input.providerId }) });
       if (!refreshed.success) throw new Error('Connection selected, but its sign-in status could not be refreshed');
@@ -211,7 +218,7 @@ function withHostResolvedCli(
 
 async function connectionOperation<T>(operation: () => Promise<T>): Promise<Result<T, AgentConfigAuthError>> {
   try { return ok(await operation()); }
-  catch (error) { return err({ type: 'invalid-state', message: error instanceof Error ? error.message : String(error) }); }
+  catch (error) { return err(connectionFailure(error)); }
 }
 
 function subscriptionRunContext(providerId: string, connectionId?: string) {
@@ -221,20 +228,17 @@ function subscriptionRunContext(providerId: string, connectionId?: string) {
   return resolveLocalAgentRunContext(providerId, { role: plugin ? authProgramRole(plugin, program) : 'primary', connectionId });
 }
 
-function installRendererWire(client: AgentConfigRuntimeClient): void {
-  rendererWireDispose?.();
-  const controller = withValidation(
-    agentConfigContract,
-    forwardController(agentConfigContract, client),
-    runtimeWireValidationPolicy()
-  );
+/** 与 ACP 那条同形(见 acp/runtime-process/host.ts `exposeRendererWire`):开机就挂上,每次 connect 先 `get()`。 */
+function exposeRendererWire(): () => void {
   const hostIpc = getHostIpc();
-  rendererWireDispose = exposeWireToWindows(
+  return exposeWireToWindows(
     {
       ipcMain: hostIpc.ipcMain,
       createMessageChannel: (event) => hostIpc.createMessageChannel(event),
     },
-    controller,
+    () => agentConfigWorker.get(),
+    (handle) =>
+      withValidation(agentConfigContract, forwardController(agentConfigContract, withHostResolvedCli(handle.client)), runtimeWireValidationPolicy()),
     { channel: AGENT_CONFIG_WIRE_CHANNEL }
   );
 }

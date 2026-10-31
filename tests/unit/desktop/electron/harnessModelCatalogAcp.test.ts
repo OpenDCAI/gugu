@@ -799,6 +799,53 @@ function handle(msg) {
     expect(spawns).toBe(2)
     expect(JSON.stringify(state)).not.toContain('probe-only')
   })
+
+  it('Pi reads materialized model settings, preserves auth-required and removes the scratch directory', async () => {
+    const { buildProbePlatformCredentials, PROBE_MODEL_ID } = await import('../../../../apps/desktop/electron/harness-catalog-probe-env')
+    const entry = await fakeAgent(`
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+function handle(msg) {
+  if (msg.method === 'initialize') return reply(msg.id, { protocolVersion: 1 });
+  if (msg.method !== 'session/new') return;
+  const dir = process.env.PI_CODING_AGENT_DIR;
+  if (!dir) return fail(msg.id, { code: -32000, message: 'Authentication required' });
+  const settings = JSON.parse(readFileSync(join(dir, 'settings.json'), 'utf8'));
+  const providers = JSON.parse(readFileSync(join(dir, 'models.json'), 'utf8')).providers;
+  const model = providers[settings.defaultProvider].models.find((entry) => entry.id === settings.defaultModel);
+  if (!model || !process.env.GUGU_PI_API_KEY) return fail(msg.id, { code: -32603, message: 'Missing model configuration' });
+  return reply(msg.id, { sessionId: 'pi-probe', models: { availableModels: [{ modelId: model.id, name: model.name }] },
+    configOptions: [{ id: 'thinking', category: 'thought_level', type: 'select', currentValue: 'high',
+      options: [{ value: 'low', name: 'Low' }, { value: 'high', name: 'High' }] }] });
+}
+`)
+    setAcpSpawnResolver(async () => ({ command: process.execPath, args: [entry], env: {} }))
+    let scratch = ''
+    setProbePlatformEnvResolver(async (pluginId, scratchDir) => {
+      scratch = scratchDir
+      return buildProbePlatformCredentials(pluginId, scratchDir)
+    })
+    const state = await probeHarnessModelCatalog('pi', 'acp')
+    expect(state).toMatchObject({ kind: 'auth-required', selectedEffort: 'high', efforts: [{ id: 'low' }, { id: 'high' }] })
+    expect(JSON.stringify(state)).not.toContain(PROBE_MODEL_ID)
+    expect(scratch).not.toBe('')
+    expect(existsSync(scratch)).toBe(false)
+  })
+
+  it('returns a real second-probe failure instead of hiding it as sign-in required', async () => {
+    const entry = await fakeAgent(`
+function handle(msg) {
+  if (msg.method === 'initialize') return reply(msg.id, { protocolVersion: 1 });
+  if (msg.method === 'session/new') return fail(msg.id, process.env.GUGU_PROBE_MARK
+    ? { code: -32603, message: 'Network unavailable' }
+    : { code: -32000, message: 'Authentication required' });
+}
+`)
+    setAcpSpawnResolver(async () => ({ command: process.execPath, args: [entry], env: {} }))
+    setProbePlatformEnvResolver(async () => ({ env: { GUGU_PROBE_MARK: 'yes' } }))
+    expect(await probeHarnessModelCatalog('pi', 'acp'))
+      .toMatchObject({ kind: 'unavailable', reason: expect.stringContaining('Network unavailable') })
+  })
 })
 /**
  * 终止条件:**没有一条墙钟参与判「快慢」**。
@@ -962,6 +1009,36 @@ setInterval(() => {}, 1000);
     await waitForSpawnCount(1)
     expect(spawns).toBe(1)
   })
+  it('@@@catalog-probe-no-spin (#7649) 占位凭据抛出 → 落为 unavailable 并写缓存,lookup 必须收敛', async () => {
+    // 配置物化失败:第一趟判出「需要登录」,第二趟写探针文件时抛。
+    await useAgent(`
+function handle(msg) {
+  if (msg.method === 'initialize') return reply(msg.id, { protocolVersion: 1 });
+  if (msg.method === 'initialized') return;
+  if (msg.method === 'session/new') return fail(msg.id, {
+    code: -32000,
+    message: 'Authentication required',
+    data: { authMethods: [{ id: 'pi_terminal_login', name: 'Log in from the terminal' }] },
+  });
+}
+`)
+    setProbePlatformEnvResolver(async () => {
+      throw new Error('model catalog probe: pi placeholder credentials unavailable — its model is delivered by a session-bundle config file the probe does not materialize')
+    })
+
+    const first = await lookupHarnessModelCatalog('pi', { leg: 'acp', harnessVersion: '1' })
+    expect(first.refreshing, '第一次问:后台刚起探测,这时候说还在读是对的').toBe(true)
+
+    await __drainProbesForTest()
+
+    const second = await lookupHarnessModelCatalog('pi', { leg: 'acp', harnessVersion: '1' })
+    expect(second.refreshing, '探测收摊后仍说 refreshing ⇒ 渲染层每 700ms 再问一次,界面永远转圈').toBe(false)
+    expect(second.state.kind, 'unknown = 还没探过;探过且炸了必须是 unavailable').toBe('unavailable')
+    if (second.state.kind !== 'unavailable') return
+    expect(second.state.reasonCode).toBe('probe-failed')
+    expect(second.state.reason, '异常原文漏进了用户可见文案').not.toMatch(/placeholder credentials|session-bundle config file/)
+  })
+
   it('缓存新鲜 → 直接给,refreshing=false,❌ 不再起进程', async () => {
     const entry = await fakeAgent(SESSION_WITH_MODELS)
     setAcpSpawnResolver(async () => {

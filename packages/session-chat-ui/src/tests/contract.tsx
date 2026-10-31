@@ -112,6 +112,7 @@ export async function renderAndMeasureUnit<D, V extends Record<string, number>>(
   // Mirror the native UnitRow path: expanded(id) = isCollapsed(id).
   const measureCtx: MeasureCtx = {
     ...ctx,
+    commands: ctx.commands ?? commands,
     expanded: ctx.isCollapsed,
   };
   const defVars = (def.vars ?? {}) as V;
@@ -218,7 +219,18 @@ export function measureSpill(host: HTMLElement): number {
   for (const element of host.querySelectorAll('*')) {
     const rect = element.getBoundingClientRect();
     if (rect.width === 0 && rect.height === 0) continue;
-    worst = Math.max(worst, rect.right - bounds.right, bounds.left - rect.left);
+    let left = rect.left;
+    let right = rect.right;
+    // A transformed decoration can extend beyond its box while its painted
+    // pixels stay clipped. Measure the visible extent, including every clip.
+    for (let parent = element.parentElement; parent && parent !== host; parent = parent.parentElement) {
+      if (['hidden', 'clip', 'scroll', 'auto'].includes(getComputedStyle(parent).overflowX)) {
+        const clip = parent.getBoundingClientRect();
+        left = Math.max(left, clip.left);
+        right = Math.min(right, clip.right);
+      }
+    }
+    if (right > left) worst = Math.max(worst, right - bounds.right, bounds.left - left);
   }
   return worst;
 }

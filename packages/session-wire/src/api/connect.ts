@@ -6,6 +6,7 @@ import {
   createBlobProducer,
   type BlobConsumer,
   type BlobProducer,
+  type BlobProducerCallbacks,
   type BlobSource,
 } from './blob-channel';
 import {
@@ -57,7 +58,7 @@ type Attachment = {
 export type Connection = {
   call(path: string, input: unknown, options?: CallOptions): Promise<unknown>;
   openBlobConsumer(channel: string): BlobConsumer;
-  openBlobProducer(channel: string, source: BlobSource): BlobProducer;
+  openBlobProducer(channel: string, source: BlobSource, callbacks?: BlobProducerCallbacks): BlobProducer;
   snapshot(topic: string): Promise<LiveSnapshot<unknown>>;
   attach(
     topic: string,
@@ -294,8 +295,9 @@ export function connect(transport: WireTransport, options: ConnectOptions = {}):
       blobConsumers.set(channel, wrapped);
       return wrapped;
     },
-    openBlobProducer(channel, source) {
+    openBlobProducer(channel, source, callbacks) {
       const producer = createBlobProducer({
+        ...callbacks,
         channel,
         source,
         post: (message) => transport.post(message),

@@ -1,3 +1,4 @@
+import { groupDisplayName } from '@gugu/core/shared/ui/chatModels'
 import type { ContactGroupChat, ContactUser } from '@gugu/core/shared/types/contacts'
 
 export const PINNED_CONTACTS_SECTION = '__pinned__'
@@ -84,7 +85,7 @@ export function sortGroupChatsPinnedFirst(
   groups: ContactGroupChat[],
   isPinned: (group: ContactGroupChat) => boolean = () => false,
 ): ContactGroupChat[] {
-  return pinnedFirst(groups, isPinned, (group) => group.name)
+  return pinnedFirst(groups, isPinned, groupDisplayName)
 }
 
 export function userPublicId(contact: Pick<ContactUser, 'gugu_number'>): string | null {

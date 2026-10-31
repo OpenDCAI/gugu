@@ -4,6 +4,7 @@ import type { ExtensionManifest } from '@shared/extensions/manifest';
 import { appCallAction, notOnSessionMachine, overCallLimit } from '@shared/extensions/machine-call';
 import { machineVerbs } from '@main/core/extensions/machine-verbs';
 import type { MachineVerb } from '@shared/extensions/bridge-protocol';
+import { callRefusal } from '@shared/extensions/bridge-protocol';
 import { log } from '@main/lib/logger';
 
 /**
@@ -21,7 +22,7 @@ const machines = new Map<string, SessionMachine>();
 
 /**
  * The machine a session is on, when it is not this one: null for a session of this computer. Asked of the person's
- * other online machines (the list `messageAgent` and `files` across machines read); a session none of them has throws
+ * other online machines (the list `dispatch` to an agent and `files` across machines read); a session none of them has throws
  * `not-found`, naming the machines that could not be asked.
  */
 export async function sessionMachine(sessionId: string): Promise<SessionMachine | null> {
@@ -70,20 +71,23 @@ const UNAVAILABLE = new Set([
  */
 export async function callOnSessionMachine(
   app: { extensionId: string; manifest: ExtensionManifest },
-  sessionId: string,
+  sessionId: string | { deviceId: string },
   method: string,
   args: Record<string, unknown>,
   workedByAgent: boolean,
 ): Promise<{ there: false } | { there: true; value: unknown }> {
-  const machine = await sessionMachine(sessionId);
+  const { otherMachines } = await import('@main/core/sessions/session-family');
+  const machine = typeof sessionId === 'string' ? await sessionMachine(sessionId)
+    : await otherMachines().isThisDevice(sessionId.deviceId) ? null : sessionId;
   if (!machine) return { there: false };
+  const invalid = notOnSessionMachine(app.manifest, method, args);
+  if (invalid) throw invalid;
   if (workedByAgent && method === 'callProgram') {
     throw Object.assign(new Error('A page an agent works calls its program on this computer only; this session is on another machine'), { code: 'invalid' });
   }
   const action = appCallAction(sessionId, app.manifest.version, method, args, randomUUID());
   const tooLarge = overCallLimit('call', action, action);
   if (tooLarge) throw tooLarge;
-  const { otherMachines } = await import('@main/core/sessions/session-family');
   try {
     return { there: true, value: await otherMachines().appCall({ extensionId: app.extensionId, extensionName: app.manifest.name }, machine.deviceId, action) };
   } catch (error) {
@@ -119,7 +123,7 @@ export async function answerAppCall(caller: RemoteAppCaller, action: AppCallActi
   const result = (async () => {
     await admit(caller, action);
     reached = true;
-    const value = await machineVerbs[action.method as MachineVerb](caller.extensionId, action.args, { sessionId: action.session_id });
+    const value = await machineVerbs[action.method as MachineVerb](caller.extensionId, action.args, action.session_id ? { sessionId: action.session_id } : {});
     const tooLarge = overCallLimit('answer', action, value);
     if (tooLarge) throw tooLarge;
     log.info('[app-programs] a call done for a page on another machine', { device: caller.deviceId, app: caller.extensionId, session: action.session_id, method: action.method });
@@ -149,6 +153,8 @@ async function admit(caller: RemoteAppCaller, action: AppCallAction): Promise<vo
     import('@main/core/extensions/extension-programs'),
   ]);
   const service = extensionsService();
+  const tooLarge = overCallLimit('call', action, action);
+  if (tooLarge) throw tooLarge;
   let manifest: ExtensionManifest;
   try {
     manifest = service.get(caller.extensionId).manifest;
@@ -160,10 +166,15 @@ async function admit(caller: RemoteAppCaller, action: AppCallAction): Promise<vo
   if (manifest.version !== action.version) {
     throw Object.assign(new Error(`${caller.extensionName} is ${manifest.version} on this machine and ${action.version} where its page is; install the same version on both`), { code: 'version-mismatch' });
   }
+  const capability = callRefusal(action.method, action.args, { kind: 'program', has: (word) => service.hasCapability(caller.extensionId, word) });
+  if (capability) throw Object.assign(new Error(capability.message), { code: capability.code });
   const refusal = action.method === 'callProgram' ? extensionPrograms.agentToolsRefusal(caller.extensionId)
     : service.isEnabled(caller.extensionId) ? null : `Extension ${caller.extensionId} is turned off`;
   if (refusal) throw Object.assign(new Error(refusal), { code: 'denied' });
-  if (!(await agentSessionContext(action.session_id))) {
+  if (action.device_id) {
+    const { otherMachines } = await import('@main/core/sessions/session-family');
+    if (!(await otherMachines().isThisDevice(action.device_id))) throw Object.assign(new Error('App call targets another machine'), { code: 'invalid' });
+  } else if (!action.session_id || !(await agentSessionContext(action.session_id))) {
     throw Object.assign(new Error(`Session ${action.session_id} is not on this machine`), { code: 'not-found' });
   }
 }

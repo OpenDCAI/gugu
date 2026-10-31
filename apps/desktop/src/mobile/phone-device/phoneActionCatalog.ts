@@ -2,12 +2,12 @@
  * #7199 手机当设备 —— 这台手机登记给云端的动作清单,以及每个动作在安卓上怎么做。
  *
  * 清单的形状是线上合同(@gugu/core/shared/deviceActions):桌面、咕咕 server、手机三端同一个名字指同一件事。
- * 第一批(owner 2026-10-15):日历读写、通讯录读、定位、读通知和开关勿扰、闹钟、健康(Health Connect,只读);
- * 读短信、所有文件访问往后放(应用商店审得最严)。
+ * 当前九类:日历、通讯录、定位、通知与勿扰、闹钟、健康、短信、已有录音与照片/视频。
+ * 媒体按 Android 的分类授权读取,不开放所有文件访问。
  *
  * 规矩(《手机当设备》§5「做的话要守的规矩」):
  *  · 没授权的动作也登记,标不可用并说清为什么 —— 助理始终知道这台手机本来能做什么、现在为什么不能做;
- *  · 改日历、开勿扰、取定位由助理在聊天里先问人(confirm: always),答案随调用带回(confirmed: true),❌ 在手机上弹窗;
+ *  · 需要确认的动作遵循调用入口的确认契约;本机 Pi 只接受当前 owner 在任务时间线对确切参数的批准,模型自行填写 confirmed 不能代替批准;
  *  · 只在被调用时读,❌ 在后台整份上传。
  *
  * 这里的 title / description / unavailable_detail 是交给云端(助理和别的端)的数据,不是本机界面文案 ——
@@ -38,6 +38,7 @@ import { PHONE_DATA_ACTIONS, NO_PHONE_DATA, phoneDataAllowed, type PhoneDataStat
 import { HEALTH_SUMMARY_MAX_DAYS, buildNights, buildWorkouts, latestSample, readHealthSummary } from './phoneHealth'
 import { localDate, localDayStartMs } from './phoneTime'
 import { localIso, pad, utcOffsetOf } from './phoneTime'
+import { phoneCalendarEventView } from './phoneCalendarView'
 
 /** 授权分组:设置里一组一个开关(按「连接器」授权的粒度)。 */
 export const PHONE_ACTION_GROUPS = ['calendar', 'contacts', 'location', 'notifications', 'alarm', 'health', 'sms', 'recordings', 'photos'] as const
@@ -111,14 +112,18 @@ function parseInstant(value: unknown, field: string): number {
 function localDayStart(value: unknown, field: string): number {
   const match = typeof value === 'string' ? DATE_ONLY.exec(value.trim()) : null
   if (!match) invalid(`${field} 要是 YYYY-MM-DD`)
-  return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3])).getTime()
+  const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]))
+  if (date.getFullYear() !== Number(match[1]) || date.getMonth() !== Number(match[2]) - 1 || date.getDate() !== Number(match[3])) invalid(`${field} 不是有效日期`)
+  return date.getTime()
 }
 
 /** `YYYY-MM-DD` → 那天的 UTC 零点(全天日程的存法)。 */
 function utcDayStart(value: unknown, field: string): number {
   const match = typeof value === 'string' ? DATE_ONLY.exec(value.trim()) : null
   if (!match) invalid(`${field} 要是 YYYY-MM-DD`)
-  return Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]))
+  const date = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])))
+  if (date.getUTCFullYear() !== Number(match[1]) || date.getUTCMonth() !== Number(match[2]) - 1 || date.getUTCDate() !== Number(match[3])) invalid(`${field} 不是有效日期`)
+  return date.getTime()
 }
 
 const DAY_MS = 24 * 3600_000
@@ -151,19 +156,6 @@ async function callNative<T>(run: () => Promise<T>): Promise<T> {
     const failure = nativeFailure(error)
     const code: DeviceActionErrorCode = failure.code === 'os_permission' || failure.code === 'invalid_args' ? failure.code : 'execution_failed'
     throw new PhoneActionFailure(code, failure.message)
-  }
-}
-
-function eventView(event: NativeCalendarEvent) {
-  return {
-    event_id: event.event_id,
-    title: event.title,
-    ...(event.all_day
-      ? { all_day: true, start_date: utcDate(event.start_ms), end_date: utcDate(event.end_ms) }
-      : { all_day: false, start: localIso(event.start_ms), end: localIso(event.end_ms) }),
-    ...(event.location ? { location: event.location } : {}),
-    ...(event.description ? { description: event.description } : {}),
-    calendar: event.calendar,
   }
 }
 
@@ -224,8 +216,10 @@ export const PHONE_ACTIONS: readonly PhoneActionDefinition[] = [
       let start: number
       let end: number
       if (args.date !== undefined) {
+        if (args.start !== undefined || args.end !== undefined) invalid('date 与 start/end 只能选一种')
         start = localDayStart(args.date, 'date')
-        end = start + DAY_MS
+        const day = new Date(start)
+        end = new Date(day.getFullYear(), day.getMonth(), day.getDate() + 1).getTime()
       } else if (args.start !== undefined || args.end !== undefined) {
         start = args.start !== undefined ? parseInstant(args.start, 'start') : Date.now()
         end = args.end !== undefined ? parseInstant(args.end, 'end') : start + 7 * DAY_MS
@@ -240,7 +234,7 @@ export const PHONE_ACTIONS: readonly PhoneActionDefinition[] = [
       return {
         timezone: result.timezone,
         range: { start: localIso(start), end: localIso(end) },
-        events: result.events.filter((event) => allDayOverlaps(event, start, end)).map(eventView),
+        events: result.events.filter((event) => allDayOverlaps(event, start, end)).map(phoneCalendarEventView),
       }
     },
   },
@@ -763,7 +757,7 @@ export function buildPhoneActionsCapability(grants: PhoneGroupGrants, os: PhoneO
     const met = requirementMet(action.requires, os)
     return met.ok ? { ...base, available: true } : { ...base, available: false, unavailable_reason: met.reason, unavailable_detail: met.detail }
   })
-  return { v: DEVICE_ACTION_PROTOCOL_VERSION, updated_at: now.toISOString(), timezone: ctx.timezone, actions }
+  return { v: DEVICE_ACTION_PROTOCOL_VERSION, timezone: ctx.timezone, actions }
 }
 
 /** 组名(给助理看的那份,和设置页上的组名一致)。 */
@@ -779,7 +773,7 @@ const GROUP_WIRE_NAMES: Record<PhoneActionGroup, string> = {
   photos: '相册',
 }
 
-/** 清单里决定「可用 / 为什么不可用」的那部分 —— 它变了才需要立刻重新登记(updated_at 每次都变,不算)。 */
+/** 清单里决定「可用 / 为什么不可用」的那部分 —— 它变了才需要立刻重新登记。 */
 export function capabilityFingerprint(capability: DeviceActionsCapability): string {
   return capability.actions.map((a) => `${a.name}:${a.available ? 1 : 0}:${a.unavailable_reason ?? ''}`).join('|') + `#${capability.actions[0]?.description ?? ''}`
 }

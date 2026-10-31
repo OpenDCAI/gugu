@@ -7,8 +7,6 @@ import type { AgentDisplayStatus } from '@gugu/core/shared/types/chat'
 const fakePayload: AgentPresencePayload = {
   agentUserId: 'agent-test',
   accountStatus: 'active',
-  runtimeStatus: 'online',
-  derivedStatus: 'online',
   desiredStatus: 'online',
   activityStatus: 'idle',
   status: null,
@@ -19,7 +17,6 @@ const fakePayload: AgentPresencePayload = {
   lastActionAt: null,
   windowTitle: null,
   pid: null,
-  runtimeLastSeenAt: null,
   deviceId: null,
   deviceStatus: 'online',
   hostRuntimeCapability: null,
@@ -41,6 +38,7 @@ export function presentationOfDisplayStatus(status: AgentDisplayStatus): AgentSt
     case 'idle':
       return presentAgentStatus({ reading: null, reachability: 'online' })
     case 'offline':
+    case 'archived':
     case 'removed':
     case 'pending':
       return presentAgentStatus({ reading: null, reachability: status })
@@ -96,7 +94,7 @@ export function useAgentDisplayStatus(agentUserId?: string | null) {
 }
 
 export function useAgentDisplayStatuses(): Record<string, typeof DEFAULT_AGENT_DISPLAY_STATUS> {
-  return {}
+  return Object.fromEntries(statusOverrides)
 }
 
 export function useAgentRecentActivity(): Record<string, { actions: string[]; lastActiveAt: string | null }> {

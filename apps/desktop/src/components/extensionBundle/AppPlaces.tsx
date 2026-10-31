@@ -60,19 +60,17 @@ function PlaceRow(props: { id: string; mobile: boolean; leading: ReactNode; titl
 }
 
 /**
- * D-30 「给哪些 agent」 (主人 10-02 方案 A, 10-06「肯定是能选的啊」): one editor for an install's consent sheet (desktop and
- * phone) and an App's row in 「App」. This computer's agents are one switch: every agent. Then what is chosen besides — the person's own
+ * D-30 「给哪些 agent」 (主人 10-02 方案 A, 10-06「肯定是能选的啊」): the editor on an App's row in 「App」 (an install's
+ * sheet asks only which computers, owner 10-27). This computer's agents are one switch: every agent. Then what is chosen besides — the person's own
  * agents, by face and name, and groups as the chat list draws them — each with its ×, and 「添加 agent、群或项目…」 opening the
  * picker. Asked only about an App that gives agents tools (125 10-05).
  */
-export function AppPlacesEditor({ places, machineName, enabled, onChange, installing = false, disabled = false }: {
+export function AppPlacesEditor({ places, machineName, enabled, onChange, disabled = false }: {
   places: readonly EnablePlace[]
   /** D-31 Asked from another device: the computer whose agents these are, named instead of 「这台电脑」. */
   machineName?: string
   enabled: ReadonlySet<string>
   onChange: (changes: readonly PlaceChange[]) => void
-  /** In the install's sheet: choosing none is fine, it can be done later. */
-  installing?: boolean
   disabled?: boolean
 }) {
   const { t } = useTranslation('messaging')
@@ -101,7 +99,7 @@ export function AppPlacesEditor({ places, machineName, enabled, onChange, instal
       <div className={BOX}>
         {/* 「还没选」只在真的谁都没给时说:本机所有 agent 开着时,下面没有别的地方不等于没给(148 评审,编号 2)。 */}
         {chosen.length === 0 && !all ? (
-          <div className={`${QUIET} px-3 pb-1 pt-3`}>{t(installing ? 'chatArea.appEnable.emptyInstall' : 'chatArea.appEnable.empty')}</div>
+          <div className={`${QUIET} px-3 pb-1 pt-3`}>{t('chatArea.appEnable.empty')}</div>
         ) : null}
         {chosen.map((place) => (
           <PlaceRow key={place.id} id={place.id} mobile={mobile} leading={<Avatar size={size} {...placeAvatar(place)} />} title={place.name}

@@ -38,11 +38,11 @@ describe('assistant name edits in place', () => {
     expect(ui.container.querySelector('button')?.textContent).toBe('bc')
   })
   it('keeps the draft and a short notification if saving fails', async () => {
-    const commit = vi.fn(async () => { throw new Error('raw secret diagnostic') })
+    const commit = vi.fn(async () => { throw new Error('Permission denied at /Users/private/readability sk-synthetic-secret') })
     await ui.render(createNode(AssistantNameInline, { name: 'bc', onCommit: commit }))
     await clickElement(ui.container.querySelector('button')!); await typeInto(input(), 'keep me'); await key('Enter')
     expect(input().value).toBe('keep me'); expect(input().getAttribute('aria-invalid')).toBe('true')
     expect(ui.container.querySelector('[role="alert"]')).not.toBeNull()
-    expect(ui.container.textContent).not.toContain('raw secret diagnostic')
+    expect(ui.container.querySelector('[role="alert"]')?.textContent).toBe('Permission denied at [path] [redacted token]')
   })
 })

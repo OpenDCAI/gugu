@@ -29,6 +29,9 @@ export type LocalSessionRow = {
 };
 
 export type ListLocalSessionsParams = {
+  cwd?: string;
+  filePath?: string;
+  offset?: number;
   /** 只看某个引擎的会话。 */
   engine?: LocalSessionEngine;
   /** 关键词：匹配标题与文件夹，空格分词全部命中。 */

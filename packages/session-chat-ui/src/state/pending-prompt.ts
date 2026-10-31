@@ -12,13 +12,10 @@ export type PendingPrompt = {
   attachments?: ChatAttachment[];
   /**
    * 发出的时刻。只用来定这一句落在哪一天(日期分隔):真的那一轮开出时也带着时刻,有了它两边上下文一样,
-   * 交接时那句话不跳。❌ 不是这一轮的计时起点 —— 真的一轮还没开出(会话可能还在建立),没有可计的时,
-   * 时间头只说「处理中」(behavior session-page「打开速度」)。
+   * 交接时那句话不跳。❌ 不是这一轮的计时起点 —— 这时时间头是占位(`placeholderTurnHeader`),不数秒。
    */
   sentAt?: number;
 };
-
-const pendingTurns = new WeakSet<TranscriptTurn>();
 
 /** 乐观行画成的那一轮:只有人说的那一句。 */
 export function pendingPromptTurn(prompt: PendingPrompt): TranscriptTurn {
@@ -38,11 +35,5 @@ export function pendingPromptTurn(prompt: PendingPrompt): TranscriptTurn {
       } as TranscriptTurn['items'][number],
     ],
   } satisfies TranscriptTurn;
-  pendingTurns.add(turn);
   return turn;
-}
-
-/** 这一轮是乐观行画出来的(不是引擎里真开出来的那一轮)。按身份认,❌ 按 id 的字样猜。 */
-export function isPendingPromptTurn(turn: TranscriptTurn): boolean {
-  return pendingTurns.has(turn);
 }

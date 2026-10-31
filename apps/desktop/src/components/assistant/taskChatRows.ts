@@ -1,4 +1,6 @@
 import type { MessageItem } from '@gugu/core/shared/types/chat'
+import { visibleDeliveryMessages } from '@gugu/core/shared/ui/systemNotice'
+import { projectTurnFailureMessages } from '../../lib/projectTurnFailureMessages'
 import type { AssistantTaskChat } from '../../lib/assistantTaskChat'
 import type { TaskExchange } from '../../session/shared/core/sessions/task-collaboration'
 import type { ChatListRowItem } from '../chat/MessageList'
@@ -13,17 +15,20 @@ export function taskChatWindow(rows: ChatListRowItem[], count: number): { rows: 
 }
 
 export function taskChatRows(messages: readonly MessageItem[], exchanges: readonly TaskExchange[], task: AssistantTaskChat | null, query: string): ChatListRowItem[] {
-  const rows: ChatListRowItem[] = messages.map((message) => ({ type: 'message', message }))
+  const visible = visibleDeliveryMessages(messages)
+  const rows: ChatListRowItem[] = (query ? visible : projectTurnFailureMessages(visible)).map((message) => ({ type: 'message', message }))
   if (!task) return rows
+  const original = new Set(messages.map(message => message.id))
   const seen = new Set<string>()
   for (const entry of exchanges) {
     const fromAssistant = task.assistants.some((assistant) => assistant.sessionId === entry.fromSessionId)
     const toAssistant = task.assistants.some((assistant) => assistant.sessionId === entry.toSessionId)
     if (!(fromAssistant && entry.toSessionId === task.task.sessionId) && !(toAssistant && entry.fromSessionId === task.task.sessionId)) continue
+    if (entry.sourceMessageId && original.has(entry.sourceMessageId)) continue
     if (seen.has(entry.id) || (query && !entry.content.toLowerCase().includes(query.toLowerCase()))) continue
     seen.add(entry.id)
     rows.push({
-      type: 'task-exchange', recipientUserId: fromAssistant ? task.taskAgentId : task.assistantId,
+      type: 'task-exchange', recipientUserId: fromAssistant ? task.taskAgentId??task.task.sessionId : task.assistantId,
       message: {
         id: `session-direct:${entry.id}`, chat_id: messages[0]?.chat_id ?? '', seq: -1,
         sender_user_id: fromAssistant ? task.assistantId : task.taskAgentId, to_user_ids: null,

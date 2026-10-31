@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import type { GroupChatSettings, GroupJoinMode, UpdateGroupChatSettingsInput } from '@gugu/core/shared/types/chat'
 import { GroupAgentFloodSettings } from './GroupAgentFloodSettings'
 import { joinModeDescription } from './chatPresentation'
+import { isProjectGroupChat } from '../../lib/groupMemberPermissions'
 import { GroupInviteLinkBlock, SettingsToggleRow } from './groupSettingsUi'
 import {
   settingsCenteredRowStyle,
@@ -16,7 +17,7 @@ import {
 } from './groupSettingsStyles'
 
 const firstSectionLabelStyle: CSSProperties = { ...settingsSectionLabelStyle, borderTop: 'none', paddingTop: 0, marginTop: 0 }
-const limitErrorStyle: CSSProperties = { fontSize: 'var(--font-caption)', color: 'var(--danger)', marginTop: -8, paddingBottom: 8 }
+const limitErrorStyle: CSSProperties = { fontSize: 'var(--font-caption)', color: 'var(--danger-fg)', marginTop: -8, paddingBottom: 8 }
 const limitStyle: CSSProperties = { ...settingsMutedTextStyle, display: 'flex', alignItems: 'center', gap: 4 }
 
 /**
@@ -46,9 +47,15 @@ export function GroupSettingsManagePage({ chatId, settings, totalMembers, invite
     void onUpdate({ max_members: next }).then((ok) => { if (!ok) setMaxMembersDraft(String(settings.max_members)) })
   }
 
+  const projectGroup = isProjectGroupChat(chatId)
   return (
     <>
       <div style={firstSectionLabelStyle}>{t('group.settings.sectionJoin')}</div>
+      {/* 项目群不拉人(gugu-dev#181):入群方式、成员邀请、邀请链接都不提供,说一句原因;agent 那几样照旧。 */}
+      {projectGroup ? (
+        <div data-testid="project-group-no-invite" style={settingsRowStyle}><div style={settingsRowSubtitleStyle}>{t('group.projectGroupNoInvite')}</div></div>
+      ) : (
+        <>
       <div style={settingsRowStyle}>
         <div>
           <div style={settingsRowTitleStyle}>{t('group.settings.joinMode')}</div>
@@ -72,6 +79,8 @@ export function GroupSettingsManagePage({ chatId, settings, totalMembers, invite
         checked={settings.allow_member_invite}
         onChange={(next) => { void onUpdate({ allow_member_invite: next }) }}
       />
+        </>
+      )}
       <SettingsToggleRow
         title={t('group.settings.agentApproval')}
         description={t('group.settings.agentApprovalDescription')}
@@ -80,6 +89,8 @@ export function GroupSettingsManagePage({ chatId, settings, totalMembers, invite
         onChange={(next) => { void onUpdate({ agent_join_approval: next }) }}
       />
 
+      {projectGroup ? null : (
+        <>
       <div style={settingsSectionLabelStyle}>{t('group.settings.sectionInvite')}</div>
       <SettingsToggleRow
         title={t('group.settings.inviteLink')}
@@ -90,6 +101,9 @@ export function GroupSettingsManagePage({ chatId, settings, totalMembers, invite
       />
       {/* 开关关掉时链接对加入无效(DB RPC 拒 token join),所以连链接带海报一起收起(#1164-G2 / #445)。 */}
       {settings.invite_link_enabled && inviteLink ? <GroupInviteLinkBlock inviteLink={inviteLink} onOpenPoster={onOpenPoster} /> : null}
+
+        </>
+      )}
 
       <div style={settingsSectionLabelStyle}>{t('group.settings.sectionAgents')}</div>
       {/* @@@5856 / #5999 agent 数量线(含话题阈值)统一在群设置里管,❌ 回到成员面板。 */}

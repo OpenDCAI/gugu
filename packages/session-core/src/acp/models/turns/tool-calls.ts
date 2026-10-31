@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { entityContentSchema, type EntityContent, type EntityMeta } from '../entity-content';
 import type { TerminalExit } from '../terminals';
 import { terminalExitSchema } from '../terminals';
 import type { ToolCallGroupKind, ToolStatus } from './tools';
@@ -16,13 +17,24 @@ export const toolImageSchema = z.object({
 });
 export type ToolImage = z.infer<typeof toolImageSchema>;
 
+/** One lazy tool picture, or the existing record lookup's precise refusal. */
+export const toolImageLookupSchema = z.discriminatedUnion('ok', [
+  z.object({ ok: z.literal(true), image: toolImageSchema }),
+  z.object({
+    ok: z.literal(false),
+    code: z.enum(['no_such_item', 'no_such_image', 'too_large']),
+    message: z.string(),
+  }),
+]);
+export type ToolImageLookup = z.infer<typeof toolImageLookupSchema>;
+
 /** 画这张图用的地址(桌面工具卡与手机工具卡同一个)。 */
 export function toolImageUrl(image: ToolImage): string {
   return `data:${image.mimeType};base64,${image.data}`;
 }
 
 /**
- * 发给手机那一份里的一张图:只说有这么一张、多大(base64 字数),图本身不带(transport-trim)。手机滚到它时
+ * 历史传输投影里的一张图:只说有这么一张、多大(base64 字数),图本身不带(transport-trim)。界面滚到它时
  * 按 (会话, 条目, 第几张) 去机器上取(`sessionTimeline.sessionToolImage`)。
  */
 export const toolImageRefSchema = z.object({
@@ -36,19 +48,27 @@ export interface BaseToolCallItem {
   seq: number;
   toolCallId: string;
   title: string;
+  toolKind?: string | null;
+  locations?: Array<{ path: string; line?: number | null }>;
+  /** Content and metadata are entity state; outputText/images are derived views. */
+  contentBlocks?: EntityContent[];
+  _meta?: EntityMeta;
   /**
    * 供应商报的工具名,标题是给人看的显示名时靠它认工具(Claude ACP 适配器每条调用都在 `_meta.claudeCode.toolName`
-   * 报,EnrichHook 提上来;计划批准的标题是「Approve Plan」、工具名是 ExitPlanMode)。认「这是哪个工具」一律经 `toolCallName`。
+   * 报,transport decoder 提上来;计划批准的标题是「Approve Plan」、工具名是 ExitPlanMode)。认「这是哪个工具」一律经 `toolCallName`。
    */
   toolName?: string;
   status: ToolStatus;
+  /** Authentic arrival/completion clocks; absent in provider replay. */
+  at?: number;
+  completedAt?: number;
   inputSummary?: string;
   rawInput?: string;
   rawOutput?: string;
   outputText?: string;
   /** 工具交回来的图(ACP `content` 里的 image 块),见 `ToolImage`。 */
   images?: ToolImage[];
-  /** 发给手机那一份里替代 `images` 的那一格:每张图的类型和大小,图要另取。见 `ToolImageRef`。 */
+  /** 历史传输投影里替代 `images` 的那一格:每张图的类型和大小,图要另取。见 `ToolImageRef`。 */
   imageRefs?: ToolImageRef[];
   /**
    * 这次调用**留下了一个还在跑的后台任务**(claude 的 `run_in_background` Bash、
@@ -63,12 +83,8 @@ export interface BaseToolCallItem {
   parentToolCallId?: string;
   children?: ToolNode[];
   /**
-   * 这条调用的内容在**发给手机的路上**被裁掉了多少字(#5014 审计,见
-   * `session-record/transport-trim.ts`)。桌面读的是同一份记录、不裁 —— 所以这一格
-   * 只会在手机端出现,由手机据此显示「已截断 · 桌面看完整」。
-   *
-   * ⚠️ 它是**传输层的痕迹**,不是记录里的事实:同一条调用在桌面上没有这一格。
-   * 留着它是因为「看不出来的截断」就是一个错的读数 —— 人会以为输出到此为止。
+   * Shared phone/desktop history preview: characters omitted by transport-trim.
+   * The source record stays complete; this metadata lets the tool card disclose the cropped preview.
    */
   trimmedChars?: number;
 }
@@ -87,23 +103,9 @@ export interface ReadToolCall extends BaseToolCallItem {
   resource?: string;
 }
 
-export interface FileToolCallBase extends BaseToolCallItem {
-  path: string;
-}
-
-export interface CreateFileToolCall extends FileToolCallBase {
-  kind: 'create-file-tool-call';
-  content: string;
-}
-
-export interface ModifyFileToolCall extends FileToolCallBase {
-  kind: 'modify-file-tool-call';
-  oldText: string;
-  newText: string;
-}
-
-export interface DeleteFileToolCall extends FileToolCallBase {
-  kind: 'delete-file-tool-call';
+/** File changes live once, as canonical diff blocks in contentBlocks. */
+export interface PatchToolCall extends BaseToolCallItem {
+  kind: 'patch-tool-call';
 }
 
 export interface SearchToolCall extends BaseToolCallItem {
@@ -227,9 +229,7 @@ export interface ToolGroup {
 export type ToolCallItem =
   | ExecuteToolCall
   | ReadToolCall
-  | CreateFileToolCall
-  | ModifyFileToolCall
-  | DeleteFileToolCall
+  | PatchToolCall
   | SearchToolCall
   | McpToolCall
   | WebFetchToolCall
@@ -286,6 +286,10 @@ export function catalogCall(tool: string, rawInput: string | undefined): { tool:
 const toolChildrenSchema: z.ZodType<ToolNode[]> = z.lazy(() => z.array(toolNodeSchema));
 
 export const baseToolCallItemSchema = z.object({
+  toolKind: z.string().nullable().optional(),
+  locations: z.array(z.object({ path: z.string(), line: z.number().nullable().optional() })).optional(),
+  contentBlocks: z.array(entityContentSchema).optional(),
+  _meta: z.record(z.string(), z.unknown()).optional(),
   id: z.string(),
   /** Stable order within the owning sibling list, assigned once by the reducer. */
   seq: z.number().int(),
@@ -293,6 +297,8 @@ export const baseToolCallItemSchema = z.object({
   toolCallId: z.string(),
   title: z.string(),
   status: toolStatusSchema,
+  at: z.number().optional(),
+  completedAt: z.number().optional(),
   /** Provider/plugin-generated short input description for compact display. */
   inputSummary: z.string().optional(),
   /**
@@ -343,24 +349,7 @@ export const readToolCallSchema = baseToolCallItemSchema.extend({
   resource: z.string().optional(),
 });
 
-export const fileToolCallBaseSchema = baseToolCallItemSchema.extend({
-  path: z.string(),
-});
-
-export const createFileToolCallSchema = fileToolCallBaseSchema.extend({
-  kind: z.literal('create-file-tool-call'),
-  content: z.string(),
-});
-
-export const modifyFileToolCallSchema = fileToolCallBaseSchema.extend({
-  kind: z.literal('modify-file-tool-call'),
-  oldText: z.string(),
-  newText: z.string(),
-});
-
-export const deleteFileToolCallSchema = fileToolCallBaseSchema.extend({
-  kind: z.literal('delete-file-tool-call'),
-});
+export const patchToolCallSchema = baseToolCallItemSchema.extend({ kind: z.literal('patch-tool-call') });
 
 export const searchToolCallSchema = baseToolCallItemSchema.extend({
   kind: z.literal('search-tool-call'),
@@ -431,9 +420,7 @@ export const unknownToolCallSchema = baseToolCallItemSchema.extend({
 export const toolCallItemSchema = z.discriminatedUnion('kind', [
   executeToolCallSchema,
   readToolCallSchema,
-  createFileToolCallSchema,
-  modifyFileToolCallSchema,
-  deleteFileToolCallSchema,
+  patchToolCallSchema,
   searchToolCallSchema,
   mcpToolCallSchema,
   webFetchToolCallSchema,
@@ -459,9 +446,7 @@ export const toolNodeSchema: z.ZodType<ToolNode> = z.lazy(() =>
   z.discriminatedUnion('kind', [
     executeToolCallSchema,
     readToolCallSchema,
-    createFileToolCallSchema,
-    modifyFileToolCallSchema,
-    deleteFileToolCallSchema,
+    patchToolCallSchema,
     searchToolCallSchema,
     mcpToolCallSchema,
     webFetchToolCallSchema,

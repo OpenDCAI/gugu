@@ -17,7 +17,7 @@ import { createContext, useCallback, useContext, useLayoutEffect, useRef, useSta
  * | 0 | — | 全部带文字 |
  * | 1 | agent 名字 | 品牌图形(星芒等),名字进 tooltip |
  * | 2 | 权限名字 | 形状 + 颜色编码的图标,名字进 tooltip |
- * | 3 | 「编程 \| 通用」的另一半 | 当前选中那一段 + 一个下拉箭头 |
+ * | 3 | (原「编程 \| 通用」的另一半;那个分段控件已随手动切换删掉,这一档现在不收东西) | —— |
  * | 4 | 上下文用量读数(51k/1.0M) | —— 点开看的那份读数随之不在底排;它是读数不是控件,窄到这里先让 |
  * | 5 | 锁着的 agent 图标(任务开始后换不了的那颗) | —— 它只是在说「这条会话是谁」,页签上已经画着同一枚图形 |
  * | 6 | 模型名与强度档 | 厂商图形,名字进 tooltip(没有图形的模型不收,靠 ellipsis) |
@@ -29,8 +29,7 @@ import { createContext, useCallback, useContext, useLayoutEffect, useRef, useSta
  * 「箭头收了不合适」,改要「把那个编程和通用的切换弄成箭头,省点空间」。所以最后一档收的是
  * 这个分段控件的另一半 —— 两段并排变成一段带箭头的下拉,两个选项都还在,只是要点开才看见。
  *
- * ⚠️ 这一档**不能用 CSS 藏掉另一段**:藏掉就点不到,那是仓库明令禁止的假控件。控件自己按
- * 档位换渲染(`session-view-control.tsx`),两种形态都是真能选的。
+ * (那个分段控件已随「通用 / 编程」手动切换删掉;档号不挪。)
  *
  * owner 2026-08-21「选不了的那一头要留在原地并说明原因」在档 3 仍然成立:两个选项都进了
  * 下拉,不可选的那一个是 disabled 而不是消失,原因照旧挂在触发器的 title 上。
@@ -69,7 +68,7 @@ const SEGMENTED_COLLAPSE_LEVEL = 3
  *   ① 子组越出底排的边;
  *   ② 相邻子组互相压(左组的内容压到右组身上,正是 #5141 的形状);
  *   ③ 子组自己的孩子越出该子组的边(左组被压窄、控件溢出去)。
- * 同族法则见 `gugu-base/ops/measurement-laws.md`:`scrollWidth > clientWidth` 查不出
+ * 同族法则:`scrollWidth > clientWidth` 查不出
  * `overflow: visible` 的溢出,要用 `getBoundingClientRect` 边缘比对(两条边、自身+邻居)。
  */
 const EDGE_EPSILON = 1

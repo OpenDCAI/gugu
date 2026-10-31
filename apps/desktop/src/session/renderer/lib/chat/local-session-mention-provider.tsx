@@ -1,35 +1,28 @@
 import type { ContextMentionProvider, MentionItem } from '@gugu/session-ui/react/components';
-import { AGENT_TYPES } from '@gugu/core/shared/enums/agentTypeModels';
 import { AT_BARE_PATTERN } from '@gugu/session-shared/markdown';
-import {
-  agentCreationToolsFromDescriptors,
-  LOCAL_AGENT_CREATION_TOOLS,
-  type AgentCreationToolDescriptor,
-  type LocalAgentCreationTool,
-} from '@/lib/agentCreationTools';
+import type { LocalAgentCreationTool } from '@/lib/agentCreationTools';
+import { filterMentionCandidates } from '@/lib/mentionMatch';
 import { sessionRegistry } from '@renderer/features/sessions/stores/session-registry';
 import { formatSessionTitleForDisplay } from '@renderer/features/sessions/session-title-utils';
 import { getProjectManagerStore } from '@renderer/features/projects/stores/project-selectors';
 import { remoteHostsStore } from '@renderer/features/remote-hosts/remote-hosts-store';
 import { shellPort } from '@renderer/lib/shell-port';
 import { translateSessionMessage } from '@renderer/localization/locale-store';
-import type { SessionShellPeer } from '@shared/lib/ipc/shell-port';
+import { SESSION_PRIVATE_AGENT_ERROR, type SessionShellPeer } from '@shared/lib/ipc/shell-port';
 import {
   registerLocalSessionMentions,
   type LocalSessionMention,
 } from './chat-mention-provider';
 import { resolveSessionDisplayName } from '@shared/core/sessions/session-display-name';
 import { log } from '@renderer/utils/logger';
-import { useEffect, useState } from 'react';
 
-type MentionCandidate = LocalSessionMention & { number: string; sessionId?: string };
+type MentionCandidate = LocalSessionMention & { number: string; sessionId?: string; session_archived_at?: string | null };
 
 type MentionTool = Pick<LocalAgentCreationTool, 'icon'>;
 
 export type LocalSessionMentionOptions = {
   excludeSessionId?: string;
   creationToolsByEngine?: ReadonlyMap<string, MentionTool>;
-  creationToolsError?: string | null;
 };
 
 /**
@@ -54,7 +47,6 @@ function findSessionForMention(
 function candidatesFromRows(
   rows: readonly SessionShellPeer[],
   options: LocalSessionMentionOptions,
-  warnedMissingEngines: Set<string>,
 ): MentionCandidate[] {
   return rows.flatMap((peer) => {
     if (peer.sessionId === options.excludeSessionId) return [];
@@ -70,30 +62,11 @@ function candidatesFromRows(
 
     const engine = peer.engine;
     const iconUrl = engine ? options.creationToolsByEngine?.get(engine)?.icon?.trim() || '' : '';
-    const isKnownEngine = (AGENT_TYPES as readonly string[]).includes(engine);
-    if (
-      !iconUrl
-      && (
-        !isKnownEngine
-        || Boolean(options.creationToolsByEngine?.size)
-        || Boolean(options.creationToolsError)
-      )
-    ) {
-      const missingEngine = engine || '<missing>';
-      if (!warnedMissingEngines.has(missingEngine)) {
-        warnedMissingEngines.add(missingEngine);
-        log.warn('Agent mention harness icon unavailable; using initial avatar', {
-          engine: engine || null,
-          userId: users.id,
-          name,
-        });
-      }
-    }
-
     return [{
       id: users.id,
       sessionId: peer.sessionId,
       name,
+      ...(users.session_archived_at != null ? { session_archived_at: users.session_archived_at } : {}),
       number: users.gugu_number == null ? '' : String(users.gugu_number),
       title: session
         ? formatSessionTitleForDisplay(session.providerId, session.title).trim() || undefined
@@ -108,14 +81,17 @@ function mentionItemsFromLocalSessionCandidates(
   candidates: readonly MentionCandidate[],
   query: string,
 ): MentionItem[] {
-  const normalizedQuery = query.trim().toLowerCase();
-  return candidates
-    .filter((candidate) =>
-      [candidate.name, candidate.number, candidate.title ?? ''].some((value) =>
-        value.toLowerCase().includes(normalizedQuery),
-      ),
-    )
-    .map((candidate) => ({
+  // 与群聊 @ 同一套匹配:拼音全拼/首字母/混拼、咕咕号全等或前缀,标题当备注比。
+  const searchable = candidates.map((candidate) => ({
+    candidate,
+    name: candidate.name,
+    type: 'agent' as const,
+    session_archived_at: candidate.session_archived_at,
+    alias: candidate.title,
+    guguNumber: candidate.number ? Number(candidate.number) : null,
+  }));
+  return filterMentionCandidates(searchable, query)
+    .map(({ candidate }) => ({
       // `aid:` = 界面上那一栏的名字(分享浮层写着 **Agent ID**),owner 2026-09-16 拍板。
       // 发出去的文本是 `@[Claude 1](aid:<Agent ID>)` —— 人看名字,机器拿 Agent ID。
       id: `aid:${candidate.id}`,
@@ -125,9 +101,6 @@ function mentionItemsFromLocalSessionCandidates(
       role: 'agent' as const,
       engine: candidate.engine,
       description: candidate.title,
-      icon: candidate.iconUrl
-        ? <img src={candidate.iconUrl} alt="" width={16} height={16} />
-        : undefined,
     }));
 }
 
@@ -168,12 +141,11 @@ export function localSessionMentionHiddenContext(
  */
 async function loadLocalSessionMentionCandidates(
   options: LocalSessionMentionOptions & { mentionUri?: string } = {},
-  warnedMissingEngines: Set<string> = new Set<string>(),
+  sessionId?: string,
 ): Promise<{ candidates: MentionCandidate[]; notRead: readonly { id: string; label: string }[] }> {
-  if (!window.electronAPI) return { candidates: [], notRead: [] };
-  const local = await shellPort().sessionPeers();
+  const local = await shellPort().sessionPeers(sessionId);
   const remote = remoteHostsStore.directoryPeers();
-  const candidates = candidatesFromRows([...local, ...remote.peers], options, warnedMissingEngines);
+  const candidates = candidatesFromRows([...local, ...remote.peers], options);
   if (options.mentionUri) {
     registerLocalSessionMentions(options.mentionUri, candidates);
   }
@@ -204,11 +176,10 @@ export type LocalSessionMentionProvider = ContextMentionProvider & {
 export function createLocalSessionMentionProvider(
   options: LocalSessionMentionOptions & { mentionUri?: string } = {},
 ): LocalSessionMentionProvider {
-  const warnedMissingEngines = new Set<string>();
   return {
     async search(query) {
       try {
-        const { candidates, notRead } = await loadLocalSessionMentionCandidates(options, warnedMissingEngines);
+        const { candidates, notRead } = await loadLocalSessionMentionCandidates(options);
         return [...mentionItemsFromLocalSessionCandidates(candidates, query), ...notRead.map(notReadItem)];
       } catch (error) {
         log.warn('Failed to load local session mentions', { error });
@@ -219,50 +190,19 @@ export function createLocalSessionMentionProvider(
       const wanted = sessionId.trim();
       if (!wanted) return null;
       try {
-        const { candidates } = await loadLocalSessionMentionCandidates(options, warnedMissingEngines);
+        const { candidates } = await loadLocalSessionMentionCandidates(options, wanted);
         const match = candidates.find((candidate) => candidate.sessionId === wanted);
         if (!match) return null;
         // 空查询走与弹层同一条映射,pill 的形状(名字/图标/副标题)因此不会分叉。
         return mentionItemsFromLocalSessionCandidates([match], '')[0] ?? null;
       } catch (error) {
         log.warn('Failed to resolve dragged session mention', { error });
+        if (error instanceof Error && error.message.includes(SESSION_PRIVATE_AGENT_ERROR)) {
+          return { id: `private:${wanted}`, label: '', kind: 'custom', disabled: true,
+            description: translateSessionMessage('chat.mentionDropPrivateAgent') };
+        }
         return null;
       }
     },
   };
-}
-
-/** The provider and initial task composer share the same Electron tool catalog. */
-export function useSessionAgentCreationTools(): {
-  tools: readonly LocalAgentCreationTool[];
-  error: string | null;
-} {
-  const [tools, setTools] = useState<readonly LocalAgentCreationTool[]>(() =>
-    typeof window !== 'undefined' && window.electronAPI ? [] : LOCAL_AGENT_CREATION_TOOLS,
-  );
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    const electron = typeof window !== 'undefined' ? window.electronAPI : undefined;
-    const load = electron?.getAgentCreationTools
-      ? electron
-          .getAgentCreationTools()
-          .then((raw) => agentCreationToolsFromDescriptors(raw as AgentCreationToolDescriptor[]))
-      : Promise.resolve(LOCAL_AGENT_CREATION_TOOLS);
-    let active = true;
-    void load
-      .then((next) => {
-        if (!active) return;
-        setTools(next);
-        setError(null);
-      })
-      .catch((reason: unknown) => {
-        if (active) setError(reason instanceof Error ? reason.message : String(reason));
-      });
-    return () => {
-      active = false;
-    };
-  }, []);
-
-  return { tools, error };
 }

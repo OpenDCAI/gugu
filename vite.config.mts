@@ -18,7 +18,7 @@ import {
 import { obfuscateOwnChunks, parseObfuscateFlag } from './scripts/obfuscate-own-chunks.mjs'
 import { monacoWorkerSingleBundlePlugin } from './scripts/monaco-worker-bundle.mjs'
 import { deterministicModuleSideEffects } from './scripts/deterministic-module-side-effects.mjs'
-import { announceActiveDb, applyActiveDbEnv } from './scripts/build-env-preflight.mjs'
+import { announceActiveDb, applyActiveDbEnv, serverChannelForDb } from './scripts/build-env-preflight.mjs'
 import { vanillaExtractPlugin } from '@vanilla-extract/vite-plugin'
 import solid from 'vite-plugin-solid'
 import { emdashAliasEntries } from './apps/desktop/electron/sessionpage/emdash-aliases.mjs'
@@ -88,7 +88,7 @@ const isElectronTarget = guguTarget === 'electron'
 const viteOwnsElectronProcess =
   process.env.GUGU_VITE_NO_ELECTRON !== '1'
 // @@@gugu-tier - build-time deployment tier; `pnpm build:beta` sets GUGU_TIER=beta. Inlined into the
-// electron main bundle as __GUGU_TIER__ so main.ts derives the tier-scoped default home.
+// main and renderer bundles as __GUGU_TIER__: the home and external link scheme share this tier.
 const guguTier = process.env.GUGU_TIER ?? 'production'
 const guguBuildDistribution = process.env.GUGU_BUILD_DISTRIBUTION ?? 'local'
 if (guguBuildDistribution !== 'local' && guguBuildDistribution !== 'published') {
@@ -144,7 +144,13 @@ const sessionMainVite: ElectronOptions['vite'] = {
     ...bakedSupabaseDefine,
     __GUGU_TIER__: JSON.stringify(guguTier),
     __GUGU_BUILD_DISTRIBUTION__: JSON.stringify(guguBuildDistribution),
+    // 给别的机器装哪条通道的 server:跟这次构建连的库走(scripts/build-env-preflight.mjs serverChannelForDb)。
+    __GUGU_SERVER_CHANNEL__: JSON.stringify(serverChannelForDb(process.env.VITE_SUPABASE_URL || bakedSupabaseUrl || null)),
   },
+  // 与渲染层同一条(@@@renderer-ascii-output,#6484):V8 把每个模块的源码常驻堆里,一个非 Latin-1 字符
+  // 就让整份按双字节存。主进程与几个 helper 各自常驻一份(10-27 Linux 2 实测主进程堆 125 MB 里源码串 38.6 MB)。
+  // 不压缩,只去掉注释、非 ASCII 转义;esbuild 不经手的依赖代码由 rendererAsciiOutput() 收尾。
+  esbuild: { charset: 'ascii', legalComments: 'none' },
   build: {
     // ❌ 不压缩主进程图。并图前这张图由 esbuild 单独打、从不压缩;并图后 vite lib 构建默认用 esbuild 压缩,
     // 而 esbuild 压缩会把 xterm(TUI 屏幕解析)里 TypeScript 枚举 `var V;(fn)(V||(V={}))` 的声明丢掉、
@@ -267,6 +273,7 @@ const sessionMainVite: ElectronOptions['vite'] = {
         })
       },
     },
+    rendererAsciiOutput(),
   ],
 }
 
@@ -625,6 +632,7 @@ export default defineConfig(({ command }) => ({
   cacheDir: `node_modules/.vite-${guguTarget}`,
   define: {
     ...bakedSupabaseDefine,
+    __GUGU_TIER__: JSON.stringify(guguTier),
     __APP_VERSION__: JSON.stringify(appVersion),
     __GUGU_CHANGELOG_URL__: JSON.stringify(changelogUrl),
     __GUGU_BUILD_TAG__: JSON.stringify(buildTag),

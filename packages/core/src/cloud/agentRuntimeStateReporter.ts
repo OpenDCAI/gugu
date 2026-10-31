@@ -1,10 +1,10 @@
 /**
  * #3812 —— 会话状态的**唯一写入口**。
  *
- * 权威记录是 `identity.agent_runtime_states`（runtime_status / activity_status），唯一的写法是
+ * 权威记录是 `identity.agent_runtime_states`（activity_status 与读数），唯一的写法是
  * RPC `set_agent_runtime_state`。这个模块是那次写的**单一 choke point**：runtime 进程的全部写点
  * （startup sweep / 周期 tick-report / command-wake 触发的 tick）和渲染层
- * 「agent 创建失败 → 把卡在 starting 的状态收敛成 offline」都从这里过。
+ * 都从这里过。在不在线只看设备行与 desired,这里不再写 runtime_status(后端也不再听它)。
  *
  * ⚠️ 为什么它单独一个文件、而不留在 deviceRuntime.ts 里：渲染层也要走这道门，而 deviceRuntime.ts
  * 依赖 node:child_process / node:fs / node:os，渲染层 import 不进来（会把 node 内建拖进浏览器包）。
@@ -20,7 +20,7 @@ import {
   runDeviceRequest,
   type DeviceOperationTimeoutOverrides,
 } from './deviceOperationTimeouts'
-import type { AgentActivityStatus, AgentRuntimeStatus } from '../shared/types/chat'
+import type { AgentActivityStatus } from '../shared/types/chat'
 import type { AgentStatus, AgentStatusDetail } from '../shared/agentStatus'
 
 export interface AgentRuntimeStateRpcClient {
@@ -39,7 +39,6 @@ export interface AgentRuntimeStateRpcClient {
  */
 export interface AgentRuntimeStateWrite {
   agentUserId: string
-  runtimeStatus: AgentRuntimeStatus
   /** 读数的 running/idle 投影(老客户端只读得懂这一维)。 */
   activityStatus: AgentActivityStatus
   /**
@@ -94,7 +93,6 @@ export function createAgentRuntimeStateReporter(
       timeouts.runtimeStateWriteMs,
       () => client.rpc('set_agent_runtime_state', {
         p_agent_user_id: state.agentUserId,
-        p_runtime_status: state.runtimeStatus,
         p_activity_status: state.activityStatus,
         // @@@runtime-kind-preserve — 见上：这两列 SQL 不 COALESCE，null 是「抹成 NULL」不是「不变」。
         p_runtime_kind: state.runtimeKind ?? null,

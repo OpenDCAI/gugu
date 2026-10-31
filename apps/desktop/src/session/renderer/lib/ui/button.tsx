@@ -17,12 +17,14 @@ const buttonVariants = cva(
         //     不换底色、不缩放(product spec「反馈的克制」;与咕咕主体的
         //     .gg-fill 同一配方)。default 以前 hover 换成 primary-button-background-hover,
         //     那是另一种色,与主体那半边对不上。
-        //   · 透明/浅底(outline、secondary、ghost)走**叠色三件套** row-hover/press/selected。
+        //   · 透明/浅底(secondary、ghost)走**叠色三件套** row-hover/press/selected;outline 有实底,悬浮 / 按下叠层(见下)。
         // 改动前**没有任何一个 variant 有按下态** —— 这是 spec 明令的六态里缺的那一态。
         default:
           'bg-primary-button-background text-primary-button-foreground hover:opacity-[.88] active:opacity-[.78] border border-primary-button-border',
+        // outline 自己有一块实底(bg-background):悬浮 / 按下要叠在它上面(state-*-layer,见 index.css
+        // @@@state-ladder-mix),❌ `hover:bg-row-hover` 把实底换成 4% 的半透明 —— 压在图上的按钮一悬浮就透了。
         outline:
-          'border-border bg-background hover:bg-row-hover active:bg-row-press hover:text-foreground aria-expanded:bg-row-selected aria-expanded:text-foreground',
+          'border-border bg-background hover:state-hover-layer active:state-press-layer hover:text-foreground aria-expanded:bg-row-selected aria-expanded:text-foreground',
         secondary:
           'bg-background-2 text-foreground-muted hover:bg-row-hover active:bg-row-press aria-expanded:bg-row-selected aria-expanded:text-foreground-muted',
         ghost:

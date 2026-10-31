@@ -144,11 +144,8 @@ test('main renderer search fields share one visual contract', async ({ page }, t
   await login(page)
   const metrics = []
 
-  await page.getByTestId('sidebar-messages-nav').click()
-  const chatListSearch = page.getByTestId('chat-list-search-input')
-  metrics.push(await readSearchMetrics('messages', chatListSearch))
-  await capture(page, testInfo, 'search-field-messages')
-
+  // 宽屏上已经没有单独的聊天页(对话列表在会话页侧栏里),这一面没有聊天列表的搜索框;
+  // 手机保留聊天页,它的搜索框在下面量。
   await page.getByTestId('sidebar-contacts-nav').click()
   const contactsSearch = page.getByPlaceholder(CONTACTS_SEARCH)
   metrics.push(await readSearchMetrics('contacts', contactsSearch))
@@ -171,7 +168,7 @@ test('main renderer search fields share one visual contract', async ({ page }, t
   await capture(page, testInfo, 'search-field-add-friend')
 
   // 2026-09-05:原来这里还量第四个读数 —— 发现页的 DiscoverSearchField。发现页与找群同批下架,
-  // 那个搜索框已不可达,读数点随之撤掉。剩下三处仍然覆盖「同一份 SearchField 原语」这条契约。
+  // 那个搜索框已不可达,读数点随之撤掉。剩下的读数(宽屏两处、手机一处)仍然覆盖「同一份 SearchField 原语」这条契约。
 
   for (const reading of metrics) {
     expect(reading, JSON.stringify(reading)).toMatchObject({
@@ -190,8 +187,8 @@ test('main renderer search fields share one visual contract', async ({ page }, t
   // ⚠️ 按 testid 找,❌ 别按 placeholder:通讯录那个框在桌面写「搜索联系人」、在移动壳写
   // 「搜索联系人和 Agent」(ContactsNav 与桌面侧栏各给各的),按文案定位在窄屏必然落空。
   await page.getByTestId('mobile-messages-nav').click()
-  // 手机上框收在页头(ui/HeaderSearch):先点会话列表页头的放大镜。
-  await page.locator('[data-mobile-tab-page="chats"] [data-header-search-open]').click()
+  // The root list opens its header search field from the floating phone search button.
+  await page.getByTestId('phone-list-search').click()
   const mobileSearch = page.getByTestId('chat-list-search-input')
   await expect(mobileSearch, '移动壳会话列表的搜索框应可见').toBeVisible({ timeout: 30_000 })
   const mobileReading = await readSearchMetrics('messages-mobile', mobileSearch)

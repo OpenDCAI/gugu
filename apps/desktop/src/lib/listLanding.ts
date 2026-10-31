@@ -31,7 +31,7 @@ export function rowPlacement(scroller: HTMLElement, messageId: string, index: nu
  * 盯住一行:它在视口上方时为 true;滚到看得见过一次之后恒为 false(#6530 微信式「↑ N 条新消息」)。
  * index = 行在数据里的下标,-1 = 比窗口最早一条还早;null = 还判不了(行还没进窗口)。enabled = 列表已落位显形。
  */
-export function useRowAboveViewport(scrollerRef: RefObject<HTMLElement | null>, messageId: string | undefined, index: number | null, enabled: boolean): boolean {
+export function useRowAboveViewport(scrollerRef: RefObject<HTMLElement | null>, messageId: string | undefined, index: number | null, enabled: boolean, onSeen?: () => void): boolean {
   const [state, setState] = useState<{ id?: string; above: boolean; seen: boolean }>({ above: false, seen: false })
   const seen = state.id === messageId && state.seen
   useEffect(() => {
@@ -41,10 +41,11 @@ export function useRowAboveViewport(scrollerRef: RefObject<HTMLElement | null>, 
       const where = rowPlacement(scroller, messageId, index)
       setState((s) => (s.id === messageId && (s.seen || (s.above === (where === 'above') && where !== 'visible')) ? s
         : { id: messageId, above: where === 'above', seen: where === 'visible' }))
+      if (where === 'visible') onSeen?.()
     }
     place()
     scroller.addEventListener('scroll', place, { passive: true })
     return () => scroller.removeEventListener('scroll', place)
-  }, [scrollerRef, messageId, index, enabled, seen])
+  }, [scrollerRef, messageId, index, enabled, seen, onSeen])
   return state.id === messageId && state.above && !seen
 }

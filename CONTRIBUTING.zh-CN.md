@@ -7,7 +7,7 @@
 ## 快速开始
 
 1. 读取根目录 AGENTS.md，按 .node-version 和 package.json 的 packageManager 准备工具链。
-2. 在独立 checkout 执行 pnpm install --frozen-lockfile，配置见 .envs/example.env。
+2. 在独立 checkout 执行 pnpm install --frozen-lockfile，再执行 pnpm rebuild:native 为 Electron 编译原生模块；配置见 .envs/example.env。
 3. 使用自己的开发后端；官方服务的可选配置见 docs/optional-cloud-services.md。
 4. 通过 scripts/dev-app.sh 启动隔离实例；检查命令见 docs/development-tools.md。
 

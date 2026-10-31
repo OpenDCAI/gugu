@@ -9,7 +9,7 @@ import { desktopIpc } from '../platform/desktopIpc'
 // @@@3911 投影自带主体 —— 一份投影只描述 `agentUserId` 这一个 agent,任何时刻都能自证它说的是谁。
 // 这不是多余的冗余字段:本 hook 的 state 只能在 effect 里跟随入参,而 effect 落在 paint 之后 ⇒
 // 换 agent 的那一帧,state 必然还是**上一个 agent** 的。没有主体就无从判断这一点,而消费方
-// (AgentSessionpagePresentation)会把上一个 agent 的会话入口、恢复条挂到新 agent 的 DM 上。
+// (会话宿主)会把上一个 agent 的会话入口、恢复条挂到新 agent 的 DM 上。
 // owner 报的「点过运行中的 agent 再点闲置 agent,闲置的也变运行中」就是这么来的(#3911)。
 //
 // 这份投影只答「这个 agent 映射到会话页哪条会话」与只在会话面显形的平台恢复。它的状态、审阅门、provider
@@ -30,7 +30,8 @@ function unknownFor(agentUserId: string | null): ProjectionState {
   return agentUserId === null ? DISABLED : { kind: 'pending', context: null, error: null, agentUserId }
 }
 
-export function useSessionpageAgentProjection(agentUserId: string | null): ProjectionState {
+/** `attempt`:换一个值 = 再问一次(私聊「重试」);同一个 agent 的答案照旧以 agentUserId 自证。 */
+export function useSessionpageAgentProjection(agentUserId: string | null, attempt = 0): ProjectionState {
   const [state, setState] = useState<ProjectionState>(DISABLED)
 
   useEffect(() => {
@@ -94,7 +95,7 @@ export function useSessionpageAgentProjection(agentUserId: string | null): Proje
       unsubscribeView()
       unsubscribeRecovery()
     }
-  }, [agentUserId])
+  }, [agentUserId, attempt])
 
   // @@@3911 主体不符 = 这份 state 描述的是上一个 agent,对当前这个 agent 我们还没有答案。
   // 交出去的话,消费方会给它盖上当前 agent 的身份。所以这里回答「还不知道」,而不是回答别人的答案。

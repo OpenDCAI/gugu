@@ -7,7 +7,6 @@ import { NAV_COLUMN_WIDTH } from '@/lib/uiRuler';
 import { WorkspaceLayout, WorkspaceContentLayout } from '@renderer/lib/layout/workspace-layout';
 import { WorkspaceLayoutContextProvider, useWorkspaceLayoutContext } from '@renderer/lib/layout/layout-provider';
 import { ShellTitlebar } from '@renderer/lib/components/titlebar/shell-titlebar';
-import { TitlebarActions } from '@renderer/features/sessions/titlebar-actions';
 import { SessionLocalizationProvider } from '@renderer/localization/localization-provider';
 import '@/styles/tokens.css';
 import '@/components/sessionpage/EmdashSessionFrame.css';
@@ -39,7 +38,7 @@ afterEach(() => {
   delete document.documentElement.dataset.windowMaterial;
 });
 
-it('the real workspace keeps an opaque rounded reading surface inset from material, with fixed and local chrome aligned through collapse', async () => {
+it('the real workspace keeps an opaque rounded reading surface inset from material, with local chrome retained through collapse', async () => {
   harness = createReactHarness();
   await harness.render(
     <div className="gugu-skin emlight" style={{ position: 'fixed', inset: 0 }}>
@@ -47,9 +46,7 @@ it('the real workspace keeps an opaque rounded reading surface inset from materi
         <WorkspaceLayout
           leftSidebar={<div>project list</div>}
           mainContent={<WorkspaceContentLayout
-            titlebarSlot={<ShellTitlebar leftSlot={<button aria-label="project menu" style={{ height: 28 }}>project</button>}>
-              <TitlebarActions actions={{ 'workspace-panel': <button aria-label="workspace panel">panel</button> }} />
-            </ShellTitlebar>}
+            titlebarSlot={<ShellTitlebar leftSlot={<button aria-label="project menu" style={{ height: 28 }}>project</button>} />}
             mainPanel={<Body />}
           />}
         />
@@ -72,9 +69,8 @@ it('the real workspace keeps an opaque rounded reading surface inset from materi
   expect(style.boxShadow).not.toBe('none');
   expect(shell.querySelector('aside > .bg-border'), 'no full-height line may protrude into the rounded frame gutter').toBeNull();
   const local = harness.container.querySelector<HTMLElement>('[aria-label="project menu"]')!;
-  const fixed = harness.container.querySelector<HTMLElement>('[data-titlebar-action-slot]')!;
   const center = (element: HTMLElement) => { const box = element.getBoundingClientRect(); return box.top + box.height / 2; };
-  expect(center(fixed)).toBeCloseTo(center(local));
+  const localCenter = center(local);
   const draft = harness.container.querySelector<HTMLInputElement>('[aria-label="retained draft"]')!;
   await userEvent.click([...harness.container.querySelectorAll('button')].find((button) => button.textContent === 'toggle list')!);
   await until('the real list collapse completes', () => shell.querySelector('aside')!.getBoundingClientRect().width < 0.5);
@@ -82,11 +78,38 @@ it('the real workspace keeps an opaque rounded reading surface inset from materi
   expect(draft.value).toBe('keep this draft');
   expect(mounted).toHaveBeenCalledTimes(1);
   expect(surface.getBoundingClientRect().top - shell.getBoundingClientRect().top).toBeCloseTo(5);
-  expect(center(fixed)).toBeCloseTo(center(local));
+  expect(center(local)).toBeCloseTo(localCenter);
 });
 
 for (const material of ['native', 'opaque']) {
-  it(`full-width embedded pages expose the ${material} shell outside their rounded surface`, async () => {
+  it(`the light ${material} desktop uses one outer frame without a second content gutter`, async () => {
+    document.documentElement.dataset.windowMaterial = material;
+    harness = createReactHarness();
+    await harness.render(<div data-desktop-shell="" style={{ position: 'fixed', inset: 0, display: 'flex' }}>
+      <nav className="gg-sidebar-rail" />
+      <div style={{ flex: 1, minWidth: 0, display: 'flex' }}>
+        <div className="gg-session-frame" style={{ flex: 1 }}><div className="gg-session-frame-host"><div className="gugu-skin emlight" style={{ height: '100%', width: '100%' }}>
+          <SessionLocalizationProvider><WorkspaceLayoutContextProvider>
+            <WorkspaceLayout sidebarHidden leftSidebar={<div>retained list</div>} mainContent={<WorkspaceContentLayout titlebarSlot={null} mainPanel={<div>full-width page</div>} />} />
+          </WorkspaceLayoutContextProvider></SessionLocalizationProvider>
+        </div></div></div>
+      </div>
+    </div>);
+    const desktop = harness.container.querySelector<HTMLElement>('[data-desktop-shell]')!;
+    const outer = desktop.querySelector<HTMLElement>('.gg-sidebar-rail + div')!;
+    const surface = desktop.querySelector<HTMLElement>('[data-workspace-content-surface]')!;
+    const frame = outer.getBoundingClientRect();
+    const content = surface.getBoundingClientRect();
+    expect(content.width).toBeGreaterThan(700);
+    expect(frame.top - desktop.getBoundingClientRect().top).toBe(5);
+    expect(content.top).toBe(frame.top);
+    expect(content.right).toBe(frame.right);
+    expect(content.bottom).toBe(frame.bottom);
+    expect(getComputedStyle(surface).borderRadius).toBe('0px');
+    expect(getComputedStyle(surface).boxShadow).toBe('none');
+  });
+
+  it(`full-width embedded pages share the ${material} workspace interior without another inset`, async () => {
     document.documentElement.dataset.windowMaterial = material;
     harness = createReactHarness();
     await harness.render(<div data-desktop-shell="" style={{ position: 'fixed', inset: 0 }}>
@@ -107,7 +130,7 @@ for (const material of ['native', 'opaque']) {
     const shell = harness.container.querySelector<HTMLElement>('[data-workspace-shell]')!;
     const surface = harness.container.querySelector<HTMLElement>('[data-workspace-content-surface]')!;
     expect(surface.getBoundingClientRect().width).toBeGreaterThan(900);
-    expect(surface.getBoundingClientRect().top - shell.getBoundingClientRect().top).toBe(5);
+    expect(surface.getBoundingClientRect().top).toBe(shell.getBoundingClientRect().top);
   });
 }
 

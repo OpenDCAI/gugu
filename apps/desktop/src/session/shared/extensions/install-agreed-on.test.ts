@@ -42,12 +42,12 @@ describe('installing on another computer with the yes given here', () => {
     expect(install).toHaveBeenCalledTimes(2);
   });
 
-  it('D-31 asked here between the two steps (an agent’s install there): given with where the person ticked', async () => {
+  it('D-31 asked here between the two steps (an agent’s install there): given with the digest alone', async () => {
     const install = run([{ success: true, data: { outcome: 'ask', ask: { manifestDigest: 'd' } } }, { success: true, data: { installed: true } }]);
-    const agree = vi.fn().mockResolvedValue({ digest: 'd', enableIn: ['agent-1'] });
+    const agree = vi.fn().mockResolvedValue({ digest: 'd' });
     await expect(installAgreedOn(install, agree)).resolves.toEqual({ installed: true });
     expect(agree).toHaveBeenCalledWith({ outcome: 'ask', ask: { manifestDigest: 'd' } });
-    expect(install.mock.calls[1]).toEqual([{ kind: 'given', digest: 'd', enableIn: ['agent-1'] }]);
+    expect(install.mock.calls[1]).toEqual([{ kind: 'given', digest: 'd' }]);
   });
 
   it('the person says no here: nothing goes in there, and the no is the answer', async () => {

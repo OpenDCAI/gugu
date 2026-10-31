@@ -9,13 +9,21 @@ import type { CSSProperties } from 'react'
 export function buildBubbleStyle(
   isMine: boolean,
   isWhisper: boolean,
-  compactMobile: boolean
+  compactMobile: boolean,
+  joinedPrev = false,
 ): CSSProperties {
+  // 照 Telegram:离头像远的一侧两角都是大圆角;靠头像一侧,上角在挨着同组上一条时收小,下角总是小的 ——
+  // 组里中间几条挨着下一条,组尾那条由尾巴(messageBubbleChrome.css 的 [data-bubble-tail])盖住这个角。
+  const big = 'var(--radius-bubble)', joined = 'var(--radius-bubble-joined)'
+  const top = joinedPrev ? joined : big
+  const borderRadius = isMine ? `${big} ${top} ${joined} ${big}` : `${top} ${big} ${big} ${joined}`
   return {
+    position: 'relative', // 右下角的时间(BubbleTime inline)钉在气泡自己身上
     width: 'fit-content',
     maxWidth: '100cqw',
     minWidth: '44px',
-    padding: '8px 12px',
+    // 手机 8×16(v7.12「间距只用 4/8/16/24」,owner 10-26);桌面不动。
+    padding: compactMobile ? '8px 16px' : '8px 12px',
     // #7333 IM 人聊 / IM agent 的气泡正文是「消息与长段正文」那一档(16/24,用户裁决),不是紧凑界面的 14/20。
     // 桌面与手机同一档(≥ #1787 的移动 14 下限)。
     fontSize: 'var(--font-prose)',
@@ -23,17 +31,13 @@ export function buildBubbleStyle(
     wordBreak: 'break-word',
     overflowWrap: 'break-word',
     whiteSpace: 'pre-wrap',
-    // @@@mobile-select-guard (#1227) — 触屏禁原生文本选中 + iOS callout：long-press 已是消息菜单入口
-    //   (startTouchLongPress → openMenuAt)，不抑制的话原生选中/选择手柄/callout 会与菜单打架。
-    //   移动端 select-none。复制走菜单 handleCopyText，桌面仍可选中文本复制。
+    // Metadata and attachments keep the message menu. The mobile body root explicitly opts into selection.
     ...(compactMobile
       ? { userSelect: 'none', WebkitUserSelect: 'none', WebkitTouchCallout: 'none' }
       : {}),
-    // @@@bubble-style - 无边框的纯灰填充 + --radius-bubble(#7333:20)圆角、靠头像侧单角收 5px。
-    // own 深一档 / other 浅一档(#7333 起都是纯灰),去边框。
-    ...(isMine
-      ? { background: 'var(--bubble-mine)', borderRadius: 'var(--radius-bubble-sent)' }
-      : { background: 'var(--bubble-other)', borderRadius: 'var(--radius-bubble-received)' }),
+    // @@@bubble-style - 无边框的纯灰填充;own 深一档 / other 浅一档(#7333 起都是纯灰)。圆角见上。
+    background: isMine ? 'var(--bubble-mine)' : 'var(--bubble-other)',
+    borderRadius,
     // @@@whisper (#820) — whisper 气泡: 背景 var(--muted) + 文字 var(--muted-fg)（SSOT `.whisper .bub` L134）。
     // @@@933-mopup 补 color:--muted-fg(SSOT 有、原缺)。虚线边框/opacity 是 gugu 自加(SSOT 无,见 PR flag),本轮暂留。
     ...(isWhisper

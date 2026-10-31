@@ -42,7 +42,7 @@ const REMOTE_OFFLINE = device({
 })
 
 function defaults(overrides: Partial<AgentCreateDefaults> = {}): AgentCreateDefaults {
-  return { deviceId: null, projectByDevice: {}, ...overrides }
+  return { deviceId: null, projectByDevice: {}, projectByChat: {}, ...overrides }
 }
 
 describe('agent create defaults — 存储格式', () => {
@@ -64,7 +64,7 @@ describe('agent create defaults — 存储格式', () => {
           project_by_device: { 'dev-local': 'proj-a', 'dev-studio': 42, 'dev-x': '' }
         }
       })
-    ).toEqual({ deviceId: 'dev-studio', projectByDevice: { 'dev-local': 'proj-a' } })
+    ).toEqual({ deviceId: 'dev-studio', projectByDevice: { 'dev-local': 'proj-a' }, projectByChat: {} })
   })
 })
 
@@ -174,12 +174,13 @@ describe('agent create defaults — per-user 持久化', () => {
     expect(fake.upserts).toHaveLength(1)
     expect(fake.upserts[0]).toMatchObject({ user_id: 'user-1', scope: 'user' })
     expect(fake.rows['user-1::user']).toEqual({
-      agent_create: { device_id: 'dev-studio', project_by_device: {} }
+      agent_create: { device_id: 'dev-studio', project_by_device: {}, project_by_chat: {} }
     })
     // 同一账号在另一个客户端读回来的就是这一份
     await expect(readAgentCreateDefaults(fake.client, 'user-1')).resolves.toEqual({
       deviceId: 'dev-studio',
-      projectByDevice: {}
+      projectByDevice: {},
+      projectByChat: {}
     })
   })
 
@@ -191,7 +192,8 @@ describe('agent create defaults — per-user 持久化', () => {
     })
     await expect(rememberAgentCreateDevice(fake.client, 'user-1', 'dev-studio')).resolves.toEqual({
       deviceId: 'dev-studio',
-      projectByDevice: { 'dev-local': 'proj-a' }
+      projectByDevice: { 'dev-local': 'proj-a' },
+      projectByChat: {}
     })
   })
 
@@ -202,12 +204,29 @@ describe('agent create defaults — per-user 持久化', () => {
     expect(fake.rows['user-1::user']).toEqual({
       agent_create: {
         device_id: null,
-        project_by_device: { 'dev-local': 'proj-a', 'dev-studio': 'proj-b' }
+        project_by_device: { 'dev-local': 'proj-a', 'dev-studio': 'proj-b' },
+        project_by_chat: {}
       }
     })
     await expect(
       rememberAgentCreateProject(fake.client, 'user-1', 'dev-local', null)
-    ).resolves.toEqual({ deviceId: null, projectByDevice: { 'dev-studio': 'proj-b' } })
+    ).resolves.toEqual({ deviceId: null, projectByDevice: { 'dev-studio': 'proj-b' }, projectByChat: {} })
+  })
+
+  it('gugu-dev#181 在一个对话里选的项目记成这个对话的,也是最近一次选的;别的对话回落到最近一次', async () => {
+    const fake = fakeSettingsClient()
+    await rememberAgentCreateProject(fake.client, 'user-1', 'dev-local', 'proj-a', 'chat-design')
+    const read = await rememberAgentCreateProject(fake.client, 'user-1', 'dev-local', 'proj-b', 'chat-ops')
+    expect(read.projectByChat).toEqual({
+      'chat-design': { deviceId: 'dev-local', projectId: 'proj-a' },
+      'chat-ops': { deviceId: 'dev-local', projectId: 'proj-b' },
+    })
+    const available = ['proj-a', 'proj-b']
+    expect(resolveAgentCreateProject(read, 'dev-local', available, 'chat-design')).toBe('proj-a')
+    expect(resolveAgentCreateProject(read, 'dev-local', available, 'chat-new')).toBe('proj-b')
+    // 记的是另一台设备上的项目:这台设备上回落到最近一次
+    expect(resolveAgentCreateProject(read, 'dev-studio', ['proj-a'], 'chat-design')).toBeNull()
+    await expect(readAgentCreateDefaults(fake.client, 'user-1')).resolves.toEqual(read)
   })
 
   it('不吞掉 user scope 下无关的键', async () => {

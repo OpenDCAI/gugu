@@ -11,6 +11,8 @@ import {
   type OutboxWiringIo,
 } from '../../../../apps/desktop/src/store/chatOutboxWiring'
 import type { OutboxRecord } from '../../../../apps/desktop/src/lib/imRepository'
+const logError = vi.hoisted(() => vi.fn())
+vi.mock('../../../../apps/desktop/src/lib/log', () => ({ rendererLogger: () => ({ debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: logError }) }))
 
 function persistedMessage(id: string): MessageItem {
   return {
@@ -106,6 +108,7 @@ async function flushMicrotasks(rounds = 10): Promise<void> {
 }
 
 afterEach(() => {
+  logError.mockClear()
   vi.clearAllTimers()
   vi.useRealTimers()
   vi.restoreAllMocks()
@@ -242,7 +245,10 @@ describe('投递前置:乐观行先上屏,就绪/对端解析在投递阶段 (C1
     await vi.advanceTimersByTimeAsync(20_000)
     expect(beforeDeliver).toHaveBeenCalledTimes(3) // 3 次尝试,每次先过前置
     expect(send).not.toHaveBeenCalled()
-    expect(harness.messages()[0]).toMatchObject({ local_send_state: 'failed' })
+    expect(harness.messages()[0]).toMatchObject({ local_send_state: 'failed', local_send_error: 'session not ready' })
+    expect(harness.toast).not.toHaveBeenCalled()
+    expect(logError).toHaveBeenCalledTimes(1)
+    expect(logError).toHaveBeenCalledWith(expect.objectContaining({ error: 'session not ready' }), 'message send failed')
 
     ready = true
     harness.wiring.retrySend(row.id)

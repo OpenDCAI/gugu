@@ -13,6 +13,17 @@ import type { DependencyStatus, ProbeResult } from './types';
 export const VERSION_RE = /(\d+\.\d+(?:\.\d+)*)/;
 
 /**
+ * `--version` 打出的哪一行是这一家自己的(`HostDependencyDescriptor.versionLine`):恰好一行匹配才算;没声明、
+ * 没有一行匹配、或不止一行匹配(包装器自己也打一行同样的标识)都是 null —— 读的人照旧读法,❌ 挑第一行。
+ * 读版本的三处(启动闸 `parseRuntimeVersion`、资源库 `extractVersion`、能不能跑 `defaultProbeStatus`)都经它。
+ */
+export function versionLineOf(output: string, versionLine: RegExp | undefined): string | null {
+  if (!versionLine) return null;
+  const lines = output.split('\n').map((line) => line.trim()).filter((line) => versionLine.test(line));
+  return lines.length === 1 ? lines[0] : null;
+}
+
+/**
  * 一次探测该读成什么状态。
  *
  * **这是唯一一份口径。** 曾经有两份:`resolveProbeStatus` 里一份、`descriptor-from-provider`
@@ -27,9 +38,10 @@ export const VERSION_RE = /(\d+\.\d+(?:\.\d+)*)/;
  * - 留了余地:非零退出**但仍然报出了版本号**的照旧算可用,有些 CLI 的 `--version` 本来就以
  *   非零退出。只有「跑挂了而且没报出版本」才判 error。
  */
-export function defaultProbeStatus(result: ProbeResult): DependencyStatus {
+export function defaultProbeStatus(result: ProbeResult, versionLine?: RegExp): DependencyStatus {
   const ranAndFailed = result.exitCode !== null && result.exitCode !== 0 && !result.timedOut;
-  const reportedAVersion = VERSION_RE.test((result.stdout || result.stderr).split('\n')[0] ?? '');
+  const printed = result.stdout || result.stderr;
+  const reportedAVersion = VERSION_RE.test(versionLineOf(printed, versionLine) ?? printed.split('\n')[0] ?? '');
   if (result.path !== null) return ranAndFailed && !reportedAVersion ? 'error' : 'available';
   if (result.timedOut && result.stdout) return 'available';
   if (result.exitCode !== null && (result.stdout || result.stderr)) return 'available';
@@ -89,17 +101,19 @@ function windowsWhereArgument(command: string): string {
 export async function resolveAllCommandPaths(
   command: string,
   ctx: IExecutionContext,
-  platform?: Platform
+  platform?: Platform,
+  env?: Record<string, string>,
 ): Promise<string[]> {
   const plat = targetPlatform(platform);
   try {
     if (plat === 'windows') {
       const { stdout } = await ctx.exec('where', [windowsWhereArgument(command)], {
         timeout: WHICH_TIMEOUT_MS,
+        env,
       });
       return windowsCommandPaths(stdout);
     }
-    const { stdout } = await ctx.exec('which', ['-a', command], { timeout: WHICH_TIMEOUT_MS });
+    const { stdout } = await ctx.exec('which', ['-a', command], { timeout: WHICH_TIMEOUT_MS, env });
     return outputLines(stdout);
   } catch {
     return [];
@@ -115,14 +129,15 @@ export async function resolveAllCommandPaths(
 export async function resolveKnownPaths(
   paths: readonly string[],
   ctx: IExecutionContext,
-  platform?: Platform
+  platform?: Platform,
+  env?: Record<string, string>,
 ): Promise<string[]> {
   const plat = targetPlatform(platform);
   const found: string[] = [];
   for (const declared of paths) {
     const expanded = await expandKnownPath(declared, ctx, plat);
     if (!expanded) continue;
-    const resolved = await resolveCommandPath(expanded, ctx, plat);
+    const resolved = await resolveCommandPath(expanded, ctx, plat, env);
     if (resolved) found.push(resolved);
   }
   return found;
@@ -154,13 +169,14 @@ async function expandKnownPath(path: string, ctx: IExecutionContext, plat: Platf
 export async function resolveCommandPath(
   command: string,
   ctx: IExecutionContext,
-  platform?: Platform
+  platform?: Platform,
+  env?: Record<string, string>,
 ): Promise<string | null> {
   const plat = targetPlatform(platform);
   const resolveCmd = plat === 'windows' ? 'where' : 'which';
   const resolveArg = plat === 'windows' ? windowsWhereArgument(command) : command;
   try {
-    const { stdout } = await ctx.exec(resolveCmd, [resolveArg], { timeout: WHICH_TIMEOUT_MS });
+    const { stdout } = await ctx.exec(resolveCmd, [resolveArg], { timeout: WHICH_TIMEOUT_MS, env });
     const paths = plat === 'windows' ? windowsCommandPaths(stdout) : outputLines(stdout);
     return paths[0] ?? null;
   } catch {

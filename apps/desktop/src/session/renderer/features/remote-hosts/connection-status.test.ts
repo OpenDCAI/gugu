@@ -120,6 +120,7 @@ describe('machineNoticeLabel(#6264 那台机器连得上,但有件事会让操�
     expect(machineNoticeLabel([{ kind: 'rolled-back', version: 'b', restored: 'a' }], 'Linux 1', zh)).toBeNull();
     expect(machineNoticeLabel([], 'Linux 1', zh)).toBeNull();
     expect(machineNoticeLabel(undefined, 'Linux 1', zh)).toBeNull();
+    expect(machineNoticeLabel([{ kind: 'disk-low', freeBytes: 1 }], 'Linux 1', zh, { protocolOnly: true })).toBeNull();
   });
 
   it('#6264 远程 SSH 要先登录:侧栏、聊天末尾那一行同一个说法,❌ 说「重连中」', () => {

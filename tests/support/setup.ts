@@ -29,6 +29,15 @@ if (typeof window !== 'undefined') {
     disconnect(): void {}
   }
   globalThis.ResizeObserver = ResizeObserverMock as unknown as typeof ResizeObserver
+  // Agent conversations now mount the shared transcript in the IM shell as well.
+  // jsdom has no font loading; browser geometry is tested in Chromium.
+  Object.defineProperty(document, 'fonts', { configurable: true, value: { load: async () => [], ready: Promise.resolve() } })
+
+  // Shared rich-text composers use native caret geometry and popup scrolling. jsdom has no layout.
+  Element.prototype.scrollIntoView = () => {}
+  Range.prototype.getBoundingClientRect = () => new DOMRect(0, 0, 0, 20)
+  Range.prototype.getClientRects = () => [] as unknown as DOMRectList
+  document.elementFromPoint = () => null
 
   const storage = new Map<string, string>()
 
@@ -64,7 +73,6 @@ beforeEach(async () => {
   const { setLocalePreference } = await import('../../apps/desktop/src/i18n')
   await import('../../apps/desktop/src/i18n/registerMainCatalog')
   await import('../../apps/desktop/src/i18n/registerSettingsCatalog')
-  await import('../../apps/desktop/src/i18n/registerDiscoverCatalog')
   await import('../../apps/desktop/src/i18n/registerMessagingCatalog')
   await import('../../apps/desktop/src/i18n/registerContactsCatalog')
   await import('../../apps/desktop/src/i18n/registerAgentsCatalog')

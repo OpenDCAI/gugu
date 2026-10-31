@@ -1,11 +1,14 @@
-import { useMemo, useSyncExternalStore } from 'react'
+import { useEffect, useMemo, useSyncExternalStore } from 'react'
+import { isDeepEqual } from '@gugu/session-shared'
 import type { Device } from '@gugu/core/shared/types/chat'
+import { isPhoneDevice } from '@gugu/core/cloud/devices'
 import type {
   SessionpageProjectSummary,
   SessionpageSessionSummary,
 } from '@gugu/session-core/session-record/contract'
 import type { SessionShellAgentName } from '@/session/shared/lib/ipc/shell-port'
 import { useContactsStore } from '@/store/contactsContext'
+import { useChatStore } from '@/store/chatContext'
 import { sessionListFromDigest } from './session-list-sync'
 
 /**
@@ -20,21 +23,44 @@ export type DeviceSessions = {
   cached: boolean
   loading: boolean
   error: string | null
+  /** Current transport evidence; a heartbeat alone cannot keep a working row live. */
+  connected?: boolean
 }
 
 export type SessionDirectoryRow = { deviceId: string; session: SessionpageSessionSummary }
 
-const EMPTY: DeviceSessions = { projects: [], sessions: [], cached: true, loading: true, error: null }
+const EMPTY: DeviceSessions = { projects: [], sessions: [], cached: true, loading: true, error: null, connected: false }
 
 // Shell and session renderer can be separate module graphs in the same document.
 // Keep the single directory and its subscribers on that document, not in either bundle.
-type DirectoryState = { live: Readonly<Record<string, DeviceSessions>>; listeners: Set<() => void> }
+type DirectoryRetry = { ownerId: string; run: () => void | Promise<void> }
+type DirectoryState = { devices: readonly Device[]; live: Readonly<Record<string, DeviceSessions>>; listeners: Set<() => void>; retries: Map<string, DirectoryRetry>; phoneReaders: number; demandListeners: Set<() => void> }
 const DIRECTORY_KEY = '__GUGU_SESSION_DIRECTORY__' as const
-const fallback: DirectoryState = { live: {}, listeners: new Set() }
+const newDirectory = (): DirectoryState => ({ devices: [], live: {}, listeners: new Set(), retries: new Map(), phoneReaders: 0, demandListeners: new Set() })
+const fallback = newDirectory()
 function directoryState(): DirectoryState {
   if (typeof window === 'undefined') return fallback
   const host = window as Window & { [DIRECTORY_KEY]?: DirectoryState }
-  return host[DIRECTORY_KEY] ??= { live: {}, listeners: new Set() }
+  const state = host[DIRECTORY_KEY] ??= newDirectory()
+  state.retries ??= new Map()
+  state.phoneReaders ??= 0
+  state.demandListeners ??= new Set()
+  return state
+}
+
+/** Only the owning root can register its existing sync; pages never start another subscription. */
+export function registerDeviceSessionsRetry(ownerId: string, deviceId: string, run: DirectoryRetry['run']): () => void {
+  const retries = directoryState().retries
+  const entry = { ownerId, run }
+  retries.set(deviceId, entry)
+  return () => { if (retries.get(deviceId) === entry) retries.delete(deviceId) }
+}
+
+/** A stale page from another account or a stopped device cannot reconnect that device. */
+export async function retryDeviceSessions(ownerId: string, deviceId: string): Promise<void> {
+  const entry = directoryState().retries.get(deviceId)
+  if (!ownerId || !entry || entry.ownerId !== ownerId) throw new Error('当前账号没有这台设备的可重试连接。')
+  await entry.run()
 }
 
 function publish(next: Readonly<Record<string, DeviceSessions>>): void {
@@ -45,7 +71,60 @@ function publish(next: Readonly<Record<string, DeviceSessions>>): void {
 
 export function updateDeviceSessions(deviceId: string, patch: Partial<DeviceSessions>): void {
   const live = directoryState().live
-  publish({ ...live, [deviceId]: { ...(live[deviceId] ?? EMPTY), ...patch } })
+  const next = { ...(live[deviceId] ?? EMPTY), ...patch }
+  // Equal polls preserve the directory and subscriber snapshots, regardless of JSON key order.
+  if (live[deviceId] && isDeepEqual(live[deviceId], next)) return
+  publish({ ...live, [deviceId]: next })
+}
+
+/** Explicit summary consumers, such as the member picker, retain phone reads.
+ * Account task panes do not retain this directory; the last consumer releases it. */
+export function requestPhoneTaskDirectory(): () => void {
+  const state = directoryState()
+  state.phoneReaders += 1
+  if (state.phoneReaders === 1) for (const listener of state.demandListeners) listener()
+  let released = false
+  return () => {
+    if (released) return
+    released = true
+    state.phoneReaders -= 1
+    if (state.phoneReaders === 0) for (const listener of state.demandListeners) listener()
+  }
+}
+
+export function phoneTaskDirectoryRequested(): boolean { return directoryState().phoneReaders > 0 }
+function subscribePhoneTaskDirectory(listener: () => void): () => void {
+  const listeners = directoryState().demandListeners
+  listeners.add(listener)
+  return () => { listeners.delete(listener) }
+}
+export function usePhoneTaskDirectoryRequested(): boolean {
+  return useSyncExternalStore(subscribePhoneTaskDirectory, phoneTaskDirectoryRequested)
+}
+export function usePhoneTaskDirectory(): void { useEffect(requestPhoneTaskDirectory, []) }
+
+/** The shell publishes its existing account device list across the two React roots. No workspace capability is implied. */
+export function publishDirectoryDevices(devices: readonly Device[]): void {
+  const state = directoryState()
+  if (state.devices === devices) return
+  state.devices = devices
+  for (const listener of state.listeners) listener()
+}
+
+export function directoryDevices(): readonly Device[] {
+  return directoryState().devices
+}
+
+export function useDirectoryDevices(): readonly Device[] {
+  return useSyncExternalStore(subscribeDeviceSessions, directoryDevices)
+}
+
+/** Each synchronizer removes only the device it owns; computer cleanup must preserve phone summaries. */
+export function removeDeviceSessions(deviceId: string): void {
+  const live = directoryState().live
+  if (!(deviceId in live)) return
+  const { [deviceId]: _removed, ...remaining } = live
+  publish(remaining)
 }
 
 /** 只留在线机器的格;在线的留着,重订期间页面不闪空。 */
@@ -70,9 +149,25 @@ export function useLiveDeviceSessions(): Readonly<Record<string, DeviceSessions>
   return useSyncExternalStore(subscribeDeviceSessions, liveDeviceSessions)
 }
 
+/**
+ * 一台机器上的项目与会话:读到了那台机器此刻的就是它;没读到(离线、刚开还在读、一时连不上)就是它**自己上报过的那份** ——
+ * 会话照心跳摘要,项目照账号上记着的那份(#113)列全(❌ 只列摘要里碰巧有会话的那几个;摘要里的会话所在的项目账号上
+ * 没有,也照样列出,会话不能没有归处)。电脑的「上次的样子」只有这一份:设备行连同摘要本来就跟着设备列表存在本地,
+ * ❌ 再另存一份会话底稿。在线时这一份标 cached(还没对过账,❌ 冒充此刻),读的进度与错误照实带上。
+ */
 export function deviceSessionsOf(device: Device, liveSessions: Readonly<Record<string, DeviceSessions>>): DeviceSessions {
-  if (device.is_online) return liveSessions[device.device_id] ?? EMPTY
-  return { ...sessionListFromDigest(device.session_digest), cached: false, loading: false, error: null }
+  const live = liveSessions[device.device_id]
+  if (device.is_online && live && (!live.cached || isPhoneDevice(device))) return live
+  // 手机的目录由手机自己的记录铺(usePhoneAgentDirectory):摘要里没有 chatId(继续真实 DM 的地址),离线也照那一份。
+  // 状态由行所在机器的在线信号决定,不把旧的 working 当此刻正在运行;完整 workspace 时间线仍然 unsupported。
+  if (!device.is_online && isPhoneDevice(device) && live) return { ...live, cached: true, loading: false, error: null }
+  const digest = sessionListFromDigest(device.session_digest, device.is_online)
+  const recorded = (device.projects ?? []).map((project) => ({ id: project.localProjectId, name: project.name, path: project.rootPath }))
+  const known = new Set(recorded.map((project) => project.id))
+  const projects = [...recorded, ...digest.projects.filter((project) => !known.has(project.id))]
+  return device.is_online
+    ? { ...digest, projects, cached: true, loading: live?.loading ?? true, error: live?.error ?? null }
+    : { ...digest, projects, cached: false, loading: false, error: null }
 }
 
 /** 全部机器的行;地址是行上的机器,❌ 人进的是哪台。 */
@@ -86,7 +181,7 @@ export function directoryRows(devices: readonly Device[], liveSessions: Readonly
  * 记录状态(新宿主,spec session-always-openable)。离线机器的行来自心跳摘要,两样都没有 ⇒ 点不开。
  */
 export function rowOpens(session: SessionpageSessionSummary): boolean {
-  return session.supported || session.recordState !== undefined
+  return session.supported || session.recordState !== undefined || session.nativeInputVersion === 1
 }
 
 /**
@@ -114,7 +209,11 @@ export function listedSession(
  */
 export function useAgentNames(): ReadonlyMap<string, string> {
   const { contacts } = useContactsStore()
-  return useMemo(() => new Map(contacts.map((contact) => [contact.id, contact.display_name])), [contacts])
+  const { identitiesById } = useChatStore('identitiesById')
+  return useMemo(() => new Map([
+    ...Object.values(identitiesById).filter(identity => identity.type === 'agent' && identity.display_name).map(identity => [identity.id, identity.display_name] as const),
+    ...contacts.map(contact => [contact.id, contact.display_name] as const),
+  ]), [contacts, identitiesById])
 }
 
 /** 这条会话背后的 agent(有身份、通讯录里有它);否则不给。 */

@@ -7,7 +7,7 @@ import { clickElement, createNode, createReactHarness, renderWithAppProviders } 
 
 vi.mock('../../../../apps/desktop/src/lib/groupInvitations', () => ({ decideGroupInvitation: vi.fn() }))
 const invitation = {
-  id: 'invite-1', chat_id: 'group-1', group_name: '论文评审', inviter_agent_user_id: 'agent-a', inviter_name: '研究助手', inviter_owner_name: '小王',
+  id: 'invite-1', chat_id: 'group-1', group_name: '论文评审', inviter_user_id: 'agent-a', inviter_type: 'agent' as const, inviter_name: '研究助手', inviter_owner_name: '小王',
   invitee_user_id: 'agent-b', invitee_name: '审稿助手', invitee_type: 'agent' as const, decision_user_id: 'owner-b',
   owner_will_join: true, message: '请来讨论实验结果', status: 'pending' as const, created_at: '2026-09-20T12:00:00Z',
 }
@@ -68,10 +68,11 @@ describe('group invitation owner consent', () => {
   })
   it('does not present failed loading as an empty inbox', async () => {
     await renderWithAppProviders(harness, createNode(NewFriendsPanel), {
-      contacts: { groupInvitations: [], requestsStatus: 'error', requestsError: 'network unavailable' },
+      contacts: { groupInvitations: [], requestsStatus: 'error', requestsError: 'network unavailable /Users/test/private sk-synthetic-secret\nstack detail' },
     })
     expect(harness.container.querySelector('[role="alert"]')).not.toBeNull()
-    expect(harness.container.textContent).not.toContain('network unavailable')
+    expect(harness.container.textContent).toContain('network unavailable [path] [redacted token]')
+    expect(harness.container.textContent).not.toContain('/Users/test/private')
     expect(harness.container.textContent).not.toContain('暂无待处理的群邀请')
   })
 })

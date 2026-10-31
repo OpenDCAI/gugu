@@ -1,30 +1,42 @@
-import { useState, useEffect, useMemo, useRef, useCallback, type KeyboardEventHandler } from 'react'
+import { useNativeAgentChats } from '@/hooks/useNativeAgentChats'
+import { useState, useEffect, useMemo, useRef, useCallback, type KeyboardEventHandler, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
-import { BellOff, Checklist, MessageCircle, MessageSquare, Pin, Plus, Trash, X, Zap, type IconComponent } from '@/lib/icons'
+import { BellOff, Checklist, ChevronDown, ChevronRight, FolderClosed, MessageCircle, MessageSquare, Plus, SquarePen, UserRound, Users, X, Zap } from '@/lib/icons'
 import { Sheet } from './ui/Sheet'
-import { DropdownMenu, Menu, MenuItem } from './ui/Menu'
+import { DropdownMenu, MenuItem } from './ui/Menu'
 import { PaneEmptyState } from './ui/PaneEmptyState'
 import { SearchField } from './ui/SearchField'
 import { HeaderSearch } from './ui/HeaderSearch'
 import { Pane, PaneHeader } from './ui/Pane'
 import { ListRow } from './ui/ListRow'
+import { clearDraggedScreenContent, setDraggedScreenContent } from '../session/renderer/lib/drag-screen-content'
 import { Chip } from './ui/Chip'
 import { Button } from './ui/Button'
 import { IconButton } from './ui/IconButton'
 import type { SidebarTab } from '@gugu/core/shared/enums/sidebarTabModels'
 import { useAssistantShell } from '../session/renderer/features/assistant/assistant-shell'
 import { isDuplicateAssistantChat } from '../lib/assistantChatList'
+import { useProjectGroupChats } from '../lib/projectGroupChatsBridge'
 import { useAssistantWorkrooms } from './assistant/useAssistantWorkrooms'
 import { useChatStore } from '../store/chatContext'
+import { ChatRowContextMenu } from './chat/ChatRowContextMenu'
+import { chatPreviewText } from '../lib/agentTurnFailure'
 import { formatCalendarDay } from '../lib/calendarTime'
-import { CreateGroupChatModal } from './CreateGroupChatModal'
+import { CreateGroupChatForm, MEMBER_PICKER_SHEET } from './CreateGroupChatModal'
 import { AddFriendSearch } from './AddFriendSearch'
 import { Avatar } from './Avatar'
+import { PhoneProjectChatAvatar } from '@/mobile/partners/PhoneProjectChatAvatar'
+import { phoneChatUnread } from '@/mobile/chat/phoneChatUnread'
 import { AUTOMATION_TEST_IDS } from '../lib/automationDom'
 import { UI_EVENTS } from '../lib/uiEvents'
 import { requestTopicSplit } from '../lib/topicSplitRequest'
+import { readSessionpageViewRequestBridge } from '../lib/sessionpageViewRequestBridge'
+import { openOwnedAgentEntry, useOwnedAgentEntries } from '../lib/ownedAgentConversation'
+import { subscribeShellChatActions, takeShellChatAction, useSidebarChatView, type ShellChatDialog } from '../lib/sidebarChatsBridge'
+import { blockKey, joinRows, type JoinedGroup, type SidebarJoin } from '../lib/sidebarJoinedGroups'
 import { groupTopicsBySource, isTopLevelChatRow, splitSunkTopics } from './chatListTopicNesting'
-import { requestTopicsPanel } from '../lib/topicsPanelRequest'
+import { useLongPress } from '../hooks/useLongPress'
+import { useRowContextMenu } from '../hooks/useRowContextMenu'
 import { useAgentDisplayStatuses } from '../hooks/useAgentDisplayStatus'
 import { useShownAgentStatus, type ShownAgentStatus } from './chat/useAgentsOnCloudComputer'
 import { AgentHostStaleBadge } from './AgentHostStaleBadge'
@@ -32,8 +44,6 @@ import { aggregateGroupAgentStatus } from '../lib/groupAgentStatus'
 import { chatActivityAt, chatDisplayName, compareChatsByActivityDesc, isChatListed, isRoomChat, isSunkTopic } from '@gugu/core/shared/ui/chatModels'
 import { platform } from '../platform'
 import type { AgentDisplayStatus, ChatItem, NotificationLevel } from '@gugu/core/shared/types/chat'
-import { useDevicesStore } from '../store/devicesContext'
-import { chatRowTag } from '../lib/chatRowTag'
 import { resolveOrLoud } from '@gugu/core/shared/resolveOrLoud'
 import { rendererLogger } from '../lib/log'
 import { chatListShortcutFor, nextChatId } from './chat-list-keyboard-nav'
@@ -67,7 +77,7 @@ function rowAgentStatus(
 }
 
 interface ChatListPanelProps {
-  activeTab: SidebarTab
+  activeTab?: SidebarTab
   mobile?: boolean
   /** 手机上列表被打开的会话 / 创建页整页盖住(隐藏不卸载)。 */
   hidden?: boolean
@@ -79,10 +89,23 @@ interface ChatListPanelProps {
   // (#3809 实际发生过)。必填让那种写法当场是编译错误 —— 比任何测试都早、也更便宜。
   onOpenAgentCreateDraft?: () => void
   onOpenSessionCreate?: () => void
+  /**
+   * gugu-dev#181 `sidebar` = 画进会话页侧栏「对话」那一格(ChatListSlotHost):只有行。搜索框是侧栏那一个(一个框搜两边),
+   * 点一行在会话页这屏打开对话块(⌘ 点并排),高亮的是正看着的那块对话;新建群聊、添加联系人由侧栏那两行入口叫开。
+   */
+  placement?: 'page' | 'sidebar'
+  /** 手机「消息」置顶的第一行(咕咕,owner 10-26 #446):排在置顶会话之前,搜索时不出。 */
+  lead?: ReactNode
+  /** 第一行代表的那条对话(和咕咕的私聊):❌ 再按普通会话列一行。 */
+  leadChatId?: string | null
+  /** 手机页头左上角(自己的头像 →「我的」)。 */
+  headerLeading?: ReactNode
+  /** 手机右上「写」菜单里的「新项目」(#446)。 */
+  onNewProject?: () => void
 }
 
 const CHAT_LIST_PLUS_BUTTON_SELECTOR = AUTOMATION_TEST_IDS.chatListPlusButton
-const COLOR_PLACEHOLDER = 'var(--text-tertiary)'
+const COLOR_PLACEHOLDER = 'var(--muted-fg)'
 
 // @@@ui-ruler — 迁移到 Pane/PaneHeader/ListRow 原语后仍需要的少量结构性 style,提到模块作用域
 // 命名常量:既避免每次渲染重建对象,也让 JSX 里的 `style={{` 计数落回原语迁移前的水平。
@@ -92,27 +115,20 @@ const NAV_HEADER_STYLE: React.CSSProperties = { paddingLeft: 'max(var(--pane-pad
 // #6753 桌面上还要让开浮在左上角的列表栏开关(--list-toggle-lane;Windows 的开关在标题栏行,那里是 0)。
 const NAV_HEADER_STYLE_DESKTOP: React.CSSProperties = { paddingLeft: 'max(var(--pane-pad-x), var(--titlebar-list-header-inset), var(--list-toggle-lane))' }
 const LIST_SCROLL_STYLE: React.CSSProperties = { flex: 1, overflowY: 'auto', padding: '4px 8px 16px' }
+const MOBILE_LIST_SCROLL_STYLE: React.CSSProperties = { flex: 1, minHeight: 0, overflowY: 'auto', padding: 'var(--spacing-xs) var(--spacing-sm) var(--phone-nav-clearance)' }
+// 侧栏那一份不自己滚:滚的是会话页侧栏那一个滚动容器(置顶 / 项目 / 对话共用)。左右与侧栏的行同一道留白。
+const SIDEBAR_LIST_STYLE: React.CSSProperties = { padding: '0 12px 8px' }
+const NO_JOINED_GROUPS: readonly JoinedGroup[] = []
+
 const LOADING_STATE_STYLE: React.CSSProperties = { padding: '24px', textAlign: 'center', color: COLOR_PLACEHOLDER, fontSize: 'var(--font-body)' }
 const EMPTY_STATE_WRAP_STYLE: React.CSSProperties = { padding: '40px 16px', display: 'flex', justifyContent: 'center' }
-const NO_RESULTS_STYLE: React.CSSProperties = { padding: '40px 16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: 'var(--font-body)' }
+const NO_RESULTS_STYLE: React.CSSProperties = { padding: '40px 16px', textAlign: 'center', color: 'var(--muted-fg)', fontSize: 'var(--font-body)' }
 const PLUS_MENU_CONTENT_STYLE: React.CSSProperties = { minWidth: 160 }
 const PLUS_MENU_ITEM_STYLE_DESKTOP: React.CSSProperties = { minHeight: 'var(--control-h-lg)', fontSize: 'var(--font-body)' }
 const PLUS_MENU_ITEM_STYLE_TOUCH: React.CSSProperties = { minHeight: 'var(--control-h-touch)', fontSize: 'var(--font-title)' }
 const ADD_FRIEND_BODY_STYLE: React.CSSProperties = { position: 'relative', display: 'flex', flexDirection: 'column', minHeight: 0, flex: 1, overflow: 'hidden' }
 const ADD_FRIEND_HEADER_STYLE: React.CSSProperties = { display: 'flex', alignItems: 'center', padding: '14px 16px 10px', borderBottom: '1px solid var(--border-color)' }
 const ADD_FRIEND_TITLE_STYLE: React.CSSProperties = { flex: 1, fontSize: 'var(--font-title)', lineHeight: 'var(--lh-title)', fontWeight: 600, color: 'var(--text-primary)' } // #7333 弹层标题 16/24
-
-// ── Chat row context menu ──────────────────────────────────────────────────────
-
-interface ChatRowMenuProps {
-  x: number
-  y: number
-  chat: ChatItem
-  onClose: () => void
-  onPin: () => void
-  onSetNotificationLevel: (level: NotificationLevel) => void
-  onDelete: () => void
-}
 
 // @@@5856 「更早」分段头:一行低调的可点条,不做成折叠箭头家具。
 const SUNK_SECTION_STYLE: React.CSSProperties = {
@@ -121,48 +137,10 @@ const SUNK_SECTION_STYLE: React.CSSProperties = {
   padding: '8px 16px 8px calc(40px + 13px + var(--row-gap))',
   border: 0,
   minHeight: 0,
-  color: 'var(--text-tertiary)',
+  color: 'var(--muted-fg)',
   // #7333 标注档 12/18:Button 自带 leading-none,不写行高这一行就是 12/12。
   fontSize: 'var(--font-caption)',
   lineHeight: 'var(--lh-caption)',
-}
-
-// 会话右键菜单 —— 按设计稿 #ctxmenu：置顶 / 关闭通知 / 删除（带原图标）。
-function ChatRowContextMenu({ x, y, chat, onClose, onPin, onSetNotificationLevel, onDelete }: ChatRowMenuProps) {
-  const { t } = useTranslation('messaging')
-  const currentLevel = chat.notification_level ?? 'all'
-
-  const items: { label: string; icon: IconComponent; danger?: boolean; onClick: () => void }[] = [
-    {
-      label: chat.is_pinned ? t('chatList.unpin') : t('chatList.pin'),
-      icon: Pin,
-      onClick: () => { onPin(); onClose() },
-    },
-    {
-      label: currentLevel === 'none' ? t('chatList.enableNotifications') : t('chatList.disableNotifications'),
-      icon: BellOff,
-      onClick: () => {
-        onSetNotificationLevel(currentLevel === 'none' ? 'all' : 'none')
-        onClose()
-      },
-    },
-    {
-      label: t('chatList.delete'),
-      icon: Trash,
-      danger: true,
-      onClick: () => { onDelete(); onClose() },
-    },
-  ]
-
-  return (
-    <Menu x={x} y={y} minWidth={160} onClose={onClose}>
-      {items.map((item) => (
-        <MenuItem key={item.label} danger={item.danger} icon={<item.icon size={15} />} onClick={item.onClick}>
-          {item.label}
-        </MenuItem>
-      ))}
-    </Menu>
-  )
 }
 
 // ── Chat row ───────────────────────────────────────────────────────────────────
@@ -171,16 +149,20 @@ interface ChatRowProps {
   chat: ChatItem
   agentStatus?: AgentDisplayStatus
   isActive: boolean
+  topicsExpanded?: boolean
+  onToggleTopics: () => void
   draft?: string
   // @@@1787 移动触控放大(对齐 ContactsPanel.ContactRow 的 mobile 规格)
   mobile?: boolean
-  onClick: () => void
+  onClick: (event: React.MouseEvent) => void
   onPin: () => void
   onSetNotificationLevel: (level: NotificationLevel) => void
   onDelete: () => void
   tabIndex: number
   onFocus: () => void
   onKeyDown: KeyboardEventHandler<HTMLDivElement>
+  /** 侧栏那一份:这一行是拼在一屏的某一组的框的哪一段(只有一行、或没有话题子行时框画在这一行上)。 */
+  join?: SidebarJoin
 }
 
 // @@@5856 会话列表里的话题子行。
@@ -195,11 +177,17 @@ const TOPIC_SUBROW_STYLE: React.CSSProperties = { paddingLeft: 40, paddingTop: 4
 const TOPIC_SUBROW_ICON_STYLE: React.CSSProperties = { color: 'var(--text-tertiary)' }
 const TOPIC_SUBROW_NAME_STYLE: React.CSSProperties = { fontSize: 'var(--font-body)', color: 'var(--text-secondary)' }
 
-function TopicSubRow({ topic, isActive, tabIndex, onClick, onFocus, onKeyDown, onPin, onSetNotificationLevel, onDelete }: {
+function startChatDrag(event: React.DragEvent<HTMLElement>, chat: ChatItem, title: string) {
+  if (!event.currentTarget.draggable) return
+  setDraggedScreenContent(event.dataTransfer, { kind: 'chat', chatId: chat.kind === 'topic' ? chat.source_chat_id! : chat.id, title, ...(chat.kind === 'topic' ? { topic: { chatId: chat.id, name: chat.name ?? '' } } : {}) }, event.currentTarget)
+}
+
+export function TopicSubRow({ topic, mobile, isActive, tabIndex, onClick, onFocus, onKeyDown, onPin, onSetNotificationLevel, onDelete }: {
   topic: ChatItem
+  mobile: boolean
   isActive: boolean
   tabIndex: number
-  onClick: () => void
+  onClick: (event: React.MouseEvent) => void
   onFocus: () => void
   onKeyDown: KeyboardEventHandler<HTMLDivElement>
   onPin: () => void
@@ -209,20 +197,17 @@ function TopicSubRow({ topic, isActive, tabIndex, onClick, onFocus, onKeyDown, o
   // @@@5856 子行与普通会话行共用同一份右键菜单(置顶 / 免打扰 / 删除)。
   // 缺了它话题就成了「删不掉、置顶不了、免打扰不了」的一等会话 —— 而 isSunkTopic 读的
   // is_pinned / is_marked_unread 也会变成没人写得进的死字段(找茬第十轮实测)。
-  const [showMenu, setShowMenu] = useState(false)
-  const [menuPos, setMenuPos] = useState({ x: 0, y: 0 })
-  useEffect(() => {
-    if (!showMenu) return
-    const close = () => setShowMenu(false)
-    document.addEventListener(UI_EVENTS.closeContextMenus, close as EventListener)
-    return () => { document.removeEventListener(UI_EVENTS.closeContextMenus, close as EventListener) }
-  }, [showMenu])
+  const menu = useRowContextMenu()
+  const longPress = useLongPress(at => { if (mobile) menu.openMenu(at) })
   return (
     <>
     <ListRow
       data-chat-id={topic.id}
       data-chat-row={topic.id}
       data-topic-subrow={topic.id}
+      draggable={!mobile}
+      onDragStart={(event) => startChatDrag(event, topic, topic.name)}
+      onDragEnd={clearDraggedScreenContent}
       selected={isActive}
       emphasis={topic.unread_count > 0}
       role="option"
@@ -231,24 +216,19 @@ function TopicSubRow({ topic, isActive, tabIndex, onClick, onFocus, onKeyDown, o
       onClick={onClick}
       onFocus={onFocus}
       onKeyDown={onKeyDown}
-      onContextMenu={(e) => {
-        e.preventDefault()
-        e.stopPropagation()
-        document.dispatchEvent(new CustomEvent(UI_EVENTS.closeContextMenus))
-        setMenuPos({ x: e.clientX, y: e.clientY })
-        setShowMenu(true)
-      }}
+      onContextMenu={menu.onContextMenu}
+      {...(mobile ? longPress : {})}
       style={TOPIC_SUBROW_STYLE}
       leading={<MessageSquare size={13} style={TOPIC_SUBROW_ICON_STYLE} />}
       title={<span style={TOPIC_SUBROW_NAME_STYLE}>{topic.name}</span>}
-      meta={topic.unread_count > 0 ? topic.unread_count : undefined}
+      meta={topic.unread_count > 0 ? <Chip tone="danger" shape="count">{topic.unread_count > 99 ? '99+' : topic.unread_count}</Chip> : undefined}
     />
-    {showMenu && (
+    {menu.menuPos && (
       <ChatRowContextMenu
-        x={menuPos.x}
-        y={menuPos.y}
+        x={menu.menuPos.x}
+        y={menu.menuPos.y}
         chat={topic}
-        onClose={() => setShowMenu(false)}
+        onClose={menu.closeMenu}
         onPin={onPin}
         onSetNotificationLevel={onSetNotificationLevel}
         onDelete={onDelete}
@@ -258,11 +238,31 @@ function TopicSubRow({ topic, isActive, tabIndex, onClick, onFocus, onKeyDown, o
   )
 }
 
-function ChatRow({ chat, agentStatus, isActive, draft, mobile = false, onClick, onPin, onSetNotificationLevel, onDelete, tabIndex, onFocus, onKeyDown }: ChatRowProps) {
+/** The same topic branch and More disclosure under every source conversation. */
+export function TopicSubRows({ topics, isSunk, expanded, onExpand, children }: {
+  topics: readonly ChatItem[]
+  isSunk: (topic: ChatItem) => boolean
+  expanded: boolean
+  onExpand: () => void
+  children: (topic: ChatItem) => React.ReactNode
+}) {
+  const { t } = useTranslation('messaging')
+  const { live, sunk } = splitSunkTopics(topics, isSunk, undefined, expanded)
+  return (
+    <div className="gg-topic-subrows">
+      {live.map(children)}
+      {sunk.length > 0 && <Button variant="ghost" size="sm" data-testid="topic-sunk-section" data-source-chat-id={topics[0]?.source_chat_id} aria-expanded={false} onClick={onExpand} style={SUNK_SECTION_STYLE}>
+        {t('chatList.moreTopics', { count: sunk.length })}
+      </Button>}
+    </div>
+  )
+}
+
+function ChatRow({ chat, agentStatus, isActive, topicsExpanded, onToggleTopics, draft, mobile = false, onClick, onPin, onSetNotificationLevel, onDelete, tabIndex, onFocus, onKeyDown, join }: ChatRowProps) {
   const { t } = useTranslation('messaging')
   const { identitiesById } = useChatStore('identitiesById')
-  const [showMenu, setShowMenu] = useState(false)
-  const [menuPos, setMenuPos] = useState({ x: 0, y: 0 })
+  const menu = useRowContextMenu()
+  const longPress = useLongPress(at => { if (mobile) menu.openMenu(at) })
   const peerIdentity = identitiesById[chat.peer_user_id ?? '']
   const isAgentChat = chatIsAgent(chat, peerIdentity)
   // @@@5856 这四处判的都是「这是不是一个**场所**」(有自己的名字/头像/成员),不是「是不是群」。
@@ -271,25 +271,19 @@ function ChatRow({ chat, agentStatus, isActive, draft, mobile = false, onClick, 
   const isRoom = isRoomChat(chat.kind)
   const peerName = isRoom ? '' : resolveOrLoud(peerIdentity?.display_name, `chat-list peer ${chat.peer_user_id ?? 'missing'} for chat ${chat.id}`)
   const displayName = chatDisplayName(chat, peerName)
-  const preview = chat.last_message_preview ?? ''
-  const { devices } = useDevicesStore() // @@@1759 解析 agent 会话行的真实设备归属标签
-  const tag = chatRowTag(chat, peerIdentity, devices)
+  const preview = chatPreviewText(chat)
   const hasBolt = isRoom || isAgentChat
-
-  useEffect(() => {
-    if (!showMenu) return
-    const close = () => setShowMenu(false)
-    document.addEventListener(UI_EVENTS.closeContextMenus, close as EventListener)
-    return () => {
-      document.removeEventListener(UI_EVENTS.closeContextMenus, close as EventListener)
-    }
-  }, [showMenu])
 
   return (
     <>
       <ListRow
         data-chat-id={chat.id}
         data-chat-row={chat.id}
+        draggable={!mobile}
+        onDragStart={(event) => startChatDrag(event, chat, displayName)}
+        onDragEnd={clearDraggedScreenContent}
+        data-join={join?.pos}
+        data-join-on={join?.onScreen || undefined}
         data-unread-stream-id={chat.unread_locator?.stream_id ?? undefined}
         data-unread-message-id={chat.unread_locator?.message_id ?? undefined}
         selected={isActive}
@@ -298,30 +292,27 @@ function ChatRow({ chat, agentStatus, isActive, draft, mobile = false, onClick, 
         mobile={mobile}
         role="option"
         aria-selected={isActive}
+        aria-expanded={topicsExpanded}
         tabIndex={tabIndex}
         onClick={onClick}
         onFocus={onFocus}
         onKeyDown={onKeyDown}
-        onContextMenu={(e) => {
-          e.preventDefault()
-          e.stopPropagation()
-          document.dispatchEvent(new CustomEvent(UI_EVENTS.closeContextMenus))
-          setMenuPos({ x: e.clientX, y: e.clientY })
-          setShowMenu(true)
-        }}
+        onContextMenu={menu.onContextMenu}
+        {...(mobile ? longPress : {})}
         leading={
           // Avatar — agent status lives in the corner badge (AvatarStatusBadge); the old
           // top-right dot was consolidated into it (#793 follow-up).
-          <Avatar
+          <PhoneProjectChatAvatar chat={chat} mobile={mobile}><Avatar
             name={displayName}
             avatarUrl={isRoom ? chat.avatar : peerIdentity?.avatar}
             seed={chat.peer_user_id ?? undefined}
-            size={mobile ? 'md' : 'sm'}
+            size={mobile ? 48 : 'sm'}
             isAgent={isAgentChat}
+            harnessBadge={!mobile}
             agentStatus={agentStatus}
             variant={isRoom ? 'group' : 'default'}
             memberAvatars={chat.member_user_ids?.flatMap((id) => identitiesById[id] ? [{ id, name: identitiesById[id].display_name, avatar: identitiesById[id].avatar }] : [])}
-          />
+          /></PhoneProjectChatAvatar>
         }
         title={
           <>
@@ -333,7 +324,18 @@ function ChatRow({ chat, agentStatus, isActive, draft, mobile = false, onClick, 
           <>
             {/* Bolt/sparkle — the design accent, kept off the icon-size ladder
                 (11px decorative, not an icon-button glyph). Shown on agent and group rows. */}
-            {hasBolt && <Zap size={11} style={{ color: 'var(--agent-bolt)', flexShrink: 0 }} />}
+            {hasBolt && !mobile && <Zap size={11} style={{ color: 'var(--agent-bolt)', flexShrink: 0 }} />}
+            {topicsExpanded !== undefined && (
+              <span className="relative size-3.5 shrink-0">
+                <IconButton size="sm" className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2"
+                  aria-label={t(topicsExpanded ? 'common.collapse' : 'common.expand')} aria-expanded={topicsExpanded}
+                  onClick={(event) => { event.stopPropagation(); onToggleTopics() }}
+                  onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') event.stopPropagation() }}
+                >
+                  {topicsExpanded ? <ChevronDown aria-hidden="true" /> : <ChevronRight aria-hidden="true" />}
+                </IconButton>
+              </span>
+            )}
           </>
         }
         meta={formatCalendarDay(chatActivityAt(chat))}
@@ -345,11 +347,9 @@ function ChatRow({ chat, agentStatus, isActive, draft, mobile = false, onClick, 
             </>
           ) : preview
         }
-        trailing={
+        trailing={(!mobile || chat.is_muted || chat.unread_count > 0) ? (
           <>
-            {/* @@@ui-ruler 设备名 / 群聊 chip 放第二行右侧,不和名字抢标题行——名字优先保完整
-                (原来「论文助手」被 MacBook Pro chip 挤成一个字)。 */}
-            {tag && <Chip>{tag}</Chip>}
+            {/* owner 10-28:agent 行不再标它在哪台机器上(「本机」/ 设备名);机器只在悬停卡与对话标题栏里说。 */}
             {chat.is_muted && (
               <span aria-label={t('chatList.muted')} title={t('chatList.muted')} style={{ color: 'var(--text-tertiary)' }}>
                 <BellOff size={13} strokeWidth={1.8} aria-hidden="true" />
@@ -361,16 +361,16 @@ function ChatRow({ chat, agentStatus, isActive, draft, mobile = false, onClick, 
               </Chip>
             )}
           </>
-        }
+        ) : undefined}
       />
 
       {/* Context menu — portalled to body */}
-      {showMenu && (
+      {menu.menuPos && (
         <ChatRowContextMenu
-          x={menuPos.x}
-          y={menuPos.y}
+          x={menu.menuPos.x}
+          y={menu.menuPos.y}
           chat={chat}
-          onClose={() => setShowMenu(false)}
+          onClose={menu.closeMenu}
           onPin={onPin}
           onSetNotificationLevel={onSetNotificationLevel}
           onDelete={onDelete}
@@ -385,15 +385,9 @@ function ChatRow({ chat, agentStatus, isActive, draft, mobile = false, onClick, 
 // @@@add-friend-unify 弹窗只是一层壳：搜索加人的实现复用 AddFriendSearch，与通讯录「添加联系人」
 // 路由同一条链路（同一搜索框 / 结果行 / 附言发送流）。此前这里自写了一套搜索 UI + 结果行，与
 // NewFriendsPanel 的搜索态重复；unify 后统一走 AddFriendSearch，并因此获得附言 dialog（原弹窗是即发）。
-function AddFriendModal({ onClose }: { onClose: () => void }) {
+function AddFriendContent({ onClose }: { onClose: () => void }) {
   const { t } = useTranslation('messaging')
   return (
-    <Sheet
-      onClose={onClose}
-      desktopWidth="360px"
-      desktopMaxHeight="480px"
-      ariaLabel={t('chatList.addContact')}
-    >
       <div style={ADD_FRIEND_BODY_STYLE}>
         {/* Header */}
         <div style={ADD_FRIEND_HEADER_STYLE}>
@@ -405,7 +399,6 @@ function AddFriendModal({ onClose }: { onClose: () => void }) {
 
         <AddFriendSearch autoFocus onBack={onClose} />
       </div>
-    </Sheet>
   )
 }
 
@@ -418,13 +411,21 @@ interface PlusMenuItemsProps {
   onGroupChat: () => void
   onAddFriend: () => void
   onScan?: () => void
+  /** 手机(v7.12 稿 NewMenu,#446):有它时菜单是 发起群聊 / 新项目 / 添加联系人,新任务在项目群里派。 */
+  onNewProject?: () => void
   mobile?: boolean
 }
 
-function PlusMenuItems({ onSessionCreate, onGroupChat, onAddFriend, onScan, mobile = false }: PlusMenuItemsProps) {
+function PlusMenuItems({ onSessionCreate, onGroupChat, onAddFriend, onScan, onNewProject, mobile = false }: PlusMenuItemsProps) {
   const { t } = useTranslation('messaging')
+  const phoneItems = onNewProject ? [
+    { testid: 'plus-menu-create-group', icon: <Users size={15} />, label: t('chatList.createGroupMobile'), onClick: onGroupChat },
+    { testid: 'plus-menu-new-project', icon: <FolderClosed size={15} />, label: t('chatList.newProject'), onClick: onNewProject },
+    { testid: 'plus-menu-add-friend', icon: <UserRound size={15} />, label: t('chatList.addContact'), onClick: onAddFriend },
+  ] : null
   // design line 592: 新建群聊 (contacts icon) + 添加联系人 (add-person icon)
   const items = [
+    ...(phoneItems ?? [
     ...(onSessionCreate
       ? [{
           testid: AUTOMATION_TEST_IDS.mobileSessionCreateAction,
@@ -465,6 +466,7 @@ function PlusMenuItems({ onSessionCreate, onGroupChat, onAddFriend, onScan, mobi
       label: t('chatList.addContact'),
       onClick: onAddFriend,
     },
+    ]),
     // @@@scan-frame-icon (#537) — gated on barcodeScan capability; not in design dropdown but kept for native-scan devices
     ...(onScan && platform.capabilities.barcodeScan
       ? [{
@@ -508,11 +510,21 @@ export function ChatListPanel({
   onScan,
   onOpenAgentCreateDraft,
   onOpenSessionCreate,
+  placement = 'page',
+  lead,
+  leadChatId = null,
+  headerLeading,
+  onNewProject,
 }: ChatListPanelProps) {
+  const inSidebar = placement === 'sidebar'
+  const sidebarView = useSidebarChatView()
   const { t } = useTranslation('messaging')
   const { t: tMain } = useTranslation('main')
   const assistantShell = useAssistantShell()
-  const { chats, identitiesById, activeChatId, setActiveChatId, openUnreadChat, loadingChats, pinChat, deleteChat, setChatNotificationLevel, drafts } = useChatStore('chats', 'identitiesById', 'activeChatId', 'setActiveChatId', 'openUnreadChat', 'loadingChats', 'pinChat', 'deleteChat', 'setChatNotificationLevel', 'drafts')
+  const { chats: imChats, identitiesById, activeChatId, setActiveChatId, openUnreadChat, loadingChats, pinChat, deleteChat, setChatNotificationLevel, drafts } = useChatStore('chats', 'identitiesById', 'activeChatId', 'setActiveChatId', 'openUnreadChat', 'loadingChats', 'pinChat', 'deleteChat', 'setChatNotificationLevel', 'drafts')
+  const chats = useNativeAgentChats(imChats)
+  useOwnedAgentEntries()
+  const projectGroupChats = useProjectGroupChats()
   const workrooms = useAssistantWorkrooms(assistantShell, chats.filter((chat) => chat.kind === 'group')
     .map((chat) => `${chat.id}:${[...(chat.member_user_ids ?? [])].sort().join(',')}`).sort().join('|'))
   // @@@chat-list-agent-status (#437/#33) - one batched presence subscription for every agent shown in
@@ -523,11 +535,25 @@ export function ChatListPanel({
   ]
   const agentStatuses = useAgentDisplayStatuses(agentIdsForStatus)
   const shownAgent = useShownAgentStatus() // #7199 宿主闲时收回着的自己的 agent:不画睡团 / 「不在线」
-  const [showGroupModal, setShowGroupModal] = useState(false)
+  const [showGroupModal, setShowGroupModal] = useState<boolean | string>(false)
   const [showAddFriendModal, setShowAddFriendModal] = useState(false)
+  // gugu-dev#181 会话页的新建群聊、添加联系人(侧栏「对话」页那两行、⌘K 面板)开的是侧栏那一份的这两个弹窗:
+  // 挂上时先取一次(请求可能在这份列表挂上之前就发了),之后每来一个取一个。
+  useEffect(() => {
+    if (!inSidebar) return
+    const take = () => {
+      const action = takeShellChatAction((asked): asked is ShellChatDialog => typeof asked === 'string')
+      if (action === 'create-group') setShowGroupModal(true)
+      if (action === 'add-contact') setShowAddFriendModal(true)
+    }
+    take()
+    return subscribeShellChatActions(take)
+  }, [inSidebar])
   const [showPlusMenu, setShowPlusMenu] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [focusedChatId, setFocusedChatId] = useState<string | null>(activeChatId)
+  const [collapsedTopicSources, setCollapsedTopicSources] = useState<ReadonlySet<string>>(() => new Set())
+  const [expandedTopicSources, setExpandedTopicSources] = useState<ReadonlySet<string>>(() => new Set())
   // @@@5856 分栏此刻显示的是哪条话题 —— 子行的高亮要跟着它,而分栏也可以从消息上的锚点打开,
   // 所以这个真值只能由聊天区广播过来(UI_EVENTS.topicSplitChanged),❌ 不许在这边猜。
   const [activeTopicChatId, setActiveTopicChatId] = useState<string | null>(null)
@@ -550,19 +576,29 @@ export function ChatListPanel({
   // 问候语后它把空会话永久钉顶,发送后的会话永远排不到它前面,即 #2264)。
   // 现在能走到这个排序键的「无消息会话」只剩群、以及被置顶/标未读/有草稿的单聊(见下面 isListed)。
   const byTime = compareChatsByActivityDesc
+  // 侧栏那一份不搜:搜索是 ⌘K 那一个面板(gugu-dev#181 ⑯);这里只有对话页自己那个搜索框。
+  const listQuery = searchQuery
+  // 高亮哪一行:侧栏那一份认会话页正看着的那块对话,对话页那一份认它自己打开的那条。
+  const selectedChatId = inSidebar ? sidebarView.focusedChatId : activeChatId
   const matchesSearch = (chat: ChatItem) => {
-    const query = searchQuery.trim().toLocaleLowerCase()
+    const query = listQuery.trim().toLocaleLowerCase()
     if (!query) return true
     // @@@5856 话题和群一样有自己的名字(搜索按名字走);私聊才回落到对端名。
-    const name = isRoomChat(chat.kind) ? chat.name : (chat.peer_alias?.trim() || identitiesById[chat.peer_user_id ?? '']?.display_name || '')
-    return `${name} ${chat.last_message_preview ?? ''}`.toLocaleLowerCase().includes(query)
+    const name = chatDisplayName(chat, identitiesById[chat.peer_user_id ?? '']?.display_name)
+    return `${name} ${chat.name} ${chatPreviewText(chat)}`.toLocaleLowerCase().includes(query)
   }
-  const hasSearchQuery = searchQuery.trim().length > 0
+  const hasSearchQuery = listQuery.trim().length > 0
   // @@@empty-dm-not-listed — 没有过消息的单聊不占列表行(判据在 core,见 isChatListed)。搜索是一次明确的
   // 指名道姓,不受此约束:搜得到就打得开,不然会话页开出来的空私聊只剩通讯录一条路。
+  // 桌面项目群归项目块；手机消息列表一段对话一行，话题只从对话页签进入(#446)。
+  const isProjectGroupLine = (chat: ChatItem) => projectGroupChats.has(chat.kind === 'topic' ? (chat.source_chat_id ?? '') : chat.id)
+  const shownAsLead = lead ? leadChatId : null
   const isListed = (chat: ChatItem) =>
     !isDuplicateAssistantChat(chat, assistantShell, workrooms)
-      && (hasSearchQuery || isChatListed(chat, { activeChatId, hasDraft: Boolean(drafts[chat.id]?.trim()) }))
+      && chat.id !== shownAsLead
+      && (!mobile || chat.kind !== 'topic')
+      && (mobile || !isProjectGroupLine(chat))
+      && (hasSearchQuery || isChatListed(chat, { activeChatId: selectedChatId, hasDraft: Boolean(drafts[chat.id]?.trim()) }))
   // @@@5856 沉降:长期无活动的话题落到底部的「更早」。它**只是列表位置**,不是话题的一种状态 ——
   // 话题没有开关(product spec)。任何人发一句,last_message_at 前移,这一条自己就浮回来了。
   // 搜索时不分段:搜索是一次指名道姓,沉下去的照样要搜得到。
@@ -585,22 +621,29 @@ export function ChatListPanel({
     // isListed / matchesSearch 都是每次渲染新建的闭包,进依赖数组等于不缓存;
     // 它们的输入(chats / 搜索词 / 草稿 / 当前会话)已经在下面列全了。
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [chats, searchQuery, activeChatId, drafts, assistantShell, workrooms])
+  }, [chats, listQuery, selectedChatId, drafts, assistantShell, workrooms, projectGroupChats, shownAsLead, mobile])
   const isTopLevel = (c: ChatItem) => isTopLevelChatRow(c, topicNesting, isListed, matchesSearch)
   const pinnedChats = chats.filter((c) => c.is_pinned && isTopLevel(c)).sort(byTime)
   const normalChats = chats.filter((c) => !c.is_pinned && isTopLevel(c)).sort(byTime)
+  // The Chats tab contains conversations; projectless tasks live in the Projects tab.
+  const joinedGroups = inSidebar ? sidebarView.groups : NO_JOINED_GROUPS
+  const pinnedRows = joinRows(pinnedChats, (chat) => blockKey.chat(chat.id), joinedGroups)
+  const normalLines = joinRows(normalChats, (chat) => blockKey.chat(chat.id), joinedGroups)
   // @@@5856 顶层不再有「沉降」这一段:isSunkTopic 只对话题为真,而话题现在永不占顶层 ⇒ 那一段恒空。
   // 沉降下沉到**子行**这一层(每条来源线自己一行「更多」),见 renderChatRow。
   // 键盘上下走的是「看得见的那些行」,所以子行也要在里面 —— ❌ 不能让话题只能用鼠标点。
   // 没摊开的那些❌ 不在里面:它们不在这条侧边栏上,键盘也不该能走到看不见的行。
+  // 键盘上下走的次序与画出来的一致:并过组之后的次序。
+  const shownChats = pinnedRows.map(({ row }) => row).concat(normalLines.map(({ row }) => row))
   const visibleChats = useMemo(
-    () => [...pinnedChats, ...normalChats].flatMap((chat) => {
-      const { live } = splitSunkTopics(topicNesting.bySource.get(chat.id) ?? [], isSunk)
+    () => shownChats.flatMap((chat) => {
+      if (mobile || collapsedTopicSources.has(chat.id)) return [chat]
+      const { live } = splitSunkTopics(topicNesting.bySource.get(chat.id) ?? [], isSunk, undefined, expandedTopicSources.has(chat.id))
       return [chat, ...live]
     }),
     // isSunk 每次渲染新建(它读 Date.now),输入已在下面列全。
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [pinnedChats, normalChats, topicNesting, activeTopicChatId],
+    [shownChats, topicNesting, activeTopicChatId, collapsedTopicSources, expandedTopicSources, mobile],
   )
   const visibleChatIds = useMemo(() => visibleChats.map((chat) => chat.id), [visibleChats])
 
@@ -611,17 +654,24 @@ export function ChatListPanel({
 
   // @@@5856 一条线 + 挂在它底下的话题子行。置顶段与常规段共用这一份 ——
   // ❌ 不在两处各抄一遍「记得也画子行」,那种东西漏一处就只在某一段里话题消失。
-  const renderChatRow = (chat: ChatItem) => {
-    const { live, sunk } = splitSunkTopics(topicNesting.bySource.get(chat.id) ?? [], isSunk)
+  // 并在一组里的那一行:框画在它最外面那一层上 —— 有话题子行时是连同子行的那一层,框把子行一起圈住。
+  const phoneUnread = useMemo(() => mobile ? phoneChatUnread(chats) : null, [mobile, chats])
+  const renderChatRow = (chat: ChatItem, join?: SidebarJoin) => {
+    const topics = topicNesting.bySource.get(chat.id) ?? []
+    const hasTopics = !mobile && topics.length > 0
+    const topicsExpanded = !collapsedTopicSources.has(chat.id)
     const row = (
       <ChatRow
         key={chat.id}
-        chat={chat}
+        chat={phoneUnread ? { ...chat, unread_count: phoneUnread.get(chat.id) ?? 0 } : chat}
+        join={hasTopics ? undefined : join}
         agentStatus={rowAgentStatus(chat, identitiesById, agentStatuses, shownAgent)}
-        isActive={chat.id === activeChatId}
+        isActive={chat.id === selectedChatId}
+        topicsExpanded={hasTopics ? topicsExpanded : undefined}
+        onToggleTopics={() => toggleTopics(chat.id)}
         mobile={mobile}
         draft={drafts[chat.id]}
-        onClick={() => selectChat(chat)}
+        onClick={(event) => activateChatRow(chat, event.metaKey || event.ctrlKey)}
         onPin={() => pinChat(chat.id, !chat.is_pinned)}
         onSetNotificationLevel={(level) => setChatNotificationLevel(chat.id, level)}
         onDelete={() => deleteChat(chat.id, true)}
@@ -630,14 +680,15 @@ export function ChatListPanel({
         onKeyDown={(event) => handleChatKeyDown(event, chat)}
       />
     )
-    if (live.length === 0 && sunk.length === 0) return row
+    if (!hasTopics) return row
     const subRow = (topic: ChatItem) => (
       <TopicSubRow
         key={topic.id}
         topic={topic}
-        isActive={topic.id === activeTopicChatId}
+        mobile={mobile}
+        isActive={!inSidebar && topic.id === activeTopicChatId}
         tabIndex={focusedChatId === topic.id ? 0 : -1}
-        onClick={() => selectChat(topic)}
+        onClick={(event) => selectChat(topic, 'composer', event.metaKey || event.ctrlKey)}
         onFocus={() => setFocusedChatId(topic.id)}
         onKeyDown={(event) => handleChatKeyDown(event, topic)}
         onPin={() => pinChat(topic.id, !topic.is_pinned)}
@@ -646,31 +697,16 @@ export function ChatListPanel({
       />
     )
     return (
-      <div key={chat.id}>
+      <div key={chat.id} data-join={join?.pos} data-join-on={join?.onScreen || undefined}>
         {row}
-        <div className="gg-topic-subrows">
-          {live.map(subRow)}
-          {/* @@@5856 「更多 · N」—— 沉下去的 + 摊不下的那些话题。只留一行告诉你它们还在,
-              发一句就浮回上面(spec:「没有开关,只有沉降」)。
-              ❌ 它不就地展开:一个老群能攒出两百条,展开等于把整条侧边栏灌满
-              (owner 2026-09-20)。点它跳到这条线顶栏的「历史 → 话题」——那才是全部话题的主场,
-              带搜索、能翻。 */}
-          {sunk.length > 0 && (
-            <Button
-              variant="ghost"
-              size="sm"
-              data-testid="topic-sunk-section"
-              data-source-chat-id={chat.id}
-              onClick={() => { selectChat(chat, 'sidebar'); requestTopicsPanel(chat.id) }}
-              style={SUNK_SECTION_STYLE}
-            >
-              {t('chatList.moreTopics', { count: sunk.length })}
-            </Button>
-          )}
-        </div>
+        {topicsExpanded && <TopicSubRows topics={topics} isSunk={isSunk} expanded={expandedTopicSources.has(chat.id)} onExpand={() => setExpandedTopicSources((previous) => new Set(previous).add(chat.id))}>
+          {subRow}
+        </TopicSubRows>}
       </div>
     )
   }
+
+  const normalRows = normalLines.map(({ row, join }) => renderChatRow(row, join))
 
   const focusChatRow = (chatId: string | null) => {
     if (!chatId) return
@@ -680,7 +716,20 @@ export function ChatListPanel({
     })
   }
 
-  const selectChat = useCallback((chat: ChatItem, focusTarget: 'composer' | 'sidebar' = 'composer') => {
+  const selectChat = useCallback((chat: ChatItem, focusTarget: 'composer' | 'sidebar' = 'composer', beside = false) => {
+    if ((chat.kind === 'dm' || chat.kind === 'ai') && openOwnedAgentEntry(chat.id, chat.peer_user_id ?? undefined, drafts[chat.id])) return
+    // gugu-dev#181 侧栏那一份:对话是会话页这屏的一块,请会话页摆出来(话题 = 它的来源线那块,话题开成分栏)。
+    if (inSidebar) {
+      const sessionPage = readSessionpageViewRequestBridge()
+      if (!sessionPage) throw new Error('sessionpage view request bridge is not installed')
+      const topic = chat.kind === 'topic' && chat.source_chat_id ? chat : null
+      sessionPage.openChat(topic?.source_chat_id ?? chat.id, beside)
+      if (chat.unread_locator && !topic) void openUnreadChat(chat.id, selectedChatId === chat.id).catch((error) => {
+        chatListLog.error({ error: String(error) }, 'unread locator open failed')
+      })
+      if (topic) requestTopicSplit({ chatId: topic.id, name: topic.name ?? '', sourceChatId: topic.source_chat_id!, focusComposer: focusTarget === 'composer' })
+      return
+    }
     // @@@5856 点话题**不整屏切走**(spec:「开出来是分栏不切走」):主区切到它的来源那条线,
     // 话题自己开成右边的分栏。❌ 不许 setActiveChatId(话题) —— 那正是「把 topic 当群」的那条路,
     // 而且哪怕只有一帧也会被看见。
@@ -694,6 +743,7 @@ export function ChatListPanel({
         name: chat.name ?? '',
         sourceChatId: chat.source_chat_id,
         focusComposer: focusTarget === 'composer',
+        toggle: true,
       })
       onChatSelected?.('sidebar')
       return
@@ -706,7 +756,30 @@ export function ChatListPanel({
       setActiveChatId(chat.id)
     }
     onChatSelected?.(focusTarget)
-  }, [onChatSelected, openUnreadChat, setActiveChatId])
+  }, [drafts, inSidebar, onChatSelected, openUnreadChat, setActiveChatId, selectedChatId])
+
+  const toggleTopics = (chatId: string) => {
+    setExpandedTopicSources((previous) => {
+      const next = new Set(previous)
+      next.delete(chatId)
+      return next
+    })
+    setCollapsedTopicSources((previous) => {
+      const next = new Set(previous)
+      if (next.has(chatId)) next.delete(chatId)
+      else next.add(chatId)
+      return next
+    })
+  }
+
+  // 手机整行只导航;桌面重复激活当前来源行才收起/展开,⌘ 点照常拼到右边。
+  const activateChatRow = (chat: ChatItem, beside = false) => {
+    if (chat.unread_locator || mobile || beside || chat.id !== selectedChatId || !topicNesting.bySource.get(chat.id)?.length) {
+      selectChat(chat, 'composer', beside)
+      return
+    }
+    toggleTopics(chat.id)
+  }
 
   useEffect(() => {
     if (activeTab !== 'chats') return
@@ -739,14 +812,9 @@ export function ChatListPanel({
           (node.matches('input, textarea, [contenteditable="true"], [role="textbox"]') ||
             node.closest('input, textarea, [contenteditable="true"], [role="textbox"]')),
       )
-      if (insideOtherTextControl && !insideChatComposer && shortcut.kind !== 'search') return
+      if (insideOtherTextControl && !insideChatComposer) return
 
       event.preventDefault()
-      if (shortcut.kind === 'search') {
-        searchInputRef.current?.focus()
-        searchInputRef.current?.select()
-        return
-      }
 
       const targetId =
         shortcut.kind === 'select'
@@ -783,17 +851,89 @@ export function ChatListPanel({
     }
     if (event.key === 'Enter' || event.key === ' ') {
       event.preventDefault()
-      selectChat(chat)
+      activateChatRow(chat)
       return
     }
   }
 
+  // 建好的群直接打开:侧栏那一份在会话页这屏摆出它那块,对话页那一份照旧切过去。
+  const openCreatedGroup = (chatId: string) => {
+    if (!inSidebar) {
+      setActiveChatId(chatId)
+      onChatSelected?.()
+      return
+    }
+    const sessionPage = readSessionpageViewRequestBridge()
+    if (!sessionPage) throw new Error('sessionpage view request bridge is not installed')
+    sessionPage.openChat(chatId, false)
+  }
+  const list = (
+    <div ref={listboxRef} role="listbox" aria-label={t('chatList.listLabel')} style={inSidebar ? SIDEBAR_LIST_STYLE : mobile ? MOBILE_LIST_SCROLL_STYLE : LIST_SCROLL_STYLE}>
+      {/* #6158 列表行不再按 tab 卸载:聊天面在别的 tab 上由 MainLayout 隐藏而非卸载,行留着滚动位置才在。 */}
+      {loadingChats && (
+        <div style={LOADING_STATE_STYLE}>
+          {t('common.loading')}
+        </div>
+      )}
+
+      {!hasSearchQuery && lead}
+
+      {!inSidebar && !lead && !loadingChats && !hasSearchQuery && pinnedChats.length === 0 && normalChats.length === 0 && (
+        <div
+          style={EMPTY_STATE_WRAP_STYLE}
+        >
+          <PaneEmptyState
+            icon={<MessageCircle size={26} color="var(--text-tertiary)" />}
+            caption={t('chatList.empty')}
+            hint={t(mobile ? 'chatList.emptyHintMobile' : 'chatList.emptyHint')}
+          />
+        </div>
+      )}
+      {!loadingChats && hasSearchQuery && pinnedChats.length === 0 && normalRows.length === 0 && (
+        <div style={NO_RESULTS_STYLE}>
+          {t('chatList.noResults')}
+        </div>
+      )}
+
+      {/* Pinned section */}
+      {!loadingChats && pinnedChats.length > 0 && (
+        <>
+          {pinnedRows.map(({ row, join }) => renderChatRow(row, join))}
+          {/* #1323 模块1 做减法(owner 授权):删除「折叠置顶聊天」分隔/折叠条——SSOT 列表无此元素,
+              置顶会话恒常展示。连带移除 pinnedExpanded 状态。 */}
+        </>
+      )}
+
+      {/* Normal chats */}
+      {!loadingChats && normalRows}
+
+    </div>
+  )
+  const dialogs = (
+    <>
+      <Sheet open={showAddFriendModal} onClose={() => setShowAddFriendModal(false)} desktopWidth="360px" desktopMaxHeight="480px" ariaLabel={t('chatList.addContact')}>
+        {showAddFriendModal ? <AddFriendContent onClose={() => setShowAddFriendModal(false)} /> : null}
+      </Sheet>
+
+      <Sheet open={showGroupModal === true} onClose={() => setShowGroupModal(false)} onClosed={() => { if (typeof showGroupModal === 'string') { openCreatedGroup(showGroupModal); setShowGroupModal(false) } }} {...MEMBER_PICKER_SHEET} testId="create-group-modal" ariaLabel={t('createGroup.title', { ns: 'contacts' })}>
+        {showGroupModal === true ? <CreateGroupChatForm
+          onClose={() => setShowGroupModal(false)}
+          onCreated={setShowGroupModal}
+        />
+        : null}
+      </Sheet>
+    </>
+  )
+  if (inSidebar) return <>{list}{dialogs}</>
+
   return (
-    <Pane paneRole="nav" mobile={mobile} style={NAV_PANE_STYLE}>
-      <HeaderSearch mobile={mobile} active={activeTab === 'chats' && !hidden} value={searchQuery} onChange={setSearchQuery} placeholder={t('chatList.search')} testId={AUTOMATION_TEST_IDS.chatListSearchInput}>{(searchButton) => (
+    <Pane paneRole="nav" mobile={mobile} data-phone-root-list={mobile ? 'chats' : undefined} style={NAV_PANE_STYLE}>
+      <HeaderSearch mobile={mobile} externalTrigger={mobile ? 'chats' : undefined} active={activeTab === 'chats' && !hidden} value={searchQuery} onChange={setSearchQuery} placeholder={t('chatList.search')} testId={AUTOMATION_TEST_IDS.chatListSearchInput}>{(searchButton) => (
       <PaneHeader
-        title={tMain('shell.chats')}
+        title={tMain(mobile ? 'shell.messagesMobile' : 'shell.chats')}
+        leading={headerLeading}
         mobile={mobile}
+        titleLevel={mobile ? 'page' : undefined}
         style={mobile ? NAV_HEADER_STYLE : NAV_HEADER_STYLE_DESKTOP}
         actions={
           <>
@@ -833,7 +973,8 @@ export function ChatListPanel({
                 aria-label={t('chatList.create')}
                 title={t('chatList.create')}
               >
-                <Plus />
+                {/* 手机上是「写」(方框里一支笔,owner 10-26 改版稿);❌ 加号。 */}
+                {mobile ? <SquarePen /> : <Plus />}
               </DropdownMenu.Trigger>
               {showPlusMenu ? (
                 <DropdownMenu.Content
@@ -853,6 +994,7 @@ export function ChatListPanel({
                     onGroupChat={() => setShowGroupModal(true)}
                     onAddFriend={() => setShowAddFriendModal(true)}
                     onScan={onScan}
+                    onNewProject={onNewProject ? () => { setShowPlusMenu(false); onNewProject() } : undefined}
                     mobile={mobile}
                   />
                 </DropdownMenu.Content>
@@ -876,59 +1018,9 @@ export function ChatListPanel({
         />
       )}
 
-      <div ref={listboxRef} role="listbox" aria-label={t('chatList.listLabel')} style={LIST_SCROLL_STYLE}>
-        {/* #6158 列表行不再按 tab 卸载:聊天面在别的 tab 上由 MainLayout 隐藏而非卸载,行留着滚动位置才在。 */}
-        {loadingChats && (
-          <div style={LOADING_STATE_STYLE}>
-            {t('common.loading')}
-          </div>
-        )}
+      {list}
+      {dialogs}
 
-        {!loadingChats && !hasSearchQuery && pinnedChats.length === 0 && normalChats.length === 0 && (
-          <div
-            style={EMPTY_STATE_WRAP_STYLE}
-          >
-            <PaneEmptyState
-              icon={<MessageCircle size={26} color="var(--text-tertiary)" />}
-              caption={t('chatList.empty')}
-              hint={t(mobile ? 'chatList.emptyHintMobile' : 'chatList.emptyHint')}
-            />
-          </div>
-        )}
-        {!loadingChats && hasSearchQuery && pinnedChats.length === 0 && normalChats.length === 0 && (
-          <div style={NO_RESULTS_STYLE}>
-            {t('chatList.noResults')}
-          </div>
-        )}
-
-        {/* Pinned section */}
-        {!loadingChats && pinnedChats.length > 0 && (
-          <>
-            {pinnedChats.map(renderChatRow)}
-            {/* #1323 模块1 做减法(owner 授权):删除「折叠置顶聊天」分隔/折叠条——SSOT 列表无此元素,
-                置顶会话恒常展示。连带移除 pinnedExpanded 状态。 */}
-          </>
-        )}
-
-        {/* Normal chats */}
-        {!loadingChats && normalChats.map(renderChatRow)}
-
-      </div>
-
-      {showAddFriendModal && (
-        <AddFriendModal onClose={() => setShowAddFriendModal(false)} />
-      )}
-
-      {showGroupModal && (
-        <CreateGroupChatModal
-          onClose={() => setShowGroupModal(false)}
-          onCreated={(chatId) => {
-            setShowGroupModal(false)
-            setActiveChatId(chatId)
-            onChatSelected?.()
-          }}
-        />
-      )}
     </Pane>
   )
 }

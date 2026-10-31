@@ -10,7 +10,7 @@ import { moveJournalStore } from '@renderer/features/assistant/assistant-move-wi
 import { Button } from '../ui/Button'
 import { Sheet } from '../ui/Sheet'
 import { cn } from '../../lib/cn'
-import { chatService } from '../../lib/chat'
+import { listDevicesOnceIdentified } from '../../lib/listDevicesOnceIdentified'
 import { wakeCloudComputerUntilOnline } from '@gugu/core/cloud/cloudComputer'
 import { rendererCloudComputerClient } from '../../lib/cloudComputer'
 import { useAssistantHome } from '../../lib/useAssistantHome'
@@ -84,7 +84,7 @@ export function AssistantCloseHost() {
         if (cloud) {
           const client = rendererCloudComputerClient()
           if (!client) throw new Error('cloud computer is not configured')
-          const result = await wakeCloudComputerUntilOnline({ client, deviceId: cloud.deviceId, purpose: 'close', isOnline: async (id) => (await chatService.listDevices()).some((device) => device.device_id === id && device.is_online) })
+          const result = await wakeCloudComputerUntilOnline({ client, deviceId: cloud.deviceId, purpose: 'close', isOnline: async (id) => (await listDevicesOnceIdentified()).some((device) => device.device_id === id && device.is_online) })
           if (result !== 'online') throw new Error('the cloud home changed before close')
           await checkCloud()
         }
@@ -192,7 +192,7 @@ function LocalCloseDialog({ assistantId, name, deps, onClose }: { assistantId: s
         <div className="text-[length:var(--font-title)] font-semibold text-[var(--fg)]">{t('closeDialog.title', { name })}</div>
         <div className={cn(text, 'text-[var(--muted-fg)]')}>{t('closeDialog.body')}</div>
         {plan === 'loading' && <div className={cn(text, 'text-[var(--muted-fg)]')}>{t('closeDialog.checking')}</div>}
-        {plan === 'unreadable' && <div className={cn(text, 'text-[var(--danger)]')} role="alert">{t('closeDialog.unreadable')}</div>}
+        {plan === 'unreadable' && <div className={cn(text, 'text-[var(--danger-fg)]')} role="alert">{t('closeDialog.unreadable')}</div>}
         {started.length > 0 && (
           <div className="flex flex-col gap-2">
             <label className={cn(text, 'flex cursor-pointer items-start gap-2 text-[var(--fg)]')}>
@@ -215,7 +215,7 @@ function LocalCloseDialog({ assistantId, name, deps, onClose }: { assistantId: s
           </div>
         )}
         {failure && (
-          <div className={cn(text, 'text-[var(--danger)]')} role="alert" data-testid="assistant-close-failure">
+          <div className={cn(text, 'text-[var(--danger-fg)]')} role="alert" data-testid="assistant-close-failure">
             {failure.kind === 'schedule-starting' ? t('closeDialog.scheduleStarting') : t(`closeDialog.failedAt.${failure.step}`)}
           </div>
         )}

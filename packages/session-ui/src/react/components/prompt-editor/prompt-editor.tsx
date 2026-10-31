@@ -14,8 +14,10 @@
  */
 
 import { useUiPortalContainerOrBody } from '@session-ui/react/lib/portal-container';
+import { CONTENT_MENU_EVENT, type ContentMenuRequest } from '@gugu/session-shared/content-menu';
 import { cx } from '@session-ui/styles/utilities/cx';
 import { EditorContent, useEditor } from '@tiptap/react';
+import { Slice } from '@tiptap/pm/model';
 import { StarterKit } from '@tiptap/starter-kit';
 import type { SuggestionKeyDownProps, SuggestionProps } from '@tiptap/suggestion';
 import {
@@ -41,22 +43,20 @@ import { buildSlashCommandExtension } from './extensions/slash-command';
 import { buildSubmitKeymap } from './extensions/submit-keymap';
 import { buildPromptHistoryKeymap } from './extensions/prompt-history-keymap';
 import { compactMentionPath } from './mention-pill-helpers';
-import { plainTextDoc, serializeDoc, serializeNode } from './serialize';
+import { mentionInsertContent, plainTextDoc, serializeDoc, serializeNode } from './serialize';
 import type {
   CommandItem,
   MentionItem,
   PromptEditorProps,
   PromptEditorRef,
+  RenderMentionIcon,
 } from './types';
 import * as styles from './prompt-editor.css';
 
-function mentionToPopupItem(item: MentionItem): ComboboxPopupItem {
+function mentionToPopupItem(item: MentionItem, renderMentionIcon?: RenderMentionIcon): ComboboxPopupItem {
   if (item.disabled) return { id: item.id, label: item.name ?? item.label, disabled: true };
-  // Human/file/issue rows keep the assistant-ui initial avatar. Agent session
-  // peers may project their canonical harness icon; an absent icon deliberately
-  // falls back to the same initial avatar instead of leaving an empty slot.
   const name = item.name ?? item.label;
-  const icon = item.role === 'agent' ? item.icon : undefined;
+  const icon = item.icon ?? renderMentionIcon?.({ id: item.id, label: item.label, name, kind: item.kind, role: item.role, engine: item.engine });
   const agentTitle = item.role === 'agent' ? item.description?.trim() ?? '' : '';
   const isStackedAgent = item.role === 'agent' && agentTitle.length > 0;
   const isFile = item.kind === 'file';
@@ -64,6 +64,7 @@ function mentionToPopupItem(item: MentionItem): ComboboxPopupItem {
   return {
     id: item.id,
     label: isStackedAgent ? agentTitle : name,
+    labelContent: item.optionLabel,
     // File rows already show a stable path tail; an initial avatar adds no
     // information and makes same-name files look like duplicates.
     avatarLabel: icon || isFile ? undefined : firstInitial(name),
@@ -74,7 +75,7 @@ function mentionToPopupItem(item: MentionItem): ComboboxPopupItem {
       ? isStackedAgent
         ? `${name} · agent`
         : undefined
-      : item.role ?? item.description ?? (item.name ? item.label : undefined),
+      : item.role ?? item.description ?? (item.name && item.label !== item.name ? item.label : undefined),
     stacked: isStackedAgent || isFile,
     descriptionMono: isStackedAgent || isFile,
   };
@@ -200,29 +201,15 @@ function makeSuggestionRender<T>(
         setSuggestion(emptySuggestion());
       },
       onKeyDown({ event }: SuggestionKeyDownProps) {
+        if (event.key === 'Escape') {
+          cancelPendingClear();
+          setSuggestion(emptySuggestion());
+          return true;
+        }
         return popupRef.current?.onKeyDown(event) ?? false;
       },
     };
   };
-}
-
-function mentionInsertContent(item: MentionItem) {
-  return [
-    {
-      type: 'mention',
-      attrs: {
-        id: item.id,
-        label: item.label,
-        name: item.name ?? null,
-        kind: item.kind,
-        role: item.role ?? null,
-        engine: item.engine ?? null,
-        title: item.role === 'agent' ? item.description ?? null : null,
-        pending: item.pending ?? false,
-      },
-    },
-    { type: 'text', text: ' ' },
-  ];
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -230,6 +217,9 @@ function mentionInsertContent(item: MentionItem) {
 export const PromptEditor = forwardRef<PromptEditorRef, PromptEditorProps>(function PromptEditor(
   {
     placeholder = 'Message…',
+    inputTestId = 'prompt-editor',
+    inputRef,
+    enterBehavior = 'submit',
     disabled = false,
     onChange,
     onPasteText,
@@ -248,6 +238,8 @@ export const PromptEditor = forwardRef<PromptEditorRef, PromptEditorProps>(funct
   ref
 ) {
   // Stable refs so callbacks inside TipTap extensions always see current values.
+  const enterBehaviorRef = useRef(enterBehavior);
+  enterBehaviorRef.current = enterBehavior;
   const onSubmitRef = useRef(onSubmit);
   onSubmitRef.current = onSubmit;
   const clearOnSubmitRef = useRef(clearOnSubmit);
@@ -265,18 +257,17 @@ export const PromptEditor = forwardRef<PromptEditorRef, PromptEditorProps>(funct
   const openMention = useRef<OpenSuggestion>({ props: null, apply: null });
   // 提供方说「结果变了」:弹层还开着就按当前查询再查一次,原地换掉列表(查询期间没换过才写回)。
   useEffect(() => {
-    if (!mentionProvider?.onResultsChanged) return;
-    return mentionProvider.onResultsChanged(() => {
+    if (!mentionProvider) return;
+    const refresh = () => {
       const { props, apply } = openMention.current;
       if (!props || !apply) return;
-      // requery:这是重查,不是用户刚打开「@」—— 提供方据此 ❌ 再触发一轮(否则停在「@」上会扫个不停)。
       void mentionProvider.search(props.query, { requery: true }).then((items) => {
         if (openMention.current.props === props) apply({ ...props, items }, true);
       });
-    });
+    };
+    refresh();
+    return mentionProvider.onResultsChanged?.(refresh);
   }, [mentionProvider]);
-  const renderMentionIconRef = useRef(renderMentionIcon);
-  renderMentionIconRef.current = renderMentionIcon;
   const queryMentionsRef = useRef(queryMentions);
   queryMentionsRef.current = queryMentions;
   const queryCommandsRef = useRef(queryCommands);
@@ -284,6 +275,7 @@ export const PromptEditor = forwardRef<PromptEditorRef, PromptEditorProps>(funct
 
   // Separate suggestion state for @ and / so they don't conflict.
   const [isEmpty, setIsEmpty] = useState(true);
+  const [editorDom, setEditorDom] = useState<HTMLElement | null>(null);
   const [mentionSuggestion, setMentionSuggestion] =
     useState<SuggestionState<MentionItem>>(emptySuggestion());
   const [commandSuggestion, setCommandSuggestion] =
@@ -309,7 +301,6 @@ export const PromptEditor = forwardRef<PromptEditorRef, PromptEditorProps>(funct
     const ed = editorRef.current;
     if (!ed) return;
     const text = serializeDoc(ed.state.doc);
-    if (!text.trim()) return;
     if (!onSubmitRef.current) return;
     if (clearOnSubmitRef.current) ed.commands.clearContent(true);
     onSubmitRef.current(text);
@@ -323,6 +314,9 @@ export const PromptEditor = forwardRef<PromptEditorRef, PromptEditorProps>(funct
         if (provider) return provider.search(query);
         return (await queryMentionsRef.current?.(query)) ?? [];
       },
+      allowSpaces: mentionProvider?.allowSpaces ?? false,
+      allow: ({ state, range }) => mentionProviderRef.current?.isQueryActive?.(state.doc.textBetween(range.from + 1, range.to, '\n')) ?? true,
+      ...(mentionProvider?.allowSpaces ? { allowedPrefixes: null } : {}),
       render: makeSuggestionRender<MentionItem>(setMentionSuggestion, mentionPopupRef, openMention.current),
       command({ editor, range, props }) {
         const item = props as unknown as MentionItem;
@@ -344,9 +338,6 @@ export const PromptEditor = forwardRef<PromptEditorRef, PromptEditorProps>(funct
           .run();
         onMentionInsertRef.current?.(item);
       },
-    },
-    {
-      renderMentionIcon: (attrs) => renderMentionIconRef.current?.(attrs) ?? null,
     }
   );
 
@@ -361,7 +352,7 @@ export const PromptEditor = forwardRef<PromptEditorRef, PromptEditorProps>(funct
     }
   );
 
-  const submitKeymap = buildSubmitKeymap(handleSubmitFromKeymap);
+  const submitKeymap = buildSubmitKeymap(handleSubmitFromKeymap, () => enterBehaviorRef.current);
 
   // Read through a ref so a host that rebuilds the getter each render does not rebuild the editor.
   const getPromptHistoryRef = useRef(getPromptHistory);
@@ -370,7 +361,7 @@ export const PromptEditor = forwardRef<PromptEditorRef, PromptEditorProps>(funct
   // the walk state has to be the first render's — rebuilding it per render would allocate a fresh
   // (and unused) one each time and hide where that state actually lives.
   const historyKeymap = useMemo(
-    () => buildPromptHistoryKeymap({ getHistory: () => getPromptHistoryRef.current?.() ?? [] }),
+    () => buildPromptHistoryKeymap({ getHistory: () => getPromptHistoryRef.current?.() ?? [], restoreText: (text) => plainTextDoc(text, mentionProviderRef.current?.resolve) }),
     []
   );
 
@@ -408,16 +399,24 @@ export const PromptEditor = forwardRef<PromptEditorRef, PromptEditorProps>(funct
       handleDOMEvents: { keydown: (_view, event) => event.isComposing || event.keyCode === 229 },
       attributes: {
         class: cx('prompt-editor-content', styles.promptEditorContentClass),
-        'data-testid': 'prompt-editor',
+        'data-testid': inputTestId,
+        'aria-disabled': String(disabled),
+        'aria-label': placeholder,
+        'data-placeholder': placeholder,
+        enterkeyhint: enterBehavior === 'newline' ? 'enter' : 'send',
       },
-      // 纯文本粘贴的第一手。只有「剪贴板里没有文件、且宿主说它收走了」才吞掉这一次粘贴
-      // (返回 true = ProseMirror 不再插入)。带文件的粘贴一律放行，交给外层那条既有的
-      // 文件通道，❌ 别在这里同时处理两件事。
-      handlePaste: (_view, event) => {
+      // Let the host claim long text first; otherwise paste literal text and restore canonical mentions.
+      // Open paragraph edges preserve inline placement, just like ProseMirror's normal text paste.
+      // File clipboard entries keep using the outer attachment handler.
+      handlePaste: (view, event) => {
         if (event.clipboardData?.files.length) return false;
         const text = event.clipboardData?.getData('text/plain') ?? '';
         if (!text) return false;
-        return onPasteTextRef.current?.(text) === true;
+        if (onPasteTextRef.current?.(text) === true) return true;
+        const doc = plainTextDoc(text, mentionProviderRef.current?.resolve);
+        const slice = Slice.maxOpen(view.state.schema.nodeFromJSON(doc).content);
+        view.dispatch(view.state.tr.replaceSelection(slice).setMeta('paste', true).setMeta('uiEvent', 'paste'));
+        return true;
       },
       // 宿主认领的拖放(见 `hostDropTypes`)在这里止步:返回 true = ProseMirror 不再插入任何东西。
       // 它只 preventDefault、不阻断冒泡,所以外层宿主的 onDrop 照旧收到这一次,且只收到一次。
@@ -436,6 +435,8 @@ export const PromptEditor = forwardRef<PromptEditorRef, PromptEditorProps>(funct
         return parts.join('\n').replace(/\n+$/, '');
       },
     },
+    onCreate({ editor: e }) { setEditorDom(e.view.dom); },
+    onUnmount() { setEditorDom(null); },
     onUpdate({ editor: e }) {
       setIsEmpty(e.isEmpty);
       const text = serializeDoc(e.state.doc);
@@ -444,12 +445,28 @@ export const PromptEditor = forwardRef<PromptEditorRef, PromptEditorProps>(funct
     editable: !disabled,
   });
 
+  useEffect(() => {
+    inputRef?.(editorDom);
+    return () => inputRef?.(null);
+  }, [editorDom, inputRef]);
+
   // Keep stable ref to editor.
   editorRef.current = editor;
 
+  useEffect(() => {
+    if (!editor || !editorDom) return;
+    const snapshot = (event: Event) => {
+      const detail = (event as CustomEvent<ContentMenuRequest>).detail;
+      if (detail.action === 'snapshot') detail.editorHistory = { undo: editor.isEditable && editor.can().undo(), redo: editor.isEditable && editor.can().redo() };
+      else if (editor.commands[detail.action]()) event.preventDefault();
+    };
+    editorDom.addEventListener(CONTENT_MENU_EVENT, snapshot);
+    return () => editorDom.removeEventListener(CONTENT_MENU_EVENT, snapshot);
+  }, [editor, editorDom]);
+
   useImperativeHandle(ref, () => ({
-    focus() {
-      editor?.commands.focus();
+    focus(position) {
+      editor?.commands.focus(position);
     },
     clear() {
       editor?.commands.clearContent(true);
@@ -459,7 +476,12 @@ export const PromptEditor = forwardRef<PromptEditorRef, PromptEditorProps>(funct
       return serializeDoc(editor.state.doc);
     },
     setText(text) {
-      editor?.commands.setContent(plainTextDoc(text), { emitUpdate: true });
+      editor?.commands.setContent(plainTextDoc(text, mentionProviderRef.current?.resolve), { emitUpdate: true });
+    },
+    insertText(text, position) {
+      if (!editor) return;
+      editor.commands.insertContentAt(position === 'start' ? 0 : editor.state.doc.content.size,
+        plainTextDoc(text, mentionProviderRef.current?.resolve).content);
     },
     insertMention(item) {
       if (item.insertText !== undefined) {
@@ -509,13 +531,13 @@ export const PromptEditor = forwardRef<PromptEditorRef, PromptEditorProps>(funct
       });
       if (changed) editor.view.dispatch(tr);
     },
-  }));
+  }), [editor]);
 
   // Convert suggestion items to ComboboxPopupItem shape.
-  const mentionPopupItems = mentionSuggestion.items.map(mentionToPopupItem);
+  const mentionPopupItems = mentionSuggestion.items.map((item) => mentionToPopupItem(item, renderMentionIcon));
   const commandPopupItems = commandSuggestion.items.map(commandToPopupItem);
 
-  const mentionActive = mentionSuggestion.items.length > 0;
+  const mentionActive = mentionSuggestion.items.length > 0 || Boolean(mentionProvider?.emptyLabel && mentionSuggestion.rect);
   const commandActive = commandSuggestion.items.length > 0;
 
   /**
@@ -545,7 +567,7 @@ export const PromptEditor = forwardRef<PromptEditorRef, PromptEditorProps>(funct
       ? mentionActiveOptionId
       : null;
   useEffect(() => {
-    const dom = editor?.view.dom;
+    const dom = editorDom;
     if (!dom) return;
     if (!comboboxOpen || !activeListboxId) {
       for (const name of [
@@ -565,7 +587,7 @@ export const PromptEditor = forwardRef<PromptEditorRef, PromptEditorProps>(funct
     dom.setAttribute('aria-controls', activeListboxId);
     if (activeOptionId) dom.setAttribute('aria-activedescendant', activeOptionId);
     else dom.removeAttribute('aria-activedescendant');
-  }, [editor, comboboxOpen, activeListboxId, activeOptionId]);
+  }, [editorDom, comboboxOpen, activeListboxId, activeOptionId]);
 
   return (
     <>
@@ -587,6 +609,7 @@ export const PromptEditor = forwardRef<PromptEditorRef, PromptEditorProps>(funct
             id={mentionListboxId}
             onActiveOptionChange={setMentionActiveOptionId}
             items={mentionPopupItems}
+            emptyLabel={mentionProvider?.emptyLabel}
             keepActiveOnChange={mentionSuggestion.refreshed}
             anchorRect={mentionSuggestion.rect}
             onSelect={(popupItem) => {
@@ -604,6 +627,7 @@ export const PromptEditor = forwardRef<PromptEditorRef, PromptEditorProps>(funct
             id={commandListboxId}
             onActiveOptionChange={setCommandActiveOptionId}
             items={commandPopupItems}
+            autoSelectFirst={false}
             anchorRect={commandSuggestion.rect}
             stacked
             onSelect={(popupItem) => {

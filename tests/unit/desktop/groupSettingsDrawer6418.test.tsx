@@ -118,9 +118,8 @@ describe('#6418 群聊设置 —— 即时生效', () => {
     await renderDrawer('owner-1')
     await click(q('[data-testid="group-settings-manage"]'))
     await click(switchByLabel('允许普通成员邀请联系人'))
-    await waitForCondition(() => q('[role="alert"]')?.textContent?.includes('保存失败') === true, 'error shown')
-    // 内部原因进日志,❌ 进用户文案(user-copy-leak)。
-    expect(q('[role="alert"]')?.textContent).not.toContain('permission denied')
+    await waitForCondition(() => q('[role="alert"]')?.textContent?.includes('permission denied') === true, 'error shown')
+    expect(q('[role="alert"]')?.textContent).toContain('permission denied')
     expect(switchByLabel('允许普通成员邀请联系人')?.getAttribute('aria-checked')).toBe('false')
   })
 })
@@ -206,12 +205,13 @@ describe('群成员 / 群公告是设置栈里的一页', () => {
   it.each([
     ['group-settings-members', 'members'],
     ['group-settings-announcement', 'announcement'],
-  ])('桌面:%s 进去有返回也有关闭,返回回到一级页', async (testId, target) => {
+  ])('桌面:%s 进去只有返回(群信息是页签,关它的是页签上的 ×),返回回到一级页', async (testId, target) => {
     const props = await renderDrawer('member-1')
     expect(backButton()).toBeNull()
+    expect(closeButton()).toBeNull()
     await click(q(`[data-testid="${testId}"]`))
     expect(page()).toBe(target)
-    expect(closeButton()).not.toBeNull()
+    expect(closeButton()).toBeNull()
     await click(backButton())
     expect(page()).toBe('main')
     expect(props.onClose).not.toHaveBeenCalled()
@@ -262,5 +262,14 @@ describe('#6418 群聊设置 —— 二级页', () => {
     await click(buttons[buttons.length - 1] as HTMLElement)
     expect(props.onLeaveGroup).toHaveBeenCalledTimes(1)
     expect(confirmSpy).not.toHaveBeenCalled()
+  })
+})
+
+describe('群信息页签从成员钮进:落在那一页,返回回到一级页', () => {
+  it.each(['members', 'announcement'] as const)('initialPage=%s', async (initialPage) => {
+    await renderDrawer('member-1', { initialPage }, false)
+    await waitForCondition(() => page() === initialPage, 'opened at its page')
+    await click(q('[aria-label="返回"]'))
+    expect(page()).toBe('main')
   })
 })

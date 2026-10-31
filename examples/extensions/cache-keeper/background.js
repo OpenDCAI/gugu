@@ -217,7 +217,7 @@ async function tick() {
 
 async function deliver(id, rec, text, pendingField) {
   try {
-    await g.messageAgent(id, text);
+    await g.dispatch(text, { to: { agent: id } });
   } catch (error) {
     rec[pendingField] = null;
     if (pendingField === 'pingPending') rec.lastPing = { at: now(), outcome: 'failed', error: String(error?.message ?? error) };

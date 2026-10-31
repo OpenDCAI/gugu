@@ -4,6 +4,7 @@ const displayIdentitySchema = z.object({
   display_name: z.string().trim().min(1), avatar: z.string().nullable(), gugu_number: z.number().nullable(),
   bio: z.string().nullable(), owner_user_id: z.string().nullable(), agent_public: z.boolean().nullable(),
   desired_status: z.enum(['online', 'offline']).nullable(),
+  session_archived_at: z.string().nullable().optional(), session_lifecycle_revision: z.number().int().nonnegative().optional(),
   device_id: z.string().nullable(), category: z.string().nullable(), is_official: z.boolean().nullable(), local_path: z.string().nullable(), created_at: z.string().nullable(), updated_at: z.string().nullable(),
 })
 export type DisplayIdentity = z.infer<typeof displayIdentitySchema>

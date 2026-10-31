@@ -1,4 +1,5 @@
 import { dispatchMatchingHotkeys } from '@renderer/lib/hotkeys/dispatch-matching-hotkeys';
+import { isAnimationWindowVisible } from '@gugu/session-shared/animation-visibility';
 
 /**
  * 一扇咕咕子窗口的文档要和主窗长得一样(app/aux-window-host.tsx):样式、主题、平台标记都从主窗抄过去,
@@ -11,7 +12,15 @@ export function mirrorDocument(from: Document, to: Document): () => void {
     for (const name of target.getAttributeNames()) if (!source.hasAttribute(name)) target.removeAttribute(name);
     for (const name of source.getAttributeNames()) target.setAttribute(name, source.getAttribute(name) ?? '');
   };
-  const copyRootAttributes = () => copyAttributes(from.documentElement, to.documentElement);
+  // The shared getter installs visibility listeners for this portal document.
+  isAnimationWindowVisible(to);
+  const copyRootAttributes = () => {
+    // Theme attributes belong to the opener; native window visibility belongs
+    // to this portal document. A minimized opener can have a visible child.
+    const paused = to.documentElement.style.getPropertyValue('--gugu-animation-window-paused');
+    copyAttributes(from.documentElement, to.documentElement);
+    to.documentElement.style.setProperty('--gugu-animation-window-paused', paused);
+  };
   copyRootAttributes();
   const rootObserver = new Observer(copyRootAttributes);
   rootObserver.observe(from.documentElement, { attributes: true });

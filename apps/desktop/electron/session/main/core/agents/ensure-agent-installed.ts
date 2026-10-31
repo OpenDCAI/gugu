@@ -13,8 +13,8 @@ import type { DependencyInstallError, InstallProgressReport } from '@gugu/sessio
 type InstallResult = { success: true } | { success: false; error: DependencyInstallError };
 
 export interface EnsureAgentInstalledDeps {
-  /** 这台机器上所有 agent 至少探过一次(没探过的「missing」是编出来的,见 agentsController.list)。 */
-  probe: () => Promise<void>;
+  /** Resolve the requested runtime; launching one agent must not await all other runtimes. */
+  probe: (provider: string) => Promise<void>;
   /** 探测后的状态;`available` 以外的一律当作要装。 */
   status: (provider: string) => Promise<string | undefined>;
   /** `signal`:没人再等这次安装了(发起方都取消了)就停下它(#7199)。 */
@@ -144,7 +144,7 @@ export function createEnsureAgentInstalled(deps: EnsureAgentInstalledDeps) {
   }
 
   return async function ensureAgentInstalled(provider: string, signal?: AbortSignal): Promise<void> {
-    await deps.probe();
+    await deps.probe(provider);
     if ((await deps.status(provider)) === 'available') return;
     signal?.throwIfAborted();
     let running = inFlight.get(provider);
@@ -188,11 +188,12 @@ export function createEnsureAgentInstalled(deps: EnsureAgentInstalledDeps) {
  * 顶层 import 会让加载它的单测先得备齐 electron(见 create-session.ts agentPayloads 抬头)。
  */
 export const ensureAgentInstalled = createEnsureAgentInstalled({
-  probe: async () => {
-    const { ensureAgentDependenciesProbed, localDependencyManager } = await import(
-      '@main/core/dependencies/dependency-managers'
-    );
-    await ensureAgentDependenciesProbed(localDependencyManager);
+  probe: async (provider) => {
+    const [{ localDependencyManager }, { toAgentProviderId }] = await Promise.all([
+      import('@main/core/dependencies/dependency-managers'),
+      import('@main/core/agents/plugin-registry'),
+    ]);
+    await localDependencyManager.probe(toAgentProviderId(provider));
   },
   status: async (provider) => {
     const { localDependencyManager } = await import('@main/core/dependencies/dependency-managers');

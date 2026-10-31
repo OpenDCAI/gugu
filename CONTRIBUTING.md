@@ -7,7 +7,7 @@ Gugu is an agent collaboration tool built for researchers and scientists. Commun
 ## Getting started
 
 1. Read `AGENTS.md` at the repository root and set up the toolchain from `.node-version` and the `packageManager` field in `package.json`.
-2. In a separate checkout, run `pnpm install --frozen-lockfile`; configuration is described in `.envs/example.env`.
+2. In a separate checkout, run `pnpm install --frozen-lockfile`, then `pnpm rebuild:native` to build native modules for Electron; configuration is described in `.envs/example.env`.
 3. Use your own development backend; optional official-service settings are in `docs/optional-cloud-services.md`.
 4. Start an isolated instance with `scripts/dev-app.sh`; check commands are in `docs/development-tools.md`.
 

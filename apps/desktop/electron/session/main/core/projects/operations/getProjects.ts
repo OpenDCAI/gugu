@@ -20,6 +20,7 @@ function toLocalProject(row: typeof projects.$inferSelect): LocalProject {
     baseRef: localProjectBaseRef(row),
     repositoryWorkspaceId: row.repositoryWorkspaceId ?? null,
     ...(row.rootFolderDetached ? { rootFolderDetached: true } : {}),
+    ...(row.kind === 'workspace' ? { kind: 'workspace' as const } : {}),
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };

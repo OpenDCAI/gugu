@@ -6,7 +6,7 @@ import {
   type SessionModelCapability,
 } from '@gugu/session-core/agents/plugins';
 import { CODEX_WIRE_API, harnessPlatform } from './platform';
-import { codexPlatformProviderConfigArgs } from './platform-provider-args';
+import { CODEX_PLATFORM_RETRY_CONFIG, codexPlatformProviderConfigArgs } from './platform-provider-args';
 
 /**
  * Codex addresses providers by a bare config key, so its platform provider gets an id
@@ -29,6 +29,8 @@ export interface CodexPlatformProviderBlock {
   base_url: string;
   env_key: string;
   wire_api: typeof CODEX_WIRE_API;
+  request_max_retries: number;
+  stream_max_retries: number;
 }
 
 export function codexPlatformProviderBlock(
@@ -40,6 +42,7 @@ export function codexPlatformProviderBlock(
     base_url: platformProvider.baseUrl,
     env_key: 'OPENAI_API_KEY',
     wire_api: CODEX_WIRE_API,
+    ...CODEX_PLATFORM_RETRY_CONFIG,
   };
 }
 
@@ -63,6 +66,7 @@ export function codexPlatformProviderArgs(
   platformProvider: SessionModelCapability['platformProvider'],
   /** #6921 同一份声明的出图开关;与 app-server / ACP 那两份逐字相同,❌ 让可见客户端说另一种话。 */
   callableRoutes: SessionModelCapability['platformCallableRoutes'],
+  model: SessionModelCapability['model'],
 ): string[] {
   const block = codexPlatformProviderBlock(platformProvider);
   if (!block) return [];
@@ -71,6 +75,7 @@ export function codexPlatformProviderArgs(
     providerName: block.name,
     baseUrl: block.base_url,
     ...(callableRoutes ? { callableRoutes } : {}),
+    ...(model ? { model } : {}),
   });
 }
 
@@ -150,7 +155,7 @@ export const platformModel: IPlatformModelBehavior = {
     if (positiveWindow(model.contextWindow)) {
       extraArgs.push('-c', `model_context_window=${model.contextWindow}`);
     }
-    extraArgs.push(...codexPlatformProviderArgs(model.platformProvider, model.platformCallableRoutes));
+    extraArgs.push(...codexPlatformProviderArgs(model.platformProvider, model.platformCallableRoutes, model.model));
     return extraArgs.length > 0 ? { extraArgs } : {};
   },
 };

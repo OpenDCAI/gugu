@@ -11,7 +11,16 @@ import { act, Fragment, type ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { GroupAgentItem, GroupCollabSnapshot, GroupMemberItem } from '../../../packages/core/src/shared/types/chat'
 import type { DisplayIdentity } from '../../../apps/desktop/src/lib/displayIdentity'
-import { createNode, createReactHarness, displayIdentity, renderWithAppProviders, typeInto, waitForCondition } from '../../support/testHarness'
+import { createNode, createReactHarness, device, displayIdentity, renderWithAppProviders, typeInto, waitForCondition } from '../../support/testHarness'
+import { closeInfoTab, infoTabOf, openInfoTab } from '../../../apps/desktop/src/session/renderer/features/chats/chat-tabs/chat-layouts'
+import { UI_EVENTS } from '../../../apps/desktop/src/lib/uiEvents'
+import { publishProjectGroupChats } from '../../../apps/desktop/src/session/renderer/features/projects/stores/project-group-chats-bridge'
+import type { MemberProfileChatTarget } from '../../../apps/desktop/src/components/MemberProfileCard'
+import { DevicesContext } from '../../../apps/desktop/src/store/devicesContext'
+import { removeDeviceSessions, updateDeviceSessions } from '../../../apps/desktop/src/session/shared/remote-sessions/session-directory'
+
+const shell = vi.hoisted(() => ({ mobile: false }))
+vi.mock('../../../apps/desktop/src/hooks/useMobileShell', () => ({ useMobileShell: () => shell.mobile }))
 
 vi.mock('../../../apps/desktop/src/lib/chat', () => ({
   chatService: {
@@ -32,7 +41,8 @@ vi.mock('../../../apps/desktop/src/lib/identityReadAdapter', () => ({
 }))
 
 const { chatService } = await import('../../../apps/desktop/src/lib/chat')
-const { MemberListPanel } = await import('../../../apps/desktop/src/components/chat/MemberListPanel')
+const { MemberListPanelFixture: MemberListPanel } = await import('../../support/MemberListPanelFixture')
+const { MemberListPanel: ControlledMemberListPanel } = await import('../../../apps/desktop/src/components/chat/MemberListPanel')
 
 const getGroupCollab = vi.mocked(chatService.getGroupCollab)
 const listJoinRequests = vi.mocked(chatService.listGroupJoinRequests)
@@ -73,9 +83,35 @@ beforeEach(() => {
   getGroupCollab.mockResolvedValue({ snapshot: SNAPSHOT, identities: IDENTITIES })
   listJoinRequests.mockResolvedValue([])
 })
-afterEach(() => { harness.cleanup(); vi.clearAllMocks() })
+afterEach(() => {
+  harness.cleanup()
+  vi.clearAllMocks()
+  shell.mobile = false
+  closeInfoTab('group-navigation')
+  closeInfoTab('other-group-navigation')
+  publishProjectGroupChats([], new Map(), new Map())
+  removeDeviceSessions('navigation-device')
+})
 
 const head = (title: ReactNode, actions: ReactNode) => createNode(Fragment, null, title, actions)
+
+describe('member drawer uses the conversation snapshot', () => {
+  const identitiesById = Object.fromEntries(IDENTITIES.map((identity) => [identity.id, identity]))
+  it('renders known names, roles and agent metadata while the refresh is pending, including on reopen', async () => {
+    const refresh = vi.fn(() => new Promise<void>(() => {}))
+    const render = () => renderWithAppProviders(harness, createNode(ControlledMemberListPanel, {
+      chatId: 'chat-1', chatKind: 'group', head, snapshot: SNAPSHOT, onReload: refresh,
+    }), { auth: { id: 'owner-1' }, chat: { identitiesById }, contacts: { contacts: [] } })
+    await render()
+    expect(harness.container.querySelector('[data-member-row="owner-1"]')?.textContent).toContain('群主甲')
+    expect(harness.container.querySelector('[data-member-row="codex"]')?.textContent).toContain('gpt-5.4')
+    await harness.render(null)
+    await render()
+    expect(harness.container.querySelector('[data-member-row="codex"]')?.textContent).toContain('gpt-5.4')
+    expect(refresh).toHaveBeenCalledTimes(2)
+    expect(getGroupCollab).not.toHaveBeenCalled()
+  })
+})
 let revisionListeners: Array<{ event: unknown; listener: (operations: { revision: string; event: string; payload: unknown }[]) => void }> = []
 async function renderPanel(viewerId = 'owner-1', chatId = 'chat-1') {
   revisionListeners = []
@@ -92,6 +128,9 @@ async function renderPanel(viewerId = 'owner-1', chatId = 'chat-1') {
     }, contacts: { contacts: [] } },
   )
   await waitForCondition(() => rowIds().length > 0, 'member rows rendered')
+  // gugu-dev#181 我自己的 agent 收在「我的 agent · N」里;这一组用例判的是每一行的行为,先摊开。
+  const mine = q('[data-member-group="mine"]')
+  if (mine?.getAttribute('aria-expanded') === 'false') await click(mine)
 }
 const rowIds = () => [...harness.container.querySelectorAll('[data-member-row]')].map((row) => row.getAttribute('data-member-row'))
 const q = (selector: string) => document.querySelector(selector) as HTMLElement | null
@@ -99,6 +138,101 @@ async function click(element: HTMLElement | null) {
   expect(element).not.toBeNull()
   await act(async () => { element!.click(); await Promise.resolve(); await Promise.resolve() })
 }
+
+describe('#969 leaving the group info page', () => {
+  async function renderMembers(onOpenUserChat = vi.fn()) {
+    publishProjectGroupChats([], new Map(), new Map([['claude', { projectId: 'project-1', sessionId: 'session-1' }]]))
+    updateDeviceSessions('navigation-device', { sessions: [{
+      conversationId: 'session-1', projectId: 'project-1', title: 'Task', harness: 'claude', runtime: 'acp',
+      agentStatus: null, lastInteractedAt: null, supported: true, agent: { userId: 'claude' },
+    }], cached: false, loading: false, error: null })
+    openInfoTab('group-navigation', 'members')
+    openInfoTab('other-group-navigation', 'members')
+    const members = createNode(ControlledMemberListPanel, {
+      chatId: 'group-navigation', chatKind: 'group', head, snapshot: SNAPSHOT,
+      onReload: vi.fn(async () => {}), onOpenUserChat,
+    })
+    await renderWithAppProviders(harness, createNode(DevicesContext.Provider, { value: {
+      devices: [device('navigation-device', [])], loading: false, error: null,
+      refresh: vi.fn(async () => {}), rename: vi.fn(async () => {}), remove: vi.fn(async () => {}),
+      listBoundAgents: vi.fn(async () => []),
+    } }, members), { auth: { id: 'owner-1' }, chat: {
+      identitiesById: Object.fromEntries(IDENTITIES.map((identity) => [identity.id, identity])),
+    }, contacts: { contacts: [] } })
+  }
+
+  it.each([
+    [true, 'claude', 'agent'], [true, 'member-1', 'human'],
+    [false, 'claude', 'agent'], [false, 'member-1', 'human'],
+  ] as const)('Message on mobile=%s to %s closes only the mobile source info before routing', async (mobile, memberId, type) => {
+    shell.mobile = mobile
+    const sourceAtNavigation: Array<ReturnType<typeof infoTabOf>> = []
+    const open = vi.fn((_target: MemberProfileChatTarget) => { sourceAtNavigation.push(infoTabOf('group-navigation')) })
+    await renderMembers(open)
+    await click(q(`[data-member-row="${memberId}"]`))
+    await click(q('[data-testid="member-profile-send-message-button"]'))
+    expect(open).toHaveBeenCalledOnce()
+    expect(open.mock.calls[0]?.[0]).toMatchObject({ id: memberId, type })
+    if (type === 'agent') expect(open.mock.calls[0]?.[0].session).toEqual({ projectId: 'project-1', sessionId: 'session-1' })
+    expect(sourceAtNavigation).toHaveLength(1)
+    if (mobile) expect(sourceAtNavigation[0]).toBeNull()
+    else expect(sourceAtNavigation[0]).not.toBeNull()
+    expect(infoTabOf('other-group-navigation')).not.toBeNull()
+  })
+
+  it('New Agent closes only the source info before asking the shell to open the group-bound creation page', async () => {
+    shell.mobile = true
+    await renderMembers()
+    const sourceAtNavigation: Array<ReturnType<typeof infoTabOf>> = []
+    const create = vi.fn((event: Event) => {
+      sourceAtNavigation.push(infoTabOf('group-navigation'))
+      expect((event as CustomEvent).detail).toEqual({ chatId: 'group-navigation' })
+    })
+    window.addEventListener(UI_EVENTS.createAgentInGroup, create)
+    try {
+      await click(q('[data-testid="member-list-create-agent"]'))
+      expect(create).toHaveBeenCalledOnce()
+      expect(sourceAtNavigation).toEqual([null])
+      expect(infoTabOf('other-group-navigation')).not.toBeNull()
+    } finally {
+      window.removeEventListener(UI_EVENTS.createAgentInGroup, create)
+    }
+  })
+})
+
+describe('gugu-dev#181 我的 agent 收成一组', () => {
+  it('「我的 agent · N」与「其他人的 agent · N」是两组同级的:我的默认展开,收起后别人的 agent 仍在自己那一组里', async () => {
+    revisionListeners = []
+    await renderWithAppProviders(
+      harness,
+      createNode(MemberListPanel, { chatId: 'chat-1', chatKind: 'group', head }),
+      { auth: { id: 'owner-1' }, chat: {
+        identitiesById: {}, getImRepository: async () => ({ putIdentities: vi.fn(async () => {}) }) as never,
+        subscribeAccountRevision: (() => () => undefined) as never,
+      }, contacts: { contacts: [] } },
+    )
+    await waitForCondition(() => rowIds().length > 0, 'member rows rendered')
+    const toggle = q('[data-member-group="mine"] [aria-expanded]')
+    expect(toggle?.getAttribute('aria-expanded')).toBe('true')
+    expect(toggle?.textContent).toContain('1')
+    expect(rowIds()).toContain('claude')
+    const others = q('[data-member-group="others"]')
+    expect(others?.textContent).toContain('其他人的 agent · 1')
+    expect(others?.querySelector('[data-member-row="codex"]')).not.toBeNull()
+    await click(toggle)
+    expect(rowIds()).not.toContain('claude')
+    expect(q('[data-member-group="others"] [data-member-row="codex"]')).not.toBeNull()
+  })
+
+  it('普通成员不标角色,自己的 agent 不写主人;档位是一行淡字', async () => {
+    await renderPanel()
+    expect(q('[data-member-role="member-1"]')).toBeNull()
+    expect(q('[data-member-role="owner-1"]')?.textContent).toBeTruthy()
+    expect(q('[data-member-row="claude"] [data-agent-meta="owner"]')).toBeNull()
+    expect(q('[data-member-row="codex"] [data-agent-meta="owner"]')).not.toBeNull()
+    expect(q('[data-member-row="codex"] [data-listen-mode-toggle]')?.textContent).toMatch(/收听全部消息|只收点名/)
+  })
+})
 
 describe('#6418 群成员面板 —— 搜索', () => {
   it('按名字、主人、引擎匹配,并真的滤掉不匹配的行', async () => {
@@ -157,35 +291,13 @@ describe('#6418 群成员面板 —— 资料卡与管理', () => {
     const readsBefore = getGroupCollab.mock.calls.length
     await click(removeItem)
     await waitForCondition(() => removeMember.mock.calls.length === 1, 'remove called')
-    expect(removeMember).toHaveBeenCalledWith('chat-1', 'codex', true)
+    expect(removeMember).toHaveBeenCalledWith('chat-1', 'codex')
     await waitForCondition(() => getGroupCollab.mock.calls.length > readsBefore, 'roster reloaded')
   })
 
   it('普通成员看不到任何 ⋯ 管理钮', async () => {
     await renderPanel('member-2')
     expect(q('[data-testid="member-list-panel"] button[aria-label^="管理"]')).toBeNull()
-  })
-})
-
-describe('名册跟着 chat_members 的修订重读(不靠宿主换 key 重挂)', () => {
-  const fire = async (chatId: string) => {
-    const membership = revisionListeners.filter((entry) => entry.event === 'chat_members_changed')
-    expect(membership).toHaveLength(1)
-    await act(async () => { membership[0]!.listener([{ revision: '1', event: 'chat_members_changed', payload: { chat_id: chatId, user_id: 'agent-1' } }]); await Promise.resolve() })
-  }
-
-  it('本群成员行变了(如撤回刷屏把档位改回):重读名册', async () => {
-    await renderPanel('owner-1')
-    const before = getGroupCollab.mock.calls.length
-    await fire('chat-1')
-    expect(getGroupCollab.mock.calls.length).toBe(before + 1)
-  })
-
-  it('反例:别的群的成员变动不触发重读', async () => {
-    await renderPanel('owner-1')
-    const before = getGroupCollab.mock.calls.length
-    await fire('chat-2')
-    expect(getGroupCollab.mock.calls.length).toBe(before)
   })
 })
 
@@ -239,7 +351,7 @@ describe('主动 / 被动归 agent 的主人', () => {
     await click(q('[data-member-row="codex"] button[aria-label^="管理"]'))
     expect(menuItems()).toEqual(['改为主动', '让它退出群聊'])
     await click([...document.querySelectorAll('[role="menuitem"]')].find((item) => item.textContent === '让它退出群聊') as HTMLElement)
-    expect(removeMember.mock.calls).toEqual([['chat-1', 'codex', true]])
+    expect(removeMember.mock.calls).toEqual([['chat-1', 'codex']])
   })
 
   it('普通成员点开自己 agent 的资料卡:没有角色选择,有「让它退出群聊」', async () => {

@@ -25,6 +25,7 @@ export class LiveFollower<T> {
   private sequence = -1;
   private resyncing: Promise<void> | null = null;
   private again = false;
+  private resyncDiagnostics: { events: number; reasons: Partial<Record<WireResyncReason, number>> } | null = null;
 
   constructor(
     private readonly refetchSnapshot: () => Promise<LiveSnapshot<T>>,
@@ -100,6 +101,15 @@ export class LiveFollower<T> {
     };
     this.resyncing = run().finally(() => {
       this.resyncing = null;
+      const diagnostics = this.resyncDiagnostics;
+      this.resyncDiagnostics = null;
+      if (diagnostics && diagnostics.events > 1) {
+        (this.options.logger ?? ambientLog).info(`wire ${this.options.label} resync summary`, {
+          topic: this.options.topic,
+          ...diagnostics,
+          suppressed: diagnostics.events - 1,
+        });
+      }
     });
     return this.resyncing;
   }
@@ -107,7 +117,14 @@ export class LiveFollower<T> {
   protected triggerResync(reason: WireResyncReason, details: Record<string, unknown> = {}): void {
     const event = { topic: this.options.topic, reason, details };
     this.options.instrumentation?.resync?.(event);
-    (this.options.logger ?? ambientLog).warn(`wire ${this.options.label} resyncing`, event);
-    void this.refresh();
+    const first = this.resyncDiagnostics === null;
+    const diagnostics = this.resyncDiagnostics ??= { events: 0, reasons: {} };
+    diagnostics.events += 1;
+    diagnostics.reasons[reason] = (diagnostics.reasons[reason] ?? 0) + 1;
+    if (first) (this.options.logger ?? ambientLog).warn(`wire ${this.options.label} resyncing`, event);
+    const refreshing = this.refresh();
+    if (first) void refreshing.catch((error: unknown) => {
+      (this.options.logger ?? ambientLog).warn(`wire ${this.options.label} resync failed`, { topic: this.options.topic, error: String(error) });
+    });
   }
 }

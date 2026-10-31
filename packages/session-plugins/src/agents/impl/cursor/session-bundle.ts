@@ -13,7 +13,7 @@ import {
 
 export const CURSOR_ACP_VERSION = '2026.08.31-4057e58';
 export const CURSOR_ACP_SOURCE =
-  'mac1 2026.08.31-4057e58 package: 6863.index.js:1 ./src/acp/cursor-acp-agent.ts (byte 46030) and ./src/acp/session-resources.ts (byte 80881); 8096.index.js:2 dispatcher (byte 2248118) accepts session/new and session/prompt; session/new.mcpServers is consumed per server, failures are caught and session creation continues. See gugu-base/evidence/2026-09-02-tui-audit-cursor/README.md.';
+  'Cursor Agent 2026.08.31-4057e58 package (read on macOS): 6863.index.js:1 ./src/acp/cursor-acp-agent.ts (byte 46030) and ./src/acp/session-resources.ts (byte 80881); 8096.index.js:2 dispatcher (byte 2248118) accepts session/new and session/prompt; session/new.mcpServers is consumed per server, failures are caught and session creation continues.';
 
 const unverified = (unit: string): Degradation => ({
   code: 'unverified',

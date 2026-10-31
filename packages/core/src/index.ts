@@ -64,6 +64,7 @@ export type {
   ImportedTranscript,
   ImportedTranscriptTurn,
   LocalTranscriptSession,
+  TranscriptContext,
   TranscriptSource
 } from './shared/types/transcripts'
 export {
@@ -266,10 +267,6 @@ export {
   type RemoveAgentCloudIdentityOutcome,
   type RemoveAgentCloudIdentityViaSupabaseInput
 } from './cloud/agentIdentityRemoval'
-export {
-  listOwnedCloudAgentsViaSupabase,
-  type CloudOwnedAgent
-} from './cloud/agentIdentityReconcile'
 export {
   createDeviceRuntimeHostLoop,
   stopRuntimeHostWithTimeout,

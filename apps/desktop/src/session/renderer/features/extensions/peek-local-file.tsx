@@ -6,7 +6,8 @@ import { rpc } from '@renderer/lib/ipc';
 import { Markdown } from '@/components/markdown/Markdown';
 import { DocumentFileRenderer } from '@renderer/lib/editor/document-file-renderer';
 import { getFileKind, isOfficeKind } from '@renderer/lib/editor/fileKind';
-import { HtmlPreviewFrame, type HtmlPreviewRegistration } from '@renderer/lib/editor/html-renderer';
+import { HtmlPreviewFrame, type HtmlPreviewRegistration } from '@/components/preview/HtmlPreviewFrame';
+import { registerHtmlPreview } from '@/components/preview/html-preview-registration';
 import { openBrowserUrlExternally } from '@renderer/features/browser/browser-toolbar-actions';
 import { parseExtensionTabKind } from '@shared/extensions/manifest';
 import { ExtensionTabPane } from './extension-tab-pane';
@@ -65,7 +66,7 @@ export function PeekLocalFile({ target, tabId }: { target: LocalPeek; tabId: str
 
 /**
  * A project's folder is read through its workspace, held while the file is shown — as the new-task panel holds it with no
- * session there (draft-workspace-panel). A session's is held by its session. 'ready', why not, or null while asking.
+ * session there. A session's is held by its session. 'ready', why not, or null while asking.
  */
 function useHeldWorkspace(target: LocalPeek): 'ready' | string | null {
   const project = 'project' in target.place ? target.place.project : null;
@@ -134,12 +135,8 @@ function PeekHtml({ target }: { target: LocalPeek }) {
   const { projectId, workspaceId, absolutePath } = target;
   const content = useFileText(target);
   const register = useCallback(
-    async (documentHtml: string): Promise<HtmlPreviewRegistration> => {
-      // The page is registered by where it is on this computer: what it links beside it is read from there.
-      const result = await workspaceRpc(projectId).files.createPreview(projectId, workspaceId, absolutePath, documentHtml);
-      if (result.success) return { ok: true, ...result.data };
-      return { ok: false, message: 'message' in result.error ? result.error.message : 'Preview unavailable' };
-    },
+    (documentHtml: string): Promise<HtmlPreviewRegistration> => registerHtmlPreview(documentHtml, (content) =>
+      workspaceRpc(projectId).files.createPreview(projectId, workspaceId, absolutePath, content)),
     [projectId, workspaceId, absolutePath]
   );
   if (content === null) return null;

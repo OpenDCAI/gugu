@@ -52,6 +52,11 @@ export type BlobProducer = {
   close(): void;
 };
 
+export type BlobProducerCallbacks = {
+  onProgress?: (sent: number) => void;
+  onError?: (error: Error) => void;
+};
+
 export type BlobConsumer = {
   readonly channel: string;
   push(seq: number, data: Uint8Array): void;
@@ -66,7 +71,7 @@ type NormalizedIterator = AsyncIterator<Uint8Array> & {
   return?(value?: unknown): Promise<IteratorResult<Uint8Array>> | IteratorResult<Uint8Array>;
 };
 
-export function createBlobProducer(options: {
+export function createBlobProducer(options: BlobProducerCallbacks & {
   channel: string;
   source: BlobSource;
   post: WireTransport['post'];
@@ -79,26 +84,43 @@ export function createBlobProducer(options: {
   let seq = 0;
   let pumping = false;
   let carry: Uint8Array | undefined;
-  const idleTimer =
-    options.idleTimeoutMs === 0
-      ? undefined
-      : setTimeout(() => close(), options.idleTimeoutMs ?? BLOB_IDLE_TIMEOUT_MS);
+  let sent = 0;
+  let idleTimer: ReturnType<typeof setTimeout> | undefined;
+  armIdle();
+
+  function armIdle(): void {
+    clearIdle();
+    if (closed || options.idleTimeoutMs === 0) return;
+    idleTimer = setTimeout(() => fail(new WireError('TIMEOUT', 'Blob transfer made no progress')),
+      options.idleTimeoutMs ?? BLOB_IDLE_TIMEOUT_MS);
+  }
+
+  function fail(error: Error): void {
+    if (closed) return;
+    close();
+    // A silent close leaves the peer waiting for bytes forever (#995).
+    try {
+      options.post({ kind: 'blob-error', channel: options.channel,
+        error: { code: error instanceof WireError ? error.code : 'HANDLER_ERROR', message: error.message } });
+    } catch { /* The caller still receives the local failure when the transport has gone. */ }
+    options.onError?.(error);
+  }
 
   function safePost(message: Parameters<WireTransport['post']>[0]): void {
     try {
       options.post(message);
     } catch {
-      close();
+      fail(new WireError('DISCONNECTED', 'Blob transport disconnected'));
     }
   }
 
   async function pump(): Promise<void> {
     if (pumping || closed) return;
     pumping = true;
-    clearIdle();
     try {
       while (!closed && credit > 0) {
         const next = await nextChunk(iterator, carry);
+        if (closed) return;
         carry = next.carry;
         if (!next.chunk) {
           safePost({ kind: 'blob-end', channel: options.channel });
@@ -107,20 +129,13 @@ export function createBlobProducer(options: {
         }
         credit -= 1;
         safePost({ kind: 'blob-chunk', channel: options.channel, seq: seq++, data: next.chunk });
+        if (closed) return;
+        sent += next.chunk.byteLength;
+        options.onProgress?.(sent);
+        armIdle();
       }
     } catch (error) {
-      safePost({
-        kind: 'blob-error',
-        channel: options.channel,
-        error:
-          error instanceof WireError
-            ? { code: error.code, message: error.message }
-            : {
-                code: 'HANDLER_ERROR',
-                message: error instanceof Error ? error.message : String(error),
-              },
-      });
-      closeWithoutReturn();
+      fail(error instanceof Error ? error : new Error(String(error)));
     } finally {
       pumping = false;
     }
@@ -147,7 +162,7 @@ export function createBlobProducer(options: {
     if (closed) return;
     closed = true;
     clearIdle();
-    void iterator.return?.();
+    void Promise.resolve(iterator.return?.()).catch(() => undefined);
     options.onClose?.();
   }
 

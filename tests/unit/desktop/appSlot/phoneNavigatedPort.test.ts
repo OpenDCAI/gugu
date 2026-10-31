@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { rpcQuery } from '../../../helpers/rpcQuery'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { hostAppFrame } from '../../../../apps/desktop/src/components/appSlot/phoneAppHost'
 import { APP_FRAME_MARKER, SYNC_PORT_WINDOW_MESSAGE } from '../../../../apps/desktop/src/session/shared/extensions/app-runtime-protocol'
@@ -23,10 +24,10 @@ vi.mock('@gugu/core/cloud/supabase', () => ({
     return {
       from: () => query,
       // The live notes file, as the person reads it by its id; theirs to delete.
-      rpc: async (name: string, args: Record<string, unknown>) =>
+      rpc: rpcQuery(async (name: string, args: Record<string, unknown>) =>
         name === 'workspace_deletable_as'
           ? { data: args.p_item_ids, error: null }
-          : { data: [{ id: NOTES, chat_id: CHAT, kind: 'document', filename: 'notes.json', version: 1, epoch: 1, parent_id: null, system_role: null, path: 'notes.json' }], error: null },
+          : { data: [{ id: NOTES, chat_id: CHAT, kind: 'document', filename: 'notes.json', version: 1, epoch: 1, parent_id: null, system_role: null, path: 'notes.json' }], error: null }),
     }
   },
 }))
@@ -64,7 +65,7 @@ const portsHandedOver = () => posted.mock.calls.filter(([message, , transfer]) =
 describe('a page the App moves to in its own frame on the phone gets a sync port of its own', () => {
   it('shelf → reader: the reader opens the live file and its port is handed over (the first load came before the host listened)', async () => {
     // The shelf's document loaded before the host listened: no `load` is seen for it.
-    host = hostAppFrame(frame, { extensionId: 'papers', tabId: 'app-page:papers.shelf', chatId: null, capabilities: ['files:read', 'files:write'], locale: 'en-US', themeMode: 'light' }, {
+    host = hostAppFrame(frame, { extensionId: 'papers', tabId: 'app-page:papers.shelf', tabName: 'shelf', chatId: null, capabilities: ['files:read', 'files:write'], locale: 'en-US', themeMode: 'light' }, {
       showMessage: vi.fn(),
       showSession: () => ({ shown: true }),
       openWith: vi.fn(),
@@ -82,7 +83,7 @@ describe('a page the App moves to in its own frame on the phone gets a sync port
   })
 
   it('control: within one document a second open uses the port it has — none is handed over again', async () => {
-    host = hostAppFrame(frame, { extensionId: 'papers', tabId: 'app-page:papers.shelf', chatId: null, capabilities: ['files:read', 'files:write'], locale: 'en-US', themeMode: 'light' }, {
+    host = hostAppFrame(frame, { extensionId: 'papers', tabId: 'app-page:papers.shelf', tabName: 'shelf', chatId: null, capabilities: ['files:read', 'files:write'], locale: 'en-US', themeMode: 'light' }, {
       showMessage: vi.fn(),
       showSession: () => ({ shown: true }),
       openWith: vi.fn(),

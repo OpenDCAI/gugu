@@ -405,7 +405,12 @@ export class GuguMcpHost<TContext> {
         try {
           const body = request.method === 'POST' ? await readJsonBody(request) : undefined
           log.debug({ rpc: (body as { method?: string } | null)?.method ?? null, method: request.method }, 'MCP in-session request')
-          await runtime.transport.handleRequest(request, response, body)
+          const stopProgress = reportToolCallProgress(runtime.server, body)
+          try {
+            await runtime.transport.handleRequest(request, response, body)
+          } finally {
+            stopProgress?.()
+          }
           log.debug({ rpc: (body as { method?: string } | null)?.method ?? null }, 'MCP in-session request returned')
           if ((body as { method?: unknown } | null)?.method === 'tools/list' && response.statusCode === 200) {
             if (!record.toolsListed) {
@@ -568,6 +573,30 @@ export function keepSseStreamAlive(response: ServerResponse): () => void {
   const stop = () => clearInterval(timer)
   response.once('close', stop)
   return stop
+}
+/**
+ * A tool call that waits on a person (such as an App install's consent) or on a slow device stays
+ * open for minutes. Claude Code aborts an MCP tool that sends no response or progress for 300 s
+ * (CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT), and treats a response stream without a byte as dead and gives the call up
+ * 90 s after the stream errors ("transport dropped mid-call"); every progress notification resets both. So while a
+ * `tools/call` that carried a `progressToken` is pending, tell the caller it is still running, on that call's own response
+ * stream. A call without a token gets nothing: the spec only allows progress for a token the caller sent.
+ */
+export const TOOL_CALL_PROGRESS_MS = 30_000
+export function reportToolCallProgress(server: McpServer, body: unknown): (() => void) | null {
+  const call = body as { method?: unknown; id?: unknown; params?: { _meta?: { progressToken?: unknown } } } | null | undefined
+  const progressToken = call?.params?._meta?.progressToken
+  if (call?.method !== 'tools/call' || (typeof call.id !== 'string' && typeof call.id !== 'number')) return null
+  if (typeof progressToken !== 'string' && typeof progressToken !== 'number') return null
+  const relatedRequestId = call.id
+  let progress = 0
+  const timer = setInterval(() => {
+    progress += 1
+    server.server.notification({ method: 'notifications/progress', params: { progressToken, progress, message: 'Still running' } }, { relatedRequestId })
+      .catch((error: unknown) => log.debug({ error: String(error) }, 'tool call progress not sent (its stream is gone)'))
+  }, TOOL_CALL_PROGRESS_MS)
+  timer.unref?.()
+  return () => clearInterval(timer)
 }
 /**
  * MCP 规范(Streamable HTTP 的 Security Warning)要求本机 server 校验 Origin 防 DNS rebinding:把自己域名解析到

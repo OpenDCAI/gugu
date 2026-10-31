@@ -110,8 +110,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   requestWirePort: emdashRequestWirePort,
   selectDirectory: (): Promise<string | null> => ipcRenderer.invoke('dialog:select-directory'),
   selectFile: (): Promise<string | null> => ipcRenderer.invoke('dialog:select-file'),
-  openFileBytes: (bytes: Uint8Array, filename: string): Promise<void> =>
-    ipcRenderer.invoke('file:open-bytes', { bytes, filename }),
   checkForUpdates: (): Promise<unknown> => ipcRenderer.invoke('updates:check'),
   updateState: (): Promise<unknown> => ipcRenderer.invoke('updates:state'),
   downloadUpdate: (): Promise<unknown> => ipcRenderer.invoke('updates:download'),
@@ -121,7 +119,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getAppVersion: (): Promise<string> => ipcRenderer.invoke('app:get-version'),
   getFeedbackLogTail: (): Promise<unknown> => ipcRenderer.invoke('feedback:log-tail'),
   getAgentCreationTools: (): Promise<unknown> => ipcRenderer.invoke('agent-creation-tools:list'),
-  openAgentRuntime: (agentUserId: string): Promise<unknown> => ipcRenderer.invoke('agent-runtime:open', agentUserId),
   writeClipboardText: (value: string): Promise<boolean> => ipcRenderer.invoke('clipboard:write-text', value),
   showNotification: (payload: { title: string; body?: string; chatId?: string | null; silent?: boolean }): Promise<unknown> => {
     return ipcRenderer.invoke('notifications:show', payload)
@@ -130,6 +127,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   clearHumanAuthSession: (reason: 'signed-out' | 'lost'): Promise<void> => ipcRenderer.invoke('human-auth-session:clear', reason),
   // #5906 —— 渲染层把一条设备命令放回 pending 之后说一声(见 main.ts 的同名通道)。
   notifyDeviceCommandsChanged: (): void => ipcRenderer.send('device-runtime:commands-changed'),
+  // 渲染层建 / 改 / 删了定时任务之后说一声(见 main.ts 的同名通道)。
+  notifyScheduledTasksChanged: (): void => ipcRenderer.send('device-runtime:scheduled-tasks-changed'),
   // #6396 —— 渲染层收到 agent_changed(本账号的 agent 有变动)后说一声,主进程据此刷新起名用的号(见 main.ts 同名通道)。
   notifyOwnedAgentsChanged: (): void => ipcRenderer.send('owned-agents:changed'),
   // @@@2374 — 按域名通用,❌ 不再一域一对方法。原来只有 `auth` 那一对,`extensions` 域
@@ -166,6 +165,19 @@ contextBridge.exposeInMainWorld('electronAPI', {
     const listener = () => callback()
     window.addEventListener('gugu:app-foreground', listener)
     return () => window.removeEventListener('gugu:app-foreground', listener)
+  },
+  // App 在不在前台(main.ts @@@app-active):先答一次当下,之后每次变化再答。
+  subscribeAppActive: (callback: (active: boolean) => void): (() => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, active: boolean): void => callback(active)
+    ipcRenderer.on('app:active-changed', listener)
+    void ipcRenderer.invoke('app:is-active').then(callback)
+    return () => ipcRenderer.removeListener('app:active-changed', listener)
+  },
+  // 本机在当前账号的设备里认出了自己(main.ts device:self-identified):设备表要按「哪一行是本机」重读。
+  subscribeLocalDeviceIdentified: (callback: () => void): (() => void) => {
+    const listener = (): void => callback()
+    ipcRenderer.on('device:self-identified', listener)
+    return () => ipcRenderer.removeListener('device:self-identified', listener)
   },
   getLocalDeviceSelfSnapshot: (): Promise<unknown> => ipcRenderer.invoke('device:get-self-snapshot'),
   // @@@4526 owner 删除自己的 agent 后释放它在本机的足迹(花名册 / runtime session / 投递注册)。

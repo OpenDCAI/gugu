@@ -28,22 +28,3 @@ export function internalsRows(prev: ResourceSnapshot | null, next: ResourceSnaps
     return row;
   });
 }
-
-const ALT_CLICKS = 5;
-const ALT_CLICK_GAP_MS = 800;
-
-/** Counts consecutive Alt-clicks; `click` returns true on the fifth one within the gap, then starts over. */
-export function createAltClickCounter(now: () => number = Date.now) {
-  let count = 0;
-  let last = 0;
-  return {
-    click(altKey: boolean): boolean {
-      const at = now();
-      count = altKey && at - last <= ALT_CLICK_GAP_MS ? count + 1 : altKey ? 1 : 0;
-      last = at;
-      if (count < ALT_CLICKS) return false;
-      count = 0;
-      return true;
-    },
-  };
-}

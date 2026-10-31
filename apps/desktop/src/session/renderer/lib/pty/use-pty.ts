@@ -1,3 +1,8 @@
+import { platform } from '@/platform';
+import { translateSessionMessage } from '@renderer/localization/locale-store';
+import { i18n } from '@/i18n';
+import { messageForUser } from '@/lib/userFacingError';
+import { toast } from '@renderer/lib/hooks/use-toast';
 import { type Terminal } from '@xterm/xterm';
 import { isMacHost, isWindowsHost } from '@shared/host-os';
 import { reaction } from 'mobx';
@@ -5,9 +10,10 @@ import { useCallback, useContext, useEffect, useRef } from 'react';
 import { PageShownContext } from '@renderer/app/recent-session-pages';
 import { dispatchMatchingHotkeys } from '@renderer/lib/hotkeys/dispatch-matching-hotkeys';
 import { events, rpc } from '@renderer/lib/ipc';
+import { observePtyOutput } from '../session-output-observers';
 import { log } from '@renderer/utils/logger';
 import type { AppSettings } from '@shared/core/app-settings';
-import { ptyDataChannel, ptyExitChannel } from '@shared/core/pty/ptyEvents';
+import { ptyExitChannel } from '@shared/core/pty/ptyEvents';
 import { TERMINAL_FONT_SIZE_DEFAULT } from '@shared/core/terminals/terminal-settings';
 import { appPasteChannel, terminalContextMenuActionChannel } from '@shared/events/appEvents';
 import { terminalIsBehindModal } from './terminal-behind-modal';
@@ -249,7 +255,7 @@ export function usePty(
     const selection =
       termRef.current?.getSelection() || getRecentSelection(lastSelectionRef.current);
     if (selection) {
-      navigator.clipboard.writeText(selection).catch(() => {});
+      void platform.writeClipboardText(selection).catch((error) => { log.error({ error: error }, 'action failed'); toast({ title: translateSessionMessage('task.copyFailed'), description: messageForUser(error), tier: 'error' }); });
     }
   }, []);
 
@@ -280,8 +286,8 @@ export function usePty(
       try {
         const text = await navigator.clipboard.readText();
         if (text) sendInput(text);
-      } catch {
-        // Clipboard read denied or unavailable.
+      } catch (error) {
+        log.error({ error }, 'terminal paste failed'); toast({ title: i18n.t('shell.titlebar.items.paste', { ns: 'main' }), description: messageForUser(error), tier: 'error' });
       }
     })();
   }, [focus, sendInput]);
@@ -488,19 +494,11 @@ export function usePty(
       const detachInputHandler = frontendPty.attachInputHandler(handleTerminalInput);
       cleanups.push(detachInputHandler);
 
-      // ── ptyStartedRef — detect first PTY output ────────────────────────────
-      // FrontendPty owns the data subscription and writes directly to the
-      // terminal.  We add a lightweight IPC listener here solely to flip the
-      // ptyStartedRef flag, which is used to suppress focus-reporting escape
-      // sequences before the PTY shell has initialised.
-      const offPtyData = events.on(
-        ptyDataChannel,
-        () => {
-          ptyStartedRef.current = true;
-        },
-        ptySessionId
-      );
-      cleanups.push(offPtyData);
+      // Observe FrontendPty's existing output stream. A second IPC listener
+      // would keep the remote terminal subscribed after the view is hidden.
+      cleanups.push(observePtyOutput((id) => {
+        if (id === ptySessionId) ptyStartedRef.current = true;
+      }));
 
       // ── Auto-copy on selection ─────────────────────────────────────────────
       let selectionDebounceTimer: ReturnType<typeof setTimeout> | null = null;
@@ -688,7 +686,20 @@ export function usePty(
   // 放在挂载那一段之后:同一次提交里先挂上,再按页露没露着决定用不用 WebGL(见 FrontendPty.setShown)。
   useEffect(() => {
     pty.setShown(pageShown);
-  }, [pty, pageShown]);
+    if (!pageShown) return;
+
+    // The host grid can change while this page is retained or its window is unfocused.
+    // Recalibrate even when the pane pixels stayed the same; the host drops unchanged sizes.
+    scheduleLayoutMeasure();
+    const view = pty.ownedContainer.ownerDocument.defaultView;
+    pty.ownedContainer.addEventListener('focusin', scheduleLayoutMeasure);
+    view?.addEventListener('focus', scheduleLayoutMeasure);
+    return () => {
+      pty.ownedContainer.removeEventListener('focusin', scheduleLayoutMeasure);
+      view?.removeEventListener('focus', scheduleLayoutMeasure);
+      cancelScheduledLayoutMeasure();
+    };
+  }, [pty, pageShown, scheduleLayoutMeasure, cancelScheduledLayoutMeasure]);
 
   return { focus, sendInput };
 }

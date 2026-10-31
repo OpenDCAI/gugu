@@ -76,7 +76,7 @@ export function deviceRowModel(device: Device, sshAddress: string | null, cloudC
     system: deviceSystem(device),
     version: kind === 'cloud' ? null : device.capabilities.app_version ?? null,
     update: isServer ? device.capabilities.server_update ?? null : null,
-    notices: isServer ? serverMachineNotices(device.capabilities) : [],
+    notices: serverMachineNotices(device.capabilities),
     connection: kind === 'this'
       ? { via: 'this' }
       : sshAddress

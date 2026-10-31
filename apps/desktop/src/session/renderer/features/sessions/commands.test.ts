@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { APP_SHORTCUTS } from '@shared/shortcuts';
+import { COMMANDS } from '@shared/commands';
 import { createSessionCommandProvider } from './commands';
 
 // ACP imports chat-ui which calls document.createElement at module load time.
@@ -60,7 +60,8 @@ const mocks = vi.hoisted(() => ({
     { projectId: 'project-1', sessionId: 'conversation-1' },
     { projectId: 'project-1', sessionId: 'conversation-2' },
   ],
-  writeText: vi.fn(() => Promise.resolve()),
+  clipboardWriteText: vi.fn(() => Promise.resolve({ success: true })),
+  terminalEnabled: true,
 }));
 
 vi.mock('@renderer/features/browser/browser-controls-registry', () => ({
@@ -125,6 +126,7 @@ vi.mock('@renderer/lib/ipc', () => ({
   rpc: {
     app: {
       openExternal: mocks.openExternal,
+      clipboardWriteText: mocks.clipboardWriteText,
     },
   },
 }));
@@ -139,6 +141,9 @@ vi.mock('@renderer/features/settings/app-settings-client', () => ({
   setAppSettingsValueInCache: vi.fn(),
   updateAppSettingsRequest: vi.fn(() => Promise.resolve()),
   invalidateAppSettingsKey: vi.fn(),
+}));
+vi.mock('@renderer/features/settings/use-terminal-enabled', () => ({
+  terminalEnabledSnapshot: () => mocks.terminalEnabled,
 }));
 vi.mock('@renderer/localization/locale-store', () => ({
   translateSessionMessage: (key: string) => key,
@@ -239,29 +244,12 @@ describe('createSessionCommandProvider', () => {
       id: 'conversation-1',
       isPinned: false,
     });
-    Object.defineProperty(navigator, 'clipboard', {
-      configurable: true,
-      value: {
-        writeText: mocks.writeText,
-      },
-    });
+
   });
 
-  it('only exposes settings-backed shortcut keys to the command palette', () => {
-    const provider = createSessionCommandProvider('project-1', 'conversation-1');
-
-    const commands = provider.getCommands();
-
-    expect(commands.find((command) => command.id === 'task.tab1')?.shortcutKey).toBeUndefined();
-    expect(commands.filter((command) => command.shortcutKey != null)).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ id: 'session.tabClose', shortcutKey: 'tabClose' }),
-      ])
-    );
-    for (const command of commands) {
-      if (command.shortcutKey != null) {
-        expect(command.shortcutKey in APP_SHORTCUTS).toBe(true);
-      }
+  it('only exposes catalogued command ids', () => {
+    for (const command of createSessionCommandProvider('project-1', 'conversation-1').getCommands()) {
+      expect(command.id in COMMANDS).toBe(true);
     }
   });
 
@@ -274,7 +262,6 @@ describe('createSessionCommandProvider', () => {
 
     command?.execute();
 
-    expect(command?.shortcutKey).toBe('sideSession');
     expect(mocks.startSideSession).toHaveBeenCalledWith('project-1', 'conversation-1');
   });
 
@@ -288,7 +275,7 @@ describe('createSessionCommandProvider', () => {
   it.each([
     ['session.sidebarChanges', 'sidebarChanges', ['review', {}]],
     ['session.sidebarFiles', 'sidebarFiles', ['file-browser', {}, { preview: false }]],
-  ] as const)('%s 打开对应页签', (id, shortcutKey, openArgs) => {
+  ] as const)('%s 打开对应页签', (id, _shortcutKey, openArgs) => {
     const view = {
       ...mocks.getSessionView(),
       paneLayout: { open: vi.fn() },
@@ -300,7 +287,6 @@ describe('createSessionCommandProvider', () => {
 
     command?.execute();
 
-    expect(command?.shortcutKey).toBe(shortcutKey);
     expect(view.paneLayout.open).toHaveBeenCalledWith(...openArgs);
     expect(view.setSidebarTab).not.toHaveBeenCalled();
     expect(view.setSidebarCollapsed).not.toHaveBeenCalled();
@@ -326,7 +312,6 @@ describe('createSessionCommandProvider', () => {
 
     command?.execute();
 
-    expect(command?.shortcutKey).toBe('openBrowser');
     expect(sessionView.paneLayout.open).toHaveBeenCalledWith('browser', {});
     expect(sessionView.setFocusedRegion).toHaveBeenCalledWith('main');
   });
@@ -357,7 +342,7 @@ describe('createSessionCommandProvider', () => {
     expect(mocks.reload).toHaveBeenCalledWith();
     expect(mocks.focusUrl).toHaveBeenCalledWith();
     expect(mocks.openExternal).toHaveBeenCalledWith('https://example.com/');
-    expect(mocks.writeText).toHaveBeenCalledWith('https://example.com/');
+    expect(mocks.clipboardWriteText).toHaveBeenCalledWith('https://example.com/');
   });
 
   it.each([
@@ -387,6 +372,7 @@ describe('createSessionCommandProvider', () => {
   });
 
   it('opens a new terminal as a tab from the terminal command', () => {
+    mocks.terminalEnabled = true;
     const openTerminalAsTab = vi.fn();
     mocks.getSessionView.mockReturnValue({
       ...mocks.getSessionView(),
@@ -403,6 +389,14 @@ describe('createSessionCommandProvider', () => {
     expect(openTerminalAsTab).toHaveBeenCalled();
   });
 
+  it('offers no terminal commands while the terminal setting is off', () => {
+    mocks.terminalEnabled = false;
+    const ids = createSessionCommandProvider('project-1', 'conversation-1').getCommands().map((command) => command.id);
+
+    expect(ids).not.toContain('session.newTerminal');
+    expect(ids).not.toContain('session.viewTerminals');
+  });
+
   it('archives the focused session and leaves its view', async () => {
     // 主进程报回这一次收走的清单(#6083);这里不看 toast,给空清单即可。
     const archiveSession = vi.fn(() => Promise.resolve({ archived: [], unreached: [] }));
@@ -415,7 +409,6 @@ describe('createSessionCommandProvider', () => {
 
     const command = provider.getCommands().find((candidate) => candidate.id === 'task.archive');
 
-    expect(command?.shortcutKey).toBe('archiveSession');
     expect(command?.enabled).toBe(true);
     command?.execute();
     await Promise.resolve();
@@ -512,7 +505,6 @@ describe('createSessionCommandProvider', () => {
         .getCommands()
         .find((candidate) => candidate.id === 'session.focusSidebar');
 
-      expect(command?.shortcutKey).toBe('focusSidebar');
       command?.execute();
 
       expect(sidebar.querySelector).toHaveBeenCalledWith('[tabindex="0"], button, a, input');
@@ -547,7 +539,6 @@ describe('createSessionCommandProvider', () => {
       const provider = createSessionCommandProvider('project-1', 'conversation-1');
       const command = provider.getCommands().find((candidate) => candidate.id === 'task.pin');
 
-      expect(command?.shortcutKey).toBeUndefined();
       expect(command?.label).toBe(label);
       expect(command?.enabled).toBe(true);
       command?.execute();
@@ -567,7 +558,6 @@ describe('createSessionCommandProvider', () => {
         .getCommands()
         .find((candidate) => candidate.id === 'session.focusComposer');
 
-      expect(command?.shortcutKey).toBe('focusComposer');
       command?.execute();
 
       expect(composer.querySelector).toHaveBeenCalledWith(
@@ -600,7 +590,6 @@ describe('createSessionCommandProvider', () => {
         .getCommands()
         .find((candidate) => candidate.id === 'session.stageAll');
 
-      expect(command?.shortcutKey).toBe('stageAll');
       expect(command?.enabled).toBe(true);
       command?.execute();
 
@@ -638,7 +627,6 @@ describe('createSessionCommandProvider', () => {
         .getCommands()
         .find((candidate) => candidate.id === commandId);
 
-      expect(command?.shortcutKey).toBe(commandId.replace('session.', ''));
       command?.execute();
 
       expect(ticks[targetIndex].click).toHaveBeenCalled();

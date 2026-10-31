@@ -5,7 +5,8 @@
   "author": "咕咕",
   "categories": ["dev-tools"],
   "version": "0.2.0",
-  "apiVersion": 3,
+  "apiVersion": 15,
+  "platforms": ["desktop"],
   "entry": "keeper.html",
   "background": { "entry": "background.html" },
   "permissions": {

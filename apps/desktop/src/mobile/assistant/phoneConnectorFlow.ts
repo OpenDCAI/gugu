@@ -424,7 +424,7 @@ export type ConnectorHealth = 'ok' | 'reauth' | 'issue' | 'unknown'
 export function connectorHealth(status: { connected: boolean; errorType?: IntegrationError['type'] } | null | undefined): ConnectorHealth {
   if (!status) return 'unknown'
   if (status.connected) return 'ok'
-  return status.errorType === 'auth_failed' || status.errorType === 'authorization_expired' ? 'reauth' : 'issue'
+  return status.errorType === 'auth_failed' || status.errorType === 'authorization_expired' || status.errorType === 'key_rejected' ? 'reauth' : 'issue'
 }
 
 /** 「连接于 2026-10-16」那一天(本地日期)。 */

@@ -1,7 +1,11 @@
 #!/usr/bin/env node
+import { conversationLink, groupFileLink, parseGroupFileLink } from '@gugu/core/shared/ui/guguLink'
+import { resolveReplyDelivery } from '@gugu/core/shared/replyDelivery'
+import { archivedDeliveryReceipt, messageDeliveryBlocks } from './message-delivery-blocks.mjs'
 
-import { createHash, randomUUID } from 'node:crypto'
-import { mkdir, readFile, stat, writeFile } from 'node:fs/promises'
+import { downloadSessionFile } from '@gugu/core/local/agent/sessionFileHandoff'
+import { randomUUID } from 'node:crypto'
+import { readFile, stat } from 'node:fs/promises'
 import { basename, isAbsolute, join as joinPath, resolve as resolvePath } from 'node:path'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js'
@@ -10,13 +14,15 @@ import { z } from 'zod'
 import { tokenizeMarkdownMath } from '../../../../packages/core/src/shared/markdownMath.mjs'
 import { findRosterNameHits } from '../../../../packages/core/src/shared/rosterNameMatching.mjs'
 import { findMentionSpans } from '../../../../packages/core/src/shared/mentionToken.mjs'
-import { EXTENSION_ARCHIVE_MIME, resolveAttachmentMimeType } from '../../../../packages/core/src/shared/imageMime.mjs'
+import { EXTENSION_ARCHIVE_MIME, isImageMimeType, resolveAttachmentMimeType } from '../../../../packages/core/src/shared/imageMime.mjs'
+import { saveFileHandle } from '@gugu/core/local/files/fileSnapshots'
 import { decodeIdentityAddress, decodeTypedId, encodeTypedId } from '../../../../packages/core/src/shared/typedId.mjs'
 import { workspaceUploadKind } from '../../../../packages/core/src/shared/workspaceUpload.mjs'
 import { parseAttachmentContent } from '../../../../packages/core/src/shared/ui/attachmentModels'
-import { createAttachmentResolver } from '../../../../packages/core/src/shared/attachmentUrls'
-import { AttachmentsError, commitAttachment, fetchAttachmentUrls, sendFileAsOwner, uploadAttachmentBytes } from '../../../../packages/core/src/cloud/attachmentsApi'
-import { createGroupChat } from '../../../../packages/core/src/cloud/groupChat'
+import { attachmentFolderLine } from '../../../../packages/core/src/shared/attachmentFolderLine'
+import { AttachmentsError, commitAttachment, sendFileAsOwner, uploadAttachmentBytes } from '../../../../packages/core/src/cloud/attachmentsApi'
+import { createGroupWithInvitations } from '../../../../packages/core/src/cloud/groupChat'
+import { createGroupAdmin, setGroupAvatar } from '../../../../packages/core/src/cloud/groupAdmin'
 import { registerGuguTool } from './register-gugu-tool.mjs'
 import { FORUM_TOOL_DEFS } from './gugu-forum-tools.mjs'
 import {
@@ -27,6 +33,7 @@ import {
   windowResult,
 } from './list-window.mjs'
 import { GUGU_MCP_SERVER_NAME } from './gugu-mcp-name.mjs'
+import { chatActivityTool } from './chat-activity.mjs'
 import { createLogger } from '../lib/logger'
 import { effectiveGroupRules, groupRulesLedgerAt, groupRulesVersion } from '../../../../packages/core/src/local/agent/groupRulesDelivery'
 
@@ -49,8 +56,8 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-
 // `msg:<id>`。入参在 dispatchTool 解码（裸 id / 类型不符当场报错），出参在同一处按字段名编码。chat_id 不动：它
 // 本就接受可读的 public_id。编解码只在这一处，双向强制。
 const USER_ID_FIELDS = new Set([
-  'user_id', 'sender_user_id', 'owner_user_id', 'peer_user_id', 'source_sender_user_id', 'agent_user_id',
-  'creator_user_id', 'inviter_agent_user_id', 'invitee_user_id', 'decision_user_id',
+  'actor_user_id', 'user_id', 'sender_user_id', 'owner_user_id', 'peer_user_id', 'friend_user_id', 'source_sender_user_id', 'agent_user_id',
+  'creator_user_id', 'author_id', 'inviter_user_id', 'inviter_account_user_id', 'invitee_user_id', 'decision_user_id',
   'userId', 'agentUserId',
 ])
 const USER_ID_LIST_FIELDS = new Set(['to_user_ids', 'member_user_ids'])
@@ -431,6 +438,27 @@ function buildMessageRow(context, {
   }
 }
 
+function messageHistoryPage(deps, chatId, { asUserId = deps.context.agentId, threadRootId = null, beforeSeq = null, limit = 20 } = {}) {
+  return deps.restRpc('message_history_as', { p_chat_id: chatId, p_as_user_id: asUserId,
+    p_thread_root_id: threadRootId, p_before_seq: beforeSeq, p_limit: limit })
+}
+
+async function replySourceOf(deps, chatId, messageId, threadRootId) {
+  let beforeSeq = null
+  for (;;) {
+    const rows = await messageHistoryPage(deps, chatId, { threadRootId, beforeSeq, limit: 100 })
+    const source = rows.find((message) => message.id === messageId)
+    if (source) {
+      if (typeof source.is_whisper !== 'boolean') throw new Error('message_send: message_history_as must return is_whisper; update the backend')
+      return source
+    }
+    if (rows.length < 100) throw new Error('message_send: reply source is unavailable in this chat for the current agent')
+    const next = Number(rows[rows.length - 1].seq)
+    if (!Number.isSafeInteger(next) || (beforeSeq !== null && next >= beforeSeq)) throw new Error('message_send: reply history cursor did not advance')
+    beforeSeq = next
+  }
+}
+
 function createSessionState() {
   return {
     chatKinds: new Map(),
@@ -452,13 +480,20 @@ function createDeps(context, injected = {}, state = createSessionState()) {
     restPatch: (path, body, profile) => restPatch(context, path, body, profile, fetchImpl),
     restPatchReturning: (path, body, profile) => restPatch(context, path, body, profile, fetchImpl, true),
     restRpc: (name, body, profile) => restRpc(context, name, body, profile, fetchImpl),
-    // 新式附件的签名链接:以这个 agent 的身份(attachments/urls 的 `as`,按 agent 是不是成员判)。
+    uploadGroupAvatar: async (path, file) => {
+      const token = await context.getAccessToken()
+      const storagePath = path.split('/').map(encodeURIComponent).join('/')
+      const base = context.supabaseUrl.replace(/\/$/, '')
+      const res = await fetchImpl(`${base}/storage/v1/object/chat-media/${storagePath}`, {
+        method: 'POST', headers: restHeaders(context, token, null, { 'Content-Type': file.type, 'x-upsert': 'false' }), body: file,
+      })
+      if (!res.ok) throw new Error(`Group avatar upload failed: ${res.status} ${await res.text()}`)
+      return `${base}/storage/v1/object/public/chat-media/${storagePath}`
+    },
     attachmentsEndpoint: () => attachmentsEndpoint(context, fetchImpl),
-    attachmentUrls: async (refs) => fetchAttachmentUrls(await attachmentsEndpoint(context, fetchImpl), refs, context.agentId),
-    fetchBytes: async (url) => {
-      const res = await fetchImpl(url)
-      if (!res.ok) throw new Error(`GET attachment → ${res.status}`)
-      return Buffer.from(await res.arrayBuffer())
+    resolveFile: (ref, actor = context.agentId) => {
+      if (!context.resolveFile) throw new Error('Verified file resolver is not installed')
+      return context.resolveFile(ref, actor)
     },
     ...injected,
     context,
@@ -486,7 +521,7 @@ async function restGetInBatches(ids, readBatch) {
 
 // 参数说明会随每个工具重复一遍,只写这一格独有的事;「目标从不推断」这类通用规则在平台提示词里讲一次。
 // chat_id 从哪来(投递信封的 chat=,或 public_id)只在 message_send 的 chat_id 上讲一次:每个列出的工具都重复同一句时,
-// 开场为它付 ≈200 token(上下文工程第一批 P5,gugu-base evidence/2026-10-07-context-engineering)。
+// 开场为它付 ≈200 token(上下文工程第一批 P5,2026-10-07 实测)。
 const CHAT_ID_DESCRIPTION = 'The target chat: the chat= value from your gugu_delivery envelope, a public_id, or your owner\'s address for your private chat with them.'
 const chatIdSchema = z.string().trim().min(1)
 
@@ -599,7 +634,7 @@ async function currentAuthUserId(deps) {
   throw new Error('workspace write requires an authenticated owner token with a JWT sub')
 }
 
-// ── 群文件(#6492)── agent 碰群文件夹,只经 chat.workspace_*_as:按 **agent 自己**是不是这个群/话题的成员判,
+// ── 群文件(#6492)── agent 碰群文件夹,只经 chat.workspace_*_as:按 **agent 自己**是不是来源群/私聊的成员判,
 // created_by 写 agent。❌ 以主人的 JWT 直读直写 workspace_items —— 那是主人的可见域,agent 不在的群也读得到。
 // 读写文件本身是群文件夹 App 的工具(preinstalled-apps/workspace/folder.mjs);这里只剩 App 平台以 agent 身份做的两件事:
 // app_install 的数据文件(groupDataFileOf)、app_check 的范围(extensionCheckScopeOf)。
@@ -622,7 +657,7 @@ async function workspaceRpcItem(deps, name, body, label) {
  */
 export function workspaceFileLink(item) {
   const name = String(item.filename ?? '').replace(/[[\]\\]/g, (c) => `\\${c}`)
-  return `[${name}](gugu-file://${item.id})`
+  return `[${name}](${groupFileLink(item.id)})`
 }
 function summarizeWorkspaceItem(item) {
   return {
@@ -681,17 +716,17 @@ export async function sendExtensionCardOf(context, { chatId, filePath, fileName,
   if (existing) {
     // Its bytes decide whether it is this App; a card that cannot be fetched is answered as there, contents unknown
     // (differs: null) — never a second card on a guess. A new card's link is signed as this agent (#7290).
-    const bytes = await createAttachmentResolver(deps.attachmentUrls).resolve(existing.source)
-      .then((link) => (link.status === 'ready' ? (injected.fetch ?? fetch)(link.url) : null))
-      .then(async (response) => (response?.ok ? new Uint8Array(await response.arrayBuffer()) : null))
-      .catch(() => null)
-    const differs = bytes === null ? null : createHash('sha256').update(bytes).digest('hex') !== String(sha256)
+    const differs = await deps.resolveFile({ message_id: existing.id }).then(async file => {
+      if (file.status !== 'ready') return null
+      try { for await (const _chunk of file.stream()) { /* Authenticate the entire original before comparing. */ } return file.revision.sha256 !== String(sha256) }
+      finally { await file.dispose() }
+    }).catch(() => null)
     return { messageId: existing.id, alreadyThere: true, differs }
   }
   // No mime_type: the .guguext name gives the extension archive type, which is what makes the chat draw a card.
   const out = await handleFile({ action: 'send-file', chat_id: chat, file_path: filePath, file_name: fileName }, deps)
-  const id = /\(id=([0-9a-f-]{36})[,)]/i.exec(String(out))?.[1]
-  if (!id) throw new Error(`the card was not sent (${out})`)
+  const id = String(JSON.parse(out).message_id ?? '').replace(/^msg:/, '')
+  if (!/^[0-9a-f-]{36}$/i.test(id)) throw new Error(`the card was not sent (${out})`)
   return { messageId: id, alreadyThere: false, differs: false }
 }
 
@@ -756,7 +791,8 @@ export async function extensionCheckScopeOf(context, { chatId, itemId }, injecte
   const deps = createDeps(context, injected)
   // L5 S1 rerun: an agent passed the group's public_id ("208920") and was told the file is in some other chat. chat_id
   // reads here the way every other tool reads it — one resolver — so either spelling of the same group is that group.
-  const chat = chatId ? await requireChat({ chat_id: String(chatId) }, deps) : null
+  const addressed = chatId ? await requireChat({ chat_id: String(chatId) }, deps) : null
+  const chat = addressed ? (await topicSourceChatIdOf(deps, addressed)) ?? addressed : null
   if (itemId) {
     const item = await workspaceRpcItem(deps, 'workspace_get_as', { p_item_id: String(itemId) }, 'app_check')
     const itemChat = String(item.chat_id)
@@ -777,8 +813,8 @@ export async function extensionCheckScopeOf(context, { chatId, itemId }, injecte
  * chat.message_visible_to:悄悄话只给发信人与收件人、成员的入群时间界)。主人令牌按 id 直读会放行主人看得见的一切,
  * 读到之后必须过这一道;❌ 在这里另写一份悄悄话规则。
  */
-async function agentCanSee(deps, message) {
-  return (await deps.restRpc('can_read_message', { p_message_id: message.id, p_user_id: deps.context.agentId })) === true
+async function agentCanSee(deps, message, readerId = deps.context.agentId) {
+  return (await deps.restRpc('can_read_message', { p_message_id: message.id, p_user_id: readerId })) === true
 }
 
 /**
@@ -1195,6 +1231,44 @@ export function assertAgentMessageText(text, toolName = 'message_send') {
   }
 }
 
+/**
+ * 防刷屏(gugu-dev#181):同一个 agent 在同一个群(话题)里,从最后一条人说的话之后数自己发了几条;超过任一条线就在
+ * 回执后面提醒一句,不拦。阈值按历史数据定:过去的发送一次都碰不到这三条线。
+ */
+const FLOOD_LIMITS = [
+  { ms: 60_000, max: 8, label: '1 分钟' },
+  { ms: 5 * 60_000, max: 12, label: '5 分钟' },
+  { ms: 60 * 60_000, max: 30, label: '1 小时' },
+]
+
+async function floodNotice(deps, chatId, kind) {
+  try {
+    const now = Date.now()
+    const since = new Date(now - FLOOD_LIMITS.at(-1).ms).toISOString()
+    const rows = await deps.restGet(
+      `messages?chat_id=eq.${enc(chatId)}&created_at=gte.${enc(since)}&deleted_at=is.null&select=sender_user_id,created_at&order=seq.desc&limit=200`,
+    )
+    const senders = [...new Set(rows.map((r) => r.sender_user_id).filter((id) => id && id !== deps.context.agentId))]
+    const users = await restGetInBatches(senders, (batch) =>
+      deps.restGet(`users?id=in.(${batch.map(enc).join(',')})&select=id,type`, 'identity'))
+    const humans = new Set(users.filter((u) => u.type === 'human').map((u) => u.id))
+    // 人一说话就从头算:只数最后一条人说的话之后的。
+    const mine = []
+    for (const r of rows) {
+      if (humans.has(r.sender_user_id)) break
+      if (r.sender_user_id === deps.context.agentId) mine.push(Date.parse(r.created_at))
+    }
+    const over = FLOOD_LIMITS.map((limit) => ({ ...limit, count: mine.filter((t) => now - t <= limit.ms).length }))
+      .find((limit) => limit.count > limit.max)
+    if (!over) return ''
+    const place = kind === 'topic' ? '话题' : '群'
+    return `\n提醒:你在这个${place}里 ${over.label}内已发 ${over.count} 条,其间没有人发言。不急的话先停一下,等有人说话或 @ 你再继续。`
+  } catch (err) {
+    // 消息已经发出去了:读不到频率只如实说一句,❌ 让这次发送报错(模型会以为没发出去而重发)。
+    return `\n这条已发出;发送频率没读到(${err instanceof Error ? err.message : String(err)}),不用重发。`
+  }
+}
+
 async function handleMessage(args, deps) {
   const requestedAction = args.action
   const writerToolName = requestedAction === 'contact-friend'
@@ -1265,26 +1339,38 @@ async function handleMessage(args, deps) {
     // #6835 悄悄话 = 标志位 + 只点一个人的 to_user_ids。合不合法(正好一人、不是自己、本 chat 成员)
     // 由库的写入口判一次(chat.enforce_whisper_rule),报错原样交给模型。这里只说库说不清的那一句:
     // 会话绑在 thread 上 —— 悄悄话不进 thread,而 thread 归属是会话定的,模型改不了。
-    const isWhisper = args.whisper === true
-    const toUserIds = requestedRecipients
-    if (isWhisper && sessionThread) {
-      throw new Error(`message_send: 悄悄话只能发在主线,本会话绑在 thread=${sessionThread} 上,这里发不了;要在这里说就去掉 whisper,照常发`)
-    }
     // 回复就是带上 reply_to_message_id 的一次发送:消息挂在那条原消息下,下面三处寻址规则按它分叉。
     const replyToMessageId = String(args.reply_to_message_id ?? '').trim() || null
     const isReply = replyToMessageId !== null
     // @@@2083 稳定幂等键 + 单一 row 对象:insert 与「发送失败落盘」复用同一 row(零 drift),补投靠稳定
     // client_message_id 走 messages_client_dedup 去重。content 初始 = 原文,群聊 @ 一致性校验后回填修补文本。
-    const row = buildMessageRow(deps.context, { id: randomUUID(), chatId, content: args.text, contentType: 'text', toUserIds, replyToMessageId, threadRootId: sessionThread, isWhisper })
+    const row = buildMessageRow(deps.context, { id: randomUUID(), chatId, content: args.text, contentType: 'text', toUserIds: requestedRecipients, replyToMessageId, threadRootId: sessionThread })
     // @@@2083 一次完整发送尝试(读+校验+插入)。抽成闭包以便 token 刷新后原样重放一次。
+    let sentKind = null
     const attemptSend = async () => {
       // 发送边界只负责校验并写入消息。收件箱由读者在工具边界统一注入，发送工具不重复读取或消费它。
-      const [kind, memberRows] = await Promise.all([
+      const [kind, memberRows, source] = await Promise.all([
         chatKindOf(deps, chatId),
         memberRowsOfMyChat(chatId, deps),
+        isReply ? replySourceOf(deps, chatId, replyToMessageId, sessionThread) : null,
         // @@@3643 未读群规即拒(兜底闸,见 assertGroupRulesSeen)。
         assertGroupRulesSeen(deps, chatId, 'message_send'),
       ])
+      const delivery = resolveReplyDelivery({ senderUserId: deps.context.agentId, source, toUserIds: requestedRecipients, whisper: args.whisper })
+      if (!delivery) throw new Error('message_send: cannot resolve the participants of this whisper reply')
+      const { toUserIds, isWhisper } = delivery
+      if (isWhisper && sessionThread) {
+        throw new Error(`message_send: 悄悄话只能发在主线,本会话绑在 thread=${sessionThread} 上,这里发不了;要在这里说就显式设 whisper:false,照常发`)
+      }
+      row.to_user_ids = toUserIds.length ? toUserIds : null
+      if (isWhisper) row.is_whisper = true
+      else delete row.is_whisper
+      // #84 名单里没有本 agent 的私聊(list_member_ids 在主人是成员时也给名单):是主人与好友的私聊就指去代发,
+      // 那里只读不写。复用上面这次名单,agent 在的线零额外读取;放在这一次尝试里,鉴权失效随整条发送换令牌重放。
+      if (kind === 'dm' && !memberRows.some((row) => String(row.user_id) === deps.context.agentId)) {
+        const friendId = await ownerFriendAmong(deps, new Set(memberRows.map((row) => String(row.user_id))))
+        if (friendId) throw ownerFriendDmWriteError(chatId, friendId, 'message_send', 'message_send_as_owner')
+      }
       // #849 非成员收件人 fail-loud(复用上面同一次成员查询;话题另收来源线成员,见 addressableUserIds)
       // addressableUserIds 回 null = 它算不出可点名集合(来源线名单读不到)⇒ 这一关跳过,交给服务端判。
       const addressable = await addressableUserIds(deps, chatId, kind, memberRows)
@@ -1300,14 +1386,7 @@ async function handleMessage(args, deps) {
         if (!memberIds.includes(deps.context.agentId) || memberIds.length !== 2 || peerIds.length !== 1) {
           throw new Error('message_send: a reply in an exact DM without to_user_ids requires the current agent and one unique peer')
         }
-        const sourceRows = await deps.restGet(
-          `messages?id=eq.${enc(replyToMessageId)}&chat_id=eq.${enc(chatId)}&select=chat_id,sender_user_id`,
-        )
-        if (
-          sourceRows.length !== 1
-          || String(sourceRows[0].chat_id) !== chatId
-          || String(sourceRows[0].sender_user_id) !== peerIds[0]
-        ) {
+        if (source.sender_user_id !== peerIds[0]) {
           throw new Error('message_send: reply_to_message_id in an exact DM must belong to this chat and its unique peer')
         }
       }
@@ -1324,14 +1403,9 @@ async function handleMessage(args, deps) {
       const isGroupOrTopic = kind === 'group' || kind === 'topic'
       if (isGroupOrTopic && (addressesNobody || toUserIds?.length || String(args.text ?? '').includes('@'))) {
         const peerIds = memberRows.map((r) => r.user_id).filter((uid) => uid !== deps.context.agentId)
-        const [users, replied] = await Promise.all([
-          restGetInBatches(peerIds, (batch) =>
-            deps.restGet(`users?id=in.(${batch.map(enc).join(',')})&select=id,display_name,type`, 'identity')),
-          isReply
-            ? deps.restGet(`messages?id=eq.${enc(replyToMessageId)}&select=sender_user_id`)
-            : [],
-        ])
-        const rec = reconcileMentionExpression(users, args.text, toUserIds, replied.map((r) => r.sender_user_id))
+        const users = await restGetInBatches(peerIds, (batch) =>
+          deps.restGet(`users?id=in.(${batch.map(enc).join(',')})&select=id,display_name,type`, 'identity'))
+        const rec = reconcileMentionExpression(users, args.text, toUserIds, source ? [source.sender_user_id] : [])
         if (rec.mismatches.length) {
           throw new Error(
             `正文 @ 了 ${rec.mismatches.join('、')}，但 to_user_ids 没有他们——话里说的和消息做的必须一致。` +
@@ -1352,15 +1426,19 @@ async function handleMessage(args, deps) {
       }
       row.content = String(sendText ?? '')
       await postCommandMessageRow(deps, row)
+      sentKind = kind
     }
     const okMsg = () => socialGroup
       ? JSON.stringify({ ...socialGroup, message_id: row.id })
       : requestedAction === 'topic-invite'
         ? `invited into the topic (id=${row.id}); 被点名的人当场成为参与者,继续说话用 message_send 带这条话题的 chat_id`
         : (isReply ? `replied (id=${row.id})` : `sent (id=${row.id})`)
+    // 群和话题里发得太密:回执后面提醒一句,不拦(gugu-dev#181 防刷屏)。contact_friend 的回执是 JSON,不往后接字。
+    const receipt = async () => okMsg() + await archivedDeliveryReceipt(deps, row.id)
+      + (!socialGroup && (sentKind === 'group' || sentKind === 'topic') ? await floodNotice(deps, chatId, sentKind) : '')
     try {
       await attemptSend()
-      return okMsg()
+      return await receipt()
     } catch (err) {
       // 业务校验错原样抛给模型。鉴权失效只允许读取 host 新 token 后原样重试一次；command lease
       // 不能进入 outbox，延后直插也不能越过数据库 fence。
@@ -1371,7 +1449,7 @@ async function handleMessage(args, deps) {
       if (fresh && fresh !== err.accessToken) {
         try {
           await attemptSend()
-          return okMsg()
+          return await receipt()
         } catch (err2) {
           if (!isRefreshableAuthError(err2)) throw err2
           // 新鲜 token 仍投不出时由当前 turn fail loud。
@@ -1384,25 +1462,26 @@ async function handleMessage(args, deps) {
   // 入群时间界 ⇒ 群开了「隐藏聊天记录」,后进群的 agent 照样读到入群前的消息。
   // chat.message_history_as / message_search_as 是 SECURITY DEFINER,按 p_as_user_id 判(与 chat_facts 同一做法),
   // 悄悄话、成员时间界、话题继承来源线的时间界都在库里判,❌ 不在这里再拼一层过滤。
+  // 唯一的例外是主人与好友的私聊(#84):agent 不在里面,按主人本人读(见 ownerFriendDms)。
+  const readAs = args.action === 'history' || args.action === 'search'
+    ? (await ownerFriendOfDm(deps, chatId) ? await currentAuthUserId(deps) : deps.context.agentId)
+    : null
   if (args.action === 'history') {
-    const rows = await deps.restRpc('message_history_as', {
-      p_chat_id: chatId,
-      p_as_user_id: deps.context.agentId,
-      p_thread_root_id: args.thread_root_id ? String(args.thread_root_id) : null,
-      p_before_seq: Number.isFinite(args.before_seq) ? Math.floor(args.before_seq) : null,
-      p_limit: clampLimit(args.limit, 20, 1, 100),
-    })
-    return JSON.stringify(rows ?? [])
+    const rows = await messageHistoryPage(deps, chatId, { asUserId: readAs,
+      threadRootId: args.thread_root_id ? String(args.thread_root_id) : null,
+      beforeSeq: Number.isFinite(args.before_seq) ? Math.floor(args.before_seq) : null,
+      limit: clampLimit(args.limit, 20, 1, 100) })
+    return JSON.stringify((rows ?? []).map(withFolderFile))
   }
   if (args.action === 'search') {
     const rows = await deps.restRpc('message_search_as', {
       p_chat_id: chatId,
       p_query: String(args.query ?? ''),
-      p_as_user_id: deps.context.agentId,
+      p_as_user_id: readAs,
       p_before_seq: Number.isFinite(args.before_seq) ? Math.floor(args.before_seq) : null,
       p_limit: clampLimit(args.limit, 20, 1, 100),
     })
-    return JSON.stringify(rows ?? [])
+    return JSON.stringify((rows ?? []).map(withFolderFile))
   }
   throw new Error(`gugu_message: unknown action ${args.action}`)
 }
@@ -1411,6 +1490,129 @@ async function handleMessage(args, deps) {
 // ❌ 用主人令牌直读 chat_members / chats:读 RLS 按主人判,主人退了群、agent 还在,这个群就从它自己的列表里消失了。
 async function myChats(deps) {
   return (await deps.restRpc('list_my_chats_as', { p_as_user_id: deps.context.agentId })) ?? []
+}
+
+/**
+ * 主人的好友 id。好友关系的唯一真值是 identity.friendships（无 status 列，行存在即已接受；#1985 收敛后 chat.contacts
+ * 是死表），只有两位当事人读得到 ⇒ 主人的令牌直读就是主人的好友表。owner_friends_list 与主人私聊(#84)同一读法。
+ */
+async function ownerFriendIds(deps, ownerUserId) {
+  const friendships = await deps.restGet(
+    `friendships?or=(user_a_id.eq.${enc(ownerUserId)},user_b_id.eq.${enc(ownerUserId)})&select=user_a_id,user_b_id`,
+    'identity',
+  )
+  const ids = new Set()
+  for (const row of friendships) {
+    const friendId = row.user_a_id === ownerUserId
+      ? row.user_b_id
+      : row.user_b_id === ownerUserId
+        ? row.user_a_id
+        : null
+    if (typeof friendId !== 'string' || !friendId) {
+      throw new Error('owner_friends_list: friendship row does not contain the authenticated owner')
+    }
+    ids.add(friendId)
+  }
+  return ids
+}
+
+/** 主人给联系人起的备注(主人平时说「看看老王说了啥」用的就是它)。 */
+async function ownerAliases(deps, ownerUserId) {
+  const rows = await deps.restGet(`contact_overrides?owner_user_id=eq.${enc(ownerUserId)}&select=contact_user_id,alias`, 'identity')
+  return new Map(rows.map((row) => [row.contact_user_id, row.alias]))
+}
+
+/** 两人私聊、主人在、本 agent 不在、另一位是主人的好友 ⇒ 那位好友的 id;否则 null。 */
+function friendOfOwnerDm(memberIds, ownerUserId, agentId, friendIds) {
+  if (memberIds.size !== 2 || !memberIds.has(ownerUserId) || memberIds.has(agentId)) return null
+  const [peer] = [...memberIds].filter((id) => id !== ownerUserId)
+  return friendIds.has(peer) ? peer : null
+}
+
+/**
+ * @@@84 主人与好友的私聊。agent 不是成员(代发也不让它进去,#7299),主人要它看时按**主人**的可见域读:同一组
+ * chat.*_as 传主人本人(is_acting_as 放行本人),悄悄话、成员时间界仍在库里判,❌ 不在这里另拼过滤。
+ * 范围 = 「主人 + 一位当前人类好友」的两人私聊,与代发同一口径;主人和自己 agent 的、和非好友 / 已删好友的都不算。
+ * 何时读由主人说了算:工具说明写「只在主人要求时」,与代发同口径(按回合的程序闸另议,#5661 Q5)。
+ * 写不并进来:message_send 遇到这些会话指去 message_send_as_owner(assertNotOwnerFriendDm)。
+ */
+async function ownerFriendDms(deps) {
+  const ownerUserId = await currentAuthUserId(deps)
+  const [chats, friendIds] = await Promise.all([
+    deps.restRpc('list_my_chats_as', { p_as_user_id: ownerUserId }),
+    ownerFriendIds(deps, ownerUserId),
+  ])
+  const dms = (Array.isArray(chats) ? chats : []).filter((chat) => chat.kind === 'dm')
+  if (!dms.length || !friendIds.size) return []
+  const memberRows = await restGetInBatches(dms.map((chat) => chat.chat_id), (batch) =>
+    deps.restGet(`chat_members?chat_id=in.(${batch.map(enc).join(',')})&select=chat_id,user_id`))
+  const membersByChat = new Map()
+  for (const row of memberRows) {
+    if (!membersByChat.has(row.chat_id)) membersByChat.set(row.chat_id, new Set())
+    membersByChat.get(row.chat_id).add(String(row.user_id))
+  }
+  const friendByChat = new Map()
+  for (const [chatId, memberIds] of membersByChat) {
+    const friendId = friendOfOwnerDm(memberIds, ownerUserId, deps.context.agentId, friendIds)
+    if (friendId) friendByChat.set(chatId, friendId)
+  }
+  if (!friendByChat.size) return []
+  const [users, aliasById] = await Promise.all([
+    restGetInBatches([...new Set(friendByChat.values())], (batch) => deps.restGet(
+      `users?id=in.(${batch.map(enc).join(',')})&select=id,display_name,type`,
+      'identity',
+    )),
+    ownerAliases(deps, ownerUserId),
+  ])
+  const humans = new Map(users.filter((user) => user.type === 'human').map((user) => [user.id, user]))
+  return dms.flatMap((chat) => {
+    const friend = humans.get(friendByChat.get(chat.chat_id))
+    if (!friend) return []
+    return [{ ...chat, friend_user_id: friend.id, friend_display_name: friend.display_name ?? null, owner_remark: aliasById.get(friend.id) ?? null }]
+  })
+}
+
+/**
+ * 这条会话是不是主人与好友的私聊(见 ownerFriendDms):是就回那位好友的 id,否则 null。
+ * 不是私聊的零额外读取(kind 本就记忆化);本 agent 自己在里面的私聊也不是。
+ */
+async function ownerFriendOfDm(deps, chatId) {
+  if (await chatKindOf(deps, chatId) !== 'dm') return null
+  // 私聊的两位成员建好就定了:本 agent 在里面的私聊记一次,这个会话里不再为它多读名单。
+  // ❌ 记「是主人的好友私聊」—— 好友会被删,那一半每次现判。
+  if (!deps.state.agentDms) deps.state.agentDms = new Set()
+  if (deps.state.agentDms.has(chatId)) return null
+  // 名单按 agent 判(list_member_ids:agent 在或主人在都给);❌ 主人令牌直读 chat_members —— agent 和别人的私聊
+  // 主人不在,读回空,这里就记不住,每次都白读一遍名单和好友表。两人都不在 ⇒ 空 ⇒ 不是。
+  const rows = await deps.restRpc('list_member_ids', { p_chat_id: chatId, p_as_user_id: deps.context.agentId })
+  const memberIds = new Set((Array.isArray(rows) ? rows : []).map((row) => String(row.user_id)))
+  if (memberIds.has(deps.context.agentId)) {
+    deps.state.agentDms.add(chatId)
+    return null
+  }
+  return ownerFriendAmong(deps, memberIds)
+}
+
+/** 一条私聊的成员里:主人在、本 agent 不在、另一位是主人当前的人类好友 ⇒ 那位好友的 id;否则 null。 */
+async function ownerFriendAmong(deps, memberIds) {
+  if (memberIds.has(deps.context.agentId)) return null
+  const ownerUserId = await currentAuthUserId(deps)
+  const friendId = friendOfOwnerDm(memberIds, ownerUserId, deps.context.agentId, await ownerFriendIds(deps, ownerUserId))
+  if (!friendId) return null
+  const users = await deps.restGet(`users?id=eq.${enc(friendId)}&select=type`, 'identity')
+  return users[0]?.type === 'human' ? friendId : null
+}
+
+/** 主人的好友私聊只读不写:以主人名义说话是对外的动作,只走代发工具(好友看得到「AI 发送」)。 */
+function ownerFriendDmWriteError(chatId, friendId, toolName, ownerToolName) {
+  return new Error(
+    `${toolName}: chat ${chatId} is your owner's DM with a friend, and you are not in it. ` +
+    `To write there as your owner (only when your owner asks), use ${ownerToolName} with friend_user_id ${encodeTypedId('user', friendId)}.`,
+  )
+}
+async function assertNotOwnerFriendDm(deps, chatId, toolName, ownerToolName) {
+  const friendId = await ownerFriendOfDm(deps, chatId)
+  if (friendId) throw ownerFriendDmWriteError(chatId, friendId, toolName, ownerToolName)
 }
 
 /**
@@ -1458,12 +1660,11 @@ async function agentStatusReadings(deps, agentUserIds) {
         const presence = results[id]?.status === 'presence' ? results[id].presence : null
         if (!presence) continue
         readings.set(id, {
-          status: presence.agent_status ?? null,
-          detail: presence.agent_status_detail ?? null,
+          status: presence.session_archived_at ? 'archived' : presence.agent_status ?? null,
+          detail: presence.session_archived_at ? null : presence.agent_status_detail ?? null,
           status_from: 'cloud',
           status_at: presence.updated_at ?? null,
-          // 那台机器在不在线只看设备行(#5912:租约清扫者翻它,在线 / 离线的唯一来源);❌ derived_status ——
-          // 它只看 agent 行的 last_seen,宿主退出之后还会说「在线」。
+          // 那台机器在不在线只看设备行(#5912:租约清扫者翻它,在线 / 离线的唯一来源)。
           host_online: presence.device_status === 'online' ? true : presence.device_status === 'offline' ? false : null,
         })
       }
@@ -1508,17 +1709,36 @@ async function handleConv(args, deps) {
     return status.unavailable ? { items, status_unavailable: status.unavailable } : { items }
   }
   if (args.action === 'list') {
-    const [chats, pinned] = await Promise.all([myChats(deps), ownerPinnedChatIds(deps)])
-    return chats.map((c) => ({
-      id: c.chat_id,
-      public_id: c.public_id,
-      kind: c.kind,
-      status: c.status,
-      name: c.name,
-      pinned: pinned.has(c.chat_id),
-      last_message_at: c.last_message_at,
-      last_message_preview: c.last_message_preview,
-    }))
+    const [chats, ownerDms, pinned] = await Promise.all([myChats(deps), ownerFriendDms(deps), ownerPinnedChatIds(deps)])
+    const rows = [
+      ...chats.map((c) => ({
+        id: c.chat_id,
+        public_id: c.public_id,
+        kind: c.kind,
+        status: c.status,
+        name: c.name,
+        pinned: pinned.has(c.chat_id),
+        last_message_at: c.last_message_at,
+        last_message_preview: c.last_message_preview,
+      })),
+      // #84 主人与好友的私聊:名字用主人的备注,没有就用好友自己的名字;friend_user_id 直接喂代发工具。
+      ...ownerDms.map((c) => ({
+        id: c.chat_id,
+        public_id: c.public_id,
+        kind: c.kind,
+        status: c.status,
+        name: c.owner_remark || c.friend_display_name,
+        owner_dm: true,
+        friend_user_id: c.friend_user_id,
+        friend_display_name: c.friend_display_name,
+        pinned: pinned.has(c.chat_id),
+        last_message_at: c.last_message_at,
+        last_message_preview: c.last_message_preview,
+      })),
+    ]
+    // 两份各自已按最近消息排好,并成一张再按同一键排一次;稳定排序,同一时刻(含都没有消息)保持原序。
+    const recency = (row) => (row.last_message_at ? Date.parse(row.last_message_at) || 0 : 0)
+    return rows.sort((a, b) => recency(b) - recency(a))
   }
   if (args.action === 'rules') {
     const chatId = await requireChat(args, deps)
@@ -1576,9 +1796,9 @@ async function handleConv(args, deps) {
 }
 
 // ── topic_ ── 话题:从一条已有消息长出来的独立工作线(product spec)。
-// 这一域只有「开 / 列」两个自己的动作 —— 话题**就是一条 chat**,所以收发消息、看历史、查成员都走
+// 话题的开、列、删走独立命令；收发消息、看历史、查成员都走
 // 既有的 message_* / topic_members,❌ 不为话题另造一套收发工具(造了就是第二条会漂移的路)。
-// 删除不在这一域里:spec「不能删话题。删是人的动作」。
+// 删除由数据库同时核验当前 agent 的来源群管理权和逐字确认名。
 async function handleTopic(args, deps) {
   if (args.action === 'open') {
     const sourceChatId = await requireChat(args, deps)
@@ -1591,6 +1811,9 @@ async function handleTopic(args, deps) {
     // ⚠️ p_as_user_id 必须是**当前 agent**,不是主人。漏传时 create_topic 会 COALESCE 成 auth.uid()
     // (= 主人),于是话题被记成主人开的,来源线里也不会留下那条「X 开了话题」的痕迹 —— 静默的错:
     // 话题照样建出来,只是归属和留痕都错了。spec:「agent 建的话题归属它的主人,但来源线里要显示是它开的」。
+    // #84 库里的 create_topic 只要主人在来源线就放行 agent;来源是主人与好友的私聊时,开话题等于把好友拉进来、
+    // 再往那条私聊里留一条「X 开了话题」—— 绕过「那里只读不写,以主人名义说话只走代发」。
+    await assertNotOwnerFriendDm(deps, sourceChatId, 'topic_open', 'message_send_as_owner')
     const rows = await deps.restRpc('create_topic', {
       p_source_chat_id: sourceChatId,
       p_source_message_id: sourceMessageId,
@@ -1648,6 +1871,21 @@ async function handleTopic(args, deps) {
     })
     return Array.isArray(rows) ? rows : []
   }
+  if (args.action === 'delete') {
+    if (typeof args.confirm_name !== 'string' || args.confirm_name.length === 0) {
+      throw new Error('topic_delete: confirm_name is required and must be the exact current topic name')
+    }
+    const chatId = await assertIsTopic(args, deps, 'topic_delete')
+    const row = await deps.restRpc('archive_topic_as', {
+      p_chat_id: chatId,
+      p_as_user_id: deps.context.agentId,
+      p_confirm_name: args.confirm_name,
+    })
+    if (row?.chat_id !== chatId || row?.status !== 'archived') {
+      throw new Error('topic_delete: database did not confirm topic deletion')
+    }
+    return JSON.stringify(row)
+  }
   throw new Error(`gugu_topic: unknown action ${args.action}`)
 }
 
@@ -1672,6 +1910,10 @@ async function ownerGroupsAs(deps, agentUserId, toolName) {
   return rows
 }
 
+function groupAdmin(deps) {
+  return createGroupAdmin({ rpc: async (name, body) => ({ data: await deps.restRpc(name, body), error: null }) }, deps.context.agentId)
+}
+
 async function handleGroup(args, deps) {
   if (args.action === 'create') {
     const name = typeof args.name === 'string' ? args.name.trim() : ''
@@ -1684,82 +1926,48 @@ async function handleGroup(args, deps) {
     const users = await restGetInBatches(ids, (batch) => deps.restGet(
       `users?id=in.(${batch.map(enc).join(',')})&select=id,type,owner_user_id`, 'identity',
     ))
-    const direct = []
-    const invitees = []
-    for (const id of ids) {
-      const user = users.find((row) => row.id === id)
-      if (!user || !['human', 'agent'].includes(user.type)) throw new Error(`group_create: no visible person or agent at user:${id}`)
-      const ownedAgent = user.type === 'agent' && user.owner_user_id === ownerId
-      if (id === deps.context.agentId && !ownedAgent) throw new Error('group_create: the calling agent must belong to the authenticated owner')
-      if (ownedAgent) direct.push(id)
-      else invitees.push(id)
-    }
-    const chatId = await createGroupChat({
-      rpc: async (rpc, body) => ({ data: await deps.restRpc(rpc, body), error: null }),
-    }, name, ownerId, direct)
-    const invitations = []
-    const invitationErrors = []
-    for (const invitee of invitees) {
-      try {
-        invitations.push(await requestGroupInvitation(chatId, invitee, `邀请你加入群聊「${name}」。`, deps))
-      } catch (error) {
-        // Creation has committed. Keep its id and each failed invite so retrying does not create another group.
-        invitationErrors.push({ invitee_user_id: invitee, error: error instanceof Error ? error.message : String(error) })
-      }
-    }
-    return JSON.stringify({ chat_id: chatId, name, member_user_ids: [ownerId, ...direct], invitations, invitation_errors: invitationErrors })
+    if (ids.some((id) => !users.some((row) => row.id === id))) throw new Error('group_create: selected person or agent was not found')
+    return JSON.stringify(await createGroupWithInvitations({
+      rpc: async (name, body) => ({ data: await deps.restRpc(name, body), error: null }),
+    }, name, ownerId, deps.context.agentId, users))
   }
   if (args.action === 'list') {
-    const [groups, pinned] = await Promise.all([
-      ownerGroupsAs(deps, deps.context.agentId, 'group_list'),
-      ownerPinnedChatIds(deps),
-    ])
+    const [groups, pinned] = await Promise.all([ownerGroupsAs(deps, deps.context.agentId, 'group_list'), ownerPinnedChatIds(deps)])
     return groups.map((group) => ({ ...group, pinned: pinned.has(group.chat_id) }))
   }
+  const admin = groupAdmin(deps)
+  if (args.action === 'join-decide') return JSON.stringify(await admin.decideJoin(args.request_id, args.accept))
+  if (args.action === 'announcement-update') return JSON.stringify(await admin.updateAnnouncement(args.announcement_id, {
+    ...(args.changes.text !== undefined ? { content: args.changes.text } : {}),
+    ...(args.changes.pinned !== undefined ? { pinned: args.changes.pinned } : {}),
+  }))
+  if (args.action === 'announcement-delete') return JSON.stringify(await admin.deleteAnnouncement(args.announcement_id))
+  if (args.action === 'flood-undo') return JSON.stringify(await admin.undoFlood(args.adjustment_id))
+  const chatId = await requireChat(args, deps)
   if (args.action === 'add-agent') {
-    const chatId = await requireChat(args, deps)
     const requested = typeof args.agent === 'string' ? args.agent.trim() : ''
-    const [agentUserId] = requested
-      ? await resolveRecipientAddresses(decodeRecipientList([requested], 'agent'), deps, 'agent')
-      : [deps.context.agentId]
-    // 「已是成员」在这里判,❌ 不让 add_group_agent 多返回一个状态:已经发出去的客户端只认 joined / pending_approval,
-    // 库一返回新状态它们就当场报错(groupAgentJoin.ts 的 parseGroupAgentJoinOutcome)。
-    // 以目标 agent 的身份列一次:joined 就是它在不在;这一读同时核了「它是主人名下的 agent」与「主人在这个群里」。
-    const group = (await ownerGroupsAs(deps, agentUserId, 'group_add_agent')).find((row) => row?.chat_id === chatId)
-    if (!group) {
-      throw new Error(
-        `group_add_agent: ${chatId} is not an active group your owner is in. group_list lists the groups you can use; `
-        + 'a group your owner is not in can only be reached through its members (message_invite).'
-      )
-    }
-    if (group.joined === true) {
-      return JSON.stringify({ status: 'already_member', chat_id: chatId, agent_user_id: agentUserId })
-    }
-    const result = await deps.restRpc('add_group_agent', { p_chat_id: chatId, p_agent_user_id: agentUserId, p_message: null })
-    if (!result || result.chat_id !== chatId || (result.status !== 'joined' && result.status !== 'pending_approval')) {
-      throw new Error(`group_add_agent: add_group_agent returned an unexpected result ${JSON.stringify(result)}`)
-    }
-    return JSON.stringify({ ...result, agent_user_id: agentUserId })
+    const [agent] = requested ? await resolveRecipientAddresses(decodeRecipientList([requested], 'agent'), deps, 'agent') : [deps.context.agentId]
+    return JSON.stringify({ ...await admin.addAgent(chatId, agent), agent_user_id: agent })
   }
+  if (await chatKindOf(deps, chatId) !== 'group') throw new Error(`group_${args.action}: chat_id must identify a group`)
+  if (args.action === 'info') return JSON.stringify(await admin.info(chatId))
+  if (args.action === 'leave') return JSON.stringify(await admin.remove(chatId, deps.context.agentId))
+  if (args.action === 'remove' || args.action === 'role') {
+    const [member] = await resolveRecipientAddresses(decodeRecipientList([args.member], 'member'), deps, 'member')
+    return JSON.stringify(args.action === 'remove' ? await admin.remove(chatId, member) : await admin.setRole(chatId, member, args.role))
+  }
+  if (args.action === 'join-requests') return admin.joinRequests(chatId)
   if (args.action === 'update') {
-    const chatId = await requireChat(args, deps)
-    const patch = {}
-    if (args.name !== undefined) {
-      patch.name = String(args.name).trim()
-      if (!patch.name) throw new Error('group_update: name cannot be empty')
-    }
-    if (args.description !== undefined) patch.description = String(args.description).trim() || null
-    if (!Object.keys(patch).length) throw new Error('group_update: pass name, description, or both')
-    // 与人在群设置里改群资料同一个写口:判权是 chats_update_owner(主人是群主或管理员)+ 列级 GRANT。
-    // 判不过时 PostgREST 不报错、只改 0 行 ⇒ 必须带回行来数。
-    const rows = await deps.restPatchReturning(`chats?id=eq.${enc(chatId)}&kind=eq.group&select=id,name,description`, patch)
-    if (!Array.isArray(rows) || rows.length !== 1) {
-      throw new Error(
-        `group_update: your owner is not the owner or an admin of group ${chatId}, so its name and description cannot be changed. `
-        + 'Only a group\'s owner and admins can change them; ask one of them instead.'
-      )
-    }
-    return JSON.stringify({ chat_id: rows[0].id, name: rows[0].name, description: rows[0].description })
+    const changes = { ...args.changes }
+    if (changes.rules !== undefined) { changes.group_prompt = changes.rules; delete changes.rules }
+    return JSON.stringify(await admin.update(chatId, changes))
+  }
+  if (args.action === 'announcement-post') return JSON.stringify(await admin.postAnnouncement(chatId, args.text))
+  if (args.action === 'avatar') {
+    const bytes = await readUploadBytes('group_avatar_set', args, 5 * 1024 * 1024)
+    const file = new File([bytes], basename(args.file_path), { type: resolveAttachmentMimeType(args.file_path) })
+    const url = await setGroupAvatar(admin, chatId, await currentAuthUserId(deps), file, deps.uploadGroupAvatar)
+    return JSON.stringify({ chat_id: chatId, avatar_url: url })
   }
   throw new Error(`gugu_group: unknown action ${args.action}`)
 }
@@ -1768,13 +1976,7 @@ async function handleGroup(args, deps) {
 async function requestGroupInvitation(chatId, invitee, text, deps) {
   assertAgentMessageText(text, 'message_invite')
   if (!text?.trim()) throw new Error('message_invite: text is required')
-  const result = await deps.restRpc('request_agent_group_invitation', {
-    p_chat_id: chatId, p_agent_user_id: deps.context.agentId, p_invitee_user_id: invitee, p_message: text,
-  })
-  if (!result || result.chat_id !== chatId || !['pending', 'accepted', 'already_member', 'pending_approval'].includes(result.status)) {
-    throw new Error('message_invite: invitation result was not confirmed')
-  }
-  return result
+  return groupAdmin(deps).invite(chatId, invitee, text)
 }
 
 /**
@@ -1796,37 +1998,18 @@ async function friendsWithPinnedDm(deps, ownerUserId, friendIds) {
 async function handleProfile(args, deps) {
   if (args.action === 'owner-friends') {
     const ownerUserId = await currentAuthUserId(deps)
-    const friendships = await deps.restGet(
-      `friendships?or=(user_a_id.eq.${enc(ownerUserId)},user_b_id.eq.${enc(ownerUserId)})&select=user_a_id,user_b_id`,
-      'identity',
-    )
-    const friendIdSet = new Set()
-    for (const row of friendships) {
-      const friendId = row.user_a_id === ownerUserId
-        ? row.user_b_id
-        : row.user_b_id === ownerUserId
-          ? row.user_a_id
-          : null
-      if (typeof friendId !== 'string' || !friendId) {
-        throw new Error('owner_friends_list: friendship row does not contain the authenticated owner')
-      }
-      friendIdSet.add(friendId)
-    }
+    const friendIdSet = await ownerFriendIds(deps, ownerUserId)
     const friendIds = [...friendIdSet]
     if (!friendIds.length) return []
 
-    const [users, overrides, pinnedFriends] = await Promise.all([
+    const [users, aliasById, pinnedFriends] = await Promise.all([
       restGetInBatches(friendIds, (batch) => deps.restGet(
         `users?id=in.(${batch.map(enc).join(',')})&select=id,display_name,type,gugu_number,avatar,bio`,
         'identity',
       )),
-      deps.restGet(
-        `contact_overrides?owner_user_id=eq.${enc(ownerUserId)}&select=contact_user_id,alias`,
-        'identity',
-      ),
+      ownerAliases(deps, ownerUserId),
       friendsWithPinnedDm(deps, ownerUserId, friendIds),
     ])
-    const aliasById = new Map(overrides.map((row) => [row.contact_user_id, row.alias]))
     const humanFriends = users
       .filter((user) => friendIdSet.has(user.id) && user.type === 'human')
       .map((user) => ({
@@ -1881,12 +2064,82 @@ async function handleProfile(args, deps) {
 
 // gugu_file:send-file = 字节经 attachments/upload 直传 OSS,attachments/commit 放进会话的「附件」、发一条附件消息(#7290 gugu-3,
 // 和人发附件同一条路);download = 按消息 id 把附件下到本机(downloadAttachment)。
-async function uploadForSend(args, deps, label) {
+async function uploadForSend(args, deps, label, chatId) {
   const bytes = await readUploadBytes(label, args, ATTACHMENT_MAX_BYTES)
   const fileName = resolveUploadName(args)
   const contentType = resolveAttachmentMimeType(basename(String(args.file_path)), args.mime_type)
   const endpoint = await deps.attachmentsEndpoint()
-  return { endpoint, fileName, contentType, stagingKey: await uploadAttachmentBytes(endpoint, { bytes, name: fileName, contentType }) }
+  return { endpoint, fileName, contentType, stagingKey: await uploadAttachmentBytes(endpoint, { bytes, name: fileName, contentType }, { chat_id: chatId, as: deps.context.agentId }) }
+}
+
+/**
+ * A project chat that keeps its files on its machine (file storage policy): on that machine a file other than an image is
+ * published by the host, through the one publisher the composer uses — it stays on the machine, the message pins it.
+ * `next` (a folder file and the version it started from) makes it that file's next version — an image too: a file kept
+ * on the machine changes only there. Null when this is not that machine or chat, or for a new image (uploaded when
+ * sent): the ordinary upload then decides.
+ */
+async function publishOnHost(args, deps, chatId, message, next) {
+  const publish = deps.context.publishFile
+  if (!publish) return null
+  const fileName = resolveUploadName(args)
+  const contentType = resolveAttachmentMimeType(basename(String(args.file_path)), args.mime_type)
+  if (!next && isImageMimeType(contentType)) return null
+  const filePath = typeof args?.file_path === 'string' ? args.file_path.trim() : ''
+  if (!isAbsolute(filePath)) throw new Error(`message_send_file: file_path must be absolute, got ${filePath}`)
+  const target = resolvePath(filePath)
+  const info = await stat(target).catch((err) => { throw new Error(`message_send_file: cannot read ${target} (${err?.code || err?.message || 'unknown'})`) })
+  if (!info.isFile()) throw new Error(`message_send_file: ${target} is not a file`)
+  const sent = await publish(chatId, { name: fileName, path: target, size: info.size, contentType }, deps.context.agentId,
+    { ...message, file_name: fileName, content_type: contentType }, next)
+  return sent?.message ?? null
+}
+
+/** Every layer's way of saying only the machine that keeps a project chat's files may add or change them. */
+const KEPT_ON_HOST = /Only the bound (file )?host|not uploaded proactively|Remote project files are read-only|Local revisions must be published by the host/
+
+/**
+ * The machine that keeps a project chat's files, as people know it: its name and whose computer it is (the name is in
+ * file_project_policy_for, or already in a handoff's answer), the way a project file's mark names it to the chat's members.
+ */
+async function hostMachineOf(deps, chatId, known = null) {
+  const policy = known?.host_account_id ? known : await deps.restRpc('file_project_policy_for', { p_chat: chatId, p_as: deps.context.agentId }).catch(() => null)
+  const account = typeof policy?.host_account_id === 'string' ? policy.host_account_id : null
+  const label = typeof policy?.host_label === 'string' && policy.host_label.trim() ? policy.host_label.trim() : null
+  const [owner] = account ? await deps.restGet(`users?id=eq.${enc(account)}&select=display_name`, 'identity').catch(() => []) : []
+  const ownerName = owner?.display_name || null
+  const computer = ownerName ? `${ownerName}'s computer` : 'another computer', computerZh = ownerName ? `${ownerName} 的电脑` : '另一台电脑'
+  return label ? { en: `"${label}" (${computer})`, zh: `「${label}」（${computerZh}）` } : { en: computer, zh: computerZh }
+}
+
+/**
+ * The refusal said for people: whose computer keeps this project chat's files, that only an agent there can add or change
+ * them, and that nothing was sent — never the layers' words for it ("published by the host").
+ */
+async function keptOnHostRefusal(deps, chatId, fileName) {
+  const machine = await hostMachineOf(deps, chatId)
+  return `message_send_file: ${fileName} was not sent, and nothing was changed. This project chat keeps its files on ${machine.en}, `
+    + `and only an agent on that computer can add or change them here.\n`
+    + `${fileName} 没有发出去，什么都没改。这个项目群的文件存在${machine.zh}上，只有那台电脑上的 agent 能在这里添加或修改。`
+}
+
+/**
+ * #791: the publisher handed a next version to the machine that keeps the file, and that machine did not write it (offline,
+ * or not in time): which machine, that the changed copy is where it was, and what to do.
+ */
+async function handoffRefusal(deps, chatId, args, outcome) {
+  const fileName = resolveUploadName(args), machine = await hostMachineOf(deps, chatId, outcome)
+  const why = outcome.status === 'host_offline'
+    ? { en: `${machine.en} keeps this project chat's files and is offline`, zh: `这个项目群的文件存在${machine.zh}上，它现在离线` }
+    : { en: `${machine.en} keeps this project chat's files and did not take the new version in time`, zh: `这个项目群的文件存在${machine.zh}上，它没有及时收下新版本` }
+  return `message_send_file: ${fileName} was not sent, and nothing was changed: ${why.en}. Your changed copy is still at ${args.file_path}. `
+    + `Send it again with file ${args.file} once that computer is online, or ask an agent on that computer to make the change.\n`
+    + `${fileName} 没有发出去，什么都没改：${why.zh}。改好的副本还在 ${args.file_path}。等那台电脑上线以后用同一个 file（${args.file}）再发一次，或者请那台电脑上的 agent 来改。`
+}
+
+/** A next version that started from a version the file is no longer at: nothing was sent, and what to do. */
+function newerVersionRefusal(file, version) {
+  return `message_send_file: someone stored a newer version of ${file} since version ${version}, and nothing was sent. Download the current one (message_download_file, or workspace__read with save), make your change on it, and send it with that version.`
 }
 
 async function sendMessageAsOwner(args, deps, content, extra = {}, outcome = { uncertain: false }) {
@@ -1931,7 +2184,7 @@ async function commitWithReplay(commit) {
 
 async function handleOwnerFile(args, deps) {
   const friendUserId = friendUserIdArg(args.friend_user_id)
-  const { endpoint, fileName, contentType, stagingKey } = await uploadForSend(args, deps, 'message_send_file_as_owner')
+  const { endpoint, fileName, contentType, stagingKey } = await uploadForSend(args, deps, 'message_send_file_as_owner', null)
   // 库里那一半照 send_friend_message_as_owner 的规矩(gugu-supabase send_friend_file_as_owner):发送者是主人,记下是这个 agent 代发。
   const send = { staging_key: stagingKey, friend_user_id: friendUserId, agent_user_id: deps.context.agentId, request_id: randomUUID(), file_name: fileName, content_type: contentType }
   const result = await commitWithReplay(() => sendFileAsOwner(endpoint, send))
@@ -1946,48 +2199,134 @@ async function handleOwnerFile(args, deps) {
  * 先按 agent 本人判看不看得见(agentCanSee),字节从哪来由消息说 —— 老消息正文里的公开 URL,新消息指向群文件夹的那一版
  * (经 attachments/urls 以 agent 的身份签)。本地文件按内容的 sha256 起名(同一份字节只存一份)。
  */
+/**
+ * 以谁的身份读这条消息的附件:agent 自己看得见就是它(零额外读取);看不见、而这是主人与好友的私聊(#84)
+ * 就按主人 —— 与读历史同一个人,看不看得见、签名链接两处都按他。都不成立回 null。
+ */
+async function attachmentReaderOf(deps, message) {
+  if (await agentCanSee(deps, message)) return deps.context.agentId
+  if (!(await ownerFriendOfDm(deps, message.chat_id))) return null
+  const ownerUserId = await currentAuthUserId(deps)
+  return (await agentCanSee(deps, message, ownerUserId)) ? ownerUserId : null
+}
+
 async function downloadAttachment(messageId, deps) {
   if (!messageId) throw new Error('message_download_file: source_message_id is required')
   const [message] = await deps.restGet(`messages?id=eq.${enc(messageId)}&select=id,chat_id,content,content_type,file_item_id,file_version,file_blob_id`)
-  if (!message || !(await agentCanSee(deps, message))) throw new Error(`message_download_file: there is no message ${messageId} you can read`)
+  const readerId = message ? await attachmentReaderOf(deps, message) : null
+  if (!readerId) throw new Error(`message_download_file: there is no message ${messageId} you can read`)
   const attachment = message.content_type === 'attachment' ? parseAttachmentContent(message.content, message) : null
   if (!attachment) throw new Error(`message_download_file: message ${messageId} has no attachment`)
   if (attachment.source.kind === 'gone') throw new Error(`message_download_file: the file of message ${messageId} was deleted from the group folder`)
-  const link = await createAttachmentResolver(deps.attachmentUrls).resolve(attachment.source)
-  if (link.status === 'gone') throw new Error(`message_download_file: the file of message ${messageId} is no longer readable`)
-  const bytes = await deps.fetchBytes(link.url)
+  const file = await deps.resolveFile({ message_id: messageId }, readerId)
+  if (file.status !== 'ready') throw new Error(`message_download_file: the file of message ${messageId} is no longer readable`)
   const home = typeof deps.context.guguHome === 'string' ? deps.context.guguHome.trim() : ''
-  if (!home) throw new Error('gugu MCP context has no guguHome; cannot save the attachment')
-  const safeName = attachment.fileName.replace(/[^A-Za-z0-9._-]+/g, '_') || 'attachment'
-  const dir = joinPath(home, 'chat-media')
-  const path = joinPath(dir, `${createHash('sha256').update(bytes).digest('hex').slice(0, 24)}-${safeName}`)
-  await mkdir(dir, { recursive: true })
-  await writeFile(path, bytes, { mode: 0o600 })
-  return `saved ${attachment.fileName} (${bytes.length} bytes) to ${path}`
+  if (!home) { await file.dispose(); throw new Error('gugu MCP context has no guguHome; cannot save the attachment') }
+  const saved = await saveFileHandle(file, joinPath(home, 'chat-media'), attachment.fileName)
+  const folder = attachment.source.kind === 'item'
+    ? { file: groupFileLink(attachment.source.itemId, { version: attachment.source.version }), next: attachmentFolderLine(attachment.source.itemId, attachment.source.version) }
+    : {}
+  return JSON.stringify({ source_message_id: `msg:${messageId}`, ...saved, ...folder })
+}
+
+/** message_send_file 的 file:群文件夹里一个文件的 gugu-file 链接(?v= 是它的那一版),或者裸的 item_id。 */
+function folderFileArg(raw) {
+  if (raw === undefined || raw === null || raw === '') return null
+  const text = String(raw).trim()
+  const link = parseGroupFileLink(text) ?? (/^[0-9a-f-]{36}$/i.test(text) ? { itemId: text.toLowerCase() } : null)
+  if (!link) throw new Error(`message_send_file: file is a file of the chat's folder, its gugu-file://<item_id>?v=<n> link — not ${JSON.stringify(text)}`)
+  return link
+}
+
+/** 附件消息的文件名:信封第一行「[附件] 名字 (类型)」(服务端写的,名字按文件夹的规矩规范化过)。 */
+function attachmentNameOf(message) {
+  return parseAttachmentContent(String(message.content ?? ''), message)?.fileName ?? null
+}
+
+/** 历史 / 搜索的一行:附件指着的群文件夹文件写成一个 file 链接(那一版),替掉两列裸 id。 */
+function withFolderFile(row) {
+  const { file_item_id: itemId, file_version: version, ...rest } = row
+  return typeof itemId === 'string' && Number.isInteger(version) ? { ...rest, file: groupFileLink(itemId, { version }) } : rest
 }
 
 async function handleFile(args, deps) {
   if (args.action === 'send-file') {
     const chatId = await requireChat(args, deps)
+    await assertNotOwnerFriendDm(deps, chatId, 'message_send_file', 'message_send_file_as_owner')
     const toUserIds = await resolveRecipientAddresses(normToList(args.to_user_ids), deps)
+    const folderFile = folderFileArg(args.file)
+    if (!folderFile && !args.file_path) throw new Error('message_send_file: give file (a file of the chat\'s folder), file_path (a file on this computer), or both')
+    if (folderFile && args.file_path && folderFile.version === undefined) {
+      throw new Error(`message_send_file: file_path as the next version of ${args.file} needs the version you started from: gugu-file://${folderFile.itemId}?v=<n>`)
+    }
     // #3641 附件也是往群里说话:与 message_send 同一道群规闸,在上传任何字节之前判。
     await assertGroupRulesSeen(deps, chatId, 'message_send_file')
     await assertRecipientsAreMembers(chatId, toUserIds, deps)
-    const { endpoint, fileName, contentType, stagingKey } = await uploadForSend(args, deps, 'message_send_file')
-    const commit = {
-      staging_key: stagingKey,
-      message_id: randomUUID(),
-      chat_id: chatId,
-      sender_user_id: deps.context.agentId,
-      file_name: fileName,
-      content_type: contentType,
-      to_user_ids: toUserIds ?? [],
-      thread_root_id: deps.context.threadRootId ?? null,
+    const messageId = randomUUID()
+    const thread = { thread_root_id: deps.context.threadRootId ?? null }
+    let message
+    let fileName
+    if (folderFile && !args.file_path) {
+      // 按引用发:消息钉住群文件夹里那个文件的那一版,不传字节(gugu-supabase attachment_share)。
+      const [row] = await deps.restRpc('attachment_share', {
+        p_item_id: folderFile.itemId, p_version: folderFile.version ?? null, p_message_id: messageId, p_chat_id: chatId,
+        p_sender_user_id: deps.context.agentId, p_to_user_ids: toUserIds ?? [], p_thread_root_id: thread.thread_root_id,
+      })
+      message = row
+      fileName = attachmentNameOf(row ?? {})
+    } else if ((message = await publishOnHost(args, deps, chatId, { message_id: messageId, chat_id: chatId,
+      sender_user_id: deps.context.agentId, to_user_ids: toUserIds ?? [], ...thread },
+      folderFile ? { itemId: folderFile.itemId, expectedVersion: folderFile.version } : undefined).catch(async (error) => {
+      const said = String(error?.message ?? error)
+      if (error?.name === 'NextVersionHandoffRefused') throw new Error(await handoffRefusal(deps, chatId, args, error.outcome))
+      if (KEPT_ON_HOST.test(said)) throw new Error(await keptOnHostRefusal(deps, chatId, resolveUploadName(args)))
+      if (folderFile && /File revision conflict/.test(said)) throw new Error(newerVersionRefusal(args.file, folderFile.version))
+      throw error
+    }))) {
+      fileName = resolveUploadName(args)
+    } else {
+      const upload = await uploadForSend(args, deps, 'message_send_file', chatId).catch(async (error) => {
+        if (!(error instanceof AttachmentsError && KEPT_ON_HOST.test(error.message))) throw error
+        throw new Error(await keptOnHostRefusal(deps, chatId, resolveUploadName(args)))
+      })
+      const { endpoint, contentType, stagingKey } = upload
+      fileName = upload.fileName
+      const commit = {
+        staging_key: stagingKey,
+        message_id: messageId,
+        chat_id: chatId,
+        sender_user_id: deps.context.agentId,
+        file_name: fileName,
+        content_type: contentType,
+        to_user_ids: toUserIds ?? [],
+        ...thread,
+        // 那个文件的下一版:起点版本对不上(有人先存了新版)服务端就拒,什么都不写。
+        ...(folderFile ? { item_id: folderFile.itemId, expected_version: folderFile.version } : {}),
+        // 临时 / 保留:这份上传的副本留多久,和人在 ⋯ 里改的是同一个标记。不给就照这个群的规矩。
+        ...(args.temporary === true ? { keep: 'temporary' } : {}),
+      }
+      message = await commitWithReplay(() => commitAttachment(endpoint, commit)).catch(async (error) => {
+        if (error instanceof AttachmentsError && KEPT_ON_HOST.test(error.message)) throw new Error(await keptOnHostRefusal(deps, chatId, fileName))
+        if (!(error instanceof AttachmentsError && error.code === 'version_conflict')) throw error
+        throw new Error(newerVersionRefusal(args.file, folderFile.version))
+      })
     }
-    const message = await commitWithReplay(() => commitAttachment(endpoint, commit))
-    return `file sent (id=${message.id})`
+    if (!message?.id) throw new Error('message_send_file: the server did not confirm the send')
+    const pinned = typeof message.file_item_id === 'string' && Number.isInteger(message.file_version)
+      ? { file: groupFileLink(message.file_item_id, { version: message.file_version }), version: message.file_version }
+      : {}
+    const blocks = await messageDeliveryBlocks(deps, message.id)
+    return JSON.stringify({ status: 'sent', message_id: message.id, file_name: fileName, ...pinned, ...(blocks.length ? { not_delivered_to: blocks, delivery_note: '对方已归档、未送达; retained in history, no replay after restoration' } : {}),
+      source_link: conversationLink(chatId, String(message.id).replace(/^msg:/, '')) })
   }
-  if (args.action === 'download-attachment') return downloadAttachment(String(args.source_message_id ?? ''), deps)
+  if (args.action === 'download-attachment') {
+    if (args.source_attachment_id) {
+      const home = deps.context.guguHome
+      if (!home) throw new Error('Gugu home is unavailable')
+      return JSON.stringify(await downloadSessionFile(await deps.attachmentsEndpoint(), String(args.source_attachment_id), deps.context.agentId, joinPath(home, 'session-media')))
+    }
+    return downloadAttachment(String(args.source_message_id ?? ''), deps)
+  }
   throw new Error(`gugu_file: unknown action ${args.action}`)
 }
 
@@ -2014,9 +2353,8 @@ const topicInviteeIdsSchema = z.preprocess(normalizeRecipientInput, z.array(reci
 const friendUserIdSchema = z.string().describe('From owner_friends_list.')
 // 用法写在字段说明里：顶层描述会被 Claude Code 截到 2048 字符，字段说明不截
 // （见 mcp-tool-description-budget.mjs）。这两条正是最容易被用错的地方，必须写在不会被截的那一侧。
-const uploadFilePathSchema = z.string().trim().min(1).describe(
-  'Absolute path; the server uploads it.'
-)
+// 绝对路径:读不到、不是文件时报错原话会说(readUploadBytes)。常驻工具的预算里省下这一句(#7335)。
+const uploadFilePathSchema = z.string().trim().min(1)
 const uploadFileNameSchema = z.string().trim().min(1).optional().describe(
   'Default: the name on disk.'
 )
@@ -2052,16 +2390,17 @@ function preflightGuguMessageArgs(args) {
 }
 
 export const TOOL_DEFS = [
+  chatActivityTool(resolveChatIdInput),
   // ── message_ ── 聊天消息:写入走 command lease/群规闸/表达一致性,读走 messages_view;附件 = 消息的一种
   {
     name: 'message_send',
     writer: true,
-    description: 'Set destination fields before writing text. Post a message to a chat; chat_id and to_user_ids are never inferred from the message that triggered you. Each call is independent; multiple distinct calls are valid. With reply_to_message_id a DM peer is implied; in a group still name recipients. Sessions: session_message.',
+    description: 'Set destination explicitly. reply_to_message_id infers a DM peer or whisper pair; public groups require recipients. Independent, multiple distinct calls allowed. Sessions: session_message.',
     schema: z.object({
       chat_id: chatIdSchema.describe(CHAT_ID_DESCRIPTION),
       to_user_ids: chatRecipientsSchema,
       reply_to_message_id: z.string().min(1).optional().describe('The source message this replies to, in chat_id.'),
-      whisper: z.boolean().optional().describe('Only you and the ONE member in to_user_ids see it; not in a thread.'),
+      whisper: z.boolean().optional().describe('Only you and one recipient see it; no threads. Whisper replies inherit privacy; false explicitly publishes.'),
       text: chatMessageTextSchema.describe(CHAT_MESSAGE_TEXT_RULES),
     }),
     handler: (args, deps) => handleMessage({ ...args, action: 'send' }, deps),
@@ -2069,7 +2408,7 @@ export const TOOL_DEFS = [
   {
     name: 'message_send_as_owner',
     writer: true,
-    description: 'Send a message as your owner to their DM with a human friend, only when the owner asks; labeled AI-sent. You do not see that DM.',
+    description: 'Send a message as your owner to their DM with a human friend, only when the owner asks; labeled AI-sent.',
     schema: z.object({
       friend_user_id: friendUserIdSchema,
       text: chatMessageTextSchema,
@@ -2098,7 +2437,7 @@ export const TOOL_DEFS = [
     schema: z.object({ ...listWindowShape }),
     list: { namesOf: (row) => [row.group_name, row.invitee_name] },
     handler: async (_args, deps) => {
-      const result = await deps.restRpc('list_agent_group_invitations', { p_agent_user_id: deps.context.agentId })
+      const result = await groupAdmin(deps).invitations(true)
       if (!Array.isArray(result)) throw new Error('message_invitations: expected an invitation list')
       return result
     },
@@ -2147,14 +2486,15 @@ export const TOOL_DEFS = [
   },
   {
     name: 'message_conversations',
-    description: 'Your conversations, most recent message first.',
+    description: 'Your conversations, most recent message first. owner_dm rows: your owner\'s friend DMs; read only when your owner asks.',
     schema: z.object({
       ...listWindowShape,
       kind: z.enum(['dm', 'group', 'topic', 'ai']).optional(),
       pinned: pinnedFilterSchema,
     }),
     list: {
-      namesOf: (row) => [row.name],
+      // 主人的好友私聊按备注叫,也按好友自己的名字叫(备注之外别人可能只知道后者)。
+      namesOf: (row) => [row.name, row.friend_display_name],
       keep: (row, args) => (!args.kind || row.kind === args.kind) && (args.pinned === undefined || row.pinned === args.pinned),
     },
     handler: (args, deps) => handleConv({ ...args, action: 'list' }, deps),
@@ -2168,11 +2508,13 @@ export const TOOL_DEFS = [
   {
     name: 'message_send_file',
     writer: true,
-    description: 'Post a file from this machine (≤10 MiB) as an attachment: the delivery tool for a file, report or artifact someone asked for. A file the chat keeps and edits goes in its folder (workspace__create in the catalog).',
+    description: 'File delivery tool: post a file card. file: a chat-folder file by its gugu-file://<id>?v=<n>; with file_path, next version. file_path alone: new file; temporary: cloud copy expires.',
     schema: z.object({
-      file_path: uploadFilePathSchema,
+      file: z.string().optional(),
+      file_path: uploadFilePathSchema.optional(),
       file_name: uploadFileNameSchema,
       mime_type: uploadMimeTypeSchema,
+      temporary: z.boolean().optional(),
       to_user_ids: toUserIdsSchema,
       chat_id: chatIdSchema,
     }),
@@ -2181,7 +2523,7 @@ export const TOOL_DEFS = [
   {
     name: 'message_send_file_as_owner',
     writer: true,
-    description: 'Send a local file or image (≤10 MiB) as your owner to their DM with a human friend, only when the owner asks; labeled AI-sent.',
+    description: 'Send a local file or image as your owner to their DM with a human friend, only when the owner asks; labeled AI-sent.',
     schema: z.object({
       friend_user_id: friendUserIdSchema,
       file_path: uploadFilePathSchema,
@@ -2192,16 +2534,16 @@ export const TOOL_DEFS = [
   },
   {
     name: 'message_download_file',
-    description: 'Save a chat attachment to this machine by its message (source_message_id); returns the local file path.',
-    schema: z.object({ source_message_id: z.string() }),
+    description: 'Download original bytes from a visible chat message (source_message_id) or a session-message attachment reference (source_attachment_id). Returns file_path, actual size_bytes and full sha256; session files are verified against their reference.',
+    schema: z.object({ source_message_id: z.string().optional(), source_attachment_id: z.string().uuid().optional() }).refine(args => Boolean(args.source_message_id) !== Boolean(args.source_attachment_id), 'Give exactly one attachment source'),
     handler: (args, deps) => handleFile({ ...args, action: 'download-attachment' }, deps),
   },
   // ── topic_ ── 话题:从一条已有消息长出来的独立工作线。它本身就是一条 chat,所以收发/读历史仍走
-  // message_*;这一域只补「开」「列」「看成员」「拉人」四个动作。❌ 没有删除:删是人的动作(spec)。
+  // message_*；删除必须由来源群管理员带上当前名称，由数据库校验。
   {
     name: 'topic_open',
     writer: true,
-    description: 'Open a topic from one existing message, to take a question out of a busy chat: only its members are notified. It is an ordinary chat: message_send / message_history on the returned chat_id. Only a person can delete it.',
+    description: 'Open a topic from a message. Only participants are notified. Messages use its chat_id; files and Apps use the source chat. Deletion: catalog topic_delete.',
     schema: z.object({
       chat_id: chatIdSchema.describe('The source chat.'),
       source_message_id: z.string().trim().min(1).describe('A message of chat_id (msg:<uuid>).'),
@@ -2223,6 +2565,16 @@ export const TOOL_DEFS = [
       keep: (row, args) => args.participating === undefined || row.is_participant === args.participating,
     },
     handler: (args, deps) => handleTopic({ ...args, action: 'list' }, deps),
+  },
+  {
+    name: 'topic_delete',
+    writer: true,
+    description: 'Delete a topic for everyone. You must be an owner/admin of its source group and confirm_name must exactly match its current name, including case and whitespace. The database enforces both checks.',
+    schema: z.object({
+      chat_id: chatIdSchema.describe('The topic itself, from topic_list.'),
+      confirm_name: z.string().min(1).describe('The exact current topic name. Do not trim, normalize or change it.'),
+    }),
+    handler: (args, deps) => handleTopic({ ...args, action: 'delete' }, deps),
   },
   {
     name: 'topic_members',
@@ -2272,7 +2624,7 @@ export const TOOL_DEFS = [
   {
     name: 'group_add_agent',
     writer: true,
-    description: 'Add yourself, or another agent your owner owns, to a group your owner is in — the same path as your owner adding their agent in the app. Omit agent to join yourself. Returns status joined, pending_approval (the group requires approval for Agents: a group owner or admin decides, and until then the agent is not a member and receives nothing), or already_member. People and other owners\' agents cannot be added this way; use message_invite, which they must accept. Members see a notice that the agent joined; the notice wakes no one.',
+    description: 'Add yourself or one of your owner’s Agents to a group. Omit agent to add yourself. Uses your own group role; agent approval still applies. Returns joined, pending_approval or already_member. Other identities use message_invite.',
     schema: z.object({
       chat_id: chatIdSchema.describe(`The group to join, from group_list.`),
       agent: z.string().trim().min(1).optional().describe('Optional: the agent to add when it is not you — one of your owner\'s agents as "aid:<Agent ID>" (or its older spelling "user:<uuid>"), "gugu:<number>", or "session:<id>" for a session on this machine (from session_spawn / session_children / session_peers). Omit it to add yourself.'),
@@ -2282,7 +2634,7 @@ export const TOOL_DEFS = [
   {
     name: 'group_create',
     writer: true,
-    description: 'Create a group with your owner as its owner and you as a member, using the app\'s group-creation path. Your owner\'s agents join directly; people and other owners\' agents receive invitations and join only after acceptance. Returns chat_id, direct member_user_ids, invitations and invitation_errors. If an invitation fails, the group still exists: use its chat_id to retry with message_invite.',
+    description: 'Create a group with your human owner as its sole owner and you as an admin, using the app\'s group-creation path. Your owner\'s agents join directly; people and other owners\' agents receive invitations and join only after acceptance. Returns chat_id, direct member_user_ids, invitations and invitation_errors. If an invitation fails, the group still exists: use its chat_id to retry with message_invite.',
     schema: z.object({
       name: z.string().trim().min(1).describe('Group name.'),
       members: z.array(z.string().trim().min(1)).optional().describe('Optional members as user:<uuid> / aid:<Agent ID>, gugu:<number>, or session:<id> on this machine. Your owner and you are always included. Invitations say: 邀请你加入群聊「<name>」。'),
@@ -2290,15 +2642,71 @@ export const TOOL_DEFS = [
     handler: (args, deps) => handleGroup({ ...args, action: 'create' }, deps),
   },
   {
-    name: 'group_update',
-    writer: true,
-    description: 'Change a group\'s name and/or description — the same edit your owner makes in the app\'s group settings, and it acts with your owner\'s rights: it works only in groups where your owner is the owner or an admin. Pass name, description, or both; an empty description clears it. Topics are not groups and are not renamed here. Returns chat_id, name and description as saved.',
-    schema: z.object({
-      chat_id: chatIdSchema.describe(`The group to change.`),
-      name: z.string().optional().describe('The new group name.'),
-      description: z.string().optional().describe('The new group description; an empty string clears it.'),
-    }),
+    name: 'group_update', writer: true,
+    description: 'Change group settings as yourself. Requires your own group admin role. Pass only the changes you intend; rules is the group rules text. Empty rules or description clears it.',
+    schema: z.object({ chat_id: chatIdSchema, changes: z.object({
+      name: z.string().trim().min(1).optional(), description: z.string().optional(), rules: z.string().optional(),
+      join_mode: z.enum(['open', 'approval', 'invite_only']).optional(), allow_member_invite: z.boolean().optional(),
+      agent_join_approval: z.boolean().optional(), invite_link_enabled: z.boolean().optional(),
+      max_members: z.number().int().min(1).optional(), hide_history: z.boolean().optional(),
+      agent_flood_threshold: z.number().int().min(1).nullable().optional(),
+    }).strict().refine((value) => Object.keys(value).length > 0, 'Pass at least one change') }),
     handler: (args, deps) => handleGroup({ ...args, action: 'update' }, deps),
+  },
+  {
+    name: 'group_leave', writer: true,
+    description: 'Leave one group yourself. No approval is needed. Your session keeps running; you stop receiving this group. You cannot use it to remove another member.',
+    schema: z.object({ chat_id: chatIdSchema }), handler: (args, deps) => handleGroup({ ...args, action: 'leave' }, deps),
+  },
+  {
+    name: 'group_remove_member', writer: true,
+    description: 'Remove one group member as an admin. People, Agents and other admins can be removed; the human group owner cannot.',
+    schema: z.object({ chat_id: chatIdSchema, member: z.string().trim().min(1).describe('The member as user:<uuid>, gugu:<number>, aid:<Agent ID>, or session:<id> on this machine.') }),
+    handler: (args, deps) => handleGroup({ ...args, action: 'remove' }, deps),
+  },
+  {
+    name: 'group_set_role', writer: true,
+    description: 'Set one group member to admin or member, as an admin yourself. The group owner cannot be changed or demoted.',
+    schema: z.object({ chat_id: chatIdSchema, member: z.string().trim().min(1).describe('The member as user:<uuid>, gugu:<number>, aid:<Agent ID>, or session:<id> on this machine.'), role: z.enum(['admin', 'member']) }),
+    handler: (args, deps) => handleGroup({ ...args, action: 'role' }, deps),
+  },
+  {
+    name: 'group_join_requests',
+    description: 'List group join requests as an admin. Pending by default; status all includes accepted and rejected requests. This is separate from invitations you sent.',
+    schema: z.object({ chat_id: chatIdSchema, ...listWindowShape, status: z.enum(['pending', 'accepted', 'rejected', 'all']).default('pending') }),
+    list: { namesOf: (row) => [row.requester_name], keep: (row, args) => args.status === 'all' || row.status === (args.status ?? 'pending') },
+    handler: (args, deps) => handleGroup({ ...args, action: 'join-requests' }, deps),
+  },
+  {
+    name: 'group_join_decide', writer: true,
+    description: 'Accept or reject one group join request as an admin. The request determines its group; approval does not substitute for an invited person or Agent owner consenting.',
+    schema: z.object({ request_id: z.string().min(1).describe('The existing join request returned by group_join_requests.'), accept: z.boolean() }),
+    handler: (args, deps) => handleGroup({ ...args, action: 'join-decide' }, deps),
+  },
+  {
+    name: 'group_info', description: 'Read group settings, your role and whether you may manage it. Management uses your own role, not your owner’s.',
+    schema: z.object({ chat_id: chatIdSchema }), handler: (args, deps) => handleGroup({ ...args, action: 'info' }, deps),
+  },
+  {
+    name: 'group_avatar_set', writer: true, description: 'Upload and set a group avatar as an admin. Use an absolute image path, at most 5 MB.',
+    schema: z.object({ chat_id: chatIdSchema, file_path: uploadFilePathSchema }), handler: (args, deps) => handleGroup({ ...args, action: 'avatar' }, deps),
+  },
+  {
+    name: 'group_announcement_post', writer: true, description: 'Post a group announcement as an admin. A normal chat message is not an announcement.',
+    schema: z.object({ chat_id: chatIdSchema, text: chatMessageTextSchema }), handler: (args, deps) => handleGroup({ ...args, action: 'announcement-post' }, deps),
+  },
+  {
+    name: 'group_announcement_update', writer: true, description: 'Edit or pin a group announcement as an admin. Pass text, pinned, or both.',
+    schema: z.object({ announcement_id: z.string().min(1), changes: z.object({ text: z.string().trim().min(1).optional(), pinned: z.boolean().optional() }).strict().refine((value) => Object.keys(value).length > 0) }),
+    handler: (args, deps) => handleGroup({ ...args, action: 'announcement-update' }, deps),
+  },
+  {
+    name: 'group_announcement_delete', writer: true, description: 'Delete one group announcement as an admin.',
+    schema: z.object({ announcement_id: z.string().min(1) }), handler: (args, deps) => handleGroup({ ...args, action: 'announcement-delete' }, deps),
+  },
+  {
+    name: 'group_flood_undo', writer: true, description: 'Undo one system automatic passive adjustment as a group member. Restores only that recorded change; it cannot choose an Agent’s listen mode.',
+    schema: z.object({ adjustment_id: z.string().min(1) }), handler: (args, deps) => handleGroup({ ...args, action: 'flood-undo' }, deps),
   },
   // ── profile_ ── 自己的资料 + 咕咕号解析
   {
@@ -2309,7 +2717,7 @@ export const TOOL_DEFS = [
   },
   {
     name: 'owner_friends_list',
-    description: 'The owner\'s human friends. Their user_id goes to message_send_as_owner / message_send_file_as_owner (when the owner asks) or contact_friend.',
+    description: 'The owner\'s human friends. Their user_id goes to message_send_as_owner / message_send_file_as_owner or contact_friend.',
     schema: z.object({ ...listWindowShape, pinned: pinnedFilterSchema }),
     list: {
       namesOf: (row) => [row.display_name, row.owner_remark],
@@ -2458,7 +2866,7 @@ export function createGuguImServer(getContext, deps = {}) {
 /**
  * 一个已注册工具对模型的样子。TOOL_DEFS 项用真 schema 覆盖(permissive 注册的写类工具否则会广告成无字段的 object),写类广告严格的那份。
  * `$schema` 不广告:每个工具都带同一句 draft-07 URL,MCP 不要求它、模型用不上;Claude 开场 31 个工具为它付 ≈0.7k token,
- * codex 本来就自己去掉(上下文工程第一批,gugu-base evidence/2026-10-07-context-engineering)。
+ * codex 本来就自己去掉(上下文工程第一批,2026-10-07 实测)。
  */
 export function advertisedTool(name, tool) {
   const def = TOOL_DEFS.find((candidate) => candidate.name === name)

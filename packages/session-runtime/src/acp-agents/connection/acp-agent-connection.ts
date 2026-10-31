@@ -1,11 +1,11 @@
-import type { Client, InitializeResponse, SessionUpdate } from '@agentclientprotocol/sdk';
+import type { AcpClient } from '@gugu/session-core/agents/plugins';
+import type { InitializeResponse } from '@agentclientprotocol/sdk';
 import type {
   AdapterExit,
   InitializeFailedError,
-  NormalizedEvent,
   SpawnFailedError,
 } from '@gugu/session-core/acp';
-import { acpErr, decodeSessionUpdate } from '@gugu/session-core/acp';
+import { acpErr } from '@gugu/session-core/acp';
 import type { AcpProcessHandle, AcpProcessHost } from '@gugu/session-core/acp/node';
 import type { AcpAgentApi, AgentHostAcpSpawn, IAcpBehavior } from '@gugu/session-core/agents/plugins';
 import type { Result } from '@gugu/session-shared';
@@ -29,23 +29,18 @@ type ProcessClosed =
     };
 
 export type AcpConnectionError = SpawnFailedError | InitializeFailedError;
-export type AcpSessionUpdateNormalizer = (raw: SessionUpdate) => NormalizedEvent;
 
 /** Live connection to one spawned agent process. */
 export interface AcpAgentConnection {
   agent: AcpAgentApi;
-  normalize: AcpSessionUpdateNormalizer;
+  /** Identity of the actual spawned resource, including when its PID is unavailable. */
+  process: Pick<AcpProcessHandle, 'pid'>;
   supportsLoadSession: boolean;
   supportsForkSession: boolean;
   /** agent 在 initialize 里声明它收 image 块;没声明按协议默认 false。 */
   supportsImagePrompt: boolean;
   /** agent 在 initialize._meta 里声明 ACP steering 扩展。 */
   supportsSteering: boolean;
-  /**
-   * agent 自己报状态(`agentCapabilities._meta.sessionState`,随后发 `state_update`):
-   * 在不在跑只听它的,谁开的工都一样。不报的家只有「prompt 请求还没答」这一个事实可用。
-   */
-  reportsState: boolean;
   /**
    * 这条连接**实际**在跟哪个进程说话 —— spawn 当场绑定的 pid,拿不到时为 null。
    *
@@ -54,6 +49,8 @@ export interface AcpAgentConnection {
    * 而不是「我们调过 stop 了」。
    */
   pid: number | null;
+  /** Signal the bound process and wait for its actual exit, without force escalation. */
+  stopProcess(): Promise<void>;
 }
 
 /**
@@ -72,7 +69,7 @@ export async function createAcpAgentConnection(
     spawn: AgentHostAcpSpawn;
     scope: Scope;
     /** Factory called once; the runtime passes its buildAgentClient result here. */
-    buildClient: (agent: AcpAgentApi, normalize: AcpSessionUpdateNormalizer) => Client;
+    buildClient: (agent: AcpAgentApi, process: Pick<AcpProcessHandle, 'pid'>) => AcpClient;
     /** Pool key this connection was provisioned under; carries the conversation id when the
      *  session is platform-isolated, so the logged binding is addressable. */
     connectionKey: string;
@@ -144,9 +141,10 @@ export async function createAcpAgentConnection(
     });
   }
 
+  let actualExitObserved = false;
   connectionScope.add(() => {
     // 已退出由进程宿主识别；其它失败交给 scope 的 cleanup-error 出口。
-    handle.kill('SIGTERM');
+    if (!actualExitObserved) handle.kill('SIGTERM');
   });
 
   const processClosed = onceProcessClosed(handle, logger);
@@ -158,18 +156,13 @@ export async function createAcpAgentConnection(
   // ❌ 不等 stderr 读到 EOF:harness 拉起的孙进程继承了 stderr 还活着时(Bun / node 包装脚本常见),
   // 管道在父进程退出后也不会关,那就是永远等下去。卡住的孙进程归收树(#6353),不归失败原因。
   const processExit = new Promise<{ code: number | null; signal: string | null }>((resolve) => {
-    handle.onExit(resolve);
+    handle.onExit(exit => { actualExitObserved = true; resolve(exit); });
   });
-
-  const normalize = (raw: SessionUpdate): NormalizedEvent => {
-    const base = decodeSessionUpdate(raw);
-    return behavior.enrich ? behavior.enrich(base, raw) : base;
-  };
 
   let connection: AcpAgentApi;
   try {
     connection = behavior.connect({ stdin: handle.stdin, stdout: handle.stdout }, (agent) =>
-      buildClient(agent, normalize)
+      buildClient(agent, handle)
     );
   } catch (e) {
     await connectionScope.dispose();
@@ -193,17 +186,14 @@ export async function createAcpAgentConnection(
     const supportsImagePrompt = initialized.agentCapabilities?.promptCapabilities?.image === true;
     const initializeMeta = (initialized as InitializeResponse & { _meta?: unknown })._meta;
     const supportsSteering = isSteeringCapability(initializeMeta);
-    const reportsState = isObject(
-      (initialized.agentCapabilities?._meta as Record<string, unknown> | undefined)?.sessionState,
-    );
     logger.debug('createAcpAgentConnection: initialized', {
       supportsLoadSession,
       supportsForkSession,
       supportsImagePrompt,
       supportsSteering,
-      reportsState,
     });
-    void processClosed.then(async (closed) => {
+    const ended = processExit.then(async (exit) => {
+      const closed = { kind: 'exit' as const, exitCode: exit.code, signal: exit.signal };
       // @@@5405 先把这棵树收干净,再把「进程没了」报出去 —— 顺序本身就是合同的一部分。
       // 报出去的下一步是宿主结算这一代平台额度(撤令牌 + 删那份 0600 settings 文档)。
       // 适配器被 SIGKILL 时它没机会收自己拉起的引擎,引擎 reparent 到 PID1 继续跑完手上的工具
@@ -231,7 +221,6 @@ export async function createAcpAgentConnection(
         pid: typeof handle.pid === 'number' ? handle.pid : null,
         exitCode: exitCodeFromClosed(closed),
         signal: signalFromClosed(closed),
-        error: closed.kind === 'error' ? closed.error.message : undefined,
         stderrTailLines: stderrTail.lineCount(),
         stderrTail: stderrTail.text(),
         // 收掉了几个:0 与「没收」不是同一件事,所以这一格必须出现在每条退出记录上。
@@ -247,13 +236,24 @@ export async function createAcpAgentConnection(
     });
     return ok({
       agent: connection,
-      normalize,
+      process: handle,
       supportsLoadSession,
       supportsForkSession,
       supportsImagePrompt,
       supportsSteering,
-      reportsState,
       pid: typeof handle.pid === 'number' ? handle.pid : null,
+      stopProcess: async () => {
+        if (!actualExitObserved) handle.kill('SIGTERM');
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        try {
+          await Promise.race([
+            ended,
+            new Promise<never>((_resolve, reject) => {
+              timer = setTimeout(() => reject(Object.assign(new Error('stop_pending: executor is still stopping; check its state before reporting success'), { code: 'stop_pending' })), 10_000);
+            }),
+          ]);
+        } finally { if (timer) clearTimeout(timer); }
+      },
     });
   } catch (e) {
     // #6360 initialize 没等到回话 —— 最常见的是适配器自己先退了(配置坏、依赖缺、env 错),
@@ -435,35 +435,6 @@ function initializeAgent(agent: AcpAgentApi, host: AcpAgentProcessHost) {
       _meta: {
         'gugu.mcp-input-preview': true,
         'terminal-auth': true,
-        /**
-         * 请 agent 报自己的状态(ACP v2 草案 prompt 生命周期的 `state_update`,在 v1 上按这一位
-         * 选择加入;v1 的联合里没有这一种,`acp-stdio` 进门前裹信封)。咕咕判「在不在跑」只认状态,
-         * ❌ 不认「哪一轮还没结」—— agent 自己开工(后台任务完成的通知)时根本没有那一轮(#7087)。
-         */
-        'session-state': true,
-        /**
-         * 上面 `subagents: {}` 是规范草案字段(agent-client-protocol#1992),已发布的
-         * TypeScript SDK 还没保留它;在它落地之前,同一件事的过渡signal走 JetBrains AIR
-         * 扩展。两个都发:规范字段一旦可用就**优先**(README:“The canonical field remains
-         * supported and takes precedence once it is available.”),AIR 这份是兜底。
-         *
-         * ⚠️ 两个能力**各管一段,缺一不可**:
-         *  · `nativeSubagentSessions` —— 子智能体拿到自己的会话(`subagent_spawned` /
-         *    `subagent_state_update`),取消走规范的 `session/cancel` 打那个子会话。
-         *  · `asyncTasks`             —— 后台任务生命周期(`async_task_spawned` /
-         *    `_progress` / `_state_update`)。适配器里这条 lane 由
-         *    `clientSupportsAsyncTasks(clientCapabilities)` 把关,**不声明就整条不发**,
-         *    后台命令连 `canStop` / `toolCallId` 都拿不到。
-         *
-         * 形状不是猜的,来自 0.75.1 的 `air-extension.js`:`version` 必须是 ≥1 的整数,
-         * `capabilities` 必须是数组且 `includes` 那个名字,三条全中才算声明过。
-         */
-        jetbrains: {
-          air: {
-            version: 1,
-            capabilities: ['nativeSubagentSessions', 'asyncTasks'],
-          },
-        },
       },
     },
   };
@@ -568,8 +539,4 @@ function redactSecrets(text: string): string {
     // 末尾的 `(?![:/])` 把 scp 形式的 git 远端(`git@github.com:owner/repo`)排除在外:
     // 那不是一个邮箱地址,而是一条有用的 stderr。
     .replace(/\b[A-Za-z0-9._%+-]+@([A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,})\b(?![:/])/g, '<redacted>@$1');
-}
-
-function isObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }

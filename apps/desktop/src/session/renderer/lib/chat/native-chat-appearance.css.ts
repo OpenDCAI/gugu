@@ -1,3 +1,4 @@
+import { viewportTopFade } from '@gugu/session-chat-ui/styles/effects';
 import { globalStyle, style } from '@vanilla-extract/css';
 import { CHAT_COMPOSER_EDGE_FADE_PX } from '@gugu/session-chat-ui/layout-geometry';
 
@@ -36,6 +37,9 @@ globalStyle(`${nativeChatAppearance} [data-slot="turn-process"]::after`, {
   borderBottom: '1px solid var(--chat-border)', pointerEvents: 'none',
 });
 
+// Agent-centered sessions use a quiet footer disclosure instead of a process divider.
+globalStyle(`${nativeChatAppearance} [data-chat-root][data-agent-conversation="true"] [data-slot="turn-process"]::after`, { display: 'none' });
+
 globalStyle(`${nativeChatAppearance} [data-composer-action="stop"]`, {
   backgroundColor: 'var(--foreground)', color: 'var(--background)', borderColor: 'transparent',
 });
@@ -48,15 +52,13 @@ globalStyle(`${nativeChatAppearance} [data-slot="day-separator-rule"]`, { displa
 // They do not intercept input or change measured row heights. The lower fade
 // follows the actual composer layer as drafts and attachments change its height.
 globalStyle(`${nativeChatAppearance} [data-chat-root]::before`, {
+  ...viewportTopFade,
   content: '""',
   position: 'absolute',
   top: 0,
   left: 0,
   right: 0,
-  height: 16,
   zIndex: 11,
-  pointerEvents: 'none',
-  background: 'linear-gradient(to bottom, var(--chat-bg), transparent)',
 });
 
 globalStyle(`${nativeChatAppearance} [data-chat-composer-placement="bottom"]::before`, {

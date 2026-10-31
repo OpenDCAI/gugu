@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { PerfCounters } from '@shared/renderer-metrics';
 import type { ResourceSnapshot } from '@shared/resource-monitor';
-import { createAltClickCounter, internalsRows } from './resource-monitor-internals';
+import { internalsRows } from './resource-monitor-internals';
 
 function counters(n: number): PerfCounters {
   return { imTransactions: n, presenceBatches: n, presenceIds: n * 10, contactsProviderRenders: n };
@@ -35,27 +35,5 @@ describe('internalsRows', () => {
 
   it('does not difference across different processes', () => {
     expect(internalsRows(snap(0, 100, 7), snap(2000, 104, 8))[0].counterRates).toBeUndefined();
-  });
-});
-
-describe('createAltClickCounter', () => {
-  it('fires on the fifth consecutive Alt-click and starts over', () => {
-    let t = 0;
-    const counter = createAltClickCounter(() => t);
-    const clicks = (n: number, alt = true) => Array.from({ length: n }, () => { t += 100; return counter.click(alt); });
-    expect(clicks(5)).toEqual([false, false, false, false, true]);
-    expect(clicks(4)).toEqual([false, false, false, false]);
-    expect(clicks(1)).toEqual([true]);
-  });
-
-  it('breaks the run on a plain click or a long pause', () => {
-    let t = 0;
-    const counter = createAltClickCounter(() => t);
-    for (let i = 0; i < 4; i++) { t += 100; counter.click(true); }
-    t += 100;
-    expect(counter.click(false)).toBe(false);
-    for (let i = 0; i < 4; i++) { t += 100; counter.click(true); }
-    t += 5000;
-    expect(counter.click(true)).toBe(false);
   });
 });

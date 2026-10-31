@@ -2,7 +2,7 @@ import type { SessionpageSessionSummary } from '@gugu/session-core/session-recor
 import type { FileOpenerCandidate } from './file-openers';
 /**
  * The App runtime's wire: what the platform script, the preload and main agree on
- * (gugu-base notes/2026-09-29-app-platform/workspace-app/L3-runtime-interface.md).
+ * (the App platform's L3 runtime interface).
  *
  * Three facts live here and nowhere else:
  * - where the runtime is served from (a reserved path on every App origin) and the one
@@ -68,7 +68,7 @@ export const BUSY_SECONDS = 10;
 export const PAGE_DIALOGS = ['alert', 'confirm', 'prompt'] as const;
 export type PageDialog = (typeof PAGE_DIALOGS)[number];
 export function noPageDialog(name: PageDialog): string {
-  return `${name}() does not exist in an App page (a dialog that stops the page would freeze the host; a phone has none): ask on the page — an input, a button, a line of text (guide: apps-page)`;
+  return `${name}() does not exist in an App page (a dialog that stops the page would freeze the host): use gugu.modal.open({ entry, title }) (guide: apps-page)`;
 }
 
 /**
@@ -91,32 +91,6 @@ export function injectAppRuntime(html: string): string {
   const head = doctype[1]!;
   return head + RUNTIME_SCRIPT_TAG + html.slice(head.length);
 }
-
-// ─── slots outside the session page ─────────────────────────────────────────────
-
-/**
- * The window event a slot outside the session page (a group's side panel, later the dock) claims an
- * App's resident page with, and releases it (task renderer `app-slot-events.ts`).
- */
-export const APP_SLOT_EVENT = 'gugu:app-slot';
-
-export type AppSlotEventDetail =
-  | {
-      type: 'claim';
-      /** Stable for the slot; claiming again replaces its claim. */
-      slotId: string;
-      /** `<extensionId>.<tabName>` — which App page. */
-      kind: string;
-      /** The group the slot is drawn for; the page's context carries it (and no sessionId). */
-      chatId?: string;
-      /** The group file the slot opened with this App (「用 X 打开」): the page's handed-over file. */
-      itemId?: string;
-      /** Where to draw the page: an element of this document, on screen while claimed. */
-      element: HTMLElement;
-    }
-  | { type: 'release'; slotId: string }
-  /** The person picked one of the tab's declared toolbar / menu entries on the slot's header (摩擦单 F13). */
-  | { type: 'command'; slotId: string; commandId: string };
 
 // ─── the sync port ──────────────────────────────────────────────────────────
 
@@ -156,7 +130,10 @@ export type SyncToPage =
    * A session working copy's file taken back as `deleted` is on the disk again (`git checkout`, an undo): the page opens
    * it again (`files.reopen`, the next generation) and is online (摩擦单 F92). Never sent for a group's file.
    */
-  | { t: 'back'; docName: string };
+  | { t: 'back'; docName: string }
+  /** Decorations of the authorized entry, read after the page has painted its document. */
+  | { t: 'entry'; docName: string; entry: AppFileEntry }
+  | { t: 'entry-error'; docName: string; message: string };
 
 export type SyncToMain =
   /**
@@ -169,7 +146,8 @@ export type SyncToMain =
    * the whole state as one Yjs update, opaque to main. `null` clears it. If the page goes
    * away still holding one, main delivers it when it can (`L3-runtime-interface.md` §3.4-5).
    */
-  | { t: 'will'; docName: string; update: ArrayBuffer | null };
+  | { t: 'will'; docName: string; update: ArrayBuffer | null }
+  | { t: 'entry'; docName: string };
 
 // ─── files.* over the bridge ─────────────────────────────────────────────────
 
@@ -328,6 +306,10 @@ export function fileSearchOf(value: unknown): AppFileSearch {
 
 /** A file as the page sees it (`GuguFileEntry`) — itself a ref: `{ chat, id }` or `{ session, id }`. */
 export interface AppFileEntry {
+  /** Durable workspace namespaces, including app={publisher,id}; never an access restriction. */
+  metadata?: Record<string, unknown>;
+  /** Author names and delete-menu eligibility are still being read; the file itself is already authorized. */
+  detailsPending?: boolean;
   /** A chat file: its item id. A working-copy file: its path there (POSIX). */
   id: string;
   /** Where it lives: exactly one of these (`AppPlace`). */
@@ -354,12 +336,26 @@ export interface AppFileEntry {
   /** The App that opens it here (the most specific claim, or the one chosen to always use); `null` when none does. */
   claimedBy: AppFileClaimant | null;
   size: number | null;
+  /**
+   * A project chat's file kept on its host machine and uploaded only when someone opens it (file storage policy): the
+   * machine's name when it is the reader's own (`null` otherwise), and whose file storage setting it follows; whether it is
+   * on (`online`, the reader's own machines only — the file opens once it is). Absent for every other file.
+   */
+  storedOn?: { machine: string | null; owner: string; mine: boolean; online?: boolean };
+  /**
+   * How long its cloud copy is kept (`files.list`'s answer only, gugu-supabase #69): `expiresAt`, when it is cleared — `null`,
+   * kept until someone deletes it — and `mine`, whether whoever reads uploaded it (only they change it, `files.keep`).
+   * `null`: no cloud copy (a project file kept on its machine, a document, a folder). Absent where the read does not say.
+   */
+  keep?: { expiresAt: string | null; mine: boolean } | null;
   /** A chat file's version (G1: `files.replace` makes the next one); `null` for a working copy's file. */
   version: number | null;
   createdAt: string | null;
   updatedAt: string | null;
   /** Who made it (真源 §2.4): `system` when no person or agent did. */
   createdBy: AppFilePerson | null;
+  /** Who last changed its content; null when unknown or unavailable for a working-copy file. */
+  updatedBy: AppFilePerson | null;
   /** The chat messages it came from, for `gugu.showMessage` — ids only, never their content. */
   sourceMessageIds: string[];
   /**
@@ -454,24 +450,31 @@ export type HostToFrame =
 /**
  * `gugu.files.openWith` (「用 X 打开」, 真源 §2.4): main has resolved who claims the file in the group
  * and tells the window that shows the group's side panel — which opens that App on the file, or
- * asks the person when several claim it (a choice of `chooseOpener`, never `none`).
+ * asks the person when several claim it; nobody claims it: the host previews it.
  */
 export const APP_OPEN_WITH_EVENT = 'gugu:app-open-with';
 export interface AppOpenWithDetail {
+  /** Refresh this already-open App tab after it was shown; never activate a late validation result. */
+  background?: boolean;
+  /** Host-only, one-shot authorization carried to the file's binding. Contains no document content. */
+  opening?: PreparedChatFile;
   chatId: string;
   itemId: string;
   name: string;
   /** What kind of file it is (`typedFileName`): who opens it is matched by this, never by guessing from `name`. */
   typedName: string;
+  file: ChatPeekFile;
   choice:
     | { kind: 'one'; candidate: FileOpenerCandidate }
     | { kind: 'choose'; suffix: string; candidates: FileOpenerCandidate[] }
-    /** Nobody here opens it: the group's panel offers the App that would (a shared package, the market — 161 10-15). */
+    /** No App claims it: the host's existing file preview, including details and download for unsupported formats. */
     | { kind: 'none' };
 }
 
 /** A chat file as the host's preview reads it (its bytes are its version's). */
 export interface ChatPeekFile {
+  /** A live document uses the existing file service, not an attachment URL. */
+  document: boolean;
   contentType: string;
   version: number;
   size: number;
@@ -485,25 +488,10 @@ export interface ChatPeekFile {
  * (`deviceId`), whose timeline the phone draws.
  */
 export type PeekTarget =
-  | { kind: 'chat'; detail: AppOpenWithDetail; file: ChatPeekFile }
+  | { kind: 'chat'; detail: AppOpenWithDetail }
   | { kind: 'local'; place: LocalPlace; projectId: string; workspaceId: string; path: string; absolutePath: string; name: string; ask: boolean }
   | { kind: 'session'; sessionId: string; projectId: string; deviceId?: string };
 
-/**
- * 摩擦单 F10: open a file of a group (or a topic) where the person is — a link in the chat, `session_open_in_tab`, a link
- * in a session's transcript (`gugu-file://<itemId>`, `parseGroupFileLink`). One window event, one listener (the chat shell):
- * it brings that chat up, leaves the file with whatever shows it (a group's side panel, a topic's split) and cancels the
- * event to say it took it. Not taken: the person is not in that chat (told so), and whoever asked says that, not that it
- * opened.
- */
-export const GROUP_FILE_OPEN_EVENT = 'gugu:open-group-file';
-export interface GroupFileOpenDetail {
-  /** The chat the file is in, as the file says (F112); null when the person is not in it — they see no such file. */
-  chatId: string | null;
-  itemId: string;
-  /** The place in it a pill points at (its link's `#…`, `parseGroupFileLink`): the App that opens it gets it as a `link` event. */
-  at?: Record<string, string>;
-}
 export const GROUP_FILE_NOT_OPENED = 'Not opened: the person at this computer is not in the chat this file belongs to';
 
 /** `gugu.compose` from an App in a chat's slot, desktop (main's host action) and phone alike: `useSlotMakesWay` takes it. */
@@ -513,7 +501,7 @@ export interface AppComposeDetail {
   text: string;
   /** G3 Images beside the text, as attachments of the draft: the person sends them, or not. */
   images?: AppComposeImage[];
-  /** App 引用 pill: the pills its `refs` made, held by the composer beside the text and sent under it. */
+  /** File references inserted as inline mention tokens in the draft text. */
   refs?: AppComposeRef[];
 }
 
@@ -550,11 +538,8 @@ export interface AppOpenInChatDetail {
 export const APP_FORUM_CONSENT_EVENT = 'gugu:app-forum-consent';
 export type AppForumConsentDetail =
   | { type: 'bounty'; draft: import('./app-forum-core').BountyDraft }
-  | { type: 'award'; draft: import('./app-forum-core').AwardDraft }
-  /** `gugu.forum.assign`: the person picks one of their own agents in the host's list; the App never lists them. */
-  | { type: 'assign'; draft: import('./app-forum-core').AssignDraft };
+  | { type: 'award'; draft: import('./app-forum-core').AwardDraft };
 
-export const APP_SHOW_MESSAGE_EVENT = 'gugu:app-show-message';
 export interface AppShowMessageDetail {
   chatId: string;
   messageId: string;
@@ -562,10 +547,7 @@ export interface AppShowMessageDetail {
 
 /** `gugu.showSession` on the phone: the task tab opens the session's row — the machine it is on, and the row as listed. */
 export const APP_SHOW_SESSION_EVENT = 'gugu:app-show-session';
-export interface AppShowSessionDetail {
-  deviceId: string;
-  session: SessionpageSessionSummary;
-}
+export type AppShowSessionDetail = { deviceId: string; session: SessionpageSessionSummary; tabKind?: string; draft?: { text: string } } | { projectId: string };
 
 /** What `files.open` / `files.reopen` answer. */
 export interface AppFileOpened {
@@ -579,6 +561,14 @@ export interface AppFileOpened {
    * for it (`docName` is empty); the page hands them over as `f.blob()`.
    */
   bytes?: ArrayBuffer;
+}
+
+/** The click's authorized document metadata, consumed by exactly one bound file open. */
+export interface PreparedChatFile {
+  entry: AppFileEntry;
+  epoch: number;
+  actor: string;
+  expiresAt: number;
 }
 
 /** The suffix a content type stands for (摩擦单 F41), `''` for a type that names none (bytes: `application/octet-stream`). */
@@ -636,7 +626,7 @@ export const FRAME_TYPE = {
   Pong: 10,
 } as const;
 
-const SYNC_STEP_2 = 1;
+export const SYNC_STEP_2 = 1;
 const SYNC_UPDATE = 2;
 const AUTH_TOKEN = 0;
 const AUTH_PERMISSION_DENIED = 1;
@@ -706,6 +696,8 @@ class Writer {
 export interface FrameHead {
   key: string;
   type: number;
+  /** Sync frames only: the Yjs handshake step or update kind. */
+  syncStep?: number;
   /** Sync frames only: whether it would change the document (Step 2 with content, or Update). */
   carriesUpdate: boolean;
 }
@@ -720,13 +712,11 @@ export function readFrameHead(frame: Uint8Array): FrameHead | null {
     const r = new Reader(frame);
     const key = r.varString();
     const type = r.varUint();
+    const syncStep = type === FRAME_TYPE.Sync ? r.varUint() : undefined;
     let carriesUpdate = false;
-    if (type === FRAME_TYPE.Sync) {
-      const step = r.varUint();
-      if (step === SYNC_UPDATE) carriesUpdate = true;
-      else if (step === SYNC_STEP_2) carriesUpdate = !isEmptyYjsUpdate(r.varBytes());
-    }
-    return { key, type, carriesUpdate };
+    if (syncStep === SYNC_UPDATE) carriesUpdate = true;
+    else if (syncStep === SYNC_STEP_2) carriesUpdate = !isEmptyYjsUpdate(r.varBytes());
+    return { key, type, syncStep, carriesUpdate };
   } catch {
     return null;
   }
@@ -760,6 +750,11 @@ export function encodeAuthFrame(key: string, token: string): Uint8Array {
 
 export function encodeSyncUpdateFrame(key: string, update: Uint8Array): Uint8Array {
   return new Writer().varString(key).varUint(FRAME_TYPE.Sync).varUint(SYNC_UPDATE).varBytes(update).toBytes();
+}
+
+/** A read-only replica completes the handshake without sending its content or deletion history. */
+export function encodeReadOnlySyncReply(key: string): Uint8Array {
+  return new Writer().varString(key).varUint(FRAME_TYPE.Sync).varUint(SYNC_STEP_2).varBytes(Uint8Array.of(0, 0)).toBytes();
 }
 
 /** The service's answer to an Auth frame, when that is what `frame` is. */

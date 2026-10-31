@@ -34,7 +34,7 @@ function parseCodebuddyHookEvent(eventType: string, body: Record<string, unknown
  * 事件名与 payload 都是 Claude 同形(官方 https://www.codebuddy.ai/docs/cli/hooks 的 14 种事件)。
  * ACP 模式下实测触发了 SessionStart / UserPromptSubmit / PreToolUse / PermissionRequest /
  * PostToolUse / Notification / Stop,payload 带 `hook_event_name`、`session_id`、`transcript_path`、
- * `tool_name`(gugu-base notes/2026-10-19-codebuddy-harness 实测读数 out/、out3/ 的 hooks.log)。
+ * `tool_name`(2026-10-19 实测录下的 hooks.log)。
  */
 export function buildCodebuddyHookConfig() {
   return {

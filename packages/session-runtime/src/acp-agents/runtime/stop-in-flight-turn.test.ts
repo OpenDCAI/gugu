@@ -19,13 +19,71 @@ async function turnInFlight(sessionId: string) {
   expect(isOk(await rt.startSession(makeStartInput({ sessionId })))).toBe(true);
   let rejectPrompt!: (error: unknown) => void;
   h.agent.prompt = vi.fn(() => new Promise((_, reject) => { rejectPrompt = reject; }));
-  const turn = rt.sendPrompt(sessionId, { text: 'sleep 300' });
+  const sent = rt.promptDetached(sessionId, { text: 'sleep 300' });
+  if (!sent.success) throw new Error('Missing session');
   await h.agent.called('prompt');
+  // The provider has started on it: its first event admits the request.
+  h.client().sessionEvent({ sessionId: 'session-1', event: { kind: 'thinking', messageId: 'started', text: 'Starting.' } });
+  await sent.data.admission;
+  const turn = sent.data.completion;
   const summaries = () => rt.sessionsListLiveModel().states.list.snapshot().data;
   return { h, rt, turn, outcomes, summaries, rejectPrompt: (error: unknown) => rejectPrompt(error) };
 }
 
 describe('stopSession with a turn in flight', () => {
+  it('waits for the bound process exit before reporting stop success', async () => {
+    const { h, rt, turn, rejectPrompt } = await turnInFlight('delayed-stop-exit');
+    h.lastChild.kill.mockImplementation(() => undefined);
+    let returned = false;
+    const stopped = rt.stopSession('delayed-stop-exit').then(result => { returned = true; return result; });
+    await vi.waitFor(() => expect(h.lastChild.kill).toHaveBeenCalledWith('SIGTERM'));
+    h.lastChild.emit('error', new Error('EPIPE'));
+    await Promise.resolve();
+    expect(returned).toBe(false);
+    h.lastChild.emitExit(null, 'SIGTERM');
+    expect(isOk(await stopped)).toBe(true);
+    rejectPrompt(new Error('ACP connection closed'));
+    await turn;
+    expect(h.lastChild.kill.mock.calls).toEqual([['SIGTERM']]);
+  });
+
+  it('keeps an unexited executor managed and reports stop_pending without force escalation', async () => {
+    const { h, rt, turn, rejectPrompt } = await turnInFlight('pending-stop-exit');
+    h.lastChild.kill.mockImplementation(() => undefined);
+    vi.useFakeTimers();
+    try {
+      const stopping = rt.stopSession('pending-stop-exit');
+      await vi.advanceTimersByTimeAsync(10_001);
+      expect(await stopping).toEqual({ success: false, error: { type: 'stop_pending' } });
+      expect(rt.sessionLiveModels('pending-stop-exit')).toBeDefined();
+      expect(h.lastChild.kill.mock.calls).toEqual([['SIGTERM']]);
+      const retried = rt.stopSession('pending-stop-exit');
+      await vi.advanceTimersByTimeAsync(0);
+      h.lastChild.emitExit(null, 'SIGTERM');
+      expect(isOk(await retried)).toBe(true);
+      expect(rt.sessionLiveModels('pending-stop-exit')).toBeNull();
+      rejectPrompt(new Error('ACP connection closed'));
+      await turn;
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('settles a late exit after stop_pending even without another stop request', async () => {
+    const { h, rt, turn, rejectPrompt } = await turnInFlight('late-stop-exit');
+    h.lastChild.kill.mockImplementation(() => undefined);
+    vi.useFakeTimers();
+    try {
+      const stopping = rt.stopSession('late-stop-exit');
+      await vi.advanceTimersByTimeAsync(10_001);
+      expect(await stopping).toEqual({ success: false, error: { type: 'stop_pending' } });
+      h.lastChild.emitExit(null, 'SIGTERM');
+      await vi.advanceTimersByTimeAsync(0);
+      expect(rt.sessionLiveModels('late-stop-exit')).toBeNull();
+      rejectPrompt(new Error('ACP connection closed'));
+      await turn;
+      expect(h.lastChild.kill.mock.calls).toEqual([['SIGTERM']]);
+    } finally { vi.useRealTimers(); }
+  });
+
   it('codex 形:close 不答 prompt、拆连接后才被拒 —— 那一轮是被停下,会话不再出现在摘要里', async () => {
     const { rt, turn, outcomes, summaries, rejectPrompt } = await turnInFlight('conv-stop-mid-turn');
     expect(summaries()['conv-stop-mid-turn']).toBeDefined();
@@ -48,10 +106,13 @@ describe('stopSession with a turn in flight', () => {
   });
 
   it('关的同时 provider 自己回了错:那是它说的话,照旧是失败', async () => {
-    const { rt, turn, outcomes, rejectPrompt } = await turnInFlight('conv-provider-error');
-
+    const { h, rt, turn, outcomes, rejectPrompt } = await turnInFlight('conv-provider-error');
+    h.agent.closeSession.mockImplementationOnce(async () => {
+      rejectPrompt(Object.assign(new Error('upstream 429'), { name: 'RequestError', code: -32603 }));
+      await vi.waitFor(() => expect(outcomes.at(-1)?.kind).toBe('error'));
+      return {};
+    });
     expect(isOk(await rt.stopSession('conv-provider-error'))).toBe(true);
-    rejectPrompt(Object.assign(new Error('upstream 429'), { name: 'RequestError', code: -32603 }));
     await turn;
 
     expect(outcomes.at(-1)?.kind).toBe('error');

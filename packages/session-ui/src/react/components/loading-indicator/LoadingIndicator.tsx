@@ -5,6 +5,7 @@ import { useLayoutEffect, useRef, type CSSProperties, type Ref } from 'react'
 import lottie, { type AnimationItem } from 'lottie-web/build/player/lottie_light'
 import { loadingAnimationData } from './loading-animation.data'
 import './LoadingIndicator.css'
+import { observeAnimationViewport } from '@gugu/session-shared/animation-visibility'
 
 /**
  * 咕咕唯一的加载态。冷启动、会话页骨架、TUI 起会话、ACP 拉历史、开工作区 —— 全都用这一个。
@@ -78,9 +79,10 @@ export function LoadingIndicator(props: LoadingIndicatorProps) {
 
     // 系统减弱动态：停在第 0 帧那个完整的点簇，而不是留空 ——
     // 「不要动效」不等于「不要加载态」。
+    const view = host.ownerDocument.defaultView
     const reduced =
-      typeof window.matchMedia === 'function' &&
-      window.matchMedia('(prefers-reduced-motion: reduce)').matches
+      typeof view?.matchMedia === 'function' &&
+      view.matchMedia('(prefers-reduced-motion: reduce)').matches
 
     // ❌ 别在这里包 try/catch 兜底：播放器起不来就是真失败，该由错误边界响亮地报出来。
     // 之前那个静默 catch 什么也没救到，只会把下一次真故障变成一块无人知晓的空白。
@@ -93,33 +95,18 @@ export function LoadingIndicator(props: LoadingIndicatorProps) {
       animationData: structuredClone(loadingAnimationData),
     })
 
-    // 看不见就不转(#6629)。常驻但隐藏的面(`visibility:hidden` + `inert`,见 lib/retainedSurface.ts)
-    // 里的加载态照样逐帧改 SVG,渲染进程就按刷新率把样式/布局/绘制整条管线空跑,实测吃掉一个核的一半。
-    // IntersectionObserver 对 visibility:hidden 仍报「相交」⇒ 以 checkVisibility 为准;
-    // 祖先的属性变化(切面板)与自己进出文档/显示(IntersectionObserver)都触发重判。
-    // 没有 checkVisibility 的 WebView(旧 iOS)照旧一直转。
-    const observers: Array<MutationObserver | IntersectionObserver> = []
+    let stopViewport: (() => void) | undefined
     if (reduced) {
       animation.goToAndStop(0, true)
-    } else if (typeof host.checkVisibility !== 'function') {
-      animation.play()
     } else {
-      const sync = () => {
-        if (host.checkVisibility({ visibilityProperty: true })) animation.play()
+      stopViewport = observeAnimationViewport(host, (visible) => {
+        if (visible) animation.play()
         else animation.pause()
-      }
-      sync()
-      const ancestors = new MutationObserver(sync)
-      for (let el = host.parentElement; el; el = el.parentElement) {
-        ancestors.observe(el, { attributes: true, attributeFilter: ['style', 'class', 'hidden', 'inert'] })
-      }
-      const presence = new IntersectionObserver(sync)
-      presence.observe(host)
-      observers.push(ancestors, presence)
+      })
     }
 
     return () => {
-      for (const observer of observers) observer.disconnect()
+      stopViewport?.()
       animation.destroy()
     }
   }, [])

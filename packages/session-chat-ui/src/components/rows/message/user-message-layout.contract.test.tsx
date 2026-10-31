@@ -46,6 +46,8 @@ type Reading = {
   cardH: number;
   /** 这一行画出来的附件 chip 数(#5269)。 */
   chips: number;
+  /** 画出来的气泡数:只有附件、没有正文时是 0。 */
+  cards: number;
   left: number;
   right: number;
   width: number;
@@ -98,8 +100,8 @@ async function mountUser(item: ChatMessage, layout: ChatLayout, commands: ChatCo
   );
   try {
     await nextPaint();
-    const card = host.querySelector<HTMLElement>('[data-user-card]');
-    if (!card) throw new Error('user card did not mount');
+    const cards = host.querySelectorAll('[data-user-card]').length;
+    const card = host.querySelector<HTMLElement>('[data-user-card]') ?? document.createElement('div');
     // ⚠️ `measure()` 报的是**整行**的高:附件条挂在气泡外面,是气泡的兄弟(#5269)。
     // 量气泡只会量到正文那一半 —— 那正是这几条在附件条搬家后红掉的原因。
     const root = host.firstElementChild as HTMLElement;
@@ -121,6 +123,7 @@ async function mountUser(item: ChatMessage, layout: ChatLayout, commands: ChatCo
       dom: root.offsetHeight,
       cardH: card.offsetHeight,
       chips: root.querySelectorAll('[data-attachment-chip]').length,
+      cards,
       left: rect.left - hostRect.left,
       right: rect.right - hostRect.left,
       width: rect.width,
@@ -283,6 +286,24 @@ describe('附件 mention → 附件条 (#5269)', () => {
     const r = await mountUser(item, DOUBLE);
     expect(r.computed).toBe(r.dom);
     expect(r.chips).toBe(1);
+  });
+
+  it('只有附件、没有正文(长文本自动转成的 pasted-text.txt):只画附件,不画空气泡;measure === offsetHeight', async () => {
+    const item = normalizeMessage({
+      kind: 'message',
+      id: 'u-pasted',
+      role: 'user',
+      text: '@[pasted-text.txt](/Users/me/Library/task-attachments/t1/abc-pasted-text.txt)',
+    });
+    expect(item.text).toBe('');
+    for (const layout of [DOUBLE, SINGLE]) {
+      const r = await mountUser(item, layout);
+      expect(r.chips).toBe(1);
+      expect(r.cards, 'an empty bubble is drawn: a full-width colored bar under the chip').toBe(0);
+      expect(r.computed).toBe(r.dom);
+    }
+    // 阳控:有正文时气泡照画。
+    expect((await mountUser(normalizeMessage(FILE_MENTION), DOUBLE)).cards).toBe(1);
   });
 
   it('❌ 相对路径的 mention 不摘 —— 那是正文里提到的文件,不是这条消息的附件', async () => {

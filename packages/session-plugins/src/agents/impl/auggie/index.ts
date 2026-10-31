@@ -38,12 +38,13 @@ export const plugin = definePlugin(
       supportedEvents: ['notification', 'stop', 'session', 'start'],
     },
     // 托管安装(npm backend):纯 JS(bin `augment.mjs`),依赖树交给 aube。
-    hostDependency: miseDependency({
+    // `versionLine`:`--version` 里它自己那一行,实测原样「0.36.0 (commit 7c61e5bb)」(包装器的 banner 在它前面)。
+    hostDependency: { ...miseDependency({
       id: 'auggie',
       backend: 'npm',
       package: '@augmentcode/auggie',
       node: MANAGED_NODE_VERSION,
-    }),
+    }), versionLine: /^\d+\.\d+\.\d+ \(commit / },
     /**
      * agent memory —— auggie 自己会去读的规则文件。官方文档
      * https://docs.augmentcode.com/cli/rules.md(取证 2026-08-24)原文列了六条:

@@ -77,7 +77,7 @@ export function AgentJoinRoute({
     // non-fatal here — we still enter the app.
     void contactsService
       .sendRequest(user.id, targetAgentId)
-      .catch(() => { /* already friends or pending — still enter the app */ })
+      .catch((error: unknown) => { publicAgentLog.error({ error }, 'public join contact request failed') })
       .finally(() => { enterApp() })
   }
 

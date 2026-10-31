@@ -1,7 +1,9 @@
 import { useTranslation } from 'react-i18next'
 import type { Device } from '@gugu/core/shared/types/chat'
 import { Button } from '@/components/ui/Button'
-import { ChevronRight, Monitor } from '@/lib/icons'
+import { ListRowContent } from '@/components/ui/ListRow'
+import { ChevronRight, Monitor, MonitorSmartphone } from '@/lib/icons'
+import { isPhoneDevice } from '@gugu/core/cloud/devices'
 import { deviceAcceptsWork } from '@gugu/core/cloud/cloudComputer'
 import { useDevicesStore } from '@/store/devicesContext'
 import { formatRelativeTime } from '@/i18n/format'
@@ -11,7 +13,11 @@ import { sessionListFromDigest } from '@/session/shared/remote-sessions/session-
 import { isAssistantSession } from '@/session/renderer/features/assistant/assistant-lineage'
 import { usePhoneAssistantIdentity } from '../assistant/phoneAssistantIdentity'
 import { useMachineLabel } from './useMachineLabel'
-import { visibleMachines } from './machine-list'
+import { visibleMachines, workspaceDevices } from './machine-list'
+import { DeviceDirectoryRetry } from './DeviceDirectoryRetry'
+import { PhoneHostSetupEntry } from './PhoneHostSetupEntry'
+import { phoneAgentAvailable } from '../local-agent/nativeAgent'
+import './task-flow-catalog'
 
 /**
  * 选机器页:新建会话的第一步(「在哪台机器上」)。
@@ -28,15 +34,19 @@ import { visibleMachines } from './machine-list'
 export function MachinesPage({
   onBack,
   onOpenDevice,
+  computersOnly = false,
 }: {
   onBack: () => void
   onOpenDevice: (device: Device) => void
+  computersOnly?: boolean
 }) {
   const { t } = useTranslation('main')
-  const { devices: allDevices, loading, error } = useDevicesStore()
-  const { isHome } = useMachineLabel()
+  const { t: tFlow } = useTranslation('mobileTaskFlow')
+  const { devices: allDevices, phones = [], loading, error } = useDevicesStore()
+  const { isHome, label: machineLabel } = useMachineLabel()
   // #7199 个人助理住的那台不列(规定「它住在哪」):那台不接人开的任务。
-  const devices = visibleMachines(allDevices, isHome)
+  const candidates = [...new Map([...allDevices, ...phones].map((device) => [device.device_id, device])).values()]
+  const devices = visibleMachines(computersOnly ? workspaceDevices(candidates) : candidates, isHome)
 
   return (
     <AgentWatchScreen
@@ -55,7 +65,9 @@ export function MachinesPage({
           detail={error}
           tone="danger"
           testId="agent-watch-machines-error"
-        />
+        >
+          <DeviceDirectoryRetry />
+        </AgentWatchNote>
       ) : null}
 
       {devices.length === 0 && loading ? (
@@ -64,7 +76,8 @@ export function MachinesPage({
 
       {devices.length === 0 && !loading && !error ? (
         <div className="gg-aw-placeholder">
-          {t('agentWatch.machines.empty')}
+          <div>{phoneAgentAvailable() ? tFlow('noHost') : t('agentWatch.machines.empty')}</div>
+          <PhoneHostSetupEntry />
         </div>
       ) : null}
 
@@ -73,6 +86,7 @@ export function MachinesPage({
           <MachineCard
             key={device.device_id}
             device={device}
+            label={machineLabel(device)}
             onOpen={onOpenDevice}
             disabled={!deviceAcceptsWork(device)}
           />
@@ -82,23 +96,24 @@ export function MachinesPage({
   )
 }
 
-/**
- * 一台机器。形制照抄 orca 手机端的 `MobileHostCard`：
- * 左边一个圆角图标块，右边名字 + 一行「状态点 + 状态词」，离线时再补一行「最后一次见到」。
- * 状态只由那个点和文字表达 —— ❌ 不用彩色胶囊，那在一列里全是色块。
- */
+/** A shared entity row; status and last seen are backed by the device record. */
 function MachineCard({
   device,
+  label,
   onOpen,
   disabled,
 }: {
   device: Device
+  label: string
   onOpen: (device: Device) => void
   /** 离线的机器:照画,但点不动 —— 它不在线就没法在它上面起进程。 */
   disabled?: boolean
 }) {
   const { t } = useTranslation('main')
   const online = device.is_online
+  const waking = device.cloud_computer === 'waking'
+  const connectable = device.cloud_computer === 'asleep' || waking
+  const { t: tFlow } = useTranslation('mobileTaskFlow')
   const seen = formatRelativeTime(device.last_seen_at)
   // #7199 个人助理自己的会话不算任务(它不住任务区)。
   const assistant = usePhoneAssistantIdentity()
@@ -108,33 +123,29 @@ function MachineCard({
     <Button
       variant="ghost"
       size="option"
-      className="gg-aw-machine"
+      className="gg-list-row gg-row gg-aw-machine"
+      data-mobile=""
       data-device-id={device.device_id}
       data-online={online ? 'true' : 'false'}
       disabled={disabled}
       onClick={() => onOpen(device)}
     >
-      <span className="gg-aw-machine-icon" data-online={online ? 'true' : 'false'}>
-        <Monitor />
-      </span>
-      <span className="gg-aw-machine-main">
-        <span className="gg-aw-item-title">{device.label}</span>
+      <ListRowContent title={label} leading={
+        <span className="gg-aw-machine-icon" data-online={online ? 'true' : 'false'}>
+          {isPhoneDevice(device) ? <MonitorSmartphone /> : <Monitor />}
+        </span>
+      } meta={count > 0 ? t('agentWatch.machines.sessionCount', { count }) : undefined} subtitle={
         <span className="gg-aw-item-meta">
-          <LiveGlyph state={online ? 'online' : 'offline'} />
-          <span>{online ? t('agentWatch.machines.online') : t('agentWatch.machines.offline')}</span>
-          {!online && seen ? (
+          <LiveGlyph state={online ? 'online' : waking ? 'busy' : 'offline'} />
+          <span>{online ? t('agentWatch.machines.online') : connectable ? tFlow(waking ? 'connecting' : 'readyToConnect') : t('agentWatch.machines.offline')}</span>
+          {!online && !connectable && seen ? (
             <>
               <span className="gg-aw-item-sep">·</span>
               <span>{seen}</span>
             </>
           ) : null}
         </span>
-        {count > 0 ? (
-          <span className="gg-aw-item-meta gg-aw-machine-sub">
-            <span>{t('agentWatch.machines.sessionCount', { count })}</span>
-          </span>
-        ) : null}
-      </span>
+      } />
       <span className="gg-aw-machine-trailing"><ChevronRight /></span>
     </Button>
   )

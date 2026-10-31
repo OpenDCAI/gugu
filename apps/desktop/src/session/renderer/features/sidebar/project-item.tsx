@@ -1,4 +1,4 @@
-import { FolderClosed, Plus, ShieldAlert, Trash2, TriangleAlert } from '@/lib/icons'
+import { FolderClosed, Plus, ShieldAlert, TriangleAlert } from '@/lib/icons'
 import { observer } from 'mobx-react-lite';
 import React, { useCallback, useEffect } from 'react';
 import { useConfirmDeleteProject } from '@renderer/features/projects/hooks/use-confirm-delete-project';
@@ -16,13 +16,12 @@ import {
   useParams,
   useWorkspaceSlots,
 } from '@renderer/lib/layout/navigation-provider';
-import { sidebarStore } from '@renderer/lib/stores/app-state';
-import {
-  ContextMenu,
-  ContextMenuContent,
-  ContextMenuItem,
-  ContextMenuTrigger,
-} from '@renderer/lib/ui/context-menu';
+import { appState, sidebarStore } from '@renderer/lib/stores/app-state';
+import { isScreenView, showBesideOnScreen } from '@renderer/app/screen-layout-actions';
+import { readComposerVerb, setComposerVerb } from '@/lib/composerVerbBridge';
+import { prepareProjectTask } from '@renderer/features/projects/project-task-entry';
+import { composerDrafts, projectDraftKey } from '@renderer/features/sessions/composer-drafts';
+import { ProjectRowContextMenu } from '@/components/chat/ProjectRowContextMenu';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@renderer/lib/ui/tooltip';
 import { cn } from '@renderer/utils/utils';
 import { machineRegistry } from '@renderer/lib/machine-routing';
@@ -30,7 +29,9 @@ import { remoteHostsStore } from '@renderer/features/remote-hosts/remote-hosts-s
 import { HOME_PROJECT_LABEL } from '@renderer/features/remote-hosts/machine-home';
 import { sessionKeyboardNav } from './session-keyboard-nav';
 import { ProjectNeedsYouDot, ProjectRowTitle } from './project-row-parts';
-import { RemoteHostChip } from './remote-host-chip';
+import { SidebarUnreadCount } from './sidebar-list-switch';
+import { useSidebarChatSignals } from '@/lib/sidebarChatsBridge';
+import { projectGroupsStore } from '@renderer/features/projects/stores/project-groups-store';
 import {
   SidebarItemMiniButton,
   SidebarMenuAction,
@@ -98,6 +99,10 @@ export const SidebarProjectItem = observer(function SidebarProjectItem({
   // amber dot on its row — raw status, so viewing a conversation never clears it; it fades only
   // when the "needs you" count returns to zero. When expanded, the per-section header carries it.
   const needsYouCount = sidebarStore.needsYouCountForProject(projectId);
+  // gugu-dev#181 项目就是群:行尾挂项目群的未读(含它的话题),壳发过来的那一份;真读了才减。
+  const groupChatId = projectGroupsStore.chatIdOf(projectId);
+  const chatSignals = useSidebarChatSignals();
+  const groupUnread = chatSignals?.groupUnread.get(groupChatId ?? '') ?? 0;
   // 挂在别的会话下面的一条拖回它自己的项目行 = 回到根(spec session-page「把会话拖成 child」)。
   // 只有它不挂着时本来就显示在这一行的才收:换项目不是这个动作。
   const unnestDrop = useSessionDropTarget();
@@ -118,7 +123,7 @@ export const SidebarProjectItem = observer(function SidebarProjectItem({
   const isHomeRow = sidebarStore.homeLayout.homeRows.has(projectId);
   const deviceIds = [...new Set(sidebarStore.projectMembersOf(projectId).map((id) => machineRegistry.machineOf(id) ?? null))];
   const machineDown = isHomeRow ? singleMachineDown : deviceIds.every((id) => id !== null && remoteHostsStore.connectionState(id) !== 'connected');
-  const deviceLabels = deviceIds.map((id) => id ? remoteHostsStore.device(id)?.label ?? id : translate('projects.folders.thisComputer'));
+  const deviceLabels = deviceIds.map((id) => id ? remoteHostsStore.device(id)?.label ?? id : translate('task.deviceLocal'));
   const standInDevice = sidebarStore.homeLayout.standIns.get(projectId) ?? null;
   // #7199 个人助理住的那台(用户看不到它住在哪,owner 10-15):它的主目录那一组就是「它派出的任务」—— 组名是它的名字
   // (宿主那一侧把那台的 label 换成了它的名字)、不挂机器名;那台不接人开的任务:❌ 新建、❌ 点进项目页(那里有新建框)、❌ 移除。
@@ -136,11 +141,24 @@ export const SidebarProjectItem = observer(function SidebarProjectItem({
   // spec session-page 微决策: first click selects the project (home view + expand); clicking the
   // already-selected project row toggles its collapse — the row is the second collapse affordance
   // beside the folder/chevron button (why B saw "active project won't collapse": B clicked the row).
-  const openProject = () => {
+  const openProject = (beside = false) => {
     // behavior session-page「键盘导航」: the project row is a station too, so a click moves the cursor
     // onto it — ↓ afterwards continues from here.
     sessionKeyboardNav.syncCursorFromPointer({ kind: 'project', projectId });
+    // ⌘ 点 = 项目块拼到正看着那块右边(gugu-dev#181:项目是一块,和会话行同一个手势)。
+    if (beside && isScreenView(appState.navigation.currentViewId) && !standInDevice && !assistantHome) {
+      showBesideOnScreen({ kind: 'project', projectId: sidebarStore.rowProjectIdOf(projectId) });
+      sidebarStore.ensureProjectExpanded(projectId);
+      return;
+    }
     if (isProjectActive) {
+      // gugu-dev#181 正在开新任务时点这一行 = 回到群聊:还没打字,「新任务」一起撤掉;打了字就留着。
+      const chatId = projectGroupsStore.chatIdOf(sidebarStore.rowProjectIdOf(projectId));
+      if (chatId && readComposerVerb(chatId) === 'task') {
+        if (!composerDrafts.get(projectDraftKey(projectId)).trim()) setComposerVerb(chatId, null);
+        sidebarStore.ensureProjectExpanded(projectId);
+        return;
+      }
       sidebarStore.toggleProjectExpanded(projectId);
       return;
     }
@@ -157,6 +175,8 @@ export const SidebarProjectItem = observer(function SidebarProjectItem({
   const openNewSession = () => {
     sessionKeyboardNav.syncCursorFromPointer({ kind: 'project', projectId });
     if (standInDevice) return openHomeComposer(standInDevice);
+    // gugu-dev#181 悬停的「+」= 在这个项目里开新任务。
+    prepareProjectTask(projectId);
     if (!isProjectActive) navigate('project', { projectId });
     sidebarStore.ensureProjectExpanded(projectId);
   };
@@ -189,8 +209,15 @@ export const SidebarProjectItem = observer(function SidebarProjectItem({
 
   return (
     // 代位的是那台机器的任务工作区,移除它会让那些会话无处可挂:这一行没有「移除」菜单。
-    <ContextMenu disabled={!!standInDevice || assistantHome}>
-      <ContextMenuTrigger>
+    <ProjectRowContextMenu disabled={!!standInDevice || assistantHome} chatId={groupChatId}
+      onRemove={() => {
+        void confirmDeleteProject({
+          projectId,
+          projectLabel: project.name ?? translate('projects.fallbackName'),
+          onDeleted: () => { if (isProjectActive) navigate('home'); },
+        });
+      }}>
+
         <SidebarMenuRow
           // @@@sidebar-row-metrics — 与会话行同一套列:[车道][图标][标题]。
           // 原来是 `px-1` + 迷你钮内的 4px 把字形顶到 20px 那条内容列上;现在车道自己占掉前 20px,
@@ -209,7 +236,7 @@ export const SidebarProjectItem = observer(function SidebarProjectItem({
           tabIndex={0}
           role="treeitem"
           onMouseDown={(e) => e.preventDefault()}
-          onClick={openProject}
+          onClick={(event) => openProject(event.metaKey || event.ctrlKey)}
           onKeyDown={(e) => {
             // Arrows belong to the session navigation listener (see sidebar-session-item for
             // why the old sibling walk could not work here either).
@@ -222,7 +249,7 @@ export const SidebarProjectItem = observer(function SidebarProjectItem({
               换过来之后文件夹图标常驻不再消失,箭头有自己的位置。 */}
           <SidebarTwistyLane
             expanded={isExpanded}
-            label={`${isExpanded ? 'Collapse' : 'Expand'} ${projectLabel}`}
+            label={translate(isExpanded ? 'sidebar.collapseProject' : 'sidebar.expandProject', { project: projectLabel })}
             onToggle={
               project.state === 'unregistered'
                 ? undefined
@@ -236,17 +263,16 @@ export const SidebarProjectItem = observer(function SidebarProjectItem({
               <ProjectIcon className={cn('size-4 shrink-0', machineDown && 'opacity-60')} />
             )}
             <SidebarMenuAction
-              aria-label={`Open project ${projectLabel}`}
+              aria-label={translate('sidebar.openProject', { project: projectLabel })}
               className={cn(
                 'truncate font-medium transition-colors select-none',
                 (projectViewKind(getProjectStore(projectId)) === 'bootstrapping' || machineDown) &&
-                  'text-foreground-tertiary-passive',
-                isHomeRow && machine && 'flex-initial'
+                  'text-foreground-muted'
               )}
             >
               <ProjectRowTitle name={isHomeRow ? projectLabel : project.name}>
                 {disambiguationPath ? (
-                  <span title={disambiguationPath} className="text-foreground-tertiary-passive min-w-0 max-w-[40%] shrink-[3] truncate text-xs">
+                  <span title={disambiguationPath} className="text-foreground-muted min-w-0 max-w-[40%] shrink-[3] truncate text-xs">
                     {disambiguationPath}
                   </span>
                 ) : null}
@@ -268,7 +294,6 @@ export const SidebarProjectItem = observer(function SidebarProjectItem({
                 )}
               </ProjectRowTitle>
             </SidebarMenuAction>
-            {isHomeRow && machine && !assistantGroup ? <RemoteHostChip deviceId={machine.id} /> : null}
             {!isHomeRow && deviceIds.length > 1 ? (
               <span className="shrink-0 text-xs font-normal text-foreground-passive" title={deviceLabels.join(' · ')} data-testid="project-device-count">
                 {translate('projects.folders.deviceCount', { count: deviceIds.length })}
@@ -276,6 +301,7 @@ export const SidebarProjectItem = observer(function SidebarProjectItem({
             ) : null}
             {!isExpanded && <ProjectNeedsYouDot count={needsYouCount} />}
           </div>
+          <SidebarUnreadCount count={groupUnread} />
           {assistantHome ? null : (
             <Tooltip>
               <TooltipTrigger
@@ -302,25 +328,7 @@ export const SidebarProjectItem = observer(function SidebarProjectItem({
             </Tooltip>
           )}
         </SidebarMenuRow>
-      </ContextMenuTrigger>
-      <ContextMenuContent>
-        <ContextMenuItem
-          variant="destructive"
-          onClick={() => {
-            void confirmDeleteProject({
-              projectId,
-              projectLabel: project.name ?? translate('projects.fallbackName'),
-              onDeleted: () => {
-                if (isProjectActive) navigate('home');
-              },
-            });
-          }}
-        >
-          <Trash2 className="size-4" />
-          {translate('projects.titlebar.remove')}
-        </ContextMenuItem>
-      </ContextMenuContent>
-    </ContextMenu>
+    </ProjectRowContextMenu>
   );
 });
 

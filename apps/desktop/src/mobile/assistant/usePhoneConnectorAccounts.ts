@@ -1,89 +1,25 @@
-import { useCallback, useEffect, useState } from 'react'
-import { rendererLogger } from '@/lib/log'
-import { TOO_OLD_CODES } from '@/session/renderer/features/remote-hosts/connection-status'
-import { machineRpc } from '../agent-watch/sessionpage-rpc'
-import { accountLabel } from './phoneConnectorFlow'
+import {assistantPanelCollection,type AssistantPanelItem} from '@gugu/core/cloud/assistantPanel'
+import type { AssistantMachine } from '@/session/renderer/features/assistant/assistant-machine-core'
+import { machineKey, usePhoneRead } from './usePhoneRead'
+import { assistantAccountDisplayName } from '@/components/assistant/assistant-app-connections'
 
-const log = rendererLogger('mobile/assistant')
+export type ConnectorAccountRow = { accountId: string; label: string; connectedAt: number | null }
+export type PhoneConnectorAccounts = { accounts: ConnectorAccountRow[] | null; supported: boolean; error: unknown; reload(): void }
 
-export type ConnectorAccountRow = {
-  accountId: string
-  /** 一行的标题:账号名 / 邮箱 / @login。 */
-  label: string
-  /** 一行的副标题:连接于哪天(GitHub 没有连接时间 = null)。 */
-  connectedAt: number | null
-}
-
-export type PhoneConnectorAccounts = {
-  /** null = 还没读到(在读、读失败、这台机器太旧给不出账号清单)。 */
-  accounts: ConnectorAccountRow[] | null
-  /** false = 那台机器比多账号老(`unknown_method`):详情照旧按单账号画。读失败 / 还在读不算「不支持」。 */
-  supported: boolean
-  /** 读失败(太旧不算)。 */
-  error: unknown
-  reload: () => void
-}
-
-function isTooOld(error: unknown): boolean {
-  const code = (error as { code?: unknown } | null)?.code
-  return typeof code === 'string' && TOO_OLD_CODES.has(code)
-}
-
-/**
- * 一家连着的每个账号:GitHub 问它自己的账号库,邮箱这类多账号的问集成的凭据库(`integrations.accounts`)。
- * `enabled` = 这一家已连接、是多账号 / GitHub、且助理的家醒着:❌ 为数个数逐个登录对方服务,也 ❌ 自己叫醒。
- */
-export function usePhoneConnectorAccounts({
-  device,
-  id,
-  name,
-  enabled,
-  refreshKey,
-}: {
-  device: string | null
-  id: string
-  name: string
-  enabled: boolean
-  /** 连上 / 断开之后换一个值,就重读。 */
-  refreshKey: number
+/** Saved account labels only; no credential lookup or network verification. */
+export function usePhoneConnectorAccounts({ machine,id,name,enabled,refreshKey }: {
+  machine: AssistantMachine | null; device: string | null; id: string; name: string; enabled: boolean; refreshKey: number
 }): PhoneConnectorAccounts {
-  const [attempt, setAttempt] = useState(0)
-  const [read, setRead] = useState<{ key: string; accounts?: ConnectorAccountRow[]; tooOld?: true; error?: unknown } | null>(null)
-  const key = `${device}|${id}|${refreshKey}|${attempt}`
-  useEffect(() => {
-    if (!enabled || !device) return
-    let cancelled = false
-    const rpc = machineRpc(device)
-    void (async () => {
-      try {
-        const accounts: ConnectorAccountRow[] =
-          id === 'github'
-            ? (await rpc.github.listAccounts()).map((account) => ({ accountId: account.accountId, label: `@${account.login}`, connectedAt: null }))
-            : (await rpc.integrations.accounts(id)).map((account) => ({
-                accountId: account.accountId,
-                label: accountLabel(account, name),
-                connectedAt: account.connectedAt,
-              }))
-        if (!cancelled) setRead({ key, accounts })
-      } catch (error) {
-        if (isTooOld(error)) {
-          if (!cancelled) setRead({ key, tooOld: true })
-          return
-        }
-        log.warn({ id, error: error instanceof Error ? error.message : String(error) }, 'list connector accounts failed')
-        if (!cancelled) setRead({ key, error })
-      }
-    })()
-    return () => {
-      cancelled = true
-    }
-  }, [enabled, device, id, name, key])
-  const reload = useCallback(() => setAttempt((n) => n + 1), [])
-  const fresh = read?.key === key
-  return {
-    accounts: fresh ? read?.accounts ?? null : null,
-    supported: !(fresh && read?.tooOld),
-    error: fresh ? read?.error ?? null : null,
-    reload,
+  const parse = (rows: AssistantPanelItem[]) => rows.filter(row => row.data.providerId === id && typeof row.data.accountId === 'string').map(row => ({
+    accountId: row.data.accountId as string,label: assistantAccountDisplayName(row.data.displayName) ?? name,connectedAt: null,
+  }))
+  const initial = () => {
+    const snapshot = machine?.panel?.peekSnapshot?.()
+    return snapshot ? parse(assistantPanelCollection(snapshot,'integrations',machine?.panel?.deviceId).items) : undefined
   }
+  const read = usePhoneRead(enabled && machine ? `integration-accounts|${machineKey(machine)}|${id}|${refreshKey}` : null,async () => {
+    const rows = await machine!.panel!.collection('integrations')
+    return parse(rows)
+  },'read saved integration accounts',undefined,initial)
+  return { accounts: read.state === 'ok' ? read.data : null,supported: true,error: read.state === 'error' ? read.error : null,reload: read.reload }
 }

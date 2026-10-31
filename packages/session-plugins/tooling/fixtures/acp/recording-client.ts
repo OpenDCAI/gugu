@@ -24,7 +24,6 @@ import type {
   ReadTextFileResponse,
   ReleaseTerminalRequest,
   ReleaseTerminalResponse,
-  RequestPermissionRequest,
   RequestPermissionResponse,
   SessionNotification,
   TerminalOutputRequest,
@@ -34,9 +33,12 @@ import type {
   WriteTextFileRequest,
   WriteTextFileResponse,
 } from '@agentclientprotocol/sdk';
+import type { AcpClient, AcpPermissionParams } from '@gugu/session-core/agents/plugins';
 import type { AcpProcessHost } from '@gugu/session-core/acp/node';
 import { AgentTerminalManager } from '@gugu/session-runtime/acp-agents';
 import type { Recorder } from './recorder';
+
+type RecordingClient = Omit<Client, 'requestPermission'> & Pick<AcpClient, 'requestPermission'>;
 
 /**
  * Build a recording ACP Client.
@@ -52,7 +54,7 @@ export function buildRecordingClient(
   host: AcpProcessHost,
   // 录制客户端目前不需要会话 id,保留形参是为了与真客户端的构造签名一致。
   _getSessionId: () => string | null
-): { client: Client; dispose: () => void } {
+): { client: RecordingClient; dispose: () => void } {
   const CONV_ID = 'recording-session';
 
   const terminals = new AgentTerminalManager(host, {
@@ -86,7 +88,7 @@ export function buildRecordingClient(
     },
   });
 
-  const client: Client = {
+  const client: RecordingClient = {
     sessionUpdate: async (params: SessionNotification): Promise<void> => {
       recorder.record({
         kind: 'session_update',
@@ -96,7 +98,7 @@ export function buildRecordingClient(
     },
 
     requestPermission: async (
-      params: RequestPermissionRequest
+      params: AcpPermissionParams
     ): Promise<RequestPermissionResponse> => {
       // Auto-approve: prefer allow_always, then allow_once, then first option.
       const approved =

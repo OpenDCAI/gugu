@@ -20,7 +20,7 @@ import { CreateOptionsPill } from '@/mobile/agent-watch/CreateOptionsPill';
 import { Sheet } from '@/components/ui/Sheet';
 import { MemberProfilePopover } from '@/components/MemberProfilePopover';
 import { RequestDetailSheet } from '@/components/requests/RequestDetailSheet';
-import { ShareIntakeSheet } from '@/mobile/share-intake/ShareIntakeSheet';
+import { ShareIntakeContent } from '@/mobile/share-intake/ShareIntakeSheet';
 import type { MemberProfileCardModel } from '@/components/MemberProfileCard';
 import type { ChatItem } from '@gugu/core/shared/types/chat';
 import '@/i18n';
@@ -101,7 +101,7 @@ for (const [w, h] of [[360, 640], [360, 400]] as const) {
       models: [{ id: 'm1', name: 'Model 1', source: 'harness' }],
       efforts: [{ id: 'low', name: 'Low' }, { id: 'high', name: 'High' }],
     } as unknown as Parameters<typeof CreateOptionsPill>[0]['models'];
-    const selection = { projectId: 'p1', harness: 'codex', model: null, sessionView: null, permissionMode: null, effort: null };
+    const selection = { projectId: 'p1', harness: 'codex', model: null, permissionMode: null, effort: null };
     mount(<CreateOptionsPill options={options} selection={selection} onChange={() => {}} busy={false} models={models} modelsState="ready" />);
     await userEvent.click(page.getByTestId('agent-watch-create-options-open'));
     await until('12 projects in the sheet', () => document.querySelectorAll('[data-testid="agent-watch-create-options"] [data-dimension="project"] [role="radio"]').length === 12);
@@ -165,7 +165,7 @@ it('request detail: a 60-line note keeps who sent it and the footer in the sheet
 
 it('share intake: 30 shared files leave the chat list on screen', async () => {
   const files = Array.from({ length: 30 }, (_, i) => new File(['x'], `weekly-${String(i + 1).padStart(2, '0')}.txt`, { type: 'text/plain' }));
-  mount(<ShareIntakeSheet share={{ text: null, files, failures: [] }} onDone={() => {}} />);
+  mount(<Sheet open onClose={() => {}} fullScreenMobile testId="share-intake-sheet"><ShareIntakeContent share={{ text: null, files, failures: [] }} onDone={() => {}} /></Sheet>);
   await until('the chat row is rendered', () => sheet('share-intake-sheet')?.querySelector('[data-share-target]') != null);
   const box = sheet('share-intake-sheet')!;
   await until('the first chat to send to is on screen', () => inside(box.querySelector('[data-share-target]')!, box));
@@ -176,9 +176,12 @@ it('share intake, mixed: text + 3 images + 25 files keep the text and the thumbn
   const text = '周末出游的路线和预算，大家看一下有没有问题。'.repeat(8);
   const images = Array.from({ length: 3 }, (_, i) => new File(['x'], `photo-${i + 1}.png`, { type: 'image/png' }));
   const files = Array.from({ length: 25 }, (_, i) => new File(['x'], `weekly-${String(i + 1).padStart(2, '0')}.txt`, { type: 'text/plain' }));
-  mount(<ShareIntakeSheet share={{ text, files: [...images, ...files], failures: [] }} onDone={() => {}} />);
+  mount(<Sheet open onClose={() => {}} fullScreenMobile testId="share-intake-sheet"><ShareIntakeContent share={{ text, files: [...images, ...files], failures: [] }} onDone={() => {}} /></Sheet>);
   await until('the chat row is rendered', () => sheet('share-intake-sheet')?.querySelector('[data-share-target]') != null);
   const box = sheet('share-intake-sheet')!;
+  // A translating entrance can round a 56px DOMRect to 55.99993896484375.
+  // Measure the settled surface; keep the exact minimum-size assertions below.
+  await until('the share sheet entrance finishes', () => box.getAnimations().every(animation => animation.playState === 'finished'));
   const textBox = box.querySelector<HTMLElement>('.gg-si-text')!;
   const thumbs = box.querySelector<HTMLElement>('.gg-si-thumbs')!;
   expect.soft(textBox.getBoundingClientRect().height, 'the text keeps its three lines').toBeGreaterThanOrEqual(3 * parseFloat(getComputedStyle(textBox).fontSize));

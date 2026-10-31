@@ -5,8 +5,8 @@ import { createReactHarness } from '../../../support/testHarness'
 
 /**
  * 「在本群打开」(app-redesign §5, 统筹 10-05): one way to open an App from a chat. A card's 「打开」 asks it (`openApp`) and the
- * chat on screen answers (`useOpenApp`): in this chat's panel — a group's, a topic's or (主人 10-05「私聊也是得有面板的」)
- * a private chat's, on the desktop as on the phone. Whether a device can use an App at all is the host's to say by what it
+ * source chat on screen answers (`useChatOpener`, every ask of the chat): a tab beside the group or private chat, also used by its topics.
+ * This holds on the desktop as on the phone. Whether a device can use an App at all is the host's to say by what it
  * can do (`phoneRuns`), never by which files the App opens. Control (the parent commit): a private chat answered nothing
  * and its card said to open the App in a group.
  */
@@ -18,7 +18,7 @@ vi.mock('../../../../apps/desktop/src/platform', () => ({
   },
 }))
 vi.mock('../../../../apps/desktop/src/components/appSlot/appsHere', () => ({
-  appsHere: { runs: () => host.runs, grantable: (manifest: unknown) => host.grantable(manifest), installAttachment: vi.fn(), groupFileOpener: vi.fn(), groupFilesOpenedBy: vi.fn(), setOpenWithDefault: vi.fn() },
+  appsHere: { runs: () => host.runs, grantable: (manifest: unknown) => host.grantable(manifest), installAttachment: vi.fn(), groupFileOpener: vi.fn(), groupFilesOpenedBy: vi.fn(async () => ({ success: true, data: [] })), setOpenWithDefault: vi.fn() },
 }))
 const card = vi.hoisted(() => ({ manifest: null as unknown }))
 vi.mock('../../../../apps/desktop/src/components/extensionBundle/sharedPackages', () => ({
@@ -34,13 +34,13 @@ vi.mock('../../../../apps/desktop/src/components/extensionBundle/sharedPackages'
 }))
 
 const { phoneRuns } = await import('../../../../apps/desktop/src/components/appSlot/phoneAppHost')
-const { openApp, useOpenApp } = await import('../../../../apps/desktop/src/components/appSlot/useOpenApp')
+const { useChatOpener } = await import('../../../../apps/desktop/src/components/appSlot/useChatOpener')
 const { ExtensionBundleCard } = await import('../../../../apps/desktop/src/components/extensionBundle/ExtensionBundleCard')
 const { ChatStoreProvider } = await import('../../../../apps/desktop/src/store/chatContext')
 const { installedExtensionsStore } = await import('../../../../apps/desktop/src/session/renderer/features/extensions/installed-extensions-store')
 const { UI_EVENTS } = await import('../../../../apps/desktop/src/lib/uiEvents')
-const { useTopicWorkspace } = await import('../../../../apps/desktop/src/components/appSlot/useTopicWorkspace')
-const { groupSlotMemory } = await import('../../../../apps/desktop/src/components/appSlot/groupSlotMemory')
+const { folderItem } = await import('../../../../apps/desktop/src/session/renderer/features/chats/chat-tabs/chat-panel-item')
+const { askChat, openPanelItem, panelTabsOf, returnToOf, shownPanelTab } = await import('../../../../apps/desktop/src/session/renderer/features/chats/chat-tabs/chat-layouts')
 const { grantableBy } = await import('../../../../apps/desktop/src/session/shared/extensions/attachment-install')
 const { PHONE_CAPABILITIES } = await import('../../../../apps/desktop/src/components/appSlot/phoneApps')
 
@@ -80,42 +80,59 @@ describe('the phone can use an App that has something to open here (phoneRuns)',
   })
 })
 
-describe('the chat on screen answers 「在本群打开」 (useOpenApp)', () => {
-  let answered: ReturnType<typeof useOpenApp> = null
-  const openPanel = vi.fn()
+describe('the chat on screen answers 「在本群打开」 (useChatOpener)', () => {
   const Chat = ({ id }: { id: string }) => {
-    answered = useOpenApp(id, openPanel)
+    useChatOpener(id)
     return null
   }
-  beforeEach(() => {
-    answered = null
-    openPanel.mockClear()
+  const askNow = (chatId: string, what: Parameters<typeof askChat>[1]) =>
+    act(() => { askChat(chatId, what); window.dispatchEvent(new CustomEvent(UI_EVENTS.chatAsked)) })
+  const fileOpener = (chatId: string, itemId: string) => ({
+    chatId, itemId, name: `${itemId}.board.json`, typedName: `${itemId}.board.json`,
+    choice: { kind: 'one', candidate: { extensionId: 'board', tabKind: 'board.main', tabTitle: 'Board', app: { name: 'Board' }, onlyTab: true, suffix: '.board.json' } },
+  }) as never
+
+  it('a source chat opens its requested App in a tab beside it', async () => {
+    install(app([OWN_PAGE]))
+    await harness.render(createElement(Chat, { id: 'source-1' }))
+    askNow('source-1', { app: 'board' })
+    const tab = shownPanelTab('source-1')
+    expect(tab?.item).toMatchObject({ kind: 'board.main' })
+    expect(returnToOf('source-1', tab!.tabId), 'an App opened from the chat has no 上一页').toBeNull()
   })
 
-  it('a topic opens it in its panel', async () => {
-    await harness.render(createElement(Chat, { id: 'topic-1' }))
-    act(() => openApp('board', 'topic-1'))
-    expect(openPanel).toHaveBeenCalledTimes(1)
-    expect(answered).toMatchObject({ chatId: 'topic-1', extensionId: 'board' })
+  it('a page beside the chat asked: the tab on screen is the 上一页 of what it opens; an App asked there has none (owner 10-24)', async () => {
+    install(app([OWN_PAGE]))
+    await harness.render(createElement(Chat, { id: 'source-panel' }))
+    const folder = openPanelItem('source-panel', folderItem())!
+    askNow('source-panel', { itemId: 'F1', opener: fileOpener('source-panel', 'F1'), fromPage: true })
+    const file = shownPanelTab('source-panel')
+    expect(file?.item).toMatchObject({ itemId: 'F1' })
+    expect(returnToOf('source-panel', file!.tabId)).toBe(folder)
+    askNow('source-panel', { app: 'board' })
+    const board = shownPanelTab('source-panel')
+    expect(board?.item).toMatchObject({ kind: 'board.main' })
+    expect(board?.item.itemId).toBeUndefined()
+    expect(returnToOf('source-panel', board!.tabId)).toBeNull()
   })
 
   it('another chat than the one on screen is not answered here', async () => {
+    install(app([OWN_PAGE]))
     await harness.render(createElement(Chat, { id: 'group-1' }))
-    act(() => openApp('board', 'group-2'))
-    expect(openPanel).not.toHaveBeenCalled()
-    expect(answered).toBeNull()
+    askNow('group-2', { app: 'board' })
+    expect(panelTabsOf('group-1')).toEqual([])
+    expect(panelTabsOf('group-2')).toEqual([])
   })
 
-  it('a private chat opens it in its own panel too — not the task side', async () => {
+  it('a private chat opens it beside itself too — not the task side', async () => {
     const revealed = vi.fn()
     window.addEventListener(UI_EVENTS.sessionpageReveal, revealed)
     try {
       install(app([OWN_PAGE]))
       await harness.render(createElement(Chat, { id: 'dm-1' }))
-      act(() => openApp('board', 'dm-1'))
-      expect(openPanel).toHaveBeenCalledTimes(1)
+      askNow('dm-1', { app: 'board' })
       expect(revealed).not.toHaveBeenCalled()
-      expect(answered).toMatchObject({ chatId: 'dm-1', extensionId: 'board' })
+      expect(shownPanelTab('dm-1')?.item).toMatchObject({ kind: 'board.main' })
     } finally {
       window.removeEventListener(UI_EVENTS.sessionpageReveal, revealed)
     }
@@ -175,10 +192,8 @@ describe("a card's 「打开」 is 「在本群打开」", () => {
     expect(harness.container.querySelector('[data-testid="extension-bundle-card-elsewhere"]')).not.toBeNull()
   })
 
-  // 125 10-06 (phone cell 1): the phone stopped asking for agents:read, but its card still said the App would 「看到这个 App
-  // 自己起的 agent」 — a phone neither asks nor gives that. A card says what this device's consent asks (`grantable`).
-  // Control (the parent commit): the phone's card listed the agents line as the desktop's does.
-  it('the card says only what this device can grant: on the phone an agents-only App asks for nothing; the desktop lists it', async () => {
+  // The card and the install sheet must describe the same supported capabilities.
+  it('the card shows agent-read permission on both phone and desktop', async () => {
     const permissions = () => harness.container.querySelector('[data-testid="extension-bundle-card-permissions"]')?.textContent
     card.manifest = app([OWN_PAGE], ['agents:read'])
     await show({ id: 'group-1', kind: 'group' })
@@ -189,13 +204,13 @@ describe("a card's 「打开」 is 「在本群打开」", () => {
     host.grantable = (manifest) => grantableBy(manifest as never, PHONE_CAPABILITIES)
     await show({ id: 'group-1', kind: 'group' })
     const onPhone = permissions()
-    // The phone writes it as an App that asks for nothing does; the desktop as before.
+    // An App with no permissions remains distinct from one reading its agents.
     card.manifest = app([OWN_PAGE])
     harness.cleanup()
     harness = createReactHarness()
     await show({ id: 'group-1', kind: 'group' })
-    expect(onPhone).toBe(permissions())
-    expect(onDesktop).not.toBe(onPhone)
+    expect(onPhone).not.toBe(permissions())
+    expect(onDesktop).toBe(onPhone)
   })
 
   it.each(['electron', 'capacitor'] as const)('in a private chat (%s), an installed App opens in this private chat, as in a group', async (kind) => {
@@ -212,28 +227,5 @@ describe("a card's 「打开」 is 「在本群打开」", () => {
     } finally {
       window.removeEventListener(UI_EVENTS.openApp, opened)
     }
-  })
-})
-
-describe('a topic beside its group answers for itself (useTopicWorkspace)', () => {
-  const originalCheckVisibility = HTMLElement.prototype.checkVisibility
-  beforeEach(() => {
-    // jsdom has no checkVisibility: an unseen slot claims no page, which is all this needs of it.
-    HTMLElement.prototype.checkVisibility = () => false
-  })
-  afterEach(() => {
-    HTMLElement.prototype.checkVisibility = originalCheckVisibility
-  })
-
-  it("a card in the topic opens the App in the topic's own pane — the group on screen does not answer for it", async () => {
-    install(app([OWN_PAGE]))
-    const Pane = () => useTopicWorkspace('topic-9', false, () => {}).view as never
-    await harness.render(createElement(Pane))
-    const pane = () => harness.container.querySelector('[data-testid="topic-split-workspace"]')
-    expect(pane()).toBeNull()
-    act(() => openApp('board', 'topic-9'))
-    await act(async () => {})
-    expect(pane()).not.toBeNull()
-    expect(groupSlotMemory.opened('topic-9')).toMatchObject({ kind: 'board.main' })
   })
 })

@@ -1,4 +1,4 @@
-import { parseConversationLink } from '../../shared/ui/conversationLink'
+import { storedMessageLink } from '../../shared/ui/guguLink'
 import { encodeTypedId } from '../../shared/typedId.mjs'
 import { findMentionSpans } from '../../shared/mentionToken.mjs'
 import type { ChatKind, ListenMode } from '../../shared/types/chat'
@@ -73,7 +73,7 @@ const RETURN_TOOL_BY_ROUTE: Record<Exclude<GuguRoutedKind, 'extension' | 'system
  * ⚠️ 它点了工具名，与「信封只带现场事实、不复述工具」的洁癖冲突 —— 那是 #3802 那一轮自己加的
  * 棘轮，owner 的 A+B 设计明确要求 A 带上「用什么工具回」。实测优先于洁癖。
  */
-export function arrivalHint(route: DeliveryRouteKind, mode: DeliveryMode | null = null): string {
+export function arrivalHint(route: DeliveryRouteKind, mode: DeliveryMode | null = null, chatKind?: ChatKind | null): string {
   // #7199 咕咕自己交给这条会话去做的一件事(助理开通后的初始化):与通知相反,它**是**要做的事 —— 照做;
   // 没有人可回,结果按任务里写的去处发(与下面 #7221 的「到点」同一种回程)。
   if (route === 'system' && mode === 'task') {
@@ -88,7 +88,7 @@ export function arrivalHint(route: DeliveryRouteKind, mode: DeliveryMode | null 
   // #6387 App 送来的不是「别人发给你的消息」:这台电脑上的一个 App 替这个人说的(人点的、后台页的钟、它的工具),
   // App 没有收件箱,所以回程就是当面打印。这句要对任何会话形态为真。
   // 集体记忆对账第 12 条:原先还有「附带」一档(mode 'context'),两个产出方(extension-agents / extension-send)早就只传
-  // 一种语义,F16 定了没有 mode:'context'(gugu-base notes/2026-09-29-app-platform/workspace-app/README.md:398、:406)⇒ 那一档和它的类型、投递卡上那一支一起删了。
+  // 一种语义,F16 定了没有 mode:'context' ⇒ 那一档和它的类型、投递卡上那一支一起删了。
   if (route === 'extension') return "Sent through 咕咕 by an App on this computer, on the person's behalf; the person reads what you print here."
   // 论坛:回程在目录里 —— 这一句把怎么调写全,不必先查。
   if (route === 'forum') {
@@ -99,7 +99,8 @@ export function arrivalHint(route: DeliveryRouteKind, mode: DeliveryMode | null 
   if (mode === 'notice') {
     return `A 咕咕 system notice, not a request; anything you do post about it goes through ${RETURN_TOOL_BY_ROUTE[route]} — what you print here does not reach the chat.`
   }
-  return `Sent to you through 咕咕; what you print here does not reach the sender — reply with ${RETURN_TOOL_BY_ROUTE[route]}.`
+  const hint = `Sent to you through 咕咕; what you print here does not reach the sender — reply with ${RETURN_TOOL_BY_ROUTE[route]}.`
+  return route === 'chat' && chatKind === 'dm' ? `${hint} After replying through message_send, finish this turn without repeating the answer or adding a separate task summary here.` : hint
 }
 
 /** #6562 没有发送者的系统消息是通知:不是请求。 */
@@ -115,6 +116,8 @@ export type DeliveryMode = 'notice' | 'task'
 type CommonEnvelopeFacts = {
   /** 人读的发信方；`null` = 可展示内容只剩 `fromId` 本身，那一格已经把事实带到了。 */
   from: string | null
+  /** Platform-resolved actor kind; absent when the identity directory did not report it. */
+  fromType?: 'human' | 'agent'
   /** 人读的送达时刻。 */
   at: string
   /** chat 路由的群号锚（服务端认它）；其余渠道缺席。 */
@@ -125,7 +128,7 @@ type CommonEnvelopeFacts = {
   chatKind?: ChatKind | null
   /** 悄悄话的收件人（typed id，空格分隔）：库里 `is_whisper` 那一行才有，只有发信人和这几位看得见（#6835）。 */
   whisperTo?: string | null
-  /** App 以当前用户的名义送来的（`gugu.send`）：那个 App 的 id。 */
+  /** App 以当前用户的名义送来的（`gugu.dispatch`）：那个 App 的 id。 */
   viaApp?: string | null
   /** 已安排到点（route `scheduled`，#7221）：是它自己排的哪一条 —— 那条的标题。人看的投递卡上也写它。 */
   schedule?: string | null
@@ -200,6 +203,7 @@ export function renderDeliveryEnvelope(facts: DeliveryEnvelopeFacts): string {
     attr('route', facts.route),
     attr('from', facts.from),
     attr('from_id', facts.fromId),
+    attr('from_type', facts.fromType),
     attr('via_app', facts.viaApp),
     attr('schedule', facts.schedule),
     attr('post', facts.post),
@@ -243,7 +247,7 @@ export function renderDeliveryEnvelope(facts: DeliveryEnvelopeFacts): string {
   // ⚠️ 批量外框 `renderDeliveryEnvelopes` 的 arrival 位置**不在本次改动内**(归 delivery-routing 治理)。
   lines.push(
     `<![CDATA[${toCdata(facts.content)}]]>`,
-    `  <arrival>${escapeXmlText(arrivalHint(facts.route, facts.mode ?? null))}</arrival>`,
+    `  <arrival>${escapeXmlText(arrivalHint(facts.route, facts.mode ?? null, facts.chatKind))}</arrival>`,
     '</gugu_delivery>',
   )
   return lines.join('\n')
@@ -272,6 +276,7 @@ export function mergeDeliveryEnvelopes(envelopes: readonly string[]): string {
 
 /** 读出来的一条投递的现场事实:名字与 `DeliveryEnvelopeFacts` 一一对应,`null` = 这条信封没带这一格。 */
 export type DeliveryReadFacts = {
+  fromType?: string | null
   sourceLink?: string
   route: string
   from: string | null
@@ -318,6 +323,40 @@ export function readDeliveryEnvelope(text: string): DeliveryReading | null {
 }
 
 /**
+ * Reconcile recovery against provider-owned user history, never optimistic host rows.
+ * `receivedMessageIds` are ids already read off the provider's own record (#980: resumed without replay);
+ * they count as received exactly like ids found in replayed inputs.
+ */
+export function recoverDeliveryEnvelopes(
+  text: string,
+  replayedUserInputs: readonly string[],
+  historyUnknown = false,
+  receivedMessageIds?: ReadonlySet<string>,
+): string | null {
+  let envelopes: XmlElement[] | null
+  try {
+    envelopes = envelopesOf(parseXml(text.trim()))
+  } catch (error) {
+    if (error !== NOT_ENVELOPE) throw error
+    envelopes = null
+  }
+  if (!envelopes?.length || envelopes.some((envelope) => envelope.name !== 'gugu_delivery' || !readSegment(envelope))) {
+    // Opaque or retired inputs must remain deliverable even when no safe per-envelope edit exists.
+    return text
+  }
+  const seen = new Set([...(receivedMessageIds ?? []), ...replayedUserInputs.flatMap((input) =>
+    readDeliveryEnvelope(input)?.segments.flatMap((segment) => segment.facts?.messageId ? [segment.facts.messageId] : []) ?? [])])
+  const retained = envelopes.filter((envelope) => historyUnknown || !seen.has(envelope.attrs.get('msg') ?? ''))
+  if (retained.length === 0) return null
+  return mergeDeliveryEnvelopes(retained.map((envelope) => {
+    if (!historyUnknown || envelope.attrs.get('possibly_received') === 'true') return envelope.source
+    return envelope.source.slice(0, envelope.openingEnd - 1)
+      + ' possibly_received="true">\n  <redelivery>This message may already have been received.</redelivery>'
+      + envelope.source.slice(envelope.openingEnd)
+  }))
+}
+
+/**
  * 这段文字是不是一条投递(而不是人打的字、harness 注入的上下文):以信封根标签开头的都算,读不读得出看
  * `readDeliveryEnvelope`;退役写法读得出才算。读方漏认一种形状时,那条照样不冒充人说的话,也不被当注入丢掉。
  */
@@ -328,7 +367,7 @@ export function isDeliveryEnvelope(text: string): boolean {
 
 const DELIVERY_ROOT = /^<gugu_deliver(?:y|ies)[\s>]/
 
-type XmlElement = { name: string; attrs: Map<string, string>; children: XmlNode[] }
+type XmlElement = { name: string; attrs: Map<string, string>; children: XmlNode[]; source: string; openingEnd: number }
 type XmlNode = XmlElement | { cdata: string } | { text: string }
 
 const NOT_ENVELOPE = new Error('not a delivery envelope')
@@ -391,6 +430,7 @@ function readSegment(envelope: XmlElement): DeliverySegment | null {
       route: attr('route') ?? 'chat',
       from: attr('from'),
       fromId: attr('from_id'),
+      ...(attr('from_type') ? { fromType: attr('from_type') } : {}),
       chat: attr('chat'),
       chatKind: attr('chat_kind'),
       whisperTo: attr('whisper_to'),
@@ -432,6 +472,7 @@ function parseXml(source: string): XmlElement[] {
   }
   const element = (depth: number): XmlElement => {
     if (depth > MAX_DEPTH) reject()
+    const start = at
     expect('<')
     const name = eat(XML_NAME)?.[0] ?? reject()
     const attrs = new Map<string, string>()
@@ -439,9 +480,10 @@ function parseXml(source: string): XmlElement[] {
     eat(XML_SPACE)
     if (source.startsWith('/>', at)) {
       at += 2
-      return { name, attrs, children: [] }
+      return { name, attrs, children: [], source: source.slice(start, at), openingEnd: at - start }
     }
     expect('>')
+    const openingEnd = at - start
     const children: XmlNode[] = []
     while (!source.startsWith('</', at)) {
       if (source.startsWith('<![CDATA[', at)) {
@@ -458,7 +500,7 @@ function parseXml(source: string): XmlElement[] {
     expect(`</${name}`)
     eat(XML_SPACE)
     expect('>')
-    return { name, attrs, children }
+    return { name, attrs, children, source: source.slice(start, at), openingEnd }
   }
   const roots: XmlElement[] = []
   do {
@@ -565,7 +607,7 @@ export interface AgentDeliveryEnvelopeInput {
   threadRootId: string | null
   /** `is_whisper` 行的收件人（裸 user id）；不是悄悄话 = null。 */
   whisperTo?: readonly string[] | null
-  /** App 代发（`gugu.send`）的 App id；不是 = null。 */
+  /** App 代发（`gugu.dispatch`）的 App id；不是 = null。 */
   viaApp?: string | null
 }
 
@@ -672,10 +714,12 @@ export function buildAgentDeliveryEnvelope(
     from: systemSender ? '咕咕系统' : identityShown(guguIds, input.senderUserId!),
     // A system event has no addressable identity.users row. Never fabricate user:null.
     fromId: systemSender ? 'system:gugu' : encodeTypedId('user', input.senderUserId!),
+    ...(!systemSender && guguIds.get(input.senderUserId!)?.isAgent !== undefined
+      ? { fromType: guguIds.get(input.senderUserId!)!.isAgent ? 'agent' as const : 'human' as const } : {}),
     messageId: encodeTypedId('msg', input.messageId),
     at: timestamp,
     chat: isSessionDirect ? null : chatAnchor,
-    sourceLink: chatId && parseConversationLink(`gugu-chat://${chatId}/${input.messageId}`) ? `gugu-chat://${chatId}/${input.messageId}` : null,
+    sourceLink: chatId ? storedMessageLink(chatId, input.messageId) : null,
     chatKind: isSessionDirect ? null : chatInfo.kind,
     // 会话直发那条本地合成行的 is_whisper 是传输细节，不是人说的悄悄话。
     whisperTo: isSessionDirect || !input.whisperTo?.length ? null : input.whisperTo.map((id) => encodeTypedId('user', id)).join(' '),
@@ -895,4 +939,10 @@ function escapeXmlAttribute(value: string): string {
 
 function toCdata(value: string): string {
   return value.replaceAll(']]>', ']]]]><![CDATA[>')
+}
+
+/** Human DMs use the same manual queue as the project composer; agent communications keep their own admission policy. */
+export function isHumanDmDelivery(text: string): boolean {
+  const parts = readDeliveryEnvelope(text)?.segments
+  return !!parts?.length && parts.every(({ facts }) => facts?.route === 'chat' && facts.fromType === 'human' && (facts.chatKind === 'ai' || facts.chatKind === 'dm'))
 }

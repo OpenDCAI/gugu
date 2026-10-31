@@ -158,7 +158,7 @@ export class AppErrorBoundary extends React.Component<React.PropsWithChildren, A
                   borderRadius: 'var(--radius-control)',
                   background: 'var(--bg-primary)',
                   border: '1px solid var(--border-subtle)',
-                  color: 'var(--danger)',
+                  color: 'var(--danger-fg)',
                   whiteSpace: 'pre-wrap',
                   wordBreak: 'break-word',
                   fontFamily: 'var(--font-family-mono)',

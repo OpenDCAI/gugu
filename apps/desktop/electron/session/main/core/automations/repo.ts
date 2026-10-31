@@ -1,6 +1,7 @@
+import { activitySignal } from '../activity/signals';
 import { randomUUID } from 'node:crypto';
 import { Cron } from 'croner';
-import { and, asc, desc, eq, inArray, isNotNull, isNull, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNotNull, isNull, notInArray, or, sql } from 'drizzle-orm';
 import { getPlugin, isValidProviderId } from '@main/core/agents/plugin-registry';
 import { generateRandom } from '@main/core/sessions/name-generation/generateSessionName';
 import { db } from '@main/db/client';
@@ -39,6 +40,23 @@ import {
 } from '@shared/core/automations/session-schedule';
 import { assertValidCronTrigger } from '@shared/core/automations/validation';
 import { assertTimeZone, MIN_ONE_TIME_LEAD_MS } from './schedule-time';
+
+/**
+ * The one way this module inserts or updates automation_runs rows. `write` performs the write and returns the rows it
+ * wrote; each written run is signalled to the activity journal with `at`, the time the write used. Writing and
+ * observing are one step, so no path can change a run's status unseen, and what is observed is what was written,
+ * never rows read before the write. A write that cannot return its rows cannot be expressed here.
+ * `run-writes-observed.test.ts` keeps every other insert or update of automation_runs out of the main process.
+ * Deleting a run is not a status change and does not come through here.
+ */
+function writeRuns(at: number, write: () => AutomationRunRow[]): AutomationRun[] {
+  const runs = write().map((row) => mapAutomationRunRow(row));
+  for (const run of runs) {
+    activitySignal({ event_id: `automation.run:${run.id}:${run.status}`, kind: 'automation.run',
+      object_id: run.id, status: run.status, occurred_at: at });
+  }
+  return runs;
+}
 
 const DEFAULT_TZ = getLocalTimeZone();
 
@@ -104,7 +122,7 @@ function mapAutomationRow(row: AutomationRow): Automation {
 
 /**
  * #7221 给 agent 排的那几条补上「谁建的」:那条会话的名字(主人起的 agent 名,没有就是侧栏那个标题),
- * 会话已归档或删除就是 `gone`。读的是这台机器自己的会话表 —— 别的机器上看这台的「已安排」也是这台答。
+ * `gone` 只指身份行已删除;可恢复归档单独标记。读的是这台机器自己的会话表。
  */
 async function withAgentSessions(list: Automation[]): Promise<Automation[]> {
   const ids = [...new Set(list.flatMap((automation) => (automation.agentSessionId ? [automation.agentSessionId] : [])))];
@@ -123,7 +141,7 @@ async function withAgentSessions(list: Automation[]): Promise<Automation[]> {
     if (!automation.agentSessionId) return automation;
     const row = byId.get(automation.agentSessionId);
     const name = row ? row.config?.agentDisplayName?.trim() || row.title.trim() || null : null;
-    return { ...automation, agentSession: { name, gone: !row || row.archivedAt != null } };
+    return { ...automation, agentSession: { name, gone: !row, ...(row?.archivedAt != null ? { archived: true } : {}) } };
   });
 }
 
@@ -260,6 +278,15 @@ export async function listAutomations(projectId?: string): Promise<Automation[]>
   return withAgentSessions(mapAutomationRows(rows));
 }
 
+/** Only a missing local identity is orphaned; archived tasks still have their row. */
+export async function listOrphanedAgentScheduleIds(sessionId?: string): Promise<string[]> {
+  const rows = await db.select({ id: automations.id }).from(automations)
+    .leftJoin(sessions, eq(sessions.id, automations.agentSessionId))
+    .where(and(isNull(automations.deletedAt), isNotNull(automations.agentSessionId), isNull(sessions.id),
+      sessionId === undefined ? undefined : eq(automations.agentSessionId, sessionId)));
+  return rows.map(({ id }) => id);
+}
+
 /** #7221 这条会话给自己排的(没删的),建得早的在前。 */
 export async function listAgentSchedules(agentSessionId: string): Promise<Automation[]> {
   const rows = await db
@@ -366,9 +393,10 @@ export async function skipQueuedCronRuns(
   code: string
 ): Promise<AutomationRun[]> {
   const error = JSON.stringify({ step: 'queue', code });
-  const rows = await db
+  const now = Date.now();
+  return writeRuns(now, () => db
     .update(automationRuns)
-    .set({ status: 'skipped', finishedAt: Date.now(), error })
+    .set({ status: 'skipped', finishedAt: now, error })
     .where(
       and(
         eq(automationRuns.automationId, automationId),
@@ -376,8 +404,8 @@ export async function skipQueuedCronRuns(
         eq(automationRuns.triggerKind, 'cron')
       )
     )
-    .returning();
-  return rows.map((row) => mapAutomationRunRow(row));
+    .returning()
+    .all());
 }
 
 async function projectExists(projectId: string): Promise<boolean> {
@@ -642,6 +670,27 @@ export async function ensureNextCronRun(
  */
 const hasProjectOrAgent = sql`(${automations.projectId} IS NOT NULL OR ${automations.agentSessionId} IS NOT NULL)`;
 
+/**
+ * 还没到点的排程里最早的那一刻(`now` 之后),调度器据此在整分钟扫描之外准点醒一次;条件与 `markDueCronRunsQueued` 同一套。
+ */
+export async function nextScheduledRunAt(now = Date.now()): Promise<number | null> {
+  const [row] = await db
+    .select({ at: sql<number | null>`min(${automationRuns.scheduledAt})` })
+    .from(automationRuns)
+    .innerJoin(automations, eq(automationRuns.automationId, automations.id))
+    .where(
+      and(
+        eq(automationRuns.status, 'scheduled'),
+        eq(automationRuns.triggerKind, 'cron'),
+        sql`${automationRuns.scheduledAt} > ${now}`,
+        eq(automations.enabled, 1),
+        hasProjectOrAgent,
+        isNull(automations.deletedAt)
+      )
+    );
+  return row?.at ?? null;
+}
+
 export async function markDueCronRunsQueued(
   now = Date.now()
 ): Promise<Array<{ run: AutomationRun; automation: Automation }>> {
@@ -664,18 +713,18 @@ export async function markDueCronRunsQueued(
   if (rows.length === 0) return [];
 
   const ids = rows.map((r) => r.run.id);
-  await db.update(automationRuns).set({ status: 'queued' }).where(inArray(automationRuns.id, ids));
+  const queued = new Map(writeRuns(now, () => db
+    .update(automationRuns)
+    .set({ status: 'queued' })
+    .where(inArray(automationRuns.id, ids))
+    .returning()
+    .all()).map((run) => [run.id, run]));
 
+  // The runs as written, in schedule order.
   return rows.flatMap(({ run, automation }) => {
+    const written = queued.get(run.id);
     const mappedAutomation = mapAutomationRowSafely(automation);
-    return mappedAutomation
-      ? [
-          {
-            run: { ...mapAutomationRunRow(run), status: 'queued' as const },
-            automation: mappedAutomation,
-          },
-        ]
-      : [];
+    return written && mappedAutomation ? [{ run: written, automation: mappedAutomation }] : [];
   });
 }
 
@@ -719,7 +768,7 @@ export async function scheduleAutomationRun(input: {
   const triggerSnap = JSON.stringify(input.triggerConfigSnapshot);
   const convSnap = JSON.stringify(input.agentConfigSnapshot);
   const sessionSnap = input.sessionConfigSnapshot ? JSON.stringify(input.sessionConfigSnapshot) : null;
-  const rows = db.all<AutomationRunRow>(sql`
+  const [run] = writeRuns(Date.now(), () => db.all<AutomationRunRow>(sql`
     INSERT INTO automation_runs (
       id, automation_id, scheduled_at, deadline_at, status, trigger_kind,
       trigger_config_snapshot, agent_config_snapshot, session_config_snapshot,
@@ -754,11 +803,11 @@ export async function scheduleAutomationRun(input: {
       trigger_config_snapshot AS triggerConfigSnapshot,
       agent_config_snapshot AS agentConfigSnapshot,
       session_config_snapshot AS sessionConfigSnapshot
-  `);
-  return rows[0] ? mapAutomationRunRow(rows[0]) : null;
+  `));
+  return run ?? null;
 }
 
-export async function listQueuedRuns(limit = 100): Promise<
+export async function listQueuedRuns(limit = 100, blockedSessions: readonly string[] = [], attemptedRuns: readonly string[] = []): Promise<
   Array<{
     run: AutomationRun;
     automation: Automation;
@@ -771,7 +820,9 @@ export async function listQueuedRuns(limit = 100): Promise<
     .where(
       and(
         eq(automationRuns.status, 'queued'),
+        attemptedRuns.length ? notInArray(automationRuns.id,[...attemptedRuns]) : undefined,
         eq(automations.enabled, 1),
+        blockedSessions.length ? or(isNull(automations.agentSessionId),notInArray(automations.agentSessionId,[...blockedSessions])) : undefined,
         isNull(automations.deletedAt)
       )
     )
@@ -789,9 +840,9 @@ export async function startCreatingSession(
   id: string,
   now = Date.now()
 ): Promise<AutomationRun | null> {
-  const rows = db.all<AutomationRunRow>(sql`
+  const [run] = writeRuns(now, () => db.all<AutomationRunRow>(sql`
     UPDATE automation_runs
-    SET status = 'creating_session', started_at = ${now}
+    SET status = 'creating_session', started_at = COALESCE(started_at, ${now})
     WHERE id = ${id}
       AND status = 'queued'
     RETURNING
@@ -809,9 +860,8 @@ export async function startCreatingSession(
       trigger_config_snapshot AS triggerConfigSnapshot,
       agent_config_snapshot AS agentConfigSnapshot,
       session_config_snapshot AS sessionConfigSnapshot
-  `);
-  const [row] = rows;
-  return row ? mapAutomationRunRow(row) : null;
+  `));
+  return run ?? null;
 }
 
 export type AutomationRunCleanupTarget = {
@@ -857,7 +907,7 @@ export async function insertRun(input: {
   generatedSessionName?: string | null;
   error?: RunError | null;
 }): Promise<AutomationRun> {
-  const [row] = await db
+  const [run] = writeRuns(Date.now(), () => db
     .insert(automationRuns)
     .values({
       id: randomUUID(),
@@ -878,8 +928,9 @@ export async function insertRun(input: {
         ? JSON.stringify(input.sessionConfigSnapshot)
         : null,
     })
-    .returning();
-  return mapAutomationRunRow(row);
+    .returning()
+    .all());
+  return run!;
 }
 
 export async function updateRun(
@@ -903,12 +954,13 @@ export async function updateRun(
     ...rest,
     ...(error !== undefined ? { error: error ? JSON.stringify(error) : null } : {}),
   };
-  const [row] = await db
+  const [run] = writeRuns(Date.now(), () => db
     .update(automationRuns)
     .set(dbValues)
     .where(eq(automationRuns.id, id))
-    .returning();
-  return row ? mapAutomationRunRow(row) : null;
+    .returning()
+    .all());
+  return run ?? null;
 }
 
 export async function findRunsStuckInCreatingSession(): Promise<Array<{ id: string }>> {

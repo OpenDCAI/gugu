@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 // owner 10-16「替换掉这个人物头像,用咕咕,并且得考虑最开始没有创建咕咕的时候新用户,这里的按钮是什么样」:
 // 最左栏顶格 = 咕咕;栏底只留设置齿轮;还没有咕咕的新用户这一格照样在(淡 + 「+」,提示领取 / 创建)。
-import { createElement, type ReactNode } from 'react'
+import { act, createElement, type ReactNode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { AUTOMATION_TEST_IDS } from '../../../../apps/desktop/src/lib/automationDom'
 import { clickElement, createNode, createReactHarness, renderWithAppProviders } from '../../../support/testHarness'
@@ -32,18 +32,19 @@ vi.mock('../../../../apps/desktop/src/lib/assistantShellBridge', async (importOr
 
 const { Sidebar } = await import('../../../../apps/desktop/src/components/Sidebar')
 const { DevicesContext } = await import('../../../../apps/desktop/src/store/devicesContext')
+const { appState } = await import('../../../../apps/desktop/src/session/renderer/lib/stores/app-state')
 
 const auth = { id: 'u1', email: 'u@e.com', nickname: 'U' }
 const byTestId = (root: ParentNode, id: string) => root.querySelector<HTMLElement>(`[data-testid="${id}"]`)
 
 type Cloud = { available: boolean; snapshot: { state: string; deviceId: string | null; error: null; since: null } | null; loadError: string | null }
-async function renderRail(cloud: Cloud, onTabChange = vi.fn()) {
+async function renderRail(cloud: Cloud, onTabChange = vi.fn(), activeTab: 'chats' | 'tasks' | 'contacts' = 'chats') {
   const harness = createReactHarness()
   const value = {
     devices: [], loading: false, error: null, refresh: async () => {}, rename: async () => {}, remove: async () => {},
     listBoundAgents: async () => [], cloudComputer: cloud,
   }
-  const node: ReactNode = createElement(DevicesContext.Provider, { value: value as never }, createNode(Sidebar, { activeTab: 'chats', onTabChange }))
+  const node: ReactNode = createElement(DevicesContext.Provider, { value: value as never }, createNode(Sidebar, { activeTab, onTabChange }))
   await renderWithAppProviders(harness, node, { auth })
   return harness
 }
@@ -52,9 +53,45 @@ afterEach(() => {
   capability.agentRuntime = true
   mine.value = { contact: null, agentId: null, loading: false, error: null }
   bridge.snapshot = null
+  appState.navigation.navigate('home')
 })
 
 describe('最左栏顶格 = 咕咕', () => {
+  it('pauses outside the assistant view while its outer entry remains clickable, and reuses the same canvas on return', async () => {
+    mine.value = { contact: { id: 'a1', display_name: '小咕', avatar: null }, agentId: 'a1', loading: false, error: null }
+    bridge.snapshot = { assistant: mine.value.contact }
+    appState.navigation.navigate('home')
+    const onTabChange = vi.fn()
+    const harness = await renderRail({ available: true, snapshot: { state: 'awake', deviceId: 'd1', error: null, since: null }, loadError: null }, onTabChange, 'tasks')
+    try {
+      const entry = byTestId(harness.container, AUTOMATION_TEST_IDS.sidebarAssistantNav)!
+      const face = entry.querySelector('.gg-sidebar-assistant-face')!
+      const canvas = face.querySelector('canvas')
+      expect(canvas).not.toBeNull()
+      expect(face.hasAttribute('inert')).toBe(true)
+      expect(entry.hasAttribute('inert')).toBe(false)
+      await clickElement(entry)
+      expect(onTabChange).toHaveBeenCalledWith('tasks')
+      expect(appState.navigation.currentViewId).toBe('assistant')
+      expect(face.hasAttribute('inert')).toBe(false)
+      for (const view of ['library', 'home'] as const) {
+        await act(async () => appState.navigation.navigate(view))
+        expect(face.hasAttribute('inert')).toBe(true)
+        expect(face.querySelector('canvas')).toBe(canvas)
+      }
+      await act(async () => appState.navigation.navigate('assistant'))
+      expect(face.hasAttribute('inert')).toBe(false)
+      expect(face.querySelector('canvas')).toBe(canvas)
+    } finally { harness.cleanup() }
+  })
+
+  it('stays paused on a non-task tab even when the retained task route is assistant', async () => {
+    appState.navigation.navigate('assistant')
+    const harness = await renderRail({ available: false, snapshot: null, loadError: null }, vi.fn(), 'contacts')
+    try { expect(harness.container.querySelector('.gg-sidebar-assistant-face')?.hasAttribute('inert')).toBe(true) }
+    finally { harness.cleanup() }
+  })
+
   it('网页版没有本机 Agent runtime 也能打开云端助理入口', async () => {
     capability.agentRuntime = false
     bridge.snapshot = { member: true }
@@ -104,6 +141,8 @@ describe('最左栏顶格 = 咕咕', () => {
         expect(top.getAttribute('aria-label')).toBe(label)
         expect(top.querySelector('.gg-sidebar-assistant-mark')).not.toBeNull()
         expect(top.querySelector('.gg-sidebar-assistant-face')?.hasAttribute('data-dim')).toBe(true)
+        // 占位鸟只是个入口图标:画成定格图,不挂上会动的头像(它一直呼吸、眨眼,一只就让主窗每分钟画上几百帧)
+        expect(top.querySelector('.gg-sidebar-assistant-face canvas')).toBeNull()
       } finally {
         harness.cleanup()
       }

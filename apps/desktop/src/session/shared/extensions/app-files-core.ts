@@ -1,9 +1,14 @@
-import { AttachmentsError, configuredEndpoint, fetchAttachmentUrls, placeAttachment, uploadAttachmentBytes } from '@gugu/core/cloud/attachmentsApi';
+import { readDocumentText, ChatFolderReadError } from './chat-folder-text';
+import { FILE_KEEPS, type FileKeep } from '@gugu/core/shared/fileStorage';
+import { AttachmentsError, configuredEndpoint, placeAttachment, uploadAttachmentBytes } from '@gugu/core/cloud/attachmentsApi';
+import { NextVersionHandoffRefused } from '@gugu/core/cloud/fileVersionHandoff';
 import { createGuguSupabaseClient } from '@gugu/core/cloud/supabase';
-import { createAttachmentResolver } from '@gugu/core/shared/attachmentUrls';
+import { fileBlob, type FileHandle, type ResolvedFile } from '@gugu/core/shared/fileResolver';
 import { fetchInChunks } from '@gugu/core/shared/inChunks';
 import { mimeTypeFromName } from '@gugu/core/shared/imageMime.mjs';
 import { workspaceUploadKind } from '@gugu/core/shared/workspaceUpload.mjs';
+import { isDeviceOnline } from '@gugu/core/shared/enums/deviceModels';
+import type { DeviceStatus } from '@gugu/core/shared/types/chat';
 import type { ErrorDetail, ExtensionChat } from './bridge-protocol';
 import type { Grant, PageSync } from './file-sync-core';
 import {
@@ -22,12 +27,18 @@ import {
   type AppFileUpload,
   type AppFileVersion,
   type AppFileVersionContent,
+  type AppOpenWithDetail,
   type AppShowMessageDetail,
   type ChatPeekFile,
   type LocalPlace,
   type SyncRevokeReason,
+  type PreparedChatFile,
 } from './app-runtime-protocol';
+import { fileOpenersFor } from './file-openers';
+import type { ExtensionManifest } from './manifest';
 import { displayNameOf } from './file-openers';
+import type { AppIdentity as OwnerIdentity } from './app-identity';
+import { readUserSettingsConfig, updateUserSettingsConfig, type VersionedSettingsTableClient } from '@gugu/core/cloud/userSettings';
 
 /**
  * `gugu.files` as the host answers it: which file a page means, whether it may have it, and the
@@ -50,7 +61,7 @@ import { displayNameOf } from './file-openers';
 /** A refusal of `gugu.files`: `code` and `detail` are what an App branches on (bridge-protocol.ts `ErrorDetail`), the message is for people. */
 export class AppFileError extends Error {
   constructor(
-    readonly code: 'denied' | 'invalid' | 'failed' | 'not-found' | 'ambiguous' | 'too-large' | 'content-changed' | 'name-taken',
+    readonly code: 'denied' | 'invalid' | 'failed' | 'not-found' | 'ambiguous' | 'too-large' | 'content-changed' | 'name-taken' | 'unavailable',
     message: string,
     readonly detail?: ErrorDetail,
   ) {
@@ -74,10 +85,21 @@ export interface FileSurface {
 }
 
 export interface FilesPlatform {
+  /** Installed identity, never an identity supplied by the App page. */
+  appIdentity?(extensionId: string): OwnerIdentity | null;
+  /**
+   * The shared project file publisher: `next` is published on the host or handed to it from another machine. Null when
+   * the ordinary uploader should decide. `next` names the file and the version the edit started from.
+   */
+  publishFile?(chatId: string, file: AppFileUpload, parentId: string | null, actor: string, store?: () => Promise<ItemRow>,
+    options?: { next?: { itemId: string; expectedVersion: number } }): Promise<ItemRow | null>;
+  /** Delegates to the one file resolver; localOnly performs no cloud lookup or byte read. */
+  resolveFile?(ref: ChatFileRef, actorId: string | null, options: { localOnly?: boolean; version?: number }): Promise<ResolvedFile | null>;
   /** The signed-in account; throw `AppFileError('failed', …)` when there is none. */
   account(): Promise<{ token: string; userId: string }>;
   hasCapability(extensionId: string, capability: 'files:read' | 'files:write'): boolean;
   sync: {
+    ensureFor(asAgent: string | null): void;
     pageFor(pageId: number, extensionId: string): PageSync;
     grant(page: PageSync, grant: Grant): void;
     ungrant(pageId: number, docName: string): void;
@@ -113,9 +135,10 @@ export interface AppIdentity {
 type Identities = FilesPlatform['identities'];
 
 /** What a download saves: bytes behind a short-lived signed URL, or a document's text. */
-export type DownloadSource = { name: string; kind: 'file'; url: string } | { name: string; kind: 'text'; text: string };
+export type DownloadSource = { name: string; kind: 'file'; file: FileHandle } | { name: string; kind: 'text'; text: string };
 
 interface ItemRow {
+  metadata?: Record<string, unknown>;
   id: string;
   chat_id: string;
   kind: string;
@@ -125,6 +148,8 @@ interface ItemRow {
   created_at: string | null;
   updated_at: string | null;
   created_by: string | null;
+  /** Read/replacement responses include the editor; a creation has no prior edit. */
+  updated_by?: string | null;
   source_message_ids: string[] | null;
   pointer: string | null;
   version: number;
@@ -134,6 +159,12 @@ interface ItemRow {
   system_role: string | null;
   /** Its path from the top, as every door answers it. */
   path: string;
+  /**
+   * `workspace_list_as` only (gugu-supabase #69): when its cloud copy is cleared (null: kept), and whether the reader
+   * uploaded it — both null when it has no cloud copy.
+   */
+  expires_at?: string | null;
+  is_mine?: boolean | null;
 }
 
 /** A row `workspace_search` / `workspace_recent` answers (gugu-supabase 20261017002319): with its chat, and when opened. */
@@ -202,39 +233,15 @@ function storageClient(token: string) {
   return createGuguSupabaseClient({ headers: { Authorization: `Bearer ${token}` } });
 }
 
-/**
- * A short-lived signed URL for a stored file's bytes — one way for every file (#7290 收尾): attachments/urls signs that
- * item and version, as the one asking (`as`: an App's program acting as its agent) — the same path the chat reads; a file
- * from before the switch is signed there too (its bytes are the blob its pointer was registered as).
- */
-async function signedUrlOf(token: string, row: ItemRow, how: { version?: number; as?: string | null } = {}): Promise<string> {
-  if (row.kind !== 'file') throw new AppFileError('failed', `${row.filename} has no stored bytes`);
-  const link = await createAttachmentResolver((refs) => fetchAttachmentUrls(configuredEndpoint(token), refs, how.as))
-    .resolve({ kind: 'item', itemId: row.id, version: how.version ?? row.version });
-  if (link.status === 'gone') throw new AppFileError('not-found', `${row.filename} has no bytes for version ${how.version ?? row.version}`);
-  return link.url;
-}
-
-/** A stored file's bytes, as `files.open` hands them to the page (`AppFileOpened.bytes`). */
-async function storedBytes(token: string, row: ItemRow, how: { version?: number; as?: string | null } = {}): Promise<ArrayBuffer> {
-  const url = await signedUrlOf(token, row, how);
-  const res = await fetch(url).catch((error: unknown) => {
-    throw new AppFileError('failed', `${row.filename} could not be read: ${error instanceof Error ? error.message : String(error)}`);
-  });
-  if (!res.ok) throw new AppFileError('failed', `${row.filename} could not be read (HTTP ${res.status})`);
-  return res.arrayBuffer();
-}
-
 type Claimant = FilesPlatform['claimant'];
 
-function entryOf(row: ItemRow, people: ReadonlyMap<string, AppFilePerson>, claimant: Claimant, deletable: ReadonlySet<string>): AppFileEntry {
+function entryOf(row: ItemRow, claimant: Claimant): AppFileEntry {
   const file = { name: row.filename, contentType: row.content_type };
   const folder = row.kind === 'folder';
-  // Who opens it and how its name reads come from the one answer for its kind (`typedFileName`, 摩擦单 F41 / F39). No App opens a folder.
-  const claim = folder ? null : (claimant?.(typedFileName(file)) ?? null);
-  return {
+  return claimEntry({
     id: row.id,
     chat: row.chat_id,
+    metadata: row.metadata ?? {},
     name: row.filename,
     contentType: row.content_type,
     type: fileTypeOf(row.kind, row.content_type),
@@ -242,30 +249,41 @@ function entryOf(row: ItemRow, people: ReadonlyMap<string, AppFilePerson>, claim
     path: row.path,
     systemRole: row.system_role === 'attachments' ? 'attachments' : null,
     suffix: folder ? '' : fileSuffixOf(file),
-    displayName: claim ? displayNameOf(row.filename, claim.suffix) : row.filename,
-    claimedBy: claim?.app ?? null,
+    displayName: row.filename,
+    claimedBy: null,
     size: row.size_bytes ?? null,
     version: row.version ?? null,
     createdAt: row.created_at ?? null,
     updatedAt: row.updated_at ?? null,
     createdBy: row.created_by
-      ? (people.get(row.created_by) ?? { id: personId(row.created_by), name: row.created_by.slice(0, 8), kind: 'human' })
+      ? { id: personId(row.created_by), name: row.created_by.slice(0, 8), kind: 'human' }
       : { id: '', name: '', kind: 'system' },
+    updatedBy: row.updated_by
+      ? { id: personId(row.updated_by), name: row.updated_by.slice(0, 8), kind: 'human' }
+      : null,
     sourceMessageIds: row.source_message_ids ?? [],
-    canDelete: deletable.has(row.id),
-  };
+    canDelete: false,
+    ...('is_mine' in row ? { keep: typeof row.is_mine === 'boolean' ? { expiresAt: row.expires_at ?? null, mine: row.is_mine } : null } : {}),
+  }, claimant);
+}
+
+/** Resolve presentation only for an entry being used, not for a pending file-opening message. */
+function claimEntry(entry: AppFileEntry, claimant: Claimant): AppFileEntry {
+  if (!claimant || entry.type === 'folder') return entry;
+  const claim = claimant(typedFileName({ name: entry.name, contentType: entry.contentType }));
+  return { ...entry, displayName: claim ? displayNameOf(entry.name, claim.suffix) : entry.name, claimedBy: claim?.app ?? null };
 }
 
 /**
- * Who made each file, by name and kind, in one read. A creator whose profile is gone (an erased
+ * Who created or last edited each file, by name and kind, in one read. An author whose profile is gone (an erased
  * account) keeps a shortened id rather than a blank — the old panel's rule (#1709).
  */
-async function peopleOf(token: string, rows: readonly ItemRow[], identities: Identities): Promise<Map<string, AppFilePerson>> {
-  const ids = [...new Set(rows.map((row) => row.created_by).filter((id): id is string => !!id))];
+async function peopleOf(token: string, entries: readonly AppFileEntry[], identities: Identities): Promise<Map<string, AppFilePerson>> {
+  const ids = [...new Set(entries.flatMap((entry) => [entry.createdBy?.id, entry.updatedBy?.id]).filter((id): id is string => !!id).map((id) => id.replace(/^user:/, '')))];
   const people = new Map<string, AppFilePerson>();
   if (ids.length === 0) return people;
   for (const user of await identities(token, ids)) {
-    people.set(user.id, { id: personId(user.id), name: user.name || user.id.slice(0, 8), kind: user.kind });
+    people.set(personId(user.id), { id: personId(user.id), name: user.name || user.id.slice(0, 8), kind: user.kind });
   }
   return people;
 }
@@ -346,7 +364,9 @@ export async function extensionChatOf(
     if (error) throw new AppFileError('failed', error.message);
     return data as { id: string; kind: string; name: string | null; source_chat_id: string | null } | null;
   };
-  const row = await read(chatId);
+  let row = await read(chatId);
+  if (!row) throw new AppFileError('not-found', 'This chat could not be read');
+  if (row.kind === 'topic') row = row.source_chat_id ? await read(row.source_chat_id) : null;
   if (!row) throw new AppFileError('not-found', 'This chat could not be read');
   if (row.kind === 'group') return { id: row.id, name: row.name ?? '', kind: 'group', groupId: row.id };
   if (row.kind === 'dm') {
@@ -356,9 +376,7 @@ export async function extensionChatOf(
     const [peer] = other ? await platform.identities(token, [other]) : [];
     return { id: row.id, name: peer?.name ?? '', kind: 'dm', groupId: null };
   }
-  if (row.kind !== 'topic') return null;
-  const source = row.source_chat_id ? await read(row.source_chat_id) : null;
-  return { id: row.id, name: row.name ?? '', kind: 'topic', groupId: source?.kind === 'group' ? source.id : null };
+  return null;
 }
 
 /**
@@ -366,14 +384,62 @@ export async function extensionChatOf(
  * may delete it — the database's answer (`workspace_deletable_as`, the rule its delete keeps), one read for the batch.
  */
 async function entriesOf(token: string, rows: readonly ItemRow[], platform: Pick<FilesPlatform, 'claimant' | 'identities'>, actor: string): Promise<AppFileEntry[]> {
-  if (rows.length === 0) return [];
+  return entryDetails(token, rows.map((row) => entryOf(row, platform.claimant)), platform.identities, actor);
+}
+
+/** A chat's files as its folder lists them: entries, and which machine keeps the ones that stay on it. */
+async function listedEntriesOf(token: string, rows: readonly ItemRow[], platform: Pick<FilesPlatform, 'claimant' | 'identities'>, actor: string): Promise<AppFileEntry[]> {
+  const [entries, storedOn] = await Promise.all([entriesOf(token, rows, platform, actor), storedOnOf(token, rows, platform.identities, actor)]);
+  const local = new Set(rows.filter(onMachine).map((row) => row.id));
+  return entries.map((entry) => (local.has(entry.id) && storedOn.has(entry.chat!) ? { ...entry, storedOn: storedOn.get(entry.chat!)! } : entry));
+}
+
+const onMachine = (row: ItemRow) => row.kind === 'file' && !row.pointer;
+
+/**
+ * The machine a project chat keeps its files on, for its files that have no cloud copy (no blob pointer): one policy read
+ * per chat. The machine's name is read only when it is the reader's own (a device row only its owner reads).
+ */
+async function storedOnOf(token: string, rows: readonly ItemRow[], identities: Identities, actor: string): Promise<Map<string, NonNullable<AppFileEntry['storedOn']>>> {
+  const chats = [...new Set(rows.filter(onMachine).map((row) => row.chat_id))];
+  const found = new Map<string, NonNullable<AppFileEntry['storedOn']>>();
+  await Promise.all(chats.map(async (chatId) => {
+    const { data, error } = await chatClient(token).rpc('file_project_policy_for', { p_chat: chatId, p_as: actor });
+    if (error) throw new AppFileError(codeOf(error), error.message);
+    const policy = data as { host_device_id?: unknown; host_account_id?: unknown } | null;
+    // Not a project chat; or a server from before the account-wide policy, which names no owner: no mark.
+    if (typeof policy?.host_account_id !== 'string' || typeof policy.host_device_id !== 'string') return;
+    const mine = personId(policy.host_account_id) === personId(actor);
+    const [owner] = await identities(token, [policy.host_account_id]);
+    let machine: string | null = null;
+    let online: boolean | undefined;
+    if (mine) {
+      const device = await createGuguSupabaseClient({ schema: 'identity', headers: { Authorization: `Bearer ${token}` } })
+        .from('gugu_devices').select('label, status').eq('device_id', policy.host_device_id).maybeSingle();
+      if (device.error) throw new AppFileError('failed', device.error.message);
+      const row = device.data as { label: string; status?: string } | null;
+      machine = row?.label ?? null;
+      if (typeof row?.status === 'string') online = isDeviceOnline(row.status as DeviceStatus);
+    }
+    found.set(chatId, { machine, owner: owner?.name ?? policy.host_account_id.slice(0, 8), mine, ...(online === undefined ? {} : { online }) });
+  }));
+  return found;
+}
+
+async function entryDetails(token: string, entries: readonly AppFileEntry[], identities: Identities, actor: string): Promise<AppFileEntry[]> {
+  if (entries.length === 0) return [];
   const [people, deletable] = await Promise.all([
-    peopleOf(token, rows, platform.identities),
-    agentRows(token, 'workspace_deletable_as', { p_item_ids: rows.map((row) => row.id), p_as_user_id: actor }),
+    peopleOf(token, entries, identities),
+    agentRows(token, 'workspace_deletable_as', { p_item_ids: entries.map((entry) => entry.id), p_as_user_id: actor }),
   ]);
   // A set of ids, as PostgREST answers a SETOF uuid.
   const mayDelete = new Set(deletable as unknown as string[]);
-  return rows.map((row) => entryOf(row, people, platform.claimant, mayDelete));
+  return entries.map(({ detailsPending: _pending, ...entry }) => ({
+    ...entry,
+    createdBy: entry.createdBy ? people.get(entry.createdBy.id) ?? entry.createdBy : null,
+    updatedBy: entry.updatedBy ? people.get(entry.updatedBy.id) ?? entry.updatedBy : null,
+    canDelete: mayDelete.has(entry.id),
+  }));
 }
 
 /** Every row of a chat, newest first, as `actor` (the person, or the agent a program works for) sees them. */
@@ -399,6 +465,9 @@ const FOLDER_CODES: Readonly<Record<string, AppFileError['code']>> = {
   workspace_item_not_found: 'not-found',
   workspace_no_version: 'not-found',
   workspace_version_conflict: 'content-changed',
+  // How long a cloud copy is kept (gugu-supabase #68 `file_storage_mark_as`): someone else's upload; no cloud copy.
+  file_transfer_denied: 'denied',
+  file_transfer_invalid: 'invalid',
 };
 
 /**
@@ -420,6 +489,33 @@ const ATTACHMENTS_CODES: Readonly<Record<string, AppFileError['code']>> = {
   too_large: 'too-large',
 };
 
+/**
+ * Every layer's way of saying that only the machine a project chat keeps its files on may change them: the host
+ * publisher, the cloud upload a project chat refuses, and the database's read-only fence.
+ */
+const KEPT_ON_HOST = /Only the bound (file )?host|not uploaded proactively|Remote project files are read-only|Local revisions must be published by the host/;
+
+/**
+ * Host refusals said for people: a handoff that could not finish names the machine and can be retried; a host-only
+ * operation names whose computer keeps the file. Null for other failures.
+ */
+async function keptOnHostError(token: string, row: ItemRow, actor: string, identities: Identities, error: unknown): Promise<AppFileError | null> {
+  if (error instanceof NextVersionHandoffRefused) {
+    const { host_label, host_account_id, status } = error.outcome;
+    const [owner] = host_account_id ? await identities(token, [host_account_id]).catch(() => []) : [];
+    const computer = owner?.name ? `${owner.name}'s computer` : 'another computer';
+    const where = host_label?.trim() ? `"${host_label.trim()}" (${computer})` : computer;
+    const why = status === 'host_offline' ? 'is offline' : 'did not take the new version in time';
+    return new AppFileError('unavailable', `${row.filename} was not changed: ${where} keeps this project chat's files and ${why}. Nothing was changed. Try again once that computer is online.`, { reason: status });
+  }
+  if (!KEPT_ON_HOST.test(error instanceof Error ? error.message : String(error))) return null;
+  const on = (await storedOnOf(token, [{ ...row, kind: 'file', pointer: null }], identities, actor).catch(() => null))?.get(row.chat_id);
+  const where = !on ? 'another computer'
+    : on.mine ? (on.machine ? `your computer "${on.machine}"` : 'another of your computers')
+    : `${on.owner}'s computer`;
+  return new AppFileError('denied', `${row.filename} was not changed: this project chat keeps its files on ${where}, and only an agent on that computer can change them. Nothing was changed.`, { reason: 'kept-on-host' });
+}
+
 /** The code a refusal keeps on its way out: the door's own, or what attachments/* said; anything else failed. */
 function refusalCode(error: unknown): AppFileError['code'] {
   if (error instanceof AppFileError) return error.code;
@@ -438,7 +534,9 @@ export type ChatFileRef = Exclude<AppFileRef, LocalPlace>;
 /** One row by its id, as `actor` sees it: not there and not theirs read the same (null). */
 async function itemById(token: string, itemId: string, actor: string): Promise<ItemRow | null> {
   if (!UUID.test(itemId)) return null;
-  const { data, error } = await chatClient(token).rpc('workspace_get_as', { p_item_id: itemId, p_as_user_id: actor });
+  // This reader uses metadata only. The live document is read by file sync, never from inline_text.
+  const { data, error } = await chatClient(token).rpc('workspace_get_as', { p_item_id: itemId, p_as_user_id: actor })
+    .select('id,chat_id,kind,filename,content_type,size_bytes,pointer,source_message_ids,created_by,updated_by,version,created_at,updated_at,epoch,parent_id,system_role,path,metadata');
   if (error) {
     if (codeOf(error) === 'not-found') return null;
     throw new AppFileError(codeOf(error), error.message);
@@ -484,7 +582,18 @@ async function clashOf(token: string, row: ItemRow, picked: string, actor: strin
   }
 }
 
-/** Resolve `ref` in the chat it names. Not-there and not-yours read the same. */
+/** A topic names its source's resources. Read as the actor, even when its owner is not in that chat. */
+export async function resourceChatIdOf(token: string, chatId: string, actor: string): Promise<string> {
+  const { data, error } = await chatClient(token).rpc('chat_facts', { p_chat_id: chatId, p_as_user_id: actor });
+  if (error) throw new AppFileError('failed', error.message);
+  const row = (Array.isArray(data) ? data[0] : data) as { id: string; kind: string; source_chat_id: string | null } | null;
+  if (!row) throw new AppFileError('not-found', 'This chat could not be read');
+  if (row.kind !== 'topic') return row.id;
+  if (row.source_chat_id) return row.source_chat_id;
+  throw new AppFileError('invalid', 'This topic has no source chat');
+}
+
+/** Resolve `ref` in the resource container it names. Not-there and not-yours read the same. */
 async function resolve(surface: FileSurface, account: { token: string; userId: string }, ref: ChatFileRef): Promise<{ row: ItemRow; handedOver: boolean }> {
   const { token } = account;
   const actor = surface.asAgent ?? account.userId;
@@ -492,7 +601,7 @@ async function resolve(surface: FileSurface, account: { token: string; userId: s
     const row = await itemById(token, ref.id, actor);
     if (!row) throw new AppFileError('not-found', 'No such file in a chat you are in');
     // Both said, and they disagree: the call is wrong, said where — the person can read the file, so naming its chat tells nothing new.
-    if (ref.chat !== undefined && row.chat_id !== ref.chat) {
+    if (ref.chat !== undefined && row.chat_id !== ref.chat && row.chat_id !== await resourceChatIdOf(token, ref.chat, actor)) {
       throw new AppFileError('invalid', `File ${ref.id} is in chat ${row.chat_id}, not ${ref.chat}: pass the entry or ctx.file as it is`);
     }
     return { row, handedOver: row.id === surface.itemId };
@@ -511,8 +620,9 @@ function insertDocument(
   token: string,
   doc: { chatId: string; name: string; contentType: string; content: string; sourceMessageIds: readonly string[]; parentId: string | null },
   actor: string,
+  app?: OwnerIdentity,
 ): Promise<ItemRow> {
-  return agentRow(token, 'workspace_create_document_as', { p_chat_id: doc.chatId, p_as_user_id: actor, p_title: doc.name,
+  return agentRow(token, app ? 'workspace_create_app_document_as' : 'workspace_create_document_as', { ...(app ? { p_app: app } : {}), p_chat_id: doc.chatId, p_as_user_id: actor, p_title: doc.name,
     p_content: doc.content, p_content_type: doc.contentType, p_source_message_ids: doc.sourceMessageIds, p_folder: doc.parentId });
 }
 
@@ -551,6 +661,38 @@ async function versionPointers(token: string, row: ItemRow, actor: string): Prom
 
 
 export function createAppFiles(platform: FilesPlatform) {
+  function appIdentity(extensionId: string | undefined): OwnerIdentity {
+    const identity = extensionId ? platform.appIdentity?.(extensionId) : null;
+    if (!identity) throw new AppFileError('invalid', 'This App has no recorded publisher: install it again before marking App data');
+    return identity;
+  }
+
+  async function localRevision(itemId: string) {
+    const local = await platform.resolveFile?.({ id: itemId }, null, { localOnly: true });
+    if (local?.status !== 'ready') return null;
+    try { return local.revision; } finally { await local.dispose(); }
+  }
+  async function fileFor(surface: FileSurface, ref: ChatFileRef, version?: number, localOnly = false): Promise<FileHandle | null> {
+    const file = await platform.resolveFile?.(ref, surface.asAgent ?? null, { version, localOnly });
+    if (!file && localOnly) return null;
+    if (!file) throw new AppFileError('failed', 'Verified file resolver is not installed');
+    if (file.status !== 'ready') throw new AppFileError('not-found', `The file has no bytes${version === undefined ? '' : ` for version ${version}`}`);
+    if (file.revision.item_id !== surface.itemId && !has(surface.extensionId, 'files:read') && !has(surface.extensionId, 'files:write')) {
+      await file.dispose(); throw new AppFileError('denied', 'Opening or saving this file needs "files:read" or "files:write"');
+    }
+    return file;
+  }
+  async function localFile(surface: FileSurface, ref: ChatFileRef, version?: number) {
+    const file = await fileFor(surface, ref, version, true);
+    if (!file) return null;
+    const r = file.revision, metadata = r.workspace;
+    if (!metadata || !r.item_id || !r.chat_id || !r.version) { await file.dispose(); throw new AppFileError('failed', 'Local file publication metadata is unavailable'); }
+    if (ref.chat !== undefined && ref.chat !== r.chat_id) { await file.dispose(); throw new AppFileError('invalid', 'The file is in another chat'); }
+    const row: ItemRow = { ...metadata, id: r.item_id, chat_id: r.chat_id, filename: r.file_name, content_type: r.content_type, size_bytes: r.size_bytes, version: r.version, kind: 'file', epoch: 0, pointer: null, system_role: null };
+    return { file, entry: entryOf(row, platform.claimant), self: { userId: personId(file.reader.actorId), name: selfNames.get(file.reader.actorId) ?? '' } };
+  }
+  const bytesOf = async (file: FileHandle) => (await fileBlob(file)).arrayBuffer();
+
   /** Found rows as entries, each with its chat's name — a private chat goes by the other one in it, as its panel says. */
   async function found(token: string, rows: readonly FoundRow[], viewerId: string): Promise<AppFileEntry[]> {
     const entries = await entriesOf(token, rows, platform, viewerId);
@@ -571,6 +713,12 @@ export function createAppFiles(platform: FilesPlatform) {
     if (removed.error) platform.warn(left, { pointers, error: removed.error.message });
   };
   const entryOne = async (token: string, row: ItemRow, actor: string): Promise<AppFileEntry> => (await entriesOf(token, [row], platform, actor))[0]!;
+  const openingOf = (row: ItemRow, actor: string, asAgent: string | null = null): { opening?: PreparedChatFile } => {
+    if (row.kind !== 'document') return {};
+    // The file is authorized. Its existing shared connection can open while its page starts.
+    platform.sync.ensureFor(asAgent);
+    return { opening: { entry: entryOf(row, undefined), epoch: row.epoch, actor, expiresAt: Date.now() + 5_000 } };
+  };
 
   async function selfName(token: string, userId: string): Promise<string> {
     const known = selfNames.get(userId);
@@ -587,12 +735,20 @@ export function createAppFiles(platform: FilesPlatform) {
     return { userId: personId(userId), name: await selfName(token, userId) };
   }
 
-  async function open(surface: FileSurface, args: { ref: ChatFileRef; readOnly?: boolean }): Promise<AppFileOpened> {
+  async function open(surface: FileSurface, args: { ref: ChatFileRef; readOnly?: boolean; appData?: boolean; deferDetails?: boolean; expectedVersion?: number }, opening?: PreparedChatFile): Promise<AppFileOpened> {
+    const local = args.appData ? null : await localFile(surface, args.ref);
+    if (local) return { entry: local.entry, docName: '', access: 'ro', self: local.self, bytes: await bytesOf(local.file) };
     const { token, userId } = await platform.account();
-    const { row, handedOver } = await resolve(surface, { token, userId }, args.ref);
-    if (row.kind === 'folder') throw notAFile(row);
+    const actor = surface.asAgent ?? userId;
+    const usable = opening && opening.expiresAt > Date.now() && opening.actor === actor && surface.itemId === opening.entry.id && 'id' in args.ref && args.ref.id === opening.entry.id && (args.ref.chat === undefined || args.ref.chat === opening.entry.chat) && (args.expectedVersion === undefined || args.expectedVersion === opening.entry.version);
+    if (opening && !usable) platform.warn('File opening authorization was not used; reading the file again', { item: opening.entry.id, expired: opening.expiresAt <= Date.now(), version: args.expectedVersion !== undefined && args.expectedVersion !== opening.entry.version });
+    const resolved = usable ? null : await resolve(surface, { token, userId }, args.ref);
+    const row = resolved?.row;
+    if (row?.kind === 'folder') throw notAFile(row);
+    const entry = usable ? claimEntry(opening.entry, platform.claimant) : entryOf(row!, platform.claimant);
+    const handedOver = usable || resolved!.handedOver;
     // A stored file (an image, a clip, a sound) opens read-only, as its bytes: there is no document to edit or sync.
-    const stored = row.kind !== 'document';
+    const stored = !!row && row.kind !== 'document';
     let access: Grant['access'];
     let needs: Grant['needs'];
     if (handedOver) {
@@ -607,14 +763,26 @@ export function createAppFiles(platform: FilesPlatform) {
     } else {
       throw new AppFileError('denied', 'Not permitted: opening a file other than the one this page was opened for needs "files:read" or "files:write"');
     }
-    const actor = surface.asAgent ?? userId;
+    if (args.appData === true) {
+      if (args.readOnly || (!handedOver && !has(surface.extensionId, 'files:write'))) {
+        throw new AppFileError('denied', 'Marking App data needs write access to that file');
+      }
+      const { data, error } = await chatClient(token).rpc('workspace_mark_app_data_as', {
+        p_item_id: entry.id, p_as_user_id: actor, p_app: appIdentity(surface.extensionId),
+      });
+      if (error) throw new AppFileError(codeOf(error), error.message);
+      entry.metadata = data as Record<string, unknown>;
+      if (row) row.metadata = entry.metadata;
+    }
     const self = { userId: personId(actor), name: await selfName(token, actor) };
-    if (stored) return { entry: await entryOne(token, row, actor), docName: '', access, self, bytes: await storedBytes(token, row, { as: surface.asAgent }) };
-    if (typeof row.epoch !== 'number') throw new AppFileError('failed', `${row.filename}: the server did not say which version of the file is open`);
-    const docName = `${row.id}@${row.epoch}`;
+    if (stored) return { entry: await entryOne(token, row!, actor), docName: '', access, self, bytes: await bytesOf((await fileFor(surface, { id: row!.id }, row!.version))!) };
+    const epoch = usable ? opening.epoch : row!.epoch;
+    if (typeof epoch !== 'number') throw new AppFileError('failed', `${entry.name}: the server did not say which version of the file is open`);
+    const docName = `${entry.id}@${epoch}`;
     const page = platform.sync.pageFor(surface.pageId, surface.extensionId);
-    platform.sync.grant(page, { docName, itemId: row.id, access, needs, ...(surface.asAgent ? { asAgent: surface.asAgent } : {}) });
-    return { entry: await entryOne(token, row, actor), docName, access, self };
+    const details = async () => (await entryDetails(token, [entry], platform.identities, actor))[0]!;
+    platform.sync.grant(page, { docName, itemId: entry.id, access, needs, ...(surface.asAgent ? { asAgent: surface.asAgent } : {}), ...(args.deferDetails ? { details } : {}) });
+    return { entry: args.deferDetails ? { ...entry, detailsPending: true } : await details(), docName, access, self };
   }
 
   /** A file the page may read: the one handed to it, or any other with `files:read`/`:write`. */
@@ -635,10 +803,10 @@ export function createAppFiles(platform: FilesPlatform) {
     const { token, userId } = await platform.account();
     const actor = as.asAgent ?? userId;
     if (as.folder !== undefined) {
-      return entriesOf(token, await agentRows(token, 'workspace_list_as', { p_chat_id: chatId, p_as_user_id: actor, p_folder: as.folder.replace(/^\/+|\/+$/g, '') }), platform, actor);
+      return listedEntriesOf(token, await agentRows(token, 'workspace_list_as', { p_chat_id: chatId, p_as_user_id: actor, p_folder: as.folder.replace(/^\/+|\/+$/g, '') }), platform, actor);
     }
     // Acting for an agent (A2): what the agent sees, by its own membership — never the person's chats (#6492).
-    return entriesOf(token, await rowsOfChat(token, chatId, actor), platform, actor);
+    return listedEntriesOf(token, await rowsOfChat(token, chatId, actor), platform, actor);
   }
 
   /**
@@ -651,9 +819,10 @@ export function createAppFiles(platform: FilesPlatform) {
     if (wanted.length === 0) return { entries: [], gone: [] };
     const { token, userId } = await platform.account();
     const rows = (await Promise.all(wanted.map((id) => itemById(token, id, as.asAgent ?? userId)))).filter((row): row is ItemRow => row !== null);
+    if (rows.some((row) => row.chat_id !== chatId)) chatId = await resourceChatIdOf(token, chatId, as.asAgent ?? userId);
     const here = rows.filter((row) => row.chat_id === chatId);
     const found = new Set(here.map((row) => row.id));
-    return { entries: await entriesOf(token, here, platform, as.asAgent ?? userId), gone: wanted.filter((id) => !found.has(id)) };
+    return { entries: await listedEntriesOf(token, here, platform, as.asAgent ?? userId), gone: wanted.filter((id) => !found.has(id)) };
   }
 
   /**
@@ -681,13 +850,19 @@ export function createAppFiles(platform: FilesPlatform) {
       throw new AppFileError('invalid', 'files.move(file, { folder, name }) puts it in another folder, renames it, or both: say which');
     }
     const { row } = await resolve(surface, { token, userId }, args.ref);
-    const moved = await agentRow(token, 'workspace_move_as', { p_item_id: row.id, p_as_user_id: surface.asAgent ?? userId, p_folder: folder ?? null, p_name: name });
-    return entryOne(token, moved, surface.asAgent ?? userId);
+    const moved = await agentRow(token, 'workspace_move_as', { p_item_id: row.id, p_as_user_id: surface.asAgent ?? userId, p_folder: folder ?? null, p_name: name })
+      .catch(async (error: unknown) => { throw await keptOnHostError(token, row, surface.asAgent ?? userId, platform.identities, error) ?? error; });
+    return entryOne(token, { ...moved, metadata: row.metadata }, surface.asAgent ?? userId);
   }
 
   return {
     open,
     self,
+
+    async resourceChat(chatId: string, as: { asAgent?: string | null } = {}): Promise<string> {
+      const { token, userId } = await platform.account();
+      return resourceChatIdOf(token, chatId, as.asAgent ?? userId);
+    },
 
     /** After `stale-epoch:<n>`: the same file at its new epoch; the old open file is dropped. */
     async reopen(surface: FileSurface, args: { ref: Extract<ChatFileRef, { id: string }>; readOnly?: boolean }): Promise<AppFileOpened> {
@@ -703,6 +878,8 @@ export function createAppFiles(platform: FilesPlatform) {
 
     /** The chat a file is in, as this person sees it: a file handed to a program by its id says (F16). */
     async chatOf(itemId: string): Promise<string> {
+      const local = await localRevision(String(itemId));
+      if (local?.chat_id) return local.chat_id;
       const { token, userId } = await platform.account();
       const row = await itemById(token, String(itemId), userId);
       if (!row) throw new AppFileError('not-found', 'No such file in a chat you are in');
@@ -715,6 +892,26 @@ export function createAppFiles(platform: FilesPlatform) {
      * are not in has none. A program acting for an agent there (A1, G5) lists what the agent sees.
      */
     groupFiles,
+
+    /** A person's folder preference, scoped to the source chat and shared across their devices. Never an API filter. */
+    async viewPreferences(chatId: string, showAppData?: boolean): Promise<{ showAppData: boolean }> {
+      const { token, userId } = await platform.account();
+      const source = await resourceChatIdOf(token, chatId, userId);
+      const client = createGuguSupabaseClient({ schema: 'identity', headers: { Authorization: `Bearer ${token}` } }) as unknown as VersionedSettingsTableClient;
+      const scope = `chat:${source}` as const;
+      if (showAppData !== undefined) {
+        if (typeof showAppData !== 'boolean') throw new AppFileError('invalid', 'showAppData must be a boolean');
+        await updateUserSettingsConfig(client, userId, scope, (latest) => ({ ...latest, workspace: {
+          ...(latest.workspace && typeof latest.workspace === 'object' && !Array.isArray(latest.workspace) ? latest.workspace : {}),
+          show_app_data: showAppData,
+        } }));
+        return { showAppData };
+      }
+      const config = await readUserSettingsConfig(client, userId, scope);
+      const workspace = config.workspace && typeof config.workspace === 'object' && !Array.isArray(config.workspace)
+        ? config.workspace as Record<string, unknown> : {};
+      return { showAppData: workspace.show_app_data === true };
+    },
 
     /**
      * Files across every chat whoever reads is in — the person, or the agent its page works as (its own membership) — found
@@ -743,16 +940,46 @@ export function createAppFiles(platform: FilesPlatform) {
     groupChange,
 
     /** One of them, as `openTarget` answers for a page: what to open, and what kind of file it is. */
-    async groupFile(chatId: string, itemId: string): Promise<{ chatId: string; itemId: string; name: string; typedName: string }> {
+    async groupFile(chatId: string, itemId: string) {
+      const local = await localRevision(String(itemId));
+      if (local) {
+        if (local.chat_id !== chatId) throw new AppFileError('not-found', 'No such file in this chat');
+        return { chatId, itemId: local.item_id!, name: local.file_name, typedName: typedFileName({ name: local.file_name, contentType: local.content_type }), file: { document: false, contentType: local.content_type, version: local.version!, size: local.size_bytes } };
+      }
       const { token, userId } = await platform.account();
       const row = await itemById(token, String(itemId), userId);
+      if (row && row.chat_id !== chatId) chatId = await resourceChatIdOf(token, chatId, userId);
       if (!row || row.chat_id !== chatId) throw new AppFileError('not-found', 'No such file in this chat');
-      return { chatId: row.chat_id, itemId: row.id, name: row.filename, typedName: typedFileName({ name: row.filename, contentType: row.content_type }) };
+      return { chatId: row.chat_id, itemId: row.id, name: row.filename, typedName: typedFileName({ name: row.filename, contentType: row.content_type }), file: { document: row.kind === 'document', contentType: row.content_type, version: row.version, size: row.size_bytes ?? 0 }, ...openingOf(row, userId) };
+    },
+
+    /**
+     * API 14 `chatFile`: the file an App names for a chat, as a file of it opened with that App — at the top of the chat's
+     * folder, made empty for the person the first time (`{}` for JSON, a JSON file holding an object; the App fills it).
+     * Two making it at once: the folder names the later one apart, which goes again, and both open the first.
+     */
+    async appChatFile(chatId: string, manifest: ExtensionManifest | undefined): Promise<AppOpenWithDetail> {
+      const tab = manifest?.contributes.tabs.find((candidate) => candidate.chatFile !== undefined);
+      const name = tab?.chatFile;
+      if (!manifest || !tab || !name) throw new AppFileError('not-found', `${manifest?.id ?? 'That App'} names no file of a chat (chatFile)`);
+      const candidate = fileOpenersFor(name, [manifest], 'chat').find((opener) => opener.tabKind === `${manifest.id}.${tab.name}`);
+      if (!candidate) throw new AppFileError('invalid', `${manifest.id}.${tab.name} does not open ${name} in a chat`);
+      const { token, userId } = await platform.account();
+      const first = async () => (await itemsByPath(token, chatId, name, userId)).find((row) => row.kind !== 'folder' && row.parent_id === null);
+      let row = await first();
+      if (!row) {
+        const contentType = contentTypeOf(name);
+        const made = await insertDocument(token, { chatId, name, contentType, content: /json/i.test(contentType) ? '{}' : '', sourceMessageIds: [], parentId: null }, userId);
+        if (made.filename !== name) await agentRows(token, 'workspace_delete_as', { p_item_id: made.id, p_as_user_id: userId });
+        row = made.filename === name ? made : await first();
+        if (!row) throw new AppFileError('failed', `${name} was made as ${made.filename}, and the one it gave way to is gone`);
+      }
+      return { ...(await this.groupFile(chatId, row.id)), choice: { kind: 'one', candidate } };
     },
 
     /** `folder` (子文件夹): the folder it goes in, made all the way down when it is not there; not given, the top. */
-    async create(chatId: string, args: { name: string; content: string; contentType?: string; sourceMessageIds?: unknown; folder?: unknown },
-      as: { asAgent?: string | null } = {}): Promise<AppFileEntry> {
+    async create(chatId: string, args: { name: string; content: string; contentType?: string; sourceMessageIds?: unknown; folder?: unknown; appData?: boolean },
+      as: { asAgent?: string | null; extensionId?: string } = {}): Promise<AppFileEntry> {
       const { token, userId } = await platform.account();
       const name = String(args.name ?? '').trim();
       if (!name) throw new AppFileError('invalid', 'A file needs a name');
@@ -774,7 +1001,7 @@ export function createAppFiles(platform: FilesPlatform) {
       }
       const actor = as.asAgent ?? userId;
       const parentId = await folderIdFor(token, chatId, folder, actor);
-      return entryOne(token, await insertDocument(token, { chatId, name, contentType, content, sourceMessageIds, parentId }, actor), actor);
+      return entryOne(token, await insertDocument(token, { chatId, name, contentType, content, sourceMessageIds, parentId }, actor, args.appData === true ? appIdentity(as.extensionId) : undefined), actor);
     },
 
     /** 子文件夹: a chat's folder at `path`, made all the way down — one already there is answered as it is. */
@@ -787,6 +1014,30 @@ export function createAppFiles(platform: FilesPlatform) {
     },
 
     move,
+
+    /**
+     * 「设为临时 / 一直保留」 (gugu-supabase #68): the cloud copy of a chat file's current version cleared after the uploader's
+     * temporary period, counted from now — or kept until someone deletes it. Only its uploader changes it (`denied`); a file
+     * with no cloud copy has nothing to keep (`invalid`).
+     */
+    async keep(surface: FileSurface, args: { refs: readonly ChatFileRef[]; how: unknown }): Promise<{ changed: number }> {
+      if (args.how !== 'temporary' && args.how !== 'permanent') throw new AppFileError('invalid', "files.keep(files, how): how is 'temporary' or 'permanent'");
+      if (!Array.isArray(args.refs) || args.refs.length === 0) throw new AppFileError('invalid', 'files.keep(files, how): give one file or more');
+      const { token, userId } = await platform.account();
+      const rows = await Promise.all(args.refs.map(async (ref) => (await resolve(surface, { token, userId }, ref)).row));
+      const folder = rows.find((row) => row.kind === 'folder');
+      if (folder) throw notAFile(folder);
+      // One call per 500 (the door's most); a refusal is the whole call's — the caller hands only its own uploads.
+      let changed = 0;
+      for (let at = 0; at < rows.length; at += 500) {
+        const { data, error } = await chatClient(token).rpc('file_storage_mark_as', {
+          p_refs: rows.slice(at, at + 500).map((row) => ({ item_id: row.id })), p_action: args.how, p_as: surface.asAgent ?? userId,
+        });
+        if (error) throw new AppFileError(codeOf(error), error.message);
+        changed += typeof data === 'number' ? data : 0;
+      }
+      return { changed };
+    },
 
     /** Rename in place: only its name changes (真源 §2.5) — a move that stays in its folder. The folder App's edit(item_id, name) for an agent. */
     async rename(surface: FileSurface, args: { ref: ChatFileRef; name: string }): Promise<AppFileEntry> {
@@ -852,15 +1103,17 @@ export function createAppFiles(platform: FilesPlatform) {
 
     /** G2 One kept version's content: a text file's text, a stored file's bytes. Gated as `versions`. */
     async readVersion(surface: FileSurface, args: { ref: ChatFileRef; n: number }): Promise<AppFileVersionContent> {
-      const { token, userId } = await platform.account();
       if (!Number.isInteger(args.n)) throw new AppFileError('invalid', 'files.readVersion(file, n) takes a version\'s n, as files.versions gives it');
+      const local = await localFile(surface, args.ref, args.n);
+      if (local) return { n: args.n, bytes: await bytesOf(local.file), contentType: local.file.revision.content_type };
+      const { token, userId } = await platform.account();
       const row = await readable(surface, { token, userId }, args.ref, 'opening');
       const { data, error } = await chatClient(token).rpc('workspace_version_as', { p_item_id: row.id, p_as_user_id: surface.asAgent ?? userId, p_n: args.n });
       if (error) throw new AppFileError(codeOf(error), `${row.filename}: ${error.message}`);
       const version = ((Array.isArray(data) ? data[0] : data) ?? null) as { n: number; pointer: string | null; inline_text: string | null; content_type: string } | null;
       if (!version) throw new AppFileError('not-found', `${row.filename} has no version ${args.n}`);
       if (version.inline_text !== null) return { n: version.n, text: version.inline_text };
-      const bytes = await storedBytes(token, { ...row, pointer: version.pointer }, { version: version.n, as: surface.asAgent });
+      const bytes = await bytesOf((await fileFor(surface, { id: row.id }, version.n))!);
       return { n: version.n, bytes, contentType: version.content_type };
     },
 
@@ -892,19 +1145,35 @@ export function createAppFiles(platform: FilesPlatform) {
       // Gone by already: refused before a byte goes. The database checks again.
       if (row.version !== expected) throw replacedSinceError(row.filename, row.version, expected);
       const contentType = file.contentType || row.content_type;
+      const actor = surface.asAgent ?? userId;
+      // The shared publisher writes on the host or hands the new version to it. Null: the ordinary cloud path decides.
+      let published: ItemRow | null = null;
+      try {
+        published = await platform.publishFile?.(row.chat_id, { name: row.filename, contentType, bytes: file.bytes }, row.parent_id, actor,
+          undefined, { next: { itemId: row.id, expectedVersion: expected } }) ?? null;
+      } catch (error) {
+        if (/File revision conflict/.test(error instanceof Error ? error.message : String(error))) {
+          const { row: now } = await resolve(surface, { token, userId }, args.ref);
+          throw replacedSinceError(row.filename, now.version, expected);
+        }
+        throw await keptOnHostError(token, row, actor, platform.identities, error)
+          ?? new AppFileError(refusalCode(error), `${row.filename} was not replaced: ${error instanceof Error ? error.message : String(error)}`);
+      }
+      if (published) return entryOne(token, { ...published, metadata: row.metadata }, actor);
       // #7290 gugu-3: the bytes go to OSS (attachments/upload) and the server makes them the next version (attachments/place);
       // an upload the server refused is nobody's and goes on its own (unclaimed uploads expire).
       const endpoint = configuredEndpoint(token);
       let replaced: ItemRow & { version: number; pruned_pointers: string[] | null };
       try {
-        const stagingKey = await uploadAttachmentBytes(endpoint, { bytes: new Uint8Array(file.bytes), name: row.filename, contentType });
+        const stagingKey = await uploadAttachmentBytes(endpoint, { bytes: new Uint8Array(file.bytes), name: row.filename, contentType }, { chat_id: row.chat_id, as: surface.asAgent ?? userId });
         replaced = await placeAttachment(endpoint, {
           staging_key: stagingKey, item_id: row.id, expected_version: expected, as_user_id: surface.asAgent ?? userId, content_type: contentType,
         }) as unknown as ItemRow & { version: number; pruned_pointers: string[] | null };
       } catch (error) {
         const changed = error instanceof AttachmentsError && error.code === 'version_conflict' ? /got (\d+)/.exec(error.message) : null;
         if (changed) throw replacedSinceError(row.filename, Number(changed[1]), expected);
-        throw new AppFileError(refusalCode(error), `${row.filename} was not replaced: ${error instanceof Error ? error.message : String(error)}`);
+        throw await keptOnHostError(token, row, actor, platform.identities, error)
+          ?? new AppFileError(refusalCode(error), `${row.filename} was not replaced: ${error instanceof Error ? error.message : String(error)}`);
       }
       // Versions older than the 50 kept, from before the switch, still have their bytes in the workspace bucket.
       const pruned = replaced.pruned_pointers ?? [];
@@ -914,7 +1183,7 @@ export function createAppFiles(platform: FilesPlatform) {
           throw new AppFileError('failed', `${row.filename} is replaced (version ${replaced.version}), but ${pruned.length} copies older than its 50 versions could not be removed: ${removed.error.message}`);
         }
       }
-      return entryOne(token, replaced, surface.asAgent ?? userId);
+      return entryOne(token, { ...replaced, metadata: row.metadata }, surface.asAgent ?? userId);
     },
 
     /**
@@ -923,10 +1192,14 @@ export function createAppFiles(platform: FilesPlatform) {
      * Every size is checked before the first byte goes. Not a transaction across files: if one
      * fails, the ones before it stay, and the rejection names what did not get in.
      */
-    async upload(chatId: string, files: readonly AppFileUpload[], as: { asAgent?: string | null; sourceMessageIds?: unknown; folder?: unknown } = {}): Promise<AppFileEntry[]> {
+    async upload(chatId: string, files: readonly AppFileUpload[], as: { asAgent?: string | null; sourceMessageIds?: unknown; folder?: unknown; keep?: unknown } = {}): Promise<AppFileEntry[]> {
       const { token, userId } = await platform.account();
       const sourceMessageIds = sourceMessageIdsOf(as.sourceMessageIds);
       const folder = folderOf(as.folder);
+      // 临时 / 保留: how long a stored copy stays (the server marks it as the uploader marks it later). A text file is a live
+      // document, not a stored copy: nothing to mark.
+      if (as.keep !== undefined && !FILE_KEEPS.includes(as.keep as FileKeep)) throw new AppFileError('invalid', "keep is 'temporary' or 'permanent'");
+      const keep = as.keep as FileKeep | undefined;
       for (const file of files) {
         if (!file || typeof file.name !== 'string' || !file.name.trim() || !(file.bytes instanceof ArrayBuffer)) {
           throw new AppFileError('invalid', 'Each upload needs a name and its bytes');
@@ -946,6 +1219,14 @@ export function createAppFiles(platform: FilesPlatform) {
         const name = file.name.trim();
         const contentType = file.contentType || contentTypeOf(name);
         try {
+          const store = async () => {
+            const endpoint = configuredEndpoint(token);
+            const stagingKey = await uploadAttachmentBytes(endpoint, { bytes: new Uint8Array(file.bytes), name, contentType }, { chat_id: chatId, as: actor });
+            return await placeAttachment(endpoint, { staging_key: stagingKey, chat_id: chatId, file_name: name, folder: folder ?? null,
+              as_user_id: actor, source_message_ids: sourceMessageIds, content_type: contentType, ...(keep ? { keep } : {}) }) as unknown as ItemRow;
+          };
+          const published = await platform.publishFile?.(chatId, { ...file, contentType }, parentId, actor, store);
+          if (published) { rows.push(published); continue; }
           const asText = workspaceUploadKind(name, contentType, new Uint8Array(file.bytes));
           if (asText.kind === 'document') {
             rows.push(await insertDocument(token, { chatId, name, contentType: asText.contentType, content: asText.text, sourceMessageIds, parentId }, actor));
@@ -953,17 +1234,14 @@ export function createAppFiles(platform: FilesPlatform) {
           }
           // #7290 gugu-3: a stored file's bytes go to OSS (attachments/upload); the server puts it in the folder (attachments/place),
           // as the agent or the person — the folder made all the way down when it is not there, as folderIdFor does.
-          const endpoint = configuredEndpoint(token);
-          const stagingKey = await uploadAttachmentBytes(endpoint, { bytes: new Uint8Array(file.bytes), name, contentType });
-          rows.push(await placeAttachment(endpoint, {
-            staging_key: stagingKey, chat_id: chatId, file_name: name, folder: folder ?? null, as_user_id: actor,
-            source_message_ids: sourceMessageIds, content_type: contentType,
-          }) as unknown as ItemRow);
+          rows.push(await store());
         } catch (error) {
           const notIn = files
             .slice(index)
             .map((f) => f.name)
             .join(', ');
+          const kept = await keptOnHostError(token, { chat_id: chatId, filename: name, kind: 'file', pointer: null } as ItemRow, actor, platform.identities, error);
+          if (kept) throw kept;
           const why = error instanceof Error ? error.message : String(error);
           // The door's own refusal keeps its code (and detail) — the App branches on it; anything else failed.
           throw new AppFileError(refusalCode(error), `Upload stopped at ${name} (${why}); not uploaded: ${notIn}`, error instanceof AppFileError ? error.detail : undefined);
@@ -982,18 +1260,16 @@ export function createAppFiles(platform: FilesPlatform) {
      * last save (B7). Where it goes is the platform's to ask.
      */
     async downloadSource(surface: FileSurface, args: { ref: ChatFileRef }): Promise<DownloadSource> {
+      const local = await localFile(surface, args.ref);
+      if (local) return { name: local.entry.name, kind: 'file', file: local.file };
       const { token, userId } = await platform.account();
       const row = await readable(surface, { token, userId }, args.ref, 'saving');
-      if (row.kind === 'file') return { name: row.filename, kind: 'file', url: await signedUrlOf(token, row, { as: surface.asAgent }) };
-      const res = await fetch(`${platform.filesUrl()}/${encodeURIComponent(row.id)}`, {
-        headers: { Authorization: `Bearer ${token}`, ...(surface.asAgent ? { 'X-Gugu-As-Agent': surface.asAgent } : {}) },
-      }).catch((error: unknown) => {
-        throw new AppFileError('failed', `${row.filename} could not be read from the file service: ${error instanceof Error ? error.message : String(error)}`);
-      });
-      if (!res.ok) {
-        throw new AppFileError(res.status === 404 ? 'not-found' : 'failed', `${row.filename} could not be read from the file service (HTTP ${res.status})`);
+      if (row.kind === 'file') return { name: row.filename, kind: 'file', file: (await fileFor(surface, { id: row.id }, row.version))! };
+      try {
+        return { name: row.filename, kind: 'text', text: await readDocumentText({ filesUrl: platform.filesUrl, fetch }, token, row.id, surface.asAgent) };
+      } catch (error) {
+        throw new AppFileError(error instanceof ChatFolderReadError && error.status === 404 ? 'not-found' : 'failed', `${row.filename} could not be read from the file service: ${error instanceof Error ? error.message : String(error)}`);
       }
-      return { name: row.filename, kind: 'text', text: ((await res.json()) as { text: string }).text };
     },
 
     /**
@@ -1038,11 +1314,20 @@ export function createAppFiles(platform: FilesPlatform) {
      * 「用 X 打开」: which file, in which chat — gated like saving it. Who opens it is the host's to work out from the
      * claims (file-openers.ts `chooseOpener`).
      */
-    async openTarget(surface: FileSurface, args: { ref: ChatFileRef }): Promise<{ chatId: string; itemId: string; name: string; typedName: string; file: ChatPeekFile }> {
+    async openTarget(surface: FileSurface, args: { ref: ChatFileRef }): Promise<{ chatId: string; itemId: string; name: string; typedName: string; file: ChatPeekFile; opening?: PreparedChatFile }> {
       const { token, userId } = await platform.account();
-      const row = await readable(surface, { token, userId }, args.ref, 'opening');
-      const file = { contentType: row.content_type, version: row.version, size: row.size_bytes ?? 0 };
-      return { chatId: row.chat_id, itemId: row.id, name: row.filename, typedName: typedFileName({ name: row.filename, contentType: row.content_type }), file };
+      // The later open needs this same sync identity. Read it with the authorization, before the guest starts.
+      const [target] = await Promise.all([
+        // Stamp the authorization when it arrives; a slow identity lookup must not extend its lifetime.
+        readable(surface, { token, userId }, args.ref, 'opening').then((row) => ({
+          chatId: row.chat_id, itemId: row.id, name: row.filename,
+          typedName: typedFileName({ name: row.filename, contentType: row.content_type }),
+          file: { document: row.kind === 'document', contentType: row.content_type, version: row.version, size: row.size_bytes ?? 0 },
+          ...openingOf(row, surface.asAgent ?? userId, surface.asAgent ?? null),
+        })),
+        selfName(token, surface.asAgent ?? userId),
+      ]);
+      return target;
     },
 
     /**

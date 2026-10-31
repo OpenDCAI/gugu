@@ -34,7 +34,7 @@ export function SearchField({
       data-disabled={disabled || undefined}
       className={cn(
         'group/search-field window-no-drag-region box-border flex h-9 w-full min-w-0 items-center gap-2',
-        'rounded-[var(--radius-control)] border border-[var(--border-color)] bg-[var(--muted)] px-2.5',
+        'rounded-[var(--radius-control)] border border-[var(--border-color)] bg-[var(--input-bg)] px-2.5',
         'text-[var(--text-tertiary)]',
         controlTransition,
         'hover:border-[var(--border-strong)] focus-within:border-[var(--border-strong)]',
@@ -56,7 +56,7 @@ export function SearchField({
         className={cn(
           'h-full min-w-0 flex-1 border-0 bg-transparent p-0 font-[inherit]',
           'text-[length:var(--font-body)] text-[var(--text-primary)] outline-none',
-          'placeholder:text-[var(--text-tertiary)]',
+          'placeholder:text-[var(--muted-fg)]',
           'disabled:cursor-not-allowed [&::-webkit-search-cancel-button]:hidden',
         )}
       />

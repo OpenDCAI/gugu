@@ -10,6 +10,7 @@ import zhSettings from '@/i18n/locales/zh-CN/settings'
 import {
   DEVICE_ACTION_RESULT_ACK_RPC_TYPE,
   DEVICE_ACTION_RPC_TYPE,
+  deviceScopeError,
   type DeviceActionsCapability,
 } from '@gugu/core/shared/deviceActions'
 import { createDeviceActionHost, type DeviceActionHost } from '@gugu/core/cloud/deviceActionHost'
@@ -84,6 +85,7 @@ export function nativeComponentsDir(input: { platform?: NodeJS.Platform; isPacka
 
 export function createDeviceActionsRuntime(input: {
   userData: string
+  deviceId(): Promise<string>
   deps: ElectronDeviceDeps
   /** 原生组件目录(见 nativeComponentsDir);没有时为 null。 */
   nativeDir: string | null
@@ -95,7 +97,7 @@ export function createDeviceActionsRuntime(input: {
   /** 咕咕自己(电脑控制不许 agent 操作它)。 */
   selfApp?(): SelfApp
   /** 电脑控制的「正在操作 · 停止」小条(main 里的置顶小窗);没有就不显示、也就没有接管。 */
-  computerControlView?: ComputerControlView
+  computerControlView?: (cua: () => CuaClient) => ComputerControlView
   /** 告诉 cua-driver 宿主是谁(只是它日志里的一个标签)。 */
   hostBundleId?: string
   /**
@@ -128,7 +130,7 @@ export function createDeviceActionsRuntime(input: {
     log: input.log,
   }))
   const computerControl: ComputerControl | null = input.computerControlView
-    ? createComputerControl({ view: input.computerControlView })
+    ? createComputerControl({ view: input.computerControlView(makeCua) })
     : null
   const deps: FamilyDeps = {
     ...input.deps,
@@ -155,15 +157,10 @@ export function createDeviceActionsRuntime(input: {
   /** The App switch flipped: whoever re-registers this computer's actions, and the settings pages, hear it. */
   const switchListeners = new Set<() => void>()
 
-  let channelPublish: ((payload: unknown) => unknown) | null = null
   let localSink: ((payload: unknown) => void) | null = null
   const host: DeviceActionHost = createDeviceActionHost({
     provider: actions.provider,
-    // 结果 / 进度推给频道上的调用方(别的机器),本机自调的再交给本机的调用方一份。
-    publishEvent: (payload) => {
-      localSink?.(payload)
-      return channelPublish?.(payload)
-    },
+    publishEvent: (payload) => localSink?.(payload),
     log: input.log,
   })
 
@@ -241,12 +238,9 @@ export function createDeviceActionsRuntime(input: {
     computerControl,
     capability: () => actions.capability(),
     rpcHandlers: () => ({
-      [DEVICE_ACTION_RPC_TYPE]: (payload, ctx) => {
-        // 回推事件走发来请求的那条频道(频道断了重订后,下一次请求带来新的那一条)。
-        channelPublish = (event) => ctx.publishEvent(event)
-        return host.handleCall(payload)
-      },
-      [DEVICE_ACTION_RESULT_ACK_RPC_TYPE]: (payload) => host.handleResultAck(payload),
+      // Remote requests never reach the provider, confirmation or action-result cache.
+      [DEVICE_ACTION_RPC_TYPE]: async () => ({ error: deviceScopeError(await input.deviceId()) }),
+      [DEVICE_ACTION_RESULT_ACK_RPC_TYPE]: async () => ({ error: deviceScopeError(await input.deviceId()) }),
     }),
     async callLocal(type, payload) {
       if (type === DEVICE_ACTION_RPC_TYPE) return host.handleCall(payload)
@@ -339,7 +333,10 @@ export function createDeviceActionsRuntime(input: {
       const on = appSwitch.on()
       input.log.info({ group: appSwitch.group, app: appSwitch.app, on }, 'device action group switched by its App')
       // Off: nothing of it keeps running — cua-driver stops now, ❌ waits out its idle time.
-      if (!on) cua?.stop(`${appSwitch.app} 停用了,电脑控制已关闭`)
+      if (!on) {
+        computerControl?.dispose()
+        cua?.stop(`${appSwitch.app} 停用了,电脑控制已关闭`)
+      }
       for (const listener of [...switchListeners]) {
         try {
           listener()

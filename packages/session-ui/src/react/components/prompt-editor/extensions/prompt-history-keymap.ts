@@ -69,6 +69,7 @@ export function stepPromptHistory(
 export interface PromptHistoryKeymapDeps {
   /** This session's sent prompts, oldest first. Read on each keypress, never cached. */
   getHistory: () => readonly string[];
+  restoreText?: (text: string) => JSONContent;
 }
 
 /**
@@ -92,7 +93,7 @@ function atEdgeLine(editor: Editor, direction: 'up' | 'down'): boolean {
     : $from.after(depth) === state.doc.content.size;
 }
 
-export function buildPromptHistoryKeymap({ getHistory }: PromptHistoryKeymapDeps) {
+export function buildPromptHistoryKeymap({ getHistory, restoreText = plainTextDoc }: PromptHistoryKeymapDeps) {
   let browse: PromptHistoryBrowse = NOT_BROWSING;
   /** The draft's own document, kept so pills survive the round trip (see `restoresDraft`). */
   let stashedDoc: JSONContent | null = null;
@@ -106,7 +107,7 @@ export function buildPromptHistoryKeymap({ getHistory }: PromptHistoryKeymapDeps
     // History entries are plain text (they come from the transcript); the draft goes back as the
     // document it was.
     const content: JSONContent =
-      step.restoresDraft && stashedDoc ? stashedDoc : plainTextDoc(step.text);
+      step.restoresDraft && stashedDoc ? stashedDoc : restoreText(step.text);
     if (!wasBrowsing) stashedDoc = editor.getJSON();
     applying = true;
     try {

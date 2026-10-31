@@ -176,7 +176,9 @@ export function createUpdateFlow(deps: UpdateFlowDeps): UpdateFlow {
     deps.emit({ success: true, status: 'not-available', updateInfo: info, messageKey: 'about.updateUpToDate' })
   })
 
-  deps.updater.onUpdateDownloaded(() => {
+  deps.updater.onUpdateDownloaded(markDownloaded)
+
+  function markDownloaded(): void {
     silentDownloadActive = false
     downloadedVersion = versionOf(lastUpdateInfo)
     deps.emit({
@@ -188,7 +190,7 @@ export function createUpdateFlow(deps: UpdateFlowDeps): UpdateFlow {
     })
     deps.onReady()
     deps.updateQuit.downloaded({ version: downloadedVersion })
-  })
+  }
 
   deps.updater.onError((error) => {
     // 正在下载时来的 'error' 要么属于这次下载(它的失败由 downloadUpdate 被拒那一处结清),要么是一次

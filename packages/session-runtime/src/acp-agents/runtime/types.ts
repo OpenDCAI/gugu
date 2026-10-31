@@ -1,6 +1,5 @@
 import type {
   AcpRuntimeStartInput,
-  PromptAttachment,
   PromptInput,
   QueuedPrompt,
   TranscriptTurn,
@@ -14,14 +13,8 @@ export type AcpStartInput = AcpRuntimeStartInput;
 
 export type ResolveAcpProvider = (providerId: string) => ResolvedAcpProvider | null;
 
-export interface ResolvedPromptAttachment {
-  data: string;
-  mimeType: string;
-}
-
-export type ResolvePromptAttachment = (
-  attachment: PromptAttachment
-) => Promise<ResolvedPromptAttachment>;
+export type { ResolvedPromptAttachment, ResolvePromptAttachment } from '../session/cell-deps';
+import type { ResolvePromptAttachment } from '../session/cell-deps';
 
 /** The runtime machine's durable snapshot; no renderer-side queue is involved. */
 export interface PromptQueueStore {
@@ -33,11 +26,13 @@ export interface PromptQueueStore {
 export type AcpRuntimeProcessHost = Omit<AcpProcessHost, 'resolveSpawnContext'>;
 
 export interface AcpRuntimeDeps {
+  onPromptSteered?: (sessionId: string) => void;
   agentHost: AgentPluginHost;
   host: AcpRuntimeProcessHost;
   resolveAttachment: ResolvePromptAttachment;
   /** 多条投递信封合成一条的唯一属主(core 的 mergeDeliveryEnvelopes),由宿主注入。 */
   mergeEnvelopes?: (texts: readonly string[]) => string;
+  recoverDelivery?: (text: string, replayedUserInputs: readonly string[], historyUnknown: boolean, receivedMessageIds?: ReadonlySet<string>) => string | null;
   attachmentStore?: AttachmentStore;
   logger: Logger;
   /** Notifies the privileged main process when an adapter-held platform token has no consumer. */

@@ -1,4 +1,5 @@
-import { useHotkey } from '@tanstack/react-hotkeys';
+import { useScreenBlock } from '@renderer/app/screen-block-context';
+import { useCommandProvider } from '@renderer/lib/commands/use-command-provider';
 import { Cable, FileText, Globe, Plus, SquareTerminal } from '@/lib/icons'
 import { GitFork, GitPullRequest } from 'lucide-react'
 import { observer } from 'mobx-react-lite';
@@ -6,16 +7,11 @@ import { useState } from 'react';
 import { ExtensionMark } from '@renderer/features/extensions/extension-mark';
 import { installedExtensionsStore } from '@renderer/features/extensions/installed-extensions-store';
 import { useNavigate } from '@renderer/lib/layout/navigation-provider';
-import { useAppSettingsKey } from '@renderer/features/settings/use-app-settings-key';
 import { usePaneContext } from '@renderer/features/tabs/pane-context';
 import {
   useSessionViewContext,
   useWorkspaceViewModel
 } from '@renderer/features/sessions/session-view-context';
-import {
-  getEffectiveHotkey,
-  getHotkeyRegistration
-} from '@renderer/lib/hooks/useKeyboardShortcuts';
 import { Button } from '@renderer/lib/ui/button';
 import {
   DropdownMenu,
@@ -35,6 +31,7 @@ import {
 import { canStartSideSession, startSideSession } from './start-side-session';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
 import { useAgents } from '@renderer/lib/stores/use-agents';
+import { useTerminalEnabled } from '@renderer/features/settings/use-terminal-enabled';
 
 /**
  * 页签条上的「+」(spec session-page「一屏几块」):紧跟最后一个页签,打开这一格要放的东西。
@@ -47,17 +44,12 @@ export const TabBarAddMenu = observer(function TabBarAddMenu() {
   const { data: agents } = useAgents();
   const { navigate } = useNavigate();
   const canSideSession = canStartSideSession(projectId, sessionId, agents);
+  const terminalEnabled = useTerminalEnabled();
   const [open, setOpen] = useState(false);
-  const { value: keyboard } = useAppSettingsKey('keyboard');
-  // ⌘T = 打开聚焦着的那一格的「+」,照浏览器的新页签。
-  useHotkey(
-    getHotkeyRegistration('openAddMenu', keyboard),
-    (e) => {
-      e.preventDefault();
-      setOpen(true);
-    },
-    { enabled: isFocusedPane && getEffectiveHotkey('openAddMenu', keyboard) !== null, conflictBehavior: 'allow' }
-  );
+  useCommandProvider({
+    scopeId: 'session-sub',
+    getCommands: () => !isFocusedPane ? [] : [{ id: 'session.openAddMenu', execute: () => setOpen(true) }],
+  });
 
   return (
     <DropdownMenu open={open} onOpenChange={setOpen}>
@@ -67,7 +59,7 @@ export const TabBarAddMenu = observer(function TabBarAddMenu() {
         <Plus className="size-3.5" />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="w-44">
-        {getSessionWorkspaceActionOrder(projectId).map((actionId) =>
+        {getSessionWorkspaceActionOrder(projectId, terminalEnabled).map((actionId) =>
           renderWorkspaceActionMenuItem(actionId, translate, {
             blocked: sessionWorkspaceActionBlocked(projectId, actionId) !== null,
             blockedTitle: workspaceBlockedTitle(sessionWorkspaceActionBlocked(projectId, actionId), translate, projectId),
@@ -139,7 +131,7 @@ function renderWorkspaceActionMenuItem(
         >
           <GitFork className="size-3.5" /> {translate('workspace.sideTask')}
           <span className="ml-auto">
-            <BoundShortcut settingsKey="sideSession" variant="keycaps" />
+            <BoundShortcut commandId="session.sideSession" variant="keycaps" />
           </span>
         </DropdownMenuItem>
       );
@@ -187,7 +179,6 @@ function renderWorkspaceActionMenuItem(
         <DropdownMenuItem key={actionId} onClick={actions.openFiles}>
           <FileText className="size-3.5" /> {translate('workspace.files')}
           <span className="ml-auto">
-            <BoundShortcut settingsKey="openFile" variant="keycaps" />
           </span>
         </DropdownMenuItem>
       );
@@ -201,17 +192,19 @@ function renderWorkspaceActionMenuItem(
  */
 export const SplitPaneHotkey = observer(function SplitPaneHotkey() {
   const { pane, isFocusedPane } = usePaneContext();
-  const { value: keyboard } = useAppSettingsKey('keyboard');
-  useHotkey(
-    getHotkeyRegistration('splitPane', keyboard),
-    (e) => {
-      e.preventDefault();
-      pane.toggleSplit();
+  const place = useScreenBlock();
+  const multiBlock = place.blockId !== null && place.multi;
+  useCommandProvider({
+    scopeId: 'session-sub',
+    getCommands: () => {
+      if (!isFocusedPane) return [];
+      // 页签全屏(tab-fullscreen.ts)和拆开是两件事:这个键只盖住 / 放开工作区,❌ 动布局。
+      const fullscreen = { id: 'session.fullscreenTab' as const, execute: () => {
+        const tabId = pane.resolvedActiveTabId;
+        if (tabId) pane.tabFill(tabId, multiBlock)?.toggle();
+      } };
+      return pane.inSplitLayout ? [{ id: 'session.splitPane' as const, execute: () => pane.toggleSplit() }, fullscreen] : [fullscreen];
     },
-    {
-      enabled: isFocusedPane && pane.inSplitLayout && getEffectiveHotkey('splitPane', keyboard) !== null,
-      conflictBehavior: 'allow'
-    }
-  );
+  });
   return null;
 });

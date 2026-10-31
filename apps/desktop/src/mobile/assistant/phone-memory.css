@@ -25,6 +25,10 @@
   justify-content: flex-start;
   white-space: normal;
   font-weight: inherit;
+  border: 0;
+  border-radius: var(--radius-surface);
+  background: var(--phone-surface, var(--muted));
+  box-shadow: none;
 }
 .ta-phone .vn-ask {
   height: auto;
@@ -32,7 +36,17 @@
   justify-content: flex-start;
   font-weight: inherit;
 }
-.ta-phone .vn-note-title { font-size: var(--font-title); }
+.ta-phone .vn-note-title { font-size: var(--font-title); line-height: var(--lh-title); overflow-wrap: anywhere; }
+.ta-phone .vn-row-detail { flex-wrap: wrap; gap: 8px; }
+.ta-phone .vn-week,
+.ta-phone .vn-stamp,
+.ta-phone .vn-row-detail,
+.ta-phone .vn-status { font-size: var(--phone-font-note); line-height: var(--lh-body); }
+.ta-phone .vn-transcript .vn-line + .vn-line { border-top: 0; padding-top: 16px; }
+.ta-phone-memory-list { display: flex; flex-direction: column; gap: 4px; }
+.ta-phone .ta-row .ta-row-sub[data-lines] { -webkit-line-clamp: var(--ta-row-lines); }
+.ta-phone .vn-transcript { font-size: var(--font-prose); line-height: var(--lh-prose); }
+.ta-phone .vn-line p { overflow-wrap: anywhere; }
 
 /* 资料夹里看一个文本文件:原样(保留换行、长行折回),等宽。 */
 .ta-phone-file-text {
@@ -40,16 +54,22 @@
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: var(--ta-fs-row);
-  line-height: 1.6;
+  font-size: var(--font-prose);
+  line-height: var(--lh-prose);
   color: var(--ta-fg);
 }
 
 /* 一排动作(在对话中修改 / 删除…):能折行,手机上一指宽。 */
 .ta-phone-row-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 
+/* 页内分段与外层手机导航共用控件；触控尺寸只在手机表面覆盖。 */
+.ta-phone-page-segments { min-width: 0; }
+.ta-phone-actions > .ta-phone-page-segments { flex: 1 1 200px; }
+.ta-phone-page-segments .gg-segtabs { gap: 4px; }
+.ta-phone-page-segments .gg-segtab { flex: 1; min-width: 0; min-height: var(--control-h-touch); line-height: var(--lh-body); white-space: normal; }
+
 /* 删除确认卡里没删成的那一句。 */
-.ta-phone-confirm-failed { margin: 0; font-size: var(--font-body); line-height: 20px; color: var(--danger); }
+.ta-phone-confirm-failed { margin: 0; font-size: var(--font-body); line-height: 20px; color: var(--danger-fg); }
 
 /* 定时任务详情里「改时间」:行尾一个胶囊样的字。 */
 .ta-phone-row-link { color: var(--ta-fg); font-weight: 500; }

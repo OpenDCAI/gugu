@@ -1,7 +1,9 @@
 import { EventEmitter } from 'node:events';
 import type { AddressInfo } from 'node:net';
+import * as encoding from 'lib0/encoding';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { WebSocketServer, type WebSocket } from 'ws';
+import * as syncProtocol from 'y-protocols/sync';
 import * as Y from 'yjs';
 import {
   FRAME_TYPE,
@@ -9,7 +11,9 @@ import {
   encodeCloseFrame,
   encodeSyncUpdateFrame,
   readFrameHead,
+  readFrameUpdate,
   type SyncToPage,
+  type AppFileEntry,
 } from '@shared/extensions/app-runtime-protocol';
 
 /**
@@ -58,7 +62,7 @@ const token = vi.hoisted(() => {
   const b64 = (o: object) => Buffer.from(JSON.stringify(o)).toString('base64url');
   return `${b64({ alg: 'none' })}.${b64({ sub: 'user-a', exp: Math.floor(Date.now() / 1000) + 3600, role: 'authenticated' })}.sig`;
 });
-vi.mock('@main/core/extensions/account-token', () => ({ currentAccountAccessToken: async () => token }));
+vi.mock('@main/core/extensions/account-token', async (importOriginal) => ({ ...(await importOriginal<object>()), currentAccountAccessToken: async () => token }));
 vi.mock('@main/lib/logger', () => ({ log: { error: vi.fn(), warn: vi.fn(), debug: vi.fn(), info: vi.fn() } }));
 
 // ─── the stand-in file service ────────────────────────────────────────────────
@@ -124,6 +128,36 @@ const settle = () => new Promise((r) => setTimeout(r, 80));
 const buffer = (bytes: Uint8Array) => bytes.slice().buffer;
 
 describe('app file sync relay', () => {
+  it('reads entry decorations once, only when that granted page requests them', async () => {
+    const p = openPage();
+    const entry = { id: 'decorated', version: 1, canDelete: true } as AppFileEntry;
+    const details = vi.fn(async () => entry);
+    fileSync.grant(p.page, { docName: 'decorated@0', itemId: 'decorated', access: 'rw', needs: null, details });
+    expect(details).not.toHaveBeenCalled();
+    p.port.postMessage({ t: 'entry', docName: 'not-granted@0' });
+    p.port.postMessage({ t: 'entry', docName: 'decorated@0' });
+    p.port.postMessage({ t: 'entry', docName: 'decorated@0' });
+    await until(() => p.told.some((m) => m.t === 'entry'));
+    expect(details).toHaveBeenCalledOnce();
+    expect(p.told).toContainEqual({ t: 'entry', docName: 'decorated@0', entry });
+    fileSync.pageGone(p.id);
+  });
+
+  it('discards pending decorations when their grant is revoked', async () => {
+    const p = openPage();
+    let finish!: (entry: AppFileEntry) => void;
+    const details = vi.fn(() => new Promise<AppFileEntry>((resolve) => { finish = resolve; }));
+    fileSync.grant(p.page, { docName: 'revoked-entry@0', itemId: 'revoked-entry', access: 'rw', needs: null, details });
+    p.port.postMessage({ t: 'entry', docName: 'revoked-entry@0' });
+    await until(() => details.mock.calls.length === 1);
+    await fileSync.revoke(p.id, 'signed-out');
+    finish({ id: 'revoked-entry', version: 1 } as AppFileEntry);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(p.told.filter((m) => m.t === 'entry')).toEqual([]);
+    fileSync.pageGone(p.id);
+  });
+
   it('says up once the machine is connected, and carries the credential in the subprotocol only', async () => {
     const p = openPage();
     fileSync.grant(p.page, { docName: 'doc@0', itemId: 'doc', access: 'rw', needs: null });
@@ -186,6 +220,44 @@ describe('app file sync relay', () => {
     p.port.postMessage(buffer(frame));
     await until(() => received.length === 2);
     expect(readFrameHead(received[1]!)).toMatchObject({ type: FRAME_TYPE.Sync, carriesUpdate: false });
+  });
+
+  it('read-only: Step 2 finishes the handshake without sending content or deletion history', async () => {
+    const p = openPage();
+    const grant = { docName: 'reader@0', itemId: 'reader', access: 'ro' as 'ro' | 'rw', needs: null };
+    fileSync.grant(p.page, grant);
+    p.port.postMessage({ t: 'hello' });
+    await until(() => p.told.some((m) => m.t === 'up'));
+    const key = 'reader@0\u0000s1';
+    p.port.postMessage(buffer(encodeAuthFrame(key, '')));
+    await until(() => received.length === 1);
+    const doc = new Y.Doc();
+    doc.getMap('root').set('status', 'old');
+    doc.getMap('root').set('status', 'current');
+    // Even an up-to-date reader sends the service's delete set back; a state vector omits deletions.
+    for (const vector of [Y.encodeStateVector(doc), Y.encodeStateVector(new Y.Doc())]) {
+      const e = encoding.createEncoder();
+      encoding.writeVarString(e, key);
+      encoding.writeVarUint(e, FRAME_TYPE.Sync);
+      syncProtocol.writeSyncStep2(e, doc, vector);
+      const step2 = encoding.toUint8Array(e);
+      expect(readFrameHead(step2)?.carriesUpdate).toBe(true);
+      const before = received.length;
+      p.port.postMessage(buffer(step2));
+      await until(() => received.length === before + 1);
+      expect(readFrameHead(received.at(-1)!)).toMatchObject({ syncStep: syncProtocol.messageYjsSyncStep2, carriesUpdate: false });
+      expect(readFrameUpdate(received.at(-1)!)).toEqual(Uint8Array.of(0, 0));
+      expect(p.told.filter((m) => m.t === 'denied')).toEqual([]);
+      // Control: the identical frame on a writable grant keeps all its content.
+      grant.access = 'rw';
+      p.port.postMessage(buffer(step2));
+      await until(() => received.length === before + 2);
+      expect(received.at(-1)).toEqual(step2);
+      grant.access = 'ro';
+    }
+    fileSync.pageGone(p.id);
+    await until(() => readFrameHead(received.at(-1)!)?.type === FRAME_TYPE.Close);
+    expect(received.at(-1)).toEqual(encodeCloseFrame(key));
   });
 
   it('a page that goes away: what it handed over lands first, then a Close for each of its keys', async () => {

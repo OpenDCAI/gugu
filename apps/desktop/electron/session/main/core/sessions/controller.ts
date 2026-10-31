@@ -6,7 +6,8 @@ import { getSessionsForProject } from './getSessionsForProject';
 import { getUnarchivedSession } from './getUnarchivedSession';
 import { convertAutomationSession } from './convert-automation-session';
 import { forkSession } from './fork-session';
-import { getStoredHistory } from './session-turn-store';
+import { getStoredHistory, getStoredToolImage } from './session-turn-store';
+import { syncStoredHistoryFromRecord } from './record-backfill';
 import { hydrateSession } from './hydrateSession';
 import { markSessionSeen } from './markSessionSeen';
 import { renameSession } from './renameSession';
@@ -19,6 +20,7 @@ import { ensurePlatformSessionReady } from './platform-recovery-gate';
 import { recordLiveSessionSetting } from './record-live-session-setting';
 import { recordLiveModelSwitch } from './live-model-switch';
 import { getRuntimeUpgradeRequirement, startupFailureForUser } from './spawn-failure';
+import { setSessionsOnScreen } from './sessions-on-screen';
 
 /**
  * ❌ 这里**没有** createConversation —— 对外只有一个创建动词 `sessionCreate.createSession`
@@ -32,6 +34,9 @@ import { getRuntimeUpgradeRequirement, startupFailureForUser } from './spawn-fai
 export const sessionController = createRPCController({
   getSessions,
   getStoredHistory,
+  getStoredToolImage,
+  // #980 打开一条没在跑的会话时:把 agent 自己的记录里有、库里还没有的那几轮补进库,回补进了几轮。
+  syncStoredHistoryFromRecord,
   forkSession,
   restartSession,
   switchSessionRuntime,
@@ -61,4 +66,8 @@ export const sessionController = createRPCController({
   recordLiveModelSwitch,
   // #6341 hydrate 被拒之后,renderer 按会话 id 取「是不是 harness 版本太低」—— 有就给出升级出口。
   getRuntimeUpgradeRequirement,
+  // 屏上的会话由渲染层报(主进程看不见界面),闲置回收据此不停人正看着的会话(renderer/app/sessions-on-screen.ts)。
+  reportSessionsOnScreen: async (sessionIds: string[]) => {
+    setSessionsOnScreen(sessionIds);
+  },
 });

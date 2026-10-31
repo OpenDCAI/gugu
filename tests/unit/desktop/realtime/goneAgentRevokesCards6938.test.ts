@@ -9,6 +9,7 @@ import {
   createTestLocalAgent,
   isolatedGuguEnv,
   pollOnlyRuntimeIdentityClient,
+  presenceRow,
 } from '../../../support/deviceRuntimeHarness'
 
 // #6938 gone 守卫删掉的名册行交给宿主,宿主据此收回发给它的卡。只交**真删掉**的:公网身份还在铸的行(#5331)留着,
@@ -25,6 +26,8 @@ describe('#6938 gone 守卫把真删掉的名册行交给宿主', () => {
     )
     await createTestLocalAgent(env, { name: 'Gone', gugu_user_id: GONE })
     const client = pollOnlyRuntimeIdentityClient([], 'gone revokes 6938')
+    // 别处删掉的 agent:主人读得到它的墓碑(account_status='removed'),对账那一读据此收回名册行。
+    client.presence.set(GONE, presenceRow(GONE, { account_status: 'removed' }))
     const rpc = client.rpc.bind(client)
     client.rpc = (async (fn: string, args: Record<string, unknown>) => {
       const result = await rpc(fn, args)

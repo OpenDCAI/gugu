@@ -1,4 +1,3 @@
-import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import os from 'node:os';
 import { acpRuntimeApiContract } from '@gugu/session-core/acp';
@@ -17,10 +16,12 @@ import {
   type ProcessRuntimePort,
 } from '@gugu/session-wire/util/process-runtime';
 import { createAcpRuntimeController } from '../api/controller';
+import { createHostPromptPreparation } from '../session/host-prompt-preparation';
 import { AcpRuntime } from '../runtime/runtime';
 import type { AcpRuntimeDeps } from '../runtime/types';
 import { ChildAcpProcessHost } from './child-process-host';
 import { LocalAttachmentStore } from './local-attachment-store';
+import { createPromptAttachmentResolver } from './resolve-prompt-attachment';
 import { LocalPromptQueueStore } from './local-prompt-queue-store';
 
 export type BootAcpRuntimeProcessOptions = {
@@ -35,6 +36,7 @@ export type BootAcpRuntimeProcessOptions = {
    * (session-runtime 不依赖 `@gugu/core`,所以只能由宿主传进来)。
    */
   mergeEnvelopes: (texts: readonly string[]) => string;
+  recoverDelivery: (text: string, replayedUserInputs: readonly string[], historyUnknown: boolean, receivedMessageIds?: ReadonlySet<string>) => string | null;
 };
 
 export function bootAcpRuntimeProcess(options: BootAcpRuntimeProcessOptions): void {
@@ -54,6 +56,15 @@ export function bootAcpRuntimeProcess(options: BootAcpRuntimeProcessOptions): vo
       );
       // #5381 会话历史落盘:回合提交推给主进程,由它决定落不落(只有它知道库里有没有)。
       const turnCommitted = createEventStreamHost(acpRuntimeApiContract.turnCommitted);
+      const promptSteered = createEventStreamHost(acpRuntimeApiContract.promptSteered);
+      // #881 Each provider request asks the host for its notice: the host's preparation is in another process.
+      const preparationRequested = createEventStreamHost(acpRuntimeApiContract.nativePromptPreparationRequested);
+      const preparationSettled = createEventStreamHost(acpRuntimeApiContract.nativePromptPreparationSettled);
+      const preparation = createHostPromptPreparation({
+        request: (event) => preparationRequested.emit(undefined, event),
+        settle: (event) => preparationSettled.emit(undefined, event),
+        warn: (message, detail) => logger.warn(message, detail),
+      });
       const attachmentStore = new LocalAttachmentStore(attachmentsDir);
       const promptQueueStore = new LocalPromptQueueStore(join(attachmentsDir, 'prompt-queues'));
       const homeDir = os.homedir();
@@ -73,21 +84,8 @@ export function bootAcpRuntimeProcess(options: BootAcpRuntimeProcessOptions): vo
         agentHost,
         host: childHost,
         mergeEnvelopes: options.mergeEnvelopes,
-        resolveAttachment: async (attachment) => {
-          if (attachment.type === 'attachment') {
-            const stored = await attachmentStore.get(attachment.id);
-            if (!stored) throw new Error(`Attachment '${attachment.id}' could not be resolved`);
-            return {
-              data: Buffer.from(stored.data).toString('base64'),
-              mimeType: stored.ref.mimeType,
-            };
-          }
-          const data = await readFile(attachment.originalPath);
-          return {
-            data: data.toString('base64'),
-            mimeType: attachment.mimeType,
-          };
-        },
+        recoverDelivery: options.recoverDelivery,
+        resolveAttachment: createPromptAttachmentResolver(attachmentStore),
         attachmentStore,
         promptQueueStore,
         logger,
@@ -97,14 +95,19 @@ export function bootAcpRuntimeProcess(options: BootAcpRuntimeProcessOptions): vo
             ...(platformAccessSessionId ? { platformAccessSessionId } : {}),
           }),
         onTurnCommitted: (event) => turnCommitted.emit(undefined, event),
+        onPromptSteered: (sessionId) => promptSteered.emit(undefined, { sessionId }),
       } satisfies AcpRuntimeDeps);
 
       scope.add(() => platformSessionClosed.dispose());
       scope.add(() => turnCommitted.dispose());
+      scope.add(() => promptSteered.dispose());
+      scope.add(() => { preparation.dispose(); preparationRequested.dispose(); preparationSettled.dispose(); });
       scope.add(() => acp.dispose());
       return withValidation(
         acpRuntimeApiContract,
-        createAcpRuntimeController(acp, platformSessionClosed, turnCommitted),
+        createAcpRuntimeController(acp, platformSessionClosed, turnCommitted, promptSteered, {
+          requested: preparationRequested, settled: preparationSettled, bridge: preparation,
+        }),
         workerValidatePolicy(env)
       );
     },

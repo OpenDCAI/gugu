@@ -19,6 +19,7 @@ const LOADING: MyAssistantState = { agentId: null, provisionDeviceId: null, load
 const NONE: MyAssistantState = { agentId: null, provisionDeviceId: null, loading: false, error: null }
 const states = new Map<string, MyAssistantState>()
 const inflight = new Set<string>()
+const reloadPending = new Set<string>()
 const listeners = new Set<() => void>()
 
 function emit() {
@@ -44,6 +45,8 @@ async function load(ownerUserId: string) {
   } finally {
     inflight.delete(ownerUserId)
     emit()
+    // Do not lose a completion signal behind a read started before completion.
+    if (reloadPending.delete(ownerUserId)) void load(ownerUserId)
   }
 }
 
@@ -57,7 +60,9 @@ export function isMyAssistant(ownerUserId: string | null | undefined, agentUserI
 
 /** 开通 / 搬家刚落定:那一行才刚写好,马上重读一遍(❌ 等通讯录变了才重读 —— 搬家不增减 agent)。 */
 export function reloadMyAssistant(ownerUserId: string | null | undefined): void {
-  if (ownerUserId) void load(ownerUserId)
+  if (!ownerUserId) return
+  if (inflight.has(ownerUserId)) reloadPending.add(ownerUserId)
+  else void load(ownerUserId)
 }
 
 /**
@@ -73,7 +78,7 @@ export function useMyAssistant(ownerUserId: string | null | undefined, refreshKe
     () => (ownerUserId ? states.get(ownerUserId) ?? LOADING : NONE),
   )
   useEffect(() => {
-    if (ownerUserId) void load(ownerUserId)
+    reloadMyAssistant(ownerUserId)
   }, [ownerUserId, refreshKey])
   return state
 }

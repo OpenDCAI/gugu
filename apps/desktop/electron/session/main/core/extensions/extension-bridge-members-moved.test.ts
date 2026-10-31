@@ -29,6 +29,7 @@ vi.mock('@main/core/extensions/extensions-root', () => ({
 }));
 vi.mock('@main/lib/logger', () => ({ log: { warn: vi.fn(), error: vi.fn(), info: vi.fn() } }));
 vi.mock('@main/core/extensions/app-files', () => ({
+  resourceChatOf: async (chatId: string) => chatId,
   chatMembersOf: async () => {
     reads.members += 1;
     return reads.now.map((id) => ({ id: `user:${id}`, name: id.slice(-1), kind: 'human' }));

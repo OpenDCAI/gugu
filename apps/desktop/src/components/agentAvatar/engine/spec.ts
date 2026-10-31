@@ -1,7 +1,8 @@
 /**
- * spec.ts —— 咕咕头像的两层空间（数据，不含任何运动代码）
+ * spec.ts —— 咕咕头像的两层空间：表情（静止姿态 + 进场动作的时间表）与展示状态。逐帧的运动由 engine.ts 演
  *
- *  · 16 种休息表情：只用「眼睛形状 + 身体姿态 + 脸红 + 性格化的小动作」表达，没有嘴、没有眉毛；配饰是另一层（outfits.ts），不改表情
+ *  · 16 种休息表情：用「眼睛形状 + 眉毛 + 腮红 + 身体姿态 + 性格化的小动作」表达，喙不张开（owner 10-22）；配饰是另一层（outfits.ts），不改表情
+ *    有的表情带一个进场动作（act）：进入这个表情时演一次就停（mac 上持续出帧很贵，空闲时不该一直动）
  *  · 14 种展示状态：名字 / 颜色 / 动不动 一律抄咕咕仓里 `presentAgentStatus` 那张表
  *    （packages/core/src/shared/agentStatusPresentation.ts + styles/tokens.css 的 --agent-tone-*），❌ 自己另起
  *
@@ -9,7 +10,9 @@
  *   v(u') = off + slope·u'inner + bow·(1 − u'²)       u'∈[-1,1] 横跨眼睛，v'∈[-1,1] 竖跨眼睛（下为正）
  *   slope 以「靠近鼻梁那一侧为正」定义，两只眼自动镜像
  * 睁眼：上线在椭圆之外(-1.3)、下线在椭圆之外(+1.3)；眯眼/半闭：上线下移；笑眼：下线拱起；闭眼：两线并拢成一条弯月。
+ * 另有三种闭着的画法（face.ts）：arc ≥ 0.5 = ^ 笑弧、flat = 1 → ‒ 平线、chev = 1 → > < 挤眼。
  */
+import { smoothstep } from './geometry'
 
 export type ExpressionId =
   | 'neutral'
@@ -40,6 +43,56 @@ export interface EyeShape {
   bOff: number
   bSlope: number
   bBow: number
+  arc: number
+  flat: number
+  chev: number
+}
+
+/** 眉毛（face.ts drawBrow）：on 可见度；lift 高低（眼高为单位，+ 高）；tilt 鼻梁侧抬起为 +（愁）、压下为 -（凶）；arch 弯度 */
+export interface BrowShape {
+  on: number
+  lift: number
+  tilt: number
+  arch: number
+}
+
+/** 腮红的位置和样子（深浅是 Expression.blush）：lift 被笑容顶上去；wide 横向大小；lines 三道短红晕线（大头像才画） */
+export interface CheekShape {
+  lift: number
+  wide: number
+  lines: number
+}
+
+/**
+ * 进场动作：进入这个表情时演一次（kick 是那一下的冲量，交给引擎的物理；fx 是这一次里按时刻放的特效；at 写逐帧的偏移）。
+ * every = 还停在这个表情时隔多久再演一次（不再给 kick）；轮换到这张脸不演进场，只从一个间隔之后开始重复。
+ * at(t, o) 写这一刻相对静止姿态的偏移：身体各项和 wingAdd 是加上去的；wing / eye 以 wingK / eyeK 的权重盖过去（结束前交还给弹簧）。
+ */
+export interface ActFrame {
+  hop: number
+  sy: number
+  sx: number
+  lean: number
+  roll: number
+  nod: number
+  puff: number
+  pitch: number
+  yaw: number
+  wingAdd: number // 度
+  wing: number // 度
+  wingK: number
+  eye: Partial<EyeShape>
+  eyeK: number
+  brow: number
+  browR: number
+  cheek: number
+}
+export interface Act {
+  dur: number
+  kick?: { hop?: number; shake?: number; squash?: number }
+  fx?: { at: number; kind: FxKind }[]
+  every?: number
+  at?(t: number, o: ActFrame): void
 }
 
 export interface Posture {
@@ -105,15 +158,38 @@ export interface Expression {
   gaze: [number, number] // 视线偏置 [yaw, pitch]（度）
   follow: number // 受光标吸引的程度 0..1
   split: number // 两眼间距倍率
-  blush: number // 脸红 0..1
+  blush: number // 腮红深浅 0..1
+  brow?: [BrowShape, BrowShape] // 观者左 / 右；没有 = 平常的淡眉毛
+  cheek?: Partial<CheekShape>
+  act?: Act
   posture: Posture
   temper: Partial<Temper>
-  enter?: { hop?: number; shake?: number; squash?: number; fx?: FxKind }
-  fx?: { kind: FxKind; every: number } // 持续特效
 }
 
-const OPEN: EyeShape = { size: 1, tOff: -1.3, tSlope: 0, tBow: 0, bOff: 1.3, bSlope: 0, bBow: 0 }
-const eye = (o: Partial<EyeShape> = {}): EyeShape => ({ ...OPEN, ...o })
+/** 睁着的眼睛：两条眼皮都在豆子外面 */
+export const OPEN_EYE: EyeShape = { size: 1, tOff: -1.3, tSlope: 0, tBow: 0, bOff: 1.3, bSlope: 0, bBow: 0, arc: 0, flat: 0, chev: 0 }
+const eye = (o: Partial<EyeShape> = {}): EyeShape => ({ ...OPEN_EYE, ...o })
+/** 平常的眉毛：淡淡的、微弯（小头像里不画，见 face.ts drawBrow） */
+export const REST_BROW: BrowShape = { on: 0.7, lift: 0, tilt: 0, arch: 0.22 }
+export const REST_CHEEK: CheekShape = { lift: 0, wide: 1, lines: 0 }
+const brow = (o: Partial<BrowShape> = {}): BrowShape => ({ ...REST_BROW, on: 1, ...o })
+const brows = (l: Partial<BrowShape>, r: Partial<BrowShape> = l): [BrowShape, BrowShape] => [brow(l), brow(r)]
+
+// ───── 进场动作的小词汇（t = 进入表情后的秒数）─────
+const sstep = smoothstep
+/** 0 → 1，带阻尼过冲（t0 时松手的弹簧） */
+const springTo = (t: number, t0: number, w = 9, z = 0.45) => {
+  if (t <= t0) return 0
+  const x = t - t0,
+    wd = w * Math.sqrt(1 - z * z)
+  return 1 - Math.exp(-z * w * x) * (Math.cos(wd * x) + (z / Math.sqrt(1 - z * z)) * Math.sin(wd * x))
+}
+/** [a, b] 上的一个鼓包 0 → 1 → 0 */
+const hump = (t: number, a: number, b: number) => (t <= a || t >= b ? 0 : Math.sin((Math.PI * (t - a)) / (b - a)))
+/** 起跳到落地的抛物线 0 → 1 → 0 */
+const arcOf = (t: number, a: number, b: number) => (t <= a || t >= b ? 0 : 4 * ((t - a) / (b - a)) * (1 - (t - a) / (b - a)))
+/** 动作结束前把盖过去的权重交还给弹簧 */
+const handBack = (t: number, dur: number) => 1 - sstep(dur - 0.3, dur, t)
 const POSE: Posture = { sy: 1, sx: 1, lean: 0, roll: 0, turn: 0, nod: 0, puff: 0, wl: 0, wr: 0 }
 /** w = 两边翅膀同时的位置的简写 */
 const pose = (o: Partial<Posture> & { w?: number } = {}): Posture => {
@@ -126,13 +202,13 @@ export const EXPRESSIONS: (Expression & { id: ExpressionId })[] = [
     id: 'neutral',
     zh: '平静',
     en: 'Neutral',
-    hint: '默认脸：两颗黑豆眼，端正放松',
+    hint: '默认脸：两颗暖棕豆眼，淡淡的眉毛和一点腮红',
     L: eye(),
     R: eye(),
     gaze: [0, 0],
     follow: 1,
     split: 1,
-    blush: 0,
+    blush: 0.18,
     posture: pose(),
     temper: {}
   },
@@ -147,6 +223,7 @@ export const EXPRESSIONS: (Expression & { id: ExpressionId })[] = [
     follow: 0.35,
     split: 1,
     blush: 0,
+    brow: brows({ lift: -0.08, tilt: -0.05 }),
     posture: pose({ nod: 6, sy: 0.992, w: -0.08 }),
     temper: { blink: 0.5, sway: 2 }
   },
@@ -161,9 +238,10 @@ export const EXPRESSIONS: (Expression & { id: ExpressionId })[] = [
     follow: 0.6,
     split: 1.04,
     blush: 0,
+    brow: brows({ lift: 0.5, arch: 0.5 }),
     posture: pose({ sy: 1.05, sx: 0.975, nod: -9, lean: -10, puff: -0.02, w: 0.85 }),
     temper: { blink: 0.3 },
-    enter: { hop: 0.5, squash: -1, fx: 'bang' }
+    act: { dur: 0, kick: { hop: 0.5, squash: -1 }, fx: [{ at: 0, kind: 'bang' }] }
   },
   {
     id: 'excited',
@@ -176,50 +254,86 @@ export const EXPRESSIONS: (Expression & { id: ExpressionId })[] = [
     follow: 0.7,
     split: 1.02,
     blush: 0.35,
+    brow: brows({ lift: 0.35, arch: 0.45 }),
     posture: pose({ sy: 1.02, w: 0.35 }),
     temper: { bounce: 34, bounceHz: 1.5, blink: 0.8, sway: 9, swayHz: 0.5, flap: 0.5, flapHz: 3 },
-    enter: { hop: 0.9, fx: 'spark' },
-    fx: { kind: 'spark', every: 1.6 }
+    // 一进来蹦一下撒星星，还兴奋着就隔 1.6s 左右再撒两颗
+    act: { dur: 0, kick: { hop: 0.9 }, fx: [{ at: 0, kind: 'spark' }, { at: 0, kind: 'spark' }], every: 1.6 }
   },
   {
     id: 'happy',
     zh: '开心',
     en: 'Happy',
-    hint: '眼睛弯成两道月牙，轻轻摇晃',
-    L: eye({ size: 1.12, bOff: 0.22, bBow: -0.55 }),
-    R: eye({ size: 1.12, bOff: 0.22, bBow: -0.55 }),
+    hint: '跳起来原地转一圈、张开翅膀；之后翅膀半张、笑眼、挑眉、腮红',
+    // 笑眼：下眼皮被脸颊顶成弯月，豆子还看得见
+    L: eye({ size: 0.98, bOff: 0.62, bBow: -0.66 }),
+    R: eye({ size: 0.98, bOff: 0.62, bBow: -0.66 }),
     gaze: [0, 0],
     follow: 0.7,
     split: 1,
-    blush: 0.45,
-    posture: pose({ sy: 1.01, roll: 3, w: 0.28 }),
-    temper: { blink: 0, sway: 11, swayHz: 0.42, breath: 0.014, flap: 0.22, flapHz: 1.3 },
-    enter: { hop: 0.35 }
+    blush: 0.62,
+    brow: brows({ lift: 0.22, arch: 0.42, tilt: 0.05 }),
+    cheek: { lift: 0.3, wide: 1.08 },
+    posture: pose({ sy: 1.01, nod: -6, w: 0.85 }),
+    temper: {},
+    // 蹲 0.12–0.34s · 起跳 0.27s、落地 0.62s · 跳在空中原地转一圈（0.3–0.95s，yaw；装扮不让转时 engine 置 0）
+    // 翅膀甩开到 66° 再收回 30° · 跳的那一下眼睛笑成 ^ ^
+    act: {
+      dur: 1.4,
+      at(t, o) {
+        const crouch = hump(t, 0.12, 0.34)
+        const land = hump(t, 0.6, 0.78)
+        const lift = hump(t, 0.27, 0.45)
+        const tw = Math.max(0, t - 0.72)
+        const joy = sstep(0.22, 0.3, t) * (1 - sstep(0.78, 0.95, t))
+        o.hop = arcOf(t, 0.27, 0.62) * 40
+        o.sy = -0.06 * crouch + 0.05 * lift - 0.06 * land
+        o.sx = 0.035 * crouch - 0.025 * lift + 0.04 * land
+        o.roll = t > 0.72 ? 6 * Math.exp(-4 * tw) * Math.sin(tw * 14) : 0
+        o.nod = -8 * joy
+        o.yaw = 360 * sstep(0.3, 0.95, t)
+        o.wing = -8 * crouch + (66 + (30 - 66) * sstep(0.75, 1.35, t)) * springTo(t, 0.24, 11, 0.38)
+        o.wingK = handBack(t, 1.4)
+        o.eye = { arc: 0.8 }
+        o.eyeK = joy
+        o.brow = 0.2 * joy
+        o.cheek = 0.28 * joy
+      }
+    }
   },
   {
     id: 'laughing',
     zh: '大笑',
     en: 'Laughing',
-    hint: '月牙眼压得更厚，身子笑得一抖一抖',
-    L: eye({ size: 1.18, bOff: 0.3, bBow: -0.62 }),
-    R: eye({ size: 1.18, bOff: 0.3, bBow: -0.62 }),
+    hint: '眼睛弯成 ^ ^、眉毛高挑、腮红带红晕线；身子后仰一抖一抖，翅膀拍肚子，几下后停',
+    L: eye({ arc: 1 }),
+    R: eye({ arc: 1 }),
     gaze: [0, 0],
     follow: 0.3,
     split: 1.02,
-    blush: 0.6,
-    posture: pose({ roll: -5, nod: -7, sy: 1.0, w: 0.3 }),
-    temper: {
-      blink: 0,
-      squish: 0.05,
-      squishHz: 7.5,
-      bounce: 12,
-      bounceHz: 3.5,
-      sway: 5,
-      swayHz: 0.9,
-      flap: 0.4,
-      flapHz: 3.75
-    },
-    enter: { hop: 0.6 }
+    blush: 0.95,
+    brow: brows({ lift: 0.48, arch: 0.55, tilt: 0.12 }),
+    cheek: { lift: 0.5, wide: 1.2, lines: 0.75 },
+    posture: pose({ lean: -16, nod: -11, w: 0.45 }),
+    temper: { blink: 0 },
+    // 每秒笑 3.8 下、越笑越轻，约 6 下后停；身子先往后仰得多一点，再回到静止姿态
+    act: {
+      dur: 1.6,
+      at(t, o) {
+        const ph = Math.max(0, t - 0.15)
+        const decay = Math.exp(-1.3 * ph) * (1 - sstep(1.35, 1.6, t))
+        const beat = Math.sin(ph * Math.PI * 2 * 3.8)
+        const b2 = beat * beat
+        const env = sstep(0, 0.18, t) * (1 - sstep(1.2, 1.6, t))
+        o.hop = 20 * Math.abs(beat) * decay
+        o.sy = -0.07 * b2 * decay
+        o.sx = 0.04 * b2 * decay
+        o.lean = -24 * env
+        o.nod = -11 * env
+        o.roll = 4 * Math.sin(ph * Math.PI * 2 * 1.9) * decay
+        o.wingAdd = -30 * b2 * decay
+      }
+    }
   },
   {
     id: 'angry',
@@ -232,9 +346,10 @@ export const EXPRESSIONS: (Expression & { id: ExpressionId })[] = [
     follow: 0.3,
     split: 0.97,
     blush: 0,
+    brow: brows({ lift: -0.15, tilt: -0.45, arch: -0.05 }),
     posture: pose({ sy: 0.985, sx: 1.02, nod: 7, w: -0.28 }),
     temper: { tremor: 3, blink: 0.4, sway: 1 },
-    enter: { shake: 1, squash: 0.6 }
+    act: { dur: 0, kick: { shake: 1, squash: 0.6 } }
   },
   {
     id: 'sad',
@@ -247,9 +362,10 @@ export const EXPRESSIONS: (Expression & { id: ExpressionId })[] = [
     follow: 0.12,
     split: 1,
     blush: 0,
+    brow: brows({ lift: 0.05, tilt: 0.45, arch: 0.1 }),
     posture: pose({ sy: 0.972, sx: 1.015, nod: 11, roll: -3, w: -0.6 }),
     temper: { breath: 0.007, breathHz: 0.3, blink: 0.6, sway: 2 },
-    enter: { squash: 1 }
+    act: { dur: 0, kick: { squash: 1 } }
   },
   {
     id: 'scared',
@@ -262,9 +378,10 @@ export const EXPRESSIONS: (Expression & { id: ExpressionId })[] = [
     follow: 0.2,
     split: 1.12,
     blush: 0,
+    brow: brows({ lift: 0.35, tilt: 0.4 }),
     posture: pose({ sy: 0.98, lean: 12, nod: 4, sx: 1.01, w: -0.45 }),
     temper: { tremor: 6.5, blink: 1.6, scan: 6, scanHz: 1.7, sway: 0, flap: 0.18, flapHz: 9 },
-    enter: { shake: 1.2, squash: 0.8, fx: 'sweat' }
+    act: { dur: 0, kick: { shake: 1.2, squash: 0.8 }, fx: [{ at: 0, kind: 'sweat' }] }
   },
   {
     id: 'suspicious',
@@ -277,6 +394,7 @@ export const EXPRESSIONS: (Expression & { id: ExpressionId })[] = [
     follow: 0.3,
     split: 1,
     blush: 0,
+    brow: brows({ lift: 0.2 }, { lift: -0.2, tilt: -0.25 }),
     posture: pose({ roll: -5, lean: 8, nod: 3, wl: -0.1, wr: 0.38 }),
     temper: { blink: 0.5, sway: 3 }
   },
@@ -291,9 +409,10 @@ export const EXPRESSIONS: (Expression & { id: ExpressionId })[] = [
     follow: 0.35,
     split: 1,
     blush: 0,
+    brow: brows({ lift: 0.35, arch: 0.4 }, { lift: -0.1, tilt: 0.2 }),
     posture: pose({ roll: 9, lean: 6, wl: 0.42, wr: -0.08 }),
     temper: { sway: 8, swayHz: 0.22 },
-    enter: { fx: 'ques' }
+    act: { dur: 0, fx: [{ at: 0, kind: 'ques' }] }
   },
   {
     id: 'curious',
@@ -306,6 +425,7 @@ export const EXPRESSIONS: (Expression & { id: ExpressionId })[] = [
     follow: 1,
     split: 1,
     blush: 0.08,
+    brow: brows({ lift: 0.25 }, { lift: 0.1 }),
     posture: pose({ roll: 8, lean: 11, sy: 1.015, w: 0.18 }),
     temper: { bounce: 4, bounceHz: 0.9, blink: 0.7, sway: 5, swayHz: 0.3 }
   },
@@ -313,16 +433,27 @@ export const EXPRESSIONS: (Expression & { id: ExpressionId })[] = [
     id: 'proud',
     zh: '得意',
     en: 'Proud',
-    hint: '眼皮半垂、下巴抬起、胸脯挺高',
-    L: eye({ size: 1.15, tOff: -0.22, tSlope: 0.1, bOff: 0.7, bBow: -0.3 }),
-    R: eye({ size: 1.15, tOff: -0.22, tSlope: 0.1, bOff: 0.7, bBow: -0.3 }),
-    gaze: [0, 6],
+    hint: '闭着眼仰起头「哼～」：下巴抬、胸脯挺、翅膀叉腰，一边眉毛挑起来',
+    // 闭成两道向下弯的弧（两条眼皮合拢，同眨眼合上的那一刻）；❌ 双眼往鼻梁压（32px 会读成生气）
+    L: eye({ tOff: 0.16, tBow: 0.32, bOff: 0.42, bBow: 0.3 }),
+    R: eye({ tOff: 0.16, tBow: 0.32, bOff: 0.42, bBow: 0.3 }),
+    gaze: [0, -3],
     follow: 0.4,
     split: 1,
-    blush: 0.12,
-    posture: pose({ nod: -11, sy: 1.02, puff: 0.04, lean: -8, w: 0.5 }),
-    temper: { blink: 0.45, breath: 0.014, breathHz: 0.36 },
-    enter: { hop: 0.25 }
+    blush: 0.4,
+    brow: brows({ lift: 0.3, arch: 0.5 }, { lift: 0.5, arch: 0.62 }),
+    cheek: { lift: 0.22 },
+    posture: pose({ nod: -24, lean: -26, puff: 0.05, sy: 1.025, w: -0.62 }),
+    temper: { blink: 0, breath: 0.014, breathHz: 0.36 },
+    act: {
+      dur: 1.0,
+      fx: [{ at: 0.32, kind: 'spark' }],
+      at(t, o) {
+        o.puff = 0.04 * hump(t, 0.12, 0.7)
+        o.sy = 0.015 * hump(t, 0.12, 0.7)
+        o.browR = 0.22 * hump(t, 0.28, 0.62)
+      }
+    }
   },
   {
     id: 'shy',
@@ -335,6 +466,7 @@ export const EXPRESSIONS: (Expression & { id: ExpressionId })[] = [
     follow: 0.12,
     split: 1,
     blush: 1,
+    brow: brows({ lift: 0.05, tilt: 0.3 }),
     posture: pose({ sy: 0.98, roll: -6, nod: 8, lean: -6, w: -0.2 }),
     temper: { sway: 9, swayHz: 0.3, blink: 1.3 }
   },
@@ -342,30 +474,62 @@ export const EXPRESSIONS: (Expression & { id: ExpressionId })[] = [
     id: 'unimpressed',
     zh: '无感',
     en: 'Unimpressed',
-    hint: '眼睛只剩一条窄缝，纹丝不动',
-    L: eye({ size: 1.12, tOff: -0.12, bOff: 0.62 }),
-    R: eye({ size: 1.12, tOff: -0.12, bOff: 0.62 }),
+    hint: '二次元眯眯眼 ‒ ‒：眼睛合成两道平线，眉毛放平压低，轻轻「呼」地沉一下',
+    // 平线眼也还站着、有翅膀有脚，和离线时蜷成的睡团分得开
+    L: eye({ flat: 1, tOff: -0.2, bOff: 0.4 }),
+    R: eye({ flat: 1, tOff: -0.2, bOff: 0.4 }),
     gaze: [0, 2],
     follow: 0.5,
     split: 1,
     blush: 0,
-    posture: pose({ sy: 0.99 }),
-    temper: { breath: 0.005, blink: 0.3, sway: 1 }
+    brow: brows({ lift: -0.18, arch: 0 }),
+    posture: pose({ sy: 0.99, nod: 3, w: -0.17 }),
+    temper: { breath: 0.005, blink: 0, sway: 1 },
+    act: {
+      dur: 0.9,
+      at(t, o) {
+        const sigh = hump(t, 0.25, 0.9)
+        o.sy = -0.022 * sigh
+        o.sx = 0.01 * sigh
+      }
+    }
   },
   {
     id: 'sleepy',
     zh: '犯困',
     en: 'Sleepy',
-    hint: '眼皮沉沉往下掉，脑袋一点一点',
-    L: eye({ size: 1.1, tOff: 0.0, tSlope: -0.25 }),
-    R: eye({ size: 1.1, tOff: 0.0, tSlope: -0.25 }),
-    gaze: [0, 8],
+    hint: '眼皮沉、眉梢垂；打盹栽一下、头顶冒 z，一激灵又醒过来',
+    L: eye({ tOff: -0.02, tBow: 0.28, bOff: 1.2 }),
+    R: eye({ tOff: -0.02, tBow: 0.28, bOff: 1.2 }),
+    gaze: [0, 6],
     follow: 0.1,
     split: 1,
-    blush: 0.15,
-    posture: pose({ nod: 8, sy: 0.985, w: -0.38 }),
-    temper: { breath: 0.02, breathHz: 0.26, nod: 8, nodHz: 0.2, blink: 0.4, sway: 3 },
-    fx: { kind: 'z', every: 1.9 }
+    blush: 0.32,
+    brow: brows({ lift: -0.1, tilt: 0.3, arch: 0.12 }),
+    cheek: { lift: 0.05 },
+    posture: pose({ nod: 10, sy: 0.985, w: -0.23 }),
+    temper: { breath: 0.02, breathHz: 0.26, blink: 0, sway: 3 },
+    // 进入时演一次：眼皮越来越沉、头往下栽（0.25–1.2s），头顶依次冒三个 z；栽到底一激灵：睁眼、眉毛弹起、轻跳，再慢慢回到半睁，然后停住
+    act: {
+      dur: 2.4,
+      fx: [
+        { at: 0.3, kind: 'z' },
+        { at: 0.8, kind: 'z' },
+        { at: 1.3, kind: 'z' }
+      ],
+      at(t, o) {
+        const doze = sstep(0.25, 1.2, t) * (1 - sstep(1.2, 1.28, t))
+        const snap = springTo(t, 1.22, 14, 0.4) * (1 - sstep(1.45, 2.3, t))
+        o.eye = { tOff: -0.02 + 0.44 * doze - 0.5 * snap, tBow: 0.28 * (1 - snap) }
+        o.eyeK = handBack(t, 2.4)
+        o.brow = 0.38 * snap - 0.08 * doze
+        o.nod = 26 * doze - 12 * snap
+        o.roll = 7 * doze * (1 - snap)
+        o.sy = -0.015 * doze + 0.012 * snap
+        o.hop = 14 * hump(t, 1.22, 1.42)
+        o.wingAdd = 14 * hump(t, 1.22, 1.6)
+      }
+    }
   }
 ]
 
@@ -384,7 +548,7 @@ export const ASLEEP: Expression = {
   blush: 0.1,
   posture: pose({ nod: 12, sy: 0.972, sx: 1.012, lean: -4, w: -0.5 }),
   temper: { breath: 0.02, breathHz: 0.22, blink: 0, sway: 0 },
-  fx: { kind: 'z', every: 2.2 }
+  act: { dur: 0, fx: [{ at: 0, kind: 'z' }], every: 2.2 }
 }
 
 /** 委屈（出错塌下去之后）：眼睛还是圆圆的，只有外侧轻轻往下垂一点——不是「难过」那种削掉半个眼睛的三角（会显得阴） */
@@ -420,6 +584,7 @@ export type DisplayStateId =
   | 'idle'
   | 'online'
   | 'offline'
+  | 'archived'
   | 'removed'
   | 'pending'
   | 'none'
@@ -459,6 +624,7 @@ export const EXPRESSION_CADENCE: Partial<Record<DisplayStateId, Cadence>> = {
 
 /** 眨眼间隔(秒)。undefined = 沿用引擎原来的节律(出错 / 睡着那几档);null = 不眨眼 */
 export const BLINK_CADENCE: Partial<Record<DisplayStateId, readonly [number, number] | null>> = {
+  archived: null,
   idle: [4, 9],
   online: [4, 9],
   pending: [4, 9],
@@ -514,6 +680,7 @@ export type StateTone =
   | 'idle'
   | 'online'
   | 'offline'
+  | 'archived'
   | 'removed'
   | 'pending'
   | 'none'
@@ -636,6 +803,16 @@ export const STATES: DisplayState[] = [
     id: 'offline',
     zh: '不在线',
     tone: 'offline',
+    color: MUTED,
+    animate: false,
+    emphasis: false,
+    family: 'away',
+    glyph: 'dot'
+  },
+  {
+    id: 'archived',
+    zh: '已归档',
+    tone: 'archived',
     color: MUTED,
     animate: false,
     emphasis: false,

@@ -9,7 +9,9 @@ import {
 } from '@renderer/features/projects/stores/project-selectors';
 import type { ProjectSettingsStore } from '@renderer/features/projects/stores/project-settings-store';
 import { getSessionGitWorktreeStore } from '@renderer/features/sessions/stores/session-selectors';
-import { events, rpc } from '@renderer/lib/ipc';
+import { onMachineEvent, rpc } from '@renderer/lib/ipc';
+import { machineRegistry } from '@renderer/lib/machine-routing';
+import { workspaceEvents } from '@renderer/features/sessions/workspace-backend/workspace-backend';
 import { viewStateCache } from '@renderer/lib/stores/view-state-cache';
 import {
   sessionChangedChannel,
@@ -148,20 +150,22 @@ export class ProjectSessionsStore {
     this._settingsStore = settingsStore;
     makeObservable(this, { sessions: observable, listState: observable });
 
+    // 这个项目在哪台机器上,它的会话事件就在那台机器上订(本机 = null)。
+    const machine = machineRegistry.machineOf(projectId);
     this._offs.push(
-      events.on(sessionCreatedChannel, ({ session }) => {
+      onMachineEvent(machine, sessionCreatedChannel, ({ session }) => {
         this.acceptCreatedSession(session);
       }),
-      events.on(sessionDeletedChannel, ({ sessionId, projectId: evtProjectId }) => {
+      onMachineEvent(machine, sessionDeletedChannel, ({ sessionId, projectId: evtProjectId }) => {
         if (evtProjectId !== this.projectId) return;
         this._removeSessionLocally(sessionId);
       }),
       // 归档 = 这条会话离开列表:与删除同形,收起它在会话页的那一份(恢复时 session:created 再放回来)。
-      events.on(sessionChangedChannel, ({ sessionId, projectId: evtProjectId, changes }) => {
+      onMachineEvent(machine, sessionChangedChannel, ({ sessionId, projectId: evtProjectId, changes }) => {
         if (evtProjectId !== this.projectId || !changes.archivedAt) return;
         this._removeSessionLocally(sessionId);
       }),
-      events.on(sessionProvisionProgressChannel, ({ sessionId, projectId: evtProjectId, message }) => {
+      onMachineEvent(machine, sessionProvisionProgressChannel, ({ sessionId, projectId: evtProjectId, message }) => {
         if (evtProjectId !== this.projectId) return;
         const store = this.sessions.get(sessionId);
         if (store?.isBootstrapping) {
@@ -170,7 +174,7 @@ export class ProjectSessionsStore {
           });
         }
       }),
-      events.on(lifecycleScriptStatusChannel, (statusEvent) => {
+      onMachineEvent(machine, lifecycleScriptStatusChannel, (statusEvent) => {
         if (
           statusEvent.projectId !== this.projectId ||
           statusEvent.status !== 'failed' ||
@@ -193,7 +197,7 @@ export class ProjectSessionsStore {
       // Handles sessions provisioned by the automation path (or any main-process caller)
       // without renderer-initiated RPCs. The `isUnprovisioned` guard prevents a
       // double-transition if the renderer-driven RPC already completed first.
-      events.on(sessionProvisionedChannel, ({ sessionId, projectId: evtProjectId, path, workspaceId }) => {
+      onMachineEvent(machine, sessionProvisionedChannel, ({ sessionId, projectId: evtProjectId, path, workspaceId }) => {
         if (evtProjectId !== this.projectId) return;
         void this._doHandleProvisioned(sessionId, path, workspaceId);
       }),
@@ -201,13 +205,13 @@ export class ProjectSessionsStore {
       // store 和它的滚动位置)不动;下次显示时 view.tsx 照常 provision,终端腿按原会话续上,聊天腿下一句话再起(#6497)。
       // #6950:这里曾把视图模型 dispose 掉换一个新的,于是切回去贴到了底部、右栏还多出一个页签。
       // ❌ 释放会话表 / 终端表(归档那样):没准备的会话也靠它们给侧栏出行,表不计引用,一放就整张没了。
-      events.on(sessionReclaimedChannel, ({ sessionId, projectId: evtProjectId }) => {
+      onMachineEvent(machine, sessionReclaimedChannel, ({ sessionId, projectId: evtProjectId }) => {
         if (evtProjectId !== this.projectId) return;
         const session = this.sessions.get(sessionId);
         if (!session || !isProvisioned(session)) return;
         runInAction(() => session.transitionToUnprovisioned('idle'));
       }),
-      events.on(prUpdatedChannel, ({ prs }) => {
+      onMachineEvent(machine, prUpdatedChannel, ({ prs }) => {
         const repoUrl = this._repository.pullRequestRepositoryUrl;
         if (!repoUrl) return;
         for (const pr of prs) {
@@ -223,7 +227,7 @@ export class ProjectSessionsStore {
           }
         }
       }),
-      events.on(prSyncProgressChannel, (progress) => {
+      onMachineEvent(machine, prSyncProgressChannel, (progress) => {
         if (progress.status !== 'done') return;
         const repoUrl = this._repository.pullRequestRepositoryUrl;
         if (!repoUrl || progress.remoteUrl !== repoUrl) return;
@@ -231,7 +235,7 @@ export class ProjectSessionsStore {
           if (isProvisioned(store)) void this._reloadPrsForSession(store);
         }
       }),
-      events.on(gitWorktreeUpdateChannel, (payload) => {
+      workspaceEvents.on(gitWorktreeUpdateChannel, (payload) => {
         if (payload.projectId !== this.projectId || payload.update.kind !== 'head') return;
         for (const [, store] of this.sessions) {
           if (isProvisioned(store) && store.workspaceId === payload.workspaceId) {
@@ -373,6 +377,7 @@ export class ProjectSessionsStore {
       initialQueue: ic.initialQueue,
       startupOrigin: ic.startupOrigin,
       initialMessageId: ic.initialMessageId,
+      taskChatId: ic.taskChatId,
       // spec session-resume：创建 = 带着第一句话开一件活，那句话此刻就在手上。漏掉它，面板会在
       // 首轮落进 transcript 之前把这条会话读成「空白会话」，于是「今天我们做点什么？」这块占位页
       // 闪一下再消失，输入框也跟着从「随心输入」切成「要求后续变更」—— 一次纯粹的假状态。

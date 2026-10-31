@@ -1,10 +1,13 @@
 import type { ChildProcess } from 'node:child_process';
 import { userIdFromSupabaseAccessToken } from '@gugu/core';
 import { createGuguSupabaseClient } from '@gugu/core/cloud/supabase';
-import { APP_FRAME_MARKER, fileRefOf, isLocal, type FrameToHost, type HostToFrame } from '@shared/extensions/app-runtime-protocol';
+import { APP_FRAME_MARKER, fileRefOf, isLocal, placeOf, type FrameToHost, type HostToFrame } from '@shared/extensions/app-runtime-protocol';
 import { currentAccountAccessToken } from '@main/core/extensions/account-token';
+import { log } from '@main/lib/logger';
 import type { BridgeCaller } from './extension-bridge';
 import { fileSync } from './file-sync';
+import { resourceChatIdOf } from '@shared/extensions/app-files-core';
+import { extensionProjections } from './extension-projection-bridge';
 
 /**
  * An App's MCP program as a caller of the App (摩擦单 F16, 真源 §4): the same `gugu` a page has but for a page's own
@@ -34,6 +37,7 @@ export interface ExtensionHandedFile {
 /** A1 A chat an agent handed a program in one call (`format: "gugu-chat"`): the agent is in it, checked at the gateway. */
 export interface ExtensionHandedChat {
   chatId: string;
+  resourceChatId: string;
   agentUserId: string;
 }
 
@@ -44,10 +48,10 @@ export interface ProgramSurface {
    * and chats it handed; the function it returns takes them back when that call ends — resolved once the program let go
    * of the files, its last writes handed to the file service ahead of its Close (F106).
    */
-  hand(callId: string, agent: string | null, files: readonly ExtensionHandedFile[], chats?: readonly ExtensionHandedChat[]): () => Promise<void>;
+  hand(callId: string, agent: string | null, files: readonly ExtensionHandedFile[], chats?: readonly ExtensionHandedChat[], sessionId?: string, callerKind?: 'agent' | 'person'): () => Promise<void>;
   /** How many files it holds open: a program holding one is not idle. */
   openFiles(): number;
-  close(): void;
+  close(processGone?: boolean): void | Promise<void>;
 }
 
 let lastPageId = 0;
@@ -55,7 +59,9 @@ let lastPageId = 0;
 export function attachProgramSurface(extensionId: string, child: ChildProcess): ProgramSurface {
   const pageId = --lastPageId;
   /** Each call running now, by its id: whose it is, and what it handed. */
-  const calls = new Map<string, { agent: string | null; files: readonly ExtensionHandedFile[]; chats: readonly ExtensionHandedChat[] }>();
+  let closing: Promise<void> | undefined;
+  let withdrawn = false;
+  const calls = new Map<string, { agent: string | null; files: readonly ExtensionHandedFile[]; chats: readonly ExtensionHandedChat[]; sessionId?: string; callerKind: 'agent' | 'person' }>();
   const post = (frame: HostToFrame) => {
     if (child.connected) child.send(frame);
   };
@@ -69,7 +75,7 @@ export function attachProgramSurface(extensionId: string, child: ChildProcess): 
   // is the agent's doing. In a chat that call handed it (A1), or the chat of a file it handed it (G5), what it lists,
   // makes, renames and removes is that agent's too, judged by the agent's membership. Anything else — and every verb made
   // in no call: as a page, by the capability words.
-  const filePage = (args: Record<string, unknown>, callId: string | undefined) => {
+  const filePage = (args: Record<string, unknown>, callId: string | undefined, resource: boolean) => {
     const call = callId === undefined ? undefined : calls.get(callId);
     const ref = args.ref === undefined ? null : fileRefOf(args.ref);
     if (call && ref && 'id' in ref && !isLocal(ref)) {
@@ -78,7 +84,8 @@ export function attachProgramSurface(extensionId: string, child: ChildProcess): 
     }
     const place = !ref && args.place && typeof args.place === 'object' ? (args.place as { chat?: unknown }) : null;
     const chat = ref && 'chat' in ref ? ref.chat : place?.chat;
-    const given = call && typeof chat === 'string' ? [...call.files, ...call.chats].find((handed) => handed.chatId === chat) : undefined;
+    const given = call && typeof chat === 'string' ? call.files.find((handed) => handed.chatId === chat)
+      ?? call.chats.find((handed) => (resource ? handed.resourceChatId : handed.chatId) === chat) : undefined;
     return given ? { pageId, extensionId, handed: null, asAgent: given.agentUserId } : { pageId, extensionId, handed: null };
   };
   const callerFor = (callId: string | undefined): BridgeCaller => ({
@@ -86,15 +93,27 @@ export function attachProgramSurface(extensionId: string, child: ChildProcess): 
     kind: 'program',
     binding: null,
     pageId,
-    filePage: (args) => filePage(args, callId),
+    filePage: (args, resource = false) => filePage(args, callId, resource),
+    async resourcePage(args) {
+      const ref = args.ref === undefined ? null : fileRefOf(args.ref);
+      const place = args.place === undefined ? null : placeOf(args.place);
+      const named = ref ?? place;
+      if (!named || !('chat' in named) || named.chat === undefined) return filePage(args, callId, true);
+      const actor = (callId === undefined ? undefined : calls.get(callId)?.agent) ?? filePage(args, callId, true).asAgent ?? null;
+      const { resourceChatOf } = await import('./app-files');
+      const chat = await resourceChatOf(named.chat, { asAgent: actor });
+      return filePage(ref ? { ...args, ref: { ...ref, chat } } : { ...args, place: { chat } }, callId, true);
+    },
     hear: (event) => post({ m: APP_FRAME_MARKER, t: 'event', event }),
-    // Only an agent's call is stamped with an id (`gugu/call`): a person's page calling the program is not.
-    ...(callId === undefined ? {} : { callingAgent: calls.get(callId)?.agent ?? null }),
+    // Each host-stamped call has an id; a person's page has a task but no calling agent.
+    ...(callId === undefined || calls.get(callId)?.callerKind === 'person' ? {} : { callingAgent: calls.get(callId)?.agent ?? null }),
+    ...(callId === undefined || !calls.get(callId)?.sessionId ? {} : { callingSession: calls.get(callId)!.sessionId }),
   });
 
   const onMessage = (message: unknown) => {
     const frame = message as FrameToHost | null;
     if (frame?.m !== APP_FRAME_MARKER) return;
+    if (withdrawn && (frame.t !== 'call' || !extensionProjections.isCleanup(callerFor(undefined), frame.method, (frame.args ?? {}) as Record<string, unknown>))) return;
     if (frame.t === 'sync') {
       fileSync.fromPort(page, frame.data);
       return;
@@ -115,8 +134,8 @@ export function attachProgramSurface(extensionId: string, child: ChildProcess): 
 
   return {
     pageId,
-    hand(callId, agent, files, chats = []) {
-      calls.set(callId, { agent, files, chats });
+    hand(callId, agent, files, chats = [], sessionId, callerKind = 'agent') {
+      calls.set(callId, { agent, files, chats, sessionId, callerKind });
       return async () => {
         calls.delete(callId);
         // The call is over: whatever the program opened as its agent goes too — the program closes it itself, its last
@@ -135,11 +154,19 @@ export function attachProgramSurface(extensionId: string, child: ChildProcess): 
         );
       };
     },
-    openFiles: () => fileSync.openCount(pageId),
-    close() {
-      child.off('message', onMessage);
+    openFiles: () => fileSync.openCount(pageId) + extensionProjections.count(pageId),
+    close(processGone = false) {
+      if (processGone) extensionProjections.closePage(pageId);
+      if (closing) return closing;
+      withdrawn = true;
+      calls.clear();
       fileSync.pageGone(pageId);
       void import('./extension-bridge').then(({ stopPageWatches }) => stopPageWatches(pageId));
+      closing = extensionProjections.closeProgram(pageId).finally(() => {
+        child.off('message', onMessage);
+        extensionProjections.closePage(pageId);
+      });
+      return closing;
     },
   };
 }
@@ -152,9 +179,19 @@ async function signedInChatClient(what: string) {
 }
 
 /**
+ * A door that could not answer (the network, an expired token, the agent not the person's) is not a refusal: said as
+ * what it was, to the agent and in the log — read as "not yours" it sends the agent after a membership it has.
+ */
+function doorFailed(named: string, what: string, error: { message: string }): Error {
+  log.warn('[app-programs] a handed chat or file could not be checked', { named, what, error: error.message });
+  return new Error(`${named}: could not check ${what}: ${error.message}`);
+}
+
+/**
  * A1 Each handed chat as its id, read as the calling agent: one named by the number people see (its public id) goes to
  * its id, the way the agent's message tools take either; the agent must be in it — the door every agent write of the
- * workspace goes through (`workspace_status_as`). Not there and not the agent's read the same, refused by name.
+ * workspace goes through (`workspace_status_as`). Not there and not the agent's read the same, refused by name; a door
+ * that could not answer says why.
  */
 export async function handedChatsAs(agentUserId: string, chatIds: readonly string[]): Promise<ExtensionHandedChat[]> {
   const client = await signedInChatClient('chat');
@@ -163,27 +200,33 @@ export async function handedChatsAs(agentUserId: string, chatIds: readonly strin
       const refusal = new Error(`${named}: not a chat you are in, so it was not handed over`);
       let chatId = named.trim();
       if (/^\d+$/.test(chatId)) {
-        const { data } = await client.from('chats').select('id').eq('public_id', chatId);
+        const { data, error } = await client.rpc('chat_facts', { p_chat_id: chatId, p_as_user_id: agentUserId });
+        if (error) throw doorFailed(named, 'which chat this number is', error);
         const rows = (data as { id: string }[] | null) ?? [];
         if (rows.length !== 1) throw refusal;
         chatId = rows[0]!.id;
       }
       const { error } = await client.rpc('workspace_status_as', { p_chat_id: chatId, p_as_user_id: agentUserId });
-      if (error) throw refusal;
-      return { chatId, agentUserId };
+      if (error?.hint === 'workspace_not_member') throw refusal;
+      if (error) throw doorFailed(named, 'that you are in this chat', error);
+      const token = await currentAccountAccessToken();
+      if (!token) throw new Error('Not signed in, so no chat can be handed over');
+      return { chatId, resourceChatId: await resourceChatIdOf(token, chatId, agentUserId), agentUserId };
     }),
   );
 }
 
 /**
  * Which group each handed file is in, read as the calling agent: with the person's token acting as their agent, as
- * every agent read of the workspace is (`workspace_get_as`). A file the agent cannot open is refused by name.
+ * every agent read of the workspace is (`workspace_get_as`). A file the agent cannot open is refused by name; a door that
+ * could not answer says why.
  */
 export async function handedFilesAs(agentUserId: string, itemIds: readonly string[]): Promise<ExtensionHandedFile[]> {
   const client = await signedInChatClient('chat file');
   return Promise.all(
     itemIds.map(async (itemId) => {
       const { data, error } = await client.rpc('workspace_get_as', { p_item_id: itemId, p_as_user_id: agentUserId });
+      if (error && error.hint !== 'workspace_item_not_found') throw doorFailed(itemId, 'that you can open this file', error);
       const row = (Array.isArray(data) ? data[0] : data) as { chat_id?: string } | null;
       if (error || !row?.chat_id) throw new Error(`${itemId}: not a chat file you can open, so it was not handed over`);
       return { itemId, chatId: row.chat_id, agentUserId };

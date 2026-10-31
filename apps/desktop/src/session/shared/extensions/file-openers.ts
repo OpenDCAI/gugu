@@ -1,4 +1,4 @@
-import type { FilePlace } from '@gugu/core/shared/ui/fileLink';
+import type { FilePlace } from '@gugu/core/shared/ui/guguLink';
 import { claimedSuffixes, type ExtensionManifest, type FileOpenContext } from './manifest';
 
 /**
@@ -215,14 +215,6 @@ export function openerChoice(
 ): OpenerChoice {
   const openers = fileOpenersFor(fileName, apps, context);
   return ask ? askOpener(openers) : chooseOpener(openers, (suffix) => remembered(openWithKey(context, suffix)));
-}
-
-/**
- * What an App asking to open a chat file nobody here opens is told (`gugu.files.openWith`): `No App opens …`, code
- * `not-found` — while the group's panel offers the App that would (`openerChoice` `none`).
- */
-export function noOpenerError(typedName: string): Error & { code: 'not-found' } {
-  return Object.assign(new Error(`No App opens ${typedName} in a chat`), { code: 'not-found' as const });
 }
 
 /**

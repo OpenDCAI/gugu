@@ -1,14 +1,21 @@
-.ta-onb.first-run-harness-panel { width: min(520px, 100%); gap: 0; padding: 32px; border: 1px solid var(--border); border-radius: var(--radius-dialog); background: var(--card); box-shadow: none; backdrop-filter: none; }
+.ta-onb.first-run-harness-panel { width: min(480px, 100%); gap: 0; padding: 40px 32px 32px; border: 1px solid var(--border); border-radius: var(--radius-dialog); background: var(--card); box-shadow: none; backdrop-filter: none; }
 .first-run-harness-panel .ta-onb-title { margin: 0; font-size: var(--font-heading); line-height: var(--lh-heading); color: var(--text-primary); }
 .first-run-harness-panel .ta-onb-sub { margin-top: var(--spacing-sm); font-size: var(--font-body); line-height: var(--lh-body); }
-.first-run-harness-choices { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--spacing-md); width: 100%; margin: 28px 0; }
-.first-run-harness-choice { display: flex; flex-direction: column; align-items: stretch; gap: var(--spacing-md); padding: var(--spacing-xl); text-align: left; border: 1px solid var(--border); border-radius: var(--radius-surface); cursor: pointer; }
-.first-run-harness-choice:focus-within { outline: 2px solid var(--ring); outline-offset: 2px; }
+.first-run-harness-choices { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--spacing-md); width: 100%; margin: 32px 0 24px; }
+/* 磁贴:图标 + 名字居中,「推荐」与勾各占一角。整张是一个 label,勾是可见的假框,真 checkbox 铺满磁贴收点击(键盘与读屏照常)。 */
+.first-run-harness-choice { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--spacing-md); min-height: 148px; padding: 36px var(--spacing-lg) 24px; text-align: center; border: 1px solid var(--border); border-radius: var(--radius-surface); cursor: pointer; transition: background var(--transition-fast), border-color var(--transition-fast); }
+.first-run-harness-choice:hover:not(:has(input:disabled)) { background: var(--hover); }
 .first-run-harness-choice[data-selected='true'] { border-color: var(--border-strong); background: var(--muted); }
-.first-run-harness-heading { display: flex; align-items: center; gap: var(--spacing-md); }
-.first-run-harness-heading input { width: 16px; height: 16px; margin: 0 0 0 auto; accent-color: var(--primary); }
-.first-run-harness-heading h2 { margin: 0; font-size: var(--font-title); line-height: var(--lh-title); font-weight: 600; color: var(--text-primary); }
-.first-run-harness-status { margin: 2px 0 0; font-size: var(--font-body); line-height: var(--lh-body); color: var(--text-secondary); }
+.first-run-harness-choice:has(input:disabled) { cursor: not-allowed; opacity: 0.58; }
+.first-run-harness-choice:has(input:focus-visible) { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.first-run-harness-input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: inherit; }
+/* 真 checkbox 是透明的,全局 :focus-visible 环画在它身上等于看不见;环改由磁贴自己画(上一条)。 */
+.first-run-harness-input:focus-visible { outline: none; }
+.first-run-harness-check { position: absolute; top: 12px; right: 12px; display: grid; place-items: center; width: 20px; height: 20px; border: 1.5px solid color-mix(in oklab, var(--fg) 28%, transparent); border-radius: 6px; color: var(--primary-fg); transition: background var(--transition-fast), border-color var(--transition-fast); }
+.first-run-harness-choice[data-selected='true'] .first-run-harness-check { border-color: var(--primary); background: var(--primary); }
+/* 选择器多叠一级:.gg-chip 在 tokens.css 里没进 @layer,真 app 里它排在本文件后面,同权重会盖掉这里的底色 */
+.first-run-harness-choice .first-run-harness-badge { position: absolute; top: 12px; left: 12px; background: var(--selected); color: var(--text-secondary); }
+.first-run-harness-choice h2 { margin: 0; font-size: var(--font-title); line-height: var(--lh-title); font-weight: 600; color: var(--text-primary); }
 .first-run-harness-actions { margin-top: 0; }
 .first-run-harness-actions > button { width: 100%; }
 .first-run-install-notification { position: fixed; right: 16px; bottom: 16px; z-index: var(--z-toast); width: min(340px, calc(100vw - 32px)); padding: var(--spacing-lg); border: 1px solid var(--border); border-radius: var(--radius-surface); background: var(--card); color: var(--text-primary); font-size: var(--font-body); line-height: var(--lh-body); }
@@ -17,3 +24,8 @@
 .first-run-install-task { margin-top: var(--spacing-md); }
 .first-run-install-task-heading > span + span { color: var(--text-secondary); }
 @media (max-width: 480px) { .first-run-harness-choices { grid-template-columns: 1fr; } }
+/* 全屏步骤(规范 3):顶上「n / N」,底部左「上一步」右主按钮。 */
+.first-run-step-count { margin: 0 0 var(--spacing-md); font-size: var(--font-caption); line-height: var(--lh-caption); color: var(--text-tertiary); font-variant-numeric: tabular-nums; }
+.ta-onb-actions.first-run-step-actions { display: flex; flex-direction: row; justify-content: space-between; align-items: center; gap: var(--spacing-md); width: 100%; margin-top: 0; }
+.ta-onb-actions.first-run-step-actions > button { width: auto; min-width: 120px; }
+.ta-onb-actions.first-run-step-actions > button:only-child { margin-left: auto; }

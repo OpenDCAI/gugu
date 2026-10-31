@@ -9,10 +9,12 @@ import {
   type DesktopGuguMcpHost,
   type GuguMcpContext,
 } from '../../../../apps/desktop/electron/acp-engine-utils'
+import { ACTIVITY_TOOL_DEFS } from '../../../../apps/desktop/electron/mcp/gugu-activity-tool'
 import { LIBRARY_TOOL_DEFS } from '../../../../apps/desktop/electron/mcp/gugu-library-tool'
 import { PROJECT_TOOL_DEFS } from '../../../../apps/desktop/electron/mcp/gugu-project-tool'
 import { SESSION_TOOL_DEFS } from '../../../../apps/desktop/electron/mcp/gugu-session-tool'
 import { EXTENSION_TOOL_DEFS, setExtensionCheckAvailable } from '../../../../apps/desktop/electron/mcp/gugu-extension-tool'
+import { handleUnifiedSessionMessage } from '../../../../apps/desktop/electron/unified-session-message'
 
 // #4191:胖工具 gugu_session(action 分派 + union)退役,会话页两域 = registerGuguSessionTools 的
 // session_* 原子工具 + registerGuguExtensionTools 的 app_* 三个,同一台会话 MCP server。
@@ -20,12 +22,13 @@ import { EXTENSION_TOOL_DEFS, setExtensionCheckAvailable } from '../../../../app
 
 const SESSION_TOOL_NAMES = [
   'session_devices', 'device_actions', 'device_call', 'session_list_harnesses', 'session_list_models',
-  'session_spawn', 'session_ask_user', 'session_children', 'session_message', 'session_open_in_tab',
+  'session_spawn', 'session_ask_user', 'session_children', 'session_message', 'session_open_in_tab', 'session_list_tabs', 'session_close_tab',
   'session_get', 'session_stop', 'session_archive', 'session_set_parent',
 ] as const
 const PROJECT_TOOL_NAMES = PROJECT_TOOL_DEFS.map((def) => def.name)
+const ACTIVITY_TOOL_NAMES = ACTIVITY_TOOL_DEFS.map(def => def.name)
 const LIBRARY_TOOL_NAMES = LIBRARY_TOOL_DEFS.map(def => def.name)
-const EXTENSION_TOOL_NAMES = ['app_create', 'app_pack', 'app_install', 'app_check'] as const
+const EXTENSION_TOOL_NAMES = ['app_manage', 'app_create', 'app_pack', 'app_install', 'app_check'] as const
 // #7221 给自己排的已安排:与 session_* 同一个分派器、同一份 grant。
 const SCHEDULE_TOOL_NAMES = ['schedule_create', 'schedule_list', 'schedule_cancel'] as const
 // #6614 每条 grant 都有的两个域:guide_* 与渐进披露的 catalog_*。
@@ -85,7 +88,47 @@ const socialContext = (
 })
 
 describe('single Gugu MCP surface (session_* + app_* atomic tools)', () => {
-  it('注册清单:两份 DEF 恰好 15 个原子工具,名字→分派动作一一对应(前缀在注册机剥掉)', () => {
+  it.each([false, true])('returns an Agent-ID receipt after exactly one delivery (remote: %s)', async (remote) => {
+    const delivered: string[] = []
+    const deliver = async (ids: string[]) => {
+      delivered.push(...ids)
+      return { recipients: ids.map(id => ({ to: `session:${id}`, status: 'delivered' as const, message_id: 'receipt' })) }
+    }
+    const client = await connectTo(socialContext(async action => handleUnifiedSessionMessage(action as Record<string, unknown>, {
+      caller: { sessionId: 'caller', runtimeFork: false },
+      graphMessage: deliver,
+      localSessionsOfAgents: async () => ({ sessions: new Map(remote ? [] : [['target-agent', 'target-session']]), deletedRecipients: [] }),
+      resolveLocalGuguNumbers: async () => new Map(),
+      ...(remote ? { remote: {
+        locateAgents: async () => ({ byUserId: new Map([['target-agent', 'other-device']]), numberToUserId: new Map() }),
+        thisDeviceId: async () => 'this-device',
+        sessionsOfAgents: async () => new Map([['target-agent', 'target-session']]),
+        locateSessions: async () => ({ found: new Map(), missingMessage: null }),
+        assertReachable: async () => {},
+        deliver: async (_device, group) => (await deliver(group.sessionIds)).recipients,
+      } } : {}),
+    })))
+    const response = await client.callTool({ name: 'session_message', arguments: { to: ['aid:target-agent'], text: 'one marker' } })
+    expect(delivered).toEqual(['target-session'])
+    expect(response.isError).not.toBe(true)
+    expect(JSON.parse(responseText(response)).recipients).toEqual([
+      { to: 'user:target-agent', session_id: 'session:target-session', status: 'delivered', message_id: 'msg:receipt' },
+    ])
+  })
+
+  it('requires the assistant to distinguish a question from an assignment before dispatch', async () => {
+    const seen: unknown[] = []
+    const client = await connectTo({ ...socialContext(async action => { seen.push(action); return { recipients: [] } }), personalAssistant: true })
+    const args = { to: ['session:target'], text: '请回复一句话' }
+    expect((await client.callTool({ name: 'session_message', arguments: args })).isError).toBe(true)
+    expect(seen).toEqual([])
+    expect((await client.callTool({ name: 'session_message', arguments: { ...args, purpose: 'reply' } })).isError).not.toBe(true)
+    expect(seen).toEqual([{ action: 'message', ...args, purpose: 'reply' }])
+    await client.callTool({ name: 'session_message', arguments: { ...args, purpose: 'task' } })
+    expect(seen[1]).toMatchObject({ action: 'message', purpose: 'task', text: expect.stringContaining('<gugu_task_context>') })
+  })
+
+  it('注册清单:两份 DEF 的原子工具名字→分派动作一一对应(前缀在注册机剥掉)', () => {
     expect(SESSION_TOOL_DEFS.map((def) => def.name)).toEqual([...SESSION_TOOL_NAMES])
     expect(EXTENSION_TOOL_DEFS.map((def) => def.name)).toEqual([...EXTENSION_TOOL_NAMES])
     // 工具面与分派器不许各写一份动作名清单:动作名 = 工具名剥掉域前缀。
@@ -101,12 +144,15 @@ describe('single Gugu MCP surface (session_* + app_* atomic tools)', () => {
       session_children: 'children',
       session_message: 'message',
       session_open_in_tab: 'open_in_tab',
+      session_list_tabs: 'list_tabs',
+      session_close_tab: 'close_tab',
       session_get: 'get',
       session_stop: 'stop',
       session_archive: 'archive',
       session_set_parent: 'set_parent',
     })
     expect(Object.fromEntries(EXTENSION_TOOL_DEFS.map((def) => [def.name, def.action]))).toEqual({
+      app_manage: 'manage',
       app_create: 'create',
       app_pack: 'pack',
       app_install: 'install',
@@ -118,7 +164,7 @@ describe('single Gugu MCP surface (session_* + app_* atomic tools)', () => {
     const client = await connectTo(socialContext())
     const names = (await reachableTools(client)).map((tool) => tool.name)
     expect(names).toContain('message_send')
-    for (const name of [...SESSION_TOOL_NAMES, ...PROJECT_TOOL_NAMES, ...LIBRARY_TOOL_NAMES, ...SCHEDULE_TOOL_NAMES, ...EXTENSION_TOOL_NAMES]) expect(names).not.toContain(name)
+    for (const name of [...SESSION_TOOL_NAMES, ...PROJECT_TOOL_NAMES, ...LIBRARY_TOOL_NAMES, ...ACTIVITY_TOOL_NAMES, ...SCHEDULE_TOOL_NAMES, ...EXTENSION_TOOL_NAMES]) expect(names).not.toContain(name)
     expect(names).not.toContain('gugu_session')
     expect(names).not.toContain('gugu_extension')
     const missing = await client.callTool({ name: 'session_children', arguments: {} })
@@ -138,7 +184,21 @@ describe('single Gugu MCP surface (session_* + app_* atomic tools)', () => {
     })
     const names = (await reachableTools(client)).map((tool) => tool.name)
     expect(names).toContain('message_send')
-    for (const name of [...SESSION_TOOL_NAMES, ...PROJECT_TOOL_NAMES, ...LIBRARY_TOOL_NAMES, ...SCHEDULE_TOOL_NAMES, ...EXTENSION_TOOL_NAMES]) expect(names).toContain(name)
+    for (const name of [...SESSION_TOOL_NAMES, ...PROJECT_TOOL_NAMES, ...LIBRARY_TOOL_NAMES, ...ACTIVITY_TOOL_NAMES, ...SCHEDULE_TOOL_NAMES, ...EXTENSION_TOOL_NAMES]) expect(names).toContain(name)
+  })
+
+  it('tab tools stay in catalog, dispatch there, and reject a different session or device', async () => {
+    const seen: unknown[] = []
+    const client = await connectTo(socialContext(async (action) => { seen.push(action); return { tabs: [], tab_count: 0 } }))
+    const listed = (await client.listTools()).tools.map((tool) => tool.name)
+    for (const name of ['session_list_tabs', 'session_close_tab']) expect(listed).not.toContain(name)
+    await client.callTool({ name: 'catalog_call', arguments: { tool: 'session_list_tabs', args: {} } })
+    await client.callTool({ name: 'catalog_call', arguments: { tool: 'session_close_tab', args: { tab_id: 'tab-1' } } })
+    expect(seen).toEqual([{ action: 'list_tabs' }, { action: 'close_tab', tab_id: 'tab-1' }])
+    for (const args of [{ tab_id: 't', session_id: 'session:other' }, { tab_id: 't', device: 'device:other' }, { tab_id: '' }]) {
+      expect((await client.callTool({ name: 'catalog_call', arguments: { tool: 'session_close_tab', args } })).isError).toBe(true)
+    }
+    expect(seen).toHaveLength(2)
   })
 
   // F14 (L7-b) 列出来就得能用:跑不了隐藏页的宿主(咕咕 server)不列 app_check,其余四个照列。与上一条互为对照。
@@ -192,7 +252,7 @@ describe('single Gugu MCP surface (session_* + app_* atomic tools)', () => {
     })
 
     const reachable = await reachableTools(client)
-    expect(new Set(reachable.map((tool) => tool.name))).toEqual(new Set([...SESSION_TOOL_NAMES, ...PROJECT_TOOL_NAMES, ...LIBRARY_TOOL_NAMES, ...SCHEDULE_TOOL_NAMES, ...EXTENSION_TOOL_NAMES, ...ALWAYS_TOOL_NAMES]))
+    expect(new Set(reachable.map((tool) => tool.name))).toEqual(new Set([...SESSION_TOOL_NAMES, ...PROJECT_TOOL_NAMES, ...LIBRARY_TOOL_NAMES, ...ACTIVITY_TOOL_NAMES, ...SCHEDULE_TOOL_NAMES, ...EXTENSION_TOOL_NAMES, ...ALWAYS_TOOL_NAMES]))
 
     // #6720 agent 收起会话只有归档:按旧名 session_delete 调,得到的是「没有这个工具」,且到不了分派器。
     const retiredDelete = await client.callTool({ name: 'session_delete', arguments: { session_id: 'session:child' } })
@@ -203,7 +263,7 @@ describe('single Gugu MCP surface (session_* + app_* atomic tools)', () => {
     // spec session-graph:agent 不能传 project id、owner、命令或 cwd —— 守的是**字段**。
     for (const tool of reachable) {
       const fieldNames = Object.keys((tool.inputSchema as { properties?: Record<string, unknown> }).properties ?? {})
-      for (const field of ['owner', ...(tool.name.startsWith('project_') ? [] : ['project_id']), 'cwd', 'command']) expect(fieldNames, tool.name).not.toContain(field)
+      for (const field of ['owner', ...((tool.name.startsWith('project_') || tool.name === 'activity_list') ? [] : ['project_id']), 'cwd', 'command']) expect(fieldNames, tool.name).not.toContain(field)
       // 原子工具 = 扁平参数,没有 action 字段。
       expect(fieldNames, tool.name).not.toContain('action')
     }
@@ -247,6 +307,8 @@ describe('single Gugu MCP surface (session_* + app_* atomic tools)', () => {
         args: { path: 'src/a.ts', intent: 'preview' },
         dispatched: { action: 'open_in_tab', path: 'src/a.ts', intent: 'preview' },
       },
+      { tool: 'session_list_tabs', args: {}, dispatched: { action: 'list_tabs' } },
+      { tool: 'session_close_tab', args: { tab_id: 'tab-1' }, dispatched: { action: 'close_tab', tab_id: 'tab-1' } },
       { tool: 'session_get', args: {}, dispatched: { action: 'get' } },
       {
         tool: 'session_stop',
@@ -403,7 +465,7 @@ describe('single Gugu MCP surface (session_* + app_* atomic tools)', () => {
         seen.push(a)
         if (a.action !== 'get') return children
         if (a.session_id === 'c5') throw new Error('machine "B" (device:b) did not answer')
-        return { session_id: a.session_id, preview: { running: false, now: null, ended: { kind: 'done', reason: a.session_id === 'c1' ? 'refusal' : 'end_turn' }, entries: [] } }
+        return { session_id: a.session_id, status: children.find((row) => row.session_id === a.session_id)?.status, preview: { running: false, now: null, ended: { kind: 'done', reason: a.session_id === 'c1' ? 'refusal' : 'end_turn' }, entries: [] } }
       },
     })
     const call = async (args: Record<string, unknown>) => {
@@ -413,16 +475,32 @@ describe('single Gugu MCP surface (session_* + app_* atomic tools)', () => {
     }
 
     const first = await call({ rows: '1' })
-    expect(first.total).toBe(5)
+    expect(first.total).toBe(4)
     expect(first.items[0]!.preview?.ended).toEqual({ kind: 'done', reason: 'refusal' })
     expect(seen.filter((a) => a.action === 'get')).toEqual([{ action: 'get', session_id: 'c1' }])
 
     seen.length = 0
     const rest = await call({ rows: '2-5' })
-    // 窗内 4 行:归档的 c3 不走 get、不带 preview;c5 那台没答,原因落在它自己那一行。
+    // 先筛掉归档再切窗；c5 那台没答,原因落在它自己那一行。
     expect(seen.filter((a) => a.action === 'get').map((a) => a.session_id)).toEqual(['c2', 'c4', 'c5'])
-    expect(rest.items.find((row) => row.session_id === 'session:c3')).not.toHaveProperty('preview')
+    expect(rest.items.map((row) => row.session_id)).toEqual(['session:c2', 'session:c4', 'session:c5'])
     expect(rest.items.find((row) => row.session_id === 'session:c5')?.preview?.error?.message).toContain('did not answer')
+
+    seen.length = 0
+    const archived = await call({ status: 'archived' })
+    expect(archived.total).toBe(1)
+    expect(archived.items).toEqual([expect.objectContaining({ session_id: 'session:c3', status: 'archived' })])
+    expect(archived.items[0]).not.toHaveProperty('preview')
+    expect(seen).toEqual([{ action: 'children' }])
+
+    for (const status of ['', 'idle', 'done']) {
+      const filtered = await call({ status })
+      expect(filtered.items.map((row) => row.session_id)).not.toContain('session:c3')
+    }
+
+    const direct = await client.callTool({ name: 'session_get', arguments: { session_id: 'session:c3' } })
+    expect(direct.isError ?? false, responseText(direct)).toBe(false)
+    expect(JSON.parse(responseText(direct))).toMatchObject({ session_id: 'session:c3', status: 'archived' })
   })
 
   // spec im-mcp 列表约定:rows / name / 工具自己的筛选在注册机判,❌ 进分派器;结果按宿主给的顺序切窗。
@@ -556,7 +634,7 @@ describe('single Gugu MCP surface (session_* + app_* atomic tools)', () => {
     // ❌ 别用「不注册」实现「不许用」:工具清单在模型前缀里,少一个工具就是另一份前缀,
     // 整段继承来的上下文都命中不了缓存。
     const names = (await reachableTools(client)).map((tool) => tool.name)
-    expect(new Set(names)).toEqual(new Set([...SESSION_TOOL_NAMES, ...PROJECT_TOOL_NAMES, ...LIBRARY_TOOL_NAMES, ...SCHEDULE_TOOL_NAMES, ...EXTENSION_TOOL_NAMES, ...ALWAYS_TOOL_NAMES]))
+    expect(new Set(names)).toEqual(new Set([...SESSION_TOOL_NAMES, ...PROJECT_TOOL_NAMES, ...LIBRARY_TOOL_NAMES, ...ACTIVITY_TOOL_NAMES, ...SCHEDULE_TOOL_NAMES, ...EXTENSION_TOOL_NAMES, ...ALWAYS_TOOL_NAMES]))
 
     const refused = await client.callTool({ name: 'session_children', arguments: {} })
     expect(refused.isError).toBe(true)
@@ -577,7 +655,7 @@ describe('single Gugu MCP surface (session_* + app_* atomic tools)', () => {
       runSessionAction: async () => [],
     })
     const names = (await reachableTools(client)).map((tool) => tool.name)
-    expect(new Set(names)).toEqual(new Set([...SESSION_TOOL_NAMES, ...PROJECT_TOOL_NAMES, ...LIBRARY_TOOL_NAMES, ...SCHEDULE_TOOL_NAMES, ...EXTENSION_TOOL_NAMES, ...ALWAYS_TOOL_NAMES]))
+    expect(new Set(names)).toEqual(new Set([...SESSION_TOOL_NAMES, ...PROJECT_TOOL_NAMES, ...LIBRARY_TOOL_NAMES, ...ACTIVITY_TOOL_NAMES, ...SCHEDULE_TOOL_NAMES, ...EXTENSION_TOOL_NAMES, ...ALWAYS_TOOL_NAMES]))
     const refused = await client.callTool({ name: 'app_pack', arguments: { source_dir: '/apps/notes' } })
     expect(refused.isError).toBe(true)
     expect(responseText(refused)).toContain('app_pack is unavailable for this grant')

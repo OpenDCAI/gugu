@@ -12,6 +12,7 @@ export default {
   "groupInvitations": {
     "title": "Group invitations",
     "empty": "No pending group invitations",
+    "invitedByHuman": "{{inviter}} invited you to “{{group}}”",
     "invitedBy": "{{inviter}} ({{owner}}’s Agent) invited you to “{{group}}”",
     "agent": "Invited Agent: {{name}}",
     "ownerJoins": "Accepting adds both you and this Agent to the group.",
@@ -23,10 +24,9 @@ export default {
     "full": "This group is full. Ask the group owner to increase the member limit."
 },
   "agentName": {
-    "edit": "Rename agent",
+    "edit": "Rename",
     "label": "Agent name",
-    "failed": "Could not save. Try again.",
-    "saving": "Saving…"
+    "failed": "Could not save. Try again."
   },
   "common": {
     "agent": "Agent",
@@ -36,7 +36,6 @@ export default {
     "contacts": "Contacts",
     "copiedGuguNumber": "Gugu ID copied",
     "done": "Done",
-    "edit": "Edit",
     "groupChat": "Group chat",
     "groups": "Groups",
     "guguNumber": "Gugu ID",
@@ -84,20 +83,32 @@ export default {
     "unpin": "Unpin"
   },
   "createGroup": {
+    "invitesSent": "Group created; {{count}} invitations are awaiting acceptance.",
+    "invitesSent_one": "Group created; {{count}} invitation is awaiting acceptance.",
+    "invitesSent_other": "Group created; {{count}} invitations are awaiting acceptance.",
+    "invitesFailed": "Group created, but {{count}} invitations failed. Retry them from the group members panel.",
+    "invitesFailed_one": "Group created, but {{count}} invitation failed. Retry it from the group members panel.",
+    "invitesFailed_other": "Group created, but {{count}} invitations failed. Retry them from the group members panel.",
     "create": "Create group chat",
-    "createWithCount": "Create group chat · {{count}} people",
-    "createWithCount_one": "Create group chat · {{count}} person",
-    "createWithCount_other": "Create group chat · {{count}} people",
+    "createWithCount": "Create group chat · {{count}} members",
+    "createWithCount_one": "Create group chat · {{count}} member",
+    "createWithCount_other": "Create group chat · {{count}} members",
     "creating": "Creating…",
     "emptyContacts": "No contacts",
     "failed": "Could not create the group chat",
     "fallbackName": "Group chat",
     "noResults": "No members found",
     "removeMember": "Remove {{name}}",
-    "searchPlaceholder": "Search contacts or Agents",
+    "searchPlaceholder": "Search names, tasks, projects or devices",
     "selectAtLeastOne": "Select at least one member",
-    "selectionHint": "Select people and Agents to start a group chat",
     "title": "New group chat"
+  },
+  "memberPicker": {
+    "selectionUnavailable": "A selected member is unavailable or cannot be invited to this group.",
+    "allProjects": "All",
+    "allResults": "All results",
+    "localDevice": "{{name}} · This device",
+    "recent": "Recent"
   },
   "errors": {
     "friendRequestFailed": "Could not send the contact request. Try again later.",
@@ -133,7 +144,6 @@ export default {
     "guguNumberValue": "Gugu ID {{number}}",
     "noResults": "No users found",
     "notePlaceholder": "Add a note or introduce yourself (optional)",
-    "prompt": "Enter a name, email, or Gugu ID",
     "requestTitle": "Send friend request",
     "requestToJoin": "Request to join",
     "searchPlaceholder": "Search by user, Gugu ID, or email",
@@ -245,7 +255,6 @@ export default {
     "lookupFailed": "Group lookup failed. Try again.",
     "notFound": "No group found for ID {{id}}",
     "pending": "Pending review",
-    "prompt": "Enter a group ID to find a group",
     "request": "Request to join",
     "refusedInviteOnly": "This group is invite-only",
     "refusedNotFound": "That group ID no longer exists",
@@ -309,7 +318,6 @@ export default {
     "myAgentLabel": "My agent",
     "agentOwnerUnavailable": "Owner unavailable",
     "agentOwnerLabel": "{{owner}}'s agent",
-    "agentType": "Agent type",
     "alias": "Alias",
     "aliasLabel": "Alias",
     "bio": "Bio",
@@ -372,7 +380,6 @@ export default {
     "downloadImage": "Download image",
     "generatingPoster": "Generating poster…",
     "generatingQr": "Generating…",
-    "mobileHint": "Press and hold the image or use a button below to save it",
     "myQr": "My QR code",
     "posterFailed": "Could not generate the poster. Try again.",
     "posterTitle": "Share poster",

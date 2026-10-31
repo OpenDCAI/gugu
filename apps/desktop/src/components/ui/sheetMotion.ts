@@ -17,9 +17,11 @@ import { cn } from '@/lib/cn'
 export const sheetBackdropMotion = cn(
   // 几何归 `.gg-window-layer`(tokens.css @@@window-layer):铺在 Windows 标题栏行下面。
   'gg-window-layer bg-[var(--bg-overlay-modal)]',
+  // Base UI marks the popup as nested; its backdrop catches outside presses without dimming twice.
+  '[&:has(+_.gg-sheet-viewport_>_.gg-sheet-content[data-nested])]:bg-transparent',
   'animate-[gg-sheet-overlay-in_var(--dur-med)_var(--ease-spring)]',
   'transition-opacity duration-[var(--dur-med)] [transition-timing-function:var(--ease-spring)] data-[ending-style]:opacity-0',
-  'motion-reduce:animate-none motion-reduce:transition-none',
+  'data-[ending-style]:animate-none motion-reduce:animate-none motion-reduce:transition-none',
 )
 
 export const sheetContentMotion = cn(
@@ -42,5 +44,5 @@ export const sheetContentMotion = cn(
   // translate 与 scale 两个独立属性上;只列 transform 的话本文件开头写的「滑回去/缩回去」不成立,
   // 退场会退化成纯淡出。
   'transition-[opacity,transform,translate,scale,rotate] duration-[var(--dur-med)] [transition-timing-function:var(--ease-spring)] data-[ending-style]:opacity-0',
-  'motion-reduce:animate-none motion-reduce:transition-none',
+  'data-[ending-style]:animate-none motion-reduce:animate-none motion-reduce:transition-none',
 )

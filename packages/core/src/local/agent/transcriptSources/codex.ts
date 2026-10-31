@@ -8,6 +8,32 @@ import {
   type TranscriptFrame
 } from '../transcriptSource'
 import { isDeliveryEnvelope } from '../deliveryEnvelope'
+import { contextText, contextToolRefs, type ContextFrame } from './contextProjection'
+
+function codexContext(entry: Record<string, unknown>, record: CodexRecord): ContextFrame {
+  const payload = asRecord(entry.payload)
+  const loaded: NonNullable<ContextFrame['loaded']> = []
+  if (entry.type === 'session_meta') {
+    const text = contextText(payload?.base_instructions)
+    if (text !== null) loaded.push({ path: null, kind: 'base-instructions', scope: 'Global', chars: text.length, truncated: false, at: record.timestamp })
+  }
+  const visit = (value: unknown) => {
+    if (Array.isArray(value)) { value.forEach(visit); return }
+    const object = asRecord(value)
+    if (!object) return
+    const agents = asRecord(object.agents_md)
+    if (agents && typeof agents.directory === 'string') {
+      const text = contextText(agents.text)
+      if (text !== null) loaded.push({ path: `${agents.directory.replace(/[\\/]$/, '')}/AGENTS.md`, kind: 'instruction-file', scope: 'Project', chars: text.length, truncated: false, at: record.timestamp })
+    }
+    Object.values(object).forEach(visit)
+  }
+  // Inspect only world_state metadata, never the tool outputs or reasoning records that share this file.
+  if (entry.type === 'world_state' || payload?.type === 'world_state') visit(payload ?? entry.world_state)
+  else if (payload?.world_state !== undefined) visit(payload.world_state)
+  else if (entry.world_state !== undefined) visit(entry.world_state)
+  return { loaded, refs: record.item?.kind === 'tool_call' ? contextToolRefs(record.item.name, record.item.input) : [] }
+}
 
 // Codex 的本机会话：`~/.codex/sessions/<年>/<月>/<日>/rollout-<时间>-<sessionId>.jsonl`。
 // 与 claude 的两处结构差异：
@@ -23,6 +49,7 @@ export type CodexRecordItem =
   | { kind: 'thinking'; text: string }
   | { kind: 'tool_call'; id: string; name: string; input: unknown; namespace?: string }
   | { kind: 'tool_result'; callId: string; output: unknown; failed: boolean }
+  | { kind: 'file_change'; id: string; failed: boolean; changes: Array<{ path: string; kind: { type: 'add' | 'delete' } | { type: 'update'; move_path: string | null }; diff: string }> }
   | { kind: 'subagent'; id: string; threadId: string; name: string; activity: string }
 
 /** 这一行把这一轮收在哪。`aborted` = 用户打断。 */
@@ -125,11 +152,30 @@ function readResponseItem(payload: Record<string, unknown>): CodexRecordItem | n
   }
 }
 
+/** Completed native file operations carry structured changes independently of model tool-call strings. */
+function readFileChange(item: Record<string, unknown>): Extract<CodexRecordItem, { kind: 'file_change' }> | null {
+  const id = nonEmptyString(item.id)
+  const nativeChanges = asRecord(item.changes)
+  if (!id || !nativeChanges) return null
+  const changes: Extract<CodexRecordItem, { kind: 'file_change' }>['changes'] = []
+  for (const [path, value] of Object.entries(nativeChanges)) {
+    const change = asRecord(value)
+    if ((change?.type === 'add' || change?.type === 'delete') && typeof change.content === 'string') {
+      changes.push({ path, kind: { type: change.type }, diff: change.content })
+    } else if (change?.type === 'update' && typeof change.unified_diff === 'string'
+      && (change.move_path === null || typeof change.move_path === 'string')) {
+      changes.push({ path, kind: { type: 'update', move_path: change.move_path }, diff: change.unified_diff })
+    } else throw new Error('Unsupported recorded Codex file change')
+  }
+  if (!['completed', 'failed', 'declined'].includes(String(item.status))) throw new Error('Unsupported recorded Codex file status')
+  return { kind: 'file_change', id, changes, failed: item.status !== 'completed' }
+}
+
 /**
  * codex 把同一句话记两遍：`response_item`（喂给模型的历史）和 `event_msg`（给 TUI 看的事件）。
  * 本机 40 份 rollout 实测：`response_item/message` role=assistant 与 `event_msg/agent_message`
  * 都是 242 条，一一对应。两条都收就是每句话说两遍，所以内容**只认 response_item 这一路**，
- * event_msg 里只取 response_item 表达不了的东西：回合起止（本机一份 54MB 真 rollout 实测
+ * event_msg 里只取 response_item 表达不了的东西：原生文件操作、子代理活动、回合起止（本机一份 54MB 真 rollout 实测
  * `task_started` 18 次 / `task_complete` 17 次 / `turn_aborted` 1 次，数得上）。
  */
 export function readCodexRecord(entry: Record<string, unknown>): CodexRecord {
@@ -148,6 +194,7 @@ export function readCodexRecord(entry: Record<string, unknown>): CodexRecord {
   }
   if (event === 'item_completed') {
     const item = asRecord(payload?.item)
+    if (item?.type === 'FileChange') record.item = readFileChange(item)
     if (item?.type === 'SubAgentActivity' && typeof item.agent_thread_id === 'string' && typeof item.agent_path === 'string' && typeof item.id === 'string') {
       record.item = { kind: 'subagent', id: item.id, threadId: item.agent_thread_id, name: item.agent_path, activity: String(item.kind) }
     }
@@ -165,15 +212,16 @@ export const codexTranscriptSource: JsonlTranscriptSourceSpec = {
 
   recordsDir: 'sessions',
 
-  readFrame(entry): TranscriptFrame | null {
+  readFrame(entry, view): TranscriptFrame | null {
     const record = readCodexRecord(entry)
+    const context = view === 'context' ? { context: codexContext(entry, record) } : {}
     if (record.meta) {
       const { providerSessionId, cwd, sidechain } = record.meta
-      return { providerSessionId, cwd, ...(sidechain ? { sidechain: true } : {}) }
+      return { providerSessionId, cwd, ...context, ...(sidechain ? { sidechain: true } : {}) }
     }
     // 摘录只要对话正文：工具调用/结果/思考一律不算。
-    if (record.item?.kind !== 'text') return null
+    if (record.item?.kind !== 'text') return view === 'context' ? context : null
     const content = cleanText(record.item.text)
-    return content ? { turn: { role: record.item.role, content, createdAt: record.timestamp } } : null
+    return content ? { ...context, turn: { role: record.item.role, content, createdAt: record.timestamp } } : view === 'context' ? context : null
   }
 }

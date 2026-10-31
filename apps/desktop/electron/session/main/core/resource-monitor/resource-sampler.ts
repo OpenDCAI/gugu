@@ -1,12 +1,15 @@
 import { execFile } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import os from 'node:os';
-import { app } from 'electron';
+import { app, BrowserWindow } from 'electron';
 import pidusage from 'pidusage';
 import { ptySessionRegistry } from '@main/core/pty/pty-session-registry';
 import { appSettingsService } from '@main/core/settings/settings-service';
 import { events } from '@main/lib/events';
 import { log } from '@main/lib/logger';
 import { collectRendererMetrics } from './renderer-metrics';
+import { collectResourceContext } from './context';
+import { resourceHistory } from './history';
 import { parsePtySessionId } from '@shared/core/pty/ptySessionId';
 import { resourceSnapshotChannel } from '@shared/events/resourceEvents';
 import type {
@@ -17,6 +20,7 @@ import type {
 } from '@shared/resource-monitor';
 
 const SAMPLE_INTERVAL_MS = 1500;
+const BACKGROUND_SAMPLE_INTERVAL_MS = 10_000;
 const CPU_COUNT = os.cpus().length;
 const TOTAL_MEMORY_BYTES = os.totalmem();
 const STALE_LOCAL_PTY_MEMORY_BYTES = 2 * 1024 * 1024;
@@ -25,7 +29,13 @@ type ProcessUsage = { cpu: number; memory: number; ppid?: number };
 type ProcessUsageMap = Record<string, ProcessUsage>;
 type ProcessTreeSnapshot = { trees: Map<number, number[]>; sampledPids: number[] };
 
-export async function sampleOnce(): Promise<ResourceSnapshot> {
+const runId = randomUUID();
+let inFlight: Promise<ResourceSnapshot> | null = null;
+export function sampleOnce(): Promise<ResourceSnapshot> {
+  inFlight ??= collectSample().finally(() => { inFlight = null; });
+  return inFlight;
+}
+async function collectSample(): Promise<ResourceSnapshot> {
   const active = ptySessionRegistry.listActiveSessions();
   const localPids = active
     .map((a) => a.pid)
@@ -56,15 +66,16 @@ export async function sampleOnce(): Promise<ResourceSnapshot> {
   }
 
   const { usage: appUsage, processes: appProcesses } = sampleAppUsage();
-  const { internals } = await appSettingsService.get('resourceMonitor');
   return {
     timestamp: Date.now(),
+    runId,
+    context: await collectResourceContext(),
     cpuCount: CPU_COUNT,
     totalMemoryBytes: TOTAL_MEMORY_BYTES,
     app: appUsage,
     appProcesses,
     entries,
-    ...(internals ? { internals: { renderers: await collectRendererMetrics() } } : {}),
+    ...(hasResourceMonitorInternals() ? { internals: { renderers: await collectRendererMetrics() } } : {}),
   };
 }
 
@@ -184,6 +195,7 @@ let cpuBaseline: { at: number; seconds: Map<number, number> } | null = null;
 function sampleAppUsage(): { usage: ResourceAppUsage; processes: ResourceAppProcess[] } {
   try {
     const metrics = app.getAppMetrics();
+    if (!metrics.length) throw new Error('Application process metrics were empty');
     const now = Date.now();
     const base = cpuBaseline && now - cpuBaseline.at >= MIN_CPU_INTERVAL_MS ? cpuBaseline : null;
     const seconds = new Map<number, number>();
@@ -207,32 +219,59 @@ function sampleAppUsage(): { usage: ResourceAppUsage; processes: ResourceAppProc
     return { usage: { memoryBytes, cpuPercent }, processes };
   } catch (err) {
     log.warn('resource-sampler: app metrics failed', err);
-    return { usage: { memoryBytes: 0, cpuPercent: undefined }, processes: [] };
+    return { usage: {}, processes: [] };
   }
 }
 
 let timer: NodeJS.Timeout | null = null;
-const openSubscriptions = new Set<string>();
+let sampling = false;
+const openSubscriptions = new Map<string, boolean>();
 const latestSequenceByClient = new Map<string, number>();
+
+/** Advanced diagnostics belong to the open page, never to a persisted setting. */
+export function hasResourceMonitorInternals(): boolean {
+  return [...openSubscriptions.values()].some(Boolean);
+}
 
 export function startResourceSampler(): void {
   if (timer) return;
-  const tick = async () => {
-    try {
-      const snap = await sampleOnce();
-      events.emit(resourceSnapshotChannel, snap);
-    } catch (err) {
-      log.warn('resource-sampler: sample failed', err);
-    }
-  };
-  timer = setInterval(() => void tick(), SAMPLE_INTERVAL_MS);
-  void tick();
+  app.on('browser-window-focus', sampleSoon);
+  sampleSoon();
+}
+
+function sampleSoon(): void {
+  if (timer) clearTimeout(timer);
+  timer = setTimeout(() => void tick(), 0);
+}
+
+async function tick(): Promise<void> {
+  if (sampling) return; // A reopened panel waits for the previous collection to finish.
+  sampling = true;
+  const current = timer;
+  let snap: ResourceSnapshot | null = null;
+  try {
+    snap = await sampleOnce();
+  } catch (err) {
+    log.warn('resource-sampler: sample failed', err);
+  }
+  sampling = false;
+  if (!timer) return;
+  if (timer !== current) return sampleSoon();
+  if (snap) {
+    try { resourceHistory.append(snap); }
+    catch (error) { snap.recordingError = 'write-failed'; log.warn('resource history write failed', error); }
+  }
+  if (openSubscriptions.size) events.emit(resourceSnapshotChannel, snap);
+  // The monitor covers the whole app: a foreground auxiliary window also counts.
+  const delay = BrowserWindow.getFocusedWindow() ? SAMPLE_INTERVAL_MS : BACKGROUND_SAMPLE_INTERVAL_MS;
+  timer = setTimeout(() => void tick(), delay);
 }
 
 export function stopResourceSampler(): void {
   if (timer) {
-    clearInterval(timer);
+    clearTimeout(timer);
     timer = null;
+    app.off('browser-window-focus', sampleSoon);
     cpuBaseline = null;
     try {
       pidusage.clear();
@@ -246,16 +285,16 @@ export function setResourceMonitorOpen(
   clientId: string,
   subscriptionId: string,
   open: boolean,
-  sequence: number
+  sequence: number,
+  internals: boolean
 ): void {
   const latestSequence = latestSequenceByClient.get(clientId) ?? 0;
   if (sequence <= latestSequence) return;
   latestSequenceByClient.set(clientId, sequence);
   if (open) {
-    openSubscriptions.add(subscriptionId);
+    openSubscriptions.set(subscriptionId, internals);
   } else {
     openSubscriptions.delete(subscriptionId);
-    latestSequenceByClient.delete(clientId);
   }
   void reconcileResourceSampler();
 }
@@ -263,9 +302,11 @@ export function setResourceMonitorOpen(
 export async function reconcileResourceSampler(): Promise<void> {
   try {
     const { enabled } = await appSettingsService.get('resourceMonitor');
-    if (enabled && openSubscriptions.size > 0) startResourceSampler();
+    if (enabled) startResourceSampler();
     else stopResourceSampler();
   } catch (err) {
     log.warn('resource-sampler: failed to read settings', err);
+  } finally {
+    if (!timer && openSubscriptions.size > 0) events.emit(resourceSnapshotChannel, null);
   }
 }

@@ -85,3 +85,41 @@ export function createMainRendererGoneHandler(deps: MainRendererGoneDeps) {
     deps.quit()
   }
 }
+
+/**
+ * 主窗口渲染进程卡住了(没死、只是不回应)。Electron 在它约几秒不回应时发 `unresponsive`,恢复时发 `responsive`。
+ *
+ * 不接这两个事件时的样子(2026-10-25 owner 的 Windows Beta):界面冻了 11 分钟,主进程照常写日志、照常退出,
+ * 界面那一侧一个字都没有 —— 事后分不出是界面卡住、主进程卡住还是 GPU 出事。所以只记下来:什么时候开始、
+ * 卡了多久、当时是哪个渲染进程、GPU 进程在不在。❌ 不替人做决定(不重载、不弹窗):卡住的页面多半自己会回来。
+ */
+export interface MainRendererResponsivenessDeps {
+  now: () => number
+  /** 主窗口渲染进程的 pid(`webContents.getOSProcessId()`) */
+  rendererPid: () => number
+  /** GPU 进程此刻的样子(`app.getAppMetrics()` 里 type 为 GPU 的那一行);没有 = null */
+  gpuProcess: () => { pid: number; workingSetKb?: number; cpuPercent?: number } | null
+  log: {
+    warn: (fields: Record<string, unknown>, msg: string) => void
+    info: (fields: Record<string, unknown>, msg: string) => void
+  }
+}
+
+/** @returns 挂到主窗口 webContents 的 `unresponsive` / `responsive` 上的两个处理函数 */
+export function createMainRendererResponsivenessLog(deps: MainRendererResponsivenessDeps) {
+  let since: number | null = null
+  const state = () => ({ rendererPid: deps.rendererPid(), gpuProcess: deps.gpuProcess() })
+  return {
+    onUnresponsive(): void {
+      if (since !== null) return
+      since = deps.now()
+      deps.log.warn({ since: new Date(since).toISOString(), ...state() }, '主窗口渲染进程不回应')
+    },
+    onResponsive(): void {
+      if (since === null) return
+      const durationMs = deps.now() - since
+      deps.log.info({ since: new Date(since).toISOString(), durationMs, ...state() }, '主窗口渲染进程恢复回应')
+      since = null
+    },
+  }
+}

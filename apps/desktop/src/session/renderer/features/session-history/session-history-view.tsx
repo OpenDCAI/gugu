@@ -1,10 +1,9 @@
+import { messageForUser } from '@/lib/userFacingError';
 import { observer } from 'mobx-react-lite';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronDown, Folder, ListFilter } from '@/lib/icons';
 import type { ViewDefinition } from '@renderer/app/view-registry';
-import { openSessionInSessionWhenReady } from '@renderer/features/sessions/open-session-in-session';
 import { restoreArchivedSession } from '@renderer/features/sessions/restore-session-flow';
-import { getProjectManagerStore } from '@renderer/features/projects/stores/project-selectors';
 import { cloudWakeFailureText, formatAgo } from '@renderer/features/remote-hosts/connection-status';
 import { MachinePicker } from '@renderer/features/remote-hosts/machine-picker';
 import { remoteHostsStore } from '@renderer/features/remote-hosts/remote-hosts-store';
@@ -24,7 +23,7 @@ import { ShellTitlebar } from '@renderer/lib/components/titlebar/shell-titlebar'
 import { toast } from '@renderer/lib/hooks/use-toast';
 import { onMachineEvent, rpcOn } from '@renderer/lib/ipc';
 import { useDebounce } from '@renderer/lib/hooks/useDebounce';
-import { useNavigate } from '@renderer/lib/layout/navigation-provider';
+import { openLink } from '@/lib/guguLinks';
 import { Button } from '@renderer/lib/ui/button';
 import {
   DropdownMenu,
@@ -165,7 +164,6 @@ function uniqueProviders(rows: SessionHistoryRowData[]): string[] {
 // observer:名下机器上线 / 离线 / 改名时选择器跟着变。
 export const SessionHistoryMainPanel = observer(function SessionHistoryMainPanel() {
   const { translate } = useSessionMessages();
-  const { navigate } = useNavigate();
   useEffect(() => remoteHostsStore.start(), []);
   const [deviceId, setDeviceId] = useState(LOCAL_IMPORT_DEVICE);
   const choices = importDeviceChoices(
@@ -381,11 +379,11 @@ export const SessionHistoryMainPanel = observer(function SessionHistoryMainPanel
         .catch((error: unknown) => {
           if (generation !== sectionGeneration.current) return;
           log.error('load more sessions in a section failed', { key: section.key, error: String(error) });
-          setActionError(translate('sessionHistory.loadMoreFailed'));
+          setActionError(messageForUser(error));
         })
         .finally(settle);
     },
-    [sectionPages, source, status, query, sort, translate, machine]
+    [sectionPages, source, status, query, sort, machine]
   );
 
   // 「显示更多」= 这一节变成限高小窗并当场要下一批;「收起」= 回到只露头几条,多要来的那些行一并扔掉。
@@ -412,22 +410,15 @@ export const SessionHistoryMainPanel = observer(function SessionHistoryMainPanel
     setExpandedKey((currentKey) => (currentKey === row.key ? null : row.key));
   };
 
-  // 失败文案只留用户能照做的下一步;原因进日志(user-copy-leak 闸:❌ 把内部失败描述拼进文案)。
   const openSession = async (ref: Omit<SessionHistoryGuguRef, 'runtime'>) => {
+    // The one way a session is opened; another machine's with that machine and its project, so one the task list does not
+    // draw opens too (the window mounts that machine's projects).
     try {
-      // 别的机器上的项目:先把那台机器的项目表挂进来,侧栏与会话页才认得它(一套工作台)。
-      if (machine) await remoteHostsStore.syncProjects(machine);
-      await getProjectManagerStore().ensureProjectLoaded(ref.projectId);
+      await openLink({ kind: 'session', sessionId: ref.sessionId, projectId: ref.projectId, ...(machine ? { deviceId: machine } : {}) });
     } catch (e) {
       log.error('open session from session history failed', { ref, error: String(e) });
-      setActionError(translate('sessionHistory.openFailed'));
-      return;
+      setActionError(messageForUser(e));
     }
-    navigate('session', { projectId: ref.projectId, sessionId: ref.sessionId });
-    openSessionInSessionWhenReady({
-      projectId: ref.projectId,
-      sessionId: ref.sessionId,
-    });
   };
 
   const restore = async (ref: Omit<SessionHistoryGuguRef, 'runtime'>) => {
@@ -440,7 +431,7 @@ export const SessionHistoryMainPanel = observer(function SessionHistoryMainPanel
       toast({ title: translate('sessionHistory.restoredToast') });
     } catch (e) {
       log.error('restore archived session failed', { ref, error: String(e) });
-      setActionError(translate('sessionHistory.restoreFailed'));
+      setActionError(messageForUser(e));
     }
   };
 
@@ -802,9 +793,11 @@ export const SessionHistoryMainPanel = observer(function SessionHistoryMainPanel
                 <p className="text-sm text-foreground-muted">
                   {filtered ? translate('sessionImport.emptyNoMatch') : translate('sessionHistory.emptyNone')}
                 </p>
-                <p className="mt-1 text-xs leading-relaxed text-foreground-tertiary-muted">
-                  {current.isIndexing ? translate('sessionImport.emptyHintIndexing') : translate('sessionHistory.emptyHint')}
-                </p>
+                {current.isIndexing && (
+                  <p className="mt-1 text-xs leading-relaxed text-foreground-tertiary-muted">
+                    {translate('sessionImport.emptyHintIndexing')}
+                  </p>
+                )}
               </div>
             ) : (
               sections.map((section) => {

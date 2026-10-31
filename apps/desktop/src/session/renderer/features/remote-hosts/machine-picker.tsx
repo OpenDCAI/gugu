@@ -8,6 +8,7 @@
 //   · compact:新建框托盘里,直接用托盘触发器那一条样式(sessionComposerTrayTriggerClassName)。
 // 触发器里只放:机器种类图标 · (别的机器才有的)在线点 · 名字 · (离线时)淡色「离线」 · 箭头。
 // 系统与连法只在菜单行里:行的写法同项目选择器的行(图标 + 名字,右边一段淡色的 small)。
+import type { ReactNode } from 'react';
 import { Check, ChevronDown, Cloud, Monitor, Plus, Server } from '@/lib/icons';
 import { cn } from '@renderer/utils/utils';
 import {
@@ -89,6 +90,24 @@ export function MachineTile({ machine, solid }: { machine: MachineChoice | null;
         </span>
       ) : null}
     </span>
+  );
+}
+
+/**
+ * 一台机器的一行:种类图标 · (别的机器才有的)在线点 · 名字 · 右边淡色的状态(machineMeta)。选择器菜单与安装卡的设备表同一副,
+ * ❌ 各处再拼一个;`trailing` 是行尾的勾(安装卡多选)。外层的行容器由用处给(菜单项 / label)。
+ */
+export function MachineRow({ machine, meta, trailing }: { machine: MachineChoice; meta: string | null; trailing?: ReactNode }) {
+  return (
+    <>
+      <MachineKindIcon machine={machine} className="size-3.5" />
+      {!machine.isLocal ? <MachineDot machine={machine} /> : null}
+      <span title={machine.label} className="min-w-0 truncate">
+        {machine.label}
+      </span>
+      {meta ? <small className="ml-auto shrink-0 pl-3 text-foreground-muted">{meta}</small> : null}
+      {trailing ? <span className={cn('flex shrink-0', meta ? 'pl-2' : 'ml-auto pl-3')}>{trailing}</span> : null}
+    </>
   );
 }
 
@@ -294,16 +313,7 @@ export function MachinePicker({
                       {isSelected ? <Check aria-hidden="true" className="size-3.5 shrink-0" /> : null}
                     </>
                   ) : (
-                    <>
-                      <MachineKindIcon machine={machine} className="size-3.5" />
-                      {!machine.isLocal ? <MachineDot machine={machine} /> : null}
-                      <span title={machine.label} className="min-w-0 truncate">
-                        {machine.label}
-                      </span>
-                      {rowMeta ? (
-                        <small className="ml-auto shrink-0 pl-3 text-foreground-muted">{rowMeta}</small>
-                      ) : null}
-                    </>
+                    <MachineRow machine={machine} meta={rowMeta} />
                   )}
                 </DropdownMenuItem>
               );

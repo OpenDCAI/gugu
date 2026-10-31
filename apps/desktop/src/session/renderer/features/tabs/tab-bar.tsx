@@ -11,6 +11,8 @@ import { usePaneContext } from '@renderer/features/tabs/pane-context';
 import { PaneDropZone } from './tab-bar/draggable-tab';
 import { SESSION_TAB_HEIGHT_PX } from './tab-bar/tab-chip';
 import { isUnavailableTabResource, UnavailableTabBarItem } from './unavailable-tab';
+import { TabStripMotion } from './tab-bar/tab-motion';
+import { useTabOrderPreview } from './tab-bar/use-tab-order-preview';
 
 export const TabBar = observer(function TabBar({
   tabTrailingSlot,
@@ -35,15 +37,8 @@ export const TabBar = observer(function TabBar({
   const resolvedTabs = pane.resolvedTabs;
 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const id = pane.activeTabId;
-    if (!id || !scrollContainerRef.current) return;
-    const el = scrollContainerRef.current.querySelector<HTMLElement>(
-      `[data-tabid="${CSS.escape(id)}"]`
-    );
-    el?.scrollIntoView({ behavior: 'instant', inline: 'nearest', block: 'nearest' });
-  }, [pane.activeTabId]);
+  const order = useTabOrderPreview(pane, scrollContainerRef);
+  const tabsById = new Map(resolvedTabs.map((tab) => [tab.tabId, tab]));
 
   // 放不下了没有:滚动区尺寸变了、页签数变了才重算(ResizeObserver,❌ 定时量)。
   const [overflowing, setOverflowing] = useState(false);
@@ -101,7 +96,10 @@ export const TabBar = observer(function TabBar({
       leadingReservePx={leadingReservePx}
       leadingSlot={leadingSlot}
     >
-      {resolvedTabs.map((tab) => {
+      <TabStripMotion scroller={scrollContainerRef} order={order.join('\0')} activeTabId={pane.activeTabId}>
+      {order.map((id) => {
+        const tab = tabsById.get(id);
+        if (!tab) return null;
         if (isUnavailableTabResource(tab.resource) || !pane.registry.has(tab.kind)) {
           return <UnavailableTabBarItem key={tab.tabId} tab={tab} host={pane} />;
         }
@@ -109,6 +107,7 @@ export const TabBar = observer(function TabBar({
         const TabItemComponent = def.TabBarItem;
         return <TabItemComponent key={tab.tabId} tab={tab} host={pane} ctx={pane.ctx} />;
       })}
+      </TabStripMotion>
     </TabStripShell>
   );
 });
@@ -162,10 +161,10 @@ function TabOverflowMenu({ read, onPick }: { read: () => StripTabEntry[]; onPick
 export const TAB_STRIP_LEADING_PX = 12;
 
 /**
- * 页签条窄于这个宽度就挂 `data-strip-narrow`:右端那组控制先让位(编程模式换模型那颗只剩厂商图形、模式按钮只剩图标,index.css)。
- * 600 = 那组控制全展开时约 375px(换模型 190 + 模式按钮 74(#7167)+ 输出 / 分享 / 关闭这一块)+ 左缩 12 + 「+」32,
- * 剩一百七八十给页签 —— 再窄,页签就会被挤到 0、整枚躲进「全部页签」(10-10 实测:三块并排一块 323px,任务名那枚看不见)。
- * 原来是 520,右端多了模式按钮这一颗就跟着加上它的宽度,❌ 让页签那截替它让位。
+ * 页签条窄于这个宽度就挂 `data-strip-narrow`:右端那组控制先让位(编程模式换模型那颗只剩厂商图形,index.css)。
+ * 600 = 那组控制全展开时约 300px(换模型 190 + 输出 / 分享 / 关闭这一块)+ 左缩 12 + 「+」32,再给页签留足一截 ——
+ * 再窄,页签就会被挤到 0、整枚躲进「全部页签」(10-10 实测:三块并排一块 323px,任务名那枚看不见)。
+ * (#7167 的模式按钮已随「通用 / 编程」切换删掉;门槛不回调,省得两块并排时页签那截又被挤。)
  * 按整条的宽度判,❌ 按页签剩下多少判:让位之后页签那截变宽,又会判成「放得下」翻回去,来回跳。
  */
 export const TAB_STRIP_NARROW_PX = 600;
@@ -226,7 +225,9 @@ export function TabStripShell({
   return (
     <div
       ref={barRef}
-      className="session-tab-bar relative flex shrink-0 items-stretch justify-between bg-tab-strip"
+      // 页签条的空白处拖窗口,三个平台、每种块都一样(项目块、对话块、App 块原先这里什么都没有);
+      // 页签、按钮这些可交互的东西由 index.css 的 @@@4259 规则默认退订,照常能点。
+      className="session-tab-bar relative flex shrink-0 items-stretch justify-between bg-tab-strip [-webkit-app-region:drag]"
       data-testid={testId}
       data-strip-narrow={narrow ? '' : undefined}
       style={{
@@ -246,7 +247,9 @@ export function TabStripShell({
       ) : null}
       <div
         ref={scrollerRef}
-        className="flex h-full w-full items-end overflow-x-auto overflow-y-hidden [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        // 页签只占剩下的(基准 0):放不下时右端那一排(TabBarActionRow)才是让位的那个,❌ 两边按比例一起缩。
+        className="flex h-full min-w-0 flex-1 basis-0 items-end overflow-x-auto overflow-y-hidden [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        data-tabstrip-scroller=""
         style={{ paddingBlockStart: `${WINDOW_CONTROL_BAR_HEIGHT_PX - SESSION_TAB_HEIGHT_PX}px` }}
       >
         {children}

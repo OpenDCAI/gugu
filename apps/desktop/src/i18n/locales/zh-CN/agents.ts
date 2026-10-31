@@ -5,7 +5,6 @@ export default {
     "cancel": "取消",
     "close": "关闭",
     "collapse": "收起",
-    "comingSoon": "即将开放",
     "save": "保存",
     "saving": "保存中…"
   },
@@ -21,8 +20,6 @@ export default {
     "chooseAnother": "换一个",
     "chooseType": "选择 Agent 类型",
     "close": "关闭",
-    "coming": "即将",
-    "comingSoon": "即将支持",
     "composer": {
       "addAttachment": "添加附件",
       "attachmentPreview": "附件",
@@ -193,12 +190,15 @@ export default {
     "unavailable": "该 Agent 不存在或未公开分享"
   },
   "runtime": {
+    "groupMine": "我的",
+    "groupOthers": "其他人的",
     "justNow": "刚刚",
     "messagePreview": {
       "connecting": "正在连接…",
       "done": "已完成",
       "empty": "最近没有做事",
       "promptElsewhere": "来自别处的一条消息",
+      "recordNotFound": "这台机器读不到这条任务的记录",
       "toolCount": "{{state}} ×{{count}}",
       "unavailable": "暂时拿不到它的近况"
     },
@@ -228,36 +228,7 @@ export default {
     "ariaLabel": "Agent 设置",
     "back": "返回",
     "close": "关闭",
-    "contacts": {
-      "comingSoon": "该 Agent 的联系人即将开放",
-      "title": "该 Agent 的联系人"
-    },
-    "finance": {
-      "cost": "运行成本",
-      "costHint": "计入所有者额度的 LLM 与沙箱开销。",
-      "custom": "自定义",
-      "description": "查看该 Agent 的收入、付费动作销售与运行成本。",
-      "net": "净额",
-      "netHint": "已结算收入减去运行成本。",
-      "overview": "概览",
-      "overviewHint": "收入、待结算、运行成本与净额。",
-      "pending": "待结算",
-      "pendingHint": "已创建但尚未完成的收款。",
-      "settled": "已结算收入",
-      "settledHint": "所选时间窗内已完成的收款。",
-      "sevenDays": "近 7 天",
-      "title": "账务",
-      "today": "今天",
-      "yesterday": "昨天"
-    },
-    "history": {
-      "comingSoon": "历史会话即将开放",
-      "pause": "暂停 Agent",
-      "pauseHint": "开启后，该 Agent 将停止响应群聊、其他私聊、Webhook 与定时任务。只有你与它的一对一私聊仍可触发它。",
-      "sessions": "历史会话"
-    },
     "look": {
-      "colorHint": "只换身体的颜色：叶子翅膀、小橙嘴、小脚和眼睛一直不变，一眼就认得出是咕咕。",
       "colors": {
         "apricot": "杏子",
         "cream": "奶油",
@@ -276,10 +247,7 @@ export default {
       "outfitClear": "全部摘掉",
       "outfitColorway": "配色 {{n}}",
       "outfitDefault": "恢复默认",
-      "outfitDefaultNote": "现在穿的是默认装扮：按它的编号配的，换了颜色会跟着变",
-      "outfitHint": "大多数咕咕只戴一件。墨镜、披风、背包、滑板、雨伞不会随机出现，想要就在这里搭。",
       "outfitNone": "不戴",
-      "outfitNoneNote": "现在什么都不戴",
       "rollOutfitAria": "只随机换一身装扮，颜色和表情不变",
       "tabOutfit": "装扮",
       "outfits": {
@@ -344,9 +312,7 @@ export default {
         "unimpressed": "无感"
       },
       "facesBold": "个性",
-      "facesBoldHint": "戏多，在列表里很显眼",
       "facesDaily": "日常",
-      "facesDailyHint": "安安静静，适合常驻",
       "kicker": "形象工坊",
       "notOwned": "只有它的主人能改它的形象",
       "number": "No.{{n}}",
@@ -366,10 +332,6 @@ export default {
       "tryState": "试试状态",
       "tryStateAria": "让它演下一个状态（现在：{{state}}）",
       "unsaved": "未保存"
-    },
-    "memory": {
-      "comingSoon": "记忆文件查看与编辑即将开放",
-      "directory": "工作目录"
     },
     "model": {
       "originalSourceNote": "沿用开通时的模型和额度来源。",
@@ -402,34 +364,16 @@ export default {
     },
     "nav": {
       "aiModel": "AI 模型",
-      "contacts": "联系人",
-      "finance": "账务",
-      "history": "聊天记录",
       "look": "形象",
-      "memory": "记忆",
-      "permissions": "权限",
       "profile": "资料",
-      "secrets": "密钥",
       "settings": "设置",
       "share": "分享",
       "tasks": "定时任务"
     },
-    "permissions": {
-      "active": "活跃授权",
-      "create": "创建授权",
-      "createHint": "选择一个角色包，再添加 allow / deny 覆盖以精确控制能力。",
-      "custom": "自定义",
-      "description": "授权该 Agent 以你的身份执行 CLI / API 动作。高风险动作仍需逐次批准。",
-      "empty": "暂无活跃授权",
-      "expires": "到期",
-      "fullAccess": "完全访问",
-      "fullAccessHint": "允许该 Agent 以你的身份执行几乎所有操作；高风险动作可能仍需逐次批准或永久放行。",
-      "neverExpires": "留空表示永不过期。",
-      "readOnly": "只读",
-      "role": "角色",
-      "title": "Agent 权限"
-    },
     "profile": {
+      "pause": "暂停 Agent",
+      "pauseHint": "暂停后只回应你和它的私聊。",
+      "pauseFailed": "没能更改暂停状态，请重试。",
       "avatar": "头像",
       "bio": "简介",
       "bioPlaceholder": "描述这个 Agent 的能力（可选）",
@@ -450,13 +394,6 @@ export default {
       "upload": "上传图片",
       "uploadHint": "PNG、JPEG、GIF 或 WebP，最大 5 MB"
     },
-    "secrets": {
-      "add": "添加",
-      "description": "为 Agent 配置环境变量密钥。运行用户脚本时，Agent 通过 secret call 注入到子进程；值仅在子进程生命周期内存在，绝不写入 env。",
-      "empty": "暂无密钥",
-      "emptyHint": "添加后，Agent 执行用户脚本时会用 <command>secret call NAME -- command</command> 把值注入子进程。",
-      "title": "密钥"
-    },
     "share": {
       "copied": "已复制",
       "copy": "复制",
@@ -465,18 +402,14 @@ export default {
       "enableFailed": "开启对外分享失败",
       "enabling": "开启中…",
       "external": "对外分享",
-      "fee": "对外分享费用：¥10（暂未计费）",
-      "feeBadge": "¥10",
       "forward": "转发给联系人",
       "forwarding": "发送邀请中…",
       "noContacts": "暂无联系人",
       "open": "扫码或用链接打开",
       "openHint": "任何人都能与该 Agent 对话并把它加入消息列表",
       "qrAlt": "对外分享二维码",
-      "search": "搜索会话",
+      "search": "搜索联系人",
       "title": "分享 Agent",
-      "unavailable": "对外分享暂不可用",
-      "unavailableReason": "对外分享尚未配置，暂时无法生成链接。"
     },
     "tasks": {
       "content": "任务内容",
@@ -488,9 +421,7 @@ export default {
       "daysLater_other": "{{count}} 天后",
       "delete": "删除任务",
       "deleteFailed": "删除失败",
-      "description": "让 Agent 周期性执行：到点会在你与它的私聊里自动发起一次对话（按下方内容触发 Agent 回合）。",
       "empty": "暂无定时任务",
-      "emptyHint": "创建定时任务，让 Agent 周期性执行",
       "enable": "启用",
       "everyDays": "每 {{count}} 天",
       "everyDays_one": "每 {{count}} 天",
@@ -531,73 +462,6 @@ export default {
     }
   },
   "wizard": {
-    "ariaLabel": "加团队向导",
-    "background": "收起，后台继续",
-    "cancelCreate": "取消创建",
-    "cancelFailed": "取消失败。请重试。",
-    "cancelFailedRetry": "取消失败，请重试",
-    "cancellationPending": "取消仍在进行。",
-    "cancellationPendingSteps": "取消仍在进行，这些步骤还没做干净：{{steps}}。",
-    "cancelled": "创建已取消。{{warning}}可以按需重新创建。",
-    "cancelling": "取消处理中…",
-    "cancelWarning": "将停止并删除本次已创建的 Agent",
-    "cleanupWarning": "这些步骤没做干净：{{steps}}。",
-    "close": "关闭向导",
-    "completedDuringRecovery": "Agent 已创建完成，无法再取消。",
-    "confirmCancel": "确认取消",
-    "confirmContinueCancel": "确认继续取消",
-    "continueCancel": "继续取消",
-    "continueCancelWarning": "继续停止并删除本次已创建的 Agent",
-    "continueCreate": "继续创建",
-    "create": "创建团队",
-    "createFailed": "创建失败，请重试",
-    "creating": "正在创建「{{teamName}}」…",
-    "describeBody": "用一两句话告诉我你想完成什么，AI 会为你生成一支最匹配的 Agent 团队。",
-    "describeTitle": "描述你的需求",
-    "descriptionPlaceholder": "例如：帮我组一支能完成全栈产品开发的 AI 团队",
-    "done": "好的",
-    "doneBody": "「{{teamName}}」中的 {{count}} 位 Agent 已就绪，可在联系人列表中找到。",
-    "doneBody_one": "「{{teamName}}」中的 {{count}} 位 Agent 已就绪，可在联系人列表中找到。",
-    "doneBody_other": "「{{teamName}}」中的 {{count}} 位 Agent 已就绪，可在联系人列表中找到。",
-    "doneTitle": "团队已创建",
-    "errors": {
-      "cloudMemberUnsupported": "成员「{{member}}」被配置成云 agent，当前不支持入群。",
-      "completedMemberMissingIdentity": "成员 {{member}} 已完成但没有 Agent 身份，无法交接团队。",
-      "groupFinalizeMissing": "团队成员均已创建，但群聊未建立。请重试。",
-      "memberRequired": "团队至少要有一个成员。",
-      "membersIncomplete": "以下成员的团队创建尚未完成：{{members}}。已创建的成员会保留，可稍后重试。",
-      "multiplePending": "团队「{{teamName}}」已有 {{count}} 次创建正在进行（创建编号：{{operationIds}}）。请继续其中一次，或取消多余的创建。",
-      "noOnlineDevice": "没有在线设备可用。请在装好本地引擎（如 Claude Code）的桌面端保持咕咕在线后重试。",
-      "onlyCloudDevices": "当前只有云设备在线。团队成员需要装有本地引擎（如 Claude Code 或 Codex）的桌面端在线。",
-      "pendingConfigurationMismatch": "团队「{{teamName}}」正在使用其他配置创建（创建编号：{{operationIds}}）。请先继续或取消该创建。现有创建不会自动取消。",
-      "pendingConfigurationMismatchNoParallel": "团队「{{teamName}}」正在使用其他配置创建。请先继续或取消该创建。",
-      "pendingConfigurationMismatchShort": "团队「{{teamName}}」正在使用其他配置创建。请先继续或取消该创建。",
-      "unknownMember": "未知成员"
-    },
-    "generate": "生成团队",
-    "generatedSummary": "基于你的描述生成",
-    "generateFailed": "生成失败，请重试",
-    "generating": "AI 正在为你生成最佳团队配置…",
-    "memberEngine": "{{name}} 运行引擎",
-    "memberSummary": "共 {{count}} 位 Agent · {{summary}}",
-    "memberSummary_one": "共 {{count}} 位 Agent · {{summary}}",
-    "memberSummary_other": "共 {{count}} 位 Agent · {{summary}}",
-    "postpone": "暂不处理",
-    "presetSummary": "预设配置，可按需调整",
-    "progress": {
-      "checkingDevice": "检查在线设备…",
-      "provisioning": "创建 {{count}} 名成员并组建群聊…",
-      "provisioning_one": "创建 {{count}} 名成员并组建群聊…",
-      "provisioning_other": "创建 {{count}} 名成员并组建群聊…",
-      "ready": "团队就位",
-      "resuming": "接回上次未完成的团队创建…"
-    },
-    "recoveryBody": "部分 Agent 仍在删除。请继续取消，或关闭向导稍后再处理。",
-    "recoveryTitle": "正在完成上次取消",
-    "recoveryUnavailable": "当前无法继续取消。请关闭向导后重试。",
-    "regenerate": "重新生成",
-    "roleTemplate": "{{title}}（角色模板）",
-    "starterPrompt": "开场任务",
     "starterRecoveryFailed": "开场任务恢复失败。请重试。"
   }
 } as const;

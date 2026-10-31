@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import { EXTENSION_API_VERSION } from './manifest';
+import type { MarketIndexVersion } from './market';
 import { autoUpdatesFrom, marketUpdatesFrom, pinsAutoUpdate } from './market-entries';
 
 // owner 10-19 (market Apps update by themselves, as VS Code's do): which version each App goes to, and when installing one
@@ -34,9 +36,25 @@ describe('pinsAutoUpdate', () => {
 
 describe('marketUpdatesFrom: an App no longer in the market', () => {
   it('one installed from the market and absent from the index is gone; one from a folder or a chat never was in it', () => {
-    const host = { appVersion: '0.2.60', apiVersionMin: 1, apiVersionMax: 99 };
+    const host = { platform: 'desktop' as const, appVersion: '0.2.60', apiVersionMin: 1, apiVersionMax: 99 };
     const told = marketUpdatesFrom({ apps: [] }, host, [{ id: 'radar', version: '1.0.0', fromMarket: true }, { id: 'mine', version: '0.1.0', fromMarket: false }], '');
     expect(told.gone).toEqual(['radar']);
     expect(told.updates).toEqual({});
   });
+});
+
+
+it('reports a fork falling behind without offering it an automatic replacement, and keeps upstream deprecation', () => {
+  const host = { platform: 'desktop' as const, appVersion: '0.2.60', apiVersionMin: 1, apiVersionMax: 99 };
+  const versions = ['1.0.0', '1.1.0', '1.2.0'].map((version, i) => ({ version, apiVersion: EXTENSION_API_VERSION, minAppVersion: '0.1.0',
+    manifest: { id: 'radar', name: 'Radar', version, apiVersion: EXTENSION_API_VERSION, platforms: ['desktop'], entry: 'index.html', contributes: { tabs: [{ name: 'main', title: 'Radar' }] } },
+    source: { repo: 'owner/repo', path: '.', commit: String(i).repeat(40) }, yanked: i === 1 ? { reason: 'withdrawn' } : null }) as MarketIndexVersion);
+  const deprecated = { note: 'No longer maintained', replacedBy: null };
+  const index = { apps: [{ id: 'radar', deprecated, versions }] };
+  expect(marketUpdatesFrom(index, host, [{ id: 'radar', version: '1.0.0', fromMarket: true }], '').updates.radar?.version).toBe('1.2.0');
+  const result = marketUpdatesFrom(index, host, [{ id: 'radar', version: '1.0.0', forkBase: '1.0.0' }], '');
+  expect(result.forkBehind).toEqual({ radar: { upstream: '1.2.0', behind: 1, commit: '2'.repeat(40) } });
+  expect(result.updates).toEqual({});
+  expect(result.yanked).toEqual({});
+  expect(result.deprecated).toEqual({ radar: deprecated });
 });

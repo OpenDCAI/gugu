@@ -1,12 +1,14 @@
 // @vitest-environment jsdom
+import { PhoneRoutineRead } from '../../../apps/desktop/src/mobile/assistant/PhoneRoutineRead'
+import '../../../apps/desktop/src/i18n/registerAssistantCatalog'
 import { act } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { usePhoneRead, type PhoneRead } from '../../../apps/desktop/src/mobile/assistant/usePhoneRead'
-import { createNode, createReactHarness } from '../../support/testHarness'
+import { createNode, createReactHarness, deferred } from '../../support/testHarness'
 
 // 悄悄重读(语音笔记还在处理时每隔几秒再问一次)偶尔失败一次,不该让它从此不再刷新:
 // 否则「处理中」的笔记永远停在处理中(code-review #7277 第 2 条)。
-let latest: PhoneRead<string> | null = null
+let latest: (PhoneRead<string> & { refresh: () => Promise<void>; reload: () => void }) | null = null
 function Probe({ read, pollMs }: { read: () => Promise<string>; pollMs: (data: string) => number | null }) {
   latest = usePhoneRead('key', read, 'test', pollMs)
   return null
@@ -28,7 +30,7 @@ describe('usePhoneRead polling', () => {
     const read = vi
       .fn<() => Promise<string>>()
       .mockResolvedValueOnce('processing')
-      .mockRejectedValueOnce(new Error('network'))
+      .mockRejectedValueOnce(new TypeError('network'))
       .mockResolvedValueOnce('done')
     await harness.render(createNode(Probe, { read, pollMs: (data: string) => (data === 'processing' ? 1000 : null) }))
     await act(async () => { await vi.advanceTimersByTimeAsync(0) })
@@ -36,6 +38,7 @@ describe('usePhoneRead polling', () => {
     await act(async () => { await vi.advanceTimersByTimeAsync(1000) })
     expect(read, 'the quiet re-read ran and failed').toHaveBeenCalledTimes(2)
     expect(latest, 'a failed quiet re-read leaves the last read in place').toEqual(expect.objectContaining({ state: 'ok', data: 'processing' }))
+    expect(latest).not.toHaveProperty('refreshError')
     await act(async () => { await vi.advanceTimersByTimeAsync(1000) })
     expect(read, 'polling went on after the failure').toHaveBeenCalledTimes(3)
     expect(latest).toEqual(expect.objectContaining({ state: 'ok', data: 'done' }))
@@ -47,4 +50,85 @@ describe('usePhoneRead polling', () => {
     await act(async () => { await vi.advanceTimersByTimeAsync(0) })
     expect(latest?.state).toBe('error')
   })
+
+  it('bounds an unresolved read, ignores its late result and recovers automatically', async () => {
+    const hung = deferred<string>()
+    const read = vi.fn<() => Promise<string>>().mockReturnValueOnce(hung.promise).mockResolvedValueOnce('recovered')
+    await harness.render(createNode(Probe,{ read,pollMs: () => null }))
+    await act(async () => { await vi.advanceTimersByTimeAsync(15_001) })
+    expect(latest).toMatchObject({ state: 'error',error: { code: 'read-timeout' } })
+    await act(async () => { await vi.advanceTimersByTimeAsync(5000) })
+    expect(latest).toMatchObject({ state: 'ok',data: 'recovered' })
+    await act(async () => { hung.resolve('stale') })
+    expect(latest).toMatchObject({ state: 'ok',data: 'recovered' })
+  })
+
+  it.each(['unprepared','collection-unavailable','application-failed','stale'])('does not poll snapshot state %s until an actual change arrives', async code => {
+    const read = vi.fn<() => Promise<string>>().mockRejectedValueOnce(Object.assign(new Error('snapshot state'),{ code })).mockResolvedValueOnce('changed')
+    await harness.render(createNode(Probe,{ read,pollMs: () => 1000 }))
+    await act(async () => { await vi.advanceTimersByTimeAsync(60_000) })
+    expect(read).toHaveBeenCalledTimes(1)
+    await act(async () => { window.dispatchEvent(new Event('gugu:assistant-panel-changed')); await vi.advanceTimersByTimeAsync(0) })
+    expect(latest).toMatchObject({ state: 'ok',data: 'changed' })
+  })
+
+  it('does not let an earlier poll replace the verified result after a mutation', async () => {
+    const poll = deferred<string>()
+    const read = vi.fn<() => Promise<string>>()
+      .mockResolvedValueOnce('old')
+      .mockReturnValueOnce(poll.promise)
+      .mockResolvedValueOnce('updated')
+    await harness.render(createNode(Probe, { read, pollMs: (data: string) => data === 'old' ? 1000 : null }))
+    await act(async () => { await vi.advanceTimersByTimeAsync(1000) })
+    expect(read).toHaveBeenCalledTimes(2)
+    await act(async () => { await latest!.refresh() })
+    expect(latest).toMatchObject({ state: 'ok', data: 'updated' })
+    await act(async () => { poll.resolve('stale') })
+    expect(latest).toMatchObject({ state: 'ok', data: 'updated' })
+    await act(async () => { await vi.advanceTimersByTimeAsync(1000) })
+    expect(read).toHaveBeenCalledTimes(3)
+  })
+
+  it('reports an explicitly requested refresh failure instead of claiming verification succeeded', async () => {
+    const read = vi.fn<() => Promise<string>>().mockResolvedValueOnce('old').mockRejectedValueOnce(new Error('verification unavailable'))
+    await harness.render(createNode(Probe, { read, pollMs: () => null }))
+    await act(async () => { await expect(latest!.refresh()).rejects.toThrow('verification unavailable') })
+    expect(latest?.state).toBe('error')
+  })
+  it('does not conceal a failed schedule refresh behind a previously empty collection', async () => {
+    const read = vi.fn<() => Promise<string[]>>().mockResolvedValueOnce([]).mockRejectedValueOnce(Object.assign(new Error('raw private diagnosis'),{ code: 'collection-unavailable' })).mockResolvedValueOnce(['recovered'])
+    function Routines() {
+      const result = usePhoneRead('schedules',read,'schedule regression',() => 1000)
+      return <PhoneRoutineRead read={result} directory={null}>{rows => rows.length ? <span>{rows.join(',')}</span> : <span data-testid="false-empty">no schedules</span>}</PhoneRoutineRead>
+    }
+    await harness.render(createNode(Routines,{}))
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+    expect(harness.container.querySelector('[data-testid="false-empty"]')).not.toBeNull()
+    await act(async () => { await vi.advanceTimersByTimeAsync(1000) })
+    expect(harness.container.querySelector('[role="alert"]')).not.toBeNull()
+    expect(harness.container.querySelector('[data-testid="false-empty"]')).toBeNull()
+    expect(harness.container.textContent).not.toContain('raw private diagnosis')
+    await act(async () => { await vi.advanceTimersByTimeAsync(1000) })
+    expect(read).toHaveBeenCalledTimes(2)
+    await act(async () => { window.dispatchEvent(new Event('gugu:assistant-panel-changed')); await vi.advanceTimersByTimeAsync(0) })
+    expect(harness.container.textContent).toContain('recovered')
+    expect(harness.container.querySelector('[role="alert"]')).toBeNull()
+  })
+
+})
+
+// Explicit reload uses the same reader; it must not replace a known error/data with loading.
+it('keeps an error and previous data visible while a reload is unresolved', async () => {
+  vi.useFakeTimers()
+  const h = createReactHarness()
+  try {
+    const pending = deferred<string>()
+    const read = vi.fn<() => Promise<string>>().mockResolvedValueOnce('saved').mockReturnValueOnce(pending.promise)
+    await h.render(createNode(Probe,{ read,pollMs: () => null }))
+    await act(async () => { latest!.reload() })
+    expect(latest).toMatchObject({ state: 'ok',data: 'saved' })
+    await act(async () => { pending.reject(Object.assign(new Error('unprepared'),{ code: 'unprepared' })) })
+    await act(async () => { await vi.advanceTimersByTimeAsync(60_000) })
+    expect(latest).toMatchObject({ state: 'ok',data: 'saved',refreshError: { code: 'unprepared' } })
+  } finally { h.cleanup(); vi.useRealTimers() }
 })

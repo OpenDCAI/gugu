@@ -16,13 +16,13 @@ import {
   miseDependency,
 } from '@gugu/session-core/agents/plugins/helpers';
 import { resolveWindowsHandoffExecutable } from '@gugu/session-core/exec';
-import { connectStdioAcp } from '../../helpers/acp-stdio';
+import { connectStdioAcpV2 } from '../../helpers/acp-v2';
 import { requireBridgeEntry } from '../../helpers/acp-bridge-entry';
 import {
   NODE_FOR_CLAUDE_ACP,
   resolveNodeInterpreter,
 } from '../../helpers/node-interpreter';
-import { enrichClaudeUpdate } from './acp-transform';
+import { createClaudeSessionDecoder } from './acp-transform';
 import { claudeAuthStatus } from './auth';
 import { claudeSubscriptionBehavior } from './subscription';
 import { buildClaudeHookConfig } from './hooks';
@@ -68,6 +68,16 @@ export const CLAUDE_ACP_CONTEXT_WINDOW_PATCH_MARKERS = [
 export const CLAUDE_ACP_STEERING_PATCH_MARKERS = [
   'params._meta?.steering?.delivery === "next"',
 ] as const;
+
+/**
+ * 宿主讲 ACP v2(`connectStdioAcpV2`),要桥在 v2 上服务插话与后台任务扩展,插话也进 Claude 自发的周期
+ * (gugu-acp 1.5.0 的「serve _session/steering on ACP v2」「serve the async tasks extension on ACP v2」)。
+ * 键是 dist 里的文件(相对 `acp-agent.js` 所在目录)。
+ */
+export const CLAUDE_ACP_V2_EXTENSION_MARKERS = {
+  'acp-agent.js': ['if (!turnInFlight && !this.foregroundWork.has(sessionId)) {'],
+  'v2/agent.js': ['v2Steer(agent, params)', 'agent.stopAsyncTask(params)'],
+} as const;
 
 const CLAUDE_ULTRACODE_EFFORT_ID = 'ultracode';
 const CLAUDE_ULTRACODE_SETTINGS = '{"ultracode":true}';
@@ -258,7 +268,8 @@ export const plugin = definePlugin(
       // hooks 不报打断(Esc):从这个版本起读 claude 自己的会话在场文件补这一条边(presence.ts)。
       presence: { sinceVersion: CLAUDE_PRESENCE_SINCE },
     },
-    hostDependency: miseDependency({
+    // `versionLine`:`--version` 里它自己那一行,实测原样「2.1.212 (Claude Code)」(包装器的 banner 在它前面)。
+    hostDependency: { ...miseDependency({
       id: 'claude',
       package: '@anthropic-ai/claude-code',
       executables: {
@@ -266,7 +277,7 @@ export const plugin = definePlugin(
         'darwin-x64': 'claude', 'darwin-arm64': 'claude',
         'linux-x64': 'claude', 'linux-arm64': 'claude',
       },
-    }),
+    }), versionLine: /\(Claude Code\)\s*$/ },
     mcp: {
       kind: 'supported',
       scope: 'global',
@@ -276,7 +287,7 @@ export const plugin = definePlugin(
       // 自己的那几台,`/mcp` 关掉的走 `disallowedTools`(session-bundle.ts)⇒ 咕咕不必也不该复述用户的 server。
       // 复述过来也没人读:插件那份清单跳过 `owner === 'user'`,`session/new.mcpServers` 恒为空,
       // 它们的 env / 地址 / Authorization 只会留在 claude 和它起的子进程环境里(复核 93 ②;
-      // 实测见 gugu-base evidence/2026-10-07-library-audit 2b:不开 strict 时三层都在、各答各的)。
+      // 10-07 资源库体检实测:不开 strict 时三层都在、各答各的)。
       sessionUserServers: 'inherit',
     },
     // agent memory —— claude 的专名文件 CLAUDE.md。
@@ -395,10 +406,8 @@ export const provider = registerPluginBehavior(plugin, {
         ...claudeAcpRootBypassEnv(),
       },
     }),
-    connect: (io, toClient) => {
-      return connectStdioAcp(io, toClient);
-    },
-    enrich: enrichClaudeUpdate,
+    // ACP v2:一轮在前台 idle 处结束,后台子智能体不再扣住这一轮的结局(子智能体在跑时下一句不进队列)。
+    connect: (io, toClient) => connectStdioAcpV2(io, toClient, createClaudeSessionDecoder()),
   },
   auth: {
     checkStatus: claudeAuthStatus,

@@ -36,17 +36,18 @@
  * component only describes inner content.
  */
 
+import { ShimmerText } from '@session-chat/components/primitives/ShimmerText';
 import { useCommands } from '@session-chat/components/contexts/CommandsContext';
 import { IconError, IconShieldAlert } from '@session-chat/components/primitives/icons';
 import { applySoftWraps } from '@session-chat/core/measure/soft-wrap';
-import { For, Show } from 'solid-js';
+import { For, Show, createResource, createSignal, onCleanup, onMount } from 'solid-js';
+import { observeAnimationViewport } from '@gugu/session-shared/animation-visibility';
 import { useChatTranslator } from '@session-chat/localization';
 import type { ChatToolCall } from '@session-chat/model';
 import { chevron, chevronExpanded } from '@session-chat/components/primitives/collapse-header.css';
 import type { ToolPayloadGeometry } from './tool.layout';
 import type { ToolThumbStrip } from './tool-images';
 import {
-  textShimmer,
   toolChevronSlot,
   toolErrorIcon,
   toolName,
@@ -142,9 +143,9 @@ export function Tool(props: ToolProps) {
             </span>
           </span>
         </Show>
-        <span class={toolName} classList={{ [textShimmer]: isRunning() }}>
+        <ShimmerText class={toolName} active={isRunning()}>
           {props.item.name}
-        </span>
+        </ShimmerText>
         <Show when={props.item.inputSummary}>
           <span class={toolSummary} data-slot="tool-call-query">
             {props.item.inputSummary}
@@ -209,31 +210,53 @@ export function Tool(props: ToolProps) {
 function ToolThumbs(props: { item: ChatToolCall; strip: ToolThumbStrip }) {
   const commands = useCommands();
   const translate = useChatTranslator();
-  const urls = () => props.item.images ?? [];
+  const count = () => props.item.imageCount ?? props.item.images?.length ?? 0;
+  const [visible, setVisible] = createSignal(false);
+  const [openFailed, setOpenFailed] = createSignal(false);
+  let root!: HTMLDivElement;
+  onMount(() => onCleanup(observeAnimationViewport(root, setVisible)));
+  // Like committed attachment thumbnails, a Solid resource owns the fetched bytes.
+  // The product's shared viewport observer delays fetching retained/offscreen rows.
+  const [resolved] = createResource(
+    () => visible() && { id: props.item.id, shown: props.strip.shown, images: props.item.images },
+    ({ id, shown, images }) => Promise.all(Array.from({ length: shown }, (_, index) =>
+      images?.[index] ?? commands().resolveToolImage?.(id, index) ?? null
+    )).then(urls => ({ id, urls })),
+  );
+  const urlAt = (index: number) => props.item.images?.[index]
+    ?? (resolved()?.id === props.item.id ? resolved()?.urls[index] ?? undefined : undefined);
   return (
-    <div class={toolThumbs} data-slot="tool-call-images" style={{ height: `${props.strip.stripH}px` }}>
-      <For each={urls().slice(0, props.strip.shown)}>
-        {(url, index) => (
+    <div ref={root} class={toolThumbs} data-slot="tool-call-images" style={{ height: `${props.strip.stripH}px` }}>
+      <For each={Array.from({ length: Math.min(count(), props.strip.shown) }, (_, index) => index)}>
+        {(index) => (
           <button
             type="button"
             class={toolThumb}
-            aria-label={translate('transcript.viewImage', { name: `${index() + 1}/${urls().length}` })}
-            // Under the header, not in it: ChatRoot opens a row only for a click inside its `data-collapse-id`.
+            aria-label={translate('transcript.viewImage', { name: `${index + 1}/${count()}` })}
+            title={openFailed() || (!resolved.loading && resolved() && !urlAt(index))
+              ? translate('transcript.imageUnavailable') : undefined}
+            data-image-state={urlAt(index) ? 'ready' : resolved.loading ? 'loading' : 'unavailable'}
             onClick={(e) => {
-              commands().onViewImages?.({
-                urls: urls(),
-                index: index(),
-                itemId: props.item.id,
-                source: 'tool-result',
-                thumb: e.currentTarget.querySelector('img') ?? undefined,
-              });
+              const itemId = props.item.id;
+              const thumb = e.currentTarget.querySelector('img') ?? undefined;
+              const ready = Array.from({ length: count() }, (_, i) => urlAt(i));
+              const open = (urls: (string | null | undefined)[]) => {
+                if (props.item.id !== itemId) return;
+                setOpenFailed(urls.some(url => !url));
+                if (urls.some(url => !url)) return;
+                commands().onViewImages?.({
+                  urls: urls as string[], index, itemId, source: 'tool-result', thumb,
+                });
+              };
+              if (ready.every(Boolean)) open(ready);
+              else void Promise.all(ready.map((url, i) =>
+                url ?? commands().resolveToolImage?.(itemId, i) ?? null
+              )).then(open);
             }}
           >
-            <img class={toolThumbImage} src={url} alt="" loading="lazy" decoding="async" />
-            <Show when={props.strip.more > 0 && index() === props.strip.shown - 1}>
-              <span class={toolThumbMore} data-slot="tool-call-images-more">
-                +{props.strip.more}
-              </span>
+            <img class={toolThumbImage} src={urlAt(index)} alt="" loading="lazy" decoding="async" />
+            <Show when={props.strip.more > 0 && index === props.strip.shown - 1}>
+              <span class={toolThumbMore} data-slot="tool-call-images-more">+{props.strip.more}</span>
             </Show>
           </button>
         )}

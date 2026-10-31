@@ -1,7 +1,37 @@
 /*
- * #7199 手机底栏「助理」那一格(owner 10-16:咕咕底栏一直在):页头(它的头像 + 名字、搜索、齿轮)、页顶分段、聊天或某一格。
- * 变量、卡片、空态、正文都在 assistant-today.css(.ta-phone 与桌面的 .ta-app 共用一组,收在咕咕自己的 token 上);这里只管手机的骨架。
+ * #7199 手机咕咕页:页头一行返回、头像、四格分段和搜索,下方是聊天或某一格。
+ * 内容组件沿用桌面助理的数据与动作，手机表面、字阶和触控尺寸收在 #7333 母版上。
  */
+
+/* 只覆盖手机助理的字阶、触控尺寸和形状;颜色(渐变底、玻璃、气泡)照 assistant-today.css 那一套,
+   和手机全线同一个底(owner 10-26,OpenDCAI/gugu#446)。 */
+.ta-phone,
+[data-theme='light'] .ta-phone {
+  --phone-font-note: var(--phone-font-caption, calc((var(--font-caption) + var(--font-body)) / 2));
+  --phone-surface: color-mix(in oklab, var(--muted) 36%, var(--bg));
+  --ta-radius-panel: var(--radius-surface);
+  --ta-radius-card: var(--radius-surface);
+  --ta-radius-control: var(--radius-control);
+  --ta-fs-page: var(--font-size-xl);
+  --ta-lh-page: var(--lh-page);
+  --ta-fs-row: var(--font-prose);
+  --ta-lh-row: var(--lh-prose);
+  --ta-fs-note: var(--phone-font-note);
+  --ta-lh-note: var(--lh-body);
+  --ta-fs-sub: var(--phone-font-note);
+  --ta-lh-sub: var(--lh-body);
+  --ta-fs-section: var(--font-prose);
+  --ta-lh-section: var(--lh-prose);
+  --ta-fs-title: var(--font-title);
+  --ta-lh-title: var(--lh-title);
+  --ta-fs-btn: var(--font-prose);
+  --ta-lh-btn: var(--lh-prose);
+  --ta-pad-card: 16px;
+  --ta-pad-row-x: 0px;
+  --ta-pad-row-y: 4px;
+  --ta-h-control: var(--control-h-touch);
+  --ta-h-circle: var(--control-h-touch);
+}
 
 .ta-phone {
   position: relative;
@@ -14,9 +44,8 @@
   color: var(--ta-fg);
 }
 
-/* ── 页头是共用的 PaneHeader(见 MobileAssistantApp):这里只管左边「头像 + 名字」那一块。 ── */
+/* ── 页头是共用的 PaneHeader(见 MobileAssistantApp),一行:返回 · 它的头像 · 分段 · 搜索。 ── */
 
-.ta-phone-identity-title { display: flex; align-items: center; }
 .ta-phone-identity {
   display: inline-flex;
   min-width: 0;
@@ -31,34 +60,139 @@
   letter-spacing: inherit;
   color: var(--ta-fg);
 }
-.ta-phone-identity-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ta-phone-head { gap: 4px; }
+/* Keep the search lane on every tab so the shared header never changes shape. */
+.ta-phone-head .gg-pane-actions { flex: none; width: var(--control-h-touch); }
+.ta-phone-head .gg-pane-actions > [hidden] { display: none; }
+.ta-phone-head .ta-phone-identity { width: var(--control-h-touch); justify-content: center; border-radius: var(--radius-circle); }
+.ta-phone-head .ta-phone-identity[aria-pressed='true'] { background: var(--ta-seg-active); }
 
-/* 页顶分段(与桌面右边面板那排同一个 .ta-seg):五段等分整宽,一次点到;选中那段吃 --ta-seg-active。 */
-.ta-phone-seg { display: flex; flex-shrink: 0; margin: 0 16px 8px; }
-.ta-phone-seg button { flex: 1; min-width: 0; min-height: 36px; padding: 7px 4px; text-align: center; }
+/* 页内导航复用 SegmentedTabs 的键盘/读屏行为,摆在页头中间占满余下的宽;窄屏保留完整文字，可横向滚动。 */
+.ta-phone-seg { flex: 1 1 auto; min-width: 0; margin: 0 4px; }
+/* 分段是透出渐变的玻璃胶囊,选中那段吃 --ta-seg-active(同 .ta-seg)。 */
+.ta-phone-seg .gg-segtabs {
+  overflow-x: auto;
+  scrollbar-width: none;
+  justify-content: flex-start;
+  gap: 4px;
+  padding: 4px;
+  border-radius: var(--radius-capsule);
+  background: var(--ta-seg-bg);
+  box-shadow: var(--ta-glass-fx);
+  -webkit-backdrop-filter: blur(var(--ta-glass-blur));
+  backdrop-filter: blur(var(--ta-glass-blur));
+}
+.ta-phone-seg .gg-segtabs::-webkit-scrollbar { display: none; }
+.ta-phone-seg .gg-segtab { flex: 1 0 auto; min-height: 36px; padding: 4px 8px; border-radius: var(--radius-capsule); justify-content: center; white-space: nowrap; font-size: var(--font-body); }
+.ta-phone-seg .gg-segtab[data-selected] { background: var(--ta-seg-active); color: var(--fg); }
+/* Avatar pages select no segment; clear touch hover and the previous color transition immediately. */
+.ta-phone[data-tab='profile'] .ta-phone-seg .gg-segtab {
+  background: transparent;
+  color: var(--muted-fg);
+  transition-property: color, border-color, transform !important;
+}
+@media (max-width: 380px) { .ta-phone-seg .gg-segtab { padding: 4px; } .ta-phone-head .gg-pane-actions { gap: 0; } }
+@media (max-width: 340px) { .ta-phone-seg { margin: 0; } .ta-phone-seg .gg-segtab { font-size: var(--font-caption); } }
 
 /* ── 中间:聊天常驻(只藏不卸),别的格在一个滚动体里。 ── */
 
 .ta-phone-chat { display: flex; flex: 1; min-height: 0; min-width: 0; }
 .ta-phone-chat[hidden] { display: none; }
 .ta-phone .ta-chat { padding-top: 0; }
-/* 输入条下面就是咕咕底栏(它管安全区):这里 ❌ 再垫安全区、❌ 再画一道发丝线(手机聊天页那道线是给贴边底栏分界用的)。 */
-.ta-phone .ta-chat [data-chat-composer] { padding: 8px 12px !important; border-top: 0 !important; }
-.ta-phone-body { flex: 1; min-height: 0; overflow-y: auto; padding: 8px 16px 24px; -webkit-overflow-scrolling: touch; }
-/* 还打不开聊天时(没开通 / 正在准备 / 读不到):那一格居中一块,与桌面开通引导同一团柔光。 */
-.ta-phone-gate { display: flex; flex: 1; min-height: 0; overflow-y: auto; align-items: center; justify-content: center; padding: 0 24px 24px; }
+/* 这一层没有底栏(owner 10-26):输入条自己垫安全区;❌ 再画一道发丝线(手机聊天页那道线是给贴边底栏分界用的)。 */
+.ta-phone .ta-chat [data-chat-composer] { padding: 0 8px max(8px, env(safe-area-inset-bottom)) !important; border-top: 0 !important; }
+.ta-phone-body { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior-y: contain; padding: 8px 16px 24px; -webkit-overflow-scrolling: touch; }
+/* 空间足够时居中；短屏/键盘打开时从内容顶端滚动，不裁掉引导开头。 */
+.ta-phone-gate { display: flex; flex: 1; min-height: 0; flex-direction: column; overflow-y: auto; align-items: center; padding: 16px; }
+.ta-phone-gate > .ta-intro,
+.ta-phone-gate > .ta-onb-slot { flex-shrink: 0; margin-block: auto; }
 
-/* ── 各格里手机才有的几样 ── */
+/* ── 各格里手机才有的几样(间距只用 4/8/16/24) ── */
 
-.ta-phone-actions { display: flex; align-items: center; gap: 10px; }
-.ta-phone-actions .ta-seg-wide { flex: 1; min-width: 0; }
-.ta-phone-hero { padding-top: 12px; }
+.ta-phone-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.ta-phone-actions .ta-seg-wide { flex: 1 1 200px; min-width: 0; }
+.ta-phone-hero { padding: 8px 0 16px; }
+
+.ta-phone .ta-page { gap: 24px; }
+.ta-phone .ta-page-head { align-items: flex-start; flex-wrap: wrap; gap: 8px; padding-inline: 0; }
+.ta-phone .ta-page-head > button { max-width: 100%; }
+.ta-phone .ta-page-title { overflow-wrap: anywhere; }
+.ta-phone .ta-page-sub { margin-top: 4px; overflow-wrap: anywhere; }
+.ta-phone .ta-section-title { padding-inline: 0; font-size: var(--font-prose); line-height: var(--lh-prose); color: var(--fg); }
+.ta-phone .ta-section > .flex { flex-wrap: wrap; gap: 8px; }
+.ta-phone .ta-card,
+.ta-phone .ta-tile { border: 0; }
+/* 权限、资料和设置是开放分组,不套卡(去除卡片套卡片);卡和磁贴是透出渐变的玻璃(assistant-today.css)。 */
+.ta-phone .ta-card-list,
+.ta-phone .ta-skin .gg-settings-card {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  box-shadow: none;
+  overflow: visible;
+}
+.ta-phone .ta-card .ta-card { padding: 0; background: transparent; }
+.ta-phone .ta-row + .ta-row::before { content: none; }
+.ta-phone .ta-skin .gg-settings-row + .gg-settings-row { border-top: 0; }
+.ta-phone .ta-skin .gg-settings-row { min-height: 56px; padding-inline: 0; }
+.ta-phone .ta-skin .gg-settings-row.device-machine-version { padding: 16px; border-radius: var(--radius-control); }
+.ta-phone .ta-skin .gg-settings-row-title { font-size: var(--font-prose); line-height: var(--lh-prose); }
+.ta-phone .ta-skin .gg-settings-note,
+.ta-phone .ta-skin .gg-settings-row-description { font-size: var(--phone-font-note); line-height: var(--lh-body); }
+.ta-phone .ta-seg-wide { gap: 4px; padding: 0; border-radius: var(--radius-control); background: transparent; backdrop-filter: none; box-shadow: none; }
+.ta-phone .ta-seg-wide button { min-width: 0; min-height: var(--control-h-touch); gap: 8px; font-size: var(--font-body); line-height: var(--lh-body); }
+.ta-phone .ta-seg-wide button[aria-selected='true'] { background: var(--ta-seg-active); }
+.ta-phone .ta-row { min-height: 56px; gap: 16px; border-radius: var(--radius-control); }
+.ta-phone .ta-row-sub { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; white-space: normal; overflow-wrap: anywhere; }
+.ta-phone .ta-row-meta { max-width: 45%; gap: 4px; color: var(--muted-fg); text-align: right; overflow-wrap: anywhere; }
+.ta-phone .ta-tile { gap: 8px; padding: 16px; }
+.ta-phone .ta-tile-title { white-space: normal; overflow-wrap: anywhere; }
+.ta-phone .ta-tile-icon { border-radius: 0; background: transparent; box-shadow: none; }
+.ta-phone .ta-empty { padding: 24px 16px; font-size: var(--font-prose); line-height: var(--lh-prose); overflow-wrap: anywhere; }
+.ta-phone .ta-banner { flex-wrap: wrap; gap: 8px; }
+.ta-phone .ta-today-hello { background: transparent; padding: 0; }
+.ta-phone .ta-day { padding: 16px; }
+.ta-phone .ta-day-source-btn,
+.ta-phone .ta-day-more,
+.ta-phone .ta-day-btn { min-height: var(--control-h-touch); }
+.ta-phone .ta-day-divider::after { content: none; }
+.ta-phone-empty-body { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; padding: 16px; }
+.ta-phone .ta-prose,
+.ta-phone .ta-intro-body { font-size: var(--font-prose); line-height: var(--lh-prose); }
 
 /* ── 这些钮是 ui/Button(主 app 不手写钮):它的默认(居中、32 高、不换行、控件圆角)按助理 App 的样子覆盖回来;
       手机上能点的胶囊至少 44 高(咕咕手机触控规范)。 ── */
 
 .ta-phone .ta-pill-btn,
-.ta-phone .ta-solid-btn { min-height: 44px; }
+.ta-phone .ta-solid-btn,
+.ta-phone .ta-wide-btn,
+.ta-phone .ta-chips button { min-height: var(--control-h-touch); height: auto; white-space: normal; }
+.ta-phone .ta-pill-btn,
+.ta-phone .ta-wide-btn { border-radius: var(--radius-control); }
+.ta-phone .ta-chips button { background: var(--ta-glass); border: 0; }
+.ta-phone .ta-chips button[aria-pressed='true'] { background: var(--ta-seg-active); color: var(--fg); }
+.ta-phone .ta-input { min-height: var(--control-h-touch); border: 0; border-radius: var(--radius-control); background: var(--ta-glass); box-shadow: var(--ta-glass-fx); }
+.ta-phone textarea.ta-input { min-height: 144px; font-size: var(--font-prose); line-height: var(--lh-prose); }
+
+/* 确认框经 Portal 出去，需显式使用手机皮肤，仍由原 Dialog 管焦点/返回。 */
+.ta-dialog.ta-phone-confirm-dialog,
+[data-theme='light'] .ta-dialog.ta-phone-confirm-dialog {
+  --ta-fs-note: var(--font-prose);
+  --ta-lh-note: var(--lh-prose);
+  --ta-h-control: var(--control-h-touch);
+  --ta-radius-control: var(--radius-control);
+  --ta-glass-strong: var(--muted);
+  --ta-glass-hover: var(--hover);
+  background: var(--card) !important;
+  border: 0;
+  border-radius: var(--radius-dialog) !important;
+  box-shadow: var(--shadow-dialog) !important;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+.ta-phone-confirm-dialog .ta-pill-btn { min-height: var(--control-h-touch); }
 .ta-about-link {
   display: inline;
   height: auto;
@@ -75,15 +209,3 @@
 /* ── 底栏「咕咕」一格在还没有它时:默认咕咕淡一点 + 角上小「+」(底栏在 .ta-phone 之外,只读咕咕自己的 token) ── */
 .ta-phone-bar-gugu { position: relative; display: inline-flex; }
 .ta-phone-bar-gugu > :first-child { opacity: 0.5; }
-.ta-phone-bar-plus {
-  position: absolute;
-  right: -7px;
-  bottom: -4px;
-  display: grid;
-  place-items: center;
-  width: 14px;
-  height: 14px;
-  border-radius: var(--radius-circle);
-  background: var(--primary);
-  color: var(--primary-fg);
-}

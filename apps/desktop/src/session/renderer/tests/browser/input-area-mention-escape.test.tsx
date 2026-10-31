@@ -7,7 +7,7 @@
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { page, userEvent } from 'vitest/browser'
-import { InputArea } from '@/components/chat/InputArea'
+import { ChatMessageComposer } from '@/components/chat/ChatMessageComposer'
 import { LocalizationProvider, setLocalePreference } from '@/i18n'
 import type { GroupRosterCandidate } from '@/lib/mention'
 import { until } from '../../../../../../../tests/support/awaitCondition'
@@ -21,7 +21,7 @@ const members: GroupRosterCandidate[] = [
 let root: Root | null = null
 let host: HTMLDivElement | null = null
 
-const picker = () => document.querySelector<HTMLElement>('[data-testid="mention-picker"]')
+const picker = () => document.querySelector<HTMLElement>('[data-slot="composer-menu"][role="listbox"]')
 const nextFrames = () => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
 
 describe('@ mention picker dismissal', () => {
@@ -32,7 +32,7 @@ describe('@ mention picker dismissal', () => {
     root = createRoot(host)
     root.render(
       <LocalizationProvider>
-        <InputArea onSend={vi.fn(async () => {})} isGroupChat groupMembers={members} />
+        <ChatMessageComposer onSend={vi.fn(async () => {})} isGroupChat groupMembers={members} />
       </LocalizationProvider>,
     )
   })
@@ -45,7 +45,7 @@ describe('@ mention picker dismissal', () => {
   })
 
   it('Escape closes the picker and its keyup does not reopen it', async () => {
-    const textarea = page.getByRole('textbox')
+    const textarea = page.getByTestId('chat-composer')
     await textarea.click()
     await userEvent.keyboard('@')
     await until('mention picker opens', () => picker() !== null)
@@ -54,6 +54,6 @@ describe('@ mention picker dismissal', () => {
     await nextFrames()
 
     expect(picker()).toBeNull()
-    expect((textarea.element() as HTMLTextAreaElement).value).toBe('@')
+    expect((textarea.element() as HTMLElement).innerText).toBe('@')
   })
 })

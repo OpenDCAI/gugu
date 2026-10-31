@@ -37,15 +37,15 @@ const ready = new Map<string, string>()
 const listeners = new Set<() => void>()
 let version = 0
 
-/** 定格按「颜色 | 表情 | 实际穿的那一身」缓存:默认装扮按 id 推导,所以要带 id */
-const keyOf = (look: AgentLook, id: string) => `${look.color}|${look.rest}|${wearKey(wornOf(look, id))}`
+/** 定格按「颜色 | 表情 | 实际穿的那一身」缓存:缺省装扮为空,同一形象共用定格 */
+const keyOf = (look: AgentLook) => `${look.color}|${look.rest}|${wearKey(wornOf(look))}`
 
 /** 这个形象的定格画好了的那张;还没画就开始画。画失败记一条,这次会话里不再重画(❌ 每次渲染都起一轮等待) */
-export function settledAgentLookPoster(look: AgentLook, id: string): Promise<string> {
-  const key = keyOf(look, id)
+export function settledAgentLookPoster(look: AgentLook): Promise<string> {
+  const key = keyOf(look)
   let p = drawn.get(key)
   if (!p) {
-    p = runtime.still({ tint: bodyTint(look.color), rest: look.rest, wear: wornOf(look, id) }, POSTER_PX)
+    p = runtime.still({ tint: bodyTint(look.color), rest: look.rest, wear: wornOf(look) }, POSTER_PX)
     drawn.set(key, p)
     p.then(
       (url) => {
@@ -61,11 +61,11 @@ export function settledAgentLookPoster(look: AgentLook, id: string): Promise<str
   return p
 }
 
-/** 这只 agent(id)这个形象的定格(调用方先把形象定下来:look.ts resolveAgentLook,存了按存的,没存按 id 推)。还没画好 = 打包的同色那张 */
-export function agentLookPoster(look: AgentLook, id: string): string {
-  const hit = ready.get(keyOf(look, id))
+/** 这个形象的定格(调用方先定好身体颜色、表情与保存的装扮)。还没画好 = 打包的同色那张 */
+export function agentLookPoster(look: AgentLook): string {
+  const hit = ready.get(keyOf(look))
   if (hit) return hit
-  void settledAgentLookPoster(look, id).catch(() => {}) // 失败已在里面记过
+  void settledAgentLookPoster(look).catch(() => {}) // 失败已在里面记过
   return FACES[look.color]
 }
 
@@ -80,7 +80,7 @@ export function useAgentLookPostersVersion(): number {
   return useSyncExternalStore(subscribeAgentLookPosters, () => version, () => version)
 }
 
-export function useAgentLookPoster(look: AgentLook, id: string): string {
+export function useAgentLookPoster(look: AgentLook): string {
   useAgentLookPostersVersion()
-  return agentLookPoster(look, id)
+  return agentLookPoster(look)
 }

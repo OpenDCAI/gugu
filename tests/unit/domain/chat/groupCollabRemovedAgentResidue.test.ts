@@ -365,22 +365,21 @@ describe('group collaboration removed agent residue', () => {
   })
 
   it('changes agent authority role without mutating runtime agent state', async () => {
-    await chatService.setGroupAgentRole('group-1', 'agent-1', 'admin')
-
-    expect(chatMemberUpdatePayload).toEqual({ role: 'admin' })
-    expect(agentStateUpdatePayload).toMatchObject({
-      last_action: 'gugu:i18n:messaging:chatService.groupAction.roleUpdated',
-    })
+    chatDbMock.rpc.mockResolvedValueOnce({ data: { chat_id: 'group-1', user_id: 'agent-1', role: 'admin' }, error: null })
+    await chatService.setGroupMemberRole('group-1', 'agent-1', 'admin')
+    expect(chatDbMock.rpc).toHaveBeenCalledWith('set_group_member_role_as', { p_chat_id: 'group-1', p_member_user_id: 'agent-1', p_role: 'admin', p_as_user_id: 'owner-1' })
+    expect(chatMemberUpdatePayload).toBeNull()
+    expect(agentStateUpdatePayload).toBeNull()
   })
 
   it('adds a new group agent through add_group_agent, never by a direct chat_members insert', async () => {
     // 「能否加此人」(上限 / 审批 / 邀请开关)只在库里一处判;直插会绕过「Agent 加入需审批」的队列。
     existingChatMemberForJoin = null
-    chatDbMock.rpc.mockResolvedValueOnce({ data: { status: 'joined' }, error: null })
+    chatDbMock.rpc.mockResolvedValueOnce({ data: { chat_id: 'group-1', status: 'joined' }, error: null })
 
     await expect(chatService.joinGroupAgent('group-1', 'agent-1', 'member')).resolves.toBe('joined')
 
-    expect(chatDbMock.rpc).toHaveBeenCalledWith('add_group_agent', { p_chat_id: 'group-1', p_agent_user_id: 'agent-1', p_message: null })
+    expect(chatDbMock.rpc).toHaveBeenCalledWith('add_group_agent', { p_chat_id: 'group-1', p_agent_user_id: 'agent-1', p_message: null, p_as_user_id: 'owner-1', p_as_task: false })
     expect(chatMemberInsertPayload).toBeNull()
     expect(chatMemberUpsertPayload).toBeNull()
   })

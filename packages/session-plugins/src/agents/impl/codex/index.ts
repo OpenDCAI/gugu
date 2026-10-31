@@ -23,7 +23,7 @@ import {
   buildStandardCommand,
   miseDependency,
 } from '@gugu/session-core/agents/plugins/helpers';
-import { connectStdioAcp } from '../../helpers/acp-stdio';
+import { connectStdioAcpV2 } from '../../helpers/acp-v2';
 import { requireBridgeEntry } from '../../helpers/acp-bridge-entry';
 import { authenticatedFromEnv, commandAuthStatus } from '../../helpers/auth';
 import {
@@ -34,7 +34,6 @@ import {
 import { icon } from './icon';
 import { CODEX_EFFORT_OPTIONS } from './efforts';
 import { codexPlatformModelFacts, GUGU_PLATFORM_MODELS_ENV } from './platform-models';
-import { enrichCodexUpdate } from './acp-transform';
 import { codexPlatformProviderConfigArgs } from './platform-provider-args';
 import { CODEX_PERMISSION_MODES } from './permission-modes';
 import { codexCredentialInfo } from './auth';
@@ -77,6 +76,7 @@ function codexAppServerPlatformArgs(platform: AcpPlatformInjection): string[] {
     // #6921 与 app-server 腿(session-bundle 的 modelArgs)同一个开关:这份 argv 经咕咕的桥原样转给
     // `codex app-server`(`codex-app-server-acp.mjs` 的 inheritedArgs)。
     ...(platform.callableRoutes ? { callableRoutes: platform.callableRoutes } : {}),
+    model: platform.model,
   }));
   return args;
 }
@@ -240,7 +240,8 @@ export const plugin = definePlugin(
         + '(thread-open config 的 notify 键)与 index.ts 的 `-c notify=…`',
       supportedEvents: ['notification', 'stop', 'session'],
     },
-    hostDependency: miseDependency({
+    // `versionLine`:`--version` 里它自己那一行,实测原样「codex-cli 0.145.0」(包装器的 banner 在它前面)。
+    hostDependency: { ...miseDependency({
       id: 'codex',
       package: '@openai/codex',
       executables: {
@@ -251,7 +252,7 @@ export const plugin = definePlugin(
         'linux-x64': 'vendor/x86_64-unknown-linux-musl/bin/codex',
         'linux-arm64': 'vendor/aarch64-unknown-linux-musl/bin/codex',
       },
-    }),
+    }), versionLine: /^codex-cli / },
     mcp: {
       kind: 'supported',
       scope: 'global',
@@ -413,9 +414,8 @@ export const provider = registerPluginBehavior(plugin, {
       };
     },
     connect: (io, toClient) => {
-      return connectStdioAcp(io, toClient);
+      return connectStdioAcpV2(io, toClient);
     },
-    enrich: enrichCodexUpdate,
   },
   subscription: codexSubscriptionBehavior(),
   auth: {

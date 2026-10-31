@@ -10,6 +10,7 @@ import {
   createFileDropPlugin,
   miseDependency,
   passthroughMcpAdapter,
+  BARE_VERSION_LINE,
 } from '@gugu/session-core/agents/plugins/helpers';
 import { connectStdioAcp } from '../../helpers/acp-stdio';
 import { requireBridgeEntry } from '../../helpers/acp-bridge-entry';
@@ -134,10 +135,9 @@ export const plugin = definePlugin(
       },
     },
     /**
-     * MCP library —— pi 自己**不内建** MCP,这一格记的是 `pi-mcp-adapter` 生态读写的那份配置。
+     * Pi 1.3.0 内置 MCP,读取全局 `<Pi agent dir>/mcp.json`。
      *
-     * 路径取 pi-owned 的全局覆盖层 `<Pi agent dir>/mcp.json`(适配器 README 的优先级表里,
-     * 那是它认的 Pi 全局覆盖入口),键名 `mcpServers`,与 canonical 形状一致 ⇒ passthrough。
+     * 键名 `mcpServers`,与 canonical 形状一致 ⇒ passthrough。
      * 两种 transport 都收:同一份 README 的条目形状里 stdio 走 `command`/`args`/`env`,
      * HTTP 走 `url`,本仓 ACP/TUI 两条腿的会话级声明也都实测过这两种。
      * ⚠️ ❌ 不写成用户的项目 `.mcp.json`:那是用户与团队共享的文件,设置页只读它、不该往里写。
@@ -146,7 +146,7 @@ export const plugin = definePlugin(
       kind: 'supported',
       scope: 'global',
       supportedTransports: ['stdio', 'http'],
-      toolNames: { kind: 'proxied', prefix: 'gugu_', proxyTool: 'mcp', evidence: 'pi-mcp-adapter@2.32.1 源码:运行时注册的 server 强制 directTools:false(index.ts:453),工具只经名为 `mcp` 的代理工具按 `{tool, args}` 调(index.ts registerProxyTool);名字 = formatToolName → `gugu_<tool>`(types.ts)' },
+      toolNames: { kind: 'listed', prefix: 'mcp__gugu__', evidence: '@earendil-works/pi-coding-agent@1.3.0 dist/extensions/mcp/tools.js createMcpToolName; dist/core/mcp-servers.js mcpNamespace' },
     },
     /**
      * ## 回合的**起始边**在这里声明 —— 缺了它,终端腿的状态点只在会话出生那一下红,之后再也不红
@@ -185,12 +185,12 @@ export const plugin = definePlugin(
     },
     // 托管安装(npm backend):纯 JS(bin `dist/bundle/cli.js`)+ 19 个运行期依赖 ——
     // 依赖树正是 aube 的活。
-    hostDependency: miseDependency({
+    hostDependency: { ...miseDependency({
       id: 'pi',
       backend: 'npm',
       package: '@earendil-works/pi-coding-agent',
       node: MANAGED_NODE_VERSION,
-    }),
+    }), versionLine: BARE_VERSION_LINE },
     // agent memory —— pi 管这一族叫 **context files**,启动时自动加载。
     // 出处:https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/usage.md
     //      (earendil-works/pi@d981de1229ef899957bbe968bc8dcda02a21f477)的「Context Files」一节

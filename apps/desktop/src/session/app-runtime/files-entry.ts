@@ -1,7 +1,7 @@
-import { fileSearchOf, folderOf, placeOf, type AppFileEntry, type AppPlace } from '@shared/extensions/app-runtime-protocol';
+import { fileSearchOf, folderOf, placeOf, type AppFileEntry, type AppFileOpened, type AppPlace } from '@shared/extensions/app-runtime-protocol';
 import { guguError, refOf, type GuguHost } from './host';
 import { askingMain, fileKey, openFiles, OpenFile } from './open-file';
-import { countsOf } from './check-counts';
+import { syncLink } from './sync-link';
 
 export { bindText } from './text-binding';
 
@@ -33,29 +33,24 @@ function withinDeadline(openFile: OpenFile, connecting: Promise<void>): Promise<
  * ones alike; `close()` lets go of one handle, and the replica goes with the last (摩擦单 F46: two opens
  * shared one object, and the first `close()` took the file from under the second).
  */
-export async function openFile(host: GuguHost, file: unknown, options?: { readOnly?: boolean }): Promise<object> {
-  // The check's page (摩擦单 F69) says when its opens settle: the check reads the page only after (F5).
-  const counts = countsOf(host);
-  counts?.opened();
-  try {
-    return await openNow(host, file, options);
-  } finally {
-    counts?.openSettled();
-  }
-}
+export { openNow as openFile };
 
-async function openNow(host: GuguHost, file: unknown, options?: { readOnly?: boolean }): Promise<object> {
-  const readOnly = options?.readOnly === true;
+async function openNow(host: GuguHost, requested: Promise<AppFileOpened>): Promise<object> {
   // Counted until its answer has taken its handle: a replica let go of meanwhile waits for it (摩擦单 F115).
   const answered = askingMain();
   let handle: object;
   let ready: Promise<void>;
+  let detailsOf: string | undefined;
   try {
-    const opened = await host.appFiles.open({ ref: refOf(file), ...(readOnly ? { readOnly: true } : {}) });
+    const opened = await requested;
+    if (opened.entry.detailsPending) detailsOf = opened.docName;
     if (opened.bytes) return storedFile(opened.entry, opened.bytes);
     const id = fileKey(opened.entry);
     const existing = openFiles.get(id);
-    if (existing && existing.status !== 'gone') return existing.handle();
+    if (existing && existing.status !== 'gone') {
+      if (detailsOf) entryAfterPaint(detailsOf);
+      return existing.handle();
+    }
     let pending = opening.get(id);
     if (!pending) {
       const openFile = new OpenFile(host, opened);
@@ -81,7 +76,13 @@ async function openNow(host: GuguHost, file: unknown, options?: { readOnly?: boo
     answered();
   }
   await ready;
+  if (detailsOf) entryAfterPaint(detailsOf);
   return handle;
+}
+
+/** The App's await continuation paints its document before the second frame. No new IPC or file read. */
+function entryAfterPaint(docName: string): void {
+  requestAnimationFrame(() => requestAnimationFrame(() => syncLink().post({ t: 'entry', docName })));
 }
 
 /**
@@ -134,7 +135,7 @@ function checked<T>(read: () => T): T {
 }
 
 /** `files.create({ chat | session, name, folder }, content)`: a new file, named where it goes (`folder`: 子文件夹). */
-export function createFile(host: GuguHost, target: unknown, content: string | object, options?: { contentType?: string; sourceMessageIds?: string[] }) {
+export function createFile(host: GuguHost, target: unknown, content: string | object, options?: { contentType?: string; sourceMessageIds?: string[]; appData?: boolean }) {
   const place = where(target);
   const name = (target as { name?: unknown }).name;
   const folder = folderNamed((target as { folder?: unknown }).folder);
@@ -149,6 +150,7 @@ export function createFile(host: GuguHost, target: unknown, content: string | ob
     content: isJson ? JSON.stringify(content, null, 2) : content,
     ...(options?.contentType ? { contentType: options.contentType } : isJson ? { contentType: 'application/json' } : {}),
     sourceMessageIds: options?.sourceMessageIds,
+    ...(options?.appData === true ? { appData: true } : {}),
     ...(folder === undefined ? {} : { folder }),
   });
 }

@@ -17,15 +17,20 @@
  *    他的语义类似于编辑了几次文件」（先前那句「文本消息和 edit 不折叠」由此作废）。
  *    owner 2026-10-16 又把思考收了进来：「短暂思考其实也是可以折叠的……压缩成一段话」——
  *    它夹在一串命令中间，每一行都把「跑了 N 条命令」劈开，一屏全是「短暂思考 / 执行」交替（#7316）。
- *  · 切段：文本消息 —— 那是 agent 在说话，不是过程。
+ *  · 切段：文本消息 —— 那是 agent 在说话，不是过程。经 message_send / session_message 说出去的那段话同理
+ *    (`agentSendOf`):群里派的任务,agent 的话都是这么回的,折进「调用了 N 个 MCP 工具」就一个字也看不到了。
  *
- * ❌ 不按「N 条以上才折」之外的任何启发式：一条就是一行（折一条等于把一行换成另一行，
- * 没意义）；两条起折。
+ * 对话布局按 owner 2026-10-30 的新规则：单条也收进语义摘要，钩子计数。
+ * 只有 Stop 钩子在回复后开启新段，由 conversation-segments 处理；其他钩子不切段。
+ * 经典布局保留两条起折的既有规则。
  */
 import { toolCallName } from '@gugu/session-core/acp/client';
 import { isQuestionOrPlanToolName } from '@gugu/session-core/session-record/question-tools';
-import type { ChatItem } from '@session-chat/model';
+import { agentSendOf } from '@gugu/session-core/session-record/reply-process';
+import type { ChatItem, TranscriptItem } from '@session-chat/model';
 import type { ChatTranslator } from '@session-chat/localization';
+import { executeCommandChipText } from '@session-chat/components/rows/tools/execute/execute.layout';
+import { processHookNotice } from '@session-chat/lib/hook-notice';
 
 export type ToolRunCategory =
   | 'thinking'
@@ -41,6 +46,7 @@ export type ToolRunCategory =
   | 'commandDone'
   | 'commandStopped'
   | 'plan'
+  | 'hook'
   | 'tool';
 
 /** 各类的先后 = 句子里的先后。与 owner 举的例子同序：搜索 → 读 → 改 → 命令；思考在最前（先想后做）。 */
@@ -58,11 +64,13 @@ const CATEGORY_ORDER: readonly ToolRunCategory[] = [
   'commandDone',
   'commandStopped',
   'plan',
+  'hook',
   'tool',
 ];
 
 /** 这一行属于哪一类；`null` = 它不进段（文本），并把前面的段切断。 */
-export function toolRunCategory(item: ChatItem): ToolRunCategory | null {
+export function toolRunCategory(item: ChatItem, conversation = false): ToolRunCategory | null {
+  if (conversation && processHookNotice(item)) return 'hook';
   switch (item.kind) {
     case 'thinking':
       return 'thinking';
@@ -70,9 +78,7 @@ export function toolRunCategory(item: ChatItem): ToolRunCategory | null {
       return 'search';
     case 'read-tool-call':
       return 'read';
-    case 'create-file-tool-call':
-    case 'modify-file-tool-call':
-    case 'delete-file-tool-call':
+    case 'patch-tool-call':
     case 'diff':
       return 'edit';
     case 'file-op':
@@ -86,7 +92,9 @@ export function toolRunCategory(item: ChatItem): ToolRunCategory | null {
     case 'web-fetch-tool-call':
       return 'fetch';
     case 'mcp-tool-call':
-      return 'mcp';
+      return !conversation && agentSendOf(item as TranscriptItem) ? null : 'mcp';
+    case 'tool':
+      return conversation ? 'tool' : null;
     case 'spawn-subagent-tool-call':
       return 'subagentLaunch';
     case 'subagent-done-tool-call':
@@ -107,7 +115,7 @@ export function toolRunCategory(item: ChatItem): ToolRunCategory | null {
 
 export type ToolRunTally = Partial<Record<ToolRunCategory, number>>;
 
-export function tallyToolRun(items: readonly ChatItem[]): ToolRunTally {
+export function tallyToolRun(items: readonly ChatItem[], conversation = false): ToolRunTally {
   const tally: ToolRunTally = {};
   for (const item of items) {
     // `tool-group` is a layout wrapper (for example the read-batch emitted for
@@ -116,7 +124,7 @@ export function tallyToolRun(items: readonly ChatItem[]): ToolRunTally {
     // though the hidden children were all file reads. Walk the leaves so the
     // sentence reports the same calls that expansion reveals.
     if (item.kind === 'tool-group') {
-      const childTally = tallyToolRun(item.children);
+      const childTally = tallyToolRun(item.children, conversation);
       for (const category of CATEGORY_ORDER) {
         const count = childTally[category];
         if (!count) continue;
@@ -124,7 +132,7 @@ export function tallyToolRun(items: readonly ChatItem[]): ToolRunTally {
       }
       continue;
     }
-    const category = toolRunCategory(item);
+    const category = toolRunCategory(item, conversation);
     if (!category) continue;
     tally[category] = (tally[category] ?? 0) + 1;
   }
@@ -145,6 +153,7 @@ const ONE_KEYS: Record<ToolRunCategory, string> = {
   commandDone: 'transcript.toolRun.commandDoneOne',
   commandStopped: 'transcript.toolRun.commandStoppedOne',
   plan: 'transcript.toolRun.planOne',
+  hook: 'transcript.toolRun.hookOne',
   tool: 'transcript.toolRun.toolOne',
 };
 
@@ -162,6 +171,7 @@ const MANY_KEYS: Record<ToolRunCategory, string> = {
   commandDone: 'transcript.toolRun.commandDone',
   commandStopped: 'transcript.toolRun.commandStopped',
   plan: 'transcript.toolRun.plan',
+  hook: 'transcript.toolRun.hook',
   tool: 'transcript.toolRun.tool',
 };
 
@@ -181,4 +191,39 @@ export function toolRunLabel(tally: ToolRunTally, translate: ChatTranslator): st
   }
   const joined = parts.join(translate('transcript.toolRun.join'));
   return joined.charAt(0).toUpperCase() + joined.slice(1);
+}
+
+/**
+ * 跑着的这一段此刻在做什么:一句计数只说做了多少,一轮只想、只跑命令不说话时,能动的只剩数字和计时,
+ * 看着就是卡住了(会话卡死录像,10-27)。有一条在跑的命令 ⇒ 那条命令(命令片段与执行行同一个读法);
+ * 正在想 ⇒ 思考;都没有 ⇒ null,这一句照旧。跑完的段没有在跑的行,自然恢复原样。
+ * ❌ 不露思考的内容:网关回来的思考块只有签名、正文是空的。桌面 tool-run 与手机 ProcessRun 读这一份。
+ */
+export type ToolRunNow = { kind: 'command'; command: string } | { kind: 'thinking' };
+
+export function toolRunNow(items: readonly ChatItem[]): ToolRunNow | null {
+  let thinking = false;
+  const visit = (rows: readonly ChatItem[]): ToolRunNow | null => {
+    for (let i = rows.length - 1; i >= 0; i--) {
+      const item = rows[i] as ChatItem;
+      if (item.kind === 'tool-group') {
+        const inner = visit(item.children as readonly ChatItem[]);
+        if (inner) return inner;
+        continue;
+      }
+      const status = 'status' in item ? (item as { status?: string }).status : undefined;
+      if ((item.kind === 'execute-tool-call' || item.kind === 'execute') && status === 'running') {
+        const command = executeCommandChipText(item as Parameters<typeof executeCommandChipText>[0]);
+        if (command) return { kind: 'command', command };
+      }
+      if (item.kind === 'thinking' && status === 'thinking') thinking = true;
+    }
+    return null;
+  };
+  return visit(items) ?? (thinking ? { kind: 'thinking' } : null);
+}
+
+/** 那一句后面接的半句(「正在跑」/「在思考」);命令片段由行自己用等宽字画在它后面。 */
+export function toolRunNowLabel(now: ToolRunNow, translate: ChatTranslator): string {
+  return translate(now.kind === 'command' ? 'transcript.toolRun.nowRunning' : 'transcript.toolRun.nowThinking');
 }

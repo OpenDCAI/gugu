@@ -7,7 +7,7 @@ import { getRendererAccessToken } from './sessionPublication'
 
 /**
  * #7199 渲染层到「聊天渠道」的那一条:和云电脑同一扇门(管家的 /channels),地址、令牌、登录态边界都照
- * `rendererCloudComputerClient`。拿不到地址 = null ⇒ 设置 → 聊天渠道说「暂未开放」。
+ * `rendererCloudComputerClient`。连接应用中的微信流程读取此 client;拿不到地址就返回 null。
  */
 function overrideUrl(): string {
   return typeof __GUGU_CLOUD_COMPUTER_URL__ === 'string' ? __GUGU_CLOUD_COMPUTER_URL__ : ''

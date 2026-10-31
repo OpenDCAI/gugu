@@ -14,6 +14,10 @@ import { AUTOMATION_TEST_IDS } from './automationDom'
  * ② **移动壳「进入会话」不抢焦点**：抢了就立刻弹软键盘，把本来就短的消息区再挤掉一半，
  *    与微信 / iMessage / Telegram 的惯例相反；移动端由用户点输入框来决定什么时候起键盘。
  *    会话内续接动作不受此限 —— 那时键盘本来就起着，不聚焦反而会把它收掉、打断正在打的这句话。
+ * ③ **移动壳「刚发出一条」收键盘**(owner 10-28 手机试用):这句话已经说完，键盘该收起把消息区还回来。
+ *    以前它算续接动作要重新聚焦 —— 点发送键时焦点先落到按钮上、键盘开始收、壳跟着可视视口长高，
+ *    下一帧又被抢回输入框、键盘再弹、壳再缩：整个 App 上下抽一下(「发一条消息全屏闪一下」)。
+ *    手机发送后收键盘由 ChatComposer.handleSubmit 负责；这里只禁止发送后抢回焦点。
  */
 export type ComposerFocusReason =
   | 'chat-entry'
@@ -47,7 +51,7 @@ export interface ComposerFocusContext {
   /** 聚焦后把光标放在第几个字符（插入表情/提及后回到插入点）。缺省不动光标。 */
   caret?: number
   /** 会话内续接动作落在动作发生的那个输入框(话题分栏那份不登记,只能这样指名)。缺省 = 登记的主输入框。 */
-  target?: () => HTMLTextAreaElement | null
+  target?: () => HTMLElement | null
 }
 
 /** 纯判定：这次 reason 在这个宿主形态下该不该抢焦点。单测直接测它，不需要 DOM。 */
@@ -55,6 +59,7 @@ export function shouldFocusComposer(
   reason: ComposerFocusReason,
   context: ComposerFocusContext = {},
 ): boolean {
+  if (reason === 'message-sent') return context.mobileShell !== true
   if (!SESSION_ENTRY_REASONS.has(reason)) return true
   return context.mobileShell !== true
 }
@@ -62,7 +67,7 @@ export function shouldFocusComposer(
 const COMPOSER_SELECTOR = `[data-testid="${AUTOMATION_TEST_IDS.chatComposer}"]`
 const MAX_FOCUS_FRAMES = 40
 
-type ComposerTargetResolver = () => HTMLTextAreaElement | null
+type ComposerTargetResolver = () => HTMLElement | null
 // ⚠️ @@@5856 一扇窗里同一时刻只有一个输入框该接「进入会话」的落点 ——
 // 话题分栏那一份必须传 surface="aside" 不登记,否则分栏一开,「进入会话」那一类的落点就被它接管:
 // 从会话列表点进主线,光标却落在话题输入框里 —— 正是话题要隔离的那个方向,反过来了。

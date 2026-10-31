@@ -16,6 +16,7 @@ pnpm build:renderer
 启动桌面开发版：
 
 ```bash
+pnpm rebuild:native   # 每次 install 后一次：为 Electron 编译原生模块，否则 verify-dev-native 报 pty.node 不存在
 GUGU_DB_TARGET=local bash scripts/dev-app.sh
 ```
 
@@ -27,7 +28,3 @@ GUGU_DB_TARGET=local bash scripts/dev-app.sh
 配置以 [.envs/example.env](../.envs/example.env) 为模板，官方服务的可选开关见
 [官方服务配置](optional-cloud-services.md)。数据库初始化及授权流程仍需遵循对应后端文档；
 脚本本身不创建数据库或账号。真实桌面验收使用 Electron；`--web` 仅用于网页开发和移动 shell。
-
-内部维护者可额外安装个人私有仓 `nmhjklnm/gugu-dev` 中的开发 marketplace；
-访问它并非社区构建或提交贡献的前提。内部 skills、hooks、插件版本检查及其测试由该仓维护。
-产品的 App/扩展协议、运行时工具和能力加载机制仍在主仓维护。

@@ -41,10 +41,7 @@ import { SidebarSessionItem } from './sidebar-session-item';
 import { SidebarMoreRow } from './sidebar-more-row';
 import { SidebarStateHeader } from './sidebar-state-header';
 
-// @@@sidebar-row-height — 必须与行自己写的 h-8 (32px) 相等。虚拟滚动用它算每行的偏移,
-// 两边分叉不会报错,只会让长列表越滚越错位(行与它的点击区、右键菜单对不上)。
-// 改行高 = 改这里 + 改 sidebar-session-item / project-item / sidebar-more-row 三处 h-*,
-// 四处同时改,少一处就分叉。
+// Task rows have a fixed height; project rows are measured.
 const ROW_HEIGHT = 32;
 // @@@sidebar-label-size — 状态标题的字从 11px 放大到 13px,行也跟着从 24 松到 28,
 // 否则 32px 的正文行夹着 24px 的标题槽,标题会显得被压扁。与 ROW_HEIGHT 同理:
@@ -83,6 +80,7 @@ export const SidebarVirtualList = observer(function SidebarVirtualList() {
 
   const virtualizer = useVirtualizer({
     count: rows.length,
+    getItemKey: (index) => rowToDndId(rows[index]),
     getScrollElement: () => scroller,
     estimateSize: (index) =>
       rows[index]?.kind === 'state-header' ? STATE_HEADER_HEIGHT : ROW_HEIGHT,
@@ -285,11 +283,11 @@ export const SidebarVirtualList = observer(function SidebarVirtualList() {
                 top: vItem.start - scrollMargin,
                 left: 0,
                 width: '100%',
-                height: `${vItem.size}px`,
+                height: row.kind === 'project' ? undefined : `${vItem.size}px`,
               };
               if (row.kind === 'project') {
                 return (
-                  <SortableRow key={row.projectId} dndId={rowToDndId(row)} style={vStyle}>
+                  <SortableRow key={row.projectId} dndId={rowToDndId(row)} style={vStyle} index={vItem.index} measure={virtualizer.measureElement}>
                     <SidebarProjectItem projectId={row.projectId} />
                   </SortableRow>
                 );
@@ -438,12 +436,19 @@ interface SortableRowProps {
   dndId: string;
   style: React.CSSProperties;
   children: React.ReactNode;
+  index: number;
+  measure: (element: HTMLDivElement | null) => void;
 }
 
-function SortableRow({ dndId, style, children }: SortableRowProps) {
+function SortableRow({ dndId, style, children, index, measure }: SortableRowProps) {
   const { setNodeRef, transform, transition, isDragging, listeners } = useSortable({
     id: dndId,
   });
+
+  const ref = useCallback((element: HTMLDivElement | null) => {
+    setNodeRef(element);
+    measure(element);
+  }, [setNodeRef, measure]);
 
   const combinedStyle: React.CSSProperties = {
     ...style,
@@ -454,7 +459,7 @@ function SortableRow({ dndId, style, children }: SortableRowProps) {
   };
 
   return (
-    <div ref={setNodeRef} style={combinedStyle} {...listeners}>
+    <div ref={ref} data-index={index} style={combinedStyle} {...listeners}>
       {children}
     </div>
   );

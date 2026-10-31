@@ -44,15 +44,36 @@ vi.mock('@main/core/extensions/extensions-root', () => ({
     get: () => ({ manifest: { name: 'Board' } }),
   }),
 }));
+vi.mock('@main/core/extensions/app-files', () => ({ resourceChatOf: async (id: string) => id }));
 vi.mock('@main/lib/logger', () => ({ log: { warn: vi.fn(), error: vi.fn(), info: vi.fn() } }));
-// Whose composer, and what goes in, is extension-send's (its own test); here: what the bridge does with its answer.
-const composeTarget = vi.fn(async (args: { text: unknown; chat?: unknown; session?: unknown }) => {
-  if (!String(args.text ?? '').trim()) throw Object.assign(new Error('Nothing to compose: text is empty'), { code: 'invalid' });
-  return args.session
-    ? { session: { id: String(args.session), projectId: 'p-1' }, text: `${String(args.text)}\n` }
-    : { chatId: String(args.chat), text: `${String(args.text)}\n` };
+// Whom it goes to, and what goes, is extension-send's (its own test); here: what the bridge brings it — the page's chat and
+// session, the window's sheet and composers — and what it does with the answer. The fake drives each effect as the real one.
+const dispatchForApp = vi.fn(async (_id: string, args: Record<string, unknown>, here: Record<string, unknown>, effects: {
+  pick(ask: unknown): Promise<unknown>;
+  draftInChat(detail: unknown): Promise<void>;
+  draftInSession(session: { id: string; projectId: string }, text: string): Promise<void>;
+}) => {
+  const text = String(args.text ?? '').trim();
+  if (!text) throw Object.assign(new Error('Say something: text is empty'), { code: 'invalid' });
+  let to = args.to as Record<string, string> | undefined;
+  if (!to) {
+    const picked = (await effects.pick({ draft: args.draft === true, here })) as { to: Record<string, string> } | null;
+    if (!picked) return { cancelled: true };
+    to = picked.to;
+  }
+  if (to.chat) await effects.draftInChat({ chatId: to.chat, text: `${text}\n` });
+  else await effects.draftInSession({ id: to.session ?? 'task-2', projectId: 'p-1' }, `${text}\n`);
+  return { to };
 });
-vi.mock('@main/core/extensions/extension-send', () => ({ composeTarget }));
+vi.mock('@main/core/extensions/extension-send', () => ({ dispatchForApp }));
+// The window's sheet (DispatchSheet): what the person picked, or null — asked only when the call named no target.
+const pickDispatchTarget = vi.fn(async (_embedderId: number | null, _ask: unknown): Promise<unknown> => null);
+vi.mock('@main/core/extensions/extension-bridge-relay', () => ({ pickDispatchTarget, actInWindow: async () => undefined, listedSessionProject: async () => null }));
+// The session a draft goes to is this computer's (the one way a session is opened finds it here).
+vi.mock('@main/core/extensions/extension-show-session', async (original) => ({
+  ...(await original<typeof import('./extension-show-session')>()),
+  sessionHere: async (sessionId: string) => (sessionId === 'task-2' ? 'p-1' : null),
+}));
 
 const { bindExtensionSurface, registerExtensionBridge, setExtensionBridgeHost, recentExtensionErrors } = await import('./extension-bridge');
 const { events } = await import('@main/lib/events');
@@ -119,19 +140,34 @@ describe('what a page says about itself: one way out of main', () => {
 
   // Control (the parent commit a770f2e40d): a group page composed into its chat, a session tab into its session, and the
   // dock's page was refused — where the page was chose the composer.
-  it('compose goes the same way out, to the composer the call names — a chat\'s, or a session\'s brought on screen first', async () => {
+  it('a draft goes the same way out, to the composer the call names — a chat\'s, or a session\'s brought on screen first', async () => {
     const OTHER = '0b000000-0000-4000-8000-00000000c012';
-    expect(await call(GROUP_PAGE, 'compose', { text: 'picked', chat: OTHER })).toMatchObject({ ok: true });
-    expect(await call(SESSION_TAB, 'compose', { text: 'picked', session: 'task-2' })).toMatchObject({ ok: true });
-    expect(await call(DOCK_PAGE, 'compose', { text: 'picked', chat: CHAT })).toMatchObject({ ok: true });
+    expect(await call(GROUP_PAGE, 'dispatch', { text: 'picked', draft: true, to: { chat: OTHER } })).toMatchObject({ ok: true });
+    expect(await call(SESSION_TAB, 'dispatch', { text: 'picked', draft: true, to: { agent: 'user:0a000000-0000-4000-8000-0000000000a2' } })).toMatchObject({ ok: true });
+    expect(await call(DOCK_PAGE, 'dispatch', { text: 'picked', draft: true, to: { chat: CHAT } })).toMatchObject({ ok: true });
     expect(deliver.mock.calls).toEqual([
       [{ extensionId: 'board', sessionId: null, tabId: 'slot-1', embedderId: 42 }, { kind: 'compose', detail: { chatId: OTHER, text: 'picked\n' } }],
       [{ extensionId: 'board', sessionId: 'task-1', tabId: 'tab-1', embedderId: 42 }, { kind: 'compose', sessionId: 'task-2', text: 'picked\n' }],
       [{ extensionId: 'board', sessionId: null, tabId: 'dock-1', embedderId: 42 }, { kind: 'compose', detail: { chatId: CHAT, text: 'picked\n' } }],
     ]);
     expect(emitted).toHaveBeenCalledWith(expect.anything(), { projectId: 'p-1', sessionId: 'task-2' });
+    // Where the page is fills only what the sheet shows: its session.
+    expect(dispatchForApp.mock.calls[1]![2]).toMatchObject({ session: 'task-1' });
     deliver.mockClear();
-    expect(await call(GROUP_PAGE, 'compose', { text: '   ', chat: CHAT })).toMatchObject({ ok: false, code: 'invalid' });
+    expect(await call(GROUP_PAGE, 'dispatch', { text: '   ', draft: true, to: { chat: CHAT } })).toMatchObject({ ok: false, code: 'invalid' });
+    expect(deliver).not.toHaveBeenCalled();
+  });
+
+  it('naming no target asks the window that draws the page; the App hears only what was picked, or that they cancelled', async () => {
+    pickDispatchTarget.mockResolvedValueOnce({ to: { agent: 'user:0a000000-0000-4000-8000-0000000000a2' }, visible: false, text: 'ask about this' });
+    expect(await call(SESSION_TAB, 'dispatch', { text: 'ask about this', draft: true })).toEqual({ ok: true, value: { to: { agent: 'user:0a000000-0000-4000-8000-0000000000a2' } } });
+    expect(pickDispatchTarget).toHaveBeenLastCalledWith(42, expect.objectContaining({ draft: true }));
+    expect(deliver).toHaveBeenLastCalledWith(expect.objectContaining({ sessionId: 'task-1' }), { kind: 'compose', sessionId: 'task-2', text: 'ask about this\n' });
+
+    // Cancelled: nothing goes anywhere, and the App hears so.
+    deliver.mockClear();
+    pickDispatchTarget.mockResolvedValueOnce(null);
+    expect(await call(DOCK_PAGE, 'dispatch', { text: 'never mind' })).toEqual({ ok: true, value: { cancelled: true } });
     expect(deliver).not.toHaveBeenCalled();
   });
 });

@@ -51,7 +51,7 @@ type DeviceCommandTableSelector = {
   maybeSingle(): PromiseLike<DeviceCommandQueryResult>
 }
 
-/** #5041 — identity.runtime_instances(#1676 的逐进程心跳表),持有判据据此判兄弟实例活/死。只读。 */
+/** #5041 — identity.runtime_instances(#1676 的逐进程心跳表),持有判据据此判兄弟实例活/死。只读;删只删自己那一行(停机)。 */
 type RuntimeInstanceTableSelector = {
   eq(column: string, value: string): RuntimeInstanceTableSelector
   then<TResult1 = DeviceCommandQueryResult, TResult2 = never>(
@@ -81,6 +81,7 @@ export interface DeviceCommandTableClient {
   }
   from(table: 'runtime_instances'): {
     select(columns: string): RuntimeInstanceTableSelector
+    delete(): { eq(column: 'instance_id', value: string): PromiseLike<DeviceCommandQueryResult> }
   }
   // @@@1600 — 跨 agent 公平 fetch RPC（identity.fetch_fair_pending_device_commands）。
   rpc(fn: string, args: Record<string, unknown>): PromiseLike<DeviceCommandQueryResult>
@@ -349,6 +350,24 @@ export async function reportRuntimeInstanceHeartbeat(
   return {
     deviceLeaseSweepAgeSeconds: typeof age === 'number' && Number.isFinite(age) ? age : null,
   }
+}
+
+/**
+ * #156 — 这个实例停了:删掉自己那一行(owner 的 RLS 允许)。同机的兄弟据此知道它已经走了,孤儿回收也当场认它的命令;
+ * ❌ 留着等心跳过期(RUNTIME_INSTANCE_STALE_MS):那 90 s 里它在兄弟眼里还活着,两个一起停(关机)时谁都不说这台离线。
+ */
+export async function retireRuntimeInstance(
+  client: DeviceCommandTableClient,
+  instanceId: string,
+  operationTimeouts?: DeviceOperationTimeoutOverrides,
+): Promise<void> {
+  const timeouts = resolveDeviceOperationTimeouts(operationTimeouts)
+  const { error } = await runDeviceRequest(
+    'runtime instance retire',
+    timeouts.runtimeInstanceHeartbeatMs,
+    () => client.from('runtime_instances').delete().eq('instance_id', instanceId),
+  )
+  if (error) throw new Error(error.message)
 }
 
 /** #5041 — this device's runtime instances (id + heartbeat). Owner-scoped RLS; one read per tick, lazily. */

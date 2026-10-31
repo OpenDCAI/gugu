@@ -6,7 +6,8 @@
 import { observer } from 'mobx-react-lite';
 import { useEffect, useState, type ReactElement } from 'react';
 import { getProjectManagerStore } from '@renderer/features/projects/stores/project-selectors';
-import { cloudWakeFailureText, machineBlockIsStatus, machineUnavailableReason, TOO_OLD_CODES } from '@renderer/features/remote-hosts/connection-status';
+import { cloudWakeFailureText, TOO_OLD_CODES } from '@renderer/features/remote-hosts/connection-status';
+import { machineNotice, useMachineNotice } from '@renderer/features/remote-hosts/machine-notice';
 import { remoteErrorCode } from '@renderer/features/remote-hosts/remote-failure-copy';
 import { remoteHostsStore } from '@renderer/features/remote-hosts/remote-hosts-store';
 import { localMachineChoice, machineChoiceFromHost, type MachineChoice } from '@renderer/features/remote-hosts/machine-choice';
@@ -15,7 +16,7 @@ import { machineRegistry } from '@renderer/lib/machine-routing';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
 import { ComposerRemoteProjectPicker } from './composer-context-tray';
 import { ImplicitSessionHomeProjectError } from './implicit-session-home-project';
-import { isImplicitSessionHomeProject } from './session-home-project-constants';
+import { isWorkspaceProject } from './session-home-project-constants';
 
 type Translate = ReturnType<typeof useSessionMessages>['translate'];
 
@@ -63,7 +64,7 @@ export type MachineCreateTarget = {
 
 /**
  * 那台机器上的这个文件夹对应的项目 id:已是项目就用它;还不是就在那台机器上把它加成项目;
- * 没选文件夹 = 那台机器的主目录项目「~」。
+ * 没选文件夹 = 那台机器的任务工作区(#609,会话列在「任务」里)。
  */
 export function resolveMachineProject(target: MachineCreateTarget): Promise<string> {
   if (target.projectId) return Promise.resolve(target.projectId);
@@ -71,15 +72,19 @@ export function resolveMachineProject(target: MachineCreateTarget): Promise<stri
   if (existing) return Promise.resolve(existing.id);
   return target.projectPath
     ? remoteHostsStore.ensureProject(target.deviceId, target.projectPath)
-    : remoteHostsStore.ensureHomeProject(target.deviceId);
+    : remoteHostsStore.ensureTaskWorkspace(target.deviceId);
 }
 
 export type MachineCreateContext = {
   /** 那台机器上的项目 id(解析中 / 失败时为 undefined)。 */
   projectId: string | undefined;
+  /** 那台机器上准备项目失败的原因(此刻能连上、但项目没准备成);要原样摆在新建框下面。 */
   blockReason: string | null;
-  /** blockReason 只是在说云电脑此刻的状态(休眠中 / 正在唤醒):照样挡发送,画成说明 ❌ 报错。 */
-  blockIsStatus: boolean;
+  /**
+   * 所选那台机器此刻用不了(离线 / 休眠 / 正在连 / 要先登录 / 版本太旧…):挡住发送、草稿留着,
+   * 原因由统一提示条里它的那一条说(machine-notice.ts),❌ 在输入框下面再画一行。
+   */
+  blocked: boolean;
   isContextPending: boolean;
   host: LibraryHost;
   machine: { deviceId: string; label: string };
@@ -113,15 +118,32 @@ export function useMachineCreateContext(target: MachineCreateTarget | null): Mac
     };
     // 按「哪台机器、哪个文件夹、连没连上」重解。
   }, [key, connected]);
+  const label = device?.label ?? target?.deviceId ?? '';
+  // 选着的机器掉线了:右下角那条提示说(重连第几次 → 离线 / 失败,或 → 已连上),输入框照旧可写、写好的内容留着(不重挂)。
+  useMachineNotice(
+    target?.deviceId ?? null,
+    label,
+    target
+      ? machineNotice({
+          connection,
+          label: device?.label ?? null,
+          dials: remoteHostsStore.dialsSinceOpen(target.deviceId),
+          wakeFailure: wakeFailureLine(target.deviceId, label, translate),
+          signInExpiredAt: device?.signInExpiredAt,
+          notices: device?.notices,
+          translate,
+        })
+      : null,
+    translate
+  );
   if (!target) return null;
   const current = resolved && resolved.key === key ? resolved : null;
-  const label = device?.label ?? target.deviceId;
   const projectError = current?.failure ? describeMachineProjectFailure(current.failure, label, translate) : null;
   return {
     projectId: current?.id ?? undefined,
-    // 选着的机器掉线了:说出来,但输入框照旧可写、写好的内容留着(不重挂),它一回来发送键自己亮。
-    blockReason: !connected ? machineUnavailableReason(connection, device?.label ?? null, translate, wakeFailureLine(target.deviceId, label, translate)) : projectError,
-    blockIsStatus: !connected && machineBlockIsStatus(connection),
+    // 它一回来发送键自己亮。
+    blockReason: projectError,
+    blocked: !connected,
     isContextPending: connected && !current?.id && !projectError,
     host: machineLibraryHost({
       deviceId: target.deviceId,
@@ -174,8 +196,7 @@ export function machineComposerProps(
   return {
     projectId: context ? context.projectId : local.projectId,
     blockReason: localBlock ?? context?.blockReason ?? null,
-    // 宿主自己的原因(默认值读不到等)是报错;只有那台云电脑的休眠中 / 正在唤醒画成说明。
-    blockIsStatus: localBlock === null && (context?.blockIsStatus ?? false),
+    blocked: context?.blocked ?? false,
     isContextPending: Boolean(local.isContextPending) || (context?.isContextPending ?? false),
     machine: context?.machine ?? null,
   };
@@ -183,7 +204,7 @@ export function machineComposerProps(
 
 function machineProjects(deviceId: string): { id: string; name: string; path: string }[] {
   return [...getProjectManagerStore().projects.values()]
-    .filter((project) => project.data && !isImplicitSessionHomeProject(project) && machineRegistry.machineOf(project.id) === deviceId)
+    .filter((project) => project.data && !isWorkspaceProject(project) && machineRegistry.machineOf(project.id) === deviceId)
     .map((project) => ({ id: project.id, name: project.name ?? '', path: project.data?.path ?? '' }));
 }
 
@@ -199,7 +220,6 @@ export const MachineProjectPicker = observer(function MachineProjectPicker({
   return (
     <ComposerRemoteProjectPicker
       selectedPath={target.projectPath}
-      homePath={remoteHostsStore.homeDir(target.deviceId)}
       projects={machineProjects(target.deviceId)}
       recentPaths={remoteHostsStore.recentFolders(target.deviceId)}
       loading={false}

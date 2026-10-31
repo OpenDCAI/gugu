@@ -104,25 +104,6 @@ export async function createTestLocalAgentWithoutPath(
   return agent
 }
 
-export function expectedRuntimeReport(
-  activityStatus: 'idle' | 'running' = 'running',
-  runtimeStatus: 'offline' | 'online' | 'starting' = 'online',
-  includeLabel = true
-) {
-  // recentActions is null on per-event / offline reports (COALESCE-keep) and an array on tick reports;
-  // these status-transition assertions don't care which, so accept either.
-  const nullOrArray = { asymmetricMatch: (v: unknown) => v === null || Array.isArray(v) }
-  const report: Record<string, unknown> = {
-    agentUserId: TEST_AGENT_USER_ID,
-    runtimeStatus,
-    activityStatus,
-    runtimeKind: 'gugu',
-    recentActions: nullOrArray
-  }
-  if (includeLabel) report.runtimeLabel = expect.any(String)
-  return report
-}
-
 export function expectedDeliveredMessage(
   targetId: string,
   content = TEST_MESSAGE_CONTENT,
@@ -201,6 +182,8 @@ export type MemoryCommandClientOptions = {
 
 export class MemoryHeartbeatClient implements DeviceHeartbeatTableClient {
   upserts: Array<{ row: Record<string, unknown>; options?: { onConflict: string } }> = []
+  /** #156 退出时标成离线的那几次:设备 id + 写进去的值。 */
+  offlineUpdates: Array<{ deviceId: string; value: { status: 'offline'; updated_at: string } }> = []
   cleanupCalls: Record<string, unknown>[] = []
   rows: Array<{ device_id: string; user_id: string; hostname: string; machine_id?: string | null; tier?: string | null }> = []
 
@@ -209,11 +192,22 @@ export class MemoryHeartbeatClient implements DeviceHeartbeatTableClient {
   from(table: 'gugu_devices') {
     expect(table).toBe('gugu_devices')
     return {
-      upsert: async (row: never, options?: { onConflict: string }) => {
-        if (this.errorMessage) return { data: null, error: { message: this.errorMessage } }
-        this.upserts.push({ row: row as Record<string, unknown>, options })
-        return { data: null, error: null }
+      upsert: (row: never, options?: { onConflict: string }) => {
+        const result = this.errorMessage ? { data: null, error: { message: this.errorMessage } } : { data: null, error: null }
+        if (!this.errorMessage) this.upserts.push({ row: row as Record<string, unknown>, options })
+        return Object.assign(Promise.resolve(result), {
+          select: async () => ({ ...result, data: result.error ? null : [{ runtimes: [] }] }),
+        })
       },
+      update: (value: { status: 'online' | 'offline'; updated_at: string }) => ({
+        eq: (_column: 'device_id', deviceId: string) => {
+          const error = this.errorMessage ? { message: this.errorMessage } : null
+          if (!error && value.status === 'offline') this.offlineUpdates.push({ deviceId, value: { ...value, status: 'offline' } })
+          return Object.assign(Promise.resolve({ error }), {
+            select: async () => ({ error, data: error ? null : [{ runtimes: [] }] }),
+          })
+        },
+      }),
       select: (_columns: string) => ({
         eq: (_userColumn: 'user_id', userValue: string) => ({
           eq: (_machineColumn: 'machine_id', machineValue: string) => ({
@@ -366,15 +360,25 @@ export class MemoryDeviceCommandClient implements DeviceCommandTableClient {
   from(table: 'gugu_device_commands'): MemoryDeviceCommandTable
   from(table: 'runtime_instances'): MemoryRuntimeInstanceTable
   from(table: 'gugu_device_commands' | 'runtime_instances'): MemoryDeviceCommandTable | MemoryRuntimeInstanceTable {
-    if (table === 'runtime_instances') return new MemoryRuntimeInstanceTable(this.runtimeInstances)
+    if (table === 'runtime_instances') return new MemoryRuntimeInstanceTable(this.runtimeInstances, this.liveInstances)
     expect(table).toBe('gugu_device_commands')
     return new MemoryDeviceCommandTable(this.rows, this.options)
   }
 }
 
-/** #5041 — 只读的 runtime_instances 表:select(...).eq(...) 直接 await 出行。 */
+/** #5041 — runtime_instances 表:select(...).eq(...) 直接 await 出行;#156 停机时 delete().eq('instance_id') 删自己那一行。 */
 export class MemoryRuntimeInstanceTable {
-  constructor(private instances: Map<string, MemoryRuntimeInstanceRow>) {}
+  constructor(private instances: Map<string, MemoryRuntimeInstanceRow>, private live?: Set<string>) {}
+
+  delete() {
+    return {
+      eq: async (_column: 'instance_id', instanceId: string) => {
+        this.instances.delete(instanceId)
+        this.live?.delete(instanceId)
+        return { data: null, error: null }
+      },
+    }
+  }
 
   select(columns: string) {
     const filters: [string, string][] = []
@@ -398,9 +402,14 @@ export class MemoryRuntimeIdentityClient
   extends MemoryDeviceCommandClient
 {
   upserts: Array<{ row: Record<string, unknown>; options?: { onConflict: string } }> = []
+  /** #156 退出时标成离线的那几次:设备 id + 写进去的值。 */
+  offlineUpdates: Array<{ deviceId: string; value: { status: 'offline'; updated_at: string } }> = []
   cleanupCalls: Record<string, unknown>[] = []
   runtimeStateCalls: Record<string, unknown>[] = []
   markReadCalls: Record<string, unknown>[] = []
+  /** `get_agent_presence_batch` 的次数与云端那一行:没登记的 id 回一行「在、空闲、没有读数」。 */
+  presenceBatchCalls = 0
+  presence = new Map<string, Record<string, unknown>>()
   /** @@@5912 identity lookup(`GET gugu_devices`)的次数 —— 三刀之二判的就是这个账本。 */
   deviceIdentityLookups = 0
   /** @@@5912 假库里那个清扫者有多久没跑了;用例把它调大来测宿主会不会响亮报故障。 */
@@ -410,6 +419,7 @@ export class MemoryRuntimeIdentityClient
   from(table: 'runtime_instances'): MemoryRuntimeInstanceTable
   from(table: 'gugu_devices'): {
     upsert: (row: never, options?: { onConflict: string }) => Promise<{ data: null; error: null }>
+    update: (value: { status: 'offline'; updated_at: string }) => { eq: (col: 'device_id', value: string) => Promise<{ error: null }> }
     select: (columns: string) => {
       eq: (col: 'user_id', value: string) => {
         eq: (col: 'machine_id', value: string) => {
@@ -423,13 +433,19 @@ export class MemoryRuntimeIdentityClient
     }
   }
   from(table: 'gugu_device_commands' | 'gugu_devices' | 'runtime_instances'): unknown {
-    if (table === 'runtime_instances') return new MemoryRuntimeInstanceTable(this.runtimeInstances)
+    if (table === 'runtime_instances') return new MemoryRuntimeInstanceTable(this.runtimeInstances, this.liveInstances)
     if (table === 'gugu_devices') {
       return {
         upsert: async (row: never, options?: { onConflict: string }) => {
           this.upserts.push({ row: row as Record<string, unknown>, options })
           return { data: null, error: null }
         },
+        update: (value: { status: 'offline'; updated_at: string }) => ({
+          eq: async (_column: 'device_id', deviceId: string) => {
+            this.offlineUpdates.push({ deviceId, value })
+            return { error: null }
+          },
+        }),
         // @@@5912 这一条就是 identity lookup(`GET gugu_devices`);数它,三刀之二判的是它的次数。
         select: (_columns: string) => (this.deviceIdentityLookups += 1, {
           eq: (_userColumn: 'user_id', _userValue: string) => ({
@@ -469,11 +485,35 @@ export class MemoryRuntimeIdentityClient
         ),
         error: null,
       }
+    } else if (fn === 'get_agent_presence_batch') {
+      this.presenceBatchCalls += 1
+      const ids = args.p_agent_user_ids as string[]
+      return { data: { results: Object.fromEntries(ids.map((id) => [id, this.presence.get(id) ?? presenceRow(id)])) }, error: null }
     } else {
       expect(fn).toBe('set_agent_runtime_state')
       this.runtimeStateCalls.push(args)
     }
     return { data: null, error: null }
+  }
+}
+
+/** `get_agent_presence_batch` 的一条 `presence` 结果(与 identity.build_agent_presence_payload 同形),按需覆盖字段。 */
+export function presenceRow(agentUserId: string, overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    status: 'presence',
+    presence: {
+      agent_user_id: agentUserId,
+      account_status: 'active',
+      desired_status: 'online',
+      runtime_status: 'online',
+      activity_status: 'idle',
+      agent_status: null,
+      agent_status_detail: null,
+      recent_actions: [],
+      last_action_at: null,
+      updated_at: '2026-10-22T00:00:00.000Z',
+      ...overrides,
+    },
   }
 }
 

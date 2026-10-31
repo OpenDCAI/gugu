@@ -1,9 +1,14 @@
 import type { RpcRouter } from '@main/rpc'
+import { invokePhoneHost } from '../local-agent/phoneHostRpc'
+import type { AttachmentUploadRpc } from '@renderer/features/sessions/acp/composer-file-upload'
 import type { ToolImage } from '@gugu/session-core/acp/client'
 import { rendererLogger } from '@/lib/log'
-import { readCachedDevices } from '@/store/devicesCache'
+import { readCachedDevices, subscribeCachedDevices } from '@/store/devicesCache'
+import { getCloudComputerState, subscribeCloudComputerState } from '@/lib/cloudComputerStore'
+import { remoteHostReachable } from '@/session/shared/remote-hosts'
 import { translateSessionMessage } from '@renderer/localization/locale-store'
-import { appCallWaitMs, type AppCallAction } from '@gugu/session-core/session-record/contract'
+import { appCallWaitMs, FILE_PATCH_PROTOCOL, protocol14FileChanges, type AppCallAction, type AppMessageAction, type AppMessageReceipt, type AppSpawnAction } from '@gugu/session-core/session-record/contract'
+import { REMOTE_PROTOCOL_VERSION } from '@gugu/core/cloud/serverMachineHealth'
 import { callDeviceRpc } from '@/lib/deviceRpc'
 import { openPhoneSessionHostPipe } from '@/lib/remoteSessionHost'
 import { SESSION_HOST_RPC } from '@/session/shared/lib/ipc/session-host-device-frames'
@@ -36,6 +41,8 @@ import type {
   SessionpageSessionView,
   SessionpageSessionCreateRequest,
   SessionpageSessionCreateResult,
+  SessionpageProjectSummary,
+  SessionpageSessionSummary,
 } from '@gugu/session-core/session-record/contract'
 // ⚠️ 只能从 `/contract` 取,❌ 不许写成 `@gugu/session-core/session-record`:那个 barrel 会往下拖
 // node:fs 与 better-sqlite3(宿主侧的记录源),浏览器里首屏直接白屏 —— 实测过一次。
@@ -51,10 +58,29 @@ import type { SessionpageSessionOptionsWithMenu } from '@main/core/session-timel
 const log = rendererLogger('mobile/agent-watch')
 const hosts = new Map<string, SessionHostClient>()
 
+function reachable(deviceId: string): boolean {
+  const device = readCachedDevices().find((row) => row.device_id === deviceId)
+  const snapshot = getCloudComputerState().snapshot
+  const cloud = snapshot?.deviceId === deviceId ? snapshot.state : device?.cloud_computer
+  // An empty/unfinished device directory is unknown, not proof of an offline host.
+  return remoteHostReachable({
+    isOnline: device?.is_online !== false,
+    directTerminal: false,
+    ...(cloud === 'awake' || cloud === 'asleep' || cloud === 'waking' ? { cloudComputer: cloud } : {}),
+  })
+}
+
 function host(deviceId: string): SessionHostClient {
   let client = hosts.get(deviceId)
   if (!client) {
     client = createSessionHostClient(openPhoneSessionHostPipe(deviceId), {
+      isReachable: () => reachable(deviceId),
+      peerVersion: () => readCachedDevices().find(device => device.device_id === deviceId)?.capabilities?.app_version ?? null,
+      subscribeReachability: (listener) => {
+        const stopCloud = subscribeCloudComputerState(listener)
+        const stopDevices = subscribeCachedDevices(listener)
+        return () => { stopCloud(); stopDevices() }
+      },
       subscribeEvents: true,
       heartbeatMs: SESSION_HOST_CLIENT_HEARTBEAT_MS,
       retryMaxMs: 60_000,
@@ -84,7 +110,7 @@ function host(deviceId: string): SessionHostClient {
  */
 if (typeof window !== 'undefined') {
   const reopenClosed = () => {
-    for (const client of hosts.values()) if (client.state() !== 'open') client.reconnectNow()
+    for (const client of hosts.values()) if (client.state() !== 'open') client.reconnectNow({ automatic: true })
   }
   window.addEventListener('online', reopenClosed)
   document.addEventListener('visibilitychange', () => {
@@ -110,9 +136,12 @@ export function machineRpc(deviceId: string) {
  */
 function once(deviceId: string) {
   return createRPCClient<RpcRouter>(async (channel, ...args) => {
-    const reply = await callDeviceRpc<{ value: unknown }>(deviceId, SESSION_HOST_RPC.call, { channel, args }, { timeoutMs: 12_000 })
+    if (!reachable(deviceId)) throw new SessionpageRpcError('unreachable', translateSessionMessage('deviceScope.unreachable', { device: deviceId.slice(0, 8) }))
+    const reply = await callDeviceRpc<{ value: unknown; protocol?: number }>(deviceId, SESSION_HOST_RPC.call,
+      { channel, args, protocol: REMOTE_PROTOCOL_VERSION }, { timeoutMs: 12_000 })
     if (reply.error) throw new SessionpageRpcError(reply.error.code, reply.error.message)
-    return reply.result?.value
+    // A host before protocol 15 does not say its protocol here (protocol14FileChanges, delete on next bump).
+    return protocol14FileChanges(reply.result?.value, reply.result?.protocol ?? FILE_PATCH_PROTOCOL - 1, 'from-peer')
   })
 }
 
@@ -120,12 +149,18 @@ function once(deviceId: string) {
  * owner 10-16 An App page on the phone, in a session on this machine, has one of its calls that follow the session's
  * machine (its data folder, its program) done there — the cross-machine App call the desktop makes (`agentSession.app_call`,
  * one question and answer). The wait is the desktop's (`remoteActionTimeoutMs`): a program call, its program's own request
- * bound (60 s) and the way back. A machine too old to have it answers `unknown_method` / no handler.
+ * bound (60 s) and the way back; dispatch uses the same route with the desktop's wake/start waits. A machine too old to have it answers `unknown_method` / no handler.
  */
-export async function appCallOn(deviceId: string, caller: unknown, action: AppCallAction): Promise<unknown> {
-  const reply = await callDeviceRpc<{ value: unknown }>(deviceId, SESSION_HOST_RPC.call, { channel: 'agentSession.app_call', args: [caller, action] }, { timeoutMs: appCallWaitMs(action) })
+type PhoneAppAction = AppCallAction | AppMessageAction | AppSpawnAction
+type PhoneAppAnswer<A> = A extends AppSpawnAction ? { agentId: string } : A extends AppMessageAction ? AppMessageReceipt : unknown
+
+export async function appCallOn<A extends PhoneAppAction>(deviceId: string, caller: unknown, action: A): Promise<PhoneAppAnswer<A>> {
+  const timeoutMs = action.action === 'app_call' ? appCallWaitMs(action) : action.action === 'spawn' ? 90_000 : 180_000
+  const reply = await callDeviceRpc<{ value: PhoneAppAnswer<A> }>(deviceId, SESSION_HOST_RPC.call,
+    { channel: `agentSession.${action.action}`, args: [caller, action], protocol: REMOTE_PROTOCOL_VERSION }, { timeoutMs })
   if (reply.error) throw new SessionpageRpcError(reply.error.code, reply.error.message)
-  return reply.result?.value
+  if (!reply.result && action.action !== 'app_call') throw new SessionpageRpcError('failed', 'The computer returned no dispatch receipt')
+  return reply.result?.value as PhoneAppAnswer<A>
 }
 
 /** A push of that machine's on a channel of its own (e.g. `extensions.program.notified`), heard through its window. */
@@ -180,12 +215,19 @@ export function unsubscribeSession(deviceId: string, subscriptionId: string): Pr
   return rpc(deviceId).sessionTimeline.sessionUnsubscribe({ subscriptionId })
 }
 
-export function sendSessionText(deviceId: string, sessionId: string, text: string): Promise<unknown> {
-  return value(rpc(deviceId).sessionTimeline.sessionSend({ conversationId: sessionId, text }))
+export async function sendSessionText(deviceId: string, sessionId: string, text: string, clientMessageId?: string, attachments?: import('@gugu/session-core/session-record/contract').SessionpageSessionSendRequest['attachments']): Promise<unknown> {
+  const receipt = await value(rpc(deviceId).sessionTimeline.sessionSend({ conversationId: sessionId, text, ...(clientMessageId ? { clientMessageId } : {}), ...(attachments?.length ? { attachments } : {}) }))
+  if (clientMessageId && receipt.clientMessageId !== clientMessageId) throw new Error('会话尚未确认接收这条消息，稍后自动重试')
+  return receipt
 }
 
 /** 输入框附件:桌面输入框同三条(`sessionCreate.*`),问的是会话所在的那台机器。 */
-export function sessionAttachmentRpc(deviceId: string) {
+export function sessionAttachmentRpc(deviceId: string, phoneHost = false): AttachmentUploadRpc {
+  if (phoneHost) return {
+    writeAttachmentChunk: (chunk) => invokePhoneHost(deviceId, 'sessionCreate.writeAttachmentChunk', [{ ...chunk, data: Array.from(chunk.data) }]),
+    commitAttachmentUpload: (commit) => invokePhoneHost(deviceId, 'sessionCreate.commitAttachmentUpload', [commit]),
+    discardAttachmentUpload: (input) => invokePhoneHost(deviceId, 'sessionCreate.discardAttachmentUpload', [input]),
+  }
   return rpc(deviceId).sessionCreate
 }
 
@@ -197,6 +239,19 @@ export function readOpenedFileChunk(deviceId: string, request: SessionpageOpened
 /** 停掉正在飞的一轮。受理即返回,停没停下来看时间线。 */
 export function cancelSessionTurn(deviceId: string, sessionId: string): Promise<{ cancelled: boolean }> {
   return value(rpc(deviceId).sessionTimeline.sessionCancel({ conversationId: sessionId }))
+}
+
+/**
+ * 运行时说还在跑的后台命令(#6582 的筛子,`null` = 那台机器的运行时没报这一格、不筛)。
+ * 老版本电脑没有这条路由 ⇒ 抛;调用方当作「不知道」(不筛、没有停止键),同桌面遇到旧运行时。
+ */
+export function fetchBackgroundTasks(deviceId: string, sessionId: string): Promise<{ runningCommandTaskIds: string[] | null }> {
+  return value(rpc(deviceId).sessionTimeline.sessionBackgroundTasks({ conversationId: sessionId }))
+}
+
+/** 停一个后台任务:命令给 asyncTaskId,子智能体给派它的 tool_use id(同桌面那一行的停止键)。 */
+export function stopBackgroundTask(deviceId: string, sessionId: string, stopId: string): Promise<{ stopped: true }> {
+  return value(rpc(deviceId).sessionTimeline.sessionStopBackgroundTask({ conversationId: sessionId, stopId }))
 }
 
 /** 重命名 / 置顶 / 归档(桌面侧栏同三条)。 */
@@ -217,15 +272,18 @@ export function subscribeSessionEvents(deviceId: string, subscriptionId: string,
     onResult((event as SessionpageSessionEvent).result))
 }
 
-export function fetchSessionOptions(deviceId: string, sessionId: string): Promise<SessionpageSessionOptionsWithMenu> {
+export function fetchSessionOptions(deviceId: string, sessionId: string, phoneHost = false): Promise<SessionpageSessionOptionsWithMenu> {
+  if (phoneHost) return invokePhoneHost(deviceId, 'sessionTimeline.sessionOptions', [{ conversationId: sessionId }])
   return value(rpc(deviceId).sessionTimeline.sessionOptions({ conversationId: sessionId }))
 }
 
-export function setSessionOption(deviceId: string, input: SessionpageSessionSetOptionRequest): Promise<SessionpageSessionOptionsWithMenu> {
+export function setSessionOption(deviceId: string, input: SessionpageSessionSetOptionRequest, phoneHost = false): Promise<SessionpageSessionOptionsWithMenu> {
+  if (phoneHost) return invokePhoneHost(deviceId, 'sessionTimeline.sessionSetOption', [input])
   return value(rpc(deviceId).sessionTimeline.sessionSetOption(input))
 }
 
-export function reloadSessionModel(deviceId: string, input: SessionpageSessionReloadModelRequest): Promise<SessionpageSessionOptionsWithMenu> {
+export function reloadSessionModel(deviceId: string, input: SessionpageSessionReloadModelRequest, phoneHost = false): Promise<SessionpageSessionOptionsWithMenu> {
+  if (phoneHost) return invokePhoneHost(deviceId, 'sessionTimeline.sessionReloadModel', [input])
   return value(rpc(deviceId).sessionTimeline.sessionReloadModel(input))
 }
 
@@ -234,7 +292,7 @@ export function fetchCreateOptions(deviceId: string): Promise<SessionpageSession
   return value(rpc(deviceId).sessionTimeline.sessionCreateOptions())
 }
 
-/** 选定 harness 在那台机器上能跑哪些模型。 */
+/** 选定 harness 在那台机器上能跑哪些模型。`sessionView` 给 null = 那台电脑按自己的「终端」开关定。 */
 export function fetchCreateModels(
   deviceId: string,
   harness: string,
@@ -251,6 +309,31 @@ export function fetchCreateModels(
 /** **在那台机器上开一条新会话。**只在用户点了发送之后调 —— 它会在对方机器上起一个 agent 进程。 */
 export function createSession(deviceId: string, request: SessionpageSessionCreateRequest): Promise<SessionpageSessionCreateResult> {
   return value(rpc(deviceId).sessionTimeline.sessionCreate(request))
+}
+
+/** A fresh read of the same per-computer list, e.g. an App looking up the agent it just started. */
+export function fetchSessionsList(deviceId: string) {
+  return once(deviceId).sessionTimeline.sessionsList()
+}
+
+export function fetchPhoneSessions(deviceId: string): Promise<{ projects: SessionpageProjectSummary[]; sessions: SessionpageSessionSummary[] }> {
+  return invokePhoneHost(deviceId, 'sessionTimeline.sessionsList', [])
+}
+
+export function cancelPhoneSessionTurn(deviceId: string, sessionId: string): Promise<{ cancelled: boolean }> {
+  return invokePhoneHost(deviceId, 'sessionTimeline.sessionCancel', [{ conversationId: sessionId }])
+}
+
+export function fetchPhoneCreateOptions(deviceId: string): Promise<SessionpageSessionCreateOptions> {
+  return invokePhoneHost(deviceId, 'sessionTimeline.sessionCreateOptions', [])
+}
+
+export function fetchPhoneCreateModels(deviceId: string, harness: string, sessionView: SessionpageSessionView | null, model: string | null): Promise<SessionpageSessionCreateModels> {
+  return invokePhoneHost(deviceId, 'sessionTimeline.sessionCreateModels', [{ harness, ...(sessionView ? { sessionView } : {}), ...(model ? { model } : {}) }])
+}
+
+export function createPhoneSession(deviceId: string, request: SessionpageSessionCreateRequest): Promise<SessionpageSessionCreateResult> {
+  return invokePhoneHost(deviceId, 'sessionTimeline.sessionCreate', [request], request.clientRequestId)
 }
 
 export function subscribeSessionsList(deviceId: string, subscriptionId: string): Promise<unknown> {
@@ -287,4 +370,9 @@ export function onLinkChange(deviceId: string, cb: (open: boolean) => void): () 
  */
 export function onMachineEvent<T>(deviceId: string, event: { name: string; _data?: T }, cb: (data: T) => void): () => void {
   return host(deviceId).api.eventOn(event.name, (data) => cb(data as T))
+}
+
+export function changeSessionQueue(deviceId: string, conversationId: string, action: import('@gugu/session-core/session-record/contract').SessionpageQueueAction, phoneHost = false): Promise<null> {
+  if (phoneHost) return invokePhoneHost(deviceId, 'sessionTimeline.sessionQueue', [{ conversationId, action }])
+  return value(rpc(deviceId).sessionTimeline.sessionQueue({ conversationId, action }))
 }

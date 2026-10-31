@@ -3,17 +3,21 @@ import type { ChatCaches } from '@session-chat/core/caches';
 import { isDoubleColumnLayout } from '@session-chat/core/layout/preset';
 import type { SegmentCtx } from '@session-chat/core/units';
 import type { ChatState } from './chat-state';
-import { turnDiscardedId } from './flatten';
+import { BACKGROUND_TASKS_TOGGLE, turnDiscardedId } from './flatten';
 
 /**
  * The one SegmentCtx the transcript is flattened with. The engine renders with it and find searches with it,
  * so what find reaches and what the transcript paints cannot drift apart.
  */
-export function segmentCtxFor(context: ChatContext, state: ChatState, caches: ChatCaches, active: boolean): SegmentCtx {
+export function segmentCtxFor(context: ChatContext, state: ChatState, caches: ChatCaches, active: boolean,
+  latestTurnId = state.transcript.state.activeTurnSnapshot?.id ?? state.transcript.state.committedTurns.at(-1)?.id): SegmentCtx {
   return {
     caches,
+    deliveredMessage: (id) => state.session.state.deliveredMessages?.get(id),
+    agentConversation: context.theme.layout?.agentConversation,
     expanded: (_id: string) => false,
     active,
+    latestTurnId,
     // #4874 双栏视图把一轮的过程行折起来；读 theme() 让布局切换重建 committed tier。
     // ⚠️ 不再有 `!active`：正在跑的那一轮同样折（#4981 #12），只是头上换成会微光的
     // 「工作中」标签 —— 与上游 tool-timeline 的 activeLabel / restingLabel 一致。
@@ -26,10 +30,14 @@ export function segmentCtxFor(context: ChatContext, state: ChatState, caches: Ch
     translate: context.translate,
     pendingToolCallIds: () => state.session.state.pendingToolCallIds,
     permissionFor: (toolCallId: string) =>
-      state.session.state.permissions.find((request) => request.toolCall.toolCallId === toolCallId),
-    terminalOutputText: (terminalId: string) => state.session.state.terminalOutputText(terminalId),
-    terminalExitStatus: (terminalId: string) => state.session.state.terminalExitStatus(terminalId),
+      state.session.state.permissions.find((request) => request.toolCall?.toolCallId === toolCallId),
+    terminalSnapshot: (terminalId: string) => state.session.state.terminalSnapshot(terminalId),
     // 这条会话此刻的状态 —— 只有 active 档会读它(flatten 在那一档的末尾发出这一行)。
     condition: () => state.session.state.condition,
+    backgroundTasks: () => {
+      const tasks = state.session.state.backgroundTasks;
+      if (tasks.commands.length === 0 && tasks.subagents.length === 0) return null;
+      return { ...tasks, expanded: state.viewState.isCollapsed(BACKGROUND_TASKS_TOGGLE) };
+    },
   };
 }

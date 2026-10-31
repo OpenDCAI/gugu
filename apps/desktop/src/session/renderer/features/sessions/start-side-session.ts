@@ -1,3 +1,4 @@
+import { messageForUser } from '@/lib/userFacingError';
 import { sessionRegistry } from '@renderer/features/sessions/stores/session-registry';
 import { getSessionView } from '@renderer/features/sessions/stores/session-selectors';
 import { toast } from '@renderer/lib/hooks/use-toast';
@@ -6,7 +7,7 @@ import { machineRegistry } from '@renderer/lib/machine-routing';
 import { translateSessionMessage } from '@renderer/localization/locale-store';
 import { log } from '@renderer/utils/logger';
 import type { AgentPayload } from '@shared/core/agents/agent-payload';
-import { activeChatSessionId, findChatPaneId } from './view/session-pane-policy';
+import { activeChatSessionId } from './view/session-pane-policy';
 
 /**
  * Side chat forks the active provider session into an independent ACP runtime-only tab.
@@ -59,9 +60,6 @@ export function startSideSession(projectId: string, sessionId: string): void {
           })
         );
       }
-      // 侧边聊天是这个会话的一枚附页(spec session-page「一屏几块」):开在正显示着这条会话的那一格,紧跟在后面。
-      const chatPaneId = findChatPaneId(sessionView.paneLayout);
-      if (chatPaneId) sessionView.paneLayout.setActiveGroup(chatPaneId);
       sessionView.paneLayout.open(
         'side-chat',
         {
@@ -72,7 +70,7 @@ export function startSideSession(projectId: string, sessionId: string): void {
             forkedFromSessionId: source.id,
           },
         },
-        { preview: false }
+        { preview: false, beside: true }
       );
       sessionView.setFocusedRegion('main');
     })
@@ -80,7 +78,7 @@ export function startSideSession(projectId: string, sessionId: string): void {
       log.error('start side chat failed', error);
       toast({
         title: translateSessionMessage('chat.sideChatFailed'),
-        description: error instanceof Error ? error.message : String(error),
+        description: messageForUser(error),
         variant: 'destructive',
       });
     });

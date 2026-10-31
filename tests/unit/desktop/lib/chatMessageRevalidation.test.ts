@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { MessageItem } from '@gugu/core/shared/types/chat'
-import { message } from '../../../support/testHarness'
+import { ChatWindowCache } from '../../../../apps/desktop/src/store/chatWindowCache'
+import { deferred, message } from '../../../support/testHarness'
 type QueryResult = { data: unknown[] | null; error: { message: string } | null }
 const { queryResults, queryCalls, chatDbMock } = vi.hoisted(() => {
   type HoistedQueryResult = { data: unknown[] | null; error: { message: string } | null }
@@ -9,9 +10,9 @@ const { queryResults, queryCalls, chatDbMock } = vi.hoisted(() => {
     columns: string | null
     filters: Array<{ op: 'in' | 'is' | 'eq' | 'not'; field: string; value: unknown; operator?: string }>
   }
-  const queryResults = new Map<string, HoistedQueryResult[]>()
+  const queryResults = new Map<string, (HoistedQueryResult | Promise<HoistedQueryResult>)[]>()
   const queryCalls: HoistedQueryCall[] = []
-  function nextResult(table: string): HoistedQueryResult {
+  function nextResult(table: string): HoistedQueryResult | Promise<HoistedQueryResult> {
     const queue = queryResults.get(table) ?? []
     return queue.shift() ?? { data: [], error: null }
   }
@@ -61,6 +62,7 @@ import {
   applyMessageWindowRevalidation,
   applyMessageOverlays,
   loadMessageOverlays,
+  loadMessageAgentWakes,
   revalidateMessageWindow,
 } from '../../../../apps/desktop/src/lib/chatMessageRevalidation'
 function setResults(table: string, ...results: QueryResult[]) {
@@ -71,6 +73,15 @@ describe('chatMessageRevalidation', () => {
     queryResults.clear()
     queryCalls.length = 0
     vi.clearAllMocks()
+  })
+  it('starts deliveries while reactions are still pending', async () => {
+    const reactions = deferred<QueryResult>()
+    queryResults.set('message_reactions', [reactions.promise])
+    const reading = loadMessageOverlays(['m1'], 'viewer')
+    await Promise.resolve()
+    expect(queryCalls.map((call) => call.table)).toEqual(['message_reactions', 'message_deliveries', 'message_agent_delivery_blocks'])
+    reactions.resolve({ data: [], error: null })
+    await reading
   })
   it('loads reaction and delivery overlays with the same per-message read semantics', async () => {
     setResults('message_reactions', {
@@ -96,18 +107,21 @@ describe('chatMessageRevalidation', () => {
       delivered: true,
       delivery_status: 'delivered',
       readers: ['agent-a'],
+      delivery_blocks: [],
     })
     expect(overlays.get('m2')).toEqual({
       reactions: [{ emoji: '👀', count: 1, my_reaction: false }],
       delivered: true,
       delivery_status: 'read',
       readers: ['viewer'],
+      delivery_blocks: [],
     })
     expect(overlays.get('m3')).toEqual({
       reactions: [],
       delivered: false,
       delivery_status: null,
       readers: [],
+      delivery_blocks: [],
     })
   })
   it('applies overlays to fetched message items without refetching bodies', async () => {
@@ -130,7 +144,16 @@ describe('chatMessageRevalidation', () => {
         readers: ['viewer'],
       },
     ])
-    expect(queryCalls.map((call) => call.table)).toEqual(['message_reactions', 'message_deliveries'])
+    expect(queryCalls.map((call) => call.table)).toEqual(['message_reactions', 'message_deliveries', 'message_agent_delivery_blocks'])
+  })
+  it('retains terminal refusals per recipient without inventing read receipts or suppressing active recipients', async () => {
+    setResults('message_agent_delivery_blocks', { data: [{ message_id: 'm1', agent_user_id: 'archived', reason: 'agent_archived' }], error: null })
+    const overlay = (await loadMessageOverlays(['m1'], 'viewer')).get('m1')!
+    expect(overlay.delivery_blocks).toEqual([{ agent_user_id: 'archived', reason: 'agent_archived' }])
+    expect(overlay.readers).toEqual([]); expect(overlay.delivered).toBe(false); expect(overlay.delivery_status).toBeNull()
+    setResults('message_agent_wakes', { data: [{ message_id: 'm1', agent_user_id: 'archived' }, { message_id: 'm1', agent_user_id: 'active' }], error: null })
+    setResults('message_agent_delivery_blocks', { data: [{ message_id: 'm1', agent_user_id: 'archived', reason: 'agent_archived' }], error: null })
+    expect([...(await loadMessageAgentWakes(['m1'])).get('m1')!]).toEqual(['active'])
   })
   it('revalidates window body mutations and keeps deleted ids out of presentIds', async () => {
     setResults('message_reactions', { data: [], error: null })
@@ -188,6 +211,20 @@ describe('chatMessageRevalidation', () => {
       { overlays: new Map(), mutations: new Map(), presentIds: new Set([queried.id]) },
     )
     expect(next.map((row) => row.id)).toEqual(['queried', 'late-human'])
+  })
+  it('keeps a newly received read receipt when an older overlay response reaches an open chat', () => {
+    const cache = new ChatWindowCache('viewer')
+    const row = message({ id: 'm1', chat_id: 'c1', seq: 1, readers: [] })
+    cache.view('c1')
+    cache.set('c1', [row])
+    const oldResponse = {
+      overlays: new Map([['m1', { reactions: [], delivered: false, delivery_status: null, readers: [], delivery_blocks: [] }]]),
+      mutations: new Map(),
+      presentIds: new Set(['m1']),
+    }
+    cache.update('c1', (rows) => rows.map((item) => ({ ...item, delivered: true, readers: ['agent-a'] })))
+    cache.update('c1', (rows) => applyMessageWindowRevalidation(rows, new Set(['m1']), oldResponse))
+    expect(cache.rows('c1')[0]).toMatchObject({ delivered: true, readers: ['agent-a'] })
   })
   it('still drops an id that this exact request queried and confirmed absent', () => {
     const deleted = message({ id: 'deleted', seq: 1 })

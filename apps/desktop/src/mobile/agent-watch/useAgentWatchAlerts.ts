@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { Device } from '@gugu/core/shared/types/chat'
 import { platform } from '@/platform'
+import { useAuth } from '@/store/auth'
 import { claimBackgroundWatch } from '../backgroundWatchClaims'
 import { agentStatusText } from '@/lib/agentStatusText'
 import {
@@ -12,10 +13,12 @@ import {
 } from './agent-watch-alerts'
 import * as sessionpageRpc from './sessionpage-rpc'
 import { startSessionListSync } from '@/session/shared/remote-sessions/session-list-sync'
-import { retainDeviceSessions, updateDeviceSessions } from '@/session/shared/remote-sessions/session-directory'
+import { registerDeviceSessionsRetry, retainDeviceSessions, updateDeviceSessions } from '@/session/shared/remote-sessions/session-directory'
+import { workspaceDevices } from './machine-list'
 
 /**
- * 「agent 做完了 / 在等你」的提醒 —— 挂在看管入口的**根**上，不是挂在某一条会话的时间线页上。
+ * 「agent 在等你」的提醒 —— 挂在看管入口的**根**上，不是挂在某一条会话的时间线页上。
+ * 只有停下来等你批准 / 回答才叫人(shouldNotify,与桌面、聊天同一份判据);做完、出错不叫(owner 10-30)。
  *
  * 原来的实现只在你**已经盯着那条会话**时才弹，恰好是最不需要提醒的场景：在机器列表、
  * 在会话列表、或者刚切走，全都不响。spec product spec 一期边界那条要的是
@@ -34,7 +37,7 @@ import { retainDeviceSessions, updateDeviceSessions } from '@/session/shared/rem
  * agent 干完了一声不响。owner 2026-09-15 实测撞上：桌面跑完一轮，手机停在「机器与会话」，
  * 通知栏空的。订阅的寿命 = App 登录着的寿命(挂在移动壳根上的 AgentWatchRoot),与你停在哪个 tab、哪一层无关。
  */
-/** 人此刻正盯着的那条会话:它的「做完了 / 在等你」页头已经写着,再弹提示条就是同一件事报两遍。 */
+/** 人此刻正盯着的那条会话:它的「在等你」页头已经写着,再弹提示条就是同一件事报两遍。 */
 
 export type AgentWatchFocus = { deviceId: string; sessionId: string } | null
 
@@ -51,6 +54,7 @@ export function useAgentWatchFocus(focus: AgentWatchFocus): void {
 
 export function useAgentWatchAlerts(devices: readonly Device[]): void {
   const { t } = useTranslation('main')
+  const ownerId = useAuth().user?.id ?? null
   const statusRef = useRef<Record<string, AgentWatchStatusMap>>({})
   const tRef = useRef(t)
   tRef.current = t
@@ -70,16 +74,25 @@ export function useAgentWatchAlerts(devices: readonly Device[]): void {
     document.addEventListener('visibilitychange', sync)
     return () => document.removeEventListener('visibilitychange', sync)
   }, [])
-  // 只订在线机器：离线机器发过去只会等到超时，而超时会以「机器没响应」的形状显形。
-  const onlineIds = devices.filter((device) => device.is_online).map((device) => device.device_id)
+  // 只订有 workspace 的在线机器；手机摘要由独立同步器写入同一目录，不开这条 pipe。
+  const onlineIds = workspaceDevices(devices).filter((device) => device.is_online).map((device) => device.device_id)
   // 设备列表按 last_seen_at 倒序:两台在线机器轮流心跳,顺序十几秒就换一次。key ❌ 带顺序,
   // 否则每换一次整套订阅拆掉重来 —— 旧写法里那正是一次次重赌「第一次列表别超时」(#6738)。
   const key = [...onlineIds].sort().join(',')
-
-  useEffect(() => () => retainDeviceSessions([]), [])
+  const retryScope = useRef({ ownerId, onlineIds })
+  retryScope.current = { ownerId, onlineIds }
+  const retainedKey = devices.filter((device) => device.is_online || device.capabilities.host_kind === 'phone').map((device) => device.device_id).sort().join(',')
 
   useEffect(() => {
-    retainDeviceSessions(onlineIds)
+    statusRef.current = {}
+    return () => retainDeviceSessions([])
+  }, [ownerId])
+
+  useEffect(() => {
+    retainDeviceSessions(retainedKey ? retainedKey.split(',') : [])
+  }, [retainedKey])
+
+  useEffect(() => {
     if (onlineIds.length === 0) return
     const stops: Array<() => void> = []
 
@@ -95,15 +108,15 @@ export function useAgentWatchAlerts(devices: readonly Device[]): void {
       stops.push(claimBackgroundWatch('agentWatch', tRef.current('agentWatch.backgroundWatch', { count: onlineIds.length })))
     }
 
-    const deliver = (deviceId: string, alerts: readonly AgentWatchAlert[]): void => {
+    const deliver = (alerts: readonly AgentWatchAlert[]): void => {
       for (const alert of alerts) {
-        const text = tRef.current('agentWatch.notify.status', { name: alert.title, status: agentStatusText(alert.label) })
-        // 正看着这条会话:页头状态词已经在说这件事,再报一遍就是同一件事说两遍(#3566 审计)。
-        const current = watchFocus
-        if (appActiveRef.current
-          && current && current.deviceId === deviceId && current.sessionId === alert.sessionId) continue
-        void announce(text)
+        void announce(tRef.current('agentWatch.notify.status', { name: alert.title, status: agentStatusText(alert.label) }))
       }
+    }
+    // 正看着这条会话:页头状态词已经在说这件事,再报一遍就是同一件事说两遍(#3566 审计)。
+    const watching = (deviceId: string) => (sessionId: string): boolean => {
+      const current = watchFocus
+      return appActiveRef.current && current !== null && current.deviceId === deviceId && current.sessionId === sessionId
     }
 
     /**
@@ -117,16 +130,22 @@ export function useAgentWatchAlerts(devices: readonly Device[]): void {
      * 断线重连 / 重订之后那一份比的是断开前后两个端点,断开期间落定的终态照样补报,每条会话最多一条。
      */
     const syncs = onlineIds.map((deviceId) => {
-      return startSessionListSync(sessionpageRpc, deviceId, {
-        onList: (result, { cached }) => {
-          updateDeviceSessions(deviceId, { projects: result.projects, sessions: result.sessions, cached })
-          if (cached) return
-          deliver(deviceId, diffAlerts(statusRef.current[deviceId] ?? {}, result.sessions))
+      const sync = startSessionListSync(sessionpageRpc, deviceId, {
+        onList: (result) => {
+          if (retryScope.current.ownerId !== ownerId) return
+          updateDeviceSessions(deviceId, { projects: result.projects, sessions: result.sessions, cached: false, connected: true })
+          deliver(diffAlerts(statusRef.current[deviceId] ?? {}, result.sessions, watching(deviceId)))
           statusRef.current[deviceId] = statusMapOf(result.sessions)
         },
-        onLoading: (loading) => updateDeviceSessions(deviceId, { loading }),
-        onError: (error) => updateDeviceSessions(deviceId, { error }),
+        onLoading: (loading) => { if (retryScope.current.ownerId === ownerId) updateDeviceSessions(deviceId, { loading }) },
+        onLink: (connected) => { if (retryScope.current.ownerId === ownerId) updateDeviceSessions(deviceId, { connected }) },
+        onError: (error) => { if (retryScope.current.ownerId === ownerId) updateDeviceSessions(deviceId, { error, ...(error ? { connected: false } : {}) }) },
       })
+      if (ownerId) stops.push(registerDeviceSessionsRetry(ownerId, deviceId, () => {
+        if (retryScope.current.ownerId !== ownerId || !retryScope.current.onlineIds.includes(deviceId)) throw new Error('账号或设备连接已改变，请重新打开项目列表。')
+        sync.reconnect()
+      }))
+      return sync
     })
     for (const sync of syncs) stops.push(() => sync.stop())
 
@@ -148,11 +167,11 @@ export function useAgentWatchAlerts(devices: readonly Device[]): void {
     }
     // onlineIds 是每次渲染新建的数组，进依赖会让这个 effect 每帧重挂；key 是它的稳定投影。
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key])
+  }, [key, ownerId])
 }
 
 /**
- * 「agent 干完了 / 在等你」怎么送到人眼前 —— **只有一个通道:系统横幅**,不分 App 在不在前台。
+ * 「agent 在等你」怎么送到人眼前 —— **只有一个通道:系统横幅**,不分 App 在不在前台。
  *
  * owner 2026-09-15:「其实你就统一一下,都用系统横幅不行吗?没必要搞什么 App 内的提示条,
  * 尤其是在手机端,我觉得完全没必要。……总之就是,你把话搞复杂了」。

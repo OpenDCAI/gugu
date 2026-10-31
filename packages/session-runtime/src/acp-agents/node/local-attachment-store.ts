@@ -29,13 +29,15 @@ export class LocalAttachmentStore implements AttachmentStore {
   }
 
   async put(input: {
+    uploadId?: string;
     data?: Uint8Array;
     name?: string;
     mimeType: AttachmentMimeType;
     originalPath?: string;
   }): Promise<AttachmentRef> {
     await this.ensureLoaded();
-    const id = crypto.randomUUID();
+    if (input.uploadId && !/^[0-9a-f-]{36}$/i.test(input.uploadId)) throw new Error('Invalid attachment upload id');
+    const id = input.uploadId ?? crypto.randomUUID();
     const ref: AttachmentRef = {
       id,
       name: input.name ?? (input.originalPath ? basename(input.originalPath) : 'attachment'),
@@ -49,6 +51,15 @@ export class LocalAttachmentStore implements AttachmentStore {
       throw new Error('Attachment needs either its bytes or a path to read them from');
     }
     const data = input.data ?? new Uint8Array(await readFile(input.originalPath as string));
+    const previous = this.records.get(id);
+    if (previous) {
+      const stored = await readFile(previous.source.storedPath);
+      if (previous.ref.name !== ref.name || previous.ref.mimeType !== ref.mimeType
+        || stored.byteLength !== data.byteLength || !stored.every((byte, index) => byte === data[index])) {
+        throw new Error('Attachment upload id was reused for different content');
+      }
+      return previous.ref;
+    }
 
     await mkdir(this.objectsDir, { recursive: true });
     const storedPath = join(this.objectsDir, id);

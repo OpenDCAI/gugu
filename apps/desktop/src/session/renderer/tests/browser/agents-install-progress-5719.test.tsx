@@ -77,6 +77,20 @@ it('没有分母时不画定长条，界面上一个百分比都不出现', asyn
   await until('indeterminate bar renders', () => page.getByTestId('install-progress-indeterminate').query() != null)
   expect(host.querySelector('[data-testid="install-progress-determinate"]')).toBeNull()
   expect(host.textContent ?? '').not.toMatch(/\d+\s*%/)
+  const track = host.querySelector<HTMLElement>('[data-testid="install-progress-track"]')!
+  const bar = host.querySelector<HTMLElement>('[data-testid="install-progress-indeterminate"]')!
+  const [animation] = bar.getAnimations()
+  expect(animation).toBeDefined()
+  for (const frame of (animation.effect as KeyframeEffect).getKeyframes()) {
+    expect(Object.keys(frame).filter(key => !['offset', 'computedOffset', 'easing', 'composite'].includes(key))).toEqual(['transform'])
+  }
+  animation.pause()
+  const duration = animation.effect!.getTiming().duration as number
+  for (const [time, offset] of [[0, -0.4], [duration - 0.001, 1]]) {
+    animation.currentTime = time
+    const bounds = track.getBoundingClientRect()
+    expect(Math.abs(bar.getBoundingClientRect().left - bounds.left - bounds.width * offset)).toBeLessThan(0.5)
+  }
 })
 
 it('取消按下之后立刻变灰 —— 重复按只会再发一条没用的请求', async () => {

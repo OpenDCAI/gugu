@@ -19,7 +19,7 @@ import { MIN_CLIENT_PROTOCOL } from '@gugu/core/cloud/serverMachineHealth'
 import { SESSION_HOST_READY_EVENT } from '@shared/lib/ipc/session-host-device-frames'
 import { createDeviceRpcAskers, type DeviceRpcAskerLimits } from './device-rpc-askers'
 import type { ElectronManagedRealtimeChannel } from './realtime-channel'
-import { subscribeAuthenticatedElectronRealtimeChannel } from './realtime-channel'
+import { sendBroadcast, subscribeAuthenticatedElectronRealtimeChannel } from './realtime-channel'
 
 /**
  * 共用 topic 上照旧直接收的请求:咕咕云库里中转来的 MessagePreview(#6357,`chat.message_preview_relay` 用 realtime.send
@@ -39,7 +39,7 @@ type RpcChannel = {
 
 type RpcSupabaseClient<TChannel> = {
   realtime: {
-    setAuth: (accessToken: string) => unknown | Promise<unknown>
+    setAuth: () => unknown | Promise<unknown>
   }
   channel: (
     topic: string,
@@ -52,12 +52,17 @@ export function createDesktopDeviceRpcSubscription<TChannel>({
   supabase,
   warn = console.warn,
   createHandlers,
-  askerLimits
+  askerLimits,
+  broadcastEvents,
+  onSubscribed,
 }: {
   supabase: RpcSupabaseClient<TChannel>
   warn?: (message: string) => void
   /** 每个发问端一条线的上限(deviceRpcAskerLimitsFromEnv;默认 DEVICE_RPC_ASKER_LIMITS)。 */
   askerLimits?: DeviceRpcAskerLimits
+  /** Control hints share the existing device channel; file bytes must never use these callbacks. */
+  broadcastEvents?: Record<string, (deviceId: string, payload: unknown) => void>
+  onSubscribed?: (deviceId: string) => void
   /**
    * 每条频道一份宿主处理器。**按频道建、按频道拆**：处理器可能握着会话页窗口（taskhost.open），
    * 而订阅只在这条频道活着的时候有意义 —— 频道断了还留着，就是「以为还有人在看」的泄漏。
@@ -68,8 +73,9 @@ export function createDesktopDeviceRpcSubscription<TChannel>({
     dispose: () => void
   }
 }): SubscribeDeviceRpc {
-  return async ({ deviceId, accessToken }) => {
+  return async ({ deviceId }) => {
     let active = true
+    let rpcSubscribed = false
     let liveChannel: RpcChannel | null = null
     const realtimeClient = {
       realtime: supabase.realtime,
@@ -78,21 +84,20 @@ export function createDesktopDeviceRpcSubscription<TChannel>({
       }
     }
     const openTopicPublisher: OpenTopicPublisher = (topic, event) =>
-      createTopicPublisher({ supabase, realtimeClient, accessToken, topic, event, warn })
+      createTopicPublisher({ supabase, realtimeClient, topic, event, warn })
     const hostHandlers = createHandlers?.({ openTopicPublisher })
     const handleRequest = createDeviceRpcRequestHandler({ warn, handlers: hostHandlers?.handlers })
     const publishReply: PublishDeviceRpcReply = (payload) => {
       if (!liveChannel) return
-      return liveChannel.send({ type: 'broadcast', event: 'broadcast', payload })
+      return sendBroadcast(liveChannel, 'broadcast', payload)
     }
     const publishEvent: PublishDeviceRpcEvent = (payload) => {
       if (!active || !liveChannel) return
-      return liveChannel.send({ type: 'broadcast', event: 'broadcast', payload })
+      return sendBroadcast(liveChannel, 'broadcast', payload)
     }
     // #7233 每个报到过的发问端一条线:它的请求、回包、窗口回帧都走那条(device-rpc-askers.ts)。
     const askers = createDeviceRpcAskers({
       supabase,
-      accessToken,
       deviceId,
       handle: handleRequest,
       replyShared: publishReply,
@@ -100,6 +105,7 @@ export function createDesktopDeviceRpcSubscription<TChannel>({
       warn,
     })
     const createRpcChannel = () => {
+      rpcSubscribed = false
       const channel = supabase.channel(deviceRpcChannelName(deviceId), {
         config: {
           private: true,
@@ -108,8 +114,11 @@ export function createDesktopDeviceRpcSubscription<TChannel>({
       })
       const rpcChannel = channel as TChannel & RpcChannel & ElectronManagedRealtimeChannel
       liveChannel = rpcChannel
+      for (const [event, receive] of Object.entries(broadcastEvents ?? {})) {
+        rpcChannel.on('broadcast', { event }, payload => { if (active) receive(deviceId, payload) })
+      }
       rpcChannel.on('broadcast', { event: 'broadcast' }, (payload) => {
-        if (!active) return
+        if (!active || liveChannel !== rpcChannel) return
         const request = parseDeviceRpcRequest(payload)
         if (!request || request.type.endsWith(':reply')) return
         if (request.type === DEVICE_RPC_ATTACH) return askers.attach(request)
@@ -126,7 +135,7 @@ export function createDesktopDeviceRpcSubscription<TChannel>({
     }
     // 活着的那一声:共用 topic 与每条在的发问端线上各一条,订阅方的看门狗靠它(#840)。空闲的发问端线顺手离开。
     const aliveTimer = setInterval(() => {
-      if (!active) return
+      if (!active || !rpcSubscribed) return
       void Promise.resolve(publishEvent({ type: DEVICE_RPC_ALIVE })).catch(() => undefined)
       askers.alive()
     }, DEVICE_RPC_ALIVE_MS)
@@ -140,12 +149,13 @@ export function createDesktopDeviceRpcSubscription<TChannel>({
     // 立刻重开。只说一次 —— 频道断了又订上时窗口还在(处理器没换),再说就会让别人白白拆掉好好的窗口。
     let announced = false
     const unsubscribe = await subscribeAuthenticatedElectronRealtimeChannel(realtimeClient, rpcChannel, {
-      accessToken,
       label: `device-rpc:${deviceId}`,
       createChannel: createRpcChannel,
       onStatus: (status, err) => {
         const name = subscribeStatusName(status)
         if (name === 'SUBSCRIBED' || name.endsWith('.SUBSCRIBED')) {
+          rpcSubscribed = active
+          if (active) onSubscribed?.(deviceId)
           if (hostHandlers && !announced) {
             announced = true
             void Promise.resolve(publishEvent({ type: SESSION_HOST_READY_EVENT })).catch((error: unknown) => {
@@ -155,6 +165,7 @@ export function createDesktopDeviceRpcSubscription<TChannel>({
           return
         }
         if (!isSubscribeFailure(status) || !active) return
+        rpcSubscribed = false
         warn(`[device-rpc] subscribe failed: ${name}${err ? ` ${(err as Error).message}` : ''}`)
       },
       reconnectOnStatus: (status) => isSubscribeFailure(status)
@@ -162,6 +173,7 @@ export function createDesktopDeviceRpcSubscription<TChannel>({
 
     return () => {
       active = false
+      rpcSubscribed = false
       clearInterval(aliveTimer)
       clearInterval(sweepTimer)
       askers.dispose()
@@ -179,14 +191,12 @@ export type OpenTopicPublisher = (topic: string, event: string) => TopicPublishe
 function createTopicPublisher<TChannel>({
   supabase,
   realtimeClient,
-  accessToken,
   topic,
   event,
   warn
 }: {
   supabase: RpcSupabaseClient<TChannel>
   realtimeClient: { realtime: RpcSupabaseClient<TChannel>['realtime']; removeChannel: (channel: ElectronManagedRealtimeChannel) => unknown }
-  accessToken: string
   topic: string
   event: string
   warn: (message: string) => void
@@ -198,7 +208,7 @@ function createTopicPublisher<TChannel>({
   let unsubscribe: (() => void) | null = null
   const flush = () => {
     if (closed || !joined || !live || latest === undefined) return
-    void live.send({ type: 'broadcast', event, payload: latest }).catch((error: unknown) => {
+    sendBroadcast(live, event, latest).catch((error: unknown) => {
       warn(`[topic-publisher] send failed on ${topic}: ${(error as Error)?.message ?? String(error)}`)
     })
   }
@@ -209,7 +219,6 @@ function createTopicPublisher<TChannel>({
     return live as TChannel & RpcChannel & ElectronManagedRealtimeChannel
   }
   void subscribeAuthenticatedElectronRealtimeChannel(realtimeClient, createChannel(), {
-    accessToken,
     label: `topic-publisher:${topic}`,
     createChannel,
     onStatus: (status, err) => {

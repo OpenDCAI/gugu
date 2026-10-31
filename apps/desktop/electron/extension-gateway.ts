@@ -10,9 +10,10 @@ import type { CatalogTool } from './mcp/gugu-catalog-tools'
 import type { AppSearchHit } from './mcp/gugu-app-search-tool'
 import type { CloudMarketEntry } from '@shared/extensions/market'
 import type { ExtensionManifest } from '@shared/extensions/manifest'
-import { extensionTabKind } from '@shared/extensions/manifest'
+import { claimedSuffixes, extensionTabKind } from '@shared/extensions/manifest'
 import { declaredPermissions } from './session/main/core/extensions/extension-authoring'
 import { compatRefusal } from './session/main/core/extensions/market-catalog'
+import { withExtensionProgramAccess } from './session/main/core/extensions/extension-program-access'
 import {
   agentAddress,
   agentToolsOf,
@@ -79,6 +80,19 @@ export async function inScopeOf(session: string, extensionId: string): Promise<b
   const inScope = scopes.get(session)
   return inScope ? inScope(extensionId) : true
 }
+
+/**
+ * App architecture §4.1: whether an App's tools reach this session now — the one answer every listing and call reads (native
+ * tools/list and tools/call, the catalog, app_search, skills). Refused first (not installed, switched off, `agents:tools` taken
+ * back, a broken configuration: `agentToolsRefusal`, with its words), then given to this agent (D-30, `inScopeOf`).
+ */
+export type AppAccess = { ok: true } | { ok: false; state: 'refused' | 'not_given'; next: string }
+export async function appAccess(programs: Pick<ExtensionPrograms, 'agentToolsRefusal'>, session: string | undefined, extensionId: string): Promise<AppAccess> {
+  const refusal = programs.agentToolsRefusal(extensionId)
+  if (refusal) return { ok: false, state: 'refused', next: refusal }
+  if (session && !(await inScopeOf(session, extensionId))) return { ok: false, state: 'not_given', next: NOT_GIVEN([extensionId]) }
+  return { ok: true }
+}
 /** Said once for all the Apps left out so (A-B 10-06: one sentence per App ran three times over). */
 export const NOT_GIVEN = (extensionIds: readonly string[]) =>
   `${extensionIds.length === 1 ? `App ${extensionIds[0]} is` : `Apps ${extensionIds.join(', ')} are`} not given to this agent: ` +
@@ -102,9 +116,15 @@ function onApp(app: CatalogInstalledApp): Pick<AppSearchHit, 'state' | 'next' | 
   const { id, contributes } = app.manifest
   return {
     state: 'on',
-    next: app.givesAgents
+    next: (app.givesAgents
       ? `catalog_list { name: "${id}" } lists its tools and skill`
-      : 'It gives agents no tools: open one of its tabs with session_open_in_tab { app_tab }',
+      : 'It gives agents no tools: open one of its tabs with session_open_in_tab { app_tab }') +
+      // 5-minute game rounds 2-3 (10-29): 「on」 was read as 「in this chat」 for a chat App made in another chat; A/B r02: told
+      // only what the call does, the agent asked first — a person asking for it in a chat is the go-ahead.
+      (contributes.tabs.some((tab) => claimedSuffixes(tab, 'chat').length > 0)
+        ? `. It is on your owner's computer only, in no chat yet. Asked for in a chat, call app_install { app: "${id}", chat_id: <that chat>, data } now, without asking first — the request is the go-ahead; it adds the data file, checks it and posts the card`
+        : '') +
+      '. For a feature its tools or tabs do not provide, read guide_read apps-fork and ask "Shall I fork a version?" before making changes or building a workaround.',
     tabs: contributes.tabs.map((tab) => extensionTabKind(id, tab.name)),
   }
 }
@@ -132,23 +152,27 @@ function marketApp(entry: CloudMarketEntry & { firstPublishedAt: string }): AppS
  * checked as the caller, progress passed back.
  */
 async function callProgram(programs: ExtensionPrograms, program: ExtensionProgram, caller: Caller, name: string,
-  args: Record<string, unknown> | undefined, extra: Extra, signal: AbortSignal, readers: GatewayReaders): Promise<CallToolResult> {
-  const refusal = programs.agentToolsRefusal(program.extensionId)
-  if (refusal) return refused(refusal)
-  const tool = (await programs.tools(program)).find((candidate) => candidate.name === name)
-  if (tool && !toolVisibleTo(tool, 'model')) return refused(`tool ${name} is for the App's own pages only`)
-  let given: Awaited<ReturnType<typeof handedAs>>
-  try {
-    given = await handedAs(programs, agentAddress(caller.agentUserId)?.slice('user:'.length), tool, name, args)
-  } catch (error) {
-    return refused(error instanceof Error ? error.message : String(error))
-  }
-  const progressToken = extra._meta?.progressToken
-  const onprogress = progressToken === undefined ? undefined : (progress: Progress) =>
-    void extra.sendNotification({ method: 'notifications/progress', params: { ...progress, progressToken } })
-  const _meta = await callerMeta(caller, readers.sessionContext)
-  return programs.call(program, { name, arguments: given.args, _meta }, {
-    signal, onprogress, agent: agentAddress(caller.agentUserId)?.slice('user:'.length), handed: given.handed, handedChats: given.handedChats,
+  args: Record<string, unknown> | undefined, extra: Extra, parent: AbortSignal, readers: GatewayReaders): Promise<CallToolResult> {
+  return withExtensionProgramAccess(program.extensionId, parent, async (signal) => {
+    const refusal = programs.agentToolsRefusal(program.extensionId)
+    if (refusal) return refused(refusal)
+    const tool = (await programs.tools(program)).find((candidate) => candidate.name === name)
+    if (tool && !toolVisibleTo(tool, 'model')) return refused(`tool ${name} is for the App's own pages only`)
+    let given: Awaited<ReturnType<typeof handedAs>>
+    try {
+      given = await handedAs(programs, agentAddress(caller.agentUserId)?.slice('user:'.length), tool, name, args)
+    } catch (error) {
+      return refused(error instanceof Error ? error.message : String(error))
+    }
+    const progressToken = extra._meta?.progressToken
+    const onprogress = progressToken === undefined ? undefined : (progress: Progress) =>
+      void extra.sendNotification({ method: 'notifications/progress', params: { ...progress, progressToken } })
+    const _meta = await callerMeta(caller, readers.sessionContext)
+    signal.throwIfAborted()
+    return programs.call(program, { name, arguments: given.args, _meta }, {
+      signal, onprogress, agent: agentAddress(caller.agentUserId)?.slice('user:'.length), handed: given.handed, handedChats: given.handedChats,
+      ...(typeof _meta['gugu/sessionId'] === 'string' ? { sessionId: _meta['gugu/sessionId'] } : {}),
+    })
   })
 }
 
@@ -219,8 +243,7 @@ export function createExtensionCatalog(deps: {
       const programs = deps.programs()
       const found: ExtensionSkill[] = []
       for (const skill of deps.skills?.() ?? []) {
-        if (programs.agentToolsRefusal(skill.extensionId)) continue
-        if (await inScopeOf(session, skill.extensionId)) found.push(skill)
+        if ((await appAccess(programs, session, skill.extensionId)).ok) found.push(skill)
       }
       return found
     },
@@ -237,9 +260,8 @@ export function createExtensionCatalog(deps: {
         const id = app.manifest.id
         if (!app.enabled) return { state: 'off', next: SWITCHED_OFF(app.manifest.name) }
         if (!app.givesAgents) return onApp(app)
-        const refusal = programs.agentToolsRefusal(id)
-        if (refusal) return { state: 'unavailable', next: refusal }
-        if (session && !(await inScopeOf(session, id))) return { state: 'not_given', next: NOT_GIVEN([id]) }
+        const access = await appAccess(programs, session, id)
+        if (!access.ok) return { state: access.state === 'refused' ? 'unavailable' : 'not_given', next: access.next }
         const own = programs.installed().filter((program) => program.extensionId === id)
         await listPrograms(programs, own)
         const failed = own.flatMap((program) => {
@@ -268,8 +290,7 @@ export function createExtensionCatalog(deps: {
     async tools(session: string, agentId: string | undefined, agentUserId?: string, name?: string): Promise<CatalogTool[]> {
       const programs = deps.programs()
       const candidates = programs.installed().filter((program) => !name || name.startsWith(`${program.extensionId}__`))
-      const given = await Promise.all(candidates.map(async (program) =>
-        !programs.agentToolsRefusal(program.extensionId) && (await inScopeOf(session, program.extensionId))))
+      const given = await Promise.all(candidates.map(async (program) => (await appAccess(programs, session, program.extensionId)).ok))
       const tools = await listPrograms(programs, candidates.filter((_, at) => given[at]))
       return tools.map(({ name, program, tool }) => ({
         name,
@@ -300,20 +321,20 @@ export function createExtensionGatewayHost(
       )
       server.server.setRequestHandler(ListToolsRequestSchema, () => {
         const { program: entry, session } = getContext()
-        const current = programs().agentToolsRefusal(entry.extensionId) ? undefined : installed(entry)
-        // A revoked extension's program is not started just to be listed; nor one not given to this agent (D-30).
-        const tools = inScopeOf(session, entry.extensionId).then((given) => (current && given ? programs().tools(current) : []))
+        // A refused App's program is not started just to be listed; nor one not given to this agent (D-30).
+        const tools = appAccess(programs(), session, entry.extensionId).then((access) => {
+          const current = access.ok ? installed(entry) : undefined
+          return current ? programs().tools(current) : []
+        })
         return trackRequest(tools.then((list) => ({ tools: list.filter((tool) => toolVisibleTo(tool, 'model')) })), 'tools/list')
       })
       server.server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
         const { program: entry, agentId, subjectId, session } = getContext()
         const { name, arguments: args } = request.params
+        const access = await appAccess(programs(), session, entry.extensionId)
+        if (!access.ok) return refused(access.next)
         const current = installed(entry)
-        if (!current) {
-          const text = programs().agentToolsRefusal(entry.extensionId) ?? `App ${entry.extensionId} no longer ships program ${entry.server}`
-          return { content: [{ type: 'text' as const, text }], isError: true }
-        }
-        if (!(await inScopeOf(session, entry.extensionId))) return refused(NOT_GIVEN([entry.extensionId]))
+        if (!current) return refused(`App ${entry.extensionId} no longer ships program ${entry.server}`)
         return trackRequest(callProgram(programs(), current, { agentId, agentUserId: subjectId }, name, args, extra, AbortSignal.any([grantSignal, extra.signal]), readers), name)
       })
       return server

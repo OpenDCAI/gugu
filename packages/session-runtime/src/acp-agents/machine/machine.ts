@@ -30,6 +30,8 @@ export type SessionPhase =
   | { kind: 'closed'; exitCode: number | null };
 
 export interface SessionMachineContext {
+  /** A dispatched input is awaiting its first foreground event; it reserves admission only. */
+  dispatchPending?: boolean;
   modeIds?: readonly string[];
   configOptionIds?: readonly string[];
 }
@@ -99,7 +101,9 @@ export type Command =
       prompt: QueuedPrompt;
       steerIfBusy?: boolean;
     }
-  | { type: 'QueuePrompt'; prompt: QueuedPrompt }
+  | { type: 'QueuePrompt'; prompt: QueuedPrompt; retainIdentity?: boolean }
+  | { type: 'ReserveQueuedPrompt'; id: string }
+  | { type: 'ReleaseQueuedPrompt'; id: string; accepted: boolean }
   | { type: 'Cancel' }
   | { type: 'EditQueuedPrompt'; id: string; input: PromptInput; updatedAt: number; queueEdit?: QueuedPromptEdit | null }
   | { type: 'RemoveQueuedPrompt'; id: string }
@@ -116,8 +120,12 @@ export type DomainEvent =
   | { type: 'SessionReady' }
   | { type: 'SessionLoaded' }
   | { type: 'PromptStarted'; prompt: QueuedPrompt }
+  /** Provider refused before any update; no work outcome or transcript exists. */
+  | { type: 'PromptRefused' }
   | { type: 'PromptSteered'; prompt: QueuedPrompt }
-  | { type: 'PromptQueued'; prompt: QueuedPrompt }
+  | { type: 'PromptQueued'; prompt: QueuedPrompt; retainIdentity?: boolean }
+  | { type: 'QueuedPromptReserved'; id: string }
+  | { type: 'QueuedPromptReleased'; id: string; accepted: boolean }
   | { type: 'QueuedPromptEdited'; id: string; input: PromptInput; updatedAt: number; queueEdit?: QueuedPromptEdit | null }
   | { type: 'QueuedPromptRemoved'; id: string }
   | { type: 'QueueReordered'; ids: readonly string[] }
@@ -125,13 +133,13 @@ export type DomainEvent =
   | { type: 'WorkStarted' }
   /** agent 停下了(working/cancelling → ready):记下怎么停的,抽干队列。 */
   | { type: 'WorkEnded'; outcome: TurnOutcome; dequeueQueuedPrompt?: boolean }
-  | { type: 'AgentsChanged'; runningCount: number }
+  | { type: 'AgentsChanged'; runningCount: number; dequeueQueuedPrompt?: boolean }
   | { type: 'BackgroundCommandsChanged'; taskIds: readonly string[] }
   | { type: 'CancellationRequested' }
   | { type: 'PermissionRequested'; request: AcpPermissionRequest }
   | { type: 'PermissionResolved'; requestId: string }
   /** A live setting was confirmed; release prompts held at the next-turn barrier. */
-  | { type: 'SettingsReady' }
+  | { type: 'AdmissionReady' }
   | { type: 'ProcessClosed'; exit: AdapterExit; abnormal?: boolean };
 
 export type TurnOutcome = { kind: 'stopped'; stopReason: StopReason } | { kind: 'errored' };
@@ -157,7 +165,7 @@ export function decide(
   switch (cmd.type) {
     case 'Prompt':
       // 「忙」只看 agent 在不在干活;只剩后台是 park,新来的一句直接发,不排到后台跑完。
-      if (isBusy(s)) {
+      if (isBusy(s) || (s.phase.kind === 'ready' && ctx.dispatchPending)) {
         // spec session-injection(next-tool-call 档的 mid-turn 支):忙时把同一条标准 session/prompt
         // **立即**发进当前 turn,❌ 不落 PromptQueued(那正是曾把 opencode 挡成 idle-only 的那道闸)。
         // 单线程 decide 里判定 = 原子;只有会话上那家 harness 声明了 next-tool-call 的调用方才会带这个旗。
@@ -179,7 +187,18 @@ export function decide(
       return ok([{ type: 'PromptStarted', prompt: cmd.prompt }]);
 
     case 'QueuePrompt':
-      return ok([{ type: 'PromptQueued', prompt: cmd.prompt }]);
+      return ok([{ type: 'PromptQueued', prompt: cmd.prompt, ...(cmd.retainIdentity ? { retainIdentity: true } : {}) }]);
+
+    case 'ReserveQueuedPrompt': {
+      const [head] = s.queuedPrompts;
+      if (s.phase.kind !== 'working' || head?.id !== cmd.id || head.queueEdit || head.queueDispatching) {
+        return acpErr.invalidState('The queue head is not available for steering');
+      }
+      return ok([{ type: 'QueuedPromptReserved', id: cmd.id }]);
+    }
+
+    case 'ReleaseQueuedPrompt':
+      return ok([{ type: 'QueuedPromptReleased', id: cmd.id, accepted: cmd.accepted }]);
 
     case 'Cancel':
       if (s.phase.kind !== 'working' && s.backgroundAgentCount === 0) {
@@ -189,6 +208,7 @@ export function decide(
 
     case 'EditQueuedPrompt': {
       const prompt = s.queuedPrompts.find((entry) => entry.id === cmd.id);
+      if (prompt?.queueDispatching) return acpErr.invalidState('The queued message is awaiting native admission');
       if (cmd.queueEdit && (s.phase.kind === 'closed' || s.phase.kind === 'lost' || s.phase.kind === 'replaying')) {
         return acpErr.invalidState('The session cannot reserve a queued message for editing');
       }
@@ -206,10 +226,16 @@ export function decide(
     }
 
     case 'RemoveQueuedPrompt':
+      if (s.queuedPrompts.some((prompt) => prompt.id === cmd.id && prompt.queueDispatching)) {
+        return acpErr.invalidState('The queued message is awaiting native admission');
+      }
       if (!s.queuedPrompts.some((prompt) => prompt.id === cmd.id)) return ok([]);
       return ok([{ type: 'QueuedPromptRemoved', id: cmd.id }]);
 
     case 'ReorderQueue': {
+      if (s.queuedPrompts.some((prompt) => prompt.queueDispatching)) {
+        return acpErr.invalidState('A queued message is awaiting native admission');
+      }
       const knownIds = new Set(s.queuedPrompts.map((prompt) => prompt.id));
       if (cmd.ids.length !== knownIds.size || cmd.ids.some((id) => !knownIds.has(id))) {
         return acpErr.invalidState('Queue reorder ids must match the queued prompts');
@@ -303,6 +329,9 @@ export function evolve(
       if (s.phase.kind !== 'ready') return warn(s, `PromptStarted in phase '${s.phase.kind}'`);
       return { state: s, effects: [{ type: 'promptStarted', prompt: ev.prompt }] };
 
+    case 'PromptRefused':
+      return { state: { ...s, phase: { kind: 'ready' } }, effects: [{ type: 'state' }] };
+
     case 'WorkStarted':
       if (s.phase.kind === 'working' || s.phase.kind === 'cancelling') return { state: s, effects: [] };
       if (s.phase.kind !== 'ready') return warn(s, `WorkStarted in phase '${s.phase.kind}'`);
@@ -331,11 +360,19 @@ export function evolve(
       // 产品的排队入口(`SessionCell.queueBehindTurn`)与发送同一个准入,空闲时当场开轮,不落这里。
       // 原样 `QueuePrompt` 只剩启动队列 / 设置闸 / 队列快照恢复在用,它们各有自己的抽干边界。
       {
+        // A promptRequired/preparation race may return this same retained input to the queue.
+        if (ev.retainIdentity && s.queuedPrompts.some(prompt => prompt.id === ev.prompt.id)) {
+          return { state: { ...s, queuedPrompts: s.queuedPrompts.map(prompt => prompt.id === ev.prompt.id
+            ? { ...prompt, coalesceKey: undefined } : prompt) }, effects: [{ type: 'state' }] };
+        }
+        if (s.queuedPrompts.some(prompt => prompt.id === ev.prompt.id && (ev.retainIdentity || prompt.queueDispatching))) {
+          return { state: s, effects: [] };
+        }
         // #6387 同键替换:还在排的那条换成新内容,位置与 id 不变(它仍是「那一条」,只是内容新了)。
         const key = ev.prompt.coalesceKey;
-        const index = key === undefined
+        const index = key === undefined || ev.retainIdentity
           ? -1
-          : s.queuedPrompts.findIndex((prompt) => prompt.coalesceKey === key && !prompt.queueEdit);
+          : s.queuedPrompts.findIndex((prompt) => prompt.coalesceKey === key && !prompt.queueEdit && !prompt.queueDispatching);
         if (index >= 0) {
           const existing = s.queuedPrompts[index];
           const replaced = { ...ev.prompt, id: existing.id, createdAt: existing.createdAt };
@@ -352,6 +389,19 @@ export function evolve(
         state: { ...s, queuedPrompts: [...s.queuedPrompts, ev.prompt] },
         effects: [{ type: 'state' }],
       };
+
+    case 'QueuedPromptReserved':
+      return { state: { ...s, queuedPrompts: s.queuedPrompts.map(prompt => prompt.id === ev.id
+        ? { ...prompt, queueDispatching: true } : prompt) }, effects: [{ type: 'state' }] };
+
+    case 'QueuedPromptReleased':
+      return { state: { ...s, queuedPrompts: ev.accepted
+        ? s.queuedPrompts.filter(prompt => prompt.id !== ev.id)
+        : s.queuedPrompts.map(prompt => {
+          if (prompt.id !== ev.id) return prompt;
+          const { queueDispatching: _reserved, ...input } = prompt;
+          return input;
+        }) }, effects: [{ type: 'state' }] };
 
     case 'QueuedPromptEdited':
       return {
@@ -382,10 +432,16 @@ export function evolve(
     }
 
     case 'WorkEnded': {
+      const stopReason = ev.outcome.kind === 'stopped' ? ev.outcome.stopReason : null;
+      // A prompt can end before its provider ever reported running (refused, cancelled before insertion):
+      // the ending is still the last turn's outcome. Nothing started, so nothing stops and nothing drains.
+      if (s.phase.kind === 'ready') {
+        return { state: { ...s, lastStopReason: stopReason,
+          lastTurnOutcome: ev.outcome.kind === 'errored' ? 'errored' : 'stopped' }, effects: [{ type: 'state' }] };
+      }
       if (s.phase.kind !== 'working' && s.phase.kind !== 'cancelling') {
         return warn(s, `WorkEnded in phase '${s.phase.kind}'`);
       }
-      const stopReason = ev.outcome.kind === 'stopped' ? ev.outcome.stopReason : null;
       // agent 停下就抽干队列:后台子代理不是在干的活,不挡下一句。
       const { queuedPrompts, effects: queueEffects } =
         ev.dequeueQueuedPrompt !== false
@@ -415,7 +471,7 @@ export function evolve(
 
     case 'AgentsChanged': {
       const { queuedPrompts, effects: queueEffects } =
-        ev.runningCount === 0 && s.phase.kind === 'ready'
+        ev.runningCount === 0 && s.phase.kind === 'ready' && ev.dequeueQueuedPrompt !== false
           ? dequeuePromptEffects(s.queuedPrompts)
           : { queuedPrompts: s.queuedPrompts, effects: [] as Effect[] };
       return {
@@ -471,8 +527,8 @@ export function evolve(
         effects: [{ type: 'permissionResolved', requestId: ev.requestId, cancelled: false }],
       };
 
-    case 'SettingsReady': {
-      if (s.phase.kind !== 'ready') return warn(s, `SettingsReady in phase '${s.phase.kind}'`);
+    case 'AdmissionReady': {
+      if (s.phase.kind !== 'ready') return warn(s, `AdmissionReady in phase '${s.phase.kind}'`);
       const { queuedPrompts, effects: queueEffects } = dequeuePromptEffects(s.queuedPrompts);
       return {
         state: { ...s, queuedPrompts },
@@ -537,11 +593,12 @@ function dequeuePromptEffects(queuedPrompts: readonly QueuedPrompt[]): {
   effects: Effect[];
 } {
   const [head] = queuedPrompts;
-  if (!head || head.queueEdit) return { queuedPrompts, effects: [] };
+  if (!head || head.queueEdit || head.queueDispatching) return { queuedPrompts, effects: [] };
   const kind = mergeKind(head);
   let end = 1;
   if (kind !== 'alone') {
-    while (end < queuedPrompts.length && !queuedPrompts[end].queueEdit && mergeKind(queuedPrompts[end]) === kind) end += 1;
+    while (end < queuedPrompts.length && !queuedPrompts[end].queueEdit && !queuedPrompts[end].queueDispatching
+      && mergeKind(queuedPrompts[end]) === kind) end += 1;
   }
   const sources = queuedPrompts.slice(0, end);
   return {

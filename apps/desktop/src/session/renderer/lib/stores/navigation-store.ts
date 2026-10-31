@@ -7,30 +7,6 @@ import type { Snapshottable } from './snapshottable';
 
 type ViewParamsStore = Partial<{ [K in ViewId]: WrapParams<K> }>;
 
-export const viewEvents: Record<
-  ViewId,
-  | 'home_viewed'
-  | 'project_viewed'
-  | 'session_viewed'
-  | 'library_viewed'
-  | 'assistant_viewed'
-  | 'automations_viewed'
-  | 'session_history_viewed'
-  | 'apps_viewed'
-  | 'app_viewed'
-> = {
-  home: 'home_viewed',
-  automations: 'automations_viewed',
-  library: 'library_viewed',
-  assistant: 'assistant_viewed',
-  project: 'project_viewed',
-  'session-history': 'session_history_viewed',
-  session: 'session_viewed',
-  'new-session': 'session_viewed',
-  apps: 'apps_viewed',
-  app: 'app_viewed',
-};
-
 type LibraryViewId = 'library';
 type NonLibraryViewId = Exclude<ViewId, LibraryViewId>;
 

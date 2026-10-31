@@ -1,3 +1,4 @@
+import { observeCodexForegroundCompletion } from '../../../support/codexForegroundCompletion';
 // @@@vitest-environment node
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { chmodSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
@@ -61,15 +62,15 @@ function start(env: Record<string, string>) {
   writeFileSync(recordPath, '')
   const child = spawn(process.execPath, [ADAPTER], {
     cwd: dir,
-    env: { ...process.env, GUGU_CODEX_BIN: fake, FIXTURE_RECORD: recordPath, ...env },
+    env: { ...process.env, GUGU_CODEX_SKILL_ROOTS: undefined, GUGU_CODEX_BIN: fake, FIXTURE_RECORD: recordPath, ...env },
     stdio: ['pipe', 'pipe', 'pipe'],
   })
   adapter = child
   const responses = new Map<number, { result?: unknown; error?: { message?: string } }>()
-  createInterface({ input: child.stdout }).on('line', (line) => {
+  createInterface({ input: child.stdout }).on('line', observeCodexForegroundCompletion((line) => {
     const m = JSON.parse(line)
     if (m.id !== undefined && !m.method) responses.set(m.id, { result: m.result, error: m.error })
-  })
+  }))
   let nextId = 1
   const send = (method: string, params: unknown) => {
     const id = nextId++
@@ -84,7 +85,7 @@ function start(env: Record<string, string>) {
 }
 
 const opened = async (rig: ReturnType<typeof start>) => {
-  await rig.reply(rig.send('initialize', { protocolVersion: 1, clientCapabilities: {} }), 'initialize')
+  await rig.reply(rig.send('initialize', { protocolVersion: 2, capabilities: {} }), 'initialize')
   return rig.reply(rig.send('session/new', { cwd: dir, mcpServers: [] }), 'session/new')
 }
 

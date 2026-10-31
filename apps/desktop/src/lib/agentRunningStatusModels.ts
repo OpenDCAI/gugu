@@ -1,3 +1,4 @@
+import { machineKeyOf } from '@gugu/core/shared/deviceMachines'
 import type { AgentLocation } from '@gugu/core/shared/ui/agentHeaderStatusModels'
 import { isTransientAgentConversationStatus } from '@gugu/core/shared/ui/agentConversationStatusModels'
 import { isAssistantHome } from './assistantHome'
@@ -19,9 +20,9 @@ export function resolveAgentLocation(
   // #7199 个人助理住的那台:任何时候都不说它在哪、❌ 读那台的机器名(owner 10-15「用户只知道个人助理 Agent，
   // 甚至不需要知道它生活在哪儿」)。那台自己随心跳报的标记设备行一出现就在,不等管家。
   if (isAssistantHome(device, null)) return null
-  // 同一台电脑的几条设备行(正式版/测试版)都是「本机」—— 与通讯录分段同一个判据(contactsByDevice.machineKeyOf)。
+  // 同一台电脑的几条设备行(正式版/测试版)都是「本机」—— 与通讯录分段同一个判据(core machineKeyOf)。
   const current = devices.find((candidate) => candidate.is_current_device)
-  if (device.is_current_device || (current && (current.machine_id || current.device_id) === (device.machine_id || device.device_id))) {
+  if (device.is_current_device || (current && machineKeyOf(current) === machineKeyOf(device))) {
     return 'local'
   }
 

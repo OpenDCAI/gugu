@@ -7,6 +7,7 @@ import type { CreditUsageDay, UsageDay } from '@gugu/core/shared/usage/dailyUsag
 import type { UsageDailyRow } from './rows'
 import { dataClient } from '../supabase'
 import type { UsageActivityRow } from '../billing/usage'
+import type { DayRange } from './derive'
 
 function fail(error: { message: string } | null): never {
   throw new Error(error?.message ?? 'unknown error')
@@ -91,12 +92,16 @@ export type LedgerRow = UsageActivityRow & { cache_read_tokens: number; cache_cr
  * 积分明细,按页取(页码 + 每页行数 + 精确总数)。
  * 模型名称是包含匹配,大小写不敏感。
  */
-export async function fetchLedgerPage(options: { page: number; pageSize: number; model: string | null }): Promise<{ rows: LedgerRow[]; total: number }> {
+export async function fetchLedgerPage(options: { page: number; pageSize: number; model: string | null; range: Pick<DayRange, 'from' | 'to'> }): Promise<{ rows: LedgerRow[]; total: number }> {
   const from = (options.page - 1) * options.pageSize
+  const [fy, fm, fd] = options.range.from.split('-').map(Number)
+  const [ty, tm, td] = options.range.to.split('-').map(Number)
   let query = dataClient
     .schema('billing')
     .from('usage_events')
     .select('id, model, agent_user_id, credits_charged, input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens, created_at', { count: 'exact' })
+    .gte('created_at', new Date(fy, fm - 1, fd).toISOString())
+    .lt('created_at', new Date(ty, tm - 1, td + 1).toISOString())
     .order('created_at', { ascending: false })
     .order('id', { ascending: false })
     .range(from, from + options.pageSize - 1)

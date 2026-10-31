@@ -121,7 +121,7 @@ export interface ComputerControlHooks {
    * 人停了这个 App(pid),或停了整个电脑控制 → 回 { refused: 给 agent 的话 };
    * 否则登记「正在操作」,回这一下的中止信号(人按停止时触发,reason 是给 agent 的话)和收尾 end()(成败都调)。
    */
-  begin(call: { callerName?: string; pid?: number; appName?: string }): { refused: string } | { signal: AbortSignal; end(): void }
+  begin(call: { callerName?: string; taskTitle?: string; pid?: number; windowId?: number; appName?: string }): { refused: string } | { signal: AbortSignal; end(): void }
 }
 
 export interface FamilyContext {

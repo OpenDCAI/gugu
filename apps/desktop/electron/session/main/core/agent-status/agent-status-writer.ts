@@ -18,6 +18,7 @@ import {
 import { sessionsAliveInTmux } from '@main/core/sessions/session-process';
 import { db } from '@main/db/client';
 import { sessions } from '@main/db/schema';
+import { clearInterruptedTurn, recordInterruptedTurns } from './interrupted-turns';
 import { events } from '@main/lib/events';
 import { HookCore, type Hookable } from '@main/lib/hookable';
 import { log } from '@main/lib/logger';
@@ -31,13 +32,14 @@ import {
   type ProviderBlocker,
   type ProviderReviewGate,
 } from '@shared/core/sessions/sessionEvents';
-import type { Session } from '@shared/core/sessions/sessions';
+import type { InterruptedBy, Session } from '@shared/core/sessions/sessions';
 import { hasStatusSource } from '@shared/core/sessions/initial-agent-status';
 import {
   emptyStatusLogState,
   readStatusLog,
   restoreStatusLog,
   stepStatusLog,
+  waitsOnHarness,
   type AgentStatusEvent,
   type AgentStatusLogState,
 } from './status-event-log';
@@ -51,7 +53,7 @@ import { translateAgentEvent, type TranslationContext } from './status-event-tra
  * 宿主按 agent 的流唯一的来源。出生、开机收残、打断、退出、provider 门、已读都是这里的一次写入。
  */
 export type AgentStatusWriterHooks = {
-  'agent:status': (change: AgentStatusChange & { reading: AgentStatusReading; sourceId?: string }) =>
+  'agent:status': (change: AgentStatusChange & { reading: AgentStatusReading; sourceId?: string; activityAt?: number }) =>
     | void
     | Promise<void>;
 };
@@ -170,7 +172,7 @@ class AgentStatusWriter implements IInitializable, IDisposable, Hookable<AgentSt
     const before = readStatusLog(state);
     const canonical = translate({
       running: state.running,
-      waiting: state.waits.size > 0,
+      waiting: waitsOnHarness(state),
       failed: state.error !== null,
       autoApproved: isSessionAutoApproved(sessionId),
     });
@@ -202,10 +204,8 @@ class AgentStatusWriter implements IInitializable, IDisposable, Hookable<AgentSt
       active: true,
       soundEvent: finished ? 'task_complete' : waitAsked ? 'needs_attention' : undefined,
     });
-    // 系统横幅只给 CLI hook 送来的事件(sourceId 只在那条路上有)。
-    const answering = reading.detail === 'question' || reading.detail === 'plan';
-    const notice = finished ? 'finished' : waitAsked ? (answering ? 'needsAnswer' : 'needsApproval') : null;
-    if (notice && meta.event?.sourceId) void maybeShowNotification(meta.event, notice);
+    // 系统横幅跟着这一份读数走,与它从哪条路来(终端 hook、ACP、宿主的等待)无关;叫不叫人由 shouldNotify 定。
+    void maybeShowNotification({ sessionId, projectId: entry.projectId }, previous, reading);
   }
 
   /**
@@ -232,6 +232,8 @@ class AgentStatusWriter implements IInitializable, IDisposable, Hookable<AgentSt
           ...(lastInteractedAt ? { lastInteractedAt } : {}),
         })
         .where(eq(sessions.id, sessionId));
+      // 开工了:开机收残记下的「上一轮被打断」不再是现在的事。
+      if (reading.status === 'working') clearInterruptedTurn(sessionId);
       if (lastInteractedAt) {
         events.emit(sessionChangedChannel, { sessionId, projectId: entry.projectId, changes: { lastInteractedAt } });
       }
@@ -250,7 +252,8 @@ class AgentStatusWriter implements IInitializable, IDisposable, Hookable<AgentSt
       appFocused: meta.appFocused,
       ...(options.soundEvent ? { soundEvent: options.soundEvent } : {}),
     });
-    this._hooks.callHookBackground('agent:status', { ...change, sourceId: meta.event?.sourceId });
+    this._hooks.callHookBackground('agent:status', { ...change, sourceId: meta.event?.sourceId,
+      ...(options.active ? { activityAt: meta.timestamp } : {}) });
   }
 
   private now(): PublishMeta {
@@ -296,14 +299,15 @@ class AgentStatusWriter implements IInitializable, IDisposable, Hookable<AgentSt
   }
 
   /**
-   * 开机收残:上一个进程的会话,引擎随它一起没了的(ACP、不在 tmux 里的终端腿),留下的「在跑 / 等人」是历史不是现在时 ——
-   * 与一条 `Interrupted` 同一个结果:空闲、`plain`(被打断的一轮不是做完)、已读(没有哪一轮是刚刚干完的)。
+   * 开机收残:上一个进程的会话,引擎随它一起没了的(ACP、不在 tmux 里的终端腿),留下的「在跑 / 等人」是历史不是现在时。
+   * 那一轮没做完、也没人知道 ⇒ 记成 `error`、未读(要人处理;下一轮开工自己清掉),原因(`lastExit`:宿主更新 / 重启 /
+   * 上一次没正常退出)记在 interrupted-turns,会话页末尾据此说一句(10-28 Linux 2:换版打断 7 条车道,侧栏却是一片安静的空闲)。
    * **引擎在 tmux 里活下来的不收**:它那一轮还在跑,读数照旧(它的钩子会接着打回来)。❌ 一律收成空闲:
    * 那样账号进程一重启,所有在 tmux 里跑着的会话都读成空闲(10-08:守护进程据此判「没有 agent 在跑」连升两级)。
    * `tmuxSessionNames` 是开机时问一次 tmux 的结果,活没活与接回同一个判据(`sessionsAliveInTmux`)。
    * 在任何会话能说话之前跑完;这之后由行恢复的日志只会遇到静止的读数。
    */
-  async settleAfterRestart(tmuxSessionNames: ReadonlySet<string>): Promise<void> {
+  async settleAfterRestart(tmuxSessionNames: ReadonlySet<string>, lastExit: InterruptedBy = 'unclean'): Promise<void> {
     const inFlight = await db
       .select({ id: sessions.id })
       .from(sessions)
@@ -313,8 +317,9 @@ class AgentStatusWriter implements IInitializable, IDisposable, Hookable<AgentSt
     if (gone.length === 0) return;
     await db
       .update(sessions)
-      .set({ agentStatus: 'idle', agentStatusDetail: 'plain', agentStatusSeen: 1 })
+      .set({ agentStatus: 'error', agentStatusDetail: null, agentStatusSeen: 0 })
       .where(inArray(sessions.id, gone));
+    recordInterruptedTurns(gone, lastExit);
   }
 
   /** 宿主停下了在飞的一切(停止键、ACP 取消 / 关闭):被打断,不是做完也不是失败。 */
@@ -372,13 +377,14 @@ class AgentStatusWriter implements IInitializable, IDisposable, Hookable<AgentSt
   }
 
   /**
-   * D-31 The host waits on the person in this session — an approval it asked for the agent (an App install, on the
-   * session's timeline): a session-level approval wait while it is asked, ended when answered or withdrawn. The same edge
-   * for a chat-UI session and a terminal one: its yellow dot, the phone's 「等你批准」.
+   * D-31 The host waits on the person in this session — an approval it asked for the agent (an App install) or the agent's
+   * own question (`session_ask_user`), both on the session's timeline: a host wait while it is asked, ended only when
+   * answered or withdrawn (the agent starting work again does not answer it). The same edge for a chat-UI session and a
+   * terminal one: its yellow dot, the phone's 「等你批准」 / 「等你回答」.
    */
-  reportHostWait(params: StatusWriteParams & { id: string; open: boolean; waitKind?: 'approval' | 'question' }): void {
+  reportHostWait(params: StatusWriteParams & { id: string; open: boolean; waitKind?: 'approval' | 'question' | 'dialog' }): void {
     const event: AgentStatusEvent = params.open
-      ? { kind: 'WaitStarted', sessionId: params.sessionId, id: params.id, waitKind: params.waitKind ?? 'approval', scope: 'session' }
+      ? { kind: 'WaitStarted', sessionId: params.sessionId, id: params.id, waitKind: params.waitKind ?? 'approval', scope: 'host' }
       : { kind: 'WaitEnded', sessionId: params.sessionId, id: params.id };
     void this.inOrder(params.sessionId, () => this.apply(params.sessionId, () => [event], this.now())).catch((error) =>
       log.error('AgentStatusWriter: failed to write the host wait', { sessionId: params.sessionId, error: String(error) }),

@@ -15,7 +15,7 @@ import { DEFAULT_SESSION_AUTO_APPROVE } from '@shared/core/sessions/default-sess
 import { Switch } from '@/components/ui/Switch';
 import { InfoTooltip } from '@renderer/lib/ui/info-tooltip';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
-import { DeviceSettingsNotice, DeviceSettingsTag } from './DeviceSettingsScope';
+import { DeviceSettingsNotice } from './DeviceSettingsScope';
 import { ResetToDefaultButton } from './ResetToDefaultButton';
 import { SettingsRow } from '@/components/settings/SettingsPrimitives';
 
@@ -26,7 +26,6 @@ export const AutoGenerateSessionNamesRow: React.FC = () => {
   return (
     <SettingsRow
       title={translate('taskDefaults.autoGenerateName')}
-      description={translate('taskDefaults.autoGenerateNameDescription')}
       control={
         <>
           <ResetToDefaultButton
@@ -273,17 +272,10 @@ export const EnableTmuxRow: React.FC = () => {
 
   const tmuxByDefault = projects?.tmuxByDefault ?? false;
 
-  // #6264 默认 tmux 是**那台机器上**终端会话怎么开:跟着设置左栏列头的机器选择器(与「仓库」页共用一份选择),
-  // 默认本机。这一页其余几行跟着这个窗口,不跟它 ⇒ 只在这一行标题旁标出机器名。
   return (
     <>
       <SettingsRow
-        title={
-          <>
-            {translate('taskDefaults.enableTmux')}
-            <DeviceSettingsTag />
-          </>
-        }
+        title={translate('taskDefaults.enableTmux')}
         description={translate('taskDefaults.enableTmuxDescription')}
         control={
           <>

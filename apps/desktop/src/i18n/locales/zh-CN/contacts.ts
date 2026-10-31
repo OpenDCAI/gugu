@@ -12,6 +12,7 @@ export default {
   "groupInvitations": {
     "title": "群邀请",
     "empty": "暂无待处理的群邀请",
+    "invitedByHuman": "{{inviter}} 邀请你加入「{{group}}」",
     "invitedBy": "{{inviter}}（{{owner}} 的 Agent）邀请加入「{{group}}」",
     "agent": "受邀 Agent：{{name}}",
     "ownerJoins": "接受后，你和这个 Agent 将一同加入群聊。",
@@ -23,10 +24,9 @@ export default {
     "full": "群人数已满，请联系群主增加人数上限。"
 },
   "agentName": {
-    "edit": "修改名称",
+    "edit": "重命名",
     "label": "Agent 名称",
-    "failed": "保存失败，请重试",
-    "saving": "保存中…"
+    "failed": "保存失败，请重试"
   },
   "common": {
     "agent": "Agent",
@@ -36,7 +36,6 @@ export default {
     "contacts": "联系人",
     "copiedGuguNumber": "已复制咕咕号",
     "done": "完成",
-    "edit": "修改",
     "groupChat": "群聊",
     "groups": "群组",
     "guguNumber": "咕咕号",
@@ -84,20 +83,32 @@ export default {
     "unpin": "取消置顶"
   },
   "createGroup": {
+    "invitesSent": "群已创建，{{count}} 个邀请等待对方接受。",
+    "invitesSent_one": "群已创建，{{count}} 个邀请等待对方接受。",
+    "invitesSent_other": "群已创建，{{count}} 个邀请等待对方接受。",
+    "invitesFailed": "群已创建，但 {{count}} 个邀请未发出。请在群成员面板重试邀请。",
+    "invitesFailed_one": "群已创建，但 {{count}} 个邀请未发出。请在群成员面板重试邀请。",
+    "invitesFailed_other": "群已创建，但 {{count}} 个邀请未发出。请在群成员面板重试邀请。",
     "create": "创建群聊",
-    "createWithCount": "创建群聊 · {{count}} 人",
-    "createWithCount_one": "创建群聊 · {{count}} 人",
-    "createWithCount_other": "创建群聊 · {{count}} 人",
+    "createWithCount": "创建群聊 · {{count}} 位成员",
+    "createWithCount_one": "创建群聊 · {{count}} 位成员",
+    "createWithCount_other": "创建群聊 · {{count}} 位成员",
     "creating": "创建中…",
     "emptyContacts": "暂无联系人",
     "failed": "创建群聊失败",
     "fallbackName": "群聊",
     "noResults": "未找到成员",
     "removeMember": "移除 {{name}}",
-    "searchPlaceholder": "搜索联系人或 Agent",
+    "searchPlaceholder": "搜索名字、任务、项目或设备",
     "selectAtLeastOne": "请至少选择一个成员",
-    "selectionHint": "选择成员发起群聊（可同时选 Agent 与个人）",
     "title": "新建群聊"
+  },
+  "memberPicker": {
+    "selectionUnavailable": "所选成员不可用或无法邀请加入此群。",
+    "allProjects": "全部",
+    "allResults": "全部结果",
+    "localDevice": "{{name}} · 本机",
+    "recent": "最近"
   },
   "errors": {
     "friendRequestFailed": "发送好友申请失败，请稍后重试",
@@ -133,7 +144,6 @@ export default {
     "guguNumberValue": "咕咕号 {{number}}",
     "noResults": "未找到用户",
     "notePlaceholder": "附言：说明理由 / 打个招呼（选填）",
-    "prompt": "输入昵称 / 邮箱 / 咕咕号搜索",
     "requestTitle": "发送好友申请",
     "requestToJoin": "申请加入",
     "searchPlaceholder": "搜索用户 / 咕咕号 / 邮箱",
@@ -245,7 +255,6 @@ export default {
     "lookupFailed": "查找群失败，请稍后重试",
     "notFound": "没有找到群号 {{id}}",
     "pending": "审核中",
-    "prompt": "输入群号查找群聊",
     "request": "申请加入",
     "refusedInviteOnly": "该群仅限被邀请加入",
     "refusedNotFound": "这个群号不存在了",
@@ -309,7 +318,6 @@ export default {
     "myAgentLabel": "我的 agent",
     "agentOwnerUnavailable": "主人信息不可用",
     "agentOwnerLabel": "{{owner}} 的 agent",
-    "agentType": "Agent 类型",
     "alias": "备注",
     "aliasLabel": "备注",
     "bio": "简介",
@@ -372,7 +380,6 @@ export default {
     "downloadImage": "下载图片",
     "generatingPoster": "正在生成海报…",
     "generatingQr": "生成中…",
-    "mobileHint": "长按图片或使用下方按钮保存分享",
     "myQr": "我的二维码",
     "posterFailed": "海报生成失败，请重试",
     "posterTitle": "分享海报",

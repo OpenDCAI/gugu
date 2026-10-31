@@ -1,8 +1,27 @@
+import { readNativeOfflineDraft, writeNativeOfflineDraft } from '@/lib/nativeOfflineDraft';
+import { useSessionInputAccount } from '@/lib/sessionInputOutboxBridge';
+import { appendToDraft } from '@/store/chatContext';
+import { registerNativeComposer } from '@/lib/nativeComposerHandoff';
+import { sessionAgentNames } from '@renderer/features/sessions/stores/session-agent-names';
+import { useSessionSourceMessage } from './use-session-source-message';
+import { canQueueNativeInput, queueNativeInput } from './queue-native-input';
+import { useConversationVisibility } from '@/components/chat/useConversationVisibility';
+import { useNativeConversationRead } from '@/hooks/useNativeConversationRead';
+import { SessionInputQueue } from '@/components/chat/SessionInputQueue';
+import { NeedsYouSlot } from '@/components/needsYou/NeedsYouSlot';
+import { takeComposerCarry, useComposerVerb } from '@/lib/composerVerbBridge';
+import { useSessionMessageQuotes } from './use-session-message-quotes';
+import { useSessionQuoteComposer } from './use-session-quote-composer';
+import { consumeSessionQuote, getSessionQuote, quotedSessionPrompt } from './session-quote-draft';
+import { continueSessionTurn } from './continue-session-turn';
+import { projectGroupsStore } from '@renderer/features/projects/stores/project-groups-store';
+import { SessionComposerVerbs, SessionVerbDock, sessionVerbKey } from '../session-verb-dock';
 import type { AttachmentMimeType, AttachmentRef } from '@gugu/session-core/acp/client';
-import { openConversationLink } from '@/lib/conversationLinks';
+import { followConversationLink } from '@/lib/followConversationLink';
+import { openMessageSender } from '@/lib/openMessageSender';
+import { classifyFileLink } from '@gugu/core/shared/ui/guguLink';
 import {
   AttachmentViewerDialog,
-  ChatComposer,
   MermaidViewerDialog,
   formatAttachmentSize,
   readAttachmentPreviewText,
@@ -15,8 +34,11 @@ import type {
   MentionItem,
   PromptEditorRef,
 } from '@gugu/session-ui/react/components';
+import { autorun } from 'mobx';
 import { observer, useObserver } from 'mobx-react-lite';
-import { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { collectBackgroundCommands, collectSubagents } from '@renderer/features/sessions/view/background-task-rosters';
+import { dismissSubagent } from '@renderer/features/sessions/view/subagent-dismissals';
+import { useCallback, useContext, useEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import { PageShownContext } from '@renderer/app/recent-session-pages';
 import { nativeChatAppearance } from '@renderer/lib/chat/native-chat-appearance.css';
 import { useMarkSeenWhenShown } from '@renderer/features/sessions/hooks/use-mark-seen-when-shown';
@@ -42,11 +64,12 @@ import {
   getSessionPageStore,
 } from '@renderer/features/sessions/stores/session-selectors';
 import {
+  chatMentionProvider,
   clearLocalSessionMentions,
   issueMentionToken,
   parseIssueMentionToken,
 } from '@renderer/lib/chat/chat-mention-provider';
-import { ChatTranscript } from '@renderer/lib/chat/chat-transcript';
+import { AgentConversationView as ChatTranscript, AgentConversationComposer as ChatComposer } from '@renderer/lib/chat/agent-conversation-view';
 import { useSessionChatLayout } from '@renderer/lib/chat/use-session-chat-layout';
 import type { ChatCommands, ChatView } from '@renderer/lib/chat/chat-transcript';
 import { AgentIcon } from '@renderer/lib/components/agent-icon';
@@ -59,6 +82,7 @@ import { useNavigate } from '@renderer/lib/layout/navigation-actions';
 import type { SessionCondition as ChatSessionCondition } from '@gugu/session-chat-ui';
 import { rpc, rpcOn } from '@renderer/lib/ipc';
 import { nudgeWorkspace } from '@renderer/features/sessions/stores/workspace-nudges';
+import { machineLabel } from '@renderer/lib/machine-clients';
 import { machineRegistry } from '@renderer/lib/machine-routing';
 import { isEmbedVisible } from '@renderer/lib/portal-container';
 import { remoteHostsStore } from '@renderer/features/remote-hosts/remote-hosts-store';
@@ -74,7 +98,7 @@ import {
   imageAttachmentRoute,
   imagePromptAttachments,
 } from './composer-image-attachments';
-import { isHeicLikeFile, isUnstableDropPath } from '@renderer/lib/pty/terminal-image-paths';
+import { isHeicLikeFile, mustCopyRatherThanReference } from '@renderer/lib/pty/terminal-image-paths';
 import { droppedDirectoryMention } from '@renderer/lib/drag-files';
 import { pathAttachmentTarget } from '@gugu/session-chat-ui/markdown-attachment-mentions';
 import { readMermaidTheme } from '@gugu/session-chat-ui/mermaid';
@@ -84,6 +108,7 @@ import { sessionComposerFrameLiftClassName, sessionComposerTrayClassName, sessio
 import { useSessionSchedules } from '@renderer/features/automations/use-session-schedules';
 import { toComposerPermission } from './composer-permission';
 import { useHostAskBand } from '@renderer/features/extensions/use-session-host-ask';
+import { SessionHostQuestion } from '@renderer/features/extensions/session-host-question';
 import { uploadComposerAttachment, type AttachmentUploadRpc, type UploadSource } from './composer-file-upload';
 import { useComposerFileUploads } from './use-composer-file-uploads';
 import { entryUploadItems, type DropEntry } from '@renderer/features/remote-hosts/workspace/remote-drop-items';
@@ -107,8 +132,6 @@ import { resolveVisualEvidenceAttachmentDataUrl } from './acp-chat-resource-mana
 import { useOpenedOutputMenu } from './opened-output-menu';
 import type { AcpChatTabResource } from './acp-chat-tab-resource';
 import { chatViewCommandForShortcut, executeChatViewCommand } from './acp-chat-view-commands';
-import { classifySessionChatLink } from './session-chat-link';
-import { openGroupFile } from '@/components/markdown/fileLinks';
 import {
   effortSourceFor,
   localizeEffortOptions,
@@ -161,13 +184,13 @@ import { startupPlaceholderKey } from './startup-placeholder';
 import { FindBar } from '@renderer/lib/ui/find-bar';
 import { useFindBar, type FindBackend } from '@renderer/lib/ui/use-find-bar';
 import { enUSMessages, type SessionMessageKey } from '@renderer/localization/messages';
+import type { InterruptedBy } from '@shared/core/sessions/sessions';
 import {
   createLocalSessionMentionProvider,
-  useSessionAgentCreationTools,
 } from '@renderer/lib/chat/local-session-mention-provider';
+import { useSessionAgentCreationTools } from '@renderer/lib/chat/use-session-agent-creation-tools';
 import { useSessionMentionDrop } from '@renderer/lib/chat/use-session-mention-drop';
-import { hasDraggedSession } from '@renderer/lib/drag-session';
-import { renderMentionTokens } from '@renderer/lib/chat/render-mention-tokens';
+import { getDraggedScreenContent } from '@renderer/lib/drag-screen-content';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -279,7 +302,7 @@ function fileUploadSource(store: AcpChatStore, file: File): UploadSource {
   const originalPath =
     composerAttachmentSource({
       originalPath: rawPath,
-      isUnstableDropPath: isUnstableDropPath(rawPath),
+      mustCopy: mustCopyRatherThanReference(rawPath),
       isHeicLike: isHeicLikeFile(file),
     }) === 'reference'
       ? rawPath
@@ -302,28 +325,25 @@ function fileUploadSource(store: AcpChatStore, file: File): UploadSource {
 async function uploadImageFile(
   store: AcpChatStore,
   file: File,
-  mimeType: AttachmentMimeType
+  mimeType: AttachmentMimeType,
+  options: { signal?: AbortSignal; uploadId: string; onProgress: (progress: { sent: number; total?: number }) => void }
 ): Promise<AttachmentRef | null> {
   // 字节一律存一份 —— ❌ 不再「有原路径就只记指向」。那条记录会随着用户挪走/删掉那个文件
   // 当场作废,而消息里那张图要长期画得出来(#5269,owner 2026-09-10 拍板)。
   // 原路径仍然交上去,但只当来历:发给 agent 的 mention 指向谁由另一条腿决定。
   const originalPath = localPathOf(store, file);
   const provenance =
-    originalPath.length > 0 && !isUnstableDropPath(originalPath) && !isHeicLikeFile(file)
+    originalPath.length > 0 && !mustCopyRatherThanReference(originalPath) && !isHeicLikeFile(file)
       ? originalPath
       : undefined;
-  try {
-    return await store.uploadAttachment({
+  return store.uploadAttachment({
+      ...options,
       source: file.stream(),
       size: file.size,
       mimeType,
       name: file.name,
       ...(provenance ? { originalPath: provenance } : {}),
     });
-  } catch (error) {
-    log.warn('Failed to prepare ACP attachment upload', { name: file.name, error });
-    return null;
-  }
 }
 
 function resolveAttachmentDataUrl(store: AcpChatStore, id: string): Promise<string | null> {
@@ -385,6 +405,7 @@ function bytesToBase64(bytes: Uint8Array): string {
 
 const ComposerForStore = observer(function ComposerForStore({
   store,
+  editorApiRef,
   composerSlot,
   onViewAttachment,
   onScrollToBottom,
@@ -392,6 +413,7 @@ const ComposerForStore = observer(function ComposerForStore({
   onMembershipLockChange,
 }: {
   store: AcpChatStore;
+  editorApiRef: RefObject<PromptEditorRef | null>;
   composerSlot: HTMLElement;
   /** 面板要把模型菜单打开(「这个模型要会员」那一行上的「换模型」):每变一次开一次。 */
   modelMenuRequest: number;
@@ -406,9 +428,23 @@ const ComposerForStore = observer(function ComposerForStore({
   // 这个任务给自己排的定时:有就在输入框上沿挂一条托盘放那颗芯片,输入框往上压住它的下沿(与芯片读同一份缓存)。
   const scheduleMachine = machineRegistry.machineOf(store.projectId);
   const schedules = useSessionSchedules(scheduleMachine, store.sessionId);
-  const editorApiRef = useRef<PromptEditorRef | null>(null);
+  // gugu-dev#181 ⑫ 在会话里也能派:项目里的会话,卡落项目群;没有项目的会话(就是和这个 agent 的私聊),卡落那个私聊。
+  const groupChatId = projectGroupsStore.chatIdOf(store.projectId);
+  const verb = useComposerVerb(sessionVerbKey(store.sessionId));
+  // 点了新任务框标签上的 ×:那一框写的话交回这里(composerVerbBridge 的 carry)。
+  useEffect(() => {
+    const back = verb ? '' : takeComposerCarry(sessionVerbKey(store.sessionId));
+    if (back) store.setDraftText(back);
+  }, [verb, store]);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
+  const [attachments, setAttachmentState] = useState<ComposerAttachment[]>([]);
+  const attachmentsRef = useRef(attachments);
+  // 发送等待的是上传 promise;账本必须在它 resolve 前更新,不能等 React 的下一次渲染。
+  const setAttachments = useCallback((update: ComposerAttachment[] | ((prev: ComposerAttachment[]) => ComposerAttachment[])) => {
+    const next = typeof update === 'function' ? update(attachmentsRef.current) : update;
+    attachmentsRef.current = next;
+    setAttachmentState(next);
+  }, []);
   // 非图片文件到达 agent 的路是**正文里的绝对路径**(ACP 的附件上传只收图片)。但那是传输方式,
   // 不该摆到用户脸上 —— 屏幕上和图片一样是一枚 chip,路径发送时才拼进正文(#5269,与新建任务
   // 页那一半同构)。id → 路径的账在这儿记,chip 被 × 掉时跟着删。
@@ -419,8 +455,11 @@ const ComposerForStore = observer(function ComposerForStore({
   // 磁盘路径时上传只是把路径递过去,快到必赢,于是「从访达拷来的图」必然没有缩略图、点开预览也是
   // 空的(#5269,owner 2026-09-08 实撞)。id 不动,顺序就不再是判据。
   const imageRefsRef = useRef(new Map<string, AttachmentRef>());
-  const attachmentsRef = useRef(attachments);
-  attachmentsRef.current = attachments;
+  const imageUploadsRef = useRef(new Map<string, AbortController>());
+  useEffect(() => {
+    const uploads = imageUploadsRef.current;
+    return () => { for (const controller of uploads.values()) controller.abort(); uploads.clear(); };
+  }, []);
   // 文件 / 文件夹 chip:贴上来就开始传到会话所在的机器,进度在 chip 上(#6264,product spec)。
   const fileUploads = useComposerFileUploads({
     sessionId: () => store.sessionId,
@@ -437,6 +476,7 @@ const ComposerForStore = observer(function ComposerForStore({
   /** 发送时附件还没传完:在等(发送键禁用、输入框上方一句话);有一件没成:不发,说一句。 */
   const [sendHold, setSendHold] = useState<'waiting' | 'blocked' | null>(null);
   const sendingRef = useRef(false);
+  const quoteComposer = useSessionQuoteComposer(store, editorApiRef);
   const { value: promptLibrary } = usePromptLibrary();
 
   // Autofocus when the slot becomes available — only while the session page is on screen. 宿主把它常驻挂载在
@@ -458,9 +498,10 @@ const ComposerForStore = observer(function ComposerForStore({
    * 那一件的 chip 上写着为什么、能重试。正文在等的时候留在输入框里,❌ 先清掉再说。
    */
   const sendWhenReady = useCallback(
-    async (value: string, deliver: (text: string, attachments: AcpPromptAttachment[]) => void) => {
+    async (value: string, deliver: (text: string, attachments: AcpPromptAttachment[]) => void | Promise<void>) => {
       if (sendingRef.current) return;
       sendingRef.current = true;
+      const quote = getSessionQuote(store);
       try {
         // 没有还在传的就当场发(❌ 每次发送都闪一下「在等」)。
         if (fileUploads.unsettled() || pendingImagesRef.current.size > 0) {
@@ -479,27 +520,28 @@ const ComposerForStore = observer(function ComposerForStore({
         const promptAttachments = imagePromptAttachments(current, imageRefsRef.current);
         const text = composePromptText(value, fileMentionsFor(current, filePathsRef.current));
         if (!text && promptAttachments.length === 0) return;
+        try { await deliver(quotedSessionPrompt(text, quote), promptAttachments); } catch { editorApiRef.current?.setText(value); return; }
+        consumeSessionQuote(store, quote);
         setAttachments([]);
         filePathsRef.current.clear();
         imageRefsRef.current.clear();
         fileUploads.clear();
         editorApiRef.current?.clear();
         // 滚到哪由 store 定(发出即把这一句钉到顶):这里再滚一次到旧的底,会和那一钉抢,视图先滑回上一轮再跳回来。
-        deliver(text, promptAttachments);
       } finally {
         sendingRef.current = false;
       }
     },
-    [fileUploads]
+    [fileUploads, store]
   );
 
   const handleSubmit = useCallback(
-    (value: string) => sendWhenReady(value, (text, attachments) => store.submitPrompt(text, attachments)),
+    (value: string) => sendWhenReady(value, async (text, attachments) => { if (!await queueNativeInput(store, text, attachments)) store.submitPrompt(text, attachments); }),
     [store, sendWhenReady]
   );
 
   const handleSubmitWhileWorking = useCallback(
-    (value: string) => sendWhenReady(value, (text, attachments) => store.queuePrompt(text, attachments)),
+    (value: string) => sendWhenReady(value, async (text, attachments) => { if (!await queueNativeInput(store, text, attachments)) store.queuePrompt(text, attachments); }),
     [store, sendWhenReady]
   );
 
@@ -510,10 +552,8 @@ const ComposerForStore = observer(function ComposerForStore({
 
   // D-31 The host's ask for this agent (an App install) is the session timeline's, not the runtime's: shown first — read only
   // while the session waits on an approval.
-  const hostBand = useHostAskBand(
-    store.runtimeSessionId,
-    sessionRegistry.get(store.sessionId)?.sessions.get(store.sessionId)
-  );
+  const hostSession = sessionRegistry.get(store.sessionId)?.sessions.get(store.sessionId);
+  const hostBand = useHostAskBand(store.runtimeSessionId, hostSession);
   const resolveHostAsk = hostBand?.resolve;
   const permissionRequest =
     hostBand?.request ?? toComposerPermission(store.permissionQueue[0], translate, (id) => store.hasActiveToolCall(id));
@@ -675,6 +715,8 @@ const ComposerForStore = observer(function ComposerForStore({
       await Promise.all(
         supportedFiles.map(async (file) => {
           const chipId = `image:${crypto.randomUUID()}`;
+          const controller = new AbortController();
+          imageUploadsRef.current.set(chipId, controller);
           // ⚠️ **每一张图都在我们自己的地盘留一份,并且在正文里留一条指向它的引用** ——
           // 这是消息里看得见它的唯一依据(#5269)。ACP 上传只决定「这一轮 agent 收不收得到
           // 图片块」,❌ 不决定这条消息以后还看不看得见那张图:上传上去的那一份活在 agent 的
@@ -686,11 +728,17 @@ const ComposerForStore = observer(function ComposerForStore({
             sessionId: store.sessionId,
             uploadId: crypto.randomUUID(),
             source: fileUploadSource(store, file),
+            signal: controller.signal,
           }).then(
             (committed) => {
+              if (controller.signal.aborted) return false;
               filePathsRef.current.set(chipId, committed.mentionPath.trim().replace(/\\/g, '/'));
+              return true;
             },
-            (error: unknown) => log.warn('Failed to persist composer attachment', { name: file.name, error })
+            (error: unknown) => {
+              log.warn('Failed to persist composer attachment', { name: file.name, error });
+              return false;
+            }
           );
           const both = Promise.all([
             persisted,
@@ -698,11 +746,19 @@ const ComposerForStore = observer(function ComposerForStore({
               chipId,
               update: (updater) => setAttachments(updater),
               readPreview: readFileAsDataUrl,
-              upload: (source, mimeType) => uploadImageFile(store, source, mimeType),
+              signal: controller.signal,
+              fallback: {
+                available: persisted,
+                meta: `${formatAttachmentSize(file.size)} · ${translate('composer.attachmentAsPath')}`,
+              },
+              upload: (source, mimeType, options) => uploadImageFile(store, source, mimeType, options),
+              onRetry: (error) => log.warn('Retrying stalled ACP attachment upload', { name: file.name, error }),
+              onFailure: (error) => log.warn('Failed to prepare ACP attachment upload', { name: file.name, error }),
               rememberRef: (id, ref) => imageRefsRef.current.set(id, ref),
               labels: {
                 uploading: translate('composer.attachmentUploading'),
                 failed: translate('composer.attachmentUploadFailed'),
+                retrying: translate('composer.attachmentRetrying'),
               },
               formatSize: formatAttachmentSize,
             }),
@@ -712,21 +768,7 @@ const ComposerForStore = observer(function ComposerForStore({
             await both;
           } finally {
             pendingImagesRef.current.delete(both);
-          }
-          // 上传腿失败 ≠ 这张图发不出去:引用那条腿成了的话,agent 照样读得到,消息里也照样
-          // 看得见。红着说「上传失败」就成了假话 —— 改成与非图片附件同一句「以文件路径发送」。
-          if (filePathsRef.current.has(chipId)) {
-            setAttachments((prev) =>
-              prev.map((att) =>
-                att.id === chipId && att.state === 'error'
-                  ? {
-                      ...att,
-                      state: 'done' as const,
-                      meta: `${formatAttachmentSize(file.size)} · ${translate('composer.attachmentAsPath')}`,
-                    }
-                  : att
-              )
-            );
+            imageUploadsRef.current.delete(chipId);
           }
         })
       );
@@ -734,9 +776,28 @@ const ComposerForStore = observer(function ComposerForStore({
     [store, translate, attachPathFiles]
   );
 
+  const composerShown = useContext(PageShownContext);
+  const inputAccount = useSessionInputAccount();
+  useEffect(() => {
+    if (!composerShown) return;
+    const machine = machineRegistry.machineOf(store.runtimeSessionId);
+    const kept = readNativeOfflineDraft(machine, store.runtimeSessionId);
+    if (kept) { store.setDraftText(appendToDraft(store.draftText, kept)); writeNativeOfflineDraft(machine, store.runtimeSessionId, ''); }
+    return registerNativeComposer(store.runtimeSessionId, async draft => {
+      const files = draft.files ?? [];
+      if (store.acceptsImagePrompts && files.some(file => file.type.startsWith('image/') && !toAttachmentMimeType(file))) throw new Error(translate('chat.unsupportedImageTitle'));
+      await addImageFiles(files.filter(file => file.type.startsWith('image/')));
+      await attachPathFiles(files.filter(file => !file.type.startsWith('image/')));
+      store.setDraftText(appendToDraft(store.draftText, draft.text));
+    });
+  }, [store, composerShown, inputAccount, addImageFiles, attachPathFiles, translate]);
+
   const handleAttachmentsChange = useCallback(
     (next: ComposerAttachment[]) => {
       const nextIds = new Set(next.map((attachment) => attachment.id));
+      for (const [id, controller] of imageUploadsRef.current) {
+        if (!nextIds.has(id)) { controller.abort(); imageUploadsRef.current.delete(id); }
+      }
       for (const id of [...filePathsRef.current.keys()]) {
         if (!nextIds.has(id)) filePathsRef.current.delete(id);
       }
@@ -786,11 +847,7 @@ const ComposerForStore = observer(function ComposerForStore({
     };
   });
   const { connectedProviders, isProviderUsable } = useConnectedIssueProviders(issueProviderContext);
-  const { tools: agentCreationTools, error: agentCreationToolsError } = useSessionAgentCreationTools();
-  const agentCreationToolsByEngine = useMemo(
-    () => new Map<string, (typeof agentCreationTools)[number]>(agentCreationTools.map((tool) => [tool.engine, tool])),
-    [agentCreationTools]
-  );
+  const { byEngine: agentCreationToolsByEngine, renderMentionIcon: renderAgentMentionIcon } = useSessionAgentCreationTools();
   const issueProvider = useMemo(() => {
     const selected = issueProviderContext.selectedIssueProvider;
     if (selected && isProviderUsable(selected)) return selected;
@@ -803,9 +860,8 @@ const ComposerForStore = observer(function ComposerForStore({
         excludeSessionId: store.sessionId,
         mentionUri: store.chatState.uri ?? store.sessionId,
         creationToolsByEngine: agentCreationToolsByEngine,
-        creationToolsError: agentCreationToolsError,
       }),
-    [agentCreationToolsByEngine, agentCreationToolsError, store],
+    [agentCreationToolsByEngine, store],
   );
 
   // Transcript parsing is synchronous, so seed the task-scoped mention registry as soon as
@@ -842,7 +898,7 @@ const ComposerForStore = observer(function ComposerForStore({
   useEffect(() => {
     const surface = composerSlot.closest('[data-session-chat-surface]');
     if (!(surface instanceof HTMLElement)) return;
-    const accepts = (event: DragEvent) => Boolean(event.dataTransfer) && hasDraggedSession(event.dataTransfer!);
+    const accepts = (event: DragEvent) => event.dataTransfer && getDraggedScreenContent(event.dataTransfer)?.kind === 'session';
     const onDragOver = (event: DragEvent) => {
       if (accepts(event)) event.preventDefault();
     };
@@ -865,6 +921,12 @@ const ComposerForStore = observer(function ComposerForStore({
     const wsId = workspaceId;
     const resultsChanged = new Set<() => void>();
     return {
+      resolve(target, label) {
+        const meta = chatMentionProvider.resolve(target, store.chatState.uri ?? store.sessionId);
+        return meta ? { id: meta.id, label: target, name: label, kind: meta.kind,
+          role: target.startsWith('aid:') ? 'agent' : undefined, engine: meta.engine,
+          description: meta.title } : null;
+      },
       onResultsChanged(listener: () => void) {
         resultsChanged.add(listener);
         return () => resultsChanged.delete(listener);
@@ -946,7 +1008,6 @@ const ComposerForStore = observer(function ComposerForStore({
     issueProviderContext.projectPath,
     issueProviderContext.repositoryUrl,
     agentCreationToolsByEngine,
-    agentCreationToolsError,
     localSessionMentionProvider,
   ]);
 
@@ -1503,17 +1564,15 @@ const ComposerForStore = observer(function ComposerForStore({
     ? (harnessCatalog.state.selectedEffort ?? undefined)
     : undefined;
   const renderMentionIcon = useCallback(
-    ({ id, kind, engine }: { id: string; kind: string; engine?: string | null }) => {
-      if (kind === 'custom' && engine) {
-        const iconUrl = agentCreationToolsByEngine.get(engine)?.icon?.trim() || '';
-        return iconUrl ? <img src={iconUrl} alt="" width={16} height={16} /> : null;
-      }
+    (attrs: Parameters<typeof renderAgentMentionIcon>[0]) => {
+      const { id, kind } = attrs;
+      if (kind === 'custom') return renderAgentMentionIcon(attrs);
       if (kind !== 'issue') return null;
       const target = parseIssueMentionToken(id);
       if (!target) return null;
       return <IntegrationIcon provider={target.provider} size={12} />;
     },
-    [agentCreationToolsByEngine]
+    [renderAgentMentionIcon]
   );
 
   const querySlashItems = useCallback(
@@ -1563,6 +1622,11 @@ const ComposerForStore = observer(function ComposerForStore({
   );
 
   const a = store.affordances;
+
+  // gugu-dev#181 ⑫ 会话里也能派:选了「新任务」,这一框换成新任务的框(卡落项目群;没有项目的落它的私聊)。
+  if (verb) {
+    return createPortal(<SessionVerbDock sessionId={store.sessionId} projectId={store.projectId} chatId={groupChatId} />, composerSlot);
+  }
 
   return createPortal(
     <>
@@ -1615,20 +1679,23 @@ const ComposerForStore = observer(function ComposerForStore({
           <SessionScheduleChip machine={scheduleMachine} schedules={schedules} />
         </div>
       ) : null}
+      <NeedsYouSlot />
+      <SessionInputQueue sessionId={store.runtimeSessionId} waitingForConnection={canQueueNativeInput(store)} />
+      <SessionHostQuestion sessionId={store.runtimeSessionId} session={hostSession} />
+      {quoteComposer.preview}
       <ChatComposer
         className={schedules.length > 0 ? sessionComposerFrameLiftClassName : undefined}
         hideLockedAgent
         isWorking={a.isWorking}
+        attachmentStatus={sendHold === 'waiting' ? translate('composer.attachmentWaiting') : undefined}
         notice={
-          sendHold === 'waiting'
-            ? { variant: 'info', message: translate('composer.attachmentWaiting') }
-            : sendHold === 'blocked'
+          sendHold === 'blocked'
               ? { variant: 'error', message: translate('composer.attachmentBlocked'), onDismiss: () => setSendHold(null) }
               : store.permissionModeChangeNotice
         }
         // Store owns both live sending and pre-session queue admission.
         // 正在用的咕咕模型要会员了(#7056):下一轮之前停下,原因与去路在面板那一行。
-        canSubmit={a.canSubmit && (store.draftText.trim().length > 0 || attachments.length > 0)
+        canSubmit={(a.canSubmit || canQueueNativeInput(store)) && (store.draftText.trim().length > 0 || attachments.length > 0)
           && sendHold !== 'waiting' && !membershipLockedModel}
         placeholder={startupPlaceholderKeyValue ? translate(startupPlaceholderKeyValue) : undefined}
         onSubmit={handleSubmit}
@@ -1641,14 +1708,12 @@ const ComposerForStore = observer(function ComposerForStore({
         queuedPrompts={queuedPrompts}
         // 排队条打印的是原文,而 @ 提及在原文里是它的地址 —— 显示成名字,与输入框里的 pill、
         // 聊天记录里的 pill 一致(点进去编辑仍是原文,那才是真要发出去的东西)。
-        renderQueuedPromptText={(text) =>
-          renderMentionTokens(text, store.chatState.uri ?? store.sessionId)
-        }
+        renderQueuedPromptText={quoteComposer.renderQueuedPromptText}
         onEditQueuedPrompt={(id, text) => { void store.editQueuedPrompt(id, text); }}
-        queuedPromptEdit={store.queuedPromptEdit}
+        queuedPromptEdit={quoteComposer.queuedPromptEdit}
         onBeginEditQueuedPrompt={(id) => { void store.beginQueuedPromptEdit(id); }}
-        onChangeQueuedPromptEdit={(text) => store.changeQueuedPromptEdit(text)}
-        onFinishQueuedPromptEdit={(text) => { void store.finishQueuedPromptEdit(text); }}
+        onChangeQueuedPromptEdit={quoteComposer.changeQueuedPromptEdit}
+        onFinishQueuedPromptEdit={quoteComposer.finishQueuedPromptEdit}
         onDeleteQueuedPrompt={(id) => store.deleteQueuedPrompt(id)}
         onReorderQueuedPrompts={(ids) => store.reorderQueuedPrompts(ids)}
         onSendQueuedPromptNow={handleSendQueuedPromptNow}
@@ -1721,6 +1786,7 @@ const ComposerForStore = observer(function ComposerForStore({
         dataDropTypes={dataDropTypes}
         onDataDropped={onDataDropped}
         onViewAttachment={onViewAttachment}
+        toolbarExtra={<SessionComposerVerbs sessionId={store.sessionId} draft={store.draftText} onCarried={() => store.setDraftText('')} />}
       />
     </>,
     composerSlot
@@ -1739,6 +1805,12 @@ const ComposerForStore = observer(function ComposerForStore({
 import { electronApi } from '../../../lib/electron-api';
 
 
+const INTERRUPTED_LABEL = {
+  update: 'transcript.condition.turnInterruptedUpdate',
+  restart: 'transcript.condition.turnInterruptedRestart',
+  unclean: 'transcript.condition.turnInterruptedUnclean',
+} as const satisfies Record<InterruptedBy, SessionMessageKey>;
+
 export const AcpChatPanel = observer(function AcpChatPanel({
   tabKind = 'acp-chat',
 }: {
@@ -1751,8 +1823,15 @@ export const AcpChatPanel = observer(function AcpChatPanel({
   const activeTab = pane.resolvedTabs.find((t) => t.isActive && t.kind === tabKind);
   const store = activeTab ? (activeTab.resource as AcpChatTabResource).store : null;
 
-  const rootRef = useRef<HTMLDivElement | null>(null);
+  const visibility = useConversationVisibility(useContext(PageShownContext));
+  const rootRef = visibility.ref;
+  const reading = useNativeConversationRead(store ? machineRegistry.machineOf(store.runtimeSessionId) : null, store?.runtimeSessionId, visibility.shown, () => {
+    const transcript = store?.chatState.transcript.state;
+    return transcript ? [...transcript.committedTurns, ...(transcript.activeTurnSnapshot ? [transcript.activeTurnSnapshot] : [])] : [];
+  });
+  const editorApiRef = useRef<PromptEditorRef | null>(null);
   const viewRef = useRef<ChatView | null>(null);
+  const sourceMessage = useSessionSourceMessage(store, viewRef, () => toast({ title: translate('transcript.originalMessageMissing'), variant: 'destructive' }));
   const [composerSlot, setComposerSlot] = useState<HTMLElement | null>(null);
   const [heroSlot, setHeroSlot] = useState<HTMLElement | null>(null);
   const [overlaySlot, setOverlaySlot] = useState<HTMLElement | null>(null);
@@ -1788,11 +1867,12 @@ export const AcpChatPanel = observer(function AcpChatPanel({
     (view: ChatView) => {
       viewRef.current = view;
       bindReadyView(view);
+      reading.onReady(view);
       setComposerSlot(view.composerSlot);
       setHeroSlot(view.heroSlot);
       setOverlaySlot(view.contentOverlay);
     },
-    [bindReadyView]
+    [bindReadyView, reading.onReady]
   );
   // transcript 没了时必须把句柄交回去。留着一个已 dispose 的 view 比留 null 更糟：
   // `?.` 不再短路，调用会真的落到一个已释放的 Solid root 上。
@@ -1814,12 +1894,8 @@ export const AcpChatPanel = observer(function AcpChatPanel({
    * 这里就什么都不做 —— 到顶是常态,❌ 不是错误,不弹任何东西。
    */
   const handleReachStart = useCallback(() => {
-    const current = store;
-    if (!current) return;
-    void current.loadOlderHistory().then((turns) => {
-      if (turns.length > 0) viewRef.current?.loadOlder(turns);
-    });
-  }, [store]);
+    void sourceMessage.loadOlder();
+  }, [sourceMessage.loadOlder]);
 
   const isSessionEmpty = useObserver(() => store?.isEmpty ?? false);
   const activeSessionId = store?.sessionId ?? null;
@@ -1861,6 +1937,8 @@ export const AcpChatPanel = observer(function AcpChatPanel({
   );
   const { data: agents } = useAgents();
   const providerId = sessionStore?.data.providerId ?? null;
+  // 上一轮被宿主的退出打断(开机收残记下的):还是 `error` 时在消息列表末尾说是什么打断的;下一轮开工就不是了。
+  const interruptedBy = sessionStore?.status === 'error' ? (sessionStore.data.interruptedBy ?? null) : null;
   const agent = agents?.find((candidate) => candidate.id === providerId) ?? null;
   const startupNotice = agent?.capabilities.acp.startup?.noticeKey;
   const startupNoticeKey = declaredMessageKey(startupNotice);
@@ -1974,6 +2052,14 @@ export const AcpChatPanel = observer(function AcpChatPanel({
       });
       return;
     }
+    if (!error && interruptedBy && !signInExpired && !signInMissing) {
+      setCondition({
+        code: 'turn-interrupted',
+        label: translate(INTERRUPTED_LABEL[interruptedBy]),
+        detail: `interrupted-by-${interruptedBy}`,
+      });
+      return;
+    }
     if (!error) {
       setCondition(
         signInExpired || signInMissing
@@ -2082,6 +2168,14 @@ export const AcpChatPanel = observer(function AcpChatPanel({
             detail: error.message,
             actions: [{ label: translate('transcript.condition.reconnect'), run: () => store.retry() }],
           };
+        case 'connection_lost':
+          // 断的是到那台机器的线,❌ 引擎:说是哪台、连上后会自己重新打开(store 在线变通时再开);等不及的照样能点。
+          return {
+            code: 'machine-unreachable',
+            label: translate('transcript.condition.machineLinkLost', { device: machineLabel(error.deviceId) }),
+            detail: error.message,
+            actions: [retry],
+          };
         default: {
           // 咕咕这一侧的失败按原因表说、给原因表的按钮(#7103);咕咕以外的(harness / provider)递它的原话(#4657)+ 重试。
           const reason = failureReason(error.message);
@@ -2108,9 +2202,24 @@ export const AcpChatPanel = observer(function AcpChatPanel({
       }
     })();
     setCondition(condition);
-  }, [store, store?.loadError, providerId, cliAuthMethod, openAgentAccount, translate, navigate, signInExpired, signInMissing, signInAgain, agent?.name, membershipLock]);
+  }, [store, store?.loadError, providerId, cliAuthMethod, openAgentAccount, translate, navigate, signInExpired, signInMissing, signInAgain, agent?.name, membershipLock, interruptedBy]);
 
-  useMarkSeenWhenShown(sessionStore, useContext(PageShownContext) && !store?.isTransient);
+  /**
+   * 还在跑的后台命令与子智能体 → 消息列表末尾那一行(owner 2026-10-27:去掉右上角「摘要」卡,后台任务放进主对话)。
+   * 收集逻辑与从前那张卡同一套(`background-task-rosters.ts`):每来一条消息、运行时报的在跑集合变了、人按了 ×,重算一次;
+   * 内容没变,转录那一格自己会挡住(`sameBackgroundTasks`)。
+   */
+  useEffect(() => {
+    if (!store) return;
+    return autorun(() => {
+      store.chatState.session.setBackgroundTasks({
+        commands: collectBackgroundCommands(store.sessionId, translate('transcript.backgroundCommand')),
+        subagents: collectSubagents(store.sessionId, translate('transcript.subagent')),
+      });
+    });
+  }, [store, translate]);
+
+  useMarkSeenWhenShown(sessionStore, visibility.shown && !store?.isTransient);
 
   useEffect(() => {
     if (!store) return;
@@ -2171,13 +2280,19 @@ export const AcpChatPanel = observer(function AcpChatPanel({
   const historyActionsEnabled = store?.canRevertHistory ?? false;
   const messageEdit = store?.messageEdit;
   const messageEditPending = store?.reverting ?? false;
+  const conversationAgentName = store ? sessionAgentNames.nameFor(store.sessionId) ?? null : null;
+  const quotes = useSessionMessageQuotes(store, editorApiRef);
   const transcriptCommands = useMemo<ChatCommands>(
     () => ({
       ...outputMenu.commands,
-      classifyLink: classifySessionChatLink,
-      onOpenConversationLink: (href) => { openConversationLink(href); },
-      // 摩擦单 F10: a file of a group, linked in the transcript — opened in that group, where the person is taken.
-      onOpenGroupFile: ({ itemId, at }) => void openGroupFile(itemId, at),
+      onConversationReply: sourceMessage.reveal,
+      onMessageTextMount: quotes.onMessageTextMount, onQuoteMessage: quotes.onQuoteMessage,
+      flashMessageId: sourceMessage.flashMessageId,
+      conversationAgentName: () => conversationAgentName,
+      conversationAgentSession: () => store?.sessionId ?? null,
+      onOpenSender: openMessageSender,
+      classifyLink: classifyFileLink,
+      onOpenLink: followConversationLink,
       // transcript 自己那颗停止按钮（用户消息卡右下角）一直**没有**接过宿主 ——
       // `commands().onStop?.()` 在 `?.` 上整条短路，按下去一个字节都不发（#3498 查出来的，
       // 与 #3500 同形）。composer 上那颗是另一条路，它一直是通的，于是这颗死按钮
@@ -2199,25 +2314,8 @@ export const AcpChatPanel = observer(function AcpChatPanel({
       // ⚠️ 只写草稿，**不发送**。接成 submitPrompt 就把「取回指令」偷换成「重发」——
       // 而重发不是重试（出错的那一轮可能已经写过文件、调过工具），
       // 那正是 #3498 拒绝交付的那个会骗人的按钮。见 ChatCommands.onRestorePrompt。
-      onRestorePrompt: (arg) => {
-        if (!store) return;
-        store.setDraftText(arg.text);
-      },
-      // 「继续」——上游 stopped-run 的 Continue。与上面那颗**刚好相反**：这颗是真发送。
-      // 能这么接是因为 `cancel` 之后会话还活着，且 agent 的上下文里带着刚被切断的那半截输出
-      // ⇒ 发一条「接着往下」就是字面意义上的继续，而不是把出错那一轮的原指令重放一遍
-      // （后者才是 onRestorePrompt 明令禁止接成发送的那件事）。逐句理由见 ChatCommands。
-      onContinueTurn: () => {
-        if (!store) return;
-        const text = translate('transcript.continueTurnPrompt');
-        // ⚠️ 「一条指令该发还是该排队」在本仓已经有一条既定规则，就在这个文件里：
-        // composer 空闲时 `submitPrompt`、在跑时 `queuePrompt`（handleSubmit /
-        // handleSubmitWhileWorking）。这颗按钮长在一条**已经结算**的行上，而那一行会一直留在
-        // 屏幕上 —— 用户完全可能在后面又起了一轮之后才回头点它。所以这里照抄那条规则，
-        // ❌ 不另立一套：无条件 submit 会把一条指令塞进一个正在跑的会话。
-        if (store.affordances.isWorking) store.queuePrompt(text);
-        else store.submitPrompt(text);
-      },
+      onRestorePrompt: quotes.restorePrompt,
+      onContinueTurn: () => continueSessionTurn(store, translate('transcript.continueTurnPrompt')),
       // 计划审批卡上的选项（#7139）：与输入框上那条审批同一个答法。
       onResolvePermission: ({ requestId, optionId }) => store?.resolvePermission(requestId, optionId),
       // #7103 咕咕拒了这一轮的票:「回合失败」那一行按原因表说那一句、给那个按钮(与起会话失败同一张表)。
@@ -2266,6 +2364,7 @@ export const AcpChatPanel = observer(function AcpChatPanel({
           arg.urls.map((url, index) => ({ url, alt: '', thumb: index === arg.index ? arg.thumb : undefined })),
           arg.index
         ),
+      resolveToolImage: (itemId, index) => store?.resolveToolImage(itemId, index) ?? Promise.resolve(null),
       resolveAttachment: (attachment) =>
         store ? resolveAttachmentDataUrl(store, attachment.id) : Promise.resolve(null),
       onViewMermaid: (arg) => {
@@ -2315,8 +2414,13 @@ export const AcpChatPanel = observer(function AcpChatPanel({
             });
         }
       },
+      // 列表末尾那一行后台任务上的两颗键(原来在右上角「摘要」卡里)。停 = 真停;× = 只收起,它照旧在跑。
+      onStopBackgroundTask: ({ stopId }) => store?.stopSubagent(stopId),
+      onDismissBackgroundTask: ({ entryId }) => {
+        if (store) dismissSubagent(store.sessionId, entryId);
+      },
     }),
-    [store, historyActionsEnabled, messageEdit, messageEditPending, handleViewerOpen, translate, membershipLock?.modelName, outputMenu.commands]
+    [store, quotes.onQuoteMessage, quotes.onMessageTextMount, quotes.restorePrompt, sourceMessage.reveal, sourceMessage.flashMessageId, conversationAgentName, historyActionsEnabled, messageEdit, messageEditPending, handleViewerOpen, translate, membershipLock?.modelName, outputMenu.commands]
   );
 
   // A freshly-created task can publish its tab before the resource manager has finished attaching
@@ -2373,9 +2477,11 @@ export const AcpChatPanel = observer(function AcpChatPanel({
             onReady={handleReady}
             onDisposed={handleTranscriptGone}
             commands={transcriptCommands}
+            shown={visibility.shown}
+            onVisibleItems={reading.onVisibleItems}
             onAtBottomChange={setAtBottom}
             onReachStart={handleReachStart}
-            layout={chatLayout}
+            layout={{ ...chatLayout, agentConversation: true }}
             style={{ position: 'absolute', inset: 0 }}
           />
         </div>
@@ -2429,6 +2535,7 @@ export const AcpChatPanel = observer(function AcpChatPanel({
         <ComposerForStore
           key={store.sessionId}
           store={store}
+          editorApiRef={editorApiRef}
           composerSlot={composerSlot}
           onViewAttachment={handleAttachmentView}
           onScrollToBottom={() => viewRef.current?.scrollToBottom({ behavior: 'smooth' })}

@@ -9,6 +9,9 @@
     "**/*.css"
   ],
   "exports": {
+    "./content-menu": "./src/content-menu.ts",
+    "./animation-visibility.css": "./src/animation-visibility.css",
+    "./animation-visibility": "./src/animation-visibility.ts",
     "./logger/context-node": "./src/logger/context-node.ts",
     "./logger/transport": "./src/logger/transport/index.ts",
     "./logger/context": "./src/logger/context.ts",

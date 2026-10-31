@@ -1,4 +1,10 @@
 import type { Device } from '@gugu/core/shared/types/chat'
+import type { CloudComputerStoreState } from './cloudComputerStore'
+
+/** Feature visibility is not readiness: a failed status request cannot enable cloud setup. */
+export function canSetUpCloudAssistant(cloud: Pick<CloudComputerStoreState, 'available' | 'loadError'>): boolean {
+  return cloud.available && cloud.loadError === null
+}
 
 type HomeRow = Pick<Device, 'device_id' | 'cloud_computer'> & { capabilities?: Pick<Device['capabilities'], 'assistant_home'> | null }
 

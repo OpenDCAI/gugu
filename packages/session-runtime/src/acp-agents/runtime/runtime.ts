@@ -1,3 +1,4 @@
+import type { HistoryCursor } from '@gugu/session-core/acp/client';
 import type {
   AcpAttachmentError,
   AcpCancelTurnError,
@@ -31,7 +32,6 @@ import type {
 import { acpErr } from '@gugu/session-core/acp';
 import type { Result } from '@gugu/session-shared';
 import { ok } from '@gugu/session-shared';
-import type { LiveLog } from '@gugu/session-wire';
 import { FsPort } from '../agent-ports/fs-port';
 import { AgentTerminalManager } from '../agent-ports/terminal-manager';
 import { TerminalPort } from '../agent-ports/terminal-port';
@@ -63,7 +63,7 @@ export class AcpRuntime {
       logger: deps.logger,
       onClosed: (key, exit) => manager?.onProcessClosed(key, exit),
     });
-    manager = new SessionManager(deps, this.connections, this.terminals, {
+    manager = new SessionManager(deps, this.connections, this.terminals, this.terminalLiveRegistry, {
       fs,
       terminals: terminalPort,
     });
@@ -84,12 +84,12 @@ export class AcpRuntime {
     return ok({ providerSessionId: result.data.providerSessionId, ...page });
   }
 
-  stopSession(sessionId: string): Promise<Result<void, AcpStopSessionError>> {
-    return this.manager.stop(sessionId);
+  stopSession(sessionId: string, onlyIfIdle = false): Promise<Result<void, AcpStopSessionError>> {
+    return this.manager.stop(sessionId, onlyIfIdle);
   }
 
   /** 这条会话此刻attach的适配器进程(连接 key + pid)。只给会话重载当判据,见 SessionManager 那里。 */
-  adapterProvenance(sessionId: string): { connectionKey: string; pid: number | null } | null {
+  adapterProvenance(sessionId: string): { connectionKey: string; pid: number | null; closing?: true } | null {
     return this.manager.adapterProvenance(sessionId);
   }
 
@@ -212,9 +212,14 @@ export class AcpRuntime {
   getHistory(
     sessionId: string,
     before?: number,
-    limit?: number
+    limit?: number,
+    changedSince?: HistoryCursor
   ): Result<HistoryPage, AcpGetHistoryError> {
-    return ok(this.manager.getHistory(sessionId, before, limit));
+    return ok(this.manager.getHistory(sessionId, before, limit, changedSince));
+  }
+
+  getToolImage(sessionId: string, itemId: string, index: number) {
+    return this.manager.getToolImage(sessionId, itemId, index);
   }
 
   getChatHistory(sessionId: string): {
@@ -236,6 +241,10 @@ export class AcpRuntime {
     return this.manager.getSessionState(sessionId);
   }
 
+  getStoredQueue(sessionId: string): Array<Pick<PromptInput, 'text' | 'origin'>> {
+    return this.manager.getStoredQueue(sessionId);
+  }
+
   getTerminals(sessionId: string): TerminalState[] {
     return this.manager.getTerminals(sessionId);
   }
@@ -249,6 +258,7 @@ export class AcpRuntime {
   }
 
   async uploadAttachment(input: {
+    uploadId?: string;
     data?: Uint8Array;
     mimeType: AttachmentMimeType;
     name?: string;
@@ -285,10 +295,6 @@ export class AcpRuntime {
 
   sessionsLiveHost() {
     return this.manager.sessionsHost;
-  }
-
-  terminalOutputLog(terminalId: string): LiveLog | null {
-    return this.terminalLiveRegistry.getTerminalLog(terminalId);
   }
 
   async dispose(): Promise<void> {

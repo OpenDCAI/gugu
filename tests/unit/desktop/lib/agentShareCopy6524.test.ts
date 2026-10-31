@@ -52,18 +52,18 @@ describe('#6524 describeAgentShare', () => {
     expect(report.done).toEqual(['contacts:inviteAgent.sent(李四)'])
   })
 
-  it('失败的 ⇒ 只说谁没成(原文不给用户),并留着等重试', () => {
+  it('failed shares include the sanitized cause and remain retryable', () => {
     const report = describeZh([
-      { friendUserId: 'a', status: 'failed', error: { message: 'Selected person is not an owner friend', code: 'P0001' } },
+      { friendUserId: 'a', status: 'failed', error: { message: 'Selected person is not an owner friend /Users/test/private sk-synthetic-secret\nstack detail', code: 'P0001' } },
       { friendUserId: 'b', status: 'failed', error: new Error('non-archived group chat x must have exactly 1 human owner') },
     ])
-    expect(report.problem).toBe('contacts:inviteAgent.failedFor(张三和李四)')
-    expect(report.problem).not.toMatch(/owner friend|human owner/)
+    expect(report.problem).toBe('contacts:inviteAgent.failedFor(张三和李四) Selected person is not an owner friend [path] [redacted token]')
+    expect(report.problem).not.toMatch(/\/Users\/test|sk-synthetic-secret|stack detail/)
     expect(report.retryIds).toEqual(['a', 'b'])
     expect(report.done).toEqual([])
   })
 
-  it('断网 ⇒ 另起一句带上「检查网络」这类用户能据此行动的提示', () => {
+  it('network errors include the actual refusal', () => {
     const report = describeZh([{ friendUserId: 'a', status: 'failed', error: new TypeError('Failed to fetch') }])
     expect(report.problem).toMatch(/^contacts:inviteAgent\.failedFor\(张三\) \S.*$/)
   })
@@ -73,7 +73,7 @@ describe('#6524 describeAgentShare', () => {
       { friendUserId: 'a', status: 'rejected' },
       { friendUserId: 'b', status: 'failed', error: new Error('boom') },
     ])
-    expect(report.problem).toBe('contacts:inviteAgent.rejected(张三) contacts:inviteAgent.failedFor(李四)')
+    expect(report.problem).toBe('contacts:inviteAgent.rejected(张三) contacts:inviteAgent.failedFor(李四) boom')
     expect(report.retryIds).toEqual(['b'])
   })
 })
