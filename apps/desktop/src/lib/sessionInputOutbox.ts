@@ -1,6 +1,10 @@
 export type SessionInput = {
   id: string; accountId: string; deviceId: string | null; sessionId: string; text: string; createdAt: number
-  attachments?: import('@gugu/session-core/session-record/contract').SessionpageSessionSendRequest['attachments']
+  /**
+   * The turn's attachments: DM-folder file references (P3). A row an older client stored may still carry `attachments`
+   * (ACP upload refs the host no longer takes): it is sent without them, its text intact.
+   */
+  files?: import('@gugu/session-core/session-record/contract').TurnFileRef[]
   error?: string
 }
 export interface SessionInputStorage {
@@ -18,7 +22,7 @@ export class SessionInputOutbox {
     private readonly send: (input: SessionInput) => Promise<void>, private readonly current: () => boolean,
     private readonly changed: () => void = () => {}) {}
 
-  async enqueue(target: Pick<SessionInput, 'deviceId' | 'sessionId' | 'text' | 'attachments'>): Promise<SessionInput> {
+  async enqueue(target: Pick<SessionInput, 'deviceId' | 'sessionId' | 'text' | 'files'>): Promise<SessionInput> {
     if (!this.current()) throw new Error('Session input account changed')
     const written = this.writing.catch(() => undefined).then(async () => {
       if (!this.current()) throw new Error('Session input account changed')

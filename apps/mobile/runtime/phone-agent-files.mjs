@@ -5,6 +5,7 @@ import { basename, join } from 'node:path'
 import { receivePhoneDeviceFile } from '../../desktop/electron/phone-device-file.ts'
 import { uploadAttachmentBytes, commitAttachment } from '../../../packages/core/src/cloud/attachmentsApi.ts'
 import { parseAttachmentContent } from '../../../packages/core/src/shared/ui/attachmentModels.ts'
+import { turnAttachmentText } from '../../../packages/core/src/shared/attachmentFolderLine.ts'
 import { createNodeFileResolver, saveFileHandle } from '../../../packages/core/src/local/files/fileSnapshots.ts'
 import { resolveAttachmentMimeType } from '../../../packages/core/src/shared/imageMime.mjs'
 import { phoneArtifactListTool, phoneTextFileTool } from './phone-agent-file-read.mjs'
@@ -32,6 +33,30 @@ export async function registerArtifact({ store, agent, file, groups }) {
   await store.save()
   const { permissionRequirements: _privateProof, ...shown } = file
   return { ...shown, artifact_id: id }
+}
+
+/**
+ * A task turn's attachments on a phone that hosts its agent (P3): versions of the agent's DM-folder files, placed there by
+ * the owner — read as the agent (like any file it reads), fetched into this agent's downloads, registered as its artifacts, and read in the same lines
+ * as a desktop agent reads them (`attachmentLocationLines`). The phone's prompt is text: an image is its path.
+ */
+export function phoneTurnFiles({ store, cloud }) {
+  const files = createNodeFileResolver(join(store.directory, 'file-cache'), () => cloud.attachmentEndpoint())
+  return async (agent, refs, signal) => {
+    const parts = []
+    for (const ref of refs) {
+      let saved
+      try {
+        const full = await files({ item_id: ref.itemId, version: ref.version }, { accountId: store.state.ownerId, actorId: agent.agentUserId }, { signal })
+        if (full.status !== 'ready') throw new Error('File is no longer available')
+        const file = await saveFileHandle(full, join(store.directory, 'downloads', agent.sessionId), ref.name)
+        await registerArtifact({ store, agent, groups: [], file: { file_path: file.file_path, name: file.file_name, size: file.size_bytes, sha256: file.sha256, mime_type: file.content_type } })
+        saved = { localPath: file.file_path }
+      } catch (error) { saved = { failure: error instanceof Error ? error.message : String(error) } }
+      parts.push(turnAttachmentText(ref, saved))
+    }
+    return parts.join('\n\n')
+  }
 }
 
 /** Media bytes stay between native and Node. Pi sees a complete private artifact, never a base64 string. */

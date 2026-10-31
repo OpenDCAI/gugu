@@ -120,6 +120,8 @@ export function parseFileMetadata(value: unknown, ref?: FileRef): FileMetadata {
 }
 
 /** Resolving metadata never signs or reads. The first byte read opens exactly one authorized snapshot. */
+const sameRevision = (a: FileRevision, b: FileRevision) => a.item_id === b.item_id && a.version === b.version && a.sha256 === b.sha256 && a.size_bytes === b.size_bytes
+
 export function createFileResolver(providers: FileProviders) {
   function resolveFile(ref: FileRef, actor: FileActor, options: { localOnly: true; purpose?: 'file'; signal?: AbortSignal }): Promise<ResolvedFile | null>
   function resolveFile(ref: FileRef, actor: FileActor, options: { purpose: 'preview'; metadata?: FileMetadata; signal?: AbortSignal }): Promise<ResolvedPreview>
@@ -153,8 +155,15 @@ export function createFileResolver(providers: FileProviders) {
     const open = async (): Promise<FileBytes> => {
       if (local) return local.open()
       if (revision.source === 'managed-object') return providers.managed(revision, context)
-      if (context.actor.accountId === revision.host_account_id && context.actor.actorId === context.actor.accountId) {
-        const ownSsh = await providers.ssh(revision, context)
+      // Who may read it is settled above (the person's own device copy, or the metadata lookup as this actor); where the
+      // bytes come from is not who reads them. A version this account's own device keeps is read on that device, or over
+      // this account's own SSH, for the person and their agents alike: never through the cloud while it is at hand.
+      if (context.actor.accountId === revision.host_account_id) {
+        const own = { ...context, actor: Object.freeze({ accountId: context.actor.accountId, actorId: context.actor.accountId }) }
+        const here = await providers.local(own)
+        if (here && sameRevision(here.revision, revision)) return here.open()
+        check()
+        const ownSsh = await providers.ssh(revision, own)
         if (ownSsh) return ownSsh
       }
       if (!revision.temporary_transfer) throw new Error('Cloud transfer is disabled for this file')

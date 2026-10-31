@@ -28,10 +28,10 @@ export function requireStartupOrigin(
  * 它同时决定这一轮的三件事,所以三件事不可能各自漂开:
  * - **正文怎么送**:`startup` = provider 的启动 prompt(argv/stdin 或 ACP session/prompt);
  *   `router` = 一条普通私聊消息(`sendMessageToChat`);
- *   `local-session` = 会话内的第一轮输入(`rpc.sessions.sendMessage`)。
+ *   `local-session` = 会话内的第一轮输入(`sessionTimeline.sessionSend`,与之后每一轮同一条)。
  * - **附件怎么编码**(#4325):`router` 那一轮是真 IM 消息 ⇒ 附件与该 DM 里稍后任何一条附件
  *   消息完全同路(上传 chat-media → attachment 消息);其余取值那一轮是会话内输入 ⇒ 附件按这条
- *   会话后续每一轮的编码方式给绝对路径 mention。
+ *   会话后续每一轮的编码方式走:放进这个 agent 私聊的文件夹,这一轮带着引用(P3)。
  * - **送完去哪**:`router`、以及对话页发起的 `startup`,都原地进入新 Agent 私聊;`local-session`
  *   留在会话页。对话页的 `startup` 之所以也有私聊可进,是因为它那一句**本身就是一条真的咕咕
  *   消息**:注入器边界在会话起来之前把 DM 开好、把这条消息按 exact `initialMessageId` 落库并
@@ -94,7 +94,9 @@ export function firstTurnTransportOf(input: {
  *    spawn 载荷走,附件是紧随其后的 attachment 行,由读者在会话 live 后投递(spec agent-create「附件与承载
  *    它的那条消息同路」)。#5049:此前这一格被判成 path-mention,对话页 + 通用视角(ACP 腿)带附件的首轮在
  *    下面的 tripwire 上响亮失败、一个 Agent 都建不出来 —— 判据本身漂了,不是 tripwire 误报。
- *  · 会话页的 `startup` / `local-session` / `none` 是会话内输入 ⇒ 按该会话后续每一轮的编码给绝对路径 mention。
+ *  · 会话页的 `startup` / `local-session` / `none` 是会话内输入 ⇒ 按该会话后续每一轮的编码:私聊文件夹里的文件,
+ *    这一轮带着引用(P3)。启动载荷只装得下字,所以带附件的这种首轮由调用方整轮改走会话内投递(见
+ *    use-create-session-callback)—— 这个映射对 startup 与 local-session 同答,改道不会让附件漂开。
  */
 export function attachmentChannelOf(
   transport: FirstTurnTransport,
@@ -103,25 +105,4 @@ export function attachmentChannelOf(
   if (transport === 'router') return 'chat-attachment';
   if (transport === 'startup' && creationSurface === 'chat-page') return 'chat-attachment';
   return 'path-mention';
-}
-
-/**
- * 这一轮排着的 chat 待发附件与它的 transport 自洽吗 —— 不自洽回一句话,自洽回 null。
- *
- * chat 待发队列只属于 `attachmentChannelOf` 判成 `chat-attachment` 的那一轮。别的取值却排着队,
- * 说明两条轴又从这个表达式漂开了 —— 那是 tripwire,不是正常出口:静默跳过整批就是 #4325 要判死的
- * 静默丢。它与它依据的那个映射写在同一个文件里,于是漂开无处可藏。
- *
- * ⚠️ 调用方必须在**建 task 之前**问一次:先建再抛会留下一个孤儿 task,而重试沿用同一个
- * PendingMessage(transport 已被快照)只会一次次走回同一条分支 —— 用户手里剩一个建好的空 task
- * 和一个按了就报错的按钮。
- */
-export function strayChatAttachmentError(
-  transport: FirstTurnTransport,
-  pending: readonly unknown[],
-  creationSurface: SessionCreationSurface,
-): string | null {
-  if (pending.length === 0 || attachmentChannelOf(transport, creationSurface) === 'chat-attachment') return null;
-  return `${pending.length} pending chat attachment(s) on a ${transport} first turn — `
-    + 'the attachment channel and the message transport disagree';
 }

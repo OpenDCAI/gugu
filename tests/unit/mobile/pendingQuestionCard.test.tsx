@@ -22,7 +22,6 @@ vi.mock('../../../apps/desktop/src/mobile/agent-watch/sessionpage-rpc', () => ({
   SessionpageRpcError: class SessionpageRpcError extends Error {},
   fetchSessionOptions: vi.fn(() => new Promise(() => {})),
   setSessionOption: vi.fn(),
-  sessionAttachmentRpc: vi.fn(() => ({})),
 }))
 
 vi.mock('../../../apps/desktop/src/components/assistant-ui/session-transcript-view.aui', () => ({

@@ -77,6 +77,11 @@ export function formatLegacyAttachmentContent(fileName: string, mimeType: string
   return textContent ? `${header}\n${textContent}` : header
 }
 
+/** The body of a new attachment message, as the server writes it (`chat.attachment_envelope`): a task turn's attachment reads the same. */
+export function attachmentEnvelope(fileName: string, sizeBytes: number, mimeType: string): string {
+  return `${HEADER_PREFIX}${fileName}${mimeType ? ` (${mimeType})` : ''}\n${SIZE_PREFIX}${sizeBytes}\n${KIND_PREFIX}${mimeType.startsWith('image/') ? 'image' : 'file'}`
+}
+
 // @@@attachment-line-count - Voice attachment content is exactly 3 lines; media attachment content stays 4 lines so parsers can disambiguate the shared `[附件]` header.
 export function formatAttachmentMetadata(meta: AttachmentMeta): string {
   const fileName = meta.fileName.trim()

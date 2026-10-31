@@ -1220,8 +1220,15 @@ export type SessionpageSessionSendRequest = {
   text: string;
   /** Stable across reconnects and client restarts; the host's existing durable message router deduplicates it. */
   clientMessageId?: string;
-  attachments?: import('../acp/client').PromptAttachment[];
+  /** The turn's attachments: files of the agent's DM folder (P3), resolved on the host. */
+  files?: TurnFileRef[];
 };
+/**
+ * A task turn's attachment (P3): a version of a file in the agent's DM folder, placed there by the owner. `path`: the file
+ * the agent works on, on the device that placed it (the dragged original, or the copy a paste was written to); a host on
+ * another device fetches the version itself, as the owner.
+ */
+export type TurnFileRef = { itemId: string; version: number; name: string; mimeType: string; sizeBytes: number; path?: string };
 /** 端上对一条结算的回答(会话 id 与回答者由调用方补上)。 */
 export type SettlementResponse =
   /**

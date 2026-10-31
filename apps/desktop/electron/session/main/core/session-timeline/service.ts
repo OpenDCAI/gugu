@@ -1,5 +1,4 @@
 import { createNativeRecordReader } from './native-record';
-import { promptAttachmentSchema } from '@gugu/session-core/acp/client';
 import { ask, withdrawAll } from '../asks';
 import { hostAsks, resetAsks, respond as respondAsk, respondQuestion as respondAskQuestion } from '../asks/ask';
 import { askSourceSpec } from '../asks/sources';
@@ -84,7 +83,6 @@ import { locateSessionRecord, sessionRecordHarnessForProvider, type SessionRecor
 import { hermesRecordedDeliveryIds } from './hermes-delivery-receipts';
 import { OpenedFileError, readOpenedFileChunk } from './opened-file';
 import { sessionOpenedFile, sessionOutputs } from '../sessions/session-outputs';
-import { findSessionAttachmentCopy } from '../sessions/attachments/session-attachment-store';
 import { createStandInTimeline } from './stand-in-timeline';
 import { readStartFailure } from './start-failures';
 import { knownHarnessConfigRoots } from '@main/core/agent-hooks/harness-config-roots';
@@ -1129,11 +1127,10 @@ export async function readOpenedFile(
   input: SessionpageOpenedFileReadRequest
 ): Promise<SessionTimelineResult<SessionpageOpenedFileChunk>> {
   try {
-    const copy = await findSessionAttachmentCopy(input.conversationId, input.path);
-    if (!copy && !(await sessionOpenedFile(input.conversationId, input.path))) {
+    if (!(await sessionOpenedFile(input.conversationId, input.path))) {
       return fail('not_opened', `这条会话没有打开过 ${input.path}`);
     }
-    return { ok: true, value: await readOpenedFileChunk(copy ?? input.path, input.offset, input.length) };
+    return { ok: true, value: await readOpenedFileChunk(input.path, input.offset, input.length) };
   } catch (error) {
     if (error instanceof OpenedFileError) return fail(error.code, error.message);
     return fail('read_failed', (error as Error)?.message ?? String(error));
@@ -1390,9 +1387,9 @@ export async function send(
   conversationId: string,
   text: string,
   clientMessageId?: string,
-  attachments?: import('@gugu/session-core/session-record/contract').SessionpageSessionSendRequest['attachments']
+  files?: import('@gugu/session-core/session-record/contract').SessionpageSessionSendRequest['files']
 ): Promise<SessionTimelineResult<{ accepted: 'started' | 'queued'; clientMessageId?: string }>> {
-  if (attachments !== undefined && !promptAttachmentSchema.array().safeParse(attachments).success) return fail('invalid_request', '附件引用无效');
+  if (files !== undefined && !validTurnFiles(files)) return fail('invalid_request', '附件引用无效');
   if (clientMessageId !== undefined && (!clientMessageId.trim() || clientMessageId.length > 256)) return fail('invalid_request', '消息标识无效');
   const row = readSessionRow(conversationId);
   if (!row) return fail('session_not_found', `这台机器上没有会话 ${conversationId}`);
@@ -1408,7 +1405,7 @@ export async function send(
     if (!started.ok) return fail(started.error.code, started.error.message);
   }
   try {
-    const accepted = await deliverSessionText(writeTargetFrom(row), text, clientMessageId, attachments);
+    const accepted = await deliverSessionText(writeTargetFrom(row), text, clientMessageId, files);
     return { ok: true, value: { ...accepted, ...(clientMessageId ? { clientMessageId } : {}) } };
   } catch (error) {
     if (error instanceof SessionWriteError) return fail(error.code, error.message);
@@ -1416,26 +1413,12 @@ export async function send(
   }
 }
 
-type AttachmentUploads = typeof import('@main/core/sessions/attachments/attachment-upload');
-
-/**
- * 手机输入框的附件落进这条会话的附件目录。`run` 拿到的是桌面输入框同三个函数
- * (`attachment-upload.ts`:同一套 id / 路径段校验、同一个落盘、同一张登记表)。
- */
-export async function withSessionAttachments<T>(
-  conversationId: string,
-  run: (uploads: AttachmentUploads) => Promise<T>
-): Promise<SessionTimelineResult<T>> {
-  const row = readSessionRow(conversationId);
-  if (!row) return fail('session_not_found', `这台机器上没有会话 ${conversationId}`);
-  // 用时再 import:它拖着 electron 与落盘那一串,只读时间线的路不该替它交税(与 create-session 同一条)。
-  const uploads = await import('@main/core/sessions/attachments/attachment-upload');
-  try {
-    return { ok: true, value: await run(uploads) };
-  } catch (error) {
-    if (error instanceof uploads.AttachmentUploadError) return fail(error.code, error.message);
-    return fail('persist_failed', (error as Error)?.message ?? String(error));
-  }
+/** A turn's attachments as they cross the wire (P3): versions of DM-folder files, nothing else. */
+function validTurnFiles(files: unknown): boolean {
+  return Array.isArray(files) && files.every((file) => file && typeof file === 'object'
+    && typeof file.itemId === 'string' && !!file.itemId && Number.isSafeInteger(file.version) && file.version >= 1
+    && typeof file.name === 'string' && !!file.name && typeof file.mimeType === 'string'
+    && Number.isSafeInteger(file.sizeBytes) && file.sizeBytes >= 0 && (file.path === undefined || typeof file.path === 'string'));
 }
 
 /** 停掉这条会话正在飞的一轮。受理即返回;停没停下来由时间线自己结算(与发送同一口径)。 */

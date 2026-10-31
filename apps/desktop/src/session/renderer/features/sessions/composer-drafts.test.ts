@@ -15,11 +15,7 @@ describe('creation draft handoff', () => {
 
   it('moves attachment-only drafts with their original bytes, then consumes the handoff', () => {
     const snapshot: ComposerAttachmentDraft = {
-      pending: [],
-      uploads: [{
-        chip: { id: 'attachment', name: 'note.txt', kind: 'file' },
-        source: { kind: 'file', name: 'note.txt', size: 3, slice: async () => new Uint8Array([1, 2, 3]) },
-      }],
+      pending: [{ chip: { id: 'attachment', name: 'note.txt', kind: 'file' }, file: new File(['abc'], 'note.txt') }],
     };
     const unregister = composerDrafts.registerAttachments('attachment-home', () => snapshot);
     composerDrafts.moveToEmpty('attachment-home', 'attachment-project');

@@ -27,7 +27,9 @@ vi.mock('@renderer/features/sessions/stores/session-selectors', () => ({
 }));
 vi.mock('@renderer/lib/ipc', () => ({
   rpc: { sessions: { sendMessage: mocks.localSendMessage } },
+  rpcOn: () => ({ sessionTimeline: { sessionStart: vi.fn(async () => ({ ok: true })) } }),
 }));
+vi.mock('@/lib/sessionPublication', () => ({ getRendererSession: () => ({ user: { id: 'owner-1' } }) }));
 vi.mock('@renderer/utils/logger', () => ({ log: { error: mocks.logError, warn: mocks.logWarn } }));
 vi.mock('@renderer/lib/hooks/use-toast', () => ({ toast: mocks.toast }));
 
@@ -77,17 +79,16 @@ const initialSession = {
   // 产品里也是这样,而这正是「失败原因不会被自己的成功清掉」所依赖的那条区分。
   get attachmentEditSeq() { return attachmentEditSeq; },
   pendingAttachmentFiles: () => pendingAttachments,
-  // path-mention 通道那一半(#5269)。这些用例全是 chat 通道的,所以恒空 —— 但**必须在场**:
-  // 这份替身用 `as unknown as` 断言成完整的 state,少一个成员编译期不会说话,运行期才炸。
-  pathAttachmentMentions: () => [],
-  pathAttachmentsUnsettled: () => false,
-  waitForPathAttachments: async () => true,
-  enqueuePathAttachments: async () => {},
-  // 任务 id 由 composer 先定下来:path-mention 的附件在**创建之前**就按它落进了
-  // `<userData>/task-attachments/<会话 id>/`(#5269)。替身给一个稳定值,好让「重试用同一个
-  // 已创建任务的 id」那条断言仍然读得出「同一个 id」。
-  reserveSessionId: () => 'reserved-task-id',
-  pathAttachmentEntries: () => [],
+  // path-mention 通道(P3):建任务之前定名(首轮正文写它们),建好之后按那个名放进私聊文件夹。
+  // 替身记下定名的时刻与放的时候问到的私聊。
+  prepareAttachments: vi.fn(async () => {
+    preparedBeforeCreate = mocks.createSession.mock.calls.length === 0;
+    return pendingAttachments.map(namedRef);
+  }),
+  placeAttachments: vi.fn(async (to: () => Promise<{ chatId: string; owner: string }>) => {
+    placedTo = await to();
+    return pendingAttachments.map(namedRef);
+  }),
   dropAttachment: (id: string) => {
     pendingAttachments = pendingAttachments.filter((entry) => entry.id !== id);
   },
@@ -99,7 +100,10 @@ const initialSession = {
 let pendingAttachments: Array<{ id: string; file: File }> = [];
 // 用户自己动队列的计数(产品里由 enqueue/用户点掉 chip 递增,dropAttachment 不递增)。
 let attachmentEditSeq = 0;
-
+let placedTo: { chatId: string; owner: string } | null = null;
+let preparedBeforeCreate: boolean | null = null;
+const namedRef = (entry: { id: string; file: File }) =>
+  ({ itemId: `item-${entry.id}`, version: 1, name: entry.file.name, mimeType: 'text/plain', sizeBytes: 1, path: `/local/${entry.file.name}` });
 function Probe({
   creationSurface = 'chat-page',
   birthChatId,
@@ -134,6 +138,8 @@ describe('useCreateSessionCallback ordinary messaging', () => {
     mocks.sendAttachmentsToChat.mockResolvedValue(undefined);
     mocks.createSession.mockResolvedValue(undefined);
     mocks.localSendMessage.mockResolvedValue({ id: 'local-id', status: 'queued' });
+    placedTo = null;
+    preparedBeforeCreate = null;
     mocks.invoke.mockResolvedValue({ chatId: 'chat-1', agentUserId: 'agent-1' });
     mocks.sendMessageToChat.mockResolvedValue('message-id');
     initialSession.prompt = 'make one task';
@@ -181,25 +187,45 @@ describe('useCreateSessionCallback ordinary messaging', () => {
     dom.window.close();
   });
 
-  it('#6264 附件还在传:点创建先等它传完再建;有一件没成就不建', async () => {
-    let finish: (ok: boolean) => void = () => {};
-    initialSession.pathAttachmentsUnsettled = () => true;
-    initialSession.waitForPathAttachments = () => new Promise<boolean>((resolve) => (finish = resolve));
-    try {
-      act(() => latest?.handleCreateSession());
-      await act(async () => {});
-      expect(mocks.createSession).not.toHaveBeenCalled();
-      await act(async () => finish(true));
-      expect(mocks.createSession).toHaveBeenCalledTimes(1);
+  it('任务页创建 + 启动通道首轮带附件:建之前定名,引用写进启动正文;建好之后开私聊、按名放进文件夹(P3)', async () => {
+    initialSession.sessionView = 'code';
+    initialSession.sessionpage = { 'tui': { identity: 'addressable', messageTransport: 'local-session' } };
+    initialSession.promptCapability = { kind: 'argv', startupDelivery: 'startup-prompt' };
+    pendingAttachments = [{ id: 'att-1', file: { name: 'brief.txt' } as unknown as File }];
+    await act(async () => root.render(React.createElement(Probe, { creationSurface: 'session-page' })));
 
-      mocks.createSession.mockClear();
-      act(() => latest?.handleCreateSession());
-      await act(async () => finish(false));
-      expect(mocks.createSession).not.toHaveBeenCalled();
-    } finally {
-      initialSession.pathAttachmentsUnsettled = () => false;
-      initialSession.waitForPathAttachments = async () => true;
-    }
+    act(() => latest?.handleCreateSession());
+    await act(async () => {});
+
+    expect(preparedBeforeCreate).toBe(true);
+    // transport 不因附件而变:正文与附件的那几行一起是启动载荷(与收件箱同一个格式)。
+    const prompt = mocks.createSession.mock.calls[0]?.[0].sessionConfig.initialSession.initialPrompt as string;
+    expect(prompt.startsWith('make one task\n')).toBe(true);
+    expect(prompt).toContain('brief.txt');
+    expect(prompt).toContain('gugu-file://item-att-1');
+    expect(prompt).toContain('[File saved at local path: /local/brief.txt]');
+    expect(placedTo).toEqual({ chatId: 'chat-1', owner: 'owner-1' });
+    expect(mocks.createSession.mock.invocationCallOrder[0]).toBeLessThan(mocks.invoke.mock.invocationCallOrder[0]!);
+    expect(mocks.localSendMessage).not.toHaveBeenCalled();
+    expect(mocks.sendAttachmentsToChat).not.toHaveBeenCalled();
+    expect(pendingAttachments).toEqual([]);
+  });
+
+  it('任务页创建带附件:放进文件夹失败只提示,任务照常建好、打开', async () => {
+    initialSession.sessionView = 'code';
+    initialSession.sessionpage = { 'tui': { identity: 'addressable', messageTransport: 'local-session' } };
+    initialSession.promptCapability = { kind: 'argv', startupDelivery: 'startup-prompt' };
+    pendingAttachments = [{ id: 'att-1', file: { name: 'brief.txt' } as unknown as File }];
+    vi.mocked(initialSession.placeAttachments).mockResolvedValueOnce(null);
+    await act(async () => root.render(React.createElement(Probe, { creationSurface: 'session-page' })));
+
+    act(() => latest?.handleCreateSession());
+    await act(async () => {});
+
+    expect(mocks.logWarn).toHaveBeenCalled();
+    expect(mocks.toast).toHaveBeenCalled();
+    expect(latest?.deliveryError).toBeNull();
+    expect(mocks.navigate).toHaveBeenCalledWith('session', expect.objectContaining({ projectId: 'project-1' }));
   });
 
   it('create then user message calls the exact same sendMessageToChat API as a later message', async () => {
@@ -463,8 +489,8 @@ describe('useCreateSessionCallback ordinary messaging', () => {
     expect(mocks.sendMessageToChat).not.toHaveBeenCalled();
     expect(mocks.invoke).not.toHaveBeenCalled();
     expect(mocks.openAgentChat).not.toHaveBeenCalled();
-    // 留在会话页:导航到这条会话,它的 id 就是附件落盘时预留的那个。
-    expect(mocks.navigate).toHaveBeenCalledWith('session', { projectId: 'project-1', sessionId: 'reserved-task-id' });
+    // 留在会话页:导航到这条会话。
+    expect(mocks.navigate).toHaveBeenCalledWith('session', { projectId: 'project-1', sessionId: mocks.createSession.mock.calls[0]?.[0].sessionConfig.initialSession.id });
   });
 
   // 阳控:同一把尺子在对话页创建时必须读到「走了私聊」—— 否则上面那条的绿是把整条路测没了。
@@ -563,11 +589,8 @@ describe('useCreateSessionCallback ordinary messaging', () => {
     );
   });
 
-  // 阳控 + 反例:会话页那条路**不**碰 chat 附件发送(它的附件是会话内的路径 mention,所以
-  // 待发队列本来就是空的 —— attachmentChannelOf('local-session') = 'path-mention')。
+  // 阳控 + 反例:会话页那条路**不**碰 chat 附件发送(attachmentChannelOf('local-session') = 'path-mention')。
   // 没有这一条,上面那条绿说明不了「判据认得出两个取值」。
-  // ⚠️ 这里**不**人为往队列里塞附件:那是产品造不出来的状态,塞了测的就不是这条路,
-  // 而是下面那条 fail-loud 守卫(它有自己的用例)。
   it('[阳控] 任务页创建:首轮不走 chat 附件发送', async () => {
     expect(pendingAttachments).toHaveLength(0);
     await act(async () => root.render(React.createElement(Probe, { creationSurface: 'session-page' })));
@@ -633,9 +656,9 @@ describe('useCreateSessionCallback ordinary messaging', () => {
     expect(mocks.sendAttachmentsToChat).not.toHaveBeenCalled();
   });
 
-  // [回归 · #4325 review 发现②] 会话内投递那一轮不该有 chat 待发附件(它的附件是正文里的路径
-  // mention)。真有就说明两条轴漂开了 —— 必须响亮地停,❌ 不静默跳过整批。
-  it('会话内投递的一轮若混进 chat 待发附件,必须 fail loud', async () => {
+  // 会话内投递的一轮(对话页 + 终端腿声明 local-session):附件的编码跟着这一轮的 transport 走,
+  // attachmentChannelOf('local-session') = path-mention ⇒ 引用写进这一轮的正文、文件放进私聊文件夹(P3),❌ 当成 chat 附件行。
+  it('会话内投递的一轮带附件:引用写进正文,文件放进私聊文件夹', async () => {
     pendingAttachments = [{ id: 'att-1', file: { name: 'brief.txt' } as unknown as File }];
     initialSession.sessionView = 'code';
     initialSession.sessionpage = {
@@ -646,15 +669,14 @@ describe('useCreateSessionCallback ordinary messaging', () => {
     act(() => latest?.handleCreateSession());
     await act(async () => {});
 
-    expect(latest?.deliveryError).toMatchObject({
-      kind: 'raw',
-      detail: expect.stringContaining('attachment channel and the message transport disagree'),
-    });
-    // ❌ 不许把正文照发、附件当没有过。
-    expect(mocks.localSendMessage).not.toHaveBeenCalled();
-    expect(pendingAttachments).toHaveLength(1);
-    // 而且要在 createSession **之前**就停住:先建再抛会留下一个孤儿 task,重试还只会走回这里。
-    expect(mocks.createSession).not.toHaveBeenCalled();
+    expect(mocks.sendAttachmentsToChat).not.toHaveBeenCalled();
+    expect(preparedBeforeCreate).toBe(true);
+    const text = mocks.localSendMessage.mock.calls[0]?.[0].text as string;
+    expect(text.startsWith('make one task\n')).toBe(true);
+    expect(text).toContain('gugu-file://item-att-1');
+    expect(text).toContain('[File saved at local path: /local/brief.txt]');
+    expect(placedTo).toEqual({ chatId: 'chat-1', owner: 'owner-1' });
+    expect(pendingAttachments).toHaveLength(0);
   });
 
   // [回归 · #4325 复审发现③] 一批附件里前面几件成功、最后一件失败:那次成功自己把待发数量

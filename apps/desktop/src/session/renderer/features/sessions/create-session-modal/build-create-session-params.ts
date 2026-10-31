@@ -10,7 +10,7 @@ import type { NewSessionConfig } from '@shared/core/sessions/new-session-config'
 // 「must not hide the user's pre-dispatch permission choice」。
 export function buildInitialSession(
   state: InitialSessionState,
-  /** `id`:这条会话的 id(新建会话的 id 就是它)。附件在点「创建」之前就按它落盘,所以由调用方预留。 */
+  /** `id`:这条会话的 id(由调用方定,它要在建好之后按这个 id 投递首轮)。 */
   options: { startupOrigin?: 'chat-page' | 'session-page'; id?: string } = {},
 ): NonNullable<NewSessionConfig['initialSession']> | undefined {
   const { provider } = state;

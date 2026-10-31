@@ -1,6 +1,8 @@
 // 渲染层调 attachments 函数(core 的那一份客户端,packages/core/src/cloud/attachmentsApi.ts):这个构建的服务器,登录的人现在的令牌。
-import { commitAttachment, configuredEndpoint, uploadAttachmentBytes, type AttachmentsEndpoint, type CommitArgs, type AttachmentUploadPlan, type AttachmentByteProgress } from '@gugu/core/cloud/attachmentsApi'
+import { commitAttachment, configuredEndpoint, placeAttachment, uploadAttachmentBytes, type AttachmentsEndpoint, type CommitArgs, type AttachmentUploadPlan, type AttachmentByteProgress } from '@gugu/core/cloud/attachmentsApi'
 import { resolveFileMimeType } from '@gugu/core/shared/ui/attachmentModels'
+import type { TurnFileRef } from '@gugu/session-core/session-record/contract'
+import { isHeicLikeFile, mustCopyRatherThanReference } from '@renderer/lib/pty/terminal-image-paths'
 import { getRendererAccessToken } from './sessionPublication'
 import { i18n } from '../i18n'
 
@@ -54,4 +56,42 @@ export async function sendFileToChat(file: File, to: { chatId: string; senderId:
     content_type: contentType,
     to_user_ids: to.toUserIds ?? [],
   })
+}
+
+/**
+ * A task attachment named before it is placed (P3): on a desktop, the id its DM-folder file will take (new files are
+ * version 1) and the file the agent works on — the dragged original, or one copy of a paste (or of an image the agent
+ * cannot read as it is) written where agents' downloads land. A new task's first turn names its files this way before
+ * the agent's DM exists; a task page places them right away. The phone has no file to hand over: it names nothing
+ * beforehand (`placeTaskAttachment` without a prepared ref uploads).
+ */
+export async function prepareTaskAttachment(file: File): Promise<TurnFileRef | null> {
+  const api = window.electronAPI
+  if (!api) return null
+  const name = file.name || 'file', mimeType = resolveFileMimeType(file)
+  const dropped = api.getPathForFile(file)
+  const own = dropped && !mustCopyRatherThanReference(dropped) && !isHeicLikeFile(file)
+  const copy = own ? null : await api.invoke('files:task-copy', { name, data: await file.arrayBuffer(), mimeType }) as { path: string; size: number; mimeType?: string }
+  return { itemId: crypto.randomUUID(), version: 1, name, mimeType: copy?.mimeType ?? mimeType, sizeBytes: copy?.size ?? file.size, path: copy?.path ?? dropped }
+}
+
+/**
+ * Places a task attachment in its agent's DM folder, with no message (P3). A desktop publishes it here only — metadata, the
+ * bytes stay on this device and another device fetches them when it opens them (owner 10-31) — under the id `prepared`
+ * named. The phone uploads it into the folder.
+ */
+export async function placeTaskAttachment(file: File, prepared: TurnFileRef | null, to: { chatId: string; owner: string }, onProgress?: (sent: number, total: number) => void): Promise<TurnFileRef> {
+  if (prepared?.path) {
+    const row = await publishNative({ chatId: to.chatId, task: true, itemId: prepared.itemId,
+      file: { name: prepared.name, path: prepared.path, size: prepared.sizeBytes, contentType: prepared.mimeType } }) as { id: string; version: number } | null
+    if (!row || row.id !== prepared.itemId || row.version !== prepared.version) throw new Error('Task attachment was not published as named')
+    onProgress?.(prepared.sizeBytes, prepared.sizeBytes)
+    return prepared
+  }
+  const name = file.name || 'file', mimeType = resolveFileMimeType(file)
+  const endpoint = await attachmentsEndpoint()
+  const staging_key = await uploadAttachmentBytes(endpoint, { bytes: file, name, contentType: mimeType }, { chat_id: to.chatId, as: to.owner },
+    { onProgress: onProgress && (progress => onProgress(progress.loaded, progress.total ?? file.size)) })
+  const item = await placeAttachment(endpoint, { staging_key, chat_id: to.chatId, file_name: name, as_user_id: to.owner, content_type: mimeType }) as { id: string; version: number }
+  return { itemId: item.id, version: item.version, name, mimeType, sizeBytes: file.size }
 }

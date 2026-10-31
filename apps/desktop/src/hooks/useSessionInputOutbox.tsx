@@ -40,17 +40,17 @@ export function SessionInputOutboxHost({ accountId }: { accountId: string }) {
         }
         if (device && isPhoneDevice(device)) {
           const { invokePhoneHost } = await import('@/mobile/local-agent/phoneHostRpc')
-          const result = await invokePhoneHost<{ accepted?: boolean }>(device.device_id, 'sessionTimeline.sessionSend', [{ conversationId: input.sessionId, text: input.text, clientRequestId: input.id }], input.id)
+          const result = await invokePhoneHost<{ accepted?: boolean }>(device.device_id, 'sessionTimeline.sessionSend', [{ conversationId: input.sessionId, text: input.text, clientRequestId: input.id, ...(input.files?.length ? { files: input.files } : {}) }], input.id)
           if (!result.accepted) throw new Error('Phone host has not acknowledged the input')
         } else if (platform.kind === 'electron') {
           const { rpcOn } = await import('@/session/renderer/lib/ipc')
-          const result = await rpcOn(input.deviceId).sessionTimeline.sessionSend({ conversationId: input.sessionId, text: input.text, clientMessageId: input.id, ...(input.attachments?.length ? { attachments: input.attachments } : {}) })
+          const result = await rpcOn(input.deviceId).sessionTimeline.sessionSend({ conversationId: input.sessionId, text: input.text, clientMessageId: input.id, ...(input.files?.length ? { files: input.files } : {}) })
           if (!result.ok) throw new Error(result.error.message)
           if (result.value.clientMessageId !== input.id) throw new Error('Session host acknowledged another input')
         } else {
           const { sendSessionText } = await import('@/mobile/agent-watch/sessionpage-rpc')
           if (!input.deviceId) throw new Error('Remote session input has no device')
-          await sendSessionText(input.deviceId, input.sessionId, input.text, input.id, input.attachments)
+          await sendSessionText(input.deviceId, input.sessionId, input.text, input.id, input.files)
         }
       }, valid, () => { void refresh().catch(report) })
       void refresh().catch(report)

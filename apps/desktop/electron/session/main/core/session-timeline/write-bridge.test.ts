@@ -25,6 +25,13 @@ const state = vi.hoisted(() => ({
 }));
 vi.mock('@main/lib/logger', () => ({ log: { warn: (_msg: string, data: unknown) => state.warnings.push(data), info: () => {}, error: () => {} } }));
 
+// 附件那几行由 turn-files 拼(它自己的测试钉格式);这里只看它们怎么接进这一轮。
+vi.mock('./turn-files', () => ({
+  turnFileText: async (_sessionId: string, _files: unknown, inline: boolean) => ({
+    text: '[Image attached: a.png]',
+    images: inline ? [{ type: 'local-file', originalPath: '/agent/a.png', mimeType: 'image/png', name: 'a.png' }] : [],
+  }),
+}));
 vi.mock('@main/core/acp/runtime-process/host', () => ({
   getAcpRuntimeClient: async () => ({
     promptDetached: async () => { throw new Error('Mobile text must use the session message router'); },
@@ -98,13 +105,16 @@ describe('终端腿(pty)回话:唤醒归 session-direct 的路由', () => {
 });
 
 describe('mobile ACP replies use the shared session message router', () => {
-  it('admits a caption and its image as one manual native input, including image-only input', async () => {
-    const attachments = [{ type: 'attachment' as const, id: 'image-a', mimeType: 'image/png' as const, name: 'a.png' }];
-    await bridge.deliverSessionText(target, 'caption', 'input-with-image', attachments);
-    expect(state.sentParams).toEqual([expect.objectContaining({ text: 'caption', clientMessageId: 'input-with-image', delivery: { queue: true, origin: 'manual', attachments } })]);
-    await bridge.deliverSessionText(target, '', 'image-only', attachments);
-    expect(state.sentParams).toHaveLength(2);
-    await expect(bridge.deliverSessionText(ptyTarget, 'caption', 'bad-terminal-image', attachments)).rejects.toMatchObject({ code: 'unsupported_runtime' });
+  it('admits a caption and its files as one manual native input, including a files-only input; a terminal gets the lines', async () => {
+    const files = [{ itemId: 'item-a', version: 1, name: 'a.png', mimeType: 'image/png', sizeBytes: 3, path: '/agent/a.png' }];
+    const images = [{ type: 'local-file', originalPath: '/agent/a.png', mimeType: 'image/png', name: 'a.png' }];
+    await bridge.deliverSessionText(target, 'caption', 'input-with-image', files);
+    expect(state.sentParams).toEqual([expect.objectContaining({ text: 'caption\n\n[Image attached: a.png]', clientMessageId: 'input-with-image', delivery: { queue: true, origin: 'manual', attachments: images } })]);
+    await bridge.deliverSessionText(target, '', 'image-only', files);
+    expect(state.sentParams[1]).toEqual(expect.objectContaining({ text: '[Image attached: a.png]' }));
+    await bridge.deliverSessionText(ptyTarget, 'caption', 'terminal-image', files);
+    expect(state.sentParams[2]).toEqual(expect.objectContaining({ text: 'caption\n\n[Image attached: a.png]' }));
+    expect(state.sentParams[2]).not.toHaveProperty('delivery');
   });
   it('keeps the caller input ID when the same direct send is retried after reconnecting', async () => {
     await bridge.deliverSessionText(target, 'one input', 'input-request-1');

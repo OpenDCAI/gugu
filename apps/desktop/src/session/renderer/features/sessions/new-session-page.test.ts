@@ -149,7 +149,7 @@ vi.mock('@renderer/features/sessions/session-config/initial-session-section', ()
       issueContextEditorOpen: false,
       // #4325 —— 「这一轮带了内容」把待发附件一并算上,所以这份替身也必须有这个通道。
       attachments: [],
-      captureAttachmentDraft: () => ({ uploads: [], pending: [] }),
+      captureAttachmentDraft: () => ({ pending: [] }),
     };
   }
 }));

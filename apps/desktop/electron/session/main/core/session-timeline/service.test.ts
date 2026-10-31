@@ -96,10 +96,6 @@ vi.mock('@main/db/client', () => ({
 
 vi.mock('@main/lib/logger', () => ({ log: { warn: vi.fn(), info: vi.fn(), error: vi.fn() } }));
 const openedOutputs = vi.hoisted(() => new Map<string, ({ kind: 'file'; path: string } | { kind: 'page'; url: string })[]>());
-const attachmentCopies = vi.hoisted(() => new Map<string, string>());
-vi.mock('../sessions/attachments/session-attachment-store', () => ({
-  findSessionAttachmentCopy: async (sessionId: string, path: string) => attachmentCopies.get(`${sessionId}:${path}`) ?? null,
-}));
 vi.mock('../sessions/session-outputs', () => ({
   sessionOutputs: async (sessionId: string) => openedOutputs.get(sessionId) ?? [],
   sessionOpenedFile: async (sessionId: string, path: string) =>
@@ -1625,15 +1621,6 @@ describe('readOpenedFile', () => {
 
   beforeEach(() => {
     openedOutputs.clear();
-    attachmentCopies.clear();
-  });
-
-  it('reads this session’s registered attachment copy even when the original was not opened', async () => {
-    attachmentCopies.set('conv-1:/deleted/original.html', report);
-    const result = await service.readOpenedFile({ conversationId: 'conv-1', path: '/deleted/original.html', offset: 0, length: 1024 });
-    expect(result.ok).toBe(true);
-    if (result.ok) expect(Buffer.from(result.value.data, 'base64').toString('utf8')).toBe('<h1>汇报</h1>');
-    expect(await service.readOpenedFile({ conversationId: 'conv-2', path: '/deleted/original.html', offset: 0, length: 1024 })).toMatchObject({ ok: false, error: { code: 'not_opened' } });
   });
 
   it('打开过的文件:按块读出原字节', async () => {

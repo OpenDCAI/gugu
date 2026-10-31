@@ -247,7 +247,7 @@ export const SessionTimelinePage = observer(function SessionTimelinePage({
           sessionRuntime={session.runtime}
           respondingItemId={respondingItemId}
           onRespond={respond}
-          onSend={async (text, attachments) => { await enqueueSessionInput({ deviceId: device.device_id, sessionId: session.conversationId, text, ...(attachments?.length ? { attachments } : {}) }); if (native) nativeRecord.followTail() }}
+          onSend={async (text, files) => { await enqueueSessionInput({ deviceId: device.device_id, sessionId: session.conversationId, text, ...(files?.length ? { files } : {}) }); if (native) nativeRecord.followTail() }}
           pendingSends={pendingSends}
           sending={sending}
           agentWorking={attention === 'running'}

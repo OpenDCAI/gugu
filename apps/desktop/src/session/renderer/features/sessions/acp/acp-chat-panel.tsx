@@ -15,14 +15,13 @@ import { useSessionPromptEditor } from './use-session-prompt-editor';
 import { continueSessionTurn } from './continue-session-turn';
 import { projectGroupsStore } from '@renderer/features/projects/stores/project-groups-store';
 import { SessionComposerVerbs, SessionVerbDock, sessionVerbKey } from '../session-verb-dock';
-import type { AttachmentMimeType, AttachmentRef } from '@gugu/session-core/acp/client';
+import type { TurnFileRef } from '@gugu/session-core/session-record/contract';
 import { followConversationLink } from '@/lib/followConversationLink';
 import { openMessageSender } from '@/lib/openMessageSender';
 import { classifyFileLink } from '@gugu/core/shared/ui/guguLink';
 import {
   AttachmentViewerDialog,
   MermaidViewerDialog,
-  formatAttachmentSize,
   readAttachmentPreviewText,
 } from '@gugu/session-ui/react/components';
 import type {
@@ -89,28 +88,18 @@ import { platformModelIdFromRuntimeOption, platformOptionId } from '@/session/sh
 import { openComposerImage, openImageViewer } from '@/lib/imageViewer';
 import { showModal, useShowModal } from '@renderer/lib/modal/modal-provider';
 import { resolveSignInTarget } from '@renderer/features/settings/agents-page/agent-account';
-import { formatBytes } from '@renderer/utils/formatBytes';
-import { composePromptText, fileMentionsFor } from './composer-file-paths';
-import {
-  droppedImageRefs,
-  enqueueImageAttachment,
-  imageAttachmentRoute,
-  imagePromptAttachments,
-} from './composer-image-attachments';
-import { isHeicLikeFile, mustCopyRatherThanReference } from '@renderer/lib/pty/terminal-image-paths';
 import { droppedDirectoryMention } from '@renderer/lib/drag-files';
 import { pathAttachmentTarget } from '@gugu/session-chat-ui/markdown-attachment-mentions';
 import { readMermaidTheme } from '@gugu/session-chat-ui/mermaid';
-import { composerAttachmentSource } from './composer-attachment-source';
 import { SessionScheduleChip } from '../session-schedule-chip';
 import { sessionComposerFrameLiftClassName, sessionComposerTrayClassName, sessionComposerTrayStyle } from '../session-composer-styles';
 import { useSessionSchedules } from '@renderer/features/automations/use-session-schedules';
 import { toComposerPermission } from './composer-permission';
 import { useHostAskBand } from '@renderer/features/extensions/use-session-host-ask';
 import { SessionHostQuestion } from '@renderer/features/extensions/session-host-question';
-import { uploadComposerAttachment, type AttachmentUploadRpc, type UploadSource } from './composer-file-upload';
 import { useComposerFileUploads } from './use-composer-file-uploads';
-import { entryUploadItems, type DropEntry } from '@renderer/features/remote-hosts/workspace/remote-drop-items';
+import { shellPort } from '@renderer/lib/shell-port';
+import { getRendererSession } from '@/lib/sessionPublication';
 import { useAgents } from '@renderer/lib/stores/use-agents';
 import { ThreadScrollToBottom } from '@renderer/lib/ui/assistant-ui/thread-scroll-to-bottom';
 import {
@@ -120,7 +109,7 @@ import {
 import { log } from '@renderer/utils/logger';
 import { agentSteersActiveAcpTurn } from '@shared/core/agents/agent-payload';
 import { linkedIssueMentionName, type LinkedIssue } from '@shared/core/linked-issue';
-import type { AcpChatStore, AcpPromptAttachment } from './acp-chat-store';
+import type { AcpChatStore } from './acp-chat-store';
 import {
   detachedPermissionModeOptions,
   localizePermissionModeOptions,
@@ -235,34 +224,6 @@ function issueMatchesQuery(issue: LinkedIssue, query: string): boolean {
     .some((value) => value.toLowerCase().includes(normalized));
 }
 
-const supportedAttachmentMimeTypes = new Set<AttachmentMimeType>([
-  'image/png',
-  'image/jpeg',
-  'image/gif',
-  'image/webp',
-]);
-const attachmentMimeTypeByExtension: Record<string, AttachmentMimeType> = {
-  gif: 'image/gif',
-  jpeg: 'image/jpeg',
-  jpg: 'image/jpeg',
-  png: 'image/png',
-  webp: 'image/webp',
-};
-
-function toAttachmentMimeTypeValue(value: string): AttachmentMimeType | null {
-  const mimeType = value.toLowerCase();
-  return supportedAttachmentMimeTypes.has(mimeType as AttachmentMimeType)
-    ? (mimeType as AttachmentMimeType)
-    : null;
-}
-
-function toAttachmentMimeType(file: File): AttachmentMimeType | null {
-  const declaredMimeType = toAttachmentMimeTypeValue(file.type);
-  if (declaredMimeType) return declaredMimeType;
-  const extension = file.name.split('.').pop()?.toLowerCase();
-  return extension ? (attachmentMimeTypeByExtension[extension] ?? null) : null;
-}
-
 function readFileAsDataUrl(file: File): Promise<string | undefined> {
   return new Promise((resolve) => {
     const reader = new FileReader();
@@ -272,96 +233,16 @@ function readFileAsDataUrl(file: File): Promise<string | undefined> {
   });
 }
 
-/**
- * #6264 会话在别的机器上:这台电脑上的原路径那台机器上没有 —— 只传字节,❌ 把本机路径当 mention / 来历交过去
- * (agent 会去那台机器上找一个不存在的文件)。
- */
-function localPathOf(store: AcpChatStore, file: File): string {
-  return machineRegistry.machineOf(store.projectId) ? '' : electronApi().getPathForFile(file).trim();
-}
-
-/**
- * 「正文里给一条绝对路径」这条路的附件,那条路径从哪儿来(#5269)。
- *
- * 字节**存一份在我们自己的地盘**(`<userData>/task-attachments/<conversationId>/`,库里记一行挂任务外键),
- * ❌ 不再落进 `$TMPDIR`:那是一次投递的传输缓冲,退出即清、24 小时扫,而消息里的 mention 会
- * 长期指着它 —— 传输方式当了记录,历史消息里的附件就迟早点不开。顺带地 userData 本来就在
- * home 里,所以「点开附件」那一下不需要给任何一道闸开口子。
- *
- * ⚠️ **拖进来的也存一份**(owner 2026-09-10)。只记指向的话,那件东西同时依赖「原文件还在不在」
- * 与「它在不在 home 里」——home 之外 `openPath` 直接判死,点开就是「打不开」。原路径不丢:
- * 它随这一件记进库,只决定**发给 agent 的 mention 指向谁**(用户拖文件进来往往是想让 agent
- * 就地改它);显示与点开一律走副本。
- *
- * #6264 字节贴上来就开始一块块传到会话所在的机器(本机会话就是本机),进度在 chip 上。
- */
-function fileUploadSource(store: AcpChatStore, file: File): UploadSource {
-  const rawPath = localPathOf(store, file);
-  // 这一格只回答「有没有一条**稳定的**原路径可以给 agent」——❌ 不决定要不要拷贝(一律存一份)。
-  const originalPath =
-    composerAttachmentSource({
-      originalPath: rawPath,
-      mustCopy: mustCopyRatherThanReference(rawPath),
-      isHeicLike: isHeicLikeFile(file),
-    }) === 'reference'
-      ? rawPath
-      : undefined;
-  return {
-    kind: 'file',
-    name: file.name || 'attachment',
-    ...(file.type ? { mimeType: file.type } : {}),
-    ...(originalPath ? { originalPath } : {}),
-    size: file.size,
-    slice: async (start, end) => new Uint8Array(await file.slice(start, end).arrayBuffer()),
-  };
-}
-
-/**
- * 把一个图片文件推上 ACP 会话。只管上传,不管 UI:调用方(`addImageFiles`)在调用**前**
- * 就把 chip 以 `uploading` 态挂上条,这里返回的 ref 再把它翻成 `done`,失败翻 `error`(#5269)。
- * 传输层没有进度回调,所以 chip 只转圈、不画进度条。
- */
-async function uploadImageFile(
-  store: AcpChatStore,
-  file: File,
-  mimeType: AttachmentMimeType,
-  options: { signal?: AbortSignal; uploadId: string; onProgress: (progress: { sent: number; total?: number }) => void }
-): Promise<AttachmentRef | null> {
-  // 字节一律存一份 —— ❌ 不再「有原路径就只记指向」。那条记录会随着用户挪走/删掉那个文件
-  // 当场作废,而消息里那张图要长期画得出来(#5269,owner 2026-09-10 拍板)。
-  // 原路径仍然交上去,但只当来历:发给 agent 的 mention 指向谁由另一条腿决定。
-  const originalPath = localPathOf(store, file);
-  const provenance =
-    originalPath.length > 0 && !mustCopyRatherThanReference(originalPath) && !isHeicLikeFile(file)
-      ? originalPath
-      : undefined;
-  return store.uploadAttachment({
-      ...options,
-      source: file.stream(),
-      size: file.size,
-      mimeType,
-      name: file.name,
-      ...(provenance ? { originalPath: provenance } : {}),
-    });
-}
-
 function resolveAttachmentDataUrl(store: AcpChatStore, id: string): Promise<string | null> {
   const fixtureDataUrl = resolveVisualEvidenceAttachmentDataUrl(store, id);
   if (fixtureDataUrl) return Promise.resolve(fixtureDataUrl);
-  // 正文里那条绝对路径投影出来的附件(#5269):字节在盘上,不在 agent 的附件仓里。
-  // 首轮(新建会话页)只能这么送,所以这一支不接的话,那一张图永远画不出来。
+  // 旧消息正文里那条绝对路径投影出来的附件(#5269):字节在盘上,不在 agent 的附件仓里 —— 照那条路径读。
   const path = pathAttachmentTarget(id);
   if (path) {
     const cachedPath = attachmentDataUrlCache.get(id);
     if (cachedPath) return cachedPath;
-    // ⚠️ mention 指着的是**用户那个文件**(agent 要改的就是它),显示却不能跟着走那条路:
-    // 它依赖「文件还在不在」和「在不在 home 里」两件我们管不了的事。先问一句有没有副本。
-    const promise = rpc.sessionCreate
-      .resolveAttachmentPath(store.sessionId, path)
-      // 字节在会话所在的那台机器上(别的机器上的会话 = 问那台机器)。
-      .then((resolved) =>
-        rpcOn(machineRegistry.machineOf(store.projectId)).app.readUserImageDataUrl(resolved.success ? resolved.data : path)
-      )
+    // 字节在会话所在的那台机器上(别的机器上的会话 = 问那台机器)。
+    const promise = rpcOn(machineRegistry.machineOf(store.projectId)).app.readUserImageDataUrl(path)
       .then((result) => (result.success ? result.dataUrl : null))
       .catch((error: unknown) => {
         // 读不到就退回中性占位块(旧消息里那些指着临时目录的路径就是这种)——❌ 不弹错。
@@ -444,34 +325,17 @@ const ComposerForStore = observer(function ComposerForStore({
     attachmentsRef.current = next;
     setAttachmentState(next);
   }, []);
-  // 非图片文件到达 agent 的路是**正文里的绝对路径**(ACP 的附件上传只收图片)。但那是传输方式,
-  // 不该摆到用户脸上 —— 屏幕上和图片一样是一枚 chip,路径发送时才拼进正文(#5269,与新建任务
-  // 页那一半同构)。id → 路径的账在这儿记,chip 被 × 掉时跟着删。
-  const filePathsRef = useRef(new Map<string, string>());
-  // 图片 chip 的 id 是**本地的、终身不变的**,服务端 ref 记在这张表里。⚠️ 曾经的写法是「上传完把
-  // chip 的 id 换成 ref.id」,那让每一个按 id 打的异步补丁都变成一场赛跑:预览图那条(FileReader)
-  // 只要比上传慢,补丁就落在一个已经不存在的 id 上,静默丢掉。而这条赛道是**有偏的** —— 文件带
-  // 磁盘路径时上传只是把路径递过去,快到必赢,于是「从访达拷来的图」必然没有缩略图、点开预览也是
-  // 空的(#5269,owner 2026-09-08 实撞)。id 不动,顺序就不再是判据。
-  const imageRefsRef = useRef(new Map<string, AttachmentRef>());
-  const imageUploadsRef = useRef(new Map<string, AbortController>());
-  useEffect(() => {
-    const uploads = imageUploadsRef.current;
-    return () => { for (const controller of uploads.values()) controller.abort(); uploads.clear(); };
-  }, []);
-  // 文件 / 文件夹 chip:贴上来就开始传到会话所在的机器,进度在 chip 上(#6264,product spec)。
+  // 图片与文件同一条:贴上来就放进这个 agent 私聊的文件夹,进度在 chip 上,这一轮带着引用发出去(P3)。
   const fileUploads = useComposerFileUploads({
-    sessionId: () => store.sessionId,
-    deviceLabel: () => {
-      const machine = machineRegistry.machineOf(store.projectId);
-      return machine ? (remoteHostsStore.device(machine)?.label ?? machine) : null;
+    to: async () => {
+      const owner = getRendererSession()?.user.id;
+      if (!owner) throw new Error('attachments: not signed in');
+      const address = await shellPort().ensureAgentAddress({ projectId: store.projectId, sessionId: store.sessionId });
+      return { chatId: address.chatId, owner };
     },
     setAttachments,
-    onUploaded: (chipId, committed) => filePathsRef.current.set(chipId, committed.mentionPath),
     translate,
   });
-  // 图片 chip 的上传(ACP 附件 + 存一份)还没回来的那几件 —— 发送时同样要等。
-  const pendingImagesRef = useRef(new Set<Promise<unknown>>());
   /** 发送时附件还没传完:在等(发送键禁用、输入框上方一句话);有一件没成:不发,说一句。 */
   const [sendHold, setSendHold] = useState<'waiting' | 'blocked' | null>(null);
   const sendingRef = useRef(false);
@@ -497,15 +361,14 @@ const ComposerForStore = observer(function ComposerForStore({
    * 那一件的 chip 上写着为什么、能重试。正文在等的时候留在输入框里,❌ 先清掉再说。
    */
   const sendWhenReady = useCallback(
-    async (value: string, deliver: (text: string, attachments: AcpPromptAttachment[]) => void | Promise<void>) => {
+    async (value: string, deliver: (text: string, files: TurnFileRef[]) => void | Promise<void>) => {
       if (sendingRef.current) return;
       sendingRef.current = true;
       try {
         // 没有还在传的就当场发(❌ 每次发送都闪一下「在等」)。
-        if (fileUploads.unsettled() || pendingImagesRef.current.size > 0) {
+        if (fileUploads.unsettled()) {
           setSendHold('waiting');
           await fileUploads.waitForUploads();
-          await Promise.all([...pendingImagesRef.current]);
         }
         const failed = fileUploads.unsettled() || attachmentsRef.current.some((att) => att.state === 'error');
         setSendHold(failed ? 'blocked' : null);
@@ -514,14 +377,11 @@ const ComposerForStore = observer(function ComposerForStore({
           editorApiRef.current?.setText(value);
           return;
         }
-        const current = attachmentsRef.current;
-        const promptAttachments = imagePromptAttachments(current, imageRefsRef.current);
-        const text = composePromptText(value, fileMentionsFor(current, filePathsRef.current));
-        if (!text && promptAttachments.length === 0) return;
-        try { await deliver(text, promptAttachments); } catch { editorApiRef.current?.setText(value); return; }
+        const files = fileUploads.files(attachmentsRef.current.map((att) => att.id));
+        const text = value.trim();
+        if (!text && files.length === 0) return;
+        try { await deliver(text, files); } catch { editorApiRef.current?.setText(value); return; }
         setAttachments([]);
-        filePathsRef.current.clear();
-        imageRefsRef.current.clear();
         fileUploads.clear();
         editorApiRef.current?.clear();
         // 滚到哪由 store 定(发出即把这一句钉到顶):这里再滚一次到旧的底,会和那一钉抢,视图先滑回上一轮再跳回来。
@@ -532,14 +392,21 @@ const ComposerForStore = observer(function ComposerForStore({
     [fileUploads, store]
   );
 
+  // 附件只认发件箱那一条(sessionSend 带着引用);直连那条(没登录时)收不下它们 —— 说出来,❌ 静默丢掉附件只发字。
+  const deliverDirect = useCallback((files: readonly TurnFileRef[], direct: () => void) => {
+    if (!files.length) return direct();
+    toast({ title: translate('acpFailure.sendMessage'), description: translate('composer.inputKeptInDraft'), variant: 'destructive' });
+    throw new Error('Task attachments need the session input outbox');
+  }, [translate]);
+
   const handleSubmit = useCallback(
-    (value: string) => sendWhenReady(value, async (text, attachments) => { if (!await queueNativeInput(store, text, attachments)) store.submitPrompt(text, attachments); }),
-    [store, sendWhenReady]
+    (value: string) => sendWhenReady(value, async (text, files) => { if (!await queueNativeInput(store, text, files)) deliverDirect(files, () => store.submitPrompt(text)); }),
+    [store, sendWhenReady, deliverDirect]
   );
 
   const handleSubmitWhileWorking = useCallback(
-    (value: string) => sendWhenReady(value, async (text, attachments) => { if (!await queueNativeInput(store, text, attachments)) store.queuePrompt(text, attachments); }),
-    [store, sendWhenReady]
+    (value: string) => sendWhenReady(value, async (text, files) => { if (!await queueNativeInput(store, text, files)) deliverDirect(files, () => store.queuePrompt(text)); }),
+    [store, sendWhenReady, deliverDirect]
   );
 
   const handleStop = useCallback(() => {
@@ -619,18 +486,13 @@ const ComposerForStore = observer(function ComposerForStore({
     fileInputRef.current?.click();
   }, []);
 
-  /**
-   * 走「正文里的绝对路径」这条路的附件。非图片文件一直走它(ACP 的附件上传只收图片);
-   * 图片在 agent 没声明收图时也降级到这里 —— 那时 chip 的 meta 会写明它是以路径发出去的。
-   */
-  const attachPathFiles = useCallback(async (files: File[]) => {
+  /** 拖 / 粘 / 选进来的文件(图片也是):各上一枚 chip,当场开始放进私聊文件夹。 */
+  const attachFiles = useCallback(async (files: File[]) => {
     for (const file of files) {
-      // ⚠️ ❌ 不要退回 `getPathForFile` 一条路:**粘贴进来的文件在磁盘上没有路径**(拖进来的才有)。
-      // 字节一律传一份到会话所在的机器(贴上来就开始传,进度在 chip 上);用户读的名字是 `file.name`,
-      // ❌ 不从盘上的路径反推 —— 从前正是这一步把 `gugu-drop-<uuid>-` 漏到了用户脸上。
+      // 用户读的名字是 `file.name`,❌ 不从盘上的路径反推 —— 从前正是这一步把 `gugu-drop-<uuid>-` 漏到了用户脸上。
       const isImage = file.type.toLowerCase().startsWith('image/');
       const chip: ComposerAttachment = {
-        id: `path:${crypto.randomUUID()}`,
+        id: crypto.randomUUID(),
         name: file.name || 'attachment',
         kind: isImage ? 'image' : 'file',
         mimeType: file.type,
@@ -646,131 +508,30 @@ const ComposerForStore = observer(function ComposerForStore({
           chip.previewTruncated = preview.truncated;
         }
       }
-      void fileUploads.add(chip, fileUploadSource(store, file)).then((ok) => {
-        // 图片走这条路是**降级**,得让人看得见为什么 —— ❌ 不要装作和上传一样。
-        if (ok && isImage) {
-          setAttachments((prev) =>
-            prev.map((att) =>
-              att.id === chip.id ? { ...att, meta: `${formatBytes(file.size)} · ${translate('composer.attachmentAsPath')}` } : att
-            )
-          );
-        }
-      });
+      void fileUploads.add(chip, file);
     }
-  }, [store, translate, fileUploads]);
+  }, [fileUploads]);
 
   /**
-   * #6264 拖进来的文件夹。本机会话:落成正文里一条路径 pill(文件夹就在这台电脑上,agent 就地读)。
-   * 会话在别的机器上:这条路径那边没有 —— 整个文件夹当一件附件传过去,正文里给那台机器上的路径(照 VS Code)。
+   * 拖进来的文件夹。本机会话:落成正文里一条路径 pill(文件夹就在这台电脑上,agent 就地读)。
+   * 会话在别的机器上:这条路径那边没有,私聊文件夹也收不下一个文件夹 —— 说出来,❌ 静默丢。
    */
   const attachDirectories = useCallback(
-    async (files: File[], entries: FileSystemDirectoryEntry[]) => {
-      if (!machineRegistry.machineOf(store.projectId)) {
-        for (const file of files) {
-          const mention = droppedDirectoryMention(file);
-          if (mention) editorApiRef.current?.insertMention(mention);
-        }
-        return;
-      }
-      for (const entry of entries) {
-        const pieces = await entryUploadItems(entry as unknown as DropEntry);
-        const chip: ComposerAttachment = {
-          id: `path:${crypto.randomUUID()}`,
-          name: entry.name,
-          kind: 'file',
-          mimeType: 'inode/directory',
-        };
-        void fileUploads.add(chip, { kind: 'folder', name: entry.name, pieces });
-      }
-    },
-    [store, fileUploads]
-  );
-
-  const addImageFiles = useCallback(
-    async (files: File[]) => {
-      // 这家 agent 有没有声明它收图片?没有就别把 image 块发过去 —— 收不下的一端是**静默**
-      // 丢掉的(#5269)。降级成一条绝对路径:内容仍到得了 agent,而且降级写在 chip 上。
-      if (imageAttachmentRoute(store.acceptsImagePrompts) === 'path') {
-        await attachPathFiles(files);
-        return;
-      }
-      const supportedFiles = files.filter((file) => toAttachmentMimeType(file) !== null);
-      if (supportedFiles.length < files.length) {
-        const unsupportedNames = files
-          .filter((file) => toAttachmentMimeType(file) === null)
-          .map((file) => file.name || translate('chat.unnamedImage'))
-          .join(', ');
+    (files: File[]) => {
+      if (machineRegistry.machineOf(store.projectId)) {
         toast({
-          title: translate('chat.unsupportedImageTitle'),
-          description: translate('chat.unsupportedImageDescription', { names: unsupportedNames }),
+          title: translate('chat.folderDropUnsupportedTitle'),
+          description: translate('chat.folderDropUnsupportedDescription'),
           variant: 'destructive',
         });
+        return;
       }
-
-      // 一枚 chip 的全过程(上条 → 预览图 → 上传 → done/error)在 `composer-image-attachments.ts`
-      // 里,那儿有判据;这里只把宿主那几件东西递进去。
-      await Promise.all(
-        supportedFiles.map(async (file) => {
-          const chipId = `image:${crypto.randomUUID()}`;
-          const controller = new AbortController();
-          imageUploadsRef.current.set(chipId, controller);
-          // ⚠️ **每一张图都在我们自己的地盘留一份,并且在正文里留一条指向它的引用** ——
-          // 这是消息里看得见它的唯一依据(#5269)。ACP 上传只决定「这一轮 agent 收不收得到
-          // 图片块」,❌ 不决定这条消息以后还看不看得见那张图:上传上去的那一份活在 agent 的
-          // 会话里,重启之后 replay 不回来,于是缩略图消失(owner 2026-09-10 实撞:第一条消息
-          // 的图在、第二条的没了 —— 两条路两种寿命)。
-          // 两条路因此产出**同一种表示**:正文里的引用。区别只剩「要不要额外发一个图片块」。
-          const persisted = uploadComposerAttachment({
-            rpc: rpc.sessionCreate as unknown as AttachmentUploadRpc,
-            sessionId: store.sessionId,
-            uploadId: crypto.randomUUID(),
-            source: fileUploadSource(store, file),
-            signal: controller.signal,
-          }).then(
-            (committed) => {
-              if (controller.signal.aborted) return false;
-              filePathsRef.current.set(chipId, committed.mentionPath.trim().replace(/\\/g, '/'));
-              return true;
-            },
-            (error: unknown) => {
-              log.warn('Failed to persist composer attachment', { name: file.name, error });
-              return false;
-            }
-          );
-          const both = Promise.all([
-            persisted,
-            enqueueImageAttachment(file, toAttachmentMimeType(file) ?? 'image/png', {
-              chipId,
-              update: (updater) => setAttachments(updater),
-              readPreview: readFileAsDataUrl,
-              signal: controller.signal,
-              fallback: {
-                available: persisted,
-                meta: `${formatAttachmentSize(file.size)} · ${translate('composer.attachmentAsPath')}`,
-              },
-              upload: (source, mimeType, options) => uploadImageFile(store, source, mimeType, options),
-              onRetry: (error) => log.warn('Retrying stalled ACP attachment upload', { name: file.name, error }),
-              onFailure: (error) => log.warn('Failed to prepare ACP attachment upload', { name: file.name, error }),
-              rememberRef: (id, ref) => imageRefsRef.current.set(id, ref),
-              labels: {
-                uploading: translate('composer.attachmentUploading'),
-                failed: translate('composer.attachmentUploadFailed'),
-                retrying: translate('composer.attachmentRetrying'),
-              },
-              formatSize: formatAttachmentSize,
-            }),
-          ]);
-          pendingImagesRef.current.add(both);
-          try {
-            await both;
-          } finally {
-            pendingImagesRef.current.delete(both);
-            imageUploadsRef.current.delete(chipId);
-          }
-        })
-      );
+      for (const file of files) {
+        const mention = droppedDirectoryMention(file);
+        if (mention) editorApiRef.current?.insertMention(mention);
+      }
     },
-    [store, translate, attachPathFiles]
+    [store, translate]
   );
 
   const composerShown = useContext(PageShownContext);
@@ -781,49 +542,27 @@ const ComposerForStore = observer(function ComposerForStore({
     const kept = readNativeOfflineDraft(machine, store.runtimeSessionId);
     if (kept) { store.setDraftText(appendToDraft(store.draftText, kept)); writeNativeOfflineDraft(machine, store.runtimeSessionId, ''); }
     return registerNativeComposer(store.runtimeSessionId, async draft => {
-      const files = draft.files ?? [];
-      if (store.acceptsImagePrompts && files.some(file => file.type.startsWith('image/') && !toAttachmentMimeType(file))) throw new Error(translate('chat.unsupportedImageTitle'));
-      await addImageFiles(files.filter(file => file.type.startsWith('image/')));
-      await attachPathFiles(files.filter(file => !file.type.startsWith('image/')));
+      await attachFiles(draft.files ?? []);
       store.setDraftText(appendToDraft(store.draftText, draft.text));
     });
-  }, [store, composerShown, inputAccount, addImageFiles, attachPathFiles, translate]);
+  }, [store, composerShown, inputAccount, attachFiles]);
 
   const handleAttachmentsChange = useCallback(
     (next: ComposerAttachment[]) => {
-      const nextIds = new Set(next.map((attachment) => attachment.id));
-      for (const [id, controller] of imageUploadsRef.current) {
-        if (!nextIds.has(id)) { controller.abort(); imageUploadsRef.current.delete(id); }
-      }
-      for (const id of [...filePathsRef.current.keys()]) {
-        if (!nextIds.has(id)) filePathsRef.current.delete(id);
-      }
-      fileUploads.keepOnly(nextIds);
+      fileUploads.keepOnly(new Set(next.map((attachment) => attachment.id)));
       if (next.every((att) => att.state !== 'error')) setSendHold((hold) => (hold === 'blocked' ? null : hold));
-      for (const { chipId, ref } of droppedImageRefs(imageRefsRef.current, nextIds)) {
-        imageRefsRef.current.delete(chipId);
-        void store.deleteAttachment(ref.id);
-      }
       setAttachments(next);
     },
-    [store, fileUploads]
+    [fileUploads, setAttachments]
   );
 
   const handleFileInputChange = useCallback(
     async (e: React.ChangeEvent<HTMLInputElement>) => {
       const files = Array.from(e.target.files ?? []);
       e.target.value = '';
-      if (files.length === 0) return;
-
-      const images = files.filter((f) => f.type.startsWith('image/'));
-      if (images.length > 0) {
-        await addImageFiles(images);
-      }
-
-      // 图片已经由 addImageFiles 分过路(上传或降级),这里只剩其余文件。
-      await attachPathFiles(files.filter((f) => !f.type.startsWith('image/')));
+      await attachFiles(files);
     },
-    [addImageFiles, attachPathFiles]
+    [attachFiles]
   );
 
   const workspaceId = useObserver(
@@ -1767,17 +1506,13 @@ const ComposerForStore = observer(function ComposerForStore({
         attachments={attachments}
         onAttachmentsChange={handleAttachmentsChange}
         onAttach={handleAttach}
-        onImageFilesDropped={(files) => void addImageFiles(files)}
+        onImageFilesDropped={(files) => {
+          attachFiles(files).catch((error: unknown) => log.error('Failed to attach dropped files', { error }));
+        }}
         onFilesDropped={(files) => {
-          attachPathFiles(files).catch((error: unknown) => {
-            log.error('Failed to attach dropped files', { error });
-          });
+          attachFiles(files).catch((error: unknown) => log.error('Failed to attach dropped files', { error }));
         }}
-        onDirectoriesDropped={(files, entries) => {
-          attachDirectories(files, entries).catch((error: unknown) => {
-            log.error('Failed to attach dropped folders', { error });
-          });
-        }}
+        onDirectoriesDropped={attachDirectories}
         onRetryAttachment={fileUploads.retry}
         dataDropTypes={dataDropTypes}
         onDataDropped={onDataDropped}
@@ -1798,7 +1533,6 @@ const ComposerForStore = observer(function ComposerForStore({
 //
 // The composer subtree is keyed by conversationId so draft text, focus, and
 // editor state reset on each switch (equivalent to the old remount behavior).
-import { electronApi } from '../../../lib/electron-api';
 
 
 const INTERRUPTED_LABEL = {

@@ -54,12 +54,12 @@ it('keeps an image and its caption in one durable request across a reopened data
   const factory = new IDBFactory()
   const storage = await openSessionInputStorage(factory)
   const queue = new SessionInputOutbox('owner', storage, async () => { throw new Error('offline') }, () => true)
-  const attachments = [{ type: 'attachment' as const, id: 'image-ref', mimeType: 'image/png' as const, name: 'image.png' }]
-  const input = await queue.enqueue({ deviceId: 'host', sessionId: 'agent', text: 'look at this', attachments })
+  const files = [{ itemId: 'image-item', version: 1, name: 'image.png', mimeType: 'image/png', sizeBytes: 4 }]
+  const input = await queue.enqueue({ deviceId: 'host', sessionId: 'agent', text: 'look at this', files })
   await queue.flush()
   const received: SessionInput[] = []
   const restored = new SessionInputOutbox('owner', await openSessionInputStorage(factory), async input => { received.push(input) }, () => true)
   await restored.flush()
-  expect(received).toEqual([expect.objectContaining({ id: input.id, text: 'look at this', attachments })])
+  expect(received).toEqual([expect.objectContaining({ id: input.id, text: 'look at this', files })])
   expect(await restored.list()).toEqual([])
 })

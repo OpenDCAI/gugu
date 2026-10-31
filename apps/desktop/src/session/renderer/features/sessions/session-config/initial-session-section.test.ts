@@ -41,25 +41,9 @@ const mocks = vi.hoisted(() => ({
   invoke: vi.fn(),
   /** 访达拖进来的那条真路径;粘贴进来的是空串(Chromium 给不出路径)。 */
   droppedPath: '',
-  /** 那台机器(dev-ssh)上那一份:新建会话页的附件必须落在它那儿(#6264)。 */
-  remoteCommitAttachment: vi.fn(async (input: { name: string }) => ({
-    success: true as const,
-    data: { id: 'r1', storedPath: `/remote/${input.name}`, mentionPath: `/remote/${input.name}`, name: input.name, size: 1 },
-  })),
-  rpcCommitAttachment: vi.fn(
-    async (input: { sessionId: string; name: string; originalPath?: string }) => {
-      const storedPath = `/u/task-attachments/${input.sessionId}/att-${input.name}`;
-      return {
-        success: true as const,
-        data: {
-          id: `att-${input.name}`,
-          storedPath,
-          originalPath: input.originalPath,
-          mentionPath: input.originalPath ?? storedPath,
-        },
-      };
-    }
-  ),
+  /** 放进私聊文件夹那一步(P3):只在任务建好之后由 placeAttachments 发起。 */
+  prepareTaskAttachment: vi.fn(async (file: File) => ({ itemId: `item-${file.name}`, version: 1, name: file.name, mimeType: file.type, sizeBytes: file.size, path: `/local/${file.name}` })),
+  placeTaskAttachment: vi.fn(async (_file: File, prepared: unknown) => prepared),
   editorText: '',
   editorApi: {
     focus: vi.fn(),
@@ -476,35 +460,19 @@ vi.mock('@renderer/lib/ipc', () => {
       searchIssues: vi.fn(),
       getIssueContext: vi.fn(),
     },
-    // 附件的字节在**任务建出来之前**就按块传好、落盘(#5269、#6264)。替身照真实的形状回两条路径:
-    // `storedPath` = 我们自己那一份,`mentionPath` = 发给 agent 的那条(有原路径就是原路径)。
-    sessionCreate: {
-      writeAttachmentChunk: vi.fn(async () => ({ success: true as const, data: { received: 0 } })),
-      commitAttachmentUpload: mocks.rpcCommitAttachment,
-      discardAttachmentUpload: vi.fn(async () => ({ success: true as const, data: undefined })),
-      recordAttachments: vi.fn(async () => ({ success: true as const, data: undefined })),
-    },
   },
   };
   // #6264 一套工作台:按机器路由的那几个口,替身里都落到本机这一份。
   return {
-    rpcOn: (machine: string | null) =>
-      machine === 'dev-ssh'
-        ? {
-            ...mod.rpc,
-            sessionCreate: {
-              writeAttachmentChunk: vi.fn(async () => ({ success: true as const, data: { received: 0 } })),
-              commitAttachmentUpload: mocks.remoteCommitAttachment,
-              discardAttachmentUpload: vi.fn(async () => ({ success: true as const, data: undefined })),
-            },
-          }
-        : mod.rpc,
+    rpcOn: () => mod.rpc,
     // 平台模型目录那一问经宿主通道走(本机 = electronApi().invoke)。
     invokeOnMachine: (_machine: string | null, channel: string, ...args: unknown[]) => mocks.invoke(channel, ...args),
     onMachineEvent: () => () => {},
     ...mod,
   };
 });
+
+vi.mock('@/lib/attachmentsEndpoint', () => ({ placeTaskAttachment: mocks.placeTaskAttachment, prepareTaskAttachment: mocks.prepareTaskAttachment }));
 
 vi.mock('@renderer/utils/logger', () => ({
   log: { warn: vi.fn() },
@@ -970,19 +938,27 @@ describe('useInitialSessionState', () => {
       expect(latestState?.attachments).toEqual([]);
     });
 
-    it('附件贴上来就传到那台机器 —— ❌ 按预留的任务 id 选线落到本机(那个 id 哪台机器都还不认识)', async () => {
+    it('附件在建任务之前只是 chip:先定名(首轮正文要写),建好之后才按那个名放进私聊文件夹(P3)', async () => {
       await renderRemote(true);
-      mocks.remoteCommitAttachment.mockClear();
-      mocks.rpcCommitAttachment.mockClear();
+      mocks.placeTaskAttachment.mockClear();
+      mocks.prepareTaskAttachment.mockClear();
       await act(async () => {
-        await latestState?.enqueuePathAttachments([new File(['x'], 'notes.txt', { type: 'text/plain' })]);
+        await latestState?.enqueueAttachments([new File(['x'], 'notes.txt', { type: 'text/plain' })]);
       });
+      expect(latestState?.attachments.map((chip) => chip.name)).toEqual(['notes.txt']);
+      expect(mocks.placeTaskAttachment).not.toHaveBeenCalled();
+      let named: unknown;
+      await act(async () => { named = await latestState?.prepareAttachments(); });
+      expect(named).toEqual([expect.objectContaining({ itemId: 'item-notes.txt', version: 1, path: '/local/notes.txt' })]);
+      expect(mocks.placeTaskAttachment).not.toHaveBeenCalled();
+      let files: unknown;
       await act(async () => {
-        expect(await latestState?.waitForPathAttachments()).toBe(true);
+        files = await latestState?.placeAttachments(async () => ({ chatId: 'dm-1', owner: 'owner-1' }));
       });
-      expect(mocks.remoteCommitAttachment).toHaveBeenCalledTimes(1);
-      expect(mocks.rpcCommitAttachment).not.toHaveBeenCalled();
-      expect(latestState?.pathAttachmentMentions()).toEqual(['@[notes.txt](/remote/notes.txt)']);
+      expect(mocks.prepareTaskAttachment).toHaveBeenCalledTimes(1);
+      expect(mocks.placeTaskAttachment).toHaveBeenCalledWith(expect.any(Object), expect.objectContaining({ itemId: 'item-notes.txt' }),
+        { chatId: 'dm-1', owner: 'owner-1' }, expect.any(Function));
+      expect(files).toEqual([expect.objectContaining({ itemId: 'item-notes.txt', version: 1 })]);
     });
 
     it('本机新建照常走本机附件通道', async () => {

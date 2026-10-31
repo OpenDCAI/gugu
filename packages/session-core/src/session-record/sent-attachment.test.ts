@@ -13,10 +13,6 @@ describe('confirmed sent attachments', () => {
     const output = { content: [{ type: 'text', text: JSON.stringify({ ok: true, message_id: `msg:${id}`, file_name: 'phone.txt' }) }] };
     expect(sentAttachmentOf({ ...call, rawOutput: JSON.stringify(output), outputText: undefined })).toEqual({ messageId: id, name: 'phone.txt', href: `gugu-message-file://${id}` });
   });
-  it('keeps authorized IM metadata when an older receipt does not include the full file pointer', () => {
-    const file = { messageId: id, name: 'retained.txt', href: `gugu-file://${id}?v=4`, caption: 'Caption' };
-    expect(sentAttachmentOf(call, { [id]: file })).toBe(file);
-  });
   it('requires a successful root Gugu file-send receipt', () => {
     for (const changed of [{ status: 'running' }, { status: 'error' }, { parentToolCallId: 'nested' }, { server: 'unrelated' }, { tool: 'message_send' }, { outputText: 'failed' }]) {
       expect(sentAttachmentOf({ ...call, ...changed } as McpToolCall)).toBeNull();

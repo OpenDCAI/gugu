@@ -596,57 +596,9 @@ export const usageTokenFileCache = sqliteTable('usage_token_file_cache', {
   data: text('data').notNull(),
 });
 
-/**
- * 输入框里拖/粘进来的附件(#5269)。
- *
- * **字节存一份在我们自己的地盘,❌ 不靠放宽某道访问边界去够别人的地盘。** 从前这些文件落在
- * `$TMPDIR/gugu-dropped-blobs`,消息里那条 mention 就长期指着一个临时文件:退出即清、24 小时
- * 扫一遍,于是历史消息里的附件迟早点不开;而临时目录又在 home 之外,连点开那一下都要给
- * `openPath` 的 home jail 开口子。落进 `<userData>/task-attachments/<会话 id>/` 两件事一起没了。
- * (目录名 `task-attachments` 是磁盘路径,不随概念改名;库里只认 `stored_path`,不按目录名猜归属。)
- *
- * `origin` 分两种,决定这一行**拥不拥有**盘上那个文件:
- * - `copy`      —— 粘贴/剪贴板/长文本收成的 .txt:除了我们没人存着这些字节,所以我们存一份,
- *                  文件归这一行所有,会话删了跟着删。
- * - `reference` —— 用户从访达拖进来的、他自己盘上的文件:那是他的东西,记一条指向就够,
- *                  ❌ 不拷贝(他可能正想让 agent 就地改它,拷贝反而给错了对象)。
- *
- * ⚠️ 行由 FK cascade 连坐删,但**盘上的文件不会跟着走** —— 删会话时要按行的 `stored_path` 显式删文件。
- */
-export const sessionAttachments = sqliteTable(
-  'session_attachments',
-  {
-    id: text('id').primaryKey(),
-    sessionId: text('session_id')
-      .notNull()
-      .references(() => sessions.id, { onDelete: 'cascade' }),
-    /** 用户读的那个名字 —— ❌ 不是盘上的文件名(那个带 uuid)。 */
-    name: text('name').notNull(),
-    mimeType: text('mime_type'),
-    size: integer('size').notNull(),
-    /**
-     * 绝对路径。新行恒指向**我们自己那一份**;`origin='reference'` 的历史行指向用户的文件
-     * (那种行不再产生,见 0028)。
-     */
-    storedPath: text('stored_path').notNull(),
-    /**
-     * 用户自己盘上那个文件在哪(拖进来的才有;粘贴的没有,为 NULL)。
-     *
-     * 它与 `stored_path` 分工明确,❌ 别合并:**发给 agent 的 mention 用 `original_path`**
-     * —— 用户拖一个文件进来往往是想让 agent 就地改它,指向副本就改错了对象;
-     * **消息里的显示与点开用 `stored_path`** —— 副本在 userData 里,永远在、永远够得着,
-     * 而原路径依赖两件我们管不了的事(文件还在不在、在不在 home 里,home 之外 openPath 直接判死)。
-     */
-    originalPath: text('original_path'),
-    origin: text('origin').notNull().$type<'copy' | 'reference'>(),
-    createdAt: text('created_at')
-      .notNull()
-      .default(sql`CURRENT_TIMESTAMP`),
-  },
-  (table) => ({
-    sessionIdIdx: index('idx_session_attachments_session_id').on(table.sessionId),
-  })
-);
+// `session_attachments` (#5269) stays in the database, read and written by nothing since task attachments became files
+// of the agent's DM folder (P3): a rollback to a release before that still finds it. Dropped once no such release is a
+// rollback target.
 
 export const editorBuffers = sqliteTable(
   'editor_buffers',

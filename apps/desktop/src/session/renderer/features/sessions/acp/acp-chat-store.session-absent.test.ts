@@ -301,7 +301,6 @@ describe('#3507 会话不在时的其余副作用', () => {
     title: string,
     invoke: (store: InstanceType<StoreCtor>) => void | Promise<void>,
   ]> = [
-    ['delete attachment', translateSessionMessage('acpFailure.attachment'), (store) => store.deleteAttachment('blob-1')],
     ['change mode', translateSessionMessage('acpFailure.changeSetting'), (store) => store.setMode('mode-1')],
     ['change effort', translateSessionMessage('acpFailure.changeSetting'), (store) => store.setEffort('high')],
     [

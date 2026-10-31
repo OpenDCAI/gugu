@@ -37,13 +37,6 @@ async function collect(entry: DropEntry, prefix: string[], out: UploadItem[]): P
   for (const child of await readAll(entry)) await collect(child, segments, out);
 }
 
-/** 一个拖进来的文件夹里的全部文件(逐层名字从文件夹名起)。输入框把整个文件夹当一件附件传时用。 */
-export async function entryUploadItems(entry: DropEntry): Promise<UploadItem[]> {
-  const out: UploadItem[] = [];
-  await collect(entry, [], out);
-  return out;
-}
-
 /** 拖进来的东西(含文件夹,按层展开)。拖的不是文件(文字、页内拖动)= 空。 */
 export async function dropUploadItems(dataTransfer: Pick<DataTransfer, 'items' | 'files'>): Promise<UploadItem[]> {
   const entries: DropEntry[] = [];

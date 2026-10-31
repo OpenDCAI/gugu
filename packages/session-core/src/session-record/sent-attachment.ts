@@ -1,10 +1,9 @@
-import type { TranscriptItem, TranscriptTurn } from '../acp/models/turns/turn';
+import type { TranscriptItem } from '../acp/models/turns/turn';
 import { isGuguServer } from '../acp/models/turns/opened-outputs';
 import { sentMessageId } from './reply-process';
 
 /** Metadata from a confirmed send or an authorized IM row; never file bytes or a local path to open. */
 export type SentAttachment = { messageId: string; name: string; href: string; caption?: string; kind?: 'image' | 'file' };
-export type AttachmentTurn = TranscriptTurn & { sentAttachments?: Readonly<Record<string, SentAttachment>> };
 
 function resultObject(raw: unknown): Record<string, unknown> | null {
   if (typeof raw === 'string') { try { return resultObject(JSON.parse(raw)); } catch { return null; } }
@@ -19,12 +18,11 @@ function resultObject(raw: unknown): Record<string, unknown> | null {
 }
 
 /** Only a successful root Gugu file send can become a visible attachment in the conversation. */
-export function sentAttachmentOf(item: TranscriptItem, known?: Readonly<Record<string, SentAttachment>>): SentAttachment | null {
+export function sentAttachmentOf(item: TranscriptItem): SentAttachment | null {
   if (item.kind !== 'mcp-tool-call' || item.status !== 'done' || item.parentToolCallId || !isGuguServer(item.server)
     || !/(?:^|__)message_send_file$/.test(item.tool)) return null;
   const id = sentMessageId(item)?.replace(/^msg:/, '');
   if (!id) return null;
-  if (known?.[id]) return known[id]!;
   const output = resultObject(item.rawOutput) ?? resultObject(item.outputText);
   let args: Record<string, unknown> = {};
   try { args = JSON.parse(item.rawInput ?? '{}') as Record<string, unknown>; } catch { /* receipt metadata is sufficient */ }

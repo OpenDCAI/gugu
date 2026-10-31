@@ -1,6 +1,5 @@
 import type { RpcRouter } from '@main/rpc'
 import { invokePhoneHost } from '../local-agent/phoneHostRpc'
-import type { AttachmentUploadRpc } from '@renderer/features/sessions/acp/composer-file-upload'
 import type { ToolImage } from '@gugu/session-core/acp/client'
 import { rendererLogger } from '@/lib/log'
 import { readCachedDevices, subscribeCachedDevices } from '@/store/devicesCache'
@@ -217,20 +216,10 @@ export function unsubscribeSession(deviceId: string, subscriptionId: string): Pr
   return rpc(deviceId).sessionTimeline.sessionUnsubscribe({ subscriptionId })
 }
 
-export async function sendSessionText(deviceId: string, sessionId: string, text: string, clientMessageId?: string, attachments?: import('@gugu/session-core/session-record/contract').SessionpageSessionSendRequest['attachments']): Promise<unknown> {
-  const receipt = await value(rpc(deviceId).sessionTimeline.sessionSend({ conversationId: sessionId, text, ...(clientMessageId ? { clientMessageId } : {}), ...(attachments?.length ? { attachments } : {}) }))
+export async function sendSessionText(deviceId: string, sessionId: string, text: string, clientMessageId?: string, files?: import('@gugu/session-core/session-record/contract').TurnFileRef[]): Promise<unknown> {
+  const receipt = await value(rpc(deviceId).sessionTimeline.sessionSend({ conversationId: sessionId, text, ...(clientMessageId ? { clientMessageId } : {}), ...(files?.length ? { files } : {}) }))
   if (clientMessageId && receipt.clientMessageId !== clientMessageId) throw new Error('会话尚未确认接收这条消息，稍后自动重试')
   return receipt
-}
-
-/** 输入框附件:桌面输入框同三条(`sessionCreate.*`),问的是会话所在的那台机器。 */
-export function sessionAttachmentRpc(deviceId: string, phoneHost = false, local = false): AttachmentUploadRpc {
-  if (phoneHost) return {
-    writeAttachmentChunk: (chunk) => invokePhoneHost(deviceId, 'sessionCreate.writeAttachmentChunk', [{ ...chunk, data: Array.from(chunk.data) }]),
-    commitAttachmentUpload: (commit) => invokePhoneHost(deviceId, 'sessionCreate.commitAttachmentUpload', [commit]),
-    discardAttachmentUpload: (input) => invokePhoneHost(deviceId, 'sessionCreate.discardAttachmentUpload', [input]),
-  }
-  return machineRpc(deviceId, local).sessionCreate
 }
 
 /** 附件卡(#7193):这条会话打开给人看的那份文件,读一段(那台机器核对它真的打开过)。 */

@@ -69,12 +69,7 @@ import { useTerminalEnabled } from '@renderer/features/settings/use-terminal-ena
 import { DEFAULT_SESSION_VIEW } from '@shared/core/sessions/new-session-defaults';
 import { toast } from '@renderer/lib/hooks/use-toast';
 import { safeFailureLine } from '@renderer/features/sessions/gugu-reason';
-import { stringifyMention } from '@gugu/session-shared/markdown';
 import { log } from '@renderer/utils/logger';
-import { composerAttachmentSource } from '@renderer/features/sessions/acp/composer-attachment-source';
-import { isHeicLikeFile, mustCopyRatherThanReference } from '@renderer/lib/pty/terminal-image-paths';
-import { electronApi } from '@renderer/lib/electron-api';
-import { rpcOn } from '@renderer/lib/ipc';
 import {
   harnessCatalogNotice,
   harnessCatalogToModelsCapability,
@@ -123,9 +118,8 @@ import {
 import { useSessionAgentCreationTools } from '@renderer/lib/chat/use-session-agent-creation-tools';
 import { useSessionMentionDrop } from '@renderer/lib/chat/use-session-mention-drop';
 import { remoteHostsStore } from '@renderer/features/remote-hosts/remote-hosts-store';
-import { entryUploadItems, type DropEntry } from '@renderer/features/remote-hosts/workspace/remote-drop-items';
-import { useComposerFileUploads } from '@renderer/features/sessions/acp/use-composer-file-uploads';
-import type { AttachmentUploadRpc } from '@renderer/features/sessions/acp/composer-file-upload';
+import { useComposerFileUploads, type TaskAttachmentTarget } from '@renderer/features/sessions/acp/use-composer-file-uploads';
+import type { TurnFileRef } from '@gugu/session-core/session-record/contract';
 import type { ComposerAttachmentDraft } from '../composer-attachment-draft';
 import {
   guguCatalogNotice,
@@ -149,20 +143,6 @@ type RenderMentionIcon = NonNullable<Parameters<typeof ChatComposer>[0]['renderM
 function releaseAttachmentPreview(attachment: { previewUrl?: string }): void {
   if (attachment.previewUrl?.startsWith('blob:')) URL.revokeObjectURL(attachment.previewUrl);
 }
-
-/** 已落盘、待登记的一件 path-mention 附件(#5269)。`name` 是用户读的那个名字。 */
-type StagedPathAttachment = {
-  id: string;
-  /** 我们自己那一份在哪。 */
-  storedPath: string;
-  /** 用户自己那个文件在哪(拖进来的才有)。 */
-  originalPath?: string;
-  /** 正文里那条 mention 指向谁 —— 有原路径就是原路径,否则是副本。 */
-  mentionPath: string;
-  name: string;
-  mimeType?: string;
-  size: number;
-};
 
 export type InitialSessionState = {
   provider: AgentProviderId | null;
@@ -291,7 +271,7 @@ export type InitialSessionState = {
    * 输入框据此把「+」键压成不可用、拖进来的文件当场说明,❌ 等到发送才失败。
    * 对话页在别的机器上建 agent 不在此列:它的附件走私聊,照常能发。
    */
-  /** #6264 会话建在别的机器上(附件的字节落在那台机器上;本机文件夹的路径在那边不存在)。本机 = null。 */
+  /** #6264 会话建在别的机器上(本机文件夹的路径在那边不存在)。本机 = null。 */
   machine: string | null;
   issueMentionContexts: Record<string, string>;
   setIssueMentionContext: (token: string, context: string | null) => void;
@@ -300,11 +280,11 @@ export type InitialSessionState = {
    * 后果——「这条消息以什么身份发出去」同时决定正文与附件怎么编码:
    * - `'chat-attachment'`:这条消息是一条真 IM 私聊消息(对话页创建),附件必须与该 DM 里任何
    *   一条附件消息同路——待发队列 → 上传 chat-media → attachment 消息 → 标准投递。
-   * - `'path-mention'`:这条消息是会话内输入(会话页创建),附件按这条会话自己后续每一轮的
-   *   编码方式给出绝对路径 mention。
+   * - `'path-mention'`(名字是历史):这条消息是会话内输入(会话页创建),附件按这条会话自己后续每一轮的
+   *   编码方式走 —— 放进这个 agent 私聊的文件夹,这一轮带着引用(P3)。
    */
   attachmentChannel: 'chat-attachment' | 'path-mention';
-  /** 待发附件(仅 chat-attachment 通道):composer 是它们唯一的保管者,一件真落库才移走一件。 */
+  /** 待发附件(两条通道同一个队列):composer 是它们唯一的保管者,一件真送达才移走一件。 */
   attachments: ComposerAttachment[];
   /**
    * 用户自己增删待发附件的次数。发送端 `dropAttachment` **不**计入 —— 它改的是「还剩什么没发」,
@@ -312,33 +292,20 @@ export type InitialSessionState = {
    * 读这个,❌ 不读 `attachments.length`。
    */
   attachmentEditSeq: number;
-  /** 把文件收进待发队列(chat-attachment 通道)。异步:入列时要读一份文本预览(#5269)。 */
+  /** 把文件收进待发队列。异步:入列时要读一份文本预览(#5269)。 */
   enqueueAttachments: (files: File[]) => Promise<void>;
   /**
-   * 把文件收成 path-mention 通道的 chip(#5269)。落盘取路径 → 屏幕上是附件 chip,
-   * 发送时由 `pathAttachmentMentions` 拼进正文。❌ 不进 chat 待发队列。
+   * path-mention 通道:任务建好、私聊开好之后,把待发的那几件放进这个 agent 私聊的文件夹(进度在 chip 上,P3),
+   * 交回这一轮要带的引用;有一件没放成 → null(那一件的 chip 上写着,能重试)。已放好的不再放第二遍。
    */
-  enqueuePathAttachments: (files: File[]) => Promise<void>;
+  placeAttachments: (to: () => Promise<TaskAttachmentTarget>) => Promise<TurnFileRef[] | null>;
   /**
-   * 这一轮任务的 id。附件的字节要在任务建出来**之前**落进 `<userData>/task-attachments/<conversationId>/`
-   * (那条路径就是首轮 mention 的目标),所以 id 由 composer 先定下来,创建时照用(#5269)。
+   * path-mention 通道,建任务之前:给待发的那几件定名(它们放进私聊文件夹之后的 id、agent 要用的本机文件),
+   * 首轮正文按这几个引用写(P3)。定不了名(这台不是桌面)→ null。
    */
-  reserveSessionId: () => string;
-  /** 已落盘、等着任务建出来之后补登记进库的那几件(见 `rpc.sessionCreate.recordAttachments`)。 */
-  pathAttachmentEntries: () => StagedPathAttachment[];
-  /** path 通道这一轮的附件序列化成 `@[名字](绝对路径)` —— 发送时拼进正文。 */
-  pathAttachmentMentions: () => string[];
-  /**
-   * #6264 path 通道的附件贴上来就开始传(传到会话要建在的那台机器),创建时还没传完就等:
-   * 全都传成了 → true;有一件没成 → false(那一件的 chip 上写着为什么、能重试)。
-   */
-  waitForPathAttachments: () => Promise<boolean>;
-  /** 有没有还没传成的 path 附件(没有就不必等)。 */
-  pathAttachmentsUnsettled: () => boolean;
+  prepareAttachments: () => Promise<TurnFileRef[] | null>;
   /** 点了失败 chip 上的「重试」。 */
-  retryPathAttachment: (id: string) => void;
-  /** 拖进来的文件夹(别的机器上:整个传过去;本机:由调用方落成路径 pill)。 */
-  enqueueFolderAttachments: (entries: FileSystemDirectoryEntry[]) => Promise<void>;
+  retryAttachment: (id: string) => void;
   /** 用户在 composer 上增删附件后的同步入口(chip 的 × 走它)。 */
   setAttachments: (next: ComposerAttachment[]) => void;
   /** 当前待发附件对应的原始 File —— 发送端据此知道「还剩哪几件没发」。 */
@@ -579,7 +546,7 @@ export function useInitialSessionState(
   // Keyed by `${provider}:${model}` — see resolveInitialEffort for why effort is per-model.
   const [effortOverrides, setEffortOverrides] = useState<Record<string, string | null>>({});
   const [issueMentionContexts, setIssueMentionContexts] = useState<Record<string, string>>({});
-  // #4325 —— chat-attachment 通道的待发队列。composer 是这些文件的唯一保管者:一件真的落库了才
+  // #4325 —— 待发队列(两条通道共用)。composer 是这些文件的唯一保管者:一件真的送达了才
   // 把它移走,所以「屏幕上还剩什么」逐字等于「重试还要发什么」,不需要第二份快照。
   const initialAttachmentDraft = useRef(options.initialAttachmentDraft).current;
   const [attachments, setAttachmentsState] = useState<ComposerAttachment[]>(() => initialAttachmentDraft?.pending.map(({ chip }) => chip) ?? []);
@@ -589,108 +556,24 @@ export function useInitialSessionState(
   // 会让一次部分成功之后的失败原因在同一批渲染里被自己清掉(见 use-create-session-callback
   // 的 deliveryErrorSubject)。那正是本票要判死的静默丢,只是换成了「原因静默消失」。
   const [attachmentEditSeq, setAttachmentEditSeq] = useState(0);
-  // path-mention 通道自己的那一半(#5269)。这条通道上首轮还没有活的 agent 会话,文件到达
-  // agent 的唯一途径是 prompt 里的绝对路径 —— 但那是**传输**,不该是用户看见的样子。
-  // owner 2026-09-08:「我粘贴图片,你应该把他当作附件处理」。⇒ 屏幕上是 chip,发送时才把
-  // 路径拼进这一轮的正文(见 `pathAttachmentMentions` 与 use-create-session-callback)。
-  // ⚠️ 它**不进** `pendingAttachmentFilesRef` —— 那个队列是 chat-attachment 专属,
-  // `strayChatAttachmentError` 会对它在 path-mention 轮上非空当场判死(#5049 的教训)。
-  const pathAttachmentsRef = useRef(new Map<string, StagedPathAttachment>());
-  /**
-   * 这一轮任务的 id **在这里就定下来**(#5269)。
-   *
-   * 附件的字节要落进 `<userData>/task-attachments/<conversationId>/`,而这条绝对路径必须在**发送之前**
-   * 就存在 —— 首轮里它就是正文中那条 mention 的目标。任务却要等用户点「创建」才建出来。
-   * ⇒ id 先定,字节先落盘,库里那一行等任务建好之后补(`recordAttachments`)。
-   * 中途走开留下的目录不会烂在那儿:目录名就是 conversationId,下次启动
-   * `sweepOrphanSessionAttachmentDirectories` 按「库里有没有这个任务」精确认领。
-   * ❌ 不再落 `$TMPDIR/gugu-dropped-blobs`:那是退出即清的传输缓冲,而消息里的 mention 长期
-   * 指着它 —— owner 2026-09-09 报的「打不开」就是这条(那一刀先修的是任务内 composer,
-   * 新建会话页这一格还留着)。
-   */
-  const reservedSessionIdRef = useRef<string | null>(null);
-  const reserveSessionId = useCallback(() => {
-    reservedSessionIdRef.current ??= crypto.randomUUID();
-    return reservedSessionIdRef.current;
-  }, []);
-  // #6264 字节贴上来就开始传到会话要建在的那台机器(本机就是本机),进度在 chip 上;只落盘不登记,
-  // 库里那一行等任务建好之后补(`recordAttachments`)。与任务内输入框同一套(use-composer-file-uploads.ts)。
-  const fileUploads = useComposerFileUploads({
-    sessionId: reserveSessionId,
-    deviceLabel: () => (machine ? (remoteHostsStore.device(machine)?.label ?? machine) : null),
-    setAttachments: setAttachmentsState,
-    onUploaded: (chipId, committed) => pathAttachmentsRef.current.set(chipId, committed),
-    translate,
-    record: false,
-    // ⚠️ 任务还没建出来,预留的 id 哪台机器都不认识 —— 按参数选线会落到本机。字节要去的机器由这里点名。
-    uploadRpc: rpcOn(machine).sessionCreate as unknown as AttachmentUploadRpc,
-  });
-  const restoredAttachmentDraft = useRef(false);
-  useEffect(() => {
-    if (restoredAttachmentDraft.current) return;
-    restoredAttachmentDraft.current = true;
-    for (const { chip, source } of initialAttachmentDraft?.uploads ?? []) {
-      void fileUploads.add(chip, source);
+  // path-mention 通道:同一个队列,只是送达在任务建好之后 —— 放进这个 agent 私聊的文件夹(P3),进度在 chip 上,
+  // 与任务内输入框同一套(use-composer-file-uploads.ts)。
+  const attachmentsRef = useRef<ComposerAttachment[]>([]);
+  const placeTarget = useRef<() => Promise<TaskAttachmentTarget>>(() => Promise.reject(new Error('no task to attach to yet')));
+  const placements = useComposerFileUploads({ to: () => placeTarget.current(), setAttachments: setAttachmentsState, translate });
+  const placeAttachments = useCallback(async (to: () => Promise<TaskAttachmentTarget>) => {
+    placeTarget.current = to;
+    const ids = [...pendingAttachmentFilesRef.current.keys()];
+    for (const id of ids) {
+      const chip = attachmentsRef.current.find((attachment) => attachment.id === id);
+      if (chip && !placements.has(id)) void placements.add(chip, pendingAttachmentFilesRef.current.get(id)!);
     }
-  }, [initialAttachmentDraft, fileUploads]);
-  const enqueuePathAttachments = useCallback(async (files: File[]) => {
-    for (const file of files) {
-      // 字节一律存一份;这里只判**发给 agent 的 mention 指向谁** —— 拖进来的带着用户自己盘上
-      // 的真路径(他可能正想让 agent 就地改它),粘贴进来的没有路径,只能指副本。
-      // 这个判断只有渲染层做得了(主进程拿到的只是参数),判据与任务内 composer 共用一份。
-      // #6264 别的机器上:这台电脑上的路径在那边不存在,mention 一律指落在那台机器上的副本。
-      const originalPath = machine ? '' : electronApi().getPathForFile(file).trim();
-      const source = composerAttachmentSource({
-        originalPath,
-        mustCopy: mustCopyRatherThanReference(originalPath),
-        isHeicLike: isHeicLikeFile(file),
-      });
-      const name = file.name || originalPath.split('/').pop() || 'attachment';
-      const image = file.type.toLowerCase().startsWith('image/');
-      // 文本类附件的内容在这里读一份 —— chip 点开要看的就是它(#5269)。❌ 不要等点开时再去
-      // 磁盘上找:那条路上有找不到的一格,而用户看到的会是一个空对话框。
-      const preview = image ? undefined : await readAttachmentPreviewText(file);
-      void fileUploads.add(
-        {
-          id: crypto.randomUUID(),
-          name,
-          kind: image ? ('image' as const) : ('file' as const),
-          mimeType: file.type,
-          previewUrl: image ? URL.createObjectURL(file) : undefined,
-          previewText: preview?.text,
-          previewTruncated: preview?.truncated,
-        },
-        {
-          kind: 'file',
-          name,
-          ...(file.type ? { mimeType: file.type } : {}),
-          ...(source === 'reference' ? { originalPath } : {}),
-          size: file.size,
-          slice: async (start, end) => new Uint8Array(await file.slice(start, end).arrayBuffer()),
-        }
-      );
-    }
-    setAttachmentEditSeq((seq) => seq + 1);
-  }, [machine, fileUploads]);
-  const enqueueFolderAttachments = useCallback(async (entries: FileSystemDirectoryEntry[]) => {
-    for (const entry of entries) {
-      const pieces = await entryUploadItems(entry as unknown as DropEntry);
-      void fileUploads.add(
-        { id: crypto.randomUUID(), name: entry.name, kind: 'file', mimeType: 'inode/directory' },
-        { kind: 'folder', name: entry.name, pieces }
-      );
-    }
-    setAttachmentEditSeq((seq) => seq + 1);
-  }, [fileUploads]);
-  /** 已落盘、等任务建出来之后补登记的那几件。 */
-  const pathAttachmentEntries = useCallback(() => [...pathAttachmentsRef.current.values()], []);
-  /** 这一轮的 path 附件序列化成 mention —— 发送时拼进正文,那是它们到达 agent 的路。 */
-  const pathAttachmentMentions = useCallback(
-    () =>
-      [...pathAttachmentsRef.current.values()].map((entry) =>
-        stringifyMention({ label: entry.name, target: entry.mentionPath, kind: 'file' })
-      ),
-    []
+    if (!(await placements.waitForUploads())) return null;
+    return placements.files(ids);
+  }, [placements]);
+  const prepareAttachments = useCallback(
+    () => placements.prepare([...pendingAttachmentFilesRef.current].map(([id, file]) => ({ id, file }))),
+    [placements]
   );
   const enqueueAttachments = useCallback(async (files: File[]) => {
     const queued = await Promise.all(
@@ -698,7 +581,7 @@ export function useInitialSessionState(
         const id = crypto.randomUUID();
         pendingAttachmentFilesRef.current.set(id, file);
         const image = file.type.toLowerCase().startsWith('image/');
-        // 与 path-mention 那条车道同一句:chip 点开看的内容,入列时就得在手上。
+        // chip 点开看的内容,入列时就得在手上(#5269)。
         const preview = image ? undefined : await readAttachmentPreviewText(file);
         return {
           id,
@@ -719,16 +602,9 @@ export function useInitialSessionState(
     // 那份快照里可能还留着刚刚送达、已被 dropAttachment 移走的那一件 —— 原样写回去会把它**复活**成
     // 一个没有 File 撑着的 chip:发不出去、又让 hasTurnContent 恒真。所以只允许做减法:
     // 交集 = 用户还留着的 ∩ 确实还有 File 的。
-    // 「还有东西撑着」有两种:chat 通道靠 File,path 通道靠那条已落盘的路径。两边都算数,
-    // ❌ 只认一种会让另一种的 chip 在用户点任意一个 × 时集体消失。
-    const kept = next.filter(
-      (attachment) =>
-        pendingAttachmentFilesRef.current.has(attachment.id) ||
-        pathAttachmentsRef.current.has(attachment.id) ||
-        fileUploads.has(attachment.id)
-    );
+    const kept = next.filter((attachment) => pendingAttachmentFilesRef.current.has(attachment.id));
     const live = new Set(kept.map((attachment) => attachment.id));
-    fileUploads.keepOnly(live);
+    placements.keepOnly(live);
     setAttachmentsState((current) => {
       for (const attachment of current) {
         if (!live.has(attachment.id)) releaseAttachmentPreview(attachment);
@@ -738,50 +614,23 @@ export function useInitialSessionState(
     for (const id of [...pendingAttachmentFilesRef.current.keys()]) {
       if (!live.has(id)) pendingAttachmentFilesRef.current.delete(id);
     }
-    for (const id of [...pathAttachmentsRef.current.keys()]) {
-      if (!live.has(id)) pathAttachmentsRef.current.delete(id);
-    }
     setAttachmentEditSeq((seq) => seq + 1);
-  }, [fileUploads]);
+  }, [placements]);
   const dropAttachment = useCallback((id: string) => {
     pendingAttachmentFilesRef.current.delete(id);
-    pathAttachmentsRef.current.delete(id);
-    fileUploads.forget(id);
+    placements.forget(id);
     setAttachmentsState((current) => {
       const going = current.find((attachment) => attachment.id === id);
       if (going) releaseAttachmentPreview(going);
       return current.filter((attachment) => attachment.id !== id);
     });
-  }, [fileUploads]);
+  }, [placements]);
   const pendingAttachmentFiles = useCallback(
     () => [...pendingAttachmentFilesRef.current].map(([id, file]) => ({ id, file })),
     []
   );
-  // 通道一离开,属于那条通道的排队就地收掉 —— 留着只会伪装成「这一轮有内容」(见下面那个
-  // effect 的长注释)。⚠️ 只收自己那一半:两条通道各有各的队列,互相清就是把对方的 chip 清没。
-  const clearAttachmentsOfChannel = useCallback((channel: 'chat-attachment' | 'path-mention') => {
-    const going = channel === 'chat-attachment' ? pendingAttachmentFilesRef : pathAttachmentsRef;
-    const uploading = channel === 'path-mention' ? fileUploads.ids() : [];
-    if (going.current.size === 0 && uploading.length === 0) return;
-    const ids = new Set([...going.current.keys(), ...uploading]);
-    going.current.clear();
-    if (channel === 'path-mention') {
-      fileUploads.keepOnly(new Set());
-      fileUploads.clear();
-    }
-    setAttachmentsState((current) => {
-      const kept: ComposerAttachment[] = [];
-      for (const attachment of current) {
-        if (ids.has(attachment.id)) releaseAttachmentPreview(attachment);
-        else kept.push(attachment);
-      }
-      return kept;
-    });
-    setAttachmentEditSeq((seq) => seq + 1);
-  }, [fileUploads]);
-  // chip 的 ×、送达、通道切换都各自 revoke 了;唯独整棵子树被卸走时没人收 —— 那会把每张
+  // chip 的 ×、送达都各自 revoke 了;唯独整棵子树被卸走时没人收 —— 那会把每张
   // 排过队的图的字节钉在 renderer 里直到进程退出。
-  const attachmentsRef = useRef<ComposerAttachment[]>([]);
   const transferredPreviews = useRef(new Set<string>());
   useEffect(() => {
     attachmentsRef.current = attachments;
@@ -792,20 +641,17 @@ export function useInitialSessionState(
     }
   }, []);
   const captureAttachmentDraft = useCallback((): ComposerAttachmentDraft => {
-    const sources = fileUploads.sources();
-    const snapshot: ComposerAttachmentDraft = { uploads: [], pending: [] };
+    const snapshot: ComposerAttachmentDraft = { pending: [] };
     for (const chip of attachmentsRef.current) {
-      const source = sources.get(chip.id);
       const file = pendingAttachmentFilesRef.current.get(chip.id);
-      if (source) snapshot.uploads.push({ chip: { ...chip }, source });
-      else if (file) snapshot.pending.push({ chip: { ...chip }, file });
-      else throw new Error(`Missing attachment source: ${chip.id}`);
+      if (!file) throw new Error(`Missing attachment source: ${chip.id}`);
+      snapshot.pending.push({ chip: { ...chip }, file });
       // blob 预览的所有权一并交给目标草稿;卸载旧页不能把新页的图撤掉。
       if (chip.previewUrl) transferredPreviews.current.add(chip.previewUrl);
     }
-    fileUploads.keepOnly(new Set());
+    placements.keepOnly(new Set());
     return snapshot;
-  }, [fileUploads]);
+  }, [placements]);
   const [prevProjectId, setPrevProjectId] = useState(projectId);
   const projectChanged = projectId !== prevProjectId;
 
@@ -1363,16 +1209,6 @@ export function useInitialSessionState(
     }),
     creationSurface,
   );
-  // 待发队列是 **chat-attachment 这一条通道自己的**存储。这一轮的 transport 一变(换 provider、
-  // 切回编程视角),ChatComposer 就不再拿到 attachments —— chip 从界面上消失,可队列还在。
-  // 那是一个**看不见的队列**:它照样让 hasTurnContent 恒真、照样拿那个看不见的文件名去命名会话,
-  // 用户对着一个空 composer 被告知「这个 provider 没有 transport」,而界面上没有任何控件能清掉它。
-  // 所以通道一离开就把它收掉 —— 此刻这些文件没有任何路径能送出去,留着只会伪装成"这一轮有内容"。
-  useEffect(() => {
-    clearAttachmentsOfChannel(
-      attachmentChannel === 'chat-attachment' ? 'path-mention' : 'chat-attachment'
-    );
-  }, [attachmentChannel, clearAttachmentsOfChannel]);
 
   return {
     provider: providerId,
@@ -1458,14 +1294,9 @@ export function useInitialSessionState(
     attachments,
     attachmentEditSeq,
     enqueueAttachments,
-    enqueuePathAttachments,
-    enqueueFolderAttachments,
-    waitForPathAttachments: fileUploads.waitForUploads,
-    pathAttachmentsUnsettled: fileUploads.unsettled,
-    retryPathAttachment: fileUploads.retry,
-    reserveSessionId,
-    pathAttachmentEntries,
-    pathAttachmentMentions,
+    placeAttachments,
+    prepareAttachments,
+    retryAttachment: placements.retry,
     setAttachments,
     pendingAttachmentFiles,
     dropAttachment,
@@ -1834,35 +1665,26 @@ export function InitialSessionField({
   );
 
   // 附件有两条编码,选哪条由**这条消息走哪个 transport**决定(#4325,见 attachmentChannel):
-  // - 会话内输入(会话页创建):插绝对路径 @提及 —— 与这条会话后续每一轮的编码方式相同,
-  //   agent 自己去读,且对 CLI agent 而言路径比内联图更有用。
-  // - IM 私聊消息(对话页创建):收进待发队列,由发送端上传 chat-media 并写 attachment 消息 ——
-  //   与用户稍后在同一 DM 里再发一个文件完全同路。❌ 不把本机路径塞进正文冒充"发过去了":
-  //   那条路 chat-media 零上传、会话里没有附件气泡、跨设备时目标机上根本没有那个路径。
+  // - 会话内输入(会话页创建):任务建好之后放进这个 agent 私聊的文件夹,这一轮带着引用(P3)——
+  //   与这条会话后续每一轮的编码方式相同。
+  // - IM 私聊消息(对话页创建):由发送端上传 chat-media 并写 attachment 消息 ——
+  //   与用户稍后在同一 DM 里再发一个文件完全同路。
+  // 两条通道收进同一个待发队列(chip 只握着原始文件),走哪条在送达时才按 transport 分。
   const attachInputRef = useRef<HTMLInputElement | null>(null);
   const handleAttach = useCallback(() => {
     attachInputRef.current?.click();
   }, []);
-  // 掉进 composer 的文件,两条通道都变成**附件 chip**(#5269,owner 2026-09-08:「你应该把他
-  // 当作附件处理」)。差别只在它怎么到达 agent:chat 通道是 attachment 行,path 通道是发送时
-  // 拼进正文的绝对路径 mention。❌ 不再往正文里插一条路径 pill —— 那是把传输方式摆到用户脸上。
+  // 掉进 composer 的文件都变成**附件 chip**(#5269,owner 2026-09-08:「你应该把他当作附件处理」)。
+  // ❌ 不往正文里插一条路径 pill —— 那是把传输方式摆到用户脸上。
   const remoteMachine = state.machine;
   const handleFiles = useCallback((files: File[]) => {
     if (files.length === 0) return;
-    if (chatAttachmentChannel) {
-      // 与下面那条同一个理由:❌ 不裸 `void promise`,抛出会变成没人看见的静默丢。
-      state.enqueueAttachments(files).catch((error: unknown) => {
-        log.error('Failed to queue chat attachments', { error });
-      });
-      return;
-    }
     // ❌ 不写成裸 `void promise`:这条链里任何一步抛出都会变成一次没人看见的 unhandled rejection,
-    // 屏幕上只表现为「文件掉进去了什么都没发生」。#5269 实撞:`formatAttachmentSize` 在一份把整个
-    // session-ui 入口 mock 掉的测试里是 undefined,调用即抛,整批文件静默消失。
-    state.enqueuePathAttachments(files).catch((error: unknown) => {
-      log.error('Failed to attach dropped files', { error });
+    // 屏幕上只表现为「文件掉进去了什么都没发生」。
+    state.enqueueAttachments(files).catch((error: unknown) => {
+      log.error('Failed to queue attachments', { error });
     });
-  }, [chatAttachmentChannel, state]);
+  }, [state]);
   const handleAttachPicked = useCallback((e: ChangeEvent<HTMLInputElement>) => {
     handleFiles(Array.from(e.target.files ?? []));
     // 允许连续挑同一个文件:不清空的话第二次 change 不触发。
@@ -1871,23 +1693,16 @@ export function InitialSessionField({
   /**
    * 拖进来的是**文件夹**:不进附件通道(它没有可上传的字节,进去只能静默消失),
    * 落成正文里一条路径引用 —— 与终端/文本框拖文件夹写路径同一个意图,只是这里有 pill 可用。
-   * 聊天附件通道(IM)两头都到不了:正文不放本机路径,附件收不下文件夹 ⇒ 响亮报错,❌ 静默丢。
+   * 聊天附件通道(IM)与别的机器上的会话都到不了:正文里的本机路径那边没有,私聊文件夹收不下文件夹 ⇒ 响亮报错,❌ 静默丢。
    */
   const handleDirectoriesDropped = useCallback(
-    (files: File[], entries: FileSystemDirectoryEntry[]) => {
+    (files: File[]) => {
       if (files.length === 0) return;
-      if (chatAttachmentChannel) {
+      if (chatAttachmentChannel || remoteMachine) {
         toast({
           title: translate('chat.folderDropUnsupportedTitle'),
           description: translate('chat.folderDropUnsupportedDescription'),
           variant: 'destructive',
-        });
-        return;
-      }
-      // #6264 别的机器上的会话:本机文件夹的路径那边没有 —— 整个文件夹传过去,正文里给那台机器上的路径。
-      if (remoteMachine) {
-        state.enqueueFolderAttachments(entries).catch((error: unknown) => {
-          log.error('Failed to attach dropped folders', { error });
         });
         return;
       }
@@ -1896,7 +1711,7 @@ export function InitialSessionField({
         if (mention) editorApiRef.current?.insertMention(mention);
       }
     },
-    [chatAttachmentChannel, remoteMachine, state, translate]
+    [chatAttachmentChannel, remoteMachine, translate]
   );
 
   // 平台分组缺席的原因,贴在模型选择器同一排。ChatComposer 的模型列表是平铺的
@@ -2060,7 +1875,7 @@ export function InitialSessionField({
           onImageFilesDropped={enableAttachments ? handleFiles : undefined}
           onFilesDropped={enableAttachments ? handleFiles : undefined}
           onDirectoriesDropped={enableAttachments ? handleDirectoriesDropped : undefined}
-          onRetryAttachment={state.retryPathAttachment}
+          onRetryAttachment={state.retryAttachment}
           dataDropTypes={dataDropTypes}
           onDataDropped={onDataDropped}
           attachments={state.attachments}

@@ -22,7 +22,7 @@ import { getSupabaseAnonKey, getSupabaseUrl } from '../../cloud/config'
 import { resolveListenModeDefault } from '../../cloud/listenMode'
 import type { ChatKind } from '../../shared/types/chat'
 import { parseAttachmentContent } from '../../shared/ui/attachmentModels'
-import { attachmentFolderLine } from '../../shared/attachmentFolderLine'
+import { attachmentLocationLines } from '../../shared/attachmentFolderLine'
 import {
   buildAgentDeliveryEnvelope,
   buildAgentMentionContext,
@@ -843,28 +843,31 @@ async function prepareMessage(
   })
   // 条目已删(gone):没有字节可给,正文(名字、大小)照原样交下去。
   let attachments: InlineImage[] | undefined
-  let fileLine = ''
+  let saved: Parameters<typeof attachmentLocationLines>[2] = null
   if (attachment?.kind === 'image' && attachment.source.kind !== 'gone') {
     try {
       const image = await download(attachment.fileName)
       attachments = [{ data: Buffer.from(image.bytes).toString('base64'), mimeType: attachment.mimeType, fileName: attachment.fileName, localPath: image.localPath }]
+      saved = { localPath: image.localPath }
     } catch (error) {
-      fileLine = `\n[Image not saved: ${attachmentFailureReason(error)}]`
+      saved = { failure: attachmentFailureReason(error) }
     }
   }
   // 新式附件的文件(不是图):正文里没有链接(老附件靠正文里的 [URL] 去取),字节和图片一样下到本机,交本地路径。
   // 下不下来(签不到、CDN 回错、超时)就照实说没存下和原因 —— 这一行和同一批的别的行照样交,不卡住收件。
   if (attachment?.kind === 'file' && attachment.source.kind !== 'gone' && attachment.source.kind !== 'url') {
     try {
-      fileLine = `\n[File saved at local path: ${(await download(attachment.fileName)).localPath}]`
+      saved = { localPath: (await download(attachment.fileName)).localPath }
     } catch (error) {
-      fileLine = `\n[File not saved: ${attachmentFailureReason(error)}]`
+      saved = { failure: attachmentFailureReason(error) }
     }
   }
-  const folderLine = attachment?.source.kind === 'item' ? `\n${attachmentFolderLine(attachment.source.itemId, attachment.source.version)}` : ''
+  // 那几行与任务输入框的附件同一个格式(attachmentLocationLines,P3)。
+  const item = attachment?.source.kind === 'item' ? { itemId: attachment.source.itemId, version: attachment.source.version } : null
+  const lines = attachmentLocationLines(item, attachment?.kind === 'image', saved)
   const content = attachments && attachment
-    ? `${attachment.caption || `[Image attached: ${attachment.fileName}]`}${folderLine}${attachments?.[0]?.localPath ? `\n[Image attached at local path: ${attachments[0].localPath}]` : ''}`
-    : `${row.content}${folderLine}${fileLine}`
+    ? `${attachment.caption || `[Image attached: ${attachment.fileName}]`}${lines}`
+    : `${row.content}${lines}`
   const messageContext = buildAgentMentionContext(content, row.toUserIds, identities, agentUserId)
   const envelope = buildAgentDeliveryEnvelope(
     {

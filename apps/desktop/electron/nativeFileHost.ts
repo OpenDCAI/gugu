@@ -13,7 +13,9 @@ export function createNativeFileHost(deps: {
   root: string; owner(): Promise<string | null>; alive(scope: number): boolean
   local: FileProviders['local']; ssh: FileProviders['ssh']; openPath(path: string): Promise<string>
   published(directory: string): void; maxBytes?: number
-  publish?(chatId: string, file: SelectedProjectFile, owner: string, message?: ProjectFileMessage): Promise<unknown>
+  publish?(chatId: string, file: SelectedProjectFile, owner: string, message?: ProjectFileMessage, task?: { itemId?: string }): Promise<unknown>
+  /** A task attachment's own copy for the agent (`writeTaskCopy`): its path. */
+  taskCopy?(name: string, bytes: Uint8Array, mimeType?: string): Promise<{ path: string; size: number; mimeType?: string }>
   publication?(chatId: string, owner: string): Promise<boolean>
 }) {
   type Entry = { scope: number; epoch: number; owner: string; file?: FileBytes; context?: string; name?: string; size?: number; sha?: string;
@@ -37,9 +39,14 @@ export function createNativeFileHost(deps: {
     await check(scope, entry.owner, entry.epoch); return entry
   }
   return { drop,
-    async publish(scope: number, request: { chatId: string; file?: SelectedProjectFile; message?: ProjectFileMessage }) {
+    /** `task`: a task's input attachment, kept on this device (`ProjectFilePublishOptions.task`). */
+    async publish(scope: number, request: { chatId: string; file?: SelectedProjectFile; message?: ProjectFileMessage; task?: boolean; itemId?: string }) {
       const epoch = epochOf(scope), owner = await deps.owner(); if (!owner || !deps.publish || !request.file && !deps.publication) throw new Error('File publisher is unavailable')
-      await check(scope, owner, epoch); const row = request.file ? await deps.publish(request.chatId, request.file, owner, request.message) : await deps.publication!(request.chatId, owner); await check(scope, owner, epoch); return row
+      await check(scope, owner, epoch); const row = request.file ? await deps.publish(request.chatId, request.file, owner, request.message, request.task === true ? { itemId: request.itemId } : undefined) : await deps.publication!(request.chatId, owner); await check(scope, owner, epoch); return row
+    },
+    async taskCopy(scope: number, request: { name: string; data: ArrayBuffer; mimeType?: string }) {
+      const epoch = epochOf(scope), owner = await deps.owner(); if (!owner || !deps.taskCopy) throw new Error('File publisher is unavailable')
+      await check(scope, owner, epoch); return deps.taskCopy(request.name, new Uint8Array(request.data), request.mimeType)
     },
     async ownerChanged(owner: string | null) { if (owner !== lastOwner) { lastOwner = owner; await drop() } },
     async read(scope: number, context: FileContext, request: { op: string; id?: string; revision?: FileRevision; offset?: number; length?: number }) {
@@ -122,6 +129,9 @@ export function registerNativeFileIpc(ipc: IpcMain, host: ReturnType<typeof crea
     }
     return id
   }
+  ipc.handle('files:task-copy', async (event, row: Parameters<typeof host.taskCopy>[1]) => {
+    try { return await host.taskCopy(scope(event), row) } catch (error) { warn(error); throw error }
+  })
   ipc.handle('files:publish', async (event, row: Parameters<typeof host.publish>[1]) => {
     try { return await host.publish(scope(event), row) } catch (error) { warn(error); throw error }
   })
