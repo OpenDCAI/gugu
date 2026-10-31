@@ -27,7 +27,7 @@ it.each(['light', 'dark'] as const)('restores the assistant IM colours and trans
   harness.container.style.height = '740px'
   const dm = chat({ id: 'assistant-dm', kind: 'ai', peer_user_id: 'assistant' })
   await renderWithAppProviders(harness, <ThemeProvider><div className="ta-app"><div className="ta-chat-col"><div className="ta-chat">
-    <ChatAreaPanel assistantChat activeTab="chats" chrome={{ placeholder: '和咕咕聊天', attachGlyph: null, hideRunningStatus: true }} />
+    <ChatAreaPanel activeTab="chats" chrome={{ placeholder: '和咕咕聊天', attachGlyph: null, hideRunningStatus: true }} />
   </div></div></div></ThemeProvider>, { chat: {
     activeChat: dm, activeChatId: dm.id,
     identitiesById: { assistant: displayIdentity('assistant', { type: 'agent', display_name: '咕咕' }) },

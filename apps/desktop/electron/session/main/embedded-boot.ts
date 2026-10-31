@@ -2449,7 +2449,7 @@ export function sessionpageSessionDigest(): Array<{
   isPinned: boolean
   unseen: boolean
   parentConversationId: string | null
-  agentUserId?: string | null; nativeUnreadCount?: number
+  agentUserId?: string | null
 }> {
   refreshDigestAgents()
   const agents = digestAgents
@@ -2469,7 +2469,7 @@ export function sessionpageSessionDigest(): Array<{
       agentStatus: session.agentStatus,
       status: parseAgentStatusView(session.status ?? null),
       lastInteractedAt: session.lastInteractedAt,
-      supported: session.supported, nativeUnreadCount: session.nativeUnreadKeys?.length,
+      supported: session.supported,
       // 离线时手机看的就是这份。少了这三项,离线的会话列表会把置顶画成没置顶、
       // 未读画成已读、子 agent 画成平级 —— 那不是「信息少一点」,是画错。
       // 这里三项都读得到(本地库就在手边),所以给确定值;❌ 不写 `?? false` 之类的兜底,

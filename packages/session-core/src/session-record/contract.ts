@@ -747,7 +747,6 @@ export type SessionpageSessionSummary = {
   nativeLastMessage?: { text: string; at: string } | null;
   /** Raw personal conversation replies. IM deliveries keep their existing unread counter. */
   nativeUnreadKeys?: string[];
-  nativeUnreadCount?: number;
   nativeUnreadAliases?: Record<string, string>;
   conversationId: string;
   projectId: string;

@@ -18,9 +18,6 @@ import { chatDisplayName } from '@gugu/core/shared/ui/chatModels'
 import { drainTopicSplitRequest } from '../../../../apps/desktop/src/lib/topicSplitRequest'
 
 
-vi.mock('../../../../apps/desktop/src/components/chat/AgentDmConversation', () => ({
-  AgentDmConversation: ({ chat }: { chat: { peer_user_id?: string } }) => createElement('div', { 'data-testid': 'agent-dm-conversation', 'data-agent-user-id': chat.peer_user_id }),
-}))
 
 // @@@store-status-mock - Overridable so tests can flip the store's reported status independently of the
 const presenceMock = vi.hoisted(() => ({
@@ -136,11 +133,11 @@ describe('ChatAreaPanel agent activity placement', () => {
   // @@@1506 - owner: running 状态轻量浮动文字、在输入框上方（不再是消息列表内的最后一行 #1102）。
   // DM 的「运行中」从 in-list 移到 composer 上方的 agent-running-status 浮动条；流式正文仍留消息流。
   // 它显不显、显什么,只看那张 agent 表说这个 agent 在不在跑 —— ❌ 没有第二个来源可以让它单独亮或单独灭。
-  it('routes agent DMs to the unified conversation instead of the IM list', async () => {
+  // Owned agents open their task page before reaching here; an agent DM that still arrives (another owner's
+  // agent from before #509) is an ordinary IM conversation.
+  it('shows an agent DM that reaches the chat surface as an ordinary IM list', async () => {
     await renderChatArea({ activeChat: chat({ id: 'chat-1', kind: 'ai', name: 'Agent', peer_user_id: 'agent-1' }), messages: [mineMessage({})] })
-    expect(harness.container.querySelector('[data-testid="agent-dm-conversation"]')?.getAttribute('data-agent-user-id')).toBe('agent-1')
-    expect(harness.container.querySelector('[data-testid="agent-running-status"]')).toBeNull()
-    expect(harness.container.querySelector(`[data-testid="${AUTOMATION_TEST_IDS.chatMessageList}"]`)).toBeNull()
+    expect(harness.container.querySelector(`[data-testid="${AUTOMATION_TEST_IDS.chatMessageList}"]`)).not.toBeNull()
   })
 
   // 对话头的名字与对话列表、⌘K 面板、「来自 X」同一个函数(chatDisplayName):私聊写对方,备注优先。
