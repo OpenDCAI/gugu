@@ -1,0 +1,170 @@
+import assert from 'node:assert/strict'
+import { hydrateLife, LifeProtocolError, shouldStartOnHydrate, step } from '../../../../packages/core/src/local/session-life/step.ts'
+import { STAGES } from '../../../../packages/core/src/local/session-life/types.ts'
+import type {
+  AdmittedChannel, Attempt, AuthEpoch, Effect, Event, Gen, Hold, Life, PendingView,
+  ProcessLease, Seq, StageName, StageResult, StepContext, Transition,
+} from '../../../../packages/core/src/local/session-life/types.ts'
+
+const seq = (value: number) => value as Seq
+const G: Gen = { auth: 1 as AuthEpoch, attempt: 1 as Attempt }
+const NEXT: Gen = { auth: 1 as AuthEpoch, attempt: 2 as Attempt }
+const STALE: Gen = { auth: 0 as AuthEpoch, attempt: 1 as Attempt }
+const CTX: StepContext = { next: NEXT, ownerUserId: 'owner', since: 100, timing: 'next-tool-call' }
+const CAUSE = { name: 'StageRejected', message: 'fixture rejected before admission', code: 17 }
+const EXIT = { cause: CAUSE, code: 1, signal: null }
+const STOP = { reason: 'user-stop' as const, barrier: seq(10) }
+const FAILED = { reason: 'start-failed' as const, barrier: seq(10), stage: 'platform' as const, cause: CAUSE }
+const OUT = { reason: 'sign-out' as const, ownerUserId: 'owner', prior: null }
+
+export function pending(queued: readonly number[] = [], dispatching: readonly number[] = [], max = 10): PendingView {
+  const rows = Object.freeze(queued.map(seq))
+  const flights = Object.freeze(dispatching.map(seq))
+  return Object.freeze({ head: () => rows[0] ?? null, maxSeq: () => seq(max), queued: () => rows, dispatching: () => flights })
+}
+
+const output = (at: StageName): StageResult => {
+  switch (at) {
+    case 'identity': return { at, value: { kind: 'bound', agentUserId: 'agent' } }
+    case 'workspace': case 'capabilities': case 'platform': case 'cli': return { at, value: { kind: 'none' } }
+    case 'process': return { at, value: Object.freeze({}) as ProcessLease }
+    case 'channel': return { at, value: Object.freeze({ gen: G }) as AdmittedChannel }
+  }
+}
+
+function dormant(hold: Hold | null = null): Life { return hydrateLife({ hold, archived: false }) }
+function archived(): Life { return hydrateLife({ hold: null, archived: true }) }
+function starting(at: StageName = 'identity'): Life {
+  let state = step(dormant(), { k: 'start', origin: 'user-open' }, pending(), { ...CTX, next: G })[0]
+  for (const stage of STAGES) {
+    if (stage === at) return state
+    state = step(state, { k: 'stage-ok', gen: G, out: output(stage) }, pending(), CTX)[0]
+  }
+  throw new Error(`Unknown fixture stage ${at}`)
+}
+function ready(timing: StepContext['timing'] = 'next-tool-call', admission: 'free' | 'awaiting' | 'busy' = 'free'): Life {
+  let state = step(starting('channel'), { k: 'stage-ok', gen: G, out: output('channel') }, pending(), { ...CTX, timing })[0]
+  if (admission === 'awaiting') state = step(state, { k: 'deliver', seq: seq(10) }, pending([10]), CTX)[0]
+  if (admission === 'busy') state = step(state, { k: 'turn-busy', gen: G }, pending(), CTX)[0]
+  return state
+}
+function stopping(reason: Extract<Event, { k: 'interrupt' }>['reason'] = 'version-switch'): Life {
+  return step(ready(), { k: 'interrupt', reason }, pending([5]), CTX)[0]
+}
+function stoppingFailed(): Life {
+  return step(starting('platform'), { k: 'stage-fail', gen: G, at: 'platform', cause: CAUSE }, pending([5]), CTX)[0]
+}
+function decide(state: Life, event: Event, q = pending()): Transition { return step(state, event, q, CTX) }
+function kind(result: Transition, expected: Life['kind']): Life { assert.equal(result[0].kind, expected); return result[0] }
+function effect(result: Transition, expected: Effect): void { assert.ok(result[1].some(e => JSON.stringify(e) === JSON.stringify(expected)), JSON.stringify({ effects: result[1], expected })) }
+function noChange(state: Life, event: Event, q = pending()): void { assert.deepEqual(decide(state, event, q), [state, []]) }
+const deliver: Event = { k: 'deliver', seq: seq(20) }
+const start: Event = { k: 'start', origin: 'retry' }
+const signedIn: Event = { k: 'signed-in', userId: 'owner' }
+const interrupt = (reason: Extract<Event, { k: 'interrupt' }>['reason']): Event => ({ k: 'interrupt', reason })
+const accepted: Event = { k: 'receipt', gen: G, seq: seq(10), result: 'accepted', nativeReceiptId: 'native' }
+const rejected: Event = { k: 'receipt', gen: G, seq: seq(10), result: 'rejected-before-admission', nativeReceiptId: null, cause: CAUSE }
+
+export const transitionCases: readonly { row: number; name: string; run: () => void }[] = [
+  { row: 1, name: 'dormant delivery starts identity once', run() { kind(decide(dormant(), deliver, pending([20])), 'starting'); effect(decide(dormant(), deliver), { e: 'run-stage', gen: NEXT, at: 'identity', have: {} }) } },
+  { row: 2, name: 'new delivery withdraws a user stop', run() { const r = decide(dormant(STOP), deliver, pending([20])); kind(r, 'starting'); effect(r, { e: 'write-hold', hold: null }) } },
+  { row: 3, name: 'signed-out delivery stays queued', run() { noChange(dormant(OUT), deliver, pending([20])) } },
+  { row: 4, name: 'explicit starts clear ordinary and failed holds', run() { for (const s of [dormant(), dormant(STOP), dormant(FAILED)]) { const r = decide(s, start); kind(r, 'starting'); effect(r, { e: 'write-hold', hold: null }) } } },
+  { row: 5, name: 'a new delivery retries a failed start', run() { kind(decide(dormant(FAILED), deliver, pending([20])), 'starting') } },
+  { row: 6, name: 'stopping a dormant session persists its barrier', run() { const r = decide(dormant(), interrupt('user-stop')); kind(r, 'dormant'); effect(r, { e: 'write-hold', hold: STOP }) } },
+  { row: 7, name: 'a second user stop preserves its barrier', run() { noChange(dormant(STOP), interrupt('user-stop'), pending([20], [], 20)) } },
+  { row: 8, name: 'sign-out remembers the prior user stop', run() { for (const h of [null, STOP]) { const r = decide(dormant(h), interrupt('sign-out')); effect(r, { e: 'write-hold', hold: { ...OUT, prior: h } }) } } },
+  { row: 9, name: 'repeated sign-out is an identity transition', run() { noChange(dormant(OUT), interrupt('sign-out')) } },
+  { row: 10, name: 'reaping or replacing a non-running session does not start it', run() { for (const s of [dormant(), dormant(STOP), dormant(OUT), dormant(FAILED)]) for (const r of ['version-switch', 'idle-reap'] as const) noChange(s, interrupt(r)) } },
+  { row: 11, name: 'failed keeps its cause through stop or sign-out', run() { for (const r of ['user-stop', 'sign-out'] as const) noChange(dormant(FAILED), interrupt(r)) } },
+  { row: 12, name: 'archive fails every queued row and clears the hold', run() { for (const s of [dormant(), dormant(FAILED)]) { const r = decide(s, interrupt('archive'), pending([5, 10])); kind(r, 'archived'); assert.deepEqual(r[1].filter(e => e.e === 'write-receipt').map(e => e.seq), [5, 10]); effect(r, { e: 'write-hold', hold: null }) } } },
+  { row: 13, name: 'delete emits removal for every non-running state', run() { for (const s of [dormant(), dormant(FAILED), archived()]) effect(decide(s, interrupt('delete')), { e: 'remove' }) } },
+  { row: 14, name: 'same-account sign-in restores stop or pumps an unheld queue', run() { const r = decide(dormant({ ...OUT, prior: STOP }), signedIn, pending([20])); kind(r, 'dormant'); effect(r, { e: 'write-hold', hold: STOP }); kind(decide(dormant(OUT), signedIn, pending([20])), 'starting'); kind(decide(dormant(OUT), signedIn), 'dormant') } },
+  { row: 15, name: 'another account cannot release the sign-out hold', run() { noChange(dormant(OUT), { k: 'signed-in', userId: 'other' }, pending([20])) } },
+  { row: 16, name: 'sign-in does not retry stopped failed or archived sessions', run() { for (const s of [dormant(), dormant(STOP), dormant(FAILED), archived()]) noChange(s, signedIn, pending([20])) } },
+  { row: 17, name: 'starting coalesces more start and delivery commands', run() { for (const e of [deliver, start]) noChange(starting(), e, pending([20])) } },
+  { row: 18, name: 'each stage accumulates all earlier outputs', run() { for (let i = 0; i < STAGES.length - 1; i++) { const at = STAGES[i]; const r = decide(starting(at), { k: 'stage-ok', gen: G, out: output(at) }); const s = kind(r, 'starting'); assert.ok(s.kind === 'starting'); assert.equal(s.progress.at, STAGES[i + 1]); assert.deepEqual(Object.keys(s.progress.have), STAGES.slice(0, i + 1)) } } },
+  { row: 19, name: 'only the current channel proof admits and pumps the queue', run() { const r = decide(starting('channel'), { k: 'stage-ok', gen: G, out: output('channel') }, pending([20])); const s = kind(r, 'ready'); assert.ok(s.kind === 'ready'); assert.deepEqual(s.admission, { kind: 'awaiting', seq: 20 }); effect(r, { e: 'dispatch', gen: G, seq: seq(20) }) } },
+  { row: 20, name: 'each startup failure exits through teardown and reports queued sources', run() { for (const at of STAGES) { const r = decide(starting(at), { k: 'stage-fail', gen: G, at, cause: CAUSE }, pending([5])); const s = kind(r, 'stopping'); assert.ok(s.kind === 'stopping' && s.destination.kind === 'held'); assert.deepEqual(s.destination.hold, { ...FAILED, stage: at }); effect(r, { e: 'abort', gen: G }); effect(r, { e: 'report-failure', seqs: [seq(5)], cause: CAUSE }) } kind(decide(starting(), { k: 'exit', gen: G, exit: EXIT }), 'stopping') } },
+  { row: 21, name: 'startup interruption withdraws then tears down its resources', run() { for (const reason of ['user-stop', 'sign-out', 'archive', 'delete', 'version-switch', 'idle-reap'] as const) { const r = decide(starting('process'), interrupt(reason)); kind(r, 'stopping'); assert.deepEqual(r[1].map(e => e.e), ['abort', 'teardown']) } } },
+  { row: 22, name: 'a ready free session dispatches its actual queue head', run() { effect(decide(ready(), deliver, pending([20])), { e: 'dispatch', gen: G, seq: seq(20) }) } },
+  { row: 23, name: 'a second delivery cannot bypass an in-flight receipt or busy leg', run() { for (const s of [ready('idle-only', 'awaiting'), ready('idle-only', 'busy')]) noChange(s, deliver, pending([20])) } },
+  { row: 24, name: 'start is idempotent once ready', run() { noChange(ready(), start) } },
+  { row: 25, name: 'accepted alone marks read and either pumps or waits for idle', run() { const r = decide(ready('next-tool-call', 'awaiting'), accepted, pending([20])); assert.deepEqual(r[1].map(e => e.e), ['write-receipt', 'mark-source-read', 'dispatch']); const s = kind(decide(ready('idle-only', 'awaiting'), accepted, pending([20])), 'ready'); assert.ok(s.kind === 'ready'); assert.equal(s.admission.kind, 'busy') } },
+  { row: 26, name: 'a rejected head fails visibly and dispatches the next row', run() { const r = decide(ready('next-tool-call', 'awaiting'), rejected, pending([20])); assert.deepEqual(r[1].map(e => e.e), ['write-receipt', 'report-failure', 'dispatch']); effect(r, { e: 'dispatch', gen: G, seq: seq(20) }) } },
+  { row: 27, name: 'a manual turn closes idle-only admission without copying Activity', run() { const s = kind(decide(ready('idle-only'), { k: 'turn-busy', gen: G }), 'ready'); assert.ok(s.kind === 'ready'); assert.equal(s.admission.kind, 'busy'); assert.equal('activity' in s, false) } },
+  { row: 28, name: 'turn-busy does not erase the outstanding admission identity', run() { for (const a of ['awaiting', 'busy'] as const) noChange(ready('idle-only', a), { k: 'turn-busy', gen: G }) } },
+  { row: 29, name: 'turn-idle pumps a held idle-only queue', run() { effect(decide(ready('idle-only', 'busy'), { k: 'turn-idle', gen: G }, pending([20])), { e: 'dispatch', gen: G, seq: seq(20) }) } },
+  { row: 30, name: 'idle while free or awaiting preserves the current admission', run() { for (const a of ['free', 'awaiting'] as const) noChange(ready('idle-only', a), { k: 'turn-idle', gen: G }) } },
+  { row: 31, name: 'exit makes the in-flight row unknown before a bounded next attempt', run() { const r = decide(ready('next-tool-call', 'awaiting'), { k: 'exit', gen: G, exit: EXIT }, pending([20], [10])); kind(r, 'starting'); assert.deepEqual(r[1].map(e => e.e), ['write-receipt', 'run-stage']); effect(r, { e: 'write-receipt', seq: seq(10), receipt: { state: 'unknown' } }); const s = kind(decide(ready(), { k: 'exit', gen: G, exit: EXIT }), 'dormant'); assert.ok(s.kind === 'dormant'); assert.deepEqual(s.lastExit, EXIT) } },
+  { row: 32, name: 'a genuinely free empty session may be reaped', run() { kind(decide(ready(), interrupt('idle-reap')), 'stopping') } },
+  { row: 33, name: 'stale reaper observations are explicit no-ops', run() { noChange(ready(), interrupt('idle-reap'), pending([20])); for (const a of ['awaiting', 'busy'] as const) noChange(ready('idle-only', a), interrupt('idle-reap')) } },
+  { row: 34, name: 'ready interruptions retain the complete teardown lease', run() { const s = ready(); const r = decide(s, interrupt('archive')); kind(r, 'stopping'); assert.ok(s.kind === 'ready'); effect(r, { e: 'teardown', gen: G, have: s.have }) } },
+  { row: 35, name: 'hold or archive interrupts erase an earlier wake intent', run() { let s = decide(stopping(), start)[0]; const h = decide(s, interrupt('sign-out'))[0]; assert.ok(h.kind === 'stopping'); assert.deepEqual(h.destination, { kind: 'held', hold: OUT }); s = decide(h, interrupt('archive'))[0]; s = decide(s, interrupt('user-stop'))[0]; assert.ok(s.kind === 'stopping'); assert.deepEqual(s.destination, { kind: 'archived' }); s = decide(s, interrupt('delete'))[0]; assert.ok(s.kind === 'stopping'); assert.deepEqual(s.destination, { kind: 'deleted' }) } },
+  { row: 36, name: 'delivery during archive or delete gets a failure receipt', run() { for (const reason of ['archive', 'delete'] as const) { const r = decide(stopping(reason), deliver); assert.equal(r[1][0]?.e, 'write-receipt'); assert.equal(r[1].some(e => e.e === 'dispatch'), false) } } },
+  { row: 37, name: 'delivery or start during rest requests one later wake', run() { for (const e of [deliver, start]) { const s = decide(stopping(), e)[0]; assert.ok(s.kind === 'stopping'); assert.deepEqual(s.destination, { kind: 'rest', wakeAfter: true }) } } },
+  { row: 38, name: 'held delivery remains data for the barrier decision', run() { for (const s of [stopping('user-stop'), stoppingFailed(), stopping('sign-out')]) noChange(s, deliver, pending([20])) } },
+  { row: 39, name: 'explicit start may withdraw a user or startup-failure hold', run() { for (const s of [stopping('user-stop'), stoppingFailed()]) { const n = decide(s, start)[0]; assert.ok(n.kind === 'stopping'); assert.deepEqual(n.destination, { kind: 'rest', wakeAfter: true }) } } },
+  { row: 40, name: 'start cannot release sign-out archive or delete', run() { for (const r of ['sign-out', 'archive', 'delete'] as const) noChange(stopping(r), start) } },
+  { row: 41, name: 'late same-generation stage outputs are torn down individually', run() { for (const at of STAGES) { const out = output(at); const r = decide(stopping('user-stop'), { k: 'stage-ok', gen: G, out }); assert.deepEqual(r[1], [{ e: 'teardown', gen: G, have: { [out.at]: out.value } }]) } } },
+  { row: 42, name: 'exit failure and turn observations do not change a stop destination', run() { const s = stopping('archive'); for (const e of [{ k: 'exit', gen: G, exit: EXIT }, { k: 'stage-fail', gen: G, at: 'identity', cause: CAUSE }, { k: 'turn-busy', gen: G }, { k: 'turn-idle', gen: G }] as const) noChange(s, e) } },
+  { row: 43, name: 'old-epoch receipts settle during teardown and accepted alone marks read', run() { const s = stopping('sign-out'); for (const e of [accepted, rejected]) { const r = decide(s, e); assert.equal(r[0], s); assert.equal(r[1].some(x => x.e === 'mark-source-read'), e.result === 'accepted') } } },
+  { row: 44, name: 'settled uses destination and durable barriers and closes dispatching as unknown', run() { const settled: Event = { k: 'settled', gen: G }; for (const s of [stopping('user-stop'), stoppingFailed()]) { const old = decide(s, settled, pending([5], [10])); assert.ok(old[0].kind === 'dormant' || old[0].kind === 'failed'); effect(old, { e: 'write-receipt', seq: seq(10), receipt: { state: 'unknown' } }); kind(decide(s, settled, pending([20])), 'starting') } kind(decide(stopping('sign-out'), settled, pending([20])), 'dormant'); kind(decide(stopping('archive'), settled, pending([20])), 'archived'); effect(decide(stopping('delete'), settled), { e: 'remove' }); kind(decide(decide(stopping(), start)[0], settled), 'starting'); kind(decide(stopping(), settled), 'dormant') } },
+  { row: 45, name: 'archived delivery can only fail the new row', run() { const s = archived(); const r = decide(s, deliver); assert.equal(r[0], s); assert.deepEqual(r[1].map(e => e.e), ['write-receipt']) } },
+  { row: 46, name: 'restore clears archive without auto-starting', run() { kind(decide(archived(), { k: 'restore' }, pending([20])), 'dormant') } },
+  { row: 47, name: 'archive absorbs starts and every non-delete interruption', run() { const s = archived(); noChange(s, start); for (const r of ['user-stop', 'sign-out', 'archive', 'version-switch', 'idle-reap'] as const) noChange(s, interrupt(r)) } },
+]
+
+export const invariantCases: readonly { name: string; run: () => void }[] = [
+  { name: 'hydration and settled use the identical barrier predicate', run() { for (const h of [STOP, FAILED]) { assert.equal(shouldStartOnHydrate(dormant(h), pending([5, 10])), false); assert.equal(shouldStartOnHydrate(dormant(h), pending([20])), true) } assert.equal(shouldStartOnHydrate(dormant(OUT), pending([20])), false); assert.equal(shouldStartOnHydrate(archived(), pending([20])), false); assert.equal(shouldStartOnHydrate(dormant(), pending([20])), true) } },
+  { name: 'channel readiness cannot be forged from a stale proof in a current completion', run() { assert.throws(() => decide(starting('channel'), { k: 'stage-ok', gen: G, out: { at: 'channel', value: { gen: STALE } as AdmittedChannel } }), LifeProtocolError) } },
+  { name: 'all seven stage completions reject the other six current-generation stages', run() { for (const at of STAGES) for (const other of STAGES) if (at !== other) assert.throws(() => decide(starting(at), { k: 'stage-ok', gen: G, out: output(other) }), LifeProtocolError) } },
+  { name: 'a wake followed by sign-out cannot start while signing out', run() { const wake = decide(stopping(), deliver, pending([20]))[0]; const out = decide(wake, interrupt('sign-out'), pending([20]))[0]; const r = decide(out, { k: 'settled', gen: G }, pending([20])); kind(r, 'dormant'); assert.equal(r[1].some(e => e.e === 'run-stage'), false) } },
+  { name: 'a late stop cannot undo archive or delete', run() { for (const reason of ['archive', 'delete'] as const) { const s = decide(stopping(reason), interrupt('user-stop'))[0]; assert.ok(s.kind === 'stopping'); assert.equal(s.destination.kind, reason === 'archive' ? 'archived' : 'deleted') } } },
+  { name: 'a null barrier means any durable queued row is later and unknown rows never count as queued', run() { assert.equal(shouldStartOnHydrate(dormant({ ...STOP, barrier: null }), pending([1])), true); assert.equal(shouldStartOnHydrate(dormant({ ...STOP, barrier: null }), pending([], [1])), false); const r = decide(stopping('sign-out'), { k: 'settled', gen: G }, pending([], [1])); assert.equal(r[1].filter(e => e.e === 'write-receipt').every(e => e.receipt.state === 'unknown'), true); assert.equal(r[1].some(e => e.e === 'mark-source-read'), false) } },
+]
+
+export function verifyAllCases(): void {
+  assert.deepEqual(transitionCases.map(c => c.row), Array.from({ length: 47 }, (_, i) => i + 1))
+  for (const c of transitionCases) c.run()
+  for (const c of invariantCases) c.run()
+  verifyMatrix()
+}
+
+/** An independent domain table covers every Event kind, both generation fields, and every Life variant. */
+export function verifyMatrix(): void {
+  const states: { name: string; state: Life }[] = [
+    { name: 'dormant', state: dormant() }, { name: 'user-stop', state: dormant(STOP) },
+    { name: 'signed-out', state: dormant(OUT) }, { name: 'failed', state: dormant(FAILED) },
+    ...STAGES.map(at => ({ name: `starting-${at}`, state: starting(at) })),
+    ...(['next-tool-call', 'idle-only'] as const).flatMap(timing => (['free', 'awaiting'] as const).map(a => ({ name: `ready-${timing}-${a}`, state: ready(timing, a) }))),
+    { name: 'ready-idle-only-busy', state: ready('idle-only', 'busy') },
+    ...(['user-stop', 'sign-out', 'archive', 'delete', 'version-switch'] as const).map(r => ({ name: `stopping-${r}`, state: stopping(r) })),
+    { name: 'stopping-start-failed', state: stoppingFailed() }, { name: 'archived', state: archived() },
+  ]
+  const events: Event[] = [deliver, start, ...STAGES.map(at => ({ k: 'stage-ok' as const, gen: G, out: output(at) })),
+    ...STAGES.map(at => ({ k: 'stage-fail' as const, gen: G, at, cause: CAUSE })), accepted, rejected,
+    { ...accepted, seq: seq(99) }, { k: 'turn-busy', gen: G }, { k: 'turn-idle', gen: G }, { k: 'exit', gen: G, exit: EXIT },
+    ...(['user-stop', 'sign-out', 'archive', 'delete', 'version-switch', 'idle-reap'] as const).map(interrupt),
+    { k: 'settled', gen: G }, { k: 'restore' }, signedIn, { k: 'signed-in', userId: 'other' }]
+  for (const { name, state: s } of states) for (const e of events) {
+    if ('gen' in e && (s.kind === 'dormant' || s.kind === 'failed' || s.kind === 'archived')) {
+      assert.deepEqual(decide(s, e), [s, []], name)
+      continue
+    }
+    let legal: boolean
+    switch (s.kind) {
+      case 'dormant': legal = e.k === 'deliver' || e.k === 'signed-in' || (e.k === 'start' && s.hold?.reason !== 'sign-out') || (e.k === 'interrupt' && !(s.hold?.reason === 'sign-out' && e.reason === 'user-stop')); break
+      case 'failed': legal = e.k === 'deliver' || e.k === 'start' || e.k === 'interrupt' || e.k === 'signed-in'; break
+      case 'starting': legal = e.k === 'deliver' || e.k === 'start' || e.k === 'interrupt' || e.k === 'exit' || (e.k === 'stage-ok' && e.out.at === s.progress.at) || (e.k === 'stage-fail' && e.at === s.progress.at); break
+      case 'ready': legal = e.k === 'deliver' || e.k === 'start' || e.k === 'interrupt' || e.k === 'exit' || (e.k === 'receipt' && s.admission.kind === 'awaiting' && s.admission.seq === e.seq) || ((e.k === 'turn-busy' || e.k === 'turn-idle') && s.timing === 'idle-only'); break
+      case 'stopping': legal = e.k !== 'restore' && e.k !== 'signed-in'; break
+      case 'archived': legal = e.k === 'deliver' || e.k === 'start' || e.k === 'interrupt' || e.k === 'restore' || e.k === 'signed-in'; break
+    }
+    if (legal) decide(s, e, pending([20], [10]))
+    else assert.throws(() => decide(s, e, pending([20], [10])), LifeProtocolError, `${name} × ${e.k}`)
+    if ('gen' in e) {
+      for (const gen of [STALE, { ...G, attempt: 0 as Attempt }]) assert.deepEqual(decide(s, { ...e, gen }, pending([20], [10])), [s, []], `${name} stale ${e.k}`)
+    }
+  }
+}
