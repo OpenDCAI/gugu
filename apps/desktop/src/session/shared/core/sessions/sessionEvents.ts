@@ -15,8 +15,8 @@ export const sessionChangedChannel = defineEvent<{
   sessionId: string;
   projectId: string;
   changes: {
-    /** Native personal replies still unseen; independent of the project attention flag. */
-    nativeUnreadCount?: number;
+    /** The host read journal changed; list subscribers reread the unseen reply keys. */
+    nativeUnreadKeys?: true;
     /** The host's native preview changed; list subscribers reread the canonical summary. */
     nativeLastMessage?: true;
     /**
