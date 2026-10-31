@@ -93,6 +93,7 @@ const fs = require('node:fs')
 const path = require('node:path')
 const { packNpmBundledDependencies, packedAppDir } = require('./scripts/pack-npm-bundled-deps.cjs')
 const { resolveElectronFuses } = require('./scripts/electron-fuses.cjs')
+const excludeClaudeNative = '!**/node_modules/@anthropic-ai/claude-agent-sdk-*/**'
 const targetArgs = new Set(process.argv.slice(2))
 const isWindowsOnlyBuild =
   (targetArgs.has('--win') || targetArgs.has('-w')) &&
@@ -110,21 +111,17 @@ if (isWindowsOnlyBuild && fs.existsSync(path.join(__dirname, 'psmux-bundle', 'tm
 // L3 preinstalled Apps (工作区 first): apps/desktop/preinstalled-apps/<id>/ ships as Resources/preinstalled-apps/,
 // and gugu installs it from there at every start (electron/session/main/core/extensions/preinstalled-apps.ts).
 extraResources.push({ from: 'apps/desktop/preinstalled-apps', to: 'preinstalled-apps', filter: ['**/*', '!README.md'] })
-// #1181/#1198 机制层：本地 codex / claude 适配器随包带到 Resources/acp/，agent 启动走
-// engine-downloader.resolveResourcesAdapterEntry，弃 npx 联网拉包。acp-bundle/ 由 scripts/fetch-acp-adapters.mjs
-// 在 build:app 里按构建目标平台生成（构建期拉、非 dev 依赖，不给 CI/每次 install 加 ~446MB 负担）。
-// #1478 PR-C/C3：默认 thin 包——fetch 脚本在 thin 档清空 acp-bundle/ 后退出 → 下面 existsSync 不命中 → 不带运行时，
-//   运行时由 app 内 engine-downloader 按需拉到用户缓存。GUGU_ACP_BUNDLE=full（兜底档）才生成 acp-bundle/ → 整包带。
-// 任一适配器入口存在即整包带（两者共用同一 acp-bundle/node_modules 树）；都缺则跳过（thin 包 / CI 不跑 build:app）。
+// The optional legacy full bundle contains only codex-acp. Claude's JavaScript bridge is a
+// production dependency; its CLI always comes from the host's harness installation.
 if (
   fs.existsSync(
     path.join(__dirname, 'acp-bundle', 'node_modules', '@zed-industries', 'codex-acp', 'bin', 'codex-acp.js')
-  ) ||
-  fs.existsSync(
-    path.join(__dirname, 'acp-bundle', 'node_modules', '@agentclientprotocol', 'claude-agent-acp', 'dist', 'index.js')
   )
 ) {
-  extraResources.push({ from: 'acp-bundle', to: 'acp', filter: ['**/*'] })
+  extraResources.push({
+    from: 'acp-bundle', to: 'acp',
+    filter: ['**/*', excludeClaudeNative],
+  })
 }
 
 // @@@mac-signing - macOS 签名有两档,由**凭据在不在环境里**决定,不由分支/tier 决定:
@@ -429,18 +426,11 @@ module.exports = {
     // require.resolve('@openai/codex/bin/codex.js') 指的是它,排掉会让回退路径直接 resolve 失败。
     // ⚠️ 若将来把 codex 改成「随包分发」而不是 hostDependency,这条必须一并撤掉。
     '!node_modules/@openai/codex-*/**',
-    // @@@thin-claude-native — @anthropic-ai/claude-agent-sdk 的 JS 主包必须进包(净增约 3.1MB):
-    // 会话页的 claude ACP adapter 直接 import 它,缺了出厂即 ERR_MODULE_NOT_FOUND。它的**平台原生
-    // optional-dep**(claude-agent-sdk-<plat>-<arch>,单个 ~232MB)装的是 claude 原生 bin —— 薄包
-    // 设计里那个 bin 从不由包提供:adapter 走 CLAUDE_CODE_EXECUTABLE 指向宿主装的 claude
-    // (见 plugins/…/claude/index.ts 的 buildSpawn)。
-    //
-    // ⚠️ 现状下这条规则**不触发**:pnpm 严格布局把原生包放在 .pnpm 的嵌套层,而 electron-builder 的
-    // NodeModuleCopyHelper 硬排 `node_modules` 目录名、根本不 walk 进去(实测 `app-builder
-    // node-dep-tree` 的 35 个顶层 prod 依赖里没有任何 claude-agent-sdk-*)。留着是给 npm /
-    // `shamefully-hoist` 这类扁平安装场景当保险 —— 那时它确实能挡下 1~2 份 230MB。
-    // ❌ 别据此以为"改动前包里有 232MB 被省掉了",改动前也没有。
-    '!node_modules/@anthropic-ai/claude-agent-sdk-*/**',
+    // @@@thin-claude-native - Keep the SDK's JavaScript and ACP bridge, but never ship a Claude
+    // CLI for any architecture. Different SDK versions can put platform packages under the
+    // adapter's own node_modules, so the exclusion must match every dependency depth.
+    // The plugin passes the host-installed CLI through CLAUDE_CODE_EXECUTABLE.
+    excludeClaudeNative,
     // #41 files nothing loads at runtime: native build intermediates, vendored sources already compiled into
     // the shipped .node, and TypeScript sources/types (Node refuses to strip types under node_modules).
     // ❌ Broad *.md / test/ / *.c rules: playwright requires lib/mcp/test/*.js and reads lib/**/*.md, and
