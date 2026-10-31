@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { mobileRuntimeClosure } from '../../../scripts/mobile-runtime-libraries.mjs'
-import { filterIcuLocaleIndex } from '../../../scripts/mobile-runtime-icu.mjs'
+import { filterIcuLocaleIndex, retainIcuDependencies } from '../../../scripts/mobile-runtime-icu.mjs'
 
 describe('Android packaged native dependency closure', () => {
   const libraries = () => new Map([
@@ -37,6 +37,24 @@ describe('filtered ICU locale inventory', () => {
     expect(result.locales).toEqual(['en', 'en_001', 'ja', 'zh_Hant_TW'])
     expect(result.source).toContain('CLDRVersion { "49" }')
     expect(result.source).not.toContain('de {')
+    expect(result.source).toContain('res_index:table(nofallback)')
+  })
+  it('restores the standalone index attribute omitted by actual derb output', () => {
+    const source = '// derb dump\nres_index{ CLDRVersion { "49" } InstalledLocales { en { "" } de { "" } } }'
+    const result = filterIcuLocaleIndex(source, ['en'])
+    expect(result.source).toContain('res_index:table(nofallback) { CLDRVersion { "49" }')
+    expect(result.locales).toEqual(['en'])
+    expect(() => filterIcuLocaleIndex(source.replace('res_index{', 'other{'), ['en'])).toThrow('index header')
+  })
+  it('retains ICU alias targets transitively instead of deleting a requested Chinese locale', () => {
+    const removed = new Set(['rbnf/yue.res', 'rbnf/yue_Hant.res', 'de.res'])
+    expect(retainIcuDependencies('Item rbnf/zh_Hant_HK.res depends on missing item rbnf/yue.res\n', removed)).toEqual(['rbnf/yue.res'])
+    expect(retainIcuDependencies('Item rbnf/yue.res depends on missing item rbnf/yue_Hant.res\n', removed)).toEqual(['rbnf/yue_Hant.res'])
+    expect([...removed]).toEqual(['de.res'])
+  })
+  it('refuses unknown dependency diagnostics or a target absent from the removal set', () => {
+    expect(() => retainIcuDependencies('cannot open data file', new Set(['de.res']))).toThrow('diagnostic')
+    expect(() => retainIcuDependencies('Item res_index.res depends on missing item res.res', new Set(['de.res']))).toThrow('diagnostic')
   })
   it('refuses a changed or malformed binary-tool text contract', () => {
     expect(() => filterIcuLocaleIndex('res_index { }', ['en'])).toThrow('no InstalledLocales')
