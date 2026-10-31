@@ -50,7 +50,7 @@ import {
 import { SESSIONPAGE_PLATFORM_CATALOG_CHANNEL } from './sessionpage-platform-catalog'
 import { SESSIONPAGE_PLATFORM_RETRY_CHANNEL } from '../../src/session/shared/core/agents/platform-model'
 import { clearPlatformIssueBackoff } from './sessionpage-platform-model'
-import { announceEmdashSession, emdashSessionProvisionInput, emdashProjectName, emdashSessionpageSessionFacts, emdashTakeBirthGroup, setTaskNamer, setTaskNameOwner } from '../session/main/embedded-boot'
+import { adoptLegacyTaskNames, announceEmdashSession, emdashSessionProvisionInput, emdashProjectName, emdashSessionpageSessionFacts, emdashTakeBirthGroup, loadTaskNames, setTaskNamer, setTaskNameOwner } from '../session/main/embedded-boot'
 import { sessionpageRenameAnnouncement, type SessionpageAgentNameTaken } from './sessionpage-rename-announcement'
 import type { HostIpc } from '../session/main/lib/host-ipc'
 import { log } from '../session/main/lib/logger'
@@ -93,6 +93,8 @@ export function wireHeadlessSessionpageIdentity(hostIpc: HostIpc): { dispose(): 
     defaultName: (provider, taken) => identity.defaultTaskName(provider, taken),
     renameBound: (sessionId, agentUserId, name) => identity.renameBound(sessionId, agentUserId, name),
   })
+  // Wired after the session host booted: task names come from the roster from here on, signed in or not.
+  void loadTaskNames().catch((error: unknown) => log.error('Loading task names failed', error))
   const nativeInbox = startNativeConversationInboxHost({
     open: async target => (await identity.ensureAgentAddress(target)).chatId,
     failed: error => log.warn('Personal conversation address remains pending', error),
@@ -182,6 +184,8 @@ export function wireHeadlessSessionpageIdentity(hostIpc: HostIpc): { dispose(): 
       // The browser pushes auth when it reconnects: names renamed meanwhile are published now.
       if (next) await identity.publishPendingNames()
       if (next) await identity.adoptCloudNames()
+      // Once, after the cloud names: a legacy task's old title names its default-named identity (0043).
+      if (next) await adoptLegacyTaskNames()
       log.info('[session-host] identity auth ' + (next ? `set for ${next.userId}` : 'cleared'))
     },
     agentCard: (sessionId) => identity.agentCard(sessionId),

@@ -29,6 +29,32 @@ export async function applyGeneratedTitle(sessionId: string, title: string): Pro
   return renameTask(sessionId, title, 'auto');
 }
 
+/**
+ * Upgrading to one name per task (migration 0043) left a bound task named by its identity, and most
+ * identities still carry the engine default (`Claude 127`) while the task showed a title. That old
+ * title, kept by 0043 in the legacy `title` column, becomes the name once — as an ordinary automatic
+ * rename (pending on this device, then published): a name a person gave is never replaced, the
+ * length is capped like every name, and once renamed the identity is no longer a default, so later
+ * starts do nothing. Runs after the cloud names are adopted, so a rename made on another device counts.
+ */
+export async function adoptLegacyTaskNames(): Promise<number> {
+  const rows = db
+    .select({ id: sessions.id, provider: sessions.provider, legacyTitle: sessions.legacyTitle })
+    .from(sessions)
+    .all();
+  let renamed = 0;
+  for (const row of rows) {
+    if (!boundTaskName(row.id)) continue; // unbound: 0043 already made the old title its name
+    const title = row.legacyTitle.trim();
+    // 0043 filled an empty old title with the provider or the session id: that is no name. An old
+    // title that is itself an engine default is no task name either (and the cloud may have
+    // renumbered the identity's default on purpose).
+    if (title === row.provider || title === row.id || isEngineDefault(title, row.provider)) continue;
+    if (await renameTask(row.id, title, 'auto')) renamed += 1;
+  }
+  return renamed;
+}
+
 /** Whether the task still carries the engine default — asked before paying for a generated name. */
 export function sessionTitleIsFallback(sessionId: string): { fallback: boolean; firstUtterance: string | undefined } {
   const row = readRow(sessionId);
@@ -103,12 +129,17 @@ function isFirstPromptEcho(title: string, firstUtterance: string | undefined): b
     || (prompt.length >= 20 && head.startsWith(prompt));
 }
 
-// A bound name changed on the roster (rename here, publish, another device, provisioning). An unbound
-// session keeps the identity name it last had as its pending-bind record, so its name does not jump back.
+// A bound name changed on the roster (rename here, publish, another device, provisioning). The task has
+// one name at a time: binding clears the pending-bind record; unbinding (archive, removal) writes the
+// identity's last name back into it, which is also the name a restored task's new identity takes.
 onTaskNamesChanged((changes) => {
   for (const { sessionId, previous, next } of changes) {
     const row = readRow(sessionId);
     if (!row) continue;
+    if (next && row.config?.agentDisplayName !== undefined) {
+      const { agentDisplayName: _bound, ...config } = row.config;
+      db.update(sessions).set({ config }).where(eq(sessions.id, sessionId)).run();
+    }
     if (!next && previous && row.config?.agentDisplayName !== previous.name) {
       db.update(sessions).set({ config: { ...row.config!, agentDisplayName: previous.name } }).where(eq(sessions.id, sessionId)).run();
     }

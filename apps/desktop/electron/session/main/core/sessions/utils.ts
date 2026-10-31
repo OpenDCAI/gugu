@@ -1,4 +1,4 @@
-import { taskName } from './task-name';
+import { knownTaskName, taskName } from './task-name';
 import type { AgentProviderId } from '@gugu/session-plugins/agents';
 import { type SessionRow } from '@main/db/schema';
 import { readInterruptedTurn } from '@main/core/agent-status/interrupted-turns';
@@ -143,7 +143,8 @@ export function mapSessionRowToSession(
     forkFromProviderSessionId: config?.type === 'acp' ? config.forkFromProviderSessionId : undefined,
     providerSessionEndpoint: config?.providerSessionEndpoint,
     providerMintedSessionId: config?.providerMintedSessionId,
-    agentDisplayName: config?.agentDisplayName,
+    // Its one name: a bound task's pending-bind record is empty (task-name.ts).
+    agentDisplayName: knownTaskName({ id: row.id, config }),
     // 重来靠的那句话:载荷里还留着的优先(它本来就是要投递的那句),否则用创建时记下的事实。
     // 口径与 restartSession 完全一致 —— 界面据此决定摆「重来」还是「删掉」。
     firstUtterance: config?.initialPrompt?.trim() || config?.firstUtterance?.trim() || undefined,

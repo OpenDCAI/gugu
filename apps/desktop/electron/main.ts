@@ -2535,7 +2535,9 @@ function humanAuthUserId(): string | null {
 
 function onHumanAuthSessionChanged(): void {
   projectionDeviceRuntime.invalidate()
-  void emdashBridgeModule?.setTaskNameOwner(humanAuthUserId()).catch(error => createLogger('sessionpage/names').error({ error: String(error) }, 'Task name owner change failed'))
+  void emdashBridgeModule?.setTaskNameOwner(humanAuthUserId())
+    .then(() => adoptCloudTaskNames?.())
+    .catch(error => createLogger('sessionpage/names').error({ error: String(error) }, 'Task name owner change failed'))
   void nativeFiles.ownerChanged(humanAuthUserId()).catch(error => createLogger('files').warn({ error: String(error) }, 'File handle cleanup failed'))
   void refreshElectronSupabaseAuth().catch((error: unknown) => {
     createLogger('device-runtime/auth').warn({ error: String(error) }, 'Realtime account auth update failed')
@@ -4998,8 +5000,9 @@ app.whenReady().then(async () => {
     }
     onElectronCloudAnswer(() => { if (emdash.hasPendingTaskNames()) publishPendingTaskNames() })
     publishPendingTaskNames()
-    adoptCloudTaskNames = () => sessionpageIdentityHost.adoptCloudNames()
-    void adoptCloudTaskNames().catch((error: unknown) => createLogger('sessionpage/task-names').error({ error: String(error) }, 'Adopting cloud task names failed'))
+    // Cloud names first (a rename on another device is a person's), then the one-time legacy names (0043).
+    // Both need the projected roster, so they become available once the session host booted (below).
+    const adoptTaskNames = () => sessionpageIdentityHost.adoptCloudNames().then(() => emdash.adoptLegacyTaskNames()).then(() => undefined)
     const nativeInbox = emdash.startNativeConversationInboxHost({
       open: async target => (await sessionpageIdentityHost.ensureAgentAddress(target)).chatId,
       failed: error => createLogger('sessionpage/personal-inbox').warn({ error: String(error) }, 'Personal conversation address remains pending'),
@@ -6068,6 +6071,11 @@ app.whenReady().then(async () => {
       scheduleDiscovery: (work) => startupDiscovery.schedule(work),
     })
     platformCredentialsBoot = emdashBoot.catch(() => undefined)
+    // Task names: the roster is projected onto the session database once it is up, then names are adopted.
+    void emdashBoot
+      .then(() => emdash.loadTaskNames())
+      .then(() => { adoptCloudTaskNames = adoptTaskNames; return adoptTaskNames() })
+      .catch((error: unknown) => createLogger('sessionpage/task-names').error({ error: String(error) }, 'Loading task names failed'))
     refreshPlatformCredentials()
     void emdashBoot.then(() => {
       emdash.onAgentStatus(change => {
