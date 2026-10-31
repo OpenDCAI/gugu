@@ -37,13 +37,19 @@ the working copy: claim it by name (\`TODO.md\`); opening it gives you that file
 Installing puts it on your owner's computer; given a chat's \`chat_id\` and data, it also goes in as a
 card — the others install it from that card, or when they open one of its files.
 
+| who reads | from |
+|---|---|
+| agents | \`contributes.instructions\` (its \`<gugu_apps>\` line), tools, skills |
+| people | \`subtitle\`, \`store/\` (\`apps-ui\`) |
+| the repo only | README.md, CHANGELOG.md |
+
 It is a folder: \`manifest.json\` plus its files. HTML tabs open in tasks or, with \`opensFiles.chat\`,
 in chats. Tools-only Apps need no HTML: \`apps-settings\` explains their host settings page.
 
 More \`guide_read\` topics:
-- \`apps-page\` — the \`window.gugu\` API your page calls: the same wherever it is, and what each host has.
+- \`apps-page\` — the \`window.gugu\` API your page calls, and what each host has.
 - \`apps-agents\` — app state and agents.
-- \`apps-sessions\` — external CLI history and context (API 17).
+- \`apps-sessions\` — external CLI history and context.
 - \`apps-programs\` — agent tools and skills.
 - \`apps-projection\` — local picture/input.
 - \`apps-files\` — \`gugu.files\`: chat files and working copies, edited live.
@@ -59,6 +65,7 @@ More \`guide_read\` topics:
   "name": "CSV Lens",
   "version": "1.0.0",            // x.y.z, digits only
   "apiVersion": ${EXTENSION_API_VERSION},
+  "defaultLocale": "en",         // name/subtitle language; others: "localized"
   "platforms": ["desktop"],       // desktop, phone, or both
   "entry": "main.html",          // bundle-relative, no "..", no leading "/"
   "background": { "entry": "background.html" },  // optional, see below
@@ -80,7 +87,8 @@ More \`guide_read\` topics:
     "mcpServers": [              // optional, 1-4; needs "agents:tools"
       { "name": "rows", "command": "node", "args": ["mcp/server.js"] }
     ],
-    "skills": "skills"            // optional folder of <skill>/SKILL.md; needs "agents:tools"
+    "skills": "skills",           // optional folder of <skill>/SKILL.md; needs "agents:tools"
+    "instructions": "rows_query(file, sql) on any .csv"  // with programs or skills, <= 160
   }
 }
 \`\`\`
@@ -104,10 +112,8 @@ Opened FOR A FILE (a session file you claimed, a chat file opened with your App)
 bound to that file before your first call is answered — its context's \`file\` is that file for good
 — and gone when the person leaves it.
 
-\`background\` is for work that must go on even with your page hidden or when the user
-never opens it: a hidden page the host starts when the App is enabled. There is
-exactly one per App; the tab page talks to it (\`sendToBackground\` /
-\`broadcastToViews\` in \`apps-page\`). It lives in the same sandbox with the same permissions.
+\`background\`: one hidden page per App, started when the App is enabled, for work that goes on unseen; tabs
+talk to it (\`sendToBackground\` / \`broadcastToViews\`, \`apps-page\`). Same sandbox, same permissions.
 
 ## Permissions: you may write them, you may not approve them
 
@@ -122,11 +128,10 @@ agents on this computer) and \`notifications\` (system banners).
 You can AUTHOR a bundle that declares any of these, and \`app_install\` it. A bundle
 that declares nothing installs immediately, and so does your own reinstalled declaring nothing
 new. Otherwise it is shown to the person you are working with, and nothing is installed until
-they confirm — they are the one who bears the consequence. Declining or letting it time out
+they confirm. Declining or letting it time out
 leaves it uninstalled.
 
-So: if the tab genuinely needs to read the working copy, declare it and tell the person
-why. Do not contort the design to avoid asking.
+Need it? Declare it and tell the person why; never contort the design to avoid asking.
 
 ## The sandbox — these are not guidelines, they are walls
 
@@ -140,8 +145,7 @@ DOM or any other tab.
 - No \`unsafe-eval\`: \`eval\`, \`new Function\` and string-to-code paths do not run.
 - Network is https/wss ONLY, and only to hosts you declared. \`http:\` is refused even for a
   declared host. localhost, \`*.local\`, \`*.internal\` and any IP literal are refused outright.
-- A restart, an upgrade of your App or a revoked permission loads your entry URL from the top
-  again. Keep real data in files, not in the page.
+- A restart, an upgrade or a revoked permission loads your entry URL again: keep real data in files.
 
 ## Look — \`guide_read apps-ui\`
 
@@ -158,8 +162,8 @@ When one of these tools is not in your tool list, it is in \`catalog_list\`.
 1. \`app_create\` — writes the bundle outside your working copy (\`target_dir\` to choose a folder):
    \`manifest\` is manifest.json above minus id, name and version (its own parameters); \`files\` is
    every other file, path → text — a tab's page is \`<name>.html\` unless its \`entry\` says otherwise.
-   A chat App for several people: \`template: "group-json"\` and your app.js; \`manifest\` adds to it. One
-   person's, with a save: no template — a page of its own and \`readData\` (guide apps-programs).
+   Data: a chat file your tab names as \`chatFile\` (\`template: "group-json"\` writes it), or this computer's
+   \`readData\` (apps-programs).
 2. \`app_install\` — installs it. If the bundle declares anything the person decides, so tell
    them what it asks for and why. Its tools are in \`catalog_list\` at once, in this session too.
 3. \`app_check\` — runs a tab (\`tab_kind\`; a chat App: on a file, \`item_id\`) as a hidden page and
@@ -546,13 +550,10 @@ export const EXTENSION_GUIDE_FILES = `# gugu.files — shared live files
 Claim an existing data file's name or suffix and open it live; never copy it into your bundle
 (\`app_install\` data \`{ item_id }\`). Top-level \`await\` needs \`<script type="module">\`.
 
-## App data (API 18)
+## App data
 
-Create internal state with \`files.create(target, content, { appData: true })\`;
-mark existing state when opening it with \`files.open(ref, { appData: true })\`.
-The host stamps installed {publisher,id} into \`entry.metadata.app\`, preserving other keys.
-Write access required; no folders/working copies. Markers follow rename/move. Leave user/Office documents
-unmarked. No filename rules. Only the folder view hides marked files; APIs, agents and links retain access.
+A chat file named exactly as your tab's \`chatFile\` is your App's state: \`entry.appState\` is true and the folder
+view hides it (APIs, agents and links still reach it). A file you claim by suffix is a person's document and shows.
 \`gugu.files.viewPreferences({ chat }, { showAppData: true })\` sets the person's source-chat preference;
 no options: read it.
 
@@ -575,27 +576,27 @@ Each call names its file or place. A file: an entry (from \`list\`) or \`ctx.fil
 - Any other file (a chat you are in, a folder here): \`files:write\`, or \`files:read\` (read-only).
 - A session on another of your machines (\`files:read:all-machines\`): open/download only.
 - \`gugu.files.list(place)\` needs \`files:read\`; \`gugu.files.create({ ...place, name }, content)\`,
-  \`gugu.files.rename(entry, name)\` and \`gugu.files.remove(entry)\` need \`files:write\`. JSON content: an object at the top.
+  \`gugu.files.rename(entry, name)\` and \`gugu.files.remove(entry)\` need \`files:write\`. JSON: an object at the top.
 - \`gugu.files.search({ query, suffixes, limit })\` (\`files:read\`): all the reader's chats' files by part of the
   path, with \`chatName\`; \`gugu.files.recent({ limit })\`: those this person opened last (\`openedAt\`).
 - A chat's subfolders: \`gugu.files.list({ chat, folder })\` lists one (path or id, \`''\` the top; none: all;
-  \`'folder'\` entries are listed, never opened);
+  \`'folder'\` entries: list only);
   create and upload take \`folder\` too (made if missing); \`gugu.files.mkdir({ chat, path })\`,
-  \`gugu.files.move(entry, { folder, name })\`; remove takes a folder with all in it. A name the folder has (any case):
+  \`gugu.files.move(entry, { folder, name })\`; remove takes a whole folder. A name the folder has (any case):
   a new file gets \` (2)\`, a rename or move is \`name-taken\`. 「附件」 (\`systemRole\`) stays put.
-- \`gugu.files.onChanged(place, fn)\` → unsubscribe. Chat: \`{ kind: 'entries', entries, gone }\`. A folder here: \`{ kind: 'changes', changes }\` or \`resync\` (list again).
+- \`gugu.files.onChanged(place, fn)\` → unsubscribe. Chat: \`{ kind: 'entries', entries, gone }\`. A folder: \`{ kind: 'changes', changes }\` or \`resync\` (list again).
 - \`gugu.files.openWith(entry)\` (a click or key) uses the most specific claim or "always use". \`{ ask: true }\`: they pick among all;
-  \`{ at }\`: a place, the opener's \`link\`. No App claims it: gugu's file preview, or details and download.
+  \`{ at }\`: a place, the opener's \`link\`. Unclaimed: gugu's preview, or details and download.
   \`{ peek: true }\`: beside your page; always for project files. \`not-found\`: gone or unreadable.
 - \`gugu.files.upload(place)\` (\`files:write\`, a click or key) opens the picker → the new entries (\`[]\`);
-  given a File, uploads it. Over 25 MB: \`too-large\`. \`gugu.files.download(entry)\` (a click or key) asks where
-  to save → \`true\` saved.
-- An image, a clip, a sound opens read-only: \`URL.createObjectURL(await f.blob())\`; \`files.replace(entry,
+  a File: uploaded (≤ 25 MB, else \`too-large\`). \`gugu.files.download(entry)\` (a click or key) asks where
+  to save → \`true\` saved; \`gugu.files.forward(entry|[…])\`: the forward page.
+- Media opens read-only: \`URL.createObjectURL(await f.blob())\`; \`files.replace(entry,
   blob, { expectedVersion: entry.version })\` makes its next version (needed; else \`content-changed\`).
   \`files.versions(entry)\` / \`files.readVersion(entry, n)\`: its history.
-- Entry: \`{id,chat|session|project,name,contentType,type,parentId,path,systemRole,size,version,
+- Entry: \`{id,chat|session|project,name,savedName,contentType,type,parentId,path,systemRole,size,version,
   createdAt,updatedAt,createdBy,updatedBy,sourceMessageIds,canDelete,metadata}\`.
-  Both authors: \`{id,name,kind:human|agent|system}\`; unknown/local editor is null.
+  23: \`savedName\`: save name. Authors: \`{id,name,kind:human|agent|system}\` or null.
 - API 19: \`keep: {expiresAt,mine}|null\`; \`gugu.files.keep(entry, 'temporary'|'permanent')\`; 20: [], as download.
 
 ## A text file (markdown)
@@ -920,21 +921,18 @@ finds a control by role and name as the snapshot says them, so:
   \`"within": {"role":"article","name":"…"}\`;
 - a control you draw (an svg node): \`role="button"\`, \`aria-label\`, \`tabindex="0"\`.
 
-## On the market card
+## On the market
 
-What the card, the detail sheet and the installed list show comes from manifest.json, all optional:
-- \`description\`: what it does, <= 280 chars (the card clamps at three lines). \`localized\`:
-  \`{ "zh-CN": { "name": "…", "description": "…" } }\` per BCP 47 tag; everyone else reads the base ones.
-- \`subtitle\`: one line under the name (<= 30 chars, also under \`localized\`); without it the market shows the
-  description's first sentence. Needs \`apiVersion\` 8.
-- \`icon\`: a bundle raster image (PNG), ❌ SVG — the App's own, and each tab's that names no \`icon\` of its own.
-- \`author\` (<= 64, shown, not verified), \`categories\` (1-4 slugs; the market's sections are \`research\`, \`productivity\`,
-  \`developer\`, anything else is 其他), \`homepage\` / \`repository\` (https links), \`license\` (an SPDX id or a short name).
-- \`examples\`: 1-3 things a person might say to an agent with it (<= 80 chars each, also under \`localized\`); its market page
-  lists them, a click starts a task with that sentence. Needs \`engines.gugu >= 0.2.53\`.
-- Screenshots: images in README.md — the market page shows them as the preview, the rest of the README as the description.
-- \`engines\`: \`{ "gugu": ">=0.2.53" }\`, the oldest gugu it runs on. Required to publish to the market, where it picks
-  the newest version each machine can run; raise it when you start using a verb a newer gugu brought.
+On this computer an App needs none of this. To list it, add to manifest.json \`subtitle\` (<= 30 chars, one line
+under the name; per language in \`localized\`), \`defaultLocale\`, \`engines\` (\`{ "gugu": ">=x.y.z" }\`, the oldest gugu it
+runs on — the market picks the newest version each machine can run), and beside it a \`store/\` folder, which is never
+packed into the App:
+- \`store/about.md\` — the product page's 关于, plain text, no images; \`store/about.<tag>.md\` for each \`localized\` tag.
+- \`store/screenshots/*.png|jpg\` — 1-8, <= 1 MiB each, in file-name order, no captions.
+- \`store/whats-new.md\` — what this version changed, no version number in it.
+Also from manifest.json: \`icon\` (PNG, ❌ SVG), \`author\` (shown, not verified), \`categories\` (1-4 slugs; sections are
+\`research\`, \`productivity\`, \`developer\`, else 其他), \`homepage\` / \`repository\` (https), \`license\`, and \`examples\`
+(1-3 things to say to an agent with it, <= 80 chars, also under \`localized\`; a click starts a task with one).
 `;
 
 export const EXTENSION_GUIDE_SETTINGS = `# Tools-only Apps and host settings
@@ -944,13 +942,11 @@ export const EXTENSION_GUIDE_SETTINGS = `# Tools-only Apps and host settings
 Declare human UI hosts in \`platforms\` (API 12): desktop, phone, or both. A phone UI may declare agent
 capabilities; those features run only on computers. Phone plus \`notifications\` is refused at publication and install.
 
-## Standing agent behavior
+## The agents' line
 
-\`contributes.agentInstructions\`: 1–8000 characters of standing behavior, placed in the platform prompt
-without waiting for Skill discovery. Requires \`agents:tools\`, a runnable MCP program, and the same enabled,
-authorized App scope as tools. Works with native-listed and catalog tools. User instructions take precedence.
-New sessions receive it in full; restart existing sessions after enabling or changing it. Revoked tools are
-refused immediately, but an existing session's prompt is not rewritten. Use skills for detailed procedures.
+\`contributes.instructions\` (<= 160 characters; required with programs or skills, refused without) is your App's
+whole line in every new session's \`<gugu_apps>\`: name the tools that matter and when to read which skill. Longer
+standing behavior is a skill whose description says when to read it.
 
 ## Configuration
 
@@ -1075,7 +1071,7 @@ export const EXTENSION_GUIDE_TOPICS: readonly { topic: string; about: string; te
   },
   {
     topic: 'apps-ui',
-    about: 'How a page looks: gugu\'s look is in every App page already — semantic HTML, <gugu-icon>, <gugu-avatar>, <gugu-time>, <gugu-empty>, one line each, with a picture of them all; app_check\'s snapshot and steps; and the App on the market card (description, icon, engines).',
+    about: 'How a page looks: gugu\'s look is in every App page already — semantic HTML, <gugu-icon>, <gugu-avatar>, <gugu-time>, <gugu-empty>, one line each, with a picture of them all; app_check\'s snapshot and steps; and the App on the market (subtitle, store/ about and screenshots, icon, engines).',
     text: EXTENSION_GUIDE_UI,
     picture: 'look',
   },

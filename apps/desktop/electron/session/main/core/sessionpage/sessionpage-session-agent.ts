@@ -26,9 +26,11 @@ export async function localAgentForSession(
   sessionId: string,
   env: NodeJS.ProcessEnv,
   ownerUserId?: string | null,
+  includeParked = false,
 ): Promise<LocalAgentRecord | null> {
   const owned = agentsForOwner(await listAgents(env, { includeGuests: true }), ownerUserId, { includeArchived: true })
-    .filter((agent) => agent.cache?.[SESSIONPAGE_SESSION_CACHE_KEY] === sessionId)
+    .filter((agent) => agent.cache?.[SESSIONPAGE_SESSION_CACHE_KEY] === sessionId
+      || (includeParked && agent.cache?.[SESSIONPAGE_PARKED_SESSION_CACHE_KEY] === sessionId))
   if (owned.length > 1) {
     throw new Error(
       `session-page identity lookup: session ${sessionId} maps to ${owned.length} canonical identities`,

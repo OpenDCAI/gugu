@@ -101,7 +101,7 @@ export function ChatHostExpanded(props: {
   height: number;
   commands?: ChatCommands;
 }) {
-  const ctx = createChatContext({ theme: DEFAULT_THEME });
+  const ctx = createChatContext({ locale: () => 'en-US', theme: DEFAULT_THEME });
   const state = createChatState(ctx);
   onCleanup(() => {
     state.dispose();
@@ -134,7 +134,7 @@ export function ChatHostExpanded(props: {
  * so stories can inspect the Solid reactive tree in devtools.
  */
 export function ChatHost(props: ChatHostProps) {
-  const ctx = createChatContext({
+  const ctx = createChatContext({ locale: () => 'en-US',
     theme: DEFAULT_THEME,
     mentionProvider: props.mentionProvider,
     commandProvider: props.commandProvider,
@@ -185,7 +185,7 @@ export function ScriptedChat(props: {
    */
   wrapTranscript?: (api: TranscriptApi) => TranscriptApi & { dispose?: () => void };
 }) {
-  const ctx = createChatContext({ theme: DEFAULT_THEME });
+  const ctx = createChatContext({ locale: () => 'en-US', theme: DEFAULT_THEME });
   const state = createChatState(ctx);
   onCleanup(() => {
     state.dispose();

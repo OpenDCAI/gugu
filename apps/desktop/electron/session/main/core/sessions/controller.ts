@@ -38,12 +38,13 @@ export const sessionController = createRPCController({
   getStoredHistory,
   getStoredToolImage,
   // #980 打开一条没在跑的会话时:把 agent 自己的记录里有、库里还没有的那几轮补进库,回补进了几轮。
-  syncStoredHistoryFromRecord,
+  syncStoredHistoryFromRecord: (sessionId: string) => syncStoredHistoryFromRecord(sessionId),
   forkSession,
   restartSession,
   switchSessionRuntime,
   // 人手动收起与自动清理共用归档;任务历史与绑定保留。
-  archiveSession,
+  archiveSession: (projectId: string, sessionId: string, options?: Parameters<typeof archiveSession>[2]) =>
+    archiveSession(projectId, sessionId, options),
   // spec session-graph:UI 上没有恢复入口(owner 2026-09-11),但接口在 —— 归档不是删除,
   // 「数据回得来」这件事必须有代码作证。摆不摆入口是另一个决定。
   restoreSession,

@@ -10,7 +10,7 @@ const outlets: Record<string, string> = {
   'apps/desktop/electron/session/main/core/extensions/extension-notifications.ts': 'Explicit App/device banners obey grants, preferences and the shared limiter.',
   'apps/desktop/electron/main.ts': 'Platform banner/badge implementation; documented auth-expiry and first close-to-tray hints.',
   'apps/desktop/src/store/chatListProjection.ts': 'Chat banners decided by shouldNotify.',
-  'apps/desktop/src/store/chat.tsx': 'Badge counts unreadAskingYou.',
+  'apps/desktop/src/store/chat.tsx': 'Badge counts chatAttention().askingYou.',
   'apps/desktop/src/mobile/agent-watch/useAgentWatchAlerts.ts': 'Phone agent waits, decided by the sibling agent-watch-alerts model.',
   'apps/desktop/src/components/assistant/MeetingReminder.tsx': 'Exception: time-bound calendar reminder.',
   'apps/desktop/src/lib/notificationDiagnostics.ts': 'Exception: person pressed the test-notification button.',
@@ -50,7 +50,7 @@ describe('notification outlets', () => {
       'apps/desktop/src/store/chat.tsx',
     ]) {
       expect(readFileSync(join(root, path), 'utf8'), `${path}: ${guide}`)
-        .toMatch(/import\s*{[^}]*\b(?:shouldNotify|unreadAskingYou)\b[^}]*}\s*from\s*['"][^'"]*notificationModels['"]/s);
+        .toMatch(/import\s*{[^}]*\bshouldNotify\b[^}]*}\s*from\s*['"][^'"]*notificationModels['"]|import\s*{[^}]*\bchatAttention\b[^}]*}\s*from\s*['"][^'"]*chatModels['"]/s);
     }
   });
 });

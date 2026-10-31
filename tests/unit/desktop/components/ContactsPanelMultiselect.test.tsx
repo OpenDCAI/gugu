@@ -10,7 +10,7 @@ beforeEach(() => { harness = createReactHarness() })
 afterEach(() => { harness.cleanup() })
 describe('ContactsPanel contact multi-select', () => {
   it('accumulates and toggles contact selection, preserves it through search, and preselects group creation', async () => {
-    await renderWithAppProviders(harness, createNode(ContactsPanel, { activeTab: 'contacts' }), {
+    await renderWithAppProviders(harness, createNode(ContactsPanel, {}), { shellTab: 'contacts',
       auth: { id: 'owner-1', email: 'owner@example.com', nickname: 'Owner' },
       contacts: {
         contacts: [

@@ -79,7 +79,7 @@ interface HarnessProps {
 }
 
 function Harness(props: HarnessProps) {
-  const ctx = createChatContext({ theme: DEFAULT_THEME, mentionProvider: mockMentionProvider });
+  const ctx = createChatContext({ locale: () => 'en-US', theme: DEFAULT_THEME, mentionProvider: mockMentionProvider });
   onCleanup(() => ctx.dispose());
 
   // Four alternating long/short conversations — mirrors the desktop

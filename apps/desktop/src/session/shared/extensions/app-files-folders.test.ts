@@ -1,4 +1,4 @@
-import { rpcQuery } from '../../../../../../tests/helpers/rpcQuery';
+import { rpcQuery } from '../../../../../../tests/support/rpcQuery';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 /**
@@ -150,7 +150,7 @@ const files = createAppFiles({
   hasCapability: () => true,
   sync: { ensureFor: () => undefined, pageFor: () => ({}), grant: () => undefined, revoke: () => undefined, ungrant: () => undefined } as never,
   // Every name is claimed by some App here: a folder still says no App opens it.
-  claimant: () => ({ suffix: '.png', app: { id: 'viewer', name: 'Viewer', icon: null } }),
+  claimant: () => ({ suffix: '.png', app: { id: 'viewer', name: 'Viewer', icon: null }, state: false }),
   identities: async (_token, ids) => ids.map((id) => ({ id, name: id === AGENT ? 'Helper' : 'Pat', avatar: null, kind: id === AGENT ? ('agent' as const) : ('human' as const) })),
   faces: async () => ({}),
   filesUrl: () => 'http://files.invalid',

@@ -38,7 +38,7 @@ export interface GuguHost extends ProjectionHost {
   onFilesChanged(handler: (watchId: string, change: ExtensionFileChangeBatch) => void): () => void;
   /** Every call names where its file is (`AppPlace`, `AppFileRef`, 真源原则 13). */
   readonly appFiles: {
-    open(args: { ref: AppFileRef; readOnly?: boolean; appData?: boolean; deferDetails?: boolean; expectedVersion?: number }): Promise<AppFileOpened>;
+    open(args: { ref: AppFileRef; readOnly?: boolean; deferDetails?: boolean; expectedVersion?: number }): Promise<AppFileOpened>;
     reopen(args: { ref: AppFileRef; readOnly?: boolean }): Promise<AppFileOpened>;
     close(args: { docName: string }): Promise<void>;
     /** `folder` (子文件夹): only what is directly in that folder; not given, every file of the place. */
@@ -47,7 +47,7 @@ export interface GuguHost extends ProjectionHost {
     search(args: AppFileSearch): Promise<AppFileEntry[]>;
     recent(args: { limit?: number }): Promise<AppFileEntry[]>;
     viewPreferences(args: { place: AppPlace; showAppData?: boolean }): Promise<{ showAppData: boolean }>;
-    create(args: { place: AppPlace; name: string; content: string; contentType?: string; sourceMessageIds?: string[]; folder?: string; appData?: boolean }): Promise<AppFileEntry>;
+    create(args: { place: AppPlace; name: string; content: string; contentType?: string; sourceMessageIds?: string[]; folder?: string }): Promise<AppFileEntry>;
     /** 子文件夹: a chat's folder at `path`, made all the way down; one already there is answered as it is. */
     mkdir(args: { place: AppPlace; path: string }): Promise<AppFileEntry>;
     /** 子文件夹: into another folder (`folder`, '' the top; not given, where it is), renamed too when `name` is given. */
@@ -66,6 +66,7 @@ export interface GuguHost extends ProjectionHost {
     openWith?(args: { ref: AppFileRef; ask?: boolean; at?: Record<string, string>; peek?: boolean }): Promise<void>;
     /** One file (`true` saved), or several (API 20: how many were saved; `0` when the person cancelled). */
     download?(args: { ref: AppFileRef } | { refs: AppFileRef[] }): Promise<boolean | number>;
+    forward?(args: { refs: AppFileRef[] }): Promise<void>;
   };
   readonly clipboard?: {
     writeText(text: string): Promise<void>;

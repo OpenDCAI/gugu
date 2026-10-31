@@ -23,7 +23,7 @@ export function BubbleSender({ member, senderId, replyMark }: { member: MemberPr
   const rowRef = useRef<HTMLDivElement>(null)
   const hasReply = Boolean(replyMark)
   const hue = BODY_COLORS[resolveAgentLook(senderId, member?.avatar ?? null).color].hue
-  const tag = member?.type !== 'agent' ? null
+  const tag = member?.removedAt ? t('message.removedIdentityTag') : member?.type !== 'agent' ? null
     : member.ownerUserId && member.ownerUserId === user?.id ? t('message.myAgentTag')
     : member.ownerDisplayName ? t('message.agentOwnerTag', { owner: member.ownerDisplayName })
     : t('message.agentOwnerUnavailableTag')

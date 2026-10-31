@@ -3,8 +3,8 @@ import { execFileSync } from 'node:child_process'
 import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { defaultMiseCacheDir, DEFAULT_MISE_DOWNLOAD_BASE, obtainMiseArchive } from './mise-archive-cache.mjs'
-import { assertPeMachine } from './cua-driver-release.mjs'
+import { defaultMiseCacheDir, DEFAULT_MISE_DOWNLOAD_BASE, obtainMiseArchive } from './mise-archive-cache.mts'
+import { assertPeMachine } from './cua-driver-release.mts'
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)))
 const release = JSON.parse(readFileSync(join(root, 'apps/desktop/src/session/shared/core/agents/mise-release.json'), 'utf8'))
@@ -16,7 +16,7 @@ if (!target) throw new Error('No pinned mise distribution for ' + platform + '-'
 const osName = { darwin: 'mac', win32: 'win', linux: 'linux' }[platform]
 const destination = join(root, 'mise-bundle', osName + '-' + arch)
 const executable = join(destination, 'mise', 'bin', platform === 'win32' ? 'mise.exe' : 'mise')
-const stamp = JSON.stringify({ version: release.version, sha256: target.sha256 })
+const stamp = JSON.stringify({ version: release.version, sha256: target.sha256, ...(platform === 'linux' ? { strip: 'unneeded' } : {}) })
 
 if (existsSync(executable) && existsSync(join(destination, 'release.json')) && readFileSync(join(destination, 'release.json'), 'utf8') === stamp) {
   console.log('[build-mise] pinned bundle already present: ' + platform + '-' + arch)
@@ -24,7 +24,7 @@ if (existsSync(executable) && existsSync(join(destination, 'release.json')) && r
   mkdirSync(join(root, 'mise-bundle'), { recursive: true })
   const temporary = mkdtempSync(join(root, 'mise-bundle', '.staging-'))
   try {
-    // 归档来自按 sha256 内容寻址的缓存(#6258,见 mise-archive-cache.mjs);未命中才下载,拿不到就响亮失败。
+    // 归档来自按 sha256 内容寻址的缓存(#6258,见 mise-archive-cache.mts);未命中才下载,拿不到就响亮失败。
     const archive = obtainMiseArchive({
       cacheDir: defaultMiseCacheDir(),
       downloadBase: process.env.GUGU_MISE_DOWNLOAD_BASE || DEFAULT_MISE_DOWNLOAD_BASE,
@@ -44,6 +44,7 @@ if (existsSync(executable) && existsSync(join(destination, 'release.json')) && r
     if (!existsSync(binary)) throw new Error('mise distribution is missing its executable')
     if (platform === 'win32' && !existsSync(join(extracted, 'mise/bin/mise-shim.exe'))) throw new Error('mise distribution is missing mise-shim.exe')
     chmodSync(binary, 0o755)
+    if (platform === 'linux') execFileSync('strip', ['--strip-unneeded', binary], { stdio: 'inherit' })
     writeFileSync(join(extracted, 'release.json'), stamp)
     mkdirSync(dirname(destination), { recursive: true })
     rmSync(destination, { recursive: true, force: true })

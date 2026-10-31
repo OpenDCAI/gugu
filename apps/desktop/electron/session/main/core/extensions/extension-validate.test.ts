@@ -29,7 +29,7 @@ function bundle(name: string, patch: Record<string, unknown> = {}, files: Record
     id: 'demo-ext',
     name: 'Demo',
     version: '1.0.0',
-    apiVersion: EXTENSION_API_VERSION,
+    apiVersion: EXTENSION_API_VERSION, defaultLocale: 'en',
     platforms: ['desktop'],
     entry: 'index.html',
     contributes: { tabs: [{ name: 'main', title: 'Demo' }] },
@@ -70,7 +70,7 @@ describe('validateExtensionBundle', () => {
     const escaping = path.join(workDir, 'escaping');
     mkdirSync(escaping);
     writeFileSync(path.join(escaping, 'manifest.json'), JSON.stringify({
-      id: 'demo-ext', name: 'Demo', version: '1.0.0', apiVersion: EXTENSION_API_VERSION,
+      id: 'demo-ext', name: 'Demo', version: '1.0.0', apiVersion: EXTENSION_API_VERSION, defaultLocale: 'en',
       platforms: ['desktop'],
       entry: 'index.html', contributes: { tabs: [{ name: 'main', title: 'Demo' }] },
     }));

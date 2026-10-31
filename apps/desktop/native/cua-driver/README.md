@@ -1,7 +1,7 @@
 # cua-driver(「电脑控制」)
 
 - 上游版本:0.36.0(发布 tag `cua-driver-rs-v0.36.0`)
-- macOS:维护修订 `0.36.0-gugu.1`,从钉住的上游源码加本目录源码补丁构建。包和 sha256 由 `scripts/cua-driver-release.mjs` 钉住,不是上游官方发布包。包含上游捕获修复 #5480,以及并行 AX/截图、owner 取消、定位预算和光标合成修复。
+- macOS:维护修订 `0.36.0-gugu.1`,从钉住的上游源码加本目录源码补丁构建。包和 sha256 由 `scripts/cua-driver-release.mts` 钉住,不是上游官方发布包。包含上游捕获修复 #5480,以及并行 AX/截图、owner 取消、定位预算和光标合成修复。
 - Windows:继续使用<https://github.com/trycua/cua/releases/tag/cua-driver-rs-v0.36.0>的官方二进制。本次原生验收覆盖 macOS,不把 Mac 的通过结果算作 Windows 的验证。
 - 许可:MIT(cua 仓根 `LICENSE.md`,cua-driver 的 `Cargo.toml` 写 `license = "MIT"`),第三方声明见 `THIRD_PARTY_NOTICES.md`(原文在 cua 仓 `libs/cua-driver/rust/`)
 
@@ -11,7 +11,7 @@ Mac 维护归档保存在本仓 `assets` prerelease(公开下载,不需要令牌
 
 ## 升级
 
-1. 改 `scripts/cua-driver-release.mjs` 里的 `CUA_DRIVER_VERSION` 与三个 sha256(Mac universal tar.gz、Windows x86_64 / arm64 zip;值在 release 页各资产的 digest,或下载后 `shasum -a 256`)。
+1. 改 `scripts/cua-driver-release.mts` 里的 `CUA_DRIVER_VERSION` 与三个 sha256(Mac universal tar.gz、Windows x86_64 / arm64 zip;值在 release 页各资产的 digest,或下载后 `shasum -a 256`)。
 2. 换掉本目录的 `LICENSE.md`、`THIRD_PARTY_NOTICES.md` 为新 tag 下的原文,并改上面的版本号。
 3. 在 Mac 上跑 `node scripts/build-mac-native.mjs --arch arm64`,核 `cua-tools.json` 的工具变化。
 

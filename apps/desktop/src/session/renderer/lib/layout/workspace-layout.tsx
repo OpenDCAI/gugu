@@ -7,6 +7,7 @@ import { panelContentLayout, usePanelMounted, usePanelProgress } from '@renderer
 import { PanelResizeDragGuard, PanelResizeHandle } from '@renderer/lib/layout/panel-resize-handle';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
 import { cn } from '@renderer/utils/utils';
+import { RETAINED_SURFACE_HIDDEN_STYLE } from '@/lib/retainedSurface';
 import './workspace-surface.css';
 
 /** 侧栏最宽不超过会话页宽度的这个比例 —— 窗口小的时候 520px 会把主区挤没。 */
@@ -108,7 +109,6 @@ export function WorkspaceLayout({ leftSidebar, mainContent, sidebarHidden = fals
         data-workspace-left-panel=""
         className={cn(
           'relative h-full shrink-0',
-          sidebarHidden && 'hidden',
           // 停靠时 z-40 与顶栏那层同档(它们不重叠);浮出时必须抬到 z-50 压过顶栏 —— 预览是盖在
           // 主区**之上**的一层,主区左上角那块面包屑/项目名不抬就会透出来压在侧栏内容上
           // (顶栏也是 z-40,而且排在 DOM 后面,同档就赢)。开关钮同样 z-50 但更靠后,仍在最上面。
@@ -116,7 +116,9 @@ export function WorkspaceLayout({ leftSidebar, mainContent, sidebarHidden = fals
           // 停靠时靠外层裁切做出"滑出视野"的效果;浮出时内容要盖到主区上面,所以不裁。
           isPeekVisible ? 'overflow-visible' : 'overflow-hidden'
         )}
-        style={{ width: leftAnimatedWidth }}
+        // A place without the task list (资源库, App) hides it as a retained surface, ❌ display:none: that drops every
+        // row's layout box and the way back restyles the whole list (@@@retained-places, lib/retainedSurface.ts).
+        style={sidebarHidden ? { width: leftAnimatedWidth, ...RETAINED_SURFACE_HIDDEN_STYLE } : { width: leftAnimatedWidth }}
       >
         <motion.div
           // #7333 停靠 / 浮出两态的材质不同:停靠时这一层在 mac 原生材质下让出底色,浮出预览盖在正文上仍是不透明面

@@ -356,7 +356,7 @@ const GUGU_SKIN_BRIDGE_CSS = `
    :where() 保零特异度,!important 只用来稳赢 preflight。
    .gg-md 的后代排除:共享 markdown 排版自己定字体(正文继承这里的 Sora、代码行 mono、公式 KaTeX),
    被钉成 Sora 的是代码里的着色 span 和整棵 KaTeX 子树。 */
-.gugu-skin :where(:not(code):not(pre):not(kbd):not(samp):not([class*='mono']):not(.monaco-editor):not(.monaco-editor *):not(.xterm):not(.xterm *):not([class*='devicon']):not([class*='codicon']):not([data-chat-root]):not([data-chat-root] *):not(.gg-md *)) {
+.gugu-skin :where(:not(code):not(pre):not(kbd):not(samp):not([class*='mono']):not(.monaco-editor):not(.monaco-editor *):not(.cm-editor):not(.cm-editor *):not(.xterm):not(.xterm *):not([class*='devicon']):not([class*='codicon']):not([data-chat-root]):not([data-chat-root] *):not(.gg-md *)) {
   font-family: var(--em-font-sans) !important;
 }
 /* 图标字体排除(找茬 #8):会话页带 devicon(woff/ttf,element 级 font-family:'devicon')做技术/语言
@@ -375,6 +375,8 @@ const GUGU_SKIN_BRIDGE_CSS = `
 .gugu-skin [class*='mono'],
 .gugu-skin .monaco-editor,
 .gugu-skin .monaco-editor *,
+.gugu-skin .cm-editor,
+.gugu-skin .cm-editor *,
 .gugu-skin .xterm {
   font-family: var(--em-font-mono) !important;
 }

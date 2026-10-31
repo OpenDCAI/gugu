@@ -3,6 +3,8 @@ import {
   AGENT_STATUS_LABELS,
   AGENT_STATUS_TONES,
   agentStatusColorVar,
+  isNeedsYou,
+  presentationAttention,
   presentAgentStatus,
 } from '../../../../packages/core/src/shared/agentStatusPresentation'
 import {
@@ -109,5 +111,24 @@ describe('chat folds the presentation into its coarse status', () => {
   it('an old host with no reading still says "running" through its projection, and nothing else', () => {
     expect(readingOfPresenceProjection({ activityStatus: 'running' })).toEqual({ status: 'working', detail: 'running' })
     expect(readingOfPresenceProjection({ activityStatus: 'idle' })).toBeNull()
+  })
+})
+
+describe('needs-you and attention are defined once', () => {
+  const at = (status: 'working' | 'needs_user' | 'error' | 'idle', detail: string | null = null) =>
+    presentAgentStatus({ reading: { status, detail } as AgentStatusView })
+  it('needs-you is a wait only; a failure stays on its own row (#1143)', () => {
+    expect(isNeedsYou(at('needs_user', 'approval'))).toBe(true)
+    expect(isNeedsYou(at('error'))).toBe(false)
+    expect(isNeedsYou(null)).toBe(false)
+  })
+  it('attention is a wait or a failure', () => {
+    expect(presentationAttention(at('needs_user', 'question'))).toBe('needs_user')
+    expect(presentationAttention(at('error'))).toBe('error')
+    expect(presentationAttention(at('working', 'running'))).toBeNull()
+  })
+  it("an unreachable host's working is not drawn; its other readings are", () => {
+    expect(presentAgentStatus({ reading: { status: 'working', detail: 'running' }, hostOnline: false })).toBeNull()
+    expect(presentAgentStatus({ reading: { status: 'needs_user', detail: 'approval' }, hostOnline: false })).toMatchObject({ tone: 'needs_user' })
   })
 })

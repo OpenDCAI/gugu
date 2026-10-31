@@ -7,7 +7,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { DUR_FAST_MS, tween } from '@/styles/motion'
 import type { FlowListHandle } from '@/lib/flowList'
 import { ChevronLeft, MessageCircle } from '@/lib/icons'
-import type { SidebarTab } from '@gugu/core/shared/enums/sidebarTabModels'
+import { useImPageTab } from '../lib/shellTab'
 import { useChatStore } from '../store/chatContext'
 import { ChatLineScope } from '../store/chatLineScope'
 import { useAuth } from '../store/auth'
@@ -16,7 +16,6 @@ import { chatService } from '../lib/chat'
 import { useUnreadLocatorNavigation } from '../hooks/useUnreadLocatorNavigation'; import { useQueuedMessageIds } from '../hooks/useQueuedMessageIds'
 import { useSourceMessageReveal } from '../hooks/useSourceMessageReveal'
 import { useChatHistoryPagination } from './chat/useChatHistoryPagination'
-import { useGroupCollabRemovedAgentGate } from '../hooks/useGroupCollabRemovedAgentGate'
 import { useGroupCollabLoader, EMPTY_GROUP_COLLAB } from '../hooks/useGroupCollabLoader'
 import { useTopicScopedMemberProfile } from '../hooks/useTopicScopedMemberProfile'
 import { ForwardMessageDialog } from './chat/ForwardMessageDialog'
@@ -40,7 +39,7 @@ import { useShownAgentStatus } from './chat/useAgentsOnCloudComputer'
 import { MemberProfilePopover } from './MemberProfilePopover'
 import { ReadReceiptPopover } from './ReadReceiptPopover'
 import { useListenModeEditControls } from './chat/useListenModeEditControls'
-import { RightPanel } from './chat/RightPanel'; import { isGroupManagerRole } from '../lib/groupMemberPermissions'
+import { RightPanel } from './chat/RightPanel'
 import {
   buildMemberProfileMap,
   type ActiveMemberProfile,
@@ -81,10 +80,10 @@ import { useChatSlotProjectName } from '../lib/shellSlots'
 import { useChatHasMessages } from '../lib/chatSummariesBridge'
 import { ChatPartSlot } from '../session/renderer/lib/chat-slot'
 interface ChatAreaPanelProps {
+  imPage?: boolean // see useImPageTab
   /** 这块面显示哪条会话:对话页给列表选中的那条,「助理」App 给和它的私聊(#7199);不给 = 跟着那条活的线(store/chatLineScope.tsx)。 */
   chatId?: string | null
   viewportKey?: string; assistantChat?: boolean // Personal assistant keeps IM bubbles; task agents use the shared transcript.
-  activeTab: SidebarTab
   /** The main navigation route owns unscoped unread requests; explicit panes receive their scroller. */
   navigationTarget?: boolean
   /** 常驻但不可见(新建 agent/任务的创建面盖在它上面):与切到别的 tab 同一套门控 —— 不算「看见」、不接全局快捷键。 */
@@ -116,12 +115,12 @@ export function ChatAreaPanel({ chatId, ...surface }: ChatAreaPanelProps) {
   return chatId === undefined ? <ChatAreaSurface {...surface} /> : <ChatLineScope chatId={chatId}><ChatAreaSurface {...surface} /></ChatLineScope>
 }
 
-function ChatAreaSurface({ viewportKey = 'chats', assistantChat = false, activeTab, navigationTarget = false, hidden = false, mobile = false, openNonce, onBack, chrome, blockHost, onOpenUserChat }: Omit<ChatAreaPanelProps, 'chatId'>) {
+function ChatAreaSurface({ viewportKey = 'chats', assistantChat = false, imPage = false, navigationTarget = false, hidden = false, mobile = false, openNonce, onBack, chrome, blockHost, onOpenUserChat }: Omit<ChatAreaPanelProps, 'chatId'>) {
   const { toast } = useToast()
   const { t } = useTranslation('messaging')
   const { getImRepository, subscribeAccountRevision, identitiesById, chats, activeChat, activeChatId, messages, loadingMessages, messagesError, refreshMessages, sendMessage, toggleReaction, memberReadSeqs, clearMessages, deleteMessage, sendAttachments, pinChat, deleteChat, leaveGroup, setChatNotificationLevel, loadOlderMessages, messageWindow, unreadEntry, jumpToUnreadEntry, loadNewerMessages, loadMessageAnchor, returnToLatestMessages, markMessageVisible, setFollowingTail, threadScope, setActiveChatId } = useChatStore('getImRepository', 'subscribeAccountRevision', 'identitiesById', 'chats', 'activeChat', 'activeChatId', 'messages', 'loadingMessages', 'messagesError', 'refreshMessages', 'sendMessage', 'toggleReaction', 'memberReadSeqs', 'clearMessages', 'deleteMessage', 'sendAttachments', 'pinChat', 'deleteChat', 'leaveGroup', 'setChatNotificationLevel', 'loadOlderMessages', 'messageWindow', 'unreadEntry', 'jumpToUnreadEntry', 'loadNewerMessages', 'loadMessageAnchor', 'returnToLatestMessages', 'markMessageVisible', 'setFollowingTail', 'threadScope', 'setActiveChatId')
   const { user } = useAuth()
-  const surfaceVisible = activeTab === 'chats' && !hidden
+  const surfaceTab = useImPageTab(imPage), surfaceVisible = surfaceTab === 'chats' && !hidden
   const surfaceElement = useRef<HTMLDivElement>(null)
   const [showHeaderMenu, setShowHeaderMenu] = useState(false)
   const search = useChatSearch(activeChatId, surfaceVisible, messages, surfaceElement, viewportKey)
@@ -181,11 +180,8 @@ function ChatAreaSurface({ viewportKey = 'chats', assistantChat = false, activeT
   const flashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const isAtBottomRef = useRef(true)
 
-  // @@@local-sync (#948) — 群名册内存镜像 cache(首帧 roster + #1877 删 Agent 收敛),与 loader / removed-agent-gate 共享 → 在此声明后传入两个 hook。
+  // 群名册缓存只铺首帧;身份变动后的成员集合由 loader 重读 active_members。
   const groupRosterMemoryCacheRef = useRef<Map<string, GroupCollabSnapshot>>(new Map())
-
-  // @@@1877 删本机 Agent 后群名册即时收敛闸门(即时剔除 + 内存/持久/SWR-merge 三层 reseed 封堵，见 useGroupCollabRemovedAgentGate):
-  const { prune: pruneRemovedAgentsFromCollab, mergeAndPrune: mergeGroupCollabPruned } = useGroupCollabRemovedAgentGate(user?.id, setGroupCollabSnapshot, groupRosterMemoryCacheRef)
 
   // @@@2169 群协作加载子系统(SWR 首帧 + 权威加载)抽到 useGroupCollabLoader,给冻结 god 文件抵消行数。
   const { loadGroupCollab, resetGroupCollabForChat, error: groupCollabError } = useGroupCollabLoader({
@@ -194,8 +190,6 @@ function ChatAreaSurface({ viewportKey = 'chats', assistantChat = false, activeT
     userId: user?.id, getImRepository,
     setGroupCollabSnapshot,
     groupRosterMemoryCacheRef,
-    pruneRemovedAgentsFromCollab,
-    mergeGroupCollabPruned,
   })
 
   // Reset transient state when active chat changes
@@ -223,7 +217,7 @@ function ChatAreaSurface({ viewportKey = 'chats', assistantChat = false, activeT
 
   const groupRename = useChatCommands({
     chatId: activeChatId, visible: surfaceVisible, surface: surfaceElement,
-    canRename: isGroupChat && isGroupManagerRole(groupCollabSnapshot.humans.find((h) => h.id === user?.id)?.role),
+    isGroup: isGroupChat, snapshot: groupCollabSnapshot,
     openSettings: handleOpenSettingsDrawer,
   })
 
@@ -571,9 +565,9 @@ function ChatAreaSurface({ viewportKey = 'chats', assistantChat = false, activeT
     enterSelectMode,
   ])
 
-  const emptyCaption = activeTab === 'chats'
+  const emptyCaption = surfaceTab === 'chats'
     ? t('chatArea.empty.chats')
-    : activeTab === 'contacts'
+    : surfaceTab === 'contacts'
       ? t('chatArea.empty.contacts')
       : ''
 

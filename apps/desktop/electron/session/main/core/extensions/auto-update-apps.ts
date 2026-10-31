@@ -28,10 +28,12 @@ export async function autoUpdateAppsOnce(dependencies: AutoUpdateDependencies = 
   const service = extensionsService();
   const origins = service.origins();
   const off = new Set(service.autoUpdateOffIds());
-  const eligible = service
-    .list()
-    .extensions.filter(({ manifest }) => origins[manifest.id] === 'market' && service.isEnabled(manifest.id) && !off.has(manifest.id))
-    .map(({ manifest }) => ({ id: manifest.id, version: manifest.version }));
+  const { extensions, invalid } = service.list();
+  // An App written for an older interface does not run here, and goes to the version the market has for this one (App 模型 v2).
+  const eligible = [
+    ...extensions.map(({ manifest }) => ({ id: manifest.id, version: manifest.version })),
+    ...invalid.flatMap(({ dirName }) => service.olderInterface(dirName) ?? []).map(({ id, version }) => ({ id, version })),
+  ].filter(({ id }) => origins[id] === 'market' && service.isEnabled(id) && !off.has(id));
   if (eligible.length === 0) return [];
   const updated: { id: string; from: string; version: string }[] = [];
   for (const update of autoUpdatesFrom(await market.updatesFor(eligible), eligible)) {

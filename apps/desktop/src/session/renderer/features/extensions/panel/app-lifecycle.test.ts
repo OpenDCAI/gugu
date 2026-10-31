@@ -4,7 +4,7 @@ import type { ExtensionManifest } from '@shared/extensions/manifest';
 import type { MarketListItem } from '@shared/extensions/market';
 import type { SessionTranslate } from '../extension-consent';
 
-const installed: ExtensionManifest = { id: 'notes', name: 'Notes', version: '1.0.0', apiVersion: 8, entry: 'index.html', contributes: { tabs: [{ name: 'main', title: 'Notes' }] } };
+const installed: ExtensionManifest = { id: 'notes', name: 'Notes', version: '1.0.0', apiVersion: 24, defaultLocale: 'en', entry: 'index.html', contributes: { tabs: [{ name: 'main', title: 'Notes' }] } };
 const offered = { manifest: { ...installed, version: '2.0.0' }, cloud: { compat: null } } as MarketListItem;
 const translate: SessionTranslate = (key) => key;
 const base = { enabled: true, preinstalled: false, canOpen: true, offered };

@@ -39,7 +39,7 @@ function harness(options: {
     if (name === 'chat_facts') return [{ kind: 'group' }]
     if (name === 'update_group_as' || name === 'group_info_as') {
       if (options.managementError) throw options.managementError
-      return options.saved ?? { id: body.p_chat_id, name: '保存的群', can_manage: true, can_dissolve: false }
+      return options.saved ?? { id: body.p_chat_id, name: '保存的群', my_role: 'owner', can_manage: true, can_dissolve: false, can_archive_topic: false }
     }
     if (name === 'add_group_agent') {
       if (options.addError) throw options.addError
@@ -68,7 +68,7 @@ function harness(options: {
     restRpc,
     // 群能不能看见、在不在里面都只按 RPC 判;直读的只有主人自己那几行里置顶的(置顶是主人自己的状态)。
     restGet: async (path: string) => {
-      if (path === 'chat_members?user_id=eq.owner-1&is_pinned=is.true&select=chat_id') {
+      if (path === 'active_members?user_id=eq.owner-1&is_pinned=is.true&select=chat_id') {
         return (options.ownerPinned ?? []).map((chat_id) => ({ chat_id }))
       }
       if (path.startsWith('chats?') && path.endsWith('select=kind')) return [{ kind: 'group' }]
@@ -145,7 +145,7 @@ describe('group_add_agent through the shared actor door', () => {
 
 describe('group_update has one sparse RPC write', () => {
   test('maps rules to group_prompt and preserves the actual agent actor', async () => {
-    const h = harness({ saved: { id: GROUP, name: '保存的群', can_manage: true, can_dissolve: false } })
+    const h = harness({ saved: { id: GROUP, name: '保存的群', my_role: 'owner', can_manage: true, can_dissolve: false, can_archive_topic: false } })
     const result = JSON.parse(await h.call('group_update', { chat_id: GROUP, changes: { rules: '规则', description: '' } }))
     expect(result.name).toBe('保存的群')
     expect(h.rpcs.filter((call) => call.name !== 'chat_facts')).toEqual([{ name: 'update_group_as', body: { p_chat_id: GROUP, p_changes: { group_prompt: '规则', description: '' }, p_as_user_id: SELF } }])

@@ -28,10 +28,15 @@ function makeDeps(commitAnswer?: (args: Record<string, unknown>) => Response) {
   const rpcs: Array<[string, Record<string, unknown>]> = []
   const commits: Array<Record<string, unknown>> = []
   const uploads: string[] = []
+  const shares: Array<Record<string, unknown>> = []
   const fetch = (async (url: string, init?: RequestInit) => {
     if (url.endsWith('/attachments/upload')) return new Response(JSON.stringify({ staging_key: 'staging/o/1', url: 'https://oss.test/', fields: {}, max_bytes: 25 * 1024 * 1024 }))
     if (url === 'https://oss.test/') { uploads.push(((init?.body as FormData).get('file') as File).name); return new Response(null, { status: 204 }) }
     const args = JSON.parse(String(init?.body)) as Record<string, unknown>
+    if (url.endsWith('/attachments/share')) {
+      shares.push(args)
+      return new Response(JSON.stringify({ message: { id: args.message_id, chat_id: CHAT, content: envelope(64941), content_type: 'attachment', file_item_id: args.item_id, file_version: args.version ?? 2 } }))
+    }
     commits.push(args)
     return commitAnswer?.(args)
       ?? new Response(JSON.stringify({ message: { id: args.message_id, chat_id: args.chat_id, content: envelope(12), file_item_id: ITEM, file_version: 3 } }))
@@ -43,25 +48,21 @@ function makeDeps(commitAnswer?: (args: Record<string, unknown>) => Response) {
       rpcs.push([name, body])
       if (name === 'chat_facts') return [{ id: CHAT, kind: 'group', source_chat_id: null, group_prompt: null }]
       if (name === 'list_member_ids') return [{ user_id: 'agent-1', role: 'member' }]
-      if (name === 'attachment_share') {
-        return [{ id: body.p_message_id, chat_id: CHAT, content: envelope(64941), content_type: 'attachment', file_item_id: body.p_item_id, file_version: body.p_version ?? 2 }]
-      }
       return null
     },
     readHostSessionToken: async () => null,
     attachmentsEndpoint: async () => ({ supabaseUrl: 'https://db.test', anonKey: 'anon', token: 'token', fetch }),
   }
-  return { deps, rpcs, commits, uploads }
+  return { deps, rpcs, commits, uploads, shares }
 }
 
 describe('message_send_file by reference', () => {
-  test('file alone: one attachment_share call pinned to that version, no upload, no commit; the receipt names the pinned file', async () => {
-    const { deps, rpcs, commits, uploads } = makeDeps()
+  test('file alone: one attachments/share call pinned to that version, no upload, no commit; the receipt names the pinned file', async () => {
+    const { deps, shares, commits, uploads } = makeDeps()
     const receipt = JSON.parse(await callTool('message_send_file', { chat_id: CHAT, file: `gugu-file://${ITEM}?v=1` }, deps))
-    const shares = rpcs.filter(([name]) => name === 'attachment_share')
     expect(shares).toHaveLength(1)
-    expect(shares[0]![1]).toMatchObject({ p_item_id: ITEM, p_version: 1, p_chat_id: CHAT, p_sender_user_id: 'agent-1', p_to_user_ids: [] })
-    expect(String(shares[0]![1].p_message_id)).toMatch(/^[0-9a-f-]{36}$/)
+    expect(shares[0]).toMatchObject({ item_id: ITEM, version: 1, chat_id: CHAT, sender_user_id: 'agent-1', to_user_ids: [] })
+    expect(String(shares[0]!.message_id)).toMatch(/^[0-9a-f-]{36}$/)
     expect(uploads).toEqual([])
     expect(commits).toEqual([])
     expect(receipt).toMatchObject({ status: 'sent', file_name: 'GLM_Agent.pptx', file: `gugu-file://${ITEM}?v=1`, version: 1 })
@@ -69,20 +70,20 @@ describe('message_send_file by reference', () => {
 
   test('file without a version (or a bare item id) sends its current version', async () => {
     for (const file of [`gugu-file://${ITEM}`, ITEM]) {
-      const { deps, rpcs } = makeDeps()
+      const { deps, shares } = makeDeps()
       const receipt = JSON.parse(await callTool('message_send_file', { chat_id: CHAT, file }, deps))
-      expect(rpcs.find(([name]) => name === 'attachment_share')![1]).toMatchObject({ p_item_id: ITEM, p_version: null })
+      expect(shares[0]).toMatchObject({ item_id: ITEM, version: null })
       expect(receipt.file).toBe(`gugu-file://${ITEM}?v=2`)
     }
   })
 
   test('file + file_path: the upload is committed as that file\'s next version from ?v=, the receipt pins the new version', async () => {
-    const { deps, rpcs, commits, uploads } = makeDeps()
+    const { deps, shares, commits, uploads } = makeDeps()
     const receipt = JSON.parse(await callTool('message_send_file', { chat_id: CHAT, file: `gugu-file://${ITEM}?v=2`, file_path: localFile }, deps))
     expect(uploads).toEqual(['GLM_Agent.pptx'])
     expect(commits).toHaveLength(1)
     expect(commits[0]).toMatchObject({ chat_id: CHAT, sender_user_id: 'agent-1', item_id: ITEM, expected_version: 2 })
-    expect(rpcs.some(([name]) => name === 'attachment_share')).toBe(false)
+    expect(shares).toEqual([])
     expect(receipt).toMatchObject({ status: 'sent', file: `gugu-file://${ITEM}?v=3`, version: 3 })
   })
 
@@ -104,14 +105,14 @@ describe('message_send_file by reference', () => {
   })
 
   test('refused before any upload: a next version without the version it starts from; neither file nor file_path; a file that is not a folder link', async () => {
-    const { deps, commits, uploads, rpcs } = makeDeps()
+    const { deps, commits, uploads, shares } = makeDeps()
     await expect(callTool('message_send_file', { chat_id: CHAT, file: `gugu-file://${ITEM}`, file_path: localFile }, deps))
       .rejects.toThrow(`gugu-file://${ITEM}?v=<n>`)
     await expect(callTool('message_send_file', { chat_id: CHAT }, deps)).rejects.toThrow(/give file .*file_path/)
     await expect(callTool('message_send_file', { chat_id: CHAT, file: 'https://example.test/deck.pptx' }, deps)).rejects.toThrow(/gugu-file:\/\/<item_id>\?v=<n>/)
     expect(uploads).toEqual([])
     expect(commits).toEqual([])
-    expect(rpcs.some(([name]) => name === 'attachment_share')).toBe(false)
+    expect(shares).toEqual([])
   })
 
   test('a newer version stored since: says what to do and that nothing was sent', async () => {

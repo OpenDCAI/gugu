@@ -59,7 +59,7 @@
     <p id="doc-message" class="empty doc-message"></p>
     <div class="panes">
       <div id="editor" class="editor"></div>
-      <article id="preview" class="preview"></article>
+      <article id="preview" class="preview" tabindex="-1"></article>
       <!-- An empty document, where its preview would be: what can be done here. -->
       <gugu-empty id="doc-empty" class="doc-empty" icon="file-text" hidden><strong id="doc-empty-title"></strong><small id="doc-empty-hint"></small><span class="row"><button id="empty-write" class="primary" type="button"><gugu-icon name="pencil"></gugu-icon><span id="empty-write-label"></span></button><button id="empty-draft" type="button"><gugu-icon name="sparkles"></gugu-icon><span id="empty-draft-label"></span></button></span></gugu-empty>
     </div>
@@ -69,8 +69,11 @@
   <div id="menu" class="menu card list" role="menu" hidden></div>
   <!-- The frame dragged across the list. -->
   <div id="lasso" class="lasso" hidden></div>
-  <!-- Beside the reading block under the pointer: its menu cites it, keeps it, copies a link to it, finds it in the source. -->
-  <button id="block-handle" class="block-handle" type="button" aria-haspopup="menu" aria-expanded="false" hidden><gugu-icon name="more-horizontal"></gugu-icon></button>
+  <!-- The hovered source block: insert below it, or act on it. -->
+  <div id="block-controls" class="block-controls" hidden>
+    <button id="block-insert" class="block-handle" type="button" aria-haspopup="menu" aria-expanded="false"><gugu-icon name="plus"></gugu-icon></button>
+    <button id="block-handle" class="block-handle" type="button" aria-haspopup="menu" aria-expanded="false">⋮⋮</button>
+  </div>
   <!-- 「移动到…」: every folder of the chat, the top first; a press moves the file there. -->
   <div id="move-dialog" class="dialog" role="dialog" aria-modal="true" hidden>
     <div class="dialog-box card">

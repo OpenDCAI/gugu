@@ -37,6 +37,7 @@ vi.mock('@main/core/extensions/extensions-root', () => ({
     isInstalled: (id: string) => list().extensions.some((entry: { manifest: { id: string } }) => entry.manifest.id === id),
     get: (id: string) => list().extensions.find((entry: { manifest: { id: string } }) => entry.manifest.id === id),
     // One publisher throughout these cases: a first install is one not installed yet.
+    olderInterface: () => null,
     isFirstInstallOf: (id: string) => !list().extensions.some((entry: { manifest: { id: string } }) => entry.manifest.id === id),
     variants: () => ({ active: 'upstream', variants: [] }),
     inspectDirectory,
@@ -62,6 +63,9 @@ vi.mock('./app-given', async (importOriginal) => ({
 }));
 
 const { runExtensionAgentAction } = await import('./extension-agent-actions');
+const { setSessionHostLocale } = await import('@main/core/host-locale');
+// app_create writes the person's interface language as a new App's defaultLocale.
+setSessionHostLocale('zh-CN');
 const { CloudExtensionMarket } = await import('./market-catalog');
 const { claimedSuffixes, opensFilesSchema } = await import('@shared/extensions/manifest');
 
@@ -219,7 +223,7 @@ describe('app_* 的动作分派', () => {
 
   // 摩擦单 F107: the host asks for it when the group already holds this version's card with other bytes.
   it('bump: the patch number goes up by one in the bundle\'s manifest.json, the rest of it as it was', async () => {
-    const manifest = { id: 'dinner-vote', name: 'Dinner vote', version: '1.2.9', apiVersion: EXTENSION_API_VERSION, contributes: { tabs: [] } };
+    const manifest = { id: 'dinner-vote', name: 'Dinner vote', version: '1.2.9', apiVersion: EXTENSION_API_VERSION, defaultLocale: 'en', contributes: { tabs: [] } };
     writeFileSync(path.join(workDir, 'manifest.json'), JSON.stringify(manifest));
     expect(await runExtensionAgentAction({ action: 'bump', source_dir: workDir })).toEqual({ version: '1.2.10' });
     expect(JSON.parse(readFileSync(path.join(workDir, 'manifest.json'), 'utf8'))).toEqual({ ...manifest, version: '1.2.10' });
@@ -234,7 +238,7 @@ describe('app_* 的动作分派', () => {
       id: 'reader',
       name: 'Reader',
       version: '1.0.0',
-      apiVersion: EXTENSION_API_VERSION,
+      apiVersion: EXTENSION_API_VERSION, defaultLocale: 'en',
       platforms: ['desktop'],
       entry: 'main.html',
       permissions: { capabilities: ['files:read'] },
@@ -274,7 +278,7 @@ describe('app_* 的动作分派', () => {
         id: 'reader',
         name: 'Reader',
         version: '1.0.0',
-        apiVersion: EXTENSION_API_VERSION,
+        apiVersion: EXTENSION_API_VERSION, defaultLocale: 'en',
         platforms: ['desktop'],
         entry: 'main.html',
         permissions: { network: ['api.example.com'] },
@@ -301,7 +305,7 @@ describe('app_* 的动作分派', () => {
 
 it('#6646 E-05: a folder install that would replace one from the market, a chat or from before origins were kept asks the person; one from a folder does not', async () => {
   const manifest = {
-    id: 'notes', name: 'Notes', version: '2.0.0', apiVersion: EXTENSION_API_VERSION, platforms: ['desktop'], entry: 'index.html',
+    id: 'notes', name: 'Notes', version: '2.0.0', apiVersion: EXTENSION_API_VERSION, defaultLocale: 'en', platforms: ['desktop'], entry: 'index.html',
     contributes: { tabs: [{ name: 'main', title: 'Notes' }] },
   };
   inspectDirectory.mockReturnValue({ manifest, manifestDigest: 'digest-n' });
@@ -326,7 +330,7 @@ it('#6646 E-05: a folder install that would replace one from the market, a chat 
 
 describe('reinstalling its own folder extension (quiet upgrade)', () => {
   const v1 = {
-    id: 'notes', name: 'Notes', version: '1.0.0', apiVersion: EXTENSION_API_VERSION, platforms: ['desktop'], entry: 'index.html',
+    id: 'notes', name: 'Notes', version: '1.0.0', apiVersion: EXTENSION_API_VERSION, defaultLocale: 'en', platforms: ['desktop'], entry: 'index.html',
     permissions: { capabilities: ['files:read'] },
     contributes: { tabs: [{ name: 'main', title: 'Notes' }] },
   };
@@ -422,7 +426,7 @@ describe('app_create 写得出给 agent 的程序、skills 与后台页 (#6615 �
   it('creates a tools-only App without a template, tabs or HTML, and keeps it editable by a second create', async () => {
     const target = path.join(workDir, 'tool-only');
     const request = { action: 'create', id: 'tool-only', name: 'Tool only', target_dir: target,
-      manifest: { permissions: { capabilities: ['agents:tools'] }, contributes: { mcpServers: [{ tools: 'tools.js' }] } },
+      manifest: { permissions: { capabilities: ['agents:tools'] }, contributes: { mcpServers: [{ tools: 'tools.js' }], instructions: 'tool-only tools.' } },
       files: { 'tools.js': 'export const ping = { run: async () => "pong" };' } };
     await runExtensionAgentAction(request);
     const first = JSON.parse(readFileSync(path.join(target, 'manifest.json'), 'utf8'));
@@ -445,6 +449,7 @@ describe('app_create 写得出给 agent 的程序、skills 与后台页 (#6615 �
         tabs: [{ name: 'main', title: 'README' }],
         mcpServers: [{ name: 'readme-count', command: 'node', args: ['mcp/server.mjs'], env: { MODE: 'words' } }],
         skills: 'skills',
+        instructions: 'readme-count__count(path): words in a README; skill readme-count first.',
       },
     },
     files: {
@@ -510,7 +515,7 @@ describe('app_create 写得出给 agent 的程序、skills 与后台页 (#6615 �
       id: 'readme-count',
       name: 'README Count',
       version: '1.0.0',
-      apiVersion: EXTENSION_API_VERSION,
+      apiVersion: EXTENSION_API_VERSION, defaultLocale: 'en',
       platforms: ['desktop'],
       entry: 'main.html',
       permissions: { capabilities: ['agents:tools'] },
@@ -518,6 +523,7 @@ describe('app_create 写得出给 agent 的程序、skills 与后台页 (#6615 �
         tabs: [{ name: 'main', title: 'README', entry: 'main.html' }],
         mcpServers: [{ name: 'readme-count', command: 'node', args: ['mcp/server.mjs'] }],
         skills: 'skills',
+        instructions: 'readme-count__count(path): words in a README; skill readme-count first.',
       },
     };
     inspectDirectory.mockReturnValue({ manifest, manifestDigest: 'digest-rc' });
@@ -551,11 +557,11 @@ describe('app_create 写得出给 agent 的程序、skills 与后台页 (#6615 �
       id: 'searcher',
       name: 'Searcher',
       version: '1.0.0',
-      apiVersion: EXTENSION_API_VERSION,
+      apiVersion: EXTENSION_API_VERSION, defaultLocale: 'en',
       platforms: ['desktop'],
       entry: 'main.html',
       permissions: { capabilities: ['agents:tools'] },
-      contributes: { tabs: [{ name: 'main', title: 'Searcher', entry: 'main.html' }], mcpServers: [{ tools: 'tools.js' }], toolsListed: true },
+      contributes: { tabs: [{ name: 'main', title: 'Searcher', entry: 'main.html' }], mcpServers: [{ tools: 'tools.js' }], toolsListed: true, instructions: 'Searcher tools.' },
     };
     inspectDirectory.mockReturnValue({ manifest, manifestDigest: 'digest-s' });
     installFromDirectory.mockReturnValue({ manifest, rootDir: '/tmp/s' });
@@ -578,11 +584,11 @@ describe('app_create 写得出给 agent 的程序、skills 与后台页 (#6615 �
       id: 'searcher',
       name: 'Searcher',
       version: '1.0.0',
-      apiVersion: EXTENSION_API_VERSION,
+      apiVersion: EXTENSION_API_VERSION, defaultLocale: 'en',
       platforms: ['desktop'],
       entry: 'main.html',
       permissions: { capabilities: ['agents:tools'] },
-      contributes: { tabs: [{ name: 'main', title: 'Searcher', entry: 'main.html' }], mcpServers: [{ tools: 'tools.js' }] },
+      contributes: { tabs: [{ name: 'main', title: 'Searcher', entry: 'main.html' }], mcpServers: [{ tools: 'tools.js' }], instructions: 'Searcher tools.' },
     };
     inspectDirectory.mockReturnValue({ manifest, manifestDigest: 'digest-s' });
     installFromDirectory.mockReturnValue({ manifest, rootDir: '/tmp/s' });
@@ -608,11 +614,11 @@ describe('app_install says which skill no agent gets, in its reader\'s words', (
     id: 'skillx-bad',
     name: '坏签探针',
     version: '1.0.0',
-    apiVersion: EXTENSION_API_VERSION,
+    apiVersion: EXTENSION_API_VERSION, defaultLocale: 'en',
     platforms: ['desktop'],
     entry: 'main.html',
     permissions: { capabilities: ['agents:tools'] },
-    contributes: { tabs: [{ name: 'main', title: '坏签探针', entry: 'main.html' }], skills: 'skills' },
+    contributes: { tabs: [{ name: 'main', title: '坏签探针', entry: 'main.html' }], skills: 'skills', instructions: 'Read skill bad-stamp first.' },
   };
   const BAD = '---\nname: bad-stamp\ndescription: Use when someone asks for a red stamp (红签): run its script.\n---\n';
   const OK = '---\nname: ok-stamp\ndescription: "Use when someone asks for a green stamp (绿签): run its script."\n---\n';
@@ -685,7 +691,7 @@ describe('#6264 咕咕 server(没有窗口)', () => {
   it('install 照装:问过人、装上,回答先说这台没有窗口,❌ 叫它 app_check', async () => {
     const { HEADLESS_INSTALLED_NOTE } = await import('./extension-agent-actions');
     const manifest = {
-      id: 'notes', name: 'Notes', version: '1.0.0', apiVersion: EXTENSION_API_VERSION, platforms: ['desktop'], entry: 'index.html',
+      id: 'notes', name: 'Notes', version: '1.0.0', apiVersion: EXTENSION_API_VERSION, defaultLocale: 'en', platforms: ['desktop'], entry: 'index.html',
       permissions: { capabilities: ['files:read'] },
       contributes: { tabs: [{ name: 'main', title: 'Notes', opensFiles: { chat: ['.notes.json'] } }] },
     };
@@ -706,7 +712,7 @@ describe('#6264 咕咕 server(没有窗口)', () => {
   it('人没点头:没装,也就没有那句', async () => {
     const { HEADLESS_INSTALLED_NOTE } = await import('./extension-agent-actions');
     const manifest = {
-      id: 'notes', name: 'Notes', version: '1.0.0', apiVersion: EXTENSION_API_VERSION, platforms: ['desktop'], entry: 'index.html',
+      id: 'notes', name: 'Notes', version: '1.0.0', apiVersion: EXTENSION_API_VERSION, defaultLocale: 'en', platforms: ['desktop'], entry: 'index.html',
       permissions: { capabilities: ['files:read'] }, contributes: { tabs: [{ name: 'main', title: 'Notes' }] },
     };
     inspectDirectory.mockReturnValue({ manifest, manifestDigest: 'digest-n' });
@@ -778,7 +784,7 @@ describe('agent 给的相对文件夹按它自己的工作副本解析 (#6634 �
 
   it('install:相对 source_dir 同样按工作副本', async () => {
     const manifest = {
-      id: 'todo-panel', name: 'Todo', version: '1.0.0', apiVersion: EXTENSION_API_VERSION, platforms: ['desktop'], entry: 'main.html',
+      id: 'todo-panel', name: 'Todo', version: '1.0.0', apiVersion: EXTENSION_API_VERSION, defaultLocale: 'en', platforms: ['desktop'], entry: 'main.html',
       contributes: { tabs: [{ name: 'main', title: 'Todo', entry: 'main.html' }] },
     };
     inspectDirectory.mockReturnValue({ manifest, manifestDigest: 'digest-t' });
@@ -816,7 +822,7 @@ describe('agent 给的相对文件夹按它自己的工作副本解析 (#6634 �
         target_dir: path.join(workDir, 'tools'),
         manifest: { ...minimal.manifest, permissions: { capabilities: ['agents:tools'] } },
       })
-    ).rejects.toThrow(/no contributes\.mcpServers, contributes\.skills or contributes\.agentInstructions/);
+    ).rejects.toThrow(/no contributes\.mcpServers or contributes\.skills/);
   });
 });
 
@@ -1301,7 +1307,7 @@ describe('app_create { template } with files', () => {
 describe('app_install: what comes next', () => {
   const inspectedOf = (tabs: unknown[]) => ({
     manifest: {
-      apiVersion: EXTENSION_API_VERSION,
+      apiVersion: EXTENSION_API_VERSION, defaultLocale: 'en',
       platforms: ['desktop'],
       id: 'dinner-vote', name: 'Dinner vote', version: '1.0.0', contributes: { tabs },
     },
@@ -1367,7 +1373,7 @@ describe('app_install: what comes next', () => {
 // checked and unpacked (`materialize`), then the same install as the market's App, the sheet saying where its code is.
 describe('app_install { market }', () => {
   const reader = {
-    id: 'reader', name: 'Reader', version: '1.2.0', apiVersion: EXTENSION_API_VERSION, platforms: ['desktop'], entry: 'main.html',
+    id: 'reader', name: 'Reader', version: '1.2.0', apiVersion: EXTENSION_API_VERSION, defaultLocale: 'en', platforms: ['desktop'], entry: 'main.html',
     permissions: { capabilities: ['files:read'] },
     contributes: { tabs: [{ name: 'main', title: 'Read', entry: 'main.html' }] },
   };
@@ -1546,7 +1552,7 @@ describe('app_install { market }', () => {
 
   it('a group App from the market: the call that sends it into the chat names the market, never a folder', async () => {
     const vote = {
-      id: 'dinner-vote', name: 'Dinner vote', version: '1.0.0', apiVersion: EXTENSION_API_VERSION, platforms: ['desktop'], entry: 'main.html',
+      id: 'dinner-vote', name: 'Dinner vote', version: '1.0.0', apiVersion: EXTENSION_API_VERSION, defaultLocale: 'en', platforms: ['desktop'], entry: 'main.html',
       contributes: { tabs: [{ name: 'main', title: 'Vote', entry: 'main.html', opensFiles: { chat: ['.dinner-vote.json'] } }] },
     };
     inspectDirectory.mockReturnValue({ manifest: vote, manifestDigest: 'digest-v' });

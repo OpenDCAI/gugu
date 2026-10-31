@@ -4,7 +4,7 @@ import { safeFailureLine } from '../sessions/gugu-reason';
 import { commandRegistry } from '@renderer/lib/commands/registry';
 import { dissolveScreenGroup, isScreenView, showSessionBeside, takeSessionOutOfGroup } from '@renderer/app/screen-layout-actions';
 import { AlertTriangle, Archive, Copy, LayoutGrid, Pencil, Pin, PinOff, Scissors, Sparkles, SquareMinus } from '@/lib/icons'
-import { GitFork } from 'lucide-react'
+import { GitFork } from '@/lib/icons'
 import { installedExtensionsStore } from '@renderer/features/extensions/installed-extensions-store';
 import { spawnedByExtensionLabel as spawnedByExtensionLabelFor } from '@renderer/features/extensions/spawned-by-extension-label';
 import { useAssistantShell } from '@renderer/features/assistant/assistant-shell';
@@ -45,9 +45,8 @@ import { SidebarIdentityCard, sidebarIdentityCard, useSidebarIdentityCardTrigger
 import { sessionAgentNames } from '@renderer/features/sessions/stores/session-agent-names';
 import { showModal } from '@renderer/lib/modal/modal-provider';
 import type { SidebarJoin } from '@/lib/sidebarJoinedGroups';
-import type { RemoteSidebarSession } from './sidebar-store';
+import { mountedSessionPresentation, type RemoteSidebarSession } from './sidebar-store';
 import { sessionPresentation, sessionReading } from '@/mobile/agent-watch/watch-status';
-import { taskStatusPresentation } from '@/lib/taskAgentStatus';
 import { useShownAgentStatus } from '@/components/chat/useAgentsOnCloudComputer';
 import { withMountedSession } from './with-mounted-session';
 import { useSessionSchedules } from '@renderer/features/automations/use-session-schedules';
@@ -127,9 +126,7 @@ export const SidebarSessionItem = observer(function SidebarSessionItem({
   const row = session ? rowOfStore(session, schedule) : rowOfListing(listed!);
   const agentUserId = agentIdentity?.agentUserId ?? listed?.summary.agent?.userId;
   const presentation = shownStatus.presentation(agentUserId, session
-    ? taskStatusPresentation(agentUserId
-      ? { kind: 'agent', agentUserId }
-      : { kind: 'task', reading: row.status ? { status: row.status, detail: row.detail } : null, unseen: !row.seen, online: true })
+    ? mountedSessionPresentation(session, agentUserId)
     : sessionPresentation(listed!.summary, listed!.live, agentUserId));
   const sessionIsActive =
     currentView === 'session' && params.sessionId === sessionId && params.projectId === projectId;

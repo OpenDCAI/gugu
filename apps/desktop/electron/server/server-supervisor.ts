@@ -19,10 +19,10 @@ import { isOwnProcessAlive, SERVER_PROCESS_MARK } from './process-alive'
 import { applyLoginShell, clearStopped, liveKeeperPid, markStopped, startKeeper, SUPERVISOR_EXIT_ALREADY_RUNNING } from './server-keeper'
 import { noteExitReason } from '../lib/exit-reason'
 import { removeLegacyBrowserLogins } from '../lib/remove-legacy-browser-logins'
-import { accountDataDir, accountIsBusy, listAccounts, serverHome, supervisorDataDir } from './server-layout'
+import { accountDataDir, listAccounts, serverHome, supervisorDataDir } from './server-layout'
 import { rotateByCopyTruncate, rotateByRename, SERVICE_LOG_CHECK_MS } from './server-log-rotate'
 import { ensureUpgradeGuard, writeSupervisorHealth, SUPERVISOR_HEALTH_MS } from './server-upgrade-guard'
-import { createAccountVersionConverger } from './server-account-converge'
+import { createAccountDriver } from './server-account-driver'
 import { managedLayout, startServerUpdater } from './server-updater'
 
 const RECONCILE_MS = 3_000
@@ -31,7 +31,7 @@ const CHILD_STOP_GRACE_MS = 30_000
 const QUICK_EXIT_MS = 30_000
 const MAX_BACKOFF_MS = 60_000
 
-type Child = { process: ChildProcess; startedAt: number; version: string | null }
+type Child = { process: ChildProcess; startedAt: number; version: string | null; restarting?: boolean }
 
 export type SupervisorLog = {
   info: (message: string, fields?: Record<string, unknown>) => void
@@ -130,24 +130,33 @@ export async function runSupervisor(): Promise<void> {
   let stopping = false
 
   const layout = managedLayout()
-  const followSupervisor = process.env.GUGU_CLOUD_COMPUTER === '1'
   const lifecycle = layout ? createServerVersionLifecycle({ layout, running: () => [...children.values()].flatMap(child => child.version ? [child.version] : []) }) : null
-  const versions = createAccountVersionConverger({
-    layout,
-    followSupervisor,
-    lifecycle,
-    log,
-    running: (userId) => (children.has(userId) ? (children.get(userId)?.version ?? null) : undefined),
-    // 换版:先留一句「更新」,账号进程开机收残据此说清在跑的那一轮是被更新打断的。
-    restart: (userId) => {
-      noteExitReason(accountDataDir(userId), 'update')
-      children.get(userId)?.process.kill('SIGTERM')
-    },
-  })
+  const followSupervisor = process.env.GUGU_CLOUD_COMPUTER === '1'
+  // 换版:先留一句「更新」,账号进程开机收残据此说清在跑的那一轮是被更新打断的。
+  const restart = (userId: string): void => {
+    noteExitReason(accountDataDir(userId), 'update')
+    const child = children.get(userId)
+    if (!child) return
+    child.restarting = true
+    child.process.kill('SIGTERM')
+    // A live but unready/hung account must not retain takeover forever after rollback.
+    const force = setTimeout(() => {
+      if (children.get(userId) === child && child.process.exitCode === null && child.process.signalCode === null) child.process.kill('SIGKILL')
+    }, CHILD_STOP_GRACE_MS)
+    force.unref()
+  }
+  const childOf = (userId: string) => {
+    const child = children.get(userId)
+    return child ? { pid: child.process.pid, startedAt: child.startedAt, restarting: child.restarting === true } : undefined
+  }
+  const versions = layout && lifecycle
+    ? createAccountDriver({ layout, lifecycle, followSupervisor, log, child: childOf, started: userId => children.has(userId) || backoff.has(userId), restart })
+    : null
 
   const start = (userId: string): void => {
     // #6264 这个账号该跑哪一版:记着的那一版(装着)就从它的目录起;否则跑守护进程自己这一版。
-    const pinned = versions.binaryFor(userId)
+    const pinned = versions?.binaryFor(userId) ?? null
+    if (pinned === 'none') return
     const child = pinned
       ? spawn(pinned.binary, ['run-account', userId], { env: accountProcessEnv(process.env), stdio: ['ignore', 'inherit', 'inherit'] })
       : spawn(process.execPath, [serverScript, 'run-account', userId], { env: accountProcessEnv(process.env), stdio: ['ignore', 'inherit', 'inherit'] })
@@ -165,7 +174,8 @@ export async function runSupervisor(): Promise<void> {
       if (stopping) return
       const ranFor = Date.now() - (entry?.startedAt ?? Date.now())
       // 刚换过去的那一版起不来:退回原来那一版(❌ 把这个账号切死),这一版冷却一阵不再试。
-      if (ranFor < QUICK_EXIT_MS) versions.quickExit(userId, version)
+      const account = listAccounts().find((entry) => entry.userId === userId)
+      if (account) versions?.childExited(account, ranFor < QUICK_EXIT_MS)
       const previous = backoff.get(userId)?.failures ?? 0
       const failures = ranFor < QUICK_EXIT_MS ? previous + 1 : 0
       const delay = failures === 0 ? 1_000 : Math.min(MAX_BACKOFF_MS, 2_000 * 2 ** (failures - 1))
@@ -183,8 +193,8 @@ export async function runSupervisor(): Promise<void> {
   const reconcile = (): void => {
     if (stopping) return
     const signedIn = listAccounts().filter((account) => account.signedIn)
-    // 受控云电脑先纠正旧 pin 再冷启动,避免先起桌面报告留下的旧包。
-    if (followSupervisor) versions.converge(signedIn)
+    // 先过一遍状态机再起进程:冷启动的账号直接从目标版本起,❌ 先起旧包再打断它。
+    versions?.tick(signedIn)
     const wanted = new Set(signedIn.map((account) => account.userId))
     for (const userId of wanted) {
       if (children.has(userId)) continue
@@ -197,8 +207,6 @@ export async function runSupervisor(): Promise<void> {
       log.info('账号已退出登录,停掉它的进程', { account: userId })
       child.process.kill('SIGTERM')
     }
-    // #6264 各账号对一对版本:只读每个账号目录里的两个小文件,要换的只重启那一个账号。
-    if (!followSupervisor) versions.converge(signedIn)
     try { lifecycle?.reclaim() } catch (error) {
       log.warn('Version reclamation failed', { error: error instanceof Error ? error.message : String(error) })
     }
@@ -255,19 +263,19 @@ export async function runSupervisor(): Promise<void> {
   rotateServiceLog()
   setInterval(rotateServiceLog, SERVICE_LOG_CHECK_MS).unref()
   if (accounts.length === 0) log.info(`还没有账号登录这台机器:${SERVER_LOGIN_ACTION}`)
+  // 冷启动:先让每个账号的状态机走一轮、等装包 / 试跑的结论,第一批进程才从对的那一版起。
+  versions?.tick(accounts)
+  await versions?.settled()
   reconcile()
   setInterval(reconcile, RECONCILE_MS)
 
   startServerUpdater({
     log,
     lifecycle,
-    // Account restart confirmation never authorises a supervisor-wide upgrade.
-    isBusy: () =>
-      listAccounts().some(
-        (account) => children.has(account.userId) && accountIsBusy(account.dataDir),
-      ),
+    // 整台机器换版:每个登着的账号都要有自己的新鲜心跳说空闲。账号自己的确认重启 ❌ 授权整机升级。
+    isBusy: () => listAccounts().some((account) => account.signedIn && versions?.proofOf(account) !== 'idle'),
     shutdown: () => shutdown('upgrade'),
-    inUse: () => versions.inUse(),
+    inUse: () => versions?.inUse() ?? [],
   })
 }
 

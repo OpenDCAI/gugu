@@ -9,7 +9,9 @@ import { sessionEvents } from './session-events';
 import { projectManager } from '@main/core/projects/project-manager';
 import { cleanupDetachedSessions, sessionWorkspaceManager } from './session-workspace-manager';
 import { log } from '@main/lib/logger';
-import { setSessionArchival, serializeSessionArchival } from './session-archival';
+import { setSessionArchival, sessionArchivalState, serializeSessionArchival } from './session-archival';
+import { sessionIdentityHost } from './session-identity-host';
+import { archiveTimestamp, type RemovedSessionIdentity } from '@gugu/core/shared/sessionArchival';
 import { archiveOnOtherMachine, familyOf } from './session-family';
 import { mapSessionRowToSession } from './utils';
 import { publishProjectVisibility } from '../projects/operations/project-visibility';
@@ -27,7 +29,7 @@ import {
  * spec session-graph:归档的归属键是**这条会话自己**。用户看见的标签说「归档任务」——在他心智里
  * 会话列表的一行就是一项任务(owner 2026-09-11)——而产品动的是这条 conversation。
  *
- * 本机先持久封住投递,再停 runtime;归档不等待云端同步。
+ * 移出身份先取得云端收据,再本地封住投递并停 runtime;保留身份时沿原离线同步。
  *
  * 返回**这一次真正收走的行**(子会话在前、点名的在后;已经归档的不算):归档提示里的「撤销」按这份清单
  * 原样放回(#6083),❌ 由渲染侧自己猜范围。
@@ -42,15 +44,22 @@ import {
 export async function archiveSession(
   projectId: string,
   sessionId: string,
-  options: { withChildren?: boolean; skipTransportStop?: boolean } = {}
+  options: { withChildren?: boolean; skipTransportStop?: boolean; removeSocialIdentity?: boolean } = {},
+  // Trusted host input only; the renderer RPC deliberately exposes just the first three arguments.
+  confirmedRemoval?: RemovedSessionIdentity
 ): Promise<ArchiveOutcome> {
+  if (confirmedRemoval) {
+    if (!confirmedRemoval.userId || options.removeSocialIdentity === false) throw new Error('Invalid confirmed identity removal');
+    archiveTimestamp(confirmedRemoval.removedAt);
+  }
+  if (options.removeSocialIdentity !== undefined && typeof options.removeSocialIdentity !== 'boolean') throw new Error('removeSocialIdentity must be a boolean');
   const [row] = await db
     .select({ archivedAt: sessions.archivedAt })
     .from(sessions)
     .where(and(eq(sessions.id, sessionId), eq(sessions.projectId, projectId)))
     .limit(1);
   if (!row) throw new Error(`Session not found: ${sessionId}`);
-  if (row.archivedAt) return { archived: [], unreached: [] };
+  if (row.archivedAt && options.removeSocialIdentity === false) return { archived: [], unreached: [] };
 
   const { members, unreached } = options.withChildren
     ? await familyOf(sessionId)
@@ -58,35 +67,40 @@ export async function archiveSession(
   const archived: ArchivedSessionRef[] = [];
   for (const member of members) {
     if (member.deviceId === null) {
-      archived.push(...(await archiveOne(member.projectId, member.id)));
-    } else if (await archiveOnOtherMachine(member.deviceId, member, unreached)) {
+      archived.push(...(await archiveOne(member.projectId, member.id, false, options.removeSocialIdentity)));
+    } else if (await archiveOnOtherMachine(member.deviceId, member, unreached, options.removeSocialIdentity)) {
       archived.push({ projectId: member.projectId, sessionId: member.id });
     }
   }
-  archived.push(...(await archiveOne(projectId, sessionId, options.skipTransportStop)));
+  archived.push(...(await archiveOne(projectId, sessionId, options.skipTransportStop, options.removeSocialIdentity, confirmedRemoval)));
   return { archived, unreached };
 }
 
 /**
- * 本机的一条:状态和拒投区间一起落库,再停运行时。工作区与身份保留。
+ * 本机的一条:状态和拒投区间一起落库,再停运行时。工作区保留;身份按显式选项处理。
  */
-async function archiveOne(projectId: string, sessionId: string, skipTransportStop = false): Promise<ArchivedSessionRef[]> {
-  return serializeSessionArchival(sessionId, () => archiveOneLocked(projectId, sessionId, skipTransportStop));
+async function archiveOne(projectId: string, sessionId: string, skipTransportStop = false, removeSocialIdentity = true, confirmedRemoval?: RemovedSessionIdentity): Promise<ArchivedSessionRef[]> {
+  return serializeSessionArchival(sessionId, () => archiveOneLocked(projectId, sessionId, skipTransportStop, removeSocialIdentity, confirmedRemoval));
 }
 
-/** Caller holds serializeSessionArchival, including permanent identity-driven deletion. */
-export async function archiveOneLocked(projectId: string, sessionId: string, skipTransportStop: boolean): Promise<ArchivedSessionRef[]> {
+/** Caller holds serializeSessionArchival. */
+export async function archiveOneLocked(projectId: string, sessionId: string, skipTransportStop: boolean, removeSocialIdentity = true, confirmedRemoval?: RemovedSessionIdentity): Promise<ArchivedSessionRef[]> {
   const [row] = await db
     .select({ runtime: sessions.runtime, archivedAt: sessions.archivedAt })
     .from(sessions)
     .where(eq(sessions.id, sessionId))
     .limit(1);
-  if (!row || row.archivedAt) return [];
-
+  if (!row) return [];
+  const previous = sessionArchivalState(sessionId)!;
+  if (row.archivedAt && !removeSocialIdentity) return [];
+  // No local half state: failed/offline identity removal leaves this task unarchived.
+  if (confirmedRemoval && previous.removedIdentity && confirmedRemoval.userId !== previous.removedIdentity.userId) throw new Error('Removed identity does not match the archival receipt');
+  const removedIdentity = previous.removedIdentity ?? (removeSocialIdentity ? await sessionIdentityHost().archive(sessionId, confirmedRemoval) : null);
+  if (row.archivedAt && !removedIdentity) return [];
   // session-life archives first: it refuses later deliveries and fails the queued rows before the flag lands.
-  if (row.runtime === 'acp') await sessionLife().interrupt(sessionId, { k: 'interrupt', reason: 'archive' });
-  const archivedAt = setSessionArchival(sessionId, true);
-  await stopSessionRuntime(projectId, sessionId, row.runtime, skipTransportStop);
+  if (row.runtime === 'acp' && !row.archivedAt) await sessionLife().interrupt(sessionId, { k: 'interrupt', reason: 'archive' });
+  const archivedAt = row.archivedAt && previous.removedIdentity
+    ? row.archivedAt : setSessionArchival(sessionId, true, new Date().toISOString(), removedIdentity);
 
   events.emit(sessionChangedChannel, {
     sessionId,
@@ -94,12 +108,14 @@ export async function archiveOneLocked(projectId: string, sessionId: string, ski
     changes: { archivedAt },
   });
   sessionEvents._emit('session:archived', sessionId);
+  await stopSessionRuntime(projectId, sessionId, row.runtime, skipTransportStop);
   await publishProjectVisibility(projectId);
-  return [{ projectId, sessionId }];
+  if (removedIdentity) await sessionIdentityHost().release(removedIdentity);
+  return row.archivedAt && previous.removedIdentity ? [] : [{ projectId, sessionId }];
 }
 
 /**
- * 恢复保留原身份并把任务放回列表。若存在持久 pending 消息，锁释放后仅排一次自己的 outbox；
+ * 恢复同一个任务;已移除的身份经宿主共用 provisioning 换成新身份。若存在持久 pending 消息，锁释放后仅排一次自己的 outbox；
  * 没有 pending 消息不启动运行时，dispatching 收据不重放。
  *
  * spec session-graph:会话列表那一片**没有**恢复入口(owner 2026-09-11:「程序内部可以有 restore session 的
@@ -134,6 +150,8 @@ async function restoreSessionLocked(projectId: string, sessionId: string): Promi
     .where(and(eq(sessions.id, sessionId), eq(sessions.projectId, projectId)))
     .limit(1);
   if (!row) throw new Error(`Session not found: ${sessionId}`);
+  const removedIdentity = sessionArchivalState(sessionId)?.removedIdentity;
+  if (removedIdentity) await sessionIdentityHost().restore({ projectId, sessionId }, removedIdentity);
   // A closed interval and the restored row become visible in one transaction.
   db.transaction((tx) => {
     setSessionArchival(sessionId, false);

@@ -1,7 +1,6 @@
 import { composeChatDraft } from '@/lib/composeDraft'
 import { showRendererContentMenu } from '../../lib/contentContextMenu'
 import { appContextMenuOf } from '../../session/shared/extensions/app-context-menu'
-import { appIdentityOf } from '../../session/shared/extensions/app-identity'
 import { fileBlob } from '@gugu/core/shared/fileResolver'
 import { guguLink, guguLinkScheme, linkTargetOf, type OpenTarget } from '@gugu/core/shared/ui/guguLink'
 import { openLinkWith } from '../../session/shared/extensions/open-link'
@@ -70,7 +69,7 @@ import { HOSTED_PROGRAM_ELSEWHERE } from '../../session/shared/extensions/progra
 import { rendererFileServiceUrl } from '../../lib/chatFolder'
 import { AppModalSessions, type AppModalFocus } from '../../session/shared/extensions/app-modal'
 import { closeAppModal, focusAppModalClose, showAppModal } from '../appModal/appModal'
-import { APP_SESSION_FRAME_NAME } from '../../session/shared/extensions/app-runtime-protocol'
+import { APP_FORWARD_FILES_EVENT, APP_SESSION_FRAME_NAME } from '../../session/shared/extensions/app-runtime-protocol'
 
 const log = rendererLogger('app-slot/phone-host')
 
@@ -192,7 +191,6 @@ const askForumConsent = (detail: AppForumConsentDetail) => {
 }
 
 const files = createAppFiles({
-  appIdentity: (id) => appIdentityOf({ manifest: { id }, origin: installedExtensionsStore.origins[id], publisher: installedExtensionsStore.publishers[id] }),
   async resolveFile(ref, actorId, options) {
     if (options.localOnly) return null;
     if (!('id' in ref)) throw new AppFileError('invalid', 'A stored file must be resolved by its id');
@@ -205,7 +203,7 @@ const files = createAppFiles({
     if (!candidate) return null
     // The icon it declared for this kind of file (`fileIcons`), as this page re-encoded it (app-icon.ts) — as main does on the desktop.
     const icon = installedExtensionsStore.icons[fileIconKey(candidate.tabKind, candidate.suffix)] ?? null
-    return { suffix: candidate.suffix, app: { id: candidate.extensionId, name: localizedManifestText(candidate.app, installedExtensionsStore.locale).name, icon } }
+    return { suffix: candidate.suffix, state: candidate.state, app: { id: candidate.extensionId, name: localizedManifestText(candidate.app, installedExtensionsStore.locale).name, icon } }
   },
   async account() {
     const token = getRendererAccessToken()
@@ -670,7 +668,7 @@ export function hostAppFrame(
           hooks.openWith({ ...target, choice })
         })
       case 'filesOpen':
-        return files.open(surface(), { ref: chatRef(args.ref), ...(args.readOnly === true ? { readOnly: true } : {}), deferDetails: args.deferDetails === true, appData: args.appData === true })
+        return files.open(surface(), { ref: chatRef(args.ref), ...(args.readOnly === true ? { readOnly: true } : {}), deferDetails: args.deferDetails === true })
       case 'filesReopen': {
         const ref = chatRef(args.ref)
         if (!('id' in ref)) refused('invalid', 'reopen takes a file by its id')
@@ -737,6 +735,12 @@ export function hostAppFrame(
         if (!Array.isArray(args.files)) refused('invalid', 'files.upload takes files, or none to pick')
         return files.upload(chatId, args.files as AppFileUpload[], { sourceMessageIds: args.sourceMessageIds, folder: args.folder, keep: args.keep })
       }
+      case 'filesForward':
+        // The shell's forward page (ChatFileForwardHost), as main's relay brings it up on the desktop.
+        if (!Array.isArray(args.refs)) refused('invalid', 'files.forward(files): give one file or more')
+        return files.forwardTargets(surface(), { refs: args.refs.map(chatRef) }).then((detail) => {
+          window.dispatchEvent(new CustomEvent(APP_FORWARD_FILES_EVENT, { detail }))
+        })
       case 'filesDownload':
         // API 20: several files go out through the share sheet at once (a phone has no folder to pick) — how many were handed.
         if (Array.isArray(args.refs)) {

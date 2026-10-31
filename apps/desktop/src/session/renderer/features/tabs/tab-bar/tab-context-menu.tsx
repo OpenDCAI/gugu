@@ -27,7 +27,6 @@ function CmdShortcut({
   if (!shortcut) return null;
   if (typeof shortcut === 'function') {
     const raw = shortcut();
-    // oxlint-disable-next-line typescript/no-explicit-any
     const parsed = raw ? (parseHotkey(raw, _PLATFORM) as any) : null;
     return parsed ? <Shortcut hotkey={parsed} className="ml-auto" /> : null;
   }

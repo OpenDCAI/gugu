@@ -457,6 +457,9 @@ export default {
     "batchPreview_one": "Forward {{count}} message",
     "batchPreview_other": "Forward {{count}} messages",
     "failed": "Could not forward the message",
+    "filesPreview": "Forward {{count}} files",
+    "filesPreview_one": "Forward {{count}} file",
+    "filesPreview_other": "Forward {{count}} files",
     "forwarding": "Forwarding…",
     "noResults": "No chats found",
     "noTargets": "No chats available for forwarding",
@@ -715,6 +718,7 @@ export default {
   },
   "message": {
     "myAgentTag": "my agent",
+    "removedIdentityTag": "removed",
     "agentOwnerUnavailableTag": "owner unavailable",
     "agentOwnerTag": "{{owner}}'s agent",
     "agentOwnerSuffix": " ({{owner}}'s agent)",

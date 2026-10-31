@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { removalViolations } from '../../../scripts/check-permanent-removal.mjs'
+import { removalViolations } from '../../../scripts/check-permanent-removal.mts'
 
 describe('permanent removal call-site guard', () => {
   it.each(['apps/desktop/shared/action.mts', 'packages/session-core/action.cjs', 'apps/mobile/runtime/action.mjs'])('covers production module %s and indirect RPC operands', file => {
@@ -12,17 +12,17 @@ describe('permanent removal call-site guard', () => {
     expect(removalViolations(file, 'archiveSession(projectId, sessionId)')).toEqual([])
   })
   it('allows the existing explicit cancellation and non-identity GC callers, not automatic cleanup in the same file', () => {
-    expect(removalViolations('apps/desktop/src/lib/agentProvision.ts', 'async function defaultRemoveOwnedAgent(id) { permanentlyRemove({agentId:id}) }')).toEqual([])
+    expect(removalViolations('apps/desktop/src/lib/agentProvision.ts', 'async function defaultRemoveOwnedAgent(id) { permanentlyRemove({agentId:id}) }')).toHaveLength(1)
     const file = 'packages/core/src/local/agent/deviceCommandRuntime.ts'
     expect(removalViolations(file, 'async function pruneDeadGuestRecords() { removeAgents(match) }')).toEqual([])
     expect(removalViolations(file, 'async function syncAgentRuntimeSessions() { removeAgents(match) }')).toHaveLength(1)
     expect(removalViolations('apps/desktop/electron/sessionpage/emdash-agent-provisioning.ts', 'function startCloudProvision() { removeAgents(match) }')).toEqual([])
   })
-  it('reserves task/history deletion for the confirmed identity removal entry', () => {
-    expect(removalViolations('apps/desktop/electron/main.ts', 'async function removeDeletedAgentTask() { await bridge.permanentlyDeleteAgentSession(id) }')).toEqual([])
+  it('rejects task/history deletion even after confirmed identity removal', () => {
+    expect(removalViolations('apps/desktop/electron/main.ts', 'async function removeDeletedAgentTask() { await bridge.permanentlyDeleteAgentSession(id) }')).toHaveLength(1)
     expect(removalViolations('apps/desktop/electron/main.ts', 'async function automaticCleanup() { await bridge.permanentlyDeleteAgentSession(id) }')).toHaveLength(1)
     const file = 'apps/desktop/electron/session/main/core/sessions/permanently-delete-agent-session.ts'
-    expect(removalViolations(file, 'async function permanentlyDeleteAgentSession() { db.delete(sessions).run() }')).toEqual([])
+    expect(removalViolations(file, 'async function permanentlyDeleteAgentSession() { db.delete(sessions).run() }')).toHaveLength(1)
     expect(removalViolations(file, 'async function automaticCleanup() { db.delete(sessions).run() }')).toHaveLength(1)
   })
 })

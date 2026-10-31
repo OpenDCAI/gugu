@@ -35,7 +35,7 @@ import { randomUUID } from 'node:crypto'
 import { createLogger } from '../lib/logger'
 import {
   createAgent,
-  findReapedAgentForSession,
+  listReapedAgentsForSession,
   listAgents,
   removeAgents,
   updateAgent,
@@ -231,6 +231,8 @@ async function findOwnerDirectChatMemoized(accessToken: string, agentUserId: str
 /** The slice of the session-page session-start info this module needs. */
 export interface SessionpageSessionInfo {
   sessionId: string
+  /** Explicit same-session Restore may replace this removed identity through normal spawn provisioning. */
+  replacesRemovedIdentity?: string
   providerId: string
   surface: SessionpageSessionSurface
   cwd: string
@@ -739,7 +741,18 @@ export async function provisionSessionpageAgentForSession(
   const tombstoneOwner = (await deps.getAuth())?.userId
   const authMs = Date.now() - preLockAt
   const tombstoneAt = Date.now()
-  if (await findReapedAgentForSession(info.sessionId, deps.env ?? process.env, tombstoneOwner)) return null
+  // Each archive-with-removal → Restore cycle leaves one tombstone for the same session.
+  const reaped = await listReapedAgentsForSession(info.sessionId, deps.env ?? process.env, tombstoneOwner)
+  const removedIds = new Set(reaped.map((entry) => entry.gugu_user_id))
+  if (removedIds.size > 0 && !(info.replacesRemovedIdentity && removedIds.has(info.replacesRemovedIdentity))) {
+    const bound = (await listAgents(deps.env ?? process.env, { includeGuests: true })).find((agent) =>
+      cacheString(agent.cache, SESSION_CACHE_KEY) === info.sessionId
+      && cacheString(agent.cache, OWNER_CACHE_KEY) === tombstoneOwner)
+    // An explicit Restore already minted this session's replacement; removed identities stay tombstoned.
+    if (!bound || removedIds.has(bound.gugu_user_id)) return null
+  }
+  // Later starts of the replacement still cannot consume the old identity's birth-group invitation.
+  if (reaped.length > 0 && !info.replacesRemovedIdentity) info = { ...info, replacesRemovedIdentity: reaped[0]!.gugu_user_id }
   const tombstoneMs = Date.now() - tombstoneAt
   const queuedAt = Date.now()
   return serialize(
@@ -872,7 +885,7 @@ async function provisionLockedBody(
           afterBinding,
           provisionalLocalRow: false,
           // The creation's cloud send never landed, so this is still its first mint — it still joins where it was born.
-          ...(deps.takeBirthGroup ? { birthGroup: () => deps.takeBirthGroup!(info.sessionId) } : {}),
+          ...(!info.replacesRemovedIdentity && deps.takeBirthGroup ? { birthGroup: () => deps.takeBirthGroup!(info.sessionId) } : {}),
         })
       }
     }
@@ -1112,7 +1125,7 @@ async function provisionFreshLocalFirst(
     groupChatId,
     afterBinding,
     provisionalLocalRow: true,
-    ...(deps.takeBirthGroup ? { birthGroup: () => deps.takeBirthGroup!(info.sessionId) } : {}),
+    ...(!info.replacesRemovedIdentity && deps.takeBirthGroup ? { birthGroup: () => deps.takeBirthGroup!(info.sessionId) } : {}),
   })
   return { guguAgentUserId, displayName, groupChatId, projectName }
 }
@@ -1475,7 +1488,7 @@ async function findOwnerDirectChat(accessToken: string, guguAgentUserId: string)
   // chat 的成员行。所以「这个 agent 的成员行」天然就是「owner 与它共处的 chat」——不会捞到 agent 与别人
   // 的会话。这条等价关系是本函数的前提,那条策略改了要回来复核。
   const { data: memberships, error: membershipError } = await chat
-    .from('chat_members')
+    .from('active_members')
     .select('chat_id')
     .eq('user_id', guguAgentUserId)
   if (membershipError) {

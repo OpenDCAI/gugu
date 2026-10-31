@@ -28,9 +28,10 @@ it.each(['light', 'dark'])('real contacts selected detail keeps the same %s inse
   await renderWithAppProviders(harness,
     <div data-desktop-shell="" style={{ display: 'flex', flex: 1, minHeight: 0 }}>
       <div data-shell-contacts="" style={{ flex: 1, minHeight: 0 }}>
-        <ContactsPanel activeTab="contacts" mobile={false} />
+        <ContactsPanel mobile={false} />
       </div>
     </div>, {
+      shellTab: 'contacts',
       auth: { id: 'owner-1', email: 'owner@example.com', nickname: 'Owner' },
       contacts: { contacts: [contact({ id: 'alice', display_name: 'Alice' })], groupChats: [] },
       chat: { chats: [] },
@@ -65,8 +66,8 @@ it('the actual empty contacts detail keeps its drag lane without drawing a blank
   harness.container.style.cssText = 'position:fixed;inset:0;display:flex';
   await renderWithAppProviders(harness,
     <div data-desktop-shell="" style={{ display: 'flex', flex: 1, minHeight: 0 }}>
-      <div data-shell-contacts="" style={{ flex: 1, minHeight: 0 }}><ContactsPanel activeTab="contacts" mobile={false} /></div>
-    </div>, { contacts: { contacts: [], groupChats: [], sharedGroupAgents: [] }, chat: { chats: [] } });
+      <div data-shell-contacts="" style={{ flex: 1, minHeight: 0 }}><ContactsPanel mobile={false} /></div>
+    </div>, { shellTab: 'contacts', contacts: { contacts: [], groupChats: [], sharedGroupAgents: [] }, chat: { chats: [] } });
   const detail = harness.container.querySelector<HTMLElement>('[data-shell-contacts] > div > :nth-child(2)')!;
   expect(detail.getBoundingClientRect().height).toBe(750);
   const header = detail.querySelector<HTMLElement>('.gg-pane-header')!;

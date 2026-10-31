@@ -149,7 +149,7 @@ scrollTop 写者，症状是「偶尔跳一下」，且难以归因。上游自�
 
 - `tests/visual-scale-guard-3334.test.ts` —— 按 **TS 字符串字面量**判 `text-2xl`+ / `rounded-xl`+ /
   `shadow-md`+ 与非 inset 任意值阴影。注释不算字面量，注释里的取值它看不见。
-- `scripts/check-ui-visual-spec.mjs` —— 按 **原始源码文本**给 0.5 步进间距 utility 记双向棘轮
+- `scripts/check-ui-visual-spec.mts` —— 按 **原始源码文本**给 0.5 步进间距 utility 记双向棘轮
   （会话页基线 341，只减不增）。**注释算数** —— 在 `.ts`/`.tsx` 的注释里引用一句上游的半步取值
   （`gap-1.5` 这种），棘轮照样顶破一格（落 `surfaces.tsx` 时实测踩到：342 vs 341）。
   它只扫 `.css/.js/.jsx/.ts/.tsx`，所以本 README 这类 `.md` 不在它的量程里。

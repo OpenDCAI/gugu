@@ -15,11 +15,12 @@ const barStyle: CSSProperties = {
 }
 
 /** Base UI owns travel from the row into its portal (safe polygon + close delay), including button gaps. */
-export function MessageHoverRegion({ enabled, forceOpen, style, children }: {
+export function MessageHoverRegion({ enabled, forceOpen, style, children, actions }: {
   enabled: boolean
   forceOpen: boolean
   style: CSSProperties
-  children: (visible: boolean) => ReactNode
+  children: ReactNode
+  actions: ReactNode
 }) {
   const [id] = useState(() => Symbol('message-hover'))
   const [hovered, setHovered] = useState(false)
@@ -45,14 +46,20 @@ export function MessageHoverRegion({ enabled, forceOpen, style, children }: {
   return (
     <PreviewCard.Root open={visible} onOpenChange={onOpenChange}>
       <div style={style}>
-        {children(visible)}
+        {children}
+        {visible && actions}
       </div>
     </PreviewCard.Root>
   )
 }
 
+/**
+ * 没有浮窗开着:0 延迟就开(#902)。别的行的浮窗开着:照旧等按钮提示那一拍 —— 指针正穿过这一行去够那只浮窗,❌ 一碰就把它抢走。
+ * 只订「有没有浮窗开着」:换行时它不变,各行不跟着重渲。
+ */
 export function MessageHoverTrigger(props: ComponentProps<typeof PreviewCard.Trigger>) {
-  return <PreviewCard.Trigger {...props} render={<div />} delay={TOOLTIP_OPEN_DELAY_MS} />
+  const handover = useSyncExternalStore(subscribeHoverOwner, () => readHoverOwner() !== null)
+  return <PreviewCard.Trigger {...props} render={<div />} delay={handover ? TOOLTIP_OPEN_DELAY_MS : 0} />
 }
 
 export function HoverActionBar({ isMine, isRetracted, anchorRef, reactButtonRef, moreButtonRef, onReact, onReply, onMore }: {

@@ -1,5 +1,5 @@
 import { ArrowDown, ArrowUp, RefreshCcw } from '@/lib/icons'
-import { GitBranch } from 'lucide-react'
+import { GitBranch } from '@/lib/icons'
 import { observer } from 'mobx-react-lite';
 import {
   getProjectStore,

@@ -233,6 +233,7 @@ import { readAcpSessionSummaries } from '@main/core/acp/session-summary-reader'
 import { flushLogWrites, setLogFileOwner } from '@main/lib/file-logger'
 import { setSessionMessageOutboxReady } from '@main/core/sessions/session-message-router'
 import { sessionProcess } from '@main/core/sessions/session-process'
+import { ptyRecordResumeSet, startPtyRecordSync } from '@main/core/sessions/pty-record-sync'
 export { sessionProcess }
 export { setUserLibraryOwner } from '@main/core/app/user-library'
 // #7341 第二步 项目跨设备:`projects.*` 的项目群四件事由宿主接上实现(对照 / 登录态 / 云端都在宿主那边);
@@ -576,6 +577,8 @@ export async function bootSessionHostCore(options: SessionHostBootOptions): Prom
   // ⇒ 有人占着就**跳过并喊一声**,❌ 不硬收。
   const dataDir = app.getPath('userData')
   const occupancy = dataDirHeldByAnotherHost(dataDir)
+  // Terminal records to read once at boot; the persisted facts are read here, before the sweep settles their status.
+  let ptyRecordResume: string[] = []
   // 先宣告再收残:占用判定明确排除本进程的 pid,所以宣告不会让自己跳过自己的收残;
   // 而先宣告能把「两个宿主几乎同时开机、都读到『没人占』」的窗口收窄到写文件那一瞬。
   // (❌ 不为此上文件级互斥锁:那一瞬撞上的后果 = 退回今天的行为,不是新的损坏。)
@@ -597,6 +600,7 @@ export async function bootSessionHostCore(options: SessionHostBootOptions): Prom
       log.error('[session-host] 开机收残问不出 tmux 会话列表,按一个都没活下来收', { error: String(error) })
       return new Set<string>()
     })
+    ptyRecordResume = ptyRecordResumeSet()
     // 上一次是怎么退出的(更新 / 重启 / 没正常退出):被打断的那几条会话据此说清原因。读一次就删。
     await sessionBootTasks.run('status-sweep', '', () => agentStatusWriter.settleAfterRestart(tmuxSessionNames, takeLastExit(dataDir)))
     // 上一个进程投到一半就没了的消息：现在认领为「结果未知」终态（不能重投，只能如实说）。
@@ -698,6 +702,7 @@ export async function bootSessionHostCore(options: SessionHostBootOptions): Prom
   await promptLibraryService.initialize()
   // 写入者先于任何事件来源就位:它订 hook 总线,births / 收残 / 回收都经它(spec agent-status-writer)。
   agentStatusWriter.initialize()
+  stopPtyRecordSync = startPtyRecordSync(ptyRecordResume)
   installSessionsGoneFeed()
   onSessionsGone((scope) => {
     agentStatusWriter.forget(scope)
@@ -783,6 +788,7 @@ let stopActivityCollector: (() => void) | null = null
  * `before-quit` rather than letting the session backend register its own preventDefault quit handler.
  */
 let disposeEmdashModulePromise: Promise<void> | null = null
+let stopPtyRecordSync: () => void = () => {}
 
 async function disposeEmdashModuleOnce(): Promise<void> {
   const failures: unknown[] = []
@@ -804,6 +810,7 @@ async function disposeEmdashModuleOnce(): Promise<void> {
   await runPhase('automations', () => automationsService.stop())
   await runPhase('extension-programs', stopAllExtensionPrograms)
   await runPhase('agent-hooks', () => agentHookService.dispose())
+  await runPhase('pty-record-sync', () => stopPtyRecordSync())
   await runPhase('agent-status', () => agentStatusWriter.dispose())
   await runPhase('resource-sampler', stopResourceSampler)
   await runPhase('pr-sync', () => prSyncScheduler.dispose())
@@ -888,8 +895,7 @@ export async function runEmdashExtensionAction(
 export function emdashExtensionAgentContributions(): {
   extensionId: string
   name: string
-  description?: string
-  agentInstructions?: string
+  instructions?: string
   /** The manifest as installed: what an agent's app_search filters and shows (app-search.ts). */
   manifest: ExtensionManifest
   /** Switched on in 「App」: an agent's app_search says a switched-off one is there, and who switches it on. */
@@ -924,8 +930,7 @@ export function emdashExtensionAgentContributions(): {
       return {
       extensionId: manifest.id,
       name: manifest.name,
-      ...(manifest.description ? { description: manifest.description } : {}),
-      ...(manifest.contributes.agentInstructions ? { agentInstructions: manifest.contributes.agentInstructions } : {}),
+      ...(manifest.contributes.instructions ? { instructions: manifest.contributes.instructions } : {}),
       manifest,
       enabled: service.isEnabled(manifest.id),
       rootDir,
@@ -1955,7 +1960,7 @@ export async function disposeSessionpageAgentSession(input: {
   sessionId: string
 }): Promise<void> {
   await stopExactSessionpageSession(input).catch(() => false)
-  await archiveSession(input.projectId, input.sessionId, { skipTransportStop: true })
+  await archiveSession(input.projectId, input.sessionId, { skipTransportStop: true, removeSocialIdentity: false })
     .catch(() => undefined)
 }
 
@@ -2019,8 +2024,8 @@ export type EmdashSessionProvisionInput = {
 export async function emdashSessionProvisionInput(target: {
   projectId: string
   sessionId: string
-}): Promise<EmdashSessionProvisionInput | null> {
-  const rows = await getSessions()
+}, options: { includeArchived?: boolean } = {}): Promise<EmdashSessionProvisionInput | null> {
+  const rows = await getSessions(options)
   const session = rows.find((row) => row.id === target.sessionId && row.projectId === target.projectId)
   if (!session) return null
   if (!session.workspaceId) throw new Error('Session workspace is not ready')

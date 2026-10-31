@@ -75,13 +75,15 @@ describe('isLongImage / zoomLevelsFor', () => {
 })
 
 describe('downloadNameFor', () => {
-  it('alt 是原名就用它;没有就取 URL 末段,去掉查询串', () => {
-    expect(downloadNameFor({ url: 'https://x/a/b.png?token=1', alt: 'photo.png' })).toBe('photo.png')
-    expect(downloadNameFor({ url: 'https://x/a/b.png?token=1', alt: '' })).toBe('b.png')
+  it('uses the original file facts and the shared MIME rule', () => {
+    expect(downloadNameFor({ url: 'blob:https://x/1234', file: { name: '截图.v2', contentType: 'image/png' } })).toBe('截图.v2.png')
+    expect(downloadNameFor({ url: 'blob:https://x/1234', file: { name: 'photo.jpeg', contentType: 'image/jpeg' } })).toBe('photo.jpeg')
+    expect(downloadNameFor({ url: 'blob:https://x/1234', file: { name: 'unknown.v2', contentType: 'application/x-unknown' } })).toBe('unknown.v2')
+    expect(downloadNameFor({ url: 'https://x/a/b.png?token=1' })).toBe('b.png')
   })
 
   it('data: / blob: 地址没有名字可取', () => {
-    expect(downloadNameFor({ url: 'data:image/png;base64,AAAA', alt: '' })).toBe('image')
-    expect(downloadNameFor({ url: 'blob:https://x/1234', alt: '' })).toBe('image')
+    expect(downloadNameFor({ url: 'data:image/png;base64,AAAA' })).toBe('image')
+    expect(downloadNameFor({ url: 'blob:https://x/1234' }, 'image/png')).toBe('image.png')
   })
 })

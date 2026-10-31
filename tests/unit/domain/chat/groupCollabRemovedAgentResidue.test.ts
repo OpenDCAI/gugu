@@ -52,7 +52,7 @@ function chatTableResult(table: string): QueryResult {
   switch (table) {
     case 'group_scheduler_states':
       return { data: null, error: null }
-    case 'chat_members': {
+    case 'active_members': {
       const rows = chatMembersSequence
         ? chatMembersSequence[Math.min(chatMembersAttempts, chatMembersSequence.length - 1)]
         : chatMembers
@@ -166,30 +166,12 @@ describe('group collaboration removed agent residue', () => {
     chatDbMock.from.mockReset()
     identityDbMock.from.mockReset()
     schemaMock.mockImplementation((schema: string) => {
-      if (schema === 'chat') return { from: chatFrom }
+      if (schema === 'chat') return { from: chatFrom, rpc: async (name: string) => {
+        if (name !== 'list_member_ids') throw new Error(`unexpected collaboration RPC ${name}`)
+        return chatTableResult('active_members')
+      } }
       if (schema === 'identity') return { from: identityFrom, rpc: identityRpcMock }
       throw new Error(`unexpected schema ${schema}`)
-    })
-    identityRpcMock.mockImplementation(async (
-      fn: string,
-      args: { p_agent_user_id: string },
-    ) => {
-      expect(fn).toBe('get_agent_presence')
-      if (args.p_agent_user_id !== 'agent-missing') {
-        return { data: null, error: { message: 'Agent presence is not viewable by current user' } }
-      }
-      return {
-        data: {
-          presence: {
-            agent_user_id: 'agent-missing',
-            account_status: 'removed',
-            runtime_status: 'offline',
-            activity_status: 'idle',
-            updated_at: new Date(0).toISOString(),
-          },
-        },
-        error: null,
-      }
     })
     chatDbMock.from.mockImplementation((table: string) => {
       if (table === 'chat_members') {
@@ -260,83 +242,28 @@ describe('group collaboration removed agent residue', () => {
     })
   })
 
-  it('classifies tombstoned agent identity as removed while preserving unknown non-agent members', async () => {
-    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+  it('reads the roster from active_members and classifies members by their live identity, with no tombstone probe', async () => {
+    chatMembers = [
+      { chat_id: 'group-1', user_id: 'owner-1', role: 'owner' },
+      { chat_id: 'group-1', user_id: 'agent-1', role: 'member' },
+    ]
     const { snapshot } = await chatService.getGroupCollab('group-1')
 
-    expect(snapshot.humans).toMatchObject([
-      { id: 'owner-1', account_status: null },
-      { id: 'user-missing', account_status: null },
-    ])
-    expect(snapshot.agents).toMatchObject([
-      {
-        id: 'agent-missing',
-        type: 'agent',
-        account_status: 'removed',
-      },
-    ])
+    expect(snapshot.humans).toMatchObject([{ id: 'owner-1', account_status: null }])
+    expect(snapshot.agents).toMatchObject([{ id: 'agent-1', type: 'agent', account_status: 'active' }])
     expect(snapshot.humans.every((member) => !('display_name' in member) && !('avatar' in member))).toBe(true)
     expect(snapshot.agents.every((member) => !('display_name' in member) && !('avatar' in member))).toBe(true)
-    // @@@1624 follow-up - but the unresolved-identity case ALSO fails loud in logs (console.error), so a
-    // real identity-resolution bug isn't silently swallowed. Fires for the non-agent unresolved member
-    // (user-missing) and NOT for the removed agent (that's a deliberate state, gated on removedAgentIds).
-    const failLoudCalls = errorSpy.mock.calls.filter(([m]) => String(m).includes('[resolve-fail #1624] group member identity unresolved'))
-    expect(failLoudCalls).toHaveLength(1)
-    expect(failLoudCalls[0][1]).toEqual({ userId: 'user-missing' })
-    expect(failLoudCalls.some(([, fields]) => fields?.userId === 'agent-missing')).toBe(false)
-    expect(identityRpcMock).toHaveBeenCalledWith('get_agent_presence', { p_agent_user_id: 'agent-missing' })
-    expect(identityRpcMock).toHaveBeenCalledWith('get_agent_presence', { p_agent_user_id: 'user-missing' })
-    errorSpy.mockRestore()
+    // Archived identities leave active_members at once, so the roster never probes presence for tombstones.
+    expect(identityRpcMock).not.toHaveBeenCalled()
   })
 
-  it('does not classify stale agent-state rows as removed without an explicit tombstone', async () => {
-    agentStates = [
-      { agent_user_id: 'agent-missing' },
-      { agent_user_id: 'user-missing' },
-    ]
-    identityRpcMock.mockImplementation(async (
-      fn: string,
-      args: { p_agent_user_id: string },
-    ) => {
-      expect(fn).toBe('get_agent_presence')
-      if (args.p_agent_user_id === 'agent-missing') {
-        return {
-          data: {
-            presence: {
-              agent_user_id: 'agent-missing',
-              account_status: 'active',
-              runtime_status: 'offline',
-              activity_status: 'idle',
-              updated_at: new Date(0).toISOString(),
-            },
-          },
-          error: null,
-        }
-      }
-      return {
-        data: null,
-        error: { message: 'Agent presence is not viewable by current user' },
-      }
-    })
-    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+  it('fails loud when an active member identity is not returned, instead of guessing human or removed', async () => {
+    agentStates = [{ agent_user_id: 'agent-missing' }]
 
-    const { snapshot } = await chatService.getGroupCollab('group-1')
-
-    expect(snapshot.agents).toEqual([])
-    expect(snapshot.humans).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        id: 'agent-missing',
-        account_status: null,
-      }),
-      expect.objectContaining({
-        id: 'user-missing',
-        account_status: null,
-      }),
-    ]))
-    const userIds = errorSpy.mock.calls.map(([, fields]) => fields?.userId)
-    expect(userIds).toContain('agent-missing')
-    expect(userIds).toContain('user-missing')
-    errorSpy.mockRestore()
+    await expect(chatService.getGroupCollab('group-1')).rejects.toThrow(
+      'Active group member identity is unavailable: user-missing'
+    )
+    expect(identityRpcMock).not.toHaveBeenCalled()
   })
 
   it('读一次:空名册就是 GroupCollabEmptyError,❌ 原地重读四轮(#589 的拖动由下一条成员 / 修订事件再读)', async () => {
@@ -357,10 +284,10 @@ describe('group collaboration removed agent residue', () => {
   })
 
   it('成员读失败照实抛', async () => {
-    chatErrorTables = new Set(['chat_members'])
+    chatErrorTables = new Set(['active_members'])
 
     await expect(chatService.getGroupCollab('group-1')).rejects.toThrow(
-      'chat_members transient failure'
+      'active_members transient failure'
     )
   })
 

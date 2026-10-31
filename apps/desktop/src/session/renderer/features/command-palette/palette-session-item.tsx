@@ -1,5 +1,5 @@
 import { Command } from 'cmdk';
-import { GitBranch } from 'lucide-react'
+import { GitBranch } from '@/lib/icons'
 import { observer } from 'mobx-react-lite';
 import { sessionAgentStatus, sessionAgentStatusDetail } from '@renderer/features/sessions/stores/session-selectors';
 import type { SessionPageStore } from '@renderer/features/sessions/stores/session-store';

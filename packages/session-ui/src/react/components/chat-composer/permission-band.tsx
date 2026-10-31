@@ -88,7 +88,6 @@ export function PermissionBand({
   // not every time the options array reference changes while the same request is displayed.
   React.useEffect(() => {
     setSelectedId(defaultSelectedId(request.options));
-    // oxlint-disable-next-line react-hooks/exhaustive-deps
   }, [request.requestId]);
 
   return (

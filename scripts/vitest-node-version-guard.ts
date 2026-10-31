@@ -1,6 +1,6 @@
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { assertNodeVersion } from './node-version-preflight.mjs'
+import { assertNodeVersion } from './node-version-preflight.mts'
 
 export const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 

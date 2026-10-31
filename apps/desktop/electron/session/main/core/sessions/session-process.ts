@@ -7,7 +7,8 @@
  * 接回还是新起、进程活得比不比宿主久,读的人只读这里,❌ 自己再问一遍 tmux 或从设置推。
  * 没有这一行 = 这条会话此刻没有由本机起的 PTY 进程(ACP 会话不在这里:它们恒随宿主)。
  */
-import { decodeTmuxSessionName } from '@main/core/pty/tmux-session-name';
+import { LocalExecutionContext } from '@main/core/execution-context/local-execution-context';
+import { decodeTmuxSessionName, listTmuxSessionNames } from '@main/core/pty/tmux-session-name';
 import { parsePtySessionId } from '@shared/core/pty/ptySessionId';
 
 export type SessionProcess = {
@@ -43,4 +44,13 @@ export function sessionsAliveInTmux(names: ReadonlySet<string>): Set<string> {
     if (parsed && parsed.scopeId === parsed.leafId) alive.add(parsed.leafId);
   }
   return alive;
+}
+
+/**
+ * 这条会话的引擎此刻还在不在:`owned` = 本宿主持有它的进程;`detached` = 宿主重启后还没接回、但它在 tmux 里还在跑
+ * (与接回同一个判据);`gone` = 两处都没有,它不会再写任何东西。tmux 问不出来就抛,❌ 当成 `gone`。
+ */
+export async function sessionEngine(sessionId: string): Promise<'owned' | 'detached' | 'gone'> {
+  if (processes.has(sessionId)) return 'owned';
+  return sessionsAliveInTmux(await listTmuxSessionNames(new LocalExecutionContext())).has(sessionId) ? 'detached' : 'gone';
 }

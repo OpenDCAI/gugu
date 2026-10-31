@@ -23,15 +23,14 @@
 //     --snapshot <copy of the project folder> [--turns 1] [--log <dev log, to record the model>]
 import { createHash } from 'node:crypto'
 import { readFileSync, writeFileSync } from 'node:fs'
-import { createRequire } from 'node:module'
 import { basename, dirname, join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
 import { createClient } from '@supabase/supabase-js'
+import { hostOf, parseEnvFile, PRODUCTION_DB_HOST } from './build-env-preflight.mts'
 
 const repo = join(dirname(fileURLToPath(import.meta.url)), '..')
-const { parseEnvFile, PRODUCTION_DB_HOST, hostOf } = createRequire(import.meta.url)('./env-registry.cjs')
 const LOCALES = ['zh-CN', 'en-US']
 const OUT_DIR = join(repo, 'apps/desktop/src/session/renderer/features/sample-project/content')
 const TIME_ZONE = 'Asia/Shanghai'

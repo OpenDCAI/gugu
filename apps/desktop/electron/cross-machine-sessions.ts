@@ -447,8 +447,8 @@ export function createCrossMachineSessions(deps: CrossMachineDeps) {
   }
 
   /** 那台机器上的一条会话:界面同一个方法,那边走的就是人在那台机器上点的归档。 */
-  const archiveOn = async (deviceId: string, sessionId: string) => {
-    const result = await request(await reachable(deviceId), 'sessionTimeline.sessionUpdate', [{ conversationId: sessionId, archived: true }], 30_000, 'archive') as
+  const archiveOn = async (deviceId: string, sessionId: string, removeSocialIdentity = true) => {
+    const result = await request(await reachable(deviceId), 'sessionTimeline.sessionUpdate', [{ conversationId: sessionId, archived: true, removeSocialIdentity }], 30_000, 'archive') as
       | { ok: true }
       | { ok: false; error: { code: string; message: string } }
     if (!result.ok) throw new CrossMachineError(result.error.code, `on device:${deviceId}: ${result.error.message}`)

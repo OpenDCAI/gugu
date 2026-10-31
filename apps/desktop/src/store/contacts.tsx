@@ -7,13 +7,13 @@ import { isLifecycleCancellation } from '../lib/authBoundedFetch'
 import { useAuth } from './auth'
 import { useChatStore } from './chatContext'
 import { UI_EVENTS } from '../lib/uiEvents'
-import { removeAgentFromChatList } from '../lib/optimisticAgentRemoval'
 import { ContactsContext, type ContactsLoadStatus } from './contactsContext'
 import type { ContactGroup, ContactUser, FriendRequest } from '@gugu/core/shared/types/contacts'
 import { platform } from '../platform'
 import { readRequiredDisplayIdentities } from '../lib/identityReadAdapter'
 import { listManagedGroupJoinRequests, managedGroupChats, type ManagedGroupJoinRequest } from '../lib/groupJoinRequests'
 import { joinRequestIdentityIds } from '../lib/groupAgentJoin'
+import { useIdentityLifecycle } from '../hooks/useIdentityLifecycle'
 import { friendRequestEntries } from '../lib/requestHistory'
 import { type AgentLook } from '../components/agentAvatar/look'
 import { recordContactsRender } from '../lib/perfCounters'
@@ -253,6 +253,8 @@ export function ContactsProvider({ children, active = true }: { children: React.
     }
   }, [userId, loadContacts, loadGroups, loadRequests, loadGroupJoinRequests, subscribeAccountRevision])
 
+  useIdentityLifecycle(userId, getImRepository, () => Promise.all([loadContacts({ throwOnError: true }), refreshChats({ preserveMissingActive: false, throwOnError: true })]))
+
   // ── Actions ────────────────────────────────────────────────────────────────
   const searchUsers = useCallback(
     async (query: string) => {
@@ -434,28 +436,23 @@ export function ContactsProvider({ children, active = true }: { children: React.
   )
 
   const removeOwnedAgent = useCallback(
-    async (agentId: string) => {
-      await contactsService.removeOwnedAgent(agentId)
-      // The identity RPC is the deletion receipt. Local teardown/refresh cannot undo it.
+    async (agentId: string, options?: { removeSocialIdentity?: boolean }) => {
+      // The host archive is the receipt: once it resolves the archive happened, and a failed
+      // re-read below cannot turn it into a failure. Views reload their authority.
+      await contactsService.removeOwnedAgent(agentId, options)
       try {
-        await platform.releaseOwnedAgentLocalFootprint?.(agentId)
+        await (await getImRepository()).putIdentities(await readRequiredDisplayIdentities([agentId]))
+        window.dispatchEvent(new CustomEvent(UI_EVENTS.identityInvalidated, { detail: { id: agentId } }))
+        await Promise.all([
+          loadContacts({ throwOnError: true }),
+          loadGroups({ throwOnError: true }),
+          refreshChats({ acceptEmpty: true, preserveMissingActive: false, throwOnError: true }),
+        ])
       } catch (error) {
-        rendererLogger('contacts/delete').error({ error: String(error) }, 'confirmed Agent deletion: local cleanup failed')
-      }
-      // 删除已确认成功后:
-      //  · 通讯录:立即移除；权威 getContacts 也不再枚举 tombstone；
-      //  · 会话列表:直接走 chat store 既有 API 乐观移除(removeAgentFromChatList);
-      //  · 已打开的群成员抽屉(ChatAreaPanel 组件态、外部够不到):广播事件由其自身监听即时收敛。
-      // RPC 抛错则走不到这里 → 不会误移除(fail loud)。
-      try {
-        removeAgentFromChatList(agentId, chatListRemovalRef.current)
-        window.dispatchEvent(new CustomEvent(UI_EVENTS.ownedAgentRemoved, { detail: { agentUserId: agentId } }))
-        await dropContactAndReload(agentId)
-      } catch (error) {
-        rendererLogger('contacts/delete').error({ error: String(error) }, 'confirmed Agent deletion: contact refresh failed')
+        rendererLogger('contacts/archive').error({ error, agentId }, 'Archived agent; refreshing contacts and chats failed')
       }
     },
-    [dropContactAndReload],
+    [getImRepository, loadContacts, loadGroups, refreshChats],
   )
 
   const getCommonGroupChats = useCallback(

@@ -7,7 +7,7 @@ import {
   discoverAbiFragilePackages,
   dropStaleBuilds,
   probeNativeModules,
-} from '../../../scripts/ci-native-probe.mjs'
+} from '../../../scripts/ci-native-probe.mts'
 
 const repoRoot = path.resolve(__dirname, '../../..')
 

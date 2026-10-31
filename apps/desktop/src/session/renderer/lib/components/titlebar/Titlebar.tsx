@@ -1,4 +1,4 @@
-import { PanelLeft } from 'lucide-react'
+import { PanelLeft } from '@/lib/icons'
 import { detectHostOs } from '@shared/host-os';
 import { type ReactNode } from 'react';
 import { NavButtons } from '@renderer/lib/components/nav-buttons';

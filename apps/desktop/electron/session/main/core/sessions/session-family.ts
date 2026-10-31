@@ -38,7 +38,7 @@ export type OtherMachines = {
     sessions: Array<{ deviceId: string; label: string; session: SessionpageSessionSummary; listsAgents: boolean }>;
     unreached: UnreachedMachine[];
   }>;
-  archive(deviceId: string, sessionId: string): Promise<void>;
+  archive(deviceId: string, sessionId: string, removeSocialIdentity?: boolean): Promise<void>;
   /** 这台机器上的一个 App 给别的机器上的一条会话发消息(`agents:control:all-machines`)。 */
   appMessage(app: { extensionId: string; extensionName: string }, deviceId: string, sessionId: string, text: string, how: AppMessageOptions): Promise<AppMessageReceipt>;
   /** 这台机器上的一个 App 读别的机器上一条会话工作副本里的一块(`files:read:all-machines`)。 */
@@ -127,11 +127,12 @@ export async function familyOf(
 export async function archiveOnOtherMachine(
   deviceId: string,
   member: FamilyMember,
-  unreached: UnreachedMachine[]
+  unreached: UnreachedMachine[],
+  removeSocialIdentity = true
 ): Promise<boolean> {
   try {
     if (!others) throw new Error('other machines are not connected here');
-    await others.archive(deviceId, member.id);
+    await others.archive(deviceId, member.id, removeSocialIdentity);
     return true;
   } catch (error) {
     unreached.push({

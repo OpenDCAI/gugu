@@ -9,8 +9,8 @@ import { Sheet } from '../ui/Sheet'
 import { Button } from '../ui/Button'
 import { AddGroupMembers } from './AddGroupMembers'
 
-export function TaskDropGroupInvite({ chatId, agentId, currentUserId, onClose }: {
-  chatId: string; agentId: string; currentUserId?: string | null; onClose: () => void
+export function TaskDropGroupInvite({ chatId, agentId, onClose }: {
+  chatId: string; agentId: string; onClose: () => void
 }) {
   const { t } = useTranslation('messaging')
   const [group, setGroup] = useState<{ snapshot: GroupCollabSnapshot; canInviteHumans: boolean } | null>(null)
@@ -20,13 +20,12 @@ export function TaskDropGroupInvite({ chatId, agentId, currentUserId, onClose }:
     let active = true
     void (async () => {
       const { snapshot } = await chatService.getGroupCollab(chatId)
-      const role = snapshot.humans.find((member) => member.id === currentUserId)?.role
-      if (!role) throw new Error('actor_not_member')
       const settings = await chatService.getGroupChatSettings(chatId)
-      if (active) setGroup({ snapshot, canInviteHumans: !projectGroup && canInviteHumansToGroup({ viewerRole: role, allowMemberInvite: settings.allow_member_invite }) })
+      if (!settings.my_role) throw new Error('actor_not_member')
+      if (active) setGroup({ snapshot, canInviteHumans: !projectGroup && canInviteHumansToGroup(settings) })
     })().catch((reason: Error) => { if (active) setError(groupJoinError(reason).message) })
     return () => { active = false }
-  }, [chatId, currentUserId, projectGroup, t])
+  }, [chatId, projectGroup, t])
   if (!group) return <Sheet onClose={onClose} ariaLabel={t('group.picker.title')}>
     <div className="!p-5">
       <p role={error ? 'alert' : 'status'}>{error ?? t('common.loading')}</p>

@@ -158,7 +158,6 @@ export function DirectoryList({
   // render — hence an effect keyed on values its body does not read.
   useLayoutEffect(() => {
     virtualizer.scrollToOffset(0);
-    // oxlint-disable-next-line react/exhaustive-deps
   }, [entries, loadedPath, virtualizer]);
 
   const activateEntry = (index: number) => {

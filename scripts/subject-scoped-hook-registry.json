@@ -46,10 +46,6 @@
     "how": "keyed-map",
     "why": "failure = map[agentStreamKey(当前参数)] —— 换主体立刻换 key。"
   },
-  "apps/desktop/src/hooks/useGroupCollabRemovedAgentGate.ts::useGroupCollabRemovedAgentGate": {
-    "how": "no-own-state",
-    "why": "只有 ref + useMemo 出的操作对象,不承载『关于某个主体的读数』。"
-  },
   "apps/desktop/src/hooks/useRoomCollab.ts::useRoomCollab": {
     "how": "subject-scoped",
     "why": "The snapshot carries its scheduler.chat_id and is returned only for the current chatId; loader failures carry their chatId too. Switching topics returns no prior topic's rows or error while the existing roster loader refreshes."

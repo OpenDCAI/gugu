@@ -1,4 +1,4 @@
-import { format } from 'date-fns';
+import { toLocalDateTimeInput } from '@/i18n/format';
 import type { TriggerConfig } from '@shared/core/automations/config';
 
 // 人在任务页上给 agent 排的那条改时间(owner 10-19 A):只改时间,交代仍归 agent。这里是「改成什么」的纯函数,
@@ -6,7 +6,7 @@ import type { TriggerConfig } from '@shared/core/automations/config';
 
 /** `<input type="datetime-local">` 认的那种本地时间串。 */
 export function toLocalInputValue(at: number): string {
-  return format(at, "yyyy-MM-dd'T'HH:mm");
+  return toLocalDateTimeInput(at);
 }
 
 /** 反过来;读不出 = null(输入框被清空)。 */

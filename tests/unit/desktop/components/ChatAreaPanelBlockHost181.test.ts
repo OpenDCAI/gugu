@@ -47,10 +47,9 @@ vi.mock('../../../../apps/desktop/src/lib/chat', () => ({
       },
       identities: [],
     })),
-    markMessageRead: vi.fn(async () => {}),
     getOtherMembersReadSeqs: vi.fn(async () => ({})),
     getThreadMessages: vi.fn(async () => []),
-    getGroupChatSettings: vi.fn(async () => ({ chat_id: 'group-1', max_members: 500, allow_member_invite: true, invite_link_enabled: false, agent_join_approval: false, join_mode: 'open', group_prompt: null, description: null, public_id: null, join_token: null })),
+    getGroupChatSettings: vi.fn(async () => ({ chat_id: 'group-1', my_role: 'owner', can_manage: true, can_dissolve: true, can_archive_topic: true, max_members: 500, allow_member_invite: true, invite_link_enabled: false, agent_join_approval: false, join_mode: 'open', group_prompt: null, description: null, public_id: null, join_token: null })),
     listGroupJoinRequests: vi.fn(async () => []),
   },
 }))
@@ -80,7 +79,7 @@ afterEach(() => {
 
 async function renderPanel(blockHost?: { actions: HTMLElement | null; title: HTMLElement | null; tabs: HTMLElement | null }, kind: 'group' | 'dm' | 'ai' = 'group', mobile = false, project = false, hideRunningStatus = false) {
   const chrome = hideRunningStatus ? { placeholder: 'Chat', attachGlyph: null, hideRunningStatus: true } : undefined
-  const panel = createNode(ChatAreaPanel, { activeTab: 'chats', openNonce: 0, blockHost, mobile, ...(chrome ? { chrome } : {}) })
+  const panel = createNode(ChatAreaPanel, { openNonce: 0, blockHost, mobile, ...(chrome ? { chrome } : {}) })
   await renderWithAppProviders(harness, project ? createNode(InChatSlot.Provider, { value: { projectName: 'Settings project' } }, panel) : panel, {
     chat: {
       getImRepository: getImRepositoryMock,

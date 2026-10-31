@@ -7,6 +7,7 @@ import { openFixture } from '@tooling/utils/db';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AppDb } from '@main/db/client';
 import type { SessionpageSessionSummary } from '@gugu/session-core/session-record/contract';
+import type { RemovedSessionIdentity } from '@gugu/core/shared/sessionArchival';
 
 /**
  * spec session-graph 的归档合同,打在真 SQLite 上。
@@ -80,24 +81,32 @@ vi.mock('../../../../sessionpage/sessionpage-project-groups', () => ({ listProje
 const { getProjects } = await import('../projects/operations/getProjects');
 const { listSessionHistory } = await import('../session-history/list-session-history');
 const { archiveSession, restoreSession } = await import('./archiveSession');
-const { permanentlyDeleteAgentSession } = await import('./permanently-delete-agent-session');
 const { setOtherMachines } = await import('./session-family');
 const { events } = await import('@main/lib/events');
 const { sessionCreatedChannel } = await import('@shared/core/sessions/sessionEvents');
 const { sessionEvents } = await import('./session-events');
+const { setSessionIdentityHost } = await import('./session-identity-host');
+const identityHost = {
+  archive: vi.fn(async (_sessionId: string, confirmedRemoval?: RemovedSessionIdentity): Promise<RemovedSessionIdentity | null> => confirmedRemoval ?? null),
+  release: vi.fn(async (_identity: RemovedSessionIdentity) => {}),
+  restore: vi.fn(async (_target: { projectId: string; sessionId: string }, _identity: RemovedSessionIdentity) => {}),
+};
 
 beforeEach(async () => {
   mocks.userData = await mkdtemp(join(tmpdir(), 'gugu-agent-delete-files-'));
   mocks.life.interrupt.mockReset();
   mocks.life.interrupt.mockResolvedValue(undefined);
   mocks.life.restore.mockReset();
+  identityHost.archive.mockReset(); identityHost.archive.mockImplementation(async (_id, receipt) => receipt ?? null);
+  identityHost.release.mockReset(); identityHost.restore.mockReset();
+  setSessionIdentityHost(identityHost);
 });
 /** Sessions session-life was asked to archive, in call order (every interrupt here must carry reason 'archive'). */
 const archivedByLife = () => mocks.life.interrupt.mock.calls.map(([sessionId, event]) => {
   expect(event).toEqual({ k: 'interrupt', reason: 'archive' });
   return sessionId;
 });
-afterEach(async () => { await rm(mocks.userData, { recursive: true, force: true }); });
+afterEach(async () => { setSessionIdentityHost(null); await rm(mocks.userData, { recursive: true, force: true }); });
 
 describe('archiveSession', () => {
   let fixture: Awaited<ReturnType<typeof openFixture>>;
@@ -150,6 +159,57 @@ describe('archiveSession', () => {
   afterEach(() => {
     fixture.close();
     mocks.db = undefined;
+  });
+
+  it('waits for the cloud receipt before any local archival and leaves failure retryable', async () => {
+    insertSession('needs-cloud');
+    const receipt = Promise.withResolvers<RemovedSessionIdentity | null>();
+    identityHost.archive.mockReturnValueOnce(receipt.promise);
+    const pending = archiveSession('p1', 'needs-cloud');
+    await vi.waitFor(() => expect(identityHost.archive).toHaveBeenCalledWith('needs-cloud', undefined));
+    expect(archivedAt('needs-cloud')).toBeNull();
+    expect(mocks.stopped).toEqual([]);
+    expect(fixture.sqlite.prepare("SELECT key FROM kv WHERE key='session-archival:needs-cloud'").get()).toBeUndefined();
+    receipt.reject(new Error('Identity removal needs a connection'));
+    await expect(pending).rejects.toThrow('needs a connection');
+    expect(archivedAt('needs-cloud')).toBeNull();
+    expect(identityHost.release).not.toHaveBeenCalled();
+    identityHost.archive.mockResolvedValueOnce({ userId: 'old-identity', removedAt: '2026-10-31T00:00:00Z' });
+    await archiveSession('p1', 'needs-cloud');
+    expect(archivedAt('needs-cloud')).not.toBeNull();
+    expect(identityHost.release).toHaveBeenCalledWith({ userId: 'old-identity', removedAt: '2026-10-31T00:00:00Z' });
+  });
+
+  it('keeps the existing offline archive and restore path when removal is explicitly false', async () => {
+    insertSession('offline');
+    setSessionIdentityHost(null);
+    await archiveSession('p1', 'offline', { removeSocialIdentity: false });
+    expect(archivedAt('offline')).not.toBeNull();
+    await expect(restoreSession('p1', 'offline')).resolves.toMatchObject({ id: 'offline', archivedAt: null });
+    expect(identityHost.archive).not.toHaveBeenCalled();
+    expect(identityHost.restore).not.toHaveBeenCalled();
+  });
+
+  it('restores the same session with history, files and config while replacing only its removed identity', async () => {
+    insertSession('same-task');
+    const file = join(mocks.userData, 'retained.txt');
+    await writeFile(file, 'the original task file');
+    const config = JSON.stringify({ version: '1', type: 'acp', model: 'original-model' });
+    fixture.sqlite.prepare('UPDATE sessions SET config=? WHERE id=?').run(config, 'same-task');
+    fixture.sqlite.prepare("INSERT INTO messages (id, session_id, content, sender) VALUES ('old-message', 'same-task', 'original history', 'user')").run();
+    fixture.sqlite.prepare("INSERT INTO session_attachments (id, session_id, name, size, stored_path, origin) VALUES ('old-file', 'same-task', 'retained.txt', 22, ?, 'copy')").run(file);
+    const receipt = { userId: 'old-identity', removedAt: '2026-10-31T00:00:00Z' };
+    identityHost.archive.mockResolvedValueOnce(receipt);
+    await archiveSession('p1', 'same-task');
+    identityHost.restore.mockRejectedValueOnce(new Error('new identity provisioning unavailable'));
+    await expect(restoreSession('p1', 'same-task')).rejects.toThrow('provisioning unavailable');
+    expect(archivedAt('same-task')).not.toBeNull();
+    await restoreSession('p1', 'same-task');
+    expect(identityHost.restore).toHaveBeenLastCalledWith({ projectId: 'p1', sessionId: 'same-task' }, receipt);
+    expect(fixture.sqlite.prepare('SELECT id, project_id, config, archived_at FROM sessions').all()).toEqual([{ id: 'same-task', project_id: 'p1', config, archived_at: null }]);
+    expect(fixture.sqlite.prepare('SELECT session_id, content FROM messages').all()).toEqual([{ session_id: 'same-task', content: 'original history' }]);
+    expect(fixture.sqlite.prepare('SELECT stored_path FROM session_attachments').all()).toEqual([{ stored_path: file }]);
+    expect(existsSync(file)).toBe(true);
   });
 
   it.each(['PR cleanup', 'task archival'])('retains a task and messages arriving during %s when removing a project', async (boundary) => {
@@ -597,64 +657,59 @@ describe('restoreSession(内部接口,UI 上没有入口)', () => {
       intervals: [{ restoredAt: expect.any(String) }] });
   });
 
-  it('permanently removes only a deleted Agent task and its SQLite history; automatic archives stay restorable', async () => {
+  it('upgrades an existing archive with the cloud receipt and retains both tasks and their history', async () => {
     vi.mocked(sessionEvents._emit).mockClear();
-    insert('deleted-agent');
+    insert('removed-agent');
     insert('kept-agent');
-    for (const id of ['deleted-agent', 'kept-agent']) {
+    for (const id of ['removed-agent', 'kept-agent']) {
       fixture.sqlite.prepare('INSERT INTO messages (id, session_id, content, sender) VALUES (?, ?, ?, ?)').run(`${id}:message`, id, 'history', 'user');
       fixture.sqlite.prepare('INSERT INTO session_turns (id, session_id, seq, turn_id, data) VALUES (?, ?, 0, ?, ?)').run(`${id}:turn`, id, `${id}:provider-turn`, '[]');
-      await archiveSession('p1', id);
+      await archiveSession('p1', id, { removeSocialIdentity: false });
     }
-    expect(fixture.sqlite.prepare('SELECT id FROM messages ORDER BY id').all()).toHaveLength(2);
-    expect(fixture.sqlite.prepare('SELECT id FROM session_turns ORDER BY id').all()).toHaveLength(2);
+    const originalAt = archivedAt('removed-agent');
+    const receipt = { userId: 'removed-identity', removedAt: '2026-10-31T03:00:00Z' };
+    await archiveSession('p1', 'removed-agent', {}, receipt);
+    await archiveSession('p1', 'removed-agent', {}, receipt);
+    expect(identityHost.archive).toHaveBeenCalledTimes(1);
+    expect(archivedAt('removed-agent')).toBe(originalAt);
     expect(sessionEvents._emit).not.toHaveBeenCalledWith('session:deleted', expect.any(String));
-    mocks.life.interrupt.mockClear();
-    await permanentlyDeleteAgentSession('deleted-agent');
-    // An ACP identity deletion is session-life's delete, not a second archive.
-    expect(mocks.life.interrupt.mock.calls).toEqual([['deleted-agent', { k: 'interrupt', reason: 'delete' }]]);
-    expect(sessionEvents._emit).toHaveBeenCalledWith('session:deleted', 'deleted-agent');
-    expect(fixture.sqlite.prepare('SELECT id FROM sessions ORDER BY id').all()).toEqual([{ id: 'kept-agent' }]);
-    expect(fixture.sqlite.prepare('SELECT id FROM messages ORDER BY id').all()).toEqual([{ id: 'kept-agent:message' }]);
-    expect(fixture.sqlite.prepare('SELECT id FROM session_turns ORDER BY id').all()).toEqual([{ id: 'kept-agent:turn' }]);
-    await expect(restoreSession('p1', 'deleted-agent')).rejects.toThrow('Session not found');
-    await expect(permanentlyDeleteAgentSession('deleted-agent')).resolves.toBeUndefined();
-    expect(vi.mocked(sessionEvents._emit).mock.calls.filter(([name]) => name === 'session:deleted')).toEqual([['session:deleted', 'deleted-agent']]);
+    expect(fixture.sqlite.prepare('SELECT id FROM sessions ORDER BY id').all()).toEqual([{ id: 'kept-agent' }, { id: 'removed-agent' }]);
+    expect(fixture.sqlite.prepare('SELECT id FROM messages').all()).toHaveLength(2);
+    expect(fixture.sqlite.prepare('SELECT id FROM session_turns').all()).toHaveLength(2);
+    await expect(restoreSession('p1', 'removed-agent')).resolves.toMatchObject({ id: 'removed-agent', archivedAt: null });
+    expect(identityHost.restore).toHaveBeenCalledExactlyOnceWith({ projectId: 'p1', sessionId: 'removed-agent' }, receipt);
     await expect(restoreSession('p1', 'kept-agent')).resolves.toMatchObject({ id: 'kept-agent', archivedAt: null });
   });
 
-  // ACP deletion is session-life's delete (its stop failing is the owner's rejection); other runtimes still stop
-  // through the archive teardown of their mount.
-  it.each(['acp', null] as const)('does not leave a restorable task when stopping the deleted Agent fails (runtime %s)', async (runtime) => {
-    insert('stop-failed', runtime);
+  it('retains the receipt and binding when runtime stop fails, then retries without another cloud removal', async () => {
+    insert('stop-failed');
     mocks.mounted.add('stop-failed');
-    if (runtime === 'acp') mocks.life.interrupt.mockRejectedValueOnce(new Error('runtime stop unavailable'));
-    else mocks.teardown.mockRejectedValueOnce(new Error('runtime stop unavailable'));
-    await expect(permanentlyDeleteAgentSession('stop-failed')).rejects.toThrow('runtime stop unavailable');
-    expect(mocks.life.interrupt.mock.calls).toEqual(runtime === 'acp' ? [['stop-failed', { k: 'interrupt', reason: 'delete' }]] : []);
-    expect(fixture.sqlite.prepare('SELECT id FROM sessions WHERE id = ?').get('stop-failed')).toBeUndefined();
-    await expect(restoreSession('p1', 'stop-failed')).rejects.toThrow('Session not found');
+    const receipt = { userId: 'removed-identity', removedAt: '2026-10-31T03:00:00Z' };
+    mocks.teardown.mockRejectedValueOnce(new Error('runtime stop unavailable'));
+    await expect(archiveSession('p1', 'stop-failed', {}, receipt)).rejects.toThrow('runtime stop unavailable');
+    expect(archivedAt('stop-failed')).not.toBeNull();
+    expect(identityHost.release).not.toHaveBeenCalled();
+    const { sessionArchivalState } = await import('./session-archival');
+    expect(sessionArchivalState('stop-failed')?.removedIdentity).toEqual(receipt);
+    mocks.teardown.mockResolvedValueOnce({ success: true });
+    await archiveSession('p1', 'stop-failed', {}, receipt);
+    expect(identityHost.archive).toHaveBeenCalledTimes(1);
+    expect(identityHost.release).toHaveBeenCalledExactlyOnceWith(receipt);
+    await expect(restoreSession('p1', 'stop-failed')).resolves.toMatchObject({ id: 'stop-failed' });
   });
 
-  it('removes owned attachment files, non-FK history and saved UI/model state, keeping other tasks and user files', async () => {
-    insert('purged');
+  it('retains attachments, activity, UI/model state and user files after confirmed identity removal', async () => {
+    insert('retained');
     insert('untouched');
-    const ownedDir = join(mocks.userData, 'task-attachments', 'purged');
-    const legacyDir = join(mocks.userData, 'task-attachments', 'legacy-location');
-    const keptDir = join(mocks.userData, 'task-attachments', 'untouched');
+    const ownedDir = join(mocks.userData, 'task-attachments', 'retained');
     await mkdir(ownedDir, { recursive: true });
-    await mkdir(legacyDir, { recursive: true });
-    await mkdir(keptDir, { recursive: true });
     const owned = join(ownedDir, 'copy.txt');
-    const legacy = join(legacyDir, 'legacy.txt');
     const userFile = join(mocks.userData, 'user-original.txt');
-    const keptCopy = join(keptDir, 'kept.txt');
-    for (const file of [owned, legacy, userFile, keptCopy]) await writeFile(file, 'retained unless owned by the deleted task');
-    for (const [id, origin, path] of [['copy', 'copy', owned], ['legacy', 'copy', legacy], ['reference', 'reference', userFile]]) {
-      fixture.sqlite.prepare('INSERT INTO session_attachments (id, session_id, name, size, stored_path, origin) VALUES (?, ?, ?, 1, ?, ?)').run(id, 'purged', id, path, origin);
+    for (const file of [owned, userFile]) await writeFile(file, 'retained task content');
+    for (const [id, origin, path] of [['copy', 'copy', owned], ['reference', 'reference', userFile]]) {
+      fixture.sqlite.prepare('INSERT INTO session_attachments (id, session_id, name, size, stored_path, origin) VALUES (?, ?, ?, 1, ?, ?)').run(id, 'retained', id, path, origin);
     }
-    fixture.sqlite.prepare("INSERT INTO session_attachments (id, session_id, name, size, stored_path, origin) VALUES ('untouched-copy', 'untouched', 'kept.txt', 1, ?, 'copy')").run(keptCopy);
-    for (const id of ['purged', 'untouched']) {
+    for (const id of ['retained', 'untouched']) {
       fixture.sqlite.prepare("INSERT INTO activity_events (event_id, observed_at, kind, session_id, data) VALUES (?, 1, 'session.created', ?, '{}')").run(id, id);
       fixture.sqlite.prepare('INSERT INTO session_run_intervals (session_id, started_at, last_seen_at) VALUES (?, 1, 2)').run(id);
       fixture.sqlite.prepare("INSERT INTO session_model_sources (session_id, source, started_at) VALUES (?, 'gugu', 1)").run(id);
@@ -663,50 +718,39 @@ describe('restoreSession(内部接口,UI 上没有入口)', () => {
     const { viewStateService } = await import('../view-state/view-state-service');
     const { recordSessionPlatformModel, sessionPlatformModel } = await import('./platform-model-selection');
     const { recordSessionOutput, sessionOutputs } = await import('./session-outputs');
-    await viewStateService.save('session:purged', { open: true });
-    await viewStateService.save('session:purged:tabs', ['history']);
-    await recordSessionPlatformModel('purged', { modelId: 'original-model' });
-    await recordSessionOutput('purged', { kind: 'file', path: userFile });
-    await permanentlyDeleteAgentSession('purged');
-    expect(existsSync(ownedDir)).toBe(false);
-    expect(existsSync(legacy)).toBe(false);
+    await viewStateService.save('session:retained', { open: true });
+    await recordSessionPlatformModel('retained', { modelId: 'original-model' });
+    await recordSessionOutput('retained', { kind: 'file', path: userFile });
+    const model = await sessionPlatformModel('retained');
+    const outputs = await sessionOutputs('retained');
+    await archiveSession('p1', 'retained', {}, { userId: 'removed-identity', removedAt: '2026-10-31T03:00:00Z' });
+    expect(existsSync(owned)).toBe(true);
     expect(existsSync(userFile)).toBe(true);
-    expect(existsSync(keptCopy)).toBe(true);
     for (const table of ['activity_events', 'session_run_intervals', 'session_model_sources', 'activity_session_projects']) {
-      expect(fixture.sqlite.prepare(`SELECT session_id FROM ${table}`).all()).toEqual([{ session_id: 'untouched' }]);
+      expect(fixture.sqlite.prepare(`SELECT session_id FROM ${table} ORDER BY session_id`).all()).toEqual([{ session_id: 'retained' }, { session_id: 'untouched' }]);
     }
-    expect(fixture.sqlite.prepare('SELECT id FROM session_attachments').all()).toEqual([{ id: 'untouched-copy' }]);
-    expect(await viewStateService.get('session:purged')).toBeNull();
-    expect(await viewStateService.get('session:purged:tabs')).toBeNull();
-    expect(await sessionPlatformModel('purged')).toBeUndefined();
-    expect(await sessionOutputs('purged')).toEqual([]);
-    expect(fixture.sqlite.prepare("SELECT key FROM kv WHERE key = 'session-archival:purged'").get()).toBeUndefined();
+    expect(fixture.sqlite.prepare('SELECT id FROM session_attachments').all()).toHaveLength(2);
+    expect(await viewStateService.get('session:retained')).toEqual({ open: true });
+    expect(await sessionPlatformModel('retained')).toEqual(model);
+    expect(await sessionOutputs('retained')).toEqual(outputs);
   });
 
-  // ACP: the pending stop is session-life's delete transition; other runtimes: their mount's archive teardown.
-  it.each(['acp', null] as const)('serializes permanent deletion with a Restore queued while runtime teardown is pending (runtime %s)', async (runtime) => {
-    insert('delete-race', runtime);
-    mocks.mounted.add('delete-race');
+  it('serializes confirmed-removal archival with Restore without deleting the session', async () => {
+    insert('archive-race');
+    mocks.mounted.add('archive-race');
     const stopping = Promise.withResolvers<{ success: boolean }>();
-    if (runtime === 'acp') mocks.life.interrupt.mockReturnValueOnce(stopping.promise.then(() => undefined));
-    else mocks.teardown.mockReturnValueOnce(stopping.promise);
-    const deleting = permanentlyDeleteAgentSession('delete-race');
-    if (runtime === 'acp') {
-      await vi.waitFor(() => expect(mocks.life.interrupt).toHaveBeenCalledWith('delete-race', { k: 'interrupt', reason: 'delete' }));
-    } else {
-      await vi.waitFor(() => expect(mocks.teardown).toHaveBeenCalledWith('delete-race', 'archive'));
-    }
-    let restoreSettled = false;
-    const restoring = restoreSession('p1', 'delete-race').then(
-      () => { restoreSettled = true; return 'restored'; },
-      (error: Error) => { restoreSettled = true; return error.message; },
-    );
+    mocks.teardown.mockReturnValueOnce(stopping.promise);
+    const receipt = { userId: 'removed-identity', removedAt: '2026-10-31T03:00:00Z' };
+    const archiving = archiveSession('p1', 'archive-race', {}, receipt);
+    await vi.waitFor(() => expect(mocks.teardown).toHaveBeenCalledWith('archive-race', 'archive'));
+    const restoring = restoreSession('p1', 'archive-race');
     await Promise.resolve();
-    expect(restoreSettled).toBe(false);
+    expect(identityHost.restore).not.toHaveBeenCalled();
     stopping.resolve({ success: true });
-    await deleting;
-    expect(await restoring).toContain('Session not found');
-    expect(fixture.sqlite.prepare('SELECT id FROM sessions').all()).toEqual([]);
+    await archiving;
+    await expect(restoring).resolves.toMatchObject({ id: 'archive-race', archivedAt: null });
+    expect(identityHost.restore).toHaveBeenCalledExactlyOnceWith({ projectId: 'p1', sessionId: 'archive-race' }, receipt);
+    expect(fixture.sqlite.prepare('SELECT id FROM sessions').all()).toEqual([{ id: 'archive-race' }]);
   });
 
   it.each([false, true])('closes through real identity cleanup and SQLite archival, delete-started=%s', async (deleteStarted) => {
@@ -728,7 +772,6 @@ describe('restoreSession(内部接口,UI 上没有入口)', () => {
     const startedSchedule = schedules.get('started-task')!;
     const originalSchedule = fixture.sqlite.prepare('SELECT * FROM automations WHERE id = ?').get(startedSchedule);
     const originalRuns = fixture.sqlite.prepare('SELECT * FROM automation_runs WHERE automation_id = ?').all(startedSchedule);
-    const { releaseDeletedOwnedAgent } = await import('../../../../sessionpage/owner-agent-deletion');
     const { createAgent, updateAgent, listAgents } = await import('@gugu/core');
     const home = await mkdtemp(join(tmpdir(), 'gugu-close-chain-'));
     const env = { GUGU_HOME: home };
@@ -741,7 +784,11 @@ describe('restoreSession(内部接口,UI 上没有入口)', () => {
     const own = summary('assistant-task', 'assistant-id');
     const unbound = summary('assistant-unbound', 'assistant-id');
     const child = summary('started-task', 'child-id');
-    const deletedIdentities: string[] = [];
+    const removedIdentities: string[] = [];
+    const { releaseAgentLocalFootprint } = await import('../../../../sessionpage/agent-local-footprint');
+    identityHost.release.mockImplementation(async identity => {
+      await releaseAgentLocalFootprint({ agentUserId: identity.userId, identityRemoved: true, env });
+    });
     const wipeHome = vi.fn(async () => {});
     const resetLocalState = vi.fn();
     try {
@@ -752,31 +799,26 @@ describe('restoreSession(内部接口,UI 上没有入口)', () => {
         listAutomations,
         deleteAutomation: async id => { await softDeleteAutomation(id); },
         removeAgent: async agentId => {
-          deletedIdentities.push(agentId); // The cloud identity RPC boundary alone is injected.
-          const { sessionpageSessionIdForAgent, releaseAgentLocalFootprint } = await import('../../../../sessionpage/agent-local-footprint');
-          await releaseDeletedOwnedAgent(agentId, {
-            sessionIdForAgent: id => sessionpageSessionIdForAgent(id, env),
-            cancelInFlightTurn: async () => false,
-            releaseFootprint: id => releaseAgentLocalFootprint({ agentUserId: id, identityRemoved: true, env }),
-            removeBoundSession: permanentlyDeleteAgentSession,
-          });
+          removedIdentities.push(agentId); // Inject only the cloud single-write receipt.
+          const sessionId = binding.get(agentId)!;
+          await archiveSession('p1', sessionId, {}, { userId: agentId, removedAt: '2026-10-31T03:00:00Z' });
         },
-        archiveSession: async (projectId, sessionId) => { await archiveSession(projectId, sessionId); },
+        archiveSession: async (projectId, sessionId) => { await archiveSession(projectId, sessionId, { removeSocialIdentity: false }); },
         wipeHome, resetLocalState,
       });
       expect(wipeHome).toHaveBeenCalledOnce();
       expect(resetLocalState).toHaveBeenCalledOnce();
-      expect(deletedIdentities).toEqual(deleteStarted ? ['child-id', 'assistant-id'] : ['assistant-id']);
+      expect(removedIdentities).toEqual(deleteStarted ? ['child-id', 'assistant-id'] : ['assistant-id']);
       const history = await listSessionHistory({ source: 'gugu', status: 'archived' });
-      expect(history.rows.map(row => row.gugu?.sessionId).sort()).toEqual(deleteStarted ? ['assistant-unbound'] : ['assistant-unbound', 'started-task']);
+      expect(history.rows.map(row => row.gugu?.sessionId).sort()).toEqual(['assistant-task', 'assistant-unbound', 'started-task']);
       expect(archivedAt('assistant-unbound')).not.toBeNull();
-      await expect(restoreSession('p1', 'assistant-task')).rejects.toThrow('Session not found');
+      await expect(restoreSession('p1', 'assistant-task')).resolves.toMatchObject({ id: 'assistant-task' });
       expect(await getAutomation(schedules.get('assistant-task')!)).toBeNull();
       expect(await getAutomation(schedules.get('assistant-unbound')!)).toBeNull();
       expect(await getAutomation(schedules.get('other-task')!)).toMatchObject({ agentSessionId: 'other-task', enabled: true });
       if (deleteStarted) {
         expect(await getAutomation(startedSchedule)).toBeNull();
-        await expect(restoreSession('p1', 'started-task')).rejects.toThrow('Session not found');
+        await expect(restoreSession('p1', 'started-task')).resolves.toMatchObject({ id: 'started-task' });
         expect(await listAgents(env)).toEqual([]);
       } else {
         expect((await listAgents(env)).map(agent => agent.gugu_user_id)).toEqual(['child-id']);

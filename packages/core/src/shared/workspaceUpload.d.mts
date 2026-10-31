@@ -1,4 +1,9 @@
 export declare const WORKSPACE_TEXT_MAX_BYTES: number
+export declare function workspaceStoredText(
+  fileName: string,
+  mimeType: string | null | undefined,
+  bytes: Uint8Array,
+): { contentType: string; text: string } | null
 export declare function workspaceUploadKind(
   fileName: string,
   mimeType: string | null | undefined,

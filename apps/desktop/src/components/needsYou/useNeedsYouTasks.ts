@@ -6,11 +6,11 @@ import { useDevicesStore } from '@/store/devicesContext'
 import { useLiveDeviceSessions } from '@/session/shared/remote-sessions/session-directory'
 import { startSessionListSync } from '@/session/shared/remote-sessions/session-list-sync'
 import { machineSessionListClient } from '@/session/renderer/features/remote-hosts/machine-session-list'
-import { sessionReading } from '@/mobile/agent-watch/watch-status'
+import { sessionPresentation } from '@/mobile/agent-watch/watch-status'
 import { usePhoneAgentDirectory } from '@/mobile/local-agent/usePhoneAgentDirectory'
 import { isPhoneDevice } from '@gugu/core/cloud/devices'
-import { mostUrgentAttention, type AgentAttention, type AgentStatus } from '@gugu/core/shared/agentStatus'
-import { asksYou } from '@gugu/core/shared/ui/notificationModels'
+import { mostUrgentAttention, type AgentAttention } from '@gugu/core/shared/agentStatus'
+import { isNeedsYou, presentationAttention } from '@gugu/core/shared/agentStatusPresentation'
 
 export type NeedsYouTask = {
   deviceId: string
@@ -42,7 +42,7 @@ export function useNeedsYouTasks(): { tasks: NeedsYouTask[]; attention: AgentAtt
   }, [ownerId, localId])
 
   const tasks: NeedsYouTask[] = []
-  const statuses: (AgentStatus | null)[] = []
+  const statuses: AgentAttention[] = []
   if (!ownerId) return { tasks, attention: null, error: null }
   for (const device of devices) {
     const here = device.device_id === localId
@@ -51,9 +51,10 @@ export function useNeedsYouTasks(): { tasks: NeedsYouTask[]; attention: AgentAtt
       ? local?.ownerId === ownerId && local.deviceId === localId ? local.list.sessions : []
       : device.is_online && live && !live.cached && !live.error ? live.sessions : []
     for (const session of sessions) {
-      const reading = sessionReading(session)
-      statuses.push(reading?.status ?? null)
-      if (!asksYou(reading)) continue
+      // 列出的只有连得上的宿主;有身份的 agent 读共享 presence,与侧栏同一个判据。
+      const presentation = sessionPresentation(session, true)
+      statuses.push(presentationAttention(presentation))
+      if (!isNeedsYou(presentation)) continue
       tasks.push({ deviceId: device.device_id, machine: device.label, local: here, phoneHost: isPhoneDevice(device), session })
     }
   }

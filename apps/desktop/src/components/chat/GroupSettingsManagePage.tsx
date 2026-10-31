@@ -107,7 +107,7 @@ export function GroupSettingsManagePage({ chatId, settings, totalMembers, invite
 
       <div style={settingsSectionLabelStyle}>{t('group.settings.sectionAgents')}</div>
       {/* @@@5856 / #5999 agent 数量线(含话题阈值)统一在群设置里管,❌ 回到成员面板。 */}
-      <GroupAgentFloodSettings key={chatId} chatId={chatId} editable />
+      <GroupAgentFloodSettings key={chatId} chatId={chatId} scope="group" />
 
       <div style={settingsSectionLabelStyle}>{t('group.settings.sectionMembers')}</div>
       <div style={settingsCenteredRowStyle}>

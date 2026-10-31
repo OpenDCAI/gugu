@@ -14,7 +14,6 @@ import {
   searchApps,
   type AppSearchRecord,
 } from '../../src/session/shared/extensions/app-search'
-import { firstSentence } from './first-sentence'
 import { describeWindow, listRowsSchema, parseRows } from './list-window.mjs'
 import { assertMcpToolDescriptionWithinBudget } from './mcp-tool-description-budget.mjs'
 
@@ -28,23 +27,16 @@ export interface AppSearchHit extends AppSearchRecord {
 export type AppSearchSource = () => Promise<{ apps: AppSearchHit[]; market?: string }> | null
 
 /**
- * One page at most this many rows, and by default. A row is up to ~600 bytes (an about of 120 Chinese characters is 360);
- * ten with the facets stay under 6.5 KB, inside one output's 8 000 bytes (TOOL_OUTPUT_BYTE_BUDGET, Codex cuts the middle
- * past it). More is a next page, never a longer one.
+ * One page at most this many rows, and by default. A row is up to ~1 000 bytes (a subtitle of 30 and instructions of 160
+ * Chinese characters are 570, a long `next` 250); seven with the facets stay under 7.5 KB, inside one output's 8 000 bytes
+ * (TOOL_OUTPUT_BYTE_BUDGET, Codex cuts the middle past it). More is a next page, never a longer one.
  */
-export const APP_SEARCH_PAGE_ROWS = 10
-/** An about is the description's first sentence, cut here — the cut of an App's line in <gugu_apps>. */
-const ABOUT_MAX_CHARS = 120
-
-const about = (description: string | undefined) => {
-  const chars = [...firstSentence(description ?? '')]
-  return chars.length <= ABOUT_MAX_CHARS ? chars.join('') : `${chars.slice(0, ABOUT_MAX_CHARS - 1).join('')}…`
-}
+export const APP_SEARCH_PAGE_ROWS = 7
 
 const DESCRIPTION = 'Find Apps — installed here (on, switched off, not given to you, unusable) and in the market — by keywords, state, category, risk or a file they open; each row says what to do next, facets count what narrowing would leave.'
 
 const schema = z.object({
-  query: z.string().optional().describe('Keywords: name, id, description, categories.'),
+  query: z.string().optional().describe('Keywords: name, id, subtitle, instructions, categories.'),
   state: z.array(z.enum(APP_SEARCH_STATES)).optional(),
   category: z.array(z.string()).optional().describe('As facets.category names them.'),
   max_risk: z.enum(APP_RISKS).optional().describe('Only Apps whose permissions are at most this loud; none = it asks for none.'),
@@ -68,7 +60,8 @@ export function registerGuguAppSearchTool(server: McpServer, source: AppSearchSo
     const page = (items as AppSearchHit[]).slice(window.from - 1, window.to).map((hit) => ({
       app: hit.manifest.id,
       name: hit.manifest.name,
-      about: about(hit.manifest.description),
+      ...(hit.manifest.subtitle ? { subtitle: hit.manifest.subtitle } : {}),
+      ...(hit.manifest.contributes.instructions ? { instructions: hit.manifest.contributes.instructions } : {}),
       state: hit.state,
       version: hit.version,
       category: appCategories(hit.manifest),

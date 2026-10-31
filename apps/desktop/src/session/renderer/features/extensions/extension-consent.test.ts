@@ -15,7 +15,7 @@ function app(opensFiles?: unknown, capabilities: string[] = ['files:read', 'file
     id: 'vote',
     name: 'Vote',
     version: '1.0.0',
-    apiVersion: EXTENSION_API_VERSION,
+    apiVersion: EXTENSION_API_VERSION, defaultLocale: 'en',
     entry: 'index.html',
     permissions: { capabilities },
     contributes: { tabs: [{ name: 'main', title: 'Vote', ...(opensFiles === undefined ? {} : { opensFiles }) }] },
@@ -81,7 +81,7 @@ describe('the renamed words are asked again on update', () => {
 
   // 125 10-06: no table from old words to new ones. An old word is an unknown word, refused naming the words there are.
   it('installed with the old words: that manifest is refused like any unknown word, naming the words there are — and the update asks for everything', () => {
-    const old = { id: 'vote', name: 'Vote', version: '1.0.0', apiVersion: EXTENSION_API_VERSION, entry: 'index.html', contributes: { tabs: [{ name: 'main', title: 'Vote' }] } };
+    const old = { id: 'vote', name: 'Vote', version: '1.0.0', apiVersion: EXTENSION_API_VERSION, defaultLocale: 'en', entry: 'index.html', contributes: { tabs: [{ name: 'main', title: 'Vote' }] } };
     for (const word of ['workspace:read', 'workspace:write', 'conversation:relay', 'files:all']) {
       const parsed = safeParseExtensionManifest({ ...old, permissions: { capabilities: [word] } });
       expect(parsed.ok).toBe(false);
@@ -119,10 +119,10 @@ describe('agents:tools: the plain sentence, then what runs word for word', () =>
     id: 'board',
     name: 'Board',
     version: '1.0.0',
-    apiVersion: EXTENSION_API_VERSION,
+    apiVersion: EXTENSION_API_VERSION, defaultLocale: 'en',
     entry: 'index.html',
     permissions: { capabilities: ['agents:tools'] },
-    contributes: { tabs: [{ name: 'main', title: 'Board' }], ...contributes },
+    contributes: { tabs: [{ name: 'main', title: 'Board' }], instructions: 'Board tools.', ...contributes },
   });
   const programs = [{ tools: 'tools.js' }, { name: 'py', command: 'uvx', args: ['board-mcp'] }];
 

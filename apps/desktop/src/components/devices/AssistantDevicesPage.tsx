@@ -150,7 +150,7 @@ function DeviceItem({
   const status = device.is_online
       ? t('devices.online')
       : (() => {
-          const seen = formatRelativeTime(device.last_seen_at, { dateAfterDays: 30 })
+          const seen = formatRelativeTime(device.last_seen_at, { mode: 'elapsed', dateAfterDays: 30 })
           return seen ? t('devices.lastSeen', { time: seen }) : t('devices.offline')
         })()
   const availability = deviceAvailability(kind, device)

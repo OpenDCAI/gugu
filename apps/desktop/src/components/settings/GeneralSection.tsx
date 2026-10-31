@@ -45,7 +45,7 @@ const NOTIFICATION_ROWS: ReadonlyArray<{
 
 // 前三种是**系统给的**结论(见 lib/notificationDiagnostics.ts)。
 // ⚠️ 系统给的原因**只进日志**(主进程 notificationLogger),❌ 不拼进用户可见文案 ——
-// scripts/user-copy-leak-check.mjs 的 copy-leaks-internal-detail 就是拦这个的:
+// scripts/user-copy-leak-check.mts 的 copy-leaks-internal-detail 就是拦这个的:
 // "Notifications are not allowed for this application" 对用户不可操作,他要的是下一步怎么办。
 const NOTIFICATION_HINT_KEYS = {
   accepted: 'settings.general.notificationsTestSent',

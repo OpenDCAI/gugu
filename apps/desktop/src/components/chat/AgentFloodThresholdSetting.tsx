@@ -42,13 +42,11 @@ const INPUT_STYLE: CSSProperties = {
 
 export function AgentFloodThresholdSetting({
   chatId,
-  editable,
   inherits,
   onSaved,
   revision = 0,
 }: {
   chatId: string
-  editable: boolean
   /** 这条线上面还有一条线可跟(话题有,群没有)——只影响那句说明的措辞。 */
   inherits: boolean
   onSaved?: () => void
@@ -60,6 +58,7 @@ export function AgentFloodThresholdSetting({
   const readSequence = useRef(0)
   const [busy, setBusy] = useState(false)
   const [failed, setFailed] = useState('')
+  const [editable, setEditable] = useState(false)
   const [value, setValue] = useState<number | null>(null)
   const [effective, setEffective] = useState<number | null>(null)
   // null means no local edit; an empty string is the explicit inheritance draft.
@@ -72,6 +71,7 @@ export function AgentFloodThresholdSetting({
     chatService.getGroupChatSettings(chatId)
       .then((settings) => {
         if (cancelled || sequence !== readSequence.current) return
+        setEditable(settings.can_manage)
         setValue(settings.agent_flood_threshold)
         setEffective(settings.agent_flood_threshold_effective)
       })

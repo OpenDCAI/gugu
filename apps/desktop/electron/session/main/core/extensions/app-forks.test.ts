@@ -32,7 +32,7 @@ beforeEach(() => {
   git('config', 'user.email', 'app@example.com');
   const source = path.join(state.repo, 'sources', 'demo');
   mkdirSync(source, { recursive: true });
-  writeFileSync(path.join(source, 'manifest.json'), JSON.stringify({ id: 'demo', name: 'Demo', version: '1.0.0', apiVersion: EXTENSION_API_VERSION, platforms: ['desktop'], entry: 'index.html', contributes: { tabs: [{ name: 'main', title: 'Demo' }] } }));
+  writeFileSync(path.join(source, 'manifest.json'), JSON.stringify({ id: 'demo', name: 'Demo', version: '1.0.0', apiVersion: EXTENSION_API_VERSION, defaultLocale: 'en', platforms: ['desktop'], entry: 'index.html', contributes: { tabs: [{ name: 'main', title: 'Demo' }] } }));
   writeFileSync(path.join(source, 'index.html'), 'installed release');
   mkdirSync(path.join(state.repo, 'sources', 'other'));
   writeFileSync(path.join(state.repo, 'sources', 'other', 'private.html'), 'not part of this App');

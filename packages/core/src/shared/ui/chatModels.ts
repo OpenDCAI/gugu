@@ -15,16 +15,28 @@ export function isRoomChat(kind: ChatKind): boolean {
   return kind === 'group' || kind === 'topic'
 }
 
+/** 一行会话的未读读数。三个字段语义不同,❌ 强求相等,❌ 在别处另算(owner 10-28、10-30)。 */
+export type ChatAttention = {
+  /** 这一行自己的全部未读:话题页签、行内原始数。 */
+  unread: number
+  /** 列表里算到你头上的:话题只算叫到你的(点名你、@all、回复你说的),其余会话算全部未读。 */
+  forYou: number
+  /** 出窗口的徽标与横幅:免打扰为 0;群与话题只算叫到你的,私聊算全部未读。 */
+  askingYou: number
+}
+
 /**
- * 列表内的安静未读数沿用本函数；出窗口徽标用 notificationModels.unreadAskingYou（群/话题都只数叫到你）。
- * 未读里算到你头上的条数(owner 10-28):话题只算叫到你的 —— 点名你、@all、回复你说的;其余会话算全部未读。
- * agent 开的话题会把主人拉成成员,agent 之间的往来照旧是话题自己的未读(话题页签上的数),但不进项目行、不弹通知。
- * 没有 locator(没有未读 = 0;本机刚手动标未读、还没刷新 = 1,与服务端「手动标记算 1」一致)就照 unread_count。
+ * 未读读数的**唯一公式**:列表、项目行、手机行、Dock / 托盘徽标、系统通知都读它。
+ * 「叫到你」= 服务端 list_unread_locators.addressed_count(手动标未读算 1),与 agent 被叫醒同一判据。
+ * 没有 locator = 没有未读(0),或本机刚手动标未读、还没刷新(1,与服务端「手动标记算 1」一致):照 unread_count。
  */
-export function unreadForYou(chat: Pick<ChatItem, 'kind' | 'unread_count' | 'unread_locator'>): number {
-  if (chat.kind !== 'topic' || !chat.unread_locator) return chat.unread_count
-  // 不知道哪几条叫到你(旧后端、旧缓存)就照旧全算:多算一点,❌ 把点名你的那条算没。
-  return chat.unread_locator.addressed_count ?? chat.unread_count
+export function chatAttention(chat: Pick<ChatItem, 'kind' | 'unread_count' | 'unread_locator' | 'is_muted'>): ChatAttention {
+  const addressed = chat.unread_locator ? chat.unread_locator.addressed_count : chat.unread_count
+  return {
+    unread: chat.unread_count,
+    forYou: chat.kind === 'topic' ? addressed : chat.unread_count,
+    askingYou: chat.is_muted ? 0 : isRoomChat(chat.kind) ? addressed : chat.unread_count,
+  }
 }
 
 export function fallbackChatName(kind: ChatKind): string {

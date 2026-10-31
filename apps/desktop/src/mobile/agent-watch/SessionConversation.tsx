@@ -179,7 +179,7 @@ export function SessionConversation({ timeline, deviceId, sessionId, agentName, 
       if (!result.success) throw new Error(result.error)
       return result.dataUrl
     },
-    openImage: (url, name, thumb) => openImageViewer([{ url, alt: name, thumb }], 0),
+    openImage: (url, name, thumb) => openImageViewer([{ url, alt: name, file: { name }, thumb }], 0),
     openFile: outputs.openFile,
     unavailable: () => translateSessionMessage('attachmentViewer.unavailable'),
     onError: error => setBackgroundError(messageForUser(error)),

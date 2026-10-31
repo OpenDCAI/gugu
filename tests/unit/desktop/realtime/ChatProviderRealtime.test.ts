@@ -15,6 +15,7 @@ const {
   setUserMock,
   notificationSettings,
   chatServiceMock,
+  readMock,
   getUnreadLocatorMessagesMock,
   getUnreadLocatorWindowMock,
   openImRepositoryMock,
@@ -22,6 +23,7 @@ const {
   revisionCoordinatorMock,
 } =
   vi.hoisted(() => ({
+    readMock: vi.fn(),
     authUser: { id: 'user-1', email: 'user@example.test', nickname: 'User One' },
     authOverride: { current: null as null | { id: string; email: string; nickname: string } },
     setUserMock: vi.fn(),
@@ -33,7 +35,6 @@ const {
       getOtherMembersReadSeqs: vi.fn(),
       fetchMessageOverlays: vi.fn(),
       revalidateWindow: vi.fn(),
-      markRead: vi.fn(),
       toggleReaction: vi.fn(),
       clearMessagesForMe: vi.fn(),
       deleteMessage: vi.fn(),
@@ -61,6 +62,11 @@ vi.mock('../../../../apps/desktop/src/store/auth', () => ({
     loading: false,
     setUser: setUserMock
   })
+}))
+// 云端主线读位经唯一写入口 writeRead;这里按 (chatId, seq) 记下它。
+vi.mock('../../../../apps/desktop/src/lib/readWriter', async (original) => ({
+  ...await original<typeof import('../../../../apps/desktop/src/lib/readWriter')>(),
+  writeRead: async (target: { kind: string; chatId?: string; seq?: number }) => (target.kind === 'main' ? readMock(target.chatId!, target.seq!) : undefined),
 }))
 vi.mock('../../../../apps/desktop/src/lib/chat', () => ({
   chatService: chatServiceMock
@@ -305,7 +311,7 @@ beforeEach(async () => {
   chatServiceMock.getOtherMembersReadSeqs.mockReset()
   chatServiceMock.fetchMessageOverlays.mockReset()
   chatServiceMock.revalidateWindow.mockReset()
-  chatServiceMock.markRead.mockReset()
+  readMock.mockReset()
   chatServiceMock.toggleReaction.mockReset()
   chatServiceMock.clearMessagesForMe.mockReset()
   chatServiceMock.deleteMessage.mockReset()
@@ -328,7 +334,7 @@ beforeEach(async () => {
   })
   openImRepositoryMock.mockReset()
   openImRepositoryMock.mockImplementation(async () => memRepository)
-  chatServiceMock.markRead.mockResolvedValue(undefined)
+  readMock.mockResolvedValue(undefined)
   chatServiceMock.toggleReaction.mockResolvedValue(undefined)
   chatServiceMock.clearMessagesForMe.mockResolvedValue(undefined)
   chatServiceMock.deleteMessage.mockResolvedValue({ chatId: 'chat-1', globallyDeleted: false })
@@ -468,7 +474,7 @@ describe('ChatProvider realtime freshness', () => {
     expect(chatServiceMock.getMessages).toHaveBeenCalledTimes(2)
     expect(chatServiceMock.getMessages).toHaveBeenLastCalledWith('chat-1', 'user-1', 'loadNewer', 200, undefined, 1)
     expectTextContains(harness, 'before', 'gap')
-    expect(chatServiceMock.markRead).toHaveBeenLastCalledWith('chat-1', 2)
+    expect(readMock).toHaveBeenLastCalledWith('chat-1', 2)
   })
   it('keeps the revision refresh snapshot when the older initial load resolves later', async () => {
     const before = message({ id: 'before', seq: 1, content: 'before' })
@@ -483,7 +489,7 @@ describe('ChatProvider realtime freshness', () => {
     expectTextContains(harness, 'gap')
     await resolveDeferred(initialLoad, [before])
     expectTextContains(harness, 'before', 'gap')
-    expect(chatServiceMock.markRead).toHaveBeenLastCalledWith('chat-1', 2)
+    expect(readMock).toHaveBeenLastCalledWith('chat-1', 2)
   })
   it('marks read using the latest persisted seq when optimistic messages are cached', async () => {
     const before = message({ id: 'before', seq: 1, content: 'before' })
@@ -502,8 +508,8 @@ describe('ChatProvider realtime freshness', () => {
     await appendMessages(optimistic)
     await emitRevision('message_created', { chat_id: 'chat-1', entity_id: 'gap' })
     expectTextContains(harness, 'gap', 'sending')
-    expect(chatServiceMock.markRead).toHaveBeenLastCalledWith('chat-1', 2)
-    expect(chatServiceMock.markRead).not.toHaveBeenCalledWith('chat-1', -1)
+    expect(readMock).toHaveBeenLastCalledWith('chat-1', 2)
+    expect(readMock).not.toHaveBeenCalledWith('chat-1', -1)
   })
   it('does not treat an empty refresh snapshot as authoritative deletion', async () => {
     const local = message({ id: 'local-message', seq: 1, content: 'local visible' })
@@ -571,7 +577,7 @@ describe('ChatProvider realtime freshness', () => {
     const visible = message({ id: 'visible', seq: 1, content: 'visible text' })
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
     chatServiceMock.getMessages.mockResolvedValueOnce([visible])
-    chatServiceMock.markRead.mockRejectedValueOnce(error)
+    readMock.mockRejectedValueOnce(error)
     try {
       const harness = await renderActiveChat()
       expectTextContains(harness, 'visible text')
@@ -949,7 +955,7 @@ describe('#947 persistent message-window cache (cold start + freshness gating)',
     } })
     expectTextContains(harness, 'before', 'arrived')
     expect(chatServiceMock.getMessages).toHaveBeenCalledTimes(1)
-    expect(chatServiceMock.markRead).toHaveBeenLastCalledWith('chat-1', 2)
+    expect(readMock).toHaveBeenLastCalledWith('chat-1', 2)
   })
 
   it('#5649 a carried row beyond the verified tail, or a thread reply, still takes the gap-heal path', async () => {

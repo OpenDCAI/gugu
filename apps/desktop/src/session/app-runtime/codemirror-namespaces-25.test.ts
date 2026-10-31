@@ -4,7 +4,7 @@ import * as directView from '@codemirror/view';
 import type { DecorationSet, EditorView as View, ViewUpdate } from '@codemirror/view';
 import { afterEach, describe, expect, it } from 'vitest';
 import { codemirror } from './codemirror-entry';
-import { loadPage, until } from './fake-file-service';
+import { fileOpened, loadPage, until } from './fake-file-service';
 import { CONTENT_MENU_EVENT, type ContentMenuSnapshot } from '@gugu/session-shared/content-menu';
 
 /**
@@ -81,6 +81,25 @@ describe('gugu.codemirror(): the modules whole, one copy (F25)', () => {
     expect(history()).toEqual({ undo: false, redo: true });
     view.contentDOM.dispatchEvent(new CustomEvent(CONTENT_MENU_EVENT, { detail: { action: 'redo' }, cancelable: true }));
     expect(view.state.doc.toString()).toBe('plan: **ship** today and **test** local');
+    unbind();
+    view.destroy();
+    file.close();
+  });
+
+  it('shows historical stored text through the same bound text view without making the editor editable', async () => {
+    const { host, open } = await loadPage<TextFile>('text');
+    const opened = fileOpened('text');
+    opened.entry.type = 'binary';
+    opened.entry.contentType = 'text/markdown';
+    opened.bytes = new TextEncoder().encode('# stored note\n').buffer;
+    host.appFiles.open.mockResolvedValueOnce(opened);
+    const file = await open();
+    const { codemirror: cm, bindCodemirror } = await import('./codemirror-entry');
+    const view = new cm.EditorView({ parent: document.body, extensions: [cm.minimalSetup] });
+    const unbind = bindCodemirror(view, file);
+    expect(view.state.doc.toString()).toBe('# stored note\n');
+    expect(view.state.readOnly).toBe(true);
+    expect(view.contentDOM.getAttribute('contenteditable')).toBe('false');
     unbind();
     view.destroy();
     file.close();

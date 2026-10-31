@@ -2,6 +2,7 @@
 // 入口是模块函数而不是 React context:会话页是另一棵 React 树,context 伸不过去。
 
 import type { ResourceContext } from '@/session/shared/resource-actions'
+import { savedFileName } from '@/session/shared/extensions/app-runtime-protocol'
 
 export interface ImageViewerItem {
   /** Actual origin, never inferred from whichever conversation is behind the viewer. */
@@ -9,6 +10,8 @@ export interface ImageViewerItem {
   resource?: ResourceContext
   url: string
   alt: string
+  /** Original file facts; alt is display text, not a download name. */
+  file?: { name: string; contentType?: string | null }
   /** 页面上那张缩略图:从它放大进入、关闭时缩回去,并提前知道原图尺寸;没有就淡入淡出。 */
   thumb?: HTMLElement | null
   /** 气泡里画的是缩略图时:取原图(object URL)。查看器先用 url 打开,翻到这一张再换成原图。 */
@@ -18,9 +21,9 @@ export interface ImageViewerItem {
 }
 
 /** 缩略图 <img> → 取它原图的办法(附件进群文件夹 ③:气泡用 CDN 缩略图,原图到看的时候才下)。 */
-const fullImageLoaders = new WeakMap<HTMLImageElement, Pick<ImageViewerItem, 'full' | 'resource' | 'source'>>()
-export function registerFullImage(thumb: HTMLImageElement, load: () => Promise<string>, resource?: ResourceContext, source?: ImageViewerItem['source']): () => void {
-  const entry = { full: load, resource, ...(source ? { source } : {}) }
+const fullImageLoaders = new WeakMap<HTMLImageElement, Pick<ImageViewerItem, 'full' | 'resource' | 'file' | 'source'>>()
+export function registerFullImage(thumb: HTMLImageElement, load: () => Promise<string>, resource?: ResourceContext, file?: ImageViewerItem['file'], source?: ImageViewerItem['source']): () => void {
+  const entry = { full: load, resource, file, ...(source ? { source } : {}) }
   fullImageLoaders.set(thumb, entry)
   return () => {
     if (fullImageLoaders.get(thumb) === entry) fullImageLoaders.delete(thumb)
@@ -82,11 +85,10 @@ export function zoomLevelsFor(image: Size, panArea: Size, fit: number): { initia
   return { initial, secondary, max: Math.max(2, secondary, initial * 4) }
 }
 
-/** alt 就是上传时的原名;没有就取 URL 末段。data:/blob: 地址没有名字可取。 */
-export function downloadNameFor(item: Pick<ImageViewerItem, 'url' | 'alt'>): string {
-  if (item.alt) return item.alt
+/** Adapt file facts (or a plain image URL) to the shared save-name contract. */
+export function downloadNameFor(item: Pick<ImageViewerItem, 'url' | 'file'>, contentType?: string): string {
   const nameFromUrl = /^(data|blob):/.test(item.url) ? '' : item.url.split('/').pop()?.split('?')[0]
-  return nameFromUrl || 'image'
+  return savedFileName({ name: item.file?.name ?? (nameFromUrl || 'image'), contentType: item.file?.contentType || contentType })
 }
 
 // 只有一个宿主,挂载时登记、卸载时注销。
@@ -138,8 +140,8 @@ export function openImageFromThumb(thumb: HTMLImageElement): void {
 }
 
 /** 输入框里的附件 chip:图片进查看器并返回 true;文本附件返回 false,交回宿主的附件对话框。 */
-export function openComposerImage(attachment: { kind: 'image' | 'file'; name: string; previewUrl?: string }): boolean {
+export function openComposerImage(attachment: { kind: 'image' | 'file'; name: string; previewUrl?: string; mimeType?: string }): boolean {
   if (attachment.kind !== 'image' || !attachment.previewUrl) return false
-  openImageViewer([{ url: attachment.previewUrl, alt: attachment.name }])
+  openImageViewer([{ url: attachment.previewUrl, alt: attachment.name, file: { name: attachment.name, contentType: attachment.mimeType } }])
   return true
 }

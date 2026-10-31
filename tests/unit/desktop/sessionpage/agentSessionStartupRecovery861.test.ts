@@ -18,7 +18,7 @@ describe('agent startup rollback ownership (#861)', () => {
   it('discards only this attempt’s new task when provisioning never bound an identity', async () => {
     await rollbackAgentSessionStartup(attempt)
     expect(io.stop).toHaveBeenCalledWith(attempt)
-    expect(io.discard).toHaveBeenCalledWith('project', 'task', { skipTransportStop: true })
+    expect(io.discard).toHaveBeenCalledWith('project', 'task', { skipTransportStop: true, removeSocialIdentity: false })
   })
 
   it('preserves the durable task if provisioning bound an identity before startup failed', async () => {

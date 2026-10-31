@@ -12,7 +12,7 @@ const empty = (id: string): TranscriptTurn => ({ id, seq: 0, initiator: 'agent',
   outcome: { kind: 'done' }, items: [{ kind: 'message', id: `${id}-silence`, seq: 0, role: 'assistant', text: '[NO_REPLY]' }],
 });
 function mount() {
-  const context = createChatContext();
+  const context = createChatContext({ locale: () => 'en-US' });
   context.setLayout({ preset: 'double', userGutter: 72, agentConversation: true });
   const state = createChatState(context);
   const host = document.createElement('div');

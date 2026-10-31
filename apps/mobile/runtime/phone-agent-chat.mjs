@@ -45,7 +45,7 @@ export function createPhoneChatAccess({ agent, cloud, store, env }) {
       return target.agentUserId
     }
     if (/^gugu:\d+$/.test(address)) {
-      const { data, error } = await cloud.identity.from('users').select('id').eq('gugu_number', Number(bare(address, 'gugu'))).single()
+      const { data, error } = await cloud.identity.from('active_users').select('id').eq('gugu_number', Number(bare(address, 'gugu'))).single()
       if (error) throw new Error(error.message)
       return uuid(data.id, 'recipient')
     }
@@ -94,7 +94,7 @@ export function phoneChatReadTools({ agent, cloud, store, env }) {
   }
   return [
     { name: 'message_conversations', label: '查看自己的聊天', description: '列出你作为这位 Agent 真正加入的私聊、群或话题，最近消息优先。返回 chat_id/public_id；用它们进入历史或发送，不要猜编号。', parameters: { type: 'object', properties: { ...listProperties, kind: { type: 'string', enum: ['dm', 'group', 'topic', 'ai'] }, pinned: { type: 'boolean' } } }, execute: async (_callId, args) => {
-      const [rows, pins] = await Promise.all([access.chats(), cloud.chat.from('chat_members').select('chat_id').eq('user_id', store.state.ownerId).eq('is_pinned', true)])
+      const [rows, pins] = await Promise.all([access.chats(), cloud.chat.from('active_members').select('chat_id').eq('user_id', store.state.ownerId).eq('is_pinned', true)])
       if (pins.error) throw new Error(pins.error.message)
       const pinned = new Set((pins.data ?? []).map((item) => item.chat_id))
       const shown = rows.map((item) => ({ id: item.chat_id, chat_id: item.chat_id, public_id: item.public_id, kind: item.kind, status: item.status, name: item.name, pinned: pinned.has(item.chat_id), last_message_at: item.last_message_at, last_message_preview: item.last_message_preview }))

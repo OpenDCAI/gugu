@@ -3,7 +3,7 @@ import type { SessionpageSessionSummary } from '@gugu/session-core/session-recor
 import { retainDeviceSessions, updateDeviceSessions } from '../../../../apps/desktop/src/session/shared/remote-sessions/session-directory'
 import { showPhoneAppView } from '../../../../apps/desktop/src/components/appSlot/phoneAppState'
 // @vitest-environment jsdom
-import { rpcQuery } from '../../../helpers/rpcQuery'
+import { rpcQuery } from '../../../support/rpcQuery'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { hostAppFrame, type PhoneAppBinding } from '../../../../apps/desktop/src/components/appSlot/phoneAppHost'
 import { platform } from '../../../../apps/desktop/src/platform'
@@ -107,6 +107,7 @@ const gestureCalls: Record<string, Record<string, unknown>> = {
   filesOpenWith: { ref: { name: 'a.md' } },
   filesUpload: { pick: true },
   filesDownload: { ref: { name: 'a.md' } },
+  filesForward: { refs: [{ name: 'a.md' }] },
   showMessage: { id: 'msg-1' },
   showSession: { id: 's-1' },
   dispatch: { text: 'picked' },
@@ -244,7 +245,7 @@ describe('the phone refuses a verb whose capability the App lacks, as the deskto
       id: 'board',
       name: 'Board',
       version: '1.0.0',
-      apiVersion: EXTENSION_API_VERSION,
+      apiVersion: EXTENSION_API_VERSION, defaultLocale: 'en',
       entry: 'index.html',
       permissions: { capabilities: ['files:read:all-machines', 'chat:relay'] },
       contributes: { tabs: [{ name: 'main', title: 'Board', opensFiles: { chat: ['.board.json'] } }] },

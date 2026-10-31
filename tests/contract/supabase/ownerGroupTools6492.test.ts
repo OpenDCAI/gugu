@@ -155,12 +155,12 @@ function tools(w: World) {
       }
       const kind = /^chats\?id=eq\.([^&]+)&select=kind$/.exec(path)
       if (kind && profile === 'chat') return (await db.query('SELECT kind FROM chat.chats WHERE id=$1', [decodeURIComponent(kind[1]!)])).rows
-      const pinned = /^chat_members\?user_id=eq\.([^&]+)&is_pinned=is\.true&select=chat_id$/.exec(path)
+      const pinned = /^active_members\?user_id=eq\.([^&]+)&is_pinned=is\.true&select=chat_id$/.exec(path)
       if (!pinned || profile !== 'chat') throw new Error(`group tools must not read tables directly: ${path}`)
       await db.query('SAVEPOINT pinned_read')
       try {
         await asUser(w.owner)
-        const result = await db.query('SELECT chat_id FROM chat.chat_members WHERE user_id = $1 AND is_pinned', [decodeURIComponent(pinned[1]!)])
+        const result = await db.query('SELECT chat_id FROM chat.active_members WHERE user_id = $1 AND is_pinned', [decodeURIComponent(pinned[1]!)])
         await db.query('RESET role')
         await db.query('RELEASE SAVEPOINT pinned_read')
         return result.rows

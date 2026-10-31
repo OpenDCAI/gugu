@@ -190,6 +190,7 @@ import type { RemoteSessionCaller, SessionpageSessionSummary } from '@gugu/sessi
 import { sessionChangedChannel } from '@shared/core/sessions/sessionEvents';
 import { setOtherMachines, type OtherMachines } from './session-family';
 import { setEmdashIdentityProvisioner } from '@main/core/acp/emdash-mcp-injector';
+import { setSessionIdentityHost } from './session-identity-host';
 import {
   REMOTE_PANE_NO_EXTENSIONS,
   REMOTE_PANE_PAGE_NOT_FILE,
@@ -219,6 +220,8 @@ describe('session orchestration', () => {
 
   beforeEach(async () => {
     fixture = await openFixture('empty');
+    // These sessions have no social identity: the host reports none to remove.
+    setSessionIdentityHost({ archive: async () => null, release: async () => {}, restore: async () => {} });
     mocks.db = fixture.db;
     mocks.startSession.mockReset();
     mocks.stopSession.mockReset();
@@ -305,6 +308,7 @@ describe('session orchestration', () => {
 
   afterEach(() => {
     setOtherMachines(null);
+    setSessionIdentityHost(null);
     fixture.close();
     mocks.db = undefined;
     vi.unstubAllEnvs();

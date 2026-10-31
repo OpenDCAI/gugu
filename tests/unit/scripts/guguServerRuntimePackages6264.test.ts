@@ -13,7 +13,7 @@ import {
   parsePatchedDependencies,
   RUNTIME_PACKAGES,
   runtimeResolvedSpecifiers,
-} from '../../../scripts/gugu-server/runtime-packages.mjs';
+} from '../../../scripts/gugu-server/runtime-packages.mts';
 
 /*
  * #6264 咕咕 server 包漏带 ACP 适配器:远端机器上建通用会话当场

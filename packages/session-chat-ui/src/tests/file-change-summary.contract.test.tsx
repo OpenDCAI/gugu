@@ -84,7 +84,7 @@ describe('file change result card geometry', () => {
 })
 
 it('settles once below the reply, lists the files without their changed lines, and opens the exact path beside', async () => {
-  const context = createChatContext()
+  const context = createChatContext({ locale: () => 'en-US' })
   const state = createChatState(context)
   const host = document.createElement('div')
   host.style.cssText = 'width:720px;height:520px;'

@@ -67,19 +67,19 @@ function renderCard(opts: { generating: boolean; commands?: ChatCommands; messag
             get children() {
               // measureCtx 省略：卡片内部对它全程可选链，缺席时只是不排版正文，
               // 而这条读的是按钮在不在，与正文排版无关。
-              // oxlint-disable-next-line typescript/no-explicit-any -- 测试夹具边界
+              // 测试夹具边界
               return UserMessageCard({
                 get data() { return opts.message?.() ?? MESSAGE; },
-                // oxlint-disable-next-line typescript/no-explicit-any -- 测试夹具边界
+                // 测试夹具边界
                 ctx: { viewState: { isCollapsed: () => false } } as any,
                 vars: VARS,
-                // oxlint-disable-next-line typescript/no-explicit-any -- Solid JSX 返回类型在测试里不重要
+                // Solid JSX 返回类型在测试里不重要
               }) as any;
             },
-            // oxlint-disable-next-line typescript/no-explicit-any -- Solid JSX 返回类型在测试里不重要
+            // Solid JSX 返回类型在测试里不重要
           }) as any;
         },
-        // oxlint-disable-next-line typescript/no-explicit-any -- Solid JSX 返回类型在测试里不重要
+        // Solid JSX 返回类型在测试里不重要
       }) as any,
     host,
   );

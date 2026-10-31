@@ -4,24 +4,24 @@ import os from 'node:os'
 import path from 'node:path'
 import { afterAll, describe, expect, test } from 'vitest'
 import {
+  activateDbEnv,
   announceActiveDb,
   applyActiveDbEnv,
   BAKE_SCAN_DIRS,
   checkBuildEnv,
-  DB_ENV_KEYS,
-  registryFileFor,
-  selectTargetEnv,
   checkTargetHost,
+  DB_ENV_KEYS,
   decodeJwtClaims,
   envFileOrder,
   parseEnvFile,
   PRODUCTION_DB_HOST,
   readScriptEnv,
+  registryFileFor,
   resetDbAnnounceForTest,
   resolveBuildEnv,
+  selectTargetEnv,
   verifyDistBake,
-} from '../../../scripts/build-env-preflight.mjs'
-import { loadDotEnvLocal } from '../../../scripts/env-file'
+} from '../../../scripts/build-env-preflight.mts'
 
 const tempDirs: string[] = []
 function tempEnvDir(files: Record<string, string>): string {
@@ -52,7 +52,7 @@ function viteLoadEnv(mode: string, dir: string, shellEnv: Record<string, string>
   return JSON.parse(run.stdout)
 }
 
-const script = path.join(repoRoot, 'scripts/build-env-preflight.mjs')
+const script = path.join(repoRoot, 'scripts/build-env-preflight.mts')
 function runCli(args: string[], cwd: string, shellEnv: Record<string, string>) {
   // 剥掉 VITE_*/GUGU_*：vitest.config.ts 注了假的 Supabase 值，继承进来会污染断言。
   const base = Object.fromEntries(
@@ -358,7 +358,7 @@ describe('--migrate（整份搬走，原地不留）', () => {
 
 // 这一组盯的是「谁能读到登记处」。第一版把激活放在构建 wrapper 里，是建立在「构建是唯一
 // 消费者」这个错误模型上的：`pnpm dev` 是裸 vite，而 e2e account 工厂 / 集成测试 /
-// admin:create-account / seed:yatu-accounts / chpay 探针共用 scripts/env-file.ts 一个 bootstrap，
+// admin:create-account / seed:yatu-accounts / chpay 探针共用一个 bootstrap(现在是 activateDbEnv)，
 // 它只读 .env.local。于是 `GUGU_DB_TARGET=local pnpm dev` 是空操作，搬迁完这些全部失去凭据。
 describe('applyActiveDbEnv（node 侧 bootstrap 与 vite 顶层共用的激活入口）', () => {
   const anon = jwt({ role: 'anon' })
@@ -385,7 +385,7 @@ describe('applyActiveDbEnv（node 侧 bootstrap 与 vite 顶层共用的激活�
     expect(env.SUPABASE_SERVICE_ROLE_KEY).toBe('srk-dev')
   })
 
-  test('loadDotEnvLocal writes the selected target file into process.env', () => {
+  test('activateDbEnv writes the selected target file into process.env', () => {
     const dir = withRegistry('shared-test', 'GUGU_3168_SENTINEL=arrived\n')
     const previous = {
       target: process.env.GUGU_DB_TARGET,
@@ -397,7 +397,7 @@ describe('applyActiveDbEnv（node 侧 bootstrap 与 vite 顶层共用的激活�
     delete process.env.GUGU_3168_SENTINEL
 
     try {
-      loadDotEnvLocal(dir)
+      activateDbEnv(dir)
       expect(process.env.GUGU_3168_SENTINEL).toBe('arrived')
     } finally {
       if (previous.target === undefined) delete process.env.GUGU_DB_TARGET
@@ -477,7 +477,7 @@ describe('applyActiveDbEnv（node 侧 bootstrap 与 vite 顶层共用的激活�
       expect(lines[0]).toContain('没找到库地址')
     })
 
-    test('同一进程只播一次 —— vite.config 与 env-file 可能先后都调到', () => {
+    test('同一进程只播一次 —— vite.config 与 Playwright config 可能先后都调到', () => {
       const dir = withRegistry('local')
       const env = { GUGU_DB_TARGET: 'local' }
       const { lines } = announce(dir, env)

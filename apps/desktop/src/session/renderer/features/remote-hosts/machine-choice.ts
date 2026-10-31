@@ -135,7 +135,7 @@ export function machineMeta(
   if (machine.cloudComputer === 'waking') return translate('machinePicker.waking');
   if (machine.cloudComputer === 'wake-failed') return translate('machinePicker.wakeFailed');
   if (!machine.isLocal && !machine.isOnline) {
-    const ago = machine.lastSeenAt ? formatRelativeTime(machine.lastSeenAt, { nowMs }) : null;
+    const ago = machine.lastSeenAt ? formatRelativeTime(machine.lastSeenAt, { mode: 'elapsed', nowMs }) : null;
     return ago ? translate('machinePicker.offlineSince', { time: ago }) : translate('machinePicker.offline');
   }
   if (machine.notResponding) return translate('machinePicker.notResponding');

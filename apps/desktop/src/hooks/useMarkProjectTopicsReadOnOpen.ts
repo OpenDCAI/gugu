@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ChatItem } from '@gugu/core/shared/types/chat'
-import { unreadForYou } from '@gugu/core/shared/ui/chatModels'
+import { chatAttention } from '@gugu/core/shared/ui/chatModels'
 import { CHAT_SLOT_PREFIX } from '../lib/shellSlots'
 import { markChatsReadAndRefresh } from '../lib/chatUnreadLocator'
 import { rendererLogger } from '../lib/log'
@@ -17,7 +17,7 @@ const log = rendererLogger('chat/project-topics-read')
  * 所以打开项目群的那一刻,把这些话题一起读到最新。你自己标的未读不动。
  */
 export function topicsReadOnOpen(chats: readonly ChatItem[], groupId: string): ChatItem[] {
-  return chats.filter((chat) => chat.kind === 'topic' && chat.source_chat_id === groupId && !chat.is_marked_unread && unreadForYou(chat) > 0)
+  return chats.filter((chat) => chat.kind === 'topic' && chat.source_chat_id === groupId && !chat.is_marked_unread && chatAttention(chat).forYou > 0)
 }
 
 type TopicsSnapshot = { chats: ChatItem[]; repository: AccountImRepository }

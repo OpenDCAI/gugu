@@ -121,7 +121,7 @@ export function ChatMessageComposer(props: ChatMessageComposerProps) {
       return item ? decorate(item) : null
     },
   }), [isGroupChat, whisperTarget, members, agentStatuses, decorate, localProvider, t, chatId, currentUserId, messages, participantIds, projectMemberIds, quoteContent?.messageId])
-  const { dataDropTypes, onDataDropped, invitation } = useChatTaskDrop({ chatId, isGroupChat: isGroupChat && !mobile, groupMembers, currentUserId, provider: mentionProvider, editorApiRef, enabled: !hidden && !disabled })
+  const { dataDropTypes, onDataDropped, invitation } = useChatTaskDrop({ chatId, isGroupChat: isGroupChat && !mobile, groupMembers, provider: mentionProvider, editorApiRef, enabled: !hidden && !disabled })
   const receiveInput = useCallback((element: HTMLElement | null) => { inputRef.current = element }, [])
   const enqueueFiles = useCallback((files: File[]) => {
     if (files.length) setAttachments((pending) => [...pending, ...files.map(makePendingAttachment)])

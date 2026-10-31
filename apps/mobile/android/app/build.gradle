@@ -75,7 +75,7 @@ if (!guguMarketRoot?.startsWith("https://") || !guguMarketRoot.endsWith("/")) {
 def guguRepoRoot = rootProject.file("../../..")
 def guguDbHost = providers.exec {
     workingDir guguRepoRoot
-    commandLine "node", "scripts/build-env-preflight.mjs", "--print-host"
+    commandLine "node", "scripts/build-env-preflight.mts", "--print-host"
 }.standardOutput.asText.get().trim()
 if (!(guguDbHost ==~ /^[A-Za-z0-9.-]+(:\d+)?$/)) {
     throw new GradleException("build-env-preflight --print-host 没给出库主机(收到 '${guguDbHost}')")
@@ -99,6 +99,7 @@ android {
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode guguVersionCode
         versionName guguVersionName
+        ndk { abiFilters 'arm64-v8a', 'armeabi-v7a' }
         // 应用名跟着档位走,所以它的唯一出处在这里,不在 res/values/strings.xml
         // (两处都写 = 资源重复,AGP 直接报错;留在 strings.xml 则 beta 与正式版在桌面上同名,
         //  两个图标一模一样,点哪个全靠猜)。manifest 仍按 @string/... 引用,一个字都不用改。

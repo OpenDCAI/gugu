@@ -116,7 +116,7 @@ it.each(['dark', 'light'] as const)('%s: the shared agent composer keeps the pho
   await page.viewport(390, 844)
   if (theme === 'light') document.documentElement.setAttribute('data-theme', 'light')
   const { createChatContext, createChatState } = await loadChatUi()
-  const context = createChatContext()
+  const context = createChatContext({ locale: () => 'en-US' })
   const state = createChatState(context)
   host = document.body.appendChild(document.createElement('div'))
   host.setAttribute('data-phone-shell', '')

@@ -38,9 +38,10 @@ vi.mock('../../../../apps/desktop/src/lib/chat', () => ({
       },
       identities: [],
     })),
-    markMessageRead: vi.fn(async () => {}),
     getOtherMembersReadSeqs: vi.fn(async () => ({})),
     getThreadMessages: vi.fn(async () => []),
+    // The chat surface reads the viewer's authority from the server projection (group_info_as).
+    getGroupChatSettings: vi.fn(async () => ({ id: 'g1', my_role: 'member', can_manage: false, can_dissolve: false, can_archive_topic: false, allow_member_invite: false })),
   },
 }))
 
@@ -60,7 +61,7 @@ afterEach(() => {
 })
 
 async function render(hidden: boolean, openNonce: number) {
-  await renderWithAppProviders(harness, createNode(ChatAreaPanel, { activeTab: 'chats', mobile: true, hidden, openNonce }), {
+  await renderWithAppProviders(harness, createNode(ChatAreaPanel, { mobile: true, hidden, openNonce }), {
     chat: {
       getImRepository: getImRepositoryMock,
       activeChatId: 'g1',

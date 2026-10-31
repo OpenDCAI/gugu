@@ -59,7 +59,7 @@ export interface CloudMarketEntry {
   bundleBytes: number;
   apiVersion: number;
   minAppVersion: string;
-  /** 这版改了什么(发布时从 CHANGELOG.md 抽的那一节,markdown)。 */
+  /** 这版改了什么(发布时从源码的 store/whats-new.md 读的,markdown)。 */
   releaseNotes: string;
   publishedAt: string;
   /** The first published version, independent of subsequent updates. */
@@ -100,7 +100,7 @@ const marketPath = z.string().regex(/^(?!.*\.\.)[A-Za-z0-9][A-Za-z0-9._/-]*$/);
  * 下载站上的 `market/index.json`:市场的全部内容,一个文件(App 市场 10-08,owner:市场不放数据库)。
  *
  * 真相在 GitHub 索引仓 shuxueshuxue/gugu-apps(每个 App 一个 json:哪一版、哪个仓 @ 提交 @ 目录、sha256、
- * 撤回 / 停维 / 下架)。那边的 CI 照提交重新打包、核过 sha256,合并后把包、README、图标和这份目录同步到下载站;
+ * 撤回 / 停维 / 下架)。那边的 CI 照提交重新打包、核过 sha256,合并后把包、产品页内容、图标和这份目录同步到下载站;
  * 下架的 App 不在这份目录里。客户端只读下载站,❌ 直连 GitHub。
  */
 export const marketIndexSchema = z.object({
@@ -125,7 +125,6 @@ export const marketIndexSchema = z.object({
           bytes: z.number().int().positive(),
           bundle: marketPath,
           icon: marketPath.nullable(),
-          readme: marketPath.nullable(),
           source: z.object({ repo: z.string(), path: z.string(), commit: z.string() }),
           yanked: z.object({ reason: z.string() }).nullable(),
         })

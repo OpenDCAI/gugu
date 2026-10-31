@@ -56,6 +56,7 @@ import {
 import type { AgentStatusReading } from '../shared/agentStatus'
 import type { AgentRuntimeStateWrite } from './agentRuntimeStateReporter'
 import { parseAgentPresencePayload } from './agentPresenceProtocol'
+import type { RemovedSessionIdentity } from '../shared/sessionArchival'
 import { isDeviceRemovedError } from './devices'
 import { MACHINE_LIMIT_NEXT_STEP, machineLimitMessage, machineLimitRefusalFromError } from './machineLimit'
 import {
@@ -131,10 +132,10 @@ export interface DeviceRuntimeHostOptions {
   /** P4: ACP 运行时桥（electron 注入）；agent.cache.acp_engine_id 有值时走 ACP。 */
   runtimeBridge?: AgentRuntimeBridge
   /**
-   * A local roster row was removed at an owner switch (`owner-change`) or after a cloud response:
-   * `cloud-gone` means not writable (revoke cards); only `cloud-removed` is a confirmed account tombstone.
+   * Reconcile a roster row at an owner switch or after a cloud response:
+   * `cloud-gone` revokes cards after removal; `cloud-removed` must persist the receipt before roster removal.
    */
-  onAgentRosterRemoved?: (agent: LocalAgentRecord, reason: AgentRosterRemovalReason) => Promise<void> | void
+  onAgentRosterRemoved?: (agent: LocalAgentRecord, reason: AgentRosterRemovalReason, receipt?: RemovedSessionIdentity) => Promise<void> | void
   /**
    * #4277 owner 边界确立/变更时通知宿主(首次鉴权 tick 也算一次)。宿主拿它切按账号分的日志文件等
    * 「跟着当下登录走」的东西。回调抛错只 warn,❌ 不拖垮 tick。
@@ -395,8 +396,17 @@ export function createDeviceRuntimeHostLoop(
   // 必然有过对应行)在本地优先铸身份之后不再成立,而这里删掉的正是一条刚起、正在用的会话的行。
   // fail-loud:跳过要说出来,否则「守卫没发作」和「守卫误删了」在日志里同形。
   // Not writable only revokes routing/cards; only an explicit account_status='removed' proves deletion.
-  const dropLocalAgentByGuguUserId = async (agentUserId: string, reason: 'cloud-gone' | 'cloud-removed' = 'cloud-gone'): Promise<void> => {
+  const dropLocalAgentByGuguUserId = async (agentUserId: string, reason: 'cloud-gone' | 'cloud-removed' = 'cloud-gone', receipt?: RemovedSessionIdentity): Promise<void> => {
     if (!agentUserId) return
+    if (reason === 'cloud-removed') {
+      if (receipt?.userId !== agentUserId) throw new Error('Confirmed removal does not match the local identity')
+      // The callback archives the same task and persists its replacement marker. Failure keeps its binding.
+      for (const agent of await listAgents(env)) {
+        if (agent.gugu_user_id === agentUserId && !agentCloudIdentityPending(agent)) {
+          await options.onAgentRosterRemoved?.(agent, reason, receipt)
+        }
+      }
+    }
     const removed = await removeAgents(
       (agent) => {
         if (agent.gugu_user_id !== agentUserId) return false
@@ -411,7 +421,7 @@ export function createDeviceRuntimeHostLoop(
       },
       env,
     )
-    for (const agent of removed) await options.onAgentRosterRemoved?.(agent, reason)
+    if (reason !== 'cloud-removed') for (const agent of removed) await options.onAgentRosterRemoved?.(agent, reason)
   }
   /**
    * presence 行的唯一写口:每一次写成功都记进「已发布过什么」。建 / 停 / 下线这类说不出读数的写记成没有读数,
@@ -1281,8 +1291,10 @@ export function createDeviceRuntimeHostLoop(
           if (!presence) {
             options.warn?.(`[device-runtime] presence of local agent ${agentUserId} is ${row.status}; left in the roster`)
           } else if (presence.accountStatus === 'removed') {
+            if (presence.agentUserId !== agentUserId) throw new Error('Removed presence identity does not match its batch key')
+            // The backend removed payload uses users.removed_at as updated_at, never a local clock.
+            await dropLocalAgentByGuguUserId(agentUserId, 'cloud-removed', { userId: agentUserId, removedAt: presence.updatedAt })
             publishedActivity.delete(agentUserId)
-            await dropLocalAgentByGuguUserId(agentUserId, 'cloud-removed')
           } else {
             publishedActivity.set(agentUserId, { activityStatus: presence.activityStatus, reading: presence.status })
             publishedRecentActions.set(agentUserId, recentActionsKey({ actions: presence.recentActions, lastActionAt: presence.lastActionAt }))

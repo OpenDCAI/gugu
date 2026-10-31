@@ -32,8 +32,8 @@ const { peekStore } = await import('../../../../apps/desktop/src/session/rendere
 const { installedExtensionsStore } = await import('../../../../apps/desktop/src/session/renderer/features/extensions/installed-extensions-store')
 const { extensionViewStore } = await import('../../../../apps/desktop/src/session/renderer/features/extensions/extension-view-store')
 
-const board = { id: 'kanban', name: 'Kanban', version: '1.0.0', apiVersion: 3, entry: 'index.html', contributes: { tabs: [{ name: 'board', title: 'Kanban' }] } }
-const pdf = { extensionId: 'pdf', tabKind: 'pdf.viewer', tabTitle: 'PDF', app: { name: 'PDF' }, onlyTab: true, suffix: '.pdf' }
+const board = { id: 'kanban', name: 'Kanban', version: '1.0.0', apiVersion: 3, defaultLocale: 'en', entry: 'index.html', contributes: { tabs: [{ name: 'board', title: 'Kanban' }] } }
+const pdf = { extensionId: 'pdf', tabKind: 'pdf.viewer', tabTitle: 'PDF', app: { name: 'PDF', defaultLocale: 'en' }, onlyTab: true, suffix: '.pdf', state: false }
 
 let harness: ReturnType<typeof createReactHarness>
 /** The claims and releases slots make on the resident layer's store, by slot. */

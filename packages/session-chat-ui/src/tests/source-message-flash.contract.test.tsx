@@ -7,7 +7,7 @@ import {until} from '../../../../tests/support/awaitCondition';
 import '../styles/global.css';
 
 it('paints a temporary source highlight without depending on a host stylesheet', async () => {
-  const context=createChatContext();
+  const context=createChatContext({ locale: () => 'en-US' });
   const state=createChatState(context);
   state.transcript.history.seed([{id:'turn',seq:0,initiator:'user',items:[{kind:'message',id:'source',seq:0,role:'user',text:'Original message'}]}]);
   const host=document.createElement('div');host.style.cssText='width:600px;height:500px';document.body.append(host);

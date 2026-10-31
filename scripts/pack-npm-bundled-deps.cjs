@@ -31,7 +31,12 @@ function packNpmBundledDependencies({ appDir, repoRoot }) {
     throw new Error(`[npm-bundled-deps] 源 npm 没有 node_modules(${sourceModules})—— 安装不完整`)
   }
   if (fs.existsSync(sourceModules)) {
-    fs.cpSync(sourceModules, path.join(packedNpm, 'node_modules'), { recursive: true, dereference: true })
+    // This afterPack copy runs after electron-builder's source-map exclusion.
+    fs.cpSync(sourceModules, path.join(packedNpm, 'node_modules'), {
+      recursive: true,
+      dereference: true,
+      filter: (source) => !source.endsWith('.map'),
+    })
   }
   const missing = bundled.filter(
     (name) => !fs.existsSync(path.join(packedNpm, 'node_modules', name, 'package.json'))

@@ -1,7 +1,7 @@
 import { groupDisplayName } from '@gugu/core/shared/ui/chatModels'
 import { AgentContactRow } from './contacts/AgentContactRow'
 import { contactAgents, peopleContacts } from './contacts/contactSelectors'
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { memo, useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { AgentSettingsModal } from './agentsettings/AgentSettingsModal'
 import { chatPublicId, displayName, sortContactsPinnedFirst, sortGroupChatsPinnedFirst } from '../lib/contactsListSort'
 import {
@@ -30,7 +30,7 @@ import {
   Users,
   X
 } from '@/lib/icons'
-import type { SidebarTab } from '@gugu/core/shared/enums/sidebarTabModels'
+import { OnContactsHidden } from './contacts/OnContactsHidden'
 import { useContactsStore } from '../store/contactsContext'
 import { useChatStore } from '../store/chatContext'
 import { useAuth } from '../store/auth'
@@ -75,6 +75,7 @@ import { ContactsIndex } from './contacts/ContactsIndex'
 import { useTranslation } from 'react-i18next'
 import { cn } from '@/lib/cn'
 import { messageForUser } from '../lib/userFacingError'
+import { confirmOwnedAgentArchive } from '../lib/archiveOwnedAgent'
 import { ContactDetail, GroupChatRow, PaneBackButton } from './contacts/ContactDetail'
 import {
   cpaneActionsClass, cpaneAvatarClass, cpaneCardClass, cpaneNameClass, cpaneStatusClass, ct,
@@ -84,7 +85,6 @@ import {
 // #855 契约：GroupJoinConfirmDialog 曾从本模块导出，实现搬走后仍从这里透出，外部 import 不受影响。
 export { GroupJoinConfirmDialog } from './contacts/GroupInvite'
 interface ContactsPanelProps {
-  activeTab: SidebarTab
   externalContactId?: string
   mobile?: boolean
   scanSeed?: { route: QrScanRoute; token: number } | null
@@ -565,7 +565,6 @@ function CpaneGroupHeader({
 function ContactsNav({
   selected,
   mobile = false,
-  active,
   people,
   agents,
   groupChats,
@@ -583,7 +582,6 @@ function ContactsNav({
   selected: LeftSel
   mobile?: boolean
   /** 联系人 tab 此刻在屏上(别的 tab 时它仍挂着)。 */
-  active: boolean
   people: ContactUser[]
   agents: ContactUser[]
   groupChats: ContactGroupChat[]
@@ -603,7 +601,7 @@ function ContactsNav({
 
   return (
     <Pane paneRole="nav" mobile={mobile}>
-      <ContactSearch mobile={mobile} onScreen={active} query={query} onQuery={onQuery} people={people} agents={agents} groups={groupChats} onOpenContact={onOpenContact}
+      <ContactSearch mobile={mobile} query={query} onQuery={onQuery} people={people} agents={agents} groups={groupChats} onOpenContact={onOpenContact}
         head={(searchButton) => <PaneHeader mobile={mobile} title={ct('common.contacts')} actions={searchButton} />}
         onOpenGroup={(group) => onOpenGroupChat?.(group)} onLookupNumber={(number) => onSelect('add_friend', number)}>
       <div className="flex-1 overflow-y-auto !px-2 !pb-3">
@@ -1015,8 +1013,8 @@ function GroupChatsDetail({
   )
 }
 
-export function ContactsPanel({
-  activeTab,
+// memo: the panel stays mounted behind the other tabs; a tab switch must not re-render it (@@@shell-tab-store).
+export const ContactsPanel = memo(function ContactsPanel({
   externalContactId,
   mobile = false,
   scanSeed,
@@ -1284,7 +1282,7 @@ export function ContactsPanel({
   const [addFriendMode, setAddFriendMode] = useState<'contact' | 'group'>('contact')
 
   // 手机壳里这张页常驻在横滑分页器里,切走 tab 时也挂着 ⇒ 切走即回到根(#6730)。
-  useEffect(() => { if (activeTab !== 'contacts') setMobilePane('nav') }, [activeTab])
+  const backToNav = useCallback(() => setMobilePane('nav'), [])
 
   const listTitle =
     selectedNav === 'agent_library'
@@ -1338,10 +1336,9 @@ export function ContactsPanel({
     const name = displayName(contact)
     const isOwnedAgent = contact.type === 'agent' && contact.owner_user_id === user?.id
     if (isOwnedAgent && closeIfMyAssistant(user?.id, contact.id)) return // #7350 删的是咕咕:换成关闭咕咕那份确认
-    const message = isOwnedAgent ? ct('confirmations.deleteAgent', { name }) : ct('confirmations.deleteContact', { name })
-    if (!window.confirm(message)) return
+    if (!isOwnedAgent && !window.confirm(ct('confirmations.deleteContact', { name }))) return
     try {
-      if (isOwnedAgent) await removeOwnedAgent(contact.id)
+      if (isOwnedAgent) { if (!(await confirmOwnedAgentArchive(contact.id, name, removeOwnedAgent))) return }
       else await removeContact(contact.id)
       toast(ct(isOwnedAgent ? 'toast.deletedAgent' : 'toast.deletedContact'), 'success')
     } catch (error) {
@@ -1546,11 +1543,11 @@ export function ContactsPanel({
 
   return (
     <div className="flex h-full min-w-0 flex-1 overflow-hidden">
+      <OnContactsHidden run={backToNav} />
       {showNav && (
         <ContactsNav
           selected={selectedNav}
           mobile={mobile}
-          active={activeTab === 'contacts'}
           people={humanContacts}
           agents={agentContacts}
           groupChats={groupChats}
@@ -1705,4 +1702,4 @@ export function ContactsPanel({
       {groupInviteJoinModal}
     </div>
   )
-}
+})

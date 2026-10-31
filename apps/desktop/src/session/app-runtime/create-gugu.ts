@@ -63,7 +63,7 @@ export function createGugu(
   }
 
   // The gesture halves, where the host has them: a page's (`VerbFacts.only`), never a background page's or a program's.
-  const { upload, download, openWith } = host.appFiles;
+  const { upload, download, openWith, forward } = host.appFiles;
   /**
    * `files.replace(file, blob, { expectedVersion })` (G1): a stored file's next version; nothing to pick, so no gesture.
    * A chat's file needs `expectedVersion` (the entry's `version` as read): `content-changed` if it was replaced since,
@@ -77,12 +77,12 @@ export function createGugu(
     });
   // Every call names where its file is (真源原则 13): an entry or `ctx.file` carries it, a place says it.
   const files = Object.freeze({
-    open: (file: unknown, options?: { readOnly?: boolean; appData?: boolean }) => {
+    open: (file: unknown, options?: { readOnly?: boolean }) => {
       const counts = countsOf(host);
       counts?.opened();
       return withRef(file, (ref) => {
         const entry = (file as { entry?: { version?: unknown }; version?: unknown } | null)?.entry ?? file as { version?: unknown } | null;
-        const requested = host.appFiles.open({ ref, ...(options?.appData === true ? { appData: true } : {}), ...(!host.program ? { deferDetails: true } : {}), ...(typeof entry?.version === 'number' ? { expectedVersion: entry.version } : {}), ...(options?.readOnly === true ? { readOnly: true } : {}) });
+        const requested = host.appFiles.open({ ref, ...(!host.program ? { deferDetails: true } : {}), ...(typeof entry?.version === 'number' ? { expectedVersion: entry.version } : {}), ...(options?.readOnly === true ? { readOnly: true } : {}) });
         const opening = loadFiles().then((m) => m.openFile(host, requested));
         // Observe a fast refusal even while the runtime is still loading.
         return Promise.all([opening, requested]).then(([opened]) => opened);
@@ -92,7 +92,7 @@ export function createGugu(
     /** Across every chat the reader is in, needing `files:read`: by a piece of the path, newest first; what this person opened last. */
     search: (options?: unknown) => loadFiles().then((m) => m.searchEntries(host, options)),
     recent: (options?: unknown) => loadFiles().then((m) => m.recentEntries(host, options)),
-    create: (target: unknown, content: string | object, options?: { contentType?: string; sourceMessageIds?: string[]; appData?: boolean }) =>
+    create: (target: unknown, content: string | object, options?: { contentType?: string; sourceMessageIds?: string[] }) =>
       loadFiles().then((m) => m.createFile(host, target, content, options)),
     remove: (file: unknown) => loadFiles().then((m) => m.removeFile(host, file)),
     rename: (file: unknown, name: string) => loadFiles().then((m) => m.renameFile(host, file, name)),
@@ -141,6 +141,8 @@ export function createGugu(
               openWith({ ref, ...(options?.ask === true ? { ask: true } : {}), ...(options?.at ? { at: options.at } : {}), ...(options?.peek === true ? { peek: true } : {}) })),
         }
       : {}),
+    // API 23: 「转发」 — one file or several, the host's forward page; resolves once it is up (what is sent is the person's).
+    ...(forward ? { forward: (files: unknown) => withRefs(files, (refs) => forward({ refs })) } : {}),
   });
 
   // Every v1 member; `appFiles`, `chats`, `checkPage`, `clipboard`, `messages`, `projects`, `theme` and `onFilesChanged` (it is

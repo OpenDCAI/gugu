@@ -30,7 +30,7 @@ export default meta;
 type Story = StoryObj;
 
 function PerfHost(props: { count: number; label: string; height?: number; rich?: boolean }) {
-  const ctx = createChatContext({
+  const ctx = createChatContext({ locale: () => 'en-US',
     theme: DEFAULT_THEME,
     mentionProvider: props.rich ? mockMentionProvider : undefined,
   });

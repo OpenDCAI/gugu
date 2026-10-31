@@ -1,4 +1,4 @@
-import { ICON_ALIASES, ICON_BODIES } from '@gugu/session-ui/icon-bodies';
+import { ICON_ALIASES, ICON_BODIES, ICON_ATTRIBUTES } from '@gugu/session-ui/icon-bodies';
 
 /** The DOM-free half of ui.js (ui-entry.ts): what its elements say, testable without a page. */
 
@@ -21,6 +21,14 @@ export const ICONS: ReadonlyMap<string, string> = new Map([
   ...Object.entries(ICON_ALIASES)
     .filter(([alias]) => !alias.endsWith('Icon'))
     .map(([alias, target]) => [iconName(alias), ICON_BODIES[target]!] as const),
+]);
+
+/** The same SVG defaults as the React factory, including copied stroke widths and classes. */
+export const ICON_SVG_ATTRIBUTES: ReadonlyMap<string, Record<string, string | number>> = new Map([
+  ...Object.entries(ICON_ATTRIBUTES).map(([name, attributes]) => [iconName(name), attributes] as const),
+  ...Object.entries(ICON_ALIASES)
+    .filter(([alias, target]) => !alias.endsWith('Icon') && target in ICON_ATTRIBUTES)
+    .map(([alias, target]) => [iconName(alias), ICON_ATTRIBUTES[target]!] as const),
 ]);
 
 const sameDay = (a: Date, b: Date) => a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();

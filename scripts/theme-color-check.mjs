@@ -1,7 +1,7 @@
 import { readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { readTreeBlobs, repoRoot, treeFiles } from './git-tree-blobs.mjs'
+import { readTreeBlobs, repoRoot, treeFiles } from './git-tree-blobs.mts'
 
 /**
  * @@@theme-color-check (深色巡检 10-27) — 两道主题债务门,与 ui-state-debt-check 同形:读 git ref、按 (规则, 文件)

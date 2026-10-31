@@ -203,7 +203,7 @@ export type SessionAction =
   | { action: 'close_tab'; tab_id: string }
   | { action: 'get'; session_id?: string }
   | { action: 'stop'; session_id: string }
-  | { action: 'archive'; session_id: string; with_children?: boolean }
+  | { action: 'archive'; session_id: string; with_children?: boolean; remove_social_identity?: boolean }
   /** `parent_session_id` null = 不挂在谁下面(根会话)。两个 id 都已在宿主边界解成裸 id。 */
   | { action: 'set_parent'; session_id: string; parent_session_id: string | null }
   /** #7221 schedule_*:给自己排的「已安排」,只作用于发起调用的这条会话(agent-schedules.ts)。 */
@@ -623,7 +623,7 @@ async function startSpawnedSession(input: {
     }
     if (row) {
       try {
-        await archiveSession(input.projectId, input.session.id, { skipTransportStop: true });
+        await archiveSession(input.projectId, input.session.id, { skipTransportStop: true, removeSocialIdentity: false });
       } catch (cleanupError) {
         log.error('spawn session failed to remove its session', {
           sessionId: input.session.id,
@@ -1123,7 +1123,7 @@ async function createChildSession(input: {
     // ACP startup is session-life's own projection; only other runtimes keep this config flag (until ⑤).
     if (transport !== 'acp') await setSpawnStartupState(sessionId, 'starting');
   } catch (error) {
-    await archiveSession(projectId, sessionId, { skipTransportStop: true });
+    await archiveSession(projectId, sessionId, { skipTransportStop: true, removeSocialIdentity: false });
     ledger.settle({ outcome: 'failed' });
     throw error;
   }
@@ -1148,7 +1148,7 @@ async function createChildSession(input: {
         queuedStartupDelegation: true,
       });
     } catch (error) {
-      await archiveSession(projectId, sessionId, { skipTransportStop: true });
+      await archiveSession(projectId, sessionId, { skipTransportStop: true, removeSocialIdentity: false });
       ledger.settle({ outcome: 'failed' });
       throw error;
     }
@@ -2081,7 +2081,7 @@ async function runTargetAction(
     // 「工作目录不许一个 task 都不剩」那道闸。❌ 给 agent 删除:删除永久、撤不回来,只归人(owner 2026-09-28)。
     signal?.throwIfAborted();
     const withChildren = action.with_children === true;
-    const { archived, unreached } = await archiveSession(target.projectId, target.id, { withChildren });
+    const { archived, unreached } = await archiveSession(target.projectId, target.id, { withChildren, removeSocialIdentity: action.remove_social_identity });
     signal?.throwIfAborted();
     if (archived.length === 0) throw new Error('session is already archived');
     return {

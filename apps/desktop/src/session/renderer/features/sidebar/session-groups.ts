@@ -1,4 +1,4 @@
-import type { AgentStatusPresentation } from '@gugu/core/shared/agentStatusPresentation';
+import { isNeedsYou, type AgentStatusPresentation } from '@gugu/core/shared/agentStatusPresentation';
 
 // @@@sessionpage otty-state — sidebar status groups (spec session-page「会话列表与状态」): conversations
 // hang directly under their project, bucketed by the same presentation as the agent avatar.
@@ -26,9 +26,8 @@ export const SIDEBAR_STATE_GROUP_META: Record<SidebarStateGroup, SidebarStateGro
 
 /** Map the shared presentation to its sidebar section; null = idle (flat, unlabelled). */
 export function sidebarStateGroup(presentation: AgentStatusPresentation | null): SidebarStateGroup | null {
+  if (isNeedsYou(presentation)) return 'needs-you';
   switch (presentation?.tone) {
-    case 'needs_user':
-      return 'needs-you';
     case 'running':
     case 'parked':
       return 'working';

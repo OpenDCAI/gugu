@@ -28,7 +28,9 @@ import type { SidebarListLayout, SidebarListPage, SidebarSnapshot, SidebarSessio
 import { blockKey, type JoinedGroup, type SidebarJoin } from '@/lib/sidebarJoinedGroups';
 import type { SessionpageSessionSummary } from '@gugu/session-core/session-record/contract';
 import { isAssistantSession, launchedByAssistant } from '@renderer/features/assistant/assistant-lineage';
-import { taskStatusPresentation } from '@/lib/taskAgentStatus';
+import { taskPresentation } from '@/lib/taskAgentStatus';
+import type { AgentStatusView } from '@gugu/core/shared/agentStatus';
+import type { AgentStatusPresentation } from '@gugu/core/shared/agentStatusPresentation';
 import { sessionPresentation } from '@/mobile/agent-watch/watch-status';
 import { sessionAgentNames } from '@renderer/features/sessions/stores/session-agent-names';
 import {
@@ -152,6 +154,14 @@ export type SidebarMachines = {
 
 /** 一条别的机器上的会话(侧栏远程行画它)。 */
 export type RemoteSidebarSession = { summary: SessionpageSessionSummary; live: boolean };
+
+/** 这台机器上挂着的一条会话画成什么:与列出的会话同一个 `taskPresentation`。 */
+export function mountedSessionPresentation(
+  session: { data: { id: string }; status: AgentStatusView['status'] | null; detail: AgentStatusView['detail']; seen: boolean },
+  agentUserId = sessionAgentNames.identityFor(session.data.id)?.agentUserId,
+): AgentStatusPresentation | null {
+  return taskPresentation({ agentUserId, reading: session.status ? { status: session.status, detail: session.detail } : null, unseen: !session.seen, hostOnline: true });
+}
 
 function publicEntry({ group: _group, ...entry }: SidebarSessionRow): SessionEntry {
   return entry;
@@ -753,11 +763,7 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
           time: session.data.lastInteractedAt
             ? new Date(session.data.lastInteractedAt).getTime()
             : 0,
-          group: sidebarStateGroup(taskStatusPresentation(
-            sessionAgentNames.identityFor(session.data.id)?.agentUserId
-              ? { kind: 'agent', agentUserId: sessionAgentNames.identityFor(session.data.id)!.agentUserId }
-              : { kind: 'task', reading: session.status ? { status: session.status, detail: session.detail } : null, unseen: !session.seen, online: true },
-          )),
+          group: sidebarStateGroup(mountedSessionPresentation(session)),
           title: formatSessionTitleForDisplay(session.data.providerId, session.data.title),
         });
       }
@@ -934,11 +940,7 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
             time: session.data.lastInteractedAt
               ? new Date(session.data.lastInteractedAt).getTime()
               : 0,
-            group: sidebarStateGroup(taskStatusPresentation(
-              sessionAgentNames.identityFor(session.data.id)?.agentUserId
-                ? { kind: 'agent', agentUserId: sessionAgentNames.identityFor(session.data.id)!.agentUserId }
-                : { kind: 'task', reading: session.status ? { status: session.status, detail: session.detail } : null, unseen: !session.seen, online: true },
-            )),
+            group: sidebarStateGroup(mountedSessionPresentation(session)),
             title: formatSessionTitleForDisplay(session.data.providerId, session.data.title),
           });
         }

@@ -3,6 +3,7 @@ import * as path from 'node:path';
 import { bundleProblems, type BundleEntry } from '@shared/extensions/bundle-checks';
 import { ExtensionManifestError } from '@shared/extensions/manifest';
 import { BUNDLE_SKIP_NAMES } from '@shared/extensions/market';
+import { STORE_DIR } from '@shared/extensions/app-listing';
 import type { ExtensionsService, InspectedExtension } from './extensions-service';
 
 /**
@@ -43,7 +44,7 @@ function packageProblems(root: string): string[] {
   const entries: BundleEntry[] = [];
   const walk = (dir: string) => {
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-      if (BUNDLE_SKIP_NAMES.has(entry.name)) continue;
+      if (BUNDLE_SKIP_NAMES.has(entry.name) || (dir === root && entry.name === STORE_DIR)) continue;
       const full = path.join(dir, entry.name);
       const relative = path.relative(root, full).split(path.sep).join('/');
       if (entry.isSymbolicLink()) entries.push({ path: relative, kind: 'link', bytes: 0 });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { phoneFiles } from '../../../scripts/phone-web-dir.mjs'
+import { phoneFiles } from '../../../scripts/phone-web-dir.mts'
 
 const TASK = 'session-embedded.html'
 const dist: Record<string, string> = {

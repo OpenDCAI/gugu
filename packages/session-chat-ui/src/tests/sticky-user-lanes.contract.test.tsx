@@ -46,7 +46,7 @@ async function mount(
   active?: TranscriptTurn,
   theme = DEFAULT_THEME
 ) {
-  const context = createChatContext({ theme });
+  const context = createChatContext({ locale: () => 'en-US', theme });
   const state = createChatState(context);
   state.transcript.history.seed(committed);
   if (active) state.transcript.activeTurn.set(active, 'generating');

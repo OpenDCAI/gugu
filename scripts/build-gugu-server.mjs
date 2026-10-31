@@ -4,10 +4,10 @@
 // 产物:release/server/gugu-server-<version>-<os>-<arch>.tar.gz + 同名 .sha256,包内布局:
 //   bin/gugu-server        启动器(sh):用包里自带的 node 跑 app/dist-electron/server.js
 //   node/                  官方 Node 二进制(与仓库钉的版本一致)
-//   app/dist-electron/     主进程构建产物 —— 与桌面版**同一次构建**的 main + server 入口(见 product-build-entries.mjs)
+//   app/dist-electron/     主进程构建产物 —— 与桌面版**同一次构建**的 main + server 入口(见 product-build-entries.mts)
 //   app/node_modules/      主进程构建里 external 的那几个包,按 **Node 的 ABI** 装(桌面那份是 Electron ABI,不能混用);
 //                          外加插件按路径现解析的 ACP 适配器(claude / codex / pi),打上与桌面同一份 pnpm 补丁
-//                          (见 scripts/gugu-server/runtime-packages.mjs)
+//                          (见 scripts/gugu-server/runtime-packages.mts)
 //   app/mise-bundle/       agent 依赖安装器(与桌面同一份)
 //   app/tmux-bundle/tmux   tmux 官方组织出的静态构建(tmux/tmux-builds),终端会话跨 server 重启靠它;
 //                          放在这里,main.ts 的 @@@spawn-tmux-bin 按 app 路径自己找到,不用另接线
@@ -33,8 +33,8 @@ import {
   isExcludedNativePackage,
   parsePatchedDependencies,
   RUNTIME_PACKAGES,
-} from './gugu-server/runtime-packages.mjs'
-import { defaultMiseCacheDir, obtainMiseArchive } from './mise-archive-cache.mjs'
+} from './gugu-server/runtime-packages.mts'
+import { defaultMiseCacheDir, obtainMiseArchive } from './mise-archive-cache.mts'
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)))
 const rootPackage = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
@@ -72,7 +72,7 @@ function run(cmd, args, options = {}) {
 // external 的包及其版本以**仓库锁定的版本**为准,❌ 另写一份版本号。
 // 另一个架构的容器里没有装好的 node_modules(CI 在 x64 容器里构建,arm64 容器只拿到产物):
 // 那边用 GUGU_SERVER_EXTERNALS 指向这边写下的 externals.json,两个架构用的是同一组版本(别名依赖也原样带过去)。
-// 装哪些包见 runtime-packages.mjs:原生模块 + ACP 适配器。
+// 装哪些包见 runtime-packages.mts:原生模块 + ACP 适配器。
 const EXTERNAL_PACKAGES = RUNTIME_PACKAGES
 const externalVersions = process.env.GUGU_SERVER_EXTERNALS
   ? Object.fromEntries(

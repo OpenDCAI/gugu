@@ -1,4 +1,4 @@
-import { markMemberRead, markStreamRead } from './chatMemberReadState'
+import { cloudReadTarget, writeRead } from './readWriter'
 import { chatDb } from './supabase'
 import { UI_EVENTS } from './uiEvents'
 import type { ChatItem, ChatUnreadLocator, MessageItem } from '@gugu/core/shared/types/chat'
@@ -9,7 +9,7 @@ import type { UnreadLocatorCommit } from './chatUnreadLocatorWindow'
 const unreadLocatorLog = rendererLogger('chat/unread-locator')
 
 export function markThreadStreamRead(chatId: string, rootId: string, seq: number): void {
-  void markStreamRead(chatId, `thread:${chatId}:${rootId}`, seq, rootId)
+  void writeRead(cloudReadTarget(chatId, rootId, seq))
     .catch((err) => unreadLocatorLog.error({ error: String(err) }, 'mark thread read failed'))
 }
 
@@ -54,8 +54,7 @@ export async function markChatsReadAndRefresh(deps: {
     if (seq === undefined || manuallyUnread.has(chatId) || Number(row.message_seq) > seq || deps.canMarkRead?.(chatId) === false) return
     const rootId = typeof row.thread_root_id === 'string' ? row.thread_root_id : null
     try {
-      if (rootId) await markStreamRead(chatId, String(row.stream_id), seq, rootId)
-      else await markMemberRead(chatId, seq)
+      await writeRead(cloudReadTarget(chatId, rootId, seq))
     } catch (err) {
       failedChatIds.add(chatId)
       failure ??= err

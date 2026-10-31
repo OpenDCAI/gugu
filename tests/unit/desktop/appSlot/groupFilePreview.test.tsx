@@ -41,8 +41,8 @@ const { chatAlone, chatLayoutOf, closeChatTab, openPanelItem, panelFull, panelTa
 import { tabFullscreen } from '@/session/renderer/features/tabs/tab-fullscreen'
 const { installedExtensionsStore } = await import('@/session/renderer/features/extensions/installed-extensions-store')
 const { appsHere } = await import('@/components/appSlot/appsHere')
-const workspace = { id: 'workspace', name: '文件夹', version: '0.2.53', apiVersion: 3, entry: 'index.html', contributes: { tabs: [{ name: 'main', title: '文件夹', opensFiles: { chat: ['.md', '.json'] } }] } }
-const candidate = { extensionId: 'workspace', tabKind: 'workspace.main', tabTitle: '文件夹', app: { name: '文件夹' }, onlyTab: true, suffix: '.md' }
+const workspace = { id: 'workspace', name: '文件夹', version: '0.2.53', apiVersion: 3, defaultLocale: 'en', entry: 'index.html', contributes: { tabs: [{ name: 'main', title: '文件夹', opensFiles: { chat: ['.md', '.json'] } }] } }
+const candidate = { extensionId: 'workspace', tabKind: 'workspace.main', tabTitle: '文件夹', app: { name: '文件夹', defaultLocale: 'zh-CN' }, onlyTab: true, state: false, suffix: '.md' }
 let harness: ReturnType<typeof createReactHarness>
 const checkVisibility = HTMLElement.prototype.checkVisibility
 const detail = (suffix: string) => ({ chatId: 'preview-group', itemId: `file-${suffix}`, name: `report.${suffix}`, typedName: `report.${suffix}`, file: { document: false, contentType: suffix === 'html' ? 'text/html' : suffix === 'mp4' ? 'video/mp4' : 'application/octet-stream', version: 3, size: 1024 }, choice: { kind: 'none' as const } })

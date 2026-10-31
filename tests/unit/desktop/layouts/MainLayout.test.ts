@@ -155,8 +155,11 @@ vi.mock('../../../../apps/desktop/src/components/ChatListPanel', async () => {
 const chatAreaProbe = vi.hoisted(() => ({ mounts: 0 }))
 vi.mock('../../../../apps/desktop/src/components/ChatAreaPanel', async () => {
   const React = await vi.importActual<typeof import('react')>('react')
+  const { useShellTab } = await vi.importActual<typeof import('../../../../apps/desktop/src/lib/shellTab')>('../../../../apps/desktop/src/lib/shellTab')
   return {
-    ChatAreaPanel: ({ activeTab, hidden = false, navigationTarget, onBack }: { activeTab: string; hidden?: boolean; navigationTarget?: boolean; onBack?: () => void }) => {
+    // The panel reads the shown tab from the shell tab store, not a prop.
+    ChatAreaPanel: ({ hidden = false, navigationTarget, onBack }: { hidden?: boolean; navigationTarget?: boolean; onBack?: () => void }) => {
+      const activeTab = useShellTab()
       const [bumps, setBumps] = React.useState(0)
       React.useEffect(() => { chatAreaProbe.mounts += 1 }, [])
       return React.createElement('div', { 'data-testid': 'mock-chat-area', 'data-bumps': String(bumps), 'data-active-tab': activeTab, 'data-hidden': String(hidden), 'data-navigation-target': String(navigationTarget) },

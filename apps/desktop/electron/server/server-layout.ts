@@ -162,17 +162,31 @@ export function emailFromAccessToken(accessToken: string): string | null {
   }
 }
 
-/** 这个账号的子进程写下的忙闲(见 main.ts 的 server 分支):有 agent 在跑一轮或等人批准。 */
-export function accountIsBusy(dataDir: string, now = Date.now()): boolean {
+/** One parser for account heartbeat freshness and current-process identity. */
+export function readAccountActivity(
+  dataDir: string,
+  now = Date.now(),
+  expectedProcess?: { pid: number | undefined; startedAt: number },
+): { busy: unknown; at: number; pid: number; startedAt: number } | null {
   try {
     const activity = JSON.parse(fs.readFileSync(path.join(dataDir, 'activity.json'), 'utf8')) as {
-      busy?: unknown
-      at?: unknown
+      busy?: unknown; at?: unknown; pid?: unknown; startedAt?: unknown
     }
-    return activity.busy === true && typeof activity.at === 'number' && now - activity.at < SERVER_ACTIVITY_STALE_MS
-  } catch {
-    return false
-  }
+    if (typeof activity.at !== 'number' || !Number.isFinite(activity.at)
+      || activity.at > now || now - activity.at >= SERVER_ACTIVITY_STALE_MS
+      || typeof activity.pid !== 'number' || !Number.isInteger(activity.pid) || activity.pid <= 0
+      || typeof activity.startedAt !== 'number' || !Number.isFinite(activity.startedAt)
+      || activity.startedAt > activity.at
+      || (expectedProcess && (activity.pid !== expectedProcess.pid || activity.startedAt < expectedProcess.startedAt))) return null
+    return { busy: activity.busy, at: activity.at, pid: activity.pid, startedAt: activity.startedAt }
+  } catch { return null }
+}
+
+/** 账号此刻忙不忙,唯一的判据:它自己(pid 对得上)的新鲜心跳;没有 ⇒ unverified。 */
+export function activityProof(dataDir: string, now = Date.now(), expectedProcess?: { pid: number | undefined; startedAt: number }): 'idle' | 'busy' | 'unverified' {
+  const activity = readAccountActivity(dataDir, now, expectedProcess)
+  if (!activity || typeof activity.busy !== 'boolean') return 'unverified'
+  return activity.busy ? 'busy' : 'idle'
 }
 
 /**
@@ -201,3 +215,4 @@ export function writeServerConnectVia(
   fs.renameSync(tmp, file)
   return true
 }
+

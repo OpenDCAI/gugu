@@ -10,7 +10,7 @@ import type { RecordEntry, SessionRecordSource, SessionTimeline, TimelineAfterRe
 import { createSessionTimeline } from '../timeline';
 import { createClaudeJsonlSource } from './claude-jsonl';
 import { readQuestion } from './question-tools';
-import { SessionRecordNotFoundError } from './shared';
+import { SessionRecordForkDivergedError, SessionRecordNotFoundError } from './shared';
 
 // 记下每份记录被「整份读」了几次：打开时间线串分叉链时，无关的记录不许被整份读进来。
 const wholeReads = vi.hoisted(() => new Map<string, number>());
@@ -71,10 +71,69 @@ function start(source: SessionRecordSource): Promise<ContentEntry[]> {
 }
 
 describe('claude jsonl 记录源', () => {
+  it('uses a captured native fork after its parent continued, without duplicating the common prefix', async () => {
+    const fixture = new URL('../__fixtures__/claude-fork-native/', import.meta.url);
+    const parentId = 'e0ce6657-09cc-4b4e-b3c8-b4908b276b42';
+    const childId = '6a3de9c2-86f1-4f1c-8016-6d1f4100e8c2';
+    const { root, file } = await stage([]);
+    await writeFile(join(dirname(file), `${parentId}.jsonl`), await readFile(new URL('parent.jsonl', fixture)));
+    await writeFile(join(dirname(file), `${childId}.jsonl`), await readFile(new URL('child.jsonl', fixture)));
+    const parent = createClaudeJsonlSource({ harness: 'claude', providerSessionId: parentId, roots: [root] }, { readMode: 'snapshot' });
+    const parentEntries = await startAll(parent);
+    expect(JSON.stringify(recordProjection(parentEntries))).toContain('parent three');
+    const parentLineage = parent.getLineage!()!;
+    expect(parentLineage).toHaveLength(25);
+    const childSource = createClaudeJsonlSource({ harness: 'claude', providerSessionId: childId, roots: [root] },
+      { readMode: 'snapshot', parentLineage });
+    const child = await createSessionTimeline(childSource, { sessionId: 'native-child' });
+    disposers.push(() => child.dispose());
+    expect(childSource.getLineage!()!.slice(0, 20)).toEqual(parentLineage.slice(0, 20));
+    expect(childSource.getLineage!()![20]).toEqual({
+      uuid: '0ce6c2a3-b2f9-4262-819f-8b926470e60f', parentUuid: parentLineage[19].uuid,
+    });
+    expect(parentLineage[20].uuid).not.toBe(childSource.getLineage!()![20].uuid);
+    const messages = collectItems(child.getSnapshot({ committedOnly: true }).turns).filter(item => item.kind === 'message').map(item => item.text);
+    expect(messages).toEqual(['Reply with exactly: fork child', 'fork child']);
+  });
+
+  it('proves a fork cut using primary UUID lineage and emits only the child increment', async () => {
+    const childId = 'f1b2c3d4-0000-4000-8000-000000000002';
+    const line = (uuid: string, parentUuid: string | null, role: 'user' | 'assistant', text: string, sessionId = SESSION_ID) =>
+      JSON.stringify({ type: role, uuid, parentUuid, sessionId, isSidechain: false, timestamp: '2026-10-31T00:00:00Z',
+        message: { id: uuid, role, content: [{ type: 'text', text }], ...(role === 'assistant' ? { stop_reason: 'end_turn' } : {}) } });
+    const inherited = [line('p0', null, 'user', 'parent question'), line('p1', 'p0', 'assistant', 'parent answer')];
+    const { root, file } = await stage([...inherited,
+      line('p2', 'p1', 'user', 'parent continued'), line('p3', 'p2', 'assistant', 'parent later answer')]);
+    await writeFile(join(dirname(file), `${childId}.jsonl`), [
+      ...inherited.map(text => text.replaceAll(SESSION_ID, childId)),
+      line('c0', 'p1', 'user', 'child question', childId), line('c1', 'c0', 'assistant', 'child answer', childId),
+    ].join('\n') + '\n');
+    const parent = createClaudeJsonlSource({ harness: 'claude', providerSessionId: SESSION_ID, roots: [root] }, { readMode: 'snapshot' });
+    const parentEntries = await startAll(parent);
+    expect(parent.getLineage?.()).toEqual([{ uuid: 'p0', parentUuid: null }, { uuid: 'p1', parentUuid: 'p0' },
+      { uuid: 'p2', parentUuid: 'p1' }, { uuid: 'p3', parentUuid: 'p2' }]);
+    expect(JSON.stringify(recordProjection(parentEntries))).not.toContain('child question');
+    const child = await createSessionTimeline(createClaudeJsonlSource({ harness: 'claude', providerSessionId: childId, roots: [root] },
+      { readMode: 'snapshot', parentLineage: parent.getLineage!()! }), { sessionId: 'child' });
+    disposers.push(() => child.dispose());
+    const items = collectItems(child.getSnapshot({ committedOnly: true }).turns);
+    expect(items.filter(item => item.kind === 'message').map(item => item.text)).toEqual(['child question', 'child answer']);
+  });
+
+  it('rejects a fork whose common UUID prefix cannot be proven before it can be indexed', async () => {
+    const { root } = await stage([JSON.stringify({ type: 'user', uuid: 'different', parentUuid: null,
+      sessionId: SESSION_ID, message: { role: 'user', content: 'do not duplicate' } })]);
+    const source = createClaudeJsonlSource({ harness: 'claude', providerSessionId: SESSION_ID, roots: [root] },
+      { readMode: 'snapshot', parentLineage: [{ uuid: 'parent', parentUuid: null }] });
+    await expect(startAll(source)).rejects.toBeInstanceOf(SessionRecordForkDivergedError);
+  });
+
   it('preserves the native fixture event and transcript projection', async () => {
     const { root } = await stage();
-    const entries = await startAll(createClaudeJsonlSource({ harness: 'claude', providerSessionId: SESSION_ID, roots: [root] }));
+    const source = createClaudeJsonlSource({ harness: 'claude', providerSessionId: SESSION_ID, roots: [root] });
+    const entries = await startAll(source);
     expect(recordProjection(entries)).toMatchSnapshot();
+    expect(source.getLineage?.()).toEqual([]);
   });
 
   it('定位不到会话文件时响亮地失败', async () => {

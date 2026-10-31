@@ -285,7 +285,7 @@ describe('gugu.files on a working copy', () => {
     const fa = await a.open();
     const fb = await b.open();
     expect(fa.opened.docName).toBe(fb.opened.docName);
-    expect(fa.opened.entry).toMatchObject({ id: 'notes.md', name: 'notes.md', contentType: 'text/markdown', type: 'text' });
+    expect(fa.opened.entry).toMatchObject({ id: 'notes.md', name: 'notes.md', savedName: 'notes.md', contentType: 'text/markdown', type: 'text' });
     expect(fa.text().toString()).toBe('# 标题\n正文\n');
     for (const ch of 'abc') {
       fa.text().insert(fa.text().length, ch);

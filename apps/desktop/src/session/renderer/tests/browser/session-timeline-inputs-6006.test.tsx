@@ -48,7 +48,7 @@ let view: ChatView;
 let context: ChatContext;
 
 beforeEach(() => {
-  context = createChatContext();
+  context = createChatContext({ locale: () => 'en-US' });
   context.setLayout({ preset: 'double', userGutter: 72 });
   state = createChatState(context);
   state.transcript.history.seed([parent]);

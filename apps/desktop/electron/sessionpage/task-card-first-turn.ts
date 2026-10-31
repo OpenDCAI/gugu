@@ -89,7 +89,7 @@ export async function landTaskCardFirstTurn(input: TaskCardFirstTurnInput): Prom
 
   if (kind !== 'group') return { chatId: input.chatId, render: { kind: 'plain' } }
 
-  const { data: seat, error: seatError } = await chat.from('chat_members')
+  const { data: seat, error: seatError } = await chat.from('active_members')
     .select('user_id').eq('chat_id', input.chatId).eq('user_id', input.agentUserId).maybeSingle()
   if (seatError) throw new Error(`task card for ${input.sessionId}: read the agent's seat: ${seatError.message}`)
   return {

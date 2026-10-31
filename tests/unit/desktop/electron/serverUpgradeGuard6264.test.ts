@@ -18,7 +18,7 @@ import {
   type Heartbeat,
   type UpgradeMarker,
 } from '../../../../apps/desktop/electron/server/server-upgrade-guard'
-import { writeAccountVersionPin } from '../../../../apps/desktop/electron/server/server-account-versions'
+import { writeVersionPin } from '../../../../apps/desktop/electron/server/server-account-versions'
 import { SERVER_ROLLBACK_FILE } from '../../../../packages/core/src/cloud/deviceHostInfo'
 
 const T0 = 1_000_000_000_000
@@ -122,7 +122,7 @@ describe('readProbe:账号钉在和桌面匹配的另一版上', () => {
     fs.mkdirSync(data, { recursive: true })
     fs.writeFileSync(path.join(data, 'server-session.enc'), 'x')
     fs.writeFileSync(path.join(data, 'activity.json'), JSON.stringify(heartbeat))
-    if (pin) writeAccountVersionPin(data, { version: pin, previous: null, at: T0 })
+    if (pin) writeVersionPin(data, { version: pin, previous: null, at: T0 })
   }
   const installDesktopVersion = (home: string) => {
     fs.mkdirSync(path.join(home, 'versions', '0.2.138', 'bin'), { recursive: true })

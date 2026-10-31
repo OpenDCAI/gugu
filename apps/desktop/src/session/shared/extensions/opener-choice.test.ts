@@ -10,7 +10,7 @@ function app(id: string, claims: string[]): ExtensionManifest {
     id,
     name: id.toUpperCase(),
     version: '1.0.0',
-    apiVersion: EXTENSION_API_VERSION,
+    apiVersion: EXTENSION_API_VERSION, defaultLocale: 'en',
     entry: 'index.html',
     contributes: { tabs: [{ name: 'main', title: id, opensFiles: { chat: claims } }] },
   });

@@ -14,7 +14,7 @@ import {
   type AgentPresenceState,
 } from '@/lib/agentPresenceStore'
 import { observedAgentPresence } from '@/lib/agentPresenceMobx'
-import { taskStatusPresentation } from '@/lib/taskAgentStatus'
+import { taskPresentation } from '@/lib/taskAgentStatus'
 import { sessionPresentation } from '@/mobile/agent-watch/watch-status'
 import { sidebarStateGroup } from '@/session/renderer/features/sidebar/session-groups'
 import type { AgentStatusPresentation } from '@gugu/core/shared/agentStatusPresentation'
@@ -71,10 +71,10 @@ describe('one agent status source for React and MobX', () => {
     let section: ReturnType<typeof sidebarStateGroup> = null
     disposers.push(subscribeAgentPresence('three-surfaces', (state) => { avatar = state }))
     disposers.push(autorun(() => {
-      sidebar = taskStatusPresentation({ kind: 'agent', agentUserId: 'three-surfaces' })
+      sidebar = taskPresentation({ agentUserId: 'three-surfaces', reading: null, unseen: false, hostOnline: true })
       section = sidebarStateGroup(sidebar)
       phone = sessionPresentation({
-        conversationId: 'remote-task', status: directory.get(), agentStatus: 'idle',
+        conversationId: 'remote-task', status: directory.get(),
         agent: { userId: 'three-surfaces' }, unseen: false,
       }, linked.get())
     }))
@@ -191,7 +191,7 @@ describe('one agent status source for React and MobX', () => {
 
   it('clears the old account on every observed surface and releases its subscription', async () => {
     let displayed: AgentStatusPresentation | null = null
-    const stop = autorun(() => { displayed = taskStatusPresentation({ kind: 'agent', agentUserId: 'account-bound-agent' }) })
+    const stop = autorun(() => { displayed = taskPresentation({ agentUserId: 'account-bound-agent', reading: null, unseen: false, hostOnline: true }) })
     disposers.push(stop)
     await settle()
     expect(displayed).toMatchObject({ tone: 'running' })

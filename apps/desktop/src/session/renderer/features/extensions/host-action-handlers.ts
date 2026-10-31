@@ -29,6 +29,7 @@ import {
 } from '@shared/extensions/host-actions';
 import {
   APP_FORUM_CONSENT_EVENT,
+  APP_FORWARD_FILES_EVENT,
   APP_OPEN_WITH_EVENT,
 } from '@shared/extensions/app-runtime-protocol';
 import type { DispatchAsk } from '@shared/extensions/app-dispatch-core';
@@ -227,6 +228,9 @@ function perform(sessionId: string | null, tabId: string, action: ExtensionHostA
         updateFileNames([{ id: detail.itemId, filename: detail.name, content_type: detail.file.contentType }], installedExtensionsStore.manifests);
       });
       window.dispatchEvent(new CustomEvent(APP_OPEN_WITH_EVENT, { detail: action.detail }));
+      return;
+    case 'forwardFiles':
+      window.dispatchEvent(new CustomEvent(APP_FORWARD_FILES_EVENT, { detail: action.detail }));
       return;
     // The shell draws the forum's consent sheet (ForumConsent), as the phone's page gives it.
     case 'forumConsent':

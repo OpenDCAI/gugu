@@ -40,6 +40,7 @@ const updateSettings = vi.mocked(chatService.updateGroupChatSettings)
 
 function settingsRow(overrides: Partial<GroupChatSettings> = {}): GroupChatSettings {
   return {
+    my_role: 'owner', can_manage: true, can_dissolve: true, can_archive_topic: false,
     id: 'chat-1', public_id: 7, creator_user_id: 'owner-1', name: '产品组', status: 'active',
     group_prompt: '先写 spec 再开工\n第二条', default_agent_type: null, join_token: 'token', description: null,
     max_members: 100, allow_member_invite: false, invite_link_enabled: false, agent_join_approval: false,
@@ -64,7 +65,8 @@ beforeEach(() => {
 })
 afterEach(() => { harness.cleanup(); vi.clearAllMocks(); shell.mobile = false })
 
-async function renderDrawer(viewerId: string, callbacks: Record<string, unknown> = {}, waitForSettings = true) {
+async function renderDrawer(viewerId: string, callbacks: Record<string, unknown> = {}, waitForSettings = true, memberSettings: Partial<GroupChatSettings> = {}) {
+  if (viewerId !== 'owner-1') getSettings.mockResolvedValue(settingsRow({ my_role: 'member', can_manage: false, can_dissolve: false, ...memberSettings }))
   const props = {
     chat: chat({ id: 'chat-1', kind: 'group', name: '产品组' }),
     snapshot: SNAPSHOT,
@@ -78,7 +80,12 @@ async function renderDrawer(viewerId: string, callbacks: Record<string, unknown>
     onLeaveGroup: vi.fn(async () => {}),
     ...callbacks,
   }
-  await renderWithAppProviders(harness, createNode(GroupMembersSection, props), {
+  await renderSection(viewerId, props)
+  if (waitForSettings) await waitForCondition(() => q('[data-testid="group-settings-rules"]')?.textContent?.includes('先写 spec') === true, 'settings loaded')
+  return props
+}
+async function renderSection(viewerId: string, props: Record<string, unknown>) {
+  await renderWithAppProviders(harness, createNode(GroupMembersSection, props as never), {
     auth: { id: viewerId },
     chat: {
       identitiesById: { 'owner-1': displayIdentity('owner-1', { display_name: '群主甲' }), 'member-1': displayIdentity('member-1', { display_name: '成员乙' }) },
@@ -86,8 +93,6 @@ async function renderDrawer(viewerId: string, callbacks: Record<string, unknown>
     },
     contacts: { contacts: [] },
   })
-  if (waitForSettings) await waitForCondition(() => q('[data-testid="group-settings-rules"]')?.textContent?.includes('先写 spec') === true, 'settings loaded')
-  return props
 }
 const q = (selector: string) => document.querySelector(selector) as HTMLElement | null
 const page = () => q('[data-group-settings-page]')?.getAttribute('data-group-settings-page')
@@ -167,10 +172,26 @@ describe('#6418 群聊设置 —— 并发与非法输入(code review 回归)', 
   })
 })
 
+describe('settings follow the viewer authority, not roster object identity', () => {
+  it('a roster refresh with the same roles keeps the loaded settings; a role change re-reads them', async () => {
+    const props = await renderDrawer('owner-1')
+    expect(getSettings).toHaveBeenCalledTimes(1)
+    await renderSection('owner-1', { ...props, snapshot: { ...SNAPSHOT, humans: [...SNAPSHOT.humans] } })
+    expect(getSettings).toHaveBeenCalledTimes(1)
+    expect(q('[data-testid="group-settings-manage"]')).not.toBeNull()
+    await renderSection('owner-1', { ...props, snapshot: { ...SNAPSHOT, humans: [humanItem('owner-1', 'owner'), humanItem('member-1', 'admin')] } })
+    await waitForCondition(() => getSettings.mock.calls.length === 2, 'settings re-read after a role change')
+  })
+  it('the first roster load after opening is not a role change', async () => {
+    const props = await renderDrawer('owner-1', { snapshot: { ...SNAPSHOT, humans: [] } })
+    await renderSection('owner-1', { ...props, snapshot: SNAPSHOT })
+    expect(getSettings).toHaveBeenCalledTimes(1)
+  })
+})
+
 describe('#6418 群聊设置 —— 谁看得到什么', () => {
   it('邀请链接开着时,普通成员在一级页也能复制链接 / 生成海报(改版前就能)', async () => {
-    getSettings.mockResolvedValue(settingsRow({ invite_link_enabled: true }))
-    await renderDrawer('member-1')
+    await renderDrawer('member-1', {}, true, { invite_link_enabled: true })
     expect(q('[data-testid="group-invite-link"]')).not.toBeNull()
   })
 

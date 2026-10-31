@@ -2,7 +2,7 @@ import { useEffect, type Dispatch, type SetStateAction } from 'react'
 import type { SidebarTab } from '@gugu/core/shared/enums/sidebarTabModels'
 
 type BooleanSetter = Dispatch<SetStateAction<boolean>>
-type TabSetter = Dispatch<SetStateAction<SidebarTab>>
+type TabSetter = (tab: SidebarTab) => void
 
 export function useSessionpageAgentInstallNavigation(
   enabled: boolean,

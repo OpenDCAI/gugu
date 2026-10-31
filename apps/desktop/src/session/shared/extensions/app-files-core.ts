@@ -14,6 +14,7 @@ import {
   fileTypeOf,
   folderOf,
   personId,
+  savedFileName,
   typedFileName,
   type AppFileClaimant,
   type AppFileEntry,
@@ -24,6 +25,7 @@ import {
   type AppFileUpload,
   type AppFileVersion,
   type AppFileVersionContent,
+  type AppForwardFilesDetail,
   type AppOpenWithDetail,
   type AppShowMessageDetail,
   type ChatPeekFile,
@@ -34,7 +36,6 @@ import {
 import { fileOpenersFor } from './file-openers';
 import type { ExtensionManifest } from './manifest';
 import { displayNameOf } from './file-openers';
-import type { AppIdentity as OwnerIdentity } from './app-identity';
 import { readUserSettingsConfig, updateUserSettingsConfig, type VersionedSettingsTableClient } from '@gugu/core/cloud/userSettings';
 
 /**
@@ -82,8 +83,6 @@ export interface FileSurface {
 }
 
 export interface FilesPlatform {
-  /** Installed identity, never an identity supplied by the App page. */
-  appIdentity?(extensionId: string): OwnerIdentity | null;
   /**
    * The shared project file publisher: kept on this device, `next` as the version after the one the edit started from.
    * Null when the ordinary uploader should decide.
@@ -106,7 +105,7 @@ export interface FilesPlatform {
    * Which App opens a file of this kind here, and by which claimed suffix (摩擦单 F39): the host knows what is
    * installed (desktop) or shipped (phone). Absent: no file says who opens it.
    */
-  claimant?(typedName: string): { suffix: string; app: AppFileClaimant } | null;
+  claimant?(typedName: string): { suffix: string; app: AppFileClaimant; state: boolean } | null;
   /**
    * These people's names and kinds (a file's creator, a chat's members, the page's own person), read where each host
    * reads identities: main with this token, the phone through the renderer's identity adapter (the IM architecture's one
@@ -242,6 +241,7 @@ function entryOf(row: ItemRow, claimant: Claimant): AppFileEntry {
     chat: row.chat_id,
     metadata: row.metadata ?? {},
     name: row.filename,
+    savedName: folder ? row.filename : savedFileName(file),
     contentType: row.content_type,
     type: fileTypeOf(row.kind, row.content_type),
     parentId: row.parent_id ?? null,
@@ -250,6 +250,7 @@ function entryOf(row: ItemRow, claimant: Claimant): AppFileEntry {
     suffix: folder ? '' : fileSuffixOf(file),
     displayName: row.filename,
     claimedBy: null,
+    appState: false,
     size: row.size_bytes ?? null,
     version: row.version ?? null,
     createdAt: row.created_at ?? null,
@@ -270,7 +271,7 @@ function entryOf(row: ItemRow, claimant: Claimant): AppFileEntry {
 function claimEntry(entry: AppFileEntry, claimant: Claimant): AppFileEntry {
   if (!claimant || entry.type === 'folder') return entry;
   const claim = claimant(typedFileName({ name: entry.name, contentType: entry.contentType }));
-  return { ...entry, displayName: claim ? displayNameOf(entry.name, claim.suffix) : entry.name, claimedBy: claim?.app ?? null };
+  return { ...entry, displayName: claim ? displayNameOf(entry.name, claim.suffix) : entry.name, claimedBy: claim?.app ?? null, appState: claim?.state === true };
 }
 
 /**
@@ -332,7 +333,7 @@ async function peerNamesOf(token: string, dms: readonly string[], viewerId: stri
   const peers = new Map<string, string>();
   if (dms.length === 0) return peers;
   const members = await fetchInChunks(dms, async (chunk) => {
-    const { data, error } = await chatClient(token).from('chat_members').select('chat_id, user_id').in('chat_id', chunk);
+    const { data, error } = await chatClient(token).from('active_members').select('chat_id, user_id').in('chat_id', chunk);
     if (error) throw new AppFileError('failed', error.message);
     return (data as { chat_id: string; user_id: string }[] | null) ?? [];
   });
@@ -369,7 +370,7 @@ export async function extensionChatOf(
   if (!row) throw new AppFileError('not-found', 'This chat could not be read');
   if (row.kind === 'group') return { id: row.id, name: row.name ?? '', kind: 'group', groupId: row.id };
   if (row.kind === 'dm') {
-    const { data, error } = await chatClient(token).from('chat_members').select('user_id').eq('chat_id', row.id);
+    const { data, error } = await chatClient(token).from('active_members').select('user_id').eq('chat_id', row.id);
     if (error) throw new AppFileError('failed', error.message);
     const other = ((data as { user_id: string }[] | null) ?? []).map((member) => member.user_id).find((id) => id !== viewerId);
     const [peer] = other ? await platform.identities(token, [other]) : [];
@@ -590,9 +591,8 @@ function insertDocument(
   token: string,
   doc: { chatId: string; name: string; contentType: string; content: string; sourceMessageIds: readonly string[]; parentId: string | null },
   actor: string,
-  app?: OwnerIdentity,
 ): Promise<ItemRow> {
-  return agentRow(token, app ? 'workspace_create_app_document_as' : 'workspace_create_document_as', { ...(app ? { p_app: app } : {}), p_chat_id: doc.chatId, p_as_user_id: actor, p_title: doc.name,
+  return agentRow(token, 'workspace_create_document_as', { p_chat_id: doc.chatId, p_as_user_id: actor, p_title: doc.name,
     p_content: doc.content, p_content_type: doc.contentType, p_source_message_ids: doc.sourceMessageIds, p_folder: doc.parentId });
 }
 
@@ -631,12 +631,6 @@ async function versionPointers(token: string, row: ItemRow, actor: string): Prom
 
 
 export function createAppFiles(platform: FilesPlatform) {
-  function appIdentity(extensionId: string | undefined): OwnerIdentity {
-    const identity = extensionId ? platform.appIdentity?.(extensionId) : null;
-    if (!identity) throw new AppFileError('invalid', 'This App has no recorded publisher: install it again before marking App data');
-    return identity;
-  }
-
   async function localRevision(itemId: string) {
     const local = await platform.resolveFile?.({ id: itemId }, null, { localOnly: true });
     if (local?.status !== 'ready') return null;
@@ -705,8 +699,8 @@ export function createAppFiles(platform: FilesPlatform) {
     return { userId: personId(userId), name: await selfName(token, userId) };
   }
 
-  async function open(surface: FileSurface, args: { ref: ChatFileRef; readOnly?: boolean; appData?: boolean; deferDetails?: boolean; expectedVersion?: number }, opening?: PreparedChatFile): Promise<AppFileOpened> {
-    const local = args.appData ? null : await localFile(surface, args.ref);
+  async function open(surface: FileSurface, args: { ref: ChatFileRef; readOnly?: boolean; deferDetails?: boolean; expectedVersion?: number }, opening?: PreparedChatFile): Promise<AppFileOpened> {
+    const local = await localFile(surface, args.ref);
     if (local) return { entry: local.entry, docName: '', access: 'ro', self: local.self, bytes: await bytesOf(local.file) };
     const { token, userId } = await platform.account();
     const actor = surface.asAgent ?? userId;
@@ -733,17 +727,6 @@ export function createAppFiles(platform: FilesPlatform) {
     } else {
       throw new AppFileError('denied', 'Not permitted: opening a file other than the one this page was opened for needs "files:read" or "files:write"');
     }
-    if (args.appData === true) {
-      if (args.readOnly || (!handedOver && !has(surface.extensionId, 'files:write'))) {
-        throw new AppFileError('denied', 'Marking App data needs write access to that file');
-      }
-      const { data, error } = await chatClient(token).rpc('workspace_mark_app_data_as', {
-        p_item_id: entry.id, p_as_user_id: actor, p_app: appIdentity(surface.extensionId),
-      });
-      if (error) throw new AppFileError(codeOf(error), error.message);
-      entry.metadata = data as Record<string, unknown>;
-      if (row) row.metadata = entry.metadata;
-    }
     const self = { userId: personId(actor), name: await selfName(token, actor) };
     if (stored) return { entry: await entryOne(token, row!, actor), docName: '', access, self, bytes: await bytesOf((await fileFor(surface, { id: row!.id }, row!.version))!) };
     const epoch = usable ? opening.epoch : row!.epoch;
@@ -756,7 +739,7 @@ export function createAppFiles(platform: FilesPlatform) {
   }
 
   /** A file the page may read: the one handed to it, or any other with `files:read`/`:write`. */
-  async function readable(surface: FileSurface, account: { token: string; userId: string }, ref: ChatFileRef, what: 'saving' | 'opening'): Promise<ItemRow> {
+  async function readable(surface: FileSurface, account: { token: string; userId: string }, ref: ChatFileRef, what: 'saving' | 'opening' | 'forwarding'): Promise<ItemRow> {
     const { row, handedOver } = await resolve(surface, account, ref);
     if (row.kind === 'folder') throw notAFile(row);
     if (!handedOver && !has(surface.extensionId, 'files:read') && !has(surface.extensionId, 'files:write')) {
@@ -947,7 +930,7 @@ export function createAppFiles(platform: FilesPlatform) {
     },
 
     /** `folder` (子文件夹): the folder it goes in, made all the way down when it is not there; not given, the top. */
-    async create(chatId: string, args: { name: string; content: string; contentType?: string; sourceMessageIds?: unknown; folder?: unknown; appData?: boolean },
+    async create(chatId: string, args: { name: string; content: string; contentType?: string; sourceMessageIds?: unknown; folder?: unknown },
       as: { asAgent?: string | null; extensionId?: string } = {}): Promise<AppFileEntry> {
       const { token, userId } = await platform.account();
       const name = String(args.name ?? '').trim();
@@ -970,7 +953,7 @@ export function createAppFiles(platform: FilesPlatform) {
       }
       const actor = as.asAgent ?? userId;
       const parentId = await folderIdFor(token, chatId, folder, actor);
-      return entryOne(token, await insertDocument(token, { chatId, name, contentType, content, sourceMessageIds, parentId }, actor, args.appData === true ? appIdentity(as.extensionId) : undefined), actor);
+      return entryOne(token, await insertDocument(token, { chatId, name, contentType, content, sourceMessageIds, parentId }, actor), actor);
     },
 
     /** 子文件夹: a chat's folder at `path`, made all the way down — one already there is answered as it is. */
@@ -1192,13 +1175,13 @@ export function createAppFiles(platform: FilesPlatform) {
             return await placeAttachment(endpoint, { staging_key: stagingKey, chat_id: chatId, file_name: name, folder: folder ?? null,
               as_user_id: actor, source_message_ids: sourceMessageIds, content_type: contentType, ...(keep ? { keep } : {}) }) as unknown as ItemRow;
           };
-          const published = await platform.publishFile?.(chatId, { ...file, contentType }, parentId, actor, store);
-          if (published) { rows.push(published); continue; }
           const asText = workspaceUploadKind(name, contentType, new Uint8Array(file.bytes));
           if (asText.kind === 'document') {
             rows.push(await insertDocument(token, { chatId, name, contentType: asText.contentType, content: asText.text, sourceMessageIds, parentId }, actor));
             continue;
           }
+          const published = await platform.publishFile?.(chatId, { ...file, contentType }, parentId, actor, store);
+          if (published) { rows.push(published); continue; }
           // #7290 gugu-3: a stored file's bytes go to OSS (attachments/upload); the server puts it in the folder (attachments/place),
           // as the agent or the person — the folder made all the way down when it is not there, as folderIdFor does.
           rows.push(await store());
@@ -1226,12 +1209,13 @@ export function createAppFiles(platform: FilesPlatform) {
      */
     async downloadSource(surface: FileSurface, args: { ref: ChatFileRef }): Promise<DownloadSource> {
       const local = await localFile(surface, args.ref);
-      if (local) return { name: local.entry.name, kind: 'file', file: local.file };
+      if (local) return { name: savedFileName(local.entry), kind: 'file', file: local.file };
       const { token, userId } = await platform.account();
       const row = await readable(surface, { token, userId }, args.ref, 'saving');
-      if (row.kind === 'file') return { name: row.filename, kind: 'file', file: (await fileFor(surface, { id: row.id }, row.version))! };
+      const name = savedFileName({ name: row.filename, contentType: row.content_type });
+      if (row.kind === 'file') return { name, kind: 'file', file: (await fileFor(surface, { id: row.id }, row.version))! };
       try {
-        return { name: row.filename, kind: 'text', text: await readDocumentText({ filesUrl: platform.filesUrl, fetch }, token, row.id, surface.asAgent) };
+        return { name, kind: 'text', text: await readDocumentText({ filesUrl: platform.filesUrl, fetch }, token, row.id, surface.asAgent) };
       } catch (error) {
         throw new AppFileError(error instanceof ChatFolderReadError && error.status === 404 ? 'not-found' : 'failed', `${row.filename} could not be read from the file service: ${error instanceof Error ? error.message : String(error)}`);
       }
@@ -1293,6 +1277,29 @@ export function createAppFiles(platform: FilesPlatform) {
         selfName(token, surface.asAgent ?? userId),
       ]);
       return target;
+    },
+
+    /**
+     * `files.forward`: what the forward page sends — each file read as a download reads it (the page's own file, or
+     * `files:read`: forwarding a reference gives no one more than reading it does), all of one chat. A working copy's
+     * file goes as its chat file at the version the computer published.
+     */
+    async forwardTargets(surface: FileSurface, args: { refs: ChatFileRef[] }): Promise<AppForwardFilesDetail> {
+      if (args.refs.length === 0) throw new AppFileError('invalid', 'files.forward(files): give one file or more');
+      const { token, userId } = await platform.account();
+      const files = await Promise.all(args.refs.map(async (ref) => {
+        const local = await localFile(surface, ref);
+        if (local) {
+          const file = { chatId: local.file.revision.chat_id!, itemId: local.entry.id, version: local.entry.version!, name: local.entry.name, document: false };
+          await local.file.dispose();
+          return file;
+        }
+        const row = await readable(surface, { token, userId }, ref, 'forwarding');
+        return { chatId: row.chat_id, itemId: row.id, version: row.version, name: row.filename, document: row.kind === 'document' };
+      }));
+      const chatId = files[0]!.chatId;
+      if (files.some((file) => file.chatId !== chatId)) throw new AppFileError('invalid', 'files.forward(files): the files are of one chat');
+      return { chatId, files: files.map(({ chatId: _chat, ...file }) => file) };
     },
 
     /**
