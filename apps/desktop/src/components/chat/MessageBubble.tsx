@@ -344,6 +344,15 @@ export const MessageBubble = memo(function MessageBubble({
   const replyQuote = msg.reply_to_message_id && showReplyQuote ? (isGroup ? <MessageQuote disclosure={{ showMarker: true, mobile: compactMobile }} msg={msg} quoterIsAgent={avatarIsAgent} memberProfiles={memberProfiles} onShowMessage={onShowMessage} /> : <DirectMessageQuote disclosure={{ showMarker: true, mobile: compactMobile }} msg={msg} quoterIsAgent={avatarIsAgent} memberProfiles={memberProfiles} onShowMessage={onShowMessage} />) : null
   return (
     <MessageHoverRegion enabled={!streaming && !compactMobile} forceOpen={showMoreMenu || showEmojiPicker}
+      actions={<HoverActionBar
+        isMine={msg.is_mine} anchorRef={bubbleRef}
+        isRetracted={isRetracted}
+        reactButtonRef={reactButtonRef}
+        moreButtonRef={moreButtonRef}
+        onReact={openEmojiPickerFromButton}
+        onReply={() => { onQuote(msg) }}
+        onMore={openMoreMenuFromButton}
+      />}
       style={{
         display: 'flex',
         flexDirection: msg.is_mine ? 'row-reverse' : 'row',
@@ -354,7 +363,6 @@ export const MessageBubble = memo(function MessageBubble({
         padding: groupedWithPrev ? '1px 14px' : '5px 14px',
       }}
     >
-      {(hovered) => <>
       {/* Avatar — both sent and received；一组只在组尾画一个头像(sticky 贴滚动区底边),其余几条用等宽占位保持气泡对齐 */}
       {hideAvatar ? null : <GroupAvatarSlot wide={compactMobile} groupedWithPrev={groupedWithPrev} groupedWithNext={groupedWithNext}>{canOpenProfile ? (
         <MemberProfileAvatarButton
@@ -418,17 +426,6 @@ export const MessageBubble = memo(function MessageBubble({
         {/* 气泡行收成 fit-content(我方 marginLeft:auto 靠右),工具条锚在**这一行**的边上 = 贴着气泡。
             Design: .msg-actions{position:absolute}  agent → right:0 / own → left:0  */}
         <MessageHoverTrigger data-message-bubble-row="true" style={{ position: 'relative', display: 'flex', flexDirection: 'row', alignItems: 'flex-end', justifyContent: msg.is_mine ? 'flex-end' : 'flex-start', gap: '4px', width: 'fit-content', maxWidth: '100%', minWidth: 0, ...(msg.is_mine ? { marginLeft: 'auto' } : {}) }}>
-          {/* Hover action bar (.msg:hover .msg-actions{display:flex}) —— 只在桌面外壳:手机上消息操作走长按面板(下面 showMenu
-              的手机分支),而且手机上等不到 pointerleave,一次点按置上的 hover 会让它一直浮着(#6850)。 */}
-          {hovered && <HoverActionBar
-            isMine={msg.is_mine} anchorRef={bubbleRef}
-            isRetracted={isRetracted}
-            reactButtonRef={reactButtonRef}
-            moreButtonRef={moreButtonRef}
-            onReact={openEmojiPickerFromButton}
-            onReply={() => { onQuote(msg) }}
-            onMore={openMoreMenuFromButton}
-          />}
           {msg.is_mine && !msg.retracted_at && sendState && (
             <MessageSendStatus state={sendState} messageId={msg.id} reason={msg.local_send_error} blocks={msg.delivery_blocks} />
           )}
@@ -589,7 +586,6 @@ export const MessageBubble = memo(function MessageBubble({
           onClose={() => setShowEmojiPicker(false)}
         />
       )}
-      </>}
     </MessageHoverRegion>
   )
 })

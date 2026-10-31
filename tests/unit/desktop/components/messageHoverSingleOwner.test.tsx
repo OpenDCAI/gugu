@@ -41,9 +41,7 @@ describe('MessageHoverRegion renders at most one visible bar', () => {
   afterEach(() => harness.cleanup())
 
   const Row = ({ name, forceOpen }: { name: string; forceOpen: boolean }) => (
-    <MessageHoverRegion enabled forceOpen={forceOpen} style={{}}>
-      {(visible) => (visible ? <span data-bar={name} /> : null)}
-    </MessageHoverRegion>
+    <MessageHoverRegion enabled forceOpen={forceOpen} style={{}} actions={<span data-bar={name} />}>{null}</MessageHoverRegion>
   )
   const bars = () => [...harness.container.querySelectorAll('[data-bar]')].map((node) => node.getAttribute('data-bar'))
 
