@@ -52,7 +52,7 @@ export interface ContactsContextValue {
   uploadAgentAvatar: (agentId: string, file: File, profile?: { name?: string; bio?: string }) => Promise<void>
   /** 存这只 agent 的形象(颜色 + 休息表情):写进它的头像字段,换掉之前的形象或照片。 */
   setAgentLook: (agentId: string, look: AgentLook) => Promise<void>
-  removeOwnedAgent: (agentId: string) => Promise<void>
+  removeOwnedAgent: (agentId: string, options?: { removeSocialIdentity?: boolean }) => Promise<void>
   removeContact: (contactId: string) => Promise<void>
   getCommonGroupChats: (contactId: string) => Promise<ContactGroupChat[]>
 }

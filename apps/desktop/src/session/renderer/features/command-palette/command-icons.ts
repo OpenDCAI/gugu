@@ -1,5 +1,5 @@
 import { Archive, History, ArrowDownToLine, ArrowLeft, ArrowRight, ArrowUpToLine, ChevronDown, ChevronUp, ExternalLink, FileDiff, Files, FolderOpen, FolderPlus, Globe, Library, MessageSquare, MessageSquarePlus, MessageSquareShare, Palette, Pin, RefreshCw, Settings, SquarePlus, SquareTerminal, Terminal, TextCursorInput, UserPlus, Users, Clock, type IconComponent } from '@/lib/icons'
-import { Columns2, GitPullRequest, PanelBottom, PanelRight } from 'lucide-react'
+import { Columns2, GitPullRequest, PanelBottom, PanelRight } from '@/lib/icons'
 
 /**
  * Maps the string iconKey tokens defined in src/shared/commands.ts to their

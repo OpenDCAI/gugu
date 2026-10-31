@@ -42,6 +42,7 @@ describe('image mime resolution', () => {
     expect(resolveAttachmentMimeType('take.MOV', 'application/octet-stream')).toBe('video/quicktime')
     expect(resolveAttachmentMimeType('vo.mp3', '')).toBe('audio/mpeg')
     expect(resolveAttachmentMimeType('brief.md', '')).toBe('text/markdown')
+    expect(mimeTypeFromName('server.ts')).toBe('text/typescript')
     expect(mimeTypeFromName('board.json')).toBe('application/json')
     expect(mimeTypeFromName('notes.bin')).toBeNull()
     expect(inferAttachmentKind({ name: 'clip.mp4', type: '' })).toBe('file')

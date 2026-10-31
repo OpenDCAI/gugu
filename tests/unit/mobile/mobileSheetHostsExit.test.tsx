@@ -37,7 +37,7 @@ let exit: ReturnType<typeof holdDialogExit>
 beforeEach(() => {
   h = createReactHarness(); exit = holdDialogExit(); vi.clearAllMocks(); m.signal = null
   m.read.mockResolvedValue(new Uint8Array([1, 2, 3]))
-  Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: () => 'blob:preview' })
+  Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: vi.fn(() => 'blob:preview') })
   Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: m.revoke })
 })
 afterEach(() => { h.cleanup(); delete (HTMLElement.prototype as Partial<HTMLElement>).getAnimations })
@@ -110,7 +110,8 @@ it('image handoff: starts after the loading sheet exits and keeps the transferre
   await frame()
   expect(m.image).not.toHaveBeenCalled()
   await expectExit(q('opened-output-preview-sheet'), exit)
-  expect(m.image).toHaveBeenCalledWith([{ url: 'blob:preview', alt: 'image.png', quote: expect.any(Function) }])
+  expect(m.image).toHaveBeenCalledWith([{ url: 'blob:preview', alt: 'image.png', file: { name: 'image.png' }, quote: expect.any(Function) }])
+  expect(URL.createObjectURL).toHaveBeenCalledWith(expect.objectContaining({ type: 'image/png' }))
   m.image.mock.calls[0][0][0].quote()
   expect(m.quote).toHaveBeenCalledWith(workspaceFileQuote('/repo/image.png', null))
   expect(m.revoke).not.toHaveBeenCalled()

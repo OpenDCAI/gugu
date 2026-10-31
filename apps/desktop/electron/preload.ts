@@ -180,9 +180,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
     return () => ipcRenderer.removeListener('device:self-identified', listener)
   },
   getLocalDeviceSelfSnapshot: (): Promise<unknown> => ipcRenderer.invoke('device:get-self-snapshot'),
-  // @@@4526 owner 删除自己的 agent 后释放它在本机的足迹(花名册 / runtime session / 投递注册)。
-  releaseOwnedAgentLocalFootprint: (agentUserId: string): Promise<unknown> =>
-    ipcRenderer.invoke('owned-agent:release-local-footprint', { agentUserId }),
   // @@@share-card-rename 改名的本机那半:花名册上的 name(会话页读它)。云端改完再调,详见 main 侧同名注释。
   renameOwnedAgentLocalFootprint: (agentUserId: string, name: string): Promise<boolean> =>
     ipcRenderer.invoke('owned-agent:rename-local-footprint', { agentUserId, name }),

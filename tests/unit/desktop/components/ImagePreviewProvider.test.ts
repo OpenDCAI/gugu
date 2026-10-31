@@ -49,9 +49,9 @@ afterEach(() => {
 type NativeBackWindow = Window & { __guguNativeBackHandled?: boolean }
 const nativeBackHandled = () => (window as NativeBackWindow).__guguNativeBackHandled === true
 
-async function openViewer(options: { toast?: ToastContextValue['toast'] } = {}) {
+async function openViewer(options: { toast?: ToastContextValue['toast']; images?: Parameters<typeof openImageViewer>[0] } = {}) {
   await renderWithAppProviders(harness, createNode(ImagePreviewProvider, null), options)
-  await act(async () => openImageViewer(IMAGES, 0))
+  await act(async () => openImageViewer(options.images ?? IMAGES, 0))
   await waitForCondition(() => byTestId(AUTOMATION_TEST_IDS.imagePreviewClose) !== null, 'viewer toolbar never mounted')
 }
 
@@ -147,8 +147,13 @@ describe('ImagePreviewProvider', () => {
 
   // @@@1892 - 跨域 URL 上 <a download> 会被 Chromium 忽略并整窗导航到裸图,
   // 下载必须先取 blob 换成同源 object URL 再点击。
-  it('downloads via a blob object URL instead of navigating to the remote URL', async () => {
-    const pngBlob = new Blob(['png-bytes'], { type: 'image/png' })
+  it.each([
+    ['file metadata', { name: '截图.v2', contentType: 'image/png' }, '截图.v2.png'],
+    ['the original blob MIME', { name: '截图.v2', contentType: undefined }, '截图.v2.png'],
+    ['a JPEG alias', { name: 'photo.jpeg', contentType: 'image/jpeg' }, 'photo.jpeg'],
+    ['the URL without file metadata', undefined, 'one.png'],
+  ] as const)('downloads %s via a blob object URL, independently of alt text', async (_label, file, expected) => {
+    const pngBlob = new Blob(['png-bytes'], { type: file?.contentType ?? 'image/png' })
     const fetchMock = vi.fn(async () => ({ ok: true, blob: async () => pngBlob }))
     vi.stubGlobal('fetch', fetchMock)
     const createObjectURL = vi.fn(() => 'blob:mock-download')
@@ -160,10 +165,10 @@ describe('ImagePreviewProvider', () => {
     vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (this: HTMLAnchorElement) {
       clickedAnchor = { href: this.getAttribute('href') ?? '', download: this.download }
     })
-    await openViewer()
+    await openViewer({ images: [{ ...IMAGES[0]!, file }] })
     await clickElement(byTestId(AUTOMATION_TEST_IDS.imagePreviewDownload)!)
     await waitForCondition(() => clickedAnchor !== null, 'download anchor was never clicked')
-    expect(clickedAnchor).toEqual({ href: 'blob:mock-download', download: 'one' })
+    expect(clickedAnchor).toEqual({ href: 'blob:mock-download', download: expected })
     // credentials: 'include' 配 storage 的 Access-Control-Allow-Origin: * 会直接 CORS 失败
     expect(fetchMock).toHaveBeenCalledWith('https://example.test/one.png')
     // revoke 是延迟的(给非 Chromium 引擎解引用 blob URL 的时间),条件等待而非立即断言

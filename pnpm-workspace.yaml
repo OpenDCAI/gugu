@@ -12,14 +12,6 @@ packages:
 # download and `pnpm install` exits non-zero on the ignored builds, failing every `pnpm build:*`.
 # Kept in sync with package.json's pnpm.onlyBuiltDependencies, which older pnpm 9 (CI / mac) reads.
 allowBuilds:
-  # @ffmpeg-installer ships a per-platform binary package, each with a postinstall
-  # that chmod's the ffmpeg binary executable. The e2e video compositing (video.ts)
-  # needs it runnable, so every platform a contributor/test-machine might use is allowed.
-  '@ffmpeg-installer/darwin-arm64': true
-  '@ffmpeg-installer/darwin-x64': true
-  '@ffmpeg-installer/linux-arm64': true
-  '@ffmpeg-installer/linux-x64': true
-  '@ffmpeg-installer/win32-x64': true
   # @@@sessionpage-spike - the session page's native addons; built for node here, then rebuilt for electron 28
   # ABI 119 by `pnpm rebuild:native` (@electron/rebuild).
   # @@@task-fusion (#2802) — better-sqlite3 曾被 pin 在 ^11,理由写的是「^12 drops node 18」。那条理由

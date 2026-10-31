@@ -62,7 +62,7 @@ import { createChatContext, createChatState, createChatView } from '@gugu/sessio
 import '@gugu/session-chat-ui/style.css';
 
 // Once per app (or per conversation set):
-const ctx = createChatContext({ stickToBottom: true });
+const ctx = createChatContext({ locale: () => 'en-US', stickToBottom: true });
 
 // Once per session:
 const state = createChatState(ctx);
@@ -113,7 +113,7 @@ import { createChatContext, createChatState, ChatTranscript } from '@gugu/sessio
 import '@gugu/session-chat-ui/style.css';
 
 // Create once at app startup:
-const chatCtx = createChatContext();
+const chatCtx = createChatContext({ locale: () => 'en-US' });
 
 function Chat() {
   const chatState = useMemo(() => createChatState(chatCtx), []);
@@ -141,10 +141,10 @@ function Chat() {
 
 ---
 
-## `createChatContext(opts?)`
+## `createChatContext(opts)`
 
 ```ts
-function createChatContext(opts?: ChatContextOptions): ChatContext;
+function createChatContext(opts: ChatContextOptions): ChatContext;
 ```
 
 Creates a global-services singleton. Safe to create once per app and reuse
@@ -156,6 +156,7 @@ invalidates geometry caches on font load or typography changes.
 
 | Option | Type | Description |
 | --- | --- | --- |
+| `locale` | `() => SupportedLocale` | Required host reader (`zh-CN` or `en-US`); no package default. Use the existing translator subscription for changes. |
 | `theme` | `ChatTheme` | Full resolved theme. Defaults to `DEFAULT_THEME`. |
 | `config` | `ChatConfig` | Typography + chip geometry. Ignored when `theme` is set. |
 | `highlighter` | `ChatHighlighter` | Syntax-highlighting adapter. Defaults to the bundled Shiki adapter. |
@@ -165,6 +166,7 @@ invalidates geometry caches on font load or typography changes.
 
 | Member | Type | Description |
 | --- | --- | --- |
+| `locale` | `() => SupportedLocale` | Reactive host reader, refreshed by the translation epoch. |
 | `theme` | `ChatTheme` | Resolved theme used for all views sharing this context. |
 | `config` | `ChatConfig` | Config that produced the theme. |
 | `mentionProvider` | `MentionProvider \| undefined` | The @-mention resolver. |
@@ -311,7 +313,7 @@ import { buildChatTheme, DEFAULT_CONFIG, DEFAULT_THEME } from '@gugu/session-cha
 import type { ChatTheme, ChatConfig } from '@gugu/session-chat-ui';
 
 const theme = buildChatTheme(myConfig);          // build from config
-const ctx   = createChatContext({ theme });      // or pass directly
+const ctx   = createChatContext({ locale: () => 'en-US', theme });      // or pass directly
 ```
 
 The `ChatTheme` drives all typography constants used during measurement. Changing
@@ -327,7 +329,7 @@ needed).
 import { createDefaultHighlighter } from '@gugu/session-chat-ui';
 
 const highlighter = await createDefaultHighlighter();
-const ctx = createChatContext({ highlighter });
+const ctx = createChatContext({ locale: () => 'en-US', highlighter });
 ```
 
 `createDefaultHighlighter` returns the bundled Shiki adapter (em-light/em-dark
@@ -351,7 +353,7 @@ const provider: MentionProvider = {
   },
 };
 
-const ctx = createChatContext({ mentionProvider: provider });
+const ctx = createChatContext({ locale: () => 'en-US', mentionProvider: provider });
 ```
 
 ---

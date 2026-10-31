@@ -1,6 +1,6 @@
 import { ArrowLeft, ArrowRight, Ellipsis, Globe, Plus, Reload, RotateCcw, Square } from '@/lib/icons'
 import { LoadingIndicator } from '@/lib/loading/LoadingIndicator'
-import { Minus } from 'lucide-react'
+import { Minus } from '@/lib/icons'
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useAppSettingsKey } from '@renderer/features/settings/use-app-settings-key';
 import type { ProjectsTranslate } from '@renderer/localization/messages-projects';

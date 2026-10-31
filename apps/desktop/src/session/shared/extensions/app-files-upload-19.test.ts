@@ -1,6 +1,6 @@
-import { rpcQuery } from '../../../../../../tests/helpers/rpcQuery';
+import { rpcQuery } from '../../../../../../tests/support/rpcQuery';
 import type { FilesPlatform } from './app-files-core';
-import { verifiedFileHandle } from '../../../../../../tests/helpers/verifiedFileHandle';
+import { verifiedFileHandle } from '../../../../../../tests/support/verifiedFileHandle';
 import { randomUUID } from 'node:crypto';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -200,21 +200,33 @@ describe('files.upload from an App\'s program acting for an agent (G5)', () => {
 
 
 describe('project publication dispatch', () => {
-  it('publishes a project text file before document conversion, without invoking the uploader', async () => {
+  it('classifies a project text upload as a live document before local publication', async () => {
     publishFile = vi.fn(async (chat, file) => {
       const row = { id: randomUUID(), epoch: 0, chat_id: chat, kind: 'file', filename: file.name, content_type: file.contentType, pointer: null, size_bytes: file.bytes.byteLength,
         created_by: PERSON, created_at: null, updated_at: null, source_message_ids: [], version: 1, parent_id: null, system_role: null, path: file.name };
       rows.push(row); return row;
     });
     const [entry] = await files.upload(CHAT, [{ name: 'report.html', bytes: bytesOf('<h1>Private</h1>'), contentType: 'text/html' }]);
-    expect(entry).toMatchObject({ name: 'report.html' });
-    expect(rows).toHaveLength(1); expect(rows[0]).toMatchObject({ kind: 'file' });
+    expect(entry).toMatchObject({ name: 'report.html', type: 'text' });
+    expect(rows).toHaveLength(1); expect(rows[0]).toMatchObject({ kind: 'document', inline_text: '<h1>Private</h1>' });
+    expect(publishFile).not.toHaveBeenCalled();
     expect(bucketed).toEqual([]); expect(places).toEqual([]);
-    expect(rpcs.some(call => call.name === 'workspace_insert_document_as')).toBe(false);
   });
-  it('uses the same existing uploader for an explicitly cloud-stored project text file', async () => {
+  it('keeps non-text project files on the configured publisher path', async () => {
+    publishFile = vi.fn(async (chat, file) => {
+      const row = { id: randomUUID(), epoch: 0, chat_id: chat, kind: 'file', filename: file.name, content_type: file.contentType, pointer: null, size_bytes: file.bytes.byteLength,
+        created_by: PERSON, created_at: null, updated_at: null, source_message_ids: [], version: 1, parent_id: null, system_role: null, path: file.name };
+      rows.push(row); return row;
+    });
+    await files.upload(CHAT, [{ name: 'report.png', bytes: bytesOf(new Uint8Array([1, 2, 3])), contentType: 'image/png' }]);
+    expect(publishFile).toHaveBeenCalledOnce();
+    expect(rows).toHaveLength(1); expect(rows[0]).toMatchObject({ kind: 'file' });
+    expect(bucketed).toEqual([]);
+    expect(places).toEqual([]);
+  });
+  it('uses the same existing store closure when a project file is explicitly cloud-stored', async () => {
     publishFile = async (_chat, _file, _parent, _actor, store) => store!();
-    await files.upload(CHAT, [{ name: 'report.html', bytes: bytesOf('<h1>Cloud</h1>'), contentType: 'text/html' }]);
+    await files.upload(CHAT, [{ name: 'report.png', bytes: bytesOf(new Uint8Array([1, 2, 3])), contentType: 'image/png' }]);
     expect(rows).toHaveLength(1); expect(rows[0]).toMatchObject({ kind: 'file' });
     expect(bucketed).toHaveLength(1); expect(places).toHaveLength(1);
   });

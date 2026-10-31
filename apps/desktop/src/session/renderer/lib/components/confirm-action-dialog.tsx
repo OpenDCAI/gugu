@@ -18,7 +18,8 @@ export type ConfirmActionDialogArgs = {
   variant?: 'destructive' | 'default';
   /**
    * 传了才长出「不再询问」复选框,勾选状态随确认一起回给调用方(取消不回传:没确认的动作不该
-   * 顺手改掉一条偏好)。❌ 给不可撤销的动作传它 —— 免谈只对「反悔得回来」的动作成立。
+   * 顺手改掉一条偏好)。只用于已有明确默认动作、任务内容可恢复的流程;归档免确认授权默认移出身份,
+   * 恢复任务时换新身份。真正丢弃不可恢复内容的动作不提供这项偏好。
    */
   dontAskAgainLabel?: string;
   /**
@@ -27,6 +28,8 @@ export type ConfirmActionDialogArgs = {
    * ❌ 在勾了也不改变结果的时候摆它(名下没有子会话时就不要传)——一个假开关比没有更坏。
    */
   scopeLabel?: string;
+  /** An explicit choice for this action, independent of its descendant scope. */
+  option?: { label: string; defaultChecked: boolean; disabled?: boolean };
   /** 传了,「取消」键就是一句「不」,与关掉弹窗(Esc / 点外面)分开报;不传两者同为 onClose。 */
   onCancel?: () => void;
   /** 「取消」键另有说法时(它是另一个动作,如「只关会话」)。不传 = 「取消」。 */
@@ -37,7 +40,7 @@ export type ConfirmActionDialogArgs = {
  * 确认的结果。`dontAskAgain` 只在调用方给了 `dontAskAgainLabel` 时可能为 true;
  * `scopeChecked` 同理只在给了 `scopeLabel` 时可能为 true。
  */
-export type ConfirmActionResult = { dontAskAgain: boolean; scopeChecked: boolean };
+export type ConfirmActionResult = { dontAskAgain: boolean; scopeChecked: boolean; optionChecked: boolean };
 
 type Props = BaseModalProps<ConfirmActionResult> & ConfirmActionDialogArgs;
 
@@ -48,6 +51,7 @@ export function ConfirmActionDialog({
   variant = 'destructive',
   dontAskAgainLabel,
   scopeLabel,
+  option,
   onCancel,
   cancelLabel,
   onSuccess,
@@ -56,6 +60,7 @@ export function ConfirmActionDialog({
   const { translate } = useSessionMessages();
   const [dontAskAgain, setDontAskAgain] = useState(false);
   const [scopeChecked, setScopeChecked] = useState(false);
+  const [optionChecked, setOptionChecked] = useState(option?.defaultChecked ?? false);
   return (
     <>
       <DialogHeader showCloseButton={false}>
@@ -64,6 +69,12 @@ export function ConfirmActionDialog({
       <DialogContentArea className="pt-0">
         {/* 换行是内容的一部分(扩展授权框一行一项权限),❌ 让 HTML 把它们挤成一行。 */}
         {typeof description === 'string' ? <p className="whitespace-pre-line">{description}</p> : description}
+        {option ? (
+          <label className="mt-3 flex items-start gap-2 text-sm text-foreground">
+            <Checkbox disabled={option.disabled} checked={optionChecked} onCheckedChange={(checked) => setOptionChecked(Boolean(checked))} />
+            <span className="min-w-0">{option.label}</span>
+          </label>
+        ) : null}
         {scopeLabel ? (
           // 正文里、紧跟着那句话:它说的是这次动作会带走什么,不是一条偏好。
           <label className="mt-3 flex items-start gap-2 text-sm text-foreground">
@@ -92,7 +103,7 @@ export function ConfirmActionDialog({
         <Button variant="outline" onClick={onCancel ?? onClose}>
           {cancelLabel ?? translate('common.cancel')}
         </Button>
-        <ConfirmButton variant={variant} onClick={() => onSuccess({ dontAskAgain, scopeChecked })}>
+        <ConfirmButton variant={variant} onClick={() => onSuccess({ dontAskAgain, scopeChecked, optionChecked })}>
           {confirmLabel ?? translate('common.confirm')}
         </ConfirmButton>
       </DialogFooter>

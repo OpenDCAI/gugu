@@ -1,9 +1,9 @@
-import { rpcQuery } from '../../../../../../tests/helpers/rpcQuery';
+import { rpcQuery } from '../../../../../../tests/support/rpcQuery';
 import { createHash } from 'node:crypto';
 import { cloudFileProviders } from '@gugu/core/cloud/fileProviders';
 import { createFileResolver } from '@gugu/core/shared/fileResolver';
 import { createCachedFileSink, type FileChunkCache } from '@gugu/core/shared/fileCache';
-import { verifiedFileHandle } from '../../../../../../tests/helpers/verifiedFileHandle';
+import { verifiedFileHandle } from '../../../../../../tests/support/verifiedFileHandle';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 /**

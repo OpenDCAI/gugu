@@ -1,5 +1,6 @@
 
 export const UI_EVENTS = {
+  identityInvalidated: '__identity_invalidated',
   closeContextMenus: '__close_context_menus',
   updateReady: '__update_ready',
   updateStatus: '__update_status',

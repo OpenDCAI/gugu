@@ -1,4 +1,4 @@
-import { permanentlyRemove } from '@gugu/core/cloud/agentIdentityRemoval'
+import { archiveIdentity } from '@gugu/core/cloud/agentIdentityRemoval'
 import { identityDb, getCurrentAuthUserId } from './supabase'
 import { chatService } from './chat'
 import { listDevicesOnceIdentified } from './listDevicesOnceIdentified'
@@ -207,7 +207,7 @@ export async function cancelProvisionOperation(operationId: string): Promise<voi
 }
 
 // settle_provision_cancellation advances members/operation to their terminal cancel phase ONLY from durable DB
-// postconditions (identity absent AND governed tombstone AND no runtime AND no live command — see team-provision).
+// postconditions (identity removed AND no runtime AND no live command — see team-provision).
 // It is the authority on convergence; the renderer never asserts "cancelled" on its own.
 export async function settleProvisionCancellation(operationId: string): Promise<AgentProvisionOperation> {
   const { data, error } = await identityDb.rpc('settle_provision_cancellation', { p_operation_id: operationId })
@@ -227,9 +227,9 @@ export async function defaultStopAgentRuntime(agentUserId: string): Promise<void
   if (error) throw new Error(error.message)
 }
 
-/** Explicit provision cancellation uses the same permanent identity removal as Delete Agent. */
+/** Provision cancellation shares the same identity archival write as task archival. */
 export async function defaultRemoveOwnedAgent(agentUserId: string): Promise<void> {
-  await permanentlyRemove({ client: identityDb, agentId: agentUserId })
+  await archiveIdentity(identityDb, agentUserId)
 }
 
 // ── read / rediscovery helpers (owner-scoped by RLS SELECT) ─────────────────────────────────────────────

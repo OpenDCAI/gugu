@@ -152,13 +152,8 @@ export function groupImportedHistoryRows(
     }))
 }
 
-async function loadDmPeerUserId(chatId: string, ownerUserId: string): Promise<string> {
-  const { data, error } = await chatDb
-    .from('chat_members')
-    .select('user_id')
-    .eq('chat_id', chatId)
-    .neq('user_id', ownerUserId)
-    .limit(2)
+async function loadDmPeerUserId(chatId: string): Promise<string> {
+  const { data, error } = await chatDb.rpc('historical_dm_peer', { p_chat_id: chatId })
   if (error) throw new Error(error.message)
   if (!Array.isArray(data) || data.length !== 1) {
     throw new Error(`loadImportedSessionHistories: ${chatId} requires exactly one DM peer`)
@@ -226,7 +221,7 @@ export async function loadImportedSessionHistories(chatId: string, ownerUserId: 
   const kind = await getChatKind(chatId, 'loadImportedSessionHistories')
   if (kind === 'group') throw new Error('loadImportedSessionHistories: group chats use the group history surface')
   const ownerId = requiredText(ownerUserId, 'owner user_id')
-  const peerUserId = await loadDmPeerUserId(chatId, ownerId)
+  const peerUserId = await loadDmPeerUserId(chatId)
   const rows = await loadVisibleImportedHistoryRows(chatId, ownerId)
   return groupImportedHistoryRows(rows, chatId, ownerId, peerUserId)
 }

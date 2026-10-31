@@ -24,7 +24,7 @@ it('#5995 Codex tool payloads use the shared disclosure before and after view re
     }));
   }
   parser.endTurn();
-  const ctx = createChatContext({ layout: { preset: 'single', userGutter: 0 } });
+  const ctx = createChatContext({ locale: () => 'en-US', layout: { preset: 'single', userGutter: 0 } });
   const state = createChatState(ctx);
   state.transcript.history.seed([...parser.history]);
   const host = document.createElement('div');

@@ -2346,7 +2346,7 @@ export const AcpChatPanel = observer(function AcpChatPanel({
         // 字节读不回来时由附件对话框如实说「没有可预览的内容」
         const viewImage = (src: string | null | undefined) =>
           src
-            ? openImageViewer([{ url: src, alt: arg.attachment.name, thumb: arg.thumb }])
+            ? openImageViewer([{ url: src, alt: arg.attachment.name, file: { name: arg.attachment.name }, thumb: arg.thumb }])
             : handleViewerOpen(undefined, arg.attachment.name);
         if (arg.attachment.dataUrl || !store) {
           viewImage(arg.attachment.dataUrl);

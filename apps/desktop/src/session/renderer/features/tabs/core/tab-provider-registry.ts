@@ -4,7 +4,6 @@ import type { TabReturnTo } from '@shared/view-state';
 
 // ── Type aliases ──────────────────────────────────────────────────────────────
 
-// oxlint-disable-next-line typescript/no-explicit-any
 export type AnyTabProvider = TabProvider<any, any, any, any>;
 
 /**
@@ -229,7 +228,6 @@ export function createTabRegistry<const P extends readonly AnyTabProvider[]>(
     has(kind: string): boolean {
       return map.has(kind);
     },
-    // oxlint-disable-next-line typescript/no-explicit-any
     _providers: providers as any,
   };
   return registry;

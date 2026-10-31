@@ -137,7 +137,7 @@ export {
   type LocalAgentRecord
 } from './local/state/agents'
 export {
-  findReapedAgentForSession,
+  listReapedAgentsForSession,
   listReapedAgents,
   recordReapedAgents,
   reapedAgentsFile,

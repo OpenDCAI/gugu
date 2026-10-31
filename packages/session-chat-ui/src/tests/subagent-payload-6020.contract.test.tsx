@@ -22,7 +22,7 @@ it('native Codex child reasoning and results expand inside the existing subagent
   }
   parser.pushEvent(decodeSessionUpdate({ sessionUpdate: 'subagent_state_update', subagentSessionId: 'child', state: 'completed' }));
   parser.endTurn();
-  const ctx = createChatContext({ layout: { preset: 'single', userGutter: 0 } });
+  const ctx = createChatContext({ locale: () => 'en-US', layout: { preset: 'single', userGutter: 0 } });
   const state = createChatState(ctx);
   state.transcript.history.seed([...parser.history]);
   const host = document.createElement('div');
@@ -57,7 +57,7 @@ it.each([false, true])('#6020 subagent details use shared disclosure, including 
     status: 'completed', rawInput: { query: 'CHILD_ARGUMENT' }, rawOutput: 'CHILD_RESULT',
     _meta: { claudeCode: { parentToolUseId: 'parent' } } }));
   parser.endTurn();
-  const ctx = createChatContext({ layout: { preset: 'single', userGutter: 0 } });
+  const ctx = createChatContext({ locale: () => 'en-US', layout: { preset: 'single', userGutter: 0 } });
   const state = createChatState(ctx);
   state.transcript.history.seed([...parser.history]);
   const host = document.createElement('div');

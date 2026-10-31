@@ -75,13 +75,13 @@ function InlineImage({ meta, messageId, chatId, isMine }: { meta: ParsedAttachme
     const unregister = registerFullImage(img.current, () => (full ??= attachmentBytes(meta.source, 'full').then((bytes) => {
       if (bytes.status !== 'ready') throw new Error('attachment is gone')
       return URL.createObjectURL(bytes.blob)
-    })), meta.source.kind === 'item' ? { kind: 'file', target: { kind: 'file', itemId: meta.source.itemId, version: meta.source.version } } : undefined, chatId ? { chatId, messageId } : undefined)
+    })), meta.source.kind === 'item' ? { kind: 'file', target: { kind: 'file', itemId: meta.source.itemId, version: meta.source.version } } : undefined, { name: meta.fileName, contentType: meta.mimeType }, chatId ? { chatId, messageId } : undefined)
     return () => {
       unregister()
       void full?.then((url) => URL.revokeObjectURL(url), () => undefined)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- sourceKey 就是 meta.source 的身份
-  }, [ready, sourceKey, chatId, messageId])
+  }, [ready, sourceKey, meta.fileName, meta.mimeType, chatId, messageId])
 
   if (view.status === 'gone') return <FileAttachmentCard file={meta} isMine={isMine} details={t('attachmentView.fileGone')} onOpen={() => undefined} />
   if (view.status === 'missing') return <FileAttachmentCard file={meta} isMine={isMine} details={t('attachmentView.fileMissing')} />

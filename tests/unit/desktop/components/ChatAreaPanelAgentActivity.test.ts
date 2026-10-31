@@ -92,7 +92,6 @@ vi.mock('../../../../apps/desktop/src/lib/chat', () => ({
         local_path: null, created_at: null, updated_at: null,
       })),
     })),
-    markMessageRead: vi.fn(async () => {}),
     getThreadMessages: vi.fn(async () => []),
   },
 }))

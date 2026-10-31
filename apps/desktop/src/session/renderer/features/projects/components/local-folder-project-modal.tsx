@@ -48,7 +48,6 @@ export function LocalFolderProjectModal({ onClose, onSuccess }: LocalFolderProje
       cancelled = true;
     };
     // translate 的身份随语言变,家目录不随语言变。
-    // oxlint-disable-next-line react/exhaustive-deps
   }, []);
 
   useEffect(() => {

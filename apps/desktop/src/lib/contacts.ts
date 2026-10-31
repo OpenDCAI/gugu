@@ -1,4 +1,4 @@
-import { permanentlyRemove } from '@gugu/core/cloud/agentIdentityRemoval'
+import { archiveOwnedAgent, type AgentArchiveOptions } from './archiveOwnedAgent'
 import { updateDisplayAlias } from './displayOverrides'
 import { messageForUser } from './userFacingError'
 import { dbPayload } from '@gugu/core/cloud/supabase'
@@ -194,7 +194,7 @@ async function loadChatMemberIds(chatIds: string[]): Promise<Map<string, string[
   // @@@1752 — chunked like #1666 (unbounded chat id list in one `.in()` → ~8KB GET URL → net::ERR_FAILED).
   const data = await fetchInChunks(chatIds, async (chunk) => {
     const { data: rows, error } = await chat()
-      .from('chat_members')
+      .from('active_members')
       .select('chat_id, user_id, joined_at')
       .in('chat_id', chunk)
       .order('joined_at', { ascending: true })
@@ -447,7 +447,7 @@ export const contactsService = {
   /** Fetch human friends plus agents owned by the current user. */
   async getContacts(userId: string): Promise<ContactUser[]> {
     const { data: friendships, error: friendshipError } = await identity()
-      .from('friendships')
+      .from('active_friendships')
       .select('user_a_id, user_b_id')
       .or(`user_a_id.eq.${userId},user_b_id.eq.${userId}`)
 
@@ -545,9 +545,9 @@ export const contactsService = {
     if (error) throw new Error(messageForUser(error), { cause: error })
   },
 
-  async removeOwnedAgent(agentUserId: string): Promise<void> {
+  async removeOwnedAgent(agentUserId: string, options?: AgentArchiveOptions): Promise<void> {
     try {
-      await permanentlyRemove({ client: identityDb, agentId: agentUserId })
+      await archiveOwnedAgent(agentUserId, options)
     } catch (error) {
       throw new Error(messageForUser(error), { cause: error })
     }
@@ -742,7 +742,7 @@ export const contactsService = {
 
   async getCommonGroupChats(userId: string, contactUserId: string): Promise<ContactGroupChat[]> {
     const { data: myRows, error: myError } = await chat()
-      .from('chat_members')
+      .from('active_members')
       .select('chat_id, notification_level')
       .eq('user_id', userId)
 
@@ -754,7 +754,7 @@ export const contactsService = {
     // @@@1752 — chunked like #1666: my chat id list is unbounded (grows with group count).
     const peerRows = await fetchInChunks(myChatIds, async (chunk) => {
       const { data, error } = await chat()
-        .from('chat_members')
+        .from('active_members')
         .select('chat_id')
         .eq('user_id', contactUserId)
         .in('chat_id', chunk)

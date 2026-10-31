@@ -19,7 +19,7 @@ export function measureBlockCached(block: Block, ctx: MeasureCtx): Measured<Bloc
   const cached = blockMemo.get(block);
   if (cached?.fingerprint === fingerprint) return cached.result;
 
-  // oxlint-disable-next-line typescript/no-explicit-any -- BLOCK_REGISTRY is typed at boundary
+  // BLOCK_REGISTRY is typed at boundary
   const result: Measured<BlockLeafLayout> = BLOCK_REGISTRY[block.kind].measure(block as any, ctx);
   blockMemo.set(block, { fingerprint, result });
   return result;
@@ -97,7 +97,7 @@ export function layoutBlockStack(
     if (prevBlock === null) return 0;
     const prev = BLOCK_REGISTRY[prevBlock.kind];
     const cur = BLOCK_REGISTRY[blocks[idx].kind];
-    // oxlint-disable-next-line typescript/no-explicit-any -- block kind matches def at runtime
+    // block kind matches def at runtime
     return collapse((prev as any).margin(prevBlock).bottom, (cur as any).margin(blocks[idx]).top);
   };
 

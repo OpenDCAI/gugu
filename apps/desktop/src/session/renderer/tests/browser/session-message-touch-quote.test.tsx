@@ -20,7 +20,7 @@ async function mountMessage() {
     const parent = useRef<HTMLDivElement>(null);
     const quotes = useSessionMessageQuotes(store, useRef(null));
     useEffect(() => {
-      const context = createChatContext({ theme: buildChatTheme(DEFAULT_CONFIG, { preset: 'double', userGutter: 48, agentConversation: true }) });
+      const context = createChatContext({ locale: () => 'en-US', theme: buildChatTheme(DEFAULT_CONFIG, { preset: 'double', userGutter: 48, agentConversation: true }) });
       const state = createChatState(context);
       state.transcript.history.seed([{ id: 'turn', seq: 1, initiator: 'user', items: [{ kind: 'message', id: 'source', role: 'user', seq: 0, text: 'Original message words' }] }]);
       const view = createChatView({ context, state, parent: parent.current!, commands: { onMessageTextMount: quotes.onMessageTextMount } });

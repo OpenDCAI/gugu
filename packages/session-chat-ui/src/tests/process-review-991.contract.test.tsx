@@ -11,7 +11,7 @@ afterEach(() => disposers.splice(0).forEach(dispose => dispose()));
 const hook: TranscriptItem = { kind: 'session-notice', id: 'stop', seq: 4, code: 'provider-notice', title: 'Stop says: Check complete.', detail: 'Stop says: Check complete.', at: 4000 };
 const bash = (command: string, seq = 2): Extract<TranscriptItem, { kind: 'execute-tool-call' }> => ({ kind: 'execute-tool-call', id: 'work', seq, toolCallId: 'work', toolName: 'Bash', command, title: command, status: 'done' });
 function mount(items: TranscriptItem[], timestamped = true) {
-  const context = createChatContext();
+  const context = createChatContext({ locale: () => 'en-US' });
   context.setLayout({ preset: 'double', userGutter: 72, agentConversation: true });
   const state = createChatState(context);
   const host = document.createElement('div');

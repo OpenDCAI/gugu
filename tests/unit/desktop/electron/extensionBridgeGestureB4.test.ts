@@ -27,7 +27,7 @@ type Host = {
   showSession(id: string): Promise<unknown>
   dispatch(text: string, options?: Record<string, unknown>): Promise<unknown>
   clipboard: { writeText(text: string): Promise<unknown> }
-  appFiles: Record<'openWith' | 'upload' | 'download', (args: unknown) => Promise<unknown>>
+  appFiles: Record<'openWith' | 'upload' | 'download' | 'forward', (args: unknown) => Promise<unknown>>
   forum: Record<'post' | 'reply' | 'react' | 'remove' | 'block' | 'assign' | 'award', (...args: unknown[]) => Promise<unknown>>
 }
 const host = electron.exposed.__guguHost as Host
@@ -37,6 +37,7 @@ const gestureCalls: Record<string, () => Promise<unknown>> = {
   filesOpenWith: () => host.appFiles.openWith({ ref: { chat: 'chat-1', name: 'a.md' } }),
   filesUpload: () => host.appFiles.upload({}),
   filesDownload: () => host.appFiles.download({ ref: { chat: 'chat-1', name: 'a.md' } }),
+  filesForward: () => host.appFiles.forward({ refs: [{ chat: 'chat-1', name: 'a.md' }] }),
   showMessage: () => host.showMessage('msg-1'),
   showSession: () => host.showSession('s-1'),
   dispatch: () => host.dispatch('picked'),

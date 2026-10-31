@@ -98,7 +98,7 @@ const IconShare = () => (
 export interface MemberProfileCardModel {
   id: string
   guguNumber?: number | null
-  displayName: string
+  displayName: string; removedAt?: string | null
   avatar: string | null
   email: string | null
   /** Bio text from ContactUser.bio or agent profile. Null = no bio set. */

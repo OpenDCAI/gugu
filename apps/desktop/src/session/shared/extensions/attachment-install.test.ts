@@ -1,4 +1,4 @@
-import { verifiedFileHandle } from '../../../../../../tests/helpers/verifiedFileHandle';
+import { verifiedFileHandle } from '../../../../../../tests/support/verifiedFileHandle';
 import { describe, expect, it } from 'vitest';
 import { attachmentInstallPlan, couldUpdateUnasked, messagePackageSource, resolveAttachmentPackage, type InstalledApp, type PackageMessageRow, type PackageReads } from './attachment-install';
 import { EXTENSION_API_VERSION, parseExtensionManifest, type ExtensionManifest } from './manifest';

@@ -30,7 +30,6 @@ export const views = {
   'new-session': { TitlebarSlot: ShellTitlebar, MainPanel: NewSessionPage },
   apps: appsView,
   app: appView,
-  // oxlint-disable-next-line typescript/no-explicit-any
 } satisfies Record<string, ViewDefinition<any>>;
 
 export type ViewDefinition<TParams extends object = Record<never, never>> = {

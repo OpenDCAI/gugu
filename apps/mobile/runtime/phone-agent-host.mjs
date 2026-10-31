@@ -1,3 +1,4 @@
+import { archiveIdentity } from '../../../packages/core/src/cloud/agentIdentityRemoval.ts'
 import { archiveAgentRecord, agentsForOwner } from '../../../packages/core/src/local/state/agentOwner.ts'
 import { createPhoneAssistantWorkOutbox } from './phone-assistant-work-outbox.mjs'
 import { createPhoneAssistantWorkHistory } from './phone-assistant-work-history.mjs'
@@ -114,15 +115,15 @@ export async function startPhoneAgentHost(initialConfig, { runTurn, cancelTurn, 
   }, undefined, { onRequestFailure: recordRequestFailure })
   const models = modelFactory(cloud, store, warn)
   const agents = () => agentsForOwner(Object.values(store.state.agents), ownerId)
-  const findSession = (id) => {
-    const agent = agents().find((item) => item.sessionId === parseSession(id))
+  const findSession = (id, includeArchived = false) => {
+    const agent = agentsForOwner(Object.values(store.state.agents), ownerId, { includeArchived }).find((item) => item.sessionId === parseSession(id))
     if (!agent) throw Object.assign(new Error('session not found on this machine'), { code: 'SESSION_NOT_FOUND' })
     return agent
   }
   const reporter = createAgentRuntimeStateReporter(cloud.identity, { onGoneAgent: async (id) => { delete store.state.agents[id]; await store.save(); publish() } })
-  const report = (agent, online = true) => reporter({ agentUserId: agent.agentUserId, runtimeStatus: online ? 'online' : 'offline', activityStatus: agent.status === 'working' ? 'running' : 'idle', agentStatus: agent.status, agentStatusDetail: agent.status === 'working' ? 'running' : agent.status === 'needs_user' ? 'question' : agent.status === 'error' ? null : 'plain', runtimeKind: 'gugu', runtimeLabel: config.deviceRow?.label ?? config.deviceInfo?.model ?? 'Android', recentActions: agent.recentActions ?? null, lastActionAt: agent.lastActionAt ?? null })
+  const report = (agent, online = true) => agent.removedIdentity ? Promise.resolve() : reporter({ agentUserId: agent.agentUserId, runtimeStatus: online ? 'online' : 'offline', activityStatus: agent.status === 'working' ? 'running' : 'idle', agentStatus: agent.status, agentStatusDetail: agent.status === 'working' ? 'running' : agent.status === 'needs_user' ? 'question' : agent.status === 'error' ? null : 'plain', runtimeKind: 'gugu', runtimeLabel: config.deviceRow?.label ?? config.deviceInfo?.model ?? 'Android', recentActions: agent.recentActions ?? null, lastActionAt: agent.lastActionAt ?? null })
   const verifyAgent = async (agentUserId) => {
-    const { data, error } = await cloud.identity.from('users').select('id,type,owner_user_id,device_id,display_name,gugu_number,desired_status').eq('id', uuid(agentUserId)).maybeSingle()
+    const { data, error } = await cloud.identity.from('active_users').select('id,type,owner_user_id,device_id,display_name,gugu_number,desired_status').eq('id', uuid(agentUserId)).maybeSingle()
     if (error) throw new Error(error.message)
     if (!data || data.type !== 'agent' || data.owner_user_id !== ownerId || data.device_id !== deviceId) throw new Error('Agent 不属于当前账号和这台手机')
     return data
@@ -246,17 +247,23 @@ export async function startPhoneAgentHost(initialConfig, { runTurn, cancelTurn, 
     return { cancelled }
   }
   // History stays in the phone store; this host does not yet expose a Restore UI or RPC.
-  const archive = async (agent) => {
+  const archive = async (agent, removeSocialIdentity = true) => {
+    if (typeof removeSocialIdentity !== 'boolean') throw new Error('removeSocialIdentity must be a boolean')
+    if (agent.status === 'archived' && (!removeSocialIdentity || agent.removedIdentity)) return false
+    const receipt = agent.removedIdentity ?? (removeSocialIdentity ? await archiveIdentity(cloud.identity, agent.agentUserId) : null)
+    if (receipt) { agent.removedIdentity = receipt; await store.save() }
     await cancel(agent)
     await draining
     archiveAgentRecord(agent)
     await store.save(); publish()
+    return true
   }
   const handlers = {
     'agent.create': createFromCommand,
     'agent.deliver': async (command) => ({ agent_user_id: command.payload.agent_user_id, delivered: (await inbox(command.payload.agent_user_id)).injected > 0 }),
     'agent.stop': async (command) => { const agent = agents().find((row) => row.agentUserId === command.payload.agent_user_id); if (!agent) throw new Error('Agent 没有在这台手机上建立会话'); await cancel(agent); return { stopped: true } },
-    'agent.retire': async (command) => { const agent = agents().find((row) => row.agentUserId === command.payload.agent_user_id); if (agent) await archive(agent); return { retired: true } },
+    // Retire hands the identity to its new device: archive here, keep the social identity.
+    'agent.retire': async (command) => { const agent = agents().find((row) => row.agentUserId === command.payload.agent_user_id); if (agent) await archive(agent, false); return { retired: true } },
     'agent.set_model': async (command) => {
       const agent = agents().find((row) => row.agentUserId === command.payload.agent_user_id)
       if (!agent) throw new Error('Agent 没有在这台手机上建立会话')
@@ -577,11 +584,15 @@ export async function startPhoneAgentHost(initialConfig, { runTurn, cancelTurn, 
     }
     // Phone archive is supported here; sessions.restoreSession is not yet implemented.
     if (channel === 'sessions.archiveSession') {
-      const agent = findSession(args[1])
-      await archive(agent)
-      return { archived: [{ projectId, sessionId: agent.sessionId }], unreached: [] }
+      const agent = findSession(args[1], true)
+      const changed = await archive(agent, args[2]?.removeSocialIdentity)
+      return { archived: changed ? [{ projectId, sessionId: agent.sessionId }] : [], unreached: [] }
     }
     if (channel === 'sessionTimeline.sessionsList') return { projects: [project], sessions: await Promise.all(agents().map(summary)) }
+    if (channel === 'sessionTimeline.sessionOfAgent') {
+      const agent = agentsForOwner(Object.values(store.state.agents), ownerId, { includeArchived: true }).find((row) => row.agentUserId === String(args[0]).replace(/^user:/, ''))
+      return agent ? { projectId, sessionId: agent.sessionId } : null
+    }
     if (channel === 'sessionTimeline.sessionCreateOptions') return { projects: [project], harnesses: [{ id: 'pi', name: '手机 Agent', status: 'available', sessionViews: ['general'], permissionModes: [], watchable: true, chatAvailable: false }], lastUsed: null }
     if (channel === 'sessionTimeline.sessionCreateModels') {
       if (args[0]?.harness !== 'pi') throw new Error('这台手机只能创建手机 Agent')

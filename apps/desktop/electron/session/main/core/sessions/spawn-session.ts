@@ -16,7 +16,7 @@ export async function mountSpawnedSession(
     const mounted = await sessionService.ensureSessionMounted(sessionId);
     return { workspaceId: mounted.workspaceId, path: mounted.path };
   } catch (error) {
-    await archiveSession(projectId, sessionId, { skipTransportStop: true });
+    await archiveSession(projectId, sessionId, { skipTransportStop: true, removeSocialIdentity: false });
     throw error;
   }
 }

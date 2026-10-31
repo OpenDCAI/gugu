@@ -1,8 +1,7 @@
-import { differenceInCalendarDays } from 'date-fns'
 import { useTranslation } from 'react-i18next'
 import type { SessionpageScheduleDigest } from '@gugu/session-core/session-record/contract'
 import { AlertTriangle, Clock } from '@/lib/icons'
-import { formatDate } from '@/i18n/format'
+import { differenceInCalendarDays, formatDate } from '@/i18n/format'
 
 /**
  * 手机任务行 meta 那一行最前面的一段:这个任务给自己排了定时,下一个几点回来(#7221 schedule_create)。

@@ -54,6 +54,7 @@ const STRINGS = {
     openWith: '用别的 App 打开',
     more: '更多',
     downloadOnly: '这个文件在这里只能下载，不能在这里看和改。',
+    storedTextReadOnly: '这个文件按原样存着，在这里只能看，不能改。',
     remove: '删除',
     confirmRemove: '确认删除',
     rename: '改名',
@@ -100,6 +101,7 @@ const STRINGS = {
     upload: '上传',
     uploadTooLarge: '文件太大：{e}',
     download: '下载',
+    forward: '转发',
     createdBy: '{who} 创建 · {time}',
     editedBy: '{who} 编辑 · {time}',
     editedAt: '已编辑 · {time}',
@@ -172,6 +174,7 @@ const STRINGS = {
     pickDone: '完成',
     picked: '已选 {n} 项',
     pickCancel: '取消选择',
+    pickForward: '转发',
     pickDownload: '下载',
     pickTemporary: '设为临时',
     pickPermanent: '一直保留',
@@ -222,6 +225,7 @@ const STRINGS = {
     openWith: 'Open with another App',
     more: 'More',
     downloadOnly: 'This file can only be downloaded here; it cannot be shown or changed here.',
+    storedTextReadOnly: 'This file is kept as it was stored: you can read it here, not change it.',
     remove: 'Delete',
     confirmRemove: 'Confirm delete',
     rename: 'Rename',
@@ -268,6 +272,7 @@ const STRINGS = {
     upload: 'Upload',
     uploadTooLarge: 'File too large: {e}',
     download: 'Download',
+    forward: 'Forward',
     createdBy: 'Created by {who} · {time}',
     editedBy: 'Edited by {who} · {time}',
     editedAt: 'Edited · {time}',
@@ -340,6 +345,7 @@ const STRINGS = {
     pickDone: 'Done',
     picked: '{n} selected',
     pickCancel: 'Clear selection',
+    pickForward: 'Forward',
     pickDownload: 'Download',
     pickTemporary: 'Make temporary',
     pickPermanent: 'Keep until deleted',
@@ -1355,7 +1361,8 @@ function rowMenu(li, entry) {
   const groups = [[open]]
   if (folder) groups.push(change)
   else {
-    const use = [{ text: t.download, run: () => downloadEntry(entry) }, { text: t.copyLink, run: () => copyLink(entry) }]
+    const use = [...(canForward() ? [{ text: t.forward, run: () => forwardEntries([entry]) }] : []),
+      { text: t.download, run: () => downloadEntry(entry) }, { text: t.copyLink, run: () => copyLink(entry) }]
     if (entry.sourceMessageIds?.length) use.push({ text: t.showInChat, run: () => showSource(entry.sourceMessageIds.at(-1)) })
     const detail = { text: t.details, run: () => showDetails(entry) }
     const select = { text: t.pick, run: () => { state.selecting = true; pick(entry.id, 'toggle') } }
@@ -1441,6 +1448,18 @@ async function keepAs(entry, how) {
     showBanner(error.code === 'denied' ? state.t.keepNotMine : error.code === 'invalid' ? state.t.keepNone : fmt(state.t.failed, { e: error.message }), 'error')
   }
   await refreshList()
+}
+
+// 「转发」 (API 23): the host's forward page — the person picks the chats there, each gets a file card per file, by reference.
+// A host before it has no files.forward: the item is not offered rather than offered and refused.
+const canForward = () => typeof gugu.files.forward === 'function'
+async function forwardEntries(entries, then) {
+  try {
+    await gugu.files.forward(entries)
+    then?.()
+  } catch (error) {
+    showBanner(fmt(state.t.failed, { e: error.message }), 'error')
+  }
 }
 
 async function downloadEntry(entry) {
@@ -2175,6 +2194,7 @@ function watchStatus(current) {
     badge.textContent = file.readOnly && status === 'online' ? t.readOnly : status === 'offline' ? t.offline : ''
     if (status === 'gone') goneState(current)
     else if (status === 'offline') showBanner(t.offline, 'info')
+    else if (file.readOnlyReason === 'stored-bytes') showBanner(t.storedTextReadOnly, 'info', true)
     else if (!$('banner').dataset.sticky) hideBanner()
   }
   // Ordinary edits and their confirmations stay quiet; read-only and offline still need saying.
@@ -2448,8 +2468,9 @@ function clearPicks() {
 
 const pickedEntries = () => state.order.filter((id) => state.picked.has(id)).map((id) => state.entries.find((e) => e.id === id)).filter(Boolean)
 
-// The same four batch actions in the toolbar and the selection's context menu.
+// The same batch actions in the toolbar and the selection's context menu.
 const pickedActions = () => [
+  ...(canForward() ? [{ text: state.t.pickForward, run: () => forwardEntries(pickedEntries(), clearPicks) }] : []),
   { text: state.t.pickDownload, run: downloadPicked },
   ...(canWrite() ? [{ text: state.t.pickTemporary, run: () => keepPicked('temporary') }, { text: state.t.pickPermanent, run: () => keepPicked('permanent') }] : []),
   { text: state.t.pickLocate, run: startLocate },

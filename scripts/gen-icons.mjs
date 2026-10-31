@@ -11,7 +11,8 @@
 //
 // 清单 scripts/icons/solar-icons.json 分两栏,是刻意的:
 //   solar   —— 从 @iconify-json/solar 现取 body。加图标只需在这里加一行。
-//   literal —— 上面那 20 个手写货,原样保留。
+//   literal —— 保留既有字形及固定版本的非 Solar 原图。
+//   svg     —— 原图的 SVG 默认属性;React 与 App 元素共用。
 // 分栏让「让文件可重生」这一步**零像素变化**(重生结果与改动前逐字节相同,有测试钉住),
 // 而「把 literal 换成真 Solar」是一次看得见的产品改动,该单独过审,
 // ❌ 不该混在工具重建里偷偷发生 —— 那 20 个是 Check/Plus/X 这类全站高频图标。
@@ -29,6 +30,7 @@ const bodiesPath = path.join(repoRoot, 'packages/session-ui/src/icon-bodies.ts')
 
 const BODIES_HEADER = `/**
  * Solar 图标集的字形 —— Icons: Solar Icon Set by 480 Design — CC BY 4.0 (https://github.com/480-Design/Solar-Icon-Set)
+ * Lucide 0.564.0 original glyphs: ISC / Feather MIT; full notices in THIRD_PARTY_NOTICES.md.
  * 自动生成, 勿手改 —— 改 scripts/icons/solar-icons.json 后跑 \`node scripts/gen-icons.mjs\`.
  * 纯数据,不 import 任何东西:React 的图标组件(icons.tsx)和 App 页面的 <gugu-icon>(app-runtime/ui)都读这一份。
  */
@@ -37,25 +39,26 @@ const BODIES_HEADER = `/**
 const HEADER = `/**
  * Solar 图标集 (drop-in 替代 lucide-react) —— 设计决策见 README / About 署名.
  * Icons: Solar Icon Set by 480 Design — CC BY 4.0 (https://github.com/480-Design/Solar-Icon-Set)
+ * Lucide 0.564.0 original glyphs: ISC / Feather MIT; full notices in THIRD_PARTY_NOTICES.md.
  * 用法不变: import { Settings } from '@/lib/icons';  <Settings size={16} className="..." />
  *
  * 自动生成, 勿手改 —— 改 scripts/icons/solar-icons.json 后跑 \`node scripts/gen-icons.mjs\`.
  * 加图标: 在清单的 "solar" 栏加一行 "导出名": "<solar 图标名>", body 会从 @iconify-json/solar
- * 逐字节取来。❌ 别手写 path —— "literal" 栏那些就是手写攒出来的, 与上游对不上。
+ * 逐字节取来。literal 保留已有字形及固定版本的上游原图,❌ 别手绘新 path。
  * 同形别名(lucide 的 *Icon 后缀、CircleAlert/AlertCircle 这类历史改名): 写进 \`alias\` 栏,
  * ❌ 别在 \`solar\` 栏写两条指向同一个图标 —— 那会生成两份一模一样的 body。
  * 填充态: 另开一个 \`*Filled\` 导出取 \`-bold\` 字形 (HeartFilled 是样板)。
  * ❌ 别指望外层 \`fill=\` 覆盖 body 里写死的 fill="none", 那会静默保持空心。
  */
 import { forwardRef, type SVGProps } from 'react'
-import { ICON_BODIES as BODIES } from './icon-bodies'
+import { ICON_BODIES as BODIES, ICON_ATTRIBUTES as ATTRIBUTES } from './icon-bodies'
 `
 
 const FACTORY = `
 export interface IconProps
   extends Omit<SVGProps<SVGSVGElement>, 'ref' | 'children' | 'dangerouslySetInnerHTML'> {
   size?: number | string
-  /** 兼容 lucide API; Solar 线条粗细已内置, 此值仅占位不生效 */
+  /** Copied stroke glyphs honor this; Solar bodies retain their built-in line widths. */
   strokeWidth?: number | string
   absoluteStrokeWidth?: boolean
   /**
@@ -86,17 +89,21 @@ function makeIcon(name: string) {
   // \`<svg>\` 里的 \`<path>\` 整个换新。按下到抬起之间重渲染一次(按下就把那块设成正看着的),按下落在旧 path、
   // 抬起落在新 path,浏览器不发 click —— 没在看的那块,点「关闭这一块」第一下没反应(#7091)。
   const html = { __html: BODIES[name] }
+  const defaults = ATTRIBUTES[name]
   const Icon = forwardRef<SVGSVGElement, IconProps>(
-    // strokeWidth/absoluteStrokeWidth 仅为兼容 lucide API 而吞掉, 不传给 DOM (Solar 线宽内置)
-    ({ size = 24, strokeWidth: _sw, absoluteStrokeWidth: _asw, color, children: _children, ...rest }, ref) => (
+    ({ size = 24, strokeWidth = defaults?.strokeWidth, absoluteStrokeWidth, color, className, children: _children, ...rest }, ref) => (
       <svg
         ref={ref}
         xmlns="http://www.w3.org/2000/svg"
+        {...defaults}
         width={size}
         height={size}
         viewBox="0 0 24 24"
         color={color}
-        aria-hidden="true"
+        stroke={defaults ? color ?? defaults.stroke : undefined}
+        strokeWidth={defaults ? (absoluteStrokeWidth ? Number(strokeWidth) * 24 / Number(size) : strokeWidth) : undefined}
+        className={defaults ? [defaults.className, className].filter(Boolean).join(' ').trim() : className}
+        aria-hidden={defaults && Object.keys(rest).some((key) => key.startsWith('aria-') || key === 'role' || key === 'title') ? undefined : 'true'}
         {...rest}
         dangerouslySetInnerHTML={html}
       />
@@ -169,6 +176,11 @@ export function renderBodies(manifest, solar) {
   }
   lines.push('}', '', '/** 同形别名 → 它复用的那个导出名。 */', 'export const ICON_ALIASES: Record<string, string> = {')
   for (const [from, to] of sortedAliases(manifest)) lines.push(`  ${JSON.stringify(from)}: ${JSON.stringify(to)},`)
+  lines.push('}', '', '/** SVG defaults retained with the copied stroke glyphs; shared by React and App elements. */', 'export const ICON_ATTRIBUTES: Record<string, { fill: string; stroke: string; strokeWidth: number; strokeLinecap: "round"; strokeLinejoin: "round"; className: string }> = {')
+  for (const name of Object.keys(manifest.svg ?? {}).sort()) {
+    if (!(name in bodies)) throw new Error(`SVG defaults reference missing glyph ${name}`)
+    lines.push(`  ${JSON.stringify(name)}: ${JSON.stringify(manifest.svg[name])},`)
+  }
   lines.push('}', '')
   return lines.join('\n')
 }

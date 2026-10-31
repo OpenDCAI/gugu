@@ -4,6 +4,14 @@
 
 `pnpm android:build` 与 `pnpm android:build:release` 都会先执行 `build:mobile-agent`。Node 二进制及依赖来自 `android-node.lock.json`，构建只从锁文件里的 `mirror`（以 SHA-256 命名、上传后不再变的 release 附件）下载，并通过 SHA-256 校验——Termux 源只留每个包的最新一版，旧版一被替换就 404。改锁文件后趁上游还在，跑一次 `node scripts/mirror-mobile-node.mjs` 把缺的包补进镜像；Pi 与 npm 依赖由锁文件固定。生成的二进制、资源、已收集的第三方许可证及依赖清单放在 Android assets / jniLibs 中，不入 Git。
 
+原生库按 Node 的 ELF `DT_NEEDED` 和包内实际别名取传递闭包；缺失依赖、循环别名或 SONAME 不符会中止构建。`native-libraries.json` 保存解析后的边；不打包未被加载链引用的 ICU 工具库和另一份 SQLite。Gradle 保留 `arm64-v8a` / `armeabi-v7a`，嵌入 Node 的架构仍以锁文件为准。
+
+构建机还需已有的 ICU 数据工具（`icupkg`、`derb`、`genrb`）和 LLVM（`llvm-readelf`、`llvm-objcopy`、`clang`、`ld.lld`）。全部从 PATH 查找（macOS 用 Homebrew 的 `icu4c`、`llvm`、`lld`，把它们的 `bin`/`sbin` 加进 PATH）。工具缺失直接报错，不自动安装或回退全量数据。
+
+数据裁剪复用 [ICU 的数据打包工具](https://unicode-org.github.io/icu/userguide/icu_data/)：从验证过的 ICU ELF 数据段取得 `.dat`，保留 en/zh/ja 的全部区域和脚本变体、root、共享 Unicode/时区/排序/分词字典。用 derb/genrb 更新原索引中的 InstalledLocales，保留其余字段；icupkg 的依赖校验保持开启。LLVM 仅重封同数据符号与 SONAME 的 AArch64 共享数据对象，无 Android 头文件、运行库或 Node 重编译。`icu-data.json` 保存实际条目清单、尺寸和 SHA。
+
+APK 自带 `agent-runtime/intl-smoke-cli.mjs`。在自有 Android 测试实例的同一 Node / LD_LIBRARY_PATH 下执行它，验证 en-US、zh-CN、ja-JP 的日期、数字、排序、单词字典和 emoji 字素；桌面 Node 的通过仅是辅助证据。产品验收还须在真实手机正常完成一个 Pi 任务。
+
 ## 边界
 
 - `agent.mjs` 处理原生字节协议；`pi-session.mjs` 为每个咕咕会话建立独立 Pi 转录和取消边界。

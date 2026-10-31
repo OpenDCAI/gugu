@@ -236,7 +236,7 @@ describe('#3500 会话不在时的 submitPrompt', () => {
         return Promise.resolve({ success: true as const, data: { queued: false } });
       },
       sessionState: { current: () => ({ isGenerating: false, pendingPermissions: [] }) },
-      // oxlint-disable-next-line typescript/no-explicit-any -- 测试替身边界
+      // 测试替身边界
     } as any;
     store.submitPrompt('这一条应该真的发出去');
     expect(sent, '有会话时反而没发出去 —— 那说明修复把正常路径也堵了').toEqual([
@@ -259,7 +259,7 @@ describe('#3500 会话不在时的 submitPrompt', () => {
         return Promise.resolve({ success: true as const, data: { queued: true } });
       },
       sessionState: { current: () => ({ isGenerating: false, pendingPermissions: [] }) },
-      // oxlint-disable-next-line typescript/no-explicit-any -- 测试替身边界
+      // 测试替身边界
     } as any;
 
     store.submitPrompt('现在发送');
@@ -283,7 +283,7 @@ describe('#3500 会话不在时的 submitPrompt', () => {
         return Promise.resolve({ success: true as const, data: { queued: true } });
       },
       sessionState: { current: () => ({ isGenerating: false, pendingPermissions: [] }) },
-      // oxlint-disable-next-line typescript/no-explicit-any -- 测试替身边界
+      // 测试替身边界
     } as any;
 
     store.submitPrompt('<gugu_delivery route="extension">现在</gugu_delivery>', [], undefined, 'communication');
@@ -402,7 +402,7 @@ describe('#3507 会话不在时的其余副作用', () => {
         new Promise((resolve) => {
           resolveHistory = resolve;
         }),
-      // oxlint-disable-next-line typescript/no-explicit-any -- test double for the one raced method
+      // test double for the one raced method
     } as any;
     store.chatState.transcript.activeTurn.set(oldTurn);
 
@@ -426,7 +426,7 @@ describe('#3507 会话不在时的其余副作用', () => {
         delivered.push({ requestId, optionId });
         return Promise.resolve({ success: true as const, data: undefined });
       },
-      // oxlint-disable-next-line typescript/no-explicit-any -- 测试替身边界
+      // 测试替身边界
     } as any;
     store.resolvePermission('request-3507', 'allow-once');
     expect(delivered).toEqual([{ requestId: 'request-3507', optionId: 'allow-once' }]);
@@ -455,7 +455,7 @@ describe('#5636 mid-turn permission mode feedback', () => {
         if ((result as { success?: boolean }).success !== false) selected = modeId;
         return result;
       },
-      // oxlint-disable-next-line typescript/no-explicit-any -- focused renderer session boundary
+      // focused renderer session boundary
     } as any;
     return { store, state };
   }
@@ -521,7 +521,7 @@ describe('queued prompt visibility and reorder', () => {
         submitted.push(ids);
         return Promise.resolve({ success: true as const, data: undefined });
       },
-      // oxlint-disable-next-line typescript/no-explicit-any -- 测试替身边界
+      // 测试替身边界
     } as any;
 
     expect(current.filter(isVisibleQueuedPrompt).map((prompt) => prompt.id)).toEqual([
@@ -543,7 +543,7 @@ describe('#6448 park: only background agents running', () => {
     const store = makeStore();
     store.session = {
       sessionState: { current: () => ({ pendingPermissions: [], canSubmit: true, canCancel: true, ...state }) },
-      // oxlint-disable-next-line typescript/no-explicit-any -- focused renderer session boundary
+      // focused renderer session boundary
     } as any;
     return store;
   }

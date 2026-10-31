@@ -52,7 +52,7 @@ it('removes every streaming cursor and running label after a turn finishes while
   });
   const session = await AcpLiveSession.create('offline-session');
   cleanup.push(() => session.dispose());
-  const context = createChatContext();
+  const context = createChatContext({ locale: () => 'en-US' });
   context.setLayout({ preset: 'double', userGutter: 72, agentConversation: true });
   const state = createChatState(context);
   const host = document.createElement('div');

@@ -16,7 +16,7 @@ it.each([
   { text: longInput, padTop: 32 },
   { text: longInput, padTop: 32.8 },
 ])('keeps the no-tool first header clear of the pinned question ($padTop, $text)', async ({ text, padTop }) => {
-  const context = createChatContext();
+  const context = createChatContext({ locale: () => 'en-US' });
   context.setLayout({ preset: 'double', userGutter: 0, agentConversation: true });
   const state = createChatState(context);
   const host = document.createElement('div');

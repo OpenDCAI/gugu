@@ -7,9 +7,18 @@ import { CHAT_MEDIA_BUCKET } from './publicMedia'
 import { setGroupAvatar } from '@gugu/core/cloud/groupAdmin'
 import { currentGroupAdmin } from './groupAdmin'
 import { dataClient } from './supabase'
-import { forwardAttachment } from '@gugu/core/cloud/attachmentsApi'
+import { forwardAttachment, shareAttachment } from '@gugu/core/cloud/attachmentsApi'
 import { attachmentsEndpoint } from './attachmentsEndpoint'
 
+/**
+ * A file of a chat's folder forwarded as a file card (the folder's 「转发」): sent by reference (attachments/share), the bytes
+ * stay where they are — a stored file at the version given, a text document as its text is now.
+ */
+export async function forwardFolderFile(file: { itemId: string; version: number; document: boolean }, targetChatId: string, senderId: string) {
+  return shareAttachment(await attachmentsEndpoint(), {
+    item_id: file.itemId, version: file.document ? null : file.version, message_id: crypto.randomUUID(), chat_id: targetChatId, sender_user_id: senderId,
+  })
+}
 
 export async function forwardCanonicalMessage(
   sourceMessageId: string,

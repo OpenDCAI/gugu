@@ -264,9 +264,10 @@ export const SESSION_TOOL_DEFS: readonly SessionpageToolDef[] = [
   },
   {
     name: 'session_archive',
-    description: 'Archive another session of yours: stop its process and hide it from lists, keeping its identity, name, history and group seats. It receives no messages while archived; restoring does not replay that interval. A person can restore it from history. session_get still reads it; session_children requires status:"archived". with_children=true archives its subtree; default false archives only this one. Only a person can delete a session.',
+    description: 'Archive another session of yours: stop its process and hide it from lists, preserving its history, files and configuration. By default also remove its identity from all groups and contacts; restoring the same task creates a new identity and only joins its project group. remove_social_identity=false keeps the identity and existing seats and works offline. Removal needs a connection and a confirmed cloud receipt. It receives no messages while archived; restoring does not replay that interval. A person can restore it from history. session_get still reads it; session_children requires status:"archived". with_children=true archives its subtree; default false archives only this one.',
     schema: z.object({
       session_id: sessionIdSchema,
+      remove_social_identity: z.boolean().describe('Default true: remove from all groups and contacts; restoring uses a new identity. False keeps the existing identity and seats, including when offline.').optional(),
       with_children: z.boolean().describe('Also archive every session under it (its children, transitively, on any of your machines) — the "together with its child sessions" box on the session page. Machines that could not be reached are listed in not_reached.').optional(),
     }).strict(),
     action: 'archive',

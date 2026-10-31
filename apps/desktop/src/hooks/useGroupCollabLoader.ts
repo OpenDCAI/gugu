@@ -10,6 +10,8 @@ import {
 } from '../lib/imRepository'
 import { i18n } from '@/i18n'
 import { rendererLogger } from '../lib/log'
+import { UI_EVENTS } from '../lib/uiEvents'
+import { reconcileGroupCollabSnapshot } from '../lib/groupCollabSnapshot'
 
 const groupCollabLog = rendererLogger('chat/group-collab')
 
@@ -40,10 +42,8 @@ export interface UseGroupCollabLoaderParams {
   userId: string | null | undefined
   getImRepository: () => Promise<AccountImRepository>
   setGroupCollabSnapshot: Dispatch<SetStateAction<GroupCollabSnapshot>>
-  // @@@1877 群名册的内存镜像 cache,与 useGroupCollabRemovedAgentGate 共享 → 由 ChatAreaPanel 声明后传入(而非 hook 自持)。
+  // Account-scoped cached first frame; canonical reload owns the effective member set.
   groupRosterMemoryCacheRef: MutableRefObject<Map<string, GroupCollabSnapshot>>
-  pruneRemovedAgentsFromCollab: (snapshot: GroupCollabSnapshot) => GroupCollabSnapshot
-  mergeGroupCollabPruned: (prev: GroupCollabSnapshot, next: GroupCollabSnapshot) => GroupCollabSnapshot
 }
 
 export interface UseGroupCollabLoaderResult {
@@ -67,8 +67,6 @@ export function useGroupCollabLoader(params: UseGroupCollabLoaderParams): UseGro
     getImRepository,
     setGroupCollabSnapshot,
     groupRosterMemoryCacheRef,
-    pruneRemovedAgentsFromCollab,
-    mergeGroupCollabPruned,
   } = params
 
   const groupCollabLoadSeqRef = useRef(0)
@@ -92,8 +90,8 @@ export function useGroupCollabLoader(params: UseGroupCollabLoaderParams): UseGro
       if (seq === groupCollabLoadSeqRef.current) {
         const cachedRoster = readGroupRoster(repository, activeChatId)
         if (cachedRoster && !groupRosterMemoryCacheRef.current.has(activeChatId)) {
-          groupRosterMemoryCacheRef.current.set(activeChatId, pruneRemovedAgentsFromCollab(cachedRoster))
-          setGroupCollabSnapshot(pruneRemovedAgentsFromCollab(cachedRoster))
+          groupRosterMemoryCacheRef.current.set(activeChatId, cachedRoster)
+          setGroupCollabSnapshot(cachedRoster)
         }
       }
     } catch (err) {
@@ -109,18 +107,15 @@ export function useGroupCollabLoader(params: UseGroupCollabLoaderParams): UseGro
       )
       if (seq !== groupCollabLoadSeqRef.current) return
       setFailure(null)
-      groupRosterMemoryCacheRef.current.set(activeChatId, pruneRemovedAgentsFromCollab(snapshot))
+      groupRosterMemoryCacheRef.current.set(activeChatId, snapshot)
       // 身份先落库、名册后发布:名册一发布,@ 名册就按 identitiesById 判「有没有名字」(mention.ts),身份晚几帧到
       // = 这几帧里新成员 @ 不到。本地写失败只记日志、名册照发 —— 内存里的快照不依赖本地库(#5610)。
       // 写完不再复查 seq:这份权威名册已经过了上面那道守卫,后来的加载自己会发布更新的一份(merge 是 reconcile),
       // 而在这里丢掉它会让「后一次加载失败」时停在更旧的快照上。
-      await replaceGroupRoster(repository, activeChatId, persistableGroupRoster(activeChatId, pruneRemovedAgentsFromCollab(snapshot), identities), identities)
+      await replaceGroupRoster(repository, activeChatId, persistableGroupRoster(activeChatId, snapshot, identities), identities)
         .catch((err) => console.error('[ChatAreaPanel] write group roster repository failed', err))
-      // @@@2247 mergeGroupCollabPruned = gate.mergeAndPrune = reconcile(allow-shrink) 后再 prune：权威
-      // getGroupCollab 是成员真值(chat_members SELECT RLS = is_member(chat_id) chat 级、全有或全无 → 非空读必完整；
-      // 空读抛 GroupCollabEmptyError、失败读抛错，都走不到这里)，故 next 里缺席的成员 = 被移出群、须消失(#2247 幽灵)；
-      // 幸存成员保持 prev 顺序(scroll 稳定)，reconcile 后再 prune 掉本会话已删 Agent。resets on chat switch。
-      setGroupCollabSnapshot((prev) => mergeGroupCollabPruned(prev, snapshot))
+      // Effective membership comes from the backend projection, including removals; preserve survivor order.
+      setGroupCollabSnapshot((prev) => reconcileGroupCollabSnapshot(prev, snapshot))
     } catch (err) {
       if (seq !== groupCollabLoadSeqRef.current) return
       // @@@5856 找茵第九轮:「看得见但还不是参与者」是结论,不是故障 —— 不报错。
@@ -133,7 +128,7 @@ export function useGroupCollabLoader(params: UseGroupCollabLoaderParams): UseGro
       groupCollabLog.error({ chatId: activeChatId, error: err }, 'group collab load failed; keeping the cached roster')
       setFailure({ chatId: activeChatId, reason: 'failed' })
     }
-  }, [activeChatId, isRoomChat, chatKind, getImRepository, setGroupCollabSnapshot, groupRosterMemoryCacheRef, pruneRemovedAgentsFromCollab, mergeGroupCollabPruned])
+  }, [activeChatId, isRoomChat, chatKind, getImRepository, setGroupCollabSnapshot, groupRosterMemoryCacheRef])
 
   const resetGroupCollabForChat = useCallback(() => {
     // @@@group-collab-swr (#949←#N3/1d93d7a) - invalidate any in-flight load for the PREVIOUS chat before
@@ -146,6 +141,19 @@ export function useGroupCollabLoader(params: UseGroupCollabLoaderParams): UseGro
     const cachedRoster = activeChatId && isRoomChat ? groupRosterMemoryCacheRef.current.get(activeChatId) : null
     setGroupCollabSnapshot(cachedRoster ?? EMPTY_GROUP_COLLAB)
   }, [activeChatId, isRoomChat, groupRosterMemoryCacheRef, setGroupCollabSnapshot])
+
+  useEffect(() => {
+    const invalidate = (event: Event) => {
+      if (!activeChatId || !isRoomChat) return
+      const id = (event as CustomEvent<{ id: string | null }>).detail.id
+      const cached = groupRosterMemoryCacheRef.current.get(activeChatId)
+      if (id !== null && ![...(cached?.humans ?? []), ...(cached?.agents ?? [])].some(member => member.id === id)) return
+      groupRosterMemoryCacheRef.current.delete(activeChatId)
+      void loadGroupCollab()
+    }
+    window.addEventListener(UI_EVENTS.identityInvalidated, invalidate)
+    return () => window.removeEventListener(UI_EVENTS.identityInvalidated, invalidate)
+  }, [activeChatId, isRoomChat, groupRosterMemoryCacheRef, loadGroupCollab])
 
   return { loadGroupCollab, resetGroupCollabForChat, error: failure && failure.chatId === activeChatId ? failure.reason : null }
 }

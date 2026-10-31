@@ -490,7 +490,6 @@ export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard({
   useEffect(() => {
     if (remote && !remote.online) return;
     void readShelf(debouncedQuery);
-    // oxlint-disable-next-line react-hooks/exhaustive-deps
   }, [readShelf, debouncedQuery, remote?.online]);
 
   /**

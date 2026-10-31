@@ -75,7 +75,7 @@ function rpc(name: string, args: Record<string, unknown>) {
 }
 
 function from(table: string) {
-  if (table !== 'chat_members') throw new Error(`no table ${table} here`);
+  if (table !== 'active_members') throw new Error(`no table ${table} here`);
   let ids: readonly string[] = [];
   const query = {
     select: () => query,

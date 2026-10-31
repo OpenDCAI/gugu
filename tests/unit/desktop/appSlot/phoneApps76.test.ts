@@ -1,4 +1,4 @@
-import { verifiedFileHandle } from '../../../helpers/verifiedFileHandle'
+import { verifiedFileHandle } from '../../../support/verifiedFileHandle'
 import { EXTENSION_API_VERSION } from '../../../../apps/desktop/src/session/shared/extensions/manifest'
 import JSZip from 'jszip'
 import { createHash } from 'node:crypto'

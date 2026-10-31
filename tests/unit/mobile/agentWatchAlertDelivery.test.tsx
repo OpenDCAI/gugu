@@ -47,6 +47,12 @@ const { setNotificationSettings } = await import('../../../apps/desktop/src/lib/
 const { useAgentWatchAlerts, useAgentWatchFocus } = await import('../../../apps/desktop/src/mobile/agent-watch/useAgentWatchAlerts')
 
 const device = { device_id: 'machine-1', is_online: true, capabilities: {} } as unknown as Device
+const READINGS: Record<string, SessionpageSessionSummary['status']> = {
+  working: { status: 'working', detail: 'running' },
+  idle: { status: 'idle', detail: null },
+  needs_approval: { status: 'needs_user', detail: 'approval' },
+  error: { status: 'error', detail: null },
+}
 const session = (agentStatus: string): SessionpageSessionSummary => ({
   conversationId: 'conversation-1',
   projectId: 'project-1',
@@ -54,6 +60,7 @@ const session = (agentStatus: string): SessionpageSessionSummary => ({
   harness: 'claude',
   runtime: 'acp',
   agentStatus,
+  status: READINGS[agentStatus],
   lastInteractedAt: '2026-09-15T00:00:00.000Z',
   supported: true,
 } as SessionpageSessionSummary)

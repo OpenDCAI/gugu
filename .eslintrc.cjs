@@ -48,10 +48,15 @@ module.exports = {
   // 要么为了过 lint 去改上游示例(等于篡改文档),要么长期挂着 error。两个都不对,所以整体排除。
   // 注意 lint 命令带 --max-warnings 0,warning 一样会红,不排除的话连「未使用的 useState 演示」都拦门。
   ignorePatterns: [
+    'apps/desktop/src/**/*.js',
     'apps/mobile/android',
     'dist',
+    'dist-phone',
     'dist-electron',
     'out',
+    'release',
+    'playwright-report',
+    'test-results',
     // @@@storybook-gate (#3526) — storybook build 的产物。它是编译输出而不是源码,lint 带
     // --max-warnings 0,不排除的话本地跑过一次 storybook build 就有 35 个产物文件把整道门刷红,
     // 而真实源码里一条问题都没有 —— 那样的红读起来像「这次改动破坏了 lint」。

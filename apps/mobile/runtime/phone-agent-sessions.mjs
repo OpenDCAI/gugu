@@ -22,7 +22,7 @@ export function createPhoneSessionTools({ agent, job, cloud, store, deviceId, wo
     const found = new Map()
     for (const [field, values] of [['id', userIds], ['gugu_number', numbers]]) {
       for (let offset = 0; offset < values.length; offset += 50) {
-        const { data, error } = await cloud.identity.from('users').select('id,gugu_number,device_id').eq('owner_user_id', store.state.ownerId).eq('type', 'agent').in(field, values.slice(offset, offset + 50))
+        const { data, error } = await cloud.identity.from('active_users').select('id,gugu_number,device_id').eq('owner_user_id', store.state.ownerId).eq('type', 'agent').in(field, values.slice(offset, offset + 50))
         if (error) throw new Error(error.message)
         for (const row of data ?? []) found.set(row.id, { userId: row.id, guguNumber: row.gugu_number, deviceId: row.device_id })
       }

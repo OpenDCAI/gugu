@@ -24,7 +24,7 @@ afterEach(() => {
 })
 
 function mount(commands: ChatCommands = {}, conversation = false) {
-  const context = createChatContext({ theme: DEFAULT_THEME })
+  const context = createChatContext({ locale: () => 'en-US', theme: DEFAULT_THEME })
   if (conversation) context.setLayout({ preset: 'double', userGutter: 72, agentConversation: true })
   const state = createChatState(context)
   const host = document.createElement('div')

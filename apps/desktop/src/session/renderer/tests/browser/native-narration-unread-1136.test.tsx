@@ -18,7 +18,7 @@ let cleanup: (() => void) | undefined;
 afterEach(() => { cleanup?.(); removeDeviceSessions('host'); rpc.visible.mockReset(); });
 const id = (index: number) => `s:turn:s1:message:msg_reply_${index}`;
 function fixture(count = 1) {
-  const context = createChatContext();
+  const context = createChatContext({ locale: () => 'en-US' });
   const state = createChatState(context);
   state.transcript.history.seed([{ id: 't', seq: 1, initiator: 'user', outcome: { kind: 'done' }, items: [
     { kind: 'message', id: 'input', seq: 0, role: 'user', text: 'Please investigate.' },

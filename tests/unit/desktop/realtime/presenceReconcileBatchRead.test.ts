@@ -10,6 +10,7 @@ import {
   listAgents,
   type DeviceRuntimeIdentityClient,
 } from '@gugu/core'
+import type { RemovedSessionIdentity } from '@gugu/core/shared/sessionArchival'
 import type { AgentStatusReading } from '@gugu/core/shared/agentStatus'
 import {
   createTestLocalAgent,
@@ -21,7 +22,7 @@ import { until } from '../../../support/awaitCondition'
 
 const OWNER = 'owner-1'
 
-async function hostWith(env: NodeJS.ProcessEnv, client: MemoryRuntimeIdentityClient, readings: Map<string, AgentStatusReading>) {
+async function hostWith(env: NodeJS.ProcessEnv, client: MemoryRuntimeIdentityClient, readings: Map<string, AgentStatusReading>, onRemoved?: (receipt: RemovedSessionIdentity | undefined) => Promise<void>) {
   const removed: Array<[string, string]> = []
   const warnings: string[] = []
   const host = createDeviceRuntimeHostLoop({
@@ -39,7 +40,10 @@ async function hostWith(env: NodeJS.ProcessEnv, client: MemoryRuntimeIdentityCli
       stop: async () => {},
       agentStatus: (agentUserId: string) => readings.get(agentUserId) ?? null,
     },
-    onAgentRosterRemoved: (agent, reason) => { removed.push([agent.gugu_user_id, reason]) },
+    onAgentRosterRemoved: async (agent, reason, receipt) => {
+      await onRemoved?.(receipt)
+      removed.push([agent.gugu_user_id, reason])
+    },
     warn: (message) => warnings.push(message),
   })
   return { host, removed, warnings }
@@ -86,6 +90,47 @@ describe('presence 对账:一次批量读,只写不一样的', () => {
     } finally {
       await host.stop()
     }
+  })
+
+  test('confirmed removal awaits the durable host callback before dropping its binding', async () => {
+    const env = await isolatedGuguEnv('gugu-presence-archive-receipt-')
+    await createTestLocalAgent(env, { name: 'gone', gugu_user_id: 'agent-gone' })
+    const client = newClient()
+    const removedAt = '2026-10-31T03:00:00.000Z'
+    client.presence.set('agent-gone', presenceRow('agent-gone', { account_status: 'removed', updated_at: removedAt }))
+    const entered = Promise.withResolvers<void>()
+    const committed = Promise.withResolvers<void>()
+    let received: RemovedSessionIdentity | undefined
+    const { host } = await hostWith(env, client, new Map(), async receipt => {
+      received = receipt
+      entered.resolve()
+      await committed.promise
+    })
+    host.start()
+    try {
+      await entered.promise
+      expect(received).toEqual({ userId: 'agent-gone', removedAt })
+      expect((await listAgents(env)).map(agent => agent.gugu_user_id)).toEqual(['agent-gone'])
+      committed.resolve()
+      await host.stop()
+      expect(await listAgents(env)).toEqual([])
+    } finally {
+      committed.resolve()
+      await host.stop()
+    }
+  })
+
+  test('an archive callback failure retains the binding for the existing reconciliation retry', async () => {
+    const env = await isolatedGuguEnv('gugu-presence-archive-failed-')
+    await createTestLocalAgent(env, { name: 'gone', gugu_user_id: 'agent-gone' })
+    const client = newClient()
+    client.presence.set('agent-gone', presenceRow('agent-gone', { account_status: 'removed' }))
+    const { host, warnings } = await hostWith(env, client, new Map(), async () => { throw new Error('archive disk unavailable') })
+    host.start()
+    try {
+      await until('archive failure reported', () => warnings.some(message => message.includes('archive disk unavailable')))
+      expect((await listAgents(env)).map(agent => agent.gugu_user_id)).toEqual(['agent-gone'])
+    } finally { await host.stop() }
   })
 
   test('removed 收回名册行(cloud-removed);unauthorized 只说一声、留着;公网身份还在铸的行不去问', async () => {

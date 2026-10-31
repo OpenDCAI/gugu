@@ -58,7 +58,7 @@ function pendingAbortableQuery() {
  */
 function mockDmReads(identityUsersQuery: Record<string, unknown>): void {
   chatFrom.mockImplementation((table: string) => {
-    if (table === 'chat_members') {
+    if (table === 'active_members') {
       return queryResult({
         data: [
           { chat_id: 'dm-1', user_id: 'owner-1', last_read_seq: 0, is_marked_unread: false, version: 0,

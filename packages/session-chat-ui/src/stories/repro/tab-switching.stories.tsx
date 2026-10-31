@@ -238,7 +238,7 @@ function TabSwitchHarness(args: HarnessArgs) {
   const [capturedErrors, setCapturedErrors] = createSignal<string[]>([]);
 
   // Shared process-wide context (theme, caches, measureEpoch, mentions).
-  const ctx = createChatContext({ theme: DEFAULT_THEME, mentionProvider: mockMentionProvider });
+  const ctx = createChatContext({ locale: () => 'en-US', theme: DEFAULT_THEME, mentionProvider: mockMentionProvider });
   onCleanup(() => ctx.dispose());
 
   // One persistent ChatState per conversation.
@@ -621,7 +621,7 @@ export const LegacyOverlapCrash: Story = {
 //   3. The pin transitions to 'tail' when the "turn" completes.
 
 function SendAndPinHarness() {
-  const ctx = createChatContext({ theme: DEFAULT_THEME, mentionProvider: mockMentionProvider });
+  const ctx = createChatContext({ locale: () => 'en-US', theme: DEFAULT_THEME, mentionProvider: mockMentionProvider });
   onCleanup(() => ctx.dispose());
 
   const state = createChatState(ctx, { uri: 'story-send-pin' });

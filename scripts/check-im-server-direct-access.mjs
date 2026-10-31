@@ -14,7 +14,7 @@ export const IM_SERVER_PATH = 'apps/desktop/electron/mcp/gugu-im-server.mjs'
 
 /** 现状白名单(#6492 时点):动词 → 允许的表。❌ 往这里加 workspace_items;加别的表先问「为什么不是 *_as RPC」。 */
 export const DIRECT_REST_ALLOWLIST = Object.freeze({
-  restGet: ['chats', 'chat_members', 'messages', 'users', 'friendships', 'contact_overrides'],
+  restGet: ['chats', 'active_members', 'messages', 'users', 'active_friendships', 'contact_overrides'],
   restInsert: ['messages'],
   restPatch: ['users'],
   // group_update 判的就是主人的权限(与人在群设置里改群资料同一个写口,chats_update_owner 判),不是 agent 自己的成员身份。

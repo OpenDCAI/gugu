@@ -20,7 +20,7 @@ import { decodeIdentityAddress, decodeTypedId, encodeTypedId } from '../../../..
 import { workspaceUploadKind } from '../../../../packages/core/src/shared/workspaceUpload.mjs'
 import { parseAttachmentContent } from '../../../../packages/core/src/shared/ui/attachmentModels'
 import { attachmentFolderLine } from '../../../../packages/core/src/shared/attachmentFolderLine'
-import { AttachmentsError, commitAttachment, sendFileAsOwner, uploadAttachmentBytes } from '../../../../packages/core/src/cloud/attachmentsApi'
+import { AttachmentsError, commitAttachment, sendFileAsOwner, shareAttachment, uploadAttachmentBytes } from '../../../../packages/core/src/cloud/attachmentsApi'
 import { createGroupWithInvitations } from '../../../../packages/core/src/cloud/groupChat'
 import { createGroupAdmin, setGroupAvatar } from '../../../../packages/core/src/cloud/groupAdmin'
 import { registerGuguTool } from './register-gugu-tool.mjs'
@@ -1498,7 +1498,7 @@ async function myChats(deps) {
  */
 async function ownerFriendIds(deps, ownerUserId) {
   const friendships = await deps.restGet(
-    `friendships?or=(user_a_id.eq.${enc(ownerUserId)},user_b_id.eq.${enc(ownerUserId)})&select=user_a_id,user_b_id`,
+    `active_friendships?or=(user_a_id.eq.${enc(ownerUserId)},user_b_id.eq.${enc(ownerUserId)})&select=user_a_id,user_b_id`,
     'identity',
   )
   const ids = new Set()
@@ -1545,7 +1545,7 @@ async function ownerFriendDms(deps) {
   const dms = (Array.isArray(chats) ? chats : []).filter((chat) => chat.kind === 'dm')
   if (!dms.length || !friendIds.size) return []
   const memberRows = await restGetInBatches(dms.map((chat) => chat.chat_id), (batch) =>
-    deps.restGet(`chat_members?chat_id=in.(${batch.map(enc).join(',')})&select=chat_id,user_id`))
+    deps.restGet(`active_members?chat_id=in.(${batch.map(enc).join(',')})&select=chat_id,user_id`))
   const membersByChat = new Map()
   for (const row of memberRows) {
     if (!membersByChat.has(row.chat_id)) membersByChat.set(row.chat_id, new Set())
@@ -1621,7 +1621,7 @@ async function assertNotOwnerFriendDm(deps, chatId, toolName, ownerToolName) {
  */
 async function ownerPinnedChatIds(deps) {
   const ownerUserId = await currentAuthUserId(deps)
-  const rows = await deps.restGet(`chat_members?user_id=eq.${enc(ownerUserId)}&is_pinned=is.true&select=chat_id`)
+  const rows = await deps.restGet(`active_members?user_id=eq.${enc(ownerUserId)}&is_pinned=is.true&select=chat_id`)
   return new Set((Array.isArray(rows) ? rows : []).map((row) => row.chat_id))
 }
 
@@ -1780,7 +1780,7 @@ async function handleConv(args, deps) {
     // 好友关系的唯一真值是 identity.friendships（无 status 列，行存在即已接受；#1985 收敛后 chat.contacts 是死表）。
     // owner token + fs_select RLS 只回当事人两行，两向匹配即「是 owner 的好友」。❌ 吞错：查失败要响亮报错。
     const friendships = await deps.restGet(
-      `friendships?or=(user_a_id.eq.${enc(hit.id)},user_b_id.eq.${enc(hit.id)})&select=user_a_id,user_b_id`,
+      `active_friendships?or=(user_a_id.eq.${enc(hit.id)},user_b_id.eq.${enc(hit.id)})&select=user_a_id,user_b_id`,
       'identity',
     )
     return JSON.stringify({
@@ -1990,7 +1990,7 @@ async function friendsWithPinnedDm(deps, ownerUserId, friendIds) {
     deps.restGet(`chats?id=in.(${batch.map(enc).join(',')})&kind=eq.dm&select=id`))
   if (!dms.length) return new Set()
   const peers = await restGetInBatches(dms.map((row) => row.id), (batch) =>
-    deps.restGet(`chat_members?chat_id=in.(${batch.map(enc).join(',')})&user_id=neq.${enc(ownerUserId)}&select=chat_id,user_id`))
+    deps.restGet(`active_members?chat_id=in.(${batch.map(enc).join(',')})&user_id=neq.${enc(ownerUserId)}&select=chat_id,user_id`))
   const friends = new Set(friendIds)
   return new Set(peers.map((row) => row.user_id).filter((id) => friends.has(id)))
 }
@@ -2062,10 +2062,17 @@ async function handleProfile(args, deps) {
 
 
 
+/** The bytes of a file on this computer that the shared classifier makes a text document; `null` for stored bytes. */
+async function documentUploadBytes(args) {
+  const bytes = await readUploadBytes('message_send_file', args, ATTACHMENT_MAX_BYTES)
+  const contentType = resolveAttachmentMimeType(basename(String(args.file_path)), args.mime_type)
+  return workspaceUploadKind(resolveUploadName(args), contentType, new Uint8Array(bytes)).kind === 'document' ? bytes : null
+}
+
 // gugu_file:send-file = 字节经 attachments/upload 直传 OSS,attachments/commit 放进会话的「附件」、发一条附件消息(#7290 gugu-3,
 // 和人发附件同一条路);download = 按消息 id 把附件下到本机(downloadAttachment)。
-async function uploadForSend(args, deps, label, chatId) {
-  const bytes = await readUploadBytes(label, args, ATTACHMENT_MAX_BYTES)
+async function uploadForSend(args, deps, label, chatId, read) {
+  const bytes = read ?? await readUploadBytes(label, args, ATTACHMENT_MAX_BYTES)
   const fileName = resolveUploadName(args)
   const contentType = resolveAttachmentMimeType(basename(String(args.file_path)), args.mime_type)
   const endpoint = await deps.attachmentsEndpoint()
@@ -2223,15 +2230,17 @@ async function handleFile(args, deps) {
     const thread = { thread_root_id: deps.context.threadRootId ?? null }
     let message
     let fileName
+    // A text file the shared classifier makes a document goes up through the attachments commit, where the server makes it
+    // one (as a person's upload does); only stored bytes are published from a project.
+    let documentBytes = null
     if (folderFile && !args.file_path) {
-      // 按引用发:消息钉住群文件夹里那个文件的那一版,不传字节(gugu-supabase attachment_share)。
-      const [row] = await deps.restRpc('attachment_share', {
-        p_item_id: folderFile.itemId, p_version: folderFile.version ?? null, p_message_id: messageId, p_chat_id: chatId,
-        p_sender_user_id: deps.context.agentId, p_to_user_ids: toUserIds ?? [], p_thread_root_id: thread.thread_root_id,
+      // 按引用发(attachments/share):消息钉住群文件夹里那个文件的那一版,不传字节;文本文件钉住它此刻的正文。
+      message = await shareAttachment(await deps.attachmentsEndpoint(), {
+        item_id: folderFile.itemId, version: folderFile.version ?? null, message_id: messageId, chat_id: chatId,
+        sender_user_id: deps.context.agentId, to_user_ids: toUserIds ?? [], ...thread,
       })
-      message = row
-      fileName = attachmentNameOf(row ?? {})
-    } else if ((message = await publishHere(args, deps, chatId, { message_id: messageId, chat_id: chatId,
+      fileName = attachmentNameOf(message)
+    } else if (!(documentBytes = folderFile ? null : await documentUploadBytes(args)) && (message = await publishHere(args, deps, chatId, { message_id: messageId, chat_id: chatId,
       sender_user_id: deps.context.agentId, to_user_ids: toUserIds ?? [], ...thread },
       folderFile ? { itemId: folderFile.itemId, expectedVersion: folderFile.version } : undefined).catch(async (error) => {
       const said = String(error?.message ?? error)
@@ -2240,7 +2249,7 @@ async function handleFile(args, deps) {
     }))) {
       fileName = resolveUploadName(args)
     } else {
-      const upload = await uploadForSend(args, deps, 'message_send_file', chatId)
+      const upload = await uploadForSend(args, deps, 'message_send_file', chatId, documentBytes ?? undefined)
       const { endpoint, contentType, stagingKey } = upload
       fileName = upload.fileName
       const commit = {

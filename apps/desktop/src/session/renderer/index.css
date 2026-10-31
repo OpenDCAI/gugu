@@ -1,7 +1,6 @@
 @import 'tailwindcss';
 @import 'tw-animate-css';
 @import '@xterm/xterm/css/xterm.css';
-@import 'allotment/dist/style.css';
 
 /* Tailwind v4 默认**不扫** node_modules,`@config` 的 content 也不驱动扫描 → Streamdown 的样式
    全是它在 dist 里吐的工具类,不显式 @source 就整套静默消失(class 都在,样式一条不生成)。

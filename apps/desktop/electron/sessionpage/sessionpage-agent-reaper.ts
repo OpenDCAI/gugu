@@ -48,7 +48,7 @@ export interface SessionpageReapResult {
 
 /** 读群成员 / 读身份行用到的那一小片 supabase 查询面(测试拿替身喂)。 */
 interface MembersQuery {
-  from(table: 'chat_members'): {
+  from(table: 'active_members'): {
     select(columns: 'user_id'): {
       eq(column: 'chat_id', value: string): PromiseLike<{ data: unknown; error: { message: string } | null }>
     }
@@ -76,7 +76,7 @@ export async function listGroupAgentsOnOtherDevices(input: {
   deviceId: string
   ownerUserId: string
 }): Promise<string[]> {
-  const { data: members, error } = await input.chat.from('chat_members').select('user_id').eq('chat_id', input.chatId)
+  const { data: members, error } = await input.chat.from('active_members').select('user_id').eq('chat_id', input.chatId)
   if (error) throw new Error(`read members of group ${input.chatId}: ${error.message}`)
   const ids = [...new Set(((members as Array<{ user_id?: unknown }> | null) ?? [])
     .map((row) => (typeof row.user_id === 'string' ? row.user_id : ''))

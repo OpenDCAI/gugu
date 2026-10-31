@@ -19,7 +19,7 @@ export interface PinoLoggerOptions {
    */
   destination?: pinoLib.DestinationStream;
   /**
-   * Additional field paths to redact via pino/fast-redact.
+   * Additional field paths to redact via pino.
    * Merged with DEFAULT_REDACT_PATHS.
    */
   extraRedactPaths?: string[];

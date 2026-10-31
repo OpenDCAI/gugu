@@ -19,7 +19,7 @@ import '@/styles/tokens.css'
 vi.mock('@gugu/core/cloud/config', async (original) => ({ ...(await original<object>()), getSupabaseUrl: () => 'http://supabase.test.local', getSupabaseAnonKey: () => 'test-anon-key' }))
 vi.mock('@/hooks/useAgentHarnessIdentity', () => ({ useAgentHarnessIdentity: () => 'codex' }))
 vi.mock('@/lib/chatUnreadLocatorMessages', () => ({ getUnreadLocatorWindow: vi.fn() }))
-vi.mock('@/lib/chatMemberReadState', () => ({ markStreamRead: vi.fn(async () => {}), markMemberRead: vi.fn(), markMemberUnread: vi.fn() }))
+vi.mock('@/lib/readWriter', async (original) => ({ ...await original<typeof import('@/lib/readWriter')>(), writeRead: vi.fn(async () => {}) }))
 
 let harness: ReturnType<typeof createReactHarness> | undefined
 let slotHarness: ReturnType<typeof createReactHarness> | undefined

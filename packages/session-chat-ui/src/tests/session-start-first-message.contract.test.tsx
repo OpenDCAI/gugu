@@ -21,7 +21,7 @@ afterEach(() => {
 })
 
 function mount(preset: ChatLayoutPreset, opts: { pinUserMessages?: boolean } = {}) {
-  const context = createChatContext({ theme: DEFAULT_THEME })
+  const context = createChatContext({ locale: () => 'en-US', theme: DEFAULT_THEME })
   context.setLayout({ preset, userGutter: 96 })
   const state = createChatState(context)
   const host = document.createElement('div')

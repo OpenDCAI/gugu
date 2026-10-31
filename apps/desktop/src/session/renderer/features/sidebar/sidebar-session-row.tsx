@@ -2,7 +2,7 @@ import { Archive, Pin, PinOff } from '@/lib/icons'
 import React from 'react';
 import { AgentIcon } from '@renderer/lib/components/agent-icon';
 import { AgentStatusGlyph } from '@renderer/lib/components/agent-status-indicator';
-import type { AgentStatusPresentation } from '@gugu/core/shared/agentStatusPresentation';
+import { presentationAttention, type AgentStatusPresentation } from '@gugu/core/shared/agentStatusPresentation';
 import {
   ContextMenu,
   ContextMenuContent,
@@ -142,8 +142,7 @@ export function SessionRowShell({
   // 行尾那一格画的是定时那枚钟吗(owner 10-19 C:空闲时盖掉时间,别的状态的标志优先)。与下面那条状态链同一个次序。
   const scheduleAtRest =
     schedule != null &&
-    presentation?.tone !== 'error' &&
-    presentation?.tone !== 'needs_user' &&
+    presentationAttention(presentation) === null &&
     !needsAttention &&
     !statusUnavailable &&
     presentation?.tone !== 'running' && presentation?.tone !== 'parked';
@@ -282,7 +281,7 @@ export function SessionRowShell({
             ) : null}
             <span className={sidebarRowRestActionsClass}>
               {/* 自己的「需要你」先于子树汇总:否则一条出错的会话只显示「树里有事」那颗黄点,红点永远轮不到。 */}
-              {presentation?.tone === 'error' || presentation?.tone === 'needs_user' ? (
+              {presentation && presentationAttention(presentation) ? (
                 <span className="flex size-5 items-center justify-center">
                   <AgentStatusGlyph presentation={presentation} label={translate(`agentStatus.${presentation.label}`)} variant="2" />
                 </span>

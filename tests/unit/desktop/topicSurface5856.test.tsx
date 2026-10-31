@@ -17,7 +17,7 @@ import { createNode, createReactHarness, chat, message, renderWithAppProviders }
 
 const listTopicsOfChat = vi.fn<(sourceChatId: string) => Promise<TopicSummary[]>>()
 const getMessages = vi.fn<() => Promise<MessageItem[]>>()
-const markRead = vi.fn<(chatId: string, seq: number) => Promise<unknown>>()
+const markRead = vi.hoisted(() => vi.fn<(chatId: string, seq: number) => Promise<unknown>>())
 const sendScopedMessage = vi.fn()
 const actionsOf = vi.fn((id: string | null) => ({ ...topicHistoryStub(id ?? ''), sendMessage: sendScopedMessage }))
 function sendingFixture() { const fixture = chatWindowStub(); fixture.conversations.actions = actionsOf; return fixture }
@@ -31,11 +31,15 @@ vi.mock('../../../apps/desktop/src/lib/topics', () => ({
     createTopic: (...args: unknown[]) => createTopic(...args),
   },
 }))
+// 云端主线读位经唯一写入口 writeRead;这里按 (chatId, seq) 记下它。
+vi.mock('../../../apps/desktop/src/lib/readWriter', async (original) => ({
+  ...await original<typeof import('../../../apps/desktop/src/lib/readWriter')>(),
+  writeRead: async (target: { kind: string; chatId?: string; seq?: number }) => (target.kind === 'main' ? markRead(target.chatId!, target.seq!) : undefined),
+}))
 vi.mock('../../../apps/desktop/src/lib/chat', () => ({
   chatService: {
     getMessages: (...args: unknown[]) => getMessages(...(args as [])),
     _callCountsBySource: {},
-    markRead: (chatId: string, seq: number) => markRead(chatId, seq),
     getOtherMembersReadSeqs: () => Promise.resolve({}),
     revalidateWindow: (ids: string[]) => Promise.resolve({ overlays: new Map(), mutations: new Map(), presentIds: new Set(ids) }),
   },

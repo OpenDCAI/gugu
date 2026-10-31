@@ -63,7 +63,7 @@ const chatId = (i: number) => `c-${String(i).padStart(4, '0')}`
 /** N 条已发布进收件箱的群聊,成员只有 viewer ⇒ assemble 不需要对端身份即可发布。 */
 function seedWorld(n: number): void {
   rowsByKey.clear()
-  rowsByKey.set('chat_members', Array.from({ length: n }, (_, i) => ({
+  rowsByKey.set('active_members', Array.from({ length: n }, (_, i) => ({
     chat_id: chatId(i), user_id: VIEWER, last_read_seq: 0, is_marked_unread: false, version: 1,
     notification_level: 'all', is_pinned: false, updated_at: '2026-09-11T00:00:00Z',
     joined_at: '2026-09-11T00:00:00Z', inbox_published_at: '2026-09-11T00:00:00Z',

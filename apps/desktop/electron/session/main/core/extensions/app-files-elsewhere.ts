@@ -55,6 +55,7 @@ export async function readElsewhere(
       id: rel,
       session: sessionId,
       name,
+      savedName: name,
       contentType,
       type: fileTypeOf('file', contentType),
       parentId: null,

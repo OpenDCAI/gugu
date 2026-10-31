@@ -31,7 +31,7 @@ function recordedTurn(command = longCommand): TranscriptTurn {
 }
 
 async function mount(conversation = true) {
-  const context = createChatContext({ layout: { preset: 'double', userGutter: 72, agentConversation: conversation } });
+  const context = createChatContext({ locale: () => 'en-US', layout: { preset: 'double', userGutter: 72, agentConversation: conversation } });
   const state = createChatState(context);
   const host = document.createElement('div');
   host.style.cssText = 'position:fixed;inset:0;width:760px;height:600px';

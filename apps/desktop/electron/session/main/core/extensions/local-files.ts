@@ -197,6 +197,7 @@ function entryOf(place: LocalPlace, rel: string, stat: fs.Stats, contentType = l
     id: rel,
     ...place,
     name,
+    savedName: name,
     contentType,
     type: fileTypeOf(kind, contentType),
     parentId: null,

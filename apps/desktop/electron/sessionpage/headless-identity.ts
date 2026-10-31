@@ -27,6 +27,7 @@ import { createSessionpageIdentityHost, type SessionpageIdentityAuthSnapshot } f
 import { createLocalDeviceIdResolver, detectDeviceCapabilities, type DeviceCapabilities, type DeviceHeartbeatTableClient } from '@gugu/core/cloud/deviceRuntime'
 import { makeIdentityClient } from '../supabase'
 import { setEmdashMcpInjector } from '../session/main/core/acp/emdash-mcp-injector'
+import { setSessionIdentityHost } from '../session/main/core/sessions/session-identity-host'
 import { setPlatformModelCatalogResolver } from '../session/main/core/agents/platform-model-catalog-hook'
 import {
   notifyProjectGroupBindingChanged,
@@ -85,9 +86,10 @@ export function wireHeadlessSessionpageIdentity(hostIpc: HostIpc): { dispose(): 
     }),
     resolveProjectName: (projectId) => emdashProjectName(projectId),
     takeBirthGroup: (sessionId) => emdashTakeBirthGroup(sessionId),
-    sessionFacts: (target) => emdashSessionProvisionInput(target),
+    sessionFacts: (target, options) => emdashSessionProvisionInput(target, options),
     listSessionFacts: () => emdashSessionpageSessionFacts(),
   })
+  setSessionIdentityHost(identity)
   const nativeInbox = startNativeConversationInboxHost({
     open: async target => (await identity.ensureAgentAddress(target)).chatId,
     failed: error => log.warn('Personal conversation address remains pending', error),
@@ -213,6 +215,7 @@ export function wireHeadlessSessionpageIdentity(hostIpc: HostIpc): { dispose(): 
       unsubscribeGroupMapping()
       setUserLibraryOwner(null)
       setProjectGroupHost(null)
+      setSessionIdentityHost(null)
       setEmdashMcpInjector(null)
       setEmdashPtySessionpageHook(null)
       setEmdashPtySessionpageTeardown(null)

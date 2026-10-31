@@ -63,7 +63,7 @@ export function createGugu(
   }
 
   // The gesture halves, where the host has them: a page's (`VerbFacts.only`), never a background page's or a program's.
-  const { upload, download, openWith } = host.appFiles;
+  const { upload, download, openWith, forward } = host.appFiles;
   /**
    * `files.replace(file, blob, { expectedVersion })` (G1): a stored file's next version; nothing to pick, so no gesture.
    * A chat's file needs `expectedVersion` (the entry's `version` as read): `content-changed` if it was replaced since,
@@ -141,6 +141,8 @@ export function createGugu(
               openWith({ ref, ...(options?.ask === true ? { ask: true } : {}), ...(options?.at ? { at: options.at } : {}), ...(options?.peek === true ? { peek: true } : {}) })),
         }
       : {}),
+    // API 23: 「转发」 — one file or several, the host's forward page; resolves once it is up (what is sent is the person's).
+    ...(forward ? { forward: (files: unknown) => withRefs(files, (refs) => forward({ refs })) } : {}),
   });
 
   // Every v1 member; `appFiles`, `chats`, `checkPage`, `clipboard`, `messages`, `projects`, `theme` and `onFilesChanged` (it is

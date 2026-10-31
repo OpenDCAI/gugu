@@ -213,7 +213,7 @@ function createAccountRepository(
       const run = writeChain.then(async () => {
         recordImTransaction()
         const operations: LocalImDbOperation[] = []
-        const transaction = createTransaction(accountId, operations)
+        const transaction = createTransaction(accountId, operations, current)
         const result = await mutate(transaction)
         validateOperations(accountId, operations)
         const applied = applyOperations(current, operations, accountId)
@@ -254,12 +254,17 @@ function createAccountRepository(
   }
 }
 
-function createTransaction(accountId: string, operations: LocalImDbOperation[]): ImRepositoryTransaction {
+function createTransaction(accountId: string, operations: LocalImDbOperation[], stored: ImRepositorySnapshot): ImRepositoryTransaction {
   const put = (store: ImStoreName, value: LocalImRow) => operations.push({ type: 'put', store, value })
+  let removed: Set<string> | null = null
   return {
     clear: () => operations.push({ type: 'clearAccount', accountId }),
     putIdentity: (value) => {
       const identity = displayIdentityFromRow(value)
+      // Removal is terminal on the server (a removed identity is immutable), so a row without
+      // removed_at is an older observation and cannot bring a removed identity back.
+      removed ??= new Set(stored.identity.filter((row) => row.value.removed_at).map((row) => row.id))
+      if (!identity.removed_at && removed.has(identity.id)) return
       put('identity', { accountId, id: identity.id, value: identity })
     },
     putChat: (id, value, order = 0) => put('chat', { accountId, id: nonEmpty(id, 'chat.id'), order, value }),

@@ -155,7 +155,7 @@ export function ToolStateMatrix(props: ToolStateMatrixProps) {
       width={width}
       renderRow={(row) => {
         const matrixRow = row as MatrixRow;
-        const ctx = createChatContext({ theme: DEFAULT_THEME });
+        const ctx = createChatContext({ locale: () => 'en-US', theme: DEFAULT_THEME });
         const state = createChatState(ctx);
         onCleanup(() => {
           state.dispose();
@@ -195,7 +195,7 @@ export function ToolNodeStateMatrix(props: ToolNodeStateMatrixProps) {
       width={width}
       renderRow={(row) => {
         const matrixRow = row as MatrixRow;
-        const ctx = createChatContext({ theme: DEFAULT_THEME });
+        const ctx = createChatContext({ locale: () => 'en-US', theme: DEFAULT_THEME });
         const state = createChatState(ctx);
         onCleanup(() => {
           state.dispose();
@@ -237,7 +237,7 @@ export function PlanStateMatrix(props: PlanStateMatrixProps) {
       width={width}
       renderRow={(row) => {
         const planRow = row as PlanMatrixRow;
-        const ctx = createChatContext({ theme: DEFAULT_THEME });
+        const ctx = createChatContext({ locale: () => 'en-US', theme: DEFAULT_THEME });
         const state = createChatState(ctx);
         onCleanup(() => {
           state.dispose();
