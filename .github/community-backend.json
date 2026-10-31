@@ -1,5 +1,5 @@
 {
   "repository": "OpenDCAI/gugu-supabase",
-  "ref": "e968187519872e5f5df34be69c4a8799f2e936af",
-  "status": "merged in OpenDCAI/gugu-supabase#80; includes project-file version handoffs and settled upload reservations"
+  "ref": "b0df98fe611226b568d5dc013089b24b5405e1db",
+  "status": "merged in OpenDCAI/gugu-supabase#107; project chat files kept by the device that sent each version, no host and no handoff"
 }

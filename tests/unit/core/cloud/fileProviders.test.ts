@@ -297,6 +297,20 @@ describe('one cloud provider and verified raw chunk cache', () => {
     expect(objectFetch).toHaveBeenCalledTimes(1)
     await decoded.dispose(); key.fill(0)
   })
+  // A project chat has no host: only the device that keeps a version can send it. While it is offline the reader is told
+  // which machine, at once, instead of waiting for a copy that cannot come.
+  it('says the keeping machine is offline when no copy of its version is in the cloud yet', async () => {
+    const local = { ...revision, source: 'local' as const, host_account_id: 'host', host_device_id: 'device', host_project_id: 'project', relative_path: 'file.bin', temporary_transfer: true }
+    const a = api(local), objectFetch = vi.fn()
+    a.fetcher.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      a.calls.push({ route: String(input).split('/').at(-1)!, body: JSON.parse(init!.body as string) })
+      return Response.json({ status: 'ready', transfer_status: 'requested', host_label: 'Studio Mac', host_online: false })
+    })
+    const cloud = cloudFileProviders({ endpoint: a.endpoint, cache: cache().store, sink: async () => sink(), fetch: objectFetch as typeof fetch })
+    await expect(cloud.temporary(local, context)).rejects.toThrow('Studio Mac is offline. This file opens when it is back online.')
+    expect(a.calls.map(row => row.route)).toEqual(['file-request'])
+    expect(objectFetch).not.toHaveBeenCalled()
+  })
   it('refuses a download denied after metadata without touching the object provider', async () => {
     const a = api(), c = cache(), fetcher = vi.fn()
     const cloud = cloudFileProviders({ endpoint: async () => ({ ...await a.endpoint(), fetch: async () => Response.json({ error: 'denied', message: 'Denied' }, { status: 403 }) }), cache: c.store, sink: async () => sink(), fetch: fetcher })

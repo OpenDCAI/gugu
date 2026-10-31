@@ -85,9 +85,11 @@ export function cloudFileProviders(deps: {
       const waiting = { ...context, signal: context.signal ? AbortSignal.any([context.signal, timeout]) : timeout }, requestId = crypto.randomUUID()
       for (;;) {
         waiting.signal.throwIfAborted()
-        const state = await request(waiting, 'file-request', { ref, as: context.actor.actorId, request_id: requestId }) as { status: string; transfer_status: string }
+        const state = await request(waiting, 'file-request', { ref, as: context.actor.actorId, request_id: requestId }) as { status: string; transfer_status: string; host_label?: string | null; host_online?: boolean }
         if (state.status !== 'ready' || state.transfer_status === 'retired') throw new Error('File transfer is no longer available')
         if (state.transfer_status === 'ready') break
+        // Only the device that keeps this version can send it: say so instead of waiting while it is offline.
+        if (state.host_online === false) throw new Error(`${state.host_label?.trim() || 'The computer that keeps this file'} is offline. This file opens when it is back online.`)
         await new Promise(resolve => setTimeout(resolve, 700))
       }
     })
@@ -131,8 +133,8 @@ export function cloudFileProviders(deps: {
       if (missingObject(row)) return { status: 'missing', sha256: row.sha256 ?? null }
       if (row.status === 'gone' || row.status === 'expired') return { status: row.status, sha256: row.sha256 ?? null }
       if (row.status !== 'ready') throw new Error('Invalid file metadata')
-      const { source, item_id, version, chat_id, file_name, content_type, size_bytes, sha256, width, height, host_device_id, host_project_id, host_account_id, relative_path, temporary_transfer } = row
-      const revision = { source, item_id, version, chat_id, file_name, content_type, size_bytes, sha256, width, height, host_device_id, host_project_id, host_account_id, relative_path, temporary_transfer }
+      const { source, item_id, version, chat_id, file_name, content_type, size_bytes, sha256, width, height, host_device_id, host_project_id, host_account_id, host_label, host_online, relative_path, temporary_transfer } = row
+      const revision = { source, item_id, version, chat_id, file_name, content_type, size_bytes, sha256, width, height, host_device_id, host_project_id, host_account_id, host_label, host_online, relative_path, temporary_transfer }
       if (source === 'managed-object' && sha256 === null && row.bucket_id === 'chat-media' && typeof row.object_name === 'string' && row.object_name &&
         'message_id' in context.ref && row.message_id === context.ref.message_id) {
         Object.assign(revision, { legacy_object: Object.freeze({ bucket_id: 'chat-media', object_name: row.object_name, message_id: row.message_id }) })

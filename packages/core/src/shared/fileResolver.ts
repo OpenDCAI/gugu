@@ -4,6 +4,11 @@ import { sha256 } from '@noble/hashes/sha2.js'
 export type FileRef = { item_id: string; version?: number } | { message_id: string } | { attachment_id: string }
 export type FileActor = { accountId: string; actorId: string }
 export const FILE_CHUNK_BYTES = 512 * 1024
+/**
+ * The project id a local revision names when its device has no project bound to the chat: the files that device sent
+ * are kept in its own device store, which it serves like a project root.
+ */
+export const DEVICE_STORE = 'device-store'
 
 export function fileRefKey(ref: FileRef): string {
   const keys = Object.keys(ref)
@@ -29,9 +34,13 @@ export interface FileRevision {
   legacy_object?: { bucket_id: 'chat-media'; object_name: string; message_id: string }
   width?: number | null
   height?: number | null
+  /** The device that keeps this version: the one that sent it. */
   host_device_id?: string
   host_project_id?: string
   host_account_id?: string
+  /** That device's name and whether it is online now, as the backend resolved them (readers of other accounts included). */
+  host_label?: string | null
+  host_online?: boolean
   relative_path?: string
   temporary_transfer?: boolean
   /** Actual workspace metadata kept at publication in the existing local revision index. */
@@ -126,7 +135,7 @@ export function createFileResolver(providers: FileProviders) {
         const ownSsh = await providers.ssh(revision, context)
         if (ownSsh) return ownSsh
       }
-      if (!revision.temporary_transfer) throw new Error('Cloud transfer is disabled for this project')
+      if (!revision.temporary_transfer) throw new Error('Cloud transfer is disabled for this file')
       return providers.temporary(revision, context)
     }
     const get = () => opened ??= open().then(async file => {
