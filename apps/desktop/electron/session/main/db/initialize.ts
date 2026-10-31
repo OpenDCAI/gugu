@@ -131,6 +131,7 @@ function ensureSearchIndex(connection: BetterSqlite3.Database): void {
  * Task conversation text for search, derived from session_turns by triggers: every writer of a turn (live, replay,
  * revision, record append, truncation, session cascade) updates it in the same transaction, and nothing else writes it.
  * Only message items (what the person and the agent said, through `search_text`) are kept; thinking and tools are not searchable.
+ * A stored turn whose data is not JSON has no items here, as for every other reader of session_turns.
  * `turn_text_rows` holds them keyed by (session_id, seq); `turn_text` is its trigram FTS5 index (external content).
  * Rebuilt with the search index version, including a backfill of the existing turns.
  */
@@ -148,7 +149,7 @@ function registerSearchText(connection: BetterSqlite3.Database): void {
 
 function ensureTurnText(connection: BetterSqlite3.Database): void {
   const messages = (turn: string) => `SELECT ${turn}.session_id, ${turn}.seq, json_extract(item.value, '$.id'), json_extract(item.value, '$.role'),
-      search_text(json_extract(item.value, '$.text')) FROM json_each(${turn}.data, '$.items') AS item
+      search_text(json_extract(item.value, '$.text')) FROM json_each(iif(json_valid(${turn}.data), ${turn}.data, '{}'), '$.items') AS item
     WHERE json_extract(item.value, '$.kind') = 'message' AND length(search_text(json_extract(item.value, '$.text'))) > 0`;
   connection.exec(`
     DROP TRIGGER IF EXISTS session_turns_text_insert;

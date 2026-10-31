@@ -123,7 +123,8 @@ describe('task content search (turn_text, fed by session_turns triggers)', () =>
 
   it('backfills turns stored before the index existed', async () => {
     fixture().sqlite.exec(`INSERT INTO session_turns (id, session_id, seq, turn_id, data) VALUES
-      ('s1:0', 's1', 0, 't', '{"items":[{"kind":"message","id":"x","role":"user","text":"历史里的数据库迁移"}]}')`);
+      ('s1:0', 's1', 0, 't', '{"items":[{"kind":"message","id":"x","role":"user","text":"历史里的数据库迁移"}]}'),
+      ('s1:1', 's1', 1, 't', 'not json')`);
     fixture().sqlite.exec("DELETE FROM turn_text_rows; UPDATE kv SET value = '5' WHERE key = 'fts_version'");
     await initializeDatabase(fixture().sqlite);
     expect(found('数据库迁移')).toEqual(['历史里的数据库迁移']);
