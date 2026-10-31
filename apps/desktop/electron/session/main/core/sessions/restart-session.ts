@@ -20,7 +20,16 @@ import { randomUUID } from 'node:crypto';
  * ❌ 不是「新建一条顶上」:会话 id、标题、在任务里的位置全都原样保留,用户看到的是
  * 「这句话正在重新跑」,不是一条凭空多出来的会话。
  */
-export async function restartSession(
+export function restartSession(projectId: string, sessionId: string): Promise<void> {
+  // A press while this session's restart is still in flight is the same restart (one replay), not a second one.
+  const current = restarting.get(sessionId) ?? restartOnce(projectId, sessionId).finally(() => restarting.delete(sessionId));
+  restarting.set(sessionId, current);
+  return current;
+}
+
+const restarting = new Map<string, Promise<void>>();
+
+async function restartOnce(
   projectId: string,
   sessionId: string
 ): Promise<void> {
@@ -52,8 +61,14 @@ export async function restartSession(
   // JSON.stringify 的结果,一个 `undefined` 值会连键一起消失,但显式留键更容易被下一个人
   // 误读成「有这个状态,只是空的」。
   const { providerSessionState: _cleared, ...rest } = row.config;
-  // ACP replays through session-life's queue (below); a terminal leg's hydrate reads initialPrompt.
-  const nextConfig: SessionConfig = rest.type === 'acp' ? rest : { ...rest, initialPrompt: replay };
+  // ACP replays through session-life's queue (below) only: its creation turns go too, or a session created before
+  // session-life (no earlier pending row) would get them enqueued again at provision. A terminal leg's hydrate
+  // reads initialPrompt.
+  let nextConfig: SessionConfig;
+  if (rest.type === 'acp') {
+    const { initialQueue: _replayed, ...acp } = rest;
+    nextConfig = acp;
+  } else nextConfig = { ...rest, initialPrompt: replay };
 
   await db
     .update(sessions)

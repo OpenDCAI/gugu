@@ -2042,6 +2042,8 @@ export const AcpChatPanel = observer(function AcpChatPanel({
    */
   // 会话还在起这件事 ❌ 不进这一格(behavior session-page「打开速度」):首条消息带着「处理中」上屏,那就是在跑;
   // 「正在打开引擎会话」一类的启动步骤对用户不存在。要人做的事(登录、会员)照常在下面说。
+  // 「重来」在途:按钮停下,❌ 连点各投一遍首轮。
+  const [restarting, setRestarting] = useState(false);
   useEffect(() => {
     if (!store) return;
     // 有没有可重来的首轮,**进这一行之前就知道**(同 ProviderSessionMissingView 的判据)。
@@ -2161,12 +2163,16 @@ export const AcpChatPanel = observer(function AcpChatPanel({
                   actions: [
                     {
                       label: translate('transcript.condition.startFresh'),
+                      pending: restarting,
                       run: () => {
+                        if (restarting) return;
+                        setRestarting(true);
                         void sessionRegistry
                           .get(store.sessionId)
                           ?.restartSession(store.sessionId)
                           .then(() => store.retry())
-                          .catch(() => {});
+                          .catch(() => {})
+                          .finally(() => setRestarting(false));
                       },
                     },
                   ],
@@ -2215,7 +2221,7 @@ export const AcpChatPanel = observer(function AcpChatPanel({
       }
     })();
     setCondition(condition);
-  }, [store, store?.loadError, providerId, cliAuthMethod, openAgentAccount, translate, navigate, signInExpired, signInMissing, signInAgain, agent?.name, membershipLock, interruptedBy]);
+  }, [store, store?.loadError, providerId, cliAuthMethod, openAgentAccount, translate, navigate, signInExpired, signInMissing, signInAgain, agent?.name, membershipLock, interruptedBy, restarting]);
 
   /**
    * 还在跑的后台命令与子智能体 → 消息列表末尾那一行(owner 2026-10-27:去掉右上角「摘要」卡,后台任务放进主对话)。

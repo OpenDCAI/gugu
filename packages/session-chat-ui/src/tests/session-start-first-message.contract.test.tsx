@@ -138,4 +138,15 @@ describe('session start with a first message', () => {
     host.querySelector<HTMLButtonElement>('button[data-slot="session-condition-action"]')!.click()
     expect(signIn).toHaveBeenCalledOnce()
   })
+
+  it('an action whose call is in flight is disabled: a second click does not repeat it', async () => {
+    const { state, host } = mount('double')
+    const restart = vi.fn()
+    state.session.setCondition({ code: 'provider-session-missing', detail: 'missing', actions: [{ label: 'Start fresh', run: restart, pending: true }] })
+    await until('action mounts', () => Boolean(host.querySelector('button[data-slot="session-condition-action"]')))
+    const button = host.querySelector<HTMLButtonElement>('button[data-slot="session-condition-action"]')!
+    expect(button.disabled).toBe(true)
+    button.click()
+    expect(restart).not.toHaveBeenCalled()
+  })
 })

@@ -617,7 +617,8 @@ export type SessionConditionItem = {
    * 「我已经登录了,这里没有个登录完成的按钮」。「去登录」与「我登好了」是两个不同的动作，
    * 后者读作「我登好了，接着来」，❌ 不能用「重试」顶替。
    */
-  actions?: readonly { label: string; run: () => void }[];
+  /** `pending`: its call is in flight; the button is disabled until it settles (a second click would repeat it). */
+  actions?: readonly { label: string; run: () => void; pending?: boolean }[];
   /** 行文案里的占位值(按 code 取到的那句文案里要填的空)。 */
   labelValues?: Readonly<Record<string, string | number>>;
 };

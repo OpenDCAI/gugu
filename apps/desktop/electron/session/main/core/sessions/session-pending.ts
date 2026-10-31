@@ -154,5 +154,6 @@ export const lifeStore: LifeStore = {
     db.update(sessionPending).set({ settledAt: new Date().toISOString() })
       .where(and(eq(sessionPending.sessionId, sessionId), eq(sessionPending.seq, seq), eq(sessionPending.state, 'accepted'))).run();
   },
-  remove(sessionId) { db.delete(sessions).where(eq(sessions.id, sessionId)).run(); },
+  // Only a side chat (memory store) is ever removed: a persisted task is archived, never deleted.
+  remove(sessionId) { throw new Error(`Session ${sessionId} is a task; it is archived, never removed`); },
 };
