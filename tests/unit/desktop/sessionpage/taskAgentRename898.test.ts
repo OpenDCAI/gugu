@@ -17,6 +17,7 @@ const state = vi.hoisted(() => ({
   beforeWrite: undefined as (() => Promise<void>) | undefined,
   actualQueue: false,
   syncError: null as { message: string } | null,
+  cloudAnswer: undefined as (() => void) | undefined,
 }))
 vi.mock('@gugu/core', () => ({
   listAgents: async () => state.roster,
@@ -57,6 +58,7 @@ vi.mock('../../../../apps/desktop/electron/sessionpage/emdash-agent-provisioning
 }))
 vi.mock('../../../../apps/desktop/electron/supabase', () => ({
   electronFetch: vi.fn(),
+  onElectronCloudAnswer: (listener: () => void) => { state.cloudAnswer = listener; return () => {} },
   makeIdentityClient: () => ({ from: () => {
     const filters: Array<[string, unknown]> = []
     let patch: { display_name: string } | null = null
@@ -251,6 +253,33 @@ describe('task and identity shared rename operation', () => {
     expect(await app.renameTask('unbound', 'Local choice', 'manual')).toBeNull()
     expect(state.getAuth).not.toHaveBeenCalled()
     expect(state.lock).not.toHaveBeenCalled()
+  })
+
+  it('publishes a rename whose identity write failed on main at the next cloud answer, with no renderer sync failure', async () => {
+    const app = setup()
+    // Before anything is deferred, answers do not start a synchronization.
+    state.cloudAnswer!()
+    expect(state.lock).not.toHaveBeenCalledWith('task identity name changes')
+    state.error = 'upstream 503'
+    await app.host.renameAgent({ sessionId: 'task', name: 'Main offline' })
+    expect(state.rows[0].display_name).toBe('Claude 1')
+    // Still failing when the first answer arrives: the attempt fails and re-arms.
+    state.cloudAnswer!()
+    await vi.waitFor(() => expect(state.warn).toHaveBeenCalledWith(expect.anything(),
+      'Deferred task identity publication failed; waiting for the next cloud answer'))
+    await state.lockTail
+    expect(state.rows[0].display_name).toBe('Claude 1')
+    state.error = null
+    state.cloudAnswer!()
+    await vi.waitFor(() => expect(state.rows[0].display_name).toBe('Main offline'))
+    expect([state.roster[0].name, app.title()]).toEqual(['Main offline', 'Main offline'])
+    expect(app.notices).toHaveBeenLastCalledWith({ conversationId: 'task', agentUserId: AGENT, displayName: 'Main offline' })
+    // Published: later answers no longer synchronize.
+    await state.lockTail
+    const passes = state.lock.mock.calls.filter(([label]) => label === 'task identity name changes').length
+    state.cloudAnswer!()
+    await state.lockTail
+    expect(state.lock.mock.calls.filter(([label]) => label === 'task identity name changes')).toHaveLength(passes)
   })
 
   it('retains a bound signed-out manual edit without touching the cloud', async () => {

@@ -25,7 +25,7 @@ import { agentNameSerial } from '../../src/lib/agentDefaultName'
 import { updateOwnedAgentIdentity } from '@gugu/core/cloud/ownedAgent'
 import { agentMayBelongTo } from '@gugu/core/local/state/agentOwner'
 import { taskAgentName } from '@gugu/core/shared/taskAgentName'
-import { electronFetch, makeIdentityClient } from '../supabase'
+import { electronFetch, makeIdentityClient, onElectronCloudAnswer } from '../supabase'
 import { createLogger } from '../lib/logger'
 import {
   SESSION_CACHE_KEY,
@@ -128,6 +128,18 @@ export function createSessionpageIdentityHost(deps: SessionpageIdentityHostDeps)
     const state = deps.taskNames?.state(sessionId)
     return state?.pendingManual ? state.title : undefined
   }
+  // A manual name whose identity write failed waits for the backend to answer main again, then the existing
+  // synchronization publishes it once. Armed only by a deferred publication; a repeated failure re-arms it.
+  let publicationDeferred = false
+  const deferPublication = () => { publicationDeferred = true }
+  onElectronCloudAnswer(() => {
+    if (!publicationDeferred) return
+    publicationDeferred = false
+    void host.synchronizeNames().catch((error: unknown) => {
+      deferPublication()
+      log.warn({ error: String(error) }, 'Deferred task identity publication failed; waiting for the next cloud answer')
+    })
+  })
   const peersForAuth = async (auth: SessionpageIdentityAuthSnapshot, sessionId?: string) => {
     const peers = await resolveSessionpageSessionPeers({
       sessionId,
@@ -240,6 +252,7 @@ export function createSessionpageIdentityHost(deps: SessionpageIdentityHostDeps)
       })
     } catch (error) {
       if (source !== 'manual') throw error
+      deferPublication()
       log.warn({ sessionId, error: String(error) }, 'Local task name saved; identity publication deferred until synchronization')
       return current()
     }
@@ -324,6 +337,7 @@ export function createSessionpageIdentityHost(deps: SessionpageIdentityHostDeps)
             const source = localManual || !state.managed || (state.identityName && state.identityName !== name) ? 'manual' : state.source
             await adoptRecordName(agent, name, source === 'harness' ? 'manual' : source)
           } catch (error) {
+            if (deps.taskNames!.state(sessionId).pendingManual) deferPublication()
             log.warn({ sessionId, agentUserId: agent.gugu_user_id, error: String(error) }, 'Task identity name synchronization failed; continuing with the remaining tasks')
           }
         }
