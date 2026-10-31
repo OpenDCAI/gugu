@@ -1,6 +1,8 @@
 import { createHash } from 'node:crypto';
 import type BetterSqlite3 from 'better-sqlite3';
 import journal from '@root/drizzle/meta/_journal.json';
+import { readDeliveryEnvelope } from '@gugu/core/local/agent/deliveryEnvelope';
+import { isGuguSilence } from '@gugu/core/local/agent/silenceMarker';
 
 // Vite bundles all migration SQL files at build time — no runtime path resolution needed.
 // Each value is the raw SQL string content of the file.
@@ -98,7 +100,7 @@ export function applyMigrations(
 function ensureSearchIndex(connection: BetterSqlite3.Database): void {
   // Bump this version string whenever the FTS schema changes — the table is
   // dropped and recreated, and backfill() + seedCommands() repopulate it.
-  const SEARCH_INDEX_VERSION = '5';
+  const SEARCH_INDEX_VERSION = '6';
 
   const row = connection.prepare(`SELECT value FROM kv WHERE key = 'fts_version'`).get() as
     | { value: string }
@@ -106,6 +108,7 @@ function ensureSearchIndex(connection: BetterSqlite3.Database): void {
 
   if (row?.value !== SEARCH_INDEX_VERSION) {
     connection.exec(`DROP TABLE IF EXISTS search_index`);
+    ensureTurnText(connection);
     connection.exec(`
       CREATE VIRTUAL TABLE search_index USING fts5(
         item_type,
@@ -122,6 +125,60 @@ function ensureSearchIndex(connection: BetterSqlite3.Database): void {
       )
       .run(SEARCH_INDEX_VERSION);
   }
+}
+
+/**
+ * Task conversation text for search, derived from session_turns by triggers: every writer of a turn (live, replay,
+ * revision, record append, truncation, session cascade) updates it in the same transaction, and nothing else writes it.
+ * Only message items (what the person and the agent said, through `search_text`) are kept; thinking and tools are not searchable.
+ * A stored turn whose data is not JSON has no items here, as for every other reader of session_turns.
+ * `turn_text_rows` holds them keyed by (session_id, seq); `turn_text` is its trigram FTS5 index (external content).
+ * Rebuilt with the search index version, including a backfill of the existing turns.
+ */
+/**
+ * `search_text(text)`: what a person reads in a message item, for turn_text — a delivery's body (its envelope is how
+ * it arrived, not what was said; read by the envelope module's one reader), nothing for the silence marker. Registered on
+ * the connection before migrations, because the session_turns triggers call it on every turn write.
+ */
+function registerSearchText(connection: BetterSqlite3.Database): void {
+  connection.function('search_text', { deterministic: true }, (text: unknown) => {
+    if (typeof text !== 'string' || isGuguSilence(text)) return null;
+    return readDeliveryEnvelope(text)?.body ?? text;
+  });
+}
+
+function ensureTurnText(connection: BetterSqlite3.Database): void {
+  const messages = (turn: string) => `SELECT ${turn}.session_id, ${turn}.seq, json_extract(item.value, '$.id'), json_extract(item.value, '$.role'),
+      search_text(json_extract(item.value, '$.text')) FROM json_each(iif(json_valid(${turn}.data), ${turn}.data, '{}'), '$.items') AS item
+    WHERE json_extract(item.value, '$.kind') = 'message' AND length(search_text(json_extract(item.value, '$.text'))) > 0`;
+  connection.exec(`
+    DROP TRIGGER IF EXISTS session_turns_text_insert;
+    DROP TRIGGER IF EXISTS session_turns_text_update;
+    DROP TRIGGER IF EXISTS session_turns_text_delete;
+    DROP TABLE IF EXISTS turn_text;
+    DROP TABLE IF EXISTS turn_text_rows;
+    CREATE TABLE turn_text_rows (id INTEGER PRIMARY KEY, session_id TEXT NOT NULL, seq INTEGER NOT NULL,
+      item_id TEXT NOT NULL, role TEXT NOT NULL, text TEXT NOT NULL);
+    CREATE INDEX turn_text_rows_turn ON turn_text_rows (session_id, seq);
+    CREATE VIRTUAL TABLE turn_text USING fts5(text, content = 'turn_text_rows', content_rowid = 'id', tokenize = 'trigram case_sensitive 0');
+    CREATE TRIGGER turn_text_rows_insert AFTER INSERT ON turn_text_rows BEGIN
+      INSERT INTO turn_text (rowid, text) VALUES (NEW.id, NEW.text);
+    END;
+    CREATE TRIGGER turn_text_rows_delete AFTER DELETE ON turn_text_rows BEGIN
+      INSERT INTO turn_text (turn_text, rowid, text) VALUES ('delete', OLD.id, OLD.text);
+    END;
+    CREATE TRIGGER session_turns_text_insert AFTER INSERT ON session_turns BEGIN
+      INSERT INTO turn_text_rows (session_id, seq, item_id, role, text) ${messages('NEW')};
+    END;
+    CREATE TRIGGER session_turns_text_update AFTER UPDATE OF data ON session_turns BEGIN
+      DELETE FROM turn_text_rows WHERE session_id = OLD.session_id AND seq = OLD.seq;
+      INSERT INTO turn_text_rows (session_id, seq, item_id, role, text) ${messages('NEW')};
+    END;
+    CREATE TRIGGER session_turns_text_delete AFTER DELETE ON session_turns BEGIN
+      DELETE FROM turn_text_rows WHERE session_id = OLD.session_id AND seq = OLD.seq;
+    END;
+    INSERT INTO turn_text_rows (session_id, seq, item_id, role, text) ${messages('t').replace('FROM json_each', 'FROM session_turns AS t, json_each')};
+  `);
 }
 
 /**
@@ -198,6 +255,7 @@ export async function initializeDatabase(
   // This keeps the module importable in non-Electron environments (Vitest).
   const conn = connection ?? (await import('./client')).sqlite;
   conn.pragma('foreign_keys = ON');
+  registerSearchText(conn);
   applyMigrations(conn, bundledMigrations());
   ensureSearchIndex(conn);
   ensureFileIndex(conn);
