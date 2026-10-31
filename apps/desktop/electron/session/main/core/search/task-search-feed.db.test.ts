@@ -9,6 +9,7 @@ import { sessionEvents } from '../sessions/session-events';
 import { startTaskSearch } from './task-search-feed';
 import { awaitFact } from '../../../../../../../tests/support/awaitFact';
 import type { Session } from '@shared/core/sessions/sessions';
+import type { SearchIndexOp } from '@gugu/core/shared/search/types';
 import { formatDeliveryTimestamp, mergeDeliveryEnvelopes, renderDeliveryEnvelope } from '@gugu/core/local/agent/deliveryEnvelope';
 
 const state = vi.hoisted(() => ({ source: null as Database.Database | null,
@@ -30,12 +31,13 @@ const put = (seq: number, text: string) => state.source!.prepare('INSERT OR REPL
 const waitFor = (assertion: () => void) => awaitFact('task search projection', () => {
   try { assertion(); return true; } catch { return undefined; }
 });
-function start(observe?: () => void) {
+function start(observe?: (ops: readonly SearchIndexOp[]) => void) {
   abort = new AbortController();
   startTaskSearch(store, abort.signal, async read => {
     if (abort.signal.aborted) return false;
-    store.apply(read(store));
-    observe?.();
+    const ops = read(store);
+    store.apply(ops);
+    observe?.(ops);
     return true;
   });
 }
@@ -84,9 +86,39 @@ it('reports missing record history without exhausting it, then retries on the ex
   start();
   await waitFor(() => expect(store.taskCoverage()).toEqual([{ taskId: 's', lastSeq: -1, exhausted: false, reason: 'unavailable' }]));
   expect(store.global(request).coverage.complete).toBe(false);
+  state.status!({ sessionId: 's', reading: { running: true } });
   state.status!({ sessionId: 's', reading: { running: false } });
   await waitFor(() => expect(store.global(request).coverage.complete).toBe(true));
   expect(state.sync).toHaveBeenCalledTimes(2);
+});
+
+it('does not reparse completed PTY records on reopen or idle republish, and never wipes on a settled edge', async () => {
+  state.source!.prepare("UPDATE sessions SET runtime='pty'").run();
+  put(0, 'retained body');
+  start();
+  await waitFor(() => expect(store.global(request).coverage.complete).toBe(true));
+  abort.abort(); store.close(); store = new MessageSearchStore(root, 'owner');
+  const ops: SearchIndexOp[] = [];
+  start(batch => ops.push(...batch));
+  await waitFor(() => expect(store.global(request).coverage.complete).toBe(true));
+  expect(state.sync).toHaveBeenCalledOnce();
+  ops.length = 0;
+  state.status!({ sessionId: 's', reading: { running: false } });
+  expect(ops).toEqual([]);
+  expect(store.global(request).results.map(hit => hit.text)).toEqual(['retained body']);
+  state.status!({ sessionId: 's', reading: { running: true } });
+  state.status!({ sessionId: 's', reading: { running: false } });
+  expect(store.global(request).results.map(hit => hit.text)).toEqual(['retained body']);
+  await waitFor(() => { expect(state.sync).toHaveBeenCalledTimes(2); expect(store.global(request).coverage.complete).toBe(true); });
+  expect(ops.filter(op => op.kind === 'truncateTask').every(op => op.fromSeq > 0)).toBe(true);
+});
+
+it.each(['unsupported', 'diverged'])('settles %s records while retaining the unavailable-history reason', async status => {
+  state.source!.prepare("UPDATE sessions SET runtime='pty'").run();
+  state.sync.mockResolvedValue({ inserted: 0, status });
+  start();
+  await waitFor(() => expect(store.global(request).coverage.complete).toBe(true));
+  expect(store.taskCoverage()).toEqual([{ taskId: 's', lastSeq: -1, exhausted: true, reason: status }]);
 });
 
 it('does not begin another existing PTY task after the account closes during record backfill', async () => {

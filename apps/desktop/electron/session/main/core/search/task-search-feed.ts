@@ -60,9 +60,14 @@ export function startTaskSearch(store: MessageSearchStore, signal: AbortSignal, 
       const status = parseAgentStatus(row.agent_status);
       return { task: { id: row.id, title: row.title, projectId: row.project_id, terminal: row.runtime !== 'acp', archived: row.archived_at !== null }, active: isAgentActive(status ? { status } : null) };
     })
-    .sort((a, b) => Number(a.active) - Number(b.active)).map(row => row.task);
-  store.apply([{ kind: 'tasks', tasks: inventory }]);
-  const pending = new Map<string, Scan>(inventory.map(row => [row.id, { from: -1, validate: true, record: true }]));
+    .sort((a, b) => Number(a.active) - Number(b.active));
+  store.apply([{ kind: 'tasks', tasks: inventory.map(row => row.task) }]);
+  const persisted = new Map(store.taskCoverage({ persisted: true }).map(row => [row.taskId, row]));
+  const runningTasks = new Set(inventory.filter(row => row.active).map(row => row.task.id));
+  const pending = new Map<string, Scan>(inventory.map(({ task: row }) => {
+    const coverage = persisted.get(row.id);
+    return [row.id, { from: -1, validate: true, record: !coverage?.exhausted || !!coverage.reason }];
+  }));
   let running = false;
 
   const backfill = async (id: string, scan: Scan) => {
@@ -97,7 +102,8 @@ export function startTaskSearch(store: MessageSearchStore, signal: AbortSignal, 
         } else {
           const last = sqlite.prepare('SELECT max(seq) AS seq FROM session_turns WHERE session_id=?').get(id) as { seq: number | null };
           ops.push({ kind: 'truncateTask', taskId: id, fromSeq: cursor + 1 },
-            { kind: 'taskCoverage', coverage: { taskId: id, lastSeq: last.seq ?? -1, exhausted: !reason && !pending.has(id), reason } });
+            { kind: 'taskCoverage', coverage: { taskId: id, lastSeq: last.seq ?? -1,
+              exhausted: reason !== 'active' && reason !== 'unavailable' && !pending.has(id), reason } });
           done = true;
         }
         return ops;
@@ -131,8 +137,11 @@ export function startTaskSearch(store: MessageSearchStore, signal: AbortSignal, 
       if (!meta) return [{ kind: 'removeTask', taskId: id }];
       const ops: SearchIndexOp[] = [{ kind: 'task', task: meta }];
       const latest = current.taskCoverage().find(row => row.taskId === id);
-      if (scan) ops.push({ kind: 'truncateTask', taskId: id, fromSeq: Math.max(0, from) },
-        { kind: 'taskCoverage', coverage: { taskId: id, lastSeq: latest?.lastSeq ?? -1, exhausted: false, reason: latest?.reason } });
+      if (scan) {
+        // A lifecycle edge validates existing rows in place. Only a committed suffix change invalidates that suffix.
+        if (from >= 0) ops.push({ kind: 'truncateTask', taskId: id, fromSeq: from });
+        ops.push({ kind: 'taskCoverage', coverage: { taskId: id, lastSeq: latest?.lastSeq ?? -1, exhausted: false, reason: latest?.reason } });
+      }
       return ops;
     }).then(accepted => { if (accepted && scan && !signal.aborted) void drain(); })
       .catch(error => log.error('Task search reconciliation failed', { sessionId: id, error: String(error) }));
@@ -160,12 +169,15 @@ export function startTaskSearch(store: MessageSearchStore, signal: AbortSignal, 
     sessionEvents.on('session:history-changed', changed),
     sessionEvents.on('session:created', row => reconcile(row.id, -1, true, true)),
     sessionEvents.on('session:renamed', id => reconcile(id, -1, false)),
-    sessionEvents.on('session:deleted', id => reconcile(id, -1, false)),
+    sessionEvents.on('session:deleted', id => { runningTasks.delete(id); reconcile(id, -1, false); }),
     sessionEvents.on('session:archived', id => reconcile(id, -1, true, true)),
     agentStatusWriter.on('agent:status', change => {
-      if (!change.reading.running) reconcile(change.sessionId, -1, true, true);
+      const wasRunning = runningTasks.has(change.sessionId);
+      if (change.reading.running) runningTasks.add(change.sessionId);
+      else runningTasks.delete(change.sessionId);
+      if (wasRunning && !change.reading.running) reconcile(change.sessionId, -1, true, true);
     }),
   ];
-  signal.addEventListener('abort', () => { for (const unsubscribe of off) unsubscribe(); pending.clear(); changes.clear(); }, { once: true });
+  signal.addEventListener('abort', () => { for (const unsubscribe of off) unsubscribe(); pending.clear(); changes.clear(); runningTasks.clear(); }, { once: true });
   void drain();
 }

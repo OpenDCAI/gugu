@@ -62,8 +62,8 @@ export class MessageSearchStore {
       .map(row => ({ id: row.id, title: row.title, projectId: row.project_id, agentUserId: row.agent_user_id, terminal: row.terminal === 1, archived: row.archived === 1 }));
   }
 
-  taskCoverage() {
-    return readTaskCoverage(this.db).map(row => ({ ...row, exhausted: row.exhausted && this.current.has(taskCoverageKey(row.taskId)) }));
+  taskCoverage(options: { persisted?: boolean } = {}) {
+    return readTaskCoverage(this.db).map(row => ({ ...row, exhausted: row.exhausted && (options.persisted || this.current.has(taskCoverageKey(row.taskId))) }));
   }
 
   apply(ops: readonly SearchIndexOp[]): void {
