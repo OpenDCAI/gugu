@@ -162,7 +162,7 @@ if (macIdentitySource === 'CSC_LINK' && process.env.CSC_IDENTITY_AUTO_DISCOVERY 
       '把 CSC_IDENTITY_AUTO_DISCOVERY 设成 true(或删掉这个变量),或改用 CSC_NAME 指名身份。'
   )
 }
-const macEntitlements = path.join(__dirname, 'sign', 'entitlements.mac.plist')
+const macEntitlements = path.join(__dirname, 'apps', 'desktop', 'sign', 'entitlements.mac.plist')
 
 // @@@7394 描述文件:GUGU_MAC_PROVISIONING_PROFILE = .provisionprofile 的**路径**(CD 从密钥落到 RUNNER_TEMP)。
 // 有它,主程序才能声明受限权限(钥匙串组等);electron-builder 把它嵌成 Contents/embedded.provisionprofile。
