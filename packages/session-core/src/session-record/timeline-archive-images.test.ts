@@ -88,6 +88,15 @@ async function twoTurns() {
 }
 
 describe('时间线存档里的工具图只存位置', () => {
+  it('offers the committed prefix without the currently active PTY turn', async () => {
+    const { staged } = await twoTurns();
+    const timeline = await openCodex(staged.root);
+    expect(timeline.getSnapshot({ limit: 100 }).turns).toHaveLength(2);
+    const committed = timeline.getSnapshot({ limit: 100, committedOnly: true }).turns;
+    expect(committed).toHaveLength(1);
+    expect(committed[0].items.some(item => item.id.includes('call_done'))).toBe(true);
+    expect(JSON.stringify(committed)).not.toContain('call_running');
+  });
   it('收尾的轮里的图不进存档;装回来端上看到的与整份重读一样,每张图逐字取得回来', async () => {
     const { staged, done, running } = await twoTurns();
     const before = await openCodex(staged.root);

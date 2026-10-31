@@ -1,6 +1,9 @@
 import { open, stat } from 'node:fs/promises';
-import { watch, type FSWatcher } from 'node:fs';
+import { createReadStream, watch, type FSWatcher, type ReadStream } from 'node:fs';
 import { StringDecoder } from 'node:string_decoder';
+import { pipeline } from 'node:stream/promises';
+import { createZstdDecompress } from 'node:zlib';
+import { zstdFrames } from './zstd-frames';
 
 import type { RecordSourceWarn } from './shared';
 
@@ -62,6 +65,7 @@ export class TailReader {
   private inflight: Promise<void> | null = null;
   private stopped = false;
   private missing = false;
+  private snapshotInput: ReadStream | null = null;
 
   constructor(
     private path: string,
@@ -103,6 +107,48 @@ export class TailReader {
     this.ino = null;
     this.missing = false;
     await this.readInto(sink);
+  }
+
+  /** A complete historical archive, streamed through the same UTF-8/line decoder without tail-follow. */
+  async readSnapshot(sink: LineSink): Promise<void> {
+    if (!this.path.endsWith('.zst')) {
+      await this.readFromStart(sink);
+      this.acceptText(this.decoder.end(), sink);
+      // JSONL records end at a newline. A crashed writer's final fragment is not a record.
+      if (this.partial.length) this.warn('Ignored unterminated JSONL snapshot fragment', { bytes: Buffer.byteLength(this.partial) });
+      this.partial = '';
+      return;
+    }
+    this.lineOffset = 0;
+    this.partial = '';
+    this.decoder = new StringDecoder('utf8');
+    const file = await open(this.path, 'r');
+    let decoded = 0n;
+    try {
+      const { size } = await file.stat();
+      if (size === 0) throw new Error('Empty zstd snapshot');
+      // Node 24 can finish a truncated stream without error. Prove each frame envelope and declared size too.
+      for await (const frame of zstdFrames(file, size)) {
+        if (this.stopped) throw new Error('Record snapshot stopped');
+        const input = createReadStream(this.path, { fd: file.fd, autoClose: false, start: frame.start, end: frame.end });
+        this.snapshotInput = input;
+        let frameBytes = 0n;
+        await pipeline(input, createZstdDecompress(), async (chunks: AsyncIterable<Buffer>) => {
+          for await (const chunk of chunks) {
+            frameBytes += BigInt(chunk.length);
+            this.acceptText(this.decoder.write(chunk), sink);
+          }
+        });
+        if (frame.contentSize !== null && frame.contentSize !== frameBytes) throw new Error('Zstd frame content size mismatch');
+        decoded += frameBytes;
+      }
+      if (size > 0 && decoded === 0n) throw new Error('Non-empty zstd snapshot decoded no content');
+      this.acceptText(this.decoder.end(), sink);
+      if (this.partial.length) throw new Error('Incomplete zstd JSONL snapshot line');
+    } finally {
+      this.snapshotInput = null;
+      await file.close();
+    }
   }
 
   /**
@@ -160,6 +206,7 @@ export class TailReader {
 
   stop(): void {
     this.stopped = true;
+    this.snapshotInput?.destroy();
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
     this.watcher?.close();
@@ -277,24 +324,22 @@ export class TailReader {
         // `text` 的第一个字符正对着文件里的 `lineOffset` 那个字节 —— 这条对齐关系是
         // lineOffset 能当续读点的全部依据，所以推进它要按**消掉的那一段的字节数**算，
         // ❌ 不能按字符数（一个 CJK 字符 3 字节，按字符算会把偏移量算短一大截）。
-        const text = this.partial + this.decoder.write(buffer.subarray(0, bytesRead));
-        const parts = text.split('\n');
-        this.partial = parts.pop() ?? '';
-        // 逐行量字节数(含换行符那一个字节):每行的起点顺手记下,总和就是推进量 —— 与整段量一次是同一笔开销。
-        const lines: string[] = [];
-        const offsets: number[] = [];
-        for (const part of parts) {
-          if (part.trim().length > 0) {
-            lines.push(part);
-            offsets.push(this.lineOffset);
-          }
-          this.lineOffset += Buffer.byteLength(part, 'utf8') + 1;
-        }
-        if (lines.length > 0) sink(lines, offsets);
+        this.acceptText(this.decoder.write(buffer.subarray(0, bytesRead)), sink);
       }
     } finally {
       await handle.close();
     }
     return restart;
+  }
+
+  private acceptText(text: string, sink: LineSink): void {
+    const parts = (this.partial + text).split('\n');
+    this.partial = parts.pop() ?? '';
+    const lines: string[] = [], offsets: number[] = [];
+    for (const part of parts) {
+      if (part.trim()) { lines.push(part); offsets.push(this.lineOffset); }
+      this.lineOffset += Buffer.byteLength(part, 'utf8') + 1;
+    }
+    if (lines.length > 0) sink(lines, offsets);
   }
 }
