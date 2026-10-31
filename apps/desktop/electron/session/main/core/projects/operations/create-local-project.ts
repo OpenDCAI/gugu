@@ -59,8 +59,8 @@ export async function createLocalProject(
   if (!params.automatic) {
     const kept = await getLocalProjectByPath(params.path);
     if (kept?.kind === 'workspace' && !isImplicitSessionHomeProjectId(kept.id)) {
-      db.update(projects).set({ kind: 'project', updatedAt: sql`CURRENT_TIMESTAMP` }).where(eq(projects.id, kept.id)).run();
-      const { kind: _workspace, ...claimed } = kept;
+      db.update(projects).set({ kind: 'project', archivedAt: null, updatedAt: sql`CURRENT_TIMESTAMP` }).where(eq(projects.id, kept.id)).run();
+      const { kind: _workspace, archivedAt: _archived, ...claimed } = kept;
       projectEvents._emit('project:created', claimed);
       return ok(claimed);
     }
@@ -116,10 +116,22 @@ export async function createLocalProject(
 
   // #7341 一个文件夹只属于一个项目:它已经挂在某个项目下 ⇒ 打开的就是那个项目,❌ 再建一个让它同属两个项目。
   const attachedOwner = await getProjectOwningAttachedFolder(gitInfo.rootPath);
+  const detachedRoot = await getLocalProjectByPath(gitInfo.rootPath);
+  const existing = attachedOwner ?? detachedRoot;
+  if (existing?.archivedAt && !params.automatic) {
+    if (!attachedOwner && existing.rootFolderDetached) {
+      const attached = await attachProjectFolder(existing.id, gitInfo.rootPath);
+      if (!attached.success) return err({ type: 'init-failed', path: params.path, message: attached.error.message });
+    }
+    db.update(projects).set({ archivedAt: null, updatedAt: sql`CURRENT_TIMESTAMP` }).where(eq(projects.id, existing.id)).run();
+    const { archivedAt: _archived, ...restored } = existing;
+    if (!attachedOwner) delete restored.rootFolderDetached;
+    projectEvents._emit('project:created', restored);
+    return ok(restored);
+  }
   if (attachedOwner) return ok(attachedOwner);
 
-  const detachedRoot = await getLocalProjectByPath(gitInfo.rootPath);
-  if (detachedRoot?.rootFolderDetached) {
+  if (detachedRoot?.rootFolderDetached && !detachedRoot.archivedAt) {
     const attached = await attachProjectFolder(detachedRoot.id, gitInfo.rootPath);
     if (!attached.success) return err({ type: 'init-failed', path: params.path, message: attached.error.message });
     const { rootFolderDetached: _detached, ...restored } = detachedRoot;

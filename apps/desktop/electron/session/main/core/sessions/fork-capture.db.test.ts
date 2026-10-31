@@ -1,4 +1,5 @@
 import { mkdir, mkdtemp, realpath, rm, utimes, writeFile } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { openFixture } from '@tooling/utils/db';
@@ -6,7 +7,7 @@ import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AppDb } from '@main/db/client';
 import { sessions } from '@main/db/schema';
-import { captureExternalForks } from './fork-capture';
+import { captureExternalForks, tombstoneDeletedSession } from './fork-capture';
 import { claudeTranscriptDirFor } from './fork-lineage';
 import {
   listProviderContinuationIntents,
@@ -164,6 +165,22 @@ describe('captureExternalForks — chained external forks in one sweep', () => {
     const rows = await fixture.db.select().from(sessions);
     const child = rows.find((row) => row.id === CHILD);
     expect(child?.config).toMatchObject({ permissionMode: 'read-only' });
+  });
+
+  it('does not recapture a permanently deleted task while its transcript survives', async () => {
+    const removedId = randomUUID();
+    const dir = claudeTranscriptDirFor(await realpath(workspace));
+    await writeFile(path.join(dir, `${removedId}.jsonl`), jsonl(['p1', 'p2', 'deleted-fork']));
+    await captureExternalForks(projectId, PARENT);
+    expect(await fixture.db.select().from(sessions).where(eq(sessions.id, removedId))).toHaveLength(1);
+    tombstoneDeletedSession([removedId]);
+    await fixture.db.delete(sessions).where(eq(sessions.id, removedId));
+    await captureExternalForks(projectId, PARENT);
+    await captureExternalForks(projectId, CHILD);
+    await captureExternalForks(projectId, GRANDCHILD);
+    expect(await fixture.db.select().from(sessions).where(eq(sessions.id, removedId))).toHaveLength(0);
+    // The scan is live: its sibling transcript is still represented, not hidden by a disabled scanner.
+    expect(await fixture.db.select().from(sessions).where(eq(sessions.id, GRANDCHILD))).toHaveLength(1);
   });
 
   it('binds a marked provider continuation to its existing row instead of inserting a fork', async () => {

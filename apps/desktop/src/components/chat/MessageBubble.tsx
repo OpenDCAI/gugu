@@ -515,7 +515,7 @@ export const MessageBubble = memo(function MessageBubble({
                   ) : (
                     <span style={{ color: 'var(--text-link)' }}>{t('message.attachment')}</span>
                   )
-                ) : <div ref={textSelection.ref} data-message-text-selection={compactMobile ? msg.id : undefined} style={compactMobile ? { userSelect: 'text', WebkitUserSelect: 'text', WebkitTouchCallout: 'default' } : { display: 'contents' }}>{(() => {
+                ) : <div ref={textSelection.ref} data-message-text-selection={compactMobile ? msg.id : undefined} style={compactMobile ? { alignSelf: 'stretch', minWidth: 0, maxWidth: '100%', userSelect: 'text', WebkitUserSelect: 'text', WebkitTouchCallout: 'default' } : { display: 'contents' }}>{(() => {
                   const partial = partialQuotedContent(msg)
                   const raw = partial?.replyText ?? msg.content ?? ''
                   if (highlight) return <span className="msg-time-room-inline">{highlightText(raw, highlight)}</span> // 包一层:外面是引用块那一列(flex 列),裸的文字段和 <mark> 会各占一行

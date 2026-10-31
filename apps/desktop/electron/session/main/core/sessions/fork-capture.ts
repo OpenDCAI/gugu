@@ -66,7 +66,7 @@ const DAY_MS = 86_400_000;
 // transcript survives can reappear once (delete it again, or remove the transcript).
 const tombstonedProviderSessionIds = new Set<string>();
 
-/** Called by deleteSession so the capture scan never re-registers a deleted session. */
+/** Called by the permanent Agent task removal entry so the capture scan never re-registers a deleted session. */
 export function tombstoneDeletedSession(providerSessionIds: Array<string | null | undefined>): void {
   for (const providerSessionId of providerSessionIds) {
     if (providerSessionId) tombstonedProviderSessionIds.add(providerSessionId);

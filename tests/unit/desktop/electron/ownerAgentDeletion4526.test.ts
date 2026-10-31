@@ -11,6 +11,7 @@ import { releaseDeletedOwnedAgent } from '../../../../apps/desktop/electron/sess
 // 所以把编排抽成可注入的纯接线,让这一类回归落回四门。
 
 const footprint = { rosterRemoved: true, sessionId: 'conv-1', name: 'Codex 5' }
+const removeBoundSession = vi.fn(async (_sessionId: string) => {})
 
 describe('#4526 owner 删除:先停止、后抹除,且停不下来不得中止抹除', () => {
   it('顺序是硬的:取消发生在释放足迹之前', async () => {
@@ -19,20 +20,23 @@ describe('#4526 owner 删除:先停止、后抹除,且停不下来不得中止�
       sessionIdForAgent: async () => 'conv-1',
       cancelInFlightTurn: async () => { calls.push('cancel'); return true },
       releaseFootprint: async () => { calls.push('release'); return footprint },
+      removeBoundSession: async () => { calls.push('delete-task') },
     })
     // 反过来的话,那一轮会在一个已经查不到绑定的会话上继续跑,连"它还在跑"都没人看得见。
-    expect(calls).toEqual(['cancel', 'release'])
+    expect(calls).toEqual(['cancel', 'release', 'delete-task'])
   })
 
   it('取消**失败**时:足迹照样释放完,然后把失败如实抛出去', async () => {
     const release = vi.fn(async () => footprint)
     const failure = new Error('claims agent but cannot cancel its in-flight turn')
+    const removeTask = vi.fn(async (_id: string) => {})
 
     await expect(
       releaseDeletedOwnedAgent('agent-1', {
         sessionIdForAgent: async () => 'conv-1',
         cancelInFlightTurn: async () => { throw failure },
         releaseFootprint: release,
+        removeBoundSession: removeTask,
       }),
       '停不下来要如实报出去 —— 否则 UI 会继续说 Agent deleted',
     ).rejects.toThrow(/cannot cancel its in-flight turn/)
@@ -40,6 +44,7 @@ describe('#4526 owner 删除:先停止、后抹除,且停不下来不得中止�
     // 这一条就是那次回归的判据:云端身份此刻**已经删了**,若因为"停不下来"跳过清理,
     // 用户拿到的是两个缺陷叠加 —— 既没停下来,本机还全留着(孤儿 + 复活)。
     expect(release, '取消失败 ❌ 不得中止足迹释放').toHaveBeenCalledWith('agent-1')
+    expect(removeTask).toHaveBeenCalledExactlyOnceWith('conv-1')
   })
 
   it('取消是 no-op(本来就没有在飞的轮)时,照常释放并如实报 cancelledTurn=false', async () => {
@@ -47,6 +52,7 @@ describe('#4526 owner 删除:先停止、后抹除,且停不下来不得中止�
       sessionIdForAgent: async () => 'conv-1',
       cancelInFlightTurn: async () => false,
       releaseFootprint: async () => footprint,
+      removeBoundSession,
     })
     expect(result).toEqual({ ...footprint, cancelledTurn: false })
   })
@@ -56,6 +62,7 @@ describe('#4526 owner 删除:先停止、后抹除,且停不下来不得中止�
       sessionIdForAgent: async () => 'conv-1',
       cancelInFlightTurn: async () => true,
       releaseFootprint: async () => footprint,
+      removeBoundSession,
     })
     expect(result).toEqual({ ...footprint, cancelledTurn: true })
   })
@@ -66,6 +73,7 @@ describe('#4526 owner 删除:先停止、后抹除,且停不下来不得中止�
       sessionIdForAgent: async () => 'conv-xyz',
       cancelInFlightTurn: cancel,
       releaseFootprint: async () => footprint,
+      removeBoundSession,
     })
     expect(cancel).toHaveBeenCalledWith('agent-1', 'conv-xyz')
   })

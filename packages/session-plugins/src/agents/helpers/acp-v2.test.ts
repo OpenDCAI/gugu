@@ -1,4 +1,5 @@
 import { PassThrough, Writable } from 'node:stream';
+import { performance } from 'node:perf_hooks';
 import * as v2 from '@agentclientprotocol/sdk/experimental/v2';
 import { decodeV2SessionUpdate, type NormalizedEvent } from '@gugu/session-core/acp';
 import { describe, expect, it, vi } from 'vitest';
@@ -76,6 +77,39 @@ const initialize = (api: ReturnType<typeof agentPair>['api']) =>
 const settle = () => new Promise((resolve) => setTimeout(resolve, 20));
 
 describe('connectStdioAcpV2', () => {
+  it('yields between decoded messages from one stdout chunk while preserving notification order', async () => {
+    const stdin = new PassThrough(), stdout = new PassThrough();
+    const received: unknown[] = [];
+    let seenByOtherTask: number | undefined;
+    let otherTask: Promise<void> | undefined;
+    stdin.on('data', bytes => {
+      const request = JSON.parse(bytes.toString());
+      if (request.method === 'initialize') stdout.write(JSON.stringify({ jsonrpc: '2.0', id: request.id,
+        result: { protocolVersion: 2, info: { name: 'fixture', version: '1' }, capabilities: {}, authMethods: [] } }) + '\n');
+      if (request.method === 'session/resume') stdout.write(updates.map(update => JSON.stringify({
+        jsonrpc: '2.0', method: 'session/update', params: { sessionId: 's1', update },
+      })).join('\n') + '\n' + JSON.stringify({ jsonrpc: '2.0', id: request.id, result: {} }) + '\n');
+    });
+    const api = connectStdioAcpV2({ stdin, stdout }, () => ({
+      sessionEvent: ({ trace }) => {
+        received.push(trace);
+        if (received.length === 1) otherTask = new Promise(resolve => setImmediate(() => { seenByOtherTask = received.length; resolve(); }));
+      },
+      requestPermission: async () => ({ outcome: { outcome: 'cancelled' } }),
+    }));
+    await initialize(api);
+    let elapsed = performance.now();
+    const clock = vi.spyOn(performance, 'now').mockImplementation(() => elapsed += 10);
+    const updates = Array.from({ length: 100 }, (_, i) => ({ sessionUpdate: 'terminal_update', terminalId: `t${i}`, command: `echo ${i}` }));
+    try {
+      await api.loadSession!({ sessionId: 's1', cwd: '/w', mcpServers: [] });
+      expect(received).toHaveLength(100); // The resume reply cannot overtake its preceding updates.
+      await otherTask;
+      expect(seenByOtherTask).toBeLessThan(100);
+      expect(received).toEqual(updates);
+    } finally { clock.mockRestore(); stdout.end(); stdin.end(); }
+  });
+
   it('decodes the v2 handshake into host capabilities: capabilities, auth methods, and the protocol it speaks', async () => {
     const { api } = agentPair();
     const response = await initialize(api);

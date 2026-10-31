@@ -10,6 +10,7 @@ import { moveJournalStore } from '@renderer/features/assistant/assistant-move-wi
 import { Button } from '../ui/Button'
 import { Sheet } from '../ui/Sheet'
 import { cn } from '../../lib/cn'
+import { notify } from '../../lib/notices'
 import { listDevicesOnceIdentified } from '../../lib/listDevicesOnceIdentified'
 import { wakeCloudComputerUntilOnline } from '@gugu/core/cloud/cloudComputer'
 import { rendererCloudComputerClient } from '../../lib/cloudComputer'
@@ -76,20 +77,13 @@ export function AssistantCloseHost() {
       if (!cloud) return
       const client = rendererCloudComputerClient()
       if (!client) throw new Error('cloud computer is not configured')
+      const result = await wakeCloudComputerUntilOnline({ client, deviceId: cloud.deviceId, purpose: 'close', isOnline: async (id) => (await listDevicesOnceIdentified()).some((device) => device.device_id === id && device.is_online) })
+      if (result !== 'online') throw new Error('the cloud home changed before close')
       await client.prepareAssistantClose({ deviceId: cloud.deviceId, assistantId: cloud.assistantId })
     }
     return {
       check: checkCloud,
-      listSessions: async () => {
-        if (cloud) {
-          const client = rendererCloudComputerClient()
-          if (!client) throw new Error('cloud computer is not configured')
-          const result = await wakeCloudComputerUntilOnline({ client, deviceId: cloud.deviceId, purpose: 'close', isOnline: async (id) => (await listDevicesOnceIdentified()).some((device) => device.device_id === id && device.is_online) })
-          if (result !== 'online') throw new Error('the cloud home changed before close')
-          await checkCloud()
-        }
-        return (await rpcOn(target).sessionTimeline.sessionsList()).sessions
-      },
+      listSessions: async () => (await rpcOn(target).sessionTimeline.sessionsList()).sessions,
       listAutomations: () => rpcOn(target).automations.listAutomations(),
       deleteAutomation: (id) => rpcOn(target).automations.deleteAutomation(id),
       removeAgent: (agentUserId) => removeOwnedAgent(agentUserId),
@@ -168,6 +162,7 @@ function LocalCloseDialog({ assistantId, name, deps, onClose }: { assistantId: s
     setFailure(null)
     try {
       await closeLocalAssistant({ assistantId, deleteStarted }, plan, deps)
+      notify({ title: t('closeDialog.closed'), tier: 'success' })
       onClose()
     } catch (error) {
       const known = error instanceof AssistantCloseError ? error : new AssistantCloseError('home', 'failed', error)

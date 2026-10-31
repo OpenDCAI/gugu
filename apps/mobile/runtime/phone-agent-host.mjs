@@ -1,3 +1,4 @@
+import { archiveAgentRecord, agentsForOwner } from '../../../packages/core/src/local/state/agentOwner.ts'
 import { createPhoneAssistantWorkOutbox } from './phone-assistant-work-outbox.mjs'
 import { createPhoneAssistantWorkHistory } from './phone-assistant-work-history.mjs'
 import { createPhoneAssistantWork } from './phone-assistant-work.mjs'
@@ -82,7 +83,7 @@ export async function startPhoneAgentHost(initialConfig, { runTurn, cancelTurn, 
   const execution = () => activeJob?.status === 'running' ? { sessionId: store.state.agents[activeJob.agentUserId]?.sessionId, jobId: activeJob.id, phase: activeJob.cancelRequested ? 'stopping' : activeJob.phase ?? 'preparing' } : null
   const state = () => {
     const error = healthErrors.auth ?? healthErrors.rpc ?? healthErrors.heartbeat
-    return { ownerId, deviceId, project, taskTimeline: true, execution: execution(), status: stopped ? 'stopped' : ready ? 'ready' : error ? 'failed' : 'starting', ready, error: stopped ? null : error?.message ?? null, errorCode: stopped ? null : error?.code ?? null, authError: stopped ? null : healthErrors.auth?.authError ?? null, lastHeartbeatAt, sessions: Object.values(store.state.agents).map((agent) => ({ agentUserId: agent.agentUserId, sessionId: agent.sessionId, displayName: agent.displayName, chatId: agent.chatId, modelId: agent.modelId, status: agent.status, lastError: agent.lastError ?? null, lastActiveAt: agent.lastActiveAt ?? null, lastJobStatus: lastJob(agent.agentUserId)?.status ?? null, birthGroup: agent.birthGroup ?? null })) }
+    return { ownerId, deviceId, project, taskTimeline: true, execution: execution(), status: stopped ? 'stopped' : ready ? 'ready' : error ? 'failed' : 'starting', ready, error: stopped ? null : error?.message ?? null, errorCode: stopped ? null : error?.code ?? null, authError: stopped ? null : healthErrors.auth?.authError ?? null, lastHeartbeatAt, sessions: agents().map((agent) => ({ agentUserId: agent.agentUserId, sessionId: agent.sessionId, displayName: agent.displayName, chatId: agent.chatId, modelId: agent.modelId, status: agent.status, lastError: agent.lastError ?? null, lastActiveAt: agent.lastActiveAt ?? null, lastJobStatus: lastJob(agent.agentUserId)?.status ?? null, birthGroup: agent.birthGroup ?? null })) }
   }
   const publish = (patch = {}) => emit({ type: 'host_state', ...state(), ...patch })
   const warn = (message) => emit({ type: 'host_log', ownerId, level: 'warn', message })
@@ -112,7 +113,7 @@ export async function startPhoneAgentHost(initialConfig, { runTurn, cancelTurn, 
     authenticated = true; healthErrors.auth = null; updateReadiness()
   }, undefined, { onRequestFailure: recordRequestFailure })
   const models = modelFactory(cloud, store, warn)
-  const agents = () => Object.values(store.state.agents)
+  const agents = () => agentsForOwner(Object.values(store.state.agents), ownerId)
   const findSession = (id) => {
     const agent = agents().find((item) => item.sessionId === parseSession(id))
     if (!agent) throw Object.assign(new Error('session not found on this machine'), { code: 'SESSION_NOT_FOUND' })
@@ -156,11 +157,12 @@ export async function startPhoneAgentHost(initialConfig, { runTurn, cancelTurn, 
   const admit = async (input,signal) => {
     signal?.throwIfAborted()
     if (stopped || signingOut) throw new Error('手机宿主正在停止，未接收新任务')
+    const target = agents().find((row) => row.agentUserId === input.agentUserId)
+    if (!target) throw new Error('Agent 没有在这台手机上建立活动任务')
     const proof = input.inputDataProof
     let admitted = input
     if (proof && !store.state.jobs[input.id]) {
-      const agent = store.state.agents[input.agentUserId]
-      if (!agent) throw new Error('同机委派的目标任务已不存在')
+      const agent = target
       // Queued input is already part of the readable record, even if it never reaches Pi.
       // Bind it before saving; a cancelled first input must not remain a legacy, epochless row.
       agent.contextEpoch ??= randomUUID()
@@ -174,12 +176,13 @@ export async function startPhoneAgentHost(initialConfig, { runTurn, cancelTurn, 
     return job
   }
   const inbox = async (agentUserId) => {
-    const agent = store.state.agents[agentUserId]
+    const agent = agents().find((row) => row.agentUserId === agentUserId)
     if (!agent || stopped || signingOut) return { pulled: 0, injected: 0 }
     await verifyAgent(agentUserId)
     const rowsById = new Map()
     return pullAgentInbox(agentUserId, {
       accessToken: await cloud.token(), ownerUserId: ownerId, env,
+      recipientIsRegistered: (id) => agents().some((row) => row.agentUserId === id),
       deliveryTiming: () => 'idle-only', deliveryContextKey: () => agent.sessionId,
       resolveGuguIds: resolveIdentities,
       fetchUnread: async (input) => {
@@ -214,6 +217,7 @@ export async function startPhoneAgentHost(initialConfig, { runTurn, cancelTurn, 
           // Readers may overlap the first admitted job. Establish its context before either
           // sees the session, so first initialization cannot look like a permission rotation.
           const agent = existing ?? { agentUserId: input.agentUserId, ownerId, deviceId, sessionId: randomUUID(), contextEpoch: randomUUID(), displayName: identity.display_name ?? input.displayName, guguNumber: identity.gugu_number ?? null, chatId: uuid(input.chatId, 'chatId'), modelId: await models.resolve(input.model), status: 'idle', createdAt: new Date().toISOString(), specialFocus: input.specialFocus ?? null }
+          if (existing?.status === 'archived') existing.status = 'idle'
           await mkdir(join(root, agent.sessionId), { recursive: true, mode: 0o700 })
           store.state.agents[agent.agentUserId] = agent
           await store.save()
@@ -223,7 +227,7 @@ export async function startPhoneAgentHost(initialConfig, { runTurn, cancelTurn, 
         },
       },
     }, env)
-    const agent = store.state.agents[command.payload.agent_user_id]
+    const agent = agents().find((row) => row.agentUserId === command.payload.agent_user_id)
     if (agent) await report(agent)
     return result
   }
@@ -241,13 +245,20 @@ export async function startPhoneAgentHost(initialConfig, { runTurn, cancelTurn, 
     await store.save(); publish(); await report(agent)
     return { cancelled }
   }
+  // History stays in the phone store; this host does not yet expose a Restore UI or RPC.
+  const archive = async (agent) => {
+    await cancel(agent)
+    await draining
+    archiveAgentRecord(agent)
+    await store.save(); publish()
+  }
   const handlers = {
     'agent.create': createFromCommand,
     'agent.deliver': async (command) => ({ agent_user_id: command.payload.agent_user_id, delivered: (await inbox(command.payload.agent_user_id)).injected > 0 }),
-    'agent.stop': async (command) => { const agent = store.state.agents[command.payload.agent_user_id]; if (!agent) throw new Error('Agent 没有在这台手机上建立会话'); await cancel(agent); return { stopped: true } },
-    'agent.retire': async (command) => { const agent = store.state.agents[command.payload.agent_user_id]; if (agent) { await cancel(agent); delete store.state.agents[agent.agentUserId]; await store.save(); publish() } return { retired: true } },
+    'agent.stop': async (command) => { const agent = agents().find((row) => row.agentUserId === command.payload.agent_user_id); if (!agent) throw new Error('Agent 没有在这台手机上建立会话'); await cancel(agent); return { stopped: true } },
+    'agent.retire': async (command) => { const agent = agents().find((row) => row.agentUserId === command.payload.agent_user_id); if (agent) await archive(agent); return { retired: true } },
     'agent.set_model': async (command) => {
-      const agent = store.state.agents[command.payload.agent_user_id]
+      const agent = agents().find((row) => row.agentUserId === command.payload.agent_user_id)
       if (!agent) throw new Error('Agent 没有在这台手机上建立会话')
       try {
         const selection = command.payload.selection
@@ -277,7 +288,7 @@ export async function startPhoneAgentHost(initialConfig, { runTurn, cancelTurn, 
   const delegationProof = (agent, job) => ({ groups: [...new Set([...(agent.dataProof?.groups ?? []), ...(job?.usedGroups ?? [])])], permissionRequirements: uniqueProofs(agent.dataProof?.permissionRequirements, job?.permissionRequirements) })
   const trustedSourceProof = (source, caller) => {
     if (source.kind !== 'phone-agent') return null
-    const agent = store.state.agents[source.agentUserId]
+    const agent = agents().find((row) => row.agentUserId === source.agentUserId)
     const job = store.state.jobs[source.jobId]
     if (!agent || job !== activeJob || job?.status !== 'running' || job.agentUserId !== agent.agentUserId || caller.deviceId !== deviceId || caller.sessionId !== agent.sessionId || caller.agentUserId !== agent.agentUserId) throw new Error('同机委派来源已失效')
     return delegationProof(agent, job)
@@ -307,7 +318,7 @@ export async function startPhoneAgentHost(initialConfig, { runTurn, cancelTurn, 
   }
 
   async function runJob(job) {
-    const agent = store.state.agents[job.agentUserId]
+    const agent = agents().find((row) => row.agentUserId === job.agentUserId)
     if (!agent) { job.status = 'failed'; job.error = '这台手机已不再持有该 Agent'; await store.save(); return }
     const waitExpired = phonePreparationExpired(job, preparationNow())
     job.status = 'running'; job.phase = 'preparing'; job.startedAt ??= new Date().toISOString(); agent.status = 'working'; agent.lastError = null; agent.lastActiveAt = job.startedAt
@@ -453,7 +464,7 @@ export async function startPhoneAgentHost(initialConfig, { runTurn, cancelTurn, 
       void workHistory?.kick()
       for (const job of Object.values(store.state.jobs)) {
         const notice = job.failureNotice
-        const agent = store.state.agents[job.agentUserId]
+        const agent = agents().find((row) => row.agentUserId === job.agentUserId)
         if (agent && ['failed','interrupted','cancelled'].includes(job.status) && !job.sent?.length && work.correlation(agent,job)) {
           try {
             await authorizeReply([...new Set([...(agent.dataProof?.groups??[]),...(job.usedGroups??[])])],{sessionId:agent.sessionId,permissionRequirements:uniqueProofs(agent.dataProof?.permissionRequirements,job.permissionRequirements)})
@@ -563,6 +574,12 @@ export async function startPhoneAgentHost(initialConfig, { runTurn, cancelTurn, 
         return { recipients }
       }
       throw Object.assign(new Error(`手机宿主尚不支持 ${channel}`), { code: 'unknown_method' })
+    }
+    // Phone archive is supported here; sessions.restoreSession is not yet implemented.
+    if (channel === 'sessions.archiveSession') {
+      const agent = findSession(args[1])
+      await archive(agent)
+      return { archived: [{ projectId, sessionId: agent.sessionId }], unreached: [] }
     }
     if (channel === 'sessionTimeline.sessionsList') return { projects: [project], sessions: await Promise.all(agents().map(summary)) }
     if (channel === 'sessionTimeline.sessionCreateOptions') return { projects: [project], harnesses: [{ id: 'pi', name: '手机 Agent', status: 'available', sessionViews: ['general'], permissionModes: [], watchable: true, chatAvailable: false }], lastUsed: null }

@@ -131,8 +131,8 @@ export interface DeviceRuntimeHostOptions {
   /** P4: ACP 运行时桥（electron 注入）；agent.cache.acp_engine_id 有值时走 ACP。 */
   runtimeBridge?: AgentRuntimeBridge
   /**
-   * A local roster row was removed: at an owner switch (`owner-change`), or because the cloud no longer has
-   * the agent (`cloud-gone`, the gone guard below — #6938: the host revokes the cards it issued to it).
+   * A local roster row was removed at an owner switch (`owner-change`) or after a cloud response:
+   * `cloud-gone` means not writable (revoke cards); only `cloud-removed` is a confirmed account tombstone.
    */
   onAgentRosterRemoved?: (agent: LocalAgentRecord, reason: AgentRosterRemovalReason) => Promise<void> | void
   /**
@@ -394,8 +394,8 @@ export function createDeviceRuntimeHostLoop(
   // #5331 例外:公网身份**还在飞**的行不是「别处删了」,是还没铸出来。守卫的前提(名册有行 ⇒ 云端
   // 必然有过对应行)在本地优先铸身份之后不再成立,而这里删掉的正是一条刚起、正在用的会话的行。
   // fail-loud:跳过要说出来,否则「守卫没发作」和「守卫误删了」在日志里同形。
-  // #6938 真删掉的行(只有它们,留下的在飞行不算)交给宿主:身份没了,宿主发给它的卡跟着作废。
-  const dropLocalAgentByGuguUserId = async (agentUserId: string): Promise<void> => {
+  // Not writable only revokes routing/cards; only an explicit account_status='removed' proves deletion.
+  const dropLocalAgentByGuguUserId = async (agentUserId: string, reason: 'cloud-gone' | 'cloud-removed' = 'cloud-gone'): Promise<void> => {
     if (!agentUserId) return
     const removed = await removeAgents(
       (agent) => {
@@ -411,7 +411,7 @@ export function createDeviceRuntimeHostLoop(
       },
       env,
     )
-    for (const agent of removed) await options.onAgentRosterRemoved?.(agent, 'cloud-gone')
+    for (const agent of removed) await options.onAgentRosterRemoved?.(agent, reason)
   }
   /**
    * presence 行的唯一写口:每一次写成功都记进「已发布过什么」。建 / 停 / 下线这类说不出读数的写记成没有读数,
@@ -1261,7 +1261,7 @@ export function createDeviceRuntimeHostLoop(
   // 是真变化):那是在给后端 180 s 的 derived_status 续命,而它的 offline 自 #2774(0.2.30)起总被 desired 盖过 ——
   // 在线只看设备行与 desired。
   // 删了的 agent 由这一读显式认出:remove_owned_agent 留的墓碑让主人照样读得到它,account_status='removed' ⇒
-  // 收回名册行与发给它的卡(#2151/#6938 的 cloud-gone)。'unauthorized' 分不清「别处删了」「不是我的」「还没铸出来」
+  // 收回名册行并交 cloud-removed 删除证明。'unauthorized' 分不清「别处删了」「不是我的」「还没铸出来」
   // ⇒ 只说一声、❌ 不删(写路径的 not writable 守卫照旧兜底)。
   async function reconcileWithCloud(auth: RuntimeAuth, generation: number): Promise<boolean> {
     try {
@@ -1282,7 +1282,7 @@ export function createDeviceRuntimeHostLoop(
             options.warn?.(`[device-runtime] presence of local agent ${agentUserId} is ${row.status}; left in the roster`)
           } else if (presence.accountStatus === 'removed') {
             publishedActivity.delete(agentUserId)
-            await dropLocalAgentByGuguUserId(agentUserId)
+            await dropLocalAgentByGuguUserId(agentUserId, 'cloud-removed')
           } else {
             publishedActivity.set(agentUserId, { activityStatus: presence.activityStatus, reading: presence.status })
             publishedRecentActions.set(agentUserId, recentActionsKey({ actions: presence.recentActions, lastActionAt: presence.lastActionAt }))
