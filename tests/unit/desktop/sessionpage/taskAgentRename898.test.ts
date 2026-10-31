@@ -14,6 +14,7 @@ const state = vi.hoisted(() => ({
   notified: undefined as Promise<void> | undefined,
   provision: vi.fn(),
   warn: vi.fn(),
+  logError: vi.fn(),
   beforeWrite: undefined as (() => Promise<void>) | undefined,
   actualQueue: false,
   syncError: null as { message: string } | null,
@@ -31,7 +32,7 @@ vi.mock('@gugu/core/local/state/agents', () => ({
     state.roster[index] = { ...state.roster[index], ...patch }
   },
 }))
-vi.mock('../../../../apps/desktop/electron/lib/logger', () => ({ createLogger: () => ({ warn: state.warn, error: state.warn }) }))
+vi.mock('../../../../apps/desktop/electron/lib/logger', () => ({ createLogger: () => ({ warn: state.warn, error: state.logError }) }))
 vi.mock('../../../../apps/desktop/src/lib/realtimeChannel', () => ({
   subscribePrivateUserEventBus: (_account: string, _event: string, _listener: unknown, options: { onSubscribed: () => void }) => {
     state.reconnected = options.onSubscribed
@@ -155,6 +156,7 @@ beforeEach(() => {
   state.notify = undefined
   state.notified = undefined
   state.warn.mockClear()
+  state.logError.mockClear()
   state.beforeWrite = undefined
   state.syncError = null
   state.errorStatus = undefined
@@ -293,6 +295,10 @@ describe('task and identity shared rename operation', () => {
     state.errorStatus = 403
     await app.host.renameAgent({ sessionId: 'task', name: 'Refused name' })
     expect(state.writes).toBe(1)
+    // One honest line: refused, not retried; nothing claims a retry is waiting.
+    expect(state.logError).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ sessionId: 'task', agentUserId: AGENT }),
+      'Task identity name refused by the backend; kept on this device and not retried')
+    expect(state.warn).not.toHaveBeenCalled()
     expect(app.title()).toBe('Refused name')
     state.error = null
     state.errorStatus = undefined
@@ -301,6 +307,7 @@ describe('task and identity shared rename operation', () => {
     expect(state.lock).not.toHaveBeenCalledWith('task identity name changes')
     await app.host.synchronizeNames()
     expect(state.writes).toBe(1)
+    expect(state.logError).toHaveBeenCalledTimes(1)
     expect(state.rows[0].display_name).toBe('Claude 1')
     // A new explicit rename is a new decision and is published normally.
     await app.host.renameAgent({ sessionId: 'task', name: 'Accepted name' })
@@ -338,7 +345,7 @@ describe('task and identity shared rename operation', () => {
     app.taskStates.set('task-2', { title: '  Valid old title  ', source: 'manual', managed: false, pendingManual: true, fallback: false })
     await app.host.synchronizeNames()
     expect(state.rows.map((row) => row.display_name)).toEqual(['Claude 1', 'Valid old title'])
-    expect(state.warn).toHaveBeenCalledWith(expect.objectContaining({ sessionId: 'task', error: expect.stringContaining('1–40') }), expect.any(String))
+    expect(state.logError).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ sessionId: 'task', error: expect.stringContaining('1–40') }), 'Task identity name refused by the backend; kept on this device and not retried')
     expect(app.mirror).toHaveBeenCalledWith('task-2', 'Valid old title', 'manual')
   })
 
@@ -352,7 +359,7 @@ describe('task and identity shared rename operation', () => {
     state.beforeWrite = async () => { state.rows[0].owner_user_id = 'different-owner' }
     await app.host.synchronizeNames()
     expect(state.rows[1].display_name).toBe('Second manual')
-    expect(state.warn).toHaveBeenCalledWith(expect.objectContaining({ sessionId: 'task' }), expect.any(String))
+    expect(state.logError).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ sessionId: 'task' }), 'Task identity name refused by the backend; kept on this device and not retried')
   })
 
   it.each([false, true])('returns and broadcasts the current name when an older cloud write completes while logged in (actual queue: %s)', async (actualQueue) => {

@@ -9,7 +9,6 @@ import type { FlowListHandle } from '@/lib/flowList'
 import { ChevronLeft, MessageCircle } from '@/lib/icons'
 import type { SidebarTab } from '@gugu/core/shared/enums/sidebarTabModels'
 import { useChatStore } from '../store/chatContext'
-import { useContactsStore } from '../store/contactsContext'
 import { ChatLineScope } from '../store/chatLineScope'
 import { useAuth } from '../store/auth'
 import type { AgentConversationActivity, GroupCollabSnapshot, MessageItem } from '@gugu/core/shared/types/chat'
@@ -29,7 +28,6 @@ import { topicMentionCandidates } from './chat/topicMentionModels'
 import { resolveGroupRunningIndicator } from '../lib/agentRunningStatusModels'
 import { groupRunningTokens, latestSpokeAt } from '../lib/groupRunningTokenModels'
 import { useReadReceiptPanel } from '@/hooks/useReadReceiptPanel'
-import { useStructurallyShared } from '../hooks/useStructurallyShared'
 import { RunningBarSlot, RunningTokenBar } from './RunningTokenBar'
 import { AgentConversationNoticeSlot } from './AgentTurnFailureBar'
 import { useAgentDisplayStatuses, useAgentRecentActivity } from '../hooks/useAgentDisplayStatus'
@@ -42,12 +40,8 @@ import { MemberProfilePopover } from './MemberProfilePopover'
 import { ReadReceiptPopover } from './ReadReceiptPopover'
 import { useListenModeEditControls } from './chat/useListenModeEditControls'
 import { RightPanel } from './chat/RightPanel'; import { isGroupManagerRole } from '../lib/groupMemberPermissions'
-import {
-  buildMemberProfileMap,
-  type ActiveMemberProfile,
-  type MemberProfileSide,
-  toIdentityProfile,
-} from './memberProfileModels'
+import { type ActiveMemberProfile, type MemberProfileSide } from './memberProfileModels'
+import { useMessageMemberProfiles } from './useMessageMemberProfiles'
 import { ChatMessageComposer, type ChatMessageComposerProps, type ComposerAttachAction } from './chat/ChatMessageComposer'
 // @@@5856 消息列表抽成共享组件(话题分栏也用它)——见 MessageList.tsx 头部注释。
 import { MessageList, type MessageListRowProps } from './chat/MessageList'
@@ -122,7 +116,6 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
   const { t } = useTranslation('messaging')
   const { getImRepository, subscribeAccountRevision, identitiesById, chats, activeChat, activeChatId, messages, loadingMessages, messagesError, refreshMessages, sendMessage, toggleReaction, memberReadSeqs, clearMessages, deleteMessage, sendAttachments, pinChat, deleteChat, leaveGroup, setChatNotificationLevel, loadOlderMessages, messageWindow, unreadEntry, jumpToUnreadEntry, loadNewerMessages, loadMessageAnchor, returnToLatestMessages, markMessageVisible, setFollowingTail, threadScope, setActiveChatId } = useChatStore('getImRepository', 'subscribeAccountRevision', 'identitiesById', 'chats', 'activeChat', 'activeChatId', 'messages', 'loadingMessages', 'messagesError', 'refreshMessages', 'sendMessage', 'toggleReaction', 'memberReadSeqs', 'clearMessages', 'deleteMessage', 'sendAttachments', 'pinChat', 'deleteChat', 'leaveGroup', 'setChatNotificationLevel', 'loadOlderMessages', 'messageWindow', 'unreadEntry', 'jumpToUnreadEntry', 'loadNewerMessages', 'loadMessageAnchor', 'returnToLatestMessages', 'markMessageVisible', 'setFollowingTail', 'threadScope', 'setActiveChatId')
   const { user } = useAuth()
-  const { contacts } = useContactsStore()
   const surfaceVisible = activeTab === 'chats' && !hidden
   const surfaceElement = useRef<HTMLDivElement>(null)
   const [showHeaderMenu, setShowHeaderMenu] = useState(false)
@@ -481,17 +474,7 @@ function ChatAreaSurface({ viewportKey = 'chats', activeTab, navigationTarget = 
       : null,
     [searchMode, isRoomChatSurface, activeChatId, groupAgentIds, groupAgentStatuses, identitiesById, threadScope.rootId],
   )
-  // 每条新消息/每次会话行补丁都会重拼这张表;内容没变就沿用旧引用,否则每条可见气泡的 memo 都被打穿。
-  const messageMemberProfiles = useStructurallyShared(useMemo((): Record<string, MemberProfileCardModel> => {
-    if (isRoomChatSurface) return buildMemberProfileMap(groupCollabSnapshot, identitiesById, shownAgent.statuses(groupAgentStatuses), messages.map((message) => message.sender_user_id), Object.fromEntries(contacts.map((contact) => [contact.id, contact.alias]))) // 退群成员的消息也要有名字 (#5610)
-    if (!activeChat || !user) return {}
-    const profiles: Record<string, MemberProfileCardModel> = {}
-    const ownIdentity = identitiesById[user.id]
-    if (ownIdentity) profiles[user.id] = toIdentityProfile(ownIdentity)
-    const peerProfile = activeChat.peer_user_id && peerIdentity ? toIdentityProfile(peerIdentity, 'member', 'direct') : null
-    if (peerProfile) profiles[peerProfile.id] = peerProfile
-    return profiles
-  }, [activeChat, contacts, groupAgentStatuses, groupCollabSnapshot, identitiesById, isRoomChatSurface, messages, peerIdentity, shownAgent, user]))
+  const messageMemberProfiles = useMessageMemberProfiles(isRoomChatSurface, groupCollabSnapshot, groupAgentStatuses, shownAgent)
 
   // @@@1577 phase3 — canonical (chat,thread) 键单一派生(消手拼 chatId:rootId)。
   // @@@acp-stream (#966)/@@@1577 — 流式首 chunk 引导 started activity（#2115 god-file 抽取,行为不变,详见 hook 头注）。

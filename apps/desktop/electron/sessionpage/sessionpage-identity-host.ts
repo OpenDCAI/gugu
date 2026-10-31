@@ -145,10 +145,14 @@ export function createSessionpageIdentityHost(deps: SessionpageIdentityHostDeps)
   let publicationDeferred = false
   const deferPublication = () => { publicationDeferred = true }
   const refusedNames = new Map<string, string>()
-  const publicationFailed = (agentUserId: string, name: string, error: unknown) => {
-    if (!(error instanceof TaskIdentityNameRefused)) return deferPublication()
-    refusedNames.set(agentUserId, name)
-    log.error({ agentUserId, error: String(error) }, 'Task identity name refused by the backend; kept on this device and not retried')
+  const publicationFailed = (sessionId: string, agentUserId: string, name: string, error: unknown) => {
+    if (error instanceof TaskIdentityNameRefused) {
+      refusedNames.set(agentUserId, name)
+      log.error({ sessionId, agentUserId, error: String(error) }, 'Task identity name refused by the backend; kept on this device and not retried')
+      return
+    }
+    deferPublication()
+    log.warn({ sessionId, agentUserId, error: String(error) }, 'Local task name saved; identity publication deferred until the backend answers')
   }
   onElectronCloudAnswer(() => {
     if (!publicationDeferred) return
@@ -271,8 +275,7 @@ export function createSessionpageIdentityHost(deps: SessionpageIdentityHostDeps)
       })
     } catch (error) {
       if (source !== 'manual') throw error
-      publicationFailed(agent.gugu_user_id, name, error)
-      log.warn({ sessionId, error: String(error) }, 'Local task name saved; identity publication deferred until synchronization')
+      publicationFailed(sessionId, agent.gugu_user_id, name, error)
       return current()
     }
   }
@@ -359,8 +362,8 @@ export function createSessionpageIdentityHost(deps: SessionpageIdentityHostDeps)
             const source = localManual || !state.managed || (state.identityName && state.identityName !== name) ? 'manual' : state.source
             await adoptRecordName(agent, name, source === 'harness' ? 'manual' : source)
           } catch (error) {
-            if (publishing !== undefined) publicationFailed(agent.gugu_user_id, publishing, error)
-            log.warn({ sessionId, agentUserId: agent.gugu_user_id, error: String(error) }, 'Task identity name synchronization failed; continuing with the remaining tasks')
+            if (publishing !== undefined) publicationFailed(sessionId, agent.gugu_user_id, publishing, error)
+            else log.warn({ sessionId, agentUserId: agent.gugu_user_id, error: String(error) }, 'Task identity name synchronization failed; continuing with the remaining tasks')
           }
         }
       })
