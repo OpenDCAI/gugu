@@ -2062,10 +2062,17 @@ async function handleProfile(args, deps) {
 
 
 
+/** The bytes of a file on this computer that the shared classifier makes a text document; `null` for stored bytes. */
+async function documentUploadBytes(args) {
+  const bytes = await readUploadBytes('message_send_file', args, ATTACHMENT_MAX_BYTES)
+  const contentType = resolveAttachmentMimeType(basename(String(args.file_path)), args.mime_type)
+  return workspaceUploadKind(resolveUploadName(args), contentType, new Uint8Array(bytes)).kind === 'document' ? bytes : null
+}
+
 // gugu_file:send-file = 字节经 attachments/upload 直传 OSS,attachments/commit 放进会话的「附件」、发一条附件消息(#7290 gugu-3,
 // 和人发附件同一条路);download = 按消息 id 把附件下到本机(downloadAttachment)。
-async function uploadForSend(args, deps, label, chatId) {
-  const bytes = await readUploadBytes(label, args, ATTACHMENT_MAX_BYTES)
+async function uploadForSend(args, deps, label, chatId, read) {
+  const bytes = read ?? await readUploadBytes(label, args, ATTACHMENT_MAX_BYTES)
   const fileName = resolveUploadName(args)
   const contentType = resolveAttachmentMimeType(basename(String(args.file_path)), args.mime_type)
   const endpoint = await deps.attachmentsEndpoint()
@@ -2223,6 +2230,9 @@ async function handleFile(args, deps) {
     const thread = { thread_root_id: deps.context.threadRootId ?? null }
     let message
     let fileName
+    // A text file the shared classifier makes a document goes up through the attachments commit, where the server makes it
+    // one (as a person's upload does); only stored bytes are published from a project.
+    let documentBytes = null
     if (folderFile && !args.file_path) {
       // 按引用发(attachments/share):消息钉住群文件夹里那个文件的那一版,不传字节;文本文件钉住它此刻的正文。
       message = await shareAttachment(await deps.attachmentsEndpoint(), {
@@ -2230,7 +2240,7 @@ async function handleFile(args, deps) {
         sender_user_id: deps.context.agentId, to_user_ids: toUserIds ?? [], ...thread,
       })
       fileName = attachmentNameOf(message)
-    } else if ((message = await publishHere(args, deps, chatId, { message_id: messageId, chat_id: chatId,
+    } else if (!(documentBytes = folderFile ? null : await documentUploadBytes(args)) && (message = await publishHere(args, deps, chatId, { message_id: messageId, chat_id: chatId,
       sender_user_id: deps.context.agentId, to_user_ids: toUserIds ?? [], ...thread },
       folderFile ? { itemId: folderFile.itemId, expectedVersion: folderFile.version } : undefined).catch(async (error) => {
       const said = String(error?.message ?? error)
@@ -2239,7 +2249,7 @@ async function handleFile(args, deps) {
     }))) {
       fileName = resolveUploadName(args)
     } else {
-      const upload = await uploadForSend(args, deps, 'message_send_file', chatId)
+      const upload = await uploadForSend(args, deps, 'message_send_file', chatId, documentBytes ?? undefined)
       const { endpoint, contentType, stagingKey } = upload
       fileName = upload.fileName
       const commit = {
