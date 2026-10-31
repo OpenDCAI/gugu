@@ -1,10 +1,7 @@
 import { observer } from 'mobx-react-lite';
 import { useEffect, useState } from 'react';
 import { getGitRepositoryStore } from '@renderer/features/projects/stores/project-selectors';
-import {
-  useCreateSessionCallback,
-  type SessionCreationSurface,
-} from '@renderer/features/sessions/create-session-modal/use-create-session-callback';
+import { useCreateSessionCallback } from '@renderer/features/sessions/create-session-modal/use-create-session-callback';
 import { useCreateSessionState } from '@renderer/features/sessions/create-session-modal/use-create-session-state';
 import { useProjectGitContext } from '@renderer/features/sessions/create-session-modal/use-project-git-context';
 import { useSessionSettings } from '@renderer/features/sessions/hooks/useSessionSettings';
@@ -40,16 +37,13 @@ import { useSessionMessages } from '@renderer/localization/use-session-messages'
 // project replaces that internal context with the selected repository. Projectless sends stay in
 // the global Tasks section; selected-project sends stay under that project.
 
-// gugu #2549: exported so the composer-only embed root (对话页原地创建 Agent,
-// app/composer-embed-root.tsx) can reuse this exact createSession input and submission path.
-// gugu #2525: 上下文托盘的控件也已共用（composer-context-tray.tsx）——对话页那条托盘比这里多一个
-// 设备选择器。新建页在这份共享 composer 上加标题。
+// Exported so the project home and the chat's task dispatch reuse this exact createSession input and submission path;
+// the context tray controls are shared too (composer-context-tray.tsx). 新建页在这份共享 composer 上加标题。
 export const NewSessionComposer = observer(function NewSessionComposer({
   projectId,
   blockReason,
   blocked = false,
   isContextPending,
-  creationSurface,
   birthChatId,
   taskChatId,
   openAfterCreate,
@@ -71,9 +65,7 @@ export const NewSessionComposer = observer(function NewSessionComposer({
   blocked?: boolean;
   // 默认值读取期间只挡住提交，不渲染独立状态行；真实阻塞仍由 blockReason fail loud。
   isContextPending?: boolean;
-  /** 缺省 = 会话页。只有对话页/联系人页的创建草稿传 'chat-page'(见 SessionCreationSurface)。 */
-  creationSurface?: SessionCreationSurface;
-  /** 建出来的 agent 一出生就进这个群(对话页从群成员里点的「新建 Agent」)。 */
+  /** 建出来的 agent 一出生就进这个群(对话里派任务、选了「进群」)。 */
   birthChatId?: string;
   /** gugu-dev#181 派任务:首句落成这个对话里的一张任务卡(见 useCreateSessionCallback)。 */
   taskChatId?: string;
@@ -127,9 +119,6 @@ export const NewSessionComposer = observer(function NewSessionComposer({
     {
       // Selecting or clearing an optional project must not erase text the user has already written.
       resetPromptOnProjectChange: false,
-      // #4325 —— 只递创建面;附件编码由 firstTurnTransportOf 那一个表达式算出来,
-      // 与正文走的是同一条。❌ 不在这里自己判一遍。
-      creationSurface,
       dispatchesToChat: Boolean(taskChatId),
       initialPrompt: draftKey ? composerDrafts.get(draftKey) : '',
       initialAttachmentDraft: draftKey ? composerDrafts.attachments(draftKey) : undefined,
@@ -147,7 +136,7 @@ export const NewSessionComposer = observer(function NewSessionComposer({
   useWakeCloudOnInput(machine?.deviceId ?? null, `${initialSession.attachments.length}:${initialSession.prompt}`);
 
   const remoteInstall = useRemoteInstallBeforeCreate(machine, initialSession.provider);
-  const { handleCreateSession, canCreate, messageTransportError, deliveryError } = useCreateSessionCallback({
+  const { handleCreateSession, canCreate, deliveryError } = useCreateSessionCallback({
     selectedProjectId: projectId,
     state,
     initialSession,
@@ -158,20 +147,18 @@ export const NewSessionComposer = observer(function NewSessionComposer({
       if (draftKey) composerDrafts.set(draftKey, '');
       onSessionCreated?.(result);
     },
-    creationSurface,
     birthChatId,
     taskChatId,
     openAfterCreate,
     beforeCreate: remoteInstall.beforeCreate,
   });
-  const effectiveBlockReason = blockReason || messageTransportError;
   // 「这一轮带了内容」把附件一并算上:只有附件、没有文字也是一条真首轮(#4325)。
   const hasTurnContent =
     initialSession.prompt.trim().length > 0 || initialSession.attachments.length > 0;
   const canSend =
     canCreate &&
     !blocked &&
-    !effectiveBlockReason &&
+    !blockReason &&
     !isContextPending &&
     !initialSession.providerError &&
     hasTurnContent &&
@@ -204,15 +191,15 @@ export const NewSessionComposer = observer(function NewSessionComposer({
           session-composer-styles.ts 里实测记过:嵌进 gugu 的会话页子树里 --color-* 家族解析为空,
           Tailwind v4 对未定义 color key 直接不出规则 → 报错文案会**无声**变成普通正文色。
           这是一条 fail-loud 提示,它的可见性本身就是功能的一部分,不能赌。 */}
-      {effectiveBlockReason ? (
+      {blockReason ? (
         <p
           role="alert"
           className="border-t border-border px-4 py-2 text-xs text-[var(--em-foreground-destructive)]"
         >
-          {effectiveBlockReason}
+          {blockReason}
         </p>
       ) : null}
-      {blocked || effectiveBlockReason ? null : remoteInstall.note}
+      {blocked || blockReason ? null : remoteInstall.note}
       <CreateDeliveryError failure={deliveryError} />
     </div>
   );
@@ -270,8 +257,7 @@ export const NewSessionPage = observer(function NewSessionPage({
 
   // 项目入口。原本是贴在输入框左上角的单项页签,现在收进通栏托盘 —— 托盘还同时承载
   // 环境与分支,信息密度换的是"发任务前一眼确认跑在哪"。
-  // gugu #2525: 控件本体抽到 composer-context-tray.tsx,与对话页创建草稿共用一份
-  // (规范「对话页、会话页和项目页复用同一套创建能力」)。
+  // gugu #2525: 控件本体抽到 composer-context-tray.tsx,与项目页、对话里派任务共用一份。
   // #6264 选了别的机器时,项目换成那台机器上的(在哪台机器上跑是这一条会话的属性,见 use-new-session-machine.tsx)。
   const { remote, machineContext, devicePicker, projectPicker } = useNewSessionMachine(
     <ComposerProjectPicker includeRemote selectedId={selectedId} onSelect={openProject} />

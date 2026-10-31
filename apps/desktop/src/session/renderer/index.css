@@ -1412,8 +1412,8 @@
      这里是会话页那张表的等值副本,理由与 @theme 的圆角表逐字重写同一条:tokens.css 只由
      `apps/desktop/src/main.tsx` 引入,**脱开咕咕样式表的独立会话页构建拿不到它**。
      角色有了真定义之后,消费点上重复写的 `text-xl font-semibold tracking-tight` 就删掉了
-     (page-header / page-layout / thread-welcome / composer-embed-root)——
-     ⇒ 少了这一份,那四处在独立构建里会掉回继承字号。
+     (page-header / page-layout / thread-welcome)——
+     ⇒ 少了这一份,那几处在独立构建里会掉回继承字号。
      ⚠️ 放 @layer components 而不是不分层:角色出默认、utility 仍可覆盖,与 tokens.css 那份同序。
      ❌ 改字号/字重时两份必须一起动。 */
   .gg-type-page-title {

@@ -546,9 +546,6 @@ const enUSCoreMessages = {
   'chat.unnamedImage': 'unnamed image',
   'chat.unsupportedImageTitle': 'Unsupported image format',
   'chat.unsupportedImageDescription': '{names} could not be attached. Use PNG, JPEG, GIF, or WebP.',
-  'chat.folderDropUnsupportedTitle': 'Folders cannot be attached',
-  'chat.folderDropUnsupportedDescription':
-    'A folder cannot be sent as a chat attachment. Zip it first, or drop it on the task page to send its path.',
   'chat.commands': 'Commands',
   'chat.prompts': 'Prompts',
   'chat.thisAgent': 'This agent',
@@ -1505,9 +1502,6 @@ const zhCNCoreMessages: Record<CoreSessionMessageKey, string> = {
   'chat.unnamedImage': '未命名图片',
   'chat.unsupportedImageTitle': '不支持的图片格式',
   'chat.unsupportedImageDescription': '无法附加 {names}。请使用 PNG、JPEG、GIF 或 WebP。',
-  'chat.folderDropUnsupportedTitle': '文件夹不能作为附件',
-  'chat.folderDropUnsupportedDescription':
-    '文件夹无法作为聊天附件发送。可以先压缩再发，或在项目页把它的路径发给 agent。',
   'chat.commands': '命令',
   'chat.prompts': '提示词',
   'chat.thisAgent': '此智能体',

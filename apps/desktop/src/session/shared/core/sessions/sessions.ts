@@ -63,8 +63,7 @@ export function sessionViewOfRuntime(runtime: SessionRuntime): SessionView {
  * 跨包共用,128 个文件在声明它 ⇒ 值不动)。只在这里互译,❌ 别在调用点再写一遍
  * `x ? 'acp' : 'tui'` —— 那样的三元曾散在五处。
  *
- * 叫「腿」不叫 surface:这个仓的注释一直说「两条腿」,而 surface 在本仓另有所指
- * (`SessionCreationSurface` = 从哪一面发起)。两个 surface 撞在一起正是误解的温床。
+ * 叫「腿」不叫 surface:这个仓的注释一直说「两条腿」。
  */
 export type SessionpageLeg = 'tui' | 'acp';
 

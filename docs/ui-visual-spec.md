@@ -251,7 +251,7 @@ Do not compose a one-off size.**」⇒ 角色自己得带上它的排版:
 **⚠️ 现在是两份逐字等值的定义,不是一份(2026-09-22 更正,Refs #6106)。**
 上面那句「一份就够」只在嵌进咕咕时成立。会话页还有**独立构建**这条路径(storybook / 单独起会话页),
 那条路径根本不加载 `tokens.css` ⇒ 消费点把重复的 `text-xl font-semibold tracking-tight` 删掉之后,
-`page-header` / `page-layout` / `thread-welcome` / `composer-embed-root` 四处在独立构建里会掉回继承字号。
+`page-header` / `page-layout` / `thread-welcome` 这几处在独立构建里会掉回继承字号。
 所以 `session/renderer/index.css` 的 `@layer components` 里补了第二份:
 
 | 份 | 文件 | 写法 |

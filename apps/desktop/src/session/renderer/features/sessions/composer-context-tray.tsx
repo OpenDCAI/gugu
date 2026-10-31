@@ -1,14 +1,13 @@
 // gugu #2525: 共享 Session Composer 的「创建上下文」托盘 —— 设备 · 项目两个按需披露的选择器。
 // 设备那一格是全 app 共用的机器选择器(remote-hosts/machine-picker 的 compact 尺寸),这里只放项目选择器。
 //
-// 规范（#2505 product spec §共享创建器 / §设备与项目默认值）要求对话页、会话页、项目页
-// 复用同一套创建能力，所以托盘控件抽在这里由两处共用：会话页 new-session-page.tsx 与对话页
-// composer-embed-root.tsx 都用机器 · 项目两个选择器(#6264 起会话页也能选别的机器)。
+// 规范（#2505 product spec §共享创建器 / §设备与项目默认值）要求各创建入口复用同一套创建能力，
+// 所以托盘控件抽在这里共用：新建页 new-session-page.tsx、项目页、对话里派任务都用它(#6264 起也能选别的机器)。
 // 选了别的机器时,项目选择器还是**同一种菜单**(搜索 → 列表 → 底部动作),只是内容换成那台机器的。
 // ❌ 不各写一份：两份一旦分叉，「记住最近一次选择」就会在两个入口给出不同答案。
 //
-// 设备维度的数据与 per-user 记忆都在 gugu 侧（identity.gugu_devices + identity.user_settings），
-// 经 window.__GUGU_CREATE_CONTEXT__ 桥送进来；这里只负责渲染与回调。
+// 设备维度的数据与 per-user 记忆都在 gugu 侧（identity.gugu_devices + identity.user_settings）；
+// 这里只负责渲染与回调。
 import { nameTwinIds } from '@renderer/features/projects/name-twins';
 import { AlertTriangle, ChevronDown, Clock, Folder, Plus, Search, Users, X } from '@/lib/icons'
 import { observer } from 'mobx-react-lite';
