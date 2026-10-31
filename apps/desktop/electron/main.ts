@@ -4970,6 +4970,7 @@ app.whenReady().then(async () => {
     })
     const sessionpageIdentityDeps = sessionpageIdentityHost.provisionDeps
     emdash.setSessionIdentityHost(sessionpageIdentityHost)
+    emdash.setTaskNamer({ defaultName: (provider, taken) => sessionpageIdentityHost.defaultTaskName(provider, taken) })
     const nativeInbox = emdash.startNativeConversationInboxHost({
       open: async target => (await sessionpageIdentityHost.ensureAgentAddress(target)).chatId,
       failed: error => createLogger('sessionpage/personal-inbox').warn({ error: String(error) }, 'Personal conversation address remains pending'),

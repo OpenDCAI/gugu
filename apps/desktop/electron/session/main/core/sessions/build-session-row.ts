@@ -58,12 +58,8 @@ export type BuildSessionRowInput = {
   startupOrigin?: 'chat-page' | 'session-page';
   initialMessageId?: string;
   taskChatId?: string;
-  /**
-   * 起这条会话的一方**显式**给的名字。它同时是这个 agent 在咕咕通讯录里的显示名
-   * (spec agent-provisioning「命名即寻址名」)——所以只在真有人说出口时才带,
-   * ❌ 不许用 `title` 顶替:标题的两种来源(显式 / 从首轮推出来)在这一层已经同形了。
-   */
-  agentDisplayName?: string;
+  /** Required: the task's name until it is bound to an identity (task-name.ts). ❌ Never derived from `title` or the first prompt. */
+  agentDisplayName: string;
   /**
    * 标题的来历(见 `sessionTitleSourceSchema`)。只在调用方**知道**这个标题是显式命名时带 `manual`;
    * 缺席 = 首轮兜底,harness 自己起的名可以盖掉它。
@@ -113,7 +109,8 @@ function providerSessionIdAtBirth(input: BuildSessionRowInput): string | null {
 export function buildSessionRow(input: BuildSessionRowInput): SessionInsert {
   const initialPrompt = input.initialPrompt?.trim();
   const initialQueue = input.initialQueue?.filter((prompt) => prompt.text.trim());
-  const agentDisplayName = input.agentDisplayName?.trim();
+  const agentDisplayName = input.agentDisplayName.trim();
+  if (!agentDisplayName) throw new Error(`Session ${input.id} cannot be created without a name`);
 
   // 一条规则,两种写法。**创建必须有第一轮内容**:
   // - 载荷里带着它(initialPrompt / initialQueue)⇒ 那就是这一轮的内容,不必再声明一遍
@@ -150,7 +147,7 @@ export function buildSessionRow(input: BuildSessionRowInput): SessionInsert {
           ...(input.startupOrigin && { startupOrigin: input.startupOrigin }),
           ...(input.initialMessageId && { initialMessageId: input.initialMessageId }),
           ...(input.taskChatId && { taskChatId: input.taskChatId }),
-          ...(agentDisplayName && { agentDisplayName }),
+          agentDisplayName,
           ...(input.titleSource && { titleSource: input.titleSource }),
           ...(input.spawnedByRemote && { spawnedByRemote: input.spawnedByRemote }),
           ...(input.parentRemote && { parentRemote: input.parentRemote }),
@@ -175,7 +172,7 @@ export function buildSessionRow(input: BuildSessionRowInput): SessionInsert {
           ...(input.startupOrigin && { startupOrigin: input.startupOrigin }),
           ...(input.initialMessageId && { initialMessageId: input.initialMessageId }),
           ...(input.taskChatId && { taskChatId: input.taskChatId }),
-          ...(agentDisplayName && { agentDisplayName }),
+          agentDisplayName,
           ...(input.titleSource && { titleSource: input.titleSource }),
           ...(input.spawnedByRemote && { spawnedByRemote: input.spawnedByRemote }),
           ...(input.parentRemote && { parentRemote: input.parentRemote }),

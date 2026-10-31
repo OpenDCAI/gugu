@@ -1,6 +1,11 @@
 import { openFixture } from '@tooling/utils/db';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AppDb } from '@main/db/client';
+import { setTaskNamer } from './task-name';
+
+// Sessions are named at creation by the host's namer (task-name.ts); number defaults per provider.
+beforeEach(() => setTaskNamer({ defaultName: async (provider, taken) => `${provider} ${taken.length + 1}` }));
+afterEach(() => setTaskNamer(null));
 
 const mocks = vi.hoisted(() => ({
   db: undefined as AppDb | undefined,

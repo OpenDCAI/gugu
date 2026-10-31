@@ -1,3 +1,4 @@
+import { taskNameFor } from '../task-name';
 import { mcpLibraryService } from '@main/core/mcp-library/service';
 import type { AgentProviderId } from '@gugu/session-plugins/agents';
 import { err, ok, type Result } from '@gugu/session-shared';
@@ -114,6 +115,7 @@ export async function prepareCreateSession(
     ...(params.automationRunId && { automationRunId: params.automationRunId }),
     title: ic.title ?? '',
     ...(ic.titleSource && { titleSource: ic.titleSource }),
+    agentDisplayName: await taskNameFor(ic.provider as AgentProviderId, ic.titleSource === 'manual' ? ic.title : undefined),
     provider: ic.provider as AgentProviderId,
     runtime: ic.type ?? 'pty',
     origin: ic.origin,

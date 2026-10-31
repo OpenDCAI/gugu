@@ -160,6 +160,27 @@ function noteAgentName(ownerUserId: string, name: string, label: string): void {
   if (serial !== null) raiseSerialFloor(ownerUserId, label, serial)
 }
 
+/**
+ * The engine default name a new task is created with (`<label> <n>`): numbered past the owner's
+ * roster names and the account's serial floor, and reserved so the next task gets the next number.
+ */
+export async function defaultTaskAgentName(
+  providerId: string,
+  taken: readonly string[],
+  ownerUserId: string | null,
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<string> {
+  const label = getAgentTypeLabel(normalizeAgentType(providerId))
+  const roster = await listAgents(env, { includeGuests: true })
+  const owned = ownerUserId ? agentsForOwner(roster, ownerUserId) : roster
+  const name = nextAgentDefaultName(owned.map((a) => ({ display_name: a.name })), label, {
+    reservedNames: taken,
+    floor: ownerUserId ? serialFloor(ownerUserId, label) : 0,
+  })
+  if (ownerUserId) noteAgentName(ownerUserId, name, label)
+  return name
+}
+
 const listAgentNameSerialsDefault = (auth: { accessToken: string; userId: string }): Promise<Map<string, number>> =>
   listAgentNameSerialsViaSupabase({ accessToken: auth.accessToken, fetch: electronFetch })
 
@@ -1075,11 +1096,11 @@ async function provisionFreshLocalFirst(
   // #6396 序号只增不减:起点 = max(服务端账本记的这个前缀用到几号, 本机名册里归这个账号的最大号) + 1。
   // 账本落后时服务端会往上抬(会话起来后再改名),所以每铸一次都在后台把账本再取一次,给下一条会话用。
   const rosterNames = agentsForOwner(roster, ownerAuth.userId).map((a) => ({ display_name: a.name }))
-  const requested = info.displayName?.trim() || ''
+  // The session was named at creation (task-name.ts); binding only makes that name unique.
+  const requested = info.displayName?.trim()
+  if (!requested) throw new Error(`session ${info.sessionId} reached provisioning without a name`)
   const label = getAgentTypeLabel(agentType)
-  const displayName = requested
-    ? uniqueAgentDisplayName(rosterNames, requested)
-    : nextAgentDefaultName(rosterNames, label, { floor: serialFloor(ownerAuth.userId, label) })
+  const displayName = uniqueAgentDisplayName(rosterNames, requested)
   noteAgentName(ownerAuth.userId, displayName, label)
   refreshSerialFloors(ownerAuth, deps.listAgentNameSerials)
   const guguAgentUserId = randomUUID()
@@ -1117,7 +1138,8 @@ async function provisionFreshLocalFirst(
     projectId,
     guguAgentUserId,
     displayName,
-    nameMode: requested ? 'explicit' : 'serial',
+    // A name shaped `<label> <n>` is a serial name the server may lift past numbers used elsewhere (#6396).
+    nameMode: agentNameSerial(displayName, label) === null ? 'explicit' : 'serial',
     agentType,
     deviceId: deviceIdPromise,
     localPath: info.cwd || null,

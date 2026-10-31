@@ -1,3 +1,4 @@
+import { taskNameFor } from './task-name';
 import { randomUUID } from 'node:crypto';
 import type { AgentProviderId } from '@gugu/session-plugins/agents';
 import type { GuguPermissionMode } from '@gugu/session-core/acp';
@@ -152,6 +153,7 @@ export async function attachAgentToSession(
     await recordSessionPlatformModel(id, platformModel);
   }
 
+  const agentDisplayName = await taskNameFor(params.provider, params.agentDisplayName);
   const [row] = await database
     .insert(sessions)
     .values(
@@ -170,7 +172,7 @@ export async function attachAgentToSession(
         initialQueue: params.initialQueue,
         startupOrigin: params.startupOrigin,
         initialMessageId: params.initialMessageId,
-        agentDisplayName: params.agentDisplayName,
+        agentDisplayName,
         titleSource: params.titleSource,
         forkFromProviderSessionId: params.forkFromProviderSessionId,
         parentSessionId: relations?.parentSessionId ?? null,

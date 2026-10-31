@@ -174,6 +174,11 @@ import {
   describeOutsideWorkspace,
   describePageOutsideWorkspace,
 } from '../session-timeline/remote-pane';
+import { setTaskNamer } from './task-name';
+
+// Sessions are named at creation by the host's namer (task-name.ts); number defaults per provider.
+beforeEach(() => setTaskNamer({ defaultName: async (provider, taken) => `${provider} ${taken.length + 1}` }));
+afterEach(() => setTaskNamer(null));
 
 function deferred<T>() {
   let resolve!: (value: T | PromiseLike<T>) => void;
@@ -1450,7 +1455,7 @@ describe('session orchestration', () => {
   // spec session-graph:`title` 是这个 child 的名字,不只是会话页那一行的标题 —— 显式给了就落在会话上,
   // 由 agent-provisioning 在 session start 当成它在通讯录里的显示名。这里守的是**显式这条事实**本身:
   // 标题的两种来源(显式 / 从首轮推出来)在 `sessions.title` 上已经同形,只有这一格分得开。
-  it('records an explicit spawn title as the child agent name, and records nothing when it is derived', async () => {
+  it('records an explicit spawn title as the child agent name, and the engine default when none is given', async () => {
     const named = (await runSessionAction(context, {
       action: 'spawn',
       prompt: 'Implement the parser.',
@@ -1462,12 +1467,10 @@ describe('session orchestration', () => {
     })) as { session_id: string };
 
     expect(namedRow(named.session_id)).toEqual({ title: '小弟', agentDisplayName: '小弟' });
-    // 反例对照:没显式给名字时标题照旧从首轮推出来,而名字那一格必须是空的 —— 否则一整行提示词
-    // 会被 provisioning 当成人名开户。
-    expect(namedRow(derived.session_id)).toEqual({
-      title: 'Implement the parser.',
-      agentDisplayName: undefined,
-    });
+    // 没显式给名字 ⇒ 创建时就拿引擎默认名(task-name.ts),❌ 绝不拿首轮那一整行提示词当人名。
+    const unnamed = namedRow(derived.session_id);
+    expect(unnamed.agentDisplayName).toMatch(/ \d+$/);
+    expect(unnamed.agentDisplayName).not.toContain('Implement the parser');
   });
 
   // #4280 —— 发信人展示名只认**显式**命名过的那个(spec session-graph:命名即寻址名)。

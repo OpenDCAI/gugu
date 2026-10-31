@@ -272,6 +272,7 @@ async function captureCodexForks(
           title: `${parent.title}-fork`.slice(0, MAX_SESSION_TITLE_LENGTH),
           // 分叉名是谱系标记:harness 照抄来源的名盖上来,两行会同名 —— 当显式命名处理。
           titleSource: 'manual',
+          agentDisplayName: `${parent.title}-fork`.slice(0, MAX_SESSION_TITLE_LENGTH),
           provider: 'codex',
           runtime: 'pty',
           origin: { kind: 'fork', forkedFrom: { sessionId: parent.id, title: parent.title } },
@@ -644,6 +645,7 @@ export async function captureExternalForks(projectId: string, sessionId: string)
           workspaceId: workspace.id,
           title: `${parent.title}-fork`.slice(0, MAX_SESSION_TITLE_LENGTH),
           titleSource: 'manual',
+          agentDisplayName: `${parent.title}-fork`.slice(0, MAX_SESSION_TITLE_LENGTH),
           provider: 'claude',
           runtime: 'pty',
           origin: { kind: 'fork', forkedFrom: { sessionId: parent.sessionId, title: parent.title } },

@@ -8,6 +8,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AppDb } from '@main/db/client';
 import type { SessionpageSessionSummary } from '@gugu/session-core/session-record/contract';
 import type { RemovedSessionIdentity } from '@gugu/core/shared/sessionArchival';
+import { setTaskNamer } from './task-name';
+
+// Sessions are named at creation by the host's namer (task-name.ts); number defaults per provider.
+beforeEach(() => setTaskNamer({ defaultName: async (provider, taken) => `${provider} ${taken.length + 1}` }));
+afterEach(() => setTaskNamer(null));
 
 /**
  * spec session-graph 的归档合同,打在真 SQLite 上。

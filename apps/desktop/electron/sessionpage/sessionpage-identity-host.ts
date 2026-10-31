@@ -27,6 +27,7 @@ import {
   type ProvisionedSessionpageAgent,
   type SessionpageProvisionDeps,
   type SessionpageSessionInfo,
+  defaultTaskAgentName,
 } from './emdash-agent-provisioning'
 import { resolveSessionpageAgentCard } from './sessionpage-agent-card'
 import { resolveSessionpageSessionPeers } from './session-addressing'
@@ -75,6 +76,8 @@ export interface SessionpageSessionStartFacts {
 
 export interface SessionpageIdentityHost extends SessionIdentityHost {
   readonly provisionDeps: SessionpageProvisionDeps
+  /** The default name a new task is created with on this host (task-name.ts `TaskNamer`). */
+  defaultTaskName(providerId: string, taken: readonly string[]): Promise<string>
   agentCard(sessionId: string): Promise<SessionShellAgentCard | null>
   /** 侧栏身份卡要的那张表:本机名册(session_peers)的投影。 */
   agentNames(): Promise<SessionShellAgentName[]>
@@ -171,6 +174,9 @@ export function createSessionpageIdentityHost(deps: SessionpageIdentityHostDeps)
       if (!provisioned || provisioned.guguAgentUserId === removedIdentity.userId) {
         throw new Error('Restoring this task requires a new identity')
       }
+    },
+    async defaultTaskName(providerId, taken) {
+      return defaultTaskAgentName(providerId, taken, (await deps.getAuth())?.userId ?? null, env)
     },
     async agentCard(sessionId) {
       // 名片按当下登录的账号解析(#4277):网页版换账号不重启宿主,不收紧就会把上一个账号的号递给现在这位。

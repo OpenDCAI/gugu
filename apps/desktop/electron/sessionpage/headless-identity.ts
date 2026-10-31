@@ -51,7 +51,7 @@ import {
 import { SESSIONPAGE_PLATFORM_CATALOG_CHANNEL } from './sessionpage-platform-catalog'
 import { SESSIONPAGE_PLATFORM_RETRY_CHANNEL } from '../../src/session/shared/core/agents/platform-model'
 import { clearPlatformIssueBackoff } from './sessionpage-platform-model'
-import { announceEmdashSession, emdashSessionProvisionInput, emdashProjectName, emdashSessionpageSessionFacts, emdashTakeBirthGroup } from '../session/main/embedded-boot'
+import { announceEmdashSession, emdashSessionProvisionInput, emdashProjectName, emdashSessionpageSessionFacts, emdashTakeBirthGroup, setTaskNamer } from '../session/main/embedded-boot'
 import { sessionpageRenameAnnouncement, type SessionpageAgentNameTaken } from './sessionpage-rename-announcement'
 import type { HostIpc } from '../session/main/lib/host-ipc'
 import { log } from '../session/main/lib/logger'
@@ -90,6 +90,7 @@ export function wireHeadlessSessionpageIdentity(hostIpc: HostIpc): { dispose(): 
     listSessionFacts: () => emdashSessionpageSessionFacts(),
   })
   setSessionIdentityHost(identity)
+  setTaskNamer({ defaultName: (provider, taken) => identity.defaultTaskName(provider, taken) })
   const nativeInbox = startNativeConversationInboxHost({
     open: async target => (await identity.ensureAgentAddress(target)).chatId,
     failed: error => log.warn('Personal conversation address remains pending', error),
@@ -211,6 +212,7 @@ export function wireHeadlessSessionpageIdentity(hostIpc: HostIpc): { dispose(): 
   return {
     dispose() {
       nativeInbox.dispose()
+      setTaskNamer(null)
       unsubscribeProvisioned()
       unsubscribeGroupMapping()
       setUserLibraryOwner(null)

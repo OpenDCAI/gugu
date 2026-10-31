@@ -63,6 +63,7 @@ export async function forkSession(params: ForkSessionParams): Promise<Session> {
     workspaceId: source.workspaceId,
     provider: source.providerId,
     title,
+    agentDisplayName: title,
     origin: {
       kind: 'fork',
       forkedFrom: { sessionId: source.id, title: source.title },
