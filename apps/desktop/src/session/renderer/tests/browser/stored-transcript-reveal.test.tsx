@@ -53,7 +53,8 @@ it.each(['dialog', 'tab'] as const)('pages a deep hit into the real folded trans
       projectId="project" sessionId={sessionId} title="Archived task" onClose={closed} onSuccess={restored} /></DialogContent></Dialog>
     : <div style={{ width: 672, height: 600, display: 'flex', flexDirection: 'column' }}>
       <div data-testid="terminal">Terminal</div><div style={{ flex: 1, minHeight: 0 }}><TabContent
-        host={{ resolvedTabs: [{ isActive: true, kind: 'session-history', resource: { sessionId } }] } as never} /></div>
+        host={{ resolvedTabs: [{ isActive: true, kind: 'session-history', resource: { sessionId } }] } as never}
+        ctx={{ viewId: sessionId, place: { kind: 'session', projectId: 'project', sessionId } }} /></div>
     </div>}</QueryClientProvider>);
   await until('the old stored page has been requested', () => calls.history.mock.calls.some(([p]) => p.before === 44));
   await until('the deep reply is rendered and flashed', () => !!document.querySelector('.msg-src-flash')?.textContent?.includes('Reply 34'));
