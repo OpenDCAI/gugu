@@ -573,3 +573,21 @@ it('keeps only link and whole-block citation actions for a read-only document', 
   await actOnParagraph('First paragraph keeps its own actions.', 'Cite in chat');
   expect(file.text).toBe(text);
 });
+
+it('keeps both mouse handles outside the text in a narrow reading pane and side-by-side view', async () => {
+  try {
+    for (const [mode, width] of [['preview', 480], ['split', 1100]] as const) {
+      await page.viewport(width, 760);
+      await userEvent.click(byId(`mode-${mode}`));
+      const paragraph = byId('preview').querySelector<HTMLElement>('p[data-line="3-3"]')!.getBoundingClientRect();
+      await pointer(paragraph.left + 40, paragraph.top + paragraph.height / 2);
+      await until('both block controls appear beside the paragraph', () => !controls().hidden);
+      expect(controls().getBoundingClientRect().right, `${mode}: controls must not cover the paragraph`).toBeLessThan(paragraph.left);
+      await openHandle('block-handle');
+      await userEvent.keyboard('{Escape}');
+    }
+  } finally {
+    await page.viewport(1100, 760);
+    await userEvent.click(byId('mode-preview'));
+  }
+});
