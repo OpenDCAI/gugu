@@ -83,7 +83,7 @@ describe('系统', () => {
       '/usr/sbin/scutil --get ComputerName': '小杨的 MacBook Pro\n',
       [`/bin/df -k ${home}`]: 'Filesystem   1024-blocks      Used Available Capacity  iused     ifree %iused  Mounted on\n/dev/disk3s1   482797652 415058536  18603140    96% 11462974 186031400    6%   /System/Volumes/Data\n',
       '/usr/sbin/system_profiler SPHardwareDataType SPSoftwareDataType -json': JSON.stringify({
-        SPHardwareDataType: [{ _name: 'hardware_overview', chip_type: 'Apple M1 Pro', machine_name: 'MacBook Pro', serial_number: 'C02XXXX', platform_UUID: 'AAAA', provisioning_UDID: 'BBBB' }],
+        SPHardwareDataType: [{ _name: 'hardware_overview', chip_type: 'Apple M1 Pro', machine_name: 'MacBook Pro', serial_number: 'FIXTURE-SERIAL-NUMBER', platform_UUID: 'FIXTURE-PLATFORM-UUID', provisioning_UDID: 'FIXTURE-PROVISIONING-UDID' }],
         SPSoftwareDataType: [{ _name: 'os_overview', os_version: 'macOS 26.5.2 (25F84)', uptime: 'up 2:0:59:12' }],
       }),
     })
@@ -106,7 +106,7 @@ describe('系统', () => {
     const data = detailed.ok ? (detailed.data as { hardware: Record<string, unknown>; software: Record<string, unknown> }) : null
     expect(data?.hardware).toEqual({ chip_type: 'Apple M1 Pro', machine_name: 'MacBook Pro' })
     expect(data?.software).toEqual({ os_version: 'macOS 26.5.2 (25F84)', uptime: 'up 2:0:59:12' })
-    expect(JSON.stringify(detailed)).not.toMatch(/C02XXXX|AAAA|BBBB/)
+    expect(JSON.stringify(detailed)).not.toMatch(/FIXTURE-(SERIAL-NUMBER|PLATFORM-UUID|PROVISIONING-UDID)/)
   })
 
   it('system.apps.list:扫给定文件夹(含一层子文件夹、❌ 进 .app 里面);文本 plist 直接读、二进制的请 plutil 转;按名字排、search / limit', async () => {
