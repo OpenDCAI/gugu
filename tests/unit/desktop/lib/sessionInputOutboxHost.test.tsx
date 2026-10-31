@@ -8,19 +8,21 @@ import { enqueueSessionInput } from '../../../../apps/desktop/src/lib/sessionInp
 import { SessionInputQueue } from '../../../../apps/desktop/src/components/chat/SessionInputQueue'
 import { updateDeviceSessions } from '../../../../apps/desktop/src/session/shared/remote-sessions/session-directory'
 import { messageQuoteText, readMessageQuote } from '@gugu/core/shared/ui/messageQuote'
+import { setLocalePreference } from '../../../../apps/desktop/src/i18n'
 
-const scope = vi.hoisted(() => ({ owner: 'account-a', devices: [{ device_id: 'host-a', is_online: false, capabilities: {} }], received: new Map<string, string>(), send: vi.fn() }))
+const scope = vi.hoisted(() => ({ owner: 'account-a', devices: [{ device_id: 'host-a', is_online: false, capabilities: {} }], received: new Map<string, string>(), send: vi.fn(), phoneSend: vi.fn() }))
 vi.mock('../../../../apps/desktop/src/lib/sessionPublication', () => ({ getRendererSession: () => ({ user: { id: scope.owner } }) }))
 vi.mock('../../../../apps/desktop/src/store/devicesContext', () => ({ useDevicesStore: () => ({ devices: scope.devices, phones: [] }) }))
 vi.mock('../../../../apps/desktop/src/platform', () => ({ platform: { kind: 'electron' } }))
 vi.mock('../../../../apps/desktop/src/session/renderer/lib/ipc', () => ({ rpcOn: () => ({ sessionTimeline: { sessionSend: scope.send } }) }))
+vi.mock('../../../../apps/desktop/src/mobile/local-agent/phoneHostRpc', () => ({ invokePhoneHost: scope.phoneSend }))
 vi.mock('../../../../apps/desktop/src/session/renderer/localization/locale-store', () => ({ translateSessionMessage: () => 'Waiting for host; sends automatically' }))
 let harness: ReturnType<typeof createReactHarness>
-beforeEach(() => { harness = createReactHarness() })
-afterEach(() => { harness.cleanup(); scope.owner = 'account-a'; scope.devices = [{ device_id: 'host-a', is_online: false, capabilities: {} }]; scope.received.clear(); scope.send.mockReset() })
+beforeEach(() => { harness = createReactHarness(); setLocalePreference('en-US') })
+afterEach(() => { harness.cleanup(); scope.owner = 'account-a'; scope.devices = [{ device_id: 'host-a', is_online: false, capabilities: {} }]; scope.received.clear(); scope.send.mockReset(); scope.phoneSend.mockReset() })
 
 describe('native input shell lifecycle', () => {
-  it('does not display another message box while online inputs wait for native acknowledgement', async () => {
+  it('shows online cold-start inputs immediately and confirms them independently of send-reply ordering', async () => {
     scope.owner = 'account-online'
     scope.devices = [{ device_id: 'host-a', is_online: true, capabilities: {} }]
     let acknowledge!: (value: { ok: true; value: { accepted: string; clientMessageId: string } }) => void
@@ -30,17 +32,25 @@ describe('native input shell lifecycle', () => {
       return new Promise(resolve => { acknowledge = resolve })
     })
     updateDeviceSessions('host-a', { cached: false, sessions: [{ conversationId: 'session-a', nativeInputVersion: 1 } as never] })
-    await harness.render(<><SessionInputOutboxHost accountId={scope.owner} /><SessionInputQueue sessionId="session-a" waitingForConnection={false} /></>)
+    await harness.render(<><SessionInputOutboxHost accountId={scope.owner} /><SessionInputQueue sessionId="session-a" /></>)
     await act(async () => {
       await enqueueSessionInput({ deviceId: 'host-a', sessionId: 'session-a', text: 'First inserted input' })
       await enqueueSessionInput({ deviceId: 'host-a', sessionId: 'session-a', text: 'Second inserted input' })
     })
     await vi.waitFor(() => expect(scope.send).toHaveBeenCalledTimes(1))
-    expect(harness.container.querySelector('[data-native-input-queue]')).toBeNull()
+    expect(harness.container.querySelectorAll('[data-native-input-id]')).toHaveLength(2)
+    expect(harness.container.textContent).toContain('Sending…')
     expect(harness.container.textContent).not.toContain('Waiting for host')
+    const ids = [...harness.container.querySelectorAll('[data-native-input-id]')].map(row => row.getAttribute('data-native-input-id')!)
+    // The recorded first row arrives while the RPC response is still in flight.
+    await harness.render(<><SessionInputOutboxHost accountId={scope.owner} /><SessionInputQueue sessionId="session-a" confirmedClientMessageIds={[ids[0]]} /></>)
+    expect(harness.container.querySelectorAll('[data-native-input-id]')).toHaveLength(1)
     await act(async () => { acknowledge({ ok: true, value: { accepted: 'queued', clientMessageId: currentId } }) })
     await vi.waitFor(() => expect(scope.send).toHaveBeenCalledTimes(2))
     await act(async () => { acknowledge({ ok: true, value: { accepted: 'queued', clientMessageId: currentId } }) })
+    expect(harness.container.querySelectorAll('[data-native-input-id]')).toHaveLength(1)
+    await harness.render(<><SessionInputOutboxHost accountId={scope.owner} /><SessionInputQueue sessionId="session-a" confirmedClientMessageIds={ids} /></>)
+    await vi.waitFor(() => expect(harness.container.querySelector('[data-native-input-id]')).toBeNull())
   })
 
   it('previews only the caption and file name while preserving the complete quote for one native delivery', async () => {
@@ -53,23 +63,25 @@ describe('native input shell lifecycle', () => {
       return { ok: true, value: { accepted: 'started', clientMessageId: request.clientMessageId } }
     })
     updateDeviceSessions('host-a', { cached: false, sessions: [{ conversationId: 'session-a', nativeInputVersion: 1 } as never] })
-    await harness.render(<><SessionInputOutboxHost accountId={scope.owner} /><SessionInputQueue sessionId="session-a" waitingForConnection /></>)
+    await harness.render(<><SessionInputOutboxHost accountId={scope.owner} /><SessionInputQueue sessionId="session-a" /></>)
     let input!: Awaited<ReturnType<typeof enqueueSessionInput>>
     await act(async () => { input = await enqueueSessionInput({ deviceId: 'host-a', sessionId: 'session-a', text }) })
-    await vi.waitFor(() => expect(harness.container.querySelector('[data-native-input-id]')?.textContent).toBe('手机排队原话\ntri29-file.txt'))
+    await vi.waitFor(() => expect(harness.container.querySelector('[data-native-input-id] > div')?.textContent).toBe('手机排队原话\ntri29-file.txt'))
     expect(harness.container.innerHTML).not.toContain('gugu-session://')
     expect(harness.container.innerHTML).not.toContain(source.sessionId)
     expect(harness.container.innerHTML).not.toContain(source.itemId)
     expect(harness.container.innerHTML).not.toContain('/Users/')
     expect(harness.container.textContent).not.toContain('Waiting for host')
-    expect(harness.container.querySelector('[data-send-state="sending"]')).not.toBeNull()
+    expect(harness.container.querySelector('[role="alert"]')?.textContent).toBe('Session host is offline')
     expect(scope.send).not.toHaveBeenCalled()
     scope.devices = [{ device_id: 'host-a', is_online: true, capabilities: {} }]
-    await harness.render(<><SessionInputOutboxHost accountId={scope.owner} /><SessionInputQueue sessionId="session-a" waitingForConnection={false} /></>)
+    await harness.render(<><SessionInputOutboxHost accountId={scope.owner} /><SessionInputQueue sessionId="session-a" /></>)
     await vi.waitFor(() => expect(scope.received.size).toBe(1))
     expect(scope.send).toHaveBeenCalledTimes(1)
     expect(scope.send).toHaveBeenCalledWith({ conversationId: 'session-a', text, clientMessageId: input.id })
     expect(readMessageQuote(scope.received.get(input.id)!)).toEqual(expect.objectContaining({ source, excerpt: '源消息原文', body }))
+    expect(harness.container.querySelector('[data-native-input-id]')).not.toBeNull()
+    await harness.render(<><SessionInputOutboxHost accountId={scope.owner} /><SessionInputQueue sessionId="session-a" confirmedClientMessageIds={[input.id]} /></>)
     await vi.waitFor(() => expect(harness.container.querySelector('[data-native-input-id]')).toBeNull())
   })
 
@@ -79,16 +91,80 @@ describe('native input shell lifecycle', () => {
       return { ok: true, value: { accepted: 'started', clientMessageId: request.clientMessageId } }
     })
     updateDeviceSessions('host-a', { cached: false, sessions: [{ conversationId: 'session-a', nativeInputVersion: 1 } as never] })
-    await harness.render(<><SessionInputOutboxHost accountId={scope.owner} /><SessionInputQueue sessionId="session-a" waitingForConnection /></>)
+    await harness.render(<><SessionInputOutboxHost accountId={scope.owner} /><SessionInputQueue sessionId="session-a" /></>)
     let input!: Awaited<ReturnType<typeof enqueueSessionInput>>
     await act(async () => { input = await enqueueSessionInput({ deviceId: 'host-a', sessionId: 'session-a', text: 'offline original' }) })
     await vi.waitFor(() => expect(harness.container.textContent).toContain('offline original'))
     expect(scope.send).not.toHaveBeenCalled()
     scope.devices = [{ device_id: 'host-a', is_online: true, capabilities: {} }]
-    await harness.render(<><SessionInputOutboxHost accountId={scope.owner} /><SessionInputQueue sessionId="session-a" waitingForConnection={false} /></>)
+    await harness.render(<><SessionInputOutboxHost accountId={scope.owner} /><SessionInputQueue sessionId="session-a" /></>)
     await vi.waitFor(() => expect(scope.received.size, JSON.stringify((window as unknown as Record<string, { rows: unknown }>).__GUGU_NATIVE_INPUT_OUTBOX__?.rows)).toBe(1))
     expect([...scope.received]).toEqual([[input.id, 'offline original']])
     expect(scope.send).toHaveBeenCalledWith({ conversationId: 'session-a', text: 'offline original', clientMessageId: input.id })
+    await harness.render(<><SessionInputOutboxHost accountId={scope.owner} /><SessionInputQueue sessionId="session-a" confirmedClientMessageIds={[input.id]} /></>)
     await vi.waitFor(() => expect(harness.container.textContent).not.toContain('offline original'))
+  })
+
+  it.each([null, 'host-a'])('keeps the real failure and retries the same input on device %s', async deviceId => {
+    scope.owner = `retry-${deviceId ?? 'local'}`
+    scope.devices = [{ device_id: 'host-a', is_online: true, capabilities: {} }]
+    scope.send.mockRejectedValueOnce(new Error('Provider login expired')).mockImplementation(async request => ({
+      ok: true, value: { accepted: 'started', clientMessageId: request.clientMessageId },
+    }))
+    updateDeviceSessions('host-a', { cached: false, sessions: [{ conversationId: 'session-a', nativeInputVersion: 1 } as never] })
+    await harness.render(<><SessionInputOutboxHost accountId={scope.owner} /><SessionInputQueue sessionId="session-a" /></>)
+    let input!: Awaited<ReturnType<typeof enqueueSessionInput>>
+    const attachments = [{ type: 'attachment' as const, id: 'image', mimeType: 'image/png' as const, name: 'image.png' }]
+    await act(async () => { input = await enqueueSessionInput({ deviceId, sessionId: 'session-a', text: 'same original body', attachments }) })
+    await vi.waitFor(() => expect(harness.container.querySelector('[role="alert"]')?.textContent).toBe('Provider login expired'))
+    expect(harness.container.textContent).toContain('image.png')
+    await act(async () => { harness.container.querySelector<HTMLButtonElement>('button')!.click() })
+    await vi.waitFor(() => expect(scope.send).toHaveBeenCalledTimes(2))
+    expect(scope.send.mock.calls.map(([request]) => request)).toEqual([
+      { conversationId: 'session-a', text: 'same original body', clientMessageId: input.id, attachments },
+      { conversationId: 'session-a', text: 'same original body', clientMessageId: input.id, attachments },
+    ])
+    await vi.waitFor(() => expect(harness.container.textContent).toContain('Sending…'))
+    expect(harness.container.querySelector('[role="alert"]')).toBeNull()
+    await harness.render(<><SessionInputOutboxHost accountId={scope.owner} /><SessionInputQueue sessionId="session-a" confirmedClientMessageIds={[input.id]} /></>)
+    await vi.waitFor(() => expect(harness.container.querySelector('[data-native-input-id]')).toBeNull())
+  })
+
+  it('confirms the phone-owned Pi input with its persisted-job receipt through the same outbox', async () => {
+    scope.owner = 'phone-owner'
+    scope.devices = [{ device_id: 'phone', is_online: true, capabilities: { host_kind: 'phone' } }]
+    scope.phoneSend.mockResolvedValue({ accepted: true, messageId: 'persisted-job' })
+    await harness.render(<><SessionInputOutboxHost accountId={scope.owner} /><SessionInputQueue sessionId="phone-session" /></>)
+    let input!: Awaited<ReturnType<typeof enqueueSessionInput>>
+    await act(async () => { input = await enqueueSessionInput({ deviceId: 'phone', sessionId: 'phone-session', text: 'phone task' }) })
+    await vi.waitFor(() => expect(scope.phoneSend).toHaveBeenCalledExactlyOnceWith('phone', 'sessionTimeline.sessionSend',
+      [{ conversationId: 'phone-session', text: 'phone task', clientRequestId: input.id }], input.id))
+    await vi.waitFor(() => expect(harness.container.querySelector('[data-native-input-id]')).toBeNull())
+    expect(scope.send).not.toHaveBeenCalled()
+  })
+
+  it('keeps identical text with another id pending when one user row is confirmed', async () => {
+    scope.owner = 'same-text-owner'
+    scope.send.mockImplementation(async request => ({ ok: true, value: { accepted: 'queued', clientMessageId: request.clientMessageId } }))
+    await harness.render(<><SessionInputOutboxHost accountId={scope.owner} /><SessionInputQueue sessionId="session-a" /></>)
+    const inputs: Awaited<ReturnType<typeof enqueueSessionInput>>[] = []
+    await act(async () => {
+      for (let i = 0; i < 2; i++) inputs.push(await enqueueSessionInput({ deviceId: null, sessionId: 'session-a', text: 'same text' }))
+    })
+    await vi.waitFor(() => expect(scope.send).toHaveBeenCalledTimes(2))
+    await harness.render(<><SessionInputOutboxHost accountId={scope.owner} /><SessionInputQueue sessionId="session-a" confirmedClientMessageIds={[inputs[0].id]} /></>)
+    await vi.waitFor(() => expect(harness.container.querySelectorAll('[data-native-input-id]')).toHaveLength(1))
+    expect(harness.container.querySelector('[data-native-input-id]')?.getAttribute('data-native-input-id')).toBe(inputs[1].id)
+    expect(harness.container.textContent).toContain('same text')
+  })
+
+  it.each([false, undefined])('retains a phone input without a persisted-job acceptance (%s)', async accepted => {
+    scope.owner = `phone-unconfirmed-${String(accepted)}`
+    scope.devices = [{ device_id: 'phone', is_online: true, capabilities: { host_kind: 'phone' } }]
+    scope.phoneSend.mockResolvedValue({ accepted })
+    await harness.render(<><SessionInputOutboxHost accountId={scope.owner} /><SessionInputQueue sessionId="phone-session" /></>)
+    await act(async () => { await enqueueSessionInput({ deviceId: 'phone', sessionId: 'phone-session', text: 'not yet accepted' }) })
+    await vi.waitFor(() => expect(harness.container.querySelector('[role="alert"]')?.textContent).toBe('Phone host has not acknowledged the input'))
+    expect(harness.container.querySelector('[data-native-input-id]')).not.toBeNull()
   })
 })

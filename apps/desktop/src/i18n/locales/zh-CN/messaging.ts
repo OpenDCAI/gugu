@@ -758,7 +758,8 @@ export default {
       "failedActions": "未送达消息操作",
       "failedHint": "未送达，点击重试或丢弃",
       "queued": "发送中，助理就绪后回复",
-      "sending": "发送中"
+      "sending": "发送中",
+      "pending": "发送中…"
     },
     "showQuoted": "跳到被引用的消息",
     "taskCard": {

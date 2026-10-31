@@ -20,6 +20,6 @@ it('accepts and visibly retains a native message without any mounted remote work
   await act(async () => { await handoffNativeComposer('cold-session', { text: 'Send when the host returns' }) })
   expect(harness.container.querySelector('textarea')?.value).toBe('Send when the host returns')
   await act(async () => { harness.container.querySelector('button')!.click() })
-  await vi.waitFor(() => expect(harness.container.querySelector('[data-native-input-id]')?.textContent).toBe('Send when the host returns'))
+  await vi.waitFor(() => expect(harness.container.querySelector('[data-native-input-id] > div')?.textContent).toBe('Send when the host returns'))
   expect(harness.container.querySelector('textarea')?.value).toBe('')
 })

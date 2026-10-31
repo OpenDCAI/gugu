@@ -23,6 +23,17 @@ export async function enqueueSessionInput(target: Pick<SessionInput, 'deviceId' 
   return input
 }
 
+export async function confirmSessionInputs(sessionId: string, clientMessageIds: readonly string[]): Promise<void> {
+  const queue = state().queue
+  if (queue) await (await queue).confirm(sessionId, clientMessageIds)
+}
+
+export async function retrySessionInputs(): Promise<void> {
+  const queue = state().queue
+  if (!queue || !state().valid()) throw new Error('Session input outbox is not available for this account')
+  await (await queue).flush()
+}
+
 export function useQueuedSessionInputs(sessionId: string): readonly SessionInput[] {
   const rows = useSyncExternalStore(listener => { state().listeners.add(listener); return () => { state().listeners.delete(listener) } }, () => state().rows, () => EMPTY)
   const ownerId = state().valid() ? state().accountId : null

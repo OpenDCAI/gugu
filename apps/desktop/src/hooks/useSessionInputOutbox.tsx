@@ -41,7 +41,8 @@ export function SessionInputOutboxHost({ accountId }: { accountId: string }) {
         if (device && isPhoneDevice(device)) {
           const { invokePhoneHost } = await import('@/mobile/local-agent/phoneHostRpc')
           const result = await invokePhoneHost<{ accepted?: boolean }>(device.device_id, 'sessionTimeline.sessionSend', [{ conversationId: input.sessionId, text: input.text, clientRequestId: input.id }], input.id)
-          if (!result.accepted) throw new Error('Phone host has not acknowledged the input')
+          if (result.accepted !== true) throw new Error('Phone host has not acknowledged the input')
+          await queue!.confirm(input.sessionId, [input.id])
         } else if (platform.kind === 'electron') {
           const { rpcOn } = await import('@/session/renderer/lib/ipc')
           const result = await rpcOn(input.deviceId).sessionTimeline.sessionSend({ conversationId: input.sessionId, text: input.text, clientMessageId: input.id, ...(input.attachments?.length ? { attachments: input.attachments } : {}) })

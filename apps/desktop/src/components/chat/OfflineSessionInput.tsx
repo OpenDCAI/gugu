@@ -38,7 +38,7 @@ function OfflineComposer({ deviceId, sessionId, label }: { deviceId: string; ses
   }
   return <div className="flex h-full min-h-0 flex-col" data-native-offline-input="">
     <div className="flex flex-1 items-center justify-center p-4 text-sm text-foreground-muted">{pending.length ? null : label}</div>
-    <SessionInputQueue sessionId={sessionId} waitingForConnection />
+    <SessionInputQueue sessionId={sessionId} />
     {error ? <div role="alert" className="px-3 text-sm">{error}</div> : null}
     <div className="p-3">
       <Textarea value={text} onChange={event => edit(event.target.value)} aria-label={translate('composer.sendMessage')} rows={3} disabled={sending} />

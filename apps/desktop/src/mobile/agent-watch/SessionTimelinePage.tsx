@@ -17,6 +17,7 @@ import { AgentWatchNote, AgentWatchScreen } from './AgentWatchChrome'
 import { SessionConversation } from './SessionConversation'
 import { enqueueSessionInput, useQueuedSessionInputs } from '@/lib/sessionInputOutboxBridge'
 import { SessionInputQueue } from '@/components/chat/SessionInputQueue'
+import { confirmedSessionInputIds } from '@/lib/sessionInputOutbox'
 import { SessionAvatar } from './StatusGlyph'
 import { OfflineNote } from './OfflineNote'
 import { CloudComputerNote } from './CloudComputerNote'
@@ -249,7 +250,7 @@ export const SessionTimelinePage = observer(function SessionTimelinePage({
           headerRunning={presentation?.tone === 'running'}
           onStop={cancel}
           stopping={cancelling}
-          footerNotice={<><SessionInputQueue sessionId={session.conversationId} waitingForConnection={!online} />{actionErrorNotice}</>}
+          footerNotice={<><SessionInputQueue sessionId={session.conversationId} confirmedClientMessageIds={confirmedSessionInputIds(conversation.turns)} />{actionErrorNotice}</>}
           onAtBottom={native ? nativeRecord.loadNewer : undefined}
           onLoadOlder={native ? nativeRecord.loadOlder : loadOlder}
           onLoadToolImage={loadToolImage}

@@ -7,7 +7,7 @@ import { useSessionSourceMessage } from './use-session-source-message';
 import { canQueueNativeInput, queueNativeInput } from './queue-native-input';
 import { useConversationVisibility } from '@/components/chat/useConversationVisibility';
 import { useNativeConversationRead } from '@/hooks/useNativeConversationRead';
-import { SessionInputQueue } from '@/components/chat/SessionInputQueue';
+import { AcpSessionInputQueue } from './acp-session-input-queue';
 import { NeedsYouSlot } from '@/components/needsYou/NeedsYouSlot';
 import { takeComposerCarry, useComposerVerb } from '@/lib/composerVerbBridge';
 import { useSessionMessageQuotes } from './use-session-message-quotes';
@@ -1677,7 +1677,7 @@ const ComposerForStore = observer(function ComposerForStore({
         </div>
       ) : null}
       <NeedsYouSlot />
-      <SessionInputQueue sessionId={store.runtimeSessionId} waitingForConnection={canQueueNativeInput(store)} />
+      <AcpSessionInputQueue store={store} />
       <SessionHostQuestion sessionId={store.runtimeSessionId} session={hostSession} />
       <ChatComposer
         className={schedules.length > 0 ? sessionComposerFrameLiftClassName : undefined}

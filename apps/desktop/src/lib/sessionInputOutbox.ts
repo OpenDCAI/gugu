@@ -2,6 +2,8 @@ export type SessionInput = {
   id: string; accountId: string; deviceId: string | null; sessionId: string; text: string; createdAt: number
   attachments?: import('@gugu/session-core/session-record/contract').SessionpageSessionSendRequest['attachments']
   error?: string
+  /** The send reply arrived; the recorded confirmation may still be in flight. */
+  sent?: true
 }
 export interface SessionInputStorage {
   list(accountId: string): Promise<SessionInput[]>
@@ -9,7 +11,7 @@ export interface SessionInputStorage {
   remove(accountId: string, id: string): Promise<void>
 }
 
-/** Sender-owned durable requests. Only a host acceptance removes a request; reconnects reuse its identity. */
+/** Sender-owned requests remain until their transport confirms durable host acceptance. */
 export class SessionInputOutbox {
   private flushing: Promise<void> | null = null
   private again = false
@@ -20,7 +22,7 @@ export class SessionInputOutbox {
 
   async enqueue(target: Pick<SessionInput, 'deviceId' | 'sessionId' | 'text' | 'attachments'>): Promise<SessionInput> {
     if (!this.current()) throw new Error('Session input account changed')
-    const written = this.writing.catch(() => undefined).then(async () => {
+    return this.write(async () => {
       if (!this.current()) throw new Error('Session input account changed')
       const last = Math.max(0, ...(await this.list()).map(input => input.createdAt))
       const input: SessionInput = { ...target, accountId: this.accountId, id: crypto.randomUUID(), createdAt: Math.max(Date.now(), last + 1) }
@@ -28,11 +30,37 @@ export class SessionInputOutbox {
       this.changed()
       return input
     })
+  }
+
+  list(): Promise<SessionInput[]> { return this.storage.list(this.accountId) }
+
+  /** One fact, two adapters: ACP confirms a recorded user row's _meta.clientMessageId;
+   * phone Pi confirms the same clientRequestId after accepted:true means its job is persisted. */
+  confirm(sessionId: string, clientMessageIds: readonly string[]): Promise<void> {
+    return this.write(async () => {
+      if (!this.current()) return
+      const confirmed = (await this.list()).filter(input => input.sessionId === sessionId && clientMessageIds.includes(input.id))
+      for (const input of confirmed) await this.storage.remove(this.accountId, input.id)
+      if (confirmed.length) this.changed()
+    })
+  }
+
+  private write<T>(operation: () => Promise<T>): Promise<T> {
+    const written = this.writing.catch(() => undefined).then(operation)
     this.writing = written
     return written
   }
 
-  list(): Promise<SessionInput[]> { return this.storage.list(this.accountId) }
+  private update(id: string, patch: Partial<Pick<SessionInput, 'error' | 'sent'>>): Promise<boolean> {
+    return this.write(async () => {
+      if (!this.current()) return false
+      const input = (await this.list()).find(input => input.id === id)
+      if (!input) return false // A recorded user row can arrive before the send reply.
+      await this.storage.put({ ...input, ...patch })
+      this.changed()
+      return true
+    })
+  }
 
   flush(): Promise<void> {
     if (this.flushing) { this.again = true; return this.flushing }
@@ -50,17 +78,22 @@ export class SessionInputOutbox {
     for (const input of rows) {
       if (!this.current()) return
       const target = `${input.deviceId ?? 'local'}/${input.sessionId}`
-      if (blocked.has(target)) continue
+      if (input.sent || blocked.has(target)) continue
       try {
+        if (!await this.update(input.id, { error: undefined })) continue
         await withSessionInputDeadline(this.send(input))
-        await this.storage.remove(this.accountId, input.id)
+        await this.update(input.id, { sent: true, error: undefined })
       } catch (error) {
         blocked.add(target)
-        await this.storage.put({ ...input, error: error instanceof Error ? error.message : String(error) })
+        await this.update(input.id, { error: error instanceof Error ? error.message : String(error) })
       }
-      this.changed()
     }
   }
+}
+
+export function confirmedSessionInputIds(turns: readonly import('@gugu/session-core/acp/client').TranscriptTurn[]): string[] {
+  return turns.flatMap(turn => turn.items.flatMap(item => item.kind === 'message' && item.role === 'user'
+    && typeof item._meta?.clientMessageId === 'string' ? [item._meta.clientMessageId] : []))
 }
 
 /** A lost response leaves the same request queued; it never allocates another native input id. */
