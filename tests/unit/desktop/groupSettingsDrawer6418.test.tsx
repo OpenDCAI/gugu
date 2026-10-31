@@ -40,6 +40,7 @@ const updateSettings = vi.mocked(chatService.updateGroupChatSettings)
 
 function settingsRow(overrides: Partial<GroupChatSettings> = {}): GroupChatSettings {
   return {
+    my_role: 'owner', can_manage: true, can_dissolve: true, can_archive_topic: false,
     id: 'chat-1', public_id: 7, creator_user_id: 'owner-1', name: '产品组', status: 'active',
     group_prompt: '先写 spec 再开工\n第二条', default_agent_type: null, join_token: 'token', description: null,
     max_members: 100, allow_member_invite: false, invite_link_enabled: false, agent_join_approval: false,
@@ -65,6 +66,7 @@ beforeEach(() => {
 afterEach(() => { harness.cleanup(); vi.clearAllMocks(); shell.mobile = false })
 
 async function renderDrawer(viewerId: string, callbacks: Record<string, unknown> = {}, waitForSettings = true) {
+  if (viewerId !== 'owner-1') getSettings.mockResolvedValue(settingsRow({ my_role: 'member', can_manage: false, can_dissolve: false }))
   const props = {
     chat: chat({ id: 'chat-1', kind: 'group', name: '产品组' }),
     snapshot: SNAPSHOT,

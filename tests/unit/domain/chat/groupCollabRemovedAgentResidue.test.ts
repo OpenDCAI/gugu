@@ -166,7 +166,10 @@ describe('group collaboration removed agent residue', () => {
     chatDbMock.from.mockReset()
     identityDbMock.from.mockReset()
     schemaMock.mockImplementation((schema: string) => {
-      if (schema === 'chat') return { from: chatFrom }
+      if (schema === 'chat') return { from: chatFrom, rpc: async (name: string) => {
+        if (name !== 'list_member_ids') throw new Error(`unexpected collaboration RPC ${name}`)
+        return chatTableResult('chat_members')
+      } }
       if (schema === 'identity') return { from: identityFrom, rpc: identityRpcMock }
       throw new Error(`unexpected schema ${schema}`)
     })
