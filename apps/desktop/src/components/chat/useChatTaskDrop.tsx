@@ -6,7 +6,7 @@ import { TaskDropGroupInvite } from './TaskDropGroupInvite'
 import type { ChatMessageComposerProps } from './chatComposerModels'
 
 /** A group drop shares the normal mention resolver and the normal member picker. */
-export function useChatTaskDrop({ chatId, isGroupChat, groupMembers = [], currentUserId, provider, editorApiRef, enabled }: Pick<ChatMessageComposerProps, 'chatId' | 'isGroupChat' | 'groupMembers' | 'currentUserId'> & {
+export function useChatTaskDrop({ chatId, isGroupChat, groupMembers = [], provider, editorApiRef, enabled }: Pick<ChatMessageComposerProps, 'chatId' | 'isGroupChat' | 'groupMembers'> & {
   provider: LocalSessionMentionProvider
   editorApiRef: { current: PromptEditorRef | null }
   enabled: boolean
@@ -20,5 +20,5 @@ export function useChatTaskDrop({ chatId, isGroupChat, groupMembers = [], curren
     return false
   } })
   return { ...drop, invitation: invite && invite.chatId === chatId
-    ? <TaskDropGroupInvite key={`${invite.chatId}:${invite.item.id}`} chatId={invite.chatId} agentId={invite.item.label.slice('aid:'.length)} currentUserId={currentUserId} onClose={() => setInvite(null)} /> : null }
+    ? <TaskDropGroupInvite key={`${invite.chatId}:${invite.item.id}`} chatId={invite.chatId} agentId={invite.item.label.slice('aid:'.length)} onClose={() => setInvite(null)} /> : null }
 }

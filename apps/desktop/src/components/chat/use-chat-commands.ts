@@ -5,11 +5,12 @@ import { useCommandProvider } from '@renderer/lib/commands/use-command-provider'
 export const GroupRenameContext = createContext<{ request: number } | null>(null)
 
 /** Commands reveal the chat's info and its name's editor there; all validation and saving stay there. */
-export function useChatCommands({ chatId, isGroup, visible, surface, openSettings }: {
+export function useChatCommands({ chatId, isGroup, visible, surface, openSettings, roleRevision }: {
   chatId: string | null; isGroup: boolean; visible: boolean; surface: RefObject<HTMLElement | null>
+  roleRevision: string
   openSettings: () => void
 }) {
-  const { settings } = useGroupChatSettings(isGroup ? chatId : null)
+  const { settings } = useGroupChatSettings(isGroup ? chatId : null, roleRevision)
   const [rename, setRename] = useState({ chatId, count: 0 })
   useCommandProvider({
     scopeId: 'session-sub',

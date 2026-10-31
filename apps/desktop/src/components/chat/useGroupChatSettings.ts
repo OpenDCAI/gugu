@@ -1,7 +1,7 @@
 import { messageForUser } from '@/lib/userFacingError';
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import type { GroupChatSettings, UpdateGroupChatSettingsInput } from '@gugu/core/shared/types/chat'
+import type { GroupChatSettings, GroupCollabSnapshot, UpdateGroupChatSettingsInput } from '@gugu/core/shared/types/chat'
 import { chatService } from '../../lib/chat'
 import { rendererLogger } from '../../lib/log'
 
@@ -23,7 +23,12 @@ function pick(source: GroupChatSettings, keys: readonly SettingsKey[]): Partial<
  *   · 失败时只把「这次写的字段」回滚到改之前 —— 不会顺带撤掉同时成功的另一项(或刚传好的头像)。
  *   同一字段被连写两次时,只有最后一次发出的那次有资格改它(per-field 序号)。
  */
-export function useGroupChatSettings(chatId: string | null, revision?: unknown) {
+/** Settings carry the viewer's authority: re-read them when a projected role changes, not on every roster refresh. */
+export function groupRoleRevision(snapshot: GroupCollabSnapshot): string {
+  return [...snapshot.humans, ...snapshot.agents].map((member) => `${member.id}:${member.role}`).sort().join(',')
+}
+
+export function useGroupChatSettings(chatId: string | null, revision?: string) {
   const { t } = useTranslation('messaging')
   const [settings, setSettings] = useState<GroupChatSettings | null>(null)
   const [error, setError] = useState<string | null>(null)

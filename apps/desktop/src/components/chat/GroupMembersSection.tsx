@@ -19,7 +19,7 @@ import { ChatManagementActions } from './ChatManagementActions'
 import { GroupSettingsManagePage } from './GroupSettingsManagePage'
 import { MemberListPanel, type MemberListPanelProps } from './MemberListPanel'
 import { AnnouncementDrawer } from './AnnouncementDrawer'
-import { useGroupChatSettings } from './useGroupChatSettings'
+import { groupRoleRevision, useGroupChatSettings } from './useGroupChatSettings'
 import { useSettingsPages } from './useSettingsPages'
 import { MemberInviteLink, SettingsNavRow, SettingsPageFrame, SettingsPageHead } from './groupSettingsUi'
 import {
@@ -107,7 +107,7 @@ export function GroupMembersSection({
   const mobileShell = useMobileShell()
   const { page, push, pop } = useSettingsPages(chatId, initialPage)
 
-  const { settings, error: settingsError, setError: setSettingsError, update, setAvatarUrl } = useGroupChatSettings(chatId, snapshot)
+  const { settings, error: settingsError, setError: setSettingsError, update, setAvatarUrl } = useGroupChatSettings(chatId, groupRoleRevision(snapshot))
   const viewerRole = settings?.my_role ?? null
   const viewerIsManager = settings?.can_manage === true
 

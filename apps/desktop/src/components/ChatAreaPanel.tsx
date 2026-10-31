@@ -1,5 +1,6 @@
 import { useMessageQuote } from '@/hooks/useMessageQuote'
 import { GroupRenameContext, useChatCommands } from './chat/use-chat-commands'
+import { groupRoleRevision } from './chat/useGroupChatSettings'
 import { useState, useRef, useEffect, useCallback, useMemo, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
@@ -219,6 +220,7 @@ function ChatAreaSurface({ viewportKey = 'chats', assistantChat = false, activeT
     chatId: activeChatId, visible: surfaceVisible, surface: surfaceElement,
     isGroup: isGroupChat,
     openSettings: handleOpenSettingsDrawer,
+    roleRevision: groupRoleRevision(groupCollabSnapshot),
   })
 
   useEffect(() => {

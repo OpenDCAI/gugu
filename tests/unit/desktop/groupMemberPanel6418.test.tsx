@@ -440,7 +440,7 @@ describe('topic participant controls project server authority', () => {
     expect(q('[data-profile-remove-button="codex"]')).not.toBeNull()
     expect(q('[data-profile-role-select="codex"]')).toBeNull()
     const active = [...document.querySelectorAll<HTMLElement>('.gg-pop-lmseg-btn')].find((element) => element.textContent === '主动')
-    await click(active)
+    await click(active!)
     expect(setListenMode).not.toHaveBeenCalled()
   })
   it('protects the main-group owner’s group seat without treating their topic participation as ownership', async () => {

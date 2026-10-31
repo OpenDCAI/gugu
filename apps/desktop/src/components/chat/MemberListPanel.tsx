@@ -27,7 +27,7 @@ import { HeaderSearch } from '../ui/HeaderSearch'
 import { useMobileShell } from '../../hooks/useMobileShell'
 import type { MemberProfileChatTarget } from '../MemberProfileCard'
 import { useGroupMemberPanelControls } from './GroupMemberPanelControls'
-import { useGroupChatSettings } from './useGroupChatSettings'
+import { groupRoleRevision, useGroupChatSettings } from './useGroupChatSettings'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -272,7 +272,7 @@ export function MemberListPanel({ chatId, chatKind, head, chatName, snapshot, er
   const people = useMemo(() => unified.filter((member) => member.type === 'human'), [unified])
   const agentMembers = useMemo(() => unified.filter((member) => member.type === 'agent'), [unified])
 
-  const { settings, error: settingsError } = useGroupChatSettings(chatId, snapshot)
+  const { settings, error: settingsError } = useGroupChatSettings(chatId, snapshot ? groupRoleRevision(snapshot) : undefined)
   const group = useGroupMemberPanelControls({
     chatId,
     chatKind,
