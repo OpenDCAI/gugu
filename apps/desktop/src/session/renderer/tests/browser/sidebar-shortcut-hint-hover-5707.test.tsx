@@ -24,7 +24,7 @@ import { page, userEvent } from 'vitest/browser'
 import { until } from '../../../../../../../tests/support/awaitCondition'
 
 // 搜索行点下去打开 ⌘K 那个面板(弹窗注册表会把整棵 app-state 建起来,那些要 IPC)—— 这条测试只量键帽,给一个不开窗的替身。
-vi.mock('@renderer/lib/modal/modal-provider', () => ({ useShowModal: () => () => {} }))
+vi.mock('@renderer/lib/modal/modal-provider', () => ({ useShowModal: () => () => {}, showModal: () => {} }))
 
 import {
   SidebarMenu,
