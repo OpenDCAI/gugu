@@ -6,16 +6,19 @@ const mocks = vi.hoisted(() => ({
   progress: [] as string[],
   /** side chat id → its session. */
   forks: new Map<string, string>(),
+  /** Terminal sessions with a live PTY on this provider. */
+  ptys: [] as Array<{ ptySessionId: string; metadata: { providerId: string } }>,
 }));
 
 vi.mock('@main/core/acp/agent-status-bridge', () => ({
   acpAgentStatusBridge: { current: () => mocks.summaries },
 }));
-vi.mock('@main/core/pty/pty-session-registry', () => ({ ptySessionRegistry: { listActiveSessions: () => [] } }));
+vi.mock('@main/core/pty/pty-session-registry', () => ({ ptySessionRegistry: { listActiveSessions: () => mocks.ptys } }));
 // session-life says which sessions run (here: every summarized one); the row says its project and provider.
 vi.mock('./session-life', () => ({ sessionLife: () => ({
   running: () => [...mocks.summaries.keys()].map(sessionId => ({ sessionId, parentId: mocks.forks.get(sessionId) ?? null })),
-  interrupt: async (sessionId: string, event: { reason: string }) => { mocks.calls.push(`${event.reason}:${sessionId}`); },
+  // The scoped sign-out window: each session is held (recorded as its stop) before the swap runs.
+  rotate: async (ids: string[], swap: () => Promise<void>) => { for (const id of ids) mocks.calls.push(`stop:${id}`); await swap(); },
 }) }));
 vi.mock('drizzle-orm', () => ({ eq: (_column: unknown, id: string) => id }));
 vi.mock('@main/db/schema', () => ({ sessions: { id: 'id' } }));
@@ -70,6 +73,7 @@ beforeEach(() => {
   mocks.calls.length = 0;
   mocks.progress.length = 0;
   mocks.forks.clear();
+  mocks.ptys = [];
 });
 
 it('stops idle Codex sessions before the credentials change and hands them back afterwards', async () => {
@@ -127,8 +131,8 @@ it('closes working sessions too when the user chose to close them and switch', a
   summary('idle');
   await switchSubscription('codex', 'work', {}, { stopBusySessions: true });
   expect(mocks.calls).toEqual(['stop:busy', 'stop:idle', 'select:codex:work', 'reclaimed:busy', 'reclaimed:idle']);
-  // 进度条读的是真关掉了几个:开始时 0/2,每关完一个推一次。
-  expect(mocks.progress).toEqual(['0/2', '1/2', '2/2']);
+  // 进度条读的是真关掉了几个:开始时 0/2;ACP 会话在 session-life 的窗口里一起停下,停完一次推到 2/2。
+  expect(mocks.progress).toEqual(['0/2', '2/2']);
 });
 
 it('reports no progress when there is nothing to close', async () => {
@@ -137,8 +141,10 @@ it('reports no progress when there is nothing to close', async () => {
   expect(mocks.progress).toEqual([]);
 });
 
-it('waits out a process that is still exiting instead of failing the switch', async () => {
-  summary('slow', { isGenerating: true });
+const terminal = (id: string) => mocks.ptys.push({ ptySessionId: `project:${id}:${id}`, metadata: { providerId: 'codex' } });
+
+it('waits out a terminal process that is still exiting instead of failing the switch', async () => {
+  terminal('slow');
   const { stopExactSessionpageSession } = await import('./session-orchestration');
   vi.mocked(stopExactSessionpageSession).mockClear();
   const pending = () => Object.assign(new Error('stop_pending'), { code: 'stop_pending' });
@@ -148,8 +154,8 @@ it('waits out a process that is still exiting instead of failing the switch', as
   expect(vi.mocked(stopExactSessionpageSession)).toHaveBeenCalledTimes(3);
 });
 
-it('gives up and keeps the old subscription when a process never exits', async () => {
-  summary('stuck');
+it('gives up and keeps the old subscription when a terminal process never exits', async () => {
+  terminal('stuck');
   const { stopExactSessionpageSession } = await import('./session-orchestration');
   vi.mocked(stopExactSessionpageSession).mockClear();
   const pending = Object.assign(new Error('stop_pending'), { code: 'stop_pending' });
@@ -185,5 +191,5 @@ it('rests a side chat of a session on that provider too: it runs on the same con
   summary('view-a');
   mocks.forks.set('view-a', 'a');
   await switchSubscription('codex', 'work', {});
-  expect(mocks.calls).toEqual(['stop:a', 'version-switch:view-a', 'select:codex:work', 'reclaimed:a', 'reclaimed:view-a']);
+  expect(mocks.calls).toEqual(['stop:a', 'stop:view-a', 'select:codex:work', 'reclaimed:a', 'reclaimed:view-a']);
 });

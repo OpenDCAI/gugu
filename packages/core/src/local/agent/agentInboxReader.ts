@@ -165,8 +165,11 @@ export interface AgentInboxReaderDeps {
   markLocalRead?: (input: { agentUserId: string; sessionId: string; messageId: string }) => Promise<void>
   /** injectable:游标推进(默认 mark_read_on_deliver)。 */
   markRead?: (input: AgentDeliveredMessageRead) => Promise<void>
-  /** Rows an enqueuing host already holds in its queue (still unread until accepted): left out of every new unit. */
-  claimedSources?: (agentUserId: string, messageIds: readonly string[]) => ReadonlySet<string> | Promise<ReadonlySet<string>>
+  /**
+   * Rows an enqueuing host already holds (still unread until accepted): left out of every new unit. The value says whether
+   * the row is still open in its queue (only an open one holds back a skipped row behind it).
+   */
+  claimedSources?: (agentUserId: string, messageIds: readonly string[]) => ReadonlyMap<string, boolean> | Promise<ReadonlyMap<string, boolean>>
   /**
    * 论坛来源(forumInbox.ts):有它才拉论坛(宿主的装配 agentInboxDepsFromBridge 接上 forum_pull_agent_inbox);确认与失败记录
    * 默认 forum_ack / forum_record_delivery_failure。
@@ -521,7 +524,7 @@ async function filterArchivedRows(agentUserId: string, rows: AgentInboxUnreadRow
 async function unclaimedRows(agentUserId: string, rows: AgentInboxUnreadRow[], deps: AgentInboxReaderDeps): Promise<{ rows: AgentInboxUnreadRow[]; queuedAhead: boolean }> {
   if (!deps.claimedSources || rows.length === 0) return { rows, queuedAhead: false }
   const claimed = await deps.claimedSources(agentUserId, rows.map((row) => row.id))
-  return { rows: rows.filter((row) => !claimed.has(row.id)), queuedAhead: claimed.size > 0 }
+  return { rows: rows.filter((row) => !claimed.has(row.id)), queuedAhead: [...claimed.values()].some(Boolean) }
 }
 
 async function pullOnce(agentUserId: string, deps: AgentInboxReaderDeps): Promise<AgentInboxPullResult> {
@@ -972,10 +975,16 @@ export function markInboxRowsRead(agentUserId: string, sources: readonly AgentIn
   return settleAccepted(agentUserId, sources, deps)
 }
 
-/** An enqueuing host could not deliver these rows: say so in their chats, as a failed injection does. */
-export async function discloseInboxRowsFailed(agentUserId: string, sources: readonly AgentInboxSource[], deps: AgentInboxReaderDeps): Promise<void> {
+/**
+ * An enqueuing host could not deliver these rows: say so in their chats, as a failed injection does. `final`: the host
+ * will never deliver them (their row failed), so once said they are settled on the cursor too, as a turn that failed
+ * after admission is; otherwise (a start that failed, retried later) they stay unread for that delivery.
+ */
+export async function discloseInboxRowsFailed(agentUserId: string, sources: readonly AgentInboxSource[], deps: AgentInboxReaderDeps,
+  failure: { cause: unknown; final: boolean }): Promise<void> {
   deps.onOutcome?.({ agentUserId, ok: false })
-  await discloseBatchFailure(agentUserId, sources, deps)
+  await discloseBatchFailure(agentUserId, sources, deps, failure.cause)
+  if (failure.final) await advanceCursor(agentUserId, sources.map((source) => ({ ...source, envelope: '' })), deps)
 }
 
 /**

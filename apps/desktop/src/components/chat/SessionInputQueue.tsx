@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { retrySessionInputs, useQueuedSessionInputs } from '@/lib/sessionInputOutboxBridge'
-import { sessionInputBubbles, type HostPendingRow, type SessionInputFailure } from '@/lib/sessionInputOutbox'
+import { sessionInputBubbles, type SessionInputFailure } from '@/lib/sessionInputOutbox'
+import type { LifeView } from '@/session/shared/core/sessions/session-life'
 import { useTranslation } from 'react-i18next'
 import type { TFunction } from 'i18next'
 import { readMessageQuote } from '@gugu/core/shared/ui/messageQuote'
@@ -9,19 +10,17 @@ import { MessageSendingIndicator } from './MessageSendingIndicator'
 import { Button } from '@renderer/lib/ui/button'
 import { messageForUser } from '@/lib/userFacingError'
 
-const NO_HOST_ROWS: readonly HostPendingRow[] = []
-
 /**
  * The person's inputs not yet in the transcript, each drawn from its one custody owner (`sessionInputBubbles`):
- * the sender outbox row (shown while `waitingForConnection`), then the host's session_pending row.
+ * the sender outbox row (shown while `waitingForConnection`), then the host's session_pending row of the session's `life`.
  */
-export function SessionInputQueue({ sessionId, waitingForConnection, host = NO_HOST_ROWS }: {
-  sessionId: string; waitingForConnection: boolean; host?: readonly HostPendingRow[]
+export function SessionInputQueue({ sessionId, waitingForConnection, life = null }: {
+  sessionId: string; waitingForConnection: boolean; life?: LifeView | null
 }) {
   const pending = useQueuedSessionInputs(sessionId)
   const { t } = useTranslation('messaging')
   const [retryError, setRetryError] = useState<string | null>(null)
-  const bubbles = sessionInputBubbles(waitingForConnection ? pending : [], host)
+  const bubbles = sessionInputBubbles(waitingForConnection ? pending : [], life?.pending.items ?? [], life?.kind ?? null)
   if (!bubbles.length && !retryError) return null
   const retry = async () => {
     setRetryError(null)
@@ -37,6 +36,7 @@ export function SessionInputQueue({ sessionId, waitingForConnection, host = NO_H
         </div>
         {bubble.state === 'sending' ? <MessageSendingIndicator label={t('message.sendStatus.sending')} /> : null}
       </div>
+      {bubble.state === 'held' ? <div className="text-xs text-foreground-muted" role="status" data-send-state="held">{t('message.sendStatus.held')}</div> : null}
       {bubble.state === 'failed' ? <div className="flex items-center gap-2 text-sm">
         <span role="alert">{bubble.failure ? failureText(bubble.failure, t) : bubble.hostReason ? messageForUser(bubble.hostReason) : t('message.sendStatus.failed')}</span>
         {bubble.failure ? <Button size="xs" variant="ghost" onClick={() => { void retry() }}>{t('common.retry')}</Button> : null}

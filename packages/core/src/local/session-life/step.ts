@@ -136,10 +136,12 @@ function pump(state: Extract<LifeShape, { kind: 'ready' }>, q: PendingView): Tra
 }
 
 function receiptEffects(event: ReceiptEvent): Effect[] {
-  return event.result === 'accepted'
-    ? [{ e: 'write-receipt', seq: event.seq, receipt: { state: 'accepted', nativeReceiptId: event.nativeReceiptId } },
+  switch (event.result) {
+    case 'accepted': return [{ e: 'write-receipt', seq: event.seq, receipt: { state: 'accepted', nativeReceiptId: event.nativeReceiptId } },
       { e: 'mark-source-read', seq: event.seq }]
-    : [{ e: 'write-receipt', seq: event.seq, receipt: { state: 'failed', cause: event.cause } }]
+    case 'rejected-before-admission': return [{ e: 'write-receipt', seq: event.seq, receipt: { state: 'failed', cause: event.cause } }]
+    case 'channel-lost': return [{ e: 'write-receipt', seq: event.seq, receipt: { state: 'queued', channelLost: event.cause } }]
+  }
 }
 
 function advance(state: Extract<Life, { kind: 'starting' }>, out: StageResult, q: PendingView): Transition {
@@ -222,7 +224,10 @@ function stepFailed(state: Extract<Life, { kind: 'failed' }>, event: Event, q: P
       switch (event.reason) {
         case 'archive': return [seal({ kind: 'archived' }), [...residueTeardown(state), ...archivedRows(q), { e: 'write-hold', hold: null }, { e: 'end-dependents' }]]
         case 'delete': return [seal({ kind: 'archived' }), [...residueTeardown(state), { e: 'end-dependents' }, { e: 'remove' }]]
-        case 'user-stop': case 'sign-out': case 'version-switch': case 'idle-reap': case 'reconfigure': return unchanged(state)
+        // A new configuration is the way out of a failure (switch away from a delisted model, 2026-10-02): the
+        // failed run's leftovers go and the session rests; the reconfigure then starts it on the new configuration.
+        case 'reconfigure': return [seal({ kind: 'dormant', hold: null, lastExit: null }), [...residueTeardown(state), { e: 'write-hold', hold: null }]]
+        case 'user-stop': case 'sign-out': case 'version-switch': case 'idle-reap': return unchanged(state)
         default: return assertNever(event)
       }
     case 'signed-in': return unchanged(state)
@@ -264,6 +269,11 @@ function stepReady(state: Extract<Life, { kind: 'ready' }>, event: Event, q: Pen
     case 'receipt': {
       if (state.admission.kind !== 'awaiting' || state.admission.seq !== event.seq) return protocol(state, event)
       const effects = receiptEffects(event)
+      // #552: the row is back in the queue and this run's channel is gone: like an exit, but the row is its head.
+      if (event.result === 'channel-lost') {
+        const [next, run] = start(ctx, false)
+        return [next, [...effects, { e: 'teardown', gen: state.gen, have: state.have }, ...run]]
+      }
       if (event.result === 'accepted' && state.have.channel.timing === 'idle-only') {
         return [seal({ ...state, admission: { kind: 'busy' } }), effects]
       }

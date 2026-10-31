@@ -7,5 +7,6 @@ import type { AcpChatStore } from './acp-chat-store';
 export function continueSessionTurn(store: AcpChatStore | null | undefined, text: string): void {
   if (!store) return;
   // The composer's one send: the host queues it behind a running turn (custody), it never steers into one.
-  store.submitPrompt(text);
+  // submitPrompt toasts a failure.
+  void store.submitPrompt(text).catch(() => undefined);
 }

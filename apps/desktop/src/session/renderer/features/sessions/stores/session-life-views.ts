@@ -5,6 +5,7 @@ import type { LifeView } from '@shared/core/sessions/session-life';
 import { sessionLifeViewChannel } from '@shared/core/sessions/sessionEvents';
 import { onMachineEvent, rpcOn } from '@renderer/lib/ipc';
 import { machineRegistry } from '@renderer/lib/machine-routing';
+import { machineClient } from '@renderer/lib/machine-clients';
 
 const views = observable.map<string, LifeView>();
 const requested = new Set<string>();
@@ -16,17 +17,20 @@ function accept(view: LifeView): void {
   runInAction(() => views.set(view.sessionId, view));
 }
 
-function listenOn(machine: string | null): void {
+/** False while that machine has no bridge yet: its page already says the link is down, and the next ask listens. */
+function listenOn(machine: string | null): boolean {
   const key = machine ?? '';
-  if (listening.has(key)) return;
+  if (listening.has(key)) return true;
+  if (machine && !machineClient(machine)) return false;
   listening.add(key);
   onMachineEvent(machine, sessionLifeViewChannel, accept);
+  return true;
 }
 
 /** The session's lifecycle projection, or null until its host has answered the first read. */
 export function sessionLifeView(sessionId: string): LifeView | null {
   const machine = machineRegistry.machineOf(sessionId);
-  listenOn(machine);
+  if (!listenOn(machine)) return views.get(sessionId) ?? null;
   if (!requested.has(sessionId)) {
     requested.add(sessionId);
     void rpcOn(machine).sessions.lifeView(sessionId).then(accept, (error: unknown) => {

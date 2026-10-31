@@ -18,6 +18,8 @@ export class SessionInputFailureError extends Error {
 export type HostPendingRow = LifeView['pending']['items'][number]
 export type SessionInputBubble = { id: string; text: string } & (
   | { state: 'sending' }
+  /** The host holds it while its session is failed: it goes when the person retries (or sends again). */
+  | { state: 'held' }
   /** failure: the sender named it (retry re-sends its copy); hostReason: the host row failed, in the host's words. */
   | { state: 'failed'; failure: SessionInputFailure | null; hostReason: string | null }
   | { state: 'unknown' })
@@ -26,15 +28,15 @@ export type SessionInputBubble = { id: string; text: string } & (
  * Custody of a messageId has one owner at a time: the transcript once the host row is accepted, else the host row,
  * else the sender row. A bubble is drawn from whichever owns it; the transcript draws its own.
  */
-export function sessionInputBubbles(sender: readonly SessionInput[], host: readonly HostPendingRow[]): SessionInputBubble[] {
+export function sessionInputBubbles(sender: readonly SessionInput[], host: readonly HostPendingRow[], lifeKind: LifeView['kind'] | null): SessionInputBubble[] {
   const hosted = new Set(host.map(row => row.messageId))
   return [
     // An inbox batch is the agent's mail, not the person's input: the transcript shows it once the agent takes it.
     ...[...host].filter(row => row.kind !== 'inbox-batch').sort((a, b) => a.seq - b.seq).flatMap((row): SessionInputBubble[] => {
-      const base = { id: row.messageId, text: row.preview }
+      const base = { id: row.messageId, text: row.text }
       switch (row.state) {
         case 'accepted': return []
-        case 'queued': case 'dispatching': return [{ ...base, state: 'sending' }]
+        case 'queued': case 'dispatching': return [{ ...base, state: lifeKind === 'failed' ? 'held' : 'sending' }]
         case 'failed': return [{ ...base, state: 'failed', failure: null, hostReason: row.failure }]
         case 'unknown': return [{ ...base, state: 'unknown' }]
       }

@@ -759,6 +759,7 @@ export default {
       "failedHint": "未送达，点击重试或丢弃",
       "queued": "发送中，助理就绪后回复",
       "sending": "发送中",
+      "held": "等待重试",
       "unknownNotResent": "结果未知，没有重发",
       "failure": {
         "hostOffline": "这个任务所在的电脑现在不在线，等它上线后点重试",

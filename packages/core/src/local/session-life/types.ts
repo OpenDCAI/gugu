@@ -82,7 +82,8 @@ export type LifeShape =
 export type Life = Brand<LifeShape, 'Life'>
 
 export type Receipt =
-  | Readonly<{ state: 'queued' }>
+  /** channelLost: the row went back to the queue once because its channel was gone before admission (#552). */
+  | Readonly<{ state: 'queued'; channelLost?: SerializedError }>
   | Readonly<{ state: 'dispatching'; attempt: Attempt }>
   | Readonly<{ state: 'accepted'; nativeReceiptId: string | null }>
   | Readonly<{ state: 'failed'; cause: SerializedError }>
@@ -95,6 +96,8 @@ export type InterruptEvent =
 export type ReceiptEvent = Readonly<{ k: 'receipt'; gen: Gen; seq: Seq }> & (
   | Readonly<{ result: 'accepted'; nativeReceiptId: string | null }>
   | Readonly<{ result: 'rejected-before-admission'; nativeReceiptId: null; cause: SerializedError }>
+  /** The channel was gone before it took a byte (#552): the row is redelivered by a fresh run, once (the owner decides). */
+  | Readonly<{ result: 'channel-lost'; nativeReceiptId: null; cause: SerializedError }>
 )
 export type Event =
   | Readonly<{ k: 'deliver'; seq: Seq }>

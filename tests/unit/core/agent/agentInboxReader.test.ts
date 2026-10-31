@@ -306,15 +306,27 @@ describe('an enqueuing host (session-life)', () => {
 
   it('a skipped row waits while queued rows ahead of it are unread, on this pull and the next', async () => {
     const cloud = cloudWith(1, 2)
-    cloud.post({ ...row(3), senderUserId: 'not-a-uuid' })
+    cloud.post({ ...row(3), id: `msg:${row(3).id}` })
     const held = new Set<string>()
+    const marked: string[] = []
     const { deps } = makeDeps(cloud, {
       inject: async (input) => { for (const source of input.sources ?? []) held.add(source.row.id); return 'enqueued' },
-      claimedSources: (_agent, ids) => new Set(ids.filter((id) => held.has(id))),
+      markRead: async ({ messageId }) => { marked.push(messageId) },
+      claimedSources: (_agent, ids) => new Map(ids.filter((id) => held.has(id)).map((id) => [id, true])),
     })
     await pullAgentInbox(AGENT, deps)
     await pullAgentInbox(AGENT, deps)
-    expect(cloud.markReadCalls).toEqual([])
+    expect(marked).toEqual([])
+  })
+
+  it('a claimed row that already ended (failed / unknown) does not hold back a skipped row behind it', async () => {
+    const cloud = cloudWith(1)
+    cloud.post({ ...row(2), id: `msg:${row(2).id}` })
+    const marked: string[] = []
+    const { deps } = makeDeps(cloud, { inject: async () => 'enqueued', markRead: async ({ messageId }) => { marked.push(messageId) },
+      claimedSources: (_agent, ids) => new Map(ids.filter((id) => id === row(1).id).map((id) => [id, false])) })
+    await pullAgentInbox(AGENT, deps)
+    expect(marked).toEqual([`msg:${row(2).id}`])
   })
 
   it('leaves rows the host already holds out of every later unit (frozen batches never overlap)', async () => {
@@ -322,7 +334,7 @@ describe('an enqueuing host (session-life)', () => {
     const handed: AgentInboxInjectionInput[] = []
     const { deps } = makeDeps(cloud, {
       inject: async (input) => { handed.push(input); return 'enqueued' },
-      claimedSources: (_agent, ids) => new Set(ids.filter((id) => id === row(1).id)),
+      claimedSources: (_agent, ids) => new Map(ids.filter((id) => id === row(1).id).map((id) => [id, true])),
     })
     await pullAgentInbox(AGENT, deps)
     expect(handed.flatMap((input) => (input.sources ?? []).map((source) => source.row.id))).toEqual([row(2).id])

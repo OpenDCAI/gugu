@@ -3769,6 +3769,7 @@ function inboxDepsFor(auth: { accessToken: string; userId: string }, trigger: st
  * marked read once the agent accepted the batch, told in their chats once it could not be delivered.
  */
 async function settleSessionLifeSources(rows: readonly SessionLifePendingRow[], settle: (agentUserId: string, sources: AgentInboxSource[], deps: AgentInboxReaderDeps) => Promise<void>): Promise<void> {
+  if (!rows.some(row => row.sources.length)) return
   const auth = await authProvider?.getAuth()
   if (!auth?.accessToken) throw new Error('session-life: the inbox rows of a pending batch cannot be settled while signed out')
   const byAgent = new Map<string, AgentInboxSource[]>()
@@ -4990,7 +4991,11 @@ app.whenReady().then(async () => {
     emdashAgentRegistry.setBridge(emdash)
     emdash.setSessionLifeSourceHost({
       markRead: row => settleSessionLifeSources([row], markInboxRowsRead),
-      reportFailure: (rows) => settleSessionLifeSources(rows, discloseInboxRowsFailed),
+      // A failed row is final (Life never redelivers it); a start failure's rows stay queued for the retry.
+      reportFailure: async (rows, cause) => {
+        await settleSessionLifeSources(rows.filter(row => row.state === 'failed'), (agent, sources, deps) => discloseInboxRowsFailed(agent, sources, deps, { cause, final: true }))
+        await settleSessionLifeSources(rows.filter(row => row.state !== 'failed'), (agent, sources, deps) => discloseInboxRowsFailed(agent, sources, deps, { cause, final: false }))
+      },
     })
     // @@@sessionpage TASKPAGE-FUSION — re-map every persisted session-page agent binding at boot so it stays
     // addressable BEFORE its session-page session reopens: a deliver to a mapped-but-not-live agent becomes

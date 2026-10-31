@@ -100,6 +100,30 @@ export class SessionLife {
 
   signIn(userId: string): Promise<void> { return this.transition(() => this.enter(userId)); }
 
+  /**
+   * The account's credentials under these sessions change (a subscription switch, v3.2): the sign-out window, scoped to
+   * them. They are held (interrupt sign-out, so no settle restarts one on the old credentials), `swap` runs once all are
+   * down, then the same account signs back in — a session with a queued head starts on the new credentials (row 14).
+   */
+  rotate(sessionIds: readonly string[], swap: () => Promise<void>): Promise<void> {
+    return this.transition(async () => {
+      const ownerUserId = this.account;
+      if (ownerUserId === null) throw new Error('Sign in before switching the credentials under a session');
+      for (const sessionId of sessionIds) this.send(sessionId, { k: 'interrupt', reason: 'sign-out', ownerUserId });
+      try {
+        for (const sessionId of sessionIds) {
+          const entry = this.entries.get(sessionId);
+          if (!entry) throw new Error(`Session ${sessionId} has no lifecycle entry`);
+          await this.drain(entry);
+          if (!terminal(entry.life)) throw new Error(`Session ${sessionId} did not stop for the credential switch`);
+        }
+        await swap();
+      } finally {
+        for (const sessionId of sessionIds) if (this.entries.has(sessionId)) this.send(sessionId, { k: 'signed-in', userId: ownerUserId });
+      }
+    });
+  }
+
   private transition(run: () => Promise<void>): Promise<void> {
     // Idle: run now, so a sign-out's interrupts land before the caller replaces its credentials.
     const next = this.tail ? this.tail.then(run) : run();
@@ -317,9 +341,21 @@ export class SessionLife {
           this.send(sessionId, { k: 'exit', gen: run.gen, exit: { cause: toSerializedError(error), code: null, signal: null } });
           return;
         }
-        this.send(sessionId, result.result === 'accepted'
-          ? { k: 'receipt', gen: run.gen, seq: effect.seq, result: 'accepted', nativeReceiptId: result.nativeReceiptId }
-          : { k: 'receipt', gen: run.gen, seq: effect.seq, result: result.result, cause: result.cause, nativeReceiptId: null });
+        switch (result.result) {
+          case 'accepted':
+            this.send(sessionId, { k: 'receipt', gen: run.gen, seq: effect.seq, result: 'accepted', nativeReceiptId: result.nativeReceiptId });
+            return;
+          case 'rejected-before-admission':
+            this.send(sessionId, { k: 'receipt', gen: run.gen, seq: effect.seq, result: result.result, cause: result.cause, nativeReceiptId: null });
+            return;
+          case 'channel-lost': {
+            // #552: one redelivery per row. A row that already lost a channel once fails on the second loss.
+            const lostBefore = this.ports.store(sessionId).row(sessionId, effect.seq).failure !== null;
+            this.send(sessionId, { k: 'receipt', gen: run.gen, seq: effect.seq, nativeReceiptId: null,
+              result: lostBefore ? 'rejected-before-admission' : 'channel-lost', cause: result.cause });
+            return;
+          }
+        }
         return;
       }
       case 'teardown':
@@ -355,8 +391,8 @@ export class SessionLife {
     return { sessionId, version: entry.version, kind: life.kind,
       stage: life.kind === 'starting' ? { at: life.progress.at, index: STAGES.indexOf(life.progress.at) + 1, total: 7, since: entry.since } : null,
       pending: { count: rows.filter(row => row.state === 'queued' || row.state === 'dispatching').length,
-        items: rows.map(row => ({ seq: row.seq, messageId: row.message.id, preview: row.message.text.slice(0, 160), kind: row.kind,
-          state: row.state, failure: row.failure?.message ?? null })) },
+        items: rows.map(row => ({ seq: row.seq, messageId: row.message.id, preview: row.message.text.slice(0, 160), text: row.message.text, kind: row.kind,
+          state: row.state, failure: row.state === 'failed' ? row.failure?.message ?? null : null })) },
       hold: hold?.reason ?? null,
       failure: life.kind === 'failed' ? { at: life.hold.reason === 'start-failed' ? life.hold.stage : null, message: life.hold.cause.message, cause: life.hold.cause } : null,
       lastExit: life.kind === 'dormant' ? life.lastExit?.cause.message ?? null : null,

@@ -536,7 +536,7 @@ const ComposerForStore = observer(function ComposerForStore({
   );
 
   const handleSubmit = useCallback(
-    // The store's one send entry (custody); a send that cannot be kept puts its words back in the draft itself.
+    // The store's one send entry (custody; it toasts a failure); a send that cannot be kept goes back in the draft below.
     (value: string) => sendWhenReady(value, (text, attachments) => store.submitPrompt(text, attachments)),
     [store, sendWhenReady]
   );
@@ -1691,7 +1691,7 @@ const ComposerForStore = observer(function ComposerForStore({
         </div>
       ) : null}
       {/* Every send of a task page is in custody until the transcript has it, so its bubbles always show here. */}
-      <SessionInputQueue sessionId={store.runtimeSessionId} waitingForConnection host={life?.pending.items} />
+      <SessionInputQueue sessionId={store.runtimeSessionId} waitingForConnection life={life} />
       <SessionHostQuestion sessionId={store.runtimeSessionId} session={hostSession} />
       <ChatComposer
         className={schedules.length > 0 ? sessionComposerFrameLiftClassName : undefined}
@@ -2282,7 +2282,8 @@ export const AcpChatPanel = observer(function AcpChatPanel({
   );
   const handleSelectSuggestion = useCallback(
     (suggestion: ThreadSuggestion) => {
-      store?.submitPrompt(suggestion.prompt);
+      // submitPrompt toasts a failure; the suggestion stays on screen to click again.
+      void store?.submitPrompt(suggestion.prompt).catch(() => undefined);
     },
     [store]
   );

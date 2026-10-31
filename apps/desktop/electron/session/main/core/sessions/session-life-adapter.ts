@@ -19,7 +19,7 @@ export interface PendingRow {
   readonly sessionId: string;
   readonly kind: 'ordinary' | 'session-direct' | 'inbox-batch';
   readonly state: 'queued' | 'dispatching' | 'accepted' | 'failed' | 'unknown';
-  /** Why a failed row failed (its receipt's cause); null otherwise. */
+  /** Why a failed row failed; on a queued / dispatching row, why its channel was lost once already (#552). */
   readonly failure: SerializedError | null;
   readonly message: SessionMessage & { readonly delivery?: SessionMessageDelivery };
   readonly sources: readonly PendingSource[];
@@ -33,6 +33,8 @@ export interface LegAdapter {
   dispatch(have: StageOut, row: PendingRow, ctx: { gen: Gen; signal: AbortSignal }): Promise<
     | { result: 'accepted'; nativeReceiptId: string | null }
     | { result: 'rejected-before-admission'; cause: SerializedError }
+    /** The channel was gone before it took a byte: the row goes back to the queue for a fresh run (once). */
+    | { result: 'channel-lost'; cause: SerializedError }
   >;
   teardown(have: Partial<StageOut>, ctx: { gen: Gen | null }): Promise<void>;
   onExit(have: Pick<StageOut, 'process'>, cb: (exit: ExitFact) => void): () => void;

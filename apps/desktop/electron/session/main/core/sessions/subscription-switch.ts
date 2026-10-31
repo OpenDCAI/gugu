@@ -15,7 +15,7 @@ import { SubscriptionSessionsBusyError } from './subscription-sessions-busy';
 import { sessionLife } from './session-life';
 
 type SubscriptionProvider = 'claude' | 'codex';
-type LiveSession = { projectId: string; sessionId: string; busy: boolean; sideChat: boolean };
+type LiveSession = { projectId: string; sessionId: string; busy: boolean; acp: boolean };
 
 /** 停一条会话等它的进程退出,一轮最多 10 s(`stop_pending` = 信号发了、还没退)。几轮都没退才报失败。 */
 const STOP_ATTEMPTS = 3;
@@ -40,25 +40,20 @@ function liveSessions(providerId: SubscriptionProvider): LiveSession[] {
     const row = db.select({ projectId: sessions.projectId, provider: sessions.provider }).from(sessions).where(eq(sessions.id, recordId)).get();
     if (!row) throw new Error(`subscription switch: running session ${recordId} has no row`);
     if (row.provider !== providerId) continue;
-    live.set(sessionId, { projectId: row.projectId, sessionId, busy: acpBusy(summaries.get(sessionId)), sideChat: parentId !== null });
+    live.set(sessionId, { projectId: row.projectId, sessionId, busy: acpBusy(summaries.get(sessionId)), acp: true });
   }
   for (const pty of ptySessionRegistry.listActiveSessions()) {
     if (pty.metadata?.providerId !== providerId) continue;
     const parsed = parsePtySessionId(pty.ptySessionId);
     if (!parsed) continue;
     const status = db.select({ status: sessions.agentStatus }).from(sessions).where(eq(sessions.id, parsed.leafId)).get()?.status;
-    live.set(parsed.leafId, { projectId: parsed.projectId, sessionId: parsed.leafId, busy: status === 'working' || status === 'needs_user', sideChat: false });
+    live.set(parsed.leafId, { projectId: parsed.projectId, sessionId: parsed.leafId, busy: status === 'working' || status === 'needs_user', acp: false });
   }
   return [...live.values()];
 }
 
 /** 停不下来先别放弃:`stop_pending` 是进程收到信号还没退,再等一轮。别的失败照抛。 */
 async function stopForSwitch(session: LiveSession): Promise<boolean> {
-  // A side chat has no session row: its fork entry rests, and its next message starts it on the new account.
-  if (session.sideChat) {
-    await sessionLife().interrupt(session.sessionId, { k: 'interrupt', reason: 'version-switch' });
-    return true;
-  }
   for (let attempt = 1; ; attempt++) {
     try {
       return await stopExactSessionpageSession({ ...session, reason: 'version-switch' });
@@ -93,13 +88,21 @@ export async function switchSubscription(
   const progress = (closed: number) => {
     if (live.length > 0) events.emit(subscriptionSwitchProgressChannel, { providerId, closed, total: live.length });
   };
+  const acp = live.filter((session) => session.acp);
+  const terminals = live.filter((session) => !session.acp);
   try {
     progress(0);
-    for (const [index, session] of live.entries()) {
-      if (await stopForSwitch(session)) stopped.push(session);
-      progress(index + 1);
-    }
-    await selectHarnessConnection(providerId, connectionId, { nativeEnv });
+    // ACP sessions (side chats too) are held through the swap by session-life's sign-out window, scoped to them: none
+    // restarts on the old credentials, and the ones with queued input start on the new ones once it closes (v3.2).
+    await sessionLife().rotate(acp.map((session) => session.sessionId), async () => {
+      stopped.push(...acp);
+      progress(acp.length);
+      for (const [index, session] of terminals.entries()) {
+        if (await stopForSwitch(session)) stopped.push(session);
+        progress(acp.length + index + 1);
+      }
+      await selectHarnessConnection(providerId, connectionId, { nativeEnv });
+    });
   } finally {
     for (const session of stopped) events.emit(sessionReclaimedChannel, { projectId: session.projectId, sessionId: session.sessionId });
     if (stopped.length > 0) {

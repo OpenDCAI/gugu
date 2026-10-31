@@ -80,11 +80,16 @@ export function enqueuePending(input: EnqueuePending): { inserted: boolean; seq:
   });
 }
 
-/** The reader leaves out of a new batch every source this session's queue already holds (frozen batches never overlap). */
-export function claimedSessionSources(sessionId: string, sourceMessageIds: readonly string[]): ReadonlySet<string> {
-  if (!sourceMessageIds.length) return new Set();
-  return new Set(db.select({ id: sessionPendingSource.sourceMessageId }).from(sessionPendingSource)
-    .where(and(eq(sessionPendingSource.sessionId, sessionId), inArray(sessionPendingSource.sourceMessageId, [...sourceMessageIds]))).all().map(row => row.id));
+/**
+ * The sources this session's queue already holds, with whether their row is still open (queued / dispatching). The reader
+ * leaves every one out of a new batch (frozen batches never overlap); only open ones hold back a skipped row behind them.
+ */
+export function claimedSessionSources(sessionId: string, sourceMessageIds: readonly string[]): ReadonlyMap<string, boolean> {
+  if (!sourceMessageIds.length) return new Map();
+  return new Map(db.select({ id: sessionPendingSource.sourceMessageId, state: sessionPending.state }).from(sessionPendingSource)
+    .innerJoin(sessionPending, eq(sessionPending.seq, sessionPendingSource.seq))
+    .where(and(eq(sessionPendingSource.sessionId, sessionId), inArray(sessionPendingSource.sourceMessageId, [...sourceMessageIds]))).all()
+    .map(row => [row.id, row.state === 'queued' || row.state === 'dispatching']));
 }
 
 /** Legs move into Life one by one (②: ACP). Other runtimes keep their own queue until their PR. */
@@ -124,7 +129,9 @@ export const lifeStore: LifeStore = {
           const changed = tx.update(sessionPending).set({ state: receipt.state,
             attempt: receipt.state === 'dispatching' ? receipt.attempt : null,
             nativeReceiptId: receipt.state === 'accepted' ? receipt.nativeReceiptId : null,
-            failure: receipt.state === 'failed' ? JSON.stringify(receipt.cause) : null,
+            // A dispatching row keeps the loss it went back to the queue with (#552: its second loss fails it).
+            ...(receipt.state === 'dispatching' ? {} : { failure: receipt.state === 'failed' ? JSON.stringify(receipt.cause)
+              : receipt.state === 'queued' && receipt.channelLost ? JSON.stringify(receipt.channelLost) : null }),
             settledAt: receipt.state === 'failed' || receipt.state === 'unknown' ? new Date().toISOString() : null,
           }).where(and(eq(sessionPending.sessionId, sessionId), eq(sessionPending.seq, effect.seq))).run();
           if (changed.changes !== 1) throw new Error(`Receipt ${effect.seq} has no pending row`);

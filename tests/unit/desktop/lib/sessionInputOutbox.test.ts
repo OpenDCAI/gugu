@@ -80,18 +80,18 @@ describe('a bubble reads the one custody owner of its messageId', () => {
   const sender = (id: string, createdAt: number, extra: Partial<SessionInput> = {}): SessionInput =>
     ({ id, accountId: 'owner', deviceId: null, sessionId: 'agent', text: `sender ${id}`, createdAt, ...extra })
   const host = (seq: number, messageId: string, state: HostPendingRow['state'], over: Partial<HostPendingRow> = {}): HostPendingRow =>
-    ({ seq, messageId, preview: `host ${messageId}`, kind: 'session-direct', state, failure: null, ...over })
+    ({ seq, messageId, preview: `host ${messageId}`.slice(0, 4), text: `host ${messageId}`, kind: 'session-direct', state, failure: null, ...over })
 
   it('sender row until the host row exists, the host row until accepted, then nothing (the transcript has it)', () => {
-    expect(sessionInputBubbles([sender('m', 1)], [])).toEqual([{ id: 'm', text: 'sender m', state: 'sending' }])
-    expect(sessionInputBubbles([sender('m', 1)], [host(1, 'm', 'dispatching')])).toEqual([{ id: 'm', text: 'host m', state: 'sending' }])
-    expect(sessionInputBubbles([sender('m', 1)], [host(1, 'm', 'accepted')])).toEqual([])
-    expect(sessionInputBubbles([], [host(1, 'm', 'accepted')])).toEqual([])
+    expect(sessionInputBubbles([sender('m', 1)], [], 'ready')).toEqual([{ id: 'm', text: 'sender m', state: 'sending' }])
+    expect(sessionInputBubbles([sender('m', 1)], [host(1, 'm', 'dispatching')], 'ready')).toEqual([{ id: 'm', text: 'host m', state: 'sending' }])
+    expect(sessionInputBubbles([sender('m', 1)], [host(1, 'm', 'accepted')], 'ready')).toEqual([])
+    expect(sessionInputBubbles([], [host(1, 'm', 'accepted')], 'ready')).toEqual([])
   })
 
   it('an inbox batch is the agent\'s mail, never drawn as the person\'s bubble; a failed host row says the host\'s reason', () => {
-    expect(sessionInputBubbles([], [host(1, 'mail', 'queued', { kind: 'inbox-batch' })])).toEqual([])
-    expect(sessionInputBubbles([], [host(1, 'f', 'failed', { failure: 'The session stopped before dispatch' })]))
+    expect(sessionInputBubbles([], [host(1, 'mail', 'queued', { kind: 'inbox-batch' })], 'ready')).toEqual([])
+    expect(sessionInputBubbles([], [host(1, 'f', 'failed', { failure: 'The session stopped before dispatch' })], 'ready'))
       .toEqual([{ id: 'f', text: 'host f', state: 'failed', failure: null, hostReason: 'The session stopped before dispatch' }])
   })
 
@@ -99,9 +99,20 @@ describe('a bubble reads the one custody owner of its messageId', () => {
     expect(sessionInputBubbles(
       [sender('b', 2, { failure: { code: 'host-offline' } }), sender('a', 1)],
       [host(3, 'q', 'queued'), host(1, 'f', 'failed'), host(2, 'u', 'unknown')],
+      'starting',
     ).map(bubble => [bubble.id, bubble.state, bubble.state === 'failed' ? bubble.failure : null])).toEqual([
       ['f', 'failed', null], ['u', 'unknown', null], ['q', 'sending', null],
       ['a', 'sending', null], ['b', 'failed', { code: 'host-offline' }],
     ])
+  })
+
+  it('a host row draws its full text, never the summary preview', () => {
+    const long = 'x'.repeat(400)
+    expect(sessionInputBubbles([], [host(1, 'm', 'queued', { text: long, preview: long.slice(0, 160) })], 'starting')[0]?.text).toBe(long)
+  })
+
+  it('while the session is failed its queued host rows are held for a retry, not sending; sender rows still send', () => {
+    expect(sessionInputBubbles([sender('s', 1)], [host(1, 'q', 'queued'), host(2, 'd', 'dispatching')], 'failed')
+      .map(bubble => [bubble.id, bubble.state])).toEqual([['q', 'held'], ['d', 'held'], ['s', 'sending']])
   })
 })

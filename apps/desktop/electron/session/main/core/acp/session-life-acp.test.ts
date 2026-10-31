@@ -11,7 +11,9 @@ const h = vi.hoisted(() => ({
   release: vi.fn(async (_id: string) => undefined),
   identity: null as unknown,
   parentAgent: null as { gugu_user_id?: string } | null,
+  summaries: {} as Record<string, { lifecycle: string }>,
 }));
+vi.mock('./session-summary-reader', () => ({ readAcpSessionSummaries: async () => h.summaries }));
 
 vi.mock('./agent-status-bridge', () => ({
   acpAgentStatusBridge: { watch: (id: string, cb: (summary: Summary | undefined) => void) => { h.watchers.set(id, cb); return () => h.watchers.delete(id); } },
@@ -48,7 +50,7 @@ async function boundAdapter() {
 }
 
 describe('session-life ACP leg', () => {
-  beforeEach(() => { h.watchers.clear(); h.gone = null; h.identity = null; h.parentAgent = null; vi.clearAllMocks(); });
+  beforeEach(() => { h.watchers.clear(); h.gone = null; h.identity = null; h.parentAgent = null; h.summaries = {}; vi.clearAllMocks(); });
 
   it('one exit per attempt, from whichever fact ends the session first', async () => {
     const process = await processLease();
@@ -87,12 +89,15 @@ describe('session-life ACP leg', () => {
     expect(exits).toEqual([{ cause: { name: 'adapter-exit', message: 'claude exited: login required' }, code: 1, signal: null }]);
   });
 
-  it('maps the worker admission: started/queued is accepted with its turn, declined/missing is rejected before admission', async () => {
+  it('maps the worker admission: started/queued is accepted with its turn, declined is rejected, missing is a lost channel', async () => {
     const adapter = await boundAdapter();
     h.inject.mockResolvedValueOnce({ outcome: 'queued', completion: Promise.resolve(), turnId: 't1' });
     expect(await adapter.dispatch({} as StageOut, row, ctx())).toEqual({ result: 'accepted', nativeReceiptId: 't1' });
     h.inject.mockResolvedValueOnce({ outcome: 'declined', completion: Promise.resolve() });
     expect(await adapter.dispatch({} as StageOut, row, ctx())).toMatchObject({ result: 'rejected-before-admission' });
+    // #552: the runtime no longer has the session (its executor ended before admission): no byte taken, channel lost.
+    h.inject.mockResolvedValueOnce({ outcome: 'missing', completion: Promise.resolve() });
+    expect(await adapter.dispatch({} as StageOut, row, ctx())).toMatchObject({ result: 'channel-lost' });
   });
 
   it("a row's turn decides how it is sent: prompt as-is with its own origin; the first turn rendered from the landed context", async () => {
@@ -105,6 +110,33 @@ describe('session-life ACP leg', () => {
     await adapter.dispatch({ capabilities: { injection: { firstTurn: { kind: 'plain' } } } } as never, first, ctx());
     expect(h.inject).toHaveBeenLastCalledWith('s', 'hi', { origin: 'manual' });
     await expect(adapter.dispatch({ capabilities: { injection: {} } } as never, first, ctx())).rejects.toThrow(/did not land/);
+  });
+
+  it('#552: a refusal from an executor that ended before admission is a lost channel; a live session\'s refusal is thrown', async () => {
+    const adapter = await boundAdapter();
+    h.inject.mockRejectedValueOnce(new Error('Session not found'));
+    h.summaries = { s: { lifecycle: 'lost' } };
+    expect(await adapter.dispatch({} as StageOut, row, ctx())).toMatchObject({ result: 'channel-lost', cause: { message: 'Session not found' } });
+    h.inject.mockRejectedValueOnce(new Error('worker RPC failed'));
+    h.summaries = { s: { lifecycle: 'ready' } };
+    await expect(adapter.dispatch({} as StageOut, row, ctx())).rejects.toThrow('worker RPC failed');
+  });
+
+  it('#552: an exit seen while that dispatch is out is subsumed by the lost channel; otherwise it is reported', async () => {
+    const adapter = await boundAdapter();
+    const process = await processLease();
+    const exits: ExitFact[] = [];
+    adapter.onExit({ process }, exit => exits.push(exit));
+    let refuse!: (error: Error) => void;
+    h.inject.mockImplementationOnce(() => new Promise((_resolve, reject) => { refuse = reject; }));
+    const lostDispatch = adapter.dispatch({} as StageOut, row, ctx());
+    h.watchers.get('s')!({ lifecycle: 'ready' });
+    h.watchers.get('s')!({ lifecycle: 'lost' });
+    h.summaries = { s: { lifecycle: 'lost' } };
+    refuse(new Error('Session not found'));
+    expect(await lostDispatch).toMatchObject({ result: 'channel-lost' });
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(exits).toEqual([]);
   });
 
   it('a delivery into a next-tool-call harness steers its running turn unless the sender queued it (#4708)', async () => {

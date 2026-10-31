@@ -131,7 +131,11 @@ export class AcpChatStore {
 
   session: AcpLiveSession | null = null;
   historyLoading = true;
-  loadError: AcpLoadError | null = null;
+  /** A failure of opening / attaching this page; a failed session-life view says its own (`loadError`). */
+  private _loadError: AcpLoadError | null = null;
+  /** Life views up to this version answered an earlier attempt: a retry does not show them again. */
+  private _lifeRetriedVersion = 0;
+  private _unwatchLife: (() => void) | null = null;
   /**
    * #6552 在飞的开场(`_runBootstrap`)数。>0 且还没挂上会话 = 引擎会话在起:这段里模型 / 强度照样能选 ——
    * 选择交给运行时,由启动在 `session/new` 之后设模型/强度那一步采用。计数而不是布尔:重挂 / 重试会在
@@ -284,7 +288,7 @@ export class AcpChatStore {
       this.commands.map((command) => command.name)
     );
 
-    makeObservable<this, '_bootstrapped' | '_bootstrapsInFlight' | '_runtimeBackgroundTaskIds' | '_runtimeLiveSubagentIds' | '_storedQueue'>(this, {
+    makeObservable<this, '_bootstrapped' | '_bootstrapsInFlight' | '_runtimeBackgroundTaskIds' | '_runtimeLiveSubagentIds' | '_storedQueue' | '_loadError' | '_lifeRetriedVersion'>(this, {
       _bootstrapped: observable,
       _storedQueue: observable.ref,
       _runtimeBackgroundTaskIds: observable.ref,
@@ -294,7 +298,9 @@ export class AcpChatStore {
       session: observable.ref,
       pendingPermissionMode: observable.ref,
       historyLoading: observable,
-      loadError: observable,
+      _loadError: observable.ref,
+      _lifeRetriedVersion: observable,
+      loadError: computed,
       _bootstrapsInFlight: observable,
       starting: computed,
       startupChoice: observable.ref,
@@ -637,7 +643,8 @@ export class AcpChatStore {
     const session = this.session;
     if (!await this.revertMessage(itemId, false) || this.session !== session) return;
     runInAction(() => { this.messageEdit = null; });
-    this.submitPrompt(edit.text, attachments);
+    // History is already cut back: a send that fails keeps the edited words in the draft.
+    await this.submitPrompt(edit.text, attachments).catch(() => this.setDraftText([edit.text, this.draftText].filter(Boolean).join('\n')));
   }
 
   async revertMessage(itemId: string, restoreDraft = true): Promise<boolean> {
@@ -742,6 +749,24 @@ export class AcpChatStore {
     return !this.historyLoading && this.messageCount === 0 && !this.hasPriorContext;
   }
 
+  /**
+   * The page's failed state is the session-life view's alone, whatever path opened the page (start, parked, attached):
+   * a failed view newer than the last retry says why; opening it never starts it again, only `retry` does.
+   */
+  get loadError(): AcpLoadError | null {
+    const failure = this._lifeFailure();
+    return failure ? toLoadError(lifeFailureError(failure), machineRegistry.machineOf(this.runtimeSessionId)) : this._loadError;
+  }
+
+  set loadError(error: AcpLoadError | null) {
+    this._loadError = error;
+  }
+
+  private _lifeFailure(): LifeView['failure'] {
+    const view = sessionLifeView(this.runtimeSessionId);
+    return view?.kind === 'failed' && view.version > this._lifeRetriedVersion ? view.failure : null;
+  }
+
   bootstrap(): void {
     if (this._transcriptReleased) {
       this._reloadReleasedTranscript();
@@ -750,6 +775,12 @@ export class AcpChatStore {
     if (this._bootstrapped) return;
     this._bootstrapped = true;
     if (this._disposed) return;
+    // One observer for the store's lifetime: reads the view at open and ends loading once it says failed.
+    this._unwatchLife = reaction(() => this._lifeFailure(), (failure) => {
+      if (!failure) return;
+      this.historyLoading = false;
+      this._syncMessageCount();
+    }, { fireImmediately: true });
     void this._open();
   }
 
@@ -833,6 +864,7 @@ export class AcpChatStore {
     this._storedQueueGeneration += 1;
     this.historyLoading = true;
     this.loadError = null;
+    this._lifeRetriedVersion = sessionLifeView(this.runtimeSessionId)?.version ?? 0;
     this._reopenOnRetry = false;
     void (mode === 'open' ? this._open() : this._runBootstrap({ retry: true }));
   }
@@ -1029,9 +1061,15 @@ export class AcpChatStore {
    * Both sends take the one custody path (sender outbox → host session_pending), persisted session or side chat;
    * the host decides whether the input runs now or queues.
    */
-  submitPrompt(text: string, attachments: AcpPromptAttachment[] = []): void {
-    if (this.reverting || this.messageEdit) return;
-    this._custody(text, attachments);
+  async submitPrompt(text: string, attachments: AcpPromptAttachment[] = []): Promise<void> {
+    try {
+      if (this.reverting || this.messageEdit) throw new Error('A message is being edited; send or cancel the edit first');
+      await sendThroughCustody(this, text, attachments);
+    } catch (error) {
+      // The one toast of a failed send; the caller keeps its words.
+      this._toastError('acpFailure.sendMessage', error);
+      throw error;
+    }
   }
 
   setDraftText(text: string): void {
@@ -1354,6 +1392,8 @@ export class AcpChatStore {
       this._draftTimer = null;
     }
     this._unsubs.splice(0).forEach((unsub) => unsub());
+    this._unwatchLife?.();
+    this._unwatchLife = null;
     this._setParkWatch(null);
     this._unwatchMachineLink?.();
     this._unwatchMachineLink = null;
@@ -1577,7 +1617,6 @@ export class AcpChatStore {
       this._setParkWatch(watch);
       this._closedByHost = true;
       this.historyLoading = false;
-      this.loadError = null;
       this._syncMessageCount();
     });
     this._loadStoredQueue((error) => log.warn('stored queue of a parked session unavailable', { sessionId: this.sessionId, error }));
@@ -1733,7 +1772,11 @@ export class AcpChatStore {
       // Every session, side chat included, is started by its host's session-life; the page only attaches once the
       // host says it is ready (one start owner).
       providerId = session?.providerId;
-      if (!options?.attachOnly) await this._startThroughLife(options?.retry === true);
+      // Not ready = failed: the page says why from the view (`loadError`).
+      if (!options?.attachOnly && !await this._startThroughLife(options?.retry === true)) {
+        if (this.loadError?.kind === 'auth_required' && providerId) void this._refreshAuthStatus(providerId);
+        return;
+      }
       // 起引擎与读库**并行**:两件事互不依赖。❌ 不许把 spawn 排在一次读之后 ——
       // 本机库读起来接近零延迟,会把这个串行藏得看不见,换到读得慢的那一侧(库大、盘忙、
       // 将来换成非本机的存储)它就是白等的一段,而 spec 要求会话启动不被任何东西挡住。
@@ -1901,16 +1944,13 @@ export class AcpChatStore {
     }
   }
 
-  private _custody(text: string, attachments: readonly AcpPromptAttachment[]): void {
-    void sendThroughCustody(this, text, attachments).catch((error: unknown) => this._toastError('acpFailure.sendMessage', error));
-  }
-
   /**
    * Ask the host's session-life to start this session and wait for its projection to settle. A side chat first
    * opens its fork entry (idempotent), then starts like any session.
+   * `retry`: the person asked to start it again; opening a failed session only shows why it failed (contract (e)).
+   * Resolves whether the view became ready; a failed one is said by `loadError`.
    */
-  /** `retry`: the person asked to start it again; opening a failed session only shows why it failed (contract (e)). */
-  private async _startThroughLife(retry: boolean): Promise<void> {
+  private async _startThroughLife(retry: boolean): Promise<boolean> {
     const id = this.runtimeSessionId;
     if (this.runtimeView) {
       this._forkOpened = forkSessionLife({ forkId: id, parentId: this.sessionId, forkFromProviderSessionId: this.runtimeView.forkFromProviderSessionId });
@@ -1918,15 +1958,15 @@ export class AcpChatStore {
     }
     // Only a view published after this start answers it: an older failed view is the previous attempt's.
     const before = await readSessionLife(id);
-    if (before.kind === 'ready') return;
-    if (before.kind === 'failed' && !retry) throw lifeFailureError(before.failure!);
+    if (before.kind === 'ready') return true;
+    if (before.kind === 'failed' && !retry) return false;
+    if (retry) runInAction(() => { this._lifeRetriedVersion = before.version; });
     await startSessionLife(id);
     await when(() => {
       const view = sessionLifeView(id)!;
       return view.version > before.version && (view.kind === 'ready' || view.kind === 'failed');
     });
-    const failure = sessionLifeView(id)!.failure;
-    if (failure) throw lifeFailureError(failure);
+    return sessionLifeView(id)!.kind === 'ready';
   }
 
   private _queuedPromptModels(): QueuedPrompt[] {
@@ -1997,15 +2037,6 @@ export class AcpChatStore {
     this._unsubs.splice(0).forEach((unsub) => unsub());
     // 挂上了:停着时盯会话表的那一格交还 —— 之后它停没停由这条会话自己的状态说(`_onSessionClosedByHost`)。
     this._setParkWatch(null);
-    // A run that fails after the page attached (its restart after an exit, say) is said here, as a failed open is:
-    // the page's next open would only show it, never start it again.
-    const lifeId = this.runtimeSessionId;
-    const attachedVersion = sessionLifeView(lifeId)?.version ?? 0;
-    this._unsubs.push(reaction(() => sessionLifeView(lifeId), (view) => {
-      if (!view || view.version <= attachedVersion || view.kind !== 'failed' || !view.failure) return;
-      const failure = view.failure;
-      runInAction(() => { this.loadError = toLoadError(lifeFailureError(failure), machineRegistry.machineOf(lifeId)); });
-    }));
     const initialState = session.sessionState.current();
     let refreshingChildren = false;
     let childrenChanged = false;

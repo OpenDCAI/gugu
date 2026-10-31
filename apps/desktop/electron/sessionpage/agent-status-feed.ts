@@ -17,7 +17,7 @@ import { guguAgentUserIdForSession } from './sessionpage-session-agent'
 
 const log = createLogger('sessionpage/agent-status-feed')
 
-export type AgentStatusFeedEntry = Omit<AgentStatusChange, 'reading'> & {
+export type AgentStatusFeedEntry = Omit<AgentStatusChange, 'reading' | 'projectId'> & {
   agentUserId: string
   reading: AgentStatusReading | null
   /** The bound session's lifecycle; null = session-life does not own it (terminal legs). */
@@ -155,8 +155,13 @@ export class AgentStatusFeed {
     const sessionId = this.sessionOf.get(agentUserId)
     const change = sessionId ? this.changes.get(sessionId) : undefined
     const previous = this.entries.get(agentUserId) ?? null
-    const life = change && this.lifeOf(change.sessionId)
-    const next: AgentStatusFeedEntry | null = change ? { ...change, agentUserId, life: life ? { kind: life.kind, stage: life.stage } : null } : null
+    const life = sessionId ? this.lifeOf(sessionId) : null
+    // The lifecycle stands on its own: a session that is starting (or failed) before its first status reading shows so.
+    const next: AgentStatusFeedEntry | null = sessionId && (change || life)
+      ? { sessionId, agentUserId, reading: change?.reading ?? null, unseen: change?.unseen ?? false, reviewGate: change?.reviewGate ?? null,
+        providerBlocker: change?.providerBlocker ?? null, statusSourceFault: change?.statusSourceFault ?? null,
+        life: life ? { kind: life.kind, stage: life.stage } : null }
+      : null
     if (previous === null && next === null) return
     if (previous && next && sameEntry(previous, next)) return
     if (next) this.entries.set(agentUserId, next)

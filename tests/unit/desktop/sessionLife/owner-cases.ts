@@ -16,7 +16,7 @@ const seq = (value: number) => value as Seq;
 const EXIT: ExitFact = { cause: { name: 'Lost', message: 'adapter exited' }, code: 1, signal: null };
 
 function rig(options: { block?: StageName; delayReceipt?: boolean; dispatchThrowsOnce?: boolean; markReadFailsOnce?: boolean;
-  failAt?: StageName; exitBeforeFail?: boolean; holdTeardownOf?: { id: string; until: Promise<void> }; teardownThrowsOnce?: boolean; reportFailureThrowsOnce?: boolean; commitThrowsOnSignOutHold?: boolean } = {}) {
+  failAt?: StageName; exitBeforeFail?: boolean; holdTeardownOf?: { id: string; until: Promise<void> }; channelLostTimes?: number; failOnceAt?: StageName; teardownThrowsOnce?: boolean; reportFailureThrowsOnce?: boolean; commitThrowsOnSignOutHold?: boolean } = {}) {
   const records = new Map<string, { owner: string | null; hold: Hold | null; archived: boolean }>();
   const rows = new Map<Seq, PendingRow>();
   const settled = new Set<Seq>();
@@ -33,6 +33,8 @@ function rig(options: { block?: StageName; delayReceipt?: boolean; dispatchThrow
   const exitCallbacks: Array<(exit: ExitFact) => void> = [];
   let blockOnce = options.block;
   let throwOnce = options.dispatchThrowsOnce;
+  let lostTimes = options.channelLostTimes ?? 0;
+  let failOnce = options.failOnceAt;
   let markFailOnce = options.markReadFailsOnce;
   let teardownThrows = options.teardownThrowsOnce;
   let reportThrows = options.reportFailureThrowsOnce;
@@ -56,7 +58,8 @@ function rig(options: { block?: StageName; delayReceipt?: boolean; dispatchThrow
       if (commitThrows && effects.some(e => e.e === 'write-hold' && e.hold?.reason === 'sign-out')) { commitThrows = false; throw new Error('disk full'); }
       for (const e of effects) {
       if (e.e === 'write-hold') records.get(id)!.hold = e.hold;
-      if (e.e === 'write-receipt') { const row = rows.get(e.seq); assert.ok(row); rows.set(e.seq, { ...row, state: e.receipt.state }); }
+      if (e.e === 'write-receipt') { const row = rows.get(e.seq); assert.ok(row); const r = e.receipt;
+        rows.set(e.seq, { ...row, state: r.state, failure: r.state === 'dispatching' ? row.failure : r.state === 'failed' ? r.cause : r.state === 'queued' ? r.channelLost ?? null : null }); }
     } },
     claim(id) { for (const row of rows.values()) if (row.sessionId === id && row.state === 'dispatching') rows.set(row.seq, { ...row, state: 'unknown' }); },
     acceptedUnsettled(id) { return [...rows.values()].filter(row => row.sessionId === id && row.state === 'accepted' && !settled.has(row.seq)).map(row => row.seq); },
@@ -71,6 +74,7 @@ function rig(options: { block?: StageName; delayReceipt?: boolean; dispatchThrow
         async run<K extends StageName>(at: K, _have: unknown, ctx: { gen: Gen; signal: AbortSignal }): Promise<StageOut[K]> {
           ctx.signal.throwIfAborted();
           trace.push(`stage:${ctx.gen.attempt}:${at}`);
+          if (failOnce === at) { failOnce = undefined; throw new Error(`${at} unavailable`); }
           if (options.failAt === at) {
             if (options.exitBeforeFail) exitCallbacks.at(-1)!(EXIT);
             throw new Error(`${at} unavailable`);
@@ -85,7 +89,9 @@ function rig(options: { block?: StageName; delayReceipt?: boolean; dispatchThrow
           return (at === 'identity' ? { kind: 'bound', agentUserId: 'agent' } : lease) as StageOut[K];
         },
         async dispatch(_have, row) { dispatched.push(row.seq); dispatchStarted.resolve();
-          if (throwOnce) { throwOnce = false; throw new Error('worker RPC failed'); } return options.delayReceipt ? receipt.promise : { result: 'accepted', nativeReceiptId: row.message.id }; },
+          if (throwOnce) { throwOnce = false; throw new Error('worker RPC failed'); }
+          if (lostTimes > 0) { lostTimes -= 1; return { result: 'channel-lost', cause: { name: 'AcpSessionMissing', message: 'gone' } }; }
+          return options.delayReceipt ? receipt.promise : { result: 'accepted', nativeReceiptId: row.message.id }; },
         async teardown(have) { trace.push('teardown'); if (options.holdTeardownOf?.id === sessionId) await options.holdTeardownOf.until; if (teardownThrows) { teardownThrows = false; throw new Error('teardown failed'); } for (const lease of Object.values(have)) active.delete(lease); },
         onExit(_have, cb) { exitCallbacks.push(cb); return () => { trace.push('unlisten'); }; },
       } satisfies LegAdapter;
@@ -153,6 +159,41 @@ export const ownerCases: readonly { name: string; run: () => Promise<void> }[] =
     assert.equal(r.trace.filter(line => line.endsWith(':identity')).length, 1);
     assert.equal(r.owner.read('s').lastExit, 'adapter exited');
     assert.deepEqual(r.failures, []);
+  } },
+  { name: 'v3.2 rotate: sessions are held through a credential swap; none restarts on the old ones; queued ones start after', async run() {
+    const r = rig(); r.session(); r.session('idle'); await r.owner.signIn('A');
+    r.send(); r.owner.start('idle'); await r.owner.quiescent('s'); await r.owner.quiescent('idle');
+    let during: string[] = []; let arrived = 0 as unknown as Seq;
+    await r.owner.rotate(['s', 'idle'], async () => {
+      assert.equal(r.active.size, 0, 'every lease is released before the swap');
+      arrived = r.send().seq; // a message during the window stays queued (row 3): nothing starts on the old credentials
+      await r.owner.quiescent('s');
+      during = [r.owner.read('s').kind, r.owner.read('idle').kind];
+    });
+    assert.deepEqual(during, ['dormant', 'dormant']);
+    await r.owner.quiescent('s'); await r.owner.quiescent('idle');
+    assert.equal(r.owner.read('s').kind, 'ready', 'the session with a queued head starts on the new credentials');
+    assert.equal(r.owner.read('idle').kind, 'dormant', 'an idle one rests until it is needed');
+    assert.ok(r.dispatched.includes(arrived));
+  } },
+  { name: 'v3.2 (2026-10-02): a failed session takes a new configuration: reconfigure rests it, its start runs on the new one', async run() {
+    const r = rig({ failOnceAt: 'cli' }); r.session(); await r.owner.signIn('A');
+    const { seq: row } = r.send(); await r.owner.quiescent('s');
+    assert.equal(r.owner.read('s').kind, 'failed');
+    await r.owner.interrupt('s', { k: 'interrupt', reason: 'reconfigure' });
+    assert.equal(r.owner.read('s').kind, 'dormant');
+    r.owner.start('s', 'reconfigure'); await r.owner.quiescent('s');
+    assert.equal(r.owner.read('s').kind, 'ready'); assert.equal(r.rows.get(row)!.state, 'accepted');
+  } },
+  { name: '#552: a channel lost before admission redelivers the row once on a fresh run; a second loss fails it visibly', async run() {
+    const once = rig({ channelLostTimes: 1 }); once.session(); await once.owner.signIn('A');
+    const { seq: row } = once.send(); await once.owner.quiescent('s');
+    assert.deepEqual(once.dispatched, [row, row]); assert.equal(once.rows.get(row)!.state, 'accepted');
+    assert.equal(once.trace.filter(line => line.endsWith(':identity')).length, 2); assert.ok(once.trace.includes('teardown'));
+    const twice = rig({ channelLostTimes: 2 }); twice.session(); await twice.owner.signIn('A');
+    const { seq: again } = twice.send(); await twice.owner.quiescent('s');
+    assert.deepEqual(twice.dispatched, [again, again]); assert.equal(twice.rows.get(again)!.state, 'failed');
+    assert.ok(twice.trace.includes('failure:AcpSessionMissing')); assert.equal(twice.owner.read('s').kind, 'ready');
   } },
   { name: 'archive and delete end the side chats (fork entries); delete still runs its IO and interrupt waits for it', async run() {
     for (const reason of ['archive', 'delete'] as const) {

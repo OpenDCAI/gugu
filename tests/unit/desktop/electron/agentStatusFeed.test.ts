@@ -183,6 +183,22 @@ describe('宿主按 agent 的流:agent 的状态 = 它绑的那条会话的读�
     feed.dispose()
   })
 
+  it('a new session that is starting (or failed) before its first status reading still shows its lifecycle', async () => {
+    const env = await isolatedGuguEnv('gugu-agent-status-feed-life-only-')
+    const feed = new AgentStatusFeed()
+    const writer = writerSource()
+    feed.attach(writer.source, { env })
+    const stage = { at: 'platform', index: 4, total: 7, since: 1 } as const
+    writer.life(lifeView(SESSION_ID, 1, 'starting', stage))
+    await bindAgent(env)
+    emitSessionpageAgentProvisioned({ sessionId: SESSION_ID, agentUserId: AGENT_ID, displayName: 'Codex 1', chatId: null })
+    await settle()
+    expect(feed.get(AGENT_ID)).toMatchObject({ sessionId: SESSION_ID, reading: null, life: { kind: 'starting', stage } })
+    writer.life(lifeView(SESSION_ID, 2, 'failed'))
+    expect(feed.get(AGENT_ID)?.life?.kind).toBe('failed')
+    feed.dispose()
+  })
+
   it('a session session-life does not own carries life null', async () => {
     const env = await isolatedGuguEnv('gugu-agent-status-feed-life-')
     await bindAgent(env)

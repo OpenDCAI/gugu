@@ -477,7 +477,7 @@ export function createSessionpageDeliveryBridge(
     /** #3641 会话此刻的 provider 原生 session id(换新上下文时它变);群规据此判断要不要重达。 */
     providerSessionIdForSession?: (sessionId: string) => Promise<string | null>
     /** The session queue's frozen inbox sources (session-life's session_pending_source). */
-    claimedSessionSources?: (sessionId: string, messageIds: readonly string[]) => ReadonlySet<string>
+    claimedSessionSources?: (sessionId: string, messageIds: readonly string[]) => ReadonlyMap<string, boolean>
   } = {},
 ): AgentRuntimeBridge {
   const statusFeed = options.agentStatus ?? agentStatusFeed
@@ -512,9 +512,9 @@ export function createSessionpageDeliveryBridge(
     // 读者的注入口:等 persisted owner 恢复完成再解析映射,启动窗口不会把「还没重注册」误判成 not-live
     // 后又立即唤醒一个其实活着的会话。
     ...(options.claimedSessionSources ? {
-      claimedInboxSources: (agentUserId: string, messageIds: readonly string[]): ReadonlySet<string> => {
+      claimedInboxSources: (agentUserId: string, messageIds: readonly string[]): ReadonlyMap<string, boolean> => {
         const sessionId = localDelivery.sessionIdForAgent(agentUserId)
-        return sessionId ? options.claimedSessionSources!(sessionId, messageIds) : new Set()
+        return sessionId ? options.claimedSessionSources!(sessionId, messageIds) : new Map()
       },
     } : {}),
     injectAgentInbox: async (input: AgentInboxInjectionInput): Promise<AgentInboxInjectionResult> => {

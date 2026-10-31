@@ -45,6 +45,8 @@ const life = vi.hoisted(() => ({
   fork: vi.fn(async (_fork: unknown) => {}),
   end: vi.fn(async (_forkId: string) => {}),
   settle: (_sessionId: string, _kind: 'ready' | 'failed', _failure?: Failure) => {},
+  /** Sessions whose view the page asked for (the real mirror reads the host on the first ask). */
+  viewed: new Set<string>(),
 }));
 type Failure = { at: string; message: string; cause: { name: string; message: string; data?: string } };
 vi.mock('../stores/session-life-views', async () => {
@@ -54,7 +56,7 @@ vi.mock('../stores/session-life-views', async () => {
   life.settle = (sessionId, kind, failure) => runInAction(() =>
     views.set(sessionId, { kind, version: (views.get(sessionId)?.version ?? 0) + 1, failure: failure ?? null }));
   return {
-    sessionLifeView: (sessionId: string) => views.get(sessionId) ?? null,
+    sessionLifeView: (sessionId: string) => { life.viewed.add(sessionId); return views.get(sessionId) ?? null; },
     readSessionLife: async (sessionId: string) => {
       if (!views.has(sessionId)) runInAction(() => views.set(sessionId, { kind: 'dormant', version: 0, failure: null }));
       return views.get(sessionId)!;
@@ -140,6 +142,7 @@ Object.defineProperty(window, 'electronAPI', {
   },
 });
 const { AcpChatStore } = await import('./acp-chat-store');
+const { isTerminalLoadError } = await import('./acp-load-error');
 type Store = InstanceType<typeof AcpChatStore>;
 
 const turn = (id: string, seq: number): TranscriptTurn =>
@@ -422,6 +425,62 @@ describe('a start answered by session-life', () => {
 
     life.settle(store.sessionId, 'ready');
     await vi.waitFor(() => expect(store.session).not.toBeNull());
+  });
+});
+
+describe('the parked page reads its failed state from session-life only', () => {
+  const noIdentity: Failure = { at: 'identity', message: 'No identity', cause: { name: 'Error', message: 'No identity' } };
+
+  it('a parked page whose session is failed says why and offers retry, without starting it', async () => {
+    const { store } = storeFor();
+    life.settle(store.sessionId, 'failed', noIdentity);
+    store.bootstrap();
+    expect(life.viewed.has(store.runtimeSessionId), 'the page reads the view at open').toBe(true);
+    await parked(store);
+
+    expect(store.loadError?.message).toBe('No identity');
+    expect(isTerminalLoadError(store.loadError!), 'the failure row offers retry').toBe(false);
+    expect(life.start).not.toHaveBeenCalled();
+    runInAction(() => store.retry());
+    await vi.waitFor(() => expect(life.start).toHaveBeenCalledWith(store.runtimeSessionId));
+    expect(store.loadError, 'the retried failure is not shown again').toBeNull();
+  });
+
+  it('a send on a parked page whose start then fails says why on the page', async () => {
+    const { store } = storeFor();
+    store.bootstrap();
+    await parked(store);
+    expect(store.loadError).toBeNull();
+
+    await store.submitPrompt('接着上次的来');
+    life.settle(store.sessionId, 'failed', { at: 'platform', message: 'Ticket refused', cause: { name: 'Error', message: 'Ticket refused' } });
+
+    expect(store.loadError?.message).toBe('Ticket refused');
+    expect(store.historyLoading).toBe(false);
+    expect(life.start, 'the host started it, not the page').not.toHaveBeenCalled();
+  });
+});
+
+describe('composer send through submitPrompt', () => {
+  it('a send that cannot be kept rejects to its caller (which keeps the words) and toasts once', async () => {
+    const { store } = storeFor();
+    store.bootstrap();
+    await parked(store);
+    custody.mockRejectedValueOnce(new Error('Task input needs a signed-in account'));
+
+    await expect(store.submitPrompt('draft words')).rejects.toThrow('signed-in account');
+    expect(toasts).toHaveLength(1);
+  });
+
+  it('a send while a message is being edited fails loud, never a silent drop', async () => {
+    const { store } = storeFor();
+    store.bootstrap();
+    await parked(store);
+    runInAction(() => { store.reverting = true; });
+
+    await expect(store.submitPrompt('typed during a revert')).rejects.toThrow('being edited');
+    expect(custody).not.toHaveBeenCalled();
+    expect(toasts).toHaveLength(1);
   });
 });
 

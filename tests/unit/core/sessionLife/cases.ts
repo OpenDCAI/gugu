@@ -65,6 +65,7 @@ const interrupt = (reason: Extract<Event, { k: 'interrupt' }>['reason']): Event 
   ? { k: 'interrupt', reason, ownerUserId: 'owner' } : { k: 'interrupt', reason }
 const accepted: Extract<ReceiptEvent, { result: 'accepted' }> = { k: 'receipt', gen: G, seq: seq(10), result: 'accepted', nativeReceiptId: 'native' }
 const rejected: Extract<ReceiptEvent, { result: 'rejected-before-admission' }> = { k: 'receipt', gen: G, seq: seq(10), result: 'rejected-before-admission', nativeReceiptId: null, cause: CAUSE }
+const lost: Extract<ReceiptEvent, { result: 'channel-lost' }> = { k: 'receipt', gen: G, seq: seq(10), result: 'channel-lost', nativeReceiptId: null, cause: CAUSE }
 
 export const transitionCases: readonly { row: number; name: string; run: () => void }[] = [
   { row: 1, name: 'dormant delivery starts identity once', run() { kind(decide(dormant(), deliver, pending([20])), 'starting'); effect(decide(dormant(), deliver), { e: 'run-stage', gen: NEXT, at: 'identity', have: {} }) } },
@@ -97,6 +98,9 @@ export const transitionCases: readonly { row: number; name: string; run: () => v
   { row: 28, name: 'turn-busy does not erase the outstanding admission identity', run() { for (const a of ['awaiting', 'busy'] as const) noChange(ready('idle-only', a), { k: 'turn-busy', gen: G }) } },
   { row: 29, name: 'turn-idle pumps a held idle-only queue', run() { effect(decide(ready('idle-only', 'busy'), { k: 'turn-idle', gen: G }, pending([20])), { e: 'dispatch', gen: G, seq: seq(20) }) } },
   { row: 30, name: 'idle while free or awaiting preserves the current admission', run() { for (const a of ['free', 'awaiting'] as const) noChange(ready('idle-only', a), { k: 'turn-idle', gen: G }) } },
+  { row: 10, name: 'v3.2: reconfigure is the way out of a failure: leftovers torn down, the session rests for the new start', run() { assert.equal(dormant(FAILED).kind, 'failed'); const r = decide(dormant(FAILED), interrupt('reconfigure')); kind(r, 'dormant'); effect(r, { e: 'write-hold', hold: null }); for (const reason of ['user-stop', 'sign-out', 'version-switch', 'idle-reap'] as const) noChange(dormant(FAILED), interrupt(reason)) } },
+  { row: 26, name: '#552: a channel lost before admission puts the head back and restarts for it, tearing down first', run() { const s = ready('next-tool-call', 'awaiting'); const r = decide(s, lost, pending([20], [10])); kind(r, 'starting'); assert.deepEqual(r[1].map(e => e.e), ['write-receipt', 'teardown', 'run-stage']); effect(r, { e: 'write-receipt', seq: seq(10), receipt: { state: 'queued', channelLost: CAUSE } }); assert.equal(r[1].some(e => e.e === 'report-failure'), false) } },
+  { row: 43, name: '#552: during teardown a lost channel only puts the row back; settle decides by destination', run() { const s = stopping('user-stop'); const r = decide(s, lost); assert.equal(r[0], s); assert.deepEqual(r[1], [{ e: 'write-receipt', seq: seq(10), receipt: { state: 'queued', channelLost: CAUSE } }]) } },
   { row: 31, name: 'exit makes the in-flight row unknown and tears down before a next attempt', run() { const s = ready('next-tool-call', 'awaiting'); const r = decide(s, { k: 'exit', gen: G, exit: EXIT }, pending([20], [10])); kind(r, 'starting'); assert.deepEqual(r[1].map(e => e.e), ['write-receipt', 'teardown', 'run-stage']); effect(r, { e: 'write-receipt', seq: seq(10), receipt: { state: 'unknown' } }); assert.ok(s.kind === 'ready'); effect(r, { e: 'teardown', gen: G, have: s.have }); const empty = decide(ready(), { k: 'exit', gen: G, exit: EXIT }); const dormantState = kind(empty, 'dormant'); assert.ok(dormantState.kind === 'dormant'); assert.deepEqual(dormantState.lastExit, EXIT); assert.deepEqual(empty[1].map(e => e.e), ['teardown']) } },
   { row: 32, name: 'a genuinely free empty session may be reaped', run() { kind(decide(ready(), interrupt('idle-reap')), 'stopping') } },
   { row: 33, name: 'stale reaper observations are explicit no-ops', run() { noChange(ready(), interrupt('idle-reap'), pending([20])); for (const a of ['awaiting', 'busy'] as const) noChange(ready('idle-only', a), interrupt('idle-reap')) } },
@@ -124,7 +128,7 @@ export const invariantCases: readonly { name: string; run: () => void }[] = [
   { name: 'v3.1 #13: reconfigure stops like a version switch (no barrier) and a reconfigure start follows', run() {
     const s = decide(ready(), interrupt('reconfigure'))[0]; assert.ok(s.kind === 'stopping'); assert.deepEqual(s.destination, { kind: 'rest', wakeAfter: false })
     kind(decide(s, { k: 'settled', gen: G }), 'dormant'); kind(decide(decide(s, { k: 'settled', gen: G })[0], { k: 'start', origin: 'reconfigure' }), 'starting')
-    for (const d of [dormant(), dormant(FAILED)]) noChange(d, interrupt('reconfigure'))
+    noChange(dormant(), interrupt('reconfigure'))
   } },
   { name: 'only entering archived or deleted ends the dependents', run() {
     const ends = (t: Transition) => t[1].some(e => e.e === 'end-dependents')
@@ -233,7 +237,7 @@ export function verifyMatrix(): void {
     { name: 'stopping-start-failed', state: stoppingFailed() }, { name: 'archived', state: archived() },
   ]
   const events: Event[] = [deliver, start, ...STAGES.map(at => ({ k: 'stage-ok' as const, gen: G, out: output(at) })),
-    ...STAGES.map(at => ({ k: 'stage-fail' as const, gen: G, at, cause: CAUSE })), accepted, rejected,
+    ...STAGES.map(at => ({ k: 'stage-fail' as const, gen: G, at, cause: CAUSE })), accepted, rejected, lost,
     { ...accepted, seq: seq(99) }, { k: 'turn-busy', gen: G }, { k: 'turn-idle', gen: G }, { k: 'exit', gen: G, exit: EXIT },
     ...(['user-stop', 'sign-out', 'archive', 'delete', 'version-switch', 'idle-reap', 'reconfigure'] as const).map(interrupt),
     { k: 'settled', gen: G }, { k: 'restore' }, signedIn, { k: 'signed-in', userId: 'other' },
