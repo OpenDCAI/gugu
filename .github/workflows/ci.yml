@@ -245,6 +245,8 @@ jobs:
             apps/mobile/android/**/gradle-wrapper.properties
             apps/mobile/android/gradle.properties
       - uses: ./.github/actions/setup-community
+      # The embedded runtime's ICU data is trimmed with ICU's tools and relinked with LLVM (apps/mobile/runtime/README.md).
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends icu-devtools llvm clang lld
       - run: pnpm android:build
   session-db:
     name: Session database, chat UI browser and tooling
