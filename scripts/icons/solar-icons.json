@@ -193,7 +193,6 @@
     "RotateCcw": "<path fill=\"none\" stroke=\"currentColor\" stroke-linecap=\"round\" stroke-linejoin=\"round\" stroke-width=\"1.5\" d=\"m18.364 8.05l-.707-.707a8 8 0 1 0 2.28 4.658m-1.573-3.95h-4.243m4.243 0V3.807\"/>",
     "X": "<path d=\"M6 6l12 12M18 6 6 18\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>",
     "ArrowBigUp": "<path d=\"M9 13a1 1 0 0 0-1-1H5.061a1 1 0 0 1-.75-1.811l6.836-6.835a1.207 1.207 0 0 1 1.707 0l6.835 6.835a1 1 0 0 1-.75 1.811H16a1 1 0 0 0-1 1v6a1 1 0 0 1-1 1h-4a1 1 0 0 1-1-1z\"/>",
-    "LucideChevronRight": "<path d=\"m9 18 6-6-6-6\"/>",
     "Columns2": "<rect width=\"18\" height=\"18\" x=\"3\" y=\"3\" rx=\"2\"/><path d=\"M12 3v18\"/>",
     "GitBranch": "<path d=\"M15 6a9 9 0 0 0-9 9V3\"/><circle cx=\"18\" cy=\"6\" r=\"3\"/><circle cx=\"6\" cy=\"18\" r=\"3\"/>",
     "GitFork": "<circle cx=\"12\" cy=\"18\" r=\"3\"/><circle cx=\"6\" cy=\"6\" r=\"3\"/><circle cx=\"18\" cy=\"6\" r=\"3\"/><path d=\"M18 9v2c0 .6-.4 1-1 1H7c-.6 0-1-.4-1-1V9\"/><path d=\"M12 12v3\"/>",
@@ -274,14 +273,6 @@
       "strokeLinecap": "round",
       "strokeLinejoin": "round",
       "className": "lucide lucide-arrow-big-up"
-    },
-    "LucideChevronRight": {
-      "fill": "none",
-      "stroke": "currentColor",
-      "strokeWidth": 2,
-      "strokeLinecap": "round",
-      "strokeLinejoin": "round",
-      "className": "lucide lucide-chevron-right"
     },
     "Columns2": {
       "fill": "none",
