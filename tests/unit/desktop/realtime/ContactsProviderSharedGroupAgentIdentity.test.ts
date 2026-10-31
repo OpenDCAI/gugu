@@ -231,6 +231,44 @@ describe('ContactsProvider shared-group Agent projection', () => {
 })
 
 
+describe('offline task rename survives reconnect #898', () => {
+  const renamed = (detail: { agentUserId: string; displayName: string; pendingManual?: true }) =>
+    act(async () => { window.dispatchEvent(new CustomEvent(UI_EVENTS.ownedAgentRenamed, { detail })); await repository.transaction(() => {}) })
+
+  it('keeps a pending local name against cloud identity reads until the host reports it published', async () => {
+    const agent = { ...sharedGroupAgent, owner_user_id: authUser.id, display_name: 'Gamma' }
+    identitiesById[agent.id] = agent
+    const harness = await renderProvider()
+    try {
+      await renamed({ agentUserId: agent.id, displayName: 'Delta', pendingManual: true })
+      expect(identitiesById[agent.id].display_name).toBe('Delta')
+      // Network returns: a projection / sync read still carries the unpublished cloud name.
+      await act(async () => { await repository.putIdentities([agent]) })
+      expect(identitiesById[agent.id].display_name).toBe('Delta')
+      // The host published it; from now on cloud reads are the truth again (a later rename elsewhere wins).
+      await renamed({ agentUserId: agent.id, displayName: 'Delta' })
+      await act(async () => { await repository.putIdentities([{ ...agent, display_name: 'Epsilon' }]) })
+      expect(identitiesById[agent.id].display_name).toBe('Epsilon')
+    } finally { harness.cleanup() }
+  })
+
+  it('re-seeds the hold from the host after a renderer reload, and releases it once published', async () => {
+    const agent = { ...sharedGroupAgent, owner_user_id: authUser.id, display_name: 'Gamma' }
+    identitiesById[agent.id] = agent
+    pendingNames.push({ conversationId: 'task', agentUserId: agent.id, displayName: 'Delta', pendingManual: true })
+    contactsServiceMock.getContacts.mockResolvedValue([agent])
+    const harness = await renderProvider()
+    try {
+      await act(async () => { await repository.putIdentities([agent]) })
+      expect(identitiesById[agent.id].display_name).toBe('Delta')
+      delete pendingNames[0].pendingManual
+      await act(async () => { await revisionConsumers.get('agent_changed')!() })
+      await act(async () => { await repository.putIdentities([{ ...agent, display_name: 'Epsilon' }]) })
+      expect(identitiesById[agent.id].display_name).toBe('Epsilon')
+    } finally { harness.cleanup() }
+  })
+})
+
 describe('agent rename canonical publication #6021', () => {
   it('validates an avatar before changing its linked task name', async () => {
     pendingNames.push({ conversationId: 'task', agentUserId: sharedGroupAgent.id, displayName: 'Existing' })

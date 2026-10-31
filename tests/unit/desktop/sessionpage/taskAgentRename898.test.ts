@@ -16,6 +16,7 @@ const state = vi.hoisted(() => ({
   warn: vi.fn(),
   beforeWrite: undefined as (() => Promise<void>) | undefined,
   actualQueue: false,
+  syncError: null as { message: string } | null,
 }))
 vi.mock('@gugu/core', () => ({
   listAgents: async () => state.roster,
@@ -36,7 +37,9 @@ vi.mock('../../../../apps/desktop/src/lib/realtimeChannel', () => ({
   unsubscribePrivateUserEventBus: vi.fn(),
 }))
 vi.mock('../../../../apps/desktop/src/lib/accountRevisionReconcile', () => ({ watchRevisionReconcile: () => () => {} }))
-vi.mock('../../../../apps/desktop/src/lib/supabase', () => ({ dataClient: {} }))
+vi.mock('../../../../apps/desktop/src/lib/supabase', () => ({ dataClient: { schema: () => ({ rpc: () => ({
+  abortSignal: async () => state.syncError ? { data: null, error: state.syncError } : { data: { operations: [], has_more: false }, error: null },
+}) }) } }))
 vi.mock('../../../../apps/desktop/src/platform', () => ({ platform: {
   notifyOwnedAgentsChanged: () => { state.notified = state.notify?.() },
 } }))
@@ -148,6 +151,7 @@ beforeEach(() => {
   state.notified = undefined
   state.warn.mockClear()
   state.beforeWrite = undefined
+  state.syncError = null
   state.provision.mockReset().mockImplementation(async () => { state.rows[0].name_serial = 1; return { displayName: state.rows[0].display_name } })
 })
 
@@ -158,7 +162,9 @@ describe('task and identity shared rename operation', () => {
     expect([state.rows[0].display_name, state.roster[0].name, app.title()]).toEqual(['Task menu', 'Task menu', 'Task menu'])
     await app.host.renameAgent({ sessionId: 'task', name: 'Agent profile' })
     expect([state.rows[0].display_name, state.roster[0].name, app.title()]).toEqual(['Agent profile', 'Agent profile', 'Agent profile'])
-    expect(app.notices.mock.calls.map(([notice]) => notice.agentUserId)).toEqual([AGENT, AGENT])
+    // Each rename is announced as locally pending, then as published.
+    expect(app.notices.mock.calls.map(([notice]) => [notice.agentUserId, notice.pendingManual])).toEqual([
+      [AGENT, true], [AGENT, undefined], [AGENT, true], [AGENT, undefined]])
     expect(state.roster[0].cache.emdash_session_id).toBe('task')
   })
 
@@ -187,7 +193,7 @@ describe('task and identity shared rename operation', () => {
     await expect(app.host.renameAgent({ sessionId: 'task', name: 'Saved locally' })).resolves.toMatchObject({ displayName: 'Saved locally' })
     expect(app.title()).toBe('Saved locally')
     expect(app.mirror).not.toHaveBeenCalled()
-    expect(app.notices).toHaveBeenCalledExactlyOnceWith({ conversationId: 'task', agentUserId: AGENT, displayName: 'Saved locally' })
+    expect(app.notices).toHaveBeenCalledExactlyOnceWith({ conversationId: 'task', agentUserId: AGENT, displayName: 'Saved locally', pendingManual: true })
     expect(state.roster[0].name).toBe('Saved locally')
     expect(state.warn).toHaveBeenCalled()
     expect(state.rows[0].display_name).toBe('Claude 1')
@@ -199,7 +205,32 @@ describe('task and identity shared rename operation', () => {
     await state.notified
     stop()
     expect([state.rows[0].display_name, state.roster[0].name, app.title()]).toEqual(['Saved locally', 'Saved locally', 'Saved locally'])
-    expect(app.notices).toHaveBeenCalledTimes(1)
+    // Publication is announced so every surface holding the pending name can release it.
+    expect(app.notices).toHaveBeenCalledTimes(2)
+    expect(app.notices).toHaveBeenLastCalledWith({ conversationId: 'task', agentUserId: AGENT, displayName: 'Saved locally' })
+  })
+
+  it('publishes an outage rename when account sync answers again, without the identity bus resubscribing', async () => {
+    const app = setup()
+    state.error = 'offline'
+    state.syncError = { message: 'Failed to fetch' }
+    await app.host.renameAgent({ sessionId: 'task', name: 'Renamed offline' })
+    state.notify = () => app.host.synchronizeNames()
+    const source = createSupabaseAccountRevisionSource()
+    const signal = new AbortController().signal
+    await expect(source.syncSince('0', 10, signal)).rejects.toMatchObject({ message: 'Failed to fetch' })
+    expect(state.notified).toBeUndefined()
+    // The network returns: the realtime bus never dropped, but the next account read succeeds.
+    state.error = null
+    state.syncError = null
+    await source.syncSince('0', 10, signal)
+    await state.notified
+    expect([state.rows[0].display_name, state.roster[0].name, app.title()]).toEqual(['Renamed offline', 'Renamed offline', 'Renamed offline'])
+    expect(app.notices).toHaveBeenLastCalledWith({ conversationId: 'task', agentUserId: AGENT, displayName: 'Renamed offline' })
+    // A healthy read afterwards does not ask the host again.
+    state.notified = undefined
+    await source.syncSince('0', 10, signal)
+    expect(state.notified).toBeUndefined()
   })
 
   it('attests a legacy bound serial once through the deployed RPC without changing the identity', async () => {
@@ -228,7 +259,7 @@ describe('task and identity shared rename operation', () => {
     expect(await app.renameTask('task', 'Offline choice', 'manual')).toBe(true)
     expect(app.title()).toBe('Offline choice')
     expect(state.roster[0].name).toBe('Offline choice')
-    expect(app.notices).toHaveBeenCalledExactlyOnceWith({ conversationId: 'task', agentUserId: AGENT, displayName: 'Offline choice' })
+    expect(app.notices).toHaveBeenCalledExactlyOnceWith({ conversationId: 'task', agentUserId: AGENT, displayName: 'Offline choice', pendingManual: true })
     expect(state.rows[0].display_name).toBe('Claude 1')
   })
 

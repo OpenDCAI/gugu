@@ -35,13 +35,28 @@ function rendererReconcileSignals(): RevisionReconcileSignals {
 }
 
 export function createSupabaseAccountRevisionSource(): AccountRevisionSource {
+  // An offline local task rename has no cloud revision yet. When the backend answers again (a resubscribed
+  // identity bus, or the first account read after failed ones), the host resumes its existing name synchronization.
+  const resumeNameSync = () => platform.notifyOwnedAgentsChanged?.()
+  let unreachable = false
   return {
     async syncSince(cursor, limit, signal) {
-      const { data, error } = await dataClient
-        .schema('chat')
-        .rpc('sync_since', { p_after_revision: cursor, p_limit: limit })
-        .abortSignal(signal)
-      if (error) throw error
+      let data: unknown
+      try {
+        const result = await dataClient
+          .schema('chat')
+          .rpc('sync_since', { p_after_revision: cursor, p_limit: limit })
+          .abortSignal(signal)
+        if (result.error) throw result.error
+        data = result.data
+      } catch (error) {
+        unreachable = true
+        throw error
+      }
+      if (unreachable) {
+        unreachable = false
+        resumeNameSync()
+      }
       return parseRevisionPage(data)
     },
     subscribeWake(accountId, onWake, onSubscribed) {
@@ -53,9 +68,7 @@ export function createSupabaseAccountRevisionSource(): AccountRevisionSource {
         (payload) => onWake(parseWakeHead(payload)),
         { onSubscribed: () => {
           onSubscribed()
-          // An offline local task rename has no cloud revision yet. The same identity-bus
-          // reconnection signal resumes its existing host synchronization operation.
-          platform.notifyOwnedAgentsChanged?.()
+          resumeNameSync()
         } },
       )
       // R2 广播之外的拉取时机(定时对账 + 前台/可见/联网/唤醒),head 未知 ⇒ 按游标增量拉一次。

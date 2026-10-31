@@ -8,6 +8,7 @@ import { useAuth } from './auth'
 import { useChatStore } from './chatContext'
 import { imSelectors } from '../lib/imRepository'
 import { UI_EVENTS } from '../lib/uiEvents'
+import type { OwnedAgentRenamed } from '../lib/mainUiEvents'
 import { removeAgentFromChatList } from '../lib/optimisticAgentRemoval'
 import { ContactsContext, type ContactsLoadStatus } from './contactsContext'
 import type { ContactGroup, ContactUser, FriendRequest } from '@gugu/core/shared/types/contacts'
@@ -75,16 +76,19 @@ export function ContactsProvider({ children, active = true }: { children: React.
     const before = imSelectors.identitiesById(repository.snapshot())
     const readNames = rows.some((row) => row.type === 'agent' && !isMyAssistant(userId, row.id))
     // Retain events during this read even when the identity has no repository row yet.
-    const pending = new Map<string, { displayName: string; renamed?: true }>()
+    const pending = new Map<string, { displayName: string }>()
     const retainRename = (event: Event) => {
       const { agentUserId, displayName } = (event as CustomEvent<{ agentUserId: string; displayName: string }>).detail
-      pending.set(agentUserId, { displayName, renamed: true })
+      pending.set(agentUserId, { displayName })
     }
     if (readNames) window.addEventListener(UI_EVENTS.ownedAgentRenamed, retainRename)
     try {
       const names = readNames ? await findSessionShellPort()?.agentNames() : undefined
+      // The host's naming fact also re-seeds (or releases) the repository hold after a renderer reload.
       for (const row of names ?? []) {
-        if (row.pendingManual && !pending.has(row.agentUserId)) pending.set(row.agentUserId, { displayName: row.displayName })
+        if (!pending.has(row.agentUserId) && !isMyAssistant(userId, row.agentUserId)) {
+          repository.holdIdentityName(row.agentUserId, row.pendingManual ? row.displayName : null)
+        }
       }
       await repository.transaction((transaction) => {
         if (!accept()) return
@@ -94,8 +98,8 @@ export function ContactsProvider({ children, active = true }: { children: React.
           const changed = latest && latest.display_name !== before[identity.id]?.display_name
           const name = pending.get(identity.id)
           const display_name = isMyAssistant(userId, identity.id) ? identity.display_name
-            : name?.renamed ? name.displayName
-              : changed ? latest.display_name : name?.displayName ?? identity.display_name
+            : name ? name.displayName
+              : changed ? latest.display_name : identity.display_name
           transaction.putIdentity({ ...identity, display_name })
         }
       })
@@ -268,10 +272,12 @@ export function ContactsProvider({ children, active = true }: { children: React.
     // including from another device. 那条新 agent 私聊由投影按键补齐,不再靠整表重拉。
     const refreshAgentSurfaces = () => loadContacts(strict)
     // A successful local task rename is already durable, even while its cloud write is offline.
-    // Publish that event into the one identity repository; agent_changed still refreshes cloud identities.
+    // Publish that event into the one identity repository and hold it there until the host reports it published;
+    // agent_changed still refreshes cloud identities.
     const handleOwnedAgentRenamed = (event: Event) => {
-      const { agentUserId, displayName } = (event as CustomEvent<{ agentUserId: string; displayName: string }>).detail
+      const { agentUserId, displayName, pendingManual } = (event as CustomEvent<OwnedAgentRenamed>).detail
       void getImRepository().then(async (repository) => {
+        repository.holdIdentityName(agentUserId, pendingManual ? displayName : null)
         await repository.transaction((transaction) => {
           const identity = imSelectors.identitiesById(repository.snapshot())[agentUserId]
           if (identity) transaction.putIdentity({ ...identity, display_name: displayName })

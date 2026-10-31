@@ -5,6 +5,9 @@ import type { AgentStreamPayload } from '@gugu/core/shared/types/agentStream'
 import { defineEvent, type EventDefinition } from '../session/shared/lib/ipc/events'
 import type { UI_EVENTS } from './uiEvents'
 
+/** `pendingManual`: the name is durable on this device but not yet published to its identity. */
+export type OwnedAgentRenamed = { agentUserId: string; displayName: string; pendingManual?: true }
+
 export const MAIN_UI_EVENTS = {
   updateReady: defineEvent<void>('update-ready'),
   updateStatus: defineEvent<unknown>('update-status'),
@@ -17,6 +20,6 @@ export const MAIN_UI_EVENTS = {
   sessionpageShareAgent: defineEvent<unknown>('sessionpage-share-agent'),
   sessionpageShareAgentUnavailable: defineEvent<string>('sessionpage-share-agent-unavailable'),
   // #6091 会话页改了自有 agent 的名字:通讯录缓存着 display_name,叫它刷新。
-  ownedAgentRenamed: defineEvent<{ agentUserId: string; displayName: string }>('owned-agent-renamed'),
+  ownedAgentRenamed: defineEvent<OwnedAgentRenamed>('owned-agent-renamed'),
   sessionpageOpenFeedback: defineEvent<void>('sessionpage-open-feedback'),
 } as const satisfies { readonly [K in keyof typeof UI_EVENTS]?: EventDefinition<unknown> }

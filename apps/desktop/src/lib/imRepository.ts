@@ -103,6 +103,11 @@ export interface AccountImRepository {
   snapshot(): ImRepositorySnapshot
   transaction<T>(mutate: (transaction: ImRepositoryTransaction) => T | Promise<T>): Promise<T>
   putIdentities(rows: readonly unknown[]): Promise<void>
+  /**
+   * This device's unpublished name for an identity it owns (an offline task rename). While held, every identity
+   * write keeps it, so a cloud read that still carries the old name cannot undo it; `null` releases it once published.
+   */
+  holdIdentityName(id: string, displayName: string | null): void
   subscribe<T>(selector: Selector<T>, listener: Listener<T>): () => void
   reset(): Promise<void>
   close(): void
@@ -189,6 +194,7 @@ function createAccountRepository(
   let closed = false
   let writeChain = Promise.resolve()
   const subscriptions = new Set<{ selector: Selector<unknown>; listener: Listener<unknown> }>()
+  const heldNames = new Map<string, string>()
 
   const ensureOpen = () => {
     if (closed) throw new Error(`IM repository scope ${accountId} is closed`)
@@ -213,7 +219,7 @@ function createAccountRepository(
       const run = writeChain.then(async () => {
         recordImTransaction()
         const operations: LocalImDbOperation[] = []
-        const transaction = createTransaction(accountId, operations)
+        const transaction = createTransaction(accountId, operations, heldNames)
         const result = await mutate(transaction)
         validateOperations(accountId, operations)
         const applied = applyOperations(current, operations, accountId)
@@ -227,6 +233,10 @@ function createAccountRepository(
     },
     putIdentities(rows) {
       return this.transaction((transaction) => { for (const row of rows) transaction.putIdentity(row) })
+    },
+    holdIdentityName(id, displayName) {
+      if (displayName?.trim()) heldNames.set(id, displayName.trim())
+      else heldNames.delete(id)
     },
     subscribe<T>(selector: Selector<T>, listener: Listener<T>) {
       ensureOpen()
@@ -254,12 +264,18 @@ function createAccountRepository(
   }
 }
 
-function createTransaction(accountId: string, operations: LocalImDbOperation[]): ImRepositoryTransaction {
+function createTransaction(
+  accountId: string,
+  operations: LocalImDbOperation[],
+  heldNames: ReadonlyMap<string, string>,
+): ImRepositoryTransaction {
   const put = (store: ImStoreName, value: LocalImRow) => operations.push({ type: 'put', store, value })
   return {
     clear: () => operations.push({ type: 'clearAccount', accountId }),
     putIdentity: (value) => {
-      const identity = displayIdentityFromRow(value)
+      const parsed = displayIdentityFromRow(value)
+      const held = heldNames.get(parsed.id)
+      const identity = held ? { ...parsed, display_name: held } : parsed
       put('identity', { accountId, id: identity.id, value: identity })
     },
     putChat: (id, value, order = 0) => put('chat', { accountId, id: nonEmpty(id, 'chat.id'), order, value }),

@@ -4959,7 +4959,8 @@ app.whenReady().then(async () => {
       taskNames: { installRename: setTaskIdentityRename, mirror: mirrorTaskIdentityName, writeManual: writeManualTaskName, state: sessionTaskNameState },
       onRenamed: (renamed) => {
         sendSessionpageIdentityEvent(sessionpageAgentRenamedEvent, renamed)
-        sendUiEvent(MAIN_UI_EVENTS.ownedAgentRenamed, { agentUserId: renamed.agentUserId, displayName: renamed.displayName })
+        sendUiEvent(MAIN_UI_EVENTS.ownedAgentRenamed, { agentUserId: renamed.agentUserId, displayName: renamed.displayName,
+          ...(renamed.pendingManual ? { pendingManual: true as const } : {}) })
         tellRenamedAgentsSession(renamed)
       },
     })

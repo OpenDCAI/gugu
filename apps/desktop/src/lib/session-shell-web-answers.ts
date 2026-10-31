@@ -21,7 +21,8 @@ export function createWebSessionShellAnswers(hostInvoke: SessionShellInvoke): Se
     renameAgent: async (input) => {
       const renamed = await host.sessionpageIdentity.renameAgent(input)
       window.dispatchEvent(new CustomEvent(UI_EVENTS.ownedAgentRenamed, {
-        detail: { agentUserId: renamed.agentUserId, displayName: renamed.displayName },
+        detail: { agentUserId: renamed.agentUserId, displayName: renamed.displayName,
+          ...(renamed.pendingManual ? { pendingManual: true } : {}) },
       }))
       return renamed
     },

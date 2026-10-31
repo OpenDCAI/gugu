@@ -172,7 +172,8 @@ export function createSessionpageIdentityHost(deps: SessionpageIdentityHostDeps)
   async function publishRecordName(agent: LocalAgentRecord, name: string, notify = false): Promise<SessionShellAgentName | null> {
     const sessionId = agent.cache?.[SESSION_CACHE_KEY]
     const renamed = typeof sessionId === 'string' && sessionId
-      ? { conversationId: sessionId, agentUserId: agent.gugu_user_id, displayName: name } : null
+      ? { conversationId: sessionId, agentUserId: agent.gugu_user_id, displayName: name,
+          ...(pendingName(sessionId) ? { pendingManual: true as const } : {}) } : null
     if (renamed && (notify || agent.name !== name)) deps.onRenamed?.(renamed)
     if (agent.name !== name) {
       await updateAgent({ guguUserId: agent.gugu_user_id }, { name }, env)
@@ -182,8 +183,10 @@ export function createSessionpageIdentityHost(deps: SessionpageIdentityHostDeps)
 
   async function adoptRecordName(agent: LocalAgentRecord, name: string, source?: 'manual' | 'generated'): Promise<SessionShellAgentName | null> {
     const sessionId = agent.cache?.[SESSION_CACHE_KEY]
+    // The local name may already equal `name`; publishing a pending one is still news to every surface holding it.
+    const published = typeof sessionId === 'string' && sessionId ? pendingName(sessionId) !== undefined : false
     if (typeof sessionId === 'string' && sessionId) deps.taskNames?.mirror(sessionId, name, source)
-    return publishRecordName(agent, name)
+    return publishRecordName(agent, name, published)
   }
 
   async function adoptAgentName(agentUserId: string, name: string, source?: 'manual' | 'generated', expectedTaskName?: string): Promise<boolean> {
@@ -208,8 +211,8 @@ export function createSessionpageIdentityHost(deps: SessionpageIdentityHostDeps)
     const name = taskAgentName(value, source === 'generated')
     const agent = await localAgentForSession(sessionId, env)
     if (!agent?.gugu_user_id) return null
-    const current = () => ({ conversationId: sessionId, agentUserId: agent.gugu_user_id,
-      displayName: deps.taskNames?.state(sessionId).title ?? name })
+    const current = (): SessionShellAgentName => ({ conversationId: sessionId, agentUserId: agent.gugu_user_id,
+      displayName: deps.taskNames?.state(sessionId).title ?? name, ...(pendingName(sessionId) ? { pendingManual: true as const } : {}) })
     if (source === 'manual') {
       deps.taskNames?.writeManual(sessionId, name)
       await publishRecordName(agent, name, true).catch((error: unknown) => {
