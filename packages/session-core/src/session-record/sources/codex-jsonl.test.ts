@@ -108,6 +108,35 @@ describe('codex rollout 记录源', () => {
       { readMode: 'snapshot' }))).rejects.toThrow();
   });
 
+  it.each(['empty', 'no-newline', 'half-line', 'wrong-size'])('rejects a %s compressed snapshot instead of claiming complete history', async kind => {
+    const { root, file } = await stage();
+    const complete = await readFile(file);
+    const content = kind === 'empty' ? Buffer.alloc(0) : kind === 'no-newline' ? complete.subarray(0, complete.length - 1)
+      : kind === 'half-line' ? Buffer.concat([complete, Buffer.from('{"type":')]) : complete;
+    const compressed = zstdCompressSync(content);
+    if (kind === 'wrong-size') {
+      const descriptor = compressed[4];
+      const offset = 5 + (descriptor & 32 ? 0 : 1) + [0, 1, 2, 4][descriptor & 3];
+      compressed[offset] ^= 1;
+    }
+    await writeFile(`${file}.zst`, compressed); await rm(file);
+    await expect(startAll(createCodexJsonlSource({ harness: 'codex', providerSessionId: THREAD_ID, roots: [root] },
+      { readMode: 'snapshot' }))).rejects.toThrow();
+  });
+
+  it('reads concatenated complete frames, including a skipped metadata frame, through the same UTF-8 decoder', async () => {
+    const { root, file } = await stage();
+    const content = await readFile(file);
+    const expected = await startAll(createCodexJsonlSource({ harness: 'codex', providerSessionId: THREAD_ID, roots: [root] }));
+    const metadata = Buffer.alloc(11);
+    metadata.writeUInt32LE(0x184d2a50, 0); metadata.writeUInt32LE(3, 4); metadata.fill(1, 8);
+    const split = Math.floor(content.length / 2);
+    await writeFile(`${file}.zst`, Buffer.concat([zstdCompressSync(content.subarray(0, split)), metadata, zstdCompressSync(content.subarray(split))]));
+    await rm(file);
+    const entries = await startAll(createCodexJsonlSource({ harness: 'codex', providerSessionId: THREAD_ID, roots: [root] }, { readMode: 'snapshot' }));
+    expect(recordProjection(entries)).toEqual(recordProjection(expected));
+  });
+
   it('resets an old client after restoring a stale archive, even after the publisher passes its old seq', async () => {
     const { root, file } = await stage();
     const open = async (epoch: string, archive?: TimelineArchive | null) => {
