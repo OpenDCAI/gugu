@@ -1,5 +1,5 @@
 import { useLayoutEffect, useRef, useState } from 'react'
-import { resize } from 'framer-motion'
+import { flushSync } from 'react-dom'
 
 /** Keep a readable chat title and the existing actions; only App shortcuts move into More. */
 export function useHeaderAppCapacity(count: number, compact: boolean) {
@@ -18,8 +18,12 @@ export function useHeaderAppCapacity(count: number, compact: boolean) {
       const base = actions.getBoundingClientRect().width - strip.getBoundingClientRect().width
       setCapacity(Math.max(0, Math.min(count, Math.floor((width - Math.min(160, width / 3) - base - 32) / unit))))
     }
-    measure()
-    return resize([header, actions], measure)
+    // No synchronous first measure (it forced a layout mid-commit): the observer's first delivery runs after layout,
+    // before paint; flushSync lands the capacity in that same frame.
+    const observer = new ResizeObserver(() => flushSync(measure))
+    observer.observe(header)
+    observer.observe(actions)
+    return () => observer.disconnect()
   }, [count, compact])
   return { ref, capacity: compact ? 0 : capacity }
 }

@@ -59,6 +59,12 @@ export type ViewDefinition<TParams extends object = Record<never, never>> = {
   transientParams?: readonly (keyof TParams & string)[];
   /** A place of its own on the far-left rail (App, an App from the dock): drawn without the task list beside it. */
   withoutSessionSidebar?: true;
+  /**
+   * @@@retained-places — stays mounted once visited and is hidden like every retained surface while you are elsewhere,
+   * so coming back is a visibility flip. Only for a page that owns what it draws: the App page borrows a shared slot that
+   * leaving must give back (ExtensionSharedSlot's claims), so it is a visit, not retained.
+   */
+  retained?: true;
 };
 
 type Views = typeof views;

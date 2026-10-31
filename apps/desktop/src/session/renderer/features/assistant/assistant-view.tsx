@@ -301,4 +301,5 @@ export const assistantView = {
   TitlebarSlot: () => <ShellTitlebar />,
   MainPanel: AssistantMainPanel,
   withoutSessionSidebar: true,
+  retained: true,
 } satisfies ViewDefinition<AssistantViewParams>;
