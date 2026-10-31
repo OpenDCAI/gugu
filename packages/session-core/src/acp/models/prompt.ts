@@ -23,6 +23,8 @@ export const promptInputSchema = z.object({
    * one turn per click. Only a prompt still waiting is replaced; one already sent is history.
    */
   coalesceKey: z.string().optional(),
+  /** Runtime admission intent retained while waiting; absent entries keep next-turn semantics. */
+  queueTiming: z.literal('next-tool-call').optional(),
 });
 export type PromptInput = z.infer<typeof promptInputSchema>;
 
@@ -60,5 +62,7 @@ export const queuedPromptSchema = promptInputSchema.extend({
   /** Epoch ms when queued prompt content or attachments were last edited. */
   updatedAt: z.number(),
   queueEdit: queuedPromptEditSchema.optional(),
+  /** Runtime-only reservation until the provider returns its admission receipt. */
+  queueDispatching: z.literal(true).optional(),
 });
 export type QueuedPrompt = z.infer<typeof queuedPromptSchema>;
