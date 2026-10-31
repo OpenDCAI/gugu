@@ -56,6 +56,21 @@ vi.mock('@gugu/core', () => ({
     return { ...rec }
   }),
   writeAgentRuntimeSession: vi.fn(async () => undefined),
+  // Same rules as the roster's only name writer: a cloud name never replaces a pending local one.
+  writeAgentName: vi.fn(async (guguUserId: string, name: string, origin: 'local' | 'published' | 'cloud') => {
+    const rec = roster.find((r) => r.gugu_user_id === guguUserId)
+    if (!rec) throw new Error(`writeAgentName: no roster record for ${guguUserId}`)
+    const pending = rec.cache?.name_pending === true
+    if (origin === 'cloud' && pending) return false
+    if (origin === 'published' && rec.name !== name) return false
+    const changed = origin !== 'published' && rec.name !== name
+    if (origin !== 'published') rec.name = name
+    const cache = { ...(rec.cache ?? {}) }
+    if (origin === 'local') cache.name_pending = true
+    else delete cache.name_pending
+    rec.cache = cache
+    return changed
+  }),
   archiveAgents: vi.fn(async (match: (rec: RosterRec) => boolean) => {
     const archived = roster.filter((rec) => rec.status !== 'archived' && match(rec))
     archived.forEach(archiveAgentRecord)
@@ -1246,7 +1261,7 @@ describe('#4526 A:owner 删除 ⇒ 释放本机足迹 + 墓碑挡住重新开户
   it('replaces a removed identity only on explicit Restore, keeping the session binding and only its project group', async () => {
     const { provisionSessionpageAgentForSession } = await import(SUT)
     const { releaseAgentLocalFootprint } = await import(FOOTPRINT)
-    const info = { sessionId: 'same-session', providerId: 'codex', surface: 'tui' as const, cwd: '/w/a', projectId: 'proj-alpha' }
+    const info = { sessionId: 'same-session', providerId: 'codex', surface: 'tui' as const, cwd: '/w/a', projectId: 'proj-alpha', displayName: 'Codex 1' }
     const original = await provisionSessionpageAgentForSession(info, deps)
     await settleCloud()
     await releaseAgentLocalFootprint({ agentUserId: original!.guguAgentUserId, identityRemoved: true, env: deps.env })
@@ -1271,7 +1286,7 @@ describe('#4526 A:owner 删除 ⇒ 释放本机足迹 + 墓碑挡住重新开户
   it('restores again after a second removal of the same session', async () => {
     const { provisionSessionpageAgentForSession } = await import(SUT)
     const { releaseAgentLocalFootprint } = await import(FOOTPRINT)
-    const info = { sessionId: 'cycled-session', providerId: 'codex', surface: 'tui' as const, cwd: '/w/a', projectId: 'proj-alpha' }
+    const info = { sessionId: 'cycled-session', providerId: 'codex', surface: 'tui' as const, cwd: '/w/a', projectId: 'proj-alpha', displayName: 'Codex 1' }
     const first = await provisionSessionpageAgentForSession(info, deps)
     await settleCloud()
     await releaseAgentLocalFootprint({ agentUserId: first!.guguAgentUserId, identityRemoved: true, env: deps.env })

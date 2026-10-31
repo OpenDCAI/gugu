@@ -123,7 +123,7 @@ describe('archiveSession', () => {
           version: '1',
           type: 'acp',
           agentDisplayName: id,
-          ...(opts.fork ? { forkedFrom: { sessionId: opts.fork, title: 'src' } } : {}),
+          ...(opts.fork ? { forkedFrom: { sessionId: opts.fork } } : {}),
           ...(opts.remoteParent ? { parentRemote: { deviceId: 'dev-b', sessionId: opts.remoteParent } } : {}),
         })
       );
@@ -185,7 +185,7 @@ describe('archiveSession', () => {
     insertSession('same-task');
     const file = join(mocks.userData, 'retained.txt');
     await writeFile(file, 'the original task file');
-    const config = JSON.stringify({ version: '1', type: 'acp', model: 'original-model' });
+    const config = JSON.stringify({ version: '1', type: 'acp', model: 'original-model', agentDisplayName: 'same-task' });
     fixture.sqlite.prepare('UPDATE sessions SET config=? WHERE id=?').run(config, 'same-task');
     fixture.sqlite.prepare("INSERT INTO messages (id, session_id, content, sender) VALUES ('old-message', 'same-task', 'original history', 'user')").run();
     fixture.sqlite.prepare("INSERT INTO session_attachments (id, session_id, name, size, stored_path, origin) VALUES ('old-file', 'same-task', 'retained.txt', 22, ?, 'copy')").run(file);
