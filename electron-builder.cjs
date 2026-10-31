@@ -84,22 +84,22 @@ if (!t) {
   throw new Error(`Unknown GUGU_TIER '${tier}' — expected one of: ${Object.keys(TIERS).join(', ')} or acceptance[-<tag>]`)
 }
 
-// @@@bundle-tmux - ship the vendored tmux (scripts/build-tmux-bundle.mjs → tmux-bundle/) so agent
+// @@@bundle-tmux - ship the vendored tmux (scripts/build/build-tmux-bundle.mjs → tmux-bundle/) so agent
 // hosting defaults to tmux without a system tmux. Gated on existence so a build machine without tmux
 // (CI, where build:tmux skips) still packages; desktop main sets GUGU_TMUX_BIN only when it's present.
 // Windows ships psmux's tmux-compatible entrypoint from scripts/build-psmux-bundle.mjs instead of the
 // POSIX tmux bundle, so a macOS cross-build never drops a Mach-O tmux into the Windows installer.
 const fs = require('node:fs')
 const path = require('node:path')
-const { packNpmBundledDependencies, packedAppDir } = require('./scripts/pack-npm-bundled-deps.cjs')
-const { resolveElectronFuses } = require('./scripts/electron-fuses.cjs')
+const { packNpmBundledDependencies, packedAppDir } = require('./scripts/build/pack-npm-bundled-deps.cjs')
+const { resolveElectronFuses } = require('./scripts/build/electron-fuses.cjs')
 const excludeClaudeNative = '!**/node_modules/@anthropic-ai/claude-agent-sdk-*/**'
 const targetArgs = new Set(process.argv.slice(2))
 const isWindowsOnlyBuild =
   (targetArgs.has('--win') || targetArgs.has('-w')) &&
   !(targetArgs.has('--mac') || targetArgs.has('-m') || targetArgs.has('--linux') || targetArgs.has('-l'))
 const extraResources = [{ from: 'mise-bundle/${os}-${arch}', to: 'mise-bundle', filter: ['**/*'] }]
-// 远程隧道的中转客户端 frpc(scripts/build-frpc-bundle.mjs,版本与哈希钉在 scripts/frpc-release.json):
+// 远程隧道的中转客户端 frpc(scripts/build/build-frpc-bundle.mjs,版本与哈希钉在 scripts/frpc-release.json):
 // 打包前由下面的 beforePack 按目标平台取好,运行时在 Resources/frpc-bundle/ 找(electron/server/frpc-runner.ts)。
 extraResources.push({ from: 'frpc-bundle/${os}-${arch}', to: 'frpc-bundle', filter: ['**/*', '!release.json'] })
 if (!isWindowsOnlyBuild && fs.existsSync(path.join(__dirname, 'tmux-bundle', 'tmux'))) {
@@ -128,7 +128,7 @@ if (
 //   正式档:CSC_LINK(base64 的 Developer ID Application .p12)或 CSC_NAME(钥匙串里的身份名)
 //           → electron-builder 走原生 codesign,hardened runtime + entitlements,签完交
 //           notarytool 公证并 staple 票据。这是「用户双击就能开、Gatekeeper 不拦」的唯一档。
-//   ad-hoc 档:两个都没有 → 退回 scripts/ad-hoc-mac-sign.cjs(codesign -s -)。本地开发机、
+//   ad-hoc 档:两个都没有 → 退回 scripts/release/ad-hoc-mac-sign.cjs(codesign -s -)。本地开发机、
 //           没配凭据的 CI 槽照样出得了包,只是装的人要右键打开。
 // ❗ 不设第三档:有证书却缺公证凭据时**直接抛**,不静默降级成「签了但没公证」——那种包
 //    在用户机器上和 ad-hoc 一样被 Gatekeeper 拦,却看起来像正式包,是最坏的一种出厂物(fail loud)。
@@ -213,7 +213,7 @@ function macMainEntitlements() {
 
 const macSigning = macIdentitySource
   ? {
-      sign: 'scripts/developer-id-mac-sign.cjs',
+      sign: 'scripts/release/developer-id-mac-sign.cjs',
       // hardenedRuntime 在非 mas 构建下本就默认 true,显式写出来是为了让这段配置自解释。
       hardenedRuntime: true,
       // ❌ 别开 gatekeeperAssess:构建机(mac1)是 non-gui 会话,spctl 评估在那儿不可靠;
@@ -226,7 +226,7 @@ const macSigning = macIdentitySource
       notarize: true
     }
   : {
-      sign: 'scripts/ad-hoc-mac-sign.cjs',
+      sign: 'scripts/release/ad-hoc-mac-sign.cjs',
       notarize: false
     }
 
@@ -304,19 +304,19 @@ module.exports = {
     const { Arch } = require('electron-builder')
     const arch = Arch[context.arch]
     const { execSync, execFileSync } = require('node:child_process')
-    execFileSync(process.execPath, [path.join(__dirname, 'scripts/build-mise-bundle.mjs'), '--platform', context.electronPlatformName, '--arch', arch], { stdio: 'inherit' })
-    execFileSync(process.execPath, [path.join(__dirname, 'scripts/build-frpc-bundle.mjs'), '--platform', context.electronPlatformName, '--arch', arch], { stdio: 'inherit' })
+    execFileSync(process.execPath, [path.join(__dirname, 'scripts/build/build-mise-bundle.mjs'), '--platform', context.electronPlatformName, '--arch', arch], { stdio: 'inherit' })
+    execFileSync(process.execPath, [path.join(__dirname, 'scripts/build/build-frpc-bundle.mjs'), '--platform', context.electronPlatformName, '--arch', arch], { stdio: 'inherit' })
     // #7199 这台电脑能做的事:Mac 包要带原生助手(日历 / 提醒 / 通讯录 / 定位 / 文字识别 / 系统授权,从源码编)与
     // cua-driver(电脑控制,下载钉住的发布包),按架构放进 mac-native/<arch>,再由下面 mac.extraResources 拷进 Resources/mac-native;
     // Windows 包同样带 cua-driver.exe,放进 win-native/<arch>,由 win.extraResources 拷进 resources/win-native。
     // 缺了它们,用户点「连接」才发现。
     if (context.electronPlatformName === 'darwin') {
-      execFileSync(process.execPath, [path.join(__dirname, 'scripts/build-mac-native.mjs'), '--arch', arch], { stdio: 'inherit' })
+      execFileSync(process.execPath, [path.join(__dirname, 'scripts/build/build-mac-native.mjs'), '--arch', arch], { stdio: 'inherit' })
     }
     if (context.electronPlatformName === 'win32') {
-      execFileSync(process.execPath, [path.join(__dirname, 'scripts/build-win-native.mjs'), '--arch', arch], { stdio: 'inherit' })
+      execFileSync(process.execPath, [path.join(__dirname, 'scripts/build/build-win-native.mjs'), '--arch', arch], { stdio: 'inherit' })
     }
-    const { createNativeAddonBuildEnv } = require('./scripts/native-addon-build-policy.cjs')
+    const { createNativeAddonBuildEnv } = require('./scripts/build/native-addon-build-policy.cjs')
     // --build-from-source:@electron/rebuild 默认先走 prebuild 下载/缓存路径——run 29914453877 实证
     // 该路径在墙内 runner 上 4-5s「Rebuild Complete」却把 arm64 二进制留在 x64 slice 里(本地真编译
     // 1min+ 则正确)。交叉编译从源码走 node-gyp,确定性换取 ~1-2min/arch。
@@ -332,11 +332,11 @@ module.exports = {
       cwd: __dirname,
       env: nativeBuildEnv,
     })
-    // @@@conpty-payload — 与 scripts/rebuild-native.cjs 同一条:electron-rebuild 重建了整个
+    // @@@conpty-payload — 与 scripts/build/rebuild-native.cjs 同一条:electron-rebuild 重建了整个
     // `build/Release`,node-pty 随包的 `conpty/`(自带 ConPTY,Windows 的 pty 靠它转发终端查询)
     // 不在产物里 ⇒ 不补回来,进包的 Windows 版每条会话都死在 `Failed to load conpty.dll`。
     if (context.electronPlatformName === 'win32') {
-      const { restoreWindowsConptyPayload } = require('./scripts/rebuild-native.cjs')
+      const { restoreWindowsConptyPayload } = require('./scripts/build/rebuild-native.cjs')
       restoreWindowsConptyPayload({ platform: 'win32', arch, root: __dirname })
     }
 
@@ -361,10 +361,10 @@ module.exports = {
   // electron-builder 把 Resources/icon.icns 换成 actool 现派生的那份,实测只有 16/16@2x/128/128@2x
   // 四个档(79 KB)。macOS 26 读 Assets.car 不受影响,但 macOS 25 及更早、DMG 卷图标、Finder 的
   // 「显示简介」大图都只认 icns —— 让它们从 256px 拉到 512 就是肉眼可见的糊。
-  // 所以在这里盖回我们自己那份 10 档完整版(scripts/gen-app-icons.py 产物)。
+  // 所以在这里盖回我们自己那份 10 档完整版(scripts/build/gen-app-icons.py 产物)。
   // ❌ 别改成「不用 .icon」来回避:那样就没有三态了,那是这次换图标的主要目的。
   afterPack: async (context) => {
-    // @@@npm-bundled-deps (#6552):包里的 npm 带上它自己的依赖 —— 理由见 scripts/pack-npm-bundled-deps.cjs。
+    // @@@npm-bundled-deps (#6552):包里的 npm 带上它自己的依赖 —— 理由见 scripts/build/pack-npm-bundled-deps.cjs。
     // 三个平台都要,所以在图标那段(只对 darwin)之前。
     const npmDeps = packNpmBundledDependencies({ appDir: packedAppDir(context), repoRoot: __dirname })
     console.log(`[npm-bundled-deps] npm 的 ${npmDeps} 个 bundled 依赖已进包`)
@@ -378,7 +378,7 @@ module.exports = {
       'icon.icns',
     )
     if (!fs.existsSync(fullIcns)) {
-      throw new Error(`[app-icon] build-resources/icon.icns 不存在 —— 跑 scripts/gen-app-icons.py 重生`)
+      throw new Error(`[app-icon] build-resources/icon.icns 不存在 —— 跑 scripts/build/gen-app-icons.py 重生`)
     }
     if (!fs.existsSync(packed)) {
       throw new Error(`[app-icon] 包里没有 Contents/Resources/icon.icns(${packed}) —— electron-builder 的图标流程变了,先复核再改这里`)
@@ -455,7 +455,7 @@ module.exports = {
   // #41 Chromium's own UI strings (.pak) only for the product's two UI languages; the product picks its
   // language from app.getPreferredSystemLanguages(), not from these files.
   electronLanguages: ['zh-CN', 'en-US'],
-  // @@@electron-fuses (#7195) — 翻哪几项、没翻哪几项及原因,全在 scripts/electron-fuses.cjs。
+  // @@@electron-fuses (#7195) — 翻哪几项、没翻哪几项及原因,全在 scripts/build/electron-fuses.cjs。
   electronFuses: resolveElectronFuses({ tier }),
   extraResources,
   mac: {
@@ -469,7 +469,7 @@ module.exports = {
     ...(t.macAppId ? { appId: t.macAppId } : {}),
     ...(t.macChannel ? { publish: { provider: 'generic', url: t.feedUrl, channel: t.macChannel } } : {}),
     // @@@app-icon-three-state — 指向 Icon Composer 三态包(浅色/深色/跟壁纸取色的着色),
-    // 由 scripts/gen-app-icons.py 从单一源图生成。macOS 26 按用户设置渲其中一种,圆角、玻璃高光、
+    // 由 scripts/build/gen-app-icons.py 从单一源图生成。macOS 26 按用户设置渲其中一种,圆角、玻璃高光、
     // 投影都由系统加,我们只提供一张透明主体图和两个底色。
     // ⚠ 两个代价,都已在别处兜住,别顺手改回 .icns 了事:
     //   1. 出 mac 包的机器必须有 Xcode 26+ —— electron-builder 先跑 `actool --version` 卡版本
@@ -512,7 +512,7 @@ module.exports = {
       '!**/node_modules/node-pty/prebuilds/!(win32-${arch})/**',
       '!**/node_modules/@parcel/watcher-!(win32-${arch})/**',
     ],
-    // 9 档尺寸 16→256,scripts/gen-app-icons.py 生成。此前这一项是空的,electron-builder 只能
+    // 9 档尺寸 16→256,scripts/build/gen-app-icons.py 生成。此前这一项是空的,electron-builder 只能
     // 临时从 icns 转一份出来 —— 尺寸档位由它自己定,任务栏/开始菜单的小尺寸得不到专门优化。
     icon: 'build-resources/icon.ico',
     // @@@windows-ascii-exe - keep the visible productName localized, but make the actual .exe name

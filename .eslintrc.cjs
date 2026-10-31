@@ -1,4 +1,4 @@
-const buttonStyleDebt = require('./scripts/button-style-debt-baseline.json')
+const buttonStyleDebt = require('./scripts/checks/button-style-debt-baseline.json')
 
 // @@@spawnsync-input (#3766) —— 这段是这条缺陷在本仓的**唯一**完整说明,别处只留一行指回这里。
 //
@@ -216,7 +216,7 @@ module.exports = {
     },
     {
       // @@@mjs-lint (#3766) —— `.mjs`/`.mts` 此前根本不在 lint 的 --ext 里,而 #3766 那个会让 CI
-      // 挂死的写法恰恰住在 scripts/git-tree-blobs.mts。闸装在漏掉事发地的位置等于没装,所以纳进来。
+      // 挂死的写法恰恰住在 scripts/checks/git-tree-blobs.mts。闸装在漏掉事发地的位置等于没装,所以纳进来。
       //
       // 纳进来点亮的存量**已经就地清掉**,不是靠在这里整片关规则换绿灯:未用变量 6 处按仓库既有的
       // `_` 前缀约定改掉、正则里的连续空格 2 处改成 {N}、一处 `catch (e) { throw e }` 直接拆掉。

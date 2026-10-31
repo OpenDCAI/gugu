@@ -36,7 +36,7 @@ allowBuilds:
 # @@@single-install (Phase 2) - 有意**不**把 @openai/codex-* 与 @anthropic-ai/claude-agent-sdk-*
 # 共 14 个平台二进制列进 ignoredOptionalDependencies:咕咕真的用它们:apps/desktop/electron/engine-downloader.ts 按
 # `node_modules/@anthropic-ai/claude-agent-sdk-<platform>-<arch>/…` 解析原生 bin,
-# scripts/fetch-acp-adapters.mjs 也依赖同一批包。实测当前 .pnpm 里确有
+# scripts/build/fetch-acp-adapters.mjs 也依赖同一批包。实测当前 .pnpm 里确有
 # @openai+codex@0.142.5-linux-x64 / @anthropic-ai+claude-agent-sdk-linux-x64。
 # 把它们列进 ignore = 静默掐断咕咕的 ACP 引擎,且只在运行时才炸。
 # ignoredBuiltDependencies(cpu-features / ssh2)则在 package.json —— 那两个只是

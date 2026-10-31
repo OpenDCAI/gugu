@@ -17,7 +17,7 @@ import { chatService } from '../../../apps/desktop/src/lib/chat'
 import { createChatProjection } from '../../../apps/desktop/src/lib/chatProjection'
 import { CHAT_KINDS } from '@gugu/core/shared/enums/chatValueModels'
 import { contactsService } from '../../../apps/desktop/src/lib/contacts'
-import { activateDbEnv } from '../../../scripts/build-env-preflight.mts'
+import { activateDbEnv } from '../../../scripts/build/build-env-preflight.mts'
 
 // @@@1170-P3a 产品登录改 OTP-only(authService.login 已删),但测试账号(admin:create-account 建)仍带
 // 密码,test setup 直接走 supabase.auth.signInWithPassword API(测试基建,非产品面)登入 ALICE/BOB。
