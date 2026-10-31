@@ -268,7 +268,7 @@ import {
 import { resolveBootOwner, type BootOwnerAnswer } from './sessionpage/boot-owner'
 import { reconcileSessionpageAgents } from './sessionpage/sessionpage-agent-reaper'
 import { startSessionpageAgentArchivalSync } from './sessionpage/sessionpage-agent-archival'
-import { releaseDeletedOwnedAgent } from './sessionpage/owner-agent-deletion'
+import type { RemovedSessionIdentity } from '@gugu/core/shared/sessionArchival'
 import {
   createHostLocalSessionSource,
   type HostLocalSessionSource,
@@ -1105,19 +1105,28 @@ async function revokeAgentCards(agentUserId: string): Promise<void> {
 /**
  * 设备 runtime 删掉了名册上的一行(主账号与附加账号的宿主同用这一个)。
  * `owner-change`:换账号时归属未知的老行,连会话一起拆(原样)。
- * `cloud-gone`:不可写只撤投递和卡;`cloud-removed`:云端明确 removed,才删除任务历史。
+ * `cloud-gone`:不可写只撤投递和卡;`cloud-removed`:先用云收据归档同一任务,保留历史。
  */
 async function onLocalAgentRosterRemoved(
   agent: { gugu_user_id: string | null; cache?: Record<string, unknown> | null },
   reason: AgentRosterRemovalReason,
+  receipt?: RemovedSessionIdentity,
 ): Promise<void> {
   const agentUserId = agent.gugu_user_id
   if (!agentUserId) return
   if (reason === 'cloud-gone' || reason === 'cloud-removed') {
     const sessionId = cacheString(agent.cache, SESSION_CACHE_KEY) || cacheString(agent.cache, PARKED_SESSION_CACHE_KEY)
+    if (reason === 'cloud-removed' && receipt?.userId !== agentUserId) throw new Error('Confirmed removal receipt does not match the Agent')
     await unregisterSessionpageDeliveryOwners(agentUserId)
     await revokeAgentCards(agentUserId)
-    if (reason === 'cloud-removed' && sessionId) await removeDeletedAgentTask(sessionId)
+    if (reason === 'cloud-removed') {
+      if (sessionId) {
+        const emdash = loadEmdashBridge()
+        if (!emdash) throw new Error('Task runtime is unavailable for confirmed identity removal')
+        const task = (await emdash.emdashSessionpageSessionFacts()).find(row => row.sessionId === sessionId)
+        if (task) await emdash.archiveSession(task.projectId, sessionId, { removeSocialIdentity: true }, receipt)
+      }
+    }
     return
   }
   unregisterSessionpageDeliveryOwners(agentUserId)
@@ -2613,34 +2622,6 @@ ipcMain.on('owned-agents:changed', () => {
 })
 // @@@local-device-self - The renderer should not ask the cloud whether its own machine
 ipcMain.handle('device:get-self-snapshot', () => getLocalDeviceSelfSnapshot())
-
-// The cloud identity is already gone. Local cleanup cannot reverse that receipt.
-async function removeDeletedAgentTask(sessionId: string): Promise<void> {
-  const emdash = loadEmdashBridge()
-  if (!emdash) throw new Error('Task runtime is unavailable for confirmed Agent deletion')
-  await emdash.permanentlyDeleteAgentSession(sessionId)
-}
-
-ipcMain.handle('owned-agent:release-local-footprint', async (_e, arg: unknown) => {
-  const agentUserId = (arg as { agentUserId?: unknown } | null)?.agentUserId
-  if (typeof agentUserId !== 'string' || !agentUserId.trim()) {
-    throw new Error('owned-agent release 缺 agentUserId')
-  }
-  // Preserve the cleanup failure in logs without reporting identity deletion as failed.
-  const log = createLogger('sessionpage/turn-cancel')
-  log.info({ agentUserId }, 'owner delete: release-local-footprint entered')
-  try {
-    const result = await releaseDeletedOwnedAgent(agentUserId, { env: process.env, removeBoundSession: removeDeletedAgentTask })
-    log.info({ agentUserId, ...result }, 'owner delete: release-local-footprint done')
-    return result
-  } catch (error) {
-    log.error(
-      { agentUserId, error: (error as Error).message },
-      'owner delete: confirmed identity deletion; local cleanup failed',
-    )
-    throw error
-  }
-})
 
 // @@@share-card-rename 改名也有两半,云端与本机 —— 与删除(release-local-footprint)对称。
 // 云端那半是 identity.users.display_name(聊天页 / 通讯录 / 名片海报读它);本机那半是花名册 agents.json

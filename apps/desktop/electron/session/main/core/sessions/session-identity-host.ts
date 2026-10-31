@@ -2,7 +2,7 @@ import type { RemovedSessionIdentity } from '@gugu/core/shared/sessionArchival';
 
 /** Identity belongs to the host; the session backend owns archive/restore ordering. */
 export interface SessionIdentityHost {
-  archive(sessionId: string): Promise<RemovedSessionIdentity | null>;
+  archive(sessionId: string, confirmedRemoval?: RemovedSessionIdentity): Promise<RemovedSessionIdentity | null>;
   release(identity: RemovedSessionIdentity): Promise<void>;
   restore(target: { projectId: string; sessionId: string }, identity: RemovedSessionIdentity): Promise<void>;
 }

@@ -16,7 +16,6 @@ import { chatService } from '../lib/chat'
 import { useUnreadLocatorNavigation } from '../hooks/useUnreadLocatorNavigation'; import { useQueuedMessageIds } from '../hooks/useQueuedMessageIds'
 import { useSourceMessageReveal } from '../hooks/useSourceMessageReveal'
 import { useChatHistoryPagination } from './chat/useChatHistoryPagination'
-import { useGroupCollabRemovedAgentGate } from '../hooks/useGroupCollabRemovedAgentGate'
 import { useGroupCollabLoader, EMPTY_GROUP_COLLAB } from '../hooks/useGroupCollabLoader'
 import { useTopicScopedMemberProfile } from '../hooks/useTopicScopedMemberProfile'
 import { ForwardMessageDialog } from './chat/ForwardMessageDialog'
@@ -181,11 +180,8 @@ function ChatAreaSurface({ viewportKey = 'chats', assistantChat = false, activeT
   const flashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const isAtBottomRef = useRef(true)
 
-  // @@@local-sync (#948) — 群名册内存镜像 cache(首帧 roster + #1877 删 Agent 收敛),与 loader / removed-agent-gate 共享 → 在此声明后传入两个 hook。
+  // 群名册缓存只铺首帧;身份变动后的成员集合由 loader 重读 active_members。
   const groupRosterMemoryCacheRef = useRef<Map<string, GroupCollabSnapshot>>(new Map())
-
-  // @@@1877 删本机 Agent 后群名册即时收敛闸门(即时剔除 + 内存/持久/SWR-merge 三层 reseed 封堵，见 useGroupCollabRemovedAgentGate):
-  const { prune: pruneRemovedAgentsFromCollab, mergeAndPrune: mergeGroupCollabPruned } = useGroupCollabRemovedAgentGate(user?.id, setGroupCollabSnapshot, groupRosterMemoryCacheRef)
 
   // @@@2169 群协作加载子系统(SWR 首帧 + 权威加载)抽到 useGroupCollabLoader,给冻结 god 文件抵消行数。
   const { loadGroupCollab, resetGroupCollabForChat, error: groupCollabError } = useGroupCollabLoader({
@@ -194,8 +190,6 @@ function ChatAreaSurface({ viewportKey = 'chats', assistantChat = false, activeT
     userId: user?.id, getImRepository,
     setGroupCollabSnapshot,
     groupRosterMemoryCacheRef,
-    pruneRemovedAgentsFromCollab,
-    mergeGroupCollabPruned,
   })
 
   // Reset transient state when active chat changes

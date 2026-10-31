@@ -9,7 +9,7 @@ export { injectEmdashPromptDetached } from '../session/main/core/acp/inject-prom
 export { setSessionIdentityHost } from '../session/main/core/sessions/session-identity-host'
 export { recordConfirmedDeviceSleep } from '../session/main/core/activity/collector'
 export { readAssistantWorkOwnerReceipts } from '../session/main/core/sessions/assistant-work-owner-receipts'
-export { permanentlyDeleteAgentSession } from '../session/main/core/sessions/permanently-delete-agent-session'
+export { archiveSession } from '../session/main/core/sessions/archiveSession'
 export {
   bootEmdashModule,
   startNativeConversationInboxHost,

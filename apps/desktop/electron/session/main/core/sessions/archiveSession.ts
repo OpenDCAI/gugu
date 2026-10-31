@@ -11,6 +11,7 @@ import { cleanupDetachedSessions, sessionWorkspaceManager } from './session-work
 import { log } from '@main/lib/logger';
 import { setSessionArchival, sessionArchivalState, serializeSessionArchival } from './session-archival';
 import { sessionIdentityHost } from './session-identity-host';
+import { archiveTimestamp, type RemovedSessionIdentity } from '@gugu/core/shared/sessionArchival';
 import { archiveOnOtherMachine, familyOf } from './session-family';
 import { mapSessionRowToSession } from './utils';
 import { publishProjectVisibility } from '../projects/operations/project-visibility';
@@ -43,8 +44,14 @@ import {
 export async function archiveSession(
   projectId: string,
   sessionId: string,
-  options: { withChildren?: boolean; skipTransportStop?: boolean; removeSocialIdentity?: boolean } = {}
+  options: { withChildren?: boolean; skipTransportStop?: boolean; removeSocialIdentity?: boolean } = {},
+  // Trusted host input only; the renderer RPC deliberately exposes just the first three arguments.
+  confirmedRemoval?: RemovedSessionIdentity
 ): Promise<ArchiveOutcome> {
+  if (confirmedRemoval) {
+    if (!confirmedRemoval.userId || options.removeSocialIdentity === false) throw new Error('Invalid confirmed identity removal');
+    archiveTimestamp(confirmedRemoval.removedAt);
+  }
   if (options.removeSocialIdentity !== undefined && typeof options.removeSocialIdentity !== 'boolean') throw new Error('removeSocialIdentity must be a boolean');
   const [row] = await db
     .select({ archivedAt: sessions.archivedAt })
@@ -65,19 +72,19 @@ export async function archiveSession(
       archived.push({ projectId: member.projectId, sessionId: member.id });
     }
   }
-  archived.push(...(await archiveOne(projectId, sessionId, options.skipTransportStop, options.removeSocialIdentity)));
+  archived.push(...(await archiveOne(projectId, sessionId, options.skipTransportStop, options.removeSocialIdentity, confirmedRemoval)));
   return { archived, unreached };
 }
 
 /**
  * 本机的一条:状态和拒投区间一起落库,再停运行时。工作区保留;身份按显式选项处理。
  */
-async function archiveOne(projectId: string, sessionId: string, skipTransportStop = false, removeSocialIdentity = true): Promise<ArchivedSessionRef[]> {
-  return serializeSessionArchival(sessionId, () => archiveOneLocked(projectId, sessionId, skipTransportStop, removeSocialIdentity));
+async function archiveOne(projectId: string, sessionId: string, skipTransportStop = false, removeSocialIdentity = true, confirmedRemoval?: RemovedSessionIdentity): Promise<ArchivedSessionRef[]> {
+  return serializeSessionArchival(sessionId, () => archiveOneLocked(projectId, sessionId, skipTransportStop, removeSocialIdentity, confirmedRemoval));
 }
 
 /** Caller holds serializeSessionArchival. */
-export async function archiveOneLocked(projectId: string, sessionId: string, skipTransportStop: boolean, removeSocialIdentity = true): Promise<ArchivedSessionRef[]> {
+export async function archiveOneLocked(projectId: string, sessionId: string, skipTransportStop: boolean, removeSocialIdentity = true, confirmedRemoval?: RemovedSessionIdentity): Promise<ArchivedSessionRef[]> {
   const [row] = await db
     .select({ runtime: sessions.runtime, archivedAt: sessions.archivedAt })
     .from(sessions)
@@ -87,7 +94,8 @@ export async function archiveOneLocked(projectId: string, sessionId: string, ski
   const previous = sessionArchivalState(sessionId)!;
   if (row.archivedAt && !removeSocialIdentity) return [];
   // No local half state: failed/offline identity removal leaves this task unarchived.
-  const removedIdentity = previous.removedIdentity ?? (removeSocialIdentity ? await sessionIdentityHost().archive(sessionId) : null);
+  if (confirmedRemoval && previous.removedIdentity && confirmedRemoval.userId !== previous.removedIdentity.userId) throw new Error('Removed identity does not match the archival receipt');
+  const removedIdentity = previous.removedIdentity ?? (removeSocialIdentity ? await sessionIdentityHost().archive(sessionId, confirmedRemoval) : null);
   if (row.archivedAt && !removedIdentity) return [];
   const archivedAt = row.archivedAt && previous.removedIdentity
     ? row.archivedAt : setSessionArchival(sessionId, true, new Date().toISOString(), removedIdentity);
@@ -99,8 +107,8 @@ export async function archiveOneLocked(projectId: string, sessionId: string, ski
   });
   sessionEvents._emit('session:archived', sessionId);
   await stopSessionRuntime(projectId, sessionId, row.runtime, skipTransportStop);
-  if (removedIdentity) await sessionIdentityHost().release(removedIdentity);
   await publishProjectVisibility(projectId);
+  if (removedIdentity) await sessionIdentityHost().release(removedIdentity);
   return row.archivedAt && previous.removedIdentity ? [] : [{ projectId, sessionId }];
 }
 

@@ -138,10 +138,18 @@ export function createSessionpageIdentityHost(deps: SessionpageIdentityHostDeps)
   }
   return {
     provisionDeps,
-    async archive(sessionId) {
+    async archive(sessionId, confirmedRemoval) {
       const auth = await deps.getAuth()
-      if (!auth) throw new Error('Removing the identity needs a connection; retry, or archive without removing it.')
-      const agent = await localAgentForSession(sessionId, env, auth.userId)
+      if (!auth) {
+        const bound = await localAgentForSession(sessionId, env)
+        if (!bound?.gugu_user_id && !confirmedRemoval) return null
+        throw new Error('Removing the identity needs a connection; retry, or archive without removing it.')
+      }
+      const agent = await localAgentForSession(sessionId, env, auth.userId, Boolean(confirmedRemoval))
+      if (confirmedRemoval) {
+        if (agent?.gugu_user_id !== confirmedRemoval.userId) throw new Error('Confirmed removal no longer matches the task identity');
+        return confirmedRemoval
+      }
       if (!agent?.gugu_user_id) return null
       try {
         const receipt = await archiveIdentity(makeIdentityClient(auth.accessToken), agent.gugu_user_id)

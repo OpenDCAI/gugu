@@ -26,7 +26,6 @@ import { messageItemFromRow, MESSAGES_VIEW_SELECT, type RawMessageRow } from '@g
 import { resolveOrLoud } from '@gugu/core/shared/resolveOrLoud'
 import { readDeviceDisplayIdentities, readDisplayIdentities } from './identityReadAdapter'
 import type { DisplayIdentity } from './displayIdentity'
-import { rendererLogger } from './log'
 import { markMemberUnread } from './chatMemberReadState'
 import { i18n } from '@/i18n'
 import { platform } from '../platform'
@@ -76,7 +75,6 @@ import {
   uploadCanonicalGroupAvatar,
 } from './chatCanonicalStorage'
 import { writeIdempotentChatMessage } from './chatMessageWriter'
-import { findTombstonedGroupMemberIds } from './groupMemberIdentity'
 import { readGroupMemberIdentities } from './chatGroupIdentity'
 import { requireThreadCapableChat } from './chatThreadGate'
 import { addGroupAgent, type GroupAgentJoinOutcome, groupJoinError, listMyAgentJoinRequests } from './groupAgentJoinService'
@@ -86,7 +84,6 @@ export type {
   MessageMutationPatch,
   WindowRevalidation,
 } from './chatMessageRevalidation'
-const identityLog = rendererLogger('chat/identity')
 
 
 type GroupCollabMemberRow = {
@@ -659,7 +656,7 @@ export const chatService = {
         if (result.error) throw new Error(`${label}: ${result.error.message}`)
         return result.data
       }
-      const members = (read('chat_members', membersResult) ?? []) as GroupCollabMemberRow[]
+      const members = (read('active_members', membersResult) ?? []) as GroupCollabMemberRow[]
       const tasksRaw = (read('group_tasks', tasksResult) ?? []) as GroupCollabTaskRow[]
       const agentStatesRaw = (read('group_agent_states', agentStatesResult) ?? []) as GroupCollabAgentStateRow[]
       const outputsRaw = (read('group_outputs', outputsResult) ?? []) as GroupCollabOutputRow[]
@@ -679,17 +676,11 @@ export const chatService = {
       throw new GroupCollabEmptyError()
     }
 
-    const unresolvedMemberIds = members
-      .map((member) => member.user_id)
-      .filter((userId) => !usersById.has(userId))
-    const removedAgentIds = await findTombstonedGroupMemberIds(
-      unresolvedMemberIds,
-      (userId) => collabIdentityDb.rpc('get_agent_presence', { p_agent_user_id: userId })
-    )
     const baseMembers = members.map((member) => {
-      const type = usersById.get(member.user_id)?.type ?? (removedAgentIds.has(member.user_id) ? 'agent' : 'human')
-      if (!usersById.has(member.user_id) && type === 'human') identityLog.error({ userId: member.user_id }, '[resolve-fail #1624] group member identity unresolved')
-      return { id: member.user_id, role: normalizeGroupRole(member.role), type, account_status: type === 'agent' ? (removedAgentIds.has(member.user_id) ? 'removed' : 'active') : null } as GroupMemberItem
+      const identity = usersById.get(member.user_id)
+      if (!identity) throw new Error(`Active group member identity is unavailable: ${member.user_id}`)
+      return { id: member.user_id, role: normalizeGroupRole(member.role), type: identity.type,
+        account_status: identity.type === 'agent' ? 'active' : null } as GroupMemberItem
     })
     const humans = baseMembers.filter((member) => member.type !== 'agent')
     // #857 Listen Mode：从原始成员行建 user_id→listen_mode 映射（DB CHECK 约束保证合法值，非法则回落 active）。
