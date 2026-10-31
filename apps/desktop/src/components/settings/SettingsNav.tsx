@@ -20,6 +20,8 @@ import {
   Activity,
   Folder,
   FolderFilled,
+  SquarePen,
+  SquarePenFilled,
 } from '@/lib/icons'
 import { useTranslation } from 'react-i18next'
 
@@ -136,7 +138,7 @@ const NAV_ITEMS: NavItem[] = [
   { key: 'phone',   labelKey: 'settings.nav.phone', il: <IlPhone />,   ib: <IbPhone />   },
   { key: 'about',   labelKey: 'settings.nav.about', il: <IlAbout />,   ib: <IbAbout />   },
   // 会话页画的那几格(product spec)。同一套 Solar linear / bold,尺寸与上面这些一样。
-  { key: 'sessions', labelKey: 'settings.nav.sessions', il: null, ib: null },
+  { key: 'sessions', labelKey: 'settings.nav.sessions', il: <SquarePen size={15} />, ib: <SquarePenFilled size={15} /> },
   { key: 'interface', labelKey: 'settings.nav.interface', il: <Palette size={15} />, ib: <PaletteFilled size={15} /> },
   { key: 'resource-monitor', labelKey: 'settings.nav.resource-monitor', il: <Activity size={15} />, ib: <Activity size={15} /> },
   { key: 'browser', labelKey: 'settings.nav.browser', il: <Globe size={15} />, ib: <GlobeFilled size={15} /> },
