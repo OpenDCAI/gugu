@@ -16,7 +16,7 @@ const seq = (value: number) => value as Seq;
 const EXIT: ExitFact = { cause: { name: 'Lost', message: 'adapter exited' }, code: 1, signal: null };
 
 function rig(options: { block?: StageName; delayReceipt?: boolean; dispatchThrowsOnce?: boolean; markReadFailsOnce?: boolean;
-  failAt?: StageName; exitBeforeFail?: boolean; teardownThrowsOnce?: boolean; reportFailureThrowsOnce?: boolean; commitThrowsOnSignOutHold?: boolean } = {}) {
+  failAt?: StageName; exitBeforeFail?: boolean; holdEndDependents?: Promise<void>; teardownThrowsOnce?: boolean; reportFailureThrowsOnce?: boolean; commitThrowsOnSignOutHold?: boolean } = {}) {
   const records = new Map<string, { owner: string | null; hold: Hold | null; archived: boolean }>();
   const rows = new Map<Seq, PendingRow>();
   const settled = new Set<Seq>();
@@ -63,7 +63,7 @@ function rig(options: { block?: StageName; delayReceipt?: boolean; dispatchThrow
     settleRead(_id, s) { settled.add(s); },
     remove(id) { records.delete(id); for (const row of rows.values()) if (row.sessionId === id) rows.delete(row.seq); },
   };
-  const ports: SessionLifePorts = { store, ownerOf: async id => records.get(id)?.owner ?? null,
+  const ports: SessionLifePorts = { store, ownedBy: async (id, user) => records.get(id)?.owner === user,
     adapter() {
       return { leg: 'acp', timing: 'next-tool-call',
         async run<K extends StageName>(at: K, _have: unknown, ctx: { gen: Gen; signal: AbortSignal }): Promise<StageOut[K]> {
@@ -86,7 +86,7 @@ function rig(options: { block?: StageName; delayReceipt?: boolean; dispatchThrow
           if (throwOnce) { throwOnce = false; throw new Error('worker RPC failed'); } return options.delayReceipt ? receipt.promise : { result: 'accepted', nativeReceiptId: row.message.id }; },
         async teardown(have) { trace.push('teardown'); if (teardownThrows) { teardownThrows = false; throw new Error('teardown failed'); } for (const lease of Object.values(have)) active.delete(lease); },
         onExit(_have, cb) { exitCallbacks.push(cb); return () => { trace.push('unlisten'); }; },
-        async endDependents() { trace.push('end-dependents'); },
+        async endDependents() { trace.push('end-dependents'); if (options.holdEndDependents) await options.holdEndDependents; trace.push('end-dependents-done'); },
       } satisfies LegAdapter;
     },
     markRead: async row => { if (markFailOnce) { markFailOnce = false; throw new Error('read marker failed'); } marked.push(row.seq); }, reportFailure: async (_rows, cause) => { if (reportThrows) { reportThrows = false; throw new Error('report failed'); } trace.push(`failure:${cause.name}`); },
@@ -162,7 +162,21 @@ export const ownerCases: readonly { name: string; run: () => Promise<void> }[] =
     }
     const r = rig(); r.session(); await r.owner.signIn('A');
     await r.owner.interrupt('s', { k: 'interrupt', reason: 'delete' });
-    assert.deepEqual(r.trace, ['end-dependents']); assert.deepEqual(r.removed, ['s']);
+    assert.deepEqual(r.trace, ['end-dependents', 'end-dependents-done']); assert.deepEqual(r.removed, ['s']);
+  } },
+  { name: 'a session id re-created right after delete starts only after the deleted entry finished its IO', async run() {
+    const held = deferred<void>();
+    const r = rig({ holdEndDependents: held.promise }); r.session(); await r.owner.signIn('A'); r.owner.start('s');
+    await r.owner.quiescent('s');
+    const deleting = r.owner.interrupt('s', { k: 'interrupt', reason: 'delete' });
+    while (!r.removed.includes('s')) await new Promise(resolve => setTimeout(resolve, 0));
+    r.session(); r.owner.start('s');
+    await new Promise(resolve => setTimeout(resolve, 0));
+    assert.equal(r.trace.filter(line => line.endsWith(':identity')).length, 1);
+    held.resolve(); await deleting; await r.owner.quiescent('s');
+    const done = r.trace.indexOf('end-dependents-done'); const second = r.trace.lastIndexOf('stage:1:identity');
+    assert.ok(done >= 0 && second > done, JSON.stringify(r.trace));
+    assert.equal(r.owner.read('s').kind, 'ready'); assert.deepEqual(r.failures, []);
   } },
   { name: 'delete removes the actor without publishing an archived projection', async run() {
     const r = rig(); r.session(); await r.owner.signIn('A'); r.owner.start('s'); await r.owner.quiescent('s');

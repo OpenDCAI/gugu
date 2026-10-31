@@ -130,3 +130,6 @@ export const sessionStartStageChannel = defineEvent<{
   /** 这一步开始的时刻(ms);`stage` 为 null 时省略。 */
   since?: number;
 }>('session:start-stage');
+
+/** session-life: the single lifecycle projection of an ACP session, published after every transition. */
+export const sessionLifeViewChannel = defineEvent<import('./session-life').LifeView>('session:life-view');

@@ -348,6 +348,12 @@ export async function acpWorkerLease(): Promise<{
  * 没有续期定时器要收。这时用 `getAcpRuntimeClient()` 会**为了收尾而先起一个进程**,那是收尾自己
  * 制造出要收的东西。
  */
+/** The raw worker client only if the worker is up (#4467: cleanup never spawns a worker to clean up). */
+export async function peekAcpWorkerClient(): Promise<AcpRuntimeProcessClient | null> {
+  const handle = await acpWorker.peek();
+  return handle ? handle.client as AcpRuntimeProcessClient : null;
+}
+
 export async function peekAcpRuntimeClient(): Promise<AcpRuntimeClient | null> {
   const handle = await acpWorker.peek();
   return handle ? decorateAcpRuntimeHandle(handle).client : null;

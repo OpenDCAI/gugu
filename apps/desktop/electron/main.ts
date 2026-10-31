@@ -2567,18 +2567,42 @@ function handOffWechatIfAny(): void {
 // F33 渲染进程的协调器每接受一次会话(登录、每次续期)都写这份镜像,登出 / 会话永久丢失时清掉 ——
 // 这就是它把令牌推给主进程的那一条路,主进程记下来,平时的 getAuth 就不再问渲染进程。
 // 先记再写盘:落盘失败也不该让主进程继续用续期前的那份。
+// session-life runs for exactly one account. Its sign-out tears sessions down with the old credentials, so it is
+// awaited before they are replaced or cleared (contract v3.1 #10); a renewal of the same account changes nothing.
+let sessionLifeBooted = false
+/** Booted ⇒ the bridge is loaded; a missing bridge here is a broken boot, said loudly. */
+function bootedSessionLife() {
+  const bridge = loadEmdashBridge()
+  if (!bridge) throw new Error('session-life: the session page module is not loaded')
+  return bridge.sessionLife()
+}
+function pushedUserId(): string | null {
+  return typeof pushedHumanAuth === 'object' ? pushedHumanAuth?.userId ?? null : null
+}
+async function sessionLifeLeaveIfChanging(nextUserId: string | null): Promise<void> {
+  const current = pushedUserId()
+  if (sessionLifeBooted && current && current !== nextUserId) await bootedSessionLife().signOut()
+}
+async function sessionLifeEnter(): Promise<void> {
+  const userId = pushedUserId()
+  if (sessionLifeBooted && userId) await bootedSessionLife().signIn(userId)
+}
 ipcMain.handle('human-auth-session:write', async (_event, session: unknown) => {
+  const mirror = session as Parameters<typeof writeHumanAuthSession>[0]
+  const next = runtimeAuthFromSupabaseTokens({ accessToken: mirror.access_token, refreshToken: mirror.refresh_token })
+  await sessionLifeLeaveIfChanging(next?.userId ?? null)
   try {
-    const mirror = session as Parameters<typeof writeHumanAuthSession>[0]
     pushedHumanAuth = undefined
-    pushedHumanAuth = runtimeAuthFromSupabaseTokens({ accessToken: mirror.access_token, refreshToken: mirror.refresh_token })
+    pushedHumanAuth = next
     projectionDeviceRuntime.invalidate() // Revoke the old identity before awaiting persistence.
     return await writeHumanAuthSession(mirror)
   } finally {
     onHumanAuthSessionChanged()
+    await sessionLifeEnter()
   }
 })
 ipcMain.handle('human-auth-session:clear', async (_event, reason: unknown) => {
+  await sessionLifeLeaveIfChanging(null)
   try {
     pushedHumanAuth = reason === 'lost' ? 'lost' : null
     projectionDeviceRuntime.invalidate() // Disk deletion must not extend the old account's authority.
@@ -6058,6 +6082,12 @@ app.whenReady().then(async () => {
     })
     platformCredentialsBoot = emdashBoot.catch(() => undefined)
     refreshPlatformCredentials()
+    // session-life signs in once the backend that owns it is up; later account changes come through the auth IPC.
+    void emdashBoot.then(async () => {
+      sessionLifeBooted = true
+      const auth = await desktopAuthProvider().getAuth()
+      if (auth?.userId) await bootedSessionLife().signIn(auth.userId)
+    }).catch((error: unknown) => createLogger('session-life').error({ error: String(error) }, 'session-life could not sign in at boot'))
     void emdashBoot.then(() => {
       emdash.onAgentStatus(change => {
         if (change.reading?.status !== 'working') void assistantPanel.publish(change.sessionId).catch(() => {

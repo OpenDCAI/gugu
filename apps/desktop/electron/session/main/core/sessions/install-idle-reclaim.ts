@@ -126,7 +126,7 @@ export function installIdleReclaim(sources: { agentStatus: StatusSource }): () =
     watchedRemotely: (sessionId) => sharedRemotePaneRoute().watching(sessionId),
     sessionsWithLiveTerminals: () => withTerminals,
     stop: async (target) => {
-      if (!(await stopExactSessionpageSession({ ...target, onlyIfIdle: true }))) {
+      if (!(await stopExactSessionpageSession({ ...target, reason: 'idle-reap' }))) {
         throw new Error('session row is gone');
       }
       await closeSessionBrowserTools(target.sessionId);

@@ -50,7 +50,7 @@ function liveSessions(providerId: SubscriptionProvider): LiveSession[] {
 async function stopForSwitch(session: LiveSession): Promise<boolean> {
   for (let attempt = 1; ; attempt++) {
     try {
-      return await stopExactSessionpageSession(session);
+      return await stopExactSessionpageSession({ ...session, reason: 'version-switch' });
     } catch (error) {
       const pending = typeof error === 'object' && error !== null && 'code' in error && error.code === 'stop_pending';
       if (!pending || attempt >= STOP_ATTEMPTS) throw error;

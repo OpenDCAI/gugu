@@ -17,7 +17,8 @@ describe('0042 session pending', () => {
     sql.exec(`
       INSERT INTO workspaces (id, type, kind, location, path, key) VALUES ('root', 'local', 'project-root', 'local', '/repo', 'root');
       INSERT INTO projects (id, name, path, repository_workspace_id) VALUES ('p', 'P', '/repo', 'root');
-      INSERT INTO sessions (id, project_id, workspace_id, title, config) VALUES ('s', 'p', 'root', 'T', '${outbox}');
+      INSERT INTO sessions (id, project_id, workspace_id, title, config, runtime) VALUES ('s', 'p', 'root', 'T', '${outbox}', 'acp');
+      INSERT INTO sessions (id, project_id, workspace_id, title, config) VALUES ('pty', 'p', 'root', 'P', '${outbox.replaceAll('m-', 'p-')}');
       INSERT INTO messages (id, session_id, content, sender, metadata) VALUES
         ('m-unknown', 's', 'lost', 'user', '{"kind":"ordinary-message","state":"outcome-unknown"}'),
         ('m-accepted', 's', 'done', 'user', '{"kind":"session-direct","state":"accepted","nativeReceiptId":"r1"}');
@@ -33,9 +34,12 @@ describe('0042 session pending', () => {
       { message_id: 'm-accepted', kind: 'session-direct', state: 'accepted', native_receipt_id: 'r1' },
     ]);
     expect(sql.prepare('SELECT content FROM messages WHERE id = ?').get('m-direct')).toEqual({ content: 'third' });
-    expect(JSON.parse((sql.prepare('SELECT config FROM sessions').get() as { config: string }).config)).toEqual({ name: 'kept' });
+    expect(JSON.parse((sql.prepare("SELECT config FROM sessions WHERE id = 's'").get() as { config: string }).config)).toEqual({ name: 'kept' });
+    // A leg not yet in session-life keeps its own queue untouched.
+    expect(JSON.parse((sql.prepare("SELECT config FROM sessions WHERE id = 'pty'").get() as { config: string }).config)).toEqual(JSON.parse(outbox.replaceAll('m-', 'p-')));
+    expect(sql.prepare("SELECT count(*) AS n FROM session_pending WHERE session_id = 'pty'").get()).toEqual({ n: 0 });
     expect(sql.prepare("SELECT count(*) AS n FROM messages WHERE json_extract(metadata,'$.state') IS NOT NULL").get()).toEqual({ n: 0 });
-    expect(sql.prepare('SELECT life_hold FROM sessions').get()).toEqual({ life_hold: null });
+    expect(sql.prepare("SELECT life_hold FROM sessions WHERE id = 's'").get()).toEqual({ life_hold: null });
     expect(sql.pragma('foreign_key_check')).toEqual([]);
   });
 });

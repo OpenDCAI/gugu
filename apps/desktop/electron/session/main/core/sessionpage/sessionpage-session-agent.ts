@@ -1,5 +1,5 @@
 import { listAgents, type LocalAgentRecord } from '@gugu/core'
-import { AGENT_OWNER_CACHE_KEY, agentsForOwner } from '@gugu/core/local/state/agentOwner'
+import { AGENT_OWNER_CACHE_KEY, agentOwnerUserId, agentsForOwner } from '@gugu/core/local/state/agentOwner'
 
 /** Roster cache keys written by the host's session-page provisioning flow. */
 export const SESSIONPAGE_SESSION_CACHE_KEY = 'emdash_session_id'
@@ -48,6 +48,16 @@ export async function agentIdsBySession(env: NodeJS.ProcessEnv): Promise<Map<str
     if (sessionId && agent.gugu_user_id) ids.set(sessionId, `user:${agent.gugu_user_id}`)
   }
   return ids
+}
+
+/**
+ * Exact canonical owner (session-life hydrate): the session's active binding names exactly this account.
+ * Unknown owner is not "possibly this account" here — that wide reading stays with agentsForOwner.
+ */
+export async function sessionOwnedBy(sessionId: string, env: NodeJS.ProcessEnv, userId: string): Promise<boolean> {
+  const active = (await listAgents(env, { includeGuests: true })).filter((agent) => cached(agent, SESSIONPAGE_SESSION_CACHE_KEY) === sessionId)
+  if (active.length > 1) throw new Error(`session-page identity lookup: session ${sessionId} has ${active.length} active bindings`)
+  return active.length === 1 && agentOwnerUserId(active[0]) === userId
 }
 
 export async function guguAgentUserIdForSession(

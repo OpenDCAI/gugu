@@ -1,5 +1,6 @@
 import { sessionBootTasks } from '../boot-tasks';
 import { drainSessionMessageOutbox } from './sendMessage';
+import { sessionLife } from './session-life';
 import { and, eq } from 'drizzle-orm';
 import { db } from '@main/db/client';
 import { projects, sessions } from '@main/db/schema';
@@ -83,6 +84,8 @@ export async function archiveOneLocked(projectId: string, sessionId: string, ski
     .limit(1);
   if (!row || row.archivedAt) return [];
 
+  // session-life archives first: it refuses later deliveries and fails the queued rows before the flag lands.
+  if (row.runtime === 'acp') await sessionLife().interrupt(sessionId, { k: 'interrupt', reason: 'archive' });
   const archivedAt = setSessionArchival(sessionId, true);
   await stopSessionRuntime(projectId, sessionId, row.runtime, skipTransportStop);
 
@@ -114,6 +117,11 @@ export async function restoreSession(
   sessionId: string
 ): Promise<Session> {
   const restored = await serializeSessionArchival(sessionId, () => restoreSessionLocked(projectId, sessionId));
+  // ACP: session-life restores to dormant without starting (its archived rows already failed).
+  if (restored.runtime === 'acp') {
+    sessionLife().restore(sessionId);
+    return restored;
+  }
   // Run after releasing the archival lock: the existing router may wake this task through that lock.
   // Restore admits the retained outbox exactly once, without replaying any dispatching receipt.
   await sessionBootTasks.run('restore-outbox', sessionId, () => drainSessionMessageOutbox({ projectId, sessionId }));
@@ -169,11 +177,7 @@ async function stopSessionRuntime(
     return;
   }
   if (skipTransportStop) return;
-  if (runtime === 'acp') {
-    const result = await (await getAcpRuntimeClient()).stopSession({ sessionId });
-    if (!result.success) throw new Error('failed to stop ACP session');
-    return;
-  }
+  if (runtime === 'acp') return; // stopped by session-life's archive transition (archiveOneLocked)
   const project = projectManager.getProject(projectId);
   if (project) await cleanupDetachedSessions(projectId, sessionId, project.ctx);
 }

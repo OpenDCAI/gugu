@@ -33,6 +33,7 @@ function isDeliveryRejectedBeforeAdmission(error: unknown): boolean {
   return (error as { deliveryRejectedBeforeAdmission?: unknown } | null)?.deliveryRejectedBeforeAdmission === true;
 }
 import { events } from '@main/lib/events';
+import { sessionLife } from './session-life';
 import { sessionDeliveryFailedChannel } from '@shared/core/sessions/sessionEvents';
 import type { SessionMessageDelivery } from '@shared/core/sessions/sessions';
 
@@ -470,6 +471,8 @@ async function drain(params: {
 }): Promise<void> {
   for (;;) {
     const row = await readSession(params);
+    // The old outbox must never see an ACP session: its only queue is session_pending.
+    if (row.runtime === 'acp') throw new Error(`ACP session ${params.sessionId} is owned by session-life; the legacy outbox must not touch it`);
     const pending = nextPendingSessionMessage(
       row.config,
       (message) => message.kind !== 'session-direct',
@@ -541,8 +544,30 @@ async function drain(params: {
  * retain the existing durable outbox behavior.
  */
 const directAdmissions = new Map<string, { signature: string; flight: Promise<SendSessionMessageResult> }>();
+/** session-life owns ACP sessions (②); other runtimes keep this module's outbox until their own PR (③④⑤). */
+function runtimeOf(sessionId: string): string | null {
+  const row = db.select({ runtime: sessions.runtime }).from(sessions).where(eq(sessions.id, sessionId)).get();
+  if (!row) throw new Error('session not found');
+  return row.runtime;
+}
+
+function enqueueIntoLife(params: SendSessionMessageParams): SendSessionMessageResult {
+  const receipt = sessionLife().enqueue({
+    sessionId: params.sessionId, messageId: params.clientMessageId, text: params.text,
+    kind: params.kind === 'session-direct' ? 'session-direct' : 'ordinary',
+    ...(params.delivery ? { delivery: params.delivery } : {}),
+  });
+  switch (receipt.state) {
+    case 'queued': case 'dispatching': return { id: params.clientMessageId, status: 'queued' };
+    case 'accepted': return { id: params.clientMessageId, status: 'delivered' };
+    case 'unknown': return { id: params.clientMessageId, status: 'outcome-unknown' };
+    case 'failed': throw new SessionDirectDeliveryError(params.sessionId, `message ${params.clientMessageId} already failed`);
+  }
+}
+
 export async function sendMessage(params: SendSessionMessageParams): Promise<SendSessionMessageResult> {
   params.signal?.throwIfAborted();
+  if (runtimeOf(params.sessionId) === 'acp') return enqueueIntoLife(params);
   if (params.kind !== 'session-direct' || params.queuedStartupDelegation) return sendMessageOnce(params);
   const key = params.clientMessageId.trim();
   const signature = JSON.stringify([params.projectId, params.sessionId, sessionDirectMessageIdentity(params.text.trim(),key), params.delivery ?? null]);
@@ -780,10 +805,11 @@ export async function drainAllSessionMessageOutboxes(): Promise<void> {
       id: sessions.id,
       projectId: sessions.projectId,
       archivedAt: sessions.archivedAt,
+      runtime: sessions.runtime,
     })
     .from(sessions)
     .all();
-  const targets = rows.filter((row) => !row.archivedAt);
+  const targets = rows.filter((row) => !row.archivedAt && row.runtime !== 'acp');
   await Promise.all(targets.map((row) => sessionBootTasks.run('outbox-drain', row.id, async () => {
     try {
       const task = db.select({ config: sessions.config }).from(sessions).where(eq(sessions.id, row.id)).get();

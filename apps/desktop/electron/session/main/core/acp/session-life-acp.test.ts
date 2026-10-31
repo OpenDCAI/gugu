@@ -11,6 +11,8 @@ const h = vi.hoisted(() => ({
   release: vi.fn(async (_id: string) => undefined),
   forks: [] as Array<{ runtimeSessionId: string; sourceSessionId: string; status: 'active' | 'closed' }>,
   identity: null as unknown,
+  workerUp: true,
+  closeFork: vi.fn(async (_id: string) => undefined),
 }));
 
 vi.mock('./agent-status-bridge', () => ({
@@ -19,12 +21,13 @@ vi.mock('./agent-status-bridge', () => ({
 vi.mock('./runtime-process/host', () => ({
   acpWorkerLease: async () => ({ client: h.client, onGone: (cb: (cause: string) => void) => { h.gone = cb; return () => { h.gone = null; }; } }),
   stopAcpSessionAndSettle: h.stopAndSettle,
+  peekAcpWorkerClient: async () => h.workerUp ? h.client : null,
   readSessionInjectionFacts: async () => ({ agentDisplayName: undefined }),
   provisionStartIdentity: async () => h.identity,
 }));
 vi.mock('./inject-prompt', () => ({ injectEmdashPromptDetached: h.inject }));
 vi.mock('./emdash-platform-injector', () => ({ releaseEmdashPlatformSession: h.release }));
-vi.mock('@main/core/sessions/runtime-fork-ownership', () => ({ recordRuntimeForkOwnership: vi.fn(), readRuntimeForkOwnership: async () => h.forks }));
+vi.mock('@main/core/sessions/runtime-fork-ownership', () => ({ recordRuntimeForkOwnership: vi.fn(), readRuntimeForkOwnership: async () => h.forks, closeRuntimeForkOwnershipForRuntimeSession: h.closeFork }));
 vi.mock('@main/core/projects/utils', () => ({ resolveWorkspace: () => ({ path: '/repo' }) }));
 vi.mock('@main/core/sessions/getSessions', () => ({ getSessions: async () => [{ id: 's', runtime: 'acp', providerId: 'claude', projectId: 'p', workspaceId: 'w', providerSessionId: null }] }));
 vi.mock('@main/core/sessions/session-service', () => ({ sessionService: {} }));
@@ -40,7 +43,7 @@ const row = { seq: 1, sessionId: 's', kind: 'ordinary', state: 'dispatching', me
 const processLease = async () => (await acpWorkerLease()) as unknown as ProcessLease;
 
 describe('session-life ACP leg', () => {
-  beforeEach(() => { h.watchers.clear(); h.gone = null; h.forks = []; h.identity = null; vi.clearAllMocks(); });
+  beforeEach(() => { h.watchers.clear(); h.gone = null; h.forks = []; h.identity = null; h.workerUp = true; vi.clearAllMocks(); });
 
   it('one exit per attempt, from whichever fact ends the session first', async () => {
     const process = await processLease();
@@ -108,6 +111,14 @@ describe('session-life ACP leg', () => {
     h.stopAndSettle.mockImplementation(async (_client, id) => { if (id === 'view-1') throw new Error('view-1 stuck'); });
     await expect(createAcpLegAdapter('s').endDependents()).rejects.toThrow(/1 runtime fork\(s\) of session s did not stop/);
     expect(h.stopAndSettle.mock.calls.map(([, id]) => id)).toEqual(['view-1', 'view-2']);
+  });
+
+  it('with no worker up, ending dependents never spawns one: the forks are gone, only their records are closed', async () => {
+    h.workerUp = false;
+    h.forks = [{ runtimeSessionId: 'view-1', sourceSessionId: 's', status: 'active' }];
+    await createAcpLegAdapter('s').endDependents();
+    expect(h.stopAndSettle).not.toHaveBeenCalled();
+    expect(h.closeFork).toHaveBeenCalledWith('view-1');
   });
 
   it('identity: a persisted session without a provisionable identity fails the identity stage', async () => {

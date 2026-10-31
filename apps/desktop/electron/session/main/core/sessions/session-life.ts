@@ -28,8 +28,8 @@ export interface LifeStore {
 export interface SessionLifePorts {
   readonly store: LifeStore;
   adapter(sessionId: string): LegAdapter;
-  /** Exact existing canonical-binding owner. Unknown is null, never "possibly this account". */
-  ownerOf(sessionId: string): Promise<string | null>;
+  /** Hydrate only: the session's canonical binding names exactly this account (unknown owner = false). */
+  ownedBy(sessionId: string, userId: string): Promise<boolean>;
   markRead(row: PendingRow): Promise<void>;
   reportFailure(rows: readonly PendingRow[], cause: SerializedError): Promise<void>;
   publish(view: LifeView): void;
@@ -63,6 +63,8 @@ function terminal(life: Life): boolean { return life.kind === 'dormant' || life.
  */
 export class SessionLife {
   private readonly entries = new Map<string, Entry>();
+  /** IO of a removed entry still running: a new entry of the same id starts behind it. */
+  private readonly draining = new Map<string, Promise<void>>();
   private epoch = 0;
   private account: string | null = null;
   /** The last queued auth transition; null = idle. The only fact saying whether a transition is in progress. */
@@ -76,7 +78,7 @@ export class SessionLife {
     const existing = this.entries.get(sessionId);
     if (existing) return existing;
     const entry: Entry = { life: hydrateLife(this.ports.store.read(sessionId)), attempt: 0,
-      version: 0, since: this.ports.now(), run: null, effects: Promise.resolve() };
+      version: 0, since: this.ports.now(), run: null, effects: this.draining.get(sessionId) ?? Promise.resolve() };
     this.entries.set(sessionId, entry);
     return entry;
   }
@@ -124,7 +126,7 @@ export class SessionLife {
     this.epoch += 1;
     for (const sessionId of this.ports.store.sessions()) {
       // v3.1 #8: only boot hydrate filters by owner; old rows of unknown or foreign bindings stay put.
-      if (await this.ports.ownerOf(sessionId) !== userId) continue;
+      if (!await this.ports.ownedBy(sessionId, userId)) continue;
       this.ports.store.claim(sessionId);
       const entry = this.entry(sessionId);
       if (entry.life.kind === 'dormant' && entry.life.hold?.reason === 'sign-out') {
@@ -248,6 +250,10 @@ export class SessionLife {
       }
     });
     entry.effects = current;
+    if (removed) {
+      this.draining.set(sessionId, current);
+      void current.then(() => { if (this.draining.get(sessionId) === current) this.draining.delete(sessionId); });
+    }
     void current.then(() => {
       if (this.entries.get(sessionId) === entry && entry.effects === current && entry.life.kind === 'stopping') {
         this.send(sessionId, { k: 'settled', gen: entry.life.gen });

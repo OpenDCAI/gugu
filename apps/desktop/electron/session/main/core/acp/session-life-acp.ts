@@ -5,14 +5,14 @@ import type {
 import { resolveWorkspace } from '@main/core/projects/utils';
 import { getSessions } from '@main/core/sessions/getSessions';
 import { sessionService } from '@main/core/sessions/session-service';
-import { readRuntimeForkOwnership, recordRuntimeForkOwnership } from '@main/core/sessions/runtime-fork-ownership';
+import { closeRuntimeForkOwnershipForRuntimeSession, readRuntimeForkOwnership, recordRuntimeForkOwnership } from '@main/core/sessions/runtime-fork-ownership';
 import type { LegAdapter } from '../sessions/session-life-adapter';
 import { acpAgentStatusBridge } from './agent-status-bridge';
 import type { EmdashSessionIdentity } from './emdash-mcp-injector';
 import { releaseEmdashPlatformSession } from './emdash-platform-injector';
 import { injectEmdashPromptDetached } from './inject-prompt';
 import {
-  type AcpRuntimeClient, acpWorkerLease, callSessionStart, persistProviderSessionMissing, persistReturnedProviderSessionId,
+  type AcpRuntimeClient, acpWorkerLease, callSessionStart, peekAcpWorkerClient, persistProviderSessionMissing, persistReturnedProviderSessionId,
   persistSessionMcpServers, provisionStartIdentity, readSessionInjectionFacts, stopAcpSessionAndSettle, withEmdashMcpInjection,
   withEmdashPlatformInjection, withHostResolvedCli,
 } from './runtime-process/host';
@@ -149,7 +149,13 @@ export function createAcpLegAdapter(sessionId: string): LegAdapter {
       return (stages[at] as (have: unknown, signal: AbortSignal, gen: Gen) => Promise<StageOut[typeof at]>)(have, ctx.signal, ctx.gen);
     },
     async dispatch(_have, pending) {
-      const sent = await injectEmdashPromptDetached(sessionId, pending.message.text, { origin: 'manual' });
+      const delivery = pending.message.delivery;
+      // The row carries the sender's delivery choice; an envelope's own origin is still read from its text.
+      const sent = await injectEmdashPromptDetached(sessionId, pending.message.text, {
+        ...(delivery?.origin ? { origin: delivery.origin } : {}),
+        ...(delivery?.coalesceKey ? { coalesceKey: delivery.coalesceKey } : {}),
+        ...(delivery?.attachments?.length ? { attachments: delivery.attachments } : {}),
+      });
       if (sent.outcome === 'declined' || sent.outcome === 'missing') {
         return { result: 'rejected-before-admission', cause: { name: 'AdmissionDeclined', message: `The ACP runtime ${sent.outcome === 'missing' ? 'has no such session' : 'declined the prompt'}` } };
       }
@@ -165,8 +171,10 @@ export function createAcpLegAdapter(sessionId: string): LegAdapter {
       const forks = (await readRuntimeForkOwnership())
         .filter(fork => fork.sourceSessionId === sessionId && fork.status === 'active').map(fork => fork.runtimeSessionId);
       if (!forks.length) return;
-      const { client } = await acpWorkerLease();
-      const failures = (await Promise.allSettled(forks.map(id => stopAcpSessionAndSettle(client, id))))
+      // No worker up ⇒ no fork process exists (#4467: never spawn one to stop it); only its record is left.
+      const client = await peekAcpWorkerClient();
+      const end = (id: string) => client ? stopAcpSessionAndSettle(client, id) : closeRuntimeForkOwnershipForRuntimeSession(id);
+      const failures = (await Promise.allSettled(forks.map(end)))
         .flatMap(result => result.status === 'rejected' ? [result.reason] : []);
       if (failures.length) throw new AggregateError(failures, `${failures.length} runtime fork(s) of session ${sessionId} did not stop`);
     },

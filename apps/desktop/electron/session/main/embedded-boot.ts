@@ -271,6 +271,8 @@ export {
 } from '@main/core/agents/platform-model-catalog-hook'
 // @@@sessionpage TASKPAGE-FUSION — re-export the MCP-injector setter on the module boundary so the gugu
 // host can give session-page codex sessions the gugu MCP send tool + gugu identity at session start.
+export { sessionLife }
+export { setSessionLifeSourceHost } from '@main/core/sessions/session-life-host'
 export {
   setEmdashMcpInjector,
   setEmdashIdentityProvisioner,
@@ -357,6 +359,13 @@ import {
   type SessionScope,
 } from '@shared/core/sessions/sessionEvents'
 import { log } from '@main/lib/logger'
+import { events } from '@main/lib/events'
+import { installSessionLife, sessionLife } from '@main/core/sessions/session-life'
+import { lifeStore } from '@main/core/sessions/session-pending'
+import { sessionLifeSources } from '@main/core/sessions/session-life-host'
+import { createAcpLegAdapter } from '@main/core/acp/session-life-acp'
+import { sessionOwnedBy } from '@main/core/sessionpage/sessionpage-session-agent'
+import { sessionLifeViewChannel } from '@shared/core/sessions/sessionEvents'
 import { guguNodeTarget, installGuguNode } from './core/pty/gugu-node'
 import { createStageLedger, type StageLedger } from '@main/lib/stage-ledger'
 import { openProject } from '@main/core/projects/operations/openProject'
@@ -478,23 +487,15 @@ export async function bootSessionHostCore(options: SessionHostBootOptions): Prom
   // 删 0600 settings 文档 + 清续期定时器)。少这条腿,归档在用户眼里结束了,凭证还留在盘上。
   // 由组合根接线(与 setEmdashPlatform* 那批同形):session-main 的中心件不该静态引 ACP host 的模块级 scope。
   // ⚠️ worker 没起就什么都不做:那意味着一条 ACP 会话都不存在,把它叫醒等于收尾自己制造出要收的东西。
-  setSessionAcpSessionStopper(async ({ sessionId }) => {
-    const client = await peekAcpRuntimeClient()
-    if (!client) return
+  setSessionAcpSessionStopper(async ({ sessionId }, mode) => {
     const [row] = await db
       .select({ runtime: sessions.runtime })
       .from(sessions)
       .where(eq(sessions.id, sessionId))
       .limit(1)
     if (row?.runtime !== 'acp') return
-    const result = await client.stopSession({ sessionId }).catch((error: unknown) => {
-      log.warn('session teardown: ACP session stop threw', { sessionId, error: String(error) })
-      return null
-    })
-    // 归档在用户眼里已经发生了,没停干净不该把整个归档判失败;响亮记一笔。
-    if (result && !result.success) {
-      log.warn('session teardown: ACP session stop reported an error', { sessionId, error: result.error })
-    }
+    // session-life owns the stop (an archive repeated on an archived session changes nothing).
+    await sessionLife().interrupt(sessionId, { k: 'interrupt', reason: mode === 'archive' ? 'archive' : 'user-stop' })
   })
 
   // --- The half of the bridge that acts (#2374). Installed here rather than beside the attach
@@ -537,6 +538,19 @@ export async function bootSessionHostCore(options: SessionHostBootOptions): Prom
   )
   // 开门即已迁完(退役的 lifecycle 条目在门里先迁走);同上面两段一样不等占用判定。
   await setSessionMessageOutboxReady()
+  // session-life: the single owner of ACP session lifecycle. Installed before any entry can deliver; the host signs
+  // it in once its account is known.
+  installSessionLife({
+    store: lifeStore,
+    adapter: createAcpLegAdapter,
+    ownedBy: (sessionId, userId) => sessionOwnedBy(sessionId, process.env, userId),
+    markRead: row => sessionLifeSources.markRead(row),
+    reportFailure: (rows, cause) => sessionLifeSources.reportFailure(rows, cause),
+    publish: view => events.emit(sessionLifeViewChannel, view),
+    removed: sessionId => log.info('session-life: session removed', { sessionId }),
+    failed: (sessionId, error) => log.error('session-life: failure', { sessionId, error: String(error) }),
+    now: Date.now,
+  })
   // #6892 起任何 agent / worker 之前问一次系统代理,只补给 agent 与安装器(utils/systemProxyEnv.ts)。
   log.info('[session-host] system proxy for agent processes', await resolveSystemProxy((url) => electronSession.defaultSession.resolveProxy(url)))
 

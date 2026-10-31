@@ -119,6 +119,9 @@ export {
   setSessionHostLocale,
   setEmdashMcpInjector,
   setEmdashIdentityProvisioner,
+  // session-life: the ACP lifecycle owner, and the host's cloud-source hooks for its pending rows.
+  sessionLife,
+  setSessionLifeSourceHost,
   // @@@2503 平台额度:给走咕咕模型的 Chat UI(ACP)会话按会话签发中转令牌并随 `_meta` 送进适配器。
   setEmdashPlatformInjector,
   setPlatformRecoveryReadyGate,

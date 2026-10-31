@@ -42,6 +42,7 @@ import { rememberBirthGroup } from '@main/core/sessions/birth-groups';
 import type { BirthGroup } from '@shared/core/sessions/create-session';
 import { rememberedProviderOf, resolveSessionProviderSelection, sessionpageLegFor } from '@shared/core/sessions/provider-selection';
 import type { NewSessionMemory } from '@shared/core/app-settings';
+import { sessionLife } from './session-life';
 import { createStageLedger } from '@main/lib/stage-ledger';
 import { events } from '@main/lib/events';
 import {
@@ -492,11 +493,13 @@ function runtimeError(result: { error: { type: string; message?: string } }): Er
   return new Error(result.error.message ?? result.error.type);
 }
 
-async function stopSessionTransport(target: SessionRow, onlyIfIdle = false): Promise<void> {
+/** Why a session stops: a person, the idle reclaimer, or a restart for new configuration (no stop barrier). */
+export type SessionStopReason = 'user-stop' | 'idle-reap' | 'version-switch';
+
+async function stopSessionTransport(target: SessionRow, reason: SessionStopReason = 'user-stop'): Promise<void> {
   if (transportOf(target) === 'acp') {
-    const result = await (await getAcpRuntimeClient()).stopSession({ sessionId: target.id, ...(onlyIfIdle ? { onlyIfIdle: true } : {}) });
-    if (!result.success && result.error.type === 'stop_pending') throw Object.assign(new Error('stop_pending: executor is still stopping; check session_get before reporting it stopped'), { code: 'stop_pending' });
-    if (!result.success) throw runtimeError(result);
+    // session-life owns the stop: an idle-reap is declined by Life itself when the session is not free.
+    await sessionLife().interrupt(target.id, { k: 'interrupt', reason });
     // 状态桥要等下一次摘要推送才看得到这条会话没了;回执 ❌ 抢在它前面读到旧的 working(#6095 的 ACP 面)。
     // 停这一端自己把「被打断」交给写入者(与终端腿 stopSession 同一个写口),桥随后那一次是空操作。
     await agentStatusWriter.settleSessionExited({ sessionId: target.id, projectId: target.projectId });
@@ -663,14 +666,14 @@ async function startSpawnedSession(input: {
 export async function stopExactSessionpageSession(target: {
   projectId: string;
   sessionId: string;
-  onlyIfIdle?: boolean;
+  reason?: SessionStopReason;
 }): Promise<boolean> {
   const rows = await projectSessionRows(target.projectId);
   const session = rows.find((row) =>
     row.id === target.sessionId && row.projectId === target.projectId
   );
   if (!session) return false;
-  await stopSessionTransport(session, target.onlyIfIdle);
+  await stopSessionTransport(session, target.reason);
   return true;
 }
 

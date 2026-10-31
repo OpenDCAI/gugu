@@ -77,7 +77,8 @@ export function enqueuePending(input: EnqueuePending): { inserted: boolean; seq:
 }
 
 export const lifeStore: LifeStore = {
-  sessions: () => db.select({ id: sessions.id }).from(sessions).all().map(row => row.id),
+  // Legs move into Life one by one (②: ACP). Other runtimes keep their own queue until their PR.
+  sessions: () => db.select({ id: sessions.id }).from(sessions).where(eq(sessions.runtime, 'acp')).all().map(row => row.id),
   read(sessionId) {
     const row = db.select({ archivedAt: sessions.archivedAt, hold: sessions.lifeHold }).from(sessions).where(eq(sessions.id, sessionId)).get();
     if (!row) throw new Error(`Session ${sessionId} not found`);
