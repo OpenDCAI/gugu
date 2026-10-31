@@ -167,7 +167,9 @@
 .gg-partners .gg-partners-picker > [role='dialog'] { flex: 1; height: auto; max-height: none; }
 
 .gg-phone-project-avatar { position: relative; display: inline-flex; }
-.gg-phone-project-attention { position: absolute; top: 0; right: 0; width: 8px; height: 8px; border-radius: var(--radius-capsule); background: var(--warn); }
+.gg-phone-project-attention { position: absolute; top: 0; right: 0; width: 8px; height: 8px; border-radius: var(--radius-capsule); }
+.gg-phone-project-attention[data-attention='needs_user'] { background: var(--agent-tone-needs-user); }
+.gg-phone-project-attention[data-attention='error'] { background: var(--agent-tone-error); }
 .gg-project-avatar {
   flex: none;
   display: block;
