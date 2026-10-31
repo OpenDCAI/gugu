@@ -16,6 +16,7 @@ function ProjectChatAvatar({ chat, children }: { chat: ChatItem; children: React
   const statuses = useAgentDisplayStatuses(chat.member_user_ids ?? [])
   if (!project) return children
   const running = Object.values(statuses).filter((status) => status === 'working').length
-  const waiting = mostUrgentAttention(Object.values(statuses)) !== null
-  return <span className="gg-phone-project-avatar"><ProjectFolderAvatar coverId={project.coverId} running={running} size={48} />{waiting ? <span className="gg-phone-project-attention" data-testid="phone-project-waiting" aria-hidden /> : null}</span>
+  // 角标颜色按要人处理的是哪一种:需要你 = 黄、出错 = 红,与桌面同一组色(--agent-tone-*)。
+  const attention = mostUrgentAttention(Object.values(statuses))
+  return <span className="gg-phone-project-avatar"><ProjectFolderAvatar coverId={project.coverId} running={running} size={48} />{attention ? <span className="gg-phone-project-attention" data-testid="phone-project-waiting" data-attention={attention} aria-hidden /> : null}</span>
 }
