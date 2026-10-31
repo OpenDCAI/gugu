@@ -6,6 +6,8 @@ import { useSessionSourceMessage } from './use-session-source-message';
 import { canQueueNativeInput, queueNativeInput } from './queue-native-input';
 import { useConversationVisibility } from '@/components/chat/useConversationVisibility';
 import { useNativeConversationRead } from '@/hooks/useNativeConversationRead';
+import { takeTaskReveal } from '@/hooks/useSourceMessageReveal';
+import { UI_EVENTS } from '@/lib/uiEvents';
 import { SessionInputQueue } from '@/components/chat/SessionInputQueue';
 import { NeedsYouSlot } from '@/components/needsYou/NeedsYouSlot';
 import { takeComposerCarry, useComposerVerb } from '@/lib/composerVerbBridge';
@@ -1878,6 +1880,19 @@ export const AcpChatPanel = observer(function AcpChatPanel({
     setHeroSlot(null);
     setOverlaySlot(null);
   }, [bindGoneView]);
+  // A message found by search (the command palette) is revealed once this task's view is on screen, now or when it opens.
+  const sessionId = store?.sessionId;
+  const revealSearched = sourceMessage.reveal;
+  useEffect(() => {
+    if (!chatView || !sessionId) return;
+    const take = () => {
+      const reference = takeTaskReveal(sessionId);
+      if (reference) revealSearched(reference);
+    };
+    take();
+    window.addEventListener(UI_EVENTS.chatAsked, take);
+    return () => window.removeEventListener(UI_EVENTS.chatAsked, take);
+  }, [chatView, sessionId, revealSearched]);
 
   /**
    * 滚到顶 ⇒ 往上翻一页(#5381)。
