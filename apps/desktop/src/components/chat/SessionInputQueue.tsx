@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import { confirmSessionInputs, retrySessionInputs, useQueuedSessionInputs } from '@/lib/sessionInputOutboxBridge'
 import { useTranslation } from 'react-i18next'
+import type { TFunction } from 'i18next'
+import type { SessionInputFailure } from '@/lib/sessionInputOutbox'
 import { readMessageQuote } from '@gugu/core/shared/ui/messageQuote'
 import { conversationQuoteText } from '@session-chat/state/conversation-quote-text'
 import { MessageSendingIndicator } from './MessageSendingIndicator'
@@ -32,8 +34,8 @@ export function SessionInputQueue({ sessionId, confirmedClientMessageIds = NO_CO
         {conversationQuoteText(readMessageQuote(input.text)?.body ?? input.text)}
         {input.attachments?.map(attachment => <div key={attachment.type === 'attachment' ? attachment.id : attachment.originalPath}>{attachment.name ?? t('message.attachment')}</div>)}
       </div>
-      {input.error ? <div className="flex items-center gap-2 text-sm">
-        <span role="alert">{messageForUser(input.error)}</span>
+      {input.failure ? <div className="flex items-center gap-2 text-sm">
+        <span role="alert">{failureText(input.failure, t)}</span>
         <Button size="xs" variant="ghost" onClick={() => { void retry() }}>{t('common.retry')}</Button>
       </div> : <div className="flex items-center gap-1 text-xs text-foreground-muted" role="status">
         <MessageSendingIndicator label={t('message.sendStatus.pending')} />
@@ -41,4 +43,14 @@ export function SessionInputQueue({ sessionId, confirmedClientMessageIds = NO_CO
       </div>}
     </div>)}
   </div>
+}
+
+function failureText(failure: SessionInputFailure, t: TFunction<'messaging'>): string {
+  switch (failure.code) {
+    case 'host-offline': return t('message.sendStatus.failure.hostOffline')
+    case 'host-not-ready': return t('message.sendStatus.failure.hostNotReady')
+    case 'phone-unconfirmed': return t('message.sendStatus.failure.phoneUnconfirmed')
+    case 'no-acknowledgement': return t('message.sendStatus.failure.noAcknowledgement')
+    case 'send-failed': return messageForUser(failure.message)
+  }
 }

@@ -76,7 +76,7 @@ describe('native input shell lifecycle', () => {
     expect(harness.container.innerHTML).not.toContain(source.itemId)
     expect(harness.container.innerHTML).not.toContain('/Users/')
     expect(harness.container.textContent).not.toContain('Waiting for host')
-    await vi.waitFor(() => expect(harness.container.querySelector('[role="alert"]')?.textContent).toBe('Session host is offline'))
+    await vi.waitFor(() => expect(harness.container.querySelector('[role="alert"]')?.textContent).toBe('The computer running this task is offline. Retry once it is back online.'))
     expect(scope.send).not.toHaveBeenCalled()
     scope.devices = [{ device_id: 'host-a', is_online: true, capabilities: {} }]
     await harness.render(<><SessionInputOutboxHost accountId={scope.owner} /><SessionInputQueue sessionId="session-a" /></>)
@@ -172,7 +172,7 @@ describe('native input shell lifecycle', () => {
     scope.phoneSend.mockResolvedValue({ accepted })
     await harness.render(<><SessionInputOutboxHost accountId={scope.owner} /><SessionInputQueue sessionId="phone-session" /></>)
     await act(async () => { await enqueueSessionInput({ deviceId: 'phone', sessionId: 'phone-session', text: 'not yet accepted' }) })
-    await vi.waitFor(() => expect(harness.container.querySelector('[role="alert"]')?.textContent).toBe('Phone host has not acknowledged the input'))
+    await vi.waitFor(() => expect(harness.container.querySelector('[role="alert"]')?.textContent).toBe('Your phone has not confirmed this message yet. Retry in a moment.'))
     expect(harness.container.querySelector('[data-native-input-id]')).not.toBeNull()
   })
 

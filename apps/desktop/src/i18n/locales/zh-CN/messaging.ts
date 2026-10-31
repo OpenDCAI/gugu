@@ -759,7 +759,13 @@ export default {
       "failedHint": "未送达，点击重试或丢弃",
       "queued": "发送中，助理就绪后回复",
       "sending": "发送中",
-      "pending": "发送中…"
+      "pending": "发送中…",
+      "failure": {
+        "hostOffline": "这个任务所在的电脑现在不在线，等它上线后点重试",
+        "hostNotReady": "这个任务所在的电脑还没准备好接收消息，稍后点重试",
+        "phoneUnconfirmed": "手机还没确认收到这条消息，稍后点重试",
+        "noAcknowledgement": "任务没有回应，稍后点重试"
+      }
     },
     "showQuoted": "跳到被引用的消息",
     "taskCard": {

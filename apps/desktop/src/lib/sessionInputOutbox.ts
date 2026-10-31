@@ -1,9 +1,19 @@
 export type SessionInput = {
   id: string; accountId: string; deviceId: string | null; sessionId: string; text: string; createdAt: number
   attachments?: import('@gugu/session-core/session-record/contract').SessionpageSessionSendRequest['attachments']
-  error?: string
+  failure?: SessionInputFailure
   /** The send reply arrived; the recorded confirmation may still be in flight. */
   sent?: true
+}
+/** Failures the sender itself names; any other send error keeps the host's own words. */
+export type SessionInputFailure =
+  | { code: 'host-offline' }
+  | { code: 'host-not-ready' }
+  | { code: 'phone-unconfirmed' }
+  | { code: 'no-acknowledgement' }
+  | { code: 'send-failed'; message: string }
+export class SessionInputFailureError extends Error {
+  constructor(readonly failure: Exclude<SessionInputFailure, { code: 'send-failed' }>) { super(failure.code) }
 }
 export interface SessionInputStorage {
   list(accountId: string): Promise<SessionInput[]>
@@ -51,7 +61,7 @@ export class SessionInputOutbox {
     return written
   }
 
-  private update(id: string, patch: Partial<Pick<SessionInput, 'error' | 'sent'>>): Promise<boolean> {
+  private update(id: string, patch: Partial<Pick<SessionInput, 'failure' | 'sent'>>): Promise<boolean> {
     return this.write(async () => {
       if (!this.current()) return false
       const input = (await this.list()).find(input => input.id === id)
@@ -80,12 +90,13 @@ export class SessionInputOutbox {
       const target = `${input.deviceId ?? 'local'}/${input.sessionId}`
       if (input.sent || blocked.has(target)) continue
       try {
-        if (!await this.update(input.id, { error: undefined })) continue
+        if (!await this.update(input.id, { failure: undefined })) continue
         await withSessionInputDeadline(this.send(input))
-        await this.update(input.id, { sent: true, error: undefined })
+        await this.update(input.id, { sent: true, failure: undefined })
       } catch (error) {
         blocked.add(target)
-        await this.update(input.id, { error: error instanceof Error ? error.message : String(error) })
+        await this.update(input.id, { failure: error instanceof SessionInputFailureError ? error.failure
+          : { code: 'send-failed', message: error instanceof Error ? error.message : String(error) } })
       }
     }
   }
@@ -101,7 +112,7 @@ export async function withSessionInputDeadline<T>(operation: Promise<T>, timeout
   let timer: ReturnType<typeof setTimeout> | undefined
   try {
     return await Promise.race([operation, new Promise<never>((_, reject) => {
-      timer = setTimeout(() => reject(new Error('Native session input acknowledgement timed out')), timeoutMs)
+      timer = setTimeout(() => reject(new SessionInputFailureError({ code: 'no-acknowledgement' })), timeoutMs)
     })])
   } finally { if (timer) clearTimeout(timer) }
 }

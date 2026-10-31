@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import 'fake-indexeddb/auto'
 import { IDBFactory } from 'fake-indexeddb'
-import { confirmedSessionInputIds, openSessionInputStorage, SessionInputOutbox, type SessionInput } from '../../../../apps/desktop/src/lib/sessionInputOutbox'
+import { confirmedSessionInputIds, openSessionInputStorage, SessionInputOutbox, withSessionInputDeadline, type SessionInput } from '../../../../apps/desktop/src/lib/sessionInputOutbox'
 import type { TranscriptTurn } from '@gugu/session-core/acp/client'
 
 describe('native session input persistence', () => {
@@ -110,4 +110,16 @@ it('keeps an image and its caption in one durable request across a reopened data
   expect(received).toEqual([expect.objectContaining({ id: input.id, text: 'look at this', attachments })])
   await restored.confirm('agent', [input.id])
   expect(await restored.list()).toEqual([])
+})
+
+it('stores a missing acknowledgement as its failure code and keeps a host refusal in the host words', async () => {
+  const storage = await openSessionInputStorage(new IDBFactory())
+  let send = (_input: SessionInput) => withSessionInputDeadline(new Promise<void>(() => {}), 1)
+  const outbox = new SessionInputOutbox('owner', storage, input => send(input), () => true)
+  const input = await outbox.enqueue({ deviceId: null, sessionId: 'agent', text: 'silent host' })
+  await outbox.flush()
+  expect((await outbox.list())[0]).toMatchObject({ id: input.id, failure: { code: 'no-acknowledgement' } })
+  send = async () => { throw new Error('Provider login expired') }
+  await outbox.flush()
+  expect((await outbox.list())[0]).toMatchObject({ id: input.id, failure: { code: 'send-failed', message: 'Provider login expired' } })
 })
