@@ -36,6 +36,15 @@ describe('包里的 npm 带上它自己的依赖 (#6552)', () => {
     expect(fs.existsSync(path.join(appDir, 'node_modules', 'npm', 'node_modules', 'graceful-fs', 'package.json'))).toBe(true)
   })
 
+  test('npm bundled dependencies do not reintroduce nested source maps after files filtering', () => {
+    const sourceModules = path.join(sourceNpm, 'node_modules')
+    const sourceMaps = fs.readdirSync(sourceModules, { recursive: true, encoding: 'utf8' }).filter((file) => file.endsWith('.map'))
+    expect(sourceMaps.length).toBeGreaterThan(0)
+    packNpmBundledDependencies({ appDir, repoRoot })
+    const packedModules = path.join(appDir, 'node_modules', 'npm', 'node_modules')
+    expect(fs.readdirSync(packedModules, { recursive: true, encoding: 'utf8' }).filter((file) => file.endsWith('.map'))).toEqual([])
+  })
+
   test('包里没有 npm 就让打包失败', () => {
     fs.rmSync(path.join(appDir, 'node_modules', 'npm'), { recursive: true, force: true })
     expect(() => packNpmBundledDependencies({ appDir, repoRoot })).toThrow(/包里没有 npm/)
