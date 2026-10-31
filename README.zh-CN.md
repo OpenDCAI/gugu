@@ -22,16 +22,16 @@
 ### 基础功能
 
 <table>
-<tr><td width="50%" valign="top"><h3>01 · 工作台</h3><a href="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-chat-file-split-motion-card-20261031-v64.gif"><img src="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-chat-file-split-motion-card-20261031-v64.gif" width="100%" alt="工作台"></a><p>多个任务同屏处理；会话、文件、网页和终端也能并排，或者拖成独立窗口。</p></td><td width="50%" valign="top"><h3>02 · 文件与交付</h3><a href="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-group-folder-edit-zh-20261031-v66.webp"><img src="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-group-folder-edit-zh-20261031-v66.webp" width="100%" alt="文件与交付"></a><p>在群文件夹里一起写文档：@ Agent 后，它的修改直接出现在你打开的文件里。（等待段 ×2 快放）</p></td></tr>
+<tr><td width="50%" valign="top"><h3>01 · 工作台</h3><a href="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-chat-file-split-motion-card-20261031-v66.webp"><img src="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-chat-file-split-motion-card-20261031-v66.webp" width="100%" alt="工作台"></a><p>多个任务同屏处理；会话、文件、网页和终端也能并排，或者拖成独立窗口。</p></td><td width="50%" valign="top"><h3>02 · 文件与交付</h3><a href="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-group-folder-edit-zh-20261031-v66.webp"><img src="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-group-folder-edit-zh-20261031-v66.webp" width="100%" alt="文件与交付"></a><p>在群文件夹里一起写文档：@ Agent 后，它的修改直接出现在你打开的文件里。（等待段 ×2 快放）</p></td></tr>
 <tr><td><a href="#workspace-details">看实际使用</a></td><td><a href="#files-details">看实际使用</a></td></tr>
-<tr><td width="50%" valign="top"><h3>03 · 个人助理</h3><a href="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-connected-apps-card-20261031-v64.webp"><img src="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-connected-apps-card-20261031-v64.webp" width="100%" alt="个人助理"></a><p>在个人助理里交流和交办任务，把已连接的外部服务交给它使用。</p></td><td width="50%" valign="top"><h3>04 · 模型与订阅</h3><a href="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-seven-day-usage-card-20261031-v64.webp"><img src="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-seven-day-usage-card-20261031-v64.webp" width="100%" alt="模型与订阅"></a><p>沿用已有订阅或 API 配置，按任务选择模型；通过用量图和资源监视器查看使用情况。</p></td></tr>
+<tr><td width="50%" valign="top"><h3>03 · 个人助理</h3><a href="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-connected-apps-card-20261031-v64.webp"><img src="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-connected-apps-card-20261031-v64.webp" width="100%" alt="个人助理"></a><p>在个人助理里交流和交办任务，把已连接的外部服务交给它使用。</p></td><td width="50%" valign="top"><h3>04 · 模型与订阅</h3><a href="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-seven-day-usage-card-20261031-v66.webp"><img src="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-seven-day-usage-card-20261031-v66.webp" width="100%" alt="模型与订阅"></a><p>沿用已有订阅或 API 配置，按任务选择模型；通过用量图和资源监视器查看使用情况。</p></td></tr>
 <tr><td><a href="#assistant-details">看实际使用</a></td><td><a href="#models-details">看实际使用</a></td></tr>
 </table>
 
 ### 进阶与开发者功能
 
 <table>
-<tr><td width="50%" valign="top"><h3>05 · 多 Agent 协作</h3><a href="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-parent-and-children-card-20261031-v64.webp"><img src="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-parent-and-children-card-20261031-v64.webp" width="100%" alt="多 Agent 协作"></a><p>把大任务交给一个 Agent，它拆给其他 Agent 并行处理；你可以单独跟进每个 Agent 的状态和结果。</p></td><td width="50%" valign="top"><h3>06 · Gugu App</h3><a href="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-app-market-install-zh-20261031-v66.webp"><img src="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-app-market-install-zh-20261031-v66.webp" width="100%" alt="Gugu App"></a><p>从市场查看 App 详情、确认安装，再在客户端打开已安装的 App；版本和启用状态也在这里管理。</p></td></tr>
+<tr><td width="50%" valign="top"><h3>05 · 多 Agent 协作</h3><a href="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-parent-and-children-card-20261031-v66.webp"><img src="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-parent-and-children-card-20261031-v66.webp" width="100%" alt="多 Agent 协作"></a><p>把大任务交给一个 Agent，它拆给其他 Agent 并行处理；你可以单独跟进每个 Agent 的状态和结果。</p></td><td width="50%" valign="top"><h3>06 · Gugu App</h3><a href="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-app-market-install-zh-20261031-v66.webp"><img src="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-app-market-install-zh-20261031-v66.webp" width="100%" alt="Gugu App"></a><p>从市场查看 App 详情、确认安装，再在客户端打开已安装的 App；版本和启用状态也在这里管理。</p></td></tr>
 <tr><td><a href="#agents-details">看实际使用</a></td><td><a href="#apps-details">看实际使用</a></td></tr>
 <tr><td width="50%" valign="top"><h3>07 · MCP 与 Skills</h3><a href="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-session-tools-card-20261031-v64.webp"><img src="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-session-tools-card-20261031-v64.webp" width="100%" alt="MCP 与 Skills"></a><p>在资源库管理咕咕自己的 MCP、查看各引擎已有配置，在会话里选择工具，并使用 App 带来的工具和 Skills。</p></td><td width="50%" valign="top"><h3>08 · 设备与行动</h3><a href="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-device-overview-card-20261031-v64.webp"><img src="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-device-overview-card-20261031-v64.webp" width="100%" alt="设备能力、Browser Use 与 Computer Use"></a><p>Agent 跑在具体的电脑或服务器上，按任务调用设备能力；通过 Browser Use 与 Computer Use，把网页和电脑上的操作接进任务。</p></td></tr>
 <tr><td><a href="#tools-details">看实际使用</a></td><td><a href="#devices-details">看实际使用</a></td></tr>
@@ -52,11 +52,11 @@
 
 **项目侧栏的新建入口与工作文件夹卡片**
 
-<div align="center"><a href="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-project-task-card-20261031-v64.webp"><img src="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-project-task-card-20261031-v64.webp" width="100%" alt="项目侧栏的新建入口与工作文件夹卡片"></a></div>
+<div align="center"><a href="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-project-task-card-20261031-v66.webp"><img src="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-project-task-card-20261031-v66.webp" width="100%" alt="项目侧栏的新建入口与工作文件夹卡片"></a></div>
 
 **分屏与独立窗口：拖动、并排查看、弹出与放回**
 
-<div align="center"><a href="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-chat-file-split-motion-20261031-v64.gif"><img src="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-chat-file-split-motion-20261031-v64.gif" width="100%" alt="分屏与独立窗口：拖动、并排查看、弹出与放回"></a></div>
+<div align="center"><a href="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-chat-file-split-motion-20261031-v66.webp"><img src="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-chat-file-split-motion-20261031-v66.webp" width="100%" alt="分屏与独立窗口：拖动、并排查看、弹出与放回"></a></div>
 
 **新任务输入区选择通用或终端（TUI；需先在设置中开启）· 部分片段 ×2 快放**
 
@@ -64,11 +64,11 @@
 
 **悬停工作中的 Agent，查看最近对话、工具活动与进度**
 
-<div align="center"><a href="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-working-agent-preview-20261031-v64.webp"><img src="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-working-agent-preview-20261031-v64.webp" width="100%" alt="悬停工作中的 Agent，查看最近对话、工具活动与进度"></a></div>
+<div align="center"><a href="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-working-agent-preview-20261031-v66.webp"><img src="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-working-agent-preview-20261031-v66.webp" width="100%" alt="悬停工作中的 Agent，查看最近对话、工具活动与进度"></a></div>
 
 **会话历史与来源筛选（Claude Code / Codex）**
 
-<div align="center"><a href="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-history-import-sources-20261031-v64.webp"><img src="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-history-import-sources-20261031-v64.webp" width="100%" alt="会话历史与来源筛选（Claude Code / Codex）"></a></div>
+<div align="center"><a href="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-history-import-sources-20261031-v66.webp"><img src="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-history-import-sources-20261031-v66.webp" width="100%" alt="会话历史与来源筛选（Claude Code / Codex）"></a></div>
 
 <a id="files-details"></a>
 
@@ -119,7 +119,7 @@
 
 **引擎与订阅配置**
 
-<div align="center"><a href="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-agent-engines-20261031-v64.webp"><img src="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-agent-engines-20261031-v64.webp" width="100%" alt="引擎与订阅配置"></a></div>
+<div align="center"><a href="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-agent-engines-zh-20261031-v66.png"><img src="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-agent-engines-zh-20261031-v66.png" width="100%" alt="引擎与订阅配置"></a></div>
 
 
 <a id="agents-details"></a>
@@ -177,7 +177,7 @@ App 从市场安装，版本和启用状态在客户端管理。
 
 **Browser Use：任务并排与浏览器配置**
 
-<div align="center"><a href="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-task-browser-20261031-v64.webp"><img src="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-task-browser-20261031-v64.webp" width="100%" alt="Browser Use：任务并排与浏览器配置"></a></div>
+<div align="center"><a href="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-task-browser-20261031-v66.webp"><img src="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-task-browser-20261031-v66.webp" width="100%" alt="Browser Use：任务并排与浏览器配置"></a></div>
 
 **SSH 与远程隧道接入**
 
@@ -191,7 +191,7 @@ App 从市场安装，版本和启用状态在客户端管理。
 
 **悬停 Mini Map，预览一轮对话**
 
-<div align="center"><a href="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-minimap-preview-20261031-v64.webp"><img src="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-minimap-preview-20261031-v64.webp" width="100%" alt="悬停 Mini Map，预览一轮对话"></a></div>
+<div align="center"><a href="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-minimap-preview-20261031-v66.webp"><img src="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-minimap-preview-20261031-v66.webp" width="100%" alt="悬停 Mini Map，预览一轮对话"></a></div>
 
 
 **群成员分别列出人与 Agent**
