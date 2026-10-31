@@ -53,6 +53,11 @@ export function appListingProblems(input: AppListingInput): string[] {
   if (!isText(manifest.subtitle) || chars(manifest.subtitle) > SUBTITLE_MAX_CHARS) {
     problems.push(`subtitle: a listed App needs one, 1–${SUBTITLE_MAX_CHARS} characters`);
   }
+  for (const [tag, text] of Object.entries(manifest.localized ?? {})) {
+    if (text.subtitle !== undefined && (!isText(text.subtitle) || chars(text.subtitle) > SUBTITLE_MAX_CHARS)) {
+      problems.push(`localized.${tag}.subtitle: 1–${SUBTITLE_MAX_CHARS} characters`);
+    }
+  }
   if (!isText(manifest.engines?.gugu)) problems.push('engines.gugu: a listed App names the oldest gugu it runs on (">=x.y.z")');
   if (!isText(manifest.defaultLocale)) problems.push('defaultLocale: a listed App says which language its base fields are in');
   const languages = isText(manifest.defaultLocale) ? [manifest.defaultLocale, ...Object.keys(manifest.localized ?? {})] : [];
