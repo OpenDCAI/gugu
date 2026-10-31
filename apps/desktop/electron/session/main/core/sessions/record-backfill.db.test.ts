@@ -2,9 +2,17 @@ import { openFixture } from '@tooling/utils/db';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import type { AppDb } from '@main/db/client';
 import type { TranscriptTurn } from '@gugu/session-core/acp';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { createSessionRecordSource, createSessionTimeline } from '@gugu/session-core/session-record';
+import type { RecordLineageNode } from '@gugu/session-core/session-record';
+import { taskSearchDocuments } from '@gugu/session-core/session-record/search-documents';
+import { MessageSearchStore } from '../search/message-store';
 
 const state = vi.hoisted(() => ({ db: undefined as AppDb | undefined,
-  row: { runtime: 'pty', provider: 'codex', providerSessionId: 'record', agentStatus: 'idle' as string | null },
+  row: { runtime: 'pty', provider: 'codex', providerSessionId: 'record', agentStatus: 'idle' as string | null,
+    config: undefined as { forkedFrom: { sessionId: string } } | undefined },
   turns: [] as TranscriptTurn[], complete: true, available: true, pick: vi.fn() }));
 vi.mock('@main/db/client', () => ({ get db() { return state.db; } }));
 vi.mock('@main/lib/events', () => ({ events: { emit: vi.fn() } }));
@@ -36,7 +44,7 @@ const rows = () => fixture.sqlite.prepare('SELECT seq,data FROM session_turns OR
 beforeEach(async () => {
   fixture = await openFixture('empty'); state.db = fixture.db;
   fixture.sqlite.exec("INSERT INTO projects(id,name,path) VALUES ('p1','P','/repo'); INSERT INTO sessions(id,project_id,title,runtime,agent_status) VALUES ('c1','p1','C','pty','idle');");
-  state.row = { runtime: 'pty', provider: 'codex', providerSessionId: 'record', agentStatus: 'idle' };
+  state.row = { runtime: 'pty', provider: 'codex', providerSessionId: 'record', agentStatus: 'idle', config: undefined };
   state.turns = [turn(0), turn(1)]; state.complete = true; state.available = true;
   state.pick.mockReset().mockImplementation(async (_id: string, pick: (turns: TranscriptTurn[]) => Promise<TranscriptTurn[] | null>, options: { committedOnly?: boolean }) => {
     expect(options.committedOnly).toBe(true);
@@ -104,4 +112,43 @@ it('reports missing, unsupported and divergent history without appending it', as
   state.turns = [{ ...turn(9), items: [{ kind: 'message', id: 'changed', seq: 0, role: 'user', text: 'different branch' }] }];
   expect(await syncStoredHistoryFromRecord('c1', { runtime: 'pty' })).toEqual({ inserted: 0, status: 'diverged' });
   expect(rows()).toHaveLength(2);
+});
+
+it('does not write inherited history when the existing reader cannot prove the fork cut', async () => {
+  state.row.config = { forkedFrom: { sessionId: 'parent' } };
+  state.pick.mockResolvedValue({ ok: false, reason: 'diverged' });
+  expect(await syncStoredHistoryFromRecord('c1', { runtime: 'pty' })).toEqual({ inserted: 0, status: 'diverged' });
+  expect(state.pick.mock.calls[0][2]).toMatchObject({ afterForkOf: 'parent' });
+  expect(rows()).toEqual([]);
+});
+
+it('indexes only a proved Claude fork increment after canonical storage renumbers it', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'fork-backfill-'));
+  const index = new MessageSearchStore(root, 'owner');
+  const line = (uuid: string, parentUuid: string | null, role: string, text: string) => JSON.stringify({
+    type: role, uuid, parentUuid, isSidechain: false, sessionId: 'child', timestamp: '2026-10-31T00:00:00Z',
+    message: { id: uuid, role, content: [{ type: 'text', text }], ...(role === 'assistant' ? { stop_reason: 'end_turn' } : {}) },
+  });
+  const common = [line('p0', null, 'user', 'parent question'), line('p1', 'p0', 'assistant', 'parent answer')];
+  await mkdir(join(root, 'records'));
+  await writeFile(join(root, 'records', 'parent.jsonl'), common.join('\n') + '\n');
+  await writeFile(join(root, 'records', 'child.jsonl'), [...common, line('c0', 'p1', 'user', 'child question'),
+    line('c1', 'c0', 'assistant', 'child answer')].join('\n') + '\n');
+  const source = (id: string, parentLineage?: readonly RecordLineageNode[] | null) =>
+    createSessionRecordSource({ harness: 'claude', providerSessionId: id, roots: [root] }, { readMode: 'snapshot', parentLineage: parentLineage ?? undefined });
+  const parent = await createSessionTimeline(source('parent'), { sessionId: 'parent' });
+  const child = await createSessionTimeline(source('child', parent.getRecordLineage!()), { sessionId: 'c1' });
+  try {
+    state.row.provider = 'claude'; state.row.config = { forkedFrom: { sessionId: 'parent' } };
+    state.turns = child.getSnapshot({ committedOnly: true }).turns;
+    expect(await syncStoredHistoryFromRecord('c1', { runtime: 'pty' })).toEqual({ inserted: 1, status: 'complete' });
+    const stored = rows() as { seq: number; data: string }[];
+    index.apply([{ kind: 'task', task: { id: 'c1', projectId: 'p1', title: 'Child' } },
+      ...stored.map(row => ({ kind: 'taskTurn' as const, taskId: 'c1', seq: row.seq, documents: taskSearchDocuments('c1', JSON.parse(row.data) as TranscriptTurn) }))]);
+    const search = (text: string) => index.global({ query: { text, filters: { kind: 'task' }, sort: 'recent' } }).results;
+    expect(search('parent')).toEqual([]);
+    expect(search('child')).toHaveLength(2);
+  } finally {
+    child.dispose(); parent.dispose(); index.close(); await rm(root, { recursive: true, force: true });
+  }
 });

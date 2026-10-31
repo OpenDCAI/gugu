@@ -291,6 +291,9 @@ export type SessionRecordResume = {
   readonly fingerprint: string;
 };
 
+/** Native primary-file lineage, used only to prove a fork's inherited prefix; never persisted. */
+export type RecordLineageNode = { uuid: string; parentUuid: string | null };
+
 export interface SessionRecordSource {
   readonly locator: SessionRecordLocator;
   /**
@@ -310,6 +313,7 @@ export interface SessionRecordSource {
   catchUp?(): Promise<void>;
   /** 按 `imageOrigins` 给的位置把一张图从记录里读回来;读不到或核对不上回 null。不支持的源没有这个口。 */
   readImage?(ref: RecordImageRef): Promise<string | null>;
+  getLineage?(): readonly RecordLineageNode[] | null;
   stop(): void;
 }
 
@@ -524,6 +528,7 @@ export type SettleResult = { ok: true; settlement: Settlement } | { ok: false; e
 
 export interface SessionTimeline {
   readonly epoch: string;
+  getRecordLineage?(): readonly RecordLineageNode[] | null;
   getSnapshot(options?: { limit?: number; committedOnly?: boolean }): TimelineSnapshot;
   /** 从 cursor 之后取；epoch 不对或 cursor 超前 → reset + 快照。 */
   getAfter(cursor: RecordCursor): TimelineAfterResult;
