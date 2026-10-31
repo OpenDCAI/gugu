@@ -8,7 +8,7 @@ const scope = vi.hoisted(() => ({ first: null as string | null, aliases: new Map
 vi.mock('../../../../apps/desktop/src/platform', () => ({ platform: { kind: 'electron' } }))
 vi.mock('../../../../apps/desktop/src/session/renderer/lib/ipc', () => ({ rpcOn: () => ({ sessionTimeline: { sessionVisible: scope.nativeVisible } }) }))
 vi.mock('../../../../apps/desktop/src/lib/chatSummariesBridge', () => ({ useChatSummaries: () => new Map([['dm', { peerUserId: 'agent', firstUnreadMessageId: scope.first }]]) }))
-vi.mock('../../../../apps/desktop/src/components/chat/agent-dm-record', () => ({ dmRecordIds: () => scope.aliases }))
+vi.mock('../../../../apps/desktop/src/components/chat/agent-dm-read', () => ({ dmMessageIdsByItem: () => scope.aliases }))
 vi.mock('../../../../apps/desktop/src/session/shared/remote-sessions/session-directory', () => ({ useDirectoryDevices: () => [], directoryRows: () => [], useLiveDeviceSessions: () => ({ host: { sessions: [{ conversationId: 'session', agent: { userId: 'agent' }, nativeUnreadKeys: ['native'], nativeInputVersion: scope.version }] } }) }))
 let harness: ReturnType<typeof createReactHarness>
 beforeEach(() => { harness = createReactHarness() })

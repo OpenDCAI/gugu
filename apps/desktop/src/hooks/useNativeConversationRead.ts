@@ -1,6 +1,6 @@
 import { useChatSummaries } from '@/lib/chatSummariesBridge'
 import type { TranscriptTurn } from '@gugu/session-core/acp/client'
-import { dmRecordIds } from '@/components/chat/agent-dm-record'
+import { dmMessageIdsByItem } from '@/components/chat/agent-dm-read'
 import { publishNativeConversationVisibility } from '@/lib/nativeConversationVisibility'
 import { useCallback, useEffect, useRef } from 'react'
 import type { ChatView } from '@gugu/session-chat-ui'
@@ -30,8 +30,8 @@ export function useNativeConversationRead(deviceId: string | null, sessionId: st
     const first = summary?.nativeUnreadKeys?.[0]
     if (!legacyFirst) state.legacy = { first: null, placed: false }
     else if (!state.legacy.first) state.legacy.first = legacyFirst
-    const aliases = dmRecordIds(readTurns.current())
-    const legacyItem = state.legacy.first ? [...aliases].find(([id, ids]) => id !== state.legacy.first && ids.includes(state.legacy.first!))?.[0] : null
+    const dmIds = dmMessageIdsByItem(readTurns.current())
+    const legacyItem = state.legacy.first ? [...dmIds].find(([, ids]) => ids.includes(state.legacy.first!))?.[0] : null
     if (!state.shown || !state.view) return
     // The two counters have separate ownership. An earlier native landing
     // cannot consume a later IM entry before its first receipt is readable.
@@ -77,7 +77,7 @@ export function useNativeConversationRead(deviceId: string | null, sessionId: st
     onVisibleItems: useCallback((ids: readonly string[]) => {
       const state = current.current
       if (!state.shown) return
-      if (state.sessionId) publishNativeConversationVisibility(key.current, { sessionId: state.sessionId, visible: ids, aliases: dmRecordIds(readTurns.current()) })
+      if (state.sessionId) publishNativeConversationVisibility(key.current, { sessionId: state.sessionId, visible: ids, dmIds: dmMessageIdsByItem(readTurns.current()) })
       for (const id of ids) state.visible.add(nativeItemId(id))
     }, []),
   }
