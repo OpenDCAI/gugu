@@ -1,6 +1,6 @@
-import { rpcQuery } from '../../../../../../tests/helpers/rpcQuery';
+import { rpcQuery } from '../../../../../../tests/support/rpcQuery';
 import type { FilesPlatform } from './app-files-core';
-import { verifiedFileHandle } from '../../../../../../tests/helpers/verifiedFileHandle';
+import { verifiedFileHandle } from '../../../../../../tests/support/verifiedFileHandle';
 import { randomUUID } from 'node:crypto';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 

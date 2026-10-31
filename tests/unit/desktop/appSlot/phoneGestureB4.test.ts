@@ -3,7 +3,7 @@ import type { SessionpageSessionSummary } from '@gugu/session-core/session-recor
 import { retainDeviceSessions, updateDeviceSessions } from '../../../../apps/desktop/src/session/shared/remote-sessions/session-directory'
 import { showPhoneAppView } from '../../../../apps/desktop/src/components/appSlot/phoneAppState'
 // @vitest-environment jsdom
-import { rpcQuery } from '../../../helpers/rpcQuery'
+import { rpcQuery } from '../../../support/rpcQuery'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { hostAppFrame, type PhoneAppBinding } from '../../../../apps/desktop/src/components/appSlot/phoneAppHost'
 import { platform } from '../../../../apps/desktop/src/platform'

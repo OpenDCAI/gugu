@@ -1,4 +1,4 @@
-import { verifiedFileHandle } from '../../../../../../../tests/helpers/verifiedFileHandle';
+import { verifiedFileHandle } from '../../../../../../../tests/support/verifiedFileHandle';
 import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';

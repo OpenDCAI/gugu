@@ -11,10 +11,6 @@
     "node": ">=24.0.0",
     "pnpm": ">=10.28.0"
   },
-  "workspaces": [
-    "apps/*",
-    "packages/*"
-  ],
   "main": "apps/desktop/dist-electron/main.js",
   "scripts": {
     "android:build": "pnpm build:mobile-agent && pnpm cap:sync && scripts/android-gradle-build.sh assembleDebug",

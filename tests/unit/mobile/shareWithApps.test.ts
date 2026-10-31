@@ -1,4 +1,4 @@
-import { verifiedFileHandle } from '../../helpers/verifiedFileHandle'
+import { verifiedFileHandle } from '../../support/verifiedFileHandle'
 // @@@share-with-apps 与其他 App 互传(product spec)。
 //
 // 原生插件只搬运,判据在渲染层 —— 这里判的是判据:一条消息交出去的是什么、分享进来的内容接到哪条草稿上、

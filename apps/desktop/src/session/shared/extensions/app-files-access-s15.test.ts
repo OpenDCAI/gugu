@@ -1,5 +1,5 @@
-import { rpcQuery } from '../../../../../../tests/helpers/rpcQuery';
-import { verifiedFileHandle } from '../../../../../../tests/helpers/verifiedFileHandle';
+import { rpcQuery } from '../../../../../../tests/support/rpcQuery';
+import { verifiedFileHandle } from '../../../../../../tests/support/verifiedFileHandle';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 /**

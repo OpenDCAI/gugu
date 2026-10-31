@@ -1,7 +1,7 @@
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { verifiedFileHandle } from '../../../helpers/verifiedFileHandle'
+import { verifiedFileHandle } from '../../../support/verifiedFileHandle'
 import { afterAll, describe, expect, it } from 'vitest'
 // @ts-expect-error — MCP implementation is an untyped ESM module.
 import { callTool, callToolWithState, createSessionState, RpcHttpError } from '../../../../apps/desktop/electron/mcp/gugu-im-server.mjs'

@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { verifiedFileHandle } from '../../../helpers/verifiedFileHandle'
+import { verifiedFileHandle } from '../../../support/verifiedFileHandle'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 /**

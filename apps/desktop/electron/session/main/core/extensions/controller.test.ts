@@ -1,4 +1,4 @@
-import { verifiedFileHandle } from '../../../../../../../tests/helpers/verifiedFileHandle';
+import { verifiedFileHandle } from '../../../../../../../tests/support/verifiedFileHandle';
 import { EXTENSION_API_VERSION } from '@shared/extensions/manifest';
 import { extensionsInventoryChangedChannel, extensionsQuitChangedChannel } from '@shared/extensions/marketEvents';
 import { createHash } from 'node:crypto';
