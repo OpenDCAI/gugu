@@ -21,26 +21,36 @@ const setNarrow = (matches: boolean) => {
 }
 
 const gugu = {
+  linkTo: vi.fn(async ({ file }: { file: { id: string } }) => `gugu-file://${file.id}`),
   getContext: vi.fn(async () => context),
   onContextChanged: vi.fn(() => () => {}),
   openBrowserTab: vi.fn(async () => {}),
   onLink: vi.fn(() => () => {}),
   setTabTitle: vi.fn(async (_title: string) => {}),
+  // The header is usable while the editor kit is still loading.
+  codemirror: vi.fn(() => new Promise(() => {})),
+  markdown: vi.fn(() => new Promise(() => {})),
   files: {
+    viewPreferences: vi.fn(async () => ({ showAppData: false })),
     list: vi.fn(async () => entries),
     onChanged: vi.fn(() => () => {}),
     open: vi.fn(async () => { throw new Error('rig: no file service here') }),
     create: vi.fn(),
     remove: vi.fn(),
-    openWith: vi.fn(async () => { throw Object.assign(new Error('No App opens photo.png'), { code: 'not-found' }) }),
+    openWith: vi.fn(async () => {}),
     download: vi.fn(async () => true),
+    rename: vi.fn(async (entry: { id: string }, name: string) => {
+      const row = entries.find((candidate) => candidate.id === entry.id)!
+      Object.assign(row, { name, displayName: name })
+      return row
+    }),
   },
 }
 
 const $ = (id: string) => document.getElementById(id) as HTMLElement
-const pressed = () => ['edit', 'split', 'preview'].filter((m) => $(`mode-${m}`).getAttribute('aria-pressed') === 'true')
+const pressed = () => ['edit', 'split', 'preview'].filter((m) => $(`mode-${m}`).getAttribute('aria-selected') === 'true')
 // What is on screen, read from the DOM (审计 C4).
-const shown = () => ($('download').hidden ? null : $('doc-title').textContent)
+const shown = () => document.body.classList.contains('show-doc') && !$('download').hidden ? $('doc-title').textContent : null
 
 beforeAll(async () => {
   const html = readFileSync(resolve(process.cwd(), 'apps/desktop/preinstalled-apps/workspace/index.html'), 'utf8')
@@ -50,6 +60,7 @@ beforeAll(async () => {
   Object.assign(window, {
     gugu,
     matchMedia: (query: string) => {
+      if (query === '(hover: none) and (pointer: coarse)') return { matches: false }
       expect(query).toBe('(max-width: 640px)') // the same width style.css folds the header at
       return { get matches() { return narrow.matches }, addEventListener: (_: string, fn: () => void) => narrow.listeners.push(fn) }
     },
@@ -61,39 +72,46 @@ beforeAll(async () => {
 })
 
 describe('workspace App in a narrow pane (F32)', () => {
-  test('side by side is not offered narrow: the default shows the preview (主人 10-01), and the choice comes back when it is wide', () => {
-    // Control (the parent commit): 'edit' — a narrow pane opened a document on its source.
+  test('side by side is not offered narrow; a document opens on its reading at every width (owner 10-30), and side by side comes back when it is wide', () => {
+    // Control (the parent commit): wide, the default was side by side.
     expect(document.body.dataset.mode).toBe('preview')
     expect(pressed()).toEqual(['preview'])
     setNarrow(false)
-    expect(document.body.dataset.mode, '对照:宽栏里默认就是并排').toBe('split')
-    expect(pressed()).toEqual(['split'])
-    setNarrow(true)
-    $('mode-preview').click()
-    expect(document.body.dataset.mode).toBe('preview')
-    setNarrow(false)
-    expect(document.body.dataset.mode, 'a choice made narrow stays when it widens').toBe('preview')
+    expect(document.body.dataset.mode, '阅读 first, wide too').toBe('preview')
+    expect(pressed()).toEqual(['preview'])
     $('mode-split').click()
+    expect(document.body.dataset.mode).toBe('split')
+    setNarrow(true)
+    expect(document.body.dataset.mode, 'narrow, side by side is the reading').toBe('preview')
+    setNarrow(false)
+    expect(document.body.dataset.mode, 'the choice comes back when it is wide').toBe('split')
+    $('mode-preview').click()
     setNarrow(true)
     expect(document.body.dataset.mode).toBe('preview')
+    expect([...document.querySelectorAll('.modes [role=tab]')].map((tab) => tab.id), '阅读 / 编辑 / 对照').toEqual(['mode-preview', 'mode-edit', 'mode-split'])
+    expect([...document.querySelectorAll('.modes [role=tab]')].map((tab) => tab.textContent)).toEqual(['Read', 'Edit', 'Side by side'])
   })
 
   test('Download and Open with another App fold behind ⋯, which is there only when one of them is', async () => {
     expect($('more').hidden, 'nothing on screen: nothing to fold').toBe(true)
-    ;(document.querySelector('[data-id="photo"] .file-open') as HTMLButtonElement).click()
-    await vi.waitFor(() => expect(shown()).toBe('photo.png'))
+    const entry = { ...entries[0], id: 'big', name: 'large.json', displayName: 'large.json' }
+    gugu.files.open.mockResolvedValueOnce({ type: 'binary', entry, close: vi.fn() } as never)
+    const changed = (gugu.onContextChanged.mock.calls[0] as unknown as [(ctx: unknown) => void])[0]
+    changed({ ...context, file: { chat: 'chat-1', id: 'big' } })
+    await vi.waitFor(() => expect(shown()).toBe('large.json'))
+    expect(gugu.setTabTitle).toHaveBeenLastCalledWith('large.json')
     expect($('more').hidden).toBe(false)
     expect($('more').getAttribute('aria-label')).toBe('More')
     expect($('menu').hidden).toBe(true)
-    // Wide, style.css lays the two buttons in the row; narrow, ⋯ opens them in the page's one menu (a row's ⋯ opens it too).
+    // At every width ⋯ opens them in the page's one menu (style.css folds them; a row's ⋯ opens it too).
     $('more').click()
     expect($('menu').hidden).toBe(false)
     expect($('more').getAttribute('aria-expanded')).toBe('true')
-    expect([...$('menu').children].map((item) => item.textContent)).toEqual(['Download', 'Open with another App'])
+    expect([...$('menu').children].map((item) => item.textContent)).toEqual(['Download', 'Open with another App', 'Rename'])
     ;($('menu').firstElementChild as HTMLButtonElement).click()
     expect($('menu').hidden, 'choosing closes it').toBe(true)
     expect($('more').getAttribute('aria-expanded')).toBe('false')
-    await vi.waitFor(() => expect(gugu.files.download).toHaveBeenCalledWith(expect.objectContaining({ id: 'photo' })))
+    await vi.waitFor(() => expect(gugu.files.download).toHaveBeenCalledWith(expect.objectContaining({ id: 'big' })))
 
     $('more').click()
     expect(document.activeElement, 'the keyboard is in the menu').toBe($('menu').firstElementChild)
@@ -110,22 +128,20 @@ describe('workspace App in a narrow pane (F32)', () => {
     $('more').click()
     expect($('menu').hidden, 'its ⋯ again closes it').toBe(true)
 
-    $('back').click()
-    expect(shown()).toBe(null)
-    expect($('more').hidden).toBe(true)
-  })
-
-  test('the slot\'s title is the App\'s name in the person\'s language, said once', () => {
-    expect(gugu.setTabTitle).toHaveBeenCalledTimes(1)
-    expect(gugu.setTabTitle).toHaveBeenCalledWith('Group folder')
+    changed({ ...context })
+    await vi.waitFor(() => expect(shown()).toBe(null))
+    expect(document.body.classList.contains('show-doc')).toBe(false)
+    expect(gugu.setTabTitle).toHaveBeenLastCalledWith('Group folder')
   })
 
   test('the list is the only pane until a file is shown: no "pick a file" beside it, the empty note at the top', () => {
     expect(document.body.classList.contains('show-doc')).toBe(false)
     expect($('doc-message').textContent).not.toMatch(/pick a file/i)
     const files = document.querySelector('.files')!
-    // 子文件夹: the crumbs sit between the head and the list (hidden at the top), then the list's own line for what went wrong.
-    expect([...files.children].map((e) => e.id || e.className).slice(0, 5)).toEqual(['files-head', 'crumbs', 'list-banner', 'files-empty', 'file-list'])
+    // The kinds, the order and the view under the search, then the filters; 子文件夹: the crumbs between them and the list (hidden at the top), then the
+    // list's own line for what went wrong.
+    expect([...files.children].map((e) => e.id || e.classList[0]).slice(0, 8)).toEqual(['files-head', 'pick-bar', 'files-tools', 'chips', 'crumbs', 'list-banner', 'files-empty', 'file-list'])
+    expect($('pick-bar').hidden).toBe(true)
   })
 
   // owner 10-11「私聊就叫做文件夹吧，群里面是群文件夹」: a topic goes by the chat it grew out of, which ctx.chat.groupId says.
@@ -138,5 +154,56 @@ describe('workspace App in a narrow pane (F32)', () => {
     const changed = (gugu.onContextChanged.mock.calls[0] as unknown as [(ctx: unknown) => void])[0]
     changed({ ...context, chat, locale })
     await vi.waitFor(() => expect(gugu.setTabTitle).toHaveBeenLastCalledWith(title))
+  })
+
+  test('an open Markdown uses the existing inline rename field, preserving it through revisions and handling cancel and failure', async () => {
+    const changed = (gugu.onContextChanged.mock.calls[0] as unknown as [(ctx: unknown) => void])[0]
+    const file = {
+      type: 'text', entry: entries[1], readOnly: false, close: vi.fn(), status: 'online',
+      onChange: () => () => {}, onStatus: () => () => {},
+      presence: { onChange: () => () => {}, others: [] },
+    }
+    gugu.files.open.mockResolvedValueOnce(file as never)
+    changed({ ...context, file: { chat: 'chat-1', id: 'plan' } })
+    await vi.waitFor(() => expect(shown()).toBe('plan.md'))
+    const opens = gugu.files.open.mock.calls.length
+    const rename = () => {
+      $('more').click()
+      ;([...$('menu').children].find((item) => item.textContent === 'Rename') as HTMLButtonElement).click()
+      return $('doc-title').querySelector<HTMLInputElement>('.rename-input')!
+    }
+    const style = document.createElement('style')
+    style.textContent = readFileSync(resolve(process.cwd(), 'apps/desktop/preinstalled-apps/workspace/style.css'), 'utf8')
+    document.head.appendChild(style)
+    const input = rename()
+    expect(getComputedStyle($('doc-title')).display, 'the host-hidden heading reveals its rename field').not.toBe('none')
+    expect(document.activeElement).toBe(input)
+    input.value = 'renamed.md'
+    const heard = (gugu.files.onChanged.mock.calls.at(-1) as unknown as [unknown, (change: unknown) => void])[1]
+    heard({ kind: 'entries', entries: [{ ...entries[1] }], gone: [] })
+    expect($('doc-title').contains(input), 'an incoming file revision must not remove the active field').toBe(true)
+    expect(input.value).toBe('renamed.md')
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }))
+    await vi.waitFor(() => expect(shown()).toBe('renamed.md'))
+    expect(gugu.files.rename).toHaveBeenLastCalledWith(expect.objectContaining({ id: 'plan' }), 'renamed.md')
+    expect(gugu.setTabTitle).toHaveBeenLastCalledWith('renamed.md')
+    expect(gugu.files.open).toHaveBeenCalledTimes(opens)
+    expect(file.close).not.toHaveBeenCalled()
+    expect(getComputedStyle($('doc-title')).display, 'the host takes over the title again after renaming').toBe('none')
+
+    const cancel = rename()
+    cancel.value = 'discarded.md'
+    cancel.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+    await vi.waitFor(() => expect(shown()).toBe('renamed.md'))
+    expect(gugu.files.rename).toHaveBeenCalledTimes(1)
+
+    gugu.files.rename.mockRejectedValueOnce(Object.assign(new Error('name already exists'), { code: 'name-taken' }))
+    const collision = rename()
+    collision.value = 'photo.png'
+    collision.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }))
+    await vi.waitFor(() => expect($('banner').hidden).toBe(false))
+    expect($('banner').textContent).toContain('photo.png')
+    await vi.waitFor(() => expect(shown()).toBe('renamed.md'))
+    style.remove()
   })
 })

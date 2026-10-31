@@ -11,6 +11,7 @@ import { app } from 'electron';
 import { resolveGuguHome } from '@gugu/core/local/state/paths';
 import { execWithStallWatch, resolveBundledNpmInvocation } from '../../../../../engine-downloader';
 import { CLAUDE_BRIDGE_KEY, type ClaudeBridgeDeps } from './claude-bridge';
+import { getPlugin } from '../plugin-registry';
 import { parseCliVersion, parseCompat, type CompatCheck, type VersionedCompat } from './pairing';
 
 const COMPAT_PACKAGE = '@gugu-acp/compat';
@@ -50,7 +51,7 @@ export const realClaudeBridgeDeps: ClaudeBridgeDeps = {
     }
     if (versionMemo.has(key)) return versionMemo.get(key)!;
     const out = await execText(cliPath, ['--version'], env, 30_000);
-    const version = parseCliVersion(out);
+    const version = parseCliVersion(out, getPlugin('claude').capabilities.hostDependency.versionLine);
     if (key !== cliPath) versionMemo.set(key, version);
     return version;
   },

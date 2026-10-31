@@ -13,16 +13,8 @@ type ClassNameProp = { className?: string }
 const popoverPositioner = 'window-no-drag-region z-[var(--z-popover)] outline-none'
 const popoverPopup = cn('box-border outline-none', popupMotion)
 
-function Root(props: PopoverPrimitive.Root.Props) {
-  return <PopoverPrimitive.Root {...props} />
-}
-
 function Portal(props: PopoverPrimitive.Portal.Props) {
   return <PopoverPrimitive.Portal {...props} />
-}
-
-function Trigger(props: PopoverPrimitive.Trigger.Props) {
-  return <PopoverPrimitive.Trigger {...props} />
 }
 
 function Positioner({
@@ -56,6 +48,10 @@ function Popup({
   )
 }
 
+function Arrow({ className, ...props }: Omit<PopoverPrimitive.Arrow.Props, 'className'> & ClassNameProp) {
+  return <PopoverPrimitive.Arrow className={className} {...props} />
+}
+
 function Close({
   className,
   ...props
@@ -65,10 +61,14 @@ function Close({
 
 /** Gugu popover composition: Base UI owns dismissal/positioning, call sites own content. */
 export const Popover = {
-  Root,
-  Trigger,
+  Root: PopoverPrimitive.Root,
+  Title: PopoverPrimitive.Title,
+  Description: PopoverPrimitive.Description,
+  Trigger: PopoverPrimitive.Trigger,
+  createHandle: PopoverPrimitive.createHandle,
   Portal,
   Positioner,
   Popup,
   Close,
+  Arrow,
 }

@@ -1,7 +1,5 @@
-import { createContext, useContext, useState, type ReactElement, type ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
-import { makeAssistantDataUI } from '@assistant-ui/react'
-import type { ToolCallItem } from '@gugu/session-core/acp/client'
 import {
   remoteSettlementGap,
   type QuestionAnswer,
@@ -17,56 +15,8 @@ import { MOBILE_RESPONDER_ID } from './useAgentWatchSession'
 import { appInstallAskOf } from '@/session/shared/extensions/host-actions'
 import { answerAppInstall, appInstallWords } from '@/session/renderer/features/extensions/app-install-approval'
 import { translateSessionMessage } from '@/session/renderer/localization/locale-store'
-import { QUESTION_DATA_PART } from './thread-messages'
 
-/**
- * 审批 / 提问卡 —— 手机端**唯一**还活着的自绘转录部件。
- *
- * 手机端的转录本身用的是 assistant-ui 的 `Thread`(见 `AgentThread.tsx`);卡就画在问出它的那次工具调用的位置
- * (`QuestionDataUI`),等答是表单、答完是一条记录,活着与刷新后同一个样子;流里没有那一行的待答项才钉在末尾。
- *
- * ❌ 本文件原来还导出一个 `TimelineView`(以及它私有的 `TurnView` / `ItemView` /
- * `ToolNodeView`):自绘的气泡、工具卡、思考行、轮结局那一整套。2026-09-22 删掉 ——
- * **全仓没有任何地方 import 它**(唯一的 import 在 `AgentThread.tsx`,只取 `SettlementCard`),
- * 它对应的那套 CSS(`.gg-aw-msg` / `.gg-aw-tool*` / `.gg-aw-turn` …)一并从
- * `agent-watch.css` 删掉。走不到的渲染路径不是零成本的:本轮的 UI 对齐就把那套规则
- * 读成了「手机端气泡的现状」。
- */
-
-/**
- * 卡要的那几样:结算、这条会话的腿、在答哪一条、作答。走 context(AgentThread 给),❌ 进数据组件的闭包 ——
- * 闭包一变组件就是新的,卡会重挂,表单里已经选了的就没了。
- */
-export type SettlementSlotValue = {
-  settlements: Readonly<Record<string, Settlement>>
-  runtime: SessionpageSessionSummary['runtime']
-  machine?: string
-  respondingItemId: string | null
-  onRespond: (input: SettlementResponse) => void
-}
-const SettlementSlot = createContext<SettlementSlotValue | null>(null)
-
-export function SettlementSlotProvider({ value, children }: { value: SettlementSlotValue; children: ReactNode }) {
-  return <SettlementSlot.Provider value={value}>{children}</SettlementSlot.Provider>
-}
-
-/** 问用户的那次工具调用,画成它的卡(thread-messages 只在有结算时交这一种 part)。 */
-function QuestionPart({ data }: { data: ToolCallItem }): ReactElement | null {
-  const slot = useContext(SettlementSlot)
-  const settlement = slot?.settlements[data.toolCallId]
-  if (!slot || !settlement) return null
-  return (
-    <SettlementCard
-      settlement={settlement}
-      runtime={slot.runtime}
-      machine={slot.machine}
-      busy={slot.respondingItemId === settlement.itemId}
-      onRespond={slot.onRespond}
-    />
-  )
-}
-
-export const QuestionDataUI = makeAssistantDataUI<ToolCallItem>({ name: QUESTION_DATA_PART, render: QuestionPart })
+/** Settlement controls shared by the conversation adapters and Needs you. The host owns every answer. */
 
 function responderName(by: string | null, t: (key: string) => string): string | null {
   if (!by) return null
@@ -81,10 +31,13 @@ export function SettlementCard({
   busy,
   onRespond,
   machine,
+  source,
 }: {
   settlement: Settlement
   /** The computer the session runs on: an App install's 「给哪些 agent」 lists that one's agents (D-31). */
   machine?: string
+  /** Optional task provenance inside the same actionable card. */
+  source?: ReactNode
   /** 这条会话的腿。答不答得了与写侧同一条判据(`remoteSettlementGap`)。 */
   runtime: SessionpageSessionSummary['runtime']
   busy: boolean
@@ -97,11 +50,11 @@ export function SettlementCard({
   const by = responderName(settlement.resolvedBy, t)
   // 宿主能往终端写键的提问带着整份题目,按一套表单画;别的提问仍是第一题的一排按钮。
   const questions = settlement.questions
-  const gap = pending ? remoteSettlementGap(runtime, kind, questions, settlement.host) : null
+  const gap = pending ? remoteSettlementGap(runtime, kind, questions, settlement.origin) : null
   const multi = (questions?.length ?? 0) > 1
   // D-31 An App install the host asks for this agent: who asks for what; 「查看并安装」 opens this phone's own sheet first.
-  const install = appInstallAskOf(settlement.host)
-  const words = install ? appInstallWords(install, translateSessionMessage) : null
+  const install = appInstallAskOf(settlement.origin)
+  const words = install ? appInstallWords(install, translateSessionMessage, machine) : null
   const answer = (optionId: string) => {
     if (!install) {
       onRespond({ itemId: settlement.itemId, optionId, kind })
@@ -112,8 +65,8 @@ export function SettlementCard({
       ask: install,
       optionId,
       ...(machine ? { machine } : {}),
-      respond: async ({ optionId: picked, digest, enableIn }) =>
-        onRespond({ itemId: settlement.itemId, optionId: picked, kind, ...(digest ? { digest } : {}), ...(enableIn ? { enableIn } : {}) }),
+      respond: async ({ optionId: picked, digest }) =>
+        onRespond({ itemId: settlement.itemId, optionId: picked, kind, ...(digest ? { digest } : {}) }),
     })
   }
 
@@ -124,6 +77,7 @@ export function SettlementCard({
       data-item-id={settlement.itemId}
       data-testid="agent-watch-settlement"
     >
+      {source}
       <div className="gg-aw-card-title">
         {kind === 'question' ? <HelpCircle /> : <ShieldCheck />}
         {' '}

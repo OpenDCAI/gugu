@@ -6,8 +6,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { setLocalePreference } from '@/i18n';
 import type { ProjectFolder } from '@shared/core/projects/project-folders';
 import { SessionLocalizationProvider } from '@renderer/localization/localization-provider';
-import { ProjectFolderCard, shortHome } from './project-folder-card';
+import { ProjectFolderCard, shortHome, FAN_MAX_ROWS, FAN_ROW_MAX, fanPlace } from './project-folder-card';
 import { UNANSWERED_AFTER_MS, useProjectFolders, type ProjectFoldersState } from './project-folders';
+import { machineRegistry } from '@renderer/lib/machine-routing';
 
 const mocks = vi.hoisted(() => ({
   entries: new Map<string, Array<{ projectId: string; sessionId: string; group: 'working' | 'needs-you' | null; time: number; title: string }>>(),
@@ -16,6 +17,17 @@ const mocks = vi.hoisted(() => ({
   detach: vi.fn(),
   folderListeners: new Set<(data: { projectId: string }) => void>(),
   groupListeners: new Set<(data: { projectId: string }) => void>(),
+  // #113 账号上记着的别的机器上的文件夹(machine:projectId → 那一份)。
+  account: new Map<string, ProjectFolder[]>(),
+  // 账号上那份在那台机器经连接答过之后没再变的机器(其余 = 账号上那份更新)。
+  accountNotNewer: new Set<string>(),
+}));
+
+vi.mock('@renderer/features/remote-hosts/remote-hosts-store', () => ({
+  remoteHostsStore: {
+    accountFolders: (machine: string, projectId: string) => mocks.account.get(`${machine}:${projectId}`) ?? null,
+    accountIsNewer: (machine: string) => !mocks.accountNotNewer.has(machine),
+  },
 }));
 
 vi.mock('@renderer/lib/stores/app-state', () => ({
@@ -25,7 +37,8 @@ vi.mock('@renderer/lib/chat/sender-avatar', () => ({
   senderAvatarUrl: (fromId: string) => `avatar:${fromId}`,
   subscribeSenderAvatars: () => () => {},
 }));
-vi.mock('@renderer/lib/ipc', () => ({
+vi.mock('@renderer/lib/ipc', () => {
+  const ipc = {
   events: {
     // 按通道分开:「文件夹变了」只重读那个项目的,「项目群绑定变了」一律重读 —— 混在一起就分不出前者有没有挑项目。
     on: (channel: { name: string }, cb: (data: { projectId: string }) => void) => {
@@ -41,7 +54,10 @@ vi.mock('@renderer/lib/ipc', () => ({
       detachProjectFolder: (...args: unknown[]) => mocks.detach(...args),
     },
   },
-}));
+};
+  // 本机(null)那条线就是 events.on;测试里的项目都在本机。
+  return { ...ipc, onMachineEvent: (_machine: unknown, event: never, cb: never) => (ipc.events.on as (...args: unknown[]) => () => void)(event, cb) };
+});
 
 const folder = (workspaceId: string, kind: ProjectFolder['kind'], path: string, sessionIds: string[] = [], projectId = 'p1'): ProjectFolder => ({
   workspaceId,
@@ -52,7 +68,7 @@ const folder = (workspaceId: string, kind: ProjectFolder['kind'], path: string, 
   sessionIds,
   attachedAt: kind === 'root' ? null : new Date().toISOString(),
 });
-const shown = (...folders: ProjectFolder[]) => folders.map((f) => ({ ...f, offline: false }));
+const shown = (...folders: ProjectFolder[]) => folders.map((f) => ({ ...f, offline: false, deviceId: null }));
 const ROOT = folder('ws-root', 'root', '/www/gugu', ['s1']);
 const WT = folder('ws-wt', 'attached', '/www/gugu-wt', ['s2']);
 const OTHER = folder('ws-other', 'attached', '/www/gugu-supabase');
@@ -62,7 +78,8 @@ function stateOf(partial: Partial<ProjectFoldersState>): ProjectFoldersState {
   return {
     folders: shown(ROOT, WT, OTHER, EXTRA),
     loadError: false,
-    chosen: { ...ROOT, offline: false },
+    unanswered: [],
+    chosen: { ...ROOT, offline: false, deviceId: null },
     fresh: undefined,
     choose: vi.fn(),
     reload: vi.fn(),
@@ -110,7 +127,8 @@ describe('ProjectFolderCard', () => {
       onAddMachine?: () => void;
       onDropFolder?: (file: File) => void;
       memberIds?: string[];
-      machineOf?: (projectId: string) => { label: string; online: boolean; kind: 'server' | 'computer' };
+      machines?: (string | null)[];
+      machineOf?: (deviceId: string | null) => { label: string; online: boolean; kind: 'server' | 'computer' };
     } = {}
   ) {
     await act(async () => {
@@ -123,6 +141,7 @@ describe('ProjectFolderCard', () => {
             projectName: 'gugu',
             folders: state,
             memberIds: extra.memberIds,
+            machines: extra.machines ?? [null],
             machineOf: extra.machineOf ?? (() => ({ label: 'd22', online: true, kind: 'server' as const })),
             // 只有一台能挂:「+」直接去挑文件夹(多台时先弹机器菜单)。
             attachMachines: [{ id: null, label: '这台电脑', online: true, kind: 'computer' as const }],
@@ -141,7 +160,7 @@ describe('ProjectFolderCard', () => {
   const toggle = () => container.querySelector<HTMLElement>('[data-testid="project-folder-card-toggle"]');
 
   it('peeks the three most relevant folders: just attached, then the chosen one, then the root', async () => {
-    await renderCard(stateOf({ chosen: { ...WT, offline: false }, fresh: OTHER.workspaceId }));
+    await renderCard(stateOf({ chosen: { ...WT, offline: false, deviceId: null }, fresh: OTHER.workspaceId }));
     // 收起时只露三页,按相关程度:刚挂上的、选中的、根目录;第四页藏在叠底。
     expect(visible().map((p) => p.getAttribute('title'))).toEqual(['/www/gugu-supabase', '/www/gugu-wt', '/www/gugu']);
     expect(papers()).toHaveLength(4);
@@ -186,7 +205,7 @@ describe('ProjectFolderCard', () => {
 
   it('says how many sessions started in a folder even when none is running, and drops the stale fresh mark', async () => {
     const stale = { ...OTHER, attachedAt: new Date(Date.now() - 10 * 60 * 1000).toISOString() };
-    await renderCard(stateOf({ folders: [...shown(ROOT, WT), { ...stale, offline: false }], fresh: stale.workspaceId }));
+    await renderCard(stateOf({ folders: [...shown(ROOT, WT), { ...stale, offline: false, deviceId: null }], fresh: stale.workspaceId }));
     // WT 里开过一个会话、此刻歇着:写「1 个会话」,❌「还没有会话」。
     expect(papers().find((p) => p.getAttribute('title') === '/www/gugu-wt')?.textContent).toContain('1 个会话');
     expect(papers().find((p) => p.getAttribute('title') === '/www/gugu-supabase')?.textContent).toContain('还没有会话');
@@ -195,10 +214,12 @@ describe('ProjectFolderCard', () => {
   });
 
   it('marks each folder with its own machine, offline ones greyed, and lists every machine on the card', async () => {
-    const remote = { ...folder('ws-d15', 'attached', '/srv/gugu', [], 'p-d15'), offline: true };
+    // 每页纸读它自己记着的那台(folder.deviceId),❌ 拿 projectId 反查。
+    const remote = { ...folder('ws-d15', 'attached', '/srv/gugu', [], 'proj-on-d15'), offline: true, deviceId: 'd15' };
     await renderCard(stateOf({ folders: [...shown(ROOT), remote] }), {
-      memberIds: ['p1', 'p-d15'],
-      machineOf: (id) => (id === 'p-d15' ? { label: 'd15', online: true, kind: 'server' } : { label: '这台电脑', online: true, kind: 'computer' }),
+      memberIds: ['p1', 'proj-on-d15'],
+      machines: [null, 'd15'],
+      machineOf: (deviceId) => (deviceId === 'd15' ? { label: 'd15', online: true, kind: 'server' } : { label: '这台电脑', online: true, kind: 'computer' }),
     });
     const d15Paper = papers().find((p) => p.getAttribute('title') === '/srv/gugu');
     expect(d15Paper?.textContent).toContain('d15');
@@ -315,6 +336,8 @@ describe('useProjectFolders', () => {
     mocks.list.mockReset();
     mocks.attach.mockReset();
     mocks.detach.mockReset();
+    mocks.account.clear();
+    mocks.accountNotNewer.clear();
   });
 
   afterEach(() => {
@@ -346,7 +369,6 @@ describe('useProjectFolders', () => {
     expect(latest?.folders).toEqual([]);
     expect(latest?.chosen).toBeNull();
     expect(latest?.loadError).toBe(false);
-    expect(JSON.parse(localStorage.getItem('gugu.projectFolders.v1')!)).toMatchObject({ 'p-empty': [] });
   });
 
   it('defaults to the root folder and follows the choice', async () => {
@@ -423,31 +445,107 @@ describe('useProjectFolders', () => {
   });
 
   // #7341 第二步:同一个项目在几台机器上各有一个本地项目(绑在同一个项目群上),卡片汇总它们的文件夹。
-  const D15_ROOT = folder('ws-d15', 'root', '/srv/gugu', [], 'p-d15');
+  const D15_ROOT = folder('ws-d15', 'root', '/srv/gugu', [], 'proj-on-d15');
   const listByProject = (table: Record<string, unknown>) => (projectId: string) =>
     projectId in table
       ? Promise.resolve(table[projectId])
       : Promise.reject(new Error(`no machine answers for ${projectId}`));
 
   it('merges the folders of the project’s copies on every machine, row root chosen first', async () => {
-    mocks.list.mockImplementation(listByProject({ 'p-row': { success: true, data: [{ ...ROOT, projectId: 'p-row' }] }, 'p-d15': { success: true, data: [D15_ROOT] } }));
-    await mount('p-row', ['p-row', 'p-d15']);
+    mocks.list.mockImplementation(listByProject({ 'p-row': { success: true, data: [{ ...ROOT, projectId: 'p-row' }] }, 'proj-on-d15': { success: true, data: [D15_ROOT] } }));
+    await mount('p-row', ['p-row', 'proj-on-d15']);
     expect(latest?.folders?.map((f) => f.workspaceId)).toEqual(['ws-root', 'ws-d15']);
     expect(latest?.chosen?.workspaceId).toBe('ws-root');
     await act(async () => latest?.choose('ws-d15'));
     // 选了 d15 上的文件夹:新会话开在那台的那个本地项目里。
-    expect(latest?.chosen?.projectId).toBe('p-d15');
+    expect(latest?.chosen?.projectId).toBe('proj-on-d15');
   });
 
-  it('keeps an offline machine’s folders from the last read, marked offline', async () => {
-    mocks.list.mockImplementation(listByProject({ 'p-off': { success: true, data: [{ ...ROOT, projectId: 'p-off' }] }, 'p-d15': { success: true, data: [D15_ROOT] } }));
-    await mount('p-off', ['p-off', 'p-d15']);
-    // d15 掉线:这一次读它失败。
+  // #113 那台机器离线时它的文件夹照账号上记着的那份:这一端从没读到过它也列得出来。
+  const onD15 = () => machineRegistry.register('d15', ['proj-on-d15', 'proj-hung-d15']);
+  afterEach(() => machineRegistry.forgetMachine('d15'));
+
+  it('lists an offline machine’s folders from the account, marked offline, though this computer never read them', async () => {
+    onD15();
+    const D15_WT = folder('ws-d15-wt', 'attached', '/srv/gugu-wt', [], 'proj-on-d15');
+    mocks.account.set('d15:proj-on-d15', [D15_ROOT, D15_WT]);
+    mocks.list.mockImplementation(listByProject({ 'p-off': { success: true, data: [{ ...ROOT, projectId: 'p-off' }] } }));
+    await mount('p-off', ['p-off', 'proj-on-d15']);
+    expect(latest?.folders?.map((f) => [f.workspaceId, f.offline])).toEqual([
+      ['ws-root', false],
+      ['ws-d15', true],
+      ['ws-d15-wt', true],
+    ]);
+    expect(latest?.loadError).toBe(false);
+    // PR4:每个文件夹盖上读它时那一台(这台电脑 = null),之后的机器标签、设备范围、在哪开工都读它。
+    expect(latest?.folders?.map((f) => [f.workspaceId, f.deviceId])).toEqual([
+      ['ws-root', null],
+      ['ws-d15', 'd15'],
+      ['ws-d15-wt', 'd15'],
+    ]);
+    // 同一个本地项目 id 之后被别的设备行登记了(同一台机器重新登记):读到的这一份不跟着改指。
+    machineRegistry.register('d15-new', ['proj-on-d15']);
+    expect(latest?.folders?.find((f) => f.workspaceId === 'ws-d15')?.deviceId).toBe('d15');
+    machineRegistry.forgetMachine('d15-new');
+  });
+
+  it('a machine that stops answering shows what the account records, not the last read', async () => {
+    onD15();
+    mocks.list.mockImplementation(listByProject({ 'p-off': { success: true, data: [{ ...ROOT, projectId: 'p-off' }] }, 'proj-on-d15': { success: true, data: [D15_ROOT] } }));
+    await mount('p-off', ['p-off', 'proj-on-d15']);
+    // d15 掉线前在那台机器上摘了根目录、挂了一个别的:账号上记着的是这一份。
+    const D15_OTHER = folder('ws-d15-other', 'attached', '/srv/other', [], 'proj-on-d15');
+    mocks.account.set('d15:proj-on-d15', [D15_OTHER]);
     mocks.list.mockImplementation(listByProject({ 'p-off': { success: true, data: [{ ...ROOT, projectId: 'p-off' }] } }));
     await act(async () => latest?.reload());
-    const d15 = latest?.folders?.find((f) => f.workspaceId === 'ws-d15');
-    expect(d15?.offline).toBe(true);
+    expect(latest?.folders?.map((f) => [f.workspaceId, f.offline])).toEqual([
+      ['ws-root', false],
+      ['ws-d15-other', true],
+    ]);
+  });
+
+  it('a machine that stops answering right after a folder was attached keeps what it last answered while the account has not caught up', async () => {
+    onD15();
+    // 刚在 d15 上挂了一个文件夹,d15 答过了;它还没记到账号上(账号上那份在 d15 答过之后没变)就掉线了。
+    const D15_NEW = folder('ws-d15-new', 'attached', '/srv/new', [], 'proj-on-d15');
+    mocks.account.set('d15:proj-on-d15', [D15_ROOT]);
+    mocks.accountNotNewer.add('d15');
+    mocks.list.mockImplementation(listByProject({ 'p-off': { success: true, data: [{ ...ROOT, projectId: 'p-off' }] }, 'proj-on-d15': { success: true, data: [D15_ROOT, D15_NEW] } }));
+    await mount('p-off', ['p-off', 'proj-on-d15']);
+    mocks.list.mockImplementation(listByProject({ 'p-off': { success: true, data: [{ ...ROOT, projectId: 'p-off' }] } }));
+    await act(async () => latest?.reload());
+    expect(latest?.folders?.map((f) => [f.workspaceId, f.offline])).toEqual([
+      ['ws-root', false],
+      ['ws-d15', true],
+      ['ws-d15-new', true],
+    ]);
+    // 对照:它后来记到账号上的是别的一份(账号上那份更新了)= 照账号上的。
+    mocks.accountNotNewer.clear();
+    mocks.account.set('d15:proj-on-d15', [D15_NEW]);
+    await act(async () => latest?.reload());
+    expect(latest?.folders?.map((f) => [f.workspaceId, f.offline])).toEqual([
+      ['ws-root', false],
+      ['ws-d15-new', true],
+    ]);
+  });
+
+  it('without the account’s record, a machine that stops answering keeps what this page just showed, marked offline', async () => {
+    mocks.list.mockImplementation(listByProject({ 'p-off': { success: true, data: [{ ...ROOT, projectId: 'p-off' }] }, 'proj-on-d15': { success: true, data: [D15_ROOT] } }));
+    await mount('p-off', ['p-off', 'proj-on-d15']);
+    mocks.list.mockImplementation(listByProject({ 'p-off': { success: true, data: [{ ...ROOT, projectId: 'p-off' }] } }));
+    await act(async () => latest?.reload());
+    expect(latest?.folders?.find((f) => f.workspaceId === 'ws-d15')?.offline).toBe(true);
     expect(latest?.folders?.find((f) => f.workspaceId === 'ws-root')?.offline).toBe(false);
+  });
+
+  it('re-reads when the account’s record arrives after the card first rendered', async () => {
+    onD15();
+    mocks.list.mockImplementation(listByProject({}));
+    await mount('proj-on-d15');
+    expect(latest?.loadError).toBe(true);
+    mocks.account.set('d15:proj-on-d15', [D15_ROOT]);
+    await mount('proj-on-d15');
+    expect(latest?.folders?.map((f) => [f.workspaceId, f.offline])).toEqual([['ws-d15', true]]);
     expect(latest?.loadError).toBe(false);
   });
 
@@ -455,17 +553,20 @@ describe('useProjectFolders', () => {
   // 连这台电脑自己的文件夹都不出来。
   const never = () => new Promise<never>(() => {});
 
-  it('shows this computer’s folders without waiting for a machine that does not answer, then its last-read ones marked offline', async () => {
-    localStorage.setItem('gugu.projectFolders.v1', JSON.stringify({ 'p-hung': [{ ...D15_ROOT, projectId: 'p-hung' }] }));
+  it('shows this computer’s folders without waiting for a machine that does not answer, then the account’s ones marked offline', async () => {
+    onD15();
+    mocks.account.set('d15:proj-hung-d15', [{ ...D15_ROOT, projectId: 'proj-hung-d15' }]);
     mocks.list.mockImplementation((projectId: string) =>
       projectId === 'p-here' ? Promise.resolve({ success: true, data: [{ ...ROOT, projectId: 'p-here' }] }) : never()
     );
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
     try {
-      await mount('p-here', ['p-here', 'p-hung']);
+      await mount('p-here', ['p-here', 'proj-hung-d15']);
       expect(latest?.folders?.map((f) => f.workspaceId)).toEqual(['ws-root']);
       expect(latest?.loadError).toBe(false);
+      expect(latest?.unanswered).toEqual(['proj-hung-d15']);
       await act(async () => vi.advanceTimersByTime(UNANSWERED_AFTER_MS));
+      expect(latest?.unanswered).toEqual([]);
       expect(latest?.folders?.map((f) => [f.workspaceId, f.offline])).toEqual([
         ['ws-root', false],
         ['ws-d15', true],
@@ -476,8 +577,8 @@ describe('useProjectFolders', () => {
   });
 
   it('on a re-read keeps a slow machine’s folders listed instead of flashing them away, until the deadline', async () => {
-    mocks.list.mockImplementation(listByProject({ 'p-slow': { success: true, data: [{ ...ROOT, projectId: 'p-slow' }] }, 'p-d15': { success: true, data: [D15_ROOT] } }));
-    await mount('p-slow', ['p-slow', 'p-d15']);
+    mocks.list.mockImplementation(listByProject({ 'p-slow': { success: true, data: [{ ...ROOT, projectId: 'p-slow' }] }, 'proj-on-d15': { success: true, data: [D15_ROOT] } }));
+    await mount('p-slow', ['p-slow', 'proj-on-d15']);
     mocks.list.mockImplementation((projectId: string) =>
       projectId === 'p-slow' ? Promise.resolve({ success: true, data: [{ ...ROOT, projectId: 'p-slow' }] }) : never()
     );
@@ -500,7 +601,7 @@ describe('useProjectFolders', () => {
     mocks.list.mockImplementation((projectId: string) =>
       projectId === 'p-first' ? Promise.resolve({ success: true, data: [{ ...ROOT, projectId: 'p-first' }] }) : late.promise
     );
-    await mount('p-first', ['p-first', 'p-d15']);
+    await mount('p-first', ['p-first', 'proj-on-d15']);
     expect(latest?.folders?.map((f) => f.workspaceId)).toEqual(['ws-root']);
     await act(async () => late.resolve({ success: true, data: [D15_ROOT] }));
     expect(latest?.folders?.map((f) => f.workspaceId)).toEqual(['ws-root', 'ws-d15']);
@@ -541,5 +642,64 @@ describe('shortHome', () => {
     expect(shortHome('/Users/applesauce/x')).toBe('~/x');
     expect(shortHome('/www/gugu')).toBe('/www/gugu');
     expect(shortHome('/rootless/x')).toBe('/rootless/x');
+  });
+});
+
+describe('fanPlace', () => {
+  const hand = (count: number, column = 960) =>
+    Array.from({ length: count }, (_, slot) => fanPlace(slot, count, { column, paperW: 200, paperH: 64, key: `ws-${slot}` }));
+  const rowSizes = (count: number, column = 960) => {
+    const sizes = new Map<number, number>();
+    for (const p of hand(count, column)) sizes.set(p.row, (sizes.get(p.row) ?? 0) + 1);
+    return [...sizes.values()];
+  };
+
+  it('puts slot 0 (the chosen folder) in the front row, rightmost and on top of everything', () => {
+    for (const count of [2, 6, 12, 20]) {
+      const places = hand(count);
+      expect(places[0].row).toBe(0);
+      expect(places[0].z).toBe(Math.max(...places.map((p) => p.z)));
+      const front = places.filter((p) => p.row === 0);
+      expect(places[0].x).toBe(Math.max(...front.map((p) => p.x)));
+    }
+  });
+
+  it('within a row the right paper covers the left one, and a front row covers every row behind it', () => {
+    const places = hand(20);
+    for (const row of new Set(places.map((p) => p.row))) {
+      const inRow = places.filter((p) => p.row === row).sort((a, b) => a.x - b.x);
+      expect(inRow.map((p) => p.z)).toEqual([...inRow.map((p) => p.z)].sort((a, b) => a - b));
+    }
+    const minFront = Math.min(...places.filter((p) => p.row === 0).map((p) => p.z));
+    expect(Math.max(...places.filter((p) => p.row > 0).map((p) => p.z))).toBeLessThan(minFront);
+  });
+
+  it('holds at most six a row, split evenly, and never more than five rows', () => {
+    expect(rowSizes(6)).toEqual([6]);
+    expect(rowSizes(20)).toEqual([5, 5, 5, 5]);
+    for (const column of [360, 480, 600, 960, 1400]) {
+      for (const count of [1, 7, 13, 20]) {
+        const sizes = rowSizes(count, column);
+        expect(Math.max(...sizes)).toBeLessThanOrEqual(FAN_ROW_MAX);
+        expect(sizes.length).toBeLessThanOrEqual(FAN_MAX_ROWS);
+        expect(Math.max(...sizes) - Math.min(...sizes)).toBeLessThanOrEqual(1);
+      }
+    }
+  });
+
+  it('a narrow column takes more rows instead of squeezing the names', () => {
+    expect(rowSizes(20, 480).length).toBeGreaterThan(rowSizes(20, 1200).length);
+  });
+
+  it('back rows rise above the front row', () => {
+    const places = hand(20);
+    const lowest = (row: number) => Math.max(...places.filter((p) => p.row === row).map((p) => p.y));
+    expect(lowest(1)).toBeLessThan(lowest(0));
+  });
+
+  it('the same folder lands in the same spot every time', () => {
+    expect(fanPlace(3, 12, { column: 900, paperW: 200, paperH: 64, key: 'ws-a' })).toEqual(
+      fanPlace(3, 12, { column: 900, paperW: 200, paperH: 64, key: 'ws-a' })
+    );
   });
 });

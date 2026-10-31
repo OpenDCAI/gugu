@@ -12,6 +12,8 @@ function giveVisibleRect(element: HTMLElement): void {
   } as DOMRect
   Object.defineProperty(element, 'getClientRects', { value: () => ({ 0: rect, length: 1, item: () => rect }) })
   Object.defineProperty(element, 'getBoundingClientRect', { value: () => rect })
+  // jsdom has no checkVisibility; these elements are laid out and shown.
+  Object.defineProperty(element, 'checkVisibility', { value: () => true })
 }
 
 function unreadThreadChat(): ChatItem {
@@ -31,6 +33,7 @@ function unreadThreadChat(): ChatItem {
       message_id: 'reply-1',
       message_seq: 51,
       unread_count: 1,
+      addressed_count: 0,
       cursor_seq: 0,
       version: 0,
       is_marked_unread: false,
@@ -53,10 +56,10 @@ describe('unread locator navigation', () => {
     const threadRow = threadSurface.querySelector<HTMLElement>('[data-msg-id]')!
     for (const element of [mainSurface, threadSurface, mainRow, threadRow]) giveVisibleRect(element)
 
-    expect(findVisibleUnreadMessageRow('main', 'same-id')).toBe(mainRow)
-    expect(findVisibleUnreadMessageRow('thread', 'same-id')).toBeNull()
+    expect(findVisibleUnreadMessageRow(mainSurface, 'same-id')).toBe(mainRow)
+    expect(findVisibleUnreadMessageRow(threadSurface, 'same-id')).toBeNull()
     threadSurface.style.opacity = '1'
-    expect(findVisibleUnreadMessageRow('thread', 'same-id')).toBe(threadRow)
+    expect(findVisibleUnreadMessageRow(threadSurface, 'same-id')).toBe(threadRow)
   })
 
   // @@@4258 — 水位提交的是 ensureMessageLoaded 交回的 commit.readSeq(本次真拉进行集的最大已落定 seq),

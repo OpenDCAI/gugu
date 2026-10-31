@@ -7,6 +7,7 @@ import {
   type ResolvedCapabilityDescriptors,
 } from '@gugu/session-shared/plugins';
 import z from 'zod';
+export { PLATFORM_STANDALONE_SEARCH_ROUTE, platformStandaloneSearchGranted } from './platform-search';
 import { hostDependencyCapability } from '../../host-dependencies/capability';
 import { acpCapability } from './capabilities/acp';
 import { authCapability } from './capabilities/auth';
@@ -94,6 +95,7 @@ export type {
 export {
   providerConsumesStartupPrompt,
   providerStartupTurnViaLocalSession,
+  providerTakesMessageStartupInPty,
   type AgentCommand,
   type CommandContext,
 } from './capabilities/prompt';
@@ -127,6 +129,8 @@ export type {
   AcpProcessIo,
   AcpAgentApi,
   AcpClientFactory,
+  AcpClient,
+  AcpPermissionParams,
   LiveSettingCapability,
   LiveSettingChannel,
   LiveSettingDimension,

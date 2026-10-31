@@ -1,3 +1,4 @@
+import { retryAssistantPanelRead, isAssistantPanelReadRetryable } from '@gugu/core/cloud/assistantPanelRead';
 import { useQuery } from '@tanstack/react-query';
 import { isTooOld, useLibraryHost } from '@renderer/features/library/library-host';
 import type { rpc } from '@renderer/lib/ipc';
@@ -18,7 +19,7 @@ export function useIntegrationAccounts(
   { check = true }: { check?: boolean } = {}
 ) {
   const host = useLibraryHost();
-  const enabled = configured && host.remote?.online !== false;
+  const enabled = configured && (host.assistantPanelExpected ? !!host.assistantPanel : host.remote?.online !== false);
   const base = [...ISSUE_CONNECTION_STATUS_QUERY_KEY, host.key, 'accounts', integrationId] as const;
 
   const accounts = useQuery({
@@ -33,7 +34,7 @@ export function useIntegrationAccounts(
     },
     enabled,
     staleTime: 30_000,
-    ...(host.remote ? { retry: false } : {}),
+    ...(host.assistantPanelExpected ? { retry: retryAssistantPanelRead,refetchOnWindowFocus: (query: { state: { error: unknown } }) => !query.state.error || isAssistantPanelReadRetryable(query.state.error) } : host.remote ? { retry: false } : {}),
   });
 
   const supported = accounts.data?.supported === true;
@@ -42,7 +43,7 @@ export function useIntegrationAccounts(
     queryFn: () => host.integrations.checkAccounts(integrationId),
     enabled: check && enabled && supported && (accounts.data?.accounts.length ?? 0) > 0,
     staleTime: 30_000,
-    ...(host.remote ? { retry: false } : {}),
+    ...(host.assistantPanelExpected ? { retry: retryAssistantPanelRead,refetchOnWindowFocus: (query: { state: { error: unknown } }) => !query.state.error || isAssistantPanelReadRetryable(query.state.error) } : host.remote ? { retry: false } : {}),
   });
 
   return {

@@ -1,16 +1,14 @@
 import { describe, expect, it, vi } from 'vitest'
 
 // #7199 健康 —— 手机把 Health Connect 的记录算成 health.summary(睡眠归醒来那天、分期合计、基线状态、锻炼中文名);
-// 健康这一组的可用性(没有 Health Connect / 咕咕太旧 / 没给 / 给了几类);页面一侧读那份 JSON;桌面挑哪台手机去问。
+// 健康这一组的可用性(没有 Health Connect / 咕咕太旧 / 没给 / 给了几类);页面一侧读那份本机 JSON。
 
 vi.mock('@capacitor/core', () => ({ registerPlugin: () => ({}) }))
 
 import { baselineStatus, readHealthSummary, type HealthSummary } from '@gugu/core/shared/healthSummary'
-import type { DeviceActionDeviceView } from '@gugu/core/cloud/deviceActionCaller'
 import { buildHealthSummary, buildNights, buildWorkouts, dailyAverage, exerciseName, latestSample } from '../../../../apps/desktop/src/mobile/phone-device/phoneHealth'
 import { buildPhoneActionsCapability, missingRequirements, type PhoneGroupGrants, type PhoneOsState } from '../../../../apps/desktop/src/mobile/phone-device/phoneActionCatalog'
 import type { NativeHealthDay, NativeHealthStatus, NativeSleepSession } from '../../../../apps/desktop/src/mobile/phone-device/nativePhoneActions'
-import { healthReadOf, pickHealthPhone } from '../../../../apps/desktop/electron/session/main/core/extensions/phone-health'
 
 /** 手机本地时间(测试跑在哪个时区都对:Date 的本地就是这台机器的时区)。 */
 const at = (y: number, m: number, d: number, h = 0, min = 0) => new Date(y, m - 1, d, h, min).getTime()
@@ -208,49 +206,5 @@ describe('健康这一组能不能用', () => {
     const old = healthActions(os({ supported: false, granted_types: [], old_app: true }))
     expect(old[0]!.unavailable_detail).toContain('版本太旧')
     expect(missingRequirements('health', os({ supported: false, granted_types: [] }))).toEqual([])
-  })
-})
-
-function device(overrides: Partial<DeviceActionDeviceView> & { health?: { available: boolean; unavailable_reason?: 'not_granted' | 'os_permission' | 'unsupported'; unavailable_detail?: string } | null }): DeviceActionDeviceView {
-  const { health, ...rest } = overrides
-  return {
-    device_id: 'phone-1',
-    label: 'OPPO Find X8s',
-    platform: 'android',
-    online: true,
-    last_seen_at: '2026-10-15T01:00:00Z',
-    this_machine: false,
-    timezone: 'Asia/Shanghai',
-    groups: health === null ? [{ group: 'calendar', available: true, actions: [] }] : [{ group: 'health', actions: ['health.summary'], ...(health ?? { available: true }) }],
-    ...rest,
-  }
-}
-
-describe('桌面健康页去问哪台手机', () => {
-  it('没有手机 = no-phone;有手机但没有健康这一组 = old-app', () => {
-    expect(pickHealthPhone([device({ device_id: 'mac-1', platform: 'darwin', health: null })])).toEqual({ state: 'no-phone' })
-    expect(pickHealthPhone([device({ health: null })])).toMatchObject({ state: 'old-app', label: 'OPPO Find X8s' })
-  })
-  it('离线 / 没连 / 系统没给 / 不支持 各是各的状态', () => {
-    expect(pickHealthPhone([device({ online: false })])).toMatchObject({ state: 'offline' })
-    expect(pickHealthPhone([device({ health: { available: false, unavailable_reason: 'not_granted', unavailable_detail: '去连上' } })])).toMatchObject({ state: 'not_granted', detail: '去连上' })
-    expect(pickHealthPhone([device({ health: { available: false, unavailable_reason: 'os_permission' } })])).toMatchObject({ state: 'os_permission' })
-    expect(pickHealthPhone([device({ health: { available: false, unavailable_reason: 'unsupported' } })])).toMatchObject({ state: 'unsupported' })
-  })
-  it('几台手机里挑在线且能用的', () => {
-    const picked = pickHealthPhone([
-      device({ device_id: 'phone-old', online: false, last_seen_at: '2026-10-15T08:00:00Z' }),
-      device({ device_id: 'phone-new' }),
-    ])
-    expect(picked).toMatchObject({ state: 'call', device: { device_id: 'phone-new' } })
-  })
-  it('调用结果 → 状态', () => {
-    const d = device({})
-    const now = new Date('2026-10-15T02:00:00Z')
-    expect(healthReadOf(d, { v: 1, ok: true, call_id: 'c', data: { x: 1 } }, now)).toMatchObject({ state: 'ok', data: { x: 1 }, readAt: now.toISOString() })
-    expect(healthReadOf(d, { v: 1, ok: false, call_id: 'c', code: 'no_answer', message: 'm' }, now)).toMatchObject({ state: 'offline' })
-    expect(healthReadOf(d, { v: 1, ok: false, call_id: 'c', code: 'os_permission', message: '后台' }, now)).toMatchObject({ state: 'os_permission', detail: '后台' })
-    expect(healthReadOf(d, { v: 1, ok: false, call_id: 'c', code: 'unknown_action', message: 'm' }, now)).toMatchObject({ state: 'old-app' })
-    expect(healthReadOf(d, { v: 1, ok: false, call_id: 'c', code: 'execution_failed', message: '同步中' }, now)).toMatchObject({ state: 'failed', message: '同步中' })
   })
 })

@@ -42,6 +42,7 @@ export const providerSessionMissingErrorSchema = failedErrorSchema('provider_ses
 export const promptFailedErrorSchema = failedErrorSchema('prompt_failed');
 export const cancelFailedErrorSchema = failedErrorSchema('cancel_failed');
 export const stopFailedErrorSchema = failedErrorSchema('stop_failed');
+export const stopPendingErrorSchema = plainTagErrorSchema('stop_pending');
 export const stopTaskFailedErrorSchema = failedErrorSchema('stop_task_failed');
 export const setConfigFailedErrorSchema = failedErrorSchema('set_config_failed');
 export const setModeFailedErrorSchema = failedErrorSchema('set_mode_failed');
@@ -58,7 +59,7 @@ export const acpStartSessionErrorSchema = z.union([
   invalidStateErrorSchema,
 ]);
 export const acpResumeSessionErrorSchema = acpStartSessionErrorSchema;
-export const acpStopSessionErrorSchema = stopFailedErrorSchema;
+export const acpStopSessionErrorSchema = z.union([stopFailedErrorSchema, stopPendingErrorSchema]);
 export const acpSendPromptErrorSchema = z.union([
   sessionNotFoundErrorSchema,
   invalidStateErrorSchema,
@@ -95,4 +96,3 @@ export const acpExportTranscriptErrorSchema = sessionNotFoundErrorSchema;
 export const acpExportRawLogErrorSchema = sessionNotFoundErrorSchema;
 export const acpAttachmentErrorSchema = invalidStateErrorSchema;
 export const acpGetHistoryErrorSchema = z.never();
-

@@ -21,6 +21,8 @@ vi.mock('@/lib/billing', () => ({
   useSpendingPower: () => ({ power: null, windows: null, balanceError: null, windowsError: null, activityRevision: 0 }),
   formatCredits: (value: number) => String(value),
   quotaWindowViews: vi.fn(),
+  periodUsdFor: vi.fn(),
+  quotaWindowLabel: vi.fn(),
   refreshSpendingPower: vi.fn(),
 }));
 
@@ -57,7 +59,7 @@ afterEach(() => {
   layer.remove();
 });
 
-const SECTIONS: SessionSettingsSection[] = ['sessions', 'interface', 'repository', 'browser', 'subscriptions'];
+const SECTIONS: SessionSettingsSection[] = ['sessions', 'interface', 'browser', 'subscriptions', 'resource-monitor'];
 
 it.each(SECTIONS)('draws the 「%s」 section outside the task page tree', async (section) => {
   root.render(<SessionSettingsContent section={section} portalContainer={layer} />);

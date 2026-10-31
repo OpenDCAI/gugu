@@ -16,7 +16,6 @@ const mocks = vi.hoisted(() => ({
   openPath: vi.fn(),
   openIn: vi.fn(),
   paneLayoutOpen: vi.fn(),
-  recordOutput: vi.fn(),
   showPage: vi.fn(),
   registerBrowser: vi.fn(),
   ensurePage: vi.fn(),
@@ -48,6 +47,7 @@ vi.mock('@renderer/features/sessions/stores/session-selectors', () => ({
   getSessionManagerStore: () => (mocks.projectMounted ? { provisionSession: mocks.provisionSession } : undefined),
   getSessionPageStore: mocks.getSessionPageStore,
   getSessionView: mocks.getSessionView,
+  sessionViewKind: () => 'idle',
 }));
 
 vi.mock('@renderer/features/projects/stores/project-selectors', () => ({
@@ -125,7 +125,6 @@ describe('task file preview routing', () => {
           this.laidOut = value;
         },
       },
-      recordOutput: mocks.recordOutput,
       showPage: mocks.showPage,
     };
     mocks.getSessionPageStore.mockReturnValue({ workspaceId: 'workspace-1', viewModel });
@@ -501,11 +500,6 @@ describe('task file preview routing', () => {
       { path: '/tmp/Application Support/note.md', external: true },
       { preview: true, beside: true, activate: false }
     );
-    // Outputs 面板记下它,tab 关了还能再开。
-    expect(mocks.recordOutput).toHaveBeenCalledWith({
-      kind: 'file',
-      path: '/tmp/Application Support/note.md',
-    });
     dispose();
   });
 
@@ -529,7 +523,6 @@ describe('task file preview routing', () => {
       expect.anything(),
       expect.anything()
     );
-    expect(mocks.recordOutput).toHaveBeenCalledWith({ kind: 'page', url: 'https://www.baidu.com/' });
     dispose();
   });
 
@@ -548,10 +541,9 @@ describe('task file preview routing', () => {
       projectId: 'project-1', sessionId: 'session-1', url: 'about:blank', intent: 'pinned',
       acquire: { browserId: 'original', createIfMissing: false, deadline: Date.now() + 9_000 }, onResult,
     });
-    await vi.waitFor(() => expect(onResult).toHaveBeenCalledWith({ success: true, browserId: 'original' }));
+    await vi.waitFor(() => expect(onResult).toHaveBeenCalledWith({ success: true, browserId: 'original', created: false }));
     expect(mocks.showPage).not.toHaveBeenCalled();
     expect(mocks.ensurePage).toHaveBeenCalledWith({ browserId: 'original', partition: 'persist:original', url: original.currentUrl });
-    expect(mocks.recordOutput).not.toHaveBeenCalled();
     dispose();
   });
 
@@ -578,7 +570,7 @@ describe('task file preview routing', () => {
     const onResult = vi.fn();
     const dispose = openHostRequestedBrowserInSessionWhenReady({ projectId: 'project-1', sessionId: 'session-1', url: 'about:blank', intent: 'pinned',
       acquire: { createIfMissing: false, deadline: Date.now() + 9_000 }, onResult });
-    await vi.waitFor(() => expect(onResult).toHaveBeenCalledWith({ success: true, browserId: 'focused' }));
+    await vi.waitFor(() => expect(onResult).toHaveBeenCalledWith({ success: true, browserId: 'focused', created: false }));
     expect(mocks.showPage).not.toHaveBeenCalled();
     dispose();
   });
@@ -614,15 +606,15 @@ describe('task file preview routing', () => {
     });
     mocks.registerBrowser.mockResolvedValue({ success: true });
     mocks.ensurePage.mockResolvedValue({ success: true });
-    for (let i = 0; i < 2; i++) {
+    // 只有第一次是新开的(宿主据此只把它记一次产出)。
+    for (const created of [true, false]) {
       const onResult = vi.fn();
       const dispose = openHostRequestedBrowserInSessionWhenReady({ projectId: 'project-1', sessionId: 'session-1', url: 'https://a.test/', intent: 'pinned',
         acquire: { createIfMissing: true, deadline: Date.now() + 9_000 }, onResult });
-      await vi.waitFor(() => expect(onResult).toHaveBeenCalledWith({ success: true, browserId: 'new' }));
+      await vi.waitFor(() => expect(onResult).toHaveBeenCalledWith({ success: true, browserId: 'new', created }));
       dispose();
     }
     expect(mocks.showPage).toHaveBeenCalledTimes(1);
-    expect(mocks.recordOutput).toHaveBeenCalledExactlyOnceWith({ kind: 'page', url: 'https://a.test/' });
   });
 
   it('#7323 cancellation during registration removes the new tab and prevents a late page mount', async () => {
@@ -692,8 +684,6 @@ describe('task file preview routing', () => {
     // `activePane.open` is typed to built-in kinds, so routing an extension through it
     // could not name this tab at all — that is why this one goes through the layout.
     expect(mocks.activePaneOpen).not.toHaveBeenCalled();
-    // 扩展 tab 不进 Outputs:它随时能从「+」再开。
-    expect(mocks.recordOutput).not.toHaveBeenCalled();
     dispose();
   });
 

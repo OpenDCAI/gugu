@@ -7,9 +7,11 @@ import { BrowserWebContentsRegistry, isSamePreviewNavigation } from './browser-w
 
 const sessionsByPartition = new Map<string, object>();
 
-const menuPopups = vi.hoisted(() => [] as unknown[]);
+const showMenu = vi.hoisted(() => vi.fn());
+const showEditableMenu = vi.hoisted(() => vi.fn(async () => {}));
+vi.mock('../../../../content-context-menu', () => ({ showContentContextMenu: showMenu }));
+vi.mock('../../../../editable-context-menu', () => ({ showEditableContextMenu: showEditableMenu }));
 vi.mock('electron', () => ({
-  Menu: { buildFromTemplate: () => ({ popup: (options: unknown) => menuPopups.push(options) }) },
   session: {
     fromPartition: (partition: string) => {
       let value = sessionsByPartition.get(partition);
@@ -171,9 +173,11 @@ describe('BrowserWebContentsRegistry', () => {
     registry.registerSession({ browserId: 'browser-1', partition: PROFILE_PARTITION });
     const webContents = fakeWebContents();
     adopt(registry, 'browser-1', webContents);
-    menuPopups.length = 0;
+    showMenu.mockClear();
     webContents.emitEvent('context-menu', { preventDefault: vi.fn() }, { x: 5, y: 7, selectionText: 'hi', linkURL: '', srcURL: '', mediaType: 'none' });
-    expect(menuPopups).toEqual([{ window: PAGE_WINDOW, x: 45, y: 97 }]);
+    expect(showMenu.mock.calls[0]?.[1]).toEqual({ window: PAGE_WINDOW, x: 45, y: 97 });
+    const items = showMenu.mock.calls[0]?.[0];
+    expect(items.find((item: { id?: string }) => item.id === 'copy-link')).toMatchObject({ enabled: false });
   });
 
   it('allows OAuth popups as hardened windows and routes tab links in-app', () => {
@@ -220,6 +224,18 @@ describe('BrowserWebContentsRegistry', () => {
       disposition: 'new-window',
     } as Parameters<typeof handler>[0]);
     expect(blocked.action).toBe('deny');
+  });
+
+  it('uses the shared editable menu and the native page placement for input fields', () => {
+    const registry = new BrowserWebContentsRegistry();
+    registry.registerSession({ browserId: 'editable-browser', partition: PROFILE_PARTITION });
+    const contents = fakeWebContents();
+    adopt(registry, 'editable-browser', contents);
+    showMenu.mockClear();
+    const params = { x: 5, y: 7, isEditable: true };
+    contents.emitEvent('context-menu', { preventDefault: vi.fn() }, params);
+    expect(showEditableMenu).toHaveBeenLastCalledWith(contents, params, { window: PAGE_WINDOW, x: 45, y: 97 }, expect.any(Function));
+    expect(showMenu).not.toHaveBeenCalled();
   });
 
   it('switches popup webContents user agent during Google auth navigations', () => {
@@ -340,7 +356,7 @@ describe('BrowserWebContentsRegistry', () => {
         const ev = { preventDefault: vi.fn() };
         webContents.emitEvent('before-input-event', ev, {
           type: 'keyDown',
-          key: 'K',
+          key: 'P',
           shift: false,
           alt: false,
           ...mod,
@@ -351,7 +367,7 @@ describe('BrowserWebContentsRegistry', () => {
       expect(keyEvent.preventDefault, platform).toHaveBeenCalled();
       expect(events.emit).toHaveBeenCalledWith(browserAppShortcutChannel, {
         source: { kind: 'browser', browserId: 'browser-1' },
-        shortcutKey: 'commandPalette',
+        commandId: 'app.commandPalette',
       });
     }
   });
@@ -368,7 +384,7 @@ describe('BrowserWebContentsRegistry', () => {
           const ev = { preventDefault: vi.fn() };
           webContents.emitEvent('before-input-event', ev, {
             type: 'keyDown',
-            key: 'K',
+            key: 'P',
             shift: false,
             alt: false,
             ...mod,
@@ -383,7 +399,7 @@ describe('BrowserWebContentsRegistry', () => {
       // 下面那条 not.toHaveBeenCalledWith 会被对照留下的那一次判红。
       vi.mocked(events.emit).mockClear();
 
-      const keyEvent = press((r) => r.setKeyboardSettings({ commandPalette: null }));
+      const keyEvent = press((r) => r.setKeyboardSettings({ 'app.commandPalette': null }));
       expect(keyEvent.preventDefault, `${platform} 已禁用`).not.toHaveBeenCalled();
       expect(events.emit).not.toHaveBeenCalledWith(browserAppShortcutChannel, expect.anything());
     }

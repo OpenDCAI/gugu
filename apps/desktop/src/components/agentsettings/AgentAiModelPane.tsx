@@ -1,3 +1,4 @@
+import { messageForUser } from '@/lib/userFacingError';
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
@@ -73,7 +74,7 @@ export function AgentAiModelPane({ agent }: AgentSettingsPaneProps) {
   const isLocal = platform.capabilities.agentRuntime && devices.some((device) => device.device_id === agent.device_id && device.is_current_device)
   const engine = agent.agent_type ? engineIdForAgentType(agent.agent_type) : null
   const [harness, setHarness] = useState<SessionpageSessionCreateModels | null>(null)
-  const [harnessFailed, setHarnessFailed] = useState(false)
+  const [harnessFailed, setHarnessFailed] = useState('')
   const [harnessAttempt, setHarnessAttempt] = useState(0)
   const protocol: ModelAccessProtocol | null = platformProtocolForAgentType(agent.agent_type)
   const [catalog, setCatalog] = useState<PlatformCatalogModel[] | null>(null)
@@ -102,32 +103,31 @@ export function AgentAiModelPane({ agent }: AgentSettingsPaneProps) {
         setState(next)
         setValue(selectionValue(next.desired))
       })
-      .catch((cause: unknown) => { if (live) setError((cause as Error).message) })
+      .catch((cause: unknown) => { if (live) setError(messageForUser(cause)) })
     // 引擎说不了平台协议就不问目录:问回来也一条都列不出,还会把「目录拉不到」误报成这个 Agent 的问题。
     if (protocol) {
       fetchPlatformModelCatalog()
         .then((models) => { if (live) setCatalog(models) })
-        // 服务端原文(测试库没配网关时是 `model access server is not configured`)只进日志,界面说一句人话。
         .catch((cause: unknown) => {
-          paneLog.warn({ agentId: agent.id, error: String(cause) }, 'platform model catalog unavailable')
-          if (live) setCatalogError(t('settings.model.catalogUnavailable'))
+          paneLog.error({ agentId: agent.id, error: String(cause) }, 'platform model catalog unavailable')
+          if (live) setCatalogError(messageForUser(cause))
         })
     } else {
       setCatalog([])
     }
     return () => { live = false; requestEpoch.current += 1 }
-  }, [agent.id, protocol, t])
+  }, [agent.id, protocol])
 
   useEffect(() => {
     let live = true
     setHarness(null)
-    setHarnessFailed(false)
+    setHarnessFailed('')
     if (agent.device_id && engine && !cloudOnly) {
       fetchAgentHarnessModels(agent.device_id, engine, isLocal)
         .then((models) => { if (live) setHarness(models) })
         .catch((cause: unknown) => {
-          paneLog.warn({ agentId: agent.id, error: String(cause) }, 'agent device model catalog unavailable')
-          if (live) setHarnessFailed(true)
+          paneLog.error({ agentId: agent.id, error: String(cause) }, 'agent device model catalog unavailable')
+          if (live) setHarnessFailed(messageForUser(cause))
         })
     }
     return () => { live = false }
@@ -193,7 +193,7 @@ export function AgentAiModelPane({ agent }: AgentSettingsPaneProps) {
       setState(next)
       if (result.ok) setValue(selectionValue(next.desired))
     } catch (cause) {
-      if (epoch === requestEpoch.current) setError((cause as Error).message)
+      if (epoch === requestEpoch.current) setError(messageForUser(cause))
     } finally {
       if (epoch === requestEpoch.current) {
         applying.current = false
@@ -235,7 +235,7 @@ export function AgentAiModelPane({ agent }: AgentSettingsPaneProps) {
           : { source: 'platform', protocol: protocol!, modelId: chosen.modelId })
         if (next !== value) void save(next)
       }} />
-      {!usingPlatform && (harnessFailed ? <div className={asClass.aiModelArd} role="status">{t('settings.model.deviceCatalogUnavailable')} <Button variant="ghost" size="sm" onClick={() => setHarnessAttempt((attempt) => attempt + 1)}>{t('settings.model.retryCatalog')}</Button></div>
+      {!usingPlatform && (harnessFailed ? <div className={asClass.aiModelArd} role="status">{harnessFailed} <Button variant="ghost" size="sm" onClick={() => setHarnessAttempt((attempt) => attempt + 1)}>{t('settings.model.retryCatalog')}</Button></div>
         : harness?.harnessState === 'auth-required' ? <div className={asClass.aiModelArd}>{t('settings.model.deviceSubscriptionMissing')}</div> : null)}
       <div className={asClass.aiModelArd} role="status">
         {saving ? t('settings.model.applying') : error

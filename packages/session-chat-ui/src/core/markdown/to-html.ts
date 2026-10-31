@@ -9,9 +9,11 @@
  * across runs.
  *
  * `documentToHtml` is the same pipeline without the split, for a page that paints a
- * whole document itself (an App page, through `gugu.markdown()`).
+ * whole document itself (an App page, through `gugu.markdown()`): its image chips are
+ * also slots (`data-gg-image`) the page may fill with the picture once it has it.
  *
- * After the one sanitize pass this module projects three things of its own:
+ * After the one sanitize pass this module projects three things of its own (and, for a whole document, a code block's
+ * head and front matter as properties — `rehypeDocumentBlocks`):
  *  - mention chips, carrying the attributes hover and click read;
  *  - images as link chips: a picture's box is unknown until it loads, and a row's
  *    height has to be known before it paints; nothing is fetched on render;
@@ -84,18 +86,18 @@ function mentionChip(mention: MdastMention): Element {
   };
 }
 
-function imageChip(image: Element): Element {
+function imageChip(image: Element, slot: boolean): Element {
   const src = typeof image.properties.src === 'string' ? image.properties.src : '';
   const alt = typeof image.properties.alt === 'string' && image.properties.alt ? image.properties.alt : src;
   return {
     type: 'element',
     tagName: src ? 'a' : 'span',
-    properties: { className: ['gg-md-image'], ...(src ? { href: src } : {}) },
+    properties: { className: ['gg-md-image'], ...(src ? { href: src } : {}), ...(src && slot ? { dataGgImage: '' } : {}) },
     children: [{ type: 'text', value: alt }],
   };
 }
 
-function rehypeChips(mentions: readonly MdastMention[]) {
+function rehypeChips(mentions: readonly MdastMention[], imageSlots = false) {
   return () => (tree: HastRoot) => {
     const visit = (parent: HastRoot | Element) => {
       parent.children = parent.children.map((child) => {
@@ -104,10 +106,13 @@ function rehypeChips(mentions: readonly MdastMention[]) {
         const index = slot.startsWith(SANITIZED_MENTION_SLOT) ? Number(slot.slice(SANITIZED_MENTION_SLOT.length)) : -1;
         const mention = mentions[index];
         if (mention) return mentionChip(mention);
-        if (child.tagName === 'img') return imageChip(child);
+        if (child.tagName === 'img') return imageChip(child, imageSlots);
         visit(child);
         if (child.tagName !== 'table') return child;
-        return { type: 'element', tagName: 'div', properties: { className: ['gg-md-table-scroll'] }, children: [child] };
+        // A table's lines (`sourceLines`) go to its scroll box: the box is the block a page meets at the top.
+        const { dataLine, ...table } = child.properties;
+        const line = dataLine === undefined ? {} : { dataLine };
+        return { type: 'element', tagName: 'div', properties: { className: ['gg-md-table-scroll'], ...line }, children: [{ ...child, properties: table }] };
       });
     };
     visit(tree);
@@ -240,15 +245,18 @@ const ESCAPES: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;'
 
 /**
  * A whole document → one sanitized HTML string for `.gg-md`, with the transcript's image chips and table scroll boxes
- * (an image is a link chip in either trust: nothing is fetched on render). `document` trust keeps raw HTML for the
- * sanitizer to read; `chat` has turned it into text before.
+ * (an image is a link chip in either trust: nothing is fetched on render). Each chip with a source is marked
+ * `data-gg-image`: the App page's renderer puts the picture in it when the source names a file (markdown-entry.ts).
+ * `document` trust keeps raw HTML for the sanitizer to read; `chat` has turned it into text before.
  */
 export function documentToHtml(text: string, options: MarkdownDialectOptions & { sourceLines?: boolean }): string {
   const parser = createMarkdownParser(options);
   const source = normalizeMarkdownSourceWithLines(text);
   const tree = parser.runSync(parser.parse(source.text)) as Root;
+  // The dialect turned a leading `---` block into a yaml code node; a fenced ```yaml on line 1 starts with fences, not `---`.
+  const frontmatter = !!options.frontmatter && /^---\r?\n/.test(source.text) && tree.children[0]?.type === 'code';
   const hast = toHast(tree, { allowDangerousHtml: options.trust === 'document' }) as HastRoot;
-  const after = [...(options.sourceLines ? [rehypeSourceLines(source.lineOf)] : []), rehypeChips([])];
+  const after = [...(options.sourceLines ? [rehypeSourceLines(source.lineOf)] : []), rehypeChips([], true), rehypeDocumentBlocks(frontmatter)];
   const rehype = unified().use(markdownRehypePlugins(options, after)).freeze();
   return toHtml(rehype.runSync(hast as never) as unknown as HastRoot);
 }
@@ -275,6 +283,52 @@ function rehypeSourceLines(lineOf: (line: number) => number) {
     });
   };
   return () => (tree: HastRoot) => stamp(tree.children, true);
+}
+
+const element = (tagName: string, properties: Element['properties'], children: ElementContent[] = []): Element => ({ type: 'element', tagName, properties, children });
+const textOf = (node: ElementContent): string => (node.type === 'text' ? node.value : node.type === 'element' ? node.children.map(textOf).join('') : '');
+
+/** Front matter as `key: value` pairs, or null when any line is more than that (nesting, lists, block scalars). */
+function propertiesOf(yaml: string): [string, string][] | null {
+  const pairs: [string, string][] = [];
+  for (const line of yaml.split(/\r?\n/)) {
+    if (!line.trim() || line.trimStart().startsWith('#')) continue;
+    const pair = /^([^\s:#][^:]*):[ \t]+(\S.*)$/.exec(line);
+    if (!pair || /^[|>]/.test(pair[2]!)) return null;
+    pairs.push([pair[1]!.trim(), pair[2]!.trim().replace(/^(["'])(.*)\1$/, '$2')]);
+  }
+  return pairs.length ? pairs : null;
+}
+
+/**
+ * A document's own furniture, for a page that paints a whole document (`documentToHtml`; the transcript draws code
+ * blocks itself): each code block gets a head with its language and a copy button (`data-gg-copy`, which the page
+ * wires), and plain `key: value` front matter reads as a property list (`dl.gg-md-props`) instead of a yaml block.
+ * Both keep the block's `data-line`. Built after the sanitizer from its output: only text and fixed markup go in.
+ */
+function rehypeDocumentBlocks(frontmatter: boolean) {
+  return () => (tree: HastRoot) => {
+    const first = tree.children.findIndex((node) => node.type === 'element');
+    tree.children = tree.children.map((node, index) => {
+      if (node.type !== 'element' || node.tagName !== 'pre') return node;
+      const code = node.children.find((child): child is Element => child.type === 'element' && child.tagName === 'code');
+      if (!code) return node;
+      const lang = ((code.properties.className as string[] | undefined) ?? []).find((name) => name.startsWith('language-'))?.slice(9) ?? '';
+      // Math is set by KaTeX after this; a diagram is drawn by the page in place of its `pre`.
+      if (lang === 'math' || lang === 'mermaid' || lang === 'mmd') return node;
+      const { dataLine, ...properties } = node.properties;
+      const line = dataLine === undefined ? {} : { dataLine };
+      const pairs = frontmatter && index === first && lang === 'yaml' ? propertiesOf(textOf(code)) : null;
+      if (pairs) {
+        return element('dl', { className: ['gg-md-props'], ...line }, pairs.flatMap(([key, value]) => [element('dt', {}, [{ type: 'text', value: key }]), element('dd', {}, [{ type: 'text', value }])]));
+      }
+      const head = element('div', { className: ['gg-md-code-head'] }, [
+        element('span', {}, lang ? [{ type: 'text', value: lang }] : []),
+        element('button', { type: 'button', className: ['gg-md-copy'], dataGgCopy: '' }),
+      ]);
+      return element('div', { className: ['gg-md-code'], ...line }, [head, { ...node, properties }]);
+    });
+  };
 }
 
 /** Text that must never be read as markdown (hook output): one paragraph, spaces and line breaks kept. */

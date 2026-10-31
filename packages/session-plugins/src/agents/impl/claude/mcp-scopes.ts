@@ -9,7 +9,7 @@ import { passthroughMcpAdapter } from '@gugu/session-core/agents/plugins/helpers
 /**
  * Claude 的 MCP 照它**自己**的合并规则读 —— Claude 没有「不连接、结构化」的列法(`claude mcp list` 逐台连接、
  * 只出文本),所以这里是咕咕唯一的一份读法,每一层都写出处。10-17 资源库 MCP 核查之前这里只读了
- * `~/.claude.json` 与 `<目录>/.mcp.json`,漏了插件层与两份关闭 / 批准名单(gugu-base evidence/2026-10-17-library-mcp)。
+ * `~/.claude.json` 与 `<目录>/.mcp.json`,漏了插件层与两份关闭 / 批准名单。
  *
  * 文档:https://code.claude.com/docs/en/mcp(Installing MCP servers · scopes、Disable a server without removing it、
  * project-server approvals)、https://code.claude.com/docs/en/settings(Settings precedence)、

@@ -11,23 +11,27 @@ import {
 } from '@gugu/core/shared/assistantPolicy'
 import type { CreateAgentOnDeviceResult } from '@gugu/core/shared/types/chat'
 import { REST_FACES } from '../components/agentAvatar/engine/identity'
+import type { AgentLook } from '../components/agentAvatar/look'
 import type { ExpressionId } from '../components/agentAvatar/engine/spec'
 import { desktopIpc } from '../platform/desktopIpc'
 import {
   completedSingleProvisionSession,
   assertResumeRecordOwner,
   createResumeStore,
+  getProvision,
   getProvisionOperation,
   provisionSingleAgent,
   resumeSingleAgent,
   type ProvisionResumeRecord,
   type SingleProvisionDeps,
 } from './agentProvision'
-import { ASSISTANT_HOME_CHANNELS, type PrepareLocalHomeResult } from './assistantHomeIpc'
+import { ASSISTANT_HOME_CHANNELS } from './assistantHomeIpc'
+import { prepareLocalAssistantSetup } from './assistantSetupPreparation'
 import { provisionCloudComputer } from './cloudComputerStore'
 import { platformModelsEnabled } from '@gugu/core/cloud/optionalServices'
 import { contactsService } from './contacts'
 import { getCurrentAuthUserId } from './supabase'
+import { cancelTeamProvision } from './teamProvisionSaga'
 
 /** 起名、称呼、自我介绍的长短(名字 30 字、称呼 80 字;介绍是交给管家的那段,管家收 4000)。 */
 export const ASSISTANT_NAME_MAX = 30
@@ -38,11 +42,8 @@ export const OWNER_ABOUT_MAX = 1000
 export const ASSISTANT_NAME_IDEAS: readonly string[] = ['松果', '栗子', '糯米', '团子', 'Milo', 'Mochi', 'Kiwi', 'Coco']
 
 /** 引导里攒下的那一份:它叫什么、长什么颜色、主人怎么称呼和几句介绍。 */
-export type AssistantSetupDraft = {
+export type AssistantSetupDraft = AgentLook & {
   name: string
-  /** 小鸟身体颜色(BODY_COLORS 的下标);助理 App 的主题色就是它。 */
-  color: number
-  rest: ExpressionId
   owner: OwnerProfileInput
 }
 
@@ -51,8 +52,8 @@ export function randomRestFace(rng: () => number = Math.random): ExpressionId {
 }
 
 /** 头像字段那个形象地址(本套环境存储里那个颜色的定格图 + 休息表情)。 */
-export function draftAvatarUrl(draft: Pick<AssistantSetupDraft, 'color' | 'rest'>): string {
-  return contactsService.agentLookAvatarUrl({ color: draft.color, rest: draft.rest })
+export function draftAvatarUrl(draft: AgentLook): string {
+  return contactsService.agentLookAvatarUrl({ color: draft.color, rest: draft.rest, wear: draft.wear })
 }
 
 function cleanDraft(draft: AssistantSetupDraft) {
@@ -78,7 +79,7 @@ export function pendingLocalAssistant(ownerUserId: string): ProvisionResumeRecor
 
 export class AssistantSetupError extends Error {
   constructor(
-    readonly kind: 'not-desktop' | 'still-starting' | 'failed',
+    readonly kind: 'not-desktop' | 'still-starting' | 'failed' | 'cancelled',
     message: string,
   ) {
     super(message)
@@ -119,16 +120,16 @@ function singleFlight(work: () => Promise<CreateAgentOnDeviceResult>): Promise<C
 }
 
 /** 非会员:装在这台电脑上(这台 = `localDeviceId`)。建好返回它是谁、和它的私聊。 */
-export function setUpAssistantOnThisComputer(draft: AssistantSetupDraft, localDeviceId: string): Promise<CreateAgentOnDeviceResult> {
-  return singleFlight(() => setUpHere(draft, localDeviceId))
+export function setUpAssistantOnThisComputer(draft: AssistantSetupDraft, localDeviceId: string, options: { signal?: AbortSignal; onInstalling?: () => void } = {}): Promise<CreateAgentOnDeviceResult> {
+  return singleFlight(() => setUpHere(draft, localDeviceId, options))
 }
 
-async function setUpHere(draft: AssistantSetupDraft, localDeviceId: string): Promise<CreateAgentOnDeviceResult> {
+async function setUpHere(draft: AssistantSetupDraft, localDeviceId: string, options: { signal?: AbortSignal; onInstalling?: () => void }): Promise<CreateAgentOnDeviceResult> {
   const ipc = desktopIpc()
   if (!ipc) throw new AssistantSetupError('not-desktop', 'only the desktop app can host the assistant')
   const clean = cleanDraft(draft)
   // 开通的是全新的一位:上一位留在这台电脑上的家先清掉(#7350,别处删掉的 / 关到一半的),❌ 带着上一位的记忆和性格。
-  const home = (await ipc.invoke(ASSISTANT_HOME_CHANNELS.prepare, { ownerProfile: clean.ownerProfile, fresh: true })) as PrepareLocalHomeResult
+  const home = await prepareLocalAssistantSetup(ipc, { ownerProfile: clean.ownerProfile, fresh: true }, options)
   const result = await provisionSingleAgent(
     localDeviceId,
     {
@@ -150,11 +151,23 @@ export function resumeLocalAssistant(record: ProvisionResumeRecord): Promise<Cre
   return singleFlight(async () => {
     await assertResumeRecordOwner(record, getCurrentAuthUserId, 'single')
     const operation = await getProvisionOperation(record.operationId)
-    if (operation?.phase === 'cancelled') {
-      // Cancellation is authoritative in the DB. Drop only this finished recovery pointer;
-      // a retry from onboarding creates a fresh operation instead of reviving the reclaimed agent.
+    if (operation && (operation.owner_user_id !== record.ownerUserId || operation.kind !== 'single')) {
+      throw new Error('assistant setup operation does not belong to this recovery record')
+    }
+    const member = operation ? await getProvision(record.members[0]!.provisionId) : null
+    if (member && (member.operation_id !== record.operationId || member.owner_user_id !== record.ownerUserId || member.member_key !== 'assistant')) {
+      throw new Error('assistant setup member does not belong to this recovery record')
+    }
+    const removed = !!member?.provisioned_agent_user_id && !member.agent_user_id
+    if (operation?.phase === 'cleaning_up' || (removed && operation?.phase !== 'completed' && operation?.phase !== 'cancelled')) {
+      const result = await cancelTeamProvision(record.operationId, { resumeStore: assistantResumeStore })
+      if (!result.fullyCancelled) throw new AssistantSetupError('failed', 'assistant setup cleanup is still in progress; try again')
+      throw new AssistantSetupError('cancelled', 'the previous assistant setup has ended; start a new setup')
+    }
+    if (operation?.phase === 'cancelled' || (operation?.phase === 'completed' && removed)) {
+      // Only an authoritative terminal can release this pointer. A new setup remains an explicit user action.
       assistantResumeStore.forget(record.ownerUserId, record.operationId)
-      throw new AssistantSetupError('failed', 'assistant setup was cancelled; start a new setup')
+      throw new AssistantSetupError('cancelled', 'the previous assistant setup has ended; start a new setup')
     }
     const ipc = desktopIpc()
     if (!ipc) throw new AssistantSetupError('not-desktop', 'only the desktop app can host the assistant')

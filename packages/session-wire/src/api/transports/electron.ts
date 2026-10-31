@@ -1,6 +1,6 @@
 import type { Unsubscribe } from '@gugu/session-shared';
 import type { Controller } from '../controller';
-import { createWireSessionHub } from '../sessions';
+import { createWireSessionHub, type WireSessionHub } from '../sessions';
 import { portTransport, type PortLike } from './port';
 
 export type MessagePortMainLike = PortLike & {
@@ -57,18 +57,38 @@ type WindowPortRecord = {
   disposeMapCleanup: Unsubscribe;
 };
 
-export function exposeWireToWindows(
+/**
+ * `source` is resolved on every connect, so the first renderer connect is what starts the backing
+ * (e.g. a lazy worker), and a connect after a failed start is a fresh attempt. A failed resolve rejects
+ * that connect with the original error. A new source gets its own controller and closes the windows
+ * served by the previous one.
+ */
+export function exposeWireToWindows<Source>(
   deps: { ipcMain: IpcMainLike; createMessageChannel: MessageChannelFactory },
-  controller: Controller,
+  source: () => Source | Promise<Source>,
+  controllerFor: (source: Source) => Controller,
   options: ExposeWireOptions = {}
 ): Unsubscribe {
   const channel = options.channel ?? 'wire';
   const connectChannel = `${channel}:connect`;
   const portChannel = `${channel}:port`;
-  const hub = createWireSessionHub(controller);
   const ports = new Map<number, WindowPortRecord>();
+  let served: { source: Source; hub: WireSessionHub } | null = null;
 
-  deps.ipcMain.handle(connectChannel, (event) => {
+  function closeAll(): void {
+    served?.hub.dispose();
+    served = null;
+    for (const record of ports.values()) record.disposeMapCleanup();
+    ports.clear();
+  }
+
+  deps.ipcMain.handle(connectChannel, async (event) => {
+    const resolved = await source();
+    if (served?.source !== resolved) {
+      closeAll();
+      served = { source: resolved, hub: createWireSessionHub(controllerFor(resolved)) };
+    }
+    const { hub } = served;
     const { port1, port2 } = deps.createMessageChannel(event);
     const existing = ports.get(event.sender.id);
     existing?.port.close?.();
@@ -91,9 +111,7 @@ export function exposeWireToWindows(
 
   return () => {
     deps.ipcMain.removeHandler?.(connectChannel);
-    hub.dispose();
-    for (const record of ports.values()) record.disposeMapCleanup();
-    ports.clear();
+    closeAll();
   };
 }
 

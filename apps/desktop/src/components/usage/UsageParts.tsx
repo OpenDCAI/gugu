@@ -1,3 +1,4 @@
+import { platform } from '@/platform'
 import { useEffect, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Database } from '@/lib/icons'
@@ -86,10 +87,10 @@ export function ModelBadge({ model, icon }: { model: string; icon?: ReactNode })
   const glyph = icon ?? modelProviderIcon(resolveModelProvider(model))
   return (
     <span className="na-badge" role="button" tabIndex={0} title={copied ? t('usage.na.copied') : model}
-      onClick={() => { void navigator.clipboard?.writeText(model).then(() => setCopied(true), () => {}) }}
-      onKeyDown={(e) => { if (e.key === 'Enter') void navigator.clipboard?.writeText(model).then(() => setCopied(true), () => {}) }}>
+      onClick={() => { void platform.writeClipboardText(model).then(() => setCopied(true), () => {}) }}
+      onKeyDown={(e) => { if (e.key === 'Enter') void platform.writeClipboardText(model).then(() => setCopied(true), () => {}) }}>
       {glyph ? <span className="na-badge-icon">{glyph}</span> : <span className="na-badge-dot" style={swatch(stringToColor(model))} />}
-      <span>{model}</span>
+      <span className="na-badge-label">{model}</span>
     </span>
   )
 }

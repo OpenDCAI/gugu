@@ -4,6 +4,11 @@
 import { identityDb } from './supabase'
 import { chatService } from './chat'
 import { i18n } from '@/i18n'
+import { platform } from '../platform'
+
+// 表上没有事件:本机设备 runtime 只在兜底周期重读(wake 订着时 5 分钟)。改完说一声,本机的 agent 当场按新表排期。
+// 别的设备上改的任务等那一个兜底周期 —— 提前建的不受影响,5 分钟内就到期的可能晚到至多 5 分钟。
+const scheduledTasksChanged = () => platform.notifyScheduledTasksChanged?.()
 
 export interface AgentScheduledTask {
   id: string
@@ -96,6 +101,7 @@ export const agentScheduledTaskService = {
       .select(TASK_COLUMNS)
       .single()
     if (error) throw new Error(error.message)
+    scheduledTasksChanged()
     return mapTask(data as AgentScheduledTaskRow)
   },
 
@@ -113,10 +119,12 @@ export const agentScheduledTaskService = {
     }
     const { error } = await identityDb.from('agent_scheduled_tasks').update(patch).eq('id', id)
     if (error) throw new Error(error.message)
+    scheduledTasksChanged()
   },
 
   async remove(id: string): Promise<void> {
     const { error } = await identityDb.from('agent_scheduled_tasks').delete().eq('id', id)
     if (error) throw new Error(error.message)
+    scheduledTasksChanged()
   },
 }

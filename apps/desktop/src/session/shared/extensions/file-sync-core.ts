@@ -2,8 +2,10 @@ import { accessTokenExpirySeconds, userIdFromSupabaseAccessToken } from '@gugu/c
 import type { ExtensionCapability } from './manifest';
 import {
   FRAME_TYPE,
+  SYNC_STEP_2,
   encodeAuthFrame,
   encodeCloseFrame,
+  encodeReadOnlySyncReply,
   encodeSyncUpdateFrame,
   isBareFrame,
   readAuthAnswer,
@@ -14,6 +16,7 @@ import {
   type SyncRevokeReason,
   type SyncToMain,
   type SyncToPage,
+  type AppFileEntry,
 } from './app-runtime-protocol';
 
 /**
@@ -48,6 +51,8 @@ export const LOCAL_DOC_PREFIX = 'wc:';
 export const isLocalDoc = (docName: string) => docName.startsWith(LOCAL_DOC_PREFIX);
 
 export interface Grant {
+  /** One read of the entry's decorations after the page has painted. Gone when requested or when the grant ends. */
+  details?: () => Promise<AppFileEntry>;
   docName: string;
   itemId: string;
   access: 'rw' | 'ro';
@@ -229,7 +234,11 @@ export class SyncConnection {
 
   release(key: string): void {
     this.owners.delete(key);
-    if (this.owners.size === 0 && !this.idleTimer && this.state !== 'closed') {
+    this.scheduleIdleClose();
+  }
+
+  private scheduleIdleClose(): void {
+    if (!this.local && this.owners.size === 0 && !this.idleTimer && this.state !== 'closed') {
       this.idleTimer = setTimeout(() => {
         this.idleTimer = null;
         if (this.owners.size === 0 && this.relay.mayClose(this)) this.close(1000, 'idle');
@@ -255,6 +264,8 @@ export class SyncConnection {
       }, PONG_TIMEOUT_MS);
     }, PING_INTERVAL_MS);
     this.relay.socketOpened(this);
+    // An authorized opening may be cancelled before any provider claims the connection.
+    this.scheduleIdleClose();
   }
 
   private closed(code: number, reason: string): void {
@@ -437,6 +448,19 @@ export class FileSyncRelay {
       return;
     }
     const message = data as SyncToMain;
+    if (message?.t === 'entry') {
+      const grant = page.grants.get(message.docName);
+      const details = grant?.details;
+      if (!grant || !details || grant.lettingGo) return;
+      delete grant.details;
+      void details().then((entry) => {
+        if (page.grants.get(message.docName) === grant && !grant.lettingGo) this.post(page, { t: 'entry', docName: message.docName, entry });
+      }, (error: unknown) => {
+        this.platform.warn('File entry details could not be read', { item: grant.itemId, message: error instanceof Error ? error.message : String(error) });
+        if (page.grants.get(message.docName) === grant && !grant.lettingGo) this.post(page, { t: 'entry-error', docName: message.docName, message: error instanceof Error ? error.message : String(error) });
+      });
+      return;
+    }
     if (message?.t === 'hello') {
       this.hello(page);
       return;
@@ -490,6 +514,9 @@ export class FileSyncRelay {
     const { docName } = splitRoutingKey(head.key);
     const grant = page.grants.get(docName);
     if (!grant) {
+      // Said in the log as well as to the page: which page, which file, what frame — a refusal an App reports is only
+      // its own sentence, and this is the one place that knows why.
+      this.platform.warn('File sync: refused a frame, the page holds no grant for its file', { page: page.id, extensionId: page.extensionId, docName, frame: head.type });
       this.post(page, { t: 'denied', key: head.key, reason: 'not-granted' });
       return;
     }
@@ -499,9 +526,14 @@ export class FileSyncRelay {
       this.revoke(page.id, 'capability', (g) => g.docName === docName);
       return;
     }
-    if (grant.access === 'ro' && head.carriesUpdate) {
-      this.post(page, { t: 'denied', key: head.key, reason: 'read-only' });
-      return;
+    if (grant.access === 'ro' && head.type === FRAME_TYPE.Sync) {
+      // Yjs Step 2 repeats the whole delete set even when this replica only read the service's content.
+      // A reader sends no content back, but must finish the handshake so the provider gets its confirmation.
+      if (head.syncStep === SYNC_STEP_2) frame = encodeReadOnlySyncReply(head.key);
+      else if (head.carriesUpdate) {
+        this.post(page, { t: 'denied', key: head.key, reason: 'read-only' });
+        return;
+      }
     }
     let socket = page.keys.get(head.key);
     // A Close for a key this page does not hold on the service has nothing to close — and the
@@ -510,6 +542,7 @@ export class FileSyncRelay {
     if (!socket) {
       // Let go of (F106): the connections the page has may finish, no new one opens.
       if (grant.lettingGo) {
+        this.platform.warn('File sync: refused a new connection, its grant is being let go of', { page: page.id, extensionId: page.extensionId, docName, asAgent: grant.asAgent ?? null, frame: head.type });
         this.post(page, { t: 'denied', key: head.key, reason: 'not-granted' });
         return;
       }
@@ -630,7 +663,7 @@ export class FileSyncRelay {
   }
 
   /** The socket new open files of this identity go to — opening one when there is none, or the token is ending. */
-  private ensureFor(asAgent: string | null): SyncConnection | null {
+  ensureFor(asAgent: string | null): SyncConnection | null {
     const current = this.currents.get(identityKey(asAgent));
     if (current?.acceptsNewFiles) return current;
     if (!this.opening.has(identityKey(asAgent))) void this.openSocket(asAgent);

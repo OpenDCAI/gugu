@@ -8,7 +8,7 @@
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { page, userEvent } from 'vitest/browser'
-import { InputArea } from '@/components/chat/InputArea'
+import { ChatMessageComposer } from '@/components/chat/ChatMessageComposer'
 import { LocalizationProvider, setLocalePreference } from '@/i18n'
 import type { GroupRosterCandidate } from '@/lib/mention'
 import { until } from '../../../../../../../tests/support/awaitCondition'
@@ -24,7 +24,7 @@ const members: GroupRosterCandidate[] = Array.from({ length: 12 }, (_, index) =>
 let root: Root | null = null
 let host: HTMLDivElement | null = null
 
-const picker = () => document.querySelector<HTMLElement>('[data-testid="mention-picker"]')
+const picker = () => document.querySelector<HTMLElement>('[data-slot="composer-menu"][role="listbox"]')
 const options = () => Array.from(picker()?.querySelectorAll<HTMLElement>('[role="option"]') ?? [])
 const activeOption = () => picker()?.querySelector<HTMLElement>('[role="option"][aria-selected="true"]') ?? null
 const isInsidePicker = (option: HTMLElement, list: HTMLElement): boolean => {
@@ -40,7 +40,7 @@ function render(): void {
   root = createRoot(host)
   root.render(
     <LocalizationProvider>
-      <InputArea
+      <ChatMessageComposer
         onSend={vi.fn(async () => {})}
         isGroupChat
         groupMembers={members}
@@ -66,12 +66,12 @@ describe('#6722 @ mention keyboard scroll', () => {
   })
 
   it('ArrowDown / ArrowUp keep the last candidate visible and Enter selects it', async () => {
-    const textarea = page.getByRole('textbox')
+    const textarea = page.getByTestId('chat-composer')
     await textarea.click()
     await userEvent.keyboard('@')
     await until('mention picker contains every candidate', () => options().length === 13)
 
-    const list = picker()!
+    const list = picker()!.querySelector('ul')!
     const rows = options()
     expect(list.scrollHeight).toBeGreaterThan(list.clientHeight)
     expect(isInsidePicker(rows.at(-1)!, list), 'last row must start outside the first popup viewport').toBe(false)
@@ -80,7 +80,7 @@ describe('#6722 @ mention keyboard scroll', () => {
     await page.getByRole('option', { name: /Agent 2/ }).hover()
     await until('hover selects Agent 2', () => activeOption()?.textContent?.includes('Agent 2') === true)
 
-    for (let index = 0; index < 9; index += 1) await userEvent.keyboard('{ArrowDown}')
+    for (let index = 0; index < 10; index += 1) await userEvent.keyboard('{ArrowDown}')
     await until('keyboard reaches the last candidate', () => activeOption() === rows.at(-1))
     expect(list.scrollTop).toBeGreaterThan(0)
     expect(isInsidePicker(rows.at(-1)!, list)).toBe(true)
@@ -95,6 +95,21 @@ describe('#6722 @ mention keyboard scroll', () => {
     await page.screenshot({ path: 'input-area-mention-scroll-6722.png' })
 
     await userEvent.keyboard('{Enter}')
-    await until('Enter accepts the visible last candidate', () => (textarea.element() as HTMLTextAreaElement).value === '@Agent 11 ')
+    await until('Enter accepts the visible last candidate', () => textarea.element().querySelector('[data-mention-id="*"]') !== null)
   })
+
+  it('anchors the shared popup at the typed @ character', async () => {
+    const input = page.getByTestId('chat-composer')
+    await input.click()
+    await userEvent.keyboard('hello there @')
+    await until('the shared mention popup opens', () => options().length === 13)
+    const node = input.element().querySelector('.suggestion')!
+    expect(node.textContent).toBe('@')
+    const range = document.createRange()
+    range.selectNodeContents(node)
+    const caret = range.getBoundingClientRect()
+    expect(caret.left).toBeGreaterThan(input.element().getBoundingClientRect().left + 40)
+    await until('popup follows the typed caret', () => Math.abs(picker()!.getBoundingClientRect().left - caret.left) < 2)
+  })
+
 })

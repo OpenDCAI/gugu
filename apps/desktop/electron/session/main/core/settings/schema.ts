@@ -9,7 +9,7 @@ import {
 } from '@shared/core/terminals/terminal-settings';
 import { openInAppIdSchema } from '@shared/openInApps';
 import { SESSION_TITLE_INSTRUCTIONS_MAX } from '@shared/core/sessions/session-title-namer';
-import { APP_SHORTCUTS } from '@shared/shortcuts';
+import { COMMANDS } from '@shared/commands';
 import { isValidProviderId } from '../agents/plugin-registry';
 import { isGuguPermissionMode, type GuguPermissionMode } from '@gugu/session-core/acp/client';
 
@@ -46,6 +46,12 @@ export const sessionSettingsSchema = z.object({
 });
 
 export const terminalSettingsSchema = z.object({
+  /**
+   * 设置 → 通用里的「终端」开关:终端的入口与界面给不给人看,新会话走编程(开)还是通用(关)。
+   * `null` = 还没定 —— 启动时按老用户迁移规则算一次写回(terminal-visibility.ts),之后只由人来改。
+   * ❌ 不管 agent 自己能不能跑 pty 会话。
+   */
+  enabled: z.boolean().nullable(),
   fontFamily: z.string().optional(),
   fontSize: z.number().min(TERMINAL_FONT_SIZE_MIN).max(TERMINAL_FONT_SIZE_MAX).optional(),
   autoCopyOnSelection: z.boolean(),
@@ -106,8 +112,8 @@ export const keyboardSettingsSchema = z
   .optional(
     z.object(
       Object.fromEntries(
-        Object.keys(APP_SHORTCUTS).map((k) => [k, z.string().nullable().optional()])
-      ) as Record<keyof typeof APP_SHORTCUTS, z.ZodOptional<z.ZodNullable<z.ZodString>>>
+        Object.keys(COMMANDS).map((k) => [k, z.string().nullable().optional()])
+      ) as Record<keyof typeof COMMANDS, z.ZodOptional<z.ZodNullable<z.ZodString>>>
     )
   )
   .default({});
@@ -221,9 +227,7 @@ export const browserSettingsSchema = z
       settings.profiles.some((profile) => profile.id === settings.defaultProfileId)
   );
 
-// `internals`: the monitor's internal-diagnostics section (renderer heaps, source counters, deep sample). Not shown in
-// Settings; toggled by Alt-clicking the monitor's title five times.
-export const resourceMonitorSettingsSchema = z.object({ enabled: z.boolean(), internals: z.boolean() });
+export const resourceMonitorSettingsSchema = z.object({ enabled: z.boolean() });
 
 export const openInSettingsSchema = z.object({
   default: openInAppIdSchema,

@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { readFileSync } from 'node:fs'
 import { act } from 'react'
+import { flushSync } from 'react-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MessageBubble } from '../../../../apps/desktop/src/components/chat/MessageBubble'
 import { AUTOMATION_TEST_IDS } from '../../../../apps/desktop/src/lib/automationDom'
@@ -8,26 +9,273 @@ import type { ToastType } from '../../../../apps/desktop/src/components/toastCon
 import type { MemberProfileCardModel } from '../../../../apps/desktop/src/components/MemberProfileCard'
 import { UI_EVENTS } from '../../../../apps/desktop/src/lib/uiEvents'
 import { NATIVE_BACK_EVENT } from '../../../../apps/desktop/src/components/ui/sheetStack'
-import { REACTIONS } from '../../../../packages/core/src/shared/ui/reactionCatalog'
+import { platform } from '../../../../apps/desktop/src/platform'
+import { QUICK_REACTIONS, REACTIONS } from '../../../../packages/core/src/shared/ui/reactionCatalog'
+import { TOOLTIP_OPEN_DELAY_MS } from '../../../../apps/desktop/src/styles/motion'
 import { clickElement, createNode, createReactHarness, message, renderWithAppProviders } from '../../../support/testHarness'
 vi.mock('../../../../apps/desktop/src/hooks/useAgentHarnessIdentity', () => ({ useAgentHarnessIdentity: () => 'codex' }))
 let harness: ReturnType<typeof createReactHarness>
+const originalPlatformKind = platform.kind
 beforeEach(() => {
   vi.useFakeTimers()
+  for (const key of ['gugu.reaction-frequency', 'emoji-mart.frequently', 'emoji-mart.last']) localStorage.removeItem(key)
+  vi.stubGlobal('IntersectionObserver', class { observe() {} unobserve() {} disconnect() {} })
   harness = createReactHarness()
 })
 afterEach(() => {
+  platform.kind = originalPlatformKind
   harness.cleanup()
   vi.useRealTimers()
+  vi.restoreAllMocks()
+  vi.unstubAllGlobals()
 })
 describe('MessageBubble touch menu', () => {
+  it.each(['text', 'link', 'selection'] as const)('copies %s through the native shell instead of the denied WebView clipboard (#938)', async (kind) => {
+    platform.kind = 'capacitor'
+    const nativeWrite = vi.spyOn(platform, 'writeClipboardText').mockResolvedValue(undefined)
+    const browserWrite = vi.fn().mockRejectedValue(new Error('Write permission denied.'))
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText: browserWrite }, configurable: true })
+    const toast = vi.fn()
+    const href = 'https://example.com/path?x=1&y=two#fragment'
+    await renderMessage(toast, true, vi.fn(), kind === 'link' ? { content: `before ${href} after` } : {})
+    if (kind === 'selection') selectMessageText('from mobile')
+    await longPress(kind === 'link' ? messageBubble().querySelector('a')! : messageBubble())
+    await clickElement(document.querySelector(`[data-testid="message-action-${kind === 'link' ? 'copyLink' : 'copy'}"]`)!)
+    expect(nativeWrite).toHaveBeenCalledExactlyOnceWith(kind === 'link' ? href : kind === 'selection' ? 'from mobile' : 'hello from mobile')
+    expect(browserWrite).not.toHaveBeenCalled()
+    expect(toast).toHaveBeenCalledWith('已复制', 'success')
+  })
+
+  it('reports native clipboard rejection without falling back to WebView permissions (#938)', async () => {
+    platform.kind = 'capacitor'
+    vi.spyOn(platform, 'writeClipboardText').mockRejectedValue(new Error('Native copy failed /Users/test/private sk-synthetic-secret\nstack detail'))
+    const browserWrite = vi.fn()
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText: browserWrite }, configurable: true })
+    const toast = vi.fn()
+    await renderMessage(toast)
+    await longPress()
+    await clickElement(document.querySelector('[data-testid="message-action-copy"]')!)
+    expect(toast).toHaveBeenCalledWith('复制失败', 'error', 'Native copy failed [path] [redacted token]')
+    expect(toast).not.toHaveBeenCalledWith('已复制', 'success')
+    expect(browserWrite).not.toHaveBeenCalled()
+  })
+
+  it.each(['web', 'electron'] as const)('uses the same platform exit for %s (#938)', async (kind) => {
+    platform.kind = kind
+    const nativeWrite = vi.spyOn(platform, 'writeClipboardText').mockResolvedValue(undefined)
+    const browserWrite = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText: browserWrite }, configurable: true })
+    const toast = vi.fn()
+    await renderMessage(toast, false)
+    await contextMenu()
+    await clickElement(menuItem('复制文本'))
+    expect(nativeWrite).toHaveBeenCalledExactlyOnceWith('hello from mobile')
+    expect(browserWrite).not.toHaveBeenCalled()
+    expect(toast).toHaveBeenCalledWith('已复制', 'success')
+  })
+
+  it('leaves phone message text long-press to native selection', async () => {
+    await renderMessage()
+    await longPress(messageBubble().querySelector('.gg-md')!)
+    expect(document.querySelector('[data-testid="message-action-menu"]')).toBeNull()
+  })
+  it.each(['before https://example.com/path after', 'https://example.com/path'])('opens phone link actions without inventing a native selection: %s', async content => {
+    await renderMessage(undefined, true, vi.fn(), { content })
+    const link = messageBubble().querySelector('a')!
+    await longPress(link)
+    expect(window.getSelection()?.toString()).toBe('')
+    expect(document.querySelector('[data-testid="message-action-menu"]')).not.toBeNull()
+    for (const action of ['reply', 'forward', 'delete', 'openLink', 'copyLink']) {
+      expect(document.querySelector(`[data-testid="message-action-${action}"]`), action).not.toBeNull()
+    }
+  })
+  it('copies the selected phone text through the real companion toolbar button', async () => {
+    const writeText = vi.fn(async (_text: string) => {})
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
+    await renderMessage()
+    await act(async () => {
+      selectMessageText('from mobile')
+      document.dispatchEvent(new Event('selectionchange'))
+      document.dispatchEvent(new Event('touchend'))
+    })
+    await clickElement(document.querySelector('[data-testid="message-selection-copy"]')!)
+    expect(writeText).toHaveBeenCalledExactlyOnceWith('from mobile')
+  })
+  it('does not cancel the native context menu on selectable phone text', async () => {
+    await renderMessage()
+    const text = messageBubble().querySelector('.gg-md')!
+    const event = new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 120, clientY: 240 })
+    await act(async () => { text.dispatchEvent(event) })
+    expect(event.defaultPrevented).toBe(false)
+    expect(document.querySelector('[data-testid="message-action-menu"]')).toBeNull()
+  })
+  it('opens the existing reaction picker directly from selected phone text', async () => {
+    const onReaction = vi.fn()
+    await renderMessage(undefined, true, onReaction)
+    await act(async () => {
+      selectMessageText('hello')
+      document.dispatchEvent(new Event('selectionchange'))
+      document.dispatchEvent(new Event('touchend'))
+    })
+    const react = document.querySelector<HTMLElement>('[data-testid="message-selection-react"]')
+    expect(react?.textContent).toBe('表情回应')
+    await clickElement(react!)
+    await act(async () => { await vi.dynamicImportSettled() })
+    const picker = document.querySelector('[role="toolbar"][aria-label="快速回应"]')!
+    expect(picker).not.toBeNull()
+    const heart = [...picker.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === '❤️')!
+    await clickElement(heart)
+    expect(onReaction).toHaveBeenCalledWith('msg-1', '❤️')
+  })
+  it('renders previously loaded mobile reactions in the same commit when reopening the menu', async () => {
+    await renderMessage(undefined, true)
+    await longPress()
+    await act(() => { document.dispatchEvent(new CustomEvent(UI_EVENTS.closeContextMenus)) })
+    expect(document.querySelector('[role="menu"]')).toBeNull()
+    await act(() => {
+      flushSync(() => { messageBubble().dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 120, clientY: 240 })) })
+      expect(document.querySelector('[role="group"][aria-label="快速回应"]')?.querySelectorAll('button')).toHaveLength(7)
+    })
+  })
+  it('copies a text selection made inside the mobile menu\'s select-text view', async () => {
+    const writeText = vi.fn(async (_text: string) => {})
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
+    const toast = vi.fn()
+    await renderMessage(toast)
+    await longPress()
+    await clickElement(document.querySelector('[data-testid="message-action-selectText"]')!)
+    expect(document.querySelector('[data-testid="message-action-menu"]'), '换一屏,菜单不收').not.toBeNull()
+    const text = document.querySelector<HTMLElement>('[data-testid="message-selection-text"]')!
+    expect(text.textContent).toBe('hello from mobile')
+    selectTextIn(text, 'from mobile')
+    await clickElement(document.querySelector('[data-testid="message-action-copy"]')!)
+    expect(writeText).toHaveBeenCalledWith('from mobile')
+    expect(toast).toHaveBeenCalledWith('已复制', 'success')
+  })
+  it('routes native in-menu Copy through the same clipboard feedback', async () => {
+    const writeText = vi.fn(async (_text: string) => {})
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
+    const toast = vi.fn()
+    await renderMessage(toast)
+    await longPress()
+    await clickElement(document.querySelector('[data-testid="message-action-selectText"]')!)
+    const text = document.querySelector<HTMLElement>('[data-testid="message-selection-text"]')!
+    selectTextIn(text, 'hello')
+    const event = new Event('copy', { bubbles: true, cancelable: true })
+    await act(async () => { text.dispatchEvent(event) })
+    expect(event.defaultPrevented).toBe(true)
+    expect(writeText).toHaveBeenCalledWith('hello')
+    expect(toast).toHaveBeenCalledWith('已复制', 'success')
+  })
+  it('keeps external-link copying without resource actions on ordinary messages', async () => {
+    const writeText = vi.fn(async (_text: string) => {})
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
+    const toast = vi.fn()
+    await renderMessage(toast, true, vi.fn(), { content: 'before https://example.com/path?copy=1025 after' })
+    await longPress(messageBubble().querySelector('a')!)
+    expect(document.querySelector('[data-testid="message-action-openLink"]')).not.toBeNull()
+    expect(document.querySelector('[data-testid="message-action-copy-resource-url"]')).toBeNull()
+    expect(document.querySelector('[data-testid="message-action-send-resource-url"]')).toBeNull()
+    await clickElement(document.querySelector('[data-testid="message-action-copyLink"]')!)
+    expect(writeText).toHaveBeenLastCalledWith('https://example.com/path?copy=1025')
+  })
+  it('keeps a file message\'s menu to message actions: its gugu URL lives on the file (preview, group files), not here', async () => {
+    // Control (the parent commit 1b055755): the pair sat between 「复制」 and 「转发」 here (owner, #560: the bubble menu grows too long).
+    await renderMessage(undefined, true, vi.fn(), { content: '[附件] notes.txt (text/plain)\n[Size] 12\n[Kind] file', file: { id: '12345678-1234-1234-1234-123456789abc', version: 3 } })
+    await longPress()
+    expect(document.querySelector('[data-testid="message-action-forward"]')).not.toBeNull()
+    expect(document.querySelector('[data-testid="message-action-copy-resource-url"]')).toBeNull()
+    expect(document.querySelector('[data-testid="message-action-send-resource-url"]')).toBeNull()
+  })
+  it('opens a link through its existing anchor action', async () => {
+    await renderMessage(undefined, true, vi.fn(), { content: 'before https://example.com/path after' })
+    const link = messageBubble().querySelector('a')!
+    const open = vi.spyOn(link, 'click').mockImplementation(() => {})
+    await longPress(link)
+    await clickElement(document.querySelector('[data-testid="message-action-openLink"]')!)
+    expect(open).toHaveBeenCalledOnce()
+  })
+  it('does not offer link actions for an ordinary message press', async () => {
+    await renderMessage()
+    await longPress()
+    expect(document.querySelector('[data-testid="message-action-copyLink"]')).toBeNull()
+    expect(document.querySelector('[data-testid="message-action-openLink"]')).toBeNull()
+  })
+  it('replies from the desktop context menu through the existing quote action', async () => {
+    const onQuote = vi.fn()
+    await renderMessage(undefined, false, vi.fn(), { onQuote, onEnterSelectMode: vi.fn(), onOpenTopic: vi.fn() })
+    await contextMenu()
+    expect(actionKeys()).toEqual(['reply', 'copy', 'openTopic', 'forward', 'select', 'delete'])
+    await clickElement(menuItem('回复'))
+    expect(onQuote).toHaveBeenCalledWith(expect.objectContaining({ id: 'msg-1', content: 'hello from mobile' }))
+    expect(document.querySelector('[role="menu"]')).toBeNull()
+  })
+  it('keeps frequency-ordered mobile reactions and calls the existing reaction action', async () => {
+    localStorage.setItem('gugu.reaction-frequency', JSON.stringify({ '🚀': 9, '👀': 3 }))
+    const onReaction = vi.fn()
+    await renderMessage(undefined, true, onReaction)
+    await longPress()
+    const group = document.querySelector('[role="group"][aria-label="快速回应"]')!
+    const buttons = [...group.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')]
+    expect(buttons.map((button) => button.textContent)).toEqual(['🚀', '👀', '👍', '❤️', '😂', '✅', ''])
+    await clickElement(buttons[0])
+    expect(onReaction).toHaveBeenCalledWith('msg-1', '🚀')
+    expect(JSON.parse(localStorage.getItem('gugu.reaction-frequency')!)['🚀']).toBe(10)
+    expect(document.querySelector('[role="menu"]')).toBeNull()
+  })
+  it('copies the captured message selection after menu focus clears the DOM selection', async () => {
+    const writeText = vi.fn(async (_text: string) => {})
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
+    await renderMessage(undefined, false, vi.fn(), { onEnterSelectMode: vi.fn(), onOpenTopic: vi.fn() })
+    selectMessageText('hello')
+    await contextMenu()
+    expect(actionKeys()).toEqual(['reply', 'copy'])
+    window.getSelection()!.removeAllRanges()
+    await clickElement(menuItem('复制文本'))
+    expect(writeText).toHaveBeenCalledWith('hello')
+  })
+  it('keeps only selection and existing link actions when the selected text is a link', async () => {
+    const writeText = vi.fn(async (_text: string) => {})
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
+    await renderMessage(undefined, false, vi.fn(), { content: 'before https://example.com/path after' })
+    const link = messageBubble().querySelector('a')!
+    selectTextIn(link, 'https://example.com/path')
+    await act(() => { link.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, button: 2 })) })
+    await contextMenu()
+    expect(actionKeys()).toEqual(['reply', 'copy', 'copyLink', 'openLink'])
+    window.getSelection()!.removeAllRanges()
+    await clickElement(document.querySelector('[data-testid="message-action-copyLink"]')!)
+    expect(writeText).toHaveBeenCalledWith('https://example.com/path')
+  })
+  it('hides excerpt quoting while retaining whole-message reply after desktop selection', async () => {
+    const onQuote = vi.fn()
+    await renderMessage(undefined, false, vi.fn(), { onQuote })
+    selectMessageText('hello')
+    await contextMenu()
+    window.getSelection()!.removeAllRanges()
+    expect([...document.querySelectorAll('[role="menuitem"]')].some(item => item.textContent === '引用选中文字')).toBe(false)
+    await clickElement(menuItem('回复'))
+    expect(onQuote).toHaveBeenCalledWith(expect.objectContaining({ id: 'msg-1', content: 'hello from mobile' }))
+  })
+  it('ignores a selection outside the message and retains whole-message copying', async () => {
+    const writeText = vi.fn(async (_text: string) => {})
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
+    await renderMessage(undefined, false)
+    const outside = document.createTextNode('unrelated selection')
+    document.body.append(outside)
+    const range = document.createRange()
+    range.selectNodeContents(outside)
+    window.getSelection()!.removeAllRanges()
+    window.getSelection()!.addRange(range)
+    await contextMenu()
+    expect([...document.querySelectorAll('[role="menuitem"]')].some((item) => item.textContent === '引用选中文字')).toBe(false)
+    await clickElement(menuItem('复制文本'))
+    expect(writeText).toHaveBeenCalledWith('hello from mobile')
+    outside.remove()
+  })
   it('opens the existing message actions menu on touch long press', async () => {
     await renderMessage()
-    const bubble = messageBubble()
-    await act(async () => {
-      bubble.dispatchEvent(touchPointerEvent('pointerdown', { clientX: 120, clientY: 240 }))
-      vi.advanceTimersByTime(550)
-    })
+    await longPress()
     expect(document.body.textContent).toContain('复制')
     expect(document.body.textContent).toContain('转发')
     expect(document.body.textContent).toContain('删除')
@@ -46,11 +294,7 @@ describe('MessageBubble touch menu', () => {
   })
   it('still closes from the shared close event after a touch long press', async () => {
     await renderMessage()
-    const bubble = messageBubble()
-    await act(async () => {
-      bubble.dispatchEvent(touchPointerEvent('pointerdown', { clientX: 120, clientY: 240 }))
-      vi.advanceTimersByTime(550)
-    })
+    await longPress()
     expect(document.body.textContent).toContain('复制')
     await act(async () => {
       document.dispatchEvent(new CustomEvent(UI_EVENTS.closeContextMenus))
@@ -58,7 +302,7 @@ describe('MessageBubble touch menu', () => {
     expect(document.body.textContent).not.toContain('复制')
   })
   it('uses the compact mobile message type without changing sender metadata size', async () => {
-    await renderMessage()
+    await renderMessage(undefined, true, vi.fn(), { memberProfile: agentProfile() })
     const bubble = messageBubble()
     const sender = harness.container.querySelector('[data-message-sender-name="true"]') as HTMLElement | null
     const bubbleColumn = bubble.closest('[data-message-bubble-column="true"]') as HTMLElement | null
@@ -70,33 +314,34 @@ describe('MessageBubble touch menu', () => {
     expect(tokensCss).toMatch(/--font-size-md:\s*16px/)
     expect(tokensCss).toMatch(/--lh-prose:\s*24px/)
     expect(bubbleColumn?.style.maxWidth).toBe('78%')
-    // @@@type-12 (2026-09-03) 12 消灭:发送者名和时间戳同层,是归属标记不是内容,按简报判进
-    expect(sender?.style.fontSize).toBe('var(--font-caption)')
-    expect(readFileSync('apps/desktop/src/styles/tokens.css', 'utf8')).toMatch(/--font-caption:\s*var\(--font-size-xs\)/)
-    expect(readFileSync('apps/desktop/src/styles/tokens.css', 'utf8')).toMatch(/--font-size-xs:\s*12px/)
-    expect(sender?.style.fontWeight).toBe('500')
-    expect(sender?.style.color).toBe('var(--muted-fg)')
+    // 名字在气泡第一行,比正文小一号(14/20);时间是标注那一档(12/18)。
+    expect(bubble.contains(sender), 'the sender name sits inside the bubble').toBe(true)
+    expect(sender?.classList.contains('msg-sender')).toBe(true)
+    const chromeCss = readFileSync('apps/desktop/src/components/chat/messageBubbleChrome.css', 'utf8')
+    expect(chromeCss).toMatch(/\.msg-sender \{[^}]*font-size: var\(--font-body\)/)
+    expect(chromeCss).toMatch(/\.msg-time \{[^}]*font-size: var\(--font-caption\)/)
+    expect(tokensCss).toMatch(/--font-body:\s*var\(--font-size-sm\)/)
   })
   it('labels another user\'s agent, missing ownership, and my agent distinctly', async () => {
     const externalAgent = agentProfile({ ownerUserId: 'owner-2', ownerDisplayName: 'Alice' })
     await renderMessage(undefined, false, vi.fn(), { memberProfile: externalAgent })
-    expect(harness.container.querySelector('[data-message-agent-owner="true"]')?.textContent).toBe('（Alice 的 agent）')
+    expect(harness.container.querySelector('[data-message-agent-owner="true"]')?.textContent).toBe('Alice 的 agent')
 
     await renderMessage(undefined, false, vi.fn(), { memberProfile: agentProfile({ ownerUserId: 'owner-2', ownerDisplayName: null }) })
-    expect(harness.container.querySelector('[data-message-agent-owner="true"]')?.textContent).toBe('（主人信息不可用）')
+    expect(harness.container.querySelector('[data-message-agent-owner="true"]')?.textContent).toBe('主人信息不可用')
 
     await renderMessage(undefined, false, vi.fn(), { memberProfile: agentProfile({ ownerUserId: 'user-1', ownerDisplayName: 'User' }) })
-    expect(harness.container.querySelector('[data-message-agent-owner="true"]')?.textContent).toBe('（我的 agent）')
+    expect(harness.container.querySelector('[data-message-agent-owner="true"]')?.textContent).toBe('我的 agent')
   })
-  it('#6791 keeps a long sender line inside its column: the name truncates, the ownership tag stays', async () => {
+  it('#6791/#1062 keeps sender and ownership metadata in a capped line', async () => {
     await renderMessage(undefined, true, vi.fn(), { memberProfile: agentProfile({ ownerUserId: 'user-1', ownerDisplayName: 'User' }) })
-    const who = harness.container.querySelector('[data-message-who="true"]') as HTMLElement
-    expect(who.style.maxWidth, 'the row is sized by its content inside a flex-start column; uncapped, nowrap text pushes it past the column').toBe('100%')
     const sender = harness.container.querySelector('[data-message-sender-name="true"]') as HTMLElement
     const [name, owner] = Array.from(sender.children) as HTMLElement[]
-    expect(name.classList.contains('truncate')).toBe(true)
+    expect(name.classList.contains('msg-sender-name')).toBe(true)
     expect(owner.dataset.messageAgentOwner).toBe('true')
-    expect(owner.classList.contains('shrink-0'), 'the name gives way first').toBe(true)
+    const chromeCss = readFileSync('apps/desktop/src/components/chat/messageBubbleChrome.css', 'utf8')
+    expect(chromeCss, 'the row is capped by its column; uncapped, nowrap text pushes it past the column').toMatch(/\.msg-sender \{[^}]*max-width: 100%/)
+    expect(chromeCss).toMatch(/\.msg-sender-name \{[^}]*text-overflow: ellipsis/)
   })
   it('overlays the mobile read receipt without shrinking the sender bubble', async () => {
     await renderMessage(undefined, true, vi.fn(), {
@@ -125,18 +370,25 @@ describe('MessageBubble touch menu', () => {
     expect(bubble.style.getPropertyValue('-webkit-user-select')).toBe('none')
   })
   it('exposes quick reactions as a labelled toolbar with arrow-key navigation', async () => {
+    localStorage.setItem('emoji-mart.frequently', '{"rocket":100}')
+    localStorage.setItem('emoji-mart.last', 'rocket')
     const onReaction = vi.fn()
     await renderMessage(undefined, false, onReaction)
-    const trigger = harness.container.querySelector('button[title="表情回应"]') as HTMLButtonElement
+    const over = new MouseEvent('pointerover', { bubbles: true })
+    Object.defineProperty(over, 'pointerType', { value: 'mouse' })
+    const row = messageBubble().closest('[data-message-bubble-row]')!
+    await act(async () => { row.dispatchEvent(over); row.dispatchEvent(new MouseEvent('mouseenter')) })
+    await act(async () => { vi.advanceTimersByTime(TOOLTIP_OPEN_DELAY_MS) })
+    const trigger = document.querySelector('button[title="表情回应"]') as HTMLButtonElement
     await clickElement(trigger)
     const toolbar = document.body.querySelector('[role="toolbar"][aria-label="快速回应"]') as HTMLElement | null
     const buttons = Array.from(toolbar?.querySelectorAll('button') ?? []) as HTMLButtonElement[]
     expect(toolbar).not.toBeNull()
-    // #6562 浮层就是目录:每个按钮读屏报「回应 表情 名字」,顺序与目录一致。
+    // 旧库记录不迁移,按目录里的混合快捷顺序补齐,最后一项展开精选回应。
     expect(buttons.map((button) => button.getAttribute('aria-label'))).toEqual(
-      REACTIONS.map(({ emoji, zh }) => `回应 ${emoji} ${zh}`),
+      [...QUICK_REACTIONS.map(({ emoji, zh }) => `回应 ${emoji} ${zh}`), '更多表情'],
     )
-    expect(buttons.map((button) => button.getAttribute('title'))).toEqual(REACTIONS.map(({ zh }) => zh))
+    expect(buttons.map((button) => button.getAttribute('title'))).toEqual([...QUICK_REACTIONS.map(({ zh }) => zh), null])
     buttons[0].focus()
     await act(async () => {
       buttons[0].dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }))
@@ -144,39 +396,74 @@ describe('MessageBubble touch menu', () => {
     expect(document.activeElement).toBe(buttons[1])
     await clickElement(buttons[1])
     expect(onReaction).toHaveBeenCalledWith('msg-1', '❤️')
+    expect(localStorage.getItem('emoji-mart.frequently')).toBeNull()
+    expect(localStorage.getItem('emoji-mart.last')).toBeNull()
     expect(document.body.querySelector('[role="toolbar"][aria-label="快速回应"]')).toBeNull()
   })
-  it('mobile long press opens the action sheet: reactions, reply first, then the desktop menu actions', async () => {
+  it('mobile long press opens one menu by the bubble (no bottom sheet): reactions, reply first, then the shared actions', async () => {
     const onReaction = vi.fn(); const onQuote = vi.fn()
     await renderMessage(undefined, true, onReaction, { onQuote })
     await longPress()
-    const sheet = document.body.querySelector('[data-testid="message-action-sheet"]') as HTMLElement
-    expect(sheet).not.toBeNull()
-    expect(document.body.querySelector('[role="menu"]'), '手机上不再弹指针菜单').toBeNull()
-    const rows = [...sheet.querySelectorAll('[data-testid^="message-action-"]')].map((el) => el.getAttribute('data-testid'))
-    expect(rows).toEqual(['message-action-reply', 'message-action-copy', 'message-action-forward', 'message-action-delete'])
-    await clickElement(sheet.querySelector('[data-testid="message-action-reply"]') as HTMLElement)
+    expect(document.body.querySelectorAll('[role="menu"]')).toHaveLength(1)
+    expect(document.body.querySelector('[data-slot="sheet-content"]'), 'owner 10-26:❌ 底部抽屉').toBeNull()
+    const menu = document.body.querySelector('[data-testid="message-action-menu"]') as HTMLElement
+    const rows = [...menu.querySelectorAll('[data-testid^="message-action-"]')].map((el) => el.getAttribute('data-testid'))
+    expect(rows).toEqual(['message-action-reply', 'message-action-copy', 'message-action-selectText', 'message-action-forward', 'message-action-delete'])
+    await clickElement(menu.querySelector('[data-testid="message-action-reply"]') as HTMLElement)
     expect(onQuote).toHaveBeenCalledWith(expect.objectContaining({ id: 'msg-1' }))
-    expect(document.body.querySelector('[data-testid="message-action-sheet"]')).toBeNull()
+    expect(document.body.querySelector('[role="menu"]')).toBeNull()
 
     await longPress()
-    const toolbar = document.body.querySelector('[data-testid="message-action-sheet"] [role="toolbar"]') as HTMLElement
-    expect([...toolbar.querySelectorAll('button')].map((b) => b.textContent)).toEqual(REACTIONS.map(({ emoji }) => emoji))
-    await clickElement(toolbar.querySelectorAll('button')[1] as HTMLElement)
+    const quick = [...document.body.querySelectorAll<HTMLElement>('[data-testid="message-action-menu"] [role="group"][aria-label="快速回应"] [role="menuitem"]')]
+    expect(quick.map((b) => b.textContent)).toEqual([...QUICK_REACTIONS.map(({ emoji }) => emoji), ''])
+    await clickElement(quick[1])
     expect(onReaction).toHaveBeenCalledWith('msg-1', '❤️')
-    expect(document.body.querySelector('[data-testid="message-action-sheet"]')).toBeNull()
+    expect(document.body.querySelector('[role="menu"]')).toBeNull()
   })
-  it('the Android back key closes the long-press sheet before the page underneath can go back', async () => {
+  it('uses saved emoji frequencies and fills the quick row from the catalog', async () => {
+    localStorage.setItem('gugu.reaction-frequency', JSON.stringify({ '🚀': 9, '👀': 3, '🦄': 100 }))
+    const onReaction = vi.fn()
+    await renderMessage(undefined, true, onReaction)
+    await longPress()
+    const buttons = document.querySelectorAll<HTMLButtonElement>('[role="group"][aria-label="快速回应"] [role="menuitem"]')
+    expect([...buttons].map((b) => b.textContent)).toEqual(['🚀', '👀', '👍', '❤️', '😂', '✅', ''])
+    await clickElement(buttons[0])
+    expect(JSON.parse(localStorage.getItem('gugu.reaction-frequency')!)['🚀']).toBe(10)
+    expect(onReaction).toHaveBeenCalledWith('msg-1', '🚀')
+  })
+  it('expands inside the same mobile menu and keeps all named work statuses reachable', async () => {
+    const onReaction = vi.fn()
+    await renderMessage(undefined, true, onReaction)
+    await longPress()
+    await act(() => {
+      flushSync(() => { (document.querySelector('button[aria-label="更多表情"]') as HTMLButtonElement).click() })
+      expect(document.querySelectorAll('section[aria-label="表态"] button')).toHaveLength(24)
+    })
+    const sheet = document.querySelector('[data-testid="message-action-menu"]')!
+    expect(document.querySelectorAll('[role="menu"]')).toHaveLength(1)
+    expect(sheet.querySelector('[role="group"][aria-label="快速回应"]')).toBeNull()
+    expect(sheet.querySelector('[data-testid="message-action-reply"]')).toBeNull()
+    expect(sheet.querySelector('input')).toBeNull()
+    expect([...sheet.querySelectorAll('section[aria-label="表态"] button')].map((button) => button.textContent)).toEqual(REACTIONS.filter(({ kind }) => kind === 'mood').map(({ emoji }) => emoji))
+    const statuses = sheet.querySelectorAll<HTMLButtonElement>('section[aria-label="工作状态"] button')
+    expect([...statuses].map((b) => b.textContent)).toEqual(['👌收到', '👀在看', '⏳稍等', '✅完成', '❓疑问', '❌不对'])
+    await clickElement(statuses[3])
+    expect(JSON.parse(localStorage.getItem('gugu.reaction-frequency')!)).toEqual({ '✅': 1 })
+    expect(onReaction).toHaveBeenCalledWith('msg-1', '✅')
+    await longPress()
+    expect(document.querySelector('[role="group"][aria-label="快速回应"] [role="menuitem"]')?.textContent).toBe('✅')
+  })
+  it('the Android back key closes the long-press menu before the page underneath can go back', async () => {
     await renderMessage()
     await longPress()
-    expect(document.body.querySelector('[data-testid="message-action-sheet"]')).not.toBeNull()
+    expect(document.body.querySelector('[data-testid="message-action-menu"]')).not.toBeNull()
     const nativeBack = window as Window & { __guguNativeBackHandled?: boolean }
     nativeBack.__guguNativeBackHandled = false
     await act(async () => { window.dispatchEvent(new Event(NATIVE_BACK_EVENT)) })
-    expect(document.body.querySelector('[data-testid="message-action-sheet"]')).toBeNull()
-    expect(nativeBack.__guguNativeBackHandled, '返回键被面板吃掉,会话页不跟着退').toBe(true)
+    expect(document.body.querySelector('[data-testid="message-action-menu"]')).toBeNull()
+    expect(nativeBack.__guguNativeBackHandled, '返回键被菜单吃掉,会话页不跟着退').toBe(true)
   })
-  it('the lift that ends a long press does not become a click on the sheet that just opened under the finger', async () => {
+  it('the lift that ends a long press does not become a click on the menu that just opened under the finger', async () => {
     await renderMessage()
     const tapEnd = new Event('touchend', { bubbles: true, cancelable: true })
     await act(async () => { messageBubble().dispatchEvent(tapEnd) })
@@ -184,25 +471,40 @@ describe('MessageBubble touch menu', () => {
     await longPress()
     const liftEnd = new Event('touchend', { bubbles: true, cancelable: true })
     await act(async () => { messageBubble().dispatchEvent(liftEnd) })
-    expect(liftEnd.defaultPrevented, '长按的松手不取消 ⇒ 合成的 click 落到遮罩或某一行上').toBe(true)
-    expect(document.body.querySelector('[data-testid="message-action-sheet"]')).not.toBeNull()
+    expect(liftEnd.defaultPrevented, '长按的松手不取消 ⇒ 合成的 click 落到菜单外或某一行上').toBe(true)
+    expect(document.body.querySelector('[data-testid="message-action-menu"]')).not.toBeNull()
   })
-  it('desktop right click keeps the pointer menu with the same actions and no sheet', async () => {
-    await renderMessage(undefined, false)
-    await act(async () => {
-      messageBubble().dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 120, clientY: 240 }))
-    })
-    expect(document.body.querySelector('[data-testid="message-action-sheet"]')).toBeNull()
-    const items = [...document.body.querySelectorAll('[role="menuitem"]')].map((el) => el.textContent?.trim())
-    expect(items).toEqual(['复制文本', '转发', '删除'])
+  it.each(['context', 'more'])('keeps desktop %s menus action-only while retaining the hover reaction entry', async (entry) => {
+    const onQuote = vi.fn()
+    await renderMessage(undefined, false, vi.fn(), { onQuote })
+    const row = messageBubble().closest('[data-message-bubble-row]')!
+    const over = new MouseEvent('pointerover', { bubbles: true })
+    Object.defineProperty(over, 'pointerType', { value: 'mouse' })
+    await act(async () => { row.dispatchEvent(over); row.dispatchEvent(new MouseEvent('mouseenter')); vi.advanceTimersByTime(TOOLTIP_OPEN_DELAY_MS) })
+    expect(document.querySelector('button[title="表情回应"]')).not.toBeNull()
+    if (entry === 'more') await clickElement(document.querySelector('[data-testid="message-hover-actions"] button[aria-label="更多"]')!)
+    else await contextMenu()
+    expect(document.querySelector('[data-testid="message-action-selectText"]')).toBeNull()
+    expect(document.querySelectorAll('[role="menu"]')).toHaveLength(1)
+    expect(document.querySelector('[aria-label="快速回应"]')).toBeNull()
+    expect(document.querySelector('[aria-label="更多表情"]')).toBeNull()
+    expect([...document.querySelectorAll('[role="menuitem"]')].map((el) => el.textContent?.trim())).toEqual(['回复', '复制文本', '转发', '删除'])
+    await clickElement(menuItem('回复'))
+    expect(onQuote).toHaveBeenCalledWith(expect.objectContaining({ id: 'msg-1' }))
+    expect(document.querySelector('[role="menu"]')).toBeNull()
+  })
+  it('expands More inside the mobile menu without dismissing it or opening another surface', async () => {
+    await renderMessage(undefined, true)
+    await longPress()
+    await clickElement(document.querySelector('[aria-label="更多表情"]') as HTMLElement)
+    await act(async () => { await vi.dynamicImportSettled() })
+    expect(document.querySelectorAll('[role="menu"]')).toHaveLength(1)
+    expect(document.querySelector('[role="group"][aria-label="快速回应"]')).toBeNull()
+    expect(document.querySelectorAll('section[aria-label="工作状态"] button')).toHaveLength(6)
   })
   // @@@copy-fail-loud (#1123) — clipboard 复制必须 await + 反馈，失败不静默。
   async function openMenuAndCopy() {
-    const bubble = messageBubble()
-    await act(async () => {
-      bubble.dispatchEvent(touchPointerEvent('pointerdown', { clientX: 120, clientY: 240 }))
-      vi.advanceTimersByTime(550)
-    })
+    await longPress()
     const copyItem = [...document.body.querySelectorAll('*')]
       .find((el) => el.textContent?.trim() === '复制文本') as HTMLElement | undefined
     expect(copyItem, 'copy-text menu item should be present').toBeTruthy()
@@ -222,29 +524,17 @@ describe('MessageBubble touch menu', () => {
     expect(toast).toHaveBeenCalledWith('已复制', 'success')
   })
   it('copy text clipboard reject → fail-loud toast, not silent (#1123)', async () => {
-    const writeText = vi.fn().mockRejectedValue(new Error('clipboard denied'))
+    const writeText = vi.fn().mockRejectedValue(new Error('clipboard denied /Users/test/private sk-synthetic-secret\nstack detail'))
     Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
     const toast = vi.fn()
     await renderMessage(toast)
     await openMenuAndCopy()
-    expect(toast).toHaveBeenCalledWith('复制失败，请手动选择文本复制', 'error')
+    expect(toast).toHaveBeenCalledWith('复制失败', 'error', 'clipboard denied [path] [redacted token]')
   })
-  it('exposes working copy, quote and more actions below a private agent answer without hovering', async () => {
-    const writeText = vi.fn().mockResolvedValue(undefined)
-    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
-    const toast = vi.fn(), onQuote = vi.fn()
-    await renderMessage(toast, false, vi.fn(), { isAgent: true, isGroup: false, onQuote })
-    const bar = harness.container.querySelector('[data-testid="agent-answer-actions"]')!
-    const buttons = [...bar.querySelectorAll('button')]
-    expect(buttons.map(button => button.getAttribute('aria-label'))).toEqual(['复制文本', '回复', '更多'])
-    await clickElement(buttons[0])
-    expect(writeText).toHaveBeenCalledWith('hello from mobile')
-    expect(toast).toHaveBeenCalledWith('已复制', 'success')
-    await clickElement(buttons[1])
-    expect(onQuote).toHaveBeenCalledWith(expect.objectContaining({ id: 'msg-1' }))
-    await clickElement(buttons[2])
-    expect(document.body.textContent).toContain('转发')
-    await renderMessage(toast, false, vi.fn(), { isAgent: true, isGroup: true })
+  it('does not retain the retired private-agent answer toolbar in the IM bubble', async () => {
+    await renderMessage(vi.fn(), false, vi.fn(), { isAgent: true, isGroup: false })
+    expect(harness.container.querySelector('[data-testid="agent-answer-actions"]')).toBeNull()
+    await renderMessage(vi.fn(), false, vi.fn(), { isAgent: true, isGroup: true })
     expect(harness.container.querySelector('[data-testid="agent-answer-actions"]')).toBeNull()
   })
 })
@@ -253,6 +543,8 @@ async function renderMessage(
   compactMobile = true,
   onReaction = vi.fn(),
   options: {
+    content?: string
+    file?: { id: string; version: number }
     isMine?: boolean
     isAgent?: boolean
     isGroup?: boolean
@@ -261,6 +553,8 @@ async function renderMessage(
     showReadReceipt?: boolean
     memberProfile?: MemberProfileCardModel
     onQuote?: (msg: unknown) => void
+    onEnterSelectMode?: () => void
+    onOpenTopic?: (messageId: string) => void
   } = {},
 ) {
   const isMine = options.isMine ?? false
@@ -269,7 +563,8 @@ async function renderMessage(
     createNode(MessageBubble, {
       msg: message({
         id: 'msg-1',
-        content: 'hello from mobile',
+        content: options.content ?? 'hello from mobile',
+        ...(options.file ? { content_type: 'attachment', file_item_id: options.file.id, file_version: options.file.version } as const : {}),
         is_mine: isMine,
         sender_user_id: 'sender-1',
         created_at: '2026-05-24T00:00:00.000Z',
@@ -277,6 +572,8 @@ async function renderMessage(
       onReaction,
       memberReadSeqs: {},
       onQuote: options.onQuote ?? vi.fn(),
+      onEnterSelectMode: options.onEnterSelectMode,
+      onOpenTopic: options.onOpenTopic,
       onForward: vi.fn(),
       onDelete: vi.fn(),
       compactMobile,
@@ -291,11 +588,40 @@ async function renderMessage(
     toast ? { toast } : undefined,
   )
 }
-async function longPress() {
+async function longPress(target = messageBubble()) {
   await act(async () => {
-    messageBubble().dispatchEvent(touchPointerEvent('pointerdown', { clientX: 120, clientY: 240 }))
+    target.dispatchEvent(touchPointerEvent('pointerdown', { clientX: 120, clientY: 240 }))
     vi.advanceTimersByTime(550)
   })
+  await act(async () => { await vi.dynamicImportSettled() })
+}
+async function contextMenu() {
+  await act(async () => {
+    messageBubble().dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 120, clientY: 240 }))
+  })
+  await act(async () => { await vi.dynamicImportSettled() })
+}
+function actionKeys() {
+  return [...document.querySelectorAll('[data-testid^="message-action-"][role="menuitem"]')]
+    .map((item) => item.getAttribute('data-testid')!.slice('message-action-'.length))
+}
+function menuItem(label: string) {
+  const item = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((node) => node.textContent === label)
+  expect(item).toBeDefined()
+  return item!
+}
+function selectMessageText(text: string) {
+  selectTextIn(messageBubble().querySelector('p')!, text)
+}
+function selectTextIn(element: Element, text: string) {
+  const node = element.firstChild!
+  const start = node.textContent!.indexOf(text)
+  expect(start).toBeGreaterThanOrEqual(0)
+  const range = document.createRange()
+  range.setStart(node, start)
+  range.setEnd(node, start + text.length)
+  window.getSelection()!.removeAllRanges()
+  window.getSelection()!.addRange(range)
 }
 function agentProfile(overrides: Partial<MemberProfileCardModel> = {}): MemberProfileCardModel {
   return {

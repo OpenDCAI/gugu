@@ -1,10 +1,17 @@
 import { observer } from 'mobx-react-lite';
+import { DragOverlay, useDndContext } from '@dnd-kit/core';
 import { usePaneLayoutContext } from '../pane-layout-context';
 import { isUnavailableTabResource, UnavailableTabDragPreview } from '../unavailable-tab';
+import { tabDropAnimation } from './tab-motion';
+
+export function TabDragOverlay() {
+  const { active } = useDndContext();
+  return <DragOverlay dropAnimation={tabDropAnimation}>{active ? <TabDragPreview tabId={String(active.id)} /> : null}</DragOverlay>;
+}
 
 export const TabDragPreview = observer(function TabDragPreview({ tabId }: { tabId: string }) {
   const paneLayout = usePaneLayoutContext();
-  const group = paneLayout.groups.find((g) => g.pane.resolvedTabs.some((t) => t.tabId === tabId));
+  const group = [...paneLayout.groups, ...paneLayout.windowPanes.values()].find((g) => g.pane.entries.has(tabId));
   const tab = group?.pane.resolvedTabs.find((t) => t.tabId === tabId);
   if (!tab || !group) return null;
 

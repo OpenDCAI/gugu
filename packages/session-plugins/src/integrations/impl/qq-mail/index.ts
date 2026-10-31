@@ -1,3 +1,4 @@
+import { summary } from './summary';
 import { MAIL_ABILITIES, MAIL_PLAYBOOKS } from '../../helpers/mail/mail-copy';
 import { verifyMailCredentials } from '../../helpers/mail/mail-verify';
 import { defineIntegrationPlugin, registerIntegrationPluginBehavior } from '../../plugin';
@@ -9,8 +10,8 @@ import { icon } from './icon';
 const plugin = defineIntegrationPlugin(
   {
     id: 'qq-mail',
-    name: 'QQ 邮箱',
-    description: { en: 'Read, search and send QQ Mail', 'zh-CN': '查信、读信、发信（QQ 邮箱）' },
+    name: summary.name['zh-CN'],
+    description: summary.description,
     websiteUrl: 'https://mail.qq.com',
     abilities: MAIL_ABILITIES,
     playbooks: MAIL_PLAYBOOKS,

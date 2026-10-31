@@ -10,6 +10,7 @@ import {
   DEVICE_ACTION_RESULT_EVENT,
   DEVICE_ACTION_RPC_TYPE,
   normalizeDeviceActionsCapability,
+  normalizeDeviceActionsSummary,
   readDeviceActionResult,
   type DeviceActionsCapability,
 } from '@gugu/core/shared/deviceActions'
@@ -45,6 +46,21 @@ function provider(over: Partial<DeviceActionProvider> & { granted?: () => boolea
 }
 
 describe('被调用方(DeviceActionHost)', () => {
+  it('preserves optional task metadata across the wire while keeping older calls compatible', async () => {
+    const callers: unknown[] = []
+    const host = createDeviceActionHost({
+      provider: provider({ run: async (_action, _args, ctx) => { callers.push(ctx.caller); return { ok: true, data: null } } }),
+      publishEvent: () => undefined,
+    })
+    try {
+      await host.handleCall(call({ caller: { agent_user_id: 'a1', name: 'Agent A', task_title: 'Task one' } }))
+      await host.handleCall(call({ call_id: 'c2', caller: { name: 'Agent B' } }))
+      await host.handleCall(call({ call_id: 'c3', caller: { name: 'Agent C', task_title: 42 } }))
+      await new Promise(resolve => setTimeout(resolve, 0))
+      expect(callers).toEqual([{ agent_user_id: 'a1', name: 'Agent A', task_title: 'Task one' }, { name: 'Agent B' }, { name: 'Agent C' }])
+    } finally { host.dispose() }
+  })
+
   it('exposes the remaining execution budget independently of the ACK deadline', async () => {
     vi.useFakeTimers()
     let remaining: (() => number) | undefined
@@ -188,7 +204,6 @@ describe('被调用方(DeviceActionHost)', () => {
 
 const manifest: DeviceActionsCapability = {
   v: 1,
-  updated_at: new Date().toISOString(),
   timezone: 'Asia/Shanghai',
   actions: [{
     name: 'calendar.events.create', group: 'calendar', title: '建日程', description: '', risk: 'medium', confirm: 'on_conflict',
@@ -197,7 +212,7 @@ const manifest: DeviceActionsCapability = {
 }
 
 function target(over: Partial<DeviceActionTarget> = {}): DeviceActionTarget {
-  return { device_id: 'mac', label: 'MacBook', online: true, last_seen_at: new Date().toISOString(), actions: manifest, ...over }
+  return { this_machine: true, device_id: 'mac', label: 'MacBook', online: true, last_seen_at: new Date().toISOString(), actions: manifest, ...over }
 }
 
 describe('调用方(DeviceActionCaller)', () => {
@@ -316,6 +331,22 @@ describe('调用方(DeviceActionCaller)', () => {
 })
 
 describe('登记清单的解析', () => {
+  it('shares summary normalization while preserving real documentation for full action callers', () => {
+    const entry = {
+      name: 'files.read', group: 'files', title: 'Read a file', description: 'Returns the requested file contents',
+      input_schema: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] },
+      available: true, risk: 'low', confirm: 'never',
+    }
+    const raw = {
+      v: 1, timezone: 'Asia/Shanghai', actions: [null, {}, entry],
+      switched_off: [{ group: 'computer', detail: 'Enable the computer app' }],
+    }
+    const { description: _description, input_schema: _schema, ...summary } = entry
+    expect(normalizeDeviceActionsSummary(raw)).toEqual({ ...raw, actions: [summary] })
+    expect(normalizeDeviceActionsCapability(raw)).toEqual({ ...raw, actions: [entry] })
+    expect(normalizeDeviceActionsSummary({ nope: true })).toBeNull()
+  })
+
   it('没授权的也登记、带原因;时区原样;不像清单的回 null', () => {
     const parsed = normalizeDeviceActionsCapability({
       v: 1, updated_at: 't', timezone: 'Asia/Shanghai',

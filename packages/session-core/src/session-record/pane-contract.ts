@@ -1,3 +1,4 @@
+import type { GuguLinkTarget } from '@gugu/core/shared/ui/guguLink';
 /**
  * #6264 别的机器上的会话调 `session_open_in_tab`:那台机器没有窗口,tab 要开在**正看着这条会话的那台桌面**的
  * 右侧工作区里。走的是到那台机器会话页宿主的那条连接(`SESSION_HOST_PANE`,host-ws/device-pane-relay.ts):
@@ -13,8 +14,20 @@
  */
 export type SessionpagePaneTarget =
   | { kind: 'file'; path: string }
-  | { kind: 'browser'; url: string }
-  | { kind: 'external'; url: string };
+  | { kind: 'browser'; url: string; linkTarget?: GuguLinkTarget }
+  | { kind: 'external'; url: string }
+  | { kind: 'tabs' }
+  | { kind: 'close-tab'; tabId: string };
+
+/** Live renderer state, including tabs in detached windows of this task. */
+export type SessionPaneTab = { tab_id: string; title: string; kind: string; closable: boolean };
+export type SessionPaneTabsResult = { tabs?: SessionPaneTab[]; closed?: boolean };
+
+export function isSessionPaneTabs(value: unknown): value is SessionPaneTab[] {
+  return Array.isArray(value) && value.every((tab) => isRecord(tab)
+    && typeof tab.tab_id === 'string' && typeof tab.title === 'string'
+    && typeof tab.kind === 'string' && typeof tab.closable === 'boolean');
+}
 
 export type SessionpagePaneIntent = 'preview' | 'pinned';
 
@@ -46,6 +59,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function isSessionpagePaneTarget(value: unknown): value is SessionpagePaneTarget {
   if (!isRecord(value)) return false;
   if (value.kind === 'file') return typeof value.path === 'string' && value.path.length > 0;
+  if (value.kind === 'tabs') return true;
+  if (value.kind === 'close-tab') return typeof value.tabId === 'string' && value.tabId.length > 0;
   if (value.kind === 'browser' || value.kind === 'external') return typeof value.url === 'string' && value.url.length > 0;
   return false;
 }

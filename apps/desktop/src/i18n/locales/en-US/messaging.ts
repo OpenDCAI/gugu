@@ -1,6 +1,7 @@
 export default {
   "agent": {
     "identity": {
+      "phone": "Phone Agent",
       "pending": "Agent · identifying harness",
       "unavailable": "Agent harness unavailable",
       "removed": "Removed agent",
@@ -11,14 +12,16 @@ export default {
       "hint": "This Agent's device runs an older Gugu, so some activity may be missing.",
       "label": "Host outdated"
     },
-    "notification": {
-      "online": "Agent is online",
-      "replyFailed": "Agent reply failed",
-      "startedWorking": "Agent started working",
-      "startFailed": "Agent startup failed"
-    },
     "offlineWarning": "Currently offline and may not respond promptly",
+    "archivedWarning": "Recipient is archived.",
     "wakeRefused": "{{name}} can't come online right now: ",
+    "dm": {
+      "resolving": "Opening the conversation…",
+      "noSession": "This agent has no session yet.",
+      "machineOffline": "Its computer is offline, so the conversation can't be opened.",
+      "failed": "The conversation couldn't be opened.",
+      "retry": "Retry"
+    },
     "taskpage": {
       "permission": {
         "allow": "Allow",
@@ -27,16 +30,8 @@ export default {
         "noLongerWaiting": "No longer waiting: this ask is over, nothing was installed.",
         "failed": "The approval did not go through. Open it in Tasks to answer."
       },
-      "open": "Open in Tasks",
+      "resolve": "Resolve issue",
       "openFailed": "Could not open in Tasks: {{reason}}",
-      "mode": {
-        "menu": "Mode: {{mode}}",
-        "chat": "Chat",
-        "code": "Code",
-        "general": "Work",
-        "switchToCode": "Switch to Code mode",
-        "switchToGeneral": "Switch to Work mode"
-      },
       "review": {
         "action": "Open the task terminal, review the MCP servers, then press Enter to confirm.",
         "title": "Agent is waiting for MCP review"
@@ -63,6 +58,27 @@ export default {
       "statusReadFailed": "Could not read the task status: {{reason}}"
     },
     "turnFailure": {
+      "card": {
+        "generic": "Reply not completed",
+        "authentication": "Model authorization refused",
+        "network": "Cannot reach the model service",
+        "timeout": "No response in time",
+        "offline": "The device disconnected",
+        "rateLimited": "Too many requests",
+        "nextMessage": "The next message will retry automatically",
+        "recovered_one": "{{name}}: {{count}} earlier reply failed · recovered",
+        "recovered_other": "{{name}}: {{count}} earlier failed replies · recovered",
+        "settings": "Open settings"
+      },
+      "state": {
+        "exhausted": "out of credits",
+        "weekly": "weekly limit reached",
+        "monthly": "monthly limit reached",
+        "model-unavailable": "model unavailable"
+      },
+      "stateAction": "{{name}}: {{state}}. Click to change model",
+      "authentication": "The model service refused authorization for this reply.",
+      "network": "The connection to the model service was interrupted; this reply could not be completed.",
       "statusReadFailed": "Reply status could not be read. Please retry.",
       "weeklyQuota": "Weekly usage limit reached. This account cannot reply right now.",
       "monthlyQuota": "Monthly usage limit reached. This account cannot reply right now.",
@@ -72,6 +88,8 @@ export default {
       "changeModel": "Change model",
       "close": "Close",
       "generic": "This Agent could not complete the reply",
+      "notAdmitted": "Messages retained. Your assistant will reply when ready.",
+      "undelivered": "Not delivered yet: no running Gugu instance holds this Agent. It will read the message once that instance is open.",
       "offline": "The device disconnected before the reply completed",
       "retry": "Retry",
       "retrying": "Retrying…",
@@ -96,6 +114,7 @@ export default {
     "unlike": "Unlike",
     "unpin": "Unpin"
   },
+  "fileStoredOn": {"machineOf": "{{owner}}’s machine", "mine": "Kept on {{machine}}; uploaded only when someone opens it. Follows your file storage settings.", "other": "Kept on {{owner}}’s machine; uploaded only when someone opens it. Follows {{owner}}’s file storage settings.", "settings": "File storage settings"},
   "chatArea": {
     "agentLocation": {
       "cloud": "Gugu Cloud",
@@ -168,8 +187,10 @@ export default {
       "members": "Chat members"
     },
     "appEnable": {
-      "title": "Which agents get it",
-      "alsoOn": "Also install on",
+      "devices": "Install on",
+      "devicesHint": "Every agent on a computer it is new to can use it; to change who, use the App page.",
+      "addsChat": "Installed here already for some agents only: this adds the group “{{name}}” and changes nothing else.",
+      "decline": "Don't install",
       "machine": "This computer",
       "all": "All agents",
       "allSub": "Including the agents in each project",
@@ -178,9 +199,10 @@ export default {
       "cardGroup": "Card's chat",
       "agent": "Your agent",
       "members": "{{count}} people",
+      "members_one": "{{count}} person",
+      "members_other": "{{count}} people",
       "remove": "Stop giving it to {{name}}",
       "add": "Add an agent, group or project…",
-      "emptyInstall": "None chosen yet. You can install without, and add some later in Apps.",
       "empty": "None chosen yet.",
       "hint": "The agents chosen, and the agents in the groups chosen, can use its tools.",
       "pickerTitle": "Add an agent, group or project",
@@ -234,7 +256,7 @@ export default {
       "title": "Open “{{name}}” with"
     },
     "source": {
-      "notVisible": "The source message is not in this view. It may not be loaded or may be in a thread."
+      "notVisible": "The source message is not in this view. It may not be loaded or may be in a topic."
     },
     "suggestions": {
       "help": "What can you help me with?",
@@ -248,8 +270,11 @@ export default {
     "createTask": "New task",
     "createAgent": "New Agent",
     "createGroup": "New group chat",
+    "createGroupMobile": "New group chat",
+    "newProject": "New project",
     "delete": "Delete",
     "disableNotifications": "Mute notifications",
+    "deleteFailed": "Could not delete this conversation",
     "draft": "[Draft]",
     "moreTopics": "More · {{count}}",
     "moreTopics_one": "More · {{count}}",
@@ -258,14 +283,18 @@ export default {
     "emptyHint": "Use “New Agent” above to start your first conversation",
     "emptyHintMobile": "Create an agent from the Projects tab to start your first conversation",
     "enableNotifications": "Enable notifications",
+    "markRead": "Mark as read",
+    "removeProject": "Remove Project",
+    "markAllRead": "Mark all as read",
+    "markAllReadFailed": "Could not mark chats as read. Try again.",
+    "markAllReadPartial": "{{count}} chats could not be marked as read. Try again.",
+    "markAllReadPartial_one": "{{count}} chat could not be marked as read. Try again.",
+    "markAllReadPartial_other": "{{count}} chats could not be marked as read. Try again.",
     "markUnreadFailed": "Could not mark this chat unread. Try again.",
     "muted": "Notifications muted",
     "noResults": "No chats found",
     "listLabel": "Chats",
     "pin": "Pin",
-    "rowTag": {
-      "group": "Group chat"
-    },
     "scan": "Scan",
     "search": "Search",
     "unpin": "Unpin"
@@ -320,13 +349,62 @@ export default {
     "settings": "Settings"
   },
   "attachmentView": {
+    "types": {"pdf": "PDF document", "word": "Word document", "excel": "Excel spreadsheet", "presentation": "Presentation", "text": "Text", "markdown": "Markdown document", "csv": "CSV spreadsheet", "html": "Web page", "json": "JSON document", "archive": "Archive", "image": "Image", "audio": "Audio", "video": "Video"},
     "fileGone": "File deleted",
+    "fileVersion": "Version {{n}}",
+    "fileExpired": "File expired",
+    "fileMissing": "Expired",
+    "reupload": "Upload again",
+    "selectOriginal": "Choose the original file",
+    "storageWarning": "Group file storage is almost full ({{used}} / {{limit}}).",
+    "storageFull": "Group file storage is full ({{used}} / {{limit}}). New uploads are paused.",
+    "usageUnavailable": "File storage usage is unavailable right now.",
+
     "fileUnavailable": "File unavailable right now",
     "imageUnavailable": "Image unavailable right now",
     "newerInFolder": "Newer version in the folder",
     "retry": "Retry"
   },
+  "dispatchPick": {
+    "myAgents": "My agents",
+    "title": "Hand to",
+    "search": "Search members, tasks or chats",
+    "chatAgents": "Agents in {{chat}}",
+    "chatPeople": "People in {{chat}}",
+    "new": "New",
+    "newAgent": "A new agent",
+    "empty": "No one to hand it to",
+    "send": "Send",
+    "text": "What will be sent",
+    "textPlaceholder": "Say what to do",
+    "visible": "Visible to everyone in the chat (by default only they see it)"
+  },
+  "composePick": {
+    "title": "Choose where to send",
+    "chats": "Chats",
+    "action": "Add to composer"
+  },
   "composer": {
+    "phoneTask": {
+      "attachFolder": "Attach folder",
+      "attachFailed": "Could not attach the folder. Try again.",
+      "action": "New task",
+      "chip": "New task · {{agent}}",
+      "pickAgent": "Choose agent",
+      "placeholder": "What should {{agent}} do?",
+      "pickFolder": "Tap a folder to start",
+      "where": "{{folder}} · {{machine}}",
+      "offline": "{{machine}} is offline. Pick another folder.",
+      "optionsFailed": "Could not read the agents on {{machine}}. Check it is online, then pick the folder again.",
+      "noAgent": "No usable agent on {{machine}}",
+      "loading": "Reading the agents on {{machine}}",
+      "cancel": "Cancel task",
+      "failed": {
+        "host_outdated": "Gugu on {{machine}} is too old. Update it, then send the task again.",
+        "start_failed": "The task did not start. Open its task card to see why."
+      }
+    },
+    "notInGroup": "Not in this group",
     "agent": {
       "disabledReason": {
         "removed": "This Agent was removed and cannot receive more messages.",
@@ -337,15 +415,13 @@ export default {
       }
     },
     "attachmentContextMissing": "Could not send the attachment because the chat is no longer available",
+    "attachmentSendTimedOut": "Attachment send timed out.",
     "attachmentPersistenceFailed": "Could not save {{fileName}}",
     "attach": "Add",
     "cancelQuote": "Cancel reply",
-    "commands": {
-      "clear": "Clear the composer",
-      "shrug": "Insert ¯\\_(ツ)_/¯"
-    },
     "disabled": "You cannot send messages in this chat",
     "exitWhisper": "Exit whisper mode",
+    "replyUnavailable": "The original message is unavailable. Cancel the reply to send a new message.",
     "file": "File",
     "memberType": {
       "agent": "Agent",
@@ -355,15 +431,21 @@ export default {
     "mentionAll": "Everyone",
     "mentionMembers": "Mention a member",
     "mentionNoMatch": "No matching members",
-    "placeholder": "Write a message… Type / for commands",
+    "placeholder": "Write a message…",
+    "mobilePlaceholder": "Message",
+    "projectGroupPlaceholder": "Message {{name}}… @ an agent to call it",
     "removeAttachment": "Remove {{fileName}}",
-    "removeFilePill": "Remove {{label}}",
     "sendFailed": "Could not send: {{reason}}",
-    "slashCommands": "Slash commands",
+    "verb": {
+      "task": "New task"
+    },
     "whisperBanner": "Whisper to {{name}} · only visible to you both",
     "whisperPlaceholder": "Whisper to {{name}}…"
   },
   "emoji": {
+    "moreReactions": "More reactions",
+    "workStatus": "Work status",
+    "reactions": "Reactions",
     "quickReactions": "Quick reactions",
     "reactWith": "React with {{emoji}}"
   },
@@ -390,6 +472,7 @@ export default {
     "title": "Forward"
   },
   "group": {
+    "projectGroupNoInvite": "A project group holds only you and your agents. To work with others, start a group chat in Chats.",
     "addMember": "Add member",
     "agentFlood": {
       "ledgerLoadFailed": "Could not read the ledger for this automatic change, so undo is unavailable. Reopen this line in a moment and try again.",
@@ -427,18 +510,16 @@ export default {
       "notParticipant": "You are not in this topic yet, so its member list is not visible. Say something in it to join.",
       "sectionAgents": "Agents",
       "sectionPeople": "People",
+      "myAgents": "My agents · {{count}}",
+      "otherAgents": "Others' agents · {{count}}",
+      "listen": {
+        "all": "Hears all messages",
+        "allHint": "Also receives group messages that don't mention it. Its owner can click to switch to mentions only.",
+        "mentions": "Mentions only",
+        "mentionsHint": "Receives only messages that mention or reply to it. Its owner can click to switch to all messages."
+      },
       "title": "Group members",
       "titleTopic": "Topic members"
-    },
-    "topicInvite": {
-      "title": "Add topic members",
-      "hint": "Choose members from the source chat. An invitation message will be sent in the topic.",
-      "search": "Search members",
-      "message": "{{names}} You are invited to join this topic.",
-      "confirm": "Add ({{count}})",
-      "empty": "No other members of the source chat are available to add.",
-      "noResults": "No matching members.",
-      "failed": "The invitation did not complete. Please try again."
     },
     "join": {
       "denied": {
@@ -457,33 +538,20 @@ export default {
     "picker": {
       "agentRequestPending": "Submitted for approval — waiting for the owner or an admin",
       "agentRequestRejected": "Your last request was declined; you can submit again",
+      "invitationSent": "Sent {{count}} invitations; members join after they or their Agent owner accept",
+      "invitationSent_one": "Sent {{count}} invitation; the member joins after they or their Agent owner accepts",
+      "invitationSent_other": "Sent {{count}} invitations; members join after they or their Agent owner accept",
       "pendingApproval": "Submitted for approval: {{count}} Agents will join once the owner or an admin approves",
       "pendingApproval_one": "Submitted for approval: {{count}} Agent will join once the owner or an admin approves",
       "pendingApproval_other": "Submitted for approval: {{count}} Agents will join once the owner or an admin approves",
       "add": "Add",
-      "addAgents": "Add Agents ({{count}})",
-      "addAgents_one": "Add Agent ({{count}})",
-      "addAgents_other": "Add Agents ({{count}})",
+      "addWithCount": "Add · {{count}} members",
+      "addWithCount_one": "Add · {{count}} member",
+      "addWithCount_other": "Add · {{count}} members",
       "adding": "Adding…",
       "allFailed": "{{failed}} failed: {{reason}}",
-      "guguId": "Gugu ID {{number}}",
-      "guguIdUnassigned": "Gugu ID not assigned",
-      "humanPermissionError": "You do not have permission to invite people",
       "humanPermissionHint": "You cannot invite people, but you can still add your own Agents.",
-      "inviteHumans": "Invite people ({{count}})",
-      "inviteHumans_one": "Invite person ({{count}})",
-      "inviteHumans_other": "Invite people ({{count}})",
-      "noAgentResults": "No matching Agents",
-      "noAgents": "No Agents available to add",
-      "noContactResults": "No matching contacts",
-      "noContacts": "No contacts available to invite",
       "partialFailure": "{{succeeded}} added, {{failed}} failed: {{reason}}",
-      "searchAgents": "Search Agents",
-      "searchContacts": "Search contacts",
-      "selection": "Add {{count}} members to the group",
-      "selection_one": "Add {{count}} member to the group",
-      "selection_other": "Add {{count}} members to the group",
-      "selectionHint": "Select one or more members to add",
       "title": "Add group members"
     },
     "renameFailed": "Rename did not go through — check your connection or permissions, then press Enter again",
@@ -503,7 +571,6 @@ export default {
       "agentFloodTopics": "Topic thresholds",
       "agentFloodTopicsFailed": "Could not load topics.",
       "agentFloodPermissionsFailed": "Could not load topic permissions. Read-only for now.",
-      "agentFloodLoadFailed": "Could not load the threshold. Reopen settings to retry.",
       "agentFloodSaveFailed": "Could not save the threshold. Please try again.",
       "agentFloodThreshold": "Turn agents passive past this many",
       "agentFloodThresholdAria": "How many agents before they all turn passive",
@@ -577,7 +644,6 @@ export default {
       "rules": "Collaboration rules",
       "rulesPlaceholder": "Core principles, direction, and collaboration agreements…",
       "rulesUnset": "No collaboration rules",
-      "shareLinkHint": "Share this link to invite people to the group",
       "sharePoster": "Share group poster",
       "title": "Group settings",
       "unavailable": "Unavailable",
@@ -585,8 +651,17 @@ export default {
     }
   },
   "header": {
+    "groupApps": "Group Apps",
+    "personalPins": "Only you",
+    "pinGroupApp": "Pin {{name}} to this group header",
+    "unpinGroupApp": "Remove {{name}} from this group header",
+    "appPinsLoadFailed": "Could not load pinned Apps.",
+    "appPinsSaveFailed": "Could not save pinned Apps.",
+    "noGroupApps": "No Apps available on this device.",
+    "openInGroup": "Open in this group…",
     "announcement": "Group announcement",
-    "history": "History",
+    "groupInfo": "Group info",
+    "chatInfo": "Conversation info",
     "memberList": "Members",
     "more": "More actions",
     "searchChat": "Search chat",
@@ -617,7 +692,13 @@ export default {
       "topics": "Topics"
     },
     "title": "History",
-    "topicMeta": "{{participantCount}} people · {{messageCount}} messages · {{date}}"
+    "topicMeta": "{{people}} · {{messages}} · {{date}}",
+    "topicPeople": "{{count}} people",
+    "topicPeople_one": "{{count}} person",
+    "topicPeople_other": "{{count}} people",
+    "topicMessages": "{{count}} messages",
+    "topicMessages_one": "{{count}} message",
+    "topicMessages_other": "{{count}} messages"
   },
   "importedHistory": {
     "agentRole": "Agent",
@@ -630,19 +711,27 @@ export default {
     "view": "View {{title}}"
   },
   "message": {
-    "myAgentSuffix": " (my agent)",
-    "agentOwnerUnavailableSuffix": " (owner unavailable)",
+    "myAgentTag": "my agent",
+    "agentOwnerUnavailableTag": "owner unavailable",
+    "agentOwnerTag": "{{owner}}'s agent",
     "agentOwnerSuffix": " ({{owner}}'s agent)",
     "actions": {
-      "comingSoon": "Coming soon",
+      "keepTemporary": "Make temporary",
+      "keepPermanent": "Keep",
+      "keptTemporary": "Made temporary: the cloud copy is deleted when it expires",
+      "keptPermanent": "Kept",
+      "keepFailed": "Not changed",
       "copy": "Copy text",
+      "copyLink": "Copy link",
+      "openLink": "Open link",
+      "selectText": "Select text",
       "delete": "Delete",
-      "edit": "Edit",
       "forward": "Forward",
       "more": "More",
       "openTopic": "Open a topic",
       "react": "React",
       "reply": "Reply",
+      "quoteSelection": "Quote selection",
       "select": "Select"
     },
     "attachment": "[Attachment]",
@@ -661,10 +750,31 @@ export default {
     },
     "retracted": "Message retracted",
     "sendStatus": {
+      "unknown": "Awaiting confirmation",
+      "unknownHint": "Waiting for the publication result. This message will update automatically; no need to resend.",
+      "archived": "Recipient is archived. Not delivered.",
       "failed": "Not delivered",
       "failedActions": "Undelivered message actions",
       "failedHint": "Not delivered. Click to retry or discard.",
+      "queued": "Sending. Your assistant will reply when ready.",
       "sending": "Sending"
+    },
+    "showQuoted": "Go to the quoted message",
+    "taskCard": {
+      "task": "New task",
+      "schedule": "Scheduled",
+      "handedTo": "Assigned to",
+      "onMachine": "on {{machine}}",
+      "onColleagueComputer": "{{name}}’s task · Cannot view",
+      "awaitingApproval": "Waiting for the group owner to let it in",
+      "rejected": "Not let into the group; its result is in its session",
+      "open": "Open this session",
+      "line": "New task: {{text}}",
+      "scheduleLine": "Scheduled: {{text}}",
+      "question": "Your input",
+      "questionLine": "Your input: {{text}}",
+      "questionAnswered": "Answered: {{answer}}",
+      "questionInSession": "Answer in the task"
     },
     "unread": "Unread",
     "aiSent": "AI sent",
@@ -707,6 +817,17 @@ export default {
     "title": "Send to"
   },
   "topic": {
+    "pins": {
+      "pin": "Pin {{name}} to group",
+      "unpin": "Unpin {{name}}",
+      "emptyHint": "Choose “Open topic” on any message.",
+      "loadFailed": "Could not load pinned topics.",
+      "saveFailed": "Could not save pinned topics."
+    },
+    "phoneTabs": {
+      "group": "Group",
+      "label": "Group and topics"
+    },
     "anchor": {
       "lead": "Topic",
       "separator": " · ",
@@ -715,7 +836,6 @@ export default {
       "participantCount": "{{count}} participants",
       "participantCount_one": "{{count}} participant",
       "observer": "View only",
-      "observerHint": "You can see this topic, but its messages will not notify you",
       "openedBy": "by {{name}}",
       "quiet": "No one has spoken yet"
     },
@@ -741,21 +861,24 @@ export default {
     "consent": {
       "cancel": "Cancel",
       "postTitle": "Post a bounty",
-      "postBody": "{{amount}} community points are taken from your balance now. They go to the answers you accept; if nobody ever answers by the deadline, they come back to you; if there were answers but you accept none, they are gone.",
+      "postBody": "{{count}} community points are taken from your balance now. They go to the answers you accept; if nobody ever answers by the deadline, they come back to you; if there were answers but you accept none, they are gone.",
+      "postBody_one": "{{count}} community point is taken from your balance now. It goes to the answer you accept; if nobody ever answers by the deadline, it comes back to you; if there were answers but you accept none, it is gone.",
+      "postBody_other": "{{count}} community points are taken from your balance now. They go to the answers you accept; if nobody ever answers by the deadline, they come back to you; if there were answers but you accept none, they are gone.",
       "postConfirm": "Post",
-      "reward": "Bounty: {{amount}} points",
+      "reward": "Bounty: {{count}} points", "reward_one": "Bounty: {{count}} point", "reward_other": "Bounty: {{count}} points",
       "days": "Ends in {{count}} days", "days_one": "Ends in {{count}} day", "days_other": "Ends in {{count}} days",
       "visibility": { "public": "Answers are public", "poster_only": "Answers seen by you only, public once it ends" },
       "acceptTitle": "Accept answers",
       "acceptBody": "The points go to the answerers, the bounty ends, and answers seen by you only become public. This cannot be undone.",
       "acceptConfirm": "Accept",
-      "awardLine": "{{name}} · {{amount}} points",
+      "awardLine": "{{name}} · {{count}} points", "awardLine_one": "{{name}} · {{count}} point", "awardLine_other": "{{name}} · {{count}} points",
       "endTitle": "End bounty",
       "endBody": "End the bounty without accepting an answer. If nobody ever answered, the points come back to you; if someone did, they are gone.",
       "endConfirm": "End bounty",
       "assignTitle": "Assign an agent",
       "assignBody": "Pick one of your agents to answer this post. It gets the post now, and what the poster or you say there later.",
       "assignConfirm": "Assign",
+      "searchAgents": "Search agents",
       "noAgents": "You have no agents yet.",
       "failed": "That did not go through. Please try again.",
       "error": {
@@ -771,6 +894,25 @@ export default {
         "identityLimit": "You and your agents can use at most 3 identities in one post."
       }
     }
+  },
+  "resources": {
+    "copyUrl": "Copy gugu URL",
+    "sendTo": "Copy URL & send to…",
+    "appUnderstand": "About this App", "appUnderstandText": "Explain what this App can do.",
+    "appFork": "Customize", "appForkText": "Ask me what I want to change, then fork this App with my confirmation.",
+    "appImprove": "Suggest a change", "appImproveText": "Help me propose an improvement to this App.",
+    "forkRequest": "Request upstream", "forkRequestText": "Help me propose this fork’s changes to its upstream author.",
+    "forkMerge": "Merge upstream", "forkMergeText": "Merge upstream into this fork. First compare its changes against its original base; preserve and verify those changes and existing data before reinstalling and checking it.",
+    "forkRemove": "Remove fork", "forkRemoveText": "Remove this fork after asking for my confirmation. Keep its data and source repository.",
+    "fileSummary": "Summarize", "fileSummaryText": "Summarize this file.",
+    "fileCheck": "Check", "fileCheckText": "Check this file for problems.",
+    "fileEdit": "Edit", "fileEditText": "Ask me what to change in this file.",
+    "helpTitle": "Manage with an agent",
+    "helpDescription": "A fork keeps your changes separate from upstream. Send its URL to an agent to request changes, merge updates or remove it.",
+    "helpCopy": "Copy the variant’s URL",
+    "helpSend": "Choose an agent",
+    "helpAsk": "Add what you want to do",
+    "helpConfirm": "Review before changes",
   },
   "filePill": {
     "picked": "Picked on version {{version}}"

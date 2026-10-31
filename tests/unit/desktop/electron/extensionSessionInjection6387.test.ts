@@ -8,9 +8,10 @@ import { CODEX_GUGU_CAPABILITY_PACKAGE, materializeCodexSessionBundle, pluginReg
 import { mountsExtensionSkillsNatively, type SessionCapabilityBundle } from '@gugu/session-core/agents/plugins'
 import { describe, expect, it, vi } from 'vitest'
 import { catalogAppsOf, extensionAgentPrograms, readExtensionSkills } from '../../../../apps/desktop/electron/extension-session-mcp'
-import { GUGU_APPS_LINES_TOKEN_BUDGET, GUGU_APPS_LINE_MAX_CHARS, GUGU_APPS_SEARCH_LINE, PRODUCT_CAPABILITY_PACKAGES, guguAppsBlock, sessionExtensionDelivery } from '../../../../apps/desktop/electron/capability-bundle'
+import { GUGU_APPS_LINES_TOKEN_BUDGET, GUGU_APPS_LINE_MAX_CHARS, GUGU_APPS_SEARCH_LINE, PRODUCT_CAPABILITY_PACKAGES, guguAppsBlock, sessionExtensionDelivery, loadCodexAppServerCapabilities, loadClaudeTuiCapabilities, loadSessionTuiCapabilities } from '../../../../apps/desktop/electron/capability-bundle'
 import { firstSentence } from '../../../../apps/desktop/electron/mcp/first-sentence'
 import { estimatePromptTokens } from '../../../../apps/desktop/electron/product-platform-prompt'
+import { safeParseExtensionManifest } from '../../../../apps/desktop/src/session/shared/extensions/manifest'
 import { GUGU_MCP_SERVER_NAME } from '../../../../apps/desktop/electron/mcp/gugu-mcp-name.mjs'
 
 function extensionFolder(skills: Record<string, string>): string {
@@ -235,7 +236,7 @@ describe('上下文工程第二批 P3: <gugu_apps> names the Apps whose tools ar
   it('one line per App: its name, its id and the first sentence of its manifest description', () => {
     const block = guguAppsBlock([omnisearch, { extensionId: 'plain', name: 'Plain' }], [])
     expect(appLinesOf(block)).toEqual(['- 全能搜索 (omnisearch): 给 agent 的搜索工具：网页搜索、读网页、查编程库文档。', '- Plain (plain)'])
-    expect(block).toContain('Apps installed on this computer whose tools are in the catalog (run them with catalog_call):')
+    expect(block).toContain('Apps available in this session (use their listed tools, or catalog_list / catalog_call):')
   })
 
   it('a line is cut at 120 characters', () => {
@@ -356,3 +357,54 @@ describe('a secret in a codex stdio program’s env (#6387 review)', () => {
     )).toThrow(/OPENAI_API_KEY/)
   })
 })
+
+
+describe('App standing instructions', () => {
+  it('keeps the whole rule in the platform block independently of skills and summary cuts', () => {
+    const rule = 'On each user message, record definite personal plans without waiting for a request. '.repeat(30) + 'END-OF-RULE';
+    const block = guguAppsBlock([{ extensionId: 'calendar', name: 'Calendar', description: 'Calendar. Short summary.', agentInstructions: rule }], []);
+    expect(block).toContain(rule);
+    expect(block).not.toContain('Short summary.');
+    expect(guguAppsBlock([{ extensionId: 'calendar', name: 'Calendar' }], [])).not.toContain('Standing instructions');
+  });
+
+  it('carries rules for both native and catalog tools, but not a program that cannot run', () => {
+    const rootDir = extensionFolder({});
+    writeFileSync(join(rootDir, 'tools.js'), 'export const record = {}');
+    const base = { rootDir, dataDir: '/data', digest: 'd', skillsDir: null, name: 'Calendar', agentInstructions: 'Record personal plans.' };
+    const contributions = [
+      { ...base, extensionId: 'native', disclosure: 'full' as const, servers: [{ tools: 'tools.js' }] },
+      { ...base, extensionId: 'catalog', disclosure: 'progressive' as const, servers: [{ tools: 'tools.js' }] },
+      { ...base, extensionId: 'broken', disclosure: 'progressive' as const, servers: [{ tools: 'missing.js' }] },
+    ];
+    const { programs } = extensionAgentPrograms(contributions, { nodeExecutable: process.execPath, toolsRuntime: '/runtime.mjs', linkPrefix: 'gugu://ext', onProblem: vi.fn() });
+    const apps = catalogAppsOf(contributions, programs);
+    expect(apps.map((a) => a.extensionId)).toEqual(['native', 'catalog']);
+    expect(apps.every((a) => a.agentInstructions === base.agentInstructions)).toBe(true);
+  });
+
+  it('reaches real harness instruction payloads without reading a skill', () => {
+    const base = {
+      mcpServers: [], mcpDisabled: undefined, env: { GUGU_HOME: '/tmp/calendar-instructions' },
+      model: null, autonomy: null, promptBlocks: { platform: 'Platform.' }, packages: PRODUCT_CAPABILITY_PACKAGES,
+      extensionSkills: [], extensionServerOrigins: [],
+      extensionApps: [{ extensionId: 'calendar', name: 'Calendar', agentInstructions: 'AUTO-RECORD-TENNIS' }],
+    };
+    const ctx = { cwd: '/tmp/calendar-instructions', lifecycle: 'fresh' as const };
+    expect(loadCodexAppServerCapabilities(base, ctx).developerInstructions).toContain('AUTO-RECORD-TENNIS');
+    expect(loadClaudeTuiCapabilities(base, ctx).artifacts?.some((a) => a.content.includes('AUTO-RECORD-TENNIS'))).toBe(true);
+    expect(loadSessionTuiCapabilities('pi', base, ctx).spawnEnv?.GUGU_PI_SYSTEM_PROMPT).toContain('AUTO-RECORD-TENNIS');
+    expect(JSON.stringify(loadCodexAppServerCapabilities({ ...base, extensionApps: [] }, ctx))).not.toContain('AUTO-RECORD-TENNIS');
+  });
+
+  it('requires explicit agents:tools authorization and rejects empty or oversized rules', () => {
+    const manifest = { id: 'calendar', name: 'Calendar', version: '1.0.0', apiVersion: 3, entry: 'main.html',
+      permissions: { capabilities: ['agents:tools'] },
+      contributes: { tabs: [{ name: 'main', title: 'Calendar', entry: 'main.html' }], mcpServers: [{ tools: 'tools.js' }], agentInstructions: 'Record plans.' } };
+    expect(safeParseExtensionManifest(manifest).ok).toBe(true);
+    expect(safeParseExtensionManifest({ ...manifest, permissions: { capabilities: [] } }).ok).toBe(false);
+    for (const agentInstructions of ['', ' '.repeat(10), 'x'.repeat(8001)]) {
+      expect(safeParseExtensionManifest({ ...manifest, contributes: { ...manifest.contributes, agentInstructions } }).ok).toBe(false);
+    }
+  });
+});

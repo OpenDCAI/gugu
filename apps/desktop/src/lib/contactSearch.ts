@@ -1,3 +1,4 @@
+import { groupDisplayName } from '@gugu/core/shared/ui/chatModels'
 import type { ChatItem } from '@gugu/core/shared/types/chat'
 import type { ContactGroupChat, ContactUser } from '@gugu/core/shared/types/contacts'
 import { displayName } from './contactsListSort'
@@ -6,8 +7,9 @@ import { matchText, normalizeMentionKey } from './mentionMatch'
 // 通讯录搜索:有关键词时,人 / Agent / 群三组各自排好序,桌面侧栏与手机首页的结果表共用。
 // 字段:标题(备注优先的显示名 / 群名)、原名(设了备注时)、完整咕咕号 / 群号 —— 号码只认全等。
 // 排序:档位(全等 > 前缀 > 包含 > 拼音)→ 标题命中先于原名 / 号码 → 最近聊过的在前 → 拼音序。
+// 选成员的那一处另给 Agent 的任务、项目、设备、类型(extraFields),排在原名之后、号码之前。
 
-export type ContactSearchField = 'title' | 'original' | 'number'
+export type ContactSearchField = 'title' | 'original' | 'task' | 'project' | 'device' | 'type' | 'number'
 
 export interface ContactSearchHit<T> {
   item: T
@@ -24,7 +26,7 @@ export interface ContactSearchResult {
   groups: ContactSearchHit<ContactGroupChat>[]
 }
 
-const FIELD_RANK: Record<ContactSearchField, number> = { title: 0, original: 1, number: 2 }
+const FIELD_RANK: Record<ContactSearchField, number> = { title: 0, original: 1, task: 2, project: 3, device: 4, type: 5, number: 6 }
 const collator = new Intl.Collator('zh-Hans-CN-u-co-pinyin')
 
 /** 字段按 标题 → 原名 → 号码 给出;同分取先出现的,所以标题命中不会被原名顶掉。 */
@@ -63,7 +65,10 @@ export function recentChatActivity(chats: readonly Pick<ChatItem, 'id' | 'kind' 
 /** 空关键词返回 null(调用方显示浏览视图)。 */
 export function searchContacts(
   query: string,
-  { people, agents, groups, recentAt }: { people: ContactUser[]; agents: ContactUser[]; groups: ContactGroupChat[]; recentAt: ReadonlyMap<string, number> },
+  { people, agents, groups, recentAt, extraFields }: {
+    people: ContactUser[]; agents: ContactUser[]; groups: ContactGroupChat[]; recentAt: ReadonlyMap<string, number>
+    extraFields?: (contact: ContactUser) => [ContactSearchField, string | null][]
+  },
 ): ContactSearchResult | null {
   const key = normalizeMentionKey(query)
   if (!key) return null
@@ -72,13 +77,14 @@ export function searchContacts(
     const hit = bestHit(contact, [
       ['title', title],
       ['original', title === contact.display_name ? null : contact.display_name],
+      ...(extraFields?.(contact) ?? []),
       ['number', contact.gugu_number == null ? null : String(contact.gugu_number)],
     ], query, key)
     return hit ? [hit] : []
   }), displayName, (contact) => contact.id, recentAt)
   const groupHits = ranked(groups.flatMap((group) => {
-    const hit = bestHit(group, [['title', group.name], ['number', group.public_id == null ? null : String(group.public_id)]], query, key)
+    const hit = bestHit(group, [['title', groupDisplayName(group)], ['original', group.alias?.trim() ? group.name : null], ['number', group.public_id == null ? null : String(group.public_id)]], query, key)
     return hit ? [hit] : []
-  }), (group) => group.name, (group) => group.id, recentAt)
+  }), groupDisplayName, (group) => group.id, recentAt)
   return { people: contactHits(people), agents: contactHits(agents), groups: groupHits }
 }

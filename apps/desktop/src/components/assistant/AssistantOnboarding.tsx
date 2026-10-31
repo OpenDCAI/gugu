@@ -1,29 +1,33 @@
+import { messageForUser } from '@/lib/userFacingError';
 import './assistant-onboarding.css'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useMutation } from '@tanstack/react-query'
 import { cloudComputerFailureKind, type CloudComputerSnapshot } from '@gugu/core/cloud/cloudComputer'
 import type { Device } from '@gugu/core/shared/types/chat'
-import { Avatar } from '../Avatar'
+import { AgentAvatar } from '../agentAvatar/AgentAvatar'
 import { Button } from '../ui/Button'
 import { LoadingIndicator } from '@/lib/loading/LoadingIndicator'
 import { BODY_COLORS } from '../agentAvatar/engine/identity'
 import {
-  AssistantSetupError,
-  ASSISTANT_NAME_MAX,
   claimCloudAssistant,
   draftAvatarUrl,
   pendingLocalAssistant,
-  randomRestFace,
   resumeLocalAssistant,
   setUpAssistantOnThisComputer,
+  AssistantSetupError,
   type AssistantSetupDraft,
 } from '../../lib/assistantSetup'
 import { offerCustomizeCard, writeSetupStep } from '../../lib/assistantSetupState'
+import { AssistantSetupCleanupError } from '../../lib/assistantSetupPreparation'
 import { readOccupation, takeAssistantStartAtHome } from '../../lib/firstRun'
 import { AssistantIntro } from './AssistantIntro'
+import { AssistantSetupIdentity } from './AssistantSetupIdentity'
+import { DEFAULT_ASSISTANT_LOOK } from '../agentAvatar/look'
 import { reloadMyAssistant } from '../../lib/myAssistant'
 import { rendererLogger } from '../../lib/log'
 import { getMembership } from '../../lib/billing/membership'
+import { membershipSettingsSection } from '../../lib/billing/settingsDestination'
 import { cloudComputerEnabled } from '@gugu/core/cloud/optionalServices'
 import { refreshCloudComputer } from '../../lib/cloudComputerStore'
 import { UI_EVENTS } from '../../lib/uiEvents'
@@ -40,16 +44,12 @@ function tintStyle(hue: number): React.CSSProperties {
 }
 
 function openMembership() {
-  window.dispatchEvent(new CustomEvent(UI_EVENTS.openSettings, { detail: { section: 'usage' } }))
-}
-
-function randomIndex(max: number): number {
-  return Math.floor(Math.random() * max)
+  window.dispatchEvent(new CustomEvent(UI_EVENTS.openSettings, { detail: { section: membershipSettingsSection() } }))
 }
 
 /**
  * 开通咕咕的前半(product spec 开通那段,#7349,照 ChatGPT dots):「认识咕咕」→ 起名 → 住在哪 → 安家。
- * 名字在安家前确认；形象先给默认值，之后可改。称呼与身份用账号上的那一份，开通时写进它的记忆。
+ * 名字在安家前确认；形象在安家前可自定义，未选择时为素色且不戴装扮。称呼与身份用账号上的那一份，开通时写进它的记忆。
  * 安好之后「连应用 → 它先开口」由会话页那一侧画(它要读它家那台的集成),这里只记「下一步是连应用」。
  * 从首次引导的「开通我的咕咕」进来 = 介绍已经看过,从起名开始(takeAssistantStartAtHome)。
  */
@@ -75,8 +75,7 @@ export function AssistantOnboarding({
   const [draft, setDraft] = useState<AssistantSetupDraft>(() => ({
     // owner 10-16 夜:助理默认名就是「咕咕」(不再叫「个人助理」);人可以改成别的
     name: t('setup.defaultName'),
-    color: randomIndex(BODY_COLORS.length),
-    rest: randomRestFace(),
+    ...DEFAULT_ASSISTANT_LOOK,
     owner: { preferredName: ownerName?.trim() ?? '', about: '' },
   }))
   const { t: tMain } = useTranslation('main')
@@ -87,10 +86,17 @@ export function AssistantOnboarding({
     return { ...draft, owner: { preferredName: ownerName?.trim() ?? '', about: label ? t('setup.ownerOccupation', { occupation: label }) : '' } }
   }, [draft, ownerName, ownerUserId, t, tMain])
   const [busy, setBusy] = useState<Busy>(null)
-  const [error, setError] = useState<{ kind: 'still-starting' | 'failed' } | null>(null)
+  const localAttempt = useRef<AbortController | null>(null)
+  const localInstallationStarted = useRef(false)
+  const [installing, setInstalling] = useState(false)
+  const [cancelling, setCancelling] = useState(false)
+  const [retryCleanup, setRetryCleanup] = useState<(() => Promise<void>) | null>(null)
+  useEffect(() => () => localAttempt.current?.abort(), [])
+  const [error, setError] = useState<string | null>(null)
+  const [setupEnded, setSetupEnded] = useState(false)
   const [cloudFailure, setCloudFailure] = useState<CloudComputerActionFailure | null>(null)
   const [member, setMember] = useState<boolean | null>(null)
-  const [memberError, setMemberError] = useState(false)
+  const [memberError, setMemberError] = useState<string | null>(null)
   const [memberAttempt, setMemberAttempt] = useState(0)
   const hue = BODY_COLORS[draft.color]?.hue ?? 268
   const displayName = draft.name.trim() || t('setup.namePlaceholder')
@@ -102,32 +108,36 @@ export function AssistantOnboarding({
     try {
       record = pendingLocalAssistant(ownerUserId)
     } catch (e) {
-      log.warn({ error: String(e) }, 'read pending local assistant failed')
+      log.error({ error: String(e) }, 'read pending local assistant failed')
       return
     }
     if (!record) return
+    let resumed = false
+    localInstallationStarted.current = true
+    setInstalling(true)
     setBusy('resume')
-    writeSetupStep(ownerUserId, 'connect')
+    writeSetupStep(ownerUserId, 'shell')
     resumeLocalAssistant(record)
-      .then(() => reloadMyAssistant(ownerUserId))
+      .then(() => { resumed = true; writeSetupStep(ownerUserId, 'connect'); reloadMyAssistant(ownerUserId) })
       .catch((e: unknown) => {
-        writeSetupStep(ownerUserId, null)
-        setError({ kind: e instanceof AssistantSetupError && e.kind === 'still-starting' ? 'still-starting' : 'failed' })
-        log.warn({ error: String(e) }, 'resume local assistant failed')
+        writeSetupStep(ownerUserId, 'shell')
+        setSetupEnded(e instanceof AssistantSetupError && e.kind === 'cancelled')
+        setError(messageForUser(e))
+        log.error({ error: String(e) }, 'resume local assistant failed')
       })
-      .finally(() => setBusy(null))
+      .finally(() => setBusy(resumed ? null : 'computer'))
   }, [ownerUserId, localDeviceId])
 
   // 到「住哪」那一步才问会员档:没读到就当不是会员(云上那一条给「了解会员」,❌ 替人点一下领取)。
   useEffect(() => {
     if (!cloudEnabled || step !== 'home' || member !== null) return
     let cancelled = false
-    setMemberError(false)
+    setMemberError(null)
     getMembership()
       .then((m) => !cancelled && setMember(!!m && m.tier !== 'free'))
       .catch((e: unknown) => {
-        log.warn({ error: String(e) }, 'read membership failed')
-        if (!cancelled) setMemberError(true)
+        log.error({ error: String(e) }, 'read membership failed')
+        if (!cancelled) setMemberError(messageForUser(e))
       })
     return () => {
       cancelled = true
@@ -154,18 +164,46 @@ export function AssistantOnboarding({
   const installHere = useCallback(async () => {
     if (!localDeviceId) return
     setBusy('computer')
+    setInstalling(localInstallationStarted.current)
+    setCancelling(false)
+    const attempt = new AbortController()
+    localAttempt.current = attempt
     setError(null)
-    writeSetupStep(ownerUserId, 'connect')
-    offerCustomizeCard(ownerUserId)
+    setSetupEnded(false)
+    setRetryCleanup(null)
+    let keepBusy = false
     try {
-      await setUpAssistantOnThisComputer(await setupDraft(), localDeviceId)
+      const pending = pendingLocalAssistant(ownerUserId)
+      // The write boundary belongs to this attempt. A failed previous commit
+      // must not hide Back during a new, still reversible preparation.
+      localInstallationStarted.current = !!pending
+      setInstalling(!!pending)
+      const onInstalling = () => {
+        localInstallationStarted.current = true
+        setInstalling(true)
+        setCancelling(false)
+        writeSetupStep(ownerUserId, 'shell')
+        offerCustomizeCard(ownerUserId)
+      }
+      if (pending) {
+        onInstalling()
+        await resumeLocalAssistant(pending)
+      } else await setUpAssistantOnThisComputer(await setupDraft(), localDeviceId, { signal: attempt.signal, onInstalling })
+      writeSetupStep(ownerUserId, 'connect')
       reloadMyAssistant(ownerUserId)
     } catch (e) {
-      writeSetupStep(ownerUserId, null)
-      setError({ kind: e instanceof AssistantSetupError && e.kind === 'still-starting' ? 'still-starting' : 'failed' })
-      log.warn({ error: String(e) }, 'set up assistant on this computer failed')
+      keepBusy = localInstallationStarted.current || e instanceof AssistantSetupCleanupError
+      writeSetupStep(ownerUserId, keepBusy ? 'shell' : null)
+      setSetupEnded(e instanceof AssistantSetupError && e.kind === 'cancelled')
+      if (e instanceof AssistantSetupCleanupError) setRetryCleanup(() => e.retry)
+      if (!(e instanceof Error && e.name === 'AbortError')) {
+        setError(messageForUser(e))
+        log.error({ error: String(e) }, 'set up assistant on this computer failed')
+      }
     } finally {
-      setBusy(null)
+      if (localAttempt.current === attempt) localAttempt.current = null
+      setCancelling(false)
+      setBusy(keepBusy ? 'computer' : null)
     }
   }, [setupDraft, localDeviceId, ownerUserId])
 
@@ -174,7 +212,7 @@ export function AssistantOnboarding({
     return (
       <div className="ta-onb-slot" data-ta-scope style={tintStyle(hue)}>
         <div className="ta-onb" data-testid="assistant-setup-cloud-progress">
-          <Avatar name={displayName} avatarUrl={draftAvatarUrl(draft)} seed="assistant-draft" size={96} isAgent harnessBadge={false} />
+          <AgentAvatar name={displayName} look={draft} id="assistant-draft" size={96} />
           {/* 标题由开通面板自己说(「正在准备你的助理」+ 三步),这里只放它的样子 */}
           <CloudComputerProvisionPanel
             snapshot={snapshot}
@@ -194,38 +232,40 @@ export function AssistantOnboarding({
       <div className="ta-onb" data-testid={`assistant-setup-${step}`}>
         {working ? (
           <>
-            <Avatar name={displayName} avatarUrl={draftAvatarUrl(draft)} seed="assistant-draft" size={96} isAgent harnessBadge={false} />
+            <AgentAvatar name={displayName} look={draft} id="assistant-draft" size={96} />
             <h1 className="ta-onb-title">
               {busy === 'resume' ? t('setup.resuming', { name: displayName }) : t('setup.installing', { name: displayName })}
             </h1>
-            <p className="ta-onb-sub inline-flex items-center gap-2">
+            {error && busy === 'computer' ? <>
+              <p className="ta-onb-error" role="alert">{retryCleanup ? t('setup.cleanupFailed') : setupEnded ? t('setup.ended') : error}</p>
+              <Button onClick={async () => {
+                if (retryCleanup) {
+                  setCancelling(true)
+                  try {
+                    await retryCleanup()
+                    setRetryCleanup(null)
+                    if (!localInstallationStarted.current) { setError(null); setBusy(null); return }
+                  } catch (e) { log.error({ error: String(e) }, 'assistant preparation cleanup retry failed'); return }
+                  finally { setCancelling(false) }
+                }
+                void installHere()
+              }} disabled={cancelling}>{t(setupEnded ? 'setup.startNew' : 'setup.retry')}</Button>
+            </> : <p className="ta-onb-sub inline-flex items-center gap-2">
               <LoadingIndicator size="inline" />
               {t('setup.installingBody')}
-            </p>
+            </p>}
+            {busy === 'computer' && !installing && !error ? <Button variant="secondary" className="rounded-full" disabled={cancelling}
+              onClick={() => { setCancelling(true); localAttempt.current?.abort() }} data-testid="assistant-setup-return">
+              {cancelling ? t('setup.cancelling') : t('setup.back')}
+            </Button> : null}
           </>
         ) : step === 'intro' ? (
-          <AssistantIntro primaryLabel={t('setup.introStart')} onPrimary={() => setStep('name')} />
+          <AssistantIntro primaryLabel={t('setup.introStart')} onPrimary={() => setStep('name')} look={draft} />
         ) : step === 'name' ? (
-          <>
-            <Avatar name={displayName} avatarUrl={draftAvatarUrl(draft)} seed="assistant-draft" size={88} isAgent harnessBadge={false} />
-            <h1 className="ta-onb-title">{t('setup.nameTitle')}</h1>
-            <input
-              className="gg-settings-input window-no-drag-region"
-              aria-label={t('setup.nameTitle')}
-              value={draft.name}
-              maxLength={ASSISTANT_NAME_MAX}
-              onChange={(event) => setDraft((previous) => ({ ...previous, name: event.target.value }))}
-              onKeyDown={(event) => { if (event.key === 'Enter' && draft.name.trim()) setStep('home') }}
-              data-testid="assistant-setup-name"
-            />
-            <div className="ta-onb-actions">
-              <Button variant="secondary" size="lg" className="rounded-full flex-1" onClick={() => setStep('intro')}>{t('setup.back')}</Button>
-              <Button variant="primary" size="lg" className="rounded-full flex-1" disabled={!draft.name.trim()} onClick={() => setStep('home')}>{t('setup.continue')}</Button>
-            </div>
-          </>
+          <AssistantSetupIdentity draft={draft} onChange={setDraft} onBack={() => setStep('intro')} onContinue={() => setStep('home')} />
         ) : memberError ? (
           <>
-            <p className="ta-onb-error" role="alert">{t('setup.membershipUnreadable')}</p>
+            <p className="ta-onb-error" role="alert">{memberError}</p>
             <Button onClick={() => setMemberAttempt((attempt) => attempt + 1)}>{t('setup.retry')}</Button>
           </>
         ) : (
@@ -269,7 +309,7 @@ function HomeChoice({
   cloudAvailable: boolean
   canHostHere: boolean
   busy: Busy
-  error: { kind: 'still-starting' | 'failed' } | null
+  error: string | null
   cloudFailure: CloudComputerActionFailure | null
   onCloud: () => void
   onComputer: () => void
@@ -277,6 +317,8 @@ function HomeChoice({
   draftAvatar: string
 }) {
   const { t } = useTranslation('assistant')
+  const { t: tc } = useTranslation('common')
+  const cloudCheck = useMutation({ mutationFn: refreshCloudComputer })
   if (member === null) {
     return (
       <p className="ta-onb-sub inline-flex items-center gap-2" data-testid="assistant-setup-home-loading">
@@ -286,14 +328,17 @@ function HomeChoice({
     )
   }
   const cloud = cloudEnabled ? (
-    <div className="ta-onb-choice" data-recommended={member} data-testid="assistant-setup-home-cloud">
+    <div className="ta-onb-choice" data-recommended={member && cloudAvailable} data-testid="assistant-setup-home-cloud">
       <span className="ta-onb-choice-title">{t('setup.homeCloudTitle')}</span>
       <span className="ta-onb-choice-body">{t('setup.homeCloudBody')}</span>
       <div className="ta-onb-choice-actions">
         {!cloudAvailable ? (
           <>
-            <span className="ta-onb-note" role="status">{t('setup.cloudNotOpen')}</span>
-            <Button variant="secondary" className="rounded-full" onClick={() => void refreshCloudComputer().catch(() => undefined)}>{t('setup.retry')}</Button>
+            {!cloudCheck.error && <span className="ta-onb-note" role="status">{t(cloudCheck.isSuccess ? 'setup.cloudStillUnavailable' : 'setup.cloudNotOpen')}</span>}
+            {canHostHere && <span className="ta-onb-note">{t('setup.chooseComputer')}</span>}
+            <Button variant="secondary" className="rounded-full" disabled={busy !== null || cloudCheck.isPending} onClick={() => cloudCheck.mutate()}>
+              {cloudCheck.isPending ? <><LoadingIndicator size="inline" />{t('cloud.loading')}</> : t('setup.retry')}
+            </Button>
           </>
         ) : member ? (
           <Button variant="primary" size="lg" className="rounded-full" disabled={busy !== null} onClick={onCloud} data-testid="assistant-setup-claim-cloud">
@@ -311,7 +356,7 @@ function HomeChoice({
     </div>
   ) : null
   const computer = canHostHere ? (
-    <div className="ta-onb-choice" data-recommended={!member} data-testid="assistant-setup-home-computer">
+    <div className="ta-onb-choice" data-recommended={!member || !cloudAvailable} data-testid="assistant-setup-home-computer">
       <span className="ta-onb-choice-title">{t('setup.homeComputerTitle')}</span>
       <span className="ta-onb-choice-body">{t('setup.homeComputerBody')}</span>
       <div className="ta-onb-choice-actions">
@@ -328,10 +373,10 @@ function HomeChoice({
   )
   return (
     <>
-      <Avatar name={name} avatarUrl={draftAvatar} seed="assistant-draft" size={72} isAgent harnessBadge={false} />
+      <AgentAvatar name={name} avatar={draftAvatar} id="assistant-draft" size={72} />
       <h1 className="ta-onb-title">{t('setup.homeTitle', { name })}</h1>
       <div className="ta-onb-choices">
-        {member ? (
+        {member && cloudAvailable ? (
           <>
             {cloud}
             {computer}
@@ -343,9 +388,10 @@ function HomeChoice({
           </>
         )}
       </div>
+      {cloudCheck.error && <p className="ta-onb-error" role="alert">{tc(`cloudComputer.reason.${cloudComputerFailureKind(cloudCheck.error)}`)}</p>}
       {error ? (
         <p className="ta-onb-error" role="alert" data-testid="assistant-setup-error">
-          {error.kind === 'still-starting' ? t('setup.stillStarting', { name }) : t('setup.failed')}
+          {error}
         </p>
       ) : null}
       {cloudFailure ? <CloudComputerRefusal failure={cloudFailure} prefixKey="devices.cloud.provisionFailed" onUpgrade={openMembership} /> : null}

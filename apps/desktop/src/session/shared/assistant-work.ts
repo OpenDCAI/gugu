@@ -1,0 +1,21 @@
+import { z } from 'zod'
+
+export const workReportSchema = z.object({ work_id: z.string().uuid(), status: z.enum(['progress', 'question', 'completed', 'cancelled']) }).strict()
+export type WorkReport = z.infer<typeof workReportSchema>
+export const pendingAssistantWorkRowSchema = z.object({
+  id: z.string(), kind: z.enum(['executor', 'question']), source_link: z.string().optional(),
+  source_message_id: z.string().optional(), source_summary: z.string().max(401).optional(),
+  blocked_reason: z.literal('device_no_task_runtime').optional(),
+  dispatch_key: z.string().optional(),
+  purpose: z.enum(['reply','task']).optional(),
+  ledger: z.record(z.string(),z.object({ operation_id:z.uuid(),message_id:z.uuid(),child_session_id:z.uuid(),title:z.string().optional() })).optional(),
+  device: z.string().optional(), recipients: z.array(z.string()), state: z.enum(['dispatching', 'waiting', 'uncertain', 'blocked', 'needs_source']),
+  created_at: z.string(), receipt_ids: z.array(z.string()),
+  early: z.array(z.object({ sender: z.string(), report: workReportSchema, receipt: z.string() })).optional(),
+  /** Executors that have reported this work finished; a settled work is reopened only for them (#615). */
+  done_recipients: z.array(z.string()).optional(),
+})
+export type PendingAssistantWork = z.infer<typeof pendingAssistantWorkRowSchema>
+/** `settled`: recently finished executor works, kept so a follow-up to the same executor reopens its work (#615). */
+export const pendingAssistantWorkSchema = z.object({ version: z.literal(1), items: z.array(pendingAssistantWorkRowSchema),
+  settled: z.array(pendingAssistantWorkRowSchema).optional() })

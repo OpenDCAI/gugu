@@ -21,8 +21,11 @@ export function buildSessionTree<T extends SessionTreeItem>(
   for (const item of items) nodes.set(item.id, { item, children: [] });
 
   const roots: SessionTreeNode<T>[] = [];
-  for (const item of items) {
-    const node = nodes.get(item.id)!;
+  // Overlapping startup snapshots can contain the same session more than once.
+  // Attach only the canonical (latest) node, or duplicate React keys can leave
+  // orphan sidebar rows behind when the snapshots converge (#574).
+  for (const node of nodes.values()) {
+    const item = node.item;
     const parentId = item.parentSessionId;
     const parent = parentId ? nodes.get(parentId) : undefined;
     if (!parent || parentId === item.id) {

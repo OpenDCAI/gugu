@@ -19,7 +19,7 @@ import type { PtyDimensions } from './pty';
  */
 
 /**
- * 快照里带多少行普通缓冲区的回滚。从前回放的 64KB 原始字节,对普通 shell 输出也就一千行上下;
+ * agent 屏幕快照的缺省回滚;普通终端由 LocalTerminalProvider 传入与前端一致的一万行,供关闭视图后重建。
  * 回滚越长,主进程每条写满的终端多占一份(每行 = 列数 × 12 字节)。全屏 TUI 在备用屏里,这一项与它无关。
  */
 export const SCREEN_SCROLLBACK_LINES = 1_000;
@@ -84,11 +84,12 @@ export class PtyScreen {
   constructor(
     size: PtyDimensions,
     private readonly stallMs = SNAPSHOT_STALL_MS,
+    private readonly scrollback = SCREEN_SCROLLBACK_LINES,
   ) {
     this.terminal = new Terminal({
       cols: size.cols,
       rows: size.rows,
-      scrollback: SCREEN_SCROLLBACK_LINES,
+      scrollback: this.scrollback,
       allowProposedApi: true,
     });
     this.terminal.loadAddon(this.serializer);
@@ -141,7 +142,7 @@ export class PtyScreen {
    * 切点落在一个转义序列中间时(PTY 一次读到半个序列),把这个序列已到的前半截接在屏幕后面,后半截在 `live` 或下一批里。
    * 从不 reject:解析停了或序列化抛错都记 error、交空屏(spec task-renderer:回放有界、照常接上实时输出)。
    */
-  snapshot(): Promise<PtyScreenSnapshot> {
+  snapshot(options: { scrollback?: number } = {}): Promise<PtyScreenSnapshot> {
     if (this.closedSize) return Promise.resolve({ data: '', live: '', size: this.closedSize });
     if (this.stalled) return Promise.resolve({ data: '', live: '', size: this.size() });
     return new Promise((resolve) => {
@@ -176,11 +177,28 @@ export class PtyScreen {
         // 在 xterm 的写入回调里:抛出去会打断它的写入循环,所以就地接住。
         let data = '';
         try {
-          data = this.serialize() + (this.core._inputHandler._parser.currentState === 0 ? '' : carry);
+          data = this.serialize(options.scrollback ?? this.scrollback) + (this.core._inputHandler._parser.currentState === 0 ? '' : carry);
         } catch (error) {
           this.stall(`serialize failed: ${String(error)}`);
         }
         settle(data);
+      });
+    });
+  }
+
+  /**
+   * 屏上看得见的字(当前缓冲区末尾 `lines` 行,去掉行尾空白与末尾空行),排在已到的输出之后读。诊断用:起不来的会话把这几行写进日志。
+   * 停了 / 关了 = 空。
+   */
+  text(lines: number): Promise<string[]> {
+    if (this.closedSize || this.stalled) return Promise.resolve([]);
+    return new Promise((resolve) => {
+      this.terminal.write('', () => {
+        const buffer = this.terminal.buffer.active;
+        const out: string[] = [];
+        for (let y = 0; y < buffer.length; y += 1) out.push(buffer.getLine(y)?.translateToString(true) ?? '');
+        while (out.length > 0 && !out[out.length - 1]!.trim()) out.pop();
+        resolve(out.slice(-lines));
       });
     });
   }
@@ -213,8 +231,8 @@ export class PtyScreen {
    * (Claude Code 实测每次改尺寸都 `ESC[2J`,清屏时底色是缺省,超出的格子随之清空、不再输出),
    * 紧跟在快照后面的实时输出把它盖掉。上游 0.15 beta 仍是同一写法。
    */
-  private serialize(): string {
-    let data = this.serializer.serialize({ scrollback: SCREEN_SCROLLBACK_LINES });
+  private serialize(scrollback: number): string {
+    let data = this.serializer.serialize({ scrollback });
     const { coreMouseService, coreService, buffer } = this.core;
     const encoding = MOUSE_ENCODING_SEQUENCE[coreMouseService.activeEncoding];
     if (encoding === undefined) throw new Error(`PtyScreen: unknown xterm mouse encoding ${coreMouseService.activeEncoding}`);

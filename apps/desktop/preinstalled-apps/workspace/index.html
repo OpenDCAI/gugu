@@ -7,42 +7,51 @@
 <link rel="stylesheet" href="style.css" />
 </head>
 <body data-state="message" data-mode="split">
-  <aside class="files" aria-label="files">
-    <div class="files-head">
+  <aside class="files" aria-label="files" tabindex="0">
+    <div class="files-head row">
       <input id="filter" class="filter" type="search" autocomplete="off" />
-      <button id="new-doc" class="btn" type="button" hidden></button>
-      <button id="new-folder" class="btn" type="button" hidden></button>
-      <button id="upload" class="btn" type="button" hidden></button>
+      <button id="select-files" class="select-files" type="button" aria-pressed="false"></button>
+      <button id="upload" type="button" hidden><gugu-icon name="arrow-up-to-line"></gugu-icon><span id="upload-label"></span></button>
+      <button id="new-doc" class="primary" type="button" aria-haspopup="menu" aria-expanded="false" hidden><gugu-icon name="plus"></gugu-icon><span id="new-label"></span><gugu-icon name="chevron-down"></gugu-icon></button>
     </div>
+    <div id="pick-bar" class="pick-bar" role="toolbar" hidden></div>
+    <!-- Which kind of file the list shows, and in what order (list.js): kept on this device. -->
+    <div class="files-tools">
+      <div id="kinds" class="kinds" role="group"></div>
+      <button id="sort" class="sort" type="button" aria-haspopup="menu" aria-expanded="false"><span id="sort-label"></span><gugu-icon name="chevron-down"></gugu-icon></button>
+      <div id="views" class="views" role="group">
+        <button type="button" data-view="list"><gugu-icon name="align-justify"></gugu-icon></button>
+        <button type="button" data-view="grid"><gugu-icon name="layout-grid"></gugu-icon></button>
+      </div>
+    </div>
+    <!-- The filters there is something to pick by (上传者 / 存放 / 保留方式), and the way to clear them. -->
+    <div id="chips" class="chips" hidden></div>
     <!-- Where the list is (子文件夹): the way up, then each folder from the top. Hidden at the top. -->
     <nav id="crumbs" class="crumbs" hidden></nav>
     <!-- What went wrong on the list (a name taken there, a failed move or upload): the file's own line is not drawn here. -->
     <div id="list-banner" class="banner" role="status" hidden></div>
-    <p id="files-empty" class="empty" hidden></p>
-    <ul id="file-list" class="file-list" role="listbox"></ul>
+    <gugu-empty id="files-empty" icon="folder" hidden><strong id="files-empty-message"></strong><button id="empty-upload" type="button" hidden></button></gugu-empty>
+    <ul id="file-list" class="file-list list" role="listbox" aria-multiselectable="true"></ul>
   </aside>
   <main class="doc">
     <header class="doc-head">
-      <div class="doc-name">
-        <button id="back" class="back" type="button"><svg class="back-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6" /></svg><span id="back-label"></span></button>
-        <h1 id="doc-title" class="doc-title"></h1>
+      <h1 id="doc-title" class="doc-title"></h1>
+      <div class="doc-actions">
+        <div class="modes" role="tablist" aria-labelledby="doc-title">
+          <button id="mode-preview" role="tab" type="button"></button>
+          <button id="mode-edit" role="tab" type="button"></button>
+          <button id="mode-split" role="tab" type="button"></button>
+        </div>
         <span id="doc-status" class="status"></span>
         <div id="peers" class="peers"></div>
-      </div>
-      <div class="doc-actions">
-        <div class="modes" role="group">
-          <button id="mode-edit" class="mode" type="button"></button>
-          <button id="mode-split" class="mode" type="button"></button>
-          <button id="mode-preview" class="mode" type="button"></button>
-        </div>
         <div class="json-actions">
-          <button id="json-discard" class="btn" type="button"></button>
-          <button id="json-apply" class="btn primary" type="button"></button>
+          <button id="json-discard" type="button"></button>
+          <button id="json-apply" class="primary" type="button"></button>
         </div>
-        <!-- Wide: these two sit in the row. Narrow: they fold behind ⋯, which opens them in the page's one menu (#menu). -->
-        <button id="download" class="btn fold" type="button" hidden></button>
-        <button id="open-with" class="btn fold" type="button" hidden></button>
-        <button id="more" class="btn more-toggle" type="button" aria-haspopup="menu" aria-expanded="false" hidden>⋯</button>
+        <!-- These two fold behind ⋯ at every width (owner 10-30, folder-docs): it opens them in the page's one menu (#menu). -->
+        <button id="download" class="fold" type="button" hidden></button>
+        <button id="open-with" class="fold" type="button" hidden></button>
+        <button id="more" class="more-toggle" type="button" aria-haspopup="menu" aria-expanded="false" hidden><gugu-icon name="more-horizontal"></gugu-icon></button>
       </div>
     </header>
     <div id="banner" class="banner" role="status" hidden></div>
@@ -51,26 +60,41 @@
     <div class="panes">
       <div id="editor" class="editor"></div>
       <article id="preview" class="preview"></article>
+      <!-- An empty document, where its preview would be: what can be done here. -->
+      <gugu-empty id="doc-empty" class="doc-empty" icon="file-text" hidden><strong id="doc-empty-title"></strong><small id="doc-empty-hint"></small><span class="row"><button id="empty-write" class="primary" type="button"><gugu-icon name="pencil"></gugu-icon><span id="empty-write-label"></span></button><button id="empty-draft" type="button"><gugu-icon name="sparkles"></gugu-icon><span id="empty-draft-label"></span></button></span></gugu-empty>
     </div>
   </main>
-  <div id="menu" class="menu" role="menu" hidden></div>
+  <!-- A file's details: beside the list when the pane is wide, over it when narrow. -->
+  <aside id="details" class="details card" aria-label="details" hidden></aside>
+  <div id="menu" class="menu card list" role="menu" hidden></div>
+  <!-- The frame dragged across the list. -->
+  <div id="lasso" class="lasso" hidden></div>
+  <!-- Beside the reading block under the pointer: its menu cites it, keeps it, copies a link to it, finds it in the source. -->
+  <button id="block-handle" class="block-handle" type="button" aria-haspopup="menu" aria-expanded="false" hidden><gugu-icon name="more-horizontal"></gugu-icon></button>
   <!-- 「移动到…」: every folder of the chat, the top first; a press moves the file there. -->
   <div id="move-dialog" class="dialog" role="dialog" aria-modal="true" hidden>
-    <div class="dialog-box">
+    <div class="dialog-box card">
       <h2 id="move-title" class="dialog-title"></h2>
       <ul id="move-targets" class="move-targets"></ul>
-      <div class="dialog-actions"><button id="move-cancel" class="btn" type="button"></button></div>
+      <div class="dialog-actions"><button id="move-cancel" type="button"></button></div>
     </div>
   </div>
   <!-- After an upload: a name that was already in the folder — both kept, or the old one replaced. -->
   <div id="conflicts" class="dialog" role="dialog" aria-modal="true" hidden>
-    <div class="dialog-box">
+    <div class="dialog-box card">
       <ul id="conflict-list" class="conflict-list"></ul>
-      <div class="dialog-actions"><button id="conflicts-done" class="btn" type="button"></button></div>
+      <div class="dialog-actions"><button id="conflicts-done" type="button"></button></div>
     </div>
   </div>
   <!-- Beside a selection, in the source or the preview (app.js places it). -->
   <div id="sel-bar" class="sel-bar" hidden>
+    <!-- In the source only: the marks a selection is wrapped in (the same text everyone edits). -->
+    <span class="fmt-bar">
+      <button id="fmt-bold" class="fmt" type="button" data-fmt="bold"><gugu-icon name="bold"></gugu-icon></button>
+      <button id="fmt-italic" class="fmt" type="button" data-fmt="italic"><gugu-icon name="italic"></gugu-icon></button>
+      <button id="fmt-code" class="fmt" type="button" data-fmt="code"><gugu-icon name="braces"></gugu-icon></button>
+      <button id="fmt-link" class="fmt" type="button" data-fmt="link"><gugu-icon name="link"></gugu-icon></button>
+    </span>
     <button id="copy-sel" type="button"></button>
     <button id="cite-sel" type="button"></button>
     <button id="hold-sel" type="button"></button>

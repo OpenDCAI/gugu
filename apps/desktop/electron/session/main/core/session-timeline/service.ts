@@ -1,12 +1,18 @@
-import { readAgentQuestionRecords, rememberAgentQuestion, settleAgentQuestionRecord } from '../sessions/agent-question-store';
-import { questionAnswerError } from '@gugu/session-core/session-record';
-import { sessionEvents } from '../sessions/session-events';
+import { createNativeRecordReader } from './native-record';
+import { promptAttachmentSchema } from '@gugu/session-core/acp/client';
+import { ask, withdrawAll } from '../asks';
+import { hostAsks, resetAsks, respond as respondAsk, respondQuestion as respondAskQuestion } from '../asks/ask';
+import { askSourceSpec } from '../asks/sources';
+import { readAgentQuestionRecords, rememberAgentQuestion } from '../sessions/agent-question-store';
+import { nativeConversationAliases, nativeConversationUnread } from '../sessions/session-conversation-read';
+import { nativeConversationActivity } from '../sessions/session-conversation-activity';
 import { deliverAgentQuestionAnswer, restoredAgentQuestion } from '../sessions/agent-question-delivery';
-import type { QuestionAnswer } from '@gugu/session-core/session-record/contract';
 import { desc, eq, isNull } from 'drizzle-orm';
 import { isImplicitSessionHomeProjectId } from '@shared/core/projects/session-home-project';
 import { resolveAgentHome } from '@gugu/session-core/agents/plugins/helpers';
-import type { ToolImage } from '@gugu/session-core/acp/client';
+import { isVisibleQueuedPrompt } from '@shared/core/sessions/visible-queued-prompt';
+import { conversationQueueText } from '@shared/core/sessions/conversation-queue-text';
+import type { OpenedOutput, ToolImage } from '@gugu/session-core/acp/client';
 import {
   findToolImage,
   type RecordCursor,
@@ -54,6 +60,7 @@ import {
   type SessionSchedule,
 } from '@shared/core/automations/session-schedule';
 import { log } from '@main/lib/logger';
+import { readDeliveryEnvelope } from '@gugu/core/local/agent/deliveryEnvelope';
 import {
   legacyAgentStatusWord,
   parseAgentStatus,
@@ -72,10 +79,14 @@ import {
   saveTimelineArchive,
 } from './archive-store';
 import { watchSessionState, type SessionStateWatch } from './live-permissions';
-import { locateSessionRecord, type SessionRecordLocation } from './locate';
-import { OpenedFileError, openedInRecord, readOpenedFileChunk } from './opened-file';
+import { locateSessionRecord, sessionRecordHarnessForProvider, type SessionRecordLocation } from './locate';
+import { hermesRecordedDeliveryIds } from './hermes-delivery-receipts';
+import { OpenedFileError, readOpenedFileChunk } from './opened-file';
+import { sessionOpenedFile, sessionOutputs } from '../sessions/session-outputs';
+import { findSessionAttachmentCopy } from '../sessions/attachments/session-attachment-store';
 import { createStandInTimeline } from './stand-in-timeline';
 import { readStartFailure } from './start-failures';
+import { knownHarnessConfigRoots } from '@main/core/agent-hooks/harness-config-roots';
 import { notStartedSessionOptions } from './not-started-options';
 import { readSessionModelMenu, type SessionpageSessionOptionsWithMenu } from './session-model-menu';
 import {
@@ -160,6 +171,7 @@ type TimelineEntry = {
   pendingWatch: SessionStateWatch | null;
   /** What the live runtime last reported waiting (an ACP session's own approvals); the host's asks are added to it (D-31). */
   runtimeRequests: readonly PendingRequest[];
+  nativeActiveTurn?: import('@gugu/session-core/acp/client').TranscriptTurn | null;
   disposed: boolean;
   /**
    * 没有记录可读时的替身(见 stand-in-timeline.ts)。它**不进缓存**:真记录一出现,下一次 acquire
@@ -194,25 +206,32 @@ function readSessionRows(): Array<{
   return db
     .select({
       session: sessions,
-      project: { id: projects.id, name: projects.name, path: projects.path },
+      project: { id: projects.id, name: projects.name, path: projects.path, kind: projects.kind },
     })
     .from(sessions)
     .innerJoin(projects, eq(sessions.projectId, projects.id))
     // 归档的会话不上这张面 —— 与 `getSessions()` 同一条口径:归属键是**会话自己**那一列(spec session-graph)。
     .where(isNull(sessions.archivedAt))
-    .all();
+    .all()
+    .map(({ session, project }) => ({ session, project: projectSummary(project) }));
 }
 
 function readLocalProjects(): SessionpageProjectSummary[] {
   return db
-    .select({ id: projects.id, name: projects.name, path: projects.path })
+    .select({ id: projects.id, name: projects.name, path: projects.path, kind: projects.kind })
     .from(projects)
     .where(eq(projects.workspaceProvider, 'local'))
     .orderBy(desc(projects.updatedAt))
-    .all();
+    .all()
+    .map(projectSummary);
 }
 
-function readSessionRow(conversationId: string): SessionRow | null {
+/** #609 workspace 带上 kind,手机据此把它的会话列进「任务」;项目照旧只有 id / name / path。 */
+function projectSummary({ kind, ...project }: { id: string; name: string; path: string; kind: 'project' | 'workspace' }): SessionpageProjectSummary {
+  return kind === 'workspace' ? { ...project, kind } : project;
+}
+
+export function readSessionRow(conversationId: string): SessionRow | null {
   return (
     readSessionRows().find((row) => row.session.id === conversationId)?.session ??
     null
@@ -266,13 +285,62 @@ function managedConfigRootFor(providerId: string | null): {
   }
 }
 
+/**
+ * 会话所绑订阅连接的配置根解析器(宿主注入,与 `setSessionTimelineFactory` 同一个理由:
+ * 真实现拖 electron `app` 与 db,服务层要保持能在任何 node 环境下测)。没注入 ⇒ 只在默认根里找。
+ */
+export type ConnectionConfigRootResolver = (providerId: string, connectionId: string) => string | null;
+
+let connectionConfigRootOf: ConnectionConfigRootResolver | null = null;
+
+export function setConnectionConfigRootResolver(next: ConnectionConfigRootResolver | null): void {
+  connectionConfigRootOf = next;
+}
+
+/**
+ * 单一目录之前(#26),非原生连接上的会话跑在连接自己的配置根上,记录写在那里;开机时已搬进用户根,
+ * 之后的新内容只长在用户根里。所以连接根只排在默认根后面兜底(搬失败的那几条),❌ 排前面 —— 那样读到的是搬家时的旧副本。
+ */
+function connectionRootFor(row: SessionRow): string | null {
+  const connectionId = pinnedConnectionId(row);
+  if (!row.provider || !connectionId) return null;
+  try {
+    return connectionConfigRootOf?.(row.provider, connectionId) ?? null;
+  } catch (error) {
+    // 解析不出来只让这一条退回默认根,❌ 不许把整张会话列表带走(与 `managedConfigRootFor` 同一条理由)。
+    log.warn('sessionTimeline: 连接配置根解析失败,改在默认根里找', { sessionId: row.id, error: String(error) });
+    return null;
+  }
+}
+
+/**
+ * 会话绑的连接。绑定是启动时才落的 —— 外部 fork 出来的行(终端里 `/fork`)还没启动过就没有,
+ * 而它的记录已经在源会话那条连接的根里了 ⇒ 顺着 `forkedFrom` 找最近一个落了绑定的祖先
+ * (与 `resolveHarnessConnection` 继承的是同一条链)。
+ */
+function pinnedConnectionId(row: SessionRow): string | undefined {
+  const seen = new Set<string>();
+  let current: SessionRow | null = row;
+  while (current && !seen.has(current.id)) {
+    seen.add(current.id);
+    const pinned = current.config?.subscriptionConnectionId;
+    if (pinned) return pinned;
+    const parentId: string | undefined = current.config?.forkedFrom?.sessionId;
+    current = parentId ? readSessionRow(parentId) : null;
+  }
+  return undefined;
+}
+
 function locateRow(row: SessionRow): SessionRecordLocation {
   const managed = managedConfigRootFor(row.provider);
   if (managed.problem) return { supported: false, reason: managed.problem };
+  const legacy = connectionRootFor(row);
   return locateSessionRecord({
     provider: row.provider,
     providerSessionId: row.providerSessionId,
     managedConfigRoot: managed.root,
+    // 这一家在本机 hook 里报过的配置目录(包装器在进程里改过的那种)排在默认根之后一起找。
+    fallbackConfigRoots: [...(legacy ? [legacy] : []), ...knownHarnessConfigRoots(row.provider)],
   });
 }
 
@@ -325,12 +393,14 @@ function disposeEntry(entry: TimelineEntry): void {
  * 一起拖死。接不上就 warn 一句，时间线照常可读，只是没有审批卡（与接这条之前的行为一致）。
  */
 function attachPendingRequests(entry: TimelineEntry): void {
-  void watchSessionState(entry.conversationId, (requests, queuedPrompts, liveReply) => {
+  void watchSessionState(entry.conversationId, (requests, queuedPrompts, liveReply, terminals, activeTurn) => {
     if (entry.disposed) return;
     entry.runtimeRequests = requests;
+    entry.nativeActiveTurn = activeTurn ?? null;
     syncPending(entry);
-    entry.timeline.syncQueuedPrompts(queuedPrompts);
+    entry.timeline.syncQueuedPrompts(queuedPrompts.filter(isVisibleQueuedPrompt).map(prompt => ({ ...prompt, text: conversationQueueText(prompt.text) })));
     entry.timeline.syncLiveReply(liveReply ?? null);
+    entry.timeline.syncTerminals(terminals);
   })
     .then((watch) => {
       if (!watch) return;
@@ -349,43 +419,10 @@ function attachPendingRequests(entry: TimelineEntry): void {
     });
 }
 
-/**
- * D-31 (owner 10-06「怎么符合用户思维和操作路径怎么来」; L11 复核 67): the approvals the host asks on an agent's behalf — an
- * App install — kept here, per session, for a chat-UI session and a terminal one alike (the owner works in Claude's TUI):
- * on the session's timeline next to its own approvals, so whoever follows it (the phone, another desktop, the private
- * chat's band) answers it there, and `respond` settles it once (compare-and-set) and hands the answer to the host. Nothing
- * here answers for the person: there is no full-access auto-approve at this layer.
- */
-export type HostAnswer = { optionId: string; by: string; answers?: readonly QuestionAnswer[]; digest?: string; enableIn?: string[] };
-type HostAskEntry = {
-  request: PendingRequest & { host: NonNullable<PendingRequest['host']> };
-  /** Why this answer cannot be taken (it stays asked), or null. */
-  refuse?: (answer: HostAnswer) => string | null;
-  answered: (answer: HostAnswer) => void;
-  withdraw: () => void;
-  detach: () => void;
-};
-const hostAsks = new Map<string, Map<string, HostAskEntry>>();
-let hostAskLifecycle: Array<() => void> | null = null;
-
-/** Explicit interruption or removal invalidates question cards, including detached ones. */
-export function withdrawHostQuestions(conversationId: string): void {
-  for (const item of readAgentQuestionRecords(conversationId)) {
-    if (item.state === 'pending') settleAgentQuestionRecord(conversationId, item.itemId, { state: 'cancelled', optionId: null, by: null });
-  }
-  for (const ask of [...(hostAsks.get(conversationId)?.values() ?? [])]) {
-    if (ask.request.host.kind === 'agent-question') ask.withdraw();
-  }
-}
-
-/** The session waits on the person while a host ask is out (an approval wait). Imported when asked: the status writer pulls in the
- *  hook service and the window's notifications, which this service has no other use for. One promise ⇒ start lands before end. */
-let statusWriter: Promise<typeof import('@main/core/agent-status/agent-status-writer')> | null = null;
-function reportHostWait(conversationId: string, id: string, open: boolean): void {
-  statusWriter ??= import('@main/core/agent-status/agent-status-writer');
-  void statusWriter
-    .then(({ agentStatusWriter }) => agentStatusWriter.reportHostWait({ sessionId: conversationId, id, open, ...(id.startsWith('host-ask:agent-question:') ? { waitKind: 'question' as const } : {}) }))
-    .catch((error: unknown) => log.warn('sessionTimeline: the host wait was not reported', { conversationId, error: String(error) }));
+/** Publish the already-owned host requests alongside the runtime queue. */
+export function syncAsked(conversationId: string): void {
+  const entry = entries.get(conversationId);
+  if (entry) syncPending(entry);
 }
 
 function syncPending(entry: TimelineEntry): void {
@@ -402,6 +439,8 @@ function syncPending(entry: TimelineEntry): void {
  * answer handler from the archived card and use the existing idempotent session outbox.
  */
 function restoreAgentQuestions(entry: TimelineEntry, projectId: string): void {
+  void import('../asks/human-tool-wait').then(({ restoreHumanToolResults }) => restoreHumanToolResults(entry.conversationId, projectId))
+    .catch(error => log.error('Human tool results could not be restored', { conversationId: entry.conversationId, error: String(error) }));
   const saved = new Map(readAgentQuestionRecords(entry.conversationId).map(item => [item.itemId, item]));
   for (const item of entry.timeline.getSnapshot({ limit: 1 }).settlements) {
     if (!saved.has(item.itemId) && restoredAgentQuestion(item)) { rememberAgentQuestion(entry.conversationId, item); saved.set(item.itemId, item); }
@@ -415,8 +454,8 @@ function restoreAgentQuestions(entry: TimelineEntry, projectId: string): void {
       entry.timeline.syncPendingRequests([...entry.runtimeRequests, ...[...(hostAsks.get(entry.conversationId)?.values() ?? [])].map(ask => ask.request), restored.request]);
       entry.timeline.settle({ itemId: restored.request.itemId, optionId: settlement.optionId, by: settlement.resolvedBy ?? 'owner' });
     }
-    const answer = restored.answer ? Promise.resolve(restored.answer) : askHost(entry.conversationId, restored.request,
-      { signal: new AbortController().signal, background: true });
+    const answer = restored.answer ? Promise.resolve(restored.answer) : ask(entry.conversationId, restored.request,
+      { signal: new AbortController().signal });
     deliverAgentQuestionAnswer(entry.conversationId, projectId, restored.request, restored.answerMessageId, answer);
   }
 }
@@ -424,96 +463,13 @@ function restoreAgentQuestions(entry: TimelineEntry, projectId: string): void {
 function withdrawOrphanHostAsks(entry: TimelineEntry): void {
   const asked = hostAsks.get(entry.conversationId);
   for (const settlement of entry.timeline.getSnapshot({ limit: 1 }).settlements) {
-    if (settlement.state === 'pending' && settlement.host && !asked?.has(settlement.itemId)) {
+    if (settlement.state !== 'pending' || !settlement.origin) continue;
+    const source = askSourceSpec(settlement.origin.source);
+    // An archived request can outlive the feature that created its source.
+    if (!source || (source.raisedBy === 'host' && !asked?.has(settlement.itemId))) {
       entry.timeline.cancelSettlement(settlement.itemId);
     }
   }
-}
-
-/**
- * Ask the person, as an approval in this session: held until answered (`HostAnswer`), or `withdrawn` once `signal` aborts
- * (the host's clock, or the call it was asked for went away) — it ends cancelled where it was shown. `unavailable`: no
- * such session here. The session is waiting on the person meanwhile (an approval wait: its yellow dot, the phone's alert).
- */
-export function askHost(
-  conversationId: string,
-  request: HostAskEntry['request'],
-  options: { signal: AbortSignal; refuse?: HostAskEntry['refuse']; background?: boolean }
-): Promise<HostAnswer | 'withdrawn' | 'unavailable'> {
-  if (!readSessionRow(conversationId)) return Promise.resolve('unavailable');
-  if (options.signal.aborted) return Promise.resolve('withdrawn');
-  if (request.host.kind === 'agent-question') rememberAgentQuestion(conversationId, request);
-  hostAskLifecycle ??= [sessionEvents.on('session:archived', withdrawHostQuestions), sessionEvents.on('session:deleted', withdrawHostQuestions)];
-  return new Promise((resolve) => {
-    const asks = hostAsks.get(conversationId) ?? new Map<string, HostAskEntry>();
-    hostAsks.set(conversationId, asks);
-    const wait = `host-ask:${request.itemId}`;
-    const aborted = () => {
-      if (request.host.kind === 'agent-question') settleAgentQuestionRecord(conversationId, request.itemId, { state: 'cancelled', optionId: null, by: null });
-      end('withdrawn');
-    };
-    const end = (answer: HostAnswer | 'withdrawn', publish = true) => {
-      if (!asks.delete(request.itemId)) return;
-      options.signal.removeEventListener('abort', aborted);
-      if (asks.size === 0) hostAsks.delete(conversationId);
-      if (!options.background) reportHostWait(conversationId, wait, false);
-      const entry = entries.get(conversationId);
-      if (entry && publish) syncPending(entry);
-      resolve(answer);
-    };
-    asks.set(request.itemId, { request, ...(options.refuse ? { refuse: options.refuse } : {}), answered: end, withdraw: aborted, detach: () => end('withdrawn', false) });
-    if (!options.background) reportHostWait(conversationId, wait, true);
-    const entry = entries.get(conversationId);
-    if (entry) syncPending(entry);
-    options.signal.addEventListener('abort', aborted, { once: true });
-  });
-}
-
-/** `respond` on a host's ask: refused (it stays asked), lost the race, or settled and handed to the host. */
-function respondHost(
-  timeline: SessionTimeline,
-  input: Extract<SessionpageSessionRespondRequest, { optionId: string }>,
-  current: Settlement
-): SessionTimelineResult<SessionpageSessionRespondResult> {
-  const ask = hostAsks.get(input.conversationId)?.get(input.itemId);
-  // Withdrawn (its clock ran out) or already answered: said as it is — 「已经不等了」 / 「已在某端回答」.
-  if (!ask || current.state !== 'pending') return { ok: true, value: { accepted: false, settlement: current } };
-  const answer: HostAnswer = {
-    optionId: input.optionId,
-    by: input.by,
-    ...(input.digest ? { digest: input.digest } : {}),
-    ...(input.enableIn ? { enableIn: [...input.enableIn] } : {}),
-  };
-  const refusal = ask.refuse?.(answer);
-  if (refusal) return fail('host_ask_refused', refusal);
-  const settled = timeline.settle({ itemId: input.itemId, optionId: input.optionId, by: input.by });
-  if (!settled.ok) return { ok: true, value: { accepted: false, settlement: settled.existing } };
-  ask.answered(answer);
-  return { ok: true, value: { accepted: true, settlement: settled.settlement } };
-}
-
-function respondHostQuestion(
-  timeline: SessionTimeline,
-  input: Exclude<SessionpageSessionRespondRequest, { optionId: string }>,
-  current: Settlement,
-): SessionTimelineResult<SessionpageSessionRespondResult> {
-  const ask = hostAsks.get(input.conversationId)?.get(input.itemId);
-  if (!ask || current.state !== 'pending') return { ok: true, value: { accepted: false, settlement: current } };
-  if ('decline' in input) {
-    try { settleAgentQuestionRecord(input.conversationId, input.itemId, { state: 'cancelled', optionId: null, by: input.by }); }
-    catch (error) { return fail('persist_failed', String(error)); }
-    timeline.cancelSettlement(input.itemId);
-    ask.answered({ optionId: 'withdrawn', by: input.by });
-    return { ok: true, value: { accepted: true, settlement: settlementOf(timeline, input.itemId)! } };
-  }
-  const invalid = questionAnswerError(current.questions ?? [], input.answers);
-  if (invalid) return fail('answer_invalid', invalid);
-  try { settleAgentQuestionRecord(input.conversationId, input.itemId, { state: 'resolved', optionId: JSON.stringify(input.answers), by: input.by }); }
-  catch (error) { return fail('persist_failed', String(error)); }
-  const settled = timeline.settle({ itemId: input.itemId, optionId: JSON.stringify(input.answers), by: input.by });
-  if (!settled.ok) return { ok: true, value: { accepted: false, settlement: settled.existing } };
-  ask.answered({ optionId: 'answered', answers: input.answers, by: input.by });
-  return { ok: true, value: { accepted: true, settlement: settled.settlement } };
 }
 
 function scheduleIdleDispose(entry: TimelineEntry): void {
@@ -779,6 +735,10 @@ function summaryOf(
     ...statusFieldsOf(session),
     lastInteractedAt: session.lastInteractedAt,
     supported: location.supported,
+    nativeInputVersion: 1,
+    nativeLastMessage: nativeConversationActivity(session.id),
+    nativeUnreadKeys: nativeConversationUnread(session.id),
+    nativeUnreadAliases: nativeConversationAliases(session.id),
     ...(location.supported ? {} : { unsupportedReason: location.reason, ...notStartedFacts(session) }),
     // 这三项库里早就有,先前没往手机端传 —— 手机上于是既没有置顶区、也认不出未读、
     // 更画不出子 agent 的谱系,而桌面侧栏三样都有。口径与 `sessions/utils.ts`
@@ -837,33 +797,37 @@ async function modelNames(provider: string | null): Promise<Map<string, string>>
   }
 }
 
+/** 会话记录里那一档模型(建会话 / 上次换模型时记下的),没有运行时也报得出来。 */
+async function recordedSessionOptions(row: SessionRow) {
+  const { sessionPlatformModel } = await import('@main/core/sessions/platform-model-selection');
+  const platform = await sessionPlatformModel(row.id).catch(() => undefined);
+  return notStartedSessionOptions({
+    model: row.config?.model,
+    platformModelId: platform?.modelId,
+    names: await modelNames(row.provider),
+  });
+}
+
+/** 聊天腿的 agent 此刻在不在跑;问不到(运行时连不上)按不在跑算 —— 只读,❌ 为了问一句把它拉起来。 */
+async function acpRunning(row: SessionRow): Promise<boolean> {
+  try {
+    return await acpSessionLive(row.id);
+  } catch {
+    return false;
+  }
+}
+
 export async function sessionOptions(input: {
   conversationId: string;
 }): Promise<SessionTimelineResult<SessionpageSessionOptionsWithMenu>> {
   const row = readSessionRow(input.conversationId);
   if (!row) return fail('session_not_found', '这台机器上没有这条会话');
-  if (await neverStarted(row)) {
-    const { sessionPlatformModel } = await import('@main/core/sessions/platform-model-selection');
-    const platform = await sessionPlatformModel(row.id).catch(() => undefined);
-    return {
-      ok: true,
-      value: notStartedSessionOptions({
-        model: row.config?.model,
-        platformModelId: platform?.modelId,
-        names: await modelNames(row.provider),
-      }),
-    };
-  }
-  // 参数(权限档 / 模型 / 推理档)住在活运行时里。聊天腿的老会话在 app 重启后引擎早没了 ——
-  // 桌面点进会话时会先把它拉起来再读,手机端不能少这一步,否则老会话的胶囊整条不画
-  // (owner 2026-09-15 真机:「找了个老对话,没法改会话参数」)。活着的会话这一步是空操作。
-  if (row.runtime === 'acp') {
-    try {
-      await ensureAcpSessionLive(row.id);
-    } catch (error) {
-      if (error instanceof SessionWriteError) return fail(error.code, error.message);
-      return fail('session_wake_failed', (error as Error)?.message ?? String(error));
-    }
+  if (await neverStarted(row)) return { ok: true, value: await recordedSessionOptions(row) };
+  // #980 打开会话不叫醒 agent,手机上也一样(behavior session-page;owner 2026-10-30 取代 09-15「读选项先唤醒」):
+  // 手机打开会话就来读这一份,而参数(权限档 / 推理档)住在活运行时里。没在跑就报记录里那一档模型(带模型菜单,换得了),
+  // 权限档 / 推理档等它跑起来再报 —— 它们的 id 是各家运行时自己的。改一档是人点的,那一刻再起(`setSessionOptionValue`)。
+  if (row.runtime === 'acp' && !(await acpRunning(row))) {
+    return { ok: true, value: await withModelMenu(row, await recordedSessionOptions(row)) };
   }
   try {
     return { ok: true, value: await withModelMenu(row, await readSessionOptions(input.conversationId)) };
@@ -878,6 +842,16 @@ export async function setSessionOptionValue(
 ): Promise<SessionTimelineResult<SessionpageSessionOptionsWithMenu>> {
   const row = readSessionRow(input.conversationId);
   if (!row) return fail('session_not_found', '这台机器上没有这条会话');
+  // #980 打开时没叫醒它;改一档是人点的,参数又只有活运行时收得下 ⇒ 这一刻按桌面同一条「唤醒」拉起来。
+  // 从没开起来的 ❌:唤醒不带第一句话(见 not-started-options),它只报记下的那一档,本来就没有可改的。
+  if (row.runtime === 'acp' && !(await neverStarted(row))) {
+    try {
+      await ensureAcpSessionLive(row.id);
+    } catch (error) {
+      if (error instanceof SessionWriteError) return fail(error.code, error.message);
+      return fail('session_wake_failed', (error as Error)?.message ?? String(error));
+    }
+  }
   try {
     return { ok: true, value: await withModelMenu(row, await setSessionOption(input)) };
   } catch (error) {
@@ -957,8 +931,11 @@ export function older(input: {
  * 走的是和 `older` 同一条路(设备 RPC → 会话时间线的口),server 宿主上也是这一份。
  */
 export async function toolImage(input: SessionpageSessionToolImageRequest): Promise<SessionTimelineResult<ToolImage>> {
+  // 存档装回来的轮里图只剩位置,要由时间线从记录里读回来(#980);没有这个口的(代读时间线)照旧在快照里找。
   const found = await withTimeline(input.conversationId, (timeline) =>
-    findToolImage(timeline.getSnapshot({ limit: Number.MAX_SAFE_INTEGER }).turns, input.itemId, input.index)
+    timeline.toolImage
+      ? timeline.toolImage({ itemId: input.itemId, index: input.index })
+      : findToolImage(timeline.getSnapshot({ limit: Number.MAX_SAFE_INTEGER }).turns, input.itemId, input.index)
   );
   if (!found.ok) return found;
   return found.value.ok ? { ok: true, value: found.value.image } : fail(found.value.code, found.value.message);
@@ -1002,52 +979,151 @@ export async function recordHistoryPage(input: {
 }
 
 /**
- * 核对过「这条会话打开过这个路径」的,记几分钟:一份 20 MB 的文件要分 40 块来要,每块都把整条会话的记录
- * 翻一遍、会话越长越慢(10-15 实测后改)。记录只会长不会改写,打开过的永远打开过 —— 记住它不会放进一个
- * 本该拒的请求;过期只是为了不让这张表一直长。
+ * #980 agent 自己的记录里,它收到过的每一条投递的消息编号。接回会话不再让 agent 重放之后,重启补投之前的去重
+ * 靠它(从前那份事实来自重放)。`null` = 这里读不出来(没有记录、读失败):调用方照「历史未知」处理,
+ * 补投照旧、标「可能已收到」—— ❌ 当成「一条都没收到」。
  */
-const VERIFIED_OPEN_TTL_MS = 5 * 60_000;
-const verifiedOpens = new Map<string, number>();
-const verifiedOpenKey = (conversationId: string, path: string) => `${conversationId}\u0000${path}`;
-
-function rememberVerifiedOpen(key: string): void {
-  const now = Date.now();
-  for (const [stale, expiresAt] of verifiedOpens) if (expiresAt <= now) verifiedOpens.delete(stale);
-  verifiedOpens.set(key, now + VERIFIED_OPEN_TTL_MS);
+export async function recordedDeliveryIds(conversationId: string): Promise<string[] | null> {
+  const turns = await recordTurns(conversationId);
+  if (!turns) return null;
+  if (sessionRecordHarnessForProvider(readSessionRow(conversationId)?.provider) === 'hermes') {
+    const { withStoredTurns, readStoredTailNow } = await import('../sessions/session-turn-store');
+    const stored = await withStoredTurns(conversationId, () => readStoredTailNow(conversationId, Number.MAX_SAFE_INTEGER));
+    return hermesRecordedDeliveryIds(turns, stored);
+  }
+  const ids = new Set<string>();
+  for (const turn of turns) {
+    for (const item of turn.items) {
+      if (item.kind !== 'message' || item.role !== 'user') continue;
+      for (const segment of readDeliveryEnvelope(item.text)?.segments ?? []) {
+        if (segment.facts?.messageId) ids.add(segment.facts.messageId);
+      }
+    }
+  }
+  return [...ids];
 }
 
 /**
- * 手机点开一张附件卡(#7193):读这条会话打开给人看的那份文件的一段。先拿它自己的记录核对真的打开过,
- * 再读(`opened-file.ts`)。记录读到此刻为止(`catchUp`):agent 刚打开、手机马上点,也认得出来。
- * 同一份文件后面那几块不再重新核对(`verifiedOpens`)。
+ * #980 这条会话在 agent 自己的记录里的全部回合,读到此刻的文件尾。`null` = 这里读不出来(没有记录、读失败)。
+ * 与手机、助理读的是同一份时间线(同一份存档,只读文件新长出来的那一截)。
+ */
+export async function recordTurns(conversationId: string): Promise<TimelineSnapshot['turns'] | null> {
+  const picked = await pickRecordTurns(conversationId, async (turns) => turns, { images: false });
+  return picked.ok ? picked.turns : null;
+}
+
+type TranscriptTurns = TimelineSnapshot['turns'];
+
+/**
+ * #980 从记录的全部回合里挑出一些(`pick`),交回时**带着真图**。
+ *
+ * 存档装回来的轮里,工具截图只剩类型和字数(`imageRefs`),图要看时才按位置从记录里读回来。要把这几轮抄进库的人
+ * 拿到的必须是带图的那份 —— 库里那份没有别处可以再取。读不回来的那张保持只有字数(与「图不在了」同一种降级)。
+ * `ok: false` = 这里没有记录可读;`turns: null` = `pick` 说不挑(记录与库岔开了)。
+ */
+export async function pickRecordTurns(
+  conversationId: string,
+  pick: (turns: TranscriptTurns) => Promise<TranscriptTurns | null>,
+  options: { images: boolean } = { images: true },
+): Promise<{ ok: true; turns: TranscriptTurns | null } | { ok: false }> {
+  const acquired = await acquire(conversationId);
+  if (!acquired.ok) return { ok: false };
+  try {
+    if (acquired.value.standIn) return { ok: false };
+    const timeline = acquired.value.timeline;
+    await timeline.catchUp();
+    const picked = await pick(timeline.getSnapshot({ limit: Number.MAX_SAFE_INTEGER }).turns);
+    if (!picked || !options.images) return { ok: true, turns: picked };
+    return { ok: true, turns: await Promise.all(picked.map((turn) => withImagesReadBack(timeline, turn))) };
+  } catch (error) {
+    log.warn('[session-timeline] record unreadable', { conversationId, error: (error as Error)?.message ?? String(error) });
+    return { ok: false };
+  } finally {
+    release(acquired.value);
+  }
+}
+
+type ImageNode = { id: string; images?: unknown[]; imageRefs?: unknown[]; children?: ImageNode[] };
+
+async function withImagesReadBack<T extends TranscriptTurns[number]>(timeline: SessionTimeline, turn: T): Promise<T> {
+  const readBack = async (node: ImageNode): Promise<ImageNode> => {
+    let next = node;
+    if (!node.images && node.imageRefs?.length && timeline.toolImage) {
+      const found = await Promise.all(node.imageRefs.map((_, index) =>
+        timeline.toolImage!({ itemId: node.id, index, maxChars: Number.POSITIVE_INFINITY })));
+      if (found.every((one) => one.ok)) {
+        const { imageRefs: _refs, ...rest } = node;
+        next = { ...rest, images: found.map((one) => (one as Extract<typeof one, { ok: true }>).image) };
+      }
+    }
+    if (next.children?.length) next = { ...next, children: await Promise.all(next.children.map(readBack)) };
+    return next;
+  };
+  const items = await Promise.all(turn.items.map((item) => readBack(item as unknown as ImageNode)));
+  return { ...turn, items: items as unknown as T['items'] };
+}
+
+/**
+ * 手机点开一张附件卡(#7193):读这条会话打开给人看的那份文件的一段(`opened-file.ts`)。只读它真的打开过的 ——
+ * 依据是宿主记下的那一份(`session-outputs.ts`),与桌面「输出」同一个源,不分 harness。
  */
 export async function readOpenedFile(
   input: SessionpageOpenedFileReadRequest
 ): Promise<SessionTimelineResult<SessionpageOpenedFileChunk>> {
-  const key = verifiedOpenKey(input.conversationId, input.path);
-  if ((verifiedOpens.get(key) ?? 0) > Date.now()) {
-    try {
-      return { ok: true, value: await readOpenedFileChunk(input.path, input.offset, input.length) };
-    } catch (error) {
-      if (error instanceof OpenedFileError) return fail(error.code, error.message);
-      return fail('read_failed', (error as Error)?.message ?? String(error));
-    }
-  }
-  const acquired = await acquire(input.conversationId);
-  if (!acquired.ok) return acquired;
   try {
-    if (acquired.value.standIn) return fail('not_opened', `这条会话没有打开过 ${input.path}`);
-    const timeline = acquired.value.timeline;
-    await timeline.catchUp();
-    const { turns } = timeline.getSnapshot({ limit: Number.MAX_SAFE_INTEGER });
-    if (!openedInRecord(turns, input.path)) return fail('not_opened', `这条会话没有打开过 ${input.path}`);
-    rememberVerifiedOpen(key);
-    return { ok: true, value: await readOpenedFileChunk(input.path, input.offset, input.length) };
+    const copy = await findSessionAttachmentCopy(input.conversationId, input.path);
+    if (!copy && !(await sessionOpenedFile(input.conversationId, input.path))) {
+      return fail('not_opened', `这条会话没有打开过 ${input.path}`);
+    }
+    return { ok: true, value: await readOpenedFileChunk(copy ?? input.path, input.offset, input.length) };
   } catch (error) {
     if (error instanceof OpenedFileError) return fail(error.code, error.message);
     return fail('read_failed', (error as Error)?.message ?? String(error));
-  } finally {
-    release(acquired.value);
+  }
+}
+
+/** 这条会话给人打开过的文件与网页,最近的在前(桌面「输出」、手机读的都是这一份)。 */
+export async function outputs(input: { conversationId: string }): Promise<SessionTimelineResult<OpenedOutput[]>> {
+  return { ok: true, value: await sessionOutputs(input.conversationId) };
+}
+
+/**
+ * 这条会话的运行时说「本进程里还在跑」的后台命令(#6582 那道筛子,手机看会话末尾那一句用;桌面读的是自己 store 里同一格)。
+ * 会话不在运行时里 ⇒ `[]`(没有活着的进程,就没有在跑的命令);运行时没报这一格(旧运行时)⇒ `null` = 不筛。
+ */
+export async function backgroundTasks(input: {
+  conversationId: string;
+}): Promise<SessionTimelineResult<{ runningCommandTaskIds: string[] | null }>> {
+  const row = readSessionRow(input.conversationId);
+  if (!row) return fail('session_not_found', `这台机器上没有会话 ${input.conversationId}`);
+  try {
+    // 用时再 import:它们拖着运行时进程那一串(app scope),只读时间线的路不该替它交税。
+    const { readAcpSessionState } = await import('@main/core/acp/session-summary-reader');
+    const state = await readAcpSessionState(row.id);
+    return { ok: true, value: { runningCommandTaskIds: state ? (state.backgroundCommandTaskIds ? [...state.backgroundCommandTaskIds] : null) : [] } };
+  } catch (error) {
+    return fail('read_failed', (error as Error)?.message ?? String(error));
+  }
+}
+
+/**
+ * 停一个后台任务:命令报供应商的 asyncTaskId,子智能体报派它的 tool_use id —— 与桌面那一行的停止键同一个调用
+ * (`stopBackgroundTask`)。受理即返回,停没停下来看时间线。
+ */
+export async function stopBackgroundTask(input: {
+  conversationId: string;
+  stopId: string;
+}): Promise<SessionTimelineResult<{ stopped: true }>> {
+  const row = readSessionRow(input.conversationId);
+  if (!row) return fail('session_not_found', `这台机器上没有会话 ${input.conversationId}`);
+  try {
+    const { getAcpRuntimeClient } = await import('@main/core/acp/runtime-process/host');
+    const client = await getAcpRuntimeClient();
+    const result = await client.stopBackgroundTask({ sessionId: row.id, taskId: input.stopId });
+    if (!result.success) return fail('stop_failed', String((result.error as { message?: string })?.message ?? result.error));
+    return { ok: true, value: { stopped: true } };
+  } catch (error) {
+    return fail('stop_failed', (error as Error)?.message ?? String(error));
   }
 }
 
@@ -1130,7 +1206,7 @@ const sessionsSubscriptions = new Map<string, { stop: () => void }>();
 const SESSIONS_PUSH_DEBOUNCE_MS = 200;
 
 /** 列表上看得见、又不经状态写入者的变化:会话增删、这几格元信息,以及会话给自己排的定时。 */
-const LISTED_FIELDS = ['title', 'isPinned', 'archivedAt', 'parentSessionId'];
+const LISTED_FIELDS = ['title', 'isPinned', 'archivedAt', 'parentSessionId', 'nativeUnreadCount', 'nativeLastMessage'];
 function changesSessionList(channel: string, data: unknown): boolean {
   if (channel === sessionCreatedChannel.name || channel === sessionDeletedChannel.name) {
     return true;
@@ -1254,8 +1330,12 @@ function writeTargetFrom(row: SessionRow): SessionWriteTarget {
 
 export async function send(
   conversationId: string,
-  text: string
-): Promise<SessionTimelineResult<{ accepted: 'started' | 'queued' }>> {
+  text: string,
+  clientMessageId?: string,
+  attachments?: import('@gugu/session-core/session-record/contract').SessionpageSessionSendRequest['attachments']
+): Promise<SessionTimelineResult<{ accepted: 'started' | 'queued'; clientMessageId?: string }>> {
+  if (attachments !== undefined && !promptAttachmentSchema.array().safeParse(attachments).success) return fail('invalid_request', '附件引用无效');
+  if (clientMessageId !== undefined && (!clientMessageId.trim() || clientMessageId.length > 256)) return fail('invalid_request', '消息标识无效');
   const row = readSessionRow(conversationId);
   if (!row) return fail('session_not_found', `这台机器上没有会话 ${conversationId}`);
   // provider 为空 = 这一行没记下是哪家引擎；再往下走只会在插件表里抛一句认不出来的话。
@@ -1270,7 +1350,8 @@ export async function send(
     if (!started.ok) return fail(started.error.code, started.error.message);
   }
   try {
-    return { ok: true, value: await deliverSessionText(writeTargetFrom(row), text) };
+    const accepted = await deliverSessionText(writeTargetFrom(row), text, clientMessageId, attachments);
+    return { ok: true, value: { ...accepted, ...(clientMessageId ? { clientMessageId } : {}) } };
   } catch (error) {
     if (error instanceof SessionWriteError) return fail(error.code, error.message);
     return fail('send_failed', (error as Error)?.message ?? String(error));
@@ -1305,7 +1386,7 @@ export async function cancel(
 ): Promise<SessionTimelineResult<SessionpageSessionCancelResult>> {
   const row = readSessionRow(conversationId);
   if (!row) return fail('session_not_found', `这台机器上没有会话 ${conversationId}`);
-  withdrawHostQuestions(conversationId);
+  withdrawAll(conversationId, 'agent-question');
   try {
     return { ok: true, value: await deliverSessionCancel(writeTargetFrom(row)) };
   } catch (error) {
@@ -1382,13 +1463,22 @@ export async function respond(
   try {
     if (!('optionId' in input)) {
       const question = settlementOf(timeline, input.itemId);
-      if (question?.host?.kind === 'agent-question') return respondHostQuestion(timeline, input, question);
+      if (question?.origin?.source === 'agent-question') return respondAskQuestion(timeline, input, question);
       return await respondQuestion(target, timeline, input);
     }
     // D-31 The host's own ask: settled here, on either kind of session — no runtime to hand it to.
     const current = settlementOf(timeline, input.itemId);
-    if (current?.host?.kind === 'agent-question') return fail('answer_invalid', '请提交这道题的完整回答');
-    if (current?.host) return respondHost(timeline, input, current);
+    if (current?.origin?.source === 'agent-question') return fail('answer_invalid', '请提交这道题的完整回答');
+    if (current?.origin) {
+      const source = askSourceSpec(current.origin.source);
+      if (!source) {
+        timeline.cancelSettlement(current.itemId);
+        const cancelled = settlementOf(timeline, current.itemId);
+        if (!cancelled) throw new Error('Cancelled request is missing from the timeline');
+        return { ok: true, value: { accepted: false, settlement: cancelled } };
+      }
+      if (source.raisedBy === 'host') return respondAsk(timeline, input, current);
+    }
     // 这条腿上根本没有结算口 ⇒ 抢之前就拒,❌ 抢成 resolved 推出去再放回(#6739)。
     const unavailable = permissionChannelError(target, input.kind);
     if (unavailable) return fail(unavailable.code, unavailable.message);
@@ -1464,15 +1554,12 @@ function settlementOf(timeline: SessionTimeline, itemId: string): Settlement | n
 
 /** 测试与收尾用：拆掉所有订阅与缓存实例。 */
 export function resetSessionTimelineService(): void {
-  for (const asks of [...hostAsks.values()]) for (const ask of [...asks.values()]) { if (ask.request.host.kind === 'agent-question') ask.detach(); else ask.withdraw(); }
-  for (const stop of hostAskLifecycle ?? []) stop();
-  hostAskLifecycle = null;
+  resetAsks();
   // 存档跟着一起作废:重置意味着「这一层记的东西可能都不作数了」,
   // 留着一份自称还对得上的存档,下次开会话就会拿它去续一段不存在的历史。
   for (const id of entries.keys()) void dropTimelineArchive(id);
   resetGeneration += 1;
   opening.clear();
-  verifiedOpens.clear();
   unsubscribeAll();
   for (const entry of [...entries.values()]) {
     if (entry.idleTimer) clearTimeout(entry.idleTimer);
@@ -1484,3 +1571,21 @@ export function resetSessionTimelineService(): void {
     }
   }
 }
+
+export async function changeQueue(input: { conversationId: string; action: import('@gugu/session-core/session-record/contract').SessionpageQueueAction }): Promise<SessionTimelineResult<null>> {
+  const row = readSessionRow(input.conversationId);
+  if (!row) return fail('session_not_found', 'The session is no longer available');
+  if (row.runtime !== 'acp') return fail('unsupported_runtime', 'This session does not expose a prompt queue');
+  try {
+    const { changeConversationQueue } = await import('./conversation-queue');
+    await changeConversationQueue(row.id, input.action);
+    return { ok: true, value: null };
+  } catch (error) {
+    return fail('queue_update_failed', error instanceof Error ? error.message : String(error));
+  }
+}
+
+const nativeRecordReader = createNativeRecordReader({ readSession: readSessionRow, activeTurn: id => entries.get(id)?.nativeActiveTurn, withTimeline });
+export const nativeRecord = nativeRecordReader.snapshot;
+export const nativeToolImage = nativeRecordReader.image;
+export const nativeAttachment = nativeRecordReader.attachment;

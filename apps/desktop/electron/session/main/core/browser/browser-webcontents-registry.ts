@@ -1,12 +1,13 @@
+import { showContentContextMenu } from '../../../../content-context-menu';
+import { showEditableContextMenu } from '../../../../editable-context-menu';
+import type { ContentMenuEntry } from '@shared/content-context-menu';
 import {
   clipboard,
   ClipboardItem,
-  Menu,
   session,
   type BrowserWindow,
   type BrowserWindowConstructorOptions,
   type ClearDataOptions,
-  type MenuItemConstructorOptions,
   type WebContents,
 } from 'electron';
 import { events } from '@main/lib/events';
@@ -26,13 +27,10 @@ import {
   browserLinkCopiedChannel,
   browserOpenInNewTabChannel,
 } from '@shared/events/browserEvents';
-import {
-  APP_SHORTCUTS,
-  getElectronTabNavigationDirection,
-  resolveDefaultHotkey,
-  type ShortcutSettingsKey,
-} from '@shared/shortcuts';
+import { COMMANDS, type CommandId } from '@shared/commands';
+import { getElectronTabNavigationDirection, resolveDefaultHotkey,  } from '@shared/shortcuts';
 import { isGoogleAuthUrl, userAgentForBrowserUrl } from './browser-user-agent';
+import { isSupportedBrowserNavigationUrl } from './browser-navigation';
 
 type RegisteredBrowserSession = {
   browserId: string;
@@ -125,7 +123,7 @@ export class BrowserWebContentsRegistry {
     const webContentsId = webContents.id;
     this.hardenBrowserWebContents(webContents, placement);
 
-    // 用户在这一页里按下了鼠标 = 点进了这一页(两个网页并排时页签焦点跟过来;agent 在用时 = 人接管)。
+    // 用户在这一页里按下了鼠标 = 点进了这一页(两个网页并排时页签焦点跟过来;不据此暂停 agent)。
     webContents.on('before-mouse-event', (_event, mouse) => {
       if (mouse.type !== 'mouseDown') return;
       const boundBrowserId = this.browserIdByWebContentsId.get(webContentsId);
@@ -203,24 +201,20 @@ export class BrowserWebContentsRegistry {
 
   async captureScreenshotToClipboard(browserId: string): Promise<boolean> {
     const webContents = this.webContentsByBrowserId.get(browserId);
-    if (!webContents || webContents.isDestroyed()) return false;
-    try {
-      const image = await webContents.capturePage();
-      if (image.isEmpty()) return false;
-      // @@@electron44-clipboard (#4394) — electron 44 用 W3C ClipboardItem 取代了 clipboard.writeImage。
-      // 必须 await:旧的同步 writeImage 一返回就保证系统剪贴板已写好,而新 API 的 promise 没落地前
-      // 剪贴板还是旧内容——不 await 就会「截图成功但粘出来是上一张」。
-      // new Uint8Array(...) 不是多余的一步:toPNG() 给的是 Node Buffer(底层可能是 SharedArrayBuffer),
-      // 而 BlobPart 只收 ArrayBuffer 支撑的视图 —— 直接塞 Buffer 编译不过。
-      await clipboard.write([
-        new ClipboardItem({
-          'image/png': new Blob([new Uint8Array(image.toPNG())], { type: 'image/png' }),
-        }),
-      ]);
-      return true;
-    } catch {
-      return false;
-    }
+    if (!webContents || webContents.isDestroyed()) throw new Error('Browser is no longer available');
+    const image = await webContents.capturePage();
+    if (image.isEmpty()) throw new Error('Browser screenshot is empty');
+    // @@@electron44-clipboard (#4394) — electron 44 用 W3C ClipboardItem 取代了 clipboard.writeImage。
+    // 必须 await:旧的同步 writeImage 一返回就保证系统剪贴板已写好,而新 API 的 promise 没落地前
+    // 剪贴板还是旧内容——不 await 就会「截图成功但粘出来是上一张」。
+    // new Uint8Array(...) 不是多余的一步:toPNG() 给的是 Node Buffer(底层可能是 SharedArrayBuffer),
+    // 而 BlobPart 只收 ArrayBuffer 支撑的视图 —— 直接塞 Buffer 编译不过。
+    await clipboard.write([
+      new ClipboardItem({
+        'image/png': new Blob([new Uint8Array(image.toPNG())], { type: 'image/png' }),
+      }),
+    ]);
+    return true;
   }
 
   async clearData(browserId: string, kind: BrowserDataClearKind = 'storage'): Promise<boolean> {
@@ -291,16 +285,16 @@ export class BrowserWebContentsRegistry {
         }
       }
 
-      const shortcutKey = getBrowserShortcutKey(input, this.browserShortcuts);
-      if (shortcutKey === null) return;
+      const commandId = getBrowserShortcutKey(input, this.browserShortcuts);
+      if (commandId === null) return;
 
-      if (shortcutKey !== 'browserCopyUrl') {
+      if (commandId !== 'session.browserCopyUrl') {
         const browserId = this.browserIdByWebContentsId.get(webContents.id);
         if (!browserId) return;
         event.preventDefault();
         events.emit(browserAppShortcutChannel, {
           source: { kind: 'browser', browserId },
-          shortcutKey,
+          commandId,
         });
         return;
       }
@@ -315,24 +309,32 @@ export class BrowserWebContentsRegistry {
 
     webContents.on('context-menu', (event, params) => {
       event.preventDefault();
+      const window = placement.window();
+      const origin = placement.origin();
+      const position = { window: window ?? undefined, x: origin.x + params.x, y: origin.y + params.y };
+      if (params.isEditable) {
+        const report = (error: unknown) => log.error('Browser editing menu failed', { error: String(error) });
+        void showEditableContextMenu(webContents, params, position, report).catch(report);
+        return;
+      }
       const selectionText = (params.selectionText ?? '').trim();
       if (!selectionText) {
         clearWebviewSelection(webContents);
       }
 
       const target = getBrowserContextTarget(params);
-      const template: MenuItemConstructorOptions[] = [
+      const template: ContentMenuEntry[] = [
         ...(selectionText
           ? [
               {
-                label: 'Copy',
+                id: 'copy', label: 'Copy',
                 click: () => copyTextThenNotify(selectionText),
               },
               { type: 'separator' as const },
             ]
           : []),
         {
-          label: target?.kind === 'image' ? 'Copy Image URL' : 'Copy Link',
+          id: 'copy-link', label: target?.kind === 'image' ? 'Copy Image URL' : 'Copy Link',
           enabled: target !== null,
           click: () => {
             if (!target) return;
@@ -342,14 +344,14 @@ export class BrowserWebContentsRegistry {
           },
         },
         {
-          label: target?.kind === 'image' ? 'Open Image' : 'Open Link',
+          id: 'open-link', label: target?.kind === 'image' ? 'Open Image' : 'Open Link',
           enabled: target !== null,
           click: () => {
             if (target) void webContents.loadURL(target.url);
           },
         },
         {
-          label: target?.kind === 'image' ? 'Open Image in New Tab' : 'Open Link in New Tab',
+          id: 'open-tab', label: target?.kind === 'image' ? 'Open Image in New Tab' : 'Open Link in New Tab',
           enabled: target !== null,
           click: () => {
             const sourceBrowserId = this.browserIdByWebContentsId.get(webContents.id);
@@ -359,17 +361,11 @@ export class BrowserWebContentsRegistry {
           },
         },
         { type: 'separator' },
-        { label: 'Reload', click: () => webContents.reload() },
+        { id: 'reload', label: 'Reload', click: () => webContents.reload() },
       ];
 
       // 右键的坐标是网页自己的;菜单弹在网页所在的窗口上,换成窗口内容区的坐标。
-      const window = placement.window();
-      const origin = placement.origin();
-      Menu.buildFromTemplate(template).popup({
-        ...(window ? { window } : {}),
-        x: origin.x + params.x,
-        y: origin.y + params.y,
-      });
+      showContentContextMenu(template, position);
     });
 
     webContents.on('did-create-window', (window) => {
@@ -419,13 +415,13 @@ async function clearPartitionBrowsingData(
  * 下面这些调用点都在**同步**的事件/菜单回调里,整条链改 async 代价过大;但两件事不能将就:
  *   · 顺序 —— 「已复制」的广播必须等写入真的落地再发,先 emit 会让 UI 报了成功而剪贴板还是旧内容;
  *   · rejection —— 裸调用的失败会变成 unhandled rejection,一声不响。
- * 所以统一走这里:成功才跑 onCopied,失败记 warn。
+ * 所以统一走这里:成功才跑 onCopied,失败记 error。
  */
 function copyTextThenNotify(text: string, onCopied?: () => void): void {
   void clipboard.writeText(text).then(
     () => onCopied?.(),
     (error: unknown) => {
-      log.warn('clipboard.writeText failed', { error: String(error) });
+      log.error('clipboard.writeText failed', { error: String(error) });
     },
   );
 }
@@ -488,10 +484,6 @@ export function isSamePreviewNavigation(currentUrl: string, targetUrl: string): 
   }
 }
 
-function isSupportedBrowserNavigationUrl(url: string): boolean {
-  return normalizeBrowserUrl(url, { allowSearchQueries: false }).ok;
-}
-
 function isExternalHttpUrl(url: string): boolean {
   try {
     const parsed = new URL(url);
@@ -532,31 +524,31 @@ type ParsedShortcut = {
 
 function getBrowserShortcuts(
   keyboard?: AppSettings['keyboard']
-): Map<ShortcutSettingsKey, ParsedShortcut> {
-  const shortcuts = new Map<ShortcutSettingsKey, ParsedShortcut>();
-  for (const shortcutKey of Object.keys(APP_SHORTCUTS) as ShortcutSettingsKey[]) {
-    if (shortcutKey === 'closeModal' || APP_SHORTCUTS[shortcutKey].ignoreWhenBrowserFocused) {
+): Map<CommandId, ParsedShortcut> {
+  const shortcuts = new Map<CommandId, ParsedShortcut>();
+  for (const commandId of Object.keys(COMMANDS) as CommandId[]) {
+    if (commandId === 'app.closeModal' || COMMANDS[commandId].ignoreWhenBrowserFocused) {
       continue;
     }
 
-    const configured = keyboard?.[shortcutKey];
+    const configured = keyboard?.[commandId];
     if (configured === null) continue;
 
-    const fallback = resolveDefaultHotkey(APP_SHORTCUTS[shortcutKey]) ?? null;
+    const fallback = resolveDefaultHotkey(COMMANDS[commandId]) ?? null;
     const hotkey = configured ?? fallback;
     if (hotkey === null) continue;
 
     const parsed = parseShortcut(hotkey);
     if (parsed) {
-      shortcuts.set(shortcutKey, parsed);
+      shortcuts.set(commandId, parsed);
       continue;
     }
 
     if (configured) {
       const parsedFallback = fallback ? parseShortcut(fallback) : null;
-      if (parsedFallback) shortcuts.set(shortcutKey, parsedFallback);
+      if (parsedFallback) shortcuts.set(commandId, parsedFallback);
       log.warn('Invalid browser app shortcut, falling back to default', {
-        shortcutKey,
+        commandId,
         shortcut: configured,
       });
     }
@@ -566,10 +558,10 @@ function getBrowserShortcuts(
 
 function getBrowserShortcutKey(
   input: Electron.Input,
-  shortcuts: ReadonlyMap<ShortcutSettingsKey, ParsedShortcut>
-): ShortcutSettingsKey | null {
+  shortcuts: ReadonlyMap<CommandId, ParsedShortcut>
+): CommandId | null {
   if (input.type !== 'keyDown') return null;
-  for (const [shortcutKey, parsed] of shortcuts) {
+  for (const [commandId, parsed] of shortcuts) {
     if (
       normalizeInputKey(input.key) === parsed.key &&
       Boolean(input.shift) === parsed.shift &&
@@ -577,7 +569,7 @@ function getBrowserShortcutKey(
       Boolean(input.meta) === parsed.meta &&
       Boolean(input.control) === parsed.control
     ) {
-      return shortcutKey;
+      return commandId;
     }
   }
   return null;

@@ -1,8 +1,8 @@
 // #7199 手机「记忆」那一格读写它家里的文件:动词全是 assistant-machine-core 那一组(与桌面同一份核心),
-// 这里只把桌面页面里那几步(删一条记忆连同索引、数一数、资料夹里往下钻、上传)拆成不带界面的函数,手机页与单测共用。
+// 这里只把桌面页面里那几步(删一条记忆连同索引、资料夹里往下钻、上传)拆成不带界面的函数,手机页与单测共用。
 import { VOICE_NOTES_DIR } from '@gugu/core/shared/voiceNotes'
 import type { DirectoryEntry } from '@shared/core/fs/fs'
-import { joinPath, removeIndexEntry, resourceRejection, RESOURCES_DIR_NAME, type ResourceRejection } from '@/session/renderer/features/assistant/assistant-files'
+import { joinPath, removeIndexEntry, resourceRejection, type ResourceRejection } from '@/session/renderer/features/assistant/assistant-files'
 import {
   AssistantFileError,
   listDirectory,
@@ -16,8 +16,10 @@ import {
 } from '@/session/renderer/features/assistant/assistant-machine-core'
 
 /** 删一条记忆:文件 + MEMORY.md 里指向它的那一行(与桌面 MemoryNoteDetail 同一套;索引是它每次开工读的目录)。 */
-export async function deleteMemoryNote(machine: AssistantMachine, entry: Pick<MemoryEntry, 'path' | 'file'>): Promise<void> {
+export async function deleteMemoryNote(machine: AssistantMachine, entry: Pick<MemoryEntry, 'path' | 'file'>, onRemoved?: () => Promise<void>): Promise<void> {
   await removePath(machine, entry.path)
+  await onRemoved?.()
+  if (machine.panel) return
   const index = await readText(machine, machine.paths.memoryIndex)
   if (index === null) return
   const next = removeIndexEntry(index, entry.file)
@@ -29,20 +31,6 @@ export function voiceNotesDirOf(machine: AssistantMachine): string {
 }
 
 const visible = (entry: DirectoryEntry) => !entry.name.startsWith('.')
-
-/** 记忆首页两张小卡下面那个数:语音笔记几条、资料夹里几样。数不出来 = null(那张卡不写数,❌ 写 0)。 */
-export async function readMemoryCounts(machine: AssistantMachine): Promise<{ voice: number | null; files: number | null }> {
-  const count = (dir: string, keep: (entry: DirectoryEntry) => boolean) =>
-    listDirectory(machine, dir).then(
-      (entries) => entries.filter(keep).length,
-      () => null,
-    )
-  const [voice, files] = await Promise.all([
-    count(voiceNotesDirOf(machine), (entry) => entry.type === 'directory' && visible(entry)),
-    count(machine.paths.resourcesDir, visible),
-  ])
-  return { voice, files }
-}
 
 // ── 资料夹(「给助理的资料」):路由 `files` / `files:<相对路径>`,与桌面同一套名字 ─────────────────────
 
@@ -58,6 +46,13 @@ export function resourcePathOf(machine: AssistantMachine, trail: readonly string
   return trail.reduce((dir, name) => joinPath(dir, name), machine.paths.resourcesDir)
 }
 
+/** Use the same location for reading, uploading and asking the assistant to inspect files. */
+export function resourceDisplayPath(machine: AssistantMachine, trail: readonly string[]): string {
+  const path = resourcePathOf(machine, trail)
+  const home = machine.home.replace(/\/+$/, '')
+  return path === home ? '~' : path.startsWith(`${home}/`) ? `~${path.slice(home.length)}` : path
+}
+
 /** 手机上看一个文件最多读这么大(与核心 readText 同一个上限);大了不读,只说多大。 */
 export const VIEW_MAX_BYTES = 1_048_576
 
@@ -71,6 +66,16 @@ export type ResourceView =
 
 /** 看一个文件:不是文本 / 太大如实说,❌ 当成空文件。 */
 export async function readFileForView(machine: AssistantMachine, path: string): Promise<FileContentView> {
+  if (machine.panel) {
+    const data = await machine.panel.bytes(path)
+    if (!data) throw new AssistantFileError('missing','The file no longer exists')
+    if (data.length > VIEW_MAX_BYTES) return { kind: 'too-large',size: data.length }
+    try {
+      const text = new TextDecoder('utf-8',{ fatal: true }).decode(data)
+      return text.includes('\0') ? { kind: 'binary' } : { kind: 'text',text }
+    } catch { return { kind: 'binary' } }
+  }
+  if (!machine.rpc) throw new AssistantFileError('unavailable','File access is unavailable')
   const result = await machine.rpc.workspace.files.readExternalFile(machine.projectId, machine.workspaceId, path, VIEW_MAX_BYTES)
   if (!result.success) throw new AssistantFileError(result.error.type, 'message' in result.error ? String(result.error.message) : result.error.type)
   if (result.data.truncated) return { kind: 'too-large', size: result.data.totalSize }
@@ -129,7 +134,11 @@ export async function uploadResources(
     else accepted.push(file)
   }
   if (!accepted.length) return outcome
-  if (trail.length === 0) await makeFolder(machine, machine.home, RESOURCES_DIR_NAME)
+  if (trail.length === 0 && !machine.panel) {
+    const root = machine.paths.resourcesDir
+    const split = root.lastIndexOf('/')
+    await makeFolder(machine, root.slice(0, split) || '/', root.slice(split + 1))
+  }
   const dir = resourcePathOf(machine, trail)
   for (const file of accepted) {
     onFile?.(file.name)

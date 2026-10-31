@@ -1,3 +1,4 @@
+import { messageForUser } from '@/lib/userFacingError';
 import { Check, ChevronDown, Ellipsis, Eraser, Pencil, Plus, Trash2, X } from '@/lib/icons'
 import { useEffect, useRef, useState } from 'react';
 import { browserControlsRegistry } from '@renderer/features/browser/browser-controls-registry';
@@ -103,7 +104,7 @@ export function BrowserSettingsCard() {
       if (!result.success) {
         toast({
           title: translate('browserSettings.clearBrowsingDataFailed'),
-          description: translate('browserSettings.clearBrowsingDataFailedHint'),
+          description: messageForUser(result.error),
           variant: 'destructive',
         });
         return;
@@ -113,8 +114,7 @@ export function BrowserSettingsCard() {
     } catch (error) {
       toast({
         title: translate('browserSettings.clearBrowsingDataFailed'),
-        // @@@raw detail — 未知错误原文不改写。
-        description: errorMessage(error),
+        description: messageForUser(error),
         variant: 'destructive',
       });
     } finally {
@@ -543,7 +543,7 @@ function ImportLoginsRow({
       }
       toast({
         title: translate('browserSettings.importFailed', { browser: name }),
-        description: translate(`browserSettings.importFailedReason.${result.reason}`, { browser: name }),
+        description: messageForUser(result.detail || translate(`browserSettings.importFailedReason.${result.reason}`, { browser: name })),
         variant: 'destructive',
       });
     } finally {
@@ -604,7 +604,7 @@ async function clearProfileStorageAndReload(
   } catch (error) {
     toast({
       title: translate('browserSettings.clearProfileStorageFailed'),
-      description: errorMessage(error),
+      description: messageForUser(error),
       variant: 'destructive',
     });
   }
@@ -629,7 +629,7 @@ async function deleteProfileAfterStorageClear({
     if (!clearResult.success) {
       toast({
         title: translate('browserSettings.deleteProfileFailed'),
-        description: translate('browserSettings.deleteProfileKept'),
+        description: translate('browserSettings.clearProfileStorageMissing'),
         variant: 'destructive',
       });
       return;
@@ -650,8 +650,8 @@ async function deleteProfileAfterStorageClear({
     toast({
       title: translate('browserSettings.deleteProfileFailed'),
       description: storageCleared
-        ? translate('browserSettings.deleteProfileStillListed', { detail: errorMessage(error) })
-        : errorMessage(error),
+        ? translate('browserSettings.deleteProfileStillListed', { detail: messageForUser(error) })
+        : messageForUser(error),
       variant: 'destructive',
     });
   }
@@ -662,10 +662,6 @@ function reloadBrowserSessionsForProfile(profileId: string): void {
     if (session.profileId !== profileId) continue;
     browserControlsRegistry.get(session.browserId)?.adapter?.reload();
   }
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 function makeProfileId(name: string, profiles: readonly BrowserProfile[]): string {

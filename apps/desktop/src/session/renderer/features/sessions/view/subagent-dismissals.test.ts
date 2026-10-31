@@ -16,7 +16,7 @@ vi.mock('@gugu/session-chat-ui', async (importOriginal) => ({
   collectSubagentRoster: () => mocks.roster
 }));
 
-const { collectSubagents } = await import('./session-subagents-section');
+const { collectSubagents } = await import('./background-task-rosters');
 const { dismissSubagent, isSubagentDismissed, resetSubagentDismissals } = await import(
   './subagent-dismissals'
 );
@@ -45,7 +45,7 @@ const ids = (): string[] =>
 describe('#4981 手动收起一张子智能体卡', () => {
   beforeEach(() => {
     resetSubagentDismissals();
-    mocks.store = { messageCount: 0, chatState: { transcript: { state: {} } } };
+    mocks.store = { transcriptRevision: 0, liveSubagentIds: ['call-a', 'call-b'], chatState: { transcript: { state: { activeTurnSnapshot: null } } } };
     mocks.roster = [entry('a'), entry('b')];
   });
 
@@ -59,7 +59,7 @@ describe('#4981 手动收起一张子智能体卡', () => {
   });
 
   /**
-   * 弹层一关就卸载(见 `session-subagents-section.tsx` 顶上那句),所以这个状态**不能**
+   * 那一行跟着转录的虚拟列表滚出视窗就卸载,所以这个状态**不能**
    * 放在组件里。这条用例就是那件事的判据:同一个模块再问一次,答案还在。
    *
    * ⚠️ 它验的是「状态活在模块里」,不是「React 不会重挂」—— 后者这层测不到,
@@ -80,5 +80,35 @@ describe('#4981 手动收起一张子智能体卡', () => {
 
   it('没有会话 id 时整节不画 —— ❌ 不拿一个空键去记', () => {
     expect(collectSubagents(undefined, 'subagent')).toEqual([]);
+  });
+});
+
+/**
+ * 重启以后:库里读出来的旧轮里那些派发,上一个进程没了它们也跟着没了,永远等不来完成通知。
+ * 只留运行时登记册说还在跑的(与后台命令同一条,#6582);正在跑的这一轮里派的不受这条管。
+ */
+describe('后台列表只留运行时还在跑的子智能体', () => {
+  beforeEach(() => {
+    resetSubagentDismissals();
+    mocks.roster = [entry('a'), entry('b')];
+  });
+
+  it('登记册里没有的(上一个进程派的)不画', () => {
+    mocks.store = { transcriptRevision: 0, liveSubagentIds: ['call-b'], chatState: { transcript: { state: { activeTurnSnapshot: null } } } };
+    expect(ids()).toEqual(['b']);
+  });
+
+  it('没挂着活会话 = 一个都不画', () => {
+    mocks.store = { transcriptRevision: 0, liveSubagentIds: [], chatState: { transcript: { state: { activeTurnSnapshot: null } } } };
+    expect(ids()).toEqual([]);
+  });
+
+  it('正在跑的这一轮里派的照常画(没有登记册的 harness 也一样)', () => {
+    mocks.store = {
+      transcriptRevision: 0,
+      liveSubagentIds: [],
+      chatState: { transcript: { state: { activeTurnSnapshot: { items: [{ kind: 'tool-group', children: [{ toolCallId: 'call-a' }] }] } } } }
+    };
+    expect(ids()).toEqual(['a']);
   });
 });

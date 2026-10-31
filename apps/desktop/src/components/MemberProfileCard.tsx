@@ -5,7 +5,6 @@ import { createContactQrPayload, createGuguQrScanUrl } from '@gugu/core/shared/q
 import { Avatar } from './Avatar'
 import { AgentOwnerLabel } from './AgentOwnerLabel'
 import { useAuth } from '../store/auth'
-import { AgentHarnessLabel } from './AgentHarnessIdentity'
 import { OwnedAgentNameEditor } from './contacts/OwnedAgentNameEditor'
 import { SharePosterDialog } from './SharePosterDialog'
 import { GUGU_ANDROID_DOWNLOAD_URL } from '../lib/appLinks'
@@ -16,6 +15,10 @@ import { useAgentDisplayStatus } from '../hooks/useAgentDisplayStatus'
 import { Button } from './ui/Button'
 import { cn } from '@/lib/cn'
 import { CommunityPointsTag } from './forum/CommunityPointsTag'
+import { useAgentSession } from '@/lib/projectGroupChatsBridge'
+import { useMobileShell } from '@/hooks/useMobileShell'
+import { useAgentSessionRow } from '@/mobile/agent-watch/useAgentSessionRow'
+import type { AgentSession } from '@/session/renderer/features/projects/stores/project-group-chats-bridge'
 
 // @@@float-one-edge (Refs #6104) — 名片是浮层:圆角 xl(12) + 一层 lift,❌ 不再叠描边。
 const profileCardClass = 'gg-pop w-[284px] overflow-hidden rounded-xl bg-[var(--bg-elevated)] text-[var(--text-primary)] shadow-[var(--shadow-lift)]'
@@ -24,7 +27,7 @@ const profileFillClass = 'gg-pop w-full text-[var(--text-primary)]'
 const profileSingleClass = 'gg-pop--single'
 const profileHeaderClass = 'gg-pop-ph flex items-center gap-3.5 border-b border-[var(--border-color)] px-[22px] pb-4 pt-[22px]'
 const profileHeaderTextClass = 'gg-pop-ph-text flex min-w-0 flex-col'
-const profileNameClass = 'gg-pop-pn overflow-hidden text-ellipsis whitespace-nowrap text-base font-semibold text-[var(--text-primary)]'
+const profileNameClass = 'gg-pop-pn min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-base font-semibold text-[var(--text-primary)]'
 const profileTagClass = 'gg-pop-pt mt-[3px] overflow-hidden text-ellipsis whitespace-nowrap text-[length:var(--font-body)] text-[var(--text-tertiary)]'
 const profileActionsClass = 'gg-pop-pacts flex flex-wrap gap-2 px-[18px] pb-3 pt-3.5'
 const profileButtonClass = 'gg-pop-pbtn flex-[1_1_auto] text-[length:var(--font-body)] [&_svg]:shrink-0'
@@ -32,7 +35,7 @@ const profileFieldsClass = 'gg-pop-fields flex flex-col gap-1.5 px-[18px] pb-3.5
 const profileFieldRowClass = 'gg-pop-field-row grid grid-cols-[56px_minmax(0,1fr)] items-start gap-2 text-[length:var(--font-caption)] leading-4'
 const profileFieldLabelClass = 'gg-pop-field-label text-[var(--text-tertiary)]'
 const profileFieldValueClass = 'gg-pop-field-value [overflow-wrap:anywhere] text-[var(--text-secondary)]'
-const profileAgentOwnerClass = '[overflow-wrap:anywhere] text-[length:var(--font-caption)] leading-4 text-[var(--text-tertiary)]'
+const profileAgentMetaClass = 'mt-[3px] flex flex-wrap gap-x-2.5 gap-y-0.5 text-[length:var(--font-caption)] leading-[var(--lh-caption)] text-[var(--text-tertiary)] [&>*]:max-w-full [&>*]:truncate'
 const profileListenClass = 'gg-pop-lm px-[18px] pb-[18px] pt-1'
 const profileListenLabelClass = 'gg-pop-lml mb-[7px] text-[length:var(--font-body)] text-[var(--text-secondary)]'
 // @@@1344(b) — 倾听模式分段壳:椭圆/胶囊(rounded-full)→圆角矩形(rounded-lg=8px,对齐 SSOT 基础圆角 `--r`)。
@@ -52,9 +55,9 @@ const profileManageLabelClass = 'gg-pop-manage-label text-[length:var(--font-bod
 const profileManageSelectClass = 'gg-pop-manage-sel max-w-[52%] shrink-0 cursor-pointer rounded-lg border border-[var(--border-strong)] bg-[var(--bg-primary)] px-2 py-1.5 text-[length:var(--font-body)] text-[var(--text-primary)] outline-none [font-family:inherit] focus:border-[var(--accent)] disabled:cursor-default disabled:opacity-60'
 // @@@2322 危险项 hover 归 --danger-tint(spec:状态反馈唯一允许的色相);rest 底 #ef44440d 是静止装饰 tint,
 // 无对应 token(--danger-tint 是 hover 档)、观感逐值保持 → 保留字面值。
-const profileManageDangerClass = 'gg-pop-manage-danger !mt-0.5 w-full cursor-pointer rounded-lg border-0 bg-[var(--danger-tint)] !py-2.5 text-[length:var(--font-body)] font-medium text-[var(--danger)] [font-family:inherit] transition-[background] duration-[var(--dur-fast)] ease-[var(--ease)] hover:bg-[var(--danger-tint)] disabled:cursor-default disabled:opacity-50'
+const profileManageDangerClass = 'gg-pop-manage-danger !mt-0.5 w-full cursor-pointer rounded-lg border-0 bg-[var(--danger-tint)] !py-2.5 text-[length:var(--font-body)] font-medium text-[var(--danger-fg)] [font-family:inherit] transition-[background] duration-[var(--dur-fast)] ease-[var(--ease)] hover:bg-[var(--danger-tint)] disabled:cursor-default disabled:opacity-50'
 // @@@2247 - inline error line for a failed manage mutation, rendered inside the card portal (danger tint).
-const profileManageErrorClass = 'gg-pop-manage-error mt-0.5 text-[length:var(--font-caption)] leading-[1.4] text-[var(--danger)]'
+const profileManageErrorClass = 'gg-pop-manage-error mt-0.5 text-[length:var(--font-caption)] leading-[1.4] text-[var(--danger-fg)]'
 
 function listenModeButtonClass(active: boolean): string {
   return cn(profileListenButtonBaseClass, active ? profileListenButtonActiveClass : profileListenButtonInactiveClass)
@@ -123,6 +126,8 @@ export type MemberProfileChatTarget = {
   email: string | null
   bio: string | null
   type: GroupMemberType
+  /** 这个 agent 是某台机器上的一条会话:「发消息」打开的是它的会话页,❌ 另开一个空私聊。 */
+  session?: AgentSession
 }
 
 // @@@profile-edit-controls - Rendered for a group owner/admin (role, remove) and for an agent's owner
@@ -222,16 +227,21 @@ export function MemberProfileCard({
   const { presence } = useAgentDisplayStatus(isAgent ? member.id : null)
   const statusLabel = useAgentContactStatusLabel(status, presence.presentation)
   const { user } = useAuth()
+  // Desktop: the session bridge the task bundle publishes. The phone has no such bundle: it finds the agent's session in
+  // its session directory, as its agent chat header and Partners rows do (#673, #658).
+  const phone = useMobileShell()
+  const bridged = useAgentSession(isAgent && !phone ? member.id : null)
+  const row = useAgentSessionRow(isAgent && phone ? member.id : null)
+  const session: AgentSession | undefined = phone
+    ? (row ? { projectId: row.session.projectId, sessionId: row.session.conversationId } : undefined)
+    : bridged
   // 别人的 agent 不能私聊(#509):不画能点的「发消息」(#6832)。通讯录那边同一条规则见 ContactsPanel 的 isOwnedAgent。
-  const canOpenChat = !!onOpenChat && (!isAgent || member.ownerUserId === user?.id)
+  // An agent's「发消息」opens its session and nothing else (#622): no session found → no button, ❌ a DM fallback. The DM
+  // itself stays reachable where the product offers it; only this entry is closed.
+  const canOpenChat = !!onOpenChat && (!isAgent || (member.ownerUserId === user?.id && !!session))
   const editBusy = !!editControls?.busy
   const showEdits = isGroupProfile && (editControls?.canChangeRole || editControls?.canRemove)
   const roleLabel = member.role === 'owner' ? t('profile.roles.owner') : member.role === 'admin' ? t('profile.roles.admin') : t('profile.roles.member')
-
-  // Tag line: mirrors prototype `#pop-tag` ("激活中 · Claude Code" style).
-  const tagParts: string[] = []
-  if (isAgent && statusLabel) tagParts.push(statusLabel)
-  const tag = tagParts.join(' · ')
 
   // Listen-mode (倾听模式): agent-only, group scope.
   // member.listenMode comes from GroupAgentItem.listen_mode via toAgentProfile.
@@ -260,6 +270,7 @@ export function MemberProfileCard({
       email: member.email,
       bio: member.bio ?? null,
       type: member.type,
+      session,
     })
   }
 
@@ -282,11 +293,14 @@ export function MemberProfileCard({
           />
         </div>
         <div className={profileHeaderTextClass} style={{ flex: 1, minWidth: 0 }}>
-          <div className={profileNameClass}>{member.displayName}</div>
-          {isAgent && <OwnedAgentNameEditor key={member.id} agentId={member.id} name={member.displayName} ownerUserId={member.ownerUserId} status={status} membership={member.membership} />}
-          {isAgent ? <div data-profile-agent-owner className={profileAgentOwnerClass}><AgentOwnerLabel ownerUserId={member.ownerUserId} ownerDisplayName={member.ownerDisplayName} /></div> : null}
-          {isAgent ? <div className={profileTagClass}><AgentHarnessLabel agentId={member.id} /></div> : <CommunityPointsTag userId={member.id} className={profileTagClass} />}
-          {tag ? <div className={profileTagClass}>{tag}</div> : null}
+          {isAgent ? <OwnedAgentNameEditor key={member.id} agentId={member.id} name={member.displayName} ownerUserId={member.ownerUserId} status={status} membership={member.membership} className="text-base font-semibold"><span className={profileNameClass}>{member.displayName}</span></OwnedAgentNameEditor> : <div className={profileNameClass}>{member.displayName}</div>}
+          {/* One metadata line, the same cells-with-gap idiom as the agent's row in the member list. */}
+          {isAgent ? (
+            <div data-profile-agent-meta className={profileAgentMetaClass}>
+              {statusLabel ? <span>{statusLabel}</span> : null}
+              <span data-profile-agent-owner><AgentOwnerLabel ownerUserId={member.ownerUserId} ownerDisplayName={member.ownerDisplayName} /></span>
+            </div>
+          ) : <CommunityPointsTag userId={member.id} className={profileTagClass} />}
         </div>
       </div>
 

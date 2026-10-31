@@ -22,6 +22,9 @@ export const MAX_SESSION_TITLE_LENGTH = 100;
  * 值保持 `pty` / `acp`:在这一层它们是**准确**的(一个真的是伪终端,一个真的是那个协议),
  * 换掉只会让存量数据要重写,换不来任何清晰度。
  */
+/** 宿主上一次退出的原因(见 electron/lib/exit-reason.ts):更新 / 重启 / 没正常退出。 */
+export type InterruptedBy = 'update' | 'restart' | 'unclean';
+
 export type SessionRuntime = 'pty' | 'acp';
 
 /**
@@ -128,15 +131,17 @@ export type SessionMessage = {
   text: string;
   kind?: 'ordinary' | 'session-direct';
   state?: 'pending' | 'dispatching';
+  /** Host-only: this exact message is already claimed by the deferred queue. */
+  deferredDispatch?: true;
 };
 
 /**
- * How a session-direct message meets a busy ACP session, when the sender asks (an App's `messageAgent`
+ * How a session-direct message meets a busy ACP session, when the sender asks (an App's `dispatch` to an agent
  * `{ queue: true }`; an agent's `session_message` only ever steers). Absent = the default: into the current turn where the harness can take it. `queue` = after
  * this turn, as the next one (at once when idle); `coalesceKey` = a queued message of the same key is replaced, not
  * added to. Only the ACP adapter reads it — a terminal session is refused before anything is sent.
  */
-export type SessionMessageDelivery = { queue: true; coalesceKey?: string };
+export type SessionMessageDelivery = { queue: true; coalesceKey?: string; origin?: 'manual'; attachments?: import('@gugu/session-core/acp/client').PromptAttachment[] };
 
 export type PendingRestart = {
   status: 'restart_failed';
@@ -202,12 +207,19 @@ export type Session = {
   initialQueue?: InitialQueuePrompt[];
   /** Stable id for the first startup-delivered user message. */
   initialMessageId?: string;
+  /** gugu-dev#181: the chat whose composer dispatched this task — its first turn lands there as a task card. */
+  taskChatId?: string;
   /** Ordinary messages waiting for the declared sessionpage transport to accept them. */
   messageOutbox?: SessionMessage[];
   agentStatus?: AgentStatus | null;
   /** spec agent-status「附属态」:只给显示;null / 缺席 = 退回基础态的画法。 */
   agentStatusDetail?: AgentStatusDetail | null;
   agentStatusSeen?: boolean;
+  /**
+   * 上一轮被宿主的退出打断了(开机收残记下的,下一轮开工清掉):宿主更新 / 重启 / 上一次没正常退出。
+   * 只在 `agentStatus` 还是 `error` 时有意义;缺席 = 没有这回事(或老宿主)。
+   */
+  interruptedBy?: InterruptedBy;
   /** 这条会话跑成什么(`SessionRuntime`)。缺席按 `'pty'` 读 —— 见该类型的说明。 */
   runtime?: SessionRuntime;
   /** spec session-page: pinned conversations gather in the sidebar Pinned section. */

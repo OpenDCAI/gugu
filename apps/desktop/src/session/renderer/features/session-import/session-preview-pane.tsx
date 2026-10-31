@@ -79,8 +79,6 @@ export function SessionPreviewPane({
       <div className="flex h-full items-center justify-center px-6 text-center">
         <p className="text-xs leading-relaxed text-foreground-tertiary-muted">
           {translate('sessionImport.previewEmptyTitle')}
-          <br />
-          {translate('sessionImport.previewEmptyHint')}
         </p>
       </div>
     );

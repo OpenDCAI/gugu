@@ -24,8 +24,13 @@
  *   • timer ticks
  */
 
+import type { BackgroundCommandEntry } from '@session-chat/lib/background-command-roster';
+import type { SubagentRosterEntry } from '@session-chat/lib/subagent-roster';
 import type { ChatCaches } from './caches';
 import type { ChatTheme } from './theme';
+import type { ChatTranslator } from '@session-chat/localization';
+import type { ChatCommands } from '@session-chat/commands';
+import type { SelfIdentity } from '@session-chat/lib/self-identity';
 
 // ── Measured ──────────────────────────────────────────────────────────────────
 
@@ -64,12 +69,20 @@ export type Measured<L = unknown> = {
  */
 export type MeasureCtx = {
   theme: ChatTheme;
+  /** The same text services as Render: localized labels are layout inputs when they wrap. */
+  translate?: ChatTranslator;
+  commands?: ChatCommands;
+  selfIdentity?: SelfIdentity | null;
+  chatName?: (id: string) => string | null;
+  appName?: (id: string) => string | null;
   width: number;
   isCollapsed: (id: string) => boolean;
   expanded: (id: string) => boolean;
   caches: ChatCaches;
   measureEpoch?: number;
   expandedId?: string | null;
+  /** Latest visible conversation bubble: full text without persisting a manual expansion. */
+  latestConversationMessageId?: string | null;
   /** The inline user-message editor replaces the measured bubble. */
   editingMessage?: { itemId: string; text: string };
   /**
@@ -80,6 +93,17 @@ export type MeasureCtx = {
    * 由 ChatRoot 算（`finalReplyId`），行里只比对，❌ 不自己猜。
    */
   finalReplyId?: string | null;
+  /**
+   * 还在跑的后台任务挂在哪条回复的过程行上(owner 2026-10-27 原型:与「执行中」同一行)。只有 `ownerId`
+   * 那一条量出它(单子展开时多出单子的高)。null / 缺省 = 没有挂在哪条回复上(没有后台任务,或它单独成行)。
+   * 由 ChatRoot 算(`backgroundAttachment`),行里只比对。
+   */
+  background?: {
+    ownerId: string;
+    commands: readonly BackgroundCommandEntry[];
+    subagents: readonly SubagentRosterEntry[];
+    expanded: boolean;
+  } | null;
 };
 
 /**

@@ -1,9 +1,14 @@
 import { useEffect } from 'react';
-import { openGroupFileLink } from '@/components/markdown/fileLinks';
+import { openRequestedGroupParticipant } from '@renderer/features/chats/open-group-participant-session';
+import { readSessionPaneTabs } from '@renderer/features/sessions/stores/session-pane-tabs';
+import { openLink } from '@/lib/guguLinks';
 import { GROUP_FILE_NOT_OPENED } from '@shared/extensions/app-runtime-protocol';
 import { openSessionInSessionWhenReady } from '@renderer/features/sessions/open-session-in-session';
+import { isScreenView, showSessionBeside } from './screen-layout-actions';
+import { appState } from '@renderer/lib/stores/app-state';
 import { answerMachinePreviewReads } from '@renderer/features/sessions/workspace-backend/machine-preview-reads';
 import {
+  manageSessionTabsWhenReady,
   openHostRequestedBrowserInSessionWhenReady,
   openHostRequestedExtensionInSessionWhenReady,
   openHostRequestedFileInSessionWhenReady,
@@ -22,6 +27,8 @@ import {
   notificationFocusSessionChannel,
   remotePreviewReadChannel,
   remotePreviewReadResultChannel,
+  sessionManageTabsChannel,
+  sessionManageTabsResultChannel,
   sessionOpenFileInPaneChannel,
   sessionOpenFileInPaneResultChannel,
   sessionOpenBrowserInPaneChannel,
@@ -76,7 +83,17 @@ export function AppMenuEvents() {
 
     const unlisten = events.on(
       notificationFocusSessionChannel,
-      ({ projectId, sessionId }) => {
+      ({ projectId, sessionId, beside, groupParticipantRequestId }) => {
+        const groupEntry = sessionId ? openRequestedGroupParticipant({ projectId, sessionId }, groupParticipantRequestId) : undefined;
+        if (groupEntry) {
+          disposers.add(groupEntry);
+          return;
+        }
+        // A task card on the screen view: beside what is there, the layout kept.
+        if (beside && sessionId && isScreenView(appState.navigation.currentViewId)) {
+          disposers.add(openSessionInSessionWhenReady({ projectId, sessionId, onReady: () => showSessionBeside({ projectId, sessionId }) }));
+          return;
+        }
         navigate('session', { projectId, sessionId: sessionId });
         revealSessionpage(); // a banner's click, or a composer an App named: the session in front, from any page
         if (!sessionId) return;
@@ -103,6 +120,7 @@ export function AppMenuEvents() {
           events.emit(sessionOpenFileInPaneResultChannel, {
             requestId: request.requestId,
             ...result,
+            ...(result.success ? { tabs: readSessionPaneTabs(request.projectId, request.sessionId) } : {}),
           });
         },
       });
@@ -139,7 +157,7 @@ export function AppMenuEvents() {
     });
     const unlisten = events.on(sessionOpenBrowserInPaneChannel, (request) => {
       // A group's file (session_open_in_tab with a gugu-file link, 摩擦单 F10): opened in its group, as a chat link is.
-      const groupFileOpened = openGroupFileLink(request.url);
+      const groupFileOpened = openLink(request.linkTarget ?? request.url);
       if (groupFileOpened !== null) {
         void groupFileOpened.then(
           (opened) =>
@@ -165,6 +183,7 @@ export function AppMenuEvents() {
           events.emit(sessionOpenBrowserInPaneResultChannel, {
             requestId: request.requestId,
             ...result,
+            ...(result.success ? { tabs: readSessionPaneTabs(request.projectId, request.sessionId) } : {}),
           });
         },
       });
@@ -193,6 +212,7 @@ export function AppMenuEvents() {
           events.emit(sessionOpenExtensionInPaneResultChannel, {
             requestId: request.requestId,
             ...result,
+            ...(result.success ? { tabs: readSessionPaneTabs(request.projectId, request.sessionId) } : {}),
           });
         },
       });
@@ -204,6 +224,16 @@ export function AppMenuEvents() {
       disposers.clear();
     };
   }, [navigate]);
+
+  useEffect(() => {
+    const disposers = new Set<() => void>();
+    const off = events.on(sessionManageTabsChannel, (request) => {
+      disposers.add(manageSessionTabsWhenReady({ ...request, onResult: (result) => {
+        events.emit(sessionManageTabsResultChannel, { requestId: request.requestId, ...result });
+      } }));
+    });
+    return () => { off(); disposers.forEach((dispose) => dispose()); };
+  }, []);
 
   return null;
 }

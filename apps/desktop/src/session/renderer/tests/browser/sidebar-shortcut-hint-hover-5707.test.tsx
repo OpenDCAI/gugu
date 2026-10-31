@@ -23,11 +23,8 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { page, userEvent } from 'vitest/browser'
 import { until } from '../../../../../../../tests/support/awaitCondition'
 
-// 搜索行读的是侧栏 store 里的一格字符串。真 store 会在 import 期把整棵 app-state 建起来
-// (项目/更新/SSH/资源监控),那些要 IPC —— 这条测试与它们无关,给一格同形的替身。
-vi.mock('@renderer/lib/stores/app-state', () => ({
-  sidebarStore: { searchQuery: '', setSearchQuery: () => {} },
-}))
+// 搜索行点下去打开 ⌘K 那个面板(弹窗注册表会把整棵 app-state 建起来,那些要 IPC)—— 这条测试只量键帽,给一个不开窗的替身。
+vi.mock('@renderer/lib/modal/modal-provider', () => ({ useShowModal: () => () => {} }))
 
 import {
   SidebarMenu,
@@ -35,7 +32,7 @@ import {
   sidebarRowContentInsetX,
   sidebarRowShortcutClass,
 } from '@renderer/features/sidebar/sidebar-primitives'
-import { SidebarSearchInput } from '@renderer/features/sidebar/sidebar-search-trigger'
+import { SidebarSearchTrigger } from '@renderer/features/sidebar/sidebar-search-trigger'
 import { BoundShortcut } from '@renderer/lib/ui/shortcut'
 import { SessionLocalizationProvider } from '@renderer/localization/localization-provider'
 import { cn } from '@renderer/utils/utils'
@@ -77,13 +74,13 @@ function mount(): void {
     <QueryClientProvider client={new QueryClient()}>
       <SessionLocalizationProvider>
         <SidebarMenu>
-          <SidebarSearchInput />
+          <SidebarSearchTrigger />
           <SidebarMenuButton aria-label="settings-like" className="group/row w-full justify-between">
             <span className={cn('flex min-w-0 items-center gap-2', sidebarRowContentInsetX)}>
               <span className="truncate">设置</span>
             </span>
             <BoundShortcut
-              settingsKey="settings"
+              commandId="app.settings"
               variant="keycaps"
               className={sidebarRowShortcutClass}
             />
@@ -169,7 +166,8 @@ it('#5707 键盘 Tab 停在那一行时键帽同样淡入(不止认指针)', asy
   // 走真键盘:先把焦点落到文档头,再 Tab 到这一行 —— `:focus-visible` 认的是「上一次输入是键盘」,
   // 直接 el.focus() 在鼠标模态下点不亮它。
   await userEvent.click(document.body)
-  await page.getByRole('searchbox').or(page.getByRole('textbox')).first().click()
+  // 搜索行是 ⌘K 面板的入口(一颗按钮):点它焦点落在它身上,再 Tab 就到下一行。
+  await page.getByTestId('sidebar-search-trigger').click()
   await userEvent.keyboard('{Tab}')
   await until('Tab reaches the settings row', () => document.activeElement === settingsRow)
   await settledOpacity(settingsCap, 1)

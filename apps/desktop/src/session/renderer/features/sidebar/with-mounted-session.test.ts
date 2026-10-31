@@ -7,6 +7,7 @@ const registry = new Map<string, { sessions: Map<string, unknown> }>();
 const projects = new Map<string, { mountedProject?: { sessionManager: { listState: string } } | null }>();
 const ensureMounted = vi.fn<(projectId: string) => Promise<void>>();
 const toast = vi.fn();
+let unavailableLabel: string | null = null;
 
 vi.mock('@renderer/lib/machine-clients', () => ({
   machineLinkState: (id: string) => links.get(id) ?? 'closed',
@@ -28,6 +29,7 @@ vi.mock('@renderer/features/projects/stores/project-selectors', () => ({
   getProjectManagerStore: () => ({ ensureMounted, projects }),
 }));
 vi.mock('@renderer/lib/hooks/use-toast', () => ({ toast: (...args: unknown[]) => toast(...args) }));
+vi.mock('@renderer/features/sessions/workspace-backend/workspace-surface', () => ({ workspaceReachLabel: () => unavailableLabel }));
 vi.mock('@renderer/localization/locale-store', () => ({
   translateSessionMessage: (key: string, values?: Record<string, string>) => `${key}:${values?.device ?? ''}`,
 }));
@@ -59,6 +61,7 @@ beforeEach(() => {
   projects.clear();
   ensureMounted.mockReset();
   toast.mockReset();
+  unavailableLabel = null;
 });
 
 describe('withMountedSession —— 人在一条还没挂的远程行上动手', () => {
@@ -67,7 +70,7 @@ describe('withMountedSession —— 人在一条还没挂的远程行上动手',
     mountEndsAs({ listState: 'read', sessions: ['s1'] });
     const run = vi.fn();
     withMountedSession('p1', 's1', run);
-    expect(toasted()).toEqual(['task.remoteActionOffline:Mac 1']);
+    expect(toasted()).toEqual(['remoteHost.status.offlineNever:Mac 1']);
     setLink('open');
     await flush();
     expect(ensureMounted).not.toHaveBeenCalled();
@@ -79,7 +82,7 @@ describe('withMountedSession —— 人在一条还没挂的远程行上动手',
       links.set('m1', state);
       withMountedSession('p1', 's1', vi.fn());
     }
-    expect(toasted()).toEqual(['task.remoteActionOffline:Mac 1', 'task.remoteActionOffline:Mac 1']);
+    expect(toasted()).toEqual(['remoteHost.status.offlineNever:Mac 1', 'remoteHost.status.offlineNever:Mac 1']);
   });
 
   // 与侧栏那颗点同一个判据:connecting 时点显示连着,动作就等这一回。
@@ -100,7 +103,7 @@ describe('withMountedSession —— 人在一条还没挂的远程行上动手',
     const run = vi.fn();
     withMountedSession('p1', 's1', run);
     setLink('closed');
-    expect(toasted()).toEqual(['task.remoteActionOffline:Mac 1']);
+    expect(toasted()).toEqual(['remoteHost.status.offlineNever:Mac 1']);
     setLink('open');
     await flush();
     expect(ensureMounted).not.toHaveBeenCalled();
@@ -148,7 +151,7 @@ describe('withMountedSession —— 人在一条还没挂的远程行上动手',
     });
     withMountedSession('p1', 's1', vi.fn());
     await flush();
-    expect(toasted()).toEqual(['task.remoteActionOffline:Mac 1']);
+    expect(toasted()).toEqual(['remoteHost.status.offlineNever:Mac 1']);
   });
 
   it('已经挂着:当场做,不问连接', () => {
@@ -156,6 +159,13 @@ describe('withMountedSession —— 人在一条还没挂的远程行上动手',
     const run = vi.fn();
     withMountedSession('p1', 's1', run);
     expect(run).toHaveBeenCalledTimes(1);
+    expect(ensureMounted).not.toHaveBeenCalled();
+  });
+
+  it('uses the task page machine-status wording in its offline notification', () => {
+    unavailableLabel = 'Mac 1 is offline';
+    withMountedSession('p1', 's1', vi.fn());
+    expect(toasted()).toEqual(['Mac 1 is offline']);
     expect(ensureMounted).not.toHaveBeenCalled();
   });
 });

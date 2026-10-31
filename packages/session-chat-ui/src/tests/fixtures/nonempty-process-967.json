@@ -1,0 +1,169 @@
+[
+  {
+    "id": "nonempty967:turn:0",
+    "seq": 0,
+    "initiator": "user",
+    "startedAt": 1793286049692,
+    "items": [
+      {
+        "kind": "message",
+        "id": "nonempty967:turn:0:message:record-1",
+        "seq": 0,
+        "role": "user",
+        "text": "Requested status update.",
+        "at": 1793286049692,
+        "content": [
+          {
+            "type": "text",
+            "text": "Requested status update."
+          }
+        ]
+      },
+      {
+        "kind": "mcp-tool-call",
+        "id": "nonempty967:turn:0:tool:record-7",
+        "seq": 1,
+        "toolCallId": "record-7",
+        "title": "mcp__plugin_gugu-product_gugu__message_conversations",
+        "status": "done",
+        "rawInput": "{}",
+        "toolKind": "other",
+        "locations": [],
+        "server": "plugin_gugu-product_gugu",
+        "tool": "message_conversations",
+        "at": 1793286077889,
+        "outputText": "Status read successfully.",
+        "completedAt": 1793286078285
+      },
+      {
+        "kind": "message",
+        "id": "nonempty967:turn:0:message:record-9",
+        "seq": 2,
+        "role": "user",
+        "text": "<gugu_delivery route=\"chat\" from=\"Peer\" chat=\"967\" chat_kind=\"topic\"><![CDATA[Incoming status update.]]></gugu_delivery>",
+        "at": 1793286062745,
+        "content": [
+          {
+            "type": "text",
+            "text": "<gugu_delivery route=\"chat\" from=\"Peer\" chat=\"967\" chat_kind=\"topic\"><![CDATA[Incoming status update.]]></gugu_delivery>"
+          }
+        ]
+      },
+      {
+        "kind": "mcp-tool-call",
+        "id": "nonempty967:turn:0:tool:record-13",
+        "seq": 3,
+        "toolCallId": "record-13",
+        "title": "mcp__plugin_gugu-product_gugu__message_send",
+        "status": "done",
+        "rawInput": "{\n  \"chat_id\": \"967\",\n  \"text\": \"Sent status update.\"\n}",
+        "toolKind": "other",
+        "locations": [],
+        "server": "plugin_gugu-product_gugu",
+        "tool": "message_send",
+        "at": 1793286091159,
+        "outputText": "replied (id=msg:00000000-0000-4000-8000-000000000008)",
+        "completedAt": 1793286091621
+      },
+      {
+        "kind": "mcp-tool-call",
+        "id": "nonempty967:turn:0:tool:record-16",
+        "seq": 4,
+        "toolCallId": "record-16",
+        "title": "mcp__plugin_gugu-product_gugu__message_send",
+        "status": "done",
+        "rawInput": "{\n  \"chat_id\": \"967\",\n  \"text\": \"Sent status update.\"\n}",
+        "toolKind": "other",
+        "locations": [],
+        "server": "plugin_gugu-product_gugu",
+        "tool": "message_send",
+        "at": 1793286100401,
+        "outputText": "replied (id=msg:00000000-0000-4000-8000-000000000010)",
+        "completedAt": 1793286101161
+      },
+      {
+        "kind": "mcp-tool-call",
+        "id": "nonempty967:turn:0:tool:record-19",
+        "seq": 5,
+        "toolCallId": "record-19",
+        "title": "mcp__plugin_gugu-product_gugu__message_send",
+        "status": "done",
+        "rawInput": "{\n  \"chat_id\": \"967\",\n  \"text\": \"Sent status update.\"\n}",
+        "toolKind": "other",
+        "locations": [],
+        "server": "plugin_gugu-product_gugu",
+        "tool": "message_send",
+        "at": 1793286102862,
+        "outputText": "replied (id=msg:00000000-0000-4000-8000-000000000012)",
+        "completedAt": 1793286103530
+      },
+      {
+        "kind": "mcp-tool-call",
+        "id": "nonempty967:turn:0:tool:record-24",
+        "seq": 6,
+        "toolCallId": "record-24",
+        "title": "mcp__plugin_gugu-product_gugu__catalog_list",
+        "status": "done",
+        "rawInput": "{}",
+        "toolKind": "other",
+        "locations": [],
+        "server": "plugin_gugu-product_gugu",
+        "tool": "catalog_list",
+        "at": 1793286108988,
+        "outputText": "Status read successfully.",
+        "completedAt": 1793286109031
+      },
+      {
+        "kind": "mcp-tool-call",
+        "id": "nonempty967:turn:0:tool:record-27",
+        "seq": 7,
+        "toolCallId": "record-27",
+        "title": "mcp__plugin_gugu-product_gugu__catalog_call",
+        "status": "error",
+        "rawInput": "{}",
+        "toolKind": "other",
+        "locations": [],
+        "server": "plugin_gugu-product_gugu",
+        "tool": "catalog_call",
+        "at": 1793286112571,
+        "outputText": "Status read successfully.",
+        "completedAt": 1793286116491
+      },
+      {
+        "kind": "mcp-tool-call",
+        "id": "nonempty967:turn:0:tool:record-31",
+        "seq": 8,
+        "toolCallId": "record-31",
+        "title": "mcp__plugin_gugu-product_gugu__session_peers",
+        "status": "done",
+        "rawInput": "{}",
+        "toolKind": "other",
+        "locations": [],
+        "server": "plugin_gugu-product_gugu",
+        "tool": "session_peers",
+        "at": 1793286120656,
+        "outputText": "Status read successfully.",
+        "completedAt": 1793286120815
+      },
+      {
+        "kind": "message",
+        "id": "nonempty967:turn:0:message:record-36",
+        "seq": 9,
+        "role": "assistant",
+        "text": "Final status update.",
+        "at": 1793286132355,
+        "content": [
+          {
+            "type": "text",
+            "text": "Final status update."
+          }
+        ]
+      }
+    ],
+    "outcome": {
+      "kind": "done",
+      "reason": "end_turn"
+    },
+    "endedAt": 1793286132355
+  }
+]

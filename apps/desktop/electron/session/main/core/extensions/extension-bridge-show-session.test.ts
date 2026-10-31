@@ -35,6 +35,7 @@ vi.mock('@main/core/extensions/extensions-root', () => ({
     get: () => ({ manifest: { name: 'Calendar' } }),
   }),
 }));
+vi.mock('@main/core/extensions/app-files', () => ({ resourceChatOf: async (id: string) => id }));
 vi.mock('@main/lib/logger', () => ({ log: { warn: vi.fn(), error: vi.fn(), info: vi.fn() } }));
 // This computer has one session its task list shows (s-here) and one archived (s-archived: sessionHere answers null for it,
 // as for none — its own test reads the database).
@@ -46,6 +47,8 @@ vi.mock('@main/core/extensions/extension-show-session', async (original) => ({
 // ipc-bridge's): its task list has another computer's s-far under p-far — or it cannot answer, with the channel's reason.
 const theWindow = vi.hoisted(() => ({ listed: new Map<string, string>(), cannot: null as Error | null }));
 vi.mock('@main/core/extensions/extension-bridge-relay', () => ({
+  // The window opens no session itself here (only the assistant's own task opens in its chat).
+  actInWindow: vi.fn(async () => undefined),
   listedSessionProject: vi.fn(async (sessionId: string) => {
     if (theWindow.cannot) throw theWindow.cannot;
     return theWindow.listed.get(sessionId) ?? null;
@@ -68,13 +71,12 @@ vi.mock('@main/lib/events', async () => {
     }),
   };
 });
-// Whose composer is extension-send's (its own test); here: the session it names comes up the one way, and a chat's
-// pills (what its refs made, App 引用 pill) go to the window with its text.
+// Whose composer is extension-send's (its own test); here: an agent's session comes up the one way before its composer.
 vi.mock('@main/core/extensions/extension-send', () => ({
-  composeTarget: async (args: { text: unknown; session?: unknown; chat?: unknown; refs?: unknown }) =>
-    args.session
-      ? { session: { id: String(args.session), projectId: 'p-here' }, text: `${String(args.text)}\n` }
-      : { chatId: 'chat-of-the-refs', text: '', ...(args.refs ? { refs: [{ label: `pills for ${JSON.stringify(args.refs)}`, link: 'gugu-file://x' }] } : {}) },
+  dispatchForApp: async (_id: string, args: { text: string }, _here: unknown, effects: { draftInSession(session: { id: string; projectId: string }, text: string): Promise<void> }) => {
+    await effects.draftInSession({ id: 's-here', projectId: 'p-here' }, `${args.text}\n`);
+    return { to: { agent: 'user:0a000000-0000-4000-8000-0000000000a3' } };
+  },
 }));
 
 const { bindExtensionSurface, registerExtensionBridge, setExtensionBridgeHost } = await import('./extension-bridge');
@@ -199,19 +201,11 @@ describe('gugu.showSession: the session comes up as a click on its row in the ta
     expect(deliver).toHaveBeenCalledTimes(2);
   });
 
-  it("a session's compose brings it up the same one way, before its composer gets the text", async () => {
-    expect(await call(SESSION_TAB, 'compose', { text: 'about this', session: 's-here' })).toMatchObject({ ok: true });
+  it("a draft into an agent's session brings it up the same one way, before its composer gets the text", async () => {
+    expect(await call(SESSION_TAB, 'dispatch', { text: 'about this', draft: true, to: { agent: 'user:0a000000-0000-4000-8000-0000000000a3' } })).toMatchObject({ ok: true });
     expect(broughtUp()).toEqual([{ projectId: 'p-here', sessionId: 's-here' }]);
     expect(deliver.mock.calls.map(([, action]) => action)).toEqual([{ kind: 'compose', sessionId: 's-here', text: 'about this\n' }]);
     const focusAt = emitted.mock.calls.findIndex(([channel]) => channel === notificationFocusSessionChannel);
     expect(emitted.mock.invocationCallOrder[focusAt]).toBeLessThan(deliver.mock.invocationCallOrder[0]!);
-  });
-
-  it("a chat's compose: the refs the call names are what its pills are made of, and the pills go to the window", async () => {
-    expect(await call(SESSION_TAB, 'compose', { text: '', refs: [{ file: { id: 'deck' }, at: { slide: 3 } }] })).toMatchObject({ ok: true });
-    expect(deliver.mock.calls.map(([, action]) => action)).toEqual([
-      { kind: 'compose', detail: { chatId: 'chat-of-the-refs', text: '', refs: [{ label: 'pills for [{"file":{"id":"deck"},"at":{"slide":3}}]', link: 'gugu-file://x' }] } },
-    ]);
-    expect(broughtUp()).toEqual([]);
   });
 });

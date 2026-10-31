@@ -1,3 +1,4 @@
+import { messageForUser } from '@/lib/userFacingError';
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { rendererLogger } from '../../lib/log'
@@ -8,9 +9,12 @@ import { useAuth } from '../../store/auth'
 import { closeIfMyAssistant } from '../../lib/assistantClose'
 import { useToast } from '../toastContext'
 import { asClass, profileInputClass } from './agentSettingsStyles'
+import { useIsAssistantAvatar } from '../../lib/avatarIdentity'
 import { Avatar } from '../Avatar'
 import { validateAgentAvatarFileCode, type AgentAvatarValidationCode } from '../../lib/agentAvatar'
 import { Button } from '../ui/Button'
+import { AgentPauseRow } from './AgentPauseRow'
+import './AgentProfilePane.css'
 
 const AVATAR_VALIDATION_KEYS = {
   'invalid-type': 'settings.profile.invalidType',
@@ -22,6 +26,7 @@ const profileLog = rendererLogger('agents/profile')
 
 export function AgentProfilePane({ agent, onClose, onOpenTab }: AgentSettingsPaneProps) {
   const { t } = useTranslation('agents')
+  const assistant = useIsAssistantAvatar(agent.id)
   const { updateAgentProfile, uploadAgentAvatar, removeOwnedAgent } = useContactsStore()
   const { user } = useAuth()
   const { toast } = useToast()
@@ -80,7 +85,7 @@ export function AgentProfilePane({ agent, onClose, onOpenTab }: AgentSettingsPan
       setPreviewUrl(null)
       setPendingFile(null)
       console.error('[AgentProfilePane] failed to save agent profile', err)
-      toast(t('settings.profile.saveFailed'), 'error')
+      toast(t('settings.profile.saveFailed'), 'error', messageForUser(err))
     } finally {
       setSaving(false)
     }
@@ -98,13 +103,14 @@ export function AgentProfilePane({ agent, onClose, onOpenTab }: AgentSettingsPan
       onClose?.()
     } catch (err) {
       profileLog.error({ err: String((err as Error)?.message ?? err) }, 'delete agent failed')
-      toast(t('settings.profile.deleteFailed'), 'error')
+      toast(t('settings.profile.deleteFailed'), 'error', messageForUser(err))
       setRemoving(false)
     }
   }
 
   return (
-    <div>
+    <div className="gg-agent-profile">
+      <div className="gg-agent-profile-content" data-testid="agent-profile-content">
       {/* 头像 + 名称 — verbatim layout from design line 973 */}
       <div className={asClass.profileRow}>
         {/* #1461: 走统一 <Avatar>（seed=agent.id）而非裸 <img>；canonical preset/upload URL
@@ -161,9 +167,8 @@ export function AgentProfilePane({ agent, onClose, onOpenTab }: AgentSettingsPan
             上传的图（=身份），要么没有——没有就按稳定 id 生成默认脸。中间不再有「像策展作品、
             但其实是从小图库里发的」这一档。 */}
         <div className={asClass.profileLabel}>{t('settings.profile.avatar')}</div>
-        {/* 头像默认是会动的小鸟:颜色和休息表情去「形象」里捏;也可以换成一张照片。 */}
         <div className="flex flex-wrap items-center gap-2">
-          {onOpenTab ? (
+          {assistant && onOpenTab ? (
             <Button
               type="button"
               variant="secondary"
@@ -230,23 +235,20 @@ export function AgentProfilePane({ agent, onClose, onOpenTab }: AgentSettingsPan
         />
       </div>
 
-      {/* 保存 */}
-      <button
-        className={asClass.profileSave}
-        onClick={handleSave}
-        disabled={!isOwnedAgent || saving || removing}
-      >
-        {saving ? t('common.saving') : t('common.save')}
-      </button>
-
-      {/* 删除 Agent */}
-      <button
-        className={asClass.profileDanger}
-        onClick={handleDelete}
-        disabled={!isOwnedAgent || saving || removing}
-      >
-        {removing ? t('settings.profile.deleting') : t('settings.profile.deleteAgent')}
-      </button>
+        <div className="gg-agent-profile-manage">
+          <AgentPauseRow agent={agent} />
+          <Button className="gg-as-profile-danger" variant="danger" onClick={handleDelete} disabled={!isOwnedAgent || saving || removing}>
+            {removing ? t('settings.profile.deleting') : t('settings.profile.deleteAgent')}
+          </Button>
+        </div>
+      </div>
+      <div className="gg-agent-profile-actions" data-testid="agent-profile-actions">
+        <div className="gg-agent-profile-save-row">
+          <Button className="gg-as-profile-save" variant="primary" onClick={handleSave} disabled={!isOwnedAgent || saving || removing}>
+            {saving ? t('common.saving') : t('common.save')}
+          </Button>
+        </div>
+      </div>
     </div>
   )
 }

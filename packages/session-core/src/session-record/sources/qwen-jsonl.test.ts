@@ -1,3 +1,4 @@
+import { recordProjection } from '../test-support';
 import { appendFile, copyFile, mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -48,18 +49,24 @@ function collect(source: SessionRecordSource) {
 }
 
 describe('qwen jsonl 记录源', () => {
+  it('preserves the native fixture event and transcript projection', async () => {
+    const { root, id } = await stage();
+    const { entries, started } = collect(createQwenJsonlSource({ harness: 'qwen', providerSessionId: id, roots: [root] }));
+    await started;
+    expect(recordProjection(entries)).toMatchSnapshot();
+  });
+
   it('按会话 id 在各项目目录的 chats/ 里找到文件，解出对话内容', async () => {
     const { root, id } = await stage();
     const { entries, started } = collect(
       createQwenJsonlSource({ harness: 'qwen', providerSessionId: id, roots: [join(root, 'missing'), root] })
     );
     await started;
-    const kinds = contentEntries(entries).map((entry) => entry.update.sessionUpdate);
-    expect(kinds).toContain('user_message_chunk');
-    expect(kinds).toContain('agent_message_chunk');
-    expect(kinds).toContain('agent_thought_chunk');
+    const kinds = contentEntries(entries).map((entry) => entry.event.kind);
+    expect(kinds).toContain('message');
+    expect(kinds).toContain('thinking');
     expect(kinds).toContain('tool_call');
-    expect(kinds).toContain('tool_call_update');
+    expect(kinds).toContain('tool_update');
     // 系统行(遥测、快照)不是对话内容：没有一条条目出自它们。
     const system = new Set((await records()).filter((r) => r.type === 'system' && r.subtype !== 'branch_checkpoint').map((r) => r.uuid));
     expect(system.size).toBeGreaterThan(0);

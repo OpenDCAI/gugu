@@ -6,13 +6,14 @@ import { DUR_SLOW_MS, EASE_SPRING, tween } from '@/styles/motion'
 import { useMobileShell } from '../../hooks/useMobileShell'
 import { IconButton } from '../ui/IconButton'
 import { useBackLayer } from '../ui/sheetStack'
-import { RIGHT_PANEL_DEFAULT_WIDTH } from './useMessageColumnMinWidth'
 import { rightPanelMobilePageStyle } from './rightPanelMobilePage'
+
+const RIGHT_PANEL_DEFAULT_WIDTH = 360
 
 // 聊天区右侧那一个槽位的外壳(成员列表 / 群设置 / 群公告 / 历史;工作区只在手机上 —— 桌面上它和会话页右栏是同一个 SidePanelSplit):与消息列并排、把它挤窄,左边一道
 // 常态 hairline。宽度与边线只归这里管,里面的面板撑满外壳。
 // ❌ 阴影、❌ 遮罩 —— 它是分栏不是浮层。进场滑入,❌ exit(退场还占宽,消息列会回弹跳闪)。
-// 开关与同槽位互斥归 ChatAreaPanel 的 closeRightSurfaces,消息列让位归 useMessageColumnMinWidth。
+// 开关与同槽位互斥归 ChatAreaPanel 的 closeRightSurfaces,两栏按各自的 flex 收缩。
 const shellStyle: CSSProperties = {
   flexShrink: 1, minWidth: 0, height: '100%', display: 'flex', flexDirection: 'column', overflow: 'auto',
   background: 'var(--bg-primary)', borderLeft: '1px solid var(--border)',

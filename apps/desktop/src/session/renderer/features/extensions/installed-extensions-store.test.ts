@@ -62,6 +62,18 @@ describe('which Apps are a task session tab (L6-8, 摩擦单 F3 / F95 / F98)', (
       setDisclosure: vi.fn(),
     } as unknown as Api);
 
+  it('names the default page in the interface language and preserves a specifically named subpage', async () => {
+    const calendar = { ...app('calendar'), name: '日历', localized: { en: { name: 'Calendar' } }, contributes: { tabs: [
+      { name: 'main', title: '日历' }, { name: 'reports', title: 'Reports' },
+    ] } };
+    const store = storeListing([calendar]);
+    await store.load();
+    store.locale = 'en-US';
+    expect(store.tabTitle('calendar.main')).toBe('Calendar');
+    expect(store.tabTitle('calendar.reports')).toBe('Reports');
+    expect(store.tabTitle('missing.main')).toBeUndefined();
+  });
+
   // F95 (S23): a「TODO 看板」tab bound to no file — "Open a .todo-kanban.json file" and an uncaught error. A tab that
   // opens files, in a session or a group, is opened for a file; with none it has nothing to show.
   it('a tab that opens files is no session tab of its own — it still has its page where a file opens it', async () => {
@@ -69,6 +81,21 @@ describe('which Apps are a task session tab (L6-8, 摩擦单 F3 / F95 / F98)', (
     await store.load();
     expect(store.enabledTabContributions.map((entry) => entry.extensionId)).toEqual(['plain']);
     expect(store.residentTabContributions.map((entry) => entry.extensionId)).toEqual(['vote', 'grid', 'plain', 'board']);
+  });
+
+  it('keeps an App-owned per-task HTML page separate from its settings page', async () => {
+    const appWithPages = {
+      id: 'tool', name: 'Tool', version: '1.0.0', apiVersion: EXTENSION_API_VERSION,
+      contributes: { tabs: [
+        { name: 'settings', title: 'Settings', hostPage: 'settings' },
+        { name: 'view', title: 'View', entry: 'view.html', perSession: true },
+      ] },
+    };
+    const store = storeListing([appWithPages]);
+    await store.load();
+    expect(store.allTabContributions.find(entry => entry.kind === 'tool.view')).toMatchObject({ hostSettings: false, perSession: true });
+    expect(store.allTabContributions.find(entry => entry.kind === 'tool.settings')).toMatchObject({ hostSettings: true });
+    expect(store.mainTabOf('tool')?.kind).toBe('tool.settings');
   });
 
   // owner 10-20「没有 enable 的 app,在任务页的新建 tab 里面就不要显示了吧,灰掉也占位置」: the「+」menu, an empty pane

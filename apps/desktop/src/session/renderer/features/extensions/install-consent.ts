@@ -1,7 +1,7 @@
 import {
   EXTENSION_CONSENT_ANSWER_EVENT,
   EXTENSION_CONSENT_EVENT,
-  type EnablePlace,
+  type InstallGrant,
   type ExtensionConsentAnswerDetail,
   type ExtensionConsentRequester,
   type ExtensionConsentEventDetail,
@@ -30,6 +30,12 @@ export type InstallConsentAsk = Omit<ExtensionInstallConsentRequest, 'sourceDir'
 export function installConsentPrompt(request: InstallConsentAsk, manifest: ExtensionManifest): ConsentPrompt {
   const locale = getLocaleSnapshot().resolvedLocale;
   const asked = consentPrompt(request.installed, request.revokedPermissions, manifest, translateSessionMessage, locale, request.market?.releaseNotes, request.machine);
+  if (request.removeVariant) {
+    const values = { variant: request.removeVariant.name, name: localizedManifestText(manifest, locale).name, computer: computerNamed(translateSessionMessage, request.machine) };
+    return { title: translateSessionMessage('extensions.removeVariantTitle', values),
+      description: `${translateSessionMessage(request.removeVariant.active ? 'extensions.removeActiveVariantBody' : 'extensions.removeVariantBody', values)}${request.removeVariant.active ? `\n\n${asked.description}` : ''}`,
+      confirmLabel: translateSessionMessage('extensions.removeVariantConfirm'), ...(request.removeVariant.active && asked.details ? { details: asked.details } : {}), variant: 'default' };
+  }
   const prompt = request.market ? withMarketSource(asked, translateSessionMessage) : asked;
   if (request.attachment) {
     // Whoever sent it may be gone (an agent whose profile was rebuilt): say so, not an empty name (摩擦单 F30).
@@ -64,8 +70,8 @@ export function askInShell(
   prompt: ConsentPrompt,
   requestId: string,
   timeoutMs: number,
-  /** D-30: which agents get its tools — asked, these places listed (the ones ticked at first marked), when given. */
-  places?: EnablePlace[],
+  /** What it gives where it lands (`InstallGrant`), said on the sheet; absent: it gives agents no tools. */
+  given?: InstallGrant,
   /** D-31: the agent that asked for it. */
   requester?: ExtensionConsentRequester,
   /** D-31: the computer it installs on, when that is not this one. */
@@ -79,7 +85,7 @@ export function askInShell(
     title: prompt.title,
     description: prompt.description,
     ...(prompt.details ? { details: prompt.details } : {}),
-    ...(places ? { places } : {}),
+    ...(given ? { given } : {}),
     ...(requester ? { requester } : {}),
     ...(machine ? { machine } : {}),
     ...(alsoOn?.length ? { alsoOn } : {}),
@@ -99,7 +105,7 @@ export function askInShell(
       const answer = (event as CustomEvent<ExtensionConsentAnswerDetail>).detail;
       if (answer?.requestId !== requestId) return;
       done();
-      resolve({ outcome: answer.outcome, ...(answer.enableIn ? { enableIn: answer.enableIn } : {}), ...(answer.alsoOn ? { alsoOn: answer.alsoOn } : {}) });
+      resolve({ outcome: answer.outcome, ...(answer.alsoOn ? { alsoOn: answer.alsoOn } : {}) });
     };
     // D-31 Answered on another surface (closeInstallConsent): not answered here.
     const onClosed = (event: Event) => {

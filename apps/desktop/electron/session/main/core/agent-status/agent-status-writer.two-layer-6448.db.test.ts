@@ -6,7 +6,7 @@ import type { AgentEvent, NotificationType } from '@shared/core/agents/agentEven
 
 /**
  * #6448 —— 状态写入者的两层输出:库里的基础态 + 附属态(`agent_status_detail`),进程内 'agent:status' 带出的功能布尔
- * (`running` / `background`)。序列照 claude 2.1.278 真 PTY 实测(gugu-base evidence/2026-09-25-agent-status-two-layer/tui-hook-tap)。
+ * (`running` / `background`)。序列照 claude 2.1.278 真 PTY 实测(2026-09-25,TUI hook 录制)。
  */
 const mocks = vi.hoisted(() => ({ db: undefined as AppDb | undefined, emit: vi.fn() }));
 
@@ -172,6 +172,24 @@ describe('#6448 基础态 + 附属态 + 功能布尔', () => {
     expect(sounds()).toEqual([]);
     await deliver(event('start'));
     expect(row()).toEqual({ status: 'working', detail: 'running', seen: 1 });
+  });
+
+  it('agent 的提问(宿主问人)熬过 claude 回合中的 start、停下和下一轮开工,答了才收', async () => {
+    seed('idle');
+    const hostWait = async (open: boolean) => {
+      agentStatusWriter.reportHostWait({ sessionId: cid, id: 'host-ask:agent-question:q1', open, waitKind: 'question' });
+      await statusWritesSettled(agentStatusWriter, cid);
+    };
+    await deliver(event('start'));
+    await hostWait(true);
+    expect(row()).toEqual({ status: 'needs_user', detail: 'question', seen: 0 });
+    // claude 的工具调用完了又报一次 start(接着跑了):那只了结它自己的等待。
+    await deliverNoop(event('start'));
+    await deliverNoop(event('stop'));
+    await deliverNoop(event('start'));
+    expect(row()).toMatchObject({ status: 'needs_user', detail: 'question' });
+    await hostWait(false);
+    expect(row()).toMatchObject({ status: 'working', detail: 'running' });
   });
 
   it('用户打断(取消的 stop)⇒ idle/plain、已读、不响', async () => {

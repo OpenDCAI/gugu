@@ -1,0 +1,86 @@
+/* 气泡里的名字行与右下角时间(MessageBubbleChrome.tsx)。 */
+
+/* 名字:正文小一号(14/20,正文是 16/24)、半粗;颜色 = 这个人的色相(--member-hue,组件按 id 给)× 随主题的亮度/彩度,
+   两端主题在各自的气泡底上都够对比。 */
+.msg-sender {
+  --member-ink-l: 0.8;
+  --member-ink-c: 0.1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+  margin-bottom: 2px;
+  font-size: var(--font-body);
+  line-height: var(--lh-body);
+  font-weight: var(--font-weight-semibold);
+  color: oklch(var(--member-ink-l) var(--member-ink-c) var(--member-hue));
+  white-space: nowrap;
+}
+[data-theme='light'] .msg-sender {
+  --member-ink-l: 0.5;
+  --member-ink-c: 0.13;
+}
+/* 先缩归属标签,再省略名字;回复入口始终留在同一行。 */
+.msg-sender-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.msg-sender > .msg-sender-name { flex-shrink: 0; max-width: 100%; }
+.msg-sender:has(> .gg-chat-reply-quote) > .msg-sender-name { max-width: calc(100% - var(--lh-caption) - 6px); }
+.msg-sender-link { border: 0; border-radius: 0; padding: 0; min-height: 0; height: auto; background: transparent; color: inherit; font: inherit; text-align: inherit; cursor: pointer; }
+.msg-sender-link:hover, .msg-sender-link:focus-visible { text-decoration: underline; }
+.msg-sender > .gg-chip { display: block; flex-shrink: 1; font-weight: var(--font-weight-regular); }
+/* Preserve the label’s intrinsic contribution so hiding it cannot shrink the bubble and lock it hidden. */
+.msg-sender[data-owner-hidden] > .gg-chip { visibility: hidden; padding-inline: 0; margin-left: -6px; }
+
+/* 时间:标注字号的灰字,钉在气泡右下角。 */
+.msg-time {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--font-caption);
+  line-height: var(--lh-caption);
+  color: var(--muted-fg);
+  white-space: nowrap;
+  user-select: none;
+}
+.msg-time[data-mine] { color: var(--text-on-bubble-muted); }
+.msg-time[data-inline] { position: absolute; right: 12px; bottom: 5px; }
+.msg-time:not([data-inline]) { display: flex; align-self: flex-end; margin-top: 2px; }
+[data-message-reply-footer] { --msg-reply-room: calc(var(--lh-caption) + 4px); }
+
+/* 给内嵌时间留位:正文最后一行末尾放一段看不见的、和时间一样宽的文字。末行放得下 ⇒ 时间和它同一行;放不下 ⇒ 这段自己折到
+   下一行,时间落在那一行。内容由气泡写进 --msg-time-room(时间文本本身,所以宽度永远对得上)。 */
+.msg-time-room-inline::after,
+.msg-time-room .gg-md > :is(p, h1, h2, h3, h4, h5, h6):last-child::after,
+.msg-time-room .gg-md > :is(ul, ol):last-child > li:last-child::after,
+.msg-time-room .gg-md > :is(ul, ol):last-child > li:last-child > p:last-child::after,
+.msg-time-room .gg-md > blockquote:last-child > p:last-child::after {
+  content: var(--msg-time-room);
+  display: inline-block;
+  visibility: hidden;
+  padding-left: calc(10px + var(--msg-reply-room, 0px));
+  font-size: var(--font-caption);
+  line-height: 1;
+  white-space: nowrap;
+}
+.msg-time-room .gg-md > :is(ul, ol):last-child > li:last-child:has(> p:last-child)::after { content: none; }
+/* 正文以代码块、表格、图之类收尾:末行没有文字可挂,时间另起一行。 */
+.msg-time-room:has(.gg-md > :last-child:not(p, h1, h2, h3, h4, h5, h6, ul, ol, blockquote)) { padding-bottom: var(--lh-caption); }
+
+/* 组尾那条(或单独一条)的小尾巴,长在头像那一侧的下角(照 Telegram)。底色跟气泡走(inherit 到气泡的内联 background)。
+   尾巴只画气泡外面那 8px 弯角,贴着气泡边、不与气泡重叠;那一角改成直角接上它。
+   ❌ 别让尾巴伸进气泡里盖圆角:半透明气泡(助理页的玻璃底)重叠处会画两遍,露出一块深色方块。我方气泡镜像到右侧。 */
+[data-bubble-tail='other'] { border-bottom-left-radius: 0 !important; }
+[data-bubble-tail='mine'] { border-bottom-right-radius: 0 !important; }
+[data-bubble-tail]::before {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: -8px;
+  width: 8px;
+  height: 17px;
+  background: inherit;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 14 17'%3E%3Cpath d='M8 0C8 9 5 14 0 17H14V0Z'/%3E%3C/svg%3E") no-repeat left bottom / 14px 17px;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 14 17'%3E%3Cpath d='M8 0C8 9 5 14 0 17H14V0Z'/%3E%3C/svg%3E") no-repeat left bottom / 14px 17px;
+  pointer-events: none;
+}
+[data-bubble-tail='mine']::before { left: auto; right: -8px; transform: scaleX(-1); }

@@ -4,6 +4,8 @@
 
     <application
         android:allowBackup="true"
+        android:fullBackupContent="@xml/backup_rules"
+        android:dataExtractionRules="@xml/data_extraction_rules"
         android:usesCleartextTraffic="${guguUsesCleartextTraffic}"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
@@ -54,6 +56,13 @@
                 <data android:mimeType="text/*" />
             </intent-filter>
 
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="${guguLinkScheme}" />
+            </intent-filter>
+
             <!-- @@@server-login-app-link —— `gugu-server login` 打出的确认链接直接进咕咕:页面里以 App 自己的登录批准那台机器
                  (apps/desktop/src/lib/inAppLinks.ts → mobile/server-login),不再走网页的邮箱验证码。主机 = 这个包连的库
                  (build.gradle 的 guguDbHost)。autoVerify:系统装包时去读那个域名的 /.well-known/assetlinks.json,包名 + 签名对上
@@ -76,6 +85,14 @@
              挂一条用户看得见的常驻通知,换一条不会被掐的连接。
              插件自带的用途说明写的是它作者的场景(SIP 服务器),这句话系统与应用商店都会读,
              所以换成咕咕自己的;同时去掉插件声明里的 microphone —— 咕咕在后台不录音。 -->
+        <service android:name=".GuguAgentService" android:exported="false" android:foregroundServiceType="specialUse">
+            <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Executes a task explicitly started by the user on this phone, including model requests and authorized native tools." />
+        </service>
+        <service android:name=".GuguAgentHostService" android:exported="false" android:foregroundServiceType="specialUse">
+            <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Hosts the user's phone task agents, keeping their message inbox and explicitly authorized local tools connected while enabled." />
+        </service>
         <service
             android:name="ar.com.anura.plugins.backgroundmode.BackgroundModeService"
             android:foregroundServiceType="specialUse"
@@ -103,6 +120,7 @@
         <activity
             android:name=".HealthRationaleActivity"
             android:label="@string/health_rationale_title"
+            android:theme="@style/AppTheme.HealthRationale"
             android:exported="true">
             <intent-filter>
                 <action android:name="androidx.health.ACTION_SHOW_PERMISSIONS_RATIONALE" />

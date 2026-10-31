@@ -12,20 +12,20 @@ import HiddenToolsSettingsCard from './HiddenToolsSettingsCard';
 import InterfaceSettingsCard from './InterfaceSettingsCard';
 import KeyboardSettingsCard from './KeyboardSettingsCard';
 import NotificationSettingsCard from './NotificationSettingsCard';
-import RepositorySettingsCard from './RepositorySettingsCard';
-import ResourceMonitorSettingsCard from './ResourceMonitorSettingsCard';
+import { MachineSettingsCard } from './MachineSettingsCard';
+import { ResourceMonitorSettingsPage } from './ResourceMonitorSettingsPage';
 import SidebarMetadataSettingsCard from './SidebarMetadataSettingsCard';
 import {
   AutoApproveByDefaultRow,
   AutoGenerateSessionNamesRow,
   AutoTrustWorktreesRow,
-  EnableTmuxRow,
   PreserveSessionNameCapitalizationRow,
   SessionTitleInstructionsRow,
   SessionTitleModelRow,
 } from './SessionSettingsRows';
 import { SidebarTintRow } from './SidebarTintRow';
 import TerminalSettingsCard from './TerminalSettingsCard';
+import { useTerminalEnabled } from '../use-terminal-enabled';
 import ChatViewCard from './ChatViewCard';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
 import { DeviceScopeProvider } from '@renderer/features/remote-hosts/device-scope-picker';
@@ -38,17 +38,12 @@ import { CloudConnectorsSettings, HomeConnectorsSettings } from '../../assistant
 // Tab page components
 // ---------------------------------------------------------------------------
 
-/**
- * #6264 这一页只有「默认 tmux」按机器(与「仓库」页共用一份选择):页说明照旧,那一行标题旁标出机器名。
- * 规则:整页按机器 → remoteDescription 把机器名写进说明;只有个别行按机器 → 那一行挂机器名;不按机器的页什么都不加。
- */
 function GeneralSettingsPage() {
   const { translate } = useSessionMessages();
   return (
     <SettingsPage>
       <PageHeader
         title={translate('settings.general')}
-        description={translate('settings.generalDescription')}
       />
       <SettingsGroup>
         <AutoGenerateSessionNamesRow />
@@ -57,48 +52,29 @@ function GeneralSettingsPage() {
         <AutoApproveByDefaultRow />
         <AutoTrustWorktreesRow />
         <PreserveSessionNameCapitalizationRow />
-        <DeviceSettingsScope>
-          <EnableTmuxRow />
-        </DeviceSettingsScope>
       </SettingsGroup>
-      <NotificationSettingsCard />
-    </SettingsPage>
-  );
-}
-
-/**
- * #6264 仓库是**那台机器上**的项目目录与 git 行为:标题右边一个机器选择器(与「通用 → 默认 tmux」共用一份选择),默认本机。
- */
-function RepositorySettingsPage() {
-  const { translate } = useSessionMessages();
-  return (
-    <SettingsPage>
-      <PageHeader
-        title={translate('settings.repository')}
-        description={translate('settings.repositoryDescription')}
-        remoteDescription={(device) => translate('deviceScope.subtitle.repository', { device })}
-      />
       <DeviceSettingsScope>
-        <RepositorySettingsCard />
+        <MachineSettingsCard />
       </DeviceSettingsScope>
+      <NotificationSettingsCard />
     </SettingsPage>
   );
 }
 
 function InterfaceSettingsPage() {
   const { translate } = useSessionMessages();
+  // 「终端」开关关着:终端那张卡不出现(开关在设置 → 通用)。
+  const terminalEnabled = useTerminalEnabled();
   return (
     <SettingsPage>
       <PageHeader
         title={translate('settings.interface')}
-        description={translate('settings.interfaceDescription')}
       />
       <SettingsGroup>
         <SidebarTintRow />
-        <ResourceMonitorSettingsCard />
       </SettingsGroup>
       <ChatViewCard />
-      <TerminalSettingsCard />
+      {terminalEnabled ? <TerminalSettingsCard /> : null}
       <SidebarMetadataSettingsCard />
       <InterfaceSettingsCard />
       <SettingsGroup title={translate('settings.keyboardShortcuts')}>
@@ -117,7 +93,6 @@ function BrowserSettingsPage() {
     <SettingsPage>
       <PageHeader
         title={translate('settings.browser')}
-        description={translate('settings.browserDescription')}
       />
       <BrowserSettingsCard />
     </SettingsPage>
@@ -129,7 +104,7 @@ function BrowserSettingsPage() {
 // ---------------------------------------------------------------------------
 
 /** 设置弹窗里由本页画的那几格(product spec);键与壳的 ActiveSection 同名。 */
-export type SessionSettingsSection = 'sessions' | 'interface' | 'repository' | 'browser' | 'subscriptions' | 'connectors';
+export type SessionSettingsSection = 'sessions' | 'interface' | 'browser' | 'subscriptions' | 'connectors' | 'resource-monitor';
 
 /** 个别格要壳告诉它的事实(「连接应用」要知道咕咕住的那台云端宿主是谁);其余格不用。 */
 export type SessionSettingsContext = {
@@ -137,23 +112,20 @@ export type SessionSettingsContext = {
   /** 咕咕住哪(云上 / 某台电脑);给了就按它读写集成(住电脑 = 那台电脑自己的),不给才退回 cloudDeviceId 那台云端。 */
   home?: AssistantHomePlace | null;
   assistantName?: string;
+  panelNavigation?: boolean;
 };
 
-// 按机器的几页(会话里的默认 tmux、仓库、订阅)在页首画机器选择器,共用一份选择(settingsDeviceStore);
-// 界面、浏览器是这台电脑自己的,不画。
-const byDevice = (page: ReactNode) => <DeviceScopeProvider store={settingsDeviceStore}>{page}</DeviceScopeProvider>;
-
 const SECTION_CONTENT: Record<SessionSettingsSection, (context: SessionSettingsContext) => ReactNode> = {
-  sessions: () => byDevice(<GeneralSettingsPage />),
+  sessions: () => <GeneralSettingsPage />,
   interface: () => <InterfaceSettingsPage />,
-  repository: () => byDevice(<RepositorySettingsPage />),
+  'resource-monitor': () => <ResourceMonitorSettingsPage />,
   browser: () => <BrowserSettingsPage />,
-  // 订阅登在哪台机器上就只在那台读得到(product spec):同一个机器选择器。
-  subscriptions: () => byDevice(<SubscriptionsSettingsPage />),
+  // 订阅与任务里的机器组共用一份机器选择。
+  subscriptions: () => <DeviceScopeProvider store={settingsDeviceStore}><SubscriptionsSettingsPage /></DeviceScopeProvider>,
   // 咕咕那一组的「连接应用 · 云端」:资源库「集成」的同一份数据,机器钉死在它住的那台(助理 App 的资料页读的也是它)。
-  connectors: ({ cloudDeviceId, home, assistantName }) =>
+  connectors: ({ cloudDeviceId, home, assistantName, panelNavigation }) =>
     home ? (
-      <HomeConnectorsSettings home={home} assistantName={assistantName ?? ''} />
+      <HomeConnectorsSettings home={home} assistantName={assistantName ?? ''} panelNavigation={panelNavigation} />
     ) : cloudDeviceId ? (
       <CloudConnectorsSettings cloudDeviceId={cloudDeviceId} assistantName={assistantName ?? ''} />
     ) : null,

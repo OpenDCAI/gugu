@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { rendererLogger } from '@/lib/log'
 import {
@@ -12,22 +12,31 @@ import type {
   SessionpageSessionCreateModels,
   SessionpageSessionCreateOptions,
   SessionpageSessionSummary,
+  SessionpageSessionCreateRequest,
+  SessionpageSessionCreateResult,
 } from '@gugu/session-core/session-record/contract'
 import { Thread } from '@/components/assistant-ui/thread.aui'
 import { ComposerExtrasProvider } from '@/components/assistant-ui/composer-extras'
 import { Button } from '@/components/ui/Button'
-import { AgentWatchNote, AgentWatchScreen } from './AgentWatchChrome'
+import { isAgentHostDevice, isPhoneDevice } from '@gugu/core/cloud/devices'
+import { useAuth } from '@/store/auth'
+import { forgetPhoneSessionCreate, readPhoneSessionCreate, rememberPhoneSessionCreate } from '../local-agent/phoneSessionCreate'
+import { AgentWatchScreen } from './AgentWatchChrome'
 import { LiveGlyph } from './StatusGlyph'
 import { CreateOptionsPill } from './CreateOptionsPill'
+import { useMachineLabel } from './useMachineLabel'
 import { OfflineNote } from './OfflineNote'
 import { CloudComputerNote } from './CloudComputerNote'
 import { useCloudComputerWake } from '../../hooks/useWakeCloudComputer'
 import { guguReasonInText, remoteFailureKind } from '@gugu/session-core/session-record/contract'
 import { guguReasonText } from '@renderer/features/sessions/gugu-reason'
 import { translateSessionMessage } from '@renderer/localization/locale-store'
-import { SessionpageRpcError, createSession, fetchCreateModels, fetchCreateOptions } from './sessionpage-rpc'
+import { SessionpageRpcError, createSession, fetchCreateModels, fetchCreateOptions, createPhoneSession, fetchPhoneCreateModels, fetchPhoneCreateOptions } from './sessionpage-rpc'
+import { bindCreationDraft, mobileCreationDraftKey } from './create-session-draft'
+import './task-flow-catalog'
 import {
   createBlocker,
+  createModelNeedsSignIn,
   initialSelection,
   lastUsedDropped,
   reconcileModel,
@@ -42,7 +51,6 @@ const createLog = rendererLogger('mobile/agent-watch')
 const LAST_USED_ITEM_LABEL_KEYS: Record<LastUsedItem, string> = {
   project: 'agentWatch.create.project',
   harness: 'agentWatch.create.harness',
-  sessionView: 'agentWatch.create.view',
   permissionMode: 'agentWatch.create.permissionLabel',
   model: 'agentWatch.create.model',
   effort: 'agentWatch.create.effort',
@@ -77,48 +85,65 @@ export function CreateSessionPage({
   /** 群成员里点的「新建 Agent」:建出来的 agent 一出生就进这个群(请求的 chatId)。null = 不进群。 */
   birthGroup?: { chatId: string; name: string } | null
   onClearBirthGroup?: () => void
-  onBack: () => void
+  onBack?: () => void
   /** 建成了:带着攒好的摘要与那句话跳进时间线(那句由时间线页接着画)。 */
-  onCreated: (session: SessionpageSessionSummary, firstPrompt: string) => void
+  onCreated: (session: SessionpageSessionSummary, firstPrompt: string, result?: SessionpageSessionCreateResult) => void
 }) {
   const { t } = useTranslation('main')
-  const online = device.is_online
+  const { t: tFlow } = useTranslation('mobileTaskFlow')
+  const { label: machineLabel } = useMachineLabel()
+  const ownerId = useAuth().user?.id ?? null
+  const phone = isPhoneDevice(device)
+  const online = device.is_online && (!phone || isAgentHostDevice(device))
+  const draft = useRef<ReturnType<typeof bindCreationDraft> | null>(null)
+  // Completion still settles the real request after leaving; only this page may navigate or alter its composer.
+  const page = useMemo(() => ({ active: true, deviceId: device.device_id, ownerId }), [device.device_id, ownerId])
+  useEffect(() => {
+    page.active = true
+    return () => { page.active = false }
+  }, [page])
   // #7199 在睡着的云电脑上新建 = 叫醒它;醒了(在线)选项照常读出来。
   const { issue: wakeIssue, dropped: wakeDropped, retry: retryWake } = useCloudComputerWake(device)
   const [options, setOptions] = useState<SessionpageSessionCreateOptions | null>(null)
   const [optionsError, setOptionsError] = useState<string | null>(null)
   const [reloadKey, setReloadKey] = useState(0)
-  const [selection, setSelection] = useState<CreateSelection>({ projectId: null, harness: null, model: null, sessionView: null, permissionMode: null, effort: null })
+  const [selection, setSelection] = useState<CreateSelection>({ projectId: null, harness: null, model: null, permissionMode: null, effort: null })
   /** 人动过选择没有 —— 动过之后「上次那一套没沿用上」就不再说(那是人自己的改动)。 */
   const [touched, setTouched] = useState(false)
-  /** 选定 harness 的模型目录 —— 按 harness 现探,换家就重读;探不到不拦发送(默认档照建)。 */
+  /** 与桌面创建框同一条：明确点选的自家默认不被自动默认覆盖；换 harness 后重算。 */
+  const modelTouched = useRef(false)
+  /** 选定 harness 的模型目录；自动默认等这份读数，人明确点选后沿用其选择。 */
   const [models, setModels] = useState<SessionpageSessionCreateModels | null>(null)
   const [modelsState, setModelsState] = useState<'idle' | 'loading' | 'ready' | 'failed'>('idle')
   /** 正在建的那句话;建成或失败后清空。它同时也是线程里唯一那条(乐观显示的)用户消息。 */
   const [pendingText, setPendingText] = useState<string | null>(null)
   const [createError, setCreateError] = useState<string | null>(null)
+  const [phoneAttempt, setPhoneAttempt] = useState<SessionpageSessionCreateRequest | null>(null)
 
   // 机器离线时**不发 RPC**(与会话页同一条):发过去只会等到超时,而超时长得像「机器没响应」。
   useEffect(() => {
-    if (!online) return
-    let cancelled = false
     setOptions(null)
     setOptionsError(null)
+    if (!online) return
+    let cancelled = false
     setTouched(false)
-    fetchCreateOptions(device.device_id)
+    const readOptions = phone ? fetchPhoneCreateOptions : fetchCreateOptions
+    readOptions(device.device_id)
       .then((next) => {
         if (cancelled) return
+        const attempt = phone && ownerId ? readPhoneSessionCreate(ownerId, device.device_id) : null
+        modelTouched.current = attempt !== null
+        setPhoneAttempt(attempt)
         setOptions(next)
-        setSelection(initialSelection(next))
+        setSelection(attempt ? { ...initialSelection(next), ...(attempt.projectId ? { projectId: attempt.projectId } : {}), harness: attempt.harness, model: attempt.model ?? null } : initialSelection(next))
       })
       .catch((err) => { if (!cancelled) setOptionsError(describe(err)) })
     return () => { cancelled = true }
-  }, [device.device_id, online, reloadKey])
+  }, [device.device_id, online, reloadKey, phone, ownerId])
 
-  // 目录跟着 harness 走。⚠️ 目录要在那台机器上起一次 harness 进程探,几秒是常态 —— 所以它**不**挡发送:
-  // 人不选模型就按默认建,目录只是「想换的话有哪些」。
+  // 目录跟着 harness 走；复用这次读数定默认，不另发可用性探针。
+  // 展示不由手机选:那台电脑按自己的「终端」开关定。
   const harness = selection.harness
-  const sessionView = selection.sessionView
   const model = selection.model
   useEffect(() => {
     if (!online || !harness) { setModels(null); setModelsState('idle'); return }
@@ -127,19 +152,29 @@ export function CreateSessionPage({
     // 清了列表会在人刚点完那一下闪没,而且 reconcile 会把刚选的模型判成「不在目录里」清掉。
     setModels((prev) => (prev && prev.harness === harness ? prev : null))
     setModelsState('loading')
-    fetchCreateModels(device.device_id, harness, sessionView, model)
+    const readModels = phone ? fetchPhoneCreateModels : fetchCreateModels
+    readModels(device.device_id, harness, null, model)
       .then((next) => {
         if (cancelled) return
         setModels(next)
         setModelsState('ready')
-        setSelection((current) => reconcileModel(current, next))
+        setSelection((current) => reconcileModel(current, next, modelTouched.current, options?.lastUsed))
       })
       .catch(() => { if (!cancelled) setModelsState('failed') })
     return () => { cancelled = true }
-  }, [device.device_id, online, harness, sessionView, model, reloadKey])
+  }, [device.device_id, online, harness, model, reloadKey, phone, options])
 
   const blocker = options ? createBlocker(options, selection) : null
+  const readingModelDefault = !modelTouched.current && (!models || models.harness !== harness) && modelsState !== 'failed'
+  const modelNeedsSignIn = !phoneAttempt && createModelNeedsSignIn(selection, models)
+  const modelNotice = modelNeedsSignIn ? t('agentWatch.create.modelHarnessState.auth-required') : readingModelDefault ? t('agentWatch.create.modelLoading') : null
   const creating = pendingText !== null
+  const canSubmit = online && options !== null && optionsError === null && blocker === null && !readingModelDefault && !modelNeedsSignIn
+  const reloadOptions = () => {
+    setOptions(null)
+    setOptionsError(null)
+    setReloadKey((key) => key + 1)
+  }
 
   const messages = useMemo<ThreadMessageLike[]>(
     () => (pendingText ? [{ role: 'user', content: [{ type: 'text', text: pendingText }] }] : []),
@@ -154,35 +189,59 @@ export function CreateSessionPage({
       const first = message.content[0]
       if (!first || first.type !== 'text') throw new Error(t('agentWatch.composer.textOnly'))
       const text = first.text.trim()
+      const submittedDraft = draft.current
+      submittedDraft?.hold(first.text)
       // 还没读到选项 / 还有拦着的原因 → 如实报,❌ 不带着空 projectId 发过去让机器来拒。
-      if (!options || blocker) {
-        setCreateError(t(`agentWatch.create.blocked.${blocker ?? 'loading'}`))
+      if (!online || !options || optionsError || blocker || readingModelDefault || modelNeedsSignIn) {
+        setCreateError(blocker ? t(`agentWatch.create.blocked.${blocker}`) : modelNotice ?? t('agentWatch.create.blocked.loading'))
         runtime.thread.composer.setText(first.text)
+        submittedDraft?.restore(first.text)
         return
       }
       setCreateError(null)
       setPendingText(text)
+      let submittedPhoneRequest: SessionpageSessionCreateRequest | null = null
       try {
-        const result = await createSession(device.device_id, {
+        if (phone && !ownerId) throw new Error('请先登录后创建 Agent')
+        if (phoneAttempt && phoneAttempt.prompt !== text) throw new Error('上次创建尚未确认，请先发送原来的任务以继续同一次创建')
+        const request: SessionpageSessionCreateRequest = phoneAttempt ?? {
+          ...(phone ? { clientRequestId: crypto.randomUUID() } : {}),
           projectId: selection.projectId!,
           harness: selection.harness!,
           prompt: text,
           ...(selection.model ? { model: selection.model } : {}),
-          ...(selection.sessionView ? { sessionView: selection.sessionView } : {}),
           ...(selection.permissionMode ? { permissionMode: selection.permissionMode } : {}),
           ...(selection.effort ? { effort: selection.effort } : {}),
           ...(birthGroup ? { chatId: birthGroup.chatId } : {}),
-        })
-        onCreated(result.session ?? toSessionSummary(result, selection.harness!, new Date().toISOString()), text)
+        }
+        if (phone) {
+          rememberPhoneSessionCreate(ownerId!, device.device_id, request)
+          submittedPhoneRequest = request
+          setPhoneAttempt(request)
+        }
+        const result = await (phone ? createPhoneSession : createSession)(device.device_id, request)
+        if (phone) {
+          if (!result.session?.supported || result.session.conversationId !== result.conversationId) throw new Error('手机尚未返回完整的任务记录，请继续同一次创建')
+          forgetPhoneSessionCreate(ownerId!, device.device_id, request)
+          if (page.active) setPhoneAttempt(null)
+        }
+        submittedDraft?.accepted(text)
+        if (page.active) onCreated(result.session ?? toSessionSummary(result, selection.harness!, new Date().toISOString()), text, result)
       } catch (err) {
-        setPendingText(null)
         // 机器那边装 agent 没装成:原因进日志,人看到的是能照做的下一步(按本端语言,❌ 机器那边拼的双语原文)。
         // 其余原因同理:按原因码归类说人话(remoteFailureKind),原文只进日志。
         createLog.warn({ error: String(err) }, 'create session failed')
-        const code = err instanceof SessionpageRpcError ? err.code : null
+        const code = err instanceof SessionpageRpcError ? err.code : err instanceof Error && 'code' in err && typeof err.code === 'string' ? err.code : null
+        if (phone && ownerId && submittedPhoneRequest && code === 'phone_create_rejected') {
+          // The host explicitly proved it rejected before any durable provision was admitted.
+          forgetPhoneSessionCreate(ownerId, device.device_id, submittedPhoneRequest)
+          if (page.active) setPhoneAttempt(null)
+        }
+        if (!page.active) return
+        setPendingText(null)
         // 签咕咕额度被拒:那台机器报的是原因码(#7103),按原因说(与新建框咕咕那一组同一份文案)。
         const gugu = guguReasonInText(code)
-        setCreateError(code === 'harness_install_failed'
+        setCreateError(phone ? describe(err) : code === 'harness_install_failed'
           ? t('agentWatch.create.agentInstallFailed')
           : code === 'harness_runtime_missing'
             ? t('agentWatch.create.agentRuntimeMissing')
@@ -190,43 +249,38 @@ export function CreateSessionPage({
               ? guguReasonText(gugu, translateSessionMessage)
               : t(`agentWatch.create.failure.${remoteFailureKind(code)}`))
         // 把那句话还回去。assistant-ui 发送时已经清空了输入框,这一步不做就等于吞掉用户输入。
-        runtime.thread.composer.setText(first.text)
+        submittedDraft?.restore(phoneAttempt?.prompt ?? first.text)
+        if (!submittedDraft && !runtime.thread.composer.getState().text) runtime.thread.composer.setText(phoneAttempt?.prompt ?? first.text)
       }
     },
   })
 
-  // 空线程的欢迎语(官方那句是「这条会话还没有内容」,对新建页口气不对)。所有 hook 都在这条早返回之前。
+  useEffect(() => {
+    if (!ownerId) return
+    const binding = bindCreationDraft(runtime.thread.composer, mobileCreationDraftKey(ownerId))
+    draft.current = binding
+    return () => {
+      binding.dispose()
+      if (draft.current === binding) draft.current = null
+    }
+  }, [ownerId, runtime.thread.composer])
+
+  useEffect(() => {
+    if (phoneAttempt && pendingText === null && !runtime.thread.composer.getState().text) runtime.thread.composer.setText(phoneAttempt.prompt)
+  }, [phoneAttempt, pendingText, runtime.thread.composer])
+
+  // The header owns the page title and machine; the empty thread only explains the first action.
   const Welcome = useMemo(
     () =>
       function CreateWelcome() {
         return (
-          <div className="aui-thread-welcome-root mb-6 flex flex-col items-center px-4 text-center">
-            <h1 className="aui-thread-welcome-message-inner text-lg font-medium tracking-tight">
-              {t('agentWatch.create.welcome', { machine: device.label })}
-            </h1>
-            <p className="aui-thread-welcome-hint text-muted-foreground mt-1 text-sm">
-              {t('agentWatch.create.welcomeHint')}
-            </p>
+          <div className="aui-thread-welcome-root gg-aw-create-intro">
+            <p className="aui-thread-welcome-hint">{t('agentWatch.create.welcomeHint')}</p>
           </div>
         )
       },
-    [t, device.label],
+    [t],
   )
-
-  if (!online) {
-    return (
-      <AgentWatchScreen
-        title={t('agentWatch.create.title')}
-        subtitle={<span>{device.label}</span>}
-        onBack={onBack}
-        testId="agent-watch-create-page"
-      >
-        {device.cloud_computer === 'asleep' || device.cloud_computer === 'waking'
-          ? <CloudComputerNote device={device} issue={wakeIssue} dropped={wakeDropped} onRetry={retryWake} />
-          : <OfflineNote lastSeenAt={device.last_seen_at} />}
-      </AgentWatchScreen>
-    )
-  }
 
   const errorNotice = createError ? (
     <div
@@ -250,18 +304,36 @@ export function CreateSessionPage({
 
   // 「为什么还不能发」钉在输入框上方,与失败横幅同一位置 —— 人看输入框时它就在眼前。
   // ⚠️ 这是**说明**,不是错误:机器上没项目是常态,❌ 不用报错的红。
-  const blockerNotice = options && blocker ? (
-    <div className="gg-aw-create-blocker" data-testid="agent-watch-create-blocker" data-blocker={blocker}>
-      {t(`agentWatch.create.blocked.${blocker}`)}
+  const blockerNotice = options && (blocker || modelNotice) ? (
+    <div className="gg-aw-create-blocker" data-testid="agent-watch-create-blocker" data-blocker={blocker ?? (modelNeedsSignIn ? 'model_auth_required' : 'loading_model')}>
+      {blocker ? t(`agentWatch.create.blocked.${blocker}`) : modelNotice}
+    </div>
+  ) : null
+  const pendingCreationNotice = phoneAttempt && !creating ? (
+    <div className="gg-aw-create-blocker" role="status" data-testid="agent-watch-create-pending">
+      <div>{tFlow('pendingCreation')}</div>
+      <details>
+        <summary className="min-h-[var(--control-h-touch)] cursor-pointer py-3">{tFlow('originalTask')}</summary>
+        <div className="max-h-32 overflow-y-auto whitespace-pre-wrap break-words">{phoneAttempt.prompt}</div>
+      </details>
+    </div>
+  ) : null
+  const optionsNotice = online && (!options || optionsError) ? (
+    <div className={optionsError ? 'gg-aw-action-error' : 'gg-aw-create-blocker gg-aw-create-birth-group'} role={optionsError ? 'alert' : 'status'} data-testid={optionsError ? 'agent-watch-create-options-error' : 'agent-watch-create-options-loading'}>
+      <span>{optionsError ? t('agentWatch.create.optionsFailed') : t('agentWatch.create.loadingOptions')}</span>
+      {optionsError ? <span className="gg-aw-action-error-detail">{optionsError}</span> : null}
+      <Button variant="ghost" size="sm" onClick={reloadOptions} data-testid="agent-watch-create-options-retry">{t('agentWatch.timeline.reload')}</Button>
     </div>
   ) : null
 
   // 生在哪个群里:与上面同一种说明口气,带一个「不加入」。
-  const birthGroupNotice = birthGroup ? (
+  const requestedGroup = phoneAttempt ? phoneAttempt.chatId : birthGroup?.chatId
+  const groupName = requestedGroup === birthGroup?.chatId ? birthGroup?.name : '上次的群聊'
+  const birthGroupNotice = requestedGroup ? (
     <div className="gg-aw-create-blocker gg-aw-create-birth-group" data-testid="agent-watch-create-birth-group">
-      <span>{t('agentWatch.create.birthGroup', { name: birthGroup.name })}</span>
+      <span>{t('agentWatch.create.birthGroup', { name: groupName })}</span>
       {onClearBirthGroup ? (
-        <Button variant="ghost" size="sm" onClick={onClearBirthGroup} disabled={creating}>
+        <Button variant="ghost" size="sm" onClick={onClearBirthGroup} disabled={creating || phoneAttempt !== null}>
           {t('agentWatch.create.birthGroupSkip')}
         </Button>
       ) : null}
@@ -286,7 +358,7 @@ export function CreateSessionPage({
    */
   const busyLabel = creating
     ? t('agentWatch.create.creating')
-    : !options && !optionsError
+    : online && !options && !optionsError
       ? t('agentWatch.create.loadingOptions')
       : null
   const subtitle = busyLabel ? (
@@ -295,7 +367,7 @@ export function CreateSessionPage({
       <span>{busyLabel}</span>
     </span>
   ) : (
-    <span>{device.label}</span>
+    <span>{machineLabel(device)}</span>
   )
 
   return (
@@ -304,20 +376,11 @@ export function CreateSessionPage({
       subtitle={subtitle}
       onBack={onBack}
       testId="agent-watch-create-page"
-      bodyFill={!optionsError}
+      bodyFill
     >
-      {optionsError ? (
-        <AgentWatchNote
-          title={t('agentWatch.create.optionsFailed')}
-          detail={optionsError}
-          tone="danger"
-          testId="agent-watch-create-options-error"
-        >
-          <Button variant="secondary" size="lg" onClick={() => setReloadKey((k) => k + 1)}>
-            {t('agentWatch.timeline.reload')}
-          </Button>
-        </AgentWatchNote>
-      ) : (
+      {!online ? device.cloud_computer === 'asleep' || device.cloud_computer === 'waking'
+        ? <CloudComputerNote device={device} issue={wakeIssue} dropped={wakeDropped} onRetry={retryWake} />
+        : <OfflineNote lastSeenAt={device.last_seen_at} phone={phone} /> : null}
         <AssistantRuntimeProvider runtime={runtime}>
           <div className="gg-aw-thread-host" data-testid="agent-watch-create-thread">
             <ComposerExtrasProvider
@@ -325,31 +388,37 @@ export function CreateSessionPage({
               extras={
                 options ? (
                   <CreateOptionsPill
+                    phoneHost={phone}
                     options={options}
                     selection={selection}
-                    onChange={(next) => { setTouched(true); setSelection(next) }}
-                    busy={creating}
+                    onChange={(next, modelPicked) => {
+                      modelTouched.current = next.harness === selection.harness && (modelTouched.current || modelPicked === true)
+                      setTouched(true)
+                      setSelection(next)
+                    }}
+                    busy={!online || optionsError !== null || creating || phoneAttempt !== null}
                     models={models}
                     modelsState={modelsState}
                   />
                 ) : null
               }
               above={
-                errorNotice || blockerNotice || lastUsedNotice || birthGroupNotice ? (
+                errorNotice || optionsNotice || blockerNotice || pendingCreationNotice || lastUsedNotice || birthGroupNotice ? (
                   <div className="gg-aw-thread-extras">
                     {errorNotice}
+                    {optionsNotice}
                     {blockerNotice}
+                    {pendingCreationNotice}
                     {lastUsedNotice}
                     {birthGroupNotice}
                   </div>
                 ) : null
               }
             >
-              <Thread components={{ Welcome }} autoFocus={false} />
+              <Thread components={{ Welcome }} autoFocus={false} submitOnEnter={false} sendDisabled={!canSubmit} />
             </ComposerExtrasProvider>
           </div>
         </AssistantRuntimeProvider>
-      )}
     </AgentWatchScreen>
   )
 }

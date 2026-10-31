@@ -26,7 +26,7 @@ const phone = (id: string, overrides: Omit<Partial<Device>, 'capabilities'> = {}
   device(id, {
     platform: 'android',
     ...overrides,
-    capabilities: { host_kind: 'phone', ...(actions ? { actions: { v: 1, updated_at: '', actions: actions.map((a, i) => ({ name: `${a.group}.${i}`, title: '', ...a })) } } : {}) },
+    capabilities: { host_kind: 'phone', ...(actions ? { actions: { v: 1, actions: actions.map((a, i) => ({ name: `${a.group}.${i}`, title: '', ...a })) } } : {}) },
   })
 
 describe('设备页:不列它住的那台;本机 → 在线 → 离线', () => {
@@ -74,6 +74,15 @@ describe('是台什么设备、能不能随时调到', () => {
     expect(deviceKind(me)).toBe('this')
     expect(deviceAvailability('this', me)).toBe('notAllDay')
     expect(phones.find((d) => d.device_id === 'phone-other')!.is_current_device).toBe(false)
+  })
+
+  it('a phone with a native agent host is a run target and appears only once', () => {
+    const hosted = device('phone-me', { platform: 'android', capabilities: { host_kind: 'phone', host_runtime_capability: 1, runtimes: ['pi'] } })
+    const { machines, phones } = partitionPhones([device('mac'), hosted, phone('action-only')], 'phone-me')
+    expect(machines.map((row) => row.device_id)).toEqual(['mac', 'phone-me'])
+    expect(machines[1]?.is_current_device).toBe(true)
+    expect(phones.map((row) => row.device_id)).toEqual(['action-only'])
+    expect([...machines, ...phones]).toHaveLength(3)
   })
 })
 

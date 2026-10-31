@@ -1,4 +1,5 @@
 import { action, makeObservable, observable } from 'mobx';
+import type { PreparedChatFile } from '@shared/extensions/app-runtime-protocol';
 
 /**
  * 常驻扩展的页住在根层(extension-view-layer);会话里那一格、它的整页、群右栏那一格只是它此刻落在哪里。
@@ -18,9 +19,10 @@ import { action, makeObservable, observable } from 'mobx';
  * 没人看的页(绑定过的:一次也没绑上就被放下的不留,见 `release`)藏起来活着,回来时立刻就在、原样;每个 App 最多留 RESIDENT_PAGES_KEPT 张没人看的,
  * 再多就销毁最久没用的那张 —— 回到那里时新开一张,群里开着哪个文件由右栏自己记着(摩擦单 F29)。
  *
- * 认领文件开出来的页(群右栏「用 X 打开」、任务里认领文件的 tab)一个文件一份,见 `filePages`。
+ * 文件页同样常驻,按地方与文件各一份:回来时保留编辑器和同步副本,从不把另一份文件交给旧页。
  */
 export interface ExtensionViewClaim {
+  takeOpening?: () => PreparedChatFile | undefined;
   /** 认领方的身份;释放时核对,免得后来者被先前者的卸载误伤。 */
   token: number;
   /** The session this slot is in — absent for a slot in no session (a chat's side panel, the dock). */
@@ -31,29 +33,20 @@ export interface ExtensionViewClaim {
   /** 这一格的页签每个任务一份(manifest `perSession`):页属于 `sessionId` 那个任务,不跟着挪。 */
   perSession?: boolean;
   /**
-   * 这一格用这个 App 打开的那个群文件(「用 X 打开」)。有它,这个认领就开一张只属于这个文件的新页
-   * (`filePages`),页从第一个调用起 context.file 就是它,`files.open(ctx.file)` 一次就成。
+   * 这一格用这个 App 打开的群文件。页从第一个调用起 context.file 就是它,一生不换文件。
    */
   itemId?: string;
   /** 那一格的内容区。根层量它的框来摆页、报尺寸。 */
   element: HTMLElement;
 }
 
-/**
- * 为一个文件开的页(群右栏「用 X 打开」,摩擦单 F3):一个认领一张新页,绑的就是这个文件,
- * 页的一生不换文件;认领释放,页就没了。
- */
-export interface ExtensionFilePage {
-  kind: string;
-  claim: ExtensionViewClaim;
-}
-
 /** 一张常驻页:哪个 App 的哪一类 tab,住在哪个地方。 */
 export interface ExtensionResidentPage {
   key: string;
   kind: string;
-  /** `chat:<chatId>`(那个群的那张)、`session:<sessionId>`(每任务一份的那个任务的那张)或 `app`(其余那一张)—— 页的一生不变。 */
+  /** 群、每任务一份的任务或 App;文件页再带文件的 id。页的一生不变。 */
   place: string;
+  itemId?: string;
 }
 
 /** 每个 App 最多留几张没人看的常驻页(有格正认领着的不算,也从不销毁)。 */
@@ -63,9 +56,9 @@ export const RESIDENT_PAGES_KEPT = 3;
  * 一格属于的地方:群右栏那一格是它的群;每任务一份的页签在任务里那一格是那个任务;别处(会话里、它的整页)都是群以外那一张。
  * 每任务一份的页签不在任何任务里(整页、单独成窗)时也落到 `app`:那张页知道自己不在任务里,说一句就是。
  */
-export function residentPlace(target: { chatId?: string; sessionId?: string; perSession?: boolean }): string {
-  if (target.chatId) return `chat:${target.chatId}`;
-  return target.perSession && target.sessionId ? `session:${target.sessionId}` : 'app';
+export function residentPlace(target: { chatId?: string; sessionId?: string; perSession?: boolean; itemId?: string }): string {
+  const place = target.chatId ? `chat:${target.chatId}` : target.perSession && target.sessionId ? `session:${target.sessionId}` : 'app';
+  return target.itemId ? `${place}:file:${target.itemId}` : place;
 }
 
 export function residentPageKey(kind: string, place: string): string {
@@ -101,9 +94,6 @@ class ExtensionViewStore {
    * 不然切走一下角标就停了。只有这一格被关掉(provider dispose)才忘。
    */
   private readonly slotPages = observable.map<string, string>({}, { deep: false });
-  /** 为文件开的页,按认领的 token:每个认领一张,不进上面的栈(它不和谁共享)。 */
-  readonly filePages = observable.map<number, ExtensionFilePage>({}, { deep: false });
-
   /** Which page draws a claim once it is bound — token → webContents id — so a slot's toolbar reaches it. */
   private readonly surfaces = new Map<number, number>();
   /** Resident pages bound at least once: only these are kept while nobody looks (see `release`). */
@@ -116,9 +106,9 @@ class ExtensionViewStore {
   /** The page now drawing this claim is bound (the layer says so). A claim already released: nothing to note. */
   setSurface(token: number, webContentsId: number): void {
     const key = this.pageOfToken.get(token);
-    if (!key && !this.filePages.has(token)) return;
+    if (!key) return;
     this.surfaces.set(token, webContentsId);
-    if (key) this.boundPages.add(key);
+    this.boundPages.add(key);
   }
 
   /** A host-rendered page is ready without a guest webContents. Keep its draft when the slot moves. */
@@ -133,18 +123,16 @@ class ExtensionViewStore {
   }
 
   /**
-   * 带 `itemId` 的认领(「用 X 打开」一个群文件)开一张绑定这个文件的新页;不带的认领它那个地方的常驻页。
+   * 认领那个地方的页;带 `itemId` 时只认领那个文件的页,和 App 自己的页分开。
    */
   claim(kind: string, target: Omit<ExtensionViewClaim, 'token'>): number {
     const token = nextToken++;
     const claim = { ...target, token };
-    if (claim.itemId) {
-      this.filePages.set(token, { kind, claim });
-      return token;
-    }
     const place = residentPlace(claim);
     const key = residentPageKey(kind, place);
-    if (!this.residentPages.has(key)) this.residentPages.set(key, { key, kind, place });
+    if (!this.residentPages.has(key)) {
+      this.residentPages.set(key, { key, kind, place, ...(claim.itemId ? { itemId: claim.itemId } : {}) });
+    }
     this.usedAt.set(key, nextUse++);
     const stack = this.stacks.get(key) ?? [];
     stack.push(claim);
@@ -162,13 +150,12 @@ class ExtensionViewStore {
   }
 
   /** 那一格被关掉了。 */
-  forgetSlot(sessionId: string, tabId: string): void {
+  forgetSlot(sessionId: string | null, tabId: string): void {
     this.slotPages.delete(slotKey(sessionId, tabId));
   }
 
   release(kind: string, token: number): void {
     this.surfaces.delete(token);
-    if (this.filePages.delete(token)) return;
     const key = this.pageOfToken.get(token);
     this.pageOfToken.delete(token);
     const stack = key ? this.stacks.get(key) : undefined;

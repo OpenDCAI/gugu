@@ -1,4 +1,4 @@
-import { useEffect, type CSSProperties, type ReactNode } from 'react'
+import { type CSSProperties, type ReactNode } from 'react'
 import type { Dialog as DialogPrimitive } from '@base-ui/react/dialog'
 import { useTranslation } from 'react-i18next'
 import { cn } from '@/lib/cn'
@@ -30,6 +30,8 @@ const visuallyHidden =
 // accessible dialog semantics). Gugu keeps the public API, responsive geometry, motion, and tokens.
 
 export interface SheetProps {
+  open?: boolean
+  onClosed?: () => void
   /** Dismiss the sheet (backdrop click, the ✕, or Escape all call this). */
   onClose: () => void
   /**
@@ -82,6 +84,8 @@ export interface SheetProps {
 }
 
 export function Sheet({
+  open = true,
+  onClosed,
   onClose,
   onEscape,
   children,
@@ -100,22 +104,7 @@ export function Sheet({
 }: SheetProps) {
   const { t } = useTranslation()
   const mobile = useMobileShell()
-  const isTop = useBackLayer(() => { if (!onEscape?.()) onClose() })
-
-  // Keep the host-level Escape contract that existing Gugu modals rely on. Base UI also handles
-  // focus-scope Escape events; the call is intentionally idempotent because every close prop in Gugu
-  // is state-backed. This additionally supports legacy harnesses that dispatch a KeyboardEvent on
-  // `window` directly, where there is no bubbling target for Base UI to observe.
-  useEffect(() => {
-    const handleEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && isTop()) {
-        event.preventDefault()
-        if (!onEscape?.()) onClose()
-      }
-    }
-    window.addEventListener('keydown', handleEscape)
-    return () => window.removeEventListener('keydown', handleEscape)
-  }, [isTop, onClose, onEscape])
+  useBackLayer(() => { if (!onEscape?.()) onClose() }, open)
 
   const mobileStyle: CSSProperties = {
     width: '100%',
@@ -144,7 +133,8 @@ export function Sheet({
 
   return (
     <Dialog.Root
-      open
+      open={open}
+      onOpenChangeComplete={(next) => { if (!next) onClosed?.() }}
       disablePointerDismissal={!closeOnBackdrop}
       onOpenChange={(open, details) => {
         if (!open) {
@@ -156,9 +146,11 @@ export function Sheet({
         }
       }}
     >
-      <Dialog.Portal>
+      {open ? <Dialog.Portal>
         <Dialog.Backdrop
+          forceRender
           className={cn('gg-sheet-backdrop window-no-drag-region', sheetBackdropMotion)}
+          data-sheet-mobile={mobile ? 'true' : 'false'}
           style={{ zIndex }}
         />
         <Dialog.Viewport
@@ -191,7 +183,7 @@ export function Sheet({
             />
           </Dialog.Popup>
         </Dialog.Viewport>
-      </Dialog.Portal>
+      </Dialog.Portal> : null}
     </Dialog.Root>
   )
 }

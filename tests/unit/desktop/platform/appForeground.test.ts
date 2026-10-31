@@ -12,6 +12,7 @@ const source = readFileSync(resolve(process.cwd(), 'apps/desktop/src/platform/ca
 const electronSource = readFileSync(resolve(process.cwd(), 'apps/desktop/src/platform/electron.ts'), 'utf8')
 const preloadSource = readFileSync(resolve(process.cwd(), 'apps/desktop/electron/preload.ts'), 'utf8')
 const mainSource = readFileSync(resolve(process.cwd(), 'apps/desktop/electron/main.ts'), 'utf8')
+const resumeSource = readFileSync(resolve(process.cwd(), 'apps/desktop/electron/server/account-resume-wiring.ts'), 'utf8')
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0))
 
 describe('app foreground platform boundary', () => {
@@ -51,9 +52,23 @@ describe('app foreground platform boundary', () => {
   it('routes Electron focus and system wake to the renderer adapter', () => {
     expect(electronSource).toMatch(/onAppForeground/)
     expect(preloadSource).toMatch(/ipcRenderer\.on\('app:foreground'/)
-    expect(mainSource).toMatch(
-      /powerMonitor\.on\('resume',\s*\(\)\s*=>\s*\{[\s\S]*notifyRendererForeground\(\)/,
-    )
+    expect(mainSource).toContain('installNativeResumeSource(powerMonitor, notifyRendererForeground, resumeAccountMessaging)')
+    expect(resumeSource).toMatch(/power\.on\('resume',\s*\(\)\s*=>\s*\{\s*foreground\(\);\s*resume\('native-power'\)/)
+  })
+
+  it('answers Electron app-active from the host focus, not the never-hidden page', () => {
+    const unsubscribe = vi.fn()
+    const subscribeAppActive = vi.fn((_listener: (active: boolean) => void) => unsubscribe)
+    vi.stubGlobal('window', { electronAPI: { subscribeAppActive } })
+    const listener = vi.fn()
+    const stop = electronPlatform.subscribeAppActive!(listener)
+    subscribeAppActive.mock.calls[0]![0](false)
+    expect(listener).toHaveBeenCalledWith(false)
+    stop()
+    expect(unsubscribe).toHaveBeenCalledOnce()
+    vi.unstubAllGlobals()
+    expect(preloadSource).toMatch(/ipcRenderer\.invoke\('app:is-active'\)/)
+    expect(mainSource).toMatch(/app\.on\('browser-window-blur',\s*sendAppActive\)/)
   })
 
   it('reports exact handle removal failure without an unhandled rejection', async () => {

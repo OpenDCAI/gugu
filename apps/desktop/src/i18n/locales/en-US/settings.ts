@@ -47,16 +47,11 @@ export default {
     "uploadFailed": "Could not upload the avatar"
   },
   "channels": {
-    "intro": "Chat with your agent in WeChat, even when your computer is off.",
     "connected": "Connected",
-    "available": "Available",
-    "comingSoon": "Coming soon",
-    "connect": "Connect",
     "disconnect": "Disconnect",
     "wechat": "WeChat",
     "feishu": "Feishu",
     "dingtalk": "DingTalk",
-    "wechatHint": "Chat with an agent in WeChat's \"WeChat ClawBot\"",
     "wechatChatWith": "Chat with \"{{name}}\" in WeChat ClawBot",
     "wechatNoAgent": "Connected, no agent chosen yet",
     "connectedSince": "Connected {{time}}",
@@ -64,13 +59,10 @@ export default {
     "agentHint": "Messages from WeChat go to this agent; its replies go back to WeChat.",
     "pickAgent": "Choose an agent",
     "noAgents": "You have no agent yet. Create one, then come back to choose it.",
-    "notOpen": "Chat channels aren't available yet.",
-    "loadFailed": "Couldn't load chat channels",
-    "reload": "Retry",
     "actionFailed": "Couldn't save. Try again.",
-    "defaultChannel": "Default chat tool",
+    "defaultChannel": "App for reminders",
     "defaultChannelHint": "Proactive messages will also reach you here.",
-    "noDefaultChannel": "No default chat tool",
+    "noDefaultChannel": "No extra delivery",
     "health": {
       "running": "Working",
       "lastMessage": "Working · last message {{time}}",
@@ -83,8 +75,7 @@ export default {
       "title": "Disconnect WeChat?",
       "body": "What you send to ClawBot no longer reaches the agent, and the agent's messages no longer go to WeChat. You can scan to connect again any time.",
       "cancel": "Cancel",
-      "confirm": "Disconnect",
-      "failed": "Couldn't disconnect. Try again."
+      "confirm": "Disconnect"
     },
     "dialog": {
       "title": "Connect WeChat",
@@ -139,11 +130,13 @@ export default {
     "quotaError": "Usage limits are unavailable: {{error}}",
     "quotaInvalidNumber": "The usage limit data is invalid. Refresh and try again.",
     "quotaUnavailable": "Usage limits are unavailable",
-    "reservedCopy": "{{credits}} credits are reserved for running tasks. They settle against actual usage, and unused credits are returned.",
+    "reservedCopy_one": "{{credits}} credit is reserved for running tasks. It settles against actual usage, and any unused part is returned.",
+    "reservedCopy_other": "{{credits}} credits are reserved for running tasks. They settle against actual usage, and unused credits are returned.",
     "spendable": "Available credits",
     "spending": {
       "anyTime": "any time",
-      "available": "you can spend up to {{credits}} credits within {{window}}",
+      "available_one": "you can spend up to {{credits}} credit within {{window}}",
+      "available_other": "you can spend up to {{credits}} credits within {{window}}",
       "breakdown": "Plan allowance {{period}} · Non-expiring {{wallet}}",
       "daysLater": "in {{count}} days",
       "daysLater_one": "in {{count}} day",
@@ -156,7 +149,8 @@ export default {
       "minutesLater": "in {{count}} minutes",
       "minutesLater_one": "in {{count}} minute",
       "minutesLater_other": "in {{count}} minutes",
-      "sentence": "You can spend {{credits}} credits; {{rate}}",
+      "sentence_one": "You can spend {{credits}} credit; {{rate}}",
+      "sentence_other": "You can spend {{credits}} credits; {{rate}}",
       "windowDays": "{{count}} days",
       "windowDays_one": "{{count}} day",
       "windowDays_other": "{{count}} days",
@@ -168,15 +162,19 @@ export default {
     "usageWindows": "Usage windows"
   },
   "devices": {
+    "longOffline": "Long offline",
+    "configurations": "Versions",
+    "configurationUnknown": "Version unavailable",
+    "configurationCount": "{{count}} versions",
+    "versionNames": { "production": "Gugu", "beta": "Gugu Beta" },
     "phoneActions": {
-      "intro": "When on, your assistants (including your Gugu) can use this phone to check your calendar, see where you are and more.",
-      "master": "Let the assistant use this phone",
-      "linkOff": "Off · the assistant can't see this phone",
-      "linkConnecting": "Connecting…",
-      "linkOnline": "Connected · available whenever 咕咕 is open",
-      "linkError": "Not connected · retrying automatically",
-      "disconnectFailed": "Turned off, but couldn't remove it from your devices; it will show offline in 2 minutes.",
-      "thisNote": "Only what you connect can be used; disconnecting takes effect right away. Anything that needs your decision is asked in the chat first. Data on the phone is read only when called.",
+      "notificationsAndDnd": "Notifications and Do Not Disturb",
+      "readFailed": "Could not read system permissions",
+      "statusUnknown": "Not read",
+      "localAgentOnly": "Only task Agents on this phone can use these tools.",
+      "permissions": "Permissions",
+      "configure": "Settings",
+      "thisNote": "Permissions apply only to tasks on this phone.",
       "dataOldApp": "Update this phone’s Gugu app to read this data",
       "photosSelected": "Access is limited to selected photos and videos",
       "photosManage": "Change photo and video access",
@@ -214,44 +212,44 @@ export default {
       "healthOldApp": "This version of 咕咕 can't read health data yet. Update it and try again",
       "healthPartial": "{{granted}} of {{total}} kinds allowed",
       "healthManage": "Change in Health Connect",
+      "healthForegroundOnly": "This system version can read health data only while Gugu is open.",
       "healthBackgroundHint": "To read while 咕咕 is in the background, turn on \"Read in background\" in Health Connect",
       "restrictedHint": "Installed from an APK and the system switch won't turn on? Open the app's info page, tap the top-right menu and choose “Allow restricted settings”.",
       "settingsUnreachable": "Couldn't open that screen. Open system settings yourself, find 咕咕, and turn on {{name}}.",
-      "keepAliveNote": "Once 咕咕 is swiped away, the assistant can't reach this phone.",
-      "noticeText": "The assistant can reach this phone even in the background",
-      "noticeReady": "The assistant can use this phone",
-      "noticeCalling": "Cloud assistant is using: {{action}}"
+      "noticeText": "Phone tasks can continue in the background",
+      "noticeReady": "Phone tasks are ready",
+      "noticeCalling": "Running: {{action}}"
     },
     "deviceActions": {
       "entryTitle": "What this computer can do",
-      "entryHint": "Let your assistant add events, check mail, read files, operate apps on this computer — only what you connect here",
+      "entryHint": "Manage tool permissions for tasks on this computer",
       "menu": "What it can do",
       "back": "Devices",
+      "managePermissions": "Manage permissions",
       "thisTitle": "What this computer can do",
-      "thisSubtitle": "Connect services and data so your assistant can help more",
-      "thisNote": "Your assistant (including your Gugu) can do these things on this computer. Only what you connect here can be used, and disconnecting takes effect at once; anything that needs your say is asked in the chat first.",
+      "thisNote": "Only task Agents on this computer can use authorized tools.",
       "connected": "Connected",
       "available": "Available",
       "connect": "Connect",
-      "connecting": "Connecting…",
+      "connecting": "Authorizing…",
       "disconnect": "Disconnect",
       "openSystemSettings": "Open System Settings",
       "restartToApply": "Restart 咕咕",
-      "connectFailed": "Couldn't connect: {{message}}",
-      "connection": "{{name}} connection",
+      "connectFailed": "Not completed: {{message}}",
+      "connection": "{{name}} permissions",
       "status": "Status",
-      "statusConnected": "Connected",
-      "statusNotConnected": "Not connected",
+      "statusConnected": "Authorized",
+      "statusNotConnected": "Not authorized",
       "statusBlocked": "System permission missing",
       "statusUnsupported": "Unavailable",
       "connectedAt": "Connected on",
       "actionsTitle": "What it can do",
       "actionsCount": "{{on}}/{{total}} allowed",
-      "actionsNote": "A switched-off action can't be called. Switches apply once the group is connected.",
+      "actionsNote": "Each tool permission applies independently.",
       "resetOverrides": "Allow all again",
       "denyAll": "Deny all",
-      "denyAllHint": "Your assistant can't call anything. Groups and switches are kept; turn Deny all off to restore them.",
-      "denyAllOn": "Deny all is on: your assistant can't call any action on this computer.",
+      "denyAllHint": "Pause local tools and keep existing permissions.",
+      "denyAllOn": "Local tools are paused.",
       "recent": "Recent calls",
       "recentEmpty": "Nothing has called this computer yet",
       "recentOk": "Done",
@@ -260,13 +258,13 @@ export default {
       "recentOsPermission": "Not done: the system hasn't given 咕咕 permission for \"{{group}}\"",
       "recentUnsupported": "Not done: this computer can't do this",
       "computerBar": {
-        "drivingApp": "{{name}} is using {{app}}",
+        "drivingApp": "{{name}} is working",
         "drivingComputer": "{{name}} is looking at this computer",
-        "pausedApp": "You took over {{app}} — {{name}} won't touch it",
+        "pausedApp": "{{name}} has paused here",
         "pausedComputer": "{{name}} has stopped using this computer",
         "someApp": "an app",
         "stop": "Stop",
-        "resume": "Let it continue",
+        "resume": "Continue",
         "someone": "An assistant"
       },
       "recentRunning": "Running…",
@@ -276,12 +274,11 @@ export default {
       "confirmOnConflict": "asks on conflicts",
       "unsupported": "This computer can't be called yet.",
       "otherTitle": "What “{{name}}” can do",
-      "otherNote": "The actions this device registered. To switch them, use 咕咕 on that device.",
-      "otherNone": "咕咕 on this device doesn't support being called yet (too old, or not set up).",
-      "otherOffline": "This device is offline, so its actions are unavailable right now.",
+      "otherNone": "Could not read this device’s tool list.",
+      "otherOffline": "This device is offline.",
       "availableNow": "Available",
       "unavailable": {
-        "not_granted": "Not connected",
+        "not_granted": "Not authorized",
         "os_permission": "System permission missing",
         "unsupported": "Not supported"
       },
@@ -317,26 +314,26 @@ export default {
         "health": "Health"
       },
       "groupDesc": {
-        "calendar": "Allow 咕咕 to view and manage calendars and events on this computer.",
-        "reminders": "Allow 咕咕 to view and manage reminders on this computer.",
-        "contacts": "Allow 咕咕 to find and manage contacts on this computer.",
-        "notes": "Allow 咕咕 to find and manage notes on this computer.",
-        "mail": "Allow 咕咕 to find, organize and send email on this computer.",
-        "messages": "Allow 咕咕 to search conversations and send messages through Messages.",
-        "files_desktop": "Allow 咕咕 to access the Desktop folder on this Mac.",
-        "files_documents": "Allow 咕咕 to access the Documents folder on this Mac.",
-        "files_downloads": "Allow 咕咕 to access the Downloads folder on this Mac.",
-        "files_other": "Allow 咕咕 to access other locations on this Mac.",
-        "computer": "Grant Accessibility and Screen Recording so 咕咕 can understand and operate the screen.",
-        "screen": "Grant screen capture so 咕咕 can understand what's shown on this computer.",
-        "clipboard": "Grant clipboard access so 咕咕 can read and write what you copy.",
-        "location": "Allow 咕咕 to use this device's location for local context and geocoding.",
-        "device": "Allow 咕咕 to read this device's battery and power state.",
-        "system": "Allow 咕咕 to read apps, users and system info on this computer.",
-        "shell": "Allow 咕咕 to run local terminal and automation commands on this computer (asks you every time).",
-        "notification": "Allow 咕咕 to show system notifications on this computer.",
-        "url": "Allow 咕咕 to open web pages in this computer's default browser.",
-        "shortcuts": "Allow 咕咕 to list and run your Shortcuts (asks you before every run)."
+        "calendar": "Used to view and manage calendars and events on this computer.",
+        "reminders": "Used to view and manage reminders on this computer.",
+        "contacts": "Used to find and manage contacts on this computer.",
+        "notes": "Used to find and manage notes on this computer.",
+        "mail": "Used to find, organize and send email on this computer.",
+        "messages": "Used to search conversations and send messages through Messages.",
+        "files_desktop": "Used to access the Desktop folder on this Mac.",
+        "files_documents": "Used to access the Documents folder on this Mac.",
+        "files_downloads": "Used to access the Downloads folder on this Mac.",
+        "files_other": "Used to access other locations on this Mac.",
+        "computer": "Used to understand and operate this screen; requires Accessibility and Screen Recording.",
+        "screen": "Used to read what is shown on this computer.",
+        "clipboard": "Used to read and write clipboard contents.",
+        "location": "Used to use this device's location for local context and geocoding.",
+        "device": "Used to read this device's battery and power state.",
+        "system": "Used to read apps, users and system info on this computer.",
+        "shell": "Used to run local terminal and automation commands on this computer (asks you every time).",
+        "notification": "Used to show system notifications on this computer.",
+        "url": "Used to open web pages in this computer's default browser.",
+        "shortcuts": "Used to list and run your Shortcuts (asks you before every run)."
       }
     },
     "cloud": {
@@ -389,6 +386,11 @@ export default {
       "outdated": "Gugu server on {{name}} is too old and couldn't be updated.",
       "updating": "Gugu server on {{name}} is too old. Updating…",
       "retryUpdate": "Retry",
+      "waitingIdle": "Agents are running on {{name}}. It updates once they're idle.",
+      "updateNow": "Restart and update now",
+      "later": "Later",
+      "updateNowConfirm": "Restart Gugu on {{name}} now? Agents running there will have their current turn interrupted.",
+      "confirmRestart": "Restart",
       "reinstall": "Gugu server on {{name}} is too old to update automatically. Run the install command on that machine again:",
       "refused": "Gugu server on {{name}} refused the connection.",
       "notSignedIn": "{{name}} isn't signed in. Re-add it in Settings → Devices.",
@@ -432,6 +434,10 @@ export default {
       },
       "switchToTunnel": "Use a remote tunnel instead",
       "machineLimit": {
+        "occupants": "Machines occupying slots",
+        "available": "A slot is available. Retry adding the machine.",
+        "continue": "Continue waiting",
+
         "total": "Gugu server limit reached ({{used}}/{{max}}); not added.",
         "tunnel": "Remote tunnel limit reached ({{used}}/{{max}}); not added. Remote SSH doesn't count.",
         "unknown": "Gugu server limit reached; not added.",
@@ -554,6 +560,7 @@ export default {
         "loginFailed": "Sign-in didn't finish. Try again.",
         "cloudUnreachable": "That machine can't reach Gugu. Allow outbound HTTPS or set a proxy, then retry.",
         "machineLimit": "Machine limit reached.",
+        "agentsRunning": "Agents are running on that machine. It updates once they're idle.",
         "cancelled": "Cancelled.",
         "unknown": "Something went wrong. Try again."
       },
@@ -590,8 +597,6 @@ export default {
     "copied": "Address copied",
     "assistantPage": {
       "title": "Devices",
-      "note": "Let {{name}} operate these devices for you",
-      "noteNoName": "Let your assistant operate these devices for you",
       "presence": {
         "awake": "Online"
       },
@@ -603,7 +608,7 @@ export default {
       "noneGranted": "Nothing authorized yet",
       "notCallable": "Can't be called yet",
       "reading": "Reading…",
-      "phoneTitle": "What this phone can do",
+      "phoneTitle": "This phone",
       "empty": "No devices yet."
     },
     "connectors": {
@@ -619,12 +624,9 @@ export default {
       "mac": "Connect your Mac",
       "windows": "Connect a Windows PC",
       "linux": "Connect a Linux computer",
-      "iphone": "Connect your iPhone",
       "android": "Connect your Android phone",
-      "browser": "Connect the browser extension",
       "server": "Add a server",
       "serverHint": "Install 咕咕 server over SSH so agents can run there",
-      "comingSoon": "Coming soon",
       "requirement": {
         "mac": "macOS · Apple silicon or Intel",
         "windows": "Windows 10 or later · x64",
@@ -649,11 +651,10 @@ export default {
         "linux1": "Make it executable: right-click the file → Properties → turn on \"Allow executing file as program\", or run the command below in a terminal.",
         "linuxFuse": "If it says libfuse.so.2 is missing: install libfuse2 on Ubuntu 22.04, or libfuse2t64 on 24.04.",
         "android1": "Open the downloaded APK; allow installing unknown apps when asked.",
-        "android3": "To let the assistant check your calendar or location with this phone, open Me → This phone in 咕咕 on the phone."
+        "android3": "Enable tasks on this phone and authorize the tools you need."
       }
     },
     "current": "This device",
-    "description": "Computers and servers your agents can run on.",
     "empty": {
       "none": "No machines signed in to Gugu yet",
       "title": "Only this computer so far",
@@ -696,6 +697,7 @@ export default {
       "reconnect": "Reconnect",
       "copyAddress": "Copy address",
       "remove": "Remove this machine",
+      "removeVersions": "Remove a version…",
       "rename": "Rename",
       "uninstall": "Uninstall Gugu server"
     },
@@ -713,6 +715,19 @@ export default {
     "offline": "Offline",
     "online": "Online",
     "remove": {
+      "versions": { "title": "Remove a version on \"{{name}}\"" },
+      "version": {
+        "label": "Remove {{version}} on \"{{name}}\"",
+        "title": "Remove {{version}} on \"{{name}}\"?",
+        "confirm": "Remove this version",
+        "desktop": "This version reappears when it opens again. To remove it for good, sign out in this version.",
+        "cloud": "This version will be removed from your list.",
+        "server": "Signs your account out of this version; agents can no longer run in it.",
+        "serverOffline": "This version is offline; it signs you out next time it connects.",
+        "sshNote": "This version of Gugu server stays installed. To delete it, use “Uninstall Gugu server”.",
+        "boundAgents_one": "Also deletes your {{count}} agent in this version.",
+        "boundAgents_other": "Also deletes your {{count}} agents in this version."
+      },
       "cloud": "It will be removed from your list.",
       "confirm": "Remove this machine",
       "desktop": "It reappears when Gugu opens on that computer. To remove it for good, sign out there.",
@@ -725,6 +740,13 @@ export default {
       "title": "Remove \"{{name}}\"?"
     },
     "renameFailed": "Could not rename it. Try again later.",
+    "replaced": {
+      "hint": "May have been replaced by “{{name}}”",
+      "why": "It has the same host name and kind as “{{name}}”, which is online, while this one is offline and appeared before it. That is what a reinstall or a new data directory leaves behind: the old row does not go away on its own. Two machines can also share a name; remove it only if it is the same one.",
+      "remove": "Remove",
+      "confirm": "This one may have been replaced by “{{name}}”.",
+      "cascade": "The projects the account keeps for it, and the records of files kept only on it, are removed with it."
+    },
     "retry": "Retry",
     "runsAsRoot": "Runs as administrator",
     "runsAsRootHint": "Runs as root; agents can change any file on the machine.",
@@ -761,8 +783,11 @@ export default {
     "update": {
       "downloading": "Updating",
       "downloadingHint": "Downloading {{version}}; switches when idle.",
-      "ready": "Update ready",
-      "readyHint": "{{version}} downloaded; switches when idle."
+      "ready": "New version ready, waiting for idle",
+      "readyHint": "{{version}} downloaded; switches when idle.",
+      "updateNow": "Restart and update now",
+      "updateNowConfirm": "Restart Gugu on {{name}} now? Agents running there will have their current turn interrupted.",
+      "confirmRestart": "Restart"
     },
     "versionUnknown": "Version unknown",
     "via": {
@@ -782,7 +807,8 @@ export default {
     "descriptionPlaceholder": "Describe what happened and how to reproduce it. You can paste screenshots with Ctrl/Cmd+V.",
     "attachLog": {
       "label": "Also attach local logs (last 2,000 lines, secrets removed)",
-      "attached": "Attaching {{lines}} lines of logs",
+      "attached_one": "Attaching {{count}} line of logs",
+      "attached_other": "Attaching {{count}} lines of logs",
       "unavailable": "Could not read the local logs. Sending without them."
     },
     "diagnostics": "Your report will include app version {{version}}, platform details, device environment, current page, and recent errors to help us investigate.",
@@ -810,7 +836,6 @@ export default {
     "submitted": "Report submitted. Thank you for helping us investigate.",
     "submitting": "Submitting...",
     "thanks": {
-      "body": "We read every report you send.",
       "done": "Done",
       "illustrationAlt": "Gugu hugging the report you just sent, saying thank you",
       "title": "Thank you for the report"
@@ -823,6 +848,35 @@ export default {
       "screenshotCount": "You can attach up to {{max}} screenshots",
       "screenshotSize": "Each screenshot must be 5 MB or smaller",
       "screenshotType": "Only image files are supported"
+    }
+  },
+  "fileStorage": {
+    "temporaryRetentionHint": "Project files stay on the machine. When someone opens one, a copy is uploaded to the cloud for a while. This is how long that copy stays.",
+    "settingsTitle": "Settings",
+    "kept": "Images and files marked “Temporary”",
+    "keptHint": "How long files marked “Temporary”, and images sent in project groups, stay in the cloud before they are deleted. Files marked “Keep forever” are never deleted. Applies to files sent from now on.",
+    "keptDiffer": "Images now stay {{images}} and temporary files {{temporary}}; one change aligns them.",
+    "dashboard": {"title": "Cloud usage", "total": "of files you uploaded to the cloud · {{count}} files", "files_one": "{{count}} file", "files_other": "{{count}} files", "classes": {"temporary": "Temporary", "image": "Images", "kept": "Kept forever"}, "clean": "Delete from cloud…", "cleanTitle": "Delete these files from the cloud?", "cleanNote": "Only the cloud copy is deleted. Files on your machines stay. This cannot be undone.", "confirmClean": "Delete {{size}}", "cancel": "Cancel", "soonTitle": "Expiring soon", "columns": {"name": "Name", "group": "Group", "size": "Size", "expires": "Deleted in"}, "daysLeft_one": "{{count}} day", "daysLeft_other": "{{count}} days", "today": "Today", "showAll": "Show all {{count}}", "showLess": "Show fewer", "machinesTitle": "On your machines", "machinesNote": "Stored on your machines, not in the cloud", "machineHint": "{{count}} project files, {{size}} · {{copies}} uploaded to the cloud while others open them", "machineHintNone": "{{count}} project files, {{size}} · nothing uploaded to the cloud"},
+    "title": "File storage",
+    "entryHint": "How project groups on your machines keep images and other files, and for how long; next to ordinary groups.",
+    "projectTitle": "Project groups",
+    "machines": "Applies to project groups on your machines: {{machines}}. A project group on someone else's machine follows that machine owner's settings.",
+    "files": "Where project group files are stored",
+    "filesMachine": "On the machine",
+    "filesCloud": "Upload to the cloud",
+    "filesMachineHint": "Files stay only on the machine bound to the project. When someone opens one, a copy is uploaded to the cloud for a while.",
+    "filesCloudHint": "Every file sent is stored in the cloud and kept, as in ordinary groups; images are no longer deleted either.",
+    "temporaryRetention": "Cloud copy when others open a file",
+    "ordinaryTitle": "Ordinary groups",
+    "ordinary": "Files and images are uploaded when sent and kept. Very large files nobody has downloaded for a long time expire under the deployment's settings. Nothing to adjust here.",
+    "noMachine": "You have no machine bound to a project yet, so only the ordinary group rules apply to you.",
+    "loading": "Loading…",
+    "retry": "Retry",
+    "retentions": {
+      "read-once": "Delete after reading",
+      "1d": "1 day",
+      "7d": "7 days",
+      "30d": "30 days"
     }
   },
   "giftCode": {
@@ -847,7 +901,8 @@ export default {
     "description": "Add credits to avoid interrupting cloud agent conversations.",
     "later": "Later",
     "recharge": "Add credits",
-    "title": "Low balance ({{credits}} credits left)"
+    "title_one": "Low balance ({{credits}} credit left)",
+    "title_other": "Low balance ({{credits}} credits left)"
   },
   "membership": {
     "alipay": "Alipay",
@@ -856,13 +911,17 @@ export default {
     "chooseTier": "Choose a plan",
     "cny": "¥{{amount}}",
     "creatingOrder": "Creating order…",
-    "credits": "{{credits}} credits",
-    "expiresOn": "Valid through {{date}} ({{days}} days left)",
+    "credits_one": "{{credits}} credit",
+    "credits_other": "{{credits}} credits",
+    "expiresOn_one": "Valid through {{date}} ({{days}} day left)",
+    "expiresOn_other": "Valid through {{date}} ({{days}} days left)",
     "invalidNumber": "The membership data is invalid. Refresh and try again.",
     "invalidTier": "The membership tier is not recognized. Refresh and try again.",
     "noDiscountNote": "Quarterly and yearly prices are calculated from the monthly price without a discount.",
-    "nonExpiringBalance": "{{credits}} non-expiring credits",
-    "payFor": "Pay ¥{{price}} ({{months}} months)",
+    "nonExpiringBalance_one": "{{credits}} non-expiring credit",
+    "nonExpiringBalance_other": "{{credits}} non-expiring credits",
+    "payFor_one": "Pay ¥{{price}} ({{count}} month)",
+    "payFor_other": "Pay ¥{{price}} ({{count}} months)",
     "payTopup": "Pay ¥{{price}}",
     "periodMonthly": "Monthly",
     "periodQuarterly": "Quarterly",
@@ -905,7 +964,10 @@ export default {
     "upgradeHint": "Get a membership to unlock these models"
   },
   "referral": {
-    "amountCredits": "{{credits}} credits",
+    "readFailed": "Could not load invitation information",
+    "retry": "Retry",
+    "amountCredits_one": "{{credits}} credit",
+    "amountCredits_other": "{{credits}} credits",
     "copied": "Copied",
     "copyInvite": "Copy invite link",
     "earned": "{{credits}} earned",
@@ -914,7 +976,6 @@ export default {
     "invited_other": "{{count}} invited",
     "inviteDescription": "Share your invite link. You and your friend both receive a credit reward after registration.",
     "inviteLoading": "Invite link is loading",
-    "invitePlaceholder": "Invite links are not available yet",
     "inviteTitle": "Invite friends"
   },
   "usage": {
@@ -944,7 +1005,6 @@ export default {
     },
     "engines": "By engine",
     "enginesEmpty": "No engine used in this period yet.",
-    "enginesHint": "Engines used in this period",
     "heat": {
       "less": "Less",
       "more": "More",
@@ -975,6 +1035,7 @@ export default {
       "colSessions": "Tasks",
       "colTime": "Time",
       "colTokens": "Tokens",
+      "inputOutputTokens": "Input / Output tokens",
       "cache": "Cache",
       "consumption": "Consumption",
       "copied": "Copied",
@@ -1024,7 +1085,7 @@ export default {
       "balanceBlocked": "Used up",
       "periodCredits": "Membership credits",
       "walletCredits": "Non-expiring credits",
-      "openWebBilling": "Top up & manage membership on the web",
+      "openWebBilling": "Top up on the web",
       "statTokensHint": "Gugu models, including cache reads/writes"
     },
     "noCompare": "Nothing to compare with",
@@ -1033,7 +1094,8 @@ export default {
     "peakHour": "Most often starts at {{hour}}:00",
     "peakValue_one": "{{value}}",
     "peakValue_other": "{{value}}",
-    "quip": "You used {{tokens}} tokens in this period — roughly {{book}}, {{times}} times over.",
+    "quip_one": "You used {{tokens}} tokens in this period — roughly {{book}}, {{times}} time over.",
+    "quip_other": "You used {{tokens}} tokens in this period — roughly {{book}}, {{times}} times over.",
     "range": "Period",
     "ranges": {
       "1y": "1 year",
@@ -1043,8 +1105,8 @@ export default {
     },
     "rhythm": "Rhythm",
     "rhythmEmpty": "No tasks in this period yet.",
-    "rhythmHint": "When in the day you start tasks",
-    "streaks": "{{current}}-day streak · longest {{longest}} · {{active}} active days",
+    "streaks_one": "{{current}}-day streak · longest {{longest}} · {{count}} active day",
+    "streaks_other": "{{current}}-day streak · longest {{longest}} · {{count}} active days",
     "syncError": "Couldn't upload this device's latest data; showing the last upload.",
     "syncing": "Syncing this device's latest data…",
     "thisDevice": " (this device)",
@@ -1053,13 +1115,15 @@ export default {
       "sessions": "Tasks",
       "guguTokens": "Gugu model tokens",
       "byokTokens": "Own-account tokens",
-      "tokensUnknown": "Another {{value}} tokens have no known source (tasks from before sources were recorded)"
+      "tokensUnknown_one": "Another {{value}} token has no known source (tasks from before sources were recorded)",
+      "tokensUnknown_other": "Another {{value}} tokens have no known source (tasks from before sources were recorded)"
     },
     "unavailable": "Unavailable right now",
     "units": {
       "sessions_one": "{{value}} task",
       "sessions_other": "{{value}} tasks",
-      "tokens": "{{value}} tokens"
+      "tokens_one": "{{value}} token",
+      "tokens_other": "{{value}} tokens"
     },
     "usageScope": "Only Gugu-model credit usage. BYOK usage is under Activity.",
     "notConfigured": "Official commercial services are not configured for this installation.",

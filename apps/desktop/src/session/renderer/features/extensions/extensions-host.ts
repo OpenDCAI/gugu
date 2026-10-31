@@ -8,12 +8,14 @@ import { InstalledExtensionsStore, installedExtensionsStore } from './installed-
 export type ExtensionsApi = Pick<
   typeof rpc.extensions,
   | 'list'
+  | 'switchVariant'
   | 'revoked'
   | 'market'
   | 'marketEntry'
   | 'marketUpdates'
   | 'marketRefresh'
   | 'marketReadme'
+  | 'marketRead'
   | 'marketHistory'
   | 'installFromMarket'
   | 'installFromFolder'
@@ -22,7 +24,7 @@ export type ExtensionsApi = Pick<
   | 'setAutoUpdate'
   | 'setDisclosure'
   | 'appPlaces'
-  | 'setAppPlaces'
+  | 'changeAppPlaces'
   | 'uninstall'
   | 'agentStatus'
   | 'agentTools'
@@ -45,7 +47,7 @@ export const LOCAL_EXTENSIONS_HOST: ExtensionsHost = {
   key: 'local',
   api: rpc.extensions,
   store: installedExtensionsStore,
-  // 只听本机推的:别的机器的推送也合流进同一个频道(下载进度、市场刷新),那是它自己那一页的。
+  // 只听本机推的(下载进度、市场刷新):别的机器的在它自己那一页上按机器订。
   onEvent: (event, listener) => onMachineEvent(null, event, listener),
   local: true,
   pickFolder: (options) => rpc.app.openSelectDirectoryDialog(options),

@@ -1,11 +1,13 @@
 import { fetchInChunks } from '@gugu/core/shared/inChunks'
 import { makeIdentityClient } from '../supabase'
+import { SESSION_PRIVATE_AGENT_ERROR } from '../../src/session/shared/lib/ipc/shell-port'
 
 /** The canonical identity fields shared by every session-page name surface. */
 export interface SessionpageCanonicalAgentIdentity {
   id: string
   gugu_number: number | null
   display_name: string
+  session_archived_at?: string | null
 }
 
 /**
@@ -20,6 +22,7 @@ export interface SessionpageCanonicalAgentIdentity {
 export async function loadSessionpageCanonicalAgentIdentities(
   auth: { accessToken: string; userId: string },
   agentUserIds: readonly string[],
+  reportPrivate = false,
 ): Promise<SessionpageCanonicalAgentIdentity[]> {
   const ids = [...new Set(agentUserIds.map((id) => id.trim()).filter(Boolean))]
   // 按块带 id 查(fetchInChunks,@@@1666):本机会话上百个时整张列表拼进一条 URL 撞网关上限,session_peers 整个 502。
@@ -29,7 +32,7 @@ export async function loadSessionpageCanonicalAgentIdentities(
   const rows = await fetchInChunks(ids, async (chunk) => {
     const { data, error } = await client
       .from('users')
-      .select('id,gugu_number,display_name')
+      .select('id,gugu_number,display_name,session_archived_at')
       .eq('type', 'agent')
       .eq('owner_user_id', auth.userId)
       .in('id', chunk)
@@ -37,6 +40,15 @@ export async function loadSessionpageCanonicalAgentIdentities(
     return Array.isArray(data) ? data : []
   })
   const seen = new Set<string>()
+  // Only a targeted drop needs a refusal reason; a filtered row must not break the full roster.
+  const missing = reportPrivate ? ids.filter((id) => !rows.some((row) => row?.id === id)) : []
+  const privateAgents = await fetchInChunks(missing, async (chunk) => {
+    const { data, error } = await client.from('users').select('id')
+      .eq('type', 'agent').neq('owner_user_id', auth.userId).eq('agent_public', false).in('id', chunk)
+    if (error) throw new Error(`session-page identity visibility lookup failed: ${error.message}`)
+    return Array.isArray(data) ? data : []
+  })
+  if (privateAgents.length) throw new Error(SESSION_PRIVATE_AGENT_ERROR)
   return rows.map((row) => {
     const id = typeof row?.id === 'string' ? row.id.trim() : ''
     const displayName = typeof row?.display_name === 'string' ? row.display_name.trim() : ''
@@ -47,6 +59,7 @@ export async function loadSessionpageCanonicalAgentIdentities(
     if (guguNumber !== null && !Number.isInteger(guguNumber)) {
       throw new Error(`session-page canonical identity lookup returned invalid gugu_number for ${id}`)
     }
-    return { id, gugu_number: guguNumber ?? null, display_name: displayName }
+    return { id, gugu_number: guguNumber ?? null, display_name: displayName,
+      ...(row.session_archived_at != null ? { session_archived_at: row.session_archived_at } : {}) }
   })
 }

@@ -24,6 +24,8 @@
  * 没有可做的事就只说事实（例如引擎正在更新：等几秒它自己就好了）。
  */
 import { For } from 'solid-js';
+import type { MeasureCtx } from '@session-chat/core/define';
+import { readableLabel, rowTranslator } from '../readable-label';
 import { defineUnit } from '@session-chat/core/units';
 import { useChatTranslator } from '@session-chat/localization';
 import type { SessionConditionItem } from '@session-chat/model';
@@ -42,27 +44,34 @@ const LABEL_KEY: Record<SessionConditionItem['code'], string> = {
   'machine-unreachable': 'transcript.condition.machineUnreachable',
   'machine-attention': 'transcript.condition.machineAttention',
   'membership-required': 'transcript.condition.membershipRequired',
+  'turn-interrupted': 'transcript.condition.turnInterruptedUnclean',
 };
+
+function conditionLabel(data: SessionConditionItem, translate: import('@session-chat/localization').ChatTranslator): string { return data.label ??
+      translate(
+        data.code === 'provider-session-missing' && data.hasVisibleHistory
+          ? 'transcript.condition.providerSessionMissingWithHistory'
+          : LABEL_KEY[data.code],
+        data.labelValues
+      );
+}
+
+function boundaryLayout(data: SessionConditionItem, ctx: MeasureCtx) {
+  const actions = (data.actions ?? []).reduce((sum, action) => sum + readableLabel(action.label, ctx).width + 10, 0);
+  return readableLabel(conditionLabel(data, rowTranslator(ctx)), ctx, ctx.width - 20 - actions, 12, 18);
+}
 
 export const sessionConditionUnitDef = defineUnit<SessionConditionItem, { rowH: number }>({
   kind: 'session-condition',
   margin: { top: 16, bottom: 12 },
   vars: { rowH: SESSION_CONDITION_ROW_H },
 
-  measure(_data, _ctx, vars_) {
-    return vars_.rowH;
-  },
+  measure(data, ctx, vars_) { return Math.max(vars_.rowH, boundaryLayout(data, ctx).height + 6); },
 
   Render(props) {
     const translate = useChatTranslator();
-    const label = (): string =>
-      props.data.label ??
-      translate(
-        props.data.code === 'provider-session-missing' && props.data.hasVisibleHistory
-          ? 'transcript.condition.providerSessionMissingWithHistory'
-          : LABEL_KEY[props.data.code],
-        props.data.labelValues
-      );
+    const layout = () => boundaryLayout(props.data, props.ctx.measureCtx!());
+    const label = () => conditionLabel(props.data, translate);
 
     return (
       <div
@@ -74,11 +83,11 @@ export const sessionConditionUnitDef = defineUnit<SessionConditionItem, { rowH: 
         // 排查要的是运行时那句原文,给鼠标停留看得到,而不摊在正文里。
         // 标签窄时会收成省略号(boundary.css.ts),所以把整句放在原文前面。
         title={`${label()}\n${props.data.detail}`}
-        style={{ height: `${props.vars.rowH}px` }}
+        style={{ height: `${Math.max(props.vars.rowH, layout().height + 6)}px` }}
       >
         <span data-slot="session-condition-rule" aria-hidden="true" class={boundaryRule} />
         <span data-slot="session-condition-label" class={boundaryLabel}>
-          {label()}
+          {layout().text}
         </span>
         <For each={props.data.actions ?? []}>
           {(action) => (

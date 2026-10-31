@@ -8,6 +8,8 @@ import { senderAvatarUrl, subscribeSenderAvatars } from './sender-avatar';
 import { SESSION_CHAT_FONT_STACK } from './font-stack';
 import { chatMentionProvider, registerIssueMentionIcons } from './chat-mention-provider';
 import { subscribeSessionLocale, translateSessionMessage } from '../../localization/locale-store';
+import { subscribeChatSummaries } from '@/lib/chatSummariesBridge';
+import { chatDisplayName } from './chat-name';
 
 let shared: ChatContext | null = null;
 let didPreloadIssueMentionIcons = false;
@@ -31,26 +33,38 @@ export const SESSION_CHAT_CONFIG: ChatConfig = {
 export function initSharedChatContext(): ChatContext {
   if (!shared) {
     preloadIssueMentionIcons();
-    shared = createChatContext({
-      config: SESSION_CHAT_CONFIG,
-      mentionProvider: chatMentionProvider,
-      commandProvider: advertisedCommandProvider,
-      translator: translateSessionMessage,
-      subscribeTranslator: subscribeSessionLocale,
-      // #5048 「我是谁」经 window.__GUGU_SELF_IDENTITY__ 从咕咕壳送进来;桥缺席(独立打开的会话页)= 没人,
-      // 投递卡退回信封事实。懒读:桥由 gugu 的 App 在登录态变化时装/更新。
-      selfIdentity: () => readSelfIdentityBridge()?.getSnapshot() ?? null,
-      subscribeSelfIdentity: (listener) => readSelfIdentityBridge()?.subscribe(listener) ?? (() => {}),
-      // #6306 投递卡头像:读咕咕壳的本地身份缓存(与聊天页同一份、同一个投影),桥由咕咕壳在会话页 bundle 之前装上。
-      // session:<id> 画这条会话的属主 agent(宿主花名册回答会话 → agent),所以两张表变了都要重读。
-      senderAvatar: (fromId) => senderAvatarUrl(fromId),
-      subscribeSenderAvatars,
-      // App 代发的投递卡写 App 的名字:这台装着的 App、界面语言(store 的 appName);没装就是 null,卡上写 id。
-      appName: (appId) => installedExtensionsStore.appName(appId) ?? null,
-      subscribeAppNames: (listener) => reaction(() => [installedExtensionsStore.manifests, installedExtensionsStore.locale], listener),
-    });
+    shared = createSessionChatContext();
   }
   return shared;
+}
+
+/**
+ * A fresh ChatContext with the same services as the shared one. For a transcript that needs a layout of its
+ * own: layout lives on the context (`ChatTranscript`'s `layout` prop sets it), so setting it on the shared one
+ * would restyle every other transcript in the window (the phone's delivery cards, thinking rows).
+ */
+export function createSessionChatContext(): ChatContext {
+  return createChatContext({
+    config: SESSION_CHAT_CONFIG,
+    mentionProvider: chatMentionProvider,
+    commandProvider: advertisedCommandProvider,
+    translator: translateSessionMessage,
+    subscribeTranslator: subscribeSessionLocale,
+    // #5048 「我是谁」经 window.__GUGU_SELF_IDENTITY__ 从咕咕壳送进来;桥缺席(独立打开的会话页)= 没人,
+    // 投递卡退回信封事实。懒读:桥由 gugu 的 App 在登录态变化时装/更新。
+    selfIdentity: () => readSelfIdentityBridge()?.getSnapshot() ?? null,
+    subscribeSelfIdentity: (listener) => readSelfIdentityBridge()?.subscribe(listener) ?? (() => {}),
+    // #6306 投递卡头像:读咕咕壳的本地身份缓存(与聊天页同一份、同一个投影),桥由咕咕壳在会话页 bundle 之前装上。
+    // session:<id> 画这条会话的属主 agent(宿主花名册回答会话 → agent),所以两张表变了都要重读。
+    senderAvatar: (fromId) => senderAvatarUrl(fromId),
+    subscribeSenderAvatars,
+    // App 代发的投递卡写 App 的名字:这台装着的 App、界面语言(store 的 appName);没装就是 null,卡上写 id。
+    appName: (appId) => installedExtensionsStore.appName(appId) ?? null,
+    subscribeAppNames: (listener) => reaction(() => [installedExtensionsStore.manifests, installedExtensionsStore.locale], listener),
+    // 群里来的投递写群名(项目群就是项目名,见 chat-name.ts);认不出来是 null,卡上只说「来自群聊」。
+    chatName: chatDisplayName,
+    subscribeChatNames: subscribeChatSummaries,
+  });
 }
 
 /**

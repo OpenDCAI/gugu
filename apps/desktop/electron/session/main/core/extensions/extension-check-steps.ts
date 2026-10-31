@@ -14,8 +14,8 @@ import {
 /**
  * `app_check { steps }` (owner 10-12): what the agent that wrote an App does on the check's page as a person would.
  * A control is found by its role and accessible name in the page's accessibility tree, strictly (Playwright's
- * getByRole): CSS and coordinates break with the markup, and a name is what the person reads. mac1 10-12 (gugu-base
- * evidence/2026-10-12-app-check-steps): the hidden page's tree is whole, and CDP input reaches it as trusted events.
+ * getByRole): CSS and coordinates break with the markup, and a name is what the person reads. Measured on macOS
+ * 10-12: the hidden page's tree is whole, and CDP input reaches it as trusted events.
  */
 
 /** A node of CDP's `Accessibility.getFullAXTree`, the fields read here. */

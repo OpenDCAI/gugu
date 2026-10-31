@@ -1,0 +1,13 @@
+/* Retained surfaces keep their layout and viewport intersection while hidden.
+   Pause descendants through inheritance, including across shadow boundaries. */
+[inert] {
+  --gugu-animation-surface-paused: paused;
+}
+
+/* One pause policy for CSS motion, including inline animation shorthands,
+   Tailwind utilities and pseudo-elements. Window/surface pauses take priority
+   over the existing shimmer viewport state. Keep the animation clock intact
+   so showing the same surface resumes rather than restarting its animation. */
+*, ::before, ::after {
+  animation-play-state: var(--gugu-animation-window-paused, var(--gugu-animation-surface-paused, var(--chat-shimmer-viewport-paused, running))) !important;
+}

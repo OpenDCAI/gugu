@@ -2,13 +2,14 @@
 import React, { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { MessageItem } from '@gugu/core/shared/types/chat'
+import type { MessageActionItem } from '@/components/chat/messageActionItems'
 import type { PreviewFile } from '@/components/chat/useMessageFilePreview'
 
 // 字节、链接、交给系统应用都经 lib/attachmentBytes(一个入口);这里把它换掉,判的是预览自己的状态机。
-const downloadMocks = vi.hoisted(() => ({ downloadBlob: vi.fn() }))
 const bytesMocks = vi.hoisted(() => ({
-  attachmentBytes: vi.fn(),
-  attachmentResolver: { resolve: vi.fn(), forget: vi.fn() },
+  attachmentBytes: vi.fn(), downloadAttachment: vi.fn(),
+  attachmentPreview: vi.fn(),
   openAttachmentInSystemApp: vi.fn(),
   sourceKeyOf: (source: { kind: string; url?: string }) => `${source.kind}:${source.url ?? ''}`,
 }))
@@ -20,20 +21,24 @@ vi.mock('framer-motion', () => ({
   },
   AnimatePresence: ({ children }: { children: React.ReactNode }) => children,
 }))
-// 群文件夹里的、这台设备上有 App 认领的文件:交给 openGroupFile(链接走的那条路);谁认领由 chatClaimantHere 答。
-const appMocks = vi.hoisted(() => ({ openGroupFile: vi.fn(), chatClaimantHere: vi.fn() }))
-vi.mock('@/components/markdown/fileLinks', () => ({ openGroupFile: appMocks.openGroupFile }))
-vi.mock('@/components/markdown/chatClaimant', () => ({ chatClaimantHere: appMocks.chatClaimantHere }))
-vi.mock('@/lib/download', () => downloadMocks)
+// Every group item uses the same opener; the message does not decide who claims it again.
+const appMocks = vi.hoisted(() => ({ openResource: vi.fn() }))
+vi.mock('@/lib/guguLinks', () => ({ openLinkTarget: appMocks.openResource }))
 vi.mock('@/lib/attachmentBytes', () => bytesMocks)
 vi.mock('@/platform', () => ({ platform: { kind: 'electron' } }))
+const downloadMocks = vi.hoisted(() => ({ downloadBlob: vi.fn() }))
+vi.mock('@/lib/download', () => downloadMocks)
 vi.mock('@/components/chat/MessageFilePreviewPanel', () => ({
-  MessageFilePreviewPanel: ({ content, onClose, onOpenExternal }: { content: string | ArrayBuffer | null; onClose: () => void; onOpenExternal: () => void }) =>
+  MessageFilePreviewPanel: ({ content, actions, onClose, onOpenExternal }: { content: string | ArrayBuffer | null; actions: MessageActionItem[]; onClose: () => void; onOpenExternal: () => void }) =>
     React.createElement('div', null,
       React.createElement('output', { 'data-testid': 'preview-content' }, typeof content === 'string' ? content : ''),
+      ...actions.map((item) => React.createElement('button', { key: item.key, 'data-testid': `preview-${item.key}`, disabled: item.disabled, onClick: item.onSelect })),
       React.createElement('button', { 'data-testid': 'preview-close', onClick: onClose }),
       React.createElement('button', { 'data-testid': 'preview-external', onClick: onOpenExternal })),
 }))
+
+const previewToast = vi.hoisted(() => vi.fn())
+vi.mock('@/components/toastContext', () => ({ useToast: () => ({ toast: previewToast }) }))
 
 const { useMessageFilePreview } = await import('@/components/chat/useMessageFilePreview')
 
@@ -54,9 +59,9 @@ const file: PreviewFile = {
 describe('useMessageFilePreview', () => {
   let container: HTMLDivElement
   let root: Root
-  let openPreview: ((file: PreviewFile, restore?: () => void) => void) | undefined
+  let openPreview: ((file: PreviewFile, message?: MessageItem, restore?: () => void) => void) | undefined
   let closePreview: (() => void) | undefined
-  const closeRightSurfaces = vi.fn()
+  const closeRightSurfaces = vi.fn(), onForward = vi.fn()
   let mobile = false
   let visible = true
 
@@ -64,9 +69,8 @@ describe('useMessageFilePreview', () => {
     const preview = useMessageFilePreview({
       mobile,
       visible,
-      closeRightSurfaces,
+      closeRightSurfaces, onForward,
       toast: vi.fn(),
-      downloadFailed: 'download failed',
     })
     openPreview = preview.open
     closePreview = preview.close
@@ -75,7 +79,8 @@ describe('useMessageFilePreview', () => {
 
   beforeEach(() => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true)
-    bytesMocks.attachmentResolver.resolve.mockResolvedValue({ status: 'ready', url: 'https://cdn.test/signed', thumbUrl: null, sha256: null, width: null, height: null })
+    bytesMocks.downloadAttachment.mockResolvedValue(undefined)
+    bytesMocks.attachmentPreview.mockResolvedValue({ status: 'ready', content: async () => ({ url: 'https://cdn.test/signed', expiresAt: Date.now() + 60_000 }), dispose: vi.fn() })
     container = document.createElement('div')
     document.body.appendChild(container)
     root = createRoot(container)
@@ -91,20 +96,46 @@ describe('useMessageFilePreview', () => {
   })
 
   it.each([
-    ['an item an App here claims', { kind: 'item', itemId: 'item-1', version: 2 }, true, true],
-    ['an item no App here claims', { kind: 'item', itemId: 'item-1', version: 2 }, false, false],
-    ['an old attachment an App would claim', { kind: 'url', url: 'https://files.test/deck.pptx' }, true, false],
-  ] as const)('%s: handed to its App = %s', async (_label, source, claimed, toApp) => {
-    appMocks.chatClaimantHere.mockReturnValue(claimed ? { extensionId: 'office', suffix: '.pptx' } : null)
-    appMocks.openGroupFile.mockResolvedValue(true)
+    ['a group item', { kind: 'item', itemId: 'item-1', version: 2 }, true],
+    ['an old URL attachment', { kind: 'url', url: 'https://files.test/deck.pptx' }, false],
+  ] as const)('%s: uses the shared group opener = %s', async (_label, source, toApp) => {
+    appMocks.openResource.mockResolvedValue(undefined)
     bytesMocks.attachmentBytes.mockResolvedValue(bytesOf(async () => ''))
     const deck: PreviewFile = { kind: 'file', fileName: '今晚车道进展.pptx', mimeType: 'application/vnd.openxmlformats-officedocument.presentationml.presentation', sizeBytes: 9, source }
     await act(async () => { root.render(React.createElement(Probe)) })
     await act(async () => { openPreview?.(deck) })
-    expect(appMocks.openGroupFile).toHaveBeenCalledTimes(toApp ? 1 : 0)
-    if (toApp) expect(appMocks.openGroupFile).toHaveBeenCalledWith('item-1')
+    expect(appMocks.openResource).toHaveBeenCalledTimes(toApp ? 1 : 0)
+    if (toApp) expect(appMocks.openResource).toHaveBeenCalledWith({ kind: 'file', itemId: 'item-1' }, { message: undefined, restore: expect.any(Function) })
     expect(closeRightSurfaces).toHaveBeenCalledTimes(toApp ? 0 : 1)
     expect(container.querySelector('[data-testid="preview-content"]') !== null).toBe(!toApp)
+  })
+
+  it('passes the originating message into the shared group-file route', async () => {
+    appMocks.openResource.mockResolvedValue(undefined)
+    const message = { id: 'origin', content: 'attachment' } as MessageItem
+    const attachment = { ...file, source: { kind: 'item' as const, itemId: 'group-file', version: 1 } }
+    await act(async () => { root.render(React.createElement(Probe)) })
+    const restore = vi.fn()
+    await act(async () => { openPreview?.(attachment, message, restore) })
+    expect(appMocks.openResource).toHaveBeenCalledWith({ kind: 'file', itemId: 'group-file' }, { message, restore })
+    expect(restore).not.toHaveBeenCalled()
+    expect(container.querySelector('[data-testid="preview-content"]')).toBeNull()
+  })
+
+  it('forwards the originating message without downloading or closing the preview; originless previews offer download only', async () => {
+    bytesMocks.attachmentBytes.mockResolvedValue(bytesOf(async () => 'file'))
+    const message = { id: 'origin', content: 'attachment', retracted_at: null } as MessageItem
+    await act(async () => { root.render(React.createElement(Probe)); })
+    await act(async () => { openPreview?.(file, message) })
+    await act(async () => { (container.querySelector('[data-testid="preview-forward"]') as HTMLButtonElement).click() })
+    expect(onForward).toHaveBeenCalledWith(message)
+    expect(downloadMocks.downloadBlob).not.toHaveBeenCalled()
+    expect(container.querySelector('[data-testid="preview-content"]')).not.toBeNull()
+    await act(async () => { (container.querySelector('[data-testid="preview-download"]') as HTMLButtonElement).click() })
+    expect(downloadMocks.downloadBlob).toHaveBeenCalledWith(expect.anything(), file.fileName)
+    await act(async () => { openPreview?.(file) })
+    expect(container.querySelector('[data-testid="preview-forward"]')).toBeNull()
+    expect(container.querySelector('[data-testid="preview-download"]')).not.toBeNull()
   })
 
   it('opens HTML through the cached system handoff instead of a browser tab or Downloads', async () => {
@@ -165,7 +196,7 @@ describe('useMessageFilePreview', () => {
     expect(container.querySelector('[data-testid="preview-content"]')?.textContent).toBe('fresh content')
   })
 
-  it('opens unsupported files in the system app without mounting or fetching a preview', async () => {
+  it('shows unsupported file details without executing it or fetching its bytes', async () => {
     bytesMocks.openAttachmentInSystemApp.mockResolvedValue(undefined)
     const unsupported: PreviewFile = {
       kind: 'file',
@@ -181,23 +212,22 @@ describe('useMessageFilePreview', () => {
       await Promise.resolve()
     })
 
-    expect(bytesMocks.openAttachmentInSystemApp).toHaveBeenCalledWith(unsupported.source, unsupported.fileName)
+    expect(bytesMocks.openAttachmentInSystemApp).not.toHaveBeenCalled()
     expect(bytesMocks.attachmentBytes).not.toHaveBeenCalled()
-    expect(container.querySelector('[data-testid="preview-content"]')).toBeNull()
-    // 交给系统应用的文件不占右栏 ⇒ 不许把右栏(比如话题分栏)关掉。反例在下一格:可预览的文件确实会关。
-    expect(closeRightSurfaces).not.toHaveBeenCalled()
+    expect(container.querySelector('[data-testid="preview-content"]')).not.toBeNull()
+    expect(closeRightSurfaces).toHaveBeenCalledTimes(1)
   })
 
   // 手机上点视频要能直接播(#6682):进应用内预览、由 <video> 按需取签好的链接,❌ 整段读进内存,❌ 交给系统应用。
   it('previews playable videos in place from the signed link without fetching the whole file', async () => {
-    bytesMocks.attachmentResolver.resolve.mockResolvedValue({ status: 'ready', url: 'https://cdn.test/promo?auth_key=1', thumbUrl: null, sha256: null, width: null, height: null })
+    bytesMocks.attachmentPreview.mockResolvedValue({ status: 'ready', url: 'https://cdn.test/promo?auth_key=1', thumbUrl: null, sha256: null, width: null, height: null })
     const video: PreviewFile = { kind: 'file', fileName: 'promo.mp4', mimeType: '', sizeBytes: 9_000_000, source: { kind: 'url', url: 'https://files.test/promo.mp4' } }
 
     await act(async () => { root.render(React.createElement(Probe)) })
     await act(async () => { openPreview?.(video); await Promise.resolve() })
 
     expect(container.querySelector('[data-testid="preview-content"]')).not.toBeNull()
-    expect(bytesMocks.attachmentResolver.resolve).toHaveBeenCalledWith(video.source)
+    expect(bytesMocks.attachmentPreview).toHaveBeenCalledWith(video.source)
     expect(bytesMocks.attachmentBytes).not.toHaveBeenCalled()
     expect(bytesMocks.openAttachmentInSystemApp).not.toHaveBeenCalled()
   })
@@ -206,7 +236,7 @@ describe('useMessageFilePreview', () => {
   it('closes the mobile preview on Android back before the page underneath moves', async () => {
     mobile = true
     const { isSheetOpen, NATIVE_BACK_EVENT } = await import('@/components/ui/sheetStack')
-    bytesMocks.attachmentResolver.resolve.mockResolvedValue({ status: 'ready', url: 'https://cdn.test/promo', thumbUrl: null, sha256: null, width: null, height: null })
+    bytesMocks.attachmentPreview.mockResolvedValue({ status: 'ready', url: 'https://cdn.test/promo', thumbUrl: null, sha256: null, width: null, height: null })
     const video: PreviewFile = { kind: 'file', fileName: 'promo.mp4', mimeType: 'video/mp4', sizeBytes: 1, source: { kind: 'url', url: 'https://files.test/promo.mp4' } }
     await act(async () => { root.render(React.createElement(Probe)) })
     await act(async () => { openPreview?.(video); await Promise.resolve() })
@@ -258,13 +288,13 @@ describe('useMessageFilePreview', () => {
     const restore = vi.fn()
     await act(async () => { root.render(React.createElement(Probe)) })
 
-    await act(async () => { openPreview?.(file, restore); await Promise.resolve() })
+    await act(async () => { openPreview?.(file, undefined, restore); await Promise.resolve() })
     expect(closeRightSurfaces).toHaveBeenCalledTimes(1)
     await act(async () => { (container.querySelector('[data-testid="preview-close"]') as HTMLElement).click() })
     expect(restore).toHaveBeenCalledTimes(1)
     expect(container.querySelector('[data-testid="preview-content"]')).toBeNull()
 
-    await act(async () => { openPreview?.(file, restore); await Promise.resolve() })
+    await act(async () => { openPreview?.(file, undefined, restore); await Promise.resolve() })
     await act(async () => { closePreview?.() })
     expect(restore).toHaveBeenCalledTimes(1)
 
@@ -273,4 +303,16 @@ describe('useMessageFilePreview', () => {
     await act(async () => { (container.querySelector('[data-testid="preview-close"]') as HTMLElement).click() })
     expect(restore).toHaveBeenCalledTimes(1)
   })
+  it.each(['download', 'external'])('keeps the sanitized %s failure cause', async (action) => {
+    bytesMocks.attachmentBytes.mockResolvedValue(bytesOf(async () => 'readable'))
+    await act(async () => { root.render(React.createElement(Probe)); await Promise.resolve() })
+    await act(async () => { openPreview?.(file); await Promise.resolve() })
+    const error = new Error('Attachment access denied /Users/test/private sk-synthetic-secret\nstack detail')
+    if (action === 'download') bytesMocks.attachmentBytes.mockRejectedValue(error)
+    else bytesMocks.openAttachmentInSystemApp.mockRejectedValue(error)
+    previewToast.mockClear()
+    await act(async () => { (container.querySelector(`[data-testid="preview-${action}"]`) as HTMLElement).click(); await Promise.resolve() })
+    expect(previewToast).toHaveBeenCalledWith('无法下载文件', 'error', 'Attachment access denied [path] [redacted token]')
+  })
+
 })

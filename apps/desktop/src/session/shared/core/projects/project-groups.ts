@@ -9,8 +9,6 @@ export type ProjectGroupBinding = {
   projectId: string;
   /** 它绑的项目群。 */
   chatId: string;
-  /** This machine's stable representative when several of its projects share this group. */
-  representative?: boolean;
 };
 
 export type ProjectGroupError =

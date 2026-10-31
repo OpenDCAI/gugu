@@ -23,6 +23,10 @@ const HOST_CATALOG = {
     appMenu: {
       settings: '设置…',
     },
+    fileViewerMenu: {
+      copy: '复制', selectAll: '全选', quoteSelection: '引用选中文字', quoteFile: '引用整个文件',
+      undo: '撤销', redo: '重做', cut: '剪切', paste: '粘贴',
+    },
     notifications: {
       closeToTray: {
         title: '咕咕 仍在后台运行',
@@ -55,12 +59,11 @@ const HOST_CATALOG = {
      * 一句英文,而且讲的是它作者关心的事(2026-09-16 在模拟器通知栏里实际看到)。
      */
     backgroundWatch: {
-      text: '干完了或需要你回话时，第一时间提醒你',
+      text: '有人需要你回话时，第一时间提醒你',
     },
     /** @@@5301 会话页 agent 的系统通知正文。这条链在 session/main/core/agent-hooks/notification.ts,
         与上面 notifications 那条(聊天/托盘)彼此独立,但文案同样要跟宿主语言走。 */
     sessionAgentNotifications: {
-      finished: '智能体已经干完了',
       needsApproval: '智能体需要你批准',
       needsAnswer: '智能体在等你回答',
     },
@@ -72,6 +75,18 @@ const HOST_CATALOG = {
       noSuchTab: '「{name}」里没有这个链接指向的页面,链接可能来自另一个版本。',
       noSession: '这个链接要在一个任务里打开「{name}」,但那个任务不在这台电脑上。',
       openFailed: '「{name}」没能打开:{detail}',
+    },
+    /**
+     * @@@touchid-passkey 内置浏览器的 Touch ID 通行密钥(electron/macWebAuthn.ts)。touchIdReason 由 macOS 拼进系统指纹框:
+     * 「"咕咕"正在尝试<这一句>」,`$1` 换成网站域名。chooseAccount = 同一网站存着多把时让人选。
+     */
+    webAuthn: {
+      touchIdReason: '在 $1 上验证你的身份',
+      chooseAccount: {
+        message: '用哪个账号登录 {site}?',
+        detail: '这台 Mac 上的咕咕里存着 {site} 的多把通行密钥。',
+        cancel: '取消',
+      },
     },
     /** 主窗口的页面几分钟内连着崩了好几次、不再自动重新载入时,当面说的话(electron/renderer-crash-recovery.ts)。{count} = 次数。 */
     rendererCrash: {
@@ -104,6 +119,10 @@ const HOST_CATALOG = {
     appMenu: {
       settings: 'Settings…',
     },
+    fileViewerMenu: {
+      copy: 'Copy', selectAll: 'Select All', quoteSelection: 'Quote Selection', quoteFile: 'Quote File',
+      undo: 'Undo', redo: 'Redo', cut: 'Cut', paste: 'Paste',
+    },
     notifications: {
       closeToTray: {
         title: '咕咕 is still running in the background',
@@ -130,10 +149,9 @@ const HOST_CATALOG = {
     },
     /** 见 zh-CN 那条的说明:插件不给正文就会填一句英文默认句,所以这一行必须自己写。 */
     backgroundWatch: {
-      text: 'You will hear the moment an agent finishes or needs you',
+      text: 'You will hear the moment someone needs your reply',
     },
     sessionAgentNotifications: {
-      finished: 'Your agent has finished working',
       needsApproval: 'Your agent needs your approval',
       needsAnswer: 'Your agent is waiting for your answer',
     },
@@ -144,6 +162,15 @@ const HOST_CATALOG = {
       noSuchTab: "{name} has no page this link points to — it may come from another version.",
       noSession: 'This link opens {name} in a task that is not on this computer.',
       openFailed: "{name} couldn't open: {detail}",
+    },
+    webAuthn: {
+      // macOS renders `"咕咕" is trying to <this>`, so a lowercase fragment.
+      touchIdReason: 'verify your identity on $1',
+      chooseAccount: {
+        message: 'Which account do you want to sign in to {site} with?',
+        detail: '咕咕 on this Mac has more than one passkey for {site}.',
+        cancel: 'Cancel',
+      },
     },
     rendererCrash: {
       title: "咕咕's window keeps crashing",

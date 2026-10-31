@@ -1,6 +1,6 @@
 import { useEffect, useId, useState } from 'react';
 import { observer } from 'mobx-react-lite';
-import { ArrowUp, Monitor } from '@/lib/icons';
+import { ArrowUp, ChevronLeft, Monitor } from '@/lib/icons';
 import { NEW_SESSION_DRAFT_KEY, composerDrafts } from '@renderer/features/sessions/composer-drafts';
 import { rpc } from '@renderer/lib/ipc';
 import { useNavigate } from '@renderer/lib/layout/navigation-provider';
@@ -14,6 +14,7 @@ import { localizedManifestText } from '@shared/extensions/catalog';
 import type { ExtensionManifest } from '@shared/extensions/manifest';
 import { ComputerUseAccess, switchesComputerControl } from './computer-use-access';
 import { installedExtensionsStore } from './installed-extensions-store';
+import { openApp } from './app-dock';
 import './panel/app-store.css';
 import './app-settings-page.css';
 
@@ -30,6 +31,7 @@ export const AppSettingsPage = observer(function AppSettingsPage({ manifest, act
   const prefix = useId();
   const text = localizedManifestText(manifest, locale);
   const icon = installedExtensionsStore.appIcons[manifest.id];
+  const main = installedExtensionsStore.mainTabOf(manifest.id);
   const fields = manifest.settings ?? [];
   const tabs = [...(text.examples.length > 0 ? ['overview' as const] : []), ...(fields.length > 0 ? ['settings' as const] : [])];
   const [tab, setTab] = useState<Tab>(tabs[0] ?? 'overview');
@@ -85,6 +87,9 @@ export const AppSettingsPage = observer(function AppSettingsPage({ manifest, act
 
   return <main className="tool-app-page" aria-label={text.name}>
     <div className="tool-app-content">
+      {main && !main.hostSettings ? <button type="button" className="mk-back" data-testid="app-settings-back" onClick={() => openApp(manifest.id)}>
+        <ChevronLeft className="size-3.5" />{t('common.back')}
+      </button> : null}
       <header className="tool-app-header">
         {icon ? <img className="tool-app-icon" src={icon} alt="" /> : <Monitor className="tool-app-icon text-foreground-muted" />}
         <div className="tool-app-heading">

@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { parseExtensionManifest, safeParseExtensionManifest } from '@shared/extensions/manifest';
+import { EXTENSION_API_VERSION, parseExtensionManifest, safeParseExtensionManifest } from '@shared/extensions/manifest';
 import { resolveAppSettings } from '@shared/extensions/app-settings';
 import { ExtensionsService } from './extensions-service';
 import { scaffoldExtension } from './extension-authoring';
@@ -31,7 +31,7 @@ describe('tool App host pages and settings', () => {
   });
   it('creates and installs a real tools-only bundle with a host page and no HTML', () => {
     const dir = work();
-    const { sourceDir, manifest } = scaffoldExtension({ targetDir: join(dir, 'source'), manifest: raw,
+    const { sourceDir, manifest } = scaffoldExtension({ targetDir: join(dir, 'source'), manifest: { ...raw, apiVersion: EXTENSION_API_VERSION, platforms: ['desktop'] },
       files: { 'tools.js': 'export const hello = {run: async () => ({content: []})};' } });
     expect(manifest.entry).toBeUndefined();
     expect(manifest.contributes.tabs).toEqual([{ name: 'settings', title: 'Settings', hostPage: 'settings' }]);
@@ -76,7 +76,7 @@ describe('tool App host pages and settings', () => {
     const dir = work();
     const source = join(dir, 'source');
     mkdirSync(source);
-    writeFileSync(join(source, 'manifest.json'), JSON.stringify(raw));
+    writeFileSync(join(source, 'manifest.json'), JSON.stringify({ ...raw, apiVersion: EXTENSION_API_VERSION, platforms: ['desktop'] }));
     writeFileSync(join(source, 'tools.js'), 'export const hello = {};');
     const root = join(dir, 'installed');
     const service = new ExtensionsService(root);
@@ -84,7 +84,7 @@ describe('tool App host pages and settings', () => {
     install();
     service.setSettings(raw.id, { account: 'work', enabled: false });
     expect(new ExtensionsService(root).settings(raw.id)).toEqual({ account: 'work', enabled: false, mode: 'local' });
-    writeFileSync(join(source, 'manifest.json'), JSON.stringify({ ...raw, version: '1.0.1' }));
+    writeFileSync(join(source, 'manifest.json'), JSON.stringify({ ...raw, apiVersion: EXTENSION_API_VERSION, platforms: ['desktop'], version: '1.0.1' }));
     install();
     expect(service.settings(raw.id).account).toBe('work');
     service.uninstall(raw.id);

@@ -55,8 +55,8 @@ export const hermesSessionBundleDescriptor = {
       // 模型最后一步没调工具时 hermes 把它交回成下一轮,桥让同一条 ACP prompt 跨到那一轮结束。
       injection: {
         timing: 'next-tool-call',
-        evidence: 'shuxueshuxue/gugu-base@e4c3f30136b44e6a4e64e3f7dab2c2585b209690 evidence/2026-10-04-hermes-serve-bridge '
-          + '(Phase 0, v2026.9.24 and main ddde0670: a busy steer lands in the next request of the same turn, an idle one is rejected; '
+        evidence: 'NousResearch/hermes-agent@ddde0670104f (main) and v2026.9.24, measured 2026-10-04 '
+          + '(Phase 0: a busy steer lands in the next request of the same turn, an idle one is rejected; '
           + 'bridge cells tests/unit/desktop/electron/hermesServeAcp.test.ts)',
       },
     },

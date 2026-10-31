@@ -1,4 +1,11 @@
 export default {
+  "needsYou": {
+    "title": "Needs you",
+    "waitingTasks": "Tasks waiting for you",
+    "count": "Needs you · {{count}}",
+    "loading": "Reading the request…",
+    "sourceTask": "From task · {{title}}"
+  },
   "actions": {
     "copiedAgentId": "Agent ID copied",
     "copiedGuguNumber": "Gugu ID copied",
@@ -30,6 +37,7 @@ export default {
     "idle": "Idle",
     "online": "Online",
     "offline": "Offline",
+    "archived": "Archived",
     "removed": "Removed",
     "pending": "Confirming",
     "none": "Status unavailable"

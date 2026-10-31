@@ -108,7 +108,7 @@ it('a rejected assistant rename retains the edited name and exposes the original
   const name = harness.container.querySelector<HTMLInputElement>('[data-testid="assistant-name-input"]')!;
   await userEvent.fill(name, '保留这份草稿');
   await userEvent.keyboard('{Enter}');
-  await until('rename failure is visible', () => harness.container.querySelector('[role="alert"]')?.textContent === i18n.t('settingsPage.renameFailed', { ns: 'assistant' }));
+  await until('rename failure cause is visible', () => harness.container.querySelector('[role="alert"]')?.textContent === 'fixture rename rejected');
   expect(name.value).toBe('保留这份草稿');
   expect(update).toHaveBeenCalledExactlyOnceWith('assistant-content', { name: '保留这份草稿' });
 });

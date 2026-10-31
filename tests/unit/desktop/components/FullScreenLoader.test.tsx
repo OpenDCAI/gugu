@@ -21,10 +21,31 @@ vi.unmock('lottie-web/build/player/lottie_light')
  * 就是 `document.readyState === 'complete'`(lottie_light.js:4440)。定成 complete,它第一次 tick
  * 就自己撤掉;不定,它在本文件里永远撤不掉 —— 那正是 #5237 的残留。
  */
-vi.hoisted(() => {
+/**
+ * ⚠️ 但「第一次 tick 就撤掉」要那一 tick **落在本文件结束之前**:本文件的用例只要几十毫秒(CI 实测 76ms),
+ * 跑完 jsdom 就拆了;tick 晚到(负载高时事件循环把它推后)就落在拆除之后,读 `document` 抛
+ * ReferenceError,整片单测判红(OpenDCAI/gugu#106 的 CI)。所以这里记下那一条轮询,用例结尾等它真的撤掉。
+ */
+const readiness = vi.hoisted(() => {
   Object.defineProperty(document, 'readyState', { value: 'complete', configurable: true })
+  let checkReady: unknown
+  let markCleared = () => {}
+  const cleared = new Promise<void>((resolve) => (markCleared = resolve))
+  const realSetInterval = globalThis.setInterval
+  const realClearInterval = globalThis.clearInterval
+  globalThis.setInterval = ((handler: unknown, ...rest: unknown[]) => {
+    const handle = (realSetInterval as (...args: unknown[]) => unknown)(handler, ...rest)
+    if (typeof handler === 'function' && handler.name === 'checkReady') checkReady = handle
+    return handle
+  }) as typeof setInterval
+  globalThis.clearInterval = ((handle?: Parameters<typeof clearInterval>[0]) => {
+    if (checkReady !== undefined && handle === checkReady) markCleared()
+    realClearInterval(handle)
+  }) as typeof clearInterval
+  return { cleared, found: () => checkReady !== undefined }
 })
 import { FullScreenLoader } from '../../../../apps/desktop/src/components/FullScreenLoader'
+import { awaitPending } from '../../../support/awaitFact'
 import { createReactHarness } from '../../../support/testHarness'
 describe('FullScreenLoader', () => {
   it('冷启动那一屏用的是全产品统一的加载态，不是自己另画的', async () => {
@@ -38,5 +59,8 @@ describe('FullScreenLoader', () => {
       harness.container.querySelector('[data-testid="loading-indicator-canvas"] svg')
     ).not.toBeNull()
     harness.cleanup()
+    // 没记到那条轮询(播放器换了写法)就当场红,❌ 在下面那句上无限等。
+    expect(readiness.found()).toBe(true)
+    await awaitPending('真 lottie 播放器的 checkReady 轮询自己撤掉', readiness.cleared)
   })
 })

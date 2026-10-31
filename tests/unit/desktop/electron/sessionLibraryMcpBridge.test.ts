@@ -1,7 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { afterEach, describe, expect, it } from 'vitest'
 import { createDesktopGuguMcpHost, type DesktopGuguMcpHost } from '../../../../apps/desktop/electron/acp-engine-utils'
-import { GUGU_BROWSER_MCP_SERVER_NAME } from '../../../../apps/desktop/electron/browser-agent-mcp'
 import { buildSessionBundle, setSessionLibraryMcpBridge, setSessionExtensionBridge } from '../../../../apps/desktop/electron/capability-bundle'
 import { GUGU_MCP_SERVER_NAME } from '../../../../apps/desktop/electron/mcp/gugu-mcp-name.mjs'
 import { GUGU_RESERVED_MCP_NAMES } from '../../../../apps/desktop/src/session/shared/mcp-library'
@@ -120,8 +119,8 @@ describe('资源库 MCP 进会话能力包', () => {
     expect(settled).toEqual([{ delivered: ['a-b'], collided: [{ name: 'a_b', with: 'a-b' }] }])
   })
 
-  it('资源库的保留名与宿主自己送的那两台同名(改了宿主的名字,这里会红)', () => {
-    expect([...GUGU_RESERVED_MCP_NAMES].sort()).toEqual([GUGU_MCP_SERVER_NAME, GUGU_BROWSER_MCP_SERVER_NAME].sort())
+  it('资源库的保留名:宿主自己送的那台(改了宿主的名字,这里会红),外加旧的 gugu-browser(已不再送,名字仍保留)', () => {
+    expect([...GUGU_RESERVED_MCP_NAMES].sort()).toEqual([GUGU_MCP_SERVER_NAME, 'gugu-browser'].sort())
   })
 
   it('各家这条腿收不收、收哪几种,读的是 descriptor 的 units.mcp', () => {

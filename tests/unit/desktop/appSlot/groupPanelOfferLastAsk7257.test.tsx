@@ -1,15 +1,13 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, createElement } from 'react'
+import { act } from 'react'
 import { createReactHarness } from '../../../support/testHarness'
 import { until } from '../../../support/awaitCondition'
-import { GroupAppSlot, WORKSPACE_APP_KIND } from '../../../../apps/desktop/src/components/appSlot/GroupAppSlot'
-import { groupSlotMemory } from '../../../../apps/desktop/src/components/appSlot/groupSlotMemory'
 import { installedExtensionsStore, type InstalledExtensionsList } from '../../../../apps/desktop/src/session/renderer/features/extensions/installed-extensions-store'
-import { AuthContext } from '../../../../apps/desktop/src/store/auth'
+import { ask, chatTabs, shownItem } from './chatTabsHarness'
 
 /**
- * #7257 (review 5): the panel offers the App for a file nobody here opens (F, deck.pptx); 「安装」 is pressed, and while it
+ * #7257 (review 5): the panel offers the App for a JSON file open in Workspace (F, deck.deck.json); 「安装」 is pressed, and while it
  * installs the person clicks another pill (G). Pressing 「安装」 is the ask for F, so G — asked after — is the one the panel
  * ends on, whichever answer comes back first. Control: nothing asked meanwhile, F opens once its App is in. The harness
  * is groupPanelMarketOffer.test.tsx's; the install's answer and G's are held and let go in either order.
@@ -36,8 +34,9 @@ vi.mock('../../../../apps/desktop/src/components/extensionBundle/sharedPackages'
 const { appsHere } = await import('../../../../apps/desktop/src/components/appSlot/appsHere')
 
 function slides(version: string) {
-  return { id: 'slides', name: 'Slides', version, apiVersion: 4, entry: 'index.html', contributes: { tabs: [{ name: 'main', title: 'Slides', opensFiles: { chat: ['.pptx'] } }] } }
+  return { id: 'slides', name: 'Slides', version, apiVersion: 4, entry: 'index.html', contributes: { tabs: [{ name: 'main', title: 'Slides', opensFiles: { chat: ['.deck.json'] } }] } }
 }
+const workspace = { id: 'workspace', name: 'Workspace', version: '1.0.0', apiVersion: 4, entry: 'index.html', contributes: { tabs: [{ name: 'main', title: 'Workspace', opensFiles: { chat: ['.json'] } }] } }
 const install = (manifests: unknown[]) =>
   act(() => installedExtensionsStore.applyList({ extensions: manifests, invalid: [] } as unknown as InstalledExtensionsList))
 
@@ -48,7 +47,7 @@ let gates: Map<string, () => void>
 beforeEach(() => {
   harness = createReactHarness()
   HTMLElement.prototype.checkVisibility = () => false
-  install([])
+  install([workspace])
   gates = new Map()
   vi.mocked(appsHere!.groupFileOpener).mockReset()
   vi.mocked(appsHere!.installFromMarket).mockReset()
@@ -59,14 +58,15 @@ beforeEach(() => {
       return new Promise((resolve) => gates.set('G', () => resolve({ success: true, data: { chatId: args.chatId, itemId: 'item-g', name: 'g.md', typedName: 'g.md', choice: { kind: 'one', candidate } } } as never)))
     }
     const installed = installedExtensionsStore.manifests.some((manifest) => manifest.id === 'slides')
-    const candidate = { extensionId: 'slides', app: { name: 'Slides' }, tabKind: 'slides.main', tabTitle: 'Slides', suffix: '.pptx', onlyTab: true }
-    return Promise.resolve({ success: true, data: { chatId: args.chatId, itemId: 'item-f', name: 'deck.pptx', typedName: 'deck.pptx', choice: installed ? { kind: 'one', candidate } : { kind: 'none' } } } as never)
+    const candidate = { extensionId: 'slides', app: { name: 'Slides' }, tabKind: 'slides.main', tabTitle: 'Slides', suffix: '.deck.json', onlyTab: true }
+    const opener = installed ? candidate : { ...candidate, extensionId: 'workspace', app: { name: 'Workspace' }, tabKind: 'workspace.main', tabTitle: 'Workspace', suffix: '.json' }
+    return Promise.resolve({ success: true, data: { chatId: args.chatId, itemId: 'item-f', name: 'deck.deck.json', typedName: 'deck.deck.json', file: { document: false, contentType: 'application/json', version: 1, size: 10 }, choice: { kind: 'one', candidate: opener } } } as never)
   })
   vi.mocked(appsHere!.installFromMarket).mockImplementation(
     () =>
       new Promise((resolve) =>
         gates.set('install', () => {
-          install([slides('1.2.0')])
+          install([workspace, slides('1.2.0')])
           resolve({ success: true, data: { installed: true, outcome: 'confirmed', id: 'slides', name: 'Slides', version: '1.2.0' } } as never)
         }),
       ),
@@ -80,21 +80,20 @@ afterEach(() => {
 /** A task boundary: every microtask the answer let go has run (not a wall-clock wait). */
 const settled = () => new Promise<void>((done) => setTimeout(done, 0))
 const offer = () => harness.container.querySelector<HTMLElement>('[data-testid="group-app-slot-offer"]')
-const on = (chatId: string) => groupSlotMemory.opened(chatId)?.itemId ?? null
-const panel = (chatId: string, itemId: string, request: number) =>
-  harness.render(
-    createElement(AuthContext.Provider, { value: { user: { id: 'user-1' } } as never },
-      createElement(GroupAppSlot, { chatId, kind: WORKSPACE_APP_KIND, title: 'Workspace', onClose: vi.fn(), fileToOpen: { chatId, itemId, request } })),
-  )
+const on = (chatId: string) => shownItem(chatId)?.itemId ?? null
+async function panel(chatId: string, itemId: string) {
+  await harness.render(chatTabs({ chatId }))
+  ask(chatId, { itemId })
+}
 /** F asked for, the panel offers Slides for it, 「安装」 pressed: the install on its way. */
-async function offeredAndPressed(chatId: string, request: number) {
-  await panel(chatId, 'item-f', request)
+async function offeredAndPressed(chatId: string) {
+  await panel(chatId, 'item-f')
   await until('the panel offers Slides for F', () => offer() !== null)
   await act(async () => harness.container.querySelector<HTMLButtonElement>('[data-testid="group-app-slot-offer-install"]')!.click())
   await until('the install is on its way', () => gates.has('install'))
 }
-async function clickG(chatId: string, request: number) {
-  await panel(chatId, 'item-g', request)
+async function clickG(chatId: string) {
+  await panel(chatId, 'item-g')
   await until('G is asked of the host', () => gates.has('G'))
 }
 const letGo = (name: string) =>
@@ -105,8 +104,8 @@ const letGo = (name: string) =>
 
 describe('an App installed for a file, and another pill clicked while it installs: the later ask wins (#7257)', () => {
   it('G answered, then the install done: G stays — F does not take the panel back', async () => {
-    await offeredAndPressed('offer-1', 7_257_101)
-    await clickG('offer-1', 7_257_102)
+    await offeredAndPressed('offer-1')
+    await clickG('offer-1')
     await letGo('G')
     expect(on('offer-1')).toBe('item-g')
     await letGo('install')
@@ -115,19 +114,19 @@ describe('an App installed for a file, and another pill clicked while it install
   }, 60_000)
 
   it('the install done, then G answered: G — the install does not open F over the later ask', async () => {
-    await offeredAndPressed('offer-2', 7_257_111)
-    await clickG('offer-2', 7_257_112)
+    await offeredAndPressed('offer-2')
+    await clickG('offer-2')
     await letGo('install')
     await settled()
-    expect(on('offer-2'), 'F is not opened: G was asked after 「安装」').toBe(null)
+    expect(on('offer-2'), 'F stays on screen until G answers; installing does not take over the later ask').toBe('item-f')
     await letGo('G')
     expect(on('offer-2'), '对照:524a00eb92 装完才取序号，停在 F,G 被丢').toBe('item-g')
   }, 60_000)
 
   it('control: nothing asked while it installs — F opens in the App just installed', async () => {
-    await offeredAndPressed('offer-3', 7_257_121)
+    await offeredAndPressed('offer-3')
     await letGo('install')
-    await until('F opened in Slides', () => groupSlotMemory.opened('offer-3')?.kind === 'slides.main')
+    await until('F opened in Slides', () => shownItem('offer-3')?.kind === 'slides.main')
     expect(on('offer-3')).toBe('item-f')
   }, 60_000)
 })

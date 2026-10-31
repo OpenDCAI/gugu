@@ -30,6 +30,12 @@ vi.mock('@main/core/extensions/extension-background', () => ({
   runningExtensionBackgrounds: () => [['keeper', BACKGROUND]],
 }));
 const granted = new Set<string>();
+const devices = vi.fn(async () => [
+  { deviceId: 'dev-here', label: 'This computer', online: true, thisMachine: true },
+  { deviceId: 'dev-b', label: 'Computer with agents', online: true, thisMachine: false },
+  { deviceId: 'dev-empty', label: 'Computer without agents', online: true, thisMachine: false },
+]);
+vi.mock('@main/core/sessions/session-family', () => ({ otherMachines: () => ({ devices }) }));
 // 宽窄的判法用真的(manifest.ts 那两个纯函数),只把「授了哪些词」换成假的。
 vi.mock('@main/core/extensions/extensions-root', async () => {
   const { capabilityCovered, grantedReach } = await import('@shared/extensions/manifest');
@@ -64,10 +70,9 @@ vi.mock('@main/core/extensions/extension-agents', () => ({
   listAgentsForExtension: (options: { scope: 'own' | 'all' | 'all-machines' }) => listAgentsForExtension(options),
   stopAgentForExtension: (options: { agentId: string; visibleAgents: Map<string, string> }) => stopAgentForExtension(options),
 }));
-const messageAgentFromApp = vi.fn(async () => ({ id: 'm-1' }));
+const dispatchForApp = vi.fn(async () => ({ to: { agent: LANE_A }, id: 'm-1' }));
 vi.mock('@main/core/extensions/extension-send', () => ({
-  sendFromApp: vi.fn(),
-  messageAgentFromApp: (...args: unknown[]) => messageAgentFromApp(...(args as [])),
+  dispatchForApp: (...args: unknown[]) => dispatchForApp(...(args as [])),
 }));
 const warn = vi.fn();
 vi.mock('@main/lib/logger', () => ({ log: { warn: (...args: unknown[]) => warn(...args), error: vi.fn(), info: vi.fn() } }));
@@ -82,10 +87,11 @@ const call = (sender: number, method: string, args: Record<string, unknown> = {}
 
 beforeEach(async () => {
   granted.clear();
+  devices.mockClear();
   visibleAgentsForExtension.mockClear();
   listAgentsForExtension.mockClear();
   stopAgentForExtension.mockClear();
-  messageAgentFromApp.mockClear();
+  dispatchForApp.mockClear();
   warn.mockClear();
   await bindExtensionSurface({ webContentsId: TAB, extensionId: 'keeper', sessionId: 'task-1', tabId: 'tab-1', tabKind: 'keeper.main' });
 });
@@ -125,18 +131,45 @@ describe('the background page lists agents as every page does (L12)', () => {
     expect(await call(BACKGROUND, 'listAgents')).toEqual({ ok: false, code: 'denied', message: 'Not permitted: this App does not have "agents:read"' });
     expect(listAgentsForExtension).not.toHaveBeenCalled();
   });
+
+  it('reports the same scoped rows with observation time and unreachable machines when requested', async () => {
+    granted.add('agents:read:all-machines');
+    const result = await call(BACKGROUND, 'listAgents', { report: true });
+    expect(result).toMatchObject({ ok: true, value: {
+      agents: expect.arrayContaining([expect.objectContaining({ agentId: 'user:on-b', deviceId: 'dev-b', statusFrom: 'device', statusAt: expect.any(String) })]),
+      unreached: [expect.objectContaining({ deviceId: 'dev-c' })], checkedAt: expect.any(String),
+      devices: [
+        { deviceId: 'dev-here', label: 'This computer', online: true, thisMachine: true, checkedAt: expect.any(String) },
+        { deviceId: 'dev-b', label: 'Computer with agents', online: true, thisMachine: false, checkedAt: expect.any(String) },
+        { deviceId: 'dev-empty', label: 'Computer without agents', online: true, thisMachine: false, checkedAt: expect.any(String) },
+      ],
+    } });
+    expect(listAgentsForExtension).toHaveBeenLastCalledWith({ scope: 'all-machines', extensionId: 'keeper' });
+  });
+
+  it('keeps the machine directory behind all-machines read consent', async () => {
+    granted.add('agents:read');
+    expect(await call(BACKGROUND, 'listAgents', { report: true })).toMatchObject({ ok: true, value: { devices: [] } });
+    expect(devices).not.toHaveBeenCalled();
+    granted.clear();
+    granted.add('agents:read:all-machines');
+    expect(await call(BACKGROUND, 'listAgents')).toMatchObject({ ok: true, value: expect.any(Array) });
+    expect(devices).not.toHaveBeenCalled();
+  });
 });
 
 describe('the background page drives the agents it may see', () => {
-  it('messageAgent: the agent it names, told directly — the door asked for agents:control', async () => {
-    expect(await call(BACKGROUND, 'messageAgent', { agentId: LANE_A, text: 'keep warm' })).toEqual({
+  it('dispatch to an agent it names: told directly — the door asked for agents:control; no target is a page\'s (its sheet)', async () => {
+    expect(await call(BACKGROUND, 'dispatch', { to: { agent: LANE_A }, text: 'keep warm' })).toEqual({
       ok: false,
       code: 'denied',
       message: 'Not permitted: this App does not have "agents:control"',
     });
     granted.add('agents:control:all');
-    expect(await call(BACKGROUND, 'messageAgent', { agentId: LANE_A, text: 'keep warm' })).toEqual({ ok: true, value: { id: 'm-1' } });
-    expect(messageAgentFromApp).toHaveBeenCalledWith('keeper', { agentId: LANE_A, text: 'keep warm' }, {});
+    expect(await call(BACKGROUND, 'dispatch', { to: { agent: LANE_A }, text: 'keep warm' })).toEqual({ ok: true, value: { to: { agent: LANE_A }, id: 'm-1' } });
+    expect(dispatchForApp).toHaveBeenCalledWith('keeper', { to: { agent: LANE_A }, text: 'keep warm' }, { chat: null, session: null }, expect.objectContaining({ pick: expect.any(Function) }));
+    // The background page has no gesture, so never the sheet.
+    expect(await call(BACKGROUND, 'dispatch', { text: 'keep warm' })).toMatchObject({ ok: false, code: 'denied', message: expect.stringContaining('gesture') });
   });
 
   it('stopAgent by user:<uuid>; the narrow tier does not reach an agent it did not start', async () => {

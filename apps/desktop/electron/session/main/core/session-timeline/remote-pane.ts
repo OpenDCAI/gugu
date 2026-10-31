@@ -14,6 +14,7 @@
  */
 import { randomUUID } from 'node:crypto';
 import type {
+  SessionPaneTabsResult,
   SessionpagePaneFailure,
   SessionpagePaneIntent,
   SessionpagePaneOpenEvent,
@@ -99,7 +100,7 @@ export function isRemotePageTarget(target: SessionpagePaneTarget): boolean {
 export const REMOTE_PANE_NO_EXTENSIONS =
   'cannot open an App tab here: this session runs on a Gugu server, which has no window, so no App page opens on it (Apps installed there give agents their tools and skills only). Open a file with path or a page with url instead.';
 
-export type RemotePaneOutcome = { opened: true } | { queued: true; unconfirmed?: true };
+export type RemotePaneOutcome = ({ opened: true } & SessionPaneTabsResult) | { queued: true; unconfirmed?: true };
 
 type Viewer = {
   subscriptionId: string;
@@ -109,20 +110,22 @@ type Viewer = {
   pages: boolean;
   /** 接得住「在人那一侧打开网页」(`external`,见 remote-open-external.ts;老桌面不带 = 不能)。 */
   external: boolean;
+  tabs: boolean;
   /** 最后一次订上 / 保活的时刻:这台机器上的程序要开网页、又认不出是哪条会话时,交给最近还活着的那台桌面。 */
   seenAt: number;
   publish: (event: SessionpagePaneOpenEvent) => void;
 };
 
 /** 这台桌面开不开得了这一格。 */
-function canOpen(viewer: Pick<Viewer, 'browser' | 'pages' | 'external'>, target: SessionpagePaneTarget): boolean {
+function canOpen(viewer: Pick<Viewer, 'browser' | 'pages' | 'external' | 'tabs'>, target: SessionpagePaneTarget): boolean {
+  if (target.kind === 'tabs' || target.kind === 'close-tab') return viewer.tabs;
   if (target.kind === 'external') return viewer.external;
   if (target.kind !== 'browser') return true;
   return viewer.browser && (!isRemotePageTarget(target) || viewer.pages);
 }
 
 /** `left` 只在内部用:推给的桌面在回话前全走了(关掉会话 / 被清扫),与「没人看着」同一个处理。 */
-type Settled = { ok: true } | { ok: false; code: RemotePaneErrorCode | 'left' };
+type Settled = ({ ok: true } & SessionPaneTabsResult) | { ok: false; code: RemotePaneErrorCode | 'left'; error?: string };
 
 type Waiter = {
   outstanding: Set<string>;
@@ -210,21 +213,19 @@ export function createRemotePaneRoute(options: RemotePaneRouteOptions = {}) {
 
   return {
     subscribe(
-      input: { subscriptionId: string; sessionId: string; browser: boolean; pages?: boolean; external?: boolean },
+      input: { subscriptionId: string; sessionId: string; browser: boolean; pages?: boolean; external?: boolean; tabs?: boolean },
       publish: (event: SessionpagePaneOpenEvent) => void
     ): { pending: SessionpagePaneOpenRequest[] } {
-      const viewer: Viewer = { ...input, pages: input.pages === true, external: input.external === true, seenAt: now(), publish };
+      const viewer: Viewer = { ...input, pages: input.pages === true, external: input.external === true, tabs: input.tabs === true, seenAt: now(), publish };
       viewers.set(input.subscriptionId, viewer);
       if (input.browser) browserSeen = 'some';
       else if (browserSeen === 'unknown') browserSeen = 'none';
-      const list = queued.get(input.sessionId) ?? [];
-      const fresh = list.filter((entry) => now() - entry.at <= QUEUED_TTL_MS);
-      // 这台桌面开不了的(浏览器请求到了没有浏览器格的桌面)留着,等一台开得了的来。
-      const deliver = fresh.filter((entry) => canOpen(viewer, entry.request.target));
-      const keep = fresh.filter((entry) => !deliver.includes(entry));
-      if (keep.length > 0) queued.set(input.sessionId, keep);
+      const fresh = (queued.get(input.sessionId) ?? []).filter((entry) => now() - entry.at <= QUEUED_TTL_MS);
+      if (fresh.length > 0) queued.set(input.sessionId, fresh);
       else queued.delete(input.sessionId);
-      return { pending: deliver.map((entry) => entry.request) };
+      // 交出去 ≠ 开好了:桌面回话(ack)才从攒着的里拿掉,与保活补推(touch)同一条规矩。
+      // 这台桌面开不了的(浏览器请求到了没有浏览器格的桌面)不给它,等一台开得了的来。
+      return { pending: fresh.filter((entry) => canOpen(viewer, entry.request.target)).map((entry) => entry.request) };
     },
 
     unsubscribe(subscriptionId: string): boolean {
@@ -264,7 +265,7 @@ export function createRemotePaneRoute(options: RemotePaneRouteOptions = {}) {
     },
 
     /** 桌面回话。认不出(不是这条订阅的、已经了结的)就返回 false。 */
-    ack(input: { requestId: string; subscriptionId: string; ok: boolean; failure?: SessionpagePaneFailure }): boolean {
+    ack(input: { requestId: string; subscriptionId: string; ok: boolean; failure?: SessionpagePaneFailure; error?: string } & SessionPaneTabsResult): boolean {
       const waiter = waiters.get(input.requestId);
       if (!waiter || !waiter.outstanding.has(input.subscriptionId)) {
         // 攒着的请求(订阅应答里送出去的 / 超时后攒下、保活时补推的)回话了:桌面已经开过(或如实说开不了),
@@ -274,13 +275,13 @@ export function createRemotePaneRoute(options: RemotePaneRouteOptions = {}) {
         return false;
       }
       if (input.ok) {
-        waiter.settle({ ok: true });
+        waiter.settle({ ok: true, ...(input.tabs ? { tabs: input.tabs } : {}), ...(input.closed === undefined ? {} : { closed: input.closed }) });
         return true;
       }
       waiter.outstanding.delete(input.subscriptionId);
       waiter.failures.push(input.failure ?? 'open_failed');
       if (waiter.outstanding.size === 0) {
-        waiter.settle({ ok: false, code: waiter.failures.includes('no_browser') ? 'no_browser' : 'open_failed' });
+        waiter.settle({ ok: false, code: waiter.failures.includes('no_browser') ? 'no_browser' : 'open_failed', ...(input.error ? { error: input.error } : {}) });
       }
       return true;
     },
@@ -295,6 +296,14 @@ export function createRemotePaneRoute(options: RemotePaneRouteOptions = {}) {
       const request: SessionpagePaneOpenRequest = { requestId: newId(), sessionId, target, intent };
       let watching = viewersOf(sessionId);
       let capable = watching.filter((viewer) => canOpen(viewer, target));
+      const managing = target.kind === 'tabs' || target.kind === 'close-tab';
+      if (managing) {
+        if (watching.length === 0) throw new Error('No Gugu window is showing this task; open it before listing or closing tabs.');
+        if (capable.length === 0) throw new Error('The Gugu window showing this task is too old to list or close tabs. Update Gugu.');
+        // One task may be shown on several desktops. Inspect/close on exactly one, never broadcast a close.
+        capable = [capable.sort((a, b) => b.seenAt - a.seenAt)[0]!];
+      }
+
       if (target.kind === 'external' && capable.length === 0) {
         // 这台机器上的程序要在人那一侧开网页(照 VS Code 远端的 $BROWSER):看着这条会话的桌面接不住,
         // 就交给最近还看着这台机器的那一台 —— 人在那儿;它按自己在看的会话开(requestId 不变)。
@@ -318,14 +327,14 @@ export function createRemotePaneRoute(options: RemotePaneRouteOptions = {}) {
         return { queued: true };
       }
       const outcome = await new Promise<Settled>((resolve, reject) => {
-        const timer = setTimeout(() => settle({ ok: false, code: 'viewer_timeout' }), ackTimeoutMs);
-        timer.unref?.();
+        const timer = target.kind === 'close-tab' ? null : setTimeout(() => settle({ ok: false, code: 'viewer_timeout' }), ackTimeoutMs);
+        timer?.unref?.();
         const abort = () => {
           cleanup();
           reject(signal?.reason);
         };
         const cleanup = () => {
-          clearTimeout(timer);
+          if (timer) clearTimeout(timer);
           waiters.delete(request.requestId);
           signal?.removeEventListener('abort', abort);
         };
@@ -347,7 +356,8 @@ export function createRemotePaneRoute(options: RemotePaneRouteOptions = {}) {
           }
         }
       });
-      if (outcome.ok) return { opened: true };
+      if (outcome.ok) return { opened: true, ...(outcome.tabs ? { tabs: outcome.tabs } : {}), ...(outcome.closed === undefined ? {} : { closed: outcome.closed }) };
+      if (managing) throw new Error(outcome.error ?? (outcome.code === 'left' ? 'The Gugu window showing this task disconnected.' : describeRemotePaneFailure(outcome.code)));
       if (outcome.code === 'left') {
         enqueue(request);
         return { queued: true };

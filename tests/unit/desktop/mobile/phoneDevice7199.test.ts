@@ -32,7 +32,7 @@ import {
   type DeviceActionResult,
 } from '@gugu/core/shared/deviceActions'
 import { createDeviceActionHost, type DeviceActionCallRecord } from '@gugu/core/cloud/deviceActionHost'
-import { isPhoneDevice, listDevices } from '@gugu/core/cloud/devices'
+import { isAgentHostDevice, isPhoneDevice, listDevices } from '@gugu/core/cloud/devices'
 import {
   PHONE_ACTIONS,
   PhoneActionFailure,
@@ -323,6 +323,18 @@ describe('设备行', () => {
     expect(all.map((d) => d.device_id)).toEqual(['mac', 'phone-i-u'])
     expect(all.filter(isPhoneDevice).map((d) => d.device_id)).toEqual(['phone-i-u'])
   })
+
+  it('native host ready phones enter run targets, while incomplete advertisements stay out', async () => {
+    const rows = [
+      { device_id: 'phone-ready', label: 'Phone', hostname: 'Phone', platform: 'android', status: 'online', last_seen_at: '2026-10-20T04:00:00Z', capabilities: { host_kind: 'phone', host_runtime_capability: 1, runtimes: ['pi'] } },
+      { device_id: 'phone-starting', label: 'Phone', hostname: 'Phone', platform: 'android', status: 'online', last_seen_at: '2026-10-20T04:00:00Z', capabilities: { host_kind: 'phone', host_runtime_capability: 0, runtimes: ['pi'] } },
+      { device_id: 'phone-no-engine', label: 'Phone', hostname: 'Phone', platform: 'android', status: 'online', last_seen_at: '2026-10-20T04:00:00Z', capabilities: { host_kind: 'phone', host_runtime_capability: 1, runtimes: [] } },
+    ]
+    const client = { from: () => ({ select: () => ({ eq: () => ({ order: async () => ({ data: rows, error: null }) }) }) }) } as unknown as Parameters<typeof listDevices>[0]
+    expect((await listDevices(client, 'u')).map((device) => device.device_id)).toEqual(['phone-ready'])
+    const all = await listDevices(client, 'u', { includePhones: true })
+    expect(all.map(isAgentHostDevice)).toEqual([true, false, false])
+  })
 })
 
 describe('安装标识', () => {
@@ -330,6 +342,8 @@ describe('安装标识', () => {
   beforeEach(() => {
     store.clear()
     vi.stubGlobal('localStorage', {
+      get length() { return store.size },
+      key: (index: number) => [...store.keys()][index] ?? null,
       getItem: (key: string) => store.get(key) ?? null,
       setItem: (key: string, value: string) => void store.set(key, value),
       removeItem: (key: string) => void store.delete(key),
@@ -337,18 +351,19 @@ describe('安装标识', () => {
   })
   afterEach(() => vi.unstubAllGlobals())
 
-  it('同一台手机一直是同一个;老安装第一次带上 install_key 时认下这台,标识不变', () => {
+  it('无原生绑定的旧标识不能证明来自这台手机;验证后标识保持不变', () => {
     store.set('gugu.phoneDevice.install', 'old-install')
-    expect(phoneInstallId('key-a')).toBe('old-install')
-    expect(phoneInstallId('key-a')).toBe('old-install')
+    const verified = phoneInstallId('key-a', 'registration-key-a')
+    expect(verified).not.toBe('old-install')
+    expect(phoneInstallId('key-a', 'registration-key-a')).toBe(verified)
   })
 
   it('从别的手机的备份里恢复来的(install_key 对不上)⇒ 换一个,❌ 两台手机共用一个设备行', () => {
-    const first = phoneInstallId('key-a')
-    expect(phoneInstallId('key-a')).toBe(first)
-    const restored = phoneInstallId('key-b')
+    const first = phoneInstallId('key-a', 'registration-key-a')
+    expect(phoneInstallId('key-a', 'registration-key-a')).toBe(first)
+    const restored = phoneInstallId('key-b', 'registration-key-b')
     expect(restored).not.toBe(first)
-    expect(phoneInstallId('key-b')).toBe(restored)
+    expect(phoneInstallId('key-b', 'registration-key-b')).toBe(restored)
   })
 })
 

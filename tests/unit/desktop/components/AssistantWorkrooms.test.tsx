@@ -8,7 +8,11 @@ const mocks = vi.hoisted(() => ({
   native: true, rpc: vi.fn(), mobileRpc: vi.fn(), list: vi.fn(), bindings: vi.fn(), warn: vi.fn(),
 }))
 vi.mock('../../../../apps/desktop/src/platform', () => ({ platform: { capabilities: { get agentRuntime() { return mocks.native } } } }))
-vi.mock('../../../../apps/desktop/src/session/renderer/lib/ipc', () => ({ rpcOn: mocks.rpc, events: { on: () => () => {} } }))
+vi.mock('../../../../apps/desktop/src/session/renderer/lib/ipc', () => {
+  const ipc = { rpcOn: mocks.rpc, events: { on: () => () => {} } };
+  // 本机(null)那条线就是 events.on;测试里的项目都在本机。
+  return { ...ipc, onMachineEvent: (_machine: unknown, event: never, cb: never) => (ipc.events.on as (...args: unknown[]) => () => void)(event, cb) };
+})
 vi.mock('../../../../apps/desktop/src/mobile/agent-watch/sessionpage-rpc', () => ({ machineRpc: mocks.mobileRpc }))
 vi.mock('../../../../apps/desktop/src/lib/log', () => ({ rendererLogger: () => ({ warn: mocks.warn }) }))
 

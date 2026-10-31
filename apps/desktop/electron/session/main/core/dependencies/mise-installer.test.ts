@@ -50,7 +50,7 @@ beforeEach(async () => {
     if (args[0] === '--version') return '2026.9.12 test';
     if (args[0] === 'ls') return JSON.stringify(entries);
     if (args[0] === 'install') {
-      const install_path = path.join(home, 'agents/mise/data/installs/http-gugu-agent', version);
+      const install_path = path.join(options.env.MISE_DATA_DIR, 'installs/http-gugu-agent', version);
       await mkdir(path.join(install_path, 'bin'), { recursive: true });
       await writeFile(path.join(install_path, 'bin/agent'), 'actual native program');
       entries.push({ version, install_path, installed: true });
@@ -68,6 +68,15 @@ beforeEach(async () => {
 afterEach(async () => { vi.restoreAllMocks(); vi.unstubAllEnvs(); await rm(home, { recursive: true, force: true }); });
 
 describe('application-owned mise lifecycle', () => {
+  it('prepares in an isolated tree without publishing or changing the active launcher', async () => {
+    const preparation = { root: path.join(home, 'prepared/runtime'), launcherDir: path.join(home, 'prepared/entrypoints') };
+    const result = await runMiseOperation({ mise: { target, operation: 'install' } }, preparation);
+    expect(result.success).toBe(true);
+    expect(await readFile(launcher(), 'utf8')).toBe('previous launcher');
+    expect(await readFile(path.join(preparation.launcherDir, path.basename(launcher())), 'utf8')).toContain('http-gugu-agent');
+    expect(entries[0].install_path.startsWith(preparation.root + path.sep)).toBe(true);
+    expect(mocks.run.mock.calls.every(call => call[2].env.MISE_DATA_DIR === path.join(preparation.root, 'data'))).toBe(true);
+  });
   it('publishes a stable launcher after verifying the installed executable, then removes through mise', async () => {
     expect((await runMiseOperation({ mise: { target, operation: 'install' } })).success).toBe(true);
     expect(await readFile(launcher(), 'utf8')).toContain('http-gugu-agent');

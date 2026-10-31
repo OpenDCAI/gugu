@@ -1,5 +1,7 @@
-import type { AcpPermissionRequest } from '../acp/models/permissions';
-import { toolCallLabel, type ToolCallItem } from '../acp/models/turns/tool-calls';
+import { changedFilePaths } from '../acp/models/file-patch';
+import { projectToolContent } from '../acp/models/tool-payload';
+import { permissionTitle, permissionDescription, type AcpPermissionRequest } from '../acp/models/permissions';
+import { type ToolCallItem } from '../acp/models/turns/tool-calls';
 import type { PendingRequest, SettlementOption } from './contract';
 
 /**
@@ -32,10 +34,8 @@ function describeToolCall(toolCall: ToolCallItem): string | undefined {
       return toolCall.command ?? toolCall.inputSummary;
     case 'read-tool-call':
       return toolCall.path ?? toolCall.resource ?? toolCall.inputSummary;
-    case 'create-file-tool-call':
-    case 'modify-file-tool-call':
-    case 'delete-file-tool-call':
-      return toolCall.path;
+    case 'patch-tool-call':
+      return changedFilePaths(projectToolContent(toolCall.contentBlocks ?? []).diffs).join(', ') || toolCall.inputSummary;
     case 'search-tool-call':
       return toolCall.query;
     case 'web-fetch-tool-call':
@@ -58,14 +58,16 @@ export function permissionToPendingRequest(request: AcpPermissionRequest): Pendi
     name: option.name,
     ...(option.kind ? { kind: option.kind } : {})
   }));
-  const title = toolCallLabel(request.toolCall);
-  const detail = describeToolCall(request.toolCall)?.trim();
+  const title = permissionTitle(request);
+  const detail = (permissionDescription(request) ?? (request.toolCall ? describeToolCall(request.toolCall) : undefined))?.trim();
   return {
     itemId: request.requestId,
     // ACP 这条通道上问的永远是「准不准做这件事」。提问（从几项里挑一个）在协议上不是
     // requestPermission，本仓今天也没有从宿主结算它的口（write-bridge 对它 fail loud）。
     kind: 'permission',
+    origin: { source: 'harness-permission' },
     title,
+    ...(request.subject !== undefined ? { subject: request.subject } : {}),
     ...(detail && detail !== title ? { detail: clip(detail) } : {}),
     options
   };

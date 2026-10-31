@@ -55,6 +55,7 @@ export async function resolveSessionpageSenderBinding(
 }
 
 export interface SessionpageSessionPeersDeps {
+  sessionId?: string
   listRoster: SessionpageRosterReader
   ownerUserId: string | null
   lookupIdentities: (agentUserIds: readonly string[]) => Promise<readonly LocalSessionPeerIdentity[]>
@@ -69,7 +70,7 @@ type SessionpageSessionPeerBinding = EmdashAgentRegistration & { engine: string 
  */
 export async function resolveSessionpageSessionPeers(
   deps: SessionpageSessionPeersDeps,
-): Promise<LocalSessionPeer[]> {
+): Promise<(LocalSessionPeer & { engine: string })[]> {
   const roster = await deps.listRoster()
   const bindings: SessionpageSessionPeerBinding[] = roster
     .filter((agent) => agentMayBelongTo(agent, deps.ownerUserId))
@@ -79,7 +80,7 @@ export async function resolveSessionpageSessionPeers(
       sessionId: cachedString(agent, SESSION_CACHE_KEY),
       engine: agent.agent_type,
     }))
-    .filter((binding) => Boolean(binding.sessionId))
+    .filter((binding) => Boolean(binding.sessionId) && (!deps.sessionId || binding.sessionId === deps.sessionId))
   if (!bindings.length) return []
 
   const [identities, sessions] = await Promise.all([

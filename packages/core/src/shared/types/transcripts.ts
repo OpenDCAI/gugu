@@ -58,3 +58,22 @@ export interface LocalTranscriptSession {
   updatedAt: number
   sizeBytes: number
 }
+
+/** Observed context metadata only. Instruction bodies, tool outputs and thinking never leave the parser. */
+export interface TranscriptContext {
+  source: TranscriptSource
+  providerSessionId: string
+  title: string
+  cwd: string | null
+  fileName: string
+  loaded: Array<{
+    path: string | null
+    kind: 'instruction-file' | 'rendered-total' | 'base-instructions'
+    scope: string | null
+    chars: number
+    truncated: boolean
+    at: string | null
+  }>
+  nested: Array<{ path: string; at: string | null }>
+  refs: string[]
+}

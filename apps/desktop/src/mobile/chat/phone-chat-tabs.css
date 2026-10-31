@@ -1,0 +1,33 @@
+/* 手机对话页头下面那排页签(PhoneChatTabs):贴着页头,横着滑,不出滚动条;字与页边对齐 16。 */
+/* 分隔线通栏、字从 16 起:内边距放在页签那一排上;position 让「滑进视野」的 offsetLeft 以这一排为准。 */
+.gg-phone-chat-tabs {
+  position: relative;
+  flex-shrink: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+  background: transparent;
+}
+.gg-phone-chat-tabs::-webkit-scrollbar { display: none; }
+.gg-phone-chat-tabs .gg-segtabs { gap: var(--spacing-lg); padding-inline: var(--spacing-lg); width: max-content; min-width: 100%; box-sizing: border-box; }
+.gg-phone-chat-tabs .gg-segtab { white-space: nowrap; }
+
+/* 页签里话题那一枚的顶上一行:它从哪一条开出来(原型 v7.12 .v6-topic-src)。 */
+.gg-topic-tab-src {
+  flex-shrink: 0;
+  margin: var(--spacing-xs) var(--spacing-lg) var(--spacing-sm);
+  padding: var(--spacing-sm) var(--spacing-lg);
+  border-radius: var(--radius-surface);
+  background: var(--ta-glass);
+  font-size: var(--font-body);
+  line-height: var(--lh-body);
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.gg-topic-tab-src[data-gone] { color: var(--warn); }
+/* 一枚页签是手指点的:够 44 高(原型 v7.12 .v6-subtab);图标和字间距 8。 */
+.gg-phone-chat-tabs .gg-segtab { min-height: var(--control-h-touch); gap: var(--spacing-sm); }
+
+/* Desktop groups reuse the strip with the existing non-touch control height. */
+.gg-phone-chat-tabs[data-dense] .gg-segtab { min-height: var(--control-h-lg); }

@@ -1,6 +1,13 @@
 // @vitest-environment jsdom
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { UI_EVENTS } from '@/lib/uiEvents';
+import { APP_OPEN_WITH_EVENT } from '@shared/extensions/app-runtime-protocol';
+import { groupPageSlot, type PanelItem } from '@renderer/features/chats/chat-tabs/chat-panel-item';
+
+const { tabs, showChatTab, updateFileNames } = vi.hoisted(() => ({
+  tabs: [] as { tabId: string; inWindow: boolean; shown?: boolean; item: PanelItem }[], showChatTab: vi.fn(), updateFileNames: vi.fn(),
+}));
+vi.mock('@renderer/features/chats/chat-tabs/chat-layouts', () => ({ panelTabsOf: () => tabs, showChatTab, updateFileNames }));
 
 const navigate = vi.fn();
 vi.mock('@renderer/lib/stores/app-state', () => ({ appState: { navigation: { navigate } } }));
@@ -15,6 +22,8 @@ vi.mock('./extension-surface-store', () => ({
 }));
 
 const { applyExtensionHostAction } = await import('./host-action-handlers');
+beforeEach(() => { vi.clearAllMocks(); tabs.length = 0; });
+afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
 /**
  * R A/B 10-06: a banner's or a link's click that names no place opens the App's own page, which lives on the task
@@ -31,5 +40,55 @@ describe("a click that opens the App's own page brings the task page forward", (
     } finally {
       window.removeEventListener(UI_EVENTS.sessionpageReveal, revealed);
     }
+  });
+});
+
+describe('showing an already-open file while its metadata is checked', () => {
+  const origin = { extensionId: 'workspace', sessionId: null, tabId: groupPageSlot('chat', 'folder') };
+  beforeEach(() => { tabs.push({ tabId: 'folder', inWindow: false, shown: true, item: { kind: 'workspace.main', title: 'Group folder' } }); });
+  it('activates the existing file in a background window without resolving its link again', async () => {
+    tabs.push({ tabId: 'held', inWindow: false, item: { kind: 'workspace.main', itemId: 'file', title: 'old' } });
+    vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden');
+    vi.spyOn(document, 'hasFocus').mockReturnValue(false);
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { queueMicrotask(() => callback(0)); return 1; });
+    expect(await applyExtensionHostAction({ origin, action: { kind: 'openChatFile', chatId: 'chat', itemId: 'file', onlyIfOpen: 'workspace.main' } })).toEqual({ chat: 'chat' });
+    expect(showChatTab).toHaveBeenCalledWith('chat', 'held');
+    expect(navigate).not.toHaveBeenCalled();
+  });
+
+  it('does not create or navigate to a file whose retained native page has no open tab', async () => {
+    expect(await applyExtensionHostAction({ origin, action: { kind: 'openChatFile', chatId: 'chat', itemId: 'file', onlyIfOpen: 'workspace.main' } })).toBeUndefined();
+    expect(showChatTab).not.toHaveBeenCalled();
+    expect(navigate).not.toHaveBeenCalled();
+  });
+
+  it('leaves a file in another chat to the ordinary opener that brings its chat up', async () => {
+    tabs.push({ tabId: 'held', inWindow: false, item: { kind: 'workspace.main', itemId: 'file', title: 'old' } });
+    expect(await applyExtensionHostAction({ origin: { ...origin, tabId: groupPageSlot('other-chat', 'folder') }, action: { kind: 'openChatFile', chatId: 'chat', itemId: 'file', onlyIfOpen: 'workspace.main' } })).toBeUndefined();
+    expect(showChatTab).not.toHaveBeenCalled();
+  });
+
+  it('does not reuse an originating tab that is no longer shown', async () => {
+    tabs[0]!.shown = false;
+    tabs.push({ tabId: 'held', inWindow: false, item: { kind: 'workspace.main', itemId: 'file', title: 'old' } });
+    expect(await applyExtensionHostAction({ origin, action: { kind: 'openChatFile', chatId: 'chat', itemId: 'file', onlyIfOpen: 'workspace.main' } })).toBeUndefined();
+    expect(showChatTab).not.toHaveBeenCalled();
+  });
+
+  it('refreshes only the existing tab without activating a late result or bringing its chat up', async () => {
+    tabs.push({ tabId: 'held', inWindow: false, item: { kind: 'workspace.main', itemId: 'file', title: 'old' } });
+    const dispatched = vi.fn();
+    window.addEventListener(APP_OPEN_WITH_EVENT, dispatched);
+    try {
+      await applyExtensionHostAction({ origin, action: { kind: 'openWith', detail: {
+        background: true, chatId: 'chat', itemId: 'file', name: 'renamed.md', typedName: 'renamed.md',
+        file: { document: true, contentType: 'text/markdown', version: 2, size: 5 },
+        choice: { kind: 'one', candidate: { extensionId: 'workspace', tabKind: 'workspace.main', tabTitle: 'Files', app: { name: 'Files' }, onlyTab: true, suffix: '.md' } },
+      } } });
+      expect(updateFileNames).toHaveBeenCalledWith([{ id: 'file', filename: 'renamed.md', content_type: 'text/markdown' }], expect.any(Array));
+      expect(showChatTab).not.toHaveBeenCalled();
+      expect(navigate).not.toHaveBeenCalled();
+      expect(dispatched).not.toHaveBeenCalled();
+    } finally { window.removeEventListener(APP_OPEN_WITH_EVENT, dispatched); }
   });
 });

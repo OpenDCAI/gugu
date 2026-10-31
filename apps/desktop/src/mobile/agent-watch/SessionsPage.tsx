@@ -1,17 +1,24 @@
-import { useState } from 'react'
+import { observer } from 'mobx-react-lite'
+import { useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { SessionpageSessionSummary } from '@gugu/session-core/session-record/contract'
 import { Button } from '@/components/ui/Button'
+import { ListRowContent } from '@/components/ui/ListRow'
 import { IconButton } from '@/components/ui/IconButton'
 import { ChevronDown, ChevronUp, MoreHorizontal } from '@/lib/icons'
 import { Sheet } from '@/components/ui/Sheet'
+import { Menu, MenuItem } from '@/components/ui/Menu'
+import { useToast } from '@/components/toastContext'
 import { Field } from '@/components/ui/Field'
 import { formatRelativeTime } from '@/i18n/format'
 import { SessionAvatar } from './StatusGlyph'
 import { ScheduleMetaPart } from './schedule-meta'
+import { useShownAgentStatus } from '@/components/chat/useAgentsOnCloudComputer'
 import { sessionPresentation } from './watch-status'
-import { updateSession } from './sessionpage-rpc'
+import { cancelPhoneSessionTurn, updateSession } from './sessionpage-rpc'
 import { rowOpens } from '@/session/shared/remote-sessions/session-directory'
+import { useLongPress } from '@/hooks/useLongPress'
+import './task-flow-catalog'
 
 /*
  * 「项目」页(ProjectsPage)用的会话行与管理动作。这里原来是「一台机器的会话页」:#7199 起手机底栏那一格按项目列、
@@ -21,73 +28,93 @@ import { rowOpens } from '@/session/shared/remote-sessions/session-directory'
 /**
  * 会话的管理动作(owner 2026-09-15:「会话的删除等管理功能也得加上来」):置顶、改名、归档 —— 桌面侧栏同三条。
  * 收起会话只有归档(#6949,owner 2026-10-06):与桌面、agent 的 `session_archive` 同一个动作,在桌面的会话历史里
- * 恢复得回来,所以 ❌ 再摆删除。做不成就把机器端的原话摆出来,❌ 悄悄关抽屉。
+ * 恢复得回来,所以 ❌ 再摆删除。贴着点开它的那一下弹出(⋯ 或长按的那一行;owner 10-26 v7.12:❌ 底部抽屉);
+ * 改名要打字,换成一张只有输入框的面板。做不成就把机器端的原话摆出来,❌ 悄悄没了。
  */
-export function SessionActionsSheet({
+export function SessionActions({
+  anchor,
   session,
   deviceId,
+  phoneHost = false,
   onClose,
-  onUpdated
+  onArchived
 }: {
-  session: SessionpageSessionSummary
+  /** 点开菜单的那个元素;null = 菜单收着。 */
+  anchor: Element | null
+  session: SessionpageSessionSummary | null
   deviceId: string
+  phoneHost?: boolean
   onClose: () => void
-  onUpdated: (sessionId: string, next: { title: string; isPinned: boolean; archived: boolean }) => void
+  onArchived?: () => void
 }) {
   const { t } = useTranslation('main')
-  const [step, setStep] = useState<'menu' | 'rename'>('menu')
+  const { toast } = useToast()
+  const [renaming, setRenaming] = useState<{ deviceId: string; session: SessionpageSessionSummary } | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [draftTitle, setDraftTitle] = useState(session.title)
-  const fail = (err: unknown): void => setError(err instanceof Error ? err.message : String(err))
-  const update = (patch: { title?: string; pinned?: boolean; archived?: true }): void => {
+  const [draftTitle, setDraftTitle] = useState('')
+  const reason = (err: unknown): string => err instanceof Error ? err.message : String(err)
+  const failed = (err: unknown): void => toast(t('agentWatch.sessions.actionFailed'), 'error', reason(err))
+  const update = (target: { deviceId: string; session: SessionpageSessionSummary }, patch: { pinned?: boolean; archived?: true }): void => {
+    updateSession(target.deviceId, { conversationId: target.session.conversationId, ...patch })
+      .then((next) => { if (next.archived) onArchived?.() })
+      .catch(failed)
+  }
+  const rename = (): void => {
+    if (!renaming) return
     setBusy(true)
     setError(null)
-    updateSession(deviceId, { conversationId: session.conversationId, ...patch })
-      .then((next) => onUpdated(session.conversationId, next))
-      .catch(fail)
+    updateSession(renaming.deviceId, { conversationId: renaming.session.conversationId, title: draftTitle })
+      .then(() => setRenaming(null))
+      .catch((err: unknown) => setError(reason(err)))
       .finally(() => setBusy(false))
   }
-  const pinned = session.isPinned === true
+  const pinned = session?.isPinned === true
+  const target = session ? { deviceId, session } : null
   return (
-    <Sheet onClose={busy ? () => undefined : onClose} mobileFitContent testId="agent-watch-session-actions" ariaLabel={session.title}>
-      <div className="gg-aw gg-aw-sheet gg-aw-actions">
-        <div className="gg-aw-actions-title">{session.title}</div>
-        {error ? <div className="gg-aw-actions-error" data-testid="agent-watch-session-action-error">{error}</div> : null}
-        {step === 'menu' ? (
-          <>
-            <Button variant="ghost" size="option" className="gg-aw-actions-item" disabled={busy} data-testid="agent-watch-session-pin" onClick={() => update({ pinned: !pinned })}>
+    <>
+      {anchor && target ? (
+        <Menu anchor={anchor} ariaLabel={target.session.title} onClose={onClose}>
+          {phoneHost ? (
+            <MenuItem data-testid="agent-watch-session-stop" onClick={() => { void cancelPhoneSessionTurn(target.deviceId, target.session.conversationId).catch(failed) }}>
+              {t('agentWatch.sessions.stop')}
+            </MenuItem>
+          ) : <>
+            <MenuItem data-testid="agent-watch-session-pin" onClick={() => update(target, { pinned: !pinned })}>
               {t(pinned ? 'agentWatch.sessions.unpin' : 'agentWatch.sessions.pin')}
-            </Button>
-            <Button variant="ghost" size="option" className="gg-aw-actions-item" disabled={busy} data-testid="agent-watch-session-rename" onClick={() => setStep('rename')}>
+            </MenuItem>
+            <MenuItem data-testid="agent-watch-session-rename" onClick={() => { setDraftTitle(target.session.title); setError(null); setRenaming(target) }}>
               {t('agentWatch.sessions.rename')}
-            </Button>
-            <Button variant="ghost" size="option" className="gg-aw-actions-item" disabled={busy} data-testid="agent-watch-session-archive" onClick={() => update({ archived: true })}>
+            </MenuItem>
+            <MenuItem data-testid="agent-watch-session-archive" onClick={() => update(target, { archived: true })}>
               {t('agentWatch.sessions.archive')}
-            </Button>
-          </>
-        ) : (
-          <>
-            <Field.Root className="gg-aw-actions-field">
-              <Field.Input
-                value={draftTitle}
-                autoFocus
-                maxLength={120}
-                data-testid="agent-watch-session-rename-input"
-                onChange={(e: { target: { value: string } }) => setDraftTitle(e.target.value)}
-                onKeyDown={(e: { key: string }) => { if (e.key === 'Enter' && draftTitle.trim()) update({ title: draftTitle }) }}
-              />
-            </Field.Root>
-            <Button variant="primary" size="lg" className="gg-aw-actions-item" disabled={busy || !draftTitle.trim() || draftTitle.trim() === session.title} data-testid="agent-watch-session-rename-save" onClick={() => update({ title: draftTitle })}>
-              {t('agentWatch.sessions.renameSave')}
-            </Button>
-          </>
-        )}
-        <Button variant="secondary" size="lg" className="gg-aw-actions-item" disabled={busy} onClick={onClose}>
-          {t('agentWatch.sessions.cancel')}
-        </Button>
-      </div>
-    </Sheet>
+            </MenuItem>
+          </>}
+        </Menu>
+      ) : null}
+      <Sheet open={renaming !== null} onClose={busy ? () => undefined : () => setRenaming(null)} mobileFitContent testId="agent-watch-session-rename-sheet" ariaLabel={t('agentWatch.sessions.rename')}>
+        {renaming ? <div className="gg-aw gg-aw-sheet gg-aw-actions">
+          <div className="gg-aw-actions-title">{renaming.session.title}</div>
+          {error ? <div className="gg-aw-actions-error" data-testid="agent-watch-session-action-error">{error}</div> : null}
+          <Field.Root className="gg-aw-actions-field">
+            <Field.Input
+              value={draftTitle}
+              autoFocus
+              maxLength={120}
+              data-testid="agent-watch-session-rename-input"
+              onChange={(e: { target: { value: string } }) => setDraftTitle(e.target.value)}
+              onKeyDown={(e: { key: string }) => { if (e.key === 'Enter' && draftTitle.trim()) rename() }}
+            />
+          </Field.Root>
+          <Button variant="primary" size="lg" className="gg-aw-actions-item" disabled={busy || !draftTitle.trim() || draftTitle.trim() === renaming.session.title} data-testid="agent-watch-session-rename-save" onClick={rename}>
+            {t('agentWatch.sessions.renameSave')}
+          </Button>
+          <Button variant="secondary" size="lg" className="gg-aw-actions-item" disabled={busy} onClick={() => setRenaming(null)}>
+            {t('agentWatch.sessions.cancel')}
+          </Button>
+        </div> : null}
+      </Sheet>
+    </>
   )
 }
 
@@ -99,7 +126,7 @@ export function SessionActionsSheet({
  * 状态词与会话页、聊天同一张表(common:agentStatus.*:运行中 / 后台运行中 / 等你批准… / 出错了 / 做完了 / 空闲);
  * 宿主报上来的是词表里的英文(working / needs_user …),❌ 不许把它原样印到中文界面上。
  */
-export function SessionRow({
+export const SessionRow = observer(function SessionRow({
   session,
   agentName,
   tags,
@@ -108,7 +135,9 @@ export function SessionRow({
   childrenOpen,
   onToggleChildren,
   onOpen,
-  onMenu
+  onMenu,
+  statusAvailable,
+  phoneHost = false,
 }: {
   session: SessionpageSessionSummary
   /** 这条会话背后的 agent 名(`Codex 3`);还没有身份就不给。 */
@@ -125,10 +154,17 @@ export function SessionRow({
   onToggleChildren: () => void
   onOpen: (session: SessionpageSessionSummary) => void
   /** 管理动作入口(行尾「…」)。机器离线时不给:删除要机器端执行,离线只会等到超时。 */
-  onMenu?: ((session: SessionpageSessionSummary) => void) | undefined
+  /** 管理菜单贴着 anchor 弹出:长按 / 右键是这一行,⋯ 是那颗钮。 */
+  onMenu?: ((session: SessionpageSessionSummary, anchor: Element) => void) | undefined
+  statusAvailable?: boolean | undefined
+  phoneHost?: boolean
 }) {
   const { t } = useTranslation('main')
-  const presentation = sessionPresentation(session, session.supported)
+  const { t: tFlow } = useTranslation('mobileTaskFlow')
+  const shownStatus = useShownAgentStatus()
+  const presentation = shownStatus.presentation(session.agent?.userId, sessionPresentation(session, statusAvailable ?? session.supported))
+  const wrapRef = useRef<HTMLDivElement>(null)
+  const longPress = useLongPress(() => { if (wrapRef.current) onMenu?.(session, wrapRef.current) })
   const when = formatRelativeTime(session.lastInteractedAt)
   /*
    * 打不开的行分两种,说的不是同一件事:
@@ -144,7 +180,8 @@ export function SessionRow({
    * 打不开 / 没起来的行照旧写它自己的那句话(下面 rowMeta)。
    */
   const named = agentName && !session.title.startsWith(agentName) && !agentName.startsWith(session.title) ? agentName : undefined
-  const ownMeta = [named ? null : session.harness, when].filter((x): x is string => !!x)
+  const agentKind = phoneHost ? tFlow('phoneAgent') : session.harness
+  const ownMeta = [named ? null : agentKind, when].filter((x): x is string => !!x)
   /*
    * 没有记录可读的会话,新宿主照样打得开(spec session-always-openable,#6264):转录里是第一句话,
    * 为什么没起来说在那台机器那边。老宿主(不带 recordState)打不开,说一句「这里打不开」——
@@ -154,9 +191,9 @@ export function SessionRow({
   const rowMeta: string[] = session.supported
     ? ownMeta
     : session.recordState === 'not-started'
-      ? [t('agentWatch.sessions.notStarted'), session.harness, when].filter((x): x is string => !!x)
+      ? [t('agentWatch.sessions.notStarted'), agentKind, when].filter((x): x is string => !!x)
       : session.recordState === 'harness-unsupported'
-        ? [t('agentWatch.sessions.harnessUnsupported'), session.harness].filter((x): x is string => !!x)
+        ? [t('agentWatch.sessions.harnessUnsupported'), agentKind].filter((x): x is string => !!x)
         : session.unsupportedReason
           ? [t('agentWatch.sessions.cannotOpen')]
           : ownMeta
@@ -164,6 +201,7 @@ export function SessionRow({
 
   return (
     <div
+      ref={wrapRef}
       className="gg-aw-item-wrap"
       data-depth={depth}
       style={depth > 0 ? { paddingInlineStart: `calc(${depth} * var(--spacing-lg))` } : undefined}
@@ -171,30 +209,32 @@ export function SessionRow({
     <Button
       variant="ghost"
       size="option"
-      className="gg-aw-item"
+      className="gg-list-row gg-row gg-aw-item"
+      data-mobile=""
+      data-emphasis={presentation?.emphasis || undefined}
       aria-disabled={openable ? undefined : true}
       disabled={!openable}
       data-session-id={session.conversationId}
       data-supported={session.supported ? 'true' : 'false'}
+      {...(onMenu ? longPress : {})}
+      onContextMenu={onMenu ? (event) => { event.preventDefault(); onMenu(session, event.currentTarget) } : undefined}
       onClick={openable ? () => onOpen(session) : undefined}
     >
-      <span className="gg-aw-item-ind" data-avatar="">
+      <ListRowContent title={session.title} leading={
         <SessionAvatar
           agentId={session.agent?.userId}
           sessionId={session.conversationId}
           presentation={presentation}
-          size={depth > 0 ? 26 : 32}
+          size={depth > 0 ? 28 : 40}
         />
-      </span>
-      <span className="gg-aw-item-main">
-        <span className="gg-aw-item-title">{session.title}</span>
+      } subtitle={
         <span className="gg-aw-item-meta">
           {session.schedule ? <ScheduleMetaPart schedule={session.schedule} /> : null}
           {meta.map((part, i) => (
             <span key={part + String(i)} className="gg-aw-item-part">{part}</span>
           ))}
         </span>
-      </span>
+      } />
     </Button>
     {childCount > 0 ? (
       <IconButton
@@ -214,11 +254,11 @@ export function SessionRow({
         className="gg-aw-item-menu"
         aria-label={t('agentWatch.sessions.menu')}
         data-testid="agent-watch-session-menu"
-        onClick={() => onMenu(session)}
+        onClick={(event) => onMenu(session, event.currentTarget)}
       >
         <MoreHorizontal />
       </IconButton>
     ) : null}
     </div>
   )
-}
+})

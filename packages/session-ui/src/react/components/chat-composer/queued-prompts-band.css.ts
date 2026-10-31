@@ -3,11 +3,14 @@ import { vars } from '@session-ui/theme/core/contract/contract.css';
 import { tokenVars } from '@session-ui/theme/tokens.css';
 import { durFast } from '@session-ui/styles/effects/animations.css';
 
-// The queue is a compact tray above the composer, rather than another card.
+// The queue is a compact card above the composer. The composer stack has no backing of its own
+// (messages scroll past behind it), so the card carries the composer's surface itself.
 export const band = style({
   minWidth: 0,
   padding: '0.25rem 0.5rem',
   marginBottom: '0.5rem',
+  borderRadius: tokenVars.radiusMd,
+  backgroundColor: `var(--composer-bg, ${vars.surfaceBaseEmphasis})`,
   color: vars.foregroundMuted,
   fontSize: tokenVars.textSm,
 });

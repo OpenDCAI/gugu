@@ -1,11 +1,13 @@
-import { useEffect, useMemo, useRef, type ReactNode } from 'react'
+import { readShellSlots } from '@/lib/shellSlots'
+import { assistantSlotKey } from '@/lib/assistantShellBridge'
+import { useEffect, useMemo, useRef, useSyncExternalStore, type ReactNode } from 'react'
+import { FilePreviewHost } from '../chat/filePreviewHost'
 import { inferAttachmentKind } from '@gugu/core/shared/ui/attachmentModels'
 import { useTranslation } from 'react-i18next'
 import { ChatAreaPanel } from '../ChatAreaPanel'
 import type { ComposerAttachAction } from '../chat/ComposerAttachButton'
 import type { MemberProfileChatTarget } from '../MemberProfileCard'
 import { Button } from '../ui/Button'
-import { appendDraft } from '../../lib/assistantDraft'
 import { requestIdeas } from '../../lib/assistantIdeas'
 import { readAssistantShellBridge } from '../../lib/assistantShellBridge'
 import { ArrowUpToLine, Mic, Plus, Sparkles } from '../../lib/icons'
@@ -13,11 +15,11 @@ import '../../i18n/registerVoiceNotesCatalog'
 import { scheduleComposerFocus } from '../../lib/focusComposer'
 import { useReportChatOnScreen } from '../../lib/onScreenChat'
 import { useChatStore } from '../../store/chatContext'
-import { useChatLineClaim } from '../../store/chatLine'
+import { ChatLineScope } from '@/store/chatLineScope'
 import type { AssistantDm } from './useAssistantDm'
 import { AssistantConversationProgress } from './AssistantConversationProgress'
 import { useAssistantTyping } from './useAssistantTyping'
-import { AssistantCustomizeCard } from './AssistantCustomizeCard'
+import { AssistantComposerEntries } from './AssistantComposerEntries'
 import { useCustomizeCardOffered } from '../../lib/assistantSetupState'
 import { useAuth } from '../../store/auth'
 import { appState } from '../../session/renderer/lib/stores/app-state'
@@ -25,7 +27,6 @@ import { useVoiceNoteHandler } from './useVoiceNoteHandler'
 
 export type AssistantChatHandlers = {
   onOpenUserChat?: (target: MemberProfileChatTarget) => void
-  onOpenSessionpageAgent?: (agentUserId: string, view?: 'code' | 'general') => Promise<void>
   onOpenSessionpageAgentFile?: (agentUserId: string, path: string) => Promise<void>
 }
 
@@ -34,7 +35,7 @@ export type AssistantChatHandlers = {
  * 带了文件(「分析健康报告」选的那份)就排进输入框的附件,与人自己点「+」选的同一个队列。
  */
 function useAssistantDraft(chatId: string | null) {
-  const { setDraft, draftAttachments, setDraftAttachments } = useChatStore('setDraft', 'draftAttachments', 'setDraftAttachments')
+  const { writeDraft, draftAttachments, setDraftAttachments } = useChatStore('writeDraft', 'draftAttachments', 'setDraftAttachments')
   const attachmentsRef = useRef(draftAttachments)
   attachmentsRef.current = draftAttachments
   useEffect(() => {
@@ -43,7 +44,7 @@ function useAssistantDraft(chatId: string | null) {
     const apply = () => {
       const draft = bridge.takeChatDraft()
       if (draft === null) return
-      if (draft.text) setDraft(chatId, (previous) => appendDraft(previous, draft.text))
+      if (draft.text) writeDraft(chatId, { at: 'end', text: draft.text })
       if (draft.files.length > 0) {
         const queued = attachmentsRef.current[chatId] ?? []
         setDraftAttachments(chatId, [...queued, ...draft.files.map((file) => ({ id: crypto.randomUUID(), file, kind: inferAttachmentKind(file) }))])
@@ -51,7 +52,7 @@ function useAssistantDraft(chatId: string | null) {
     }
     apply()
     return bridge.subscribeChatDraft(apply)
-  }, [chatId, setDraft, setDraftAttachments])
+  }, [chatId, writeDraft, setDraftAttachments])
 }
 
 /**
@@ -106,28 +107,30 @@ function useIdeasAction(): ComposerAttachAction {
 
 /**
  * #7199 「助理」App 的「聊天」:就是和它的那条私聊,整套聊天面画在 App 里(owner:「这是这个 App 的核心，不能跳去私聊」)。
- * 摆在眼前时把那条活的线借过来(store/chatLine.ts),离开就还给对话页原来选中的那条。
+ * 按 chatId 订阅账户已有的聊天管线,不改变对话页的选中。
  */
 function AssistantChatSlotContent({ dm, assistantId, assistantName, visible, ...handlers }: { dm: AssistantDm; assistantId: string; assistantName: string; visible: boolean } & AssistantChatHandlers) {
+  const bridge = readAssistantShellBridge()
+  const slots = readShellSlots()
+  const target = useSyncExternalStore(
+    (listener) => slots?.subscribeSlots(listener) ?? (() => undefined),
+    () => slots?.getSlots().get(assistantSlotKey('file-preview')) ?? null,
+  )
+  const previewHost = useMemo(() => ({ target, onOpenChange: bridge?.setFilePreviewOpen }), [bridge, target])
   const { t } = useTranslation('assistant')
   const { chatId, failed, retry } = dm
   const ideas = useIdeasAction()
   const voice = useVoiceNoteAction()
   const healthReport = useHealthReportAction()
   const attachMenu = useMemo(() => [ideas, ...(voice ?? []), healthReport.action], [ideas, voice, healthReport.action])
-  useChatLineClaim(chatId, visible)
   useReportChatOnScreen(visible ? chatId : null)
   useAssistantDraft(chatId)
   const typing = useAssistantTyping(chatId, assistantId, assistantName)
-  // 开通后递的「自定义」卡(照 dots):接在消息流末尾,点它 = 打开资料页的自定义弹窗(会话页那棵树,经共享的导航 store)。
   const { user } = useAuth()
   const customizeOffered = useCustomizeCardOffered(user?.id)
-  const footer = customizeOffered && user?.id ? (
-    <>
-      <AssistantCustomizeCard ownerUserId={user.id} name={assistantName} onOpen={() => appState.navigation.navigate('assistant', { tab: 'profile', sub: 'customize' })} />
-      {typing}
-    </>
-  ) : typing
+  const { recording } = useVoiceNoteHandler()
+  const composerEntries = <AssistantComposerEntries assistantId={assistantId} busy={recording} onOpen={requestIdeas}
+    customize={customizeOffered && user?.id ? { ownerUserId: user.id, name: assistantName, onOpen: () => appState.navigation.navigate('assistant', { tab: 'profile', sub: 'customize' }) } : undefined} />
   // 点进「聊天」= 进入可输入语境,与对话页点进一条会话同一个 reason。
   useEffect(() => (visible && chatId ? scheduleComposerFocus('chat-entry') : undefined), [visible, chatId])
 
@@ -135,6 +138,7 @@ function AssistantChatSlotContent({ dm, assistantId, assistantName, visible, ...
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-3 text-sm text-[var(--text-secondary)]" data-testid="assistant-chat-pending">
         <p>{failed ? t('chat.openFailed', { name: assistantName }) : t('chat.opening', { name: assistantName })}</p>
+        {failed ? <p role="alert">{failed.error}</p> : null}
         {failed && <Button size="sm" onClick={retry}>{t('machine.retry')}</Button>}
       </div>
     )
@@ -142,20 +146,20 @@ function AssistantChatSlotContent({ dm, assistantId, assistantName, visible, ...
   // 助理 App 的聊天面:没有会话头(名字胶囊和搜索、齿轮在 App 顶上),输入框「和 X 聊天」、左边一个「+」。
   return (
     <>
-      <ChatAreaPanel
-        chatId={chatId}
+      <FilePreviewHost.Provider value={previewHost}><ChatAreaPanel assistantChat
+        viewportKey={assistantSlotKey('chat')}
         activeTab="chats"
         hidden={!visible}
-        chrome={{ placeholder: t('chat.placeholder', { name: assistantName }), attachGlyph: <Plus />, attachMenu, typing: footer, hideRunningStatus: true }}
+        chrome={{ placeholder: t('chat.placeholder', { name: assistantName }), attachGlyph: <Plus />, attachMenu, typing, composerHeader: composerEntries, hideRunningStatus: true }}
         {...handlers}
-      />
+      /></FilePreviewHost.Provider>
       {healthReport.input}
     </>
   )
 }
 
 export function AssistantChatSlot(props: Parameters<typeof AssistantChatSlotContent>[0]) {
-  return <AssistantConversationProgress assistantId={props.assistantId} chatId={props.dm.chatId} visible={props.visible}>
+  return <ChatLineScope chatId={props.dm.chatId}><AssistantConversationProgress assistantId={props.assistantId} chatId={props.dm.chatId} visible={props.visible}>
     <AssistantChatSlotContent {...props} />
-  </AssistantConversationProgress>
+  </AssistantConversationProgress></ChatLineScope>
 }

@@ -7,10 +7,14 @@
 // 版本错位:那台机器不认 `taskhost.open`,或开窗口的应答里报的协议低于 MIN_SERVER_PROTOCOL,开线失败并带
 // SessionHostTooOldError,界面据此把这台机器标成「版本太旧」,❌ 退回别的界面。
 import { unwrapPayload } from '@gugu/core/cloud/payload'
-import { desktopReportId, MIN_SERVER_PROTOCOL, REMOTE_PROTOCOL_VERSION } from '@gugu/core/cloud/serverMachineHealth'
+import { protocol14FileChanges } from '@gugu/session-core/session-record/contract'
+import { decodeHostWsMessage, encodeHostWsMessage } from '../session/shared/lib/ipc/host-ws-protocol'
+import { desktopReportId, helloProtocol, MIN_SERVER_PROTOCOL, REMOTE_PROTOCOL_VERSION } from '@gugu/core/cloud/serverMachineHealth'
 import type { DesktopHello } from '@gugu/core/cloud/serverDesktopVersions'
+import { DeviceRpcTimeoutError } from '@gugu/core/cloud/deviceRpcRequester'
 import { callDeviceRpc, subscribeDeviceRpcEvents } from './deviceRpc'
-import { desktopMatchVersion, isSshMachine, requestSshServerUpgrade } from './sshLinkChannel'
+import { desktopMatchVersion, isSshMachine, requestSshServerUpgrade, usesDeviceLink, waitForTunnel } from './sshLinkChannel'
+import { rendererLogger } from './log'
 import type { SessionHostPipe, SessionHostPipeOpener } from '../session/shared/lib/ipc/session-host-client'
 import {
   createPieceJoiner,
@@ -22,6 +26,12 @@ import {
   type SessionHostFrameBatch,
   type SessionHostPiece,
 } from '../session/shared/lib/ipc/session-host-device-frames'
+
+/**
+ * 每条窗口开、关各一行,带 client(那台机器上 device-session-host 按同一个 client 记开与关):两头的日志据此对上是哪一条窗口。
+ * 2026-10-27 那次「开机时会话起不来」,桌面这头只有一句不带 client 的「连接关闭」,对不上那台机器上的哪一条。
+ */
+const log = rendererLogger('session-host/device')
 
 export class SessionHostTooOldError extends Error {
   /** 与会话 / 资源库各处认「版本太旧」的同一个码(connection-status 的 TOO_OLD_CODES)。 */
@@ -35,6 +45,21 @@ export class SessionHostTooOldError extends Error {
 /** 开线 / 发帧的一次设备 RPC 等多久(咕咕云一来一回 + 那台机器处理)。 */
 const OPEN_TIMEOUT_MS = 15_000
 const FRAME_TIMEOUT_MS = 20_000
+const DEVICE_LINK_FRAME_ATTEMPTS = 3
+/**
+ * 桌面连别的机器时,只装着心跳的那一批等应答多久(#156)。那台机器收下一批就当场回(不等处理,device-session-host 的
+ * `taskhost.frame`),心跳又小:设备连接连着三次没确认才关窗口,期间补发同一 seq。咕咕云上没回还会重新报到、原样
+ * 再问一次(#7233),所以最长 2 × 这个数。真实 SSH 断线不等这些期限,当场失败在途请求。
+ */
+export const HEARTBEAT_REPLY_TIMEOUT_MS = 4_000
+
+export type RemoteSessionHostPipeOptions = {
+  /**
+   * 给了 = 心跳兼探活,只装着心跳的那一批等这么久(桌面连别的机器:HEARTBEAT_REPLY_TIMEOUT_MS)。
+   * 不给 = 心跳与办事的那一批一样等 FRAME_TIMEOUT_MS(手机:蜂窝网一切换就是几秒,❌ 几秒没回就断线重开、重新订阅)。
+   */
+  heartbeatReplyTimeoutMs?: number
+}
 
 export type DeviceRpcDeps = {
   call: typeof callDeviceRpc
@@ -42,8 +67,11 @@ export type DeviceRpcDeps = {
   newClientId: () => string
   isSshMachine: (deviceId: string) => boolean
   requestUpgrade: (deviceId: string) => Promise<boolean>
+  requestCloudUpgrade?: (deviceId: string) => Promise<boolean>
   /** 开窗口时报给那台机器的「这台桌面是哪一版」(那台咕咕 server 据此让这个账号跑匹配的版本);拿不到 = 不报。 */
-  desktop?: () => Promise<DesktopHello | null>
+  desktop?: (deviceId: string) => Promise<DesktopHello | null>
+  waitForTunnel?: (deviceId: string) => Promise<void>
+  usesDeviceLink?: (deviceId: string) => boolean
 }
 
 declare const __APP_VERSION__: string | undefined
@@ -76,12 +104,27 @@ async function cachedSelfId(): Promise<string | null> {
   return readCachedDevices().find((device) => device.is_current_device === true)?.device_id ?? null
 }
 
-/** 这台桌面:设备 id(一台桌面一个,换版本不变)+ 自己的版本 + 说的协议。 */
-async function thisDesktop(): Promise<DesktopHello | null> {
-  const version = (await desktopMatchVersion()) ?? (typeof __APP_VERSION__ === 'string' ? __APP_VERSION__ : '')
+/**
+ * 这台桌面:设备 id(一台桌面一个,换版本不变)+ 自己的版本 + 说的协议。
+ * 那台机器比这台低一档(心跳报的 remote_protocol):照它的报 —— 老宿主见到更高的号会要求当场换版(serverMachineHealth.helloProtocol)。
+ */
+async function thisDesktop(deviceId: string): Promise<DesktopHello | null> {
+  const asked = await desktopMatchVersion()
+  const version = asked === undefined ? (typeof __APP_VERSION__ === 'string' ? __APP_VERSION__ : '') : asked
   if (!version) return null
   const id = (await cachedSelfId().catch(() => null)) ?? (await liveSelfId())
-  return id ? { id: desktopReportId(id, version), version, protocol: REMOTE_PROTOCOL_VERSION } : null
+  return id ? { id: desktopReportId(id, version), version, protocol: helloProtocol(await cachedRemoteProtocol(deviceId).catch(() => null)) } : null
+}
+
+/** 上次那份机器列表里那台机器报的协议(心跳的 remote_protocol);不是这个账号的缓存 / 没报 = null。 */
+async function cachedRemoteProtocol(deviceId: string): Promise<number | null> {
+  const [{ sessionCoordinator }, { cachedDevicesAccount, readCachedDevices }] = await Promise.all([
+    import('./sessionCoordinator'),
+    import('../store/devicesCache'),
+  ])
+  const owner = await sessionCoordinator.waitForDecidedOwner(0)
+  if (!owner.userId || cachedDevicesAccount() !== owner.userId) return null
+  return readCachedDevices().find((device) => device.device_id === deviceId)?.capabilities?.remote_protocol ?? null
 }
 
 const defaultDeps: DeviceRpcDeps = {
@@ -90,7 +133,10 @@ const defaultDeps: DeviceRpcDeps = {
   newClientId: () => crypto.randomUUID().replace(/-/g, ''),
   isSshMachine,
   requestUpgrade: (deviceId) => requestSshServerUpgrade(deviceId),
+  requestCloudUpgrade: async deviceId => (await import('./cloudVersionMatch')).requestCloudVersionMatch(deviceId),
   desktop: thisDesktop,
+  waitForTunnel,
+  usesDeviceLink,
 }
 
 /** 推送到手里时还套着广播外壳(`{ type: 'broadcast', payload: 信封 }`,SSH 设备连接与咕咕云同一个形状):先剥。 */
@@ -117,20 +163,40 @@ export function openPhoneSessionHostPipe(deviceId: string): SessionHostPipeOpene
   return openRemoteSessionHostPipe(deviceId, { ...defaultDeps, desktop: undefined })
 }
 
-export function openRemoteSessionHostPipe(deviceId: string, deps: DeviceRpcDeps = defaultDeps): SessionHostPipeOpener {
+/** 桌面连别的机器开的窗口:心跳兼探活(#156),那台机器没了几秒内就发现。 */
+export function openMachineSessionHostPipe(deviceId: string): SessionHostPipeOpener {
+  return openRemoteSessionHostPipe(deviceId, defaultDeps, { heartbeatReplyTimeoutMs: HEARTBEAT_REPLY_TIMEOUT_MS })
+}
+
+export function openRemoteSessionHostPipe(
+  deviceId: string,
+  deps: DeviceRpcDeps = defaultDeps,
+  options: RemoteSessionHostPipeOptions = {},
+): SessionHostPipeOpener {
   const opener: SessionHostPipeOpener = async ({ onFrame, onClose }) => {
+    await deps.waitForTunnel?.(deviceId)
     const client = deps.newClientId()
     let closed = false
     let live = false
     /** 开线那一问还在路上时频道重接上了:那一问多半随断开的那段丢了,当场放弃,❌ 干等它超时。 */
     let abandonOpen: ((error: Error) => void) | null = null
-    const joiner = createPieceJoiner(onFrame)
+    /** 开窗应答里那台机器说的协议;差一档时收进来的帧在线上换成本端的实体(protocol14FileChanges,协议下次升级时删掉)。 */
+    let hostProtocol = REMOTE_PROTOCOL_VERSION
+    const joiner = createPieceJoiner((frame) => {
+      if (hostProtocol >= REMOTE_PROTOCOL_VERSION) return onFrame(frame)
+      const message = decodeHostWsMessage(frame)
+      onFrame(message ? encodeHostWsMessage(protocol14FileChanges(message, hostProtocol, 'from-peer')) : frame)
+    })
     const order = createSeqOrderer<SessionHostPiece[]>(joiner)
-    const shut = (reason: string) => {
+    /** 听到那台机器多少回(推来的一批、对哪一批的应答)。探活那一问没回,可期间听到过它 = 它还在,只是线上正忙。 */
+    let heard = 0
+    /** `handoff`:频道换了通道,这条窗口随旧通道作废 —— 客户端当场开新的,❌ 当成断线。 */
+    const shut = (reason: string, handoff = false) => {
       if (closed) return
       closed = true
+      log.info({ deviceId, client, reason }, 'session host window closed')
       unsubscribe()
-      onClose(reason)
+      onClose(reason, handoff ? { handoff } : undefined)
     }
     const unsubscribe = deps.subscribe(
       deviceId,
@@ -143,7 +209,9 @@ export function openRemoteSessionHostPipe(deviceId: string, deps: DeviceRpcDeps 
           return
         }
         const batch = batchFor(payload, client)
-        if (batch) order(batch.seq, batch.frames)
+        if (!batch) return
+        heard += 1
+        order(batch.seq, batch.frames)
       },
       {
         // 线开好之后频道又(重)接上 = 中间断过:断着的那段推送丢了,关掉重开一条(重开会重新订阅、重新取快照)。
@@ -153,12 +221,23 @@ export function openRemoteSessionHostPipe(deviceId: string, deps: DeviceRpcDeps 
           if (live) shut('channel resubscribed')
           else if (rejoin) abandonOpen?.(Object.assign(new Error('channel resubscribed while opening'), { code: 'channel_resubscribed' }))
         },
+        // 频道要换到另一条通道上了(新的那条已经接好,deviceRpc 先接后断):开着的窗口先交接 —— 客户端当场开新窗口,
+        // 界面照「通着」;旧通道随后撤掉,这条窗口上没回的问一起失败(此时已关,❌ 再关一次)。还在开的那一问发在旧通道上,
+        // 放弃它当场再开(与重订上同一条路)。
+        // #625 交接的这条窗口让旧通道撤掉前替它说一声关:那台机器按通道收窗口,新通道上的关它对不上号,不说就要等心跳丢了(约 30 s)。
+        onChannelSwitching: () => {
+          if (live) {
+            shut('channel switching transport', true)
+            return { type: SESSION_HOST_RPC.close, payload: { client } }
+          }
+          abandonOpen?.(Object.assign(new Error('channel switching transport while opening'), { code: 'channel_resubscribed' }))
+        },
       },
     )
     let opened
     let request: ReturnType<DeviceRpcDeps['call']> | null = null
     try {
-      const desktop = await deps.desktop?.().catch(() => null)
+      const desktop = await deps.desktop?.(deviceId).catch(() => null)
       request = deps.call(deviceId, SESSION_HOST_RPC.open, { client, protocol: REMOTE_PROTOCOL_VERSION, ...(desktop ? { desktop } : {}) }, { timeoutMs: OPEN_TIMEOUT_MS })
       opened = await Promise.race([request, new Promise<never>((_, reject) => { abandonOpen = reject })])
     } catch (error) {
@@ -168,15 +247,23 @@ export function openRemoteSessionHostPipe(deviceId: string, deps: DeviceRpcDeps 
       void request?.then((late) => {
         if (!late.error) void deps.call(deviceId, SESSION_HOST_RPC.close, { client }, { timeoutMs: FRAME_TIMEOUT_MS }).catch(() => undefined)
       }, () => undefined)
+      // The device attach can refuse the protocol before taskhost.open reaches
+      // its desktop report. Use the same SSH match-version path in that case.
+      if ((error as { code?: unknown } | null)?.code === 'server_outdated') {
+        if (deps.isSshMachine(deviceId)) void deps.requestUpgrade(deviceId)
+        else void deps.requestCloudUpgrade?.(deviceId)
+        throw new SessionHostTooOldError()
+      }
       throw error
     }
     abandonOpen = null
     if (opened.error) {
       closed = true
       unsubscribe()
-      if (opened.error.code === 'unknown_method') {
+      if (opened.error.code === 'unknown_method' || opened.error.code === 'server_outdated') {
         // 远程 SSH 的机器:这台桌面够得着,当场替它升级(升完自动重连);远程隧道的等它空闲时自己升。
         if (deps.isSshMachine(deviceId)) void deps.requestUpgrade(deviceId)
+        else void deps.requestCloudUpgrade?.(deviceId)
         throw new SessionHostTooOldError()
       }
       throw Object.assign(new Error(`${opened.error.code}: ${opened.error.message}`), { code: opened.error.code })
@@ -187,32 +274,62 @@ export function openRemoteSessionHostPipe(deviceId: string, deps: DeviceRpcDeps 
       unsubscribe()
       void deps.call(deviceId, SESSION_HOST_RPC.close, { client }, { timeoutMs: FRAME_TIMEOUT_MS }).catch(() => undefined)
       if (deps.isSshMachine(deviceId)) void deps.requestUpgrade(deviceId)
+      else void deps.requestCloudUpgrade?.(deviceId)
       throw new SessionHostTooOldError()
     }
+    hostProtocol = said
 
     live = true
+    log.info({ deviceId, client }, 'session host window opened')
     let outSeq = 0
     let outbox: (string | Uint8Array)[] = []
+    let outboxOnlyHeartbeats = true
     let flushScheduled = false
+    /** 发出去还没回的批数。 */
+    let unanswered = 0
     const flush = () => {
       flushScheduled = false
       const frames = outbox
+      // 探活:只装着心跳、前面也没有还没回的批。排在一大批后面的心跳回得慢是在排队,❌ 当成对面没了把正在传的线掐断。
+      const probe = options.heartbeatReplyTimeoutMs !== undefined && outboxOnlyHeartbeats && unanswered === 0
+      const timeoutMs = probe ? options.heartbeatReplyTimeoutMs! : FRAME_TIMEOUT_MS
+      const heardAtSend = heard
       outbox = []
+      outboxOnlyHeartbeats = true
       for (const pieces of toPieces(frames)) {
         const batch: SessionHostFrameBatch = { client, seq: outSeq++, frames: pieces }
-        void deps.call(deviceId, SESSION_HOST_RPC.frame, batch, { timeoutMs: FRAME_TIMEOUT_MS }).then(
-          (reply) => {
-            // 那台机器已经不认这条窗口(重启过 / 频道换过):断开,客户端会重开一条。
-            if (reply.error) shut(`frame rejected: ${reply.error.code}`)
-          },
-          () => shut('frame not delivered'),
-        )
+        unanswered += 1
+        void (async () => {
+          try {
+            for (let attempt = 1; !closed; attempt += 1) {
+              try {
+                const reply = await deps.call(deviceId, SESSION_HOST_RPC.frame, batch, { timeoutMs })
+                // 那台机器已经不认这条窗口(重启过 / 频道换过):断开,客户端会重开一条。
+                if (reply.error) shut(`frame rejected: ${reply.error.code} (client ${client})`)
+                else heard += 1
+                return
+              } catch (error) {
+                const deviceLink = deps.usesDeviceLink?.(deviceId) === true
+                // ACK 可能丢了:只补同一个 client/seq,宿主对已交付的 seq 回成功而不再执行。
+                // 不能跳过这批:后面的 seq 会一直等着缺口。普通业务 RPC 不在这里重放。
+                if (error instanceof DeviceRpcTimeoutError && deviceLink && attempt < DEVICE_LINK_FRAME_ATTEMPTS) continue
+                // 云端探活照旧:期间听到过那台机器就留到下一拍。设备连接补发仍无确认时不能丢掉这个 seq。
+                if (probe && !deviceLink && heard !== heardAtSend) return
+                shut(`frame not delivered: ${String(error)} (client ${client})`)
+                return
+              }
+            }
+          } finally {
+            unanswered -= 1
+          }
+        })()
       }
     }
     const pipe: SessionHostPipe = {
-      send: (frame) => {
+      send: (frame, kind) => {
         if (closed) throw new Error('session host link closed')
         outbox.push(frame)
+        if (kind !== 'heartbeat') outboxOnlyHeartbeats = false
         if (!flushScheduled) {
           flushScheduled = true
           queueMicrotask(flush)

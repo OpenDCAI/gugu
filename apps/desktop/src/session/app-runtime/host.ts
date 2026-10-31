@@ -1,5 +1,7 @@
 import { fileRefOf, type AppFileEntry, type AppFileOpened, type AppFileSearch, type AppFileRef, type AppFileUpload, type AppFileVersion, type AppFileVersionContent, type AppPlace } from '@shared/extensions/app-runtime-protocol';
 import type { BridgeErrorCode, ErrorDetail, ExtensionFileChangeBatch, PageCounts } from '@shared/extensions/bridge-protocol';
+import type { AppSessionIndexOptions, AppSessionIndex, AppSessionReadOptions, AppSessionRead } from '@shared/extensions/app-sessions';
+import type { ProjectionHost } from './projection-source';
 
 /**
  * What the preload exposes as `window.__guguHost` and the runtime builds `window.gugu` from.
@@ -7,7 +9,17 @@ import type { BridgeErrorCode, ErrorDetail, ExtensionFileChangeBatch, PageCounts
  * Only the part the runtime itself calls is typed here; every other member is copied onto
  * `window.gugu` verbatim (`gugu-entry.ts`), so the v1 verbs keep their preload-side types.
  */
-export interface GuguHost {
+export interface GuguHost extends ProjectionHost {
+  readonly sessions?: {
+    index(options?: AppSessionIndexOptions): Promise<AppSessionIndex>;
+    read(options: AppSessionReadOptions): Promise<AppSessionRead>;
+  };
+  readonly modal?: {
+    open(options: Record<string, unknown>): Promise<unknown>;
+    close(result?: unknown): Promise<void>;
+    key(key: string): Promise<void>;
+  };
+  onModalFocus?(handler: (edge: 'first' | 'last') => void): () => void;
   readonly apiVersion: number;
   /** An iframe of the outer gugu page (the phone), not a desktop webview: `framed-host.ts`. */
   readonly framed?: boolean;
@@ -23,10 +35,10 @@ export interface GuguHost {
   readonly checkPage?: { report(counts: PageCounts): Promise<void> };
   /** `level: 'hint'` (摩擦单 F62): for the App's author, not a sign it is broken — recorded, but no red dot. Default `error`. */
   reportError(message: string, options?: { level?: 'error' | 'hint' }): Promise<void>;
-  onFilesChanged(handler: (place: AppPlace, change: ExtensionFileChangeBatch) => void): () => void;
+  onFilesChanged(handler: (watchId: string, change: ExtensionFileChangeBatch) => void): () => void;
   /** Every call names where its file is (`AppPlace`, `AppFileRef`, 真源原则 13). */
   readonly appFiles: {
-    open(args: { ref: AppFileRef; readOnly?: boolean }): Promise<AppFileOpened>;
+    open(args: { ref: AppFileRef; readOnly?: boolean; appData?: boolean; deferDetails?: boolean; expectedVersion?: number }): Promise<AppFileOpened>;
     reopen(args: { ref: AppFileRef; readOnly?: boolean }): Promise<AppFileOpened>;
     close(args: { docName: string }): Promise<void>;
     /** `folder` (子文件夹): only what is directly in that folder; not given, every file of the place. */
@@ -34,22 +46,26 @@ export interface GuguHost {
     /** Across every chat the reader is in: by a piece of the path, newest first; the ones this person opened last. */
     search(args: AppFileSearch): Promise<AppFileEntry[]>;
     recent(args: { limit?: number }): Promise<AppFileEntry[]>;
-    create(args: { place: AppPlace; name: string; content: string; contentType?: string; sourceMessageIds?: string[]; folder?: string }): Promise<AppFileEntry>;
+    viewPreferences(args: { place: AppPlace; showAppData?: boolean }): Promise<{ showAppData: boolean }>;
+    create(args: { place: AppPlace; name: string; content: string; contentType?: string; sourceMessageIds?: string[]; folder?: string; appData?: boolean }): Promise<AppFileEntry>;
     /** 子文件夹: a chat's folder at `path`, made all the way down; one already there is answered as it is. */
     mkdir(args: { place: AppPlace; path: string }): Promise<AppFileEntry>;
     /** 子文件夹: into another folder (`folder`, '' the top; not given, where it is), renamed too when `name` is given. */
     move(args: { ref: AppFileRef; folder?: string; name?: string }): Promise<AppFileEntry>;
     remove(args: { ref: AppFileRef }): Promise<void>;
     rename(args: { ref: AppFileRef; name: string }): Promise<AppFileEntry>;
-    watch(args: { place: AppPlace; on: boolean }): Promise<void>;
+    /** 「设为临时 / 一直保留」: the cloud copy of a chat file this person uploaded, cleared after their temporary period or kept. */
+    keep(args: { refs: AppFileRef[]; how: 'temporary' | 'permanent' }): Promise<{ changed: number }>;
+    watch(args: { watchId: string; place: AppPlace; on: boolean }): Promise<void>;
     replace(args: { ref: AppFileRef; file: AppFileUpload; expectedVersion?: number | null }): Promise<AppFileEntry>;
     versions(args: { ref: AppFileRef }): Promise<AppFileVersion[]>;
     readVersion(args: { ref: AppFileRef; n: number }): Promise<AppFileVersionContent>;
     /** Bytes the caller has, or (no `files`) the person's picker — which only a page has, inside a gesture. */
-    upload(args: { place: AppPlace; files?: AppFileUpload[]; sourceMessageIds?: string[]; folder?: string }): Promise<AppFileEntry[]>;
+    upload(args: { place: AppPlace; files?: AppFileUpload[]; sourceMessageIds?: string[]; folder?: string; keep?: string }): Promise<AppFileEntry[]>;
     /** The gesture halves: a page's only (`VerbFacts.only`) — a background page and a program have none. */
     openWith?(args: { ref: AppFileRef; ask?: boolean; at?: Record<string, string>; peek?: boolean }): Promise<void>;
-    download?(args: { ref: AppFileRef }): Promise<boolean>;
+    /** One file (`true` saved), or several (API 20: how many were saved; `0` when the person cancelled). */
+    download?(args: { ref: AppFileRef } | { refs: AppFileRef[] }): Promise<boolean | number>;
   };
   readonly clipboard?: {
     writeText(text: string): Promise<void>;

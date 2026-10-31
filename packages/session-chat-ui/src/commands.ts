@@ -6,7 +6,7 @@
  * dependency through the package entry point.
  */
 
-import type { ChatAttachment, OpenedOutput } from './model';
+import type { ChatAttachment, ChatMessage, OpenedOutput } from './model';
 
 export type ChatViewCommandId = 'chat.scrollToTop' | 'chat.scrollToBottom';
 
@@ -35,6 +35,28 @@ export const CHAT_VIEW_COMMANDS = [
  * via `view.setCommands(commands)`.
  */
 export type ChatCommands = {
+  /** Mount the host's tooltip or source popover without coupling Solid to the host UI framework. */
+  onTooltipMount?: (target: { root: HTMLElement; text: string; onOpenOriginal?: () => void; originalLabel?: string }) => void | (() => void);
+  /** A recycled row supplies live getters; the host returns its DOM-listener cleanup. */
+  onMessageTextMount?: (target: { root: HTMLElement; menuRoot?: HTMLElement; itemId: string; message: () => ChatMessage; sender?: () => string | null }) => void | (() => void);
+  onOpenSender?: (target: import('./lib/sender-target').MessageSenderTarget) => void;
+  conversationAgentSession?: () => string | null;
+  /** External agents may expose only their public identity, with no readable session. */
+  conversationAgentUserId?: () => string | null;
+  /** Recorded-conversation hosts can supply an event clock without freezing the UI scheduler. */
+  conversationClock?: () => number;
+  /** Display name of the agent owning this transcript, supplied by its host. */
+  conversationAgentName?: () => string | null;
+  canQuoteMessage?: (message: ChatMessage) => boolean;
+  onQuoteMessage?: (target: { message: ChatMessage; sender: string }) => void;
+  /** Authorized IM system notices stay visible in their process header, even when folded. */
+  conversationProcessNotice?: (processId: string) => { id: string; text: string } | null;
+  onConversationReply?: (itemId: string) => void;
+  /** Exact source row receiving the shared chat source-message flash. */
+  flashMessageId?: string | null;
+  onCopyError?: (error: unknown) => void;
+  /** The host owns clipboard access; shared transcript components never fall back to a WebView API. */
+  writeClipboardText?: (text: string) => Promise<void>;
   canRevertMessage?: (itemId: string) => boolean;
   onEditMessage?: (arg: { itemId: string }) => void;
   /** Host-owned draft: virtual row reuse must not move it to another message. */
@@ -92,6 +114,9 @@ export type ChatCommands = {
    * messages whose transcript stores attachment metadata but not bytes.
    */
   resolveAttachment?: (attachment: { id: string; name: string }) => Promise<string | null>;
+
+  /** Fetch one tool picture from its original history source when its thumbnail is shown. */
+  resolveToolImage?: (itemId: string, index: number) => Promise<string | null>;
 
   /**
    * Called when the user clicks the stop button on the current user message
@@ -169,20 +194,15 @@ export type ChatCommands = {
   /**
    * Synchronously classify an `href` from a rendered markdown link.
    * Returns `{ kind: 'workspace-file'; path: string; at? }` for workspace files (`at` the place its `#…` names),
-   * `{ kind: 'group-file'; itemId, at? }` for a file of a group (`gugu-file://…`, opened by `onOpenGroupFile`; `at` the place a pill points at),
+   * `{ kind: 'group-file'; itemId, at? }` for a file of a group (`gugu-file://…`, claimed first by `onOpenLink`; `at` the place a pill points at),
    * or `{ kind: 'external' }` to keep the default external-link behavior.
    */
   classifyLink?: (
     href: string,
   ) => { kind: 'workspace-file'; path: string; at?: Record<string, string> } | { kind: 'group-file'; itemId: string; at?: Record<string, string> } | { kind: 'conversation'; href: string } | { kind: 'external' };
 
-  onOpenConversationLink?: (href: string) => void;
-
-  /**
-   * User clicked a link to a file of a group (`gugu-file://<itemId>`), or a pill pointing at one: the host opens it in
-   * the group it is in, at the place the pill points at (`at`).
-   */
-  onOpenGroupFile?: (arg: { itemId: string; at?: Record<string, string> }) => void;
+  /** A product link or file pill, handed to the host's common link opener before local paths. */
+  onOpenLink?: (href: string) => boolean;
 
   /**
    * 点了一张附件卡(#7193):agent 用 `session_open_in_tab` 打开过的那份文件 / 网页。宿主重新打开它 ——
@@ -220,6 +240,17 @@ export type ChatCommands = {
     itemId: string;
     source: 'prose-mention';
   }) => void;
+
+  /**
+   * 列表末尾那一行后台任务里按了「停止」:真把它停掉。`stopId` 是报给供应商的那个 id —— 后台命令是它的
+   * asyncTaskId,子智能体是派它那次调用的 tool_use id(#5117)。宿主不接 ⇒ 那一行没有停止键。
+   */
+  onStopBackgroundTask?: (arg: { stopId: string }) => void;
+  /**
+   * 按了 ×:只把这一条从列表末尾那一行收起来,❌ 不停它(它照旧在跑)。`entryId` 是转录条目 id。
+   * 宿主不接 ⇒ 没有 ×。
+   */
+  onDismissBackgroundTask?: (arg: { entryId: string }) => void;
 };
 
 export type ScrollToItemOptions = {

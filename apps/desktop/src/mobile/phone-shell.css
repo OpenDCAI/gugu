@@ -1,0 +1,150 @@
+/* Handset composition. Desktop surfaces keep their existing geometry and tokens.
+   One row on every phone composer — attach | input | send (v7.12, owner 10-26); a group composer keeps it outside the shell too. */
+:is([data-mobile-group], [data-phone-shell] [data-slot='composer'][data-mobile]) [data-slot='composer-bar'] {
+  display: grid;
+  grid-template-columns: var(--control-h-touch) minmax(0, 1fr) var(--control-h-touch);
+  align-items: end;
+  padding: var(--spacing-xs);
+}
+
+:is([data-mobile-group], [data-phone-shell] [data-slot='composer'][data-mobile]) [data-slot='composer-attachments'] {
+  grid-column: 1 / -1;
+  padding: var(--spacing-xs);
+}
+
+:is([data-mobile-group], [data-phone-shell] [data-slot='composer'][data-mobile]) [data-slot='composer-input'] {
+  grid-column: 2;
+  grid-row: 2;
+  min-height: var(--control-h-touch);
+  padding: var(--spacing-sm);
+}
+
+:is([data-mobile-group], [data-phone-shell] [data-slot='composer'][data-mobile]) :is([data-slot='composer-toolbar'], [data-slot='composer-actions-start'], [data-slot='composer-actions-end']) {
+  display: contents;
+}
+
+:is([data-mobile-group], [data-phone-shell] [data-slot='composer'][data-mobile]) [data-slot='composer-actions-start'] > button {
+  grid-column: 1;
+  grid-row: 2;
+}
+
+:is([data-mobile-group], [data-phone-shell] [data-slot='composer'][data-mobile]) [data-slot='composer-actions-end'] > button {
+  grid-column: 3;
+  grid-row: 2;
+}
+
+/* Shared agent options occupy the metadata row. The attachment button keeps
+   its own cell beside the input; permission and model remain accessible. */
+[data-phone-shell] [data-agent-conversation] [data-slot='composer'][data-mobile] [data-slot='composer-actions-start'] > button:has([data-slot='composer-permission-mode']) {
+  grid-column: 1 / -1;
+  grid-row: 1;
+  justify-self: start;
+  max-width: calc(50% - var(--spacing-xs));
+}
+[data-phone-shell] [data-agent-conversation] [data-slot='composer'][data-mobile] [data-slot='composer-model'] > button {
+  grid-column: 1 / -1;
+  grid-row: 1;
+  justify-self: end;
+  max-width: calc(50% - var(--spacing-xs));
+}
+
+[data-phone-shell] {
+  --phone-font-caption: calc((var(--font-caption) + var(--font-body)) / 2);
+  --pane-pad-x: var(--spacing-lg);
+  font-family: var(--font-sans);
+  overscroll-behavior: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+[data-phone-shell] .gg-pane[data-mobile] {
+  border: 0;
+  background: transparent;
+}
+
+[data-phone-shell] .gg-pane-header[data-mobile] {
+  min-height: 64px;
+  padding-inline: var(--spacing-lg);
+  border-bottom: 0;
+  background: transparent;
+}
+
+[data-phone-shell] .gg-pane-header .gg-pane-heading-title[data-title-level='page'] {
+  font-size: var(--font-size-xl);
+  line-height: var(--lh-page);
+}
+
+[data-phone-shell] .gg-list-row {
+  min-height: 56px;
+  border-radius: var(--radius-surface);
+  touch-action: manipulation;
+}
+
+[data-phone-shell] .gg-list-row[data-topic-subrow] {
+  min-height: var(--control-h-lg);
+}
+
+[data-phone-shell] .gg-list-row-title {
+  font-size: var(--font-prose);
+  line-height: var(--lh-prose);
+}
+
+[data-phone-shell] .gg-settings-nav-pane[data-mobile] .gg-settings-nav-item {
+  min-height: 56px;
+  border: 0;
+}
+
+[data-phone-shell] .gg-settings-body {
+  gap: var(--spacing-2xl);
+}
+
+[data-phone-shell] .gg-settings-group .gg-settings-card {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+[data-phone-shell] .gg-settings-group .gg-settings-row {
+  min-height: 56px;
+  padding: var(--spacing-lg) 0;
+  border: 0;
+}
+
+[data-phone-shell] .gg-settings-row .gg-settings-row-title {
+  font-size: var(--font-prose);
+  line-height: var(--lh-prose);
+}
+
+[data-phone-shell] .gg-settings-row .gg-settings-row-description {
+  margin-top: var(--spacing-xs);
+  font-size: var(--phone-font-caption);
+  line-height: var(--lh-body);
+}
+
+[data-phone-shell] .gg-mobile-composer-row {
+  padding: var(--spacing-xs);
+  border-radius: var(--radius-thread);
+  background: var(--muted);
+}
+
+[data-phone-shell] .gg-mobile-composer-row:focus-within {
+  outline: 1px solid var(--border-strong);
+  outline-offset: 0;
+}
+
+[data-phone-shell] .ta-phone-chat {
+  padding-inline: var(--spacing-sm);
+}
+
+/* 推在「消息 / 伙伴」首页上的一层(咕咕、项目、我的;owner 10-26,OpenDCAI/gugu#446):整屏盖住分页器,底栏这时不渲染。
+   藏着时由 RETAINED_SURFACE_HIDDEN_STYLE 接管(PhoneLayer)。 */
+[data-phone-layer] {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--ta-panel-bg);
+}

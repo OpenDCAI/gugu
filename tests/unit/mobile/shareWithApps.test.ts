@@ -1,8 +1,10 @@
+import { verifiedFileHandle } from '../../helpers/verifiedFileHandle'
 // @@@share-with-apps 与其他 App 互传(product spec)。
 //
 // 原生插件只搬运,判据在渲染层 —— 这里判的是判据:一条消息交出去的是什么、分享进来的内容接到哪条草稿上、
 // 「发送到」页列哪些会话;以及安卓壳那一侧有没有接上(插件注册、intent-filter、FileProvider 目录、拒收的地址)。
 import { readFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ChatItem } from '../../../packages/core/src/shared/types/chat'
 import { formatAttachmentMetadata } from '../../../packages/core/src/shared/ui/attachmentModels'
@@ -15,13 +17,15 @@ const native = vi.hoisted(() => ({
   listeners: [] as Array<(share: unknown) => void>,
   release: vi.fn(async (_options: { id: string }) => {}),
   share: vi.fn(async (_options: unknown) => {}),
-  open: vi.fn(async (_options: { url: string; name: string }) => {}),
-  save: vi.fn(async (_options: { name: string; mimeType: string; data: string }) => ({ saved: true })),
+  open: vi.fn(async (_options: { id: string; name: string }) => {}),
+  stage: vi.fn(async (_options: unknown) => ({ id: 'private-stage' })),
+  save: vi.fn(async (_options: { id: string; name: string; mimeType: string }) => ({ saved: true })),
 }))
 
 vi.mock('@capacitor/core', () => ({
   registerPlugin: () => ({
     share: native.share,
+    stage: native.stage,
     open: native.open,
     save: native.save,
     release: native.release,
@@ -65,10 +69,11 @@ describe('一条消息交给系统分享面板的是什么', () => {
     const plan = sharePayloadForMessage({ content_type: 'attachment', content: envelope, file_item_id: 'item-1', file_version: 2 })
     expect(plan).toEqual({ files: [{ source: { kind: 'item', itemId: 'item-1', version: 2 }, name: 'cat.png', mimeType: 'image/png' }] })
     const asked: unknown[] = []
-    expect(await resolveSharePlan(plan!, async (source) => { asked.push(source); return { status: 'ready', url: 'https://cdn.example/ab/sig', thumbUrl: null, sha256: null, width: null, height: null } }))
-      .toEqual({ files: [{ url: 'https://cdn.example/ab/sig', name: 'cat.png', mimeType: 'image/png' }] })
+    const file = await verifiedFileHandle(new Uint8Array([1]))
+    expect(await resolveSharePlan(plan!, async (source) => { asked.push(source); return file }))
+      .toEqual({ files: [{ file, name: 'cat.png', mimeType: 'image/png' }] })
     expect(asked).toEqual([{ kind: 'item', itemId: 'item-1', version: 2 }])
-    await expect(resolveSharePlan(plan!, async () => ({ status: 'gone' }))).rejects.toThrow('cat.png was deleted')
+    await expect(resolveSharePlan(plan!, async () => ({ status: 'gone', sha256: null }))).rejects.toThrow('cat.png was deleted')
     expect(sharePayloadForMessage({ content_type: 'attachment', content: envelope, file_item_id: null, file_version: 2 })).toBeNull()
   })
 
@@ -163,6 +168,9 @@ describe('安卓壳交过来的分享', () => {
     native.listeners.length = 0
     native.release.mockClear()
     native.release.mockImplementation(async () => {})
+    native.stage.mockReset().mockResolvedValue({ id: 'private-stage' })
+    native.open.mockClear()
+    native.save.mockClear()
   })
 
   it('标题与正文合成一段文字;标题已在正文里就不重复', async () => {
@@ -248,37 +256,61 @@ describe('安卓壳交过来的分享', () => {
     expect(webPlatform.capabilities.shareToApps).toBe(false)
   })
 
-  it('应用内不预览的附件:安卓壳把地址交给原生,由原生下好再弹系统「打开方式」', async () => {
+  it('应用内不预览的附件:只把已校验的原文件分块交给原生,再以私有句柄弹系统「打开方式」', async () => {
     const { capacitorPlatform } = await import('../../../apps/desktop/src/platform/capacitor')
     expect(capacitorPlatform.capabilities.externalFileOpen).toBe(true)
-    // 安卓要签名链接(原生自己下),不要字节:宿主只调 url()。
-    await capacitorPlatform.openRemoteFile({ bytes: async () => { throw new Error('the Android shell does not take bytes') }, url: async () => 'https://storage.example/chat-media/a.zip' }, '素材.zip')
-    expect(native.open).toHaveBeenCalledWith({ url: 'https://storage.example/chat-media/a.zip', name: '素材.zip' })
+    await capacitorPlatform.openRemoteFile(await verifiedFileHandle(new Uint8Array([1, 2, 3])), '素材.zip')
+    expect(native.open).toHaveBeenCalledWith({ id: 'private-stage', name: '素材.zip' })
+    expect(native.stage.mock.calls.map(call => (call[0] as { op: string }).op)).toEqual(['begin', 'chunk', 'commit'])
   })
 
-  it('「保存」:WebView 不接 a[download],安卓壳把这份字节原样(base64)交给原生的「保存到…」;取消是 saved:false', async () => {
+  it('「保存」保留原始字节、文件名和 MIME,通过同一个分块暂存入口;取消仍是 saved:false', async () => {
     const { capacitorPlatform } = await import('../../../apps/desktop/src/platform/capacitor')
-    // node 里没有 FileReader(WebView 里有):按它的契约补一个最小的 —— readAsDataURL 交出 data:<type>;base64,<…>。
-    vi.stubGlobal('FileReader', class {
-      result: string | null = null
-      error: Error | null = null
-      onload: (() => void) | null = null
-      onerror: (() => void) | null = null
-      readAsDataURL(blob: Blob) {
-        void blob.arrayBuffer().then((buffer) => {
-          this.result = `data:${blob.type};base64,${Buffer.from(buffer).toString('base64')}`
-          this.onload?.()
-        })
-      }
-    })
+    vi.stubGlobal('FileReader', class { constructor() { throw new Error('whole-file FileReader must never be used') } })
     const bytes = new Uint8Array([0, 1, 2, 250, 251, 252, 253, 254, 255])
     await expect(capacitorPlatform.saveFile(new Blob([bytes], { type: 'image/svg+xml' }), 'a.svg')).resolves.toEqual({ saved: true })
     const sent = native.save.mock.calls.at(-1)![0]
-    expect([sent.name, sent.mimeType]).toEqual(['a.svg', 'image/svg+xml'])
-    expect([...Buffer.from(sent.data, 'base64')]).toEqual([...bytes])
+    expect(sent).toEqual({ id: 'private-stage', name: 'a.svg', mimeType: 'image/svg+xml' })
+    const commands = native.stage.mock.calls.map(call => call[0] as { op: string; bytes?: string })
+    expect(commands.map(command => command.op)).toEqual(['begin', 'chunk', 'commit'])
+    expect([...Buffer.from(commands[1]!.bytes!, 'base64')]).toEqual([...bytes])
     native.save.mockResolvedValueOnce({ saved: false })
     await expect(capacitorPlatform.saveFile(new Blob(['x']), 'b.txt')).resolves.toEqual({ saved: false })
     vi.unstubAllGlobals()
+  })
+
+  it('生成的大 Blob 分帧传送,每帧不超过 512 KiB,承诺和原始 SHA 一致', async () => {
+    const { capacitorPlatform } = await import('../../../apps/desktop/src/platform/capacitor')
+    const bytes = Uint8Array.from({ length: 1024 * 1024 + 17 }, (_, i) => i % 251)
+    await capacitorPlatform.saveFile(new Blob([bytes], { type: 'application/octet-stream' }), 'large.bin')
+    const commands = native.stage.mock.calls.map(call => call[0] as { op: string; id?: string; bytes?: string; revision?: unknown })
+    expect(commands[0]).toEqual({ op: 'begin', name: 'large.bin', revision: { size_bytes: bytes.length, content_type: 'application/octet-stream', sha256: createHash('sha256').update(bytes).digest('hex') } })
+    const chunks = commands.filter(command => command.op === 'chunk').map(command => {
+      expect(command.id).toBe('private-stage')
+      const chunk = Buffer.from(command.bytes!, 'base64')
+      expect(chunk.length).toBeGreaterThan(0)
+      expect(chunk.length).toBeLessThanOrEqual(512 * 1024)
+      return chunk
+    })
+    expect(chunks.length).toBeGreaterThanOrEqual(3)
+    expect(Buffer.concat(chunks)).toEqual(Buffer.from(bytes))
+    expect(commands.at(-1)).toEqual({ op: 'commit', id: 'private-stage' })
+    expect(native.save).toHaveBeenCalledWith({ id: 'private-stage', name: 'large.bin', mimeType: 'application/octet-stream' })
+  })
+
+  it('分帧被拒时只中止本次私有句柄,不打开或保存半个文件', async () => {
+    const { capacitorPlatform } = await import('../../../apps/desktop/src/platform/capacitor')
+    native.stage.mockImplementation(async options => {
+      if ((options as { op: string }).op === 'chunk') throw new Error('native refused frame')
+      return { id: 'private-stage' }
+    })
+    const file = await verifiedFileHandle(new Uint8Array([1, 2, 3]))
+    await expect(capacitorPlatform.openRemoteFile(file, 'file.bin')).rejects.toThrow('native refused frame')
+    expect(native.stage.mock.calls.map(call => (call[0] as { op: string }).op)).toEqual(['begin', 'chunk', 'abort'])
+    expect(native.stage).toHaveBeenLastCalledWith({ op: 'abort', id: 'private-stage' })
+    expect(native.open).not.toHaveBeenCalled()
+    expect(native.save).not.toHaveBeenCalled()
+    await expect(file.read(0, 1)).rejects.toThrow('disposed')
   })
 })
 

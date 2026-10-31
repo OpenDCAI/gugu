@@ -6,6 +6,7 @@ import {
   DEVICE_HEARTBEAT_INTERVAL_MS,
   resolveLocalDeviceId,
   runDeviceRuntimeTick,
+  markDeviceOffline,
   syncDeviceHeartbeat,
   cleanupLegacyDeviceRows,
   type AgentDeliverFailure,
@@ -20,7 +21,9 @@ import {
   type DeviceHeartbeatTableClient
 } from './deviceRuntime'
 import {
+  readDeviceRuntimeInstances,
   reportRuntimeInstanceHeartbeat,
+  retireRuntimeInstance,
   type DeviceCommandTableClient,
   type ProcessDeviceCommandResult,
   RUNTIME_INSTANCE_STALE_MS,
@@ -35,6 +38,8 @@ import { listAgents, removeAgents, type LocalAgentRecord } from '../local/state/
 import { CLOUD_AGENT_TYPE } from '../agentTypes'
 import {
   clearLocalAgentRuntimesForOwnerChange,
+  pruneStaleGuestRecords,
+  syncAgentRuntimeSessions,
   type AgentRosterRemovalReason,
   type AgentRuntimeBridge,
 } from '../local/agent/deviceCommandRuntime'
@@ -46,11 +51,11 @@ import {
   publishAgentStatusTransitions,
   publishedStatusOf,
   samePublishedStatus,
-  sweepLocalAgentsOnline,
   type PublishedAgentStatus,
 } from './deviceRuntimeSweep'
 import type { AgentStatusReading } from '../shared/agentStatus'
 import type { AgentRuntimeStateWrite } from './agentRuntimeStateReporter'
+import { parseAgentPresencePayload } from './agentPresenceProtocol'
 import { isDeviceRemovedError } from './devices'
 import { MACHINE_LIMIT_NEXT_STEP, machineLimitMessage, machineLimitRefusalFromError } from './machineLimit'
 import {
@@ -65,7 +70,9 @@ import { atomicWriteText, stateDir } from '../local/state/paths'
 
 export type DeviceRuntimeIdentityClient = DeviceCommandTableClient &
   DeviceHeartbeatTableClient &
-  AgentRuntimeStateRpcClient
+  AgentRuntimeStateRpcClient & {
+    rpc(fn: 'get_agent_presence_batch', args: { p_agent_user_ids: string[] }): PromiseLike<{ data: unknown; error: { message: string } | null }>
+  }
 
 /**
  * 一轮 tick 被什么叫起来的。两种做的事相同,区别只在**归因**:`event` 有事件说「该取命令了」;`reconcile`
@@ -75,7 +82,6 @@ export type DeviceRuntimeTickTrigger = 'event' | 'reconcile'
 
 export type SubscribeDeviceCommandWake = (input: {
   deviceId: string
-  accessToken: string
   /** 有行变成 pending 了。事件点名了哪一行就带上它的 id(广播负载里有);不带 = 泛指(订上时的补拉)。 */
   onCommand: (commandId?: string) => Promise<void>
   /**
@@ -89,10 +95,9 @@ export type SubscribeDeviceCommandWake = (input: {
   onSubscribeFailure: () => void
 }) => Promise<() => void> | (() => void)
 
-// @@@device-rpc-seam - same inject shape as SubscribeDeviceCommandWake: the host owns realtime
+// 账号客户端拥有认证;订阅只跟设备与 owner 生灭,令牌续期不拆掉手机的窗口。
 export type SubscribeDeviceRpc = (input: {
   deviceId: string
-  accessToken: string
 }) => Promise<() => void> | (() => void)
 
 export interface DeviceRuntimeHostOptions {
@@ -109,6 +114,8 @@ export interface DeviceRuntimeHostOptions {
   activityReconcileIntervalMs?: number
   /** @@@5912 legacy / 陈旧设备行清理的周期;缺省 LEGACY_DEVICE_CLEANUP_INTERVAL_MS。 */
   legacyCleanupIntervalMs?: number
+  /** @@@safety-cadence wake 订着时对账 tick 与定时任务重排的间隔;缺省 DEVICE_SAFETY_INTERVAL_MS。 */
+  safetyIntervalMs?: number
   nowMs?: () => number
   authProvider: RuntimeAuthProvider
   makeIdentityClient: (accessToken: string) => DeviceRuntimeIdentityClient
@@ -133,6 +140,8 @@ export interface DeviceRuntimeHostOptions {
    * 「跟着当下登录走」的东西。回调抛错只 warn,❌ 不拖垮 tick。
    */
   onOwnerEstablished?: (ownerUserId: string, previousOwnerUserId: string | null) => Promise<void> | void
+  /** Account delivery shares this runtime's existing lease and reconciliation cadence. */
+  onRuntimeLeaseRenewed?: () => void
   // @@@scheduled-tasks (#987) - 评估 owner 的到期定时任务并经 ACP deliver 触发（electron 注入实现，
   // 内部用全量 client 建 gateway 调 runDueScheduledTasks）。best-effort，异常不影响设备命令。
   // 返回**最早的未来到期时刻**:宿主据此挂一次性定时器、到点才再扫,❌ 不搭任何 tick 的车。
@@ -179,6 +188,9 @@ export interface DeviceRuntimeHostDebugSnapshot {
 }
 
 export interface DeviceRuntimeHost {
+  /** Identity of this live publisher's existing database lease. */
+  readonly instanceId: string
+  getRuntimeLease: () => { ownerId: string; deviceId: string; runtimeInstanceId: string } | null
   tickOnce: () => Promise<DeviceRuntimeHostTickResult>
   /**
    * 登录态变了(登录 / 换号 / 登出)⇒ 立刻跑一轮,❌ 别让对账节拍去「发现」一个本来就有事件的事实。
@@ -194,6 +206,8 @@ export interface DeviceRuntimeHost {
    * ❌ 为这件事调 `tickOnce()` —— tick 只在心跳到期(30 s 一拍)时才写,清单最多旧 30 s。还没 start 就什么都不做:首轮按那时的清单登记。
    */
   notifyDeviceActionsChanged: () => void
+  /** 本机刚建 / 改 / 删了定时任务(表上没有事件):当场重排,❌ 等兜底周期。 */
+  notifyScheduledTasksChanged: () => void
   start: () => void
   stop: () => Promise<void>
   getDebugSnapshot: () => DeviceRuntimeHostDebugSnapshot
@@ -226,6 +240,9 @@ export const ORPHAN_RECOVERY_INTERVAL_MS = 60_000
 // @@@activity-reconcile — activity 周期对账间隔:响应性(卡死 running 最多存活约一个周期)与写放大
 // (N 个本机 agent × 幂等 upsert)的折中。
 export const ACTIVITY_RECONCILE_INTERVAL_MS = 120_000
+// @@@safety-cadence — wake 订着时,新命令由事件送来,对账 tick(取命令 + 孤儿恢复)与定时任务重排只是兜底:5 分钟一次。
+// 没订着(从没订上 / 掉线在重连)照旧每个监督节拍一次 —— 那时它们是唯一的来源。
+export const DEVICE_SAFETY_INTERVAL_MS = 5 * 60_000
 // @@@5912 legacy / 陈旧设备行清理的周期。它此前挂在每一拍心跳上(空闲时每 30 秒一个请求),
 // 而它清的是历史垃圾:一行多留半小时没有任何人会注意到。但也**不能只跑一次** —— 判据带时间,
 // 同一个 owner 下答案会改口(见使用处)。
@@ -282,6 +299,7 @@ export function createDeviceRuntimeHostLoop(
   // @@@1528 的 online/idle sweep,但跳过真有 turn 在飞的 agent(runtimeBridge.agentStatus 的读数是权威真值),
   // 周期化后单次写丢失的伤害从「永久」降到「一个对账周期」。
   const activityReconcileIntervalMs = options.activityReconcileIntervalMs ?? ACTIVITY_RECONCILE_INTERVAL_MS
+  const safetyIntervalMs = options.safetyIntervalMs ?? DEVICE_SAFETY_INTERVAL_MS
   const legacyCleanupIntervalMs = options.legacyCleanupIntervalMs ?? LEGACY_DEVICE_CLEANUP_INTERVAL_MS
   const nowMs = options.nowMs ?? (() => Date.now())
   // @@@gate-slack — 孤儿恢复(60 s)与 activity 对账(120 s)两个闸恰是对账节拍的整数倍,「距上次 59 998 ms」这种抖动
@@ -300,6 +318,9 @@ export function createDeviceRuntimeHostLoop(
   let scheduledTasksTimer: ReturnType<typeof setTimeout> | null = null
   let activeScheduledTasksRun: Promise<void> | null = null
   let scheduledTasksPlanned = false
+  // 本机刚改了任务、而重排正在飞:飞完再排一次(在飞那一轮读表的时刻早于这次改动)。
+  let scheduledTasksAgain = false
+  let lastSafetyAt: number | null = null
   let workFailureStreak = 0
   let drainFollowUpDueAt = 0
   // wake 此刻是不是真的订着(由订阅实现的 onSubscribed / onSubscribeFailure 写,❌ 不由「subscribe() 调用返回了」推断)。
@@ -330,14 +351,15 @@ export function createDeviceRuntimeHostLoop(
   let activeTick: Promise<DeviceRuntimeHostTickResult> | null = null
   let activeTickAbortController: AbortController | null = null
   const heartbeatFlights = new Map<string, Promise<void>>()
+  const publishedCapabilities = new Map<string, string>()
   let lastHeartbeatAt: number | null = null
   // @@@5912 上一次实例租约续成功的时刻(**不分是哪条腿续的**)。tick 据此跳过自己那一次续租。
   let lastLeaseRenewAt: number | null = null
   // @@@5912 上一次跑 legacy / 陈旧行清理的时刻。换 owner 要重来 —— 那是另一批行。
   let lastLegacyCleanupAt: number | null = null
-  let commandWake: { deviceId: string; accessToken: string; unsubscribe: () => void } | null = null
+  let commandWake: { deviceId: string; unsubscribe: () => void } | null = null
   let commandWakeEpoch = 0
-  let deviceRpc: { deviceId: string; accessToken: string; unsubscribe: () => void } | null = null
+  let deviceRpc: { deviceId: string; unsubscribe: () => void } | null = null
   let lifecycleGeneration = 0
   let lastAuth: RuntimeAuth | null = null
   let activeOwnerUserId: string | null = null
@@ -348,9 +370,11 @@ export function createDeviceRuntimeHostLoop(
   let authExpired = false
   let lastOrphanRecoveryAt: number | null = null
   let lastActivityReconcileAt: number | null = null
-  // @@@1528 - mark local agents online once per host lifecycle when the device runtime first
-  // becomes ready. Fixes 假离线.
-  let localAgentsOnlineSwept = false
+  // 本生命周期里有没有拿云端的行对上过一次账(见 reconcileWithCloud);没对上就按对账节拍重试。
+  let cloudReconciled = false
+  // 本机 agent 的令牌档最近一次整批写成时用的 access token,与没写成时下一次重试的时刻(见 maintainLocalAgents)。
+  let runtimeSessionsAccessToken: string | null = null
+  let runtimeSessionsRetryAt = 0
   // @@@activity-edge (#3961) — 「已发布过什么」的记忆,让 2 秒一轮的节律只在读数**变化**时才写。
   // presence 行的每一次写(对账、边沿、建 / 停的收敛写、下线)都经 reportPresence 记进这里,
   // 所以谁都不会把另一个写回旧值,也不会对一个已经写过的值再写一遍。
@@ -435,7 +459,9 @@ export function createDeviceRuntimeHostLoop(
         onAgentRosterRemoved: options.onAgentRosterRemoved,
         ownerUserId,
       })
-      localAgentsOnlineSwept = false
+      cloudReconciled = false
+      runtimeSessionsAccessToken = null
+      runtimeSessionsRetryAt = 0
       // 上一个身份的队列取空过,不说明下一个身份的队列是空的。
       queueBelievedEmpty = false
       clearUnannouncedVerdict()
@@ -447,6 +473,7 @@ export function createDeviceRuntimeHostLoop(
       lastLeaseRenewAt = null
       lastLegacyCleanupAt = null
       lastDeviceId = null
+      publishedCapabilities.clear()
       // #3961 —— 上一个身份「已发布过什么」不属于下一个人:留着会让新 owner 的第一轮对账把旧账当成现状
       // (该写的不写、不该写的写)。与上面那批 latch 同一处重置。
       publishedActivity.clear()
@@ -467,17 +494,17 @@ export function createDeviceRuntimeHostLoop(
     }
   }
 
-  async function ensureDeviceRpc(deviceId: string, accessToken: string, generation: number): Promise<void> {
+  async function ensureDeviceRpc(deviceId: string, generation: number): Promise<void> {
     if (!options.subscribeDeviceRpc) return
     if (generation !== lifecycleGeneration) return
-    if (deviceRpc?.deviceId === deviceId && deviceRpc.accessToken === accessToken) return
+    if (deviceRpc?.deviceId === deviceId) return
     unsubscribeDeviceRpc()
-    const unsubscribe = await options.subscribeDeviceRpc({ deviceId, accessToken })
+    const unsubscribe = await options.subscribeDeviceRpc({ deviceId })
     if (generation !== lifecycleGeneration) {
       unsubscribe()
       return
     }
-    deviceRpc = { deviceId, accessToken, unsubscribe }
+    deviceRpc = { deviceId, unsubscribe }
   }
 
   // 一次「该取命令了」的请求。没有 tick 在飞就立刻跑一轮;有就排一个后续的 ——
@@ -510,7 +537,7 @@ export function createDeviceRuntimeHostLoop(
   ): Promise<void> {
     const active = heartbeatFlights.get(heartbeatOptions.userId)
     if (active) return active
-    const flight = syncDeviceHeartbeat(client, heartbeatOptions, heartbeatEnv).catch((error: unknown) => {
+    const flight = syncDeviceHeartbeat(client, heartbeatOptions, heartbeatEnv, publishedCapabilities).catch((error: unknown) => {
       // #6264 这台机器已被账号主人在「设置 → 设备」里移除:库拒收它的心跳(DEVICE_REMOVED)。
       // 只通知一次,由宿主决定怎么收场(server 退出这个账号的登录)。错误照旧抛出,心跳本身按失败处理。
       if (!deviceRemovedNotified && isDeviceRemovedError(error)) {
@@ -538,16 +565,15 @@ export function createDeviceRuntimeHostLoop(
     return flight
   }
 
-  async function ensureCommandWake(deviceId: string, accessToken: string, generation: number): Promise<void> {
+  async function ensureCommandWake(deviceId: string, generation: number): Promise<void> {
     if (!options.subscribeCommandWake) return
     if (generation !== lifecycleGeneration) return
-    if (commandWake?.deviceId === deviceId && commandWake.accessToken === accessToken) return
+    if (commandWake?.deviceId === deviceId) return
     unsubscribeCommandWake()
     const wakeEpoch = commandWakeEpoch
     let failed = false
     const unsubscribe = await options.subscribeCommandWake({
       deviceId,
-      accessToken,
       onCommand: async (commandId) => {
         if (wakeEpoch !== commandWakeEpoch || generation !== lifecycleGeneration) return
         noteCommandAnnouncement(commandId)
@@ -567,7 +593,7 @@ export function createDeviceRuntimeHostLoop(
       onSubscribeFailure: () => {
         failed = true
         if (wakeEpoch !== commandWakeEpoch || generation !== lifecycleGeneration) return
-        if (commandWake?.deviceId === deviceId && commandWake.accessToken === accessToken) {
+        if (commandWake?.deviceId === deviceId) {
           unsubscribeCommandWake()
         }
         onCommandWakeSubscribeFailed(generation)
@@ -578,7 +604,7 @@ export function createDeviceRuntimeHostLoop(
       unsubscribe()
       return
     }
-    commandWake = { deviceId, accessToken, unsubscribe }
+    commandWake = { deviceId, unsubscribe }
   }
 
   // wake 是新命令的事件源。订不上不致命(入队的行是持久的,订上时的补拉与对账节拍都会把它们取回),但必须响亮,
@@ -632,6 +658,23 @@ export function createDeviceRuntimeHostLoop(
     return true
   }
 
+  // @@@pre-claim-phases — 一轮 tick 从开始到认领命令,每一段各花多久。只在总时长超过 intervalMs 时说一句:
+  // intervalMs 是宿主自己对「pending 的行最迟多久再看一眼」的约定(排空跟进的间隔),认领之前就耗掉比它还久,
+  // 等着的那条消息就晚过了宿主自己的复查节律。10-22 一次重启后这一段拖到 20–66 s,当时日志里没有一行能还原它。
+  function startPreClaimTimer(trigger: DeviceRuntimeTickTrigger): { mark: (phase: string) => void } {
+    const startedAt = nowMs()
+    const phases: string[] = []
+    let last = startedAt
+    const mark = (phase: string): void => {
+      const at = nowMs()
+      phases.push(`${phase} ${at - last} ms`)
+      last = at
+      if (phase !== 'claim' || at - startedAt <= intervalMs) return
+      options.warn?.(`[device-runtime] ${trigger} tick reached the claim after ${at - startedAt} ms: ${phases.join(', ')}`)
+    }
+    return { mark }
+  }
+
   async function runTickOnce(
     generation: number,
     signal: AbortSignal,
@@ -639,6 +682,7 @@ export function createDeviceRuntimeHostLoop(
   ): Promise<DeviceRuntimeHostTickResult> {
     announcedDuringTick.clear()
     blanketAnnouncementDuringTick = false
+    const preClaim = startPreClaimTimer(trigger)
     try {
       const auth = await options.authProvider.getAuth()
       if (!auth?.accessToken || !auth.userId) {
@@ -652,29 +696,10 @@ export function createDeviceRuntimeHostLoop(
       await establishOwnerBoundary(auth.userId)
       lastAuth = auth
       lastError = null
-      // @@@1528 - device runtime ready (first authed tick of this host lifecycle) → proactively
-      // mark this device's local agents online so they don't show 假离线 until messaged. Runs BEFORE
-      // command processing so any queued agent.create/deliver/stop in this same tick overrides the
-      // online/idle baseline (e.g. a queued stop still wins → stays offline). Re-login/restart spins
-      // up a fresh host → re-sweeps. Best-effort; never breaks the tick.
-      // @@@1663 只在 sweep **干净全成功**后才 latch。原本在 await 前无条件置 true:首扫一旦整体失败
-      // (cold-start auth race / 网络抖动 / realtime 未就绪)就永不重扫 → 本机 agent 假离线 until restart
-      // (回归 #1528)。改为失败不 latch → 后续 authed tick 重扫(reportRuntimeState online 幂等,重扫已上线者无害),
-      // 运行中的 host 自愈、无需重启。根因修不吞错。
-      if (!localAgentsOnlineSwept) {
-        const swept = await markLocalRuntimeAgentsOnline(auth, generation)
-        if (swept) {
-          localAgentsOnlineSwept = true
-          lastActivityReconcileAt = nowMs()
-        }
-      } else if (gateOpen(lastActivityReconcileAt, activityReconcileIntervalMs, nowMs())) {
-        // @@@activity-reconcile — 周期对账:纠正卡死的 running 行(见上方常量注释)。best-effort,不 latch。
-        lastActivityReconcileAt = nowMs()
-        await markLocalRuntimeAgentsOnline(auth, generation)
-      }
-      // @@@activity-edge (#3961/#4008) — 边沿发布不在这条 tick 上跑(见 activityTimer:tick 会被它要描述的
-      // 那条回合占满)。这里只保证「刚拿到鉴权就先说一次」,后续由 activity 自己的节律与事实源的宣告驱动。
+      // @@@activity-edge (#3961/#4008) — 逐 agent 的维护与边沿发布都在 activity 的 flight 上跑(见 maintainLocalAgents),
+      // ❌ 不在这条认领命令的 tick 上。这里只保证「刚拿到鉴权就先说一次」。
       scheduleActivityPublish()
+      preClaim.mark('auth')
       const client = options.makeIdentityClient(auth.accessToken)
       const currentTime = nowMs()
       const syncHeartbeat =
@@ -704,7 +729,8 @@ export function createDeviceRuntimeHostLoop(
       lastDeviceId = deviceId
       // 先订设备 RPC,再写心跳:设备行里出现这台(心跳带 app_version)就等于它已经接得了 RPC。看到机器上线 / 换完版
       // 就去开线的路径(会话页的机器线)发来的请求是 broadcast,频道还没订上就直接丢了,只能等它超时。
-      await ensureDeviceRpc(deviceId, auth.accessToken, generation)
+      await ensureDeviceRpc(deviceId, generation)
+      preClaim.mark('device-rpc')
       let heartbeatSynced = false
       if (syncHeartbeat) {
         try {
@@ -732,6 +758,7 @@ export function createDeviceRuntimeHostLoop(
           options.warn?.(`[device-runtime] ${(error as Error).message}`)
         }
       }
+      preClaim.mark('heartbeat')
       // @@@1676 — 周期性 orphan 恢复:首 tick + 每 orphanRecoveryIntervalMs 一次(实例归属保证不误清活兄弟)。
       const shouldRecoverOrphans = gateOpen(lastOrphanRecoveryAt, orphanRecoveryIntervalMs, currentTime)
       const reportRuntimeState = makeRuntimeStateReporter(client)
@@ -767,6 +794,7 @@ export function createDeviceRuntimeHostLoop(
           skipInstanceLeaseRenewal: leaseRenewalFresh,
           syncHeartbeat: false,
           recoverOrphanedCommands: shouldRecoverOrphans,
+          onPhase: preClaim.mark,
           onHeartbeatError: (error) =>
             options.warn?.(`[device-runtime] ${(error as Error).message}`),
           runtimeBridge: options.runtimeBridge,
@@ -782,7 +810,7 @@ export function createDeviceRuntimeHostLoop(
         },
         env
       )
-      await ensureCommandWake(result.deviceId, auth.accessToken, generation)
+      await ensureCommandWake(result.deviceId, generation)
       // @@@scheduled-tasks (#987) — 定时任务由到期定时器驱动,❌ 不在 tick 里跑。tick 只负责本生命周期第一次确立 owner
       // 边界之后排第一次;周期重排挂在对账**定时器**上(见 start())—— 挂在 tick 上就是按事件频率扫表。
       if (!scheduledTasksPlanned) scheduleScheduledTasksRun()
@@ -792,7 +820,10 @@ export function createDeviceRuntimeHostLoop(
       if (heartbeatSynced) lastHeartbeatAt = currentTime
       // @@@5912 currentTime 是 tick **开始**时captured 的;一条 deliver 能让这一轮跑几分钟,
       // 期间独立续租那条腿已经把 lastLeaseRenewAt 推得更新了 —— 直接赋值会把它倒回去。取大者。
-      if (!leaseRenewalFresh) lastLeaseRenewAt = Math.max(lastLeaseRenewAt ?? 0, currentTime)
+      if (!leaseRenewalFresh) {
+        lastLeaseRenewAt = Math.max(lastLeaseRenewAt ?? 0, currentTime)
+        options.onRuntimeLeaseRenewed?.()
+      }
       // @@@5912 legacy / 陈旧行清理从「每拍一次」降成一个**周期闸**,与孤儿恢复、activity 对账同一种形状。
       // ⚠️ 它**不是**「一次就够」:清理的判据本身带时间(同 hostname 的 legacy 行要租约过期 2 分钟、
       // 陈旧行要 30 天没上线),所以同一个 owner 下答案会随时间改口 —— 一台还活着的兄弟实例在本宿主
@@ -948,6 +979,10 @@ export function createDeviceRuntimeHostLoop(
     const generation = lifecycleGeneration
     const run = runScheduledTasksOnce(generation).finally(() => {
       if (activeScheduledTasksRun === run) activeScheduledTasksRun = null
+      if (scheduledTasksAgain) {
+        scheduledTasksAgain = false
+        scheduleScheduledTasksRun()
+      }
     })
     activeScheduledTasksRun = run
   }
@@ -997,6 +1032,7 @@ export function createDeviceRuntimeHostLoop(
         options.operationTimeouts,
       )
       lastLeaseRenewAt = nowMs()
+      options.onRuntimeLeaseRenewed?.()
       reportDeviceLeaseSweepAge(reading)
     } catch (error) {
       if (handleAuthExpired(error)) return
@@ -1147,10 +1183,37 @@ export function createDeviceRuntimeHostLoop(
     activeActivityPublish = publish
   }
 
+  // 逐个本机 agent 的维护,从认领命令的那条 tick 上搬到这里(activity 的 flight):三件事都随 agent 数线性增长,
+  // 放在 tick 里就排在认领前面。令牌用 tick 最近一次拿到的 lastAuth,❌ 每 2 秒去问一次 provider。
+  // 没做成的那一件按对账节拍重试 —— 从前它随 tick 重试,❌ 搬到 2 秒一轮的 flight 上就变成每 2 秒整批重来一遍。
+  async function maintainLocalAgents(generation: number): Promise<void> {
+    const auth = lastAuth
+    if (!auth?.accessToken || auth.userId !== activeOwnerUserId) return
+    // @@@push-fresh-session - owner 的 GoTrue 会话每次续期都轮换,本机 agent 的令牌档跟着换;令牌没变就没有要写的。
+    // 有一档没写成就不记账,稍后整批重写。新建的 agent 由 provisioning 自己写它那一档。
+    if (auth.accessToken !== runtimeSessionsAccessToken && nowMs() >= runtimeSessionsRetryAt) {
+      const synced = await syncAgentRuntimeSessions({
+        env,
+        accessToken: auth.accessToken,
+        refreshToken: auth.refreshToken ?? null,
+        ownerUserId: auth.userId,
+      })
+      if (synced) runtimeSessionsAccessToken = auth.accessToken
+      else runtimeSessionsRetryAt = nowMs() + superviseIntervalMs
+    }
+    // @@@activity-reconcile — 开机与每 activityReconcileIntervalMs 一次,拿云端的行对一遍账;没对成按对账节拍重试。
+    const reconcileEveryMs = cloudReconciled ? activityReconcileIntervalMs : superviseIntervalMs
+    if (!gateOpen(lastActivityReconcileAt, reconcileEveryMs, nowMs())) return
+    lastActivityReconcileAt = nowMs()
+    await pruneStaleGuestRecords({ env })
+    cloudReconciled = await reconcileWithCloud(auth, generation)
+  }
+
   async function publishAgentActivityOnce(generation: number): Promise<void> {
     try {
       // 身份边界未确立之前不写:owner 还没被 tick 认定时,写出去的行可能属于上一个人。
       if (!activeOwnerUserId) return
+      await maintainLocalAgents(generation)
       await publishLocalAgentActivity(generation)
     } catch (error) {
       if (handleAuthExpired(error)) return
@@ -1172,8 +1235,12 @@ export function createDeviceRuntimeHostLoop(
     stopped = false
     // ⚠️ 先装监督节拍再发首轮:首轮 tick 结尾的排空跟进以「监督节拍已装上」判定宿主在长跑。
     superviseTimer = setInterval(() => {
+      // @@@safety-cadence — wake 订着时这一拍只是兜底,每 safetyIntervalMs 一次;没订着照旧每拍。
+      const at = nowMs()
+      if (wakeSubscribed && !gateOpen(lastSafetyAt, safetyIntervalMs, at)) return
+      lastSafetyAt = at
       scheduleReconcileTick()
-      // 定时任务的周期重排:别的设备改了任务,最迟一个监督周期内在这台设备上生效。
+      // 定时任务的周期重排:本机改的任务当场通知(notifyScheduledTasksChanged);别的设备改的,最迟一个兜底周期内生效。
       if (scheduledTasksPlanned) scheduleScheduledTasksRun()
     }, superviseIntervalMs)
     scheduleWorkTick()
@@ -1188,63 +1255,56 @@ export function createDeviceRuntimeHostLoop(
     }) ?? null
   }
 
-  // @@@1528 - device-runtime-ready → proactively report this device's local agents online/idle.
-  // Presence was activity-driven (an agent only reported online when its ACP session lazily spawned
-  // on the first delivered message), so a logged-in device's existing agents showed 假离线 until messaged. Marking them
-  // online/idle at runtime-ready makes presence device-ready-driven. Online is still gated by the
-  // device heartbeat freshness (deriveAgentReachability.deviceOnline), so a disconnected device
-  // still shows its agents offline. Best-effort, per-agent isolated — never breaks the tick.
-  // Runs once per host lifecycle (login/restart). No engine spawn (idle), so no running-state clobber.
-  // @@@1663 返回「本次是否干净全成功」(所有本机 agent 都成功标 online、无 generation/stop race)。仅返回
-  // true 时调用方才 latch localAgentsOnlineSwept;失败/中途 race → false → 下个 authed tick 重扫,直到一次全成功。
-  // @@@2151 gone-agent(别处删/e2e cleanup 删/非本 owner)的 online 写会命中 migration 036
-  // `can_write_agent_runtime_state` 的「not writable」RAISE。守卫已**收口到 makeRuntimeStateReporter 单一
-  // choke point**(gone→本地 drop + swallow),故此处不再自查 DB 存量 / 不再自己 drop:只喂候选、报真错误。
-  // 纯逻辑(遍历/写/在飞跳过/bail)在 ./deviceRuntimeSweep(Node 可单测)。
-  async function markLocalRuntimeAgentsOnline(auth: RuntimeAuth, generation: number): Promise<boolean> {
+  // 云端的行就是「已发布过什么」:一次批量读(每 200 个一发)拿回本机每个 agent 的那一行,填进 publishedActivity /
+  // publishedRecentActions,随后的边沿发布只写与云端不一样的行。空闲且一致的 agent 一发写都没有 —— 一轮的代价不随
+  // 空闲会话数长。从前这里给每个 agent 都重写一遍 online(10-22 一台 82 个 agent 的机器,每小时 2 508 发里只有 308 发
+  // 是真变化):那是在给后端 180 s 的 derived_status 续命,而它的 offline 自 #2774(0.2.30)起总被 desired 盖过 ——
+  // 在线只看设备行与 desired。
+  // 删了的 agent 由这一读显式认出:remove_owned_agent 留的墓碑让主人照样读得到它,account_status='removed' ⇒
+  // 收回名册行与发给它的卡(#2151/#6938 的 cloud-gone)。'unauthorized' 分不清「别处删了」「不是我的」「还没铸出来」
+  // ⇒ 只说一声、❌ 不删(写路径的 not writable 守卫照旧兜底)。
+  async function reconcileWithCloud(auth: RuntimeAuth, generation: number): Promise<boolean> {
     try {
       const client = options.makeIdentityClient(auth.accessToken)
-      const reportRuntimeState = makeRuntimeStateReporter(client)
-      // #4277 别家账号的行留在名册里(它的主人回来要用),但不归本账号巡扫。
-      const localAgents = agentsForOwner(await listAgents(env), auth.userId)
-      // 候选:有 gugu_user_id、非 cloud(cloud agent 跑在云 cage,不在本机标 online)。
-      const agentUserIds: string[] = []
-      for (const agent of localAgents) {
-        if (!agent.gugu_user_id) continue
-        if (agent.agent_type === CLOUD_AGENT_TYPE) continue
-        // #5331 公网身份还在飞 ⇒ 云端还没有这一行,这一发写必定被 RAISE 拒。跳过它省掉一发注定失败的
-        // 往返;真正的保命闸在 dropLocalAgentByGuguUserId 那里(任何写点漏跳都不许删到在飞的行)。
-        if (agentCloudIdentityPending(agent)) continue
-        agentUserIds.push(agent.gugu_user_id)
+      const agentUserIds = await localPresenceAgentIds(auth.userId)
+      for (let i = 0; i < agentUserIds.length; i += 200) {
+        const chunk = agentUserIds.slice(i, i + 200)
+        const { data, error } = await client.rpc('get_agent_presence_batch', { p_agent_user_ids: chunk })
+        if (error) throw new Error(error.message)
+        if (generation !== lifecycleGeneration || stopped) return false
+        const results = (data as { results?: Record<string, { status?: string; presence?: unknown }> } | null)?.results ?? {}
+        for (const agentUserId of chunk) {
+          const row = results[agentUserId]
+          // 契约:问了的每个 id 都有一条结果;少了 key 是契约坏了,❌ 猜成任何一种结局。
+          if (!row) throw new Error(`presence batch omitted ${agentUserId}`)
+          const presence = row.status === 'presence' ? parseAgentPresencePayload({ presence: row.presence }) : null
+          if (!presence) {
+            options.warn?.(`[device-runtime] presence of local agent ${agentUserId} is ${row.status}; left in the roster`)
+          } else if (presence.accountStatus === 'removed') {
+            publishedActivity.delete(agentUserId)
+            await dropLocalAgentByGuguUserId(agentUserId)
+          } else {
+            publishedActivity.set(agentUserId, { activityStatus: presence.activityStatus, reading: presence.status })
+            publishedRecentActions.set(agentUserId, recentActionsKey({ actions: presence.recentActions, lastActionAt: presence.lastActionAt }))
+          }
+        }
       }
-      return await sweepLocalAgentsOnline({
-        agentUserIds,
-        reportOnline: async (agentUserId, published) => {
-          const recent = await recentActionsForAgent(agentUserId)
-          await reportRuntimeState({
-            agentUserId,
-            runtimeStatus: 'online',
-            ...presenceFields(published),
-            runtimeKind: 'gugu',
-            runtimeLabel: hostname(),
-            recentActions: recent?.actions ?? null,
-            lastActionAt: recent?.lastActionAt ?? null
-          })
-          publishedRecentActions.set(agentUserId, recentActionsKey(recent))
-        },
-        statusOf: agentStatusOf,
-        // Bail if a stop()/re-login raced mid-sweep — never leave an agent stale-online after stop.
-        shouldBail: () => generation !== lifecycleGeneration || stopped,
-        warn: options.warn
-      })
+      return true
     } catch (error) {
-      options.warn?.(`[device-runtime] startup online sweep failed: ${String((error as Error)?.message ?? error)}`)
+      if (error instanceof RuntimeAuthExpiredError) throw error
+      options.warn?.(`[device-runtime] presence reconcile failed: ${String((error as Error)?.message ?? error)}`)
       return false
     }
   }
 
-  // @@@activity-edge (#3961) — 与 markLocalRuntimeAgentsOnline 同源同口径,区别只在:它是全量对账,
-  // 这个是边沿触发。候选口径必须与那边一致(有 gugu_user_id、非 cloud),否则两者会互相写回对方的旧值。
+  // 本机要发布 presence 的 agent:有 gugu_user_id、非 cloud(cloud agent 跑在云 cage);#4277 别家账号的行留在名册里
+  // 但不归本账号;#5331 公网身份还在飞的行云端还没有,❌ 去读也 ❌ 去写。
+  async function localPresenceAgentIds(ownerUserId: string | null): Promise<string[]> {
+    return agentsForOwner(await listAgents(env), ownerUserId)
+      .filter((agent) => agent.gugu_user_id && agent.agent_type !== CLOUD_AGENT_TYPE && !agentCloudIdentityPending(agent))
+      .map((agent) => agent.gugu_user_id)
+  }
+
   /**
    * 这个 agent 在本机的读数 —— presence 发布的唯一依据(spec agent-status-writer:会话页状态写入者 → 宿主按
    * agent 的流 → 这里)。❌ 再取投递命令的执行区间或传输自己的回合追踪做「或」:两个事实源迟早给出两个答案。
@@ -1265,33 +1325,30 @@ export function createDeviceRuntimeHostLoop(
     return await options.runtimeBridge?.recentActionsForAgent?.(agentUserId) ?? null
   }
 
+  // 云端读回的时刻与本机的 ISO 串写法不同,按时刻比,❌ 按字面比(否则每轮对账都当成「变了」再写一遍)。
   function recentActionsKey(snapshot: { actions: string[]; lastActionAt: string | null } | null): string {
-    return snapshot ? JSON.stringify([snapshot.actions, snapshot.lastActionAt]) : ''
+    if (!snapshot) return ''
+    return JSON.stringify([snapshot.actions, snapshot.lastActionAt ? new Date(snapshot.lastActionAt).toISOString() : null])
   }
 
   async function publishLocalAgentActivity(generation: number): Promise<void> {
     try {
-      const localAgents = agentsForOwner(await listAgents(env), activeOwnerUserId)
-      const agentUserIds: string[] = []
-      for (const agent of localAgents) {
-        if (!agent.gugu_user_id) continue
-        if (agent.agent_type === CLOUD_AGENT_TYPE) continue
-        // 候选口径必须与 markLocalRuntimeAgentsOnline 一致,#5331 这条跳过也一样。
-        if (agentCloudIdentityPending(agent)) continue
-        agentUserIds.push(agent.gugu_user_id)
-      }
+      const agentUserIds = await localPresenceAgentIds(activeOwnerUserId)
       const recentSnapshots = new Map<string, { actions: string[]; lastActionAt: string | null } | null>(
         await Promise.all(agentUserIds.map(async (id) => [id, await recentActionsForAgent(id)] as const)),
       )
+      // 本机拿不到这个 agent 的近况(没有活会话)= 没有可说的,❌ 当成「变成空了」去写(那一写 SQL 侧 COALESCE 成原值)。
+      const recentActionsChanged = (id: string): boolean => {
+        const recent = recentSnapshots.get(id) ?? null
+        return recent !== null && publishedRecentActions.get(id) !== recentActionsKey(recent)
+      }
       // 这条路每 2 秒走一轮,而它真正要写的时刻一次回合只有两个。所以**先判有没有变化,
       // 再决定要不要造客户端** —— 无条件 makeIdentityClient 会在空闲期每 2 秒造一个,
       // 纯浪费(而且它正好落在 owner 抱怨资源负载的那条路上)。
       // #4008 鉴权也在这道闸之后才取:没有要写的东西就不该去碰鉴权,否则空闲期每 2 秒问一次令牌。
       const somethingChanged = agentUserIds.some(
         (id) => !samePublishedStatus(publishedActivity.get(id), publishedStatusOf(agentStatusOf(id))),
-      ) || agentUserIds.some(
-        (id) => publishedRecentActions.get(id) !== recentActionsKey(recentSnapshots.get(id) ?? null),
-      ) || [...publishedActivity.keys()].some((id) => !agentUserIds.includes(id))
+      ) || agentUserIds.some(recentActionsChanged) || [...publishedActivity.keys()].some((id) => !agentUserIds.includes(id))
       if (!somethingChanged) return
       const auth = await options.authProvider.getAuth()
       if (!auth?.accessToken || !auth.userId) return
@@ -1307,7 +1364,6 @@ export function createDeviceRuntimeHostLoop(
           const recent = recentSnapshots.get(agentUserId) ?? null
           await reportRuntimeState({
             agentUserId,
-            runtimeStatus: 'online',
             ...presenceFields(published),
             runtimeKind: 'gugu',
             runtimeLabel: hostname(),
@@ -1316,8 +1372,7 @@ export function createDeviceRuntimeHostLoop(
           })
           publishedRecentActions.set(agentUserId, recentActionsKey(recent))
         },
-        shouldPublish: (agentUserId) =>
-          publishedRecentActions.get(agentUserId) !== recentActionsKey(recentSnapshots.get(agentUserId) ?? null),
+        shouldPublish: recentActionsChanged,
         shouldBail: () => generation !== lifecycleGeneration || stopped,
         warn: options.warn
       })
@@ -1332,6 +1387,8 @@ export function createDeviceRuntimeHostLoop(
 
   async function stop(): Promise<void> {
     const runningTick = activeTick
+    const ownerAtStop = activeOwnerUserId
+    const deviceAtStop = lastDeviceId
     stopped = true
     lifecycleGeneration += 1
     activeTickAbortController?.abort(new Error('device runtime host stopped'))
@@ -1360,9 +1417,38 @@ export function createDeviceRuntimeHostLoop(
     if (activeScheduledTasksRun) await activeScheduledTasksRun.catch(() => undefined)
     if (activeLeaseRenewal) await activeLeaseRenewal
     if (activeActivityPublish) await activeActivityPublish.catch(() => undefined)
-    // 停机**不**逐个把本机 agent 标 offline:读方看的在线 / 离线只来自设备行(build_agent_presence_payload 的
-    // derived_status 不看 runtime_status,而那一写自己就把 last_seen 刷新成「刚见过」),设备行由租约清扫者在
-    // 租约过期后翻成 offline(#5912)。逐个写只换来退出要等 N 个请求(owner 178 个 agent 时撞满 5 秒上限)。
+    // 在路上的心跳先落地:它写的是「在线」,落在下面那一句之后就又把这台标回在线了。
+    await Promise.all([...heartbeatFlights.values()].map((flight) => flight.catch(() => undefined)))
+    // 这台机器要走了:设备行当场标离线(#156),名下别的设备马上看见,❌ 等两分钟租约过期、看起来和崩溃一样。
+    // 停机**不**逐个把本机 agent 标 offline:读方看的在线 / 离线只来自设备行与 desired(#5912),这一行就够了;
+    // 逐个写只换来退出要等 N 个请求(owner 178 个 agent 时撞满 5 秒上限)。
+    if (ownerAtStop && deviceAtStop) await announceOffline(ownerAtStop, deviceAtStop)
+  }
+
+  async function announceOffline(ownerUserId: string, deviceId: string): Promise<void> {
+    try {
+      const auth = await options.authProvider.getAuth()
+      if (!auth?.accessToken || auth.userId !== ownerUserId) return
+      const client = options.makeIdentityClient(auth.accessToken)
+      // 先注销自己这个实例,再看兄弟:两个一起停(关机)时,后看的那个一定看得见先走的已经走了,至少有一个说离线。
+      await retireRuntimeInstance(client, instanceId, options.operationTimeouts)
+      // 同账号同机的别的实例共用这一行(#5041):它还活着,这台机器就没走 ——
+      // ❌ 替它说离线(要等它下一拍心跳才写回在线,中间别的设备都读成离线)。
+      const instances = await readDeviceRuntimeInstances(client, deviceId, options.operationTimeouts)
+      const siblingAlive = instances.some((instance) => {
+        if (instance.instanceId === instanceId) return false
+        const at = Date.parse(instance.lastHeartbeatAt)
+        return !Number.isNaN(at) && nowMs() - at < RUNTIME_INSTANCE_STALE_MS
+      })
+      if (siblingAlive) return
+      await markDeviceOffline(client, deviceId, {
+        nowIso: options.nowIso,
+        operationTimeouts: options.operationTimeouts,
+      })
+    } catch (error) {
+      // 说不出去(断网、令牌没了):别处照旧在租约过期后看见它离线。
+      options.warn?.(`[device-runtime] could not mark this device offline on stop: ${(error as Error).message}`)
+    }
   }
 
   function getDebugSnapshot(): DeviceRuntimeHostDebugSnapshot {
@@ -1388,13 +1474,27 @@ export function createDeviceRuntimeHostLoop(
   }
 
   return {
-    tickOnce: () => tickOnce('event'),
+    getRuntimeLease: () => !stopped && activeOwnerUserId && lastDeviceId && lastLeaseRenewAt !== null
+      && nowMs() - lastLeaseRenewAt < RUNTIME_INSTANCE_STALE_MS
+      ? { ownerId: activeOwnerUserId, deviceId: lastDeviceId, runtimeInstanceId: instanceId }
+      : null,
+    // 停了(或正在停)就不再起新的一轮:那一轮会重新订阅、到点写一拍「在线」,把停机时标的离线又翻回去。
+    instanceId,
+    tickOnce: () => (stopped ? Promise.resolve({ skipped: true }) : tickOnce('event')),
     notifyAuthChanged: notifyWork,
     notifyCommandsChanged: () => {
       noteCommandAnnouncement()
       notifyWork()
     },
     notifyDeviceActionsChanged,
+    notifyScheduledTasksChanged: () => {
+      if (superviseTimer === null || stopped) return
+      if (activeScheduledTasksRun) {
+        scheduledTasksAgain = true
+        return
+      }
+      scheduleScheduledTasksRun()
+    },
     start,
     stop,
     getDebugSnapshot,

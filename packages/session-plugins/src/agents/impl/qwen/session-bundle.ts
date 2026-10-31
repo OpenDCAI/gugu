@@ -103,7 +103,8 @@ export const qwenSessionBundleDescriptor = {
       injection: {
         timing: 'next-tool-call',
         evidence:
-          'shuxueshuxue/gugu-base@27acb72ad4b4ab0e59aa4646acde2d534e9b75d0 evidence/2026-09-01-nextcall-batch1-acp-injection（qwen ACP busy 3/3 next-tool-call + idle 1/1；另见 #4472 comment-5464601764 / #4482）',
+          'QwenLM/qwen-code@09825973e7d3（v0.22.3）实测 2026-09-01，本地假端点：qwen ACP busy 3/3 next-tool-call + idle 1/1；'
+          + '另见 #4472 comment-5464601764 / #4482',
         // 忙时 turn-1 主 RPC 报 `stopReason=cancelled`(假 cancelled) —— 由 cell 的移交守卫覆盖(工具往返
         // 照常完成、暗号照常在 tool 边界进模型、turn 不落 cancelled 终态),对用户透明。记进机器可见的
         // deviations 让读声明的人知道这一格靠那道守卫,而非把它藏在注释里(comments 过不了 zod parse)。
@@ -117,7 +118,7 @@ export const qwenSessionBundleDescriptor = {
       promptInput: {
         multiline: 'plain',
         evidence:
-          'shuxueshuxue/gugu-base@e3140a8 evidence/2026-09-06-qwen-paste/step-7 (Qwen Code 0.23.0 complete host write still exposed [Pasted Content] placeholder)',
+          'QwenLM/qwen-code@98a9c9641586 (v0.23.0), measured 2026-09-06: a complete host write still exposed the [Pasted Content] placeholder',
       },
     },
   },

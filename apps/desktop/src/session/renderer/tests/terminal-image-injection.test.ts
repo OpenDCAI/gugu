@@ -7,6 +7,7 @@ import {
   isHeicLikeFile,
   isNearDuplicatePaste,
   isUnstableDropPath,
+  mustCopyRatherThanReference,
   wrapAsBracketedPaste,
 } from '@renderer/lib/pty/terminal-image-paths';
 
@@ -15,6 +16,31 @@ describe('terminal-image-injection', () => {
     expect(isUnstableDropPath('/var/folders/xx/T/Drops/image.png')).toBe(true);
     expect(isUnstableDropPath('/var/folders/xx/T/gugu-drop-123-image.png')).toBe(false);
     expect(isUnstableDropPath('/Users/me/Desktop/shot.png')).toBe(false);
+  });
+
+  // #985:别的 App 私有目录里的文件，agent 之后去读会让 macOS 弹「访问其他 App 的数据」,回合卡在弹窗上;
+  // 临时目录里的随时会没。两类都只能指咕咕自己存的那一份。
+  it('copies files from another app\'s container or a temp folder instead of referencing them', () => {
+    expect(mustCopyRatherThanReference('/Users/me/Library/Containers/com.wiheads.paste/Data/tmp/images/shot.png')).toBe(true);
+    expect(mustCopyRatherThanReference('/Users/me/Library/Group Containers/ABCDE12345.com.example.shared/a.pdf')).toBe(true);
+    expect(mustCopyRatherThanReference('/var/folders/xx/yy/T/TemporaryItems/shot.png')).toBe(true);
+    expect(mustCopyRatherThanReference('/private/var/folders/xx/yy/T/report.pdf')).toBe(true);
+    expect(mustCopyRatherThanReference('/tmp/notes.txt')).toBe(true);
+    expect(mustCopyRatherThanReference('/private/tmp/notes.txt')).toBe(true);
+    expect(mustCopyRatherThanReference('/var/folders/xx/T/Drops/image.png')).toBe(true);
+  });
+
+  it('keeps referencing the person\'s own files and Gugu\'s own copies', () => {
+    expect(mustCopyRatherThanReference('/Users/me/Desktop/shot.png')).toBe(false);
+    expect(mustCopyRatherThanReference('/Users/me/Documents/project/src/app.ts')).toBe(false);
+    expect(mustCopyRatherThanReference('/Users/me/Library/Containers/com.gugu.app.beta/Data/a.png')).toBe(false);
+    expect(mustCopyRatherThanReference('/Users/me/Library/Group Containers/ABCDE12345.com.gugu.app/a.png')).toBe(false);
+    expect(mustCopyRatherThanReference('/Users/me/Library/Containers/nextmind.gugu.beta/Data/a.png')).toBe(false);
+    expect(mustCopyRatherThanReference('/Users/me/Library/Group Containers/ABCDE12345.nextmind.gugu/a.png')).toBe(false);
+    expect(mustCopyRatherThanReference('/var/folders/xx/T/gugu-drop-123-image.png')).toBe(false);
+    // 名字里带 Containers 但不在 ~/Library 下的普通目录照旧指原文件。
+    expect(mustCopyRatherThanReference('/Users/me/code/Containers/readme.md')).toBe(false);
+    expect(mustCopyRatherThanReference('/Users/me/proj/Library/Containers/Stack/a.swift')).toBe(false);
   });
 
   it('escapes spaces without wrapping in quotes', () => {

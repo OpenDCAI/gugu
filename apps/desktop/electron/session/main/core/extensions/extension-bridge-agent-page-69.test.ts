@@ -41,6 +41,7 @@ vi.mock('@main/lib/logger', () => ({ log: { warn: vi.fn(), error: vi.fn(), info:
 const CHAT = '0b000000-0000-4000-8000-000000000069';
 const TODAY = { id: '0c000000-0000-4000-8000-000000000001', chat: CHAT, name: 'today.board.json', displayName: 'today', contentType: 'application/json', type: 'json' };
 const files = {
+  resourceChatOf: vi.fn(async (id: string) => id),
   listAppFiles: vi.fn(async () => [{ ...TODAY }]),
   openAppFile: vi.fn(async () => ({ entry: { ...TODAY }, docName: `${TODAY.id}@1`, access: 'rw', self: { userId: 'user:u', name: 'Ann' } })),
   closeAppFile: vi.fn(() => undefined),
@@ -108,6 +109,18 @@ describe('the check’s page works as its operator (摩擦单 F69, owner 10-14)'
     // Control: the real page writes the clipboard.
     await call(REAL, 'clipboardWriteText', { text: 'hi' });
     expect(clipboard.writeText).toHaveBeenCalledWith('hi');
+  });
+
+  it('a real page receives a rejected native clipboard write instead of a false success', async () => {
+    const { clipboard } = await import('electron');
+    vi.mocked(clipboard.writeText).mockRejectedValueOnce(new Error('Clipboard write permission denied'));
+    expect(await call(REAL, 'clipboardWriteText', { text: 'hi' })).toMatchObject({ ok: false, message: expect.stringContaining('Clipboard write permission denied') });
+  });
+
+  it('an App dialog requested by a check page is handed back to its agent', async () => {
+    const args = { id: 'new-card', entry: 'new.html', title: 'New card', data: { column: 'todo' } };
+    expect(await call(CHECK, 'modalOpen', args)).toEqual({ ok: true, value: null });
+    expect(checkReadingsOf(CHECK)?.shown).toEqual([{ verb: 'modalOpen', detail: JSON.stringify(args) }]);
   });
 
   it('a file to save comes back as its link, for the agent to read itself; a picker is the person’s, bytes the App has are uploaded as the agent', async () => {

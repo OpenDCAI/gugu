@@ -63,7 +63,7 @@ function preloadVerbs(): string[] {
   // Every host's members come from one table (host-calls.ts): a page's own and the background page's own (`VerbFacts.only`) too.
   // `appFiles.*` and `clipboard.*` are host halves internal to the platform runtime: pages call `gugu.files.*` and
   // `gugu.clipboard.writeText`, which the runtime builds on them (checked below); so is `onFilesChanged`.
-  const hostHalves = ['onFilesChanged', 'onForumChanged']
+  const hostHalves = ['onFilesChanged', 'onForumChanged', 'onModalFocus', 'onProjection', 'onProjectionSource']
   return [...Object.keys(HOST_CALLS), ...Object.keys(HOST_EVENTS)].filter((key) => !key.includes('.') && !hostHalves.includes(key))
 }
 
@@ -77,7 +77,8 @@ function runtimeFileVerbs(): string[] {
 
 const truth: Truth = {
   verbs: preloadVerbs(),
-  capabilityOf: Object.fromEntries(Object.entries(BRIDGE_VERBS).map(([verb, facts]) => [verb, facts.needs])),
+  // `dispatch` needs what its target needs (app-dispatch-core.ts): written under no single 「Needs」, its section says which.
+  capabilityOf: Object.fromEntries(Object.entries(BRIDGE_VERBS).map(([verb, facts]) => [verb, typeof facts.needs === 'function' ? null : facts.needs])),
   capabilities: EXTENSION_CAPABILITIES,
   tools: EXTENSION_TOOL_DEFS.map((def) => def.name),
 }
@@ -85,8 +86,8 @@ const truth: Truth = {
 describe('扩展指南与源码对得上 (#6614)', () => {
   it('动词、能力、工具一个不漏,带权限的动词写在对的「Needs」下', () => {
     // 阳控:读出来的真值不能是空的,否则下面每一条都空转成绿。
-    expect(truth.verbs).toEqual(expect.arrayContaining(['getContext', 'readAgentHistory', 'callProgram', 'spawnAgent']))
-    expect(truth.tools).toEqual(['app_create', 'app_pack', 'app_install', 'app_check'])
+    expect(truth.verbs).toEqual(expect.arrayContaining(['getContext', 'readAgentHistory', 'callProgram', 'dispatch']))
+    expect(truth.tools).toEqual(['app_manage', 'app_create', 'app_pack', 'app_install', 'app_check'])
     expect(guideProblems(EXTENSION_GUIDE_TOPICS, truth)).toEqual([])
   })
 
@@ -95,12 +96,13 @@ describe('扩展指南与源码对得上 (#6614)', () => {
     // 阳控:从运行时读出来的动词不能是空的。
     expect(verbs).toEqual(expect.arrayContaining(['open', 'list', 'create', 'rename', 'remove', 'onChanged']))
     // `gugu.messages.*` and `gugu.chats.*` are the host's own rows (host-calls.ts), as the page reaches them.
-    const messageVerbs = Object.keys(HOST_CALLS).filter((key) => key.startsWith('messages.') || key.startsWith('chats.') || key.startsWith('projects.'))
+    const messageVerbs = Object.keys(HOST_CALLS).filter((key) => key.startsWith('messages.') || key.startsWith('chats.') || key.startsWith('projects.') || key.startsWith('sessions.'))
     // `gugu.forum.*`: the page's own (create-gugu.ts); subscribe / unsubscribe are `forum.onChanged`'s host half.
     const forumVerbs = Object.keys(HOST_CALLS).filter((key) => key.startsWith('forum.') && key !== 'forum.subscribe' && key !== 'forum.unsubscribe').concat('forum.onChanged')
-    expect(messageVerbs).toEqual(['messages.history', 'messages.search', 'chats.list', 'chats.members', 'projects.list'])
+    const modalVerbs = Object.keys(HOST_CALLS).filter((key) => key.startsWith('modal.') && key !== 'modal.key')
+    expect(messageVerbs).toEqual(['messages.history', 'messages.search', 'chats.list', 'chats.members', 'projects.list', 'sessions.index', 'sessions.read'])
     const all = EXTENSION_GUIDE_TOPICS.map(({ text }) => text).join('\n')
-    const missing = [...verbs.map((verb) => `gugu.files.${verb}(`), ...messageVerbs.map((key) => `gugu.${key}(`), ...forumVerbs.map((key) => `gugu.${key}(`), 'gugu.bind.codemirror(', 'gugu.codemirror(', 'gugu.clipboard.writeText(']
+    const missing = [...verbs.map((verb) => `gugu.files.${verb}(`), ...messageVerbs.map((key) => `gugu.${key}(`), ...forumVerbs.map((key) => `gugu.${key}(`), ...modalVerbs.map((key) => `gugu.${key}(`), 'gugu.bind.codemirror(', 'gugu.codemirror(', 'gugu.clipboard.writeText(']
       .filter((call) => !all.includes(call))
     expect(missing).toEqual([])
   })
@@ -113,6 +115,16 @@ describe('扩展指南与源码对得上 (#6614)', () => {
     // 阳控:一篇超上限的必须被点名。
     expect(oversized([{ topic: 'fat', text: 'x'.repeat(GUIDE_TOPIC_BYTE_BUDGET + 1) }]))
       .toEqual([`fat: ${GUIDE_TOPIC_BYTE_BUDGET + 1} bytes > ${GUIDE_TOPIC_BYTE_BUDGET}`])
+  })
+
+  it('documents public projection members while keeping raw host events private', () => {
+    const topic = EXTENSION_GUIDE_TOPICS.find(({ topic }) => topic === 'apps-projection')!
+    expect(topic).toBeDefined()
+    for (const member of ['gugu.projection.create(', 'gugu.projection.mount(', 'resource.publish(', 'resource.close(', 'view.close(', 'view.pendingText(']) {
+      expect(topic.text).toContain(member)
+    }
+    expect(truth.verbs).not.toContain('onProjection')
+    expect(truth.verbs).not.toContain('onProjectionSource')
   })
 
   it('判据会红:桥上多一个动词、动词挪错小节、指南提到已退役的工具、整篇漏掉', () => {

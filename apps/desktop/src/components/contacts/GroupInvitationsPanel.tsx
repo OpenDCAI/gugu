@@ -1,4 +1,4 @@
-import { resolveOrLoud } from '@gugu/core/shared/resolveOrLoud'
+import { useGroupDisplayName } from '../../hooks/useGroupDisplayName'
 import { useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useContactsStore } from '../../store/contactsContext'
@@ -14,6 +14,7 @@ const invitationLog = rendererLogger('contacts/group-invitations')
 function GroupInvitationRow({ invitation }: { invitation: GroupInvitation }) {
   const { t } = useTranslation('contacts')
   const { refreshRequests } = useContactsStore()
+  const groupName = useGroupDisplayName({ id: invitation.chat_id, name: invitation.group_name })
   const { refreshChats } = useChatStore('refreshChats')
   const busyRef = useRef(false)
   const [busy, setBusy] = useState(false)
@@ -32,9 +33,9 @@ function GroupInvitationRow({ invitation }: { invitation: GroupInvitation }) {
       await refreshRequests()
     } catch (cause) {
       invitationLog.error({ invitationId: invitation.id, error: String(cause) }, 'group invitation decision failed')
-      setError(cause instanceof Error && cause.message === 'Group member limit reached'
+      setError(cause instanceof Error && (cause.message === 'Group member limit reached' || cause.message === 'member_limit_reached')
         ? t('groupInvitations.full')
-        : messageForUser(cause, t('groupInvitations.failed')))
+        : messageForUser(cause))
     } finally {
       busyRef.current = false
       setBusy(false)
@@ -44,9 +45,9 @@ function GroupInvitationRow({ invitation }: { invitation: GroupInvitation }) {
   return (
     <div className="mx-3 border-b border-[var(--border-subtle)] px-1 py-3" data-testid="group-invitation" data-invitation-id={invitation.id}>
       <div className="flex items-start gap-3">
-        <Avatar name={invitation.inviter_name} seed={invitation.inviter_agent_user_id} isAgent size="md" />
+        <Avatar name={invitation.inviter_name} seed={invitation.inviter_user_id} isAgent={invitation.inviter_type === 'agent'} size="md" />
         <div className="min-w-0 flex-1 text-sm">
-          <div className="font-medium text-[var(--text-primary)]">{t('groupInvitations.invitedBy', { inviter: invitation.inviter_name, owner: invitation.inviter_owner_name, group: resolveOrLoud(invitation.group_name, `invited group ${invitation.chat_id}`) })}</div>
+          <div className="font-medium text-[var(--text-primary)]">{t(invitation.inviter_type === 'agent' ? 'groupInvitations.invitedBy' : 'groupInvitations.invitedByHuman', { inviter: invitation.inviter_name, owner: invitation.inviter_owner_name, group: groupName })}</div>
           {invitation.invitee_type === 'agent' && <div className="mt-1 text-[var(--text-secondary)]">{t('groupInvitations.agent', { name: invitation.invitee_name })}</div>}
           <p className="my-2 whitespace-pre-wrap break-words text-[var(--text-secondary)]">{invitation.message}</p>
           {invitation.status === 'pending' ? <>
@@ -56,7 +57,7 @@ function GroupInvitationRow({ invitation }: { invitation: GroupInvitation }) {
               <Button size="sm" disabled={busy} onClick={() => void decide(false)} data-testid="group-invitation-reject">{t('groupInvitations.reject')}</Button>
             </div>
           </> : <div className="text-[var(--text-tertiary)]">{t(invitation.status === 'accepted' ? 'groupJoinRequests.statusAccepted' : 'groupJoinRequests.statusRejected')}</div>}
-          {error && <div role="alert" className="mt-2 text-[var(--danger)]">{error}</div>}
+          {error && <div role="alert" className="mt-2 text-[var(--danger-fg)]">{error}</div>}
         </div>
       </div>
     </div>

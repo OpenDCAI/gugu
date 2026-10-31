@@ -9,7 +9,7 @@ import type { DeviceCapabilities } from '../shared/types/chat'
  * 照 VS Code / Zed 的「客户端与 server 版本对不上就明说」(Zed 发了旧客户端不认的消息直接断线:zed#42474),
  * 只是不要求逐版本相等 —— server 自动升级、桌面自动升级,两边总有先后。
  */
-export const REMOTE_PROTOCOL_VERSION = 10
+export const REMOTE_PROTOCOL_VERSION = 15
 /**
  * server 报给桌面:桌面的协议版本低于它 = 这台电脑上的咕咕太旧。
  *
@@ -51,10 +51,36 @@ export const REMOTE_PROTOCOL_VERSION = 10
  * 程序)一律走 `agentSession.app_call { method, args }`,那台机器查同一张表、用同一份实现做;`call_program` / `app_data` 删掉,
  * 跨机器的数据文件随之是一次调用的上限 1 MB(owner 10-17「更优雅的话就去做吧」)。窗口一字未变,两个下沿留在 9(同 7):
  * 只有这一问对协议 9 的机器说「太旧」(那台的路由表答 No handler)。
+ *
+ * 11(会话消息带原文件):消息动作保留附件引用。发文件前要求目标至少为11，避免旧宿主忽略引用却回报投递成功。
+ * 纯文字、任务控制与窗口不变，两个通用下沿仍为9。
+ *
+ * 12(历史按改动游标取,10-26 devdb 出口事故):会话页对账不再每提交一轮重读整份历史,改成带着改动游标
+ * (`getHistory` 的 `changedSince`,应答带 `cursor` / `count`)只取新增 / 改过的那几轮(@@@history-change-cursor)。
+ * Both ends require protocol 12: a new desktop cannot reconcile an old host's history; an old desktop
+ * would keep rereading full pages from a new host. Reject both version mismatches through the existing
+ * client_outdated / server_outdated path, on cloud and SSH alike, rather than retaining the old transfer.
  */
-export const MIN_CLIENT_PROTOCOL = 9
-/** 桌面 / 手机自己的要求:那台机器报的协议版本低于它 = 那台机器上的咕咕太旧。 */
-export const MIN_SERVER_PROTOCOL = 9
+/**
+ * 13: Ask settlements use origin instead of host.
+ * 14: the saved-login form is removed (#848); the later remote-browser removal keeps this window, and removed RPC
+ *     methods use the normal unknown-method response.
+ * 15: canonical file patches. sessionTimeline sends one patch tool entity with structured changes and raw patch bytes.
+ *
+ * 向下兼容一档(owner 10-28,换版打断 7 条车道之后):两边只差一档时照常连,由**新的一侧**降级 ——
+ * 15 ↔ 14 的改文件实体由 session-record/contract.ts 的 protocol14FileChanges 在线上换算(宿主按开窗时对端报的协议、
+ * 客户端按宿主答的协议);14 的界面看到的是它自己的改文件卡。开窗时按那台机器的协议报 hello(`helloProtocol`):
+ * 老宿主见到更高的号会当成版本信号、要求当场换版,有 agent 在跑也照换。差两档以上才说「太旧」。
+ * 下一次加一时,两个下沿跟着抬到新号减一,并删掉上一档的降级。
+ */
+export const MIN_CLIENT_PROTOCOL = 14
+/** 桌面 / 手机自己的要求:那台机器报的协议版本低于它 = 那台机器上的咕咕太旧(同样向下兼容一档)。 */
+export const MIN_SERVER_PROTOCOL = 14
+
+/** 开窗时报给那台机器的协议:它比这台低、但还在兼容的一档里,就照它的报(见上);说不出 = 报自己的。纯函数。 */
+export function helloProtocol(serverProtocol: number | null | undefined, own = REMOTE_PROTOCOL_VERSION, minServer = MIN_SERVER_PROTOCOL): number {
+  return typeof serverProtocol === 'number' && serverProtocol < own && serverProtocol >= minServer ? serverProtocol : own
+}
 
 /**
  * 那台 server 说的协议版本够不够这台桌面用 —— 设备行 / 会话末尾(心跳报的 remote_protocol)与 SSH 装机时
@@ -86,13 +112,15 @@ export function serverMachineNotices(
   capabilities: Pick<DeviceCapabilities, 'host_kind' | 'server_disk' | 'server_rollback' | 'remote_protocol' | 'min_client_protocol'> | null | undefined,
   own: { protocol: number; minServer: number } = { protocol: REMOTE_PROTOCOL_VERSION, minServer: MIN_SERVER_PROTOCOL },
 ): ServerMachineNotice[] {
-  if (!capabilities || capabilities.host_kind !== 'server') return []
+  if (!capabilities) return []
   const notices: ServerMachineNotice[] = []
   if (capabilities.min_client_protocol !== undefined && capabilities.min_client_protocol > own.protocol) {
     notices.push({ kind: 'desktop-too-old' })
   } else if (serverProtocolTooOld(capabilities.remote_protocol, { unknownIsTooOld: false, minServer: own.minServer })) {
     notices.push({ kind: 'server-too-old' })
   }
+  // Protocol windows apply to every task host; disk/update notices belong to headless servers.
+  if (capabilities.host_kind !== 'server') return notices
   const disk = capabilities.server_disk
   if (disk && disk.free_bytes < SERVER_DISK_LOW_BYTES) notices.push({ kind: 'disk-low', freeBytes: disk.free_bytes })
   const rollback = capabilities.server_rollback

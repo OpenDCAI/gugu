@@ -73,8 +73,6 @@ export interface DeviceActionManifestEntry {
 /** `gugu_devices.capabilities.actions` 整块。 */
 export interface DeviceActionsCapability {
   v: number
-  /** 清单生成时刻(ISO):授权一变就重新登记。 */
-  updated_at: string
   /** 这台设备的时区(IANA,如 Asia/Shanghai):agent 算「明天下午 3 点」要用设备的时区,❌ 用自己机器的。 */
   timezone?: string
   actions: DeviceActionManifestEntry[]
@@ -83,6 +81,12 @@ export interface DeviceActionsCapability {
    * 不占 token),点名调用其中一个时回 detail,如实说没装或停用了,❌ 只回「没有登记这个动作」。
    */
   switched_off?: DeviceActionsSwitchedOff[]
+}
+
+/** Device-list transport omits the documentation needed only for agent calls. */
+export type DeviceActionSummary = Omit<DeviceActionManifestEntry, 'description' | 'input_schema'>
+export interface DeviceActionsSummary extends Omit<DeviceActionsCapability, 'actions'> {
+  actions: DeviceActionSummary[]
 }
 
 export interface DeviceActionsSwitchedOff {
@@ -101,8 +105,9 @@ export interface DeviceActionCallPayload {
   timeout_ms: number
   /** 过了这个时刻(ISO)还没开始执行的,设备不再执行、回 `expired`(掉线很久后重领到的旧命令)。 */
   deadline_at: string
-  /** 谁调的(给设备上的「最近调用」看):agent 的 user id 与名字。 */
-  caller?: { agent_user_id?: string; name?: string }
+  /** Display-only caller metadata. task_title is the host's actual task title,
+   * independent of the Agent's canonical name; older senders may omit it. */
+  caller?: { agent_user_id?: string; name?: string; task_title?: string }
 }
 
 /** 「收到」:`device.action:reply` 的 result(开工前就判出来的,reply 里直接是终局的 DeviceActionResult)。 */
@@ -129,6 +134,8 @@ export type DeviceActionErrorCode =
   | 'device_offline'
   /** 不是这个账号名下的设备。 */
   | 'unknown_device'
+  /** Device actions are executed only by an Agent on that device. */
+  | 'device_scope_mismatch'
   /** 发出去了,但设备没回「收到」(重发一次仍没有),或执行中 30 秒收不到进度。 */
   | 'no_answer'
   /** 这台设备没登记这个动作(拼错了,或这台设备做不了)。 */
@@ -185,6 +192,7 @@ export function parseDeviceActionCallPayload(raw: unknown): DeviceActionCallPayl
     ? {
         ...(typeof raw.caller.agent_user_id === 'string' ? { agent_user_id: raw.caller.agent_user_id } : {}),
         ...(typeof raw.caller.name === 'string' ? { name: raw.caller.name } : {}),
+        ...(typeof raw.caller.task_title === 'string' && raw.caller.task_title.trim() ? { task_title: raw.caller.task_title.trim() } : {}),
       }
     : undefined
   return {
@@ -200,7 +208,7 @@ export function parseDeviceActionCallPayload(raw: unknown): DeviceActionCallPayl
 
 const ERROR_CODES: ReadonlySet<string> = new Set<DeviceActionErrorCode>([
   'device_offline', 'unknown_device', 'no_answer', 'unknown_action', 'not_granted', 'os_permission', 'invalid_args', 'needs_confirmation',
-  'execution_failed', 'timeout', 'revoked', 'expired', 'unsupported',
+  'execution_failed', 'timeout', 'revoked', 'expired', 'unsupported', 'device_scope_mismatch',
 ])
 
 export function isDeviceActionAccepted(raw: unknown): raw is DeviceActionAccepted {
@@ -242,10 +250,26 @@ export function readDeviceActionProgress(raw: unknown): DeviceActionProgress | n
   }
 }
 
-/** 读 `gugu_devices.capabilities.actions`;不是这个形状就回 null(老版本的设备不登记)。 */
+/** Read the full stored manifest for agent action details. */
 export function normalizeDeviceActionsCapability(raw: unknown): DeviceActionsCapability | null {
+  return normalizeDeviceActions(raw, (item, summary) => ({
+    ...summary,
+    description: typeof item.description === 'string' ? item.description : '',
+    input_schema: isRecord(item.input_schema) ? item.input_schema : { type: 'object' },
+  }))
+}
+
+/** Read list summaries without inventing descriptions or input schemas. */
+export function normalizeDeviceActionsSummary(raw: unknown): DeviceActionsSummary | null {
+  return normalizeDeviceActions(raw, (_item, summary) => summary)
+}
+
+function normalizeDeviceActions<T extends DeviceActionSummary>(
+  raw: unknown,
+  readAction: (item: Record<string, unknown>, summary: DeviceActionSummary) => T,
+): (Omit<DeviceActionsCapability, 'actions'> & { actions: T[] }) | null {
   if (!isRecord(raw) || !Array.isArray(raw.actions)) return null
-  const actions: DeviceActionManifestEntry[] = []
+  const actions: T[] = []
   for (const item of raw.actions) {
     if (!isRecord(item)) continue
     const name = typeof item.name === 'string' ? item.name : ''
@@ -255,22 +279,19 @@ export function normalizeDeviceActionsCapability(raw: unknown): DeviceActionsCap
     const reason = item.unavailable_reason === 'not_granted' || item.unavailable_reason === 'os_permission' || item.unavailable_reason === 'unsupported'
       ? item.unavailable_reason
       : undefined
-    actions.push({
+    actions.push(readAction(item, {
       name,
       group: typeof item.group === 'string' ? item.group : name.split('.')[0] ?? name,
       title: typeof item.title === 'string' ? item.title : name,
-      description: typeof item.description === 'string' ? item.description : '',
       risk,
       confirm,
-      input_schema: isRecord(item.input_schema) ? item.input_schema : { type: 'object' },
       available: item.available === true,
       ...(reason ? { unavailable_reason: reason } : {}),
       ...(typeof item.unavailable_detail === 'string' && item.unavailable_detail ? { unavailable_detail: item.unavailable_detail } : {}),
-    })
+    }))
   }
   return {
     v: typeof raw.v === 'number' ? raw.v : DEVICE_ACTION_PROTOCOL_VERSION,
-    updated_at: typeof raw.updated_at === 'string' ? raw.updated_at : '',
     ...(typeof raw.timezone === 'string' && raw.timezone ? { timezone: raw.timezone } : {}),
     actions,
     ...withSwitchedOff(raw.switched_off),
@@ -288,4 +309,9 @@ function withSwitchedOff(raw: unknown): { switched_off?: DeviceActionsSwitchedOf
 /** 这个动作所在的分组被它的 App 关掉了:回那一条,否则 null。 */
 export function switchedOffGroupOf(capability: DeviceActionsCapability, action: string): DeviceActionsSwitchedOff | null {
   return capability.switched_off?.find((off) => action.startsWith(`${off.group}.`)) ?? null
+}
+
+/** Built by the receiving host, never from caller-supplied device claims. */
+export function deviceScopeError(deviceId: string) {
+  return { code: 'device_scope_mismatch' as const, message: `设备能力只能由这台设备上的任务 Agent 使用。请在这台设备上创建任务 Agent：session_spawn device="device:${deviceId}"。若任务宿主未启用，请主人先到那台设备开启任务宿主；不能由其他设备代调。` }
 }

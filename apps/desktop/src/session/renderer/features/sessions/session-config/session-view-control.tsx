@@ -13,24 +13,11 @@ import {
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
 import { cn } from '@renderer/utils/utils';
 import { isSessionView, type SessionView } from '@shared/core/sessions/sessions';
+import type { SessionViewLockReason, SessionViewLockState } from './session-view-lock';
 
 /**
- * 三种「这一头选不了」,含义各不相同,❌ 别合并成一个布尔:
- * - `general-only`:这一家没有编程视角(会话页不给它终端腿),只能用通用视角(opencode 这一类)。
- * - `general-required-here`:从对话页发起时,这一家的编程视角收不到入站首句,这一条只能用通用视角
- *   (kimi 那一格);同一家在会话页上编程视角照样可选。
- * - `code-only`:这一家声明了通用视角,但会话页那一面还没接通(身份与投递通道声明仍是 none;
- *   判定在 initial-session-section.tsx),这一条只能用编程视角(kiro 这一类)。
- * - `remote-needs-ssh`:会话页在别的机器上开会话,而那台机器只经云端连着(不是在这台电脑上用 SSH
- *   装上的)—— 编程视角是真终端,要 SSH 直连才有(#6264),这一条只能用通用视角。
- */
-export type SessionViewLockReason = 'general-only' | 'general-required-here' | 'code-only' | 'remote-needs-ssh';
-
-/** 被钉在哪一种展示(它显示为选中)以及为什么。`view` 必须等于这条会话真实要开的展示。 */
-export type SessionViewLockState = { view: SessionView; reason: SessionViewLockReason };
-
-/**
- * 展示切换控件:「编程 | 通用」(owner 2026-09-03 拍板的产品词,英文 Code | Work)。
+ * 展示切换控件:「终端 | 通用」(英文 Terminal | General)。只在设置 → 通用里「允许以终端（TUI）模式启动 agent」
+ * 开着时出现(owner 10-30:开了才回到可选两种的样子;关着新任务一律通用),判据在 useInitialSessionState。
  *
  * **它选的是哪一种展示,不是哪根管子** —— owner 原话:「本质上这就是两种不同的展示:一个是编程
  * 视角的展示,一个是通用视角的展示」。所以这一层从类型到变量到 test-id 一律说 `SessionView`
@@ -38,7 +25,7 @@ export type SessionViewLockState = { view: SessionView; reason: SessionViewLockR
  * 翻译一次(`sessionRuntimeOfView`)。❌ 别把传输词回流进产品层——那正是「Chat UI 开关」
  * 留下的误会。
  *
- * 可见文案(编程 / 通用 / Code / Work)只活在 i18n `taskConfig.sessionView*`:它 2026-09-03
+ * 可见文案只活在 i18n `taskConfig.sessionView*`:它 2026-09-03
  * 一夜改过三次,而标识符一次没动——这正是两层分开的用处。
  *
  * 为什么是两段并排各有名字,不是一个开关:开关只给「开」那一头起名,「关」永远是「不是那个」——

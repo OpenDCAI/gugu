@@ -9,6 +9,7 @@
 // 与到达顺序无关这三件事就是这个代数的**定理**(见 spec 的 I1–I4),不再是调用点要守的纪律。
 
 import { IN_FILTER_CHUNK } from '@gugu/core/shared/inChunks'
+import type { AgentFailureReason } from '@gugu/core/shared/agentQuotaReason'
 import type { ChatItem, ChatKind, ChatStatus, ChatUnreadLocator, GroupMemberRole, NotificationLevel } from '@gugu/core/shared/types/chat'
 import { compareChatsByActivityDesc, fallbackChatName, isRoomChat } from '@gugu/core/shared/ui/chatModels'
 
@@ -28,7 +29,7 @@ const FAMILY_SET: ReadonlySet<string> = new Set(ENTITY_FAMILIES)
  * 需要的背景一句话:带**真实用户 session** 的 `in()` 在 URL 约 3.34–3.53 KiB 之间越界,失败是网络层
  * `net::ERR_FAILED`(JS 侧 = `TypeError: Failed to fetch`)—— 不是 HTTP 状态码,请求根本没发出去,
  * 所以只能在**规划期**就不越界。完整实测表、仪器与阳控读数在那个常量的注释里,
- * 读数在 gugu-base `evidence/2026-09-11-5394-cause-transport-budget/`,合同在 spec 的「键空间」一节。
+ * 合同在 spec 的「键空间」一节。
  *
  * 键**不进** URL 的族(`unread` 一发拿回全部、`override` 按 owner 一发取全、`presence` 走 POST body)
  * 请求大小与键数无关 ⇒ 上界 ∞,分批只会把同一发打两遍。
@@ -122,8 +123,8 @@ export type IdentityValue = { id: string } & Record<string, unknown>
 export type UnreadValue = ChatUnreadLocator & { chat_id: string }
 export type PresenceValue = { id: string; online: boolean }
 /** viewer-scoped 最后一条可见消息:gated 成员看到的活动可能与 chat 行不同。 */
-export type PreviewValue = { chat_id: string; created_at: string | null; preview: string | null }
-export type OverrideValue = { contact_user_id: string; alias: string | null }
+export type PreviewValue = { chat_id: string; created_at: string | null; preview: string | null; failure: AgentFailureReason | null }
+export type OverrideValue = { alias: string | null }
 
 export type EntityValue =
   | ChatValue | MembershipValue | IdentityValue | UnreadValue | PresenceValue | PreviewValue | OverrideValue
@@ -203,14 +204,18 @@ export function operationKeys(operation: ProjectionOperation): EntityKey[] {
     return [entityKey('chat', chatId), entityKey('preview', chatId), entityKey('unread', chatId)]
   }
   switch (event) {
-    case 'chat_changed':
     case 'chat_meta_changed':
+      return [entityKey('chat', chatId ?? ''), entityKey('preview', chatId ?? ''), entityKey('override', `group/${chatId ?? ''}`)]
+    case 'chat_changed':
       return [entityKey('chat', chatId ?? ''), entityKey('preview', chatId ?? '')]
     case 'message_created':
     case 'message_deleted':
     case 'reaction_changed':
-    case 'delivery_changed':
       return chatKeys()
+    case 'delivery_changed':
+      // 投递只改这条消息还算不算「等 agent 接走」⇒ 预览与未读可能变,会话行(最后一条、序号)不变。
+      if (!chatId) throw new Error(`${event} revision requires chat_id`)
+      return [entityKey('preview', chatId), entityKey('unread', chatId)]
     case 'chat_members_changed':
       if (!chatId) throw new Error(`${event} revision requires chat_id`)
       // 成员行变化不改 chat 行 ⇒ 不顺带重读它。「已存在的会话刚被发布进我的收件箱」那一路
@@ -404,7 +409,9 @@ export function missingDependencies(cache: ProjectionCache, viewerId: string): E
   for (const [key, cell] of cache) {
     const { family, id } = splitKey(key)
     if (family !== 'chat' || !cell.value) continue
-    for (const dependency of [entityKey('preview', id), entityKey('unread', id)]) {
+    const dependencies = [entityKey('preview', id), entityKey('unread', id)]
+    if ((cell.value as ChatValue).kind === 'group') dependencies.push(entityKey('override', `group/${id}`))
+    for (const dependency of dependencies) {
       if (!cache.has(dependency)) missing.add(dependency)
     }
   }
@@ -492,6 +499,7 @@ export function assemble(cache: ProjectionCache, viewerId: string): ChatItem[] {
       status: chat.status,
       peer_user_id: peerUserId,
       peer_alias: peerUserId ? (overrides.get(peerUserId)?.alias ?? null) : null,
+      alias: chat.kind === 'group' ? (overrides.get(`group/${chat.id}`)?.alias ?? null) : null,
       avatar: isRoomChat(chat.kind) ? (chat.avatar_url ?? null) : null,
       // 群成员引用与对端同一条规则:身份缺行的成员不进这一行(下一条 agent_changed 一到就补上)。从前原样带上
       // 全部成员 id,读侧 readCompleteCachedChats 发现一个没身份就把整份冷启动缓存作废 —— 会话列表每次冷启都空白。
@@ -502,6 +510,7 @@ export function assemble(cache: ProjectionCache, viewerId: string): ChatItem[] {
       created_at: chat.created_at,
       last_message_at: preview ? preview.created_at : chat.last_message_at,
       last_message_preview: preview ? preview.preview : chat.last_message_preview,
+      last_message_failure: preview?.failure ?? null,
       unread_count: locator?.unread_count ?? 0,
       unread_locator: locator,
       pinned_message_id: chat.pinned_message_id,

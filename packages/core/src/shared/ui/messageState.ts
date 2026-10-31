@@ -93,22 +93,17 @@ export function applyDeliveryReceipt(
 // upstream, where the map is built with `.neq('user_id', self)`).
 export type MemberReadSeqs = Record<string, number>
 
-// A message is "directed" when it carries an explicit non-empty to_user_ids that isn't the
-// broadcast sentinel '*'. The three read-derivations below all branch on this same predicate:
-// directed → recipients = to_user_ids ∩ members; otherwise → all OTHER members. Factored out so the
-// rule lives in one place (the `to_user_ids!` non-null assertions at call sites stay guarded by it).
-function isDirectedMessage(message: MessageItem): boolean {
-  const ids = message.to_user_ids
-  return !!ids && ids.length > 0 && !ids.includes('*')
+// Match delivery: mentions ∪ resolved reply sender; no targets or '*' means broadcast.
+// The reply preview already excludes whisper/deleted targets. Only current OTHER members count.
+function messageRecipientIds(message: MessageItem, memberIds: readonly string[]): string[] {
+  const ids = new Set(message.to_user_ids)
+  if (message.reply_to_sender_user_id) ids.add(message.reply_to_sender_user_id)
+  return memberIds.filter((id) => ids.size === 0 || ids.has('*') || ids.has(id))
 }
 
 // @@@recipient-read (#521) - a message is read once every one of ITS recipients has read it (their
 export function isReadByRecipients(message: MessageItem, memberReadSeqs: MemberReadSeqs): boolean {
-  const others = Object.keys(memberReadSeqs)
-  const directed = isDirectedMessage(message)
-  const recipients = directed
-    ? message.to_user_ids!.filter((id) => id in memberReadSeqs)
-    : others
+  const recipients = messageRecipientIds(message, Object.keys(memberReadSeqs))
   if (recipients.length === 0) return false
   return recipients.every((id) => memberReadSeqs[id] >= message.seq)
 }
@@ -129,7 +124,7 @@ export function agentReaderUserId(deviceId: string | null | undefined): string |
 
 // @@@per-message-read (#598) - a message is read once every one of ITS *current* recipients has a
 // per-message read row. `memberIds` = current OTHER members (excludes sender); a recipient who left
-// the group drops out of the denominator (S-L5). Recipients are fixed by to_user_ids at send time (S-L1).
+// the group drops out of the denominator (S-L5).
 export function isReadByRecipientsPrecise(
   message: MessageItem,
   memberIds: readonly string[],
@@ -137,10 +132,7 @@ export function isReadByRecipientsPrecise(
 ): boolean {
   const readers = messageReaders[message.id]
   if (!readers || readers.size === 0) return false
-  const directed = isDirectedMessage(message)
-  const recipients = directed
-    ? message.to_user_ids!.filter((id) => memberIds.includes(id))
-    : memberIds
+  const recipients = messageRecipientIds(message, memberIds)
   if (recipients.length === 0) return false
   return recipients.every((id) => readers.has(id))
 }
@@ -152,6 +144,7 @@ export function deriveMessageSendState(
   // of the watermark (fixes agent directed-message receipts). Falls back to the watermark path otherwise.
   precise?: { memberIds: readonly string[]; messageReaders: MessageReaders },
 ): MessageSendState {
+  if (message.local_send_state === 'unknown') return 'unknown'
   if (message.local_send_state === 'failed') return 'failed'
   if (message.local_send_state === 'sending' || message.seq < 0) return 'sending'
   const preciseRead = precise
@@ -185,10 +178,7 @@ export function deriveReadReceipt(
   memberReadSeqs: MemberReadSeqs,
   precise?: { messageReaders: MessageReaders },
 ): MessageReadReceipt {
-  const others = Object.keys(memberReadSeqs)
-  // 收件方：定向消息取 to_user_ids ∩ 成员；否则全体其他成员（与 isReadByRecipients 同口径）。
-  const directed = isDirectedMessage(message)
-  const recipients = directed ? message.to_user_ids!.filter((id) => id in memberReadSeqs) : others
+  const recipients = messageRecipientIds(message, Object.keys(memberReadSeqs))
 
   const preciseReaders = precise?.messageReaders[message.id]
   const readerIds = recipients.filter(

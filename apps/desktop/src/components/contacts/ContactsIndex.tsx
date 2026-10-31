@@ -1,5 +1,5 @@
-import { useMemo, type KeyboardEvent, type ReactNode } from 'react'
-import { Check, ChevronLeft } from '@/lib/icons'
+import { useMemo, useRef, type KeyboardEvent, type ReactNode } from 'react'
+import { ChevronLeft } from '@/lib/icons'
 import { cn } from '@/lib/cn'
 import type { ContactUser } from '@gugu/core/shared/types/contacts'
 import { displayName, groupContacts, PINNED_CONTACTS_SECTION } from '../../lib/contactsListSort'
@@ -23,8 +23,9 @@ import { useDevicesStore } from '../../store/devicesContext'
 import { useDisplayDevices } from '@/hooks/useAssistantHomeLabel'
 import { partitionContactsByDevice } from './contactsByDevice'
 import { useBackLayer } from '../ui/sheetStack'
-
-const AZ_INDEX = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ#'.split('')
+import { LoadingIndicator } from '@/lib/loading/LoadingIndicator'
+import { ContactsAzIndex } from './ContactsLetterPicker'
+import { SelectionCheckbox } from './ContactSearch'
 
 // @@@ui-ruler 移动壳的联系人索引也只吃原语:列 → Pane nav、列头 → PaneHeader、行 → ListRow、
 // 字母分区头 → SectionLabel(加 sticky)。原来这里另写了一套 56/42 行高、11/9 间距、15/13 字号。
@@ -32,20 +33,6 @@ const rowKeyActivate = (activate: () => void) => (event: KeyboardEvent<HTMLDivEl
   if (event.key !== 'Enter' && event.key !== ' ') return
   event.preventDefault()
   activate()
-}
-
-function SelectionCheckbox({ checked }: { checked: boolean }) {
-  return (
-    <span
-      aria-hidden="true"
-      className={cn(
-        'grid h-[var(--avatar-xs)] w-[var(--avatar-xs)] shrink-0 place-items-center rounded-full border !mr-2 text-[var(--primary-fg)]',
-        checked ? 'border-[var(--primary)] bg-[var(--primary)]' : 'border-[var(--border-strong)] bg-transparent',
-      )}
-    >
-      {checked ? <Check size={12} /> : null}
-    </span>
-  )
 }
 
 function ContactRow({ contact, currentUserId, selected, multiSelected, selectionMode, onSelect, onToggleSelection, onRemove, onStartChat, onPin, onMarkUnread, onToggleNotif, isPinned, notifMuted, removeLabel, mobile }: {
@@ -134,6 +121,7 @@ export function ContactsIndex({ title, subtitle, summaryLabel, headerActions, mo
   getContactRemoveLabel: (contact: ContactUser) => string
 }) {
   const { t } = useTranslation('contacts')
+  const listRef = useRef<HTMLDivElement>(null)
   useBackLayer(onBack, mobile) // 手机整页:安卓返回键 = 左上返回
   // #7199 个人助理住的那台那一段,段名是它的名字(用户看不到它住在哪)。
   const devices = useDisplayDevices(useDevicesStore().devices)
@@ -152,29 +140,26 @@ export function ContactsIndex({ title, subtitle, summaryLabel, headerActions, mo
   }, [contacts, contactPinned, sectionBy, devices, currentUserId, t])
   const presentLetters = useMemo(() => new Set(groups.map((group) => group.letter)), [groups])
   const showAzRail = sectionBy !== 'device' && contacts.length >= 12
-  const jump = (letter: string) => document.querySelector(`[data-letter-section="${letter}"]`)?.scrollIntoView({ block: 'start', behavior: 'smooth' })
+  const jump = (letter: string) => listRef.current?.querySelector(`[data-letter-section="${letter}"]`)?.scrollIntoView({ block: 'start', behavior: 'smooth' })
   return (
     <Pane paneRole="nav" mobile={mobile}>
       <PaneHeader
         mobile={mobile}
         leading={mobile && onBack ? <IconButton aria-label={t('panel.backToContacts')} onClick={onBack}><ChevronLeft /></IconButton> : undefined}
-        title={
-          <div className="min-w-0 flex-1">
-            <div className={cn('overflow-hidden text-ellipsis whitespace-nowrap font-semibold text-[var(--fg)]', mobile ? 'text-xl' : 'text-base')}>{title}</div>
-            {subtitle ? <div className="text-xs text-[var(--muted-fg)]">{subtitle}</div> : null}
-          </div>
-        }
+        title={title}
+        subtitle={subtitle}
+        titleLevel={mobile && !onBack ? 'page' : 'panel'}
         actions={selectionMode ? <Button variant="ghost" size="sm" data-testid={AUTOMATION_TEST_IDS.contactsSelectModeDoneButton} onClick={onFinishSelectionMode} className="text-[var(--primary)]">{t('panel.selectModeDone')}</Button> : headerActions}
       />
-      {loading ? <div className="grid flex-1 place-items-center"><div className="h-[var(--avatar-xs)] w-[var(--avatar-xs)] animate-[spin_0.8s_linear_infinite] rounded-full border-2 border-[var(--primary)] border-t-transparent" /></div> : contacts.length === 0 ? <div className="grid flex-1 place-items-center">{sectionBy === 'device' ? <ContactsAgentSectionState isEmpty onCreateAgent={onCreateAgent} align="center" /> : <ContactsPersonSectionState isEmpty onAddContact={onAddContact} align="center" />}</div> : (
+      {loading ? <div className="grid flex-1 place-items-center"><LoadingIndicator ariaLabel={t('common.loading')} /></div> : contacts.length === 0 ? <div className="grid flex-1 place-items-center">{sectionBy === 'device' ? <ContactsAgentSectionState isEmpty onCreateAgent={onCreateAgent} align="center" /> : <ContactsPersonSectionState isEmpty onAddContact={onAddContact} align="center" />}</div> : (
         <div className="relative min-h-0 flex-1">
-          <div className={cn('h-full overflow-y-auto', showAzRail && '!pr-6')}>
+          <div ref={listRef} className={cn('h-full overflow-y-auto', showAzRail && !mobile && '!pr-6')}>
             {groups.map(({ letter, items }) => <div key={letter} data-letter-section={letter}>
               {letter !== PINNED_CONTACTS_SECTION ? <SectionLabel className="sticky top-0 z-[var(--z-raised)] bg-[var(--sidebar)]">{letter}</SectionLabel> : null}
               {items.map((contact) => <ContactRow key={contact.id} contact={contact} currentUserId={currentUserId} selected={!mobile && !selectionMode && contact.id === selectedContactId} multiSelected={selectedContactIds.has(contact.id)} selectionMode={selectionMode} onSelect={() => onSelect(contact)} onToggleSelection={() => onToggleContact(contact)} onRemove={onRemoveContact} onStartChat={onStartChat} onPin={onPin} onMarkUnread={onMarkUnread} onToggleNotif={onToggleNotif} isPinned={contactPinned?.get(contact.id) ?? false} notifMuted={contactNotifMuted?.get(contact.id) ?? false} removeLabel={getContactRemoveLabel(contact)} mobile={mobile} />)}
             </div>)}
           </div>
-          {showAzRail ? <div className="pointer-events-none absolute inset-y-3 right-1 flex w-4 flex-col items-center justify-center">{AZ_INDEX.map((letter) => { const present = presentLetters.has(letter); return <Button variant="ghost" size="sm" key={letter} onClick={() => jump(letter)} disabled={!present} className={cn('!min-h-[13px] !w-[15px] !p-0 text-[9px]', present ? 'pointer-events-auto text-[var(--muted-fg)]' : 'pointer-events-none text-[var(--text-tertiary)]')}>{letter}</Button> })}</div> : null}
+          {showAzRail ? <ContactsAzIndex mobile={mobile} present={presentLetters} onPick={jump} /> : null}
         </div>
       )}
       <ContactsListDock

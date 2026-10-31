@@ -8,10 +8,9 @@ import {
 } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { Readable, Writable } from 'node:stream';
 import { pathToFileURL } from 'node:url';
-import type { Agent } from '@agentclientprotocol/sdk';
 import type { AcpClientFactory } from '@gugu/session-core/agents/plugins';
 import { describe, expect, it, vi } from 'vitest';
 import {
@@ -23,6 +22,7 @@ import {
   CLAUDE_ACP_FORK_PATCH_MARKERS,
   CLAUDE_ACP_STEERING_PATCH_MARKERS,
   CLAUDE_ACP_CONTEXT_WINDOW_PATCH_MARKERS,
+  CLAUDE_ACP_V2_EXTENSION_MARKERS,
 } from './index';
 import { pluginRegistry } from '../../registry';
 
@@ -210,14 +210,15 @@ describe('claude acp behavior', () => {
       const stdout = new Readable({ read: () => {} });
 
       const toClient: AcpClientFactory = () => ({
+        sessionEvent: vi.fn(),
         requestPermission: vi.fn(),
         sessionUpdate: vi.fn(),
       });
 
       const agentApi = acpBehavior().connect({ stdin, stdout }, toClient);
-      expect(typeof (agentApi as Agent).prompt).toBe('function');
-      expect(typeof (agentApi as Agent).newSession).toBe('function');
-      expect(typeof (agentApi as Agent).initialize).toBe('function');
+      expect(typeof agentApi.prompt).toBe('function');
+      expect(typeof agentApi.newSession).toBe('function');
+      expect(typeof agentApi.initialize).toBe('function');
     });
   });
 });
@@ -245,6 +246,16 @@ describe('claude acp vendor boundary', () => {
     }
     // 1.1.0 那版的分叉 id 改动(把 id 交给 Claude 铸)还在 = 换进了一份旧桥接,分叉的更新会被丢(#6552)。
     expect(source).not.toContain('sessionId = initializedSessionId;');
+  });
+
+  it('ships the ACP v2 steering and async task commits that the v2 host drives', () => {
+    const dist = dirname(vendorAgentEntry());
+    for (const [file, markers] of Object.entries(CLAUDE_ACP_V2_EXTENSION_MARKERS)) {
+      const source = readFileSync(join(dist, file), 'utf8');
+      for (const marker of markers) {
+        expect(source, `missing v2 commit marker in ${file}: ${marker}`).toContain(marker);
+      }
+    }
   });
 
   it('ships the UltraCode adapter mapping and toggles it independently from ordinary effort', async () => {

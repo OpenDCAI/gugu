@@ -1,3 +1,4 @@
+import { textFilePatch } from '@gugu/session-core/lib';
 import type { ChatMentionMeta, MentionProvider } from './core/markdown/mention-provider';
 import type {
   ChatItem,
@@ -593,9 +594,7 @@ export function generateMockTranscript(
       items.push({
         kind: 'diff',
         id: `diff-${i}:${path}`,
-        path,
-        oldText: sample.oldText,
-        newText: sample.newText,
+        patches: [textFilePatch(path, sample.oldText, sample.newText)],
         status: 'done' as ToolStatus,
       });
     } else if (slot === 8) {
@@ -605,9 +604,7 @@ export function generateMockTranscript(
       items.push({
         kind: 'diff',
         id: `diff-${i}:${path}`,
-        path,
-        oldText: null,
-        newText: sample.newText,
+        patches: [textFilePatch(path, null, sample.newText)],
         status: 'done' as ToolStatus,
       });
     } else if (slot === 9) {

@@ -42,11 +42,14 @@ import {
   useContext,
 } from 'solid-js';
 import type { ChatContext } from './chat-context';
+import { conversationBackgroundOwner } from './state/conversation-background';
 import { ChatTranslationProvider } from './localization';
 import { SelfIdentityProvider } from './lib/self-identity';
 import { SenderAvatarProvider } from './lib/sender-avatar';
 import { AppNameProvider } from './lib/app-name';
-import { CHAT_COMPOSER_EDGE_FADE_PX } from './layout-geometry';
+import { ChatNameProvider } from './lib/chat-name';
+import { CHAT_COMPOSER_EDGE_FADE_PX, CHAT_PIN_FADE_HEIGHT_PX } from './layout-geometry';
+import { itemScrollTarget } from './core/scroll-to-item';
 import { collectSubagentRoster } from './lib/subagent-roster';
 import type { ChatCommands, ScrollToItemOptions } from './commands';
 import { CachesContext } from './components/contexts/CachesContext';
@@ -58,22 +61,26 @@ import { createFrameScheduler } from './components/engine/frame-scheduler';
 import { createTweenRegistry } from './components/engine/tween-registry';
 import { SEGMENTERS, UNIT_REGISTRY } from './components/engine/unit-registry';
 import { UnitRow } from './components/engine/UnitRow';
+import { latestConversationBubbleId } from './components/rows/message/conversation-body';
 import type { ChatCaches } from './core/caches';
 import type { ThemeVarKey } from './core/config';
 import type { MeasureCtx } from './core/define';
 import { genericEstimate } from './core/layout/generic-estimate';
 import { STICK_THRESHOLD_PX } from './core/stick-to-bottom';
-import { unitReservedHeight } from './core/units';
+import { unitContainsItem, unitItemIds, unitReservedHeight } from './core/units';
 import { Virtualizer } from './core/virtualizer';
 import type { ChatItem, ChatMessage, TranscriptTurn } from './model';
 import type { ChatState, ScrollMode } from './state/chat-state';
 import { pendingPromptTurn } from './state/pending-prompt';
+import { isEmptyAgentTurn, joinsFoldRunAt } from './state/turn-fold';
 import {
-  flattenTier,
+  flattenTier, lastConversationMessage,
   isDeliveredFromAgent,
   makeUnitsView,
   collectUserTurnUnits,
   trailingDayKey,
+  BACKGROUND_TASKS_ID,
+  BACKGROUND_TASKS_TOGGLE,
 } from './state/flatten';
 import type { UnitsView } from './state/flatten';
 import { segmentCtxFor } from './state/segment-ctx';
@@ -84,7 +91,6 @@ import {
   composerSlotAnimatingClass,
   composerSlotCenteredClass,
   composerSlotClass,
-  composerSlotInnerBottomClass,
   composerSlotInnerCenteredClass,
   composerSlotInnerClass,
   contentOverlaySlotClass,
@@ -93,6 +99,7 @@ import {
   heroSlotHiddenClass,
   heroSlotVisibleClass,
   outerClip,
+  pinBackdrop,
   pinFade,
   pinLane,
   pinSticky,
@@ -515,7 +522,10 @@ export function ChatRoot(props: ChatRootProps) {
   const maxScrollTop = () => Math.max(0, contentH() - viewHeight());
 
   // ── Flat unit view (two-tier, incremental) ────────────────────────────────
-  const segmentCtx = (active = false) => segmentCtxFor(props.context, state(), caches(), active);
+  // Identity changes only once per new turn, not for every streamed update.
+  const latestTurnId = createMemo(() => state().transcript.state.activeTurnSnapshot?.id
+    ?? state().transcript.state.committedTurns.at(-1)?.id);
+  const segmentCtx = (active = false) => segmentCtxFor(props.context, state(), caches(), active, latestTurnId());
 
   let committedUnitsArr: ReturnType<typeof flattenTier> = [];
   // O(1) lookup: itemId -> index of the FIRST unit for that item in the
@@ -536,6 +546,10 @@ export function ChatRoot(props: ChatRootProps) {
   // Stable empty array passed to makeUnitsView when we need a committed-only
   // view. Must not change identity so memos don't re-run on each access.
   const NO_ACTIVE_UNITS: ReturnType<typeof flattenTier> = [];
+  // An incremental append only reads the new tail's fold keys. Keep the full
+  // fold snapshot reactive so older headers still rebuild their hidden rows.
+  const committedFolds = createMemo(() => viewState().snapshot());
+  let lastCommittedFolds: Record<string, boolean> | undefined;
 
   // ── Committed-tier build + model-swap reset (single effect) ────────────────
   // This effect owns BOTH the incremental committed build and the model-swap
@@ -569,10 +583,16 @@ export function ChatRoot(props: ChatRootProps) {
 
     const prev = lastCommitted;
     const ctx = segmentCtx(false);
+    const folds = committedFolds();
 
     if (
+      folds === lastCommittedFolds &&
       next.length > prev.length &&
-      (prev.length === 0 || next[prev.length - 1] === prev[prev.length - 1])
+      (prev.length === 0 || next[prev.length - 1] === prev[prev.length - 1]) &&
+      // The previous acknowledgement stops being the latest when another turn arrives.
+      (prev.length === 0 || !isEmptyAgentTurn(prev[prev.length - 1])) &&
+      // 新来的那一轮要并进上一条还没收尾的折叠(#4981)时,只 flatten 新的画不出合并,走整条重建。
+      !joinsFoldRunAt(next, prev.length, ctx.foldTurnProcess === true)
     ) {
       // Incremental append: only process the new tail.
       const tail = next.slice(prev.length);
@@ -580,67 +600,113 @@ export function ChatRoot(props: ChatRootProps) {
         committedUnitsArr.length > 0
           ? committedUnitsArr[committedUnitsArr.length - 1].kind
           : undefined;
-      const newUnits = flattenTier(tail, ctx, SEGMENTERS, UNIT_REGISTRY, prevKind, committedDayKey);
-      committedDayKey = trailingDayKey(tail, committedDayKey);
+      const newUnits = flattenTier(tail, ctx, SEGMENTERS, UNIT_REGISTRY, prevKind, committedDayKey, lastConversationMessage(committedUnitsArr));
+      committedDayKey = trailingDayKey(tail, committedDayKey, ctx.latestTurnId);
       const base = committedUnitsArr.length;
       for (let j = 0; j < newUnits.length; j++) {
         const u = newUnits[j];
-        if (u && !committedIndexById.has(u.itemId)) {
-          committedIndexById.set(u.itemId, base + j);
+        if (u) for (const id of unitItemIds(u)) {
+          if (!committedIndexById.has(id)) committedIndexById.set(id, base + j);
         }
       }
       committedUnitsArr = [...committedUnitsArr, ...newUnits];
     } else {
-      // Full rebuild (seed, prepend, or non-append structural change).
+      // Full rebuild (seed, prepend, non-append structural change, or an append that joins the previous fold run).
       committedUnitsArr = flattenTier(next, ctx, SEGMENTERS, UNIT_REGISTRY);
-      committedDayKey = trailingDayKey(next);
+      committedDayKey = trailingDayKey(next, undefined, ctx.latestTurnId);
       committedIndexById.clear();
       for (let i = 0; i < committedUnitsArr.length; i++) {
         const u = committedUnitsArr[i];
-        if (u && !committedIndexById.has(u.itemId)) {
-          committedIndexById.set(u.itemId, i);
+        if (u) for (const id of unitItemIds(u)) {
+          if (!committedIndexById.has(id)) committedIndexById.set(id, i);
         }
       }
     }
 
     lastCommitted = next;
+    lastCommittedFolds = folds;
     setCommittedUnitsVersion((v) => v + 1);
   });
 
-  const activeUnits = createMemo(() => {
+  /**
+   * 还在跑的后台任务挂在哪(owner 2026-10-27 原型:后台那一句与「执行中」同一行)。
+   *
+   * 列表末尾那条 agent 回复带着过程行 ⇒ 挂在它的过程行上(返回它的 itemId);末尾不是这样一条(人刚说完话、
+   * 还没有任何回复、旧样式没有过程行)⇒ 单独一行贴在列表最后(`BACKGROUND_TASKS_ID`)。
+   * 往回找时跳过日界行与「此刻的状态」那一行;这一档空着(轮早就收口了)就到已提交那一档的末尾去找。
+   */
+  const backgroundOwnerIn = (us: ReturnType<typeof flattenTier>, live = false): string | null | undefined => {
+    if (theme().layout.agentConversation) return conversationBackgroundOwner(us);
+    for (let i = us.length - 1; i >= 0; i--) {
+      const u = us[i];
+      if (!u || u.kind === 'day-separator' || u.kind === 'session-condition' || u.kind === 'background-tasks') continue;
+      // 正在跑、还没出正文的这一轮(对话布局):头是只有过程的那一行,步骤摊在它下面 ⇒ 越过步骤挂到这条过程行上
+      // (owner 0 号图「执行中 · 9m16s · 39 步 ⌄ | 后台 · 4 个子智能体 ›」)。只在活动那一档这样找,那里只有这一轮。
+      if (live && theme().layout.agentConversation) {
+        if (u.kind === 'turn-process') return u.itemId;
+        if (u.kind !== 'message') continue;
+        // 过程里中途说的话(灰色单行)也是步骤,越过去(MBP 验收 10-28:有中途的话时药丸掉到了过程最底下)。
+        if ((u.data as ChatMessage).conversationNarration) continue;
+      }
+      if (u.kind === 'message') {
+        const m = u.data as ChatMessage;
+        if (m.role === 'assistant' && m.conversationProcess) return u.itemId;
+        // 一轮末尾是气泡、过程行在它上面那一行(对话布局拆成头 + 气泡)⇒ 后台照旧挂在那条过程行上。
+        if (m.role === 'assistant' && m.conversationPart === 'body' && m.conversationHead) return m.conversationHead;
+      }
+      return null;
+    }
+    return undefined;
+  };
+
+  const activeLayout = createMemo(() => {
     committedUnitsVersion();
     const at = state().transcript.state.activeTurnSnapshot;
     const pendingPrompt = state().session.state.pendingPrompt;
     // ⚠️ 有「当前状态」要说时这一档不能空手返回 —— 那一行就贴在这一档的末尾。
     // 没有活动轮也没有待发提示时，它是这一档**唯一**的一行（会话起不来时正是这种情形）。
     const condition = state().session.state.condition;
-    if ((!at || at.items.length === 0) && !pendingPrompt && !condition)
-      return [] as ReturnType<typeof flattenTier>;
-    if ((!at || at.items.length === 0) && !pendingPrompt) {
-      return flattenTier(
-        [],
-        segmentCtx(true),
-        SEGMENTERS,
-        UNIT_REGISTRY,
-        committedUnitsArr.length > 0
-          ? committedUnitsArr[committedUnitsArr.length - 1].kind
-          : undefined,
-        committedDayKey
-      );
-    }
+    const tasks = state().session.state.backgroundTasks;
+    const background = tasks.commands.length > 0 || tasks.subagents.length > 0;
     const prevKind =
       committedUnitsArr.length > 0
         ? committedUnitsArr[committedUnitsArr.length - 1].kind
         : undefined;
-    const activeTurn = at ?? pendingPromptTurn(pendingPrompt!);
-    return flattenTier(
-      [activeTurn],
-      segmentCtx(true),
-      SEGMENTERS,
-      UNIT_REGISTRY,
-      prevKind,
-      committedDayKey
-    );
+    const build = (withBackground: boolean) => {
+      const full = segmentCtx(true);
+      const ctx = withBackground ? full : { ...full, backgroundTasks: () => null };
+      if (!at && !pendingPrompt) {
+        if (!condition && !withBackground) return [] as ReturnType<typeof flattenTier>;
+        return flattenTier([], ctx, SEGMENTERS, UNIT_REGISTRY, prevKind, committedDayKey, lastConversationMessage(committedUnitsArr));
+      }
+      const activeTurn = at ?? pendingPromptTurn(pendingPrompt!);
+      return flattenTier([activeTurn], ctx, SEGMENTERS, UNIT_REGISTRY, prevKind, committedDayKey, lastConversationMessage(committedUnitsArr));
+    };
+    const units = build(false);
+    if (!background) return { units, backgroundOwner: null as string | null };
+    // ⚠️ 不能写 `??`:这一档末尾是别的行(人刚说了话)返回的是 null,它的意思是「别挂」,❌ 接着去已提交那一档找。
+    const activeOwner = backgroundOwnerIn(units, true);
+    const owner = activeOwner === undefined ? backgroundOwnerIn(committedUnitsArr) ?? null : activeOwner;
+    if (owner) return { units, backgroundOwner: owner as string | null };
+    // 没有可挂的过程行:后台单独一行贴在最后(轮早就收口了、命令还在跑,这一档也不能空手返回)。
+    return { units: build(true), backgroundOwner: BACKGROUND_TASKS_ID as string | null };
+  });
+  const activeUnits = () => activeLayout().units;
+
+  /**
+   * 量高要知道的那一份:后台挂在哪条回复上、挂的是什么、单子开着没有。挂在回复上时那条回复照它多量出单子的高度
+   * (与 `finalReplyId` 同一路:由这里算,行里只比对)。单独成行时这一份为 null —— 那一行自己的条目里就带着。
+   */
+  const backgroundAttachment = createMemo<MeasureCtx['background']>(() => {
+    const owner = activeLayout().backgroundOwner;
+    if (!owner || owner === BACKGROUND_TASKS_ID) return null;
+    const tasks = state().session.state.backgroundTasks;
+    return {
+      ownerId: owner,
+      commands: tasks.commands,
+      subagents: tasks.subagents,
+      expanded: viewState().isCollapsed(BACKGROUND_TASKS_TOGGLE),
+    };
   });
 
   let pendingPromptCommittedTurns = state().transcript.state.committedTurns;
@@ -659,6 +725,9 @@ export function ChatRoot(props: ChatRootProps) {
     committedUnitsVersion();
     return makeUnitsView(committedUnitsArr, activeUnits());
   });
+
+  const latestConversationMessageId = createMemo(() => latestConversationBubbleId(units(), { theme: theme() }));
+  const pendingBubbleMeasures = new Set<string>();
 
   /**
    * 「跑完后的最后一条回复」—— 整个转录里唯一带页脚(复制按钮)的那条(#4981)。
@@ -683,7 +752,7 @@ export function ChatRoot(props: ChatRootProps) {
     const us = units();
     for (let i = us.length - 1; i >= 0; i--) {
       const u = us.at(i);
-      if (!u || u.kind === 'day-separator') continue;
+      if (!u || u.kind === 'day-separator' || u.kind === 'background-tasks') continue;
       if (u.kind !== 'message') return null;
       const m = u.data as ChatMessage;
       return m.role === 'assistant' && !m.hookNotice ? u.itemId : null;
@@ -743,7 +812,12 @@ export function ChatRoot(props: ChatRootProps) {
     untrack(() => {
       const estimateCtx = {
         theme: t,
-        width: 0,
+        translate: props.context.translate,
+        commands: commands(),
+        selfIdentity: props.context.selfIdentity(),
+        chatName: props.context.chatName,
+        appName: props.context.appName,
+        width: containerWidth(),
         isCollapsed: () => false,
         expanded: () => false,
         caches: caches(),
@@ -751,6 +825,8 @@ export function ChatRoot(props: ChatRootProps) {
         expandedId: expandedUserId(),
         editingMessage: editingMessage(),
         finalReplyId: finalReplyId(),
+        latestConversationMessageId: latestConversationMessageId(),
+        background: backgroundAttachment(),
       };
       // lastWidth > 0 iff onCleanup wrote a snapshot on a prior dispose.
       // Skip the Map.get pass entirely on cold mounts (empty heightmap).
@@ -768,9 +844,11 @@ export function ChatRoot(props: ChatRootProps) {
           if (snapped !== undefined) return snapped;
         }
         const unitDef = UNIT_REGISTRY[u.kind];
+        // Wrapped row labels need the real column even before their first mount.
+        const unitCtx = { ...estimateCtx, width: Math.max(0, estimateCtx.width - 2 * (u.chrome?.insetX ?? 0)) };
         const contentH =
-          unitDef?.estimate?.(u.data, estimateCtx, unitDef.vars ?? {}) ??
-          genericEstimate(u.data as unknown as ChatItem, estimateCtx);
+          unitDef?.estimate?.(u.data, unitCtx, unitDef.vars ?? {}) ??
+          genericEstimate(u.data as unknown as ChatItem, unitCtx);
         return unitReservedHeight(u, contentH);
       });
       refreshTotal();
@@ -922,18 +1000,57 @@ export function ChatRoot(props: ChatRootProps) {
     // The active tier is rebuilt on every streaming patch; the anchors only change when a message lands.
     { equals: (a, b) => a.length === b.length && a.every((v, i) => v === b[i]) }
   );
-  const pinAnchorSet = createMemo(() => new Set(pinAnchors()));
+  const pinAnchorSet = createMemo(() => {
+    // Height changes (including width reflow and composer/viewport resize) can change pin eligibility.
+    totalHeight();
+    containerWidth();
+    measureEpoch();
+    const readableHeight = Math.max(0, viewHeight() - padTop() - padBottom());
+    return new Set(pinAnchors().filter(index => virt.size(index) <= readableHeight / 2));
+  });
 
-  /** Lane height of an anchor: up to the next anchor, or to the end of the content. */
+  /**
+   * Where a lane ends. Normally the next anchor. In the agent conversation a delivered message is a bubble of
+   * its own on the right: it is not stuck itself, but the lane before it must stop there — otherwise the stuck
+   * copy of the last typed message covers it while it scrolls by (MBP acceptance 2026-10-28: s15's lane ran
+   * from 15734 to 16506 and hid the delivered s16 under its sticky copy).
+   */
+  const pinEnds = createMemo<number[]>(
+    () => {
+      if (!props.pinUserMessages || !theme().layout.agentConversation) return pinAnchors();
+      committedUnitsVersion();
+      const s = state();
+      const pending = s.session.state.pendingPrompt;
+      const active = s.transcript.state.activeTurnSnapshot ?? (pending ? pendingPromptTurn(pending) : null);
+      const committed = collectUserTurnUnits(s.transcript.state.committedTurns, makeUnitsView(committedUnitsArr, NO_ACTIVE_UNITS), { delivered: true });
+      const base = committedUnitsArr.length;
+      const ends = active
+        ? [...committed, ...collectUserTurnUnits([active], makeUnitsView(activeUnits(), NO_ACTIVE_UNITS), { delivered: true }).map((i) => base + i)]
+        : committed;
+      // Native replies have the same boundary as sent replies: the preceding
+      // input must scroll clear of the reply's header, process and body.
+      const all = makeUnitsView(committedUnitsArr, active ? activeUnits() : NO_ACTIVE_UNITS);
+      for (let i = 0; i < all.length; i++) {
+        const unit = all.at(i)!;
+        const data = unit.data as ChatMessage;
+        if (data.role === 'assistant' && (data.conversationPart === 'head'
+          || data.conversationPart === 'body' && unit.itemId.includes(':sent:'))) ends.push(i);
+      }
+      return [...new Set(ends)].sort((a, b) => a - b);
+    },
+    [],
+    { equals: (a, b) => a.length === b.length && a.every((v, i) => v === b[i]) }
+  );
+
+  /** Lane height of an anchor: up to the next anchor (or delivered bubble, see `pinEnds`), or to the end of the content. */
   function laneHeight(idx: number): number {
-    const anchors = pinAnchors();
-    const next = anchors[anchors.indexOf(idx) + 1];
+    const next = pinEnds().find((end) => end > idx);
     return (next !== undefined ? virt.top(next) : virt.total()) - virt.top(idx);
   }
 
   /** The anchor whose lane covers the viewport top (its row is the stuck one), or -1. */
   function laneAtTop(st: number, pt: number): number {
-    const anchors = pinAnchors();
+    const anchors = [...pinAnchorSet()];
     let lo = 0;
     let hi = anchors.length - 1;
     let found = -1;
@@ -1043,7 +1160,7 @@ export function ChatRoot(props: ChatRootProps) {
     const active = untrack(activeUnits);
     const base = committedUnitsArr.length;
     for (let i = 0; i < active.length; i++) {
-      if (active[i]?.itemId === id) return base + i;
+      if (unitContainsItem(active[i], id)) return base + i;
     }
     return -1;
   }
@@ -1195,9 +1312,49 @@ export function ChatRoot(props: ChatRootProps) {
     props.onAtBottomChange?.(value);
   };
 
+  const measureUnitAt = (ui: number): void => {
+    const u = units().at(ui);
+    if (!u) return;
+    const unitDef = UNIT_REGISTRY[u.kind];
+    if (!unitDef) return;
+    const c = u.chrome;
+    const unitInsetX = c?.insetX ?? 0;
+    const ctx: MeasureCtx = {
+      theme: theme(),
+      translate: props.context.translate,
+      commands: commands(),
+      selfIdentity: props.context.selfIdentity(),
+      chatName: props.context.chatName,
+      appName: props.context.appName,
+      width: Math.max(0, containerWidth() - 2 * unitInsetX),
+      isCollapsed: (id: string) => viewState().isCollapsed(id),
+      expanded: (id: string) => viewState().isCollapsed(id),
+      caches: caches(),
+      measureEpoch: measureEpoch(),
+      expandedId: expandedUserId(),
+      editingMessage: editingMessage(),
+      finalReplyId: finalReplyId(),
+      latestConversationMessageId: latestConversationMessageId(),
+      background: backgroundAttachment(),
+    };
+    const contentH = unitDef.measure(u.data, ctx, unitDef.vars ?? {});
+    const h = unitReservedHeight(u, contentH);
+    const delta = virt.setSize(ui, h);
+    if (delta !== 0) onHeightChanged(ui, delta);
+  };
+
+  createEffect(on(latestConversationMessageId, (next, previous) => {
+    if (previous && previous !== next) pendingBubbleMeasures.add(previous.replace(/:batch-\d+$/, ''));
+  }));
+
   const readPhase = () => {
     const el = scrollEl;
     if (!el) return;
+    for (const id of pendingBubbleMeasures) {
+      const index = unitIndexOf(id);
+      if (index >= 0) measureUnitAt(index);
+    }
+    pendingBubbleMeasures.clear();
     // Settle size changes that landed between frames against the previous
     // intent before reading intent from virt (a translation: userDelta survives).
     applyAboveCompensation();
@@ -1407,6 +1564,8 @@ export function ChatRoot(props: ChatRootProps) {
     expandedUserId();
     editingMessage();
     finalReplyId();
+    latestConversationMessageId();
+    backgroundAttachment();
     needsProject = true;
     scheduler.request();
   });
@@ -1445,37 +1604,11 @@ export function ChatRoot(props: ChatRootProps) {
       prefetchEnd = ahead;
     }
 
-    const w = containerWidth();
-    const t = theme();
-
     let measured = 0;
 
-    const prefetchUnit = (ui: number): void => {
-      const u = us.at(ui);
-      if (!u) return;
-      const unitDef = UNIT_REGISTRY[u.kind];
-      if (!unitDef) return;
-      const c = u.chrome;
-      const unitInsetX = c?.insetX ?? 0;
-      const ctx: MeasureCtx = {
-        theme: t,
-        width: Math.max(0, w - 2 * unitInsetX),
-        isCollapsed: (id: string) => viewState().isCollapsed(id),
-        expanded: (id: string) => viewState().isCollapsed(id),
-        caches: caches(),
-        measureEpoch: measureEpoch(),
-        expandedId: expandedUserId(),
-        editingMessage: editingMessage(),
-        finalReplyId: finalReplyId(),
-      };
-      const contentH = unitDef.measure(u.data, ctx, unitDef.vars ?? {});
-      const h = unitReservedHeight(u, contentH);
-      const delta = virt.setSize(ui, h);
-      if (delta !== 0) onHeightChanged(ui, delta);
-    };
 
     while (prefetchStart <= prefetchEnd && deadline.timeRemaining() >= PREFETCH_MIN_REMAINING_MS) {
-      prefetchUnit(prefetchStart);
+      measureUnitAt(prefetchStart);
       measured++;
       prefetchStart++;
     }
@@ -1483,7 +1616,7 @@ export function ChatRoot(props: ChatRootProps) {
     if (prefetchStart > prefetchEnd) {
       let backCursor = visStart - 1;
       while (backCursor >= behind && deadline.timeRemaining() >= PREFETCH_MIN_REMAINING_MS) {
-        prefetchUnit(backCursor);
+        measureUnitAt(backCursor);
         measured++;
         backCursor--;
       }
@@ -1532,7 +1665,7 @@ export function ChatRoot(props: ChatRootProps) {
     const us = units();
     let unitIdx = -1;
     for (let i = 0; i < us.length; i++) {
-      if (us.at(i)?.itemId === id) {
+      if (unitContainsItem(us.at(i), id)) {
         unitIdx = i;
         break;
       }
@@ -1541,7 +1674,7 @@ export function ChatRoot(props: ChatRootProps) {
 
     let itemTotalH = 0;
     for (let i = unitIdx; i < us.length; i++) {
-      if (us.at(i)?.itemId !== id) break;
+      if (!unitContainsItem(us.at(i), id)) break;
       itemTotalH += virt.size(i);
     }
 
@@ -1553,20 +1686,23 @@ export function ChatRoot(props: ChatRootProps) {
     const behavior = opts?.behavior ?? 'auto';
 
     const computeTarget = () => {
-      const rowTop = virt.top(idx) + padTop();
-      const vh = Math.max(0, el.clientHeight - padBottom());
-      let target: number;
-      if (align === 'center') {
-        target = rowTop - (vh - rowH) / 2;
-      } else if (align === 'end') {
-        target = rowTop - vh + rowH;
-      } else {
-        target = rowTop;
-      }
-      return Math.max(0, target + extraOffset);
+      const pin = [...pinAnchorSet()].findLast(anchor => anchor < idx);
+      const end = pin === undefined ? undefined : pinEnds().find(boundary => boundary > pin);
+      const topInset = pin !== undefined && (end === undefined || idx < end)
+        ? Math.max(0, virt.size(pin) + userTopGap - (us.at(pin)?.gapBefore ?? 0)) + CHAT_PIN_FADE_HEIGHT_PX : 0;
+      return itemScrollTarget({ rowTop: virt.top(idx) + padTop(), rowHeight: rowH,
+        viewportHeight: Math.max(0, el.clientHeight - padBottom()), topInset, align, offset: extraOffset });
     };
 
     const t0 = computeTarget();
+    if (us.at(idx)?.children) requestAnimationFrame(() => {
+      const step = Array.from(el.querySelectorAll<HTMLElement>('[data-process-step]')).find(node => node.dataset.itemId === id);
+      const viewport = step?.closest<HTMLElement>('[data-slot="conversation-process-steps"]');
+      if (step && viewport) {
+        viewport.scrollTop += step.getBoundingClientRect().top - viewport.getBoundingClientRect().top;
+        viewport.dispatchEvent(new Event('scroll'));
+      }
+    });
 
     // Keep the requested reading edge anchored. End alignment follows the
     // measured composer height when its draft or attachments resize the slot.
@@ -1613,6 +1749,11 @@ export function ChatRoot(props: ChatRootProps) {
 
     const loadEstimateCtx: MeasureCtx = {
       theme: t,
+      translate: props.context.translate,
+      commands: commands(),
+      selfIdentity: props.context.selfIdentity(),
+      chatName: props.context.chatName,
+      appName: props.context.appName,
       width: containerWidth(),
       isCollapsed: () => false,
       expanded: () => false,
@@ -1772,8 +1913,23 @@ export function ChatRoot(props: ChatRootProps) {
     const onClick = (e: Event) => {
       const t = e.target as HTMLElement;
 
+      // 对话布局里折着的长消息,气泡下面那一行的「展开全文」:和点气泡本身一样展开。
+      const expand = t.closest('[data-expand-user-card]') as HTMLElement | null;
+      if (expand?.dataset.expandUserCard) {
+        if (expand.dataset.conversationBubbleKey) {
+          viewState().setCollapsed(expand.dataset.conversationBubbleKey, true);
+          return;
+        }
+        setExpandedUserId(expand.dataset.expandUserCard);
+        return;
+      }
+
       const userCard = t.closest('[data-user-card]') as HTMLElement | null;
       if (userCard?.dataset.userCard) {
+        if (userCard.dataset.conversationBubbleKey) {
+          if (userCard.dataset.userCardExpandable === 'true') viewState().setCollapsed(userCard.dataset.conversationBubbleKey, true);
+          return;
+        }
         const id = userCard.dataset.userCard;
         if (expandedUserId() !== id) {
           setExpandedUserId(id);
@@ -1878,6 +2034,7 @@ export function ChatRoot(props: ChatRootProps) {
       <SelfIdentityProvider value={props.context.selfIdentity}>
       <SenderAvatarProvider value={props.context.senderAvatar}>
       <AppNameProvider value={props.context.appName}>
+      <ChatNameProvider value={props.context.chatName}>
       <DebugContext.Provider value={debugValue}>
         <ThemeContext.Provider value={theme}>
         <CachesContext.Provider value={caches()}>
@@ -1889,6 +2046,7 @@ export function ChatRoot(props: ChatRootProps) {
                 }}
                 data-chat-root
                 data-chat-layout={theme().layout.preset}
+                data-agent-conversation={theme().layout.agentConversation ? 'true' : undefined}
                 class={outerClip}
                 style={scrollElStyle}
               >
@@ -1948,6 +2106,7 @@ export function ChatRoot(props: ChatRootProps) {
                                 classList={{ [pinSticky]: isPinAnchor() }}
                                 style={isPinAnchor() ? { top: `${userTopGap - (u()?.gapBefore ?? 0)}px` } : undefined}
                               >
+                              <Show when={isPinAnchor()}><div class={pinBackdrop} data-chat-pin-backdrop="" aria-hidden="true" /></Show>
                               <UnitRow
                                 unit={u()!}
                                 index={unitIndex}
@@ -1963,6 +2122,8 @@ export function ChatRoot(props: ChatRootProps) {
                                 expandedId={expandedUserId()}
                                 editingMessage={editingMessage()}
                                 finalReplyId={finalReplyId()}
+                                latestConversationMessageId={latestConversationMessageId()}
+                                background={backgroundAttachment()}
                               />
                               <Show when={isPinAnchor()}>
                                 {/* Signals that rows scroll beneath the stuck message; drawn only while stuck. */}
@@ -2008,7 +2169,7 @@ export function ChatRoot(props: ChatRootProps) {
                       ref={(el) => {
                         composerSlotEl = el;
                       }}
-                      class={`${composerSlotInnerClass} ${effectiveComposerPlacement() === 'center' ? composerSlotInnerCenteredClass : composerSlotInnerBottomClass}`}
+                      class={`${composerSlotInnerClass}${effectiveComposerPlacement() === 'center' ? ` ${composerSlotInnerCenteredClass}` : ''}`}
                     />
                   </div>
                 </Show>
@@ -2018,6 +2179,7 @@ export function ChatRoot(props: ChatRootProps) {
         </CachesContext.Provider>
         </ThemeContext.Provider>
       </DebugContext.Provider>
+      </ChatNameProvider>
       </AppNameProvider>
       </SenderAvatarProvider>
       </SelfIdentityProvider>

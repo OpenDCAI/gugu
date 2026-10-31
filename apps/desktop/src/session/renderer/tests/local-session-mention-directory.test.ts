@@ -5,21 +5,35 @@
  * 点不了、不插进消息,❌ 拿空列表冒充「那台机器上没有」。把远端会话拖进输入框走的是同一份候选。
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { createSessionShellPort, type SessionShellPeer } from '@shared/lib/ipc/shell-port';
 
 const LOCAL = { sessionId: 'local-1', identity: { users: { id: 'agent-local', display_name: 'Claude 3', gugu_number: 103 } }, engine: 'claude' };
 const REMOTE = { sessionId: 'remote-1', identity: { users: { id: 'agent-remote', display_name: 'Codex 8', gugu_number: null } }, engine: 'codex' };
-const directory = vi.fn(() => ({ peers: [REMOTE], notRead: [{ id: 'dev-c', label: 'ThinkPad' }] }));
-const sessionPeers = vi.fn(async () => [LOCAL]);
+const directory = vi.fn((): { peers: SessionShellPeer[]; notRead: { id: string; label: string }[] } =>
+  ({ peers: [REMOTE], notRead: [{ id: 'dev-c', label: 'ThinkPad' }] }));
+const sessionPeers = vi.fn(async (_sessionId?: string): Promise<SessionShellPeer[]> => [LOCAL]);
 
 vi.mock('@renderer/features/projects/stores/project-selectors', () => ({ getProjectManagerStore: () => ({ projects: new Map() }) }));
 vi.mock('@renderer/features/sessions/stores/session-registry', () => ({ sessionRegistry: { get: () => undefined } }));
 vi.mock('@renderer/features/remote-hosts/remote-hosts-store', () => ({
   remoteHostsStore: { directoryPeers: () => directory(), findListedSession: () => null },
 }));
-vi.mock('@renderer/lib/shell-port', () => ({ shellPort: () => ({ sessionPeers }) }));
-vi.mock('@renderer/localization/locale-store', () => ({
-  translateSessionMessage: (key: string, values: { device?: string }) => `${key}:${values.device}`,
-}));
+vi.mock('@renderer/lib/machine-routing', () => ({ machineRegistry: { machineOf: () => null } }));
+vi.mock('@renderer/lib/electron-api', () => ({ electronApi: vi.fn(), findSessionHostBridge: vi.fn() }));
+vi.mock('@renderer/lib/ipc', () => ({ invokeOnMachine: vi.fn(), onMachineEvent: vi.fn() }));
+vi.mock('@renderer/lib/machine-clients', () => ({ onEachMachine: vi.fn() }));
+vi.mock('@renderer/lib/shell-port', async (importOriginal) => {
+  const { machineAwareShellPort } = await importOriginal<typeof import('@renderer/lib/shell-port')>();
+  return { shellPort: () => machineAwareShellPort(createSessionShellPort((_channel, ...args) =>
+    sessionPeers(typeof args[0] === 'string' ? args[0] : undefined))) };
+});
+vi.mock('@renderer/localization/locale-store', async () => {
+  const { enUSMessages } = await import('@renderer/localization/messages');
+  return {
+    translateSessionMessage: (key: string, values: { device?: string } = {}) =>
+      key === 'chat.mentionDropPrivateAgent' ? enUSMessages[key] : `${key}:${values.device}`,
+  };
+});
 
 const { createLocalSessionMentionProvider } = await import('@renderer/lib/chat/local-session-mention-provider');
 
@@ -46,6 +60,22 @@ describe('@ 弹层读会话目录', () => {
     expect(items.map((item) => item.id)).toEqual(['aid:agent-local', 'not-read:dev-c']);
   });
 
+  it('中文名按拼音全拼、首字母、混拼都能筛到;咕咕号只认全等或前缀', async () => {
+    const HAN = { sessionId: 'local-2', identity: { users: { id: 'agent-han', display_name: '咕咕助手', gugu_number: 52013 } }, engine: 'claude' };
+    const ids = async (query: string) => {
+      sessionPeers.mockResolvedValueOnce([LOCAL, HAN]);
+      directory.mockReturnValueOnce({ peers: [REMOTE], notRead: [] });
+      return (await createLocalSessionMentionProvider().search(query)).map((item) => item.id);
+    };
+    expect(await ids('gugu')).toEqual(['aid:agent-han']);
+    expect(await ids('ggzs')).toEqual(['aid:agent-han']);
+    expect(await ids('guguzs')).toEqual(['aid:agent-han']);
+    expect(await ids('520')).toEqual(['aid:agent-han']);
+    expect(await ids('52013')).toEqual(['aid:agent-han']);
+    expect(await ids('013')).toEqual([]);
+    expect(await ids('03')).toEqual([]);
+  });
+
   it('全都读到了:只有会话,没有说明行', async () => {
     directory.mockReturnValueOnce({ peers: [REMOTE], notRead: [] });
     const items = await createLocalSessionMentionProvider().search('');
@@ -56,4 +86,51 @@ describe('@ 弹层读会话目录', () => {
     const pill = await createLocalSessionMentionProvider().resolveSession('remote-1');
     expect(pill).toMatchObject({ id: 'aid:agent-remote', label: 'aid:agent-remote', name: 'Codex 8', role: 'agent' });
   });
+
+  it('uses the shared host bridge for a web or phone task drop too', async () => {
+    delete (window as unknown as { electronAPI?: unknown }).electronAPI;
+    const pill = await createLocalSessionMentionProvider().resolveSession('remote-1');
+    expect(pill).toMatchObject({ label: 'aid:agent-remote', name: 'Codex 8' });
+    expect(sessionPeers).toHaveBeenCalled();
+  });
+
+  it('explains a private external Agent refusal without treating an uncreated identity as private', async () => {
+    sessionPeers.mockImplementationOnce(async (sessionId?: string) => {
+      if (sessionId === 'private-task') throw new Error('Error invoking remote method: SESSION_PRIVATE_EXTERNAL_AGENT');
+      return [];
+    });
+    const provider = createLocalSessionMentionProvider();
+    expect(await provider.resolveSession('private-task')).toMatchObject({
+      label: '', disabled: true,
+      description: 'This Agent is private to another user and cannot be added.',
+    });
+    expect(sessionPeers).toHaveBeenLastCalledWith('private-task');
+    sessionPeers.mockResolvedValueOnce([]);
+    expect(await provider.resolveSession('unstarted-task')).toBeNull();
+  });
+
+  it('keeps archived local and remote Agents out of task mentions and restores them after unarchive', async () => {
+    const archivedAt = '2026-10-29T00:00:00Z';
+    const archivedLocal = { ...LOCAL, sessionId: 'archived-local', identity: { users: {
+      ...LOCAL.identity.users, id: 'agent-archived-local', session_archived_at: archivedAt,
+    } } };
+    const archivedRemote = { ...REMOTE, sessionId: 'archived-remote', identity: { users: {
+      ...REMOTE.identity.users, id: 'agent-archived-remote', session_archived_at: archivedAt,
+    } } };
+    const provider = createLocalSessionMentionProvider();
+    sessionPeers.mockResolvedValueOnce([LOCAL, archivedLocal]);
+    directory.mockReturnValueOnce({ peers: [REMOTE, archivedRemote], notRead: [] });
+    expect((await provider.search('')).map((item) => item.id)).toEqual(['aid:agent-local', 'aid:agent-remote']);
+    sessionPeers.mockResolvedValueOnce([LOCAL, archivedLocal]);
+    directory.mockReturnValueOnce({ peers: [REMOTE, archivedRemote], notRead: [] });
+    expect(await provider.resolveSession('archived-local')).toBeNull();
+    sessionPeers.mockResolvedValueOnce([LOCAL, { ...archivedLocal, identity: { users: {
+      ...archivedLocal.identity.users, session_archived_at: null,
+    } } }]);
+    directory.mockReturnValueOnce({ peers: [REMOTE], notRead: [] });
+    expect((await provider.search('')).map((item) => item.id))
+      .toEqual(['aid:agent-local', 'aid:agent-archived-local', 'aid:agent-remote']);
+  });
+
+
 });

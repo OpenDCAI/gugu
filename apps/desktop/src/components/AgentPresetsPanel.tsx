@@ -2,8 +2,6 @@
  * AgentPresetsPanel — Agent Preset 模板库面板
  *
  * 范围：不做 admin 上传 / tar.gz 导入 / 多语言 / 版本管理；
- *         只保留用户可见的「选用预设模板」列表，一键带入 BuildAgentWizard 或 CreateAgentModal。
- *         （@@@1438 注：BuildAgentWizard 当前未接入入口，owner 拍板保留作 Hub/市场 方向基底，勿删。）
  *
  * 纯展示组件，props 驱动：
  *   presets[]    ← 数据在 identity.agent_presets 表（schema/seed 见 gugu-supabase 的 supabase/migrations 的
@@ -347,7 +345,7 @@ export function AgentPresetsPanel({
                   padding: '10px 14px',
                   borderRadius: 'var(--radius-control)',
                   background: 'var(--danger-tint)',
-                  color: 'var(--danger)',
+                  color: 'var(--danger-fg)',
                   fontSize: 'var(--font-body)',
                 }}
               >

@@ -1,8 +1,9 @@
-import { InitialSessionField } from '@renderer/features/sessions/session-config/initial-session-section';
+import { InitialSessionField, type ComposerVerbLook } from '@renderer/features/sessions/session-config/initial-session-section';
 import { useSessionState } from './session-state-context';
 
 interface SessionFieldProps {
-  placeholder?: string;
+  placeholder?: string | ((agentName: string) => string);
+  verb?: ComposerVerbLook;
   textareaClassName?: string;
   enableMentions?: boolean;
   onPromptBlur?: () => void;
@@ -16,6 +17,7 @@ interface SessionFieldProps {
 
 export function SessionField({
   placeholder,
+  verb,
   textareaClassName,
   enableMentions,
   onPromptBlur,
@@ -33,6 +35,7 @@ export function SessionField({
       includeIssueContextByDefault={includeIssueContextByDefault}
       enableMentions={enableMentions}
       placeholder={placeholder}
+      verb={verb}
       textareaClassName={textareaClassName}
       onPromptBlur={onPromptBlur}
       showAutoApproveToggle={showAutoApproveToggle}

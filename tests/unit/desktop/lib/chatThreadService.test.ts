@@ -2,12 +2,14 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 const {
   chatKinds,
+  messageRows,
   chatDbMock,
   insertMessage,
   rpc,
   hiddenFilter,
 } = vi.hoisted(() => {
   const hiddenFilter = vi.fn()
+  const messageRows: Record<string, unknown>[] = []
   const chatKinds = new Map<string, 'dm' | 'ai' | 'group'>()
   const insertMessage = vi.fn(async () => ({ error: null }))
   const rpc = vi.fn(async (name: string, args: Record<string, unknown> = {}) => ({
@@ -41,6 +43,9 @@ const {
         }
         return chain
       }
+      if (['message_reactions', 'message_deliveries', 'message_agent_delivery_blocks'].includes(table)) {
+        return { select: () => ({ in: async () => ({ data: [], error: null }) }) }
+      }
       if (table === 'messages') return { insert: insertMessage }
       if (table === 'messages_view') {
         const chain = {
@@ -51,7 +56,7 @@ const {
           maybeSingle: vi.fn(async () => ({ data: null, error: null })),
           or: vi.fn(() => chain),
           order: vi.fn(() => chain),
-          limit: vi.fn(async () => ({ data: [], error: null })),
+          limit: vi.fn(async () => ({ data: messageRows, error: null })),
         }
         return chain
       }
@@ -59,7 +64,7 @@ const {
     }),
     rpc,
   }
-  return { chatKinds, chatDbMock, insertMessage, rpc, hiddenFilter }
+  return { chatKinds, messageRows, chatDbMock, insertMessage, rpc, hiddenFilter }
 })
 vi.mock('../../../../apps/desktop/src/lib/supabase', () => ({
   chatDb: chatDbMock,
@@ -77,6 +82,7 @@ const THREAD_ROOT_ID = '11111111-1111-4111-8111-111111111111'
 const MESSAGE_ID = '22222222-2222-4222-8222-222222222222'
 beforeEach(() => {
   chatKinds.clear()
+  messageRows.length = 0
   chatKinds.set('dm-chat', 'dm')
   chatKinds.set('ai-chat', 'ai')
   chatKinds.set('group-chat', 'group')
@@ -165,5 +171,15 @@ describe('chatService exact-message reference', () => {
   it('keeps a message deleted for the current viewer out of reference reads', async () => {
     await expect(chatService.getMessageById(MESSAGE_ID, 'owner-user')).resolves.toBeNull()
     expect(hiddenFilter).toHaveBeenCalledWith('deleted_for_user_ids', 'cs', JSON.stringify(['owner-user']))
+  })
+})
+
+
+describe('mainline message bodies', () => {
+  it('returns the mapped page without starting overlay requests', async () => {
+    messageRows.push({ id: MESSAGE_ID, chat_id: 'group-chat', sender_user_id: 'owner-user', seq: 1, content: 'body', content_type: 'text', created_at: '2026-10-23T00:00:00Z' })
+    const rows = await chatService.getMessages('group-chat', 'owner-user', 'initialLoad')
+    expect(rows.map((row) => [row.id, row.content])).toEqual([[MESSAGE_ID, 'body']])
+    expect(chatDbMock.from.mock.calls.map(([table]) => table)).toEqual(['messages_view'])
   })
 })

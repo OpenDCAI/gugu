@@ -122,7 +122,8 @@ export const opencodeSessionBundleDescriptor = {
       // ⚠️ 读数属被测版本/模型路由;亚秒级临近轮末的竞态无读数,❌ 不外推。
       injection: {
         timing: 'next-tool-call',
-        evidence: 'shuxueshuxue/gugu-base@3336de9f315f64dbcd6be5a758982794a2c1ede7 evidence/2026-08-30-opencode-acp-concurrent-prompt(3/3 同轮 + idle 阳控 3/3;OpenCode 1.18.16 / opencode/mimo-v2.5-free)',
+        evidence: 'anomalyco/opencode@a3647eb025c7(v1.18.16)实测 2026-08-30:忙时第二条 session/prompt 3/3 同轮 + idle 阳控 3/3'
+          + '(模型 opencode/mimo-v2.5-free)',
       },
     },
     // tui 经 serve/attach 走 router transport(专用 opencode-serve-attach-v1 adapter);delivery 不写 PTY。
@@ -206,8 +207,7 @@ export const opencodeSessionBundleDescriptor = {
     maxWaitMs: 2000,
     evidence:
       'anomalyco/opencode@388406238bd5 packages/tui/src/routes/session/question.tsx:253 keybind escape「Reject question」→ :57 reject();'
-      + ' Esc 后再发消息 agent 照答:shuxueshuxue/gugu-base@2fd64b59d evidence/2026-10-09-ask-question-phone-answer'
-      + '(1.18.28,6/6);取证 2026-10-09',
+      + ' Esc 后再发消息 agent 照答:实测 1.18.28,6/6;取证 2026-10-09',
   },
   coexistence: {
     // 一条由 ACP 腿(surfaces 含 'acp',provider.acp 的 buildSpawn `opencode acp`

@@ -1,3 +1,4 @@
+import { messageForUser } from '@/lib/userFacingError';
 import '../assistant/assistant-onboarding.css'
 import '../../session/renderer/features/assistant/assistant-today.css'
 import { useCallback, useEffect, useRef, useState, type ChangeEvent, type ReactNode } from 'react'
@@ -9,27 +10,47 @@ import { FullScreenLoader } from '../FullScreenLoader'
 import { AssistantIntro } from '../assistant/AssistantIntro'
 import { Pencil } from '@/lib/icons'
 import { authService } from '../../lib/auth'
-import { finishFirstRun, readFirstRunProgress, requestAssistantSetupHandoff, writeOccupation } from '../../lib/firstRun'
+import { finishFirstRun, firstRunDoneHere, readFirstRunProgress, readOccupation, rememberFirstRunDone, requestAssistantSetupHandoff, writeOccupation } from '../../lib/firstRun'
 import { useAuth, type AuthUser } from '../../store/auth'
 import { rendererLogger } from '../../lib/log'
 import '../../i18n/registerMainCatalog'
+import { PhoneAgentSetupGate } from '../../mobile/local-agent/PhoneAgentSetupGate'
 import { QueryClientProvider } from '@tanstack/react-query'
 import { queryClient } from '@renderer/lib/query-client'
 import { platform } from '../../platform'
+import { ProductTour } from '../productTour/ProductTour'
+import { availableTourSteps } from '../productTour/tourTargets'
+import { FeatureFilms } from '../productTour/FeatureFilms'
+import type { ProductTourRequest, TourStepId } from '../../lib/productTour'
 import { FirstRunHarness } from './FirstRunHarness'
+import { FirstRunTerminal } from './FirstRunTerminal'
 import { FirstRunInstallProvider } from './FirstRunInstallProvider'
+import { UI_EVENTS } from '../../lib/uiEvents'
+import { startFirstRunHints } from '../../lib/firstRunHints'
+import { enrollSampleProject } from '../../lib/sampleProject'
+import { FirstRunHints } from './FirstRunHints'
 
 const log = rendererLogger('first-run')
 
-/** 改称呼被拒:authService 给的是给人看的那句(与「设置 → 账户」同一份),原样显示;别的失败只说没保存成功,原因进日志。 */
-class NicknameRejected extends Error {}
+// 全屏步骤的顺序(规范 4.1):每页顶上写「n / N」,N 只数这台设备真会走的页。
+type StepKind = 'profile' | 'harness' | 'terminal' | 'intro' | 'tourChoice'
+// 桌面端最后一页问一次要不要看功能栏导览(规范 4.1 第 5 步:由人自己选择开始);导览只有桌面端有。
+const STEPS: readonly StepKind[] = platform.kind === 'electron' ? ['profile', 'harness', 'terminal', 'intro', 'tourChoice'] : ['profile', 'intro']
+function StepCount({ step }: { step: StepKind }) {
+  const { t } = useTranslation('main')
+  return <p className="first-run-step-count" data-testid="first-run-step-count">{t('firstRun.stepCount', { current: STEPS.indexOf(step) + 1, total: STEPS.length })}</p>
+}
 
 type GateState =
   | { kind: 'loading' }
-  | { kind: 'unreadable' }
+  | { kind: 'unreadable'; message: string }
   | { kind: 'profile'; occupation: Occupation | null }
   | { kind: 'intro' }
   | { kind: 'harness' }
+  | { kind: 'terminal' }
+  | { kind: 'tourChoice'; openAssistant: boolean }
+  | { kind: 'tour'; steps: readonly TourStepId[]; start: TourStepId }
+  | { kind: 'films' }
   | { kind: 'done' }
 
 /**
@@ -37,40 +58,80 @@ type GateState =
  * 走完(或老账号)= 直接画 children;读不到进度 = 如实说 + 重试,❌ 当新账号重走,❌ 当走完放行。
  */
 export function FirstRunGate(props: { user: AuthUser; children: ReactNode }) {
-  return <QueryClientProvider client={queryClient}><FirstRunInstallProvider><FirstRunFlow {...props} /></FirstRunInstallProvider></QueryClientProvider>
+  return (
+    <QueryClientProvider client={queryClient}>
+      <FirstRunFlow {...props} />
+    </QueryClientProvider>
+  )
 }
 
 function FirstRunFlow({ user, children }: { user: AuthUser; children: ReactNode }) {
   const { t } = useTranslation('main')
-  const [state, setState] = useState<GateState>({ kind: 'loading' })
+  const [state, setState] = useState<GateState>(() => firstRunDoneHere(user.id) ? { kind: 'done' } : { kind: 'loading' })
+  const done = useCallback(() => { rememberFirstRunDone(user.id); setState({ kind: 'done' }) }, [user.id])
+  // 退回上一页时「已填的内容还在」(规范 7-2):选过的 Agent 记在这里,称呼和身份由 FirstRunProfile 从账号读回。
+  const harnessPicked = useRef<readonly string[] | null>(null)
+  const backToProfile = useCallback(() => {
+    setState({ kind: 'loading' })
+    readOccupation(user.id)
+      .then((occupation) => setState({ kind: 'profile', occupation }))
+      .catch((e: unknown) => setState({ kind: 'unreadable', message: messageForUser(e) }))
+  }, [user.id])
 
   // ❌ 等 identityPending 落定再读:身份行在注册那一刻就在(auth.users 的插入触发器),pending 只是「客户端还没补全」;
   // 补全一直落不了地时,等它 = 门口永远转圈,而主界面本来照样能用。补全晚到的称呼 / 头像由 FirstRunProfile 跟上。
   const load = useCallback(() => {
+    if (firstRunDoneHere(user.id)) return
     setState({ kind: 'loading' })
     readFirstRunProgress(user.id)
       .then((progress) => {
-        if (progress.stage === 'done') setState({ kind: 'done' })
-        else if (progress.stage === 'intro') setState({ kind: platform.kind === 'electron' && !progress.harness ? 'harness' : 'intro' })
+        if (progress.stage === 'done') done()
+        else if (progress.stage === 'intro') {
+          harnessPicked.current = progress.harness
+          if (platform.kind !== 'electron') setState({ kind: 'intro' })
+          else setState(!progress.harness ? { kind: 'harness' } : !progress.terminalSeen ? { kind: 'terminal' } : { kind: 'intro' })
+        }
         else setState({ kind: 'profile', occupation: progress.occupation })
       })
       .catch((e: unknown) => {
-        log.warn({ error: String(e) }, 'read first-run progress failed')
-        setState({ kind: 'unreadable' })
+        log.error({ error: String(e) }, 'read first-run progress failed')
+        setState({ kind: 'unreadable', message: messageForUser(e) })
       })
-  }, [user.id])
+  }, [user.id, done])
 
   useEffect(load, [load])
 
-  if (state.kind === 'done') return <>{children}</>
-  if (state.kind === 'loading') return <FullScreenLoader />
-  return (
+  const startTour = useCallback((from: TourStepId | null) => {
+    const steps = availableTourSteps()
+    // 一格都找不到(功能栏没画出来):不弹指向空白的卡片(规范 2.3),直接进主界面。
+    if (!steps.length) { setState({ kind: 'done' }); return }
+    setState({ kind: 'tour', steps, start: from && steps.includes(from) ? from : steps[0] })
+  }, [])
+  // 「帮助与导览」(规范 4.3):从第 n 步继续、从头开始、看功能短片。老账号也只从这里看,❌ 自动重放。
+  useEffect(() => {
+    if (platform.kind !== 'electron') return
+    const reopen = (event: Event) => {
+      const detail = (event as CustomEvent<ProductTourRequest | undefined>).detail
+      if (detail?.mode === 'films') setState({ kind: 'films' })
+      else startTour(detail?.mode === 'resume' ? detail.step : null)
+    }
+    window.addEventListener(UI_EVENTS.reopenProductTour, reopen)
+    return () => window.removeEventListener(UI_EVENTS.reopenProductTour, reopen)
+  }, [startTour])
+
+  const overlay = state.kind === 'intro' || state.kind === 'tourChoice'
+  // 一旦进入过主界面,回到前置页也保留它:嵌入入口每个文档只求值一次。
+  const productVisible = state.kind === 'done' || state.kind === 'tour' || state.kind === 'films' || (overlay && platform.kind === 'electron')
+  const [productMounted, setProductMounted] = useState(productVisible)
+  if (productVisible && !productMounted) setProductMounted(true)
+
+  const wizard = state.kind === 'loading' ? <FullScreenLoader /> : (
     <div className="ta-first-run" data-ta-scope data-testid={`first-run-${state.kind}`}>
-      <div className={`ta-onb${state.kind === 'harness' ? ' first-run-harness-panel' : ''}`}>
+      <div className={`ta-onb${state.kind === 'harness' ? ' first-run-harness-panel' : state.kind === 'terminal' ? ' first-run-terminal-panel' : ''}`}>
         {state.kind === 'unreadable' ? (
           <>
             <h1 className="ta-onb-title">{t('firstRun.unreadableTitle')}</h1>
-            <p className="ta-onb-sub">{t('firstRun.unreadableBody')}</p>
+            <p className="ta-onb-sub">{state.message}</p>
             <div className="ta-onb-actions">
               <Button variant="primary" size="lg" className="rounded-full" onClick={load} data-testid="first-run-retry">
                 {t('firstRun.retry')}
@@ -78,18 +139,50 @@ function FirstRunFlow({ user, children }: { user: AuthUser; children: ReactNode 
             </div>
           </>
         ) : state.kind === 'profile' ? (
-          <FirstRunProfile user={user} initial={state.occupation} onDone={() => setState({ kind: platform.kind === 'electron' ? 'harness' : 'intro' })} />
+          <FirstRunProfile step={<StepCount step="profile" />} user={user} initial={state.occupation} onDone={() => setState({ kind: platform.kind === 'electron' ? 'harness' : 'intro' })} />
         ) : state.kind === 'harness' ? (
-          <FirstRunHarness userId={user.id} onDone={() => setState({ kind: 'intro' })} />
+          <>
+            <StepCount step="harness" />
+            <FirstRunHarness userId={user.id} initial={harnessPicked.current} onBack={backToProfile}
+              onDone={(selected) => { harnessPicked.current = selected; setState({ kind: 'terminal' }) }} />
+          </>
+        ) : state.kind === 'terminal' ? (
+          // 选完 Agent、认识咕咕之前(owner 10-27)。开关即时写本机设置;「继续」记下看过这一页,中途退出再进回到这里。
+          <>
+            <StepCount step="terminal" />
+            <FirstRunTerminal userId={user.id} onBack={() => setState({ kind: 'harness' })} onDone={() => setState({ kind: 'intro' })} />
+          </>
         ) : (
-          <FirstRunIntro userId={user.id} onDone={() => setState({ kind: 'done' })} />
+          <>
+            <StepCount step="intro" />
+            <FirstRunIntro userId={user.id} onDone={done} onBack={backToProfile} />
+          </>
         )}
       </div>
     </div>
   )
+
+  // Keep the embedded product connected across setup, tour choice, tour and films.
+  const content = productMounted || productVisible ? (
+    <PhoneAgentSetupGate key={user.id} ownerId={user.id}>
+      <div className="contents" inert={!productVisible || overlay} style={productVisible ? undefined : { display: 'none' }}>{children}</div>
+      {!productVisible && wizard}
+      {state.kind === 'done' && <FirstRunHints key={user.id} userId={user.id} />}
+      {state.kind === 'intro' && <div className="ta-first-run ta-first-run-overlay" data-ta-scope data-testid="first-run-intro"><div className="ta-onb"><StepCount step="intro" /><FirstRunIntro userId={user.id} onDone={done} onBack={() => setState({ kind: 'terminal' })} onNext={(openAssistant) => setState({ kind: 'tourChoice', openAssistant })} /></div></div>}
+      {state.kind === 'tourChoice' && <div className="ta-first-run ta-first-run-overlay" data-ta-scope data-testid="first-run-tour-choice"><div className="ta-onb"><StepCount step="tourChoice" />
+        <FirstRunTourChoice userId={user.id} openAssistant={state.openAssistant} onBack={() => setState({ kind: 'intro' })}
+          onDone={(tour) => { rememberFirstRunDone(user.id); if (tour) startTour(null); else setState({ kind: 'done' }) }} /></div></div>}
+      {state.kind === 'tour' && <ProductTour key={user.id} userId={user.id} steps={state.steps} start={state.start} onDone={done} />}
+      {state.kind === 'films' && <FeatureFilms onClose={done} />}
+    </PhoneAgentSetupGate>
+  ) : wizard
+
+  return platform.kind === 'electron'
+    ? <FirstRunInstallProvider showNotification={state.kind === 'done'}>{content}</FirstRunInstallProvider>
+    : content
 }
 
-function FirstRunProfile({ user, initial, onDone }: { user: AuthUser; initial: Occupation | null; onDone: () => void }) {
+function FirstRunProfile({ user, initial, step, onDone }: { user: AuthUser; initial: Occupation | null; step: ReactNode; onDone: () => void }) {
   const { t } = useTranslation('main')
   const { updateUser } = useAuth()
   const [name, setName] = useState(user.nickname)
@@ -136,14 +229,14 @@ function FirstRunProfile({ user, initial, onDone }: { user: AuthUser; initial: O
       const trimmed = name.trim()
       if (trimmed !== user.nickname) {
         const res = await authService.updateNickname(user.id, trimmed)
-        if (!res.success) throw new NicknameRejected(res.error ?? t('firstRun.saveFailed'))
+        if (!res.success) throw new Error(res.error ?? t('firstRun.saveFailed'))
         updateUser({ ...user, nickname: trimmed, avatarUrl })
       }
       await writeOccupation(user.id, chosen)
       onDone()
     } catch (e) {
-      log.warn({ error: String(e) }, 'save first-run profile failed')
-      setError(e instanceof NicknameRejected ? e.message : t('firstRun.saveFailed'))
+      log.error({ error: String(e) }, 'save first-run profile failed')
+      setError(messageForUser(e))
     } finally {
       setBusy(null)
     }
@@ -151,6 +244,7 @@ function FirstRunProfile({ user, initial, onDone }: { user: AuthUser; initial: O
 
   return (
     <>
+      {step}
       <Avatar name={name || user.nickname} avatarUrl={avatarUrl} seed={user.id} size={88} />
       <Button
         variant="secondary"
@@ -165,7 +259,7 @@ function FirstRunProfile({ user, initial, onDone }: { user: AuthUser; initial: O
       </Button>
       <input ref={fileInput} type="file" accept="image/jpeg,image/png,image/webp" hidden onChange={(e) => void pickAvatar(e)} />
       <h1 className="ta-onb-title">{t('firstRun.profileTitle')}</h1>
-      <p className="ta-onb-sub">{t('firstRun.profileSub')}</p>
+      <p className="ta-onb-sub">{t(platform.kind === 'electron' ? 'firstRun.profileSubDesktop' : 'firstRun.profileSub')}</p>
       <label className="ta-onb-field">
         <span className="ta-field-label">{t('firstRun.nameLabel')}</span>
         <input
@@ -227,31 +321,77 @@ function FirstRunProfile({ user, initial, onDone }: { user: AuthUser; initial: O
   )
 }
 
-function FirstRunIntro({ userId, onDone }: { userId: string; onDone: () => void }) {
+/**
+ * 认识咕咕之后,桌面端最后一页(规范 4.1 第 5 步):问一次要不要看功能栏导览。一句话,两个选择。
+ * 两个都算走完首次引导(记在账号上);「开通我的咕咕」的交接照旧,导览盖在咕咕那一格上面从第 1 步走。
+ */
+function FirstRunTourChoice({ userId, openAssistant, onBack, onDone }: { userId: string; openAssistant: boolean; onBack: () => void; onDone: (tour: boolean) => void }) {
+  const { t } = useTranslation('main')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const leave = async (tour: boolean) => {
+    setBusy(true)
+    setError(null)
+    try {
+      await startFirstRunHints(userId)
+      await enrollSampleProject(userId)
+      await finishFirstRun()
+      if (openAssistant) requestAssistantSetupHandoff(userId)
+      onDone(tour)
+    } catch (e) {
+      log.error({ error: String(e) }, 'finish first run failed')
+      setError(messageForUser(e))
+      setBusy(false)
+    }
+  }
+  return (
+    <>
+      <h1 className="ta-onb-title">{t('firstRun.tourChoiceTitle')}</h1>
+      <p className="ta-onb-sub">{t('firstRun.tourChoiceSub')}</p>
+      {error ? <p className="ta-onb-error" role="alert">{error}</p> : null}
+      <div className="ta-onb-actions ta-onb-actions-stack">
+        <Button variant="primary" size="lg" className="rounded-full ta-onb-primary" onClick={() => void leave(true)} disabled={busy} data-testid="first-run-tour-start">{t('firstRun.tourChoiceStart')}</Button>
+        <div className="flex items-center justify-center self-center">
+          <Button variant="ghost" size="sm" className="rounded-full" onClick={onBack} disabled={busy} data-testid="first-run-tour-back">{t('firstRun.back')}</Button>
+          <Button variant="ghost" size="sm" className="rounded-full" onClick={() => void leave(false)} disabled={busy} data-testid="first-run-tour-skip">{t('firstRun.tourChoiceSkip')}</Button>
+        </div>
+      </div>
+    </>
+  )
+}
+
+function FirstRunIntro({ userId, onDone, onBack, onNext }: { userId: string; onDone: () => void; onBack: () => void; onNext?: (openAssistant: boolean) => void }) {
   const { t } = useTranslation('main')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const leave = async (openAssistant: boolean) => {
+    // 桌面端后面还有一页(问要不要看导览):走完记在那一页。
+    if (onNext) { onNext(openAssistant); return }
     setBusy(true)
     setError(null)
     try {
+      await startFirstRunHints(userId)
+      await enrollSampleProject(userId)
       await finishFirstRun()
       if (openAssistant) requestAssistantSetupHandoff(userId)
       onDone()
     } catch (e) {
-      log.warn({ error: String(e) }, 'finish first run failed')
-      setError(t('firstRun.saveFailed'))
+      log.error({ error: String(e) }, 'finish first run failed')
+      setError(messageForUser(e))
       setBusy(false)
     }
   }
 
   return (
     <AssistantIntro
+      summary={platform.kind === 'electron' ? t('firstRun.introSubDesktop') : undefined}
       primaryLabel={t('firstRun.introStart')}
       onPrimary={() => void leave(true)}
       laterLabel={t('firstRun.introLater')}
       onLater={() => void leave(false)}
+      backLabel={t('firstRun.back')}
+      onBack={onBack}
       busy={busy}
       error={error}
     />

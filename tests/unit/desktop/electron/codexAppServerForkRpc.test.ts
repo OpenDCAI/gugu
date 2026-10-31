@@ -528,6 +528,22 @@ describe.each(['start', 'resume', 'fork'] as const)('Codex thread/%s permissions
   })
 })
 describe('Codex app-server turn lifecycle', () => {
+  it('preserves the upstream failure message on the live completion path', async () => {
+    const session = new CodexAppServerSession('agent-capacity', '/unused/codex')
+    let notify!: (message: unknown) => void
+    const internals = session as unknown as {
+      threadId: string
+      subscribeEvents(client: unknown): void
+    }
+    internals.threadId = 'thread-capacity'
+    internals.subscribeEvents({ onEvent: (handler: typeof notify) => { notify = handler } })
+    const reason = 'Selected model is at capacity. Please try a different model.'
+    notify({ method: 'turn/completed', params: {
+      threadId: 'thread-capacity', turn: { id: 'turn-capacity', status: 'failed', error: { message: reason } },
+    } })
+    await expect(session.waitForTurnCompletion('turn-capacity')).rejects.toThrow(reason)
+  })
+
   it('maps matching notifications and ignores unrelated ones', () => {
     expect(
       codexTurnLifecycle(

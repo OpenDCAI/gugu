@@ -1,4 +1,6 @@
-import { useState } from 'react'
+import { rendererLogger } from '@/lib/log';
+import { assistantPanelFailure } from '@/components/assistant/assistant-panel-errors';
+import { useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Input } from '../../session/renderer/lib/ui/input'
 import { Textarea } from '../../session/renderer/lib/ui/textarea'
@@ -6,9 +8,13 @@ import { Button } from '../ui/Button'
 import { PageHead } from '../../session/renderer/features/assistant/assistant-ui-parts'
 import type { AssistantMachine } from '../../session/renderer/features/assistant/assistant-machine-core'
 import type { UserLibraryEntry, UserLibraryKind } from '../../session/shared/user-library'
-import { libraryHost } from './assistant-library-client'
+import { assistantAppProgram, reportAssistantAppChange } from './assistant-app-client'
+import { libraryDeviceId } from './assistant-library-client'
+import { cachedDevicesAccount } from '../../store/devicesCache'
+import { assistantPanelLibrary } from './assistant-panel-library'
 
-export function AssistantLibraryEditor({ machine, kind, entry, onClose, onSaved }: {
+export function AssistantLibraryEditor({ machine, assistantId, kind, entry, onClose, onSaved }: {
+  assistantId: string;
   machine: AssistantMachine | null | undefined; kind: UserLibraryKind; entry: UserLibraryEntry | null;
   onClose: () => void; onSaved: () => void;
 }) {
@@ -18,15 +24,23 @@ export function AssistantLibraryEditor({ machine, kind, entry, onClose, onSaved 
   const [group, setGroup] = useState(entry?.group ?? '')
   const [content, setContent] = useState(entry?.content ?? '')
   const [saving, setSaving] = useState(false)
-  const [failed, setFailed] = useState(false)
+  const [failed, setFailed] = useState('')
+  const ownerId = useRef(cachedDevicesAccount()).current
   return <form className="ta-page" data-testid="assistant-library-editor" onSubmit={async event => {
     event.preventDefault(); if (!name.trim() || saving) return
-    setSaving(true); setFailed(false)
+    setSaving(true); setFailed('')
     try {
-      await libraryHost(machine)!.writeUserLibraryEntry({ kind, name: name.trim(), description, group: group.trim() || null, content,
-        ...(entry ? { id: entry.id, expectedModifiedAt: entry.modifiedAt } : {}) })
+      const changeInput = { kind, name: name.trim(), description, group: group.trim() || null, content,
+        ...(entry ? { id: entry.id, expectedModifiedAt: entry.modifiedAt } : {}) }
+      const saved = machine?.panel ? await assistantPanelLibrary(machine.panel).save(changeInput)
+        : await assistantAppProgram<UserLibraryEntry>(machine, 'library_write', changeInput, ownerId)
+      const change = saved.activity?.at(-1)
+      if (assistantId) await reportAssistantAppChange(machine, assistantId, { resource: kind === 'capabilities' ? 'capabilities' : 'device-notes',
+          operation: entry ? 'edited' : 'created', id: saved.id, deviceId: libraryDeviceId(machine),
+          ...(change ? { operationId: change.operationId, before: change.before, after: change.after }
+            : { after: { name: saved.name, description: saved.description, group: saved.group } }) }, ownerId)
       onSaved()
-    } catch { setFailed(true) }
+    } catch (error) { rendererLogger('actions/AssistantLibraryEditor').error({ error }, 'action failed'); setFailed(assistantPanelFailure(error,t)) }
     finally { setSaving(false) }
   }}>
     <PageHead title={t(entry ? 'library.edit' : 'library.add')} />
@@ -35,7 +49,7 @@ export function AssistantLibraryEditor({ machine, kind, entry, onClose, onSaved 
     <label>{t('library.entryDescription')}<Input value={description} onChange={e => setDescription(e.target.value)} /></label>
     <label>{t('library.entryContent')}<Textarea rows={8} value={content} onChange={e => setContent(e.target.value)} /></label>
     <p className="ta-page-sub">{t('library.noCredentials')}</p>
-    {failed && <p role="alert">{t('library.saveFailed')}</p>}
+    {failed && <p role="alert">{failed}</p>}
     <div className="flex gap-2"><Button type="button" variant="ghost" onClick={onClose} disabled={saving}>{t('common.cancel')}</Button>
       <Button type="submit" disabled={saving || !name.trim()}>{t(saving ? 'common.saving' : 'common.save')}</Button></div>
   </form>

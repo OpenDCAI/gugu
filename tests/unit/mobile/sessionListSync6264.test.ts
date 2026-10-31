@@ -56,7 +56,7 @@ describe('startSessionListSync(#6264 手机与桌面任务页共用的会话列�
     const seen: string[] = []
     const lists: SessionpageSessionsListResult[] = []
     const sync = startSessionListSync(f.client, 'dev-1', {
-      onList: (r, { cached }) => { if (!cached) { seen.push(r.sessions[0]!.title); lists.push(r) } },
+      onList: (r) => { seen.push(r.sessions[0]!.title); lists.push(r) },
     })
     await flush()
     expect(seen).toEqual(['first'])
@@ -78,7 +78,7 @@ describe('startSessionListSync(#6264 手机与桌面任务页共用的会话列�
   it('窗口断过再通(那台机器随旧窗口拆了订阅;丢了推送也走这里):整个重来 —— 新订阅号、新的整份', async () => {
     const f = fakeClient()
     const seen: string[] = []
-    startSessionListSync(f.client, 'dev-1', { onList: (r, { cached }) => { if (!cached) seen.push(r.sessions[0]!.title) } })
+    startSessionListSync(f.client, 'dev-1', { onList: (r) => { seen.push(r.sessions[0]!.title) } })
     await flush()
     f.setCurrent(list('after-reopen'))
     for (const cb of f.links) cb(false)
@@ -92,10 +92,21 @@ describe('startSessionListSync(#6264 手机与桌面任务页共用的会话列�
     expect(seen.at(-1)).toBe('after-reopen')
   })
 
+  it('reports a transport close immediately without waiting for a heartbeat or another list', async () => {
+    const f = fakeClient()
+    const connection = vi.fn()
+    const sync = startSessionListSync(f.client, 'dev-1', { onList: () => {}, onLink: connection })
+    await flush()
+    for (const cb of f.links) cb(false)
+    expect(connection).toHaveBeenLastCalledWith(false)
+    expect(f.client.subscribeSessionsList).toHaveBeenCalledTimes(1)
+    sync.stop()
+  })
+
   it('被重连之后,旧那一轮的推送一帧都不收(❌ 拿旧订阅的帧盖新的那份)', async () => {
     const f = fakeClient()
     const seen: string[] = []
-    const sync = startSessionListSync(f.client, 'dev-1', { onList: (r, { cached }) => { if (!cached) seen.push(r.sessions[0]!.title) } })
+    const sync = startSessionListSync(f.client, 'dev-1', { onList: (r) => { seen.push(r.sessions[0]!.title) } })
     await flush()
     const [[oldSub, oldPush]] = [...f.pushes.entries()]
     sync.reconnect()
@@ -116,7 +127,7 @@ describe('startSessionListSync(#6264 手机与桌面任务页共用的会话列�
       })
       const errors: Array<string | null> = []
       const seen: string[] = []
-      const sync = startSessionListSync(f.client, 'dev-1', { onList: (r, { cached }) => { if (!cached) seen.push(r.sessions[0]!.title) }, onError: (m) => errors.push(m) })
+      const sync = startSessionListSync(f.client, 'dev-1', { onList: (r) => { seen.push(r.sessions[0]!.title) }, onError: (m) => errors.push(m) })
       await vi.advanceTimersByTimeAsync(0)
       expect(errors).toContain(`session list subscription ${vi.mocked(f.client.subscribeSessionsList).mock.calls[0]![1]}: a change arrived before the full list`)
       await vi.advanceTimersByTimeAsync(4_000)
@@ -205,7 +216,7 @@ describe('startSessionListSync:列不出来时自己再试(#6264 断线重连)',
   })
 })
 
-describe('sessionListFromDigest(机器离线时退回心跳摘要)', () => {
+describe('sessionListFromDigest(没读到那台机器此刻的列表时退回心跳摘要)', () => {
   it('项目照样列出;每条会话都打不开;老宿主没报的字段不补默认值', () => {
     const result = sessionListFromDigest([
       { conversationId: 'c1', projectId: 'p1', projectName: 'repo', title: 't', harness: 'codex', agentStatus: 'done', lastInteractedAt: null, supported: true },
@@ -216,10 +227,34 @@ describe('sessionListFromDigest(机器离线时退回心跳摘要)', () => {
     expect('isPinned' in result.sessions[0]!).toBe(false)
     expect(result.sessions[1]!.isPinned).toBe(true)
   })
+
+  it('#609 摘要里没名字的(任务工作区、workspace)不是项目:会话照列,项目不列 —— 手机把它们列进「任务」,❌ 一格没名字的项目', () => {
+    const result = sessionListFromDigest([
+      { conversationId: 'c1', projectId: 'tw', projectName: '', title: 't', harness: 'codex', agentStatus: null, lastInteractedAt: null, supported: true },
+      { conversationId: 'c2', projectId: 'p1', projectName: 'repo', title: 'u', harness: 'codex', agentStatus: null, lastInteractedAt: null, supported: true },
+    ])
+    expect(result.projects).toEqual([{ id: 'p1', name: 'repo', path: '' }])
+    expect(result.sessions.map((s) => s.projectId)).toEqual(['tw', 'p1'])
+  })
+
+  it('机器在线(还在读 / 一时连不上):照宿主自己报的能不能打开', () => {
+    const result = sessionListFromDigest([
+      { conversationId: 'c1', projectId: 'p1', projectName: 'repo', title: 't', harness: 'codex', agentStatus: null, lastInteractedAt: null, supported: true },
+      { conversationId: 'c2', projectId: 'p1', projectName: 'repo', title: 'u', harness: 'codex', agentStatus: null, lastInteractedAt: null, supported: false },
+    ], true)
+    expect(result.sessions.map((s) => s.supported)).toEqual([true, false])
+  })
 })
 
 describe('摘要里的 agent(#7199:离线时任务区也认得出个人助理自己那条)', () => {
   const base = { conversationId: 'c', projectId: 'p1', projectName: 'repo', title: 't', harness: 'claude', agentStatus: null, lastInteractedAt: null, supported: true }
+  it('retains an advertised native input contract through normalization and an offline cold directory', () => {
+    const rows = normalizeSessionDigest([{ ...base, nativeInputVersion: 1, runtime: 'acp', agentUserId: 'mine' }, { ...base, conversationId: 'old', nativeInputVersion: 2, runtime: 'bogus' }])
+    const sessions = sessionListFromDigest(rows, false).sessions
+    expect(sessions[0]).toMatchObject({ nativeInputVersion: 1, runtime: 'acp', agent: { userId: 'mine' } })
+    expect(sessions[1]).not.toHaveProperty('nativeInputVersion')
+    expect(sessions[1]!.runtime).toBe('unknown')
+  })
   it('宿主报了才带:id、null(没有 agent)、缺席(老宿主)三种分开', () => {
     const rows = normalizeSessionDigest([
       { ...base, conversationId: 'a', agentUserId: 'u1' },

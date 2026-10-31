@@ -6,12 +6,12 @@ import {
   type SessionHostClient,
   type SessionHostPipeOpener,
 } from '@shared/lib/ipc/session-host-client';
-import { broadcastDeviceSessionHostEvent, installDeviceSessionHost } from './device-session-host';
-import { FrameSessionHost, type FrameSocket } from './frame-host';
-import { HOST_WS_PROTOCOL_VERSION } from '@shared/lib/ipc/host-ws-protocol';
+import { broadcastDeviceSessionHostEvent, installDeviceSessionHost, remoteInvokePolicyForCaller } from './device-session-host';
+import { FrameSessionHost, type FrameSocket, type FrameInvokePolicy } from './frame-host';
+import { decodeHostWsMessage, encodeHostWsMessage, HOST_WS_PROTOCOL_VERSION } from '@shared/lib/ipc/host-ws-protocol';
 import { sessionpageAgentProvisionedEvent, sessionpageAgentRenamedEvent } from '@shared/lib/ipc/sessionpage-identity-contract';
 
-function memoryLink(host: FrameSessionHost, policy?: (channel: string) => boolean) {
+function memoryLink(host: FrameSessionHost, policy?: FrameInvokePolicy) {
   const serverSockets: Array<{ drop(): void }> = [];
   const open: SessionHostPipeOpener = async ({ onFrame, onClose }) => {
     let serverFrame: ((frame: string | Uint8Array) => void) | null = null;
@@ -51,6 +51,53 @@ describe('FrameSessionHost over a device-shaped link', () => {
   afterEach(() => {
     client?.close();
     client = null;
+  });
+
+  it('首读正在等旧开线:替代连接接通就把同一问交到宿主,只执行一次', async () => {
+    const host = new FrameSessionHost();
+    const snapshot = { cursor: { epoch: 'test', seq: 1 }, turns: [], settlements: [], hasOlder: false };
+    const read = vi.fn(() => snapshot);
+    host.ipcMain.handle('sessionTimeline.sessionSnapshot', read);
+    const link = memoryLink(host);
+    let opens = 0;
+    client = createSessionHostClient((handlers) => ++opens === 1 ? new Promise(() => undefined) : link.open(handlers));
+    const got: unknown[] = [];
+    const firstRead = client.api.invoke('sessionTimeline.sessionSnapshot', { conversationId: 'test-session' }).then((value) => got.push(value));
+    client.reconnectNow();
+    await flush();
+    expect(got).toEqual([snapshot]);
+    expect(read).toHaveBeenCalledTimes(1);
+    await firstRead;
+  });
+
+  it('sends no broadcasts before the first subscription, even when opening never finishes', () => {
+    const host = new FrameSessionHost();
+    const frames: Array<string | Uint8Array> = [];
+    let receive: (frame: string | Uint8Array) => void = () => { throw new Error('not attached'); };
+    const detach = host.attach({
+      send: (frame) => { frames.push(frame); },
+      close: () => undefined,
+      onFrame: (handler) => { receive = handler; },
+      onClose: () => undefined,
+    });
+    try {
+      frames.length = 0; // The host hello is a direct protocol message.
+      host.broadcast('pty:data.other', 'unsolicited');
+      expect(frames).toEqual([]);
+
+      receive(JSON.stringify({ t: 'sub', channel: 'pty:data.mine' }));
+      host.broadcast('pty:data.other', 'still unrelated');
+      host.broadcast('pty:data.mine', 'subscribed');
+      expect(frames.map((frame) => JSON.parse(String(frame)))).toEqual([
+        { t: 'event', channel: 'pty:data.mine', data: 'subscribed' },
+      ]);
+
+      receive(JSON.stringify({ t: 'unsub', channel: 'pty:data.mine' }));
+      host.broadcast('pty:data.mine', 'after unsub');
+      expect(frames).toHaveLength(1);
+    } finally {
+      detach();
+    }
   });
 
   it('pushes only the channels the client subscribed to', async () => {
@@ -178,6 +225,18 @@ describe('FrameSessionHost over a device-shaped link', () => {
     await expect(client.api.invoke('app.quit')).rejects.toThrow(/No handler registered for 'app.quit'/);
   });
 
+  it('checks App operation arguments on a persistent frame connection as well as one-shot calls', async () => {
+    const host = new FrameSessionHost();
+    const run = vi.fn((_event, _verb, input) => input.name);
+    host.ipcMain.handle('app.assistantAppCall', run);
+    client = createSessionHostClient(memoryLink(host, remoteInvokePolicyForCaller('owner')).open);
+    await expect(client.api.invoke('app.assistantAppCall', 'callProgram', { name: 'assistant_work_list' }, 'owner')).resolves.toBe('assistant_work_list');
+    await expect(client.api.invoke('app.assistantAppCall', 'callProgram', { name: 'assistant_work_clear' }, 'owner')).resolves.toBe('assistant_work_clear');
+    await expect(client.api.invoke('app.assistantAppCall', 'callProgram', { name: 'assistant_work_clear' }, 'other')).rejects.toThrow(/No handler/);
+    await expect(client.api.invoke('app.assistantAppCall', 'callProgram', { name: 'library_write' }, 'owner')).rejects.toThrow(/No handler/);
+    expect(run).toHaveBeenCalledTimes(2);
+  });
+
   it('opens a wire transport that carries messages both ways and reports the drop', async () => {
     const host = new FrameSessionHost();
     host.ipcMain.handle('acp-wire:connect', (event) => {
@@ -214,5 +273,29 @@ describe('FrameSessionHost over a device-shaped link', () => {
     broadcastDeviceSessionHostEvent(sessionpageAgentRenamedEvent.name, event);
     await flush();
     expect(got).toEqual([event]);
+  });
+});
+
+// Protocol 14 compatibility (delete with protocol14FileChanges on the next protocol bump): the frame a
+// protocol-14 window receives for a turn with a file edit, captured at the host's egress.
+describe('a protocol-14 window', () => {
+  it('receives 14\'s own file entity for a patch, and a 15 window the patch unchanged', async () => {
+    const host = new FrameSessionHost();
+    const patch = { type: 'diff', changes: [{ operation: 'modify', path: '/w/a.txt' }], scope: 'file',
+      patch: { format: 'git_patch', text: 'diff --git "a//w/a.txt" "b//w/a.txt"\n--- "a//w/a.txt"\n+++ "b//w/a.txt"\n@@ -2,3 +2,4 @@\n beta\n-gamma\n+GAMMA-817\n delta\n+zeta\n' } };
+    const item = { kind: 'patch-tool-call', id: 't:tool:edit', seq: 1, toolCallId: 'edit', title: 'Edit a.txt', status: 'done', contentBlocks: [patch] };
+    host.ipcMain.handle('sessionTimeline.sessionSnapshot', () => ({ turns: [{ id: 't', items: [item] }] }));
+    const read = async (peerProtocol: number) => {
+      const frames: unknown[] = [];
+      let deliver: ((frame: string | Uint8Array) => void) | null = null;
+      host.attach({ send: (frame) => frames.push(decodeHostWsMessage(frame)), close: () => {}, onFrame: (cb) => (deliver = cb), onClose: () => {} },
+        { peerProtocol });
+      deliver!(encodeHostWsMessage({ t: 'invoke', id: 1, channel: 'sessionTimeline.sessionSnapshot', args: [] }) as string);
+      await flush();
+      return (frames.find((frame) => (frame as { t: string }).t === 'result') as { value: { turns: Array<{ items: unknown[] }> } }).value.turns[0]!.items;
+    };
+    expect(await read(14)).toEqual([{ kind: 'modify-file-tool-call', id: 't:tool:edit', seq: 1, toolCallId: 'edit', title: 'Edit a.txt',
+      status: 'done', path: '/w/a.txt', oldText: 'beta\ngamma\ndelta', newText: 'beta\nGAMMA-817\ndelta\nzeta' }]);
+    expect(await read(15)).toEqual([item]);
   });
 });

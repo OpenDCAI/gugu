@@ -3,6 +3,7 @@ import type { RendererCommandDomain } from '../lib/rendererCommandProtocol'
 import type { Device } from '@gugu/core/shared/types/chat'
 import type { HumanAuthSession } from '@gugu/core'
 import type { SupportedLocale } from '@/i18n'
+import type { FileHandle } from '@gugu/core/shared/fileResolver'
 
 interface PlatformCapabilities {
   directoryPicker: boolean
@@ -36,7 +37,9 @@ interface PlatformCapabilities {
 export interface ShareToAppsPayload {
   text?: string
   title?: string
-  files?: Array<{ url: string; name: string; mimeType?: string }>
+  files?: Array<{ file: FileHandle; name: string; mimeType?: string }>
+  /** Bytes made here (a live document's text, say), shared as files beside `files`. */
+  blobs?: Array<{ blob: Blob; name: string }>
 }
 
 /** 没收下的原因,给界面挑一句用户看得懂的话;原文只进日志。 */
@@ -50,7 +53,7 @@ export interface IncomingShare {
 }
 
 /** 手机「权限」页列出的系统权限。只列咕咕真用到、要用户点头的(product spec)。 */
-export type SystemPermission = 'notifications' | 'camera' | 'fileAccess' | 'batteryOptimization'
+export type SystemPermission = 'notifications' | 'camera' | 'fileAccess' | 'batteryOptimization' | 'microphone'
 
 /**
  * 系统当下给的真值,按「点这一行该做什么」切成四档:
@@ -70,6 +73,8 @@ export interface FeedbackLogTail {
   truncated: boolean
 }
 
+export type DeviceFreeCreditsStatus = 'granted' | 'already_claimed' | 'device_full' | 'not_confirmed' | null
+
 export interface AppPlatform {
   kind: 'electron' | 'capacitor' | 'web'
   documentTitle: string
@@ -88,9 +93,12 @@ export interface AppPlatform {
    * ⚠️ 为什么不能用 `document.visibilityState` 代替:「后台守着」(setBackgroundWatch)开着时,
    * 前台服务会持续告诉 WebView「你还看得见」(否则 Chromium 冻掉页面里的定时器),
    * 于是 App 明明在后台,页面仍然自称 visible。只有宿主自己知道真相。
+   * 桌面同理:主窗关了 backgroundThrottling,最小化、被遮住、切到别的应用时页面照样 visible(main.ts @@@app-active)。
    * 宿主答不上来就不实现它,调用方退回 visibilityState —— 那是没有前台服务的宿主,不会被骗。
    */
   subscribeAppActive?: (listener: (active: boolean) => void) => () => void
+  /** 本机宿主在当前账号的设备里认出了这台电脑(拿到登录、查到自己那一行)。没有本机设备的宿主不实现。 */
+  subscribeLocalDeviceIdentified?: (listener: () => void) => () => void
   selectDirectory: () => Promise<string | null>
   checkForUpdates: () => Promise<unknown>
   updateState?: () => Promise<unknown> // @@@5837 问宿主更新现在什么状态(main.ts updates:state);答不上来就不实现
@@ -108,12 +116,13 @@ export interface AppPlatform {
    * ❌ 读不到就抛 —— 调用方必须当场告诉用户「这次带不上」,不许静默附一个空的。
    */
   readLogTail: () => Promise<FeedbackLogTail>
-  openAgentRuntime: (agentUserId: string) => Promise<unknown>
+  /** 本机设备的免费额度认领结果；没有桌面缓存的宿主不提供。 */
+  readDeviceFreeCreditsStatus?: () => Promise<DeviceFreeCreditsStatus>
   /**
    * 用系统应用打开一个附件。字节怎么拿由宿主挑:桌面要字节(交给主进程落盘再打开),安卓要签名链接(原生自己下),
    * 网页开新标签页。两样都按需取,宿主只调它要的那一样。
    */
-  openRemoteFile: (file: { bytes: () => Promise<Blob>; url: () => Promise<string> }, filename: string) => Promise<void>
+  openRemoteFile: (file: FileHandle, filename: string) => Promise<void>
   /**
    * 「保存」:把这份字节存成一个文件。桌面与网页交给浏览器的下载(a[download]);安卓的 WebView 不接下载,交给系统的
    * 「保存到…」。saved:false = 人在系统界面里取消了(不是失败);写不进去照常抛。
@@ -164,6 +173,8 @@ export interface AppPlatform {
    * 可选:只有带本机设备 runtime 的宿主(Electron)有这个口;网页与移动端没有可通知的对象。
    */
   notifyDeviceCommandsChanged?: () => void
+  /** 渲染层建 / 改 / 删了定时任务:本机设备 runtime 当场重排(表上没有事件)。只有 Electron 有。 */
+  notifyScheduledTasksChanged?: () => void
   /**
    * #6396 本账号的 agent 有变动(另一台设备建了 / 改名 / 删了)—— 告诉本机会话页起名那一层当场刷新「用到几号」。
    * 可选:只有在本机起会话页会话的宿主(Electron)有这个口。

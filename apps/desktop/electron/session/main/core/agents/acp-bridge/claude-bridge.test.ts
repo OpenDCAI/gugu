@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { awaitPending } from '../../../../../../../../tests/support/awaitFact';
-import { cachedBridgeEntry, resolveClaudeBridgeEntry, type ClaudeBridgeDeps } from './claude-bridge';
+import { CLAUDE_BRIDGE_KEY, cachedBridgeEntry, resolveClaudeBridgeEntry, type ClaudeBridgeDeps } from './claude-bridge';
 import type { CompatCheck, VersionedCompat } from './pairing';
 
 vi.mock('../../../../../lib/logger', () => ({
@@ -17,13 +17,17 @@ beforeEach(() => {
   CACHE = `/cache/${caseNo}/acp-bridges`;
 });
 
-function table(releases: Array<{ version: string; cliFrom: string; verified?: string[] }>, compatVersion: string): VersionedCompat {
+function table(
+  releases: Array<{ version: string; cliFrom: string; verified?: string[] }>,
+  compatVersion: string,
+  key: string = CLAUDE_BRIDGE_KEY,
+): VersionedCompat {
   return {
     compatVersion,
     table: {
       schema: 1,
       bridges: {
-        'claude-agent-acp': {
+        [key]: {
           package: PKG,
           cli: 'claude',
           releases: releases.map((r) => ({ version: r.version, cliFrom: r.cliFrom, verified: (r.verified ?? [r.cliFrom]).map((cli) => ({ cli })) })),
@@ -81,6 +85,15 @@ const probe = (deps: ClaudeBridgeDeps) => resolveClaudeBridgeEntry({ cliPath: '/
 const entryOf = (version: string) => cachedBridgeEntry(CACHE, PKG, version);
 
 describe('claude bridge pairing at session start (#6394)', () => {
+  it('fails loudly when the table has no v2 bridge releases, rather than pairing a bridge of the frozen v1 key', async () => {
+    const v1Only = table([{ version: '1.4.1', cliFrom: '2.1.304' }], '1.0.11', 'claude-agent-acp');
+    const { deps } = fakeDeps({ readBundled: () => ({ bridgeVersion: '1.4.1', compat: v1Only }) });
+    await expect(resolveClaudeBridgeEntry({ cliPath: '/bin/claude', env: {}, cacheDir: CACHE, deps })).rejects.toThrow(
+      `compat table 1.0.11 has no ${CLAUDE_BRIDGE_KEY} releases`,
+    );
+    expect(deps.installBridge).not.toHaveBeenCalled();
+  });
+
   it('uses the bundled bridge when the table puts the CLI in its range, without going online or reporting a wait', async () => {
     const { deps } = fakeDeps({ cli: '2.1.281' });
     const wait = waiter();
@@ -94,7 +107,7 @@ describe('claude bridge pairing at session start (#6394)', () => {
     const { deps } = fakeDeps({ cli: '2.1.282' });
     const wait = waiter();
     await expect(resolve(deps, wait)).resolves.toBe(entryOf('1.1.0'));
-    expect(deps.installBridge).toHaveBeenCalledWith(`${PKG}@1.1.0`, expect.stringContaining('claude-agent-acp@1.1.0'), {});
+    expect(deps.installBridge).toHaveBeenCalledWith(`${PKG}@1.1.0`, expect.stringContaining(`${CLAUDE_BRIDGE_KEY}@1.1.0`), {});
     expect(wait.onWaiting).toHaveBeenCalledWith(`${PKG}@1.1.0`);
     expect(wait.onSettled).toHaveBeenCalledTimes(1);
     expect(deps.fetchLatestCompat).not.toHaveBeenCalled(); // 2.1.282 is already in the bundled table

@@ -3,6 +3,9 @@
 import { Capacitor, registerPlugin, type PluginListenerHandle } from '@capacitor/core'
 import type { IncomingShare, IncomingShareFailure, ShareToAppsPayload } from './types'
 import { rendererLogger } from '../lib/log'
+import { stageFileHandle, stageFileSource, FILE_CHUNK_BYTES, type FileHandle, type FileStageCommand } from '@gugu/core/shared/fileResolver'
+import { fileSha256 } from '@gugu/core/shared/fileCipher'
+import { bytesToBase64 } from '../session/renderer/lib/base64'
 
 const log = rendererLogger('mobile/share-with-apps')
 const FAILURE_CODES: readonly IncomingShareFailure[] = ['tooLarge', 'refused', 'unreadable']
@@ -23,9 +26,10 @@ interface NativeIncomingShare {
 }
 
 interface GuguSharePlugin {
-  share(options: ShareToAppsPayload): Promise<void>
-  open(options: { url: string; name: string }): Promise<void>
-  save(options: { name: string; mimeType: string; data: string }): Promise<{ saved: boolean }>
+  stage(options: Omit<FileStageCommand, 'bytes'> & { bytes?: string }): Promise<unknown>
+  share(options: { text?: string; title?: string; files?: Array<{ id: string; name: string; mimeType?: string }> }): Promise<void>
+  open(options: { id: string; name: string }): Promise<void>
+  save(options: { id: string; name: string; mimeType: string }): Promise<{ saved: boolean }>
   release(options: { id: string }): Promise<void>
   addListener(event: 'shareReceived', listener: (share: NativeIncomingShare) => void): Promise<PluginListenerHandle>
 }
@@ -33,23 +37,31 @@ interface GuguSharePlugin {
 const plugin = registerPlugin<GuguSharePlugin>('GuguShare')
 
 export async function shareToApps(payload: ShareToAppsPayload): Promise<void> {
-  await plugin.share(payload)
+  const files = []
+  for (const { file, name, mimeType } of payload.files ?? []) files.push({ id: await stage(file, name), name, mimeType })
+  for (const { blob, name } of payload.blobs ?? []) files.push({ id: await stageBlob(blob, name), name, mimeType: blob.type })
+  await plugin.share({ text: payload.text, title: payload.title, ...(files.length ? { files } : {}) })
 }
 
-export const openInApps = (url: string, name: string): Promise<void> => plugin.open({ url, name })
+const sendStage = (command: FileStageCommand) => plugin.stage(command.op === 'chunk' ? { ...command, bytes: bytesToBase64(command.bytes) } : command)
+const stage = (file: FileHandle, name: string) => stageFileHandle(file, name, sendStage)
+export const openInApps = async (file: FileHandle, name: string): Promise<void> => plugin.open({ id: await stage(file, name), name })
 
-/** WebView 不接 `<a download>`:字节以 base64 交给原生,由系统的「保存到…」落盘。 */
+/** A generated Blob in the same bounded native staging a file takes. */
+async function stageBlob(blob: Blob, name: string): Promise<string> {
+  const stream = async function* () {
+    const reader = blob.stream().getReader()
+    try { for (;;) { const part = await reader.read(); if (part.done) break; for (let i = 0; i < part.value.length; i += FILE_CHUNK_BYTES) yield part.value.subarray(i, i + FILE_CHUNK_BYTES) } }
+    finally { await reader.cancel() }
+  }
+  const hash = fileSha256.create(); for await (const bytes of stream()) hash.update(bytes)
+  const sha256 = Array.from(hash.digest(), byte => byte.toString(16).padStart(2, '0')).join('')
+  return stageFileSource({ revision: { size_bytes: blob.size, sha256, content_type: blob.type }, stream, dispose: async () => {} }, name, sendStage)
+}
+
+/** A generated Blob uses the same bounded native staging, then the existing system save picker. */
 export async function saveToDevice(blob: Blob, name: string): Promise<{ saved: boolean }> {
-  const data = await new Promise<string>((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = () => {
-      const url = String(reader.result)
-      resolve(url.slice(url.indexOf(',') + 1))
-    }
-    reader.onerror = () => reject(reader.error ?? new Error('could not read the file to save'))
-    reader.readAsDataURL(blob)
-  })
-  return plugin.save({ name, mimeType: blob.type, data })
+  return plugin.save({ id: await stageBlob(blob, name), name, mimeType: blob.type })
 }
 
 /** 浏览器分享网页常给「标题 + 链接」两段(EXTRA_SUBJECT / EXTRA_TEXT);标题已在正文里就不重复。 */

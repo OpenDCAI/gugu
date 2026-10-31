@@ -1,7 +1,8 @@
+import { rpcQuery } from '../../../../../../tests/helpers/rpcQuery';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 /**
- * 子文件夹 (gugu-supabase 20261016012659; gugu-base notes/2026-10-15-attachments-into-folder/设计.md §2): a chat's folder has
+ * 子文件夹 (gugu-supabase 20261016012659): a chat's folder has
  * folders — rows of kind 'folder' that other rows point at with `parent_id`. What the host answers a page or a program:
  *   · every entry says where it is (`parentId`, `path` from the top, `systemRole`); a folder is `type: 'folder'`, no App claims it;
  *   · `files.list({ chat, folder })` is what is directly in that folder (path, case not counted, or id; '' the top), and a
@@ -109,12 +110,12 @@ function table(name: string): never {
 vi.mock('@gugu/core/cloud/supabase', () => ({
   createGuguSupabaseClient: () => ({
     from: table,
-    rpc: async (name: string, args: Record<string, unknown>) => {
+    rpc: rpcQuery(async (name: string, args: Record<string, unknown>) => {
       // Who may delete what is the folder's to say; here, everyone may delete everything.
       if (name === 'workspace_deletable_as') return { data: args.p_item_ids, error: null };
       rpcCalls.push({ name, args });
       return rpcAnswer(name, args);
-    },
+    }),
     storage: {
       from: () => ({
         remove: async (list: string[]) => (removed.push(list), { data: list, error: null }),
@@ -130,7 +131,8 @@ vi.mock('@gugu/core/cloud/attachmentsApi', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@gugu/core/cloud/attachmentsApi')>()),
   configuredEndpoint: (token: string) => ({ supabaseUrl: 'https://db.test', anonKey: 'anon', token }),
   uploadAttachmentBytes: async () => 'staging/fixture',
-  placeAttachment: async (_endpoint: unknown, args: { file_name: string; chat_id: string; as_user_id?: string | null; content_type?: string }) => {
+  placeAttachment: async (_endpoint: unknown, args: { file_name: string; chat_id: string; as_user_id?: string | null; content_type?: string; keep?: string }) => {
+    placed.push(args);
     const filename = insertedAs[args.file_name] ?? args.file_name;
     const row: Row = { ...base, chat_id: args.chat_id, kind: 'file', content_type: args.content_type ?? null, parent_id: null, pointer: null, filename, name_key: filename.toLowerCase(), created_by: args.as_user_id ?? PERSON,
       id: `0000000${inserted.length}-0000-4000-8000-000000000000` };
@@ -140,12 +142,13 @@ vi.mock('@gugu/core/cloud/attachmentsApi', async (importOriginal) => ({
   },
 }));
 
+const placed: { keep?: string }[] = [];
 const { createAppFiles } = await import('./app-files-core');
 
 const files = createAppFiles({
   account: async () => ({ token: 'token', userId: PERSON }),
   hasCapability: () => true,
-  sync: { pageFor: () => ({}), grant: () => undefined, revoke: () => undefined, ungrant: () => undefined } as never,
+  sync: { ensureFor: () => undefined, pageFor: () => ({}), grant: () => undefined, revoke: () => undefined, ungrant: () => undefined } as never,
   // Every name is claimed by some App here: a folder still says no App opens it.
   claimant: () => ({ suffix: '.png', app: { id: 'viewer', name: 'Viewer', icon: null } }),
   identities: async (_token, ids) => ids.map((id) => ({ id, name: id === AGENT ? 'Helper' : 'Pat', avatar: null, kind: id === AGENT ? ('agent' as const) : ('human' as const) })),
@@ -334,6 +337,18 @@ describe('making, moving, deleting', () => {
     expect(rpcCalls.filter((call) => call.name === 'workspace_clash_as').map((call) => call.args)).toEqual([
       { p_item_id: inserted[0]!.id, p_as_user_id: PERSON, p_picked: pickedName },
     ]);
+  });
+
+  it('keep travels with a stored file to the server, an unknown one is refused before a byte goes', async () => {
+    rpcAnswer = (name, args) => (name === 'workspace_status_as' ? { data: [{}], error: null } : door(name, args));
+    placed.length = 0;
+    await files.upload(CHAT, [{ name: 'shot.png', contentType: 'image/png', bytes: new Uint8Array([1]).buffer as ArrayBuffer }], { keep: 'temporary' });
+    expect(placed.at(-1)).toMatchObject({ keep: 'temporary' });
+    await files.upload(CHAT, [{ name: 'kept.png', contentType: 'image/png', bytes: new Uint8Array([2]).buffer as ArrayBuffer }]);
+    expect(placed.at(-1)).not.toHaveProperty('keep');
+    const before = placed.length;
+    await expect(files.upload(CHAT, [{ name: 'x.png', contentType: 'image/png', bytes: new Uint8Array([3]).buffer as ArrayBuffer }], { keep: 'forever' })).rejects.toMatchObject({ code: 'invalid' });
+    expect(placed.length).toBe(before);
   });
 
   it('the database cannot say what an upload clashed with (the row gone before it was asked): the upload stands, nothing is asked, the host logs it', async () => {

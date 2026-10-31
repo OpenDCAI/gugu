@@ -103,7 +103,7 @@ export const plugin = definePlugin(
         kind: 'listed',
         prefix: 'mcp__gugu__',
         evidence: 'session/create.mcpServers 挂名为 gugu 的 stdio server,工具行 toolName = mcp__gugu__gugu_secret_word'
-          + '(ZCode 3.15.3 app-server;gugu-base notes/2026-10-16-zcode-harness/实测-app-server-ACP桥可行性.md)',
+          + '(ZCode 3.15.3 app-server 实测,2026-10-16)',
       },
     },
     memory: zcodeMemory,

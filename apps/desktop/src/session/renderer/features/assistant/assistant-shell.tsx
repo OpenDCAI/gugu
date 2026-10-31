@@ -1,9 +1,11 @@
 import { useCallback, useSyncExternalStore } from 'react';
 import {
+  assistantSlotKey,
   readAssistantShellBridge,
   type AssistantShellSlot,
   type AssistantShellSnapshot,
 } from '@/lib/assistantShellBridge';
+import { readShellSlots } from '@/lib/shellSlots';
 
 /** 壳发布的「此刻的样子」(云电脑、个人助理是谁);壳还没挂上 = null。 */
 export function useAssistantShell(): AssistantShellSnapshot | null {
@@ -20,7 +22,7 @@ export function useAssistantShell(): AssistantShellSnapshot | null {
  */
 export function ShellSlot({ name, className }: { name: AssistantShellSlot; className?: string }) {
   const ref = useCallback(
-    (element: HTMLDivElement | null) => readAssistantShellBridge()?.setSlot(name, element),
+    (element: HTMLDivElement | null) => readShellSlots()?.setSlot(assistantSlotKey(name), element),
     [name]
   );
   return <div ref={ref} className={className} data-assistant-slot={name} />;

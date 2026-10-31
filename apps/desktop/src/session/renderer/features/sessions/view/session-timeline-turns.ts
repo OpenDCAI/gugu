@@ -1,5 +1,6 @@
 import { readDeliveryEnvelope, type DeliveryReading } from '@gugu/core/local/agent/deliveryEnvelope';
 import { shownSender, type SelfIdentity, type TranscriptTurn } from '@gugu/session-chat-ui';
+import { parseConversationLink } from '@gugu/core/shared/ui/guguLink';
 
 /**
  * Who a delivered turn came from. The rail paints these ticks differently from
@@ -9,7 +10,8 @@ import { shownSender, type SelfIdentity, type TranscriptTurn } from '@gugu/sessi
  */
 export type TimelineSender =
   | { kind: 'chat'; name: string }
-  | { kind: 'group'; name: string; chat: string }
+  /** `chatId` 从来源链接里取(信封的 chat 是群号,给 agent 寻址用);名字由画的那一层按它去认。 */
+  | { kind: 'group'; name: string; chatId: string | null }
   | { kind: 'session'; name: string }
   /** #6387 An installed extension, relaying what the person did in it. */
   | { kind: 'extension'; name: string }
@@ -41,7 +43,7 @@ function senderOf(delivery: DeliveryReading, self: SelfIdentity | null): Timelin
   if (facts.route === 'session-direct') return { kind: 'session', name };
   if (facts.route === 'extension') return { kind: 'extension', name };
   if (facts.route === 'forum') return { kind: 'forum', name };
-  if (facts.chatKind === 'group') return { kind: 'group', name, chat: facts.chat ?? '' };
+  if (facts.chatKind === 'group') return { kind: 'group', name, chatId: (facts.sourceLink && parseConversationLink(facts.sourceLink)?.chatId) || null };
   return { kind: 'chat', name };
 }
 

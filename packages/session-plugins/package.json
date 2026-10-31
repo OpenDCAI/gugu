@@ -16,8 +16,10 @@
     "./agents/node-interpreter": "./src/agents/helpers/node-interpreter.ts",
     "./issues": "./src/issues/index.ts",
     "./agent-icons": "./src/agents/icons.ts",
+    "./integration-icons": "./src/integrations/icons.ts",
     "./agents/pi-agent-dir": "./src/agents/impl/pi/agent-dir.ts",
-    "./agents/platform-protocols": "./src/agents/platform-protocols.ts"
+    "./agents/platform-protocols": "./src/agents/platform-protocols.ts",
+    "./integration-summaries": "./src/integrations/summaries.ts"
   },
   "scripts": {
     "test": "vitest run",
@@ -25,8 +27,8 @@
     "generate:acp-fixture": "tsx tooling/fixtures/create-acp-transcript.ts"
   },
   "dependencies": {
-    "@agentclientprotocol/claude-agent-acp": "npm:@gugu-acp/claude-agent-acp@1.4.1",
-    "@agentclientprotocol/sdk": "^1.4.0",
+    "@agentclientprotocol/claude-agent-acp": "npm:@gugu-acp/claude-agent-acp@1.6.2",
+    "@agentclientprotocol/sdk": "1.9.0",
     "@gitbeaker/rest": "^43.8.0",
     "@gugu/session-core": "workspace:*",
     "@gugu/session-shared": "workspace:*",

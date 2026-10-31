@@ -8,6 +8,8 @@ import type { SessionpageSessionOptions } from '@gugu/session-core/session-recor
  * 所以这里只报**建会话时选定的那个模型**(会话上记着),让输入框上的模型胶囊照样在;
  * 可选清单就是它一个 —— 开起来之前换不了,开起来之后读的是活的那一份。
  * 权限档 / 推理档不报:它们的 id 是各家运行时自己的,没有运行时就给不出对得上的那一份。
+ *
+ * #980 开起来过、此刻没在跑的会话(打开不叫醒它)报的也是这一份;那时调用方另附模型菜单,换模型那一下再起它。
  */
 export function notStartedSessionOptions(input: {
   /** harness 自家模型 id(会话配置里的 `model`)。 */

@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SessionConfig } from '@shared/core/sessions/session-config';
 import { awaitPending } from '../../../../../../../tests/support/awaitFact';
 import { sessionDeliveryFailedChannel } from '@shared/core/sessions/sessionEvents';
+import { buildSessionDirectEnvelope } from '@gugu/core/local/agent/deliveryEnvelope';
+import { withSessionAttachments } from '@gugu/core/cloud/sessionAttachments';
 
 const state = vi.hoisted(() => ({
   row: {} as Record<string, unknown>,
@@ -665,6 +667,53 @@ describe('session-direct live-only delivery', () => {
     setRow({ version: '1', type: 'acp' });
   });
 
+  it('joins a concurrent replay of a session-direct message while the first router is still starting', async () => {
+    const gate = Promise.withResolvers<void>();
+    const router = vi.fn(async (_id: string, message: { id: string }) => { await gate.promise; return { status: 'accepted' as const, messageId: message.id }; });
+    setSessionMessageRouter(router);
+    const params = { ...target, clientMessageId: 'concurrent-replay', text: 'one original message', kind: 'session-direct' as const };
+    const first = sendMessage(params);
+    await vi.waitFor(() => expect(router).toHaveBeenCalledTimes(1));
+    const second = sendMessage(params);
+    try {
+      await Promise.resolve(); await Promise.resolve();
+      expect(router).toHaveBeenCalledTimes(1);
+    } finally { gate.resolve(); await Promise.allSettled([first, second]); }
+    expect(state.receipts.filter(row => row.id === params.clientMessageId)).toHaveLength(1);
+  });
+  it('replays the same accepted work envelope after display-name and local-time formatting changes',async()=>{
+    const router=vi.fn(async(_id:string,message:{id:string})=>({status:'accepted' as const,messageId:message.id}));setSessionMessageRouter(router);
+    const params={...target,clientMessageId:'work-display-change',kind:'session-direct' as const};
+    const before=buildSessionDirectEnvelope({senderSessionId:'child',senderTitle:'任务执行者',messageId:params.clientMessageId,at:'2026-10-26T07:39:41Z',content:'file ready'});
+    const after=buildSessionDirectEnvelope({senderSessionId:'child',senderTitle:'任务',messageId:params.clientMessageId,at:'2026-10-26 15:39 北京时间',content:'file ready'});
+    await sendMessage({...params,text:before});
+    await expect(sendMessage({...params,text:after})).resolves.toMatchObject({status:'delivered'});
+    expect(router).toHaveBeenCalledOnce();expect(state.receipts).toHaveLength(1);expect(state.receipts[0].content).toBe(before);
+    await expect(sendMessage({...params,text:after.replace('file ready','different result')})).rejects.toThrow('conflicts with existing message bytes');
+    await expect(sendMessage({...params,text:after.replace('session:child','session:someone-else')})).rejects.toThrow('conflicts with existing message bytes');
+  });
+  it('continues to reject changed file references in an otherwise equivalent renamed envelope',async()=>{
+    const router=vi.fn(async(_id:string,message:{id:string})=>({status:'accepted' as const,messageId:message.id}));setSessionMessageRouter(router);
+    const params={...target,clientMessageId:'work-file-change',kind:'session-direct' as const};
+    const file={attachment_id:'10000000-0000-4000-8000-000000000001',file_name:'weather.xlsx',sha256:'a'.repeat(64),size_bytes:18,content_type:'application/octet-stream'};
+    const envelope=(sha256:string)=>buildSessionDirectEnvelope({senderSessionId:'child',senderTitle:'任务',messageId:params.clientMessageId,at:'2026-10-26 15:39 北京时间',content:withSessionAttachments('ready',[{...file,sha256}])});
+    await sendMessage({...params,text:envelope(file.sha256)});
+    await expect(sendMessage({...params,text:envelope('b'.repeat(64))})).rejects.toThrow('conflicts with existing message bytes');expect(router).toHaveBeenCalledOnce();
+  });
+  it('joins an in-flight renamed replay while preserving the original provider input',async()=>{
+    const gate=Promise.withResolvers<void>();const router=vi.fn(async(_id:string,message:{id:string})=>{await gate.promise;return {status:'accepted' as const,messageId:message.id}});setSessionMessageRouter(router);
+    const params={...target,clientMessageId:'inflight-display-change',kind:'session-direct' as const};
+    const before=buildSessionDirectEnvelope({senderSessionId:'child',senderTitle:'任务执行者',messageId:params.clientMessageId,at:'2026-10-26 15:39 北京时间',content:'done'});
+    const first=sendMessage({...params,text:before});await vi.waitFor(()=>expect(router).toHaveBeenCalledOnce());
+    const second=sendMessage({...params,text:before.replace('任务执行者','任务')});const outcomes=Promise.allSettled([first,second]);gate.resolve();
+    expect((await outcomes).every(row=>row.status==='fulfilled')).toBe(true);expect(router).toHaveBeenCalledOnce();expect(state.receipts).toHaveLength(1);
+  });
+  it('does not begin a cancelled session-direct admission', async () => {
+    const router = vi.fn(); setSessionMessageRouter(router);
+    const controller = new AbortController(); controller.abort(new Error('delivery cancelled'));
+    await expect(sendMessage({ ...target, clientMessageId: 'cancelled-before-start', text: 'no bytes', kind: 'session-direct', signal: controller.signal })).rejects.toThrow('delivery cancelled');
+    expect(router).not.toHaveBeenCalled();
+  });
   it('injects a live session synchronously and records only the recipient timeline row', async () => {
     const router = vi.fn(async (_sessionId: string, message: { id: string }) => ({
       status: 'accepted' as const,

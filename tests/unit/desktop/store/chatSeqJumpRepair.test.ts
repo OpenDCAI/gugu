@@ -40,6 +40,7 @@ function harness(windowRows: MessageItem[]) {
     revalidateInFlight: new Set<string>(),
     applyMessagesSnapshot,
     refreshMessages,
+    revalidateWindowOverlays: vi.fn(async () => {}),
   }
   return { io, applyMessagesSnapshot, refreshMessages }
 }

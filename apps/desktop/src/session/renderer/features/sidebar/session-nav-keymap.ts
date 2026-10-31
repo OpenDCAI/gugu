@@ -1,6 +1,6 @@
 import type { Hotkey } from '@tanstack/react-hotkeys';
 import { matchesKeyboardEvent } from '@tanstack/react-hotkeys';
-import type { ShortcutSettingsKey } from '@shared/shortcuts';
+import type { CommandId } from '@shared/commands';
 
 /**
  * behavior session-page「键盘导航」 — the key → action decision, kept as a pure function so the whole
@@ -8,16 +8,16 @@ import type { ShortcutSettingsKey } from '@shared/shortcuts';
  */
 
 export const SESSION_NAV_SHORTCUT_KEYS = [
-  'sessionNext',
-  'sessionPrev',
-  'sessionFocusComposer',
-  'sessionNewInProject',
-  'sessionBackToList',
-  'sessionLeaveComposer',
-  'renameSession',
-  'pinSession',
-  'archiveHighlightedSession',
-] as const satisfies readonly ShortcutSettingsKey[];
+  'session.next',
+  'session.previous',
+  'session.focusComposerFromSidebar',
+  'session.projectHome',
+  'session.backToList',
+  'session.leaveComposer',
+  'session.rename',
+  'session.pinHighlighted',
+  'session.archiveHighlighted',
+] as const satisfies readonly CommandId[];
 
 export type SessionNavShortcutKey = (typeof SESSION_NAV_SHORTCUT_KEYS)[number];
 
@@ -43,36 +43,36 @@ const ALLOWED: Record<SessionNavContext, readonly SessionNavShortcutKey[]> = {
   // share a default binding on purpose (disjoint layers, see behavior). Listed rather than derived
   // so which of the two wins is a decision in the table, not a consequence of declaration order.
   nav: [
-    'sessionNext',
-    'sessionPrev',
-    'sessionFocusComposer',
-    'sessionNewInProject',
-    'sessionLeaveComposer',
-    'renameSession',
-    'pinSession',
-    'archiveHighlightedSession',
+    'session.next',
+    'session.previous',
+    'session.focusComposerFromSidebar',
+    'session.projectHome',
+    'session.leaveComposer',
+    'session.rename',
+    'session.pinHighlighted',
+    'session.archiveHighlighted',
   ],
   // The composer is already focused, so "focus the composer" has nothing to do here. Bare arrows
   // remain prompt-history keys, while the registered modified arrows explicitly switch sessions.
   'composer-empty': [
-    'sessionNext',
-    'sessionPrev',
-    'sessionBackToList',
-    'sessionLeaveComposer',
-    'renameSession',
-    'pinSession',
-    'archiveHighlightedSession',
+    'session.next',
+    'session.previous',
+    'session.backToList',
+    'session.leaveComposer',
+    'session.rename',
+    'session.pinHighlighted',
+    'session.archiveHighlighted',
   ],
   // With text in the box ⌃X is the platform's cut. Rename and pin act on "the session you are in",
   // which is unambiguous while typing — so they stay available. The registered modified arrows
   // likewise switch sessions; the owner explicitly accepts replacing macOS document-boundary movement.
   'composer-text': [
-    'sessionNext',
-    'sessionPrev',
-    'sessionBackToList',
-    'sessionLeaveComposer',
-    'renameSession',
-    'pinSession',
+    'session.next',
+    'session.previous',
+    'session.backToList',
+    'session.leaveComposer',
+    'session.rename',
+    'session.pinHighlighted',
   ],
 };
 
@@ -118,7 +118,7 @@ export interface SessionNavLookupOptions {
 const PRECONDITIONS: Partial<
   Record<SessionNavShortcutKey, (options: SessionNavLookupOptions) => boolean>
 > = {
-  sessionBackToList: ({ caretAtStart }) => caretAtStart?.() === true,
+  'session.backToList': ({ caretAtStart }) => caretAtStart?.() === true,
 };
 
 /**

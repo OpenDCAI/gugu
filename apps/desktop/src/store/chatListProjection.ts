@@ -1,12 +1,13 @@
 import { useCallback, useMemo, useRef, type MutableRefObject } from 'react'
 import { mergeFetchedChatsPreservingActiveLocal } from '@gugu/core/shared/ui/chatModels'
-import { createChatNotificationPayload, shouldNotifyForChat } from '@gugu/core/shared/ui/chatNotificationModels'
+import { createChatNotificationPayload, shouldNotify } from '@gugu/core/shared/ui/notificationModels'
 import type { ChatItem } from '@gugu/core/shared/types/chat'
 import { publishChatSnapshot } from '../lib/chatSnapshotPublication'
 import { replaceEqualDeep } from '@tanstack/react-query'
 import { platform } from '../platform'
-import { chatOnScreen } from '../lib/onScreenChat'
+import { isChatOnScreen } from '../lib/onScreenChat'
 import { rendererLogger } from '../lib/log'
+import { chatPreviewText } from '../lib/agentTurnFailure'
 import type { AccountImRepository } from '../lib/imRepository'
 import { currentAuthSessionSignal } from '../lib/authSessionLoss'
 import {
@@ -72,13 +73,14 @@ export async function applyFetchedChatList(
 export function notifyForRefreshedChats(
   previous: readonly ChatItem[],
   fetched: readonly ChatItem[],
-  context: { activeChatId: string | null; notificationsEnabled: boolean; soundEnabled: boolean },
+  context: { onScreen: (chatId: string) => boolean; notificationsEnabled: boolean; soundEnabled: boolean },
 ): void {
   if (!platform.capabilities.notifications) return
   const previousById = new Map(previous.map((chat) => [chat.id, chat]))
   for (const chat of fetched) {
-    if (!shouldNotifyForChat(previousById.get(chat.id), chat, context)) continue
-    void platform.showNotification({ ...createChatNotificationPayload(chat), silent: !context.soundEnabled })
+    if (!shouldNotify({ kind: 'chat', previous: previousById.get(chat.id), next: chat },
+      { enabled: context.notificationsEnabled, onScreen: context.onScreen(chat.id) })) continue
+    void platform.showNotification({ ...createChatNotificationPayload({ ...chat, last_message_preview: chatPreviewText(chat) }), silent: !context.soundEnabled })
       .catch((err) => chatListLog.error({ reason: String(err) }, 'show notification failed'))
   }
 }
@@ -123,7 +125,7 @@ export function useChatProjectionBinding(deps: {
     ledger.recordProjected(fetched, options.requestSeq)
     if (options.notify) {
       notifyForRefreshedChats(chatsRef.current, fetched,
-        { activeChatId: chatOnScreen(), notificationsEnabled: notifyMessages, soundEnabled: notifySound })
+        { onScreen: isChatOnScreen, notificationsEnabled: notifyMessages, soundEnabled: notifySound })
     }
     setChats(await applyFetchedChatList(ledger, await getRepository(), { fetched, identities },
       { currentChats: chatsRef.current, activeChatId, revokeMissingActive }))

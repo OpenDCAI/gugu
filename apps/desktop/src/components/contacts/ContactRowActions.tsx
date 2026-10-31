@@ -4,7 +4,8 @@ import { BellOff, MailUnread, MessageCircle, Pencil, Pin, Trash } from '@/lib/ic
 import { i18n } from '../../i18n'
 import { AUTOMATION_TEST_IDS } from '../../lib/automationDom'
 import { Menu, MenuItem } from '../ui/Menu'
-import { ContactAliasSheet } from './ContactAliasSheet'
+import { AliasSheet } from './AliasSheet'
+import { useContactsStore } from '../../store/contactsContext'
 
 // #3253 通讯录行的动作面：右键菜单（#886 起）+ hover 浮出的删除钮。
 // 从 ContactsPanel 抽出，一是那个 god 文件行数被 CI 冻结，二是这两条路径本就是同一件事的两个入口。
@@ -44,12 +45,13 @@ export function ContactRowContextMenu({
   onToggleNotif,
   onRemove,
 }: ContactRowMenuActions & { x: number; y: number; onClose: () => void }) {
+  const { updateContactAlias } = useContactsStore()
   const [aliasOpen, setAliasOpen] = useState(false)
   // Base UI 选中菜单项后会回调 onOpenChange(false) → 宿主清 menuPos → 本组件整个卸载，弹窗还没挂就没了。
   // 所以「设置备注」这一下要吞掉 Menu 的关闭请求，改由弹窗的 onClose 收尾。
   const aliasOpening = useRef(false)
   const aliasContact = contact && contact.type !== 'agent' ? contact : undefined
-  if (aliasOpen && aliasContact) return <ContactAliasSheet contact={aliasContact} onClose={onClose} />
+  if (aliasOpen && aliasContact) return <AliasSheet name={aliasContact.display_name} alias={aliasContact.alias} avatarUrl={aliasContact.avatar} seed={aliasContact.id} onSave={(alias) => updateContactAlias(aliasContact.id, alias)} onClose={onClose} />
   return (
     <Menu x={x} y={y} minWidth={160} onClose={() => { if (!aliasOpening.current) onClose() }}>
       {onStartChat ? (
@@ -108,7 +110,7 @@ export function ContactRowDeleteButton({ label, onRemove }: { label: string; onR
       title={label}
       aria-label={label}
       data-testid={AUTOMATION_TEST_IDS.contactRowRemove}
-      className="gg-ghost absolute right-2 top-1/2 grid h-6 w-6 -translate-y-1/2 place-items-center opacity-0 transition-opacity duration-[var(--dur-fast)] [transition-timing-function:var(--ease)] hover:text-[var(--danger)] focus-visible:opacity-100 group-hover/contact-row:opacity-100"
+      className="gg-ghost absolute right-2 top-1/2 grid h-6 w-6 -translate-y-1/2 place-items-center opacity-0 transition-opacity duration-[var(--dur-fast)] [transition-timing-function:var(--ease)] hover:text-[var(--danger-fg)] focus-visible:opacity-100 group-hover/contact-row:opacity-100"
       onClick={(event) => {
         event.preventDefault()
         event.stopPropagation()

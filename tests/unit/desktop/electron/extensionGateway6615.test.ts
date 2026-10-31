@@ -18,6 +18,7 @@ import type { CloudMarketEntry } from '../../../../apps/desktop/src/session/shar
 import { parseExtensionTabKind, type ExtensionManifest } from '../../../../apps/desktop/src/session/shared/extensions/manifest'
 import type { CatalogTool } from '../../../../apps/desktop/electron/mcp/gugu-catalog-tools'
 import type { ExtensionProgram, ExtensionPrograms } from '../../../../apps/desktop/electron/session/main/core/extensions/extension-programs'
+import { revokeExtensionProgramAccess } from '../../../../apps/desktop/electron/session/main/core/extensions/extension-program-access'
 
 const notes: ExtensionProgram = {
   extensionId: 'agent-notes', server: 'agent-notes', digest: 'v1', command: 'node', args: [], env: {}, cwd: '/x', dataDir: '/data/agent-notes',
@@ -65,7 +66,7 @@ const programs: ExtensionPrograms = {
   handedChats: async (agentUserId, chatIds) => chatIds.map((named) => {
     const chatId = publicIds.get(named) ?? named
     if (!memberOf.get(agentUserId)?.has(chatId)) throw new Error(`${named}: not a chat you are in, so it was not handed over`)
-    return { chatId, agentUserId }
+    return { chatId, resourceChatId: chatId, agentUserId }
   }),
   killAllSync: () => {},
   setSource: () => {},
@@ -123,6 +124,30 @@ async function connect(entry: AcpMcpServer): Promise<Client> {
 }
 
 describe('the extension gateway (#6615)', () => {
+  it('revocation during caller preparation rejects the old call while a fresh call can proceed', async () => {
+    const gate = Promise.withResolvers<void>()
+    const preparing = Promise.withResolvers<void>()
+    const catalog = createExtensionCatalog({ programs: () => programs, onProblem: message => { throw new Error(message) }, ...withApps,
+      sessionContext: async () => { preparing.resolve(); await gate.promise; return null } })
+    const tool = (await catalog.tools('old-session', 'conv-a'))[0]!
+    let outcome = 'pending'
+    const extra = { signal: new AbortController().signal, sendNotification: async () => {} } as unknown as Parameters<CatalogTool['run']>[1]
+    const old = tool.run({}, extra).then(() => { outcome = 'completed' }, () => { outcome = 'interrupted' })
+    try {
+      await preparing.promise
+      revokeExtensionProgramAccess(notes.extensionId)
+      await expect.poll(() => outcome, { timeout: 1_000 }).toBe('interrupted')
+    } finally {
+      gate.resolve()
+      await old
+    }
+    await new Promise(resolve => setImmediate(resolve))
+    expect(calls).toHaveLength(0)
+    const fresh = createExtensionCatalog({ programs: () => programs, onProblem: message => { throw new Error(message) }, ...withApps })
+    await (await fresh.tools('new-session', 'conv-b'))[0]!.run({}, extra)
+    expect(calls).toHaveLength(1)
+  })
+
   it('gives each session its own entry per program, under the name the program always had', async () => {
     const host = hostOf()
     hosts.push(host)
@@ -481,7 +506,7 @@ describe('who called, and the files a call hands its program (F16)', () => {
     expect(calls).toHaveLength(0)
   })
 
-  // 片场试演 10-12(gugu-base bda1d678b evidence/2026-10-12-studio-0.7.0-trial 第 6 条):a writer handed the table as the
+  // 片场 0.7.0 试演 10-12(第 6 条):a writer handed the table as the
   // gugu-file:// link the round's message carries — the link gugu.send itself writes — and it was refused as no file.
   describe('a gugu-file argument given as its gugu-file:// link', () => {
     const OTHER = '0c000000-0000-4000-8000-0000000000ff'
@@ -512,7 +537,7 @@ describe('who called, and the files a call hands its program (F16)', () => {
       expect(calls).toHaveLength(0)
     })
 
-    // PR-2 评审 r3(gugu-base 55e4555b6c):the array path had no cell of its own — items left as written (变异 N2) went green.
+    // PR-2 评审 r3:the array path had no cell of its own — items left as written (变异 N2) went green.
     it('arrays: every item is handed and checked, and reaches the program as the id it was checked as — files and chats alike', async () => {
       const ITEM2 = '0c000000-0000-4000-8000-000000000017'
       toolList = [{
@@ -527,7 +552,7 @@ describe('who called, and the files a call hands its program (F16)', () => {
       publicIds.set('207957', CHAT)
       await run({ boards: [`gugu-file://${ITEM}`, ITEM2], chats: [207957] })
       expect(handedPerCall).toEqual([[{ itemId: ITEM, chatId: CHAT, agentUserId: AGENT }, { itemId: ITEM2, chatId: CHAT, agentUserId: AGENT }]])
-      expect(handedChatsPerCall).toEqual([[{ chatId: CHAT, agentUserId: AGENT }]])
+      expect(handedChatsPerCall).toEqual([[{ chatId: CHAT, resourceChatId: CHAT, agentUserId: AGENT }]])
       expect(calls.map((call) => call.arguments)).toEqual([{ boards: [ITEM, ITEM2], chats: [CHAT] }])
     })
 
@@ -558,7 +583,7 @@ describe('who called, and the files a call hands its program (F16)', () => {
     publicIds.set('207957', CHAT)
     await (await catalog().tools('s1', 'conv-a', AGENT))[0]!.run({ chat_id: CHAT, rows: '20' }, extra)
     await (await catalog().tools('s1', 'conv-a', AGENT))[0]!.run({ chat_id: '207957' }, extra)
-    expect(handedChatsPerCall).toEqual([[{ chatId: CHAT, agentUserId: AGENT }], [{ chatId: CHAT, agentUserId: AGENT }]])
+    expect(handedChatsPerCall).toEqual([[{ chatId: CHAT, resourceChatId: CHAT, agentUserId: AGENT }], [{ chatId: CHAT, resourceChatId: CHAT, agentUserId: AGENT }]])
     expect(calls.map((call) => call.arguments)).toEqual([{ chat_id: CHAT, rows: '20' }, { chat_id: CHAT }])
   })
 
@@ -569,7 +594,7 @@ describe('who called, and the files a call hands its program (F16)', () => {
     memberOf.set(AGENT, new Set([CHAT]))
     publicIds.set('207957', CHAT)
     await (await catalog().tools('s1', 'conv-a', AGENT))[0]!.run({ chat_id: 207957 }, extra)
-    expect(handedChatsPerCall).toEqual([[{ chatId: CHAT, agentUserId: AGENT }]])
+    expect(handedChatsPerCall).toEqual([[{ chatId: CHAT, resourceChatId: CHAT, agentUserId: AGENT }]])
     expect(calls.map((call) => call.arguments)).toEqual([{ chat_id: CHAT }])
     // Checked as the caller: the number of a chat the agent is not in is refused, the program never called.
     const notIn = await (await catalog().tools('s1', 'conv-a', AGENT))[0]!.run({ chat_id: 208000 }, extra)
@@ -659,13 +684,21 @@ describe('the Apps as app_search reads them (10-19)', () => {
     const { apps, market } = await catalogWith(async () => { throw new Error('the market is not read without withMarket') }).apps('s1', false)
     expect(market).toBeUndefined()
     expect(apps.map(({ manifest, ...rest }) => ({ id: manifest.id, ...rest }))).toEqual([
-      { id: 'agent-notes', version: '1.0.0', state: 'on', next: 'catalog_list { name: "agent-notes" } lists its tools and skill', tabs: ['agent-notes.board'] },
+      { id: 'agent-notes', version: '1.0.0', state: 'on', next: 'catalog_list { name: "agent-notes" } lists its tools and skill. For a feature its tools or tabs do not provide, read guide_read apps-fork and ask "Shall I fork a version?" before making changes or building a workaround.', tabs: ['agent-notes.board'] },
       { id: 'radar', version: '1.0.0', state: 'off', next: SWITCHED_OFF('雷达') },
-      { id: 'pomodoro', version: '1.0.0', state: 'on', next: 'It gives agents no tools: open one of its tabs with session_open_in_tab { app_tab }', tabs: [] },
+      { id: 'pomodoro', version: '1.0.0', state: 'on', next: 'It gives agents no tools: open one of its tabs with session_open_in_tab { app_tab }. For a feature its tools or tabs do not provide, read guide_read apps-fork and ask "Shall I fork a version?" before making changes or building a workaround.', tabs: [] },
     ])
     // The tab_kind handed out is what session_open_in_tab / app_check parse back (it replaced app_list's): never parts to assemble.
     expect(parseExtensionTabKind(apps[0]!.tabs![0]!)).toEqual({ extensionId: 'agent-notes', tabName: 'board' })
     expect(SWITCHED_OFF('雷达')).toMatch(/^Switched off on this computer\. You cannot switch it on: ask your owner to open 「App」 in 咕咕, open 雷达 there and press 「启用」 \(Turn on\); /)
+  })
+
+  // 5-minute game rounds 2-3 (10-29): a group App made in another chat read as 「on」 was taken for 「in this chat」.
+  it('an App of chat files: on this computer, in no chat by itself — the row names the call that puts it into one', async () => {
+    const group = { manifest: manifestOf('dinner-vote', 'Dinner vote', { contributes: { tabs: [{ name: 'main', title: 'Vote', opensFiles: { chat: ['.dinner-vote.json'] } }] } } as Partial<ExtensionManifest>), enabled: true, givesAgents: false }
+    const catalog = createExtensionCatalog({ programs: () => ({ ...programs, agentToolsRefusal: () => null }), onProblem: () => {}, apps: () => [group], market: async () => [] })
+    const [row] = (await catalog.apps('s1', false)).apps
+    expect(row!.next).toContain(`It is on your owner's computer only, in no chat yet. Asked for in a chat, call app_install { app: "dinner-vote", chat_id: <that chat>, data } now, without asking first`)
   })
 
   it('the market: Apps not installed here, how to install each, who confirms; one this computer cannot install says why; deprecated ones are not offered; installed ones take its dates', async () => {

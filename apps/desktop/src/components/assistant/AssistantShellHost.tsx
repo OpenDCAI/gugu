@@ -1,3 +1,4 @@
+import { deviceMachines } from '@gugu/core/shared/deviceMachines'
 import { cloudComputerEnabled } from '@gugu/core/cloud/optionalServices'
 import { useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
@@ -20,14 +21,16 @@ import {
   type AssistantShellSlot,
 } from '../../lib/assistantShellBridge'
 import { refreshCloudComputer } from '../../lib/cloudComputerStore'
-import { assistantIdentityState, useMyAssistantContact } from '../../lib/myAssistant'
-import { assistantHomePlace } from '../../lib/assistantHome'
+import { assistantIdentityState, reloadMyAssistant, useMyAssistantContact } from '../../lib/myAssistant'
+import { assistantHomePlace, canSetUpCloudAssistant, withoutAssistantHome } from '../../lib/assistantHome'
 import { readSetupStep, subscribeSetupStep, writeSetupStep } from '../../lib/assistantSetupState'
 import { pendingLocalAssistant, resumeLocalAssistant, setupStillStarting } from '../../lib/assistantSetup'
 import { keepFinishingLocalAssistant } from '../../lib/assistantSetupFinish'
 import { requestAssistantClose } from '../../lib/assistantClose'
 import { getMembership } from '../../lib/billing/membership'
+import { membershipSettingsSection } from '../../lib/billing/settingsDestination'
 import { rendererLogger } from '../../lib/log'
+import { installShellSlots, readShellSlots } from '../../lib/shellSlots'
 import { platform } from '../../platform'
 import { AssistantOnboarding } from './AssistantOnboarding'
 import { QuickChatSettingsGroup } from './ComputerHomeSettings'
@@ -46,6 +49,7 @@ import '../../i18n/registerAssistantCatalog'
 const log = rendererLogger('assistant/shell')
 
 installAssistantShellBridge()
+installShellSlots()
 
 function openSettings(section: ActiveSection) {
   window.dispatchEvent(new CustomEvent(UI_EVENTS.openSettings, { detail: { section } }))
@@ -69,7 +73,7 @@ export function OnboardingSlot({ snapshot: given, device: givenDevice }: { snaps
       ownerName={user.nickname ?? null}
       snapshot={snapshot}
       device={device}
-      cloudAvailable={!!cloudComputer?.available}
+      cloudAvailable={cloudComputer !== undefined && canSetUpCloudAssistant(cloudComputer)}
       localDeviceId={localDeviceId}
     />
   )
@@ -101,7 +105,7 @@ export function AssistantStatusGroups({
         <SettingsRow
           title={t('settings.cloudName', { name: assistantName })}
           leading={device ? <CloudComputerDot device={device} /> : undefined}
-          description={device ? <CloudComputerRowStatus device={device} snapshot={snapshot} onUpgrade={() => openSettings('usage')} /> : null}
+          description={device ? <CloudComputerRowStatus device={device} snapshot={snapshot} onUpgrade={() => openSettings(membershipSettingsSection())} /> : null}
           data-testid="assistant-settings-status"
         />
         <SettingsRow title={t('settings.billing', { name: assistantName })} description={t('settings.billingNote')} control={<Button size="sm" onClick={() => openSettings('usage')}>{t('settings.usage')}</Button>} />
@@ -125,7 +129,8 @@ export function AssistantStatusGroups({
   )
 }
 
-const EMPTY_SLOTS: ReadonlyMap<AssistantShellSlot, HTMLElement> = new Map()
+const EMPTY_SLOTS: ReadonlyMap<string, HTMLElement> = new Map()
+const ASSISTANT_SLOT_PREFIX = 'assistant:'
 
 /**
  * #7199 「助理」App 在壳这一侧的那一半(见 lib/assistantShellBridge.ts):把云电脑、个人助理是谁发布给会话页,
@@ -134,7 +139,7 @@ const EMPTY_SLOTS: ReadonlyMap<AssistantShellSlot, HTMLElement> = new Map()
 export function AssistantShellHost({ visible, ...chatHandlers }: { /** 会话页那一屏此刻摆在眼前(MainLayout 的 tab 在「任务」)。 */ visible: boolean } & AssistantChatHandlers) {
   const { user } = useAuth()
   const { contacts, contactsStatus, updateAgentProfile } = useContactsStore()
-  const { cloudComputer, devices } = useDevicesStore()
+  const { cloudComputer, devices, phones } = useDevicesStore()
   const snapshot = cloudComputer?.snapshot ?? null
   const cloudDeviceId = snapshot?.deviceId ?? null
   // 按库里的标记认(lib/myAssistant.ts),❌ 按名字、❌ 按住在哪台:会员住云上、非会员住自己的电脑,它会搬家。
@@ -144,6 +149,12 @@ export function AssistantShellHost({ visible, ...chatHandlers }: { /** 会话页
   const dm = useAssistantDm(contact?.id ?? null)
   const [lookOpen, setLookOpen] = useState(false)
   const ownerUserId = user?.id ?? null
+  const readyCloudDeviceId = snapshot?.state === 'awake' ? snapshot.deviceId : null
+  useEffect(() => {
+    // A retry completes the same provision and identity: the contacts key can
+    // remain unchanged. Re-read its marker when the host reports completion.
+    if (ownerUserId && readyCloudDeviceId) reloadMyAssistant(ownerUserId)
+  }, [ownerUserId, readyCloudDeviceId])
   useEffect(() => {
     const bridge = readAssistantShellBridge()
     if (!bridge) return
@@ -205,7 +216,11 @@ export function AssistantShellHost({ visible, ...chatHandlers }: { /** 会话页
     if (!contactId || !ownerUserId || !localDeviceId) return
     return keepFinishingLocalAssistant({
       pending: () => pendingLocalAssistant(ownerUserId),
-      resume: resumeLocalAssistant,
+      resume: async (record) => {
+        await resumeLocalAssistant(record)
+        writeSetupStep(ownerUserId, 'connect')
+        reloadMyAssistant(ownerUserId)
+      },
       // 只有「还没起来」值得过一会儿再推;别的失败(真失败、那一单已被收回……)再推也一样,停下、原因进日志,下次打开 App 再试。
       isFinal: (error) => !setupStillStarting(error),
       setTimer: (run, ms) => window.setTimeout(run, ms),
@@ -219,8 +234,10 @@ export function AssistantShellHost({ visible, ...chatHandlers }: { /** 会话页
     () => readSetupStep(ownerUserId),
   )
   const setup: AssistantSetupStep | null = contact ? storedStep : assistantState === 'none' ? 'shell' : null
+  const deviceCount = deviceMachines(withoutAssistantHome([...devices, ...(phones ?? [])], cloudDeviceId)).length
   useEffect(() => {
     publishAssistantShell({
+      deviceCount,
       cloudAvailable: !!cloudComputer?.available,
       canHostHere: !!localDeviceId,
       cloud: snapshot,
@@ -228,18 +245,21 @@ export function AssistantShellHost({ visible, ...chatHandlers }: { /** 会话页
       assistant: contact ? { id: contact.id, display_name: contact.display_name, avatar: contact.avatar, created_at: contact.created_at ?? null } : null,
       assistantState,
       ownerName: user?.nickname ?? null,
+      ownerId: user?.id ?? null,
+      ownerAvatar: user?.avatarUrl ?? null,
       chatId: dm.chatId,
+      chatReadFailed: !!dm.failed,
       home,
       setup,
       member,
       preparing,
     })
-  }, [cloudComputer?.available, cloudComputer?.loadError, localDeviceId, snapshot, contact, assistantState, user?.nickname, dm.chatId, home, setup, member, preparing])
+  }, [deviceCount, cloudComputer?.available, cloudComputer?.loadError, localDeviceId, snapshot, contact, assistantState, user?.nickname, user?.id, user?.avatarUrl, dm.chatId, dm.failed, home, setup, member, preparing])
 
-  const bridge = readAssistantShellBridge()
+  const shellSlots = readShellSlots()
   const slots = useSyncExternalStore(
-    (listener) => bridge?.subscribeSlots(listener) ?? (() => undefined),
-    () => bridge?.getSlots() ?? EMPTY_SLOTS,
+    (listener) => shellSlots?.subscribeSlots(listener) ?? (() => undefined),
+    () => shellSlots?.getSlots() ?? EMPTY_SLOTS,
   )
 
   const content = (slot: AssistantShellSlot): ReactNode => {
@@ -247,14 +267,16 @@ export function AssistantShellHost({ visible, ...chatHandlers }: { /** 会话页
       case 'onboarding': return <OnboardingSlot />
       // 格子挂着 = 「助理」App 开在「聊天」那一页;再加上会话页那一屏摆在眼前,才算人在看。
       case 'chat': return contact ? <AssistantChatSlot dm={dm} assistantId={contact.id} assistantName={contact.display_name} visible={visible} {...chatHandlers} /> : null
-      case 'devices': return <AssistantDevicesPage cloudDeviceId={cloudDeviceId} assistantName={contact?.display_name ?? ''} />
-      case 'connectors': return <ConnectorsSection />
-      case 'settings': return <AssistantSettingsPage />
+      case 'devices': return <AssistantDevicesPage cloudDeviceId={cloudDeviceId} panelNavigation />
+      case 'connectors': return <ConnectorsSection panelNavigation />
+      case 'settings': return <AssistantSettingsPage panelNavigation />
     }
   }
   return (
     <>
-      {[...slots].map(([slot, element]) => createPortal(content(slot), element, slot))}
+      {[...slots].flatMap(([key, element]) => key.startsWith(ASSISTANT_SLOT_PREFIX)
+        ? [createPortal(content(key.slice(ASSISTANT_SLOT_PREFIX.length) as AssistantShellSlot), element, key)]
+        : [])}
       {lookOpen && contact ? <AgentSettingsModal agent={contact} initialTab="look" onClose={() => setLookOpen(false)} /> : null}
       {/* 搬家的弹窗:搬着时设置页上的搬家那一组会换位置、重挂,弹窗不跟着丢(状态在 assistant-move-controller)。 */}
       <AssistantMoveDialog />

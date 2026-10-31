@@ -61,10 +61,9 @@ function unitParts(unit: RenderUnit, caches: Caches): Part[] {
       case 'diff': {
         const diff = item as ChatDiff;
         const { maxLines, context } = diffUnitDef.vars ?? { maxLines: 12, context: 1 };
-        const lines = diff.awaitingPermission ? [] : caches.computeDiff(diff.oldText, diff.newText);
-        const rows = selectPreview(lines, maxLines, context);
-        const name = diff.path.split(/[\\/]/).pop();
-        return [...part(name, outer), ...part(diff.error, outer), ...part(rows.map((r) => r.text).join('\n'), outer)];
+        const rows = diff.awaitingPermission ? [] : diff.patches.flatMap(patch => selectPreview(caches.computeDiff(patch), maxLines, context));
+        const paths = diff.patches.flatMap(patch => patch.changes.map(change => typeof change.path === 'string' ? change.path : change.operation));
+        return [...part(paths.join('\n'), outer), ...part(diff.error, outer), ...part(rows.map(row => row.text).join('\n'), outer)];
       }
       case 'subagent': {
         const sub = item as ChatSubagentToolCall;
@@ -144,7 +143,10 @@ function locate(row: HTMLElement, query: string, expected: number): Range | null
 /** Scroll every inner scroller between the row and the range (tool panes, output windows) onto the range. */
 function revealInner(range: Range, row: HTMLElement): void {
   const start = range.startContainer;
-  for (let el = start instanceof HTMLElement ? start : start.parentElement; el && el !== row; el = el.parentElement) {
+  // Process leaves sit inside an independently scrolling viewport, outside the
+  // leaf row itself. Include it when revealing a match, just like tool outputs.
+  const stop = row.closest('[data-slot="conversation-process-steps"]')?.parentElement ?? row;
+  for (let el = start instanceof HTMLElement ? start : start.parentElement; el && el !== stop; el = el.parentElement) {
     if (el.scrollHeight <= el.clientHeight + 1 || !/^(auto|scroll)$/.test(getComputedStyle(el).overflowY)) continue;
     const box = el.getBoundingClientRect();
     const hit = range.getBoundingClientRect();
@@ -207,7 +209,7 @@ export function createChatFind(deps: {
     const { committedTurns, activeTurnSnapshot: live } = state.transcript.state;
     const ctx = (active: boolean) => ({ ...segmentCtxFor(deps.context, state, caches, active), revealAllFolds: true });
     const head = flattenTier(committedTurns, ctx(false), SEGMENTERS, UNIT_REGISTRY);
-    const dayKey = trailingDayKey(committedTurns);
+    const dayKey = trailingDayKey(committedTurns, undefined, ctx(false).latestTurnId);
     const tail = live ? flattenTier([live], ctx(true), SEGMENTERS, UNIT_REGISTRY, head.at(-1)?.kind, dayKey) : [];
     const units = [...head, ...tail];
     const needle = query.toLowerCase();

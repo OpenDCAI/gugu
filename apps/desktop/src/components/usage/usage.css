@@ -1,7 +1,7 @@
 /* 用量页(product spec)。
  *
- * 这一页是全产品唯一的数据可视化面,所以有自己的一组图表色:热力图五档暖色(owner 看过设计稿拍的,
- * 2026-09-23);模型/引擎的图表与表格见文件末尾那一层,分类色用 VChart 默认色板。
+ * 这一页是全产品唯一的数据可视化面,所以有自己的一组图表色(热力图、强调色、分类色),都在 tokens.css 的
+ * 「theme batch B」那一节;模型/引擎的图表与表格见文件末尾那一层。
  * 产品其余部分的「墨」主色(--primary)在这里只用于文字与控件。
  *
  * 布局用容器查询:同一个组件在设置弹窗(~770px)和手机「我的」(~340px)里自己换列数,
@@ -10,20 +10,9 @@
 .gg-usage {
   container-type: inline-size;
   --usage-heat-0: color-mix(in oklab, var(--fg) 7%, transparent);
-  --usage-heat-1: oklch(0.42 0.08 45);
-  --usage-heat-2: oklch(0.55 0.13 45);
-  --usage-heat-3: oklch(0.68 0.16 45);
-  --usage-heat-4: oklch(0.80 0.15 55);
   display: grid;
   gap: var(--spacing-2xl);
   min-width: 0;
-}
-
-[data-theme="light"] .gg-usage {
-  --usage-heat-1: oklch(0.90 0.05 50);
-  --usage-heat-2: oklch(0.80 0.10 48);
-  --usage-heat-3: oklch(0.69 0.15 45);
-  --usage-heat-4: oklch(0.56 0.15 40);
 }
 
 .gg-usage-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--spacing-sm); }
@@ -53,7 +42,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.gg-usage-up { color: oklch(0.65 0.13 150); }
+.gg-usage-up { color: var(--ok-fg); }
 .gg-usage-down { color: var(--muted-fg); }
 
 /* 热力图 */
@@ -100,28 +89,10 @@
   --na-radius-lg: 0.625rem;
   --na-radius-md: calc(0.625rem - 2px);
   --na-radius-sm: calc(0.625rem - 4px);
-  --na-success: oklch(0.696 0.17 162.5);
-  --na-warning: oklch(0.769 0.188 70.1);
-  --na-destructive: oklch(0.704 0.191 22.2);
-  --na-info: oklch(0.613 0.14 239.9);
-  --na-chart-1: oklch(0.76 0.14 250);
-  --na-chart-2: oklch(0.76 0.13 200);
-  --na-chart-3: oklch(0.76 0.13 285);
-  --na-chart-4: oklch(0.75 0.16 325);
-  --na-chart-5: oklch(0.76 0.14 155);
   --na-table-header: color-mix(in oklch, var(--fg) 6%, var(--bg));
   --na-row-hover: color-mix(in oklch, var(--muted) 50%, var(--bg));
 }
 [data-theme="light"] .gg-usage {
-  --na-success: oklch(0.596 0.145 163.2);
-  --na-warning: oklch(0.681 0.162 75.8);
-  --na-destructive: oklch(0.577 0.245 27.3);
-  --na-info: oklch(0.588 0.158 242);
-  --na-chart-1: oklch(0.72 0.18 250);
-  --na-chart-2: oklch(0.65 0.15 200);
-  --na-chart-3: oklch(0.7 0.12 280);
-  --na-chart-4: oklch(0.68 0.19 325);
-  --na-chart-5: oklch(0.68 0.16 155);
   --na-table-header: color-mix(in oklch, var(--fg) 1.5%, var(--bg));
 }
 
@@ -135,11 +106,11 @@
   .na-icon-badge[data-size="stat"] { width: 16px; height: 16px; border-radius: var(--na-radius-sm); }
   .na-icon-badge[data-size="stat"] svg { width: 10px; height: 10px; }
 }
-[data-tone="info"] { --na-tone: var(--na-info); }
-[data-tone="success"] { --na-tone: var(--na-success); }
-[data-tone="warning"] { --na-tone: var(--na-warning); }
-[data-tone="chart-2"] { --na-tone: var(--na-chart-2); }
-[data-tone="chart-4"] { --na-tone: var(--na-chart-4); }
+[data-tone="info"] { --na-tone: var(--live); }
+[data-tone="success"] { --na-tone: var(--ok); }
+[data-tone="warning"] { --na-tone: var(--warn); }
+[data-tone="chart-2"] { --na-tone: var(--usage-accent-2); }
+[data-tone="chart-4"] { --na-tone: var(--usage-accent-4); }
 
 /* LogStatCards:overflow-hidden rounded-lg border / grid divide-x / 单元 px-5 py-4 */
 .na-stats { overflow: hidden; border: 1px solid var(--border); border-radius: var(--na-radius-lg); }
@@ -166,56 +137,15 @@
 .gg-usage .na-stats-grid[data-cols="2"] { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .gg-usage .na-stats-grid[data-cols="2"] .na-stat { border-top: 0; }
 
-/* 积分概览:一张卡左右两栏,右栏 19rem 渐变底余额面板。 */
-.na-overview { display: grid; grid-template-columns: minmax(0, 1fr) 19rem; overflow: hidden; border: 1px solid var(--border); border-radius: var(--na-radius-lg); background: var(--card, var(--bg)); box-shadow: 0 1px 2px color-mix(in oklab, black 5%, transparent); }
-.na-overview-main { display: flex; min-width: 0; flex-direction: column; gap: 12px; padding: 20px; }
-.na-overview-head { display: flex; align-items: center; gap: 8px; }
-.na-overview-head b { font-size: var(--font-body); font-weight: var(--font-weight-semibold); }
-.na-overview-head .na-status { margin-left: 4px; }
-.na-status { display: inline-flex; align-items: center; gap: 6px; color: var(--muted-fg); font-size: var(--font-caption); }
-.na-status i { width: 6px; height: 6px; border-radius: 9999px; background: var(--muted-fg); }
-.na-status i[data-tone="success"] { background: var(--na-success); }
-.na-status i[data-tone="destructive"] { background: var(--na-destructive); }
-.na-sub { display: grid; gap: 8px; padding: 16px; border: 1px solid var(--border); border-radius: var(--na-radius-lg); background: color-mix(in oklch, var(--bg) 60%, transparent); }
-.na-sub-title { font-size: var(--font-body); font-weight: var(--font-weight-medium); color: var(--fg); }
 .na-sub-meta { color: var(--muted-fg); font-size: var(--font-caption); }
-.na-sub-meter { display: grid; gap: 4px; margin-top: 4px; }
-.na-sub-meter .na-sub-meta { justify-self: end; font-variant-numeric: tabular-nums; }
-.na-footnote { margin: 0; color: color-mix(in oklch, var(--muted-fg) 80%, transparent); font-size: var(--font-caption); line-height: 1.7; }
-.na-overview-balance {
-  display: flex; flex-direction: column; justify-content: space-between; gap: 16px; padding: 20px;
-  border-left: 1px solid var(--border);
-  background: linear-gradient(135deg,
-    color-mix(in oklch, var(--na-chart-2) 12%, var(--bg)),
-    color-mix(in oklch, oklch(0.82 0.04 155) 8%, var(--bg)),
-    color-mix(in oklch, var(--na-chart-1) 7%, var(--bg)));
-}
-.na-balance-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.na-balance-label { color: var(--muted-fg); font-size: var(--font-caption); font-weight: var(--font-weight-medium); }
-.na-balance-value { color: var(--fg); font-family: var(--font-mono); font-size: calc(var(--font-size-xl) * 1.4); font-weight: var(--font-weight-semibold); letter-spacing: -.025em; font-variant-numeric: tabular-nums; }
-.na-balance-rate { margin: -8px 0 0; color: var(--muted-fg); font-size: var(--font-caption); line-height: 1.6; }
-.na-balance-rate[data-blocked] { color: var(--danger); }
-.na-balance-cells { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
-.na-balance-cell { min-width: 0; padding: 8px 10px; border-radius: var(--na-radius-md); background: color-mix(in oklch, var(--bg) 60%, transparent); }
-.na-balance-cell span { display: flex; align-items: center; gap: 4px; color: var(--muted-fg); font-size: var(--font-caption); font-weight: var(--font-weight-medium); line-height: 1; }
-.na-balance-cell span svg { width: 12px; height: 12px; }
-.na-balance-cell b { display: block; margin-top: 6px; font-size: var(--font-caption); font-weight: var(--font-weight-semibold); font-variant-numeric: tabular-nums; }
-/* 整行宽的按钮,文案(英文尤其)比 360 宽:允许换行、高度跟着长(Button 只有 min-height),❌ 冲出卡片被裁掉。 */
-.na-balance-button { justify-content: space-between; width: 100%; white-space: normal; text-align: left; padding-block: var(--spacing-sm); }
-.na-balance-button svg { width: 16px; height: 16px; }
-@container (max-width: 720px) {
-  .na-overview { grid-template-columns: minmax(0, 1fr); }
-  .na-overview-balance { border-left: 0; border-top: 1px solid var(--border); }
-}
 
 /* 邀请好友卡:沿用图表卡的壳,体里一行统计 + 一行邀请链接 */
-.na-referral { display: grid; gap: 12px; padding: 16px 20px; }
+.na-referral { display: grid; gap: 16px; padding: 16px; }
 .na-referral-stats { display: flex; flex-wrap: wrap; gap: 8px 24px; color: var(--muted-fg); font-size: var(--font-body); font-variant-numeric: tabular-nums; }
 /* 只读的邀请链接可以截断(复制按钮拷的是全文):这一行是 grid 子项,自动最小宽 = 输入框的固有宽 + 按钮,
    不归零就把整行撑出卡片;输入框也不沿用 .na-input 的 min-width:10rem。 */
 .na-referral-link { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .na-referral-link .na-input { min-width: 0; color: var(--muted-fg); }
-.na-balance-link { display: block; text-decoration: none; }
 
 /* 图表卡:overflow-hidden rounded-lg border;头 border-b px-5 py-3;体 h-96 p-2 */
 .na-card { overflow: hidden; border: 1px solid var(--border); border-radius: var(--na-radius-lg); min-width: 0; }
@@ -250,7 +180,7 @@
 .na-table td { padding: 8px; vertical-align: middle; white-space: nowrap; font-weight: var(--font-weight-medium); }
 .na-cell-stack { display: flex; min-width: 0; flex-direction: column; gap: 2px; }
 .na-mono-xs { font-family: var(--font-mono); font-size: var(--font-caption); }
-.na-type { margin-left: -6px; padding: 0 6px; font-size: var(--font-caption); color: var(--na-success); }
+.na-type { margin-left: -6px; padding: 0 6px; font-size: var(--font-caption); color: var(--ok-fg); }
 .na-badge { display: inline-flex; align-items: center; gap: 6px; height: 24px; max-width: none; padding: 0 8px; border: 1px solid color-mix(in oklch, var(--border) 60%, transparent); border-radius: var(--na-radius-md); background: color-mix(in oklch, var(--muted) 30%, transparent); color: var(--fg); white-space: nowrap; cursor: copy; transition: filter var(--dur-fast) var(--ease), transform var(--dur-fast) var(--ease); }
 .na-badge:hover { filter: brightness(.95); }
 .na-badge:active { transform: scale(.95); }
@@ -279,4 +209,59 @@
 .na-pager-ellipsis { padding: 0 2px; color: color-mix(in oklch, var(--muted-fg) 60%, transparent); font-size: var(--font-body); }
 @container (max-width: 480px) {
   .na-pager-size, .na-pager-edge { display: none; }
+}
+
+/* One set of data and rows: narrow containers read as labelled records rather than a wide table. */
+@container (max-width: 560px) {
+  .gg-usage-section { grid-template-columns: minmax(0, 1fr); }
+  .na-referral { overflow-wrap: anywhere; }
+  .na-stat-label, .na-stat-value { overflow: visible; white-space: normal; overflow-wrap: anywhere; text-overflow: clip; }
+  .na-stat-label { letter-spacing: normal; text-transform: none; }
+  .na-card-head { display: grid; grid-template-columns: minmax(0, 1fr); }
+  .na-card-title { flex-wrap: wrap; }
+  .na-card-title b { flex-shrink: 1; min-width: 0; overflow-wrap: anywhere; }
+  .na-card-actions { min-width: 0; width: 100%; align-items: stretch; flex-direction: column; }
+  .na-seg { display: flex; width: 100%; min-width: 0; height: auto; overflow: visible; }
+  .gg-usage .na-seg-item { flex: 1 1 0; min-width: 0; min-height: var(--control-h-touch); padding: var(--spacing-sm) var(--spacing-xs); white-space: normal; line-height: var(--lh-caption); overflow-wrap: anywhere; }
+  .na-seg-item svg { flex-shrink: 0; }
+  .gg-usage .na-filter { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .na-filter .na-input { grid-column: 1 / -1; min-width: 0; width: 100%; height: var(--control-h-touch); }
+  .na-table-wrap { min-width: 0; overflow: visible; }
+  .na-table, .na-table tbody { display: block; }
+  .na-table { position: relative; }
+  /* Keep column headers available to assistive technology, within the table's own width. */
+  .na-table thead { position: absolute; width: 100%; clip-path: inset(50%); }
+  .na-table thead tr { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .na-table thead th { min-width: 0; height: auto; white-space: normal; overflow-wrap: anywhere; }
+  .na-table tbody tr { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--spacing-md); height: auto; padding: var(--spacing-md); }
+  .na-table td { min-width: 0; padding: 0; white-space: normal; overflow-wrap: anywhere; }
+  .na-table td[data-label]::before { content: attr(data-label); display: block; margin-bottom: var(--spacing-xs); color: var(--muted-fg); font-size: var(--font-caption); font-weight: var(--font-weight-regular); }
+  .na-table--ledger tbody tr:not(.na-skel-row) { grid-template-areas: 'model cost' 'time time' 'tokens tokens'; }
+  .na-table--ledger td[data-field='model'] { grid-area: model; }
+  .na-table--ledger td[data-field='cost'] { grid-area: cost; text-align: right; }
+  .na-table--ledger td[data-field='time'] { grid-area: time; }
+  .na-table--ledger td[data-field='tokens'] { grid-area: tokens; }
+  .na-table--engines tbody tr > td:first-child { grid-column: 1 / -1; }
+  .gg-usage .na-badge { max-width: 100%; height: auto; min-height: 24px; white-space: normal; padding-block: var(--spacing-xs); }
+  .na-badge-label { min-width: 0; overflow-wrap: anywhere; }
+  .na-badge-icon { flex-shrink: 0; }
+  .na-cost { max-width: 100%; height: auto; min-height: 24px; overflow-wrap: anywhere; }
+  .na-pager-btns { flex-wrap: wrap; min-width: 0; max-width: 100%; gap: var(--spacing-xs); }
+  .na-pager-btn { min-width: var(--control-h-touch); height: var(--control-h-touch); }
+}
+
+/* The loading shapes follow the real stats and controls, without adding row height. */
+.na-referral-stats-frame { min-height: var(--lh-body); align-items: center; }
+.na-referral-link-frame { min-height: var(--control-h-md); }
+.na-referral-read-error { display: flex; align-items: center; gap: 8px; }
+.na-referral[data-read-failed] { position: relative; }
+.na-referral[data-read-failed] .na-referral-read-error { position: absolute; inset: 16px; }
+.na-referral-stats > span { line-height: var(--lh-body); }
+.na-referral-stat-skeleton { display: block; width: 80px; height: var(--lh-body); }
+.na-referral-field-skeleton { flex: 1; min-width: 0; background: var(--muted); }
+.na-referral-copy-skeleton { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: var(--control-h-md); padding: 0 12px; border: 1px solid transparent; border-radius: var(--radius-control); font-size: var(--font-body); font-weight: var(--font-weight-medium); line-height: 1; white-space: nowrap; pointer-events: none; }
+@media (max-width: 719px) {
+  .na-referral-description, .na-referral-url, .na-referral-field-skeleton { display: none; }
+  .na-referral-link-frame, .na-referral-copy-skeleton { min-height: var(--control-h-touch); }
+  .na-referral-link > button, .na-referral-copy-skeleton { width: 100%; }
 }

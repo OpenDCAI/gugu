@@ -5,7 +5,6 @@ import { log } from '@main/lib/logger';
 import {
   APP_INSTALL_DECLINE_OPTION,
   APP_INSTALL_OPTION,
-  INSTALL_CONSENT_HUMAN_WINDOW_MS,
   type AppInstallAsk,
   type ExtensionConsentRequester,
   type ExtensionInstallConsentRequest,
@@ -22,11 +21,11 @@ import { closeExtensionInstallConsent, requestExtensionInstallConsent } from './
  */
 export const IN_USE_IDLE_SECONDS = 60;
 
-type SessionTimelineService = typeof import('@main/core/session-timeline/service');
+type SessionTimelineService = typeof import('@main/core/asks');
 
 export interface ConsentInSessionDependencies {
-  /** The session timeline's `askHost` and `respond`: the one place the ask is kept and every surface's answer settles it. */
-  timeline: () => Promise<Pick<SessionTimelineService, 'askHost' | 'respond'>>;
+  /** The session timeline's `ask` and `respond`: the one place the ask is kept and every surface's answer settles it. */
+  timeline: () => Promise<Pick<SessionTimelineService, 'ask' | 'respond'>>;
   /** Seconds since the last keyboard or mouse input on this computer. */
   idleSeconds: () => number;
   /** This computer's window; null on a Gugu server (no window — the session's approval is the only ask). */
@@ -47,7 +46,7 @@ function inUseTestHook(): InUseTestHook | null {
 }
 
 const defaults: ConsentInSessionDependencies = {
-  timeline: () => import('@main/core/session-timeline/service'),
+  timeline: () => import('@main/core/asks'),
   idleSeconds: () => inUseTestHook()?.idleSeconds ?? powerMonitor.getSystemIdleTime(),
   // A Gugu server (GUGU_SERVER_MODE, embedded-boot's HEADLESS_SERVER) has no window to draw it in.
   window: process.env.GUGU_SERVER_MODE === '1'
@@ -67,8 +66,8 @@ const defaults: ConsentInSessionDependencies = {
  * same ask too, in front of the person only when they are at this computer (`IN_USE_IDLE_SECONDS`). Only an install
  * answered on a sheet that showed what it may do is taken (the manifest's fingerprint comes back with it): a surface that
  * draws it as a bare Install button is refused, and the ask stays. The person's clock (`INSTALL_CONSENT_HUMAN_WINDOW_MS`)
- * runs here — unanswered, the ask is withdrawn and the agent told it timed out; the agent's call going away (its turn
- * stopped) withdraws it too. No such session here: this window alone asks.
+ * is the app-install source's deadline in asks/sources.ts — unanswered, the ask is withdrawn and the agent told it timed
+ * out; the agent's call going away (its turn stopped) withdraws it too. No such session here: this window alone asks.
  */
 export async function askInstallInSession(
   sessionId: string,
@@ -80,27 +79,23 @@ export async function askInstallInSession(
   const requestId = randomUUID();
   const ask: ExtensionInstallConsentRequest = { ...request, requestId, requester };
   const raise = dependencies.idleSeconds() < IN_USE_IDLE_SECONDS;
-  const clock = new AbortController();
-  const timer = setTimeout(() => clock.abort(), INSTALL_CONSENT_HUMAN_WINDOW_MS);
-  const gone = () => clock.abort();
-  callSignal?.addEventListener('abort', gone, { once: true });
   const timeline = await dependencies.timeline();
   try {
-    const answered = timeline.askHost(
+    const answered = timeline.ask(
       sessionId,
       {
         itemId: requestId,
         kind: 'permission',
         // What a surface that does not know this kind shows; those that do draw the App, the agent and their own sheet.
-        title: `${requester.name}: install ${request.manifest.name}`,
+        title: request.removeVariant ? `${requester.name}: remove fork ${request.removeVariant.name} from ${request.manifest.name}` : `${requester.name}: install ${request.manifest.name}`,
         options: [
-          { optionId: APP_INSTALL_OPTION, name: 'Install', kind: 'allow_once' },
-          { optionId: APP_INSTALL_DECLINE_OPTION, name: "Don't install", kind: 'reject_once' },
+          { optionId: APP_INSTALL_OPTION, name: request.removeVariant ? 'Remove fork' : 'Install', kind: 'allow_once' },
+          { optionId: APP_INSTALL_DECLINE_OPTION, name: request.removeVariant ? 'Keep fork' : "Don't install", kind: 'reject_once' },
         ],
-        host: { kind: 'app-install', payload: { request: ask } satisfies AppInstallAsk },
+        origin: { source: 'app-install', payload: { request: ask } satisfies AppInstallAsk },
       },
       {
-        signal: clock.signal,
+        signal: callSignal,
         refuse: (answer) =>
           answer.optionId === APP_INSTALL_OPTION && answer.digest !== request.manifestDigest
             ? 'An App install is answered on the sheet that shows what it may do — this one did not show it (update Gugu here, or answer it on another of your screens)'
@@ -118,7 +113,8 @@ export async function askInstallInSession(
     if (!dependencies.window) here.catch(() => undefined);
     void here
       .then(async (answer) => {
-        if (answer.outcome === 'timeout' || !inSession) return;
+        // I8 Closed here (Esc, the scrim) is no answer: the ask stays in the session, for the band or another screen.
+        if (answer.outcome === 'timeout' || answer.outcome === 'dismissed' || !inSession) return;
         const confirmed = answer.outcome === 'confirmed';
         const reply: SessionpageSessionRespondRequest = {
           conversationId: sessionId,
@@ -126,7 +122,7 @@ export async function askInstallInSession(
           kind: 'permission',
           optionId: confirmed ? APP_INSTALL_OPTION : APP_INSTALL_DECLINE_OPTION,
           // The sheet here showed this manifest.
-          ...(confirmed ? { digest: request.manifestDigest, ...(answer.enableIn ? { enableIn: answer.enableIn } : {}) } : {}),
+          ...(confirmed ? { digest: request.manifestDigest } : {}),
           by: 'desktop',
         };
         await timeline.respond(reply);
@@ -134,13 +130,9 @@ export async function askInstallInSession(
       .catch((error: unknown) => log.warn('The install sheet in this window could not answer the session:', error));
     const result = await answered;
     if (result === 'unavailable') return await here;
-    if (result === 'withdrawn') return { outcome: callSignal?.aborted ? 'dismissed' : 'timeout' };
-    return result.optionId === APP_INSTALL_OPTION
-      ? { outcome: 'confirmed', ...(result.enableIn ? { enableIn: result.enableIn } : {}) }
-      : { outcome: 'declined' };
+    if (result === 'withdrawn' || result === 'timeout') return { outcome: result === 'timeout' ? 'timeout' : 'dismissed' };
+    return { outcome: result.optionId === APP_INSTALL_OPTION ? 'confirmed' : 'declined' };
   } finally {
-    clearTimeout(timer);
-    callSignal?.removeEventListener('abort', gone);
     // Answered on another surface (or ran out): the sheet here goes.
     void dependencies.closeWindow(requestId).catch(() => undefined);
   }

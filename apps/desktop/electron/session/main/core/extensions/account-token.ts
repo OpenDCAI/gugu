@@ -1,6 +1,18 @@
+import type { FileRef, ResolvedFile } from '@gugu/core/shared/fileResolver';
+import type { ChatFileRef, FilesPlatform } from '@shared/extensions/app-files-core';
+
 type AccessTokenReader = () => Promise<string | null>;
 
 let readAccessToken: AccessTokenReader | null = null;
+type AccountFileResolver = (ref: FileRef | ChatFileRef, actor?: string | null, options?: Parameters<NonNullable<FilesPlatform['resolveFile']>>[2]) => Promise<ResolvedFile | null>;
+let fileResolver: AccountFileResolver | undefined;
+let publishFile: NonNullable<FilesPlatform['publishFile']> | undefined;
+export const setAccountFileResolver = (resolve: AccountFileResolver, publish?: NonNullable<FilesPlatform['publishFile']>) => { fileResolver = resolve; publishFile = publish; };
+export const publishAccountFile: NonNullable<FilesPlatform['publishFile']> = (...args) => { if (!publishFile) throw new Error('Account file publisher is not installed'); return publishFile(...args); };
+export const resolveAccountFile: AccountFileResolver = (ref, actor, options) => {
+  if (!fileResolver) throw new Error('Account file resolver is not installed');
+  return fileResolver(ref, actor, options);
+};
 
 /**
  * 主进程在启动时把「怎么拿当前账号的令牌」交进来。

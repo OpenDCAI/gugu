@@ -1,3 +1,4 @@
+import { messageForUser } from '@/lib/userFacingError';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { Device } from '@gugu/core/shared/types/chat'
@@ -9,12 +10,10 @@ import {
   deviceRowModel,
   filterDevices,
   hasOtherMachines,
-  type BoundAgentsState,
   type DeviceFilter,
   type DeviceRowModel,
 } from '../../lib/deviceRowModel'
 import { rendererLogger } from '../../lib/log'
-import { useSshMachines } from '../../hooks/useSshMachines'
 import { useSshSignInStates } from '../../hooks/useSshSignInStates'
 import { useSshLinkProblems, useSshMachineIds, useSshUpgrades } from '../../hooks/useSshLinkProblems'
 import { sshLinkFacts } from '../../lib/sshLinkOnline'
@@ -38,14 +37,19 @@ import { SegmentedTabs } from '../ui/SegmentedTabs'
 import { cn } from '../../lib/cn'
 import { AddServerPanel, type AddServerMethod, type AddedServer } from './AddServerPanel'
 import { InlineAction } from './addServer/InlineAction'
+import { supersededBy } from '../../lib/deviceSuperseded'
 import { consumeAddServerIntent } from '../../lib/addServerIntent'
 import { consumeDeviceActionsIntent } from '../../lib/deviceActionsIntent'
-import { DeviceRemoveDialog } from './DeviceRemoveDialog'
-import { ServerUninstallDialog } from './ServerUninstallDialog'
+import { useDeviceRemoval } from './useDeviceRemoval'
 import { SettingsNote, SettingsPage, SettingsRow } from './SettingsPrimitives'
 import { DeviceActionsPage } from './DeviceActionsPage'
 import { deviceAcceptsWork } from '@gugu/core/cloud/cloudComputer'
 import { withoutAssistantHome } from '../../lib/assistantHome'
+import { deviceMachineFor, deviceMachines } from '@gugu/core/shared/deviceMachines'
+import { useDeviceMachineSections } from '../../lib/deviceMachines'
+import { DeviceMachineArchive } from '../devices/DeviceMachineArchive'
+import { DeviceRenameField } from '../devices/DeviceRenameField'
+import { useDeviceRename } from '../../hooks/useDeviceRename'
 
 // #1749 设备管理 → #6264 做成能上线的「设置 → 设备」:
 //  · 每行:名字、是台什么机器(本机 / 电脑 / 服务器)、系统与架构、咕咕版本 + 升级状态、在线或「上次在线」、
@@ -65,9 +69,7 @@ const log = rendererLogger('devices')
 // ❌ 出现「· 咕咕 0.2.51」那种孤零零挂在行首的分隔符。第一项(状态)用同宽的左内边距占位。
 const META_SEP = "before:inline-block before:w-4 before:text-center before:content-['·']"
 
-type DialogState =
-  | { kind: 'remove'; device: Device; removing: boolean; failed: boolean }
-  | { kind: 'uninstall'; device: Device }
+const DEVICE_LIST_CLASS = 'flex flex-col rounded-[var(--radius-document)] bg-foreground/[0.025] p-1 dark:bg-foreground/[0.04]'
 
 export function DevicesSection({
   onUpgrade,
@@ -77,17 +79,17 @@ export function DevicesSection({
 } = {}) {
   const { t } = useTranslation('settings')
   const { toast } = useToast()
-  const { devices: allDevices, loading, error, refresh, rename, remove, listBoundAgents, cloudComputer } = useDevicesStore()
+  const { devices: deviceRows, phones, loading, error, refresh, rename, cloudComputer } = useDevicesStore()
+  const allDevices = useMemo(() => [...deviceRows, ...(phones ?? [])], [deviceRows, phones])
   // #7199 个人助理住的那台云端宿主不在这一页(owner 10-15:用户看不到它住在哪);开通、叫醒、关闭都在「助理」App 里。
   const cloudDeviceId = cloudComputer?.snapshot?.deviceId ?? null
-  const devices = useMemo(() => withoutAssistantHome(allDevices, cloudDeviceId), [allDevices, cloudDeviceId])
-  const { addresses, forget } = useSshMachines()
+  const machines = useMemo(() => deviceMachines(withoutAssistantHome(allDevices, cloudDeviceId)), [allDevices, cloudDeviceId])
+  const devices = useMemo(() => machines.map(machine => machine.device), [machines])
+  // A reinstall or a new data directory leaves the old row behind: the online row that may have replaced it (a hint only).
+  const replaced = useMemo(() => supersededBy(devices), [devices])
+  const { addressOf, openRemove, openUninstall, openVersions, configurationActions, dialogs } = useDeviceRemoval(machines)
 
-  const [editingId, setEditingId] = useState<string | null>(null)
-  const [draftLabel, setDraftLabel] = useState('')
-  const [rowError, setRowError] = useState<string | null>(null)
-  const [dialog, setDialog] = useState<DialogState | null>(null)
-  const [agents, setAgents] = useState<BoundAgentsState>({ agents: [], loading: false, cascadeChecked: false })
+  const deviceRename = useDeviceRename()
   const canAddServer = desktopIpc() !== null
   // 从会话页新建框的「添加一台机器」进来时,直接把「选一种装法」的菜单打开(远程隧道没开放时只有一种,直接展开它)。
   const [addMenuFromIntent] = useState(() => consumeAddServerIntent() && canAddServer)
@@ -107,9 +109,8 @@ export function DevicesSection({
   // #7199 第二步:正在看哪台设备「能做的事」(设备页里的一个内页:点设备进它的连接应用页)。
   // #7199 助理主页点了一台设备 = 一进来就是那台的「能做的事」(deviceActionsIntent)。
   const [actionsFor, setActionsFor] = useState<string | null>(() => consumeDeviceActionsIntent())
-  const thisDevice = devices.find((d) => d.is_current_device) ?? null
+  const thisDevice = machines.find(machine => machine.current)?.configurations.find(device => device.is_current_device) ?? null
 
-  const addressOf = useCallback((deviceId: string) => addresses.get(deviceId) ?? null, [addresses])
   // 离线的 SSH 机器:问清是没开机 / 连不上,还是登录没了(照 VS Code Tunnels / Tailscale「Expired」)。
   const signIns = useSshSignInStates(devices, addressOf)
   // 远程 SSH 的机器:在线与否、要不要先登录,只看这台电脑到它的设备连接(与侧栏、顶上卡片同一个读数)。
@@ -121,6 +122,10 @@ export function DevicesSection({
     () => (showTools ? filterDevices(devices, { query, filter, sshAddress: addressOf }) : devices),
     [showTools, devices, query, filter, addressOf],
   )
+  const { archived } = useDeviceMachineSections(machines)
+  const archivedIds = new Set(archived.map(machine => machine.device.device_id))
+  const visibleActive = visible.filter(device => !archivedIds.has(device.device_id))
+  const visibleArchived = visible.filter(device => archivedIds.has(device.device_id))
   const onlineCount = devices.filter((d) => deviceAcceptsWork(d)).length
   const filterItems = useMemo(() => [
     { value: 'all' as const, label: t('devices.filter.all', { n: devices.length }) },
@@ -128,85 +133,58 @@ export function DevicesSection({
     { value: 'offline' as const, label: t('devices.filter.offline', { n: devices.length - onlineCount }) },
   ], [t, devices.length, onlineCount])
 
-  const startRename = useCallback((device: Device) => {
-    setRowError(null)
-    setEditingId(device.device_id)
-    setDraftLabel(device.label)
-  }, [])
-
-  const commitRename = useCallback(async (device: Device) => {
-    const next = draftLabel.trim()
-    if (!next || next === device.label) { setEditingId(null); return }
-    try {
-      await rename(device.device_id, next)
-      setEditingId(null)
-    } catch (err) {
-      log.error({ err: String((err as Error)?.message ?? err), deviceId: device.device_id }, 'rename device failed')
-      setRowError(device.device_id)
-    }
-  }, [draftLabel, rename])
-
-  const loadAgents = useCallback(async (device: Device) => {
-    setAgents({ agents: [], loading: true, cascadeChecked: false })
-    try {
-      const list = await listBoundAgents(device.device_id)
-      setAgents({ agents: list, loading: false, cascadeChecked: false })
-    } catch (err) {
-      // 列不出来 ⇒ 按「没有」走非级联移除:真有的话库会拦下(DEVICE_HAS_AGENTS),确认页报「没能移除」,
-      // ❌ 不会在没让人看过清单的情况下把智能体一起删掉。
-      log.error({ err: String((err as Error)?.message ?? err), deviceId: device.device_id }, 'list bound agents failed')
-      setAgents({ agents: [], loading: false, cascadeChecked: false })
-    }
-  }, [listBoundAgents])
-
-  const openRemove = useCallback((device: Device) => {
-    setDialog({ kind: 'remove', device, removing: false, failed: false })
-    void loadAgents(device)
-  }, [loadAgents])
-
-  const openUninstall = useCallback((device: Device) => {
-    setDialog({ kind: 'uninstall', device })
-    void loadAgents(device)
-  }, [loadAgents])
-
-  /** 移除 = 这个账号不再用这台机器;用 SSH 装上的,这台电脑也不再记得怎么连过去。 */
-  const removeDevice = useCallback(async (device: Device): Promise<boolean> => {
-    try {
-      await remove(device.device_id, { cascade: agents.agents.length > 0 })
-      await forget(device.device_id).catch(() => undefined)
-      return true
-    } catch (err) {
-      log.error({ err: String((err as Error)?.message ?? err), deviceId: device.device_id }, 'remove device failed')
-      return false
-    }
-  }, [remove, forget, agents.agents.length])
-
-  const confirmRemove = useCallback(async () => {
-    if (dialog?.kind !== 'remove') return
-    const device = dialog.device
-    setDialog({ kind: 'remove', device, removing: true, failed: false })
-    const ok = await removeDevice(device)
-    setDialog(ok ? null : { kind: 'remove', device, removing: false, failed: true })
-  }, [dialog, removeDevice])
-
   const copyAddress = useCallback(async (address: string) => {
-    await platform.writeClipboardText(address)
-    toast(t('devices.copied'), 'success')
+    try { await platform.writeClipboardText(address); toast(t('devices.copied'), 'success') }
+    catch (error) { log.error({ error }, 'device address copy failed'); toast(t('actions.copyFailed', { ns: 'common' }), 'error', messageForUser(error)) }
   }, [toast, t])
 
-  const actionsDevice = actionsFor ? devices.find((d) => d.device_id === actionsFor) ?? null : null
+  const actionsMachine = deviceMachineFor(machines, actionsFor)
+  const actionsDevice = actionsMachine?.device
   if (actionsDevice) {
-    return <DeviceActionsPage device={actionsDevice} isThisDevice={actionsDevice.is_current_device === true} onBack={() => setActionsFor(null)} />
+    return <><DeviceActionsPage device={actionsDevice} configurations={actionsMachine?.configurations}
+      configurationActions={configurationActions}
+      isThisDevice={actionsDevice.is_current_device === true} onBack={() => setActionsFor(null)} />{dialogs}</>
   }
+
+  const renderRow = (device: Device) => (
+    <DeviceRow
+      key={device.device_id}
+      device={device}
+      configurationCount={deviceMachineFor(machines, device.device_id)!.configurations.length}
+      model={deviceRowModel(device, addressOf(device.device_id), cloudDeviceId)}
+      editing={deviceRename.editingId === device.device_id}
+      renameFailed={deviceRename.failedFor(device.device_id)}
+      onStartRename={() => deviceRename.start(device)}
+      onCommitRename={(next) => void deviceRename.save(device, next)}
+      onCancelRename={deviceRename.cancel}
+      onCopyAddress={(address) => void copyAddress(address)}
+      onRemove={() => openRemove(device)}
+      onRemoveVersions={() => openVersions(device)}
+      replacedBy={replaced.get(device.device_id) ?? null}
+      onUninstall={() => openUninstall(device)}
+      onOpenActions={() => setActionsFor(device.device_id)}
+      signIn={signIns.get(device.device_id) ?? null}
+      sshLink={sshMachineIds.has(device.device_id) ? (linkProblems.get(device.device_id) ?? null) : undefined}
+      onSshSignIn={() => void signInSshMachine(device.device_id)}
+      upgradePercent={upgrades.get(device.device_id) ?? null}
+      onRetryUpdate={() => void requestSshServerUpgrade(device.device_id, { force: true })}
+      onRetryVersionMatch={() => retryServerVersionMatch(device.device_id)}
+      onRelogin={canAddServer && addressOf(device.device_id)
+        ? () => {
+            setRelogin({ deviceId: device.device_id, address: addressOf(device.device_id)! })
+            setAddingServer('ssh')
+          }
+        : undefined}
+    />
+  )
 
   return (
     <SettingsPage data-testid={AUTOMATION_TEST_IDS.settingsDevicesPane}>
-      <div className="flex flex-wrap items-start gap-3">
-        <SettingsNote className="min-w-[160px] flex-1">{t('devices.description')}</SettingsNote>
-        {canAddServer && !addingServer && (
+      {canAddServer && !addingServer && (
+        <div className="flex justify-end">
           <AddServerMenu defaultOpen={addMenuFromIntent} onPick={setAddingServer} testId="settings-add-server-button" />
-        )}
-      </div>
+        </div>
+      )}
 
       {addingServer && (
         <AddServerPanel
@@ -243,7 +221,7 @@ export function DevicesSection({
       )}
 
       {showTools && (
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2" data-testid="settings-devices-tools">
           <SearchField
             className="min-w-[180px] flex-1"
             value={query}
@@ -258,40 +236,13 @@ export function DevicesSection({
       )}
 
       <div
-        className={cn('flex flex-col rounded-[var(--radius-document)] bg-foreground/[0.025] p-1 dark:bg-foreground/[0.04]', visible.length === 0 && 'hidden')}
+        className={cn(DEVICE_LIST_CLASS, visibleActive.length === 0 && 'hidden')}
         role="list"
       >
-        {visible.map((device) => (
-          <DeviceRow
-            key={device.device_id}
-            device={device}
-            model={deviceRowModel(device, addressOf(device.device_id), cloudDeviceId)}
-            editing={editingId === device.device_id}
-            draftLabel={draftLabel}
-            renameFailed={rowError === device.device_id}
-            onDraftChange={setDraftLabel}
-            onStartRename={() => startRename(device)}
-            onCommitRename={() => void commitRename(device)}
-            onCancelRename={() => setEditingId(null)}
-            onCopyAddress={(address) => void copyAddress(address)}
-            onRemove={() => openRemove(device)}
-            onUninstall={() => openUninstall(device)}
-            onOpenActions={() => setActionsFor(device.device_id)}
-            signIn={signIns.get(device.device_id) ?? null}
-            sshLink={sshMachineIds.has(device.device_id) ? (linkProblems.get(device.device_id) ?? null) : undefined}
-            onSshSignIn={() => void signInSshMachine(device.device_id)}
-            upgradePercent={upgrades.get(device.device_id) ?? null}
-            onRetryUpdate={() => void requestSshServerUpgrade(device.device_id, { force: true })}
-            onRetryVersionMatch={() => retryServerVersionMatch(device.device_id)}
-            onRelogin={canAddServer && addressOf(device.device_id)
-              ? () => {
-                  setRelogin({ deviceId: device.device_id, address: addressOf(device.device_id)! })
-                  setAddingServer('ssh')
-                }
-              : undefined}
-          />
-        ))}
+        {visibleActive.map(renderRow)}
       </div>
+
+      <DeviceMachineArchive count={visibleArchived.length} listClassName={DEVICE_LIST_CLASS}>{visibleArchived.map(renderRow)}</DeviceMachineArchive>
 
       {showTools && visible.length === 0 && (
         <div className="text-[length:var(--font-body)] text-[var(--muted-fg)]" data-testid="settings-devices-no-match">{t('devices.noMatch')}</div>
@@ -304,30 +255,8 @@ export function DevicesSection({
         </div>
       )}
 
-      {dialog?.kind === 'remove' && (
-        <DeviceRemoveDialog
-          device={dialog.device}
-          model={deviceRowModel(dialog.device, addressOf(dialog.device.device_id))}
-          agents={agents}
-          onCascadeChange={(value) => setAgents((s) => ({ ...s, cascadeChecked: value }))}
-          removing={dialog.removing}
-          failed={dialog.failed}
-          onCancel={() => setDialog(null)}
-          onConfirm={() => void confirmRemove()}
-        />
-      )}
+      {dialogs}
 
-      {dialog?.kind === 'uninstall' && (
-        <ServerUninstallDialog
-          device={dialog.device}
-          address={addressOf(dialog.device.device_id) ?? dialog.device.label}
-          agents={agents}
-          onCascadeChange={(value) => setAgents((s) => ({ ...s, cascadeChecked: value }))}
-          onRemove={() => removeDevice(dialog.device)}
-          onRemoveOnly={() => setDialog({ kind: 'remove', device: dialog.device, removing: false, failed: false })}
-          onClose={() => setDialog(null)}
-        />
-      )}
     </SettingsPage>
   )
 }
@@ -448,18 +377,45 @@ function useNameWhenAppears(devices: readonly Device[], rename: (deviceId: strin
   }, [])
 }
 
+/**
+ * 「可能已被「B」顶替」(owner 10-28): the row that may have replaced this one, and its removal (the usual confirmation).
+ * Why it says so is on hover — and a press opens it under the line, for a phone, which has no hover.
+ */
+function ReplacedHint({ by, onRemove }: { by: Device; onRemove: () => void }) {
+  const { t } = useTranslation('settings')
+  const [open, setOpen] = useState(false)
+  const why = t('devices.replaced.why', { name: by.label })
+  return (
+    <div className="mt-[3px] text-[length:var(--font-caption)] text-[var(--muted-fg)]" data-testid="settings-device-replaced">
+      <Button
+        variant="ghost"
+        title={why}
+        aria-expanded={open}
+        onClick={() => setOpen((value) => !value)}
+        className="inline h-auto min-h-0 max-[719px]:min-h-0 border-0 p-0 align-baseline text-left text-[length:inherit] leading-[inherit] font-[inherit] text-[var(--muted-fg)] underline decoration-dotted underline-offset-2 [&:hover:not([data-disabled])]:bg-transparent"
+        data-testid="settings-device-replaced-hint"
+      >
+        {t('devices.replaced.hint', { name: by.label })}
+      </Button>
+      {' '}<InlineAction onClick={onRemove} testId="settings-device-replaced-remove">{t('devices.replaced.remove')}</InlineAction>
+      {open && <div className="mt-[3px] leading-[1.5]" data-testid="settings-device-replaced-why">{why}</div>}
+    </div>
+  )
+}
+
 function DeviceRow({
   device,
   model,
+  configurationCount,
   editing,
-  draftLabel,
   renameFailed,
-  onDraftChange,
   onStartRename,
   onCommitRename,
   onCancelRename,
   onCopyAddress,
   onRemove,
+  onRemoveVersions,
+  replacedBy,
   onUninstall,
   onOpenActions,
   signIn,
@@ -472,15 +428,18 @@ function DeviceRow({
 }: {
   device: Device
   model: DeviceRowModel
+  configurationCount: number
   editing: boolean
-  draftLabel: string
-  renameFailed: boolean
-  onDraftChange: (value: string) => void
+  renameFailed: string
   onStartRename: () => void
-  onCommitRename: () => void
+  onCommitRename: (next: string) => void
   onCancelRename: () => void
   onCopyAddress: (address: string) => void
   onRemove: () => void
+  /** ≥2 个版本时的「移除」:打开版本列表,逐个移除(当前这台除外)。 */
+  onRemoveVersions: () => void
+  /** The online row this one may have been replaced by (lib/deviceSuperseded): said, with a way to remove it. */
+  replacedBy: Device | null
   onUninstall: () => void
   /** #7199 这台设备能做的事(能被助理调用的动作)。 */
   onOpenActions: () => void
@@ -511,6 +470,8 @@ function DeviceRow({
   const failedUpdate = model.update?.state === 'failed' ? model.update.version : null
   const [retriedFor, setRetriedFor] = useState<string | null>(null)
   const retrying = failedUpdate !== null && retriedFor === failedUpdate
+  // 「有新版本」在等空闲:人可以「现在重启更新」(先说清会中断正在跑的 agent,再点一次才发)。点过就收起,心跳报回新版本时这颗标签自己没了。
+  const [updateNow, setUpdateNow] = useState<'ask' | 'sent' | null>(null)
   const signedOutText = sshLink === 'notSignedIn'
     ? t('devices.loginState.signedOut')
     : device.is_online || !signIn
@@ -537,24 +498,9 @@ function DeviceRow({
     >
       <div className="min-w-0 flex-1">
         {editing ? (
-          <div className="flex items-center gap-[6px]">
-            <input
-              autoFocus
-              value={draftLabel}
-              onChange={(e) => onDraftChange(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') onCommitRename()
-                if (e.key === 'Escape') onCancelRename()
-              }}
-              aria-label={t('devices.menu.rename')}
-              // @@@ui-ruler 与同一行的 Button size="sm" 同高:两者都取 --control-h-sm(28)。
-              className="box-border min-h-[var(--control-h-sm)] min-w-0 flex-1 rounded-[var(--radius-control)] border border-[var(--border-strong)] bg-[var(--bg)] px-2 text-[length:var(--font-body)] text-[var(--fg)]"
-            />
-            <Button size="sm" variant="primary" onClick={onCommitRename}>{t('devices.save')}</Button>
-            <Button size="sm" onClick={onCancelRename}>{t('devices.cancel')}</Button>
-          </div>
+          <DeviceRenameField label={device.label} onSave={onCommitRename} onCancel={onCancelRename} />
         ) : (
-          <div className="flex min-w-0 items-center gap-[7px]">
+          <div className="flex min-w-0 flex-wrap items-center gap-[7px]">
             <span className="truncate text-[length:var(--font-body)] font-semibold text-[var(--fg)]">{device.label}</span>
             {model.kind === 'this' && <Chip tone="accent">{t('devices.current')}</Chip>}
             {model.update && model.update.state !== 'failed' && (
@@ -566,6 +512,9 @@ function DeviceRow({
                 {t(model.update.state === 'ready' ? 'devices.update.ready' : 'devices.update.downloading')}
               </Chip>
             )}
+            {model.update?.state === 'ready' && onRetryVersionMatch && updateNow === null && (
+              <Button size="sm" onClick={() => setUpdateNow('ask')} data-testid="settings-device-update-now">{t('devices.update.updateNow')}</Button>
+            )}
             {model.notices
               // 远程 SSH 的机器太旧:状态那一行已说「正在更新 / 更新没成功」,❌ 再挂一颗说「空闲时会自动更新」的标签。
               .filter((notice) => !(notice.kind === 'server-too-old' && (link === 'updating' || link === 'outdated')))
@@ -575,8 +524,18 @@ function DeviceRow({
           </div>
         )}
 
+        {/* 「现在重启更新」的当面确认:单独一行,❌ 挤进名字那一行把机器名压成省略号。 */}
+        {model.update?.state === 'ready' && onRetryVersionMatch && updateNow === 'ask' && (
+          <div className="mt-[6px] flex flex-wrap items-center gap-2" data-testid="settings-device-update-now-confirm">
+            <span className="min-w-0 flex-1 text-[length:var(--font-caption)] text-[var(--muted-fg)]">{t('devices.update.updateNowConfirm', { name: device.label })}</span>
+            <Button size="sm" onClick={() => setUpdateNow(null)} data-testid="settings-device-update-now-no">{t('devices.cancel')}</Button>
+            <Button size="sm" variant="primary" onClick={() => { setUpdateNow('sent'); void onRetryVersionMatch().then((ok) => { if (!ok) setUpdateNow(null) }) }} data-testid="settings-device-update-now-yes">
+              {t('devices.update.confirmRestart')}
+            </Button>
+          </div>
+        )}
         <div className="mt-[3px] overflow-hidden">
-        <div className="-ml-4 flex flex-wrap items-center gap-y-[2px] text-[length:var(--font-caption)] text-[var(--faint-fg)]">
+        <div className="-ml-4 flex flex-wrap items-center gap-y-[2px] text-[length:var(--font-caption)] text-[var(--muted-fg)]">
           <span className="inline-flex items-center gap-[5px] pl-4">
             {/* 状态点:在线 = connected = live 蓝(design.md 唯一的 accent);离线退成墨色最淡一档。 */}
             <span
@@ -584,7 +543,7 @@ function DeviceRow({
               className={cn('size-[7px] shrink-0 rounded-[var(--radius-circle)]', device.is_online ? 'bg-live' : 'bg-[var(--faint-fg)]')}
             />
             {link === 'signInRequired' ? (
-              <span className="text-[var(--danger)]" data-testid="settings-device-ssh-sign-in">
+              <span className="text-[var(--danger-fg)]" data-testid="settings-device-ssh-sign-in">
                 {t('devices.loginState.sshSignIn')}
                 {onSshSignIn && <>{' '}<InlineAction onClick={onSshSignIn} testId="settings-device-ssh-sign-in-action">{t('devices.loginState.sshSignInAction')}</InlineAction></>}
               </span>
@@ -596,14 +555,14 @@ function DeviceRow({
                   : t('devices.loginState.updating')}
               </span>
             ) : link === 'outdated' ? (
-              <span className="text-[var(--danger)]" data-testid="settings-device-outdated">
+              <span className="text-[var(--danger-fg)]" data-testid="settings-device-outdated">
                 {t('devices.loginState.updateFailed')}
                 {onRetryUpdate && <>{' '}<InlineAction onClick={onRetryUpdate} testId="settings-device-update-retry">{t('devices.loginState.retryUpdate')}</InlineAction></>}
               </span>
             ) : link === 'unreachable' ? (
               t('devices.loginState.reconnecting')
             ) : failedUpdate !== null ? (
-              <span className={retrying ? undefined : 'text-[var(--danger)]'} data-testid="settings-device-match-failed">
+              <span className={retrying ? undefined : 'text-[var(--danger-fg)]'} data-testid="settings-device-match-failed">
                 {retrying ? t('devices.loginState.matchRetrying') : t('devices.loginState.matchFailed')}
                 {!retrying && onRetryVersionMatch && (
                   <>{' '}<InlineAction
@@ -620,7 +579,7 @@ function DeviceRow({
             ) : device.is_online ? (
               t('devices.online')
             ) : signedOutText ? (
-              <span className="text-[var(--danger)]" data-testid="settings-device-signed-out">{signedOutText}</span>
+              <span className="text-[var(--danger-fg)]" data-testid="settings-device-signed-out">{signedOutText}</span>
             ) : (
               <span title={model.kind === 'server' ? t('devices.loginState.offlineHint') : undefined}>
                 {lastSeen ? t('devices.lastSeen', { time: lastSeen }) : t('devices.offline')}
@@ -636,6 +595,7 @@ function DeviceRow({
           {model.kind !== 'this' && <span className={META_SEP} data-testid="settings-device-kind">{t(`devices.kind.${model.kind}`)}</span>}
           {model.system && <span className={META_SEP}>{model.system}</span>}
           {version && <span className={META_SEP}>{version}</span>}
+          {configurationCount > 1 && <span className={META_SEP} data-testid="settings-device-version-count">{t('devices.configurationCount', { count: configurationCount })}</span>}
           {/* #6264 root 跑的 server:上面的智能体能改整台机器,如实写出来(隧道装的也看得到)。 */}
           {model.kind === 'server' && device.capabilities?.runs_as_root && (
             <span className={META_SEP} title={t('devices.runsAsRootHint')} data-testid="settings-device-runs-as-root">{t('devices.runsAsRoot')}</span>
@@ -653,8 +613,9 @@ function DeviceRow({
           )}
         </div>
         </div>
+        {replacedBy && <ReplacedHint by={replacedBy} onRemove={onRemove} />}
         {renameFailed && (
-          <div className="mt-1 text-[length:var(--font-caption)] text-[var(--danger)]">{t('devices.renameFailed')}</div>
+          <div className="mt-1 text-[length:var(--font-caption)] text-[var(--danger-fg)]">{renameFailed}</div>
         )}
       </div>
 
@@ -707,7 +668,15 @@ function DeviceRow({
                   {t('devices.menu.copyAddress')}
                 </MenuItem>
               )}
-              {model.kind !== 'this' && (
+              {configurationCount > 1 && (
+                <>
+                  <MenuSeparator />
+                  <MenuItem danger data-testid="settings-device-remove-versions" icon={<Unplug size={16} />} onClick={onRemoveVersions}>
+                    {t('devices.menu.removeVersions')}
+                  </MenuItem>
+                </>
+              )}
+              {model.kind !== 'this' && configurationCount === 1 && (
                 <>
                   <MenuSeparator />
                   <MenuItem

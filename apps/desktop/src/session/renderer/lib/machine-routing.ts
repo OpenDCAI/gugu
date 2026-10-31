@@ -8,6 +8,7 @@
 // 本机专属的命名空间(窗口、内置浏览器、界面布局记忆、SSH 直连 / 端口转发)永不外发;
 // 机器级的调用(那台机器的设置、资源库、模型目录……)由调用点经 `rpcOn(machine)` 指明。
 
+import { action, makeObservable, observable } from 'mobx';
 import { IMPLICIT_SESSION_HOME_PROJECT_ID } from '@shared/core/projects/session-home-project';
 
 /** 一次调用里认出的机器:null = 本机。 */
@@ -31,13 +32,16 @@ const LOCAL_ONLY_NAMESPACES = new Set([
 ]);
 
 /**
- * 带着项目 id、却属于这台电脑的几条:`gugu-preview://` 的登记表在看界面的这台电脑的主进程里
- * (别的机器上的页面由这台电脑按块取来渲染,见 preview-protocol.ts)。
+ * 带着项目 / 会话 id、却属于这台电脑的几条:
+ *  · `gugu-preview://` 的登记表在看界面的这台电脑的主进程里(别的机器上的页面由这台电脑按块取来渲染,见 preview-protocol.ts);
+ *  · 屏上有哪些会话,报给这台电脑自己的闲置回收(app/sessions-on-screen.ts)—— 屏上摆着别的机器上的会话也一样。
  */
 const LOCAL_ONLY_CHANNELS = new Set([
+  'workspace.files.createDocumentPreview',
   'workspace.files.createRemotePreview',
   'workspace.files.setPreviewDocument',
   'workspace.files.releasePreview',
+  'sessions.reportSessionsOnScreen',
 ]);
 
 /** 值是实体 id 的键(会话页宿主自己的实体;❌ 咕咕云身份那类跨机器的 id,那会把本机调用错发出去)。 */
@@ -54,21 +58,43 @@ function looksLikeEntityId(value: unknown): value is string {
 }
 
 export class MachineRegistry {
-  private readonly owner = new Map<string, string>();
+  /**
+   * 观察得到:界面 / reaction 读过一个 id 的机器,它登记到某台机器、被忘掉时读的人会被告知。别的机器的项目清单常在界面
+   * 之后才到 —— 冷启动先恢复屏上的块,那台机器的项目后登记 —— 读的那一刻答的是「本机」,不告知就一直错着(屏上那条
+   * 别的机器上的会话没人订,那台机器把它当没人看停掉,#92)。只记实体 id(collectEntityIds),量是那台机器上的实体数。
+   */
+  private readonly owner = observable.map<string, string>({}, { deep: false });
+  /**
+   * #581 这台电脑自己的实体(本机项目表里读到的、本机新建的):别的机器 ❌ 认领它们。一条设备行的账号副本里可能写着
+   * 这台电脑的项目 id(同一个库换了设备 id:换 tier、重新登记,旧行还挂着),跨机器的调用与应答也会带上本机的 id ——
+   * 被记到那台名下,本机项目就被错路由到那台,那台被移除时它还会从项目表里被拿掉。
+   */
+  private readonly local = new Set<string>();
 
   /** 每台机器都有、id 写死的实体(见文件末尾的换名);它们本身永不登记。 */
-  constructor(readonly fixedIds: readonly string[] = []) {}
+  constructor(readonly fixedIds: readonly string[] = []) {
+    // 一次登记 / 忘掉是一次变化:读的人在它做完之后才重算一遍,❌ 每个 id 一遍。
+    makeObservable(this, { register: action, forgetMachine: action, claimLocal: action });
+  }
 
-  /** 记下这些 id 属于那台机器。 */
+  /** 记下这些 id 属于那台机器(这台电脑自己的除外,见 claimLocal)。 */
   register(deviceId: string, ids: Iterable<string>): void {
     for (const id of ids) {
-      if (looksLikeEntityId(id) && !this.fixedIds.includes(id)) this.owner.set(id, deviceId);
+      if (looksLikeEntityId(id) && !this.fixedIds.includes(id) && !this.local.has(id)) this.owner.set(id, deviceId);
+    }
+  }
+
+  /** 这些 id 是这台电脑的:之后谁也认领不走,已经被记到别的机器名下的撤回来。 */
+  claimLocal(ids: Iterable<string>): void {
+    for (const id of ids) {
+      this.local.add(id);
+      this.owner.delete(id);
     }
   }
 
   /** 那台机器被移除 / 换了账号:忘掉它的 id。 */
   forgetMachine(deviceId: string): void {
-    for (const [id, owner] of this.owner) if (owner === deviceId) this.owner.delete(id);
+    for (const [id, owner] of [...this.owner]) if (owner === deviceId) this.owner.delete(id);
   }
 
   /** 从那台机器来的一份数据(应答 / 推送 / 发过去的参数):把里面的实体 id 记到它名下。 */

@@ -1,4 +1,11 @@
-import type { UserLibraryEntry, UserLibraryItem, UserLibraryVolume } from '@shared/user-library';
+import type { UserLibraryChange, UserLibraryEntry, UserLibraryItem, UserLibraryVolume } from '@shared/user-library';
+import { z } from 'zod';
+
+const summary = z.object({ name: z.string(), description: z.string(), group: z.string().nullable() });
+const activitySchema = z.array(z.object({
+  operationId: z.string().uuid(), source: z.enum(['ui', 'agent', 'unknown']), operation: z.enum(['created', 'edited']),
+  modifiedAt: z.string().datetime(), before: summary.optional(), after: summary,
+}));
 
 type RecordEntry = Omit<UserLibraryEntry, 'path' | 'index'>;
 export function parseLibraryEntry(value: unknown, id: string): RecordEntry {
@@ -9,7 +16,8 @@ export function parseLibraryEntry(value: unknown, id: string): RecordEntry {
     || !(row.group === null || typeof row.group === 'string')
     || typeof row.modifiedAt !== 'string' || !Number.isFinite(Date.parse(row.modifiedAt))) throw new Error('Invalid Gugu library entry');
   return { id, name: row.name.trim(), description: row.description.trim(), group: row.group?.trim() || null,
-    content: row.content, modifiedAt: row.modifiedAt };
+    content: row.content, modifiedAt: row.modifiedAt,
+    ...(row.activity === undefined ? {} : { activity: activitySchema.parse(row.activity) as UserLibraryChange[] }) };
 }
 
 /** The total index cannot drift from the independent records. */

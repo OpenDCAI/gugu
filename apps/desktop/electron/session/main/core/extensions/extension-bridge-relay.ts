@@ -4,12 +4,15 @@ import {
   setExtensionBridgeHost,
   type ExtensionBridgeHost,
 } from '@main/core/extensions/extension-bridge';
+import type { DispatchAsk, DispatchPicked } from '@shared/extensions/app-dispatch-core';
 import {
   EXTENSION_HOST_ACTION_METHOD,
+  EXTENSION_PICK_DISPATCH_TARGET_METHOD,
   INSTALLED_NOT_SHOWN_NOTE,
   type ExtensionInstallConsentRequest,
   type ExtensionInstallConsentResult,
   type ExtensionHostAction,
+  type ExtensionHostActionResult,
   type ExtensionHostActionCommand,
   type ExtensionHostActionOrigin,
 } from '@shared/extensions/host-actions';
@@ -56,9 +59,9 @@ export type ExtensionHostWindowChannel = {
   /** Members' faces by id (`lib/memberFaces.ts`). */
   drawMemberFaces: (people: readonly { id: string; avatar: string | null }[]) => Promise<Record<string, string>>;
   /** #7158 The project the window's task list has another computer's session under, or null (`remoteHostsStore.listedProject`). */
-  listedSession: (sessionId: string) => Promise<string | null>;
+  listedSession: (sessionId: string, hint?: { deviceId?: string; projectId?: string }) => Promise<string | null>;
   /** An action no page asked for (a link's or a banner's click), done by the window that shows chats and Apps. */
-  act: (command: ExtensionHostActionCommand) => Promise<void>;
+  act: (command: ExtensionHostActionCommand) => Promise<ExtensionHostActionResult>;
   isHostWindowFullScreen: () => boolean;
   onHostWindowFullScreenChange: (listener: () => void) => () => void;
   /**
@@ -133,7 +136,7 @@ function requireHostWindow(): ExtensionHostWindowChannel {
 async function deliver(
   origin: ExtensionHostActionOrigin & { embedderId: number | null },
   action: ExtensionHostAction
-): Promise<void> {
+): Promise<ExtensionHostActionResult> {
   if (origin.embedderId === null) {
     throw new Error('This surface is not embedded in a renderer that can act on its behalf');
   }
@@ -141,11 +144,12 @@ async function deliver(
     origin: { extensionId: origin.extensionId, sessionId: origin.sessionId, tabId: origin.tabId },
     action,
   };
-  await requireHostWindow().invokeRendererExtensions(
+  const result = await requireHostWindow().invokeRendererExtensions(
     EXTENSION_HOST_ACTION_METHOD,
     command,
     origin.embedderId
   );
+  return (result as { opened?: ExtensionHostActionResult }).opened;
 }
 
 export const extensionBridgeRelayHost: ExtensionBridgeHost = {
@@ -180,7 +184,7 @@ export function notifyInstalledExtensionsChanged(): Promise<void> {
 }
 
 /** What a link's or a banner's click opens in the window: the App in a chat's panel or on its own page, a chat's file. */
-export function actInWindow(action: ExtensionHostAction): Promise<void> {
+export function actInWindow(action: ExtensionHostAction): Promise<ExtensionHostActionResult> {
   return Promise.resolve().then(() => requireHostWindow().act({ origin: null, action }));
 }
 
@@ -190,8 +194,14 @@ export function drawMemberFaces(people: readonly { id: string; avatar: string | 
 }
 
 /** The project the task list has another computer's session under, or null, asked of the window (`gugu.showSession`). */
-export function listedSessionProject(sessionId: string): Promise<string | null> {
-  return Promise.resolve().then(() => requireHostWindow().listedSession(sessionId));
+export function listedSessionProject(sessionId: string, hint?: { deviceId?: string; projectId?: string }): Promise<string | null> {
+  return Promise.resolve().then(() => requireHostWindow().listedSession(sessionId, hint));
+}
+
+/** `gugu.dispatch` naming no target: the window that draws the page lets the person pick one (null: they cancelled). */
+export function pickDispatchTarget(embedderId: number | null, ask: DispatchAsk): Promise<DispatchPicked> {
+  if (embedderId === null) return Promise.reject(new Error('This surface is not embedded in a renderer that can act on its behalf'));
+  return Promise.resolve().then(() => requireHostWindow().invokeRendererExtensions(EXTENSION_PICK_DISPATCH_TARGET_METHOD, ask, embedderId) as Promise<DispatchPicked>);
 }
 
 /** How long an install waits for the window to take the new set in before answering anyway (摩擦单 F52). */

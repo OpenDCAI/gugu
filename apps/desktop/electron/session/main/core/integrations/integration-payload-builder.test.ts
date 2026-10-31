@@ -38,7 +38,7 @@ describe('buildIntegrationListPayload — 按请求方的界面语言解析成�
     expect(entry?.disconnectCredentialLabel).toBe('凭据');
   });
 
-  it('官方命令行的先决条件(钉钉:组织管理员先开 CLI 访问)也按界面语言给字符串,链接原样带上', () => {
+  it('钉钉先决条件按界面语言给出简短指引,链接原样带上', () => {
     const prerequisite = (locale?: string) => {
       const method = buildIntegrationListPayload(locale)
         .find((integration) => integration.id === 'dingtalk')
@@ -46,7 +46,7 @@ describe('buildIntegrationListPayload — 按请求方的界面语言解析成�
       return method?.kind === 'cli' ? method.prerequisite : undefined;
     };
     expect(prerequisite('zh-CN')).toEqual({
-      text: expect.stringContaining('需要组织管理员先开启「CLI 访问」'),
+      text: '请先让组织管理员允许访问，再在钉钉确认授权。',
       url: 'https://open-dev.dingtalk.com',
     });
     expect(prerequisite()?.text).toMatch(/organization admin/i);
@@ -57,3 +57,16 @@ describe('buildIntegrationListPayload — 按请求方的界面语言解析成�
     expect(forgejo('en-US').entry?.description).toBe('Work on Forgejo issues');
   });
 });
+
+describe('#921 where a credential the person types is kept', () => {
+  const amapForm = (custodyOf?: (integrationId: string) => 'platform' | 'local') => {
+    const entry = buildIntegrationListPayload('zh-CN', custodyOf).find((integration) => integration.id === 'amap');
+    return entry?.auth.methods.find((method) => method.kind === 'form');
+  };
+
+  it('on the platform, unless this installation has no such service — then on this computer', () => {
+    expect(amapForm()).toMatchObject({ custody: 'platform' });
+    expect(amapForm(() => 'local')).toMatchObject({ custody: 'local' });
+  });
+});
+

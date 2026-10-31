@@ -1,3 +1,4 @@
+import { useGroupDisplayName } from '../hooks/useGroupDisplayName'
 import { GroupInvitationsPanel } from './contacts/GroupInvitationsPanel'
 import { messageForUser } from '../lib/userFacingError'
 import { Button } from './ui/Button'
@@ -13,7 +14,6 @@ import { useTranslation } from 'react-i18next'
 import { cn } from '@/lib/cn'
 import { useChatStore } from '../store/chatContext'
 import { chatService } from '../lib/chat'
-import { UserFacingError } from '../lib/userFacingError'
 import { rendererLogger } from '../lib/log'
 import type { ManagedGroupJoinRequest } from '../lib/groupJoinRequests'
 import { awaitsMe, friendRequestStatusKey, type FriendRequestEntry } from '../lib/requestHistory'
@@ -23,8 +23,8 @@ import { useBackLayer } from './ui/sheetStack'
 const joinRequestLog = rendererLogger('contacts/group-join-requests')
 
 
-// @@@2088 分段切换器收敛到 app 既有 tab 语言(下划线指示,对齐 MemberPickerModal「邀请人类/添加 Agent」的
-// --primary / --text-secondary / --border-subtle token),不再自成一套 pill 胶囊形状。
+// @@@2088 分段切换器收敛到 app 既有 tab 语言(下划线指示,--primary / --text-secondary / --border-subtle token),
+// 不再自成一套 pill 胶囊形状。
 // border-color 只在 active/inactive 各给一次(base 不带)——同元素上两个 border-color utility 会被 Tailwind
 // 生成序裁决、className 顺序不作数(#2103 真机审:base 的 border-transparent 曾盖掉 active 的 accent 下划线)。
 const requestTabsClass = 'nfp-reqtabs mx-3.5 mb-3'
@@ -59,7 +59,7 @@ function requestActionButtonClass(kind: 'ok' | 'no', disabled: boolean): string 
 
 // 与请求行(px 6)同一条左边线。
 const styleSectionLabel: CSSProperties = { padding: '12px 6px 4px', fontSize: 'var(--font-caption)', fontWeight: 600, color: 'var(--text-tertiary)' }
-const styleRowError: CSSProperties = { padding: '0 6px 8px', fontSize: 'var(--font-caption)', color: 'var(--danger)' }
+const styleRowError: CSSProperties = { padding: '0 6px 8px', fontSize: 'var(--font-caption)', color: 'var(--danger-fg)' }
 const stylePlaceholderAvatar: CSSProperties = { width: 34, height: 34, borderRadius: 'var(--radius-circle)', background: 'var(--bg-elevated)', flexShrink: 0 }
 const openOnKey = (open: () => void) => (event: KeyboardEvent<HTMLDivElement>) => {
   if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); open() }
@@ -231,7 +231,7 @@ function GroupJoinRequestItem({ request, onDecided }: { request: ManagedGroupJoi
   const [error, setError] = useState<string | null>(null)
   const requester = identitiesById[request.requester_user_id]
   const requestedBy = request.requested_by_user_id ? identitiesById[request.requested_by_user_id] : undefined
-  const groupName = resolveOrLoud(request.group.name, `join request group ${request.group.id}`)
+  const groupName = useGroupDisplayName(request.group)
   const joinLine = request.requester_type === 'agent' && request.requested_by_user_id
     ? t('groupJoinRequests.agentRequestedBy', { owner: resolveOrLoud(requestedBy?.display_name, `agent join requested by ${request.requested_by_user_id}`), group: groupName })
     : t('groupJoinRequests.wantsToJoin', { group: groupName })
@@ -248,7 +248,7 @@ function GroupJoinRequestItem({ request, onDecided }: { request: ManagedGroupJoi
       await onDecided()
     } catch (cause) {
       joinRequestLog.error({ requestId: request.id, chatId: request.group.id, error: String(cause) }, 'group join decision failed')
-      setError(cause instanceof UserFacingError ? cause.message : messageForUser(cause, t('groupJoinRequests.failed')))
+      setError(messageForUser(cause))
     } finally {
       setLoading(false)
     }
@@ -421,8 +421,8 @@ export function NewFriendsPanel({ onOpenGroupChat, onBack }: { onOpenGroupChat?:
       </div>
 
       {requestsStatus === 'error' && (
-        <div role="alert" className="mx-4 mb-3 text-sm text-[var(--danger)]">
-          {messageForUser(new Error(requestsError ?? ''), t('common.loadFailed'))}
+        <div role="alert" className="mx-4 mb-3 text-sm text-[var(--danger-fg)]">
+          {messageForUser(new Error(requestsError ?? ''))}
           <Button variant="ghost" size="sm" className="ml-2 underline" onClick={() => void refreshRequests()}>{t('common.retry')}</Button>
         </div>
       )}
@@ -439,7 +439,7 @@ export function NewFriendsPanel({ onOpenGroupChat, onBack }: { onOpenGroupChat?:
               <div style={styleSectionLabel}>{t('groupJoinRequests.title')}</div>
               {groupJoinRequestsError ? (
                 <div role="alert" style={styleRowError}>
-                  {messageForUser(new Error(groupJoinRequestsError), t('groupJoinRequests.loadFailed'))}
+                  {messageForUser(new Error(groupJoinRequestsError))}
                   <Button variant="ghost" size="sm" className="ml-2 underline" onClick={() => void refreshGroupJoinRequests()}>{t('common.retry')}</Button>
                 </div>
               ) : null}

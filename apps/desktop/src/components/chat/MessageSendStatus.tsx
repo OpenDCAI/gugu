@@ -6,27 +6,46 @@
 
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import type { MessageSendState } from '@gugu/core/shared/types/chat'
+import type { MessageSendState, MessageItem } from '@gugu/core/shared/types/chat'
 import { useChatStore } from '../../store/chatContext'
-import { COLOR_MUTED } from './chatPresentation'
 import { DropdownMenu, MenuItem } from '../ui/Menu'
+import { safeFailureLine } from '@/session/renderer/features/sessions/gugu-reason'
+import { useAttachmentUploadProgress } from '../../lib/attachmentUploadProgress'
+import { MessageSendingIndicator } from './MessageSendingIndicator'
 
-export function MessageSendStatus({ state, messageId }: { state: MessageSendState; messageId: string }) {
+type Props = { state: MessageSendState; messageId: string; reason?: string | null; blocks?: MessageItem['delivery_blocks'] }
+
+export function MessageSendStatus(props: Props) {
+  const { t } = useTranslation('messaging')
+  const { identitiesById } = useChatStore('identitiesById')
+  return <>
+    {props.blocks?.map((block) => <span key={block.agent_user_id} data-agent-delivery-block="agent_archived" data-agent-id={block.agent_user_id}
+      className="text-[length:var(--font-caption)] text-[var(--text-secondary)]">
+      {identitiesById[block.agent_user_id]?.display_name ? `${identitiesById[block.agent_user_id].display_name} · ` : ''}{t('message.sendStatus.archived')}
+    </span>)}
+    <MessageTransportStatus {...props} />
+  </>
+}
+
+function MessageTransportStatus({ state, messageId, reason }: Props) {
   const { t } = useTranslation('messaging')
   const { retrySend, discardSend } = useChatStore('retrySend', 'discardSend')
   const [menuOpen, setMenuOpen] = useState(false)
+  const progress = useAttachmentUploadProgress(messageId)
+  const failureReason = safeFailureLine(reason ?? '')
 
-  if (state === 'sending') {
-    return (
-      <svg width="15" height="15" viewBox="0 0 15 15" fill="none" aria-label={t('message.sendStatus.sending')}
-        style={{ flexShrink: 0, display: 'block', opacity: 0.56 }}>
-        <title>{t('message.sendStatus.sending')}</title>
-        {/* @@@5649 owner 拍板方案 C:发送中 = 虚线环流动,停下变「已发出」实线空心环(MessageBubble 的 read=0 环)。
-            两态同位同半径,靠「虚线在动 / 实线静止」区分,不再是小钟——小钟与空心环形似,正是 #1855 把空心环藏起来的原因。 */}
-        <circle cx="7.5" cy="7.5" r="5.5" stroke={COLOR_MUTED} strokeWidth="1.5" strokeDasharray="2.6 3.2" strokeLinecap="round"
-          className="gg-ring-march" />
-      </svg>
-    )
+  if (state === 'unknown') return <span data-send-state="unknown" title={t('message.sendStatus.unknownHint')}
+    className="text-[length:var(--font-caption)] text-[var(--text-secondary)]">{t('message.sendStatus.unknown')}</span>
+
+  // queued = 已经落库、它叫醒的助理还没接走:同一个发送中,悬停说明在等助理就绪。
+  if (state === 'sending' || state === 'queued') {
+    const label = t(state === 'queued' ? 'message.sendStatus.queued' : 'message.sendStatus.sending')
+    if (state === 'sending' && progress?.total && progress.loaded > 0) {
+      const percent = Math.max(0, Math.min(100, Math.floor(progress.loaded / progress.total * 100)))
+      return <span role="progressbar" aria-label={label} aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent}
+        data-send-state="sending" className="text-[length:var(--font-caption)] text-[var(--text-secondary)] tabular-nums">{percent}%</span>
+    }
+    return <MessageSendingIndicator label={label} state={state} title={label} />
   }
 
   if (state === 'failed') {
@@ -36,11 +55,12 @@ export function MessageSendStatus({ state, messageId }: { state: MessageSendStat
           type="button"
           data-testid="message-send-failed"
           aria-label={t('message.sendStatus.failedHint')}
+          title={failureReason || undefined}
           className="gg-pressable"
           style={{
             display: 'inline-flex', alignItems: 'center', gap: 4, border: 'none', cursor: 'pointer',
             background: 'transparent', padding: '1px 4px', borderRadius: 'var(--radius-control)', flexShrink: 0,
-            color: 'var(--danger)', fontSize: 'var(--font-caption)', lineHeight: 'var(--lh-caption)', whiteSpace: 'nowrap',
+            color: 'var(--danger-fg)', fontSize: 'var(--font-caption)', lineHeight: 'var(--lh-caption)', whiteSpace: 'nowrap',
           }}
         >
           <svg width="13" height="13" viewBox="0 0 15 15" fill="none" style={{ display: 'block' }}>
@@ -59,6 +79,7 @@ export function MessageSendStatus({ state, messageId }: { state: MessageSendStat
             sideOffset={4}
             style={{ minWidth: 96 }}
           >
+            {failureReason && <div className="max-w-72 break-words px-3 py-2 text-[length:var(--font-body)] text-[var(--text-secondary)]">{failureReason}</div>}
             <MenuItem
               render={<button type="button" />}
               nativeButton

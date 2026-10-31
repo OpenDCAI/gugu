@@ -1,3 +1,7 @@
+import { platform } from '@/platform'
+import { useGroupDisplayName } from '../../hooks/useGroupDisplayName'
+import { messageForUser } from '@/lib/userFacingError';
+import { safeFailureLine } from '@/session/renderer/features/sessions/gugu-reason'
 /**
  * 群邀请一族 —— 从 ContactsPanel 抽出。
  *
@@ -20,6 +24,7 @@ import { AUTOMATION_TEST_IDS } from '../../lib/automationDom'
 import { chatService } from '../../lib/chat'
 import { contactsService } from '../../lib/contacts'
 import { buildGroupInviteShareUrl } from '../../lib/groupInviteShareUrl'
+import { isProjectGroupChat } from '../../lib/groupMemberPermissions'
 import { useGroupInviteJoin } from '../../lib/groupInviteJoin'
 import { canWriteImageToClipboard, writeImageBlobToClipboard } from '../../lib/imageClipboard'
 import { GroupInviteCard } from '../groups/GroupInviteCard'
@@ -29,8 +34,18 @@ import { useToast } from '../toastContext'
 import { Sheet } from '../ui/Sheet'
 import { downloadDataUrl } from './downloadDataUrl'
 import { useTranslation } from 'react-i18next'
+import { qrColors } from '../../lib/qrColors'
 
+/** 群聊详情里扫码加入的码。项目群不拉人(gugu-dev#181):不出码,说一句原因。 */
 export function GroupInviteQrShare({ group }: { group: ContactGroupChat }) {
+  const { t } = useTranslation('messaging')
+  if (isProjectGroupChat(group.id)) {
+    return <div data-testid="project-group-no-invite" className="text-[length:var(--font-caption)] text-[var(--muted-fg)]">{t('group.projectGroupNoInvite')}</div>
+  }
+  return <GroupInviteQr group={group} />
+}
+
+function GroupInviteQr({ group }: { group: ContactGroupChat }) {
   const { t } = useTranslation('contacts')
   const { toast } = useToast()
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null)
@@ -56,13 +71,13 @@ export function GroupInviteQrShare({ group }: { group: ContactGroupChat }) {
         console.error('[ContactsPanel] group invite token fetch failed', error)
         if (!cancelled) {
           setJoinToken(null)
-          setQrError(t('sharing.qrFailed'))
+          setQrError(messageForUser(error))
         }
       })
     return () => {
       cancelled = true
     }
-  }, [group.id, hasGroupNumber, t])
+  }, [group.id, hasGroupNumber])
 
   const payloadText = useMemo(() => {
     if (!hasGroupNumber || !joinToken) return null
@@ -79,10 +94,7 @@ export function GroupInviteQrShare({ group }: { group: ContactGroupChat }) {
     QRCode.toDataURL(payloadText, {
       width: 132,
       margin: 1,
-      color: {
-        dark: '#1f2933',
-        light: '#ffffff'
-      }
+      color: qrColors()
     })
       .then((dataUrl) => {
         if (!cancelled) {
@@ -94,13 +106,13 @@ export function GroupInviteQrShare({ group }: { group: ContactGroupChat }) {
         console.error('[ContactsPanel] group invite QR generation failed', error)
         if (!cancelled) {
           setQrDataUrl(null)
-          setQrError(t('sharing.qrFailed'))
+          setQrError(messageForUser(error))
         }
       })
     return () => {
       cancelled = true
     }
-  }, [payloadText, t])
+  }, [payloadText])
 
   // @@@qr-share-as-image - "复制二维码内容" used to copy the QR payload as a TEXT LINK, which is
   const handleCopy = useCallback(async () => {
@@ -109,7 +121,7 @@ export function GroupInviteQrShare({ group }: { group: ContactGroupChat }) {
       const dataUrl = await QRCode.toDataURL(payloadText, {
         width: 480,
         margin: 2,
-        color: { dark: '#1f2933', light: '#ffffff' }
+        color: qrColors()
       })
       const blob = await (await fetch(dataUrl)).blob()
       const safeName = t('groupInvite.qrFileName', {
@@ -125,7 +137,7 @@ export function GroupInviteQrShare({ group }: { group: ContactGroupChat }) {
       downloadDataUrl(dataUrl, safeName)
       toast(t('groupInvite.qrSaved'), 'success')
     } catch (error) {
-      toast(t('groupInvite.qrExportFailed'), 'error')
+      toast(t('groupInvite.qrExportFailed'), 'error', messageForUser(error))
       console.error('QR image export failed:', error)
     }
   }, [payloadText, group.name, t, toast])
@@ -190,7 +202,7 @@ export function GroupInviteQrShare({ group }: { group: ContactGroupChat }) {
           </div>
           <div
             style={{
-              color: qrError ? 'var(--error)' : 'var(--text-secondary)',
+              color: qrError ? 'var(--danger)' : 'var(--text-secondary)',
               fontSize: qrError ? 'var(--font-body)' : 'var(--font-caption)',
               lineHeight: qrError ? 'var(--lh-body)' : 'var(--lh-caption)',
               marginTop: 4
@@ -240,10 +252,10 @@ export function GroupInviteQrShare({ group }: { group: ContactGroupChat }) {
                 data-testid={AUTOMATION_TEST_IDS.groupInviteLinkCopyButton}
                 onClick={async () => {
                   try {
-                    await navigator.clipboard.writeText(payloadText)
+                    await platform.writeClipboardText(payloadText)
                     toast(t('groupInvite.linkCopied'), 'success')
-                  } catch {
-                    toast(t('groupInvite.copyFailed'), 'error')
+                  } catch (error) {
+                    toast(t('groupInvite.copyFailed'), 'error', safeFailureLine(String((error as Error)?.message ?? error)))
                   }
                 }}
               >
@@ -267,6 +279,7 @@ export function GroupJoinConfirmDialog({
   onCancel: () => void
 }) {
   const { t } = useTranslation('contacts')
+  const groupName = useGroupDisplayName(group)
   // #855 — guard against a double-click double-join (the join RPC's `joining` guard reads a stale
   // closure on concurrent calls, so disable at the button on first confirm).
   const [submitting, setSubmitting] = useState(false)
@@ -298,7 +311,7 @@ export function GroupJoinConfirmDialog({
             }}
           >
             <div style={{ fontSize: 'var(--font-body)', lineHeight: 'var(--lh-body)', fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {group.name}
+              {groupName}
             </div>
             <div style={{ fontSize: 'var(--font-caption)', lineHeight: 'var(--lh-caption)', color: 'var(--text-secondary)' }}>
               {t('groupInvite.groupNumberHash', { number: group.public_id })}
@@ -387,7 +400,7 @@ function PublicGroupInviteSearchResult({
   const { t } = useTranslation('contacts')
   if (!lookup) return null
   if (lookup.status === 'lookup_error') {
-    return <div style={{ padding: 16, color: 'var(--danger)', fontSize: 'var(--font-body)', lineHeight: 'var(--lh-body)' }}>{t('groupInvite.lookupFailed')}</div>
+    return <div style={{ padding: 16, color: 'var(--danger-fg)', fontSize: 'var(--font-body)', lineHeight: 'var(--lh-body)' }}>{t('groupInvite.lookupFailed')}</div>
   }
   if (lookup.status === 'not_found' || !lookup.group) {
     return <div style={{ padding: 16, color: 'var(--text-secondary)', fontSize: 'var(--font-body)', lineHeight: 'var(--lh-body)' }}>{t('groupInvite.notFound')}</div>

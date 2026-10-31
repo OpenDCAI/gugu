@@ -18,13 +18,14 @@ export {
   TRANSPORT_TEXT_LIMIT,
   trimAfterResultForTransport,
   trimBatchForTransport,
+  trimCursorPageForTransport,
   trimItemsForTransport,
   trimOlderForTransport,
   trimSnapshotForTransport,
   trimTurnsForTransport
 } from './transport-trim';
 
-export { findToolImage, type ToolImageLookup } from './tool-image';
+export { findToolImage, findToolItem, type ToolImageLookup } from './tool-image';
 
 export {
   QUESTION_TOOL_NAMES,

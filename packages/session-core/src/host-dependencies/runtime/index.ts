@@ -65,10 +65,12 @@ export {
   resolveCommandPath,
   resolveRealpath,
   runVersionProbe,
+  versionLineOf,
   withProbeSwitches,
 } from './probe';
 export {
   makeHarnessRuntimeIdentity,
+  parseHarnessRuntimeVersion,
   type HarnessRuntimeIdentity,
 } from './harness-runtime-diagnostics';
 export {

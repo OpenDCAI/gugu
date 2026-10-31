@@ -62,7 +62,7 @@ function ComboboxInput({
   return (
     <InputGroup
       className={cn(
-        'w-auto has-[[data-slot=input-group-control]:focus-visible]:ring-0 has-[[data-slot=input-group-control]:focus-visible]:border-border',
+        'w-auto bg-[var(--em-surface-input)] has-[[data-slot=input-group-control]:focus-visible]:ring-0 has-[[data-slot=input-group-control]:focus-visible]:border-border',
         className
       )}
     >
@@ -121,7 +121,7 @@ function ComboboxContent({
           data-chips={!!anchor}
           finalFocus={finalFocus}
           className={cn(
-            'group/combobox-content relative max-h-(--available-height) w-(--anchor-width) max-w-(--available-width) min-w-[var(--anchor-width)] origin-(--transform-origin) overflow-hidden rounded-surface bg-background-quaternary text-foreground shadow-lift duration-[var(--dur-fast)] data-[chips=true]:min-w-(--anchor-width) data-[side=bottom]:slide-in-from-top-2 data-[side=inline-end]:slide-in-from-left-2 data-[side=inline-start]:slide-in-from-right-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 *:data-[slot=input-group]:m-0 *:data-[slot=input-group]:h-9 *:data-[slot=input-group]:border-t-0 *:data-[slot=input-group]:border-x-0 *:data-[slot=input-group]:border-b *:data-[slot=input-group]:border-border *:data-[slot=input-group]:rounded-none *:data-[slot=input-group]:bg-transparent *:data-[slot=input-group]:shadow-none *:data-[slot=input-group]:focus-within:ring-0 *:data-[slot=input-group]:focus-within:border-inherit data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95',
+            'group/combobox-content relative max-h-(--available-height) w-(--anchor-width) max-w-(--available-width) min-w-[var(--anchor-width)] origin-(--transform-origin) overflow-hidden rounded-surface bg-background-quaternary text-foreground shadow-lift duration-[var(--dur-fast)] data-[chips=true]:min-w-(--anchor-width) data-[side=bottom]:slide-in-from-top-2 data-[side=inline-end]:slide-in-from-left-2 data-[side=inline-start]:slide-in-from-right-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 *:data-[slot=input-group]:m-0 *:data-[slot=input-group]:h-9 *:data-[slot=input-group]:border-t-0 *:data-[slot=input-group]:border-x-0 *:data-[slot=input-group]:border-b *:data-[slot=input-group]:border-border *:data-[slot=input-group]:rounded-none *:data-[slot=input-group]:shadow-none *:data-[slot=input-group]:focus-within:ring-0 *:data-[slot=input-group]:focus-within:border-inherit data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95',
             className
           )}
           {...props}

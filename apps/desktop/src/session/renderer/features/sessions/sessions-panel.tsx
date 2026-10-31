@@ -1,10 +1,12 @@
 import { observer } from 'mobx-react-lite';
-import { useEffect, useRef, useState } from 'react';
+import { useContext, useEffect, useRef, useState } from 'react';
 import { PermissionBand } from '@gugu/session-ui/react/components';
 import { useHostAskBand } from '@renderer/features/extensions/use-session-host-ask';
+import { SessionHostQuestion } from '@renderer/features/extensions/session-host-question';
 import { useAppSettingsKey } from '@renderer/features/settings/use-app-settings-key';
 import { sessionNavigationFocus } from '@renderer/features/sidebar/session-navigation-focus';
 import { usePaneContext } from '@renderer/features/tabs/pane-context';
+import { PageShownContext } from '@renderer/app/recent-session-pages';
 // TODO(conversations-extraction): Pass task context actions into the panel as composition.
 import { ContextBar } from '@renderer/features/sessions/context-bar/context-bar';
 // TODO(conversations-extraction): Pass task scope into conversations instead of importing task hooks.
@@ -70,6 +72,14 @@ export const SessionsPanel = observer(function SessionsPanel() {
   const activePtySessionId = activePtySession?.ptySessionId ?? null;
   // 这条会话的启动是不是已经确定失败了 —— 加载态靠它才有出口，见 use-session-startup-failure。
   const startupFailure = useSessionStartupFailure(activeSessionStoreId);
+  const startupFailureView = startupFailure ? (
+    <SessionStartFailedView
+      failure={startupFailure}
+      onRetry={() => sessionStartupFailures.retry(startupFailure.sessionId)}
+      providerId={activeSession?.data.providerId ?? null}
+      onSwitchModel={() => requestTerminalModelMenu(startupFailure.sessionId)}
+    />
+  ) : null;
   // #6183 启动不设墙钟 ⇒ 这一步要看得见、能取消。取消走既有的停止会话,失败原文照旧进启动失败账本。
   const startStage = sessionStartStage(activeSessionStoreId);
   // D-31 The host's ask for this agent (an App install): the band a chat-UI session shows on its composer, here under the
@@ -114,10 +124,13 @@ export const SessionsPanel = observer(function SessionsPanel() {
   }, [sessionStatus]);
 
   // State-driven notification clearing: mark the active conversation as seen
-  // whenever this task view is the active route and the conversation has an
-  // unseen status. This covers the split-pane case where the same tab stays
-  // active — the engine's onActivate() only fires on tab identity changes.
-  useMarkSeenWhenShown(activeSession, isActive);
+  // whenever it is on screen and has an unseen status. This covers the
+  // split-pane case where the same tab stays active — the engine's onActivate()
+  // only fires on tab identity changes.
+  // 「在屏上」= 这一页看得见(PageShownContext:主窗那页、屏上的每一块、单独的窗、页签窗),与聊天那条腿同一个
+  // 判据(acp-chat-panel)。❌ isActive(只认主窗路由的那一页):摆在别的块里、开在窗里的终端会话看着也一直未读。
+  // isActive 只管键盘焦点给谁。
+  useMarkSeenWhenShown(activeSession, useContext(PageShownContext));
 
   const hideContextBarTrigger = interfaceSettings?.hideContextBar ?? false;
 
@@ -223,12 +236,7 @@ export const SessionsPanel = observer(function SessionsPanel() {
                   // 转满 90 秒仍在转）。出口不是墙钟超时（起得慢 ≠ 坏了，实测 OpenCode 要 9.1s），
                   // 而是账本里那条由 hydrate 真的抛错才写下的确定性失败。
                   startupFailure ? (
-                    <SessionStartFailedView
-                      failure={startupFailure}
-                      onRetry={() => sessionStartupFailures.retry(startupFailure.sessionId)}
-                      providerId={activeSession?.data.providerId ?? null}
-                      onSwitchModel={() => requestTerminalModelMenu(startupFailure.sessionId)}
-                    />
+                    startupFailureView
                   ) : (
                     <div
                       className="flex h-full min-h-0 flex-1 flex-col items-center justify-center gap-2"
@@ -289,11 +297,15 @@ export const SessionsPanel = observer(function SessionsPanel() {
       {/* The band sits in the measured wrapper: the terminal gives up its rows while the ask is out. */}
       {(
         <div ref={contextBarWrapperRef}>
+          {activePtySession?.status === 'ready' && activePtySession.pty && activePtySession.hasOutput
+            ? startupFailureView
+            : null}
           {hostBand ? (
             <div className="px-2 pt-1" data-testid="session-terminal-host-ask">
               <PermissionBand request={hostBand.request} onResolve={hostBand.resolve} />
             </div>
           ) : null}
+          <SessionHostQuestion sessionId={activeSessionStoreId} session={activeSession} />
           <ContextBar
             sessionId={activeSessionId(pane)}
             hideTrigger={hideContextBarTrigger}

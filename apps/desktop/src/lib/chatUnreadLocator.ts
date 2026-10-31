@@ -1,6 +1,7 @@
-import { markStreamRead } from './chatMemberReadState'
+import { markMemberRead, markStreamRead } from './chatMemberReadState'
+import { chatDb } from './supabase'
 import { UI_EVENTS } from './uiEvents'
-import type { ChatUnreadLocator, MessageItem } from '@gugu/core/shared/types/chat'
+import type { ChatItem, ChatUnreadLocator, MessageItem } from '@gugu/core/shared/types/chat'
 import { persistManualUnread } from '../store/chatRealtimeMutations'
 import { rendererLogger } from './log'
 import type { UnreadLocatorCommit } from './chatUnreadLocatorWindow'
@@ -29,13 +30,53 @@ export function markManualUnreadAndRefresh(
   return persistManualUnread(deps.chats, chatId, deps.patchChat, deps.toast).then(() => deps.refresh({ acceptEmpty: true }))
 }
 
+// @@@mark-all-read — 给定范围内每条未读流(主线 + 每个话题)各发一次现成的已读 RPC。seq 取点击时 store 里的
+// next_message_seq-1:seq 是整个会话共用的计数(话题回复也占号),点击之后到的消息都比它大,留作未读;
+// 第一条未读已经比它大的流(store 还没跟上)跳过。部分失败不回滚,返回失败的会话数。
+export async function markChatsReadAndRefresh(deps: {
+  chats: readonly ChatItem[]
+  refresh: (options?: { acceptEmpty?: boolean }) => Promise<void>
+  /** 自动清除保留当前服务端人工标记;显式「全部标已读」默认仍清除它。 */
+  preserveManualUnread?: boolean
+  /** 取未读流期间用户可能更新读意图,自动写入前再核对一次。 */
+  canMarkRead?: (chatId: string) => boolean
+}): Promise<{ failedChats: number; error?: unknown }> {
+  const seenSeq = new Map(deps.chats.map((chat) => [chat.id, chat.next_message_seq - 1]))
+  const { data, error } = await chatDb.rpc('list_unread_locators', { p_chat_id: null })
+  if (error) throw new Error(error.message)
+  const rows = (data ?? []) as Array<Record<string, unknown>>
+  const manuallyUnread = new Set(deps.preserveManualUnread ? rows.filter(row => row.is_marked_unread === true).map(row => String(row.chat_id)) : [])
+  const failedChatIds = new Set<string>()
+  let failure: unknown
+  await Promise.all(rows.map(async (row) => {
+    const chatId = String(row.chat_id)
+    const seq = seenSeq.get(chatId)
+    if (seq === undefined || manuallyUnread.has(chatId) || Number(row.message_seq) > seq || deps.canMarkRead?.(chatId) === false) return
+    const rootId = typeof row.thread_root_id === 'string' ? row.thread_root_id : null
+    try {
+      if (rootId) await markStreamRead(chatId, String(row.stream_id), seq, rootId)
+      else await markMemberRead(chatId, seq)
+    } catch (err) {
+      failedChatIds.add(chatId)
+      failure ??= err
+      unreadLocatorLog.error({ error: String(err), chatId, streamId: row.stream_id }, 'mark all read failed')
+    }
+  }))
+  await deps.refresh({ acceptEmpty: true })
+  return { failedChats: failedChatIds.size, ...(failedChatIds.size ? { error: failure } : {}) }
+}
+
 export type OpenableUnreadTarget = {
   chatId: string
   locator: ChatUnreadLocator & { message_id: string; message_seq: number }
 }
 
+export type CapturedUnreadEntry = OpenableUnreadTarget & { onSeen: () => void }
+
 export type UnreadMessageRevealRequest = {
   token: string
+  commit?: UnreadLocatorCommit
+  viewport?: HTMLElement | 'primary' | null
   chatId: string
   streamId: string
   streamKind: 'main' | 'thread'
@@ -47,7 +88,7 @@ export type UnreadMessageRevealRequest = {
   reject: (reason: unknown) => void
 }
 
-export function requestUnreadMessageReveal(target: OpenableUnreadTarget, isCurrent?: () => boolean): Promise<void> {
+export function requestUnreadMessageReveal(target: OpenableUnreadTarget, isCurrent?: () => boolean, viewport?: HTMLElement | 'primary' | null, commit?: UnreadLocatorCommit): Promise<void> {
   return new Promise((resolve, reject) => {
     let settled = false
     const token = crypto.randomUUID()
@@ -60,7 +101,7 @@ export function requestUnreadMessageReveal(target: OpenableUnreadTarget, isCurre
     }
     const timer = window.setTimeout(() => finish(new Error(`Unread locator ${target.locator.message_id} was not rendered`)), 5000)
     const detail: UnreadMessageRevealRequest = {
-      token,
+      token, commit, viewport: viewport ?? 'primary',
       chatId: target.chatId,
       streamId: target.locator.stream_id,
       streamKind: target.locator.stream_kind,
@@ -94,14 +135,14 @@ export async function openStreamAtLocator(
   deps: {
     activateChat: (chatId: string) => Promise<void>
     ensureMessageLoaded: (target: OpenableUnreadTarget) => Promise<UnreadLocatorCommit>
-    revealMessage: (target: OpenableUnreadTarget) => Promise<void>
+    revealMessage: (target: OpenableUnreadTarget, commit: UnreadLocatorCommit) => Promise<void>
     markRead: (target: OpenableUnreadTarget, commit: UnreadLocatorCommit) => Promise<void>
     refreshChats: () => Promise<void>
   },
 ): Promise<void> {
   await deps.activateChat(target.chatId)
   const commit = await deps.ensureMessageLoaded(target)
-  await deps.revealMessage(target)
+  await deps.revealMessage(target, commit)
   await deps.markRead(target, commit)
   await deps.refreshChats()
 }

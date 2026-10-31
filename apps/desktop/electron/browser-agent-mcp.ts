@@ -1,24 +1,20 @@
-import fs from 'node:fs'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import {
-  CallToolRequestSchema,
   ListRootsRequestSchema,
-  ListToolsRequestSchema,
   type CallToolResult,
   type CallToolRequest,
   type Tool,
 } from '@modelcontextprotocol/sdk/types.js'
-import type { AcpMcpServer } from './acp-engine-utils'
-import { GuguMcpHost, type GuguMcpHostPersistence } from './gugu-mcp-host'
 import { createLogger } from './lib/logger'
-import type { NativeAppProgram } from './session/main/core/extensions/extension-programs'
+import type { ExtensionPrograms, NativeAppProgram } from './session/main/core/extensions/extension-programs'
 import type { ExtensionAgentStatus } from '../src/session/shared/extensions/agent-status'
+
+import { awaitBrowserCall, withBrowserCall, withoutBrowserCall } from './session/main/core/browser/browser-call-scope'
 
 const log = createLogger('browser-agent-mcp')
 
@@ -28,12 +24,12 @@ const log = createLogger('browser-agent-mcp')
  *
  * - **连到哪个页签**:Playwright 经 `connectOverCDP(transport)` 连上来,transport 由会话页那一侧给
  *   (`emdashAgentBrowser.openTransport`,只报这条会话的一个页签,见 agent-browser.ts)。不开任何调试端口。
- * - **人接管**:每个动作前问一句会话页那一侧,人点进了页面 / 按了停止,就拒并说清楚该怎么做。
+ * - **跟随 Agent 的调用生命周期**:取消只停止该调用的后续动作,保留并发调用、连接和人的网页。浏览器没有独立暂停锁。
  * - **每条会话一份**:Playwright 的状态(快照里的 ref、当前页)是一条会话的,❌ 会话之间共用。
  *
- * 递给会话的是一台独立的 MCP server(`gugu-browser`),与 `gugu` 那台并列,和集成同一种做法(integration-mcp-bridge)。
+ * 递给会话的只有 Browser Use App 这一条路(App 的宿主程序 `host: 'browser-use'`,经扩展网关 / catalog):桌面驱动会话页的
+ * 页签。咕咕 server 暂不提供浏览器操控。没装 App 就没有浏览器工具 —— 旧的独立 `gugu-browser` MCP server 已去掉。
  */
-export const GUGU_BROWSER_MCP_SERVER_NAME = 'gugu-browser'
 
 /** 会话页那一侧经桥给的动作(agent-browser.ts 的 `agentBrowserBridge`)。 */
 export interface AgentBrowserBridge {
@@ -44,66 +40,7 @@ export interface AgentBrowserBridge {
   setInitialUrl: (sessionId: string, url: string | null) => void
   /** 这条会话的工作目录(拿不到 = null)。 */
   workspaceRoot: (sessionId: string) => Promise<string | null>
-  /** #7199 云浏览器才有:请人登录(密码保险箱)/ 请人接手一步。结果话里永远不含账号密码。 */
-  requestLogin?: (sessionId: string, args: { reason?: string }, signal?: AbortSignal) => Promise<{ ok: boolean; message: string }>
-  requestTakeover?: (sessionId: string, args: { reason?: string }, signal?: AbortSignal) => Promise<{ ok: boolean; message: string }>
-  /** 交回 agent 之前把工具结果里的已填密码盖掉(Playwright 的快照会写出密码框的值)。 */
-  redact?: (text: string) => string
 }
-
-/**
- * 要脱敏时,工具不许自己挑文件名落盘(截图除外:图片里密码框本来就是圆点)。给了文件名的快照 / 控制台 / 网络记录
- * 会写进 agent 的工作目录、结果里只给个链接 —— redact 管不到文件里。去掉文件名,内容就回到结果里、照常被盖掉。
- */
-export function withoutOwnFilename(name: string, args: Record<string, unknown> | undefined): Record<string, unknown> | undefined {
-  if (!args || !('filename' in args) || name === 'browser_take_screenshot') return args
-  const rest = { ...args }
-  delete rest.filename
-  return rest
-}
-
-/**
- * Playwright 自己落盘的文字也过一遍 redact:每个动作附带的整页快照(page-*.yml)默认就写成输出目录里的文件、
- * 结果里只给链接(0.0.83 实测),agent 会去读。只看这一步里新写的文字文件。
- */
-export function redactOutputFiles(dir: string, sinceMs: number, redact: (text: string) => string): void {
-  let names: string[]
-  try {
-    names = fs.readdirSync(dir)
-  } catch {
-    return
-  }
-  for (const name of names) {
-    if (!/\.(ya?ml|log|md|txt|json)$/i.test(name)) continue
-    const file = join(dir, name)
-    try {
-      const stat = fs.statSync(file)
-      if (!stat.isFile() || stat.mtimeMs < sinceMs) continue
-      const text = fs.readFileSync(file, 'utf8')
-      const redacted = redact(text)
-      if (redacted !== text) fs.writeFileSync(file, redacted)
-    } catch (error) {
-      log.warn({ file, error: (error as Error).message }, 'could not redact a browser output file')
-    }
-  }
-}
-
-/** 工具结果里每一段文字过一遍 redact;图片(截图里密码框本来就是圆点)原样。 */
-export function redactToolResult(result: CallToolResult, redact: ((text: string) => string) | undefined): CallToolResult {
-  if (!redact) return result
-  return {
-    ...result,
-    content: result.content.map((part) => (part.type === 'text' ? { ...part, text: redact(part.text) } : part)),
-  }
-}
-
-export interface BrowserAgentGrantContext {
-  sessionId: string
-  ownerUserId: string
-  subjectId: string
-}
-
-export type BrowserAgentMcpHost = GuguMcpHost<BrowserAgentGrantContext>
 
 type PlaywrightMcp = {
   createConnection: (config: object, contextGetter: () => Promise<unknown>) => Promise<{ connect(transport: unknown): Promise<void>; close(): Promise<void> }>
@@ -144,8 +81,9 @@ export class SessionBrowserTools {
   readonly outputDir: string
   private connecting: Promise<Client> | null = null
   private closeServer: (() => Promise<void>) | null = null
+  private transport: { close(): void } | null = null
   /**
-   * 会话结束(或连接作废)时拉下:还在搭的 Playwright、还在开的页签、刚连上的那一下都就此作罢 ——
+   * 会话结束或连接作废时拉下:还在搭的 Playwright、还在开的页签、刚连上的那一下都就此作罢 ——
    * ❌ 半截连上的一份留在页签上(之后重连会和它抢同一个 debugger 的消息)。
    */
   private readonly lifetime = new AbortController()
@@ -174,11 +112,12 @@ export class SessionBrowserTools {
     const workspace = await this.bridge().workspaceRoot(this.sessionId)
     const server = await createConnection(
       { ...PLAYWRIGHT_CONFIG, outputDir },
-      async () => {
+      () => withoutBrowserCall(async () => {
         signal.throwIfAborted()
         const transport = await this.bridge().openTransport(this.sessionId, signal)
         if (signal.aborted) transport.close()
         signal.throwIfAborted()
+        this.transport = transport
         const browser = await chromium.connectOverCDP(transport)
         if (signal.aborted) transport.close()
         signal.throwIfAborted()
@@ -187,7 +126,7 @@ export class SessionBrowserTools {
         const context = browser.contexts()[0]
         if (!context) throw new Error('the browser tab has no page to drive')
         return context
-      },
+      }),
     )
     const [clientSide, serverSide] = InMemoryTransport.createLinkedPair()
     await server.connect(serverSide)
@@ -208,8 +147,13 @@ export class SessionBrowserTools {
   async close(): Promise<void> {
     this.lifetime.abort()
     this.connecting = null
+    const transport = this.transport
+    this.transport = null
     const close = this.closeServer
     this.closeServer = null
+    // Closing the MCP request alone does not cancel Playwright's pending locator actions.
+    // Disconnect CDP synchronously so those actions cannot later reach the person's page.
+    transport?.close()
     await close?.()
   }
 }
@@ -241,7 +185,7 @@ function toolsFor(sessionId: string, bridge: () => AgentBrowserBridge): SessionB
   return tools
 }
 
-/** 会话结束:关掉它那一份 Playwright(连着的页签就此断开)。 */
+/** End this session's browser work, retaining the person's tab for the next turn. */
 export async function closeSessionBrowserTools(sessionId: string): Promise<void> {
   const tools = sessionTools.get(sessionId)
   sessionTools.delete(sessionId)
@@ -275,24 +219,20 @@ function browserAppToolSchemas(): Promise<Tool[]> {
 
 async function callBrowserTool(bridge: () => AgentBrowserBridge, sessionId: string, params: CallToolRequest['params'],
   signal: AbortSignal, initialUrl?: string): Promise<CallToolResult> {
+  if (signal.aborted) return refused('This browser action was cancelled with the Agent turn.')
   const local = answeredLocally(params.name)
   if (local) return local
-  const person = PERSON_TOOLS.find((tool) => tool.name === params.name)
-  if (person) return callPersonTool(bridge(), sessionId, person.name, params.arguments, signal)
   const gate = bridge().toolStarting(sessionId)
   if (!gate.ok) return refused(gate.message)
   // The App's default startUrl is about:blank, not an instruction to navigate on a key/snapshot reconnect.
   const url = params.name === 'browser_navigate' ? params.arguments?.url : initialUrl === 'about:blank' ? undefined : initialUrl
   if (typeof url === 'string' && url) bridge().setInitialUrl(sessionId, url)
-  const redact = bridge().redact
-  const startedAt = Date.now() - 1_000
+  const tools = toolsFor(sessionId, bridge)
   try {
-    const tools = toolsFor(sessionId, bridge)
-    const client = await tools.client()
-    const request = redact ? { ...params, arguments: withoutOwnFilename(params.name, params.arguments) } : params
-    const result = await client.callTool(request, undefined, { signal, timeout: SESSION_TOOL_TIMEOUT_MS }) as CallToolResult
-    if (redact) redactOutputFiles(tools.outputDir, startedAt, redact)
-    return redactToolResult(result, redact)
+    signal.throwIfAborted()
+    const client = await awaitBrowserCall(tools.client(), signal)
+    signal.throwIfAborted()
+    return await withBrowserCall(signal, () => client.callTool(params, undefined, { signal, timeout: SESSION_TOOL_TIMEOUT_MS })) as CallToolResult
   } catch (error) {
     log.warn({ sessionId, tool: params.name, error: (error as Error).message }, 'browser tool failed')
     return refused(`The browser tool could not run: ${(error as Error).message}`)
@@ -302,11 +242,18 @@ async function callBrowserTool(bridge: () => AgentBrowserBridge, sessionId: stri
   }
 }
 
-/** The browser is an App program: ordinary App consent, scope, disclosure and live revocation all apply. */
+/** The local App exposes the supported Playwright tools. */
+async function browserToolList(): Promise<Tool[]> {
+  return browserAppToolSchemas()
+}
+
+/**
+ * The browser is an App program: ordinary App consent, scope, disclosure and live revocation all apply.
+ */
 export function createBrowserAppProgram(bridge: () => AgentBrowserBridge): NativeAppProgram {
   const used = new Map<string, { sessions: Set<string>; calls: Set<Promise<CallToolResult>> }>()
   return {
-    tools: browserAppToolSchemas,
+    tools: browserToolList,
     call(program, params, signal) {
       const sessionId = params._meta?.['gugu/sessionId']
       if (typeof sessionId !== 'string' || !sessionId) return Promise.resolve(refused('Browser Use needs a local Gugu session.'))
@@ -330,7 +277,7 @@ export function createBrowserAppProgram(bridge: () => AgentBrowserBridge): Nativ
       used.delete(extensionId)
       if (!own) return
       await Promise.allSettled(own.calls)
-      await Promise.all([...own.sessions].filter((id) => ![...used.values()].some((other) => other.sessions.has(id))).map(closeSessionBrowserTools))
+      await Promise.all([...own.sessions].filter((id) => ![...used.values()].some((other) => other.sessions.has(id))).map((id) => closeSessionBrowserTools(id)))
     },
   }
 }
@@ -338,7 +285,7 @@ export function createBrowserAppProgram(bridge: () => AgentBrowserBridge): Nativ
 /**
  * 不交给 agent 的(Playwright 把 `core*` 组一律打开,配置关不掉,只能在这里滤):
  * - `browser_run_code_unsafe`:在 Playwright 所在的进程里跑任意代码(它自己的说明就是「RCE-equivalent」),这里那个
- *   进程是咕咕主进程 —— 拿得到每个页签、每份浏览器配置的 cookie,一步越过「只交这一个页签」和「人接管就停」。
+ *   进程是咕咕主进程 —— 拿得到每个页签、每份浏览器配置的 cookie,一步越过「只交这一个页签」和调用的取消边界。
  * - `browser_tabs`:一条会话只操作一个页签,开 / 关页签在 transport 那一层一律被拒,留着只会让 agent 撞错。
  */
 const WITHHELD_TOOLS = new Set(['browser_run_code_unsafe', 'browser_tabs'])
@@ -361,120 +308,7 @@ export function answeredLocally(toolName: string): CallToolResult | null {
   return null
 }
 
-/**
- * #7199 云浏览器多给的两个工具(Playwright 那套里没有、只有咕咕有的「请人来」):agent 卡在登录、验证码这类
- * 只有人能做的步骤时,❌ 在聊天里要密码、❌ 自己硬闯。工具挂着等人做完(最多 10 分钟),做完才返回。
- */
-export const PERSON_TOOLS = [
-  {
-    name: 'browser_request_login',
-    description:
-      'Ask the person to log in to the site open in your browser tab. They type their username and password into Gugu\'s ' +
-      'password vault and Gugu fills them into the login form; you never see them (a login the person saved is filled ' +
-      'without asking). Use this whenever a page asks for a login: never ask for a password in chat and never type one ' +
-      'yourself. Returns once the form is filled (then submit it) or the person declines.',
-    inputSchema: {
-      type: 'object' as const,
-      properties: { reason: { type: 'string', description: 'One short line shown to the person, in their language: what the login is for.' } },
-    },
-  },
-  {
-    name: 'browser_request_takeover',
-    description:
-      'Ask the person to do one step on the page themselves: a CAPTCHA, an SMS or 2FA code, a payment confirmation, or ' +
-      'anything you cannot or should not do. They take over the browser, do it and hand it back; this returns then. ' +
-      'Take a fresh browser_snapshot afterwards.',
-    inputSchema: {
-      type: 'object' as const,
-      properties: { reason: { type: 'string', description: 'One short line shown to the person, in their language: what they need to do.' } },
-      required: ['reason'],
-    },
-  },
-] as const
-
-type PersonToolName = (typeof PERSON_TOOLS)[number]['name']
-
-export function personToolsOf(bridge: AgentBrowserBridge): typeof PERSON_TOOLS[number][] {
-  return PERSON_TOOLS.filter((tool) => (tool.name === 'browser_request_login' ? !!bridge.requestLogin : !!bridge.requestTakeover))
-}
-
-async function callPersonTool(
-  bridge: AgentBrowserBridge,
-  sessionId: string,
-  name: PersonToolName,
-  args: Record<string, unknown> | undefined,
-  signal: AbortSignal,
-): Promise<CallToolResult> {
-  const reason = typeof args?.reason === 'string' && args.reason.trim() ? args.reason.trim().slice(0, 200) : undefined
-  const ask = name === 'browser_request_login' ? bridge.requestLogin : bridge.requestTakeover
-  if (!ask) return refused(`${name} is not available in this browser.`)
-  const result = await ask(sessionId, reason ? { reason } : {}, signal)
-  return { content: [{ type: 'text', text: result.message }], ...(result.ok ? {} : { isError: true }) }
-}
-
-export function createBrowserAgentMcpHost(
-  bridge: () => AgentBrowserBridge,
-  persistence?: GuguMcpHostPersistence,
-): BrowserAgentMcpHost {
-  return new GuguMcpHost<BrowserAgentGrantContext>(
-    (getContext, grantSignal, trackRequest) => {
-      const server = new McpServer(
-        { name: GUGU_BROWSER_MCP_SERVER_NAME, version: '0.1.0' },
-        { capabilities: { tools: {} } },
-      )
-      server.server.setRequestHandler(ListToolsRequestSchema, async () =>
-        trackRequest(
-          (async () => {
-            return { tools: [...await browserAppToolSchemas(), ...personToolsOf(bridge())] }
-          })(),
-          'tools/list',
-        ),
-      )
-      server.server.setRequestHandler(CallToolRequestSchema, async (request, extra) =>
-        trackRequest(
-          (async (): Promise<CallToolResult> => {
-            return callBrowserTool(bridge, getContext().sessionId, request.params, AbortSignal.any([grantSignal, extra.signal]))
-          })(),
-          request.params.name,
-        ),
-      )
-      return server
-    },
-    (context) => ({
-      ownerId: context.ownerUserId,
-      subjectId: context.subjectId,
-      toolScope: GUGU_BROWSER_MCP_SERVER_NAME,
-    }),
-    persistence,
-  )
-}
-
-/**
- * 这条会话带不带浏览器工具。只给这台电脑上的会话(卡的 key 是 `taskpage:<会话>`)—— 别的机器上的会话
- * 由那台机器自己的咕咕给。拿不到就不带:少一组工具 agent 照样能用,❌ 把会话拖死。
- */
-export async function buildBrowserAgentBridge(
-  host: BrowserAgentMcpHost,
-  grantKey: string,
-  sessionId: string,
-  ownerUserId: string,
-  subjectId: string,
-): Promise<AcpMcpServer[]> {
-  try {
-    await host.start()
-    const grant = await host.grant(`${grantKey}:${GUGU_BROWSER_MCP_SERVER_NAME}`, { sessionId, ownerUserId, subjectId })
-    return [{
-      name: GUGU_BROWSER_MCP_SERVER_NAME,
-      transport: 'http',
-      url: grant.url,
-      headers: [{ name: 'Authorization', value: `Bearer ${grant.capability}` }],
-      alwaysLoad: true,
-      // 与集成同一档(McpServerOwner):由咕咕投递、不在各家静态能力包的名单里;用户可以在 `/mcp` 里为某条会话关掉它。
-      // ❌ 'gugu':那一档专指 agent 靠它说话、不可关的那台。
-      owner: 'integration',
-    }]
-  } catch (error) {
-    log.warn({ grantKey, error: (error as Error).message }, 'browser tools unavailable for this session')
-    return []
-  }
+/** 这台机器上装着、开着、还许给 agent 工具的 Browser Use App(与 installedComputerUseApps 同一个判断)。 */
+export function browserUseAppInstalled(programs: Pick<ExtensionPrograms, 'installed' | 'agentToolsRefusal'>): boolean {
+  return programs.installed().some((program) => program.native === 'browser-use' && !programs.agentToolsRefusal(program.extensionId))
 }

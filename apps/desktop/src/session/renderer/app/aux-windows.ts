@@ -1,5 +1,6 @@
 import { action, makeObservable, observable } from 'mobx';
-import type { ScreenBlockContent } from './screen-layout';
+import type { PaneLayoutStore } from '@renderer/features/tabs/pane-layout-store';
+import { contentKey, type ScreenBlockContent, type WindowableContent } from './screen-layout';
 
 /** 一条会话的页签存储里管单独成窗那几格的部分(PaneLayoutStore)。 */
 export interface TabWindowHome {
@@ -10,8 +11,11 @@ export interface TabWindowHome {
 /** 单独成窗的一枚页签:哪条会话的、装在那条会话页签存储(`home`)里哪一格。 */
 export type AuxTabContent = { kind: 'tab'; projectId: string; sessionId: string; paneId: string; home: TabWindowHome };
 
+/** 单独成窗的一个对话里的一枚页签(群文件夹、App、文件、话题):装在那个对话页签存储(`home`)里哪一格。 */
+export type AuxChatTabContent = { kind: 'chat-tab'; chatId: string; paneId: string; home: PaneLayoutStore };
+
 /** 一扇窗装的:一整块(一个会话 / 一个 App),或一枚页签。 */
-export type AuxWindowContent = ScreenBlockContent | AuxTabContent;
+export type AuxWindowContent = WindowableContent | AuxTabContent | AuxChatTabContent;
 
 export type AuxWindow = {
   id: string;
@@ -91,13 +95,17 @@ export class AuxWindowStore {
   /** 装着这条会话里某一枚页签的那扇窗(那一格的 id)。 */
   windowOfTabPane(paneId: string): AuxWindow | undefined {
     for (const window of this.windows.values()) {
-      if (window.content.kind === 'tab' && window.content.paneId === paneId) return window;
+      if ((window.content.kind === 'tab' || window.content.kind === 'chat-tab') && window.content.paneId === paneId) return window;
     }
     return undefined;
   }
 
   windowOf(content: ScreenBlockContent): AuxWindow | undefined {
-    return content.kind === 'session' ? this.windowOfSession(content.sessionId) : this.windowOfApp(content.tabKind);
+    const key = contentKey(content);
+    for (const window of this.windows.values()) {
+      if (window.content.kind !== 'tab' && window.content.kind !== 'chat-tab' && contentKey(window.content) === key) return window;
+    }
+    return undefined;
   }
 }
 

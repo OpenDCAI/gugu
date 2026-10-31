@@ -6,27 +6,25 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { setLocalePreference } from '@/i18n';
 import type { SessionFailure } from '@renderer/features/sessions/stores/session-failure';
-import { readPanelToggle } from '@/lib/panelToggles';
-import { titlebarActionsReserve } from '@/lib/window-chrome';
 import { IMPLICIT_SESSION_HOME_PROJECT_ID } from './session-home-project-constants';
 import { homeView } from '@renderer/app/home-view';
 import { SessionLocalizationProvider } from '@renderer/localization/localization-provider';
 import { ProjectHome } from '@renderer/features/projects/components/main-panel/project-home';
-import { ProjectTitlebar } from '@renderer/features/projects/components/project-titlebar';
 import { NewSessionComposer, NewSessionPage } from './new-session-page';
 import { remoteInstallNote } from './remote-install-before-create';
 import { MachinePicker } from '@renderer/features/remote-hosts/machine-picker';
 import { remoteHostsStore } from '@renderer/features/remote-hosts/remote-hosts-store';
 import { machineRegistry } from '@renderer/lib/machine-routing';
+import { installRemoteHostsBridge, type RemoteHostsBridge } from '@shared/remote-hosts';
 import { ComposerProjectPicker, ComposerRemoteProjectPicker } from './composer-context-tray';
 import { getSessionWorkspaceActionOrder, sessionWorkspaceActionBlocked } from './pane-empty-state';
 import { registerWorkspaceBackend, type WorkspaceBackend } from './workspace-backend/workspace-backend';
-import { draftToolsBlockedOnMachine, draftWorkspaceEntries } from './workspace-panel-entries';
-import { SessionShellProvider } from './session-shell-context';
-import { SessionTitlebar } from './session-titlebar';
+import { ShellTitlebar } from '@renderer/lib/components/titlebar/shell-titlebar';
 import { NEW_SESSION_DRAFT_KEY, composerDrafts, projectDraftKey } from './composer-drafts';
 
 const mocks = vi.hoisted(() => ({
+  notify: vi.fn(),
+  dismissNotice: vi.fn(),
   showAddProjectModal: vi.fn(),
   orderedProjects: [] as Array<{ id: string; state: 'mounted' }>,
   createSessionStateProjectId: undefined as string | undefined,
@@ -42,29 +40,15 @@ const mocks = vi.hoisted(() => ({
   projectMembersOf: (projectId: string) => [projectId],
   projectType: 'local' as 'local' | 'ssh',
   projectId: 'project-1',
-  createBrowserSession: vi.fn(),
-  removeBrowserSession: vi.fn(),
   setProjectView: vi.fn(),
   navigate: vi.fn(),
   currentView: 'project' as 'project' | 'task',
-  sessionFieldProps: null as null | { showAutoApproveToggle?: boolean },
+  sessionFieldProps: null as null | { showAutoApproveToggle?: boolean; canSubmit?: boolean },
   deliveryError: null as SessionFailure | null,
   // null = 输入框里就是挂上时读到的那份(真 hook 的 useState(initialPrompt));字符串 = 用户打进去的。
   prompt: null as string | null,
   initialPrompt: undefined as string | undefined,
   onCreated: undefined as undefined | ((result: { projectId: string; sessionId: string }) => void)
-}));
-
-vi.mock('@renderer/features/browser/browser-pane', () => ({
-  StandaloneBrowserPane: ({ browserId }: { browserId: string }) =>
-    React.createElement('div', { 'data-testid': 'draft-browser' }, browserId)
-}));
-
-vi.mock('@renderer/features/browser/browser-session-store', () => ({
-  browserSessionStore: {
-    createSession: mocks.createBrowserSession,
-    removeSession: mocks.removeBrowserSession
-  }
 }));
 
 vi.mock('@renderer/features/projects/stores/project-selectors', () => ({
@@ -98,6 +82,9 @@ vi.mock('@renderer/features/projects/stores/project-selectors', () => ({
 vi.mock('@renderer/features/sessions/stores/session-selectors', () => ({
   getSessionPageStore: vi.fn()
 }));
+
+// 提示走全 app 唯一的出口(#137);这里只看「发了什么」,不挂提示条。
+vi.mock('@/lib/notices', () => ({ notify: mocks.notify, dismissNotice: mocks.dismissNotice }));
 
 vi.mock('@renderer/features/sessions/create-session-modal/use-create-session-callback', () => ({
   useCreateSessionCallback: ({ selectedProjectId, onCreated }: {
@@ -144,7 +131,7 @@ vi.mock('@renderer/features/sessions/hooks/useSessionSettings', () => ({
 }));
 
 vi.mock('@renderer/features/sessions/session-config/session-field', () => ({
-  SessionField: (props: { showAutoApproveToggle?: boolean }) => {
+  SessionField: (props: { showAutoApproveToggle?: boolean; canSubmit?: boolean }) => {
     mocks.sessionFieldProps = props;
     return React.createElement('div', { 'data-testid': 'active-task-composer' });
   }
@@ -200,7 +187,8 @@ vi.mock('@renderer/lib/stores/app-state', () => ({
   appState: {
     navigation: {
       currentViewId: 'home',
-      viewParamsStore: {}
+      viewParamsStore: {},
+      revalidate: vi.fn()
     }
   }
 }));
@@ -249,15 +237,14 @@ describe('NewSessionPage', () => {
 
   beforeEach(() => {
     mocks.showAddProjectModal.mockReset();
+    mocks.notify.mockReset();
+    mocks.dismissNotice.mockReset();
     mocks.orderedProjects = [];
     mocks.createSessionStateProjectId = undefined;
     mocks.createSessionStateOptions = undefined;
     mocks.createSessionCallbackProjectId = undefined;
     mocks.projectType = 'local';
     mocks.projectId = 'project-1';
-    mocks.createBrowserSession.mockReset();
-    mocks.createBrowserSession.mockReturnValue({ browserId: 'draft-browser-1' });
-    mocks.removeBrowserSession.mockReset();
     mocks.setProjectView.mockReset();
     mocks.navigate.mockReset();
     mocks.currentView = 'project';
@@ -279,7 +266,7 @@ describe('NewSessionPage', () => {
     vi.stubGlobal('Event', dom.window.Event);
     // setLocalePreference 会往 window 派发 CustomEvent；用 Node 全局那个会被 jsdom 的 EventTarget 拒收。
     vi.stubGlobal('CustomEvent', dom.window.CustomEvent);
-    // 新建会话页与会话页共用一个分栏(lib/layout/side-panel-split.tsx):量分栏区宽度要 `ResizeObserver`、
+    // 新建会话页的分栏:量分栏区宽度要 `ResizeObserver`、
     // 存宽度要 `localStorage`、弹簧要 rAF;面板里的文件树分栏(react-resizable-panels)还要
     // `DOMRect`。少一个不是断言失败,
     // 是渲染期抛异常、整棵树起不来(实撞:14 条一起红在 `localStorage is not defined`,
@@ -317,9 +304,7 @@ describe('NewSessionPage', () => {
   });
 
   /** 产品里会话页始终活在 task locale provider 下面，测试也走同一条渲染路径。 */
-  // 生产里 QueryClientProvider 包在 App 根上(App.tsx),项目级动作(「在哪里打开项目」)靠它取
-  // 已安装的编辑器清单。这个壳只渲染局部子树,不补上就会以 `No QueryClient set` 失败 ——
-  // 那是壳的缺口,不是产品缺陷。
+  // 与生产一样使用共享查询上下文;这个壳只渲染局部子树。
   function localized(...children: React.ReactNode[]) {
     return React.createElement(
       QueryClientProvider,
@@ -327,21 +312,30 @@ describe('NewSessionPage', () => {
       React.createElement(
         SessionLocalizationProvider,
         null,
-        React.createElement(SessionShellProvider, null, ...children)
+        ...children
       )
     );
   }
 
   async function renderPage() {
     await act(async () => {
-      root.render(localized(React.createElement(SessionTitlebar), React.createElement(NewSessionPage)));
+      root.render(localized(React.createElement(ShellTitlebar), React.createElement(NewSessionPage)));
     });
   }
 
+  // 项目块画的窗口 chrome 与项目首页(app/project-block.tsx)。
   async function renderProjectHome() {
+    const projectId = mocks.projectId;
     await act(async () => {
       root.render(
-        localized(React.createElement(ProjectTitlebar), React.createElement(ProjectHome))
+        localized(
+          React.createElement(ShellTitlebar),
+          React.createElement(
+            React.Fragment,
+            null,
+            React.createElement(ProjectHome, { projectId })
+          )
+        )
       );
     });
   }
@@ -354,7 +348,7 @@ describe('NewSessionPage', () => {
 
   it('uses the task composer as the Home view', () => {
     expect(homeView.MainPanel).toBe(NewSessionPage);
-    expect(homeView.TitlebarSlot).toBe(SessionTitlebar);
+    expect(homeView.TitlebarSlot).toBe(ShellTitlebar);
   });
 
   it('keeps the full zero-height shell titlebar available for moving the window', async () => {
@@ -366,48 +360,15 @@ describe('NewSessionPage', () => {
     expect(dragRegion?.className).toContain('[-webkit-app-region:drag]');
     expect(dragRegion?.parentElement?.className).toContain('h-0');
 
-    const actions = container.querySelector('[data-titlebar-actions]');
-    expect(actions?.className).toContain('[-webkit-app-region:no-drag]');
-  });
-
-  it('keeps the titlebar cluster to window chrome only, with no share entry before a session exists', async () => {
-    dom.window.document.documentElement.dataset.platform = 'mac';
-    await renderPage();
-
-    const actions = container.querySelector('[data-titlebar-actions]') as HTMLDivElement | null;
-    expect(actions).not.toBeNull();
-    expect(actions?.className).toContain('flex-nowrap');
-    // 贴窗口右缘 8px 呼吸,在 40px 带里居中(+6)。
-    expect(actions?.style.right).toBe('8px');
-    expect(actions?.style.top).toBe('6px');
-
-    const slots = Array.from(
-      actions?.querySelectorAll('[data-titlebar-action-slot]') ?? []
-    ) as HTMLSpanElement[];
-    // 固定簇只收窗口 chrome。分享是**消息栏**动作,而「新建 session」页压根不是某个会话 ——
-    // 从前它在这里占着一个空槽(owner 实机:「不应该有分享按钮」),现在它结构上就到不了这一簇:
-    // 消息栏动作组长在会话页的聊天栏 header 里,这个页面没有那个 header。
-    expect(slots).toHaveLength(1);
-    expect(slots[0]?.dataset.titlebarActionSlot).toBe('workspace-panel');
-    expect(slots[0]?.querySelector('button[aria-label="展开文件面板"]')).not.toBeNull();
-    expect(actions?.querySelectorAll('button')).toHaveLength(1);
-    expect(container.querySelector('[data-message-list-actions]')).toBeNull();
-    expect(slots.every((slot) => slot.className.includes('size-7'))).toBe(true);
-    expect(slots.every((slot) => slot.className.includes('shrink-0'))).toBe(true);
-  });
-
-  // #6753 Windows 上文件面板开关住在标题栏行(WindowTitleBar):会话页内容里不再有这一簇,面板改由 panelToggles 交给那一颗。
-  it('on Windows publishes the file panel to the title bar row instead of drawing its own cluster', async () => {
-    dom.window.document.documentElement.dataset.platform = 'win';
-    await renderPage();
-
     expect(container.querySelector('[data-titlebar-actions]')).toBeNull();
-    const files = readPanelToggle('files');
-    expect(files?.open).toBe(false);
-    expect(files?.label).toBe('展开文件面板');
-    await act(async () => files?.toggle());
-    expect(container.querySelector('[data-testid="new-session-right-panel"]')).not.toBeNull();
-    expect(readPanelToggle('files')?.label).toBe('收起文件面板');
+  });
+
+  it.each(['mac', 'win', 'linux'])('keeps new-task tools in the task itself on %s', async (platform) => {
+    dom.window.document.documentElement.dataset.platform = platform;
+    await renderPage();
+    expect(container.querySelector('[data-titlebar-actions]')).toBeNull();
+    expect(container.querySelector('[data-testid="new-session-right-panel"]')).toBeNull();
+    expect(container.querySelector('[data-panel-resize-handle]')).toBeNull();
   });
 
   it('uses the shared pre-session shell on the project home', async () => {
@@ -424,48 +385,10 @@ describe('NewSessionPage', () => {
       requireGeneratedName: true,
       runInProjectDir: true
     });
-    expect(container.querySelector('button[aria-label="展开文件面板"]')).not.toBeNull();
-    // 顶栏那一横排的几何只有一个来源。从前这一排里的按钮是 `absolute top-3 right-12` 自己糊的一个容器:
-    // top-3 让它比同排其它按钮低 6px,right-12 量的是**内容列**右缘而不是窗口的(工作区面板一开就
-    // 整块跟着漂,Windows 上 48px 还正好压在窗口控制条上)—— owner 实机圈的就是这一下。
-    // ⚠️ jsdom 没有布局,这里只证「走的是共享容器、预留按真实槽位数算」;「看起来是一排」由
-    // tests/browser/titlebar-safe-area.test.tsx 那组真实测量证。
-    // 锚点用「在哪里打开项目」:项目设置齿轮 2026-09-10 下线后,它是这一排剩下的项目级动作。
-    const openInRow = container.querySelector('[data-open-in-row]');
-    expect(openInRow).not.toBeNull();
-    const settingsRow = openInRow?.closest('[data-page-title-actions]') as HTMLElement | null;
-    expect(settingsRow).not.toBeNull();
-    // ❌ 别加「className 不含 right-12」那种断言:className 现在是共享组件里的一个字面量,
-    // project-home 怎么改都不会让它出现,是一条永远为真、只提供虚假信心的判据。
-    // 真正能判假的是下面这个 —— 落点必须由**真实渲染出的**槽位数推导。
-    const homeSlots = container.querySelectorAll(
-      '[data-titlebar-actions] [data-titlebar-action-slot]'
-    );
-    expect(homeSlots.length).toBeGreaterThan(0);
-    expect(settingsRow?.style.right).toBe(
-      `${titlebarActionsReserve(
-        dom.window.document.documentElement.dataset.platform,
-        homeSlots.length
-      )}px`
-    );
-    // 盒子只该有按钮那么宽:用 paddingInlineEnd 让位会一路伸到固定簇底下,
-    // 在页面右上角留一片看不见却吃点击的死区。
-    expect(settingsRow?.style.paddingInlineEnd).toBe('');
-    expect(container.querySelector('.rounded-tl-none')).toBeNull();
-
-    await act(async () => {
-      (
-        container.querySelector('button[aria-label="展开文件面板"]') as HTMLButtonElement | null
-      )?.click();
-    });
-
-    const workspacePanel = container.querySelector('[data-testid="new-session-right-panel"]');
-    expect(workspacePanel).not.toBeNull();
-    expect(
-      Array.from(
-        workspacePanel?.querySelectorAll('[data-testid="workspace-panel-actions"] button:not([aria-label])') ?? []
-      ).map((item) => item.textContent?.trim())
-    ).toEqual(['侧边聊天', '审阅', '终端', '浏览器', '文件', '没有启用的 App，去「App」里安装或启用']);
+    // 项目是一块之后(gugu-dev#181):项目级动作在项目块的页签条上,首页自己不再浮一排顶栏;
+    // 「+」只列群文件夹和 App,终端、浏览器归会话 ⇒ 首页没有发第一句之前的草稿工作区。
+    expect(container.querySelector('[data-page-title-actions]')).toBeNull();
+    expect(container.querySelector('[data-testid="new-session-right-panel"]')).toBeNull();
   });
 
   // @@@5173 这一轮没送出去时,原因必须**在用户当时所在的那一面**说出来。
@@ -509,45 +432,13 @@ describe('NewSessionPage', () => {
     expect(container.querySelector('[data-testid="create-delivery-error"]')).toBeNull();
   });
 
-  it('会话页那一排不长项目设置齿轮,「在哪里打开项目」还留着', async () => {
-    // owner 2026-09-09:「在具体的 session 这里,它其实没有『特别多项目级』的按钮……
-    // 真正意义上其实是多了一个按钮。」他拍的三层归属是**动作的分类**,不是「每层按钮都要
-    // 出现在每个视图」—— 会话页上那枚齿轮点了只会拨项目页的状态,屏幕一动不动。
-    // ❌ 别用「补一步 navigate」糊过去:那是让一枚不该在这儿的按钮变得能用。
-    mocks.currentView = 'task';
-    await renderProjectHome();
-
-    expect(container.querySelector('button[aria-label="项目设置"]')).toBeNull();
-    // 「在哪里打开项目」留着:在会话里想拿编辑器打开这个仓是常态,它不在这次砍的范围里。
-    expect(container.querySelector('[data-open-in-row]')).not.toBeNull();
-  });
-
-  it('项目设置齿轮已下线:项目页这一排也不再有,但项目级动作本身没被端走', async () => {
-    // 2026-09-10 owner:「目前已有的项目设置基本不是我们想要的,所以就先不展示了项目设置。
-    // 但任务设置可以有」——「任务设置」指的是侧栏 ⌘, 那个多标签设置页,不在这条的范围里。
-    // 这条从前断言的是「项目页照旧有齿轮」(用来证明上一条砍的只是会话页那一格)。现在齿轮
-    // 两个视图都没有了,阴控换成:❌ 别顺手把整排项目级动作端走 —— 「在哪里打开项目」必须还在,
-    // 否则这条红,说明砍过头了。
-    mocks.currentView = 'project';
-    await renderProjectHome();
-
-    expect(container.querySelector('button[aria-label="项目设置"]')).toBeNull();
-    expect(container.querySelector('[data-open-in-row]')).not.toBeNull();
-    expect(mocks.setProjectView).not.toHaveBeenCalled();
-  });
-
-  it('shows no project-level actions on a session that has no user project', async () => {
-    // 「没选仓库」时创建的会话跑在一个隐藏的内部项目(task-home)里 —— 它按设计
-    // 「must never be rendered as a selectable project」,侧栏项目区里也没有它。
-    // owner 实机点破:「没有项目的会话页,怎么显示项目设置按钮,按理说没有项目区啊」。
-    // ❌ 这条不能只断言齿轮:「在哪里打开项目」同样是项目级动作,漏一个就还是漏。
+  it('keeps the window drag region for a session with no user project', async () => {
     mocks.projectId = IMPLICIT_SESSION_HOME_PROJECT_ID;
     await renderProjectHome();
 
     expect(container.querySelector('button[aria-label="项目设置"]')).toBeNull();
-    expect(container.querySelector('[data-open-in-row]')).toBeNull();
-    // 窗口 chrome 那层不受影响 —— 它跟项目无关,任何视图都该在。
-    expect(container.querySelector('[data-titlebar-actions]')).not.toBeNull();
+    // The shared window drag region remains available without project actions.
+    expect(container.querySelector('[data-session-titlebar-drag-region]')).not.toBeNull();
   });
 
   it('keeps concrete-session empty states and tab menus on the same contextual order', () => {
@@ -588,35 +479,12 @@ describe('NewSessionPage', () => {
     }
   });
 
-  it('草稿选了别的机器:终端 / 浏览器 / 文件照列、灰着说原因;隧道机器的终端 / 浏览器说「没有这一项」', () => {
-    const t = (key: string) => key;
-    const entries = (direct: boolean) =>
-      draftWorkspaceEntries({
-        canOpenTerminal: true,
-        canOpenFiles: true,
-        blocked: draftToolsBlockedOnMachine(direct, t as never),
-        extensions: [],
-        translate: t as never,
-        onOpen: () => undefined
-      }).map((e) => [e.id, e.disabled ?? false, e.title ?? null]);
-    expect(entries(false)).toEqual([
-      ['side-session', true, 'task.sideTaskAfterSend'],
-      ['review', true, 'task.reviewAfterSend'],
-      ['terminal', true, 'remoteWorkspace.directOnly'],
-      ['browser', true, 'remoteWorkspace.directOnly'],
-      ['files', true, 'task.machineToolsAfterSend']
-    ]);
-    expect(entries(true).slice(2)).toEqual([
-      ['terminal', true, 'task.machineToolsAfterSend'],
-      ['browser', true, 'task.machineToolsAfterSend'],
-      ['files', true, 'task.machineToolsAfterSend']
-    ]);
-  });
-
   it('keeps an editable, projectless composer when no project exists', async () => {
     await renderPage();
 
-    expect(container.textContent).toContain('新建会话');
+    // Owner-approved task naming (#563), already synchronized by #573.
+    expect(container.textContent).toContain('新建任务');
+    expect(container.textContent).not.toContain('新建会话');
     expect(container.textContent).toContain('未选择项目');
     expect(container.querySelector('[data-testid="active-task-composer"]')).not.toBeNull();
     expect(mocks.createSessionStateProjectId).toBe('implicit-task-home');
@@ -659,9 +527,9 @@ describe('NewSessionPage', () => {
     const picker = container.querySelector('[data-testid="composer-device-picker"]');
     expect(picker).not.toBeNull();
     expect(picker?.getAttribute('data-size')).toBe('compact');
-    // 默认本机:电脑图标 + 名字「本机」。
+    // 默认这台电脑:电脑图标 + 名字「这台电脑」(托盘里各处同一个叫法)。
     expect(picker?.getAttribute('data-selected-id')).toBe('local');
-    expect(picker?.textContent).toContain('本机');
+    expect(picker?.textContent).toContain('这台电脑');
     expect(picker?.querySelector('[data-kind="computer"]')).not.toBeNull();
   });
 
@@ -814,6 +682,12 @@ describe('NewSessionPage', () => {
   });
 
   it('项目页可切换只有远端文件夹的项目,设备范围如实标离线', async () => {
+    // 产品里别的机器的项目只经远程主机那座桥登记进来;桥在、那台机器连不上(开线一直不回)= 离线。
+    const removeBridge = installRemoteHostsBridge({
+      openSessionHost: () => () => new Promise(() => {}),
+      listDevices: () => [],
+      subscribeDevices: () => () => {},
+    } as unknown as RemoteHostsBridge);
     machineRegistry.register('device-9', ['project-remote']);
     mocks.projectId = 'project-remote';
     mocks.orderedProjects = [{ id: 'project-remote', state: 'mounted' }, { id: 'project-1', state: 'mounted' }];
@@ -822,12 +696,16 @@ describe('NewSessionPage', () => {
       expect(container.querySelector('[data-testid="project-device-scope"]')?.textContent).toContain('device-9');
       expect(container.textContent).toContain('离线');
       expect(container.querySelector('[data-testid="composer-device-picker"]')).toBeNull();
-      expect(container.querySelector('[role="alert"]')).not.toBeNull();
+      // 那台机器用不了:输入框下面没有行内字(它一变输入框就动),原因在统一提示条里说,发送照样挡住。
+      expect(container.querySelector('[role="alert"]')).toBeNull();
+      expect(mocks.notify).toHaveBeenCalledWith(expect.objectContaining({ key: 'machine:device-9', tier: 'error', ongoing: true }));
+      expect(mocks.sessionFieldProps?.canSubmit).toBe(false);
       const projects = Array.from(container.querySelectorAll('[role="menuitem"]')).map((item) => item.textContent?.trim());
       expect(projects).toContain('project-remote');
       expect(projects).toContain('project-1');
     } finally {
       machineRegistry.forgetMachine('device-9');
+      removeBridge();
     }
   });
 
@@ -884,243 +762,7 @@ describe('NewSessionPage', () => {
     expect(mocks.showAddProjectModal).toHaveBeenCalledWith(expect.objectContaining({ machine: null }));
   });
 
-  it('keeps the Files panel and its tabs available before composer submission', async () => {
-    await renderPage();
 
-    const toggle = container.querySelector(
-      'button[aria-label="展开文件面板"]'
-    ) as HTMLButtonElement | null;
-    expect(toggle).not.toBeNull();
-
-    await act(async () => {
-      toggle?.click();
-    });
-
-    const panel = container.querySelector('[data-testid="new-session-right-panel"]');
-    expect(panel).not.toBeNull();
-    expect(panel?.textContent).not.toContain('此任务没有可用的标签页');
-    expect(panel?.querySelector('[data-testid="draft-tab-strip"]')).toBeNull();
-    expect(panel?.querySelector('button[aria-label="添加面板"]')).toBeNull();
-    expect(
-      Array.from(
-        panel?.querySelectorAll('[data-testid="workspace-panel-actions"] button:not([aria-label])') ?? []
-      ).map((item) => item.textContent?.trim())
-    // owner 2026-08-21:「没绑项目咋了,侧边聊天和文件应该也得有」。隐式 task-home 本身就是
-    // git 仓库 —— 清单一项不少,够不着的 disabled 并说明原因(判 disabled 见
-    // 少一项 = 告诉用户产品没这功能。
-    ).toEqual(['侧边聊天', '审阅', '终端', '浏览器', '文件', '没有启用的 App，去「App」里安装或启用']);
-    expect(container.querySelector('[data-testid="draft-browser"]')).toBeNull();
-    expect(mocks.createBrowserSession).not.toHaveBeenCalled();
-
-    await act(async () => {
-      const browserAction = Array.from(
-        panel?.querySelectorAll('[data-testid="workspace-panel-actions"] button:not([aria-label])') ?? []
-      ).find((item) => item.textContent?.trim() === '浏览器') as HTMLButtonElement | undefined;
-      browserAction?.click();
-    });
-    const workspacePanel = container.querySelector('[data-testid="new-session-right-panel"]');
-    expect(container.querySelector('[data-testid="draft-browser"]')?.textContent).toBe(
-      'draft-browser-1'
-    );
-    const browserTab = container.querySelector('[data-draft-tab="browser"]');
-    const addButton = container.querySelector('button[aria-label="添加面板"]');
-    // 「+」紧跟最后一枚页签(product spec「+ 属于 tab strip」)。这条贴条现在就是会话页
-    // 那一条(<TabStripShell>),所以「+」和页签同住滚动区、排在最后一枚之后 —— #4134 当年把它
-    // 搬出滚动区,防的是**按内容撑开**的页签(一个长文件名吃掉整条 strip);共享的位平分宽度、
-    // 240 封顶、56 下限、标签截断,那个成因已经不存在。
-    // ❌ 别把这行放宽成「页面上有一枚 +」:它是新建页签的唯一入口,错位就是够不着。
-    const tabStrip = container.querySelector('[data-testid="draft-tab-strip"]');
-    const trailing = tabStrip?.querySelector('[data-tabstrip-trailing]');
-    expect(browserTab?.nextElementSibling).toBe(trailing);
-    expect(trailing?.contains(addButton)).toBe(true);
-    // 老样式的两条印记:41px 带上一条通底的 border-b + 四面圆角的 chip。改成 Chrome 式之后
-    // 两条都不该再出现(#6107 C-04) —— 活动页签要和它装的内容连体,一条通底的线正好把它们切断。
-    expect(tabStrip?.className).not.toContain('border-b');
-    // @@@radius-tab-ear (Refs #6104) 从字面 9px 改成钉 token 名:耳朵的**取值**由
-    // check-ui-visual-spec 的 radiusScaleParity 管,这里只管「页签用的是耳朵那一档」。
-    expect(browserTab?.firstElementChild?.className).toContain('rounded-t-tab-ear');
-
-    await act(async () => {
-      (addButton as HTMLButtonElement | null)?.click();
-    });
-    const directSessionMenuItems = Array.from(
-      workspacePanel?.querySelectorAll('[role="menuitem"]') ?? []
-    );
-    // 「+」菜单与空态清单同吃一份 draftWorkspaceEntries —— 两处若能给出不同的集合,#2374 那种
-    // 漂移就会重演。所以这里判的是**同一份、同一序**,不是「菜单碰巧也有这几项」。
-    expect(directSessionMenuItems.map((item) => item.textContent?.trim())).toEqual([
-      '侧边聊天',
-      '审阅',
-      '终端',
-      '浏览器',
-      '文件'
-    ]);
-    expect(mocks.createBrowserSession).toHaveBeenCalledWith({
-      projectId: 'implicit-task-home',
-      workspaceId: 'implicit-task-home',
-      sessionId: 'new-session-draft'
-    });
-    expect(container.querySelector('button[aria-label="收起文件面板"]')).not.toBeNull();
-
-    await act(async () => {
-      (
-        container.querySelector('button[aria-label="收起文件面板"]') as HTMLButtonElement | null
-      )?.click();
-    });
-    expect(container.querySelector('[data-testid="new-session-right-panel"]')).toBeNull();
-    expect(mocks.removeBrowserSession).not.toHaveBeenCalled();
-
-    await act(async () => {
-      (
-        container.querySelector('button[aria-label="展开文件面板"]') as HTMLButtonElement | null
-      )?.click();
-    });
-
-    expect(container.querySelector('[data-testid="draft-browser"]')?.textContent).toBe(
-      'draft-browser-1'
-    );
-    expect(mocks.createBrowserSession).toHaveBeenCalledTimes(1);
-  });
-
-  it('binds the draft browser to the selected project', async () => {
-    mocks.orderedProjects = [{ id: 'project-1', state: 'mounted' }];
-    await renderPage();
-
-    const projectItem = Array.from(container.querySelectorAll('button')).find(
-      (button) => button.textContent?.trim() === 'project-1'
-    );
-    await act(async () => {
-      projectItem?.click();
-    });
-
-    const toggle = container.querySelector(
-      'button[aria-label="展开文件面板"]'
-    ) as HTMLButtonElement | null;
-    await act(async () => {
-      toggle?.click();
-    });
-
-    const workspacePanel = container.querySelector('[data-testid="new-session-right-panel"]');
-    const projectActions = Array.from(
-      workspacePanel?.querySelectorAll('[data-testid="workspace-panel-actions"] button:not([aria-label])') ?? []
-    );
-    expect(projectActions.map((item) => item.textContent?.trim())).toEqual([
-      '侧边聊天',
-      '审阅',
-      '终端',
-      '浏览器',
-      '文件',
-      // 扩展组常驻:没装时是一句通往市场的话(#5265)
-      '没有启用的 App，去「App」里安装或启用'
-    ]);
-    expect((projectActions[0] as HTMLButtonElement).disabled).toBe(true);
-
-    await act(async () => {
-      const browserAction = projectActions.find((item) => item.textContent?.trim() === '浏览器') as
-        | HTMLButtonElement
-        | undefined;
-      browserAction?.click();
-    });
-    const addButton = container.querySelector(
-      'button[aria-label="添加面板"]'
-    ) as HTMLButtonElement | null;
-    await act(async () => {
-      addButton?.click();
-    });
-    expect(
-      Array.from(workspacePanel?.querySelectorAll('[role="menuitem"]') ?? []).map((item) =>
-        item.textContent?.trim()
-      )
-    ).toEqual(['侧边聊天', '审阅', '终端', '浏览器', '文件']);
-    const browserMenuItem = Array.from(container.querySelectorAll('[role="menuitem"]')).find(
-      (item) => item.textContent?.trim() === '浏览器'
-    ) as HTMLButtonElement | undefined;
-    await act(async () => {
-      browserMenuItem?.click();
-    });
-
-    expect(mocks.createBrowserSession).toHaveBeenLastCalledWith({
-      projectId: 'project-1',
-      workspaceId: 'project-1',
-      sessionId: 'new-session-draft'
-    });
-  });
-
-  it('keeps the scratch terminal enabled for an SSH project', async () => {
-    mocks.projectType = 'ssh';
-    mocks.orderedProjects = [{ id: 'project-1', state: 'mounted' }];
-    await renderPage();
-
-    const projectItem = Array.from(container.querySelectorAll('button')).find(
-      (button) => button.textContent?.trim() === 'project-1'
-    );
-    await act(async () => {
-      projectItem?.click();
-    });
-    await act(async () => {
-      (
-        container.querySelector('button[aria-label="展开文件面板"]') as HTMLButtonElement | null
-      )?.click();
-    });
-
-    const terminalAction = Array.from(
-      container.querySelectorAll('[data-testid="workspace-panel-actions"] button:not([aria-label])')
-    ).find((button) => button.textContent?.trim() === '终端') as HTMLButtonElement | undefined;
-    expect(terminalAction).toBeDefined();
-    expect(terminalAction?.disabled).toBe(false);
-  });
-
-  // owner 2026-09-25:「新建 task 页的右侧边栏……一个没有分界线的悬空把手……和正常 task 里面的
-  // 右侧边栏组件复用不行吗」。新建页/项目首页从前另有一套分栏,把手被缩成 40px 居中一截(#6303)。
-  // 这里证的是**同一个组件**:面板装在会话页那个 session-workspace-panel 里,分隔条是会话页那条。
-  // 通高、上下两头抓得住这类几何由 tests/browser/side-panel-split-divider.test.tsx 在真浏览器里量。
-  it.each([
-    ['新建会话页', () => renderPage()],
-    ['项目首页', () => renderProjectHome()],
-  ])('%s的右侧面板用会话页同一个分栏', async (_surface, render) => {
-    await render();
-    await act(async () => {
-      (
-        container.querySelector('button[aria-label="展开文件面板"]') as HTMLButtonElement | null
-      )?.click();
-    });
-
-    const sharedPanel = container.querySelector('[data-testid="session-workspace-panel"]');
-    expect(sharedPanel?.querySelector('[data-testid="new-session-right-panel"]')).not.toBeNull();
-    const handle = container.querySelector('[data-panel-resize-handle]');
-    expect(handle?.getAttribute('aria-label')).toBe('调整工作区面板宽度');
-
-    await act(async () => {
-      (
-        container.querySelector('button[aria-label="收起文件面板"]') as HTMLButtonElement | null
-      )?.click();
-    });
-    expect(container.querySelector('[data-panel-resize-handle]')).toBeNull();
-  });
-
-  it('collapses the new-task workspace after its last tab closes', async () => {
-    await renderPage();
-
-    await act(async () => {
-      (
-        container.querySelector('button[aria-label="展开文件面板"]') as HTMLButtonElement | null
-      )?.click();
-    });
-    const browserAction = Array.from(
-      container.querySelectorAll('[data-testid="workspace-panel-actions"] button:not([aria-label])')
-    ).find((item) => item.textContent?.trim() === '浏览器') as HTMLButtonElement | undefined;
-    await act(async () => {
-      browserAction?.click();
-    });
-    await act(async () => {
-      (
-        container.querySelector('button[aria-label="关闭浏览器标签"]') as HTMLButtonElement | null
-      )?.click();
-    });
-
-    expect(container.querySelector('[data-testid="new-session-right-panel"]')).toBeNull();
-    expect(container.querySelector('button[aria-label="展开文件面板"]')).not.toBeNull();
-  });
 });
 
 describe('remoteInstallNote(#6264 别的机器上没装的家:建会话时那边当场装)', () => {

@@ -1,7 +1,7 @@
 // #7341 第二步:绑在同一个项目群上的本地项目(各台机器上的)在侧栏合成一行。
 import { describe, expect, it } from 'vitest';
 import { EMPTY_MACHINE_HOME_LAYOUT, type MachineHomeLayout } from '@renderer/features/remote-hosts/machine-home';
-import { foldProjectGroups, projectGroupLayout } from './project-group-layout';
+import { foldProjectGroups, groupRowOrder, projectGroupLayout, type GroupLayoutProject } from './project-group-layout';
 
 const chats: Record<string, string> = { 'local-gugu': 'chat-gugu', 'd22-gugu': 'chat-gugu', 'd15-gugu': 'chat-gugu', 'local-memor': 'chat-memor' };
 const chatIdOf = (id: string) => chats[id];
@@ -37,14 +37,59 @@ describe('projectGroupLayout', () => {
     expect(again.members.get('d15-gugu')).toEqual(['d15-gugu', 'd22-gugu']);
   });
 
-  it('keeps the chosen target as the row when two projects on this computer join one group', () => {
+  it('two projects on this computer join one group (a merge): the one created first keeps the row', () => {
     const projects = [
-      { id: 'a-source', machine: null, representative: false },
-      { id: 'z-target', machine: null, representative: true },
+      { id: 'a-source', machine: null, createdAt: '2026-10-20T00:00:00.000Z' },
+      { id: 'z-target', machine: null, createdAt: '2026-10-01T00:00:00.000Z' },
     ];
     const layout = projectGroupLayout(projects, () => 'chat-shared');
     expect(layout.members.get('z-target')).toEqual(['z-target', 'a-source']);
     expect(layout.rowOf.get('a-source')).toBe('z-target');
+  });
+
+  it('the same machine registered again: the row is the live copy, not the stale offline device row', () => {
+    const layout = projectGroupLayout(
+      [
+        { id: 'old-row', machine: 'sui-old', online: false, createdAt: '2026-10-01T00:00:00.000Z' },
+        { id: 'new-row', machine: 'sui-new', online: true, createdAt: '2026-10-28T00:00:00.000Z' },
+      ],
+      () => 'chat-shared'
+    );
+    expect(layout.members.get('new-row')).toEqual(['new-row', 'old-row']);
+  });
+});
+
+// 由谁画合并那一行:桌面侧栏、手机「伙伴」与派任务那张卡同一条(groupRowOrder)。每一档单独验。
+describe('groupRowOrder', () => {
+  const order = (...rows: GroupLayoutProject[]) => [...rows].sort(groupRowOrder).map((row) => row.id);
+
+  it('1. this computer first, even offline-looking and newest', () => {
+    expect(order(
+      { id: 'a', machine: 'd22', online: true, createdAt: '2026-01-01' },
+      { id: 'z', machine: null, online: false, createdAt: '2026-12-31' },
+    )).toEqual(['z', 'a']);
+  });
+
+  it('2. then a machine that is connected now, even if created later', () => {
+    expect(order(
+      { id: 'a', machine: 'old', online: false, createdAt: '2026-01-01' },
+      { id: 'z', machine: 'new', online: true, createdAt: '2026-12-31' },
+    )).toEqual(['z', 'a']);
+  });
+
+  it('3. then the one created first; an unknown creation time goes last', () => {
+    expect(order(
+      { id: 'a', machine: 'd1', online: true, createdAt: '2026-06-01' },
+      { id: 'z', machine: 'd2', online: true, createdAt: '2026-01-01' },
+      { id: 'm', machine: 'd3', online: true },
+    )).toEqual(['z', 'a', 'm']);
+  });
+
+  it('4. then the id, so the same rows always give the same answer', () => {
+    expect(order(
+      { id: 'b', machine: 'd1', online: true, createdAt: '2026-01-01' },
+      { id: 'a', machine: 'd2', online: true, createdAt: '2026-01-01' },
+    )).toEqual(['a', 'b']);
   });
 });
 

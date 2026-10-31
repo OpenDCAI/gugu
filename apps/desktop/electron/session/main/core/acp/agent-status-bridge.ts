@@ -3,10 +3,12 @@ import type { Unsubscribe } from '@gugu/session-shared';
 import { ReplicaState } from '@gugu/session-wire';
 import { z } from 'zod';
 import { agentHookService } from '@main/core/agent-hooks/agent-hook-service';
+import { learnHarnessConfigRoot } from '@main/core/agent-hooks/harness-config-roots';
 import { agentStatusWriter } from '@main/core/agent-status/agent-status-writer';
 import { isAppFocused } from '@main/core/agent-hooks/app-focus';
 import { log } from '@main/lib/logger';
 import { applyHarnessTitle } from '../sessions/renameSession';
+import { SessionActivityObserver } from '../activity/session-observation';
 import {
   applyContextUsageChange,
   contextUsageChange,
@@ -21,6 +23,7 @@ type SessionSummaryList = Record<string, SessionSummary>;
 const sessionSummaryListSchema = z.record(z.string(), sessionSummarySchema);
 
 class AcpAgentStatusBridge {
+  private readonly activity = new SessionActivityObserver();
   private readonly summaries = new Map<string, SessionSummary>();
   /**
    * #7342 记录里每条会话那份上下文读数的影子:摘要每个 token 都会来一份,判要不要写只比内存,
@@ -47,6 +50,7 @@ class AcpAgentStatusBridge {
   }
 
   dispose(): void {
+    this.activity.dispose();
     this.spawnedUnsubscribe?.();
     this.spawnedUnsubscribe = null;
     this.processExitUnsubscribe?.();
@@ -126,8 +130,13 @@ class AcpAgentStatusBridge {
     for (const summary of Object.values(nextSummaries)) {
       seen.add(summary.sessionId);
       const previous = this.summaries.get(summary.sessionId);
+      this.activity.observe(previous, summary);
       this.applyActions(this.derive(previous, summary));
       if (summary.title && summary.title !== previous?.title) this.applyTitle(summary);
+      // harness 报来的会话记录路径:与终端腿的 hook 走同一个入口,认出它实际用的配置目录(见 harness-config-roots)。
+      if (summary.transcriptPath && summary.transcriptPath !== previous?.transcriptPath) {
+        learnHarnessConfigRoot({ sessionId: summary.sessionId, providerId: summary.providerId, report: { transcript_path: summary.transcriptPath } });
+      }
       this.applyContextUsage(summary);
       this.summaries.set(summary.sessionId, summary);
     }
@@ -136,6 +145,7 @@ class AcpAgentStatusBridge {
       if (seen.has(sessionId)) continue;
       this.applyActions(this.derive(summary, undefined));
       this.summaries.delete(sessionId);
+      this.activity.forget(sessionId);
       this.recordedUsage.delete(sessionId);
     }
   }

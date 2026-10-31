@@ -9,13 +9,19 @@
  * 展开不会长高这一行 —— flatten 在它下面重新发出被折起来的单元 —— 所以 measure()
  * 是一个常数头高,这一行自己没有过渡动画。
  *
- * 一轮开始了、还什么都没有时,它也是这一行(`pendingTurnHeader`):发出就在数秒,第一样内容到了就落在它下面。
+ * 一轮开始了、还没有可折的过程时,它也是这一行(`placeholderTurnHeader`):写「正在思考…」占着位置,
+ * 过程一出现就落在它下面、它接着数「已处理 Ns」—— 中途 ❌ 撤掉再冒出来(owner 2026-10-23)。
+ *
+ * 同屏只让一处在动:底下有内容(`withBody`)时头只数秒、不带微光 —— 底下活着的那些行自己带着;头再一起扫,
+ * 两三处同时亮暗就是「不断闪烁」(owner 2026-10-22)。数秒时数字等宽(见 `turnProcessHeaderSlot`),头上的字与箭头不挪窝。
  *
  * 计时的起点是 `TranscriptTurn.startedAt`(事件到达时刻,存在数据里):虚拟列表把行滚出
  * 视窗就卸载,拿挂载时刻当起点的话滚回来会从 0 重数;拿会话级「首次见到」当起点,打开一个
  * 已经跑了五分钟的会话时会说 3 秒。回放来的一轮没有时刻,那就不写时间
  * —— 一个会少报的计时器比没有计时器更糟。
  */
+import type { MeasureCtx } from '@session-chat/core/define';
+import { readableLabel, rowTranslator } from '../readable-label';
 import { HEADER_ROW_EXTRA_H } from '@session-chat/components/engine/row-metrics';
 import { useTheme } from '@session-chat/components/contexts/ThemeContext';
 import { CollapseHeader } from '@session-chat/components/primitives/CollapseHeader';
@@ -23,22 +29,45 @@ import { defineUnit } from '@session-chat/core/units';
 import { useChatTranslator } from '@session-chat/localization';
 import type { TurnProcessItem } from '@session-chat/model';
 import { turnProcessExpanded, turnProcessLabel } from '@session-chat/state/turn-fold';
-import { createEffect, createMemo, createSignal, onCleanup } from 'solid-js';
+import { useCommands } from '@session-chat/components/contexts/CommandsContext';
+import { conversationHeader, conversationName, conversationTime } from '../message/conversation-message.css';
+import { processRowHeight } from '../message/process-row-layout';
+import { ConversationProcess } from '../message/ConversationProcess';
+import { ProcessBackgroundList, ProcessBackgroundPill, backgroundHeight } from '../message/ConversationMessage';
+import { conversationHeaderLayout } from '../message/conversation-header-layout';
+import { SenderName } from '../message/SenderName';
+import { conversationAgentTarget } from '@session-chat/lib/sender-target';
+import { Show, createEffect, createMemo, createSignal, onCleanup } from 'solid-js';
 import { turnProcessHeaderSlot, turnProcessLine, turnProcessRow } from './turn-process.css';
+
+function headerLayout(data: TurnProcessItem, ctx: MeasureCtx) {
+  return conversationHeaderLayout({ kind: 'message', role: 'assistant', text: '', id: data.id,
+    conversationProcess: data, conversationPreviousSpeaker: data.conversationPreviousSpeaker }, ctx, ctx.commands?.conversationAgentName?.() ?? 'Agent');
+}
+function silentLayout(ctx: MeasureCtx) { return readableLabel(rowTranslator(ctx)('transcript.processSilent'), ctx, ctx.width, 12, 22); }
+function classicHeight(data: TurnProcessItem, ctx: MeasureCtx) {
+  const sampleClock = (data.startedAt ?? 0) + 999 * 3600000 + 59 * 60000;
+  const label = readableLabel(turnProcessLabel(data, sampleClock, rowTranslator(ctx)), ctx, ctx.width - 20, ctx.theme.config.roles.body.size, 18);
+  return Math.max(ctx.theme.fonts.body.lineHeight + HEADER_ROW_EXTRA_H, label.height + 8);
+}
+function conversationHeight(data: TurnProcessItem, ctx: MeasureCtx) {
+  return headerLayout(data, ctx).height
+    + (data.silent ? silentLayout(ctx).height : 0) + backgroundHeight(data, ctx);
+}
 
 export const turnProcessUnitDef = defineUnit<TurnProcessItem, { extraH: number }>({
   kind: 'turn-process',
   margin: { top: 4, bottom: 4 },
   vars: { extraH: HEADER_ROW_EXTRA_H },
 
-  measure(_data, ctx, vars_) {
-    return ctx.theme.fonts.body.lineHeight + vars_.extraH;
-  },
+  measure(data, ctx) { return ctx.theme.layout.agentConversation ? conversationHeight(data, ctx) : classicHeight(data, ctx); },
 
   Render(props) {
     const translate = useChatTranslator();
     const theme = useTheme();
-    const height = () => theme().fonts.body.lineHeight + props.vars.extraH;
+    const commands = useCommands();
+    const height = () => classicHeight(props.data, props.ctx.measureCtx!());
+    const rowHeight = () => theme().layout.agentConversation ? conversationHeight(props.data, props.ctx.measureCtx!()) : height();
     // ViewState keeps the inverted flag inherited from the original store:
     // `isCollapsed(id) === true` means "toggled" (see view-state.ts).
     const expanded = () => turnProcessExpanded(props.data.live, props.ctx.viewState.isCollapsed(props.data.id));
@@ -49,7 +78,7 @@ export const turnProcessUnitDef = defineUnit<TurnProcessItem, { extraH: number }
     // ❌ 拿外层变量接 setInterval 的返回值:重跑会覆盖它,前一个再也清不掉,每秒一跳、永远活着,
     // 还把整棵已卸载的转录(ChatRoot + DOM)钉在内存里。
     const [now, setNow] = createSignal(Date.now());
-    const ticking = createMemo(() => props.data.live === true && props.data.startedAt !== undefined);
+    const ticking = createMemo(() => !theme().layout.agentConversation && props.data.live === true && props.data.startedAt !== undefined);
     createEffect(() => {
       if (!ticking()) return;
       setNow(Date.now());
@@ -57,6 +86,7 @@ export const turnProcessUnitDef = defineUnit<TurnProcessItem, { extraH: number }
       onCleanup(() => clearInterval(timer));
     });
 
+    const header = () => headerLayout(props.data, props.ctx.measureCtx!());
     const label = () => turnProcessLabel(props.data, now(), translate);
 
     return (
@@ -66,21 +96,34 @@ export const turnProcessUnitDef = defineUnit<TurnProcessItem, { extraH: number }
         data-live={props.data.live ? 'true' : 'false'}
         data-expanded={expanded() ? 'true' : 'false'}
         class={turnProcessRow}
-        style={{ height: `${height()}px` }}
+        style={{ height: `${rowHeight()}px` }}
       >
-        <div class={turnProcessLine} data-slot="tool-timeline-line">
-          <div class={turnProcessHeaderSlot}>
-            <CollapseHeader
-              id={props.data.id}
-              collapsible
-              expanded={expanded()}
-              active={props.data.live}
-              height={height()}
-            >
-              {label()}
-            </CollapseHeader>
+        <Show when={theme().layout.agentConversation} fallback={
+          <div class={turnProcessLine} data-slot="tool-timeline-line">
+            <div class={turnProcessHeaderSlot}>
+              <CollapseHeader
+                id={props.data.id}
+                collapsible={!props.data.placeholder && !props.data.empty}
+                expanded={expanded()}
+                active={props.data.live && !props.data.withBody}
+                height={height()} wrap labelSize={theme().config.roles.body.size}
+              >
+                {label()}
+              </CollapseHeader>
+            </div>
           </div>
-        </div>
+        }>
+          <div class={conversationHeader} style={{ height: `${header().height}px` }}>
+            <Show when={header().name}>{name => <SenderName class={conversationName} name={name().text}
+              style={{ width: `${header().nameWidth}px` }} target={conversationAgentTarget({ sessionId: commands().conversationAgentSession?.(), userId: commands().conversationAgentUserId?.() })} />}</Show>
+            <div class={conversationTime} data-slot="tool-timeline-line" style={{ width: `${header().processWidth}px`, height: `${processRowHeight(props.data.id, props.data, header().processCtx)}px` }}>
+              <ConversationProcess measureCtx={() => header().processCtx} process={props.data} anchorId={props.data.id} expanded={expanded()} />
+              <ProcessBackgroundPill ownerId={props.data.id} ctx={{ ...props.ctx, measureCtx: () => header().processCtx }} />
+            </div>
+          </div>
+        </Show>
+        <Show when={theme().layout.agentConversation}><ProcessBackgroundList ownerId={props.data.id} ctx={props.ctx} /></Show>
+        <Show when={theme().layout.agentConversation && props.data.silent}><div class={conversationTime} style={{ height: `${silentLayout(props.ctx.measureCtx!()).height}px`, 'white-space': 'pre-wrap', 'line-height': '22px' }}>{silentLayout(props.ctx.measureCtx!()).text}</div></Show>
       </div>
     );
   },

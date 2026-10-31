@@ -48,17 +48,18 @@ describe('#6264 设备行上报「这是台什么机器」', () => {
       '/srv/gugu/data/server-update.json': JSON.stringify({ state: 'ready', version: '0.3.0', at: 5_000 }),
     }
     const readText = vi.fn((path: string) => files[path] ?? null)
-    const deps = { platform: () => 'linux', release: () => '6.1', arch: () => 'arm64', readText, nowMs: () => 6_000, uid: () => 1000 }
+    const deps = { platform: () => 'linux', release: () => '6.1', arch: () => 'arm64', readText, nowMs: () => 6_000, uid: () => 1000, homedir: () => '/home/ubuntu' }
     expect(resolveDeviceHostInfo({ GUGU_SERVER_MODE: '1', GUGU_SERVER_HOME: '/srv/gugu' }, deps)).toEqual({
       host_kind: 'server',
       arch: 'arm64',
       os_name: 'Ubuntu 22.04.5 LTS',
+      home_dir: '/home/ubuntu',
       server_update: { state: 'ready', version: '0.3.0' },
       remote_protocol: REMOTE_PROTOCOL_VERSION,
       min_client_protocol: MIN_CLIENT_PROTOCOL,
     })
     readText.mockClear()
-    expect(resolveDeviceHostInfo({ GUGU_SERVER_HOME: '/srv/gugu' }, deps)).toEqual({ host_kind: 'desktop', arch: 'arm64', os_name: 'Ubuntu 22.04.5 LTS' })
+    expect(resolveDeviceHostInfo({ GUGU_SERVER_HOME: '/srv/gugu' }, deps)).toEqual({ host_kind: 'desktop', arch: 'arm64', os_name: 'Ubuntu 22.04.5 LTS', home_dir: '/home/ubuntu' })
     expect(readText).not.toHaveBeenCalledWith('/srv/gugu/data/server-update.json')
   })
 
@@ -76,6 +77,19 @@ describe('#6264 设备行上报「这是台什么机器」', () => {
     const base = { device_id: 'd', label: 'x', hostname: 'h', platform: 'linux', status: 'online', last_seen_at: '2026-09-23T00:00:00Z' }
     expect(normalizeDeviceRow({ ...base, capabilities: { host_kind: 'server', connect_via: 'ssh' } }).capabilities.connect_via).toBe('ssh')
     expect(normalizeDeviceRow({ ...base, capabilities: { host_kind: 'server', connect_via: 'wormhole' } }).capabilities.connect_via).toBeUndefined()
+  })
+
+  // #113 别的端据此认出那台机器上的「~」项目,那台离线、那一端又从没连上过它时也认得出。
+  it('桌面与 server 都报主目录;读侧收完整的路径,太长(截了就是另一个路径)当没报', () => {
+    const deps = { platform: () => 'linux', release: () => '6.1', arch: () => 'x64', readText: () => null, uid: () => 1000 }
+    expect(resolveDeviceHostInfo({ GUGU_SERVER_MODE: '1' }, { ...deps, homedir: () => '/home/ubuntu' }).home_dir).toBe('/home/ubuntu')
+    expect(resolveDeviceHostInfo({}, { ...deps, homedir: () => '/Users/apple' }).home_dir).toBe('/Users/apple')
+    expect(resolveDeviceHostInfo({}, { ...deps, homedir: () => '' }).home_dir).toBeUndefined()
+    const base = { device_id: 'd', label: 'x', hostname: 'h', platform: 'linux', status: 'online', last_seen_at: '2026-09-23T00:00:00Z' }
+    expect(normalizeDeviceRow({ ...base, capabilities: { home_dir: '/home/ubuntu' } }).capabilities.home_dir).toBe('/home/ubuntu')
+    expect(normalizeDeviceRow({ ...base, capabilities: { home_dir: `/${'x'.repeat(4096)}` } }).capabilities.home_dir).toBeUndefined()
+    expect(normalizeDeviceRow({ ...base, capabilities: { home_dir: 7 } }).capabilities.home_dir).toBeUndefined()
+    expect(normalizeDeviceRow({ ...base, capabilities: {} }).capabilities.home_dir).toBeUndefined()
   })
 
   it('root 跑的 server 报 runs_as_root(设备列表据此写「以管理员身份运行」);普通用户、桌面都不报', () => {
@@ -188,7 +202,7 @@ describe('#6264 server 要人知道的事:磁盘、升级被退回、两边版�
     expect(bad.remote_protocol).toBeUndefined()
   })
 
-  it('要人知道的事按要紧程度排;老 server 不报就不下结论;桌面行没有这些', () => {
+  it('要人知道的事按要紧程度排;老宿主不报就不下结论;桌面复用协议提示', () => {
     const own = { protocol: 2, minServer: 2 }
     expect(serverMachineNotices({ host_kind: 'server', min_client_protocol: 3, server_disk: { free_bytes: 5, total_bytes: 10 } }, own)).toEqual([
       { kind: 'desktop-too-old' },
@@ -198,7 +212,15 @@ describe('#6264 server 要人知道的事:磁盘、升级被退回、两边版�
     expect(serverMachineNotices({ host_kind: 'server', server_disk: { free_bytes: SERVER_DISK_LOW_BYTES, total_bytes: 2 * SERVER_DISK_LOW_BYTES } }, own)).toEqual([])
     expect(serverMachineNotices({ host_kind: 'server', server_rollback: { version: 'b', restored: 'a' } }, own)).toEqual([{ kind: 'rolled-back', version: 'b', restored: 'a' }])
     expect(serverMachineNotices({ host_kind: 'server' }, own)).toEqual([])
-    expect(serverMachineNotices({ host_kind: 'desktop', min_client_protocol: 9 }, own)).toEqual([])
+    expect(serverMachineNotices({ host_kind: 'desktop', min_client_protocol: 9 }, own)).toEqual([{ kind: 'desktop-too-old' }])
+    expect(serverMachineNotices({ host_kind: 'desktop', remote_protocol: 1 }, own)).toEqual([{ kind: 'server-too-old' }])
+  })
+
+  it('rejects peers that cannot exchange canonical file patch entities', () => {
+    const patched = { host_kind: 'server' as const, remote_protocol: REMOTE_PROTOCOL_VERSION, min_client_protocol: MIN_CLIENT_PROTOCOL }
+    expect(serverMachineNotices(patched, { protocol: 10, minServer: 9 })).toEqual([{ kind: 'desktop-too-old' }])
+    expect(serverMachineNotices({ host_kind: 'server', remote_protocol: 10, min_client_protocol: 9 })).toEqual([{ kind: 'server-too-old' }])
+    expect(serverMachineNotices(patched)).toEqual([])
   })
 
   it('#6264 一套工作台:这一版 server 让协议 1 的旧桌面说「请更新这台电脑上的咕咕」,与现在的桌面互认', () => {

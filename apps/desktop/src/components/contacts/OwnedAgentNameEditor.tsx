@@ -1,18 +1,27 @@
-import { useRef, useState } from 'react'
+import { useRef, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { AgentDisplayStatus } from '@gugu/core/shared/types/chat'
+import { Check, Pencil, X } from '@/lib/icons'
+import { cn } from '@/lib/cn'
 import { useAuth } from '../../store/auth'
 import { useContactsStore } from '../../store/contactsContext'
-import { Button } from '../ui/Button'
-import { Field } from '../ui/Field'
+import { IconButton } from '../ui/IconButton'
+import { Hint } from '../ui/Tooltip'
 
-/** Edits the agent identity, independently of task titles, local aliases and group roles. */
-export function OwnedAgentNameEditor({ agentId, name, ownerUserId, status, membership }: {
+/**
+ * The agent's name line: its owner renames it in place from a pencil beside the name (the assistant's name in
+ * Settings has the same shape). Edits the agent identity, independently of task titles, local aliases and group roles.
+ */
+export function OwnedAgentNameEditor({ agentId, name, ownerUserId, status, membership, className, children }: {
   agentId: string
   name: string
   ownerUserId?: string | null
   status?: AgentDisplayStatus
   membership?: string
+  /** The host's name typography; the input inherits it. */
+  className?: string
+  /** The name as the host draws it. */
+  children: ReactNode
 }) {
   const { t } = useTranslation('contacts')
   const { user } = useAuth()
@@ -21,7 +30,7 @@ export function OwnedAgentNameEditor({ agentId, name, ownerUserId, status, membe
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const pending = useRef(false)
-  if (!user?.id || ownerUserId !== user.id || status === 'removed' || membership === 'removed') return null
+  const canRename = !!user?.id && ownerUserId === user.id && status !== 'removed' && membership !== 'removed'
 
   const cancel = () => {
     if (pending.current) return
@@ -47,19 +56,26 @@ export function OwnedAgentNameEditor({ agentId, name, ownerUserId, status, membe
       setSaving(false)
     }
   }
-  if (draft === null) return (
-    <Button variant="ghost" size="sm" className="self-start" onClick={() => setDraft(name)}>
-      {t('agentName.edit')}
-    </Button>
+  if (draft === null || !canRename) return (
+    <div className={cn('flex min-w-0 items-center gap-1', className)}>
+      {children}
+      {canRename && (
+        <Hint label={t('agentName.edit')} side="top">
+          <IconButton size="sm" aria-label={t('agentName.edit')} className="shrink-0 text-[var(--muted-fg)]" onClick={() => setDraft(name)}><Pencil /></IconButton>
+        </Hint>
+      )}
+    </div>
   )
   return (
-    <div className="flex min-w-0 flex-col gap-2" onKeyDown={(event) => {
+    <div className={cn('flex min-w-0 flex-col', className)} onKeyDown={(event) => {
       if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); cancel() }
     }}>
-      <Field.Root invalid={!!error}>
-        <Field.Label>{t('agentName.label')}</Field.Label>
-        <Field.Input
+      <div className="flex min-w-0 items-center gap-1">
+        <input
           autoFocus
+          aria-label={t('agentName.label')}
+          aria-invalid={!!error || undefined}
+          className="w-[180px] min-w-0 flex-1 border-0 border-b border-[var(--border)] bg-transparent p-0 text-inherit outline-none [font:inherit] focus:border-[var(--fg)]"
           value={draft}
           disabled={saving}
           onFocus={(event) => event.currentTarget.select()}
@@ -68,12 +84,10 @@ export function OwnedAgentNameEditor({ agentId, name, ownerUserId, status, membe
             if (event.key === 'Enter' && !event.nativeEvent.isComposing) { event.preventDefault(); void save() }
           }}
         />
-        {error && <div role="alert" className="text-[length:var(--font-body)] text-[var(--danger)]">{error}</div>}
-      </Field.Root>
-      <div className="flex flex-wrap gap-1">
-        <Button size="sm" variant="primary" disabled={saving} onClick={() => void save()}>{t(saving ? 'agentName.saving' : 'common.save')}</Button>
-        <Button size="sm" variant="ghost" disabled={saving} onClick={cancel}>{t('common.cancel')}</Button>
+        <IconButton size="sm" aria-label={t('common.save')} disabled={saving} onClick={() => void save()}><Check /></IconButton>
+        <IconButton size="sm" aria-label={t('common.cancel')} disabled={saving} onClick={cancel}><X /></IconButton>
       </div>
+      {error && <div role="alert" className="text-[length:var(--font-caption)] font-normal text-[var(--danger-fg)]">{error}</div>}
     </div>
   )
 }

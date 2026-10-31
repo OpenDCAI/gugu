@@ -1,8 +1,9 @@
+import { messageForUser } from '@/lib/userFacingError';
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 import { AttachmentViewerDialog, ChatComposer, MessageProvider, formatAttachmentSize, readAttachmentPreviewText, type ComposerAgentOption, type ComposerAttachment, type PromptEditorRef } from '@gugu/session-ui/react/components'
 import { ThemeProvider as SessionUiThemeProvider } from '@gugu/session-ui/react/primitives'
-import { Cpu, Folder, Monitor } from '@/lib/icons'
+import { Folder, Monitor } from '@/lib/icons'
 import { useLocale } from '@/i18n'
 import { useTheme } from '../store/theme'
 import { useAuth } from '../store/auth'
@@ -39,6 +40,7 @@ import { openBillingPage } from '../lib/appLinks'
 import { openShellSettings } from '../session/renderer/lib/open-shell-settings'
 import { translateSessionMessage } from '../session/renderer/localization/locale-store'
 import { guguReasonText } from '../session/renderer/features/sessions/gugu-reason'
+import { mustCopyRatherThanReference } from '../session/renderer/lib/pty/terminal-image-paths'
 import { cloudComputerFailureKind } from '@gugu/core/cloud/cloudComputer'
 import { wakeCloudComputer } from '../lib/cloudComputerStore'
 import type { CreateContextDevice } from '../lib/agentCreateContextBridge'
@@ -296,24 +298,39 @@ export function AcpAgentCreateComposer({ context, onCreated }: {
     setAttachments((current) => [...current, ...next])
   }, [])
 
+  const localPathOf = useCallback((file: File) => selectedDevice?.isLocal
+    ? platform.getPathForFile?.(file).trim().replace(/\\/g, '/') ?? ''
+    : '', [selectedDevice?.isLocal])
+  const mentionPath = useCallback((path: string) => {
+    editorApiRef.current?.insertMention({ id: path, label: path, name: path.split('/').pop() ?? path, kind: 'file' })
+  }, [])
+
   const handleFiles = useCallback((files: File[]) => {
     const remoteFiles: File[] = []
     for (const file of files) {
-      const path = selectedDevice?.isLocal
-        ? platform.getPathForFile?.(file).trim().replace(/\\/g, '/') ?? ''
-        : ''
-      if (!path) {
+      const path = localPathOf(file)
+      // 别的 App 私有目录、临时目录里的文件(#985):路径不能留给 agent 之后去读,按附件发一份。
+      if (!path || mustCopyRatherThanReference(path)) {
         remoteFiles.push(file)
         continue
       }
-      const name = path.split('/').pop() ?? path
-      editorApiRef.current?.insertMention({ id: path, label: path, name, kind: 'file' })
+      mentionPath(path)
     }
     if (remoteFiles.length > 0) {
       // ❌ 不裸 `void promise`:抛出会变成没人看见的静默丢,屏幕上只表现为「文件掉进去了什么都没发生」。
       enqueueRemoteFiles(remoteFiles).catch(() => { /* 入列失败:chip 不出现,正文照常可发 */ })
     }
-  }, [enqueueRemoteFiles, selectedDevice?.isLocal])
+  }, [enqueueRemoteFiles, localPathOf, mentionPath])
+
+  // 文件夹读不出字节,不能当附件发;本机的照原路径给 agent,在原处干活。
+  const handleDirectories = useCallback((folders: File[]) => {
+    const unplaced = folders.filter((folder) => {
+      const path = localPathOf(folder)
+      if (path) mentionPath(path)
+      return !path
+    })
+    if (unplaced.length > 0) handleFiles(unplaced)
+  }, [handleFiles, localPathOf, mentionPath])
 
   const handleAttachmentsChange = useCallback((next: ComposerAttachment[]) => {
     const ids = new Set(next.map((attachment) => attachment.id))
@@ -407,8 +424,8 @@ export function AcpAgentCreateComposer({ context, onCreated }: {
       // user can see and retry their own words instead of watching them disappear.
       if (!progress.promptDelivered) restoreUndelivered(prompt)
       createLog.error({ err: message }, 'acp agent create failed')
-      setError(t('create.toast.createFailed'))
-      toast(t('create.toast.createFailed'), 'error')
+      setError(messageForUser(reason))
+      toast(t('create.toast.createFailed'), 'error', messageForUser(reason))
     } finally {
       setSubmitting(false)
     }
@@ -464,7 +481,6 @@ export function AcpAgentCreateComposer({ context, onCreated }: {
         <DropdownMenu.Trigger className="gg-ghost acp-agent-create-trigger"
           data-testid="agent-create-model-picker" aria-label={tMain('agentWatch.create.model')}
           disabled={!selectedDevice?.isOnline || !provider || submitting || Boolean(attempt || pendingDelivery)}>
-          <Cpu size={13} />
           <span className="acp-agent-create-ellipsis">
             {model
               ? (models ? createModelName(models, model) : null) ?? model
@@ -543,7 +559,7 @@ export function AcpAgentCreateComposer({ context, onCreated }: {
               placeholder={t('create.composer.prompt')} onInputChange={setPrompt} onSubmit={submit}
               editorApiRef={editorApiRef} attachments={attachments} onAttachmentsChange={handleAttachmentsChange}
               onAttach={() => fileInputRef.current?.click()} onImageFilesDropped={handleFiles}
-              onFilesDropped={handleFiles} onViewAttachment={(att) => { if (!openComposerImage(att)) setAttachmentViewer(att) }} toolbarExtra={toolbarExtra} />
+              onFilesDropped={handleFiles} onDirectoriesDropped={handleDirectories} onViewAttachment={(att) => { if (!openComposerImage(att)) setAttachmentViewer(att) }} toolbarExtra={toolbarExtra} />
             <AttachmentViewerDialog open={!!attachmentViewer}
               onOpenChange={(open) => { if (!open) setAttachmentViewer(null) }}
               name={attachmentViewer?.name}

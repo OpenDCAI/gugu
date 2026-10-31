@@ -42,7 +42,7 @@ const EXTRA_ROWS = ['zcode']
 
 /**
  * 端口的十项。`declared` 只读这一家的插件声明;`host` 是这一项在宿主侧的实现文件(目录或文件,相对仓根)。
- * 这张表就是端口草案的可执行版本 —— 字段名、哪些腿要答,和 gugu-base 那页草案逐项对应。
+ * 这张表就是端口草案的可执行版本 —— 字段名、哪些腿要答,和那页草案逐项对应。
  */
 const PORT: ReadonlyArray<{
   item: string

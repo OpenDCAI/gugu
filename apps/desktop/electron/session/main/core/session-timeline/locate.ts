@@ -61,7 +61,7 @@ function nativeHomeRow(providerId: string, format: SessionRecordHarness, sub: st
 
 /**
  * provider → 记录格式。一行一家，格式相同的家共用一个解码器;❌ 不按名字形状推。只列已上架的家。
- * mimocode 是 opencode 的分支，库表核过(gugu-base notes/2026-10-17-timeline-sources):多一列 `message.agent_id`。
+ * mimocode 是 opencode 的分支，库表核过(2026-10-17):多一列 `message.agent_id`。
  */
 const RECORD_FORMAT_BY_PROVIDER: Readonly<Record<string, RecordFormatRow>> = {
   claude: nativeHomeRow('claude', 'claude', 'projects'),
@@ -109,6 +109,8 @@ export type LocateSessionRecordInput = {
    * 而这一层如果不认它，手机上会看到「会话在、时间线空」。
    */
   managedConfigRoot?: string | null;
+  /** 排在所有默认根之后的兜底根:旧位置上可能还留着一份,但新的(还在长的)那份在前面的根里。 */
+  fallbackConfigRoots?: readonly string[];
 };
 
 export function sessionRecordHarnessForProvider(
@@ -149,7 +151,7 @@ export function locateSessionRecord(input: LocateSessionRecordInput): SessionRec
 
   const env = input.env ?? process.env;
   const where: Where = { env, home: input.homeDir ?? homedir(), guguHome: resolveGuguHome(env) };
-  const dirs = homesOf(row, where, input.managedConfigRoot?.trim() || null);
+  const dirs = candidates([...homesOf(row, where, input.managedConfigRoot?.trim() || null), ...(input.fallbackConfigRoots ?? [])]);
   if (!row.opencode) {
     return { supported: true, locator: { harness: row.format, providerSessionId, roots: dirs.map((dir) => join(dir, row.sub)) } };
   }

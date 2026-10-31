@@ -1,9 +1,11 @@
+import { observeCodexForegroundCompletion } from '../../../support/codexForegroundCompletion';
 // @@@vitest-environment node
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { chmodSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { createInterface } from 'node:readline'
+import type { SessionUpdate } from '@agentclientprotocol/sdk'
 import { afterEach, describe, expect, it } from 'vitest'
 
 import { awaitFact } from '../../../support/awaitFact'
@@ -11,8 +13,8 @@ import { awaitFact } from '../../../support/awaitFact'
 // 问题 12 —— 新线程的咕咕工具只走 MCP 那一份。
 //
 // 桥不再在 thread/start / fork 上声明 #3551 的动态工具(同一组工具的第二份,每轮多 8.8KB);换成线程层的两条配置:
-// `mcp_servers.gugu.required`(首轮等咕咕 MCP 起好,codex 对可选 server 首次只等 1 秒)与
-// `features.code_mode.direct_only_tool_namespaces`(物化器点名的那几台 —— 声明了 alwaysLoad 的,咕咕的在内 —— 不进 exec 沙箱)。
+// `mcp_servers.gugu.required` waits for startup; omit_tools_from keeps the core catalog out of deferred loading.
+// Only library services and full-disclosure Apps retain the materializer's direct-only namespaces.
 // 09-29 之前开的线程把动态工具存在 rollout 元数据里、resume 时 codex 原样恢复,模型仍可能调;桥不再接这条兼容链
 // (owner 10-04「宁可破坏性也不要多条链路」):它们的 `item/tool/call` 得到一条 -32601,模型看得见这次失败,这一轮照常结束。
 
@@ -31,6 +33,7 @@ let turnSeq = 0
 const waiting = new Map()
 rl.on('line', (line) => {
   const m = JSON.parse(line)
+  if (m.method === 'turn/start' || m.method === 'turn/steer') process.stdout.write(JSON.stringify({ method: 'item/started', params: { item: { type: 'userMessage', id: 'user-' + m.id, clientId: m.params.clientUserMessageId, content: m.params.input } } }) + '\\n')
   if (m.id !== undefined && !m.method) {
     // the bridge's answer to our reverse request
     record({ reverseAnswer: m.result ?? null, error: m.error ?? null })
@@ -43,7 +46,7 @@ rl.on('line', (line) => {
     return out({ method: 'turn/completed', params: { threadId: THREAD, turn: { id: call.turnId, status: 'completed' } } })
   }
   if (m.id === undefined || !m.method) return
-  if (m.method === 'thread/start' || m.method === 'thread/fork') {
+  if (m.method === 'thread/start' || m.method === 'thread/fork' || m.method === 'thread/resume') {
     record({ method: m.method, params: m.params })
     return out({ id: m.id, result: { thread: { id: m.method === 'thread/fork' ? 'th-3551-fork' : THREAD }, model: 'm' } })
   }
@@ -57,6 +60,15 @@ rl.on('line', (line) => {
     const text = JSON.stringify(m.params.input ?? '')
     out({ id: m.id, result: { turn: { id: turnId, status: 'inProgress' } } })
     out({ method: 'turn/started', params: { threadId: THREAD, turn: { id: turnId, status: 'inProgress' } } })
+    if (text.includes('CHECKLIST')) {
+      const plan = (threadId, entries) => out({ method: 'turn/plan/updated', params: { threadId, turnId, explanation: null, plan: entries } })
+      plan('another-thread', [{ step: 'Foreign plan', status: 'pending' }])
+      plan(THREAD, [{ step: 'Read', status: 'inProgress' }, { step: 'Check', status: 'pending' }, { step: 'Report', status: 'pending' }])
+      plan(THREAD, [{ step: 'Read', status: 'completed' }, { step: 'Check', status: 'inProgress' }, { step: 'Report', status: 'pending' }])
+      plan(THREAD, [{ step: 'Read', status: 'completed' }, { step: 'Check', status: 'completed' }, { step: 'Report', status: 'completed' }])
+      plan(THREAD, [])
+      out({ method: 'item/plan/delta', params: { threadId: THREAD, turnId, itemId: 'plan-prose', delta: 'Plan-mode prose' } })
+    }
     const tool = text.includes('LEGACY_REPLY') ? 'message_send' : text.includes('LEGACY_READ') ? 'message_conversations' : null
     if (!tool) return out({ method: 'turn/completed', params: { threadId: THREAD, turn: { id: turnId, status: 'completed' } } })
     const id = 900 + turnSeq
@@ -91,8 +103,8 @@ afterEach(async () => {
 })
 
 // The materializer names the namespaces codex hands the model directly (codex session-bundle codexDirectNamespaces);
-// a gugu-only session gets just gugu's.
-function start(env: Record<string, string> = { GUGU_CODEX_DIRECT_TOOL_NAMESPACES: '["mcp__gugu"]' }) {
+// a gugu-only session clears that list and uses Codex's native execution surface.
+function start(env: Record<string, string> = { GUGU_CODEX_DIRECT_TOOL_NAMESPACES: '[]' }) {
   const raw = join(tmpdir(), `codex-tool-surface-3551-${process.pid}-${Date.now()}`)
   mkdirSync(raw, { recursive: true })
   dir = realpathSync(raw)
@@ -103,15 +115,17 @@ function start(env: Record<string, string> = { GUGU_CODEX_DIRECT_TOOL_NAMESPACES
   writeFileSync(recordPath, '')
   const child = spawn(process.execPath, [ADAPTER], {
     cwd: dir,
-    env: { ...process.env, GUGU_CODEX_BIN: fake, FIXTURE_RECORD: recordPath, ...env },
+    env: { ...process.env, GUGU_CODEX_DIRECT_TOOL_NAMESPACES: undefined, GUGU_CODEX_BIN: fake, FIXTURE_RECORD: recordPath, ...env },
     stdio: ['pipe', 'pipe', 'pipe'],
   })
   adapter = child
   const responses = new Map<number, { result?: unknown; error?: { code: number; message: string } }>()
-  createInterface({ input: child.stdout }).on('line', (line) => {
+  const updates: SessionUpdate[] = []
+  createInterface({ input: child.stdout }).on('line', observeCodexForegroundCompletion((line) => {
     const m = JSON.parse(line)
     if (m.id !== undefined && !m.method) responses.set(m.id, { result: m.result, error: m.error })
-  })
+    if (m.method === 'session/update') updates.push(m.params.update)
+  }))
   let nextId = 1
   const send = (method: string, params: unknown) => {
     const id = nextId++
@@ -120,27 +134,29 @@ function start(env: Record<string, string> = { GUGU_CODEX_DIRECT_TOOL_NAMESPACES
   }
   const reply = (id: number, what: string) => awaitFact(what, () => responses.get(id), { producer: child })
   const records = () => readFileSync(recordPath, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l) as FakeRecord)
-  return { send, reply, records }
+  return { send, reply, records, updates }
 }
 
 const GUGU_SERVER = { name: 'gugu', url: 'http://127.0.0.1:9/mcp/session-token', headers: [] }
 
 async function open(rig: ReturnType<typeof start>, mcpServers: unknown[]) {
-  await rig.reply(rig.send('initialize', { protocolVersion: 1, clientCapabilities: {} }), 'initialize')
+  await rig.reply(rig.send('initialize', { protocolVersion: 2, capabilities: {} }), 'initialize')
   const created = (await rig.reply(rig.send('session/new', { cwd: dir, mcpServers }), 'session/new')).result as { sessionId: string }
   return created.sessionId
 }
 
 describe('问题 12 codex ACP bridge: gugu tools reach new threads through MCP only', () => {
-  it('a new thread declares no dynamic tools and asks for the gugu MCP server as required, outside code mode', async () => {
+  it('a new thread uses one required MCP catalog without forcing it outside code mode', async () => {
     const rig = start()
     await open(rig, [GUGU_SERVER])
     const started = rig.records().find((r) => r.method === 'thread/start')!
     expect(started.params).not.toHaveProperty('dynamicTools')
     expect(started.params?.config).toMatchObject({
+      'tools.update_plan.enabled': true,
       'mcp_servers.gugu.url': GUGU_SERVER.url,
       'mcp_servers.gugu.required': true,
-      'features.code_mode.direct_only_tool_namespaces': ['mcp__gugu'],
+      'mcp_servers.gugu.omit_tools_from': ['deferred'],
+      'features.code_mode.direct_only_tool_namespaces': [],
     })
   })
 
@@ -151,8 +167,10 @@ describe('问题 12 codex ACP bridge: gugu tools reach new threads through MCP o
     const forked = rig.records().find((r) => r.method === 'thread/fork')!
     expect(forked.params).not.toHaveProperty('dynamicTools')
     expect(forked.params?.config).toMatchObject({
+      'tools.update_plan.enabled': true,
       'mcp_servers.gugu.required': true,
-      'features.code_mode.direct_only_tool_namespaces': ['mcp__gugu'],
+      'mcp_servers.gugu.omit_tools_from': ['deferred'],
+      'features.code_mode.direct_only_tool_namespaces': [],
     })
   })
 
@@ -161,13 +179,41 @@ describe('问题 12 codex ACP bridge: gugu tools reach new threads through MCP o
     await open(rig, [{ name: 'ext-probe', url: 'http://127.0.0.1:9/mcp/ext', headers: [] }])
     const config = rig.records().find((r) => r.method === 'thread/start')!.params?.config ?? {}
     expect(Object.keys(config).filter((k) => k.endsWith('.required'))).toEqual([])
+    expect(config['tools.update_plan.enabled']).toBe(true)
+  })
+
+  it('a resumed thread also enables the native checklist tool', async () => {
+    const rig = start()
+    const sessionId = await open(rig, [GUGU_SERVER])
+    await rig.reply(rig.send('session/resume', { sessionId, cwd: dir, mcpServers: [GUGU_SERVER] }), 'session/resume')
+    expect(rig.records().find((r) => r.method === 'thread/resume')?.params?.config)
+      .toHaveProperty(['tools.update_plan.enabled'], true)
+  })
+
+  it('maps native checklist snapshots to the existing ACP plan and preserves plan-mode prose', async () => {
+    const rig = start()
+    const sessionId = await open(rig, [GUGU_SERVER])
+    await rig.reply(rig.send('session/prompt', { sessionId, prompt: [{ type: 'text', text: 'CHECKLIST' }] }), 'plan turn')
+    const entries = (statuses: string[]) => ['Read', 'Check', 'Report'].map((content, index) => ({
+      content, status: statuses[index], priority: 'medium',
+    }))
+    expect(rig.updates.filter((u) => u.sessionUpdate === 'plan')).toEqual([
+      { sessionUpdate: 'plan', entries: entries(['in_progress', 'pending', 'pending']) },
+      { sessionUpdate: 'plan', entries: entries(['completed', 'in_progress', 'pending']) },
+      { sessionUpdate: 'plan', entries: entries(['completed', 'completed', 'completed']) },
+      { sessionUpdate: 'plan', entries: [] },
+    ])
+    expect(rig.updates).toContainEqual({
+      sessionUpdate: 'agent_thought_chunk', messageId: 'plan-prose', content: { type: 'text', text: 'Plan-mode prose' },
+    })
   })
 
   it('the namespaces outside code mode are exactly the ones the materializer names (10-06)', async () => {
-    const rig = start({ GUGU_CODEX_DIRECT_TOOL_NAMESPACES: '["mcp__gugu","mcp__gw_probe_a"]' })
+    const rig = start({ GUGU_CODEX_DIRECT_TOOL_NAMESPACES: '["mcp__gw_probe_a"]' })
     await open(rig, [GUGU_SERVER, { name: 'gw-probe-a', url: 'http://127.0.0.1:9/mcp/ext', headers: [] }])
     const config = rig.records().find((r) => r.method === 'thread/start')!.params?.config ?? {}
-    expect(config['features.code_mode.direct_only_tool_namespaces']).toEqual(['mcp__gugu', 'mcp__gw_probe_a'])
+    expect(config['features.code_mode.direct_only_tool_namespaces']).toEqual(['mcp__gw_probe_a'])
+    expect(config).not.toHaveProperty(['mcp_servers.gw_probe_a.omit_tools_from'])
   })
 
   it('nothing named, nothing set: a server the person configured stays as codex has it', async () => {

@@ -1,3 +1,6 @@
+import { platform } from '@/platform';
+import { safeFailureLine } from '../sessions/gugu-reason';
+import { log } from '@renderer/utils/logger';
 import { PreviewCard as PreviewCardPrimitive } from '@base-ui/react/preview-card';
 import { Check, Copy } from '@/lib/icons';
 import { makeAutoObservable } from 'mobx';
@@ -8,11 +11,19 @@ import { sessionAgentNames } from '@renderer/features/sessions/stores/session-ag
 import { getPortalContainer } from '@renderer/lib/portal-container';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
 import { cn } from '@renderer/utils/utils';
+import { rpc } from '@renderer/lib/ipc';
+import { machineRegistry } from '@renderer/lib/machine-routing';
+import { remoteHostsStore } from '@renderer/features/remote-hosts/remote-hosts-store';
+import { getWorkspaceForSession } from '@renderer/features/sessions/stores/session-selectors';
+import { getProjectStore } from '@renderer/features/projects/stores/project-selectors';
+import { identityPlace } from './sidebar-identity-place';
+import { TailValue } from './sidebar-identity-tail';
 
 /**
  * 侧栏会话行的**身份卡**(#6092,取代 #5818 的「标题就地翻成 agent 名」)。
  *
- * 行上只写得下标题;指针停在行上,行右侧弹出一张卡回答「这一行是谁」:**任务名、agent 名**两行,
+ * 行上只写得下标题;指针停在行上,行右侧弹出一张卡回答「这一行是谁、在哪」:**任务名、agent 名、设备、文件夹**
+ * 四行(设备与文件夹 owner 2026-10-28 加,见 sidebar-identity-place.ts),
  * **整行点一下就复制这一行**。#7334 起卡上不再摆会话 ID 与 agent ID —— 平时拿名字的人用不上两串 ID,
  * 摆着只是多一层要读的东西;要会话 ID 的人主动去拿(行的右键「复制会话 ID」)。
  * 复制出去的是**带标签的这一对**(「任务名：X」「Agent 名：Y」)—— 单个值离开了标签,粘到哪都读不出它是什么
@@ -57,6 +68,9 @@ const COPIED_MS = 1600;
  */
 class SidebarIdentityCardStore {
   activeSessionId: string | null = null;
+  /** 本机主目录(文件夹那一行把它缩成 `~`);第一次开卡时问一次主进程,之后不变。 */
+  localHome: string | null = null;
+  private homeAsked = false;
   /**
    * 刚被点过、指针还没离开的那一行:它的悬浮不开卡。记在全局而不是行的 ref 上 —— 点开会话会让侧栏
    * 重渲,行节点可能换掉,新节点在指针下一动就收到一次 pointerenter,ref 记的会跟着旧节点丢掉。
@@ -74,6 +88,21 @@ class SidebarIdentityCardStore {
 
   open(sessionId: string): void {
     this.activeSessionId = sessionId;
+    this.askLocalHome();
+  }
+
+  private askLocalHome(): void {
+    if (this.homeAsked) return;
+    this.homeAsked = true;
+    // 包一层 then:没有主进程可问时(浏览器测试)rpc 是同步抛的,❌ 让它绕过下面的 catch 把开卡这一下打断。
+    Promise.resolve()
+      .then(() => rpc.app.getHomeDirectory())
+      .then((home) => this.setLocalHome(home))
+      .catch((error: unknown) => log.warn({ error }, 'identity card: home directory unavailable; folder shown in full'));
+  }
+
+  setLocalHome(home: string): void {
+    this.localHome = home;
   }
 
   suppress(sessionId: string): void {
@@ -175,18 +204,26 @@ export function useSidebarIdentityCardTrigger(sessionId: string, enabled: boolea
 }
 
 type RowSpec = {
-  key: 'sessionName' | 'agentName';
+  key: 'sessionName' | 'agentName' | 'device' | 'folder';
   label: string;
-  /** null = 这一格没有(agent 未分配):写「未分配」且不可复制。 */
+  /** null = 这一格没有(agent 未分配 / 文件夹不知道):写 missing 那句且不可复制。 */
   value: string | null;
+  /** 卡上显示的那一份(文件夹把主目录缩成 `~`);不给就显示 value。复制出去的始终是 value。 */
+  display?: string;
+  /** value 为 null 时写什么;默认「未分配」。 */
+  missing?: string;
+  /** 放不下时保住结尾:文件夹的最后一段目录名永远露着,截掉的是前面(「~/Codebase/idc…/shop」)。 */
+  keepTail?: boolean;
 };
 
 export const SidebarIdentityCard = observer(function SidebarIdentityCard({
+  projectId,
   sessionId,
   title,
   anchor,
   onDismiss,
 }: {
+  projectId: string;
   sessionId: string;
   title: string;
   /** 取行本体。传取值函数:虚拟列表重渲染会换掉行节点,拿着旧节点定位是对着脱离文档的元素算坐标。 */
@@ -200,6 +237,25 @@ export const SidebarIdentityCard = observer(function SidebarIdentityCard({
     { key: 'sessionName', label: translate('identityCard.sessionName'), value: title },
     { key: 'agentName', label: translate('identityCard.agentName'), value: identity?.displayName ?? null },
   ];
+  // 在哪:设备 + 文件夹。别的机器上的会话没挂载时没有工作区,只知道项目目录(会话目录那一行不带 cwd)。
+  const machine = machineRegistry.machineOf(projectId);
+  const place = identityPlace({
+    deviceLabel: machine ? (remoteHostsStore.device(machine)?.label ?? machine) : translate('task.deviceLocal'),
+    workspacePath: getWorkspaceForSession(projectId, sessionId)?.path,
+    projectPath: getProjectStore(projectId)?.data?.path,
+    home: machine ? remoteHostsStore.homeDir(machine) : sidebarIdentityCard.localHome,
+  });
+  rows.push(
+    { key: 'device', label: translate('identityCard.device'), value: place.device },
+    {
+      key: 'folder',
+      label: translate('identityCard.folder'),
+      value: place.folder,
+      display: place.folderDisplay ?? undefined,
+      missing: translate('identityCard.folderUnknown'),
+      keepTail: true,
+    }
+  );
 
   return (
     <PreviewCardPrimitive.Root
@@ -231,8 +287,9 @@ export const SidebarIdentityCard = observer(function SidebarIdentityCard({
               'duration-[var(--dur-fast)] data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95 data-[side=right]:slide-in-from-left-2 data-[side=left]:slide-in-from-right-2 motion-reduce:animate-none motion-reduce:transition-none'
             )}
           >
-            {/* 宽度跟内容走,封顶 16rem:短名字不再拖着一大截空白(owner 2026-10-16 实看:「占的留白太多了」)。 */}
-            <div className="flex w-max max-w-64 flex-col overflow-hidden rounded-surface bg-background-quaternary py-1 text-sm text-foreground shadow-lift">
+            {/* 宽度跟内容走,封顶 20rem:短名字不再拖着一大截空白(owner 2026-10-16 实看:「占的留白太多了」);
+                16rem 时文件夹那一行只剩「~/Codebase/idcard…」,看不到是哪个目录(2026-10-27 实机),放宽一档。 */}
+            <div className="flex w-max max-w-80 flex-col overflow-hidden rounded-surface bg-background-quaternary py-1 text-sm text-foreground shadow-lift">
               {rows.map((row) => (
                 <IdentityRow key={row.key} row={row} />
               ))}
@@ -246,7 +303,8 @@ export const SidebarIdentityCard = observer(function SidebarIdentityCard({
 
 function IdentityRow({ row }: { row: RowSpec }) {
   const { translate } = useSessionMessages();
-  const [state, setState] = useState<'idle' | 'copied' | 'failed'>('idle');
+  const copiedLabel = translate('identityCard.copied');
+  const [state, setState] = useState<string | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(
     () => () => {
@@ -255,10 +313,10 @@ function IdentityRow({ row }: { row: RowSpec }) {
     []
   );
 
-  const flash = (next: 'copied' | 'failed') => {
+  const flash = (next: string) => {
     setState(next);
     if (timer.current) clearTimeout(timer.current);
-    timer.current = setTimeout(() => setState('idle'), COPIED_MS);
+    timer.current = setTimeout(() => setState(null), COPIED_MS);
   };
 
   const copy = async () => {
@@ -266,11 +324,11 @@ function IdentityRow({ row }: { row: RowSpec }) {
     try {
       // 带上标签:「任务名：X」。分隔符取文案(中文全角「：」,英文「: 」),拼接在这里做 ——
       // ❌ 把会话标题当插值参数塞进文案模板:标题是用户写的任意文字。
-      await navigator.clipboard.writeText(`${row.label}${translate('identityCard.copyKeySeparator')}${row.value}`);
-      flash('copied');
-    } catch {
-      // 复制失败也要就地说:值仍在行上,用户可以自己选 —— ❌ 静默。
-      flash('failed');
+      await platform.writeClipboardText(`${row.label}${translate('identityCard.copyKeySeparator')}${row.value}`);
+      flash(copiedLabel);
+    } catch (error) {
+      log.error({ error }, 'sidebar identity copy failed');
+      flash(safeFailureLine(String((error as Error)?.message ?? error)));
     }
   };
 
@@ -283,7 +341,7 @@ function IdentityRow({ row }: { row: RowSpec }) {
     return (
       <div data-identity-row={row.key} className="flex items-center gap-2 px-3 py-1">
         <span className={labelClass}>{row.label}</span>
-        <span className={valueClass}>{translate('identityCard.unassigned')}</span>
+        <span className={valueClass}>{row.missing ?? translate('identityCard.unassigned')}</span>
       </div>
     );
   }
@@ -292,7 +350,7 @@ function IdentityRow({ row }: { row: RowSpec }) {
     <button
       type="button"
       data-identity-row={row.key}
-      data-copy-state={state}
+      data-copy-state={state === null ? 'idle' : state === copiedLabel ? 'copied' : 'failed'}
       aria-label={translate('identityCard.copy', { label: row.label })}
       onClick={(event) => {
         // 行本身是会话的点击目标;这里的点击只是复制,❌ 顺带把会话打开或把卡关掉。
@@ -306,22 +364,22 @@ function IdentityRow({ row }: { row: RowSpec }) {
           两行图标不对齐也看不出来。反馈就地替换值:值与反馈叠在同一格,值只是藏起来仍占着宽,
           所以点完卡不变窄、图标不挪位。 */}
       <span className="grid min-w-0 grid-cols-1">
-        <span className={cn(valueClass, 'col-start-1 row-start-1', state !== 'idle' && 'invisible')}>{row.value}</span>
-        <span aria-live="polite" className={cn(valueClass, 'col-start-1 row-start-1 text-foreground-muted')}>
-          {state === 'copied'
-            ? translate('identityCard.copied')
-            : state === 'failed'
-              ? translate('identityCard.copyFailed')
-              : null}
+        {row.keepTail ? (
+          <TailValue text={row.display ?? row.value} className={cn('col-start-1 row-start-1', state !== null && 'invisible')} />
+        ) : (
+          <span className={cn(valueClass, 'col-start-1 row-start-1', state !== null && 'invisible')}>{row.display ?? row.value}</span>
+        )}
+        <span aria-live="polite" className="min-w-0 whitespace-normal break-words text-left text-sm leading-5 col-start-1 row-start-1 text-foreground-muted">
+          {state}
         </span>
       </span>
       <span
         className={cn(
           'flex size-4 shrink-0 items-center justify-center text-foreground-muted transition-opacity duration-[var(--dur-fast)]',
-          state === 'idle' && 'opacity-0 group-hover/identity-row:opacity-100 group-focus-visible/identity-row:opacity-100'
+          state === null && 'opacity-0 group-hover/identity-row:opacity-100 group-focus-visible/identity-row:opacity-100'
         )}
       >
-        {state === 'copied' ? <Check className="size-3" /> : <Copy className="size-3" />}
+        {state === copiedLabel ? <Check className="size-3" /> : <Copy className="size-3" />}
       </span>
     </button>
   );

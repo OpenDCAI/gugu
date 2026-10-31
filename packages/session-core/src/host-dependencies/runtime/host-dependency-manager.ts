@@ -13,6 +13,7 @@ import {
   resolveRealpath,
   runVersionProbe,
   VERSION_RE,
+  versionLineOf,
   withProbeSwitches,
 } from './probe';
 import { isDownloadStageFailure, readHostDependency,
@@ -176,17 +177,27 @@ function inheritTwinProvenance(
   }
 }
 
-function resolveProbeStatus(resolvedPath: string | null, probe: ProbeResult): DependencyStatus {
+type PendingInstall = {
+  method: InstallMethod | undefined;
+  registry: string | null;
+  target?: InstallTarget;
+  targetRealpaths?: string[];
+};
+
+function resolveProbeStatus(resolvedPath: string | null, probe: ProbeResult, versionLine?: RegExp): DependencyStatus {
   // 口径只有一份,在 probe.ts。`resolvedPath` 与 `probe.path` 是同一个值(runVersionProbe
   // 就是把它写进 path 的),所以这里直接把探测结果交过去。
-  return defaultProbeStatus(resolvedPath === probe.path ? probe : { ...probe, path: resolvedPath });
+  return defaultProbeStatus(resolvedPath === probe.path ? probe : { ...probe, path: resolvedPath }, versionLine);
 }
 
-function extractVersion(probe: ProbeResult): string | null {
+function extractVersion(probe: ProbeResult, versionLine?: RegExp): string | null {
   const raw = (probe.stdout || probe.stderr).trim();
-  const firstLine = raw.split('\n')[0]?.trim() ?? '';
-  const m = VERSION_RE.exec(firstLine);
-  return m ? m[1] : firstLine || null;
+  // 声明了自己那一行却一行都没对上(reclaude 头一次只在 stderr 打「同步配置…」):没读到版本,❌ 退回第一行。
+  if (versionLine && !raw.split('\n').some((line) => versionLine.test(line.trim()))) return null;
+  // 这一家自己那一行(`versionLineOf`);不止一行对上、或没声明,照旧读第一行。
+  const line = versionLineOf(raw, versionLine) ?? raw.split('\n')[0]?.trim() ?? '';
+  // 那一行里没有版本号就是没读到:❌ 拿原文冒充版本(界面曾画出「v同步配置…」)。
+  return VERSION_RE.exec(line)?.[1] ?? null;
 }
 
 function dependencyStateFromProbeResult(
@@ -200,11 +211,11 @@ function dependencyStateFromProbeResult(
   if (probe === null) {
     status = resolvedPath !== null ? 'available' : 'missing';
   } else {
-    status = resolveProbeStatus(resolvedPath, probe);
+    status = resolveProbeStatus(resolvedPath, probe, descriptor.versionLine);
   }
 
   if (status === 'available' && probe) {
-    version = extractVersion(probe);
+    version = extractVersion(probe, descriptor.versionLine);
   }
 
   return {
@@ -295,15 +306,7 @@ export class HostDependencyManager<Ctx extends IExecutionContext = IExecutionCon
    * which is the only place where the resulting realpath and version are both known.
    * A null value means the command pinned nothing, so any earlier record must be dropped.
    */
-  private pendingInstall = new Map<
-    DependencyId,
-    {
-      method: InstallMethod | undefined;
-      registry: string | null;
-      target?: InstallTarget;
-      targetRealpaths?: string[];
-    }
-  >();
+  private pendingInstall = new Map<DependencyId, PendingInstall>();
   private lastInstallRecords = new Map<DependencyId, InstallRecord | null>();
   /** 上一次报出去的读数,用来判「变了没有」。见 `logReading`。 */
   private lastReadings = new Map<DependencyId, InstallationReading>();
@@ -515,13 +518,14 @@ export class HostDependencyManager<Ctx extends IExecutionContext = IExecutionCon
 
     // Try each command in order; stop once we get PATH hits to avoid mixing
     // different binary names (e.g., claude-code vs claude).
+    const probeEnv = await this.resolveProbeEnv(descriptor);
     let allPaths: string[] = [];
     for (const command of descriptor.commands) {
-      allPaths = await resolveAllCommandPaths(command, this.ctx, this.platform);
+      allPaths = await resolveAllCommandPaths(command, this.ctx, this.platform, probeEnv);
       if (allPaths.length > 0) break;
     }
     if (allPaths.length === 0) {
-      allPaths = await resolveKnownPaths(descriptor.knownPaths?.[this.platform] ?? [], this.ctx, this.platform);
+      allPaths = await resolveKnownPaths(descriptor.knownPaths?.[this.platform] ?? [], this.ctx, this.platform, probeEnv);
     }
 
     const pending = this.pendingInstall.get(id);
@@ -564,8 +568,8 @@ export class HostDependencyManager<Ctx extends IExecutionContext = IExecutionCon
         const probe = await runVersionProbe(primaryCommand, pathEntry, versionArgs, this.ctx, {
           env: await this.resolveProbeEnv(descriptor),
         });
-        status = resolveProbeStatus(pathEntry, probe);
-        if (status === 'available') version = extractVersion(probe);
+        status = resolveProbeStatus(pathEntry, probe, descriptor.versionLine);
+        if (status === 'available') version = extractVersion(probe, descriptor.versionLine);
       } else {
         version = await this.readManagedVersion(realpath);
       }
@@ -841,7 +845,7 @@ export class HostDependencyManager<Ctx extends IExecutionContext = IExecutionCon
     descriptor: DependencyDescriptor,
     pinnedRealpath: string,
   ): Promise<Installation> {
-    const resolvedPinnedPath = await resolveCommandPath(pinnedRealpath, this.ctx, this.platform);
+    const resolvedPinnedPath = await resolveCommandPath(pinnedRealpath, this.ctx, this.platform, await this.resolveProbeEnv(descriptor));
     if (!resolvedPinnedPath) {
       return {
         id: pinnedRealpath,
@@ -898,7 +902,7 @@ export class HostDependencyManager<Ctx extends IExecutionContext = IExecutionCon
     const versionArgs = descriptor.versionArgs ?? ['--version'];
 
     if (kind === 'path') {
-      const pathExists = await resolveCommandPath(value, this.ctx, this.platform);
+      const pathExists = await resolveCommandPath(value, this.ctx, this.platform, await this.resolveProbeEnv(descriptor));
       if (pathExists) {
         const realpath = await resolveRealpath(pathExists, this.ctx, this.platform);
         const pathProbe = await runVersionProbe(value, value, versionArgs, this.ctx, {
@@ -913,7 +917,7 @@ export class HostDependencyManager<Ctx extends IExecutionContext = IExecutionCon
           manageable: false,
           provenance: { kind: 'unknown', confidence: 'inferred' },
           status,
-          version: status === 'available' ? extractVersion(pathProbe) : null,
+          version: status === 'available' ? extractVersion(pathProbe, descriptor.versionLine) : null,
           latestVersion: null,
           updateAvailable: false,
         };
@@ -933,7 +937,7 @@ export class HostDependencyManager<Ctx extends IExecutionContext = IExecutionCon
     }
 
     // cli
-    const cliPath = await resolveCommandPath(value, this.ctx, this.platform);
+    const cliPath = await resolveCommandPath(value, this.ctx, this.platform, await this.resolveProbeEnv(descriptor));
     if (cliPath) {
       const realpath = await resolveRealpath(cliPath, this.ctx, this.platform);
       const cliProbe = await runVersionProbe(value, cliPath, versionArgs, this.ctx, {
@@ -948,7 +952,7 @@ export class HostDependencyManager<Ctx extends IExecutionContext = IExecutionCon
         manageable: false,
         provenance: { kind: 'unknown', confidence: 'inferred' },
         status,
-        version: status === 'available' ? extractVersion(cliProbe) : null,
+        version: status === 'available' ? extractVersion(cliProbe, descriptor.versionLine) : null,
         latestVersion: null,
         updateAvailable: false,
       };
@@ -1092,13 +1096,7 @@ export class HostDependencyManager<Ctx extends IExecutionContext = IExecutionCon
 
   async probeAll(options: DependencyProbeOptions = {}): Promise<void> {
     await this.refreshShellEnvIfRequested(options);
-    await Promise.all(
-      this._dependencies.map((d) =>
-        this.probe(d.id).catch((probErr) => {
-          this.logger.warn(`[HostDependencyManager] Failed to probe ${d.id}:`, probErr);
-        }),
-      ),
-    );
+    await this.probeMany(this._dependencies);
   }
 
   async probeCategory(
@@ -1107,13 +1105,21 @@ export class HostDependencyManager<Ctx extends IExecutionContext = IExecutionCon
   ): Promise<void> {
     await this.refreshShellEnvIfRequested(options);
     const targets = this._dependencies.filter((d) => d.category === cat);
-    await Promise.all(
-      targets.map((d) =>
-        this.probe(d.id).catch((probErr) => {
-          this.logger.warn(`[HostDependencyManager] Failed to probe ${d.id}:`, probErr);
-        }),
-      ),
-    );
+    await this.probeMany(targets);
+  }
+
+  /** A low-vCPU host cannot run every CLI version probe concurrently without starving its agent. */
+  private async probeMany(targets: readonly DependencyDescriptor[]): Promise<void> {
+    let next = 0;
+    await Promise.all(Array.from({ length: Math.min(2, targets.length) }, async () => {
+      while (next < targets.length) {
+        const dependency = targets[next++]!;
+        try { await this.probe(dependency.id, { waitForInstallations: true }); }
+        catch (probErr) {
+          this.logger.warn(`[HostDependencyManager] Failed to probe ${dependency.id}:`, probErr);
+        }
+      }
+    }));
   }
 
   /**
@@ -1184,16 +1190,28 @@ export class HostDependencyManager<Ctx extends IExecutionContext = IExecutionCon
     await this.ctx.refreshShellEnv?.();
     this.detector.invalidate();
 
-    this.pendingInstall.set(id, {
+    const pending: PendingInstall = {
       method: option?.method,
       registry: option?.target?.kind === 'mise' ? option.registry ?? 'official' : pinnedRegistryIn(command, option?.registry),
       target: option?.target,
-    });
+    };
+    this.pendingInstall.set(id, pending);
     this.lastInstallRecords.delete(id);
 
     const state = await this.probe(id);
     if (state.status !== 'available' || (option?.target && !this.lastInstallRecords.get(id))) {
-      this.logOperation('install', 'failed', id, { error: 'not-detected-after-install' });
+      // 说清「没找到」是哪一种:装的那份在哪儿找过、找到了什么、每一份探出来是什么。
+      this.logOperation('install', 'failed', id, {
+        error: 'not-detected-after-install',
+        status: state.status,
+        path: state.path,
+        target: option?.target ?? null,
+        searched: option?.target ? this.detector.targetSearchDirs?.(option.target) ?? null : null,
+        found: pending.targetRealpaths ?? [],
+        installations: (this.getHostDependency(id)?.installations ?? []).map((i) => ({
+          realpath: i.realpath, status: i.status, version: i.version,
+        })),
+      });
       return err({ type: 'not-detected-after-install', id });
     }
 
@@ -1394,7 +1412,7 @@ export class HostDependencyManager<Ctx extends IExecutionContext = IExecutionCon
     const state = await this.probe(id);
     this.onExecutableInvalidated.emit({ id });
 
-    if (targetPath ? await resolveCommandPath(targetPath, this.ctx, this.platform) : state.status !== 'missing') {
+    if (targetPath ? await resolveCommandPath(targetPath, this.ctx, this.platform, await this.resolveProbeEnv(descriptor)) : state.status !== 'missing') {
       this.logOperation('uninstall', 'failed', id, { error: 'still-present', targetPath });
       return err({ type: 'still-present', id });
     }
@@ -1435,15 +1453,18 @@ export class HostDependencyManager<Ctx extends IExecutionContext = IExecutionCon
       this.ctx,
       { env: await this.resolveProbeEnv(descriptor) },
     );
-    return extractVersion(probe);
+    return extractVersion(probe, descriptor.versionLine);
   }
 
   private async resolveFirstPath(descriptor: DependencyDescriptor): Promise<string | null> {
+    // Discovery and version probes share the host's current environment. A worker's
+    // inherited PATH predates installations completed after it was started (#465).
+    const probeEnv = await this.resolveProbeEnv(descriptor);
     for (const command of descriptor.commands) {
-      const path = await resolveCommandPath(command, this.ctx, this.platform);
+      const path = await resolveCommandPath(command, this.ctx, this.platform, probeEnv);
       if (path) return path;
     }
-    const known = await resolveKnownPaths(descriptor.knownPaths?.[this.platform] ?? [], this.ctx, this.platform);
+    const known = await resolveKnownPaths(descriptor.knownPaths?.[this.platform] ?? [], this.ctx, this.platform, probeEnv);
     return known[0] ?? null;
   }
 

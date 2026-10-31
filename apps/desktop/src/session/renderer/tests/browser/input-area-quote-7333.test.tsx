@@ -1,12 +1,12 @@
 /**
- * #7333 输入框上方的引用预览(InputArea 的 quoteContent 条):标题与摘录 = 紧凑界面 14/20,宽度上限 240、省略号、
- * 取消引用的回调照旧。渲染的是真 InputArea(同 input-area-mention-escape 的挂法),判 getComputedStyle。
+ * #7333 输入框上方的引用预览(ChatMessageComposer 的 quoteContent 条):标题与摘录 = 紧凑界面 14/20,宽度上限 240、省略号、
+ * 取消引用的回调照旧。渲染的是真 ChatMessageComposer(同 input-area-mention-escape 的挂法),判 getComputedStyle。
  * 已发出的引用(气泡里的那一条)是另一个元素,判据在 im-message-meta-7333.test.tsx。
  */
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { page } from 'vitest/browser'
-import { InputArea } from '@/components/chat/InputArea'
+import { ChatMessageComposer } from '@/components/chat/ChatMessageComposer'
 import { i18n, LocalizationProvider, setLocalePreference } from '@/i18n'
 import '@/i18n/registerMessagingCatalog'
 import '@/styles/tokens.css'
@@ -40,7 +40,7 @@ describe('the composer\'s quote preview in the master\'s tiers (#7333)', () => {
     root = createRoot(host)
     root.render(
       <LocalizationProvider>
-        <InputArea onSend={vi.fn(async () => {})} quoteContent={{ messageId: 'msg-0', senderName: '林知夏', content: LONG }} onQuoteConsumed={onQuoteConsumed} />
+        <ChatMessageComposer onSend={vi.fn(async () => {})} quoteContent={{ messageId: 'msg-0', senderName: '林知夏', content: LONG }} onQuoteConsumed={onQuoteConsumed} />
       </LocalizationProvider>,
     )
     const find = (text: string) => [...host!.querySelectorAll<HTMLElement>('div')].filter((el) => el.textContent === text).at(-1) ?? null

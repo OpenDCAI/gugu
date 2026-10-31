@@ -45,12 +45,12 @@ const fieldControl = cn(
 // 光标就是焦点指示(见 variants.ts @@@no-focus-ring);❌ 调用处自己拼一个裸 <input>。
 const fieldControlBare = cn(
   'box-border w-full min-w-0 border-0 bg-transparent p-0 outline-none',
-  'font-[inherit] text-[length:var(--font-body)] leading-[1.5] text-[var(--text-primary)] placeholder:text-[var(--faint-fg)]',
+  'font-[inherit] text-[length:var(--font-body)] leading-[1.5] text-[var(--text-primary)] placeholder:text-[var(--muted-fg)]',
   'disabled:cursor-not-allowed disabled:opacity-[0.58]',
 )
 
 const fieldDescription = 'text-[length:var(--font-caption)] text-[var(--faint-fg)]'
-const fieldError = 'text-[length:var(--font-body)] text-[var(--danger)]'
+const fieldError = 'text-[length:var(--font-body)] text-[var(--danger-fg)]'
 
 function Root({ className, ...props }: Omit<FieldPrimitive.Root.Props, 'className'> & ClassNameProp) {
   return (
@@ -83,6 +83,17 @@ function Input({
   )
 }
 
+function Textarea({ className, rows = 8, ...props }: Omit<FieldPrimitive.Control.Props, 'className' | 'render' | 'type'> & ClassNameProp & { rows?: number }) {
+  return (
+    <FieldPrimitive.Control
+      {...props}
+      render={<textarea rows={rows} />}
+      data-slot="field-control"
+      className={cn(fieldControl, 'resize-y leading-[var(--lh-body)]', className)}
+    />
+  )
+}
+
 function Description({
   className,
   ...props
@@ -110,6 +121,7 @@ export const Field = {
   Root,
   Label,
   Input,
+  Textarea,
   Description,
   Error: ErrorMessage,
 }

@@ -53,7 +53,7 @@ describe('the bundle\'s scripts read for what cannot work in an App page (F96)',
       ['app.js:2', "if (ok) window.alert('gone')"],
       ['js/draw.js:1', 'const name = globalThis.prompt("Your name?")'],
     ]);
-    expect(hints[0]!.message).toMatch(/^confirm\(\) does not exist in an App page .* ask on the page — an input, a button/);
+    expect(hints[0]!.message).toMatch(/^confirm\(\) does not exist in an App page .* use gugu\.modal\.open/);
   });
 
   it('control: an object\'s own method, a longer name, a comment, a dependency folder — no hint', () => {

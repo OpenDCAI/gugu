@@ -1,3 +1,4 @@
+import { observeCodexForegroundCompletion } from '../../../support/codexForegroundCompletion';
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { chmodSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -13,6 +14,7 @@ const out = (m) => process.stdout.write(JSON.stringify(m) + '\\n')
 let n = 0
 require('node:readline').createInterface({input:process.stdin}).on('line', line => {
   const m = JSON.parse(line)
+  if (m.method === 'turn/start' || m.method === 'turn/steer') process.stdout.write(JSON.stringify({ method: 'item/started', params: { item: { type: 'userMessage', id: 'user-' + m.id, clientId: m.params.clientUserMessageId, content: m.params.input } } }) + '\\n')
   fs.appendFileSync(process.env.FIXTURE_RECORD, JSON.stringify(m) + '\\n')
   if (!m.id) return
   if (m.method === 'initialize') return out({id:m.id,result:{userAgent:'fixture'}})
@@ -57,17 +59,17 @@ async function open(historyMode = 'paginated') {
   })
   child = process
   const replies = new Map<number, { result?: unknown; error?: unknown }>()
-  createInterface({ input: process.stdout }).on('line', (line) => {
+  createInterface({ input: process.stdout }).on('line', observeCodexForegroundCompletion((line) => {
     const message = JSON.parse(line)
     if (message.id !== undefined && !message.method) replies.set(message.id, message)
-  })
+  }))
   let id = 0
   const request = async (method: string, params: unknown) => {
     const requestId = ++id
     process.stdin.write(JSON.stringify({ jsonrpc: '2.0', id: requestId, method, params }) + '\n')
     return awaitFact(method, () => replies.get(requestId), { producer: process })
   }
-  await request('initialize', { protocolVersion: 1, clientCapabilities: {} })
+  await request('initialize', { protocolVersion: 2, capabilities: {} })
   expect(await request('session/new', { cwd: dir, mcpServers: [] })).toMatchObject({ result: { sessionId: 'same-thread' } })
   return { request, requests: () => readFileSync(record, 'utf8').trim().split('\n').map((line) => JSON.parse(line)) }
 }

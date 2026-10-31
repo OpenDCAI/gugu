@@ -7,7 +7,21 @@ import { dbPayload } from './supabase'
 
 type SettingsQueryResult = {
   data: unknown
-  error: { message: string } | null
+  error: { message: string; code?: string } | null
+}
+
+type SettingsConditionalUpdate = {
+  eq(column: 'user_id' | 'scope' | 'updated_at', value: string): SettingsConditionalUpdate
+  select(columns: string): { maybeSingle(): PromiseLike<SettingsQueryResult> }
+}
+
+export interface VersionedSettingsTableClient extends SettingsTableClient {
+  from(table: 'user_settings'): ReturnType<SettingsTableClient['from']> & {
+    update(values: Record<string, unknown>): SettingsConditionalUpdate
+    insert(values: Record<string, unknown>): {
+      select(columns: string): { maybeSingle(): PromiseLike<SettingsQueryResult> }
+    }
+  }
 }
 
 export interface SettingsTableClient {
@@ -53,6 +67,10 @@ export async function readUserSettingsConfig(
   userId: string,
   scope: GuguSettingsScope
 ): Promise<Record<string, unknown>> {
+  return (await readUserSettingsRow(client, userId, scope))?.config ?? {}
+}
+
+async function readUserSettingsRow(client: SettingsTableClient, userId: string, scope: GuguSettingsScope): Promise<GuguSettingsRow | null> {
   const { data, error } = await client
     .from('user_settings')
     .select(SETTINGS_COLUMNS)
@@ -60,7 +78,34 @@ export async function readUserSettingsConfig(
     .eq('scope', scope)
     .maybeSingle()
   if (error) throw new Error(error.message)
-  return normalizeSettingsRow(data)?.config ?? {}
+  return normalizeSettingsRow(data)
+}
+
+/** Reapply one preference edit to the latest row; a stale version must never overwrite another device. */
+export async function updateUserSettingsConfig(
+  client: VersionedSettingsTableClient,
+  userId: string,
+  scope: GuguSettingsScope,
+  edit: (config: Record<string, unknown>) => Record<string, unknown>
+): Promise<GuguSettingsRow> {
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const before = await readUserSettingsRow(client, userId, scope)
+    const version = before ? Date.parse(before.updated_at) : 0
+    if (!Number.isFinite(version)) throw new Error('Invalid user_settings version')
+    const values = dbPayload({ user_id: userId, scope, config: edit(before?.config ?? {}),
+      updated_at: new Date(Math.max(Date.now(), version + 1)).toISOString() })
+    const table = client.from('user_settings')
+    const { data, error } = before
+      ? await table.update(values).eq('user_id', userId).eq('scope', scope).eq('updated_at', before.updated_at).select(SETTINGS_COLUMNS).maybeSingle()
+      : await table.insert(values).select(SETTINGS_COLUMNS).maybeSingle()
+    if (error) {
+      if (!before && error.code === '23505') continue
+      throw new Error(error.message)
+    }
+    const saved = normalizeSettingsRow(data)
+    if (saved) return saved
+  }
+  throw new Error('Settings changed on another device; try again')
 }
 
 export async function writeUserSettingsConfig(

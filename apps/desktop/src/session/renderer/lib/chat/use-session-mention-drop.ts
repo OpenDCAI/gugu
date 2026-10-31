@@ -1,12 +1,12 @@
 import { useCallback } from 'react';
 import type { MentionItem, PromptEditorRef } from '@gugu/session-ui/react/components';
 import { stringifyMention } from '@gugu/session-shared/markdown';
-import { getDraggedSession, SESSION_DRAG_TYPE } from '@renderer/lib/drag-session';
+import { getDraggedScreenContent, SCREEN_CONTENT_DRAG_TYPE } from '@renderer/lib/drag-screen-content';
 import { toast } from '@renderer/lib/hooks/use-toast';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
 import type { LocalSessionMentionProvider } from './local-session-mention-provider';
 
-const SESSION_DROP_TYPES = [SESSION_DRAG_TYPE] as const;
+const SESSION_DROP_TYPES = [SCREEN_CONTENT_DRAG_TYPE] as const;
 
 /**
  * 把会话拖到**终端**上时写进去的那段字(编程形态的会话没有 composer,终端就是输入框)。
@@ -43,8 +43,8 @@ export function useSessionMentionDrop({
   editorApiRef: { current: PromptEditorRef | null };
   /** 把一条会话拖到它自己的 composer 上不产生任何东西 —— @ 自己没有意义,也不值得报错。 */
   selfSessionId?: string;
-  /** 解析成功、插入之前的记账口:隐藏上下文要按 token 查回这枚条目,靠它才有 `session_message` 的地址。 */
-  onMentionResolved?: (item: MentionItem) => void;
+  /** 解析成功、插入之前的记账口;返回 false 时由落点处理(如邀请群外的 Agent),不插入提及。 */
+  onMentionResolved?: (item: MentionItem) => boolean | void;
 }): {
   dataDropTypes: readonly string[];
   onDataDropped: (dataTransfer: DataTransfer) => void;
@@ -53,12 +53,18 @@ export function useSessionMentionDrop({
 
   const onDataDropped = useCallback(
     (dataTransfer: DataTransfer) => {
-      const dragged = getDraggedSession(dataTransfer);
-      if (!dragged || !provider) return;
+      const dragged = getDraggedScreenContent(dataTransfer);
+      if (dragged?.kind !== 'session' || !provider) return;
       if (dragged.sessionId === selfSessionId) return;
+      const editor = editorApiRef.current;
 
       void (async () => {
         const item = await provider.resolveSession(dragged.sessionId);
+        if (editorApiRef.current !== editor) return;
+        if (item?.disabled) {
+          toast({ title: item.description });
+          return;
+        }
         if (!item) {
           // fail loud:名册里没有它就没有可投递的地址,❌ 不插一枚发不出去的 pill 让人以为成了。
           toast({
@@ -66,8 +72,8 @@ export function useSessionMentionDrop({
           });
           return;
         }
-        onMentionResolved?.(item);
-        editorApiRef.current?.insertMention(item);
+        if (onMentionResolved?.(item) === false) return;
+        editor?.insertMention(item);
       })();
     },
     [editorApiRef, onMentionResolved, provider, selfSessionId, translate],

@@ -10,6 +10,10 @@ import type { SystemPermission } from '../../platform/types'
 import { setNotificationSettings, useNotificationSettings, type NotificationSettings } from '../../lib/notificationSettings'
 import { setTrayBadgeEnabled, useTrayBadgeEnabled } from '../../lib/trayBadgeSetting'
 import { SettingsGroup, SettingsNote, SettingsPage, SettingsRow, Toggle } from './SettingsPrimitives'
+import { QueryClientProvider } from '@tanstack/react-query'
+import { queryClient } from '@renderer/lib/query-client'
+import { useAppSettingsKey } from '@renderer/features/settings/use-app-settings-key'
+import { useTerminalEnabled } from '@renderer/features/settings/use-terminal-enabled'
 
 const LANGUAGE_OPTIONS: readonly LocalePreference[] = ['system', ...SUPPORTED_LOCALES]
 
@@ -23,7 +27,7 @@ const LANGUAGE_OPTIONS: readonly LocalePreference[] = ['system', ...SUPPORTED_LO
 const NOTIFICATION_ROWS: ReadonlyArray<{
   key: keyof NotificationSettings
   labelKey: string
-  descriptionKey: string
+  descriptionKey?: string
   ariaKey: string
 }> = [
   {
@@ -33,15 +37,8 @@ const NOTIFICATION_ROWS: ReadonlyArray<{
     ariaKey: 'settings.general.notificationsChatAria',
   },
   {
-    key: 'agentEvents',
-    labelKey: 'settings.general.notificationsAgent',
-    descriptionKey: 'settings.general.notificationsAgentDescription',
-    ariaKey: 'settings.general.notificationsAgentAria',
-  },
-  {
     key: 'sound',
     labelKey: 'settings.general.notificationsSound',
-    descriptionKey: 'settings.general.notificationsSoundDescription',
     ariaKey: 'settings.general.notificationsSoundAria',
   },
 ]
@@ -106,14 +103,14 @@ export function GeneralSection({ onOpenPermissions }: { onOpenPermissions: () =>
             </select>
           )}
         />
-        {/* owner 拍板把主题开关放在通用页。@@@5293 三态(浅/深/跟随系统)——选中态画的是**偏好**不是真值,
+        {/* 主题开关放在通用页。四种偏好(浅/深/跟随系统/素白)——选中态画的是**偏好**不是真值,
             「跟随系统」在系统当下为浅色时解析出来也是 light,照真值画会把高亮落在「浅色」上。
             单选、每次只有一个选中 → Button variant="option"(#2987:IconButton 强制正方形,装不下两个汉字)。 */}
         <SettingsRow
           title={t('settings.general.theme')}
           control={(
             <div role="radiogroup" aria-label={t('settings.general.theme')} className="flex gap-[var(--spacing-xs)]">
-              {(['light', 'dark', 'system'] as const).map((themeOption) => (
+              {(['light', 'dark', 'system', 'plain-white'] as const).map((themeOption) => (
                 <Button
                   key={themeOption}
                   variant="option"
@@ -160,7 +157,7 @@ export function GeneralSection({ onOpenPermissions }: { onOpenPermissions: () =>
           <SettingsRow
             key={row.key}
             title={t(row.labelKey)}
-            description={t(row.descriptionKey)}
+            description={row.descriptionKey ? t(row.descriptionKey) : undefined}
             control={(
               <Toggle
                 checked={notificationSettings[row.key]}
@@ -176,7 +173,6 @@ export function GeneralSection({ onOpenPermissions }: { onOpenPermissions: () =>
         <SettingsRow
           stack
           title={t('settings.general.notificationsTest')}
-          description={t('settings.general.notificationsTestDescription')}
           control={(
             <Button
               variant="secondary"
@@ -195,6 +191,14 @@ export function GeneralSection({ onOpenPermissions }: { onOpenPermissions: () =>
         />
       </SettingsGroup>
 
+      {/* 终端开关:默认关,普通用户不需要知道终端是什么。开着 = 终端的入口与界面全部回来、新任务走编程;
+          它取代了原来的「通用 / 编程」手动切换。只管人看不看得到,❌ 管 agent 自己跑 pty。
+          手机上没有本机的会话运行时,不出现。壳的设置页不在会话页的 QueryClientProvider 里:套同一个 queryClient,
+          与会话页读的是同一份缓存,拨了那边立刻跟着变。 */}
+      {platform.capabilities.agentRuntime ? (
+        <QueryClientProvider client={queryClient}><TerminalGroup /></QueryClientProvider>
+      ) : null}
+
       {/* @@@5295 托盘角标。它数的是**未读聊天消息**(#6433),但它是窗口外观不是通知,所以自成一组 ——
           ❌ 别并进上面的通知组:关掉角标不等于关掉通知,反过来也是。
           只在有托盘角标的宿主上出现(能力位 badge,目前只有桌面):手机上没有托盘,一个拨了也不会有任何
@@ -203,7 +207,6 @@ export function GeneralSection({ onOpenPermissions }: { onOpenPermissions: () =>
         <SettingsGroup title={t('settings.general.trayBadge')}>
           <SettingsRow
             title={t('settings.general.trayBadgeEnabled')}
-            description={t('settings.general.trayBadgeDescription')}
             control={(
               <Toggle
                 checked={trayBadgeEnabled}
@@ -215,5 +218,27 @@ export function GeneralSection({ onOpenPermissions }: { onOpenPermissions: () =>
         </SettingsGroup>
       )}
     </SettingsPage>
+  )
+}
+
+/** 本机 `terminal.enabled` 的那一行(设置服务本地那份,❌ 跟着机器设置页选的机器走)。 */
+function TerminalGroup() {
+  const { t } = useTranslation('main')
+  const enabled = useTerminalEnabled()
+  const { update } = useAppSettingsKey('terminal')
+  return (
+    <SettingsGroup>
+      <SettingsRow
+        title={t('settings.general.terminal')}
+        description={t('settings.general.terminalDescription')}
+        control={(
+          <Toggle
+            checked={enabled}
+            onChange={(next) => update({ enabled: next })}
+            ariaLabel={t('settings.general.terminal')}
+          />
+        )}
+      />
+    </SettingsGroup>
   )
 }

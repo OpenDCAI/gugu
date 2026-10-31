@@ -2,6 +2,7 @@ export * from './compaction';
 export * from './context-reset';
 export * from './session-notice';
 export * from './messages';
+export * from './message-reference';
 export * from './thinking';
 export * from './tool-calls';
 export * from './tool-groups';

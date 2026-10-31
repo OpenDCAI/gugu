@@ -1,6 +1,7 @@
 import { APP_RUNTIME_GLUE_MODULE } from '@shared/extensions/app-runtime-protocol';
 import type { ExtensionTemplate } from '@shared/extensions/templates';
 import type { ExtensionTabContribution } from '@shared/extensions/manifest';
+import type { AppPlatform } from '@shared/extensions/app-platforms';
 
 export { EXTENSION_TEMPLATES, type ExtensionTemplate } from '@shared/extensions/templates';
 
@@ -81,7 +82,7 @@ gugu.onContextChanged((context) => {
   renderShared()
 })
 // An agent should act (a card assigned, a move made)? Wake the one it concerns, never every agent:
-// gugu.send(card.owner, 'Card "…" is yours', { refs: [{ file: f.entry }] }) — needs manifest permissions chat:relay.
+// gugu.dispatch('Card "…" is yours', { to: { chat, member: card.owner }, refs: [{ file: f.entry }] }) — needs manifest permissions chat:relay.
 
 function setup() {
   // A box whose value is this person's — a draft not yet submitted, a gugu.bind.text box — goes into #controls ONCE:
@@ -114,11 +115,12 @@ renderShared()
 export function extensionTemplate(
   template: ExtensionTemplate,
   { id, name }: { id: string; name: string }
-): { tabs: ExtensionTabContribution[]; files: Record<string, string> } {
+): { platforms: AppPlatform[]; tabs: ExtensionTabContribution[]; files: Record<string, string> } {
   switch (template) {
     case 'group-json': {
       const suffix = templateFileSuffix(id);
       return {
+        platforms: ['desktop', 'phone'],
         tabs: [{ name: 'main', title: name, entry: 'main.html', opensFiles: { chat: [suffix] } }],
         files: {
           'main.html': PAGE.replace('__TITLE__', htmlText(name)),

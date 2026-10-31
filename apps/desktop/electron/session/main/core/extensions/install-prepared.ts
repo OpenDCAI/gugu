@@ -1,13 +1,14 @@
 import type { AppIdentity } from '@shared/extensions/app-identity';
 import type { ExtensionInstallConsentRequest, ExtensionInstallConsentResult } from '@shared/extensions/host-actions';
 import type { ExtensionManifest } from '@shared/extensions/manifest';
+import { requireAppPlatform } from '@shared/extensions/app-platforms';
 import type { ExtensionOrigin } from '@shared/extensions/upgrade';
 import { agreeThenInstall, type InstallConsent } from '@shared/extensions/install-consent-flow';
 import type { ExtensionPublisher, InstalledExtension } from './extensions-service';
 
 export type { InstallConsent };
 import { applyInstalledExtension } from './extension-after-install';
-import { announceInstalledChanged, requestExtensionInstallConsent } from './extension-bridge-relay';
+import { actInWindow, announceInstalledChanged, requestExtensionInstallConsent } from './extension-bridge-relay';
 import { extensionsService } from './extensions-root';
 import { recordMarketInstall } from './market-ranking';
 import { log } from '@main/lib/logger';
@@ -18,6 +19,7 @@ import { log } from '@main/lib/logger';
  * caller's; from here on every install is the same.
  */
 export interface PreparedInstall {
+  variant?: import('@shared/extensions/variants').ExtensionVariant;
   dir: string;
   manifest: ExtensionManifest;
   manifestDigest: string;
@@ -27,9 +29,9 @@ export interface PreparedInstall {
   /** Whether installing this asks the person by itself: what it newly declares, or another source replacing one here. */
   asks: boolean;
   /** What the sheet shows of it beyond the manifest: the App it replaces, the grants taken back, where it came from. */
-  sheet: Omit<ExtensionInstallConsentRequest, 'sourceDir' | 'manifest' | 'manifestDigest' | 'places'>;
-  /** D-30 「给哪些 agent」 is asked of a first install, or of one for a chat it is not given at yet (`installAsk`). */
-  places: { first: boolean; chatId?: string; identity: AppIdentity | null; fromCard?: boolean };
+  sheet: Omit<ExtensionInstallConsentRequest, 'sourceDir' | 'manifest' | 'manifestDigest' | 'given'>;
+  /** What it gives where it lands (`installGrant`): every agent on a first install, or the chat an install again is for. */
+  places: { chatId?: string; identity: AppIdentity | null };
 }
 
 export interface InstallDependencies {
@@ -48,22 +50,36 @@ export type PreparedOutcome =
       asked: boolean;
       /** Whether the window was told and drew its tabs (an agent's answer says so; F52). */
       announced: 'shown' | 'pending' | 'failed';
+      /** The chat it was asked for and could not be given (`recordInstallGrant`): the window and the agent's answer say so. */
+      notGivenAt?: { id: string; name: string };
     };
 
+/** What an agent's answer adds when the chat it installed for was not given the App: said, so it tells the person. */
+export function notGivenNoteOf(done: { notGivenAt?: { id: string; name: string } }): { notGivenAt: { id: string; name: string }; notGivenNote: string } | null {
+  return done.notGivenAt ? {
+    notGivenAt: done.notGivenAt,
+    notGivenNote: `Installed, but "${done.notGivenAt.name}" was not given it (its row could not be written). The person can add that chat on the App's page in 「App」.`,
+  } : null;
+}
+
 /**
- * One install, wherever its files came from (161 10-15: one path, never one per caller): the D-30 question, the consent
- * bound to the manifest digest, the files landed (`installFromDirectory`), where its tools are given recorded before it
- * goes live (a session asking about it reads that), its tabs and programs on, the window told — told, not waited on (F52).
+ * One install, wherever its files came from (161 10-15: one path, never one per caller): the consent bound to the manifest
+ * digest, the files landed (`installFromDirectory`), what it gives here recorded before it goes live (a session asking about
+ * it reads that: `recordInstallGrant`, this computer's half only), its tabs and programs on, the window told — told, not
+ * waited on (F52).
  */
 export async function installPrepared(prepared: PreparedInstall, consent: InstallConsent, dependencies: InstallDependencies = {}): Promise<PreparedOutcome> {
   const { manifest, manifestDigest } = prepared;
+  requireAppPlatform(manifest, 'desktop');
   const given = await import('./app-given');
-  const asked = await given.installAsk(manifest, prepared.places.first, prepared.places.chatId, prepared.places.identity, prepared.places.fromCard);
-  const ask: Omit<ExtensionInstallConsentRequest, 'sourceDir'> = { manifest, manifestDigest, ...prepared.sheet, ...(asked ? { places: asked.places } : {}) };
-  const asks = prepared.asks || asked !== null;
-  const done = await agreeThenInstall(ask, asks, consent, () => (dependencies.requestInstallConsent ?? requestExtensionInstallConsent)({ sourceDir: prepared.dir, ...ask }), async (enableIn) => {
-    const installed = extensionsService().installFromDirectory(prepared.dir, manifestDigest, prepared.origin, prepared.publisher);
-    await given.recordGiven(installed.manifest.id, asked, enableIn);
+  const first = extensionsService().isFirstInstallOf(manifest.id, prepared.places.identity);
+  const grant = await given.installGrant(manifest, first, prepared.places.chatId, prepared.places.identity);
+  const ask: Omit<ExtensionInstallConsentRequest, 'sourceDir'> = { manifest, manifestDigest, ...prepared.sheet, ...(grant ? { given: grant } : {}) };
+  const asks = prepared.asks || grant !== null;
+  let notGivenAt: { id: string; name: string } | null = null;
+  const done = await agreeThenInstall(ask, asks, consent, () => (dependencies.requestInstallConsent ?? requestExtensionInstallConsent)({ sourceDir: prepared.dir, ...ask }), async () => {
+    const installed = extensionsService().installFromDirectory(prepared.dir, manifestDigest, prepared.origin, prepared.publisher, prepared.variant);
+    notGivenAt = await given.recordInstallGrant(installed.manifest.id, grant);
     (dependencies.afterInstall ?? applyInstalledExtension)(installed);
     return installed;
   });
@@ -71,11 +87,17 @@ export async function installPrepared(prepared: PreparedInstall, consent: Instal
   if (done.outcome !== 'confirmed') return done;
   // 首页精选按近期安装量排(owner 10-19):一个人第一次从市场装一个 App,记一票。只在这里记 —— 首启默认组、预装走的不是这个函数,
   // 天然不算;卡片、文件夹装的不是市场(owner「按建议」不算)。安装已经成了,记票失败只进日志,❌ 让人重装。
-  if (prepared.origin === 'market' && prepared.places.first) {
+  if (prepared.origin === 'market' && first) {
     void recordMarketInstall(manifest.id).catch((error: unknown) =>
       log.error(`market install not recorded for ${manifest.id}: ${error instanceof Error ? error.message : String(error)}`)
     );
   }
   const announced = await announceInstalledChanged(dependencies.notifyInstalledChanged);
-  return { outcome: 'confirmed', installed: done.installed, asked: asks, announced };
+  if (!notGivenAt) return { outcome: 'confirmed', installed: done.installed, asked: asks, announced };
+  // 「没加上群 X，去 App 页加」: told in the window, not waited on — the install stands either way.
+  const chat: { id: string; name: string } = notGivenAt;
+  void actInWindow({ kind: 'notGivenAt', extensionId: manifest.id, chat }).catch((error: unknown) =>
+    log.warn(`the window was not told ${manifest.id} was not given ${chat.id}: ${error instanceof Error ? error.message : String(error)}`)
+  );
+  return { outcome: 'confirmed', installed: done.installed, asked: asks, announced, notGivenAt: chat };
 }

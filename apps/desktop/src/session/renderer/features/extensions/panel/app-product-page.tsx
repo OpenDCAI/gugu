@@ -26,6 +26,7 @@ import { Button } from '@renderer/lib/ui/button';
 import { Dialog, DialogContent, DialogContentArea, DialogHeader, DialogTitle } from '@renderer/lib/ui/dialog';
 import { InfoTooltip } from '@renderer/lib/ui/info-tooltip';
 import { MarkdownRenderer } from '@renderer/lib/ui/markdown-renderer';
+import { ExpandableImage } from '@renderer/lib/ui/expandable-image';
 import { Switch } from '@renderer/lib/ui/switch';
 import { ToggleGroup, ToggleGroupItem } from '@renderer/lib/ui/toggle-group';
 import { rpc } from '@renderer/lib/ipc';
@@ -42,7 +43,7 @@ import {
   permissionSide,
   type DeclaredPermission,
 } from '@shared/extensions/catalog';
-import { claimedSuffixes, compareExtensionVersions, type ExtensionManifest } from '@shared/extensions/manifest';
+import { claimedSuffixes, compareExtensionVersions, type ExtensionCapability, type ExtensionManifest } from '@shared/extensions/manifest';
 import { pinsAutoUpdate } from '@shared/extensions/market-entries';
 import {
   marketSourceLabel,
@@ -56,8 +57,11 @@ import type { ExtensionsApi } from '../extensions-host';
 import type { ExtensionDisclosureLevel } from '../installed-extensions-store';
 import { AppGivenSection } from './app-given-section';
 import { AppLifecycleButton, type AppLifecycle } from './app-lifecycle-button';
+import { ResourceMenu } from '@/components/ResourceMenu';
+import type { ResourceContext } from '@shared/resource-actions';
 import { AppMoreMenu } from './app-more-menu';
 import { AppShelfRow } from './app-shelf';
+import { AppVariantList, type AppVariantRow } from './app-variant-list';
 import { ExtensionMonogram } from './extension-monogram';
 import type { ExtensionPendingAction } from './extension-pending';
 import { InstalledRowNoticeLine, programFailureText, type InstalledRowNotice } from './installed-extension-row';
@@ -80,7 +84,7 @@ export interface ExtensionDetailSubject {
 type Loadable<T> = { status: 'idle' } | { status: 'loading' } | { status: 'ready'; data: T } | { status: 'error' };
 
 export type ProductPageApi = Pick<typeof rpc.extensions, 'marketReadme' | 'marketHistory'> &
-  Partial<Pick<ExtensionsApi, 'agentTools'>>;
+  Partial<Pick<ExtensionsApi, 'agentTools' | 'marketRead'>>;
 
 /**
  * 一个 App 的产品页(#7059,取代原来的居中详情框):在「App」那一栏里整页铺开,左上「‹ App」回到清单。
@@ -104,6 +108,8 @@ export function AppProductPage({
   readOnly = false,
   justInstalled = false,
   notice,
+  variants,
+  onSwitchVariant,
   revoked = [],
   pendingPermissions = [],
   agentStatus,
@@ -117,6 +123,10 @@ export function AppProductPage({
   onDisclosureChange,
   onAsk,
   onBrowseReplacement,
+  onOpenExternal = confirmOpenExternalLink,
+  backgroundSupported = true,
+  permissionRevocationSupported = true,
+  phoneAgentCapabilities = [],
   similar = [],
   menu,
 }: {
@@ -139,11 +149,13 @@ export function AppProductPage({
   justInstalled?: boolean;
   /** 云端那口对装着这一版要说的话(有新版 / 撤回 / 停止维护)。 */
   notice?: InstalledRowNotice;
+  variants?: { active: string; variants: readonly AppVariantRow[] };
+  onSwitchVariant?: (name: string) => void;
   revoked?: readonly string[];
   pendingPermissions?: readonly string[];
   agentStatus?: ExtensionAgentStatus;
   disclosure?: ExtensionDisclosureLevel;
-  givenApi?: Pick<ExtensionsApi, 'appPlaces' | 'setAppPlaces'>;
+  givenApi?: Pick<ExtensionsApi, 'appPlaces' | 'changeAppPlaces'>;
   docked?: boolean;
   onBack: () => void;
   onLifecycle: () => void;
@@ -153,10 +165,19 @@ export function AppProductPage({
   onDisclosureChange?: (level: ExtensionDisclosureLevel) => void;
   /** 「对 agent 说」点一句 = 新建任务、这句已填好;不给(看的是别的机器)就只读。 */
   onAsk?: (text: string) => void;
+  /** Opens a web link on the viewing device. Desktop retains its confirmation dialog. */
+  onOpenExternal?: (url: string) => void;
+  /** The phone has no persistent App background-page host. */
+  backgroundSupported?: boolean;
+  /** Whether this host lets people take back individual permissions after installation. */
+  permissionRevocationSupported?: boolean;
+  /** Agent capabilities declared by the App, before the phone removes them from its permission list. */
+  phoneAgentCapabilities?: readonly ExtensionCapability[];
   onBrowseReplacement?: (extensionId: string) => void;
   /** 右栏「类似 App」:市场里同一类的别的 App(照 Google Play),点一个 = 换到它的产品页。 */
   similar?: { id: string; name: string; publisher: string; line: string; iconUrl?: string | null; onOpen: () => void }[];
   menu: {
+    resource?: ResourceContext;
     onToggleDock?: () => void;
     onOpenInWindow?: () => void;
     onForward?: () => void;
@@ -269,12 +290,12 @@ export function AppProductPage({
   // ── 截图一排(照 Google Play:产品页头下面一排图,放不下就横着翻)──
   const screenshots =
     shots.length > 0 ? (
-      <section className="mk-dsec is-shots" key="shots" data-testid="app-product-preview">
+      <section className="mk-dsec is-shots" key="shots" data-testid="app-product-preview" data-image-gallery="">
         <AppShelfRow label={translate('extensions.preview')} prevLabel={translate('extensions.shelfPrev')} nextLabel={translate('extensions.shelfNext')}>
           {shots.map((shot) => (
             <figure className="mk-shot" role="listitem" key={shot.src}>
               {/* README 里的图片是发布时一起传到下载站的公开地址(sync.mjs 改写过);会话页主渲染进程没对 img-src 设 CSP。 */}
-              <img src={shot.src} alt={shot.alt} loading="lazy" decoding="async" />
+              <ExpandableImage src={shot.src} alt={shot.alt} loading="lazy" decoding="async" />
               {/* 图注只在它说了名字以外的话时才写:README 里多半就是 App 的名字,再写一遍是废字。 */}
               {shot.alt && shot.alt !== text.name ? <figcaption>{shot.alt}</figcaption> : null}
             </figure>
@@ -363,7 +384,7 @@ export function AppProductPage({
           </p>
         ) : null}
         <div className="mk-new">
-          {notes ? <MarkdownRenderer content={notes} /> : null}
+          {notes ? <MarkdownRenderer content={notes} onOpenLink={(url) => { onOpenExternal(url); return true; }} /> : null}
           <span>
             {notesDate
               ? translate('extensions.releasedOn', { version: notesVersion, date: shortDate(notesDate, locale) })
@@ -381,6 +402,7 @@ export function AppProductPage({
                 offeredVersion={installed && menu.autoUpdate?.on ? (cloud?.version ?? null) : null}
                 locale={locale}
                 translate={translate}
+                onOpenExternal={onOpenExternal}
                 onInstallVersion={(version) => onInstallVersion({ extensionId: manifest.id, version })}
               />
             </div>
@@ -459,7 +481,9 @@ export function AppProductPage({
               />
             </div>
           ) : null}
-          {installed && givenApi && givesAgentTools(installed) ? <AppGivenSection extensionId={installed.id} api={givenApi} machineName={machine} /> : null}
+          {installed && givenApi && givesAgentTools(installed)
+            ? <AppGivenSection extensionId={installed.id} api={givenApi} machineName={machine} blocked={!enabled ? 'off' : revoked.includes('agents:tools') ? 'revoked' : undefined} />
+            : null}
       </AddsEntry>
     );
   }
@@ -470,7 +494,7 @@ export function AppProductPage({
       </AddsEntry>
     );
   }
-  if (manifest.background) {
+  if (manifest.background && backgroundSupported) {
     adds.push(
       <AddsEntry key="background" icon={<Moon className="size-4" />} label={translate('extensions.addsBackground')}>
         <i>{translate('extensions.permissionsBackground')}</i>
@@ -524,11 +548,17 @@ export function AppProductPage({
   // 照 Google Play「数据安全」:先一句话,再一张带框的卡片(它这一节本来就画框,是整页唯一一张)。
   const permissionsSection = (
     <section className="mk-dsec" key="permissions" data-testid="app-product-permissions">
-      <h3>{translate('extensions.detailPermissions')}</h3>
+      <h3 className="flex items-center gap-1">
+        {translate('extensions.detailPermissions')}
+        {phoneAgentCapabilities.length > 0 ? <InfoTooltip label={translate('extensions.phoneAgentCapabilitiesLabel')} content={<>
+          <p>{translate('extensions.phoneAgentCapabilitiesInfo')}</p>
+          <ul className="list-disc pl-4">{phoneAgentCapabilities.map((capability) => <li key={capability}>{describeCapability(capability, declaring, translate, machine)}</li>)}</ul>
+        </>} /> : null}
+      </h3>
       <p className="mk-note">
         {installed && withdrawn > 0
           ? translate('extensions.permissionsWithdrawnNote', { count: permissions.length, revoked: withdrawn })
-          : translate(permissions.length > 0 ? 'extensions.permissionsNoteAsked' : 'extensions.permissionsNoteNone')}
+          : translate(permissions.length === 0 ? 'extensions.permissionsNoteNone' : permissionRevocationSupported ? 'extensions.permissionsNoteAsked' : 'extensions.permissionsNoteInstall')}
       </p>
       <fieldset disabled={readOnly} className="contents">
         <div className="mk-card">
@@ -556,7 +586,7 @@ export function AppProductPage({
   const sourceButton =
     official && cloud?.source ? (
       // 市场记下的出包来源(仓 @ 提交 @ 目录,App 市场方案 10-07):打出这份字节的那份代码。早于这条记录的版本没有。
-      <button type="button" className="mk-ext" title={marketSourceLabel(cloud.source)} onClick={() => cloud.source && confirmOpenExternalLink(marketSourceUrl(cloud.source))}>
+      <button type="button" className="mk-ext" title={marketSourceLabel(cloud.source)} onClick={() => cloud.source && onOpenExternal(marketSourceUrl(cloud.source))}>
         {translate('extensions.viewSource')}
         <ExternalLink className="size-3" />
       </button>
@@ -575,7 +605,7 @@ export function AppProductPage({
           <h3>{translate('extensions.detailLinks')}</h3>
           <div className="mk-side-links">
             {links.map((link) => (
-              <button type="button" className="mk-ext" key={link.href} onClick={() => confirmOpenExternalLink(link.href)}>
+              <button type="button" className="mk-ext" key={link.href} onClick={() => onOpenExternal(link.href)}>
                 {link.label}
                 <ExternalLink className="size-3" />
               </button>
@@ -628,6 +658,7 @@ export function AppProductPage({
   // 信息表:正文最后一节,平铺在页上(照 App Store 产品页的「信息」),❌ 收进弹框里。
   const info: [string, ReactNode][] = [
     [translate('extensions.stripVersion'), `v${shownVersion}`],
+    ...(declaring.platforms?.length ? ([[translate('extensions.infoPlatforms'), listOf(declaring.platforms.map((platform) => translate(`extensions.platform.${platform}`)), locale)]] as [string, ReactNode][]) : []),
     ...(publishedAt ? ([[translate('extensions.updatedOn'), longDate(publishedAt, locale)]] as [string, ReactNode][]) : []),
     ...(minApp ? ([[translate('extensions.stripNeedsApp'), translate('extensions.stripAndUp', { version: minApp })]] as [string, ReactNode][]) : []),
     ...(size ? ([[translate('extensions.stripSize'), size]] as [string, ReactNode][]) : []),
@@ -645,7 +676,7 @@ export function AppProductPage({
         <ChevronLeft className="size-3.5" />
         {translate('extensions.title')}
       </button>
-      <header className="mk-dh">
+      <ResourceMenu resource={menu.resource ?? { kind: 'app', target: { kind: 'app-detail', extensionId: manifest.id } }}><header className="mk-dh">
         <div className="mk-dh-main">
           <h2 className={cn('gg-type-display mk-dh-title', deprecated && 'is-deprecated')}>{text.name}</h2>
           {text.subtitle ? <p className="mk-dh-sub">{text.subtitle}</p> : null}
@@ -697,7 +728,7 @@ export function AppProductPage({
         <span className="mk-icon is-hero">
           <ExtensionMonogram name={text.name} iconDataUrl={cloud?.iconUrl ?? iconDataUrl} />
         </span>
-      </header>
+      </header></ResourceMenu>
 
       {justInstalled ? (
         <div className="mk-banner" role="status" data-testid="app-product-installed">
@@ -719,8 +750,8 @@ export function AppProductPage({
         </div>
       ) : null}
       {installed && notice && notice.kind !== 'update' ? (
-        <fieldset disabled={readOnly} className="contents">
-          <div className="mk-banner is-warn">
+        <fieldset disabled={readOnly && notice.kind !== 'forkBehind'} className="contents">
+          <div className={cn('mk-banner', notice.kind !== 'forkBehind' && 'is-warn')}>
             <InstalledRowNoticeLine
               notice={notice}
               installedVersion={installed.version}
@@ -740,6 +771,16 @@ export function AppProductPage({
 
       <div className="mk-dbody">
         <div className="mk-dmain">
+          {installed && variants && onSwitchVariant && (
+            <AppVariantList
+              resource={menu.resource}
+              active={variants.active}
+              variants={variants.variants}
+              disabled={readOnly || pending !== undefined}
+              translate={translate}
+              onSwitch={onSwitchVariant}
+            />
+          )}
           {screenshots}
           {about}
           {ask}
@@ -773,7 +814,7 @@ export function AppProductPage({
             </span>
           </DialogHeader>
           <DialogContentArea className="gap-4">
-            {readmeText ? <MarkdownRenderer content={readmeText} /> : text.description ? <p>{text.description}</p> : null}
+            {readmeText ? <MarkdownRenderer content={readmeText} onOpenLink={(url) => { onOpenExternal(url); return true; }} /> : text.description ? <p>{text.description}</p> : null}
           </DialogContentArea>
         </DialogContent>
       </Dialog>
@@ -883,6 +924,7 @@ function VersionHistorySection({
   locale,
   translate,
   onInstallVersion,
+  onOpenExternal,
 }: {
   state: Loadable<MarketVersionHistoryEntry[]>;
   extensionId: string;
@@ -892,6 +934,7 @@ function VersionHistorySection({
   locale: string;
   translate: SessionTranslate;
   onInstallVersion: (version: string) => void;
+  onOpenExternal: (url: string) => void;
 }) {
   if (state.status === 'idle' || state.status === 'loading') {
     return <p className="text-foreground-passive">{translate('extensions.loading')}</p>;
@@ -914,6 +957,7 @@ function VersionHistorySection({
           locale={locale}
           translate={translate}
           onInstallVersion={onInstallVersion}
+          onOpenExternal={onOpenExternal}
         />
       ))}
     </ul>
@@ -932,6 +976,7 @@ function VersionHistoryRow({
   locale,
   translate,
   onInstallVersion,
+  onOpenExternal,
 }: {
   entry: MarketVersionHistoryEntry;
   extensionId: string;
@@ -941,11 +986,14 @@ function VersionHistoryRow({
   locale: string;
   translate: SessionTranslate;
   onInstallVersion: (version: string) => void;
+  onOpenExternal: (url: string) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const isInstalled = entry.version === installedVersion;
   const yankedReason = entry.yanked ? translate('extensions.historyYanked', { note: entry.yanked.reason }) : null;
-  const compatReason = entry.compat
+  const compatReason = entry.platformRefusal
+    ? translate('extensions.platformVersionUnavailable')
+    : entry.compat
     ? entry.compat.reason === 'needs-newer-app'
       ? translate('extensions.needsNewerApp', { version: entry.compat.minAppVersion })
       : translate('extensions.needsAuthorUpdate')
@@ -995,7 +1043,7 @@ function VersionHistoryRow({
       </div>
       {expanded && !yankedReason ? (
         <div className="xp-history-body">
-          <MarkdownRenderer content={entry.releaseNotes} />
+          <MarkdownRenderer content={entry.releaseNotes} onOpenLink={(url) => { onOpenExternal(url); return true; }} />
         </div>
       ) : null}
     </li>

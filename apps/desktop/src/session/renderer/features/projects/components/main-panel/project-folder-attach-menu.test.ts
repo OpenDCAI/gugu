@@ -5,10 +5,9 @@ import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { setLocalePreference } from '@/i18n';
-import type { ProjectFolder } from '@shared/core/projects/project-folders';
 import { SessionLocalizationProvider } from '@renderer/localization/localization-provider';
 import { ProjectFolderCard, type AttachMachine } from './project-folder-card';
-import type { ProjectFoldersState } from './project-folders';
+import type { ProjectFoldersState, ShownFolder } from './project-folders';
 
 vi.mock('@renderer/lib/stores/app-state', () => ({
   sidebarStore: { placement: { entries: new Map() } },
@@ -22,7 +21,7 @@ vi.mock('@renderer/lib/ipc', () => ({
   rpc: { projects: {} },
 }));
 
-const ROOT: ProjectFolder & { offline: boolean } = {
+const ROOT: ShownFolder = {
   workspaceId: 'ws-root',
   projectId: 'p1',
   kind: 'root',
@@ -31,6 +30,7 @@ const ROOT: ProjectFolder & { offline: boolean } = {
   sessionIds: [],
   attachedAt: null,
   offline: false,
+  deviceId: null,
 };
 const MACHINES: AttachMachine[] = [
   { id: null, label: '这台电脑', online: true, kind: 'computer' },
@@ -74,6 +74,7 @@ describe('the card’s + with several machines', () => {
     const state: ProjectFoldersState = {
       folders: [ROOT],
       loadError: false,
+      unanswered: [],
       chosen: ROOT,
       fresh: undefined,
       choose: vi.fn(),
@@ -90,6 +91,7 @@ describe('the card’s + with several machines', () => {
             projectId: 'p1',
             projectName: 'gugu',
             folders: state,
+            machines: [null],
             machineOf: () => ({ label: '这台电脑', online: true, kind: 'computer' as const }),
             attachMachines: MACHINES,
             onAttach,

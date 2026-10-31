@@ -1,13 +1,14 @@
+import { createGroupAdmin } from '@gugu/core/cloud/groupAdmin'
 // @@@sessionpage TASKPAGE-FUSION — DELETION SYNC (spec ⑨「删除必同步」, owner: 千万不要只同步增、不同步删).
 // Provisioning mirrors a session-page conversation INTO gugu's social side (an agent contact, and for a
 // project-scoped conversation a member seat in the group mirroring that project). This module mirrors the
-// REMOVALS back out: archive or delete a conversation and its agent leaves the contact list; delete a
+// REMOVALS back out: delete a conversation and its agent leaves the contact list; delete a
 // project and the group mirroring it is archived along with the agents it produced.
 //
 // RECONCILE, NOT PER-EVENT BOOKKEEPING. We diff the roster against the session backend's authoritative inventory
 // (`emdashSessionpageInventory`) instead of subscribing to a delete event per entity — because two of the
-// removal paths emit no usable per-entity signal at all: archiving is a TASK-level flag change that fires
-// no domain event, and deleting a task/project cascades its conversation rows away WITHOUT emitting a
+// removal paths emit no usable per-entity signal at all: deleting a task/project can cascade
+// its conversation rows away WITHOUT emitting a
 // per-conversation delete. A diff catches those, plus any future removal path nobody wired up. The session backend's
 // trigger (`onEmdashSessionpageReapTrigger`) only says "something may have changed" and makes us re-diff; it
 // is never the source of truth. Also runs once at boot, so removals that happened while gugu was closed
@@ -18,17 +19,14 @@
 // and it must not be swallowed either). Reaping is idempotent — a half-finished reap converges on the next
 // trigger, since the roster record is the thing that makes an agent visible.
 //
-// TWO ENUMERATION FACES (#4277, product spec「本机段…❌ 出现本机已经没有会话的 agent」). The roster diff
-// above only ever sees identities the LOCAL ROSTER still points at. The roster is a third artifact — neither
-// the source of truth (the session page) nor the projection (this account's cloud agents) — and once a roster
-// row is gone (reinstall, wiped userData, a different GUGU_HOME) the cloud identity it pointed at is
-// unreachable by a roster-driven diff forever. A real machine accumulated 95 contacts / 55 distinct names
-// that way. So the reap ALSO enumerates the projection itself: every cloud agent of this account whose home
-// device is this machine and which no roster row references is, by construction, an agent this machine has
-// no conversation for — the exact thing the spec forbids in the local section — and is reaped (home-guarded).
+// NEVER BY ABSENCE FROM THE ROSTER. A cloud agent homed on this machine with no row in this install's roster is not
+// evidence that its conversation is gone: the device id comes from (machine, account, tier), not from the data
+// directory, so another install of the same account on this machine (another --user-data-dir), a reinstall, or a
+// wiped / emptied agents.json all look exactly like that. Nothing in the cloud row tells them apart, so such agents
+// are left alone (they stay the owner's, visible and removable by hand). Reaping keys only off this install's own
+// roster rows and its own session inventory.
 import { listAgents } from '@gugu/core'
 import { removeAgentCloudIdentityViaSupabase } from '@gugu/core/cloud/agentIdentityRemoval'
-import { listOwnedCloudAgentsViaSupabase } from '@gugu/core/cloud/agentIdentityReconcile'
 import { makeChatClient, makeIdentityClient } from '../supabase'
 import {
   SESSION_CACHE_KEY,
@@ -43,7 +41,7 @@ import { emdashAgentRegistry } from './emdash-agent-registry'
 import { createLogger } from '../lib/logger'
 import { forgetProjectGroupId, listProjectGroupIds } from './sessionpage-project-groups'
 
-/** The session backend's authoritative inventory: what still EXISTS and is not archived. */
+/** The existence inventory includes archived conversations and their retained identities. */
 export interface SessionpageInventory {
   sessionIds: string[]
   projectIds: string[]
@@ -57,18 +55,11 @@ export interface SessionpageReapDeps {
    *  module doesn't depend on the pty provisioning module. */
   disposeSession?: (sessionId: string) => Promise<void>
   /**
-   * Sessions the trigger KNOWS are gone: only `session:archived` / `session:deleted`, fired after the
+   * Sessions the trigger KNOWS are gone: only `session:deleted`, fired after the
    * row op. A runtime teardown never names a session — app quit tears mounts down with `terminate` while the
    * sessions still exist (#6168). Naming the session lets that pass reap without depending on when rows disappear.
    */
   deadSessionIds?: readonly string[]
-  /**
-   * 投影的枚举面:这个账号名下的云端 agent(RLS 之内、owner 过滤之后)。缺席 ⇒ 走 supabase 适配器;
-   * 测试注入用。
-   */
-  listOwnedCloudAgents?: (auth: { accessToken: string; userId: string }) => Promise<ProjectionAgent[]>
-  /** 时钟注入(测试用);缺席 ⇒ Date.now。 */
-  now?: () => number
   /**
    * #7341 归档项目群之前问一句:群里还有没有别的机器上的 agent(`identity.users.device_id` ≠ 本机)。
    * 返回那些 agent 的 id;缺席 ⇒ 走 supabase(listGroupAgentsOnOtherDevices)。测试注入用。
@@ -77,33 +68,11 @@ export interface SessionpageReapDeps {
   env?: NodeJS.ProcessEnv
 }
 
-/** 投影里的一行:云端 identity.users 的 agent 行(只取回收要用的几列)。 */
-export interface ProjectionAgent {
-  agentUserId: string
-  deviceId: string | null
-  displayName: string | null
-  /** identity.users.created_at(ISO);缺席按「很久以前」处理。 */
-  createdAt?: string | null
-}
-
-/**
- * 刚铸出来的身份不当孤儿。provisioning 是「先铸云端身份、再写名册行」,两步之间有一小段窗口;更要紧的是
- * 对账自己读云端可能很慢(真机一次网络抖动读了 28 秒),这期间别处新铸的身份会出现在云端清单里而不在
- * 对账手里的名册快照里 —— 真机上就这样把一条活会话 5 秒前刚铸的 agent 当孤儿删了(#4277 验收 B 轮)。
- * 名册在云端之后再读、删前再复核之外,再给「新鲜」的行一段宽限:真正的孤儿都是老行,不差这几分钟。
- */
-export const PROJECTION_ORPHAN_GRACE_MS = 10 * 60_000
-
 export interface SessionpageReapResult {
   /** 名册段:名册行还在、会话没了的 agent。 */
   reapedAgents: number
   archivedGroups: number
-  /** 投影段:云端行还在、家在本机、名册里已经没有对应行的 agent。 */
-  reapedOrphans: number
 }
-
-const listOwnedCloudAgentsDefault = (auth: { accessToken: string; userId: string }): Promise<ProjectionAgent[]> =>
-  listOwnedCloudAgentsViaSupabase({ ownerUserId: auth.userId, accessToken: auth.accessToken })
 
 /** 读群成员 / 读身份行用到的那一小片 supabase 查询面(测试拿替身喂)。 */
 interface MembersQuery {
@@ -168,7 +137,7 @@ function serialize<T>(fn: () => Promise<T>): Promise<T> {
 
 /**
  * Reconcile gugu's social-side projection with the session page. Reaps every session-page agent whose
- * conversation no longer exists (deleted) or is archived, and archives the group mirroring any project that
+ * conversation no longer exists (deleted), and archives the group mirroring any project that
  * no longer exists. Returns what it removed. Throws (aggregated) if any removal failed.
  */
 /**
@@ -250,52 +219,15 @@ async function reconcileLocked(deps: SessionpageReapDeps): Promise<SessionpageRe
     )
   }
 
-  // 被点名的死会话是阳性读数(session:archived / session:deleted 在行操作之后才发),不靠清单,
-  // #3969 管不着它:新装的机器第一次归档唯一的会话时,清单读空、本进程又从没读出过非空,只按缺席判会把它的
-  // agent 永远留下。
+  // 被点名的死会话是阳性读数(session:deleted 在行操作之后才发),不靠清单,
+  // 归档不在 deadSessionIds 中:它的行和身份都仍然存在。
   const deadSessions = new Set((deps.deadSessionIds ?? []).filter(Boolean))
   const stale = bound.filter((a) =>
     deadSessions.has(a.sessionId) || (reapAuthorized && !liveSessions.has(a.sessionId)))
 
-  // 归属与设备先于枚举投影:投影是「这个账号名下」的,读它要账号的令牌。开机那一刻 authProvider 往往还
-  // 没建好(#5025),这一轮就只走名册段并把「投影段没跑」说出来;main.ts 在归属定下来之后再触发一轮。
+  // 开机那一刻 authProvider 往往还没建好(#5025):这一轮读不到令牌,群段与删身份都留给 main.ts 在归属定下来之后那一轮。
   const auth = await deps.getAuth()
   const deviceId = auth?.accessToken ? await deps.resolveDeviceId() : null
-
-  // ── 投影段:云端这个账号名下、家在本机、名册里没有对应行的身份。
-  // 名册行是「会话 → 身份」的唯一指针(会话页后端不存 agent id):指针没了,这条身份任何会话都到不了,
-  // 下一次 session start 只会另铸一个。判据两条:家设备 = 本机(别的设备上的 agent 归那台机器收,
-  // 通讯录按设备分段正是这个归属),且名册无行(有行的走上面的会话 diff;手工建的 agent 也有名册行,
-  // 不会被误伤)。删身份那一步 removeAgentCloudIdentity 会再核一次家设备。
-  //
-  // 「名册读空」在这里不需要 #3969 那种阳控:listAgents 只把 ENOENT 当空(= 这台机器上真的没有名册),
-  // 别的读失败都抛;而「名册没了、云端行还在」正是这一段要收的那个形状。
-  let orphans: ProjectionAgent[] = []
-  if (auth?.accessToken && auth.userId && deviceId) {
-    const projection = await (deps.listOwnedCloudAgents ?? listOwnedCloudAgentsDefault)(auth)
-    // 名册在云端**之后**再读:云端那一读可能很慢,期间新铸的身份已经写进名册;拿读云端之前的名册快照
-    // 比对,会把它判成孤儿(真机复现,见 PROJECTION_ORPHAN_GRACE_MS 的注释)。
-    const rosterAfterCloud = await listAgents(env, { includeGuests: true })
-    const rosterIds = new Set(rosterAfterCloud.map((a) => a.gugu_user_id).filter(Boolean))
-    const now = (deps.now ?? Date.now)()
-    const fresh = (a: ProjectionAgent): boolean => {
-      const t = a.createdAt ? Date.parse(a.createdAt) : NaN
-      return Number.isFinite(t) && now - t < PROJECTION_ORPHAN_GRACE_MS
-    }
-    orphans = projection.filter((a) => a.deviceId === deviceId && !rosterIds.has(a.agentUserId) && !fresh(a))
-    const skippedFresh = projection.filter((a) => a.deviceId === deviceId && !rosterIds.has(a.agentUserId) && fresh(a))
-    if (skippedFresh.length) {
-      reapLogger().info(
-        { agents: skippedFresh.map((a) => ({ id: a.agentUserId, name: a.displayName, createdAt: a.createdAt })) },
-        'projection rows with no roster row but minted within the grace window — left alone this round (in-flight provisioning)',
-      )
-    }
-  } else {
-    reapLogger().info(
-      { authenticated: Boolean(auth?.accessToken), deviceId: deviceId ?? null },
-      'projection pass skipped this round — owner or device not resolved yet; re-run once the owner is decided',
-    )
-  }
 
   // Groups whose PROJECT is gone (read before reaping — the roster records carry the project→group mapping,
   // so once they're removed the mapping is gone too). A project group whose project still exists is kept
@@ -343,14 +275,14 @@ async function reconcileLocked(deps: SessionpageReapDeps): Promise<SessionpageRe
   // Diagnostics: the inventory sizes are the whole basis for what gets reaped, so record them whenever this
   // round intends to act. Without this a wrong decision is invisible after the fact (it was — see the guard
   // above), and a reap that removes owner-visible things must be explainable from the log alone.
-  if (stale.length || deadProjectGroups.size || orphans.length) {
+  if (stale.length || deadProjectGroups.size) {
     console.log(
       `[sessionpage-reap] inventory: ${liveSessions.size} live session(s), ${liveProjects.size} live project(s); ` +
-        `bound=${bound.length} stale=${stale.length} deadProjectGroups=${deadProjectGroups.size} projectionOrphans=${orphans.length}`,
+        `bound=${bound.length} stale=${stale.length} deadProjectGroups=${deadProjectGroups.size}`,
     )
   }
-  if (!stale.length && !deadProjectGroups.size && !orphans.length) {
-    return { reapedAgents: 0, archivedGroups: 0, reapedOrphans: 0 }
+  if (!stale.length && !deadProjectGroups.size) {
+    return { reapedAgents: 0, archivedGroups: 0 }
   }
 
   if (!auth?.accessToken) {
@@ -407,8 +339,7 @@ async function reconcileLocked(deps: SessionpageReapDeps): Promise<SessionpageRe
       }
       // gugu has no group hard-delete (chat.chats has no DELETE policy — owner/admin may only UPDATE), so
       // removing a group means archiving it. Honest about the real capability rather than faking a delete.
-      const { error } = await chat.from('chats').update({ status: 'archived' }).eq('id', chatId)
-      if (error) throw new Error(error.message)
+      await createGroupAdmin(chat, reaperUserId).archive(chatId)
       archivedGroups++
       // 项目没了、群已归档 → 忘掉「项目 → 群」的映射,否则同 id 项目再出现时会复用一个归档群。
       await forgetDeadProjects(projectIds)
@@ -431,7 +362,7 @@ async function reconcileLocked(deps: SessionpageReapDeps): Promise<SessionpageRe
       continue
     }
     try {
-      await reapAgent(agent, { chat, deviceId, accessToken: auth.accessToken, env, deps })
+      await reapAgent(agent, { chat, deviceId, accessToken: auth.accessToken, ownerUserId: auth.userId, env, deps })
       reapedAgents++
       console.log(
         `[sessionpage-reap] reaped agent ${agent.name} (${agent.guguUserId}) — session-page session ${agent.sessionId} is gone`,
@@ -441,57 +372,10 @@ async function reconcileLocked(deps: SessionpageReapDeps): Promise<SessionpageRe
     }
   }
 
-  let reapedOrphans = 0
-  if (orphans.length) {
-    if (!deviceId) throw new Error('session-page reap: projection orphans computed without a device id (unreachable)')
-    for (const orphan of orphans) {
-      try {
-        // 删前再读一次名册复核:前面那些删除各自都要走网络,这条身份可能在等待期间刚被某条会话认领。
-        const rosterNow = await listAgents(env, { includeGuests: true })
-        if (rosterNow.some((a) => a.gugu_user_id === orphan.agentUserId)) {
-          reapLogger().info({ agent: orphan.agentUserId, name: orphan.displayName }, 'projection orphan got a roster row meanwhile — kept')
-          continue
-        }
-        // 先删云端身份(家设备护栏在里面再核一次),再放本机脚印。这里没有名册行、也就没有 chatId 可
-        // 点名 —— 群座位 / 私聊由 remove_owned_agent 自己清(#1982),不需要 cleanup_removed_group_agent。
-        const outcome = await removeAgentCloudIdentityViaSupabase({
-          agentUserId: orphan.agentUserId,
-          accessToken: auth.accessToken,
-          deviceId,
-        })
-        if (!outcome.removed && outcome.reason === 'error') {
-          throw new Error(`remove cloud identity: ${outcome.message ?? 'unknown error'}`)
-        }
-        await releaseAgentLocalFootprint({
-          agentUserId: orphan.agentUserId,
-          name: orphan.displayName ?? '',
-          identityRemoved: outcome.removed,
-          // 回收不是 owner 删联系人:碑只记 agent id,别把会话钉成「此后无身份」(见 footprint 的说明)。
-          tombstoneSession: false,
-          env,
-        })
-        if (outcome.removed) {
-          reapedOrphans++
-          reapLogger().info(
-            { agent: orphan.agentUserId, name: orphan.displayName },
-            'reaped projection orphan — cloud identity homed on this device with no roster row (no conversation can reach it)',
-          )
-        } else {
-          reapLogger().warn(
-            { agent: orphan.agentUserId, name: orphan.displayName, reason: outcome.reason, message: outcome.message },
-            'projection orphan not removed',
-          )
-        }
-      } catch (err) {
-        failures.push(`reap projection orphan ${orphan.agentUserId}: ${(err as Error).message}`)
-      }
-    }
-  }
-
   if (failures.length) {
     throw new Error(`session-page reap had ${failures.length} failure(s): ${failures.join(' | ')}`)
   }
-  return { reapedAgents, archivedGroups, reapedOrphans }
+  return { reapedAgents, archivedGroups }
 }
 
 async function reapAgent(
@@ -505,6 +389,7 @@ async function reapAgent(
     chat: ReturnType<typeof makeChatClient>
     deviceId: string | null
     accessToken: string
+    ownerUserId: string
     env: NodeJS.ProcessEnv
     deps: SessionpageReapDeps
   },
@@ -549,12 +434,7 @@ async function reapAgent(
         throw new Error(`cleanup group seat ${agent.chatId}: ${error.message}`)
       }
     } else {
-      const { error } = await ctx.chat
-        .from('chat_members')
-        .delete()
-        .eq('chat_id', agent.chatId)
-        .eq('user_id', agent.guguUserId)
-      if (error) throw new Error(`leave group ${agent.chatId}: ${error.message}`)
+      await createGroupAdmin(ctx.chat, ctx.ownerUserId).remove(agent.chatId, agent.guguUserId)
     }
   }
 

@@ -1,60 +1,53 @@
-import { useHotkey } from '@tanstack/react-hotkeys';
+import { detectPlatform, matchesKeyboardEvent, useHotkey } from '@tanstack/react-hotkeys';
 import { observer } from 'mobx-react-lite';
+import { useEffect } from 'react';
 import { useAppSettingsKey } from '@renderer/features/settings/use-app-settings-key';
-import {
-  APP_SHORTCUTS,
-  getEffectiveHotkey,
-  getHotkeyRegistration,
-  type ShortcutSettingsKey,
-} from '@renderer/lib/hooks/useKeyboardShortcuts';
+import { COMMANDS, getEffectiveHotkey, getHotkeyRegistration, isHostCommandId, type CommandId } from '@renderer/lib/hooks/useKeyboardShortcuts';
 import { commandRegistry } from './registry';
 
-/**
- * Registers one useHotkey for a single shortcut key and delegates to
- * commandRegistry.dispatch(). Mounted/unmounted by CommandShortcutBinder
- * as commands come and go from the registry.
- */
-function SingleKeyBinder({ shortcutKey }: { shortcutKey: ShortcutSettingsKey }) {
+function CommandKey({ id }: { id: CommandId }) {
   const { value: keyboard } = useAppSettingsKey('keyboard');
-
-  useHotkey(
-    getHotkeyRegistration(shortcutKey, keyboard),
-    () => {
-      commandRegistry.dispatch(shortcutKey);
-    },
-    {
-      enabled: getEffectiveHotkey(shortcutKey, keyboard) !== null,
-    }
-  );
-
+  useHotkey(getHotkeyRegistration(id, keyboard), () => commandRegistry.dispatch(id), {
+    enabled: getEffectiveHotkey(id, keyboard) !== null,
+    ignoreInputs: COMMANDS[id].ignoreInputs,
+  });
   return null;
 }
 
-/**
- * Derives the active shortcut key set directly from commandRegistry.activeCommands.
- * As providers are registered/unregistered (e.g. on navigation), the observer
- * re-renders and mounts/unmounts SingleKeyBinder components accordingly.
- *
- * No scope field needed on APP_SHORTCUTS — the registry is the source of truth
- * for which keys are currently bound. When app-level commands are migrated to
- * the registry, they will automatically get bindings here, at which point they
- * can be removed from AppKeyboardShortcuts.
- */
-export const CommandShortcutBinder = observer(function CommandShortcutBinder() {
-  const keys = [
-    ...new Set(
-      commandRegistry.activeCommands
-        .filter((c) => c.shortcutKey != null && c.shortcutKey in APP_SHORTCUTS)
-        .filter((c) => APP_SHORTCUTS[c.shortcutKey!].conflictBehavior !== 'allow')
-        .map((c) => c.shortcutKey!)
-    ),
-  ];
+/** Terminal widgets and modal roots can stop global entry keys before bubbling. */
+function CapturedCommandKey({ id }: { id: CommandId }) {
+  const { value: keyboard } = useAppSettingsKey('keyboard');
+  const hotkey = getEffectiveHotkey(id, keyboard);
+  useEffect(() => {
+    if (!hotkey) return;
+    const platform = detectPlatform();
+    const onCommandKey = (event: KeyboardEvent) => {
+      if (event.isComposing || !matchesKeyboardEvent(event, hotkey, platform)) return;
+      const active = document.activeElement;
+      if (!(active instanceof HTMLElement) || (id === 'app.find' && active.closest('.monaco-editor, [cmdk-root], [role=menu]'))) return;
+      if (!commandRegistry.dispatch(id)) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+    };
+    document.addEventListener('keydown', onCommandKey, true);
+    return () => document.removeEventListener('keydown', onCommandKey, true);
+  }, [hotkey, id]);
+  return null;
+}
 
-  return (
-    <>
-      {keys.map((k) => (
-        <SingleKeyBinder key={k} shortcutKey={k} />
-      ))}
-    </>
-  );
+export const CommandShortcutBinder = observer(function CommandShortcutBinder() {
+  useEffect(() => {
+    const capture = (event: Event) => {
+      if (event.target instanceof HTMLElement) commandRegistry.setContext(event.target);
+    };
+    document.addEventListener('focusin', capture, true);
+    document.addEventListener('pointerdown', capture, true);
+    return () => {
+      document.removeEventListener('focusin', capture, true);
+      document.removeEventListener('pointerdown', capture, true);
+    };
+  }, []);
+  const ids = commandRegistry.shortcutsPaused ? [] : [...new Set(commandRegistry.activeCommands.map((command) => command.id))]
+    .filter(isHostCommandId).filter((id) => COMMANDS[id].conflictBehavior !== 'allow');
+  return <>{ids.map((id) => COMMANDS[id].capture ? <CapturedCommandKey key={id} id={id} /> : <CommandKey key={id} id={id} />)}</>;
 });

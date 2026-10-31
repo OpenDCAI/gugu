@@ -103,22 +103,35 @@ describe('新建框那一句', () => {
     expect(machineUnavailableReason('asleep', '小咕', zh)).toBe('小咕 在休息，开始输入就会叫醒它。');
     expect(machineUnavailableReason('waking', '小咕', zh)).toBe('小咕 正在醒来，醒了就能发送。草稿已保留。');
   });
+  it('说真实原因:登录没了说重新登录、正在连说正在连,❌ 一律「离线」', () => {
+    expect(machineUnavailableReason('offline', 'd22', zh, null, '2026-10-22T00:00:00Z')).toBe('d22 上的登录已失效，请在 设置 → 设备 中重新登录。');
+    expect(machineUnavailableReason('connecting', 'd22', zh)).toBe('正在连接 d22…');
+    expect(machineUnavailableReason('reconnecting', 'd22', zh)).toBe('正在重新连接 d22…');
+    // 对照:只是离线。
+    expect(machineUnavailableReason('offline', 'd22', zh)).toBe('d22 离线。草稿已保留，上线后可发送，或换一台机器。');
+  });
   it('叫醒没成:说那句原因', () => {
     expect(machineUnavailableReason('wake-failed', '小咕', zh, '积分已用完，小咕 醒不来。')).toBe('积分已用完，小咕 醒不来。');
   });
-  // 统筹 10-15:「休眠中」只是说明状态,❌ 报错的红字;与私聊里那句同一个样子。叫醒没成、离线、版本太旧照旧是报错。
-  it('休眠中 / 正在唤醒是说明,别的用不了照旧是报错', () => {
-    expect(machineBlockIsStatus('asleep')).toBe(true);
-    expect(machineBlockIsStatus('waking')).toBe(true);
-    for (const state of ['wake-failed', 'offline', 'outdated', 'updating', 'sign-in', 'connected', null] as const) {
+  // 统筹 10-15:「休眠中」只是说明状态,❌ 报错的红字;与私聊里那句同一个样子。owner 10-22:离线同样只是状态(#113)。
+  // 叫醒没成、要先登录、版本太旧照旧是报错。
+  it('休眠中 / 正在唤醒 / 离线 / 正在连是说明,别的用不了照旧是报错', () => {
+    for (const state of ['asleep', 'waking', 'offline', 'connecting', 'reconnecting'] as const) {
+      expect(machineBlockIsStatus(state)).toBe(true);
+    }
+    for (const state of ['wake-failed', 'outdated', 'updating', 'update-failed', 'sign-in', 'connected', null] as const) {
       expect(machineBlockIsStatus(state)).toBe(false);
     }
+    // 离线是因为那台机器上的登录没了:要人去重新登录,照旧是报错(登出时间不明 = null 也算)。
+    expect(machineBlockIsStatus('offline', '2026-10-22T00:00:00Z')).toBe(false);
+    expect(machineBlockIsStatus('offline', null)).toBe(false);
+    expect(machineBlockIsStatus('offline', undefined)).toBe(true);
   });
-  it('宿主自己的原因(默认值读不到)压过云电脑那句时,画成报错', () => {
-    const context = { projectId: undefined, blockReason: '小咕 在休息，开始输入就会叫醒它。', blockIsStatus: true, isContextPending: false, machine: { deviceId: 'cloud', label: '小咕' } } as unknown as MachineCreateContext;
-    expect(machineComposerProps(context, { projectId: undefined })).toMatchObject({ blockReason: context.blockReason, blockIsStatus: true });
-    expect(machineComposerProps(context, { projectId: undefined, blockReason: '读不到默认设置' })).toMatchObject({ blockReason: '读不到默认设置', blockIsStatus: false });
-    expect(machineComposerProps(null, { projectId: 'p1' })).toMatchObject({ blockReason: null, blockIsStatus: false });
+  it('所选机器用不了只挡发送(原因在提示条里说);宿主自己的原因(默认值读不到)照旧摆在新建框下面', () => {
+    const context = { projectId: undefined, blockReason: null, blocked: true, isContextPending: false, machine: { deviceId: 'cloud', label: '小咕' } } as unknown as MachineCreateContext;
+    expect(machineComposerProps(context, { projectId: undefined })).toMatchObject({ blockReason: null, blocked: true });
+    expect(machineComposerProps(context, { projectId: undefined, blockReason: '读不到默认设置' })).toMatchObject({ blockReason: '读不到默认设置', blocked: true });
+    expect(machineComposerProps(null, { projectId: 'p1' })).toMatchObject({ blockReason: null, blocked: false });
   });
 });
 

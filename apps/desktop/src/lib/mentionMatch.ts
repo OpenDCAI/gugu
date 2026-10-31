@@ -10,6 +10,8 @@ import { hasDomainTail } from '@gugu/core/shared/mentionToken.mjs'
 
 export interface MentionSearchable {
   name: string
+  type?: 'all' | 'human' | 'agent'
+  session_archived_at?: string | null
   /** owner 给这个人起的备注(联系人 alias)。 */
   alias?: string | null
   guguNumber?: number | null
@@ -60,12 +62,15 @@ export function matchText(text: string | null | undefined, query: string): TextM
     return { score, hits: [...new Set(from.slice(at, at + key.length))] }
   }
   if (!HAN.test(text) || !LATIN_LETTERS.test(key)) return null
+  // 拼音只在命中了汉字时才算:pinyin-pro 对整串匹配,「设计评审 gugu」里的拉丁字母会被当成 g…g 首字母(owner 10-28)。
   const pinyinHits = matchPinyin(text, query.replace(IGNORED, ''), { insensitive: true })
-  return pinyinHits ? { score: 1, hits: pinyinHits } : null
+  return pinyinHits?.some((at) => HAN.test(text[at] ?? '')) ? { score: 1, hits: pinyinHits } : null
 }
 
-/** 0 = 不匹配;越大越靠前(全等 > 前缀 > 包含 > 拼音)。空查询匹配所有人。 */
+/** 0 = 不匹配;越大越靠前(全等 > 前缀 > 包含 > 拼音)。空查询匹配所有可选成员,归档 Agent 不进入匹配。 */
 export function mentionMatchScore(candidate: MentionSearchable, query: string): number {
+  // Both the group ranker and the task picker use this score; keep the existing archive fact through their projections.
+  if (candidate.type === 'agent' && candidate.session_archived_at != null) return 0
   const key = normalizeMentionKey(query)
   if (!key) return 1
   const numberScore = candidate.guguNumber != null && /^\d+$/.test(key)

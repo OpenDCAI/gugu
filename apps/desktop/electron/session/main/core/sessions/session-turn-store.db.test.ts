@@ -1,5 +1,5 @@
 import { openFixture } from '@tooling/utils/db';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AppDb } from '@main/db/client';
 import type { TranscriptTurn } from '@gugu/session-core/acp';
 
@@ -20,7 +20,12 @@ vi.mock('@main/db/client', () => ({
   },
 }));
 
-import { persistCommittedTurn, readStoredTurns, storedRevertBoundary, truncateStoredHistory } from './session-turn-store';
+vi.mock('@main/lib/events', () => ({ events: { emit: vi.fn() } }));
+
+import { nativeConversationUnread } from './session-conversation-read';
+import { startNativeConversationInboxHost } from './native-conversation-inbox';
+import { events } from '@main/lib/events';
+import { appendRecordTurnNow, getStoredToolImage, persistCommittedTurn, readStoredTailNow, readStoredTurns, storedRevertBoundary, storedTurnIndexBase, truncateStoredHistory, withStoredTurns } from './session-turn-store';
 
 type Fixture = Awaited<ReturnType<typeof openFixture>>;
 
@@ -55,6 +60,92 @@ describe('conversation-turn-store', () => {
       INSERT INTO projects (id, name, path) VALUES ('p1', 'P', '/repo');
       INSERT INTO sessions (id, project_id, title) VALUES ('c1', 'p1', 'C');
     `);
+  });
+
+  afterEach(() => { fixture.close(); vi.clearAllMocks(); });
+
+  it('requests the inbox address when a new task records its first real owner exchange', async () => {
+    const open = vi.fn(async () => 'canonical-dm');
+    const inbox = startNativeConversationInboxHost({ open, failed: error => { throw error; } });
+    try {
+      await persistCommittedTurn({ sessionId: 'c1', source: 'live', turn: {
+        ...turn('first-owner-turn', 'First personal input'), trigger: { kind: 'owner' }, startedAt: 1000, endedAt: 2000,
+        items: [
+          { kind: 'message', id: 'owner-input', seq: 0, role: 'user', text: 'First personal input', at: 1000 },
+          { kind: 'message', id: 'owner-reply', seq: 1, role: 'assistant', text: 'First personal reply', at: 2000 },
+        ],
+      } });
+      await inbox.flush();
+      expect(open).toHaveBeenCalledExactlyOnceWith({ sessionId: 'c1', projectId: 'p1' });
+      const entry = fixture.sqlite.prepare('SELECT value FROM kv WHERE key = ?').get('native-conversation-inbox:c1') as { value: string } | undefined;
+      expect(entry && JSON.parse(entry.value)).toEqual({ projectId: 'p1', chatId: 'canonical-dm' });
+    } finally { inbox.dispose(); }
+  });
+
+  it.each(['agent', 'schedule', 'delivery'] as const)('does not request a personal DM for live %s work', async kind => {
+    await persistCommittedTurn({ sessionId: 'c1', source: 'live', turn: {
+      ...turn('background', 'Background activity'), trigger: { kind }, startedAt: 1000, endedAt: 2000,
+      items: [{ kind: 'message', id: 'background', seq: 0, role: 'assistant', text: 'Background reply', at: 2000 }],
+    } });
+    expect(fixture.sqlite.prepare('SELECT value FROM kv WHERE key = ?').get('native-conversation-inbox:c1')).toBeUndefined();
+  });
+
+  it('does not request a DM when startup replay or a historical revision brings back old personal messages', async () => {
+    const old = { ...turn('old-personal', 'Historical personal input'), trigger: { kind: 'owner' as const }, startedAt: 1000, endedAt: 2000 };
+    await persistCommittedTurn({ sessionId: 'c1', source: 'replay', turn: old });
+    await persistCommittedTurn({ sessionId: 'c1', source: 'revision', turn: old });
+    expect(fixture.sqlite.prepare('SELECT value FROM kv WHERE key = ?').get('native-conversation-inbox:c1')).toBeUndefined();
+  });
+
+  it('#980 continues runtime turn numbers after every stored run, ignoring store-renumbered and record rows', async () => {
+    expect(await storedTurnIndexBase('c1')).toBe(0);
+    await persistCommittedTurn({ sessionId: 'c1', source: 'live', turn: turn('c1:turn:0', 'first run') });
+    await persistCommittedTurn({ sessionId: 'c1', source: 'live', turn: turn('c1:turn:6', 'later run', 6) });
+    await withStoredTurns('c1', () => appendRecordTurnNow('c1', turn('c1:turn:2', 'from the record', 2)));
+    expect(await storedTurnIndexBase('c1')).toBe(7);
+  });
+
+  it('#980 appends record turns after the store tail, inside the same per-session write chain', async () => {
+    const live = persistCommittedTurn({ sessionId: 'c1', source: 'live', turn: turn('c1:turn:0', 'chat turn') });
+    const filled = withStoredTurns('c1', async () => {
+      const tail = await readStoredTailNow('c1', 10);
+      await appendRecordTurnNow('c1', turn('c1:turn:1', 'terminal turn', 1));
+      return tail.length;
+    });
+    // The fill waited for the live write queued before it.
+    expect(await filled).toBe(1);
+    await live;
+    expect(storedTexts(fixture).map((item) => item.kind === 'message' ? item.text : null)).toEqual(['chat turn', 'terminal turn']);
+    const page = await readStoredTurns('c1');
+    expect(page.originTurnIds).toEqual(['c1:turn:0', 'record:c1:turn:1']);
+    expect(page.turns[1].id).toBe('c1:turn:s1');
+  });
+
+  it('retains exact live reference identities when repeated runtime IDs are stored and reread', async () => {
+    const runtimeId = 'c1:turn:0';
+    for (const referenceId of ['source:first-run', 'source:restarted-run']) {
+      await persistCommittedTurn({ sessionId: 'c1', source: 'live', turn: { ...turn(runtimeId, 'same words'), referenceId } });
+    }
+    const reopened = await readStoredTurns('c1');
+    expect(reopened.originTurnIds).toEqual([runtimeId, runtimeId]);
+    expect(reopened.turns.map(t => t.id)).toEqual(['c1:turn:s0', 'c1:turn:s1']);
+    expect(reopened.turns.map(t => t.referenceId)).toEqual(['source:first-run', 'source:restarted-run']);
+    expect(reopened.turns.map(t => t.items[0]!.id)).toEqual(['c1:turn:s0:m', 'c1:turn:s1:m']);
+  });
+
+  it('resolves a stopped runtime picture through its persisted origin without confusing reused runtime IDs', async () => {
+    const originalId = 'c1:turn:0';
+    const imageTurn = (data: string): TranscriptTurn => ({
+      ...turn(originalId, 'picture'),
+      items: [{ kind: 'mcp-tool-call', id: originalId + ':tool:pic', seq: 0,
+        toolCallId: 'pic', tool: 'screenshot', title: 'Screenshot', status: 'done', images: [{ mimeType: 'image/png', data }] }],
+    });
+    await persistCommittedTurn({ sessionId: 'c1', source: 'live', turn: imageTurn('earlier') });
+    await persistCommittedTurn({ sessionId: 'c1', source: 'live', turn: imageTurn('latest') });
+    expect(await getStoredToolImage({ sessionId: 'c1', originTurnId: originalId, itemId: originalId + ':tool:pic', index: 0 }))
+      .toEqual({ ok: true, image: { mimeType: 'image/png', data: 'latest' } });
+    expect(await getStoredToolImage({ sessionId: 'c1', seq: 0, itemId: 'c1:turn:s0:tool:pic', index: 0 }))
+      .toEqual({ ok: true, image: { mimeType: 'image/png', data: 'earlier' } });
   });
 
   it('回退按原生凭据裁剪落盘历史,重开和继续发送都不复活旧后缀 (#7304)', async () => {
@@ -149,6 +240,7 @@ describe('conversation-turn-store', () => {
       .all() as { seq: number; data: string }[];
     expect(rows).toHaveLength(2);
     const revised = JSON.parse(rows[1]!.data) as TranscriptTurn;
+    expect(nativeConversationUnread('c1')).toEqual(['c1:turn:s1:m2']);
     expect(revised.outcome).toEqual({ kind: 'cancelled', reason: 'cancelled' });
     expect(revised.items.map((item) => [item.id, (item as { text: string }).text])).toEqual([
       ['c1:turn:s1:m', 'sleep 120'],
@@ -184,9 +276,7 @@ describe('conversation-turn-store', () => {
   });
 
   it('前一条写入失败后,排队的后一条仍然落盘', async () => {
-    const insert = vi.spyOn(fixture.db, 'insert').mockImplementationOnce(() => {
-      throw new Error('transient insert failure');
-    });
+    fixture.sqlite.exec("CREATE TRIGGER fail_first BEFORE INSERT ON session_turns WHEN NEW.turn_id = 'c1:turn:0' BEGIN SELECT RAISE(ABORT, 'transient insert failure'); END");
     const first = persistCommittedTurn({
       sessionId: 'c1',
       source: 'live',
@@ -201,7 +291,22 @@ describe('conversation-turn-store', () => {
     await expect(first).rejects.toThrow('transient insert failure');
     await expect(second).resolves.toBeUndefined();
     expect(storedTexts(fixture).map((item) => ('text' in item ? item.text : null))).toEqual(['后续写入']);
-    insert.mockRestore();
+
+  });
+
+  it('rolls back the stored turn when its unread journal cannot be committed', async () => {
+    fixture.sqlite.exec("CREATE TRIGGER fail_journal BEFORE INSERT ON kv WHEN NEW.key = 'native-conversation-read:c1' BEGIN SELECT RAISE(ABORT, 'journal unavailable'); END");
+    const reply: TranscriptTurn = { ...turn('c1:turn:0', 'question'), items: [{ kind: 'message', id: 'c1:turn:0:message:reply', seq: 0, role: 'assistant', text: 'answer' }] };
+    await expect(persistCommittedTurn({ sessionId: 'c1', source: 'live', turn: reply })).rejects.toThrow('journal unavailable');
+    expect(storedTexts(fixture)).toEqual([]);
+    expect(nativeConversationUnread('c1')).toEqual([]);
+    expect(events.emit).not.toHaveBeenCalled();
+    fixture.sqlite.exec('DROP TRIGGER fail_journal');
+    await persistCommittedTurn({ sessionId: 'c1', source: 'live', turn: reply });
+    expect(nativeConversationUnread('c1')).toEqual(['c1:turn:s0:message:reply']);
+    await truncateStoredHistory('c1', 0);
+    expect(storedTexts(fixture)).toEqual([]);
+    expect(nativeConversationUnread('c1')).toEqual([]);
   });
 
   it('库里空时,重放回来的历史被吃进来(老会话 / 刚从编程模式切过来的会话)', async () => {
@@ -252,6 +357,40 @@ describe('conversation-turn-store', () => {
     await persistCommittedTurn({ sessionId: 'c1', source: 'replay', turn: turn('c1:turn:0', '压缩后说的', 0) });
 
     expect(storedTexts(fixture)).toHaveLength(2);
+  });
+
+  it('does not append a replay tail when its sequence catches up to an existing archive', async () => {
+    await persistCommittedTurn({ sessionId: 'c1', source: 'live', turn: turn('live:0', 'already archived') });
+    await persistCommittedTurn({ sessionId: 'c1', source: 'replay', turn: turn('replay:0', 'earlier replay part', 0) });
+    await persistCommittedTurn({ sessionId: 'c1', source: 'replay', turn: turn('replay:1', 'already archived', 1) });
+    expect(storedTexts(fixture)).toHaveLength(1);
+  });
+
+  it('hides an old untimed replay twin by native identities, keeping the raw archive and later turns', async () => {
+    const userId = '00000000-0000-4000-8000-0000000000a1', answerId = '00000000-0000-4000-8000-0000000000a2';
+    const original: TranscriptTurn = { id: 'c1:turn:29', seq: 0, initiator: 'user', startedAt: 1000, endedAt: 2000, outcome: { kind: 'done' }, items: [
+      { kind: 'message', id: `c1:turn:29:message:${userId}`, seq: 0, role: 'user', text: 'file caption' },
+      { kind: 'message', id: `c1:turn:29:message:${answerId}`, seq: 1, role: 'assistant', text: 'received' },
+    ] };
+    const duplicate: TranscriptTurn = { id: 'c1:turn:30', seq: 1, initiator: 'user', items: original.items.map(item => ({ ...item, id: item.id.replace('turn:29:', 'turn:30:') })) };
+    await persistCommittedTurn({ sessionId: 'c1', source: 'live', turn: original });
+    // Simulate a row already written by the old producer; its original source marker was not stored.
+    await persistCommittedTurn({ sessionId: 'c1', source: 'live', turn: duplicate });
+    await persistCommittedTurn({ sessionId: 'c1', source: 'live', turn: turn('new-live', 'new input') });
+    expect(fixture.sqlite.prepare('SELECT COUNT(*) AS n FROM session_turns').get()).toEqual({ n: 3 });
+    expect((await readStoredTurns('c1')).turns.map(row => row.seq)).toEqual([0, 2]);
+    expect((await readStoredTurns('c1', { fromSeq: 1 })).turns.map(row => row.seq)).toEqual([2]);
+    const older = await readStoredTurns('c1', { before: 2, limit: 1 });
+    expect(older.turns.map(row => row.seq)).toEqual([0]);
+    expect(older.originTurnIds).toEqual([original.id]);
+    expect(fixture.sqlite.prepare('SELECT COUNT(*) AS n FROM session_turns').get()).toEqual({ n: 3 });
+    const differentIds = { ...duplicate, id: 'c1:turn:33', items: duplicate.items.map((item, index) => ({ ...item,
+      id: `c1:turn:33:message:${index ? '00000000-0000-4000-8000-000000000002' : '00000000-0000-4000-8000-000000000001'}`,
+    })) };
+    await persistCommittedTurn({ sessionId: 'c1', source: 'live', turn: differentIds });
+    // Identical words with new native identities, and genuinely live rows, must both remain.
+    await persistCommittedTurn({ sessionId: 'c1', source: 'live', turn: { ...original, startedAt: 3000, endedAt: 4000 } });
+    expect((await readStoredTurns('c1')).turns.map(row => row.seq)).toEqual([0, 2, 3, 4]);
   });
 
   it('重放吃进来之后,后续 live 接着往下长,不覆盖前面的', async () => {

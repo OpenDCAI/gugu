@@ -3,6 +3,7 @@
 // beta coexist on one machine: each gets its own single-instance lock, userData, and dock identity.
 // The desktop main bundle reads the SAME GUGU_TIER (via vite define) to pick its default home
 // (~/.gugu vs ~/.gugu-beta); core's resolveGuguHome is untouched so the standalone CLI default stays ~/.gugu.
+const { guguLinkScheme } = require('./packages/core/src/shared/ui/linkScheme.mjs')
 const tier = process.env.GUGU_TIER || 'production'
 const buildDistribution = process.env.GUGU_BUILD_DISTRIBUTION || 'local'
 if (buildDistribution !== 'local' && buildDistribution !== 'published') {
@@ -193,7 +194,8 @@ if (macProvisioningProfile) {
 /**
  * 主程序的权限 = 公共那份 + 描述文件授权的三项。**只给主程序**:辅助进程(Helper、tmux、原生助手)没有自己的
  * 描述文件,声明受限权限会被系统当场杀掉,所以它们仍用 entitlementsInherit 那份公共的。
- * 钥匙串组取 `<团队>.<Mac 标识>`(描述文件允许 `<团队>.*`),Touch ID 通行密钥存在这一组里。
+ * 钥匙串组取 `<团队>.<Mac 标识>`,外加 Touch ID 通行密钥专用的 `<团队>.<Mac 标识>.webauthn`(Electron 文档的
+ * 惯例写法;运行期 macWebAuthn.ts 按同一规则从描述文件推出它)。描述文件允许 `<团队>.*`。
  */
 function macMainEntitlements() {
   if (!macProvisioningProfile) return macEntitlements
@@ -203,7 +205,7 @@ function macMainEntitlements() {
     '    <!-- @@@7394 描述文件授权的受限权限(由 electron-builder.cjs 按 tier 生成,❌ 手改) -->',
     `    <key>com.apple.application-identifier</key>\n    <string>${appIdentifier}</string>`,
     `    <key>com.apple.developer.team-identifier</key>\n    <string>${teamId}</string>`,
-    `    <key>keychain-access-groups</key>\n    <array>\n      <string>${appIdentifier}</string>\n    </array>`,
+    `    <key>keychain-access-groups</key>\n    <array>\n      <string>${appIdentifier}</string>\n      <string>${appIdentifier}.webauthn</string>\n    </array>`,
   ].join('\n')
   const base = fs.readFileSync(macEntitlements, 'utf8')
   if (!base.includes('  </dict>\n</plist>')) throw new Error(`${macEntitlements} 的结尾变了,生成主程序权限的拼接点对不上`)
@@ -251,7 +253,7 @@ module.exports = {
   artifactName: t.artifactPrefix + '-${version}-${arch}.${ext}',
   // #6387 一条通道一个链接前缀(与 src/session/shared/extensions/link-scheme.ts 同一条规则):
   // 正式版与 Beta 同机并存,两家都认 gugu:// 时,系统把链接交给谁取决于谁最后启动过。
-  protocols: [{ name: 'gugu', schemes: [tier === 'production' ? 'gugu' : `gugu-${String(tier).toLowerCase().replace(/[^a-z0-9-]/g, '-')}`] }],
+  protocols: [{ name: 'gugu', schemes: [guguLinkScheme({ tier, devLaunch: false })] }],
   // @@@native-abi-owner (#2282) - native ABI 的唯一 rebuild owner = 下方 beforePack 里的
   // @electron/rebuild(electron 44 ABI 149,按 context.arch 逐架构重建后再打该架构的包)。
   // electron-builder 自带的 npmRebuild 阶段在本仓不可用,必须关:#2274 把 node-pty/better-sqlite3/
@@ -439,6 +441,15 @@ module.exports = {
     // `shamefully-hoist` 这类扁平安装场景当保险 —— 那时它确实能挡下 1~2 份 230MB。
     // ❌ 别据此以为"改动前包里有 232MB 被省掉了",改动前也没有。
     '!node_modules/@anthropic-ai/claude-agent-sdk-*/**',
+    // #41 files nothing loads at runtime: native build intermediates, vendored sources already compiled into
+    // the shipped .node, and TypeScript sources/types (Node refuses to strip types under node_modules).
+    // ❌ Broad *.md / test/ / *.c rules: playwright requires lib/mcp/test/*.js and reads lib/**/*.md, and
+    // npm's bundled node-gyp needs src/*.cc.
+    '!node_modules/**/build/Release/obj/**',
+    '!node_modules/**/build/Release/*.lib',
+    '!node_modules/**/*.{iobj,ipdb,exp,ilk,obj,tlog}',
+    '!node_modules/**/deps/**/*.{c,h,cc,cpp,hpp}',
+    '!node_modules/**/*.{ts,mts,cts}',
   ],
   // @@@kill-asar (#2299 / 0.2.26 闪退治本) — asar 关闭:整个 app 落地为 Contents/Resources/app/ 一棵
   // 真实目录树,不再有 app.asar(虚拟 fs)+ app.asar.unpacked(真实旁挂)的「双世界」。原本 asarUnpack
@@ -450,6 +461,9 @@ module.exports = {
   // 「unpacked 模块的 JS 依赖漏在 asar 侧、require 链炸穿」。符号隔离(-fvisibility=hidden,见 beforePack)
   // 是独立机制、与 asar 无关,保留。代价:装机后文件散落磁盘(非单一 archive),Windows 深路径需实测。
   asar: false,
+  // #41 Chromium's own UI strings (.pak) only for the product's two UI languages; the product picks its
+  // language from app.getPreferredSystemLanguages(), not from these files.
+  electronLanguages: ['zh-CN', 'en-US'],
   // @@@electron-fuses (#7195) — 翻哪几项、没翻哪几项及原因,全在 scripts/electron-fuses.cjs。
   electronFuses: resolveElectronFuses({ tier }),
   extraResources,

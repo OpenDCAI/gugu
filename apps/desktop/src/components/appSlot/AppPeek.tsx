@@ -4,19 +4,15 @@ import { ChevronLeft, Maximize2, X } from '@/lib/icons'
 import { sessionPeek } from '../../session/renderer/app/session-peek'
 import { APP_OPEN_WITH_EVENT, type AppOpenWithDetail, type PeekTarget } from '../../session/shared/extensions/app-runtime-protocol'
 import type { FileOpenerCandidate } from '../../session/shared/extensions/file-openers'
-import { localizedManifestText } from '../../session/shared/extensions/catalog'
-import { installedExtensionsStore } from '../../session/renderer/features/extensions/installed-extensions-store'
 import { useMobileShell } from '../../hooks/useMobileShell'
 import { platform } from '../../platform'
-import { openAttachmentInSystemApp } from '../../lib/attachmentBytes'
-import { classifyDocumentPreview } from '../chat/documentPreview'
-import { MessageFilePreviewPanel } from '../chat/MessageFilePreviewPanel'
-import { readPreview, type PreviewFile } from '../chat/useMessageFilePreview'
-import { Button } from '../ui/Button'
+import { followLink } from '../../lib/guguLinks'
+import { MessageFilePreview } from '../chat/MessageFilePreview'
 import { IconButton } from '../ui/IconButton'
 import { PaneHeader } from '../ui/Pane'
 import { ClaimedPage } from './ClaimedPage'
 import { PhoneAppFrame } from './PhoneAppFrame'
+import { OpenWithPick } from './OpenWithPick'
 
 // Desktop-only and phone-only halves, loaded where they are drawn.
 const PeekLocalFile = lazy(() => import('../../session/renderer/features/extensions/peek-local-file').then((m) => ({ default: m.PeekLocalFile })))
@@ -26,7 +22,10 @@ export function AppPeek({ target, slotKey, beside, onClose }: { target: PeekTarg
   const { t } = useTranslation('messaging')
   const mobile = useMobileShell()
   // A chat file nobody here opens is the host's own preview, header and all (its back closes the peek).
-  if (target.kind === 'chat' && target.detail.choice.kind === 'none') return <ChatFilePeek target={target} onClose={onClose} />
+  if (target.kind === 'chat' && target.detail.choice.kind === 'none') {
+    const { detail } = target
+    return <MessageFilePreview key={`${detail.itemId}:${detail.file.version}`} fill mobile={mobile} file={{ kind: 'file', document: detail.file.document, fileName: detail.name, mimeType: detail.file.contentType, sizeBytes: detail.file.size, source: { kind: 'item', itemId: detail.itemId, version: detail.file.version } }} onClose={onClose} />
+  }
   const title = target.kind === 'chat' ? target.detail.name : target.kind === 'local' ? target.name : t('chatArea.peek.session')
   const full = openFull(target)
   return (
@@ -76,27 +75,18 @@ export function AppPeek({ target, slotKey, beside, onClose }: { target: PeekTarg
 function openFull(target: PeekTarget): (() => void) | null {
   if (target.kind === 'chat') return () => window.dispatchEvent(new CustomEvent<AppOpenWithDetail>(APP_OPEN_WITH_EVENT, { detail: target.detail }))
   if (target.kind === 'session' && platform.kind === 'electron') {
-    return () => void import('./peekFullSession').then(({ openSessionInFull }) => openSessionInFull(target))
+    return () => void followLink({ kind: 'session', sessionId: target.sessionId, projectId: target.projectId, ...(target.deviceId ? { deviceId: target.deviceId } : {}) })
   }
   return null
 }
 
 /** A chat file an App here opens: that App's page made for the file (as 「用 X 打开」 makes it); several, the person picks. */
 function ChatFileOpener({ detail, slotId }: { detail: AppOpenWithDetail; slotId: string }) {
-  const { t } = useTranslation('messaging')
   const [picked, setPicked] = useState<FileOpenerCandidate | null>(detail.choice.kind === 'one' ? detail.choice.candidate : null)
   if (!picked) {
-    const candidates = detail.choice.kind === 'choose' ? detail.choice.candidates : []
-    return (
-      <div className="flex flex-col gap-3 !p-4" data-testid="app-peek-open-with">
-        <div className="text-[length:var(--font-body)] font-semibold text-[var(--text-primary)]">{t('chatArea.openWith.title', { name: detail.name })}</div>
-        {candidates.map((candidate) => (
-          <Button key={candidate.tabKind} variant="secondary" data-open-with={candidate.tabKind} onClick={() => setPicked(candidate)}>
-            {localizedManifestText(candidate.app, installedExtensionsStore.locale).name}
-          </Button>
-        ))}
-      </div>
-    )
+    return detail.choice.kind === 'choose' ? (
+      <div className="!p-4"><OpenWithPick detail={{ ...detail, choice: detail.choice }} onPick={setPicked} testId="app-peek-open-with" /></div>
+    ) : null
   }
   return platform.kind === 'electron' ? (
     <ClaimedPage slotId={slotId} chatId={detail.chatId} kind={picked.tabKind} itemId={detail.itemId} />
@@ -109,50 +99,6 @@ function ChatFileOpener({ detail, slotId }: { detail: AppOpenWithDetail; slotId:
       onOpenWith={(asked) => window.dispatchEvent(new CustomEvent<AppOpenWithDetail>(APP_OPEN_WITH_EVENT, { detail: asked }))}
       testId="app-peek-frame"
       missingTestId="app-peek-missing"
-    />
-  )
-}
-
-/** A chat file nobody here opens: the chat's own preview of it, read the one way the chat reads it (`readPreview`). */
-function ChatFilePeek({ target, onClose }: { target: Extract<PeekTarget, { kind: 'chat' }>; onClose: () => void }) {
-  const { t } = useTranslation('messaging')
-  const mobile = useMobileShell()
-  const file: PreviewFile = {
-    kind: 'file',
-    fileName: target.detail.name,
-    mimeType: target.file.contentType,
-    sizeBytes: target.file.size,
-    source: { kind: 'item', itemId: target.detail.itemId, version: target.file.version },
-  }
-  const kind = classifyDocumentPreview(file)
-  const [read, setRead] = useState<{ content: string | ArrayBuffer | null; videoUrl?: string; error?: string } | null>(null)
-  useEffect(() => {
-    let live = true
-    setRead(null)
-    if (kind !== 'unsupported') {
-      void readPreview(file, kind).then(
-        (done) => live && setRead(done),
-        (error) => live && setRead({ content: null, error: t(error instanceof Error && error.message === 'gone' ? 'attachmentView.fileGone' : 'attachmentView.fileUnavailable') }),
-      )
-    }
-    return () => {
-      live = false
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- the item and its version are the file's identity
-  }, [target.detail.itemId, target.file.version])
-  const system = () => void openAttachmentInSystemApp(file.source, file.fileName)
-  return (
-    <MessageFilePreviewPanel
-      fill
-      mobile={mobile}
-      file={file}
-      kind={kind}
-      content={read?.content ?? null}
-      {...(read?.videoUrl ? { videoUrl: read.videoUrl } : {})}
-      loading={kind !== 'unsupported' && read === null}
-      {...(read?.error ? { error: read.error } : kind === 'unsupported' ? { error: t('chatArea.peek.unsupported') } : {})}
-      onOpenExternal={system}
-      onClose={onClose}
     />
   )
 }

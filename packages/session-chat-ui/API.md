@@ -256,7 +256,7 @@ Callbacks injected by the host to respond to user actions:
 | `onViewImage` | `({ attachment, itemId, source }) => void` | User clicked an image thumbnail in a user message. |
 | `onStop` | `({ itemId }) => void` | User clicked the stop button during generation. |
 | `classifyLink` | `(href) => { kind: 'workspace-file'; path: string; at? } \| { kind: 'group-file'; itemId } \| { kind: 'external' }` | Classify a markdown `href` at render time (must be synchronous). |
-| `onOpenGroupFile` | `({ itemId }) => void` | User clicked a link to a group's file (`gugu-file://<itemId>`). |
+| `onOpenLink` | `(href) => boolean` | The host opens a gugu resource link or file pill through its shared opener; `true` claims the click before local path handling. |
 | `onViewMermaid` | `({ chart, blockId, source }) => void` | User clicked a Mermaid diagram preview. |
 
 ---

@@ -57,7 +57,7 @@ export function DayInProgressCard({ part, name, askInChat, onManageConnectors }:
           text={
             part.state === 'ok'
               ? t('today.agenda.stale', { name, date: shortDate(part.value.localDate, t) })
-              : t('today.agenda.empty', { name })
+              : undefined
           }
           action={t('today.agenda.plan', { name })}
           onAction={() => askInChat(t('today.agenda.planPrompt'))}
@@ -72,11 +72,11 @@ export function DayInProgressCard({ part, name, askInChat, onManageConnectors }:
   );
 }
 
-function DayNote({ title, text, action, onAction, testId }: { title?: string; text: string; action?: string; onAction?: () => void; testId?: string }) {
+function DayNote({ title, text, action, onAction, testId }: { title?: string; text?: string; action?: string; onAction?: () => void; testId?: string }) {
   return (
     <div className="ta-day-note" data-testid={testId}>
       {title ? <span className="ta-day-note-title">{title}</span> : null}
-      <span>{text}</span>
+      {text ? <span>{text}</span> : null}
       {action && onAction ? (
         <div>
           <button type="button" className="ta-pill-btn" onClick={onAction}>
@@ -186,7 +186,6 @@ function DaySources({ name, onManageConnectors }: { name: string; onManageConnec
         <Popover.Positioner side="bottom" align="end" sideOffset={8} collisionPadding={12}>
           <Popover.Popup className="ta-dialog ta-day-pop" data-testid="assistant-day-sources-pop">
             <h3 className="ta-dialog-title">{t('today.agenda.sourcesTitle')}</h3>
-            <p className="ta-page-sub">{t('today.agenda.sourcesBody', { name })}</p>
             <ul className="ta-day-kinds">
               {kinds.map((kind) => (
                 <li key={kind}>

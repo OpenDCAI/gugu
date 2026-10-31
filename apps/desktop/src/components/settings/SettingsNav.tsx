@@ -7,28 +7,27 @@ import { Pane, PaneHeader } from '../ui/Pane'
 import { ListRow } from '../ui/ListRow'
 import { IconButton } from '../ui/IconButton'
 import {
-  Bot,
-  BotFilled,
   Sparkles,
   SparklesFilled,
   Plug,
   PlugFilled,
   ChevronLeft,
   ChevronRight,
-  Folder,
-  FolderFilled,
   Globe,
   GlobeFilled,
   Palette,
   PaletteFilled,
+  Activity,
+  Folder,
+  FolderFilled,
 } from '@/lib/icons'
 import { useTranslation } from 'react-i18next'
 
 interface NavItem {
   key: ActiveSection
   labelKey: string
-  il: JSX.Element  // Solar linear (inactive)
-  ib: JSX.Element  // Solar bold/filled (active)
+  il: JSX.Element | null  // Solar linear (inactive)
+  ib: JSX.Element | null  // Solar bold/filled (active)
 }
 
 interface SettingsNavProps {
@@ -105,14 +104,6 @@ function IbSubscriptions() {
   return <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24"><path fill="currentColor" d="M14 4h-4C6.229 4 4.343 4 3.172 5.172c-.844.843-1.08 2.057-1.146 4.078h19.948c-.066-2.021-.302-3.235-1.146-4.078C19.657 4 17.771 4 14 4m-4 16h4c3.771 0 5.657 0 6.828-1.172S22 15.771 22 12q0-.662-.002-1.25H2.002Q2 11.338 2 12c0 3.771 0 5.657 1.172 6.828S6.229 20 10 20m-4-4.75a.75.75 0 0 0 0 1.5h4a.75.75 0 0 0 0-1.5zm6.5 0a.75.75 0 0 0 0 1.5H14a.75.75 0 0 0 0-1.5z"/></svg>
 }
 
-// 活跃:火苗 —— Solar「fire」,连续使用天数那一层意思
-function IlActivity() {
-  return <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M20 13.111C20 20.222 13.956 22 10.933 22C8.29 22 3 20.222 3 13.111c0-2.782 1.461-4.65 2.86-5.716c.778-.594 1.77-.003 1.87.971l.086.838c.105 1.02 1.033 1.857 1.893 1.298C11.394 9.407 12 6.775 12 5.333V5.01c0-1.43 1.444-2.35 2.602-1.512C17.165 5.35 20 8.584 20 13.11Z"/><path d="M8 18.445C8 21.289 10.489 22 11.733 22c1.09 0 3.267-.711 3.267-3.555c0-1.102-.59-1.845-1.16-2.274c-.398-.299-.957-.03-1.094.449c-.178.624-.823 1.016-1.152.456c-.3-.512-.3-1.28-.3-1.743c0-.636-.64-1.048-1.155-.674C9.106 15.409 8 16.68 8 18.445Z"/></g></svg>
-}
-function IbActivity() {
-  return <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24"><path fill="currentColor" d="M12.832 21.801c3.126-.626 7.168-2.875 7.168-8.69c0-5.291-3.873-8.815-6.658-10.434c-.619-.36-1.342.113-1.342.828v1.828c0 1.442-.606 4.074-2.29 5.169c-.86.559-1.79-.278-1.894-1.298l-.086-.838c-.1-.974-1.092-1.565-1.87-.971C4.461 8.46 3 10.33 3 13.11C3 20.221 8.289 22 10.933 22q.232 0 .484-.015C10.111 21.874 8 21.064 8 18.444c0-2.05 1.495-3.435 2.631-4.11c.306-.18.663.055.663.41v.59c0 .45.175 1.155.59 1.637c.47.546 1.159-.026 1.214-.744c.018-.226.246-.37.442-.256c.641.375 1.46 1.175 1.46 2.473c0 2.048-1.129 2.99-2.168 3.357"/></svg>
-}
-
 // App:四块圆角方格 —— Solar「widget」同一套 1.5 线宽画法(手机上从聊天装的 App,L9)
 function IlApps() {
   return <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" strokeWidth="1.5"><rect width="8" height="8" x="2.75" y="2.75" rx="2"/><rect width="8" height="8" x="13.25" y="2.75" rx="2"/><rect width="8" height="8" x="2.75" y="13.25" rx="2"/><rect width="8" height="8" x="13.25" y="13.25" rx="2"/></g></svg>
@@ -121,13 +112,6 @@ function IbApps() {
   return <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24"><g fill="currentColor"><rect width="9.5" height="9.5" x="2" y="2" rx="2.5"/><rect width="9.5" height="9.5" x="12.5" y="2" rx="2.5"/><rect width="9.5" height="9.5" x="2" y="12.5" rx="2.5"/><rect width="9.5" height="9.5" x="12.5" y="12.5" rx="2.5"/></g></svg>
 }
 
-// 聊天渠道:一个带三点的对话气泡 —— Solar「chat-round-dots」,同一套 1.5 线宽画法(在微信等聊天工具里找 agent)
-function IlChannels() {
-  return <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2S2 6.477 2 12c0 1.6.376 3.112 1.043 4.453c.178.356.237.763.134 1.148l-.595 2.226a1.3 1.3 0 0 0 1.591 1.592l2.226-.596a1.63 1.63 0 0 1 1.149.133A9.96 9.96 0 0 0 12 22Z"/><path strokeLinecap="round" strokeLinejoin="round" d="M8 12h.009m3.982 0H12m3.991 0H16"/></g></svg>
-}
-function IbChannels() {
-  return <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24"><path fill="currentColor" fillRule="evenodd" d="M12 2c5.523 0 10 4.477 10 10s-4.477 10-10 10c-1.6 0-3.111-.376-4.452-1.044a1.63 1.63 0 0 0-1.149-.133l-2.225.596a1.301 1.301 0 0 1-1.593-1.593l.596-2.225a1.63 1.63 0 0 0-.133-1.149A9.96 9.96 0 0 1 2 12C2 6.477 6.477 2 12 2m-4.009 9a1 1 0 1 0 0 2a1 1 0 0 0 0-2M12 11a1 1 0 1 0 0 2a1 1 0 0 0 0-2m4.009 0a1 1 0 1 0 0 2a1 1 0 0 0 0-2" clipRule="evenodd"/></svg>
-}
 // 这台手机:Solar「smartphone」同一套 1.5 线宽画法(#7199 手机当设备,只在手机壳上)
 function IlPhone() {
   return <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M4 10c0-3.771 0-5.657 1.172-6.828S8.229 2 12 2s5.657 0 6.828 1.172S20 6.229 20 10v4c0 3.771 0 5.657-1.172 6.828S15.771 22 12 22s-5.657 0-6.828-1.172S4 17.771 4 14z"/><path strokeLinecap="round" d="M15 19H9"/></g></svg>
@@ -146,16 +130,15 @@ const NAV_ITEMS: NavItem[] = [
   { key: 'devices', labelKey: 'settings.nav.devices', il: <IlDevices />, ib: <IbDevices /> },
   { key: 'model',   labelKey: 'settings.nav.model', il: <IlModel />,   ib: <IbModel />   },
   { key: 'usage',   labelKey: 'settings.nav.usage', il: <IlUsage />,   ib: <IbUsage />   },
+  { key: 'files', labelKey: 'settings.nav.files', il: <Folder size={15} />, ib: <FolderFilled size={15} /> },
   { key: 'subscriptions', labelKey: 'settings.nav.subscriptions', il: <IlSubscriptions />, ib: <IbSubscriptions /> },
-  { key: 'activity', labelKey: 'settings.nav.activity', il: <IlActivity />, ib: <IbActivity /> },
-  { key: 'channels', labelKey: 'settings.nav.channels', il: <IlChannels />, ib: <IbChannels /> },
   { key: 'apps',    labelKey: 'settings.nav.apps', il: <IlApps />,    ib: <IbApps />    },
   { key: 'phone',   labelKey: 'settings.nav.phone', il: <IlPhone />,   ib: <IbPhone />   },
   { key: 'about',   labelKey: 'settings.nav.about', il: <IlAbout />,   ib: <IbAbout />   },
   // 会话页画的那几格(product spec)。同一套 Solar linear / bold,尺寸与上面这些一样。
-  { key: 'sessions', labelKey: 'settings.nav.sessions', il: <Bot size={15} />, ib: <BotFilled size={15} /> },
+  { key: 'sessions', labelKey: 'settings.nav.sessions', il: null, ib: null },
   { key: 'interface', labelKey: 'settings.nav.interface', il: <Palette size={15} />, ib: <PaletteFilled size={15} /> },
-  { key: 'repository', labelKey: 'settings.nav.repository', il: <Folder size={15} />, ib: <FolderFilled size={15} /> },
+  { key: 'resource-monitor', labelKey: 'settings.nav.resource-monitor', il: <Activity size={15} />, ib: <Activity size={15} /> },
   { key: 'browser', labelKey: 'settings.nav.browser', il: <Globe size={15} />, ib: <GlobeFilled size={15} /> },
 ]
 
@@ -218,6 +201,7 @@ export function SettingsNav({ activeSection, sections, mobile = false, user, ass
               // 组与组之间靠留白 + 一行小标题分开(settings.css 的 gg-settings-nav-group)。
               <div key={group.id} role="group" aria-label={caption ?? undefined} className="gg-settings-nav-group" data-group={group.id}>
                 {caption ? <div className="gg-settings-nav-caption" title={caption}>{caption}</div> : null}
+                <div className="gg-settings-nav-group-items">
                 {group.items.map(({ key, labelKey, il, ib }) => {
                   // mobile 是单栏入口列表,无「当前选中」概念(那是桌面双栏的态);detail 全屏盖住后高亮也无人看见
                   const isActive = !mobile && activeSection === key
@@ -231,7 +215,7 @@ export function SettingsNav({ activeSection, sections, mobile = false, user, ass
                       role="button"
                       tabIndex={0}
                       aria-current={isActive ? 'page' : undefined}
-                      leading={isActive ? ib : il}
+                      leading={(isActive ? ib : il) ?? <span className="gg-settings-nav-spacer" aria-hidden="true" />}
                       title={t(labelKey)}
                       selected={isActive}
                       // #7333 桌面左栏是导航:胶囊行。手机「我的」是整屏入口列表,不是导航胶囊。
@@ -251,6 +235,7 @@ export function SettingsNav({ activeSection, sections, mobile = false, user, ass
                     />
                   )
                 })}
+                </div>
               </div>
             )
           })}

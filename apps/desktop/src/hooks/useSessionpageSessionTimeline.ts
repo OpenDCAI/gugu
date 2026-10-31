@@ -7,7 +7,7 @@ import type {
   TimelineAfterResult,
   TimelineSnapshot
 } from '@gugu/session-core/session-record/contract'
-import type { QuestionAnswer } from '@gugu/session-core/session-record/contract'
+import { settlementFromWire, type QuestionAnswer } from '@gugu/session-core/session-record/contract'
 import { latestAgentQuestion } from '../lib/agentQuestion'
 import { sessionpageSessionTimelineChannel } from '@/session/shared/core/session-timeline/sessionTimelineEvents'
 import {
@@ -32,7 +32,7 @@ export type SessionpagePendingPermission = {
   /** 连同这一条在内还有几条在等。 */
   queueCount: number
   /** D-31 宿主替 agent 问的(装 App):按它自己的卡画,答案带上「给哪些 agent」。 */
-  host?: Settlement['host']
+  origin?: Settlement['origin']
 }
 
 export type SessionpageSessionTimeline = {
@@ -42,7 +42,7 @@ export type SessionpageSessionTimeline = {
   respondQuestion: (itemId: string, answers: readonly QuestionAnswer[]) => Promise<SessionpageSessionRespondResult>
   /** 经时间线的 `sessionRespond` 作答 —— 与手机、会话页同一条 CAS + resolvePermission 路径。 */
   /** `extra`: an App install's answer (D-31) — the fingerprint of the sheet shown, and where its tools are given. */
-  respondPermission: (itemId: string, optionId: string, extra?: { digest?: string; enableIn?: string[] }) => Promise<SessionpageSessionRespondResult>
+  respondPermission: (itemId: string, optionId: string, extra?: { digest?: string }) => Promise<SessionpageSessionRespondResult>
 }
 
 type RpcResult<T> = { ok: true; value: T } | { ok: false; error?: unknown }
@@ -88,7 +88,7 @@ function pendingPermissionFrom(
       kind: option.kind ?? ''
     })),
     queueCount: pending.length,
-    ...(head.host ? { host: head.host } : {})
+    ...(head.origin ? { origin: head.origin } : {})
   }
 }
 
@@ -102,7 +102,7 @@ function indexSettlements(
   settlements: readonly Settlement[]
 ): Record<string, Settlement> {
   const next = { ...base }
-  for (const settlement of settlements) next[settlement.itemId] = settlement
+  for (const settlement of settlements) next[settlement.itemId] = settlementFromWire(settlement)
   return next
 }
 
@@ -256,7 +256,7 @@ export function useSessionpageSessionTimeline(sessionId: string | null): Session
   }, [sessionId, attempt])
 
   const respondPermission = useCallback(
-    async (itemId: string, optionId: string, extra?: { digest?: string; enableIn?: string[] }): Promise<SessionpageSessionRespondResult> => {
+    async (itemId: string, optionId: string, extra?: { digest?: string }): Promise<SessionpageSessionRespondResult> => {
       const api = desktopIpc()
       if (!sessionId || !api) throw new Error('sessionpage session timeline is unavailable')
       const raw = (await api.invoke('sessionTimeline.sessionRespond', {
@@ -264,7 +264,6 @@ export function useSessionpageSessionTimeline(sessionId: string | null): Session
         itemId,
         optionId,
         ...(extra?.digest ? { digest: extra.digest } : {}),
-        ...(extra?.enableIn ? { enableIn: extra.enableIn } : {}),
         kind: 'permission',
         by: 'desktop'
       })) as RpcResult<SessionpageSessionRespondResult>

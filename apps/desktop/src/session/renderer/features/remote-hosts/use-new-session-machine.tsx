@@ -39,12 +39,9 @@ export function useNewSessionMachine(localProjectPicker: ReactElement): {
     if (target) setRemote(target);
   }, [pendingTarget]);
   // 顺序(本机 → 在线 → 离线)由选择器自己排(orderMachines),各入口同一份。
-  // #7199 个人助理住的那台不接人开的任务,也不给人看(owner 10-15「云设备通常不能创建任务，它就是个人助理的宿主机」)。
   const devices: MachineChoice[] = [
     localMachineChoice(LOCAL_DEVICE, translate('task.deviceLocal')),
-    ...[...remoteHostsStore.hosts.values()]
-      .filter(({ device }) => !device.assistantHome)
-      .map(({ device }) => remoteChoice(device.id, translate)),
+    ...remoteHostsStore.pickableMachineIds().map(id => remoteChoice(id, translate)),
   ];
   const devicePicker = (
     <MachinePicker

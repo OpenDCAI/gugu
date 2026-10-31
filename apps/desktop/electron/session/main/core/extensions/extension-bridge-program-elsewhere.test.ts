@@ -48,6 +48,7 @@ vi.mock('@main/core/sessionpage/sessionpage-session-agent', () => ({ agentIdsByS
 vi.mock('@main/core/extensions/extension-agent-context', () => ({
   agentSessionContext: async (id: string) => (id === 's-here' ? { sessionId: id, projectId: 'p-here', workspaceRoot: '/tmp' } : null),
 }));
+vi.mock('@main/core/extensions/app-files', () => ({ resourceChatOf: async (id: string) => id }));
 vi.mock('@main/lib/logger', () => ({ log: { warn: vi.fn(), error: vi.fn(), info: vi.fn() } }));
 // The other machines: s-there is on the server, s-other on a laptop.
 const elsewhere = vi.hoisted(() => ({

@@ -15,7 +15,13 @@
 // gugu-bundle-emdash-taskpage esbuild plugin bundles the pair → dist-electron/taskpage/
 // emdash-main-bridge.cjs with electron + native addons (better-sqlite3, node-pty, @parcel/watcher)
 // externalized (required at runtime).
-import { openExtensionLink, type ExtensionLinkOutcome } from './core/extensions/extension-links'
+import { takeLastExit } from '../../lib/exit-reason'
+import type { BirthGroup } from '@shared/core/sessions/create-session';
+export { readCurrentActivityInput,readCurrentAssistantWorkInput } from './core/sessions/session-activity-source'
+import { installActivityCollector } from '@main/core/activity/collector'
+import { integrationConnectionService } from './core/integrations/integration-connection-service'
+import { openLink } from './core/extensions/gugu-links'
+import type { LinkOpenOutcome } from '@shared/extensions/open-link'
 import * as path from 'node:path'
 import { appSourcesRoot, extensionDataRoot, extensionsService } from './core/extensions/extensions-root'
 import { appKey } from '@shared/extensions/app-identity'
@@ -50,6 +56,7 @@ export { setSessionAgentNotificationCopy } from './core/agent-hooks/notification
 export type { SessionAgentNotificationCopy } from './core/agent-hooks/notification-copy'
 // 宿主的界面语言(App 名字等由会话页这侧拼给人看的字按它挑语言),同上由宿主注入。
 export { setSessionHostLocale } from './core/host-locale'
+export { startNativeConversationInboxHost } from './core/sessions/native-conversation-inbox'
 import { createHash, randomUUID } from 'node:crypto'
 import { performance } from 'node:perf_hooks'
 import { app, BrowserWindow, MessageChannelMain, session as electronSession, type IpcMain } from 'electron'
@@ -70,6 +77,8 @@ import { registerRPCRouter } from '@shared/lib/ipc/rpc'
 // this separately bundled module graph. Re-export the setter so the host can
 // install the same gate in this bundle instead of mutating a duplicate module.
 export { setPlatformRecoveryReadyGate } from './core/sessions/platform-recovery-gate'
+export { setSessionAdmissionPreparation } from './core/sessions/session-admission-preparation'
+export { assistantPanelLocal } from './core/app/assistant-panel-local'
 import { registerWebviewAttachPolicy } from '@main/app/webview-policy'
 import { setupPreviewProtocol } from '@main/core/files/preview-protocol'
 import {
@@ -93,6 +102,7 @@ import {
 } from '@main/core/extensions/extension-background'
 import { rpcRouter } from '@main/rpc' // ← the complete router, every controller
 import { initializeDatabase } from '@main/db/initialize'
+import { migrateProjectKind } from '@main/core/projects/operations/migrate-project-kind'
 import { closeDatabase, db, sqlite } from '@main/db/client'
 import { resolveDatabasePath } from '@main/db/path'
 import { backupBeforeTaskToSession, runTaskToSessionOnce } from '../../migrations/task-to-session'
@@ -127,13 +137,14 @@ import {
   migrateLegacyBrowserPartitionDirs,
 } from '@main/core/browser/browser-partition-cleanup'
 import { sweepOrphanSessionAttachmentDirectories } from '@main/core/sessions/attachments/session-attachment-store'
-import { viewStateService } from '@main/core/view-state/view-state-service'
 import { projectSettingsService } from '@main/core/projects/settings/project-settings-service'
 import { getProjectById, getProjects } from '@main/core/projects/operations/getProjects'
 import { resolveAgentSessionProject } from '@main/core/projects/operations/resolve-agent-session-project'
 import { resolveSession, resolveWorkspace } from '@main/core/projects/utils'
 import { deleteSession } from '@main/core/sessions/deleteSession'
 import { getSessions } from '@main/core/sessions/getSessions'
+import { sessionArchivalInventory, sessionArchivalState } from '@main/core/sessions/session-archival'
+export { sessionArchivalState as emdashSessionArchivalState, sessionMessageRefused as emdashSessionMessageRefused } from '@main/core/sessions/session-archival'
 import { mcpLibraryService, planLibraryMcpDelivery } from '@main/core/mcp-library/service'
 import { mcpService } from '@main/core/mcp/services/McpService'
 import type { LibraryMcpServer } from '@shared/mcp-library'
@@ -152,6 +163,7 @@ import { projectEvents } from '@main/core/projects/project-events'
 import { installClearDataPolyfill } from '@main/app/session-clear-data-polyfill'
 import { sessionService } from '@main/core/sessions/session-service'
 import { attachAgentToSession } from '@main/core/sessions/attach-agent-to-session'
+import { rollbackAgentSessionStartup } from '@main/core/sessions/agent-session-startup'
 import { assertNoDeliveryEnvelopeInPersistedText } from '@main/core/sessions/build-session-row'
 import {
   isGuguPermissionMode,
@@ -185,6 +197,7 @@ import { LocalExecutionContext } from '@main/core/execution-context/local-execut
 import { automationsService } from '@main/core/automations/automations-service'
 import { appService } from '@main/core/app/service'
 import { appSettingsService } from '@main/core/settings/settings-service'
+import { settleTerminalEnabled } from '@main/core/settings/terminal-visibility'
 import { browserWebContentsRegistry } from '@main/core/browser/browser-webcontents-registry'
 import { setBrowserCorsRelaxationSettings } from '@main/core/browser/browser-profile-session'
 import { promptLibraryService } from '@main/core/prompt-library/service'
@@ -204,14 +217,17 @@ import {
 import { acpAgentStatusBridge } from '@main/core/acp/agent-status-bridge'
 import {
   listSessionStates,
+  setConnectionConfigRootResolver,
   setSessionStatusFeed,
 } from '@main/core/session-timeline/service'
+import { connectionConfigRoot } from '@main/core/agents/harness-connections'
 import { acpSessionLive, setSessionCancel, setSessionWake } from '@main/core/session-timeline/write-bridge'
 import { setOtherMachines } from '@main/core/sessions/session-family'
 import { setAgentSessionHost } from '@main/core/sessions/agent-session-controller'
 import { answerAppMessage } from '@main/core/extensions/extension-send'
 import { answerAppReadFile } from '@main/core/extensions/app-files-elsewhere'
 import { answerAppCall } from '@main/core/extensions/app-programs-elsewhere'
+export { spawnAgentForExtension } from '@main/core/extensions/extension-agents'
 export { answerAppMessage, answerAppReadFile, answerAppCall, setAgentSessionHost }
 import { readAcpSessionSummaries } from '@main/core/acp/session-summary-reader'
 import { flushLogWrites, setLogFileOwner } from '@main/lib/file-logger'
@@ -322,7 +338,7 @@ export {
   type ExtensionHostWindowChannel,
 } from '@main/core/extensions/extension-bridge-relay'
 import { reconcileResourceSampler, stopResourceSampler } from '@main/core/resource-monitor/resource-sampler'
-import { localDependencyManager } from '@main/core/dependencies/dependency-managers'
+import { ensureAgentDependenciesProbed, localDependencyManager } from '@main/core/dependencies/dependency-managers'
 import { ensureAgentInstalled } from '@main/core/agents/ensure-agent-installed'
 import { DEPENDENCIES } from '@main/core/dependencies/registry'
 import {
@@ -332,15 +348,10 @@ import {
 import { projectManager } from '@main/core/projects/project-manager'
 import { runtimeManager } from '@main/core/runtime/runtime-manager'
 import { appScope } from '@main/app/app-scope'
-// @@@sessionpage TASKPAGE-FUSION otty-state — the consolidated agent-attention tracker (below) taps the
-// agentHookService in-process 'agent:event' hook (NOT the events bus: `events` is a main↔renderer IPC
-// bridge — a main-side events.on only receives renderer→main sends, so it would NEVER see the status
-// events agentHookService emits main→renderer). session:deleted (a real main-internal emitter) prunes.
 import { sessionEvents } from '@main/core/sessions/session-events'
-import { type AgentEvent, type AgentStatus } from '@shared/core/agents/agentEvents'
-import { busyForVersionSwitch, needsAttention, parseAgentStatusView, type AgentStatusView } from '@gugu/core/shared/agentStatus'
+import { type AgentEvent } from '@shared/core/agents/agentEvents'
+import { busyForVersionSwitch, parseAgentStatusView, type AgentStatusView } from '@gugu/core/shared/agentStatus'
 import {
-  sessionInScope,
   type AgentStatusChange,
   type SessionScope,
 } from '@shared/core/sessions/sessionEvents'
@@ -385,7 +396,7 @@ function installSessionClearDataShim(): void {
 /** 咕咕 server(server-entry.ts):同一份主进程,没有窗口、没有渲染层。 */
 const HEADLESS_SERVER = process.env.GUGU_SERVER_MODE === '1'
 
-export async function bootEmdashModule(ipcMain: IpcMain): Promise<void> {
+export async function bootEmdashModule(ipcMain: IpcMain, discovery?: Pick<SessionHostBootOptions, 'scheduleDiscovery'>): Promise<void> {
   // #6264 没有窗口:会话里的 open_in_tab 送到正看着这条会话的桌面,❌ 问一个不存在的渲染层干等超时(remote-pane.ts)。
   if (HEADLESS_SERVER) setRemotePaneOpener(sharedRemotePaneRoute())
   const electronIpc = createElectronHostIpc({ ipcMain, BrowserWindow, MessageChannelMain })
@@ -400,6 +411,7 @@ export async function bootEmdashModule(ipcMain: IpcMain): Promise<void> {
   await bootSessionHostCore({
     hostIpc: composeHostIpc(devWs ? [electronIpc, deviceHost, devWs] : [electronIpc, deviceHost]),
     browserFeatures: true,
+    ...discovery,
   })
 }
 
@@ -421,6 +433,8 @@ export type SessionHostBootOptions = {
   hostIpc: HostIpc
   /** 只有 Electron 窗口宿主为 true:<webview> 准入、扩展桥、内置浏览器分区。无头宿主 false。 */
   browserFeatures: boolean
+  /** The host owns the first-request boundary; ordinary desktop hosts discover immediately. */
+  scheduleDiscovery?: (work: () => Promise<void>) => Promise<void>
 }
 
 /**
@@ -503,6 +517,13 @@ export async function bootSessionHostCore(options: SessionHostBootOptions): Prom
   await backupBeforeTaskToSession(sqlite, resolveDatabasePath())
   await backupBeforeSessionNaming(sqlite, resolveDatabasePath())
   await initializeDatabase()
+  // #609 已有的、登记在 ~ / task-home / GUGU_HOME 底下的项目改成 workspace(会话随之列进「任务」);幂等,失败不拦启动。
+  try {
+    const demoted = migrateProjectKind(path.join(app.getPath('userData'), 'project-kind-migration.json'))
+    if (demoted.length > 0) log.info('project-kind: app-kept directories are workspaces now', { demoted })
+  } catch (error) {
+    log.error('project-kind: migration failed; retrying next start', { error: String(error) })
+  }
   await tmuxBackendStartupSweepSettled()
   await runTaskToSessionOnce({ db: sqlite, userData: app.getPath('userData') }).then(
     (summary) => { if (summary) log.info('task-to-session: segment 2 done', { summary }) },
@@ -550,7 +571,8 @@ export async function bootSessionHostCore(options: SessionHostBootOptions): Prom
       log.error('[session-host] 开机收残问不出 tmux 会话列表,按一个都没活下来收', { error: String(error) })
       return new Set<string>()
     })
-    await agentStatusWriter.settleAfterRestart(tmuxSessionNames)
+    // 上一次是怎么退出的(更新 / 重启 / 没正常退出):被打断的那几条会话据此说清原因。读一次就删。
+    await agentStatusWriter.settleAfterRestart(tmuxSessionNames, takeLastExit(dataDir))
     // 上一个进程投到一半就没了的消息：现在认领为「结果未知」终态（不能重投，只能如实说）。
     // 必须在任何人看见会话之前做完 —— 正常在途不经过这里，所以新建会话不会闪这条提示。
     claimInterruptedDispatches()
@@ -589,11 +611,6 @@ export async function bootSessionHostCore(options: SessionHostBootOptions): Prom
   // 分区改名后的目录搬迁:必须赶在任何浏览器会话打开之前(下面注册 RPC 之前)同步做完,见函数注释。
   if (browserFeatures) migrateLegacyBrowserPartitionDirs()
   if (browserFeatures) void cleanupLegacyBrowserPartitions()
-  try {
-    viewStateService.pruneOrphans()
-  } catch (e: unknown) {
-    log.warn('view-state: failed to prune orphaned entries', { error: e })
-  }
 
   // #6387 上一次运行的会话都已随进程结束:它们冻结的扩展副本、以及卸载时延后删的数据夹,在这里清掉。
   // 放在任何会话启动之前,才保证清的都是没人在用的。
@@ -631,12 +648,23 @@ export async function bootSessionHostCore(options: SessionHostBootOptions): Prom
   // owner:「他是个美国人的服务吗?感觉我很多软件用户是国内的,这种数据外流可能不安全」。
   // 那条管子默认是开的,只差构建时传一个 key 就会往美国发;所以是拆,不是藏开关。
 
+  // #26 订阅连接的开机对齐:趁还没有任何会话、自动化也还没起,把默认账号的凭据放到会话要读的地方(见 harness-connections)。
+  try {
+    const { alignHarnessConnectionsAtStartup } = await import('@main/core/agents/harness-connections')
+    await alignHarnessConnectionsAtStartup()
+  } catch (e: unknown) {
+    log.warn('harness connections: startup alignment failed; sessions keep the credentials already in place', { error: e })
+  }
+
   // --- Eager service .initialize()/.start() block (index.ts:146-156). ---
   projectSettingsService.initialize()
   prSyncScheduler.initialize()
+  stopActivityCollector = installActivityCollector()
   automationsService.start()
   appService.initialize()
   await appSettingsService.initialize()
+  // 「终端」开关还没定值(升级上来的第一次启动)就按老用户迁移规则算一次写回,渲染层与新会话都读这一份。
+  await settleTerminalEnabled().catch((e) => log.warn('terminal setting: migration failed; it stays off until set', { error: e }))
   if (browserFeatures) {
     browserWebContentsRegistry.setKeyboardSettings(await appSettingsService.get('keyboard'))
   }
@@ -658,11 +686,7 @@ export async function bootSessionHostCore(options: SessionHostBootOptions): Prom
     log.error('Failed to start agent-config runtime process:', e)
   })
   acpAgentStatusBridge.initialize()
-  // @@@sessionpage TASKPAGE-FUSION otty-state — start the consolidated agent-attention tracker so the gugu
-  // host can badge the 任务 sidebar tab with how many agents are blocked on the human. Additive listener on
-  // the already-emitting status channel (must run AFTER agentHookService/acpAgentStatusBridge so the
-  // channel is live). See onEmdashAttentionChanged below.
-  installAttentionTracker()
+  installPlatformCheckpointFeed()
   // #6334 用量页的运行时长底账:同一条 'agent:status' 输出的第二个订阅者,外加每分钟一次与
   // agent_status 列的对账(补上不经过那条事件的状态写入:出生即 working、restart)。
   installRunIntervalRecorder({ agentStatus: agentStatusWriter, sessionEvents })
@@ -682,6 +706,8 @@ export async function bootSessionHostCore(options: SessionHostBootOptions): Prom
   // ⚠️ 不跟着 browserFeatures 走:那道开关管的是浏览器 tab 扩展面,
   // 而手机看管页的状态与它无关 —— 挂上去等于「没开扩展就看不到 agent 在跑」。
   setSessionStatusFeed(onAgentStatus)
+  // 跑在非原生订阅连接上的 Claude 会话,记录在连接自己的配置根里:交给时间线服务去那里找(同样是注入,免得成环)。
+  setConnectionConfigRootResolver(connectionConfigRoot)
   // 手机端往一条**已经不活**的 ACP 会话里回话时,先按桌面端同一条「唤醒」把引擎拉起来。
   // 同样是注入(write-bridge 被本模块经 session-timeline 引着,反向 import 成环)。
   setSessionWake(ensureEmdashSession)
@@ -705,7 +731,9 @@ export async function bootSessionHostCore(options: SessionHostBootOptions): Prom
 
   // --- Post-registration reconcilers (index.ts:185-215). Fire-and-forget. ---
   void reconcileResourceSampler()
-  localDependencyManager.probeAll().catch((e: unknown) => {
+  const discover = () => ensureAgentDependenciesProbed(localDependencyManager)
+  const discovery = options.scheduleDiscovery ? options.scheduleDiscovery(discover) : discover()
+  discovery.catch((e: unknown) => {
     log.error('Failed to probe dependencies:', e)
   })
   // @@@3130 GitHub 账号对账**不在这里跑**。它三步里任何一步碰到已有数据都会写加密存储 →
@@ -715,6 +743,8 @@ export async function bootSessionHostCore(options: SessionHostBootOptions): Prom
   // ❌ 别把 reconcile 挪回开机。
 
 }
+
+let stopActivityCollector: (() => void) | null = null
 
 /**
  * Tears down the runtime worker processes the module spawned. The host folds this into its own
@@ -753,6 +783,7 @@ async function disposeEmdashModuleOnce(): Promise<void> {
   await runPhase('agent-config-runtime', disposeAgentConfigRuntimeProcess)
   await runPhase('module-scope', () => appScope.dispose())
   await runPhase('local-pty', disposeLocalPtySessions)
+  await runPhase('activity', () => { stopActivityCollector?.(); stopActivityCollector = null })
   await runPhase('database', closeDatabase)
   await runPhase('logging', flushLogWrites)
   await flushLogWrites()
@@ -796,10 +827,10 @@ export async function runEmdashExtensionAction(
   caller: { sessionId?: string; workspaceRoot?: () => Promise<string | null>; hasApp?: (extensionId: string) => Promise<boolean>; signal?: AbortSignal } = {},
 ): Promise<unknown> {
   const sessionId = caller.sessionId
-  return runExtensionAgentAction(action, {
+  const perform = (signal?: AbortSignal) => runExtensionAgentAction(action, {
     // D-31: an agent's install is asked as an approval in its session — wherever the person follows it — and here too.
     requestInstallConsent: sessionId
-      ? async (request) => askInstallInSession(sessionId, request, await requesterOf(sessionId), undefined, caller.signal)
+      ? async (request) => askInstallInSession(sessionId, request, await requesterOf(sessionId), undefined, signal)
       : requestExtensionInstallConsent,
     headless: HEADLESS_SERVER,
     // A Gugu server has no window to tell of an install (161 10-15: it installs Apps too): nothing to wait on there.
@@ -813,6 +844,9 @@ export async function runEmdashExtensionAction(
     ...(sessionId ? { callerAgent: async () => (await agentIdsBySession(process.env)).get(sessionId) ?? null } : {}),
     ...(caller.hasApp ? { callerHasApp: caller.hasApp } : {}),
   })
+  if (!sessionId) return perform(caller.signal)
+  const { runHumanTool, humanToolPending } = await import('./core/asks/human-tool-wait')
+  return runHumanTool<unknown>(sessionId, 'app_install', caller.signal, perform, humanToolPending)
 }
 
 /**
@@ -823,6 +857,7 @@ export function emdashExtensionAgentContributions(): {
   extensionId: string
   name: string
   description?: string
+  agentInstructions?: string
   /** The manifest as installed: what an agent's app_search filters and shows (app-search.ts). */
   manifest: ExtensionManifest
   /** Switched on in 「App」: an agent's app_search says a switched-off one is there, and who switches it on. */
@@ -858,6 +893,7 @@ export function emdashExtensionAgentContributions(): {
       extensionId: manifest.id,
       name: manifest.name,
       ...(manifest.description ? { description: manifest.description } : {}),
+      ...(manifest.contributes.agentInstructions ? { agentInstructions: manifest.contributes.agentInstructions } : {}),
       manifest,
       enabled: service.isEnabled(manifest.id),
       rootDir,
@@ -913,8 +949,10 @@ function sweepExtensionSessionLeftovers(): void {
  * #6387 系统交给咕咕的一条链接(gugu://ext/<扩展>/<tab>/…)。不是扩展链接的原样说「不是」,
  * 宿主据此不理它;失败带原因回去,由宿主按用户语言告诉人 —— 人点了链接正在等。
  */
-export async function openEmdashExtensionLink(url: string): Promise<ExtensionLinkOutcome> {
-  return await openExtensionLink(url)
+export { setSessionOpening } from '@main/core/extensions/gugu-links'
+
+export async function openEmdashLink(url: string): Promise<LinkOpenOutcome> {
+  return await openLink(url)
 }
 
 /** #4320 —— 唤醒超过它就把分段整份 warn 出来(沿用 #4181 报 still-running 的 30s 节拍)。 */
@@ -942,31 +980,6 @@ export async function cancelEmdashTurn(sessionId: string): Promise<boolean> {
   // 「暂停」会变成「杀掉」)。没声明键位的家在这里 fail loud:停不下来就要说出来。
   // 写完键位由宿主自己把这一轮收成空闲(被打断不发 hook 的家,见 `interruptTuiTurn`)。
   return interruptTuiTurn(session)
-}
-
-/** Host-only variant: return after ACP admission and settle the full turn out of band. */
-export async function injectEmdashPromptDetached(
-  sessionId: string,
-  text: string,
-  /** `coalesceKey`: a still-queued prompt of the same key is replaced in place (machine.ts PromptQueued). */
-  opts?: { steerIfBusy?: boolean; coalesceKey?: string },
-): Promise<{ outcome: 'started' | 'queued' | 'declined'; completion: Promise<void>; turnId?: string }> {
-  const client = await getAcpRuntimeClient()
-  const result = await client.promptDetached({
-    sessionId,
-    prompt: { text, origin: 'communication', ...(opts?.coalesceKey ? { coalesceKey: opts.coalesceKey } : {}) },
-    ...(opts?.steerIfBusy ? { steerIfBusy: true } : {}),
-  })
-  if (result.declined) {
-    return { outcome: 'declined', completion: Promise.resolve() }
-  }
-  return {
-    outcome: result.queued ? 'queued' : 'started',
-    completion: client.waitPromptDetached({ requestId: result.requestId }).then(() => undefined),
-    // 受理凭据 = ACP runtime 给这次 detached 受理发的 request id(#4708 review):此前这里不带 id,
-    // 认领者只好拿 conversationId 顶替 —— 一个会话 id 被当成回执 id 持久化进消息 metadata。
-    turnId: result.requestId,
-  }
 }
 
 /**
@@ -1054,6 +1067,11 @@ export function acpStartInputFor(
     workspaceId,
     cwd,
     providerSessionId: session.providerSessionId ?? null,
+    // 首轮的来路与会话页那份启动入参(acp-chat-store)同一组:不经会话页起的(launchCreatedSession)也要带上,
+    // 否则注入器认不出这一轮该落成一条咕咕消息 / 任务卡(gugu-dev#181 建完不打开的派任务正是走这里)。
+    ...(session.startupOrigin ? { startupOrigin: session.startupOrigin } : {}),
+    ...(session.initialMessageId ? { initialMessageId: session.initialMessageId } : {}),
+    ...(session.taskChatId ? { taskChatId: session.taskChatId } : {}),
     model: session.model ?? null,
     effort: session.effort ?? null,
     permissionMode: resolveSessionPermissionMode(session),
@@ -1745,6 +1763,8 @@ function reloadOutcome(reloaded: { warning?: string; nativeSession: ReloadNative
 
 export interface SessionpageAgentSessionStartInput {
   agentUserId: string
+  /** Existing owner-checked roster binding when replaying an interrupted create. */
+  existingSessionId?: string
   displayName: string
   agentType: string
   projectPath: string
@@ -1863,8 +1883,14 @@ export async function startSessionpageAgentSession(
   const repositoryWorkspaceId = opened.repositoryWorkspaceId ?? project.repositoryWorkspaceId
   if (!repositoryWorkspaceId)
     throw new Error(`session-page project ${project.id} has no repository workspace to run in`)
-  const sessionId = randomUUID()
   const provider = toAgentProviderId(pluginIdForAgentType(input.agentType))
+  const existing = input.existingSessionId
+    ? (await getSessions()).find((session) => session.id === input.existingSessionId)
+    : undefined
+  if (input.existingSessionId && (!existing || existing.projectId !== project.id || existing.providerId !== provider || existing.runtime !== 'acp')) {
+    throw new Error(`agent.create cannot resume its bound task ${input.existingSessionId}`)
+  }
+  const sessionId = existing?.id ?? randomUUID()
   // 在建会话之前解释模型:选了一个这台机器给不了的模型就当场拒,❌ 不静默落成自家模型(那会去烧用户自己的 Key,
   // 在一台没登录过这家 agent 的服务器上就是 401)。
   const modelChoice = await resolveCreateModelChoice(provider, 'acp', input.model)
@@ -1894,16 +1920,14 @@ export async function startSessionpageAgentSession(
       `agent.create ${provider} received an initial prompt but does not declare an argv/stdin startup channel`,
     )
   }
-  let cleanupPromise: Promise<void> | null = null
-  const cleanup = (): Promise<void> => cleanupPromise ??= (async () => {
-    await stopExactSessionpageSession({ projectId: project.id, sessionId }).catch(() => false)
-    await deleteSession(project.id, sessionId, { skipTransportStop: true }).catch(() => undefined)
-  })()
-  let started = false
+  let runtimeStartedByAttempt = false
+  const cleanup = () => rollbackAgentSessionStartup({
+    projectId: project.id, sessionId, created: !existing, started: runtimeStartedByAttempt,
+  })
   try {
     throwIfAborted()
     // 落行并挂载(挂不上就撤掉这一行再抛,见 attachAgentToSession);ACP 会话的引擎在下面显式起。
-    const session = await attachAgentToSession({
+    const session = existing ?? await attachAgentToSession({
       id: sessionId,
       projectId: project.id,
       workspaceId: repositoryWorkspaceId,
@@ -1922,6 +1946,9 @@ export async function startSessionpageAgentSession(
     })
     throwIfAborted()
     mark('session-attached')
+    const workspaceId = existing
+      ? (await sessionService.ensureSessionMounted(session.id)).workspaceId
+      : repositoryWorkspaceId
     const mounted = resolveSession(project.id, session.id)
     if (!mounted) throw new Error(`session-page agent session ${session.id} is not mounted`)
     const provisioned = await provision({
@@ -1937,27 +1964,21 @@ export async function startSessionpageAgentSession(
     mark('identity-provisioned')
     // 在首轮跑起来之前记下:首轮里就可能开子 agent。
     if (childHarness) await recordChildHarnessDefault(provisioned.guguAgentUserId, childHarness)
+    if (existing && await acpSessionLive(session.id)) {
+      throwIfAborted()
+      return { ...provisioned, sessionId: session.id, projectId: project.id }
+    }
+    runtimeStartedByAttempt = true
     const startPromise = (await getAcpRuntimeClient()).startSession({
       input: {
-        sessionId: session.id,
-        projectId: project.id,
-        providerId: provider,
-        workspaceId: repositoryWorkspaceId,
-        cwd: mounted.sessionPath,
-        providerSessionId: null,
-        model: modelChoice?.model ?? null,
-        effort,
-        ...(input.initialPrompt ? { initialQueue: [{ text: input.initialPrompt, origin: 'communication' }] } : {}),
-        permissionMode,
+        ...acpStartInputFor(session, workspaceId, mounted.sessionPath),
+        ...(!session.providerSessionId && input.initialPrompt ? { initialQueue: [{ text: input.initialPrompt, origin: 'communication' as const }] } : {}),
       },
     })
     let removeAbortListener: () => void = () => undefined
     const abortPromise = new Promise<never>((_, reject) => {
       const onAbort = () => {
-        void cleanup().then(
-          () => reject(signal.reason ?? new Error('session-page agent session start aborted')),
-          reject,
-        )
+        reject(signal.reason ?? new Error('session-page agent session start aborted'))
       }
       if (signal.aborted) onAbort()
       else {
@@ -1968,19 +1989,10 @@ export async function startSessionpageAgentSession(
     let result: Awaited<typeof startPromise>
     try {
       result = await Promise.race([startPromise, abortPromise])
-    } catch (error) {
-      // The cleanup above owns the task/provider resources. If the runtime finishes its handshake later,
-      // run the same idempotent cleanup again so a late success cannot resurrect a timed-out session.
-      void startPromise.then(
-        () => cleanup(),
-        () => undefined,
-      )
-      throw error
     } finally {
       removeAbortListener()
     }
     if (!result.success) throw new Error(result.error.message ?? result.error.type)
-    started = true
     mark('runtime-started')
     return { ...provisioned, sessionId: session.id, projectId: project.id }
   } catch (error) {
@@ -1988,7 +2000,8 @@ export async function startSessionpageAgentSession(
       { agentUserId: input.agentUserId, elapsedMs: Date.now() - startedAt, error: error instanceof Error ? error.message : String(error) },
       'agent session start failed — #4181',
     )
-    if (started) await (await getAcpRuntimeClient()).stopSession({ sessionId }).catch(() => undefined)
+    // ACP's existing start owner cancels an in-flight handshake when stopped. A late
+    // session-id-only stop here could instead kill a successful retry of this task.
     await cleanup()
     throw error
   }
@@ -2034,8 +2047,9 @@ export async function emdashProjectName(projectId: string): Promise<string | nul
   const project = await getProjectById(projectId)
   return project?.name ?? null
 }
+export async function emdashProjectRoot(projectId: string): Promise<string | null> { return (await getProjectById(projectId))?.path ?? null }
 /** The chat a conversation's agent was born in, taken at its first mint (birth-groups.ts). */
-export async function emdashTakeBirthGroup(sessionId: string): Promise<string | null> {
+export async function emdashTakeBirthGroup(sessionId: string): Promise<BirthGroup | null> {
   return (await import('@main/core/sessions/birth-groups')).takeBirthGroup(sessionId)
 }
 
@@ -2167,21 +2181,23 @@ export async function emdashOpenSessionFile(
 /**
  * @@@sessionpage TASKPAGE-FUSION — the authoritative inventory the gugu host reconciles its social-side
  * projection against (session-page spec ⑨: the session page is the single source of truth; gugu's contacts and
- * groups are a projection of it). `sessionIds` = conversations that still EXIST and are not archived;
+ * groups are a projection of it). `sessionIds` = conversations that still EXIST, including archived;
  * `projectIds` = projects that still exist. The host reaps any session-page agent whose conversation is absent
- * here, and archives the group mirroring any absent project. Conversations reuse `getSessions` — the
- * same query the session-page UI lists from (it already hides archived conversations) — so
- * anything absent here is absent from the product and reaping on absence can never orphan a visible row.
+ * here, and archives the group mirroring any absent project. Visibility and existence are separate:
+ * an archived conversation keeps its identity, name, relationships and group seat.
  */
 export async function emdashSessionpageInventory(): Promise<{
   sessionIds: string[]
   projectIds: string[]
+  archival: NonNullable<ReturnType<typeof sessionArchivalState>>[]
 }> {
+  const archival = sessionArchivalInventory()
   // Detaching folders only hides a project. Its historical group must survive reaping.
-  const [sessionRows, projectRows] = await Promise.all([getSessions(), getProjects({ includeHidden: true })])
+  const projectRows = await getProjects({ includeHidden: true })
   return {
-    sessionIds: sessionRows.map((c) => c.id),
+    sessionIds: archival.map((state) => state.sessionId),
     projectIds: projectRows.map((p) => p.id),
+    archival,
   }
 }
 
@@ -2189,8 +2205,8 @@ export async function emdashSessionpageInventory(): Promise<{
  * @@@sessionpage TASKPAGE-FUSION — fires whenever something MAY have removed conversations, so the gugu
  * host can re-reconcile its projection (spec ⑨ 删除必同步). Deliberately a coarse "something changed"
  * trigger rather than per-entity delete events: project deletes cascade their conversation rows away WITHOUT
- * emitting `session:deleted` per child — so any per-entity wiring would silently miss cases. Only
- * `session:archived` / `session:deleted` NAME a dead session; `session:torn-down` (archive, delete,
+ * emitting `session:deleted` per child — so any per-entity wiring would silently miss cases.
+ * Only `session:deleted` names a dead session; `session:archived` retains its identity. `session:torn-down` (archive, delete,
  * project dispose on app quit, plain detach) is a bare reconcile — a teardown stops runtimes, it does not end
  * the session. Returns an unsubscribe fn.
  */
@@ -2221,12 +2237,13 @@ export function onEmdashSessionpageReapTrigger(
       cb('session:deleted', { deadSessionId: sessionId }))
   )
   sub('session:archived', () =>
-    sessionEvents.on('session:archived', (sessionId) =>
-      cb('session:archived', { deadSessionId: sessionId }))
+    sessionEvents.on('session:archived', () =>
+      cb('session:archived'))
   )
+  sub('session:created', () => sessionEvents.on('session:created', () => cb('session:created')))
   sub('project:deleted', () => projectEvents.on('project:deleted', () => cb('project:deleted')))
   // 拆除只说「运行时停了」,不说「会话没了」:应用退出时项目按 `tmux ? 'detach' : 'terminate'` 拆每个挂载,
-  // 那些会话都还在。会话死亡的写入者是上面的 session:archived / session:deleted(行操作之后才发);
+  // 那些会话都还在。只有上面的 session:deleted 能点名会话死亡(行操作之后才发);
   // 这里只触发一轮普通对账,由 inventory 判断(#6168:点名死亡曾让每次退出应用都回收掉 TUI agent)。
   sub('session:torn-down', () =>
     sessionWorkspaceManager.hooks.on('session:torn-down', () => cb('session:torn-down'))
@@ -2236,59 +2253,17 @@ export function onEmdashSessionpageReapTrigger(
   }
 }
 
-// @@@sessionpage TASKPAGE-FUSION otty-state — CONSOLIDATED agent-attention count for the gugu host shell.
-// The session page already renders per-conversation status dots (AgentStatusIndicator). otty adds an
-// at-a-glance "N agents need you" signal on gugu's 任务 sidebar tab, so a blocked/errored agent is visible
-// WITHOUT opening the session page — the core value of an agent status monitor. "Needs attention" = an agent
-// BLOCKED on the human: needs_user or error. working/idle are NOT attention.
-//
-// Source of truth = the SAME derived per-conversation AgentStatus the renderer badge consumes: the
-// agentHookService derives it from ACP session-summary transitions (via acpAgentStatusBridge) + CLI hook
-// events, and emits `sessionAgentStatusChanged`. We keep a main-side map and push the count to
-// subscribers. Purely additive — no session-backend-internal edit, a plain listener on the existing channel
-// (owner #43: the host reaches the session backend only through exported entries; this is the session
-// backend reporting an aggregate OUT, unaware of what the host does with it). Fail-loud stays intact: this only OBSERVES status.
-const attentionStatusBySession = new Map<
-  string,
-  { status: AgentStatus; projectId: string }
->()
-const attentionSubscribers = new Set<(count: number) => void>()
-
-// Verbose tracker tracing — ON only under the e2e/diagnostic env gate (same flag that exposes the test
-// hook). Silent in production so the main-process log isn't spammed on every agent status change.
-const OTTY_DEBUG = process.env.GUGU_SESSION_TEST_HOOKS === '1'
-
-function computeAttentionCount(): number {
-  let count = 0
-  for (const { status } of attentionStatusBySession.values()) {
-    if (needsAttention(status)) count += 1
-  }
-  return count
-}
-
-function notifyAttentionSubscribers(): void {
-  const count = computeAttentionCount()
-  if (OTTY_DEBUG) console.log(`[otty-tracker] attention count=${count} (subscribers=${attentionSubscribers.size})`)
-  for (const cb of attentionSubscribers) {
-    try {
-      cb(count)
-    } catch (err) {
-      log.warn('session-page attention subscriber threw', { error: String(err) })
-    }
-  }
-}
-
 let extensionAgentFeedInstalled = false
 /**
  * Feeds「这个 agent 动了」to open extension surfaces.
  *
- * Every event type is forwarded, not just the ones the attention tracker keeps:
+ * Every event type is forwarded:
  * an extension asked to be told when agents change state, and「开始生成」is a
  * change even though nobody is blocked on a human. The bridge coalesces the
  * burst and filters by each surface's declared scope, so forwarding freely here
  * is cheap and is the only place that cannot wrongly narrow the answer.
  *
- * Same channel warning as `installAttentionTracker`: ❌ events.on(...) —— 那条是
+ * Channel warning: ❌ events.on(...) —— 那条是
  * main→renderer 单向发的,main 侧监听器永不触发。
  */
 function installExtensionAgentChangeFeed(): void {
@@ -2309,47 +2284,14 @@ function installExtensionAgentChangeFeed(): void {
   // 装上一个不响的铃比没有铃更糟。
 }
 
-let attentionListenersInstalled = false
-function installAttentionTracker(): void {
-  if (attentionListenersInstalled) return
-  attentionListenersInstalled = true
-  // Tap the in-process hook, NOT events.on(sessionAgentStatusChangedChannel): that channel is emitted
-  // main→renderer, and the main-side events bus only delivers renderer→main — a main-side listener on it
-  // never fires. The 'agent:event' hook is the in-process source both the ACP bridge and PTY hooks feed.
+let platformCheckpointFeedInstalled = false
+function installPlatformCheckpointFeed(): void {
+  if (platformCheckpointFeedInstalled) return
+  platformCheckpointFeedInstalled = true
   agentHookService.on('agent:event', (event) => {
     if (event.type === 'stop' || event.type === 'error') {
       void checkpointEmdashPlatformSession(event.sessionId)
     }
-  })
-  agentStatusWriter.on('agent:status', ({ sessionId, projectId, reading }) => {
-    // @@@otty-debug — trace the written status so an e2e can confirm the real pipeline reaches the
-    // attention tracker. Gated behind OTTY_DEBUG so it's silent in production.
-    if (OTTY_DEBUG) console.log(`[otty-tracker] status=${reading.status} conv=${sessionId.slice(0, 8)}`)
-    attentionStatusBySession.set(sessionId, { status: reading.status, projectId })
-    notifyAttentionSubscribers()
-  })
-  // 开机收残不清 `error`,角标从写入者的快照起算;已经被事件写过的会话以事件为准。
-  void agentStatusWriter
-    .snapshot()
-    .then((entries) => {
-      let changed = false
-      for (const { sessionId, projectId, reading } of entries) {
-        if (!reading || attentionStatusBySession.has(sessionId)) continue
-        attentionStatusBySession.set(sessionId, { status: reading.status, projectId })
-        changed = true
-      }
-      if (changed) notifyAttentionSubscribers()
-    })
-    .catch((err: unknown) => log.warn('session-page attention snapshot failed', { error: String(err) }))
-  // Prune removed conversations so one removed while still in an attention state can't leave a stale count.
-  onSessionsGone((scope) => {
-    let changed = false
-    for (const [sessionId, entry] of [...attentionStatusBySession]) {
-      if (!sessionInScope({ sessionId, ...entry }, scope)) continue
-      attentionStatusBySession.delete(sessionId)
-      changed = true
-    }
-    if (changed) notifyAttentionSubscribers()
   })
 }
 
@@ -2368,7 +2310,7 @@ export function agentStatusSnapshot(): Promise<AgentStatusChange[]> {
 
 const sessionsGoneSubscribers = new Set<(scope: SessionScope) => void>()
 
-/** 会话不在了(删除、归档、随任务 / 项目一起走)。写入者、注意力计数与宿主按 agent 的流都据此回收。 */
+/** 会话不在了(删除、归档、随任务 / 项目一起走)。写入者与宿主按 agent 的流都据此回收。 */
 export function onSessionsGone(cb: (scope: SessionScope) => void): () => void {
   sessionsGoneSubscribers.add(cb)
   return () => {
@@ -2412,14 +2354,6 @@ function installSessionsGoneFeed(): void {
   )
 }
 
-export function onEmdashAttentionChanged(cb: (count: number) => void): () => void {
-  attentionSubscribers.add(cb)
-  cb(computeAttentionCount())
-  return () => {
-    attentionSubscribers.delete(cb)
-  }
-}
-
 /**
  * TEST-ONLY (host exposes it env-gated behind GUGU_SESSION_TEST_HOOKS). Feed a REAL AgentEvent into the
  * REAL agentHookService pipeline for a REAL conversation — the exact call the ACP status bridge and the
@@ -2437,22 +2371,6 @@ export function emitSessionpageAgentEvent(event: AgentEvent): void {
   agentHookService.emitProviderLifecycleEvent(event, isAppFocused())
 }
 
-/** Feed a terminal agent.deliver failure back through the canonical session-page status event path. */
-export async function emitSessionpageAgentFailure(sessionId: string): Promise<void> {
-  const session = (await getSessions()).find((row) => row.id === sessionId)
-  if (!session) {
-    throw new Error(`[sessionpage-activity] cannot settle missing session ${sessionId}`)
-  }
-  emitSessionpageAgentEvent({
-    type: 'error',
-    providerId: session.providerId,
-    projectId: session.projectId,
-    sessionId: session.id,
-    timestamp: Date.now(),
-    payload: {},
-  })
-}
-
 /**
  * Snapshot of the session runtime's live ACP sessions (conversationId + lifecycle + isGenerating, etc.).
  * Used by the host's delivery target for a liveness pre-check before injecting. Reads the same live-state
@@ -2463,7 +2381,7 @@ export async function emdashSessionSummaries(): Promise<SessionSummary[]> {
 }
 
 /**
- * What the task sidebar shows for each active session: its title, the project it sits in, its status,
+ * The task sidebar's facts for each existing session, including archived tasks: its title, project, status,
  * whether it is pinned, and when it was last active. `session_peers` rows are these facts joined to identity.
  * This is deliberately a separate bridge from ACP runtime summaries: PTY sessions have no ACP summary, and a
  * runtime summary is not the source of the user's sidebar label. Status is the session-page status writer's
@@ -2471,16 +2389,19 @@ export async function emdashSessionSummaries(): Promise<SessionSummary[]> {
  */
 export async function emdashSessionpageSessionFacts(): Promise<Array<{
   sessionId: string
+  projectId: string
   title: string
   projectName: string
   status: AgentStatusView | null
   isPinned: boolean
   lastInteractedAt: string | null
 }>> {
-  const [rows, projectRows] = await Promise.all([getSessions(), getProjects()])
-  const projectName = new Map(projectRows.map((project) => [project.id, project.name]))
+  const [rows, projectRows] = await Promise.all([getSessions({ includeArchived: true }), getProjects()])
+  // #609 workspace 不是项目,不带名字(与心跳摘要同一条,见 sessionpageSessionDigest)。
+  const projectName = new Map(projectRows.filter((project) => project.kind !== 'workspace').map((project) => [project.id, project.name]))
   return rows.map((session) => ({
     sessionId: session.id,
+    projectId: session.projectId,
     title: formatSessionTitleForDisplay(session.providerId, session.title),
     projectName: projectName.get(session.projectId) ?? '',
     // 行 → Conversation 的映射器总是写这两格(`mapSessionRowToSession`);类型上可选只因渲染侧的乐观对象。
@@ -2507,6 +2428,7 @@ export async function emdashSessionpageSessionFacts(): Promise<Array<{
  * DB / pty / services」那条规矩 —— 伸手进去的代价就是上面这种「读得到、发不出」。
  */
 export { createSessionpageSessionDeviceRpcHandlers } from './core/session-timeline/device-rpc'
+export { captureSessionpageProjectionViewer } from './core/extensions/extension-bridge'
 /** #6264 经云端中转的附件:这台机器取中转桶的实现(宿主按自己的登录态拼好交回给上面那组处理器)。 */
 
 /**
@@ -2521,6 +2443,8 @@ export { createSessionpageSessionDeviceRpcHandlers } from './core/session-timeli
  * 迟早对不上。这里只保证「最近动过的排在前面」。
  */
 export function sessionpageSessionDigest(): Array<{
+  nativeInputVersion?: 1
+  runtime?: 'acp' | 'pty' | 'unknown'
   conversationId: string
   projectId: string
   projectName: string
@@ -2533,15 +2457,18 @@ export function sessionpageSessionDigest(): Array<{
   isPinned: boolean
   unseen: boolean
   parentConversationId: string | null
-  agentUserId?: string | null
+  agentUserId?: string | null; nativeUnreadCount?: number
 }> {
   refreshDigestAgents()
   const agents = digestAgents
   const { projects, sessions } = listSessionStates()
-  const projectName = new Map(projects.map((project) => [project.id, project.name]))
+  // #609 workspace(任务工作区、替人登记的 ~)不是项目:摘要里不带它的名字,读方据此把它的会话列进「任务」。
+  const projectName = new Map(projects.filter((project) => project.kind !== 'workspace').map((project) => [project.id, project.name]))
   return [...sessions]
     .sort((a, b) => (b.lastInteractedAt ?? '').localeCompare(a.lastInteractedAt ?? ''))
     .map((session) => ({
+      nativeInputVersion: session.nativeInputVersion,
+      runtime: session.runtime,
       conversationId: session.conversationId,
       projectId: session.projectId,
       projectName: projectName.get(session.projectId) ?? '',
@@ -2550,7 +2477,7 @@ export function sessionpageSessionDigest(): Array<{
       agentStatus: session.agentStatus,
       status: parseAgentStatusView(session.status ?? null),
       lastInteractedAt: session.lastInteractedAt,
-      supported: session.supported,
+      supported: session.supported, nativeUnreadCount: session.nativeUnreadKeys?.length,
       // 离线时手机看的就是这份。少了这三项,离线的会话列表会把置顶画成没置顶、
       // 未读画成已读、子 agent 画成平级 —— 那不是「信息少一点」,是画错。
       // 这里三项都读得到(本地库就在手边),所以给确定值;❌ 不写 `?? false` 之类的兜底,
@@ -2584,16 +2511,23 @@ function refreshDigestAgents(): void {
 /**
  * #6264 server 换版时这台机器(这个账号)算不算忙 —— 写进 activity.json 的 busy,守护进程据此决定现在换还是等空闲。
  * 只数账号进程一重启就会被打断的会话(`busyForVersionSwitch`,「会不会被打断」读 `sessionProcess(id).home`);
- * tmux 里的终端会话换版后照名字接回,不拦换版。本机读数,❌ 进云端摘要:读者只有本机守护进程。
+ * tmux 里的终端会话换版后照名字接回,不拦换版。未结束的集成授权同样会被重启打断,也计入 activity.json。
+ * 本机读数,❌ 进云端摘要。
  */
 export function sessionpageBusyForVersionSwitch(): boolean {
-  return listSessionStates().sessions.some((session) =>
+  return integrationConnectionService.hasPendingAuthorizations() || listSessionStates().sessions.some((session) =>
     busyForVersionSwitch(
       parseAgentStatusView(session.status ?? null),
       session.runtime,
       sessionProcess(session.conversationId)?.home ?? null,
     ),
   )
+}
+
+/** Refresh the account heartbeat at authorization boundaries, without waiting
+ * for the periodic report. The connection service belongs to this bundle. */
+export function onSessionpageAuthorizationActivityChange(listener: () => void): () => void {
+  return integrationConnectionService.onAuthorizationActivityChange(listener)
 }
 
 /**
@@ -2603,3 +2537,5 @@ export function sessionpageBusyForVersionSwitch(): boolean {
 export function setSessionpageLogFileOwner(ownerUserId: string | null): string | undefined {
   return setLogFileOwner(ownerUserId)
 }
+
+export {readAssistantWorkReceipts} from '@main/core/session-timeline/task-exchanges'

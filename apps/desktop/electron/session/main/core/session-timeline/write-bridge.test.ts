@@ -15,8 +15,9 @@ const state = vi.hoisted(() => ({
   calls: [] as string[],
   /** 终端腿:sendMessage 前 N 次抛「不活」(真实的 sendMessage 已经唤醒过、仍没起来)。 */
   ptyNotLiveTimes: 0,
-  prompt: null as unknown,
-  /** 终端腿 sendMessage 收到的正文。 */
+  sentParams: [] as unknown[],
+  sendStatus: 'accepted' as 'accepted' | 'queued' | 'outcome-unknown',
+  /** sendMessage 收到的正文。 */
   sentTexts: [] as string[],
   /** 取消键写进 pty 的结果;默认写进去了。 */
   cancelResult: { success: true, data: { written: 1 } } as unknown,
@@ -26,11 +27,7 @@ vi.mock('@main/lib/logger', () => ({ log: { warn: (_msg: string, data: unknown) 
 
 vi.mock('@main/core/acp/runtime-process/host', () => ({
   getAcpRuntimeClient: async () => ({
-    promptDetached: async (input: { prompt: unknown }) => {
-      state.calls.push('prompt');
-      state.prompt = input.prompt;
-      return { requestId: 'r1', queued: false, declined: false };
-    },
+    promptDetached: async () => { throw new Error('Mobile text must use the session message router'); },
   }),
 }));
 vi.mock('@main/core/acp/session-summary-reader', () => ({
@@ -45,6 +42,7 @@ vi.mock('@main/core/pty/answer-question', () => ({
 vi.mock('@main/core/sessions/sendMessage', () => ({
   sendMessage: async (params: { text: string }) => {
     state.calls.push('send');
+    state.sentParams.push(params);
     state.sentTexts.push(params.text);
     if (state.ptyNotLiveTimes > 0) {
       state.ptyNotLiveTimes -= 1;
@@ -52,7 +50,7 @@ vi.mock('@main/core/sessions/sendMessage', () => ({
         code: 'SESSION_DIRECT_NOT_LIVE',
       });
     }
-    return { id: 'm1', status: 'accepted' };
+    return { id: 'm1', status: state.sendStatus };
   },
 }));
 
@@ -75,6 +73,8 @@ beforeEach(() => {
   state.calls = [];
   state.ptyNotLiveTimes = 0;
   state.sentTexts = [];
+  state.sentParams = [];
+  state.sendStatus = 'accepted';
   state.warnings = [];
   state.cancelResult = { success: true, data: { written: 1 } };
   bridge.setSessionWake(null);
@@ -97,38 +97,84 @@ describe('终端腿(pty)回话:唤醒归 session-direct 的路由', () => {
   });
 });
 
-describe('手机回话前确认 ACP 引擎活着', () => {
+describe('mobile ACP replies use the shared session message router', () => {
+  it('admits a caption and its image as one manual native input, including image-only input', async () => {
+    const attachments = [{ type: 'attachment' as const, id: 'image-a', mimeType: 'image/png' as const, name: 'a.png' }];
+    await bridge.deliverSessionText(target, 'caption', 'input-with-image', attachments);
+    expect(state.sentParams).toEqual([expect.objectContaining({ text: 'caption', clientMessageId: 'input-with-image', delivery: { queue: true, origin: 'manual', attachments } })]);
+    await bridge.deliverSessionText(target, '', 'image-only', attachments);
+    expect(state.sentParams).toHaveLength(2);
+    await expect(bridge.deliverSessionText(ptyTarget, 'caption', 'bad-terminal-image', attachments)).rejects.toMatchObject({ code: 'unsupported_runtime' });
+  });
+  it('keeps the caller input ID when the same direct send is retried after reconnecting', async () => {
+    await bridge.deliverSessionText(target, 'one input', 'input-request-1');
+    await bridge.deliverSessionText(target, 'one input', 'input-request-1');
+    expect(state.sentParams).toEqual([
+      expect.objectContaining({ clientMessageId: 'input-request-1', text: 'one input' }),
+      expect.objectContaining({ clientMessageId: 'input-request-1', text: 'one input' }),
+    ]);
+    expect(state.sentTexts).toEqual(['one input', 'one input']);
+    expect(state.sentTexts.some(text => text.includes('gugu_delivery'))).toBe(false);
+  });
+  it.each(['starting', 'working', 'closed', 'lost'])(
+    'delegates %s sessions without a separate ACP wake or prompt path', async (lifecycle) => {
+      state.summaries = { s: summary(lifecycle) };
+      bridge.setSessionWake(async () => { throw new Error('Wake belongs to the shared router'); });
+      const text = 'Check this result.\nKeep the original wording.';
+      expect(await bridge.deliverSessionText(target, `  ${text}  `)).toEqual({ accepted: 'started' });
+      expect(state.calls).toEqual(['send']);
+      expect(state.sentParams).toEqual([{
+        projectId: 'p', sessionId: 'conv-1', clientMessageId: expect.any(String), text, kind: 'session-direct', delivery: { queue: true, origin: 'manual' },
+      }]);
+    },
+  );
+
+  it('preserves the shared router receipt and failure', async () => {
+    state.sendStatus = 'queued';
+    expect(await bridge.deliverSessionText(target, 'continue')).toEqual({ accepted: 'queued' });
+    state.sendStatus = 'outcome-unknown';
+    await expect(bridge.deliverSessionText(target, 'continue')).rejects.toMatchObject({ code: 'session_not_live' });
+    state.ptyNotLiveTimes = 1;
+    await expect(bridge.deliverSessionText(target, 'continue')).rejects.toMatchObject({ code: 'SESSION_DIRECT_NOT_LIVE' });
+  });
+});
+
+describe('确认 ACP 引擎活着（参数与审批入口）', () => {
   it('活着(含 starting)→ 直接投,❌ 不再唤醒一次', async () => {
     state.summaries = { s: summary('starting') };
     bridge.setSessionWake(async () => { state.calls.push('wake'); });
-    await bridge.deliverSessionText(target, '继续');
-    expect(state.calls).toEqual(['prompt']);
-    // 带着来源:会话忙时这句要排进队列,队列拒收没有来源的 prompt。
-    expect(state.prompt).toEqual({ text: '继续', origin: 'manual' });
+    await bridge.ensureAcpSessionLive(target.id);
+    expect(state.calls).toEqual([]);
   });
 
   it('closed / 根本没有这条 → 先唤醒再投,顺序不能反', async () => {
     state.summaries = { s: summary('closed') };
     bridge.setSessionWake(async () => { state.calls.push('wake'); });
-    await bridge.deliverSessionText(target, '继续');
-    expect(state.calls).toEqual(['wake', 'prompt']);
+    await bridge.ensureAcpSessionLive(target.id);
+    expect(state.calls).toEqual(['wake']);
+
+    state.calls = [];
+    state.summaries = { s: { ...summary('ready'), closing: true } };
+    expect(await bridge.acpSessionLive('conv-1')).toBe(false);
+    await bridge.ensureAcpSessionLive(target.id);
+    expect(state.calls).toEqual(['wake']);
 
     // 编号 5:适配器自己退了(lost)也不活 —— 唤醒接回原会话再投,❌ 直接投进死掉的适配器。
     state.calls = [];
     state.summaries = { s: summary('lost') };
     expect(await bridge.acpSessionLive('conv-1')).toBe(false);
-    await bridge.deliverSessionText(target, '继续');
-    expect(state.calls).toEqual(['wake', 'prompt']);
+    await bridge.ensureAcpSessionLive(target.id);
+    expect(state.calls).toEqual(['wake']);
 
     state.calls = [];
     state.summaries = {};
-    await bridge.deliverSessionText(target, '继续');
-    expect(state.calls).toEqual(['wake', 'prompt']);
+    await bridge.ensureAcpSessionLive(target.id);
+    expect(state.calls).toEqual(['wake']);
   });
 
   it('阴控:不活又没接唤醒通道 → session_not_live,且**没有**投出去', async () => {
     state.summaries = {};
-    await expect(bridge.deliverSessionText(target, '继续')).rejects.toMatchObject({
+    await expect(bridge.ensureAcpSessionLive(target.id)).rejects.toMatchObject({
       name: 'SessionWriteError',
       code: 'session_not_live',
     });
@@ -138,7 +184,7 @@ describe('手机回话前确认 ACP 引擎活着', () => {
   it('唤醒失败 → session_wake_failed 带原因,❌ 不吞成一串会话 id', async () => {
     state.summaries = {};
     bridge.setSessionWake(async () => { throw new Error('workspace is not mounted'); });
-    await expect(bridge.deliverSessionText(target, '继续')).rejects.toMatchObject({
+    await expect(bridge.ensureAcpSessionLive(target.id)).rejects.toMatchObject({
       code: 'session_wake_failed',
       message: expect.stringContaining('workspace is not mounted'),
     });

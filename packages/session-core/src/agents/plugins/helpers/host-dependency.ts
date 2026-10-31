@@ -34,6 +34,13 @@ import {
  * 要升就升这一处;升完那几家会各自装一次新 node(旧的留着给还没升的版本用)。
  * 取值 = 2026-09-22 用打包的那份 mise(`mise ls-remote node`)读到的最新 24.x LTS。
  */
+/**
+ * `HostDependencyDescriptor.versionLine` 给「`--version` 只打一行裸版本号」的家:那一行就是版本号(行尾空白、Windows 的
+ * `\r` 都容)。包装器的 banner 行不会是裸版本号,所以认得出。2026-10-28 Linux 2 实测(npm 装真包跑 `--version`)
+ * 是这个样子的:cline、codebuddy、commandcode、continue、gemini、kilocode、kimi、mimocode、opencode、pi、qoder、qwen。
+ */
+export const BARE_VERSION_LINE = /^v?\d+\.\d+\.\d+\s*$/;
+
 export const MANAGED_NODE_VERSION = '24.21.0';
 
 /** 厂商把程序体作为 npm 平台包发布:归档里有一个可直接执行的文件。 */

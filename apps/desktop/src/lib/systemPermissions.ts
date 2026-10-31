@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { platform } from '../platform'
 import type { SystemPermission, SystemPermissionState } from '../platform/types'
 
@@ -36,6 +36,11 @@ export const SYSTEM_PERMISSION_ROWS: ReadonlyArray<{
     purposeKey: 'settings.permissions.cameraPurpose',
   },
   {
+    permission: 'microphone',
+    labelKey: 'settings.permissions.microphone',
+    purposeKey: 'settings.permissions.microphonePurpose',
+  },
+  {
     permission: 'fileAccess',
     labelKey: 'settings.permissions.fileAccess',
     purposeKey: 'settings.permissions.fileAccessPurpose',
@@ -55,6 +60,15 @@ export function systemPermissionAction(state: SystemPermissionState): 'request' 
   return state === 'prompt' ? 'request' : 'open-settings'
 }
 
+/** One action for the permissions page and the phone installation guide; false means no settings destination. */
+export async function changeSystemPermission(permission: SystemPermission, state: SystemPermissionState): Promise<boolean> {
+  if (systemPermissionAction(state) === 'request') {
+    await platform.requestSystemPermission(permission)
+    return true
+  }
+  return platform.openSystemPermissionSettings(permission)
+}
+
 export type SystemPermissionStates = Partial<Record<SystemPermission, SystemPermissionState>>
 
 /**
@@ -71,30 +85,34 @@ export function useSystemPermissionStates(permissions: readonly SystemPermission
   // 读不到就是读不到,❌ 不去试一把再吞掉异常。
   const key = permissions.filter((permission) => platform.systemPermissions.includes(permission)).join(',')
   const enabled = key !== ''
-  const [states, setStates] = useState<SystemPermissionStates>({})
-  const [failed, setFailed] = useState(false)
+  const [read, setRead] = useState<{ key: string; states: SystemPermissionStates; failed: boolean }>({ key, states: {}, failed: false })
+  const revision = useRef(0)
 
   const refresh = useCallback(async () => {
     if (!enabled || key === '') return
+    const request = ++revision.current
+    setRead({ key, states: {}, failed: false })
     try {
       const wanted = key.split(',') as SystemPermission[]
       const entries = await Promise.all(
         wanted.map(async (permission) => [permission, await platform.checkSystemPermission(permission)] as const),
       )
-      setStates(Object.fromEntries(entries))
-      setFailed(false)
+      if (request === revision.current) setRead({ key, states: Object.fromEntries(entries), failed: false })
     } catch {
       // 读不到就明说读不到(调用方渲染提示),❌ 留着上一次的值冒充当下。
-      setStates({})
-      setFailed(true)
+      if (request === revision.current) setRead({ key, states: {}, failed: true })
     }
   }, [enabled, key])
 
   useEffect(() => {
     if (!enabled) return
     void refresh()
-    return platform.subscribeAppForeground(() => { void refresh() }, () => setFailed(true))
-  }, [enabled, refresh])
+    const unsubscribe = platform.subscribeAppForeground(() => { void refresh() }, () => {
+      revision.current += 1
+      setRead({ key, states: {}, failed: true })
+    })
+    return () => { revision.current += 1; unsubscribe() }
+  }, [enabled, key, refresh])
 
-  return { states, refresh, failed }
+  return { states: read.key === key ? read.states : {}, refresh, failed: read.key === key && read.failed }
 }

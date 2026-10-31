@@ -1,3 +1,4 @@
+import { rpcQuery } from '../../../../../../tests/helpers/rpcQuery';
 import { randomUUID } from 'node:crypto';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -11,6 +12,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
  */
 
 type Row = Record<string, unknown>;
+const uploadScopes: Row[] = [];
 const rows: Row[] = [];
 const versions: Row[] = [];
 const stored = new Map<string, Uint8Array>();
@@ -28,7 +30,7 @@ const placed = (row: Row) => ({ ...row, parent_id: null, system_role: null, path
 
 vi.mock('@gugu/core/cloud/supabase', () => ({
   createGuguSupabaseClient: () => ({
-    rpc: async (name: string, args: Row) => {
+    rpc: rpcQuery(async (name: string, args: Row) => {
       // Who may delete what is the folder's to say; here, everyone may delete everything.
       if (name === 'workspace_deletable_as') return { data: args.p_item_ids, error: null };
       rpcs.push({ name, args });
@@ -38,7 +40,7 @@ vi.mock('@gugu/core/cloud/supabase', () => ({
       if (name === 'workspace_versions_as') return { data: versions.filter((version) => version.item_id === row.id), error: null };
       if (name === 'workspace_delete_as') return (rows.splice(rows.indexOf(row), 1), { data: [row], error: null });
       return { data: null, error: { message: `no fake for ${name}` } };
-    },
+    }),
     storage: {
       from: () => ({
         upload: async (pointer: string, bytes: Uint8Array) => (stored.set(pointer, bytes), { error: null }),
@@ -52,7 +54,8 @@ vi.mock('@gugu/core/cloud/supabase', () => ({
 vi.mock('@gugu/core/cloud/attachmentsApi', async (importOriginal) => ({
   ...(await importOriginal<object>()),
   configuredEndpoint: (token: string) => ({ supabaseUrl: 'https://db.test', anonKey: 'anon', token }),
-  uploadAttachmentBytes: async (_endpoint: unknown, file: { bytes: Uint8Array }) => {
+  uploadAttachmentBytes: async (_endpoint: unknown, file: { bytes: Uint8Array }, scope: Row) => {
+    uploadScopes.push(scope);
     const key = `staging/${ME}/${randomUUID()}`;
     stored.set(key, file.bytes);
     return key;
@@ -78,7 +81,7 @@ const can = { write: true };
 const files = createAppFiles({
   account: async () => ({ token: 'token', userId: ME }),
   hasCapability: (_id, capability) => capability === 'files:read' || can.write,
-  sync: { pageFor: () => ({}), grant: () => undefined, revoke: () => undefined, ungrant: () => undefined } as never,
+  sync: { ensureFor: () => undefined, pageFor: () => ({}), grant: () => undefined, revoke: () => undefined, ungrant: () => undefined } as never,
   identities: async () => [],
   faces: async () => ({}),
   filesUrl: () => 'http://files.invalid',
@@ -108,6 +111,7 @@ function stage(kind: 'file' | 'document'): Row {
 }
 
 beforeEach(() => {
+  uploadScopes.length = 0;
   rows.length = 0;
   versions.length = 0;
   stored.clear();
@@ -125,6 +129,7 @@ describe('files.replace: a stored file\'s next version (G1)', () => {
     const row = stage('file');
     const entry = await files.replace(surface(), { ref: { chat: CHAT, id: row.id as string }, file: blobOf([4, 5, 6, 7]), expectedVersion: 1 });
     expect(entry).toMatchObject({ id: row.id, name: 'deck.pptx', size: 4 });
+    expect(uploadScopes).toEqual([{ chat_id: CHAT, as: ME }]);
     expect(writes()).toEqual([
       { name: 'place', args: { staging_key: expect.any(String), item_id: row.id, expected_version: 1, as_user_id: ME, content_type: 'application/octet-stream' } },
     ]);
@@ -138,6 +143,7 @@ describe('files.replace: a stored file\'s next version (G1)', () => {
     // read through the agent's door, then replaced as the agent
     expect(rpcs.map((call) => [call.name, call.args.p_as_user_id ?? call.args.as_user_id])).toEqual([['workspace_get_as', AGENT], ['place', AGENT]]);
     expect(next.version).toBe(2);
+    expect(uploadScopes).toEqual([{ chat_id: CHAT, as: AGENT }]);
   });
 
   it('versions past the 50 kept: their bytes are removed here', async () => {
@@ -173,6 +179,7 @@ describe('files.replace: a stored file\'s next version (G1)', () => {
     const next = await files.replace(surface(), { ref: { id: row.id as string }, file: blobOf([1]), expectedVersion: 1 });
     expect(rpcs.at(-1)!.args.expected_version).toBe(1);
     expect(next.version).toBe(2);
+    expect(uploadScopes).toEqual([{ chat_id: CHAT, as: ME }]);
     // the server's own refusal (409 version_conflict; its wording is judged against the real database in gugu-supabase's filePlaceInFolder)
     placeError = new AttachmentsError('place', 409, 'version_conflict', `workspace item ${row.id as string} version conflict: expected 2, got 3`);
     const conflict = await files.replace(surface(), { ref: { id: row.id as string }, file: blobOf([2]), expectedVersion: 2 }).catch((error: unknown) => error);

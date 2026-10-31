@@ -11,20 +11,29 @@
 //
 // 本模块只做寻址解析、预检次序与结果合并;投递归编排层,❌ 不在这里长出第二套投递。
 
+import type { SessionAttachmentRef, SessionFileInput } from '@gugu/core/cloud/sessionAttachments'
+import { assistantWorkIntentSchema, type AssistantWorkIntent, type AssistantWorkTarget } from '@gugu/core/shared/assistantWorkIntent'
+import { workReportSchema, type WorkReport } from '../src/session/shared/assistant-work'
 import { decodeIdentityAddress, decodeTypedId, encodeTypedId } from '@gugu/core/shared/typedId.mjs'
 
 export type UnifiedRecipientResult = {
   /** Typed recipient address, exactly as the caller may reuse it. */
   to: string
-  status: 'delivered' | 'failed'
+  status: 'delivered' | 'accepted' | 'failed'
   message_id?: string
+  session_id?: string
   error?: { code: string; message: string }
 }
 
 /** What the sender says about this message besides its text — carried to the recipient's envelope as given (see the orchestration's message action). */
-export type SessionMessageSaid = { then?: string; reply_to_message_id?: string; source_link?: string }
+export type SessionMessageSaid = { attachments?: SessionAttachmentRef[]; then?: string; reply_to_message_id?: string; source_link?: string; work_result?: WorkReport }
 
 export type UnifiedSessionMessageDeps = {
+  prepareFiles?: (files: SessionFileInput[], targets: Array<{ sessionId: string; deviceId?: string; agentId?: string }>) => Promise<SessionAttachmentRef[]>
+  localDeviceId?: () => Promise<string>
+  enqueueReport?: (record: Record<string, unknown>) => Promise<{ route: 'session-direct'; recipients: UnifiedRecipientResult[] }>
+  enqueueWork?: (intent: AssistantWorkIntent, text: string, attachments: SessionAttachmentRef[], targets: AssistantWorkTarget[]) => Promise<{ route: 'session-direct'; recipients: UnifiedRecipientResult[] }>
+  workTitle?: (intent:AssistantWorkIntent,targets:AssistantWorkTarget[])=>Promise<string>
   /** The graph (`session:`) leg — resolves all its bare targets before injecting any. Absent when the caller has no session-page session (gugu-native bridge). */
   graphMessage: ((sessionIds: string[], text: string, said: SessionMessageSaid) => Promise<{ recipients: UnifiedRecipientResult[] }>) | null
   /**
@@ -83,6 +92,7 @@ export async function handleUnifiedSessionMessage(
   if (!text.trim()) throw new Error('message text is required')
   // 取值由收件那台机器的编排层判(远端调用者不经过本机 schema),这里只原样带过去。
   const said: SessionMessageSaid = {
+    ...(record.work_result !== undefined ? { work_result: workReportSchema.parse(record.work_result) } : {}),
     ...(record.source_link !== undefined ? { source_link: record.source_link as string } : {}),
     ...(record.then !== undefined ? { then: record.then as string } : {}),
     ...(record.reply_to_message_id !== undefined ? { reply_to_message_id: record.reply_to_message_id as string } : {}),
@@ -104,6 +114,9 @@ export async function handleUnifiedSessionMessage(
       )
     }
   }
+  if (said.work_result && record.assistant_work) throw new Error('A report cannot also dispatch work')
+  if (said.work_result && deps.enqueueReport) return deps.enqueueReport(record)
+  const intent = record.assistant_work === undefined ? null : assistantWorkIntentSchema.parse(record.assistant_work)
   const sessionIds = [...new Set(sessions.map((item) => item.id))]
   const guguNumbers = [...new Set(identities.flatMap((item) => (item.number === null ? [] : [item.number])))]
   /** 别的机器上的收件人(会话 id),按机器分组。 */
@@ -218,8 +231,28 @@ export async function handleUnifiedSessionMessage(
     throw new Error('session_message needs a session-page caller')
   }
   // 别的机器能不能接:离线、不在名下都在任何注入之前响(一条都不投)。
-  if (remote.size) await deps.remote!.assertReachable([...remote.keys()])
+  if (!intent && remote.size) await deps.remote!.assertReachable([...remote.keys()])
 
+  if (record.files !== undefined) {
+    if (!Array.isArray(record.files) || record.files.length < 1 || record.files.length > 8
+      || record.files.some(file => !file || typeof file !== 'object' || typeof file.file_path !== 'string' || !file.file_path.trim())) throw new Error('files requires 1 to 8 local file descriptors')
+    if (!deps.prepareFiles) throw new Error('Session file handoff is unavailable for this host')
+    said.attachments = await deps.prepareFiles(record.files as SessionFileInput[], [
+      ...localSessionIds.map(sessionId => ({ sessionId })),
+      ...[...remote].flatMap(([deviceId, ids]) => ids.map(sessionId => ({ sessionId, deviceId }))),
+    ])
+  }
+  if (intent) {
+    if (!deps.enqueueWork || !deps.localDeviceId) throw new Error('Durable work admission is unavailable')
+    const here = await deps.localDeviceId()
+    const agentFor = (sessionId: string) => named.get(sessionId) ?? [...localOf].find(([, id]) => id === sessionId)?.[0]
+    const targets=[
+      ...localSessionIds.map(sessionId => ({ sessionId, deviceId: here, ...(agentFor(sessionId) ? { agentId: agentFor(sessionId) } : {}) })),
+      ...[...remote].flatMap(([deviceId, ids]) => ids.map(sessionId => ({ sessionId, deviceId, ...(agentFor(sessionId) ? { agentId: agentFor(sessionId) } : {}) }))),
+    ]
+    const title=!intent.continuation&&deps.workTitle?await deps.workTitle(intent,targets):intent.title
+    return deps.enqueueWork({...intent,title}, text, said.attachments ?? [], targets)
+  }
   const recipients: UnifiedRecipientResult[] = []
   const anyDelivered = () => recipients.some((entry) => entry.status === 'delivered')
   if (localSessionIds.length) recipients.push(...(await deps.graphMessage!(localSessionIds, text, said)).recipients)
@@ -236,8 +269,9 @@ export async function handleUnifiedSessionMessage(
   }
   // 身份写法换来的会话,结果照旧按 Agent ID 回报。
   for (const entry of recipients) {
-    const userId = named.get(decodeTypedId('session', entry.to, 'to'))
-    if (userId) entry.to = encodeTypedId('user', userId)
+    const sessionId = decodeTypedId('session', entry.to, 'to')
+    const userId = named.get(sessionId)
+    if (userId) { entry.session_id = sessionId; entry.to = encodeTypedId('user', userId) }
   }
   return { route: 'session-direct', recipients }
 }

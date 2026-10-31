@@ -1,9 +1,8 @@
+import type { AcpPermissionParams } from '@gugu/session-core/agents/plugins';
 import type {
-  RequestPermissionRequest,
   RequestPermissionResponse,
   SessionConfigOption,
   SessionModeState,
-  SessionUpdate,
   SetSessionConfigOptionRequest,
   SetSessionModeRequest,
 } from '@agentclientprotocol/sdk';
@@ -31,22 +30,23 @@ import type {
   SessionConfigState,
   SessionState,
   SessionUsage,
+  SessionPromptReceipt,
   StopReason,
   ToolCallItem,
   ToolNode,
   TranscriptTurn,
   TranscriptTurnOutcome,
+  TranscriptTurnTrigger,
 } from '@gugu/session-core/acp';
 import {
+  providerRejectedMissingSession,
   AcpTranscriptParser,
   acpErr,
   classifyProviderPermissionMode,
   createToolCallItem,
-  decodeSessionUpdate,
   makeToolId,
   permissionWaitKind,
   runningBackgroundCommands,
-  serializePayload,
   SESSION_PLAN_ID,
 } from '@gugu/session-core/acp';
 import type { Result } from '@gugu/session-shared';
@@ -71,6 +71,9 @@ import type {
 } from './cell-deps';
 import { PermissionBroker, selectAutoApproveOption } from './permission-broker';
 import { RawAcpLog, type RawAcpEvent } from './raw-log';
+import { acceptPromptMessage, settleAcceptedRequests, type PromptRequest, type PromptResult } from './prompt-request';
+import { prepareNativePrompt, type NativePromptPreparation } from './prompt-preparation';
+import { canYieldRepliedAssistant, replyItems } from '@gugu/session-core/session-record/reply-process';
 
 export interface AcpChatHistory {
   committed: TranscriptTurn[];
@@ -101,6 +104,8 @@ export class SessionCell {
   private lastRunningAgentCount = 0;
   /** #7342 最后一次上下文读数到达那一刻会话自报的模型 —— 读数归它,换了模型就不归了(上限随模型变)。 */
   private usageModelIdAtReport: string | null = null;
+  /** harness 报的这条会话记录的路径(`transcript_path` 事件);还没报 = null。 */
+  private reportedTranscriptPath: string | null = null;
   private lastRunningCommandTaskIds: readonly string[] = [];
   /**
    * 还活着的子智能体会话:**界面可能拿来指认它的每一个 id** → 要投递取消的那个会话号(#5117)。
@@ -134,18 +139,26 @@ export class SessionCell {
   private pendingTurnContext = new Map<string, string>();
   private replayingHistory = false;
   private lastReplayedSessionContext: string | null = null;
-  /** 在飞的 steer RPC 计数(spec session-injection mid-turn 支;假 cancelled 移交守卫读它)。 */
-  private steerInFlight = 0;
-  /** 主 RPC 报了并发导致的 cancelled ⇒ 结算权移交给最后一条 steer(见 sendPromptInternal 的守卫)。 */
-  private steerSettlesTurn = false;
-  /**
-   * `midTurnSteer: 'interrupt-at-tool-boundary'` 的两格状态:本轮在跑的工具调用,与「有插话在等,
-   * 下一个工具边界就打断」。回合结束时两格一起清。
-   */
-  private readonly runningTools = new Set<string>();
-  private interruptForSteer = false;
+  private replayHistoryUnknown = false;
+  /** #980 见 `useRecordedDeliveries`。`undefined` = 这次以重放为准。 */
+  private recordedDeliveryIds: ReadonlySet<string> | null | undefined = undefined;
   /** 这一轮的 cancel 是我们为插话发的 ⇒ 结算成 `interrupted_for_message`,而不是「你停止了这一轮」。 */
   private interruptedForMessage = false;
+  /** A replied assistant turn yields at its next tool boundary to this queued input (#566). */
+  private yieldingRepliedAssistant: string | null = null;
+  /** Native steering acknowledges admission, not consumption. Keep uncertain inputs until a
+   * subsequent tool call or a completed turn proves the provider moved past their admission. */
+  private pendingNativeSteers: Array<{ prompt: QueuedPrompt; toolsAtAdmission: ReadonlySet<string> }> = [];
+  private returnedNativeSteerIds: string[] = [];
+  private queuedSteeringScheduled = false;
+  private queuedSteeringInFlight = false;
+  private blockedQueuedSteer: QueuedPrompt | null = null;
+  private interruptedQueuedHead: string | null = null;
+  private queuedTurnFence = false;
+  /** Cancellation/teardown retires native admissions started before that boundary, even after ready/resume. */
+  private nativeAdmissionGeneration = 0;
+  /** Cancellation would also withdraw inputs already admitted by the native adapter. */
+  private nativeInputAfterStart = false;
   /** 这一轮被这一家以「正常结束」掩盖的失败(见 `acp.turnFailure`)。 */
   private providerTurnFailure: string | null = null;
   /**
@@ -171,17 +184,22 @@ export class SessionCell {
   private lastFailureProvisional = false;
   /** 宿主要求关掉这条会话(stop / 删除 / 换运行时)。之后线断了是我们断的,在飞的那一轮是被停下,不是失败。 */
   private closeRequested = false;
+  private preparationRetryTimer: ReturnType<typeof setTimeout> | undefined;
+  private preparationRetryDelay = 1500;
   private reverting = false;
-  private activeTurnCompletion: Promise<void> | null = null;
-  /** agent 自己报状态(见 AcpAgentConnection.reportsState)。 */
-  private reportsState = false;
-  /** 自报状态的家:请求先答复了、agent 还在干活 ⇒ 记下怎么停的,等它报 idle 时落定。 */
-  private pendingWorkEnd: { outcome: TranscriptTurnOutcome; dequeueQueuedPrompt?: boolean } | null = null;
-  /** 自报状态的家:agent 报了 idle、可还有请求没答复 ⇒ 等那条答复带着结局来落定。 */
-  private idleReported = false;
+  private compacting = false;
+  /**
+   * 这一轮是不是人亲手发起的(origin manual 的那一句开的工)。投递开的、agent 自己开的(后台跑完的通知等)都不是。
+   * 人在**别人开的**一轮里打字 ⇒ 在下一个工具边界插进去,不排到这一轮讲完(见 queueBehindTurn)。
+   */
+  private workStartedByOwner = false;
+  private activeTurnCompletion: Promise<Result<SessionPromptResult, AcpSendPromptError>> | null = null;
+  private readonly requests = new Map<string, PromptRequest>();
   /** 发出去的句数(含回放):转录行 id 与回合信封的序号用它,❌ 不是状态。 */
   private promptSequence = 0;
-  private resolveActiveTurnCompletion: (() => void) | null = null;
+  private dequeueAfterFailure = true;
+  private requeuedAfterTokenBoundary = false;
+  private resolveActiveTurnCompletion: ((result: Result<SessionPromptResult, AcpSendPromptError>) => void) | null = null;
   private latestTurnEnvelope: TurnEnvelope | null = null;
 
   constructor(private readonly deps: SessionCellDeps) {
@@ -193,7 +211,7 @@ export class SessionCell {
     this.liveSettings = deps.liveSettings;
     this.pendingSessionContext = deps.sessionContext?.trim() || null;
     this.machine = new SessionMachine(deps.sessionId);
-    this.transcript = new AcpTranscriptParser({ sessionId: deps.sessionId });
+    this.transcript = new AcpTranscriptParser({ sessionId: deps.sessionId, newTurnReference: () => `source:${crypto.randomUUID()}` });
     this.rawLog = new RawAcpLog({
       sessionId: deps.sessionId,
       providerId: deps.providerId,
@@ -239,10 +257,6 @@ export class SessionCell {
     this.supportsSteering = supportsSteering;
   }
 
-  setReportsState(reportsState: boolean): void {
-    this.reportsState = reportsState;
-  }
-
   /** 适配器 initialize 时声明的 `loadSession`:停掉之后能不能按原 provider session 接回来(闲置回收只回收能接回来的)。 */
   setSupportsLoadSession(supportsLoadSession: boolean): void {
     this._supportsLoadSession = supportsLoadSession;
@@ -250,6 +264,11 @@ export class SessionCell {
 
   get supportsLoadSession(): boolean {
     return this._supportsLoadSession;
+  }
+
+  /** A dispatched prompt is owned before a state-reporting provider says running. */
+  get hasInFlightPrompt(): boolean {
+    return this.activeTurnCompletion !== null;
   }
 
   private get agent(): NonNullable<SessionCellDeps['agent']> {
@@ -277,9 +296,58 @@ export class SessionCell {
     return this.transcript.usage;
   }
 
+  get isCompacting(): boolean { return this.compacting; }
+
+  get idleCompactionState(): { idle: boolean; contextTokens: number | null; revision: number } {
+    return {
+      idle: !this.compacting && !this.reverting && !this.closeRequested
+        && this.machine.phase.kind === 'ready' && !this.activeTurnCompletion
+        && !this.machine.queuedPrompts.length && !this.machine.pendingPermissions.length
+        && !this.settingsInFlight && !this.settingsBlockedReason
+        && !this.machine.backgroundAgentCount && !this.lastRunningCommandTaskIds.length
+        && this.config.availableCommands.some(command => command.name.replace(/^\//, '') === 'compact'),
+      contextTokens: this.usage?.contextUsed ?? null,
+      revision: this.promptSequence,
+    };
+  }
+
+  /** Reserve the normal machine lane atomically, but do not manufacture a user message. */
+  async compactIfIdle(): Promise<Result<{ compacted: boolean }, AcpSendPromptError>> {
+    if (!this.idleCompactionState.idle) return ok({ compacted: false });
+    this.compacting = true;
+    this.openTurnCompletion();
+    const cycle = this.activeTurnCompletion!;
+    this.applyEvent({ type: 'WorkStarted' });
+    const request = { sessionId: this.acpSessionId, prompt: [{ type: 'text' as const, text: '/compact' }] };
+    try {
+      if (this.closeRequested || this.machine.queuedPrompts.length) {
+        this.endWork({ kind: 'done', reason: 'end_turn' }, { dequeueQueuedPrompt: false });
+        return ok({ compacted: false });
+      }
+      this.rawLog.record({ kind: 'prompt', sessionId: this.acpSessionId, content: request.prompt });
+      // The receipt is admission only; the command's foreground cycle is its boundary.
+      await this.agent.prompt(request);
+      const settled = await cycle;
+      return settled.success ? ok({ compacted: true }) : settled;
+    } catch (error) {
+      const cause = toSerializedError(error);
+      this.rawLog.record({ kind: 'prompt_result', sessionId: this.acpSessionId, stopReason: null, error: cause });
+      this.endWork({ kind: 'error', reason: 'prompt_failed', detail: cause.message }, { dequeueQueuedPrompt: false });
+      return acpErr.promptFailed(cause);
+    } finally {
+      this.compacting = false;
+      this.releaseQueueAfterEdit();
+      this.deps.callbacks?.onSessionStateChanged?.();
+    }
+  }
+
   /** `usage` 那份读数是在哪个模型下报的(见 `usageModelIdAtReport`);还没有读数时是 null。 */
   get usageModelId(): string | null {
     return this.transcript.usage ? this.usageModelIdAtReport : null;
+  }
+
+  get transcriptPath(): string | null {
+    return this.reportedTranscriptPath;
   }
 
   history(): AcpChatHistory {
@@ -316,6 +384,9 @@ export class SessionCell {
   }
 
   beginReplay(at = Date.now()): void {
+    this.replayHistoryUnknown = false;
+    this.recordedDeliveryIds = undefined;
+    this.transcript.setTurnIndexBase(0);
     this.replayingHistory = true;
     this.promptSequence += 1;
     this.applyEvent({ type: 'ReplayStarted' });
@@ -337,9 +408,49 @@ export class SessionCell {
     this.lastReplayedSessionContext = null;
     const previousRunningAgentCount = this.lastRunningAgentCount;
     this.transcript.endReplay(at, outcome);
+    this.reconcileReplayedQueue();
     this.dispatchAgentsChangedIfNeeded(previousRunningAgentCount);
     this.applyEvent({ type: 'ReplayEnded', status: outcome?.kind === 'error' ? 'error' : 'complete' });
     this.emitTranscriptChanged();
+  }
+
+  markReplayHistoryUnknown(): void {
+    this.replayHistoryUnknown = true;
+  }
+
+  /**
+   * #980 这次接回没让 agent 重放:agent 收到过哪些投递,改由宿主从 agent 自己的记录里读出来交到这里
+   * (补投去重从前靠重放)。`null` = 宿主读不出来 —— 与重放失败同一个处理:补投照旧,标「可能已收到」。
+   */
+  useRecordedDeliveries(ids: readonly string[] | null): void {
+    this.recordedDeliveryIds = ids ? new Set(ids) : null;
+  }
+
+  /** #980 没有重放把回合序号顶上去:从宿主给的序号接着数,❌ 与库里上一次运行的同名回合撞号。 */
+  continueTurnIndexAt(base: number): void {
+    this.transcript.setTurnIndexBase(base);
+  }
+
+  private reconcileReplayedQueue(): void {
+    const queued = this.machine.queuedPrompts.filter((prompt) => prompt.origin === 'communication');
+    const hasCanonicalReplay = this.deps.providerId === 'claude'
+      || this.deps.providerId === 'codex' || this.deps.historyRecovery?.canonicalReplay === true;
+    const recorded = this.recordedDeliveryIds;
+    const historyUnknown = this.replayHistoryUnknown || recorded === null;
+    if (!queued.length || (!hasCanonicalReplay && !historyUnknown)) return;
+    const recover = this.deps.recoverDelivery;
+    if (!recover) throw new Error('SessionCell: delivery recovery requires the core envelope owner');
+    const inputs = [...this.transcript.history, ...(this.transcript.activeTurn ? [this.transcript.activeTurn] : [])]
+      .flatMap((turn) => turn.items.flatMap((item) => item.kind === 'message' && item.role === 'user' ? [item.text] : []));
+    for (const prompt of queued) {
+      const text = recover(prompt.text, inputs, historyUnknown, recorded ?? undefined);
+      if (text === prompt.text) continue;
+      const result = text === null ? this.removeQueuedPrompt(prompt.id) : this.editQueuedPrompt(prompt.id, {
+        text, origin: prompt.origin, hiddenContext: prompt.hiddenContext,
+        attachments: prompt.attachments, coalesceKey: prompt.coalesceKey,
+      });
+      if (!result.success) throw new Error(`Cannot reconcile recovered delivery: ${result.error.type}`);
+    }
   }
 
   /**
@@ -360,6 +471,7 @@ export class SessionCell {
   applySessionReady(meta?: {
     modes?: SessionModeState | null;
     configOptions?: readonly SessionConfigOption[] | null;
+    availableCommands?: Extract<NormalizedEvent, { kind: 'commands' }>['commands'];
   }): void {
     this.applyEvent({ type: 'SessionReady' });
     this.seedTranscriptMeta(meta);
@@ -368,6 +480,7 @@ export class SessionCell {
   applySessionLoaded(meta?: {
     modes?: SessionModeState | null;
     configOptions?: readonly SessionConfigOption[] | null;
+    availableCommands?: Extract<NormalizedEvent, { kind: 'commands' }>['commands'];
   }): void {
     this.applyEvent({ type: 'SessionLoaded' });
     this.seedTranscriptMeta(meta);
@@ -376,6 +489,7 @@ export class SessionCell {
   applySessionMeta(meta: {
     modes?: SessionModeState | null;
     configOptions?: readonly SessionConfigOption[] | null;
+    availableCommands?: Extract<NormalizedEvent, { kind: 'commands' }>['commands'];
   }): void {
     this.seedTranscriptMeta(meta);
   }
@@ -417,9 +531,58 @@ export class SessionCell {
 
   push(event: NormalizedEvent): void {
     if (event.kind === 'ignored') return;
+    if (event.kind === 'terminal_snapshots') {
+      this.transcript.pushEvent(event);
+      return; // Materialization consumes a snapshot; it cannot notify its own producer.
+    }
     if (event.kind === 'agent_state') {
-      this.onAgentState(event.state);
+      this.onAgentState(event);
+      this.scheduleQueuedSteering();
       return;
+    }
+    if (event.kind === 'transcript_path') {
+      if (event.path === this.reportedTranscriptPath) return;
+      this.reportedTranscriptPath = event.path;
+      this.deps.callbacks?.onSessionStateChanged?.();
+      return;
+    }
+    if (event.kind === 'interrupted_for_message') {
+      if (this.machine.phase.kind === 'working') {
+        this.nativeAdmissionGeneration += 1;
+        this.interruptedForMessage = true;
+        this.applyEvent({ type: 'CancellationRequested' });
+      }
+      return;
+    }
+    if (event.kind === 'prompt_result') {
+      this.applyReceiptMetadata(event.requestId, event._meta);
+      const request = this.requests.get(event.requestId);
+      const dequeueAfterFailure = this.dequeueAfterFailure;
+      if (event.error) this.deps.logger.error('SessionCell: prompt failed', { sessionId: this.sessionId, requestId: event.requestId, cause: event.error });
+      if (request?.prompt.origin === 'communication' && event.error && isInvalidToken(event.error)) {
+        // A refused token needs the next foreground/token boundary, not another immediate steer.
+        const { queueTiming: _timing, ...retry } = request.prompt;
+        const queued = this.dispatch({ type: 'QueuePrompt', prompt: retry });
+        if (queued.success && !request.steered) this.requeuedAfterTokenBoundary = true;
+      }
+      if (event.error && request && !request.steered && request.cycle === this.activeTurnCompletion
+        && this.machine.phase.kind === 'ready') {
+        const classified = classifyTurnFailure({ at: 'prompt', cause: event.error,
+          platformCredentials: this.deps.platformCredentials, closeRequested: this.closeRequested,
+          credentialRefusal: this.credentialRefusal });
+        this.rawLog.record({ kind: 'prompt_result', sessionId: this.acpSessionId, stopReason: null, error: event.error });
+        this.endWork(classified.outcome, { dequeueQueuedPrompt: this.dequeueAfterFailure });
+      }
+      if (event.error && request && !request.dispatched) {
+        request.completion.resolve(acpErr.promptFailed(event.error));
+        this.requests.delete(event.requestId);
+        if (dequeueAfterFailure) this.releaseDispatch();
+      }
+      return;
+    }
+    if (!this.replayingHistory && event.kind === 'message' && event.role === 'user') {
+      // Multiple inserted user messages can belong to the same foreground cycle.
+      if (this.transcript.activeTurn && this.activeTurnCompletion) event = { ...event, steering: true };
     }
     // 会话级背景(③)是第一轮里**单独的一个文本块**;回放历史时这一家把它当用户的话原样放回来
     // (Antigravity ACP 1.2.1 `session/load` 实测)。那不是用户说的 ⇒ 回放里丢掉,❌ 不画进转录。
@@ -445,18 +608,23 @@ export class SessionCell {
       return;
     }
     this.trackSubagentSession(event);
-    this.trackRunningTool(event);
+    if (!this.replayingHistory && event.kind === 'tool_call') {
+      this.pendingNativeSteers = this.pendingNativeSteers.filter(
+        (entry) => entry.toolsAtAdmission.has(event.toolCallId)
+      );
+    }
     if (event.kind === 'message' ? event.role === 'assistant' : this.isTranscriptEvent(event)) {
       this.turnHadAgentOutput = true;
     }
 
     // 不自报状态的家:请求已答复之后到的内容只能是上一段的尾巴(#6191)。自报的家开工会先报 running。
-    if (this.isIdleAgentTranscriptEvent(event) && !this.reportsState) {
+    const updatesExistingEntity = this.transcript.hasEntity(event);
+    if (!updatesExistingEntity && this.isIdleAgentTranscriptEvent(event) && this.activeTurnCompletion === null) {
       this.pushTurnTail(event);
       return;
     }
 
-    if (this.isTranscriptEvent(event) && !this.canAcceptTranscriptEvent()) {
+    if (!updatesExistingEntity && this.isTranscriptEvent(event) && !this.canAcceptTranscriptEvent()) {
       this.deps.logger.warn('SessionCell: dropping transcript update outside active turn', {
         sessionId: this.sessionId,
         phase: this.machine.phase.kind,
@@ -480,15 +648,18 @@ export class SessionCell {
     this.emitTranscriptChanged();
     // 请求先到、流里这一行后到(#7139):这一行缺的照待批的那条请求补一次，规则同 requestPermission。
     if (event.kind === 'tool_call') {
-      this.fillToolCall(this.machine.pendingPermissions.find((request) => request.toolCall.toolCallId === event.toolCallId)?.toolCall ?? null);
+      this.fillToolCall(this.machine.pendingPermissions.find((request) => request.toolCall?.toolCallId === event.toolCallId)?.toolCall ?? null);
     }
+    if (event.kind === 'tool_call' || event.kind === 'tool_update') this.scheduleQueuedSteering();
   }
 
+  /** Wait for the native message’s cycle; queued/steered inputs return admission. */
   async prompt(
     input: PromptInput,
     opts?: { steerIfBusy?: boolean },
   ): Promise<Result<SessionPromptResult, AcpSendPromptError>> {
     const now = Date.now();
+    const draftRev = this.draftRev;
     return this.sendPromptInternal({
       id: crypto.randomUUID(),
       ...input,
@@ -496,16 +667,15 @@ export class SessionCell {
       updatedAt: now,
     }, {
       ...opts,
-      // Consume the submitted draft at admission. Completion can arrive minutes later,
-      // when the composer already holds the person's next, unsent message (#7572).
-      onAdmission: (result) => { if (result.success) this.clearDraft(); },
+      // Native admission can arrive after the next draft sync; consume only this revision.
+      onAdmission: (result) => { if (result.success && this.draftRev === draftRev) this.clearDraft(); },
     });
   }
 
   /** Start a prompt without making the caller wait for the provider turn to finish. */
   promptDetached(
     input: PromptInput,
-    opts?: { steerIfBusy?: boolean },
+    opts?: { steerIfBusy?: boolean; overtakeQueue?: boolean },
   ): DetachedPromptResult {
     let admitted = false;
     let resolveAdmission!: (result: Result<{ queued: boolean; steered?: boolean }, AcpSendPromptError>) => void;
@@ -519,6 +689,7 @@ export class SessionCell {
       updatedAt: Date.now(),
     }, {
       ...(opts?.steerIfBusy ? { steerIfBusy: true } : {}),
+      ...(opts?.overtakeQueue ? { overtakeQueue: true } : {}),
       onAdmission: (result) => {
         admitted = true;
         resolveAdmission(result);
@@ -538,6 +709,7 @@ export class SessionCell {
   }
 
   queuePrompt(input: PromptInput): Result<void, InvalidStateError> {
+    if (this.closeRequested) return acpErr.invalidState('Session is closing; resume it after teardown');
     if (this.reverting) return acpErr.invalidState('Conversation revert is in progress.');
     const now = Date.now();
     const result = this.dispatchFor<InvalidStateError>(
@@ -546,6 +718,7 @@ export class SessionCell {
         prompt: {
           id: crypto.randomUUID(),
           ...input,
+          queueDispatching: undefined,
           createdAt: now,
           updatedAt: now,
         },
@@ -567,12 +740,19 @@ export class SessionCell {
    * 开出来的那一轮怎么结束由 cell 自己结算、上屏(与 `prompt()` 同一条路),这里只交回受理结果。
    */
   async queueBehindTurn(input: PromptInput): Promise<Result<{ queued: boolean }, InvalidStateError>> {
+    const draftRev = this.draftRev;
     if (this.reverting) return acpErr.invalidState('Conversation revert is in progress.');
     if (this.machine.phase.kind === 'replaying') {
       const queued = this.queuePrompt(input);
       return queued.success ? ok({ queued: true }) : queued;
     }
-    const { admission, completion } = this.promptDetached(input);
+    // 2026-10-28 主人撞到:agent 自己开的一轮(处理群消息)跑了几分钟,主人打的话一直「排队」。
+    // 人在别人开的一轮里打字 ⇒ 下一个工具边界插进去,越过排着的投递;人自己开的那一轮照旧排到讲完。
+    const ownerOvertakes = isOwnerOrigin(input.origin)
+      && this.machine.phase.kind === 'working'
+      && !this.workStartedByOwner
+      && (this.supportsSteering || this.agent.interruptForMessage !== undefined);
+    const { admission, completion } = this.promptDetached(input, ownerOvertakes ? { steerIfBusy: true, overtakeQueue: true } : undefined);
     completion.catch((error: unknown) => {
       this.deps.logger.error('SessionCell: queued prompt settlement threw', {
         sessionId: this.sessionId,
@@ -585,7 +765,7 @@ export class SessionCell {
       if (admitted.error.type === 'invalid_state') return { success: false, error: admitted.error };
       throw new Error(`SessionCell: queued prompt admission failed with ${admitted.error.type}`);
     }
-    this.clearDraft();
+    if (this.draftRev === draftRev) this.clearDraft();
     return ok({ queued: admitted.data.queued });
   }
 
@@ -620,13 +800,14 @@ export class SessionCell {
     );
     if (!result.success) return result;
     if (queueEdit === null) this.releaseQueueAfterEdit();
+    this.scheduleQueuedSteering();
     return ok();
   }
 
   private releaseQueueAfterEdit(): void {
     if (this.machine.phase.kind === 'ready' && this.settingsInFlight === 0
       && this.settingsBlockedReason === null && this.machine.pendingPermissions.length === 0) {
-      this.applyEvent({ type: 'SettingsReady' });
+      this.applyEvent({ type: 'AdmissionReady' });
     }
   }
 
@@ -637,6 +818,7 @@ export class SessionCell {
     ]);
     if (!result.success) return result;
     if (wasEditing) this.releaseQueueAfterEdit();
+    this.scheduleQueuedSteering();
     return ok();
   }
 
@@ -645,6 +827,7 @@ export class SessionCell {
       'invalid_state',
     ]);
     if (!result.success) return result;
+    this.scheduleQueuedSteering();
     return ok();
   }
 
@@ -683,6 +866,7 @@ export class SessionCell {
       'invalid_state',
     ]);
     if (!dispatchResult.success) return dispatchResult;
+    this.nativeAdmissionGeneration += 1;
     try {
       await this.agent.cancel({ sessionId: this.acpSessionId });
       return ok();
@@ -738,10 +922,6 @@ export class SessionCell {
   /**
    * 停掉这一会话里的**一个后台任务**(后台命令),❌ 不动这一轮,也❌ 不管子智能体(#5117)。
    *
-   * 走 claude 适配器的扩展方法 `_session/async_task/stop` → SDK `stop_task`。这条 lane 由
-   * `initialize` 里声明的 AIR `asyncTasks` 能力打开:不声明,适配器整条不发,连任务都不会
-   * announce,这个方法自然也停不了任何东西。
-   *
    * 停成了供应商会来 `async_task_state_update state:'stopped'`,转录/登记册按那条落定;
    * 这里只报「送到了没有」。适配器没有这个方法(非 claude)时 ACP 回 method-not-found
    * ⇒ 落 stopTaskFailed,❌ 不装成功。
@@ -778,7 +958,9 @@ export class SessionCell {
   }
 
   async closeSession(): Promise<void> {
+    this.nativeAdmissionGeneration += 1;
     this.closeRequested = true;
+    this.returnPendingNativeSteers();
     if (!this.agent.closeSession) return;
     try {
       await this.agent.closeSession({ sessionId: this.acpSessionId });
@@ -786,10 +968,33 @@ export class SessionCell {
       // ACP does not require providers to implement session/close. Once the provider
       // explicitly reports that unsupported method, the host-owned connection scope
       // remains the authoritative teardown path. Other close errors stay fail-loud.
-      if (isUnsupportedSessionClose(error)) return;
+      if (isUnsupportedSessionClose(error) || providerRejectedMissingSession(error)) return;
       // 没关成,会话照旧在管(stop 可重试):之后的失败照实分类。
       this.closeRequested = false;
       throw error;
+    }
+  }
+
+  private returnPendingNativeSteers(): void {
+    const pending = this.pendingNativeSteers;
+    this.pendingNativeSteers = [];
+    // The inbox cursor already advanced on admission. Only this queue can replay these inputs.
+    // If the provider consumed one without a later tool/completion, replay once: prefer duplicates
+    // to silently losing an accepted message. Assistant text alone is not a consumption receipt.
+    for (const { prompt } of pending) {
+      const { coalesceKey: _key, ...retained } = prompt;
+      const result = this.dispatch({ type: 'QueuePrompt', prompt: retained, retainIdentity: true });
+      if (!result.success) throw new Error(`Cannot retain admitted steering: ${result.error.type}`);
+    }
+    if (pending.length) {
+      // Late receipts during close must follow earlier returned inputs. They are already admitted,
+      // so neither same-key replacement nor a newer still-reserved head may erase/reorder them.
+      const ids = new Set(this.machine.queuedPrompts.map(prompt => prompt.id));
+      this.returnedNativeSteerIds = [...new Set([
+        ...this.returnedNativeSteerIds.filter(id => ids.has(id)), ...pending.map(({ prompt }) => prompt.id),
+      ])];
+      this.applyEvent({ type: 'QueueReordered', ids: [...this.returnedNativeSteerIds,
+        ...this.machine.queuedPrompts.map(prompt => prompt.id).filter(id => !this.returnedNativeSteerIds.includes(id))] });
     }
   }
 
@@ -812,18 +1017,21 @@ export class SessionCell {
     return ok();
   }
 
-  requestPermission(params: RequestPermissionRequest): Promise<RequestPermissionResponse> {
+  requestPermission(params: AcpPermissionParams): Promise<RequestPermissionResponse> {
     const requestId = crypto.randomUUID();
-    const fromRequest = requestToolUpdate(params.toolCall);
-    this.fillToolCall(fromRequest);
+    const { subject, toolCall: fromRequest } = params;
+    this.fillToolCall(fromRequest ? {
+      ...fromRequest, rawInput: fromRequest.rawInput ?? undefined,
+      outputText: fromRequest.outputText ?? undefined, toolName: fromRequest.toolName ?? undefined,
+    } : null);
     const request: AcpPermissionRequest = {
       requestId,
-      toolCall: this.buildPermissionToolCall(requestId, params.toolCall, fromRequest),
-      options: params.options.map((option) => ({
-        optionId: option.optionId,
-        name: option.name,
-        kind: option.kind,
-      })),
+      title: params.title ?? fromRequest?.title ?? '',
+      ...(params.description !== undefined ? { description: params.description } : {}),
+      ...(subject !== undefined ? { subject: structuredClone(subject) } : {}),
+      ...(params._meta !== undefined ? { _meta: structuredClone(params._meta) } : {}),
+      ...(fromRequest ? { toolCall: this.buildPermissionToolCall(requestId, fromRequest) } : {}),
+      options: params.options.map(({ optionId, name, kind }) => ({ optionId, name, kind })),
     };
     this.rawLog.record({
       kind: 'permission_request',
@@ -985,7 +1193,7 @@ export class SessionCell {
   private finishSetting(): void {
     this.settingsInFlight = Math.max(0, this.settingsInFlight - 1);
     if (this.settingsInFlight !== 0 || this.settingsBlockedReason) return;
-    if (this.machine.phase.kind === 'ready') this.applyEvent({ type: 'SettingsReady' });
+    if (this.machine.phase.kind === 'ready') this.applyEvent({ type: 'AdmissionReady' });
   }
 
   private async applyLiveSetting<E extends AcpSetModeOptionError | AcpSetModelOptionError>(
@@ -1193,24 +1401,26 @@ export class SessionCell {
 
   private openTurnCompletion(): void {
     if (this.activeTurnCompletion) return;
-    this.activeTurnCompletion = new Promise<void>((resolve) => {
+    this.activeTurnCompletion = new Promise<Result<SessionPromptResult, AcpSendPromptError>>((resolve) => {
       this.resolveActiveTurnCompletion = resolve;
     });
   }
 
-  private closeTurnCompletion(): void {
-    this.runningTools.clear();
-    this.interruptForSteer = false;
+  private closeTurnCompletion(result: Result<SessionPromptResult, AcpSendPromptError> = ok({ queued: false })): void {
     this.interruptedForMessage = false;
+    this.yieldingRepliedAssistant = null;
+    this.nativeInputAfterStart = false;
     this.providerTurnFailure = null;
     this.providerStderrFailure = null;
     this.providerTurnSignIn = false;
     this.credentialRefusal = null;
     this.turnHadAgentOutput = false;
     const resolve = this.resolveActiveTurnCompletion;
+    this.dequeueAfterFailure = true;
+    this.requeuedAfterTokenBoundary = false;
     this.resolveActiveTurnCompletion = null;
     this.activeTurnCompletion = null;
-    resolve?.();
+    resolve?.(result);
   }
 
   private makeTurnEnvelope(): TurnEnvelope {
@@ -1226,47 +1436,58 @@ export class SessionCell {
     };
   }
 
-  /**
-   * 一条 prompt 请求答复了(或失败了),带着它的结局。
-   *
-   * 不自报状态的家:请求答复 = agent 停下,当场落定。自报状态的家:在不在干活只听它报的 ——
-   * 它还在干(请求先答复、idle 随后到)⇒ 记下结局,等 idle 落定;它已经不在干(报过 idle,或这一句
-   * 根本没开工:本地命令)⇒ 当场落定。
-   * @returns 这一次落定了(或记下了)吗 —— 什么都没开着时它什么都不做,调用方靠这个返回值分辨。
-   */
-  settleTurn(outcome: TranscriptTurnOutcome, opts?: { dequeueQueuedPrompt?: boolean }): boolean {
-    if (this.reportsState && this.machine.isWorking && !this.idleReported) {
-      this.pendingWorkEnd = { outcome, ...opts };
-      this.closeTurnCompletion();
-      return true;
+  private releaseDispatch(): void {
+    // Closing keeps the queue for the closing side to decide (#743), like WorkEnded in endWork.
+    if (this.closeRequested) return;
+    if (this.machine.phase.kind === 'ready' && this.settingsInFlight === 0 && !this.settingsBlockedReason) {
+      // The drain sends the next queued batch; its failure is reported as endWork reports it.
+      try { this.applyEvent({ type: 'AdmissionReady' }); } catch (error) {
+        this.deps.logger.error('SessionCell: queued dispatch failed', { sessionId: this.sessionId, error });
+      }
     }
-    return this.endWork(outcome, opts);
   }
 
   /** agent 停下:转录里开着的那一组按结局收口,状态回到 ready(抽干队列)。 */
-  private endWork(outcome: TranscriptTurnOutcome, opts?: { dequeueQueuedPrompt?: boolean }): boolean {
-    this.idleReported = false;
-    this.pendingWorkEnd = null;
+  private endWork(outcome: TranscriptTurnOutcome, opts?: { dequeueQueuedPrompt?: boolean; foreground?: TranscriptTurn['foreground']; result?: Result<SessionPromptResult, AcpSendPromptError> }): boolean {
+    if (outcome.kind === 'cancelled' || outcome.kind === 'error') this.nativeAdmissionGeneration += 1;
     const working = this.machine.isWorking;
     if (!working && this.transcript.activeTurn === null) {
+      settleAcceptedRequests(this.requests, this.transcript);
       this.closeTurnCompletion();
       return false;
+    }
+    if (outcome.kind !== 'cancelled' || outcome.reason === 'interrupted_for_message') {
+      this.pendingNativeSteers = [];
     }
     // 任何一次落定都先把「可改口」收回:只有紧接着的 prompt-边界分类会再把它打开。
     // ❌ 不许让上一次的暂定状态活过这一次 —— 那就又变回一个时间窗了。
     this.lastFailureProvisional = false;
     const previousRunningAgentCount = this.lastRunningAgentCount;
-    this.transcript.settleTurn(outcome);
+    this.transcript.settleTurn(outcome, Date.now(), opts?.foreground);
+    settleAcceptedRequests(this.requests, this.transcript);
     this.dispatchAgentsChangedIfNeeded(previousRunningAgentCount);
     this.emitTranscriptChanged();
-    if (working) {
-      this.applyEvent({
-        type: 'WorkEnded',
-        outcome: machineOutcome(outcome),
-        ...(opts?.dequeueQueuedPrompt === false ? { dequeueQueuedPrompt: false } : {}),
-      });
-    }
+    // Detach this exact cycle before a queue drain can create its successor.
+    const resolve = this.resolveActiveTurnCompletion;
+    this.resolveActiveTurnCompletion = null;
     this.closeTurnCompletion();
+    this.queuedTurnFence = false;
+    try {
+      // 正在关:这时出队的那一句只会被 `sendPromptInternal` 以「Session is closing」拒掉,而出队已经把它从队列里拿走了
+      // ⇒ 人排的话凭空没了(2026-10-28 07:34:06)。关的时候不出队,队列原样留给关闭那一侧决定去留。
+      // A turn that ended before running still records its outcome (machine: WorkEnded in ready).
+      if (working || this.machine.phase.kind === 'ready') this.applyEvent({ type: 'WorkEnded', outcome: machineOutcome(outcome),
+        ...((opts?.dequeueQueuedPrompt === false || this.context().dispatchPending || this.closeRequested) ? { dequeueQueuedPrompt: false } : {}) });
+      // Commands can finish without ever reporting running. Their explicit completion releases
+      // the same lane; WorkEnded in ready records the outcome but does not itself drain it.
+      if (!working && opts?.dequeueQueuedPrompt !== false) this.releaseDispatch();
+      resolve?.(opts?.result ?? (outcome.kind === 'error'
+        ? acpErr.promptFailed({ name: 'ForegroundError', message: outcome.detail ?? outcome.reason ?? 'Foreground failed' })
+        : ok({ queued: false })));
+    } catch (error) {
+      this.deps.logger.error('SessionCell: queued dispatch failed', { sessionId: this.sessionId, error });
+      resolve?.(acpErr.promptFailed(toSerializedError(error)));
+    }
     return true;
   }
 
@@ -1274,27 +1495,62 @@ export class SessionCell {
    * agent 报的状态(`state_update`):在不在干活只听这个,谁开的工都一样(#7087)。
    * ❌ 别再猜「它停了」:静默定时器(2026-09-06 把消息切碎)和「带 cost 的 usage」都是猜,它自己会报。
    */
-  private onAgentState(state: 'running' | 'requires_action' | 'idle'): void {
-    if (!this.reportsState) return;
-    if (state !== 'idle') {
-      this.idleReported = false;
-      if (this.machine.phase.kind === 'ready') this.applyEvent({ type: 'WorkStarted' });
+  private onAgentState(event: Extract<NormalizedEvent, { kind: 'agent_state' }>): void {
+    // A replayed idle is that native cycle's boundary; it never takes the replaying runtime into work.
+    if (this.replayingHistory) {
+      if (event.state === 'idle') this.transcript.endTurn();
       return;
     }
-    if (!this.machine.isWorking) return;
-    if (this.activeTurnCompletion) {
-      // 还有请求没答复:它的答复带着结局,由它落定。
-      this.idleReported = true;
+    if (event.state === 'unknown') return;
+    if (event.state !== 'idle') {
+      if (this.machine.phase.kind === 'ready') {
+        // 没有一句在飞,agent 自己开了工(后台跑完的通知、子任务回来):不是人开的。
+        if (!this.activeTurnCompletion) this.workStartedByOwner = false;
+        this.openTurnCompletion();
+        this.applyEvent({ type: 'WorkStarted' });
+      }
       return;
     }
-    const pending = this.pendingWorkEnd;
-    this.endWork(
-      pending?.outcome
-        ?? (this.machine.phase.kind === 'cancelling'
-          ? { kind: 'cancelled', reason: 'cancelled' }
-          : { kind: 'done', reason: 'cycle_end' }),
-      pending?.dequeueQueuedPrompt === false ? { dequeueQueuedPrompt: false } : undefined,
-    );
+    const cycle = this.activeTurnCompletion;
+    const finish = () => {
+      if (this.activeTurnCompletion !== cycle) return;
+      const anchor = (event._meta?.guguRevert as { before?: unknown } | undefined)?.before;
+      if (typeof anchor === 'string' && anchor) this.transcript.setActiveRevertAnchor(anchor);
+      this.rawLog.record({ kind: 'prompt_result', sessionId: this.acpSessionId,
+        stopReason: event.stopReason, ...(event.error ? { error: toSerializedError(Object.assign(new Error(event.error.message), event.error)) } : {}) });
+      if (event.error || event.stopReason === 'error') {
+        if (this.requeuedAfterTokenBoundary) {
+          this.endWork({ kind: 'done', reason: 'end_turn' }, { foreground: event, dequeueQueuedPrompt: false,
+            result: ok({ queued: true, requeuedAfterTokenBoundary: true }) });
+          return;
+        }
+        const classified = classifyTurnFailure({ at: 'prompt',
+          cause: toSerializedError(event.error ? Object.assign(new Error(event.error.message), event.error) : new Error('Foreground ended with an error')),
+          platformCredentials: this.deps.platformCredentials, closeRequested: this.closeRequested,
+          credentialRefusal: this.credentialRefusal });
+        this.deps.logger.error('SessionCell: prompt failed', { sessionId: this.sessionId, providerId: this.deps.providerId, acpSessionId: this.acpSessionId, cause: event.error });
+        if (this.endWork(classified.outcome, { foreground: event, dequeueQueuedPrompt: this.dequeueAfterFailure })) this.lastFailureProvisional = classified.provisional;
+      } else {
+        const reason = event.stopReason;
+        this.endWork(reason === 'end_turn' || reason === 'cancelled' || reason === 'refusal'
+          || reason === 'max_tokens' || reason === 'max_turn_requests'
+          ? this.settledOutcome(reason) : { kind: 'done', reason: 'cycle_end' }, { foreground: event });
+      }
+    };
+    // Some providers report a swallowed failure on stderr, independently of their result pipe.
+    if (event.stopReason === 'end_turn' && this.deps.turnFailure?.watchesStderr
+      && !this.turnHadAgentOutput && !this.providerTurnFailure && !this.providerStderrFailure) {
+      void new Promise(resolve => setTimeout(resolve, STDERR_FAILURE_GRACE_MS)).then(finish);
+    } else finish();
+  }
+
+  private applyReceiptMetadata(requestId: string, meta: SessionPromptReceipt['_meta']): void {
+    const request = this.requests.get(requestId);
+    const anchor = (meta?.guguRevert as { before?: unknown } | undefined)?.before;
+    if (request && typeof anchor === 'string' && anchor) {
+      this.transcript.setRevertAnchor(request.messageId, anchor);
+      this.emitTranscriptChanged();
+    }
   }
 
   /**
@@ -1306,6 +1562,7 @@ export class SessionCell {
    * 只是当年的回调签名把它们截断了。⇒ 现在整条事实带进来,分类交给唯一那个分类器。
    */
   processClosed(exit: AdapterExit, opts?: { abnormal?: boolean }): void {
+    this.nativeAdmissionGeneration += 1;
     const abnormal = opts?.abnormal !== false;
     // 这一轮的 reason 是从哪条路来的 —— 三条路的分岔就在下面,而它们在产品面长得**一模一样**
     // (都是一行「回合失败」)。不记这一行,下次问「为什么它说的是 A 不是 B」就只能靠猜。
@@ -1364,10 +1621,20 @@ export class SessionCell {
         }
       }
     }
+    for (const request of this.requests.values()) request.completion.resolve(acpErr.promptFailed({ name: 'ConnectionClosed', message: 'ACP process closed' }));
+    this.requests.clear();
     this.applyEvent({ type: 'ProcessClosed', exit, abnormal });
   }
 
   dispose(): void {
+    this.nativeAdmissionGeneration += 1;
+    if (this.activeTurnCompletion || this.transcript.activeTurn) {
+      this.endWork(this.closeRequested ? { kind: 'cancelled', reason: 'cancelled' }
+        : classifyTurnFailure({ at: 'connection-lost', failure: null }).outcome,
+      { dequeueQueuedPrompt: false });
+    }
+    for (const request of this.requests.values()) request.completion.resolve(acpErr.promptFailed({ name: 'ConnectionClosed', message: 'ACP session closed' }));
+    this.requests.clear();
     this.permissions.drain(this.machine.pendingPermissions);
   }
 
@@ -1389,6 +1656,7 @@ export class SessionCell {
   }
 
   private applyEvent(event: DomainEvent): void {
+    if (event.type === 'AdmissionReady' && this.context().dispatchPending) return;
     this.interpretEffects(this.machine.apply(event));
   }
 
@@ -1496,7 +1764,7 @@ export class SessionCell {
   }
 
   /**
-   * 收不了并发 prompt 的家的忙时插话(`acp.midTurnSteer`):插话先进队列,等当前工具调用跑完
+   * 收不了并发 prompt 的家的忙时插话(transport interrupt control):插话先进队列,等当前工具调用跑完
    * (没有在跑的就立刻)打断这一轮;回合结束时队列照常出队成下一轮。
    */
   private steerByInterrupt(
@@ -1510,8 +1778,9 @@ export class SessionCell {
     const queuedPrompt = prompt.origin ? prompt : { ...prompt, origin: 'communication' as const };
     const held = this.dispatchFor<AcpSendPromptError>({ type: 'QueuePrompt', prompt: queuedPrompt }, ['invalid_state']);
     if (!held.success) return held;
-    this.interruptForSteer = true;
-    this.interruptIfAtToolBoundary();
+    void this.agent.interruptForMessage!({ sessionId: this.acpSessionId }).catch((error: unknown) => {
+      this.deps.logger.error('SessionCell: interrupt for message failed', { sessionId: this.sessionId, error });
+    });
     // #6387 它在队列里,但不是排到这一轮讲完:下一个工具边界就进去 —— 对调用方这就是「插进去了」。
     const queued = ok({ queued: true, steered: true });
     if (!opts?.skipAdmission) opts?.onAdmission?.(queued);
@@ -1571,54 +1840,50 @@ export class SessionCell {
     return outcomeFromStopReason(stopReason);
   }
 
-  private trackRunningTool(event: NormalizedEvent): void {
-    if (this.deps.midTurnSteer !== 'interrupt-at-tool-boundary') return;
-    if (event.kind !== 'tool_call' && event.kind !== 'tool_update') return;
-    if (event.status === 'completed' || event.status === 'failed') {
-      if (this.runningTools.delete(event.toolCallId)) this.interruptIfAtToolBoundary();
-      return;
-    }
-    if (event.kind === 'tool_call' || event.status === 'pending' || event.status === 'in_progress') {
-      this.runningTools.add(event.toolCallId);
-    }
-  }
-
-  private interruptIfAtToolBoundary(): void {
-    if (!this.interruptForSteer || this.runningTools.size > 0) return;
-    this.interruptForSteer = false;
-    // 用户已经自己点了停止(phase 已是 cancelling)⇒ 这一轮是用户停的,❌ 改标成「为插话停下」
-    // (界面据此收起「继续 / 丢弃」),也不再发第二次 cancel。插话照旧排在队里,作为下一轮发出。
-    // ⚠️ 不能靠 dispatch 结果判断:`Cancel` 在 cancelling 期间是幂等成功的。
-    if (this.machine.phase.kind !== 'working') return;
-    this.interruptedForMessage = true;
-    void this.cancel().then((result) => {
-      if (!result.success) {
-        this.deps.logger.warn('SessionCell: interrupt for mid-turn message failed', {
-          sessionId: this.sessionId,
-          error: result.error,
-        });
-      }
-    });
-  }
-
   private async sendPromptInternal(
     prompt: QueuedPrompt,
     opts?: {
       steerIfBusy?: boolean;
       fromQueue?: boolean;
+      /** 人在别人开的一轮里打字:像「现在插入」一样越过排着的条目(见 queueBehindTurn)。 */
+      overtakeQueue?: boolean;
       skipAdmission?: boolean;
       onAdmission?: (result: Result<{ queued: boolean; steered?: boolean }, AcpSendPromptError>) => void;
     },
   ): Promise<Result<SessionPromptResult, AcpSendPromptError>> {
+    if (this.closeRequested) return acpErr.sessionBusy('Session is closing; resume it after teardown');
+    if (!opts?.fromQueue) {
+      prompt = { ...prompt, queueTiming: opts?.steerIfBusy && prompt.origin === 'communication'
+        ? 'next-tool-call' : undefined };
+    }
+    // A delivery cannot be steered into the native summarization request. Retain its
+    // original id/bytes in the ordinary durable queue, which drains at command completion.
+    if (this.compacting) {
+      const held = this.dispatchFor<AcpSendPromptError>(
+        { type: 'QueuePrompt', prompt: { ...prompt, origin: prompt.origin ?? 'typed' } }, ['invalid_state'],
+      );
+      if (!held.success) return held;
+      const result = ok({ queued: true });
+      opts?.onAdmission?.(result);
+      return result;
+    }
     if (this.reverting) return acpErr.sessionBusy('Conversation revert is in progress.');
-    // 忙时插话只在没人排队时插进这一轮:队列里已有在等的输入,投递就排到它后面,按到达顺序出队
-    // (spec session-injection)。排队那条的「立即发送」(fromQueue)是人亲手越过,照插。
-    // 下面的设置闸认的也是这一个:闸扣着人话时,后到的投递同样扣在它后面。
+    if (!opts?.fromQueue && prompt.origin === 'communication' && this.machine.phase.kind === 'working'
+      && this.canYieldRepliedAssistant(prompt.text)) {
+      // QueuePrompt synchronously saves through the manager callback. The new input must
+      // remain outside the provider: native cancel withdraws all of its pending inputs.
+      const held = this.dispatchFor<AcpSendPromptError>({ type: 'QueuePrompt', prompt }, ['invalid_state']);
+      if (!held.success) return held;
+      this.yieldingRepliedAssistant = prompt.text;
+      this.yieldRepliedAssistantAtToolBoundary();
+      const queued = ok({ queued: true });
+      opts?.onAdmission?.(queued);
+      return queued;
+    }
+    // Preserve input order; explicit queue steering (and the owner overtaking someone else's turn) may bypass waiting inputs.
     const steerIfBusy = opts?.steerIfBusy === true
-      && (opts.fromQueue === true || this.machine.queuedPrompts.length === 0);
-    // A setting request and the next prompt share one linearization point. If a prompt arrives
-    // while a setting is being confirmed (or remains unconfirmed), keep it in the runtime queue;
-    // the queue drain is released only by a confirmed `SettingsReady` event.
+      && (opts.fromQueue === true || opts.overtakeQueue === true || this.machine.queuedPrompts.length === 0);
+    // Settings and receipt admission release the same next-input barrier.
     if (
       !opts?.skipAdmission
       && !steerIfBusy
@@ -1634,6 +1899,9 @@ export class SessionCell {
       if (!opts?.skipAdmission) opts?.onAdmission?.(queued);
       return queued;
     }
+    const transcriptBeforePrompt = this.transcript.snapshotState();
+    const turnContextBeforePrompt = new Map(this.pendingTurnContext);
+    const sessionContextBeforePrompt = this.pendingSessionContext;
     const decision = this.dispatchFor<AcpSendPromptError>(
       {
         type: 'Prompt',
@@ -1645,25 +1913,37 @@ export class SessionCell {
     if (!decision.success) return decision;
     const started = decision.data.some((effect) => effect.type === 'promptStarted');
     if (started) {
+      this.workStartedByOwner = isOwnerOrigin(prompt.origin);
+      this.queuedTurnFence = opts?.fromQueue === true
+        && (prompt.queueTiming !== 'next-tool-call' || prompt.origin !== 'communication' || !!prompt.attachments?.length);
       this.promptSequence += 1;
-      // 不自报状态的家:「请求在飞」就是它在干活的唯一事实。自报的家开工由它自己报 running。
-      if (!this.reportsState) this.applyEvent({ type: 'WorkStarted' });
     }
     // spec session-injection 的 mid-turn 支:同一条标准 session/prompt 立即发进当前 turn。
-    // 在飞的主 RPC 拥有 turn 结算,这条 steer RPC 不 settleTurn —— 唯一例外见下面的移交守卫。
+    // Concurrent requests report one aggregate request-activity boundary at their transport.
     const steered = decision.data.some((effect) => effect.type === 'promptSteered');
     const nativeSteer = steered && this.supportsSteering;
-    if (steered && !nativeSteer && this.deps.midTurnSteer === 'interrupt-at-tool-boundary') {
-      return this.steerByInterrupt(prompt, opts);
+    if (nativeSteer) this.nativeInputAfterStart = true;
+    if (steered && !nativeSteer && this.agent.interruptForMessage) {
+      const held = this.steerByInterrupt(prompt, opts);
+      if (held.success) this.deps.callbacks?.onPromptSteered?.();
+      return held;
     }
     if (!started && !steered) {
       const queued = ok({ queued: true });
       if (!opts?.skipAdmission) opts?.onAdmission?.(queued);
+      this.scheduleQueuedSteering();
       return queued;
     }
     // #6387 受理结果说清是「开了一轮」还是「插进了在飞的那一轮」—— 投递方要如实告诉扩展。
-    if (!opts?.skipAdmission) opts?.onAdmission?.(ok({ queued: false, ...(steered ? { steered: true } : {}) }));
+    // Admission is the native receipt (v2) or the request-activity dispatch acknowledgement (v1).
+    let admitted = false;
+    const admit = () => {
+      if (admitted) return;
+      admitted = true;
+      if (!opts?.skipAdmission) opts?.onAdmission?.(ok({ queued: false, ...(steered ? { steered: true } : {}) }));
+    };
     if (started && !steered) {
+      this.dequeueAfterFailure = !opts?.fromQueue;
       this.openTurnCompletion();
       const envelope = this.makeTurnEnvelope();
       this.latestTurnEnvelope = envelope;
@@ -1673,14 +1953,8 @@ export class SessionCell {
         envelope,
       });
     }
-    // The legacy concurrent session/prompt owns a second ACP result and needs a settlement
-    // handoff counter. Native `_session/steering` only returns an admission outcome; its
-    // interrupted and continued results stay on the primary ACP stream, so it must not enter
-    // that counter or a later turn could inherit a stale "steer in flight" marker.
-    if (steered && !nativeSteer) this.steerInFlight += 1;
-
-    // 出队消息沿用队列里的稳定 id,让 queue → transcript 的同一条消息可关联。steer 不推进
-    // promptSequence,也不能借用那个序号编 id(会与下一句的 user message 撞 id),所以仍用 prompt id 编。
+    const cycle = this.activeTurnCompletion;
+    // Queued inputs keep their stable ID; steering uses its own input ID.
     const messageId = opts?.fromQueue
       ? prompt.id
       : steered
@@ -1698,28 +1972,31 @@ export class SessionCell {
         && item.role === 'user'
         && (item.id === prompt.id || item.id.includes(prompt.id))
       ));
-    const recordUserMessage = () => {
-      if (alreadyRecorded) return;
-      this.transcript.pushEvent({
+    const submittedMessage: Extract<NormalizedEvent, { kind: 'message' }> = {
         kind: 'message',
         role: 'user',
         messageId,
         text: prompt.text,
-        ...(steered ? { steering: true } : {}),
+        content: [{ type: 'text', text: prompt.text }],
+        contentMode: 'replace',
+        attachmentsMode: 'replace',
+        ...(steered ? { steering: true } : { trigger: promptTrigger(prompt) }),
         ...(prompt.attachments?.length
           ? {
-              attachments: prompt.attachments.map((attachment, index) => ({
-                id: attachment.type === 'attachment' ? attachment.id : `${messageId}-image-${index}`,
+              attachments: prompt.attachments.flatMap((attachment, index) => attachment.type === 'attachment' ? [{
+                id: attachment.id,
                 name: attachment.name ?? `image-${index + 1}`,
                 mimeType: attachment.mimeType,
-              })),
+              }] : []),
             }
           : {}),
-      });
-      this.emitTranscriptChanged();
+      };
+    const recordUserMessage = () => {
+      if (alreadyRecorded) return;
+      this.push(submittedMessage);
     };
-    // 原生插话要等 agent 受理(`injected`)才算发出:它回 `promptRequired` 时这句还没进去(#7087)。
     if (!nativeSteer) recordUserMessage();
+    // 原生插话要等 agent 受理(`injected`)才算发出:它回 `promptRequired` 时这句还没进去(#7087)。
     // 转录里画成它自己的一行(来自哪个扩展由信封写明),跟在这一句后面、同属这一轮 ——
     // `steering` 让它不另开一轮(一轮只由人/投递的那一句开),请求里它是一个块(见 turnContextBlocks)。
     if (turnContext) {
@@ -1732,17 +2009,58 @@ export class SessionCell {
       });
       this.emitTranscriptChanged();
     }
+    const requestId = started ? this.latestTurnEnvelope!.requestId : crypto.randomUUID();
+    const request = { messageId, prompt, steered, cycle, submitted: submittedMessage,
+      accepted: false, dispatched: false, completion: Promise.withResolvers<PromptResult>() };
+    this.requests.set(requestId, request);
+    let prepared: NativePromptPreparation | null = null;
+    // Pre-admission refusal: no provider update was received, so this was never a turn. Restore only
+    // our tentative projection, before any failed turn can reach durable history.
+    const refuse = (error: unknown) => {
+      this.requests.delete(requestId);
+      this.rawLog.record({ kind: 'prompt_result', sessionId: this.acpSessionId, stopReason: null, error: toSerializedError(error) });
+      this.deps.logger.warn('SessionCell: provider refused a prompt before admission', { sessionId: this.sessionId });
+      this.transcript.restoreState(transcriptBeforePrompt);
+      this.pendingTurnContext = new Map([...turnContextBeforePrompt, ...this.pendingTurnContext]);
+      if (sessionContextBeforePrompt && this.pendingSessionContext !== sessionContextBeforePrompt) {
+        this.pendingSessionContext = [sessionContextBeforePrompt, this.pendingSessionContext].filter(Boolean).join('\n\n');
+      }
+      if (started) { this.applyEvent({ type: 'PromptRefused' }); this.closeTurnCompletion(); }
+      this.emitTranscriptChanged();
+    };
+    const releasePreparation = () => prepared?.rejected?.().catch(() => {
+      this.deps.logger.warn('Resource change reservation release failed', { sessionId: this.sessionId });
+    });
+    const confirmPreparation = () => void prepared?.accepted().catch(() => {
+      this.deps.logger.warn('Native prompt preparation checkpoint will retry', { sessionId: this.sessionId });
+    });
     try {
+      try {
+        const preparing = prepareNativePrompt(this.sessionId);
+        prepared = preparing ? await preparing : null;
+      } catch (error) {
+        if ((error as { deliveryRejectedBeforeAdmission?: unknown } | null)?.deliveryRejectedBeforeAdmission !== true) throw error;
+        refuse(error);
+        if (opts?.fromQueue) this.retryPreparedQueue(prompt);
+        return acpErr.sessionBusy(error instanceof Error ? error.message : '');
+      }
+      this.preparationRetryDelay = 1500;
       // 按路径带的图(`local-file`:另一台机器发来的附件、首轮随启动队列带的附件)只在 agent
       // **声明收图片**时才变成图片块 —— 那一句正文里本来就有这件附件的路径 mention,不收图的 agent
       // 照样读得到它。发送的这一刻 agent 已经握过手,这里的判据是它自己报的那一份(#6264)。
       // 上传来的附件(`attachment`)不在此列:它们没有路径兜底,宿主发之前已经按同一判据分过路。
-      const sendable = (prompt.attachments ?? []).filter(
-        (attachment) => attachment.type !== 'local-file' || this.acceptsImagePrompts
-      );
       const resolvedAttachments = await Promise.all(
-        sendable.map((attachment) => this.deps.resolveAttachment(attachment))
+        (prompt.attachments ?? []).map((attachment) => this.deps.resolveAttachment(attachment))
       );
+      // Preserve the runtime's copy in both tentative and native-receipt projections.
+      // Model image support controls the wire blocks, not whether people can reopen their image.
+      if (prompt.attachments?.length) {
+        submittedMessage.attachments = prompt.attachments.flatMap((attachment, index) => {
+          const ref = resolvedAttachments[index]?.ref;
+          return ref ? [ref] : attachment.type === 'attachment' ? [{ id: attachment.id, name: attachment.name ?? `image-${index + 1}`, mimeType: attachment.mimeType }] : [];
+        });
+        if (!nativeSteer) recordUserMessage();
+      }
       // ③ 只在**第一次真正发出去的那一轮**随行,发完即清。放在最前面:它是这场会话的
       // 常驻背景,该在用户这一句之前被读到。
       // ⚠️ 在 await 之后、构造请求之前取并清空 —— 并发的第二轮不会再带上它。
@@ -1751,12 +2069,15 @@ export class SessionCell {
       const contextBlocks = sessionContext
         ? [{ type: 'text' as const, text: sessionContext }]
         : [];
-      const attachmentBlocks = resolvedAttachments.map((attachment) => ({
+      const attachmentBlocks = resolvedAttachments.filter((_, index) =>
+        prompt.attachments?.[index]?.type !== 'local-file' || this.acceptsImagePrompts
+      ).map((attachment) => ({
         type: 'image' as const,
         data: attachment.data,
         mimeType: attachment.mimeType,
       }));
-      const turnContextBlocks = turnContext ? [{ type: 'text' as const, text: turnContext }] : [];
+      const turnContextBlocks = [prepared?.text, prepared?.beforeText, turnContext]
+        .filter((text): text is string => !!text).map(text => ({ type: 'text' as const, text }));
       const textBlocks = prompt.text ? [{ type: 'text' as const, text: prompt.text }] : [];
       const trailingBlocks =
         prompt.origin === undefined && prompt.hiddenContext
@@ -1768,8 +2089,10 @@ export class SessionCell {
       // 就会静默退化成一句普通的话 —— 用户看见命令芯片、agent 收到的却是散文。
       // ⚠️ 判据用 agent **真的报过**的那份名单,不是「以 / 开头」:后者会把
       // `/Users/foo 这个文件…` 也当成命令(opencode 会把它整轮吞掉)。
+      // Routed envelopes are not commands; with no command list their leading '<' otherwise reorders the reply hint.
       const leadsWithCommand =
-        prompt.text !== undefined
+        prompt.origin !== 'communication'
+        && prompt.text !== undefined
         && invokesCommand(prompt.text, this.config.availableCommands);
       const promptRequest = {
         sessionId: this.acpSessionId,
@@ -1777,19 +2100,46 @@ export class SessionCell {
           ? [...textBlocks, ...contextBlocks, ...turnContextBlocks, ...attachmentBlocks, ...trailingBlocks]
           : [...contextBlocks, ...turnContextBlocks, ...attachmentBlocks, ...textBlocks, ...trailingBlocks],
       };
+      const promptMeta = this.deps.historyRecovery?.promptMeta?.(promptRequest.prompt);
+      if (promptMeta) {
+        // Bind the exact native bytes to our original prompt, without putting any marker on the wire.
+        submittedMessage._meta = promptMeta;
+        if (!nativeSteer) this.push({ ...submittedMessage, steering: true, trigger: undefined });
+      }
       this.rawLog.record({
         kind: 'prompt',
         sessionId: this.acpSessionId,
         content: promptRequest.prompt,
       });
       if (nativeSteer) {
-        const outcome = await this.requestSteering(promptRequest);
+        let outcome: 'injected' | 'promptRequired';
+        try {
+          outcome = await this.requestSteering(promptRequest, { requestId, message: submittedMessage });
+        } catch (error) {
+          // C, as for a prompt receipt: an input the provider never took is refused for a missing session,
+          // and an internal error retires the executor (lost -> resume). Other failures stay loud below.
+          this.requests.delete(requestId);
+          if (providerRejectedMissingSession(error)) {
+            await releasePreparation();
+            refuse(error);
+            return acpErr.sessionNotFound(this.sessionId);
+          }
+          if (toSerializedError(error).code === -32603) {
+            await releasePreparation();
+            recordUserMessage();
+            this.push({ kind: 'prompt_result', requestId, error: toSerializedError(error) });
+            await this.deps.callbacks?.onPromptRejected?.();
+            return acpErr.promptFailed(toSerializedError(error));
+          }
+          throw error;
+        }
+        this.requests.delete(requestId);
         if (outcome === 'promptRequired') {
           // The agent stopped in the race after decide(). Re-enter the normal prompt path exactly
           // once; it is sent now, or waits in the queue until the agent reports it stopped.
           const retried = await this.sendPromptInternal(prompt, {
             fromQueue: opts?.fromQueue,
-            skipAdmission: true,
+            onAdmission: opts?.skipAdmission ? undefined : opts?.onAdmission,
           });
           // 「立即发送」的那句仍在排队 ⇒ 排在队首,与 steerQueuedPrompt 没有在干的活时同一个去处。
           if (opts?.fromQueue && retried.success && retried.data.queued) {
@@ -1800,159 +2150,210 @@ export class SessionCell {
           return retried;
         }
         recordUserMessage();
-        // `injected` is an admission receipt. The provider's output remains on the primary
-        // prompt's ACP stream, so this call must not settle the cell turn.
+        this.pendingNativeSteers.push({ prompt, toolsAtAdmission: this.runningToolIds() });
+        // The adapter has the input before a released human tool creates its next boundary.
+        this.deps.callbacks?.onPromptSteered?.();
+        // A stop can race the admission receipt; it must retain that accepted input too.
+        if (this.closeRequested) this.returnPendingNativeSteers();
+        confirmPreparation();
+        admit();
+        // Admission records this input; the primary ACP stream still owns foreground completion.
         return ok({ queued: false });
       }
 
-      const response = await this.agent.prompt(promptRequest);
-      const anchor = (response._meta?.guguRevert as { before?: unknown } | undefined)?.before;
-      if (!steered && typeof anchor === 'string' && anchor) {
-        this.transcript.setRevertAnchor(messageId, anchor);
-        this.emitTranscriptChanged();
-      }
-      this.rawLog.record({
-        kind: 'prompt_result',
-        sessionId: this.acpSessionId,
-        stopReason: response.stopReason,
-      });
-      // 一个字都没回就「正常结束」:报失败的那行 stderr 与回复走两根管子,可能晚一步到 —— 等它一下。
-      if (
-        !steered
-        && response.stopReason === 'end_turn'
-        && this.deps.turnFailure?.watchesStderr
-        && !this.turnHadAgentOutput
-        && !this.providerTurnFailure
-        && !this.providerStderrFailure
-      ) {
-        await new Promise((resolve) => setTimeout(resolve, STDERR_FAILURE_GRACE_MS));
-      }
-      if (!steered) {
-        // 跨家读数(#4472 comment-5464601764:qwen 0.22.3 三次主 RPC 均 cancelled 而 4 次工具往返
-        // 照常完成、steer 的 RPC 以 end_turn 收尾;droid 同形):收到并发 steer 时,harness 把主 RPC
-        // 的 stopReason 报成 cancelled 是「被重入」的状态映射,不是真取消 —— 我们这侧没发过 Cancel、
-        // 且还有 steer 在飞 ⇒ 结算权移交给最后一条 steer,❌ 不把一轮活着的对话落成 cancelled 终态
-        // (那会让 UI 标「已取消」、settleAgents 判 failed、后续 transcript 更新被当轮外丢弃)。
-        // 限定:守卫只覆盖读数里的时序(主 RPC 的 cancelled 先于 steer 完成);真取消由 phase
-        // 'cancelling'(我们自己发的 Cancel)照旧立即结算。
-        if (
-          response.stopReason === 'cancelled'
-          && this.steerInFlight > 0
-          && this.machine.phase.kind !== 'cancelling'
-        ) {
-          this.steerSettlesTurn = true;
+      const agent = this.agent;
+      // B: a communication prompt must not block the inbox on a native receipt that never comes. The
+      // transport cancels it and fails it as prompt_admission_timeout; the procedure owner then stops
+      // the session (procedures.promptDetached). v1 has no native receipt, so no deadline, as on dev.
+      const watched = started && prompt.origin === 'communication' && opts?.onAdmission !== undefined;
+      const receiptOrTimeout = agent.prompt(promptRequest, { requestId, message: submittedMessage,
+        ...(watched ? { admissionTimeoutMs: PROMPT_ADMISSION_TIMEOUT_MS } : {}) });
+      if (steered) this.deps.callbacks?.onPromptSteered?.();
+      // Prepared context is consumed by the model only when its turn completes; a failure, or a cancelled turn
+      // that ends without acting on what it carried (#881), releases it for the next turn.
+      if (!steered) void request.completion.promise.then(result => result.success
+        && this.transcript.entityOwner({ ...submittedMessage, messageId: request.messageId })?.outcome?.kind !== 'cancelled'
+        ? confirmPreparation() : releasePreparation());
+      const receipt = receiptOrTimeout.then(receipt => {
+        if (this._agent !== agent || this.machine.phase.kind === 'closed' || this.machine.phase.kind === 'lost') return ok({ queued: false });
+        if (steered) confirmPreparation();
+        admit();
+        if (receipt.status === 'accepted') {
+          acceptPromptMessage(request, receipt.messageId, this.transcript, event => this.push(event), this.deps.providerId);
+          this.applyReceiptMetadata(requestId, receipt._meta);
+          settleAcceptedRequests(this.requests, this.transcript);
+          const owner = this.transcript.entityOwner({ ...submittedMessage, messageId: receipt.messageId });
+          if (!opts?.fromQueue || owner?.outcome?.kind !== 'error') this.releaseDispatch();
         } else {
-          this.settleTurn(this.settledOutcome(response.stopReason));
-        }
-      } else {
-        this.steerInFlight -= 1;
-        if (this.steerSettlesTurn && this.steerInFlight === 0) {
-          this.steerSettlesTurn = false;
-          this.settleTurn(outcomeFromStopReason(response.stopReason));
-        }
-      }
-      return ok({ queued: false });
-    } catch (e) {
-      const cause = toSerializedError(e);
-      const err = acpErr.promptFailed(cause);
-      this.deps.logger.error('SessionCell: prompt failed', {
-        sessionId: this.sessionId,
-        providerId: this.deps.providerId,
-        acpSessionId: this.acpSessionId,
-        cause,
-      });
-      this.rawLog.record({
-        kind: 'prompt_result',
-        sessionId: this.acpSessionId,
-        stopReason: null,
-        error: cause,
-      });
-      if (steered && !nativeSteer) this.steerInFlight -= 1;
-      // 插话请求本身失败:这句照旧画出来、失败照旧交回调用方(#4660),只有 agent 明说没收(promptRequired)才不画。
-      if (nativeSteer) recordUserMessage();
-
-      // OpenCode's busy ACP path can reject a communication prompt with its provider-side
-      // "Invalid token" error when the current request token has crossed a turn boundary. The
-      // admission already succeeded, so retain the communication in the target machine queue.
-      // The existing queue drain owns every subsequent boundary and keeps using this stable id
-      // until a fresh provider request accepts it; ordinary provider failures stay loud.
-      if (!nativeSteer && prompt.origin === 'communication' && isInvalidToken(cause)) {
-        const queued = this.dispatch({ type: 'QueuePrompt', prompt });
-        if (queued.success) {
-          this.deps.logger.warn('SessionCell: communication prompt hit provider token boundary; retained for next turn', {
-            sessionId: this.sessionId,
-            providerId: this.deps.providerId,
-            acpSessionId: this.acpSessionId,
-            promptId: prompt.id,
-            fromQueue: opts?.fromQueue === true,
+          // Request-activity transports identify their aggregate cycle on dispatch acknowledgement.
+          request.dispatched = true;
+          void (cycle ?? Promise.resolve(ok({ queued: false }))).then(result => {
+            request.completion.resolve(result);
+            this.requests.delete(requestId);
+            if (result.success && !result.data.queued) this.releaseDispatch();
           });
-          if (this.steerSettlesTurn && this.steerInFlight === 0) {
-            this.steerSettlesTurn = false;
-            this.settleTurn({ kind: 'done', reason: 'end_turn' });
-          } else if (!steered) {
-            this.settleTurn(
-              { kind: 'done', reason: 'end_turn' },
-              { dequeueQueuedPrompt: false },
-            );
-          }
-          return ok({ queued: true, requeuedAfterTokenBoundary: true });
         }
-      }
-
-      if (!steered) {
-        const classified = classifyTurnFailure({
-          at: 'prompt',
-          cause,
-          platformCredentials: this.deps.platformCredentials,
-          closeRequested: this.closeRequested,
-          credentialRefusal: this.credentialRefusal,
-        });
-        // ⚠️ 只有**真的落定了一轮**才允许把「可改口」打开(评审抓到):`settleTurn` 在没有活跃轮时
-        // 什么都不做,而那时若照样置位,后来的异常退出就会去改写**碰巧排在末尾的另一轮**。
-        const settled = this.settleTurn(classified.outcome, { dequeueQueuedPrompt: !opts?.fromQueue });
-        if (settled) this.lastFailureProvisional = classified.provisional;
-      } else {
-        if (this.steerSettlesTurn && this.steerInFlight === 0) {
-          // 结算权已移交而 steer 自己失败:turn 以错误收场,响亮可见 —— ❌ 不悬空、不静默 complete。
-          this.steerSettlesTurn = false;
-          const classified = classifyTurnFailure({
-          at: 'prompt',
-          cause,
-          platformCredentials: this.deps.platformCredentials,
-          closeRequested: this.closeRequested,
-          credentialRefusal: this.credentialRefusal,
-        });
-          const settled = this.settleTurn(classified.outcome);
-          if (settled) this.lastFailureProvisional = classified.provisional;
+        return ok({ queued: false });
+      }).catch(async (error: unknown) => {
+        if (this._agent !== agent) return acpErr.promptFailed(toSerializedError(error));
+        if (steered) await releasePreparation();
+        // Only a rejection before any provider work is a refusal; after it, the cycle owns the failure.
+        const beforeWork = this.machine.phase.kind !== 'working' && this.machine.phase.kind !== 'cancelling';
+        // A rejected receipt was never admitted: a missing session is a refusal even while v1 request activity runs.
+        if (providerRejectedMissingSession(error)) {
+          refuse(error);
+          const missing = acpErr.sessionNotFound(this.sessionId);
+          request.completion.resolve(missing);
+          return missing;
         }
-      }
-      return err;
+        // C: a JSON-RPC internal error before the receipt is an executor failure. Settle its actual
+        // failure without draining the queue, then retire the executor through lost -> resume.
+        const retire = beforeWork && toSerializedError(error).code === -32603;
+        if (retire) this.dequeueAfterFailure = false;
+        this.push({ kind: 'prompt_result', requestId, error: toSerializedError(error) });
+        if (retire) await this.deps.callbacks?.onPromptRejected?.();
+        return acpErr.promptFailed(toSerializedError(error));
+      });
+      return steered ? receipt : request.completion.promise;
+    } catch (error) {
+      await releasePreparation();
+      recordUserMessage();
+      this.push({ kind: 'prompt_result', requestId, error: toSerializedError(error) });
+      return acpErr.promptFailed(toSerializedError(error));
     }
   }
 
-  private async requestSteering(promptRequest: {
-    sessionId: string;
-    prompt: unknown;
-  }): Promise<'injected' | 'promptRequired'> {
-    if (!this.agent.extMethod) {
-      throw new Error(
-        'ACP initialize negotiated steering, but the agent connection has no extension method transport',
-      );
-    }
-    const response = await this.agent.extMethod('_session/steering', {
-      ...promptRequest,
-      _meta: { steering: { idleBehavior: 'promptRequired', delivery: 'next' } },
+  /**
+   * #566 A personal assistant that already sent its reply may yield its trailing turn to the owner's
+   * next message — only at a tool boundary with nothing else of the turn still in flight.
+   */
+  private canYieldRepliedAssistant(text: string): boolean {
+    const ownerId = this.deps.assistantOwnerId;
+    return ownerId !== undefined && !this.nativeInputAfterStart
+      && this.runningToolIds().size === 0 && this.lastRunningAgentCount === 0
+      && this.lastRunningCommandTaskIds.length === 0 && this.machine.pendingPermissions.length === 0
+      && canYieldRepliedAssistant(this.transcript.activeTurn, text, ownerId);
+  }
+
+  private yieldRepliedAssistantAtToolBoundary(): void {
+    const text = this.yieldingRepliedAssistant;
+    if (!text) return;
+    this.yieldingRepliedAssistant = null;
+    // A new tool can arrive while QueuePrompt synchronously saves. Abandon yielding,
+    // retaining the normal queue; never wait for that tool and then cancel its work.
+    if (this.deps.queuedPromptsPersisted?.() !== true || !this.canYieldRepliedAssistant(text)) return;
+    // 用户已经自己点了停止(phase 已是 cancelling)⇒ 这一轮是用户停的,❌ 改标成「为插话停下」。
+    if (this.machine.phase.kind !== 'working') return;
+    this.interruptedForMessage = true;
+    void this.cancel().then((result) => {
+      if (!result.success) {
+        this.deps.logger.warn('SessionCell: interrupt for mid-turn message failed', {
+          sessionId: this.sessionId,
+          error: result.error,
+        });
+      }
     });
-    const outcome = response?.outcome;
-    if (outcome === 'injected' || outcome === 'promptRequired') return outcome;
-    throw new Error(`ACP steering returned unsupported outcome '${String(outcome)}'`);
+  }
+
+  /** A refused preparation leaves the queued input in place and retries it with backoff. */
+  private retryPreparedQueue(prompt: QueuedPrompt): void {
+    this.dispatch({ type: 'QueuePrompt', prompt });
+    if (this.preparationRetryTimer) clearTimeout(this.preparationRetryTimer);
+    this.preparationRetryTimer = setTimeout(() => {
+      this.preparationRetryTimer = undefined;
+      if (!this.closeRequested && this.machine.phase.kind === 'ready'
+        && this.machine.queuedPrompts.some(row => row.id === prompt.id)) {
+        this.releaseQueueAfterEdit();
+      }
+    }, this.preparationRetryDelay);
+    this.preparationRetryDelay = Math.min(this.preparationRetryDelay * 2, 30_000);
+  }
+
+  /** Tools of the active turn the provider has not finished; the transcript is their record. */
+  private runningToolIds(): Set<string> {
+    const turn = this.transcript.activeTurn;
+    if (!turn) return new Set();
+    return new Set(replyItems(turn).flatMap(item => 'toolCallId' in item && item.status === 'running' ? [item.toolCallId] : []));
+  }
+
+  private scheduleQueuedSteering(): void {
+    if (this.queuedSteeringScheduled || this.queuedSteeringInFlight || this.replayingHistory) return;
+    this.queuedSteeringScheduled = true;
+    queueMicrotask(() => {
+      this.queuedSteeringScheduled = false;
+      void this.steerWaitingQueueHead();
+    });
+  }
+
+  /** Advance only an explicitly steerable queue prefix. Retain each input until its real receipt. */
+  private async steerWaitingQueueHead(): Promise<void> {
+    if (this.queuedSteeringInFlight) return;
+    this.queuedSteeringInFlight = true;
+    try {
+      while (!this.closeRequested && !this.replayingHistory && !this.compacting && !this.reverting
+        && !this.queuedTurnFence
+        && this.machine.phase.kind === 'working' && this.settingsInFlight === 0
+        && this.settingsBlockedReason === null && this.machine.pendingPermissions.length === 0) {
+        const [head] = this.machine.queuedPrompts;
+        if (!head || head === this.blockedQueuedSteer || head.queueTiming !== 'next-tool-call'
+          || head.origin !== 'communication' || head.attachments?.length || head.queueEdit || head.queueDispatching) return;
+        // Interrupt-only transports already own the next-tool boundary; retain the queue for WorkEnded.
+        if (!this.supportsSteering && this.agent.interruptForMessage) {
+          if (this.interruptedQueuedHead === head.id) return;
+          this.interruptedQueuedHead = head.id;
+          await this.agent.interruptForMessage({ sessionId: this.acpSessionId });
+          return;
+        }
+        const reserved = this.dispatchFor<InvalidStateError>({ type: 'ReserveQueuedPrompt', id: head.id }, ['invalid_state']);
+        if (!reserved.success) return;
+        const admissionGeneration = this.nativeAdmissionGeneration;
+        const admission = Promise.withResolvers<Result<{ queued: boolean }, AcpSendPromptError>>();
+        const sending = this.sendPromptInternal(head, {
+          fromQueue: true, steerIfBusy: true, onAdmission: result => admission.resolve(result),
+        });
+        void sending.then(result => admission.resolve(result), error => admission.resolve(acpErr.promptFailed(toSerializedError(error))));
+        const result = await admission.promise;
+        const phaseAfterAdmission = this.sessionState.lifecycle;
+        // injected proves admission, not consumption. A receipt from a withdrawn generation
+        // cannot remove this input's replay copy, regardless of the cell's current phase.
+        const accepted = result.success && !result.data.queued && !this.closeRequested
+          && admissionGeneration === this.nativeAdmissionGeneration;
+        this.dispatch({ type: 'ReleaseQueuedPrompt', id: head.id, accepted });
+        if (!result.success) {
+          this.blockedQueuedSteer = this.machine.queuedPrompts.find(prompt => prompt.id === head.id) ?? null;
+          this.deps.logger.error('SessionCell: queued steering refused; input retained', {
+            sessionId: this.sessionId, promptId: head.id, error: result.error,
+          });
+          return;
+        }
+        if (!accepted) return;
+        // A normal promptRequired race may have opened a new foreground cycle.
+        if (phaseAfterAdmission === 'ready') this.releaseQueueAfterEdit();
+      }
+    } catch (error) {
+      this.deps.logger.error('SessionCell: queued steering failed; input retained', {
+        sessionId: this.sessionId, error: toSerializedError(error),
+      });
+    } finally {
+      this.queuedSteeringInFlight = false;
+    }
+  }
+
+  private requestSteering(
+    promptRequest: Parameters<NonNullable<SessionCellDeps['agent']>['prompt']>[0],
+    dispatch: Parameters<NonNullable<SessionCellDeps['agent']>['prompt']>[1],
+  ): Promise<'injected' | 'promptRequired'> {
+    if (!this.agent.steer) throw new Error('ACP initialize negotiated steering, but its transport has no steering control');
+    return this.agent.steer(promptRequest, dispatch);
   }
 
   private seedTranscriptMeta(meta?: {
     modes?: SessionModeState | null;
     configOptions?: readonly SessionConfigOption[] | null;
+    availableCommands?: Extract<NormalizedEvent, { kind: 'commands' }>['commands'];
   }): void {
     if (!meta) return;
+    if (meta.availableCommands !== undefined) this.push({ kind: 'commands', commands: meta.availableCommands });
     if (meta.configOptions !== undefined) {
       this.transcript.pushEvent({
         kind: 'config',
@@ -2008,11 +2409,11 @@ export class SessionCell {
   private dispatchAgentsChangedIfNeeded(previousRunningAgentCount: number): void {
     this.dispatchBackgroundCommandsChangedIfNeeded();
     const nextRunningAgentCount = this.transcript.agents.filter(
-      (agent) => agent.background === true && agent.status === 'running'
+      (agent) => outlivesTurn(agent) && agent.status === 'running'
     ).length;
     if (nextRunningAgentCount === previousRunningAgentCount) return;
     this.lastRunningAgentCount = nextRunningAgentCount;
-    this.applyEvent({ type: 'AgentsChanged', runningCount: nextRunningAgentCount });
+    this.applyEvent({ type: 'AgentsChanged', runningCount: nextRunningAgentCount, dequeueQueuedPrompt: !this.context().dispatchPending });
   }
 
   /**
@@ -2029,9 +2430,10 @@ export class SessionCell {
   }
 
   private settleRunningAgents(scope: 'turn' | 'all', status: 'completed' | 'failed'): void {
+    // 一轮结束只替「活在这一轮里」的子智能体收尾,能比这一轮活得久的由它自己报结局(见 `outlivesTurn`)。
     const runningAgents = this.transcript.agents.filter((agent) => {
       if (agent.status !== 'running') return false;
-      return scope === 'all' || agent.background !== true;
+      return scope === 'all' || !outlivesTurn(agent);
     });
 
     for (const agent of runningAgents) {
@@ -2106,6 +2508,11 @@ export class SessionCell {
 
   private context(): SessionMachineContext {
     return {
+      // Acceptance only admits an input. Before the provider reports running the machine is still
+      // ready, but that foreground cycle owns the lane until its real completion (including a
+      // command that goes straight to idle). A receipt must not drain ordinary queued inputs.
+      dispatchPending: this.activeTurnCompletion !== null
+        || [...this.requests.values()].some(request => !request.steered && !request.accepted && !request.dispatched),
       modeIds: this.transcript.config.modeOptions?.available.map((mode) => mode.id) ?? [],
       configOptionIds: [
         ...(['model', 'effort'] as const)
@@ -2180,20 +2587,20 @@ export class SessionCell {
     const patch = {
       ...(isEmptyPayload(existing.rawInput) && source.rawInput !== undefined && { rawInput: source.rawInput }),
       ...(!existing.outputText && source.outputText !== undefined && { outputText: source.outputText }),
+      ...(!existing.contentBlocks?.length && !existing.outputText && !existing.images?.length && source.contentBlocks?.length && { contentBlocks: source.contentBlocks }),
       ...(existing.toolName === undefined && source.toolName !== undefined && { toolName: source.toolName }),
     };
     if (Object.keys(patch).length === 0) return;
     const { toolCallId } = source;
-    this.push({ kind: 'tool_update', toolCallId, title: null, toolKind: null, status: null, parentToolCallId: null, diffs: [], ...patch });
+    this.push({ kind: 'tool_update', toolCallId, ...patch });
   }
 
   private buildPermissionToolCall(
     requestId: string,
-    rawToolCall: RequestPermissionRequest['toolCall'] | undefined,
-    fromRequest: ToolUpdateEvent | null
+    fromRequest: ToolUpdateEvent
   ): ToolCallItem {
     const activeTurn = this.transcript.activeTurn;
-    const toolCallId = rawToolCall?.toolCallId ?? requestId;
+    const toolCallId = fromRequest.toolCallId ?? requestId;
     if (activeTurn) {
       const id = makeToolId(activeTurn.id, toolCallId);
       const existing = findToolCall(activeTurn.items, id, toolCallId);
@@ -2204,15 +2611,16 @@ export class SessionCell {
       id: activeTurn ? makeToolId(activeTurn.id, toolCallId) : `permission:${toolCallId}`,
       seq: 0,
       toolCallId,
-      title: rawToolCall?.title ?? 'Permission request',
-      ...(fromRequest?.toolName !== undefined ? { toolName: fromRequest.toolName } : {}),
-      ...(fromRequest?.outputText !== undefined ? { outputText: fromRequest.outputText } : {}),
-      toolKind: rawToolCall?.kind ?? null,
+      title: fromRequest.title ?? 'Permission request',
+      ...(fromRequest?.toolName != null ? { toolName: fromRequest.toolName } : {}),
+      ...(fromRequest?.outputText != null ? { outputText: fromRequest.outputText } : {}),
+      ...(fromRequest?.contentBlocks != null ? { contentBlocks: fromRequest.contentBlocks } : {}),
+      toolKind: fromRequest.toolKind ?? null,
       status: 'pending',
       parentToolCallId: undefined,
       // A request naming no call the turn has (a Codex MCP approval) brings what it wants to do as its own rawInput.
-      rawInput: serializePayload(rawToolCall?.rawInput),
-      locations: rawToolCall?.locations ?? [],
+      rawInput: fromRequest.rawInput ?? undefined,
+      locations: fromRequest.locations ?? [],
     });
   }
 
@@ -2235,14 +2643,7 @@ function isInvalidToken(error: { message?: string; cause?: { message?: string } 
 
 type ToolUpdateEvent = Extract<NormalizedEvent, { kind: 'tool_update' }>;
 /** 补流里那一行的来源:请求解码出的那条更新，或待批请求里的那一行。 */
-type FillSource = Pick<ToolCallItem, 'toolCallId' | 'rawInput' | 'outputText' | 'toolName'>;
-
-/** 请求自带的 toolCall 按流里同一种 `tool_call_update` 解码:rawInput、正文、供应商工具名取法与流里一致。 */
-function requestToolUpdate(rawToolCall: RequestPermissionRequest['toolCall'] | undefined): ToolUpdateEvent | null {
-  if (!rawToolCall) return null;
-  const event = decodeSessionUpdate({ sessionUpdate: 'tool_call_update', ...rawToolCall } as SessionUpdate);
-  return event.kind === 'tool_update' ? event : null;
-}
+type FillSource = Pick<ToolCallItem, 'toolCallId' | 'rawInput' | 'outputText' | 'toolName'> & { contentBlocks?: ToolUpdateEvent['contentBlocks'] };
 
 /** 流里那一行的 rawInput 没有内容:缺席、空串,或空对象(qwen 的准备帧就是 `{}`)。 */
 function isEmptyPayload(value: string | undefined): boolean {
@@ -2276,8 +2677,37 @@ function machineOutcome(
   return { kind: 'stopped', stopReason: toStopReason(outcome.reason) };
 }
 
+/** dev 已有的接纳看门狗:communication 的原生 receipt 这么久不来 ⇒ 传输层 cancel,以 prompt_admission_timeout 失败。 */
+const PROMPT_ADMISSION_TIMEOUT_MS = 60_000;
+
 /** 「一个字都没回就正常结束」时,等 stderr 那行失败说明的最长时间。 */
 const STDERR_FAILURE_GRACE_MS = 300;
+
+/**
+ * 「主人亲手发的」只有一种:会话页输入框打的(`manual`)。插不插队、这一轮算不算主人开的、`trigger` 记不记 owner
+ * 三处都只认这一个判断。`typed` / 缺省是别处原样送进来的正文(开场委派、会话直发),不是主人打的字。
+ */
+function isOwnerOrigin(origin: QueuedPrompt['origin']): boolean {
+  return origin === 'manual';
+}
+
+/**
+ * 一句 prompt 开的一轮是被什么起的(`TranscriptTurn.trigger`)。主人亲手发的(`isOwnerOrigin`)= owner;
+ * 投递按信封认:`route="scheduled"` = 到点的定时任务,其余 = delivery,带上信封里的 `chat=`(几条并成一轮时是多个)。
+ * `typed` / 缺省(不带信封、原样送进来的正文)也算 delivery,没有 chatIds。
+ * 只读信封头这一层属性,❌ 解析正文;信封的唯一属主在 core,这里不另造第二份格式。
+ */
+function promptTrigger(prompt: { origin?: QueuedPrompt['origin']; text: string }): TranscriptTurnTrigger {
+  if (isOwnerOrigin(prompt.origin)) return { kind: 'owner' };
+  if (prompt.origin !== 'communication') return { kind: 'delivery' };
+  const heads = prompt.text.match(/<gugu_delivery\s[^>]*>/g) ?? [];
+  if (heads.length > 0 && heads.every((head) => /\sroute="scheduled"/.test(head))) return { kind: 'schedule' };
+  const chatIds = [...new Set(heads.flatMap((head) => {
+    const chat = /\schat="([^"]+)"/.exec(head)?.[1];
+    return chat ? [chat] : [];
+  }))];
+  return { kind: 'delivery', ...(chatIds.length ? { chatIds } : {}) };
+}
 
 /** 咕咕自己写进会话级背景的块都以这几个标签开头(平台块 / 身份块 / 用户规则)。 */
 const SESSION_CONTEXT_BLOCK = /^\s*<(gugu_platform|agent_identity|user_rules)\b/;
@@ -2307,3 +2737,12 @@ function toStopReason(reason: TranscriptTurnOutcome['reason']): StopReason {
 }
 
 export { SESSION_PLAN_ID };
+
+/**
+ * 这个子智能体能不能比派它的那一轮活得久:后台的,和有自己会话的(结局由它自己的 `subagent_update` /
+ * `subagent_state_update` 报 —— ACP v2 的父回合在自己的结果处就结束,子智能体照跑)。
+ * 一轮结束不替它们收尾,它们在跑时会话是 park。
+ */
+function outlivesTurn(agent: { background?: boolean; subagentSessionId?: string }): boolean {
+  return agent.background === true || agent.subagentSessionId !== undefined;
+}

@@ -138,9 +138,16 @@ export function busyForVersionSwitch(
   return runtime !== 'pty' || home === 'host';
 }
 
-/** 要人来处理:需要你或出错(会话页角标数的就是它)。 */
-export function needsAttention(status: AgentStatus | null): boolean {
-  return status === 'needs_user' || status === 'error';
+/** 要人来处理的是需要你或出错。一群 agent 里要人来处理的那一种,取最急的(紧急度同 agentStatusUrgency:需要你先于出错);都不要人 = null。 */
+export type AgentAttention = 'needs_user' | 'error' | null;
+
+export function mostUrgentAttention(statuses: Iterable<AgentStatus | null>): AgentAttention {
+  let attention: AgentAttention = null;
+  for (const status of statuses) {
+    if (status === 'needs_user') return 'needs_user';
+    if (status === 'error') attention = 'error';
+  }
+  return attention;
 }
 
 /**

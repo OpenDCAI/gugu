@@ -10,6 +10,7 @@ import { PairPlacementContext } from '@renderer/features/tabs/pair-placement-con
 import { rpc } from '@renderer/lib/ipc';
 import type { BrowserTabResource } from './browser-tab-resource';
 import { BrowserUrlResolverContext } from './browser-url-resolver';
+import { RETAINED_SURFACE_HIDDEN_STYLE } from '@/lib/retainedSurface';
 
 /**
  * Mounts BrowserPane for every open browser tab; visibility is managed via
@@ -44,14 +45,11 @@ export const TabContent = observer(function BrowserTabContent({ host }: TabConte
         const focusThis = placement && !tab.isFocused ? () => host.setActiveTab(tab.tabId) : undefined;
         // 不在屏上的那几枚照旧隐藏(#7274 网页本身是主进程的 view,隐藏的占位报 background,网页跟着收起;
         // agent 正在操作的那张由主进程让它收起着也照常出帧,这里不用再做透明那一套)。
-        const hiddenStyle = visible ? {} : ({ visibility: 'hidden' } as const);
         return (
           <div
             key={browserId}
             className="absolute"
-            style={{ ...(placement ?? { inset: 0 }), ...hiddenStyle }}
-            // React 19 认 boolean;给空串会被当成 false —— 藏着的那一格就没真被摘出焦点与点击。
-            inert={!visible}
+            style={visible ? (placement ?? { inset: 0 }) : RETAINED_SURFACE_HIDDEN_STYLE}
             data-pane-tab={placement ? tab.tabId : undefined}
             onPointerDownCapture={focusThis}
             onFocusCapture={focusThis}

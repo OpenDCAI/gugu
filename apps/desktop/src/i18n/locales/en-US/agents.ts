@@ -5,7 +5,6 @@ export default {
     "cancel": "Cancel",
     "close": "Close",
     "collapse": "Collapse",
-    "comingSoon": "Coming soon",
     "save": "Save",
     "saving": "Saving…"
   },
@@ -21,8 +20,6 @@ export default {
     "chooseAnother": "Choose another",
     "chooseType": "Choose an Agent type",
     "close": "Close",
-    "coming": "Soon",
-    "comingSoon": "Coming soon",
     "composer": {
       "addAttachment": "Add attachment",
       "attachmentPreview": "Attachment",
@@ -193,12 +190,15 @@ export default {
     "unavailable": "This Agent does not exist or is not shared publicly"
   },
   "runtime": {
+    "groupMine": "Mine",
+    "groupOthers": "Others",
     "justNow": "just now",
     "messagePreview": {
       "connecting": "Connecting…",
       "done": "Done",
       "empty": "No recent activity",
       "promptElsewhere": "A message from somewhere else",
+      "recordNotFound": "This machine can't read this task's record",
       "toolCount": "{{state}} ×{{count}}",
       "unavailable": "Can't reach its activity right now"
     },
@@ -228,36 +228,7 @@ export default {
     "ariaLabel": "Agent settings",
     "back": "Back",
     "close": "Close",
-    "contacts": {
-      "comingSoon": "Contacts for this Agent are coming soon",
-      "title": "This Agent’s contacts"
-    },
-    "finance": {
-      "cost": "Runtime cost",
-      "costHint": "LLM and sandbox usage charged to the owner’s allowance.",
-      "custom": "Custom",
-      "description": "View this Agent’s revenue, paid action sales, and runtime costs.",
-      "net": "Net",
-      "netHint": "Settled revenue minus runtime costs.",
-      "overview": "Overview",
-      "overviewHint": "Revenue, pending settlement, runtime costs, and net amount.",
-      "pending": "Pending settlement",
-      "pendingHint": "Payments created but not yet completed.",
-      "settled": "Settled revenue",
-      "settledHint": "Payments completed within the selected time window.",
-      "sevenDays": "Past 7 days",
-      "title": "Billing",
-      "today": "Today",
-      "yesterday": "Yesterday"
-    },
-    "history": {
-      "comingSoon": "Past conversations are coming soon",
-      "pause": "Pause Agent",
-      "pauseHint": "When enabled, this Agent stops responding to groups, other direct messages, webhooks, and scheduled tasks. Only your direct message can trigger it.",
-      "sessions": "Past conversations"
-    },
     "look": {
-      "colorHint": "Only the body color changes. The leaf wings, little orange beak, feet, and eyes always stay, so it still reads as Gugu at a glance.",
       "colors": {
         "apricot": "Apricot",
         "cream": "Cream",
@@ -276,10 +247,7 @@ export default {
       "outfitClear": "Take all off",
       "outfitColorway": "Color {{n}}",
       "outfitDefault": "Back to default",
-      "outfitDefaultNote": "Wearing its default outfit: picked from its number, and it follows the body color",
-      "outfitHint": "Most Gugus wear just one thing. Sunglasses, capes, backpacks, skateboards and umbrellas never come up at random; dress it up here if you like.",
       "outfitNone": "None",
-      "outfitNoneNote": "Wearing nothing right now",
       "rollOutfitAria": "Shuffle only the outfit; color and face stay",
       "tabOutfit": "Outfit",
       "outfits": {
@@ -344,9 +312,7 @@ export default {
         "unimpressed": "Unimpressed"
       },
       "facesBold": "Bold",
-      "facesBoldHint": "Dramatic, stands out in lists",
       "facesDaily": "Everyday",
-      "facesDailyHint": "Calm enough to wear all day",
       "kicker": "Look studio",
       "notOwned": "Only its owner can change its look",
       "number": "No.{{n}}",
@@ -366,10 +332,6 @@ export default {
       "tryState": "Try a state",
       "tryStateAria": "Act out the next state (now: {{state}})",
       "unsaved": "Unsaved"
-    },
-    "memory": {
-      "comingSoon": "Memory file viewing and editing are coming soon",
-      "directory": "Working directory"
     },
     "model": {
       "originalSourceNote": "Keep the model and billing source used when this agent was set up.",
@@ -402,34 +364,16 @@ export default {
     },
     "nav": {
       "aiModel": "AI model",
-      "contacts": "Contacts",
-      "finance": "Billing",
-      "history": "Chat history",
       "look": "Look",
-      "memory": "Memory",
-      "permissions": "Permissions",
       "profile": "Profile",
-      "secrets": "Secrets",
       "settings": "Settings",
       "share": "Share",
       "tasks": "Scheduled tasks"
     },
-    "permissions": {
-      "active": "Active authorizations",
-      "create": "Create authorization",
-      "createHint": "Choose a role bundle, then add allow or deny overrides for precise control.",
-      "custom": "Custom",
-      "description": "Authorize this Agent to perform CLI or API actions as you. High-risk actions still require individual approval.",
-      "empty": "No active authorizations",
-      "expires": "Expires",
-      "fullAccess": "Full access",
-      "fullAccessHint": "Allows this Agent to perform almost any action as you. High-risk actions may still require one-time or permanent approval.",
-      "neverExpires": "Leave blank to never expire.",
-      "readOnly": "Read only",
-      "role": "Role",
-      "title": "Agent permissions"
-    },
     "profile": {
+      "pause": "Pause Agent",
+      "pauseHint": "When paused, only responds to your direct messages.",
+      "pauseFailed": "Could not change this Agent's paused state. Try again.",
       "avatar": "Avatar",
       "bio": "Bio",
       "bioPlaceholder": "Describe this Agent’s capabilities (optional)",
@@ -450,13 +394,6 @@ export default {
       "upload": "Upload image",
       "uploadHint": "PNG, JPEG, GIF, or WebP; up to 5 MB"
     },
-    "secrets": {
-      "add": "Add",
-      "description": "Configure environment variable secrets for this Agent. When it runs user scripts, secret call injects values into the child process only for that process lifetime and never writes them to env.",
-      "empty": "No secrets",
-      "emptyHint": "After adding one, the Agent can run <command>secret call NAME -- command</command> to inject the value into a child process.",
-      "title": "Secrets"
-    },
     "share": {
       "copied": "Copied",
       "copy": "Copy",
@@ -465,18 +402,14 @@ export default {
       "enableFailed": "Could not enable external sharing",
       "enabling": "Enabling…",
       "external": "External sharing",
-      "fee": "External sharing fee: ¥10 (not charged yet)",
-      "feeBadge": "¥10",
       "forward": "Forward to contact",
       "forwarding": "Sending invitation…",
       "noContacts": "No contacts",
       "open": "Scan or open the link",
       "openHint": "Anyone can chat with this Agent and add it to their message list",
       "qrAlt": "External sharing QR code",
-      "search": "Search conversations",
+      "search": "Search contacts",
       "title": "Share Agent",
-      "unavailable": "External sharing unavailable",
-      "unavailableReason": "External sharing is not configured, so a link cannot be created yet."
     },
     "tasks": {
       "content": "Task content",
@@ -488,9 +421,7 @@ export default {
       "daysLater_other": "In {{count}} days",
       "delete": "Delete task",
       "deleteFailed": "Could not delete task",
-      "description": "Run this Agent on a schedule. At each trigger, Gugu starts a turn in your direct message using the content below.",
       "empty": "No scheduled tasks",
-      "emptyHint": "Create a task to run this Agent on a schedule",
       "enable": "Enable",
       "everyDays": "Every {{count}} days",
       "everyDays_one": "Every {{count}} day",
@@ -531,73 +462,6 @@ export default {
     }
   },
   "wizard": {
-    "ariaLabel": "Add team wizard",
-    "background": "Continue in background",
-    "cancelCreate": "Cancel creation",
-    "cancelFailed": "Cancellation failed. Try again.",
-    "cancelFailedRetry": "Cancellation failed. Try again.",
-    "cancellationPending": "Cancellation is still in progress.",
-    "cancellationPendingSteps": "Cancellation is still in progress, and these steps have not finished: {{steps}}.",
-    "cancelled": "Creation cancelled. {{warning}}Create again when ready.",
-    "cancelling": "Cancelling…",
-    "cancelWarning": "This will stop and remove the Agents created this time",
-    "cleanupWarning": "These steps did not finish: {{steps}}. ",
-    "close": "Close wizard",
-    "completedDuringRecovery": "The Agents finished being created and can no longer be cancelled.",
-    "confirmCancel": "Confirm cancellation",
-    "confirmContinueCancel": "Confirm continued cancellation",
-    "continueCancel": "Continue cancellation",
-    "continueCancelWarning": "Continue stopping and removing the Agents created this time",
-    "continueCreate": "Continue creating",
-    "create": "Create team",
-    "createFailed": "Creation failed. Try again.",
-    "creating": "Creating “{{teamName}}”…",
-    "describeBody": "In one or two sentences, tell us what you want to accomplish. AI will assemble the best-matched Agent team.",
-    "describeTitle": "Describe what you need",
-    "descriptionPlaceholder": "Example: assemble an AI team that can build a full-stack product",
-    "done": "Done",
-    "doneBody": "{{count}} Agents in “{{teamName}}” are ready and available in Contacts.",
-    "doneBody_one": "{{count}} Agent in “{{teamName}}” is ready and available in Contacts.",
-    "doneBody_other": "{{count}} Agents in “{{teamName}}” are ready and available in Contacts.",
-    "doneTitle": "Team created",
-    "errors": {
-      "cloudMemberUnsupported": "Member “{{member}}” uses a cloud Agent, which cannot join a group yet.",
-      "completedMemberMissingIdentity": "Member {{member}} completed without an Agent identity, so the team cannot be handed off.",
-      "groupFinalizeMissing": "All team members are ready, but the group chat was not created. Try again.",
-      "memberRequired": "A team needs at least one member.",
-      "membersIncomplete": "Team creation did not finish for: {{members}}. Created members were kept so you can try again later.",
-      "multiplePending": "“{{teamName}}” has {{count}} team creations in progress (creation IDs: {{operationIds}}). Continue one or cancel the extras.",
-      "noOnlineDevice": "No online device is available. Keep Gugu open on a desktop with a local engine such as Claude Code, then try again.",
-      "onlyCloudDevices": "Only cloud devices are online. Team members require a desktop with a local engine such as Claude Code or Codex.",
-      "pendingConfigurationMismatch": "“{{teamName}}” is already being created with different settings (creation ID: {{operationIds}}). Continue or cancel that creation first. The existing creation will not be cancelled automatically.",
-      "pendingConfigurationMismatchNoParallel": "“{{teamName}}” is already being created with different settings. Continue or cancel it first.",
-      "pendingConfigurationMismatchShort": "“{{teamName}}” is already being created with different settings. Continue or cancel it first.",
-      "unknownMember": "unknown member"
-    },
-    "generate": "Generate team",
-    "generatedSummary": "Generated from your description",
-    "generateFailed": "Generation failed. Try again.",
-    "generating": "AI is generating the best team configuration…",
-    "memberEngine": "{{name}} runtime engine",
-    "memberSummary": "{{count}} Agents · {{summary}}",
-    "memberSummary_one": "{{count}} Agent · {{summary}}",
-    "memberSummary_other": "{{count}} Agents · {{summary}}",
-    "postpone": "Not now",
-    "presetSummary": "Preset configuration; adjust as needed",
-    "progress": {
-      "checkingDevice": "Checking online devices…",
-      "provisioning": "Creating {{count}} members and assembling the group…",
-      "provisioning_one": "Creating {{count}} member and assembling the group…",
-      "provisioning_other": "Creating {{count}} members and assembling the group…",
-      "ready": "Team ready",
-      "resuming": "Resuming the unfinished team creation…"
-    },
-    "recoveryBody": "Some Agents are still being removed. Continue cancellation, or close the wizard and return later.",
-    "recoveryTitle": "Finishing the previous cancellation",
-    "recoveryUnavailable": "Cancellation cannot continue right now. Close the wizard and try again.",
-    "regenerate": "Regenerate",
-    "roleTemplate": "{{title}} (role template)",
-    "starterPrompt": "Opening task",
     "starterRecoveryFailed": "Could not restore the opening task. Try again."
   }
 } as const;

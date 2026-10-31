@@ -1,4 +1,5 @@
 import { platformModel } from './platform-model';
+import { hermesPromptMeta } from '@gugu/session-core/acp/hermes-prompt';
 import {
   definePlugin,
   registerPluginBehavior,
@@ -134,8 +135,7 @@ export const plugin = definePlugin(
             proxyTool: 'tool_call',
             evidence:
               'NousResearch/hermes-agent@6f7a7991bb `tools/tool_search.py`:MCP 工具只以名字出现在 tool_search 清单里,'
-              + '经 tool_call 调用;裸 ACP 实测 0.21.0–0.21.5 与 main 均收到 tools/call(gugu-base@3d6fd80d '
-              + 'evidence/2026-09-28-hermes-adapter)',
+              + '经 tool_call 调用;裸 ACP 实测 0.21.0–0.21.5 与 main 均收到 tools/call(2026-09-28)',
           },
         },
       },
@@ -152,10 +152,12 @@ export const plugin = definePlugin(
     // 咕咕的托管安装只认 npm 平台包(mise-distribution.ts 读的是 npm registry 元数据 +
     // 平台包的 sha512),厂商脚本装到哪儿、装的是哪个版本、字节对不对都在咕咕视野之外。
     // ⇒ 这一家由用户自己按厂商文档装,咕咕认那一份(#6098)。
-    hostDependency: recognisedDependency({
+    // `versionLine`:`--version` 里它自己那一行,实测原样「Hermes Agent v0.21.0 (2026.8.31) · upstream …」(mac1 10-07;后面几行还有
+    // Python / OpenAI SDK 的版本,包装器的 banner 在它前面)。
+    hostDependency: { ...recognisedDependency({
       binaryNames: ['hermes'],
       installDocs: 'https://hermes-agent.nousresearch.com/docs/getting-started/installation',
-    }),
+    }), versionLine: /^Hermes Agent v/ },
     memory: hermesMemory,
     // 终端腿不开(见 session-bundle 的 `surfaces`),这一格只是如实说明为什么没有首句通道。
     prompt: {
@@ -174,6 +176,7 @@ export const provider = registerPluginBehavior(plugin, {
   subscription: hermesSubscription,
   mcp: hermesMcpAdapter(),
   acp: {
+    historyRecovery: { canonicalReplay: true, promptMeta: hermesPromptMeta },
     // Gugu's own bridge to `hermes serve` (the backend Hermes Desktop uses), built with the app; the host
     // resolves its entry (#6394). It drives the user's own `hermes`: their HERMES_HOME, providers and sessions.
     bridge: { kind: 'app-runtime', file: 'hermes-serve-acp.mjs' },

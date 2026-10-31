@@ -1,3 +1,5 @@
+import { updateDisplayAlias } from './displayOverrides'
+import { messageForUser } from './userFacingError'
 import { dbPayload } from '@gugu/core/cloud/supabase'
 import { fetchInChunks, compareIsoDescNullsLast } from '@gugu/core/shared/inChunks'
 import { dataClient, identityDb, chatDb, getCurrentAuthUserId } from './supabase'
@@ -9,12 +11,8 @@ import {
 } from './agentAvatar'
 import type { GroupAvatarMember, GroupMemberRole } from '@gugu/core/shared/types/chat'
 import { i18n } from '@/i18n'
-import { toUserFacingError } from './userFacingError'
 import { buildLookUrl, lookObjectPath, type AgentLook } from '@/components/agentAvatar/look'
 
-// @@@4891 数据层的通用兜底。这里**不该**猜业务语义 —— UI 知道用户刚才在干什么,
-// 由它经 messageForUser(e, 具体文案) 盖过这句;原始 PostgREST 报错一律进 Error.cause。
-const genericFailure = (): string => i18n.t('errors.operationFailed', { ns: 'common' })
 import { DISPLAY_IDENTITY_SELECT, readAgentProfileTypes, readDisplayIdentities, readOwnedDisplayIdentities, readRequiredDisplayIdentities } from './identityReadAdapter'
 import type {
   AcceptFriendRequestResult,
@@ -37,13 +35,9 @@ const FRIEND_REQUEST_HISTORY_LIMIT = 100
 const identity = () => dataClient.schema('identity')
 const chat = () => dataClient.schema('chat')
 
-/**
- * 改自己名下 agent 的那一行(identity.users;RLS 只放行主人改 display_name / bio / avatar 这几列)。
- * onlyIfNoAvatar = 只在头像还是空的时候写(出生定形象:主人的几台设备同时在定,也只有先到的那台写得进去)。
- */
-function updateOwnedAgentRow(agentUserId: string, payload: Record<string, unknown>, onlyIfNoAvatar = false) {
-  const row = identity().from('users').update(dbPayload(payload)).eq('id', agentUserId).eq('type', 'agent')
-  return (onlyIfNoAvatar ? row.is('avatar', null) : row).select(DISPLAY_IDENTITY_SELECT)
+/** Update an owned agent's editable identity fields. */
+function updateOwnedAgentRow(agentUserId: string, payload: Record<string, unknown>) {
+  return identity().from('users').update(dbPayload(payload)).eq('id', agentUserId).eq('type', 'agent').select(DISPLAY_IDENTITY_SELECT)
 }
 // @@@no-email-select (#635) - email is PII and MUST NOT be fetched for peers. identity.users RLS is
 // @@@1761 device_id:云 agent 判定(isCloudAgentMarked)需要——好友的云 agent 无 agent_type 富化,只有 'cloud:' 前缀可判
@@ -68,14 +62,14 @@ async function fetchActiveGroupChats(ids: string[]): Promise<GroupChatRow[]> {
       .in('id', chunk)
       .in('kind', ['group'])
       .eq('status', 'active')
-    if (error) throw toUserFacingError(error, genericFailure())
+    if (error) throw new Error(messageForUser(error), { cause: error })
     return (data as GroupChatRow[] | null) ?? []
   })
   return rows.sort((a, b) => compareIsoDescNullsLast(a.last_message_at, b.last_message_at))
 }
 
 type ContactOverrideRow = {
-  contact_user_id: string
+  target_id: string
   alias: string | null
 }
 
@@ -99,13 +93,6 @@ type AgentProfileRow = {
 }
 
 type ContactUserRow = ContactUser & { local_path?: string | null }
-
-type ContactOverrideUpsert = {
-  owner_user_id: string
-  contact_user_id: string
-  alias: string
-  updated_at: string
-}
 
 type ContactGroupInsert = ContactGroupRow
 
@@ -211,7 +198,7 @@ async function loadChatMemberIds(chatIds: string[]): Promise<Map<string, string[
       .in('chat_id', chunk)
       .order('joined_at', { ascending: true })
       .order('user_id', { ascending: true })
-    if (error) throw toUserFacingError(error, genericFailure())
+    if (error) throw new Error(messageForUser(error), { cause: error })
     return (rows as { chat_id: string; user_id: string }[] | null) ?? []
   })
   const members = new Map<string, string[]>(chatIds.map((id) => [id, []]))
@@ -330,7 +317,7 @@ export const contactsService = {
     const { data, error } = await chatDb.rpc('lookup_public_group', {
       p_public_id: requirePositivePublicId(publicId),
     })
-    if (error) throw toUserFacingError(error, genericFailure())
+    if (error) throw new Error(messageForUser(error), { cause: error })
     const row = firstRpcRow(data as PublicGroupInviteRpcRow[] | PublicGroupInviteRpcRow | null)
     if (!row) return { status: 'not_found', group: null }
 
@@ -355,7 +342,7 @@ export const contactsService = {
       if (error.message?.includes('group_join_requires_approval')) return this.requestGroupJoin(publicId, token)
       if (error.message?.includes('group_invite_only')) throw new GroupJoinRefusedError('invite_only')
       if (error.message?.includes('group_self_serve_closed')) throw new GroupJoinRefusedError('invite_link_closed')
-      throw toUserFacingError(error, genericFailure())
+      throw new Error(messageForUser(error), { cause: error })
     }
     const row = firstRpcRow(data as PublicGroupInviteRpcRow[] | PublicGroupInviteRpcRow | null)
     if (!row) throw new Error('Public group join returned no group')
@@ -378,7 +365,7 @@ export const contactsService = {
       p_join_token: token,
       p_message: message?.trim() || null,
     })
-    if (error) throw toUserFacingError(error, genericFailure())
+    if (error) throw new Error(messageForUser(error), { cause: error })
     const status = data === 'joined' ? 'joined' : 'pending'
     const lookup = await this.lookupPublicGroupInvite(id)
     if (!lookup.group) throw new Error('Public group join returned no group')
@@ -401,7 +388,7 @@ export const contactsService = {
       // RPC 那头抛的是稳定 ASCII 标识(见迁移 20260906003846),这里翻成可穷举的 reason。
       const reason = JOIN_BY_ID_REFUSALS.find((candidate) => error.message?.includes(candidate))
       if (reason) return { status: 'refused', reason }
-      throw toUserFacingError(error, genericFailure())
+      throw new Error(messageForUser(error), { cause: error })
     }
     const status = data === 'joined' ? 'joined' : 'pending'
     const lookup = await this.lookupPublicGroupInvite(id)
@@ -416,7 +403,7 @@ export const contactsService = {
       p_query: query ?? '',
       p_limit: limit,
     })
-    if (error) throw toUserFacingError(error, genericFailure())
+    if (error) throw new Error(messageForUser(error), { cause: error })
     const rows = (data ?? []) as DiscoverableGroupRpcRow[]
     return rows.map((row) => ({
       id: row.chat_id,
@@ -452,7 +439,7 @@ export const contactsService = {
       .eq('owner_user_id', userId)
       .eq('base', label)
       .maybeSingle()
-    if (error) throw toUserFacingError(error, genericFailure())
+    if (error) throw new Error(messageForUser(error), { cause: error })
     return (data as { high_water: number } | null)?.high_water ?? 0
   },
 
@@ -463,7 +450,7 @@ export const contactsService = {
       .select('user_a_id, user_b_id')
       .or(`user_a_id.eq.${userId},user_b_id.eq.${userId}`)
 
-    if (friendshipError) throw toUserFacingError(friendshipError, genericFailure())
+    if (friendshipError) throw new Error(messageForUser(friendshipError), { cause: friendshipError })
 
     const friendIds = [
       ...new Set(
@@ -489,15 +476,15 @@ export const contactsService = {
     // @@@owner-scoped fetch - moves large contact lists out of PostgREST URLs; RLS still bounds this to the current user's aliases.
     const { data: overrides, error: overridesError } = await identity()
       .from('contact_overrides')
-      .select('contact_user_id, alias')
-      .eq('owner_user_id', userId)
+      .select('target_id, alias')
+      .eq('owner_user_id', userId).eq('target_kind', 'contact')
 
-    if (overridesError) throw toUserFacingError(overridesError, genericFailure())
+    if (overridesError) throw new Error(messageForUser(overridesError), { cause: overridesError })
 
     const aliasById = new Map(
       ((overrides ?? []) as ContactOverrideRow[])
-        .filter((row) => contactIdSet.has(row.contact_user_id))
-        .map((row) => [row.contact_user_id, row.alias]),
+        .filter((row) => contactIdSet.has(row.target_id))
+        .map((row) => [row.target_id, row.alias]),
     )
 
     return enrichAgentMetadata([...usersById.values()].map((user) => ({
@@ -519,7 +506,7 @@ export const contactsService = {
     // p_query is a bound parameter (not a PostgREST filter), so the `*`→`%` translation that made
     // the old client-side filter dangerous cannot happen; the RPC does its own LIKE escaping.
     const { data, error } = await identityDb.rpc('search_users', { p_query: q })
-    if (error) throw toUserFacingError(error, genericFailure())
+    if (error) throw new Error(messageForUser(error), { cause: error })
     // The RPC only discovers candidates. The approved adapter owns complete display rows.
     return enrichAgentMetadata(await readRequiredDisplayIdentities((data ?? []).map((row: unknown) => String((row as { id?: unknown }).id ?? ''))), currentUserId)
   },
@@ -529,7 +516,7 @@ export const contactsService = {
       p_agent_user_id: agentUserId,
       p_agent_public: agentPublic,
     })
-    if (error) throw toUserFacingError(error, genericFailure())
+    if (error) throw new Error(messageForUser(error), { cause: error })
     return data as ContactUser
   },
 
@@ -538,46 +525,30 @@ export const contactsService = {
       p_agent_user_id: agentUserId,
       p_desired_status: desiredStatus,
     })
-    if (error) throw toUserFacingError(error, genericFailure())
+    if (error) throw new Error(messageForUser(error), { cause: error })
     return data as ContactUser
   },
 
   async updateContactAlias(userId: string, contactUserId: string, alias: string): Promise<void> {
-    const nextAlias = alias.trim()
-    if (!nextAlias) {
-      const { error } = await identity()
-        .from('contact_overrides')
-        .delete()
-        .eq('owner_user_id', userId)
-        .eq('contact_user_id', contactUserId)
-      if (error) throw toUserFacingError(error, genericFailure())
-      return
+    try {
+      await updateDisplayAlias(userId, { kind: 'contact', id: contactUserId }, alias)
+    } catch (error) {
+      throw new Error(messageForUser(error), { cause: error })
     }
-
-    const { error } = await identity()
-      .from('contact_overrides')
-      .upsert(dbPayload<ContactOverrideUpsert>({
-        owner_user_id: userId,
-        contact_user_id: contactUserId,
-        alias: nextAlias,
-        updated_at: new Date().toISOString(),
-      }), { onConflict: 'owner_user_id,contact_user_id' })
-
-    if (error) throw toUserFacingError(error, genericFailure())
   },
 
   async removeContact(contactUserId: string): Promise<void> {
     const { error } = await identityDb.rpc('remove_contact', {
       p_contact_user_id: contactUserId,
     })
-    if (error) throw toUserFacingError(error, genericFailure())
+    if (error) throw new Error(messageForUser(error), { cause: error })
   },
 
   async removeOwnedAgent(agentUserId: string): Promise<void> {
     const { error } = await identityDb.rpc('remove_owned_agent', {
       p_agent_user_id: agentUserId,
     })
-    if (error) throw toUserFacingError(error, genericFailure())
+    if (error) throw new Error(messageForUser(error), { cause: error })
   },
 
   // #1228: update an owned agent's profile (name + bio) in one write. RLS path:
@@ -597,7 +568,7 @@ export const contactsService = {
         .eq('id', agentUserId)
         .eq('type', 'agent')
         .single()
-      if (currentError) throw toUserFacingError(currentError, genericFailure())
+      if (currentError) throw new Error(messageForUser(currentError), { cause: currentError })
       previousAvatar = (current as { avatar?: string | null }).avatar ?? null
     }
     if (fields.display_name !== undefined) {
@@ -611,7 +582,7 @@ export const contactsService = {
     }
     if (fields.avatar !== undefined) payload.avatar = fields.avatar
     const { data, error } = await updateOwnedAgentRow(agentUserId, payload).single()
-    if (error) throw toUserFacingError(error, genericFailure())
+    if (error) throw new Error(messageForUser(error), { cause: error })
     const updated = data as ContactUser
     const previousPath = managedAgentAvatarPath(previousAvatar)
     const nextPath = managedAgentAvatarPath(updated.avatar)
@@ -628,15 +599,6 @@ export const contactsService = {
     return buildLookUrl(data.publicUrl, look.rest, look.wear)
   },
 
-  /**
-   * 出生定形象:只在这只 agent 的头像**还是空的**时写(主人的几台设备可能同时在定,先到先得;
-   * 晚到的那台什么都不改、返回 null,等 agent_changed 把先到的那份带过来)。
-   */
-  async claimAgentLook(agentUserId: string, look: AgentLook): Promise<ContactUser | null> {
-    const { data, error } = await updateOwnedAgentRow(agentUserId, { avatar: contactsService.agentLookAvatarUrl(look) }, true).maybeSingle()
-    if (error) throw toUserFacingError(error, genericFailure())
-    return (data as ContactUser | null) ?? null
-  },
 
   async uploadOwnedAgentAvatar(
     agentUserId: string,
@@ -652,7 +614,7 @@ export const contactsService = {
       contentType: file.type,
       cacheControl: '3600',
     })
-    if (uploadError) throw toUserFacingError(uploadError, genericFailure())
+    if (uploadError) throw new Error(messageForUser(uploadError), { cause: uploadError })
 
     const { data: publicData } = dataClient.storage.from('avatars').getPublicUrl(path)
     try {
@@ -664,16 +626,7 @@ export const contactsService = {
     } catch (error) {
       const { error: cleanupError } = await dataClient.storage.from('avatars').remove([path])
       if (cleanupError) {
-        // @@@4891 原来把两条原始报错拼成一句抛出去,而这句会渲染给用户 ——
-        // 「上传的头像没清理掉」是后端残留,用户既不懂也做不了任何事(内部关切外泄)。
-        // fail-loud 不变(照样抛,而且**两条原因一条不丢**),变的只是它们去哪:
-        // 用户看到「保存失败」,两条原文进 cause 供排查。
-        throw toUserFacingError(
-          new Error('owned agent profile write failed and avatar cleanup failed', {
-            cause: { profileError: error, cleanupError },
-          }),
-          genericFailure(),
-        )
+        throw new Error(String((error as Error)?.message ?? error), { cause: { profileError: error, cleanupError } })
       }
       throw error
     }
@@ -692,8 +645,8 @@ export const contactsService = {
         .select('group_id, contact_user_id'),
     ])
 
-    if (groupsError) throw toUserFacingError(groupsError, genericFailure())
-    if (membersError) throw toUserFacingError(membersError, genericFailure())
+    if (groupsError) throw new Error(messageForUser(groupsError), { cause: groupsError })
+    if (membersError) throw new Error(messageForUser(membersError), { cause: membersError })
 
     const memberMap = new Map<string, string[]>()
     for (const row of (members ?? []) as ContactGroupMemberRow[]) {
@@ -724,7 +677,7 @@ export const contactsService = {
       .select('id, owner_user_id, name, sort_order, created_at, updated_at')
       .single()
 
-    if (error) throw toUserFacingError(error, genericFailure())
+    if (error) throw new Error(messageForUser(error), { cause: error })
     const row = data as ContactGroupRow
     return { ...row, contactIds: [] }
   },
@@ -735,7 +688,7 @@ export const contactsService = {
       .update(dbPayload<ContactGroupPatch>({ name: name.trim(), updated_at: new Date().toISOString() }))
       .eq('id', groupId)
 
-    if (error) throw toUserFacingError(error, genericFailure())
+    if (error) throw new Error(messageForUser(error), { cause: error })
   },
 
   async deleteContactGroup(groupId: string): Promise<void> {
@@ -744,7 +697,7 @@ export const contactsService = {
       .delete()
       .eq('id', groupId)
 
-    if (error) throw toUserFacingError(error, genericFailure())
+    if (error) throw new Error(messageForUser(error), { cause: error })
   },
 
   async updateContactGroupMembers(groupId: string, contactIds: string[]): Promise<void> {
@@ -754,7 +707,7 @@ export const contactsService = {
       .select('contact_user_id')
       .eq('group_id', groupId)
 
-    if (existingError) throw toUserFacingError(existingError, genericFailure())
+    if (existingError) throw new Error(messageForUser(existingError), { cause: existingError })
 
     const existingIds = new Set(
       ((existingRows ?? []) as { contact_user_id: string }[]).map((row) => row.contact_user_id),
@@ -769,7 +722,7 @@ export const contactsService = {
         .eq('group_id', groupId)
         .in('contact_user_id', removedIds)
 
-      if (deleteError) throw toUserFacingError(deleteError, genericFailure())
+      if (deleteError) throw new Error(messageForUser(deleteError), { cause: deleteError })
     }
 
     if (addedIds.length === 0) return
@@ -782,7 +735,7 @@ export const contactsService = {
       .from('contact_group_members')
       .insert(dbPayload<ContactGroupMemberInsert[]>(rows))
 
-    if (insertError) throw toUserFacingError(insertError, genericFailure())
+    if (insertError) throw new Error(messageForUser(insertError), { cause: insertError })
   },
 
   async getCommonGroupChats(userId: string, contactUserId: string): Promise<ContactGroupChat[]> {
@@ -791,7 +744,7 @@ export const contactsService = {
       .select('chat_id, notification_level')
       .eq('user_id', userId)
 
-    if (myError) throw toUserFacingError(myError, genericFailure())
+    if (myError) throw new Error(messageForUser(myError), { cause: myError })
     const myMemberMap = new Map(((myRows ?? []) as ChatMemberMuteRow[]).map((row) => [row.chat_id, row]))
     const myChatIds = [...new Set(((myRows ?? []) as ChatMemberMuteRow[]).map((row) => row.chat_id))]
     if (myChatIds.length === 0) return []
@@ -803,7 +756,7 @@ export const contactsService = {
         .select('chat_id')
         .eq('user_id', contactUserId)
         .in('chat_id', chunk)
-      if (error) throw toUserFacingError(error, genericFailure())
+      if (error) throw new Error(messageForUser(error), { cause: error })
       return (data as { chat_id: string }[] | null) ?? []
     })
     const commonIds = [...new Set(peerRows.map((row) => row.chat_id))]
@@ -839,7 +792,7 @@ export const contactsService = {
       // 给用户人话；其余错误原文进 console（开发者可查），用户不看 driver 原始字符串。
       if (error.code === '23505') throw new Error(i18n.t('errors.friendRequestPending', { ns: 'contacts' }))
       console.error('[contacts] sendRequest failed', error)
-      throw new Error(i18n.t('errors.friendRequestFailed', { ns: 'contacts' }))
+      throw new Error(messageForUser(error), { cause: error })
     }
   },
 
@@ -848,7 +801,7 @@ export const contactsService = {
     const { data, error } = await identityDb.rpc('accept_friend_request_by_id', {
       p_request_id: requestId,
     })
-    if (error) throw toUserFacingError(error, genericFailure())
+    if (error) throw new Error(messageForUser(error), { cause: error })
     return await normalizeAcceptFriendRequestResult(data as AcceptFriendRequestRow[] | AcceptFriendRequestRow | null)
   },
 
@@ -857,7 +810,7 @@ export const contactsService = {
     const { error } = await identityDb.rpc('reject_friend_request_by_id', {
       p_request_id: requestId,
     })
-    if (error) throw toUserFacingError(error, genericFailure())
+    if (error) throw new Error(messageForUser(error), { cause: error })
   },
 
   /** Fetch incoming requests to me and my agents, every status (「新的请求」lists the history). */
@@ -882,7 +835,7 @@ export const contactsService = {
       const select = () => identityDb.from('friend_requests').select(FRIEND_REQUEST_SELECT).in('receiver_id', chunk)
       const [pending, decided] = await Promise.all([select().eq('status', 'pending'), select().neq('status', 'pending').order('created_at', { ascending: false }).limit(FRIEND_REQUEST_HISTORY_LIMIT)])
       const error = pending.error ?? decided.error
-      if (error) throw toUserFacingError(error, genericFailure())
+      if (error) throw new Error(messageForUser(error), { cause: error })
       return [...(pending.data ?? []), ...(decided.data ?? [])] as PendingRequestRow[]
     }).catch(() => [] as PendingRequestRow[])
     rows.sort((a, b) => compareIsoDescNullsLast(a.created_at, b.created_at))
@@ -897,7 +850,7 @@ export const contactsService = {
     const select = () => identityDb.from('friend_requests').select(FRIEND_REQUEST_SELECT).eq('sender_id', userId)
     const [pending, decided] = await Promise.all([select().eq('status', 'pending'), select().neq('status', 'pending').order('created_at', { ascending: false }).limit(FRIEND_REQUEST_HISTORY_LIMIT)])
     const error = pending.error ?? decided.error
-    if (error) throw toUserFacingError(error, genericFailure())
+    if (error) throw new Error(messageForUser(error), { cause: error })
     const data = [...(pending.data ?? []), ...(decided.data ?? [])]
     if (!data.length) return []
 

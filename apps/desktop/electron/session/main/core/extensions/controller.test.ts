@@ -1,3 +1,4 @@
+import { verifiedFileHandle } from '../../../../../../../tests/helpers/verifiedFileHandle';
 import { EXTENSION_API_VERSION } from '@shared/extensions/manifest';
 import { extensionsInventoryChangedChannel, extensionsQuitChangedChannel } from '@shared/extensions/marketEvents';
 import { createHash } from 'node:crypto';
@@ -97,6 +98,7 @@ vi.mock('@main/lib/logger', () => ({
 
 // The chat card's Install: the download is stubbed and the consent relay records what it was asked, so a test reads
 // whether the card's click alone installs a package.
+const attachmentFixture = vi.hoisted(() => ({ bytes: new Uint8Array() }));
 const consentRequests = vi.hoisted(() => [] as { manifest: { id: string } }[]);
 vi.mock('@gugu/core/cloud/config', async (importOriginal) => ({
   ...(await importOriginal<object>()),
@@ -113,15 +115,16 @@ vi.mock('./app-files', async (importOriginal) => ({
       file_item_id: '44444444-4444-4444-8444-444444444444', file_version: 1, file_blob_id: null,
       sender_user_id: '0a000000-0000-4000-8000-00000000000a',
     }),
-    sign: async () => 'https://cdn.test/ab/abab?auth_key=1',
+    open: async () => verifiedFileHandle(attachmentFixture.bytes, {}, async signal => new Uint8Array(await (await fetch('https://cdn.test/ab/abab?auth_key=1', { signal })).arrayBuffer())),
   },
 }));
 // 「给哪些 agent」要读账号的行;这些用例没有登录态，不问(D-30 自己的读写在 app-given 的用例里判)。
 // 读不到时安装会失败(owner 10-17 体检 #21),所以这里把「问」定成没有可问的，而不是靠吞错。
 vi.mock('./app-given', async (importOriginal) => ({
   ...(await importOriginal<typeof import('./app-given')>()),
-  installAsk: async () => null,
-  recordGiven: async () => undefined,
+  installGrant: async () => null,
+  recordInstallGrant: async () => undefined,
+  forgetAccountGrants: vi.fn(async () => undefined),
 }));
 vi.mock('./extension-bridge-relay', async (importOriginal) => ({
   ...(await importOriginal<object>()),
@@ -138,11 +141,17 @@ vi.mock('./extension-icon', () => ({
 }));
 
 import { extensionsController } from './controller';
-import { extensionSurfaceBindingForTests, registerExtensionBridge } from './extension-bridge';
+import { extensionSurfaceBindingForTests, onInstalledAppsChanged, registerExtensionBridge } from './extension-bridge';
 import { EXTENSION_BRIDGE_CHANNEL } from '@shared/extensions/bridge-protocol';
 import { packExtensionArchive } from './extension-archive';
 import { extensionsService } from './extensions-root';
+import { forgetAccountGrants } from './app-given';
+import { clearExtensionSessionData } from './extension-session';
 import { cloudExtensionMarket } from './market-catalog-root';
+import { extensionPrograms, onExtensionProgramNotification, stopAllExtensionPrograms, type ExtensionProgram } from './extension-programs';
+import { installedComputerUseApps } from '../../../../computer-use-program';
+import { syncDeviceHeartbeat } from '@gugu/core/cloud/deviceRuntime';
+import { MemoryHeartbeatClient } from '../../../../../../../tests/support/deviceRuntimeHarness';
 
 const EXTENSION_ID = 'demo-ext';
 
@@ -156,7 +165,7 @@ function writeBundle(hosts: string[], tab: Record<string, unknown> = { name: 'de
       id: EXTENSION_ID,
       name: 'Demo',
       version: '1.0.0',
-      apiVersion: EXTENSION_API_VERSION,
+      apiVersion: EXTENSION_API_VERSION, platforms: ['desktop'],
       entry: 'index.html',
       permissions: { network: hosts, ...(capabilities ? { capabilities } : {}) },
       contributes: { tabs: [tab] },
@@ -192,6 +201,250 @@ beforeEach(async () => {
 });
 
 describe('extensions controller', () => {
+  it('an uninstall still clears state and publishes inventory when native retirement rejects', async () => {
+    await installViaController([]);
+    const identity = { publisher: 'gugu', id: EXTENSION_ID };
+    const identityOf = vi.spyOn(extensionsService(), 'identityOf').mockReturnValue(identity);
+    vi.mocked(clearExtensionSessionData).mockClear();
+    vi.mocked(forgetAccountGrants).mockClear();
+    emitted.length = 0;
+    extensionPrograms.registerNative('computer-use', {
+      tools: async () => [], call: async () => ({ content: [] }), status: () => ({ running: 0 }),
+      retire: async () => { throw new Error('native cleanup failed'); },
+    });
+    try {
+      expect(await extensionsController.uninstall({ extensionId: EXTENSION_ID, lastAnywhere: true })).toEqual({ success: true });
+      expect(clearExtensionSessionData).toHaveBeenCalledWith(EXTENSION_ID);
+      expect(forgetAccountGrants).toHaveBeenCalledWith(identity);
+      expect(emitted).toContainEqual({ name: extensionsInventoryChangedChannel.name, data: { extensionId: EXTENSION_ID } });
+    } finally {
+      identityOf.mockRestore();
+      extensionPrograms.registerNative('computer-use', {
+        tools: async () => [], call: async () => ({ content: [] }), status: () => ({ running: 0 }), retire: async () => {},
+      });
+    }
+  });
+
+  it('uninstall waits for native cleanup before deleting App storage', async () => {
+    await installViaController([]);
+    const cleanup = Promise.withResolvers<void>();
+    const entered = Promise.withResolvers<void>();
+    extensionPrograms.registerNative('computer-use', {
+      tools: async () => [], call: async () => ({ content: [] }), status: () => ({ running: 0 }),
+      retire: async () => { entered.resolve(); await cleanup.promise; },
+    });
+    vi.mocked(clearExtensionSessionData).mockClear();
+    let outcome = 'pending';
+    const uninstalled = extensionsController.uninstall({ extensionId: EXTENSION_ID }).then(result => { outcome = 'answered'; return result; });
+    try {
+      await entered.promise;
+      await new Promise(resolve => setImmediate(resolve));
+      expect(outcome).toBe('pending');
+      expect(clearExtensionSessionData).not.toHaveBeenCalled();
+      cleanup.resolve();
+      expect(await uninstalled).toEqual({ success: true });
+      expect(clearExtensionSessionData).toHaveBeenCalledWith(EXTENSION_ID);
+    } finally {
+      cleanup.resolve();
+      await uninstalled;
+      extensionPrograms.registerNative('computer-use', {
+        tools: async () => [], call: async () => ({ content: [] }), status: () => ({ running: 0 }), retire: async () => {},
+      });
+    }
+  });
+
+  it('a quick reinstall retains its grants and storage when old native cleanup finishes', async () => {
+    await installViaController([]);
+    const identityOf = vi.spyOn(extensionsService(), 'identityOf').mockReturnValue({ publisher: 'gugu', id: EXTENSION_ID });
+    const cleanup = Promise.withResolvers<void>();
+    const entered = Promise.withResolvers<void>();
+    let retiring = false;
+    extensionPrograms.registerNative('computer-use', {
+      tools: async () => [], call: async () => ({ content: [] }), status: () => ({ running: 0 }),
+      retire: async () => { if (retiring) return; retiring = true; entered.resolve(); await cleanup.promise; },
+    });
+    vi.mocked(clearExtensionSessionData).mockClear();
+    vi.mocked(forgetAccountGrants).mockClear();
+    const uninstalled = extensionsController.uninstall({ extensionId: EXTENSION_ID, lastAnywhere: true });
+    try {
+      await entered.promise;
+      await installViaController([]);
+      vi.mocked(clearExtensionSessionData).mockClear();
+      cleanup.resolve();
+      expect(await uninstalled).toEqual({ success: true });
+      expect(extensionsService().isInstalled(EXTENSION_ID)).toBe(true);
+      expect(forgetAccountGrants).not.toHaveBeenCalled();
+      expect(clearExtensionSessionData).not.toHaveBeenCalled();
+    } finally {
+      cleanup.resolve();
+      await uninstalled;
+      identityOf.mockRestore();
+      extensionPrograms.registerNative('computer-use', {
+        tools: async () => [], call: async () => ({ content: [] }), status: () => ({ running: 0 }), retire: async () => {},
+      });
+    }
+  });
+
+  it.each(['disable', 'permission', 'uninstall'] as const)('%s interrupts an already running App program', async (action) => {
+    const root = mkdtempSync(join(tmpdir(), 'gugu-app-revoke-'));
+    const release = join(root, 'release');
+    const script = join(root, 'server.mjs');
+    writeFileSync(script, String.raw`
+import { existsSync } from 'node:fs';
+let buffer = '';
+process.stdin.on('data', chunk => {
+  buffer += chunk;
+  for (let end = buffer.indexOf('\n'); end >= 0; end = buffer.indexOf('\n')) {
+    const message = JSON.parse(buffer.slice(0, end));
+    buffer = buffer.slice(end + 1);
+    if (message.id === undefined) continue;
+    const reply = result => process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: message.id, result }) + '\n');
+    if (message.method === 'initialize') reply({ protocolVersion: message.params.protocolVersion, capabilities: { tools: {} }, serverInfo: { name: 'revoke', version: '1' } });
+    if (message.method === 'tools/call') {
+      process.stdout.write(JSON.stringify({ jsonrpc: '2.0', method: 'notifications/revoke/started' }) + '\n');
+      const finish = () => existsSync(process.argv[2]) ? reply({ content: [{ type: 'text', text: 'completed' }] }) : setTimeout(finish, 10);
+      finish();
+    }
+  }
+});
+process.stdin.on('end', () => process.exit(0));
+`);
+    const source = writeBundle([], undefined, ['agents:tools']);
+    const manifestPath = join(source, 'manifest.json');
+    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
+    manifest.contributes.mcpServers = [{ name: 'revocation-test', command: 'node', args: ['server.mjs'] }];
+    writeFileSync(manifestPath, JSON.stringify(manifest));
+    writeFileSync(join(source, 'server.mjs'), readFileSync(script));
+    const inspected = await folderAsk(source);
+    expect((await folderGiven(source, inspected.ask.manifestDigest)).success).toBe(true);
+    const target: ExtensionProgram = { extensionId: EXTENSION_ID, server: 'revocation-test', digest: action,
+      command: process.execPath, args: [script, release], cwd: root, env: {}, dataDir: join(root, 'data') };
+    let started!: () => void;
+    const entered = new Promise<void>((resolve) => { started = resolve; });
+    const off = onExtensionProgramNotification((id, server, notification) => {
+      if (id === EXTENSION_ID && server === target.server && notification.method === 'notifications/revoke/started') started();
+    });
+    let outcome = 'pending';
+    const call = extensionPrograms.call(target, { name: 'hold' }, { signal: new AbortController().signal })
+      .then(() => { outcome = 'completed'; }, () => { outcome = 'interrupted'; });
+    try {
+      await entered;
+      const result = action === 'disable' ? await extensionsController.setEnabled({ extensionId: EXTENSION_ID, enabled: false })
+        : action === 'permission' ? await extensionsController.setPermissionGranted({ extensionId: EXTENSION_ID, permission: 'agents:tools', granted: false })
+          : await extensionsController.uninstall({ extensionId: EXTENSION_ID });
+      expect(result.success).toBe(true);
+      await expect.poll(() => outcome, { timeout: 1_000 }).toBe('interrupted');
+      await expect(extensionPrograms.call(target, { name: 'hold' }, { signal: new AbortController().signal }))
+        .rejects.toMatchObject({ code: 'denied' });
+    } finally {
+      off();
+      writeFileSync(release, '');
+      await call;
+      await stopAllExtensionPrograms();
+    }
+  });
+
+  it('lists variant metadata with the inventory and isolates an unreadable App', async () => {
+    await installViaController([]);
+    const other = writeBundle([]);
+    const file = join(other, 'manifest.json');
+    writeFileSync(file, JSON.stringify({ ...JSON.parse(readFileSync(file, 'utf8')), id: 'other-app' }));
+    extensionsService().installFromDirectory(other, extensionsService().inspectDirectory(other).manifestDigest, 'folder');
+    const service = extensionsService();
+    const readVariants = service.variants.bind(service);
+    const failing = vi.spyOn(service, 'variants').mockImplementation((id) => {
+      if (id === EXTENSION_ID) throw new Error('variant metadata unreadable');
+      return readVariants(id);
+    });
+    try {
+      const listed = await extensionsController.list();
+      expect(listed.success, listed.error).toBe(true);
+      expect(listed.data?.extensions.map(({ id }) => id).sort()).toEqual([EXTENSION_ID, 'other-app'].sort());
+      expect(listed.data?.variants).toEqual({ 'other-app': { active: 'upstream', variants: [] } });
+    } finally {
+      failing.mockRestore();
+    }
+    expect((await extensionsController.list()).data?.variants?.[EXTENSION_ID]).toEqual({ active: 'upstream', variants: [] });
+  });
+
+  it('publishes current Computer Use capability after App changes without rescanning between heartbeats', async () => {
+    const service = extensionsService();
+    const installed = vi.fn(() => service.list().extensions.flatMap(({ manifest }) =>
+      (manifest.contributes.mcpServers ?? []).flatMap((server) => 'host' in server ? [{
+        extensionId: manifest.id, server: server.name, native: server.host,
+      } as ExtensionProgram] : [])));
+    let off: (() => void) | undefined;
+    const apps = installedComputerUseApps({ installed, agentToolsRefusal: extensionPrograms.agentToolsRefusal }, (listener) => {
+      off = onInstalledAppsChanged(listener);
+    });
+    const clock = vi.spyOn(Date, 'now');
+    const client = new MemoryHeartbeatClient();
+    let beatNumber = 0;
+    const heartbeat = () => {
+      clock.mockReturnValue(++beatNumber * 30_000);
+      return syncDeviceHeartbeat(client, {
+        userId: 'owner', deviceId: 'device', capabilities: { terminals: [], runtimes: [] },
+        deviceActions: () => ({ v: 1, actions: [], ...(apps().length ? {} : { switched_off: [{ group: 'computer', detail: 'Computer Use is off' }] }) }),
+      }, {});
+    };
+    const beat = async (on: boolean) => {
+      await heartbeat();
+      expect((client.upserts.at(-1)?.row.capabilities as { actions: { switched_off?: unknown } }).actions.switched_off === undefined).toBe(on);
+      const reads = installed.mock.calls.length;
+      apps(); // The preview reads the same list as the heartbeat.
+      await heartbeat();
+      expect(installed).toHaveBeenCalledTimes(reads);
+    };
+    const install = async (host: 'computer-use' | 'browser-use') => {
+      const source = writeBundle([], undefined, ['agents:tools']);
+      const file = join(source, 'manifest.json');
+      const manifest = JSON.parse(readFileSync(file, 'utf8'));
+      manifest.contributes.mcpServers = [{ name: 'control', host }];
+      writeFileSync(file, JSON.stringify(manifest));
+      const inspected = await folderAsk(source);
+      const result = await folderGiven(source, inspected.ask.manifestDigest);
+      expect(result.success, result.error).toBe(true);
+    };
+    try {
+      await beat(false);
+      await install('computer-use');
+      await beat(true);
+      await extensionsController.setEnabled({ extensionId: EXTENSION_ID, enabled: false });
+      await beat(false);
+      await extensionsController.setEnabled({ extensionId: EXTENSION_ID, enabled: true });
+      await beat(true);
+      await install('browser-use'); // Replacing the same id can remove its native capability.
+      await beat(false);
+      await install('computer-use');
+      await beat(true);
+      for (const granted of [false, true]) {
+        await extensionsController.setPermissionGranted({ extensionId: EXTENSION_ID, permission: 'agents:tools', granted });
+        await beat(granted);
+      }
+      const reads = installed.mock.calls.length;
+      await extensionsController.setSettings({ extensionId: EXTENSION_ID, settings: {} });
+      await beat(true);
+      expect(installed.mock.calls.length).toBeGreaterThan(reads);
+      await extensionsController.uninstall({ extensionId: EXTENSION_ID });
+      await beat(false);
+    } finally {
+      off?.();
+      clock.mockRestore();
+    }
+  });
+
+  it('refuses a folder with no platform declaration or only a phone interface before asking for consent', async () => {
+    for (const platforms of [undefined, ['phone']]) {
+      const source = writeBundle([]);
+      const file = join(source, 'manifest.json');
+      writeFileSync(file, JSON.stringify({ ...JSON.parse(readFileSync(file, 'utf8')), platforms }));
+      const result = await extensionsController.installFromFolder({ sourceDir: source, consent: { kind: 'return' } });
+      expect(result.success).toBe(false);
+      expect(result.error).toMatch(platforms ? /does not support desktop/ : /declare desktop, phone, or both/);
+      expect(extensionsService().list().extensions).toEqual([]);
+    }
+  });
+
   it('refuses to activate an extension that is switched off, and lists it as off', async () => {
     await installViaController([]);
     const off = await extensionsController.setEnabled({ extensionId: EXTENSION_ID, enabled: false });
@@ -399,7 +652,7 @@ describe('extensions controller', () => {
         id: EXTENSION_ID,
         name: 'Demo',
         version: '1.0.0',
-        apiVersion: EXTENSION_API_VERSION,
+        apiVersion: EXTENSION_API_VERSION, platforms: ['desktop'],
         entry: 'index.html',
         permissions: { network: ['evil.example.com'] },
         contributes: { tabs: [{ name: 'demo', title: 'Demo' }] },
@@ -435,11 +688,12 @@ describe('extensions controller', () => {
       const dir = join(mkdtempSync(join(tmpdir(), 'gugu-ext-card-')), id);
       mkdirSync(dir);
       writeFileSync(join(dir, 'manifest.json'), JSON.stringify({
-        id, name: id, version: '1.0.0', apiVersion: EXTENSION_API_VERSION, entry: 'index.html',
+        id, name: id, version: '1.0.0', apiVersion: EXTENSION_API_VERSION, platforms: ['desktop'], entry: 'index.html',
         permissions: { network }, contributes: { tabs: [{ name: 'main', title: id }] },
       }));
       writeFileSync(join(dir, 'index.html'), '<!doctype html>');
       const { bytes } = await packExtensionArchive(extensionsService(), dir);
+      attachmentFixture.bytes = new Uint8Array(bytes);
       vi.stubGlobal('fetch', vi.fn(async () => new Response(new Uint8Array(bytes))));
     };
     // The card by its message: its publisher the server's word on it (摩擦单 F66, #7290).
@@ -475,7 +729,7 @@ describe('每个 tab 画自己那一页', () => {
         id: EXTENSION_ID,
         name: 'Demo',
         version: '1.0.0',
-        apiVersion: EXTENSION_API_VERSION,
+        apiVersion: EXTENSION_API_VERSION, platforms: ['desktop'],
         entry: 'left.html',
         contributes: {
           tabs: [
@@ -541,7 +795,7 @@ describe('a tab\'s icon: its own, else its App\'s (owner 10-17)', () => {
   it('a tab naming no icon gets the App\'s, at the tab\'s size; a tab naming one keeps its own', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'gugu-ext-controller-tabicon-'));
     writeFileSync(join(dir, 'manifest.json'), JSON.stringify({
-      id: EXTENSION_ID, name: 'Demo', version: '1.0.0', apiVersion: EXTENSION_API_VERSION, entry: 'index.html', icon: 'app.png',
+      id: EXTENSION_ID, name: 'Demo', version: '1.0.0', apiVersion: EXTENSION_API_VERSION, platforms: ['desktop'], entry: 'index.html', icon: 'app.png',
       contributes: { tabs: [{ name: 'plain', title: 'Plain' }, { name: 'own', title: 'Own', icon: 'tab.png' }] },
     }));
     for (const file of ['index.html', 'app.png', 'tab.png']) writeFileSync(join(dir, file), file);
@@ -559,7 +813,7 @@ describe('agent tools up front or on demand (W-08)', () => {
   async function installToolsBundle(): Promise<void> {
     const dir = mkdtempSync(join(tmpdir(), 'gugu-ext-controller-tools-'));
     writeFileSync(join(dir, 'manifest.json'), JSON.stringify({
-      id: TOOLS_ID, name: 'Tools', version: '1.0.0', apiVersion: EXTENSION_API_VERSION, entry: 'index.html',
+      id: TOOLS_ID, name: 'Tools', version: '1.0.0', apiVersion: EXTENSION_API_VERSION, platforms: ['desktop'], entry: 'index.html',
       permissions: { capabilities: ['agents:tools'] },
       contributes: { tabs: [{ name: 'main', title: 'Tools' }], mcpServers: [{ name: 'rows', command: 'node', args: ['server.mjs'] }] },
     }));
@@ -625,7 +879,7 @@ describe('卸载时 tab 还开着(#6656)', () => {
     registerExtensionBridge();
     const asked = (await bridgeHandlers.get(EXTENSION_BRIDGE_CHANNEL)!(
       { sender: { id: surface.id, session: surface.session } },
-      { method: 'filesWatch', args: { place: { session: 'task-1' }, on: true } },
+      { method: 'filesWatch', args: { watchId: 'working-copy', place: { session: 'task-1' }, on: true } },
     )) as { ok: boolean };
     expect(asked).toMatchObject({ ok: true });
     await watching.promise;
@@ -665,6 +919,20 @@ describe('what the market has to say about the Apps here (marketUpdates)', () =>
       updatesFor.mockRestore();
       // The next case's cleanup uninstalls what is here, and a preinstalled App cannot be uninstalled.
       if (extensionsService().origins()[EXTENSION_ID] === 'preinstalled') extensionsService().releasePreinstalled(EXTENSION_ID);
+    }
+  });
+});
+
+// 精选卡的首帧占位图:页面经 marketRead 读下载站上那张图的字节(形状同手机壳的 GuguAppStore.marketRead)。只读 `media/`,有硬上限。
+describe('marketRead: one file under the market media, for the featured card placeholder', () => {
+  it('answers base64, never asks for more than the cap, and refuses anything outside media/', async () => {
+    const media = vi.spyOn(cloudExtensionMarket(), 'media');
+    media.mockResolvedValueOnce(new Uint8Array([1, 2]));
+    expect(await extensionsController.marketRead({ path: 'media/pomo/shot.png', maxBytes: 10 ** 9 })).toEqual({ success: true, data: { base64: 'AQI=' } });
+    expect(media).toHaveBeenLastCalledWith('media/pomo/shot.png', 2 * 1024 * 1024);
+    media.mockRestore();
+    for (const path of ['index.json', 'bundles/pomo/1.0.0.zip', 'media/../index.json', '/media/pomo/shot.png', 'https://elsewhere.example/media/a.png']) {
+      expect((await extensionsController.marketRead({ path })).success, path).toBe(false);
     }
   });
 });

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { UI_EVENTS } from '../lib/uiEvents'
 
 // #886 — per-row right-click menu state (open pos + outside-click/closeContextMenus close),
@@ -15,11 +15,14 @@ export function useRowContextMenu() {
       document.removeEventListener(UI_EVENTS.closeContextMenus, close as EventListener)
     }
   }, [menuPos])
+  const openMenu = useCallback((at: { x: number; y: number }) => {
+    document.dispatchEvent(new CustomEvent(UI_EVENTS.closeContextMenus))
+    setMenuPos(at)
+  }, [])
   const onContextMenu = (event: React.MouseEvent) => {
     event.preventDefault()
     event.stopPropagation()
-    document.dispatchEvent(new CustomEvent(UI_EVENTS.closeContextMenus))
-    setMenuPos({ x: event.clientX, y: event.clientY })
+    openMenu({ x: event.clientX, y: event.clientY })
   }
-  return { menuPos, onContextMenu, closeMenu: () => setMenuPos(null) }
+  return { menuPos, openMenu, onContextMenu, closeMenu: () => setMenuPos(null) }
 }

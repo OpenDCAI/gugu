@@ -1,3 +1,6 @@
+import { platform } from '@/platform'
+import { rendererLogger } from '@/lib/log'
+import { safeFailureLine } from '@/session/renderer/features/sessions/gugu-reason'
 /**
  * AgentSharePane — "分享" pane (data-aset="share-act")
  *
@@ -11,9 +14,8 @@
  *   - useAuth().user                    ← real current user, wired
  *
  * 对外分享 tab (external public link / QR) — wired (#1078, #1085):
- *   - 真链接 buildAgentShareUrl(/join/agent/<id>) + 真 QR；未配置公开基址 → fail-loud（不出死链接）。
+ *   - 真链接 buildAgentShareUrl(/join/agent/<id>) + 真 QR；未配置公开基址则不展示入口。
  *   - 「开启对外分享」→ contactsService.setAgentPublic (RLS select_public 放行外部读取)。
- *   - 额度计费仍依赖计费账本 #862（未就绪）→ 文案标依赖、不假扣（无假控件）。
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
@@ -29,6 +31,8 @@ import type { ContactUser } from '@gugu/core/shared/types/contacts'
 import { asClass, cx, shareSegmentButtonClass } from './agentSettingsStyles'
 import { Avatar } from '../Avatar'
 import { SearchField } from '../ui/SearchField'
+import { Button } from '../ui/Button'
+import { qrColors } from '../../lib/qrColors'
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
@@ -127,7 +131,7 @@ function FwdPanel({
 
 /** 对外分享 tab content — 设计稿 lines 1084-1088。
  *  真链接(指向现有 /join/agent 公开路由)+ 真 QR + 开启时 setAgentPublic(真使 agent 公开,RLS select_public
- *  据此放行外部读取)。无假控件:未配置公开基址 → fail-loud(不展示死链接);¥10 计费账本(#862)未就绪 → 标依赖不假扣。 */
+ *  据此放行外部读取)。未配置公开基址时不提供对外分享入口。 */
 export function ExtPanel({ agent }: { agent: ContactUser }) {
   const { t } = useTranslation('agents')
   const shareUrl = buildAgentShareUrl(externalShareBaseUrl(), agent.id)
@@ -138,13 +142,13 @@ export function ExtPanel({ agent }: { agent: ContactUser }) {
   const [copied, setCopied] = useState(false)
 
   useEffect(() => {
-    if (!shareUrl) { setQr(null); return }
+    if (!shareUrl || !isPublic) { setQr(null); return }
     let cancelled = false
-    QRCode.toDataURL(shareUrl, { width: 132, margin: 1, color: { dark: '#1f2933', light: '#ffffff' } })
+    QRCode.toDataURL(shareUrl, { width: 132, margin: 1, color: qrColors() })
       .then((url) => { if (!cancelled) setQr(url) })
       .catch(() => { if (!cancelled) setQr(null) })
     return () => { cancelled = true }
-  }, [shareUrl])
+  }, [shareUrl, isPublic])
 
   const handleEnable = useCallback(async () => {
     if (enabling) return
@@ -154,7 +158,6 @@ export function ExtPanel({ agent }: { agent: ContactUser }) {
       // 真动作:使 agent 公开 → 公开链接据 RLS select_public 可被外部读取。
       await contactsService.setAgentPublic(agent.id, true)
       setIsPublic(true)
-      // TODO(#862): ¥10 计入额度 —— 计费账本(#862)未就绪,此处不做假扣费,文案标依赖。
     } catch (err) {
       setError(err instanceof Error ? err.message : t('settings.share.enableFailed'))
     } finally {
@@ -165,30 +168,27 @@ export function ExtPanel({ agent }: { agent: ContactUser }) {
   const handleCopy = useCallback(async () => {
     if (!shareUrl) return
     try {
-      await navigator.clipboard.writeText(shareUrl)
+      await platform.writeClipboardText(shareUrl)
       setCopied(true)
       setError(null)
       setTimeout(() => setCopied(false), 1800)
-    } catch {
-      // fail-loud (#1124): clipboard may be unavailable/denied — never swallow silently;
-      // tell the user and fall back to the selectable plaintext link shown above.
-      setError(t('settings.share.copyFailed'))
+    } catch (error) {
+      const reason = String((error as Error)?.message ?? error)
+      rendererLogger('clipboard').error({ error: reason }, 'copy agent link failed')
+      setError(safeFailureLine(reason))
     }
-  }, [shareUrl, t])
+  }, [shareUrl])
 
-  // fail-loud:未配置公开 web 基址(公开入口未部署)→ 不展示假链接/假 QR。
-  if (!shareUrl) {
-    return (
-      <div className={asClass.shareExt}>
-        <div className={asClass.shareExtCard}>
-          <div style={{ fontSize: 'var(--font-body)', fontWeight: 600 }}>{t('settings.share.unavailable')}</div>
-          <div style={{ fontSize: 'var(--font-body)', color: 'var(--faint-fg)', marginTop: 3 }}>
-            {t('settings.share.unavailableReason')}
-          </div>
-        </div>
-      </div>
-    )
-  }
+  if (!shareUrl) return null
+
+  if (!isPublic) return (
+    <div className={asClass.shareExt}>
+      <Button className="w-full" variant="primary" onClick={() => void handleEnable()} disabled={enabling}>
+        {enabling ? t('settings.share.enabling') : t('settings.share.enable')}
+      </Button>
+      {error && <div role="alert" className={asClass.shareError}>{error}</div>}
+    </div>
+  )
 
   const qrElement = qr
     ? <img className={cx(asClass.shareQr, asClass.shareQrImage)} src={qr} alt={t('settings.share.qrAlt')} />
@@ -208,27 +208,11 @@ export function ExtPanel({ agent }: { agent: ContactUser }) {
           明文链接 user-select:text — 复制失败时(#1124)用户可手动选中复制（fail-loud 回退）。 */}
       <div className={asClass.shareLink}>
         <span data-testid="agent-share-link" style={{ userSelect: 'text' }}>{shareUrl}</span>
-        <button
-          type="button"
-          className={asClass.shareCopy}
-          onClick={() => { void handleCopy() }}
-        >
+        <Button variant="secondary" size="sm" onClick={() => void handleCopy()}>
           {copied ? t('settings.share.copied') : t('settings.share.copy')}
-        </button>
+        </Button>
       </div>
-      {!isPublic && (
-        <button
-          type="button"
-          className={asClass.shareEnable}
-          onClick={() => { void handleEnable() }}
-          disabled={enabling}
-        >
-          {enabling ? t('settings.share.enabling') : t('settings.share.enable')}
-        </button>
-      )}
       {error && <div className={asClass.shareError}>{error}</div>}
-      {/* .se-fee — 设计稿 line 372;计费(#862)未就绪 → fail-loud 标依赖,不假扣 */}
-      <div className={asClass.shareFeeText}>{t('settings.share.fee')}</div>
     </div>
   )
 }
@@ -242,6 +226,7 @@ export function AgentSharePane({ agent, onClose: _onClose }: AgentSettingsPanePr
 
   // Tab state: 'fwd' | 'ext'
   const [tab, setTab] = useState<'fwd' | 'ext'>('fwd')
+  const canShareExternally = !!buildAgentShareUrl(externalShareBaseUrl(), agent.id)
 
   // Only show human contacts (not agents) for forwarding — filter same as ContactsPanel
   const humanContacts = useMemo(
@@ -255,7 +240,7 @@ export function AgentSharePane({ agent, onClose: _onClose }: AgentSettingsPanePr
       <h3 className={asClass.shareTitle}>{t('settings.share.title')}</h3>
 
       {/* .share-seg */}
-      <div className={asClass.shareSegment}>
+      {canShareExternally && <div className={asClass.shareSegment}>
         <button
           type="button"
           className={shareSegmentButtonClass(tab === 'fwd')}
@@ -263,16 +248,16 @@ export function AgentSharePane({ agent, onClose: _onClose }: AgentSettingsPanePr
         >
           {t('settings.share.forward')}
         </button>
+        {canShareExternally && (
         <button
           type="button"
           className={shareSegmentButtonClass(tab === 'ext')}
           onClick={() => setTab('ext')}
         >
           {t('settings.share.external')}
-          {/* .share-fee: color:#f59e0b background:#f59e0b1f */}
-          <span className={asClass.shareFee}>{t('settings.share.feeBadge')}</span>
         </button>
-      </div>
+        )}
+      </div>}
 
       {/* panels */}
       {tab === 'fwd' && user && (
@@ -282,7 +267,7 @@ export function AgentSharePane({ agent, onClose: _onClose }: AgentSettingsPanePr
           ownerName={user.nickname}
         />
       )}
-      {tab === 'ext' && (
+      {canShareExternally && tab === 'ext' && (
         <ExtPanel agent={agent} />
       )}
     </div>

@@ -672,7 +672,7 @@ describe('DevicesSection · 添加一台机器', () => {
     expect(inSettings('devices.via.cloud')).toBeUndefined()
     expect(inSettings('devices.via.sshElsewhere')).toBe('远程 SSH')
     // 没有终端直连的机器既可能是远程隧道的,也可能是别的电脑用远程 SSH 加的:说法两种都成立,❌ 只说「远程隧道」。
-    for (const key of ['task.deviceHintGeneralOnly', 'taskConfig.sessionViewRemoteNeedsSsh'] as const) {
+    for (const key of ['task.deviceHintGeneralOnly'] as const) {
       expect(zhCNSessionWorkflowMessages[key]).not.toContain('远程隧道')
       expect(zhCNSessionWorkflowMessages[key]).toContain('远程 SSH')
     }
@@ -854,7 +854,7 @@ describe('#6264 机器上限:平时不披露,碰到了就地停下说清楚', ()
   it('中英文案齐全', () => {
     for (const locale of [zhSettings, enSettings]) {
       const limit = (locale as unknown as { devices: { addServer: { machineLimit: Record<string, string>; reasons: Record<string, string> } } }).devices.addServer
-      expect(Object.keys(limit.machineLimit).sort()).toEqual(['end', 'or', 'remove', 'total', 'tunnel', 'unknown', 'upgrade'])
+      expect(Object.keys(limit.machineLimit).sort()).toEqual(['available', 'continue', 'end', 'occupants', 'or', 'remove', 'total', 'tunnel', 'unknown', 'upgrade'])
       expect(limit.reasons.machineLimit).toBeTruthy()
     }
   })

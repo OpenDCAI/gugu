@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { platform } from '../../platform'
 import { useToast } from '../toastContext'
 import { Button } from '../ui/Button'
+import { safeFailureLine } from '@/session/renderer/features/sessions/gugu-reason'
 
 /**
  * #7199 这条线这次没读出来:说读不到、给重试。一行都没有时占满列表(❌ 落成「开始第一次对话」欢迎页 ——
@@ -19,7 +20,7 @@ export function MessageLoadFailure({ error, onRetry, inline }: { error: Error; o
     // 有的平台不支持时是同步抛的:包进 promise 链里一起接住。
     void Promise.resolve().then(() => platform.writeClipboardText(error.message)).then(
       () => toast(t('message.copied'), 'success'),
-      () => toast(t('message.copyFailed'), 'error'),
+      (cause) => toast(t('actions.copyFailed', { ns: 'common' }), 'error', safeFailureLine(String((cause as Error)?.message ?? cause))),
     )
   }
   const retry = () => {

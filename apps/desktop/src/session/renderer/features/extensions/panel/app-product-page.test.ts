@@ -1,6 +1,7 @@
 import { JSDOM } from 'jsdom';
 import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
+import { registerImageViewerHost } from '@/lib/imageViewer';
 import { describe, expect, it, vi } from 'vitest';
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -65,6 +66,67 @@ async function render(props: Record<string, unknown>, act_?: (document: Document
 }
 
 describe('App 的产品页 (#7059)', () => {
+  it('opens the selected screenshot in the shared image gallery when the picture itself is clicked', async () => {
+    const opened = vi.fn();
+    const unregister = registerImageViewerHost(opened);
+    try {
+      await render({ api: readmeOf('![First](https://download.example/first.png)\n\n![Second](https://download.example/second.png)') as never }, async (document) => {
+        const shots = document.querySelectorAll<HTMLImageElement>('[data-testid="app-product-preview"] img');
+        expect(shots).toHaveLength(2);
+        await act(async () => shots[1].click());
+        expect(opened).toHaveBeenCalledExactlyOnceWith({ items: [
+          { url: 'https://download.example/first.png', alt: 'First', thumb: shots[0] },
+          { url: 'https://download.example/second.png', alt: 'Second', thumb: shots[1] },
+        ], index: 1 });
+      });
+    } finally { unregister(); }
+  });
+
+  it('shows the platforms declared by the installed version rather than the market version', async () => {
+    const market = { ...(pomodoro as object), platforms: ['desktop', 'phone'] };
+    const installed = { ...(pomodoro as object), platforms: ['desktop'] };
+    await render({ subject: { manifest: market, installed, cloud: null } }, async (document) => {
+      const row = [...document.querySelectorAll('dt')].find((label) => label.textContent === 'extensions.infoPlatforms')?.parentElement;
+      expect(row?.querySelector('dd')?.textContent).toBe('extensions.platform.desktop');
+    });
+  });
+
+  it('does not invent platform metadata for an installed older App', async () => {
+    const market = { ...(pomodoro as object), platforms: ['desktop', 'phone'] };
+    expect((await render({ subject: { manifest: market, installed: pomodoro, cloud: null } })).text).not.toContain('extensions.infoPlatforms');
+    const uninstalled = await render({ subject: { manifest: market, installed: undefined, cloud: null } });
+    expect(uninstalled.text).toContain('extensions.platform.desktop and extensions.platform.phone');
+  });
+
+  it('offers an information control for declared phone Agent capabilities without a fixed warning', async () => {
+    await render({ phoneAgentCapabilities: ['agents:tools'] }, async (document) => {
+      expect(document.querySelector('[data-testid="app-product-phone-agent-features"]')).toBeNull();
+      expect(document.querySelector('button[aria-label="extensions.phoneAgentCapabilitiesLabel"]')).not.toBeNull();
+    });
+    await render({}, async (document) => {
+      expect(document.querySelector('button[aria-label="extensions.phoneAgentCapabilitiesLabel"]')).toBeNull();
+    });
+  });
+
+  it('does not offer to install a history version unavailable on this device', async () => {
+    const installed = vi.fn();
+    const entry = { publishedAt: '2026-10-24T00:00:00Z', releaseNotes: 'A release', compat: null, yanked: null };
+    const api = { ...readmeOf(null), marketHistory: async () => ({ success: true, data: [
+      { ...entry, version: '3.0.0', platformRefusal: 'platforms: this App does not support phone' },
+      { ...entry, version: '2.0.0' },
+    ] }) };
+    await render({ api, onInstallVersion: installed }, async (document) => {
+      const toggle = document.querySelector('[data-testid="app-product-news"] button[aria-expanded]')!;
+      await act(async () => void toggle.dispatchEvent(new document.defaultView!.MouseEvent('click', { bubbles: true })));
+      const refused = document.querySelector('[data-testid="extension-history-pomodoro-log-3.0.0"] .xp-history-action')!;
+      expect(refused.textContent).toBe('extensions.platformVersionUnavailable');
+      expect(refused.querySelector('button')).toBeNull();
+      const allowed = document.querySelector('[data-testid="extension-history-pomodoro-log-2.0.0"] .xp-history-action button')!;
+      await act(async () => void allowed.dispatchEvent(new document.defaultView!.MouseEvent('click', { bubbles: true })));
+      expect(installed).toHaveBeenCalledWith({ extensionId: 'pomodoro-log', version: '2.0.0' });
+    });
+  });
+
   it('「给 agent 工具」那句带上要跑的命令,与同意框同一句', async () => {
     expect((await render({})).text).toContain('node mcp/server.mjs');
   });

@@ -16,7 +16,8 @@ import { programCall } from './program-call';
  * - `session` and `workspaceRoot` are the caller's session and its working copy, from the same stamp
  *   (`gugu/sessionId`, `gugu/workspaceRoot`) — what a command's program reads off `_meta`, as the guide says; each absent
  *   when the gateway did not stamp it.
- * - `model` is the model gugu runs that session on (`gugu/model`, as `listAgents()` gives it), absent when it never chose one.
+ * - `model` is the model gugu runs that session on (`gugu/model`, as `listAgents()` gives it), absent when it never chose one;
+ *   `modelLabel` its name in the model menu (`gugu/modelLabel`), absent for an engine's own model.
  * - `run` runs inside its call (`_meta['gugu/call']`, minted by main for this one call): every `gugu.*` verb made from
  *   it, awaited or not, says that call, and is answered as its agent while the call runs (program-call.ts).
  * - What `run` returns is the answer: a string as it is, anything else as its JSON. A throw is an error answer with
@@ -30,11 +31,13 @@ import { programCall } from './program-call';
  */
 
 /** Who called and from where: each field from its `_meta` key, as gugu's gateway stamped it; one it did not stamp is absent, never empty. */
-const STAMP = { agent: 'gugu/agent', session: 'gugu/sessionId', workspaceRoot: 'gugu/workspaceRoot', model: 'gugu/model' } as const;
-export type ToolCall = { [field in keyof typeof STAMP]?: string };
+const STAMP = { agent: 'gugu/agent', session: 'gugu/sessionId', workspaceRoot: 'gugu/workspaceRoot', model: 'gugu/model', modelLabel: 'gugu/modelLabel' } as const;
+export type ToolCall = { [field in keyof typeof STAMP]?: string } & { signal: AbortSignal };
 
-function callOf(meta: Record<string, unknown> | undefined): ToolCall {
-  return Object.fromEntries(Object.entries(STAMP).filter(([, key]) => typeof meta?.[key] === 'string' && meta[key]).map(([field, key]) => [field, meta![key]])) as ToolCall;
+function callOf(meta: Record<string, unknown> | undefined, signal: AbortSignal): ToolCall {
+  const call = Object.fromEntries(Object.entries(STAMP).filter(([, key]) => typeof meta?.[key] === 'string' && meta[key]).map(([field, key]) => [field, meta![key]]));
+  // Older tools save the whole stamp in JSON data. The live signal is accessible, never enumerable.
+  return Object.defineProperty(call, 'signal', { value: signal }) as ToolCall;
 }
 
 export interface AppTool {
@@ -90,18 +93,20 @@ export async function serveTools(tools: ReadonlyMap<string, AppTool>, transport:
   server.setRequestHandler(ListToolsRequestSchema, () => ({
     tools: [...tools].map(([name, { run: _run, ...fields }]) => ({ ...fields, name }) as Tool),
   }));
-  server.setRequestHandler(CallToolRequestSchema, async (request) => {
+  server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
     const { name, arguments: args, _meta: meta } = request.params;
     const tool = tools.get(name);
     if (!tool) return { ...text(`no tool "${name}" here; there are: ${[...tools.keys()].join(', ')}`), isError: true };
     const callId = meta?.[PROGRAM_CALL_META_KEY];
-    const run = () => tool.run(args ?? {}, callOf(meta));
+    const run = () => tool.run(args ?? {}, callOf(meta, extra.signal));
     try {
       const value = await (typeof callId === 'string' ? programCall.run(callId, run) : run());
       void server.notification({ method: TOOLS_CALLED, params: { tool: name } });
       return text(typeof value === 'string' ? value : (JSON.stringify(value) ?? ''));
     } catch (error) {
-      return { ...text(error instanceof Error ? error.message : String(error)), isError: true };
+      const message = error instanceof Error ? error.message : String(error);
+      const hint = '\nBefore replying to this App error, read guide_read apps-fork. For a missing feature or App bug, ask "Shall I fork a version?" before making changes or building a workaround. Environment problems need their own fix.';
+      return { ...text(message + hint), isError: true };
     }
   });
   await server.connect(transport);

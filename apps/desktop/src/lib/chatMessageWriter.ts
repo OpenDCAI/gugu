@@ -1,12 +1,10 @@
 import { messageItemFromRow, type RawMessageRow } from '@gugu/core/cloud/messageItem'
 import type { MessageItem } from '@gugu/core/shared/types/chat'
 import { chatDb } from './supabase'
-import { i18n } from '@/i18n'
-import { toUserFacingError } from './userFacingError'
+import { rendererLogger } from './log'
+import { loadMessageOverlays } from './chatMessageRevalidation'
 
-// @@@4891 发消息失败会经 InputArea 的 composer.sendFailed 原样弹给用户 ⇒ 这里抛出的
-// message 就是用户读到的那句。开发者要的细节(RPC 名、漂掉的行结构)一律走 cause。
-const sendFailed = (): string => i18n.t('errors.operationFailed', { ns: 'common' })
+const writerLog = rendererLogger('chat/message-writer')
 
 export interface IdempotentChatMessageInput {
   id: string
@@ -44,20 +42,18 @@ export async function writeIdempotentChatMessage(
     p_is_thread_root: input.isThreadRoot,
     p_is_whisper: input.isWhisper,
   } as never)
-  if (error) throw toUserFacingError(error, sendFailed())
+  if (error) throw new Error(error.message, { cause: error })
   const rows = Array.isArray(data) ? data : [data]
   const message = rows.length === 1 && rows[0] && typeof rows[0] === 'object'
     ? messageItemFromRow(rows[0] as RawMessageRow, input.senderUserId)
     : null
-  if (!message) {
-    // @@@4891 原来把整条 RPC 返回值 JSON.stringify 进 message —— 而这条 message 会经
-    // InputArea 的 composer.sendFailed 原样弹给用户,等于把 RPC 名和原始行结构一起给出去
-    // (审计里唯一一处泄的是**结构化数据**而不是一句文本)。fail-loud 照旧(仍然抛),
-    // 诊断信息一条没少(进 cause),变的只是「给用户看哪一句」。
-    throw toUserFacingError(
-      new Error('send_message_idempotent returned an unexpected row shape', { cause: { data } }),
-      sendFailed(),
-    )
+  if (!message) throw new Error('send_message_idempotent returned an unexpected row shape', { cause: { data } })
+  Object.assign(message, (await loadMessageOverlays([message.id], input.senderUserId)).get(message.id))
+  // gugu-dev#181 ⑨ a reply to an agent's question card is its answer (questionCardAnswer.ts). The reply is sent either way;
+  // an answer that does not land leaves the card waiting, where the owner sees it.
+  if (message.reply_to_message_id) {
+    void import('./questionCardAnswer').then(({ answerIfQuestionReply }) => answerIfQuestionReply(message, input.senderUserId))
+      .catch((cause: unknown) => writerLog.error({ messageId: message.id, error: cause instanceof Error ? cause.message : String(cause) }, 'question card answer failed'))
   }
   return message
 }

@@ -164,6 +164,8 @@ describe('task host WebSocket transport (server ↔ browser client)', () => {
     const arrived = facts();
     server.hostIpc.ipcMain.on('renderer.ping', (event, data) => {
       received.push([event.sender.id, data]);
+      // This message follows sub on the same WebSocket, so the host has applied it before broadcasting.
+      server.hostIpc.broadcast('agents.changed', { n: 2 });
       arrived.notify();
     });
     const c = await connectedClient();
@@ -173,10 +175,9 @@ describe('task host WebSocket transport (server ↔ browser client)', () => {
       got.push(data);
       arrived.notify();
     });
-    server.hostIpc.broadcast('agents.changed', { n: 2 });
+    c.api.eventSend('renderer.ping', { hello: true });
     await arrived.when(() => got.length > 0);
     expect(got).toEqual([{ n: 2 }]);
-    c.api.eventSend('renderer.ping', { hello: true });
     await arrived.when(() => received.length > 0);
     expect(received[0][1]).toEqual({ hello: true });
     expect(received[0][0]).toBeGreaterThanOrEqual(1_000_000);

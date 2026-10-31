@@ -1,3 +1,4 @@
+import { agentSteersActiveAcpTurn } from '@shared/core/agents/agent-payload';
 import type { ProviderPermissionModeMap } from '@gugu/session-core/acp/client';
 import type { LiveSettingCapability } from '@gugu/session-core/agents/plugins';
 import type { SessionpageSessionOptions } from '@gugu/session-core/session-record/contract';
@@ -13,6 +14,7 @@ import { log } from '@main/lib/logger';
  * ❌ 宿主不替它排菜单、不判能不能热切 —— 那是第二份判据。
  */
 export type SessionModelMenu = {
+  steers?: boolean;
   /** 这条会话记下的计费路决定(`sessionPlatformModel`);缺席 = 没做过这个决定。 */
   conversationSelection?: { modelId: string } | null;
   /** 「你的 X 模型」的 X —— 与桌面同一个 agent 名。 */
@@ -57,6 +59,7 @@ export async function readSessionModelMenu(sessionId: string, providerId: string
   return {
     ...(selection !== undefined ? { conversationSelection: selection } : {}),
     agentName: agent?.name ?? providerId,
+    steers: agentSteersActiveAcpTurn(agent?.capabilities),
     platformModels,
     ownCatalog,
     ownAuth,

@@ -6,14 +6,12 @@ import {
   pluginRegistry,
 } from '@gugu/session-plugins/agents';
 import { buildSessionTuiSessionBundle } from '../../../../../capability-bundle';
-import {
-  SESSION_FRESH_RECOVERY_GRACE_MS,
-  SessionPtySupervisor,
-} from '@main/core/sessions/session-pty-supervisor';
+import { SessionPtySupervisor } from '@main/core/sessions/session-pty-supervisor';
 import type { Pty, PtyExitInfo } from '@main/core/pty/pty';
 import { ptySessionRegistry } from '@main/core/pty/pty-session-registry';
 import type { Session } from '@shared/core/sessions/sessions';
 import { ptyExitChannel } from '@shared/core/pty/ptyEvents';
+import { sessionDeliveryFailedChannel } from '@shared/core/sessions/sessionEvents';
 import { makePtySessionId } from '@shared/core/pty/ptySessionId';
 import {
   setLocalSessionDeliveryBridge,
@@ -95,6 +93,7 @@ vi.mock('@main/core/agent-status/agent-status-writer', () => ({
 }));
 
 vi.mock('@main/core/agent-hooks/agent-hook-service', () => ({
+  providerSupportsNativeStartHook: vi.fn(() => false),
   agentHookService: {
     emitAgentEvent: vi.fn(),
     getPort: vi.fn(() => 0),
@@ -560,7 +559,7 @@ describe('conversation provider respawn state', () => {
     const provider = localProvider();
     const item = session({ id: 'droid-conversation', providerId: 'droid' });
 
-    const starting = provider.startSession(item, undefined, true);
+    const starting = provider.startSession(item);
     // 第一代已经 spawn、正在等 roster 身份:这时让它的 PTY 退出。
     await rosterAsked.promise;
     firstExitHandlers[0]?.({ exitCode: 0 });
@@ -817,55 +816,44 @@ describe('conversation provider respawn state', () => {
     );
   });
 
-  it('stops local recovery when a fresh fallback exits before the startup grace period', async () => {
+  it('stops after a resumed process exits normally without creating a fresh thread', async () => {
     vi.useFakeTimers();
     try {
-      const exitHandlers: Array<Array<(info: PtyExitInfo) => void>> = [];
-      spawnLocalPty.mockImplementation(() => {
-        const handlers: Array<(info: PtyExitInfo) => void> = [];
-        exitHandlers.push(handlers);
-        return fakePty(handlers);
-      });
+      const exitHandlers: Array<(info: PtyExitInfo) => void> = [];
+      spawnLocalPty.mockReturnValue(fakePty(exitHandlers));
       const provider = localProvider();
       const item = session();
 
       await provider.startSession(item, undefined, true);
-      for (const handler of exitHandlers[0] ?? []) handler({ exitCode: 0 });
-      await vi.advanceTimersByTimeAsync(500);
-      for (const handler of exitHandlers[1] ?? []) handler({ exitCode: 0 });
-      await vi.advanceTimersByTimeAsync(500);
+      for (const handler of exitHandlers) handler({ exitCode: 0 });
+      await vi.advanceTimersByTimeAsync(10_000);
 
-      // #6380:状态落定在进程内直接调写入者;会话页渲染层随写入者的输出更新。
-      expect(agentStatusWriter.settleSessionExited).toHaveBeenCalledWith({
-        sessionId: item.id,
-      });
+      expect(spawnLocalPty).toHaveBeenCalledTimes(1);
+      expect(agentStatusWriter.settleSessionExited).toHaveBeenCalledWith({ sessionId: item.id });
+      expect(agentHookService.emitAgentEvent).not.toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'error' }), expect.any(Boolean),
+      );
     } finally {
       vi.useRealTimers();
     }
   });
 
-  it('starts a new local recovery cycle after fresh fallback survives the startup grace period', async () => {
+  it('allows an explicit retry of the same thread after resume fails', async () => {
     vi.useFakeTimers();
     try {
-      const exitHandlers: Array<Array<(info: PtyExitInfo) => void>> = [];
-      spawnLocalPty.mockImplementation(() => {
-        const handlers: Array<(info: PtyExitInfo) => void> = [];
-        exitHandlers.push(handlers);
-        return fakePty(handlers);
-      });
+      const exitHandlers: Array<(info: PtyExitInfo) => void> = [];
+      spawnLocalPty.mockReturnValue(fakePty(exitHandlers));
       const provider = localProvider();
       const item = session();
 
       await provider.startSession(item, undefined, true);
-      for (const handler of exitHandlers[0] ?? []) handler({ exitCode: 0 });
-      await vi.advanceTimersByTimeAsync(500);
-      await vi.advanceTimersByTimeAsync(SESSION_FRESH_RECOVERY_GRACE_MS);
-      for (const handler of exitHandlers[1] ?? []) handler({ exitCode: 0 });
-      await vi.advanceTimersByTimeAsync(500);
+      for (const handler of [...exitHandlers]) handler({ exitCode: 1 });
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(spawnLocalPty).toHaveBeenCalledTimes(1);
 
-      expect(buildCommandMock).toHaveBeenLastCalledWith(
-        expect.objectContaining({ isResuming: true })
-      );
+      await provider.startSession(item, undefined, true);
+      expect(buildCommandMock.mock.calls.map(([args]) => [args.isResuming, args.providerSessionId]))
+        .toEqual([[true, item.providerSessionId], [true, item.providerSessionId]]);
     } finally {
       vi.useRealTimers();
     }
@@ -1158,7 +1146,7 @@ describe('conversation provider respawn state', () => {
     );
   });
 
-  it('starts a local conversation fresh after one resume replacement exits', async () => {
+  it('retains the original thread when its one resume replacement exits', async () => {
     vi.useFakeTimers();
     try {
       const exitHandlers: Array<Array<(info: PtyExitInfo) => void>> = [];
@@ -1180,14 +1168,14 @@ describe('conversation provider respawn state', () => {
       expect(buildCommandMock.mock.calls.map(([args]) => args.isResuming)).toEqual([
         false,
         true,
-        false,
       ]);
+      expect(setProviderSessionIdMock).not.toHaveBeenCalled();
     } finally {
       vi.useRealTimers();
     }
   });
 
-  it('surfaces a local startup failure after recovery exits non-zero', async () => {
+  it('reports the Codex 56 original thread and a next step when resume exits non-zero', async () => {
     vi.useFakeTimers();
     try {
       const exitHandlers: Array<Array<(info: PtyExitInfo) => void>> = [];
@@ -1199,7 +1187,11 @@ describe('conversation provider respawn state', () => {
       const teardown = vi.fn(async () => undefined);
       setEmdashPtySessionpageTeardown(teardown);
       const provider = localProvider();
-      const item = session();
+      const item = session({
+        id: 'e4e6af3a-9314-430f-a290-a0d4abbd9c02',
+        providerId: 'codex',
+        providerSessionId: '01a15d37-1674-7061-b298-37b108e1e970',
+      });
       vi.mocked(agentHookService.emitAgentEvent).mockClear();
 
       await provider.startSession(item);
@@ -1207,16 +1199,24 @@ describe('conversation provider respawn state', () => {
         for (const handler of exitHandlers[index] ?? []) handler({ exitCode: 1 });
         await vi.advanceTimersByTimeAsync(500);
       }
-      vi.mocked(events.emit).mockClear();
-      for (const handler of exitHandlers[2] ?? []) handler({ exitCode: 1 });
-      await vi.advanceTimersByTimeAsync(500);
 
+      expect(spawnLocalPty).toHaveBeenCalledTimes(2);
+      expect(item.providerSessionId).toBe('01a15d37-1674-7061-b298-37b108e1e970');
+      expect(setProviderSessionIdMock).not.toHaveBeenCalled();
       expect(teardown).toHaveBeenCalledWith(item.id);
+      expect(events.emit).toHaveBeenCalledWith(sessionDeliveryFailedChannel, {
+        sessionId: item.id,
+        projectId: item.projectId,
+        message: `Agent session failed to resume thread ${item.providerSessionId} (exit code 1).`
+          + ' Retry restoring this task; if the original thread was deleted, start a new task.',
+      });
+      expect(vi.mocked(events.emit).mock.calls.filter(([channel]) => channel === sessionDeliveryFailedChannel)).toHaveLength(1);
       expect(agentHookService.emitAgentEvent).toHaveBeenCalledWith(
         expect.objectContaining({
           type: 'error',
           sessionId: item.id,
-          payload: { message: 'Agent session failed during startup (exit code 1).' },
+          payload: { message: `Agent session failed to resume thread ${item.providerSessionId} (exit code 1).`
+            + ' Retry restoring this task; if the original thread was deleted, start a new task.' },
         }),
         expect.any(Boolean)
       );
@@ -1225,7 +1225,7 @@ describe('conversation provider respawn state', () => {
     }
   });
 
-  it('does not replace a local tmux attachment after it exits while tmux still runs the engine', async () => {
+  it.each([false, true])('does not fail or replace a tmux attachment while its engine lives (resume=%s)', async (isResuming) => {
     vi.useFakeTimers();
     try {
       const exitHandlers: Array<(info: PtyExitInfo) => void> = [];
@@ -1243,20 +1243,25 @@ describe('conversation provider respawn state', () => {
       };
       const provider = localProvider({ tmux: true, ctx: ctx as never });
 
-      await provider.startSession(item);
+      await provider.startSession(item, undefined, isResuming);
       engineRunning = true;
       vi.mocked(events.emit).mockClear();
-      for (const handler of exitHandlers) handler({ exitCode: 0 });
+      for (const handler of exitHandlers) handler({ exitCode: 1 });
       await vi.advanceTimersByTimeAsync(500);
 
       // tmux 里的进程还活着(退出的只是 attach 的那个 client)⇒ 不落 idle(#6380)。
       expect(agentStatusWriter.settleSessionExited).not.toHaveBeenCalled();
+      expect(events.emit).not.toHaveBeenCalledWith(sessionDeliveryFailedChannel, expect.anything());
+      expect(agentHookService.emitAgentEvent).not.toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'error' }), expect.any(Boolean),
+      );
+      expect(spawnLocalPty).toHaveBeenCalledTimes(1);
     } finally {
       vi.useRealTimers();
     }
   });
 
-  it('settles a tmux session whose engine is gone when its attach exits (killed, crashed, exited)', async () => {
+  it.each([false, true])('settles or reports failure after tmux confirms the engine is gone (resume=%s)', async (isResuming) => {
     vi.useFakeTimers();
     try {
       const exitHandlers: Array<(info: PtyExitInfo) => void> = [];
@@ -1265,13 +1270,19 @@ describe('conversation provider respawn state', () => {
       const provider = localProvider({ tmux: true, ctx: ctx as never });
       const item = session();
 
-      await provider.startSession(item);
-      for (const handler of exitHandlers) handler({ exitCode: 0 });
+      await provider.startSession(item, undefined, isResuming);
+      for (const handler of exitHandlers) handler({ exitCode: 1 });
       await vi.advanceTimersByTimeAsync(500);
 
       // 退出之后问了 tmux(起的时候一次、退出时一次;之后可能还有替身那一发),tmux 里已经没有它 ⇒ 与不在 tmux 里的退出同一段:落 idle
       expect(ctx.exec.mock.calls.filter(([, args]) => (args as string[]).includes('list-sessions')).length).toBeGreaterThanOrEqual(2);
-      expect(agentStatusWriter.settleSessionExited).toHaveBeenCalledWith({ sessionId: item.id });
+      if (isResuming) {
+        expect(agentHookService.emitAgentEvent).toHaveBeenCalledWith(
+          expect.objectContaining({ type: 'error', sessionId: item.id }), expect.any(Boolean),
+        );
+      } else {
+        expect(agentStatusWriter.settleSessionExited).toHaveBeenCalledWith({ sessionId: item.id });
+      }
     } finally {
       vi.useRealTimers();
     }

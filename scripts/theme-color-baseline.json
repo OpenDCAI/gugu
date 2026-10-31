@@ -1,0 +1,12 @@
+[
+  {
+    "rule": "hard-coded-color",
+    "file": "apps/desktop/src/session/app-runtime/ui/ui.css",
+    "count": 1
+  },
+  {
+    "rule": "hard-coded-color",
+    "file": "packages/session-ui/src/styles/recipes/popup-surface.css.ts",
+    "count": 1
+  }
+]

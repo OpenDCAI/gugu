@@ -112,7 +112,7 @@ export function WidgetDiscover({ name, askInChat, onClose, layout }: { name: str
           }}
           data-testid="assistant-discover-input"
         />
-        <p className="ta-tile-sub ta-pad">{picked ? t('today.discover.startingPoint') : t('today.discover.hint', { name })}</p>
+        {picked ? <p className="ta-tile-sub ta-pad">{t('today.discover.startingPoint')}</p> : null}
         <button type="button" className="ta-wide-btn" data-tone="primary" onClick={add} disabled={!want.trim()} data-testid="assistant-discover-add">
           {t('today.addWidget')}
         </button>

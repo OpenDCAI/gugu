@@ -15,10 +15,11 @@ import { canStartSideSession, startSideSession } from '@renderer/features/sessio
 import { useArrowKeyNavigation } from '@renderer/lib/hooks/use-arrow-key-navigation';
 import { BoundShortcut } from '@renderer/lib/ui/shortcut';
 import { cn } from '@renderer/utils/utils';
-import type { ShortcutSettingsKey } from '@shared/shortcuts';
+import type { CommandId } from '@shared/commands';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
 import { useAgents } from '@renderer/lib/stores/use-agents';
 import { workspaceBackend } from './workspace-backend/workspace-backend';
+import { useTerminalEnabled } from '@renderer/features/settings/use-terminal-enabled';
 import { remoteHostsStore } from '@renderer/features/remote-hosts/remote-hosts-store';
 import { directToolsUnavailableText } from '@renderer/features/remote-hosts/workspace/remote-workspace-routing';
 
@@ -51,13 +52,14 @@ export function useSessionWorkspaceActions(
   // ❌ 不是点了没反应 —— 远程项目没有本地 ACP runtime，未声明 fork 的 provider 也不能冒充。
   const { data: agents } = useAgents();
   const canSideSession = canStartSideSession(projectId, sessionId, agents);
+  const terminalEnabled = useTerminalEnabled();
 
   const actions: Record<SessionWorkspaceActionId, WorkspacePanelAction> = {
     'side-session': {
       id: 'side-session',
       label: translate('workspace.sideTask'),
       icon: <GitFork className="size-3.5" />,
-      shortcutSettingsKey: 'sideSession',
+      shortcutSettingsKey: 'session.sideSession',
       disabled: !canSideSession,
       title: canSideSession ? undefined : translate('workspace.sideTaskUnavailable'),
       onClick: () => startSideSession(projectId, sessionId)
@@ -90,7 +92,6 @@ export function useSessionWorkspaceActions(
       id: 'files',
       label: translate('workspace.files'),
       icon: <FileText className="size-3.5" />,
-      shortcutSettingsKey: 'openFile',
       onClick: () => sessionView.paneLayout.open('file-browser', {}, { preview: false })
     }
   };
@@ -110,7 +111,7 @@ export function useSessionWorkspaceActions(
   );
 
   return [
-    ...getSessionWorkspaceActionOrder(projectId).map((actionId) =>
+    ...getSessionWorkspaceActionOrder(projectId, terminalEnabled).map((actionId) =>
       sessionWorkspaceActionBlocked(projectId, actionId)
         ? { ...actions[actionId], disabled: true, title: workspaceBlockedTitle(sessionWorkspaceActionBlocked(projectId, actionId), translate, projectId) }
         : actions[actionId]
@@ -126,8 +127,9 @@ export type SessionWorkspaceActionId = 'side-session' | 'review' | 'terminal' | 
  * (本机的端口本来就在这台电脑上,本机会话没有这一格)。只经咕咕云连着的机器用不了的格
  * 由 sessionWorkspaceActionBlocked 灰掉说原因,❌ 从清单里删。
  */
-export function getSessionWorkspaceActionOrder(projectId?: string): SessionWorkspaceActionId[] {
-  const base = localSessionWorkspaceActionOrder();
+export function getSessionWorkspaceActionOrder(projectId?: string, terminalEnabled = true): SessionWorkspaceActionId[] {
+  // 「终端」开关关着:这一格整个不出现(❌ 灰着说原因 —— 普通用户不需要知道有终端;开关在设置 → 通用)。
+  const base = localSessionWorkspaceActionOrder().filter((id) => terminalEnabled || id !== 'terminal');
   const backend = projectId ? workspaceBackend(projectId) : null;
   if (!backend || backend.machine.kind === 'local') return base;
   // 「端口」照 VS Code 放在浏览器旁边:只在别的机器上才有意义(本机的端口本来就在这台电脑上)。
@@ -197,7 +199,7 @@ export interface WorkspacePanelAction {
   label: string;
   icon: ReactNode;
   section?: WorkspacePanelSection;
-  shortcutSettingsKey?: ShortcutSettingsKey;
+  shortcutSettingsKey?: CommandId;
   disabled?: boolean;
   title?: string;
   onClick: () => void;
@@ -314,7 +316,7 @@ export function PaneEmptyStateAction({
 }: {
   icon: ReactNode;
   label: string;
-  shortcutSettingsKey?: ShortcutSettingsKey;
+  shortcutSettingsKey?: CommandId;
   isSelected?: boolean;
   disabled?: boolean;
   title?: string;
@@ -340,7 +342,7 @@ export function PaneEmptyStateAction({
         {icon}
         {label}
       </div>
-      {shortcutSettingsKey && <BoundShortcut settingsKey={shortcutSettingsKey} variant="keycaps" />}
+      {shortcutSettingsKey && <BoundShortcut commandId={shortcutSettingsKey} variant="keycaps" />}
     </button>
   );
 }

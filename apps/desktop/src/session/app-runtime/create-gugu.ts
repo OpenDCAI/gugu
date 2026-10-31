@@ -1,6 +1,11 @@
 import { folderOf, placeKey, placeOf, type AppPlace } from '@shared/extensions/app-runtime-protocol';
+import { DISPATCH_GONE } from '@shared/extensions/app-dispatch-core';
 import { BRIDGE_VERBS, type ExtensionFileChangeBatch } from '@shared/extensions/bridge-protocol';
 import { coded, guguError, refOf, type GuguHost } from './host';
+import { createModalApi } from './modal';
+import { countsOf } from './check-counts';
+import { projectionSources } from './projection-source';
+import { mountProjection } from './projection-view';
 
 /**
  * `gugu` itself, built on a host — the same object wherever an App runs (F16): a page (desktop webview or
@@ -34,35 +39,26 @@ export function createGugu(
   let editorLoading: Promise<CodemirrorModule['codemirror']> | null = null;
 
   /**
-   * `files.onChanged(place, fn)`: one watch per place with the host (`appFiles.watch`), however many handlers; the event
-   * says which place it is about. A watch the host refuses (no `files:read`, a session not here) is reported as the
+   * Each `files.onChanged(place, fn)` keeps its own host watch and caller, even at the same place. A watch the host
+   * refuses (no `files:read`, a session not here) is reported as the
    * App's error — the call itself cannot reject, it returns the unsubscribe.
    */
-  const watchers = new Map<string, Set<(change: ExtensionFileChangeBatch) => void>>();
+  const watchers = new Map<string, (change: ExtensionFileChangeBatch) => void>();
+  let nextWatch = 0;
   let hearing: (() => void) | null = null;
-  const watch = (place: AppPlace, on: boolean) =>
-    host.appFiles.watch({ place, on }).catch((error: unknown) => {
+  const watch = (watchId: string, place: AppPlace, on: boolean) =>
+    host.appFiles.watch({ watchId, place, on }).catch((error: unknown) => {
       if (on) void host.reportError(`gugu.files.onChanged(${placeKey(place)}): ${error instanceof Error ? error.message : String(error)}`).catch(() => undefined);
     });
   function onChanged(place: unknown, handler: (change: ExtensionFileChangeBatch) => void): () => void {
     const where = placeOf(place);
-    const key = placeKey(where);
+    const watchId = String(++nextWatch);
     if (typeof handler !== 'function') throw guguError('invalid', 'files.onChanged(place, fn) takes a function');
-    hearing ??= host.onFilesChanged((changed, change) => {
-      for (const fn of watchers.get(placeKey(changed)) ?? []) fn(change);
-    });
-    let handlers = watchers.get(key);
-    if (!handlers) {
-      handlers = new Set();
-      watchers.set(key, handlers);
-      void watch(where, true);
-    }
-    handlers.add(handler);
+    hearing ??= host.onFilesChanged((id, change) => watchers.get(id)?.(change));
+    watchers.set(watchId, handler);
+    const registered = watch(watchId, where, true);
     return () => {
-      const current = watchers.get(key);
-      if (!current?.delete(handler) || current.size > 0) return;
-      watchers.delete(key);
-      void watch(where, false);
+      if (watchers.delete(watchId)) void registered.then(() => watch(watchId, where, false));
     };
   }
 
@@ -81,19 +77,32 @@ export function createGugu(
     });
   // Every call names where its file is (真源原则 13): an entry or `ctx.file` carries it, a place says it.
   const files = Object.freeze({
-    open: (file: unknown, options?: { readOnly?: boolean }) => loadFiles().then((m) => m.openFile(host, file, options)),
+    open: (file: unknown, options?: { readOnly?: boolean; appData?: boolean }) => {
+      const counts = countsOf(host);
+      counts?.opened();
+      return withRef(file, (ref) => {
+        const entry = (file as { entry?: { version?: unknown }; version?: unknown } | null)?.entry ?? file as { version?: unknown } | null;
+        const requested = host.appFiles.open({ ref, ...(options?.appData === true ? { appData: true } : {}), ...(!host.program ? { deferDetails: true } : {}), ...(typeof entry?.version === 'number' ? { expectedVersion: entry.version } : {}), ...(options?.readOnly === true ? { readOnly: true } : {}) });
+        const opening = loadFiles().then((m) => m.openFile(host, requested));
+        // Observe a fast refusal even while the runtime is still loading.
+        return Promise.all([opening, requested]).then(([opened]) => opened);
+      }).finally(() => counts?.openSettled());
+    },
     list: (place: unknown) => loadFiles().then((m) => m.listEntries(host, place)),
     /** Across every chat the reader is in, needing `files:read`: by a piece of the path, newest first; what this person opened last. */
     search: (options?: unknown) => loadFiles().then((m) => m.searchEntries(host, options)),
     recent: (options?: unknown) => loadFiles().then((m) => m.recentEntries(host, options)),
-    create: (target: unknown, content: string | object, options?: { contentType?: string; sourceMessageIds?: string[] }) =>
+    create: (target: unknown, content: string | object, options?: { contentType?: string; sourceMessageIds?: string[]; appData?: boolean }) =>
       loadFiles().then((m) => m.createFile(host, target, content, options)),
     remove: (file: unknown) => loadFiles().then((m) => m.removeFile(host, file)),
     rename: (file: unknown, name: string) => loadFiles().then((m) => m.renameFile(host, file, name)),
+    /** 「设为临时 / 一直保留」: `'temporary'` clears its cloud copy after the uploader's period, from now; `'permanent'` keeps it. */
+    keep: (files: unknown, how: 'temporary' | 'permanent') => withRefs(files, (refs) => host.appFiles.keep({ refs, how })),
     /** 子文件夹: a chat's folder at `path` (made all the way down), and a file or folder moved into another (`''` the top). */
     mkdir: (target: unknown) => loadFiles().then((m) => m.makeFolder(host, target)),
     move: (file: unknown, to: unknown) => loadFiles().then((m) => m.moveFile(host, file, to)),
     onChanged,
+    viewPreferences: (place: unknown, options?: { showAppData?: boolean }) => withPlace(place, (where) => host.appFiles.viewPreferences({ place: where, ...options })),
     replace,
     /** G2 A chat file's kept versions, newest first; one's content: a text file's as text, a stored file's as a Blob. */
     versions: (file: unknown) => withRef(file, (ref) => host.appFiles.versions({ ref })),
@@ -106,7 +115,8 @@ export function createGugu(
     // are allowed only inside the person's gesture, checked on this very call. Bytes the caller has need none (G5).
     // A4 `{ sourceMessageIds }`: the messages the files came from, as an entry gives them back.
     // 子文件夹 `{ chat, folder }`: the folder they go in (its path or id, made all the way down); not given, the top.
-    upload: (place: unknown, file?: unknown, options?: { sourceMessageIds?: string[] }) =>
+    // `{ keep }` 临时 / 保留: how long a stored copy stays ('temporary' | 'permanent'); not given, the chat's rule.
+    upload: (place: unknown, file?: unknown, options?: { sourceMessageIds?: string[]; keep?: string }) =>
       withPlace(place, (where) => {
         // Checked as list and create check it (folderOf): what is not a folder's path, id or entry is `invalid`.
         let folder: string | undefined;
@@ -115,14 +125,15 @@ export function createGugu(
         } catch (error) {
           return Promise.reject(guguError('invalid', error instanceof Error ? error.message : String(error)));
         }
-        const into = folder === undefined ? {} : { folder };
+        const into = { ...(folder === undefined ? {} : { folder }), ...(options?.keep === undefined ? {} : { keep: options.keep }) };
         return file === undefined
           ? upload({ place: where, sourceMessageIds: options?.sourceMessageIds, ...into })
           : uploadsOf(file).then((uploads) => upload({ place: where, files: uploads, sourceMessageIds: options?.sourceMessageIds, ...into }));
       }),
     ...(download && openWith
       ? {
-          download: (file: unknown) => withRef(file, (ref) => download({ ref })),
+          // API 20: several files at once — one 「save to」 for them all (a folder on the desktop, the share sheet on the phone).
+          download: (files: unknown) => (Array.isArray(files) ? withRefs(files, (refs) => download({ refs })) : withRef(files, (ref) => download({ ref }))),
           // `{ ask: true }`: 「用别的 App 打开」 — every App that opens it, the person picks. `{ at }`: the place in it (a pill's).
           // `{ peek: true }`: beside this page, which stays as it is (G1).
           openWith: (file: unknown, options?: { ask?: boolean; at?: Record<string, string>; peek?: boolean }) =>
@@ -136,27 +147,34 @@ export function createGugu(
   // `files.onChanged`) are host halves.
   const api: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(raw)) {
-    if (['appFiles', 'chats', 'checkPage', 'clipboard', 'messages', 'forum', 'framed', 'program', 'projects', 'theme', 'onFilesChanged', 'onForumChanged'].includes(key)) continue;
+    if (['appFiles', 'chats', 'checkPage', 'clipboard', 'messages', 'forum', 'framed', 'program', 'projects', 'sessions', 'theme', 'onFilesChanged', 'onForumChanged', 'modal', 'onModalFocus', 'projection', 'onProjection', 'onProjectionSource'].includes(key)) continue;
     api[key] = typeof value === 'function' && verbs.has(key) ? coded(value as (...args: never[]) => unknown) : value;
   }
   api.files = files;
-  // `gugu.compose(text, { …, images })` (G3): Blobs become bytes here, the one shape every host carries.
-  if (typeof raw.compose === 'function') {
-    const compose = raw.compose as (text: unknown, where?: Record<string, unknown>) => Promise<void>;
-    api.compose = coded(async (text: unknown, where?: Record<string, unknown>) => {
-      const images = where?.images;
-      if (images === undefined) return compose(text, where);
-      if (!Array.isArray(images)) throw guguError('invalid', 'gugu.compose(text, { images }) takes a list of Blobs or Files');
+  if (host.program && host.projection && host.onProjectionSource) api.projection = projectionSources(host);
+  else if (host.projection && host.onProjection) api.projection = {
+    mount: (element: HTMLElement, id: string, options?: Parameters<typeof mountProjection>[3]) => mountProjection(host, element, id, options),
+  };
+  if (raw.modal) api.modal = createModalApi(raw);
+  // `gugu.dispatch(text, { …, images })` (G3): Blobs become bytes here, the one shape every host carries.
+  if (typeof raw.dispatch === 'function') {
+    const dispatch = raw.dispatch as (text: unknown, options?: Record<string, unknown>) => Promise<unknown>;
+    api.dispatch = coded(async (text: unknown, options?: Record<string, unknown>) => {
+      const images = options?.images;
+      if (images === undefined) return dispatch(text, options);
+      if (!Array.isArray(images)) throw guguError('invalid', 'gugu.dispatch(text, { images }) takes a list of Blobs or Files');
       const carried = await Promise.all(
         images.map(async (image: unknown) => {
-          if (!(image instanceof Blob)) throw guguError('invalid', 'gugu.compose(text, { images }) takes a list of Blobs or Files');
+          if (!(image instanceof Blob)) throw guguError('invalid', 'gugu.dispatch(text, { images }) takes a list of Blobs or Files');
           const name = (image as Blob & { name?: unknown }).name;
           return { name: typeof name === 'string' ? name : '', type: image.type, bytes: await image.arrayBuffer() };
         }),
       );
-      return compose(text, { ...where, images: carried });
+      return dispatch(text, { ...options, images: carried });
     });
   }
+  // The calls of before 15 say where they went, instead of being simply missing: an App written for 14 is told what to call.
+  for (const [gone, why] of Object.entries(DISPATCH_GONE)) api[gone] = () => Promise.reject(guguError('invalid', why));
   /**
    * Collaborative text in a JSON file (摩擦单 F8): `{ $text: initial }`, the form the file service builds a Y.Text from
    * (an agent writes the same in its data). Read back it is a plain string; `f.textAt(path)` edits it letter by letter.
@@ -165,18 +183,13 @@ export function createGugu(
     if (typeof initial !== 'string') throw guguError('invalid', 'gugu.text takes the text to start with, a string');
     return Object.freeze({ $text: initial });
   };
-  // `gugu.send(to, text, { chat } | { refs })` (F16): a whisper in the chat the call names, the host's `send` underneath.
-  // `where` goes as the App wrote it: the host says what it does not take (`about`, gone 10-14), not this layer by dropping it.
-  if (typeof raw.send === 'function') {
-    const send = coded(raw.send as (args: Record<string, unknown>) => Promise<unknown>);
-    api.send = (to: string, text: string, where?: Record<string, unknown>) => send({ ...where, to, text });
-  }
   if (load.codemirror) {
     const loadCodemirror = load.codemirror;
     api.bind = Object.freeze({
       codemirror(view: unknown, file: unknown) {
         if (!editor) throw guguError('invalid', 'Load the editor with await gugu.codemirror() and build the view from it first');
-        return editor.bindCodemirror(view, file);
+        // A picture pasted or dropped in goes in through this page's own upload (its grants, its gesture rules).
+        return editor.bindCodemirror(view, file, { upload: files.upload, reportError: host.reportError });
       },
       /** A text file on a `<textarea>` / `<input>`, or on a view the App draws (摩擦单 F59): `text-binding.ts`. */
       text(view: unknown, file: unknown) {
@@ -198,6 +211,7 @@ export function createGugu(
   if (raw.chats) api.chats = Object.freeze({ list: coded(raw.chats.list), members: coded(raw.chats.members) });
   // `gugu.projects` (`files:read`): this computer's projects — a phone has none, and no member.
   if (raw.projects) api.projects = Object.freeze({ list: coded(raw.projects.list) });
+  if (raw.sessions) api.sessions = Object.freeze({ index: coded(raw.sessions.index), read: coded(raw.sessions.read) });
   // `gugu.forum` (9): a page's. `onChanged(target, fn)`: one subscription per post (or 'feed') with the host, however many
   // handlers, as `files.onChanged` watches a place; one the host refuses is reported as the App's error.
   if (raw.forum && raw.onForumChanged) {
@@ -242,6 +256,18 @@ export function createGugu(
 }
 
 /** `refOf` throws on what is not a file; a verb answers that as a rejection, like every other. */
+/** One file or several (API 20: files.keep, files.download): each a ref, as withRef reads one; none is `invalid`. */
+function withRefs<T>(files: unknown, run: (refs: ReturnType<typeof refOf>[]) => Promise<T>): Promise<T> {
+  let refs: ReturnType<typeof refOf>[];
+  try {
+    refs = (Array.isArray(files) ? files : [files]).map((file) => refOf(file));
+  } catch (error) {
+    return Promise.reject(error);
+  }
+  if (refs.length === 0) return Promise.reject(Object.assign(new Error('Give one file or more'), { code: 'invalid' }));
+  return run(refs);
+}
+
 function withRef<T>(file: unknown, run: (ref: ReturnType<typeof refOf>) => Promise<T>): Promise<T> {
   let ref: ReturnType<typeof refOf>;
   try {

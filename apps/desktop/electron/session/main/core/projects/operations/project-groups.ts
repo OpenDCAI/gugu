@@ -1,4 +1,6 @@
 import { err, ok, type Result } from '@gugu/session-shared';
+import { randomUUID } from 'node:crypto';
+import { activitySignal } from '../../activity/signals';
 import { and, asc, eq, isNull } from 'drizzle-orm';
 import { db } from '@main/db/client';
 import { sessions } from '@main/db/schema';
@@ -34,9 +36,14 @@ async function subjectOf(projectId: string): Promise<ProjectGroupSubject | null>
   return { projectId: project.id, projectName: project.name, sessionIds: rows.map((row) => row.id) };
 }
 
-/** 这台机器、当前账号:每个还在的本地项目绑的群。项目没了的那些对照不报(回收器会收)。 */
+/**
+ * 这台机器、当前账号:每个还在的本地项目绑的群。项目没了的那些对照不报(回收器会收)。
+ * workspace(#609)不是项目,它从前绑的群不报 —— 那个群就是一个普通群,照常列在「聊天」里(owner 10-28 ②)。
+ */
 export async function listProjectGroupBindings(): Promise<Result<ProjectGroupBinding[], ProjectGroupError>> {
-  const projectIds = (await getProjects({ includeHidden: true })).map((project) => project.id);
+  const projectIds = (await getProjects({ includeHidden: true }))
+    .filter((project) => project.kind !== 'workspace')
+    .map((project) => project.id);
   return projectGroupHost().listBindings(projectIds);
 }
 
@@ -51,7 +58,11 @@ export async function ensureProjectGroup(
   if (!subject) return err(projectNotFound(projectId));
   const result = await projectGroupHost().ensureGroup(subject);
   if (!result.success) return result;
-  if (result.data.changed) notifyProjectGroupBindingChanged(projectId);
+  if (result.data.changed) {
+    activitySignal({ event_id: randomUUID(), kind: 'project.group_bound', object_id: projectId,
+      related_object_id: result.data.chatId, occurred_at: Date.now() });
+    notifyProjectGroupBindingChanged(projectId);
+  }
   return ok({ chatId: result.data.chatId });
 }
 
@@ -68,7 +79,11 @@ export async function bindProjectToGroup(
   if (!subject) return err(projectNotFound(projectId));
   const result = await projectGroupHost().bindToGroup(subject, chatId, expectedChatId);
   if (!result.success) return result;
-  if (result.data.changed) notifyProjectGroupBindingChanged(projectId);
+  if (result.data.changed) {
+    activitySignal({ event_id: randomUUID(), kind: 'project.group_bound', object_id: projectId,
+      related_object_id: chatId, occurred_at: Date.now() });
+    notifyProjectGroupBindingChanged(projectId);
+  }
   return ok({ movedAgents: result.data.movedAgents, previousChatId: result.data.previousChatId });
 }
 
@@ -78,7 +93,10 @@ export async function unbindProjectGroup(projectId: string): Promise<Result<void
   if (!subject) return err(projectNotFound(projectId));
   const result = await projectGroupHost().unbind(subject);
   if (!result.success) return result;
-  if (result.data.changed) notifyProjectGroupBindingChanged(projectId);
+  if (result.data.changed) {
+    activitySignal({ event_id: randomUUID(), kind: 'project.group_unbound', object_id: projectId, occurred_at: Date.now() });
+    notifyProjectGroupBindingChanged(projectId);
+  }
   return ok();
 }
 
@@ -88,7 +106,10 @@ export async function unbindProjectGroupForAgent(projectId: string): Promise<Res
   if (!subject) return err(projectNotFound(projectId));
   const result = await projectGroupHost().unbind(subject);
   if (!result.success) return result;
-  if (result.data.changed) notifyProjectGroupBindingChanged(projectId);
+  if (result.data.changed) {
+    activitySignal({ event_id: randomUUID(), kind: 'project.group_unbound', object_id: projectId, occurred_at: Date.now() });
+    notifyProjectGroupBindingChanged(projectId);
+  }
   if (result.data.expectedChatId === undefined) throw new Error('Project group host did not return the unlink checkpoint');
   return ok({ expectedChatId: result.data.expectedChatId });
 }

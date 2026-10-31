@@ -25,6 +25,7 @@ const mocks = vi.hoisted(() => ({
   remoteListDirectories: vi.fn(),
   remoteImport: vi.fn(),
   syncProjects: vi.fn(),
+  openLink: vi.fn(async () => true),
 }));
 // #6956 推到渲染层的事件:按机器分(与真 onMachineEvent 同一个判据,null = 本机),用例自己当主进程往里发。
 const bus = vi.hoisted(() => ({
@@ -107,6 +108,8 @@ vi.mock('@renderer/features/remote-hosts/machine-picker', () => ({
     </div>
   ),
 }));
+// A session opens the one way every session is opened (openLink); what it hands over is read here.
+vi.mock('@/lib/guguLinks', () => ({ openLink: mocks.openLink }));
 vi.mock('@renderer/lib/layout/navigation-provider', () => ({
   useNavigate: () => ({ navigate: mocks.navigate }),
 }));
@@ -118,6 +121,10 @@ vi.mock('@renderer/features/sessions/restore-session-flow', () => ({
 }));
 vi.mock('@renderer/features/projects/stores/project-selectors', () => ({
   getProjectManagerStore: () => ({ ensureProjectLoaded: mocks.ensureProjectLoaded }),
+}));
+// Sidebar controls belong to the workspace shell, outside this history panel's IPC fixture.
+vi.mock('@renderer/features/sidebar/sidebar-list-switch', () => ({
+  SidebarListLayoutButton: () => null,
 }));
 // 节头的 agent 图标:真 AgentIcon 会把 agent store / 导航那整张图拉进来,这里只判「画了几个、id 对不对」。
 vi.mock('@renderer/lib/components/agent-icon', () => ({
@@ -642,9 +649,8 @@ describe('会话历史(按目录分节)核心合同', () => {
     await vi.waitFor(() => expect(screen.getByTestId('session-history-action').all()).toHaveLength(4));
     (screen.getByTestId('session-history-action').nth(1).element() as HTMLElement).click();
     await vi.waitFor(() =>
-      expect(mocks.navigate).toHaveBeenCalledWith('session', { projectId: 'p1', sessionId: 'alpha' })
+      expect(mocks.openLink).toHaveBeenCalledWith({ kind: 'session', sessionId: 'alpha', projectId: 'p1' })
     );
-    expect(mocks.openSession).toHaveBeenCalledWith(expect.objectContaining({ sessionId: 'alpha' }));
   });
 
   it('未导入的行:方向键 + 回车导入光标那条', async () => {
@@ -666,7 +672,7 @@ describe('会话历史(按目录分节)核心合同', () => {
     await vi.waitFor(() =>
       expect(mocks.importLocalSession).toHaveBeenCalledWith(expect.objectContaining({ providerSessionId: 'codex-1', engine: 'codex' }))
     );
-    await vi.waitFor(() => expect(mocks.navigate).toHaveBeenCalledWith('session', { projectId: 'p1', sessionId: 'c1' }));
+    await vi.waitFor(() => expect(mocks.openLink).toHaveBeenCalledWith({ kind: 'session', sessionId: 'c1', projectId: 'p1' }));
 
   });
 
@@ -701,8 +707,8 @@ describe('会话历史(按目录分节)核心合同', () => {
       expect(mocks.remoteImport).toHaveBeenCalledWith('dev-d22', expect.objectContaining({ providerSessionId: 'remote-1' }))
     );
     expect(mocks.importLocalSession).not.toHaveBeenCalled();
-    await vi.waitFor(() => expect(mocks.navigate).toHaveBeenCalledWith('session', { projectId: 'rp', sessionId: 'rc' }));
-    expect(mocks.syncProjects).toHaveBeenCalledWith('dev-d22');
+    // With its machine: the one way mounts d22's projects before the task opens (remote-hosts-store.reachProject).
+    await vi.waitFor(() => expect(mocks.openLink).toHaveBeenCalledWith({ kind: 'session', sessionId: 'rc', projectId: 'rp', deviceId: 'dev-d22' }));
   });
 
   it('#6264 只经远程隧道连着的机器:导入的会话进「通用」(那种机器没有终端)', async () => {

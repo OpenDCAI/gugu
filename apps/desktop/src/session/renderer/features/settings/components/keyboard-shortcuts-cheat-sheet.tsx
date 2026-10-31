@@ -1,9 +1,9 @@
 import React, { useState, useMemo } from 'react';
 import { useAppSettingsKey } from '@renderer/features/settings/use-app-settings-key';
 import {
-  APP_SHORTCUTS,
+  COMMANDS,
   getEffectiveHotkey,
-  type ShortcutSettingsKey,
+  type CommandId,
 } from '@renderer/lib/hooks/useKeyboardShortcuts';
 import { type BaseModalProps } from '@renderer/lib/modal/modal-provider';
 import { Shortcut } from '@renderer/lib/ui/shortcut';
@@ -14,7 +14,7 @@ import { cn } from '@renderer/utils/utils';
 // Types & Constants
 // ---------------------------------------------------------------------------
 
-type ShortcutEntry = [ShortcutSettingsKey, (typeof APP_SHORTCUTS)[ShortcutSettingsKey]];
+type ShortcutEntry = [CommandId, (typeof COMMANDS)[CommandId]];
 
 const NAV_CATEGORY  = 'Navigation'     as const;
 const VIEW_CATEGORY = 'View'           as const;
@@ -82,7 +82,7 @@ function parseHotkeyToKeys(hotkey: string): Set<string> {
 // ---------------------------------------------------------------------------
 
 const CONFIGURABLE_SHORTCUTS: ShortcutEntry[] = (
-  Object.entries(APP_SHORTCUTS) as ShortcutEntry[]
+  Object.entries(COMMANDS) as ShortcutEntry[]
 ).filter(([, def]) => !def.hideFromSettings);
 
 function getCategoryEntries(cat: string, query: string): ShortcutEntry[] {
@@ -311,11 +311,11 @@ MacKeyboard.displayName = 'MacKeyboard';
 // ---------------------------------------------------------------------------
 
 interface ShortcutRowProps {
-  shortcutKey: ShortcutSettingsKey;
+  shortcutKey: CommandId;
   label: string;
   hotkey: string;
   isActive: boolean;
-  onActivate: (key: ShortcutSettingsKey | null) => void;
+  onActivate: (key: CommandId | null) => void;
 }
 
 const ShortcutRow: React.FC<ShortcutRowProps> = ({
@@ -349,13 +349,13 @@ const ShortcutRow: React.FC<ShortcutRowProps> = ({
 // ---------------------------------------------------------------------------
 
 interface CategorySectionProps {
-  /** @@@lookup value — APP_SHORTCUTS 的 category 是数据键,展示用 categoryLabel。 */
+  /** @@@lookup value — COMMANDS 的 category 是数据键,展示用 categoryLabel。 */
   category: string;
   categoryLabel: string;
   entries: ShortcutEntry[];
   keyboard: Record<string, string | null> | undefined;
-  activeShortcut: ShortcutSettingsKey | null;
-  onActivate: (key: ShortcutSettingsKey | null) => void;
+  activeShortcut: CommandId | null;
+  onActivate: (key: CommandId | null) => void;
 }
 
 const CategorySection: React.FC<CategorySectionProps> = ({
@@ -405,8 +405,8 @@ const CategorySection: React.FC<CategorySectionProps> = ({
 interface TabNavSectionProps {
   entries: ShortcutEntry[];
   keyboard: Record<string, string | null> | undefined;
-  activeShortcut: ShortcutSettingsKey | null;
-  onActivate: (key: ShortcutSettingsKey | null) => void;
+  activeShortcut: CommandId | null;
+  onActivate: (key: CommandId | null) => void;
 }
 
 const TabNavSection: React.FC<TabNavSectionProps> = ({
@@ -451,7 +451,7 @@ const TabNavSection: React.FC<TabNavSectionProps> = ({
 
 export const KeyboardShortcutsCheatSheet: React.FC<BaseModalProps> = ({ onClose }) => {
   const { value: keyboard } = useAppSettingsKey('keyboard');
-  const [activeShortcut, setActiveShortcut] = useState<ShortcutSettingsKey | null>(null);
+  const [activeShortcut, setActiveShortcut] = useState<CommandId | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const { translate } = useSessionMessages();
 
@@ -478,7 +478,7 @@ export const KeyboardShortcutsCheatSheet: React.FC<BaseModalProps> = ({ onClose 
             placeholder={translate('keyboard.cheatSheetSearch')}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full rounded-md border border-foreground/10 bg-background-secondary px-3 py-1.5 text-sm text-foreground placeholder:text-foreground-muted/60 focus:outline-none focus:border-border-1"
+            className="w-full rounded-md border border-foreground/10 bg-[var(--em-surface-input)] px-3 py-1.5 text-sm text-foreground placeholder:text-foreground-muted/60 focus:outline-none focus:border-border-1"
           />
         </div>
         <button

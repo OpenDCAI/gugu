@@ -2,7 +2,8 @@
 
 import { act, createElement } from 'react'
 import { createRoot } from 'react-dom/client'
-import { describe, expect, it, vi } from 'vitest'
+import { createPortal } from 'react-dom'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   isConversationViewportAtBottom,
   resolveConversationRestoreLocation,
@@ -10,8 +11,54 @@ import {
   useConversationScrollMemory,
 } from '../../../../apps/desktop/src/components/chat/useConversationScrollMemory'
 import { publishActiveChatWillChange } from '../../../../apps/desktop/src/store/activeChatTransition'
+import { resetAuthSessionBoundary } from '../../../../apps/desktop/src/lib/authSessionLoss'
+
+beforeEach(() => resetAuthSessionBoundary())
 
 describe('conversation scroll memory', () => {
+  it('keeps the live anchor when another React root removes the slot before the portal ref exits', async () => {
+    const carrier = document.createElement('div')
+    const host = document.createElement('div')
+    document.body.append(carrier, host)
+    const slotRoot = createRoot(carrier)
+    const portalRoot = createRoot(host)
+    let slot: HTMLDivElement | null = null
+    let memory: ReturnType<typeof useConversationScrollMemory> | null = null
+    const setFollowingTail = vi.fn()
+    const isAtBottomRef = { current: true }
+    function Harness() {
+      memory = useConversationScrollMemory({ viewportKey: 'test-slot', chatId: 'slot-chat', activationKey: 'slot-chat', enabled: true,
+        messageIds: ['older', 'anchor', 'newer'], isAtBottomRef, setFollowingTail })
+      return createPortal(createElement('div', { ref: memory.setScrollerRef },
+        createElement('div', { 'data-msg-id': 'anchor' })), slot!)
+    }
+    try {
+      await act(async () => { slotRoot.render(createElement('div', { ref: (element: HTMLDivElement | null) => { slot = element } })) })
+      await act(async () => { portalRoot.render(createElement(Harness)) })
+      const scroller = slot!.firstElementChild as HTMLElement
+      const row = scroller.firstElementChild as HTMLElement
+      Object.defineProperties(scroller, {
+        scrollHeight: { configurable: true, get: () => scroller.isConnected ? 2_000 : 0 },
+        clientHeight: { configurable: true, get: () => scroller.isConnected ? 800 : 0 },
+        scrollTop: { configurable: true, writable: true, value: 700 },
+      })
+      vi.spyOn(scroller, 'getBoundingClientRect').mockReturnValue({ top: 100, bottom: 900 } as DOMRect)
+      vi.spyOn(row, 'getBoundingClientRect').mockReturnValue({ top: 84, bottom: 160 } as DOMRect)
+      await act(async () => { scroller.dispatchEvent(new Event('scroll')) })
+      await act(async () => { slotRoot.render(null) })
+      expect(scroller.isConnected).toBe(false)
+      expect(scroller.scrollHeight, 'the slot root has already removed the live geometry').toBe(0)
+      expect(memory!.scrollerRef.current, 'the portal has not received its ref exit yet').toBe(scroller)
+      await act(async () => { portalRoot.render(null) })
+      await act(async () => { slotRoot.render(createElement('div', { ref: (element: HTMLDivElement | null) => { slot = element } })) })
+      await act(async () => { portalRoot.render(createElement(Harness)) })
+      expect(memory!.openLocation()).toEqual({ index: 1, align: 'start', offset: 16 })
+      expect(memory!.prepareForSavedPosition()).toBe(true)
+    } finally {
+      await act(async () => { portalRoot.unmount(); slotRoot.unmount() })
+      carrier.remove(); host.remove(); vi.restoreAllMocks()
+    }
+  })
   it('reads bottom state from the current viewport geometry', () => {
     expect(isConversationViewportAtBottom(
       { scrollHeight: 2_000, scrollTop: 1_120, clientHeight: 800 },
@@ -67,7 +114,7 @@ describe('conversation scroll memory', () => {
       messageIds: string[]
       rowId: string
     }) {
-      memory = useConversationScrollMemory({
+      memory = useConversationScrollMemory({ viewportKey: 'test-slot',
         chatId,
         activationKey: chatId,
         enabled: true,
@@ -134,14 +181,14 @@ describe('conversation scroll memory', () => {
     const frames = (n: number) => act(async () => {
       for (let i = 0; i < n; i += 1) await new Promise((resolve) => requestAnimationFrame(() => resolve(null)))
     })
-    function mount() {
+    function mount(viewportKey = 'block-one') {
       const container = document.createElement('div')
       document.body.appendChild(container)
       const root = createRoot(container)
       const view = { memory: null as ReturnType<typeof useConversationScrollMemory> | null, rowTop: 84, scrollTop: 700, renders: 0 }
       function Harness({ chatId, messageIds, rows }: { chatId: string; messageIds: string[]; rows: string[] }) {
         view.renders += 1
-        view.memory = useConversationScrollMemory({ chatId, activationKey: chatId, enabled: true, messageIds, isAtBottomRef: { current: true }, setFollowingTail: vi.fn() })
+        view.memory = useConversationScrollMemory({ viewportKey, chatId, activationKey: chatId, enabled: true, messageIds, isAtBottomRef: { current: true }, setFollowingTail: vi.fn() })
         return createElement('div', { ref: view.memory.setScrollerRef },
           createElement('div', null, ...rows.map((id) => createElement('div', { key: id, 'data-msg-id': id }))))
       }
@@ -202,18 +249,88 @@ describe('conversation scroll memory', () => {
       } finally { await rig.cleanup() }
     })
 
+    it('keeps the same anchor and offset when a block unmounts without a main-chat transition', async () => {
+      const ids = ['first', 'anchor', 'last']
+      const original = mount()
+      await original.render({ chatId: 'chat-a', messageIds: ids, rows: ids })
+      original.geometry()
+      await original.cleanup()
+
+      const reopened = mount()
+      try {
+        await reopened.render({ chatId: 'chat-a', messageIds: ids, rows: ids })
+        reopened.geometry()
+        expect(reopened.view.memory!.openLocation()).toEqual({ index: 1, align: 'start', offset: 16 })
+        reopened.view.scrollTop = 690
+        await frames(6)
+        expect(reopened.view.scrollTop).toBe(700)
+        expect(reopened.view.memory!.isPreservingPosition()).toBe(false)
+      } finally { await reopened.cleanup() }
+    })
+
+    it('captures the real exit after the main selection leaves a still-mounted viewport', async () => {
+      const ids = ['first', 'anchor', 'last']
+      const original = mount()
+      await original.render({ chatId: 'chat-a', messageIds: ids, rows: ids })
+      original.geometry()
+      act(() => publishActiveChatWillChange('chat-a', 'chat-b'))
+      original.view.scrollTop = 720
+      await original.cleanup()
+      const reopened = mount()
+      try {
+        await reopened.render({ chatId: 'chat-a', messageIds: ids, rows: ids })
+        expect(reopened.view.memory!.openLocation()).toEqual({ index: 1, align: 'start', offset: 36 })
+      } finally { await reopened.cleanup() }
+    })
+
+    it('keeps same-chat anchors separate by stable presentation slot across remounts', async () => {
+      const ids = ['first', 'anchor', 'last']
+      const a = mount('slot-a')
+      await a.render({ chatId: 'chat-a', messageIds: ids, rows: ids })
+      a.geometry()
+      await a.cleanup()
+      const b = mount('slot-b')
+      await b.render({ chatId: 'chat-a', messageIds: ids, rows: ids })
+      expect(b.view.memory!.openLocation()).toEqual({ index: 'LAST', align: 'end' })
+      b.view.memory!.forgetSavedPosition()
+      await b.cleanup()
+      const reopened = mount('slot-a')
+      try {
+        await reopened.render({ chatId: 'chat-a', messageIds: ids, rows: ids })
+        expect(reopened.view.memory!.openLocation()).toEqual({ index: 1, align: 'start', offset: 16 })
+      } finally { await reopened.cleanup() }
+    })
+
+    it('does not replay another auth lifetime\'s saved position', async () => {
+      const ids = ['first', 'anchor', 'last']
+      const original = mount()
+      await original.render({ chatId: 'chat-a', messageIds: ids, rows: ids })
+      original.geometry()
+      await original.cleanup()
+      resetAuthSessionBoundary()
+      const next = mount()
+      try {
+        await next.render({ chatId: 'chat-a', messageIds: ids, rows: ids })
+        expect(next.view.memory!.openLocation()).toEqual({ index: 'LAST', align: 'end' })
+      } finally { await next.cleanup() }
+    })
+
     // 锚点不在窗口里时列表按 openLocation() === null 藏着等(不露出最新处);等不到而放弃时要自己促一次重渲,否则列表一直藏着。
     it('re-renders its caller when it gives up on a saved row that never arrived, so a list hidden while waiting shows again', async () => {
+      vi.useFakeTimers()
       const rig = mount()
       try {
         await leaveAndReturn(rig, ['first', 'anchor', 'last'])
-        vi.useFakeTimers()
         await rig.render({ chatId: 'chat-a', messageIds: ['newer'], rows: ['newer'] })
         expect(rig.view.memory!.openLocation()).toBeNull()
         const before = rig.view.renders
-        vi.spyOn(console, 'error').mockImplementation(() => {})
-        // 放弃时限按 performance.now() 算,假时钟与它的起点不一定对齐 ⇒ 推足够久,只判「放弃之后有没有重渲」
-        await act(async () => { await vi.advanceTimersByTimeAsync(20_000) })
+        const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+        // Own the performance clock before restoration starts, then fire its scheduled deadline.
+        await act(async () => { await vi.runOnlyPendingTimersAsync() })
+        expect(error).toHaveBeenCalledWith(
+          '[conversation-scroll] saved message anchor is not in the loaded window',
+          { chatId: 'chat-a', messageId: 'anchor' },
+        )
         expect(rig.view.renders, '放弃后没有外部重渲也要重算一次').toBeGreaterThan(before)
         expect(rig.view.memory!.openLocation()).toEqual({ index: 'LAST', align: 'end' })
       } finally { vi.useRealTimers(); await rig.cleanup() }
@@ -229,7 +346,7 @@ describe('conversation scroll memory', () => {
         const setFollowingTail = vi.fn()
         function Harness({ messageIds }: { messageIds: string[] }) {
           view.renders += 1
-          view.memory = useConversationScrollMemory({ chatId: 'chat-a', activationKey: 'chat-a', enabled: true, messageIds, isAtBottomRef: { current: true }, setFollowingTail, loadMessageAnchor })
+          view.memory = useConversationScrollMemory({ viewportKey: 'test-slot', chatId: 'chat-a', activationKey: 'chat-a', enabled: true, messageIds, isAtBottomRef: { current: true }, setFollowingTail, loadMessageAnchor })
           return createElement('div', { ref: view.memory.setScrollerRef },
             createElement('div', null, ...messageIds.map((id) => createElement('div', { key: id, 'data-msg-id': id }))))
         }

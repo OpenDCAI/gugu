@@ -17,6 +17,8 @@
  * 同 `context-reset`：provider 那句原文是给排查用的，落在条目里（`detail`）与悬停提示里。
  * 行上只说用户此刻要做的那个判断 —— 我选的模型没跑，现在跑的是哪个。
  */
+import type { MeasureCtx } from '@session-chat/core/define';
+import { readableLabel, rowTranslator } from '../readable-label';
 import { defineUnit } from '@session-chat/core/units';
 import { useChatTranslator } from '@session-chat/localization';
 import type { TranscriptSessionNotice } from '@gugu/session-core/acp';
@@ -25,45 +27,51 @@ import { boundaryLabel, boundaryLabelShrinkable, boundaryRow, boundaryRule } fro
 /** 行高（px）。与 `compaction` / `context-reset` / 日界行同一个解剖。 */
 export const SESSION_NOTICE_ROW_H = 24;
 
-export const sessionNoticeUnitDef = defineUnit<TranscriptSessionNotice, { rowH: number }>({
-  kind: 'session-notice',
-  margin: { top: 16, bottom: 12 },
-  vars: { rowH: SESSION_NOTICE_ROW_H },
-
-  measure(_data, _ctx, vars_) {
-    return vars_.rowH;
-  },
-
-  Render(props) {
-    const translate = useChatTranslator();
-    const label = (): string => {
+function noticeLabel(data: TranscriptSessionNotice, translate: import('@session-chat/localization').ChatTranslator): string {
       // 供应商提示:它说什么行上就写什么(title 原文),description 在悬停提示里。
-      if (props.data.code === 'provider-notice') return props.data.title ?? props.data.detail;
-      const running = props.data.effectiveValue;
+      if (data.code === 'provider-notice') return data.title ?? data.detail;
+      const running = data.effectiveValue;
       // #6396 改名那一条由宿主发出,恒带新旧两个名字(sessionpage-rename-announcement.ts)。
-      if (props.data.code === 'agent-renamed') {
+      if (data.code === 'agent-renamed') {
         return translate('transcript.sessionNotice.agentRenamed', {
-          previous: props.data.previousValue ?? '',
+          previous: data.previousValue ?? '',
           running: running ?? '',
         });
       }
       // 推理档那一条只在 provider 确认了现在的档之后才会发出(runtime applyInitialEffort),恒带 running。
-      if (props.data.code === 'effort-unavailable') {
+      if (data.code === 'effort-unavailable') {
         return translate('transcript.sessionNotice.effortUnavailable', { running: running ?? '' });
       }
       // ⚠️ provider 不报 model 维度时（#5047 那个 codex 桥**正是**这种）我们说不出「现在跑的是什么」。
       //    那时 ❌ 不许把空串插进句子 —— 行上会写成「现在跑的是 」，断在那里。
       if (running === undefined) {
         return translate(
-          props.data.code === 'model-unavailable'
+          data.code === 'model-unavailable'
             ? 'transcript.sessionNotice.modelUnavailableDefault'
             : 'transcript.sessionNotice.modelSubstitutedUnknown'
         );
       }
-      return props.data.code === 'model-unavailable'
+      return data.code === 'model-unavailable'
         ? translate('transcript.sessionNotice.modelUnavailable', { running })
         : translate('transcript.sessionNotice.modelSubstituted', { running });
-    };
+    }
+
+function boundaryLayout(data: TranscriptSessionNotice, ctx: MeasureCtx) {
+  const actions = 0;
+  return readableLabel(noticeLabel(data, rowTranslator(ctx)), ctx, ctx.width - 20 - actions, 12, 18);
+}
+
+export const sessionNoticeUnitDef = defineUnit<TranscriptSessionNotice, { rowH: number }>({
+  kind: 'session-notice',
+  margin: { top: 16, bottom: 12 },
+  vars: { rowH: SESSION_NOTICE_ROW_H },
+
+  measure(data, ctx, vars_) { return Math.max(vars_.rowH, boundaryLayout(data, ctx).height + 6); },
+
+  Render(props) {
+    const translate = useChatTranslator();
+    const layout = () => boundaryLayout(props.data, props.ctx.measureCtx!());
+    const label = () => noticeLabel(props.data, translate);
 
     return (
       <div
@@ -74,11 +82,11 @@ export const sessionNoticeUnitDef = defineUnit<TranscriptSessionNotice, { rowH: 
         class={boundaryRow}
         // 排查要的是 provider 那句原文,给鼠标停留看得到,而不摊在正文里。
         title={props.data.detail}
-        style={{ height: `${props.vars.rowH}px` }}
+        style={{ height: `${Math.max(props.vars.rowH, layout().height + 6)}px` }}
       >
         <span data-slot="session-notice-rule" aria-hidden="true" class={boundaryRule} />
-        <span data-slot="session-notice-label" class={`${boundaryLabel} ${boundaryLabelShrinkable}`}>
-          {label()}
+        <span data-slot="session-notice-label" class={`${boundaryLabel} ${boundaryLabelShrinkable}`} style={{ 'flex-shrink': 0, width: `${Math.min(layout().width, props.ctx.measureCtx!().width - 20)}px` }}>
+          {layout().text}
         </span>
         <span data-slot="session-notice-rule" aria-hidden="true" class={boundaryRule} />
       </div>

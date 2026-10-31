@@ -4,7 +4,7 @@
  *
  * One source for every surface. Before, the host read the `--em-*` values computed where the App's frame sat and sent
  * them in (`buildExtensionThemeCss`). On the desktop that was the session page's own values; a group App on the phone and
- * the web sat in GroupAppSlot's iframe, under `.emlight` / `.emdark` but not `.gugu-skin`, and got session-ui's raw
+ * the web sat in a chat panel's iframe, under `.emlight` / `.emdark` but not `.gugu-skin`, and got session-ui's raw
  * palette — a jade-green primary (real WebView 113, 10-05: `--em-accent-9` = `display-p3(0 .63 .46)`). Now the values
  * are this build's tokens, both themes, and the page picks one by `context.themeMode` (ui.js sets `<html data-gugu-theme>`).
  *
@@ -23,6 +23,7 @@
 export const APP_PALETTE_COLORS = [
   ['--em-background', 'var(--bg)'],
   ['--em-surface', 'var(--bg)'],
+  ['--em-surface-input', 'var(--input-bg)'],
   ['--em-background-1', 'var(--card)'],
   ['--em-background-3', 'var(--muted)'],
   ['--em-background-muted', 'var(--muted)'],

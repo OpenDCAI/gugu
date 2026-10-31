@@ -3,7 +3,7 @@
 .assistant-name-display { height: auto; min-height: var(--control-h-sm); justify-content: flex-start; text-align: inherit; white-space: normal; overflow-wrap: anywhere; }
 .assistant-name-input { width: 100%; outline: none; border-bottom: 1px solid var(--border); }
 .assistant-name-input:focus { border-bottom-color: var(--fg); }
-.assistant-name-error { color: var(--danger); font-size: var(--font-body); font-weight: normal; }
+.assistant-name-error { color: var(--danger-fg); font-size: var(--font-body); font-weight: normal; }
 
 .assistant-name-title, .assistant-name-editor { display: inline-flex; align-items: center; gap: var(--spacing-xs); min-width: 0; max-width: 100%; }
 .assistant-name-text { min-width: 0; overflow-wrap: anywhere; cursor: text; user-select: none; }

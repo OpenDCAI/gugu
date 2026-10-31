@@ -13,7 +13,7 @@ const MINE = `gugu:${DEV}:rpc:${ASKER}`
 
 type Topic = { name: string; sent: { payload: { type: string; request_id: string; payload: unknown } }[]; handlers: DeviceTopicHandlers; closed: boolean }
 
-function fakeCloud(options: { answerAttach?: 'here' | 'old-host' | 'never' } = {}) {
+function fakeCloud(options: { answerAttach?: 'here' | 'old-host' | 'never'; answerProtocol?: number | 'missing' } = {}) {
   const answer = options.answerAttach ?? 'here'
   const topics: Topic[] = []
   const open = (name: string) => topics.filter((t) => t.name === name && !t.closed)
@@ -31,7 +31,7 @@ function fakeCloud(options: { answerAttach?: 'here' | 'old-host' | 'never' } = {
         const reply = (error?: { code: string; message: string }) => ({
           type: 'taskhost.attach:reply',
           request_id: sent.payload.request_id,
-          ...(error ? { error } : { result: { attached: true, protocol: 9 } }),
+          ...(error ? { error } : { result: { attached: true, ...(options.answerProtocol === 'missing' ? {} : { protocol: options.answerProtocol ?? REMOTE_PROTOCOL_VERSION }) } }),
         })
         // 新机器在发问端那条上回;旧机器不认这个动词,在共用 topic 上回 unknown_method。
         if (answer === 'here') queueMicrotask(() => push(MINE, reply()))
@@ -84,6 +84,19 @@ describe('发问端报到,之后只在自己那条上问', () => {
     expect(cloud.topics.map((t) => t.name)).toEqual([SHARED, MINE])
     expect(cloud.sentOn(SHARED)).toEqual([{ type: 'taskhost.attach', request_id: 'attach-1', user_id: 'u1', payload: { asker: ASKER, protocol: REMOTE_PROTOCOL_VERSION } }])
     expect(cloud.sentOn(MINE).map((p) => p.request_id)).toEqual(['r1'])
+  })
+
+  it.each([11, 'missing'] as const)('refuses an attached host with protocol %s before sending the request', async answerProtocol => {
+    const cloud = fakeCloud({ answerProtocol })
+    const { pipe } = await openPipe(cloud)
+    try {
+      await expect(pipe.send(request(1))).rejects.toMatchObject({ error: {
+        code: 'server_outdated', message: '请更新那台机器上的咕咕',
+      } })
+      expect(cloud.sentOn(MINE)).toEqual([])
+    } finally {
+      pipe.close()
+    }
   })
 
   it('同时的几问合成一次报到;报到着的时候再问 ❌ 再报到', async () => {
@@ -141,6 +154,38 @@ describe('发问端报到,之后只在自己那条上问', () => {
   })
 })
 
+describe('管道属于开它的那个账号', () => {
+  it('没登录:开管道以账号那层的错失败,一条 topic 都不订(❌ 先订上去、被拒成「连不上」)', async () => {
+    const cloud = fakeCloud()
+    const notSignedIn = new Error('this machine is not signed in to 咕咕')
+    await expect(openPipe(cloud, { userId: async () => { throw notSignedIn } })).rejects.toBe(notSignedIn)
+    expect(cloud.join).not.toHaveBeenCalled()
+  })
+
+  it('先认出是谁再订;报到报的是开管道时的那个人,每一问 ❌ 再去问账号', async () => {
+    const cloud = fakeCloud()
+    const order: string[] = []
+    const userId = vi.fn(async () => {
+      order.push('account')
+      return 'u1'
+    })
+    const join = cloud.join
+    const { pipe } = await openPipe(cloud, {
+      userId,
+      join: (name, handlers) => {
+        order.push(`join ${name}`)
+        return join(name, handlers)
+      },
+    })
+    await pipe.send(request(1))
+    pipe.recover!()
+    await pipe.send(request(2))
+    expect(order.slice(0, 2)).toEqual(['account', `join ${SHARED}`])
+    expect(userId).toHaveBeenCalledTimes(1)
+    expect(cloud.sentOn(SHARED).filter((p) => p.type === 'taskhost.attach').map((p) => (p as { user_id?: string }).user_id)).toEqual(['u1', 'u1'])
+  })
+})
+
 describe('旧机器 / 报到不成', () => {
   it('旧机器(协议 9 以前)在共用 topic 上回 unknown_method:这一问以 DeviceRpcRefused 失败(调用方据此说「请更新那台机器」)', async () => {
     const cloud = fakeCloud({ answerAttach: 'old-host' })
@@ -191,7 +236,7 @@ function leavingCloud(dev: string) {
         const sent = message as (typeof topic.sent)[number]
         topic.sent.push(sent)
         if (sent.payload.type === 'taskhost.attach') {
-          queueMicrotask(() => push(mine, { type: 'taskhost.attach:reply', request_id: sent.payload.request_id, result: { attached: true, protocol: 9 } }))
+          queueMicrotask(() => push(mine, { type: 'taskhost.attach:reply', request_id: sent.payload.request_id, result: { attached: true, protocol: REMOTE_PROTOCOL_VERSION } }))
         }
       },
       close: () => {

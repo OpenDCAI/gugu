@@ -12,15 +12,11 @@ export const MAIN_UI_EVENTS = {
   // @@@acp-stream (#966 gate A) - ACP agent 流式输出。
   agentStream: defineEvent<AgentStreamPayload>('agent-stream'),
   // @@@sessionpage fail-loud VISIBLE (#6) - 会话页 agent 投递终态失败 → toast。
-  sessionpageDeliverFailed: defineEvent<{ agentUserId: string; error: string }>('sessionpage-deliver-failed'),
-  // @@@sessionpage otty-state - 被人类 block 的 agent 数 → 任务 tab badge。
-  sessionpageAttentionCount: defineEvent<number>('sessionpage-attention-count'),
+  sessionpageDeliverFailed: defineEvent<{ agentUserId: string; messageId?: string | null; error: string }>('sessionpage-deliver-failed'),
   // @@@sessionpage 分享 - 会话页头部的分享入口,由 gugu 渲染层用自己的通讯录打开 SharePosterDialog;没绑 agent 时说明原因。
   sessionpageShareAgent: defineEvent<unknown>('sessionpage-share-agent'),
   sessionpageShareAgentUnavailable: defineEvent<string>('sessionpage-share-agent-unavailable'),
   // #6091 会话页改了自有 agent 的名字:通讯录缓存着 display_name,叫它刷新。
   ownedAgentRenamed: defineEvent<{ agentUserId: string; displayName: string }>('owned-agent-renamed'),
   sessionpageOpenFeedback: defineEvent<void>('sessionpage-open-feedback'),
-  // 主窗看不看得见(最小化、收进托盘 = false;恢复、显示 = true)。主窗关了节流,document.hidden 不跟着变(main.ts)。
-  windowSeen: defineEvent<boolean>('window-seen'),
 } as const satisfies { readonly [K in keyof typeof UI_EVENTS]?: EventDefinition<unknown> }

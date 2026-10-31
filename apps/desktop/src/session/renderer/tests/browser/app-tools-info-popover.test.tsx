@@ -3,7 +3,7 @@
  * 悬停能看、点一下也能打开(手机没有悬停)。设置页、Agent 设置里的 ⓘ 是同一个组件(lib/ui/info-tooltip.tsx)。
  *
  * **为什么必须真 Chromium**:真指针是 pointerdown → pointerup → click,还有悬停、键盘焦点;jsdom 的 `.click()` 只发
- * click。评审(gugu-base notes/reviews/2026-10-14-app-tools-toggle-wording-21dcb07)量到:同一处改动在 jsdom 里全绿,
+ * click。评审(2026-10-14)量到:同一处改动在 jsdom 里全绿,
  * 在真浏览器里「悬停打开后点一下反而收起」。开关的无障碍名字也只有真浏览器算得出来(getByRole 按 accname)。
  *
  * 渲染的是真的 AppProductPage,只挡掉 IPC 和「给哪些 agent」那一节。
@@ -22,7 +22,6 @@ vi.mock('@renderer/lib/ipc', () => {
     rpc,
     rpcOn: () => rpc,
     invokeOnMachine: async () => undefined,
-    eventSourceMachine: () => null,
     events: { on: () => () => {} },
     onMachineEvent: () => () => {},
   };

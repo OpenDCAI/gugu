@@ -22,6 +22,8 @@ import { paneSlotView, sameKindSide as sameKindSideOf } from './pane-slot-view';
 import { MIN_PANE_HEIGHT_PX, MIN_PANE_WIDTH_PX, type PaneStore } from './pane-store';
 import { TabBar } from './tab-bar';
 import { isUnavailableTabResource, UnavailableTabContent } from './unavailable-tab';
+import { RetainedTabContent, useRetainedTabs } from './retained-tab-content';
+import { tabFullscreen, WORKSPACE_ANCHOR } from './tab-fullscreen';
 
 // Monaco 0.55 收字的是 `.native-edit-context`,旁边那个 `ime-text-area` 是只读的:聚焦它 = 看着进了编辑器、字打不进去。
 // 浏览器页签的网页是主进程的 view(#7274),页签里只有它的占位 `[data-browser-page]`:聚焦占位 = 把焦点交给网页。
@@ -36,6 +38,21 @@ function focusActiveContentElement(container: HTMLElement): void {
 }
 
 /** The content for a single pane: tab bar + content area. */
+/**
+ * 全屏的那一格:固定定位、四条边贴到工作区(ScreenFrame)上,盖住这屏所有块。用 fixed 而不是 absolute:
+ * 格子在某一块的页里,absolute 的包含块是那一块,够不着块外面的锚点;fixed 的包含块是视口,锚点认得到。
+ * 不换父节点 —— 终端、网页、对话都不重挂。
+ */
+const FULLSCREEN_STYLE = {
+  position: 'fixed',
+  positionAnchor: WORKSPACE_ANCHOR,
+  top: 'anchor(top)',
+  bottom: 'anchor(bottom)',
+  left: 'anchor(left)',
+  right: 'anchor(right)',
+  zIndex: 30,
+} as CSSProperties;
+
 export const PaneContent = observer(function PaneContent({
   emptyState,
   tabLeadingSlot,
@@ -45,6 +62,7 @@ export const PaneContent = observer(function PaneContent({
   reserveShellRestoreLane,
   leadingReservePx,
   contentOverlay,
+  pairSizing,
 }: {
   /** 页签条左端还要让出多宽(单独成窗时让开 mac 的红绿灯)。 */
   leadingReservePx?: number;
@@ -62,6 +80,8 @@ export const PaneContent = observer(function PaneContent({
   reserveShellRestoreLane?: boolean;
   /** Drawn over the content region, under the tab bar (the edge drop zones while a tab is dragged, #7052). */
   contentOverlay?: ReactNode;
+  /** A host can share a right-hand width; ordinary task panes retain their own ratios. */
+  pairSizing?: { rightWidth: number; onResize: (width: number) => void; onReset: () => void };
 }) {
   const paneContext = usePaneContext();
   const { paneId, pane } = paneContext;
@@ -114,7 +134,9 @@ export const PaneContent = observer(function PaneContent({
       : null;
   // 并排(spec session-page「并排」):两页左右(或上下)摆开,中间一条可拖的分界。每种页签一层内容,
   // 两页是同一种(两个文件、两个网页)时另一页单独再挂一份那种页签的内容(paneSlotView),各管各的那一枚。
-  const pair = pane.pairShown ? pane.livePair : null;
+  // 页签全屏(tab-fullscreen.ts):这一格整个铺到工作区上,并排只是这一刻不画(pair 本身原样,退出就回来)。
+  const fullscreen = tabFullscreen.isOn(pane);
+  const pair = pane.pairShown && !fullscreen ? pane.livePair : null;
   const slots = pair ? pane.pairSlots : null;
   const anchorKind = pair ? (pane.entries.get(pair.anchor)?.kind ?? null) : null;
   const sideKind = pair ? (pane.entries.get(pair.side)?.kind ?? null) : null;
@@ -125,7 +147,9 @@ export const PaneContent = observer(function PaneContent({
   const vertical = slots?.vertical ?? false;
   const extent = vertical ? pane.dimensions?.height : pane.dimensions?.width;
   const minShare = extent ? Math.min(0.5, (vertical ? MIN_PANE_HEIGHT_PX : MIN_PANE_WIDTH_PX) / extent) : 0;
-  const split = pair ? `${(Math.min(1 - minShare, Math.max(minShare, pair.ratio)) * 100).toFixed(3)}%` : null;
+  const sharedSizing = !vertical && slots?.first === pair?.anchor ? pairSizing : undefined;
+  const share = sharedSizing && extent ? 1 - sharedSizing.rightWidth / extent : pane.pairShare;
+  const split = pair ? `${(Math.min(1 - minShare, Math.max(minShare, share)) * 100).toFixed(3)}%` : null;
   const slotStyle = (tabId: string): CSSProperties => {
     const first = slots?.first === tabId;
     if (!vertical) return first ? { top: 0, bottom: 0, left: 0, width: split! } : { top: 0, bottom: 0, left: split!, right: 0 };
@@ -139,6 +163,12 @@ export const PaneContent = observer(function PaneContent({
   /** 这一种页签那一层此刻摆的是这一对里的哪一枚(没在这一对里 = null)。 */
   const layerTabId = (kind: string): string | null =>
     pair ? (kind === anchorKind ? pair.anchor : kind === sideKind ? pair.side : null) : null;
+  const openKinds = [...new Set(pane.resolvedTabs.map((tab) => tab.kind))];
+  const recentKinds = useRetainedTabs(
+    openKinds,
+    pair ? [anchorKind, sideKind].filter((kind): kind is string => kind !== null) : activeKind ? [activeKind] : [],
+  );
+  const retained = new Set([...recentKinds, ...pane.registry.all().filter((def) => def.keepMounted && openKinds.includes(def.kind)).map((def) => def.kind)]);
 
   if (!hasAnyTab) {
     return (
@@ -153,7 +183,11 @@ export const PaneContent = observer(function PaneContent({
   }
 
   return (
-    <div className="flex h-full min-w-0 flex-col overflow-hidden">
+    <div
+      className={fullscreen ? 'flex min-w-0 flex-col overflow-hidden bg-background' : 'flex h-full min-w-0 flex-col overflow-hidden'}
+      style={fullscreen ? FULLSCREEN_STYLE : undefined}
+      data-tab-fullscreen={fullscreen ? '' : undefined}
+    >
       {!hideTabBar && (
         <TabBar
           leadingSlot={tabLeadingSlot}
@@ -176,12 +210,12 @@ export const PaneContent = observer(function PaneContent({
           {isOverContent && (
             <div className="pointer-events-none absolute inset-0 z-20 bg-foreground/10" />
           )}
-          {pane.registry.all().map((def) => {
+          {pane.registry.all().filter((def) => retained.has(def.kind)).map((def) => {
             const ContentComponent = def.TabContent;
             const pairedTabId = layerTabId(def.kind);
             const isActive = pair ? pairedTabId !== null : unavailableActiveTab === null && activeKind === def.kind;
             const placesPair = def.kind === selfPlacedKind;
-            const host = placesPair ? pane : slotViews.rest;
+            const host = def.placesPairItself ? pane : slotViews.rest;
             return (
               <ContentLayer
                 key={def.kind}
@@ -228,7 +262,7 @@ export const PaneContent = observer(function PaneContent({
               );
             })()
           ) : null}
-          {split ? <PairDivider pane={pane} at={split} vertical={vertical} containerRef={contentRef} /> : null}
+          {split ? <PairDivider pane={pane} at={split} vertical={vertical} containerRef={contentRef} sizing={sharedSizing} /> : null}
           {unavailableActiveTab && !pair ? (
             <UnavailableTabContent tab={unavailableActiveTab} host={pane} />
           ) : null}
@@ -274,11 +308,10 @@ const ContentLayer = observer(function ContentLayer({
   const body = <PaneDimensionProvider sink={sink}>{children}</PaneDimensionProvider>;
   // 始终包一层(❌ 只在换了格子视图时才包):包与不包来回换,里面的内容会整个重挂(网页重新加载)。
   return (
-    <div
+    <RetainedTabContent
       className="absolute"
-      style={{ ...style, visibility: visible ? undefined : 'hidden' }}
-      // React 19 认 boolean;给空串会被当成 false —— 藏着的那一格就没真被摘出焦点与点击。
-      inert={!visible}
+      visible={visible}
+      style={style}
       data-pane-layer={kind}
       data-pane-layer-key={layerKey}
       data-pane-tab={tabId ?? undefined}
@@ -286,7 +319,7 @@ const ContentLayer = observer(function ContentLayer({
       onFocusCapture={focusTab}
     >
       <PaneContext.Provider value={contextValue ?? paneContext}>{body}</PaneContext.Provider>
-    </div>
+    </RetainedTabContent>
   );
 });
 
@@ -299,11 +332,13 @@ const PairDivider = observer(function PairDivider({
   at,
   vertical,
   containerRef,
+  sizing,
 }: {
   pane: PaneStore;
   at: string;
   vertical: boolean;
   containerRef: RefObject<HTMLDivElement | null>;
+  sizing?: { onResize: (width: number) => void; onReset: () => void };
 }) {
   const onPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     const container = containerRef.current;
@@ -317,7 +352,9 @@ const PairDivider = observer(function PairDivider({
       if (extent <= 0) return;
       const min = Math.min(0.5, (vertical ? MIN_PANE_HEIGHT_PX : MIN_PANE_WIDTH_PX) / extent);
       const ratio = vertical ? (moveEvent.clientY - rect.top) / extent : (moveEvent.clientX - rect.left) / extent;
-      pane.setPairRatio(Math.min(1 - min, Math.max(min, ratio)));
+      const share = Math.min(1 - min, Math.max(min, ratio));
+      pane.setPairRatio(share);
+      sizing?.onResize(extent * (1 - share));
     };
     const end = () => {
       handle.removeEventListener('pointermove', move);
@@ -335,12 +372,12 @@ const PairDivider = observer(function PairDivider({
       data-pair-divider=""
       className={
         vertical
-          ? 'absolute inset-x-0 z-10 h-px -translate-y-1/2 cursor-row-resize bg-border after:absolute after:inset-x-0 after:top-1/2 after:h-2 after:-translate-y-1/2'
-          : 'absolute inset-y-0 z-10 w-px -translate-x-1/2 cursor-col-resize bg-border after:absolute after:inset-y-0 after:left-1/2 after:w-2 after:-translate-x-1/2'
+          ? 'absolute inset-x-0 z-10 h-px -translate-y-1/2 cursor-row-resize bg-[var(--border-subtle)] after:absolute after:inset-x-0 after:top-1/2 after:h-2 after:-translate-y-1/2'
+          : 'absolute inset-y-0 z-10 w-px -translate-x-1/2 cursor-col-resize bg-[var(--border-subtle)] after:absolute after:inset-y-0 after:left-1/2 after:w-2 after:-translate-x-1/2'
       }
       style={vertical ? { top: at } : { left: at }}
       onPointerDown={onPointerDown}
-      onDoubleClick={() => pane.setPairRatio(0.5)}
+      onDoubleClick={() => { pane.setPairRatio(null); sizing?.onReset(); }}
     />
   );
 });

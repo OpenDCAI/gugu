@@ -1,7 +1,9 @@
+import type { GuguLinkTarget, LinkPlace } from '@gugu/core/shared/ui/guguLink';
 import type { AppComposeDetail, AppForumConsentDetail, AppOpenWithDetail, AppShowMessageDetail, PeekTarget } from './app-runtime-protocol';
 import type { GroupAvatarMember } from '@gugu/core/shared/types/chat';
 import type { ExtensionManifest } from './manifest';
 import type { MarketCodeSource } from './market';
+import type { AppModalPage } from './app-modal';
 
 /**
  * What the bridge asks the renderer to do on an extension's behalf.
@@ -33,13 +35,16 @@ export interface ExtensionHostActionOrigin {
 }
 
 export type ExtensionHostAction =
+  | { kind: 'openAppModal'; page: AppModalPage }
+  | { kind: 'closeAppModal'; id: string }
+  | { kind: 'focusAppModalClose'; id: string }
   | { kind: 'setTabTitle'; title: string }
   | { kind: 'setTabBadge'; badge: number | string | null }
   | { kind: 'openBrowserTab'; url: string }
   | { kind: 'reportError'; message: string }
   /** The page loaded another document (a reload, another of the App's pages): what the old one said about itself goes. */
   | { kind: 'newDocument' }
-  /** `gugu.compose`: into the composer of the chat the call named (the window brings it up), or of that session's. */
+  /** `gugu.dispatch` with `draft`: into the composer of the chat (the window brings it up), or of that agent's session. */
   | { kind: 'compose'; detail: AppComposeDetail }
   | { kind: 'compose'; sessionId: string; text: string }
   /** `gugu.showMessage` / `files.openWith`: the window that shows chats does it, bringing the chat up. */
@@ -48,9 +53,12 @@ export type ExtensionHostAction =
   /** G1 Beside the page that asked, in its own slot (the origin's): the page stays as it is. */
   | { kind: 'peek'; target: PeekTarget }
   /** A link's or a banner's click (no page asked): the App in a chat's panel, or — naming no chat — on its own page. */
-  | { kind: 'openApp'; extensionId: string; chatId?: string }
+  | { kind: 'openApp'; extensionId: string; tab?: string; chatId?: string }
+  | { kind: 'openLinkTarget'; target: GuguLinkTarget }
+  /** An install could not give the chat it was asked for (main's own, no page asks it): the window says so, with the App's page. */
+  | { kind: 'notGivenAt'; extensionId: string; chat: { id: string; name: string } }
   /** A banner's click naming a chat's file: opened in its chat, as a link to it is. */
-  | { kind: 'openChatFile'; chatId: string; itemId: string }
+  | { kind: 'openChatFile'; chatId: string; itemId: string; onlyIfOpen?: string }
   /** 论坛 (9): the window draws the points sheet (posting a bounty, settling one) and does it if the person confirms. */
   | { kind: 'forumConsent'; detail: AppForumConsentDetail };
 
@@ -76,6 +84,13 @@ export const EXTENSION_MEMBER_FACES_METHOD = 'extensions.memberFaces';
 
 /** #7158 Main asks the window which project its task list has a session under: `{ sessionId }` → the project id, or null. */
 export const EXTENSION_LISTED_SESSION_METHOD = 'extensions.listedSession';
+
+/**
+ * `gugu.dispatch` naming no target: main asks the window that draws the page to let the person pick one (`DispatchSheet`):
+ * `DispatchAsk` → `DispatchPicked`, or null when they cancel. It waits on a person, so it closes by itself after
+ * `INSTALL_CONSENT_HUMAN_WINDOW_MS`, as an install's consent does (ipc-bridge's clock is longer).
+ */
+export const EXTENSION_PICK_DISPATCH_TARGET_METHOD = 'extensions.pickDispatchTarget';
 
 /**
  * 留给**人**读完权限再决定的时间,谁发起的安装都是这一个。
@@ -122,6 +137,8 @@ export interface EnablePlace {
 export const HERE_ALL = 'here:all';
 
 export interface ExtensionInstallConsentRequest {
+  /** Removing one installed fork; the same human confirmation transport, never uninstall. */
+  removeVariant?: { name: string; active: boolean };
   sourceDir: string;
   manifest: ExtensionManifest;
   manifestDigest: string;
@@ -134,8 +151,8 @@ export interface ExtensionInstallConsentRequest {
   attachment?: { from: string; replaces?: string | null };
   /** From the market (installExtensionFromMarket): where this version's code is, as the market recorded it, and what it changed. */
   market?: { source: MarketCodeSource; releaseNotes?: string };
-  /** D-30: an App giving agents tools asks which agents get them — these places, the ones ticked at first marked. */
-  places?: EnablePlace[];
+  /** Who gets its tools on the computer it installs on (architecture §4: an install writes this computer's half only). */
+  given?: InstallGrant;
   /** D-31 The one ask, wherever it is drawn: its approval in the agent's session and this window's sheet share it. */
   requestId?: string;
   /** D-31 An agent asked for it: the sheet says 「〈agent〉要装 X」, with its face. */
@@ -144,6 +161,13 @@ export interface ExtensionInstallConsentRequest {
   machine?: string;
 }
 
+/**
+ * What an install gives on the computer it lands on — the only thing an install changes about who may use an App there:
+ * a first install there gives every agent on it (`here:all`); an agent installing for a chat adds that one chat; an App
+ * installed there already keeps what it gives. Naming agents, groups and projects is the App page's (`changeAppPlaces`).
+ */
+export type InstallGrant = { first: true } | { first: false; chat: { id: string; name: string } };
+
 /** The agent an install was asked for by: its name, and its id for its face (each surface draws it as its chat list does). */
 export interface ExtensionConsentRequester {
   name: string;
@@ -151,8 +175,8 @@ export interface ExtensionConsentRequester {
 }
 
 /**
- * D-31 An App install asked as an approval in the agent's session (`HostAsk` kind `app-install`): what a phone, another desktop
- * or this one needs to draw its own sheet for it, and to answer it back through the session (`enableIn` with the option).
+ * D-31 An App install asked as an approval in the agent's session (`AskOrigin` kind `app-install`): what a phone, another desktop
+ * or this one needs to draw its own sheet for it, and to answer it back through the session (the option, with the digest).
  */
 export interface AppInstallAsk {
   request: ExtensionInstallConsentRequest;
@@ -160,17 +184,15 @@ export interface AppInstallAsk {
 export const APP_INSTALL_OPTION = 'install';
 export const APP_INSTALL_DECLINE_OPTION = 'decline';
 
-/** The App install a session's approval asks about, when it is one (read on every surface from `Settlement.host`). */
-export function appInstallAskOf(host: { kind: string; payload: unknown } | undefined): AppInstallAsk | null {
-  if (host?.kind !== 'app-install') return null;
-  const payload = host.payload as Partial<AppInstallAsk> | null;
+/** The App install a session's approval asks about, when it is one (read on every surface from `Settlement.origin`). */
+export function appInstallAskOf(origin: { source: string; payload?: unknown } | undefined): AppInstallAsk | null {
+  if (origin?.source !== 'app-install') return null;
+  const payload = origin.payload as Partial<AppInstallAsk> | null;
   return payload && typeof payload.request === 'object' && payload.request ? (payload as AppInstallAsk) : null;
 }
 
 export interface ExtensionInstallConsentResult {
   outcome: ExtensionInstallConsentOutcome;
-  /** D-30: the places switched on when the person confirmed (only when the sheet asked). */
-  enableIn?: string[];
   /** owner 10-16: the person's other computers it also goes on, ticked in the same sheet (only when the sheet listed them). */
   alsoOn?: string[];
 }
@@ -182,6 +204,13 @@ export interface InstallAlsoOnMachine {
   /** Listed but not to be ticked, and why (owner 09-25「完整能力披露」): a folder's App goes on this computer only. */
   disabledReason?: string;
 }
+
+/**
+ * The person's other computers, each by name: what the install sheet offers to install on too (owner 10-16). Offline ones are
+ * listed as well — the sheet greys them, as everywhere a machine is picked.
+ */
+export const alsoOnMachines = (devices: readonly { id: string; label: string; assistantHome?: true }[], here: string | undefined, disabledReason?: string): InstallAlsoOnMachine[] =>
+  devices.filter((device) => device.id !== here && !device.assistantHome).map((device) => ({ id: device.id, label: device.label, ...(disabledReason ? { disabledReason } : {}) }));
 
 export const EXTENSION_INSTALL_CONSENT_METHOD = 'extensions.requestInstallConsent';
 /** D-31 The ask was answered elsewhere (or ran out): this window's sheet for it goes. */
@@ -209,8 +238,8 @@ export type ExtensionConsentEventDetail =
       title: string;
       description: string;
       details?: ExtensionConsentDetails;
-      /** D-30: which agents get its tools — the places to list, the ones ticked at first marked. Absent: not asked. */
-      places?: EnablePlace[];
+      /** Who gets its tools where it lands (`InstallGrant`). Absent: it gives agents no tools. */
+      given?: InstallGrant;
       /** D-31: the agent that asked, drawn above the title with its face. */
       requester?: ExtensionConsentRequester;
       /** D-31: the computer it installs on, when that is not the one showing the sheet — its agents are that computer's. */
@@ -228,8 +257,8 @@ export type ExtensionConsentEventDetail =
 export interface ExtensionConsentAnswerDetail {
   requestId: string;
   outcome: Exclude<ExtensionInstallConsentOutcome, 'timeout'>;
-  /** D-30: the places on when the person answered, when the sheet asked. */
-  enableIn?: string[];
   /** owner 10-16: the other computers ticked, when the sheet listed them. */
   alsoOn?: string[];
 }
+
+export type ExtensionHostActionResult = LinkPlace | 'own' | void;

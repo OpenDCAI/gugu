@@ -2,7 +2,7 @@ import { userIdFromSupabaseAccessToken } from '@gugu/core';
 import { buildExtensionEnvelope, formatDeliveryTimestamp } from '@gugu/core/local/agent/deliveryEnvelope';
 import { extensionsService } from '@main/core/extensions/extensions-root';
 import { currentAccountAccessToken } from '@main/core/extensions/account-token';
-import { ABOUT_GONE, AppSendError, COMPOSE_WHERE, composeInChat, createAppSend } from '@shared/extensions/app-send-core';
+import { AppSendError, dispatchFromApp, type DispatchHere } from '@shared/extensions/app-send-core';
 import { createAppMessages } from '@shared/extensions/app-messages-core';
 import { createAppForum, type ForumChannel } from '@shared/extensions/app-forum-core';
 import { subscribeStatusName } from '@gugu/core/cloud/deviceRpcProtocol';
@@ -11,15 +11,17 @@ import { supabase } from '../../../../supabase';
 import { subscribeAuthenticatedElectronRealtimeChannel, type ElectronManagedRealtimeChannel } from '../../../../realtime-channel';
 import type { AppMessageAction, AppMessageOptions, AppMessageReceipt, RemoteAppCaller } from '@gugu/session-core/session-record/contract';
 import type { AppComposeDetail } from '@shared/extensions/app-runtime-protocol';
+import type { DispatchAsk, DispatchPicked } from '@shared/extensions/app-dispatch-core';
+import type { AgentReach } from '@shared/extensions/manifest';
 
 /** The codes an App reads off a failed send — the same whether the agent is here or on another computer. */
 const APP_SEND_CODES = ['denied', 'invalid', 'not-found', 'rate-limited', 'failed'] as const satisfies readonly AppSendError['code'][];
 
 /**
- * How an App tells someone, on the desktop — two verbs, as an agent's two tools are (真源 §4 F16): `gugu.send`, a whisper
- * in the chat the call names (`message_send`'s act; the shared answer, `app-send-core.ts`, the phone's too), and
- * `gugu.messageAgent`, one of the person's own agents here, told as `session_message` tells it. Neither reads where the
- * page is (真源原则 13).
+ * How an App hands something to someone, on the desktop (`gugu.dispatch`, 15): the shared answer (`dispatchFromApp`,
+ * `app-send-core.ts`, the phone's too) with what only this computer has — the window's sheet and composers, and the
+ * person's agents: one here told as `session_message` tells it, one on another computer through its machine, a new one
+ * started. The target is the call's or the person's, never where the page is (真源原则 13).
  */
 
 export { AppSendError };
@@ -30,9 +32,6 @@ async function account(): Promise<{ token: string; userId: string }> {
   if (!token || !userId) throw new AppSendError('failed', 'Not signed in');
   return { token, userId };
 }
-
-/** `gugu.send`: a whisper in the chat the call names. */
-export const sendFromApp = createAppSend({ account });
 
 /** `gugu.messages`: a chat's messages, read with the same account (the shared answer, `app-messages-core.ts`, the phone's too). */
 export const messagesForApp = createAppMessages({ account });
@@ -46,12 +45,11 @@ const forumChannel: ForumChannel = (topic, event, onPayload, onSubscribed) => {
       on(kind: 'broadcast', filter: { event: string }, fn: (message?: { payload?: Record<string, unknown> }) => void): ElectronManagedRealtimeChannel;
     }).on('broadcast', { event }, (message) => onPayload(message?.payload ?? {}));
   void (async () => {
-    const { token } = await account();
+    await account();
     const unsubscribe = await subscribeAuthenticatedElectronRealtimeChannel(
       { realtime: supabase.realtime, removeChannel: (channel) => supabase.removeChannel(channel as never) },
       create(),
       {
-        accessToken: token,
         label: `forum:${topic}`,
         createChannel: create,
         onStatus: (status) => {
@@ -72,32 +70,68 @@ const forumChannel: ForumChannel = (topic, event, onPayload, onSubscribed) => {
 /** `gugu.forum`: the forum, read and written with the same account (the shared answer, `app-forum-core.ts`, the phone's too). */
 export const forumForApp = createAppForum({ account, channel: forumChannel });
 
+/** What the bridge brings to one call: the window's sheet, its composers, and the agent working the page (its session). */
+export interface DesktopDispatchEffects {
+  pick(ask: DispatchAsk): Promise<DispatchPicked>;
+  draftInChat(detail: AppComposeDetail): Promise<void>;
+  draftInSession(session: { id: string; projectId: string }, text: string): Promise<void>;
+  from?: string;
+}
+
 /**
- * `gugu.compose(text, { chat } | { session } | { refs })` on the desktop: whose composer, and what goes in. A chat's (or
- * the chat of the files its refs point at): `composeInChat`, the phone's answer too. A session on this computer: its agent's.
+ * `gugu.dispatch` on the desktop. An agent the call names is one this App reaches (`agents:control`: the ones it started,
+ * `:all` every one here, `:all-machines` also the person's other computers'); one the person picked in the sheet is any of
+ * theirs, told here or on its computer. A draft goes into an agent's composer here: words only (pills go into a chat's).
  */
-export async function composeTarget(args: {
-  text: unknown;
-  chat?: unknown;
-  session?: unknown;
-  refs?: unknown;
-  about?: unknown;
-  images?: unknown;
-}): Promise<AppComposeDetail | { session: { id: string; projectId: string }; text: string }> {
-  if (args.session === undefined || args.session === null) return composeInChat({ account }, args);
-  if (args.about !== undefined && args.about !== null) throw new AppSendError('invalid', ABOUT_GONE);
-  // A session's composer takes words only: pills point at a chat's files (App 引用 pill), and go into that chat's.
-  if ((args.chat !== undefined && args.chat !== null) || (args.refs !== undefined && args.refs !== null)) {
-    throw new AppSendError('invalid', COMPOSE_WHERE);
-  }
-  if (args.images !== undefined && args.images !== null) throw new AppSendError('invalid', 'images go into a chat\'s composer: { chat } or { refs }, not a session\'s');
-  const text = String(args.text ?? '').trim();
-  if (!text) throw new AppSendError('invalid', 'Nothing to compose: text is empty');
-  const sessionId = typeof args.session === 'string' ? args.session : '';
-  const { agentSessionContext } = await import('@main/core/extensions/extension-agent-context');
-  const facts = sessionId ? await agentSessionContext(sessionId) : null;
-  if (!facts?.projectId) throw new AppSendError('not-found', `No session ${sessionId} on this computer`);
-  return { session: { id: sessionId, projectId: facts.projectId }, text: `${text}\n` };
+export async function dispatchForApp(
+  extensionId: string,
+  args: Record<string, unknown>,
+  page: Omit<DispatchHere, 'preselect' | 'local'> & { session: string | null },
+  effects: DesktopDispatchEffects,
+): Promise<{ to: unknown; id?: string; deferred?: true } | { cancelled: true }> {
+  const app = { extensionId, extensionName: extensionsService().get(extensionId).manifest.name };
+  const { visibleAgentsForExtension, spawnAgentForExtension } = await import('@main/core/extensions/extension-agents');
+  // This computer's agents → their sessions: a draft's only composers, and for the sheet the page's own agent, ticked first.
+  const agentsHere = () => visibleAgentsForExtension({ scope: 'all', extensionId });
+  const sheet = args.to === undefined || args.to === null ? await agentsHere() : null;
+  const { session, ...rest } = page;
+  const here: DispatchHere = {
+    ...rest,
+    preselect: (sheet && session && [...sheet].find(([, conversation]) => conversation === session)?.[0]) || null,
+    ...(sheet ? { local: [...sheet.keys()] } : {}),
+  };
+  return dispatchFromApp(
+    {
+      account,
+      pick: effects.pick,
+      draftInChat: effects.draftInChat,
+      agents: {
+        async draft(agent, text) {
+          if (!text) throw new AppSendError('invalid', 'Nothing to compose: text is empty');
+          const sessionId = (await agentsHere()).get(agent.agent);
+          const { agentSessionContext } = await import('@main/core/extensions/extension-agent-context');
+          const facts = sessionId ? await agentSessionContext(sessionId) : null;
+          if (!sessionId || !facts?.projectId) throw new AppSendError('not-found', `${agent.agent} is not an agent on this computer`);
+          await effects.draftInSession({ id: sessionId, projectId: facts.projectId }, `${text}\n`);
+          return agent.agent;
+        },
+        async tell(agent, text, how) {
+          // Named by the call: within the App's own reach. Picked by the person: any of theirs, here or on its computer.
+          const reach = agent.named ? extensionsService().agentReach(extensionId, 'agents:control') : 'all-machines';
+          const receipt = await messageAgentFromHostApp(app, reach, { agentId: agent.agent, text, ...how }, { from: effects.from });
+          return { agent: agent.agent, ...receipt };
+        },
+        async spawn(prompt, spawn, selectedDevice) {
+          // Checked where the call is read (app-dispatch-core `spawnOf`): a wrong field is refused there, never dropped here.
+          const { agentId } = await spawnAgentForExtension({ ...app, bySession: effects.from, prompt, ...spawn, ...(selectedDevice ? { device: `device:${selectedDevice}` } : {}) });
+          return agentId;
+        },
+      },
+    },
+    extensionId,
+    args,
+    here,
+  );
 }
 
 /**
@@ -132,29 +166,23 @@ async function tellSessionFromApp(
 }
 
 /**
- * `gugu.messageAgent(agentId, text)`: `agentId` (`user:<uuid>`, as `listAgents` gives it) is one of the agents this App
- * reaches — `agents:control` the ones it started, `:all` every one here, `:all-machines` also every one on the person's
- * other online computers (found in the same task lists `listAgents` reads). The door asked for `agents:control`. `from`:
- * the session of the agent that works the page (owner 10-14) — it is the one telling, so not itself.
+ * Telling one of the agents an App reaches (`dispatch` to `{ agent }`): `agentId` (`user:<uuid>`, as `listAgents` gives it)
+ * among those `reach` covers — here, or with `all-machines` on the person's other online computers (found in the same task
+ * lists `listAgents` reads). `from`: the session of the agent that works the page (owner 10-14) — it is the one telling.
+ * Installed Apps enter through `dispatchForApp`; built-in Apps must authorize their fixed recipient before entering here.
+ * This is not a renderer/remote RPC entry point and accepts no permission claims from an App page.
  */
-export async function messageAgentFromApp(
-  extensionId: string,
-  args: { agentId: unknown; text: unknown; queue?: unknown; defer?: unknown; key?: unknown },
+export async function messageAgentFromHostApp(
+  app: { extensionId: string; extensionName: string },
+  reach: AgentReach,
+  args: { agentId: string; text: unknown } & AppMessageOptions,
   options: { from?: string } = {},
 ): Promise<AppMessageReceipt> {
-  const to = String(args.agentId ?? '');
-  if (args.queue !== undefined && typeof args.queue !== 'boolean') throw new AppSendError('invalid', 'queue is true or false');
-  if (args.defer !== undefined && typeof args.defer !== 'boolean') throw new AppSendError('invalid', 'defer is true or false');
-  if (args.queue === true && args.defer === true) throw new AppSendError('invalid', 'queue or defer, not both');
-  if (args.key !== undefined && (typeof args.key !== 'string' || !args.key)) throw new AppSendError('invalid', 'key is a non-empty string');
-  const how: AppMessageOptions = {
-    ...(args.queue === true ? { delivery: 'queue' as const } : {}),
-    ...(args.defer === true ? { delivery: 'defer' as const } : {}),
-    ...(typeof args.key === 'string' ? { key: args.key } : {}),
-  };
+  const { extensionId } = app;
+  const to = args.agentId;
+  // Checked where the call is read (`dispatchCallOf`); a built-in App names its own.
+  const how: AppMessageOptions = { ...(args.delivery ? { delivery: args.delivery } : {}), ...(args.key ? { key: args.key } : {}) };
   const { visibleAgentsForExtension, sessionsElsewhere } = await import('@main/core/extensions/extension-agents');
-  const reach = extensionsService().agentReach(extensionId, 'agents:control');
-  const app = { extensionId, extensionName: extensionsService().get(extensionId).manifest.name };
   const sessionId = (await visibleAgentsForExtension({ scope: reach, extensionId })).get(to);
   if (sessionId) return tellSessionFromApp(app, sessionId, args.text, { ...how, ...options, to });
   if (reach !== 'all-machines') throw new AppSendError('not-found', `${to} is not an agent this App reaches on this computer`);

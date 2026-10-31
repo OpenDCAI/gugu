@@ -27,7 +27,7 @@
   {
     "rule": "console-member",
     "file": "apps/desktop/electron/main.ts",
-    "count": 25
+    "count": 24
   },
   {
     "rule": "console-member",
@@ -42,11 +42,6 @@
   {
     "rule": "console-member",
     "file": "apps/desktop/electron/session/main/core/acp/emdash-platform-injector.ts",
-    "count": 2
-  },
-  {
-    "rule": "console-member",
-    "file": "apps/desktop/electron/session/main/embedded-boot.ts",
     "count": 2
   },
   {
@@ -87,7 +82,7 @@
   {
     "rule": "console-member",
     "file": "apps/desktop/src/components/ChatAreaPanel.tsx",
-    "count": 6
+    "count": 1
   },
   {
     "rule": "console-member",
@@ -97,11 +92,6 @@
   {
     "rule": "console-member",
     "file": "apps/desktop/src/components/ContactsPanel.tsx",
-    "count": 2
-  },
-  {
-    "rule": "console-member",
-    "file": "apps/desktop/src/components/CopyValue.tsx",
     "count": 1
   },
   {
@@ -157,7 +147,7 @@
   {
     "rule": "console-member",
     "file": "apps/desktop/src/layouts/MainLayout.tsx",
-    "count": 3
+    "count": 1
   },
   {
     "rule": "console-member",

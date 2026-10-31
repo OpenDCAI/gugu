@@ -1,3 +1,4 @@
+import { verifiedFileHandle } from '../../../../../../../tests/helpers/verifiedFileHandle';
 import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
@@ -19,12 +20,15 @@ const directory = vi.hoisted(() => ({
 } as Record<string, { type: string; owner_user_id: string | null; display_name: string }>));
 // #7290 Cards by their message, as main reads them as the signed-in person (app-files.ts packageReads): the row the
 // server keeps (its publisher among it), and the link attachments/urls signs for its bytes.
-const cards = vi.hoisted(() => ({ rows: {} as Record<string, unknown>, signed: [] as unknown[] }));
+const cards = vi.hoisted(() => ({ rows: {} as Record<string, unknown>, signed: [] as unknown[], bytes: new Uint8Array() }));
 vi.mock('./app-files', () => ({
   readAccount: async (id: string) => directory[id] ?? null,
   packageReads: {
     message: async (id: string) => cards.rows[id] ?? null,
-    sign: async (source: unknown) => (cards.signed.push(source), 'https://cdn.test/ab/abab?auth_key=1'),
+    open: async (source: unknown) => {
+      cards.signed.push(source);
+      return verifiedFileHandle(cards.bytes, {}, async signal => new Uint8Array(await (await fetch('https://cdn.test/ab/abab?auth_key=1', { signal })).arrayBuffer()));
+    },
   },
 }));
 
@@ -66,11 +70,12 @@ async function sendInChat(id: string, permissions?: { network: string[] }, versi
   const dir = path.join(work, 'src', id);
   mkdirSync(dir, { recursive: true });
   writeFileSync(path.join(dir, 'manifest.json'), JSON.stringify({
-    id, name: 'Share', version, apiVersion: EXTENSION_API_VERSION, entry: 'index.html',
+    id, name: 'Share', version, apiVersion: EXTENSION_API_VERSION, platforms: ['desktop'], entry: 'index.html',
     ...(permissions ? { permissions } : {}), contributes: { tabs: [{ name: 'main', title: 'Share' }] },
   }));
   writeFileSync(path.join(dir, 'index.html'), '<!doctype html>');
   const { bytes, sha256 } = await packExtensionArchive(service, dir);
+  cards.bytes = new Uint8Array(bytes);
   const fetch = vi.fn(async () => new Response(new Uint8Array(bytes)));
   vi.stubGlobal('fetch', fetch);
   return { dir, sha256, fetch };

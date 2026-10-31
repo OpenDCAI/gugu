@@ -10,9 +10,11 @@ import App from './App'
 import { renderEntryRoot } from './lib/renderer-entry-root'
 import { AppErrorBoundary } from './components/AppErrorBoundary'
 import { captureReferralFromUrl } from './lib/referral'
+import { installScrollbarAutoHide } from './lib/scrollbarAutoHide'
 import { installWindowMaterialAttribute } from './lib/windowMaterial'
 import {
   hasWindowTitlebarRow,
+  rendererPlatformFor,
   titlebarActionsLane,
   windowControlsWidth,
   windowTitlebarHeight,
@@ -25,16 +27,19 @@ import { BuildTagBadge } from './components/BuildTagBadge'
 import { startFirstRunApps } from './components/appSlot/firstRunApps'
 import './i18n/registerMainCatalog'
 import './i18n/registerSettingsCatalog'
-import './i18n/registerDiscoverCatalog'
 import './i18n/registerMessagingCatalog'
 import './i18n/registerContactsCatalog'
 import './i18n/registerAgentsCatalog'
 import './i18n/registerAssistantCatalog'
 import './styles/sora.css'
 import './styles/tokens.css'
+import '@gugu/session-shared/animation-visibility.css'
+import { isAnimationWindowVisible } from '@gugu/session-shared/animation-visibility'
 import { installPerfCounterResponder } from './lib/perfCounterResponder'
 
 installPerfCounterResponder(window.electronAPI)
+// The shared getter also installs this document's native/DOM visibility listeners.
+isAnimationWindowVisible()
 
 installPlatformLocaleSync(platform, {
   getSnapshot: getLocaleSnapshot,
@@ -45,6 +50,11 @@ installPlatformLocaleSync(platform, {
 // 手机在这一页里自己装(firstRunApps.ts)。
 startFirstRunApps()
 
+// @@@scrollbar-autohide (#7641) 滚动条平时透明、滚动时浮出 —— 这里只负责在滚动的元素上打
+// `data-scrolling`,显隐规则在 styles/tokens.css。装在这里而不是某个组件的 effect 里:
+// 它是一条进程级的 DOM 监听,与任何一棵 React 子树的生死无关。
+installScrollbarAutoHide()
+
 // @@@1511 启动即捕获邀请链接 ?ref=<gugu_number>,暂存待注册时塞进 signup metadata(给双方发返利积分)。
 captureReferralFromUrl()
 
@@ -52,12 +62,9 @@ captureReferralFromUrl()
 // right window-control inset only where it actually draws controls. Mac keeps native traffic lights
 // (titleBarStyle:hiddenInset) reserved left via --titlebar-traffic-lights-width; Windows/Linux are
 // frameless (frame:false) and self-draw min/max/close on the right (--titlebar-controls-width). Only
-// the Electron renderer has either — the web build stays 'other' (no phantom inset). Electron's
-// renderer UA carries "Electron/x.y.z"; the OS probe mirrors the ⌘/Ctrl hint.
-const isElectronRenderer = typeof navigator !== 'undefined' && /Electron/i.test(navigator.userAgent)
+// the desktop renderer has either — the web build stays 'other' (no phantom inset); see rendererPlatformFor.
 // @@@host-os 系统探针只有 `@shared/host-os` 一条;这里把它收窄成「画什么窗口外壳」。
-const osKind = detectHostOs()
-const rendererPlatform = isElectronRenderer && osKind !== 'other' ? osKind : 'other'
+const rendererPlatform = rendererPlatformFor(detectHostOs(), window.desktopWindow)
 document.documentElement.dataset.platform = rendererPlatform
 document.documentElement.style.setProperty(
   '--titlebar-controls-width',

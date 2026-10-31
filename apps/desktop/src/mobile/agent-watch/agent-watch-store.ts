@@ -9,6 +9,7 @@ import type {
   SessionLiveReply,
   TurnPatch,
 } from '@gugu/session-core/session-record/contract'
+import { settlementFromWire } from '@gugu/session-core/session-record/contract'
 import type { ToolImage, ToolNode, TranscriptItem, TranscriptTurn } from '@gugu/session-core/acp/client'
 
 /**
@@ -39,6 +40,7 @@ export type AgentWatchTimeline = {
   /** 已发出、还排着没被 agent 接走的输入:那台机器上的队列,与桌面「Queued prompts」同一份。只读投影。 */
   queuedPrompts: NonNullable<TimelineSnapshot['queuedPrompts']>
   liveReply: SessionLiveReply | null
+  terminals: NonNullable<TimelineSnapshot['terminals']>
   /** 最近一次整份重载的原因;null = 没重载过。 */
   lastReset: RecordResetReason | null
   /**
@@ -58,6 +60,7 @@ export function emptyAgentWatchTimeline(): AgentWatchTimeline {
     lastActionAt: null,
     queuedPrompts: [],
     liveReply: null,
+    terminals: [],
     lastReset: null,
     needsSnapshot: null,
   }
@@ -69,7 +72,7 @@ function sortTurns(turns: TranscriptTurn[]): TranscriptTurn[] {
 
 function indexSettlements(settlements: readonly Settlement[]): Record<string, Settlement> {
   const next: Record<string, Settlement> = {}
-  for (const settlement of settlements) next[settlement.itemId] = settlement
+  for (const settlement of settlements) next[settlement.itemId] = settlementFromWire(settlement)
   return next
 }
 
@@ -92,7 +95,7 @@ function mergeSettlements(
   for (const settlement of incoming) {
     const existing = next[settlement.itemId]
     if (!reopen && existing && existing.state !== 'pending' && settlement.state === 'pending') continue
-    next[settlement.itemId] = settlement
+    next[settlement.itemId] = settlementFromWire(settlement)
   }
   return next
 }
@@ -160,6 +163,7 @@ export function applySnapshot(
     lastActionAt: snapshot.lastActionAt ?? null,
     queuedPrompts: snapshot.queuedPrompts ?? [],
     liveReply: snapshot.liveReply ?? null,
+    terminals: snapshot.terminals ?? [],
     lastReset: reset ?? state.lastReset,
     needsSnapshot: null,
   }
@@ -257,6 +261,7 @@ export function applyBatch(state: AgentWatchTimeline, batch: TimelineBatch): Age
     lastActionAt: batch.lastActionAt !== undefined ? batch.lastActionAt : state.lastActionAt,
     queuedPrompts: batch.queuedPrompts !== undefined && current ? batch.queuedPrompts : state.queuedPrompts,
     liveReply: current && batch.liveReply !== undefined ? batch.liveReply : state.liveReply,
+    terminals: current && batch.terminals !== undefined ? batch.terminals : state.terminals,
     // 一条正常增量到了 = 重载后的那份已经接上了,「时间线已整份重载」的横幅到此为止。
     // 以前这里原样保留 ⇒ 横幅一旦出现就挂到离开这一页(#3566 审计)。
     lastReset: null,

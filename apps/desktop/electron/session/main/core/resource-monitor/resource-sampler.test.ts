@@ -1,28 +1,62 @@
+import { EventEmitter } from 'node:events';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { resourceSnapshotChannel } from '@shared/events/resourceEvents';
 
 const metrics = vi.fn();
-vi.mock('electron', () => ({ app: { getAppMetrics: () => metrics() } }));
+const focusedWindow = vi.fn();
+const settings = vi.fn();
+const emit = vi.fn();
+const collect = vi.fn();
+const append = vi.fn();
+const appEvents = new EventEmitter();
+vi.mock('electron', () => ({
+  app: {
+    getAppMetrics: () => metrics(),
+    on: (event: string, listener: () => void) => appEvents.on(event, listener),
+    off: (event: string, listener: () => void) => appEvents.off(event, listener),
+  },
+  BrowserWindow: { getFocusedWindow: () => focusedWindow() },
+}));
 vi.mock('pidusage', () => ({ default: Object.assign(vi.fn(), { clear: vi.fn() }) }));
 vi.mock('@main/core/pty/pty-session-registry', () => ({ ptySessionRegistry: { listActiveSessions: () => [] } }));
 vi.mock('@main/core/settings/settings-service', () => ({
-  appSettingsService: { get: async () => ({ enabled: true, internals: false }) },
+  appSettingsService: { get: () => settings() },
 }));
-vi.mock('@main/lib/events', () => ({ events: { emit: vi.fn() } }));
+vi.mock('@main/lib/events', () => ({ events: { emit } }));
 vi.mock('@main/lib/logger', () => ({ log: { warn: vi.fn() } }));
-vi.mock('./renderer-metrics', () => ({ collectRendererMetrics: vi.fn() }));
+vi.mock('./renderer-metrics', () => ({ collectRendererMetrics: collect }));
+vi.mock('./context', () => ({ collectResourceContext: async () => ({ windows: [] }) }));
+vi.mock('./history', () => ({ resourceHistory: { append } }));
 
 function tab(cumulativeCPUUsage: number, pid = 7) {
   return { pid, type: 'Tab', cpu: { percentCPUUsage: 0, cumulativeCPUUsage }, memory: { workingSetSize: 1 } };
 }
 
+beforeEach(() => {
+  vi.resetAllMocks();
+  appEvents.removeAllListeners();
+  metrics.mockReturnValue([]);
+  focusedWindow.mockReturnValue({});
+  settings.mockResolvedValue({ enabled: true, internals: false });
+  collect.mockResolvedValue([]);
+  vi.useFakeTimers();
+  vi.setSystemTime(0);
+});
+afterEach(async () => {
+  (await import('./resource-sampler')).stopResourceSampler();
+  vi.useRealTimers();
+  vi.resetModules();
+});
+
 describe('resource sampler CPU', () => {
-  beforeEach(() => {
-    vi.useFakeTimers();
-    vi.setSystemTime(0);
-  });
-  afterEach(() => {
-    vi.useRealTimers();
-    vi.resetModules();
+  it('leaves missing process metrics unknown, then resumes real readings', async () => {
+    const { sampleOnce } = await import('./resource-sampler');
+    const missing = await sampleOnce();
+    expect(missing.app.memoryBytes).toBeUndefined();
+    expect(missing.app.cpuPercent).toBeUndefined();
+    metrics.mockReturnValue([tab(10)]);
+    const recovered = await sampleOnce();
+    expect(recovered.app.memoryBytes).toBe(1024);
   });
 
   it('reports CPU as the cumulativeCPUUsage delta, with no reading before a baseline', async () => {
@@ -63,5 +97,182 @@ describe('resource sampler CPU', () => {
     vi.setSystemTime(60_000);
     metrics.mockReturnValue([tab(40)]);
     expect((await sampleOnce()).appProcesses[0].cpu).toBeUndefined();
+  });
+
+});
+
+describe('resource sampler cadence', () => {
+  it('does no work and installs no focus listener before a panel opens', async () => {
+    await import('./resource-sampler');
+    appEvents.emit('browser-window-focus');
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(metrics).not.toHaveBeenCalled();
+    expect(collect).not.toHaveBeenCalled();
+    expect(appEvents.listenerCount('browser-window-focus')).toBe(0);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('uses 1.5 seconds in front, 10 seconds behind, and samples immediately on focus', async () => {
+    const { startResourceSampler } = await import('./resource-sampler');
+    startResourceSampler();
+    startResourceSampler();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(metrics).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1500);
+    expect(metrics).toHaveBeenCalledTimes(2);
+
+    focusedWindow.mockReturnValue(null);
+    // Finish the already scheduled foreground interval, then use the background delay.
+    await vi.advanceTimersByTimeAsync(1500);
+    expect(metrics).toHaveBeenCalledTimes(3);
+    await vi.advanceTimersByTimeAsync(9999);
+    expect(metrics).toHaveBeenCalledTimes(3);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(metrics).toHaveBeenCalledTimes(4);
+
+    focusedWindow.mockReturnValue({}); // A foreground auxiliary window also counts.
+    appEvents.emit('browser-window-focus');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(metrics).toHaveBeenCalledTimes(5);
+    await vi.advanceTimersByTimeAsync(1500);
+    expect(metrics).toHaveBeenCalledTimes(6);
+    expect(appEvents.listenerCount('browser-window-focus')).toBe(1);
+  });
+
+  it('waits for a slow sample to finish before starting the next interval', async () => {
+    const { startResourceSampler, setResourceMonitorOpen } = await import('./resource-sampler');
+    setResourceMonitorOpen('client', 'panel', true, 1, true);
+    let finish!: (value: []) => void;
+    collect.mockReturnValueOnce(new Promise<[]>((resolve) => { finish = resolve; }));
+    startResourceSampler();
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(collect).toHaveBeenCalledTimes(1);
+    expect(emit).not.toHaveBeenCalled();
+    finish([]);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(emit).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1499);
+    expect(collect).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(collect).toHaveBeenCalledTimes(2);
+  });
+
+  it('drops a late result after close and leaves no timer or focus listener', async () => {
+    const { startResourceSampler, stopResourceSampler, setResourceMonitorOpen } = await import('./resource-sampler');
+    setResourceMonitorOpen('client', 'panel', true, 1, true);
+    let finish!: (value: []) => void;
+    collect.mockReturnValueOnce(new Promise<[]>((resolve) => { finish = resolve; }));
+    startResourceSampler();
+    await vi.advanceTimersByTimeAsync(0);
+    stopResourceSampler();
+    finish([]);
+    appEvents.emit('browser-window-focus');
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(collect).toHaveBeenCalledTimes(1);
+    expect(emit).not.toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(0);
+    expect(appEvents.listenerCount('browser-window-focus')).toBe(0);
+  });
+
+  it('waits out an old collection on rapid reopen, discards it, and takes a fresh one', async () => {
+    const { startResourceSampler, stopResourceSampler, setResourceMonitorOpen } = await import('./resource-sampler');
+    setResourceMonitorOpen('client', 'panel', true, 1, true);
+    let finish!: (value: []) => void;
+    collect.mockReturnValueOnce(new Promise<[]>((resolve) => { finish = resolve; }));
+    startResourceSampler();
+    await vi.advanceTimersByTimeAsync(0);
+    stopResourceSampler();
+    startResourceSampler();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(collect).toHaveBeenCalledTimes(1);
+    finish([]);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(collect).toHaveBeenCalledTimes(2);
+    expect(emit).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports an unsuccessful sample and keeps the next interval alive', async () => {
+    const { startResourceSampler, setResourceMonitorOpen } = await import('./resource-sampler');
+    setResourceMonitorOpen('client', 'panel', true, 1, true);
+    collect.mockRejectedValueOnce(new Error('renderer unavailable'));
+    startResourceSampler();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(emit).toHaveBeenNthCalledWith(1, resourceSnapshotChannel, null);
+    await vi.advanceTimersByTimeAsync(1500);
+    expect(emit).toHaveBeenNthCalledWith(2, resourceSnapshotChannel, expect.objectContaining({ timestamp: 1500 }));
+  });
+
+  it('finishes loading when settings disable the sampler or cannot be read', async () => {
+    const { setResourceMonitorOpen } = await import('./resource-sampler');
+    settings.mockResolvedValueOnce({ enabled: false });
+    setResourceMonitorOpen('client', 'panel', true, 1, false);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(emit).toHaveBeenLastCalledWith(resourceSnapshotChannel, null);
+    emit.mockClear();
+    settings.mockRejectedValueOnce(new Error('settings unavailable'));
+    setResourceMonitorOpen('client', 'panel', true, 2, false);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(emit).toHaveBeenCalledWith(resourceSnapshotChannel, null);
+    expect(metrics).not.toHaveBeenCalled();
+  });
+});
+
+describe('page-scoped advanced diagnostics', () => {
+  it('does no sampling while disabled, even if a page subscribes', async () => {
+    const { setResourceMonitorOpen } = await import('./resource-sampler');
+    settings.mockResolvedValue({ enabled: false });
+    setResourceMonitorOpen('client', 'page', true, 1, false);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(metrics).not.toHaveBeenCalled();
+    expect(collect).not.toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('samples internals only while expanded, but continues recording after leaving', async () => {
+    const { setResourceMonitorOpen } = await import('./resource-sampler');
+    // Older versions stored this flag. It must not enable collection on the new page.
+    settings.mockResolvedValue({ enabled: true, internals: true });
+    setResourceMonitorOpen('client', 'page', true, 1, false);
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(metrics).toHaveBeenCalled(); // Positive control: the ordinary sampler really ran.
+    expect(collect).not.toHaveBeenCalled();
+    setResourceMonitorOpen('client', 'page', true, 2, true);
+    await vi.advanceTimersByTimeAsync(1500);
+    expect(collect).toHaveBeenCalledTimes(1);
+    setResourceMonitorOpen('client', 'page', true, 3, false);
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(collect).toHaveBeenCalledTimes(1);
+    setResourceMonitorOpen('client', 'page', false, 4, false);
+    const calls = metrics.mock.calls.length;
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(metrics.mock.calls.length).toBeGreaterThan(calls);
+    expect(append.mock.calls.length).toBeGreaterThan(calls);
+    expect(vi.getTimerCount()).toBe(1);
+  });
+  it('records without any page or popup, and stops only when the setting is disabled', async () => {
+    const { reconcileResourceSampler } = await import('./resource-sampler');
+    settings.mockResolvedValue({ enabled: false });
+    await reconcileResourceSampler();
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(append).not.toHaveBeenCalled();
+    expect(metrics).not.toHaveBeenCalled();
+    settings.mockResolvedValue({ enabled: true });
+    await reconcileResourceSampler();
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(append).toHaveBeenCalledTimes(3);
+    expect(emit).not.toHaveBeenCalled(); // No renderer subscriptions / hidden DOM work.
+    settings.mockResolvedValue({ enabled: false });
+    await reconcileResourceSampler();
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(append).toHaveBeenCalledTimes(3);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+  it('does not let a delayed old open restart advanced collection after its view closes', async () => {
+    const { setResourceMonitorOpen } = await import('./resource-sampler');
+    setResourceMonitorOpen('client', 'page', false, 2, false);
+    setResourceMonitorOpen('client', 'page', true, 1, true);
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(metrics).toHaveBeenCalled();
+    expect(collect).not.toHaveBeenCalled();
   });
 });

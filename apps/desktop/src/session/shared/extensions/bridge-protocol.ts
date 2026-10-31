@@ -1,4 +1,5 @@
 import type { AppFileEntry, AppFileRef, AppPlace } from './app-runtime-protocol';
+import { dispatchNeeds, dispatchNeedsGesture } from './app-dispatch-core';
 import type { ExtensionCapability } from './manifest';
 
 /**
@@ -10,10 +11,11 @@ import type { ExtensionCapability } from './manifest';
  * presentation**, never about lending an extension the host's authority: it can
  * ask the host to do a bounded thing on its behalf, and the host decides how.
  *
- * ⚠️ Every verb here is either free (it only concerns the extension's own tab)
- * or gated by exactly one declared capability. There is no "and also" verb: a
- * call that needed two permissions would make the plain-words consent list
- * ("this extension may…") stop describing what actually happens.
+ * ⚠️ Every call here is either free (it only concerns the extension's own tab)
+ * or gated by exactly one declared capability — which one may follow from what
+ * the call names (`dispatch`: its target), never two at once. There is no "and
+ * also" call: one that needed two permissions would make the plain-words consent
+ * list ("this extension may…") stop describing what actually happens.
  *
  * ❌ This is not an imperative host API. Menus, toolbars and icons are
  * *declared* in the manifest and drawn by the host — an extension that could
@@ -48,8 +50,28 @@ export const EXTENSION_THEME_CHANNEL = 'gugu-ext:theme';
  * 8, and a client that knows only 7 is handed the App's last version for 7.
  * 9 (10-20, 论坛): `gugu.forum.*` (app-forum-core.ts). An App that calls it says 9, so a client without it is handed the
  * App's last version for 8 instead of a page whose calls are missing.
+ * 10 (10-23): `gugu.compose(text)` may name no place — the host asks the person where (`ComposeTargetPicker`). An App that
+ * leaves it to the host says 10: a client before it refuses the call (`Say where`), and is handed the App's last version for 9.
+ * 11: gugu.modal opens a sandboxed App page in the host's window-level dialog shell, on desktop and phone.
+ * 12: `platforms` declares the human-facing interface's supported devices. Earlier strict schemas refuse the field,
+ * so the market must hand those clients their previous App version. Installed older Apps still run on this client.
+ * 13: common resource linkTo/openLink on desktop, phone and programs (generation only).
+ * 14 (10-24): a tab's `chatFile` names the file it shows when the App is opened in a chat, so that open and the file opened
+ * from the folder are one tab. Earlier strict schemas refuse the field: the market hands those clients the App's last version for 13.
+ * 15 (10-25, owner「全部统一」): `gugu.dispatch` (app-dispatch-core.ts) is the one way an App hands something to someone;
+ * `compose`, `send`, `messageAgent` and `spawnAgent` are gone (a call to one says where it went, `DISPATCH_GONE`). An App
+ * that dispatches says 15, so a client before it is handed the App's last version for 14. The oldest supported stays
+ * (manifest.ts): an App that never handed anything to anyone runs as it did.
+ * 16 (10-26, owner「根据该页面自己的声明」): a tab's `sideWidth` says how wide its page is beside a chat or a task's
+ * conversation. Earlier strict schemas refuse the field: the market hands those clients the App's last version for 15.
+ * 17: explicit-device App programs, read-only external session history/context, and dispatch spawn.device.
  */
-export const EXTENSION_API_VERSION = 9;
+// 18: explicit App-data create/open options, metadata, per-chat folder preferences and the shared host context menu.
+// 19: a chat file's cloud copy kept for a while or until deleted (`files.keep`), and how long it is kept (`entry.keep`).
+// 20: several files at once — `files.download([…])` (one folder on the desktop, the share sheet on the phone) and
+// `files.keep([…], how)`.
+// 21: tools modules receive the real MCP per-call AbortSignal in run(args, call).
+export const EXTENSION_API_VERSION = 22;
 
 /**
  * The page `app_check` runs is started with this argument (摩擦单 F5, F69): it says how often it wrote, set presence and
@@ -138,6 +160,8 @@ export interface ExtensionHostContext {
    * instances apart. Absent on a page nobody draws — the background page, a program.
    */
   tabId?: string;
+  /** A host modal's initial data, under the opener's context and existing grants. */
+  modal?: { data?: unknown };
   /**
    * The chat this surface is drawn for (its panel, 「在本群打开」): a group, a topic or a private chat, with who is in
    * it — changes arrive by `onContextChanged`. Absent is a real answer: not in a chat. ❌ No `placement` field: an App
@@ -315,16 +339,18 @@ export interface ExtensionAgentView {
   /** Which engine is behind it, or `null` when the host never recorded one. */
   providerId: string | null;
   /**
-   * Its model, as `spawnAgent` (and `session_spawn`) take one back: a Gugu model's `platform:<id>`, else the engine's
+   * Its model, as `dispatch` to a new agent (and `session_spawn`) take one back: a Gugu model's `platform:<id>`, else the engine's
    * own; `null` when the session never chose one (its engine's default).
    */
   model: string | null;
-  /** Where it runs: `'acp'` a chat panel, `'pty'` a terminal — the words `spawnAgent` and `session_spawn` take. */
+  /** That model's name as gugu's model menu shows it (a Gugu model's display name). Show `modelLabel ?? model`: `null` for an engine's own model, or when the catalog cannot name it. */
+  modelLabel: string | null;
+  /** Where it runs: `'acp'` a chat panel, `'pty'` a terminal — the words `dispatch`'s `spawn` and `session_spawn` take. */
   transport: 'acp' | 'pty';
   /** The agent this one is listed under (its parent in the session list); null for a root. Not who spawned it. */
   parentAgentId: string | null;
   /**
-   * This extension started it with `spawnAgent`. Such an agent lives in a session of
+   * This extension started it (`dispatch` to `{ new: true }`). Such an agent lives in a session of
    * its own, and is in this extension's own scope anyway. Only「是不是我」—
    * ❌ 不给别的扩展的 id。
    */
@@ -438,7 +464,10 @@ export interface ExtensionAgentHistoryPage {
 
 /** Events the host pushes to a surface. Each is a fact, never a command. */
 export type ExtensionHostEvent =
+  | { type: 'projection'; watchId: string; packet: import('./projection-protocol').ProjectionHostPacket }
+  | { type: 'projectionSource'; event: import('./projection-protocol').ProjectionSourceEvent }
   | { type: 'context'; context: ExtensionHostContext }
+  | { type: 'modalFocus'; edge: 'first' | 'last' }
   /**
    * The user picked something the extension declared in its manifest.
    *
@@ -487,7 +516,7 @@ export type ExtensionHostEvent =
    * `resync` (a working copy only) means "re-read what you care about": the watcher lost its place. It carries no paths
    * on purpose — a guessed set would be worse.
    */
-  | { type: 'filesChanged'; place: AppPlace; change: ExtensionFileChangeBatch }
+  | { type: 'filesChanged'; watchId: string; place: AppPlace; change: ExtensionFileChangeBatch }
   /**
    * What the app is showing moved — a pane switched tabs, the view split, the
    * user changed session, or the window gained or lost the foreground.
@@ -576,8 +605,8 @@ export type ExtensionFileChangeBatch =
 
 /** Everything the host knows about one verb — one row each in `BRIDGE_VERBS`. */
 export interface VerbFacts {
-  /** The capability it needs, or null when it needs none. */
-  needs: ExtensionCapability | null;
+  /** The capability it needs, or null when it needs none — or which one, from what the call names (`dispatch`'s target). */
+  needs: ExtensionCapability | null | ((args: Record<string, unknown>) => ExtensionCapability | null);
   /**
    * Which caller has it, when not every one does (真源原则 13: where a page is only fills its context, so a verb answers
    * the same for a page, the background page and a program). Absent: all of them.
@@ -585,16 +614,17 @@ export interface VerbFacts {
    * - `background`: the background page's word to the App's pages.
    * A host leaves out the members it has not (`typeof gugu.x`), so none of them stands there refusing.
    */
-  only?: 'page' | 'background';
+  only?: 'page' | 'background' | 'program';
   /**
    * Only inside the person's gesture (a click, a key), checked where a page script can neither fake nor extend it:
-   * `true` always; `'to-pick'` only when the host is to show its picker (no bytes handed over).
+   * `true` always; a function, for the calls that need one — when the host is to show its picker (`filesUpload` with no
+   * bytes, `dispatch` with no target) or fill a composer. Only a page has a gesture: from anyone else such a call is refused.
    */
-  gesture?: true | 'to-pick';
+  gesture?: true | ((args: Record<string, unknown>) => boolean);
   /**
    * It reaches the person's screen (a browser tab, a banner, the clipboard, a picker …). On a page an agent works (owner
-   * 10-14) it is not done but handed back to that agent (`CheckReadings.shown`), and answered with `answer`; with
-   * `gesture: 'to-pick'`, only when the host is to show its picker.
+   * 10-14) it is not done but handed back to that agent (`CheckReadings.shown`), and answered with `answer`; a verb whose
+   * gesture is a function, only for the calls that need one (the others reach no screen).
    */
   toAgent?: { answer: unknown };
   /**
@@ -613,8 +643,23 @@ export interface VerbFacts {
  * and a row without any of its facts does not build.
  */
 export const BRIDGE_VERBS = {
+  /** Generic picture/input resources. Scope comes from the host's task binding, not the argument object. */
+  projectionCreate: { needs: 'agents:tools', only: 'program' },
+  projectionPublish: { needs: 'agents:tools', only: 'program' },
+  projectionClose: { needs: 'agents:tools', only: 'program' },
+  projectionClosed: { needs: 'agents:tools', only: 'program' },
+  projectionInputResult: { needs: 'agents:tools', only: 'program' },
+  projectionWatch: { needs: 'agents:tools', only: 'page' },
+  projectionUnwatch: { needs: 'agents:tools', only: 'page' },
+  projectionSend: { needs: 'agents:tools', only: 'page' },
+  /** The App's own sandboxed page, in the host's dialog shell. No new authority or per-call consent. */
+  modalOpen: { needs: null, only: 'page', toAgent: { answer: null } },
+  modalClose: { needs: null, only: 'page' },
+  /** Runtime keyboard traversal at the edge of a modal guest; not an App-facing member. */
+  modalKey: { needs: null, only: 'page' },
   /** Facts about where this surface sits. */
   getContext: { needs: null },
+  showContextMenu: { needs: null, only: 'page' },
   /**
    * What the app is showing right now.
    *
@@ -647,17 +692,12 @@ export const BRIDGE_VERBS = {
   /** 后台 → 自己所有活着的视图。同上,不要能力。 */
   broadcastToViews: { needs: null, only: 'background' },
   /**
-   * Put text in the composer of the conversation open here — the group's, or the agent's in a session — and show
-   * it. Nothing is sent: the person @s whom they like and sends it, as their own message, or not at all. Handed to the
-   * host's own composer, never drawn in the App. No capability: the last step is the person's; the
-   * gesture is what keeps a page from filling the composer on its own.
+   * Hand something to someone (15, app-dispatch-core.ts): a member of a chat (a whisper, or `visible`), one of the person's
+   * agents, a new agent — or only a draft into a chat's or an agent's composer. No target: the person picks in the host's
+   * sheet, seeing all that will go, and their press is the consent; a named target needs what its delivery always needed.
+   * An agent working the page is handed back what would have reached the person's screen, answered as cancelled.
    */
-  compose: { needs: null, toAgent: { answer: undefined }, gesture: true, only: 'page' },
-  /**
-   * Tell someone in a chat that something happened in the App (摩擦单 F16, 真源 §4): a whisper in the name of whoever works
-   * the page, in the chat the call names (`chat`, or the file it is `about`) — wherever the page is.
-   */
-  send: { needs: 'chat:relay' },
+  dispatch: { needs: dispatchNeeds, gesture: dispatchNeedsGesture, toAgent: { answer: { cancelled: true } } },
   /**
    * A chat's messages, as whoever reads sees them (`app-messages-core.ts`): a stretch of its timeline or one thread, and the
    * ones holding a piece of text or naming a file — the doors an agent's `message_history` / `message_search` take.
@@ -679,8 +719,8 @@ export const BRIDGE_VERBS = {
    * 论坛 (9): a page's, public to every signed-in person, read and written as the person (app-forum-core.ts); the database judges who may
    * see and do what. Writing is a page's, in the person's gesture. A bounty's points move only behind a sheet the host draws:
    * `forumPost` with a bounty and `forumAward` answer `{ confirming: true }` once it is up, and the page hears the outcome from
-   * `forumSubscribe`. `forumAssign` opens the host's list of the person's own agents (no capability: the App never lists
-   * them) and answers `{ confirming: true }` too; an `agentId` only preselects one.
+   * `forumSubscribe`. `forumAssign` opens the host's 「交给谁」 sheet on the person's own agents (no capability: the App never
+   * lists them; an `agentId` only preselects one) and answers `{ assigned: { agent } }` once the forum took it, or `{ cancelled: true }`.
    */
   forumList: { needs: null, only: 'page' },
   forumRead: { needs: null, only: 'page' },
@@ -693,8 +733,6 @@ export const BRIDGE_VERBS = {
   forumAward: { needs: null, gesture: true, only: 'page' },
   forumSubscribe: { needs: null, only: 'page' },
   forumUnsubscribe: { needs: null, only: 'page' },
-  /** Tell one of the agents this App reaches, as `session_message` tells it: a stopped one is woken first. */
-  messageAgent: { needs: 'agents:control' },
   /**
    * The agents at work, and how each one is doing.
    *
@@ -713,14 +751,16 @@ export const BRIDGE_VERBS = {
    * hand over the conversation to get a status light.
    */
   readAgentHistory: { needs: 'agents:history' },
+  /** External CLI history is every session, never only the agents this App started. */
+  sessionsIndex: { needs: 'agents:history:all', machine: true },
+  sessionsRead: { needs: 'agents:history:all', machine: true },
   /**
-   * Acting on an agent: start one, stop one, give one another turn.
+   * Stopping one of the agents this App reaches (starting one, telling one: `dispatch`).
    *
    * ❌ 没有第二道闸。谨慎发生在安装那一刻,不在调用那一刻(behavior tab-extensions)。
    * 起会话和投轮次确实会消耗额度,但那是使用这个产品的后果,不是一个需要独立守卫
    * 的类别 —— agent 早就能递归起 agent,中间也没有预算闸。
    */
-  spawnAgent: { needs: 'agents:control' },
   stopAgent: { needs: 'agents:control' },
   /**
    * The extension's own data folder, shared with the MCP programs it runs
@@ -763,8 +803,11 @@ export const BRIDGE_VERBS = {
   filesSearch: { needs: 'files:read' },
   filesRecent: { needs: 'files:read' },
   filesCreate: { needs: 'files:write' },
+  filesViewPreferences: { needs: 'files:read', only: 'page' },
   filesRemove: { needs: 'files:write' },
   filesRename: { needs: 'files:write' },
+  /** 「设为临时 / 一直保留」: the person's own upload, from the page they act in (an App's program has no say in it). */
+  filesKeep: { needs: 'files:write', only: 'page' },
   /** 子文件夹: a folder made (all the way down; one already there is answered), and a file or folder moved into another. */
   filesMkdir: { needs: 'files:write' },
   filesMove: { needs: 'files:write' },
@@ -782,7 +825,7 @@ export const BRIDGE_VERBS = {
    * Upload bytes the caller has — a page, a background page, an App's program (G5) — or files the person picks in the
    * host's picker (a page's, only inside a gesture, checked in the preload). The credential stays in main (真源 §2.4).
    */
-  filesUpload: { needs: 'files:write', toAgent: { answer: [] }, gesture: 'to-pick' },
+  filesUpload: { needs: 'files:write', toAgent: { answer: [] }, gesture: (args) => args.pick === true },
   /** Save a file to disk through the host's save dialog, inside a gesture. Gated like open. */
   filesDownload: { needs: null, toAgent: { answer: true }, gesture: true, only: 'page' },
   /**
@@ -805,7 +848,7 @@ export const BRIDGE_VERBS = {
   showSession: { needs: null, toAgent: { answer: undefined }, gesture: true, only: 'page' },
   /**
    * The person clicked a link of gugu's own in the page (what `linkTo` makes): it opens through the one opener a link
-   * from outside gugu takes (`openExtensionLink`). Not on `window.gugu`: the preload sends it from a real click on an
+   * from outside gugu takes. Public on `window.gugu`; the runtime also sends a real click on an
    * `<a>`; a page script that moves `location` is still stopped at `will-navigate`, and any other link is still refused.
    */
   openLink: { needs: null, toAgent: { answer: undefined }, gesture: true, only: 'page' },
@@ -838,7 +881,12 @@ export function verbFacts(method: string): VerbFacts | undefined {
  */
 export function needsGesture(method: string, args: unknown): boolean {
   const gesture = verbFacts(method)?.gesture;
-  return gesture === true || (gesture === 'to-pick' && (args as { pick?: unknown } | null)?.pick === true);
+  return gesture === true || (typeof gesture === 'function' && gesture((args ?? {}) as Record<string, unknown>));
+}
+
+/** The capability this call needs, by its verb's row (for `dispatch`, by the target it names). */
+export function capabilityNeeded(facts: VerbFacts, args: unknown): ExtensionCapability | null {
+  return typeof facts.needs === 'function' ? facts.needs((args ?? {}) as Record<string, unknown>) : facts.needs;
 }
 
 /** A call made outside the gesture it needs, refused — in these words on every host. */
@@ -864,22 +912,25 @@ export function callRefusal(
   // Not on its `gugu` at all (`typeof gugu.x`): only a caller that went around its host gets here.
   if (facts.only && facts.only !== caller.kind) return { code: 'invalid', message: `${method} is ${CALLER_WORDS[facts.only]}'s; ${CALLER_WORDS[caller.kind]} has none` };
   // Named so the author can see which declaration is missing (or was taken back) instead of guessing why a call stopped working.
-  if (facts.needs !== null && !caller.has(facts.needs)) return { code: 'denied', message: `Not permitted: this App does not have "${facts.needs}"` };
-  if (caller.gesture === false && needsGesture(method, args)) return gestureRefusal(method);
+  const needs = capabilityNeeded(facts, args);
+  if (needs !== null && !caller.has(needs)) return { code: 'denied', message: `Not permitted: this App does not have "${needs}"` };
+  // Only a page has a gesture: the background page and a program never make a call that needs one.
+  if ((caller.gesture === false || caller.kind !== 'page') && needsGesture(method, args)) return gestureRefusal(method);
   return null;
 }
 
 /**
- * Every code a verb's failure carries out to the App (`gugu.files` and `send` say which failure it was, and an App
+ * Every code a verb's failure carries out to the App (`gugu.files` and `dispatch` say which failure it was, and an App
  * branches on that) — one list, which the answer's type and the runtime's `GuguErrorCode` are made of.
  * - `denied` is the only one that means the user said no.
  * - `not-found` / `ambiguous`: `gugu.files` naming a file that is not there, or not only once.
  * - `too-large`: an upload over the workspace's per-file limit.
- * - `rate-limited`: `send` over the server's limit (30 a minute per person and App); later ones go through.
+ * - `rate-limited`: `dispatch` to a member of a chat over the server's limit (30 a minute per person and App); later ones go through.
  * - `content-changed`: `files.replace(…, { expectedVersion })` on a file replaced since that version was read.
  * - `unavailable`: `readAgentHistory` on an agent that is there, whose conversation gugu has no way to read now (not open,
  *   and its engine keeps no record gugu reads) — apart from `not-found`, an agent you cannot see (#7126); and a `machine`
- *   verb (`callProgram`, the data folder) for a session on another machine that is offline, too old or did not answer.
+ *   verb (`callProgram`, the data folder) for a session on another machine that is offline, too old or did not answer;
+ *   or `files.replace` when the machine keeping the chat's files is offline or did not take the new version in time.
  * - `not-installed` / `version-mismatch`: a `machine` verb for a session on another machine, where this App is not
  *   installed, or another version of it is.
  * - `name-taken` (子文件夹): a rename or a move to a name another file of that folder already has (case not counted).

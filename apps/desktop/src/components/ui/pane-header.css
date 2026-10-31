@@ -1,0 +1,29 @@
+/* Structured headers opt into explicit roles; existing PaneHeader callers keep their geometry. */
+.gg-pane-header .gg-pane-heading {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.gg-pane-header .gg-pane-heading-leading { display: flex; align-items: center; flex: none; }
+.gg-pane-header .gg-pane-heading-copy { display: flex; flex-direction: column; flex: 1 1 auto; min-width: 0; }
+.gg-pane-header .gg-pane-heading .gg-pane-heading-title[data-title-level] { flex: none; letter-spacing: 0; }
+.gg-pane-header .gg-pane-heading .gg-pane-heading-title[data-title-level='panel'] {
+  font-size: var(--font-title);
+  line-height: var(--lh-title);
+}
+.gg-pane-header .gg-pane-heading .gg-pane-heading-title[data-title-level='page'] {
+  font-size: var(--font-size-xl);
+  line-height: var(--lh-page);
+}
+.gg-pane-header .gg-pane-heading-subtitle {
+  min-width: 0;
+  color: var(--muted-fg);
+  font-size: var(--font-caption);
+  line-height: var(--lh-caption);
+  font-weight: var(--font-weight-regular);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

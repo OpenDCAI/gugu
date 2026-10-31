@@ -79,7 +79,7 @@ function DarkInputField({ type = 'text', value, onChange, placeholder, autoCompl
         </span>
       )}
       <style>{`
-        input::placeholder { color: var(--auth-card-placeholder); }
+        .gugu-auth-input::placeholder { color: var(--auth-card-placeholder); font-size: var(--font-body); letter-spacing: normal; font-family: var(--font-family-system); }
         /* #7333 与主按钮同高:突出入口 40,触控 44(同 ui/Button xl 的 max-[719px] 档) */
         .gugu-auth-input { height: var(--control-h-xl); }
         @media (max-width: 719px) { .gugu-auth-input { height: var(--control-h-touch); } }

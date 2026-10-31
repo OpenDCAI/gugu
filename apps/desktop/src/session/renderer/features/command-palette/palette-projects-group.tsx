@@ -5,7 +5,7 @@ import {
   asMounted,
   getProjectManagerStore,
 } from '@renderer/features/projects/stores/project-selectors';
-import { isImplicitSessionHomeProject } from '@renderer/features/sessions/session-home-project-constants';
+import { isWorkspaceProject } from '@renderer/features/sessions/session-home-project-constants';
 import type { NavigateFnTyped } from '@renderer/lib/layout/navigation-provider';
 import { cn } from '@renderer/utils/utils';
 import { PALETTE_ITEM_CLASS } from './palette-item-styles';
@@ -35,7 +35,7 @@ export function PaletteProjectsGroup({
   const projects = useObserver(() => {
     const result: Array<{ id: string; name: string }> = [];
     for (const store of getProjectManagerStore().projects.values()) {
-      if (isImplicitSessionHomeProject(store)) continue;
+      if (isWorkspaceProject(store)) continue;
       const mounted = asMounted(store);
       if (!mounted) continue;
       if (mounted.data.id === currentProjectId) continue;

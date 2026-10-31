@@ -21,6 +21,8 @@ import '@gugu/session-ui/styles/base.css';
 import '@gugu/session-ui/styles/typography.css';
 import '@gugu/session-ui/styles/overflow-fade.css';
 import './index.css';
+import '@gugu/session-shared/animation-visibility.css';
+import { isAnimationWindowVisible } from '@gugu/session-shared/animation-visibility';
 // @@@font-single-source (#3334) — 等宽规格是 JetBrains Mono Variable(见 tokens.css 的
 // --font-family-mono)。它的 @font-face 从前只由 ChatRoot 引入,于是「开过 transcript」与
 // 「没开过」两种状态下,会话页其余地方的等宽字是两张脸。在入口引一次,让它恒定可用。
@@ -42,9 +44,11 @@ import { wireProgramNotifications } from '@renderer/features/extensions/wire-pro
 import { wireAppQuit } from '@renderer/features/extensions/app-dock';
 import { wireExtensionHostActions } from '@renderer/features/extensions/wire-extension-host-actions';
 import { setupAppCommandProvider } from '@renderer/lib/commands/app-commands';
-import { setupViewCommandProvider } from '@renderer/lib/commands/registry';
+import { setupExtensionCommandProvider } from '@renderer/features/extensions/extension-command-provider';
+import { setupViewCommandProvider } from '@renderer/lib/commands/view-command-provider';
 import { wireCommitHistoryInvalidation } from '@renderer/lib/commit-history-invalidation';
 import { wireExternalLinkRequests } from '@renderer/lib/external-link-requests';
+import { wireSessionsOnScreenReport } from '@renderer/app/sessions-on-screen';
 import { rpc } from '@renderer/lib/ipc';
 import { wireModelRegistryInvalidation } from '@renderer/lib/monaco/invalidation-bridges';
 import { monacoBootstrap } from '@renderer/lib/monaco/monaco-bootstrap';
@@ -62,6 +66,10 @@ import { setEmbedVisible, setPortalContainer } from './lib/portal-container';
 import { setEmbedView, type EmbedView } from './lib/stores/embed-view';
 import { installSessionStartupFailureBridge } from './features/sessions/stores/session-startup-failures';
 import { installSessionViewRequestBridge } from './features/sessions/stores/session-view-requests';
+import { openChatOnScreen } from './features/chats/open-chat';
+import { showGroupParticipant } from './features/chats/group-participant-actions';
+import { groupParticipantRequests } from './features/chats/group-participant-requests';
+import { wireGroupParticipantAccount } from './features/chats/group-participant-account';
 import { installSessionTabViews, prewarmSessionTabViews } from './features/sessions/session-tab-views';
 import { appState } from './lib/stores/app-state';
 import { SessionLocalizationProvider } from './localization/localization-provider';
@@ -118,6 +126,8 @@ function renderSessionTree(container: HTMLElement, mountEl: HTMLElement | undefi
 }
 
 async function bootstrap() {
+  // Install the shared document listeners before any animated surface mounts.
+  isAnimationWindowVisible();
   // Portals (Base UI dialogs/popovers/tooltips + raw createPortal) must stay inside the shadow
   // root — document.body is outside it and has none of the session page's CSS (dialogs render as bare
   // unstyled text there). Give them a dedicated layer next to the app mount. Must run before
@@ -139,8 +149,13 @@ async function bootstrap() {
   // ⚠️ 必须在下面那个热更新早返回**之前**:热更新会重新求值整条 import 链,账本是新的一份 module 实例,
   //    桥要跟着指向新的那份,否则宿主读的是旧实例里那张永远空着的 Map。装桥本身幂等,每次求值都装无妨。
   installSessionStartupFailureBridge(window);
-  // #7167 聊天页那颗模式按钮选了编程 / 通用:打开任务之后请这一页换展示(session-view-requests.ts)。同上,热更新前装。
-  installSessionViewRequestBridge(window);
+  wireGroupParticipantAccount();
+  // gugu-dev#181 壳要打开一条对话:对话是这屏的一块(项目群开项目块)(session-view-requests.ts)。同上,热更新前装。
+  installSessionViewRequestBridge(window, {
+    openChat: openChatOnScreen,
+    openGroupChat: (sourceChatId, chatId) => showGroupParticipant(sourceChatId, { kind: 'chat', chatId }),
+    prepareGroupSession: (sourceChatId, target) => groupParticipantRequests.prepare(sourceChatId, target),
+  });
   installRemoteHostSessionpageBridges(window, () => appState.navigation.navigate('new-session'));
   if (hasEntryRoot(container)) {
     renderSessionTree(container, mountEl);
@@ -194,6 +209,8 @@ async function bootstrap() {
   wirePrCacheInvalidation();
   wireCommitHistoryInvalidation();
   wireExternalLinkRequests();
+  // 屏上的会话报给主进程:闲置回收不停人正看着的会话(spec idle-reclaim「不在屏上」)。
+  wireSessionsOnScreenReport();
 
   initSoundPlayer();
 
@@ -252,6 +269,7 @@ async function bootstrap() {
   setupNavigationGuards();
   if (navResult) appState.navigation.restoreSnapshot(navResult);
   setupAppCommandProvider();
+  setupExtensionCommandProvider();
   setupViewCommandProvider();
   if (sidebarResult) {
     appState.sidebar.restoreSnapshot(sidebarResult as Partial<SidebarSnapshot>);

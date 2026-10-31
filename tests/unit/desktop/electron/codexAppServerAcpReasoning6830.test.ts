@@ -1,3 +1,4 @@
+import { observeCodexForegroundCompletion } from '../../../support/codexForegroundCompletion';
 // @@@vitest-environment node
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { chmodSync, mkdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
@@ -26,6 +27,7 @@ const TERRA = { type: 'reasoning', id: 'rs-terra', summary: ['**Timing the trip*
 const GLM = { type: 'reasoning', id: 'rs-glm', summary: [], content: ['We need execute.'] }
 rl.on('line', (line) => {
   const m = JSON.parse(line)
+  if (m.method === 'turn/start' || m.method === 'turn/steer') process.stdout.write(JSON.stringify({ method: 'item/started', params: { item: { type: 'userMessage', id: 'user-' + m.id, clientId: m.params.clientUserMessageId, content: m.params.input } } }) + '\\n')
   if (m.id === undefined || !m.method) return
   if (m.method === 'thread/start' || m.method === 'thread/resume') return out({ id: m.id, result: { thread: { id: THREAD }, model: 'm' } })
   if (m.method === 'thread/turns/list') {
@@ -37,6 +39,14 @@ rl.on('line', (line) => {
     const item = (method, item) => out({ method, params: { threadId: THREAD, turnId, item } })
     out({ id: m.id, result: { turn: { id: turnId, status: 'inProgress' } } })
     out({ method: 'turn/started', params: { threadId: THREAD, turn: { id: turnId, status: 'inProgress' } } })
+    if (JSON.stringify(m.params.input).includes('RETRY_THEN_FAIL')) {
+      const error = { message: 'Reconnecting... 1/7', additionalDetails: 'fixture upstream unavailable sk-fixture-secret-abcdefghijklmnopqrstuvwxyz' }
+      out({ method: 'error', params: { threadId: 'child-thread', turnId, willRetry: true, error: { message: 'child retry' } } })
+      out({ method: 'error', params: { threadId: THREAD, turnId, willRetry: true, error } })
+      const finalError = { message: 'fixture upstream exhausted', codexErrorInfo: 'internalServerError' }
+      out({ method: 'error', params: { threadId: THREAD, turnId, willRetry: false, error: finalError } })
+      return out({ method: 'turn/completed', params: { threadId: THREAD, turn: { id: turnId, status: 'failed', error: finalError } } })
+    }
     if (JSON.stringify(m.params.input).includes('INTERLEAVED_CHILDREN')) {
       const notify = (method, params) => out({ method, params })
       const rootDelta = (delta) => notify('item/agentMessage/delta', { threadId: THREAD, turnId, itemId: 'parent-message', delta })
@@ -108,7 +118,7 @@ async function start() {
   const responses = new Map<number, unknown>()
   const updates: SessionUpdate[] = []
   const thoughts: Array<{ text: string; messageId?: string }> = []
-  createInterface({ input: child.stdout }).on('line', (line) => {
+  createInterface({ input: child.stdout }).on('line', observeCodexForegroundCompletion((line) => {
     const m = JSON.parse(line)
     if (m.id !== undefined && !m.method) responses.set(m.id, m.error ?? m.result)
     const update = m.method === 'session/update' ? m.params?.update : null
@@ -116,18 +126,33 @@ async function start() {
     if (update?.sessionUpdate === 'agent_thought_chunk') {
       thoughts.push({ text: update.content.text, ...(update.messageId ? { messageId: update.messageId } : {}) })
     }
-  })
+  }))
   let nextId = 1
   const call = (method: string, params: unknown) => {
     const id = nextId++
     child.stdin.write(JSON.stringify({ jsonrpc: '2.0', id, method, params }) + '\n')
     return awaitFact(method, () => (responses.has(id) ? responses.get(id) : undefined), { producer: child })
   }
-  await call('initialize', { protocolVersion: 1, clientCapabilities: {} })
+  await call('initialize', { protocolVersion: 2, capabilities: {} })
   return { call, thoughts, updates }
 }
 
 describe('#6830 codex ACP bridge: reasoning reaches the desktop', () => {
+  it('reports the native retry count and sanitized cause as a notice, then rejects with the final cause', async () => {
+    const { call, updates } = await start()
+    await call('session/new', { cwd: dir, mcpServers: [] })
+    updates.length = 0
+    expect(await call('session/prompt', { sessionId: 'th-6830', prompt: [{ type: 'text', text: 'RETRY_THEN_FAIL' }] }))
+      .toMatchObject({ code: -32603, message: 'fixture upstream exhausted' })
+    const notices = updates.filter((update) => update.sessionUpdate === 'notice')
+    expect(notices).toEqual([{
+      sessionUpdate: 'notice', severity: 'warning',
+      title: 'Reconnecting... 1/7: fixture upstream unavailable [REDACTED_OPENAI_KEY]',
+    }])
+    expect(JSON.stringify(updates)).not.toContain('abcdefghijklmnopqrstuvwxyz')
+    expect(JSON.stringify(updates)).not.toContain('child retry')
+  })
+
   it('#7586: concurrent child messages, reasoning, tools and lifecycle never enter the parent stream', async () => {
     const { call, thoughts, updates } = await start()
     await call('session/new', { cwd: dir, mcpServers: [] })
@@ -150,17 +175,18 @@ describe('#6830 codex ACP bridge: reasoning reaches the desktop', () => {
     await call('session/prompt', { sessionId: 'th-6830', prompt: [{ type: 'text', text: 'go' }] })
     expect(thoughts).toEqual([
       { text: '**Timing the trip**\n\nMoving time is 202.', messageId: 'rs-terra' },
-      { text: 'We need ' },
-      { text: 'execute.' },
-      { text: '**Planning**' },
-      { text: ' the reply.' },
-      { text: '\n\n**Counting**' },
+      { text: 'We need ', messageId: 'rs-glm' },
+      { text: 'execute.', messageId: 'rs-glm' },
+      { text: '**Planning**', messageId: 'rs-parts' },
+      { text: ' the reply.', messageId: 'rs-parts' },
+      { text: '\n\n**Counting**', messageId: 'rs-parts' },
     ])
   })
 
   it('reopen: history replays both reasoning shapes, summary first, raw text when there is no summary', async () => {
     const { call, thoughts } = await start()
-    await call('session/load', { sessionId: 'th-6830', cwd: dir, mcpServers: [] })
+    // ACP v2: a resume replays only when asked (`replayFrom`); an omitted one resumes without replay (#980).
+    await call('session/resume', { sessionId: 'th-6830', cwd: dir, mcpServers: [], replayFrom: { type: 'start' } })
     expect(thoughts).toEqual([
       { text: '**Timing the trip**\n\nMoving time is 202.', messageId: 'rs-terra' },
       { text: 'We need execute.', messageId: 'rs-glm' },

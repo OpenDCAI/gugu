@@ -3,7 +3,7 @@ import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { OPEN_IN_APPS } from '@shared/openInApps';
-import { OpenInMenu } from './open-in-menu';
+import { OpenInMenu, OpenInMenuItems, useOpenInTargets } from './open-in-menu';
 
 (
   globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }
@@ -120,6 +120,14 @@ vi.mock('@renderer/lib/ui/select', async () => {
     SelectItem: MockSelectItem,
     SelectTrigger: ({ children }: { children: React.ReactNode }) =>
       React.createElement('button', {}, children),
+  };
+});
+
+vi.mock('@renderer/lib/ui/context-menu', async () => {
+  const React = await import('react');
+  return {
+    ContextMenuItem: ({ children, disabled, onClick }: { children: React.ReactNode; disabled?: boolean; onClick?: () => void }) =>
+      React.createElement('button', { disabled, onClick, 'data-testid': 'open-in-row' }, children),
   };
 });
 
@@ -240,5 +248,47 @@ describe('OpenInMenu', () => {
     const cursorOption = container.querySelector('[data-testid="open-in-option-cursor"]');
     expect(cursorOption).not.toBeNull();
     expect(cursorOption).toHaveProperty('disabled', true);
+  });
+});
+
+// gugu-dev#181 项目页签的右键菜单:菜单打开时还没查完这台机器装了哪些 app,就一行「在 X 中打开」都不画 ——
+// ❌ 先铺一排灰的(把能装的全列出来)再缩回装了的那几个。查的是页签(菜单的主人),不是菜单自己。
+describe('OpenInMenuItems', () => {
+  let dom: JSDOM;
+  let root: Root;
+  let container: HTMLDivElement;
+
+  beforeEach(() => {
+    mocks.openInApps.availability = { finder: true, cursor: true, terminal: true };
+    dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>');
+    vi.stubGlobal('window', dom.window);
+    vi.stubGlobal('document', dom.window.document);
+    vi.stubGlobal('HTMLElement', dom.window.HTMLElement);
+    container = dom.window.document.getElementById('root') as HTMLDivElement;
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    vi.unstubAllGlobals();
+    vi.clearAllMocks();
+    dom.window.close();
+  });
+
+  function Owner() {
+    return React.createElement(OpenInMenuItems, { targets: useOpenInTargets('C:/repo') });
+  }
+  const rows = () => [...container.querySelectorAll('[data-testid="open-in-row"]')].map((row) => row.textContent);
+
+  it('draws no rows while it is still finding out which apps are installed', async () => {
+    mocks.openInApps.loading = true;
+    await act(async () => { root.render(React.createElement(Owner)); });
+    expect(rows()).toEqual([]);
+  });
+
+  it('then draws the ones it found', async () => {
+    mocks.openInApps.loading = false;
+    await act(async () => { root.render(React.createElement(Owner)); });
+    expect(rows()).toHaveLength(3);
   });
 });

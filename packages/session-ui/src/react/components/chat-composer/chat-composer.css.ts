@@ -162,8 +162,43 @@ export const composerShell = recipe({
       },
       false: {},
     },
+    // 这一框是一件事(gugu-dev#181「输入框」):新任务整张变橙 —— 描边换色,外面一圈同色的浅环。
+    // 悬停 / 聚焦也留在这个色上(base 里那两条会把描边换回灰)。
+    tone: {
+      task: {
+        borderColor: `color-mix(in srgb, ${vars.foregroundConflict} 35%, ${vars.border})`,
+        boxShadow: `0 0 0 3px color-mix(in srgb, ${vars.foregroundConflict} 10%, transparent)`,
+        selectors: {
+          '&:hover, &:focus-within': { borderColor: `color-mix(in srgb, ${vars.foregroundConflict} 45%, ${vars.border})` },
+        },
+      },
+    },
   },
   defaultVariants: { hasBand: false, dragActive: false },
+});
+
+/** 输入行最前面那枚标签(`leading`):和第一行字同高、居中,后面是编辑器本体(照旧长满,点空白就进输入)。 */
+export const editorLeadRow = style({
+  display: 'flex',
+  gap: '0.5rem',
+  flexGrow: 1,
+  flexShrink: 0,
+  minWidth: 0,
+});
+
+export const editorLead = style({
+  display: 'flex',
+  alignItems: 'center',
+  flex: 'none',
+  alignSelf: 'flex-start',
+  height: tokenVars.textTitleLineHeight,
+});
+
+export const editorLeadBody = style({
+  display: 'flex',
+  flexDirection: 'column',
+  flexGrow: 1,
+  minWidth: 0,
 });
 
 // ── Attachments ───────────────────────────────────────────────────────────────
@@ -394,8 +429,15 @@ export const editorArea = style({
   // ⚠️ 这个数是**含内距**的(border-box),所以不是 44 而是 44 + 12 + 20 = 76px。
   //    写 44 的话它比现状(52)还小 —— 一条不起作用的声明,静默无效。
   //
-  // ⚠️ 这个数是**含内距**的(border-box):44 + 上下内距(14+8) = 66px。
-  minHeight: '4.125rem',
+  // ⚠️ 这个数是**含内距**的(border-box):一行文字(行高 24)+ 上下内距(14+8) = 46px —— 再低就是文字自己撑着,写了不起作用。
+  // Phones keep the compact one-line editor; desktop restores its earlier empty height below.
+  minHeight: '2.875rem',
+  selectors: {
+    [`${composerRoot}:not([data-mobile]):not([data-phone-shell] *) &`]: {
+      // Restore the desktop editor's previous empty height; phones keep one line.
+      minHeight: 'calc(2.875rem + var(--spacing-xl))',
+    },
+  },
   maxHeight: '200px',
   overflowY: 'auto',
   // 内距照 assistant-ui composer:那张卡是「外沿 10px + 输入自己再缩 12px」= 文字左缘 22px,
@@ -890,8 +932,8 @@ export const agentLockedIndicator = style({})
 globalStyle(`[data-slot="composer-toolbar"]:is([data-disclosure="4"], [data-disclosure="5"], [data-disclosure="6"]) ${usageTrigger}`, { display: 'none' })
 globalStyle(`[data-slot="composer-toolbar"]:is([data-disclosure="5"], [data-disclosure="6"]) ${agentLockedIndicator}`, { display: 'none' })
 
-// 档 3 收的是「编程 | 通用」那个分段控件 —— 它自己按档位换渲染(见 session-view-control.tsx),
-// 不在这里用 CSS 藏,因为藏掉一半就点不到那一半了,那是假控件。
+// 档 3 原来收「编程 | 通用」那个分段控件;那个手动切换已删(展示跟设置 → 通用的「终端」开关走),这一档现在不收东西,
+// 档号不挪,省得后面几档的规则跟着改。
 //
 // ❌ 试过「把三枚下拉箭头一起收掉」,owner 2026-09-05 看完实机对比判「箭头收了不合适」,已撤。
 //
@@ -905,6 +947,15 @@ globalStyle(`[data-slot="composer-toolbar"][data-disclosure="6"] ${toolbarRight}
 })
 globalStyle(`[data-slot="composer-toolbar"][data-disclosure="6"] ${agentTrigger}`, {
   minWidth: 0,
+})
+
+/**
+ * 宿主塞进框里的带图标标签(会话底排的「新任务」、输入行最前那枚「新任务 ×」):文字包在
+ * `[data-slot="composer-foldable-label"]` 里,最后一档(= 档 6)跟模型名一起收,只剩图标。
+ * 没有图标的别挂这个 slot,❌ 收成一颗空按钮。输入行不在底排里,所以按整个框判:框里底排到了档 6 就收。
+ */
+globalStyle(`[data-slot="composer"]:has([data-slot="composer-toolbar"][data-disclosure="6"]) [data-slot="composer-foldable-label"]`, {
+  display: 'none',
 })
 
 // ── Model panel（照 assistant-ui 的「With search, provider filters + groups」）──
@@ -1190,7 +1241,7 @@ export const modelEffortReset = style({
 });
 
 /** 圆钮比轨道大,需要一道投影把自己托起来。这是这颗控件唯一的投影,别再往别处加。 */
-const EFFORT_THUMB_LIFT = '0 1px 2px 0 rgba(0, 0, 0, 0.18)';
+const EFFORT_THUMB_LIFT = 'var(--shadow-lift)';
 
 /** 轨道 12、圆钮 16(按下约 18)—— 10-10 缩小后的数,原来的 24/28/32 见抬头那张实测表。 */
 const EFFORT_TRACK_HEIGHT = '0.75rem';
@@ -1694,3 +1745,6 @@ globalStyle(
   `[data-slot="composer-toolbar"][data-disclosure="6"] [data-testid="composer-model-trigger"]:has(${modelTriggerIcon}) :is(${modelTriggerLabel}, ${modelTriggerEffort})`,
   { display: 'none' },
 )
+
+// Touch targets belong to the shared composer, including its chat hosts.
+globalStyle(`${composerRoot}[data-mobile] [data-slot="composer-toolbar"] button`, { minHeight: 44, minWidth: 44 });

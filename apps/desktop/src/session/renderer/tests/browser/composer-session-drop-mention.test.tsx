@@ -12,7 +12,7 @@
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, describe, expect, it } from 'vitest'
 import { ChatComposer, type PromptEditorRef } from '@gugu/session-ui/react/components'
-import { SESSION_DRAG_TYPE } from '@renderer/lib/drag-session'
+import { SCREEN_CONTENT_DRAG_TYPE } from '@renderer/lib/drag-screen-content'
 import { SessionLocalizationProvider } from '@renderer/localization/localization-provider'
 import '@/styles/tokens.css'
 import '@renderer/index.css'
@@ -41,7 +41,7 @@ function mount(): Mounted {
     <SessionLocalizationProvider>
       <ChatComposer
         editorApiRef={editor}
-        dataDropTypes={[SESSION_DRAG_TYPE]}
+        dataDropTypes={[SCREEN_CONTENT_DRAG_TYPE]}
         onDataDropped={(dataTransfer) => claimed.push(dataTransfer)}
         onAttachmentsChange={() => {}}
         onSubmit={() => {}}
@@ -80,18 +80,18 @@ function drop(target: HTMLElement, entries: Record<string, string>) {
   )
 }
 
-const sessionPayload = JSON.stringify({ sessionId: 'conv-1', title: '头像抽卡' })
+const sessionPayload = JSON.stringify({ kind: 'session', projectId: 'p', sessionId: 'conv-1', title: '头像抽卡' })
 
 describe('把会话拖进 composer', () => {
   it('落在编辑器里 —— 宿主收到一次,正文不动', async () => {
     const { claimed, editor } = mount()
     await until('编辑器就绪', () => ready(editor))
 
-    drop(editable(), { [SESSION_DRAG_TYPE]: sessionPayload })
+    drop(editable(), { [SCREEN_CONTENT_DRAG_TYPE]: sessionPayload })
     await until('宿主收到这次 drop', () => claimed.length > 0)
 
     expect(claimed).toHaveLength(1)
-    expect(claimed[0]!.getData(SESSION_DRAG_TYPE)).toBe(sessionPayload)
+    expect(claimed[0]!.getData(SCREEN_CONTENT_DRAG_TYPE)).toBe(sessionPayload)
     // 两个 drop 处理都是同步的:编辑器那一手(packages/session-ui/src/react/components/prompt-editor/
     // prompt-editor.tsx:377-383,返回 true ⇒ ProseMirror 当场止步不插入)与外壳那一手
     // (chat-composer/index.tsx:524-536)。宿主已收到 ⇒ 这次 drop 已处理完,正文此刻即终局。
@@ -102,7 +102,7 @@ describe('把会话拖进 composer', () => {
     const { claimed, editor } = mount()
     await until('编辑器就绪', () => ready(editor))
 
-    drop(shell(), { [SESSION_DRAG_TYPE]: sessionPayload })
+    drop(shell(), { [SCREEN_CONTENT_DRAG_TYPE]: sessionPayload })
     await until('宿主收到这次 drop', () => claimed.length > 0)
     // 外壳的 handleDrop 同步(chat-composer/index.tsx:524-536):此刻的次数即终局。
 
@@ -113,7 +113,7 @@ describe('把会话拖进 composer', () => {
     const { claimed, editor } = mount()
     await until('编辑器就绪', () => ready(editor))
 
-    drop(editable(), { [SESSION_DRAG_TYPE]: sessionPayload, 'text/plain': '头像抽卡' })
+    drop(editable(), { [SCREEN_CONTENT_DRAG_TYPE]: sessionPayload, 'text/plain': '头像抽卡' })
     await until('宿主收到这次 drop', () => claimed.length > 0)
 
     expect(claimed).toHaveLength(1)
@@ -129,6 +129,25 @@ describe('把会话拖进 composer', () => {
     // 两个 drop 处理都同步(prompt-editor.tsx:377-383 / chat-composer/index.tsx:524-559),
     // 没有会话标记时两者都不调 onDataDropped;drop() 返回即终局。
 
+    expect(claimed).toHaveLength(0)
+  })
+})
+
+
+describe('a resource link uses ordinary editor text', () => {
+  it('drops the same complete URL that a text paste inserts, without a mention or an attachment', async () => {
+    const { claimed, editor } = mount()
+    await until('editor ready', () => ready(editor))
+    const link = 'gugu-file://123e4567-e89b-42d3-a456-426614174000'
+    drop(editable(), { 'text/plain': link, 'text/uri-list': link })
+    const dropped = editor.current?.getText()
+    expect(dropped).toBe(link)
+    editor.current?.clear()
+    const clipboardData = new DataTransfer()
+    clipboardData.setData('text/plain', link)
+    editable().dispatchEvent(new ClipboardEvent('paste', { clipboardData, bubbles: true, cancelable: true }))
+    expect(editor.current?.getText()).toBe(dropped)
+    expect(editable().querySelector('[data-mention-id]')).toBeNull()
     expect(claimed).toHaveLength(0)
   })
 })

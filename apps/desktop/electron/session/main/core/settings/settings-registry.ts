@@ -44,6 +44,7 @@ export const SETTINGS_DEFAULTS = {
     soundFocusMode: 'always' as const
   },
   terminal: {
+    enabled: null,
     fontSize: TERMINAL_FONT_SIZE_DEFAULT,
     autoCopyOnSelection: false,
     macOptionIsMeta: false,
@@ -80,8 +81,7 @@ export const SETTINGS_DEFAULTS = {
     profiles: DEFAULT_BROWSER_PROFILES
   },
   resourceMonitor: {
-    enabled: false,
-    internals: false
+    enabled: false
   },
   changesViewMode: {
     unstaged: 'flat' as const,

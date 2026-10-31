@@ -2,6 +2,7 @@ import type { PermissionState } from '@capacitor/core'
 import { BackgroundMode } from '@anuradev/capacitor-background-mode'
 import { BarcodeFormat, BarcodeScanner } from '@capacitor-mlkit/barcode-scanning'
 import { App } from '@capacitor/app'
+import { Clipboard } from '@capacitor/clipboard'
 import { LocalNotifications } from '@capacitor/local-notifications'
 import { AndroidSettings, IOSSettings, NativeSettings } from 'capacitor-native-settings'
 import { hostCatalog } from '../../shared/host-localization'
@@ -11,10 +12,10 @@ import { createUnsupportedPlatform } from './unsupported'
 import { checkForUpdates, downloadUpdate, installUpdate, updateState } from './capacitorAppUpdate'
 import { openInApps, saveToDevice, shareToApps, subscribeIncomingShares } from './capacitorShare'
 import { PlatformError } from './errors'
+import { nativeAudioPermissions } from './capacitorMicrophone'
 
 const base = createUnsupportedPlatform('capacitor', 'Capacitor')
 let resolvedLocale: SupportedLocale = 'zh-CN'
-let launchLinkTaken = false
 
 // @@@scan (#537-A) - native QR scan via ML Kit's startScan, which uses the *bundled* barcode model
 function buildCancelOverlay(onCancel: () => void): HTMLElement {
@@ -62,6 +63,7 @@ async function checkSystemPermission(permission: SystemPermission): Promise<Syst
     return toSystemPermissionState((await LocalNotifications.checkPermissions()).display)
   }
   if (permission === 'batteryOptimization') return checkBatteryOptimization()
+  if (permission === 'microphone') return toSystemPermissionState((await nativeAudioPermissions.checkPermissions()).microphone)
   return toSystemPermissionState((await BarcodeScanner.checkPermissions()).camera)
 }
 
@@ -69,6 +71,7 @@ async function checkSystemPermission(permission: SystemPermission): Promise<Syst
 const SYSTEM_SETTINGS_PAGE: Partial<Record<SystemPermission, AndroidSettings>> = {
   notifications: AndroidSettings.AppNotification,
   camera: AndroidSettings.ApplicationDetails,
+  microphone: AndroidSettings.ApplicationDetails,
   batteryOptimization: AndroidSettings.BatteryOptimization,
 }
 
@@ -179,13 +182,16 @@ let notificationSeq = Math.floor(Date.now() / 1000) % 1_000_000_000
 
 export const capacitorPlatform: AppPlatform = {
   ...base,
-  capabilities: { ...base.capabilities, barcodeScan: true, notifications: true, backgroundWatch: true, appUpdates: true, shareToApps: true, externalFileOpen: true },
+  capabilities: { ...base.capabilities, clipboard: true, barcodeScan: true, notifications: true, backgroundWatch: true, appUpdates: true, shareToApps: true, externalFileOpen: true },
+  async writeClipboardText(value) {
+    await Clipboard.write({ string: value })
+  },
   // @@@android-app-update 应用内更新:与桌面同一套接口、同一个状态形状,界面不分宿主(见 capacitorAppUpdate.ts)。
   checkForUpdates,
   updateState,
   downloadUpdate,
   installUpdate,
-  systemPermissions: ['notifications', 'camera', 'batteryOptimization'],
+  systemPermissions: ['notifications', 'camera', 'batteryOptimization', 'microphone'],
   async syncResolvedLocale(locale) {
     resolvedLocale = locale
   },
@@ -205,14 +211,8 @@ export const capacitorPlatform: AppPlatform = {
   subscribeOpenedLinks(listener) {
     let active = true
     let handle: { remove: () => Promise<void> } | null = null
-    // 订阅前到的链接不会丢:App 已在跑(停在登录页、页面还没订阅)时的 appUrlOpen,@capacitor/app 原生那边以
-    // retainUntilConsumed 留着,第一个监听挂上时补发(AppPlugin.java `notifyListeners(EVENT_URL_OPEN, ret, true)`;
-    // 10-18 模拟器实测:后台 + 登录页点链接 → 登录后批准页出现)。冷启动拉起 App 的那一条不走 appUrlOpen:从 getLaunchUrl 补,
-    // 它整个进程里一直是同一条,只补一次,❌ 每次重挂都再开一遍。
-    if (!launchLinkTaken) {
-      launchLinkTaken = true
-      void App.getLaunchUrl().then((launch) => { if (active && launch?.url) listener(launch.url) }, () => undefined)
-    }
+    // Android BridgeActivity.load sends the initial intent through onNewIntent too. AppPlugin retains
+    // appUrlOpen until subscription: this one stream carries cold and hot URLs, including before login.
     void App.addListener('appUrlOpen', (event) => { if (active) listener(event.url) }).then(
       (registered) => {
         handle = registered
@@ -272,10 +272,11 @@ export const capacitorPlatform: AppPlatform = {
   // @@@share-with-apps 系统分享两个方向,见 capacitorShare.ts。
   shareToApps,
   subscribeIncomingShares,
-  openRemoteFile: async (file, filename) => openInApps(await file.url(), filename),
+  openRemoteFile: openInApps,
   saveFile: saveToDevice,
   checkSystemPermission,
   async requestSystemPermission(permission) {
+    if (permission === 'microphone') return toSystemPermissionState((await nativeAudioPermissions.requestPermissions({ permissions: ['microphone'] })).microphone)
     if (permission === 'notifications') {
       return toSystemPermissionState((await LocalNotifications.requestPermissions()).display)
     }

@@ -1,3 +1,7 @@
+import { translateSessionMessage } from '@renderer/localization/locale-store';
+import { rendererLogger } from '@/lib/log';
+import { toast } from '@renderer/lib/hooks/use-toast';
+import { messageForUser } from '@/lib/userFacingError';
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Check, ChevronDown, ChevronRight, Circle, X } from '@/lib/icons'
@@ -30,7 +34,7 @@ function StepIcon({ status }: { status: ServerSshInstallStep['status'] }) {
   if (status === 'running') return <LoadingIndicator size="inline" className="text-live" />
   if (status === 'done') return <Check aria-hidden className="size-4 text-[var(--fg)]" />
   if (status === 'skipped') return <Check aria-hidden className={cn('size-4', faint)} />
-  if (status === 'failed') return <X aria-hidden className="size-4 text-[var(--danger)]" />
+  if (status === 'failed') return <X aria-hidden className="size-4 text-[var(--danger-fg)]" />
   return <Circle aria-hidden className={cn('size-4', faint)} />
 }
 
@@ -193,7 +197,7 @@ export function InstallProgress({
 
       {failure && (
         <div className={calloutClassName('danger')} role="alert" data-testid="add-server-failure">
-          <div className={cn(text, 'font-semibold text-[var(--danger)]')}>
+          <div className={cn(text, 'font-semibold text-[var(--danger-fg)]')}>
             {failure.reason === 'cancelled'
               ? t('devices.addServer.reasons.cancelled')
               : t('devices.addServer.failedAt', { step: t(`devices.addServer.steps.${failure.step}`) })}
@@ -298,7 +302,7 @@ function LogDisclosure({ lines, open, onToggle }: { lines: string[]; open: boole
           {open ? t('devices.addServer.hideDetails') : t('devices.addServer.details')}
         </Button>
         {open && lines.length > 0 && (
-          <Button size="sm" variant="ghost" onClick={() => void platform.writeClipboardText(lines.join('\n'))}>
+          <Button size="sm" variant="ghost" onClick={() => void platform.writeClipboardText(lines.join('\n')).catch((error) => { rendererLogger('actions/InstallProgress').error({ error: error }, 'action failed'); toast({ title: translateSessionMessage('task.copyFailed'), description: messageForUser(error), tier: 'error' }); })}>
             {t('devices.addServer.copyLog')}
           </Button>
         )}

@@ -58,7 +58,6 @@ vi.mock('@renderer/lib/ipc', () => {
   // #6264 一套工作台:按机器路由的那几个口,替身里都落到本机这一份。
   return {
     rpcOn: () => mod.rpc,
-    eventSourceMachine: () => null,
     onMachineEvent: () => () => {},
     ...mod,
   };

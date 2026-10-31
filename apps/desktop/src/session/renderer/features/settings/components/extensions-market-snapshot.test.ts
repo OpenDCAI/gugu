@@ -1,3 +1,4 @@
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { JSDOM } from 'jsdom';
 import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
@@ -21,6 +22,7 @@ const h = vi.hoisted(() => {
       minAppVersion: '0.1.0',
       releaseNotes: '',
       publishedAt: '2026-10-01T00:00:00Z',
+      firstPublishedAt: '2026-10-01T00:00:00Z',
       iconUrl: null,
       deprecated: null,
       compat: null,
@@ -32,11 +34,12 @@ const h = vi.hoisted(() => {
   });
   const listing = (ids: string[], fetchedAt: string) => ({
     success: true,
-    data: { extensions: ids.map((id) => item(id)), featured: [], home: { newest: [], shelves: [] }, invalid: [], errorKind: null, error: null, total: ids.length, page: 0, hasMore: false, fetchedAt },
+    data: { extensions: ids.map((id) => item(id)), invalid: [], errorKind: null, error: null, total: ids.length, page: 0, hasMore: false, fetchedAt },
   });
   const answer = (data: unknown) => async () => ({ success: true, data });
   const api = {
     list: vi.fn(answer({ extensions: [], invalid: [], icons: {}, disabled: [] })),
+    variants: vi.fn(answer({ active: 'upstream', variants: [], behind: null })),
     revoked: vi.fn(answer({})),
     agentStatus: vi.fn(answer({})),
     marketUpdates: vi.fn(answer({ checkedAt: '2026-10-16T00:00:00.000Z', updates: {}, yanked: {}, deprecated: {} })),
@@ -49,6 +52,8 @@ const h = vi.hoisted(() => {
   const host = { key: 'local', local: true };
   return { item, listing, api, heard, host };
 });
+
+vi.mock('@/lib/supabase', () => ({ chatDb: { rpc: async () => ({ data: [], error: null }) } }));
 
 vi.mock('@renderer/lib/ipc', () => ({
   rpc: { extensions: {}, app: {} },
@@ -114,7 +119,7 @@ describe('the App page market: the index in hand at once, the download site behi
 
   async function open() {
     await act(async () => {
-      root.render(React.createElement(SessionLocalizationProvider, null, React.createElement(ExtensionsSettingsCard)));
+      root.render(React.createElement(QueryClientProvider, { client: new QueryClient() }, React.createElement(SessionLocalizationProvider, null, React.createElement(ExtensionsSettingsCard))));
     });
   }
   async function close() {
@@ -204,7 +209,7 @@ describe('the App page market: the index in hand at once, the download site behi
     await act(async () => reread.resolve(h.listing(['one', 'two', 'three'], T2)));
     await until('the new read drawn', tileIds, (ids) => ids.join() !== 'one,two');
     await turn();
-    expect(tileIds()).toEqual(['one', 'two', 'three']);
+    expect(tileIds()).toEqual(['one', 'three', 'two']);
     expect(tiles()[0]).toBe(before);
     expect(skeletonsAfterTiles).toBe(0);
     expect(h.api.market).toHaveBeenCalledTimes(2);
@@ -228,7 +233,7 @@ describe('the App page market: the index in hand at once, the download site behi
     await until('the push of a later moment read', () => h.api.market.mock.calls.length, (n) => n >= 3);
     await turn();
     expect(h.api.market).toHaveBeenCalledTimes(3);
-    expect(tileIds()).toEqual(['one', 'four']);
+    expect(tileIds()).toEqual(['four', 'one']);
   });
 
   it('the download site not reached → the index in hand stays, one quiet line 「上次更新于 …」; ❌ an alert, ❌ a toast', async () => {

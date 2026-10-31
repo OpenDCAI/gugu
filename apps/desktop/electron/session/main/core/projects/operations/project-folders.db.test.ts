@@ -10,6 +10,7 @@ import { createLocalProject } from './create-local-project';
 import { getProjectById, getProjects } from './getProjects';
 import { runProjectAgentAction } from '../project-agent-actions';
 import { setProjectGroupHost } from '../project-group-host';
+import { onActivitySignal } from '../../activity/signals';
 
 const mocks = vi.hoisted(() => ({
   db: undefined as AppDb | undefined,
@@ -105,6 +106,22 @@ describe('project folders', () => {
     fixture.close();
     mocks.db = undefined;
     await rm(tmp, { recursive: true, force: true });
+  });
+
+  it('records real folder membership changes once, excluding repeats and refusals', async () => {
+    const activity: { kind: string; object_id?: string; related_object_id?: string }[] = [];
+    const off = onActivitySignal(event => activity.push(event));
+    try {
+      const attached = await attachOk('project-a', related);
+      await attachOk('project-a', related);
+      expect((await attachProjectFolder('missing', related)).success).toBe(false);
+      await detachProjectFolder('project-a', attached.workspaceId);
+      expect((await detachProjectFolder('project-a', attached.workspaceId)).success).toBe(false);
+      expect(activity.map(event => [event.kind, event.object_id, event.related_object_id])).toEqual([
+        ['project.folder_attached', 'project-a', attached.workspaceId],
+        ['project.folder_detached', 'project-a', attached.workspaceId],
+      ]);
+    } finally { off(); }
   });
 
   it('MCP 把本机另一个项目根目录接进来时先确认,共享群后原目录与会话仍在,撤销可恢复', async () => {

@@ -1,13 +1,14 @@
 // #6264 每台别的机器一个会话页宿主客户端(帧走那台机器的设备连接:远程 SSH → SSH,远程隧道 → 咕咕云)。
 // 线由咕咕壳经 remote-hosts 桥给(`openSessionHost`);客户端本身与本机网页形态同一份(session-host-client.ts)。
 //
-// 成本:连着的每台机器双向各一拍心跳(20s);断了按 1s→60s 退避重连,那台机器重新上线 / 刚登上时当场重连。
-import { findRemoteHostsBridge } from '@shared/remote-hosts';
+// 成本:连着的每台机器,这边每 5 s 一拍心跳(兼探活,见 MACHINE_LINK_HEARTBEAT_MS)、那边每 20 s 一拍;
+// 断了按 1s→60s 退避重连,那台机器重新上线 / 刚登上时当场重连。
+import { findRemoteHostsBridge, remoteHostReachable } from '@shared/remote-hosts';
 import {
   createSessionHostClient,
-  SESSION_HOST_CLIENT_HEARTBEAT_MS,
   type SessionHostClient,
   type SessionHostConnectionState,
+  type SessionHostPipeOpener,
 } from '@shared/lib/ipc/session-host-client';
 import { HOST_WS_PROTOCOL_VERSION } from '@shared/lib/ipc/host-ws-protocol';
 import { translateSessionMessage } from '@renderer/localization/locale-store';
@@ -15,7 +16,8 @@ import { log } from '@renderer/utils/logger';
 import { reconnectingTransport, type WireTransport } from '@gugu/session-wire';
 import { machineCodec, machineRegistry } from './machine-routing';
 
-export type MachineLinkState = SessionHostConnectionState | 'tooOld' | 'unavailable';
+/** 计划内换线(`switching`)对外照「通着」说:侧栏那颗点、文件树、审阅都 ❌ 因为它掉线(见 machineLinkState)。 */
+export type MachineLinkState = Exclude<SessionHostConnectionState, 'switching'> | 'tooOld' | 'unavailable';
 
 type Entry = {
   client: SessionHostClient;
@@ -23,8 +25,16 @@ type Entry = {
   listeners: Set<() => void>;
 };
 
+/**
+ * 这边对每台机器的心跳拍子(#156)。心跳的应答就是探活(remoteSessionHost 的 HEARTBEAT_REPLY_TIMEOUT_MS):
+ * 那台机器死掉之后,下一拍(≤5 s)+ 等应答(≤8 s)就发现,机器的状态当场变成「重新连接」。
+ * ❌ 用宿主的半拍(10 s)加办事的应答期限:实测 32 s 才发现,中间那半分钟它还读成「已连接」,问它的东西全挂着。
+ * 只改这一边:每台机器收下一批就当场回,老版本的也一样。代价是咕咕云上每台连着的机器每分钟多十来条消息。
+ */
+const MACHINE_LINK_HEARTBEAT_MS = 5_000;
+
 const entries = new Map<string, Entry>();
-const createdListeners = new Set<(deviceId: string, client: SessionHostClient) => void>();
+const createdListeners = new Set<(deviceId: string) => void>();
 
 function notify(entry: Entry): void {
   for (const listener of [...entry.listeners]) listener();
@@ -36,16 +46,32 @@ export function machineClient(deviceId: string): SessionHostClient | null {
   if (existing) return existing.client;
   const bridge = findRemoteHostsBridge();
   if (!bridge?.openSessionHost) return null;
+  // 那台机器此刻够不着就不开线(当场以 unreachable 失败,❌ 发一次没人应答的报到;客户端停在 closed、不退避)。
+  // 回来的那一刻由 remote-hosts-store 的 reconcile 叫 reconnectMachine 当场重开。
+  const opener = bridge.openSessionHost(deviceId);
+  const openWhenReachable: SessionHostPipeOpener = Object.assign(
+    (handlers: Parameters<SessionHostPipeOpener>[0]) => {
+      const device = bridge.listDevices().find((d) => d.id === deviceId);
+      return device && remoteHostReachable(device) ? opener(handlers) : Promise.reject(Object.assign(new Error(`${deviceId} is not reachable now`), { code: 'unreachable' }));
+    },
+    { watchPeerRestart: opener.watchPeerRestart }
+  );
   const entry: Entry = {
     tooOld: false,
     listeners: new Set(),
-    client: createSessionHostClient(bridge.openSessionHost(deviceId), {
+    client: createSessionHostClient(openWhenReachable, {
+      isReachable: () => {
+        const device = bridge.listDevices().find((d) => d.id === deviceId);
+        return !!device && remoteHostReachable(device);
+      },
+      subscribeReachability: (listener) => bridge.subscribeDevices(listener),
+      peerVersion: () => bridge.listDevices().find(device => device.id === deviceId)?.version ?? null,
       subscribeEvents: true,
-      heartbeatMs: SESSION_HOST_CLIENT_HEARTBEAT_MS,
+      heartbeatMs: MACHINE_LINK_HEARTBEAT_MS,
       retryMaxMs: 60_000,
       // 连不上 / 断了时调用方拿到的那句话(界面可能原样摆出来):说哪台机器此刻连不上,❌ 英文的传输层原文。
       messages: () => {
-        const device = bridge.listDevices().find((d) => d.id === deviceId)?.label ?? deviceId;
+        const device = machineLabel(deviceId);
         const text = translateSessionMessage('deviceScope.unreachable', { device });
         return {
           hostNotConnected: text,
@@ -57,7 +83,7 @@ export function machineClient(deviceId: string): SessionHostClient | null {
       },
       warn: (message, detail) => log.warn(`[machine:${deviceId.slice(0, 8)}] ${message}`, detail),
       onOpenFailed: (error) => {
-        const tooOld = error instanceof Error && error.name === 'SessionHostTooOldError';
+        const tooOld = (error as { code?: unknown } | null)?.code === 'server_outdated';
         if (tooOld !== entry.tooOld) {
           entry.tooOld = tooOld;
           notify(entry);
@@ -71,28 +97,46 @@ export function machineClient(deviceId: string): SessionHostClient | null {
     notify(entry);
   });
   entries.set(deviceId, entry);
-  for (const listener of [...createdListeners]) listener(deviceId, entry.client);
+  for (const listener of [...createdListeners]) listener(deviceId);
   return entry.client;
 }
 
-/** 此刻开着的客户端(事件合流用)。 */
-export function machineClients(): ReadonlyMap<string, SessionHostClient> {
-  const out = new Map<string, SessionHostClient>();
-  for (const [deviceId, entry] of entries) out.set(deviceId, entry.client);
-  return out;
-}
-
-/** 以后新建的客户端(事件合流要给它补订已有的订阅)。返回退订。 */
-export function onMachineClientCreated(listener: (deviceId: string, client: SessionHostClient) => void): () => void {
+/**
+ * 每台连着的机器(此刻的与以后连上的)各跑一次 setup,返回全部退订。给真要听**每台**机器的那几种低频事件用
+ * (项目清单变了、项目分组、App 程序通知、会话开户改名);项目里的事件按项目所在的机器订(onMachineEvent)。
+ */
+export function onEachMachine(setup: (deviceId: string) => () => void): () => void {
+  const offs = new Map<string, () => void>();
+  for (const deviceId of entries.keys()) offs.set(deviceId, setup(deviceId));
+  const listener = (deviceId: string) => offs.set(deviceId, setup(deviceId));
   createdListeners.add(listener);
-  return () => createdListeners.delete(listener);
+  return () => {
+    createdListeners.delete(listener);
+    for (const off of offs.values()) off();
+  };
 }
 
+/** 那台机器给人看的名字(设备行上的那个);桥还没装、清单里没有它 = 设备 id。 */
+export function machineLabel(deviceId: string): string {
+  return findRemoteHostsBridge()?.listDevices().find((d) => d.id === deviceId)?.label ?? deviceId;
+}
+
+/**
+ * 开机时到那台机器的频道从咕咕云换到设备连接(隧道通了):旧窗口关、新窗口当场开,这一段照「通着」说
+ * (2026-10-27 owner:「每次打开都闪一下」—— 侧栏的点掉成重连、文件树变「无响应」,网络其实一直好好的)。
+ * 新窗口开不成,客户端才落到 closed,那时才是断了。
+ */
 export function machineLinkState(deviceId: string): MachineLinkState {
   const entry = entries.get(deviceId);
   if (!entry) return findRemoteHostsBridge()?.openSessionHost ? 'closed' : 'unavailable';
   if (entry.tooOld) return 'tooOld';
-  return entry.client.state();
+  const state = entry.client.state();
+  return state === 'switching' ? 'open' : state;
+}
+
+/** 正在换线(旧窗口已关、新窗口在开):这时失败的问是旧窗口上的,等新窗口开好就能重来。 */
+export function machineLinkHandingOff(deviceId: string): boolean {
+  return entries.get(deviceId)?.client.state() === 'switching';
 }
 
 export function subscribeMachineLink(deviceId: string, listener: () => void): () => void {
@@ -103,9 +147,23 @@ export function subscribeMachineLink(deviceId: string, listener: () => void): ()
   return () => entry.listeners.delete(listener);
 }
 
+/**
+ * 到那台机器的线从断变通的那一下(重连上了;订上时已经通着的不算)。换线换好了也算:新窗口上的订阅要重订、
+ * 旧窗口上落空的问要重来,虽然对外一直说「通着」。
+ */
+export function onMachineReconnected(deviceId: string, cb: () => void): () => void {
+  const windowOpen = () => machineLinkState(deviceId) === 'open' && !machineLinkHandingOff(deviceId);
+  let open = windowOpen();
+  return subscribeMachineLink(deviceId, () => {
+    const now = windowOpen();
+    if (now && !open) cb();
+    open = now;
+  });
+}
+
 /** 那台机器刚上线 / 刚登上:别等退避。 */
-export function reconnectMachine(deviceId: string): void {
-  entries.get(deviceId)?.client.reconnectNow();
+export function reconnectMachine(deviceId: string, options?: { automatic?: boolean }): void {
+  entries.get(deviceId)?.client.reconnectNow(options);
 }
 
 /** 那台机器被移除 / 换了账号:关掉它的线。 */

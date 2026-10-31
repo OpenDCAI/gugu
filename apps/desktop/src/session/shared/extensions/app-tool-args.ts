@@ -8,7 +8,9 @@
 // 只在主进程那一侧。工具面另加的整体约束(app_install 的「恰好一个来源」等)在工具定义上 refine,
 // 它们说的是「这几格怎么搭配」,不是「这一格是什么」。
 import { z } from 'zod';
+import { parseGuguLink } from '@gugu/core/shared/ui/guguLink';
 import { EXTENSION_STEP_SCHEMA } from './extension-check';
+import { variantNameSchema } from './variants';
 import { EXTENSION_TEMPLATES } from './templates';
 
 /**
@@ -26,8 +28,9 @@ export const manifestFragmentSchema = z
 export const APP_CREATE_ARGS = {
   // F81 Left out: this computer's App folder (appSourcesRoot), not the working copy.
   target_dir: z.string().min(1).describe('Default: outside the working copy.').optional(),
-  id: z.string().min(1),
-  name: z.string().min(1),
+  fork_of: z.string().min(1).describe('Fork this installed App, at its exact installed source commit; name is the variant name.').optional(),
+  id: z.string().min(1).optional(),
+  name: z.string().min(1).optional(),
   version: z.string().min(1).optional(),
   // F11 A ready-made App (its tab, page and files), or your own tabs in `manifest` — one of the two.
   template: z.enum(EXTENSION_TEMPLATES).optional(),
@@ -55,11 +58,15 @@ export const appInstallDataSchema = z.object({
 }).describe('The chat\'s data file; one already there under that name is kept.');
 
 export const APP_INSTALL_ARGS = {
+  variant: variantNameSchema.describe('With market: switch this installed App to a named variant (upstream is the original).').optional(),
   source_dir: z.string().min(1).describe('The App\'s folder, as app_create returned it.').optional(),
   // #6646 The host reads the message as this agent and installs it as `install_attachment`; it never reaches the plain install.
   source_message_id: z.string().min(1).describe('Instead: the chat message (msg:…) whose .guguext to install.').optional(),
   // App 市场方案 10-07: an App from the market, by its id or a name its card shows.
   market: z.string().min(1).describe('Instead: an App from the market — its id, or the name its card shows; @<version> (radar@0.1.2) for that version.').optional(),
+  // 5-minute game rounds 2-3 (10-29): an App installed on this computer — made in another chat, from the market or a card —
+  // had no way into a new chat; with chat_id its installed copy goes there, as a market App's does.
+  app: z.string().min(1).describe('Instead, with chat_id: an App installed on this computer, by its id — it goes into that chat; nothing is installed again.').optional(),
   // F15 chat_id / F40 data: the host (acp-engine-utils) does the chat's part after the install — the data file, the
   // check on it, the card. The install itself only words `next` with chat_id.
   chat_id: z.string().min(1).describe('A chat you are in; the App goes there as a card.').optional(),
@@ -81,4 +88,10 @@ export const APP_CHECK_ARGS = {
   phone: z.boolean().describe('With steps: run them at a phone\'s width, tapping instead of clicking.').optional(),
   // Owner 10-13: go on with the page an earlier check of this session kept, where it was left.
   page: z.string().min(1).describe('The page an earlier app_check of yours answered with: the steps go on there, where it was left (its selection, scroll, open dialog). Alone with tab_kind and steps.').optional(),
+};
+
+/** A resource reference selects the installed copy on its registered device, never a local namesake. */
+export const APP_MANAGE_ARGS = {
+  url: z.string().refine((url) => parseGuguLink(url)?.kind === 'app-detail', { message: 'Use an App resource URL: gugu://app/<id>?device=<id>&variant=<slug>' }),
+  operation: z.enum(['read', 'switch', 'remove']).default('read'),
 };

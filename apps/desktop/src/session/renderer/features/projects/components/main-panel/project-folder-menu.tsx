@@ -1,3 +1,5 @@
+import { rendererLogger } from '@/lib/log';
+import { messageForUser } from '@/lib/userFacingError';
 import type { ReactElement } from 'react';
 import type { ProjectFolder } from '@shared/core/projects/project-folders';
 import { toast } from '@renderer/lib/hooks/use-toast';
@@ -14,10 +16,9 @@ export function ProjectFolderMenu({ folder, projectName, state, disabled, childr
   children: ReactElement;
 }) {
   const { translate } = useSessionMessages();
-  const reportFailure = () => toast({ tier: 'error', title: translate('projects.folders.errorDetach') });
   const detach = async () => {
     try {
-      if (!await state.detach(folder)) { reportFailure(); return; }
+      await state.detach(folder);
       toast({
         title: translate('projects.folders.detached', { path: folder.path, projectName }),
         duration: 8000,
@@ -27,14 +28,14 @@ export function ProjectFolderMenu({ folder, projectName, state, disabled, childr
           onClick: () => { void restore(folder); },
         },
       });
-    } catch { reportFailure(); }
+    } catch (error) { rendererLogger('actions/project-folder-menu').error({ error: error }, 'action failed'); toast({ tier: 'error', title: translate('projects.folders.errorDetach'), description: messageForUser(error) }); }
   };
   const restore = async (detached: ProjectFolder) => {
     try {
       const result = await rpc.projects.attachProjectFolder(detached.projectId, detached.path);
       if (!result.success) throw new Error(result.error.message);
-    } catch {
-      toast({ tier: 'error', title: translate('projects.folders.errorAttach') });
+    } catch (error) { rendererLogger('actions/project-folder-menu').error({ error: error }, 'action failed');
+      toast({ tier: 'error', title: translate('projects.folders.errorAttach'), description: messageForUser(error) });
     }
   };
   return (

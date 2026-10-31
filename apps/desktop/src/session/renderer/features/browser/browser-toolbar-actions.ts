@@ -1,3 +1,5 @@
+import { rendererLogger } from '@/lib/log';
+import { messageForUser } from '@/lib/userFacingError';
 import { toast } from '@renderer/lib/hooks/use-toast';
 import { rpc } from '@renderer/lib/ipc';
 import { showModal } from '@renderer/lib/modal/modal-provider';
@@ -26,12 +28,11 @@ export async function captureBrowserScreenshot(
   session: BrowserSessionSnapshot,
   translate: ProjectsTranslate
 ): Promise<void> {
-  const result = await rpc.browser.captureScreenshot(session.browserId);
-  if (result.success) {
-    toast({ title: translate('browser.screenshotCopied') });
-  } else {
-    toast({ title: translate('browser.screenshotFailed'), variant: 'destructive' });
-  }
+  try {
+    const result = await rpc.browser.captureScreenshot(session.browserId);
+    if (result.success) toast({ title: translate('browser.screenshotCopied') });
+  } catch (error) { rendererLogger('actions/browser-toolbar-actions').error({ error: error }, 'action failed'); toast({ title: translate('browser.screenshotFailed'), description: messageForUser(error), variant: 'destructive' }); }
+
 }
 
 export function clearBrowserData(
@@ -50,7 +51,7 @@ export function clearBrowserData(
 
       toast({
         title: translate('browser.clearDataFailed'),
-        description: translate('browser.clearDataFailedDetail'),
+        description: result.error ? messageForUser(result.error) : translate('browser.clearDataFailedDetail'),
         variant: 'destructive',
       });
     })
@@ -58,9 +59,7 @@ export function clearBrowserData(
       console.error('Failed to clear browser data', error);
       toast({
         title: translate('browser.clearDataFailed'),
-        // An underlying runtime error message is raw diagnostic text.
-        description:
-          error instanceof Error ? error.message : translate('browser.clearDataRequestFailed'),
+        description: messageForUser(error),
         variant: 'destructive',
       });
     });

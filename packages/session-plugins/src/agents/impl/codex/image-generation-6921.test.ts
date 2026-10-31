@@ -36,12 +36,13 @@ function hasConfig(args: readonly string[], value: string): boolean {
   return args.some((arg, index) => arg === value && args[index - 1] === '-c');
 }
 
-function providerArgs(callableRoutes?: Record<string, string[]>) {
+function providerArgs(callableRoutes?: Record<string, string[]>, model = 'gpt-6-astra') {
   return codexPlatformProviderConfigArgs({
     providerId: 'gugu_platform',
     providerName: 'Gugu 平台额度',
     baseUrl: 'http://127.0.0.1:1/relay/v1',
     ...(callableRoutes ? { callableRoutes } : {}),
+    model,
   });
 }
 
@@ -106,13 +107,15 @@ describe('#6921 令牌能调 codex 的出图模型 ⇒ 给 gugu_platform 加开�
     }
   });
 
-  it('不带 callable_routes 时 provider 声明与改动前逐字一致', () => {
+  it('不带 callable_routes 时只带基础 provider 声明和可见重试配置', () => {
     expect(providerArgs()).toEqual([
       '-c', 'model_provider=gugu_platform',
       '-c', 'model_providers.gugu_platform.name="Gugu 平台额度"',
       '-c', 'model_providers.gugu_platform.base_url="http://127.0.0.1:1/relay/v1"',
       '-c', 'model_providers.gugu_platform.env_key=OPENAI_API_KEY',
       '-c', 'model_providers.gugu_platform.wire_api=responses',
+      '-c', 'model_providers.gugu_platform.request_max_retries=0',
+      '-c', 'model_providers.gugu_platform.stream_max_retries=7',
       '-c', 'features.apps=false',
     ]);
   });
@@ -125,10 +128,34 @@ describe('#6921 同一个头会给 lite 模型挂上打 /v1/alpha/search 的 web
     }
   });
 
-  it('网关声明了 /v1/alpha/search ⇒ 搜索不动', () => {
+  it('起步模型在 /v1/alpha/search 上 ⇒ 三个面都留着搜索', () => {
     const routes = { ...GRANTED, '/v1/alpha/search': ['gpt-6-astra'] };
-    const args = providerArgs(routes);
-    expect(hasConfig(args, HEADER_ARG)).toBe(true);
-    expect(hasConfig(args, SEARCH_OFF_ARG)).toBe(false);
+    for (const args of [providerArgs(routes), appServerArgs(routes), acpArgs(routes)]) {
+      expect(hasConfig(args, HEADER_ARG)).toBe(true);
+      expect(hasConfig(args, SEARCH_OFF_ARG)).toBe(false);
+      expect(hasConfig(args, 'model_providers.gugu_platform.supports_standalone_web_search=true')).toBe(true);
+      expect(hasConfig(args, 'features.standalone_web_search=true')).toBe(true);
+      expect(hasConfig(args, 'web_search="live"')).toBe(true);
+    }
+  });
+
+  it('search-only grants enable standalone search without enabling image generation', () => {
+    const routes = { '/v1/alpha/search': ['gpt-6-astra'] };
+    for (const args of [providerArgs(routes), appServerArgs(routes), acpArgs(routes)]) {
+      expect(hasConfig(args, HEADER_ARG)).toBe(false);
+      expect(hasConfig(args, SEARCH_OFF_ARG)).toBe(false);
+      expect(hasConfig(args, 'model_providers.gugu_platform.supports_standalone_web_search=true')).toBe(true);
+      expect(hasConfig(args, 'features.standalone_web_search=true')).toBe(true);
+    }
+    expect(providerArgs(routes, 'ungranted')).toEqual(providerArgs());
+  });
+
+  it('搜索路由上只有别的模型 ⇒ 三个面都关掉搜索(生产 10-21:luna 会话被 sol 的搜索路由打开了 web.run)', () => {
+    const routes = { ...GRANTED, '/v1/alpha/search': ['gpt-5.6-sol'] };
+    for (const args of [providerArgs(routes), appServerArgs(routes), acpArgs(routes)]) {
+      expect(hasConfig(args, HEADER_ARG)).toBe(true);
+      expect(hasConfig(args, SEARCH_OFF_ARG)).toBe(true);
+    }
+    expect(hasConfig(providerArgs(routes, 'gpt-5.6-sol'), SEARCH_OFF_ARG)).toBe(false);
   });
 });

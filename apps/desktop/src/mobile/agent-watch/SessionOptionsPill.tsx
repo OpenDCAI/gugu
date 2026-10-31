@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type {
   SessionOptionDimension,
@@ -153,10 +153,12 @@ function ChoiceRow({
 export function SessionOptionsPill({
   deviceId,
   sessionId,
+  phoneHost = false,
   busy
 }: {
   deviceId: string
   sessionId: string
+  phoneHost?: boolean
   /** agent 在跑 / 正在发送。跑到一半改选项会与它自己的输出交错,所以锁住。 */
   busy: boolean
 }) {
@@ -169,13 +171,23 @@ export function SessionOptionsPill({
   /** 等人确认的「换计费路」—— 与桌面会话菜单同一步:先问一句,再让宿主重开。 */
   const [reload, setReload] = useState<{ modelId: string; label: string; source: 'platform' | 'own' } | null>(null)
 
+  // #980 打开会话不叫醒 agent:没在跑的会话宿主只报得出记下的模型,权限档 / 推理档要等它跑起来。它跑完一轮
+  // (在跑 → 不在跑)时手里还只有那一份,就再读一次 —— ❌ 等人退出去再进来才看得到。
+  const [reread, setReread] = useState(0)
+  const wasBusy = useRef(busy)
+  const recordOnly = options !== null && !options.mode && !options.effort
+  useEffect(() => {
+    if (wasBusy.current && !busy && recordOnly) setReread((n) => n + 1)
+    wasBusy.current = busy
+  }, [busy, recordOnly])
+
   useEffect(() => {
     let cancelled = false
-    fetchSessionOptions(deviceId, sessionId)
+    fetchSessionOptions(deviceId, sessionId, phoneHost)
       .then((next) => { if (!cancelled) setOptions(next) })
       .catch((err) => { if (!cancelled) setError(describe(err)) })
     return () => { cancelled = true }
-  }, [deviceId, sessionId])
+  }, [deviceId, sessionId, phoneHost, reread])
 
   const groups = presentGroups(options)
   const root = groups[0]
@@ -205,7 +217,7 @@ export function SessionOptionsPill({
     setError(null)
     // 下发失败就停在这一页,错误写在头部下面,可以换一个再点。回来之前人可能已经点 ✕ / 遮罩关了抽屉:
     // 关着就让它关着(`v &&`),❌ 回来时把抽屉重新弹开。
-    void setSessionOption(deviceId, { conversationId: sessionId, dimension, value })
+    void setSessionOption(deviceId, { conversationId: sessionId, dimension, value }, phoneHost)
       .then((next) => { setOptions(next); setView((v) => v && root[0]) })
       .catch((err) => setError(describe(err)))
       .finally(() => setPending(null))
@@ -228,7 +240,7 @@ export function SessionOptionsPill({
     if (!reload) return
     setPending('model')
     setError(null)
-    void reloadSessionModel(deviceId, { conversationId: sessionId, model: reload.modelId, modelSource: reload.source })
+    void reloadSessionModel(deviceId, { conversationId: sessionId, model: reload.modelId, modelSource: reload.source }, phoneHost)
       .then((next) => { setOptions(next); setReload(null); setView((v) => v && root[0]) })
       .catch((err) => setError(describe(err)))
       .finally(() => setPending(null))
@@ -255,14 +267,14 @@ export function SessionOptionsPill({
         <ChevronDown />
       </Button>
 
-      {current ? (
-        <Sheet
+      <Sheet
+          open={Boolean(current)}
           onClose={close}
           mobileFitContent
           testId="agent-watch-options"
-          ariaLabel={t(`agentWatch.options.${current[0]}`)}
+          ariaLabel={t(`agentWatch.options.${current?.[0] ?? root[0]}`)}
         >
-          <div className="gg-aw gg-aw-sheet">
+          {current ? <div className="gg-aw gg-aw-sheet">
             {/* 头部三分栏:左 ✕/← 圆钮、中间标题、右侧留给 pending 转圈(orca 同款)。 */}
             <div className="gg-aw-sheet-head">
               <IconButton
@@ -275,7 +287,7 @@ export function SessionOptionsPill({
                 {atRoot ? <X /> : <ChevronLeft />}
               </IconButton>
               <div className="gg-aw-sheet-title">
-                {t('agentWatch.options.pick', { name: t(`agentWatch.options.${current[0]}`) })}
+                {t('agentWatch.options.pick', { name: t(`agentWatch.options.${current?.[0] ?? root[0]}`) })}
               </div>
               <div className="gg-aw-sheet-side">
                 {pending !== null ? (
@@ -376,9 +388,8 @@ export function SessionOptionsPill({
                 ))}
               </div>
             ) : null}
-          </div>
+          </div> : null}
         </Sheet>
-      ) : null}
     </>
   )
 }

@@ -1,3 +1,6 @@
+import { platform } from '@/platform'
+import { rendererLogger } from '@/lib/log'
+import { safeFailureLine } from '@/session/renderer/features/sessions/gugu-reason'
 // @@@sessionpage TASKPAGE-FUSION 分享 — 会话页点「分享」后的浮层。
 //
 // owner 实机反馈:原先直接弹名片海报是错的形态 —— 海报是一张图,「链接没法复制,agent id 也没法复制」。
@@ -120,35 +123,37 @@ const rowIcon: React.CSSProperties = {
   transition: 'opacity var(--transition-fast)',
 }
 
-function ShareRowItem({ row, unassigned, copiedLabel, copyFailedLabel, copyLabel }: {
+function ShareRowItem({ row, unassigned, copiedLabel, copyLabel }: {
   row: ShareRow
   unassigned: string
   copiedLabel: string
-  copyFailedLabel: string
   copyLabel: string
 }) {
-  const [state, setState] = useState<'idle' | 'copied' | 'failed'>('idle')
+  const [state, setState] = useState<string | null>(null)
   const [hovered, setHovered] = useState(false)
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
   useEffect(() => () => { if (timer.current) clearTimeout(timer.current) }, [])
-  const flash = (next: 'copied' | 'failed') => {
+  const flash = (next: string) => {
     setState(next)
     if (timer.current) clearTimeout(timer.current)
-    timer.current = setTimeout(() => setState('idle'), COPIED_MS)
+    timer.current = setTimeout(() => setState(null), COPIED_MS)
   }
   const copy = async () => {
     if (row.value === null) return
     try {
-      await navigator.clipboard.writeText(row.value)
-      flash('copied')
-    } catch {
-      flash('failed')
+      await platform.writeClipboardText(row.value)
+      flash(copiedLabel)
+    } catch (error) {
+      const reason = String((error as Error)?.message ?? error)
+      rendererLogger('clipboard').error({ error: reason }, 'copy agent identity failed')
+      flash(safeFailureLine(reason))
     }
   }
   const valueStyle: React.CSSProperties = {
     ...rowValue,
     ...(row.mono ? { fontFamily: 'var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace)', fontVariantLigatures: 'none' } : null),
-    ...(row.value === null || state !== 'idle' ? { color: 'var(--text-secondary)' } : null),
+    ...(row.value === null || state !== null ? { color: 'var(--text-secondary)' } : null),
+    ...(state !== null && state !== copiedLabel ? { whiteSpace: 'normal', overflowWrap: 'anywhere' } : null),
   }
 
   if (row.value === null) {
@@ -163,7 +168,7 @@ function ShareRowItem({ row, unassigned, copiedLabel, copyFailedLabel, copyLabel
     <button
       type="button"
       data-share-row={row.key}
-      data-copy-state={state}
+      data-copy-state={state === null ? 'idle' : state === copiedLabel ? 'copied' : 'failed'}
       aria-label={copyLabel}
       onClick={() => void copy()}
       onMouseEnter={() => setHovered(true)}
@@ -176,10 +181,10 @@ function ShareRowItem({ row, unassigned, copiedLabel, copyFailedLabel, copyLabel
       <span style={rowLabel}>{row.label}</span>
       {/* 反馈**就地替换值那一格**,不另占一列:右侧只留 16px 给图标(与侧栏身份卡同一形状)。 */}
       <span aria-live="polite" style={valueStyle}>
-        {state === 'copied' ? copiedLabel : state === 'failed' ? copyFailedLabel : row.value}
+        {state ?? row.value}
       </span>
-      <span style={{ ...rowIcon, opacity: hovered || state !== 'idle' ? 1 : 0 }}>
-        {state === 'copied' ? <Check size={13} /> : <Copy size={13} />}
+      <span style={{ ...rowIcon, opacity: hovered || state !== null ? 1 : 0 }}>
+        {state === copiedLabel ? <Check size={13} /> : <Copy size={13} />}
       </span>
     </button>
   )
@@ -270,8 +275,8 @@ export function AgentSharePopover({
               // --bg-elevated 才是这仓锚定信息浮层的底(暗 #1a1c24 / 亮 #fff,即设计稿的 --popover),
               // 与 ReadReceiptPopover、AgentRecentActionPopover 同一个 —— ❌ 别在这里另拍一个颜色。
               background: 'var(--bg-elevated)',
-              // 举起来的物件:一圈 hairline + 一层 lift 影,圆角 12(design.md --radius-xl:floating card)。
-              boxShadow: '0 0 0 1px var(--border-color), 0 12px 32px rgba(0,0,0,0.18)',
+              // 举起来的物件:hairline + lift 影都在 --shadow-popover 里,按主题分值;圆角 12(design.md --radius-xl:floating card)。
+              boxShadow: 'var(--shadow-popover)',
               borderRadius: 'var(--radius-xl)',
               overflow: 'hidden',
             }}
@@ -302,7 +307,6 @@ export function AgentSharePopover({
                   row={row}
                   unassigned={t('agentShare.numberUnassigned')}
                   copiedLabel={t('agentShare.copied')}
-                  copyFailedLabel={t('actions.copyFailed')}
                   copyLabel={t('agentShare.copyRow', { label: row.label })}
                 />
               ))}
@@ -310,7 +314,7 @@ export function AgentSharePopover({
 
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, borderTop: '1px solid var(--border-color)', padding: '8px 12px' }}>
               {/* 脚上只有一个动作:有号 → 生成海报;没号 → 开启公开(铸号)。说明文字只在没号态出现一句。 */}
-              <span style={{ minWidth: 0, fontSize: 'var(--font-body)', lineHeight: 1.4, color: makePublicError ? 'var(--text-danger, #b3261e)' : 'var(--text-secondary)' }}>
+              <span style={{ minWidth: 0, fontSize: 'var(--font-body)', lineHeight: 1.4, color: makePublicError ? 'var(--danger)' : 'var(--text-secondary)' }}>
                 {hasNumber ? null : (makePublicError ?? t('agentShare.makePublicHint'))}
               </span>
               <button

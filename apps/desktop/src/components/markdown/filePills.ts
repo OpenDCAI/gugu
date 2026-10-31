@@ -1,4 +1,4 @@
-import { groupFileLink, parseGroupFileLink } from '@gugu/core/shared/ui/fileLink'
+import { groupFileLink, parseGroupFileLink } from '@gugu/core/shared/ui/guguLink'
 import { stringifyMention } from '@gugu/session-shared/markdown'
 import type { Element, ElementContent, Root } from 'hast'
 
@@ -39,7 +39,7 @@ export function filePillToken(label: string, href: string): string {
   return filePillText({ label, link: link ? groupFileLink(link.itemId, link) : href })
 }
 
-/** A pill the composer holds (`gugu.compose`'s refs, a pasted one): what it says and the group file link it is. */
+/** A compose's file reference: its words and its group file link. */
 export interface FilePill {
   label: string
   link: string
@@ -48,39 +48,6 @@ export interface FilePill {
 /** The pill as a message's text holds it — `stringifyMention`'s @file form, the one the bubble and the transcript draw. */
 export function filePillText(pill: FilePill): string {
   return stringifyMention({ label: pill.label, target: pill.link, kind: 'file' })
-}
-
-/** What a sent message holds: the words, then the pills under them (App 引用 pill: "发送时接在话后面"). */
-export function withFilePills(text: string, pills: readonly FilePill[]): string {
-  return [text, pills.map(filePillText).join(' ')].filter(Boolean).join('\n\n')
-}
-
-// `@[label](target)` as stringifyMention writes it: a label with `\[`, `\]`, `\\` escaped, a bare target or an <angled> one.
-const PILL_TOKEN = /@\[((?:\\.|[^\]\\\n])*)\]\((<[^>\n]*>|[^\s()]+)\)/g
-
-/**
- * The pills written in a text, taken out of it — only those pointing at a group's file (any other @[…](…) stays, as
- * the session page's own mentions do). A composer holds its pills in the row above the input: text pasted or put back
- * with pills in it (a bubble copied, a send that failed) gives them back to that row.
- */
-export function takeFilePills(text: string): { text: string; pills: FilePill[] } {
-  const pills: FilePill[] = []
-  const rest = text.replace(PILL_TOKEN, (token, label: string, target: string) => {
-    const link = target.startsWith('<') ? target.slice(1, -1) : target
-    if (!parseGroupFileLink(link)) return token
-    pills.push({ label: label.replace(/\\(.)/g, '$1'), link })
-    return ''
-  })
-  if (pills.length === 0) return { text, pills }
-  // Where a pill was: no double space, no line left holding only spaces, no run of blank lines, nothing trailing.
-  const tidy = rest.replace(/[ \t]{2,}/g, ' ').replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim()
-  return { text: tidy, pills }
-}
-
-/** Pills added to the ones held: one per link, the first kept where it is. */
-export function addFilePills<T extends FilePill>(held: readonly T[], more: readonly T[]): T[] {
-  const added = more.filter((pill, index) => !held.some((h) => h.link === pill.link) && more.findIndex((m) => m.link === pill.link) === index)
-  return added.length ? [...held, ...added] : [...held]
 }
 
 let copyHooked = false

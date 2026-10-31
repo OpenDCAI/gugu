@@ -26,6 +26,54 @@ function setup(options: Parameters<typeof createRemotePaneRoute>[0] = {}) {
 afterEach(() => vi.useRealTimers());
 
 describe('remote pane route', () => {
+  it('carries live tabs on open and uses just the newest capable viewer for list and close', async () => {
+    const { route, published, advance } = setup();
+    const tabs = [{ tab_id: 'report', title: 'Report', kind: 'file', closable: true }];
+    route.subscribe({ subscriptionId: 'old', sessionId: 's', browser: true, tabs: true }, (event) => published.push(event));
+    advance(1);
+    route.subscribe({ subscriptionId: 'new', sessionId: 's', browser: true, tabs: true }, (event) => published.push(event));
+    const opening = route.open('s', file('/srv/report'), 'pinned');
+    route.ack({ requestId: 'req-1', subscriptionId: 'new', ok: true, tabs });
+    await expect(opening).resolves.toEqual({ opened: true, tabs });
+    published.length = 0;
+    const listing = route.open('s', { kind: 'tabs' }, 'pinned');
+    expect(published.map((event) => event.subscriptionId)).toEqual(['new']);
+    route.ack({ requestId: 'req-2', subscriptionId: 'new', ok: true, tabs });
+    await expect(listing).resolves.toEqual({ opened: true, tabs });
+    published.length = 0;
+    const closing = route.open('s', { kind: 'close-tab', tabId: 'report' }, 'pinned');
+    expect(published.map((event) => event.subscriptionId)).toEqual(['new']);
+    route.ack({ requestId: 'req-3', subscriptionId: 'new', ok: true, tabs, closed: false });
+    await expect(closing).resolves.toEqual({ opened: true, tabs, closed: false });
+  });
+
+  it('never queues list/close, and preserves a close refusal rather than reopening later', async () => {
+    const { route, published, view } = setup();
+    await expect(route.open('s', { kind: 'tabs' }, 'pinned')).rejects.toThrow('No Gugu window');
+    await expect(route.open('s', { kind: 'close-tab', tabId: 'x' }, 'pinned')).rejects.toThrow('No Gugu window');
+    expect(view('old', 's', true).pending).toEqual([]);
+    await expect(route.open('s', { kind: 'tabs' }, 'pinned')).rejects.toThrow('too old');
+    route.subscribe({ subscriptionId: 'new', sessionId: 's', browser: true, tabs: true }, (event) => published.push(event));
+    const rejected = route.open('s', { kind: 'close-tab', tabId: 'chat' }, 'pinned');
+    const event = published.at(-1)!;
+    route.ack({ requestId: event.request.requestId, subscriptionId: 'new', ok: false, failure: 'open_failed', error: 'The conversation tab cannot be closed' });
+    await expect(rejected).rejects.toThrow('conversation tab');
+    const disconnected = route.open('s', { kind: 'close-tab', tabId: 'report' }, 'pinned');
+    route.unsubscribe('new');
+    await expect(disconnected).rejects.toThrow('disconnected');
+    expect(view('next', 's', true).pending).toEqual([]);
+  });
+
+  it('allows time for the existing unsaved-file confirmation', async () => {
+    vi.useFakeTimers();
+    const { route, published } = setup();
+    route.subscribe({ subscriptionId: 'a', sessionId: 's', browser: false, tabs: true }, (event) => published.push(event));
+    const closing = route.open('s', { kind: 'close-tab', tabId: 'file' }, 'pinned');
+    await vi.advanceTimersByTimeAsync(20_000);
+    route.ack({ requestId: 'req-1', subscriptionId: 'a', ok: true, tabs: [], closed: true });
+    await expect(closing).resolves.toEqual({ opened: true, tabs: [], closed: true });
+  });
+
   it('pushes to the desktop viewing the session and resolves on its ack', async () => {
     const { route, published, view } = setup();
     view('sub-a', 'conv-1', true);
@@ -48,20 +96,37 @@ describe('remote pane route', () => {
     await expect(route.open('conv-1', file('/srv/app/a.ts'), 'preview')).resolves.toEqual({ queued: true });
     await expect(route.open('conv-1', page('https://example.com/'), 'pinned')).resolves.toEqual({ queued: true });
     expect(published).toEqual([]);
-    expect(view('sub-a', 'conv-1', true).pending.map((request) => request.target)).toEqual([
-      file('/srv/app/a.ts'),
-      page('https://example.com/'),
-    ]);
-    // Delivered once: a second desktop does not get the same tabs again.
-    expect(view('sub-b', 'conv-1', true).pending).toEqual([]);
+    const handed = view('sub-a', 'conv-1', true).pending;
+    expect(handed.map((request) => request.target)).toEqual([file('/srv/app/a.ts'), page('https://example.com/')]);
+    // Handed over is not opened: until that desktop answers, the requests stay queued (its page may not be ready yet).
+    expect(route.ack({ requestId: handed[0]!.requestId, subscriptionId: 'sub-a', ok: true })).toBe(false);
+    expect(view('sub-b', 'conv-1', true).pending.map((request) => request.target)).toEqual([page('https://example.com/')]);
+    // Answered — opened or honestly not — it is out: a second desktop does not get the same tab again.
+    expect(route.ack({ requestId: handed[1]!.requestId, subscriptionId: 'sub-a', ok: false, failure: 'open_failed' })).toBe(false);
+    expect(view('sub-c', 'conv-1', true).pending).toEqual([]);
   });
 
   it('keeps a page for a desktop that has a browser tab when the first viewer has none', async () => {
     const { route, view } = setup();
     await route.open('conv-1', page('http://localhost:3000/'), 'pinned');
     await route.open('conv-1', file('/srv/app/a.ts'), 'pinned');
-    expect(view('tunnel-desktop', 'conv-1', false).pending.map((request) => request.target.kind)).toEqual(['file']);
+    const tunnel = view('tunnel-desktop', 'conv-1', false).pending;
+    expect(tunnel.map((request) => request.target.kind)).toEqual(['file']);
+    route.ack({ requestId: tunnel[0]!.requestId, subscriptionId: 'tunnel-desktop', ok: true });
     expect(view('ssh-desktop', 'conv-1', true).pending.map((request) => request.target.kind)).toEqual(['browser']);
+  });
+
+  it('updates a subscription subscribed again in place: watched throughout, and a page kept for a browser tab is handed over', async () => {
+    const { route, view } = setup();
+    await route.open('conv-1', page('http://localhost:3000/'), 'pinned');
+    expect(view('sub-a', 'conv-1', false).pending).toEqual([]);
+    expect(route.watching('conv-1')).toBe(true);
+    // The tunnel came up on that desktop: the same subscription, now with a browser tab.
+    expect(view('sub-a', 'conv-1', true).pending.map((request) => request.target.kind)).toEqual(['browser']);
+    expect(route.watching('conv-1')).toBe(true);
+    // Still one viewer, not two: one unsubscribe and nobody watches.
+    expect(route.unsubscribe('sub-a')).toBe(true);
+    expect(route.watching('conv-1')).toBe(false);
   });
 
   it('fails a page at once when the only viewers have no browser tab — no push, no wait', async () => {

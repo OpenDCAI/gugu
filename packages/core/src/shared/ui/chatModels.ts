@@ -15,6 +15,17 @@ export function isRoomChat(kind: ChatKind): boolean {
   return kind === 'group' || kind === 'topic'
 }
 
+/**
+ * 未读里算到你头上的条数(owner 10-28):话题只算叫到你的 —— 点名你、@all、回复你说的;其余会话算全部未读。
+ * agent 开的话题会把主人拉成成员,agent 之间的往来照旧是话题自己的未读(话题页签上的数),但不进项目行、不弹通知。
+ * 没有 locator(没有未读 = 0;本机刚手动标未读、还没刷新 = 1,与服务端「手动标记算 1」一致)就照 unread_count。
+ */
+export function unreadForYou(chat: Pick<ChatItem, 'kind' | 'unread_count' | 'unread_locator'>): number {
+  if (chat.kind !== 'topic' || !chat.unread_locator) return chat.unread_count
+  // 不知道哪几条叫到你(旧后端、旧缓存)就照旧全算:多算一点,❌ 把点名你的那条算没。
+  return chat.unread_locator.addressed_count ?? chat.unread_count
+}
+
 export function fallbackChatName(kind: ChatKind): string {
   if (kind === 'dm') return '聊天'
   if (kind === 'topic') return '话题'
@@ -38,11 +49,16 @@ export function fallbackChatName(kind: ChatKind): string {
  * 场所的兜底名是另一回事:群名是用户输入(空名建群本来就落「群聊」),话题名由 create_topic 保证非空
  * (最差是「话题」)—— 那属于契约里明写的「user-input defaults」,不是解析失败。
  */
+export function groupDisplayName(group: { name?: string | null; alias?: string | null }): string {
+  return group.alias?.trim() || group.name?.trim() || fallbackChatName('group')
+}
+
 export function chatDisplayName(
-  chat: Pick<ChatItem, 'kind' | 'name' | 'peer_alias'>,
+  chat: Pick<ChatItem, 'kind' | 'name' | 'peer_alias' | 'alias'>,
   peerDisplayName: string | null | undefined,
 ): string {
-  if (isRoomChat(chat.kind)) return chat.name?.trim() || fallbackChatName(chat.kind)
+  if (chat.kind === 'group') return groupDisplayName(chat)
+  if (chat.kind === 'topic') return chat.name?.trim() || fallbackChatName(chat.kind)
   return chat.peer_alias?.trim() || peerDisplayName?.trim() || ''
 }
 

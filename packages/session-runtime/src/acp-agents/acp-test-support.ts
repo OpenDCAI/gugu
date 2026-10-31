@@ -6,8 +6,10 @@
  */
 
 import { EventEmitter } from 'node:events';
+import type { PromptRequest } from '@agentclientprotocol/sdk';
 import { PassThrough } from 'node:stream';
-import type { Client } from '@agentclientprotocol/sdk';
+import { createRequestActivity } from '@gugu/session-core/acp';
+import type { AcpClient } from '@gugu/session-core/agents/plugins';
 import type { ProviderPermissionModeMap, QueuedPrompt, SessionSummary } from '@gugu/session-core/acp';
 import type {
   AcpFs,
@@ -34,6 +36,7 @@ import { type Mock, vi } from 'vitest';
 import { awaitPending } from '../../../../tests/support/awaitFact';
 import type { AgentTerminalHooks } from './agent-ports/terminal-manager';
 import type { AcpRuntime } from './runtime/runtime';
+import { SessionCell } from './session/cell';
 import type { AcpRuntimeDeps, AcpStartInput } from './runtime/types';
 
 /**
@@ -130,14 +133,42 @@ export class FakeAcpAgent implements AcpAgentApi {
   extMethod: Mock = vi.fn().mockResolvedValue({ stopped: true });
 
   /** The Client handler the runtime registered via toClient(). Available after connect(). */
-  capturedClient: Client | null = null;
+  capturedClient: AcpClient | null = null;
+
+  nativeState = false;
 
   private readonly callWaiters = new Set<{ holds: () => boolean; resolve: () => void }>();
 
   readonly behavior: Pick<IAcpBehavior, 'connect'> = {
     connect: (_io, toClient) => {
-      this.capturedClient = toClient(this as never);
-      return this.observed();
+      if (this.nativeState) {
+        const observed = this.observed();
+        // As connectStdioAcpV2: a native receipt that misses its admission deadline is cancelled and rejected.
+        const api = new Proxy(observed, { get: (target, property) => property === 'steer'
+          // As connectStdioAcpV2: native steering is the negotiated `_session/steering` request.
+          ? async (params: PromptRequest) => (await target.extMethod!('_session/steering', { ...params,
+            _meta: { steering: { idleBehavior: 'promptRequired', delivery: 'next' } } })).outcome as 'injected' | 'promptRequired'
+          : property !== 'prompt' ? Reflect.get(target, property)
+          : (params: PromptRequest, dispatch?: Parameters<AcpAgentApi['prompt']>[1]) => {
+            const receipt = target.prompt(params, dispatch);
+            const timeoutMs = dispatch?.admissionTimeoutMs;
+            if (timeoutMs === undefined) return receipt;
+            let timer: ReturnType<typeof setTimeout> | undefined;
+            return Promise.race([receipt, new Promise<never>((_resolve, reject) => {
+              timer = setTimeout(() => {
+                void target.cancel({ sessionId: params.sessionId });
+                reject(Object.assign(new Error(`Native prompt admission timed out after ${timeoutMs}ms`), { code: 'prompt_admission_timeout' }));
+              }, timeoutMs);
+            })]).finally(() => clearTimeout(timer));
+          } });
+        this.capturedClient = toClient(api);
+        return api;
+      }
+      const boundary = createRequestActivity(this.observed() as never, params => client.sessionEvent(params));
+      const client: AcpClient = toClient(boundary.agent);
+      // Provider events reach the client through the v1 ingress, as connectStdioAcp delivers them.
+      this.capturedClient = { ...client, sessionEvent: (params) => { boundary.observe(params.sessionId, params.event); client.sessionEvent(params); } };
+      return boundary.agent;
     },
   };
 
@@ -250,7 +281,7 @@ export class FakeAcpProcessHandle extends EventEmitter implements AcpProcessHand
   exitCode: number | null = null;
   /** 假 handle 背后没有真进程 ⇒ 明确 null,❌ 不编一个假 pid。 */
   readonly pid: number | null = null;
-  readonly kill = vi.fn<(signal?: NodeJS.Signals) => void>();
+  readonly kill = vi.fn<(signal?: NodeJS.Signals) => void>((signal = 'SIGTERM') => this.emitExit(null, signal));
   /**
    * @@@5405 假 handle 背后没有真树 ⇒ 默认报 0,但它是**可观察**的:退出边必须先收树再把
    * 「进程没了」报出去,而那条顺序只有在能看见这次调用发生在哪一步之前时才判得出来。
@@ -392,14 +423,16 @@ export class FakePtySpawner implements PtySpawner {
 }
 
 type AcpHarnessOptions = Partial<AcpRuntimeDeps> & {
+  providerId?: string;
   acpBehavior?: IAcpBehavior;
+  historyRecovery?: IAcpBehavior['historyRecovery'];
   authProvider?: ResolvedAuthProvider;
   autoApprove?: 'supported' | 'none';
   /** 该家自己声明的原生档 ↔ 咕咕四档对应表。不给 = 没声明表,整条路退回按 id 猜。 */
   autoApproveModes?: ProviderPermissionModeMap;
   bundleAutonomy?: 'native' | 'per-surface-acp' | 'none';
-  /** agent 在 initialize 里声明自己报状态(`agentCapabilities._meta.sessionState`,claude 桥接 1.3.0 起)。 */
-  reportsState?: boolean;
+  /** agent 自己报状态:它讲 ACP v2(initialize 答 `protocolVersion: 2`)。 */
+  nativeState?: boolean;
 };
 
 // Tests that exercise the legacy ACP setter path still declare the capability explicitly.
@@ -533,19 +566,22 @@ function testSessionBundleDescriptor(
 
 export function makeAcpHarness(options: AcpHarnessOptions = {}) {
   const {
+    providerId,
     acpBehavior,
+    historyRecovery,
     authProvider,
     autoApprove,
     autoApproveModes,
     bundleAutonomy,
-    reportsState,
+    nativeState,
     ...depOverrides
   } = options;
   const agent = new FakeAcpAgent();
-  if (reportsState) {
+  agent.nativeState = nativeState === true;
+  if (nativeState) {
     agent.initialize.mockResolvedValue({
-      protocolVersion: 1,
-      agentCapabilities: { loadSession: true, _meta: { sessionState: {} } },
+      protocolVersion: 2,
+      agentCapabilities: { loadSession: true },
     });
   }
   const fakeHost = new FakeAcpProcessHost();
@@ -556,7 +592,9 @@ export function makeAcpHarness(options: AcpHarnessOptions = {}) {
     agentHost:
       depOverrides.agentHost ??
       testPluginHost({
+        providerId,
         acpBehavior: acpBehavior ?? {
+          ...(historyRecovery ? { historyRecovery } : {}),
           buildSpawn: () => ({ command: '/fake/node', args: ['agent.js'], env: {} }),
           connect: agent.behavior.connect,
         },
@@ -571,6 +609,7 @@ export function makeAcpHarness(options: AcpHarnessOptions = {}) {
     host: fakeHost,
     resolveAttachment: vi.fn().mockResolvedValue({ data: '', mimeType: 'image/png' }),
     logger: noopLogger,
+    recoverDelivery: (text) => text,
     promptQueueStore: {
       load: (sessionId) => promptQueueSnapshots.get(sessionId) ?? [],
       save: (sessionId, prompts) => promptQueueSnapshots.set(sessionId, structuredClone(prompts)),
@@ -590,7 +629,7 @@ export function makeAcpHarness(options: AcpHarnessOptions = {}) {
     },
     agent,
     ptySpawner,
-    client(): Client {
+    client(): AcpClient {
       if (!agent.capturedClient) {
         throw new Error('capturedClient is null — has startSession() been called?');
       }
@@ -677,4 +716,20 @@ export function makeStartInput(
     },
     ...overrides,
   };
+}
+
+/**
+ * A cell on the v1 request-activity transport, as production v1 providers are connected: the fake's
+ * `prompt` result becomes the foreground boundary. Tests that hand the cell a raw agent get no boundary.
+ */
+export function requestActivityCell(
+  agent: FakeAcpAgent,
+  deps: Omit<ConstructorParameters<typeof SessionCell>[0], 'agent'>,
+  options: { interruptAtToolBoundary?: boolean } = {},
+): SessionCell {
+  const boundary = createRequestActivity(agent.observed() as never, ({ event }) => cell.push(event), options);
+  const cell = new SessionCell({ ...deps, agent: boundary.agent });
+  const push = cell.push.bind(cell);
+  cell.push = (event) => { boundary.observe(deps.acpSessionId, event); push(event); };
+  return cell;
 }

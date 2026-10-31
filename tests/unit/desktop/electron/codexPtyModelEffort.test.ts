@@ -1,6 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 vi.mock('@gugu/core/cloud/agentIdentityReconcile', () => ({
-  listOwnedCloudAgentsViaSupabase: vi.fn(async () => []),
 }))
 import {
   guguSessionSurfaceBlock,
@@ -350,6 +349,7 @@ describe('divert 真的把选择接进了 app-server 的启动 argv', () => {
     )
     expect(started).toHaveLength(1)
     expect(started[0]?.threadConfig).toEqual({
+      'tools.update_plan.enabled': true,
       'mcp_servers.gugu.default_tools_approval_mode': 'approve',
       'mcp_servers.gugu.url': 'http://127.0.0.1:44100/mcp',
       'mcp_servers.gugu.bearer_token_env_var': 'GUGU_SESSION_MCP_BEARER_GUGU',

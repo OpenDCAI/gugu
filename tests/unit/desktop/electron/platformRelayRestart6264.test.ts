@@ -34,6 +34,14 @@ const configPathOf = (helper: string): string => {
   if (!match) throw new Error(`helper has no --config: ${helper}`)
   return match[1]
 }
+// This suite retains the pre-proxy helper layout to verify existing persisted sessions.
+vi.mock('@gugu/session-plugins/agents', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@gugu/session-plugins/agents')>()
+  return { ...actual, resolveSessionpageCredentialLifecycle: (...args: Parameters<typeof actual.resolveSessionpageCredentialLifecycle>) => {
+    const lifecycle = actual.resolveSessionpageCredentialLifecycle(...args)
+    return args[0] === 'claude' && lifecycle ? { ...lifecycle, delivery: 'credential-helper' as const } : lifecycle
+  } }
+})
 vi.mock('@gugu/core', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   listAgents: (...args: unknown[]) => listAgents(...args),
@@ -210,7 +218,7 @@ describe('#6264 平台转发口活过宿主进程重启', () => {
     expect(heldPlatformModelForSession(CONV)).toMatchObject({ accessSessionId: 'sess-1', settingsDocumentPath: files[0] })
   })
 
-  // PR-7 开机读数(gugu-base evidence/2026-10-09-pr7-boot/known/2):tmux 里的 agent 敲早绑的 MCP 端口,唤醒比认回早,
+  // PR-7 开机读数(2026-10-09):tmux 里的 agent 敲早绑的 MCP 端口,唤醒比认回早,
   // 手里那份还没认回 ⇒ 另签一张;三张同秒签,网关池拒掉一张,那条会话落 error。
   it('开机认回只读本机(盘、tmux、账本文件):owner 一直没确立(没登录)也落定,手里那份照样在、不签票;等它的人(哪怕比认回开跑还早)等到认回之后', async () => {
     await startClaude()
@@ -334,7 +342,7 @@ describe('开机认回排在 boot 的迁移之后 (#7120)', () => {
     const main = readFileSync(join(process.cwd(), 'apps/desktop/electron/main.ts'), 'utf8')
     const calls = [...main.matchAll(/restorePlatformRelaySessions\(\{/g)].map((match) => match.index!)
     expect(calls).toHaveLength(1)
-    const boot = main.indexOf('const emdashBoot = emdash.bootEmdashModule(ipcMain)')
+    const boot = main.indexOf('const emdashBoot = emdash.bootEmdashModule(ipcMain')
     expect(boot).toBeGreaterThan(-1)
     expect(calls[0]).toBeGreaterThan(boot)
     expect(main.slice(boot, calls[0])).toContain('void emdashBoot.catch(() => undefined)')

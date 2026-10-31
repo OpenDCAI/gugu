@@ -32,6 +32,10 @@ describe('安卓返回键关的是最上层的 Sheet', () => {
     expect(inner).toHaveBeenCalledTimes(1)
     expect(outer).not.toHaveBeenCalled()
     expect(state.__guguNativeBackHandled).toBe(true)
+    const popup = [...document.querySelectorAll<HTMLElement>('[data-slot="dialog-popup"]')].at(-1)!
+    await act(async () => { popup.focus(); popup.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })) })
+    expect(inner).toHaveBeenCalledTimes(2)
+    expect(outer).not.toHaveBeenCalled()
 
     harness.cleanup()
     harness = null
@@ -46,6 +50,27 @@ describe('安卓返回键关的是最上层的 Sheet', () => {
     await act(async () => { window.dispatchEvent(new CustomEvent('gugu:native-back')) })
     expect(onEscape).toHaveBeenCalledTimes(1)
     expect(onClose).not.toHaveBeenCalled()
+  })
+
+  it('a nested sheet with closeOnBackdrop=false keeps both layers open on an outside press', async () => {
+    harness = createReactHarness()
+    const outer = vi.fn()
+    const inner = vi.fn()
+    await harness.render(createElement(Sheet, { onClose: outer, children: 'Settings' }))
+    await harness.render(createElement(Sheet, { onClose: outer, children: createElement(Sheet, {
+      onClose: inner, closeOnBackdrop: false, testId: 'non-dismissible', children: 'Saving',
+    }) }))
+    const popup = document.querySelector('[data-testid="non-dismissible"]')!
+    const backdrop = popup.closest('.gg-sheet-viewport')!.previousElementSibling as HTMLElement
+    expect(backdrop.matches('.gg-sheet-backdrop')).toBe(true)
+    await act(async () => {
+      backdrop.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0 }))
+      backdrop.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, button: 0 }))
+      backdrop.click()
+    })
+    expect(inner).not.toHaveBeenCalled()
+    expect(outer).not.toHaveBeenCalled()
+    expect(document.querySelectorAll('[data-slot="dialog-popup"]')).toHaveLength(2)
   })
 
   it('页面那一层的返回键处理先问有没有 Sheet 开着(不靠监听器注册先后)', () => {

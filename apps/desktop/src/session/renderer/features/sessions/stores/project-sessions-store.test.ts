@@ -35,7 +35,8 @@ const mocks = vi.hoisted(() => ({
   workspaceSetBootstrapState: vi.fn(),
 }));
 
-vi.mock('@renderer/lib/ipc', () => ({
+vi.mock('@renderer/lib/ipc', () => {
+  const ipc = {
   events: {
     on: vi.fn(() => () => {}),
   },
@@ -55,7 +56,10 @@ vi.mock('@renderer/lib/ipc', () => ({
       provisionWorkspace: mocks.provisionWorkspace,
     },
   },
-}));
+};
+  // 本机(null)那条线就是 events.on;测试里的项目都在本机。
+  return { ...ipc, onMachineEvent: (_machine: unknown, event: never, cb: never) => (ipc.events.on as (...args: unknown[]) => () => void)(event, cb) };
+});
 
 vi.mock('@renderer/features/projects/stores/project-selectors', () => ({
   getProjectManagerStore: mocks.getProjectManagerStore,

@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { verifiedFileHandle } from '../../../helpers/verifiedFileHandle'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 /**
@@ -24,14 +25,11 @@ vi.mock('../../../../apps/desktop/src/platform', async (importOriginal) => {
     },
   }
 })
-vi.mock('../../../../apps/desktop/src/lib/download', () => ({
-  fetchBlob: async (url: string) => new Blob([`bytes of ${url}`]),
-}))
 vi.mock('../../../../apps/desktop/src/session/shared/extensions/app-files-core', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../../../apps/desktop/src/session/shared/extensions/app-files-core')>()
   return {
     ...actual,
-    createAppFiles: () => ({ downloadSource: async () => ({ name: '季度报告.pdf', kind: 'file', url: CDN }) }),
+    createAppFiles: () => ({ downloadSource: async () => ({ name: '季度报告.pdf', kind: 'file', file: await verifiedFileHandle(new TextEncoder().encode(`bytes of ${CDN}`), { file_name: '季度报告.pdf' }) }) }),
   }
 })
 const activation = { isActive: true }
@@ -53,7 +51,7 @@ beforeEach(() => {
   Object.defineProperty(frame.contentWindow!, 'postMessage', { value: posted, configurable: true })
   host = hostAppFrame(
     frame,
-    { extensionId: 'board', tabId: 'tab-1', chatId: CHAT, capabilities: ['files:read', 'files:write'], locale: 'en-US', themeMode: 'light' },
+    { extensionId: 'board', tabId: 'tab-1', tabName: 'main', chatId: CHAT, capabilities: ['files:read', 'files:write'], locale: 'en-US', themeMode: 'light' },
     { showMessage: vi.fn(), showSession: () => ({ shown: true }), openWith: vi.fn(), chrome: vi.fn() },
   )
 })

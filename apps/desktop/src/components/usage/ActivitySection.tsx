@@ -10,7 +10,6 @@ import { SectionLabel } from '../ui/SectionLabel'
 import { EngineIcon } from '../AgentHarnessIdentity'
 import { engineLabel } from '../../lib/usage/engineLabel'
 import {
-  RANGE_PRESETS,
   activeDays,
   busiestDay,
   changeRatio,
@@ -39,15 +38,13 @@ import '../settings/settings.css'
 import './usage.css'
 
 /**
- * 设置 →「活跃」(product spec)。从上往下:总览 → 活跃热力图 → 按引擎 → 节奏。
- * 积分与使用日志在另一页「用量」(UsageSection.tsx)。
+ * 用量里的活跃区块:总览 → 热力图 → 按引擎 → 节奏。时间段来自页面,设备筛选只管本区块。
  * 数据是云端的跨设备汇总;本机在打开这一页时先把最新数据送上去(见 lib/usage/sync.ts)。
  */
-export function ActivitySection() {
+export function ActivitySection({ preset }: { preset: RangePreset }) {
   const { t } = useTranslation('settings')
   const { user } = useAuth()
   const knownDevices = useDisplayDevices(useDevicesStore().devices)
-  const [preset, setPreset] = useState<RangePreset>('30d')
   const [deviceId, setDeviceId] = useState<string | null>(null)
   const [metric, setMetric] = useState<HeatMetric>('sessions')
   const data = useUsageData({ userId: user?.id ?? null, deviceId, wantPreviousYear: preset === '1y' })
@@ -63,6 +60,7 @@ export function ActivitySection() {
   return (
     <div className="gg-usage" data-testid="activity-section">
       <div className="gg-usage-toolbar">
+        <SectionLabel id="usage-activity">{t('usage.activity')}</SectionLabel>
         {deviceOptions.length > 1 || deviceId ? (
           <select
             // @@@6436 与设置里其它下拉(语言)同一种:手机上 44px 触控高度,桌面 32。
@@ -77,31 +75,24 @@ export function ActivitySection() {
           </select>
         ) : <span className="gg-usage-caption">{t('usage.allDevices')}</span>}
         {data.syncing && <span className="gg-usage-caption mr-auto" data-testid="usage-syncing">{t('usage.syncing')}</span>}
-        <SegmentedTabs
-          ariaLabel={t('usage.range')}
-          value={preset}
-          onChange={setPreset}
-          items={RANGE_PRESETS.map((p) => ({ value: p, label: t(`usage.ranges.${p}`), testId: `usage-range-${p}` }))}
-        />
       </div>
       {data.syncError && <span className="gg-usage-caption" data-testid="usage-sync-error" title={data.syncError}>{t('usage.syncError')}</span>}
 
       <Summary data={data} usage={usage} current={current} previous={previous} preset={preset} />
 
       <section className="gg-usage-section" aria-labelledby="usage-activity">
-        <SectionLabel id="usage-activity">{t('usage.activity')}</SectionLabel>
         <Activity usageState={data.usage} today={data.today} metric={metric} onMetric={setMetric} range={current} />
       </section>
 
       <section className="gg-usage-section" aria-labelledby="usage-engines">
-        <SectionLabel id="usage-engines" trailing={<span className="gg-usage-hint">{t('usage.enginesHint')}</span>}>{t('usage.engines')}</SectionLabel>
+        <SectionLabel id="usage-engines">{t('usage.engines')}</SectionLabel>
         <Guarded state={data.usage} height={120}>
           {usage && <Engines usage={usage} range={current} />}
         </Guarded>
       </section>
 
       <section className="gg-usage-section" aria-labelledby="usage-rhythm">
-        <SectionLabel id="usage-rhythm" trailing={<span className="gg-usage-hint">{t('usage.rhythmHint')}</span>}>{t('usage.rhythm')}</SectionLabel>
+        <SectionLabel id="usage-rhythm">{t('usage.rhythm')}</SectionLabel>
         <Guarded state={data.usage} height={120}>
           {usage && <Rhythm usage={usage} range={current} />}
         </Guarded>
@@ -151,7 +142,7 @@ function Summary({ data, usage, current, previous, preset }: {
   // Token 分两格:走咕咕模型(扣积分)的与走自己账号(BYOK)的。说不清来源的那部分(来源记录出现之前的会话)
   // 不塞进任何一格,只在悬停里说出来,❌ 猜一边。
   const unknown = now ? Math.max(0, now.tokens - now.guguTokens - now.byokTokens) : 0
-  const detail = now && unknown > 0 ? t('usage.tiles.tokensUnknown', { value: compact(unknown) }) : undefined
+  const detail = now && unknown > 0 ? t('usage.tiles.tokensUnknown', { value: compact(unknown), count: unknown }) : undefined
   return (
     <div className="gg-usage-tiles">
       {tile('sessions', t('usage.tiles.sessions'), now ? plain(now.sessions) : null, change(now?.sessions ?? 0, prev?.sessions ?? null), failed)}
@@ -197,13 +188,13 @@ function Activity({ usageState, today, metric, onMetric, range }: {
   const comparison = tokenComparison(totals.tokens, resolvedLocale.startsWith('zh') ? 'zh' : 'en', today)
   const formatValue = (count: number) => metric === 'sessions'
     ? t('usage.units.sessions', { count, value: plain(count) })
-    : t('usage.units.tokens', { value: compact(count) })
+    : t('usage.units.tokens', { count, value: compact(count) })
   return (
     <>
       <div className="gg-usage-card">
         <div className="gg-usage-heat-head">
           <span className="gg-usage-muted" data-testid="usage-streaks">
-            {!settled ? '' : active.size === 0 ? t('usage.emptyHeat') : t('usage.streaks', { current, longest, active: active.size })}
+            {!settled ? '' : active.size === 0 ? t('usage.emptyHeat') : t('usage.streaks', { current, longest, count: active.size })}
           </span>
           <SegmentedTabs
             ariaLabel={t('usage.metric')}
@@ -224,7 +215,7 @@ function Activity({ usageState, today, metric, onMetric, range }: {
       </div>
       {comparison && (
         <div className="gg-usage-quip" data-testid="usage-quip">
-          {t('usage.quip', { tokens: compact(totals.tokens), book: t(`usage.books.${comparison.key}`), times: plain(comparison.times) })}
+          {t('usage.quip', { tokens: compact(totals.tokens), book: t(`usage.books.${comparison.key}`), times: plain(comparison.times), count: comparison.times })}
         </div>
       )}
     </>
@@ -241,7 +232,7 @@ function Engines({ usage, range }: { usage: UsageDay[]; range: DayRange }) {
   return (
     <>
       <div className="na-table-wrap">
-        <table className="na-table" data-testid="usage-engines">
+        <table className="na-table na-table--engines" data-testid="usage-engines">
           <thead>
             <tr>
               <th>{t('usage.na.colEngine')}</th><th>{t('usage.na.colSessions')}</th>
@@ -251,16 +242,16 @@ function Engines({ usage, range }: { usage: UsageDay[]; range: DayRange }) {
           <tbody>
             {rows.map((row) => (
               <tr key={row.engine} data-testid={`usage-engine-${row.engine}`}>
-                <td><ModelBadge model={engineLabel(row.engine)} icon={<EngineIcon engine={row.engine} size={16} />} /></td>
-                <td>
+                <td data-label={t('usage.na.colEngine')}><ModelBadge model={engineLabel(row.engine)} icon={<EngineIcon engine={row.engine} size={16} />} /></td>
+                <td data-label={t('usage.na.colSessions')}>
                   <div className="na-cell-stack">
                     <span>{plain(row.sessions)}</span>
                     <span className="na-tokens-sub">{plain(row.share * 100)}%</span>
                   </div>
                 </td>
-                <td><span className="na-mono-xs">{row.guguTokens > 0 ? compact(row.guguTokens) : '—'}</span></td>
-                <td><span className="na-mono-xs">{row.byokTokens > 0 ? compact(row.byokTokens) : '—'}</span></td>
-                <td>{row.runSeconds > 0 ? <span className="na-cost">{duration(row.runSeconds, t)}</span> : <span className="gg-usage-muted">—</span>}</td>
+                <td data-label={t('usage.na.colGuguTokens')}><span className="na-mono-xs">{row.guguTokens > 0 ? compact(row.guguTokens) : '—'}</span></td>
+                <td data-label={t('usage.na.colByokTokens')}><span className="na-mono-xs">{row.byokTokens > 0 ? compact(row.byokTokens) : '—'}</span></td>
+                <td data-label={t('usage.na.colRuntime')}>{row.runSeconds > 0 ? <span className="na-cost">{duration(row.runSeconds, t)}</span> : <span className="gg-usage-muted">—</span>}</td>
               </tr>
             ))}
           </tbody>

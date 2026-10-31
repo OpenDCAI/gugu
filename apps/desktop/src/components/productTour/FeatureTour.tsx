@@ -1,0 +1,106 @@
+import { messageForUser } from '@/lib/userFacingError';
+import { rendererLogger } from '@/lib/log';
+import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useTranslation } from 'react-i18next'
+import { Dialog } from '../ui/Dialog'
+import { Button } from '../ui/Button'
+import { TOUR_FILMS } from './catalog'
+import split from '../../assets/product-tour/feature-1.webm'
+import contacts from '../../assets/product-tour/feature-3.webm'
+import report from '../../assets/product-tour/feature-4.webm'
+import splitPoster from '../../assets/product-tour/feature-1.webp'
+import contactsPoster from '../../assets/product-tour/feature-3.webp'
+import reportPoster from '../../assets/product-tour/feature-4.webp'
+
+// Keep each film's media together: removing a chapter must not shift another film's captions.
+const films = [
+  { src: split, poster: splitPoster, captions: new URL('../../assets/product-tour/feature-1.vtt', import.meta.url).href, chapterStarts: [0, 1.45, 4.3, 5.6, 8.2, 12.5] },
+  { src: contacts, poster: contactsPoster, captions: new URL('../../assets/product-tour/feature-3.vtt', import.meta.url).href, chapterStarts: [0, 2.3, 4.5, 7.2, 11.8] },
+  { src: report, poster: reportPoster, captions: new URL('../../assets/product-tour/feature-4.vtt', import.meta.url).href, chapterStarts: [0, 4.2, 7.5, 14, 17] },
+]
+
+export function FeatureTour({ index, children, onSelect, onClose }: { index: number; children: ReactNode; onSelect: (index: number) => void; onClose: () => void }) {
+  const { t } = useTranslation('productTour')
+  // The dialog primitive can emit a close notification while its controlled
+  // content is being replaced (for example, when moving from film 1 to film 2).
+  // Only the explicit tour controls are allowed to finish the tour; otherwise
+  // a save transition could be mistaken for the user dismissing the tour.
+  return <Dialog.Root open onOpenChange={() => {}}>
+    <Dialog.Portal><Dialog.Backdrop className="product-tour-feature-backdrop" /><Dialog.Viewport className="product-tour-feature-viewport">
+      <Dialog.Popup className="product-tour-feature">
+        <header className="product-tour-feature-header">
+          <span>{t('featureHeader')}</span>
+          <Button variant="ghost" size="icon" onClick={onClose} aria-label={t('close')}>×</Button>
+        </header>
+        <div className="product-tour-feature-heading">
+          <div className="product-tour-kicker">{t('featuresProgress', { current: index + 1, total: TOUR_FILMS.length })}</div>
+          <Dialog.Title>{t(`feature.${TOUR_FILMS[index]}.title`)}</Dialog.Title>
+          <Dialog.Description>{t(`feature.${TOUR_FILMS[index]}.body`)}</Dialog.Description>
+        </div>
+        <FeatureFilm key={index} index={index} />
+        <div className="product-tour-feature-footer">
+          <div className="product-tour-feature-dots" aria-label={t('featureSteps')}>
+            {TOUR_FILMS.map((feature, step) => <Button variant="ghost" size="icon" key={feature} aria-label={t(`feature.${feature}.title`)} onClick={() => onSelect(step)} aria-current={step === index ? 'step' : undefined}><span className="product-tour-dot" /></Button>)}
+          </div>
+          {children}
+        </div>
+      </Dialog.Popup>
+    </Dialog.Viewport></Dialog.Portal>
+  </Dialog.Root>
+}
+
+function FeatureFilm({ index }: { index: number }) {
+  const { t } = useTranslation('productTour')
+  const film = films[index]
+  const video = useRef<HTMLVideoElement>(null)
+  const [time, setTime] = useState(0)
+  const [duration, setDuration] = useState(0)
+  const [failed, setFailed] = useState('')
+  const [autoplay] = useState(() => !window.matchMedia('(prefers-reduced-motion: reduce)').matches)
+  const [playing, setPlaying] = useState(autoplay)
+  useEffect(() => {
+    if (!playing) return
+    let frame: number
+    const updateProgress = () => {
+      if (video.current) setTime(video.current.currentTime)
+      frame = requestAnimationFrame(updateProgress)
+    }
+    frame = requestAnimationFrame(updateProgress)
+    return () => cancelAnimationFrame(frame)
+  }, [playing])
+  const chapter = Math.max(0, film.chapterStarts.findLastIndex((start) => time >= start))
+  const replay = () => {
+    const player = video.current
+    if (!player) return
+    setFailed('')
+    if (player.error) player.load()
+    player.currentTime = 0
+    void player.play().then(() => setPlaying(true)).catch((error: unknown) => { rendererLogger('product-tour/film').error({ error }, 'film playback failed'); setFailed(messageForUser(error)); setPlaying(false) })
+  }
+  const togglePlay = () => {
+    const player = video.current
+    if (!player) return
+    if (player.paused) void player.play().then(() => setPlaying(true)).catch((error: unknown) => { rendererLogger('product-tour/film').error({ error }, 'film playback failed'); setFailed(messageForUser(error)); setPlaying(false) })
+    else { player.pause(); setPlaying(false) }
+  }
+  return <section aria-label={t(`feature.${TOUR_FILMS[index]}.title`)}>
+    <video className="product-tour-film" ref={video} src={film.src} poster={film.poster} muted playsInline autoPlay={autoplay}
+      preload="metadata" aria-describedby="product-tour-film-caption" onError={(event) => { const error = event.currentTarget.error; rendererLogger('product-tour/film').error({ error }, 'film load failed'); setFailed(messageForUser(error)); setPlaying(false) }}
+      onLoadedMetadata={(event) => setDuration(event.currentTarget.duration)}
+      onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)} onEnded={() => setPlaying(false)}
+      onTimeUpdate={(event) => setTime(event.currentTarget.currentTime)}>
+      <track kind="captions" srcLang="zh-CN" label="简体中文" src={film.captions} />
+    </video>
+    <div className="product-tour-film-controls">
+      <Button variant="ghost" onClick={togglePlay}>{playing ? t('pause') : t('play')}</Button>
+      <p id="product-tour-film-caption">{t(`feature.${TOUR_FILMS[index]}.captions.${chapter}`)}</p>
+      <Button variant="ghost" onClick={replay}>{t('replay')}</Button>
+    </div>
+    <div className="product-tour-film-track"><input aria-label={t('filmProgress')} type="range" min={0} max={duration || 1} step="any" value={Math.min(time, duration || 1)} onChange={(event) => {
+      const next = Number(event.currentTarget.value)
+      if (video.current) video.current.currentTime = next
+      setTime(next)
+    }} /><span>{Math.floor(time)}s / {Math.floor(duration)}s</span></div>
+    {failed && <p role="alert" className="product-tour-error">{failed} <Button variant="ghost" onClick={replay}>{t('retry')}</Button></p>}
+  </section>
+}

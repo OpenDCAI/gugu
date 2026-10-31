@@ -1,9 +1,16 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { messageForUser } from '@/lib/userFacingError';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import type { Device } from '@gugu/core/shared/types/chat'
+import { isPhoneDevice } from '@gugu/core/cloud/devices'
+import { useToast } from '@/components/toastContext'
+import { useAuth } from '@/store/auth'
+import { rendererLogger } from '@/lib/log'
 import type { SessionpageSessionSummary } from '@gugu/session-core/session-record/contract'
 import type { AppShowSessionDetail } from '@/session/shared/extensions/app-runtime-protocol'
 import { useDevicesStore } from '@/store/devicesContext'
 import { useBackLayer } from '@/components/ui/sheetStack'
+import { navigateMobile } from '../navigateMobile'
 import { requestAlertPermissionOnce, useAgentWatchAlerts, useAgentWatchFocus } from './useAgentWatchAlerts'
 import { agentOfSession, rowOpens, useAgentNames, useLiveDeviceSessions } from '@/session/shared/remote-sessions/session-directory'
 import { MachinesPage } from './MachinesPage'
@@ -11,6 +18,12 @@ import { ProjectsPage } from './ProjectsPage'
 import { SessionTimelinePage } from './SessionTimelinePage'
 import { CreateSessionPage } from './CreateSessionPage'
 import './agent-watch.css'
+import './phone-conversation.css'
+import { PhoneAgentGrants } from '../local-agent/PhoneAgentGrants'
+import { PhoneAgentActions } from '../local-agent/PhoneAgentActions'
+import '@/i18n/registerMobileWorkspaceCatalog'
+
+const log = rendererLogger('mobile/agent-watch')
 
 /**
  * 手机「项目」tab:项目页(根)→ 时间线,一条两层的栈;新建会话是从根页 + 推进去的两步。
@@ -24,9 +37,9 @@ export type AgentWatchRoute =
    * 根:账号名下所有机器上的项目与会话,一页(机器是项目分区的属性,#7199)。
    * `reveal` = 点名定位:一条打不开的行被 App 点名(gugu.showSession),落在它所在的分区、滚到它。
    */
-  | { name: 'projects'; reveal?: { deviceId: string; sessionId: string } }
+  | { name: 'projects'; reveal?: { deviceId: string; sessionId: string } | { projectId: string } }
   /** `deviceId` = 会话所在的机器(跨机器的子会话在它自己那台上打开)。 */
-  | { name: 'timeline'; deviceId: string; session: SessionpageSessionSummary; firstPrompt?: string }
+  | { name: 'timeline'; deviceId: string; session: SessionpageSessionSummary; firstPrompt?: string; appKind?: string; draft?: { text: string } }
   /**
    * 新建会话的两步(owner 2026-09-06:「新建任务应该是先选择设备再新建任务」):
    * 根页的 + → `pick-machine`(「在哪台机器上」,离线的点不动)→ `create`。
@@ -35,9 +48,11 @@ export type AgentWatchRoute =
   | { name: 'create'; deviceId: string }
 
 /** 看管订阅与「后台守着」常驻通知:挂在移动壳根上,切 tab 不拆。 */
-export function AgentWatchRoot(): null {
-  useAgentWatchAlerts(useDevicesStore().devices)
-  return null
+export function AgentWatchRoot() {
+  const { devices, phones = [] } = useDevicesStore()
+  const all = [...devices, ...phones]
+  useAgentWatchAlerts(all)
+  return <><PhoneAgentGrants /><PhoneAgentActions /></>
 }
 
 export function AgentWatchPage({
@@ -47,7 +62,6 @@ export function AgentWatchPage({
   createRequest,
   createInGroup = null,
   openRequest,
-  onOpenAgentChat,
   onOpenGroupChat,
 }: {
   /** 「项目」tab 是不是当前 tab。手机壳里这张页常驻在横滑分页器里,切走时也挂着。 */
@@ -61,30 +75,38 @@ export function AgentWatchPage({
   createInGroup?: { chatId: string; name: string } | null
   /** 每来一个新的 = 一个 App 点名了这条会话(`gugu.showSession`,useAppShowSession):进它的时间线,与在列表里点那一行同一步。 */
   openRequest?: AppShowSessionDetail | null
-  /** 去这个 agent 的私聊:会话页模式按钮的「聊天」(#7197),与通讯录「发消息」同一条。 */
-  onOpenAgentChat?: (agentUserId: string) => void
   /** 从群里建的 agent 建好了:回到那个群。 */
   onOpenGroupChat?: (chatId: string) => void
 }) {
-  const { devices } = useDevicesStore()
+  const { t: tWorkspace } = useTranslation('mobileWorkspace')
+  const ownerId = useAuth().user?.id ?? null
+  const { devices: hosts, phones } = useDevicesStore()
+  const devices = useMemo(() => [...new Map([...hosts, ...(phones ?? [])].map((one) => [one.device_id, one])).values()], [hosts, phones])
+  const { toast } = useToast()
   const [route, setRouteState] = useState<AgentWatchRoute>({ name: 'projects' })
   // ❌ 不在渲染里回调:那是渲染期副作用。所有跳转都走这一个口子。
   const setRoute = useCallback((next: AgentWatchRoute) => {
-    setRouteState(next)
-    onRouteChange?.(next.name)
-  }, [onRouteChange])
+    const depth = (page: AgentWatchRoute) => page.name === 'projects' ? 0 : page.name === 'create' ? 2 : 1
+    const update = () => { setRouteState(next); onRouteChange?.(next.name) }
+    if (active) navigateMobile(update, depth(next) < depth(route) ? 'pop' : 'push')
+    else update()
+  }, [active, route, onRouteChange])
   // 项目页的滚动位置:进时间线再回来页面是重新挂的,滚回离开时的地方。
   const projectsScroll = useRef(0)
 
   // 订阅在 AgentWatchRoot;这里只读会话目录,并报正盯着的那条(它不弹横幅:页头状态词已经在说这件事)。
   const live = useLiveDeviceSessions()
   const agentNames = useAgentNames()
-  useAgentWatchFocus(route.name === 'timeline' ? { deviceId: route.deviceId, sessionId: route.session.conversationId } : null)
 
   // 路由只存 deviceId,机器行每次从 store 现查:在线状态会实时翻转,
   // 存下 Device 快照就会停在进页那一帧(离线机器上线了,页面还说它离线)。
   const device: Device | undefined =
     'deviceId' in route ? devices.find((d) => d.device_id === route.deviceId) : undefined
+  useAgentWatchFocus(active && device && route.name === 'timeline' ? { deviceId: route.deviceId, sessionId: route.session.conversationId } : null)
+  // The fallback root must also restore the shell's bottom navigation and back stack.
+  useEffect(() => {
+    if ('deviceId' in route && !device) setRoute({ name: 'projects' })
+  }, [route, device, setRoute])
 
   // 「项目」tab 是手机壳返回栈里的一层(ui/sheetStack.ts):先在这张页的层级里往回退,退到根才离开这个 tab。
   useBackLayer(() => {
@@ -119,9 +141,10 @@ export function AgentWatchPage({
     if (!openRequest || openRequest === seenOpenRequest.current) return
     seenOpenRequest.current = openRequest
     // A row that does not open (an offline machine's, from its heartbeat): the person lands where it is listed, as a tap leaves them.
-    const { deviceId, session } = openRequest
+    if ('projectId' in openRequest) { setRoute({ name: 'projects', reveal: openRequest }); return }
+    const { deviceId, session, tabKind, draft } = openRequest
     setRoute(rowOpens(session)
-      ? { name: 'timeline', deviceId, session }
+      ? { name: 'timeline', deviceId, session, ...(tabKind ? { appKind: tabKind } : {}), ...(draft ? { draft } : {}) }
       : { name: 'projects', reveal: { deviceId, sessionId: session.conversationId } })
   }, [openRequest, setRoute])
 
@@ -133,12 +156,14 @@ export function AgentWatchPage({
     const liveSession = here?.cached ? undefined : here?.sessions.find((s) => s.conversationId === route.session.conversationId)
     return (
       <SessionTimelinePage
+        key={`${device.device_id}:${route.session.conversationId}:${route.appKind ?? ''}`}
         device={device}
+        initialAppKind={route.appKind}
         session={liveSession ?? route.session}
         agent={agentOfSession(liveSession ?? route.session, agentNames)}
         firstPrompt={route.firstPrompt}
+        draft={route.draft}
         onBack={() => setRoute({ name: 'projects' })}
-        onOpenChat={onOpenAgentChat}
       />
     )
   }
@@ -146,15 +171,23 @@ export function AgentWatchPage({
   if (route.name === 'create' && device) {
     return (
       <CreateSessionPage
+        key={`${ownerId}:${device.device_id}`}
         device={device}
         birthGroup={birthGroup}
         onClearBirthGroup={() => setBirthGroup(null)}
         onBack={() => setRoute({ name: 'pick-machine' })}
         // 从群里新建的会话回到那个群;其余打开新会话,返回时回到项目页。
-        onCreated={(session, firstPrompt) => {
-          if (birthGroup && onOpenGroupChat) {
+        onCreated={(session, firstPrompt, result) => {
+          const phone = isPhoneDevice(device)
+          if (phone && result?.birthGroup?.status === 'failed') {
+            log.error({ deviceId: device.device_id, sessionId: session.conversationId, chatId: result.birthGroup.chatId, reason: result.birthGroup.error ?? null }, 'phone agent created but group join failed')
+            toast(tWorkspace('groupJoinFailed'), 'error', messageForUser(result.birthGroup.error))
+          }
+          const groupId = phone ? result?.birthGroup?.chatId : birthGroup?.chatId
+          if (groupId && onOpenGroupChat && (!phone || result?.birthGroup?.status === 'joined' || result?.birthGroup?.status === 'pending_approval')) {
+            if (phone && result?.birthGroup?.status === 'pending_approval') toast(tWorkspace('groupJoinPending'), 'success')
             setRoute({ name: 'projects' })
-            onOpenGroupChat(birthGroup.chatId)
+            onOpenGroupChat(groupId)
             return
           }
           setRoute({ name: 'timeline', deviceId: device.device_id, session, firstPrompt })

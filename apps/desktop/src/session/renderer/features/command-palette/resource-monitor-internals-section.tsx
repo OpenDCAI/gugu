@@ -1,32 +1,17 @@
+import { messageForUser } from '@/lib/userFacingError';
 import { observer } from 'mobx-react-lite';
-import { useMemo, useRef, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { rendererLogger } from '@/lib/log';
-import { useAppSettingsKey } from '@renderer/features/settings/use-app-settings-key';
 import { toast } from '@renderer/lib/hooks/use-toast';
 import { rpc } from '@renderer/lib/ipc';
 import { appState } from '@renderer/lib/stores/app-state';
 import { formatBytes } from '@renderer/utils/formatBytes';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
 import {
-  createAltClickCounter,
   internalsRows,
   PERF_COUNTER_KEYS,
   type InternalsRow,
 } from './resource-monitor-internals';
-
-/** Alt-click the monitor's title five times to show or hide the internal metrics (`resourceMonitor.internals`). */
-export function useInternalsToggle(): { internals: boolean; onTitleClick: (event: React.MouseEvent) => void } {
-  const { value, update } = useAppSettingsKey('resourceMonitor');
-  const { translate } = useSessionMessages();
-  const counter = useRef(createAltClickCounter());
-  const internals = value?.internals ?? false;
-  const onTitleClick = (event: React.MouseEvent) => {
-    if (!counter.current.click(event.altKey) || !value) return;
-    update({ internals: !internals });
-    toast({ title: translate(internals ? 'palette.internalsHidden' : 'palette.internalsShown') });
-  };
-  return { internals, onTitleClick };
-}
 
 const SOURCE_LABEL = {
   'main-window': 'palette.internalsMainWindow',
@@ -116,7 +101,7 @@ function DeepSampleButton() {
       if (res.success && res.data) toast({ title: translate('palette.deepSampleSaved'), description: res.data, tier: 'success' });
     } catch (error) {
       log.error({ error: String(error) }, 'deep sample failed');
-      toast({ title: translate('palette.deepSampleFailed'), tier: 'error' });
+      toast({ title: translate('palette.deepSampleFailed'), description: messageForUser(error), tier: 'error' });
     } finally {
       setRunning(false);
     }

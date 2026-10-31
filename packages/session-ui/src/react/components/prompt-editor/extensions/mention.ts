@@ -16,19 +16,16 @@
  */
 
 import { Mention as TipTapMention } from '@tiptap/extension-mention';
-import type { NodeViewProps } from '@tiptap/react';
 import { ReactNodeViewRenderer } from '@tiptap/react';
 import type { SuggestionOptions } from '@tiptap/suggestion';
-import React from 'react';
 import { MentionPill } from '../mention-pill';
 import { serializeMentionLabel } from '../serialize';
-import type { MentionItem, RenderMentionIcon } from '../types';
+import type { MentionItem } from '../types';
 
 export function buildMentionExtension(
   // Omit the Selected generic (defaults to TipTap's internal type) so our richer
   // MentionItem attrs don't conflict with TipTap's narrower built-in MentionNodeAttrs type.
-  suggestion: Partial<SuggestionOptions<MentionItem>>,
-  options: { renderMentionIcon?: RenderMentionIcon } = {}
+  suggestion: Partial<SuggestionOptions<MentionItem>>
 ) {
   return TipTapMention.extend({
     name: 'mention',
@@ -45,20 +42,19 @@ export function buildMentionExtension(
         engine: { default: null },
         title: { default: null },
         pending: { default: false },
+        annotation: { default: null },
       };
     },
     addNodeView() {
       return ReactNodeViewRenderer(
-        (props: NodeViewProps) =>
-          React.createElement(MentionPill, {
-            ...props,
-            renderMentionIcon: options.renderMentionIcon,
-          }),
+        MentionPill,
         { as: 'span' }
       );
     },
   }).configure({
     HTMLAttributes: { class: 'mention-chip' },
+    // Backspace removes the whole pill (❌ TipTap's default turns it back into a bare「@」).
+    deleteTriggerWithBackspace: true,
     renderText({ node }) {
       const label = (node.attrs.label as string | null) ?? (node.attrs.id as string | null) ?? '';
       const name = node.attrs.name as string | null;

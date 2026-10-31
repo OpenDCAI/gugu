@@ -12,12 +12,25 @@ import { REMOTE_TUNNEL_OPEN } from './remoteTunnel'
 
 export type MachineLimitKind = 'total' | 'tunnel'
 
+export type MachineLimitMachine = {
+  machine_id: string
+  label: string
+  /** Every registered endpoint of this physical machine, including other versions. */
+  device_ids: string[]
+}
+
+export type MachineLimitRequest = { machine_id: string; via: 'ssh' | 'tunnel' }
+
 export type MachineLimitRefusal = {
   /** total = 咕咕 server 总数;tunnel = 其中经咕咕云连着的(远程隧道)。 */
   limit: MachineLimitKind
   /** 除了这台之外已经连着几台。 */
   used: number
   max: number
+  /** Older backends omit the request and occupant inventory. */
+  machine_id?: string
+  via?: 'ssh' | 'tunnel'
+  machines?: MachineLimitMachine[]
 }
 
 export const DEVICE_LIMIT_REACHED_PREFIX = 'DEVICE_LIMIT_REACHED'
@@ -44,7 +57,26 @@ export function parseMachineLimitRefusal(value: unknown): MachineLimitRefusal | 
   const used = count(record.used)
   const max = count(record.max)
   if ((limit !== 'total' && limit !== 'tunnel') || used === null || max === null) return null
-  return { limit, used, max }
+  let machines: MachineLimitMachine[] | undefined
+  if (record.machines !== undefined) {
+    if (!Array.isArray(record.machines)) return null
+    machines = []
+    for (const value of record.machines) {
+      if (!value || typeof value !== 'object') return null
+      const machine = value as Record<string, unknown>
+      if (typeof machine.machine_id !== 'string' || !machine.machine_id
+        || typeof machine.label !== 'string' || !Array.isArray(machine.device_ids)
+        || machine.device_ids.length === 0
+        || !machine.device_ids.every((id): id is string => typeof id === 'string' && id.length > 0)) return null
+      machines.push({ machine_id: machine.machine_id, label: machine.label, device_ids: machine.device_ids })
+    }
+  }
+  return {
+    limit, used, max,
+    ...(typeof record.machine_id === 'string' && record.machine_id ? { machine_id: record.machine_id } : {}),
+    ...(record.via === 'ssh' || record.via === 'tunnel' ? { via: record.via } : {}),
+    ...(machines ? { machines } : {}),
+  }
 }
 
 /** 心跳被拒的那句(`DEVICE_LIMIT_REACHED: {...}`)→ 上限原因;不是这一种错误 = null。 */
@@ -72,3 +104,21 @@ export function machineLimitMessage(refusal: MachineLimitRefusal | null): string
 export const MACHINE_LIMIT_NEXT_STEP = `在咕咕桌面「设置 → 设备」里移除一台不用的机器，或在「设置 → 会员与额度」升级会员，然后${
   REMOTE_TUNNEL_OPEN ? '重新执行 gugu-server login' : '重新用远程 SSH 添加这台机器'
 }。`
+
+export interface MachineLimitCheckRpcClient {
+  rpc(fn: 'gugu_machine_limit_refusal', args: { p_user_id: string; p_machine_id: string; p_via: 'ssh' | 'tunnel' }):
+    PromiseLike<{ data: unknown; error: { message: string } | null }>
+}
+
+/** Reuse the enforcement RPC so the notice never classifies quota occupants itself. */
+export async function checkMachineLimitRefusal(client: MachineLimitCheckRpcClient, ownerId: string, request: MachineLimitRequest): Promise<MachineLimitRefusal | null> {
+  if (!ownerId) throw new Error('Machine limit checks require an owner')
+  const { data, error } = await client.rpc('gugu_machine_limit_refusal', {
+    p_user_id: ownerId, p_machine_id: request.machine_id, p_via: request.via,
+  })
+  if (error) throw new Error(error.message)
+  if (data === null) return null
+  const refusal = parseMachineLimitRefusal(data)
+  if (!refusal) throw new Error('Invalid machine limit response')
+  return refusal
+}

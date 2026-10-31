@@ -1,15 +1,17 @@
+import { messageForUser } from '@/lib/userFacingError';
 import { toast } from 'sonner';
+import type { SessionPaneTab } from '@gugu/session-core/session-record/contract';
+import { closeSessionPaneTab, sessionPaneTabs } from './session-pane-tabs';
 import { translateSessionMessage } from '@renderer/localization/locale-store';
 import { when } from 'mobx';
 import {
   asProvisioned,
-  getSessionManagerStore,
   getSessionPageStore,
   getSessionView,
 } from '@renderer/features/sessions/stores/session-selectors';
-import { getProjectManagerStore } from '@renderer/features/projects/stores/project-selectors';
+import { sessionPaneReady } from '../session-pane-ready';
 import { rpc } from '@renderer/lib/ipc';
-import type { SessionOutput } from '@shared/view-state';
+import type { OpenedOutput } from '@gugu/session-chat-ui/opened-outputs';
 import { rendererLogger } from '../../../../../lib/log';
 import { isAbsolutePath, isPathInsideWorkspace, resolveWorkspacePath } from './workspace-path';
 import { workspaceRegistry } from './workspace-registry';
@@ -18,7 +20,7 @@ import { pickSessionOpener } from '@renderer/features/extensions/open-with';
 import { attachmentOpenTarget } from './attachment-open-target';
 import { workspaceRpc } from '@renderer/features/sessions/workspace-backend/workspace-backend';
 import type { BrowserTabResource } from '@renderer/features/browser/browser-tab-resource';
-import type { FilePlace } from '@gugu/core/shared/ui/fileLink';
+import type { FilePlace } from '@gugu/core/shared/ui/guguLink';
 
 const sessionLog = rendererLogger('gugu-session');
 
@@ -70,9 +72,8 @@ export async function openPathWithFailureToast(
 ): Promise<void> {
   const result = await rpc.app.openPath(filePath, workspace);
   if (!result.success) {
-    // @@@4891 result.error 是 shell 层的原文,用户读不懂也用不上 —— 进日志。
     sessionLog.error({ err: result.error, filePath }, 'openPath failed');
-    toast.error(translateSessionMessage('taskError.openFileFailed', { path: filePath }));
+    toast.error(translateSessionMessage('taskError.openFileFailed', { path: '[path]' }), { description: messageForUser(result.error) });
   }
 }
 
@@ -84,7 +85,7 @@ async function openDirectoryInFileManager(dirPath: string): Promise<void> {
   const result = await rpc.app.openIn({ app: 'finder', path: dirPath });
   if (!result?.success) {
     sessionLog.error({ err: result?.error, dirPath }, 'openIn(finder) failed');
-    toast.error(translateSessionMessage('taskError.openFileFailed', { path: dirPath }));
+    toast.error(translateSessionMessage('taskError.openFileFailed', { path: '[path]' }), { description: messageForUser(result?.error) });
   }
 }
 
@@ -289,7 +290,7 @@ export async function openExternalFilePath(
  * 点了对话里的一张附件卡(#7193):agent 用 open_in_tab 打开过的那份文件 / 网页,重开在对话右边。
  * 与对话顶部「输出」里点那一条是同一个动作(`reopenOutput`),❌ 另写一条打开路。
  */
-export function reopenSessionOutput(projectId: string, sessionId: string, output: SessionOutput): void {
+export function reopenSessionOutput(projectId: string, sessionId: string, output: OpenedOutput): void {
   const provisioned = asProvisioned(getSessionPageStore(projectId, sessionId));
   const viewModel = provisioned?.viewModel ?? getSessionView(projectId, sessionId);
   if (!viewModel) {
@@ -314,7 +315,7 @@ export function makeFileLinkHandlers(
       // A click on a link: what fails is said with the same toast an open that fails says, not left in the console.
       openFileInSessionEditor(projectId, sessionId, filePath, { ...opts, ...(at ? { at } : {}) }).catch((error: unknown) => {
         sessionLog.error({ err: String(error), filePath }, 'opening a linked file failed');
-        toast.error(translateSessionMessage('taskError.openFileFailed', { path: filePath }));
+        toast.error(translateSessionMessage('taskError.openFileFailed', { path: '[path]' }), { description: messageForUser(error) });
       });
     },
     onOpenExternal: (filePath) => {
@@ -323,18 +324,24 @@ export function makeFileLinkHandlers(
   };
 }
 
-/**
- * 宿主要开的这条会话,它的面板就绪了没有 —— 三个打开入口(文件 / App 页签 / 网页)等的是同一件事。
- * 等之前先请它准备:renderer 重载后每条会话都回到「没准备」,只有屏上那一条会被 view.tsx 准备,
- * 后台会话的面板永远等不来,请求等满期限超时(#6040)。调的就是 view.tsx 那一处 provisionSession,
- * 宿主已挂着的会话走它的快路径;已准备的、正在准备的它自己直接返回。只准备,不导航、不切焦点。
- */
-function sessionPaneReady(projectId: string, sessionId: string): () => boolean {
-  void getProjectManagerStore()
-    .mountProject(projectId)
-    .then(() => getSessionManagerStore(projectId)?.provisionSession(sessionId))
-    .catch(() => {});
-  return () => Boolean(asProvisioned(getSessionPageStore(projectId, sessionId))?.viewModel);
+export function manageSessionTabsWhenReady(request: {
+  projectId: string; sessionId: string; tabId?: string;
+  onResult: (result: { success: boolean; tabs?: SessionPaneTab[]; closed?: boolean; error?: string }) => void;
+}): () => void {
+  return when(sessionPaneReady(request.projectId, request.sessionId), () => {
+    const view = asProvisioned(getSessionPageStore(request.projectId, request.sessionId))?.viewModel;
+    if (!view) { request.onResult({ success: false, error: 'target session pane is unavailable' }); return; }
+    void (async () => {
+      try {
+        const result = request.tabId === undefined
+          ? { tabs: sessionPaneTabs(view.paneLayout) }
+          : await closeSessionPaneTab(view.paneLayout, request.tabId);
+        request.onResult({ success: true, ...result });
+      } catch (error) {
+        request.onResult({ success: false, error: error instanceof Error ? error.message : String(error) });
+      }
+    })();
+  }, { timeout: 10_000, onError: (error) => request.onResult({ success: false, error: String(error) }) });
 }
 
 export function openHostRequestedFileInSessionWhenReady({
@@ -365,7 +372,6 @@ export function openHostRequestedFileInSessionWhenReady({
       const session = asProvisioned(getSessionPageStore(projectId, sessionId));
       try {
         if (!session?.viewModel) throw new Error('target session pane is unavailable');
-        session.viewModel.recordOutput({ kind: 'file', path });
         // Same resolver the click path uses — that is the whole point: the file does
         // not land in a different tab depending on who asked for it. An outside path
         // is a read-only external file and consults nobody, which is also where the
@@ -546,7 +552,7 @@ export function openHostRequestedBrowserInSessionWhenReady({
   sessionId: string;
   url: string;
   intent: 'preview' | 'pinned';
-  onResult: (result: { success: boolean; error?: string; browserId?: string }) => void;
+  onResult: (result: { success: boolean; error?: string; browserId?: string; created?: boolean }) => void;
   timeout?: number;
   acquire?: { browserId?: string; createIfMissing: boolean; deadline: number };
 }): () => void {
@@ -559,14 +565,12 @@ export function openHostRequestedBrowserInSessionWhenReady({
         if (!session?.viewModel) throw new Error('target session pane is unavailable');
         if (acquire) {
           void acquireBrowserPage(session.viewModel, url, acquire, lifetime.signal).then(
-            (browserId) => onResult({ success: true, browserId }),
+            (page) => onResult({ success: true, ...page }),
             (error: unknown) => onResult({ success: false, error: error instanceof Error ? error.message : String(error) }),
           );
           return;
         }
         session.viewModel.showPage(url, { preview: intent === 'preview', reload: true, beside: true, activate: false });
-        // 空白页不是产出:agent 要操作网页、会话还没有页签时先开的那一页(#7191)。
-        if (url !== 'about:blank') session.viewModel.recordOutput({ kind: 'page', url });
         onResult({ success: true });
       } catch (error) {
         onResult({
@@ -600,7 +604,7 @@ async function acquireBrowserPage(
   url: string,
   request: { browserId?: string; createIfMissing: boolean; deadline: number },
   signal: AbortSignal,
-): Promise<string> {
+): Promise<{ browserId: string; created: boolean }> {
   const checkDeadline = () => {
     signal.throwIfAborted();
     if (Date.now() >= request.deadline) throw new Error('timed out restoring the session browser page');
@@ -632,8 +636,7 @@ async function acquireBrowserPage(
     const page = await rpc.browser.ensureAgentPage({ browserId: snapshot.browserId, partition: snapshot.partition, url: snapshot.currentUrl });
     checkDeadline();
     if (!page.success) throw new Error(`could not restore the browser page: ${page.error}`);
-    if (created && url !== 'about:blank') view.recordOutput({ kind: 'page', url });
-    return snapshot.browserId;
+    return { browserId: snapshot.browserId, created };
   } catch (error) {
     // Only a tab created by this failed acquisition is rolled back; existing tabs and their login stay intact.
     closeCreated();

@@ -1,3 +1,4 @@
+import { isImplicitSessionHomeProjectId } from '@shared/core/projects/session-home-project'
 import { randomUUID } from 'node:crypto'
 import type { AttachProjectFolderError, ProjectFolder } from '@shared/core/projects/project-folders'
 import type { LocalProject } from '@shared/projects'
@@ -59,7 +60,8 @@ const notice = (chatId: string | undefined, text: string) => chatId ? { chat_id:
 
 export async function runProjectAgentAction(context: { projectId?: string }, action: ProjectAgentAction, ops?: ProjectAgentOps): Promise<unknown> {
   const api = ops ?? await localOps()
-  if (action.action === 'project_list') return (await api.list()).map(row)
+  // #609 workspace(任务工作区、~、助理与 App 的目录)不是项目,不列。
+  if (action.action === 'project_list') return (await api.list()).filter((project) => project.kind !== 'workspace' && !isImplicitSessionHomeProjectId(project.id)).map(row)
   if (action.action === 'project_create') {
     const project = value(await api.create(action.name, action.path))
     const chatId = value(await api.ensureGroup(project.id)).chatId

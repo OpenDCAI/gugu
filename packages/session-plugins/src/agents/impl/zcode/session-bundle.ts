@@ -21,7 +21,7 @@ import { sessionContextPrompt } from '../../helpers/session-bundle';
  * shuxueshuxue/gugu-acp `bridges/zcode-acp/`)。终端腿不开:官方带 TUI 的 CLI 没有对外发行
  * (桌面包里的 CLI 不带 `@zcode/tui`)。
  *
- * 下面每一格的读数出自 gugu-base `notes/2026-10-16-zcode-harness/`(ZCode 3.15.3 / CLI 0.16.9,
+ * 下面每一格的读数出自 2026-10-16 起的实测(ZCode 3.15.3 / CLI 0.16.9,
  * 打包好的 `@gugu-acp/zcode-acp` 1.0.0,裸 ACP 客户端):
  *  · **mcp / acp-session**:`session/new.mcpServers` 原样到达(桥把 ACP 形状直接交给 app-server
  *    的 `session/create`),注入的 stdio 工具被模型调到,名字是 `mcp__<server>__<tool>`。
@@ -54,10 +54,11 @@ export const zcodeSessionBundleDescriptor = {
       // 在飞那一轮的下一个工具边界并进去,❌ 不打断、❌ 不另起一轮。
       injection: {
         timing: 'next-tool-call',
-        evidence: 'shuxueshuxue/gugu-base@c069d68f32ecdfa440528ce70dcef4e59c631081 '
-          + 'notes/2026-10-16-zcode-harness/gugu-acp桥-实测与上游草稿.md(@gugu-acp/zcode-acp 1.0.0 + ZCode 3.15.3:'
+        evidence: 'shuxueshuxue/gugu-acp@de4a74b1b5da '
+          + 'bridges/zcode-acp/patches/0001-gugu-_session-steering-extension-method-mid-turn-mes.patch'
+          + '(@gugu-acp/zcode-acp 1.0.0 + ZCode 3.15.3 实测:'
           + '第 8 秒插话,第一条 prompt end_turn、steering 回 injected、回复同时带两条要求,只有一个回合;'
-          + 'app-server 原生 guide 对照见同目录 补丁清单-zcode-acp.md)',
+          + '在飞那一轮走 app-server 原生的 guide 投递)',
       },
     },
   },

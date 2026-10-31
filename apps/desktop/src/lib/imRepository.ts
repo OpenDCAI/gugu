@@ -13,6 +13,7 @@ import { resolveListenModeDefault } from '@gugu/core/cloud/listenMode'
 import { rendererLogger } from './log'
 import {
   IM_STORE_NAMES,
+  LocalImCacheError,
   migrateLegacyChatList,
   openLocalSyncDb,
   type ImStoreName,
@@ -84,6 +85,7 @@ type Selector<T> = (snapshot: ImRepositorySnapshot) => T
 type Listener<T> = (value: T, snapshot: ImRepositorySnapshot) => void
 
 export interface ImRepositoryTransaction {
+  clear(): void
   putIdentity(value: unknown): void
   putChat(id: string, value: ChatItem, order?: number): void
   putMembership(chatId: string, identityId: string, value: EntityValue): void
@@ -151,15 +153,26 @@ export const imSelectors = {
 
 export async function openImRepository(
   accountId: string,
-  options: { adapter?: LocalImDbAdapter; storage?: Storage } = {},
+  options: { adapter?: LocalImDbAdapter; storage?: Storage; initialize?: (repository: AccountImRepository) => Promise<void> } = {},
 ): Promise<AccountImRepository> {
   assertId(accountId, 'accountId')
   const adapter = options.adapter ?? await openLocalSyncDb()
   try {
-    if (options.storage !== undefined) await migrateLegacyChatList(adapter, accountId, options.storage)
-    else if (typeof window !== 'undefined') await migrateLegacyChatList(adapter, accountId)
-    const initial = await adapter.loadAccount(accountId)
-    return createAccountRepository(accountId, adapter, initial, options.adapter === undefined)
+    if (!options.initialize) {
+      if (options.storage !== undefined) await migrateLegacyChatList(adapter, accountId, options.storage)
+      else if (typeof window !== 'undefined') await migrateLegacyChatList(adapter, accountId)
+    }
+    let initial: Record<ImStoreName, LocalImRow[]>
+    try {
+      initial = await adapter.loadAccount(accountId)
+    } catch (error) {
+      if (!(error instanceof LocalImCacheError) || !options.initialize) throw error
+      repositoryLog.warn({ accountId, error }, 'rebuilding invalid local IM cache')
+      initial = Object.fromEntries(IM_STORE_NAMES.map((name) => [name, name === 'outbox' ? error.outbox : []])) as Record<ImStoreName, LocalImRow[]>
+    }
+    const repository = createAccountRepository(accountId, adapter, initial, options.adapter === undefined)
+    await options.initialize?.(repository)
+    return repository
   } catch (error) {
     if (options.adapter === undefined) adapter.close()
     throw error
@@ -203,8 +216,9 @@ function createAccountRepository(
         const transaction = createTransaction(accountId, operations)
         const result = await mutate(transaction)
         validateOperations(accountId, operations)
-        await adapter.commit(operations)
-        current = applyOperations(current, operations, accountId)
+        const applied = applyOperations(current, operations, accountId)
+        await adapter.commit(applied.operations)
+        current = applied.snapshot
         publish()
         return result
       })
@@ -243,6 +257,7 @@ function createAccountRepository(
 function createTransaction(accountId: string, operations: LocalImDbOperation[]): ImRepositoryTransaction {
   const put = (store: ImStoreName, value: LocalImRow) => operations.push({ type: 'put', store, value })
   return {
+    clear: () => operations.push({ type: 'clearAccount', accountId }),
     putIdentity: (value) => {
       const identity = displayIdentityFromRow(value)
       put('identity', { accountId, id: identity.id, value: identity })
@@ -257,7 +272,7 @@ function createTransaction(accountId: string, operations: LocalImDbOperation[]):
     putMessage(value) {
       const chatId = nonEmpty(value.chat_id, 'message.chatId')
       const root = value.thread_root_id ?? null
-      const streamId = root ? `thread:${chatId}:${root}` : `main:${chatId}`
+      const streamId = messageStreamId(value)
       put('stream', { accountId, id: streamId, chatId, kind: root ? 'thread' : 'main', rootMessageId: root })
       put('message', { accountId, id: nonEmpty(value.id, 'message.id'), chatId, streamId, seq: value.seq, value })
     },
@@ -285,11 +300,18 @@ function createTransaction(accountId: string, operations: LocalImDbOperation[]):
 
 export async function replaceChatRows(repository: AccountImRepository, chats: ChatItem[]): Promise<void> {
   await repository.transaction((transaction) => {
-    for (const row of repository.snapshot().chat) transaction.delete('chat', [repository.accountId, row.id])
-    chats.slice(0, 300).forEach((chat, order) => {
-      const { read_state_version: _discarded, ...projection } = chat
-      transaction.putChat(chat.id, projection as ChatItem, order)
-    })
+    writeChatRows(repository, transaction, chats)
+  })
+}
+
+export function writeChatRows(repository: AccountImRepository, transaction: ImRepositoryTransaction, chats: ChatItem[]): void {
+  const ids = new Set(chats.map((chat) => chat.id))
+  for (const row of repository.snapshot().chat) {
+    if (!ids.has(row.id)) transaction.delete('chat', [repository.accountId, row.id])
+  }
+  chats.forEach((chat, order) => {
+    const { read_state_version: _discarded, ...projection } = chat
+    transaction.putChat(chat.id, projection as ChatItem, order)
   })
 }
 
@@ -299,15 +321,11 @@ export async function replaceChatRowsAndIdentities(
   chats: ChatItem[],
   identities: readonly unknown[],
 ): Promise<void> {
-  const published = chats.slice(0, 300)
+  const published = chats
   // 行引用的每个 id(对端 / 群成员)都必须在这一次提交的身份里 —— 忘了在这里报,不在冷启动时整份缓存作废。
   assertIdentityClosure('conversation list', published.flatMap((chat) => [chat.peer_user_id, ...(chat.member_user_ids ?? [])]), identities)
   await repository.transaction((transaction) => {
-    for (const row of repository.snapshot().chat) transaction.delete('chat', [repository.accountId, row.id])
-    published.forEach((chat, order) => {
-      const { read_state_version: _discarded, ...projection } = chat
-      transaction.putChat(chat.id, projection as ChatItem, order)
-    })
+    writeChatRows(repository, transaction, published)
     for (const identity of identities) transaction.putIdentity(identity)
   })
 }
@@ -330,13 +348,15 @@ export async function replaceMessageWindow(
   hasMoreOlder = false,
 ): Promise<void> {
   await repository.transaction((transaction) => {
+    const persisted = messages.filter((message) => message.chat_id === chatId && message.seq >= 0)
+    const ids = new Set(persisted.map((message) => message.id))
+    const streamIds = new Set(persisted.map(messageStreamId))
     for (const row of repository.snapshot().message) {
-      if (row.chatId === chatId) transaction.delete('message', [repository.accountId, row.id])
+      if (row.chatId === chatId && !ids.has(row.id)) transaction.delete('message', [repository.accountId, row.id])
     }
     for (const row of repository.snapshot().stream) {
-      if (row.chatId === chatId) transaction.delete('stream', [repository.accountId, row.id])
+      if (row.chatId === chatId && !streamIds.has(row.id)) transaction.delete('stream', [repository.accountId, row.id])
     }
-    const persisted = messages.filter((message) => message.chat_id === chatId && message.seq >= 0)
     for (const message of persisted) transaction.putMessage(message)
     transaction.putView(`message-window:${chatId}`, {
       oldestSeq: persisted.length > 0 ? Math.min(...persisted.map((message) => message.seq)) : 0,
@@ -344,6 +364,10 @@ export async function replaceMessageWindow(
       hasMoreOlder,
     })
   })
+}
+
+function messageStreamId(message: MessageItem): string {
+  return message.thread_root_id ? `thread:${message.chat_id}:${message.thread_root_id}` : `main:${message.chat_id}`
 }
 
 export function readMessageWindow(repository: AccountImRepository, chatId: string): CachedMessageWindow | null {
@@ -533,13 +557,14 @@ function applyOperations(
   snapshot: ImRepositorySnapshot,
   operations: readonly LocalImDbOperation[],
   accountId: string,
-): ImRepositorySnapshot {
+): { snapshot: ImRepositorySnapshot; operations: LocalImDbOperation[] } {
   // 每张碰到的表按主键建一次索引,一次事务里的写都落在它上面。真改了的表才换成新数组;没碰到、或只是把一行原样再写
   // 一遍的表(每次刷会话列表都会把全部身份再写一遍)还是原来那个对象 —— @@@table-selector 靠它认出「没变」。
   // 从前每写一行都按 JSON 比一遍整张表,身份表每刷一次就是 行数² 次序列化。
   const next = { ...snapshot } as unknown as MutableSnapshot
   const edits = new Map<ImStoreName, Map<string, LocalImRow>>()
   const changed = new Set<ImStoreName>()
+  const effective: LocalImDbOperation[] = []
   const rowsOf = (store: ImStoreName) => {
     let rows = edits.get(store)
     if (!rows) {
@@ -554,6 +579,7 @@ function applyOperations(
         edits.set(store, new Map())
         changed.add(store)
       }
+      effective.push(operation)
       continue
     }
     const rows = rowsOf(operation.store)
@@ -563,15 +589,18 @@ function applyOperations(
       if (existing && JSON.stringify(existing) === JSON.stringify(operation.value)) continue
       rows.set(key, structuredClone(operation.value))
       changed.add(operation.store)
+      effective.push({ ...operation, value: rows.get(key)! })
     } else if (rows.delete(key)) {
       changed.add(operation.store)
+      effective.push(operation)
     }
   }
   for (const store of changed) {
     next[store] = [...edits.get(store)!.values()]
     if (next[store].some((row) => row.accountId !== accountId)) throw new Error(`snapshot ${store} crossed account boundary`)
   }
-  return freezeSnapshot(next)
+  // Prepare with the existing row comparison before persistence; publish only after this batch commits.
+  return { snapshot: freezeSnapshot(next), operations: effective }
 }
 
 function keyForRow(store: ImStoreName, row: LocalImRow): IDBValidKey {

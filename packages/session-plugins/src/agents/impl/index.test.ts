@@ -377,7 +377,7 @@ describe('pluginRegistry', () => {
               ? {
                   promptInput: {
                     multiline: 'plain',
-                    evidence: expect.stringContaining('qwen-paste/step-7'),
+                    evidence: expect.stringContaining('QwenLM/qwen-code@98a9c9641586'),
                   },
                 }
               : {}),
@@ -439,7 +439,7 @@ describe('pluginRegistry', () => {
         messageTransport: 'router',
         injection: {
           timing: 'next-tool-call',
-          evidence: expect.stringContaining('2026-09-11-claude-acp-steering'),
+          evidence: expect.stringContaining('agentclientprotocol/claude-agent-acp@3e23c5b960b6'),
           deviations: expect.stringContaining('_session/steering'),
         },
       },
@@ -467,7 +467,7 @@ describe('pluginRegistry', () => {
       'tui': {
         identity: 'addressable',
         messageTransport: 'router',
-        injection: { timing: 'next-tool-call', evidence: expect.stringContaining('codex-steer-midturn') },
+        injection: { timing: 'next-tool-call', evidence: expect.stringContaining('turn/steer 6/6 同轮') },
         // 第四轴(#4525):只有 codex 声明了可见终端的按键解析约束——正文与提交键不得落进同一次 read。
         terminalInput: {
           submitSeparationMs: 25,
@@ -485,21 +485,21 @@ describe('pluginRegistry', () => {
       'acp': {
         identity: 'addressable',
         messageTransport: 'router',
-        injection: { timing: 'next-tool-call', evidence: expect.stringContaining('opencode-acp-concurrent-prompt') },
+        injection: { timing: 'next-tool-call', evidence: expect.stringContaining('anomalyco/opencode@a3647eb025c7') },
       },
       // 终端腿经 serve/attach 升档(owner 升档 + #4521):专用 host adapter,serve 跑推理、attach 只渲染,投递经既有 router。
       'tui': { identity: 'addressable', messageTransport: 'router', hostAdapter: 'opencode-serve-attach-v1' },
     });
     expect(pluginRegistry.get('gemini')!.capabilities.sessionBundle.sessionpage).toEqual({
-      // next-tool-call 铺开第二批(2026-09-01):gemini ACP 腿升档,证据 gugu-base
-      // evidence/2026-09-01-nextcall-batch2-gemini(busy 3/3 + idle 1/1,假 cancelled 同 qwen)。
+      // next-tool-call 铺开第二批(2026-09-01):gemini ACP 腿升档,实测
+      // busy 3/3 + idle 1/1,假 cancelled 同 qwen。
       // 判假:去掉 injection → resolver 回落 idle-only,本断言即红。
       'acp': {
         identity: 'addressable',
         messageTransport: 'router',
         injection: {
           timing: 'next-tool-call',
-          evidence: expect.stringContaining('nextcall-batch2-gemini'),
+          evidence: expect.stringContaining('google-gemini/gemini-cli@6b0ae9a6c37a'),
           deviations: expect.stringContaining('假 cancelled'),
         },
       },
@@ -512,7 +512,7 @@ describe('pluginRegistry', () => {
         messageTransport: 'router',
         injection: {
           timing: 'next-tool-call',
-          evidence: expect.stringContaining('evidence/2026-10-04-hermes-serve-bridge'),
+          evidence: expect.stringContaining('NousResearch/hermes-agent@ddde0670104f'),
         },
       },
     });
@@ -526,7 +526,7 @@ describe('pluginRegistry', () => {
       },
     });
     // next-tool-call 铺开第一批(2026-09-01):qwen/copilot 的 ACP 腿升档到 next-tool-call,
-    // 证据坐标 gugu-base evidence/2026-09-01-nextcall-batch1-acp-injection(busy 3/3 + idle 1/1)。
+    // 实测 busy 3/3 + idle 1/1。
     // 判假:去掉这条 injection 声明 → resolveSessionpageSessionIntegration 回落缺席=idle-only,本断言即红。
     expect(pluginRegistry.get('qwen')!.capabilities.sessionBundle.sessionpage).toEqual({
       'acp': {
@@ -534,7 +534,7 @@ describe('pluginRegistry', () => {
         messageTransport: 'router',
         injection: {
           timing: 'next-tool-call',
-          evidence: expect.stringContaining('nextcall-batch1-acp-injection'),
+          evidence: expect.stringContaining('QwenLM/qwen-code@09825973e7d3'),
           // 假 cancelled 靠 cell 移交守卫覆盖 —— 机器可见,不藏注释。
           deviations: expect.stringContaining('假 cancelled'),
         },
@@ -544,7 +544,7 @@ describe('pluginRegistry', () => {
         messageTransport: 'local-session',
         promptInput: {
           multiline: 'plain',
-          evidence: expect.stringContaining('qwen-paste/step-7'),
+          evidence: expect.stringContaining('QwenLM/qwen-code@98a9c9641586'),
         },
       },
     });
@@ -554,14 +554,14 @@ describe('pluginRegistry', () => {
         messageTransport: 'router',
         injection: {
           timing: 'next-tool-call',
-          evidence: expect.stringContaining('nextcall-batch1-acp-injection'),
+          evidence: expect.stringContaining('@github/copilot/v/1.0.82'),
           // interrupt+fold 与 droid 不打断的 fold 有别 —— 机器可见,不藏注释。
           deviations: expect.stringContaining('打断'),
         },
       },
       'tui': { identity: 'addressable', messageTransport: 'local-session' },
     });
-    // 保持 idle-only 的两家(读数在 gugu-base 同一目录):kimi 忙时被 harness 拒(-32600 turn.agent_busy),
+    // 保持 idle-only 的两家(同一批实测):kimi 忙时被 harness 拒(-32600 turn.agent_busy),
     // mimocode 忙时静默丢弃(#4489) —— 都**没有** injection 声明,缺席=最保守 idle-only。
     // 这是「声明了却到不了会红」的对称对照:给它们加 next-tool-call 就是假绿。
     for (const providerId of ['kimi', 'mimocode'] as const) {

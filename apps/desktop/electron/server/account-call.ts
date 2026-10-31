@@ -43,14 +43,19 @@ export function describeConnectError(error: NodeJS.ErrnoException, email: string
 export function callAccountProcess(
   account: { dataDir: string; email: string | null },
   request: { type: string; payload: unknown },
+  options: { timeoutMs?: number } = {},
 ): Promise<{ reply: Buffer } | { code: number; message: string }> {
   return new Promise((resolve) => {
     const socket = net.connect(ptyAttachSocketPath(account.dataDir))
     const decoder = new FrameDecoder()
     let settled = false
+    const timer = options.timeoutMs === undefined ? null : setTimeout(() => {
+      done({ code: ATTACH_EXIT.serverNotRunning, message: '账号进程没有及时应答' })
+    }, options.timeoutMs)
     const done = (outcome: { reply: Buffer } | { code: number; message: string }) => {
       if (settled) return
       settled = true
+      if (timer) clearTimeout(timer)
       socket.destroy()
       resolve(outcome)
     }

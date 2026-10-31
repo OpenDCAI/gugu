@@ -1,3 +1,4 @@
+import { textFilePatch } from '../lib/text-diff';
 import { describe, expect, it } from 'vitest';
 
 import type { ToolNode, TranscriptItem, TranscriptTurn } from '../acp/client';
@@ -7,6 +8,7 @@ import {
   TRANSPORT_TEXT_LIMIT,
   trimAfterResultForTransport,
   trimBatchForTransport,
+  trimCursorPageForTransport,
   trimOlderForTransport,
   trimSnapshotForTransport,
   trimTurnsForTransport
@@ -31,6 +33,23 @@ function turn(id: string, items: TranscriptItem[]): TranscriptTurn {
 }
 
 describe('发给手机那一份的裁剪', () => {
+  it('keeps long root Gugu send messages parseable while trimming other tool payloads', () => {
+    const text = 'Long reply '.repeat(1_000);
+    const rawInput = JSON.stringify({ chat_id: 'dm', text });
+    const send = { kind: 'mcp-tool-call', id: 'send', seq: 1, toolCallId: 'send',
+      title: 'message_send', server: 'gugu', tool: 'message_send', status: 'done', rawInput,
+      outputText: 'x'.repeat(LIMIT + 10) } as ToolNode;
+    const calls = [send, { ...send, tool: 'session_message', server: 'plugin_gugu-dev_gugu' },
+      { ...send, server: 'other' }, { ...send, parentToolCallId: 'parent' },
+      { ...send, status: 'running' }, { ...send, tool: 'message_history' }] as ToolNode[];
+    const [trimmed] = trimTurnsForTransport([turn('t1', calls)], LIMIT);
+    const items = trimmed.items as Array<ToolNode & { rawInput: string; outputText: string }>;
+    expect(JSON.parse(items[0].rawInput).text).toBe(text);
+    expect(JSON.parse(items[1].rawInput).text).toBe(text);
+    expect(items.every(item => item.outputText.length === LIMIT)).toBe(true);
+    expect(items.slice(2).every(item => item.rawInput.length === LIMIT)).toBe(true);
+  });
+
   it('超过上限的工具输出被裁到上限，并如实报出少了多少字', () => {
     const output = 'x'.repeat(LIMIT + 40);
     const [trimmed] = trimTurnsForTransport([turn('t1', [execTool('a', { outputText: output })])], LIMIT);
@@ -50,13 +69,13 @@ describe('发给手机那一份的裁剪', () => {
     expect(trimTurnsForTransport(longer, LIMIT)).not.toBe(longer);
   });
 
-  it('四类大字段都裁：工具的入参/原始输出/文本输出，以及改文件的新旧文本', () => {
+  it('trims raw tool fields but preserves canonical patch bytes and structure', () => {
     const big = 'y'.repeat(LIMIT + 5);
     const [trimmed] = trimTurnsForTransport(
       [
         turn('t1', [
           execTool('a', { rawInput: big, rawOutput: big, outputText: big }),
-          { ...execTool('b'), kind: 'modify-file-tool-call', path: '/f', oldText: big, newText: big } as ToolNode
+          { ...execTool('b'), kind: 'patch-tool-call', contentBlocks: [textFilePatch('/f', 'before', big)] } as ToolNode
         ])
       ],
       LIMIT
@@ -69,7 +88,28 @@ describe('发给手机那一份的裁剪', () => {
       big.slice(0, LIMIT)
     ]);
     expect(exec.trimmedChars).toBe(15); // 三格各少 5
-    expect([modify.oldText, modify.newText]).toEqual([big.slice(0, LIMIT), big.slice(0, LIMIT)]);
+    expect(modify.contentBlocks).toEqual([textFilePatch('/f', 'before', big)]);
+    expect(modify.trimmedChars).toBeUndefined();
+  });
+
+  it('carries only the entity blocks a view reads (patches, terminals); text and pictures travel as their trimmed projections', () => {
+    const big = 'y'.repeat(LIMIT + 5);
+    const patch = textFilePatch('/f', 'before', 'after');
+    const blocks = [
+      { type: 'content', content: { type: 'text', text: big } },
+      { type: 'content', content: { type: 'image', mimeType: 'image/png', data: 'x'.repeat(1_000) } },
+      patch,
+      { type: 'terminal', terminalId: 'term-1' },
+    ];
+    const tool = execTool('a', { contentBlocks: blocks, outputText: big, images: [{ mimeType: 'image/png', data: 'x'.repeat(1_000) }] });
+    const [trimmed] = trimTurnsForTransport([turn('t1', [tool])], LIMIT);
+    const item = trimmed.items[0] as Record<string, unknown>;
+    expect(item.contentBlocks).toEqual([patch, { type: 'terminal', terminalId: 'term-1' }]);
+    expect(item.outputText).toBe(big.slice(0, LIMIT));
+    expect(item.imageRefs).toEqual([{ mimeType: 'image/png', chars: 1_000 }]);
+    expect(JSON.stringify(item)).not.toContain('x'.repeat(1_000));
+    // The original stays whole for on-demand reads.
+    expect((tool as unknown as { contentBlocks: unknown[] }).contentBlocks).toHaveLength(4);
   });
 
   it('嵌在工具组里的子调用照裁 —— 大输出常常挂在某一条子调用上', () => {
@@ -132,7 +172,6 @@ describe('发给手机那一份的裁剪', () => {
     expect(TRANSPORT_TEXT_LIMIT).toBe(8_192);
   });
 });
-
 
 /**
  * 总量预算。逐字段裁只挡得住「一条输出几十万字」；导入进来的 CLI 会话是「单条不长、一轮里几十上百条」，
@@ -239,5 +278,50 @@ describe('工具交回来的图只带类型和字数', () => {
     const tool = execTool('a', { images });
     trimTurnsForTransport([turn('t1', [tool])]);
     expect((tool as unknown as { images: unknown[] }).images).toBe(images);
+  });
+});
+
+describe('desktop cursor pages share the phone transport budget', () => {
+  const fat = (seq: number): TranscriptTurn => ({
+    ...turn(`t${seq}`, Array.from({ length: 40 }, (_, i) =>
+      execTool(`t${seq}-tool-${i}`, { outputText: 'x'.repeat(1_000) }))),
+    seq,
+  });
+
+  it('reaches every omitted older turn exactly once and keeps stored origins aligned', () => {
+    const source = Array.from({ length: 20 }, (_, seq) => fat(seq));
+    const received: TranscriptTurn[] = [];
+    let before: number | undefined;
+    do {
+      const turns = source.filter(t => before === undefined || t.seq < before);
+      const original = {
+        turns, originTurnIds: turns.map(t => `runtime-${t.seq}`), nextCursor: null as number | null,
+        cursor: { epoch: 'same-runtime', seq: 20 }, count: 20,
+      };
+      const page = trimCursorPageForTransport(original);
+      expect(new TextEncoder().encode(JSON.stringify(page.turns)).byteLength).toBeLessThanOrEqual(TRANSPORT_PAYLOAD_BUDGET);
+      expect(page.turns.length).toBeGreaterThan(0);
+      expect(page.originTurnIds).toEqual(page.turns.map(t => `runtime-${t.seq}`));
+      expect(page.cursor).toBe(original.cursor);
+      expect(page.count).toBe(20);
+      received.unshift(...page.turns);
+      before = page.nextCursor ?? undefined;
+    } while (before !== undefined);
+    expect(received.map(t => t.id)).toEqual(source.map(t => t.id));
+    expect(new Set(received.map(t => t.id)).size).toBe(source.length);
+    expect(source[0].items).toHaveLength(40);
+  });
+
+  it('budgets UTF-8 bytes while leaving user text intact', () => {
+    const text = '界'.repeat(20_000);
+    const turns = Array.from({ length: 5 }, (_, seq) => ({
+      ...turn(`u${seq}`, [{ kind: 'message', id: `m${seq}`, text } as TranscriptItem]), seq,
+    }));
+    expect(JSON.stringify(turns).length).toBeLessThan(TRANSPORT_PAYLOAD_BUDGET);
+    expect(new TextEncoder().encode(JSON.stringify(turns)).byteLength).toBeGreaterThan(TRANSPORT_PAYLOAD_BUDGET);
+    const page = trimCursorPageForTransport({ turns, nextCursor: null });
+    expect(page.turns.map(t => t.seq)).toEqual([3, 4]);
+    expect(page.nextCursor).toBe(3);
+    expect((page.turns[0].items[0] as { text: string }).text).toBe(text);
   });
 });

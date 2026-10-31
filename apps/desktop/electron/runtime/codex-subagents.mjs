@@ -1,5 +1,4 @@
-import { subagentUpdate } from '../../../../packages/core/src/shared/subagentUpdates.mjs'
-
+import { codexTerminalUpdate } from './codex-terminals.mjs'
 const terminalState = (status) => ({ completed: 'completed', failed: 'failed', errored: 'failed', interrupted: 'cancelled', shutdown: 'cancelled', notFound: 'disconnected' })[status]
 
 // A child's prompt is its task, not its name: keep the list label short (a real nickname from thread/started overrides it).
@@ -12,21 +11,39 @@ export function createCodexSubagents({ rootId, emit, request, itemTool, reasonin
   const streamed = new Map()
   const finished = new Set()
 
-  const state = (id, value, extra = {}) => emit(subagentUpdate({ sessionUpdate: 'subagent_state_update', subagentSessionId: id, state: value, ...extra }))
-  const stream = (id, update) => emit(subagentUpdate({ sessionUpdate: 'subagent_stream', subagentSessionId: id, update }))
+  const stream = (id, update) => emit(update, id)
+  const state = (id, value, extra = {}) => {
+    const child = children.get(id)
+    emit({ sessionUpdate: 'subagent_update', sessionId: id,
+      capabilities: { cancel: child?.turnId ? {} : null } }, child.parent)
+    stream(id, { sessionUpdate: 'state_update',
+      state: value === 'running' ? 'running' : value === 'disconnected' ? 'unknown' : 'idle',
+      ...(value === 'running' || value === 'disconnected' ? {} : {
+        stopReason: value === 'cancelled' ? 'cancelled' : value === 'failed' ? 'error' : 'end_turn',
+        ...(extra.summary ? { _meta: { summary: extra.summary } } : {}),
+      }),
+    })
+  }
 
   function register(id, parent, info = {}) {
     if (!id || id === rootId() || (parent !== rootId() && !children.has(parent))) return
     const previous = children.get(id)
     const child = { ...previous, id, parent, ...Object.fromEntries(Object.entries(info).filter(([, v]) => v !== undefined)) }
     children.set(id, child)
-    emit(subagentUpdate({
-      sessionUpdate: 'subagent_spawned', subagentSessionId: id, background: true,
-      name: child.name, task: child.task, model: child.model, request: child.request,
-      launchToolCallId: child.launchToolCallId,
-      ...(parent !== rootId() ? { parentToolCallId: parent } : {}),
-      capabilities: { cancel: Boolean(child.turnId) },
-    }))
+    emit({ sessionUpdate: 'subagent_update', sessionId: id,
+      ...(child.name ? { title: child.name } : {}),
+      ...(child.task ? { description: child.task } : {}),
+      capabilities: { cancel: child.turnId ? {} : null },
+    }, parent)
+    if (info.request !== undefined && info.request !== previous?.request) stream(id, {
+      sessionUpdate: 'user_message', messageId: info.launchToolCallId,
+      content: [{ type: 'text', text: info.request }],
+    })
+    if (info.model && info.model !== previous?.model) stream(id, {
+      sessionUpdate: 'config_option_update', configOptions: [{ configId: 'model', name: 'Model',
+        category: 'model', type: 'select', currentValue: info.model,
+        options: [{ value: info.model, name: info.model }] }],
+    })
     for (const [pendingId, thread] of pendingThreads) {
       if (thread.parent === id) { pendingThreads.delete(pendingId); register(pendingId, id, thread.info) }
     }
@@ -61,6 +78,7 @@ export function createCodexSubagents({ rootId, emit, request, itemTool, reasonin
     const key = `${id}:${item.id}`
     if (completed && finished.has(key)) return
     if (completed) finished.add(key)
+    if (completed && item.type === 'userMessage') stream(id, { sessionUpdate: 'user_message', messageId: item.id, content: item.content })
     if (completed && !streamed.has(key)) {
       if (item.type === 'agentMessage' && item.text) stream(id, { sessionUpdate: 'agent_message_chunk', messageId: item.id, content: { type: 'text', text: item.text } })
       if (item.type === 'reasoning') {
@@ -68,6 +86,8 @@ export function createCodexSubagents({ rootId, emit, request, itemTool, reasonin
         if (text) stream(id, { sessionUpdate: 'agent_thought_chunk', messageId: item.id, content: { type: 'text', text } })
       }
     }
+    const terminal = codexTerminalUpdate(item, item.id, completed)
+    if (terminal) stream(id, terminal)
     const tool = itemTool(item)
     if (tool) stream(id, {
       sessionUpdate: completed ? 'tool_call_update' : 'tool_call', toolCallId: item.id,
@@ -81,7 +101,7 @@ export function createCodexSubagents({ rootId, emit, request, itemTool, reasonin
       const thread = params.thread ?? {}
       const source = thread.source?.subAgent?.thread_spawn
       if (!source?.parent_thread_id) return false
-      const info = { name: source.agent_path ?? thread.agentNickname ?? thread.agentRole }
+      const info = { name: thread.agentNickname ?? source.agent_nickname ?? thread.agentRole ?? source.agent_role ?? source.agent_path }
       if (!register(thread.id, source.parent_thread_id, info)) pendingThreads.set(thread.id, { parent: source.parent_thread_id, info })
       return true
     }
@@ -110,6 +130,8 @@ export function createCodexSubagents({ rootId, emit, request, itemTool, reasonin
         messageId: params.itemId,
         content: { type: 'text', text: `${previous !== undefined && previous !== part ? '\n\n' : ''}${params.delta ?? ''}` },
       })
+    } else if (method === 'item/commandExecution/outputDelta') {
+      stream(id, { sessionUpdate: 'terminal_output_chunk', terminalId: String(params.itemId), data: Buffer.from(String(params.delta ?? ''), 'utf8').toString('base64') })
     } else if (method === 'item/started' || method === 'item/completed') {
       wholeItem(id, params.item ?? {}, method === 'item/completed')
     }

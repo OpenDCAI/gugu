@@ -1,4 +1,5 @@
-import { createHash, randomBytes } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
+import { activitySignal } from '../activity/signals';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import {
@@ -16,6 +17,11 @@ import {
 import { EXTENSION_ORIGINS, keptRevocations, type ExtensionOrigin } from '@shared/extensions/upgrade';
 import { appIdentityOf, appKey, type AppIdentity } from '@shared/extensions/app-identity';
 import { resolveAppSettings, type AppSettings } from '@shared/extensions/app-settings';
+import { requireAppPlatform } from '@shared/extensions/app-platforms';
+
+import { z } from 'zod';
+import { BUNDLE_SKIP_NAMES } from '@shared/extensions/market';
+import { appVariantsSchema, type AppVariants, type ExtensionVariant } from '@shared/extensions/variants';
 
 export type { ExtensionOrigin };
 
@@ -75,7 +81,7 @@ const AUTO_UPDATE_OFF_FILENAME = '.auto-update-off.json';
 
 /**
  * D-30 「给哪些 agent」, this computer's half: `{ [<publisher>/<id>]: 'here:all'[] }` (host-actions
- * `HERE_*`), by the App's identity as the chats' rows are (`chat.app_enablements`): another publisher's App under the same
+ * `HERE_ALL`), by the App's identity as the chats' rows are (`chat.app_enablements`): another publisher's App under the same
  * id does not inherit them. An App with no entry was never chosen for, and reaches every agent here (125 10-06); an entry,
  * even an empty one, is what the person chose. This machine's only, like the install; pruned on uninstall.
  */
@@ -145,6 +151,8 @@ export interface InvalidExtensionDir {
 }
 
 export class ExtensionsService {
+  private readonly variantsFile: JsonFile<Record<string, AppVariants>>;
+  private readonly grantsFile: JsonFile<Record<string, NonNullable<ExtensionManifest['permissions']>>>;
   private readonly settingsFile: JsonFile<Record<string, AppSettings>>;
   private readonly revocationsFile: JsonFile<Record<string, string[]>>;
   private readonly disabledFile: JsonFile<string[]>;
@@ -157,6 +165,8 @@ export class ExtensionsService {
   private readonly openWithFile: JsonFile<Record<string, string>>;
 
   constructor(private readonly rootDir: string) {
+    this.variantsFile = jsonFile(rootDir, '.variants.json', '{}', (value) => Object.assign(Object.create(null) as Record<string, AppVariants>, z.record(z.string(), appVariantsSchema).parse(value)));
+    this.grantsFile = jsonFile(rootDir, '.granted-permissions.json', '{}', (value) => z.record(z.string(), z.object({ capabilities: z.array(z.string()), network: z.array(z.string()) })).parse(value) as Record<string, NonNullable<ExtensionManifest['permissions']>>);
     this.settingsFile = jsonFile(rootDir, SETTINGS_FILENAME, '{}', (value) => {
       if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Invalid App settings file');
       return value as Record<string, AppSettings>;
@@ -247,14 +257,30 @@ export class ExtensionsService {
    * permission list the user agreed to. It is required rather than optional: the
    * check is only worth anything if no caller can install without it.
    */
-  installFromDirectory(sourceDir: string, consentedDigest: string, origin: ExtensionOrigin, publisher?: ExtensionPublisher): InstalledExtension {
+  installFromDirectory(sourceDir: string, consentedDigest: string, origin: ExtensionOrigin, publisher?: ExtensionPublisher, variant?: ExtensionVariant): InstalledExtension {
     const { source, manifest, manifestDigest } = this.validateSource(sourceDir);
+    requireAppPlatform(manifest, 'desktop');
     // Read the withdrawal record up front. It is written after the bundle lands,
     // and reading it can throw — doing that afterwards would report a failed
     // install for one that already happened: the new bundle on disk, the caller
     // told it failed, the session never reconfigured, the screen never refreshed.
     const revocations = this.revocationsFile.read();
     const origins = this.origins();
+    const publishers = this.publishers();
+    const identity = appIdentityOf({ manifest, origin, publisher });
+    const grants = this.grantsFile.read();
+    const previousIdentity = this.identityOf(manifest.id);
+    const previous = previousIdentity && identity && appKey(previousIdentity) === appKey(identity)
+      ? grants[appKey(identity)] ?? this.list().extensions.find((entry) => entry.manifest.id === manifest.id)?.manifest.permissions
+      : undefined;
+    const approved = {
+      capabilities: [...new Set([...(previous?.capabilities ?? []), ...(manifest.permissions?.capabilities ?? [])])],
+      network: [...new Set([...(previous?.network ?? []), ...(manifest.permissions?.network ?? [])])],
+    };
+    const variants = this.variantsFile.read();
+    const variantState = variants[manifest.id];
+    if (variantState && !variant) throw new Error(`App ${manifest.id} has variants; install its upstream version or switch a named variant.`);
+    if (variant && variant.name !== 'upstream' && !variantState) throw new Error(`App ${manifest.id} has no upstream variant; fork it with app_create first.`);
     // A preinstalled App's id is gugu's: a folder, market or chat package claiming it would replace
     // part of gugu (and be put back at the next start anyway).
     if (origins[manifest.id] === 'preinstalled' && origin !== 'preinstalled') {
@@ -281,7 +307,7 @@ export class ExtensionsService {
       // Symlinks are copied as links, never followed: dereferencing would pull
       // whatever a bundle points at — a key, someone's documents — into the
       // extension's own origin, where it is then served to the extension.
-      fs.cpSync(source, staging, { recursive: true, dereference: false, verbatimSymlinks: true });
+      fs.cpSync(source, staging, { recursive: true, dereference: false, verbatimSymlinks: true, ...(origin === 'fork' ? { filter: (file: string) => !BUNDLE_SKIP_NAMES.has(path.basename(file)) } : {}) });
 
       // Re-check the copy, not the folder it came from. The digest above was
       // taken before this copy; anything that rewrote the source in between
@@ -306,6 +332,7 @@ export class ExtensionsService {
       }
 
       if (fs.existsSync(target)) {
+        if (variantState) this.cacheVariant(manifest.id, variantState.active, target);
         displaced = path.join(this.rootDir, `${TRASH_PREFIX}${manifest.id}-${randomHex()}`);
         fs.renameSync(target, displaced);
       }
@@ -323,7 +350,7 @@ export class ExtensionsService {
       if (displaced) fs.rmSync(displaced, { recursive: true, force: true });
     }
     // No install restores a withdrawal; only the person does, in settings (`keptRevocations`).
-    const kept = keptRevocations(revocations[manifest.id] ?? [], manifest);
+    const kept = keptRevocations(revocations[manifest.id] ?? [], { ...manifest, permissions: approved });
     if ((revocations[manifest.id] ?? []).length !== kept.length) {
       if (kept.length > 0) revocations[manifest.id] = kept;
       else delete revocations[manifest.id];
@@ -332,10 +359,21 @@ export class ExtensionsService {
     origins[manifest.id] = origin;
     this.originsFile.write(origins);
     // A package from a chat or a folder has a publisher; one installed without (preinstalled, market: gugu's) has none.
-    const publishers = this.publishers();
     if (publisher) publishers[manifest.id] = { ...publisher };
     else delete publishers[manifest.id];
     this.publishersFile.write(publishers);
+    // Another publisher's App under this id replaces it (I2): what the one replaced was given here and agreed to goes with it,
+    // never left keyed by an identity nothing is installed under (a later install of that one would bring it back unasked).
+    if (previousIdentity && identity && appKey(previousIdentity) !== appKey(identity)) {
+      delete grants[appKey(previousIdentity)];
+      this.setGivenHere(previousIdentity, null);
+    }
+    if (identity) grants[appKey(identity)] = approved;
+    if (identity || previousIdentity) this.grantsFile.write(grants);
+    if (variant) {
+      variants[manifest.id] = { active: variant.name, variants: [...(variantState?.variants ?? []).filter((entry) => entry.name !== variant.name), variant] };
+      this.variantsFile.write(variants);
+    }
     // From then on both are the person's: an upgrade over it changes neither, and uninstalling forgets both.
     if (firstInstall) {
       if (manifest.contributes.toolsListed && !firstInstall.full.includes(manifest.id)) {
@@ -348,7 +386,69 @@ export class ExtensionsService {
         this.dockFile.write([...firstInstall.dock, manifest.id]);
       }
     }
-    return this.get(manifest.id);
+    const installed = this.get(manifest.id);
+    if (origin !== 'preinstalled') activitySignal({ event_id: randomUUID(), kind: firstInstall ? 'app.installed' : 'app.replaced',
+      object_id: manifest.id, app_version: manifest.version, occurred_at: Date.now() });
+    return installed;
+  }
+
+  /** The union of declarations the person has approved for this identity, used by the existing consent difference. */
+  approvedManifest(id: string): ExtensionManifest {
+    const manifest = this.get(id).manifest;
+    const identity = this.identityOf(id);
+    const permissions = identity ? this.grantsFile.read()[appKey(identity)] : undefined;
+    return permissions ? { ...manifest, permissions } : manifest;
+  }
+
+  variants(id: string): AppVariants {
+    this.get(id);
+    return this.variantsFile.read()[id] ?? { active: 'upstream', variants: [] };
+  }
+
+  /** Only an inactive fork's registration/cache. Source, data, grants and the original stay. */
+  removeVariant(id: string, name: string): { removed: true; warning?: string } {
+    const variants = this.variantsFile.read();
+    const state = this.variants(id);
+    if (name === 'upstream' || !state.variants.some((variant) => variant.name === name)) throw new Error('Choose an installed fork; the original cannot be removed.');
+    if (state.active === name) throw new Error('Switch to the original before removing this fork.');
+    const dir = this.variantDirectory(id, name);
+    variants[id] = { ...state, variants: state.variants.filter((variant) => variant.name !== name) };
+    this.variantsFile.write(variants);
+    try { fs.rmSync(dir, { recursive: true, force: true }); }
+    catch (error) { return { removed: true, warning: `The fork registration was removed, but its cache could not be cleared: ${String(error)}` }; }
+    return { removed: true };
+  }
+
+  variantDirectory(id: string, name: string): string {
+    if (!isValidExtensionId(id)) throw new Error(`Invalid App id: ${id}`);
+    appVariantsSchema.shape.active.parse(name);
+    return path.join(path.dirname(this.rootDir), 'extension-variants', id, name);
+  }
+
+  /** Keep the installed upstream before creating the first fork. Never reads a new market version instead. */
+  retainUpstream(id: string, variant: ExtensionVariant): void {
+    const variants = this.variantsFile.read();
+    if (variants[id]) return;
+    if (variant.name !== 'upstream') throw new Error('Expected the upstream variant');
+    const installed = this.get(id);
+    this.cacheVariant(id, variant.name, installed.rootDir);
+    variants[id] = { active: 'upstream', variants: [variant] };
+    this.variantsFile.write(variants);
+  }
+
+  cacheVariant(id: string, name: string, sourceDir: string): string {
+    const target = this.variantDirectory(id, name);
+    if (path.resolve(sourceDir) === target) return target;
+    const staging = `${target}-${randomHex()}`;
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    try {
+      fs.cpSync(sourceDir, staging, { recursive: true, dereference: false, verbatimSymlinks: true, filter: (source) => !BUNDLE_SKIP_NAMES.has(path.basename(source)) });
+      fs.rmSync(target, { recursive: true, force: true });
+      fs.renameSync(staging, target);
+    } finally {
+      fs.rmSync(staging, { recursive: true, force: true });
+    }
+    return target;
   }
 
   /** Who published each App installed from a chat (摩擦单 F66); throws on a file it cannot read, like the origins. */
@@ -357,6 +457,17 @@ export class ExtensionsService {
   }
 
   /** Who published an App installed here, and its id (app-identity.ts): what a chat's row names it by; null without one. */
+  /**
+   * Whether installing `id` as `identity` is a first install here (architecture §4.1, I2): not installed, or installed as
+   * another publisher's App under the same id — that is another App, so it is asked about and gives what a first install
+   * gives, never inherits what the one it replaces was given. The one reading of 「first install」.
+   */
+  isFirstInstallOf(id: string, identity: AppIdentity | null): boolean {
+    if (!this.isInstalled(id)) return true;
+    const previous = this.identityOf(id);
+    return identity !== null && (previous === null || appKey(previous) !== appKey(identity));
+  }
+
   identityOf(id: string): AppIdentity | null {
     return appIdentityOf({ manifest: { id }, origin: this.origins()[id], publisher: this.publishers()[id] });
   }
@@ -608,7 +719,16 @@ export class ExtensionsService {
     }
     // Before its origin and publisher go: they are what names it (`identityOf`).
     const identity = this.identityOf(extensionId);
-    if (identity) this.setGivenHere(identity, null);
+    if (identity) {
+      this.setGivenHere(identity, null);
+      const grants = this.grantsFile.read();
+      delete grants[appKey(identity)];
+      this.grantsFile.write(grants);
+    }
+    const variants = this.variantsFile.read();
+    delete variants[extensionId];
+    this.variantsFile.write(variants);
+    fs.rmSync(path.dirname(this.variantDirectory(extensionId, 'upstream')), { recursive: true, force: true });
     const origins = this.origins();
     if (origins[extensionId]) {
       delete origins[extensionId];

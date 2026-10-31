@@ -1,10 +1,12 @@
+const notice = vi.hoisted(() => vi.fn())
+vi.mock('@renderer/lib/hooks/use-toast', async (importOriginal) => ({ ...await importOriginal<typeof import('@renderer/lib/hooks/use-toast')>(), toast: notice }))
 /**
  * #5818 侧栏会话行:行尾的置顶 / 归档**只认指针与真焦点** —— 真 Chromium、真 CSS、真组件。
  * 下半部分是 #6092 的身份卡:指针停在行上弹出这条会话是谁,取代了 #5818 那次标题翻转;#7334 起卡上只有
  * 任务名 / agent 名,点一行复制「标签：值」,会话 ID 挪到右键「复制会话 ID」。
  *
  * 守的是一次回归:#5643 为了修「看不见却能 Enter 触发归档」(#5642),把「这一行是键盘光标」
- * 也加进了显形判据;而点一行就会把键盘光标同步过去(`syncCursorFromPointer`),于是**选中的那一行
+ * 也加进了显形判据;而点一行,主区就到了这一行、键盘光标就在这一行,于是**选中的那一行
  * 从此常驻两枚钮**,还压住标题尾巴(owner 实机截图)。所以这条测试必须同时钉住两端:
  *
  *   ① 选中 + 键盘光标 + 行本身得焦(= 鼠标点一下之后的真实状态)→ 两枚钮仍是 0,时间仍是 1。
@@ -19,6 +21,7 @@
  * 事件状态,由引擎按指针位置判定,所以这里量到的 1 是引擎自己算的。
  */
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { runInAction } from 'mobx'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { page, userEvent } from 'vitest/browser'
@@ -47,28 +50,31 @@ vi.mock('@renderer/features/sessions/stores/session-registry', () => ({
 /**
  * 键盘光标那套是**真的**(session-keyboard-nav 没被替),它只从这一格取世界:
  *  · `navChain` 要包含这一行 —— 显式光标只在它还在链上时才作数(见 `get cursor`);
- *  · `navigation` 要说得出「主区在哪」,否则 `viewNode` 取不到值。
+ *  · `navigation` 要说得出「主区在哪」,否则 `viewNode` 取不到值;点一行走的 `navigate` 把它挪到那一行,
+ *    与真的一样 —— 光标就是主区所在(❌ 不摆一个假的光标)。
  * 项目树给空的:行按「项目没挂载」渲,与真实的早期状态同形。
  */
-vi.mock('@renderer/lib/stores/app-state', () => ({
-  appState: {
+const shown = vi.hoisted(() => ({ navigation: null as { currentViewId: string; viewParamsStore: Record<string, unknown> } | null }))
+vi.mock('@renderer/lib/stores/app-state', async () => {
+  const { observable } = await import('mobx')
+  shown.navigation = observable({
+    currentViewId: 'session',
+    viewParamsStore: { session: { projectId: 'proj-1', sessionId: 'task-1' } } as Record<string, unknown>,
+  })
+  return { appState: {
     projects: { projects: new Map() },
-    navigation: {
-      currentViewId: 'session',
-      viewParamsStore: { session: { projectId: 'proj-1', sessionId: 'task-1' } },
-    },
+    navigation: shown.navigation,
   },
   sidebarStore: {
-    searchQuery: '',
-    setSearchQuery: () => {},
+    remoteSession: () => undefined,
     navChain: [{ kind: 'conversation', projectId: 'proj-1', sessionId: 'conv-1' }],
     // 设置 `interface.showLeftSidebarAgentNameOnHover` 的镜像(现在开的是身份卡,#6092)。这里是**开**的那一档;
     // 关掉那一档由下面单独一条用例把它翻过去判。
     agentNameOnHoverEnabled: true,
     // #7199 行上「助理发起」的标记问 store;这里的会话都不是个人助理派的。
     launchedByAssistant: () => false,
-  },
-}))
+  } }
+})
 vi.mock('@renderer/features/extensions/installed-extensions-store', () => ({
   installedExtensionsStore: { isLoaded: true, manifestFor: () => undefined, appName: () => undefined },
   // 资源库「扩展」那一格按机器各起一份清单(extensions-host.ts),侧栏经 use-agents 间接带上它。
@@ -83,7 +89,10 @@ vi.mock('@renderer/features/sessions/open-session-in-session', () => ({
   openSessionInSessionWhenReady: () => undefined,
 }))
 vi.mock('@renderer/lib/layout/navigation-provider', () => ({
-  useNavigate: () => ({ navigate: () => {} }),
+  useNavigate: () => ({ navigate: (view: string, params: unknown) => runInAction(() => {
+    shown.navigation!.currentViewId = view
+    shown.navigation!.viewParamsStore[view] = params
+  }) }),
   useParams: () => ({ params: {} }),
   useWorkspaceSlots: () => ({ currentView: 'task' }),
 }))
@@ -93,6 +102,7 @@ import { sessionAgentNames } from '@renderer/features/sessions/stores/session-ag
 import { SidebarSessionItem } from '@renderer/features/sidebar/sidebar-session-item'
 import { sidebarIdentityCard } from '@renderer/features/sidebar/sidebar-identity-card'
 import { SessionLocalizationProvider } from '@renderer/localization/localization-provider'
+import { translateSessionMessage } from '@renderer/localization/locale-store'
 import '@/styles/tokens.css'
 import '@renderer/index.css'
 
@@ -100,6 +110,8 @@ let root: Root
 let host: HTMLDivElement
 
 beforeEach(() => {
+  // 每条用例从「主区在别的会话上」开始:上一条点过的行不算数。
+  runInAction(() => { shown.navigation!.viewParamsStore.session = { projectId: 'proj-1', sessionId: 'task-1' } })
   host = document.createElement('div')
   // 主题变量挂在 emlight/emdark 上;少了它 row-mask 那层底色算不出来。宽度取侧栏常规宽。
   host.className = 'gugu-skin emlight'
@@ -196,7 +208,7 @@ it('#5818 点开这一行再把指针挪走,置顶/归档不留,时间照画', a
   expect(rest.getBoundingClientRect().width).toBeGreaterThan(0)
 
   // owner 的原始复现:真的点一下这一行,再把指针挪走。
-  // ❌ 不摆一个假的 cursor —— 「点一下就成了键盘光标」(syncCursorFromPointer)正是这条 bug 的成因,
+  // ❌ 不摆一个假的 cursor —— 「点一下,主区到了这一行,光标就在这一行」正是这条 bug 的成因,
   // 摆假的等于把要判的那一环替掉了。
   await clickThenPark(row)
 
@@ -250,7 +262,7 @@ it('行尾的归档:按下后指针挪了几个像素再松开,仍是一次点�
   mount()
   await mounted()
   const { actions, row } = layers()
-  const title = row.querySelector<HTMLElement>('button[aria-label^="Open conversation"]')!
+  const title = row.querySelector<HTMLElement>(`button[aria-label^="${translateSessionMessage('sidebar.openConversation', { title: '' }).trim()}"]`)!
   const archive = Array.from(actions.querySelectorAll('button')).at(-1)!
   const dragSources: EventTarget[] = []
   const onDragStart = (e: DragEvent) => dragSources.push(e.target!)
@@ -304,7 +316,7 @@ async function openCard(row: HTMLElement): Promise<HTMLElement> {
   return identityCard()!
 }
 
-it('#7334 指针停在行上,右侧弹出身份卡:只有任务名 / agent 名两行,不摆两枚 ID;卡上没有多余的线', async () => {
+it('#7334 指针停在行上,右侧弹出身份卡:任务名 / agent 名 / 设备 / 文件夹四行,不摆两枚 ID;卡上没有多余的线', async () => {
   // 卡开在行右侧要有地方放:默认视口太窄时定位系统会翻到左边再贴边,那量到的就不是「右侧」这一格了。
   await page.viewport(1024, 768)
   sessionAgentNames.note('conv-1', 'Claude 3', AGENT_USER_ID)
@@ -328,7 +340,11 @@ it('#7334 指针停在行上,右侧弹出身份卡:只有任务名 / agent 名�
   const card = identityCard()!
 
   const keys = Array.from(card.querySelectorAll<HTMLElement>('[data-identity-row]')).map((el) => el.dataset.identityRow)
-  expect(keys).toEqual(['sessionName', 'agentName'])
+  expect(keys).toEqual(['sessionName', 'agentName', 'device', 'folder'])
+  // 在哪(owner 2026-10-28):本机会话写「这台电脑」;这里项目没挂上、也没有工作区 ⇒ 文件夹「未知」,且不可复制。
+  expect(card.querySelector('[data-identity-row="device"]')!.textContent).toMatch(/这台电脑|This computer/)
+  expect(card.querySelector('[data-identity-row="folder"]')!.textContent).toMatch(/未知|Unknown/)
+  expect(card.querySelector('[data-identity-row="folder"]')!.tagName).not.toBe('BUTTON')
   expect(card.querySelector('[data-identity-row="sessionName"]')!.textContent).toContain('软件更新')
   expect(card.querySelector('[data-identity-row="agentName"]')!.textContent).toContain('Claude 3')
   // 两枚 ID 不在卡上 —— 连前缀也没有。阳性对照:同一张卡的文字里确实读得到 agent 名(上一句),读法没坏。
@@ -488,4 +504,31 @@ it('点击不是悬浮:进行就点、停够了再点,点完都没有卡;离开�
   expect(sidebarIdentityCard.activeSessionId).toBe('conv-1')
   vi.useRealTimers()
   await until('identity card renders', () => identityCard() !== null)
+})
+
+it('shows the sanitized clipboard refusal in the existing identity row', async () => {
+  const clipboard = stubClipboard().mockRejectedValue(new Error('Clipboard denied /Users/test/private sk-synthetic-secret\nstack detail'))
+  sessionAgentNames.note('conv-1', 'Claude 3', AGENT_USER_ID)
+  mount()
+  await mounted()
+  const card = await openCard(host.querySelector<HTMLElement>('[data-session-id="conv-1"]')!)
+  const row = card.querySelector<HTMLElement>('[data-identity-row="sessionName"]')!
+  await userEvent.click(row)
+  await until('copy failure is visible', () => row.dataset.copyState === 'failed')
+  expect(clipboard).toHaveBeenCalledTimes(1)
+  expect(row.querySelector('[aria-live="polite"]')!.textContent).toBe('Clipboard denied [path] [redacted token]')
+})
+
+it('shows the sanitized clipboard refusal when copying the session ID', async () => {
+  const clipboard = stubClipboard().mockRejectedValue(new Error('Clipboard denied /Users/test/private sk-synthetic-secret\nstack detail'))
+  notice.mockClear()
+  mount()
+  await mounted()
+  const row = host.querySelector<HTMLElement>('[data-session-id="conv-1"]')!
+  row.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, button: 2 }))
+  await until('context menu opens', () => document.querySelector('[data-slot="context-menu-item"]') !== null)
+  const item = Array.from(document.querySelectorAll<HTMLElement>('[data-slot="context-menu-item"]')).find(el => /复制会话 ID|Copy session ID/.test(el.textContent ?? ''))!
+  await userEvent.click(item)
+  await until('session id copy was attempted', () => clipboard.mock.calls.length > 0)
+  expect(notice).toHaveBeenCalledWith({ title: expect.stringMatching(/复制失败|Copy failed/), description: 'Clipboard denied [path] [redacted token]', variant: 'destructive' })
 })

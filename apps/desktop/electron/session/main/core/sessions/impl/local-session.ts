@@ -2,7 +2,8 @@ import { randomUUID } from 'node:crypto';
 import { homedir } from 'node:os';
 import { diskWindowsShimReader } from '@gugu/session-core/exec';
 import { isAutoApproveIntent, resolveSessionPermissionMode } from '@gugu/session-core/acp';
-import { agentHookService } from '@main/core/agent-hooks/agent-hook-service';
+import { agentHookService, providerSupportsNativeStartHook } from '@main/core/agent-hooks/agent-hook-service';
+import { SCREEN_LINES, firstTurnNotTakenMessage, watchFirstTurnTaken } from './pty-first-turn-watch';
 import { agentStatusWriter } from '@main/core/agent-status/agent-status-writer';
 import type { HookSource } from '@main/core/agent-hooks/hook-server';
 import { ensureHooksInstalled } from '@main/core/agent-hooks/hook-config-service';
@@ -15,8 +16,8 @@ import {
   assertSessionSurfaceDeclared,
   harnessSelfUpdateLaunch,
   HarnessStartupError,
-  providerConsumesStartupPrompt,
   providerStartupTurnViaLocalSession,
+  providerTakesMessageStartupInPty,
   resolveSessionRuntimeCompatible,
   SessionRuntimeCompatibilityError,
 } from '@gugu/session-core/agents/plugins';
@@ -65,7 +66,7 @@ import type { ResolvedShellProfile } from '@main/core/terminal-shell/types';
 import { events } from '@main/lib/events';
 import { log } from '@main/lib/logger';
 import type { Session, SessionMessage } from '@shared/core/sessions/sessions';
-import { sessionStartStageChannel } from '@shared/core/sessions/sessionEvents';
+import { sessionDeliveryFailedChannel, sessionStartStageChannel } from '@shared/core/sessions/sessionEvents';
 import { makePtySessionId, parsePtySessionId } from '@shared/core/pty/ptySessionId';
 import { sessionPlatformModel } from '../platform-model-selection';
 import {
@@ -122,14 +123,17 @@ function describeCancelledStart(
   );
 }
 
-function describeStartupExit({ exitCode, signal }: PtyExitInfo): Error {
+function describeStartupExit({ exitCode, signal }: PtyExitInfo, providerSessionId: string | undefined): Error {
   const reason =
     signal !== undefined
       ? `signal ${String(signal)}`
       : exitCode !== undefined
         ? `exit code ${exitCode}`
         : 'an unknown exit status';
-  return new Error(`Agent session failed during startup (${reason}).`);
+  return new HarnessStartupError(
+    `Agent session failed to resume${providerSessionId ? ` thread ${providerSessionId}` : ''} (${reason}).`
+      + ' Retry restoring this task; if the original thread was deleted, start a new task.',
+  );
 }
 
 function notifySessionpageEndedFromExit(sessionId: string): void {
@@ -287,6 +291,7 @@ export class LocalSessionProvider implements SessionProvider {
     let admission: LocalSessionAdmission | undefined;
     let hookSource: HookSource | undefined;
     let stopPresence: (() => void) | undefined;
+    let stopFirstTurnWatch: (() => void) | undefined;
     const releaseHookSource = (): void => {
       if (!hookSource) return;
       const registered = this.hookSourcesByPtySession.get(ptySessionId);
@@ -379,6 +384,7 @@ export class LocalSessionProvider implements SessionProvider {
         surface: 'tui',
         descriptor: plugin.capabilities.sessionBundle,
         executable: executableCli,
+        versionLine: plugin.capabilities.hostDependency.versionLine,
         executionContext: this.ctx,
         runtimeExecutable: runContext.runtimeExecutable,
         // 经 node 起的家(pi)在 Windows 上要从 `.cmd` 壳读出 JS 入口再交给 node(#6390)。
@@ -418,7 +424,7 @@ export class LocalSessionProvider implements SessionProvider {
       //    —— 正是本 PR 与 [[session-injection]]「禁止写 pty」要判死的那件事。
       //    ACP 腿早有对称的闸(main.ts:`initialMessageId && !startupOrigin` 即抛),PTY 腿补上。
       const chatPageFirstTurn = !agentSession.isResuming
-        && session.startupOrigin === 'chat-page'
+        && (session.startupOrigin === 'chat-page' || Boolean(session.taskChatId))
         && Boolean(session.initialMessageId)
         && Boolean(initialPrompt?.trim());
       // 首句由宿主在就绪之后经 local-session 注入的家(`providerStartupTurnViaLocalSession`):那条注入就是
@@ -427,10 +433,13 @@ export class LocalSessionProvider implements SessionProvider {
         plugin.capabilities.prompt,
         plugin.capabilities.sessionBundle.sessionpage['tui']?.messageTransport,
       );
+      // 判据与新任务框锁「终端」那一头同一个函数(`providerTakesMessageStartupInPty`):框里给得出的,这里起得来。
       if (
         chatPageFirstTurn
-        && !providerConsumesStartupPrompt(plugin.capabilities.prompt, 'pty')
-        && !startupTurnViaLocalSession
+        && !providerTakesMessageStartupInPty(
+          plugin.capabilities.prompt,
+          plugin.capabilities.sessionBundle.sessionpage['tui']?.messageTransport,
+        )
       ) {
         throw new Error(
           `chat-page first turn for ${session.id} carries a startup message id, but provider `
@@ -455,6 +464,7 @@ export class LocalSessionProvider implements SessionProvider {
           agentDisplayName: session.agentDisplayName,
           messageId: session.initialMessageId!,
           text: initialPrompt!,
+          taskChatId: session.taskChatId,
         });
       }
 
@@ -735,9 +745,14 @@ export class LocalSessionProvider implements SessionProvider {
       // spawn reports it the same way; without it the replacement cannot name the session to resume
       // and degrades to resume-last or whatever the provider does with an id-less resume flag.
       const currentHookSourceId = hookSource.id;
+      // 这一发 harness 的会话 id(会话在场文件按它找):续跑 / 存档分叉起的就是 argv 上那个 id;
+      // fork 的子 id 由 harness 自己铸,等 hook 报上来 —— ❌ 用源会话的 id,那会找到源会话活着的那份文件。
+      let harnessSessionId = storageForkedProviderSessionId
+        ?? (forkFromProviderSessionId ? undefined : agentSession.cliSessionId);
       stopTrackingProviderSession = agentHookService.on('agent:session', (event) => {
         if (event.sessionId === session.id && event.sourceId === currentHookSourceId) {
           session.providerSessionId = event.providerSessionId;
+          harnessSessionId = event.providerSessionId;
         }
       });
       mark('spawn-prepared');
@@ -783,8 +798,10 @@ export class LocalSessionProvider implements SessionProvider {
         setPtyStartupGate(pty, sessionpageOverride.startupGate);
       }
 
+      const resumeProviderSessionId = session.providerSessionId;
       pty.onExit((info) => {
         stopPresence?.();
+        stopFirstTurnWatch?.();
         releaseHookSource();
         admission?.dispose();
         stopTrackingProviderSession?.();
@@ -822,17 +839,23 @@ export class LocalSessionProvider implements SessionProvider {
           }
         }
 
-        if (decision.kind === 'failed' && isUnexpectedPtyExit(info)) {
-          // A PTY can spawn successfully while its helper fails to exec the requested command.
-          // Once recovery is exhausted, end the parallel app-server lifecycle before publishing
-          // the durable error so a later turn/completed event cannot overwrite it.
-          notifySessionpageEndedFromExit(session.id);
-          emitSessionSpawnFailure(session, describeStartupExit(info));
-          return;
-        }
-
         // 引擎真的没了:落 idle、要么起替身、要么 teardown —— 不在 tmux 里时 pty 退出就是这一刻。
         const settleEngineGone = (): void => {
+          if (decision.kind === 'failed' && isUnexpectedPtyExit(info)) {
+            // A PTY can spawn successfully while its helper fails to exec the requested command.
+            // Once recovery is exhausted, end the parallel app-server lifecycle before publishing
+            // the durable error so a later turn/completed event cannot overwrite it.
+            notifySessionpageEndedFromExit(session.id);
+            const failure = describeStartupExit(info, resumeProviderSessionId);
+            emitSessionSpawnFailure(session, failure);
+            events.emit(sessionDeliveryFailedChannel, {
+              sessionId: session.id,
+              projectId: session.projectId,
+              message: failure.message,
+            });
+            return;
+          }
+
           // @@@exit-settles-in-process (#6380) —— 进程真的没了,harness 不会再打回任何一条 hook 边沿 ⇒ 这一轮在不在跑
           // 交给唯一的写入者落 idle,与 stopSession 同一条进程内调用;会话页渲染层随写入者的输出更新,❌ 自己改状态。
           void agentStatusWriter
@@ -848,7 +871,6 @@ export class LocalSessionProvider implements SessionProvider {
             this.scheduleReplacement({
               session,
               initialSize: replacementSize,
-              isResuming: decision.kind === 'respawnResume',
             });
             return;
           }
@@ -940,14 +962,37 @@ export class LocalSessionProvider implements SessionProvider {
         plugin,
         harnessVersion: compatibleRuntime.harnessVersion,
         spawnEnv,
-        // tmux 里 pty 的子进程是 tmux 的客户端,不是 harness:按它的会话 id 找一次。
-        location: tmuxEnabled
-          ? { kind: 'session', sessionId: agentSession.cliSessionId }
-          : { kind: 'pid', pid: pty.getPid?.() ?? NaN },
+        harnessSessionId: () => harnessSessionId,
         sessionId: session.id,
         projectId: session.projectId,
         providerId: session.providerId,
       });
+      // 带着首句起的、这一家报得出回合开始:首句一进去就该有 hook 回来。一条都没有 ⇒ 屏上最后几行进日志、在会话页说出来
+      // (owner 10-28 e4e174ec:没接住首句,事后只剩「找不到会话记录」)。
+      if (!agentSession.isResuming && effectiveInitialPrompt?.trim() && providerSupportsNativeStartHook(session.providerId)) {
+        const sourceId = hookSource.id;
+        stopFirstTurnWatch = watchFirstTurnTaken({
+          // 只认 harness 自己打回来的 hook:宿主替终端腿发的回合边沿也走 agent:event、带同一个 sourceId,那不算它接住了首句。
+          onHook: (heard) => agentHookService.on('agent:hook', (hook) => { if (hook.sourceId === sourceId) heard(); }),
+          // 退出时注册表先撤掉这一条(onExit):还挂着同一个 pty = 它还在。
+          alive: () => ptySessionRegistry.get(ptySessionId) === pty,
+          screenText: () => ptySessionRegistry.screenText(ptySessionId, SCREEN_LINES),
+          report: ({ lines, alive }) => {
+            log.error('LocalSessionProvider: the terminal harness did not take the first message', {
+              sessionId: session.id,
+              providerId: session.providerId,
+              harnessVersion: compatibleRuntime.harnessVersion,
+              alive,
+              screen: lines,
+            });
+            events.emit(sessionDeliveryFailedChannel, {
+              sessionId: session.id,
+              projectId: session.projectId,
+              message: firstTurnNotTakenMessage(plugin.metadata.name, lines),
+            });
+          },
+        });
+      }
       // Registered only now: a rejected spawn must not displace the live generation's entry, which
       // is the only handle stopSession has for revoking its credentials.
       this.hookSourcesByPtySession.set(ptySessionId, hookSource);
@@ -1234,14 +1279,12 @@ export class LocalSessionProvider implements SessionProvider {
   private scheduleReplacement({
     session,
     initialSize,
-    isResuming,
   }: {
     session: Session;
     initialSize: { cols: number; rows: number };
-    isResuming: boolean;
   }): void {
     setTimeout(() => {
-      this.startSessionInternal(session, initialSize, isResuming, undefined, true).catch(
+      this.startSessionInternal(session, initialSize, true, undefined, true).catch(
         (e) => {
           log.error('LocalSessionProvider: replacement failed', {
             sessionId: session.id,

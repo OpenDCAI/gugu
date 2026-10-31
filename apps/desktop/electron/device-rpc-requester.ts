@@ -27,15 +27,20 @@ export type SharedSshLinks = {
  * 远程 SSH 那条:借窗口那条连接。管道关 = 不再听,❌ 关连接 —— 连接归 link manager(窗口在用、机器被移除、退出时才关)。
  */
 export async function openSshDeviceRpcPipe(links: SharedSshLinks, deviceId: string, handlers: DeviceRpcPipeHandlers): Promise<DeviceRpcPipe> {
+  const pipe = attachSshDeviceRpcPipe(links, deviceId, handlers)
+  try {
+    const opened = await links.open(deviceId)
+    if (!opened.ok) throw new DeviceRpcChannelError(`ssh link: ${opened.reason} (${opened.detail})`, opened.reason)
+    return pipe
+  } catch (error) { pipe.close(); throw error }
+}
+
+/** File reads may only borrow a link that is already held; this never opens a connection. */
+export function attachSshDeviceRpcPipe(links: Pick<SharedSshLinks, 'tap' | 'send'>, deviceId: string, handlers: DeviceRpcPipeHandlers): DeviceRpcPipe {
   const untap = links.tap(deviceId, {
     onMessage: (message) => handlers.onMessage(message),
     onClosed: (reason) => handlers.onClosed(new DeviceRpcChannelError(`device channel closed: ${reason}`, 'closed')),
   })
-  const opened = await links.open(deviceId)
-  if (!opened.ok) {
-    untap()
-    throw new DeviceRpcChannelError(`ssh link: ${opened.reason} (${opened.detail})`, opened.reason)
-  }
   return {
     send: async (message) => {
       if (!links.send(deviceId, message)) throw new DeviceRpcChannelError('ssh link is not open', 'closed')
@@ -45,7 +50,7 @@ export async function openSshDeviceRpcPipe(links: SharedSshLinks, deviceId: stri
 }
 
 type RealtimeClient<TChannel> = {
-  realtime: { setAuth: (accessToken: string) => unknown | Promise<unknown> }
+  realtime: { setAuth: () => unknown | Promise<unknown> }
   channel: (topic: string, options: { config: { private: boolean; broadcast: { self: boolean; ack: boolean } } }) => TChannel
   removeChannel: (channel: TChannel) => unknown
 }
@@ -61,7 +66,7 @@ export const CLOUD_PIPE_SUBSCRIBE_TIMEOUT_MS = 10_000
 const MAIN_PROCESS_ASKER = globalThis.crypto.randomUUID().replace(/-/g, '')
 
 /** 订上一条私有 topic(RLS 只对本账号开);`self:false`,自己发的不回给自己。订上之后再断 = 管道作废,下一问重开。 */
-function joinElectronTopic<TChannel>(supabase: RealtimeClient<TChannel>, accessToken: string, subscribeTimeoutMs: number): JoinDeviceTopic {
+function joinElectronTopic<TChannel>(supabase: RealtimeClient<TChannel>, subscribeTimeoutMs: number): JoinDeviceTopic {
   return (topic, handlers) => new Promise<DeviceTopic>((resolve, reject) => {
     const channel = supabase.channel(topic, {
       config: { private: true, broadcast: { self: false, ack: true } },
@@ -90,7 +95,6 @@ function joinElectronTopic<TChannel>(supabase: RealtimeClient<TChannel>, accessT
       realtime: supabase.realtime,
       removeChannel: (removed) => supabase.removeChannel(removed as TChannel),
     }, channel, {
-      accessToken,
       label: `device-rpc-request:${topic}`,
       onStatus: (status, err) => {
         const name = subscribeStatusName(status)
@@ -118,16 +122,17 @@ function joinElectronTopic<TChannel>(supabase: RealtimeClient<TChannel>, accessT
  */
 export function openCloudDeviceRpcPipe<TChannel>(input: {
   supabase: RealtimeClient<TChannel>
-  accessToken: string
   deviceId: string
   userId: () => Promise<string>
   subscribeTimeoutMs?: number
+  /** Dedicated host-owned requester lifetime; projection credentials must die with this exact pipe. */
+  asker?: string
 } & DeviceRpcPipeHandlers): Promise<DeviceRpcPipe> {
   return openAttachedDeviceRpcPipe({
     deviceId: input.deviceId,
-    asker: MAIN_PROCESS_ASKER,
+    asker: input.asker ?? MAIN_PROCESS_ASKER,
     userId: input.userId,
-    join: joinElectronTopic(input.supabase, input.accessToken, input.subscribeTimeoutMs ?? CLOUD_PIPE_SUBSCRIBE_TIMEOUT_MS),
+    join: joinElectronTopic(input.supabase, input.subscribeTimeoutMs ?? CLOUD_PIPE_SUBSCRIBE_TIMEOUT_MS),
     onMessage: input.onMessage,
     onClosed: input.onClosed,
     watchdog: {},

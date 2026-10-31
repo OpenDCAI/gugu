@@ -1,9 +1,20 @@
-import { fetchBlob } from '../../lib/download'
+import { composeChatDraft } from '@/lib/composeDraft'
+import { showRendererContentMenu } from '../../lib/contentContextMenu'
+import { appContextMenuOf } from '../../session/shared/extensions/app-context-menu'
+import { appIdentityOf } from '../../session/shared/extensions/app-identity'
+import { fileBlob } from '@gugu/core/shared/fileResolver'
+import { guguLink, guguLinkScheme, linkTargetOf, type OpenTarget } from '@gugu/core/shared/ui/guguLink'
+import { openLinkWith } from '../../session/shared/extensions/open-link'
+import { openLinkTarget } from '../../lib/guguLinks'
+import { resourceChatIdOf } from '../../session/shared/extensions/app-files-core'
+import { readCachedDevices } from '../../store/devicesCache'
+import { directoryRows, listedSession, liveDeviceSessions } from '../../session/shared/remote-sessions/session-directory'
 import { rendererLogger } from '../../lib/log'
 import { platform } from '../../platform'
 import { getRendererAccessToken } from '../../lib/sessionPublication'
 import { AppFileError, contentTypeOf, createAppFiles, rosterMoved, tooLargeError, type ChatFileRef, type FileSurface, type MemberChange } from '../../session/shared/extensions/app-files-core'
-import { AppSendError, composeInChat, createAppSend, type AppSendPlatform } from '../../session/shared/extensions/app-send-core'
+import { AppSendError, dispatchFromApp, type AppSendPlatform } from '../../session/shared/extensions/app-send-core'
+import { pickDispatchTarget } from '../chat/dispatchAsk'
 import { chatOf, createAppMessages } from '../../session/shared/extensions/app-messages-core'
 import { createAppForum, type ForumChannel } from '../../session/shared/extensions/app-forum-core'
 import { dataClient } from '../../lib/supabase'
@@ -11,7 +22,6 @@ import { subscribeAuthenticatedRealtimeChannel, unsubscribeAuthenticatedRealtime
 import { FileSyncRelay, webSocketUrl, type PageSync } from '../../session/shared/extensions/file-sync-core'
 import { userIdFromSupabaseAccessToken } from '@gugu/core/cloud/runtimeAuthProvider'
 import {
-  APP_COMPOSE_EVENT,
   APP_FORUM_CONSENT_EVENT,
   APP_FILE_MAX_BYTES,
   APP_FRAME_MARKER,
@@ -21,7 +31,6 @@ import {
   isLocal,
   placeOf,
   sessionIdOf,
-  type AppComposeDetail,
   type AppForumConsentDetail,
   type AppFileUpload,
   type AppOpenWithDetail,
@@ -44,7 +53,7 @@ import {
 import { filesOpenedBy } from '../../session/shared/extensions/app-files-core'
 import { coalescedReads } from '../../session/shared/extensions/coalesced-reads'
 import { localizedManifestText } from '../../session/shared/extensions/catalog'
-import { claimantOf, noOpenerError, openerChoice, placeFor, placeLink, type FileOpenerCandidate } from '../../session/shared/extensions/file-openers'
+import { claimantOf, openerChoice, placeFor, placeLink, type FileOpenerCandidate } from '../../session/shared/extensions/file-openers'
 import { opensInChats, withCoveredCapabilities, type ExtensionCapability, type ExtensionManifest } from '../../session/shared/extensions/manifest'
 import { readDisplayIdentities } from '../../lib/identityReadAdapter'
 import { memberFaces } from '../../lib/memberFaces'
@@ -52,10 +61,16 @@ import { installedExtensionsStore } from '../../session/renderer/features/extens
 import { fileIconKey } from '../../session/shared/extensions/app-icon'
 import { appFrameChannel } from './appOrigin'
 import { PHONE_CAPABILITIES, phoneApps } from './phoneApps'
+import { cachedPhoneAgents, phoneDispatch } from './phoneDispatch'
+import { onPhoneAppState, phoneAppState } from './phoneAppState'
+import { subscribeDeviceSessions } from '../../session/shared/remote-sessions/session-directory'
 import { callOnComputer } from './phoneProgramCall'
-import { followsSessionMachine } from '../../session/shared/extensions/machine-call'
+import { appDeviceId, followsSessionMachine, notOnSessionMachine } from '../../session/shared/extensions/machine-call'
 import { HOSTED_PROGRAM_ELSEWHERE } from '../../session/shared/extensions/program-place'
 import { rendererFileServiceUrl } from '../../lib/chatFolder'
+import { AppModalSessions, type AppModalFocus } from '../../session/shared/extensions/app-modal'
+import { closeAppModal, focusAppModalClose, showAppModal } from '../appModal/appModal'
+import { APP_SESSION_FRAME_NAME } from '../../session/shared/extensions/app-runtime-protocol'
 
 const log = rendererLogger('app-slot/phone-host')
 
@@ -79,9 +94,11 @@ export function phoneRuns(manifest: ExtensionManifest): boolean {
 }
 
 export interface PhoneAppBinding {
+  modal?: { id: string; data?: unknown }
   extensionId: string
   /** The slot drawing it. */
   tabId: string
+  tabName: string
   /** The chat it is drawn for — null for a page in a session (`session`). */
   chatId: string | null
   /**
@@ -101,9 +118,11 @@ interface HostedFrame {
   binding: PhoneAppBinding
   /** Its open files with the relay, once it opened a file: the port went to its document. */
   syncPage(): PageSync
+  deliver(event: ExtensionHostEvent): void
 }
 
 const frames = new Map<number, HostedFrame>()
+const phoneModals = new AppModalSessions<PhoneAppBinding>((modal) => { closeAppModal(modal.id) })
 let nextPageId = 1
 
 /** A frame's binding as kept here: its granted words with the narrower ones they cover, so a check for those finds them. */
@@ -140,7 +159,7 @@ function appsHereNow(): ExtensionManifest[] {
   return installedExtensionsStore.manifests.filter((manifest) => installedExtensionsStore.isEnabled(manifest.id))
 }
 
-/** `gugu.send` (摩擦单 F16) and `gugu.compose`: the desktop's answers (`app-send-core.ts`), as the person signed in to this page. */
+/** `gugu.dispatch` (15): the desktop's answer (`app-send-core.ts`), as the person signed in to this page. */
 const sendPlatform: AppSendPlatform = {
   async account() {
     const token = getRendererAccessToken()
@@ -149,7 +168,6 @@ const sendPlatform: AppSendPlatform = {
     return { token, userId }
   },
 }
-const sendFromApp = createAppSend(sendPlatform)
 /** `gugu.messages`: the desktop's answer (`app-messages-core.ts`), as the person signed in to this page. */
 const messagesForApp = createAppMessages(sendPlatform)
 /** A forum channel on this page's realtime client (signed in as the person; re-subscribed when it drops). */
@@ -174,6 +192,13 @@ const askForumConsent = (detail: AppForumConsentDetail) => {
 }
 
 const files = createAppFiles({
+  appIdentity: (id) => appIdentityOf({ manifest: { id }, origin: installedExtensionsStore.origins[id], publisher: installedExtensionsStore.publishers[id] }),
+  async resolveFile(ref, actorId, options) {
+    if (options.localOnly) return null;
+    if (!('id' in ref)) throw new AppFileError('invalid', 'A stored file must be resolved by its id');
+    const { resolveFile, fileReader, fileReadSignal } = await import('../../lib/fileAccess');
+    return resolveFile({ item_id: ref.id, ...(options.version ? { version: options.version } : {}) }, fileReader(actorId), { signal: fileReadSignal() });
+  },
   // Who opens a group file of this kind here — the same choice a tap makes (摩擦单 F39).
   claimant(typedName) {
     const candidate = claimantOf(typedName, appsHereNow(), 'chat', phoneApps.remembered)
@@ -198,6 +223,7 @@ const files = createAppFiles({
   filesUrl: rendererFileServiceUrl,
   warn: (message, data) => log.warn(data ?? {}, message),
   sync: {
+    ensureFor: (asAgent) => { relay.ensureFor(asAgent) },
     pageFor: (pageId) => {
       const hosted = frames.get(pageId)
       if (!hosted) throw new AppFileError('failed', 'This surface is gone')
@@ -208,6 +234,11 @@ const files = createAppFiles({
     revoke: (pageId, reason, docNames) => relay.revoke(pageId, reason, docNames),
   },
 })
+
+/** Human tools save with the renderer's same workspace publisher and membership contract. */
+export function saveFilesToChatFolder(chatId: string, picked: readonly AppFileUpload[], sourceMessageIds?: string[]) {
+  return files.upload(chatId, picked, { sourceMessageIds })
+}
 
 /** The phone's own picker, inside the person's gesture. Cancelled is an empty list. */
 function pickFiles(): Promise<AppFileUpload[]> {
@@ -246,7 +277,7 @@ const failure = (error: unknown): { success: false; error: string } => ({ succes
  * Never to a page of another file of the chat (复核 71c15165 要改 1). Bounded in time, as the desktop's.
  */
 const OPENING_LINK_TTL_MS = 30_000
-const openingLinks: { extensionId: string; chatId: string; itemId: string; event: ExtensionHostEvent; expiresAt: number }[] = []
+const openingLinks: { extensionId: string; chatId: string | null; itemId: string | null; sessionId?: string; event: ExtensionHostEvent; expiresAt: number }[] = []
 export function holdPlaceForOpeningPage(chatId: string, itemId: string, candidate: FileOpenerCandidate, at: Record<string, string>): void {
   openingLinks.push({ extensionId: candidate.extensionId, chatId, itemId, event: placeLink(candidate, at, itemId), expiresAt: Date.now() + OPENING_LINK_TTL_MS })
 }
@@ -255,7 +286,9 @@ function takeOpeningLinks(binding: PhoneAppBinding): ExtensionHostEvent[] {
   const taken: ExtensionHostEvent[] = []
   for (let i = 0; i < openingLinks.length; ) {
     const opening = openingLinks[i]!
-    const mine = opening.extensionId === binding.extensionId && opening.chatId === binding.chatId && opening.itemId === binding.itemId
+    const mine = opening.extensionId === binding.extensionId && opening.chatId === binding.chatId && (opening.sessionId ?? null) === (binding.session?.id ?? null)
+      && (opening.event.type !== 'link' || opening.event.tab === binding.tabName)
+      && (opening.itemId === null ? !binding.itemId : opening.itemId === binding.itemId)
     if (opening.expiresAt < now || mine) {
       openingLinks.splice(i, 1)
       if (opening.expiresAt >= now) taken.push(opening.event)
@@ -277,8 +310,17 @@ export async function groupFileOpener(args: { chatId: string; itemId: string; at
     const choice = openerChoice(target.typedName, appsHereNow(), 'chat', phoneApps.remembered)
     // App 引用 pill: the place, for the page about to open the file — main's `deliverToOpeningPage` on the desktop.
     const place = placeFor(choice, args.at)
-    if (place) holdPlaceForOpeningPage(args.chatId, target.itemId, place.candidate, place.at)
+    if (place) holdPlaceForOpeningPage(target.chatId, target.itemId, place.candidate, place.at)
     return { success: true, data: { ...target, choice } }
+  } catch (error) {
+    return failure(error)
+  }
+}
+
+/** API 14 `chatFile`: the file an App opened in this chat shows, as that file opened with it (made the first time) — main's answer too. */
+export async function appChatFile(args: { chatId: string; extensionId: string }): Promise<Result<AppOpenWithDetail>> {
+  try {
+    return { success: true, data: await files.appChatFile(args.chatId, appsHereNow().find((manifest) => manifest.id === args.extensionId)) }
   } catch (error) {
     return failure(error)
   }
@@ -301,7 +343,7 @@ export function hostAppFrame(
   frame: HTMLIFrameElement,
   initial: PhoneAppBinding,
   hooks: {
-    showMessage(detail: AppShowMessageDetail): void
+    showMessage(detail: AppShowMessageDetail): void | Promise<void>
     /**
      * `showSession`: the task tab opens the session's row, as a tap on it does — or, listed nowhere, the machines whose
      * lists were not read (`listedSession`).
@@ -314,8 +356,9 @@ export function hostAppFrame(
     /** `setTabTitle` / `setTabBadge`: drawn on the header of the slot the App is in (摩擦单 F13). */
     chrome(detail: { title?: string | null; badge?: string | number | null; error?: string | null }): void
   },
-): { update(binding: PhoneAppBinding): void; filesChanged(changes: readonly { chatId: string; itemIds: readonly string[] }[]): Promise<void>; membersChanged(changes: readonly MemberChange[]): void; command(commandId: string): void; programNotified(notification: { server: string; method: string; params?: unknown }): void; dispose(): void } {
+): { pageId: number; update(binding: PhoneAppBinding): void; filesChanged(changes: readonly { chatId: string; itemIds: readonly string[] }[]): Promise<void>; membersChanged(changes: readonly MemberChange[]): void; command(commandId: string): void; programNotified(notification: { server: string; method: string; params?: unknown }): void; dispose(): void } {
   const pageId = nextPageId++
+  const modalHosts = new Map<ReturnType<typeof hostAppFrame>, PhoneAppBinding>()
   // Only ever the App's own document, both ways (appOrigin.ts).
   const channel = appFrameChannel(frame)
   // The sync port waits here until the frame's runtime says it listens ('sync-port'), in either
@@ -330,6 +373,7 @@ export function hostAppFrame(
   const hosted: HostedFrame = {
     frame,
     binding: granted(initial),
+    deliver: (event) => { channel.post({ m: APP_FRAME_MARKER, t: 'event', event }) },
     syncPage() {
       const existing = relay.page(pageId)
       if (existing) return existing
@@ -364,7 +408,8 @@ export function hostAppFrame(
   /** And the chat itself (`getContext().chat`), read with them; undefined until read — `files.chat()` throws when it cannot be. */
   let chat: ExtensionChat | null | undefined
   const readMembers = async () => {
-    const chatId = hosted.binding.chatId
+    const chatId = hosted.binding.chatId ? await files.resourceChat(hosted.binding.chatId) : null
+    hosted.binding.chatId = chatId
     // A page in a session is in no chat: its context says so (no `chat`), never a chat read for nothing.
     if (!chatId) {
       members = []
@@ -379,7 +424,7 @@ export function hostAppFrame(
     chat = await files.chat(chatId)
   }
   /** The chats this page asked to hear about (`files.onChanged({ chat }, fn)`): a phone has no working copies. */
-  const watched = new Set<string>()
+  let watched = new Map<string, { named: string; source: string }>()
   /** A chat's files read for the page (#7257), one read at a time per chat; a failed one's ids go with the next. */
   const readFiles = coalescedReads((chatId, error) =>
     log.error({ error: error instanceof Error ? error.message : String(error), chatId }, 'reading the files a revision named failed twice; they go with its next read'),
@@ -387,8 +432,9 @@ export function hostAppFrame(
   const readChanged = (chatId: string, ids: readonly string[]): Promise<void> =>
     readFiles.want(chatId, ids, async (wanted) => {
       const change = await files.groupChange(chatId, wanted)
-      const told = watched.has(chatId) && hosted.binding.capabilities.includes('files:read')
-      if (told && (change.entries.length > 0 || change.gone.length > 0)) event({ type: 'filesChanged', place: { chat: chatId }, change: { kind: 'entries', ...change } })
+      if (hosted.binding.capabilities.includes('files:read') && (change.entries.length > 0 || change.gone.length > 0)) {
+        for (const [watchId, { named, source }] of watched) if (source === chatId) event({ type: 'filesChanged', watchId, place: { chat: named }, change: { kind: 'entries', ...change } })
+      }
     })
   const peek = (target: PeekTarget) => {
     if (!hooks.peek) refused('invalid', 'Nothing opens beside this page here')
@@ -409,6 +455,7 @@ export function hostAppFrame(
   const contextOf = (): ExtensionHostContext => ({
     apiVersion: EXTENSION_API_VERSION,
     tabId: hosted.binding.tabId,
+    ...(hosted.binding.modal ? { modal: { data: hosted.binding.modal.data } } : {}),
     ...(chat ? { chat: { ...chat, members: members ?? [] } } : {}),
     ...(hosted.binding.itemId && hosted.binding.chatId ? { file: { chat: hosted.binding.chatId, id: hosted.binding.itemId } } : {}),
     ...(hosted.binding.session
@@ -426,23 +473,85 @@ export function hostAppFrame(
     locale: hosted.binding.locale,
     themeMode: hosted.binding.themeMode,
     capabilities: hosted.binding.capabilities.filter((capability) => PHONE_CAPABILITIES.includes(capability)),
-    layout: { visible: true, fullscreen: false, width: frame.clientWidth, height: frame.clientHeight },
+    layout: { visible: true, fullscreen: Boolean(hosted.binding.modal), width: frame.clientWidth, height: frame.clientHeight },
   })
 
   /** `gesture` was read when the call arrived: the frame's tap activates this page too (L1, WebView 113/133). */
-  const answer = (method: string, args: Record<string, unknown>, gesture: boolean): Promise<unknown> => {
+  const answer = async (method: string, args: Record<string, unknown>, gesture: boolean): Promise<unknown> => {
     // Once, from the verb's row (BRIDGE_VERBS), in the words every host says it — a phone frame is a page.
     const refusal = callRefusal(method, args, { kind: 'page', has: (capability) => hosted.binding.capabilities.includes(capability), gesture })
     if (refusal) refused(refusal.code, refusal.message)
     const session = hosted.binding.session
-    if (session && verbFacts(method)?.machine) {
+    if ((session || args.device !== undefined) && verbFacts(method)?.machine) {
       const manifest = installedExtensionsStore.manifestFor(hosted.binding.extensionId)
       if (!manifest) refused('not-installed', `${hosted.binding.extensionId} is not installed on this phone`)
-      if (followsSessionMachine(manifest, method, args)) {
+      if (args.device !== undefined) {
+        const invalid = notOnSessionMachine(manifest, method, args)
+        if (invalid) throw invalid
+        const { device, ...callArgs } = args
+        return callOnComputer({ extensionId: manifest.id, extensionName: manifest.name, version: manifest.version }, { deviceId: appDeviceId(device), deviceLabel: null }, method, callArgs)
+      }
+      if (session && followsSessionMachine(manifest, method, args)) {
         return callOnComputer({ extensionId: manifest.id, extensionName: manifest.name, version: manifest.version }, session, method, args)
       }
     }
     switch (method) {
+      case 'linkTo': {
+        const manifest = installedExtensionsStore.manifestFor(hosted.binding.extensionId)
+        if (!manifest) refused('not-installed', 'This App is not installed')
+        const target = linkTargetOf(args, manifest)
+        return guguLink(target, args.external === true || (target.kind !== 'chat' && target.kind !== 'file') ? phoneLinkScheme() : undefined)
+      }
+      case 'openLink': {
+        const result = await openPhoneLink(typeof args.url === 'string' ? args.url : '')
+        if (result.kind !== 'opened') refused(result.kind === 'failed' ? 'failed' : 'invalid', result.kind === 'failed' ? result.detail ?? result.reason : 'Only gugu resource links open here')
+        return undefined
+      }
+      case 'modalOpen': {
+        const modal = phoneModals.open(pageId, { ...hosted.binding }, args)
+        try {
+          const manifest = installedExtensionsStore.manifestFor(hosted.binding.extensionId)
+          if (!manifest) refused('not-installed', 'This App is no longer installed')
+          const focus = (edge: AppModalFocus) => {
+            const child = modal.child === null ? undefined : frames.get(modal.child)
+            child?.frame.focus()
+            if (child) appFrameChannel(child.frame).post({ m: APP_FRAME_MARKER, t: 'event', event: { type: 'modalFocus', edge } } satisfies HostToFrame)
+          }
+          showAppModal({
+            id: modal.id, title: modal.options.title, appName: localizedManifestText(manifest, hosted.binding.locale).name,
+            size: modal.options.size, url: phoneApps.pageUrl(hosted.binding.extensionId, modal.options.entry),
+            ...(modal.binding.session ? { frameName: APP_SESSION_FRAME_NAME } : {}),
+            opener: frame, focus, dismiss: (error) => phoneModals.close(modal.id, null, error),
+            attach(element) {
+              const childFrame = element as HTMLIFrameElement
+              const childBinding = { ...modal.binding, modal: { id: modal.id, data: modal.options.data } }
+              const childHost = hostAppFrame(childFrame, childBinding, {
+                ...hooks,
+                // The content page's initial hello must not clear its opener's title, badge or error.
+                chrome(detail) { if (detail.error) hooks.chrome({ error: detail.error }) },
+              })
+              modalHosts.set(childHost, childBinding)
+              phoneModals.bind(modal.id, childHost.pageId)
+              const ready = () => focus('first')
+              childFrame.addEventListener('load', ready)
+              return () => { childFrame.removeEventListener('load', ready); modalHosts.delete(childHost); childHost.dispose() }
+            },
+          })
+        } catch (error) {
+          await phoneModals.close(modal.id, null, error instanceof Error ? error.message : String(error))
+        }
+        return phoneModals.result(modal)
+      }
+      case 'modalClose':
+        return phoneModals.close(phoneModals.forPage(pageId).id, args.result ?? null)
+      case 'modalKey': {
+        const modal = phoneModals.forPage(pageId)
+        if (args.key !== 'tab') refused('invalid', 'Unknown modal keyboard action')
+        focusAppModalClose(modal.id)
+        return undefined
+      }
+      case 'getAppState':
+        return phoneAppState(hosted.binding.capabilities)
       case 'getContext':
         // A pill's place waiting for this page goes first, whatever the answer: the frame holds it until `onLink`.
         for (const link of takeOpeningLinks(hosted.binding)) event(link)
@@ -470,10 +579,31 @@ export function hostAppFrame(
         return Promise.resolve(undefined)
       }
       case 'clipboardWriteText':
-        return navigator.clipboard.writeText(pageArgument('clipboardWriteText', args))
-      case 'send':
-        // A whisper in the person's name, via this App, in the chat the call names (F16).
-        return sendFromApp(hosted.binding.extensionId, { to: args.to, text: args.text, chat: args.chat, refs: args.refs, about: args.about })
+        return platform.writeClipboardText(pageArgument('clipboardWriteText', args))
+      case 'listAgents': {
+        const manifest = installedExtensionsStore.manifestFor(hosted.binding.extensionId)
+        if (!manifest) refused('not-installed', 'This App is not installed')
+        const dispatch = phoneDispatch({ extensionId: manifest.id, extensionName: manifest.name }, hosted.binding.capabilities, {})
+        return args.report === true ? dispatch.listAgents(true) : dispatch.listAgents()
+      }
+      case 'dispatch': {
+        const manifest = installedExtensionsStore.manifestFor(hosted.binding.extensionId)
+        if (!manifest) refused('not-installed', 'This App is not installed')
+        const { agents, local, spawnOn } = phoneDispatch({ extensionId: manifest.id, extensionName: manifest.name }, hosted.binding.capabilities,
+          { deviceId: hosted.binding.session?.deviceId, chatId: hosted.binding.chatId, agents: members?.filter((member) => member.kind === 'agent').map((member) => member.id) })
+        return dispatchFromApp(
+          {
+            ...sendPlatform,
+            agents,
+            pick: pickDispatchTarget,
+            // Use the same capture-before-append ordering as the desktop host.
+            draftInChat: async (detail) => composeChatDraft(detail),
+          },
+          hosted.binding.extensionId,
+          args,
+          { chat: chat ? { id: chat.id, name: chat.name, members: members ?? [] } : null, preselect: null, local, spawnOn },
+        )
+      }
       case 'messagesHistory':
         return messagesForApp.history(args)
       case 'messagesSearch':
@@ -497,7 +627,7 @@ export function hostAppFrame(
       case 'forumBlock':
         return forumForApp.block(args.userId, args.on)
       case 'forumAssign':
-        return forumForApp.assignDraft(args.postId, args.agentId).then((draft) => askForumConsent({ type: 'assign', draft }))
+        return forumForApp.assign(args.postId, args.agentId, pickDispatchTarget)
       case 'forumPost':
         return args.bounty === undefined || args.bounty === null
           ? forumForApp.postPlain(args)
@@ -515,14 +645,6 @@ export function hostAppFrame(
         forumWatches.delete(target)
         return Promise.resolve(undefined)
       }
-      case 'compose': {
-        // Into the composer of the chat the call names, as on the desktop (the chat shell takes it): the person sends it.
-        // A phone has no sessions: one named is not here.
-        if (args.session !== undefined && args.session !== null) refused('not-found', 'No sessions on the phone')
-        return composeInChat(sendPlatform, { text: args.text, chat: args.chat, refs: args.refs, about: args.about, images: args.images }).then((detail) => {
-          window.dispatchEvent(new CustomEvent<AppComposeDetail>(APP_COMPOSE_EVENT, { detail }))
-        })
-      }
       case 'showMessage':
         return files.messageToShow(args as never).then((detail) => hooks.showMessage(detail))
       case 'showSession': {
@@ -538,19 +660,17 @@ export function hostAppFrame(
         return Promise.resolve(undefined)
       }
       case 'filesOpenWith':
-        return files.openTarget(surface(), { ref: chatRef(args.ref) }).then(({ file, ...target }) => {
+        return files.openTarget(surface(), { ref: chatRef(args.ref) }).then((target) => {
           const choice = openerChoice(target.typedName, appsHereNow(), 'chat', phoneApps.remembered, args.ask === true)
           // A pill in the page: its place, for the page about to open the file — as a file link in the chat (`groupFileOpener`).
           const place = placeFor(choice, args.at)
           if (place) holdPlaceForOpeningPage(target.chatId, target.itemId, place.candidate, place.at)
           // Beside the page: a file nobody here opens shows in the host's preview there.
-          if (args.peek === true) return peek({ kind: 'chat', detail: { ...target, choice }, file })
+          if (args.peek === true) return peek({ kind: 'chat', detail: { ...target, choice } })
           hooks.openWith({ ...target, choice })
-          // Nobody here opens it: the panel offers the App that would (`none`), and the App is told as before.
-          if (choice.kind === 'none') throw noOpenerError(target.typedName)
         })
       case 'filesOpen':
-        return files.open(surface(), { ref: chatRef(args.ref), ...(args.readOnly === true ? { readOnly: true } : {}) })
+        return files.open(surface(), { ref: chatRef(args.ref), ...(args.readOnly === true ? { readOnly: true } : {}), deferDetails: args.deferDetails === true, appData: args.appData === true })
       case 'filesReopen': {
         const ref = chatRef(args.ref)
         if (!('id' in ref)) refused('invalid', 'reopen takes a file by its id')
@@ -567,10 +687,19 @@ export function hostAppFrame(
           const { limit } = fileSearchOf(args)
           return files.recent(limit === undefined ? {} : { limit })
         })
+      case 'showContextMenu': {
+        const menu = appContextMenuOf(args)
+        const rect = frame.getBoundingClientRect()
+        return showRendererContentMenu(menu.items, { x: rect.x + menu.x, y: rect.y + menu.y })
+      }
+      case 'filesViewPreferences':
+        return files.viewPreferences(chatPlace(args.place), args.showAppData as boolean | undefined)
       case 'filesCreate':
-        return files.create(chatPlace(args.place), args as never)
+        return files.create(chatPlace(args.place), args as never, { extensionId: hosted.binding.extensionId })
       case 'filesRename':
         return files.rename(surface(), { ref: chatRef(args.ref), name: String(args.name ?? '') })
+      case 'filesKeep':
+        return files.keep(surface(), { refs: (Array.isArray(args.refs) ? args.refs : []).map(chatRef), how: args.how })
       case 'filesMkdir':
         return files.mkdir(chatPlace(args.place), { path: args.path })
       case 'filesMove':
@@ -584,27 +713,46 @@ export function hostAppFrame(
       case 'filesReadVersion':
         return files.readVersion(surface(), { ref: chatRef(args.ref), n: Number(args.n) })
       case 'filesWatch': {
-        const chatId = chatPlace(args.place)
+        if (typeof args.watchId !== 'string' || !args.watchId) refused('invalid', 'A file watch needs its subscription id')
+        const named = chatPlace(args.place)
         if (args.on === false) {
-          watched.delete(chatId)
-          readFiles.forget(chatId)
-        } else watched.add(chatId)
+          const existing = watched.get(args.watchId)
+          watched.delete(args.watchId)
+          if (existing && ![...watched.values()].some(({ source }) => source === existing.source)) readFiles.forget(existing.source)
+        } else {
+          const documentWatches = watched
+          const source = await files.resourceChat(named)
+          if (watched !== documentWatches) return
+          if (documentWatches.has(args.watchId)) refused('invalid', 'This file watch is already registered')
+          documentWatches.set(args.watchId, { named, source })
+        }
         return Promise.resolve(undefined)
       }
       case 'filesUpload': {
         const chatId = chatPlace(args.place)
         if (args.pick === true) {
           // Opened now, in this very turn: the picker needs the person's activation.
-          return pickFiles().then((picked) => (picked.length === 0 ? [] : files.upload(chatId, picked, { sourceMessageIds: args.sourceMessageIds, folder: args.folder })))
+          return pickFiles().then((picked) => (picked.length === 0 ? [] : files.upload(chatId, picked, { sourceMessageIds: args.sourceMessageIds, folder: args.folder, keep: args.keep })))
         }
         if (!Array.isArray(args.files)) refused('invalid', 'files.upload takes files, or none to pick')
-        return files.upload(chatId, args.files as AppFileUpload[], { sourceMessageIds: args.sourceMessageIds, folder: args.folder })
+        return files.upload(chatId, args.files as AppFileUpload[], { sourceMessageIds: args.sourceMessageIds, folder: args.folder, keep: args.keep })
       }
       case 'filesDownload':
+        // API 20: several files go out through the share sheet at once (a phone has no folder to pick) — how many were handed.
+        if (Array.isArray(args.refs)) {
+          if (args.refs.length === 0) refused('invalid', 'files.download(files): give one file or more')
+          if (!platform.capabilities.shareToApps) refused('invalid', 'Not available on this phone: sharing several files')
+          const sources = await Promise.all(args.refs.map((ref) => files.downloadSource(surface(), { ref: chatRef(ref) })))
+          await platform.shareToApps({
+            files: sources.flatMap((source) => (source.kind === 'file' ? [{ file: source.file, name: source.name }] : [])),
+            blobs: sources.flatMap((source) => (source.kind === 'text' ? [{ blob: new Blob([source.text], { type: 'text/plain;charset=utf-8' }), name: source.name }] : [])),
+          })
+          return sources.length
+        }
         return files.downloadSource(surface(), { ref: chatRef(args.ref) }).then(async (source) => {
           // The one save every 「保存」 takes (platform.saveFile: the system's 「保存到…」 on the phone), under the file's
           // own name — a file in OSS has a link named by its hash (#7290). Cancelled in the system picker = false.
-          const blob = source.kind === 'file' ? await fetchBlob(source.url) : new Blob([source.text], { type: 'text/plain;charset=utf-8' })
+          const blob = source.kind === 'file' ? await fileBlob(source.file) : new Blob([source.text], { type: 'text/plain;charset=utf-8' })
           return (await platform.saveFile(blob, source.name)).saved
         })
       // The App's own data folder and program: in a session they are its computer's (owner 10-16「程序跟着数据」), done
@@ -624,6 +772,7 @@ export function hostAppFrame(
     }
   }
 
+  let documentStarted = false
   const onMessage = (messageEvent: MessageEvent) => {
     if (!channel.accepts(messageEvent)) return
     const message = messageEvent.data as FrameToHost | null
@@ -637,6 +786,10 @@ export function hostAppFrame(
     // What the old document said about itself (title, badge, error) goes with it: the new one starts from the manifest's
     // title, as main's `newDocument` on the desktop (extension-bridge.ts `sayAboutPage`).
     if (message.t === 'hello') {
+      if (documentStarted) void phoneModals.pageGone(pageId)
+      documentStarted = true
+      for (const { source } of watched.values()) readFiles.forget(source)
+      watched = new Map()
       relay.pageGone(pageId)
       heldPort = null
       portWanted = false
@@ -663,13 +816,34 @@ export function hostAppFrame(
     )
   }
   window.addEventListener('message', onMessage)
+  let lastState = JSON.stringify(phoneAppState(hosted.binding.capabilities))
+  const stateChanged = () => {
+    const state = phoneAppState(hosted.binding.capabilities)
+    const next = JSON.stringify(state)
+    if (next !== lastState) { lastState = next; event({ type: 'appState', state }) }
+  }
+  const snapshot = () => new Map(cachedPhoneAgents(hosted.binding.extensionId, hosted.binding.capabilities).map((agent) => [agent.agentId, JSON.stringify(agent)]))
+  let previous = snapshot()
+  const stopState = onPhoneAppState(stateChanged)
+  const stopAgents = subscribeDeviceSessions(() => {
+    stateChanged()
+    const next = snapshot()
+    const changed = [...new Set([...previous.keys(), ...next.keys()])].filter((id) => previous.get(id) !== next.get(id))
+    previous = next
+    if (hosted.binding.capabilities.includes('agents:read') && changed.length) event({ type: 'agentsChanged', agentIds: changed })
+  })
 
   return {
+    pageId,
     update(binding) {
       const moved = binding.chatId !== hosted.binding.chatId || (binding.itemId ?? null) !== (hosted.binding.itemId ?? null)
       // Another group, or another handed-over file: the open files it could enter were the old ones'.
       if (moved) relay.revoke(pageId, 'unbound')
       hosted.binding = granted(binding)
+      previous = snapshot()
+      stateChanged()
+      // Reuse the parent's existing subscriptions and host events for its sandboxed modal pages too.
+      for (const [childHost, childBinding] of modalHosts) childHost.update({ ...childBinding, locale: binding.locale, themeMode: binding.themeMode, capabilities: binding.capabilities })
       // Moved to a file a pill is waiting to open: its place is this page's now (after the context that names the file).
       const placed = () => { if (moved) for (const link of takeOpeningLinks(hosted.binding)) event(link) }
       // The theme is part of it: the page's ui.js picks its palette from context.themeMode.
@@ -682,11 +856,13 @@ export function hostAppFrame(
     },
     /** These chats' files changed (the account revision bus names them): the ones the page asked about are told how those files are now. */
     filesChanged(changes) {
-      if (!hosted.binding.capabilities.includes('files:read')) return Promise.resolve()
-      return Promise.all(changes.filter(({ chatId }) => watched.has(chatId)).map(({ chatId, itemIds }) => readChanged(chatId, itemIds))).then(() => undefined)
+      const children = [...modalHosts.keys()].map((childHost) => childHost.filesChanged(changes))
+      if (!hosted.binding.capabilities.includes('files:read')) return Promise.all(children).then(() => undefined)
+      return Promise.all([...children, ...changes.filter(({ chatId }) => [...watched.values()].some(({ source }) => source === chatId)).map(({ chatId, itemIds }) => readChanged(chatId, itemIds))]).then(() => undefined)
     },
     /** Rows of the chat's members changed (the account revision bus): when that moved who is there, the frame is told. */
     membersChanged(changes) {
+      for (const childHost of modalHosts.keys()) childHost.membersChanged(changes)
       if (!rosterMoved(members ?? null, changes)) return
       void readMembers().then(() => event({ type: 'context', context: contextOf() }), unread)
     },
@@ -696,9 +872,15 @@ export function hostAppFrame(
     },
     /** owner 10-16 The App's program on the session's computer sent a notification (`onProgramNotification`). */
     programNotified(notification) {
+      for (const childHost of modalHosts.keys()) childHost.programNotified(notification)
       event({ type: 'programNotification', server: notification.server, method: notification.method, ...(notification.params === undefined ? {} : { params: notification.params }) })
     },
     dispose() {
+      stopState()
+      stopAgents()
+      void phoneModals.pageGone(pageId)
+      for (const { source } of watched.values()) readFiles.forget(source)
+      watched = new Map()
       for (const stop of forumWatches.values()) stop()
       forumWatches.clear()
       window.removeEventListener('message', onMessage)
@@ -706,4 +888,48 @@ export function hostAppFrame(
       frames.delete(pageId)
     },
   }
+}
+
+
+declare const __GUGU_TIER__: string
+export const phoneLinkScheme = () => guguLinkScheme({ tier: typeof __GUGU_TIER__ === 'undefined' ? undefined : __GUGU_TIER__, devLaunch: false })
+
+/** Host facts and transports only; target parsing and opening order are shared with main. */
+export async function openPhoneLink(target: string | OpenTarget) {
+  if (platform.kind === 'capacitor') await phoneApps.ready()
+  return openLinkWith({
+    installed: () => installedExtensionsStore.manifests.map((manifest) => ({ manifest })),
+    isEnabled: (id) => installedExtensionsStore.isEnabled(id),
+    locale: () => document.documentElement.lang,
+    resourceChat: async (chatId) => { const { token, userId } = await sendPlatform.account(); return resourceChatIdOf(token, chatId, userId) },
+    sessionProject: async (sessionId) => { const listed = listedSession(readCachedDevices(), liveDeviceSessions(), sessionId); return 'row' in listed ? listed.row.session.projectId : null },
+    // The phone's session directory carries each row's agent: the same lookup the DM header does (useAgentSessionRow).
+    agentSession: async (agentId) => {
+      const row = directoryRows(readCachedDevices(), liveDeviceSessions()).find(({ session }) => session.agent?.userId === agentId)
+      return row ? { sessionId: row.session.conversationId, deviceId: row.deviceId } : null
+    },
+    reveal: async ({ sessionId, tabKind }) => {
+      const listed = listedSession(readCachedDevices(), liveDeviceSessions(), sessionId)
+      if (!('row' in listed)) throw new Error('Session is not in your task list')
+      const { APP_SHOW_SESSION_EVENT } = await import('../../session/shared/extensions/app-runtime-protocol')
+      window.dispatchEvent(new CustomEvent(APP_SHOW_SESSION_EVENT, { detail: { ...listed.row, tabKind } }))
+    },
+    openApp: async (extensionId, tab, chatId) => {
+      const opened = await openLinkTarget({ kind: 'app', extensionId, tab, path: '', query: {}, place: chatId ? { chat: chatId } : null })
+      if (!opened) throw new Error('The App did not open')
+      return opened
+    },
+    openResource: (resource) => openLinkTarget(resource),
+    bringUp: async ({ sessionId }) => {
+      const listed = listedSession(readCachedDevices(), liveDeviceSessions(), sessionId)
+      if (!('row' in listed)) throw new Error('Session is not in your task list')
+      const { APP_SHOW_SESSION_EVENT } = await import('../../session/shared/extensions/app-runtime-protocol')
+      window.dispatchEvent(new CustomEvent(APP_SHOW_SESSION_EVENT, { detail: listed.row }))
+    },
+    deliver: (extensionId, event, opened) => {
+      const place = opened === 'own' ? null : opened
+      openingLinks.push({ extensionId, event, chatId: place && 'chat' in place ? place.chat : null, itemId: null, ...(place && 'session' in place ? { sessionId: place.session } : {}), expiresAt: Date.now() + OPENING_LINK_TTL_MS })
+      for (const frame of frames.values()) for (const waiting of takeOpeningLinks(frame.binding)) frame.deliver(waiting)
+    },
+  }, target)
 }

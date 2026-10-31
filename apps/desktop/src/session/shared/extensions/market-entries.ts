@@ -1,4 +1,6 @@
 import { compareExtensionVersions, safeParseExtensionManifest, type ExtensionManifest } from './manifest';
+import { forkBehind } from './variants';
+import { appPlatformDeclarationProblems } from './app-platforms';
 import {
   compatOf,
   isUpdateFor,
@@ -33,8 +35,14 @@ export function marketEntriesFrom(
   const extensions: CloudMarketEntry[] = [];
   const invalid: InvalidMarketRow[] = [];
   for (const app of apps) {
-    const picked = pickForHost(app.versions, host);
-    if (!picked.chosen) continue;
+    const picked = pickForHost(app.versions.filter((version) => appPlatformDeclarationProblems(version.manifest, host.platform).length === 0), host);
+    if (!picked.chosen) {
+      const live = app.versions.filter((version) => !version.yanked);
+      if (live.length && live.every((version) => appPlatformDeclarationProblems(version.manifest).length > 0)) {
+        invalid.push({ extensionId: app.id, reason: appPlatformDeclarationProblems(live[0]!.manifest).join('; ') });
+      }
+      continue;
+    }
     const entry = entryFrom(app, picked.chosen, picked.newerNeedsApp, urlOf);
     if ('reason' in entry) invalid.push(entry);
     else extensions.push(entry);
@@ -76,6 +84,7 @@ function entryFrom(
     minAppVersion: version.minAppVersion,
     releaseNotes: version.releaseNotes,
     publishedAt: version.publishedAt,
+    firstPublishedAt: app.versions.map((entry) => entry.publishedAt).sort()[0]!,
     iconUrl: version.icon ? urlOf(version.icon) : null,
     deprecated: app.deprecated,
     compat: version.compat,
@@ -99,6 +108,7 @@ function placeholderManifest(id: string, version: MarketIndexVersion): Extension
     contributes: { tabs: [{ name: 'main', title: name }] },
     ...(typeof raw.description === 'string' ? { description: raw.description } : {}),
     ...(typeof raw.author === 'string' ? { author: raw.author } : {}),
+    ...(Array.isArray(raw.platforms) ? { platforms: raw.platforms as NonNullable<ExtensionManifest['platforms']> } : {}),
   };
 }
 
@@ -109,7 +119,7 @@ function placeholderManifest(id: string, version: MarketIndexVersion): Extension
 export function marketUpdatesFrom(
   index: MarketIndex,
   host: MarketHost,
-  installed: readonly { id: string; version: string; fromMarket?: boolean }[],
+  installed: readonly { id: string; version: string; fromMarket?: boolean; forkBase?: string }[],
   checkedAt: string
 ): MarketUpdatesSummary {
   const summary: MarketUpdatesSummary & { gone: string[] } = { checkedAt, updates: {}, yanked: {}, deprecated: {}, gone: [] };
@@ -117,15 +127,20 @@ export function marketUpdatesFrom(
   const apps = index.apps.filter((app) => ids.has(app.id));
   const { extensions } = marketEntriesFrom(apps, host, (relativePath) => relativePath);
   const offeredById = new Map(extensions.map((entry) => [entry.manifest.id, entry]));
-  for (const { id, version, fromMarket } of installed) {
+  for (const { id, version, fromMarket, forkBase } of installed) {
     const app = apps.find((entry) => entry.id === id);
     if (!app) {
       // Installed from the market and no longer in it; one from a folder or a chat was never in it.
       if (fromMarket) summary.gone.push(id);
       continue;
     }
-    const offered = offeredById.get(id);
     if (app.deprecated) summary.deprecated[id] = app.deprecated;
+    if (forkBase !== undefined) {
+      const behind = forkBehind(forkBase, app.versions);
+      if (behind) (summary.forkBehind ??= {})[id] = behind;
+      continue;
+    }
+    const offered = offeredById.get(id);
     const yanked = app.versions.find((entry) => entry.version === version)?.yanked;
     if (yanked) {
       summary.yanked[id] = {
@@ -154,6 +169,7 @@ export function marketHistoryFrom(app: MarketIndexApp | null, host: MarketHost):
       minAppVersion: version.minAppVersion,
       yanked: version.yanked,
       compat: compatOf(version, host),
+      platformRefusal: appPlatformDeclarationProblems(version.manifest, host.platform).join('; ') || null,
     }));
 }
 

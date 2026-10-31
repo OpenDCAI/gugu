@@ -112,6 +112,7 @@ export interface CodexAppServerRuntimeOptions {
 
 const trackedCodexAppServerSessions = new Set<CodexAppServerSession>()
 const deliveryLog = createLogger('sessionpage/codex-delivery')
+const CODEX_LIVE_WAIT_TIMEOUT_MS = 15_000
 
 // Long-running Codex turns stay valid, but a lost completion must not retain reply routing forever.
 export const CODEX_TURN_COMPLETION_TIMEOUT_MS = 15 * 60_000
@@ -313,23 +314,26 @@ export function codexRecentActionFromEvent(
 export type CodexTurnCompletionStatus = 'completed' | 'failed' | 'unknown'
 
 /** Read only the exact persisted turn from a thread/read response. */
+function codexTurnFromThread(value: unknown, threadId: string, turnId: string) {
+  const envelope = value as { thread?: unknown } | null
+  const thread = envelope && typeof envelope === 'object' && envelope.thread !== undefined
+    ? envelope.thread
+    : value
+  if (!thread || typeof thread !== 'object') return undefined
+  const record = thread as { id?: unknown; turns?: unknown }
+  if (record.id !== threadId || !Array.isArray(record.turns)) return undefined
+  return record.turns.find((candidate) => {
+    if (!candidate || typeof candidate !== 'object') return false
+    return (candidate as { id?: unknown }).id === turnId
+  }) as { status?: unknown; error?: { message?: unknown } } | undefined
+}
+
 export function codexTurnCompletionStatus(
   value: unknown,
   threadId: string,
   turnId: string,
 ): CodexTurnCompletionStatus {
-  const envelope = value as { thread?: unknown } | null
-  const thread = envelope && typeof envelope === 'object' && envelope.thread !== undefined
-    ? envelope.thread
-    : value
-  if (!thread || typeof thread !== 'object') return 'unknown'
-  const record = thread as { id?: unknown; turns?: unknown }
-  if (record.id !== threadId) return 'unknown'
-  if (!Array.isArray(record.turns)) return 'unknown'
-  const turn = record.turns.find((candidate) => {
-    if (!candidate || typeof candidate !== 'object') return false
-    return (candidate as { id?: unknown }).id === turnId
-  }) as { status?: unknown } | undefined
+  const turn = codexTurnFromThread(value, threadId, turnId)
   if (!turn) return 'unknown'
   const status = typeof turn.status === 'string' ? turn.status.toLowerCase() : ''
   if (status === 'failed' || status === 'error') return 'failed'
@@ -337,18 +341,8 @@ export function codexTurnCompletionStatus(
   return 'unknown'
 }
 
-function codexTurnFailureMessage(value: unknown, threadId: string, turnId: string): string | null {
-  const envelope = value as { thread?: unknown } | null
-  const thread = envelope && typeof envelope === 'object' && envelope.thread !== undefined
-    ? envelope.thread
-    : value
-  if (!thread || typeof thread !== 'object') return null
-  const record = thread as { id?: unknown; turns?: unknown }
-  if (record.id !== threadId || !Array.isArray(record.turns)) return null
-  const turn = record.turns.find((candidate) => {
-    if (!candidate || typeof candidate !== 'object') return false
-    return (candidate as { id?: unknown }).id === turnId
-  }) as { error?: { message?: unknown } } | undefined
+function codexTurnFailureMessage(value: unknown): string | null {
+  const turn = value as { error?: { message?: unknown } } | undefined
   return typeof turn?.error?.message === 'string' ? turn.error.message : null
 }
 
@@ -890,6 +884,13 @@ function codexBundledCatalog(
  *   · TUI 带 `-a never -s danger-full-access` 建的 thread → never + dangerFullAccess ✅。
  *   (`-a` / `-s` 是 codex TUI 的根级参数,见其 cli.rs。)
  * ⚠️ 认不出的键或非字符串值 **THROW**:悄悄丢掉一格 = 悄悄把这条会话的权限换成默认档。
+ *
+ * 完全访问档(`danger-full-access` 沙箱是它在这份载荷里唯一的标志 —— 只读档的 approvalPolicy 同样是 never)
+ * 还带 `--dangerously-bypass-hook-trust`,与 codex 普通终端那条腿的完全访问档同一组参数(codex 插件的
+ * `autoApproveFlag`)。不带它,一个还没审阅过的 hook(例如刚装的插件带的)让 TUI 在建出 thread 之前停在
+ * 「Hooks need review」上:会话永远不 live,每一条投递都被拒。其余档保留审阅,那是人的决定。
+ * 只有新建这一路能免:`--remote … resume` 时 codex 不认这个参数(上游 is_persistent_resume,
+ * codex-rs/tui/src/lib.rs,rust-v0.153.4 / rust-v0.163.0)。
  */
 export function codexTuiPermissionArgs(threadStart?: Readonly<Record<string, unknown>>): string[] {
   const FLAGS: Readonly<Record<string, string>> = { approvalPolicy: '-a', sandbox: '-s' }
@@ -908,6 +909,7 @@ export function codexTuiPermissionArgs(threadStart?: Readonly<Record<string, unk
     }
     args.push(flag, value)
   }
+  if (threadStart?.sandbox === 'danger-full-access') args.push('--dangerously-bypass-hook-trust')
   return args
 }
 
@@ -930,7 +932,7 @@ export function codexTuiPermissionArgs(threadStart?: Readonly<Record<string, unk
  * ❌ 给 TUI 传 `-c model_provider`:TUI 本地配置里没有那条 provider 声明,当场报错;远端模式也不转发它。
  */
 export function codexTuiThreadSettingsArgs(
-  thread: { model?: unknown; reasoningEffort?: unknown },
+  thread: { id?: string; model?: unknown; reasoningEffort?: unknown },
   /**
    * 这次起进程时**指定**的模型 / 推理强度(会话记录里的那一份:换模型重开、咕咕模型)。给了就钉它,
    * 没给才钉 thread 自己存的。❌ 一律钉 thread 的:换模型重开时 thread 里存的正是**旧**模型,
@@ -950,7 +952,8 @@ export function codexTuiThreadSettingsArgs(
   }
   if (typeof thread.model !== 'string' || !thread.model.trim()) {
     throw new Error(
-      'codex thread/read 没给出 thread 的模型 —— TUI resume 会把它换成用户 config.toml 的默认模型,拒绝继续(fail-loud)',
+      `codex thread/read 没给出 thread${thread.id ? ` ${thread.id}` : ''} 的模型 —— TUI resume 会把它换成用户 config.toml 的默认模型,拒绝继续(fail-loud)。`
+        + '请重试恢复；若原记录已删除，请新开一个任务。',
     )
   }
   const args = ['-c', `model=${JSON.stringify(thread.model)}`]
@@ -1385,8 +1388,6 @@ export class CodexAppServerSession {
     this.adoptedThreadAttached = this.beginAttach(threadId, { materialize: true })
     this.adoptedThreadAttached.then(
       () => {
-        this.liveAwaitsAttach = false
-        this.notifyThreadLive()
         for (const waiter of waiters) waiter.resolve(threadId)
       },
       (error: unknown) => { for (const waiter of waiters) waiter.reject(error) },
@@ -1504,7 +1505,11 @@ export class CodexAppServerSession {
   private beginAttach(threadId: string, opts: { materialize: boolean }): Promise<void> {
     this.attachState = { kind: 'pending' }
     return this.attachToAdoptedThread(threadId, opts).then(
-      () => { this.attachState = { kind: 'done' } },
+      () => {
+        this.attachState = { kind: 'done' }
+        this.liveAwaitsAttach = false
+        this.notifyThreadLive()
+      },
       (error: unknown) => {
         this.attachState = { kind: 'failed', error }
         throw error
@@ -1542,14 +1547,8 @@ export class CodexAppServerSession {
   }
 
   /**
-   * @@@6112 tuiLoads='resume':TUI 的 `resume <tid>` 把 thread 载进这台 app-server 时,服务端向**所有**
-   * 连接广播 `thread/status/changed`(该 thread 首次有状态)。这是「已由 TUI 载入」的官方信号 ——
-   * 咕咕此时才订阅。在此之前咕咕的投递只进 codex 队列(`thread/queue/add`),由服务端在载入后起轮。
-   */
-  /**
-   * @@@6112 threadId 到位时回调(已到位则立即回调)。「可投递」由 registry 以 threadId 定义,所以就绪
-   * 信号也从这一刻发 —— ❌ 不由启动流程在别处推断时机(新会话的 threadId 要等 TUI 建出来,比启动流程
-   * 返回晚;在那之前发的就绪信号会落空且不再重来,实测 session_spawn 的首句因此一直躺在收件箱里)。
+   * TUI 载入 thread、投递连接接入后回调(已接入则立即回调)。新建与重开都由这个事实发 session-live，
+   * 接入前的消息留在来源收件箱；启动流程返回描述符不代表 TUI 已就绪。
    */
   onThreadLive(listener: () => void): void {
     if (this.threadId && !this.liveAwaitsAttach) {
@@ -1557,6 +1556,26 @@ export class CodexAppServerSession {
       return
     }
     this.threadLiveListeners.push(listener)
+  }
+
+  /** Wait for the same live edge that promotes this session into the delivery registry. */
+  waitUntilLive(timeoutMs = CODEX_LIVE_WAIT_TIMEOUT_MS): Promise<void> {
+    if (this.isLive()) return Promise.resolve()
+    if (this.terminalError) return Promise.reject(this.terminalError)
+    return new Promise<void>((resolve, reject) => {
+      let settled = false
+      const timer = setTimeout(() => {
+        if (settled) return
+        settled = true
+        reject(new Error(`codex app-server session ${this.sessionId} did not become live within ${timeoutMs}ms`))
+      }, timeoutMs)
+      this.onThreadLive(() => {
+        if (settled || !this.isLive()) return
+        settled = true
+        clearTimeout(timer)
+        resolve()
+      })
+    })
   }
 
   private notifyThreadLive(): void {
@@ -1672,7 +1691,8 @@ export class CodexAppServerSession {
    * thread-open 原生 `config` map 与 child env 承载，prompt 块则经 developerInstructions 进入原生
    * thread-open RPC。Codex 继续使用用户真实 `CODEX_HOME` 读取 auth/跨 run 状态；workspace trust 由 capability bundle 的 session-owned overlay 与 `-c` 覆盖提供，用户全局 config.toml 不被改写。这里不补 provider `buildCommand` 的 `notify`：本路径
    * 直接消费 WS `turn/started` / `turn/completed` 驱动会话页后端的 lifecycle,且 divert 时不会加载会话页的 CLI
-   * hooks,所以也没有 hook trust 需要 `--dangerously-bypass-hook-trust` 绕过。
+   * hooks,所以 app-server 进程不带 `--dangerously-bypass-hook-trust`;用户自己的 hook 由新建 thread 的 TUI
+   * 按权限档处理(见 codexTuiPermissionArgs)。
    */
   async start(
     cwd: string,
@@ -1737,6 +1757,7 @@ export class CodexAppServerSession {
         surface: 'app-server',
         descriptor: codexPlugin.capabilities.sessionBundle,
         executable: this.codexBin,
+        versionLine: codexPlugin.capabilities.hostDependency.versionLine,
         executionContext: new NodeExecutionContext({ root: cwd, env: childEnv }),
         env: versionProbeEnv(childEnv),
       })
@@ -1877,6 +1898,7 @@ export class CodexAppServerSession {
         this.threadId = resumeThreadId
         this.adoptedFromTui = true
         this.awaitingTuiLoad = true
+        this.liveAwaitsAttach = true
         this.threadMaterialization = 'materialized'
         // TUI 要等本函数返回才 spawn,所以这份读数一定在 TUI 载入之前拿到(见 codexTuiThreadSettingsArgs)。
         const read = (await client.rpc('thread/read', { threadId: resumeThreadId, includeTurns: false })) as {
@@ -1976,8 +1998,6 @@ export class CodexAppServerSession {
         this.subscribeEvents(client)
         this.adoptedThreadAttached = this.beginAttach(threadId, { materialize: false })
         await this.adoptedThreadAttached
-        this.liveAwaitsAttach = false
-        this.notifyThreadLive()
       } else {
         this.tuiPermissionArgs = codexTuiPermissionArgs(opts.threadStart)
         this.tuiModelSelectionArgs = codexTuiModelSelectionArgs(opts.extraArgs)
@@ -2056,7 +2076,8 @@ export class CodexAppServerSession {
         this.turnCompletions.complete(
           turnId,
           lifecycle.type === 'error'
-            ? new Error(`codex app-server turn ${turnId} completed with an error status`)
+            ? new Error(codexTurnFailureMessage(message.params?.turn)
+              ?? `codex app-server turn ${turnId} completed with an error status`)
             : undefined,
         )
       }
@@ -2110,16 +2131,17 @@ export class CodexAppServerSession {
   }
 
   /**
-   * @@@6112 tuiLoads='create' 且 TUI 还没建出会话(例如停在「信任此目录?」),而 app-server 仍活着。
+   * @@@6112 TUI 的新建 / 重开 thread 尚未接入(例如停在「信任此目录?」),而 app-server 仍活着。
    * 这时重拉 TUI 必须复用**这台** app-server(见 codex-pty-provisioning 的复用分支),❌ 不许再起一台。
    */
   isAwaitingTuiThread(): boolean {
-    return Boolean(this.awaitingTuiThread && !this.threadId && this.client && this.engineRunning())
+    return Boolean(!this.terminalError && this.liveAwaitsAttach && this.attachState.kind !== 'failed' && this.client && this.engineRunning())
   }
 
   isLive(): boolean {
     return Boolean(
       !this.terminalError
+      && !this.liveAwaitsAttach
       && this.client
       && this.endpoint
       && this.threadId
@@ -2247,7 +2269,7 @@ export class CodexAppServerSession {
       }
       if (status === 'completed') return
       if (status === 'failed') {
-        const detail = codexTurnFailureMessage(persistedTurn, threadId, turnId)
+        const detail = codexTurnFailureMessage(codexTurnFromThread(persistedTurn, threadId, turnId))
         throw new Error(
           `codex app-server turn ${turnId} reached a failed terminal state${detail ? `: ${detail}` : ''}`,
         )
@@ -2425,7 +2447,7 @@ export class CodexAppServerRegistry implements SessionpageDeliveryTarget {
     }
     const entry = { session, providerId }
     this.byAgent.set(guguAgentUserId, entry)
-    // 转 live = 这条认领的 threadId 到位(liveSessionIdByAgent 的定义)。由会话在那一刻回调,
+    // 转 live = TUI 载入 thread 且投递连接已接入。由会话在那一刻回调,
     // 与 claude 腿的 setLiveHooks 同一形状:就绪信号只有一个产地。
     session.onThreadLive(() => {
       if (this.byAgent.get(guguAgentUserId) !== entry) return
@@ -2435,7 +2457,7 @@ export class CodexAppServerRegistry implements SessionpageDeliveryTarget {
     })
   }
 
-  /** spec delivery-routing「session-live 的产地」:这条腿的 live 转换 = threadId 到位。 */
+  /** spec delivery-routing「session-live 的产地」:TUI thread 与投递连接均已接入。 */
   setLiveHooks(hooks: { onLive: (registration: { guguAgentUserId: string; sessionId: string }) => void } | null): void {
     this.liveHooks = hooks
   }
@@ -2509,9 +2531,10 @@ export class CodexAppServerRegistry implements SessionpageDeliveryTarget {
     const session = [...this.byAgent.values()]
       .map((entry) => entry.session)
       .find((candidate) => candidate.belongsToSession(sessionId))
-    if (!session?.threadId || !session.isLive()) {
+    if (!session) {
       throw new Error(`codex app-server session ${sessionId} is not live after reopen`)
     }
+    await session.waitUntilLive()
   }
 
   async tryInjectSessionMessage(

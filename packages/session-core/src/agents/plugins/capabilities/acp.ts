@@ -16,7 +16,7 @@ import type {
   NewSessionRequest,
   NewSessionResponse,
   PromptRequest,
-  PromptResponse,
+  RequestPermissionResponse,
   SessionConfigOption,
   SetSessionConfigOptionRequest,
   SetSessionConfigOptionResponse,
@@ -27,7 +27,9 @@ import { definePluginCapability } from '@gugu/session-shared/plugins';
 import type { SerializedError } from '@gugu/session-shared';
 import z from 'zod';
 import type { AcpPlatformInjection } from '../../../acp/api/runtime-contract';
-import type { EnrichHook } from '../../../acp/reducer/normalized-event';
+import type { NormalizedEvent } from '../../../acp/reducer/normalized-event';
+import type { SessionPromptReceipt } from '../../../acp/session-protocol';
+import type { PermissionSubject, AcpPermissionOption } from '../../../acp/models/permissions';
 
 export type LiveSettingDimension = 'model' | 'permission' | 'effort';
 export type LiveSettingChannel =
@@ -201,12 +203,25 @@ export interface AcpProcessIo {
  */
 export interface AcpAgentApi {
   initialize(params: InitializeRequest): Promise<InitializeResponse>;
-  newSession(params: NewSessionRequest): Promise<NewSessionResponse>;
+  newSession(params: NewSessionRequest): Promise<NewSessionResponse & { availableCommands?: Extract<NormalizedEvent, { kind: 'commands' }>['commands'] }>;
   /** Optional — only available when the agent advertises the `loadSession` capability. */
-  loadSession?(params: LoadSessionRequest): Promise<LoadSessionResponse>;
+  loadSession?(params: LoadSessionRequest): Promise<LoadSessionResponse & { availableCommands?: Extract<NormalizedEvent, { kind: 'commands' }>['commands'] }>;
   /** Optional experimental ACP surface advertised through `sessionCapabilities.fork`. */
-  unstable_forkSession?(params: ForkSessionRequest): Promise<ForkSessionResponse>;
-  prompt(params: PromptRequest): Promise<PromptResponse>;
+  unstable_forkSession?(params: ForkSessionRequest): Promise<ForkSessionResponse & { availableCommands?: Extract<NormalizedEvent, { kind: 'commands' }>['commands'] }>;
+  /** Dispatch/acceptance only; completion is an event. An accepted receipt requires its user echo to have already arrived. */
+  prompt(params: PromptRequest, dispatch?: {
+    requestId: string;
+    message: Extract<NormalizedEvent, { kind: 'message' }>;
+    /**
+     * A native receipt that has not arrived by then is cancelled and rejected as `prompt_admission_timeout`.
+     * Transports without a native receipt ignore it: their admission is the provider's first event or the RPC.
+     */
+    admissionTimeoutMs?: number;
+  }): Promise<SessionPromptReceipt>;
+  /** Admission through the negotiated steering extension; completion remains on the event stream. */
+  steer?(params: PromptRequest, dispatch?: Parameters<AcpAgentApi['prompt']>[1]): Promise<'injected' | 'promptRequired'>;
+  /** Providers that cannot accept concurrent input can interrupt at their next tool boundary. */
+  interruptForMessage?(params: { sessionId: string }): Promise<void>;
   cancel(params: CancelNotification): Promise<void>;
   /** Optional — only available when the agent advertises `sessionCapabilities.list`. */
   listSessions?(params: ListSessionsRequest): Promise<ListSessionsResponse>;
@@ -240,8 +255,25 @@ export interface AcpAgentApi {
   closeSession?(params: CloseSessionRequest): Promise<CloseSessionResponse | void>;
 }
 
-/** The manager supplies this factory; the plugin forwards it into ClientSideConnection. */
-export type AcpClientFactory = (agent: AcpAgentApi) => Client;
+/** Permission facts decoded once at transport ingress; subject retains the complete native context. */
+export type AcpPermissionParams = {
+  sessionId: string;
+  toolCall?: Extract<NormalizedEvent, { kind: 'tool_update' }>;
+  options: AcpPermissionOption[];
+  title?: string;
+  description?: string | null;
+  subject?: PermissionSubject | null;
+  _meta?: Record<string, unknown> | null;
+};
+
+export type AcpClient = Omit<Client, 'requestPermission' | 'sessionUpdate'> & {
+  /** Domain facts synthesized by a transport; never wrapped in a wire tool notification. */
+  /** trace is opaque diagnostic data; it is never used to project session state. */
+  sessionEvent(params: { sessionId: string; event: NormalizedEvent; trace?: unknown }): void;
+  requestPermission(params: AcpPermissionParams): RequestPermissionResponse | Promise<RequestPermissionResponse>;
+};
+
+export type AcpClientFactory = (agent: AcpAgentApi) => AcpClient;
 
 /** `IAcpBehavior.discoverCommands` 的入参 —— 宿主(运行时,Node 侧)递进来,插件自己不碰 `node:fs`。 */
 export interface AcpCommandDiscoveryContext {
@@ -286,6 +318,13 @@ export interface AcpStorageForkContext {
 
 export interface IAcpBehavior {
   explainError?(cause: SerializedError): string | undefined;
+  /** Provider-owned record/replay contract; the runtime does not infer it from the provider id. */
+  historyRecovery?: {
+    /** Replayed user messages are canonical evidence of received communication deliveries. */
+    canonicalReplay: true;
+    /** Host-only metadata binding the submitted native blocks to the original user message. */
+    promptMeta?(blocks: PromptRequest['prompt']): Record<string, unknown>;
+  };
   /**
    * 这一家**调得到、却不经 ACP 报**的命令 —— 由咕咕按它自己的目录约定扫出来,合进「/」面板。
    *
@@ -434,16 +473,6 @@ export interface IAcpBehavior {
    */
   connect(io: AcpProcessIo, toClient: AcpClientFactory): AcpAgentApi;
 
-  /**
-   * Optional enrichment hook run in the main process after baseline ACP
-   * SessionUpdate decoding. Receives the already-decoded NormalizedEvent and
-   * the original raw SessionUpdate so implementations can promote vendor-specific
-   * `_meta` fields (e.g. `_meta.claudeCode.parentToolUseId`) into first-class
-   * normalized fields such as `parentToolCallId`.
-   *
-   * Omit for standard-ACP passthrough — the core reducer handles baseline decoding.
-   */
-  enrich?: EnrichHook;
 }
 
 /**
@@ -470,17 +499,6 @@ export const acpCapability = definePluginCapability<IAcpBehavior>()(
       liveSettings: liveSettingsCapabilitySchema.optional(),
       /** Stable ACP `session/new.modes` defaults to the permission dimension when omitted. */
       sessionModes: z.enum(['permission', 'none']).optional(),
-      /**
-       * 忙时插话(steerIfBusy)这一家怎么送进当前回合。缺席 = 并发再发一条 `session/prompt`
-       * (未谈成 `_session/steering` 时的旧路)。
-       *
-       * `'interrupt-at-tool-boundary'`:这一家**收不了**并发的第二条 prompt(Antigravity ACP 1.2.1:
-       * 整条连接当场断,「Concurrent receive_steps()」),但 `session/cancel` 保留全部历史
-       * (含执行中的工具调用与结果,2026-09-24 实测)。⇒ 插话先进队列,等**当前工具调用跑完**
-       * (没有在跑的工具就立刻)打断这一轮,回合结束时队列照常出队成下一轮 —— 模型看到的是
-       * 原任务 + 已完成的工具 + 插话。代价:模型正在想的那一步作废重来;在跑的命令不被杀。
-       */
-      midTurnSteer: z.literal('interrupt-at-tool-boundary').optional(),
       startup: startupSchema.optional(),
     }),
   ]),

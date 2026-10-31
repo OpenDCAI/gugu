@@ -1,11 +1,8 @@
 import type { TabGroupsSnapshot } from '@shared/view-state';
 
 /**
- * Implemented by a domain-level class that knows how to load and persist the
- * tab layout snapshot for a single view.
- *
- * `features/tabs` depends only on this interface; the concrete implementation
- * (`SessionTabViewPersistor`) lives in `features/sessions`.
+ * Loads and persists a tab layout for a single view. TabViewPersistor provides
+ * the shared implementation; hosts supply any domain-specific normalization.
  */
 export interface TabPersistenceAdapter {
   /**

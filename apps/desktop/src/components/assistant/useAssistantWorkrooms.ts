@@ -4,7 +4,7 @@ import { assistantWorkrooms, type AssistantWorkrooms } from '../../lib/assistant
 import { rendererLogger } from '../../lib/log'
 import { platform } from '../../platform'
 import { useAuth } from '../../store/auth'
-import { events, rpcOn } from '../../session/renderer/lib/ipc'
+import { onMachineEvent, rpcOn } from '../../session/renderer/lib/ipc'
 import { machineRpc } from '../../mobile/agent-watch/sessionpage-rpc'
 import { projectGroupBindingChangedChannel } from '../../session/shared/core/projects/projectEvents'
 import { sessionCreatedChannel } from '../../session/shared/core/sessions/sessionEvents'
@@ -39,8 +39,11 @@ export function useAssistantWorkrooms(shell: AssistantShellSnapshot | null, memb
       }
     }
     void refresh()
-    const offBindings = events.on(projectGroupBindingChangedChannel, () => { void refresh() })
-    const offSessions = events.on(sessionCreatedChannel, () => { void refresh() })
+    // 推送在助理所在的那台机器上订(本机 = null);手机上没有会话页宿主线,只读不订。
+    const machine = local ? null : deviceId
+    const listen = platform.capabilities.agentRuntime
+    const offBindings = listen ? onMachineEvent(machine, projectGroupBindingChangedChannel, () => { void refresh() }) : () => {}
+    const offSessions = listen ? onMachineEvent(machine, sessionCreatedChannel, () => { void refresh() }) : () => {}
     return () => { cancelled = true; offBindings(); offSessions() }
   }, [scope, ownerId, assistantId, deviceId, local, membershipKey])
   return read?.scope === scope ? read.rooms : null

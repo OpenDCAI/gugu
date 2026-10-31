@@ -56,7 +56,7 @@ div.gg-settings-body {
   line-height: var(--lh-caption);
   color: var(--muted-fg);
 }
-.gg-settings-note[data-tone='danger'] { color: var(--danger); }
+.gg-settings-note[data-tone='danger'] { color: var(--danger-fg); }
 
 .gg-settings-group {
   display: flex;
@@ -241,7 +241,7 @@ div.gg-settings-body > * {
   line-height: var(--lh-caption);
   color: var(--muted-fg);
 }
-.gg-settings-actions-note[data-tone='danger'] { color: var(--danger); }
+.gg-settings-actions-note[data-tone='danger'] { color: var(--danger-fg); }
 
 /* 整张卡就一句话 + 一个动作(开通咕咕、叫醒它):左对齐、留足内边距。 */
 div.gg-settings-empty {
@@ -284,9 +284,10 @@ div.gg-settings-nav-pane[data-role='nav']:not([data-mobile]) {
   padding-inline: var(--spacing-2xl);
 }
 .gg-settings-nav-pane:not([data-mobile]) div.gg-settings-nav-group + div.gg-settings-nav-group {
-  margin-top: var(--spacing-sm);
+  margin-top: var(--spacing-xs);
 }
 .gg-settings-nav-pane:not([data-mobile]) .gg-settings-nav-caption {
+  padding-bottom: 0;
   font-weight: var(--font-weight-regular);
 }
 .gg-settings-nav-pane:not([data-mobile]) div.gg-settings-nav-scroll {
@@ -348,9 +349,9 @@ div.gg-settings-identity {
 .gg-settings-identity-number { display: inline-flex; align-items: center; gap: var(--spacing-xs); min-width: 0; }
 .gg-settings-identity-number > span:first-child { flex-shrink: 0; }
 .gg-settings-nav-pane[data-mobile] div.gg-settings-identity {
-  column-gap: 10px;
-  row-gap: 2px;
-  padding: 8px 0 14px;
+  column-gap: var(--spacing-sm);
+  row-gap: var(--spacing-xs);
+  padding: var(--spacing-sm) 0 var(--spacing-lg);
 }
 .gg-settings-nav-pane[data-mobile] .gg-settings-identity-name {
   font-size: var(--font-title);
@@ -360,6 +361,17 @@ div.gg-settings-identity {
 .gg-settings-nav-pane[data-mobile] .gg-settings-identity-id {
   font-size: var(--font-body);
   line-height: var(--lh-body);
+}
+/* 手机「我的」是开放分组:不套卡、行间不画线,铺在全线渐变上(v7.12,owner 10-26)。 */
+.gg-settings-nav-pane[data-mobile] .gg-settings-nav-caption {
+  padding-inline: var(--spacing-lg);
+}
+.gg-settings-nav-pane[data-mobile] .gg-settings-nav-item {
+  min-height: var(--control-h-touch);
+}
+.gg-settings-nav-pane[data-mobile] .gg-settings-nav-item .gg-list-row-leading svg {
+  width: var(--icon-lg);
+  height: var(--icon-lg);
 }
 
 /* 页名与内页正文共用一条左缘。只移动标题车道,右上关闭钮仍在弹窗边缘。 */
@@ -371,3 +383,7 @@ div.gg-settings-identity {
   font-size: var(--font-heading);
   line-height: var(--lh-heading);
 }
+
+/* Iconless entries keep the same text column as their siblings. */
+.gg-settings-nav-spacer { display: block; width: var(--icon-sm); height: var(--icon-sm); }
+.gg-settings-nav-pane[data-mobile] .gg-settings-nav-spacer { width: var(--icon-lg); height: var(--icon-lg); }

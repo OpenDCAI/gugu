@@ -26,7 +26,7 @@ const SearchInput = React.forwardRef<HTMLInputElement, SearchInputProps>(functio
   return (
     <div className={cn('relative flex min-w-0 items-center', containerClassName)}>
       <Search className="pointer-events-none absolute left-2.5 size-3.5 shrink-0 text-foreground-muted" />
-      <Input className={cn('pl-8', className)} {...props} ref={inputRef} />
+      <Input className={cn('bg-[var(--em-surface-input)] pl-8', className)} {...props} ref={inputRef} />
     </div>
   );
 });

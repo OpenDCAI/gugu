@@ -12,6 +12,7 @@
 // 那就是第二个属主在原地 —— #3271 的病只治了增量那一半。
 
 import type { ChatItem, ChatUnreadLocator, GroupMemberRole, NotificationLevel } from '@gugu/core/shared/types/chat'
+import { isPendingDelivery, turnFailureReason } from '@gugu/core/shared/ui/systemNotice'
 import {
   assemble,
   assertRevision,
@@ -47,6 +48,7 @@ import { readDisplayIdentities } from './identityReadAdapter'
 import type { DisplayIdentity } from './displayIdentity'
 import { rendererLogger } from './log'
 import { chatDb, identityDb } from './supabase'
+import { composerCardLine } from './composerCardCopy'
 
 const log = rendererLogger('chat/projection')
 
@@ -201,8 +203,11 @@ export function createChatProjection(viewerId: string): ChatProjection {
       return indexExact(ids, byId)
     },
     unread: async (ids, signal) => {
-      // list_unread_locators 是服务端的未读投影:一发拿回全部,按 chat 落位。
-      const { data, error } = await chatDb.rpc('list_unread_locators', { p_chat_id: null }).abortSignal(signal)
+      // list_unread_locators 是服务端的未读投影,按 chat 落位。一批里只脏了一条会话(忙群里几乎每一批都是)就只问它:
+      // 问全部要把每条会话的每个流重算一遍再整包拿回来。这条会话我已经不在了,服务端会拒 ⇒ 退回问全部,缺行即 tombstone。
+      const only = ids.length === 1 ? ids[0]! : null
+      let { data, error } = await chatDb.rpc('list_unread_locators', { p_chat_id: only }).abortSignal(signal)
+      if (error && only) ({ data, error } = await chatDb.rpc('list_unread_locators', { p_chat_id: null }).abortSignal(signal))
       if (error) throw new Error(error.message)
       const byChat = mergeUnreadRows((data ?? []) as Array<Record<string, unknown> & { chat_id: string }>)
       return indexExact(ids, byChat as Map<string, unknown>)
@@ -225,31 +230,35 @@ export function createChatProjection(viewerId: string): ChatProjection {
       // 一视同仁、一发拿回 —— 从前只对带门的会话逐会话重算(与带门会话数成正比)。
       // `is_whisper=false` 仍显式排除:RLS 会把发给我的私语放行,但它从前不进列表预览,这里不改产品行为。
       const { data, error } = await chatDb.from('messages_view')
-        .select('chat_id, created_at, preview, seq')
+        .select('id, chat_id, created_at, preview, seq, content_type, sender_user_id, client_message_id')
         .in('chat_id', [...ids]).eq('is_whisper', false)
         .order('seq', { ascending: false }).limit(ids.length * 4)
         .abortSignal(signal)
       if (error) throw new Error(error.message)
-      const found = (data ?? []) as Array<Record<string, unknown> & { chat_id: string }>
+      const found = (data ?? []) as Array<Record<string, unknown> & { chat_id: string } & Parameters<typeof turnFailureReason>[0]>
       const byChat = new Map<string, unknown>()
       for (const row of found) {
-        if (byChat.has(row.chat_id)) continue
+        // 还在等 agent 接走的那种行不画(气泡上说),也不当预览;与 sync_snapshot 的 chat.is_pending_delivery 同一判据。
+        if (byChat.has(row.chat_id) || isPendingDelivery(row)) continue
         byChat.set(row.chat_id, {
           chat_id: row.chat_id,
           created_at: String(row.created_at),
-          // 预览在库里算好(messages_view 的计算列 preview:附件给文件名、其它截 100 字),这里原样用。
-          preview: typeof row.preview === 'string' ? row.preview : null,
+          // 预览在库里算好(messages_view 的计算列 preview:附件给文件名、其它截 100 字),这里原样用;
+          // 任务卡截出来是半截 JSON,读回成一行原话(gugu-dev#181,serializeComposerCard 让原话排在前面)。
+          preview: typeof row.preview === 'string' ? composerCardLine(row.preview) : null,
+          // 最后一条是 agent 的失败行:列表按看的人的语言说它的原因(systemNotice.ts),❌ 显示那句给 agent 读的英文。
+          failure: turnFailureReason(row),
         })
       }
       return indexExact(ids, byChat)
     },
     override: async (ids, signal) => {
       const { data, error } = await identityDb.from('contact_overrides')
-        .select('contact_user_id, alias').eq('owner_user_id', viewerId).abortSignal(signal)
+        .select('target_kind, target_id, alias').eq('owner_user_id', viewerId).abortSignal(signal)
       if (error) throw new Error(error.message)
       const byId = new Map<string, unknown>()
-      for (const row of (data ?? []) as Array<{ contact_user_id: string; alias: string | null }>) {
-        byId.set(row.contact_user_id, { contact_user_id: row.contact_user_id, alias: row.alias })
+      for (const row of (data ?? []) as Array<{ target_kind: string; target_id: string; alias: string | null }>) {
+        byId.set(row.target_kind === 'group' ? `group/${row.target_id}` : row.target_id, { alias: row.alias })
       }
       return indexExact(ids, byId)
     },
@@ -509,7 +518,7 @@ export function createChatProjection(viewerId: string): ChatProjection {
   return owner
 }
 
-function membershipValue(row: Record<string, unknown>): unknown {
+export function membershipValue(row: Record<string, unknown>): Record<string, unknown> {
   return {
     chat_id: String(row.chat_id),
     user_id: String(row.user_id),
@@ -526,7 +535,7 @@ function membershipValue(row: Record<string, unknown>): unknown {
 }
 
 /** 同一 chat 的多条 stream locator 合成一条(取最早那条的位置、累加计数)。 */
-function mergeUnreadRows(
+export function mergeUnreadRows(
   rows: Array<Record<string, unknown> & { chat_id: string }>,
 ): Map<string, ChatUnreadLocator & { chat_id: string }> {
   const byChat = new Map<string, ChatUnreadLocator & { chat_id: string }>()
@@ -539,6 +548,7 @@ function mergeUnreadRows(
       message_id: typeof row.message_id === 'string' ? row.message_id : null,
       message_seq: Number.isFinite(Number(row.message_seq)) ? Number(row.message_seq) : null,
       unread_count: Number(row.unread_count),
+      addressed_count: addressedCount(row, Number(row.unread_count)),
       cursor_seq: Number(row.cursor_seq),
       version: Number(row.version),
       is_marked_unread: row.is_marked_unread === true,
@@ -547,9 +557,18 @@ function mergeUnreadRows(
     if (!previous) { byChat.set(row.chat_id, locator); continue }
     const first = (locator.message_seq ?? Number.MAX_SAFE_INTEGER) < (previous.message_seq ?? Number.MAX_SAFE_INTEGER)
       ? locator : previous
-    byChat.set(row.chat_id, { ...first, unread_count: previous.unread_count + locator.unread_count })
+    byChat.set(row.chat_id, { ...first, unread_count: previous.unread_count + locator.unread_count, addressed_count: (previous.addressed_count ?? previous.unread_count) + locator.addressed_count })
   }
   return byChat
+}
+
+/**
+ * 后端比 gugu-supabase#73 旧(还没有这一列):退回这条流的全部未读 —— 项目行照旧数、照旧弹,❌ 报错让整张列表起不来,
+ * ❌ 当成 0 把话题里点名你的消息悄悄算没。生产库晚于客户端上线也不出事。
+ */
+function addressedCount(row: Record<string, unknown>, unread: number): number {
+  const value = row.addressed_count == null ? Number.NaN : Number(row.addressed_count)
+  return Number.isFinite(value) ? value : unread
 }
 
 /** 请求过的键一律落位:读到 = 值,没读到 = null(tombstone,spec I3)。 */

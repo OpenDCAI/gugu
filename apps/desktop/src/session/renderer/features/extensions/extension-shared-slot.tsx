@@ -1,4 +1,4 @@
-import { useContext, useEffect, useRef } from 'react';
+import { useContext, useLayoutEffect, useRef } from 'react';
 import { PageShownContext } from '@renderer/app/recent-session-pages';
 import { AppPeekSlot } from '@/components/appSlot/AppPeekSlot';
 import { ExtensionTabToolbar } from './extension-tab-toolbar';
@@ -14,12 +14,18 @@ import { extensionViewStore } from './extension-view-store';
 export function ExtensionSharedSlot({
   tabKind,
   sessionId,
+  chatId,
+  itemId,
   tabId,
   perSession = false,
 }: {
   tabKind: string;
   /** Absent: the slot is in no session (the rail's App page before any session is looked at). */
   sessionId?: string;
+  /** A chat owns its own resident page, independently of task placement. */
+  chatId?: string;
+  /** The chat file it was opened for: a page made for that file (a chat's file in a block of its own). */
+  itemId?: string;
   tabId: string;
   /** The tab is one per task (manifest `perSession`): this slot holds that task's own page, not the App's one page. */
   perSession?: boolean;
@@ -32,12 +38,12 @@ export function ExtensionSharedSlot({
 
   // Where it is, and nothing else: the session's own facts (its agent, project, working copy) are main's to read
   // (真源原则 13), and what is on screen is `getAppState()`'s.
-  useEffect(() => {
+  useLayoutEffect(() => {
     const element = slotRef.current;
     if (!element || !shown) return;
-    const token = extensionViewStore.claim(tabKind, { ...(sessionId ? { sessionId } : {}), ...(perSession ? { perSession } : {}), tabId, element });
+    const token = extensionViewStore.claim(tabKind, { ...(sessionId ? { sessionId } : {}), ...(chatId ? { chatId } : {}), ...(itemId ? { itemId } : {}), ...(perSession ? { perSession } : {}), tabId, element });
     return () => extensionViewStore.release(tabKind, token);
-  }, [tabKind, sessionId, tabId, shown, perSession]);
+  }, [tabKind, sessionId, chatId, itemId, tabId, shown, perSession]);
 
   return (
     <div className="flex h-full w-full flex-col">

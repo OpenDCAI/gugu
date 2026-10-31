@@ -1,4 +1,5 @@
 import { setUserLibraryOwner } from '../session/main/core/app/user-library'
+import { startNativeConversationInboxHost } from '../session/main/core/sessions/native-conversation-inbox'
 // @@@task-shell-port (#5012) — 网页版无头宿主的会话身份接线:浏览器交登录态 → 宿主开账号并绑到会话。
 //
 // 桌面版里这些活由 electron/main.ts 在十几个融合钩子里做;这里只接「会话有身份」这一层:
@@ -87,6 +88,10 @@ export function wireHeadlessSessionpageIdentity(hostIpc: HostIpc): { dispose(): 
     sessionFacts: (target) => emdashSessionProvisionInput(target),
     listSessionFacts: () => emdashSessionpageSessionFacts(),
   })
+  const nativeInbox = startNativeConversationInboxHost({
+    open: async target => (await identity.ensureAgentAddress(target)).chatId,
+    failed: error => log.warn('Personal conversation address remains pending', error),
+  })
   // 自营模型这一套:与桌面主进程共用的实现,只喂它这个宿主的三样(登录态 / 身份供给 / 文案)。
   // 无头宿主没有 locale store(那是窗口壳的东西),用回退 locale 的目录 —— 这三条话术只在响亮失败时出现。
   // 无头宿主的登录态是浏览器推过来的一份快照,`auth.get` 本来就是现读 —— 这里包成常量口,
@@ -172,6 +177,7 @@ export function wireHeadlessSessionpageIdentity(hostIpc: HostIpc): { dispose(): 
     },
     agentCard: (sessionId) => identity.agentCard(sessionId),
     agentNames: () => identity.agentNames(),
+    sessionPeers: (...args) => identity.sessionPeers(...args),
     // 改完名要让浏览器那头的侧栏身份卡 / 分享按钮当场换名 —— 与 provisioned 同一条广播口、同形载荷。
     renameAgent: async (input) => {
       const renamed = await identity.renameAgent(input)
@@ -202,6 +208,7 @@ export function wireHeadlessSessionpageIdentity(hostIpc: HostIpc): { dispose(): 
 
   return {
     dispose() {
+      nativeInbox.dispose()
       unsubscribeProvisioned()
       unsubscribeGroupMapping()
       setUserLibraryOwner(null)

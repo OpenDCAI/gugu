@@ -8,7 +8,7 @@ import { activeChatSessionId } from '@renderer/features/sessions/view/session-pa
 import { rpc } from '@renderer/lib/ipc';
 import { pastePromptInjection } from '@renderer/lib/pty/prompt-injection';
 
-/** `gugu.compose` on a session page: a chat panel's draft (`setDraftText`, as a restored prompt), or a terminal's input line
+/** A `gugu.dispatch` draft into an agent's session page: a chat panel's draft (`setDraftText`, as a restored prompt), or a terminal's input line
  *  (pasted, not entered, as the context bar does); the chat column comes back from full width, focused. */
 /** The same, into a session main has just brought on screen: once its view shows an open conversation (10 s at most). */
 export async function composeWhenOpen(find: () => WorkspaceViewModel | undefined, text: string): Promise<void> {

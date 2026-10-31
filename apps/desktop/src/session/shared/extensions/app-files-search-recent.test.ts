@@ -42,7 +42,7 @@ const { createAppFiles } = await import('./app-files-core');
 const files = createAppFiles({
   account: async () => ({ token: 'token', userId: PERSON }),
   hasCapability: () => true,
-  sync: {} as never,
+  sync: { ensureFor: () => undefined,} as never,
   identities: async (_token: string, ids: readonly string[]) => ids.map((id) => ({ id, name: id === PEER ? 'Bob' : 'Someone', avatar: null, kind: 'human' as const })),
   faces: async () => ({}),
   filesUrl: () => 'http://files.invalid',

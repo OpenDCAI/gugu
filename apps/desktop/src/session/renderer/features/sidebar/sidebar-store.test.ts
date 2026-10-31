@@ -6,16 +6,21 @@ import { sessionAgentNames } from '@renderer/features/sessions/stores/session-ag
 import { IMPLICIT_SESSION_HOME_PROJECT_ID } from '@renderer/features/sessions/session-home-project-constants';
 import { events } from '@renderer/lib/ipc';
 import { sessionCreatedChannel } from '@shared/core/sessions/sessionEvents';
+import { blockKey } from '@/lib/sidebarJoinedGroups';
 import { SidebarStore } from './sidebar-store';
 
 type SidebarProjectManager = ConstructorParameters<typeof SidebarStore>[0];
 
-vi.mock('@renderer/lib/ipc', () => ({
+vi.mock('@renderer/lib/ipc', () => {
+  const ipc = {
   events: {
     on: vi.fn(),
   },
   rpc: {},
-}));
+};
+  // 本机(null)那条线就是 events.on;测试里的项目都在本机。
+  return { ...ipc, onMachineEvent: (_machine: unknown, event: never, cb: never) => (ipc.events.on as (...args: unknown[]) => () => void)(event, cb) };
+});
 
 vi.mock('@renderer/lib/stores/app-state', () => ({
   appState: {},
@@ -84,6 +89,46 @@ function projectManagerWithSessions(
 }
 
 describe('SidebarStore project ordering', () => {
+  it('counts a projectless child once when its workspace is also folded into a project group (#574)', () => {
+    const home = IMPLICIT_SESSION_HOME_PROJECT_ID;
+    const row = 'hydration-project';
+    const parent = 'hydration-parent';
+    const child = 'hydration-child';
+    sessionRegistry.acquire(parent, row, [{
+      id: parent, projectId: row, providerId: 'codex', title: 'Parent', runtime: 'pty',
+      lastInteractedAt: '2026-01-01T00:00:02.000Z', agentStatus: null,
+    }]);
+    sessionRegistry.acquire(child, home, [{
+      id: child, projectId: home, providerId: 'codex', title: 'Child', runtime: 'pty',
+      lastInteractedAt: '2026-01-01T00:00:01.000Z', agentStatus: 'needs_user', parentSessionId: parent,
+    }]);
+    const store = new SidebarStore(projectManagerWithSessions([
+      // 同群并成一行:行落在最早建的那个上(groupRowOrder)。
+      { id: row, createdAt: '2025-12-31T00:00:00.000Z', sessionIds: [parent] },
+      { id: home, createdAt: '2026-01-01T00:00:00.000Z', sessionIds: [child] },
+    ]));
+    store.machines = {
+      machineOf: () => null, label: () => null, homeDir: () => null,
+      projectGroupOf: () => 'shared-project-chat',
+    };
+    try {
+      // Both page registries are unique. The aggregation reads the child through
+      // the folded project and again through standaloneOwnEntries().
+      expect(store.homeLayout.folded.get(row)).toEqual([home]);
+      expect(sessionRegistry.get(child)?.sessions.size).toBe(1);
+      store.ensureProjectExpanded(row);
+      store.toggleSessionExpanded(parent);
+      expect(store.needsYouCountForProject(row)).toBe(1);
+      expect(store.projectsNeedYouCount).toBe(1);
+      expect(store.sidebarRows.filter((entry) => entry.kind === 'conversation').map((entry) => entry.sessionId))
+        .toEqual([parent, child]);
+      expect(store.standaloneSessionEntries).toEqual([]);
+    } finally {
+      sessionRegistry.release(parent);
+      sessionRegistry.release(child);
+    }
+  });
+
   it('persists and restores expanded conversation rows', () => {
     const source = new SidebarStore(projectManager([]));
     source.toggleSessionExpanded('parent-conversation');
@@ -440,6 +485,22 @@ describe('SidebarStore project ordering', () => {
     expect(store.standaloneSessionEntries.map((e) => e.sessionId)).toContain('legacy-conv');
   });
 
+  it('#609 a workspace this computer keeps (kind workspace: ~, the assistant\'s directories) is no project row; its sessions are Tasks', () => {
+    sessionRegistry.acquire('home-task', 'home-workspace', [
+      { id: 'home-conv', projectId: 'home-workspace', providerId: 'claude', title: 'in ~', lastInteractedAt: '2026-01-01T00:00:05.000Z', runtime: 'pty', agentStatus: 'idle' },
+    ]);
+    const manager = projectManagerWithSessions([
+      { id: 'home-workspace', createdAt: '2026-01-01T00:00:00.000Z', sessionIds: ['home-task'] },
+      { id: 'code', createdAt: '2026-01-02T00:00:00.000Z', sessionIds: [] },
+    ]);
+    (manager.projects.get('home-workspace') as unknown as { data: { kind: string } }).data = { kind: 'workspace' };
+    const store = new SidebarStore(manager);
+
+    expect(store.orderedProjects.map((project) => project.id)).toEqual(['code']);
+    expect(store.standaloneSessionEntries.map((e) => e.sessionId)).toContain('home-conv');
+    sessionRegistry.release('home-task');
+  });
+
   it('keeps executors in the Sessions section when the assistant home project row is hidden', () => {
     const home = 'assistant-home';
     const record = (id: string, parentSessionId?: string) => ({
@@ -466,8 +527,6 @@ describe('SidebarStore project ordering', () => {
       ]);
       expect(store.rowOfSession(home, 'executor')).toBeNull();
       expect(store.navChain.some((r) => r.kind === 'conversation' && r.sessionId === 'executor')).toBe(true);
-      store.setSearchQuery('grandchild');
-      expect(store.standaloneSessionEntries.map((r) => r.sessionId)).toEqual(['executor', 'grandchild']);
       // With the project visible again its sessions return to the project, without duplicates.
       store.setAssistantHomeProjectId(null);
       expect(store.standaloneSessionEntries).toEqual([]);
@@ -674,17 +733,7 @@ describe('SidebarStore keyboard navigation chain', () => {
     sessionRegistry.release('task-home-count');
   });
 
-  it('counts only the projects a search matches', () => {
-    const store = new SidebarStore(
-      projectManager([
-        { id: 'alpha', createdAt: '2026-01-01T00:00:00.000Z', name: 'alpha' },
-        { id: 'beta', createdAt: '2026-01-02T00:00:00.000Z', name: 'beta' },
-      ])
-    );
-    expect(store.projectCount).toBe(2);
-    store.setSearchQuery('alp');
-    expect(store.projectCount).toBe(1);
-  });
+
 });
 
 // #6264 behavior gugu-server「会话页里的别的机器」(owner 2026-09-25 选 A):别的机器上的会话一律属于那台机器上的
@@ -703,7 +752,7 @@ describe('SidebarStore: 别的机器上的会话归到那台机器的项目下',
   beforeEach(() => listed.clear());
 
   function managerWithPaths(
-    projects: { id: string; path: string; sessionIds: string[]; name?: string }[]
+    projects: { id: string; path: string; sessionIds: string[]; name?: string; kind?: 'workspace' }[]
   ): SidebarProjectManager {
     return {
       projects: new Map(
@@ -713,7 +762,7 @@ describe('SidebarStore: 别的机器上的会话归到那台机器的项目下',
             id: project.id,
             name: project.name ?? null,
             createdAt: '2026-01-01T00:00:00.000Z',
-            data: { path: project.path },
+            data: { path: project.path, kind: project.kind },
             mountedProject: {
               sessionManager: {
                 sessions: new Map(
@@ -757,32 +806,38 @@ describe('SidebarStore: 别的机器上的会话归到那台机器的项目下',
     ] as never);
   }
 
-  it('那台机器任务工作区里已有的会话挂到它的主目录项目下,❌ 出现在「任务」列表', () => {
+  it('#609 那台机器的任务工作区、迁成 workspace 的主目录项目都不单列,会话与本机的一起平铺在「任务」里', () => {
     acquire('rt-old', REMOTE_SESSION_HOME, 'rc-old');
+    acquire('rt-home', 'd22-home', 'rc-home');
+    acquire('lt-mine', IMPLICIT_SESSION_HOME_PROJECT_ID, 'lc-mine');
     const store = new SidebarStore(
       managerWithPaths([
-        { id: 'd22-home', path: '/root', sessionIds: [] },
+        { id: 'd22-home', path: '/root', sessionIds: ['rt-home'], kind: 'workspace' },
         { id: REMOTE_SESSION_HOME, path: '/root/.config/咕咕/task-home', sessionIds: ['rt-old'] },
+        { id: IMPLICIT_SESSION_HOME_PROJECT_ID, path: '/me/task-home', sessionIds: ['lt-mine'] },
       ])
     );
     store.machines = machines;
     store.expandAllProjects();
 
-    expect(store.orderedProjects.map((p) => p.id)).toEqual(['d22-home']);
-    expect(store.homeLayout.homeRows.has('d22-home')).toBe(true);
-    const conv = store.sidebarRows.find((row) => row.kind === 'conversation');
-    // 行挂在「~」下,但打开它仍按它自己的项目(那台机器的任务工作区)走 —— 会话照样在原目录跑。
-    expect(conv).toMatchObject({ sessionId: 'rc-old', projectId: REMOTE_SESSION_HOME });
-    expect(store.rowProjectIdOf(REMOTE_SESSION_HOME)).toBe('d22-home');
-    expect(store.standaloneSessionEntries).toEqual([]);
-    // 对照:不认机器(= 老行为)时,这条会话就掉进「任务」列表。
-    const legacy = new SidebarStore(
-      managerWithPaths([
-        { id: REMOTE_SESSION_HOME, path: '/x', sessionIds: ['rt-old'] },
-      ])
-    );
-    expect(legacy.standaloneSessionEntries.map((e) => e.sessionId)).toEqual(['rc-old']);
-    sessionRegistry.release('rt-old');
+    expect(store.orderedProjects).toEqual([]);
+    expect(store.standaloneSessionEntries.map((e) => e.sessionId).sort()).toEqual(['lc-mine', 'rc-home', 'rc-old']);
+    expect(store.rowOfSession(REMOTE_SESSION_HOME, 'rc-old')).toBeNull();
+    expect(store.rowOfSession('d22-home', 'rc-home')).toBeNull();
+    expect(store.projectLabel(REMOTE_SESSION_HOME)).toBeNull();
+    // 对照:没迁过的老 server 上,主目录项目还是 kind=project —— 就是一个普通项目行(❌「~」)。
+    const legacy = new SidebarStore(managerWithPaths([{ id: 'd22-home', path: '/root', sessionIds: ['rt-home'], name: 'root' }]));
+    legacy.machines = machines;
+    expect(legacy.orderedProjects.map((p) => p.id)).toEqual(['d22-home']);
+    expect(legacy.projectLabel('d22-home')).toBe('root');
+    // 同名判据只比画出来的行:与一个同名的 workspace 不算同名(❌ 平白挂上路径)。
+    const withTwinWorkspace = new SidebarStore(managerWithPaths([
+      { id: 'local-root', path: '/root', sessionIds: [], name: 'root' },
+      { id: 'd22-home', path: '/root', sessionIds: [], name: 'root', kind: 'workspace' },
+    ]));
+    withTwinWorkspace.machines = machines;
+    expect(withTwinWorkspace.hasNameTwin('local-root')).toBe(false);
+    for (const id of ['rt-old', 'rt-home', 'lt-mine']) sessionRegistry.release(id);
   });
 
   // #7341 第二步:同一个项目在本机与 d22 上各有一个本地项目,绑在同一个项目群上 ⇒ 侧栏合成一行。
@@ -817,23 +872,6 @@ describe('SidebarStore: 别的机器上的会话归到那台机器的项目下',
     sessionRegistry.release('rt-g');
   });
 
-  it('那台机器还没有主目录项目:它的任务工作区代位成「~」那一行', () => {
-    acquire('rt-stand', REMOTE_SESSION_HOME, 'rc-stand');
-    const store = new SidebarStore(
-      managerWithPaths([
-        { id: REMOTE_SESSION_HOME, path: '/root/.config/咕咕/task-home', sessionIds: ['rt-stand'] },
-      ])
-    );
-    store.machines = machines;
-    store.expandAllProjects();
-
-    expect(store.orderedProjects.map((p) => p.id)).toEqual([REMOTE_SESSION_HOME]);
-    expect(store.homeLayout.standIns.get(REMOTE_SESSION_HOME)).toBe('d22');
-    expect(store.sidebarRows.some((row) => row.kind === 'conversation' && row.sessionId === 'rc-stand')).toBe(true);
-    expect(store.standaloneSessionEntries).toEqual([]);
-    sessionRegistry.release('rt-stand');
-  });
-
   it('#7199 个人助理自己的会话不进任务区;它派的照常在、成了根,并认得出是它派的', () => {
     acquire('rt-asst', REMOTE_SESSION_HOME, 'rc-asst');
     acquire('rt-kid', REMOTE_SESSION_HOME, 'rc-kid', 'rc-asst');
@@ -844,9 +882,8 @@ describe('SidebarStore: 别的机器上的会话归到那台机器的项目下',
       managerWithPaths([{ id: REMOTE_SESSION_HOME, path: '/root/.config/咕咕/task-home', sessionIds: ['rt-asst', 'rt-kid', 'rt-other'] }])
     );
     store.machines = machines;
-    store.expandAllProjects();
     store.expandedSessionIds.add('rc-asst');
-    const shown = () => store.sidebarRows.flatMap((row) => (row.kind === 'conversation' ? [`${row.sessionId}@${row.depth}`] : []));
+    const shown = () => store.standaloneSessionEntries.map((entry) => `${entry.sessionId}@${entry.depth}`);
 
     // 对照:还不知道助理是谁时,它那条在、子 agent 挂在它下面。
     expect(shown()).toEqual(['rc-asst@0', 'rc-kid@1', 'rc-other@0']);
@@ -908,7 +945,6 @@ describe('SidebarStore: 别的机器上的会话归到那台机器的项目下',
       managerWithPaths([
         { id: 'proj-a', path: '/me/a', sessionIds: ['pa', 'pa2'], name: 'Alpha' },
         { id: 'proj-b', path: '/me/b', sessionIds: ['pb'], name: 'Beta' },
-        { id: 'd22-home', path: '/root', sessionIds: [] },
         { id: REMOTE_SESSION_HOME, path: '/root/.config/咕咕/task-home', sessionIds: ['rt-home'] },
       ])
     );
@@ -924,12 +960,11 @@ describe('SidebarStore: 别的机器上的会话归到那台机器的项目下',
     expect(store.rowOfSession('proj-b', 'pb')).toBe('proj-a');
     expect(store.nestedProjectLabel('proj-b', 'proj-a')).toBe('Beta');
     expect(store.nestedProjectLabel('proj-a', 'proj-a')).toBeNull();
-    // 别的机器、没选项目(任务工作区并进「~」那一行):只标机器,这里不标项目。
-    // 别的机器的任务工作区并进它的「~」那一行,标的就是那一行。
-    expect(store.nestedProjectLabel(REMOTE_SESSION_HOME, 'proj-a')).toBe('~');
+    // #609 别的机器、没选项目(那台机器的任务工作区):不是项目,只标机器、❌ 标项目名。
+    expect(store.nestedProjectLabel(REMOTE_SESSION_HOME, 'proj-a')).toBeNull();
     // 机器标记悬停里写的项目名:不论跟父会话比,都是它自己那一行的名字。
     expect(store.projectLabel('proj-a')).toBe('Alpha');
-    expect(store.projectLabel(REMOTE_SESSION_HOME)).toBe('~');
+    expect(store.projectLabel(REMOTE_SESSION_HOME)).toBeNull();
     for (const sessionId of ['pa', 'pb', 'pa2', 'rt-home']) sessionRegistry.release(sessionId);
   });
 
@@ -1067,10 +1102,12 @@ describe('SidebarStore keeps what the user folded folded', () => {
     source.togglePinnedCollapsed();
     source.toggleProjectsCollapsed();
     source.toggleSessionsCollapsed();
+    source.toggleChatsCollapsed();
 
     const restored = twoProjects();
     restored.restoreSnapshot(source.snapshot);
-    expect([restored.pinnedCollapsed, restored.projectsCollapsed, restored.sessionsCollapsed]).toEqual([
+    expect([restored.pinnedCollapsed, restored.projectsCollapsed, restored.sessionsCollapsed, restored.chatsCollapsed]).toEqual([
+      true,
       true,
       true,
       true,
@@ -1079,16 +1116,33 @@ describe('SidebarStore keeps what the user folded folded', () => {
     // A blob written before these fields existed leaves the sections open.
     const legacy = twoProjects();
     legacy.restoreSnapshot({ expandedProjectIds: [] });
-    expect([legacy.pinnedCollapsed, legacy.projectsCollapsed, legacy.sessionsCollapsed]).toEqual([
+    expect([legacy.pinnedCollapsed, legacy.projectsCollapsed, legacy.sessionsCollapsed, legacy.chatsCollapsed]).toEqual([
+      false,
       false,
       false,
       false,
     ]);
   });
+
+  it('keeps the sidebar layout and the open tab across a restart (gugu-dev#181)', () => {
+    const source = twoProjects();
+    source.setListLayout('merged');
+    source.setListPage('chats');
+
+    const restored = twoProjects();
+    restored.restoreSnapshot(source.snapshot);
+    expect([restored.listLayout, restored.listPage]).toEqual(['merged', 'chats']);
+
+    // Older blobs (and unknown values) land on the default: Projects and Chats as two tabs, Projects open.
+    const legacy = twoProjects();
+    legacy.restoreSnapshot({ expandedProjectIds: [] });
+    expect([legacy.listLayout, legacy.listPage]).toEqual(['split', 'projects']);
+  });
 });
 
 describe('拼在一屏的几条:左边合成一个框(spec session-page「拼在一屏的几块是一组」,#7097)', () => {
   const HOME = IMPLICIT_SESSION_HOME_PROJECT_ID;
+  const group = (sessionIds: string[], onScreen: boolean) => ({ members: sessionIds.map(blockKey.session), onScreen });
   const conv = (id: string, projectId: string, second: number) => ({
     id,
     projectId,
@@ -1124,34 +1178,32 @@ describe('拼在一屏的几条:左边合成一个框(spec session-page「拼在
     store.sidebarRows.flatMap((row) => (row.kind === 'conversation' ? [row.sessionId] : []));
   const tasks = (store: SidebarStore) => store.standaloneSessionEntries.map((e) => `${e.sessionId}${e.join ? `:${e.join.pos}` : ''}`);
 
-  it('组员从原位置挪进 anchor 那里,按屏上次序叠着;每行记着自己是框的哪一段', () => {
+  it('组员从原位置挪进最靠前那一条那里(别的项目的也挪过来),按屏上次序叠着;每行记着自己是框的哪一段', () => {
     const { store, release } = setup();
     expect(tasks(store)).toEqual(['t1', 't2', 't3', 't4']);
     expect(projectConversations(store)).toEqual(['p1']);
 
-    store.setJoinedGroups([{ anchor: 't3', sessionIds: ['t3', 'p1', 't1'], onScreen: true }]);
-    expect(tasks(store)).toEqual(['t2', 't3:first', 'p1:middle', 't1:last', 't4']);
-    // p1 从项目下面挪走了(一条只在一处)
-    expect(projectConversations(store)).toEqual([]);
-    expect(store.standaloneSessionEntries.find((e) => e.sessionId === 'p1')?.join).toEqual({ pos: 'middle', onScreen: true });
+    // project-1 排在独立任务区前面:p1 最靠前,框在 project-1 下面
+    store.setJoinedGroups([group(['t3', 'p1', 't1'], true)]);
+    expect(projectConversations(store)).toEqual(['t3', 'p1', 't1']);
+    expect(tasks(store)).toEqual(['t2', 't4']);
+    expect(store.sidebarRows.filter((row) => row.kind === 'conversation').find((e) => e.sessionId === 'p1')?.join).toEqual({ pos: 'middle', onScreen: true });
     // 键盘上下走的次序与画出来的一致
     expect(
       store.navChain.flatMap((node) => (node.kind === 'conversation' ? [node.sessionId] : []))
-    ).toEqual(['t2', 't3', 'p1', 't1', 't4']);
+    ).toEqual(['t3', 'p1', 't1', 't2', 't4']);
     release();
   });
 
-  it('不在屏上的组照样是框(只剩细框);搜索时不成框,搜到的一条一条列', () => {
+  it('不在屏上的组照样是框(只剩细框)', () => {
     const { store, release } = setup();
-    store.setJoinedGroups([{ anchor: 't2', sessionIds: ['t2', 't4'], onScreen: false }]);
+    store.setJoinedGroups([group(['t2', 't4'], false)]);
     expect(store.standaloneSessionEntries.map((e) => [e.sessionId, e.join?.onScreen])).toEqual([
       ['t1', undefined],
       ['t2', false],
       ['t4', false],
       ['t3', undefined],
     ]);
-    store.setSearchQuery('t');
-    expect(tasks(store)).toEqual(['t1', 't2', 't3', 't4']);
     release();
   });
 
@@ -1170,48 +1222,56 @@ describe('拼在一屏的几条:左边合成一个框(spec session-page「拼在
   const tasksWithDepth = (store: SidebarStore) =>
     store.standaloneSessionEntries.map((e) => `${e.sessionId}@${e.depth ?? 0}${e.join ? `:${e.join.pos}` : ''}`);
 
-  it('组员是 anchor 的父会话:anchor 顶到它的位置上,整组照样成框(❌ 连 anchor 一起摘掉)', () => {
+  it('组员是父子:框在父会话那里,子会话挪进框;父会话收着照样成框(子会话在框里看得见)', () => {
     const { store, release } = setupFamily();
     expect(tasksWithDepth(store)).toEqual(['P@0', 'C@1', 't1@0', 't2@0', 't3@0']);
-    store.setJoinedGroups([{ anchor: 'C', sessionIds: ['C', 'P'], onScreen: true }]);
+    store.setJoinedGroups([group(['C', 'P'], true)]);
     expect(tasksWithDepth(store)).toEqual(['C@0:first', 'P@0:last', 't1@0', 't2@0', 't3@0']);
-    // 父会话收着 = anchor 看不见:不成框,一条不少地留在原处
     store.toggleSessionExpanded('P');
-    expect(tasksWithDepth(store)).toEqual(['P@0', 't1@0', 't2@0', 't3@0']);
+    expect(tasksWithDepth(store)).toEqual(['C@0:first', 'P@0:last', 't1@0', 't2@0', 't3@0']);
     release();
   });
 
   it('两个组员是父子:各占框里一行,❌ 子会话跟着父会话再出现一次', () => {
     const { store, release } = setupFamily();
-    store.setJoinedGroups([{ anchor: 't3', sessionIds: ['t3', 'P', 'C'], onScreen: false }]);
-    expect(tasksWithDepth(store)).toEqual(['t1@0', 't2@0', 't3@0:first', 'P@0:middle', 'C@0:last']);
+    store.setJoinedGroups([group(['t3', 'P', 'C'], false)]);
+    expect(tasksWithDepth(store)).toEqual(['t3@0:first', 'P@0:middle', 'C@0:last', 't1@0', 't2@0']);
     release();
   });
 
-  it('两组的 anchor 是父子:各成各的框,里层那组排在外层框的后面', () => {
+  it('两组的框各在父子两条那里:各成各的框,里层那组排在外层框的后面', () => {
     const { store, release } = setupFamily();
     store.setJoinedGroups([
-      { anchor: 'C', sessionIds: ['C', 't2'], onScreen: false },
-      { anchor: 'P', sessionIds: ['P', 't1'], onScreen: true },
+      group(['C', 't2'], false),
+      group(['P', 't1'], true),
     ]);
     expect(tasksWithDepth(store)).toEqual(['P@0:first', 't1@0:last', 'C@1:first', 't2@1:last', 't3@0']);
     release();
   });
 
-  it('anchor 在收起的项目里:不成框,组员留在原处', () => {
+  it('最靠前那一条在收起的项目里:框挪到看得见的组员里最靠前那条', () => {
     const { store, release } = setup();
-    store.setJoinedGroups([{ anchor: 'p1', sessionIds: ['p1', 't1'], onScreen: false }]);
+    store.setJoinedGroups([group(['p1', 't1'], false)]);
     expect(tasks(store)).toEqual(['t2', 't3', 't4']);
     store.toggleProjectExpanded('project-1');
+    expect(tasks(store)).toEqual(['p1:first', 't1:last', 't2', 't3', 't4']);
+    release();
+  });
+
+  it('groups independent tasks while ignoring chats and Apps in the same screen group', () => {
+    const { store, release } = setup();
+    store.setJoinedGroups([{ members: ['chat:c1', 'session:t3', 'session:t1', 'app:x.clock'], onScreen: true }]);
+    expect(tasks(store)).toEqual(['t3:first', 't1:last', 't2', 't4']);
+    store.setJoinedGroups([{ members: ['session:t2', 'app:x.clock'], onScreen: false }]);
     expect(tasks(store)).toEqual(['t1', 't2', 't3', 't4']);
     release();
   });
 
-  it('框在的那一家不收进「展开显示」:收进去组员就哪儿都看不见了', () => {
+  it('框在的那一家不收进「展开显示」;收在「展开显示」后面的组员挪进框里', () => {
     const { store, release } = setup(8);
     expect(tasks(store)).toEqual(['t1', 't2', 't3', 't4', 't5']);
-    store.setJoinedGroups([{ anchor: 't8', sessionIds: ['t8', 't2'], onScreen: true }]);
-    expect(tasks(store)).toEqual(['t1', 't3', 't4', 't5', 't6', 't8:first', 't2:last']);
+    store.setJoinedGroups([group(['t8', 't2'], true)]);
+    expect(tasks(store)).toEqual(['t1', 't8:first', 't2:last', 't3', 't4', 't5', 't6']);
     release();
   });
 });

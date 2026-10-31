@@ -94,6 +94,8 @@ export type AttachError = {
  * session-timeline/remote-open-external.ts)。只走本机套接字,❌ 进云端设备 RPC 那张表。
  */
 export const OPEN_EXTERNAL_CALL = 'machine.openExternal';
+/** Local controller signals an already-running account after host suspension. */
+export const HOST_RESUME_CALL = 'host.resume';
 
 /**
  * 经这个套接字说话的 CLI(link / open-url / match-version)的退出码(桌面据此判断「会不会自己好」,❌ 去匹配那边打的中文)。

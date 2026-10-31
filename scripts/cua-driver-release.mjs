@@ -1,7 +1,7 @@
 // #7199 「电脑控制」用的 cua-driver(github.com/trycua/cua,MIT):Mac 与 Windows 包都带它的发布二进制。
 // 钉版本与三个 sha256 的唯一地方;升级 = 改 VERSION 与 SHA256(说明见 apps/desktop/native/cua-driver/README.md)。
 // 归档按「sha256/文件名」缓存在 node_modules/.cache/gugu-native/,命中且校验通过就不联网;
-// 下载用 curl(认 HTTPS_PROXY);本仓维护包走 GitHub API,带 GH_TOKEN 鉴权;校验对不上就报错退出,❌ 兜底。
+// 下载用 curl(认 HTTPS_PROXY),不需要令牌;校验对不上就报错退出,❌ 兜底。
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import fs from 'node:fs'
@@ -24,10 +24,8 @@ const ASSET = {
   'win32-arm64': `cua-driver-rs-${CUA_DRIVER_VERSION}-windows-arm64-binary.zip`,
 }
 const BASE_URL = `https://github.com/trycua/cua/releases/download/cua-driver-rs-v${CUA_DRIVER_VERSION}/`
-// The maintained Mac archive is an immutable asset of this private repository's `assets` release.
-// Its asset id is pinned with its sha256: private release downloads only accept a token on the API asset URL.
-const MAC_ASSET_ID = 656807118
-const MAC_ASSET_API = 'https://api.github.com/repos/nmhjklnm/gugu/releases/assets/'
+// The maintained Mac archive is an asset of this repository's `assets` prerelease; the sha256 above pins its bytes.
+const MAC_BASE_URL = 'https://github.com/OpenDCAI/gugu/releases/download/assets/'
 const CACHE_DIR = path.join(root, 'node_modules', '.cache', 'gugu-native')
 const LICENSE_DIR = path.join(root, 'apps', 'desktop', 'native', 'cua-driver')
 
@@ -39,14 +37,7 @@ function curl(args) {
 }
 
 function curlDownload(url, destination) {
-  if (!url.startsWith(MAC_ASSET_API)) {
-    curl(['--output', destination, url])
-    return
-  }
-  // curl expands GH_TOKEN from its own environment (curl >= 8.3), so the token never enters argv;
-  // curl drops the header on the redirect to the storage host.
-  if (!process.env.GH_TOKEN) throw new Error('[cua-driver] 下载本仓维护包要 GH_TOKEN(开发机:GH_TOKEN=$(gh auth token) node …;CI 由构建步骤传 github.token)')
-  curl(['--variable', '%GH_TOKEN', '--expand-header', 'Authorization: Bearer {{GH_TOKEN}}', '-H', 'Accept: application/octet-stream', '--output', destination, url])
+  curl(['--output', destination, url])
 }
 
 /** 返回缓存里校验过的归档路径。命中且 sha256 对得上就不调用 `download`;对不上(截断/被改)就丢掉重拿。 */
@@ -81,7 +72,7 @@ export function obtainVerifiedArchive({ url, asset, sha256, cacheDir = CACHE_DIR
 /** Pinned distribution identity: macOS uses the maintained source revision; Windows uses upstream. */
 export function cuaDriverArchiveInfo(key) {
   if (!SHA256[key]) throw new Error(`[cua-driver] 没有钉 ${key} 的发布包`)
-  return { url: key === 'darwin-universal' ? MAC_ASSET_API + MAC_ASSET_ID : BASE_URL + ASSET[key], asset: ASSET[key], sha256: SHA256[key] }
+  return { url: (key === 'darwin-universal' ? MAC_BASE_URL : BASE_URL) + ASSET[key], asset: ASSET[key], sha256: SHA256[key] }
 }
 
 /** key:darwin-universal / win32-x64 / win32-arm64。 */

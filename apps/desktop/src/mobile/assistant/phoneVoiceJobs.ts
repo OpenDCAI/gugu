@@ -163,7 +163,7 @@ export function createPhoneVoiceJobs(ports: VoiceJobPorts) {
   async function ensureCreated(job: Job, machine: AssistantMachine) {
     if (job.created) return
     const root = await makeFolder(machine, machine.paths.memoryDir, VOICE_NOTES_DIR)
-    if ((await readText(machine, joinPath(root, VOICE_NOTES_README_FILE))) === null) await writeText(machine, joinPath(root, VOICE_NOTES_README_FILE), voiceNotesReadme())
+    if (machine.panel || (await readText(machine, joinPath(root, VOICE_NOTES_README_FILE))) === null) await writeText(machine, joinPath(root, VOICE_NOTES_README_FILE), voiceNotesReadme())
     const dir = await makeFolder(machine, root, job.id)
     await makeFolder(machine, dir, VOICE_NOTE_AUDIO_DIR)
     await saveMeta(job, machine)

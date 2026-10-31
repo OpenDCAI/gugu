@@ -11,33 +11,9 @@ export const GUGU_PI_MCP_SERVERS_ENV = 'GUGU_PI_MCP_SERVERS';
 export const GUGU_PI_AUTONOMY_ENV = 'GUGU_PI_AUTONOMY';
 
 export const PI_EXTENSION_CONTENT = `\
-import type { ExtensionAPI } from '@earendil-works/pi-coding-agent';
+import type { ExtensionAPI, McpServerConfig } from '@earendil-works/pi-coding-agent';
 
-const MCP_RUNTIME_REGISTER_EVENT = 'pi-mcp-adapter:runtime-register:v1';
-
-type PiMcpRuntimeDefinition =
-  | {
-      url: string;
-      auth: false | 'bearer';
-      bearerTokenEnv?: string;
-      lifecycle: 'lazy' | 'eager';
-    }
-  | {
-      command: string;
-      args?: string[];
-      env?: Record<string, string>;
-      cwd?: string;
-      lifecycle: 'lazy' | 'eager';
-    };
-
-type PiMcpRuntimeServer = { name: string } & PiMcpRuntimeDefinition;
-
-type RuntimeRegistrationRequest = {
-  version: 1;
-  name: string;
-  definition: PiMcpRuntimeDefinition;
-  result?: { ok: true; registration: { dispose(): Promise<void> } } | { ok: false; error: Error };
-};
+type PiMcpRuntimeServer = { name: string } & McpServerConfig;
 
 function readMcpServers(): PiMcpRuntimeServer[] {
   const raw = process.env.${GUGU_PI_MCP_SERVERS_ENV};
@@ -119,7 +95,7 @@ function waitKindOfPrompt(kind: unknown): 'approval' | 'question' | 'dialog' {
 }
 
 export default function (pi: ExtensionAPI) {
-  let mcpRegistrations: Array<{ dispose(): Promise<void> }> = [];
+  for (const { name, ...config } of readMcpServers()) pi.registerMcpServer(name, config);
   let runOutcome: RunOutcome = { kind: 'completed' };
   let promptSeq = 0;
   const openPrompts: string[] = [];
@@ -150,24 +126,6 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.on('session_start', async (_event, ctx) => {
-    for (const registration of mcpRegistrations) await registration.dispose();
-    mcpRegistrations = [];
-    for (const server of readMcpServers()) {
-      const { name, ...definition } = server;
-      const request: RuntimeRegistrationRequest = {
-        version: 1,
-        name,
-        definition,
-      };
-      pi.events.emit(MCP_RUNTIME_REGISTER_EVENT, request);
-      if (!request.result) {
-        throw new Error(
-          'Pi MCP runtime adapter is not installed; install pi-mcp-adapter before starting this session',
-        );
-      }
-      if (!request.result.ok) throw request.result.error;
-      mcpRegistrations.push(request.result.registration);
-    }
     const sessionFile = ctx.sessionManager.getSessionFile();
     if (!sessionFile) return;
     await notifyGugu('session', { providerSessionId: sessionFile });
@@ -215,8 +173,6 @@ export default function (pi: ExtensionAPI) {
 
   // 退出时回合还开着就是被退出打断的。
   pi.on('session_shutdown', async (event) => {
-    for (const registration of mcpRegistrations) await registration.dispose();
-    mcpRegistrations = [];
     if (event.reason !== 'quit') return;
     await notifyGugu('stop', { message: 'Session ended', outcome: 'cancelled' });
   });

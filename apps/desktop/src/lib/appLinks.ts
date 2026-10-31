@@ -4,7 +4,7 @@ export const GUGU_ANDROID_DOWNLOAD_URL =
 
 /**
  * #7199「连接更多设备」的下载地址:正式通道 latest(与官网下载菜单同一组,10-15 逐个实测 200)。
- * 只列真出包的平台;iPhone、浏览器插件没有包,界面上写「即将推出」,❌ 编一个地址。
+ * 只列真出包的平台;没有包的平台不显示连接入口,❌ 编一个地址。
  */
 export const GUGU_DOWNLOAD_URLS = {
   macArm64: 'https://download.gugu.nextmind.space/releases/mac/latest/gugu-mac-arm64.dmg',
@@ -21,6 +21,9 @@ export const GUGU_DOWNLOAD_URLS = {
  * 而已装的旧版本会一直对着用户报过期价格。网页改完刷新即生效,那里是唯一真值。
  */
 export const GUGU_BILLING_URL = 'https://gugu.nextmind.space/dashboard/'
+
+/** 积分充值直达加量包页;会员管理和账单等入口仍使用面板总览。 */
+export const GUGU_TOPUP_URL = `${GUGU_BILLING_URL}#topup`
 
 /**
  * 去网页面板(开会员、续费)。三端同一条路:Electron 里 window.open 被主窗口的 setWindowOpenHandler

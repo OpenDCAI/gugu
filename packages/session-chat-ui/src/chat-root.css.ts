@@ -14,6 +14,7 @@ import {
   CHAT_CONTENT_MAX_WIDTH_REM,
   CHAT_CONTENT_MAX_WIDTH_WIDE_REM,
   CHAT_CONTENT_WIDE_BREAKPOINT_REM,
+  CHAT_PIN_FADE_HEIGHT_PX,
 } from './layout-geometry';
 
 /** Max-width of the centered content column — matches user message cards. */
@@ -112,14 +113,20 @@ export const pinLane = style({
   pointerEvents: 'none',
 });
 
-/** The user message row inside its lane. Opaque so rows scrolling beneath do not show through. */
+/** The user row inside its lane; its backdrop is opaque only while stuck. */
 export const pinSticky = style({
   // `top` is per row (ChatRoot): the card lands on the pin line whatever the row's collapsed top gap.
   position: 'sticky',
   pointerEvents: 'auto',
-  background: vars.bg,
   // `scroll-state` is newer than csstype's list; it lets pinFade show only while the row is stuck.
   containerType: 'scroll-state' as 'normal',
+});
+
+/** A normal bubble has no full-width card behind it. Protect the pinned row once it actually sticks. */
+export const pinBackdrop = style({
+  position: 'absolute', inset: 0, zIndex: -1, pointerEvents: 'none',
+  background: vars.bg, opacity: 0,
+  '@container': { 'scroll-state(stuck: top)': { opacity: 1 } },
 });
 
 /** 16px fade under the stuck row: signals that rows scroll beneath it. Not drawn at rest. */
@@ -130,7 +137,7 @@ export const pinFade = style([
     top: '100%',
     left: 0,
     right: 0,
-    height: '16px',
+    height: `${CHAT_PIN_FADE_HEIGHT_PX}px`,
     pointerEvents: 'none',
     opacity: 0,
     '@container': { 'scroll-state(stuck: top)': { opacity: 1 } },
@@ -174,6 +181,10 @@ export const composerSlotClass = style({
   right: 0,
   width: '100%',
   zIndex: 20,
+  // No backing of its own (owner 2026-10-25: the area reads as empty space, messages scroll past
+  // behind it); only the cards inside draw a background. Outside the inner column, pointer and
+  // wheel events reach the messages.
+  pointerEvents: 'none',
   // Match the scroll container gutter so the composer column aligns with the
   // message column when the viewport is narrower than CONTAINER_WIDTH.
   paddingLeft: CONTENT_GUTTER,
@@ -228,8 +239,7 @@ export const heroSlotHiddenClass = style({
 /**
  * Inner centering wrapper inside the composer slot — constrains the composer
  * to the same max-width as the content column so it aligns with user message
- * cards. Carries the composer's solid backing and 8px bottom gap so the backing only
- * covers the content area, leaving the scrollbar track unobscured.
+ * cards, with an 8px bottom gap. It has no backing: the cards portaled into it draw their own.
  * This is the element exposed as `view.composerSlot` (portal target).
  */
 export const composerSlotInnerClass = style({
@@ -240,16 +250,6 @@ export const composerSlotInnerClass = style({
   ...widenAtXl,
   paddingBottom: '8px',
   pointerEvents: 'auto',
-});
-
-/**
- * 实色,❌ 毛玻璃(rgba + backdrop-filter)。玻璃拟态 2026-09-22 已退役(docs/ui-visual-spec.md「玻璃拟态已退役」,tokens.css @@@no-glass),
- * 这一处是当时漏改的。它不只是样式:mac 上一块 backdrop-filter 就让 CoreAnimation overlay 失败,
- * Chromium 改为每帧自己用 Skia 画 render pass;只要帧还在来(光标一闪就是一帧),GPU 进程那份驱动内存就清不掉
- * —— mac1 实测这一块约 390MB(读数见 gugu-base evidence/2026-10-05-graphite-root-cause)。
- */
-export const composerSlotInnerBottomClass = style({
-  background: vars.bg,
 });
 
 export const composerSlotInnerCenteredClass = style({

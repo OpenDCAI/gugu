@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 // 打开会话的落点(restoreLanding)与「↑ N 条新消息」的几何判定;列表的滚动机制本身在 flowList.test.tsx。
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { act, createElement, useRef } from 'react'
 import { OPEN_AT_LATEST, restoreLanding, rowPlacement, useRowAboveViewport } from '../../../../apps/desktop/src/lib/listLanding'
 import { createReactHarness } from '../../../support/testHarness'
@@ -49,11 +49,11 @@ describe('rowPlacement', () => {
 describe('useRowAboveViewport', () => {
   let harness: ReturnType<typeof createReactHarness> | null = null
   afterEach(() => { harness?.cleanup(); harness = null })
-  function mount(scroller: HTMLElement, index: number | null, enabled: boolean) {
+  function mount(scroller: HTMLElement, index: number | null, enabled: boolean, onSeen?: () => void) {
     const seen: boolean[] = []
     function Probe(props: { index: number | null; enabled: boolean }) {
       const ref = useRef<HTMLElement | null>(scroller)
-      seen.push(useRowAboveViewport(ref, 'a', props.index, props.enabled))
+      seen.push(useRowAboveViewport(ref, 'a', props.index, props.enabled, onSeen))
       return null
     }
     harness = createReactHarness()
@@ -84,8 +84,16 @@ describe('useRowAboveViewport', () => {
   })
   it('一开始就看得见(未读少、一屏装得下)⇒ 从不提示', async () => {
     const scroller = viewport({ a: 300 })
-    const view = mount(scroller, 0, true)
+    const onSeen = vi.fn()
+    const view = mount(scroller, 0, false, onSeen)
     await view.first
+    expect(onSeen).not.toHaveBeenCalled()
+    await view.render({ index: null, enabled: true })
+    expect(onSeen).not.toHaveBeenCalled()
+    await view.render({ index: 0, enabled: true })
     expect(view.seen.every((shown) => !shown)).toBe(true)
+    expect(onSeen).toHaveBeenCalledOnce()
+    await act(async () => { scroller.dispatchEvent(new Event('scroll')) })
+    expect(onSeen).toHaveBeenCalledOnce()
   })
 })

@@ -1,4 +1,4 @@
-// 群文件夹 App 给 agent 的文件夹工具(群文件夹工具搬进 App,gugu-base notes/2026-10-11-workspace-tools-to-app §2):
+// 群文件夹 App 给 agent 的文件夹工具(群文件夹工具搬进 App,2026-10-11):
 // list / read / create / edit / delete,经 catalog 叫 workspace__<tool>。每个工具只用 gugu.files 和 Node 自带的模块;
 // 交来的群、交来的文件在网关按调用的 agent 本人核过,所以每个 chat_id / item_id 都必须标 format、标在顶层(方案 R5,
 // PR-1 评审第 3 条)。程序的 gugu 换成假的,跑的是真的 tools.js / folder.mjs。父提交上没有 folder.mjs,这些格全红。
@@ -8,6 +8,7 @@ import { join, resolve } from 'node:path'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 import { HANDED_CHAT_FORMAT, handedIds } from '../../../../apps/desktop/electron/session/main/core/extensions/extension-programs'
 import { expectedVersionOf, replacedSinceError } from '../../../../apps/desktop/src/session/shared/extensions/app-files-core'
+import { guguLink, linkTargetOf } from '@gugu/core/shared/ui/guguLink'
 
 const appDir = resolve(__dirname, '../../../../apps/desktop/preinstalled-apps/workspace')
 type Tool = { description: string; inputSchema: { type: string; required?: string[]; properties: Record<string, Record<string, unknown>> }; run: (args: Record<string, unknown>, call?: { agent?: string }) => Promise<unknown> }
@@ -63,7 +64,9 @@ beforeEach(() => {
   calls.length = 0
   closed.length = 0
   vi.stubGlobal('gugu', {
+    linkTo: async (args: Record<string, unknown>) => guguLink(linkTargetOf(args, { id: 'workspace', contributes: { tabs: [{ name: 'main' }] } })),
     files: {
+    viewPreferences: vi.fn(async () => ({ showAppData: false })),
       list: async (place: unknown) => (calls.push(['list', place]), ENTRIES),
       open: async (ref: { id: string }, options?: unknown) => (calls.push(['open', ref, options ?? {}]), handle(ref.id)),
       upload: async (place: unknown, file: File, options: unknown) => {
@@ -119,7 +122,7 @@ describe('the folder\'s tools as tools.js gives them', () => {
     expect(calls[0]).toEqual(['list', { chat: CHAT }])
     expect(all).toMatchObject({ chat_id: CHAT, documents: 2, files: 1, total: 3, rows: '1-3', next: null })
     expect(all.items[0]).toEqual({
-      id: DOC, name: 'notes [v2].md', type: 'text', size: 10, by, updated_at: '2026-10-11T00:00:00Z',
+      id: DOC, name: 'notes [v2].md', path: undefined, metadata: {}, type: 'text', size: 10, version: 1, by, updated_at: '2026-10-11T00:00:00Z',
       link: `[notes \\[v2\\].md](gugu-file://${DOC})`,
     })
     expect(await list!.run({ chat_id: CHAT, rows: '2' })).toMatchObject({ total: 3, rows: '1-2', next: '3-4' })

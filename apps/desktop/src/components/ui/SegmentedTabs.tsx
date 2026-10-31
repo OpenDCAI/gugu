@@ -1,5 +1,5 @@
 import { cva } from 'class-variance-authority'
-import { useCallback, useId, useRef } from 'react'
+import { useCallback, useId, useRef, type ReactNode } from 'react'
 import { cn } from '@/lib/cn'
 import { useTranslation } from 'react-i18next'
 
@@ -35,7 +35,8 @@ const tabVariants = cva(
           'data-[selected]:bg-[var(--muted)] data-[selected]:text-[var(--text-primary)]',
         ),
         underline: cn(
-          '-mb-px px-0.5 py-2 border-b-2 border-b-transparent',
+          // border-solid:底座那个 border-none 是 border-style,不覆盖它下划线就永远是 0 宽(选中的那枚只剩字变深)。
+          '-mb-px px-0.5 py-2 border-solid border-b-2 border-b-transparent',
           '[&:hover:not([data-selected])]:text-[var(--text-primary)]',
           'data-[selected]:border-b-[var(--primary)] data-[selected]:text-[var(--text-primary)]',
         ),
@@ -80,6 +81,10 @@ export interface SegmentedTabItem<T extends string> {
    * 读屏会念成「好友 3」，听不出 3 是什么。
    */
   badge?: number
+  /** 标签字前面的小图标(手机对话页的话题那一枚:#)。 */
+  icon?: ReactNode
+  /** 标签字后面的状态标记;有它就不画计数角标(在跑的任务先说在跑,未读等它停了再说)。 */
+  marker?: ReactNode
 }
 
 export function SegmentedTabs<T extends string>({
@@ -98,6 +103,7 @@ export function SegmentedTabs<T extends string>({
   const { t } = useTranslation()
   const listRef = useRef<HTMLDivElement>(null)
   const autoId = useId()
+  const focusIndex = Math.max(0, items.findIndex((item) => item.value === value))
 
   // 焦点跟着选中走：切换后把焦点放到新的 tab 上，否则键盘用户按完方向键
   // 焦点还留在旧节点上，下一次方向键的起点就错了。
@@ -107,8 +113,7 @@ export function SegmentedTabs<T extends string>({
   }, [])
 
   const onKeyDown = useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
-    const current = items.findIndex((item) => item.value === value)
-    if (current < 0) return
+    const current = focusIndex
     let next = current
     switch (event.key) {
       case 'ArrowRight': next = (current + 1) % items.length; break
@@ -122,7 +127,7 @@ export function SegmentedTabs<T extends string>({
     if (!target) return
     onChange(target.value)
     focusTab(next)
-  }, [items, value, onChange, focusTab])
+  }, [items, focusIndex, onChange, focusTab])
 
   return (
     <div
@@ -133,7 +138,7 @@ export function SegmentedTabs<T extends string>({
       className={cn(`gg-segtabs gg-segtabs-${variant}`, tabListVariants({ variant }))}
       onKeyDown={onKeyDown}
     >
-      {items.map((item) => {
+      {items.map((item, index) => {
         const selected = item.value === value
         return (
           <button
@@ -144,17 +149,18 @@ export function SegmentedTabs<T extends string>({
             aria-selected={selected}
             aria-controls={item.panelId}
             // roving tabindex：未选中的项退出 Tab 序列，靠 ←/→ 到达。
-            tabIndex={selected ? 0 : -1}
+            tabIndex={index === focusIndex ? 0 : -1}
             data-selected={selected || undefined}
             data-testid={item.testId}
             className={cn('gg-segtab', tabVariants({ variant }))}
             onClick={() => { onChange(item.value) }}
             aria-label={item.badge ? t('tabs.pending', { label: item.label, count: item.badge }) : undefined}
           >
+            {item.icon}
             {item.label}
-            {item.badge != null && item.badge > 0 && (
+            {item.marker ?? (item.badge != null && item.badge > 0 && (
               <span className={tabBadge} aria-hidden="true">{item.badge}</span>
-            )}
+            ))}
           </button>
         )
       })}

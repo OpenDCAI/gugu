@@ -1,5 +1,8 @@
+import { installAssistantWorkLedgerHost } from '../../../../sessionpage/assistant-work-ledger';
+import { formatDeliveryTimestamp } from '@gugu/core/local/agent/deliveryEnvelope';
 import { openFixture } from '@tooling/utils/db';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { SessionPaneTab } from '@gugu/session-core/session-record/contract';
 import type { AppDb } from '@main/db/client';
 
 const mocks = vi.hoisted(() => ({
@@ -8,8 +11,8 @@ const mocks = vi.hoisted(() => ({
   stopSession: vi.fn(),
   emit: vi.fn(),
   on: vi.fn(),
-  openFileResultListener: undefined as ((result: { requestId: string; success: boolean; error?: string; openedWith?: string | null }) => void) | undefined,
-  nextOpenFileResult: { success: true } as { success: boolean; error?: string; openedWith?: string | null },
+  openFileResultListener: undefined as ((result: { requestId: string; success: boolean; error?: string; openedWith?: string | null; tabs?: SessionPaneTab[]; closed?: boolean }) => void) | undefined,
+  nextOpenFileResult: { success: true } as { success: boolean; error?: string; openedWith?: string | null; tabs?: SessionPaneTab[]; closed?: boolean },
   stat: vi.fn(),
   workspaces: new Map<string, { path: string; fileSystem: { stat: typeof vi.fn } }>(),
   summaries: {} as Record<string, Record<string, unknown>>,
@@ -17,6 +20,7 @@ const mocks = vi.hoisted(() => ({
   ptyStopSession: vi.fn(),
   settleSessionExited: vi.fn(async (_params: { sessionId: string; projectId: string }): Promise<void> => undefined),
   sendMessage: vi.fn(),
+  readAcceptedMessage: vi.fn(),
   SessionDirectDeliveryError: class SessionDirectDeliveryError extends Error {
     readonly code = 'SESSION_DIRECT_NOT_LIVE';
     constructor(sessionId: string, reason = 'target session is not live') {
@@ -26,7 +30,7 @@ const mocks = vi.hoisted(() => ({
   recordDeliveredSessionDirectMessage: vi.fn(),
   drainSessionMessageOutbox: vi.fn(),
   /** 挂载着的会话(按会话 id):pty 会话的进程经它起停。 */
-  mounted: new Map<string, { sessionPath: string | undefined; sessions: { startSession: unknown; stopSession: unknown; sendMessage: unknown } }>(),
+  mounted: new Map<string, { sessionPath: string | undefined; sessions: { startSession: unknown; stopSession: unknown; sendMessage: unknown; ownsSession: (id: string) => boolean } }>(),
   ensureSessionMounted: vi.fn(),
   installedExtensions: [] as Array<{
     manifest: { id: string; contributes: { tabs: Array<{ name: string; title?: string; opensFiles?: { session?: string[]; chat?: string[] } }> } };
@@ -109,6 +113,7 @@ vi.mock('@main/core/pty/tmux-session-name', () => ({
 vi.mock('@main/lib/events', () => ({ events: { emit: mocks.emit, on: mocks.on } }));
 vi.mock('./sendMessage', () => ({
   sendMessage: mocks.sendMessage,
+  readAcceptedMessage: mocks.readAcceptedMessage,
   recordDeliveredSessionDirectMessage: mocks.recordDeliveredSessionDirectMessage,
   drainSessionMessageOutbox: mocks.drainSessionMessageOutbox,
   SessionDirectDeliveryError: mocks.SessionDirectDeliveryError,
@@ -158,7 +163,7 @@ import {
 } from './session-orchestration';
 import type { RemoteSessionCaller, SessionpageSessionSummary } from '@gugu/session-core/session-record/contract';
 import { sessionChangedChannel } from '@shared/core/sessions/sessionEvents';
-import { setOtherMachines } from './session-family';
+import { setOtherMachines, type OtherMachines } from './session-family';
 import {
   REMOTE_PANE_NO_EXTENSIONS,
   REMOTE_PANE_PAGE_NOT_FILE,
@@ -270,6 +275,7 @@ describe('session orchestration', () => {
   afterEach(() => {
     fixture.close();
     mocks.db = undefined;
+    vi.unstubAllEnvs();
   });
 
   /** 这条会话的标题与「显式命名过的那个名字」——后者只在 config 上,前者两种来源同形。 */
@@ -302,6 +308,7 @@ describe('session orchestration', () => {
         startSession: mocks.ptyStartSession,
         stopSession: mocks.ptyStopSession,
         sendMessage: vi.fn(),
+        ownsSession: () => true,
       },
     });
   }
@@ -359,6 +366,21 @@ describe('session orchestration', () => {
       expect(sent.text).toBe(`<app-envelope msg="${sent.clientMessageId}">keep warm</app-envelope>`);
     });
 
+    it('keeps a scheduled retry on the stored receipt and preserves its original envelope', async () => {
+      const receipt = { id: '022ebf62-18b2-4d78-987e-ddb02dd04c46', at: '2026-10-26T07:00:00.000Z' };
+      mocks.sendMessage.mockRejectedValueOnce(new mocks.SessionDirectDeliveryError('caller', 'preparation unavailable'));
+      await expect(messageSessionFrom(envelope, 'caller', 'first text', { keyScope: 'automation:one', receipt }))
+        .rejects.toMatchObject({ code: 'SESSION_DIRECT_NOT_LIVE' });
+      const first = mocks.sendMessage.mock.calls.at(-1)![0] as { clientMessageId: string; text: string };
+      mocks.readAcceptedMessage.mockReturnValueOnce({ id: first.clientMessageId, sessionId: 'caller', content: first.text });
+      mocks.sendMessage.mockResolvedValueOnce({ id: first.clientMessageId, status: 'delivered' });
+      await expect(messageSessionFrom(() => 'changed envelope', 'caller', 'changed text', { keyScope: 'automation:one', receipt }))
+        .resolves.toEqual({ id: first.clientMessageId });
+      const second = mocks.sendMessage.mock.calls.at(-1)![0] as { clientMessageId: string; text: string };
+      expect(second.clientMessageId).toBe(first.clientMessageId);
+      expect(second.text).toBe(first.text);
+    });
+
     it('a session that does not take it, or is not here: thrown with the reason', async () => {
       mocks.sendMessage.mockRejectedValueOnce(new mocks.SessionDirectDeliveryError('caller', 'target session could not be woken (gone)'));
       await expect(messageSessionFrom(envelope, 'caller', 'keep warm', { keyScope: 'app:lens' })).rejects.toThrow(/could not be woken/);
@@ -383,6 +405,15 @@ describe('session orchestration', () => {
       mocks.sendMessage.mockImplementation(async (params: { clientMessageId: string }) => ({ id: params.clientMessageId, status: 'delivered' }));
     });
     const sentDelivery = () => (mocks.sendMessage.mock.calls.at(-1)![0] as { delivery?: unknown }).delivery;
+
+    it.each([undefined, 'queue', 'defer'] as const)('refuses archived direct delivery %s before sending or storing local debt', async (delivery) => {
+      fixture.sqlite.prepare("UPDATE sessions SET archived_at='2026-10-28T09:00:00Z' WHERE id='peer'").run();
+      await expect(messageSessionFrom(envelope, 'peer', 'Archive marker', { ...(delivery ? { delivery } : {}), ...app }))
+        .rejects.toMatchObject({ code: 'SESSION_ARCHIVED' });
+      expect(mocks.sendMessage).not.toHaveBeenCalled();
+      expect(fixture.sqlite.prepare("SELECT id FROM messages WHERE session_id='peer'").all()).toEqual([]);
+      expect(mocks.startSession).not.toHaveBeenCalled();
+    });
 
     it('hands queue to the delivery, with the key scoped to the App', async () => {
       await messageSessionFrom(envelope, 'peer', 'paper 5', { delivery: 'queue', key: 'paper', ...app });
@@ -444,7 +475,7 @@ describe('session orchestration', () => {
   // ❌ 不看页面开在哪条会话旁边。对照组(父提交 1a60bdbf45):extension-agents 自己那份继承,从页面所在的那条会话起。
   describe('an App starts a session (spawnSessionForApp)', () => {
     const envelope = (messageId: string, text: string) => `<app-envelope msg="${messageId}">${text}</app-envelope>`;
-    /** Settings' default agent, and the new-session memory (`newSessionMemory`) — what the box reads. */
+    /** Settings' default agent, and the new-session memory (`newSessionMemory`) — what the box reads; its shape stands in for the terminal setting. */
     let defaultAgent: string | null = null;
     let memory: NewSessionMemory = { lastPicked: null, lastStarted: null, sessionView: 'code' };
     let settingsSpy: { mockRestore(): void } | undefined;
@@ -460,12 +491,28 @@ describe('session orchestration', () => {
       const realGet = appSettingsService.get.bind(appSettingsService);
       settingsSpy = vi
         .spyOn(appSettingsService, 'get')
-        .mockImplementation(((key: string) => (key === 'defaultAgent' ? Promise.resolve(defaultAgent) : key === 'newSessionMemory' ? Promise.resolve(memory) : realGet(key as never))) as never);
+        .mockImplementation(((key: string) => (key === 'defaultAgent' ? Promise.resolve(defaultAgent) : key === 'newSessionMemory' ? Promise.resolve(memory) : key === 'terminal' ? realGet('terminal').then((t) => ({ ...t, enabled: memory.sessionView === 'code' })) : realGet(key as never))) as never);
     });
     afterEach(() => settingsSpy?.mockRestore());
     function appRow(id: string) {
       return fixture.sqlite.prepare('SELECT provider, runtime, project_id, workspace_id, spawned_by_extension_id, parent_session_id FROM sessions WHERE id = ?').get(id);
     }
+
+    it('starts on the explicitly named computer through the existing App RPC, without a local task', async () => {
+      const appSpawn = vi.fn<OtherMachines['appSpawn']>(async () => ({ agentId: 'user:remote-agent' }));
+      setOtherMachines({
+        devices: async () => [], isThisDevice: async () => false, appSpawn,
+        sessions: async () => ({ sessions: [], unreached: [] }), archive: vi.fn(),
+        appMessage: vi.fn(), appReadFile: vi.fn(), appCall: vi.fn(),
+      });
+      try {
+        expect(await spawnSessionForApp({ extensionId: 'context', extensionName: 'Context', envelope, prompt: 'inspect', device: 'device:remote', project: '/remote/project', harness: 'codex' })).toEqual({ agentId: 'user:remote-agent' });
+        expect(appSpawn).toHaveBeenCalledWith({ extensionId: 'context', extensionName: 'Context' }, 'remote', {
+          action: 'spawn', prompt: 'inspect', spawn: expect.objectContaining({ project: '/remote/project', harness: 'codex' }),
+        });
+        expect(appSpawn.mock.calls[0]?.[2]?.spawn).not.toHaveProperty('device');
+      } finally { setOtherMachines(null); }
+    });
 
     it('naming nothing: the engine and shape the new-session memory holds — in the home project; started before it answers', async () => {
       project2Root();
@@ -490,7 +537,8 @@ describe('session orchestration', () => {
       const row = await spawnSessionForApp({ extensionId: 'board', envelope, prompt: 'x', harness: 'codex', transport: 'pty', project: 'project-2', chat: 'chat-7' });
       expect(mocks.resolveProjectWorkspace).toHaveBeenCalledWith({ projectId: 'project-2', projectPath: '' });
       expect(appRow(row.id)).toMatchObject({ provider: 'codex', runtime: 'pty', project_id: 'project-2' });
-      expect(takeBirthGroup(row.id)).toBe('chat-7');
+      // An App's agent is pulled into its chat on purpose: an ordinary seat, not a task seat.
+      expect(takeBirthGroup(row.id)).toEqual({ chatId: 'chat-7', asTask: false });
     });
 
     // owner 10-14: started from a page an agent works — spawned by that agent, by session_spawn's rule (its child unless a
@@ -576,6 +624,24 @@ describe('session orchestration', () => {
       const row = fixture.sqlite.prepare('SELECT config FROM sessions WHERE id = ?').get(sessionId) as { config: string | null };
       return row.config ? (JSON.parse(row.config) as Record<string, unknown>) : {};
     }
+
+    it('prepares one stable dormant account-work seat without delivering or starting its first turn', async () => {
+      project2Root();
+      const stop=installAssistantWorkLedgerHost({context:async()=>({ownerId:'owner',runtimeInstanceId:'runtime',deviceId:'device-b',client:{rpc:async()=>({data:null,error:null})}}),kick:()=>{}});
+      const intent={version:1 as const,assistant_id:'10000000-0000-4000-8000-000000000001',work_id:'10000000-0000-4000-8000-000000000002',operation_id:'10000000-0000-4000-8000-000000000003',message_id:'10000000-0000-4000-8000-000000000004',child_session_id:'10000000-0000-4000-8000-000000000005',coordinator:{session_id:'remote-caller',device_id:'device-a'},title:'Task',continuation:false};
+      try {
+        const action={action:'spawn' as const,prompt:'Run after account acceptance',project_id:'project-2',assistant_work:intent};
+        const first=await runRemoteSessionAction(remoteCaller,action) as {session_id:string;assistant_work_target:unknown};
+        expect(first.session_id).toBe(intent.child_session_id);
+        expect(first.assistant_work_target).toMatchObject({session_id:intent.child_session_id,device_id:'device-b'});
+        await runRemoteSessionAction(remoteCaller,action);
+        expect(childRows()).toHaveLength(1);
+        expect(mocks.startSession).not.toHaveBeenCalled();
+        expect(mocks.ptyStartSession).not.toHaveBeenCalled();
+        expect(mocks.sendMessage).not.toHaveBeenCalled();
+        expect(mocks.recordDeliveredSessionDirectMessage).not.toHaveBeenCalled();
+      } finally {stop();}
+    });
 
     it('spawns a child nested under the caller on the other machine, recorded in config, and answers to its session id', async () => {
       project2Root();
@@ -713,6 +779,34 @@ describe('session orchestration', () => {
       expect(sent.kind).toBe('session-direct');
       expect(sent.text).toContain('from="Claude 7 · mac1"');
       expect(sent.text).toContain('from_id="session:remote-caller"');
+    });
+
+    it('reuses exact inbox identity and envelope bytes when a phone retries an acknowledged-or-unknown failure notice', async () => {
+      // This assertion exercises the persisted timestamp, independent of the runner's timezone.
+      vi.stubEnv('TZ', 'Asia/Shanghai');
+      mocks.sendMessage.mockResolvedValue({ id: 'm1', status: 'delivered' });
+      const action = { action: 'message' as const, session_ids: ['caller'], text: '这次手机任务没能完成，网络连接持续超时。',
+        delivery_id: '022ebf62-18b2-4d78-987e-ddb02dd04c46', delivery_at: '2026-10-26T07:00:00.000Z' };
+      await runRemoteSessionAction(remoteCaller, action);
+      const first = mocks.sendMessage.mock.calls.at(-1)![0];
+      await runRemoteSessionAction(remoteCaller, action);
+      expect(mocks.sendMessage.mock.calls.at(-1)![0]).toEqual(first);
+      expect(first.text).toContain(formatDeliveryTimestamp(action.delivery_at));
+      await runRemoteSessionAction({ ...remoteCaller, sessionId: 'another-sender' }, action);
+      expect(mocks.sendMessage.mock.calls.at(-1)![0].clientMessageId).not.toBe(first.clientMessageId);
+      await expect(runRemoteSessionAction(remoteCaller, { ...action, delivery_at: undefined })).rejects.toThrow(/original timestamp/);
+    });
+
+    it('keeps the cloud message pending until native acceptance and formats its original time locally', async () => {
+      const id = '8ff7b564-892b-4aa5-9d49-a85c1d5cb9ea';
+      mocks.sendMessage.mockImplementation(async (params) => ({ id: params.clientMessageId, status: 'queued' }));
+      const action = { action: 'message', session_ids: ['caller'], text: 'ready', client_message_id: id, client_message_at: '2026-10-26T01:00:00Z' } as const;
+      const first = await runRemoteSessionAction(remoteCaller, action as never);
+      const second = await runRemoteSessionAction(remoteCaller, action as never);
+      expect(mocks.sendMessage.mock.calls.slice(-2).map(([params]) => params.clientMessageId)).toEqual([id, id]);
+      expect(mocks.sendMessage.mock.calls.at(-1)![0].text).toContain(`at="${formatDeliveryTimestamp(action.client_message_at)}"`);
+      expect(first).toEqual({ recipients: [expect.objectContaining({ to: 'session:caller', status: 'failed', message_id: id, error: {code:'SESSION_DIRECT_QUEUED',message:expect.any(String)} })] });
+      expect(second).toEqual(first);
     });
 
     // owner 10-17:发信方自己说的发完以后去向与回的是哪条 —— 收件这台机器写上信封属性,正文不动;取值不对在投递前就拒。
@@ -859,21 +953,32 @@ describe('session orchestration', () => {
         expect(mocks.settleSessionExited).not.toHaveBeenCalled();
       });
 
-      it('does not ask tmux when the project runs without tmux: nothing to stop', async () => {
-        mocks.tmuxEnabled.mockImplementation(async () => false);
+      it('stops the tmux engine even when the task mount exists but has not reattached its process', async () => {
+        mount(cold.sessionId);
+        mocks.mounted.get(cold.sessionId)!.sessions.ownsSession = () => false;
+        mocks.tmuxSessionNames.add(coldTmuxName);
 
         await expect(stopExactSessionpageSession(cold)).resolves.toBe(true);
-        expect(mocks.listTmuxSessionNames).not.toHaveBeenCalled();
-        expect(mocks.killTmuxSession).not.toHaveBeenCalled();
+        expect(mocks.killTmuxSession).toHaveBeenCalledExactlyOnceWith(expect.anything(), coldTmuxName);
+        expect(mocks.ptyStopSession).not.toHaveBeenCalled();
         expect(mocks.ensureSessionMounted).not.toHaveBeenCalled();
       });
 
-      it('fails loudly when its project is not open: whether it runs in tmux cannot be told', async () => {
-        mocks.openProjects = new Set();
+      it('stops the surviving engine even if the project now runs without tmux', async () => {
+        mocks.tmuxEnabled.mockImplementation(async () => false);
+        mocks.tmuxSessionNames.add(coldTmuxName);
 
-        await expect(stopExactSessionpageSession(cold)).rejects.toThrow(/project project-1 is not open/);
-        expect(mocks.listTmuxSessionNames).not.toHaveBeenCalled();
-        expect(mocks.killTmuxSession).not.toHaveBeenCalled();
+        await expect(stopExactSessionpageSession(cold)).resolves.toBe(true);
+        expect(mocks.killTmuxSession).toHaveBeenCalledExactlyOnceWith(expect.anything(), coldTmuxName);
+        expect(mocks.ensureSessionMounted).not.toHaveBeenCalled();
+      });
+
+      it('stops a surviving engine without requiring its project to be opened first', async () => {
+        mocks.openProjects = new Set();
+        mocks.tmuxSessionNames.add(coldTmuxName);
+
+        await expect(stopExactSessionpageSession(cold)).resolves.toBe(true);
+        expect(mocks.killTmuxSession).toHaveBeenCalledExactlyOnceWith(expect.anything(), coldTmuxName);
       });
     });
 
@@ -1326,6 +1431,33 @@ describe('session orchestration', () => {
     await runSessionAction(context, { action: 'spawn', prompt: 'delegated work' });
     const envelope = lastAcpDelegationEnvelope();
     expect(envelope).toContain('from="Codex"');
+  });
+
+  it('returns live tab hygiene from the renderer acknowledgement for every target', async () => {
+    const tabs = Array.from({ length: 5 }, (_, n) => ({ tab_id: `tab-${n}`, title: `Report ${n}`, kind: 'file', closable: true }));
+    mocks.nextOpenFileResult = { success: true, tabs };
+    mocks.installedExtensions = [{ manifest: { id: 'notes', contributes: { tabs: [{ name: 'board' }] } } }];
+    for (const target of [{ path: 'data/report.csv' }, { url: 'https://example.com' }, { app_tab: 'notes.board' }]) {
+      const result = await runSessionAction(context, { action: 'open_in_tab', ...target, intent: 'pinned' });
+      expect(result).toMatchObject({ opened: true, tab_count: 5, tabs, note: expect.stringContaining('5 open tabs') });
+    }
+    mocks.nextOpenFileResult = { success: true, tabs: tabs.slice(0, 4) };
+    const result = await runSessionAction(context, { action: 'open_in_tab', url: 'https://example.com', intent: 'preview' });
+    expect(result).toMatchObject({ tab_count: 4 });
+    expect(result).not.toHaveProperty('note');
+  });
+
+  it('lists and closes only the caller task and preserves a refused close', async () => {
+    const tabs = [{ tab_id: 'chat', title: 'Conversation', kind: 'session', closable: false }];
+    mocks.nextOpenFileResult = { success: true, tabs };
+    await expect(runSessionAction(context, { action: 'list_tabs' })).resolves.toEqual({ tab_count: 1, tabs });
+    mocks.nextOpenFileResult = { success: true, tabs, closed: false };
+    await expect(runSessionAction(context, { action: 'close_tab', tab_id: 'file-1' })).resolves.toMatchObject({ closed: false, tabs });
+    expect(mocks.emit).toHaveBeenLastCalledWith(expect.anything(), { requestId: expect.any(String), projectId: 'project-1', sessionId: 'caller', tabId: 'file-1' });
+    mocks.nextOpenFileResult = { success: false, error: 'The conversation tab cannot be closed' };
+    await expect(runSessionAction(context, { action: 'close_tab', tab_id: 'chat' })).rejects.toThrow('conversation tab');
+    mocks.nextOpenFileResult = { success: true };
+    await expect(runSessionAction(context, { action: 'list_tabs' })).rejects.toThrow('did not return live tabs');
   });
 
   it('opens whatever the browser pane can load in the owning task browser pane', async () => {
@@ -1996,9 +2128,9 @@ describe('session_set_parent', () => {
 
   it('records a parent on another machine in config, and drops the older nested mark so it is read only once', async () => {
     seed('visitor', null, null, { version: '1', type: 'acp', spawnedByRemote: { deviceId: 'dev-old', sessionId: 'old-parent', nested: true } });
-    setOtherMachines({
+    setOtherMachines({ devices: async () => [], isThisDevice: async () => false, appSpawn: vi.fn(),
       sessions: async () => ({
-        sessions: [{ deviceId: 'dev-far', label: 'far box', session: { conversationId: 'far', projectId: 'p-far', parentConversationId: null } as SessionpageSessionSummary }],
+        sessions: [{ deviceId: 'dev-far', label: 'far box', session: { conversationId: 'far', projectId: 'p-far', parentConversationId: null } as SessionpageSessionSummary, listsAgents: true }],
         unreached: [],
       }),
       archive: async () => undefined,

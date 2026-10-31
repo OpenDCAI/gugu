@@ -1,5 +1,5 @@
 import { eq, sql } from 'drizzle-orm';
-import type { AppCallAction, AppMessageOptions, AppMessageReceipt, AppReadFileAction, SessionpageSessionSummary, UnreachedMachine } from '@gugu/session-core/session-record/contract';
+import type { AppCallAction, AppMessageOptions, AppMessageReceipt, AppReadFileAction, AppSpawnAction, SessionpageSessionSummary, UnreachedMachine } from '@gugu/session-core/session-record/contract';
 import { db } from '@main/db/client';
 import { sessions } from '@main/db/schema';
 import { events } from '@main/lib/events';
@@ -27,9 +27,15 @@ type Linked = FamilyMember & { parentId: string | null };
  * 别的机器,由宿主接上(列会话、收一条,与手机同一套方法;App 发一条消息);没接上(单测、单机)= 只有本机。
  */
 export type OtherMachines = {
-  /** 别的机器上的会话(界面那份列表的整行);够不着的报在 unreached。`since` 之前就离线的机器不报,null = 都报。 */
-  sessions(since: string | null): Promise<{
-    sessions: Array<{ deviceId: string; label: string; session: SessionpageSessionSummary }>;
+  devices(): Promise<Array<{ deviceId: string; label: string; online: boolean; thisMachine: boolean }>>;
+  isThisDevice(deviceId: string): Promise<boolean>;
+  appSpawn(app: { extensionId: string; extensionName: string }, deviceId: string, action: AppSpawnAction): Promise<{ agentId: string }>;
+  /**
+   * 别的机器上的会话(界面那份列表的整行);够不着的报在 unreached。`since` 之前就离线的机器不报,null = 都报。
+   * 同一台几秒内问过就用那一次的;`fresh` = 现问。`listsAgents` = 那台的行带 agent(老宿主不带)。
+   */
+  sessions(since: string | null, options?: { fresh?: boolean }): Promise<{
+    sessions: Array<{ deviceId: string; label: string; session: SessionpageSessionSummary; listsAgents: boolean }>;
     unreached: UnreachedMachine[];
   }>;
   archive(deviceId: string, sessionId: string): Promise<void>;
@@ -55,11 +61,14 @@ export function otherMachines(): OtherMachines {
 
 /**
  * 这个账号的会话图:本机库里的(归档的要不要看调用方定),加上每台在线机器报来的。`since` = 那之前就离线的机器
- * 不必问(见 OtherMachines.sessions);null = 都问。
+ * 不必问(见 OtherMachines.sessions);null = 都问。`askOthers` 看过本机的之后说还要不要问别的机器(不给 = 要);
+ * 要问时 `fresh` = 现问,不用几秒内问过的那份。
  */
 async function sessionGraph(options: {
   includeArchived: boolean;
   since: string | null;
+  fresh?: boolean;
+  askOthers?: (local: Linked[]) => boolean;
 }): Promise<{ nodes: Linked[]; unreached: UnreachedMachine[] }> {
   const rows = await db
     .select({
@@ -79,7 +88,8 @@ async function sessionGraph(options: {
       label: null,
       parentId: sessionParentId(row),
     }));
-  const elsewhere = others ? await sessionsElsewhere(others, options.since) : { sessions: [], unreached: [] };
+  if (options.askOthers && !options.askOthers(local)) return { nodes: local, unreached: [] };
+  const elsewhere = others ? await sessionsElsewhere(others, options.since, options.fresh) : { sessions: [], unreached: [] };
   return { nodes: [...local, ...elsewhere.sessions], unreached: elsewhere.unreached };
 }
 
@@ -95,7 +105,8 @@ export async function familyOf(
     .from(sessions)
     .where(eq(sessions.id, rootId))
     .limit(1);
-  const { nodes: all, unreached } = await sessionGraph({ includeArchived: false, since: root?.createdAt ?? null });
+  // 现问:几秒前问过的那份可能漏了那台机器上刚派出来的子会话,收的时候不能漏下它。
+  const { nodes: all, unreached } = await sessionGraph({ includeArchived: false, since: root?.createdAt ?? null, fresh: true });
 
   const found: FamilyMember[] = [];
   const seen = new Set([rootId]);
@@ -135,10 +146,11 @@ export async function archiveOnOtherMachine(
 /** 本机这一份已经能用了,问别的机器出什么错都不能让整个动作失败 —— 落成「这次没够着」说出来。 */
 async function sessionsElsewhere(
   machines: OtherMachines,
-  since: string | null
+  since: string | null,
+  fresh = false
 ): Promise<{ sessions: Linked[]; unreached: UnreachedMachine[] }> {
   try {
-    const { sessions, unreached } = await machines.sessions(since);
+    const { sessions, unreached } = await machines.sessions(since, { fresh });
     const nodes = sessions.map(({ deviceId, label, session: s }) => ({ id: s.conversationId, projectId: s.projectId, deviceId, label, parentId: s.parentConversationId ?? null }));
     return { sessions: nodes, unreached };
   } catch (error) {
@@ -163,13 +175,28 @@ export async function setSessionParent(
   childId: string,
   parentId: string | null
 ): Promise<{ parent_session_id: string | null; not_reached: string[] }> {
-  const { nodes, unreached } = await sessionGraph({ includeArchived: true, since: null });
-  // 够不着的机器只在它挡住了这一次判断时才说:父会话没找到,或往上走断在一条看不见的会话上。
-  const notReached = () => unreached.map((machine) => machine.label ?? machine.detail);
   let not_reached: string[] = [];
   let parent: SessionParent = null;
+  // 挪回顶层什么都不用查。挂上去时,父会话和它往上一串都在本机库里,判环就只用本机的(别的机器上的会话
+  // 不会出现在一条全在本机的链上):❌ 每次都等所有在线机器回话 —— 一台标成在线、实际不回话的机器
+  // 会让每次本机拖本机都白等它超时(12–60 s)。
   if (parentId !== null) {
     if (parentId === childId) throw new Error('a session cannot be its own parent');
+    const { nodes, unreached } = await sessionGraph({
+      includeArchived: true,
+      since: null,
+      askOthers: (local) => {
+        const parentOf = new Map(local.map((node) => [node.id, node.parentId]));
+        const seen = new Set<string>();
+        for (let at: string | null | undefined = parentId; at && !seen.has(at); at = parentOf.get(at)) {
+          if (!parentOf.has(at)) return true;
+          seen.add(at);
+        }
+        return false;
+      },
+    });
+    // 够不着的机器只在它挡住了这一次判断时才说:父会话没找到,或往上走断在一条看不见的会话上。
+    const notReached = () => unreached.map((machine) => machine.label ?? machine.detail);
     const node = nodes.find((candidate) => candidate.id === parentId);
     if (!node) {
       const missed = notReached();

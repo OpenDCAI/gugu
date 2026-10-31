@@ -20,6 +20,11 @@ function sameRecipientIds(a: MessageItem['to_user_ids'], b: MessageItem['to_user
   return true
 }
 
+function sameDeliveryBlocks(a: MessageItem['delivery_blocks'] = [], b: MessageItem['delivery_blocks'] = []): boolean {
+  return a.length === b.length && a.every((block, index) => block.agent_user_id === b[index].agent_user_id
+    && block.reason === b[index].reason)
+}
+
 // @@@2051 注销用户:气泡分组以「同一发送者」为条件,但注销者 sender_user_id 全是 null → 裸 `===` 让
 // null===null 把不同注销者错误合组(后条头像/名被隐藏)。匿名化已失去稳定身份 → null sender 强制断组。
 export function computeGroupedWithPrev(params: {
@@ -55,11 +60,14 @@ export function shallowEqualMessage(a: MessageItem, b: MessageItem): boolean {
     a.retracted_at === b.retracted_at &&
     a.created_at === b.created_at &&
     a.reply_to_message_id === b.reply_to_message_id &&
+    a.reply_to_sender_user_id === b.reply_to_sender_user_id && a.reply_to_content === b.reply_to_content &&
     a.sender_user_id === b.sender_user_id &&
     sameRecipientIds(a.to_user_ids, b.to_user_ids) &&
+    sameRecipientIds(a.readers ?? null, b.readers ?? null) &&
     a.is_mine === b.is_mine &&
     a.delivered === b.delivered &&
     a.delivery_status === b.delivery_status &&
+    sameDeliveryBlocks(a.delivery_blocks, b.delivery_blocks) &&
     a.local_send_state === b.local_send_state &&
     sameReactions(a.reactions, b.reactions)
   )

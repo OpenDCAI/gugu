@@ -55,7 +55,10 @@ describe('@@@6112 线程配置搬去进程级 -c', () => {
    */
   it('权限映到 TUI 自己的 -a / -s', () => {
     expect(codexTuiPermissionArgs({ approvalPolicy: 'never', sandbox: 'danger-full-access' }))
-      .toEqual(['-a', 'never', '-s', 'danger-full-access'])
+      .toEqual(['-a', 'never', '-s', 'danger-full-access', '--dangerously-bypass-hook-trust'])
+    // 只读档的 approvalPolicy 也是 never:hook 审阅照旧留给人。
+    expect(codexTuiPermissionArgs({ approvalPolicy: 'never', sandbox: 'read-only' }))
+      .toEqual(['-a', 'never', '-s', 'read-only'])
     expect(codexTuiPermissionArgs({ approvalPolicy: 'on-request', sandbox: undefined }))
       .toEqual(['-a', 'on-request'])
     expect(codexTuiPermissionArgs(undefined)).toEqual([])
@@ -304,7 +307,12 @@ describe('@@@6112 TUI resume 载入时钉住 thread 自己的模型(❌ 被 TUI 
       .toEqual(['-c', 'model="gpt-5.6"'])
   })
 
-  it('读不到模型 THROW —— 缺了它 TUI 会把会话换到用户的默认模型', () => {
+  it('读不到模型报目标 thread 与下一步,保留 Codex 56 原 thread 的模型', () => {
+    expect(codexTuiThreadSettingsArgs({
+      id: '01a15d37-1674-7061-b298-37b108e1e970', model: 'gpt-6.1-sol', reasoningEffort: 'xhigh',
+    })).toEqual(['-c', 'model="gpt-6.1-sol"', '-c', 'model_reasoning_effort="xhigh"'])
+    expect(() => codexTuiThreadSettingsArgs({ id: '01a15d7c-4714-7fe3-adbb-91c055ba7d52' }))
+      .toThrow(/01a15d7c-4714-7fe3-adbb-91c055ba7d52.*请重试恢复.*请新开一个任务/)
     expect(() => codexTuiThreadSettingsArgs({})).toThrow(/模型/)
     expect(() => codexTuiThreadSettingsArgs({ model: ' ' })).toThrow(/模型/)
   })
@@ -450,7 +458,7 @@ describe('@@@6112 TUI 建的会话日后重拉 TUI 也钉住模型(PR #6294 revi
   it('TUI 还没建出会话 → isAwaitingTuiThread(重拉 TUI 复用这台 app-server 的判据)', () => {
     const session = new CodexAppServerSession('agent-wait', '/unused/codex')
     Object.assign(session as unknown as Record<string, unknown>, {
-      client: { rpc: async () => ({}) }, awaitingTuiThread: true, proc: { exitCode: null },
+      client: { rpc: async () => ({}) }, awaitingTuiThread: true, liveAwaitsAttach: true, proc: { exitCode: null },
     })
     expect(session.isAwaitingTuiThread()).toBe(true)
     Object.assign(session as unknown as Record<string, unknown>, { proc: { exitCode: 1 } })
@@ -468,8 +476,9 @@ describe('@@@6112 新会话的权限由建 thread 的 TUI 带', () => {
       tuiPermissionArgs: codexTuiPermissionArgs({ approvalPolicy: 'never', sandbox: 'danger-full-access' }),
     })
     const args = session.remoteTuiArgs()
-    expect(args).toEqual(expect.arrayContaining(['-a', 'never', '-s', 'danger-full-access']))
+    expect(args).toEqual(expect.arrayContaining(['-a', 'never', '-s', 'danger-full-access', '--dangerously-bypass-hook-trust']))
     expect(args.indexOf('-a')).toBeLessThan(args.indexOf('--remote'))
+    expect(args.indexOf('--dangerously-bypass-hook-trust')).toBeLessThan(args.indexOf('--remote'))
     expect(args).not.toContain('resume')
   })
 })
@@ -523,5 +532,40 @@ describe('@@@6112 session-live 的产地:threadId 到位的那一刻(registry �
     ;(stale as unknown as { adoptTuiThread(m: unknown): boolean })
       .adoptTuiThread({ method: 'thread/started', params: { thread: { id: 'tid-stale' } } })
     expect(live).toEqual([])
+  })
+
+  it('waitUntilReady 等待现成的 live 事件，而不是在 attach 前同步判死', async () => {
+    const registry = new CodexAppServerRegistry()
+    const session = makeSession({
+      awaitingTuiThread: true,
+      proc: { exitCode: null, signalCode: null },
+      endpoint: { kind: 'unix', address: 'unix:///tmp/live-wait.sock', socketPath: '/tmp/live-wait.sock' },
+    })
+    registry.register('agent-live', session, 'codex')
+    const ready = registry.waitUntilReady('conv-live')
+
+    let settled = false
+    void ready.then(() => { settled = true })
+    await Promise.resolve()
+    expect(settled).toBe(false)
+
+    ;(session as unknown as { adoptTuiThread(m: unknown): boolean })
+      .adoptTuiThread({ method: 'thread/started', params: { thread: { id: 'tid-live' } } })
+    await session.waitForTuiThread()
+    await expect(ready).resolves.toBeUndefined()
+  })
+
+  it('waitUntilReady 超时仍 fail loud', async () => {
+    vi.useFakeTimers()
+    try {
+      const registry = new CodexAppServerRegistry()
+      registry.register('agent-live', makeSession({ awaitingTuiThread: true }), 'codex')
+      const ready = registry.waitUntilReady('conv-live')
+      const rejected = expect(ready).rejects.toThrow('did not become live within 15000ms')
+      await vi.advanceTimersByTimeAsync(15_000)
+      await rejected
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

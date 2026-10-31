@@ -1,0 +1,7 @@
+.gg-resource-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.gg-resource-range { margin-inline-end: auto; }
+.gg-resource-actions { display: flex; gap: 8px; }
+@media (max-width: 719px) {
+  .gg-resource-range { flex-basis: 100%; }
+  .gg-resource-actions { width: 100%; }
+}

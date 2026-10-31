@@ -11,8 +11,9 @@ import type {
   MarketUpdatesSummary,
   MarketVersionHistoryEntry,
 } from '@shared/extensions/market';
-import { compatOf, featuredOf, MARKET_PAGE_SIZE, marketHome, popularOf } from '@shared/extensions/market';
+import { compatOf, MARKET_PAGE_SIZE } from '@shared/extensions/market';
 import { safeParseExtensionManifest } from '@shared/extensions/manifest';
+import { requireAppPlatform } from '@shared/extensions/app-platforms';
 import { appSearchText, marketCategoryOf, marketCategoryRank } from '@shared/extensions/catalog';
 import { queryScore, queryWords } from '@shared/extensions/query-score';
 import { archiveRefusal, unpackedTooMuch } from '@shared/extensions/bundle-checks';
@@ -70,12 +71,6 @@ export interface CloudMarketListing {
   page: number;
   /** 后面还有没有。 */
   hasMore: boolean;
-  /** 首页精选那一排(`featuredOf`):只随第一页、不带搜索词时给,别的时候是空的;它们在下面照样各有一行。 */
-  featured: CloudMarketEntry[];
-  /** 首页精选下面那几排(`marketHome`):「最新」和够数的类别各一排;同 `featured`,只随不带搜索词的第一页。 */
-  home: ReturnType<typeof marketHome<CloudMarketEntry & { firstPublishedAt: string }>>;
-  /** 首页「热门」那一排(`popularOf`):近期安装分数够数才有;同 `featured`,只随不带搜索词的第一页。 */
-  popular: CloudMarketEntry[];
   fetchedAt: string;
 }
 
@@ -84,8 +79,6 @@ export interface CloudMarketListOptions {
   page?: number;
   /** 搜索词;空串 = 不搜。按名字 / 简介 / id 做不区分大小写的包含匹配。 */
   search?: string;
-  /** 近期安装分数(`chat.market_install_ranking`),按 App id;排首页精选、「热门」那一排用。没有就只按 `featured`、不画「热门」。 */
-  scores?: ReadonlyMap<string, number>;
 }
 
 export interface CloudExtensionMarketOptions {
@@ -113,6 +106,7 @@ export interface MarketPrepared {
   source: MarketCodeSource;
   releaseNotes: string;
   sha256: string;
+  bytes: number;
 }
 
 /** 解开的包落在哪儿。dot 前缀,与安装 staging 同一套「扫描永远看不见」的约定。 */
@@ -219,9 +213,6 @@ export class CloudExtensionMarket {
       total: matched.length,
       page,
       hasMore: (page + 1) * MARKET_PAGE_SIZE < matched.length,
-      featured: firstPage ? featuredOf(extensions, options.scores ?? new Map()) : [],
-      home: firstPage ? marketHome(await this.entries()) : { newest: [], shelves: [] },
-      popular: firstPage ? popularOf(extensions, options.scores ?? new Map()) : [],
       fetchedAt: new Date(fetchedAt).toISOString(),
     };
   }
@@ -238,16 +229,23 @@ export class CloudExtensionMarket {
    * 市场上的每一个 App(各自给这台机器的那一版,装不了的带着 compat),加上它第一版发布的时刻:agent 的 app_search 按它们
    * 筛选、排序(app-search.ts)。用手上那份目录,❌ 另取一趟。
    */
-  async entries(): Promise<(CloudMarketEntry & { firstPublishedAt: string })[]> {
+  async entries(): Promise<CloudMarketEntry[]> {
     const { index } = await this.index(false);
-    const first = new Map(index.apps.map((app) => [app.id, app.versions.map((version) => version.publishedAt).sort()[0] ?? '']));
-    return (await this.entriesFrom(index.apps)).extensions.map((entry) => ({ ...entry, firstPublishedAt: first.get(entry.manifest.id) ?? entry.publishedAt }));
+    return (await this.entriesFrom(index.apps)).extensions;
   }
 
   /**
    * 一个扩展当前给这台机器的那一版(装着的扩展开详情、更新确认框要它的更新说明)。不在市场上就 null。
    * `fresh` = 安装(app_install)查它:咕咕开着时新上架的 App,手上那份里还没有。
    */
+  async sourceVersions(extensionId: string) {
+    return (await this.app(extensionId))?.versions ?? [];
+  }
+
+  async sourceVersion(extensionId: string, version: string) {
+    return (await this.sourceVersions(extensionId)).find((row) => row.version === version) ?? null;
+  }
+
   async entry(extensionId: string, fresh = false): Promise<CloudMarketEntry | null> {
     const app = await this.app(extensionId, fresh);
     if (!app) return null;
@@ -275,6 +273,14 @@ export class CloudExtensionMarket {
     return readme ? this.backend.readText(readme) : null;
   }
 
+  /** 下载站 `media/` 下的一个文件(README 里的截图),超过 `maxBytes` 当场断。 */
+  async media(relativePath: string, maxBytes: number): Promise<Uint8Array> {
+    if (!/^media\/[\w.\-/]+$/.test(relativePath) || relativePath.split('/').includes('..')) {
+      throw new Error(`Not a market media path: ${relativePath}`);
+    }
+    return this.backend.download(relativePath, { expectedBytes: maxBytes });
+  }
+
   // ── 启动时那一趟检查 ───────────────────────────────────────────────────
 
   /**
@@ -282,7 +288,7 @@ export class CloudExtensionMarket {
    * 只读、只比对;❌ 不下载、❌ 不安装 —— 与 app 更新的 spec 同构。读的是和市场页同一份目录(手上那份):
    * 后台取回来变了,界面让市场页和这里一起重读,两边永远是同一刻。
    */
-  async updatesFor(installed: readonly { id: string; version: string; fromMarket?: boolean }[]): Promise<MarketUpdatesSummary> {
+  async updatesFor(installed: readonly { id: string; version: string; fromMarket?: boolean; forkBase?: string }[]): Promise<MarketUpdatesSummary> {
     const summary: MarketUpdatesSummary = {
       checkedAt: new Date(this.now()).toISOString(),
       updates: {},
@@ -320,6 +326,7 @@ export class CloudExtensionMarket {
     if (row.yanked) {
       throw new Error(`Extension ${extensionId}@${version} was withdrawn: ${row.yanked.reason}`);
     }
+    requireAppPlatform(row.manifest, host.platform);
     const compat = compatOf(row, host);
     if (compat) {
       // 每条安装路径(Apps 页、群里的「用 X 打开」、首启、agent 的 app_install)都走到这里,兼容性只在这里判一次。
@@ -368,7 +375,7 @@ export class CloudExtensionMarket {
           `Bundle contains ${parsed.manifest.id}@${parsed.manifest.version}, not ${extensionId}@${version}`
         );
       }
-      return { sourceDir: target, source: row.source, releaseNotes: row.releaseNotes, sha256: row.sha256 };
+      return { sourceDir: target, source: row.source, releaseNotes: row.releaseNotes, sha256: row.sha256, bytes: row.bytes };
     } catch (error) {
       this.unpacking.delete(target);
       fs.rmSync(target, { recursive: true, force: true });
@@ -400,7 +407,7 @@ export class CloudExtensionMarket {
     if (!row) return null;
     const sourceDir = path.join(this.options.heldRoot, row.sha256);
     if (!fs.existsSync(path.join(sourceDir, EXTENSION_MANIFEST_FILENAME))) return null;
-    return { sourceDir, source: row.source, releaseNotes: row.releaseNotes, sha256: row.sha256 };
+    return { sourceDir, source: row.source, releaseNotes: row.releaseNotes, sha256: row.sha256, bytes: row.bytes };
   }
 
   /** 用完的一份(装好了、没装上、人说了不装):不管它在 staging 还是留着的地方,都删掉。 */

@@ -1,3 +1,4 @@
+import { deviceVersionLabel } from '@/lib/deviceVersionLabel'
 import { useTranslation } from 'react-i18next'
 import type { Device } from '@gugu/core/shared/types/chat'
 import { boundAgentsBlock, type BoundAgentsState, type DeviceRowModel } from '../../lib/deviceRowModel'
@@ -16,16 +17,18 @@ const body = 'text-[length:var(--font-body)] leading-[1.5]'
 export function BoundAgentsConfirm({
   state,
   onCascadeChange,
+  removesVersion = false,
 }: {
   state: BoundAgentsState
   onCascadeChange: (value: boolean) => void
+  removesVersion?: boolean
 }) {
   const { t } = useTranslation('settings')
   if (state.loading) return <div className={`${body} text-[var(--muted-fg)]`}>{t('devices.checkingAgents')}</div>
   if (state.agents.length === 0) return null
   return (
     <div className="flex flex-col gap-2">
-      <div className={`${body} text-[var(--muted-fg)]`}>{t('devices.boundAgents', { count: state.agents.length })}</div>
+      <div className={`${body} text-[var(--muted-fg)]`}>{t(removesVersion ? 'devices.remove.version.boundAgents' : 'devices.boundAgents', { count: state.agents.length })}</div>
       {/* 对话框里的清单:密度面板,❌ 再画一圈框(框套框)。 */}
       <div className="flex max-h-40 flex-col gap-[5px] overflow-y-auto rounded-[var(--radius-document)] bg-foreground/[0.025] px-[10px] py-2 dark:bg-foreground/[0.04]">
         {state.agents.map((agent) => (
@@ -47,6 +50,7 @@ export function BoundAgentsConfirm({
 
 export function DeviceRemoveDialog({
   device,
+  removesVersion = false,
   model,
   agents,
   onCascadeChange,
@@ -54,46 +58,55 @@ export function DeviceRemoveDialog({
   failed,
   onCancel,
   onConfirm,
+  replacedBy = null,
 }: {
   device: Device
+  removesVersion?: boolean
+  /** The online row this one may have been replaced by: said again here, with what goes with it. */
+  replacedBy?: Device | null
   model: DeviceRowModel
   agents: BoundAgentsState
   onCascadeChange: (value: boolean) => void
   removing: boolean
-  failed: boolean
+  failed: string
   onCancel: () => void
   onConfirm: () => void
 }) {
   const { t } = useTranslation('settings')
+  const scope = removesVersion ? 'devices.remove.version' : 'devices.remove'
+  const target = { name: device.label, version: deviceVersionLabel(device.tier, t) }
   const consequence =
-    model.kind === 'server' ? t('devices.remove.server')
-      : model.kind === 'cloud' ? t('devices.remove.cloud')
-        : t('devices.remove.desktop')
+    model.kind === 'server' ? t(`${scope}.server`)
+      : model.kind === 'cloud' ? t(`${scope}.cloud`)
+        : t(`${scope}.desktop`)
   return (
     <Sheet
       onClose={onCancel}
       desktopWidth="400px"
       desktopMaxHeight="80vh"
       mobileFitContent
-      ariaLabel={t('devices.remove.label', { name: device.label })}
+      ariaLabel={t(`${scope}.label`, target)}
       testId="settings-device-remove-dialog"
       zIndex="var(--z-settings-modal)"
     >
       <div className="flex flex-col gap-3 overflow-y-auto p-[18px]">
-        <div className="text-[length:var(--font-title)] font-semibold text-[var(--fg)]">{t('devices.remove.title', { name: device.label })}</div>
+        <div className="text-[length:var(--font-title)] font-semibold text-[var(--fg)]">{t(`${scope}.title`, target)}</div>
+        {!removesVersion && device.tier && <div className={body}>{t('devices.configurations')} · {deviceVersionLabel(device.tier,t)}</div>}
+        {replacedBy && <div className={body} data-testid="settings-device-remove-replaced">{t('devices.replaced.confirm', { name: replacedBy.label })}</div>}
         <div className={`${body} text-[var(--muted-fg)]`}>{consequence}</div>
+        {replacedBy && <div className={`${body} text-[var(--muted-fg)]`}>{t('devices.replaced.cascade')}</div>}
         {model.kind === 'server' && !device.is_online && (
-          <div className={`${body} text-[var(--muted-fg)]`}>{t('devices.remove.serverOffline')}</div>
+          <div className={`${body} text-[var(--muted-fg)]`}>{t(`${scope}.serverOffline`)}</div>
         )}
         {model.kind === 'server' && model.connection.via === 'ssh' && (
-          <div className={`${body} text-[var(--muted-fg)]`}>{t('devices.remove.sshNote')}</div>
+          <div className={`${body} text-[var(--muted-fg)]`}>{t(`${scope}.sshNote`)}</div>
         )}
-        <BoundAgentsConfirm state={agents} onCascadeChange={onCascadeChange} />
-        {failed && <div className={`${body} text-[var(--danger)]`}>{t('devices.remove.failed')}</div>}
+        <BoundAgentsConfirm state={agents} onCascadeChange={onCascadeChange} removesVersion={removesVersion} />
+        {failed && <div className={`${body} text-[var(--danger-fg)]`}>{failed}</div>}
         <div className="flex justify-end gap-2">
           <Button size="sm" onClick={onCancel}>{t('devices.cancel')}</Button>
           <Button size="sm" variant="danger" disabled={removing || boundAgentsBlock(agents)} onClick={onConfirm}>
-            {removing ? t('devices.remove.removing') : t('devices.remove.confirm')}
+            {removing ? t('devices.remove.removing') : t(`${scope}.confirm`)}
           </Button>
         </div>
       </div>

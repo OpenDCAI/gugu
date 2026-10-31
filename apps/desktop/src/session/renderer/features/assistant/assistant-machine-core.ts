@@ -6,7 +6,8 @@ import { WORKSPACE_WRITE_FORCE } from '@gugu/session-core/session-record/contrac
 import type { rpcOn } from '@renderer/lib/ipc';
 import type { DirectoryEntry } from '@shared/core/fs/fs';
 import type { AssistantHomeKind } from '@gugu/core/shared/assistantPolicy';
-import { assistantPaths, joinPath, parseMemoryNote, type AssistantPaths, type MemoryNote } from './assistant-files';
+import type { AssistantPanelFiles } from '@gugu/core/cloud/assistantPanelFiles';
+import { assistantPaths, joinPath, memoryIndexHints, parseMemoryNote, type AssistantPaths, type MemoryNote } from './assistant-files';
 
 /** 问那台机器用的那张路由表:桌面经会话页的线(rpcOn),手机经手机壳的线(sessionpage-rpc 的 machineRpc),同一组动词。 */
 export type MachineRpc = Pick<ReturnType<typeof rpcOn>, 'projects' | 'files' | 'workspace' | 'app'>;
@@ -15,7 +16,9 @@ export type AssistantMachine = {
   deviceId: string;
   /** 走哪条线问那台(`rpcOn` 的参数):眼前这台 = null(本机);别的 = 它的 id。手机壳不用它(问的线在 `rpc`)。 */
   target?: string | null;
-  rpc: MachineRpc;
+  rpc: MachineRpc | null;
+  /** Cloud-backed panel resources. Explicit execution/migration retains native RPC. */
+  panel?: AssistantPanelFiles;
   home: string;
   projectId: string;
   workspaceId: string;
@@ -68,7 +71,8 @@ function isMissing(message: string | undefined): boolean {
 
 /** 列一个目录;目录还不存在 = 空(记忆夹、技能夹、资料夹在助理第一次用之前都没有)。 */
 export async function listDirectory(machine: AssistantMachine, dir: string): Promise<DirectoryEntry[]> {
-  const result = await machine.rpc.files.browseDirectory({ type: 'local', path: dir });
+  if (machine.panel) return machine.panel.list(dir);
+  const result = await nativeRpc(machine).files.browseDirectory({ type: 'local', path: dir });
   if (result.success) return result.data;
   const message = 'message' in result.error ? String(result.error.message) : undefined;
   if (isMissing(message)) return [];
@@ -77,32 +81,37 @@ export async function listDirectory(machine: AssistantMachine, dir: string): Pro
 
 /** 读一个文本文件;不存在 = null。 */
 export async function readText(machine: AssistantMachine, path: string): Promise<string | null> {
-  const result = await machine.rpc.workspace.files.readExternalFile(machine.projectId, machine.workspaceId, path, 1_048_576);
+  if (machine.panel) return machine.panel.text(path);
+  const result = await nativeRpc(machine).workspace.files.readExternalFile(machine.projectId, machine.workspaceId, path, 1_048_576);
   if (result.success) return result.data.content;
   const message = 'message' in result.error ? String(result.error.message) : undefined;
   if (isMissing(message)) return null;
   fail({ type: result.error.type, message });
 }
 
-export async function writeText(machine: AssistantMachine, path: string, content: string): Promise<void> {
-  const result = await machine.rpc.workspace.files.writeExternalFile(machine.projectId, machine.workspaceId, path, content);
+export async function writeText(machine: AssistantMachine, path: string, content: string, expectedRevision?: string): Promise<void> {
+  if (machine.panel) return machine.panel.write(path,new TextEncoder().encode(content),'text/plain',expectedRevision);
+  const result = await nativeRpc(machine).workspace.files.writeExternalFile(machine.projectId, machine.workspaceId, path, content);
   if (!result.success) fail({ type: result.error.type, message: 'message' in result.error ? String(result.error.message) : undefined });
 }
 
 export async function removePath(machine: AssistantMachine, path: string, recursive = false): Promise<void> {
-  const result = await machine.rpc.workspace.files.removeFile(machine.projectId, machine.workspaceId, path, { recursive });
+  if (machine.panel) return machine.panel.remove(path,recursive);
+  const result = await nativeRpc(machine).workspace.files.removeFile(machine.projectId, machine.workspaceId, path, { recursive });
   if (!result.success) fail({ type: result.error.type, message: 'message' in result.error ? String(result.error.message) : undefined });
   if (!result.data.success) fail(result.data.error);
 }
 
 export async function renamePath(machine: AssistantMachine, path: string, name: string): Promise<void> {
-  const result = await machine.rpc.workspace.files.renameEntry(machine.projectId, machine.workspaceId, path, name);
+  if (machine.panel) return machine.panel.rename(path,name);
+  const result = await nativeRpc(machine).workspace.files.renameEntry(machine.projectId, machine.workspaceId, path, name);
   if (!result.success) fail({ type: result.error.type, message: 'message' in result.error ? String(result.error.message) : undefined });
 }
 
 /** 建一个文件夹;已经有了不算错(资料夹第一次上传时顺手建)。 */
 export async function makeFolder(machine: AssistantMachine, dir: string, name: string): Promise<string> {
-  const result = await machine.rpc.workspace.files.createEntry(machine.projectId, machine.workspaceId, dir, name, 'folder');
+  if (machine.panel) { const path = joinPath(dir,name); await machine.panel.mkdir(path); return path; }
+  const result = await nativeRpc(machine).workspace.files.createEntry(machine.projectId, machine.workspaceId, dir, name, 'folder');
   if (result.success) return result.data.path;
   if (result.error.type === 'exists') return joinPath(dir, name);
   fail({ type: result.error.type, message: 'message' in result.error ? String(result.error.message) : undefined });
@@ -125,13 +134,18 @@ export async function uploadFile(
   onProgress?: (sent: number) => void
 ): Promise<string> {
   const path = joinPath(dir, file.name);
+  if (machine.panel) {
+    await machine.panel.write(path,new Uint8Array(await file.arrayBuffer()),file.type || 'application/octet-stream');
+    onProgress?.(file.size);
+    return path;
+  }
   const uploadId = crypto.randomUUID();
   const total = file.size;
   let offset = 0;
   do {
     const slice = new Uint8Array(await file.slice(offset, offset + CHUNK_BYTES).arrayBuffer());
     const final = offset + slice.length >= total;
-    const result = await machine.rpc.workspace.files.writeChunk(machine.projectId, machine.workspaceId, {
+    const result = await nativeRpc(machine).workspace.files.writeChunk(machine.projectId, machine.workspaceId, {
       path,
       uploadId,
       offset,
@@ -147,7 +161,12 @@ export async function uploadFile(
   return path;
 }
 
-export type MemoryEntry = MemoryNote & { path: string; modifiedAt: string | null };
+export function nativeRpc(machine: AssistantMachine): MachineRpc {
+  if (!machine.rpc) throw new AssistantFileError('execution-required','This action requires an execution host');
+  return machine.rpc;
+}
+
+export type MemoryEntry = MemoryNote & { path: string; modifiedAt: string | null; contentPending?: boolean; contentRevision?: string };
 
 function entryTime(entry: DirectoryEntry): string | null {
   const value = (entry as { modifiedAt?: unknown }).modifiedAt;
@@ -159,14 +178,36 @@ function entryTime(entry: DirectoryEntry): string | null {
 
 /** 它的记忆夹:每条一个 .md(新改的在前),外加索引 MEMORY.md;夹子还没有 = 空。 */
 export async function readMemoryNotes(machine: AssistantMachine): Promise<{ notes: MemoryEntry[]; index: string | null }> {
-  const entries = await listDirectory(machine, machine.paths.memoryDir);
-  const files = entries.filter((e) => e.type === 'file' && /\.md$/i.test(e.name) && e.name !== 'MEMORY.md');
+  if (machine.panel) {
+    const rows = await machine.panel.collection('memory')
+    const notes = rows.filter(row => typeof row.data.relativePath === 'string' && !String(row.data.relativePath).includes('/')
+      && /\.md$/i.test(String(row.data.relativePath)) && !['MEMORY.md','working-context.md'].includes(String(row.data.relativePath)))
+      .map(row => {
+        const file = String(row.data.relativePath)
+        const kind = file === 'owner-profile.md' ? 'user' : ['user','feedback','project','reference','other'].includes(String(row.data.kind)) ? row.data.kind as MemoryNote['kind'] : 'reference'
+        return { file,title: String(row.data.title ?? file),description: '',kind,body: '',path: joinPath(machine.paths.memoryDir,file),
+          modifiedAt: typeof row.data.modifiedAt === 'string' ? row.data.modifiedAt : row.updated_at,contentPending: true,contentRevision: row.revision }
+      })
+    notes.sort((a,b) => b.modifiedAt.localeCompare(a.modifiedAt))
+    return { notes,index: null }
+  }
+  const [entries, index] = await Promise.all([listDirectory(machine, machine.paths.memoryDir), readText(machine, machine.paths.memoryIndex)]);
+  const hints = memoryIndexHints(index ?? '');
+  // The recovery pointer belongs to the coordinator, not the person's memory cards.
+  const files = entries.filter((e) => e.type === 'file' && /\.md$/i.test(e.name)
+    && e.name !== 'MEMORY.md' && e.name !== 'working-context.md');
   const notes = await Promise.all(
     files.map(async (entry) => {
       const text = (await readText(machine, entry.path)) ?? '';
-      return { ...parseMemoryNote(entry.name, text), path: entry.path, modifiedAt: entryTime(entry) };
+      return { ...parseMemoryNote(entry.name, text, hints.get(entry.name)), path: entry.path, modifiedAt: entryTime(entry) };
     })
   );
   notes.sort((a, b) => (b.modifiedAt ?? '').localeCompare(a.modifiedAt ?? ''));
-  return { notes, index: await readText(machine, machine.paths.memoryIndex) };
+  return { notes, index };
+}
+
+export async function readMemoryEntry(machine: AssistantMachine,entry: MemoryEntry): Promise<MemoryEntry> {
+  const text = await readText(machine,entry.path)
+  if (text === null) throw new AssistantFileError('deleted','PANEL_MEMORY_UNAVAILABLE')
+  return { ...entry,...parseMemoryNote(entry.file,text,{ title: entry.title,kind: entry.kind }),contentPending: false }
 }

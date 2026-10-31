@@ -18,6 +18,8 @@ import {
   type CrossMachineDeps,
 } from '../../../../apps/desktop/electron/cross-machine-sessions'
 import { DeviceRpcChannelError, DeviceRpcTimeoutError } from '../../../../packages/core/src/cloud/deviceRpcRequester'
+import { createDeviceActionCaller } from '@gugu/core/cloud/deviceActionCaller'
+import { assistantStartupIndex } from '../../../../apps/desktop/electron/sessionpage/assistant-startup-index'
 
 const NOW = Date.parse('2026-09-30T04:00:00.000Z')
 
@@ -83,6 +85,30 @@ const actions = (call: ReturnType<typeof vi.fn>) =>
   call.mock.calls.map(([deviceId, , payload]) => [deviceId, (payload as { action: { action: string } }).action.action])
 
 describe('reaching another machine', () => {
+  it('uses the shared task-host predicate for activity targets and keeps offline hosts', async () => {
+    const phone = device('phone', 'Phone', false)
+    phone.capabilities = { ...phone.capabilities, host_kind: 'phone', host_runtime_capability: 1, runtimes: ['pi'] }
+    const actionOnly = device('actions-only', 'No task host', true)
+    actionOnly.capabilities = { ...actionOnly.capabilities, host_kind: 'phone' }
+    const oldComputer = device('old', 'Older computer', true)
+    delete oldComputer.capabilities.host_runtime_capability
+    const { xm, call } = makeCrossMachine(undefined, { listDevices: async () => [oldComputer, phone, actionOnly] })
+    expect((await xm.activityDevices()).map(d => [d.device_id, d.online])).toEqual([['old', true], ['phone', false]])
+    expect(call).not.toHaveBeenCalled()
+  })
+
+  it('refuses file handoff to an older or unknown receiver before any message RPC, without blocking text', async () => {
+    for (const protocol of [undefined, 10, 11]) {
+      const target = device('dev-b', 'receiver', true)
+      target.capabilities.remote_protocol = protocol
+      const { xm, call } = makeCrossMachine(undefined, { listDevices: async () => [device('dev-a', 'sender', true), target] })
+      if (protocol === 11) await xm.assertFileHandoffSupported(['dev-b'])
+      else await expect(xm.assertFileHandoffSupported(['dev-b'])).rejects.toMatchObject({ code: 'SESSION_DEVICE_OUTDATED' })
+      expect(call).not.toHaveBeenCalled()
+      await xm.runOnDevice('dev-b', CALLER, { action: 'message', session_ids: ['receiver'], text: 'plain text' })
+      expect(call).toHaveBeenCalledOnce()
+    }
+  })
   it('lists this machine first, then online machines', async () => {
     const { xm } = makeCrossMachine()
     expect((await xm.listDeviceRows()).map((row) => [row.device_id, row.this_machine, row.online])).toEqual([
@@ -90,6 +116,94 @@ describe('reaching another machine', () => {
       ['dev-b', false, true],
       ['dev-c', false, false],
     ])
+  })
+
+  it('groups machine discovery without redirecting explicit endpoint calls or dropping activity history', async () => {
+    const old = { ...device('old', 'old configuration', false, '2026-09-29T00:00:00Z'), machine_id: 'hardware',
+      session_digest: [{ conversationId: 'old-task', projectId: 'old-project', projectName: 'Old project', title: 'Old task',
+        harness: 'codex', agentStatus: 'idle', lastInteractedAt: null, supported: true }] }
+    const online = { ...device('new', 'online configuration', true), machine_id: 'hardware' }
+    const { xm, call } = makeCrossMachine(undefined, { listDevices: async () => [old, online] })
+    expect((await xm.listDeviceRows()).map(row => row.device_id)).toEqual(['new'])
+    expect((await xm.devices()).map(row => row.deviceId)).toEqual(['new'])
+    expect(await xm.ensureReachable('old').catch(error => error.code)).toBe('SESSION_DEVICE_OFFLINE')
+    expect((await xm.activityDevices()).find(row => row.device_id === 'old')?.session_titles).toEqual({ 'old-task': 'Old task' })
+    old.is_online = true
+    await xm.call('old', CALLER, { action: 'get', session_id: 'old-task' })
+    expect(actions(call)).toEqual([['old', 'get']])
+  })
+
+  it('does not reintroduce an orphan in the assistant startup index union of session and native discovery', async () => {
+    const rows = [device('dev-a', 'this box', true),
+      { ...device('old', 'old configuration', false), machine_id: 'hardware' },
+      { ...device('new', 'online configuration', true), machine_id: 'hardware' }]
+    const { xm } = makeCrossMachine(undefined, { listDevices: async () => rows })
+    const native = createDeviceActionCaller({
+      listDevices: async () => rows.map(row => ({ device_id: row.device_id, machine_id: row.machine_id, label: row.label,
+        platform: row.platform, online: row.is_online, last_seen_at: row.last_seen_at, this_machine: row.device_id === 'dev-a' })),
+      rpc: async () => ({ result: null }),
+    })
+    const index = await assistantStartupIndex({ accountId: async () => 'owner', run: async action => {
+      if (action.action === 'devices') return xm.listDeviceRows()
+      if (action.action === 'device_actions') return { devices: await native.describe() }
+      if (action.action === 'project_list') return []
+      if (action.action === 'library_read') return { items: [] }
+      throw new Error(`Unexpected action ${action.action}`)
+    } })
+    const records = index.split('\n').filter(line => line.startsWith('{')).map(line => JSON.parse(line))
+    expect(records.flatMap(record => record.device_id ? [record.device_id] : [])).toEqual(['device:dev-a', 'device:new'])
+    expect(index).not.toContain('device:old')
+  })
+
+  it('advertises a phone task runtime even without native file actions', async () => {
+    const phone = device('phone', 'phone', true)
+    phone.capabilities = { ...phone.capabilities, host_kind: 'phone', host_runtime_capability: 1, runtimes: ['pi'] }
+    const { xm } = makeCrossMachine(undefined, { listDevices: async () => [phone] })
+    expect(await xm.listDeviceRows()).toEqual([expect.objectContaining({ device_id: 'phone',
+      task_runtime: { capability: 1, runtimes: ['pi'] } })])
+  })
+
+  it('keeps an older computer with no runtime capability field usable for tasks', async () => {
+    const computer = device('old-computer', 'older computer', true)
+    delete computer.capabilities.host_runtime_capability
+    const { xm, call } = makeCrossMachine(undefined, { listDevices: async () => [computer] })
+    await expect(xm.runOnDevice('old-computer', CALLER, { action: 'spawn', prompt: 'work' })).resolves.toMatchObject({ ok: true, device_id: 'old-computer' })
+    expect(call).toHaveBeenCalledOnce()
+  })
+
+  it('keeps an owned phone visible when its task host is off and distinguishes it from an unknown device', async () => {
+    const phone = device('phone', '主人的手机', true)
+    phone.capabilities = { ...phone.capabilities, host_kind: 'phone', host_runtime_capability: 0, runtimes: [] }
+    const { xm, call } = makeCrossMachine(undefined, { listDevices: async () => [device('dev-a', 'sender', true), phone] })
+    expect(await xm.listDeviceRows()).toContainEqual(expect.objectContaining({ device_id: 'phone', online: true,
+      task_runtime: { capability: 0, runtimes: [] } }))
+    for (const action of [{ action: 'spawn', prompt: 'work' }, { action: 'message', session_ids: ['s'], text: 'work' }]) {
+      await expect(xm.runOnDevice('phone', CALLER, action)).rejects.toMatchObject({ code: 'device_no_task_runtime',
+        message: expect.stringMatching(/主人的手机.*device:phone.*请主人.*那台设备.*开启任务宿主.*其他设备不能代调/) })
+    }
+    await expect(xm.messageDeps(async () => CALLER).assertReachable(['phone'])).rejects.toMatchObject({ code: 'device_no_task_runtime' })
+    await expect(xm.runOnDevice('stranger', CALLER, { action: 'spawn', prompt: 'work' })).rejects.toMatchObject({ code: 'SESSION_DEVICE_UNKNOWN' })
+    expect(call).not.toHaveBeenCalled()
+  })
+
+  it('refuses reuse when a known executor’s host stops, without hiding the device or sending a request', async () => {
+    const phone = device('phone', '手机', true)
+    phone.capabilities = { ...phone.capabilities, host_kind: 'phone', host_runtime_capability: 1, runtimes: ['pi'] }
+    const { xm, call } = makeCrossMachine(async () => ({ result: { session_id: 'phone-task' } }),
+      { listDevices: async () => [phone] })
+    await xm.runOnDevice('phone', CALLER, { action: 'spawn', prompt: 'work' })
+    phone.capabilities = { ...phone.capabilities, host_runtime_capability: 0, runtimes: [] }
+    call.mockClear()
+    const remote = xm.messageDeps(async () => CALLER)
+    expect((await remote.locateSessions(['phone-task'])).found.get('phone-task')).toBe('phone')
+    await expect(remote.assertReachable(['phone'])).rejects.toMatchObject({ code: 'device_no_task_runtime' })
+    expect(call).not.toHaveBeenCalled()
+    expect(await xm.withRemoteChildren([], undefined, async () => CALLER)).toEqual([])
+    expect((await xm.sessionsElsewhere(null)).unreached).toEqual([expect.objectContaining({ deviceId: 'phone', detail: expect.stringContaining('开启任务宿主') })])
+    await xm.appCall({ extensionId: 'app', extensionName: 'App' }, 'phone', {
+      action: 'app_call', call_id: 'c-1', session_id: 's', version: '0.7.0', method: 'writeData', args: { path: 'journal.json', content: '{}' },
+    })
+    expect(call).toHaveBeenCalledOnce()
   })
 
   it('asks that machine\'s task-page router: agentSession.<action>(caller, action), one call, no window', async () => {
@@ -263,6 +377,7 @@ describe('answering another machine', () => {
       peers: vi.fn(async () => ['peer']),
       run: vi.fn(async () => ({ ran: true })),
       app: vi.fn(async () => ({ id: 'm-1' })),
+      appSpawn: vi.fn(async () => ({ agentId: 'user:a-new' })),
       appReadFile: vi.fn(),
       appCall: vi.fn(),
       ...overrides,
@@ -275,6 +390,19 @@ describe('answering another machine', () => {
     await expect(xm.answer('peers', CALLER, { action: 'peers' }, h)).resolves.toEqual(['peer'])
     await expect(xm.answer('get', CALLER, { action: 'get', session_id: 's' }, h)).resolves.toEqual({ ran: true })
     expect(h.run).toHaveBeenCalledWith(CALLER, { action: 'get', session_id: 's' })
+  })
+
+  it('starts an App agent through the App spawn core, with the same checked options and no borrowed session caller', async () => {
+    const APP = { kind: 'app', deviceId: 'phone', deviceLabel: 'phone', extensionId: 'board', extensionName: 'Board' } as const
+    const { xm } = makeCrossMachine()
+    const h = host()
+    const action = { action: 'spawn', prompt: 'work', spawn: { model: 'platform:model', transport: 'acp', title: 'Card' } } as const
+    await expect(xm.answer('spawn', APP, action, h)).resolves.toEqual({ agentId: 'user:a-new' })
+    expect(h.appSpawn).toHaveBeenCalledWith(APP, action)
+    expect(h.run).not.toHaveBeenCalled()
+    expect(parseAgentSessionRequest('spawn', APP, { ...action, spawn: { transport: 'other' } })).toHaveProperty('error')
+    expect(parseAgentSessionRequest('spawn', APP, { ...action, spawn: { unknown: true } })).toHaveProperty('error')
+    expect(parseAgentSessionRequest('spawn', APP, { ...action, prompt: '' })).toHaveProperty('error')
   })
 
   it('refuses a malformed request', async () => {
@@ -334,7 +462,7 @@ describe('agentSession.<action> arguments', () => {
     expect(parseAgentSessionRequest('message', APP, { action: 'message', session_ids: ['s'], text: 'hi', delivery: 'attach' }))
       .toEqual({ error: 'delivery is queue or defer' })
     expect(parseAgentSessionRequest('spawn', APP, { action: 'spawn', prompt: 'x' }))
-      .toEqual({ error: 'an App may only send a message to another machine, read a file there, or have a page\'s call done there, not spawn' })
+      .toEqual({ caller: APP, action: { action: 'spawn', prompt: 'x', spawn: {} } })
     expect(parseAgentSessionRequest('read_file', APP, { ...READ, junk: 1 })).toEqual({ caller: APP, action: READ })
     expect(parseAgentSessionRequest('read_file', APP, { ...READ, offset: '0' }))
       .toEqual({ error: 'read_file names a session (session_id), a path in its working copy, an offset and a length' })
@@ -353,13 +481,13 @@ describe('agentSession.<action> arguments', () => {
     const appReadFile = vi.fn(async () => CHUNK)
     const appCall = vi.fn()
     await expect(xm.answer('message', APP, { action: 'message', session_ids: ['s'], text: 'hi' }, {
-      peers: vi.fn(), run, app, appReadFile, appCall,
+      peers: vi.fn(), run, app, appSpawn: vi.fn(), appReadFile, appCall,
     })).resolves.toEqual({ id: 'm-1' })
-    await expect(xm.answer('read_file', APP, READ, { peers: vi.fn(), run, app, appReadFile, appCall })).resolves.toEqual(CHUNK)
+    await expect(xm.answer('read_file', APP, READ, { peers: vi.fn(), run, app, appSpawn: vi.fn(), appReadFile, appCall })).resolves.toEqual(CHUNK)
     // A page's call on that machine (its program, its data folder): its own part, the verb and args as the page gave them.
     const CALL = { action: 'app_call', call_id: 'c-1', session_id: 's', version: '0.7.0', method: 'writeData', args: { path: 'journal.json', content: '{}' } } as const
     appCall.mockResolvedValueOnce(undefined)
-    await expect(xm.answer('app_call', APP, CALL, { peers: vi.fn(), run, app, appReadFile, appCall })).resolves.toBeUndefined()
+    await expect(xm.answer('app_call', APP, CALL, { peers: vi.fn(), run, app, appSpawn: vi.fn(), appReadFile, appCall })).resolves.toBeUndefined()
     expect(appCall).toHaveBeenCalledWith(APP, CALL)
     expect(app).toHaveBeenCalledWith(APP, { action: 'message', session_ids: ['s'], text: 'hi' })
     expect(appReadFile).toHaveBeenCalledWith(APP, READ)
@@ -392,6 +520,7 @@ describe('the family across machines', () => {
       deviceId: 'dev-b',
       label: 'gpu server',
       session: { conversationId: 'b-child', projectId: 'pb', parentConversationId: 'p', spawnedByConversationId: 'p' },
+      listsAgents: false,
     }])
     expect(early.unreached).toEqual([{
       deviceId: 'dev-c',
@@ -399,10 +528,8 @@ describe('the family across machines', () => {
       detail: '"laptop" (device:dev-c) is offline (last seen 3 h ago)',
     }])
     expect((await xm.sessionsElsewhere('2026-09-30T02:00:00Z')).unreached).toEqual([])
-    expect(call.mock.calls.map(([deviceId, type]) => [deviceId, type])).toEqual([
-      ['dev-b', 'sessionTimeline.sessionsList'],
-      ['dev-b', 'sessionTimeline.sessionsList'],
-    ])
+    // The second read within seconds reuses the first answer from dev-b.
+    expect(call.mock.calls.map(([deviceId, type]) => [deviceId, type])).toEqual([['dev-b', 'sessionTimeline.sessionsList']])
   })
 
   it('names an online machine that does not answer', async () => {
@@ -445,6 +572,20 @@ describe('the family across machines', () => {
 
 // #7199 云电脑休眠中 ≠ 离线:发过去之前先叫醒,醒了照常发;醒不来说清是哪台、为什么,什么都不发。
 describe('a sleeping cloud computer', () => {
+  it('does not wake a paused host to inspect or locate a session, even with stale online presence', async () => {
+    for (const online of [true, false]) {
+      const wakeCloudComputer = vi.fn(async () => true)
+      const { xm, call } = makeCrossMachine(undefined, {
+        listDevices: async () => [device('dev-a', 'this box', true), device('dev-c', 'cloud', online)],
+        cloudComputerState: async () => ({ state: 'asleep', deviceId: 'dev-c', error: null, since: null }),
+        wakeCloudComputer,
+      })
+      await expect(xm.runOnDevice('dev-c', CALLER, { action: 'get', session_id: 'child' })).rejects.toMatchObject({ code: 'SESSION_DEVICE_OFFLINE' })
+      await expect(xm.call('dev-c', CALLER, { action: 'locate', session_ids: ['child'] })).rejects.toMatchObject({ code: 'SESSION_DEVICE_OFFLINE' })
+      expect(wakeCloudComputer).not.toHaveBeenCalled()
+      expect(call).not.toHaveBeenCalled()
+    }
+  })
   it('wakes it, then sends as usual once it is online', async () => {
     let online = false
     const wakeCloudComputer = vi.fn(async (deviceId: string) => {
@@ -487,8 +628,91 @@ describe('a sleeping cloud computer', () => {
     expect(rows.find((row) => row.device_id === 'dev-b')).not.toHaveProperty('cloud_computer')
   })
 
+  it('wakes a paused cloud computer even when the device row still says online', async () => {
+    const order: string[] = []
+    const wakeCloudComputer = vi.fn(async () => { order.push('wake'); return true })
+    const { xm, call } = makeCrossMachine(async () => { order.push('deliver'); return { result: { ok: true } } }, {
+      listDevices: async () => [device('dev-a', 'this box', true), device('dev-c', 'cloud', true)],
+      cloudComputerState: async () => ({ state: 'asleep', deviceId: 'dev-c', error: null, since: null }),
+      wakeCloudComputer,
+    })
+    await xm.call('dev-c', CALLER, { action: 'message', session_ids: ['assistant'], text: 'result' })
+    expect(wakeCloudComputer).toHaveBeenCalledOnce()
+    expect(call).toHaveBeenCalledOnce()
+    expect(order).toEqual(['wake', 'deliver'])
+  })
+
   it('session_devices still lists machines when the manager cannot be reached', async () => {
     const { xm } = makeCrossMachine(undefined, { cloudComputerState: async () => { throw new Error('down') } })
     expect((await xm.listDeviceRows()).map((row) => row.device_id)).toEqual(['dev-a', 'dev-b', 'dev-c'])
+  })
+})
+
+
+it('prepares a dormant work seat only through the dedicated capability and never falls back to old spawn', async () => {
+  const { xm, call } = makeCrossMachine(async (_device, channel) => channel === 'assistantWork.prepare'
+    ? { error: { code: 'unknown_method', message: 'No handler registered for assistantWork.prepare' } } : { result: { started: true } })
+  await expect(xm.runOnDevice('dev-b', CALLER, { action: 'spawn', assistant_work: { version: 1 }, prompt: 'task' })).rejects.toMatchObject({ code: 'SESSION_DEVICE_OUTDATED' })
+  expect(call).toHaveBeenCalledOnce()
+  expect(call.mock.calls[0]?.[1]).toBe('assistantWork.prepare')
+})
+
+// owner 10-28:一台机器的会话列表只问一处(sessionsOn),几秒内复用,正在问的合成一个,失败不留;往那台发了别的就作废。
+describe('one machine\'s session list, asked once and reused for a few seconds', () => {
+  const listing = (sessions: unknown[]) => async (_deviceId: string, type: string) =>
+    type === 'sessionTimeline.sessionsList' ? { result: { projects: [], sessions } } : { result: { ok: true, value: {} } }
+  const lists = (call: ReturnType<typeof vi.fn>) => call.mock.calls.filter(([, type]) => type === 'sessionTimeline.sessionsList').length
+  const agentRow = { conversationId: 's-b', projectId: 'pb', agent: { userId: 'agent-b' } }
+
+  it('the agent lookup and the family read share one answer; after five seconds it is asked again', async () => {
+    let at = NOW
+    const { xm, call } = makeCrossMachine(listing([agentRow]), { now: () => at })
+    await xm.sessionsElsewhere(null)
+    expect(await xm.messageDeps(async () => CALLER).sessionsOfAgents('dev-b', ['agent-b'])).toEqual(new Map([['agent-b', 's-b']]))
+    expect((await xm.sessionsElsewhere(null)).sessions[0]).toMatchObject({ listsAgents: true })
+    expect(lists(call)).toBe(1)
+    at += 5_000
+    await xm.sessionsElsewhere(null)
+    expect(lists(call)).toBe(2)
+  })
+
+  it('asks once for reads that overlap, and keeps no failure', async () => {
+    let fail = true
+    const { xm, call } = makeCrossMachine(async (deviceId, type) => {
+      if (fail) throw new DeviceRpcTimeoutError('no reply')
+      return listing([agentRow])(deviceId, type)
+    })
+    const [one, two] = await Promise.all([xm.sessionsElsewhere(null), xm.sessionsElsewhere(null)])
+    for (const { unreached } of [one, two]) expect(unreached.map((m) => m.deviceId)).toContain('dev-b')
+    expect(lists(call)).toBe(1)
+    fail = false
+    expect((await xm.sessionsElsewhere(null)).sessions).toHaveLength(1)
+    expect(lists(call)).toBe(2)
+  })
+
+  it('asks again when told to (fresh), or after this machine sent that one anything else', async () => {
+    const { xm, call } = makeCrossMachine(listing([agentRow]))
+    await xm.sessionsElsewhere(null)
+    await xm.sessionsElsewhere(null, { fresh: true })
+    expect(lists(call)).toBe(2)
+    await xm.sessionsElsewhere(null)
+    expect(lists(call)).toBe(2)
+    await xm.archiveOn('dev-b', 's-b')
+    await xm.sessionsElsewhere(null)
+    expect(lists(call)).toBe(3)
+  })
+})
+
+describe('an agent\'s session on another machine, for opening it', () => {
+  const rows = [{ conversationId: 's-b', projectId: 'pb', agent: { userId: 'agent-b' } }]
+  it('finds the machine from the roster and the session in that machine\'s list; an agent here is not looked for there', async () => {
+    const { xm, call } = makeCrossMachine(async () => ({ result: { projects: [], sessions: rows } }), {
+      lookupAgents: async ({ userIds }) => userIds.map((userId) => ({ userId, deviceId: userId === 'agent-a' ? 'dev-a' : 'dev-b', guguNumber: null })),
+    })
+    expect(await xm.sessionOfAgent('agent-b')).toEqual({ sessionId: 's-b', deviceId: 'dev-b' })
+    expect(await xm.sessionOfAgent('agent-a')).toBeNull()
+    expect(await xm.sessionOfAgent('agent-x', 'dev-b')).toBeNull()
+    // The second lookup reuses that machine's list asked a moment ago (sessionsOn, a few seconds).
+    expect(call.mock.calls.map(([deviceId, type]) => [deviceId, type])).toEqual([['dev-b', 'sessionTimeline.sessionsList']])
   })
 })

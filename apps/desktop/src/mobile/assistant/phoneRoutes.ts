@@ -18,12 +18,17 @@ export function phoneParentRoute<T extends string>(route: PhoneParentRoute<T>): 
   if (route.returnTo) return route.returnTo
   const sub = route.sub
   if (!sub) return null
+  if (sub.startsWith('settings:')) {
+    const parent = phoneParentRoute({ tab: route.tab, sub: sub.slice('settings:'.length) })
+    return { tab: route.tab, sub: parent?.sub ? `settings:${parent.sub}` : 'settings' }
+  }
   if (sub.startsWith('connector:')) {
     // 详情回列表;详情之下的连接页(`connector:<id>:connect`)回详情。
     const id = sub.slice('connector:'.length)
     const cut = id.indexOf(':')
     return { tab: route.tab, sub: cut > 0 ? `connector:${id.slice(0, cut)}` : 'connectors' }
   }
+  if (sub.startsWith('devices:')) return { tab: route.tab, sub: 'devices' }
   if (sub.startsWith('voice:')) return { tab: route.tab, sub: 'voice' }
   if (sub.startsWith('files:')) {
     const rest = sub.slice('files:'.length)

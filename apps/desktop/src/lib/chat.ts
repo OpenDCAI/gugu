@@ -1,5 +1,5 @@
 import { dbPayload } from '@gugu/core/cloud/supabase'
-import { createGroupChat as createCoreGroupChat } from '@gugu/core/cloud/groupChat'
+import { createGroupWithInvitations } from '@gugu/core/cloud/groupChat'
 import {
   getDeviceCommand as getCoreDeviceCommand,
   pollDeviceCommandUntilDone,
@@ -12,7 +12,7 @@ import {
   type DeviceTableClient,
   type DeviceRpcClient,
 } from '@gugu/core/cloud/devices'
-import { resolveSelfDeviceLabel } from './device-labels'
+import { markLocalDevice } from './device-labels'
 import {
   dataClient,
   chatDb,
@@ -29,12 +29,11 @@ import type { DisplayIdentity } from './displayIdentity'
 import { rendererLogger } from './log'
 import { markMemberRead, markMemberUnread } from './chatMemberReadState'
 import { i18n } from '@/i18n'
-import { encodeMessagingValue } from './localizedStoredValue'
 import { platform } from '../platform'
 import {
   normalizeGroupRole
 } from '@gugu/core/shared/enums/groupRoleModels'
-import { DEFAULT_AGENT_TYPE, isCloudAgentMarked, nullableAgentType } from '@gugu/core/shared/enums/agentTypeModels'
+import { DEFAULT_AGENT_TYPE, nullableAgentType } from '@gugu/core/shared/enums/agentTypeModels'
 import {
   normalizeAgentDisplayName,
   normalizeAgentProjectPath
@@ -81,6 +80,7 @@ import { findTombstonedGroupMemberIds } from './groupMemberIdentity'
 import { readGroupMemberIdentities } from './chatGroupIdentity'
 import { requireThreadCapableChat } from './chatThreadGate'
 import { addGroupAgent, type GroupAgentJoinOutcome, groupJoinError, listMyAgentJoinRequests } from './groupAgentJoinService'
+import { currentGroupAdmin } from './groupAdmin'
 export type {
   MessageOverlay,
   MessageMutationPatch,
@@ -88,25 +88,6 @@ export type {
 } from './chatMessageRevalidation'
 const identityLog = rendererLogger('chat/identity')
 
-async function ensureGroupMember(
-  chatId: string,
-  memberUserId: string,
-  isAgent: boolean
-): Promise<void> {
-  const memberQuery = chatDb
-    .from('chat_members')
-    .select('user_id')
-    .eq('chat_id', chatId)
-    .eq('user_id', memberUserId)
-    .maybeSingle()
-  const [memberResult, identityResult] = await Promise.all([memberQuery, readDisplayIdentities([memberUserId]).then((rows) => rows[0] ?? null)])
-  if (memberResult.error) throw new Error(memberResult.error.message)
-  if (identityResult?.type !== (isAgent ? 'agent' : 'human')) throw new Error(isAgent ? 'Agent not found' : 'Member not found')
-  if (!memberResult.data)
-    throw new Error(
-      isAgent ? 'Agent is not a member of this group' : 'User is not a member of this group'
-    )
-}
 
 type GroupCollabMemberRow = {
   user_id: string
@@ -212,25 +193,6 @@ function mapGroupChatSettingsRow(row: GroupChatSettingsRow): GroupChatSettings {
     // ❌ 不补「5」:这个数只能来自 DB 的继承链;编一个默认值 = 用户改的是另一个数(界面据此整行不画)。
     agent_flood_threshold_effective: row.agent_flood_threshold_effective ?? null,
   }
-}
-function normalizeAgentRuntimeOpenError(error: unknown): string {
-  const raw = String((error as Error)?.message ?? error)
-  if (raw.includes('Local agent not found for')) {
-    return i18n.t('chatService.runtimeOpen.localMissing', { ns: 'messaging' })
-  }
-  if (raw.includes('tmux group session not found')) {
-    return i18n.t('chatService.runtimeOpen.staleTmux', { ns: 'messaging' })
-  }
-  if (raw.includes('Agent runtime target unavailable')) {
-    return i18n.t('chatService.runtimeOpen.unavailable', { ns: 'messaging' })
-  }
-  if (raw.includes('Agent runtime container unavailable')) {
-    return i18n.t('chatService.runtimeOpen.incomplete', { ns: 'messaging' })
-  }
-  if (raw.includes('connect ENOENT') && raw.includes('cmux.sock')) {
-    return i18n.t('chatService.runtimeOpen.cmuxUnavailable', { ns: 'messaging' })
-  }
-  return raw.replace(/^Error invoking remote method 'agent-runtime:open(-remote)?': Error: /, '')
 }
 function mapGroupCollabAgents(
   members: GroupMemberItem[],
@@ -384,12 +346,12 @@ export const chatService = {
     if (!msgs?.length) return []
 
     // messageItemFromRow is the shared mapping. Descending pages (initial/older) reverse to
-    // chronological; ascending newer pages are already chronological. Overlays (reactions /
-    // delivery) are applied by the shared helper so the window-revalidation path reuses it.
+    // chronological; ascending newer pages are already chronological. The window owner publishes
+    // these bodies before its bounded overlay revalidation completes.
     const items = (msgs as RawMessageRow[])
       .map((row) => messageItemFromRow(row, userId))
       .filter((m): m is MessageItem => m !== null)
-    return applyMessageOverlays(ascending ? items : items.reverse(), userId)
+    return ascending ? items : items.reverse()
   },
 
   /** @@@threads (#957/#2525) — 群话题 root + 回复，按 seq 正序；主线已过滤回复。 */
@@ -622,7 +584,7 @@ export const chatService = {
       .eq('message_id', messageId)
       .eq('user_id', userId)
       .eq('emoji', emoji)
-      .maybeSingle()
+      .maybeSingle().throwOnError()
 
     if (existing) {
       await chatDb
@@ -630,7 +592,7 @@ export const chatService = {
         .delete()
         .eq('message_id', messageId)
         .eq('user_id', userId)
-        .eq('emoji', emoji)
+        .eq('emoji', emoji).throwOnError()
     } else {
       await chatDb.from('message_reactions').insert(
         dbPayload({
@@ -639,7 +601,7 @@ export const chatService = {
           user_id: userId,
           emoji
         })
-      )
+      ).throwOnError()
     }
   },
 
@@ -751,16 +713,8 @@ export const chatService = {
   },
 
   async getGroupChatSettings(chatId: string): Promise<GroupChatSettings> {
-    const { data, error } = await chatDb
-      .from('chats')
-      .select('id, public_id, creator_user_id, name, status, group_prompt, default_agent_type, join_token, description, max_members, allow_member_invite, invite_link_enabled, agent_join_approval, join_mode, hide_history, avatar_url, is_discoverable, agent_flood_threshold, agent_flood_threshold_effective')
-      .eq('id', chatId)
-      // @@@5856 话题也要读得到自己这一份(名字、agent 数量线);写死 'group' 会让 .single() 抛 PGRST116。
-      .in('kind', ['group', 'topic'])
-      .single()
-    if (error) throw new Error(error.message)
-    const row = data as GroupChatSettingsRow
-    return mapGroupChatSettingsRow(row)
+    const info = await (await currentGroupAdmin()).info(chatId)
+    return mapGroupChatSettingsRow(info as unknown as GroupChatSettingsRow)
   },
 
   async updateGroupChatSettings(
@@ -773,7 +727,7 @@ export const chatService = {
       if (!name) throw new Error('Group name is required')
       patch.name = name
     }
-    if (input.status !== undefined) patch.status = input.status
+    if (input.status !== undefined) throw new Error('Group status changes use archiveChat')
     if (input.group_prompt !== undefined) patch.group_prompt = input.group_prompt?.trim() || null
     if (input.default_agent_type !== undefined) patch.default_agent_type = input.default_agent_type
     if (input.description !== undefined) patch.description = input.description?.trim() || null
@@ -792,7 +746,7 @@ export const chatService = {
     }
     // @@@hide-history (#1018 step4 #860) — 设置位入 patch（按成员门控位由 DB 触发器在入群时置位）
     if (input.hide_history !== undefined) patch.hide_history = input.hide_history
-    // @@@1175 — 公开到广场 opt-in（列级 GRANT UPDATE(is_discoverable) + RLS chats_update_owner 双门控）
+    // 公开到广场 opt-in;权限由 update_group_as 统一判定。
     if (input.is_discoverable !== undefined) patch.is_discoverable = input.is_discoverable
     // @@@5856 agent 数量线。null 是合法值(= 交回去继承),所以这里判的是 undefined,❌ 不是 falsy。
     if (input.agent_flood_threshold !== undefined) {
@@ -802,23 +756,11 @@ export const chatService = {
     }
     if (Object.keys(patch).length === 0) return chatService.getGroupChatSettings(chatId)
 
-    const { data, error } = await chatDb
-      .from('chats')
-      .update(dbPayload(patch))
-      .eq('id', chatId)
-      // @@@5856 话题也走这条链路(改名、改数量线)。挡路的是这个过滤器不是 RLS ——
-      // chats_update_owner 对话题的 owner 本来就放行。
-      .in('kind', ['group', 'topic'])
-      .select('id, public_id, creator_user_id, name, status, group_prompt, default_agent_type, join_token, description, max_members, allow_member_invite, invite_link_enabled, agent_join_approval, join_mode, hide_history, avatar_url, is_discoverable, agent_flood_threshold, agent_flood_threshold_effective')
-      .single()
-    if (error) throw new Error(error.message)
-    return mapGroupChatSettingsRow(data as GroupChatSettingsRow)
+    const updated = await (await currentGroupAdmin()).update(chatId, patch)
+    return mapGroupChatSettingsRow(updated as unknown as GroupChatSettingsRow)
   },
 
-  // @@@group-avatar (#1164 G1) — owner/admin 上传群头像。校验 image/* + ≤5MB（avatarUpload 文案）；
-  //   上传到公共 chat-media 桶，路径 <uploaderUid>/group-avatar/<chatId>-<uuid>.<ext> 满足 chat_media_insert_own
-  //   策略（foldername[1]=auth.uid()），无需新 storage 策略；取 public URL 写 chats.avatar_url
-  //   （列级 GRANT UPDATE(avatar_url) + RLS chats_update_owner 限 owner/admin，双重门控）。返回新头像 URL。
+  // 上传到 chat-media 后,由共同 RPC 一次保存 URL 与 storage 引用。
   async uploadGroupAvatar(chatId: string, file: File): Promise<string> {
     return uploadCanonicalGroupAvatar(chatId, file)
   },
@@ -841,9 +783,8 @@ export const chatService = {
 
   // 列出某群的加入请求,含已处理的（仅管理员，RPC 内 can_manage_group_members 校验）。
   async listGroupJoinRequests(chatId: string): Promise<GroupJoinRequest[]> {
-    const { data, error } = await chatDb.rpc('list_group_join_requests', { p_chat_id: chatId, p_include_decided: true })
-    if (error) throw new Error(error.message)
-    const rows = (data ?? []) as Array<{
+    const data = await (await currentGroupAdmin()).joinRequests(chatId)
+    const rows = data as Array<{
       id: string
       chat_id: string
       requester_user_id: string
@@ -869,12 +810,10 @@ export const chatService = {
 
   // 审批一条加入请求（仅管理员）：accept→入群+标 accepted，reject→标 rejected。
   async decideGroupJoin(requestId: string, accept: boolean): Promise<'accepted' | 'rejected'> {
-    const { data, error } = await chatDb.rpc('decide_group_join', {
-      p_request_id: requestId,
-      p_accept: accept,
-    })
-    if (error) throw groupJoinError(error) // 批准时库里按当下事实重判(上限、发起人是否还在群里),翻成产品文案
-    return data === 'accepted' ? 'accepted' : 'rejected'
+    try {
+      const result = await (await currentGroupAdmin()).decideJoin(requestId, accept)
+      return result.status as 'accepted' | 'rejected'
+    } catch (error) { throw groupJoinError(error as Error) }
   },
 
   async createOwnedAgent(
@@ -920,17 +859,12 @@ export const chatService = {
   },
 
   // @@@local-device-self-merge - The local desktop process knows it is online without
-  async listDevices(options: { includePhones?: boolean } = {}): Promise<Device[]> {
+  async listDevices(options: { includePhones?: boolean; deviceIds?: readonly string[] } = {}): Promise<Device[]> {
     const [self, cloud] = await Promise.all([
       platform.getLocalDeviceSelfSnapshot?.() ?? Promise.resolve(null),
       listCoreDevices(deviceTableClient(), await getCurrentAuthUserId(), options) // @@@1962 按当前用户过滤设备(多账号同机不混入他人行);#7199 手机默认不在
     ])
-    if (!self) return cloud
-    const others = cloud.filter((device) => device.device_id !== self.device_id)
-    // 名字以云端行为准(见 resolveSelfDeviceLabel);在线性仍信本机 self。
-    const cloudSelf = cloud.find((device) => device.device_id === self.device_id)
-    const selfMerged = { ...self, label: resolveSelfDeviceLabel(self, cloudSelf?.label), machine_id: cloudSelf?.machine_id ?? null, is_current_device: true }
-    return [selfMerged, ...others.map((device) => ({ ...device, is_current_device: false }))]
+    return markLocalDevice(self, cloud, !!platform.getLocalDeviceSelfSnapshot)
   },
 
   // #1749 rename/remove 走受控 RPC(core service)。
@@ -951,32 +885,6 @@ export const chatService = {
   // 会话,不存在 terminal 时代「先唤醒」机制。后端 agent.wake 命令链(deviceCommands/deviceCommandRuntime)
   // 一并随 #966 退役。
 
-  async openAgentRuntime(agentUserId: string | null | undefined): Promise<void> {
-    if (!agentUserId) throw new Error(i18n.t('chatService.runtimeOpen.removed', { ns: 'messaging' }))
-    try {
-      const deviceId = (await readDisplayIdentities([agentUserId]))[0]?.device_id ?? null
-      const localDeviceId = (await platform.getLocalDeviceSelfSnapshot?.())?.device_id ?? null
-      // @@@local-device-truth (#777) - route by KNOWN facts only. The agent's device_id is a known
-      // cloud fact; this machine's own device_id may be momentarily unknown (host hasn't ticked).
-      // NEVER treat "I don't know who I am" as "I am the agent's machine" — the old
-      // `!localDeviceId → local` fallback misrouted remote agents (e.g. architect on VPS) to a local
-      // open → "Local agent not found". Only open locally when the two ids are confirmed EQUAL; an
-      // agent with a known device that isn't (or can't be confirmed as) this machine routes remote.
-      if (!deviceId) {
-        throw new Error(i18n.t('chatService.runtimeOpen.unbound', { ns: 'messaging' }))
-      }
-      if (deviceId === localDeviceId) {
-        await platform.openAgentRuntime(agentUserId)
-        return
-      }
-      // ACP 减法：远程打开 = 在另一台设备上 SSH attach tmux 的旧终端视角，ACP 路径不再提供。
-      // agent 跑在它绑定的设备上，运行态在本机 app 内通过 ACP 流式呈现，无需打开远程终端窗口。
-      throw new Error(i18n.t('chatService.runtimeOpen.remoteUnsupported', { ns: 'messaging' }))
-    } catch (err) {
-      throw new Error(normalizeAgentRuntimeOpenError(err))
-    }
-  },
-
   async getDeviceCommand(commandId: string): Promise<DeviceCommand | null> {
     return getCoreDeviceCommand(deviceCommandTableClient(), commandId)
   },
@@ -989,175 +897,48 @@ export const chatService = {
   },
 
   /** 把自己名下的 agent 拉进群;需审批而你不是管理员时返回 pending_approval(见 groupAgentJoinService)。 */
-  async joinGroupAgent(
-    chatId: string,
-    agentUserId: string,
-    role?: GroupMemberRoleInput
-  ): Promise<GroupAgentJoinOutcome> {
-    const currentUserId = await getCurrentAuthUserId()
-    const agentRow = (await readDisplayIdentities([agentUserId]))[0] ?? null
-    if (!agentRow) throw new Error('Agent not found')
-    if (agentRow.owner_user_id !== currentUserId)
-      throw new Error('Agent is not owned by current user')
-    // @@@1761 云 agent 禁入群(止血)。客户端快检只有 device_id 可用(users 无 agent_type 列),
-    // 权威双标记判定(含 agent_profiles.agent_type)由 DB 策略/create_gugu_group 兜底——此处漏网
-    // 的漂移形态(有 agent_type 无前缀)会在 DB 层被拒。
-    if (isCloudAgentMarked({ device_id: agentRow.device_id }))
-      throw new Error(i18n.t('chatService.errors.cloudAgentGroupUnsupported', { ns: 'messaging' }))
-
-    const nextRole = normalizeGroupRole(role)
-    const now = new Date().toISOString()
-    // @@@upsert-split - authenticated has UPDATE only on (role, is_pinned, last_read_seq, notification_level, version);
-    const { data: existing, error: existingError } = await chatDb
-      .from('chat_members')
-      .select('role')
-      .eq('chat_id', chatId)
-      .eq('user_id', agentUserId)
-      .maybeSingle()
-    if (existingError) throw new Error(existingError.message)
-    if (existing) {
-      if ((existing as { role: string }).role !== nextRole) {
-        const { error: updateError } = await chatDb
-          .from('chat_members')
-          .update(dbPayload({ role: nextRole }))
-          .eq('chat_id', chatId)
-          .eq('user_id', agentUserId)
-        if (updateError) throw new Error(updateError.message)
-      }
-    } else {
-      if (await addGroupAgent(chatId, agentUserId, nextRole) === 'pending_approval') return 'pending_approval'
-    }
-
-    const { error: stateError } = await chatDb.from('group_agent_states').upsert(
-      dbPayload({
-        chat_id: chatId,
-        agent_user_id: agentUserId,
-        last_action: encodeMessagingValue('chatService.groupAction.joined'),
-        updated_at: now
-      }),
-      { onConflict: 'chat_id,agent_user_id' }
-    )
-    if (stateError) throw new Error(stateError.message)
-    return 'joined'
+  async joinGroupAgent(chatId: string, agentUserId: string, role?: GroupMemberRoleInput): Promise<GroupAgentJoinOutcome> {
+    return addGroupAgent(chatId, agentUserId, normalizeGroupRole(role))
   },
 
   listMyAgentJoinRequests,
-  // #901 退出群聊（成员自删）：RLS members_delete_self 限定只能删自己的成员行。
-  async leaveGroup(chatId: string, userId: string): Promise<void> {
-    const { error } = await chatDb
-      .from('chat_members')
-      .delete()
-      .eq('chat_id', chatId)
-      .eq('user_id', userId)
-    if (error) throw new Error(error.message)
-  },
-
-  async setGroupAgentRole(
-    chatId: string,
-    agentUserId: string,
-    role: GroupMemberRoleInput
-  ): Promise<void> {
-    await this.setGroupMemberRole(chatId, agentUserId, role, true)
-  },
-
-  // #857 设置某 agent 在本群的 Listen Mode（passive/active，#5856 起两档）。
-  // 只有 agent 的主人能改(#7352,members_update_own + listen_mode 守卫)。和 removeGroupMember(#1239)同样 fail-loud:
-  // RLS 拦下时 0 行、不报错 ⇒ 取回改到的行,0 行就抛,界面显示原因,❌ 「点了没反应」。
+  // 主人选择自己 Agent 的档位;数据库核实际 actor,并回执保存值。
   async setAgentListenMode(chatId: string, agentUserId: string, mode: ListenMode): Promise<void> {
-    const { data: updated, error } = await chatDb
-      .from('chat_members')
-      .update(dbPayload({ listen_mode: mode }))
-      .eq('chat_id', chatId)
-      .eq('user_id', agentUserId)
-      .select('user_id')
-    if (error) throw new Error(error.message)
-    if (!updated || updated.length === 0) {
-      throw new Error(i18n.t('chatService.errors.setListenModeFailed', { ns: 'messaging' }))
-    }
+    await (await currentGroupAdmin()).setListenMode(chatId, agentUserId, mode)
   },
 
-  // @@@member-role - Owner/admin promote/demote any non-owner member. Humans only
-  async setGroupMemberRole(
-    chatId: string,
-    memberUserId: string,
-    role: GroupMemberRoleInput,
-    isAgent: boolean
-  ): Promise<void> {
-    await ensureGroupMember(chatId, memberUserId, isAgent)
-    const nextRole = normalizeGroupRole(role)
-    const { error: memberError } = await chatDb
-      .from('chat_members')
-      .update(dbPayload({ role: nextRole }))
-      .eq('chat_id', chatId)
-      .eq('user_id', memberUserId)
-    if (memberError) throw new Error(memberError.message)
-
-    if (!isAgent) return
-    const { error: stateError } = await chatDb
-      .from('group_agent_states')
-      .update(
-        dbPayload({
-          last_action: encodeMessagingValue('chatService.groupAction.roleUpdated'),
-          updated_at: new Date().toISOString()
-        })
-      )
-      .eq('chat_id', chatId)
-      .eq('agent_user_id', memberUserId)
-    if (stateError) throw new Error(stateError.message)
+  // Owner/admin may promote or demote any non-owner member.
+  async setGroupMemberRole(chatId: string, memberUserId: string, role: GroupMemberRoleInput): Promise<void> {
+    const next = normalizeGroupRole(role)
+    if (next === 'owner') throw new Error('Group ownership cannot be changed here')
+    await (await currentGroupAdmin()).setRole(chatId, memberUserId, next)
   },
 
-  // @@@invite-human - Group manager (owner/admin) adds an existing human contact to the group.
-  // RLS policy members_insert_group_manager governs the actual permission check.
-  async inviteGroupHuman(chatId: string, humanUserId: string): Promise<void> {
-    const { error } = await chatDb.from('chat_members').insert(
-      dbPayload({
-        chat_id: chatId,
-        user_id: humanUserId,
-        role: 'member'
-      })
-    )
-    if (error) throw new Error(error.message)
+  // Related identities join directly; everyone else receives a consent invitation.
+  async inviteGroupMember(chatId: string, userId: string) {
+    const admin = await currentGroupAdmin()
+    const group = await admin.info(chatId)
+    return admin.invite(chatId, userId, `邀请你加入群聊「${String(group.name)}」。`)
   },
 
   // @@@remove-member - Generic remove (manager removing a member, or an owner taking their own agent out); for agents this also cleans up group_agent_states.
-  async removeGroupMember(chatId: string, userId: string, isAgent: boolean): Promise<void> {
-    if (isAgent) {
-      const { error: stateError } = await chatDb
-        .from('group_agent_states')
-        .delete()
-        .eq('chat_id', chatId)
-        .eq('agent_user_id', userId)
-      if (stateError) throw new Error(stateError.message)
-    }
-    // #1239 fail-loud：.delete() 被 RLS 静默拦时返 0 行且无 error（owner 缺权/成员不存在）。
-    // 取回被删行确认真删；0 行即抛错给调用方，别静默成功骗 owner（乐观 UI 已踢）。
-    const { data: removed, error: memberError } = await chatDb
-      .from('chat_members')
-      .delete()
-      .eq('chat_id', chatId)
-      .eq('user_id', userId)
-      .select('user_id')
-    if (memberError) throw new Error(memberError.message)
-    if (!removed || removed.length === 0) {
-      throw new Error(i18n.t('chatService.errors.removeMemberFailed', { ns: 'messaging' }))
-    }
+  async removeGroupMember(chatId: string, userId: string): Promise<void> {
+    await (await currentGroupAdmin()).remove(chatId, userId)
   },
 
   /**
    * Create a group chat and add all member IDs (creator becomes owner). Returns the new chat ID.
    * groupPrompt(章程)随建群经 SECURITY DEFINER RPC 一次性写入——chats.group_prompt 无客户端 GRANT UPDATE,建群后分开 update 会 RLS 失败(@@@preset-team)。
    */
-  async createGroupChat(name: string, creatorId: string, memberIds: string[], groupPrompt?: string | null): Promise<string> {
-    return createCoreGroupChat(chatDb, name, creatorId, memberIds, groupPrompt)
+  async createGroupChat(name: string, creatorId: string, memberIds: string[], groupPrompt?: string | null) {
+    const identities = await readDisplayIdentities([...new Set(memberIds)])
+    if (identities.length !== new Set(memberIds).size) throw new Error('Selected group member was not found')
+    return createGroupWithInvitations(chatDb, name, creatorId, await getCurrentAuthUserId(), identities, groupPrompt)
   },
 
   /** Archive a chat so it disappears from getChats() for every member. */
   async archiveChat(chatId: string): Promise<void> {
-    const { error } = await chatDb
-      .from('chats')
-      .update(dbPayload({ status: 'archived' }))
-      .eq('id', chatId)
-    if (error) throw new Error(error.message)
+    await (await currentGroupAdmin()).archive(chatId)
   },
 
   /**
@@ -1216,41 +997,21 @@ export const chatService = {
   },
 
   async postAnnouncement(chatId: string, content: string): Promise<void> {
-    const authorId = await getCurrentAuthUserId()
-    const { error } = await chatDb
-      .from('group_announcements')
-      .insert(dbPayload({ chat_id: chatId, author_id: authorId, content }))
-    if (error) throw new Error(error.message)
+    await (await currentGroupAdmin()).postAnnouncement(chatId, content)
   },
 
-  // @@@announcement-edit (#1115) — admin 改已发公告正文（RLS group_announcements_update_admin 强制权限）。
+  // 管理员编辑公告;使用与 agent 相同的 RPC。
   async editAnnouncement(announcementId: string, content: string): Promise<void> {
-    const text = content.trim()
-    if (!text) throw new Error(i18n.t('chatService.errors.announcementRequired', { ns: 'messaging' }))
-    const { error } = await chatDb
-      .from('group_announcements')
-      .update(dbPayload({ content: text }))
-      .eq('id', announcementId)
-    if (error) throw new Error(error.message)
+    await (await currentGroupAdmin()).updateAnnouncement(announcementId, { content })
   },
 
-  // @@@announcement-pin (#1164 G3) — admin 切换公告置顶/取消置顶。RLS group_announcements_update_admin
-  //   强制 owner/admin；表级 UPDATE GRANT(迁移 20260617030000)已覆盖 pinned 列，无需新迁移。
-  //   getAnnouncements 已 order pinned DESC, created_at DESC → 置顶项自动排到列表顶。
+  // 公告置顶也由共同 RPC 判权。
   async setAnnouncementPinned(announcementId: string, pinned: boolean): Promise<void> {
-    const { error } = await chatDb
-      .from('group_announcements')
-      .update(dbPayload({ pinned }))
-      .eq('id', announcementId)
-    if (error) throw new Error(error.message)
+    await (await currentGroupAdmin()).updateAnnouncement(announcementId, { pinned })
   },
 
   async deleteAnnouncement(announcementId: string): Promise<void> {
-    const { error } = await chatDb
-      .from('group_announcements')
-      .delete()
-      .eq('id', announcementId)
-    if (error) throw new Error(error.message)
+    await (await currentGroupAdmin()).deleteAnnouncement(announcementId)
   },
 
   // @@@announcement-likes (#1115) — 点赞 / 取消（成员均可；RLS announcement_likes_insert_own/delete_own）。

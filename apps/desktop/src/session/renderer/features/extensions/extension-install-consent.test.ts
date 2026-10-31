@@ -62,9 +62,9 @@ const request: ExtensionInstallConsentRequest = {
 
 type Ask = Extract<ExtensionConsentEventDetail, { type: 'ask' }>;
 const ask = (detail: Partial<ExtensionInstallConsentRequest> = {}) =>
-  extensionHostActionHandlers[EXTENSION_INSTALL_CONSENT_METHOD]!({ ...request, ...detail }) as Promise<{ outcome: string; enableIn?: string[] }>;
-const answer = (requestId: string, outcome: string, enableIn?: string[]) =>
-  window.dispatchEvent(new CustomEvent(EXTENSION_CONSENT_ANSWER_EVENT, { detail: { requestId, outcome, ...(enableIn ? { enableIn } : {}) } }));
+  extensionHostActionHandlers[EXTENSION_INSTALL_CONSENT_METHOD]!({ ...request, ...detail }) as Promise<{ outcome: string }>;
+const answer = (requestId: string, outcome: string) =>
+  window.dispatchEvent(new CustomEvent(EXTENSION_CONSENT_ANSWER_EVENT, { detail: { requestId, outcome } }));
 const stillOpen = { outcome: 'still open' };
 const settled = (promise: Promise<unknown>) => Promise.race([promise, Promise.resolve(stillOpen)]);
 
@@ -88,13 +88,13 @@ beforeEach(() => {
 });
 
 describe('extension installation consent contract', () => {
-  it('shows the declared permissions before confirming an install; the places ticked come back', async () => {
+  it('shows the declared permissions before confirming an install; the yes comes back', async () => {
     const promise = ask();
     const shown = events[0] as Ask;
     // Asked on the computer it installs on: no other computer named (D-31).
     expect(consentPrompt).toHaveBeenCalledWith(undefined, [], request.manifest, expect.any(Function), expect.any(String), undefined, undefined);
-    answer(shown.requestId, 'confirmed', ['here:all']);
-    await expect(promise).resolves.toEqual({ outcome: 'confirmed', enableIn: ['here:all'] });
+    answer(shown.requestId, 'confirmed');
+    await expect(promise).resolves.toEqual({ outcome: 'confirmed' });
   });
 
   it('asks again only for a newly reachable host on upgrade', () => {
@@ -186,4 +186,20 @@ describe('extension installation consent contract', () => {
 afterEach(() => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
+});
+
+
+it('fork removal names the App, device and slug, keeps program details and waits for a human', async () => {
+  const details = { label: 'Commands', caption: 'Runs on this device', lines: ['node tools.mjs'] };
+  consentPrompt.mockImplementationOnce(() => ({ title: 'Install Reader?', description: 'New program permission', confirmLabel: 'Install', variant: 'default', details }));
+  const pending = ask({ machine: 'Remote host', removeVariant: { name: 'my-fork', active: true } });
+  const shown = events[0] as Ask;
+  expect(shown.title).toContain('my-fork|Reader|extensions.permissionsOnMachine:Remote host');
+  expect(shown.description).toContain('extensions.removeActiveVariantBody');
+  expect(shown.description).toContain('New program permission');
+  expect(shown.details).toEqual(details);
+  expect(shown.confirmLabel).toBe('extensions.removeVariantConfirm');
+  expect(await settled(pending)).toEqual(stillOpen);
+  answer(shown.requestId, 'declined');
+  await expect(pending).resolves.toEqual({ outcome: 'declined' });
 });

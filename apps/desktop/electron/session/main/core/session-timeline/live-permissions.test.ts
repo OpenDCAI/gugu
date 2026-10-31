@@ -42,8 +42,8 @@ vi.mock('@main/core/acp/runtime-process/host', () => ({
     sessions: { state: () => ({ topic: 'list', value: {} }) },
     session: {
       state: ({ sessionId }: { sessionId: string }, topic: string) => ({
-        topic: topic === 'activeTurn' ? `active:${sessionId}` : `session:${sessionId}`,
-        value: topic === 'activeTurn' ? null : { pendingPermissions: [], queuedPrompts: [], isGenerating: true },
+        topic: topic === 'activeTurn' ? `active:${sessionId}` : topic === 'terminals' ? `terminals:${sessionId}` : `session:${sessionId}`,
+        value: topic === 'terminals' ? [] : topic === 'activeTurn' ? null : { pendingPermissions: [], queuedPrompts: [], isGenerating: true },
       }),
     },
   }),
@@ -83,7 +83,7 @@ describe('watchSessionState', () => {
 
     push('list', { 'conv-late': summary('conv-late') });
     await Promise.resolve();
-    expect(replicas.map((r) => r.topic)).toEqual(['list', 'session:conv-late', 'active:conv-late']);
+    expect(replicas.map((r) => r.topic)).toEqual(['list', 'session:conv-late', 'terminals:conv-late', 'active:conv-late']);
 
     const queuedPrompt = { id: 'qp-1', text: '排着的那句', createdAt: 1, updatedAt: 1 };
     push('session:conv-late', { pendingPermissions: [permission], queuedPrompts: [queuedPrompt] });
@@ -99,6 +99,26 @@ describe('watchSessionState', () => {
 
     watch!.dispose();
     expect(replicas.every((r) => r.disposed)).toBe(true);
+  });
+
+  it('hydrates terminals independently of tool references and clears them with the runtime session', async () => {
+    const seen: unknown[] = [];
+    const activeTurns: unknown[] = [];
+    const watch = await watchSessionState('terminal', (_requests, _queue, _reply, terminals, activeTurn) => { seen.push(terminals); activeTurns.push(activeTurn ?? null); });
+    push('list', { terminal: summary('terminal') });
+    await Promise.resolve();
+    const terminal = { terminalId: 'orphan', owner: 'agent', canKill: false, command: 'echo', args: [], cwd: '/w', output: 'complete', truncated: false, exitStatus: { exitCode: 0, signal: null } };
+    push('terminals:terminal', [terminal]);
+    expect(seen.at(-1)).toEqual([terminal]);
+    const active = { id: 'live-turn', seq: 1, initiator: 'user', items: [] };
+    push('active:terminal', active);
+    expect(activeTurns.at(-1)).toEqual(active);
+    expect(seen.at(-1)).toEqual([terminal]);
+    push('list', { terminal: summary('terminal', 'closed') });
+    expect(seen.at(-1)).toEqual([]);
+    expect(activeTurns.at(-1)).toBeNull();
+    watch.dispose();
+    expect(replicas.every(replica => replica.disposed)).toBe(true);
   });
 
   it('re-attaches on the next list change when attaching the session state failed once', async () => {

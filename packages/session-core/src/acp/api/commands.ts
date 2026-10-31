@@ -108,7 +108,7 @@ export const startSessionCommandSchema = z.object({ input: acpStartInputSchema }
 export const resumeSessionCommandSchema = z.object({
   input: acpStartInputSchema.extend({ providerSessionId: z.string() }),
 });
-export const stopSessionCommandSchema = z.object({ sessionId: z.string() });
+export const stopSessionCommandSchema = z.object({ sessionId: z.string(), onlyIfIdle: z.boolean().optional() });
 export const sendPromptCommandSchema = z.object({
   sessionId: z.string(),
   prompt: promptInputSchema,
@@ -174,6 +174,7 @@ export const exportAcpTranscriptCommandSchema = z.object({ sessionId: z.string()
 export const exportRawAcpLogCommandSchema = exportAcpTranscriptCommandSchema;
 
 export const uploadAttachmentCommandSchema = z.object({
+  uploadId: z.uuid().optional(),
   originalPath: z.string().optional(),
 });
 export const uploadAttachmentResponseSchema = attachmentRefSchema;

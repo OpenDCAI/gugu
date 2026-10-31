@@ -1,6 +1,7 @@
 import { compatOf, pickForHost, type CloudMarketEntry, type MarketCodeSource, type MarketHost, type MarketIndex, type MarketIndexVersion, type MarketUpdatesSummary, type MarketVersionHistoryEntry } from '../../session/shared/extensions/market'
 import { marketEntriesFrom, marketHistoryFrom, marketUpdatesFrom } from '../../session/shared/extensions/market-entries'
 import { marketSnapshotSource, type MarketRefreshed, type MarketSnapshotStore } from '../../session/shared/extensions/market-snapshot'
+import { appPlatformDeclarationProblems, requireAppPlatform } from '../../session/shared/extensions/app-platforms'
 
 /**
  * The App market as the phone reads it (L9; 161 10-15: the phone installs market Apps). The same `market/index.json` the
@@ -24,6 +25,10 @@ export interface MarketPackage {
 export interface PhoneMarket {
   /** Every App the market offers this phone (the index taken now when `fresh`, else the one in hand). */
   entries(fresh?: boolean): Promise<CloudMarketEntry[]>
+  /** This published version's README, including its market screenshot URLs. */
+  readme(extensionId: string, version: string): Promise<string | null>
+  /** One file under the market's `media/` (a README screenshot), through the shell: the page cannot read its bytes itself. */
+  media(relativePath: string): Promise<Uint8Array>
   /** Every version of one App, newest first, each with whether this phone can install it — the desktop's version history. */
   history(extensionId: string): Promise<MarketVersionHistoryEntry[]>
   /** Updates, withdrawn versions, deprecations for these installed Apps — from the index in hand. */
@@ -41,11 +46,23 @@ export function phoneMarket(
   host: () => MarketHost,
   store: MarketSnapshotStore,
   onRefreshFailure?: (error: unknown) => void,
+  urlOf: (relativePath: string) => string = (relativePath) => relativePath,
 ): PhoneMarket {
   const snapshot = marketSnapshotSource({ readIndex: async () => new TextDecoder().decode(await read('index.json')), store, onFailure: onRefreshFailure })
   const index = async (fresh: boolean): Promise<MarketIndex> => (await (fresh ? snapshot.fresh() : snapshot.current())).index
   return {
-    entries: async (fresh = false) => marketEntriesFrom((await index(fresh)).apps, host(), (relativePath) => relativePath).extensions,
+    entries: async (fresh = false) => {
+      const apps = (await index(fresh)).apps
+      return marketEntriesFrom(apps, host(), urlOf).extensions
+    },
+    readme: async (extensionId, version) => {
+      const path = (await index(false)).apps.find((app) => app.id === extensionId)?.versions.find((entry) => entry.version === version)?.readme
+      return path ? new TextDecoder().decode(await read(path)) : null
+    },
+    media: async (relativePath) => {
+      if (!relativePath.startsWith('media/')) throw new Error(`Not a market media path: ${relativePath}`)
+      return read(relativePath)
+    },
     history: async (extensionId) => marketHistoryFrom((await index(false)).apps.find((app) => app.id === extensionId) ?? null, host()),
     updatesFor: async (installed) => marketUpdatesFrom(await index(false), host(), installed, new Date().toISOString()),
     refresh: () => snapshot.refresh(),
@@ -55,9 +72,10 @@ export function phoneMarket(
       if (!app) throw new Error(`The market has no App "${extensionId}"`)
       const row: MarketIndexVersion | null = version
         ? (app.versions.find((entry) => entry.version === version) ?? null)
-        : pickForHost(app.versions, host()).chosen
+        : pickForHost(app.versions.filter((entry) => appPlatformDeclarationProblems(entry.manifest, 'phone').length === 0), host()).chosen
       if (!row) throw new Error(`${extensionId}${version ? `@${version}` : ''} is no longer available in the market`)
       if (row.yanked) throw new Error(`${extensionId}@${row.version} was withdrawn: ${row.yanked.reason}`)
+      requireAppPlatform(row.manifest, 'phone')
       const compat = compatOf(row, host())
       if (compat) {
         throw new Error(

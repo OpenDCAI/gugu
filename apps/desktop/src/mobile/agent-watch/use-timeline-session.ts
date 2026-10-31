@@ -32,6 +32,8 @@ export type SessionpageTimelineClient = {
   subscribeSession(deviceId: string, sessionId: string, subscriptionId: string, cursor: RecordCursor | null): Promise<unknown>
   unsubscribeSession(deviceId: string, subscriptionId: string): Promise<unknown>
   subscribeSessionEvents(deviceId: string, subscriptionId: string, onResult: (result: TimelineAfterResult) => void): () => void
+  /** A transport that reads incrementally itself can expose a precise read failure. */
+  subscribeSessionErrors?(deviceId: string, subscriptionId: string, onError: (error: unknown) => void): () => void
   /** 到那台机器的窗口断了 / 又通了。又通 = 那边已拆了这条窗口上的订阅,要重订。 */
   onLinkChange(deviceId: string, cb: (open: boolean) => void): () => void
   sendSessionText(
@@ -41,6 +43,10 @@ export type SessionpageTimelineClient = {
   ): Promise<unknown>
   cancelSessionTurn(deviceId: string, sessionId: string): Promise<{ cancelled: boolean }>
   respondToSettlement(deviceId: string, input: SessionpageSessionRespondRequest): Promise<SessionpageSessionRespondResult>
+  /** 运行时说还在跑的后台命令(`null` = 没报、不筛);老版本电脑没有这条路由会抛。 */
+  fetchBackgroundTasks?(deviceId: string, sessionId: string): Promise<{ runningCommandTaskIds: string[] | null }>
+  /** 停一个后台任务(命令给 asyncTaskId,子智能体给派它的 tool_use id)。 */
+  stopBackgroundTask?(deviceId: string, sessionId: string, stopId: string): Promise<{ stopped: true }>
 }
 
 /** 设备接口报的错带 code(跨 bundle 时 instanceof 不可靠,按形状认)。 */
@@ -81,7 +87,7 @@ export type AgentWatchSession = {
   send: (text: string) => Promise<void>
   /** 已按发送、记录里还没回来的那几句(见 pending-sends.ts),按发送先后。回显到了就不在这里了。 */
   pendingSends: readonly PendingSend[]
-  respond: (input: SettlementResponse) => Promise<void>
+  respond: (input: SettlementResponse) => Promise<SessionpageSessionRespondResult>
   sending: boolean
   respondingItemId: string | null
   /** 停掉正在飞的一轮(桌面端同一条取消口)。受理即返回;是否真停了看时间线结算。 */
@@ -266,6 +272,14 @@ export function useTimelineSession(
       if (cancelled || !readyRef.current) return
       applyResult(result)
     })
+    const stopErrors = client.subscribeSessionErrors?.(deviceId, subscriptionId, (err) => {
+      if (cancelled) return
+      setLink('lost')
+      const code = rpcErrorCode(err)
+      if (code === null || TRANSIENT_LOAD_CODES.has(code)) return
+      setError(describe(err))
+      setErrorCode(code)
+    })
     // 窗口断了:标断开;又通了:那台机器已经拆了这条订阅(订阅跟着窗口生灭),整个重来 —— 手里有游标就只重订 + 补差量。
     const stopLink = client.onLinkChange(deviceId, (open) => {
       if (cancelled) return
@@ -348,6 +362,7 @@ export function useTimelineSession(
       readyRef.current = false
       document.removeEventListener('visibilitychange', onVisible)
       stopEvents()
+      stopErrors?.()
       // 走之前把手里这份存下来:下次进来第一帧就有东西。
       const current = timelineRef.current
       if (current.cursor && current.turns.length > 0) writeCachedTimeline(cacheKey, current)
@@ -394,7 +409,7 @@ export function useTimelineSession(
 
   /**
    * 一张工具图去机器上取一次:取到的写回条目,和时间线一起存在手机上(timeline-cache),重开不重取。
-   * 要不要取由图格看时间线定(AgentThread `ToolImagesInHand`,和时间线同一次提交);这里只记**正在取的那一问**,
+   * 要不要取由图格看时间线定(共享转录的工具图格,和时间线同一次提交);这里只记**正在取的那一问**,
    * 同一张的问合成一问。这一问活到答复被用掉:写回的 updater 里放手 —— 写进去了,图格在同一次提交里就看到它;
    * 写不进去(取的途中条目离开了手里这份:换了会话、换代快照没带那一轮),答复作废,条目回来时那一格再取。
    * ❌ 回包一到就放手:写回还排在下一次渲染里的那一小段,图格照旧没有它,会再问一遍(2026-10-15 mac1 实测每阶段
@@ -487,7 +502,7 @@ export function useTimelineSession(
   }, [client, deviceId, sessionId])
 
   const respond = useCallback(async (input: SettlementResponse) => {
-    if (!deviceId || !sessionId) return
+    if (!deviceId || !sessionId) throw new Error('No session is available to answer this question')
     setRespondingItemId(input.itemId)
     setActionError(null)
     try {
@@ -495,6 +510,7 @@ export function useTimelineSession(
       // 抢跑成功与失败都带回**那条权威结算**:失败时它是别人先答下的那条,
       // 端上据此显示「已在某端回答」。所以这里不分支,直接并进去。
       setTimeline((current) => applyLocalSettlement(current, result.settlement))
+      return result
     } catch (err) {
       setActionError(describe(err))
       throw err

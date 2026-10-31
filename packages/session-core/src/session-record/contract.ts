@@ -1,11 +1,13 @@
+import type { TerminalState } from '../acp/models/terminals';
+import { textFilePatch } from '../lib/text-diff';
+import type { SessionPatch } from '../acp/session-protocol';
+import type { PermissionSubject } from '../acp/models/permissions';
 /**
  * 会话记录（session record）契约 —— product spec 的读侧骨架。
  *
  * 定性：手机/桌面看到的「同一份时间线」来自 harness 自己留在机器上的会话记录，
- * 不来自咕咕怎么把它拉起来。三家的记录形态不同（Claude / Codex 是 JSONL 文件，
- * opencode 是 SQLite 库），但都被解码成 **ACP `SessionUpdate`** 形状喂进现有的
- * `AcpTranscriptParser`（packages/session-core/src/acp/reducer），产出同一种
- * `TranscriptTurn[]`。❌ 不另造一套消息模型，❌ 不改 reducer。
+ * 不来自咕咕怎么把它拉起来。各家的 JSONL / SQLite 原生记录直接解码成领域事件，
+ * 喂进 `AcpTranscriptParser`，产出同一种 `TranscriptTurn[]`。记录源不构造 ACP 通知。
  *
  * 分层：
  *   SessionRecordSource（一家一个：定位文件/库、尾读、解码成 RecordEntry）
@@ -15,9 +17,10 @@
  *
  * 只写 JSON 可序列化的东西：每一个类型都会经 Realtime 广播到手机。
  */
-import type { SessionUpdate } from '@agentclientprotocol/sdk';
+import type { NormalizedEvent } from '../acp/reducer/normalized-event';
 import type { TranscriptItem, TranscriptTurn } from '../acp/models/turns/turn';
 import type { QueuedPrompt } from '../acp/models/prompt';
+import type { ToolImageLookup } from '../acp/models/turns/tool-calls';
 import type { SessionLiveReply } from './live-reply';
 export type { SessionLiveReply } from './live-reply';
 
@@ -27,7 +30,112 @@ export type { SessionLiveReply } from './live-reply';
  * person answers it wherever they follow that session, and the first answer settles it (`respond`). `kind` says how a
  * surface draws it; `payload` is that kind's own.
  */
-export type HostAsk = { kind: 'app-install' | 'agent-question'; payload: unknown };
+export const ASK_SOURCES = ['harness-permission', 'harness-question', 'agent-question', 'app-install'] as const;
+export type AskSource = (typeof ASK_SOURCES)[number];
+export type AskOrigin = { source: AskSource; payload?: unknown };
+
+/**
+ * 协议 12 的宿主把 `origin` 叫 `host`(`{kind, payload}`,97ca6e73 改名):新的一端收进来时照新名读 ——
+ * 两边差一档时由新的一侧降级(serverMachineHealth.ts「向下兼容一档」),❌ 让装 App / agent 提问画成光秃秃的权限卡。
+ */
+export function settlementFromWire<T extends { origin?: AskOrigin }>(settlement: T): T {
+  const legacy = (settlement as { host?: { kind?: unknown; payload?: unknown } }).host;
+  if (settlement.origin || !legacy || !(ASK_SOURCES as readonly unknown[]).includes(legacy.kind)) return settlement;
+  return { ...settlement, origin: { source: legacy.kind as AskSource, payload: legacy.payload } };
+}
+
+/**
+ * ⚠️ 协议下次升级时删掉(同 settlementFromWire,「向下兼容一档、新的一侧降级」;删它就删这一个 helper 和它的调用点)。
+ *
+ * 协议 15 把改文件的三种实体(14 的 create/modify/delete-file-tool-call)换成一个规范 patch 实体。差一档的两端在线上互通:
+ *  · `from-peer`:14 的宿主发来的旧实体换成 patch(14 本来就带前后文本,`textFilePatch` 换算是精确的);
+ *  · `to-peer`:发给 14 的端时,patch 实体换回 14 自己的改文件实体 —— 一个文件一条(14 的 reducer 也是这么拆的,
+ *    id 同 14 的 makeDiffId),前后文本按 14 原来的读法从 hunk 还原(14 的 unifiedDiffTexts:只有改动附近那几段,
+ *    14 一直就是这么显示的),所以 14 的界面照样是文件卡 + 增删计数。没带 patch 文本的那块 ⇒ 通用工具行,
+ *    ❌ 编造 14 要的文本。
+ * 对端是 15 及以上 = 原样返回同一个引用(15↔15 不经过这里)。渲染层只认 15 的 patch 实体。
+ */
+export const FILE_PATCH_PROTOCOL = 15;
+export function protocol14FileChanges<T>(value: T, peerProtocol: number, direction: 'from-peer' | 'to-peer'): T {
+  if (peerProtocol >= FILE_PATCH_PROTOCOL) return value;
+  const convert = direction === 'from-peer' ? fileToolFrom14 : patchToolTo14;
+  const walk = (node: unknown): unknown => {
+    if (Array.isArray(node)) {
+      // One 14 patch entity can become several 14 entities (one per file): they take its place in the list.
+      const next = node.flatMap(item => { const walked = walk(item); return Array.isArray(walked) && !Array.isArray(item) ? walked : [walked]; });
+      return next.length !== node.length || next.some((item, i) => item !== node[i]) ? next : node;
+    }
+    if (!node || typeof node !== 'object') return node;
+    const record = node as Record<string, unknown>;
+    let changed = false;
+    const entries = Object.entries(record).map(([key, child]) => {
+      const next = walk(child);
+      if (next !== child) changed = true;
+      return [key, next] as const;
+    });
+    const walked = changed ? Object.fromEntries(entries) : record;
+    return convert(walked) ?? walked;
+  };
+  return walk(value) as T;
+}
+
+function fileToolFrom14(node: Record<string, unknown>): Record<string, unknown> | null {
+  const { kind, path, content, oldText, newText, ...rest } = node;
+  if (typeof path !== 'string') return null;
+  // 14 trims one trailing newline from both texts as a display convention (withoutTrailingNewline); restore it on both
+  // sides, or the unchanged last line reads as removed and re-added (+1 −1 against 14↔14).
+  const lines = (text: string) => text && !text.endsWith('\n') ? `${text}\n` : text;
+  const block = kind === 'create-file-tool-call' && typeof content === 'string' ? textFilePatch(path, null, lines(content))
+    : kind === 'modify-file-tool-call' && typeof oldText === 'string' && typeof newText === 'string' ? textFilePatch(path, lines(oldText), lines(newText))
+    // 14 的删除不带内容:只说删了哪个路径,❌ 编一份被删的全文。
+    : kind === 'delete-file-tool-call' ? { type: 'diff', changes: [{ operation: 'delete', path }], scope: 'unknown' }
+    : null;
+  return block ? { ...rest, kind: 'patch-tool-call', contentBlocks: [block] } : null;
+}
+
+function patchToolTo14(node: Record<string, unknown>): Record<string, unknown> | Record<string, unknown>[] | null {
+  if (node.kind !== 'patch-tool-call') return null;
+  const { contentBlocks, ...rest } = node;
+  const diffs = (Array.isArray(contentBlocks) ? contentBlocks : []).filter((block): block is SessionPatch => block?.type === 'diff');
+  const files = diffs.flatMap((diff) => {
+    const change = diff.changes.length === 1 ? diff.changes[0] : undefined;
+    const path = change && typeof change.path === 'string' ? change.path : undefined;
+    if (!path) return [];
+    if (change!.operation === 'delete') return [{ kind: 'delete-file-tool-call', path }];
+    const texts = diff.patch ? hunkTexts(diff.patch.text) : null;
+    if (!texts) return [];
+    return [change!.operation === 'add'
+      ? { kind: 'create-file-tool-call', path, content: texts.newText }
+      : { kind: 'modify-file-tool-call', path, oldText: texts.oldText, newText: texts.newText }];
+  });
+  if (!files.length || files.length !== diffs.length) {
+    // 没有 14 能认的改文件信息:通用工具行,输出是原始 patch 文本。
+    const text = diffs.map(diff => diff.patch?.text ?? '').filter(Boolean).join('\n');
+    const title = typeof rest.title === 'string' && rest.title ? rest.title : 'Edit';
+    return { ...rest, kind: 'unknown-tool-call', name: title, toolKind: typeof rest.toolKind === 'string' ? rest.toolKind : 'edit',
+      ...(text ? { outputText: text } : {}) };
+  }
+  return files.length === 1 ? { ...rest, ...files[0] }
+    : files.map(file => ({ ...rest, ...file, id: `${String(rest.id)}:${file.path}` }));
+}
+
+/** 14 的读法(unifiedDiffTexts):hunk 里的行还原成改前/改后两段;多段首尾相接,行尾那个换行去掉。 */
+function hunkTexts(patch: string): { oldText: string; newText: string } | null {
+  const before: string[] = [];
+  const after: string[] = [];
+  let inHunk = false;
+  for (const line of patch.split('\n')) {
+    if (line.startsWith('@@')) { inHunk = true; continue; }
+    if (line.startsWith('diff --git ')) { inHunk = false; continue; }
+    if (!inHunk || line.startsWith('\\')) continue;
+    if (line.startsWith('-')) before.push(line.slice(1));
+    else if (line.startsWith('+')) after.push(line.slice(1));
+    else { const text = line.startsWith(' ') ? line.slice(1) : line; before.push(text); after.push(text); }
+  }
+  if (!inHunk && !before.length && !after.length) return null;
+  const trim = (text: string) => text.endsWith('\n') ? text.slice(0, -1) : text;
+  return { oldText: trim(before.join('\n')), newText: trim(after.join('\n')) };
+}
 import type { TimelineArchive } from './timeline';
 import type { InstallationReading } from '../host-dependencies/runtime/types';
 
@@ -119,13 +227,14 @@ export const RECORD_KEY_BOUNDARY_SUFFIX = '#end';
  *   qwen     → `system/branch_checkpoint`(ACP 腿上以 `end_turn` 结束才写;终端腿没有结束记号)
  *   pi       → assistant 消息的 `stopReason`（`toolUse` 同 claude 的 `tool_use`;`aborted` = 打断）
  */
-export type RecordBoundary =
+/** The ending message ID also identifies fragments recorded after that end. */
+export type RecordBoundary = { messageId?: string } & (
   /** 正常收尾。`stopReason` 是 provider 自己的说法，映射到 ACP 的那五种。 */
   | { kind: 'turn_end'; stopReason?: 'end_turn' | 'max_tokens' | 'max_turn_requests' | 'refusal' }
   /** 被打断（用户 ESC、进程被杀）。 */
   | { kind: 'turn_aborted' }
   /** 没做完：harness 自己记下的报错（claude 的 `isApiErrorMessage` 行）。 */
-  | { kind: 'turn_failed' };
+  | { kind: 'turn_failed' });
 
 /**
  * 一条解码后的记录。`key` 是跨来源身份键：同一件事从两个来源各报一次也只算一次。
@@ -134,12 +243,31 @@ export type RecordBoundary =
  *   opencode → `opencode:<message id>` / `opencode:<part id>`
  * `at` 是 provider 自己的时钟（epoch ms），拿不到就不填，❌ 拿 Date.now() 冒充。
  *
- * 两种形态二选一：带 `update` 的是**内容**（喂 reducer），带 `boundary` 的是**边界**
+ * 两种形态二选一：带 `event` 的是**内容**（喂 reducer），带 `boundary` 的是**边界**
  * （不进时间线，只关掉当前这一轮）。❌ 不许一条同时是两者 —— 那样"这条要不要去重"没有答案。
  */
 export type RecordEntry =
-  | { key: string; at?: number; update: SessionUpdate; boundary?: never }
-  | { key: string; at?: number; boundary: RecordBoundary; update?: never };
+  | { key: string; at?: number; event: NormalizedEvent; boundary?: never; imageOrigins?: readonly (RecordImageRef | null)[] }
+  | { key: string; at?: number; boundary: RecordBoundary; event?: never; imageOrigins?: never };
+
+/**
+ * 一张工具图在记录文件里的原文位置:那段 base64 正文从哪个字节起、多少个字。`imageOrigins` 与这条 `tool_update`
+ * 的 `images` 一一对齐(找不到原文的那一张是 null)。
+ *
+ * 为什么(#980):图本来就在记录里,时间线存档再抄一份,存档 72–96% 是 base64(一份 50MB 的存档里 36MB 是图),
+ * 每次冷开都要整份读进来再解析。存档只记位置,图要看时再按位置从记录里读回来。
+ * 读回来先核首尾各一小段:对不上(文件被改写过)就当取不到,❌ 不许把别的字节当图交出去。
+ */
+export type RecordImageRef = {
+  readonly path: string;
+  /** base64 正文第一个字节在文件里的位置。 */
+  readonly start: number;
+  /** base64 字数;全是 ASCII,也就是字节数。 */
+  readonly chars: number;
+  /** 正文开头与结尾各一小段,读回来核对用。 */
+  readonly head: string;
+  readonly tail: string;
+};
 
 export interface SessionRecordSourceEvents {
   /** 新解码出的记录，按记录里的先后顺序。 */
@@ -180,6 +308,8 @@ export interface SessionRecordSource {
   resumePoint?(): Promise<SessionRecordResume | null>;
   /** 立刻把尾读追到文件尾,读完(行已交给 onEntries)才返回。不支持的源没有这个口。 */
   catchUp?(): Promise<void>;
+  /** 按 `imageOrigins` 给的位置把一张图从记录里读回来;读不到或核对不上回 null。不支持的源没有这个口。 */
+  readImage?(ref: RecordImageRef): Promise<string | null>;
   stop(): void;
 }
 
@@ -221,6 +351,7 @@ export type Settlement = {
   title?: string;
   /** 次要说明（命令行、路径、提问的补充）。 */
   detail?: string;
+  subject?: PermissionSubject | null;
   /** 可选项。空或缺省 ⇒ 手机不渲染可点按钮。 */
   options?: readonly SettlementOption[];
   /**
@@ -233,7 +364,12 @@ export type Settlement = {
   /** 记录里这道题已经有了结果(答了或拒了)—— 终端里的选择器已经关了。只对带 `questions` 的项记。 */
   resultRecorded?: boolean;
   /** D-31 宿主替 agent 问的那一种(装 App):端上画它自己的卡,答案经 `respond` 交回宿主。 */
-  host?: HostAsk;
+  origin?: AskOrigin;
+  /**
+   * 协议 12 的端读的旧名(`origin` 之前叫 `host: {kind, payload}`,只给宿主替 agent 问的那两种):新宿主照旧带上,
+   * 老桌面 / 老手机连上来时装 App、agent 提问照旧画成自己的卡(向下兼容一档,新的一侧负责降级)。新端只读 `origin`。
+   */
+  host?: { kind: 'app-install' | 'agent-question'; payload?: unknown };
   state: SettlementState;
   optionId: string | null;
   resolvedBy: string | null;
@@ -267,9 +403,9 @@ export function remoteSettlementGap(
   kind: Settlement['kind'],
   questions?: Settlement['questions'],
   /** D-31 The host's own ask: settled by the host, on either kind of session. */
-  host?: Settlement['host']
+  origin?: Settlement['origin']
 ): 'no_permission_channel' | 'no_question_channel' | null {
-  if (host) return null;
+  if (origin && origin.source !== 'harness-permission' && origin.source !== 'harness-question') return null;
   if (kind === 'question' && questions) return null;
   if (runtime !== 'acp') return 'no_permission_channel';
   return kind === 'question' ? 'no_question_channel' : null;
@@ -289,9 +425,11 @@ export type TimelineSnapshot = {
    * 已发出、还排着没被 agent 接走的输入 —— 与桌面「Queued prompts」同一份（ACP 腿：宿主运行时的队列）。
    * 每次都是此刻的全集；缺省 = 宿主太旧，不报队列。终端腿不投影（owner 2026-10-04）。
    */
-  queuedPrompts?: Pick<QueuedPrompt, 'id' | 'text'>[];
+  queuedPrompts?: Pick<QueuedPrompt, 'id' | 'text' | 'queueEdit'>[];
   /** Actual in-flight reply stage; absent on older hosts, null when no live reply is present. */
   liveReply?: SessionLiveReply | null;
+  /** Live presentation only; not serialized into the native-record archive. */
+  terminals?: readonly TerminalState[];
 };
 
 /**
@@ -333,9 +471,11 @@ export type TimelineBatch = {
   /** Newest known tool-action timestamp, including actions outside the window. */
   lastActionAt?: number | null;
   /** 同快照的 `queuedPrompts`：每一批都带此刻的全集。 */
-  queuedPrompts?: Pick<QueuedPrompt, 'id' | 'text'>[];
+  queuedPrompts?: Pick<QueuedPrompt, 'id' | 'text' | 'queueEdit'>[];
   /** Actual in-flight reply stage; absent on older hosts, null when no live reply is present. */
   liveReply?: SessionLiveReply | null;
+  /** Live presentation only; not serialized into the native-record archive. */
+  terminals?: readonly TerminalState[];
 };
 
 export type TimelineAfterResult =
@@ -371,12 +511,13 @@ export type PendingRequest = {
   kind: 'permission' | 'question';
   title: string;
   detail?: string;
+  subject?: PermissionSubject | null;
   options: readonly SettlementOption[];
   /** Host-owned structured question, answerable on every harness. */
   questions?: readonly SettlementQuestion[];
   askedAt?: number;
   /** D-31 宿主替 agent 问的(不是它的 harness 问的):端上按 `host.kind` 画它自己的卡。 */
-  host?: HostAsk;
+  origin?: AskOrigin;
 };
 
 export type SettleResult = { ok: true; settlement: Settlement } | { ok: false; existing: Settlement };
@@ -411,8 +552,9 @@ export interface SessionTimeline {
   /**
    * 宿主把**活运行时**里这条会话的排队提示（`session.state` 的 `queuedPrompts`）整份同步进来（ACP 腿）。
    */
-  syncQueuedPrompts(prompts: readonly Pick<QueuedPrompt, 'id' | 'text'>[]): void;
+  syncQueuedPrompts(prompts: readonly Pick<QueuedPrompt, 'id' | 'text' | 'queueEdit'>[]): void;
   syncLiveReply(reply: SessionLiveReply | null): void;
+  syncTerminals(terminals: readonly TerminalState[]): void;
 
   /** 一个 item 已由 provider 侧了结（超时、取消）时由宿主调用。终态，❌ 不能再答。 */
   cancelSettlement(itemId: string): void;
@@ -426,6 +568,11 @@ export interface SessionTimeline {
    */
   releaseSettlement(itemId: string): void;
   dispose(): void;
+  /**
+   * 某个工具条目交回来的第 `index` 张图。存档装回来的轮里图只剩类型和字数(`imageRefs`),这里按位置从记录里读回来;
+   * 读不回来如实回 `no_such_image`,与图不在了是同一种降级。没有这个口的时间线,调用方自己在快照里找(`findToolImage`)。
+   */
+  toolImage?(input: { itemId: string; index: number; maxChars?: number }): Promise<ToolImageLookup>;
   /**
    * 交出此刻的存档，供宿主存盘、下次开这条会话时直接装回来。
    * 返回 null = 这条时间线存不了（记录源不支持续读）——那只是慢，不是错。
@@ -442,8 +589,8 @@ export interface SessionTimeline {
 // 文件工具、有自己的工具)。
 
 export const AGENT_SESSION_ACTIONS = [
-  'peers', 'locate', 'list_harnesses', 'list_models', 'spawn', 'children', 'message',
-  'get', 'stop', 'archive', 'set_parent', 'app_install', 'read_file', 'app_call',
+  'activity_list', 'activity_context', 'peers', 'locate', 'list_harnesses', 'list_models', 'spawn', 'children', 'message',
+  'get', 'stop', 'archive', 'set_parent', 'app_install', 'app_manage', 'read_file', 'app_call',
   'project_list', 'project_create', 'project_get', 'project_add_folder', 'project_remove_folder',
   'project_remove_device', 'project_restore_device', 'project_prepare_device', 'project_bind_folder',
 ] as const;
@@ -491,6 +638,10 @@ export type RemoteCaller = RemoteSessionCaller | RemoteAppCaller;
 /** App 发消息的送法(`messageAgent` 的 queue / defer / key):本机这台和别的机器上同一份。 */
 export type AppMessageOptions = { delivery?: 'queue' | 'defer'; key?: string };
 export type AppMessageReceipt = { id: string; deferred?: true };
+/** An App starts an agent on another computer through the same App spawn core. */
+export type AppSpawnAction = { action: 'spawn'; prompt: string; spawn: {
+  title?: string; harness?: string; model?: string; transport?: 'acp' | 'pty'; project?: string; chat?: string; device?: string;
+} };
 /** App 调用方给一条会话发消息(会话 id 由发起方从那台机器的会话列表里取)。 */
 export type AppMessageAction = { action: 'message'; session_ids: [string]; text: string } & AppMessageOptions;
 /** App 调用方读一条会话工作副本里的一块(#6264 的块,路径相对那份工作副本;`files:read:all-machines`)。 */
@@ -505,7 +656,9 @@ export type AppReadFileAction = { action: 'read_file'; session_id: string; path:
 export type AppCallAction = {
   action: 'app_call';
   call_id: string;
-  session_id: string;
+  session_id?: string;
+  /** Explicit machine target when the call is not attached to a session. Exactly one target is present. */
+  device_id?: string;
   version: string;
   method: string;
   args: Record<string, unknown>;
@@ -578,9 +731,18 @@ export type SessionpageSessionReloadModelRequest = {
   modelSource: 'platform' | 'own';
 };
 
-export type SessionpageProjectSummary = { id: string; name: string; path: string };
+/** `kind: 'workspace'`(#609):咕咕自己要用的目录(任务工作区、替人登记的 ~),不是项目 —— 它的会话列在「任务」里。 */
+export type SessionpageProjectSummary = { id: string; name: string; path: string; kind?: 'workspace' };
 
 export type SessionpageSessionSummary = {
+  /** The host preserves clientMessageId on raw session inputs. Absent on older hosts. */
+  nativeInputVersion?: 1;
+  /** Live native activity, not a second IM row. Offline heartbeat digests carry no message text. */
+  nativeLastMessage?: { text: string; at: string } | null;
+  /** Raw personal conversation replies. IM deliveries keep their existing unread counter. */
+  nativeUnreadKeys?: string[];
+  nativeUnreadCount?: number;
+  nativeUnreadAliases?: Record<string, string>;
   conversationId: string;
   projectId: string;
   title: string;
@@ -632,6 +794,8 @@ export type SessionpageSessionSummary = {
   activitySourceLinks?: readonly string[];
   /** 这条会话的 agent(本机名录的绑定,没有身份 = null)。只带 id:显示名只在云端 `identity.users`,看的一端按 id 取。老宿主不带。 */
   agent?: { userId: string } | null;
+  /** 宿主提供的真实咕咕私聊；手机 Agent 可通过它继续任务，独立于 workspace 转录支持。 */
+  chatId?: string;
   /** 起它的 App(`spawnedByExtensionId`);App 列 agent 时由发起方比对成「是不是我起的」。老宿主不带。 */
   spawnedByExtensionId?: string | null;
   /**
@@ -699,6 +863,8 @@ export type SessionpageHarnessOption = {
    * 照列不藏,标出来点不动 —— 与「没装」同一条口径。
    */
   watchable: boolean;
+  /** 可在 Agent 的真实咕咕对话中继续任务；不代表支持 workspace 转录。 */
+  chatAvailable?: boolean;
 };
 
 /**
@@ -727,7 +893,7 @@ export type SessionpageSessionCreateOptions = {
 export type SessionpageSessionCreateModelsRequest = {
   /** provider id，取自 `sessionCreateOptions` 报的那一份。 */
   harness: string;
-  /** 目录按腿算(咕咕那组 provider × 腿),所以要说清是哪种展示;不给 = 这家给的第一种。 */
+  /** 目录按腿算(咕咕那组 provider × 腿);不给 = 那台电脑按自己的「终端」开关定(开 → 编程,关 → 通用),这家不给那种就取它给的第一种。 */
   sessionView?: SessionpageSessionView;
   /** 已选的模型(与 create 请求同一套编码);推理档按模型算(桌面同一条),没选就按默认模型。 */
   model?: string;
@@ -876,6 +1042,10 @@ export function guguReasonInText(text: string | null | undefined): GuguCatalogRe
 }
 
 export type SessionpageSessionCreateRequest = {
+  /** 支持持久创建重试的宿主使用同一个请求 id，避免回复丢失后重复建身份。 */
+  clientRequestId?: string;
+  /** 可选的预设名字；不提供时由宿主命名。 */
+  title?: string;
   /**
    * 建在哪个项目下。与 `projectPath` 二选一:给了 id 就用那台机器上已有的项目;
    * 只给 `projectPath` = 那台机器上的一个目录,没登记过就当场登记成项目(与远端建 agent 同一条规则,
@@ -893,7 +1063,7 @@ export type SessionpageSessionCreateRequest = {
   model?: string;
   /** 第一句话。空的不建 —— 一条没有开场白的会话建出来就是个空壳。 */
   prompt: string;
-  /** 展示;不给 = 这家给的第一种(通用优先)。须在 `sessionViews` 里。 */
+  /** 展示;不给 = 那台电脑按自己的「终端」开关定(开 → 编程,关 → 通用),这家不给那种就取它给的第一种。给了须在 `sessionViews` 里。 */
   sessionView?: SessionpageSessionView;
   /** 咕咕权限档;不给 = 这家的默认。须在该 harness 的 `permissionModes` 里。 */
   permissionMode?: SessionpagePermissionMode;
@@ -901,6 +1071,13 @@ export type SessionpageSessionCreateRequest = {
   effort?: string;
   /** 生在哪个群里(群成员里「新建 Agent」):它的身份第一次建出来时进这个群,群规照常生效。老宿主不认这一格。 */
   chatId?: string;
+  /**
+   * 派任务(gugu-dev#181):第一句由那台机器落成这个对话里的一张任务卡,agent 进群坐任务座位(与 `chatId` 同给)。
+   * 老宿主不认这一格。
+   */
+  taskChatId?: string;
+  /** 在项目的哪个文件夹里开工(那台机器上的绝对路径或 `~` 开头),须是这个项目的文件夹;不给 = 项目根目录。老宿主不认这一格。 */
+  cwd?: string;
 };
 
 /** 建成了：手机拿这两个 id 直接跳进新会话的时间线。 */
@@ -908,6 +1085,10 @@ export type SessionpageSessionCreateResult = {
   conversationId: string;
   projectId: string;
   title: string;
+  /** 手机宿主返回的真实入群结果；身份创建成功与入群成功分别表达。 */
+  birthGroup?: { chatId: string; status: 'joined' | 'pending_approval' | 'failed'; error?: string } | null;
+  /** 派任务时那张卡的消息 id(在 `taskChatId` 那个对话里)。老宿主不带这一格。 */
+  taskMessageId?: string;
   /**
    * 会话行已经写下了,但 agent 没起来(原因码见 `remoteFailureKind`)。发起方照样进这条会话:
    * 第一句话在转录里,失败原因是其后的一行、可以再试一次 —— ❌ 留一条点不开的死行。老宿主不带这一格。
@@ -1032,14 +1213,18 @@ export type SessionpageSessionUnsubscribeRequest = { subscriptionId: string };
 export type SessionpageSessionSendRequest = {
   conversationId: string;
   text: string;
+  /** Stable across reconnects and client restarts; the host's existing durable message router deduplicates it. */
+  clientMessageId?: string;
+  attachments?: import('../acp/client').PromptAttachment[];
 };
 /** 端上对一条结算的回答(会话 id 与回答者由调用方补上)。 */
 export type SettlementResponse =
   /**
    * An App install's answer (D-31): `digest` — the manifest fingerprint of the sheet the person saw (an install answered
-   * without it is refused: nobody saw what it may do); `enableIn` — where its tools are given (D-30), as they ticked it.
+   * without it is refused: nobody saw what it may do). Who gets its tools is the install's own rule (InstallGrant), never
+   * carried with the answer.
    */
-  | { itemId: string; kind: 'permission' | 'question'; optionId: string; digest?: string; enableIn?: readonly string[] }
+  | { itemId: string; kind: 'permission' | 'question'; optionId: string; digest?: string }
   /** 终端选择器(结算带 `questions` 的提问):每题一个答案,题序与 `Settlement.questions` 一致。 */
   | { itemId: string; kind: 'question'; answers: readonly QuestionAnswer[] }
   | { itemId: string; kind: 'question'; decline: true };
@@ -1096,3 +1281,20 @@ export type SessionpageSessionsEvent =
 export * from './workspace-contract';
 
 export * from './pane-contract';
+
+/** Account-authorized actions on the same runtime queue shown by the project page. */
+export type SessionpageQueueAction =
+  | { kind: 'edit'; id: string; text: string; queueEdit?: { draftText: string; originalDraftText: string } | null }
+  | { kind: 'delete'; id: string }
+  | { kind: 'reorder'; ids: string[] }
+  | { kind: 'send-now'; id: string; steers: boolean };
+
+/** ACP clients read the same durable commits and live turn as the desktop task page. */
+export type NativeSessionRecord = {
+  latestStoredSeq: number;
+  hasNewer: boolean;
+  turns: TranscriptTurn[];
+  originTurnIds: string[];
+  nextCursor: number | null;
+  activeTurn: TranscriptTurn | null;
+};

@@ -95,6 +95,7 @@ export function _setSshMachineIdsForTesting(ids: readonly string[]): void {
 
 let tunnelState: TunnelState = { ready: [], problems: {} }
 let tunnelReady: ReadonlySet<string> = new Set()
+let tunnelWanted: ReadonlySet<string> = new Set()
 const tunnelListeners = new Set<(state: TunnelState) => void>()
 let tunnelWired = false
 
@@ -134,6 +135,22 @@ export function usesDeviceLink(deviceId: string): boolean {
   return isSshMachine(deviceId) || isTunnelLinked(deviceId)
 }
 
+/** Wait only for a requested tunnel's ready/failure event, before starting the task-host RPC budget. */
+export async function waitForTunnel(deviceId: string): Promise<void> {
+  await sshMachinesReady()
+  const pending = () => tunnelWanted.has(deviceId) && !usesDeviceLink(deviceId) && !(deviceId in tunnelState.problems)
+  if (!pending()) return
+  await new Promise<void>((resolve) => {
+    const check = () => {
+      if (pending()) return
+      tunnelListeners.delete(check)
+      resolve()
+    }
+    tunnelListeners.add(check)
+    check()
+  })
+}
+
 export function currentTunnelState(): TunnelState {
   return tunnelState
 }
@@ -153,6 +170,8 @@ export function wantTunnels(wants: readonly TunnelWant[]): void {
   const electron = bridge()
   if (!electron) return
   wireTunnel(electron)
+  tunnelWanted = new Set(wants.map((want) => want.deviceId))
+  for (const listener of [...tunnelListeners]) listener(tunnelState)
   const key = JSON.stringify([...wants].sort((a, b) => a.deviceId.localeCompare(b.deviceId)))
   if (key === lastWant) return
   lastWant = key
@@ -310,6 +329,9 @@ export function applyUpgradeEvent(event: SshUpgradeEvent | null): void {
   if (event.phase === 'updating') {
     upgrades.set(deviceId, typeof event.percent === 'number' ? event.percent : null)
     setLinkProblem(deviceId, 'updating')
+  } else if (event.phase === 'waitingIdle') {
+    upgrades.delete(deviceId)
+    setLinkProblem(deviceId, 'waitingIdle')
   } else if (event.phase === 'desktopTooOld') {
     // 连接本身没毛病;「请更新这台电脑上的咕咕」由那台机器报的协议窗口说(serverMachineNotices)。
     upgrades.delete(deviceId)
@@ -336,13 +358,19 @@ export function subscribeSshUpgrades(listener: (upgrades: ReadonlyMap<string, nu
  * 请主进程替这台升级(会话页宿主说「太旧」时 / 人点「重试」时;设备连接开出太旧时主进程自己会发起)。
  * 返回此刻是不是在升。`force` = 人点的,不看失败后的冷却。
  */
-export async function requestSshServerUpgrade(deviceId: string, options?: { force?: boolean; /** 由「这台电脑太旧」发起:只换成匹配的版本;没发起(冷却中)不改连接状况。 */ desktopTooOld?: boolean }): Promise<boolean> {
+export async function requestSshServerUpgrade(deviceId: string, options?: {
+  force?: boolean
+  /** 由「这台电脑太旧」发起:只换成匹配的版本;没发起(冷却中)不改连接状况。 */
+  desktopTooOld?: boolean
+  /** 人点了「现在重启更新」:那个账号有 agent 在跑也当场换。 */
+  now?: boolean
+}): Promise<boolean> {
   const electron = bridge()
   if (!electron) return false
   wireEvents(electron)
   let started = false
   try {
-    started = (await electron.invoke(SSH_LINK_CHANNELS.upgrade, { deviceId, force: options?.force === true, desktopTooOld: options?.desktopTooOld === true })) === true
+    started = (await electron.invoke(SSH_LINK_CHANNELS.upgrade, { deviceId, force: options?.force === true, desktopTooOld: options?.desktopTooOld === true, now: options?.now === true })) === true
   } catch {
     started = false
   }
@@ -373,15 +401,18 @@ export function subscribeSshSignInPrompts(listener: (event: SshLinkPromptEvent) 
   })
 }
 
-/** #6264 这台桌面报给咕咕 server 的版本(主进程算,开发 / 测试可覆盖);没有主进程 / 问不到 = null(调用方退回自己的版本)。 */
-export async function desktopMatchVersion(): Promise<string | null> {
+/**
+ * #6264 这台桌面报给咕咕 server 的版本(主进程算,开发 / 测试可覆盖)。null = 主进程说 ❌ 报(不是发布流水线出的包,
+ * 见 core reportedDesktopVersion);undefined = 没有主进程 / 问不到(调用方退回自己的版本)。
+ */
+export async function desktopMatchVersion(): Promise<string | null | undefined> {
   const electron = bridge()
-  if (!electron) return null
+  if (!electron) return undefined
   try {
     const value = await electron.invoke(SSH_LINK_CHANNELS.desktopVersion)
     return typeof value === 'string' && value ? value : null
   } catch {
-    return null
+    return undefined
   }
 }
 

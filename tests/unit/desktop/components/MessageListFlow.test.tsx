@@ -19,8 +19,10 @@ function listProps(chatId: string, count: number) {
   const messages = Array.from({ length: count }, (_, i) => message({ id: `${chatId}-m${i}`, chat_id: chatId, seq: i + 1, content: `${chatId} line ${i}` }))
   const rows: ChatListRowItem[] = messages.map((msg) => ({ type: 'message', message: msg }))
   const rowProps: MessageListRowProps = {
-    rows, messages, isFiltering: false, mobile: false, memberReadSeqs: {}, isAgentChat: false, isGroupChat: true, memberProfiles: {},
-    onReaction: noop, onQuote: noop, onForward: noop, onDelete: noop, onVisible: noop,
+    rows, messages, isFiltering: false, mobile: false, memberReadSeqs: {}, queuedIds: new Set(), isGroupChat: true, memberProfiles: {},
+    onReaction: noop, onQuote: noop, onForward: noop, onDelete: noop, onVisible: noop, onOpenMemberProfile: undefined, onMentionMember: undefined,
+    highlight: undefined, flashMessageId: undefined, threeParty: undefined, onShowReadReceipt: undefined, onOpenTopic: undefined, topicAnchors: undefined, onOpenTopicAnchor: undefined,
+    agentFloodNoticeMessageId: undefined, onAgentFloodUndone: undefined, onOpenFile: undefined, onOpenLocalFileLink: undefined,
     selectMode: false, selectedIds: new Set(), onToggleSelect: noop, onEnterSelectMode: noop,
   }
   return { rows, rowProps, resetKey: `${chatId}#0#1` }

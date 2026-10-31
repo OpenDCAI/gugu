@@ -1,7 +1,8 @@
 import { observer } from 'mobx-react-lite';
-import { useEffect, useMemo, useReducer, useRef, useState, type CSSProperties, type DragEvent, type PointerEvent } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, type CSSProperties, type DragEvent, type PointerEvent } from 'react';
 import { Check, Monitor, Plus, Server } from '@/lib/icons';
 import type { ProjectFolder } from '@shared/core/projects/project-folders';
+import { basenameFromAnyPath, shortHome } from '@shared/path-name';
 import { senderAvatarUrl, subscribeSenderAvatars } from '@renderer/lib/chat/sender-avatar';
 import { sidebarStore } from '@renderer/lib/stores/app-state';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
@@ -18,6 +19,7 @@ import {
 import { cn } from '@renderer/utils/utils';
 import type { ProjectFoldersState, ShownFolder } from './project-folders';
 import { ProjectFolderMenu } from './project-folder-menu';
+import { ProjectCover } from './project-folder-cover';
 import './project-folder-card.css';
 
 /**
@@ -27,8 +29,12 @@ import './project-folder-card.css';
  * 「+」或把文件夹拖上来 = 挂文件夹。封面颜色按项目 id 固定,有 agent 在跑时更鲜、没人在跑褪成灰。
  */
 
-/** 卡片几何(px)。后片右上有个耳朵,前片左边高一截。 */
-const G = { W: 468, H: 276, backH: 226, frontH: 136, TW: 132, TH: 22, LW: 168, S: 18, paperW: 236, paperH: 76, peek: 74 };
+/**
+ * 卡片几何(px)。后片右上有个耳朵,前片左边高一截。W 是满宽:窄栏里卡片跟着这一栏收窄(`useColumnWidth`),❌ 定宽撑出边框。
+ * 最窄 MIN_W:前片左边那截高出来的(LW)加上过渡弯得画得下。
+ */
+const MIN_W = 220;
+const G = { W: 440, H: 276, backH: 226, frontH: 136, TW: 132, TH: 22, LW: 168, S: 18, paperW: 236, paperH: 64, peek: 66 };
 /** 收起时探出来的三页:角度、横向错位。 */
 const STACK = [
   [-4, -12],
@@ -59,81 +65,20 @@ function maskStyle(d: string, w: number, h: number): CSSProperties {
   };
 }
 
-/** 封面:按项目 id 固定的两三团柔色(同头像规矩:同一个项目永远同一张)。 */
-const HUES = [
-  ['#9fc3cd', '#b9a9d6', '#c9dade'],
-  ['#e2b394', '#a2c4b2', '#e3d3c3'],
-  ['#b4a5d6', '#dcaebf', '#d8d0e6'],
-  ['#a2c4b2', '#9fc3cd', '#cfe0d6'],
-  ['#d4bf9f', '#b9a9d6', '#e2d9c8'],
-  ['#a5bde0', '#cdb1d6', '#d3dcec'],
-] as const;
-function hash32(s: string): number {
-  let h = 2166136261;
-  for (let i = 0; i < s.length; i++) {
-    h ^= s.charCodeAt(i);
-    h = Math.imul(h, 16777619);
-  }
-  return h >>> 0;
-}
-function seeded(seed: string) {
-  let x = hash32(seed) || 1;
-  return () => {
-    x ^= x << 13;
-    x ^= x >>> 17;
-    x ^= x << 5;
-    return (x >>> 0) / 4294967296;
-  };
-}
-function Cover({ projectId, running, width, height, uid, saturationBoost = 1 }: { projectId: string; running: number; width: number; height: number; uid: string; saturationBoost?: number }) {
-  const [a, b, base] = HUES[hash32(`cover:${projectId}`) % HUES.length];
-  const blobs = useMemo(() => {
-    const r = seeded(`svg:${projectId}`);
-    return [a, b, a, b, '#ffffff'].map((fill, i) => ({
-      fill,
-      cx: Math.round(r() * width),
-      cy: Math.round(r() * height * 0.9),
-      rx: Math.round(width * (0.3 + r() * 0.3)),
-      ry: Math.round(height * (0.35 + r() * 0.3)),
-      opacity: i === 4 ? 0.55 : 0.95,
-    }));
-  }, [projectId, a, b, width, height]);
-  // 在跑的越多越鲜,没人在跑褪成灰:扫一眼就知道哪个项目在动。
-  const saturation = (running ? 1.15 + Math.min(running, 8) * 0.08 : 0.25) * saturationBoost;
-  const saturated = (hex: string) => {
-    const rgb = [1, 3, 5].map((start) => parseInt(hex.slice(start, start + 2), 16));
-    const luma = rgb[0] * 0.213 + rgb[1] * 0.715 + rgb[2] * 0.072;
-    return `rgb(${rgb.map((value) => Math.round(Math.max(0, Math.min(255, luma + saturation * (value - luma))))).join(' ')})`;
-  };
-  // Soft gradients paint the same seeded palette without allocating SVG blur surfaces.
-  const feather = width / 9 * 2;
-  return <>
-    <defs>{blobs.map((blob, i) => <radialGradient key={i} id={`fc-cloud-${uid}-${i}`}>
-      <stop offset="0" stopColor={saturated(blob.fill)} />
-      <stop offset="45%" stopColor={saturated(blob.fill)} stopOpacity={0.85} />
-      <stop offset="70%" stopColor={saturated(blob.fill)} stopOpacity={0.4} />
-      <stop offset="100%" stopColor={saturated(blob.fill)} stopOpacity={0} />
-    </radialGradient>)}</defs>
-    <rect width={width} height={height} fill={base} />
-    {blobs.map((blob, i) => <ellipse key={i} cx={blob.cx} cy={blob.cy} rx={blob.rx + feather} ry={blob.ry + feather} opacity={blob.opacity} fill={`url(#fc-cloud-${uid}-${i})`} />)}
-  </>;
-
-}
-
 /**
  * Frost is a cached image of this folder's cover and the peeking papers. Live backdrop-filter
  * caused long GPU raster flushes on first interaction in Electron, even with a Backdrop Root.
  * The two static images stay rasterized; opening only fades the paper image out.
  */
-function FrostedFront({ projectId, running, count, uid }: { projectId: string; running: number; count: number; uid: string }) {
+function FrostedFront({ projectId, running, count, uid, W, paperW }: { projectId: string; running: number; count: number; uid: string; W: number; paperW: number }) {
   const top = G.H - G.frontH;
   const paperTop = G.H - G.frontH - G.peek;
   const peeking = Math.min(count, 3);
   return <>
-    <svg className="gg-folder-card__cover-frost" width={G.W} height={G.frontH} viewBox={`0 ${G.backH - G.frontH} ${G.W} ${G.frontH}`} aria-hidden>
-      <g className="gg-folder-card__cover"><Cover projectId={projectId} running={running} width={G.W} height={G.backH} uid={`${uid}-frost`} saturationBoost={1.5} /></g>
+    <svg className="gg-folder-card__cover-frost" width={W} height={G.frontH} viewBox={`0 ${G.backH - G.frontH} ${W} ${G.frontH}`} aria-hidden>
+      <g className="gg-folder-card__cover"><ProjectCover projectId={projectId} running={running} width={W} height={G.backH} uid={`${uid}-frost`} saturationBoost={1.5} /></g>
     </svg>
-    <svg className="gg-folder-card__paper-frost" width={G.W} height={G.frontH} viewBox={`0 ${top} ${G.W} ${G.frontH}`} aria-hidden>
+    <svg className="gg-folder-card__paper-frost" width={W} height={G.frontH} viewBox={`0 ${top} ${W} ${G.frontH}`} aria-hidden>
       <defs><radialGradient id={`fc-paper-frost-${uid}`}>
         <stop offset="0" stopColor="var(--card)" stopOpacity={0.95} />
         <stop offset="50%" stopColor="var(--card)" stopOpacity={0.7} />
@@ -143,10 +88,10 @@ function FrostedFront({ projectId, running, count, uid }: { projectId: string; r
         {Array.from({ length: peeking }, (_, index) => {
           const k = peeking === 1 ? 1 : 2 - index;
           const [rot, tx] = STACK[k];
-          const x = (G.W - G.paperW) / 2 + tx;
+          const x = (W - paperW) / 2 + tx;
           const y = paperTop + k * 9;
-          return <g key={index} transform={`rotate(${rot} ${x + G.paperW / 2} ${y + G.paperH / 2})`}>
-            <ellipse cx={x + G.paperW / 2} cy={y + G.paperH - 2} rx={G.paperW / 2 + 24} ry={44} fill={`url(#fc-paper-frost-${uid})`} />
+          return <g key={index} transform={`rotate(${rot} ${x + paperW / 2} ${y + G.paperH / 2})`}>
+            <ellipse cx={x + paperW / 2} cy={y + G.paperH - 2} rx={paperW / 2 + 24} ry={44} fill={`url(#fc-paper-frost-${uid})`} />
           </g>;
         })}
       </g>
@@ -163,14 +108,90 @@ function reducedMotion() {
   return typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true;
 }
 
-/** 只管显示:常见的主目录前缀写成 ~(悬停的 title 仍是完整路径)。 */
-export function shortHome(path: string): string {
-  return path.replace(/^(?:\/Users\/[^/]+|\/home\/[^/]+|\/root|[A-Za-z]:\\Users\\[^\\]+)(?=[/\\]|$)/, '~');
-}
+export { shortHome };
 
 const FRESH_MS = 2 * 60 * 1000;
 
-const cardSize: CSSProperties = { width: G.W, height: G.H };
+/**
+ * 摊开 = 一手牌(owner 2026-10-27,参考扑克牌的握法;HTML 样稿逐版定下来的数)。
+ *
+ * - 所有纸绕同一个握点(纸下方)转开,右边的压左边的;文件夹名在每张左上角 —— 转开后每张恰好露出那一角。
+ * - 一行最多 FAN_ROW_MAX 张,张数平均分到各行(20 个宽栏 = 4 行 × 5);放不下就往后再握一行,最多 FAN_MAX_ROWS 行。
+ *   后一行只抬出名字那一截,与前一行错开半张。
+ * - 选中的那张排在前一行最右:没有任何纸压它。❌ 按 DOM 先后叠(会把它压在最左最底下看不见)。
+ * - 每张带一点按文件夹固定的随手偏差,❌ 排成格子;同一个文件夹每次摊开都在同一处。
+ * - 栏越宽纸越大、名字间距越宽,走一条缓出曲线(❌ 线性后封顶,宽栏四周空着);卡片本身限宽(G.W)。
+ */
+export const FAN_ROW_MAX = 6;
+export const FAN_MAX_ROWS = 5;
+const FAN_MAX_ANGLE = (48 * Math.PI) / 180;
+const FAN_ROW_RISE = 30;
+
+/** 栏宽 → 0..1 的缓出量:420 起长,1200 到顶。 */
+export function fanEase(column: number): number {
+  const t = Math.min(1, Math.max(0, (column - 420) / (1200 - 420)));
+  return 1 - Math.pow(1 - t, 1.6);
+}
+
+function jitter(key: string, salt: string, amplitude: number): number {
+  let h = 2166136261;
+  const s = `${key}:${salt}`;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return (((h >>> 0) % 1000) / 1000 - 0.5) * 2 * amplitude;
+}
+
+export type FanSlot = { x: number; y: number; rot: number; z: number; row: number };
+
+/**
+ * 第 slot 张(展示顺序:0 = 前一行最右,即选中的那张)在扇面里的位置,相对纸的收起位置(中心不动时)。
+ * 返回值:纸中心的平移(x、y,px)、绕纸中心的转角(rot,deg)、叠放(z)、在第几行(0 = 最前)。
+ */
+export function fanPlace(slot: number, count: number, opts: { column: number; paperW: number; paperH: number; key: string }): FanSlot {
+  const { column, paperW, paperH, key } = opts;
+  const label = 82 + 44 * fanEase(column);
+  const half = FAN_MAX_ANGLE / 2;
+  // 握点到纸顶的距离:扇面最外两张的外沿不出这一栏。
+  const reach = Math.max(paperH + 90, Math.min(720, (column - 32 - paperW * Math.cos(half)) / (2 * Math.sin(half))));
+  const fit = Math.max(3, Math.floor(Math.min(FAN_MAX_ANGLE * reach, column - 32 - paperW) / label) + 1);
+  const rows = Math.min(FAN_MAX_ROWS, Math.ceil(count / Math.min(FAN_ROW_MAX, fit)));
+  // 平均分:前 count % rows 行各多一张(13 张 5 行 = 3,3,3,2,2),❌ 按满行切(3,3,3,3,1)。
+  const base = Math.floor(count / rows);
+  const extra = count % rows;
+  const per = base + (extra > 0 ? 1 : 0);
+  const step = per === 1 ? 0 : Math.min(FAN_MAX_ANGLE / (per - 1), label / reach);
+  const row = slot < extra * (base + 1) ? Math.floor(slot / (base + 1)) : extra + Math.floor((slot - extra * (base + 1)) / base);
+  const inRow = base + (row < extra ? 1 : 0);
+  const first = row < extra ? row * (base + 1) : extra * (base + 1) + (row - extra) * base;
+  const position = inRow - 1 - (slot - first); // 0 = 最左
+  const angle = (position - (inRow - 1) / 2) * step + (row % 2 ? step / 2 : 0) + jitter(key, 'a', 0.02);
+  // 绕握点转 = 纸中心沿圆弧走,再绕自己的中心转同一个角。
+  const radius = reach - paperH / 2;
+  // 两端会往下垂:整把牌抬起前一行垂量的八成,两端只有纸底一点压进卡面。
+  const edge = ((Math.min(per, count) - 1) / 2) * step;
+  const droop = reach * (1 - Math.cos(edge));
+  const x = radius * Math.sin(angle) + jitter(key, 'x', 4);
+  const y = radius * (1 - Math.cos(angle)) - droop * 0.8 - row * FAN_ROW_RISE + jitter(key, 'y', 3);
+  return { x, y, rot: (angle * 180) / Math.PI, z: (rows - row) * 100 + position + 1, row };
+}
+
+/** 卡片所在这一栏有多宽(摊开的纸也不能超出它)。量到之前当它够宽。 */
+function useColumnWidth() {
+  const ref = useRef<HTMLDivElement>(null);
+  const [width, setWidth] = useState(Number.POSITIVE_INFINITY);
+  useLayoutEffect(() => {
+    const node = ref.current;
+    if (!node || typeof ResizeObserver === 'undefined') return;
+    const measure = () => setWidth(node.clientWidth);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
+  return [ref, width] as const;
+}
 const bodyStyle: CSSProperties = { paddingTop: G.S + 12 };
 
 export type FolderCardMachine = { id?: string | null; label: string; online: boolean; kind: 'server' | 'computer' };
@@ -182,11 +203,13 @@ export const ProjectFolderCard = observer(function ProjectFolderCard({
   projectName,
   folders: state,
   memberIds = [projectId],
+  machines,
   machineOf,
   attachMachines,
   onAttach,
   onDropFolder,
   onAddMachine,
+  floating = false,
 }: {
   /** 代表这个项目的那一行(侧栏那一行)的本地项目 id。 */
   projectId: string;
@@ -194,14 +217,18 @@ export const ProjectFolderCard = observer(function ProjectFolderCard({
   folders: ProjectFoldersState;
   /** 这个项目在各台机器上的本地项目(#7341 第二步:绑在同一个项目群上);没合并 = 只有 projectId。 */
   memberIds?: readonly string[];
-  /** 某个本地项目在哪台机器上(卡面与每页纸标机器用)。 */
-  machineOf: (projectId: string) => FolderCardMachine;
+  /** 这个项目涉及的机器(null = 这台电脑;卡面标它们)。 */
+  machines: readonly (string | null)[];
+  /** 一台机器的样子(卡面与每页纸标机器用;每页纸读它自己的 folder.deviceId)。 */
+  machineOf: (deviceId: string | null) => FolderCardMachine;
   /** 「+」能挂到哪几台机器上:一台就直接挑文件夹,多台先选机器。 */
   attachMachines: readonly AttachMachine[];
   onAttach: (machine: string | null) => void;
   onAddMachine?: () => void;
   /** 从 Finder 拖进来的文件夹(一个 File;取路径由调用方决定 —— 别的机器上的项目不能拿这台电脑的路径)。 */
   onDropFolder: (file: File) => void;
+  /** 浮在群聊上面(项目块里开新任务,gugu-dev#181):一浮出来就摊开,提示换成「按 Esc 收起」;打字不收(owner 10-26)。 */
+  floating?: boolean;
 }) {
   const { translate } = useSessionMessages();
   useAvatarTick();
@@ -209,11 +236,21 @@ export const ProjectFolderCard = observer(function ProjectFolderCard({
   const [dragover, setDragover] = useState(false);
   const [landing, setLanding] = useState(false);
   const cardRef = useRef<HTMLDivElement>(null);
+  const [columnRef, column] = useColumnWidth();
+  const W = Math.max(MIN_W, Math.min(G.W, column));
+  // 纸跟着栏宽长(缓出);收起时也是这一张,不随开合换尺寸(换尺寸会逐帧重排)。
+  const paperW = Math.min(Math.round(150 + 86 * fanEase(column)), W - 32);
+  const cardSize: CSSProperties = { width: W, height: G.H };
   const tiltFrame = useRef<number | null>(null);
   const pointer = useRef({ x: 0, y: 0 });
   useEffect(() => () => {
     if (tiltFrame.current !== null) cancelAnimationFrame(tiltFrame.current);
   }, []);
+  // 浮出来就摊开:文件夹读到了才摊得开(与点卡片同一个条件)。
+  const foldersRead = state.folders !== null;
+  useEffect(() => {
+    if (floating && foldersRead) setOpen(true);
+  }, [floating, foldersRead]);
   const droppedRef = useRef<string | undefined>(undefined);
   const uid = useMemo(() => projectId.replace(/[^a-z0-9]/gi, '').slice(0, 12), [projectId]);
 
@@ -223,9 +260,9 @@ export const ProjectFolderCard = observer(function ProjectFolderCard({
     .filter((entry) => members.has(entry.projectId))
     .map((entry) => [entry.sessionId, entry] as const)).values()];
   // 卡面列这个项目涉及的机器(同名去重),纸上标各自那一台;那台此刻答不上(只列着上次读到的)就标离线。
-  const machinesShown = [...new Map(memberIds.map((id) => machineOf(id)).map((m) => [m.id === undefined ? m.label : m.id ?? 'local', m] as const)).values()];
+  const machinesShown = [...new Map(machines.map((deviceId) => [deviceId ?? 'local', machineOf(deviceId)] as const)).values()];
   const paperMachine = (folder: ShownFolder): FolderCardMachine => {
-    const m = machineOf(folder.projectId);
+    const m = machineOf(folder.deviceId);
     return folder.offline ? { ...m, online: false } : m;
   };
   const runningIds = new Set(sessions.filter((entry) => entry.group === 'working').map((entry) => entry.sessionId));
@@ -319,9 +356,9 @@ export const ProjectFolderCard = observer(function ProjectFolderCard({
     if (file) onDropFolder(file);
   };
 
-  const backD = backPath(G.W, G.backH, G.TW, G.TH);
-  const frontD = frontPath(G.W, G.frontH, G.LW, G.S);
-  const frontStyle: CSSProperties = { width: G.W, height: G.frontH, ...maskStyle(frontD, G.W, G.frontH) };
+  const backD = backPath(W, G.backH, G.TW, G.TH);
+  const frontD = frontPath(W, G.frontH, G.LW, G.S);
+  const frontStyle: CSSProperties = { width: W, height: G.frontH, ...maskStyle(frontD, W, G.frontH) };
   const base = G.H - G.frontH - G.peek;
 
   /**
@@ -330,6 +367,7 @@ export const ProjectFolderCard = observer(function ProjectFolderCard({
    * 收起时不渲染的纸摊开时是新挂上的节点、同样没有过渡 —— 实测四页里只有一页在动,其余是瞬移过去的。
    */
   type Place = { transform: string; rot: number; tx: number; ty: number; top: number; z: number; hidden: boolean };
+  const chosenIndex = ordered.findIndex((folder) => folder.workspaceId === state.chosen?.workspaceId);
   const placement = (index: number, count: number): Place => {
     if (!open) {
       const peeking = Math.min(count, 3);
@@ -339,27 +377,27 @@ export const ProjectFolderCard = observer(function ProjectFolderCard({
       const [rot, tx] = STACK[k];
       return { transform: `translate3d(${tx}px, ${k * 9}px, 0) rotate(${rot}deg)`, rot, tx, ty: k * 9, top: base, z: count - index, hidden };
     }
-    const t = count === 1 ? 0 : index / (count - 1) - 0.5;
-    const spread = Math.min(640, Math.max(260, (typeof window !== 'undefined' ? window.innerWidth : 1200) - 760));
-    const x = t * spread;
-    const y = -62 - Math.cos(t * Math.PI) * 40 + Math.abs(t) * 16;
+    const folder = ordered[index];
+    const slot = index === chosenIndex ? 0 : chosenIndex >= 0 && index < chosenIndex ? index + 1 : index;
+    const fan = fanPlace(slot, count, { column: Number.isFinite(column) ? column : 1200, paperW, paperH: G.paperH, key: folder.workspaceId });
+    // 收起位置是纸顶在 base;摊开时前一行的纸底贴在前片上沿(留 4px)。
+    const y = G.peek - G.paperH - 4 + fan.y;
     return {
-      transform: `translate3d(${x.toFixed(0)}px, ${y.toFixed(0)}px, 0) rotate(${(t * 12).toFixed(1)}deg)`,
-      rot: t * 12,
-      tx: x,
+      transform: `translate3d(${fan.x.toFixed(1)}px, ${y.toFixed(1)}px, 0) rotate(${fan.rot.toFixed(2)}deg)`,
+      rot: fan.rot,
+      tx: fan.x,
       ty: y,
       top: base,
-      z: index + 1,
+      z: fan.z,
       hidden: false,
     };
   };
   const paperStyle = (place: Place, index: number): CSSProperties => {
     // 飞行过程中保持纸张与文字几何不变，避免逐帧重排。
-    const width = G.paperW;
     return {
-      width,
+      width: paperW,
       minHeight: G.paperH,
-      left: (G.W - width) / 2,
+      left: (W - paperW) / 2,
       top: place.top,
       transform: place.transform,
       zIndex: place.z,
@@ -371,10 +409,13 @@ export const ProjectFolderCard = observer(function ProjectFolderCard({
     };
   };
 
-  const meta = translate('projects.folders.meta', { folders: folders.length, sessions: sessions.length });
+  const meta = translate('projects.folders.meta', {
+    folders: translate('projects.folders.folderCount', { count: folders.length }),
+    sessions: translate('projects.folders.sessionCount', { count: sessions.length }),
+  });
 
   return (
-    <div className="flex flex-col items-center gap-3">
+    <div ref={columnRef} className="flex w-full min-w-0 flex-col items-center gap-3">
       <div
         ref={cardRef}
         data-testid="project-folder-card"
@@ -393,12 +434,12 @@ export const ProjectFolderCard = observer(function ProjectFolderCard({
         <div className="gg-folder-card__drop-hint">{translate('projects.folders.dropHint', { projectName })}</div>
         <div className="gg-folder-card__shadow" />
         <div className="gg-folder-card__stage" style={cardSize}>
-          <svg className="gg-folder-card__back" width={G.W} height={G.backH} viewBox={`0 0 ${G.W} ${G.backH}`} aria-hidden>
+          <svg className="gg-folder-card__back" width={W} height={G.backH} viewBox={`0 0 ${W} ${G.backH}`} aria-hidden>
             <clipPath id={`fc-back-${uid}`}>
               <path d={backD} />
             </clipPath>
             <g className="gg-folder-card__cover" clipPath={`url(#fc-back-${uid})`}>
-              <Cover projectId={projectId} running={running} width={G.W} height={G.backH} uid={uid} />
+              <ProjectCover projectId={projectId} running={running} width={W} height={G.backH} uid={uid} />
             </g>
             <path d={backD} fill="none" stroke="var(--fc-edge)" strokeWidth={0.6} />
           </svg>
@@ -433,16 +474,19 @@ export const ProjectFolderCard = observer(function ProjectFolderCard({
                     state.choose(folder.workspaceId);
                   }}
                 >
+                  {/* 名字在左上角:摊开后每张只露出这一角(像牌角的点数),❌ 让机器标签占着它 —— 那一格每张都一样。 */}
                   <span className="gg-folder-paper__top">
-                    <MachineChip machine={paperMachine(folder)} />
-                    {folder.branch ? <span className="gg-folder-paper__branch">{folder.branch}</span> : null}
+                    <span className="gg-folder-paper__name">{basenameFromAnyPath(folder.path) || folder.path}</span>
                     {fresh ? <span className="gg-folder-paper__fresh">{translate('projects.folders.fresh')}</span> : null}
                     <span className="gg-folder-paper__check">
                       <Check className="size-3.5" />
                     </span>
                   </span>
                   <span className="gg-folder-paper__path block">{shortHome(folder.path)}</span>
-                  <span className={cn('gg-folder-paper__meta block', here > 0 && 'is-running')}>
+                  <span className="gg-folder-paper__where">
+                    <MachineChip machine={paperMachine(folder)} />
+                    {folder.branch ? <span className="gg-folder-paper__branch">{folder.branch}</span> : null}
+                  <span className={cn('gg-folder-paper__meta', here > 0 && 'is-running')}>
                     {/* 有在跑的说在跑;开过但都歇着说有几个;一个没有时根目录说它是根目录 —— ❌「还没有会话在这儿跑」
                         把「歇着」说成「从没来过」。 */}
                     {here > 0
@@ -453,6 +497,7 @@ export const ProjectFolderCard = observer(function ProjectFolderCard({
                           ? translate('projects.folders.root')
                           : translate('projects.folders.idleHere')}
                   </span>
+                  </span>
                 </Button>
                 </div>
                 </ProjectFolderMenu>
@@ -461,7 +506,7 @@ export const ProjectFolderCard = observer(function ProjectFolderCard({
           </div>
 
           <div className="gg-folder-card__front" style={frontStyle}>
-            <FrostedFront projectId={projectId} running={running} count={folders.length} uid={uid} />
+            <FrostedFront projectId={projectId} running={running} count={folders.length} uid={uid} W={W} paperW={paperW} />
             <div className="gg-folder-card__body" style={bodyStyle}>
               <div className="gg-folder-card__title">
                 <Button
@@ -521,7 +566,7 @@ export const ProjectFolderCard = observer(function ProjectFolderCard({
               </div>
             </div>
           </div>
-          <svg className="gg-folder-card__front-edge" width={G.W} height={G.frontH} viewBox={`0 0 ${G.W} ${G.frontH}`} aria-hidden>
+          <svg className="gg-folder-card__front-edge" width={W} height={G.frontH} viewBox={`0 0 ${W} ${G.frontH}`} aria-hidden>
             <path d={frontD} fill="none" stroke="var(--fc-edge)" strokeWidth={0.8} />
             <path d={`M12 .6 L${G.LW - 10} .6`} stroke="var(--fc-hi)" strokeWidth={1} />
           </svg>
@@ -532,7 +577,7 @@ export const ProjectFolderCard = observer(function ProjectFolderCard({
           {state.folders === null
             ? translate('projects.folders.loading')
             : open
-              ? translate('projects.folders.hintOpen')
+              ? translate(floating ? 'projects.folders.hintFloating' : 'projects.folders.hintOpen')
               : translate('projects.folders.hintClosed', { count: folders.length })}
         </p>
       ) : null}

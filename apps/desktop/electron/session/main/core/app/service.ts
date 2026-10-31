@@ -3,8 +3,10 @@ import { readFile, realpath, stat, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { extname, isAbsolute, join, resolve, sep } from 'node:path';
 import type { IDisposable, IInitializable } from '@gugu/session-shared';
-import { app, clipboard, dialog, Menu, shell } from 'electron';
+import { app, clipboard, dialog, shell } from 'electron';
 import { getMainWindow } from '@main/app/window';
+import { showContentContextMenu } from '../../../../content-context-menu';
+import { textContextMenuItems } from '@shared/text-context-menu';
 import { events } from '@main/lib/events';
 import { log } from '@main/lib/logger';
 import { buildExternalToolEnv } from '@main/utils/childProcessEnv';
@@ -59,7 +61,7 @@ const AUDIO_MIME_TYPES: Record<string, string> = {
  */
 function copyTextFireAndForget(text: string): void {
   void clipboard.writeText(text).catch((error: unknown) => {
-    log.warn('clipboard.writeText failed', { error: String(error) });
+    log.error('clipboard.writeText failed', { error: String(error) });
   });
 }
 
@@ -333,44 +335,20 @@ class AppService implements IInitializable, IDisposable {
     }
     const selectionText = args.selectionText ?? '';
     const linkText = args.linkText?.trim() ?? '';
-    const hasSelection = selectionText.length > 0;
     const hasLink = linkText.length > 0;
     const emitAction = (action: TerminalContextMenuAction) => {
       events.emit(terminalContextMenuActionChannel, { requestId: args.requestId, action });
     };
-    const template: Electron.MenuItemConstructorOptions[] = [
-      {
-        label: 'Copy',
-        accelerator: 'CmdOrCtrl+C',
-        enabled: hasSelection,
-        click: () => copyTextFireAndForget(selectionText),
+    showContentContextMenu(textContextMenuItems({
+      selectionText,
+      actions: {
+        copy: () => copyTextFireAndForget(selectionText),
+        ...(hasLink ? { copyLink: () => copyTextFireAndForget(linkText) } : {}),
+        paste: () => emitAction('paste'),
+        selectAll: () => emitAction('select-all'),
+        clear: () => emitAction('clear'),
       },
-      ...(hasLink
-        ? [
-            {
-              label: 'Copy Link',
-              click: () => copyTextFireAndForget(linkText),
-            },
-          ]
-        : []),
-      {
-        label: 'Paste',
-        accelerator: 'CmdOrCtrl+V',
-        click: () => emitAction('paste'),
-      },
-      { type: 'separator' },
-      {
-        label: 'Select All',
-        accelerator: 'CmdOrCtrl+A',
-        click: () => emitAction('select-all'),
-      },
-      {
-        label: 'Clear',
-        click: () => emitAction('clear'),
-      },
-    ];
-
-    Menu.buildFromTemplate(template).popup({
+    }), {
       window: getMainWindow() ?? undefined,
       x: Math.round(args.x),
       y: Math.round(args.y),
@@ -552,7 +530,7 @@ class AppService implements IInitializable, IDisposable {
   async saveTextFile(args: {
     title: string;
     defaultPath: string;
-    content: string;
+    content: string | AsyncIterable<string>;
   }): Promise<string | undefined> {
     const result = await dialog.showSaveDialog(getMainWindow()!, {
       title: args.title,

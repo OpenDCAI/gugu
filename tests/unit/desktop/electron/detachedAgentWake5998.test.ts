@@ -132,6 +132,17 @@ describe('#5998 detached inbox wake', () => {
   })
 })
 
+it('does not inject after a caller aborts while the shared session wake is pending', async () => {
+  const gate=deferred();const controller=new AbortController();const attempt=vi.fn(async()=> 'not-live' as const)
+  const wakeSession=vi.fn(()=>gate.promise)
+  const bridge=new SessionpageLocalDeliveryRouter([], {wakeSession})
+  const flight=bridge.injectWithWake(SESSION,attempt,controller.signal)
+  await vi.waitFor(()=>expect(wakeSession).toHaveBeenCalledOnce())
+  controller.abort(new Error('delivery cancelled'));gate.resolve()
+  await expect(flight).rejects.toThrow('delivery cancelled')
+  expect(attempt).toHaveBeenCalledOnce()
+})
+
 describe('#5421 no wake loop for owners that go live on their own', () => {
   it('never reopens a codex app-server style owner whose engine is running, however often the inbox asks', async () => {
     // codex app-server / opencode / droid 原来声明 on-live-only:它们由会话转 live 时叫醒读者。现在不按腿声明,

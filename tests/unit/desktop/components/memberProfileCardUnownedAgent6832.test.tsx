@@ -1,8 +1,10 @@
 // @vitest-environment jsdom
 // #6832 别人的 agent 不能私聊 ⇒ 它的资料卡上不画能点的「发消息」(通讯录早就这么做,见 ContactsPanel 的
-// isOwnedAgent、ContactsIndex 的 isAnotherUsersAgent)。人、自己的 agent 照旧有;悄悄话是群内的,不受影响。
+// isOwnedAgent、ContactsIndex 的 isAnotherUsersAgent)。人照旧有;自己的 agent 有,打开的是它的会话(#622,没有会话就不画,
+// 见 memberProfileCardAgentSession);悄悄话是群内的,不受影响。
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MemberProfileCard, type MemberProfileCardModel } from '../../../../apps/desktop/src/components/MemberProfileCard'
+import { publishProjectGroupChats } from '../../../../apps/desktop/src/session/renderer/features/projects/stores/project-group-chats-bridge'
 import { clickElement, createNode, createReactHarness, renderWithAppProviders } from '../../../support/testHarness'
 
 // 渲染者是 testHarness 的 user-1。
@@ -13,7 +15,10 @@ const member = (overrides: Partial<MemberProfileCardModel>): MemberProfileCardMo
 describe('#6832 profile card offers「发消息」only where a DM can open', () => {
   let harness: ReturnType<typeof createReactHarness>
   beforeEach(() => { harness = createReactHarness() })
-  afterEach(() => { harness.cleanup() })
+  afterEach(() => {
+    harness.cleanup()
+    publishProjectGroupChats([], new Map(), new Map())
+  })
 
   async function render(model: MemberProfileCardModel) {
     const onOpenChat = vi.fn()
@@ -31,6 +36,7 @@ describe('#6832 profile card offers「发消息」only where a DM can open', () 
   })
 
   it('my own agent: the button is there', async () => {
+    publishProjectGroupChats([], new Map(), new Map([['a-mine', { projectId: 'p-1', sessionId: 's-1' }]]))
     const { send } = await render(member({ id: 'a-mine', displayName: 'Claude 1', type: 'agent', ownerUserId: 'user-1' }))
     expect(send).not.toBeNull()
   })

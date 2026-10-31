@@ -17,7 +17,7 @@ import { packExtensionArchive } from './extension-archive';
 const state = vi.hoisted(() => ({ service: null as unknown, userData: '' }));
 const ME = '0a000000-0000-4000-8000-00000000000a';
 vi.mock('electron', () => ({ app: { getPath: () => state.userData } }));
-vi.mock('./extensions-root', () => ({ extensionsService: () => state.service }));
+vi.mock('./extensions-root', () => ({ extensionsService: () => state.service, appSourcesRoot: () => path.join(state.userData, 'app-sources') }));
 vi.mock('./app-files', () => ({ folderPublisher: async () => ({ id: ME }) }));
 
 const { runExtensionAgentAction } = await import('./extension-agent-actions');
@@ -42,7 +42,7 @@ async function sentFromThere(network?: string[], from = THERE): Promise<{ upload
   const dir = path.join(work, 'src', 'share');
   mkdirSync(dir, { recursive: true });
   writeFileSync(path.join(dir, 'manifest.json'), JSON.stringify({
-    id: 'share', name: 'Share', version: '1.0.0', apiVersion: EXTENSION_API_VERSION, entry: 'index.html',
+    id: 'share', name: 'Share', version: '1.0.0', apiVersion: EXTENSION_API_VERSION, platforms: ['desktop'], entry: 'index.html',
     ...(network ? { permissions: { network } } : {}), contributes: { tabs: [{ name: 'main', title: 'Share' }] },
   }));
   writeFileSync(path.join(dir, 'index.html'), '<!doctype html>');

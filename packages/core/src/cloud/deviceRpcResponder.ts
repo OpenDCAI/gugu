@@ -1,4 +1,5 @@
 import { homedir } from 'node:os'
+import { DEVICE_ACTION_RPC_TYPE, DEVICE_ACTION_RESULT_ACK_RPC_TYPE } from '../shared/deviceActions'
 import { listDeviceDirectory, makeDeviceDirectory } from './deviceFs'
 import {
   createDeviceRpcReplyEnvelope,
@@ -158,12 +159,19 @@ export function createDeviceRpcRequestHandler(options?: {
     // (self:false already drops our own, but a second host on the same device must not reply-loop).
     if (request.type.endsWith(':reply')) return
     let envelope: ReturnType<typeof createDeviceRpcReplyEnvelope> | null = null
-    const earlier = replies.get(request.request_id)
+    // Device action refusals must not be replaced by a cached reply for a reused request id.
+    const deviceAction = request.type === DEVICE_ACTION_RPC_TYPE || request.type === DEVICE_ACTION_RESULT_ACK_RPC_TYPE
+    // Projection proofs/handles belong to the current authenticated asker and page epoch.
+    // Replaying a cached reply would bypass that live check (including after a detach).
+    const liveAuthority = deviceAction || request.type.startsWith('projection.')
+    const earlier = liveAuthority ? undefined : replies.get(request.request_id)
     if (earlier) envelope = await earlier
     if (!envelope) {
       const answering = answer(request, publishEvent, asker)
-      replies.delete(request.request_id)
-      replies.set(request.request_id, answering.then((done) => (JSON.stringify(done).length <= REPLAY_MAX_CHARS ? done : null)))
+      if (!liveAuthority) {
+        replies.delete(request.request_id)
+        replies.set(request.request_id, answering.then((done) => (JSON.stringify(done).length <= REPLAY_MAX_CHARS ? done : null)))
+      }
       while (replies.size > REPLAY_REQUESTS) replies.delete(replies.keys().next().value as string)
       envelope = await answering
     }

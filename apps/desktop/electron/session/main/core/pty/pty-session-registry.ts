@@ -22,8 +22,8 @@ export interface PtySessionMetadata {
 
 /**
  * @@@leading-edge-flush — 空闲后到的第一块立刻发,之后每 16ms(一帧)发一次这一拍攒下的;某一拍没攒到东西就停,
- * 下一块又是立刻发。按键回显因此不必等满一拍(mac1 实测从前每次回显都多 16.8ms,gugu-base
- * evidence/2026-10-19-otty-codex-tui),流式输出照旧一帧一批。
+ * 下一块又是立刻发。按键回显因此不必等满一拍(2026-10-19 macOS 实测从前每次回显都多 16.8ms),
+ * 流式输出照旧一帧一批。
  *
  * @@@frame-open — 只有一帧画完了才当场发。TUI 画一帧时要么包在同步输出块里(DEC 2026),要么先藏光标、画完再显示
  * (`?25l … ?25h`);攒下的数据停在一帧中间(块开着没关,或这一批里藏了光标还没显示)就先不发,收尾的那一块一到
@@ -59,6 +59,7 @@ export class PtySessionRegistry {
     options: {
       /** PTY 起的网格:屏幕从第一个字节起就要按 PTY 自己的网格解析。 */
       size: PtyDimensions;
+      scrollback?: number;
       preserveBufferOnExit?: boolean;
       metadata?: PtySessionMetadata;
       onProviderReviewGate?: (gate: ProviderReviewGate) => void;
@@ -77,7 +78,7 @@ export class PtySessionRegistry {
     if (options.metadata) this.metadata.set(ptySessionId, options.metadata);
 
     this.ptyMap.set(ptySessionId, pty);
-    const screen = new PtyScreen(options.size);
+    const screen = new PtyScreen(options.size, undefined, options.scrollback);
     this.screens.set(ptySessionId, screen);
 
     // Adopt the grid the renderer already asked for.  Spawn callers size the PTY
@@ -229,11 +230,11 @@ export class PtySessionRegistry {
    * 新一代的第一个字节起就在,它的快照涵盖新一代已经到的全部输出,一字不漏。等的时候注销了 ⇒ 交已切到的这份
    * (退出前最后那几句在里面)。一开始就没有屏幕(还没起 PTY / 已注销)⇒ null。
    */
-  private async currentSnapshot(ptySessionId: string): Promise<PtyScreenSnapshot | null> {
+  private async currentSnapshot(ptySessionId: string, options?: { scrollback?: number }): Promise<PtyScreenSnapshot | null> {
     for (;;) {
       const screen = this.screens.get(ptySessionId);
       if (!screen) return null;
-      const snapshot = await screen.snapshot();
+      const snapshot = await screen.snapshot(options);
       const now = this.screens.get(ptySessionId);
       if (now === screen || now === undefined) return snapshot;
     }
@@ -252,6 +253,16 @@ export class PtySessionRegistry {
     const snapshot = await this.currentSnapshot(ptySessionId);
     if (!snapshot) return { buffer: '', live: '', size: this.lastSizes.get(ptySessionId) ?? null };
     return { buffer: snapshot.data, live: snapshot.live, size: snapshot.size };
+  }
+
+  /** 这条 PTY 屏上最后 `lines` 行看得见的字;没有这块屏 = 空。 */
+  screenText(ptySessionId: string, lines: number): Promise<string[]> {
+    return this.screens.get(ptySessionId)?.text(lines) ?? Promise.resolve([]);
+  }
+
+  /** 只有此刻这一屏(不带回滚)的快照:别的电脑上看着的终端落后太多时,用它代替积压的输出(remote-pty-pacer.ts)。 */
+  screenSnapshot(ptySessionId: string): Promise<PtyScreenSnapshot | null> {
+    return this.currentSnapshot(ptySessionId, { scrollback: 0 });
   }
 
   private disposeScreen(ptySessionId: string): void {

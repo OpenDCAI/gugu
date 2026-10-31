@@ -26,6 +26,7 @@ const COMMIT = '6f46446' + 'a'.repeat(33);
 function manifestOf(id: string, version = '1.0.0') {
   return {
     apiVersion: EXTENSION_API_VERSION,
+    platforms: ['desktop'],
     id,
     name: `Extension ${id}`,
     version,
@@ -124,7 +125,7 @@ function marketOf(backend: MarketBackend, appVersion = '0.2.40', snapshotStore: 
   return new CloudExtensionMarket(backend, {
     stagingRoot: path.join(root, 'staging'),
     heldRoot: path.join(root, 'held'),
-    resolveHost: () => Promise.resolve({ appVersion, apiVersionMin: EXTENSION_API_VERSION, apiVersionMax: EXTENSION_API_VERSION }),
+    resolveHost: () => Promise.resolve({ platform: 'desktop' as const, appVersion, apiVersionMin: EXTENSION_API_VERSION, apiVersionMax: EXTENSION_API_VERSION }),
     snapshotStore,
     scope: 'https://download.example/market/',
     now: () => clock,
@@ -305,52 +306,27 @@ describe('CloudExtensionMarket.list', () => {
     expect(extensions.map((entry) => entry.manifest.id)).toEqual(['e-papers', 'f-arxiv', 'd-notes', 'b-dev', 'a-game', 'c-none']);
   });
 
-  it('首页精选:近期安装分数高的在前,不够 3 张用标了 featured 的按索引次序补;停止维护的、首启组的不进;只随不带搜索词的第一页', async () => {
+  it('carries the first publication date in every market record independently of later updates', async () => {
     const bytes = await zipOf({ 'manifest.json': '{}' });
     const site = siteOf([
-      appOf('old', [versionFor(bytes, 'old')], { featured: true, deprecated: { note: null, replacedBy: null } }),
-      appOf('notes', [versionFor(bytes, 'notes')], { featured: true }),
-      appOf('boot', [versionFor(bytes, 'boot')], { featured: true, firstRun: true }),
-      appOf('plain', [versionFor(bytes, 'plain')]),
-      appOf('hot', [versionFor(bytes, 'hot')]),
-      appOf('warm', [versionFor(bytes, 'warm')]),
+      appOf('updated', [
+        versionFor(bytes, 'updated', '2.0.0', { publishedAt: '2026-10-24T00:00:00Z' }),
+        versionFor(bytes, 'updated', '1.0.0', { publishedAt: '2026-10-01T00:00:00Z' }),
+      ], { featured: true }),
+      appOf('new', [versionFor(bytes, 'new', '1.0.0', { publishedAt: '2026-10-20T00:00:00Z' })]),
     ]);
     const market = marketOf(site);
-    const ids = (entries: { manifest: { id: string } }[]) => entries.map((entry) => entry.manifest.id);
-    // 没有分数(读不到 / 冷启动):只剩官方标的,停维的、首启组的不算。
-    expect(ids((await market.list({ page: 0 })).featured)).toEqual(['notes']);
-    // 有分数:高的在前;首启组的分数再高也不进;不够 3 张接着用官方标的补。
-    const scores = new Map([['warm', 1.5], ['hot', 4], ['boot', 9], ['old', 7]]);
-    expect(ids((await market.list({ page: 0, scores })).featured)).toEqual(['hot', 'warm', 'notes']);
-    expect((await market.list({ page: 0, scores })).extensions.find((entry) => entry.manifest.id === 'plain')?.featured).toBe(false);
-    expect((await market.list({ page: 0, search: 'notes', scores })).featured).toEqual([]);
-    expect((await market.list({ page: 1, scores })).featured).toEqual([]);
-  });
-
-  it('首页那几排:「最新」按第一版发布时间、新的在前;够 3 个的类别才成一排,区内按名字;停维的不进;只随不带搜索词的第一页', async () => {
-    const bytes = await zipOf({ 'manifest.json': '{}' });
-    // 第一版的日期决定「最新」(versionFor 按版本号造日期:1.0.1 → 2026-09-101…,越大越新);后来又发的新版不算「新来」。
-    const app = (id: string, first: string, categories: string[], extra: Partial<MarketIndexApp> = {}) =>
-      appOf(id, [
-        versionFor(bytes, id, first, { manifest: { ...manifestOf(id, first), name: id, categories } }),
-        ...(id === 'old-updated' ? [versionFor(bytes, id, '9.9.9', { manifest: { ...manifestOf(id, '9.9.9'), name: id, categories } })] : []),
-      ], extra);
-    const site = siteOf([
-      app('notes', '1.0.1', ['productivity']),
-      app('board', '1.0.5', ['productivity']),
-      app('old-updated', '1.0.0', ['productivity']),
-      app('papers', '1.0.4', ['research']),
-      app('retired', '1.0.9', ['research'], { deprecated: { note: null, replacedBy: null } }),
-      app('arxiv', '1.0.3', ['research']),
-    ]);
-    const market = marketOf(site);
-    const { home } = await market.list({ page: 0 });
-    const ids = (entries: { manifest: { id: string } }[]) => entries.map((entry) => entry.manifest.id);
-    expect(ids(home.newest)).toEqual(['board', 'papers', 'arxiv', 'notes', 'old-updated']);
-    // 效率 3 个成排(按名字);研究去掉停维的只剩 2 个,不成排。
-    expect(home.shelves.map((shelf) => [shelf.category, ids(shelf.entries)])).toEqual([['productivity', ['board', 'notes', 'old-updated']]]);
-    expect((await market.list({ page: 0, search: 'notes' })).home).toEqual({ newest: [], shelves: [] });
-    expect((await market.list({ page: 1 })).home).toEqual({ newest: [], shelves: [] });
+    const listing = await market.list();
+    const updated = listing.extensions.find((entry) => entry.manifest.id === 'updated')!;
+    expect(updated).toMatchObject({
+      version: '2.0.0', publishedAt: '2026-10-24T00:00:00Z', firstPublishedAt: '2026-10-01T00:00:00Z', featured: true,
+    });
+    expect((await market.list({ search: 'updated' })).extensions).toEqual([updated]);
+    expect((await market.entries()).find((entry) => entry.manifest.id === 'updated')).toEqual(updated);
+    expect(await market.entry('updated')).toEqual(updated);
+    expect(listing).not.toHaveProperty('featured');
+    expect(listing).not.toHaveProperty('home');
+    expect(listing).not.toHaveProperty('popular');
   });
 
   it('搜索按名字 / 简介 / id 筛同一份目录,不区分大小写', async () => {

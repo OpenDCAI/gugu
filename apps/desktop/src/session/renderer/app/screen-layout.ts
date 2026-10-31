@@ -15,34 +15,63 @@ import {
   type PaneLayoutNode,
 } from '@renderer/features/tabs/pane-layout-tree';
 import type { PaneLayoutSnapshotNode } from '@shared/view-state';
+import { blockKey, type JoinedGroup } from '@/lib/sidebarJoinedGroups';
 
 /** 一屏最多几块(spec session-page「一屏几块」)。 */
 export const MAX_SCREEN_BLOCKS = 4;
 
 export type ScreenSession = { projectId: string; sessionId: string };
 
-/** 一块装的东西:一个会话(连同它分好的格子和页签),或一个 App。 */
-export type ScreenBlockContent = ({ kind: 'session' } & ScreenSession) | { kind: 'app'; tabKind: string };
+/**
+ * 一块装的东西:一个会话(连同它分好的格子和页签)、一个 App、一个项目(第一枚页签是项目群,gugu-dev#181)
+ * 或一个对话(人和用户群)。
+ */
+export type ScreenBlockContent =
+  | ({ kind: 'session' } & ScreenSession)
+  | { kind: 'app'; tabKind: string }
+  | { kind: 'project'; projectId: string }
+  | { kind: 'chat'; chatId: string }
+  /** 一个对话里的一张 App 页(那个对话的那张,或为它的一个文件开的),从那个对话的页签条上拿出来单独占一块。 */
+  | { kind: 'chat-app'; chatId: string; tabKind: string; itemId?: string; title: string }
+  /** 示例项目(#709):打包在 app 里的一个项目的样子,只有一份。 */
+  | { kind: 'sample-project' };
+
+/** 能单独开成一扇窗的:会话、App(项目、对话这一轮只在主窗里)。 */
+export type WindowableContent = Extract<ScreenBlockContent, { kind: 'session' | 'app' }>;
+
+/**
+ * 一块装的是哪一样(同一样东西只在一组的一块里):会话认会话 id,App 认页签类型,项目认项目 id,对话认对话 id。
+ * 左边列表(项目、对话)按同一个键认出一行是组里的哪一块。
+ */
+export function contentKey(content: ScreenBlockContent): string {
+  switch (content.kind) {
+    case 'session':
+      return blockKey.session(content.sessionId);
+    case 'app':
+      return blockKey.app(content.tabKind);
+    case 'project':
+      return blockKey.project(content.projectId);
+    case 'chat':
+      return blockKey.chat(content.chatId);
+    case 'chat-app':
+      return blockKey.chatApp(content.chatId, content.tabKind, content.itemId);
+    case 'sample-project':
+      return blockKey.sampleProject();
+  }
+}
 
 /** 新的一块从旁边那块分走一半;那一半放不下(调用方量过)= 这一排一起均分(照 VS Code 的 splitSizing: auto)。 */
 export type InsertOptions = { even?: boolean };
 
-/**
- * 一组的摆法:形状和份额(不带切分的 id,读回时重新编)、每块装什么、正看着哪块;
- * `anchor` = 拼之前正看着的那条会话 —— 左边列表的框摆在它原来的位置(spec session-page「拼在一屏的几块是一组」)。
- */
+/** 一组的摆法:形状和份额(不带切分的 id,读回时重新编)、每块装什么、正看着哪块。 */
 export type ScreenGroupSnapshot = {
   layout: PaneLayoutSnapshotNode;
   blocks: Record<string, ScreenBlockContent>;
   focused: string | null;
-  anchor?: string | null;
 };
 
 /** 存下来的:这屏那一组,加上收起来的那些组(不在屏上,点到组里任一条整组回来)。 */
 export type ScreenLayoutSnapshot = ScreenGroupSnapshot & { parked?: ScreenGroupSnapshot[] };
-
-/** 左边列表画成一个框的一组:两条会话以上,组员按这组从左上到右下的次序;框摆在 anchor 那条的位置。 */
-export type ScreenSessionGroup = { anchor: string; sessionIds: string[]; onScreen: boolean };
 
 let nextBlock = 1;
 const newBlockId = () => `block-${nextBlock++}`;
@@ -52,7 +81,7 @@ const newBlockId = () => `block-${nextBlock++}`;
  * 一块 = 一个会话或一个 App,最多四块。块没有名字,会话那块认它第一枚页签。
  *
  * 拼在一屏的几块是一组(#7097,照 Arc / Zen 分屏):去看组外的一条 = 这组收起来(`parked`)、那条单独一屏;
- * 去看组里的一条 = 整组摆回来。一条会话、一个 App 只在一组里。只有一块的屏不是组,切走就不用记。
+ * 去看组里的一条 = 整组摆回来。一样东西只在一组里。只有一块的屏不是组,切走就不用记。
  *
  * 只是摆法,不碰页面:每个会话页一直活在原处(@@@retained-session-pages),这里只说它此刻摆在哪一块 ——
  * 挪块、换块、关块都不重建页面。导航那一侧(看着哪条会话)由 screen-layout-actions 接上。
@@ -63,8 +92,6 @@ export class ScreenLayoutStore {
   focusedBlockId: string | null = null;
   /** 最近看过的会话块:正看着 App 那块时,「当前会话」指的是这一块。 */
   lastSessionBlockId: string | null = null;
-  /** 这屏这一组拼起来之前正看着的那条会话(左边列表的框摆在它原来的位置);只有一块时没有。 */
-  anchorSessionId: string | null = null;
   /** 收起来的组(不在屏上)。 */
   readonly parked = observable.array<ScreenGroupSnapshot>([], { deep: false });
 
@@ -73,17 +100,17 @@ export class ScreenLayoutStore {
       layout: observable.ref,
       focusedBlockId: observable,
       lastSessionBlockId: observable,
-      anchorSessionId: observable,
       order: computed,
       sessions: computed,
       focusedSession: computed,
-      sessionGroups: computed,
+      joinedGroups: computed,
       show: action,
       showBeside: action,
       placeAt: action,
       close: action,
       forgetSession: action,
       forgetApp: action,
+      forgetContent: action,
       focus: action,
       setSplitSizes: action,
       equalizeSplit: action,
@@ -122,13 +149,11 @@ export class ScreenLayoutStore {
     this.focusedBlockId = null;
     this.lastSessionBlockId = null;
     this.focus(current.focused);
-    this.anchorSessionId = current.entries.length > 1 ? current.anchor : null;
     this.parked.replace(
       parked.map((group) => ({
         layout: snapshotOf(group.layout),
         blocks: Object.fromEntries(group.entries),
         focused: group.focused,
-        anchor: group.anchor,
       }))
     );
   }
@@ -173,6 +198,13 @@ export class ScreenLayoutStore {
     return undefined;
   }
 
+  /** 这样东西此刻在这屏的哪一块(不在 = undefined)。 */
+  blockOf(content: ScreenBlockContent): string | undefined {
+    const key = contentKey(content);
+    for (const [blockId, block] of this.blocks) if (contentKey(block) === key) return blockId;
+    return undefined;
+  }
+
   /**
    * 这一块此刻挨着谁、在它哪一边(拿走之前记下,放回来时回到原处):同一刀里它前面那块 → 在那块的右 / 下边;
    * 它是第一块 → 在后面那块的左 / 上边。屏上只有它一块 = null。
@@ -205,16 +237,15 @@ export class ScreenLayoutStore {
   }
 
   /**
-   * 左边列表要画成框的组:这屏这一组和收起来的那些组里,两条会话以上的(只拼了一个 App 的不画框 —— 列表里本来就没有 App)。
+   * 这屏这一组和收起来的那些组,喂给左边列表(项目、对话各把自己有的那几行并在一处,lib/sidebarJoinedGroups):
+   * 组员是每一块装的那样东西,不分种类 —— 哪一样在哪个列表里有一行,由那个列表自己认。
    */
-  get sessionGroups(): ScreenSessionGroup[] {
-    const groups: ScreenSessionGroup[] = [];
-    const add = (sessionIds: string[], anchor: string | null | undefined, onScreen: boolean) => {
-      if (sessionIds.length < 2) return;
-      groups.push({ anchor: anchor && sessionIds.includes(anchor) ? anchor : sessionIds[0], sessionIds, onScreen });
-    };
-    add(this.sessions.map((entry) => entry.sessionId), this.anchorSessionId, true);
-    for (const group of this.parked) add(sessionIdsOf(group), group.anchor, false);
+  get joinedGroups(): JoinedGroup[] {
+    const groups: JoinedGroup[] = [];
+    if (this.order.length > 1) {
+      groups.push({ members: this.order.map((blockId) => contentKey(this.blocks.get(blockId)!)), onScreen: true });
+    }
+    for (const group of this.parked) groups.push({ members: keysOf(group), onScreen: false });
     return groups;
   }
 
@@ -223,22 +254,24 @@ export class ScreenLayoutStore {
    * 它在这屏 → 那块成为正看着的;在收起来的某一组 → 这屏收起来、那组整组摆回来,正看着它那块;
    * 哪组都不在 → 这屏收起来,它单独一屏。❌ 只换掉正看着的那一块。
    */
-  show(target: ScreenSession): void {
-    const at = this.blockOfSession(target.sessionId);
+  show(target: ScreenSession | ScreenBlockContent): void {
+    const content = asContent(target);
+    const at = this.blockOf(content);
     if (at) {
       this.focus(at);
       return;
     }
-    const group = this.parked.find((entry) => Object.values(entry.blocks).some((block) => isSession(block, target.sessionId)));
+    const key = contentKey(content);
+    const group = this.parked.find((entry) => Object.values(entry.blocks).some((block) => contentKey(block) === key));
     this.park();
     if (group) {
       this.unpark(group);
-      const blockId = this.blockOfSession(target.sessionId);
+      const blockId = this.blockOf(content);
       if (blockId) this.focus(blockId);
       return;
     }
     const blockId = newBlockId();
-    this.blocks.set(blockId, { kind: 'session', projectId: target.projectId, sessionId: target.sessionId });
+    this.blocks.set(blockId, content);
     this.layout = paneLeaf(blockId);
     this.focus(blockId);
   }
@@ -247,13 +280,13 @@ export class ScreenLayoutStore {
    * ⌘ 点左边一行:拼进这屏,放在正看着那块的右边。已经在屏上 = 去那块;满了 = 不放(返回 false);
    * 它在收起来的别的组里 = 从那组挪过来(一条只在一组里)。
    */
-  showBeside(target: ScreenSession, options: InsertOptions = {}): boolean {
-    if (!this.layout || this.blockOfSession(target.sessionId)) {
-      this.show(target);
+  showBeside(target: ScreenSession | ScreenBlockContent, options: InsertOptions = {}): boolean {
+    const content = asContent(target);
+    if (!this.layout || this.blockOf(content)) {
+      this.show(content);
       return true;
     }
     if (this.isFull) return false;
-    const content: ScreenBlockContent = { kind: 'session', projectId: target.projectId, sessionId: target.sessionId };
     this.release(content);
     this.insert(content, this.focusedBlockId ?? this.order[0], 'right', options);
     return true;
@@ -299,7 +332,6 @@ export class ScreenLayoutStore {
       const lastSession = this.lastSessionBlockId;
       this.focus(next && this.blocks.get(next)?.kind === 'session' ? next : (lastSession ?? next ?? this.order[0]));
     }
-    this.settleAnchor();
     return true;
   }
 
@@ -317,43 +349,29 @@ export class ScreenLayoutStore {
     if (group) this.parked.remove(group);
   }
 
-  /** 这条会话在不在一个左边画成框的组里(两条会话以上;一条会话拼一个 App 不画框,右键也不给「拿出来 / 拆开」)。 */
-  isGrouped(sessionId: string): boolean {
-    return this.sessionGroups.some((group) => group.sessionIds.includes(sessionId));
-  }
-
   /** 这条会话没了(归档、删除):它那块收掉(收起来的组里也一样);它是屏上唯一一块就整屏清空,下一次看谁就从谁开始。 */
   forgetSession(sessionId: string): void {
-    const at = this.blockOfSession(sessionId);
-    if (at) this.forget(at);
-    else this.release({ kind: 'session', projectId: '', sessionId });
+    this.forgetContent({ kind: 'session', projectId: '', sessionId });
   }
 
   /** 这个 App 不在一块里了(放进了某条会话、退出、停用)。 */
   forgetApp(tabKind: string): void {
-    const at = this.blockOfApp(tabKind);
+    this.forgetContent({ kind: 'app', tabKind });
+  }
+
+  /** 这样东西没了(会话归档删除、App 停用、项目删除):它那块收掉(收起来的组里也一样);是屏上唯一一块就整屏清空。 */
+  forgetContent(content: ScreenBlockContent): void {
+    const at = this.blockOf(content);
     if (at) this.forget(at);
-    else this.release({ kind: 'app', tabKind });
+    else this.release(content);
   }
 
-  /** 收起来的组里有没有它(App 停用了要从那组里拿走;点左栏 App 图标要把那组摆回来)。 */
-  parkedSessionOfApp(tabKind: string): ScreenSession | undefined {
-    const group = this.parked.find((entry) => Object.values(entry.blocks).some((block) => block.kind === 'app' && block.tabKind === tabKind));
-    if (!group) return undefined;
-    const first = sessionIdsOf(group)[0];
-    const block = Object.values(group.blocks).find((entry) => isSession(entry, first));
-    return block?.kind === 'session' ? { projectId: block.projectId, sessionId: block.sessionId } : undefined;
-  }
-
-  /** 收起来的组里的会话与 App(读回来之后核对它们还在不在)。 */
+  /** 收起来的组里的每一块(读回来之后核对它们还在不在;点左栏 App 图标时它在不在某一组里)。 */
   get parkedContents(): ScreenBlockContent[] {
     return this.parked.flatMap((group) => Object.values(group.blocks));
   }
 
-  /**
-   * 它要去别处(拼进这屏、开成窗、没了):从收起来的那组里拿出来。那组只剩一块 = 散了,不再记着;
-   * 拿走的是那组的 anchor → 框改摆在剩下的第一条会话那里。
-   */
+  /** 它要去别处(拼进这屏、开成窗、没了):从收起来的那组里拿出来。那组只剩一块 = 散了,不再记着。 */
   release(content: ScreenBlockContent): void {
     const index = this.parked.findIndex((group) => Object.values(group.blocks).some((block) => sameContent(block, content)));
     if (index < 0) return;
@@ -365,14 +383,11 @@ export class ScreenLayoutStore {
       return;
     }
     const layout = removePane(layoutFor(Object.keys(group.blocks), group.layout), blockId);
-    const next: ScreenGroupSnapshot = {
+    this.parked.splice(index, 1, {
       layout: snapshotOf(layout),
       blocks: Object.fromEntries(rest),
       focused: group.focused === blockId ? paneOrder(layout)[0] : group.focused,
-      anchor: group.anchor,
-    };
-    next.anchor = anchorOf(next);
-    this.parked.splice(index, 1, next);
+    });
   }
 
   focus(blockId: string): void {
@@ -402,7 +417,6 @@ export class ScreenLayoutStore {
     this.blocks.clear();
     this.focusedBlockId = null;
     this.lastSessionBlockId = null;
-    this.anchorSessionId = null;
   }
 
   private currentGroup(): ScreenGroupSnapshot | null {
@@ -411,17 +425,16 @@ export class ScreenLayoutStore {
       layout: snapshotOf(this.layout),
       blocks: Object.fromEntries(this.blocks),
       focused: this.focusedBlockId,
-      anchor: this.anchorSessionId,
     };
   }
 
   /**
-   * 这屏收起来(要去看别的组 / 别的会话):两块以上、里面有会话,才是一组、记着(要靠点组里的会话才摆得回来);
-   * 只有一块 = 那条会话自己,不用记;只有 App 没有会话 = 点不回来,不记(App 照常启用,左栏点它就开)。
+   * 这屏收起来(要去看别的组 / 别的会话):两块以上就是一组、记着,装的是什么都一样 —— 点组里任一样(左边的会话行、
+   * 对话行、项目行,左栏的 App 图标)整组摆回来;只有一块 = 那一样自己,不用记。
    */
   private park(): void {
     const current = this.currentGroup();
-    if (current && this.order.length > 1 && this.sessions.length > 0) this.parked.push(current);
+    if (current && this.order.length > 1) this.parked.push(current);
     this.clearScreen();
   }
 
@@ -434,22 +447,7 @@ export class ScreenLayoutStore {
       entries.map(([id]) => id),
       group.layout
     );
-    this.anchorSessionId = anchorOf(group);
     this.focus(group.focused && this.blocks.has(group.focused) ? group.focused : this.order[0]);
-  }
-
-  /** 框摆在哪条会话的位置:拼之前正看着的那条;它被拿走了 → 剩下的第一条会话;不到两块不是组。 */
-  private settleAnchor(): void {
-    if (this.order.length < 2) {
-      this.anchorSessionId = null;
-      return;
-    }
-    const sessions = this.sessions.map((entry) => entry.sessionId);
-    if (!this.anchorSessionId || !sessions.includes(this.anchorSessionId)) this.anchorSessionId = sessions[0] ?? null;
-  }
-
-  private blockOf(content: ScreenBlockContent): string | undefined {
-    return content.kind === 'session' ? this.blockOfSession(content.sessionId) : this.blockOfApp(content.tabKind);
   }
 
   /** 「当前会话」那块:正看着的会话块;正看着 App 那块 → 最近看过的会话块;再没有 → 任一会话块。 */
@@ -461,16 +459,11 @@ export class ScreenLayoutStore {
   }
 
   private insert(content: ScreenBlockContent, targetId: string, edge: PaneEdge, { even = false }: InsertOptions = {}): void {
-    // 一块变两块 = 拼成一组:框摆在拼之前正看着的那条会话的位置(那块是 App → 摆在拼进来的这条那里)。
-    if (this.anchorSessionId === null && this.order.length === 1) {
-      this.anchorSessionId = this.sessions[0]?.sessionId ?? (content.kind === 'session' ? content.sessionId : null);
-    }
     const blockId = newBlockId();
     this.blocks.set(blockId, content);
     this.layout = this.layout ? insertBeside(this.layout, targetId, blockId, edge) : paneLeaf(blockId);
     if (even) this.layout = equalizeAround(this.layout, blockId);
     this.focus(blockId);
-    this.settleAnchor();
   }
 }
 
@@ -480,13 +473,13 @@ export class ScreenLayoutStore {
 function readGroup(
   snapshot: ScreenGroupSnapshot,
   seen: Set<string>
-): { entries: Array<[string, ScreenBlockContent]>; layout: PaneLayoutNode; focused: string; anchor: string | null } | null {
+): { entries: Array<[string, ScreenBlockContent]>; layout: PaneLayoutNode; focused: string } | null {
   if (!snapshot || typeof snapshot !== 'object') return null;
   const mine = new Set<string>();
   const entries = Object.entries(snapshot.blocks ?? {}).filter((entry): entry is [string, ScreenBlockContent] => {
     const block = entry[1];
     if (!isBlockContent(block)) return false;
-    const key = block.kind === 'session' ? `session:${block.sessionId}` : `app:${block.tabKind}`;
+    const key = contentKey(block);
     if (seen.has(key) || mine.has(key) || seen.has(`block:${entry[0]}`) || mine.has(`block:${entry[0]}`)) return false;
     mine.add(key);
     mine.add(`block:${entry[0]}`);
@@ -506,37 +499,50 @@ function readGroup(
   for (const key of mine) seen.add(key);
   const ids = entries.map(([id]) => id);
   const focused = snapshot.focused && ids.includes(snapshot.focused) ? snapshot.focused : paneOrder(layout)[0];
-  const group = { layout: snapshotOf(layout), blocks: Object.fromEntries(entries), focused, anchor: snapshot.anchor ?? null };
-  return { entries, layout, focused, anchor: anchorOf(group) };
+  return { entries, layout, focused };
 }
 
-/** 一组里的会话,从左上到右下。 */
-function sessionIdsOf(group: ScreenGroupSnapshot): string[] {
+/** 一组里的每一块装的东西(contentKey),从左上到右下。 */
+function keysOf(group: ScreenGroupSnapshot): string[] {
   return paneOrder(layoutFor(Object.keys(group.blocks), group.layout)).flatMap((blockId) => {
     const block = group.blocks[blockId];
-    return block?.kind === 'session' ? [block.sessionId] : [];
+    return block ? [contentKey(block)] : [];
   });
 }
 
-/** 这组的框摆在哪条会话:记着的那条还在组里就是它,否则第一条会话。 */
-function anchorOf(group: ScreenGroupSnapshot): string | null {
-  const sessions = sessionIdsOf(group);
-  return group.anchor && sessions.includes(group.anchor) ? group.anchor : (sessions[0] ?? null);
-}
 
 function isSession(block: ScreenBlockContent, sessionId: string): boolean {
   return block.kind === 'session' && block.sessionId === sessionId;
 }
 
 function sameContent(a: ScreenBlockContent, b: ScreenBlockContent): boolean {
-  return a.kind === 'session' ? isSession(b, a.sessionId) : b.kind === 'app' && b.tabKind === a.tabKind;
+  return contentKey(a) === contentKey(b);
+}
+
+/** 只给了会话的那种老调用(看这条会话)= 一块会话。 */
+function asContent(target: ScreenSession | ScreenBlockContent): ScreenBlockContent {
+  return 'kind' in target ? target : { kind: 'session', projectId: target.projectId, sessionId: target.sessionId };
 }
 
 function isBlockContent(value: unknown): value is ScreenBlockContent {
-  const block = value as Partial<{ kind: string; projectId: string; sessionId: string; tabKind: string }> | null;
+  const block = value as Partial<{ kind: string; projectId: string; sessionId: string; tabKind: string; chatId: string; title: string }> | null;
   if (!block || typeof block !== 'object') return false;
-  if (block.kind === 'session') return typeof block.projectId === 'string' && typeof block.sessionId === 'string';
-  return block.kind === 'app' && typeof block.tabKind === 'string';
+  switch (block.kind) {
+    case 'session':
+      return typeof block.projectId === 'string' && typeof block.sessionId === 'string';
+    case 'app':
+      return typeof block.tabKind === 'string';
+    case 'project':
+      return typeof block.projectId === 'string';
+    case 'chat':
+      return typeof block.chatId === 'string';
+    case 'chat-app':
+      return typeof block.chatId === 'string' && typeof block.tabKind === 'string' && typeof block.title === 'string';
+    case 'sample-project':
+      return true;
+    default:
+      return false;
+  }
 }
 
 export const screenLayout = new ScreenLayoutStore();

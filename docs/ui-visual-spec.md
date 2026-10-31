@@ -50,12 +50,25 @@
 | 投影 | `--shadow-lift` 菜单/popover/tooltip/toast;`--shadow-dialog` Sheet/Dialog 外壳;`--shadow-composer` 其他主输入入口 | 使用投影的入口不另叠 border;会话页及新建会话输入框只留一条轻边框,无外投影(维护者 2026-10-19,#7528);非浮层不给阴影 |
 | 动效 | 150 / 200 / 300ms 三档 | 用途见 product spec |
 | 焦点 | 键盘 `:focus-visible` 画 2px live 色环(外偏 2px);鼠标点击不留环;文字输入以光标为指示 | 取代 §8 条 6 的「全局 outline:none 是待偿债务」 |
-| 窗口材质 | `<html data-window-material>` 由主进程按系统信号写:只有 mac 主窗、系统没开「减弱透明度」「增强对比度」时是 native | 最左图标栏保留系统材质;Mac 浅色 native 模式的中间列表、右侧文件导航、页签底条和正文上下留边共用同一份接近白色的 C 档背景(维护者 2026-10-20 选色、10-21 明确整块关系,#7610),不能只给列表单独铺色。正文和文档阅读面保持白色;暗色保留原材质关系 |
+| 窗口材质 | `<html data-window-material>` 由主进程按系统信号写:只有 mac 主窗、系统没开「减弱透明度」「增强对比度」时是 native | 最左图标栏保留系统材质(不透明窗口是 --muted 实色);桌面主窗浅色模式(不分材质,Windows / Linux 同 Mac)的中间列表、右侧文件导航、页签底条和正文上下留边共用同一份接近白色的 C 档背景(维护者 2026-10-20 选色、10-21 明确整块关系,#7610),不能只给列表单独铺色。正文和文档阅读面保持白色;暗色保留原材质关系 |
 | 列表附属图形(2026-10-19,#7528) | 中性附属标签和群成员角色默认透明无边框,联系人状态文字/色点不套底板;群成员组合头像、群/联系人资料头像外壳、成员叠放头像无底板/白圈;引擎角标、联系人与导航状态点、助手角标、形象页兄弟头像不套底圈;模板角色、联系人查号与空状态图标不垫实色;任务行尾图标及操作区透明 | 上传的头像图片保持原样;状态色、计数、行的选中/悬浮层和键盘焦点环保留;输入控件、菜单浮层和二维码的背景由各自功能决定 |
-| 会话页工作区表面 | Mac 浅色 native 模式的圆角和轻轮廓归整个列表+工作区,白色阅读面在其中保留上下/右侧 5px 的共同背景 | 中间列表、右侧文件导航、页签底条与阅读面上下边缘颜色连续;固定窗口动作与局部标题消费同一内缩。侧栏保留用户宽度。原生画面对照验收与 token/契约检查分开记录 |
+| 会话页工作区表面 | 桌面主窗浅色模式的圆角和轻轮廓归整个列表+工作区,白色阅读面在其中保留上下/右侧 5px 的共同背景 | 中间列表、右侧文件导航、页签底条与阅读面上下边缘颜色连续;固定窗口动作与局部标题消费同一内缩。侧栏保留用户宽度。原生画面对照验收与 token/契约检查分开记录 |
 
 **旧字阶的写死字号**(11/13/15/17)按范围记账、只减不增(`offLadderFontSizeLiterals`,baseline 见
 `scripts/ui-visual-spec-baseline.json`)。守卫通过 ≠ 全部组件已适配:记账里剩下的每一处都还是旧字号,清单与进度见 #7333。
+
+### 0.3 手机全页统一（2026-10-26 用户裁决，取代 10-21 与 10-22 两条；#446）
+
+- **底栏**：悬浮的玻璃胶囊，两格「消息 · 伙伴」（图标 + 字，选中格里衬一块浅色胶囊），右边另一颗圆形搜索钮，搜当前这一页；列表页头不再放搜索（owner 10-26 选 iOS 26 那种浮动胶囊 + 独立搜索钮，「挪下来」）。
+- **层级**：底栏只在列表首页，固定不收放；干活的页 —— 对话、项目群、任务、咕咕、设置详情 —— 一律整屏推进来、不带底栏，返回一步回到有底栏的那层（微信、豆包、iOS `hidesBottomBarWhenPushed` 的做法）。❌ 底栏或页头随滚动、聚焦、打字收放；列表页上键盘弹起时底栏由键盘盖住。
+- **入口**：咕咕不单占一格，是「消息」置顶的第一行，点开整屏进助理；「我的」从「消息」「伙伴」页头左上角自己的头像进。「伙伴」= 项目 + 朋友（人和别人的 Agent），普通群只在「消息」；项目按文件夹列（只写名字、顺序固定），点开是项目通讯录；项目群页一排页签：第一枚是群聊本身，后面都是话题 —— 每派一件任务就从它的任务卡开一个话题（owner 10-26：「项目群的分 tab 也是 topic」）。
+- **全线一个底**：消息、伙伴、推进来的每一页默认用手机咕咕页那套渐变底（`--ta-panel-bg`），底栏、搜索框是透出底色的玻璃（owner 10-26：「中间这页用的是彩边,其他页都是白边……不统一」）。
+- **可选素白主题（2026-10-28）**：「通用 → 主题」在浅色、深色、跟随系统之外增加「素白」，手机与电脑共用这项偏好。选中后按浅色显示，手机整屏所有页面、咕咕页及桌面咕咕面板采用纯白底（`--ta-panel-bg` / `--ta-app-bg`），玻璃与色调叠层采用中性色；刷新和重启后保留。它沿用本节的气泡、间距、底栏形状与触控尺寸，只替换颜色；原白色的对方气泡采用现有浅灰填充，与白色页面保持可辨的轮廓。默认仍为现有浅色渐变；深色及跟随系统的行为不变。
+- **对话页**：页头一行、浮在消息上，消息铺到页头底下淡出；输入框浮在消息上、没有底色带，框本身 24px 圆角柔和填充。所有对话页照手机咕咕页：玻璃气泡，用户和对方的话都在气泡里；过程折叠但不隐藏实际审批和错误；助理页输入框上方不显示「运行中」。
+- **几何**：间距只用 4/8/16/24 —— 页边距 16，列表行内距 8、头像到文字 16，气泡 8×16；嵌套圆角外 = 内 + 内距（卡片内距 16、外圆角 24 = 里面按钮 8 + 16）；状态色（运行中、等你、未读）不降饱和，它们只出现在小点和角标上。手机正文 16/24、页标题 24/32；控件触控目标至少 44px；其余几何消费咕咕母版 token。
+- **底部抽屉（Sheet）不是禁用，旧样子才是**：长按消息、短选项优先贴着触发点弹菜单，长内容推进整页；要用抽屉时外观跟手机新底走（玻璃、24 圆角、4/8/16/24 间距），❌ 旧版那种白底抽屉（owner 10-25「我不要 drawer 组件」，10-26 补充：「其实也可以有抽屉,但是之前的抽屉确实不好看……这个规则不绝对」）。
+- 权限、资料和设置采用开放分组与短状态行；去除表格感分隔、卡片套卡片（10-21 起，沿用）。参考 [豆包手机助手](https://o.doubao.com/) 与 [Codex](https://openai.com/index/introducing-the-codex-app/) 的连续对话、独立任务和过程阅读方向。
+- 以真实 Android 键盘、返回、授权与撤权验证交互。此范围只管手机，桌面保持现有规则。
 
 ## 0. 一句话
 
@@ -220,7 +233,7 @@ Sans(`--font-sans`)是阅读正文,Mono(`--font-mono`)只有一个职责:**你�
 一个只有尺子读得懂、浏览器读不懂的类名。于是「页级标题」这件事靠每个消费点自己再写一遍
 `text-xl font-semibold tracking-tight`,写漏一样就少一样(实测 `lib/components/page-header.tsx`、
 `lib/components/page-layout.tsx`、`features/onboarding/components/import-header.tsx` **三处都没写
-`font-semibold`**)。design.md:「Type roles are a closed set … **Use the role.
+`font-semibold`**);`features/onboarding/` 后来已整体删除)。design.md:「Type roles are a closed set … **Use the role.
 Do not compose a one-off size.**」⇒ 角色自己得带上它的排版:
 
 | 类 | 定义(在 `tokens.css` 的 `@layer components`) |
@@ -258,6 +271,7 @@ Do not compose a one-off size.**」⇒ 角色自己得带上它的排版:
 `features/onboarding/components/import-header.tsx:52,56`、
 `features/onboarding/onboarding-shell.tsx:32`、
 `features/automations/components/AutomationRow.tsx:94`)的字号一直**静默落回继承值**。
+(其中 `features/onboarding/` 两处所在的目录后来已整体删除,现存 4 处。)
 两张表各登记一份逐字等值的 `--text-md: 15px` / line-height 22px(= 字阶的 `--font-title` 那一档)。
 ❌ 没改成 `text-base`:会话页那边 `text-base` 是 Tailwind 默认的 16px,不在字阶(11/13/15/17/20)上
 —— 那是把 6 处从「没字号」换成「错字号」。
@@ -517,8 +531,7 @@ design.md:「**Shadows are zeroed globally. Only a floating surface may lift.**�
   ❌ 不再抄一排深浅 —— 深浅不是可选项:两个都能「浮起来」的浮层若投影一深一浅,
   读到的是「它们不是一类东西」,而它们是。
 - 非浮层一律**靠密度分层**(`bg-foreground/[0.025]`),❌ 不给阴影。
-  仓内已有两份现成的零阴影参照实现:`session/renderer/features/extensions/panel/extensions-panel.css`
-  与 `pages/explore/ExplorePage.css`。
+  仓内的零阴影参照实现:`session/renderer/features/extensions/panel/extensions-panel.css`。
 - 原来那 13 个具名 shadow 里,`--shadow-dropdown` / `-modal` / `-popover` / `-popover-strong` /
   `-overlay-panel` / `-floating` / `-toast` / `-toast-card` / `-call-panel` / `-drawer` /
   `-drawer-strong` / `-menu` 与 `--modal-shadow` / `--modal-light-shadow` 全部变成 `--shadow-lift`
@@ -635,7 +648,7 @@ bg-background-quaternary + rounded-[--radius-surface | --radius-xl] + shadow-lif
 | `modal-renderer.tsx:145` | `rounded-xl` 无 shadow | 统一 |
 | `popover.tsx:41` | 用 `border` 而不是 `ring-1` | 改 `ring-1`（`ring` 不占布局，`border` 占） |
 | `sheet.tsx:56` | `shadow-lg` | `shadow-sm` |
-| `sonner.tsx:14` | `bg-background` `shadow-lg` | 统一 |
+| `sonner.tsx:14` | `bg-background` `shadow-lg` | 统一(该文件已随 #137 删除,提示条样式在 `notice-host.css`) |
 
 > 上一版本文写的是「现存 `shadow-md` 与 `rounded-xl` 由 P1 chrome 车道收敛」——上表就是它兑现后的读数。
 > ⚠️ 表里的 `shadow-sm` 与 `ring-1` 两列**已被 design.md 裁决覆盖**(见本节开头的新公式);
@@ -753,7 +766,8 @@ token 名一律保留、**消费点一处没改**,改的只是取值 —— 这�
 **常态值原封不动**。现在常态就是 10%,`prefers-contrast` 那档改成「在 10% 之上再往上加」。
 ⚠️ 它与 §6 必须一起改:线变明显之后,那些「border + shadow 共存」的边会更刺眼。
 
-**玻璃拟态已退役。** design.md 的 Reject 列表逐字点名 glass 与 ornamental shadows
+**玻璃拟态已退役(桌面)。** 手机壳例外:2026-10-26 用户裁决全线渐变底 + 玻璃底栏 / 搜索框 / 气泡(§0.3,#446),消费咕咕页那组 `--ta-glass*`,不复活下面三个 `--glass-*`。
+design.md 的 Reject 列表逐字点名 glass 与 ornamental shadows
 (「The paper here is a structural register, never a texture」)。
 `--glass-bg` / `--glass-border` / `--shadow-glass` 三个名字**保留**,取值换成实色面 + 同一条 hairline + 唯一那档 lift。
 ✅ **消费点也清了(2026-09-22,#6105)**:`layouts/MainLayout.tsx` 的底部 tab 栏从「悬浮玻璃岛」改回
@@ -921,7 +935,7 @@ Tailwind utility。`--color-ring` 位于 `@theme inline`，是编译期映射而
    - 会话页 `.emlight` / `.emdark` 自带的 Radix display-p3 原始色阶(`--neutral-1..12` 等):
      在咕咕宿主里它们**被皮肤桥整族接到 `--tint` 族**(`EmdashSessionFrame.tsx` 的 `--neutral-*` 映射),
      所以产品里不成立;**脱开宿主**(独立会话页 / storybook)时仍是 Radix 自己的色相。
-   - 顾客面板(现 nmhjklnm/gugu-website 的 dashboard/)与中台(现 nmhjklnm/gugu-console)的 shadcn oklch 色板(H 247–265,`--tint` 是 268):
+   - 顾客面板与中台(现均在本仓之外)的 shadcn oklch 色板(H 247–265,`--tint` 是 268):
      本轮只统一了它们的圆角与 reduced-motion,颜色没动。
    - `packages/session-chat-ui` 的 transcript 色板:本轮只并了 mention chip 的 per-kind 分色。
    这三块要不要一起进 `--tint`,是维护者的一格(它们分别涉及 Radix 阶梯的整族重算、
@@ -1114,7 +1128,7 @@ Tailwind utility。`--color-ring` 位于 `@theme inline`，是编译期映射而
 
 | 判据 | 它看得见什么 | ❌ 它看不见什么 |
 |---|---|---|
-| `check-ui-visual-spec.mjs` 的**硬闸**(12 / 14 / 半像素) | 五个扫描根:主 renderer、`…/session/renderer`、`…/components/assistant-ui`、`packages/session-ui/src`、**`packages/session-chat-ui/src`**(2026-09-22 新接入)。正则吃得下 `fontSize: '12px'` 这种 CSS-in-JS 写法 | 中台与顾客面板已拆出本仓(nmhjklnm/gugu-console、nmhjklnm/gugu-website 的 dashboard/),不在本仓任何一个根里 |
+| `check-ui-visual-spec.mjs` 的**硬闸**(12 / 14 / 半像素) | 五个扫描根:主 renderer、`…/session/renderer`、`…/components/assistant-ui`、`packages/session-ui/src`、**`packages/session-chat-ui/src`**(2026-09-22 新接入)。正则吃得下 `fontSize: '12px'` 这种 CSS-in-JS 写法 | 中台与顾客面板已拆出本仓,不在本仓任何一个根里 |
 | 同文件的**棘轮**(半步间距 / 内联字号 / 内联圆角 / 裸 button / 内联 style) | 前四个根,各自一档独立基线 | **`packages/session-chat-ui/src` 不在棘轮里** —— 硬闸接了它,棘轮没接 ⇒ 本包里「不在字阶上但不犯硬闸」的值(9px / 10px / 一批 11px)没有东西判 |
 | `check-session-chat-ui-geometry.mjs` | `packages/session-chat-ui/src` 里 JSX 的 `class` / `className` / `classList` **字符串**与 CSS `@apply` | **vanilla-extract 的对象字面量**(`style({ fontSize: '12px' })`)——本包几乎全是这种写法,结构上抓不到 |
 | `radiusScaleParity` | 两张 Tailwind 表的**七档数字别名** + `tokens.css` 的九档语义表 | 两张 Tailwind 表里的 `surface` 档(见 §5.2) |
@@ -1250,8 +1264,8 @@ and any new keyframe must be too.**」
 |---|---|---|
 | `apps/desktop/src/styles/tokens.css` | 已有(**定义处**) | — |
 | `apps/desktop/src/session/renderer/index.css` | 只有 3 处点名降级 | 4 个 `--animate-*` + 5 个 keyframes + 整套 tw-animate-css |
-| 中台 `src/styles/index.css`(现 nmhjklnm/gugu-console) | `prefers-reduced-motion` 命中 **0** | `animate-in/-out` + `animate-spin`(infinite) |
-| 顾客面板 `src/styles/index.css`(现 nmhjklnm/gugu-website 的 dashboard/) | 同上(全 app 只有 `LoginPage.tsx` 一处内联块) | 同上 + `animate-pulse`(infinite) |
+| 中台 `src/styles/index.css`(现已拆出本仓) | `prefers-reduced-motion` 命中 **0** | `animate-in/-out` + `animate-spin`(infinite) |
+| 顾客面板 `src/styles/index.css`(现已拆出本仓) | 同上(全 app 只有 `LoginPage.tsx` 一处内联块) | 同上 + `animate-pulse`(infinite) |
 | `packages/session-ui/src/styles/effects/animations.css.ts` | 无 | 12 个 keyframes |
 
 五处同选择器同内容,所以同时在场是**幂等**的,不是「两套值」。

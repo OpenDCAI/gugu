@@ -17,17 +17,29 @@ interface HostCall {
 const same = (args?: unknown) => args;
 
 export const HOST_CALLS = {
+  'projection.create': { verb: 'projectionCreate' },
+  'projection.publish': { verb: 'projectionPublish' },
+  'projection.close': { verb: 'projectionClose' },
+  'projection.closed': { verb: 'projectionClosed' },
+  'projection.inputResult': { verb: 'projectionInputResult' },
+  'projection.watch': { verb: 'projectionWatch' },
+  'projection.unwatch': { verb: 'projectionUnwatch' },
+  'projection.send': { verb: 'projectionSend' },
+  'modal.open': { verb: 'modalOpen' },
+  'modal.close': { verb: 'modalClose', pack: (result: unknown = null) => ({ result }) },
+  'modal.key': { verb: 'modalKey', pack: (key: string) => ({ key }) },
   getContext: { verb: 'getContext' },
+  showContextMenu: { verb: 'showContextMenu' },
   getAppState: { verb: 'getAppState' },
   openBrowserTab: { verb: 'openBrowserTab', pack: (url: string) => ({ url }) },
   /** `level: 'hint'` (摩擦单 F62): a note for the App's author, recorded, no red dot. */
   reportError: { verb: 'reportError', pack: (message: string, options?: { level?: 'error' | 'hint' }) => ({ message, ...(options?.level === 'hint' ? { level: 'hint' } : {}) }) },
   /** How wide the answer is was settled at install, never at the call: no scope argument (behavior tab-extensions). */
-  listAgents: { verb: 'listAgents', pack: () => ({}) },
+  listAgents: { verb: 'listAgents', pack: (options?: { report?: boolean }) => options?.report === true ? { report: true } : {} },
   readAgentHistory: { verb: 'readAgentHistory', pack: (agentId: string, before?: number) => ({ agentId, ...(before === undefined ? {} : { before }) }) },
-  spawnAgent: { verb: 'spawnAgent', pack: (prompt: string, options?: Record<string, unknown>) => ({ prompt, ...options }) },
   stopAgent: { verb: 'stopAgent', pack: (agentId: string) => ({ agentId }) },
-  send: { verb: 'send' },
+  /** `gugu.dispatch(text, options)` (15): the one way to hand something to someone; `images` arrive as bytes (create-gugu.ts). */
+  dispatch: { verb: 'dispatch', pack: (text: string, options?: Record<string, unknown>) => ({ ...options, text }) },
   // A chat's messages (`chat:read`): each call names its chat, as a file call names its place.
   'messages.history': { verb: 'messagesHistory' },
   'messages.search': { verb: 'messagesSearch' },
@@ -48,21 +60,22 @@ export const HOST_CALLS = {
   'forum.award': { verb: 'forumAward', pack: (postId: string, awards: unknown) => ({ postId, awards }) },
   'forum.subscribe': { verb: 'forumSubscribe', pack: (target: string) => ({ target }) },
   'forum.unsubscribe': { verb: 'forumUnsubscribe', pack: (target: string) => ({ target }) },
-  messageAgent: { verb: 'messageAgent', pack: (agentId: string, text: string, options?: Record<string, unknown>) => ({ agentId, text, ...options }) },
   readData: { verb: 'readData', pack: (path: string) => ({ path }) },
   writeData: { verb: 'writeData', pack: (path: string, content: string) => ({ path, content }) },
   listData: { verb: 'listData', pack: (dir = '.') => ({ path: dir }) },
   callProgram: {
     verb: 'callProgram',
-    pack: (tool: string, args?: Record<string, unknown>, server?: string) => ({ name: tool, ...(args === undefined ? {} : { arguments: args }), ...(server === undefined ? {} : { server }) }),
+    pack: (tool: string, args?: Record<string, unknown>, options?: string | { server?: string; device?: string }) => ({ name: tool, ...(args === undefined ? {} : { arguments: args }), ...(typeof options === 'string' ? { server: options } : options) }),
   },
+  'sessions.index': { verb: 'sessionsIndex', pack: (options?: Record<string, unknown>) => ({ ...options }) },
+  'sessions.read': { verb: 'sessionsRead' },
   notify: { verb: 'notify' },
+  openLink: { verb: 'openLink', pack: (url: string) => ({ url }) },
   linkTo: { verb: 'linkTo', pack: (options: Record<string, unknown> = {}) => options },
   setTabTitle: { verb: 'setTabTitle', pack: (title: string) => ({ title }) },
   setTabBadge: { verb: 'setTabBadge', pack: (badge: number | string | null) => ({ badge }) },
   sendToBackground: { verb: 'sendToBackground', pack: (message: unknown) => ({ message }) },
   broadcastToViews: { verb: 'broadcastToViews', pack: (message: unknown) => ({ message }) },
-  compose: { verb: 'compose', pack: (text: string, where?: Record<string, unknown>) => ({ text, ...where }) },
   showMessage: { verb: 'showMessage', pack: (id: string) => ({ id }) },
   showSession: { verb: 'showSession', pack: (id: string, options?: { peek?: boolean }) => ({ id, ...(options?.peek === true ? { peek: true } : {}) }) },
   'clipboard.writeText': { verb: 'clipboardWriteText', pack: (text: string) => ({ text }) },
@@ -74,8 +87,10 @@ export const HOST_CALLS = {
   'appFiles.search': { verb: 'filesSearch' },
   'appFiles.recent': { verb: 'filesRecent' },
   'appFiles.create': { verb: 'filesCreate' },
+  'appFiles.viewPreferences': { verb: 'filesViewPreferences' },
   'appFiles.remove': { verb: 'filesRemove' },
   'appFiles.rename': { verb: 'filesRename' },
+  'appFiles.keep': { verb: 'filesKeep' },
   'appFiles.mkdir': { verb: 'filesMkdir' },
   'appFiles.move': { verb: 'filesMove' },
   'appFiles.watch': { verb: 'filesWatch' },
@@ -100,16 +115,19 @@ type Event<T extends ExtensionHostEvent['type']> = Extract<ExtensionHostEvent, {
 interface HostEvent {
   event: ExtensionHostEvent['type'];
   /** Who hears it, when not every caller does — as a verb's `only`. */
-  only?: 'page' | 'background';
+  only?: 'page' | 'background' | 'program';
   /** What the handler is called with. */
   pick: (event: never) => unknown[];
 }
 
 /** The events a host hands on, one row per `on…` member: which event, and what the handler gets of it. */
 export const HOST_EVENTS = {
+  onProjection: { event: 'projection', only: 'page', pick: (event: Event<'projection'>) => [event.watchId, event.packet] },
+  onProjectionSource: { event: 'projectionSource', only: 'program', pick: (event: Event<'projectionSource'>) => [event.event] },
+  onModalFocus: { event: 'modalFocus', only: 'page', pick: (event: Event<'modalFocus'>) => [event.edge] },
   onContextChanged: { event: 'context', pick: (event: Event<'context'>) => [event.context] },
   /** `gugu.files.onChanged(place, fn)` rides on it; it says files moved, never who moved them. */
-  onFilesChanged: { event: 'filesChanged', pick: (event: Event<'filesChanged'>) => [event.place, event.change] },
+  onFilesChanged: { event: 'filesChanged', pick: (event: Event<'filesChanged'>) => [event.watchId, event.change] },
   onAppStateChanged: { event: 'appState', pick: (event: Event<'appState'>) => [event.state] },
   onAgentsChanged: { event: 'agentsChanged', pick: (event: Event<'agentsChanged'>) => [event.agentIds] },
   onForumChanged: { event: 'forumChanged', only: 'page', pick: (event: Event<'forumChanged'>) => [event.target, event.change] },
@@ -131,11 +149,11 @@ export type HostMember = keyof typeof HOST_CALLS | keyof typeof HOST_EVENTS;
 export type HostCaller = 'page' | 'background' | 'program';
 
 /**
- * #6387 Events a page may not be listening for yet when they arrive — a link or a banner click that opened this very page
+ * #6387 Events a page may not be listening for yet when they arrive — a link, command or banner click that opened this page
  * lands while its script is still loading: held for the first subscriber, the newest kept (a page that never subscribes
  * must not grow it forever).
  */
-const HELD: ReadonlySet<ExtensionHostEvent['type']> = new Set(['link', 'notificationClicked']);
+const HELD: ReadonlySet<ExtensionHostEvent['type']> = new Set(['link', 'command', 'notificationClicked']);
 export function hostEventHub() {
   const listeners = new Map<ExtensionHostEvent['type'], Set<(event: ExtensionHostEvent) => void>>();
   const held: ExtensionHostEvent[] = [];
@@ -178,7 +196,7 @@ export function hostMembers(
     if (tail === undefined) members[head] = value;
     else members[head] = { ...(members[head] as Record<string, unknown> | undefined), [tail]: value };
   };
-  const has = (only: 'page' | 'background' | undefined) => only === undefined || only === caller;
+  const has = (only: HostCaller | undefined) => only === undefined || only === caller;
   for (const [member, row] of Object.entries(HOST_CALLS) as [HostMember, HostCall][]) {
     if (!offers(member) || !has(verbFacts(row.verb)?.only)) continue;
     const pack = (row.pack ?? same) as (...args: unknown[]) => unknown;

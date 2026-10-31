@@ -9,6 +9,8 @@
  *
  * 哪些调用算产出、挂在哪一轮、同一份只挂一张:`state/opened-outputs.ts`(手机会话页读同一份)。
  */
+import type { MeasureCtx } from '@session-chat/core/define';
+import { readableLabel, rowTranslator } from '../readable-label';
 import { useCommands } from '@session-chat/components/contexts/CommandsContext';
 import { IconChevronDown, IconChevronRight, IconDocument, IconGlobe, IconImage } from '@session-chat/components/primitives/icons';
 import { defineUnit } from '@session-chat/core/units';
@@ -17,7 +19,7 @@ import type { OpenedOutputItem } from '@session-chat/model';
 import { openedOutputLook } from '@session-chat/state/opened-outputs';
 import { Match, Show, Switch } from 'solid-js';
 import { vars } from '@session-chat/styles/theme.css';
-import { card, cardClickable, chevron, detail, modeButton, modeLabel, nameRow, nameStem, nameTail, slot, text, tile } from './opened-output.css';
+import { card, cardClickable, chevron, detail, modeButton, modeLabel, nameRow, slot, text, tile } from './opened-output.css';
 
 /** 一行高(px,含下边那条线)。⚠️ 改它要同时核 `opened-output.css.ts` 里的格子都还装得下。 */
 export const OPENED_OUTPUT_ROW_H = 72;
@@ -49,39 +51,41 @@ export function splitOutputName(name: string, isFile: boolean): { stem: string; 
   return { stem: name.slice(0, keep), tail: name.slice(keep) };
 }
 
+function outputLayout(data: OpenedOutputItem, ctx: MeasureCtx) {
+  const t = rowTranslator(ctx), look = openedOutputLook(data.output), commands = ctx.commands;
+  const kind = t(look.kind === 'page' ? 'transcript.outputPage' : look.kind === 'image' ? 'transcript.outputImage' : 'transcript.outputDocument');
+  const reason = commands?.outputUnavailable?.(data.output);
+  const open = !reason && commands?.onOpenOutput;
+  const mode = open && commands?.onOutputMenu ? commands.outputOpenMode?.(data.output) : null;
+  const control = mode ? ctx.width - 26 <= 260 ? 26 : readableLabel(mode, ctx, ctx.width, 14, 20).width + 32 : open ? 16 : 0;
+  const width = ctx.width - 26 - 40 - 12 - (control ? control + 12 : 0);
+  const ext = look.extension;
+  const format = ext === 'PPTX' || ext === 'PPT' ? 'PowerPoint' : ext === 'DOCX' || ext === 'DOC' ? 'Word' : ext === 'XLSX' || ext === 'XLS' ? 'Excel' : null;
+  const detail = reason ? `${kind} · ${reason}` : look.kind === 'page' ? t('transcript.outputWebsite') : format ?? (ext ? `${kind} · ${ext}` : kind);
+  const name = readableLabel(look.kind === 'page' ? t('transcript.outputWebPreview') : look.name, ctx, width, 14, 20, 500);
+  const description = readableLabel(detail, ctx, width, 12, 18);
+  return { name, description, rowHeight: Math.max(OPENED_OUTPUT_ROW_H, name.height + description.height + 24) };
+}
+
 export const openedOutputUnitDef = defineUnit<OpenedOutputItem, { rowH: number; gap: number }>({
   kind: 'opened-output',
   // 一组卡连成一块,行与行之间不留缝;与上下的间距算在组首 / 组末那一行自己里面(`slot` 的上下留白)。
   margin: { top: 0, bottom: 0 },
   vars: { rowH: OPENED_OUTPUT_ROW_H, gap: OPENED_OUTPUT_GAP },
 
-  measure(data, _ctx, vars_) {
-    return vars_.rowH + (data.index === 0 ? vars_.gap : 0) + (data.index === data.count - 1 ? vars_.gap : 0);
+  measure(data, ctx, vars_) {
+    return outputLayout(data, ctx).rowHeight + (data.index === 0 ? vars_.gap : 0) + (data.index === data.count - 1 ? vars_.gap : 0);
   },
 
   Render(props) {
     const translate = useChatTranslator();
+    const layout = () => outputLayout(props.data, props.ctx.measureCtx!());
     const commands = useCommands();
     // 行按下标复用:读 props 一律在 accessor 里,❌ 一次性取出来。
     const look = () => openedOutputLook(props.data.output);
-    const kindLabel = () =>
-      translate(
-        look().kind === 'page' ? 'transcript.outputPage' : look().kind === 'image' ? 'transcript.outputImage' : 'transcript.outputDocument'
-      );
-    // 这一端打不开就说为什么(手机上的 localhost 网页),那张卡只看不点。
     const unavailable = () => commands().outputUnavailable?.(props.data.output) ?? null;
-    const detailText = () => {
-      const reason = unavailable();
-      if (reason) return `${kindLabel()} · ${reason}`;
-      if (look().kind === 'page') return translate('transcript.outputWebsite');
-      const extension = look().extension;
-      const format = extension === 'PPTX' || extension === 'PPT' ? 'PowerPoint' : extension === 'DOCX' || extension === 'DOC' ? 'Word' : extension === 'XLSX' || extension === 'XLS' ? 'Excel' : null;
-      if (format) return format;
-      return extension ? `${kindLabel()} · ${extension}` : kindLabel();
-    };
     const open = () => (unavailable() ? undefined : commands().onOpenOutput);
     const handleClick = () => open()?.({ output: props.data.output, itemId: props.data.id });
-    const name = () => splitOutputName(look().kind === 'page' ? translate('transcript.outputWebPreview') : look().name, look().kind !== 'page');
     // 「侧边栏 ▾」:宿主说得出默认怎么打开、也接了菜单才摆;打不开的那行不摆。
     const mode = () => (open() && commands().onOutputMenu ? commands().outputOpenMode?.(props.data.output) ?? null : null);
 
@@ -92,7 +96,7 @@ export const openedOutputUnitDef = defineUnit<OpenedOutputItem, { rowH: number; 
       <div
         class={slot}
         style={{
-          height: `${props.vars.rowH + (first() ? props.vars.gap : 0) + (last() ? props.vars.gap : 0)}px`,
+          height: `${layout().rowHeight + (first() ? props.vars.gap : 0) + (last() ? props.vars.gap : 0)}px`,
           'padding-top': `${first() ? props.vars.gap : 0}px`,
           'padding-bottom': `${last() ? props.vars.gap : 0}px`,
         }}
@@ -129,13 +133,8 @@ export const openedOutputUnitDef = defineUnit<OpenedOutputItem, { rowH: number; 
           </Switch>
         </span>
         <span class={text}>
-          <span data-slot="opened-output-name" class={nameRow}>
-            <span class={nameStem}>{name().stem}</span>
-            <Show when={name().tail}>
-              <span class={nameTail}>{name().tail}</span>
-            </Show>
-          </span>
-          <span data-slot="opened-output-detail" class={detail}>{detailText()}</span>
+          <span data-slot="opened-output-name" class={nameRow}>{layout().name.text}</span>
+          <span data-slot="opened-output-detail" class={detail}>{layout().description.text}</span>
         </span>
         <Show
           when={mode()}

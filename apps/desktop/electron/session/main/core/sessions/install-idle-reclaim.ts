@@ -1,13 +1,17 @@
 import { eq } from 'drizzle-orm';
 import type { SessionSummary } from '@gugu/session-core/acp';
 import { acpAgentStatusBridge } from '@main/core/acp/agent-status-bridge';
+import { closeSessionBrowserTools } from '../../../../browser-agent-mcp';
 import { currentOrLastSession } from '@main/core/extensions/extension-bridge';
+import { LocalExecutionContext } from '@main/core/execution-context/local-execution-context';
 import { ptySessionRegistry } from '@main/core/pty/pty-session-registry';
+import { decodeTmuxSessionName, getConfiguredTmuxSocketLabel, listTmuxSessionNames } from '@main/core/pty/tmux-session-name';
 import { sharedRemotePaneRoute } from '@main/core/session-timeline/remote-pane';
 import { db } from '@main/db/client';
 import { sessions } from '@main/db/schema';
 import { events } from '@main/lib/events';
 import { log } from '@main/lib/logger';
+import { onConfirmedSleep } from '@main/core/activity/confirmed-sleep';
 import { parsePtySessionId } from '@shared/core/pty/ptySessionId';
 import { sessionReclaimedChannel } from '@shared/core/sessions/provisionEvents';
 import {
@@ -17,6 +21,7 @@ import {
   type LiveSession,
 } from './idle-reclaim';
 import { stopExactSessionpageSession } from './session-orchestration';
+import { sessionOnScreen } from './sessions-on-screen';
 import { tuiResumesExactly } from './tui-resume-exactness';
 import { mapSessionRowToSession } from './utils';
 
@@ -25,6 +30,7 @@ const ACP_LIVE = new Set<SessionSummary['lifecycle']>(['starting', 'replaying', 
 
 function acpAtRest(summary: SessionSummary): boolean {
   return summary.lifecycle === 'ready'
+    && !summary.closing
     && !summary.isGenerating
     && summary.pendingPermissionCount === 0
     && summary.queuedPromptCount === 0
@@ -34,7 +40,7 @@ function acpAtRest(summary: SessionSummary): boolean {
 }
 
 /** 此刻进程在跑的会话(两种腿),以及开着终端 shell 的任务。 */
-function readLive(): { live: LiveSession[]; withTerminals: Set<string> } {
+async function readLive(): Promise<{ live: LiveSession[]; withTerminals: Set<string> }> {
   const live: LiveSession[] = [];
   for (const summary of acpAgentStatusBridge.current().values()) {
     if (!ACP_LIVE.has(summary.lifecycle)) continue;
@@ -56,6 +62,20 @@ function readLive(): { live: LiveSession[]; withTerminals: Set<string> } {
       continue;
     }
     live.push({ projectId: parsed.projectId, sessionId: parsed.leafId, runtime: 'pty' });
+  }
+  // tmux outlives this host: tasks not reattached since restart have no PTY registry entry.
+  if (getConfiguredTmuxSocketLabel()) {
+    const known = new Set(live.map((entry) => entry.sessionId));
+    for (const name of await listTmuxSessionNames(new LocalExecutionContext())) {
+      const id = decodeTmuxSessionName(name);
+      const parsed = id ? parsePtySessionId(id) : null;
+      if (!parsed) continue;
+      if (parsed.scopeId !== parsed.leafId) withTerminals.add(parsed.scopeId);
+      else if (!known.has(parsed.leafId)) {
+        known.add(parsed.leafId);
+        live.push({ projectId: parsed.projectId, sessionId: parsed.leafId, runtime: 'pty' });
+      }
+    }
   }
   return { live, withTerminals };
 }
@@ -94,35 +114,41 @@ export function installIdleReclaim(sources: { agentStatus: StatusSource }): () =
   let withTerminals = new Set<string>();
   const reclaimer = new IdleReclaimer({
     now: () => Date.now(),
-    listLive: () => {
-      const read = readLive();
+    listLive: async () => {
+      const read = await readLive();
       withTerminals = read.withTerminals;
       return read.live;
     },
     facts: readFacts,
-    // 扩展桥报的「此刻在看的那一格」仍叫 sessionId(App 层那一刀改名);值就是那条会话的 id。
-    displayedSessionId: () => currentOrLastSession()?.sessionId ?? null,
+    // 屏上的每一条(主窗那页、会话页上每一块、单独的窗、开在窗里的页签,渲染层报来的),加上最后显示的那条
+    // (人离开了会话页,刚才看的那条仍留着,#6387)。❌ 只认主窗那一页:页签开在新窗口里审阅的会话会被当成没人看停掉。
+    onScreen: (sessionId) => sessionOnScreen(sessionId) || currentOrLastSession()?.sessionId === sessionId,
     watchedRemotely: (sessionId) => sharedRemotePaneRoute().watching(sessionId),
     sessionsWithLiveTerminals: () => withTerminals,
     stop: async (target) => {
-      if (!(await stopExactSessionpageSession(target))) {
+      if (!(await stopExactSessionpageSession({ ...target, onlyIfIdle: true }))) {
         throw new Error('session row is gone');
       }
+      await closeSessionBrowserTools(target.sessionId);
     },
     reclaimed: (target) => events.emit(sessionReclaimedChannel, target),
     log: (event, fields) => {
       // 停掉的是用户的进程,事后排查「怎么突然重开了」只能靠这一行 → warn:会话这半边默认只落 warn 及以上,info 落不了盘。
-      if (event === 'reclaimed') log.warn('idle reclaim: stopped an idle session process', fields);
+      if (event === 'reclaimed') log.warn('idle reclaim: released idle session resources', fields);
       else log.warn('idle reclaim: stopping an idle session failed; it keeps running', fields);
     },
   });
   sources.agentStatus.on('agent:status', ({ sessionId, reading }) =>
     reclaimer.observeStatus(sessionId, reading.status)
   );
-  const timer = setInterval(() => void reclaimer.tick(), IDLE_RECLAIM_TICK_MS);
+  const timer = setInterval(() => {
+    void reclaimer.tick().catch((error: unknown) => log.warn('idle reclaim: could not read live session processes', { error: String(error) }));
+  }, IDLE_RECLAIM_TICK_MS);
+  const offResume = onConfirmedSleep(sleep => reclaimer.resumedFromConfirmedSleep(sleep));
   timer.unref?.();
   return () => {
     clearInterval(timer);
+    offResume();
     installed = false;
   };
 }

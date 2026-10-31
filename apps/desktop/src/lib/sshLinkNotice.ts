@@ -8,6 +8,7 @@ const NOTICE_REASONS: ReadonlySet<SshLinkFailure> = new Set([
   'outdated',
   'refused',
   'updating',
+  'waitingIdle',
   'notSignedIn',
   'notInstalled',
 ])

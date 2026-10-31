@@ -1,4 +1,4 @@
-// app_* 域 —— 会话页 tab 扩展的四个原子工具(create / pack / install / check);找 App 是 app_search 的事(gugu-app-search-tool.ts);怎么写扩展在 guide 域(gugu-guide-tool.ts)。
+// app_* 域 —— 会话页 tab 扩展的原子工具(manage / create / pack / install / check);找 App 是 app_search 的事(gugu-app-search-tool.ts);怎么写扩展在 guide 域(gugu-guide-tool.ts)。
 // 与社交域、session 域注册在同一个会话 MCP server 上。单 server 下「域」是架构一等公民(#4191):
 // 本文件只有这个域的定义,注册机制在 sessionpage-tool-registrar.ts。
 //
@@ -15,9 +15,15 @@ import {
   type SessionpageToolDef,
 } from './sessionpage-tool-registrar'
 import { APP_RUNTIME_GLUE_MODULE } from '../../src/session/shared/extensions/app-runtime-protocol'
-import { APP_CHECK_ARGS, APP_CREATE_ARGS, APP_INSTALL_ARGS, APP_PACK_ARGS } from '../../src/session/shared/extensions/app-tool-args'
+import { APP_CHECK_ARGS, APP_CREATE_ARGS, APP_INSTALL_ARGS, APP_PACK_ARGS, APP_MANAGE_ARGS } from '../../src/session/shared/extensions/app-tool-args'
 
 export const EXTENSION_TOOL_DEFS: readonly SessionpageToolDef[] = [
+  {
+    name: 'app_manage',
+    description: 'Read the App or fork named by its resource URL, on that exact device. operation switch activates the URL variant; remove asks the person, restores upstream first if active, then removes only the fork registration and cache. Original, App data and source are kept. Never uninstall to remove one fork. A market URL without device supports read only.',
+    schema: z.object(APP_MANAGE_ARGS).strict(),
+    action: 'manage',
+  },
   {
     name: 'app_create',
     // S1 (L5: under a minute) The common path whole, and nothing of the rest: the rest of manifest.json goes in
@@ -29,12 +35,12 @@ export const EXTENSION_TOOL_DEFS: readonly SessionpageToolDef[] = [
       '  f.presence.set(pos)  // per-frame state; the file: events, results (a catch)',
       '  let members = (await gugu.getContext()).chat?.members ?? []  // { id, name, kind }: pick, never copy',
       '  // f.onChange(renderShared): render($("#shared"), html`…`) — inputs of file values too, rows by data-key; drafts, bind.text boxes: #controls',
-      '  // wake only the agent it concerns: gugu.send(member.id, "your move", { refs: [{ file: f.entry }] }) — state stays in the file; manifest.permissions.capabilities ["chat:relay"]',
+      '  // wake only the agent it concerns: gugu.dispatch("your move", { to: { chat, member: member.id }, refs: [{ file: f.entry }] }) — state stays in the file; manifest.permissions.capabilities ["chat:relay"]',
       '  // agents follow: a tool in tools.js, run(args, { agent }) — guide apps-programs',
       'Then app_install with chat_id, data (in the chat already: {item_id}, never a copy). Own pages: manifest.contributes.tabs + files["<name>.html"]. Text file: gugu.bind.text(textarea, f).',
     ].join('\n'),
     // 这一份就是主进程校验的那一份(app-tool-args.ts)。
-    schema: z.object(APP_CREATE_ARGS).strict(),
+    schema: z.object(APP_CREATE_ARGS).strict().refine((args) => args.fork_of !== undefined || (args.id !== undefined && args.name !== undefined), { message: 'app_create: give fork_of to fork an installed App, or id and name for a new App' }),
     action: 'create',
   },
   {
@@ -46,10 +52,12 @@ export const EXTENSION_TOOL_DEFS: readonly SessionpageToolDef[] = [
   {
     name: 'app_install',
     // 集体记忆对账第 7 条:D-17 重装没新增声明不弹框(extension-agent-actions.ts installPlan 的 asks),说明里补这半句。
-    description: 'Install an App on your owner\'s computer (this one, or another with device): from source_dir (app_create), a .guguext in a chat (source_message_id), or the market. For a chat App give chat_id and data too: one call makes its data file, checks the App on it, posts it to the chat as a card and returns the file\'s link. An App asking for capabilities waits for the person to confirm; reinstalling from the same folder with nothing new declared replaces it without asking.',
-    schema: z.object(APP_INSTALL_ARGS).strict().refine((args) => [args.source_dir, args.source_message_id, args.market].filter((given) => given !== undefined).length === 1, {
-      message: 'app_install takes exactly one of source_dir, source_message_id or market',
-    }).refine((args) => args.chat_id === undefined || args.source_message_id === undefined, {
+    description: 'Install an App on your owner\'s computer (this one, or another with device): from source_dir (app_create), a .guguext in a chat (source_message_id), or the market; app (installed here) only sends it into a chat. For a chat App give chat_id and data too: one call makes its data file, checks the App on it, posts it to the chat as a card and returns the file\'s link. An App asking for capabilities waits for the person to confirm; reinstalling from the same folder with nothing new declared replaces it without asking. Switching an App on belongs to the person on their App page; never edit installed files.',
+    schema: z.object(APP_INSTALL_ARGS).strict().refine((args) => [args.source_dir, args.source_message_id, args.market, args.app].filter((given) => given !== undefined).length === 1, {
+      message: 'app_install takes exactly one of source_dir, source_message_id, market or app',
+    }).refine((args) => args.app === undefined || (args.chat_id !== undefined && args.device === undefined), {
+      message: 'app_install: app is installed here already — give chat_id, the chat it goes into',
+    }).refine((args) => args.variant === undefined || (args.market !== undefined && args.chat_id === undefined && args.device === undefined), { message: 'variant switches an installed App: use market and variant only' }).refine((args) => args.chat_id === undefined || args.source_message_id === undefined, {
       message: 'app_install: chat_id goes with source_dir or market — an App installed from a card is already in that chat',
     }).refine((args) => args.device === undefined || args.market === undefined, {
       // Another machine is asked through the package it is sent (install_attachment's two-step consent); the market has no such step.
