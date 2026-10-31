@@ -802,10 +802,10 @@ function codexTuiSessionConfigArgs(extraArgs: readonly string[] | undefined): st
 const CODEX_DIRECT_ONLY_KEY = 'features.code_mode.direct_only_tool_namespaces'
 
 /**
- * The namespaces code mode puts on the model's own tool list (the materializer's one list: gugu's, plus each App
- * listed up front — session-bundle.ts), pinned on the visible TUI as well. The TUI builds and loads the thread
- * itself (@@@6112), and a thread it builds does not get the app-server's process `-c`: without this pin every gugu
- * tool sits in the `exec` sandbox and the model answers that it has none (#6960 dropped it, 0.2.53-beta.55.1).
+ * The namespaces code mode puts on the model's own tool list (the materializer's one list: library services and Apps
+ * listed up front — `codexDirectNamespaces` in session-bundle.ts; 咕咕's own tools stay in code mode), pinned on the
+ * visible TUI as well. The TUI builds and loads the thread itself (@@@6112), and a thread it builds does not get the
+ * app-server's process `-c`: without this pin those namespaces would sit in the `exec` sandbox instead.
  * Encoded by the same rule as the app-server's copy (codexThreadConfigProcessArgs), so the two cannot drift.
  */
 function codexTuiDirectOnlyArgs(threadConfig: Readonly<Record<string, unknown>> | undefined): string[] {

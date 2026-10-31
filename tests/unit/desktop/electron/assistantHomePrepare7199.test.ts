@@ -36,7 +36,8 @@ describe('prepareLocalAssistantHome', () => {
     expect(brief.length).toBeLessThan(2400)
     expect(brief).not.toContain('"batches"')
     expect(await readFile(join(result.workdir, '.gugu-assistant-reference.md'), 'utf8')).toBe(assistantGuide('computer'))
-    expect(JSON.parse(await readFile(p.settings, 'utf8')).permissions.deny).toContain('CronCreate')
+    // Claude Code's own timers come off every session with 咕咕's tools (claude session-bundle), not via this file.
+    expect(JSON.parse(await readFile(p.settings, 'utf8')).permissions).toBeUndefined()
     expect(await readFile(join(p.memoryDir, 'owner-profile.md'), 'utf8')).toContain('- 称呼：小明')
     expect(await readFile(p.memoryIndex, 'utf8')).toContain('(owner-profile.md)')
     expect((await lstat(p.claudeMemoryDir)).isSymbolicLink()).toBe(true)
@@ -79,7 +80,7 @@ describe('prepareLocalAssistantHome', () => {
       : refreshAssistantContext(first.workdir, guguHome, 'computer', home)))
     const settings = JSON.parse(await readFile(p.settings, 'utf8'))
     expect(settings.model).toBe('keep')
-    expect(settings.permissions.deny).toEqual(['Read(secret)', 'CronCreate'])
+    expect(settings.permissions.deny).toEqual(['Read(secret)'])
     expect(settings.claudeMdExcludes).toContain('/custom.md')
     expect(settings.claudeMdExcludes).toContain(join(guguHome, '.claude/CLAUDE.md'))
     expect((await readFile(p.instructions, 'utf8')).length).toBeLessThan(2400)

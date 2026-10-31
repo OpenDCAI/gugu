@@ -4,7 +4,7 @@ import { homedir } from 'node:os'
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import {
   ASSISTANT_COMPUTER_WORKDIR_NAME, assistantBrief, assistantGuide,
-  assistantHomePaths, upsertAssistantGuide, withDeniedTools, type AssistantHomeKind,
+  assistantHomePaths, upsertAssistantGuide, type AssistantHomeKind,
 } from '@gugu/core/shared/assistantPolicy'
 
 const refreshes = new Map<string, Promise<void>>()
@@ -57,7 +57,7 @@ async function localAssistantSettings(path: string, cwd: string): Promise<string
     if (error.code === 'ENOENT') return '{}'
     throw error
   })
-  const settings = JSON.parse(withDeniedTools(raw)) as Record<string, unknown>
+  const settings = JSON.parse(raw) as Record<string, unknown>
   if (!settings || typeof settings !== 'object' || Array.isArray(settings)) throw new Error('Assistant settings must be an object')
   const existing = settings.claudeMdExcludes ?? []
   if (!Array.isArray(existing) || existing.some(value => typeof value !== 'string')) throw new Error('Assistant instruction exclusions must be strings')

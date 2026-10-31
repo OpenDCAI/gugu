@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
 import {
-  ASSISTANT_DENIED_TOOLS,
   ASSISTANT_FIRST_TASK,
   ASSISTANT_GUIDE_BEGIN,
   ASSISTANT_GUIDE_END,
@@ -15,7 +14,6 @@ import {
   ownerProfileMarkdown,
   ownerProfileMemoryFile,
   upsertAssistantGuide,
-  withDeniedTools,
   withOwnerProfileIndex,
 } from '../../../../packages/core/src/shared/assistantPolicy'
 import { ASSISTANT_CONTEXT_CORE, ASSISTANT_TASK_EXECUTION, ASSISTANT_WORKFLOW } from '../../../../packages/core/src/shared/assistantWorkflow'
@@ -168,22 +166,6 @@ describe('assistantHomePaths', () => {
       expect(path.startsWith(`${work}/`)).toBe(true)
     }
     expect(p.claudeMemoryDir).toBe(`/Users/me/.claude/projects/${claudeProjectDirName(work)}/memory`)
-  })
-})
-
-describe('withDeniedTools', () => {
-  it('没有设置文件 = 只禁 CronCreate', () => {
-    expect(JSON.parse(withDeniedTools(null))).toEqual({ permissions: { deny: [...ASSISTANT_DENIED_TOOLS] } })
-  })
-  it('已有的设置与禁用项照留,重复来不重复加', () => {
-    const raw = JSON.stringify({ model: 'x', permissions: { allow: ['Bash(ls)'], deny: ['WebFetch'] } })
-    const once = withDeniedTools(raw)
-    expect(JSON.parse(once)).toEqual({ model: 'x', permissions: { allow: ['Bash(ls)'], deny: ['WebFetch', 'CronCreate'] } })
-    expect(withDeniedTools(once)).toBe(once)
-  })
-  it('原文读不懂 = 抛(❌ 盖掉人写的设置)', () => {
-    expect(() => withDeniedTools('{not json')).toThrow()
-    expect(() => withDeniedTools('[1]')).toThrow()
   })
 })
 

@@ -143,9 +143,6 @@ export const ASSISTANT_CHILD_HARNESS = 'claude'
 /** 新开通的个人助理默认用快速模型;既有助理和用户手动选择的模型不随默认值变化。 */
 export const ASSISTANT_DEFAULT_MODEL = 'platform:glm-5.3-flash'
 
-/** Claude Code 自带的定时(CronCreate)仅在进程存活时有效,宿主不可见。按工具名禁掉,定时一律走 schedule_create。 */
-export const ASSISTANT_DENIED_TOOLS: readonly string[] = ['CronCreate']
-
 /**
  * 开通后系统交给它的第一件事(agent.create 的 first_task):宿主以「咕咕系统交的任务」排进它的首轮(buildFirstTaskPrompt),
  * 当一轮正常工作结束后进入空闲。幂等:已有 today.json 就直接结束,重放(恢复连接、重试开通)不重复排、不重复开口。
@@ -257,14 +254,4 @@ export function assistantHomePaths(home: string, workdir: string, kind: Assistan
     settings: join(base, 'settings.json'),
     resourcesDir: join(kind === 'cloud' ? home : workdir, ASSISTANT_RESOURCES_DIR_NAME),
   }
-}
-
-/** settings.json 补上禁用的工具(已有的设置、已有的禁用项照留)。读不懂原文 = 抛(❌ 盖掉人写的设置)。 */
-export function withDeniedTools(raw: string | null): string {
-  const settings = raw?.trim() ? (JSON.parse(raw) as Record<string, unknown>) : {}
-  if (!settings || typeof settings !== 'object' || Array.isArray(settings)) throw new Error('settings.json is not a JSON object')
-  const permissions = (settings.permissions && typeof settings.permissions === 'object' ? settings.permissions : {}) as Record<string, unknown>
-  const deny = Array.isArray(permissions.deny) ? [...(permissions.deny as unknown[])] : []
-  for (const tool of ASSISTANT_DENIED_TOOLS) if (!deny.includes(tool)) deny.push(tool)
-  return `${JSON.stringify({ ...settings, permissions: { ...permissions, deny } }, null, 2)}\n`
 }
