@@ -369,7 +369,7 @@ import { createAcpLegAdapter } from '@main/core/acp/session-life-acp'
 import { forkStore, runtimeFork, runtimeForks, runtimeForksOf } from '@main/core/sessions/session-life-forks'
 import { sessionOwnedBy } from '@main/core/sessionpage/sessionpage-session-agent'
 import { sessionLifeViewChannel } from '@shared/core/sessions/sessionEvents'
-import type { LifeView } from '@shared/core/sessions/session-life'
+import type { LifeStatus, LifeView } from '@shared/core/sessions/session-life'
 import { guguNodeTarget, installGuguNode } from './core/pty/gugu-node'
 import { createStageLedger, type StageLedger } from '@main/lib/stage-ledger'
 import { openProject } from '@main/core/projects/operations/openProject'
@@ -2244,8 +2244,8 @@ export function onSessionLifeView(cb: (view: LifeView) => void): () => void {
 }
 
 /** A session's current LifeView; null = session-life does not own it (terminal legs). */
-export function sessionLifeViewOf(sessionId: string): LifeView | null {
-  return isLifeSession(sessionId) ? sessionLife().read(sessionId) : null
+export function sessionLifeStatusOf(sessionId: string): LifeStatus | null {
+  return isLifeSession(sessionId) ? sessionLife().status(sessionId) : null
 }
 
 const sessionsGoneSubscribers = new Set<(scope: SessionScope) => void>()

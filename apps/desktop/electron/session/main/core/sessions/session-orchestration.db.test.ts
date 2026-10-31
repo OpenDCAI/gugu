@@ -121,7 +121,7 @@ vi.mock('@main/lib/events', () => ({ events: { emit: mocks.emit, on: mocks.on } 
 vi.mock('@main/core/sessions/session-life', () => ({ sessionLife: () => ({
   interrupt: mocks.lifeInterrupt, restore: mocks.lifeRestore, enqueue: mocks.lifeEnqueue, start: mocks.lifeStart,
   // The projection an ACP session's status is composed from: at rest unless a case says otherwise.
-  read: (sessionId: string) => ({ kind: mocks.lifeKinds[sessionId] ?? 'dormant' }),
+  status: (sessionId: string) => ({ kind: mocks.lifeKinds[sessionId] ?? 'dormant', stage: null }),
 }) }));
 /** The creation turns session-life was handed for this session (admitCreationTurns' observable effect). */
 const admittedTurns = (sessionId: string) => mocks.lifeEnqueue.mock.calls.map(([input]) => input).filter((input) => input.sessionId === sessionId);

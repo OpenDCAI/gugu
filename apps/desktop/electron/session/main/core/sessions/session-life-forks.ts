@@ -67,7 +67,7 @@ export const forkStore: LifeStore = {
       dispatching: rows.filter(row => row.state === 'dispatching').map(row => row.seq) };
   },
   row: (forkId, seq) => entry(forkId, seq).row,
-  rows: rowsOf,
+  unaccepted: forkId => rowsOf(forkId).filter(row => row.state !== 'accepted'),
   enqueue(input: EnqueuePending) {
     const fork = record(input.sessionId);
     // A side chat is typed into by its person only: no inbox batch, no session-direct envelope reaches it.
@@ -97,7 +97,11 @@ export const forkStore: LifeStore = {
     }
   },
   claim(forkId) {
-    for (const found of record(forkId).rows.values()) if (found.row.state === 'dispatching') found.row = { ...found.row, state: 'unknown' };
+    const claimed: Seq[] = [];
+    for (const found of record(forkId).rows.values()) {
+      if (found.row.state === 'dispatching') { found.row = { ...found.row, state: 'unknown' }; claimed.push(found.row.seq); }
+    }
+    return claimed;
   },
   acceptedUnsettled(forkId) {
     return [...record(forkId).rows.values()].filter(value => value.row.state === 'accepted' && !value.readSettled).map(value => value.row.seq);

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { hydrateLife, LifeProtocolError, shouldStartOnHydrate, step } from '../../../../packages/core/src/local/session-life/step.ts'
+import { hydrateLife, LifeProtocolError, OUTCOME_UNKNOWN, shouldStartOnHydrate, step } from '../../../../packages/core/src/local/session-life/step.ts'
 import { STAGES } from '../../../../packages/core/src/local/session-life/types.ts'
 import type {
   AdmittedChannel, Attempt, AuthEpoch, Effect, Event, Gen, Hold, Life, PendingView,
@@ -99,9 +99,16 @@ export const transitionCases: readonly { row: number; name: string; run: () => v
   { row: 29, name: 'turn-idle pumps a held idle-only queue', run() { effect(decide(ready('idle-only', 'busy'), { k: 'turn-idle', gen: G }, pending([20])), { e: 'dispatch', gen: G, seq: seq(20) }) } },
   { row: 30, name: 'idle while free or awaiting preserves the current admission', run() { for (const a of ['free', 'awaiting'] as const) noChange(ready('idle-only', a), { k: 'turn-idle', gen: G }) } },
   { row: 10, name: 'v3.2: reconfigure is the way out of a failure: leftovers torn down, the session rests for the new start', run() { assert.equal(dormant(FAILED).kind, 'failed'); const r = decide(dormant(FAILED), interrupt('reconfigure')); kind(r, 'dormant'); effect(r, { e: 'write-hold', hold: null }); for (const reason of ['user-stop', 'sign-out', 'version-switch', 'idle-reap'] as const) noChange(dormant(FAILED), interrupt(reason)) } },
+  { row: 20, name: 'N4: a retry of a failed batch does not tell its rows again; a row after the failure is told', run() {
+    const retry = decide(dormant(FAILED), start, pending([5, 10, 20])); const s = kind(retry, 'starting'); assert.ok(s.kind === 'starting'); assert.equal(s.told, seq(10))
+    const failedAgain = decide(s, { k: 'stage-fail', gen: NEXT, at: 'identity', cause: CAUSE }, pending([5, 10, 20]))
+    effect(failedAgain, { e: 'report-failure', seqs: [seq(20)], cause: CAUSE })
+    const nothingNew = decide(s, { k: 'stage-fail', gen: NEXT, at: 'identity', cause: CAUSE }, pending([5, 10]))
+    assert.equal(nothingNew[1].some(e => e.e === 'report-failure'), false)
+  } },
   { row: 26, name: '#552: a channel lost before admission puts the head back and restarts for it, tearing down first', run() { const s = ready('next-tool-call', 'awaiting'); const r = decide(s, lost, pending([20], [10])); kind(r, 'starting'); assert.deepEqual(r[1].map(e => e.e), ['write-receipt', 'teardown', 'run-stage']); effect(r, { e: 'write-receipt', seq: seq(10), receipt: { state: 'queued', channelLost: CAUSE } }); assert.equal(r[1].some(e => e.e === 'report-failure'), false) } },
   { row: 43, name: '#552: during teardown a lost channel only puts the row back; settle decides by destination', run() { const s = stopping('user-stop'); const r = decide(s, lost); assert.equal(r[0], s); assert.deepEqual(r[1], [{ e: 'write-receipt', seq: seq(10), receipt: { state: 'queued', channelLost: CAUSE } }]) } },
-  { row: 31, name: 'exit makes the in-flight row unknown and tears down before a next attempt', run() { const s = ready('next-tool-call', 'awaiting'); const r = decide(s, { k: 'exit', gen: G, exit: EXIT }, pending([20], [10])); kind(r, 'starting'); assert.deepEqual(r[1].map(e => e.e), ['write-receipt', 'teardown', 'run-stage']); effect(r, { e: 'write-receipt', seq: seq(10), receipt: { state: 'unknown' } }); assert.ok(s.kind === 'ready'); effect(r, { e: 'teardown', gen: G, have: s.have }); const empty = decide(ready(), { k: 'exit', gen: G, exit: EXIT }); const dormantState = kind(empty, 'dormant'); assert.ok(dormantState.kind === 'dormant'); assert.deepEqual(dormantState.lastExit, EXIT); assert.deepEqual(empty[1].map(e => e.e), ['teardown']) } },
+  { row: 31, name: 'exit makes the in-flight row unknown and tears down before a next attempt', run() { const s = ready('next-tool-call', 'awaiting'); const r = decide(s, { k: 'exit', gen: G, exit: EXIT }, pending([20], [10])); kind(r, 'starting'); assert.deepEqual(r[1].map(e => e.e), ['write-receipt', 'report-failure', 'teardown', 'run-stage']); effect(r, { e: 'write-receipt', seq: seq(10), receipt: { state: 'unknown' } }); effect(r, { e: 'report-failure', seqs: [seq(10)], cause: OUTCOME_UNKNOWN }); assert.ok(s.kind === 'ready'); effect(r, { e: 'teardown', gen: G, have: s.have }); const empty = decide(ready(), { k: 'exit', gen: G, exit: EXIT }); const dormantState = kind(empty, 'dormant'); assert.ok(dormantState.kind === 'dormant'); assert.deepEqual(dormantState.lastExit, EXIT); assert.deepEqual(empty[1].map(e => e.e), ['teardown']) } },
   { row: 32, name: 'a genuinely free empty session may be reaped', run() { kind(decide(ready(), interrupt('idle-reap')), 'stopping') } },
   { row: 33, name: 'stale reaper observations are explicit no-ops', run() { noChange(ready(), interrupt('idle-reap'), pending([20])); for (const a of ['awaiting', 'busy'] as const) noChange(ready('idle-only', a), interrupt('idle-reap')) } },
   { row: 34, name: 'ready interruptions retain the complete teardown lease', run() { const s = ready(); const r = decide(s, interrupt('archive')); kind(r, 'stopping'); assert.ok(s.kind === 'ready'); effect(r, { e: 'teardown', gen: G, have: s.have }) } },
@@ -143,7 +150,7 @@ export const invariantCases: readonly { name: string; run: () => void }[] = [
     for (const s of [starting('cli'), ready('next-tool-call', 'awaiting'), stopping('user-stop')]) {
       const r = decide(s, { k: 'fault', run: G, cause: CAUSE, unreleased: null }, pending([20], [10]))
       const f = kind(r, 'failed'); assert.ok(f.kind === 'failed' && f.hold.reason === 'effect-fault' && f.residue[0]?.gen === G)
-      assert.deepEqual(r[1], [{ e: 'write-receipt', seq: seq(10), receipt: { state: 'unknown' } }, { e: 'write-hold', hold: { reason: 'effect-fault', barrier: seq(20), cause: CAUSE } }])
+      assert.deepEqual(r[1], [{ e: 'write-receipt', seq: seq(10), receipt: { state: 'unknown' } }, { e: 'report-failure', seqs: [seq(10)], cause: OUTCOME_UNKNOWN }, { e: 'write-hold', hold: { reason: 'effect-fault', barrier: seq(20), cause: CAUSE } }])
       noChange(s, { k: 'fault', run: STALE, cause: CAUSE, unreleased: null }, pending([20], [10])); noChange(s, { k: 'fault', run: null, cause: CAUSE, unreleased: null })
     }
     const d = decide(dormant(), { k: 'fault', run: null, cause: CAUSE, unreleased: null }, pending([20])); kind(d, 'failed'); assert.equal(d[1].some(e => e.e === 'write-receipt'), false)

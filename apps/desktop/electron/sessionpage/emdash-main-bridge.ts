@@ -110,7 +110,7 @@ export {
   onSessionsGone,
   // The pill's lifecycle: each session-life transition, and a session's current view.
   onSessionLifeView,
-  sessionLifeViewOf,
+  sessionLifeStatusOf,
   // TEST-ONLY (host exposes env-gated) — feed a real AgentEvent into the real pipeline for the otty e2e.
   emitSessionpageAgentEventForTest,
   emitSessionpageAgentEvent,

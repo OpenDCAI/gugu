@@ -507,6 +507,11 @@ export const sessionPending = sqliteTable('session_pending', {
   state: text('state', { enum: ['queued', 'dispatching', 'accepted', 'failed', 'unknown'] }).notNull(),
   attempt: integer('attempt'),
   nativeReceiptId: text('native_receipt_id'),
+  /**
+   * JSON SerializedError, two meanings by state (one fact per row, never both):
+   * - failed: why the row failed (final, reported to its sources);
+   * - queued / dispatching: the row lost its channel once before admission (#552) and was put back; a second loss fails it.
+   */
   failure: text('failure'),
   enqueuedAt: text('enqueued_at').notNull().default(sql`CURRENT_TIMESTAMP`),
   settledAt: text('settled_at'),

@@ -29,7 +29,7 @@ export interface AgentStatusFeedSource {
   agentStatusSnapshot(): Promise<AgentStatusChange[]>
   onSessionsGone(cb: (scope: SessionScope) => void): () => void
   onSessionLifeView(cb: (view: LifeView) => void): () => void
-  sessionLifeViewOf(sessionId: string): LifeView | null
+  sessionLifeStatusOf(sessionId: string): LifeStatus | null
 }
 
 /**
@@ -50,7 +50,7 @@ export class AgentStatusFeed {
   private readonly entries = new Map<string, AgentStatusFeedEntry>()
   private readonly listeners = new Set<Listener>()
   private readonly disposers: Array<() => void> = []
-  private lifeOf: (sessionId: string) => LifeView | null = () => {
+  private lifeOf: (sessionId: string) => LifeStatus | null = () => {
     throw new Error('agent status feed is not attached')
   }
   private version = 0
@@ -78,7 +78,7 @@ export class AgentStatusFeed {
    */
   attach(source: AgentStatusFeedSource, deps: { env: NodeJS.ProcessEnv; warn?: (message: string) => void }): void {
     this.dispose()
-    this.lifeOf = (sessionId) => source.sessionLifeViewOf(sessionId)
+    this.lifeOf = (sessionId) => source.sessionLifeStatusOf(sessionId)
     this.disposers.push(
       source.onAgentStatus((change) => void this.observe(change, deps)),
       source.onSessionLifeView((view) => {

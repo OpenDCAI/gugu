@@ -93,7 +93,7 @@ function writerSource() {
         lifeListeners.add(cb)
         return () => lifeListeners.delete(cb)
       },
-      sessionLifeViewOf: (sessionId: string) => lives.get(sessionId) ?? null,
+      sessionLifeStatusOf: (sessionId: string) => lives.get(sessionId) ?? null,
     },
   }
 }

@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import type { SessionSummary } from '@gugu/session-core/acp';
 import { acpAgentStatusBridge } from '@main/core/acp/agent-status-bridge';
 import { assertHarnessConnectionSelectable, selectHarnessConnection } from '@main/core/agents/harness-connections';
@@ -13,6 +13,7 @@ import { subscriptionSwitchProgressChannel } from '@shared/core/sessions/subscri
 import { stopExactSessionpageSession } from './session-orchestration';
 import { SubscriptionSessionsBusyError } from './subscription-sessions-busy';
 import { sessionLife } from './session-life';
+import { runtimeForksOf } from './session-life-forks';
 
 type SubscriptionProvider = 'claude' | 'codex';
 type LiveSession = { projectId: string; sessionId: string; busy: boolean; acp: boolean };
@@ -90,11 +91,15 @@ export async function switchSubscription(
   };
   const acp = live.filter((session) => session.acp);
   const terminals = live.filter((session) => !session.acp);
+  // Every session-life session on this provider is held, resting ones too: a delivery in the middle of the swap
+  // must not start one on half-swapped credentials.
+  const parents = db.select({ id: sessions.id }).from(sessions).where(and(eq(sessions.runtime, 'acp'), eq(sessions.provider, providerId))).all().map((row) => row.id);
+  const held = [...parents, ...parents.flatMap((id) => runtimeForksOf(id))];
   try {
     progress(0);
     // ACP sessions (side chats too) are held through the swap by session-life's sign-out window, scoped to them: none
     // restarts on the old credentials, and the ones with queued input start on the new ones once it closes (v3.2).
-    await sessionLife().rotate(acp.map((session) => session.sessionId), async () => {
+    await sessionLife().rotate(held, async () => {
       stopped.push(...acp);
       progress(acp.length);
       for (const [index, session] of terminals.entries()) {

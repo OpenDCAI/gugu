@@ -88,6 +88,7 @@ export default {
       "close": "关闭",
       "generic": "Agent 本次回复出错，未能完成",
       "notAdmitted": "消息已保留，助理就绪后回复。",
+      "outcomeUnknown": "投递结果未知：消息可能已经送到助理，没有重投。",
       "undelivered": "消息暂未送达：没有运行中的咕咕实例持有这个 Agent，打开那个实例后会由它读取。",
       "offline": "设备连接中断，本次回复未完成",
       "retry": "重试",

@@ -63,12 +63,19 @@ export function shouldStartOnHydrate(state: Life, q: PendingView): boolean {
   }
 }
 
-function running(gen: Gen, progress: Progress): Transition {
-  return [seal({ kind: 'starting', gen, progress }), [{ e: 'run-stage', gen, ...progress }]]
+function running(gen: Gen, progress: Progress, told: Seq | null): Transition {
+  return [seal({ kind: 'starting', gen, progress, told }), [{ e: 'run-stage', gen, ...progress }]]
 }
 
-function start(ctx: StepContext, clearHold: boolean): Transition {
-  const [next, effects] = running(ctx.next, { at: 'identity', have: {} })
+/** A row whose delivery outcome cannot be known: written unknown (never replayed) and reported to its source, once. */
+export const OUTCOME_UNKNOWN = { name: 'OutcomeUnknown', message: 'The delivery outcome is unknown: it may have arrived, and it is not resent' }
+function unknownRows(seqs: readonly Seq[]): Effect[] {
+  return seqs.length ? [...seqs.map((seq): Effect => ({ e: 'write-receipt', seq, receipt: { state: 'unknown' } })),
+    { e: 'report-failure', seqs, cause: OUTCOME_UNKNOWN }] : []
+}
+
+function start(ctx: StepContext, clearHold: boolean, told: Seq | null = null): Transition {
+  const [next, effects] = running(ctx.next, { at: 'identity', have: {} }, told)
   return [next, clearHold ? [{ e: 'write-hold', hold: null }, ...effects] : effects]
 }
 
@@ -82,7 +89,7 @@ function faulted(state: Exclude<Life, { kind: 'archived' }>, event: Extract<Even
   const residue = event.unreleased ? [event.unreleased, ...own] : own
   const hold = { reason: 'effect-fault' as const, barrier: maxSeq(q), cause: event.cause }
   return [seal({ kind: 'failed', hold, residue }),
-    [...q.dispatching.map((seq): Effect => ({ e: 'write-receipt', seq, receipt: { state: 'unknown' } })), { e: 'write-hold', hold }]]
+    [...unknownRows(q.dispatching), { e: 'write-hold', hold }]]
 }
 
 function residueTeardown(state: Extract<Life, { kind: 'failed' }>): Effect[] {
@@ -150,22 +157,22 @@ function advance(state: Extract<Life, { kind: 'starting' }>, out: StageResult, q
   switch (p.at) {
     case 'identity':
       if (out.at !== 'identity') throw new LifeProtocolError(state.kind, 'stage-ok')
-      return running(state.gen, { at: 'workspace', have: { identity: out.value } })
+      return running(state.gen, { at: 'workspace', have: { identity: out.value } }, state.told)
     case 'workspace':
       if (out.at !== 'workspace') throw new LifeProtocolError(state.kind, 'stage-ok')
-      return running(state.gen, { at: 'capabilities', have: { ...p.have, workspace: out.value } })
+      return running(state.gen, { at: 'capabilities', have: { ...p.have, workspace: out.value } }, state.told)
     case 'capabilities':
       if (out.at !== 'capabilities') throw new LifeProtocolError(state.kind, 'stage-ok')
-      return running(state.gen, { at: 'platform', have: { ...p.have, capabilities: out.value } })
+      return running(state.gen, { at: 'platform', have: { ...p.have, capabilities: out.value } }, state.told)
     case 'platform':
       if (out.at !== 'platform') throw new LifeProtocolError(state.kind, 'stage-ok')
-      return running(state.gen, { at: 'cli', have: { ...p.have, platform: out.value } })
+      return running(state.gen, { at: 'cli', have: { ...p.have, platform: out.value } }, state.told)
     case 'cli':
       if (out.at !== 'cli') throw new LifeProtocolError(state.kind, 'stage-ok')
-      return running(state.gen, { at: 'process', have: { ...p.have, cli: out.value } })
+      return running(state.gen, { at: 'process', have: { ...p.have, cli: out.value } }, state.told)
     case 'process':
       if (out.at !== 'process') throw new LifeProtocolError(state.kind, 'stage-ok')
-      return running(state.gen, { at: 'channel', have: { ...p.have, process: out.value } })
+      return running(state.gen, { at: 'channel', have: { ...p.have, process: out.value } }, state.told)
     case 'channel':
       if (out.at !== 'channel' || !sameGen(out.value.gen, state.gen)) throw new LifeProtocolError(state.kind, 'stage-ok')
       return pump({ kind: 'ready', gen: state.gen, have: { ...p.have, channel: out.value }, admission: { kind: 'free' } }, q)
@@ -217,7 +224,7 @@ function stepDormant(state: Extract<Life, { kind: 'dormant' }>, event: Event, q:
 function stepFailed(state: Extract<Life, { kind: 'failed' }>, event: Event, q: PendingView, ctx: StepContext): Transition {
   switch (event.k) {
     case 'deliver': case 'start': {
-      const [next, run] = start(ctx, true)
+      const [next, run] = start(ctx, true, state.hold.reason === 'start-failed' ? state.hold.barrier : null)
       return [next, [...residueTeardown(state), ...run]]
     }
     case 'interrupt':
@@ -245,10 +252,12 @@ function stepStarting(state: Extract<Life, { kind: 'starting' }>, event: Event, 
     case 'stage-fail': case 'exit': {
       if (event.k === 'stage-fail' && event.at !== state.progress.at) return protocol(state, event)
       const cause = event.k === 'exit' ? event.exit.cause : event.cause
+      // Rows already told by an earlier failure of this batch are not told again on its retry (N4).
+      const untold = q.queued.filter(seq => state.told === null || seq > state.told)
       return [seal({ kind: 'stopping', gen: state.gen, have: state.progress.have,
         destination: { kind: 'held', hold: { reason: 'start-failed', barrier: maxSeq(q), stage: state.progress.at, cause } } }),
       [{ e: 'abort', gen: state.gen }, { e: 'teardown', gen: state.gen, have: state.progress.have },
-        { e: 'report-failure', seqs: q.queued, cause }]]
+        ...(untold.length ? [{ e: 'report-failure' as const, seqs: untold, cause }] : [])]]
     }
     case 'interrupt': return [seal({ kind: 'stopping', gen: state.gen, have: state.progress.have, destination: destination(event, q) }),
       [{ e: 'abort', gen: state.gen }, { e: 'teardown', gen: state.gen, have: state.progress.have }]]
@@ -288,8 +297,7 @@ function stepReady(state: Extract<Life, { kind: 'ready' }>, event: Event, q: Pen
       if (state.have.channel.timing !== 'idle-only') return protocol(state, event)
       return state.admission.kind === 'busy' ? pump(state, q) : unchanged(state)
     case 'exit': {
-      const effects: Effect[] = state.admission.kind === 'awaiting'
-        ? [{ e: 'write-receipt', seq: state.admission.seq, receipt: { state: 'unknown' } }] : []
+      const effects: Effect[] = state.admission.kind === 'awaiting' ? unknownRows([state.admission.seq]) : []
       effects.push({ e: 'teardown', gen: state.gen, have: state.have })
       if (head(q) === null) return [seal({ kind: 'dormant', hold: null, lastExit: event.exit }), effects]
       const [next, run] = start(ctx, false)
@@ -307,7 +315,7 @@ function stepReady(state: Extract<Life, { kind: 'ready' }>, event: Event, q: Pen
 }
 
 function settle(state: Extract<Life, { kind: 'stopping' }>, q: PendingView, ctx: StepContext): Transition {
-  const effects: Effect[] = q.dispatching.map(seq => ({ e: 'write-receipt', seq, receipt: { state: 'unknown' } }))
+  const effects: Effect[] = unknownRows(q.dispatching)
   const dest = state.destination
   switch (dest.kind) {
     case 'deleted': return [seal({ kind: 'archived' }), [...effects, { e: 'end-dependents' }, { e: 'remove' }]]
@@ -322,7 +330,7 @@ function settle(state: Extract<Life, { kind: 'stopping' }>, q: PendingView, ctx:
     case 'held': {
       const hold = dest.hold
       if (hasStartableRow(hold, q)) {
-        const [next, run] = start(ctx, true)
+        const [next, run] = start(ctx, true, hold.reason === 'start-failed' ? hold.barrier : null)
         return [next, [...effects, ...run]]
       }
       const next = hold.reason === 'start-failed' ? seal({ kind: 'failed', hold, residue: [] }) : seal({ kind: 'dormant', hold, lastExit: null })

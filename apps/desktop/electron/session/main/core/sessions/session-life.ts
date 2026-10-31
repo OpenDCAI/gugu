@@ -1,11 +1,11 @@
-import { hydrateLife, shouldStartOnHydrate, step } from '@gugu/core/local/session-life/step';
+import { hydrateLife, OUTCOME_UNKNOWN, shouldStartOnHydrate, step } from '@gugu/core/local/session-life/step';
 import { STAGES } from '@gugu/core/local/session-life/types';
 import { toSerializedError } from '@gugu/session-shared/result';
 import type {
   Attempt, AuthEpoch, Effect, Event, Gen, Hold, InterruptEvent, Life,
   PendingView, RunStageEffect, Seq, SerializedError, StageResult,
 } from '@gugu/core/local/session-life/types';
-import type { LifeView } from '@shared/core/sessions/session-life';
+import type { LifeStatus, LifeView } from '@shared/core/sessions/session-life';
 import type { LegAdapter, PendingRow } from './session-life-adapter';
 import type { EnqueuePending } from './session-pending';
 
@@ -13,12 +13,13 @@ export interface LifeStore {
   read(sessionId: string): { archived: boolean; hold: Hold | null };
   pending(sessionId: string): PendingView;
   row(sessionId: string, seq: Seq): PendingRow;
-  rows(sessionId: string): readonly PendingRow[];
+  /** The rows not yet accepted (the projection's pending items); accepted ones are the transcript's. */
+  unaccepted(sessionId: string): readonly PendingRow[];
   /** One transaction: body, queue row and frozen batch membership; a duplicate returns the existing row. */
   enqueue(input: EnqueuePending): { inserted: boolean; seq: Seq; state: PendingRow['state'] };
   commit(sessionId: string, effects: readonly Effect[]): void;
-  /** Claim only this session's interrupted dispatches; accepted/unknown are never replayed. */
-  claim(sessionId: string): void;
+  /** Claim only this session's interrupted dispatches (now unknown, never replayed); returns the rows it claimed. */
+  claim(sessionId: string): readonly Seq[];
   acceptedUnsettled(sessionId: string): readonly Seq[];
   settleRead(sessionId: string, seq: Seq): void;
   remove(sessionId: string): void;
@@ -166,7 +167,10 @@ export class SessionLife {
     for (const sessionId of this.ports.sessions()) {
       // v3.1 #8: only boot hydrate filters by owner; old rows of unknown or foreign bindings stay put.
       if (!await this.ports.ownedBy(sessionId, userId)) continue;
-      this.ports.store(sessionId).claim(sessionId);
+      const unknown = this.ports.store(sessionId).claim(sessionId);
+      // Rows an earlier run left mid-dispatch: unknown outcome, reported to their sources once (like an exit's).
+      if (unknown.length) void this.ports.reportFailure(unknown.map(seq => this.ports.store(sessionId).row(sessionId, seq)), OUTCOME_UNKNOWN)
+        .catch(error => this.ports.failed(sessionId, error));
       const entry = this.entry(sessionId);
       if (entry.life.kind === 'dormant' && entry.life.hold?.reason === 'sign-out') {
         this.send(sessionId, { k: 'signed-in', userId });
@@ -224,10 +228,17 @@ export class SessionLife {
     this.send(sessionId, { k: busy ? 'turn-busy' : 'turn-idle', gen: entry.life.gen });
   }
 
-  read(sessionId: string): LifeView {
-    const existing = this.entries.get(sessionId);
-    return this.view(sessionId, existing ?? { life: hydrateLife(this.ports.store(sessionId).read(sessionId)), reconfigured: false, attempt: 0,
-      version: 0, since: this.ports.now(), run: null, effects: Promise.resolve() });
+  read(sessionId: string): LifeView { return this.view(sessionId, this.known(sessionId)); }
+
+  /** Kind and stage only (status feed, session_get): no pending rows read. */
+  status(sessionId: string): LifeStatus {
+    const entry = this.known(sessionId);
+    return { kind: entry.life.kind, stage: stageOf(entry) };
+  }
+
+  private known(sessionId: string): Entry {
+    return this.entries.get(sessionId) ?? { life: hydrateLife(this.ports.store(sessionId).read(sessionId)), reconfigured: false, attempt: 0,
+      version: 0, since: this.ports.now(), run: null, effects: Promise.resolve() };
   }
 
   /** Entries whose run holds a process or is building one (starting, ready, stopping); a side chat names its parent. */
@@ -386,10 +397,10 @@ export class SessionLife {
 
   private view(sessionId: string, entry: Entry): LifeView {
     const life = entry.life;
-    const rows = this.ports.store(sessionId).rows(sessionId);
+    const rows = this.ports.store(sessionId).unaccepted(sessionId);
     const hold = life.kind === 'dormant' || life.kind === 'failed' ? life.hold : life.kind === 'stopping' && life.destination.kind === 'held' ? life.destination.hold : null;
     return { sessionId, version: entry.version, kind: life.kind,
-      stage: life.kind === 'starting' ? { at: life.progress.at, index: STAGES.indexOf(life.progress.at) + 1, total: 7, since: entry.since } : null,
+      stage: stageOf(entry),
       pending: { count: rows.filter(row => row.state === 'queued' || row.state === 'dispatching').length,
         items: rows.map(row => ({ seq: row.seq, messageId: row.message.id, preview: row.message.text.slice(0, 160), text: row.message.text, kind: row.kind,
           state: row.state, failure: row.state === 'failed' ? row.failure?.message ?? null : null })) },
@@ -411,6 +422,11 @@ export function installSessionLife(ports: SessionLifePorts): SessionLife {
 export function sessionLife(): SessionLife {
   if (!installed) throw new Error('Session lifecycle owner is not installed');
   return installed;
+}
+
+function stageOf(entry: Entry): LifeView['stage'] {
+  const life = entry.life;
+  return life.kind === 'starting' ? { at: life.progress.at, index: STAGES.indexOf(life.progress.at) + 1, total: 7, since: entry.since } : null;
 }
 
 function assertNever(value: never): never { throw new Error(`Unhandled lifecycle effect: ${String(value)}`); }

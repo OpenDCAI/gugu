@@ -4,15 +4,13 @@ import { resolveSessionpageSessionIntegration } from '@gugu/session-plugins/agen
 import type { StartSessionInput } from '@gugu/session-core/acp';
 import type {
   AdmittedChannel, BoundIdentity, CapabilityGrant, ExitFact, Gen, Have, PlatformTicket, ProcessLease,
-  ResolvedCli, SerializedError, StageName, StageOut, WorkspaceLease,
+  ResolvedCli, StageName, StageOut, WorkspaceLease,
 } from '@gugu/core/local/session-life/types';
 import { resolveWorkspace } from '@main/core/projects/utils';
 import { getSessions } from '@main/core/sessions/getSessions';
 import { sessionService } from '@main/core/sessions/session-service';
 import { recordRuntimeForkOwnership } from '@main/core/sessions/runtime-fork-ownership';
 import type { LegAdapter, PendingRow } from '../sessions/session-life-adapter';
-import { readAcpSessionSummaries } from './session-summary-reader';
-import { toSerializedError } from '@gugu/session-shared/result';
 import type { RuntimeFork } from '../sessions/session-life-forks';
 import { localAgentForSession } from '@main/core/sessionpage/sessionpage-session-agent';
 import { acpAgentStatusBridge } from './agent-status-bridge';
@@ -133,7 +131,7 @@ export function createAcpLegAdapter(sessionId: string, fork: RuntimeFork | null)
       if (!facts) throw new Error('ACP capabilities ran before identity');
       const command = await startInput(read<Workspace>(have.workspace));
       // The injector lands a still-queued first turn's gugu message; it only needs that row's text.
-      const firstTurn = (fork ? forkStore : lifeStore).rows(sessionId).find(row => row.turn.kind === 'chat-page-first-turn' && row.state === 'queued');
+      const firstTurn = (fork ? forkStore : lifeStore).unaccepted(sessionId).find(row => row.turn.kind === 'chat-page-first-turn' && row.state === 'queued');
       const injection = await withEmdashMcpInjection(command, lifecycleOf(known(), fork), facts, identity, firstTurn?.message.text);
       return lease<Capabilities>({ injection, facts }) as CapabilityGrant;
     },
@@ -178,24 +176,10 @@ export function createAcpLegAdapter(sessionId: string, fork: RuntimeFork | null)
     },
   };
 
-  /**
-   * #552: an executor that ended before admission refuses the prompt and the runtime marks the session lost: no byte
-   * was taken, so the row goes back to the queue for a fresh run. Any other refusal is the owner's exit.
-   */
-  async function inject(...args: Parameters<typeof injectEmdashPromptDetached>): Promise<Awaited<ReturnType<typeof injectEmdashPromptDetached>> | { lost: SerializedError }> {
-    try {
-      return await injectEmdashPromptDetached(...args);
-    } catch (error) {
-      const lifecycle = (await readAcpSessionSummaries())[sessionId]?.lifecycle;
-      if (lifecycle === undefined || lifecycle === 'lost' || lifecycle === 'closed') return { lost: toSerializedError(error) };
-      throw error;
-    }
-  }
-
   async function admit(have: StageOut, pending: PendingRow): ReturnType<LegAdapter['dispatch']> {
     const delivery = pending.message.delivery;
     const attachments = delivery?.attachments?.length ? { attachments: delivery.attachments } : {};
-    let sent: Awaited<ReturnType<typeof inject>>;
+    let sent: Awaited<ReturnType<typeof injectEmdashPromptDetached>>;
     switch (pending.turn.kind) {
       case 'prompt': {
         // The row carries the sender's choice; an envelope's own origin is still read from its text.
@@ -204,7 +188,7 @@ export function createAcpLegAdapter(sessionId: string, fork: RuntimeFork | null)
         // sender asked to queue or it is a person's own DM (moved here from the old ACP delivery target, #4708).
         const steerIfBusy = !delivery?.queue && !isHumanDmDelivery(pending.message.text)
           && declaredInjectionTiming(resolveSessionpageSessionIntegration(known().providerId, 'acp')) === 'next-tool-call';
-        sent = await inject(sessionId, pending.message.text, {
+        sent = await injectEmdashPromptDetached(sessionId, pending.message.text, {
           ...(origin ? { origin } : {}),
           ...(steerIfBusy ? { steerIfBusy: true } : {}),
           ...(pending.turn.hiddenContext ? { hiddenContext: pending.turn.hiddenContext } : {}),
@@ -217,12 +201,12 @@ export function createAcpLegAdapter(sessionId: string, fork: RuntimeFork | null)
         const render = read<Capabilities>(have.capabilities).injection.firstTurn;
         if (!render) throw new Error(`Session ${sessionId}: the first turn's gugu message did not land in this attempt`);
         const turn = renderFirstTurn(pending.message.text, render);
-        sent = await inject(sessionId, turn.text, { origin: turn.origin, ...attachments });
+        sent = await injectEmdashPromptDetached(sessionId, turn.text, { origin: turn.origin, ...attachments });
         break;
       }
     }
-    if ('lost' in sent) return { result: 'channel-lost', cause: sent.lost };
-    // missing: the runtime no longer has this session (its executor ended before admission), no byte was taken (#552).
+    // missing: the runtime's typed refusal — its executor ended before admission (conversation_not_found), no byte was
+    // taken (#552). Any other refusal throws: the prompt may have reached the worker, so it is the owner's exit (unknown).
     if (sent.outcome === 'missing') return { result: 'channel-lost', cause: { name: 'AcpSessionMissing', message: 'The ACP runtime has no such session' } };
     if (sent.outcome === 'declined') return { result: 'rejected-before-admission', cause: { name: 'AdmissionDeclined', message: 'The ACP runtime declined the prompt' } };
     return { result: 'accepted', nativeReceiptId: sent.turnId ?? null };
@@ -251,7 +235,8 @@ export function createAcpLegAdapter(sessionId: string, fork: RuntimeFork | null)
     onExit(have, cb) {
       const worker = read<Worker>(have.process);
       let fired = false;
-      // An exit seen while a dispatch is out waits for it: a lost channel's receipt already restarts this run (#552).
+      // An exit seen while a dispatch is out waits for it: a missing session closes too, and its receipt already restarts
+  // this run (#552).
       const exit = (fact: ExitFact) => {
         const settle = () => { if (!fired) { fired = true; cb(fact); } };
         if (admitting) void admitting.then(lost => { if (!lost) settle(); });

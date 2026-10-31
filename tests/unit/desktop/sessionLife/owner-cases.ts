@@ -46,7 +46,7 @@ function rig(options: { block?: StageName; delayReceipt?: boolean; dispatchThrow
     pending(id) { const local = [...rows.values()].filter(row => row.sessionId === id).sort((a, b) => a.seq - b.seq);
       return { queued: local.filter(row => row.state === 'queued').map(row => row.seq), dispatching: local.filter(row => row.state === 'dispatching').map(row => row.seq) }; },
     row(id, s) { const row = rows.get(s); assert.ok(row && row.sessionId === id); return row; },
-    rows(id) { return [...rows.values()].filter(row => row.sessionId === id).sort((a, b) => a.seq - b.seq); },
+    unaccepted(id) { return [...rows.values()].filter(row => row.sessionId === id && row.state !== 'accepted').sort((a, b) => a.seq - b.seq); },
     enqueue(input) {
       const existing = [...rows.values()].find(row => row.sessionId === input.sessionId && row.message.id === input.messageId);
       if (existing) return { inserted: false, seq: existing.seq, state: existing.state };
@@ -61,7 +61,7 @@ function rig(options: { block?: StageName; delayReceipt?: boolean; dispatchThrow
       if (e.e === 'write-receipt') { const row = rows.get(e.seq); assert.ok(row); const r = e.receipt;
         rows.set(e.seq, { ...row, state: r.state, failure: r.state === 'dispatching' ? row.failure : r.state === 'failed' ? r.cause : r.state === 'queued' ? r.channelLost ?? null : null }); }
     } },
-    claim(id) { for (const row of rows.values()) if (row.sessionId === id && row.state === 'dispatching') rows.set(row.seq, { ...row, state: 'unknown' }); },
+    claim(id) { const claimed: Seq[] = []; for (const row of rows.values()) if (row.sessionId === id && row.state === 'dispatching') { rows.set(row.seq, { ...row, state: 'unknown' }); claimed.push(row.seq); } return claimed; },
     acceptedUnsettled(id) { return [...rows.values()].filter(row => row.sessionId === id && row.state === 'accepted' && !settled.has(row.seq)).map(row => row.seq); },
     settleRead(_id, s) { settled.add(s); },
     remove(id) { records.delete(id); forks.delete(id); for (const row of rows.values()) if (row.sessionId === id) rows.delete(row.seq); },

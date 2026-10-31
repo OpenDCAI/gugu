@@ -479,7 +479,7 @@ function sessionStatus(row: SessionRow): SessionSnapshot['status'] {
   // 归档 = 离开会话列表、只在会话历史里(#6720):行照列,状态说它已经收起,❌ 从列表里滤掉。
   if (row.archivedAt) return 'archived';
   // ACP: session-life's projection is the lifecycle axis (contract §3, the one composition point).
-  if (transportOf(row) === 'acp') return displayStatus(sessionLife().read(row.id), parseAgentStatus(row.agentStatus));
+  if (transportOf(row) === 'acp') return displayStatus(sessionLife().status(row.id), parseAgentStatus(row.agentStatus));
   if (row.config?.spawnStartupState === 'starting') return 'starting';
   return parseAgentStatus(row.agentStatus);
 }

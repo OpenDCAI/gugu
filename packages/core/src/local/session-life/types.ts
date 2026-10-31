@@ -73,7 +73,8 @@ export type Residue = Readonly<{ gen: Gen | null; have: Partial<StageOut> }>
 
 export type LifeShape =
   | Readonly<{ kind: 'dormant'; hold: UserStopHold | SignOutHold | null; lastExit: ExitFact | null }>
-  | Readonly<{ kind: 'starting'; gen: Gen; progress: Progress }>
+  /** told: rows through this seq were already told this session could not start (N4: a retry does not tell them again). */
+  | Readonly<{ kind: 'starting'; gen: Gen; progress: Progress; told: Seq | null }>
   | Readonly<{ kind: 'ready'; gen: Gen; have: StageOut; admission: Admission }>
   | Readonly<{ kind: 'stopping'; gen: Gen | null; destination: Destination; have: Partial<StageOut> }>
   // residue: what faulted runs may still hold; a later start, archive or delete tears it down first. Never persisted.

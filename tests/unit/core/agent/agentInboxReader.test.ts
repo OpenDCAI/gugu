@@ -21,6 +21,7 @@ import {
   kickAgentInboxPull,
   pullAgentInbox,
   markInboxRowsRead,
+  discloseInboxRowsFailed,
   resetAgentInboxReaderStateForTests,
   type AgentInboxFetchInput,
   type AgentInboxInjectionVerdict,
@@ -317,6 +318,20 @@ describe('an enqueuing host (session-life)', () => {
     await pullAgentInbox(AGENT, deps)
     await pullAgentInbox(AGENT, deps)
     expect(marked).toEqual([])
+  })
+
+  it('an unknown outcome is said truthfully, then settled; a retained one is said and stays unread', async () => {
+    const cloud = cloudWith(1, 2)
+    const said: Array<{ reason: string }> = []
+    const marked: string[] = []
+    const { deps } = makeDeps(cloud, { postDisclosure: async (row) => { said.push({ reason: row.reason }) }, markRead: async ({ messageId }) => { marked.push(messageId) } })
+    const source = (seq: number) => ({ row: { ...row(seq), chatKind: 'dm', chatPublicId: null, chatName: null, chatCreatorUserId: null, listenMode: 'active',
+      notificationLevel: 'all', lastReadSeq: 0, senderType: 'human', senderDisplayName: null, senderGuguNumber: null, contentType: 'text', toUserIds: null,
+      isWhisper: false, replyToMessageId: null, replyToSenderUserId: null, replyToContent: null, threadRootId: null, isThreadRoot: false } as AgentInboxUnreadRow })
+    await discloseInboxRowsFailed(AGENT, [source(1)], deps, { kind: 'unknown' })
+    await discloseInboxRowsFailed(AGENT, [source(2)], deps, { kind: 'retained' })
+    expect(said.map((entry) => entry.reason)).toEqual(['outcomeUnknown', 'notAdmitted'])
+    expect(marked).toEqual([row(1).id])
   })
 
   it('a claimed row that already ended (failed / unknown) does not hold back a skipped row behind it', async () => {

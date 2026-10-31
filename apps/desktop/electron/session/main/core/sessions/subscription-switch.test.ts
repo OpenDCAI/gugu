@@ -8,6 +8,8 @@ const mocks = vi.hoisted(() => ({
   forks: new Map<string, string>(),
   /** Terminal sessions with a live PTY on this provider. */
   ptys: [] as Array<{ ptySessionId: string; metadata: { providerId: string } }>,
+  /** ACP session rows of codex that have no run right now. */
+  resting: [] as string[],
 }));
 
 vi.mock('@main/core/acp/agent-status-bridge', () => ({
@@ -20,13 +22,19 @@ vi.mock('./session-life', () => ({ sessionLife: () => ({
   // The scoped sign-out window: each session is held (recorded as its stop) before the swap runs.
   rotate: async (ids: string[], swap: () => Promise<void>) => { for (const id of ids) mocks.calls.push(`stop:${id}`); await swap(); },
 }) }));
-vi.mock('drizzle-orm', () => ({ eq: (_column: unknown, id: string) => id }));
+vi.mock('drizzle-orm', () => ({ eq: (_column: unknown, value: string) => value, and: (...values: string[]) => values }));
+vi.mock('./session-life-forks', () => ({ runtimeForksOf: (id: string) => [...mocks.forks].filter(([, parent]) => parent === id).map(([fork]) => fork) }));
 vi.mock('@main/db/schema', () => ({ sessions: { id: 'id' } }));
 vi.mock('@main/db/client', () => ({ db: {
-  select: () => ({ from: () => ({ where: (id: string) => ({ get: () => {
-    const found = mocks.summaries.get(id);
-    return found && { projectId: found.projectId, provider: found.providerId };
-  } }) }) }),
+  select: () => ({ from: () => ({ where: (key: string | string[]) => ({
+    get: () => {
+      const found = mocks.summaries.get(key as string);
+      return found && { projectId: found.projectId, provider: found.providerId };
+    },
+    // and(runtime = 'acp', provider = p): every ACP session row of that provider (side chats have none).
+    all: () => [...[...mocks.summaries].filter(([id, found]) => !mocks.forks.has(id) && found.providerId === (key as string[])[1]).map(([id]) => id),
+      ...((key as string[])[1] === 'codex' ? mocks.resting : [])].map((id) => ({ id })),
+  }) }) }),
 } }));
 vi.mock('@main/lib/logger', () => ({ log: { warn: vi.fn() } }));
 vi.mock('@main/lib/events', () => ({
@@ -74,6 +82,7 @@ beforeEach(() => {
   mocks.progress.length = 0;
   mocks.forks.clear();
   mocks.ptys = [];
+  mocks.resting = [];
 });
 
 it('stops idle Codex sessions before the credentials change and hands them back afterwards', async () => {
@@ -192,4 +201,11 @@ it('rests a side chat of a session on that provider too: it runs on the same con
   mocks.forks.set('view-a', 'a');
   await switchSubscription('codex', 'work', {});
   expect(mocks.calls).toEqual(['stop:a', 'stop:view-a', 'select:codex:work', 'reclaimed:a', 'reclaimed:view-a']);
+});
+
+it('holds a resting session of that provider through the swap too: a delivery mid-swap must not start it', async () => {
+  summary('a');
+  mocks.resting = ['resting'];
+  await switchSubscription('codex', 'work', {});
+  expect(mocks.calls).toEqual(['stop:a', 'stop:resting', 'select:codex:work', 'reclaimed:a']);
 });

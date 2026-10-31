@@ -346,6 +346,7 @@ const FAILURE_CONTENT: Record<AgentFailureReason, string> = {
   timeout: 'The model service did not respond in time; this reply could not be completed.',
   generic: 'This reply could not be completed. Please try again later.',
   notAdmitted: '消息已保留，助理就绪后回复。',
+  outcomeUnknown: 'Delivery result unknown: the message may have reached the assistant, and it was not resent.',
   undelivered: 'Not delivered yet: no running Gugu instance on this device holds this agent. The message stays unread until that instance is open.',
 }
 
@@ -981,10 +982,16 @@ export function markInboxRowsRead(agentUserId: string, sources: readonly AgentIn
  * after admission is; otherwise (a start that failed, retried later) they stay unread for that delivery.
  */
 export async function discloseInboxRowsFailed(agentUserId: string, sources: readonly AgentInboxSource[], deps: AgentInboxReaderDeps,
-  failure: { cause: unknown; final: boolean }): Promise<void> {
+  outcome: { kind: 'retained' } | { kind: 'failed'; cause: unknown } | { kind: 'unknown' }): Promise<void> {
   deps.onOutcome?.({ agentUserId, ok: false })
-  await discloseBatchFailure(agentUserId, sources, deps, failure.cause)
-  if (failure.final) await advanceCursor(agentUserId, sources.map((source) => ({ ...source, envelope: '' })), deps)
+  switch (outcome.kind) {
+    // A start that failed keeps its rows queued for the retry: said as retained, left unread for that delivery.
+    case 'retained': await discloseBatchFailure(agentUserId, sources, deps); return
+    case 'failed': await discloseBatchFailure(agentUserId, sources, deps, outcome.cause); break
+    // Handed over, never resent, outcome unknown: said truthfully, then settled like a final failure.
+    case 'unknown': await discloseBatchFailure(agentUserId, sources, deps, undefined, 'outcomeUnknown'); break
+  }
+  await advanceCursor(agentUserId, sources.map((source) => ({ ...source, envelope: '' })), deps)
 }
 
 /**
@@ -1047,9 +1054,9 @@ async function discloseBatchFailure(
   members: readonly Pick<PreparedMessage, 'row'>[],
   deps: AgentInboxReaderDeps,
   completionError?: unknown,
+  reason: AgentFailureReason = failureReason(completionError),
 ): Promise<boolean> {
   const post = deps.postDisclosure ?? ((input: DisclosureRow) => postDeliveryDisclosureRow(input, deps.accessToken))
-  const reason = failureReason(completionError)
   const byChat = new Map<string, Pick<PreparedMessage, 'row'>[]>()
   const byPost = new Set<string>()
   for (const member of members) {

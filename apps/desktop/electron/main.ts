@@ -4991,10 +4991,11 @@ app.whenReady().then(async () => {
     emdashAgentRegistry.setBridge(emdash)
     emdash.setSessionLifeSourceHost({
       markRead: row => settleSessionLifeSources([row], markInboxRowsRead),
-      // A failed row is final (Life never redelivers it); a start failure's rows stay queued for the retry.
+      // By the row's state: failed and unknown are final (Life never redelivers them); a start failure's rows stay queued.
       reportFailure: async (rows, cause) => {
-        await settleSessionLifeSources(rows.filter(row => row.state === 'failed'), (agent, sources, deps) => discloseInboxRowsFailed(agent, sources, deps, { cause, final: true }))
-        await settleSessionLifeSources(rows.filter(row => row.state !== 'failed'), (agent, sources, deps) => discloseInboxRowsFailed(agent, sources, deps, { cause, final: false }))
+        await settleSessionLifeSources(rows.filter(row => row.state === 'failed'), (agent, sources, deps) => discloseInboxRowsFailed(agent, sources, deps, { kind: 'failed', cause }))
+        await settleSessionLifeSources(rows.filter(row => row.state === 'unknown'), (agent, sources, deps) => discloseInboxRowsFailed(agent, sources, deps, { kind: 'unknown' }))
+        await settleSessionLifeSources(rows.filter(row => row.state === 'queued'), (agent, sources, deps) => discloseInboxRowsFailed(agent, sources, deps, { kind: 'retained' }))
       },
     })
     // @@@sessionpage TASKPAGE-FUSION — re-map every persisted session-page agent binding at boot so it stays
@@ -6378,7 +6379,7 @@ app.whenReady().then(async () => {
             agentStatusSnapshot: () => emdash.agentStatusSnapshot(),
             onSessionsGone: (cb) => emdash.onSessionsGone(cb),
             onSessionLifeView: (cb) => emdash.onSessionLifeView(cb),
-            sessionLifeViewOf: (sessionId) => emdash.sessionLifeViewOf(sessionId),
+            sessionLifeStatusOf: (sessionId) => emdash.sessionLifeStatusOf(sessionId),
           },
           { env: process.env, warn: (message) => sessionpageActivityLogger.warn(message) },
         )

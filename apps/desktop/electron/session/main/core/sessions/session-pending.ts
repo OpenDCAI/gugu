@@ -116,9 +116,10 @@ export const lifeStore: LifeStore = {
   },
   row: readPending,
   enqueue: enqueuePending,
-  rows(sessionId) {
+  unaccepted(sessionId) {
     return db.select({ pending: sessionPending, message: messages }).from(sessionPending).innerJoin(messages, eq(messages.id, sessionPending.messageId))
-      .where(eq(sessionPending.sessionId, sessionId)).orderBy(asc(sessionPending.seq)).all().map(pendingRow);
+      .where(and(eq(sessionPending.sessionId, sessionId), inArray(sessionPending.state, ['queued', 'dispatching', 'failed', 'unknown'])))
+      .orderBy(asc(sessionPending.seq)).all().map(pendingRow);
   },
   commit(sessionId, effects) {
     db.transaction(tx => {
@@ -140,8 +141,9 @@ export const lifeStore: LifeStore = {
     });
   },
   claim(sessionId) {
-    db.update(sessionPending).set({ state: 'unknown', attempt: null, settledAt: new Date().toISOString() })
-      .where(and(eq(sessionPending.sessionId, sessionId), eq(sessionPending.state, 'dispatching'))).run();
+    return db.update(sessionPending).set({ state: 'unknown', attempt: null, settledAt: new Date().toISOString() })
+      .where(and(eq(sessionPending.sessionId, sessionId), eq(sessionPending.state, 'dispatching')))
+      .returning({ seq: sessionPending.seq }).all().map(row => row.seq as Seq);
   },
   acceptedUnsettled(sessionId) {
     return db.select({ seq: sessionPending.seq }).from(sessionPending)
