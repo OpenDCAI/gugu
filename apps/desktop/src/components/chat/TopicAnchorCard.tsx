@@ -1,7 +1,7 @@
 import { useTranslation } from 'react-i18next'
 import type { TopicSummary } from '@gugu/core/shared/types/chat'
 import { ChevronRight, MessageSquare } from '@/lib/icons'
-import { formatCalendarDayTime } from '@/lib/calendarTime'
+import { formatCalendarDay } from '@/i18n/format'
 import { Button } from '../ui/Button'
 import { Chip } from '../ui/Chip'
 import { topicAnchorLine } from './topicAnchorModels'
@@ -109,7 +109,7 @@ function TopicAnchorRow({ topic, side, sourceContent, disambiguate, onOpen, memb
     genericLead: t('topic.anchor.lead'),
     disambiguate,
     openedBy: (topic.creator_user_id ? memberProfiles?.[topic.creator_user_id]?.displayName : null) ?? null,
-    activeAt: topic.last_message_at ? formatCalendarDayTime(topic.last_message_at) : null,
+    activeAt: topic.last_message_at ? formatCalendarDay(topic.last_message_at, { withTime: true }) : null,
     labels: {
       messageCount: (count) => t('topic.anchor.messageCount', { count }),
       openedBy: (name) => t('topic.anchor.openedBy', { name }),

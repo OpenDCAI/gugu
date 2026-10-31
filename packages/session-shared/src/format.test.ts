@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
   differenceInCalendarDays,
+  formatCalendarDay,
   formatCalendarDate,
   formatRelativeTime,
   formatRelativeTimeParts,
@@ -73,5 +74,25 @@ describe('local calendar and datetime-local values across DST', () => {
     expect(formatCalendarDate(date, 'zh-CN', { now: date })).toBe('10月15日 07:07');
     expect(formatCalendarDate(date, 'en-US', { now: date })).toBe('Oct 15, 07:07');
     expect(formatCalendarDate(date, 'zh-CN', { now: new Date(2027, 0), includeTime: false })).toBe('2026年10月15日');
+  });
+});
+
+describe('calendar day: one style for lists, separators and the chat day boundary', () => {
+  const now = new Date(2026, 9, 31, 18, 30);
+  it('today is the clock, yesterday is the word, older days are the date', () => {
+    expect(formatCalendarDay(new Date(2026, 9, 31, 9, 5), 'zh-CN', { now })).toBe('09:05');
+    expect(formatCalendarDay(new Date(2026, 9, 30, 9, 5), 'zh-CN', { now })).toBe('昨天');
+    expect(formatCalendarDay(new Date(2026, 9, 3, 9, 5), 'zh-CN', { now })).toBe('10月3日');
+    expect(formatCalendarDay(new Date(2025, 9, 31, 9, 5), 'zh-CN', { now })).toBe('2025年10月31日');
+    expect(formatCalendarDay(new Date(2026, 9, 3, 9, 5), 'en-US', { now })).toBe('Oct 3');
+    expect(formatCalendarDay(new Date(2025, 9, 31, 9, 5), 'en-US', { now })).toBe('Oct 31 2025');
+  });
+  it('separators carry the clock on every day', () => {
+    expect(formatCalendarDay(new Date(2026, 9, 30, 9, 5), 'zh-CN', { now, withTime: true })).toBe('昨天 09:05');
+    expect(formatCalendarDay(new Date(2026, 9, 3, 9, 5), 'zh-CN', { now, withTime: true })).toBe('10月3日 09:05');
+    expect(formatCalendarDay(new Date(2026, 9, 3, 21, 5), 'en-US', { now, withTime: true })).toBe('Oct 3, 21:05');
+  });
+  it('an invalid time is drawn as such, not hidden', () => {
+    expect(formatCalendarDay('not a time', 'zh-CN', { now })).toBe('Invalid Date');
   });
 });

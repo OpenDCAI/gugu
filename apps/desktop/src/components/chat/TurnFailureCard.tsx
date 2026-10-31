@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { turnFailurePresentation, type TurnFailureReason } from '@gugu/core/shared/turnFailurePresentation'
 import { AlertTriangle, X } from '@/lib/icons'
-import { formatCalendarDayTime } from '@/lib/calendarTime'
+import { formatCalendarDay } from '@/i18n/format'
 import { Avatar } from '../Avatar'
 import { Button } from '../ui/Button'
 import { Sheet } from '../ui/Sheet'
@@ -48,7 +48,7 @@ export function TurnFailureCard({ reason, displayName, agentId, avatar, createdA
             <span className="tfc-name" title={displayName}>{displayName}</span>
             <span className="tfc-title">{title}</span>
             {count > 1 ? <span className="tfc-count">×{count}</span> : null}
-            {createdAt ? <time className="tfc-time" dateTime={createdAt}>{formatCalendarDayTime(createdAt)}</time> : null}
+            {createdAt ? <time className="tfc-time" dateTime={createdAt}>{formatCalendarDay(createdAt, { withTime: true })}</time> : null}
           </div>
           <Button variant="ghost" size="sm" className="tfc-reason block h-auto min-h-0 max-[719px]:min-h-0 p-0" aria-label={cause} onClick={() => setDetailOpen(true)}>
             {cause}{placement === 'stream' ? ` · ${t(presentation.nextMessageKey)}` : ''}
