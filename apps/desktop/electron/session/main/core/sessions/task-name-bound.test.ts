@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@main/db/client', () => ({ db: {} }));
 
-const { createAgent, updateAgent } = await import('@gugu/core/local/state/agents');
+const { createAgent, updateAgent, writeAgentName } = await import('@gugu/core/local/state/agents');
 const { boundTaskName, setTaskNameOwner } = await import('./task-name');
 
 let env: NodeJS.ProcessEnv;
@@ -35,7 +35,7 @@ describe('bound task names are a projection of the roster for the signed-in owne
     expect(boundTaskName('s1')).toEqual({ agentUserId: 'alice-s1', name: 'Codex 3', pending: false });
     expect(boundTaskName('s2')).toBeUndefined(); // another account's identity does not name it here
 
-    await updateAgent({ guguUserId: 'alice-s1' }, { name: 'Parser', cache: { emdash_session_id: 's1', sessionpage_owner_user_id: 'alice', name_pending: true } }, env);
+    await writeAgentName('alice-s1', 'Parser', 'local', env);
     expect(boundTaskName('s1')).toEqual({ agentUserId: 'alice-s1', name: 'Parser', pending: true });
 
     await setTaskNameOwner('bob', env);

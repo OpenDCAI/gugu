@@ -37,6 +37,7 @@ import {
   createAgent,
   listReapedAgentsForSession,
   listAgents,
+  writeAgentName,
   removeAgents,
   updateAgent,
   writeAgentRuntimeSession,
@@ -62,7 +63,7 @@ import {
   type SessionpageDeliveryOwnerKind,
 } from './sessionpage-delivery-owner-registry'
 import { forgetProjectGroupId, readProjectGroupId, rememberProjectGroupId } from './sessionpage-project-groups'
-import { agentNameSerial, nextAgentDefaultName, uniqueAgentDisplayName } from '../../src/lib/agentDefaultName'
+import { agentNameSerial, nextAgentDefaultName, uniqueAgentDisplayName } from '@gugu/core/shared/agentDefaultName'
 import { listAgentNameSerialsViaSupabase } from '@gugu/core/cloud/agentIdentityReconcile'
 import { registerOfflineLocalSessionDelivery, unregisterLocalSessionDeliveryForAgent } from './local-session-delivery'
 import {
@@ -707,8 +708,8 @@ async function adoptSessionpageAgentIdentityLocked(
   mark('direct-chat-resolved')
   // #4277 每一行都记 owner:这个身份是拿当前账号复用的。
   const local = existing
+    // A bound identity keeps its own name; the session's pending-bind name only names a new identity.
     ? await updateAgent({ guguUserId: existing.gugu_user_id }, {
-      name: displayName,
       agent_type: agentType,
       path: info.projectPath || '',
       gugu_user_id: guguAgentUserId,
@@ -1232,8 +1233,8 @@ function startCloudProvision(job: {
     if (!minted) throw new Error('unreachable')
     noteAgentName(job.ownerAuth.userId, minted.displayName, getAgentTypeLabel(job.agentType))
     await job.afterBinding
-    const patch: Record<string, unknown> = {}
-    if (minted.displayName !== job.displayName) patch.name = minted.displayName
+    // The server may lift a serial past numbers used elsewhere: that is the identity's name now.
+    if (minted.displayName !== job.displayName) await writeAgentName(job.guguAgentUserId, minted.displayName, 'cloud', job.env)
     const resolved = resolveProvisionedProjectGroup(job, minted)
     const groupChatId = resolved.groupChatId
     if (resolved.kind === 'pending-approval') {
@@ -1252,7 +1253,6 @@ function startCloudProvision(job: {
     if (job.birthGroup) await joinBirthGroup(job.ownerAuth.accessToken, job.ownerAuth.userId, await job.birthGroup(), job.guguAgentUserId, log)
     const current = (await listAgents(job.env, { includeGuests: true })).find((a) => a.gugu_user_id === job.guguAgentUserId)
     await updateAgent({ guguUserId: job.guguAgentUserId }, {
-      ...patch,
       cache: {
         ...(current?.cache ?? {}),
         [GROUP_CACHE_KEY]: groupChatId,

@@ -4,7 +4,7 @@ import { createSession } from './createSession';
 import { setTaskNamer } from '../task-name';
 
 // Sessions are named at creation by the host's namer (task-name.ts); number defaults per provider.
-beforeEach(() => setTaskNamer({ defaultName: async (provider, taken) => `${provider} ${taken.length + 1}` }));
+beforeEach(() => setTaskNamer({ defaultName: async (provider, taken) => `${provider} ${taken.length + 1}`, renameBound: async () => { throw new Error("no identities in this test") } }));
 afterEach(() => setTaskNamer(null));
 
 const mocks = vi.hoisted(() => ({

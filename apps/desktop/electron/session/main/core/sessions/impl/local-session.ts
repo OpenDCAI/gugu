@@ -621,14 +621,12 @@ export class LocalSessionProvider implements SessionProvider {
           ? { tmuxSessionName: makeTmuxSessionName(ptySessionId) }
           : {}),
         onHarnessTitle: (title) => {
-          try {
-            applyHarnessTitle(session.id, title);
-          } catch (error) {
+          void applyHarnessTitle(session.id, title).catch((error: unknown) => {
             log.warn('LocalSession: failed to apply the harness session title', {
               sessionId: session.id,
               error: String(error),
             });
-          }
+          });
         },
         onProviderSessionId: async (providerSessionId) => {
           const result = await setProviderSessionId(session.id, providerSessionId);

@@ -90,7 +90,10 @@ export function wireHeadlessSessionpageIdentity(hostIpc: HostIpc): { dispose(): 
     listSessionFacts: () => emdashSessionpageSessionFacts(),
   })
   setSessionIdentityHost(identity)
-  setTaskNamer({ defaultName: (provider, taken) => identity.defaultTaskName(provider, taken) })
+  setTaskNamer({
+    defaultName: (provider, taken) => identity.defaultTaskName(provider, taken),
+    renameBound: (sessionId, agentUserId, name) => identity.renameBound(sessionId, agentUserId, name),
+  })
   const nativeInbox = startNativeConversationInboxHost({
     open: async target => (await identity.ensureAgentAddress(target)).chatId,
     failed: error => log.warn('Personal conversation address remains pending', error),
@@ -177,6 +180,8 @@ export function wireHeadlessSessionpageIdentity(hostIpc: HostIpc): { dispose(): 
     setAuth: async (next) => {
       auth.set(next)
       await setTaskNameOwner(next?.userId ?? null)
+      // The browser pushes auth when it reconnects: names renamed meanwhile are published now.
+      if (next) await identity.publishPendingNames()
       log.info('[session-host] identity auth ' + (next ? `set for ${next.userId}` : 'cleared'))
     },
     agentCard: (sessionId) => identity.agentCard(sessionId),

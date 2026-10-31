@@ -1,3 +1,4 @@
+import { taskName } from './task-name';
 import type { AgentProviderId } from '@gugu/session-plugins/agents';
 import { type SessionRow } from '@main/db/schema';
 import { readInterruptedTurn } from '@main/core/agent-status/interrupted-turns';
@@ -84,7 +85,8 @@ export function mapSessionRowToSession(
   const config = row.config;
   return {
     id: row.id,
-    title: row.title,
+    // The task's one name (task-name.ts): its identity's when bound, else its pending-bind record.
+    title: taskName(row),
     createdAt: row.createdAt,
     projectId: row.projectId,
     ...(row.workspaceId ? { workspaceId: row.workspaceId } : {}),

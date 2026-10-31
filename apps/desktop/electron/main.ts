@@ -113,7 +113,7 @@ import {
 } from '../shared/update-policy'
 import { createBuiltRendererRootResolver } from './rendererRoot'
 import { ensureWindowsNpmGlobalBinInPath, hydrateLoginShellPath, loginShellEnvSnapshot } from './shellPath'
-import { makeChatClient, makeIdentityClient, supabase, electronFetch, bindElectronSupabaseAuth, refreshElectronSupabaseAuth, resumeElectronSupabaseRealtime, createElectronRealtimeClient } from './supabase'
+import { makeChatClient, makeIdentityClient, supabase, electronFetch, onElectronCloudAnswer, bindElectronSupabaseAuth, refreshElectronSupabaseAuth, resumeElectronSupabaseRealtime, createElectronRealtimeClient } from './supabase'
 import { createAccountResumeHandler, installNativeResumeSource, installNativeSleepActivity, watchHostResumeGap } from './server/account-resume-wiring'
 import { applyOwnerTimeZoneContext, ownerTimeZoneFromEnvironment } from './server/owner-timezone'
 import { runDueScheduledTasksForOwner } from './scheduled-tasks-runner'
@@ -2642,12 +2642,14 @@ ipcMain.handle('owned-agent:rename-local-footprint', async (_e, arg: unknown) =>
   if (!agentUserId) throw new Error('owned-agent rename 缺 agentUserId')
   // 空名不是「不改」,是一个会把花名册写坏的值 —— 调用方本就不该发出来,发出来就响亮拒绝。
   if (!name) throw new Error('owned-agent rename 缺 name')
-  const { listAgents, updateAgent } = await import('@gugu/core/local/state/agents')
+  const { listAgents, writeAgentName } = await import('@gugu/core/local/state/agents')
   // includeGuests:会话页会话的身份可能还挂在 guest 记录上,漏掉它就等于「这台机器上没有」而静默不改。
   const roster = await listAgents(process.env, { includeGuests: true })
   const existing = roster.find((agent) => agent.gugu_user_id === agentUserId)
   if (!existing) return false
-  await updateAgent({ guguUserId: agentUserId }, { name }, process.env)
+  // The cloud already took this person's rename: it is this device's latest name and it is published.
+  await writeAgentName(agentUserId, name, 'local', process.env)
+  await writeAgentName(agentUserId, name, 'published', process.env)
   // 分享按钮 / 侧栏身份卡的名字是查一次存下来的,不播这一下就还挂着旧名。按 conversationId 认领(同一个 task 里
   // N 条会话 N 个 agent,按 agent 认领会让兄弟会话跟着改名);花名册上没记会话绑定(还没起会话)就没人要听,不播。
   const sessionId = existing.cache?.[SESSION_CACHE_KEY]
@@ -4975,8 +4977,20 @@ app.whenReady().then(async () => {
     })
     const sessionpageIdentityDeps = sessionpageIdentityHost.provisionDeps
     emdash.setSessionIdentityHost(sessionpageIdentityHost)
-    emdash.setTaskNamer({ defaultName: (provider, taken) => sessionpageIdentityHost.defaultTaskName(provider, taken) })
+    emdash.setTaskNamer({
+      defaultName: (provider, taken) => sessionpageIdentityHost.defaultTaskName(provider, taken),
+      renameBound: (sessionId, agentUserId, name) => sessionpageIdentityHost.renameBound(sessionId, agentUserId, name),
+    })
     await emdash.setTaskNameOwner(humanAuthUserId())
+    // A name renamed offline is published once the backend answers this process again (no timer).
+    let publishing: Promise<void> | null = null
+    const publishPendingTaskNames = () => {
+      publishing ??= sessionpageIdentityHost.publishPendingNames()
+        .catch((error: unknown) => createLogger('sessionpage/task-names').error({ error: String(error) }, 'Publishing pending task names failed'))
+        .finally(() => { publishing = null })
+    }
+    onElectronCloudAnswer(() => { if (emdash.hasPendingTaskNames()) publishPendingTaskNames() })
+    publishPendingTaskNames()
     const nativeInbox = emdash.startNativeConversationInboxHost({
       open: async target => (await sessionpageIdentityHost.ensureAgentAddress(target)).chatId,
       failed: error => createLogger('sessionpage/personal-inbox').warn({ error: String(error) }, 'Personal conversation address remains pending'),

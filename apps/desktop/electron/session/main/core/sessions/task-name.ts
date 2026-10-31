@@ -16,6 +16,12 @@ export interface TaskNamer {
    * every bound identity and `taken` (the names this host's sessions already carry).
    */
   defaultName(provider: AgentProviderId, taken: readonly string[]): Promise<string>;
+  /**
+   * Rename a bound session's identity: written on the roster first (pending until published), then
+   * published to the cloud identity. A failed publish keeps the local name pending; it never throws
+   * for being offline.
+   */
+  renameBound(sessionId: string, agentUserId: string, name: string): Promise<void>;
 }
 
 let namer: TaskNamer | null = null;
@@ -24,14 +30,18 @@ export function setTaskNamer(next: TaskNamer | null): void {
   namer = next;
 }
 
+export function taskNamer(): TaskNamer {
+  if (!namer) throw new Error('No task namer is installed on this host');
+  return namer;
+}
+
 export async function taskNameFor(provider: AgentProviderId, chosen?: string | null): Promise<string> {
   const name = chosen?.trim();
   if (name) return name;
-  if (!namer) throw new Error('No task namer is installed on this host; a session cannot be created without a name');
   const taken = (await db.select({ config: sessions.config }).from(sessions))
     .map((row) => row.config?.agentDisplayName?.trim() ?? '')
     .filter(Boolean);
-  const fallback = (await namer.defaultName(provider, taken)).trim();
+  const fallback = (await taskNamer().defaultName(provider, taken)).trim();
   if (!fallback) throw new Error(`Task namer returned an empty default name for ${provider}`);
   return fallback;
 }
@@ -58,7 +68,28 @@ function project(agents: readonly LocalAgentRecord[]): Map<string, BoundTaskName
   return next;
 }
 
-onAgentsSaved((agents) => { saves += 1; bound = project(agents); });
+export type TaskNameChange = { sessionId: string; previous?: BoundTaskName; next?: BoundTaskName };
+type TaskNamesChangedListener = (changes: readonly TaskNameChange[]) => void;
+const changedListeners = new Set<TaskNamesChangedListener>();
+
+/** One event for every change of a bound session's name, including binding and unbinding. */
+export function onTaskNamesChanged(listener: TaskNamesChangedListener): () => void {
+  changedListeners.add(listener);
+  return () => { changedListeners.delete(listener); };
+}
+
+function replace(next: Map<string, BoundTaskName>): void {
+  const changes: TaskNameChange[] = [];
+  for (const [sessionId, entry] of next) {
+    const previous = bound.get(sessionId);
+    if (previous?.name !== entry.name) changes.push({ sessionId, previous, next: entry });
+  }
+  for (const [sessionId, previous] of bound) if (!next.has(sessionId)) changes.push({ sessionId, previous });
+  bound = next;
+  if (changes.length) for (const listener of changedListeners) listener(changes);
+}
+
+onAgentsSaved((agents) => { saves += 1; replace(project(agents)); });
 
 /** The host says whose identities name this host's sessions (sign-in, sign-out, account switch). */
 export async function setTaskNameOwner(ownerUserId: string | null, env: NodeJS.ProcessEnv = process.env): Promise<void> {
@@ -66,9 +97,27 @@ export async function setTaskNameOwner(ownerUserId: string | null, env: NodeJS.P
   const before = saves;
   const agents = ownerUserId ? await listAgents(env) : [];
   // A roster save during the read already projected a newer roster for this owner.
-  if (saves === before) bound = project(agents);
+  if (saves === before) replace(project(agents));
 }
 
 export function boundTaskName(sessionId: string): BoundTaskName | undefined {
   return bound.get(sessionId);
+}
+
+/** Whether some bound name on this host is still waiting to be published (cheap, synchronous). */
+export function hasPendingTaskNames(): boolean {
+  for (const entry of bound.values()) if (entry.pending) return true;
+  return false;
+}
+
+/**
+ * The one name of a session, decided by its state: bound to an identity → that identity's name;
+ * otherwise its pending-bind record. A session without either is a defect at its creating entry.
+ */
+export function taskName(row: { id: string; config?: { agentDisplayName?: string } | null }): string {
+  const bound = boundTaskName(row.id);
+  if (bound) return bound.name;
+  const name = row.config?.agentDisplayName?.trim();
+  if (!name) throw new Error(`Session ${row.id} has no name`);
+  return name;
 }

@@ -1,3 +1,4 @@
+import { taskName } from './task-name';
 import { assistantWorkIntentSchema,type AssistantWorkIntent } from '@gugu/core/shared/assistantWorkIntent';
 import { SessionArchivedError } from '@gugu/core/shared/sessionArchival';
 import { assistantWorkLedgerContext } from '../../../../sessionpage/assistant-work-ledger';
@@ -84,7 +85,6 @@ import {
   type AgentProviderId,
 } from '@gugu/session-plugins/agents';
 import { providerConsumesStartupPrompt } from '@gugu/session-core/agents/plugins';
-import { resolveSessionDisplayName } from '@shared/core/sessions/session-display-name';
 import type { SessionMessageDelivery } from '@shared/core/sessions/sessions';
 import { flushDeferredMessages, sessionIsWorking, storeDeferredMessage } from './session-deferred-messages';
 import { childHarnessDefault } from './child-harness-default';
@@ -364,16 +364,7 @@ function resolveSessionRow(rows: SessionRow[], sessionId: string): SessionRow {
 type EnvelopeSender = { sessionId: string; title: string | null };
 
 async function localEnvelopeSender(caller: SessionRow): Promise<EnvelopeSender> {
-  const identity = await localAgentForSession(caller.id, process.env);
-  // The roster identity is the canonical name for unnamed parent sessions; an explicit
-  // session_spawn title is the same persisted identity for named children. Do not use
-  // `sessions.title` here: a title derived from the first prompt is indistinguishable
-  // from a custom title in that column and would put prompt text in the sender pill.
-  const title = resolveSessionDisplayName({
-    identityName: identity?.name,
-    explicitName: caller.config?.agentDisplayName,
-  }) ?? providerDisplayName(caller.provider);
-  return { sessionId: caller.id, title };
+  return { sessionId: caller.id, title: taskName(caller) };
 }
 
 /** 别的机器上的发信人:名字后面带上机器名 —— 收信的 agent 与看转录的人都要知道这句话从哪台机器来。 */

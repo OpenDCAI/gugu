@@ -177,7 +177,7 @@ import {
 import { setTaskNamer } from './task-name';
 
 // Sessions are named at creation by the host's namer (task-name.ts); number defaults per provider.
-beforeEach(() => setTaskNamer({ defaultName: async (provider, taken) => `${provider} ${taken.length + 1}` }));
+beforeEach(() => setTaskNamer({ defaultName: async (provider, taken) => `${provider} ${taken.length + 1}`, renameBound: async () => { throw new Error("no identities in this test") } }));
 afterEach(() => setTaskNamer(null));
 
 function deferred<T>() {
@@ -275,8 +275,8 @@ describe('session orchestration', () => {
       INSERT INTO projects (id, name, path) VALUES ('project-2', 'Project 2', '/other');
       INSERT INTO workspaces (id, type, path) VALUES ('workspace-1', 'local', '/repo/ws-1');
       INSERT INTO workspaces (id, type, path) VALUES ('workspace-2', 'local', '/repo/ws-2');
-      INSERT INTO sessions (id, project_id, workspace_id, title, provider, runtime)
-        VALUES ('caller', 'project-1', 'workspace-1', 'Caller', 'codex', 'acp');
+      INSERT INTO sessions (id, project_id, workspace_id, title, provider, runtime, config)
+        VALUES ('caller', 'project-1', 'workspace-1', 'Caller', 'codex', 'acp', json_object('version', '1', 'type', 'acp', 'agentDisplayName', 'Caller'));
     `);
     mount('caller');
   });
@@ -370,8 +370,9 @@ describe('session orchestration', () => {
     fixture.sqlite
       .prepare(
         `INSERT INTO sessions (id, project_id, workspace_id, title, provider, runtime, agent_status,
-           spawned_by_session_id, parent_session_id)
-         VALUES (?, 'project-1', 'workspace-1', 'Terminal child', 'claude', 'pty', ?, 'caller', ?)`
+           spawned_by_session_id, parent_session_id, config)
+         VALUES (?, 'project-1', 'workspace-1', 'Terminal child', 'claude', 'pty', ?, 'caller', ?,
+           json_object('version', '1', 'type', 'pty', 'agentDisplayName', 'Terminal child'))`
       )
       .run(id, status, parentSessionId);
     mount(id);
@@ -432,10 +433,10 @@ describe('session orchestration', () => {
     const app = { keyScope: 'app:lens' };
     beforeEach(() => {
       fixture.sqlite.exec(`
-        INSERT INTO sessions (id, project_id, workspace_id, title, provider, runtime)
-          VALUES ('peer', 'project-1', 'workspace-1', 'Peer', 'codex', 'acp');
-        INSERT INTO sessions (id, project_id, workspace_id, title, provider, runtime)
-          VALUES ('term', 'project-1', 'workspace-1', 'Term', 'codex', 'pty');
+        INSERT INTO sessions (id, project_id, workspace_id, title, provider, runtime, config)
+          VALUES ('peer', 'project-1', 'workspace-1', 'Peer', 'codex', 'acp', json_object('version', '1', 'type', 'acp', 'agentDisplayName', 'Peer'));
+        INSERT INTO sessions (id, project_id, workspace_id, title, provider, runtime, config)
+          VALUES ('term', 'project-1', 'workspace-1', 'Term', 'codex', 'pty', json_object('version', '1', 'type', 'pty', 'agentDisplayName', 'Term'));
       `);
       mocks.sendMessage.mockImplementation(async (params: { clientMessageId: string }) => ({ id: params.clientMessageId, status: 'delivered' }));
     });
@@ -966,8 +967,8 @@ describe('session orchestration', () => {
     it('stops the exact PTY conversation through its mount', async () => {
       fixture.sqlite
         .prepare(
-          `INSERT INTO sessions (id, project_id, workspace_id, title, provider, runtime)
-           VALUES ('pty-exact', 'project-1', 'workspace-1', 'PTY exact', 'claude', 'pty')`
+          `INSERT INTO sessions (id, project_id, workspace_id, title, provider, runtime, config)
+           VALUES ('pty-exact', 'project-1', 'workspace-1', 'PTY exact', 'claude', 'pty', json_object('version', '1', 'type', 'pty', 'agentDisplayName', 'PTY exact'))`
         )
         .run();
       mount('pty-exact');
@@ -987,8 +988,8 @@ describe('session orchestration', () => {
       beforeEach(() => {
         fixture.sqlite
           .prepare(
-            `INSERT INTO sessions (id, project_id, workspace_id, title, provider, runtime)
-             VALUES ('pty-cold', 'project-1', 'workspace-1', 'PTY cold', 'claude', 'pty')`
+            `INSERT INTO sessions (id, project_id, workspace_id, title, provider, runtime, config)
+             VALUES ('pty-cold', 'project-1', 'workspace-1', 'PTY cold', 'claude', 'pty', json_object('version', '1', 'type', 'pty', 'agentDisplayName', 'PTY cold'))`
           )
           .run();
         mocks.openProjects = new Set(['project-1']);
@@ -1494,10 +1495,10 @@ describe('session orchestration', () => {
   });
 
   // #6335 —— 身份一时查不到、也没显式命名时,发信人退回这一家的名字,❌ 不留空让收信方只剩 session:<uuid>。
-  it('falls back to the agent family name when the sender has no identity name yet', async () => {
+  it('names an unbound sender by its pending-bind name, the one name it was created with', async () => {
     await runSessionAction(context, { action: 'spawn', prompt: 'delegated work' });
     const envelope = lastAcpDelegationEnvelope();
-    expect(envelope).toContain('from="Codex"');
+    expect(envelope).toContain('from="Caller"');
   });
 
   it('returns live tab hygiene from the renderer acknowledgement for every target', async () => {
@@ -1785,7 +1786,7 @@ describe('session orchestration', () => {
 
   it('chooses a local parent independently of the spawner and project before starting', async () => {
     project2Root();
-    fixture.sqlite.prepare("INSERT INTO sessions (id, project_id, title, runtime) VALUES ('chosen-parent', 'project-1', 'Parent', 'acp')").run();
+    fixture.sqlite.prepare("INSERT INTO sessions (id, project_id, title, runtime, config) VALUES ('chosen-parent', 'project-1', 'Parent', 'acp', json_object('version', '1', 'type', 'acp', 'agentDisplayName', 'Parent'))").run();
     const child = await runSessionAction(context, {
       action: 'spawn', prompt: 'Work elsewhere.', project_id: 'project-2', parent_session_id: 'chosen-parent',
     }) as { session_id: string; parent_session_id: string | null };
@@ -1929,7 +1930,7 @@ describe('session orchestration', () => {
     insertPtyChild('pty-child', 'working', 'caller');
     fixture.sqlite
       .prepare('UPDATE sessions SET config = ? WHERE id = ?')
-      .run(JSON.stringify({ version: '1', type: 'pty' }), 'pty-child');
+      .run(JSON.stringify({ version: '1', type: 'pty', agentDisplayName: 'Terminal child' }), 'pty-child');
 
     await expect(
       runSessionAction(context, { action: 'get', session_id: 'pty-child' })
@@ -1988,7 +1989,7 @@ describe('session orchestration', () => {
     insertPtyChild('pty-child', 'working', 'caller');
     fixture.sqlite
       .prepare('UPDATE sessions SET config = ? WHERE id = ?')
-      .run(JSON.stringify({ version: '1', type: 'pty', spawnStartupState: 'starting' }), 'pty-child');
+      .run(JSON.stringify({ version: '1', type: 'pty', agentDisplayName: 'Terminal child', spawnStartupState: 'starting' }), 'pty-child');
     await expect(
       runSessionAction(context, { action: 'get', session_id: 'pty-child' })
     ).resolves.toEqual(expect.objectContaining({ status: 'starting' }));
@@ -2085,8 +2086,8 @@ describe('session orchestration', () => {
     })) as { session_id: string };
     fixture.sqlite
       .prepare(
-        `INSERT INTO sessions (id, project_id, workspace_id, title, provider, runtime)
-         VALUES ('unrelated', 'project-1', 'workspace-1', 'Unrelated', 'codex', 'acp')`
+        `INSERT INTO sessions (id, project_id, workspace_id, title, provider, runtime, config)
+         VALUES ('unrelated', 'project-1', 'workspace-1', 'Unrelated', 'codex', 'acp', json_object('version', '1', 'type', 'acp', 'agentDisplayName', 'Unrelated'))`
       )
       .run();
 
@@ -2177,13 +2178,13 @@ describe('session_set_parent', () => {
     workspaceId: 'workspace-1',
   };
 
-  function seed(id: string, parent: string | null, spawnedBy: string | null = null, config: unknown = null) {
+  function seed(id: string, parent: string | null, spawnedBy: string | null = null, config: Record<string, unknown> | null = null) {
     fixture.sqlite
       .prepare(
         `INSERT INTO sessions (id, project_id, workspace_id, title, provider, runtime, parent_session_id, spawned_by_session_id, config)
          VALUES (?, 'project-1', 'workspace-1', ?, 'codex', 'acp', ?, ?, ?)`
       )
-      .run(id, `Session ${id}`, parent, spawnedBy, config === null ? null : JSON.stringify(config));
+      .run(id, `Session ${id}`, parent, spawnedBy, JSON.stringify({ version: '1', type: 'acp', agentDisplayName: `Session ${id}`, ...(config ?? {}) }));
   }
 
   function edges(id: string) {
@@ -2298,10 +2299,10 @@ describe('session_archive', () => {
   function seedChild(id: string, spawnedBy = 'caller') {
     fixture.sqlite
       .prepare(
-        `INSERT INTO sessions (id, project_id, workspace_id, title, provider, runtime, parent_session_id, spawned_by_session_id)
-         VALUES (?, 'project-1', 'workspace-1', ?, 'claude', 'acp', ?, ?)`
+        `INSERT INTO sessions (id, project_id, workspace_id, title, provider, runtime, parent_session_id, spawned_by_session_id, config)
+         VALUES (?, 'project-1', 'workspace-1', ?, 'claude', 'acp', ?, ?, ?)`
       )
-      .run(id, `Child ${id}`, spawnedBy, spawnedBy);
+      .run(id, `Child ${id}`, spawnedBy, spawnedBy, JSON.stringify({ version: '1', type: 'acp', agentDisplayName: `Child ${id}` }));
   }
 
   function archivedAt(id: string): string | null {
@@ -2382,8 +2383,8 @@ describe('session_archive', () => {
   it('archives a session in the project it did not spawn, but never itself', async () => {
     fixture.sqlite
       .prepare(
-        `INSERT INTO sessions (id, project_id, workspace_id, title, provider, runtime)
-         VALUES ('stranger', 'project-1', 'workspace-1', 'Stranger', 'claude', 'acp')`
+        `INSERT INTO sessions (id, project_id, workspace_id, title, provider, runtime, config)
+         VALUES ('stranger', 'project-1', 'workspace-1', 'Stranger', 'claude', 'acp', json_object('version', '1', 'type', 'acp', 'agentDisplayName', 'Stranger'))`
       )
       .run();
     seedChild('sibling', 'stranger');
@@ -2409,8 +2410,8 @@ describe('session_archive', () => {
   it('reaches a session in another project on this machine', async () => {
     fixture.sqlite
       .prepare(
-        `INSERT INTO sessions (id, project_id, title, provider, runtime)
-         VALUES ('elsewhere', 'project-2', 'Elsewhere', 'claude', 'acp')`
+        `INSERT INTO sessions (id, project_id, title, provider, runtime, config)
+         VALUES ('elsewhere', 'project-2', 'Elsewhere', 'claude', 'acp', json_object('version', '1', 'type', 'acp', 'agentDisplayName', 'Elsewhere'))`
       )
       .run();
     await expect(

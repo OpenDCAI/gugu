@@ -223,7 +223,7 @@ import {
 import { connectionConfigRoot } from '@main/core/agents/harness-connections'
 import { acpSessionLive, setSessionCancel, setSessionWake } from '@main/core/session-timeline/write-bridge'
 import { setOtherMachines } from '@main/core/sessions/session-family'
-import { setTaskNamer, setTaskNameOwner } from '@main/core/sessions/task-name'
+import { hasPendingTaskNames, setTaskNamer, setTaskNameOwner } from '@main/core/sessions/task-name'
 import { setAgentSessionHost } from '@main/core/sessions/agent-session-controller'
 import { answerAppMessage } from '@main/core/extensions/extension-send'
 import { answerAppReadFile } from '@main/core/extensions/app-files-elsewhere'
@@ -249,6 +249,7 @@ export {
   setOtherMachines,
   setTaskNamer,
   setTaskNameOwner,
+  hasPendingTaskNames,
   runRemoteSessionAction,
   runSessionAction,
   sessionCallerFacts,

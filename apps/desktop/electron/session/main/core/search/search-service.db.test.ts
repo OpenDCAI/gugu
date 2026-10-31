@@ -27,8 +27,8 @@ describe('SearchService · retired SSH projects', () => {
       { id: 'proj-ssh', name: 'alpha remote', path: '/srv/remote', workspaceProvider: 'ssh' },
     ]);
     await db.insert(sessions).values([
-      { id: 'session-local', projectId: 'proj-local', title: 'alpha session local' },
-      { id: 'session-ssh', projectId: 'proj-ssh', title: 'alpha session remote' },
+      { id: 'session-local', projectId: 'proj-local', title: 'alpha session local', config: { version: '1', type: 'acp', agentDisplayName: 'alpha session local' } },
+      { id: 'session-ssh', projectId: 'proj-ssh', title: 'alpha session remote', config: { version: '1', type: 'acp', agentDisplayName: 'alpha session remote' } },
     ]);
     searchService.initialize();
   });

@@ -247,6 +247,8 @@ function row(overrides: Partial<Row> = {}): {
     projectId: 'proj-1',
     ...overrides,
   };
+  // A task's name lives in its pending-bind record (task-name.ts); the fixture title is that name.
+  session.config = { agentDisplayName: session.title, ...(overrides.config as object | undefined) };
   return {
     session,
     project: { id: session.projectId, name: 'demo', path: '/repo/demo' },

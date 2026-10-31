@@ -9,6 +9,8 @@ const sessionConfigV0Schema = z.object({
   initialPrompt: z.string().optional(),
   /** Model to pass to the agent CLI (e.g. 'claude-sonnet-5', 'o4-mini'). Empty string or absent = CLI default. */
   model: z.string().optional(),
+  /** The task's name before binding (migration 0043 gives every legacy row one). */
+  agentDisplayName: z.string().optional(),
 });
 
 const initialQueuePromptSchema = z.object({
@@ -328,6 +330,7 @@ export const sessionConfig = defineVersionedSchema()
         ...(v0.permissionMode !== undefined && { permissionMode: v0.permissionMode }),
         initialPrompt: v0.initialPrompt,
         model: v0.model,
+        ...(v0.agentDisplayName !== undefined && { agentDisplayName: v0.agentDisplayName }),
         // providerSessionId is intentionally dropped; it now lives in sessions.provider_session_id
       }) satisfies z.infer<typeof ptyConfigV1>
   )
