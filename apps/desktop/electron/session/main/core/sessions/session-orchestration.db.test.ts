@@ -15,6 +15,8 @@ const mocks = vi.hoisted(() => ({
   /** Creation turns are admitted as pending rows (enqueue); an empty creation queue is an explicit start. */
   lifeEnqueue: vi.fn((_input: { sessionId: string; messageId: string; text: string; kind: string; turn?: unknown }) => ({ seq: 1, state: 'queued' })),
   lifeStart: vi.fn((_sessionId: string, _origin?: string): void => undefined),
+  /** A session's LifeView kind (absent = dormant). */
+  lifeKinds: {} as Record<string, string>,
   emit: vi.fn(),
   on: vi.fn(),
   openFileResultListener: undefined as ((result: { requestId: string; success: boolean; error?: string; openedWith?: string | null; tabs?: SessionPaneTab[]; closed?: boolean }) => void) | undefined,
@@ -118,6 +120,8 @@ vi.mock('@main/core/pty/tmux-session-name', () => ({
 vi.mock('@main/lib/events', () => ({ events: { emit: mocks.emit, on: mocks.on } }));
 vi.mock('@main/core/sessions/session-life', () => ({ sessionLife: () => ({
   interrupt: mocks.lifeInterrupt, restore: mocks.lifeRestore, enqueue: mocks.lifeEnqueue, start: mocks.lifeStart,
+  // The projection an ACP session's status is composed from: at rest unless a case says otherwise.
+  read: (sessionId: string) => ({ kind: mocks.lifeKinds[sessionId] ?? 'dormant' }),
 }) }));
 /** The creation turns session-life was handed for this session (admitCreationTurns' observable effect). */
 const admittedTurns = (sessionId: string) => mocks.lifeEnqueue.mock.calls.map(([input]) => input).filter((input) => input.sessionId === sessionId);
@@ -1462,7 +1466,7 @@ describe('session orchestration', () => {
     });
   });
 
-  // Retargeted: ACP spawn no longer writes the spawnStartupState gate; get projects starting from the runtime summary.
+  // ACP spawn writes no spawnStartupState gate; get projects starting from session-life's projection.
   it('projects starting through get while the provider startup is still pending', async () => {
     const child = (await runSessionAction(context, {
       action: 'spawn',
@@ -1471,11 +1475,12 @@ describe('session orchestration', () => {
     const { config } = fixture.sqlite.prepare('SELECT config FROM sessions WHERE id = ?').get(child.session_id) as { config: string | null };
     expect(config ? JSON.parse(config) : {}).not.toHaveProperty('spawnStartupState');
 
-    mocks.summaries = { [child.session_id]: { lifecycle: 'starting', isGenerating: false, queuedPromptCount: 0, pendingPermissionCount: 0, backgroundAgentCount: 0 } };
+    mocks.lifeKinds = { [child.session_id]: 'starting' };
     await expect(runSessionAction(context, {
       action: 'get',
       session_id: child.session_id,
     })).resolves.toMatchObject({ session_id: child.session_id, status: 'starting' });
+    mocks.lifeKinds = {};
 
     // 起动之后,没有活摘要的 ACP 子会话报状态写入者写下的那一句:带着首句出生即 working。
     mocks.summaries = {};
