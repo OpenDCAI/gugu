@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   SETTINGS_SECTIONS,
   SESSION_HOST_SETTINGS_SECTIONS,
+  type ActiveSection,
 } from '../../../../packages/core/src/shared/enums/settingsSectionModels'
 import { SettingsNav } from '../../../../apps/desktop/src/components/settings/SettingsNav'
 import { createNode, createReactHarness, renderWithAppProviders } from '../../../support/testHarness'
@@ -11,7 +12,7 @@ let harness: ReturnType<typeof createReactHarness>
 beforeEach(() => { harness = createReactHarness() })
 afterEach(() => { harness.cleanup() })
 
-const render = (sections: readonly string[], extra: { assistantName?: string | null } = {}) =>
+const render = (sections: readonly ActiveSection[], extra: { assistantName?: string | null; activeSection?: ActiveSection } = {}) =>
   renderWithAppProviders(harness, createNode(SettingsNav, {
     activeSection: 'account',
     sections,
@@ -71,5 +72,17 @@ describe('the one settings nav', () => {
     await render(SETTINGS_SECTIONS)
     expect(harness.container.querySelector('[data-testid="settings-nav-layer-assistant"]')).toBeNull()
     expect(harness.container.querySelectorAll('[data-testid="settings-nav-assistant"]')).toHaveLength(1)
+  })
+
+  it('shows the Projects icon in both inactive and active states', async () => {
+    await render(['sessions'])
+    const inactive = harness.container.querySelector('[data-testid="settings-nav-sessions"]')
+    expect(inactive?.querySelector('svg g[fill="none"]')).not.toBeNull()
+
+    harness.cleanup()
+    harness = createReactHarness()
+    await render(['sessions'], { activeSection: 'sessions' })
+    const active = harness.container.querySelector('[data-testid="settings-nav-sessions"]')
+    expect(active?.querySelector('svg g[fill="currentColor"]')).not.toBeNull()
   })
 })
