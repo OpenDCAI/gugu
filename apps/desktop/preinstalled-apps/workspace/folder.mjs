@@ -232,7 +232,7 @@ export const list = {
 
 export const read = {
   description:
-    'Read a file of a chat\'s folder. A text or JSON file comes a page at a time: a one-line JSON header, a blank line, then its lines verbatim — copy old for edit from them; next_offset reads on. A stored file (an image, a PDF, a .pptx…), or save: true, is saved whole on this computer in a folder of its own for that version; its path and version come back — the version edit\'s expected_version names when you store your change. A link\'s #lines=12-14 is the lines a person picked: read from offset 12 and change those, not the same words elsewhere.',
+    'Read a file of a chat\'s folder. A text or JSON file comes a page at a time: a one-line JSON header, a blank line, then its lines verbatim — copy old for edit from them; next_offset reads on. Stored UTF-8 text also comes as read-only pages; to edit it, use save: true, then edit with the saved path and version. Other stored files (an image, a PDF, a .pptx…), or save: true, are saved whole on this computer in a folder of their own for that version; the version edit\'s expected_version names when you store your change. A link\'s #lines=12-14 is the lines a person picked: read from offset 12 and change those, not the same words elsewhere.',
   inputSchema: {
     type: 'object',
     required: ['item_id'],
@@ -248,8 +248,15 @@ export const read = {
     return withFile(item_id, { readOnly: true }, async (f) => {
       const entry = f.entry
       const head = { id: entry.id, name: entry.name, type: entry.type, by: byOf(entry), updated_at: entry.updatedAt, link: await linkOf(entry) }
+      if (f.readOnlyReason === 'stored-bytes' && save !== true) {
+        return pageOf(f.text, {
+          ...head,
+          read_only: true,
+          edit: 'Stored text is read-only here. Call workspace__read with save: true, then workspace__edit with the saved path and expected_version to store a new version.',
+        }, { offset, limit })
+      }
       if (f.type === 'binary' || save === true) {
-        const data = f.type === 'binary' ? Buffer.from(await (await f.blob()).arrayBuffer()) : f.text
+        const data = f.type === 'binary' || f.readOnlyReason === 'stored-bytes' ? Buffer.from(await (await f.blob()).arrayBuffer()) : f.text
         const saved = await saveLocally(entry, data, agent)
         return { ...head, size: entry.size, version: saved.version, saved_to: saved.path }
       }

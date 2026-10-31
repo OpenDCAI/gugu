@@ -1195,13 +1195,13 @@ export function createAppFiles(platform: FilesPlatform) {
             return await placeAttachment(endpoint, { staging_key: stagingKey, chat_id: chatId, file_name: name, folder: folder ?? null,
               as_user_id: actor, source_message_ids: sourceMessageIds, content_type: contentType, ...(keep ? { keep } : {}) }) as unknown as ItemRow;
           };
-          const published = await platform.publishFile?.(chatId, { ...file, contentType }, parentId, actor, store);
-          if (published) { rows.push(published); continue; }
           const asText = workspaceUploadKind(name, contentType, new Uint8Array(file.bytes));
           if (asText.kind === 'document') {
             rows.push(await insertDocument(token, { chatId, name, contentType: asText.contentType, content: asText.text, sourceMessageIds, parentId }, actor));
             continue;
           }
+          const published = await platform.publishFile?.(chatId, { ...file, contentType }, parentId, actor, store);
+          if (published) { rows.push(published); continue; }
           // #7290 gugu-3: a stored file's bytes go to OSS (attachments/upload); the server puts it in the folder (attachments/place),
           // as the agent or the person — the folder made all the way down when it is not there, as folderIdFor does.
           rows.push(await store());

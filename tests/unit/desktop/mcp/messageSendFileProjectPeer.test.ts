@@ -10,8 +10,8 @@ import { callTool as callToolImpl } from '../../../../apps/desktop/electron/mcp/
 
 const CHAT = '00000000-0000-4000-8000-000000000001'
 const dir = mkdtempSync(join(tmpdir(), 'gugu-send-project-peer-'))
-const pdf = join(dir, 'notes.pdf'), png = join(dir, 'shot.png')
-writeFileSync(pdf, '%PDF-1.4 fixture'); writeFileSync(png, 'png bytes')
+const pdf = join(dir, 'notes.pdf'), png = join(dir, 'shot.png'), md = join(dir, 'notes.md'), list = join(dir, 'rows.json')
+writeFileSync(pdf, '%PDF-1.4 fixture'); writeFileSync(png, 'png bytes'); writeFileSync(md, '# shared note\n'); writeFileSync(list, '[1, 2]\n')
 const envelope = '[附件] notes.pdf (application/pdf)\n[Size] 16\n[Kind] file'
 
 function setup(options: { publish?: ReturnType<typeof vi.fn> } = {}) {
@@ -58,6 +58,22 @@ describe('message_send_file in a project chat', () => {
     expect(JSON.parse(await send({ file_path: png }))).toMatchObject({ status: 'sent', file_name: 'shot.png' })
     expect(publish).not.toHaveBeenCalled()
     expect(uploads).toEqual([expect.objectContaining({ content_type: 'image/png' })])
+  })
+
+  test('a text file the shared classifier makes a document is uploaded for the server to make it one, not published here', async () => {
+    const publish = vi.fn()
+    const { send, uploads } = setup({ publish })
+    expect(JSON.parse(await send({ file_path: md }))).toMatchObject({ status: 'sent', file_name: 'notes.md' })
+    expect(publish).not.toHaveBeenCalled()
+    expect(uploads).toEqual([expect.objectContaining({ content_type: 'text/markdown' })])
+  })
+
+  test('JSON that is not an object stays stored bytes and is published here', async () => {
+    const publish = vi.fn(async (_chat: string, _file: unknown, _actor: string, message: Record<string, unknown>) => ({ message: { id: message.message_id, chat_id: CHAT, content: envelope } }))
+    const { send, uploads } = setup({ publish })
+    expect(JSON.parse(await send({ file_path: list }))).toMatchObject({ status: 'sent' })
+    expect(publish).toHaveBeenCalledOnce()
+    expect(uploads).toEqual([])
   })
 
   test('the publisher declines (not a project chat, or this account uploads its files): the ordinary upload sends it', async () => {

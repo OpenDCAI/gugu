@@ -54,6 +54,7 @@ const STRINGS = {
     openWith: '用别的 App 打开',
     more: '更多',
     downloadOnly: '这个文件在这里只能下载，不能在这里看和改。',
+    storedTextReadOnly: '这个文件按原样存着，在这里只能看，不能改。',
     remove: '删除',
     confirmRemove: '确认删除',
     rename: '改名',
@@ -224,6 +225,7 @@ const STRINGS = {
     openWith: 'Open with another App',
     more: 'More',
     downloadOnly: 'This file can only be downloaded here; it cannot be shown or changed here.',
+    storedTextReadOnly: 'This file is kept as it was stored: you can read it here, not change it.',
     remove: 'Delete',
     confirmRemove: 'Confirm delete',
     rename: 'Rename',
@@ -2192,6 +2194,7 @@ function watchStatus(current) {
     badge.textContent = file.readOnly && status === 'online' ? t.readOnly : status === 'offline' ? t.offline : ''
     if (status === 'gone') goneState(current)
     else if (status === 'offline') showBanner(t.offline, 'info')
+    else if (file.readOnlyReason === 'stored-bytes') showBanner(t.storedTextReadOnly, 'info', true)
     else if (!$('banner').dataset.sticky) hideBanner()
   }
   // Ordinary edits and their confirmations stay quiet; read-only and offline still need saying.
