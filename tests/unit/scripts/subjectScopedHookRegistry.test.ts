@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { scanSubjectScopedHooks, HOOKS_DIR } from '../../../scripts/subject-scoped-hooks.mjs'
+import { scanSubjectScopedHooks, HOOKS_DIR } from '../../../scripts/subject-scoped-hooks.mts'
 
 // #3922 —— 状态串台那一族的**登记闸**。
 //

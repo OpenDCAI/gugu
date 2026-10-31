@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // #7199 咕咕在 Mac 上要带的两个原生程序,放进 mac-native/<arch>/(打包时 electron-builder 拷进 Resources/mac-native):
 //   1. gugu-mac-helper —— 咕咕自己的原生助手(apps/desktop/native/mac-helper,从源码编):日历 / 提醒事项 / 通讯录 / 定位 / 文字识别 / 系统授权;
-//   2. cua-driver —— 「电脑控制」(trycua/cua,MIT),下载钉住的维护修订(scripts/cua-driver-release.mjs),
+//   2. cua-driver —— 「电脑控制」(trycua/cua,MIT),下载钉住的维护修订(scripts/cua-driver-release.mts),
 //      从 universal 二进制里抽出这个架构那一片;同时导出它的工具清单(cua-tools.json,咕咕登记动作时读它)与两份许可证。
 //
 // 用法:node scripts/build-mac-native.mjs [--arch arm64|x64]   —— mac-native/<arch>/ 每次整个重建(旧产物不留)。
@@ -12,7 +12,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { copyCuaLicenses, CUA_DRIVER_VERSION, exportCuaTools, extractOne, obtainCuaDriverArchive } from './cua-driver-release.mjs'
+import { copyCuaLicenses, CUA_DRIVER_VERSION, exportCuaTools, extractOne, obtainCuaDriverArchive } from './cua-driver-release.mts'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 

@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 
-import { DEFAULT_MISE_DOWNLOAD_BASE, defaultMiseCacheDir, obtainMiseArchive } from '../../../scripts/mise-archive-cache.mjs'
+import { DEFAULT_MISE_DOWNLOAD_BASE, defaultMiseCacheDir, obtainMiseArchive } from '../../../scripts/mise-archive-cache.mts'
 
 // #6258 桌面构建内置的 mise 归档:按入库 sha256 内容寻址缓存,命中不访问网络;拿不到响亮失败并报出来源。
 const CONTENT = 'fake mise archive bytes'

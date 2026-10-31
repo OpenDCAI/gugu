@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // #7199 咕咕在 Windows 上要带的原生程序,放进 win-native/<arch>/(打包时 electron-builder 拷进 resources/win-native):
-//   cua-driver.exe —— 「电脑控制」(github.com/trycua/cua,MIT),下载钉住的发布包(scripts/cua-driver-release.mjs)。
+//   cua-driver.exe —— 「电脑控制」(github.com/trycua/cua,MIT),下载钉住的发布包(scripts/cua-driver-release.mts)。
 //   包里还有 cua-cursor-theme.exe(只给 `cua-driver cursor-theme` 编光标主题用)、cua-driver-uia.exe(保留、默认不启用的
 //   uiAccess worker)、cua_driver_sdk.dll / .node / .h(嵌入用的 SDK);cua-driver.exe 只导入系统 DLL,这些都不带。
 //   同时导出工具清单(cua-tools.json,咕咕登记动作时读它)与两份许可证。
@@ -12,7 +12,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { assertPeMachine, copyCuaLicenses, CUA_DRIVER_VERSION, exportCuaTools, extractOne, obtainCuaDriverArchive } from './cua-driver-release.mjs'
+import { assertPeMachine, copyCuaLicenses, CUA_DRIVER_VERSION, exportCuaTools, extractOne, obtainCuaDriverArchive } from './cua-driver-release.mts'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 

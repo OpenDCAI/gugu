@@ -131,7 +131,7 @@ async function verifyLive(version, expected) {
 }
 
 async function main() {
-  const { readScriptEnv } = require('./build-env-preflight.mjs');
+  const { readScriptEnv } = require('./build-env-preflight.mts');
   for (const [key, value] of Object.entries(readScriptEnv(rootDir))) {
     if (process.env[key] === undefined) process.env[key] = value;
   }

@@ -216,12 +216,12 @@ module.exports = {
     },
     {
       // @@@mjs-lint (#3766) —— `.mjs`/`.mts` 此前根本不在 lint 的 --ext 里,而 #3766 那个会让 CI
-      // 挂死的写法恰恰住在 scripts/git-tree-blobs.mjs。闸装在漏掉事发地的位置等于没装,所以纳进来。
+      // 挂死的写法恰恰住在 scripts/git-tree-blobs.mts。闸装在漏掉事发地的位置等于没装,所以纳进来。
       //
       // 纳进来点亮的存量**已经就地清掉**,不是靠在这里整片关规则换绿灯:未用变量 6 处按仓库既有的
       // `_` 前缀约定改掉、正则里的连续空格 2 处改成 {N}、一处 `catch (e) { throw e }` 直接拆掉。
       // 剩下两处是**有意为之**,用带理由的 inline disable 钉在出事的那一行,不做整类豁免:
-      // ci-spec-coverage.mjs 的 `\x1B` 正则本职就是剥 ANSI 转义;feedback-router-core.mjs 的
+      // ci-spec-coverage.mts 的 `\x1B` 正则本职就是剥 ANSI 转义;feedback-router-core.mjs 的
       // U+3000 是中文文案里的字段分隔符,换半角会改动用户看到的排版。
       // 用 inline 而不是在这里关:lint 带 --report-unused-disable-directives,哪天那行真被改好了,
       // 多余的 disable 自己会变红催人删 —— 这个退出路径是能走通的,整类关掉的那种走不通。
