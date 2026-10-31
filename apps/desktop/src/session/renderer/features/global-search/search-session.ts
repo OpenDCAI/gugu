@@ -114,7 +114,7 @@ export function showHit(hit: SearchHit): void {
     set({ selectedId: hit.id, barChatId: `task:${hit.taskId}` })
     askReveal(`task:${hit.taskId}`, messageQuoteLink({ kind: 'session', sessionId: hit.taskId, itemId: hit.reference }), 'primary', session.query?.text)
     if (hit.archived) {
-      showModal('sessionHistoryModal', { sessionId: hit.taskId, title: hit.title })
+      showModal('sessionHistoryModal', { projectId: hit.projectId, sessionId: hit.taskId, title: hit.title })
       return
     }
     followLink({ kind: 'session', sessionId: hit.taskId, projectId: hit.projectId })
