@@ -1,6 +1,6 @@
 import { useScreenBlock } from '@renderer/app/screen-block-context';
 import { useCommandProvider } from '@renderer/lib/commands/use-command-provider';
-import { Cable, FileText, Globe, Plus, SquareTerminal } from '@/lib/icons'
+import { Cable, FileText, Folder, Globe, Plus, SquareTerminal } from '@/lib/icons'
 import { GitFork, GitPullRequest } from '@/lib/icons'
 import { observer } from 'mobx-react-lite';
 import { useState } from 'react';
@@ -32,74 +32,148 @@ import { canStartSideSession, startSideSession } from './start-side-session';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
 import { useAgents } from '@renderer/lib/stores/use-agents';
 import { useTerminalEnabled } from '@renderer/features/settings/use-terminal-enabled';
+import { folderItem, WORKSPACE_APP_KIND } from '@renderer/features/chats/chat-tabs/chat-panel-item';
+import { openPanelItem } from '@renderer/features/chats/chat-tabs/chat-layouts';
+import { useChatFolderName } from '@/components/chat/chatFolderName';
+import { openApp } from '@/components/appSlot/useOpenApp';
 
 /**
- * 页签条上的「+」(spec session-page「一屏几块」):紧跟最后一个页签,打开这一格要放的东西。
+ * 页签条上的「+」(spec session-page「一屏几块」):紧跟最后一个页签,打开这一格要放的东西。一个「+」,一种样子,内容按它在哪:
+ * - 任务页的一格(无 `chatId`):给这条会话加的那几项、文件夹、App;
+ * - 块里一个对话的页签条(`chatId`:群、话题、人和人的私聊):这个对话的文件夹、能在这里打开的 App。
  */
-export const TabBarAddMenu = observer(function TabBarAddMenu() {
+export const TabBarAddMenu = observer(function TabBarAddMenu({ chatId }: { chatId?: string }) {
   const { translate } = useSessionMessages();
-  const sessionView = useWorkspaceViewModel();
-  const { projectId, sessionId } = useSessionViewContext();
-  const { pane, paneId, isFocusedPane } = usePaneContext();
-  const { data: agents } = useAgents();
-  const { navigate } = useNavigate();
-  const canSideSession = canStartSideSession(projectId, sessionId, agents);
-  const terminalEnabled = useTerminalEnabled();
   const [open, setOpen] = useState(false);
-  useCommandProvider({
-    scopeId: 'session-sub',
-    getCommands: () => !isFocusedPane ? [] : [{ id: 'session.openAddMenu', execute: () => setOpen(true) }],
-  });
-
-  return (
+  const menu = (
     <DropdownMenu open={open} onOpenChange={setOpen}>
       <DropdownMenuTrigger
-        render={<Button size="icon-sm" variant="ghost" aria-label={translate('task.addPanel')} />}
+        render={
+          <Button
+            size="icon-sm"
+            variant="ghost"
+            aria-label={translate('task.addPanel')}
+            data-testid={chatId ? 'block-panel-plus' : undefined}
+          />
+        }
       >
         <Plus className="size-3.5" />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="w-44">
-        {getSessionWorkspaceActionOrder(projectId, terminalEnabled).map((actionId) =>
-          renderWorkspaceActionMenuItem(actionId, translate, {
-            blocked: sessionWorkspaceActionBlocked(projectId, actionId) !== null,
-            blockedTitle: workspaceBlockedTitle(sessionWorkspaceActionBlocked(projectId, actionId), translate, projectId),
-            openBrowser: () => pane.open('browser', { preview: false }),
-            openFiles: () => pane.open('file-browser', {}, { preview: false }),
-            openReview: () => sessionView.paneLayout.open('review', {}),
-            openTerminal: () => void sessionView.openTerminalAsTab(),
-            openPorts: () => sessionView.paneLayout.open('remote-ports', {}, { preview: false }),
-            startSideSession: () => startSideSession(projectId, sessionId),
-            canStartSideSession: canSideSession
-          })
-        )}
-        {/* Installed Apps extend the menu without joining the built-in union: their kinds exist only at runtime, and
-            widening that union would cost the exhaustiveness the built-ins get from it. Refs #2374.
-            behavior tab-extensions「+」菜单分两段:上面那几项是给这条会话加的;这一段列已装的 App,点一个 = 把它放到
-            这一格(它原来在哪就从哪拿走,一个 App 只有一份,#7052)。只列启用的:停用的不出现(owner 10-20「灰掉也占位置」),
-            启用在「App」页 —— 最后一行就去那里。
-            标题与它下面的项必须在同一个 DropdownMenuGroup 里:DropdownMenuLabel 是 Base UI 的 Menu.GroupLabel,
-            没有 Menu.Group 在上面就抛错,整页会被错误边界拿下(装着一个 App 时打开这个菜单就是这样)。 */}
-        <DropdownMenuGroup>
-          {/* 一次性 11px → 收进闭合字阶(design.md:type roles are a closed set —— 2026-09-22)。 */}
-          <DropdownMenuLabel className="text-foreground-passive text-xs font-normal">
-            {translate('extensions.appsSection')}
-          </DropdownMenuLabel>
-          {installedExtensionsStore.enabledTabContributions.map((contribution) => (
-            <DropdownMenuItem
-              key={contribution.kind}
-              onClick={() => sessionView.paneLayout.open(contribution.kind, {}, { preview: false, target: { paneId } })}
-            >
-              <ExtensionMark iconDataUrl={contribution.iconDataUrl} /> {contribution.title}
-            </DropdownMenuItem>
-          ))}
-          <DropdownMenuItem onClick={() => navigate('apps')}>
-            <Plus className="size-3.5" /> {translate('extensions.addAction')}…
-          </DropdownMenuItem>
-        </DropdownMenuGroup>
+        {chatId ? <ChatAddItems chatId={chatId} /> : <TaskAddItems />}
       </DropdownMenuContent>
     </DropdownMenu>
   );
+  // 对话的页签条没有这一格的留白,自己垫一点;⌘T 只属于任务页的一格(菜单内容只在打开时才挂上,键得挂在外面)。
+  return chatId
+    ? <span className="flex h-full shrink-0 items-center px-1">{menu}</span>
+    : <>{menu}<OpenAddMenuCommand onOpen={() => setOpen(true)} /></>;
 });
+
+/** 任务页一格的那几项:给这条会话加的(侧会话、审阅、终端、浏览器、端口、文件)、文件夹,和已装的 App。 */
+const TaskAddItems = observer(function TaskAddItems() {
+  const { translate } = useSessionMessages();
+  const sessionView = useWorkspaceViewModel();
+  const { projectId, sessionId } = useSessionViewContext();
+  const { pane, paneId } = usePaneContext();
+  const { data: agents } = useAgents();
+  const canSideSession = canStartSideSession(projectId, sessionId, agents);
+  const terminalEnabled = useTerminalEnabled();
+  const folder = installedExtensionsStore.allTabContributions.find((entry) => entry.kind === WORKSPACE_APP_KIND && entry.enabled);
+  const openTab = (kind: string) => sessionView.paneLayout.open(kind, {}, { preview: false, target: { paneId } });
+  return (
+    <>
+      {getSessionWorkspaceActionOrder(projectId, terminalEnabled).map((actionId) =>
+        renderWorkspaceActionMenuItem(actionId, translate, {
+          blocked: sessionWorkspaceActionBlocked(projectId, actionId) !== null,
+          blockedTitle: workspaceBlockedTitle(sessionWorkspaceActionBlocked(projectId, actionId), translate, projectId),
+          openBrowser: () => pane.open('browser', { preview: false }),
+          openFiles: () => pane.open('file-browser', {}, { preview: false }),
+          openReview: () => sessionView.paneLayout.open('review', {}),
+          openTerminal: () => void sessionView.openTerminalAsTab(),
+          openPorts: () => sessionView.paneLayout.open('remote-ports', {}, { preview: false }),
+          startSideSession: () => startSideSession(projectId, sessionId),
+          canStartSideSession: canSideSession
+        })
+      )}
+      {/* 文件夹:预装的文件夹 App(和对话的「+」里同一个),放进这一格。 */}
+      {folder ? (
+        <DropdownMenuItem onClick={() => openTab(folder.kind)}>
+          <Folder className="size-3.5" /> {folder.title}
+        </DropdownMenuItem>
+      ) : null}
+      {/* Installed Apps extend the menu without joining the built-in union: their kinds exist only at runtime, and
+          widening that union would cost the exhaustiveness the built-ins get from it. Refs #2374.
+          behavior tab-extensions「+」菜单分两段:上面那几项是给这条会话加的;这一段列已装的 App,点一个 = 把它放到
+          这一格(它原来在哪就从哪拿走,一个 App 只有一份,#7052)。只列启用的:停用的不出现(owner 10-20「灰掉也占位置」),
+          启用在「App」页 —— 最后一行就去那里。 */}
+      <AppsSection
+        apps={installedExtensionsStore.enabledTabContributions.map((contribution) => ({
+          key: contribution.kind,
+          title: contribution.title,
+          iconDataUrl: contribution.iconDataUrl,
+          open: () => openTab(contribution.kind),
+        }))}
+      />
+    </>
+  );
+});
+
+/** ⌘T:聚焦着的那一格打开它的「+」。 */
+function OpenAddMenuCommand({ onOpen }: { onOpen: () => void }) {
+  const { isFocusedPane } = usePaneContext();
+  useCommandProvider({
+    scopeId: 'session-sub',
+    getCommands: () => !isFocusedPane ? [] : [{ id: 'session.openAddMenu', execute: onOpen }],
+  });
+  return null;
+}
+
+/** 块里一个对话的那几项(gugu-dev#181 第 ⑥ 步):这个对话的文件夹(群文件夹 / 文件夹),和能在这里打开的 App。 */
+const ChatAddItems = observer(function ChatAddItems({ chatId }: { chatId: string }) {
+  const folderName = useChatFolderName(chatId);
+  return (
+    <>
+      <DropdownMenuItem onClick={() => openPanelItem(chatId, folderItem())}>
+        <Folder className="size-3.5" /> {folderName}
+      </DropdownMenuItem>
+      <AppsSection
+        apps={installedExtensionsStore.openableApps.map((app) => ({
+          key: app.extensionId,
+          title: app.name,
+          iconDataUrl: app.iconDataUrl,
+          open: () => openApp(app.extensionId, chatId),
+        }))}
+      />
+    </>
+  );
+});
+
+/**
+ * 「App」那一段,两处同一份:列能在这里打开的 App,最后一行去「App」页装更多。
+ * 标题与它下面的项必须在同一个 DropdownMenuGroup 里:DropdownMenuLabel 是 Base UI 的 Menu.GroupLabel,
+ * 没有 Menu.Group 在上面就抛错,整页会被错误边界拿下(装着一个 App 时打开这个菜单就是这样)。
+ */
+function AppsSection({ apps }: { apps: { key: string; title: string; iconDataUrl: string | null; open: () => void }[] }) {
+  const { translate } = useSessionMessages();
+  const { navigate } = useNavigate();
+  return (
+    <DropdownMenuGroup>
+      {/* 一次性 11px → 收进闭合字阶(design.md:type roles are a closed set —— 2026-09-22)。 */}
+      <DropdownMenuLabel className="text-foreground-passive text-xs font-normal">
+        {translate('extensions.appsSection')}
+      </DropdownMenuLabel>
+      {apps.map((app) => (
+        <DropdownMenuItem key={app.key} onClick={app.open}>
+          <ExtensionMark iconDataUrl={app.iconDataUrl} /> {app.title}
+        </DropdownMenuItem>
+      ))}
+      <DropdownMenuItem onClick={() => navigate('apps')}>
+        <Plus className="size-3.5" /> {translate('extensions.addAction')}…
+      </DropdownMenuItem>
+    </DropdownMenuGroup>
+  );
+}
 
 function renderWorkspaceActionMenuItem(
   actionId: SessionWorkspaceActionId,

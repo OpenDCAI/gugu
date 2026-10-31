@@ -56,7 +56,7 @@ import { ChatHeaderActions } from './chat/ChatHeaderActions'
 import { useFollowingTail, useTailPinning } from './chat/useFollowingTail'
 import { useConversationScrollMemory } from './chat/useConversationScrollMemory'
 import { sessionComposerDockBandClassName } from '../session/renderer/features/sessions/session-composer-styles'
-import { GroupTabContent } from './appSlot/GroupTabContent'; import { useChatOpener } from './appSlot/useChatOpener'; import { ChatPlusMenu, ChatTabPage, ChatTabPortals } from './appSlot/ChatTabHosts'; import { useTabsReading } from './appSlot/useTabsReading'
+import { GroupTabContent } from './appSlot/GroupTabContent'; import { useChatOpener } from './appSlot/useChatOpener'; import { ChatTabPage, ChatTabPortals } from './appSlot/ChatTabHosts'; import { TabBarAddMenu } from '../session/renderer/features/sessions/tab-bar-actions'; import { useTabsReading } from './appSlot/useTabsReading'
 import { folderItem, isFolderItem } from '../session/renderer/features/chats/chat-tabs/chat-panel-item'; import { closeChatTab, closeInfoTab, focusedChatTab, infoTabOf, openInfoTab, openPanelItem, panelFull, panelTabsOf, setPanelFull, showChatOnly, type ChatPanelTab } from '../session/renderer/features/chats/chat-tabs/chat-layouts'
 import { useTopicSurface } from '@/hooks/useTopicSurface'
 import { chatDisplayName, isRoomChat } from '@gugu/core/shared/ui/chatModels'
@@ -598,7 +598,7 @@ function ChatAreaSurface({ viewportKey = 'chats', assistantChat = false, imPage 
   }
 
   // 块的页签条最后那枚之后的「+」(gugu-dev#181 第 ⑥ 步);页签本身由会话页的页签引擎画(chat-tabs)。
-  const blockTabs = blockHost?.tabs && activeChatId ? createPortal(<ChatPlusMenu chatId={activeChatId} />, blockHost.tabs) : null
+  const blockTabs = blockHost?.tabs && activeChatId ? createPortal(<TabBarAddMenu chatId={activeChatId} />, blockHost.tabs) : null
   const roomMemberTotal = isRoomChatSurface ? groupCollabSnapshot.humans.length + groupCollabSnapshot.agents.length : 0
   const headerActions = (
     <>
