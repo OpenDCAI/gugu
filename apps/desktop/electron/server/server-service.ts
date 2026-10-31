@@ -13,7 +13,7 @@
  * (behavior 第 5 条「急用可在那台机器上重新执行安装命令」)时,机器上往往已经有一个旧版本在跑,
  * 这里负责把它换下来,最后以单实例锁里那个进程的真实版本为准报出结果,没换成就说清怎么办。
  */
-import { execFileSync } from 'node:child_process'
+import { execFileSync } from '@gugu/core/local/childProcess'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'

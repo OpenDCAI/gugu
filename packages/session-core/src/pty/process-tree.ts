@@ -1,4 +1,4 @@
-import { execFile, execFileSync } from 'node:child_process';
+import { execFile, execFileSync } from '@gugu/core/local/childProcess';
 import { noopLogger, type Logger } from '@gugu/session-shared/logger';
 
 export interface PidPpidPair {

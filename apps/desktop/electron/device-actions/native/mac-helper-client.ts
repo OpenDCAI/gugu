@@ -8,7 +8,8 @@
  * 它是咕咕的子进程,系统授权(「咕咕想访问你的日历」)记在咕咕名下。挂了就在下一次调用时重起,在途的调用一律报错(❌ 悄悄重发:
  * 建日程可能已经做了)。
  */
-import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
+import type { ChildProcessWithoutNullStreams } from 'node:child_process'
+import { spawn } from '@gugu/core/local/childProcess'
 import fs from 'node:fs'
 import readline from 'node:readline'
 

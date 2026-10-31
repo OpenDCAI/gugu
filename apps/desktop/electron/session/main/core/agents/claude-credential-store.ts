@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { execFile, spawn } from 'node:child_process';
+import { execFile, spawn } from '@gugu/core/local/childProcess';
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { userInfo } from 'node:os';
 import { join } from 'node:path';

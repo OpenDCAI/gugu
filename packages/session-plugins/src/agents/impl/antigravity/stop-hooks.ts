@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process';
+import { spawn } from '@gugu/core/local/childProcess';
 import { readFile, realpath } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { AcpTurnEndContext } from '@gugu/session-core/agents/plugins';

@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { spawnSync } from 'node:child_process'
+import { spawnSync } from '@gugu/core/local/childProcess'
 import { createWriteStream } from 'node:fs'
 import { rename, rm } from 'node:fs/promises'
 import { get as httpsGet } from 'node:https'

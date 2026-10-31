@@ -451,7 +451,7 @@ export class OpencodeServeSession {
         cwd: this.cwd,
         env: this.env,
         stdio: 'ignore',
-        detached: process.platform !== 'win32',
+        detached: true,
         // @@@unhandled-error-event (#4942) — 为什么不能只挂 'exit':ChildProcess 的 'error'(spawn 失败、
         // kill 失败)是**另一条**通道,没有监听者时 Node 把它抛成未捕获异常 —— 在会话页宿主里等于宿主连同
         // 所有会话一起死,而不是这一条 serve 挂掉。这类失败是异步送达的,start() 外面那圈 try/catch 接不住它。

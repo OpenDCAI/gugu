@@ -74,8 +74,7 @@ export class OwnedStdioTransport implements Transport {
         env: { ...buildUserShellBaseEnv({ loginShellEnv: loginShellEnv() }), PATH: hostPath(), ...spec.env },
         stdio: spec.stdio ?? 'pipe',
         ...(spec.serialization ? { serialization: spec.serialization } : {}),
-        detached: process.platform !== 'win32',
-        windowsHide: true,
+        detached: true,
         onError: (error) => {
           reject(error);
           this.onerror?.(error);

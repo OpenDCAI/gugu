@@ -7,7 +7,8 @@
  * 认状态只读 frpc 自己打的那几句(`start proxy success`、`start visitor success`、`login to server failed`);
  * 不认识的行原样进日志,❌ 猜。
  */
-import { execFileSync, spawn, type ChildProcess } from 'node:child_process'
+import type { ChildProcess } from 'node:child_process'
+import { execFileSync, spawn } from '@gugu/core/local/childProcess'
 import fs from 'node:fs'
 import path from 'node:path'
 import type { RelayEndpoint } from '@gugu/core/cloud/remoteTunnel'
@@ -189,7 +190,7 @@ export function startFrpc(input: {
 
   const run = () => {
     if (stopped) return
-    const proc = (input.spawnFrpc ?? ((bin, args) => spawn(bin, args, { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true })))(
+    const proc = (input.spawnFrpc ?? ((bin, args) => spawn(bin, args, { stdio: ['ignore', 'pipe', 'pipe'] })))(
       input.binary,
       ['-c', input.configFile],
     )

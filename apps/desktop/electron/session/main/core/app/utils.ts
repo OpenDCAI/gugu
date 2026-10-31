@@ -1,4 +1,4 @@
-import { exec, execFile, spawn } from 'node:child_process';
+import { exec, execFile, spawn } from '@gugu/core/local/childProcess';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { app } from 'electron';
@@ -39,6 +39,8 @@ export const execFileCommand = (
       {
         timeout: opts?.timeout ?? 30_000,
         env: buildExternalToolEnv(),
+        // 只给「在终端里打开」用:起的就是要人看见的那个终端窗口。
+        windowsHide: false,
       },
       (error) => {
         if (error) return reject(error);
@@ -53,6 +55,8 @@ export const spawnDetachedCommand = (file: string, args: string[]): Promise<void
       detached: true,
       env: buildExternalToolEnv(),
       stdio: 'ignore',
+      // 「用 Visual Studio 打开」:起的是要人看见的那个程序。
+      windowsHide: false,
     });
 
     const stopStartupError = onErrorEvent(child, (error) => reject(error));
