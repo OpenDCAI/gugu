@@ -1,6 +1,8 @@
 import { open, stat } from 'node:fs/promises';
-import { watch, type FSWatcher } from 'node:fs';
+import { createReadStream, watch, type FSWatcher, type ReadStream } from 'node:fs';
 import { StringDecoder } from 'node:string_decoder';
+import { pipeline } from 'node:stream/promises';
+import { createZstdDecompress } from 'node:zlib';
 
 import type { RecordSourceWarn } from './shared';
 
@@ -62,6 +64,7 @@ export class TailReader {
   private inflight: Promise<void> | null = null;
   private stopped = false;
   private missing = false;
+  private snapshotInput: ReadStream | null = null;
 
   constructor(
     private path: string,
@@ -103,6 +106,26 @@ export class TailReader {
     this.ino = null;
     this.missing = false;
     await this.readInto(sink);
+  }
+
+  /** A complete historical archive, streamed through the same UTF-8/line decoder without tail-follow. */
+  async readSnapshot(sink: LineSink): Promise<void> {
+    if (!this.path.endsWith('.zst')) return this.readFromStart(sink);
+    this.lineOffset = 0;
+    this.partial = '';
+    this.decoder = new StringDecoder('utf8');
+    const input = createReadStream(this.path);
+    this.snapshotInput = input;
+    try {
+      await pipeline(input, createZstdDecompress(), async (chunks: AsyncIterable<Buffer>) => {
+        for await (const chunk of chunks) this.acceptText(this.decoder.write(chunk), sink);
+      });
+      this.acceptText(this.decoder.end(), sink);
+      if (this.partial.trim()) sink([this.partial], [this.lineOffset]);
+      this.partial = '';
+    } finally {
+      this.snapshotInput = null;
+    }
   }
 
   /**
@@ -160,6 +183,7 @@ export class TailReader {
 
   stop(): void {
     this.stopped = true;
+    this.snapshotInput?.destroy();
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
     this.watcher?.close();
@@ -277,24 +301,22 @@ export class TailReader {
         // `text` 的第一个字符正对着文件里的 `lineOffset` 那个字节 —— 这条对齐关系是
         // lineOffset 能当续读点的全部依据，所以推进它要按**消掉的那一段的字节数**算，
         // ❌ 不能按字符数（一个 CJK 字符 3 字节，按字符算会把偏移量算短一大截）。
-        const text = this.partial + this.decoder.write(buffer.subarray(0, bytesRead));
-        const parts = text.split('\n');
-        this.partial = parts.pop() ?? '';
-        // 逐行量字节数(含换行符那一个字节):每行的起点顺手记下,总和就是推进量 —— 与整段量一次是同一笔开销。
-        const lines: string[] = [];
-        const offsets: number[] = [];
-        for (const part of parts) {
-          if (part.trim().length > 0) {
-            lines.push(part);
-            offsets.push(this.lineOffset);
-          }
-          this.lineOffset += Buffer.byteLength(part, 'utf8') + 1;
-        }
-        if (lines.length > 0) sink(lines, offsets);
+        this.acceptText(this.decoder.write(buffer.subarray(0, bytesRead)), sink);
       }
     } finally {
       await handle.close();
     }
     return restart;
+  }
+
+  private acceptText(text: string, sink: LineSink): void {
+    const parts = (this.partial + text).split('\n');
+    this.partial = parts.pop() ?? '';
+    const lines: string[] = [], offsets: number[] = [];
+    for (const part of parts) {
+      if (part.trim()) { lines.push(part); offsets.push(this.lineOffset); }
+      this.lineOffset += Buffer.byteLength(part, 'utf8') + 1;
+    }
+    if (lines.length > 0) sink(lines, offsets);
   }
 }

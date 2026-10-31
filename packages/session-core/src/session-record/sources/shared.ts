@@ -22,6 +22,8 @@ import { RECORD_KEY_BOUNDARY_SUFFIX, type RecordBoundary, type RecordEntry } fro
 export type RecordSourceWarn = (message: string, detail?: Record<string, unknown>) => void;
 
 export type SessionRecordSourceOptions = {
+  /** A bounded historical read; compressed archives are never followed as live files. */
+  readMode?: 'snapshot';
   /**
    * 轮询间隔（ms）。
    *
