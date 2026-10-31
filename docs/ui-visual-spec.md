@@ -833,8 +833,6 @@ not on dividers」和「Prefer a change of density over a box」,但它们是**�
 
 **判据**:无。这条判不了 —— 「这一组行该不该有线」在源码文本层与「这是一张独立内容卡」同形
 (同 §5.3 末尾 `rounded-full` 那条的处境)。所以它是**评审时的对照条文**,不是闸。
-⚠️ 有意保留的反例一处:`sessions/diff-view/main-panel/stacked-diff-view.tsx` 的文件卡仍带 border ——
-它不是「一行」,是一块独立内容块(里面装着整个 diff),密度面板收编不了它。
 ⚠️ 主 renderer 侧仍有两处 `border-dashed`(`components/agentsettings/agentSettingsStyles.ts` 的两个空态),
 本轮未改;`components/assistant-ui/thread.aui.tsx` 那处是**拖拽态**的临时虚线,不在本条范围内
 (它表达的是「松手可以放这里」,不是「这里是空的」)。
