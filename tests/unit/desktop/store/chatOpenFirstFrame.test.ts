@@ -75,8 +75,8 @@ vi.mock('../../../../apps/desktop/src/lib/supabaseAccountRevisionSource', () => 
 vi.mock('../../../../apps/desktop/src/lib/chatUnreadLocatorMessages', () => ({
   getUnreadLocatorWindow: async () => ({ anchorRows: [msgA1], forwardRows: [], reachedTail: true, tailSeq: 1 }),
 }))
-vi.mock('../../../../apps/desktop/src/lib/chatMemberReadState', async (original) => ({
-  ...await original<typeof import('../../../../apps/desktop/src/lib/chatMemberReadState')>(), markStreamRead: vi.fn(async () => {}),
+vi.mock('../../../../apps/desktop/src/lib/readWriter', async (original) => ({
+  ...await original<typeof import('../../../../apps/desktop/src/lib/readWriter')>(), writeRead: vi.fn(async () => {}),
 }))
 const uploads = vi.hoisted(() => ({ bytes: vi.fn(), commit: vi.fn() }))
 vi.mock('../../../../apps/desktop/src/lib/attachmentsEndpoint', async original => ({ ...await original<typeof import('../../../../apps/desktop/src/lib/attachmentsEndpoint')>(), attachmentsEndpoint: async () => ({}) }))

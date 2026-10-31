@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type MutableRefObject, type SetStateAction } from 'react'
 import type { ChatItem, ChatUnreadLocator, MessageItem } from '@gugu/core/shared/types/chat'
 import { mergeMessagesById } from '@gugu/core/shared/ui/messageListModels'
-import { markStreamRead } from './chatMemberReadState'
+import { cloudReadTarget, writeRead } from './readWriter'
 import {
   openStreamAtLocator as runOpenStreamAtLocator,
   requestUnreadMessageReveal,
@@ -137,7 +137,7 @@ export function useChatUnreadStreamNavigation(deps: Deps) {
           // A confirmed entry is consumed before the read RPC: it must not discard a later reading anchor.
           if (saved) consumeUnreadEntry(chatId, saved)
         },
-        markRead: async (currentTarget, commit) => { assertCurrent(); await markStreamRead(currentTarget.chatId, currentTarget.locator.stream_id, commit.readSeq, currentTarget.locator.thread_root_id) },
+        markRead: async (currentTarget, commit) => { assertCurrent(); await writeRead(cloudReadTarget(currentTarget.chatId, currentTarget.locator.thread_root_id, commit.readSeq)) },
         refreshChats: () => { assertCurrent(); return deps.loadChats({ acceptEmpty: true }) },
       })
     } catch (error) {

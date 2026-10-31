@@ -6,8 +6,8 @@ import { chatService } from '../lib/chat'
 import { isLifecycleCancellation } from '../lib/authBoundedFetch'
 import { useAuth } from './auth'
 import { useToast, type ToastType } from '../components/toastContext'
-import { upsertChatRow } from '@gugu/core/shared/ui/chatModels'
-import { unreadAskingYou } from '@gugu/core/shared/ui/notificationModels'
+import { chatAttention, upsertChatRow } from '@gugu/core/shared/ui/chatModels'
+import { writeRead } from '../lib/readWriter'
 import { useGroupCreation } from './useGroupCreation'
 import { mergeMessagesById, optimisticReplyFields, upsertMessageById } from '@gugu/core/shared/ui/messageListModels'
 import { useNotificationSettings } from '../lib/notificationSettings'
@@ -485,11 +485,9 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
     if (!message.to_user_ids?.includes(userId) || message.sender_user_id === userId
       || message.delivery_status === 'read' || receipts.has(message.id)) return
     receipts.add(message.id)
-    void chatService.markMessageRead(chatId, message.id, userId).catch((error: unknown) => {
+    void writeRead({ kind: 'receipt', chatId, messageId: message.id, readerUserId: userId }).catch((error: unknown) => {
       receipts.delete(message.id)
-      // The realtime row can arrive before the read RPC can see its transaction.
-      if (/not found in chat/i.test(error instanceof Error ? error.message : String(error))) return
-      revisionLog.warn({ error, chatId }, 'markMessageRead failed')
+      revisionLog.warn({ error, chatId }, 'message read receipt failed')
     })
   }, [cache, patchChat, userId])
 
@@ -867,7 +865,7 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
   // ── Dock / 托盘角标:与通知同一把尺 —— 群与话题只算叫到你的；列表内仍安静显示全部未读 ──────
   useEffect(() => {
     if (!platform.capabilities.badge) return
-    platform.setBadge(chats.reduce((sum, c) => sum + unreadAskingYou(c), 0))
+    platform.setBadge(chats.reduce((sum, c) => sum + chatAttention(c).askingYou, 0))
   }, [chats])
 
   const conversationActions = useCallback<ChatConversationAccess['actions']>((chatId, viewport = {}) => ({

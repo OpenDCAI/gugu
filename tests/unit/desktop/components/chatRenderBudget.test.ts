@@ -51,7 +51,6 @@ vi.mock('../../../../apps/desktop/src/lib/chat', () => ({
       snapshot: { scheduler: null, humans: [], agents: [], tasks: [], outputs: [] },
       identities: [],
     })),
-    markMessageRead: vi.fn(async () => {}),
     getThreadMessages: vi.fn(async () => []),
   },
 }))

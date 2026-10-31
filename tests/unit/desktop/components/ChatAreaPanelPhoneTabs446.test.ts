@@ -49,7 +49,6 @@ vi.mock('../../../../apps/desktop/src/lib/chat', () => ({
       },
       identities: [],
     })),
-    markMessageRead: vi.fn(async () => {}),
     getOtherMembersReadSeqs: vi.fn(async () => ({})),
     getThreadMessages: vi.fn(async () => []),
   },
