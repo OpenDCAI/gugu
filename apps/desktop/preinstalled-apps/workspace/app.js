@@ -2044,7 +2044,7 @@ function scheduleBlockHandleHide() {
 
 function hideBlockHandle(force = false) {
   cancelBlockHandleHide()
-  if (!force && $('block-controls').matches(':focus-within')) return
+  if (!force && $('block-controls').contains(document.activeElement)) return
   if (force || $('menu').hidden || !$('block-controls').contains(state.menuAnchor)) {
     if ($('block-controls').contains(document.activeElement)) $('preview').focus({ preventScroll: true })
     handleBlock = null
@@ -2187,7 +2187,8 @@ function blockMenu() {
       text: t[INSERT_BLOCKS.find((item) => item.id === kind).label],
       run: () => changeBlock(current, range, (doc, at) => {
         const changes = turnBlockChanges(current.view.state, state.cm, at, kind)
-        return { changes, head: state.cm.state.ChangeSet.of(changes, doc.length).mapPos(at.from, 1) }
+        const content = changes.find((change) => change.from === at.from)?.to ?? at.from
+        return { changes, head: state.cm.state.ChangeSet.of(changes, doc.length).mapPos(content, 1) }
       }),
     })) },
     [t.duplicateBlock, () => changeBlock(current, range, (doc, at) => ({ changes: { from: at.to, insert: `\n\n${doc.sliceString(at.from, at.to)}` }, head: at.to + 2 }))],

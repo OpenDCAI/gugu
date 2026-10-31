@@ -201,6 +201,7 @@ describe('folder documents: reading', () => {
       vi.advanceTimersByTime(150)
       expect($('block-controls').hidden).toBe(false)
       $('mode-edit').focus()
+      expect(document.activeElement).toBe($('mode-edit'))
       vi.advanceTimersByTime(150)
       expect($('block-controls').hidden).toBe(true)
     } finally {

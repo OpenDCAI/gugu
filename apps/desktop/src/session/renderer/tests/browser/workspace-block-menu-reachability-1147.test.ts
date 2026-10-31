@@ -54,7 +54,13 @@ const verbs = {
   openLink: async () => {}, openBrowserTab: async () => {}, reportError: async (message: string) => { throw new Error(message); },
   clipboard: { writeText: async (text: string) => { copied.push(text); } },
   files: {
-    open: async (ref: unknown) => (ref as { id: string }).id !== entry.id ? { type: 'binary', entry: ref, blob: async () => image, close: () => {} } : file,
+    open: async (ref: unknown) => {
+      const id = (ref as { id: string }).id;
+      if (id === entry.id) return file;
+      const found = folderEntries.find((item) => item.id === id);
+      if (!found) throw new Error(`Unknown test file: ${id}`);
+      return { type: 'binary', entry: found, blob: async () => image, close: () => {} };
+    },
     readVersion: async () => file, onChanged: () => () => {}, upload, replace, remove,
     list: async () => folderEntries,
   },
@@ -174,7 +180,7 @@ it('keeps the block through left padding, opens its menu, and changes only on an
   await pointer(title.left + 10, title.top + 5);
   await pointer(title.left + 10, title.top + 5, 'mousePressed');
   await pointer(title.left + 10, title.top + 5, 'mouseReleased');
-  await until('closing outside the reading restores the handle hide', () => controls().hidden);
+  await until('closing outside the reading restores the handle hide', () => controls().hidden === true);
 
   const second = preview.querySelector<HTMLElement>('p[data-line="5-5"]')!.getBoundingClientRect();
   const gutter = preview.getBoundingClientRect().left + 2;
@@ -192,11 +198,11 @@ it('keeps the block through left padding, opens its menu, and changes only on an
 
   await pointer(first.left + 50, first.top + first.height / 2);
   await pointer(byId('doc-title').getBoundingClientRect().left + 10, byId('doc-title').getBoundingClientRect().top + 5);
-  await until('leaving the preview and handle hides the actions', () => controls().hidden);
+  await until('leaving the preview and handle hides the actions', () => controls().hidden === true);
   await pointer(second.left + 50, second.top + second.height / 2);
   await until('returning to a paragraph restores the actions', () => !controls().hidden);
   await pointer(gutter, second.top, 'mouseWheel', { deltaX: 0, deltaY: 300 });
-  await until('a real preview scroll hides the handle', () => preview.scrollTop > 0 && controls().hidden);
+  await until('a real preview scroll hides the handle', () => preview.scrollTop > 0 && controls().hidden === true);
 });
 
 async function insertAtFirst(label: string) {
@@ -391,8 +397,8 @@ it('slash divider after a paragraph remains a divider and whitespace ends slash 
   editor().dispatch({ selection: { anchor: editor().state.doc.length } });
   editor().focus();
   await userEvent.keyboard('/div');
-  await until('Divider is offered', () => document.querySelector('.cm-tooltip-autocomplete')?.textContent?.includes('Divider') === true);
-  await userEvent.keyboard('{Enter}');
+  await until('the slash menu filters to Divider', () => document.querySelectorAll('.cm-tooltip-autocomplete [role="option"]').length === 1 && document.querySelector('.cm-tooltip-autocomplete')?.textContent?.includes('Divider') === true);
+  await userEvent.click(document.querySelector('.cm-tooltip-autocomplete [role="option"]')!);
   expect(file.text).toBe('Paragraph.\n***\n');
   await userEvent.click(byId('mode-split'));
   await until('the paragraph is not converted into a setext heading', () => !!byId('preview').querySelector('hr') && byId('preview').querySelector('p')?.textContent === 'Paragraph.');
@@ -416,7 +422,7 @@ it('keeps keyboard focus on the handle after Escape until focus leaves it', asyn
   expect(document.activeElement).toBe(handle('block-handle'));
   expect(controls().hidden).toBe(false);
   byId('mode-edit').focus();
-  await until('focus leaving restores hiding', () => controls().hidden);
+  await until('focus leaving restores hiding', () => controls().hidden === true);
 });
 
 it.each(['Delete', 'Move down', 'Heading'])('rejects %s after a collaborator deletes the selected block and separators', async (action) => {
@@ -477,12 +483,12 @@ it('releases mouse-menu focus and keeps focus in the reading when scrolling hide
   await pointer(title.left + 10, title.top + 5);
   await userEvent.keyboard('{Escape}');
   expect(document.activeElement).toBe(byId('preview'));
-  await until('the mouse menu cannot pin the handles after leaving', () => controls().hidden);
+  await until('the mouse menu cannot pin the handles after leaving', () => controls().hidden === true);
   const paragraph = byId('preview').querySelector('p[data-line="3-3"]')!.getBoundingClientRect();
   await pointer(paragraph.left + 30, paragraph.top + 5);
   handle('block-handle').focus();
   byId('preview').scrollTop = 200;
-  await until('scroll hides the focused controls', () => controls().hidden);
+  await until('scroll hides the focused controls', () => controls().hidden === true);
   expect(document.activeElement).toBe(byId('preview'));
 });
 
@@ -534,7 +540,7 @@ it('filters / on an empty source line and inserts the same Quote template', asyn
   editor().focus();
   await userEvent.keyboard('/quo');
   await until('the existing autocomplete filters to Quote', () => document.querySelectorAll('.cm-tooltip-autocomplete [role="option"]').length === 1 && document.querySelector('.cm-tooltip-autocomplete')?.textContent?.includes('Quote') === true);
-  await userEvent.keyboard('{Enter}');
+  await userEvent.click(document.querySelector('.cm-tooltip-autocomplete [role="option"]')!);
   expect(file.text).toBe(`${text}> \n`);
   expect(editor().state.selection.main.head).toBe(at + 2);
   await userEvent.keyboard('From slash');
