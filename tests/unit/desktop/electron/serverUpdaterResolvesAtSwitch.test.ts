@@ -1,3 +1,4 @@
+import { createServerVersionLifecycle } from '../../../../apps/desktop/electron/server/server-version-lifecycle'
 /*
  * 守护进程自升级:切到哪一版在**切的那一刻**现取清单,❌ 用等空闲开始时取到的那一版。
  * 10-08 ThinkPad 实读:59.1 在 08:11 取到 62.1、等空闲 2 h 38 min,其间发布了 63.1;10:49 切到的仍是 62.1,
@@ -54,7 +55,7 @@ afterEach(() => {
 function updater(isBusy: () => boolean) {
   const log = { info: vi.fn(), warn: vi.fn() }
   const shutdown = vi.fn()
-  const stop = startServerUpdater({ log, isBusy, shutdown, stateWriter: { set: () => {}, clear: () => {} } })
+  const stop = startServerUpdater({ lifecycle: createServerVersionLifecycle({ layout: { home, versions: path.join(home, 'versions'), version: '0.2.53-beta.59.1' } }), log, isBusy, shutdown, stateWriter: { set: () => {}, clear: () => {} } })
   return { log, shutdown, stop }
 }
 

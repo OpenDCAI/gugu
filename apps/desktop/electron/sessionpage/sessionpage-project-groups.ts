@@ -10,7 +10,7 @@
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { atomicWriteText, resolveGuguHome } from '@gugu/core/local/state/paths'
-import { fileRefKey, requireFileRevision, type FileRef, type FileRevision } from '@gugu/core/shared/fileResolver'
+import { DEVICE_STORE, fileRefKey, requireFileRevision, type FileRef, type FileRevision } from '@gugu/core/shared/fileResolver'
 import { createLogger } from '../lib/logger'
 
 const FILE_NAME = 'taskpage-project-groups.json'
@@ -185,13 +185,18 @@ function invalidateProjectFiles(mapping: Mapping, ownerId: string, projectId: st
   }
 }
 
+/** A revision this device keeps for its chat: under a project still bound to that chat, or in its device store (no binding). */
+function keptFor(mapping: Mapping, ownerId: string, revision: FileRevision): boolean {
+  return revision.host_project_id === DEVICE_STORE || mapping.owners[ownerId]?.[revision.host_project_id!] === revision.chat_id
+}
+
 /** Published local revisions share the account/project mapping and its sole atomic write queue. */
 export async function rememberProjectFile(revision: FileRevision, ownerId: string, env: NodeJS.ProcessEnv = process.env): Promise<void> {
   requireFileRevision(revision)
   if (revision.source !== 'local' || revision.host_account_id !== ownerId || !revision.chat_id) throw new Error('File owner or group mismatch')
   await enqueue(async () => {
     const mapping = await readMapping(env)
-    if (mapping.owners[ownerId]?.[revision.host_project_id!] !== revision.chat_id) throw new Error('Project binding changed')
+    if (!keptFor(mapping, ownerId, revision)) throw new Error('Project binding changed')
     // Roots are resolved from the project registry at read time, never copied into this index.
     const { source, item_id, version, chat_id, file_name, content_type, size_bytes, sha256, host_device_id, host_project_id, host_account_id, relative_path, workspace } = revision
     mapping.files ??= {}
@@ -204,17 +209,17 @@ export async function rememberProjectFile(revision: FileRevision, ownerId: strin
 export async function findProjectFileByName(chat: string, name: string, ownerId: string, deviceId: string, env: NodeJS.ProcessEnv = process.env) {
   const files = Object.values((await readMapping(env)).files?.[ownerId] ?? {})
   const found = files.find(row => row.chat_id === chat && row.workspace?.path === name)
-  return found ? readProjectFile({ item_id: found.item_id! }, ownerId, deviceId, env) : null
+  return found ? readProjectFile({ item_id: found.item_id!, version: found.version! }, ownerId, deviceId, env) : null
 }
 
 export async function findProjectFileCopy(projectId: string, sha: string, ownerId: string, deviceId: string, env: NodeJS.ProcessEnv = process.env) {
   const files = Object.values((await readMapping(env)).files?.[ownerId] ?? {})
   const found = files.findLast(row => row.host_project_id === projectId && row.sha256 === sha && row.relative_path?.startsWith('.gugu/attachments/'))
-  return found ? readProjectFile({ item_id: found.item_id! }, ownerId, deviceId, env) : null
+  return found ? readProjectFile({ item_id: found.item_id!, version: found.version! }, ownerId, deviceId, env) : null
 }
 
-/** The database's record of one version of a file, asked only when this index holds an earlier version of it. */
-export type ProjectFileVersionLookup = (ref: { item_id: string; version: number }) => Promise<FileRevision | null>
+/** The database's record of one version of a file (its current one when no version is named). */
+export type ProjectFileVersionLookup = (ref: { item_id: string; version?: number }) => Promise<FileRevision | null>
 
 /**
  * The index keeps the version this computer last published. A later version the database made without new bytes — a
@@ -230,16 +235,19 @@ export async function readProjectFile(ref: FileRef, ownerId: string, deviceId: s
   if (!revision) return null
   requireFileRevision(revision)
   if (!revision.chat_id || revision.host_account_id !== ownerId || revision.host_device_id !== deviceId || revision.item_id !== ref.item_id ||
-    mapping.owners[ownerId]?.[revision.host_project_id!] !== revision.chat_id) return null
-  if (ref.version === undefined || ref.version === revision.version) return revision
-  if (!later || ref.version < revision.version!) return null
-  const found = await later({ item_id: ref.item_id, version: ref.version })
-  if (!found || found.source !== 'local' || found.item_id !== revision.item_id || found.version !== ref.version || found.chat_id !== revision.chat_id ||
+    !keptFor(mapping, ownerId, revision)) return null
+  if (ref.version === revision.version) return revision
+  if (!later || ref.version !== undefined && ref.version < revision.version!) return null
+  // No version named means the file's current one: another member's device may have sent a newer version since.
+  const found = await later(ref.version === undefined ? { item_id: ref.item_id } : { item_id: ref.item_id, version: ref.version })
+  if (!found || found.source !== 'local' || found.item_id !== revision.item_id || ref.version !== undefined && found.version !== ref.version ||
+    found.version! < revision.version! || found.chat_id !== revision.chat_id ||
     found.host_account_id !== revision.host_account_id || found.host_device_id !== revision.host_device_id || found.host_project_id !== revision.host_project_id ||
     found.relative_path !== revision.relative_path || found.sha256 !== revision.sha256 || found.size_bytes !== revision.size_bytes) return null
+  if (found.version === revision.version) return revision
   // Where the file sits in the folder is the database's now, not the index's from its publication.
   const { workspace: _published, ...same } = revision
-  return { ...same, version: ref.version, file_name: found.file_name }
+  return { ...same, version: found.version, file_name: found.file_name }
 }
 
 export async function forgetProjectFile(itemId: string, ownerId: string, env: NodeJS.ProcessEnv = process.env): Promise<void> {

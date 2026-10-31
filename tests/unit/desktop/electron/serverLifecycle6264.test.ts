@@ -78,8 +78,8 @@ describe('日志有上限', () => {
   })
 })
 
-describe('升级前清旧版本:在用的 + 最近 5 份(#6264 各账号可以各跑各的版本)', () => {
-  it('在用的全留,其余按目录时刻留最近 5 份;下载中的临时目录不碰', () => {
+describe('reclamation preserves explicit live and rollback ownership', () => {
+  it('preserves protected versions and active staging without mtime extras', () => {
     const versions = tmp()
     for (const [i, v] of ['0.1.0', '0.1.1', '0.1.2', '0.1.3', '0.1.4', '0.1.5', '0.1.6', '0.1.7'].entries()) {
       fs.mkdirSync(path.join(versions, v))
@@ -87,7 +87,7 @@ describe('升级前清旧版本:在用的 + 最近 5 份(#6264 各账号可以�
     }
     fs.mkdirSync(path.join(versions, '.download-abc'))
     pruneVersions(versions, ['0.1.0', '0.1.8'])
-    expect(fs.readdirSync(versions).sort()).toEqual(['.download-abc', '0.1.0', '0.1.3', '0.1.4', '0.1.5', '0.1.6', '0.1.7'])
+    expect(fs.readdirSync(versions).sort()).toEqual(['.download-abc', '0.1.0'])
   })
 })
 

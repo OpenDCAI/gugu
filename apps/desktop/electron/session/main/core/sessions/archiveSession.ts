@@ -1,3 +1,5 @@
+import { sessionBootTasks } from '../boot-tasks';
+import { drainSessionMessageOutbox } from './sendMessage';
 import { and, eq } from 'drizzle-orm';
 import { db } from '@main/db/client';
 import { projects, sessions } from '@main/db/schema';
@@ -95,8 +97,8 @@ export async function archiveOneLocked(projectId: string, sessionId: string, ski
 }
 
 /**
- * 恢复只做一件事:把 `archived_at` 抹掉,这条会话回到列表。❌ 不顺手起进程 —— 归档停掉的运行时由人
- * 再打开这条会话时按既有路径重来,恢复不是一个偷偷起 agent 的动词。
+ * 恢复保留原身份并把任务放回列表。若存在持久 pending 消息，锁释放后仅排一次自己的 outbox；
+ * 没有 pending 消息不启动运行时，dispatching 收据不重放。
  *
  * spec session-graph:会话列表那一片**没有**恢复入口(owner 2026-09-11:「程序内部可以有 restore session 的
  * 接口,但 UI 上的这个区域不需要」)。入口在**另一个区域** —— 「会话历史」面板(#6083),已归档的行从那里
@@ -111,7 +113,11 @@ export async function restoreSession(
   projectId: string,
   sessionId: string
 ): Promise<Session> {
-  return serializeSessionArchival(sessionId, () => restoreSessionLocked(projectId, sessionId));
+  const restored = await serializeSessionArchival(sessionId, () => restoreSessionLocked(projectId, sessionId));
+  // Run after releasing the archival lock: the existing router may wake this task through that lock.
+  // Restore admits the retained outbox exactly once, without replaying any dispatching receipt.
+  await sessionBootTasks.run('restore-outbox', sessionId, () => drainSessionMessageOutbox({ projectId, sessionId }));
+  return restored;
 }
 
 async function restoreSessionLocked(projectId: string, sessionId: string): Promise<Session> {

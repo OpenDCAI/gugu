@@ -1,3 +1,4 @@
+import { createServerVersionLifecycle } from '../../../../apps/desktop/electron/server/server-version-lifecycle'
 /*
  * #6264「server 和桌面版本不匹配时，当场换成匹配的版本，升降都算」(product spec 第 5 条例外,owner 2026-09-25):
  *  · 不同账号共用一台机器:各跑和自己桌面匹配的那一份,换版只重启那一个账号;
@@ -202,6 +203,7 @@ describe('守护进程:各账号各跑各的版本,换版只重启那一个账�
     const restarted: string[] = []
     const staged: string[] = []
     const c = createAccountVersionConverger({
+      lifecycle: createServerVersionLifecycle({ layout: { home, versions: path.join(home, 'versions'), version: '0.3.0' } }),
       layout: { home, versions: path.join(home, 'versions'), version: '0.3.0' },
       log: quietLog,
       running: (userId) => (running.has(userId) ? running.get(userId) ?? null : undefined),
@@ -260,7 +262,7 @@ describe('守护进程:各账号各跑各的版本,换版只重启那一个账�
     signIn(U2)
     installVersion('0.3.0')
     report(U1, 'alice-old', '0.2.9', MIN_CLIENT_PROTOCOL)
-    fs.writeFileSync(path.join(dataDir(U1), 'version-switch.json'), JSON.stringify({ reason: 'test', at: NOW, confirmed: true }))
+    fs.writeFileSync(path.join(dataDir(U1), 'version-switch.json'), JSON.stringify({ reason: 'test', at: NOW, confirmed: true, target: '0.2.9' }))
     const running = new Map<string, string | null>([[U1, '0.3.0'], [U2, '0.3.0']])
     const { c, restarted, staged } = converger(running, { busy: true })
     c.converge(listAccounts())
@@ -285,14 +287,14 @@ describe('守护进程:各账号各跑各的版本,换版只重启那一个账�
     expect(restarted).toEqual([])
     expect(JSON.parse(fs.readFileSync(path.join(dataDir(U1), 'server-update.json'), 'utf8'))).toMatchObject({ state: 'ready', version: '0.3.1' })
     expect(fs.existsSync(path.join(dataDir(U1), 'version-switch.json'))).toBe(true)
-    fs.writeFileSync(path.join(dataDir(U1), 'version-switch.json'), JSON.stringify({ reason: 'retry from desktop', at: NOW, confirmed: true }))
+    fs.writeFileSync(path.join(dataDir(U1), 'version-switch.json'), JSON.stringify({ reason: 'confirmed restart from desktop', at: NOW, confirmed: true, target: '0.3.1' }))
     c.converge(listAccounts())
     expect(restarted).toEqual([U1])
   })
 
   it('人点的「现在重启更新」10 分钟内算数,过了只是普通的版本信号', () => {
     signIn(U1)
-    fs.writeFileSync(path.join(dataDir(U1), 'version-switch.json'), JSON.stringify({ reason: 'retry from desktop', at: NOW, confirmed: true }))
+    fs.writeFileSync(path.join(dataDir(U1), 'version-switch.json'), JSON.stringify({ reason: 'confirmed restart from desktop', at: NOW, confirmed: true, target: '0.3.1' }))
     expect(readVersionSwitchRequest(dataDir(U1), NOW + 60_000)).toMatchObject({ confirmed: true })
     expect(readVersionSwitchRequest(dataDir(U1), NOW + 11 * 60_000)).toMatchObject({ confirmed: false })
   })
@@ -314,6 +316,7 @@ describe('守护进程:各账号各跑各的版本,换版只重启那一个账�
     let t = NOW
     const staged: string[] = []
     const c = createAccountVersionConverger({
+      lifecycle: createServerVersionLifecycle({ layout: { home, versions: path.join(home, 'versions'), version: '0.3.0' } }),
       layout: { home, versions: path.join(home, 'versions'), version: '0.3.0' },
       log: quietLog,
       running: () => '0.3.0',
@@ -348,6 +351,7 @@ describe('守护进程:各账号各跑各的版本,换版只重启那一个账�
     let error: Error = new DownloadSiteUnreachableError('下载站上没有 0.3.1 这一版(连不上)')
     let t = NOW
     const c = createAccountVersionConverger({
+      lifecycle: createServerVersionLifecycle({ layout: { home, versions: path.join(home, 'versions'), version: '0.3.0' } }),
       layout: { home, versions: path.join(home, 'versions'), version: '0.3.0' },
       log: quietLog,
       running: () => '0.3.0',
@@ -377,6 +381,7 @@ describe('守护进程:各账号各跑各的版本,换版只重启那一个账�
     let outcome: 'not-published' | 'broken' | 'ok' = 'not-published'
     const staged: string[] = []
     const c = createAccountVersionConverger({
+      lifecycle: createServerVersionLifecycle({ layout: { home, versions: path.join(home, 'versions'), version: '0.3.0' } }),
       layout: { home, versions: path.join(home, 'versions'), version: '0.3.0' },
       log: quietLog,
       running: () => '0.3.0',
@@ -427,6 +432,7 @@ describe('守护进程:各账号各跑各的版本,换版只重启那一个账�
     const switched: string[] = []
     let running = '0.3.0'
     const c = createAccountVersionConverger({
+      lifecycle: createServerVersionLifecycle({ layout: { home, versions: path.join(home, 'versions'), version: '0.3.0' } }),
       layout: { home, versions: path.join(home, 'versions'), version: '0.3.0' },
       log: quietLog,
       running: () => running,
@@ -493,11 +499,11 @@ describe('守护进程:各账号各跑各的版本,换版只重启那一个账�
   })
 })
 
-describe('清理:在用的 + 最近 5 份', () => {
-  it('versionsToKeep:在用的全留,其余按最近用过留 5 份', () => {
+describe('reclamation uses explicit ownership only', () => {
+  it('keeps explicitly protected versions without additional mtime guesses', () => {
     const installed = ['0.1.0', '0.1.1', '0.1.2', '0.1.3', '0.1.4', '0.1.5', '0.1.6', '0.1.7', '.download-x'].map((name, i) => ({ name, mtimeMs: i }))
     const keep = versionsToKeep({ installed, inUse: ['0.1.0'] })
-    expect([...keep].sort()).toEqual(['0.1.0', '0.1.3', '0.1.4', '0.1.5', '0.1.6', '0.1.7'])
+    expect([...keep].sort()).toEqual(['0.1.0'])
   })
 
   it('pruneVersions:账号记着的旧版本不删,下载中的临时目录不碰', () => {
@@ -506,11 +512,11 @@ describe('清理:在用的 + 最近 5 份', () => {
     signIn(U1)
     writeAccountVersionPin(dataDir(U1), { version: '0.1.0', previous: null, at: NOW })
     const removed = pruneVersions(path.join(home, 'versions'), ['0.1.0', '0.1.8'])
-    expect(removed.sort()).toEqual(['0.1.1', '0.1.2'])
-    expect(fs.readdirSync(path.join(home, 'versions')).sort()).toEqual(['.download-abc', '0.1.0', '0.1.3', '0.1.4', '0.1.5', '0.1.6', '0.1.7', '0.1.8'])
+    expect(removed.sort()).toEqual(['0.1.1', '0.1.2', '0.1.3', '0.1.4', '0.1.5', '0.1.6', '0.1.7'])
+    expect(fs.readdirSync(path.join(home, 'versions')).sort()).toEqual(['.download-abc', '0.1.0', '0.1.8'])
   })
 
-  it('install.sh 同一条规则:留切换前在用的、账号记着的,再加最近 5 份', () => {
+  it('bootstrap installer leaves reclamation to the supervisor', () => {
     const INSTALL = path.join(__dirname, '../../../../scripts/gugu-server/install.sh')
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gugu-install-keep-'))
     const userHome = path.join(dir, 'home')
@@ -536,11 +542,12 @@ describe('清理:在用的 + 最近 5 份', () => {
     fs.writeFileSync(path.join(serverHome, 'accounts', U1, 'data', 'server-version.json'), JSON.stringify({ version: '0.1.1', previous: null, at: NOW }))
     for (const v of ['0.1.2', '0.1.3', '0.1.4', '0.1.5', '0.1.6', '0.1.7', '0.1.8', '0.1.9']) install(v)
     const versions = fs.readdirSync(path.join(serverHome, 'versions')).filter((n) => !n.startsWith('.')).sort()
-    // 0.1.1 被账号记着;0.1.9 在用、0.1.8 是切换前的;其余最近 5 份:0.1.3–0.1.7;0.1.2 清掉。
-    expect(versions).toEqual(['0.1.1', '0.1.3', '0.1.4', '0.1.5', '0.1.6', '0.1.7', '0.1.8', '0.1.9'])
+    // Bootstrap never guesses live versions; only the supervisor reclaims with actual ownership facts.
+    expect(versions).toEqual(['0.1.1', '0.1.2', '0.1.3', '0.1.4', '0.1.5', '0.1.6', '0.1.7', '0.1.8', '0.1.9'])
     expect(fs.readlinkSync(path.join(serverHome, 'current'))).toBe('versions/0.1.9')
     // --keep-current:只装不切。
     install('0.1.0', ['--keep-current'])
+    expect(fs.existsSync(path.join(serverHome, 'versions', '.prepared', '0.1.0'))).toBe(true)
     expect(fs.readlinkSync(path.join(serverHome, 'current'))).toBe('versions/0.1.9')
     expect(fs.existsSync(path.join(serverHome, 'versions', '0.1.0', 'bin', 'gugu-server'))).toBe(true)
     fs.rmSync(dir, { recursive: true, force: true })

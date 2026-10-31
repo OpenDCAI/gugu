@@ -16,9 +16,9 @@ export async function attachmentMetadata(source: AttachmentSource): Promise<File
   if (file.status !== 'ready') return file
   await file.dispose(); return { status: 'ready', revision: file.revision }
 }
-export async function attachmentPreview(source: AttachmentSource) {
+export async function attachmentPreview(source: AttachmentSource, metadata?: FileMetadata) {
   const ref = attachmentFileRef(source)
-  return ref ? resolveFile(ref, fileReader(), { purpose: 'preview', signal: fileReadSignal() }) : { status: 'gone' as const, sha256: null }
+  return ref ? resolveFile(ref, fileReader(), { purpose: 'preview', metadata, signal: fileReadSignal() }) : { status: 'gone' as const, sha256: null }
 }
 const fullKey = (accountId: string, sha: string) => `${attachmentCacheOrigin}/account/${encodeURIComponent(accountId)}/sha256/${sha}`
 
@@ -32,14 +32,14 @@ export function sourceKeyOf(source: AttachmentSource): string {
 export type AttachmentBytes = { status: 'ready'; blob: Blob; link: FileRevision } | { status: 'gone' | 'expired' | 'missing' }
 
 /** Thumbnails only display; original blobs are created exclusively from a fully verified file handle. */
-export async function attachmentBytes(source: AttachmentSource, variant: AttachmentVariant = 'full', onLink?: (link: FileRevision) => void): Promise<AttachmentBytes> {
-  try { return await readAttachmentBytes(source, variant, onLink) }
+export async function attachmentBytes(source: AttachmentSource, variant: AttachmentVariant = 'full', onLink?: (link: FileRevision) => void, metadata?: FileMetadata): Promise<AttachmentBytes> {
+  try { return await readAttachmentBytes(source, variant, onLink, metadata) }
   catch (error) { if (error instanceof MissingFileObjectError) return { status: 'missing' }; throw error }
 }
 
-async function readAttachmentBytes(source: AttachmentSource, variant: AttachmentVariant, onLink?: (link: FileRevision) => void): Promise<AttachmentBytes> {
+async function readAttachmentBytes(source: AttachmentSource, variant: AttachmentVariant, onLink?: (link: FileRevision) => void, metadata?: FileMetadata): Promise<AttachmentBytes> {
   if (variant === 'thumb') {
-    const preview = await attachmentPreview(source)
+    const preview = await attachmentPreview(source, metadata)
     if (preview.status !== 'ready') return preview
     try {
       onLink?.(preview.revision)
@@ -71,14 +71,14 @@ const THUMB_GC_MS = 30 * 60_000
 const immutableSource = (source: AttachmentSource) => source.kind === 'message' || source.kind === 'attachment' || source.kind === 'item'
 
 /**
- * 缩略图按来源记在 attachmentQueryClient 里。本地缓存(Cache Storage)按内容哈希存,而哈希要先问一次 file-resolve 才有:
+ * 缩略图按来源记在 attachmentQueryClient 里。本地缓存(Cache Storage)按内容哈希存,优先使用消息的固定版本元数据;旧行才需要先问 file-resolve:
  * 不记的话,每次重新挂载(切会话回来、120 行窗口换回来)都先等一个网络来回(实测 0.9–1.4 s 空占位)才画得出本地已有的图。
  * 不可变来源在本次运行里不再重问:被删 / 过期的文件这次运行内仍显示旧缩略图,打开原图照旧完整校验(attachmentBytes 'full')。
  */
-async function sessionThumb(source: AttachmentSource, onLink: (link: FileRevision) => void): Promise<AttachmentBytes> {
+async function sessionThumb(source: AttachmentSource, onLink: (link: FileRevision) => void, metadata?: FileMetadata): Promise<AttachmentBytes> {
   return attachmentQueryClient.fetchQuery({
-    queryKey: ['attachment-thumb', fileReader().accountId, sourceKeyOf(source)],
-    queryFn: () => attachmentBytes(source, 'thumb', onLink),
+    queryKey: ['attachment-thumb', fileReader().accountId, sourceKeyOf(source), metadata?.status === 'ready' ? metadata.revision.sha256 : metadata?.status ?? null],
+    queryFn: () => attachmentBytes(source, 'thumb', onLink, metadata),
     staleTime: immutableSource(source) ? Infinity : 0,
     gcTime: THUMB_GC_MS,
   })
@@ -88,17 +88,19 @@ async function sessionThumb(source: AttachmentSource, onLink: (link: FileRevisio
  * 气泡 / 预览用:给一个 object URL;failed 时 retry() 丢掉记着的链接重新签、重新下。
  * enabled = false 时什么都不取(气泡还没滚到眼前:lazy 要推迟的是这次请求,blob URL 上的 loading="lazy" 不管用)。
  */
-export function useAttachmentObjectUrl(source: AttachmentSource, variant: AttachmentVariant = 'full', enabled = true): AttachmentView & { retry: () => void } {
+export function useAttachmentObjectUrl(source: AttachmentSource, variant: AttachmentVariant = 'full', enabled = true, metadata?: FileMetadata): AttachmentView & { retry: () => void } {
   const [view, setView] = useState<AttachmentView>({ status: 'loading' })
   const [attempt, setAttempt] = useState(0)
   const sourceKey = sourceKeyOf(source)
+  const metadataKey = metadata?.status === 'ready' ? metadata.revision.sha256 : metadata?.status
   useEffect(() => {
     if (!enabled) return
+    if (variant === 'thumb' && metadata && metadata.status !== 'ready') { setView({ status: metadata.status }); return }
     let alive = true
     let objectUrl: string | null = null
     setView({ status: 'loading' })
     const onLink = (link: FileRevision) => alive && setView({ status: 'loading', link })
-    ;(variant === 'thumb' ? sessionThumb(source, onLink) : attachmentBytes(source, variant, onLink)).then(
+    ;(variant === 'thumb' ? sessionThumb(source, onLink, metadata) : attachmentBytes(source, variant, onLink)).then(
       (bytes) => {
         if (!alive) return
         if (bytes.status !== 'ready') return setView({ status: bytes.status })
@@ -112,12 +114,12 @@ export function useAttachmentObjectUrl(source: AttachmentSource, variant: Attach
       if (objectUrl) URL.revokeObjectURL(objectUrl)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- sourceKey 就是 source 的身份
-  }, [sourceKey, variant, attempt, enabled])
+  }, [sourceKey, metadataKey, variant, attempt, enabled])
   const retry = useCallback(() => {
     setAttempt((n) => n + 1)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sourceKey])
-  return { ...view, retry }
+  return variant === 'thumb' && metadata && metadata.status !== 'ready' ? { status: metadata.status, retry } : { ...view, retry }
 }
 
 /** 文件预览取原图,进全 app 唯一的看图器;等待期间已离开的预览不再打开。 */

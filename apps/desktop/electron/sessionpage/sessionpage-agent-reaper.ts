@@ -25,6 +25,7 @@ export interface SessionpageInventory {
 }
 
 export interface SessionpageReapDeps {
+  onFailure?: (operation: string, taskId: string, error: unknown) => void
   getAuth: () => Promise<{ accessToken: string; refreshToken: string; userId: string } | null>
   resolveDeviceId: () => Promise<string | null>
   getInventory: () => Promise<SessionpageInventory>
@@ -309,6 +310,7 @@ async function reconcileLocked(deps: SessionpageReapDeps): Promise<SessionpageRe
       await forgetDeadProjects(projectIds)
       console.log(`[sessionpage-reap] archived group ${chatId} (session-page project ${projects} is gone)`)
     } catch (err) {
+      deps.onFailure?.('group-reconcile', '', err)
       failures.push(`archive group ${chatId}: ${(err as Error).message}`)
     }
   }
@@ -330,6 +332,7 @@ async function reconcileLocked(deps: SessionpageReapDeps): Promise<SessionpageRe
         `[sessionpage-reap] reaped agent ${agent.name} (${agent.guguUserId}) — session-page session ${agent.sessionId} is gone`,
       )
     } catch (err) {
+      deps.onFailure?.('agent-reconcile', agent.sessionId, err)
       failures.push(`reap agent ${agent.guguUserId}: ${(err as Error).message}`)
     }
   }

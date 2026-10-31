@@ -337,9 +337,9 @@ export interface AppFileEntry {
   claimedBy: AppFileClaimant | null;
   size: number | null;
   /**
-   * A project chat's file kept on its host machine and uploaded only when someone opens it (file storage policy): the
-   * machine's name when it is the reader's own (`null` otherwise), and whose file storage setting it follows; whether it is
-   * on (`online`, the reader's own machines only — the file opens once it is). Absent for every other file.
+   * A project chat's file kept on the machine that sent its current version and uploaded only when someone opens it: that
+   * machine's name, whose file storage setting it follows, and whether it is on (`online` — the file opens once it is).
+   * Absent for every other file.
    */
   storedOn?: { machine: string | null; owner: string; mine: boolean; online?: boolean };
   /**

@@ -2,64 +2,60 @@ import { beforeEach, expect, it, vi } from 'vitest';
 import type { FilesPlatform } from './app-files-core';
 
 const person = '11111111-1111-4111-8111-111111111111';
-const host = '22222222-2222-4222-8222-222222222222';
+const other = '22222222-2222-4222-8222-222222222222';
 const chat = '33333333-3333-4333-8333-333333333333';
 const base = { chat_id: chat, content_type: 'application/pdf', size_bytes: 2, source_message_ids: [], created_by: person, version: 1, epoch: 0,
   parent_id: null, system_role: null, created_at: null, updated_at: null };
-// A file kept on the machine (no blob pointer), one uploaded, and a document.
-const rows = [
-  { ...base, id: 'local', kind: 'file', filename: 'local.pdf', pointer: null, path: 'local.pdf' },
-  { ...base, id: 'cloud', kind: 'file', filename: 'cloud.pdf', pointer: 'workspace/x', path: 'cloud.pdf' },
-  { ...base, id: 'doc', kind: 'document', filename: 'notes.md', pointer: null, path: 'notes.md' },
-];
-let policy: Record<string, unknown> | null = null;
-const label = vi.fn(async () => ({ data: { label: 'Studio Mac' }, error: null }));
+// Files kept on machines (no blob pointer) — two on one machine, one on another — one uploaded, and a document.
+let rows: Record<string, unknown>[] = [];
+// Each file's current version, as the one metadata entry point resolves it: the machine that keeps it, for any reader.
+let holders: Record<string, Record<string, unknown>> = {};
 const rpc = vi.fn((name: string, args: Record<string, unknown>) => {
   const data = name === 'chat_facts' ? [{ id: chat, kind: 'group', source_chat_id: null }] : name === 'workspace_deletable_as' ? args.p_item_ids
-    : name === 'file_project_policy_for' ? policy : rows;
+    : name === 'file_resolve_as' ? holders[(args.p_ref as { item_id: string }).item_id] ?? { status: 'gone' } : rows;
   const answer = Promise.resolve({ data, error: null });
   return Object.assign(answer, { select: () => answer });
 });
-const devices = { select: () => devices, eq: () => devices, maybeSingle: label };
-vi.mock('@gugu/core/cloud/supabase', () => ({ createGuguSupabaseClient: () => ({ rpc, from: () => devices }) }));
+vi.mock('@gugu/core/cloud/supabase', () => ({ createGuguSupabaseClient: () => ({ rpc }) }));
 const { createAppFiles } = await import('./app-files-core');
 let platform: FilesPlatform;
+const kept = (device: string, account: string, label: string, online: boolean) =>
+  ({ status: 'ready', source: 'local', host_device_id: device, host_account_id: account, host_label: label, host_online: online });
 beforeEach(() => {
   vi.clearAllMocks();
-  policy = null;
+  rows = [
+    { ...base, id: 'mac-a', kind: 'file', filename: 'a.pdf', pointer: null, path: 'a.pdf', host_device_id: 'mac' },
+    { ...base, id: 'mac-b', kind: 'file', filename: 'b.pdf', pointer: null, path: 'b.pdf', host_device_id: 'mac' },
+    { ...base, id: 'linux', kind: 'file', filename: 'c.pdf', pointer: null, path: 'c.pdf', host_device_id: 'linux' },
+    { ...base, id: 'cloud', kind: 'file', filename: 'cloud.pdf', pointer: 'workspace/x', path: 'cloud.pdf', host_device_id: null },
+    { ...base, id: 'doc', kind: 'document', filename: 'notes.md', pointer: null, path: 'notes.md', host_device_id: null },
+  ];
+  holders = { 'mac-a': kept('mac', person, 'Studio Mac', true), 'mac-b': kept('mac', person, 'Studio Mac', true), linux: kept('linux', other, 'Linux 1', false) };
   platform = { account: async () => ({ token: 'token', userId: person }), hasCapability: () => true,
     sync: { pageFor: () => ({}), grant: vi.fn(), ungrant: vi.fn(), revoke: vi.fn() } as never,
-    identities: async (_token, ids) => ids.map((id) => ({ id, name: id === host ? 'Ming' : 'Me', avatar: null, kind: 'human' as const })),
+    identities: async (_token, ids) => ids.map((id) => ({ id, name: id === other ? 'Ming' : 'Me', avatar: null, kind: 'human' as const })),
     faces: async () => ({}), filesUrl: () => 'http://files.invalid', warn: vi.fn() };
 });
 
-it('says which machine keeps a project chat file without a cloud copy, and whose setting it follows', async () => {
-  policy = { host_device_id: 'device', host_account_id: host };
+it('says, file by file, which machine keeps it, whose setting it follows and whether that machine is on', async () => {
   const entries = await createAppFiles(platform).groupFiles(chat);
-  expect(entries.find((entry) => entry.id === 'local')?.storedOn).toEqual({ machine: null, owner: 'Ming', mine: false });
-  expect(entries.find((entry) => entry.id === 'cloud')?.storedOn).toBeUndefined();
-  expect(entries.find((entry) => entry.id === 'doc')?.storedOn).toBeUndefined();
-  // Another person's machine: its name is theirs to read.
-  expect(label).not.toHaveBeenCalled();
+  const of = (id: string) => entries.find((entry) => entry.id === id)?.storedOn;
+  expect(of('mac-a')).toEqual({ machine: 'Studio Mac', owner: 'Me', mine: true, online: true });
+  expect(of('mac-b')).toEqual({ machine: 'Studio Mac', owner: 'Me', mine: true, online: true });
+  // Another person's machine is named too, and said to be off: its files open once it is on.
+  expect(of('linux')).toEqual({ machine: 'Linux 1', owner: 'Ming', mine: false, online: false });
+  expect(of('cloud')).toBeUndefined();
+  expect(of('doc')).toBeUndefined();
 });
 
-it('names the reader\'s own machine', async () => {
-  policy = { host_device_id: 'device', host_account_id: person };
-  const entries = await createAppFiles(platform).groupFiles(chat);
-  expect(entries.find((entry) => entry.id === 'local')?.storedOn).toEqual({ machine: 'Studio Mac', owner: 'Me', mine: true });
+it('asks once per machine the list names', async () => {
+  await createAppFiles(platform).groupFiles(chat);
+  expect(rpc.mock.calls.filter(([name]) => name === 'file_resolve_as')).toHaveLength(2);
 });
 
-it('marks nothing in a chat that is not bound to a machine', async () => {
+it('marks nothing when no file is kept on a machine', async () => {
+  rows = rows.filter((row) => row.pointer || row.kind !== 'file');
   const entries = await createAppFiles(platform).groupFiles(chat);
   expect(entries.every((entry) => entry.storedOn === undefined)).toBe(true);
-});
-
-it('says whether the reader\'s own machine is on: its file opens once it is', async () => {
-  policy = { host_device_id: 'device', host_account_id: person };
-  label.mockResolvedValueOnce({ data: { label: 'Studio Mac', status: 'offline' } as never, error: null });
-  const off = await createAppFiles(platform).groupFiles(chat);
-  expect(off.find((entry) => entry.id === 'local')?.storedOn).toEqual({ machine: 'Studio Mac', owner: 'Me', mine: true, online: false });
-  label.mockResolvedValueOnce({ data: { label: 'Studio Mac', status: 'online' } as never, error: null });
-  const on = await createAppFiles(platform).groupFiles(chat);
-  expect(on.find((entry) => entry.id === 'local')?.storedOn).toMatchObject({ online: true });
+  expect(rpc.mock.calls.some(([name]) => name === 'file_resolve_as')).toBe(false);
 });

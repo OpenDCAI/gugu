@@ -1,5 +1,5 @@
 import { isImageMimeType, resolveAttachmentMimeType } from '../imageMime.mjs'
-import type { FileRef } from '../fileResolver'
+import type { FileMetadata, FileRef } from '../fileResolver'
 
 export type AttachmentKind = 'image' | 'file'
 
@@ -41,6 +41,8 @@ export interface ParsedAttachment {
   sizeBytes: number
   caption?: string
   source: AttachmentSource
+  fileMetadata?: FileMetadata
+  imageDimensions?: { width: number; height: number }
 }
 
 /** 消息行上指向字节的列(messages_view 的 file_item_id / file_version / file_blob_id)和消息自己的 id。 */
@@ -50,6 +52,8 @@ export interface MessageFileRef {
   file_version?: number | null
   file_blob_id?: string | null
   local_send_state?: 'sending' | 'failed' | 'unknown' | null
+  file_metadata?: FileMetadata | null
+  image_dimensions?: { width: number; height: number }
 }
 
 /** 没定型的行(事件载荷、REST 原样回的 JSON)上读那两列。 */
@@ -144,6 +148,8 @@ export function parseAttachmentContent(content: string | null, ref?: MessageFile
     sizeBytes: Math.round(sizeBytes),
     ...(caption ? { caption } : {}),
     source,
+    ...(ref?.file_metadata ? { fileMetadata: ref.file_metadata } : {}),
+    ...(ref?.image_dimensions ? { imageDimensions: ref.image_dimensions } : {}),
   }
 }
 

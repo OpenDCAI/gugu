@@ -3,6 +3,13 @@
  * 两处说同一件事,❌ 各写一套。纯函数,读的只是那台机器随心跳报上来的几项(老宿主不报 = 不知道,不下结论)。
  */
 import type { DeviceCapabilities } from '../shared/types/chat'
+/** Old supervisors must explicitly report support; a version string cannot grant an override. */
+export function serverSupportsConfirmedRestart(capabilities: Pick<DeviceCapabilities, 'server_confirmed_restart'> | null | undefined): boolean {
+  return capabilities?.server_confirmed_restart === true
+}
+
+/** Account activity older than this cannot block an update or supply a busy count. */
+export const SERVER_ACTIVITY_STALE_MS = 60_000
 
 /**
  * 桌面↔server 这条线说的协议版本。有不兼容的改动时加一;server 同时报「桌面至少要哪一版」。
@@ -136,7 +143,11 @@ export function formatBytes(bytes: number): string {
 }
 
 /** #6264 设备行点「重试」换到匹配版本的那条设备调用(界面也要用,所以放在不碰文件系统的这里)。 */
-export const VERSION_RETRY_RPC = 'server.versionMatch.retry'
+// A distinct verb cannot be interpreted by an older server as an unconfirmed busy override.
+export const VERSION_RETRY_RPC = 'server.versionMatch.retryWhenIdle'
+/** Older clients use this verb. New servers treat it as idle-only, never as confirmation. */
+export const LEGACY_VERSION_RETRY_RPC = 'server.versionMatch.retry'
+export const VERSION_RESTART_RPC = 'server.versionMatch.restartConfirmed'
 
 /**
  * #6264 报给那台机器的「这是哪一台桌面」:设备编号 + 版本。设备编号跟着硬件走,同一台电脑上的正式版、Beta、

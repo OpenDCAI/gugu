@@ -360,6 +360,8 @@ export default {
     "usageUnavailable": "文件用量暂不可用。",
 
     "fileUnavailable": "文件暂时打不开",
+    "holderOffline": "{{machine}} 离线，上线后才能打开这个文件。",
+    "holderMachine": "保存它的那台电脑",
     "imageUnavailable": "图片暂时打不开",
     "newerInFolder": "文件夹里有新版",
     "retry": "重试"

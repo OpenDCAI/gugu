@@ -2,7 +2,7 @@
  * #6264 每个账号跑和自己桌面匹配的那一份咕咕 server(product spec 第 5 条例外;照 VS Code
  * `~/.vscode-server/bin/<commit>` 多份并存、Zed `zed-remote-server-<版本>` 与客户端完全一致)。
  *
- *   versions/<版本>/          好几份并存:在用的 + 最近 5 份(VS Code 的做法,microsoft/vscode-remote-release#969)
+ *   versions/<版本>/          好几份并存:在用的 + 明确记录的上一版(VS Code 的做法,microsoft/vscode-remote-release#969)
  *   versions/.incoming/       上不了网的机器:桌面经 SSH 放进来的包 `<版本>.tar.gz` + 它的清单行 `<版本>.txt`,
  *                             守护进程装它而 ❌ 下载(装的仍只有守护进程一个,见 server-account-converge.ts)
  *   current                   守护进程自己跑的那一份;没有桌面报过版本的账号也跑它
@@ -17,13 +17,13 @@
  */
 import fs from 'node:fs'
 import path from 'node:path'
-import { compareServerVersions, isServerVersion, pickTargetVersion, type DesktopReports } from '@gugu/core/cloud/serverDesktopVersions'
+import { isServerVersion, pickTargetVersion, type DesktopReports } from '@gugu/core/cloud/serverDesktopVersions'
 
 export const ACCOUNT_VERSION_FILE = 'server-version.json'
 /** `gugu-server match-version` 打给桌面看的机器可读行(ssh-install/logic.ts 读)。 */
 export const MATCH_MARK = '__GUGU_MATCH__'
-/** 没人用的旧版本留几份(VS Code 同数)。 */
-export const KEEP_RECENT_VERSIONS = 5
+/** 不额外保留按 mtime 猜出的版本;上一版由 supervisor 的明确回滚指针传入。 */
+export const KEEP_RECENT_VERSIONS = 0
 
 export type AccountVersionPin = { version: string; previous: string | null; at: number }
 
@@ -87,7 +87,7 @@ export function planAccountVersion(input: {
   now: number
   running: string | null
   switchRequested: boolean
-  /** 换版请求是人点「现在重启更新 / 重试」留的:有 agent 在跑也当场换。 */
+  /** 仅绑定当前目标的明确重启确认允许中断工作；普通 Retry 不授予此权限。 */
   switchConfirmed?: boolean
   installed: (version: string) => boolean
   busy: boolean
@@ -112,27 +112,23 @@ export function planAccountVersion(input: {
 }
 
 /**
- * versions/ 下留哪些:正在被任一账号(以及守护进程自己)用的 + 最近用过的 KEEP_RECENT_VERSIONS 份(按目录的修改时刻,
+ * versions/ 下留哪些:正在被任一账号(以及守护进程自己)用的 + 明确传入的上一版(按目录的修改时刻,
  * 装好 / 换过去时都会刷新它)。以 `.` 开头的是下载中的临时目录,不归这里管。纯函数。
  */
 export function versionsToKeep(input: {
   installed: ReadonlyArray<{ name: string; mtimeMs: number }>
   inUse: Iterable<string>
-  recent?: number
 }): Set<string> {
   const keep = new Set<string>()
   const inUse = new Set(input.inUse)
-  const candidates = input.installed.filter((entry) => !entry.name.startsWith('.'))
-  for (const entry of candidates) if (inUse.has(entry.name)) keep.add(entry.name)
-  const rest = candidates
-    .filter((entry) => !keep.has(entry.name))
-    .sort((a, b) => b.mtimeMs - a.mtimeMs || compareServerVersions(b.name, a.name))
-  for (const entry of rest.slice(0, input.recent ?? KEEP_RECENT_VERSIONS)) keep.add(entry.name)
+  for (const entry of input.installed) {
+    if (!entry.name.startsWith('.') && inUse.has(entry.name)) keep.add(entry.name)
+  }
   return keep
 }
 
 /** 按 versionsToKeep 清掉多出来的版本;返回删了哪些。 */
-export function pruneVersions(versionsDir: string, inUse: Iterable<string>, recent = KEEP_RECENT_VERSIONS): string[] {
+export function pruneVersions(versionsDir: string, inUse: Iterable<string>, protectedNow: (version: string) => boolean = () => false): string[] {
   let names: string[]
   try {
     names = fs.readdirSync(versionsDir)
@@ -146,10 +142,10 @@ export function pruneVersions(versionsDir: string, inUse: Iterable<string>, rece
       return []
     }
   })
-  const keep = versionsToKeep({ installed, inUse, recent })
+  const keep = versionsToKeep({ installed, inUse })
   const removed: string[] = []
   for (const { name } of installed) {
-    if (name.startsWith('.') || keep.has(name)) continue
+    if (name.startsWith('.') || keep.has(name) || protectedNow(name)) continue
     fs.rmSync(path.join(versionsDir, name), { recursive: true, force: true })
     removed.push(name)
   }

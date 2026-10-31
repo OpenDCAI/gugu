@@ -12,6 +12,7 @@ import {
   bindExtensionSurface,
   retargetExtensionSurface,
   notifyGroupWorkspaceChanged,
+  notifyWatchedChatsChanged,
   notifyInstalledAppsChanged,
   invokeExtensionCommand,
   deliverToOpeningPage,
@@ -384,6 +385,12 @@ export const extensionsController = createRPCController({
       .filter((change) => typeof change?.chatId === 'string' && Array.isArray(change.itemIds))
       .map((change) => ({ chatId: change.chatId, itemIds: change.itemIds.filter((id) => typeof id === 'string') }));
     void notifyGroupWorkspaceChanged(changes);
+    return { success: true };
+  },
+
+  /** A device of the account went on or off: the folders on screen read their files again, so each says where it is kept now. */
+  devicesOnlineChanged: async () => {
+    void notifyWatchedChatsChanged();
     return { success: true };
   },
 

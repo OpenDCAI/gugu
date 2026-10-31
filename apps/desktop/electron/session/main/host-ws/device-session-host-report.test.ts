@@ -75,7 +75,7 @@ describe('taskhost.open 带来的桌面版本', () => {
     const refused = await handlers['taskhost.open']!({ client: 'client0001', desktop: { id: 'old', version: '0.2.51', protocol: MIN_CLIENT_PROTOCOL - 1 } }, ctx);
     expect(refused).toMatchObject({ error: { code: 'client_outdated' } });
     expect(readDesktopReports(dir).old).toMatchObject({ version: '0.2.51', protocol: MIN_CLIENT_PROTOCOL - 1 });
-    expect(readVersionSwitchRequest(dir)).not.toBeNull();
+    expect(readVersionSwitchRequest(dir)).toMatchObject({ confirmed: false });
     fs.rmSync(dir, { recursive: true, force: true });
   });
 
@@ -108,15 +108,15 @@ describe('taskhost.open 带来的桌面版本', () => {
     }
   });
 
-  it('「更新没成功 · 重试」:咕咕 server 上留一个换版请求;桌面自己回 unavailable', async () => {
+  it.each(['server.versionMatch.retry', 'server.versionMatch.retryWhenIdle'])('%s only requests an idle retry; a desktop reports unavailable', async (verb) => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gugu-desktop-report-'));
     process.env.GUGU_TASK_HOST_USER_DATA = dir;
     const { handlers } = createSessionHostDeviceRpcHandlers({ host: () => host });
     delete process.env.GUGU_SERVER_MODE;
-    expect(await handlers['server.versionMatch.retry']!({}, ctx)).toMatchObject({ error: { code: 'unavailable' } });
+    expect(await handlers[verb]!({}, ctx)).toMatchObject({ error: { code: 'unavailable' } });
     process.env.GUGU_SERVER_MODE = '1';
-    expect(await handlers['server.versionMatch.retry']!({}, ctx)).toEqual({ result: { requested: true } });
-    expect(readVersionSwitchRequest(dir)).not.toBeNull();
+    expect(await handlers[verb]!({}, ctx)).toEqual({ result: { requested: true } });
+    expect(readVersionSwitchRequest(dir)).toMatchObject({ confirmed: false });
     fs.rmSync(dir, { recursive: true, force: true });
   });
 });

@@ -1,8 +1,9 @@
+import { createServerVersionLifecycle } from '../../../../apps/desktop/electron/server/server-version-lifecycle'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { recordDesktopReport, requestVersionRetry, requestVersionSwitch } from '../../../../packages/core/src/cloud/serverDesktopVersions'
+import { recordDesktopReport, requestConfirmedVersionRestart, requestVersionRetry, requestVersionSwitch } from '../../../../packages/core/src/cloud/serverDesktopVersions'
 import { REMOTE_PROTOCOL_VERSION } from '../../../../packages/core/src/cloud/serverMachineHealth'
 import { createAccountVersionConverger, VERSION_FAILURE_COOLDOWN_MS } from '../../../../apps/desktop/electron/server/server-account-converge'
 import { readAccountVersionPin, writeAccountVersionPin } from '../../../../apps/desktop/electron/server/server-account-versions'
@@ -56,6 +57,7 @@ function fixture(supervisor: string, initial: string | undefined, managed = true
   const options = {
     layout: { home, versions: path.join(home, 'versions'), version: supervisor },
     followSupervisor: managed,
+    lifecycle: createServerVersionLifecycle({ layout: { home, versions: path.join(home, 'versions'), version: supervisor } }),
     log: { info: () => undefined, warn },
     stateWriter: () => ({ set: (state: string, version: string) => { states.push([state, version]) }, clear: () => undefined }),
     running: (id: string) => running.get(id),
@@ -99,7 +101,7 @@ describe('managed cloud accounts follow the running supervisor package', () => {
   it('does not let a desktop-confirmed request interrupt a busy managed account', () => {
     report(A)
     pin(A)
-    requestVersionRetry({ GUGU_SERVER_MODE: '1', GUGU_TASK_HOST_USER_DATA: data() }, clock)
+    requestConfirmedVersionRestart({ GUGU_SERVER_MODE: '1', GUGU_TASK_HOST_USER_DATA: data() }, B, true, clock)
     const f = fixture(B, A)
     f.busy(true)
     f.converge()
@@ -137,7 +139,7 @@ describe('managed cloud accounts follow the running supervisor package', () => {
     restartedSupervisor.converge()
     expect(restartedSupervisor.c.binaryFor(U1)).toBeNull()
   })
-  it('desktop protocol reports cannot bypass a failed managed package cooldown; explicit retry can', () => {
+  it('desktop protocol reports and idle retry cannot bypass a failed managed package cooldown; a confirmed restart can', () => {
     pin(A)
     const f = fixture(B, undefined)
     f.converge()
@@ -149,6 +151,10 @@ describe('managed cloud accounts follow the running supervisor package', () => {
     expect(next.c.binaryFor(U1)?.version).toBe(A)
     clock += 1_000
     requestVersionRetry({ GUGU_SERVER_MODE: '1', GUGU_TASK_HOST_USER_DATA: data() }, clock)
+    next.converge()
+    expect(next.c.binaryFor(U1)?.version).toBe(A)
+    clock += 1_000
+    requestConfirmedVersionRestart({ GUGU_SERVER_MODE: '1', GUGU_TASK_HOST_USER_DATA: data() }, B, true, clock)
     next.converge()
     expect(next.c.binaryFor(U1)).toBeNull()
   })

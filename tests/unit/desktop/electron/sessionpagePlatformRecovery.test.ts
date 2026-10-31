@@ -1,3 +1,4 @@
+import { SessionBootTasks } from '../../../../packages/core/src/shared/sessionBootTasks'
 import { describe, expect, it, vi } from 'vitest'
 import {
   SessionpagePlatformRecoveryCoordinator,
@@ -419,4 +420,18 @@ describe('SessionpagePlatformRecoveryCoordinator', () => {
     expect(coordinator.stateFor(target.sessionId)).toEqual({ status: 'live' })
     expect(attempts).toBe(2)
   })
+  it('isolates one expired-target read failure and still reconciles another target', async () => {
+    const tasks = new SessionBootTasks(vi.fn())
+    const resolveTarget = vi.fn(async (sessionId: string) => {
+      if (sessionId === 'broken') throw new Error('target fixture refusal')
+      return { ...target, sessionId }
+    })
+    const coordinator = new SessionpagePlatformRecoveryCoordinator({ bootTasks: tasks, resolveTarget, isExpired: () => true, reopen: vi.fn() })
+    coordinator.markExpired({ ...target, sessionId: 'broken' })
+    coordinator.markExpired({ ...target, sessionId: 'healthy' })
+    await expect(coordinator.reconcileExpired()).resolves.toBeUndefined()
+    expect(resolveTarget).toHaveBeenCalledWith('healthy')
+    expect(tasks.snapshot()).toEqual([{ operation: 'platform-recovery', taskId: 'broken', message: 'target fixture refusal' }])
+  })
+
 })

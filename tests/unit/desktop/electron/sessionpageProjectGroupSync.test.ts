@@ -1,4 +1,5 @@
 import { archiveAgentRecord, agentsForOwner } from '@gugu/core/local/state/agentOwner'
+import { SessionBootTasks } from '../../../../packages/core/src/shared/sessionBootTasks'
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -626,6 +627,16 @@ describe('spec ⑨ 创建侧:项目=群 / 无项目=私聊 / 序号命名', () =
     })
     await expect(registerExistingSessionpageAgents({ GUGU_HOME: home })).resolves.toBe(1)
     expect(registered).toEqual([])
+  })
+  it('isolates an invalid binding and registers the remaining boot roster', async () => {
+    const { registerExistingSessionpageAgents } = await import(SUT)
+    const bootTasks = new SessionBootTasks(vi.fn())
+    roster.push(
+      { id: 'bad', name: 'Bad', agent_type: 'codex', gugu_user_id: 'bad-agent', cache: { emdash_session_id: 'bad-task', sessionpage_provider_id: 'codex' } },
+      { id: 'good', name: 'Good', agent_type: 'codex', gugu_user_id: 'good-agent', cache: { emdash_session_id: 'good-task' } },
+    )
+    await expect(registerExistingSessionpageAgents({ GUGU_HOME: home }, { bootTasks })).resolves.toBe(2)
+    expect(bootTasks.snapshot()).toEqual([{ operation: 'roster-rehydrate', taskId: 'bad-task', message: 'Persisted task capability is incomplete' }])
   })
   it('boot maps a partially stamped capability row before failing loud', async () => {
     const { registerExistingSessionpageAgents } = await import(SUT)

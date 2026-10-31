@@ -15,6 +15,7 @@ export function kickInboxWhenAuthed(input: {
   trigger: string
   getAuth: () => Promise<RuntimeAuth | null> | undefined
   kick: (auth: RuntimeAuth) => void
+  onFailure?: (error: unknown) => void
   log: InboxKickLog
 }): Promise<void> {
   const { agentUserId, trigger, log } = input
@@ -24,6 +25,7 @@ export function kickInboxWhenAuthed(input: {
     try {
       auth = await input.getAuth()
     } catch (error) {
+      input.onFailure?.(error)
       log.warn({ agentUserId, trigger, err: reason(error) }, 'skip inbox kick: auth unavailable')
       return
     }
@@ -35,6 +37,7 @@ export function kickInboxWhenAuthed(input: {
     try {
       input.kick(auth)
     } catch (error) {
+      input.onFailure?.(error)
       log.warn({ agentUserId, trigger, err: reason(error) }, 'inbox kick failed')
     }
   })()

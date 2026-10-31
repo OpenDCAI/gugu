@@ -157,6 +157,32 @@ describe('one cloud provider and verified raw chunk cache', () => {
     expect(fetcher.mock.calls.map(row => row[0])).toEqual([thumbnail, 'https://objects.invalid/file'])
     await full.dispose()
   })
+  it('reopens a content-cached message preview without a metadata round trip, but still authorizes the original', async () => {
+    const thumbnail = 'https://objects.invalid/thumbnail?lease=first-open'
+    const imageRevision = { ...revision, content_type: 'image/png', width: 1200, height: 900 }
+    const a = api(imageRevision, plain, { thumb_url: thumbnail }), c = cache(), images = new Map<string, Response>()
+    const imageCache = { match: async (key: RequestInfo | URL) => images.get(String(key))?.clone(),
+      put: async (key: RequestInfo | URL, value: Response) => { images.set(String(key), value.clone()) } }
+    const fetcher = vi.fn(async () => new Response('cached pixels', { headers: { 'content-type': 'image/webp' } }))
+    const cloud = cloudFileProviders({ endpoint: a.endpoint, cache: c.store, sink: async () => sink(), imageCache, fetch: fetcher as typeof fetch })
+    const metadata = { status: 'ready' as const, revision: imageRevision }
+    for (let mount = 0; mount < 2; mount++) {
+      // Recreate the resolver to represent a reload; only the existing content cache survives.
+      const resolve = createFileResolver({ ...cloud, local: async () => null, ssh: async () => null })
+      const preview = await resolve({ item_id: 'file', version: 2 }, context.actor, { purpose: 'preview', metadata })
+      if (preview.status !== 'ready') throw Error('ready expected')
+      expect(await (await preview.content() as Blob).text()).toBe('cached pixels')
+      await preview.dispose()
+    }
+    expect(a.calls.map(call => call.route)).toEqual(['file-download'])
+    expect(fetcher).toHaveBeenCalledTimes(1)
+    expect([...images.keys()][0]).not.toContain('lease=')
+    a.fetcher.mockRejectedValue(new Error('current access denied'))
+    const resolve = createFileResolver({ ...cloud, local: async () => null, ssh: async () => null })
+    const options = { purpose: 'file' as const, metadata }
+    await expect(resolve({ item_id: 'file', version: 2 }, context.actor, options)).rejects.toThrow('current access denied')
+    expect(fetcher).toHaveBeenCalledTimes(1)
+  })
   it.each(['image/svg+xml', 'image/png'])('uses the verified original when the signer provides no thumbnail for %s', async contentType => {
     const row = { ...revision, content_type: contentType }, a = api(row, plain, { thumb_url: null }), c = cache()
     const image = vi.fn(async () => { throw Error('Unexpected local image conversion') })
@@ -296,6 +322,20 @@ describe('one cloud provider and verified raw chunk cache', () => {
     expect(JSON.stringify(a.calls)).not.toContain(Buffer.from(key).toString('base64'))
     expect(objectFetch).toHaveBeenCalledTimes(1)
     await decoded.dispose(); key.fill(0)
+  })
+  // A project chat has no host: only the device that keeps a version can send it. While it is offline the reader is told
+  // which machine, at once, instead of waiting for a copy that cannot come.
+  it('says the keeping machine is offline when no copy of its version is in the cloud yet', async () => {
+    const local = { ...revision, source: 'local' as const, host_account_id: 'host', host_device_id: 'device', host_project_id: 'project', relative_path: 'file.bin', temporary_transfer: true }
+    const a = api(local), objectFetch = vi.fn()
+    a.fetcher.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      a.calls.push({ route: String(input).split('/').at(-1)!, body: JSON.parse(init!.body as string) })
+      return Response.json({ status: 'ready', transfer_status: 'requested', host_label: 'Studio Mac', host_online: false })
+    })
+    const cloud = cloudFileProviders({ endpoint: a.endpoint, cache: cache().store, sink: async () => sink(), fetch: objectFetch as typeof fetch })
+    await expect(cloud.temporary(local, context)).rejects.toThrow('Studio Mac is offline. This file opens when it is back online.')
+    expect(a.calls.map(row => row.route)).toEqual(['file-request'])
+    expect(objectFetch).not.toHaveBeenCalled()
   })
   it('refuses a download denied after metadata without touching the object provider', async () => {
     const a = api(), c = cache(), fetcher = vi.fn()
