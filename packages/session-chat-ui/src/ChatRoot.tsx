@@ -2124,6 +2124,7 @@ export function ChatRoot(props: ChatRootProps) {
                               >
                               <Show when={isPinAnchor()}><div class={pinBackdrop} data-chat-pin-backdrop="" aria-hidden="true" /></Show>
                               <UnitRow
+                                shown={shown()}
                                 unit={u()!}
                                 index={unitIndex}
                                 rowWidth={containerWidth()}
