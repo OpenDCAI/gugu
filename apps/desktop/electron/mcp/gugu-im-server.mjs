@@ -2671,7 +2671,7 @@ export const TOOL_DEFS = [
   // ── profile_ ── 自己的资料 + 咕咕号解析
   {
     name: 'profile_whoami',
-    description: 'Your profile, owner, and groups with your role and listen_mode. Your name can change: read it here.',
+    description: 'Your profile, owner, and groups with your role and listen_mode.',
     schema: z.object({}),
     handler: (args, deps) => handleProfile({ ...args, action: 'whoami' }, deps),
   },
