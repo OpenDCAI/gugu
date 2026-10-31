@@ -8,7 +8,7 @@ import { senderAvatarUrl, subscribeSenderAvatars } from './sender-avatar';
 import { SESSION_CHAT_FONT_STACK } from './font-stack';
 import { chatMentionProvider, registerIssueMentionIcons } from './chat-mention-provider';
 import { getSessionLocaleSnapshot, subscribeSessionLocale, translateSessionMessage } from '../../localization/locale-store';
-import { subscribeChatSummaries } from '@/lib/chatSummariesBridge';
+import { subscribeChatNames } from '@/lib/chatSummariesBridge';
 import { chatDisplayName } from './chat-name';
 
 let shared: ChatContext | null = null;
@@ -64,7 +64,7 @@ export function createSessionChatContext(): ChatContext {
     subscribeAppNames: (listener) => reaction(() => [installedExtensionsStore.manifests, installedExtensionsStore.locale], listener),
     // 群里来的投递写群名(项目群就是项目名,见 chat-name.ts);认不出来是 null,卡上只说「来自群聊」。
     chatName: chatDisplayName,
-    subscribeChatNames: subscribeChatSummaries,
+    subscribeChatNames,
   });
 }
 

@@ -34,6 +34,9 @@ export function useChatHistoryPagination({ resetKey, messages, enabled, scroller
   const { capture, cancel, isRestoring } = useHistoryPageAnchor({ resetKey, enabled, scroller, window, onError })
   const requestAtEdge = useCallback((edges: 'both' | 'bottom') => {
     if (!enabled || !scroller) return
+    // At the bottom the only page there can be is a newer one: without it, read no geometry (scrollHeight forces a
+    // layout of the whole page, and this runs on every render while the reader sits at the bottom).
+    if (edges === 'bottom' && !window?.hasNewer) return
     if (scroller.scrollHeight - scroller.clientHeight <= 80 || window?.loading || isRestoring()) return
     const request = edges === 'both' && !atBeginning && scroller.scrollTop <= 120 ? loadOlder
       : window?.hasNewer && scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop <= 120 ? loadNewer : undefined
