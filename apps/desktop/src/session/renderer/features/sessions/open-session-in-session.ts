@@ -64,10 +64,13 @@ export function openSessionInSessionWhenReady({
       const paneLayout = getSessionView(host?.projectId ?? projectId, host?.sessionId ?? sessionId)?.paneLayout;
       if (!onlyIfNoTabs || !paneLayout?.groups.some((g) => g.pane.tabOrder.length > 0)) {
         paneLayout?.open(
-          transcript ? 'acp-chat' : sessionTabKind(session.data.runtime),
+          sessionTabKind(session.data.runtime),
           { sessionId, ...(host ? { projectId, ownerSessionId: sessionId } : {}) },
           { preview }
         );
+      }
+      if (transcript && session.data.runtime !== 'acp') {
+        paneLayout?.open('session-history', { sessionId }, { target: 'right', preview: true });
       }
       onReady?.();
     },
