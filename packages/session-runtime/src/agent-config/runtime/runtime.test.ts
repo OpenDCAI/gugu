@@ -668,6 +668,37 @@ describe('AgentConfigRuntime sign-in expiry (#6264)', () => {
     await a.runtime.dispose();
   });
 
+  /**
+   * #1163 凭据是**用户自己递进来的**(API key / 中转令牌):「登录已失效」这一格不成立 ——
+   * 没有那份 Anthropic 登录可续,所以既不说失效,盘上旧版本留下的标记也一并撤掉。
+   */
+  it('凭据是用户自己递的 key / 中转令牌:不说「登录已失效」,盘上那一格也撤掉(#1163)', async () => {
+    let disk: Record<string, number> = {};
+    const persistence: AuthExpiryPersistence = {
+      load: async () => ({ ...disk }),
+      save: async (marks) => {
+        disk = { ...marks };
+      },
+    };
+    const marks = new AuthExpiryMarks(persistence);
+    const { runtime } = makeRuntime({
+      authExpiry: marks,
+      authCheckStatus: vi.fn(async () => ({
+        kind: 'authenticated' as const,
+        credentialKind: 'api-key' as const,
+      })),
+    });
+    // 旧版本在这种机器上留下的标记(凭据被拒时标上,而之后没有任何一条路能撤:能撤的两条都要求
+    // 「这家的登录」——一次成功会话或一次 `claude auth login`——而他两条都没有)。
+    await runtime.markAuthExpired('claude');
+    expect(await runtime.refreshAuthStatus('claude', SELECTED_CLI)).toEqual(
+      ok({ kind: 'authenticated', credentialKind: 'api-key' })
+    );
+    await marks.flushed();
+    expect(disk).toEqual({});
+    await runtime.dispose();
+  });
+
   it('之后一次会话成功:撤掉标记,按上一次那份 CLI 重读出真读数', async () => {
     const authCheckStatus = signedIn();
     const { runtime } = makeRuntime({ authCheckStatus });
