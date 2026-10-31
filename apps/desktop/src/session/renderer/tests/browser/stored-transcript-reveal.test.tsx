@@ -11,7 +11,10 @@ import '@/styles/tokens.css';
 import '@renderer/index.css';
 
 const calls = vi.hoisted(() => ({ history: vi.fn(), toast: vi.fn(), restore: vi.fn() }));
-vi.mock('@renderer/lib/ipc', () => ({ rpcOn: () => ({ sessions: { getStoredHistory: calls.history } }) }));
+vi.mock('@renderer/lib/ipc', async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  rpcOn: () => ({ sessions: { getStoredHistory: calls.history } }),
+}));
 vi.mock('@renderer/features/sessions/restore-session-flow', () => ({ restoreArchivedSession: calls.restore }));
 vi.mock('@renderer/lib/hooks/use-toast', () => ({ toast: calls.toast }));
 vi.mock('@renderer/localization/use-session-messages', () => ({ useSessionMessages: () => ({ translate: (key: string) => key }) }));
@@ -72,9 +75,11 @@ it.each(['dialog', 'tab'] as const)('pages a deep hit into the real folded trans
     const dialog = document.querySelector<HTMLElement>('[data-slot="dialog-content"]')!;
     const header = dialog.querySelector<HTMLElement>('[data-slot="dialog-header"]')!;
     const footer = dialog.querySelector<HTMLElement>('[data-slot="dialog-footer"]')!;
-    const canvas = dialog.querySelector<HTMLElement>('[data-chat-canvas]')!.getBoundingClientRect();
-    expect(canvas.top).toBeGreaterThanOrEqual(header.getBoundingClientRect().bottom - 1);
-    expect(canvas.bottom).toBeLessThanOrEqual(footer.getBoundingClientRect().top + 1);
+    // The bounded viewport sits between header and footer; the canvas inside it is the scrolled content.
+    const viewport = scroll.getBoundingClientRect();
+    expect(dialog.contains(scroll)).toBe(true);
+    expect(viewport.top).toBeGreaterThanOrEqual(header.getBoundingClientRect().bottom - 1);
+    expect(viewport.bottom).toBeLessThanOrEqual(footer.getBoundingClientRect().top + 1);
     for (const button of [header.querySelector('button')!, footer.querySelector('button')!]) {
       const box = button.getBoundingClientRect();
       expect(button.contains(document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2))).toBe(true);
