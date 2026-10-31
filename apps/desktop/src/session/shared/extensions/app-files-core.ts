@@ -335,7 +335,7 @@ async function peerNamesOf(token: string, dms: readonly string[], viewerId: stri
   const peers = new Map<string, string>();
   if (dms.length === 0) return peers;
   const members = await fetchInChunks(dms, async (chunk) => {
-    const { data, error } = await chatClient(token).from('chat_members').select('chat_id, user_id').in('chat_id', chunk);
+    const { data, error } = await chatClient(token).from('active_members').select('chat_id, user_id').in('chat_id', chunk);
     if (error) throw new AppFileError('failed', error.message);
     return (data as { chat_id: string; user_id: string }[] | null) ?? [];
   });
@@ -372,7 +372,7 @@ export async function extensionChatOf(
   if (!row) throw new AppFileError('not-found', 'This chat could not be read');
   if (row.kind === 'group') return { id: row.id, name: row.name ?? '', kind: 'group', groupId: row.id };
   if (row.kind === 'dm') {
-    const { data, error } = await chatClient(token).from('chat_members').select('user_id').eq('chat_id', row.id);
+    const { data, error } = await chatClient(token).from('active_members').select('user_id').eq('chat_id', row.id);
     if (error) throw new AppFileError('failed', error.message);
     const other = ((data as { user_id: string }[] | null) ?? []).map((member) => member.user_id).find((id) => id !== viewerId);
     const [peer] = other ? await platform.identities(token, [other]) : [];

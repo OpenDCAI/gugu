@@ -21,16 +21,10 @@ const mocks = vi.hoisted(() => {
     eq: vi.fn(),
     maybeSingle: vi.fn(),
   }
-  const memberQuery = {
-    select: vi.fn(),
-    eq: vi.fn(),
-    neq: vi.fn(),
-    limit: vi.fn(),
-  }
+  const rpc = vi.fn()
   const from = vi.fn((table: string) => {
     if (table === 'chats') return chatQuery
     if (table === 'messages') return messageQuery
-    if (table === 'chat_members') return memberQuery
     throw new Error(`unexpected table ${table}`)
   })
   return {
@@ -41,14 +35,14 @@ const mocks = vi.hoisted(() => {
     requestedPageSizes,
     messageQuery,
     chatQuery,
-    memberQuery,
+    rpc,
     from,
     get requestedChatId() { return requestedChatId },
     set requestedChatId(value: string) { requestedChatId = value },
   }
 })
 vi.mock('../../../../apps/desktop/src/lib/supabase', () => ({
-  chatDb: { from: mocks.from },
+  chatDb: { from: mocks.from, rpc: mocks.rpc },
 }))
 const {
   IMPORTED_HISTORY_ROOT_PREFIX,
@@ -104,10 +98,7 @@ beforeEach(() => {
     mocks.requestedPageSizes.push(size)
     return { data: [...(mocks.pages[pageIndex] ?? (pageIndex === 0 ? mocks.rows : []))], error: null }
   })
-  mocks.memberQuery.select.mockReturnValue(mocks.memberQuery)
-  mocks.memberQuery.eq.mockReturnValue(mocks.memberQuery)
-  mocks.memberQuery.neq.mockReturnValue(mocks.memberQuery)
-  mocks.memberQuery.limit.mockResolvedValue({ data: [{ user_id: 'agent-1' }], error: null })
+  mocks.rpc.mockResolvedValue({ data: [{ user_id: 'agent-1' }], error: null })
 })
 describe('imported history marker contract', () => {
   it('groups only marker-backed roots and turns in chronological order', () => {
@@ -167,8 +158,10 @@ describe('imported history marker contract', () => {
   it('loads marker rows from the RLS-protected messages table without opening generic threads', async () => {
     mocks.rows.push(row({ id: uuid(1), client_message_id: `${IMPORTED_HISTORY_ROOT_PREFIX}${uuid(1)}` }))
     await expect(loadImportedSessionHistories('dm-1', 'owner-1')).resolves.toHaveLength(1)
-    expect(mocks.from).toHaveBeenCalledWith('chat_members')
-    expect(mocks.memberQuery.limit).toHaveBeenCalledWith(2)
+    // The DM peer is historical: an archived agent left active_members, but its imported history still renders.
+    expect(mocks.rpc).toHaveBeenCalledWith('historical_dm_peer', { p_chat_id: 'dm-1' })
+    expect(mocks.from).not.toHaveBeenCalledWith('chat_members')
+    expect(mocks.from).not.toHaveBeenCalledWith('active_members')
     expect(mocks.from).toHaveBeenCalledWith('messages')
     expect(mocks.messageQuery.is).toHaveBeenCalledWith('deleted_at', null)
     expect(mocks.messageQuery.not).toHaveBeenCalledWith('deleted_for_user_ids', 'cs', JSON.stringify(['owner-1']))
@@ -224,7 +217,7 @@ describe('imported history marker contract', () => {
     expect(mocks.from).not.toHaveBeenCalledWith('messages')
   })
   it('fails loud unless the private chat has exactly one peer', async () => {
-    mocks.memberQuery.limit.mockResolvedValue({ data: [], error: null })
+    mocks.rpc.mockResolvedValue({ data: [], error: null })
     await expect(loadImportedSessionHistories('dm-1', 'owner-1')).rejects.toThrow(/requires exactly one DM peer/)
   })
 })

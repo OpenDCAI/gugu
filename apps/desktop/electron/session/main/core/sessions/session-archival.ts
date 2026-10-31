@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { eq, sql } from 'drizzle-orm'
 import { db } from '@main/db/client'
 import { kv, sessions } from '@main/db/schema'
-import { archiveTimestamp, sessionArchiveRefusesMessage, type SessionArchivalState } from '@gugu/core/shared/sessionArchival'
+import { archiveTimestamp, sessionArchiveRefusesMessage, type RemovedSessionIdentity, type SessionArchivalState } from '@gugu/core/shared/sessionArchival'
 
 const keyFor = (sessionId: string) => `session-archival:${sessionId}`
 const operations = new Map<string, Promise<void>>()
@@ -33,20 +33,24 @@ export function sessionArchivalState(sessionId: string): SessionArchivalState | 
       throw new Error(`Session archival clock moved backwards: ${sessionId}`)
     }
   }
+  if (value.removedIdentity) {
+    if (!value.removedIdentity.userId) throw new Error(`Removed session identity has no id: ${sessionId}`)
+    archiveTimestamp(value.removedIdentity.removedAt)
+  }
   return { ...value, archivedAt: row.archivedAt }
 }
 
 /** The row and its refusal interval commit together, before runtime teardown. */
-export function setSessionArchival(sessionId: string, archived: boolean, at = new Date().toISOString()): string | null {
+export function setSessionArchival(sessionId: string, archived: boolean, at = new Date().toISOString(), removedIdentity?: RemovedSessionIdentity | null): string | null {
   archiveTimestamp(at)
   return db.transaction((tx) => {
     const row = tx.select({ archivedAt: sessions.archivedAt }).from(sessions).where(eq(sessions.id, sessionId)).get()
     if (!row) throw new Error(`Session not found: ${sessionId}`)
-    if (Boolean(row.archivedAt) === archived) return row.archivedAt
     const prior = sessionArchivalState(sessionId)!
+    if (Boolean(row.archivedAt) === archived && removedIdentity === undefined) return row.archivedAt
     const intervals = prior.intervals.map((interval) => ({ ...interval }))
-    if (archived) intervals.push({ id: randomUUID(), archivedAt: at, restoredAt: null })
-    else {
+    if (archived && !row.archivedAt) intervals.push({ id: randomUUID(), archivedAt: at, restoredAt: null })
+    else if (!archived && row.archivedAt) {
       // Pre-upgrade archives have no journal yet. Preserve their original start.
       const open = intervals.findLast((interval) => interval.restoredAt === null)
       const start = open?.archivedAt ?? row.archivedAt!
@@ -54,8 +58,9 @@ export function setSessionArchival(sessionId: string, archived: boolean, at = ne
       if (open) open.restoredAt = at
       else intervals.push({ id: randomUUID(), archivedAt: start, restoredAt: at })
     }
-    const archivedAt = archived ? at : null
-    const state: SessionArchivalState = { sessionId, archivedAt, revision: prior.revision + 1, intervals }
+    const archivedAt = archived ? row.archivedAt ?? at : null
+    const state: SessionArchivalState = { sessionId, archivedAt, revision: prior.revision + 1, intervals,
+      removedIdentity: archived ? removedIdentity ?? prior.removedIdentity : null }
     tx.insert(kv).values({ key: keyFor(sessionId), value: JSON.stringify(state), updatedAt: Date.now() })
       .onConflictDoUpdate({ target: kv.key, set: { value: JSON.stringify(state), updatedAt: Date.now() } }).run()
     tx.update(sessions).set({ archivedAt, updatedAt: sql`CURRENT_TIMESTAMP` }).where(eq(sessions.id, sessionId)).run()

@@ -49,7 +49,6 @@ interface Window {
     subscribeLocalDeviceIdentified: (callback: () => void) => () => void
     showNotification: (payload: { title: string; body?: string; chatId?: string | null }) => Promise<unknown>
     getLocalDeviceSelfSnapshot: () => Promise<unknown>
-    releaseOwnedAgentLocalFootprint: (agentUserId: string) => Promise<unknown>
     renameOwnedAgentLocalFootprint: (agentUserId: string, name: string) => Promise<boolean>
     writeHumanAuthSession: (session: unknown) => Promise<void>
     clearHumanAuthSession: (reason: 'signed-out' | 'lost') => Promise<void>

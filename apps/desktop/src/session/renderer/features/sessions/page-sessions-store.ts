@@ -270,7 +270,7 @@ export class PageSessionsStore implements IDisposable {
    */
   async archiveSession(
     sessionId: string,
-    scope: { withChildren?: boolean } = {}
+    scope: { withChildren?: boolean; removeSocialIdentity?: boolean } = {}
   ): Promise<ArchiveOutcome> {
     const store = this.sessions.get(sessionId);
     if (!store) return { archived: [], unreached: [] };
@@ -281,7 +281,7 @@ export class PageSessionsStore implements IDisposable {
       ? [sessionId, ...sessionDescendantIds(this.sessions, sessionId)]
       : [sessionId];
 
-    runInAction(() => {
+    const hide = () => runInAction(() => {
       for (const id of ids) {
         const row = this.sessions.get(id);
         if (!row) continue;
@@ -293,9 +293,11 @@ export class PageSessionsStore implements IDisposable {
       }
     });
 
+    if (scope.removeSocialIdentity === false) hide();
     try {
       // 主进程报回这一次真正收走的行(含别的机器上的子会话):归档提示的「撤销」按它放回。
       const outcome = await rpc.sessions.archiveSession(this.projectId, sessionId, scope);
+      if (scope.removeSocialIdentity !== false) hide();
       for (const session of removedSessions.values()) session.destroy();
       return outcome;
     } catch (err) {

@@ -712,6 +712,7 @@ export type SessionpageSessionUpdateRequest = {
   title?: string;
   pinned?: boolean;
   archived?: true;
+  removeSocialIdentity?: boolean;
 };
 export type SessionpageSessionUpdateResult = { title: string; isPinned: boolean; archived: boolean };
 /** `cancelled=false` = 这条会话此刻没有在飞的东西可停(引擎不在 / 终端腿没起),不是失败。 */

@@ -60,6 +60,23 @@ describe('归档提示与撤销', () => {
     mocks.archiveSession.mockResolvedValue({ archived: [ref('child'), ref('root')], unreached: [] });
   });
 
+  it('defaults to removing social identity when confirmation was disabled', async () => {
+    requestArchiveSession({ projectId: 'p1', sessionId: 'root' });
+    await flush();
+    expect(mocks.archiveSession).toHaveBeenCalledWith('root', { withChildren: false, removeSocialIdentity: true });
+  });
+
+  it('offers a checked social choice and preserves an explicit unchecked choice independently of children', async () => {
+    mocks.settings = { confirmBeforeArchive: true };
+    requestArchiveSession({ projectId: 'p1', sessionId: 'root' });
+    const [, modal] = mocks.showModal.mock.calls[0];
+    expect(modal.option).toEqual({ label: 'task.archiveRemoveSocialIdentity', defaultChecked: true });
+    expect(mocks.archiveSession).not.toHaveBeenCalled();
+    modal.onSuccess({ dontAskAgain: false, scopeChecked: true, optionChecked: false });
+    await flush();
+    expect(mocks.archiveSession).toHaveBeenCalledWith('root', { withChildren: true, removeSocialIdentity: false });
+  });
+
   it('归档成功后提示说得出去处,并给一次撤销;撤销按主进程的清单逐条放回,第二下不再跑', async () => {
     requestArchiveSession({ projectId: 'p1', sessionId: 'root' });
     await flush();

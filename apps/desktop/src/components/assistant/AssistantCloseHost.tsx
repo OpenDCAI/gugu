@@ -88,7 +88,7 @@ export function AssistantCloseHost() {
       deleteAutomation: (id) => rpcOn(target).automations.deleteAutomation(id),
       removeAgent: (agentUserId) => removeOwnedAgent(agentUserId),
       archiveSession: async (projectId, sessionId) => {
-        const outcome = await rpcOn(target).sessions.archiveSession(projectId, sessionId, { withChildren: false })
+        const outcome = await rpcOn(target).sessions.archiveSession(projectId, sessionId, { withChildren: false, removeSocialIdentity: false })
         if (outcome.unreached.length > 0) throw new Error(`archive did not reach ${outcome.unreached.length} machine(s)`)
       },
       wipeHome: async () => {

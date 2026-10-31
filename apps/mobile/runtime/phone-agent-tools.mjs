@@ -27,7 +27,7 @@ export function phoneCommunicationTools({ agent, job, cloud, store, env, sendSes
       return target.agentUserId
     }
     if (/^gugu:\d+$/.test(value)) {
-      const { data, error } = await cloud.identity.from('users').select('id').eq('gugu_number', Number(bare(value, 'gugu'))).single()
+      const { data, error } = await cloud.identity.from('active_users').select('id').eq('gugu_number', Number(bare(value, 'gugu'))).single()
       if (error) throw new Error(error.message)
       return uuid(data.id, 'recipient')
     }
@@ -94,7 +94,7 @@ export function phoneCommunicationTools({ agent, job, cloud, store, env, sendSes
       name: 'profile_whoami', label: '查看自己的身份', description: '返回你自己的真实咕咕 Agent 身份和手机运行位置。',
       parameters: { type: 'object', properties: {} },
       execute: async () => {
-        const { data, error } = await cloud.identity.from('users').select('id,display_name,gugu_number,owner_user_id,device_id').eq('id', agent.agentUserId).single()
+        const { data, error } = await cloud.identity.from('active_users').select('id,display_name,gugu_number,owner_user_id,device_id').eq('id', agent.agentUserId).single()
         if (error) throw new Error(error.message)
         return toolResult({ user_id: `user:${agent.agentUserId}`, session_id: `session:${agent.sessionId}`, display_name: data.display_name, gugu_number: data.gugu_number, device_id: `device:${agent.deviceId}`, owner_user_id: `user:${store.state.ownerId}` })
       },

@@ -1,4 +1,5 @@
 import { messageForUser } from '@/lib/userFacingError';
+import { confirmOwnedAgentArchive } from '@/lib/archiveOwnedAgent'
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { rendererLogger } from '../../lib/log'
@@ -95,10 +96,9 @@ export function AgentProfilePane({ agent, onClose, onOpenTab }: AgentSettingsPan
     if (!isOwnedAgent) return
     // #7350 删的是咕咕:换成关闭咕咕那一份确认(写清记忆、性格、它开过的会话),这个设置窗让给它。
     if (closeIfMyAssistant(user?.id, agent.id)) return onClose?.()
-    if (!window.confirm(t('confirmations.deleteAgent', { ns: 'contacts', name: agent.display_name }))) return
     setRemoving(true)
     try {
-      await removeOwnedAgent(agent.id)
+      if (!(await confirmOwnedAgentArchive(agent.id, agent.display_name, removeOwnedAgent))) { setRemoving(false); return }
       toast(t('toast.deletedAgent', { ns: 'contacts' }), 'success')
       onClose?.()
     } catch (err) {

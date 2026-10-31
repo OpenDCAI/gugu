@@ -75,6 +75,7 @@ import { ContactsIndex } from './contacts/ContactsIndex'
 import { useTranslation } from 'react-i18next'
 import { cn } from '@/lib/cn'
 import { messageForUser } from '../lib/userFacingError'
+import { confirmOwnedAgentArchive } from '../lib/archiveOwnedAgent'
 import { ContactDetail, GroupChatRow, PaneBackButton } from './contacts/ContactDetail'
 import {
   cpaneActionsClass, cpaneAvatarClass, cpaneCardClass, cpaneNameClass, cpaneStatusClass, ct,
@@ -1338,10 +1339,9 @@ export function ContactsPanel({
     const name = displayName(contact)
     const isOwnedAgent = contact.type === 'agent' && contact.owner_user_id === user?.id
     if (isOwnedAgent && closeIfMyAssistant(user?.id, contact.id)) return // #7350 删的是咕咕:换成关闭咕咕那份确认
-    const message = isOwnedAgent ? ct('confirmations.deleteAgent', { name }) : ct('confirmations.deleteContact', { name })
-    if (!window.confirm(message)) return
+    if (!isOwnedAgent && !window.confirm(ct('confirmations.deleteContact', { name }))) return
     try {
-      if (isOwnedAgent) await removeOwnedAgent(contact.id)
+      if (isOwnedAgent) { if (!(await confirmOwnedAgentArchive(contact.id, name, removeOwnedAgent))) return }
       else await removeContact(contact.id)
       toast(ct(isOwnedAgent ? 'toast.deletedAgent' : 'toast.deletedContact'), 'success')
     } catch (error) {

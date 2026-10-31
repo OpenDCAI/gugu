@@ -98,7 +98,7 @@ export class SessionpageAgentArchivalSync {
     for (const binding of bindings) {
       if (binding.ownerUserId !== auth.userId || !binding.agentUserId) continue
       const local = states.get(binding.sessionId)
-      if (!local || local.revision === 0) continue
+      if (!local || local.revision === 0 || local.removedIdentity?.userId === binding.agentUserId) continue
       try {
         const previous = store.agents[binding.agentUserId]
         if (previous && previous.ownerUserId !== auth.userId) throw new Error('Session archival synchronization owner changed')

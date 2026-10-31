@@ -268,7 +268,7 @@ import {
 import { resolveBootOwner, type BootOwnerAnswer } from './sessionpage/boot-owner'
 import { reconcileSessionpageAgents } from './sessionpage/sessionpage-agent-reaper'
 import { startSessionpageAgentArchivalSync } from './sessionpage/sessionpage-agent-archival'
-import { releaseDeletedOwnedAgent } from './sessionpage/owner-agent-deletion'
+import type { RemovedSessionIdentity } from '@gugu/core/shared/sessionArchival'
 import {
   createHostLocalSessionSource,
   type HostLocalSessionSource,
@@ -1105,19 +1105,28 @@ async function revokeAgentCards(agentUserId: string): Promise<void> {
 /**
  * 设备 runtime 删掉了名册上的一行(主账号与附加账号的宿主同用这一个)。
  * `owner-change`:换账号时归属未知的老行,连会话一起拆(原样)。
- * `cloud-gone`:不可写只撤投递和卡;`cloud-removed`:云端明确 removed,才删除任务历史。
+ * `cloud-gone`:不可写只撤投递和卡;`cloud-removed`:先用云收据归档同一任务,保留历史。
  */
 async function onLocalAgentRosterRemoved(
   agent: { gugu_user_id: string | null; cache?: Record<string, unknown> | null },
   reason: AgentRosterRemovalReason,
+  receipt?: RemovedSessionIdentity,
 ): Promise<void> {
   const agentUserId = agent.gugu_user_id
   if (!agentUserId) return
   if (reason === 'cloud-gone' || reason === 'cloud-removed') {
     const sessionId = cacheString(agent.cache, SESSION_CACHE_KEY) || cacheString(agent.cache, PARKED_SESSION_CACHE_KEY)
+    if (reason === 'cloud-removed' && receipt?.userId !== agentUserId) throw new Error('Confirmed removal receipt does not match the Agent')
     await unregisterSessionpageDeliveryOwners(agentUserId)
     await revokeAgentCards(agentUserId)
-    if (reason === 'cloud-removed' && sessionId) await removeDeletedAgentTask(sessionId)
+    if (reason === 'cloud-removed') {
+      if (sessionId) {
+        const emdash = loadEmdashBridge()
+        if (!emdash) throw new Error('Task runtime is unavailable for confirmed identity removal')
+        const task = (await emdash.emdashSessionpageSessionFacts()).find(row => row.sessionId === sessionId)
+        if (task) await emdash.archiveSession(task.projectId, sessionId, { removeSocialIdentity: true }, receipt)
+      }
+    }
     return
   }
   unregisterSessionpageDeliveryOwners(agentUserId)
@@ -2614,35 +2623,7 @@ ipcMain.on('owned-agents:changed', () => {
 // @@@local-device-self - The renderer should not ask the cloud whether its own machine
 ipcMain.handle('device:get-self-snapshot', () => getLocalDeviceSelfSnapshot())
 
-// The cloud identity is already gone. Local cleanup cannot reverse that receipt.
-async function removeDeletedAgentTask(sessionId: string): Promise<void> {
-  const emdash = loadEmdashBridge()
-  if (!emdash) throw new Error('Task runtime is unavailable for confirmed Agent deletion')
-  await emdash.permanentlyDeleteAgentSession(sessionId)
-}
-
-ipcMain.handle('owned-agent:release-local-footprint', async (_e, arg: unknown) => {
-  const agentUserId = (arg as { agentUserId?: unknown } | null)?.agentUserId
-  if (typeof agentUserId !== 'string' || !agentUserId.trim()) {
-    throw new Error('owned-agent release 缺 agentUserId')
-  }
-  // Preserve the cleanup failure in logs without reporting identity deletion as failed.
-  const log = createLogger('sessionpage/turn-cancel')
-  log.info({ agentUserId }, 'owner delete: release-local-footprint entered')
-  try {
-    const result = await releaseDeletedOwnedAgent(agentUserId, { env: process.env, removeBoundSession: removeDeletedAgentTask })
-    log.info({ agentUserId, ...result }, 'owner delete: release-local-footprint done')
-    return result
-  } catch (error) {
-    log.error(
-      { agentUserId, error: (error as Error).message },
-      'owner delete: confirmed identity deletion; local cleanup failed',
-    )
-    throw error
-  }
-})
-
-// @@@share-card-rename 改名也有两半,云端与本机 —— 与删除(release-local-footprint)对称。
+// @@@share-card-rename 改名也有两半,云端与本机。
 // 云端那半是 identity.users.display_name(聊天页 / 通讯录 / 名片海报读它);本机那半是花名册 agents.json
 // 上的 name,会话页读它(分享按钮的提示、分享卡片里那个名字、按名字寻址)。provisioning 复用花名册上的
 // existing.name 且**从不**回读云端,所以只改云端 = 同一个 agent 在两页叫两个名字,而这正是
@@ -3626,7 +3607,7 @@ function crossMachine(): CrossMachineSessions {
     lookupAgents: async ({ userIds, numbers }) => {
       const auth = await requireAuth()
       const query = (column: 'id' | 'gugu_number', values: Array<string | number>) => makeIdentityClient(auth.accessToken)
-        .from('users').select('id, device_id, gugu_number')
+        .from('active_users').select('id, device_id, gugu_number')
         .eq('type', 'agent').eq('owner_user_id', auth.userId).in(column, values)
       const results = await Promise.all([userIds.length ? query('id', userIds) : null, numbers.length ? query('gugu_number', numbers) : null])
       return results.flatMap((result) => {
@@ -4930,7 +4911,7 @@ app.whenReady().then(async () => {
       isThisDevice: (deviceId) => crossMachine().isThisDevice(deviceId),
       appSpawn: (app, deviceId, action) => crossMachine().appSpawn(app, deviceId, action),
       sessions: (since, options) => crossMachine().sessionsElsewhere(since, options),
-      archive: (deviceId, sessionId) => crossMachine().archiveOn(deviceId, sessionId),
+      archive: (deviceId, sessionId, removeSocialIdentity) => crossMachine().archiveOn(deviceId, sessionId, removeSocialIdentity),
       appMessage: (app, deviceId, sessionId, text, how) => crossMachine().appMessage(app, deviceId, sessionId, text, how),
       appReadFile: (app, deviceId, action) => crossMachine().appReadFile(app, deviceId, action),
       appCall: (app, deviceId, action) => crossMachine().appCall(app, deviceId, action),
@@ -4984,10 +4965,11 @@ app.whenReady().then(async () => {
       resolveDeviceId: localDeviceId,
       resolveProjectName: (projectId: string) => emdash.emdashProjectName(projectId),
       takeBirthGroup: (sessionId: string) => emdash.emdashTakeBirthGroup(sessionId),
-      sessionFacts: (target) => emdash.emdashSessionProvisionInput(target),
+      sessionFacts: (target, options) => emdash.emdashSessionProvisionInput(target, options),
       listSessionFacts: () => emdash.emdashSessionpageSessionFacts(),
     })
     const sessionpageIdentityDeps = sessionpageIdentityHost.provisionDeps
+    emdash.setSessionIdentityHost(sessionpageIdentityHost)
     const nativeInbox = emdash.startNativeConversationInboxHost({
       open: async target => (await sessionpageIdentityHost.ensureAgentAddress(target)).chatId,
       failed: error => createLogger('sessionpage/personal-inbox').warn({ error: String(error) }, 'Personal conversation address remains pending'),

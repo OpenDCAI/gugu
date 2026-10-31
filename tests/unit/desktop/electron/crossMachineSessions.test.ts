@@ -591,8 +591,11 @@ describe('the family across machines', () => {
         ? { result: { ok: true, value: {} } }
         : { result: { ok: false, error: { code: 'not_found', message: 'no such session' } } })
     await xm.archiveOn('dev-b', 's1')
+    await xm.archiveOn('dev-b', 's1', false)
+    // 默认连社交身份一起移除;调用方明确选了保留时原样带过去。
     expect(call.mock.calls.map(([deviceId, type, { args }]) => [deviceId, type, args])).toEqual([
-      ['dev-b', 'sessionTimeline.sessionUpdate', [{ conversationId: 's1', archived: true }]],
+      ['dev-b', 'sessionTimeline.sessionUpdate', [{ conversationId: 's1', archived: true, removeSocialIdentity: true }]],
+      ['dev-b', 'sessionTimeline.sessionUpdate', [{ conversationId: 's1', archived: true, removeSocialIdentity: false }]],
     ])
     await expect(xm.archiveOn('dev-b', 's2')).rejects.toMatchObject({ code: 'not_found', message: 'on device:dev-b: no such session' })
     await expect(xm.archiveOn('dev-c', 's3')).rejects.toThrow('is offline')

@@ -68,7 +68,7 @@ function harness(options: {
     restRpc,
     // 群能不能看见、在不在里面都只按 RPC 判;直读的只有主人自己那几行里置顶的(置顶是主人自己的状态)。
     restGet: async (path: string) => {
-      if (path === 'chat_members?user_id=eq.owner-1&is_pinned=is.true&select=chat_id') {
+      if (path === 'active_members?user_id=eq.owner-1&is_pinned=is.true&select=chat_id') {
         return (options.ownerPinned ?? []).map((chat_id) => ({ chat_id }))
       }
       if (path.startsWith('chats?') && path.endsWith('select=kind')) return [{ kind: 'group' }]

@@ -182,8 +182,8 @@ function harness(members: string[] = [], groupPrompt: string | null = null) {
   const deps = {
     // 显式返回类型:用例里会整体替换 restGet,返回形状各不相同(#6492 去掉 workspace 行之后推断出的联合太窄)。
     restGet: async (path: string): Promise<Array<Record<string, unknown>>> => {
-      if (path.includes('chat_members') && path.includes('user_id=eq.')) return [{ chat_id: '00000000-0000-4000-8000-000000000001', last_read_seq: 0 }]
-      if (path.includes('chat_members')) return members.map((user_id) => ({ user_id, role: 'member', listen_mode: 'active' }))
+      if (path.includes('active_members') && path.includes('user_id=eq.')) return [{ chat_id: '00000000-0000-4000-8000-000000000001', last_read_seq: 0 }]
+      if (path.includes('active_members')) return members.map((user_id) => ({ user_id, role: 'member', listen_mode: 'active' }))
       if (path.includes('chats?id=in')) return [{ id: '00000000-0000-4000-8000-000000000001', name: 'Group', kind: 'group', status: 'active' }]
       if (path.includes('chats?id=eq')) {
         const id = path.match(/chats\?id=eq\.([^&]+)/)?.[1] ?? '00000000-0000-4000-8000-000000000001'
@@ -324,12 +324,12 @@ describe('the gugu MCP server requires an explicit chat target', () => {
     const restRpc = vi.fn(async (name: string) => (name === 'search_users'
       ? [{ id: bob, display_name: 'Bob', type: 'human', gugu_number: 157330, agent_public: null }]
       : []))
-    const restGet = vi.fn(async (path: string) => (path.startsWith('friendships?')
+    const restGet = vi.fn(async (path: string) => (path.startsWith('active_friendships?')
       ? [{ user_a_id: 'owner-1', user_b_id: bob }]
       : []))
     const out = await callTool('profile_lookup', { gugu_number: 157330 }, { restRpc, restGet })
     expect(restRpc).toHaveBeenCalledWith('search_users', { p_query: '157330' }, 'identity')
-    expect(restGet).toHaveBeenCalledWith(`friendships?or=(user_a_id.eq.${bob},user_b_id.eq.${bob})&select=user_a_id,user_b_id`, 'identity')
+    expect(restGet).toHaveBeenCalledWith(`active_friendships?or=(user_a_id.eq.${bob},user_b_id.eq.${bob})&select=user_a_id,user_b_id`, 'identity')
     expect(JSON.parse(String(out))).toEqual({
       user_id: `user:${bob}`,
       display_name: 'Bob',
@@ -1673,9 +1673,9 @@ describe('gugu 原子工具 MCP server（#1060 SDK 迁移 → #4191 原子化）
       if (path.startsWith('users?id=eq.owner-1&')) return [{ id: 'owner-1', display_name: 'Owner', gugu_number: 7 }]
       if (path.startsWith('users?id=eq.agent-1&')) return [{ gugu_number: 42, display_name: 'Agent', avatar: null, bio: null, owner_user_id: 'owner-1' }]
       // 置顶是主人自己的状态:只读主人自己那几行里置顶的(与界面 setChatPinned 写的是同一列)。
-      if (path === 'chat_members?user_id=eq.owner-1&is_pinned=is.true&select=chat_id') return [{ chat_id: 'g-2' }]
+      if (path === 'active_members?user_id=eq.owner-1&is_pinned=is.true&select=chat_id') return [{ chat_id: 'g-2' }]
       // #84 message_conversations 也列主人与好友的私聊(好友表是主人自己的);这里主人没有好友私聊,见 guguOwnerFriendDm84。
-      if (path.startsWith('friendships?')) return []
+      if (path.startsWith('active_friendships?')) return []
       throw new Error(`unexpected direct read: ${path}`)
     }
     const rpcs: unknown[][] = []
@@ -1705,8 +1705,8 @@ describe('gugu 原子工具 MCP server（#1060 SDK 迁移 → #4191 原子化）
     expect(conversations[0]).toEqual({ id: 'g-1', public_id: 201, kind: 'group', status: 'active', name: 'Owner left', pinned: false, last_message_at: null, last_message_preview: 'hi' })
     expect(conversations.map((row: { pinned: boolean }) => row.pinned)).toEqual([false, true, false, false])
     // agent 自己在哪些会话里仍只按 RPC 判;直读的只有主人自己的置顶那几行。
-    expect(reads.filter((path) => path.includes('chat_members') || path.startsWith('chats')))
-      .toEqual(['chat_members?user_id=eq.owner-1&is_pinned=is.true&select=chat_id'])
+    expect(reads.filter((path) => path.includes('chat_members') || path.includes('active_members') || path.startsWith('chats')))
+      .toEqual(['active_members?user_id=eq.owner-1&is_pinned=is.true&select=chat_id'])
     const pinnedOnly = JSON.parse(text(await client.callTool({ name: 'message_conversations', arguments: { pinned: true } })))
     expect(pinnedOnly.items.map((row: { id: string }) => row.id)).toEqual(['g-2'])
     const topics = JSON.parse(text(await client.callTool({ name: 'message_conversations', arguments: { kind: 'topic' } })))
@@ -1718,7 +1718,7 @@ describe('gugu 原子工具 MCP server（#1060 SDK 迁移 → #4191 原子化）
     const legacyAgentId = '22222222-2222-4222-8222-222222222222'
     const zoeId = '33333333-3333-4333-8333-333333333333'
     const restGet = vi.fn(async (path: string) => {
-      if (path.startsWith('friendships?')) {
+      if (path.startsWith('active_friendships?')) {
         return [
           { user_a_id: 'owner-1', user_b_id: aliceId },
           { user_a_id: legacyAgentId, user_b_id: 'owner-1' },
@@ -1736,10 +1736,10 @@ describe('gugu 原子工具 MCP server（#1060 SDK 迁移 → #4191 原子化）
         return [{ contact_user_id: zoeId, alias: '老周' }]
       }
       // 联系人置顶 = 主人和他那条私聊置顶。
-      if (path === 'chat_members?user_id=eq.owner-1&is_pinned=is.true&select=chat_id') return [{ chat_id: 'dm-zoe' }, { chat_id: 'g-1' }]
+      if (path === 'active_members?user_id=eq.owner-1&is_pinned=is.true&select=chat_id') return [{ chat_id: 'dm-zoe' }, { chat_id: 'g-1' }]
       if (path === 'chats?id=in.(dm-zoe,g-1)&kind=eq.dm&select=id') return [{ id: 'dm-zoe' }]
       // 先筛到私聊,只读私聊里主人以外的那个人。g-1 是个群(Alice 也在里面),群置顶不是联系人置顶 ⇒ 根本不读它。
-      if (path === 'chat_members?chat_id=in.(dm-zoe)&user_id=neq.owner-1&select=chat_id,user_id') {
+      if (path === 'active_members?chat_id=in.(dm-zoe)&user_id=neq.owner-1&select=chat_id,user_id') {
         return [{ chat_id: 'dm-zoe', user_id: zoeId }]
       }
       throw new Error(`unexpected restGet path: ${path}`)
@@ -1749,7 +1749,7 @@ describe('gugu 原子工具 MCP server（#1060 SDK 迁移 → #4191 原子化）
 
     expect(restGet).toHaveBeenNthCalledWith(
       1,
-      'friendships?or=(user_a_id.eq.owner-1,user_b_id.eq.owner-1)&select=user_a_id,user_b_id',
+      'active_friendships?or=(user_a_id.eq.owner-1,user_b_id.eq.owner-1)&select=user_a_id,user_b_id',
       'identity',
     )
     expect(restGet).toHaveBeenNthCalledWith(
@@ -2252,14 +2252,14 @@ describe('id 列表不整张拼进一条 URL:每条读 ≤ IN_LIST_BATCH 个 id'
     const reads: string[] = []
     const restGet = vi.fn(async (path: string) => {
       reads.push(path)
-      if (path.startsWith('friendships?')) return big.map((id) => ({ user_a_id: 'owner-1', user_b_id: id }))
+      if (path.startsWith('active_friendships?')) return big.map((id) => ({ user_a_id: 'owner-1', user_b_id: id }))
       if (path.startsWith('users?id=in.(')) {
         return idsIn(path, 'id').map((id) => ({ id, display_name: `Friend ${id.slice(-3)}`, type: 'human', gugu_number: null, avatar: null, bio: null }))
       }
       if (path.startsWith('contact_overrides?')) return []
-      if (path === 'chat_members?user_id=eq.owner-1&is_pinned=is.true&select=chat_id') return pinnedDms.map((chat_id) => ({ chat_id }))
+      if (path === 'active_members?user_id=eq.owner-1&is_pinned=is.true&select=chat_id') return pinnedDms.map((chat_id) => ({ chat_id }))
       if (path.startsWith('chats?id=in.(')) return idsIn(path, 'id').map((id) => ({ id }))
-      if (path.startsWith('chat_members?chat_id=in.(')) {
+      if (path.startsWith('active_members?chat_id=in.(')) {
         return idsIn(path, 'chat_id').map((chatId) => ({ chat_id: chatId, user_id: big[Number(chatId.slice(3))] }))
       }
       throw new Error(`unexpected restGet path: ${path}`)
@@ -2268,7 +2268,7 @@ describe('id 列表不整张拼进一条 URL:每条读 ≤ IN_LIST_BATCH 个 id'
     expect(out.total).toBe(120)
     expect(out.items.filter((row: { pinned: boolean }) => row.pinned)).toHaveLength(60)
     for (const path of reads.filter((p) => p.includes('=in.('))) {
-      const column = path.startsWith('chat_members') ? 'chat_id' : 'id'
+      const column = path.startsWith('active_members') ? 'chat_id' : 'id'
       expect(idsIn(path, column).length, path.slice(0, 40)).toBeLessThanOrEqual(IN_LIST_BATCH)
       expect(path.match(/=in\./g)).toHaveLength(1)
     }

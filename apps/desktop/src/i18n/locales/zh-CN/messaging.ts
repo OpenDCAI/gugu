@@ -716,6 +716,7 @@ export default {
   },
   "message": {
     "myAgentTag": "我的 agent",
+    "removedIdentityTag": "已移除",
     "agentOwnerUnavailableTag": "主人信息不可用",
     "agentOwnerTag": "{{owner}} 的 agent",
     "agentOwnerSuffix": "（{{owner}} 的 agent）",

@@ -107,10 +107,13 @@ function installStatefulRpc() {
       return Promise.resolve({ data: null })
     }
     if (name === 'set_agent_desired_status') return Promise.resolve({ data: null })
-    if (name === 'remove_owned_agent') {
-      const removed = String(params.p_agent_user_id)
-      removedFakeAgents.add(removed)
-      return Promise.resolve({ data: null })
+    if (name === 'archive_user') {
+      const removed = String(params.p_user_id)
+      if (params.p_remove_social_identity === true) removedFakeAgents.add(removed)
+      return Promise.resolve({
+        data: { user_id: removed, remove_social_identity: params.p_remove_social_identity, removed_at: params.p_remove_social_identity === true ? '2026-10-31T00:00:00Z' : null },
+        error: null,
+      })
     }
     if (name === 'settle_provision_cancellation') {
       fakeMembers.forEach((m) => {
@@ -312,7 +315,7 @@ describe('#2260 teamProvisionSaga', () => {
     installStatefulRpc()
     const res = await cancelTeamProvision(OP)
     expect(rpc.mock.calls.filter((c) => c[0] === 'cancel_agent_provision_operation')).toHaveLength(1)
-    expect(rpc.mock.calls.filter((c) => c[0] === 'remove_owned_agent')).toEqual([['remove_owned_agent', { p_agent_user_id: 'a-m1' }]])
+    expect(rpc.mock.calls.filter((c) => c[0] === 'archive_user')).toEqual([['archive_user', { p_user_id: 'a-m1', p_remove_social_identity: true }]])
     expect(rpc.mock.calls.filter((c) => c[0] === 'settle_provision_cancellation')).toHaveLength(1)
     expect(fakeMembers[0].phase).toBe('cancelled')
     expect(res.fullyCancelled).toBe(true)

@@ -81,7 +81,7 @@ export async function releaseAgentLocalFootprint(
 
   // ④ 云端身份确认删除 + 花名册已摘 = 永久不可达 ⇒ 立碑。碑同时按 conversation id 记账,
   //    让那条仍然活着的会话页会话此后按 identity-none 处理,而不是被重新开户。
-  if (input.identityRemoved) {
+  if (input.identityRemoved && record) {
     await recordReapedAgents(
       [{
         gugu_user_id: agentUserId,

@@ -38,14 +38,14 @@ function fakeCloud() {
       let filters = []
       let patch
       const result = () => {
-        if (table === 'users') return { data: users.filter((entry) => filters.every(([key, value]) => Array.isArray(value) ? value.includes(entry[key]) : entry[key] === value)), error: null }
+        if (table === 'active_users') return { data: users.filter((entry) => filters.every(([key, value]) => Array.isArray(value) ? value.includes(entry[key]) : entry[key] === value)), error: null }
         if (table === 'gugu_devices') {
           const matching = devices.filter((device) => filters.every(([key, value]) => device[key] === value))
           if (patch) { calls.push(['update_device', { patch, filters }]); for (const device of matching) Object.assign(device, patch) }
           return { data: matching, error: null }
         }
         if (table === 'chats') return { data: [{ id: groupId, kind: 'group', status: 'active' }], error: null }
-        if (table === 'chat_members') return { data: [], error: null }
+        if (table === 'active_members') return { data: [], error: null }
         if (table === 'agent_provisions') return { data: provision, error: null }
         if (table === 'gugu_device_commands') {
           const matching = commands.filter((command) => filters.every(([key, value]) => command[key] === value))
@@ -1427,6 +1427,7 @@ test('retire keeps phone history but the shared view excludes it from inbox and 
     fx.commands.push({ id: randomUUID(), type: 'agent.deliver', status: 'pending', created_at: new Date().toISOString(), payload: { agent_user_id: agentId } })
     await nudge()
     assert.equal(fx.calls.filter(([name]) => name === 'pull_agent_inbox_v2').length, pulls)
+    assert.deepEqual(fx.calls.filter(([name]) => name === 'archive_user'), [])
   } finally { await fx.close() }
 })
 

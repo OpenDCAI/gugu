@@ -198,11 +198,6 @@ export interface AppPlatform {
   /** Electron main-process reachable agent creation tools; unavailable on web/mobile. */
   getAgentCreationTools?: () => Promise<unknown>
   /**
-   * @@@4526 释放一个已删除 agent 在本机的足迹(花名册 / runtime session / 投递注册),并立墓碑阻止
-   * 它绑定的会话页会话重新开户。只有拥有本机足迹的宿主实现它;web 上没有这一半,所以是可选的。
-   */
-  releaseOwnedAgentLocalFootprint?: (agentUserId: string) => Promise<void>
-  /**
    * @@@share-card-rename 改名的本机那半:把新名字写回花名册(会话页读它)。云端改名成功后调。
    * 与上面那条同理,只有拥有本机足迹的宿主实现它;web 上没有这一半,所以是可选的。
    */

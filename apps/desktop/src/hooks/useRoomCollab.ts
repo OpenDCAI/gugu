@@ -4,7 +4,6 @@ import { useAuth } from '../store/auth'
 import { useChatStore } from '../store/chatContext'
 import { readRevisionResourceKey } from '../lib/accountRevisionCoordinator'
 import { EMPTY_GROUP_COLLAB, useGroupCollabLoader } from './useGroupCollabLoader'
-import { useGroupCollabRemovedAgentGate } from './useGroupCollabRemovedAgentGate'
 
 /** Keep a topic's existing roster loader mounted with its conversation, rather than its member drawer. */
 export function useRoomCollab(chatId: string, chatKind: 'group' | 'topic') {
@@ -12,11 +11,9 @@ export function useRoomCollab(chatId: string, chatKind: 'group' | 'topic') {
   const { getImRepository, subscribeAccountRevision } = useChatStore('getImRepository', 'subscribeAccountRevision')
   const [snapshot, setSnapshot] = useState(EMPTY_GROUP_COLLAB)
   const memory = useRef(new Map<string, GroupCollabSnapshot>())
-  const gate = useGroupCollabRemovedAgentGate(user?.id, setSnapshot, memory)
   const { loadGroupCollab, resetGroupCollabForChat, error } = useGroupCollabLoader({
     activeChatId: chatId, isRoomChat: true, chatKind, userId: user?.id, getImRepository,
     setGroupCollabSnapshot: setSnapshot, groupRosterMemoryCacheRef: memory,
-    pruneRemovedAgentsFromCollab: gate.prune, mergeGroupCollabPruned: gate.mergeAndPrune,
   })
   useEffect(() => { resetGroupCollabForChat(); void loadGroupCollab() }, [loadGroupCollab, resetGroupCollabForChat])
   useEffect(() => subscribeAccountRevision('chat_members_changed', (operations) => {
