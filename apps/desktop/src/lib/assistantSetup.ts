@@ -67,7 +67,7 @@ function cleanDraft(draft: AssistantSetupDraft) {
 
 /** 会员一键领取:管家开它的宿主、在上面建它(要几分钟;进度看管家的 /state,界面在 CloudComputerProvisionPanel 那三步)。 */
 export async function claimCloudAssistant(draft: AssistantSetupDraft): Promise<void> {
-  await provisionCloudComputer({ assistant: cleanDraft(draft) })
+  await provisionCloudComputer({ assistant: { ...cleanDraft(draft), locale: getLocaleSnapshot().resolvedLocale } })
 }
 
 /** 助理的续建记录另放一份:❌ 被启动时「收掉没建完的单 agent」那一扫当成普通 agent 撤掉(见 createResumeStore)。 */
