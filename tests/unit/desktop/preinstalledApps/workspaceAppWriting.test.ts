@@ -18,7 +18,7 @@ import * as autocomplete from '@codemirror/autocomplete'
 import { beforeAll, beforeEach, describe, expect, test, vi } from 'vitest'
 import { until } from '../../../support/awaitCondition'
 // @ts-expect-error — the built-in App's source-edit commands are plain ES modules.
-import { isFrontmatter, moveBlock, sourceBlocks, turnBlockChanges } from '../../../../apps/desktop/preinstalled-apps/workspace/blocks.js'
+import { isFrontmatter, listInsertion, moveBlock, previewBlock, sourceBlocks, turnBlockChanges } from '../../../../apps/desktop/preinstalled-apps/workspace/blocks.js'
 
 const TEXT = ['# 计划', '', '- [ ] 写完', '- [x] 定了', '', '正文 一句'].join('\n')
 const entry = {
@@ -127,7 +127,7 @@ describe('folder documents: reading', () => {
   })
 
   test.each([
-    ['Heading', '## ', 3], ['List', '- ', 2], ['To-do', '- [ ] ', 6],
+    ['Heading', '## ', 3], ['List', '* ', 2], ['To-do', '- [ ] ', 6],
     ['Quote', '> ', 2], ['Code block', '```\n\n```', 4], ['Divider', '***', 3],
   ])('%s inserts after the entire multi-line block, with its caret in the template', async (label, text, caret) => {
     const block = $('preview').querySelector('ul[data-line="3-4"]')!
@@ -137,8 +137,9 @@ describe('folder documents: reading', () => {
     expect(menuItems().map((item) => item.textContent)).toEqual(['Table', 'Image…', 'File…', 'Heading', 'List', 'To-do', 'Quote', 'Code block', 'Divider'])
     menuItems().find((item) => item.textContent === label)!.click()
     const at = TEXT.indexOf('- [x] 定了') + '- [x] 定了'.length
-    expect(view().state.doc.toString()).toBe(`${TEXT.slice(0, at)}\n\n${text}${TEXT.slice(at)}`)
-    expect(view().state.selection.main.head).toBe(at + 2 + Number(caret))
+    const prefix = label === 'To-do' ? '\n' : '\n\n'
+    expect(view().state.doc.toString()).toBe(`${TEXT.slice(0, at)}${prefix}${text}${TEXT.slice(at)}`)
+    expect(view().state.selection.main.head).toBe(at + prefix.length + Number(caret))
     expect(document.body.dataset.mode).toBe('split')
     expect($('block-controls').hidden).toBe(true)
     view().dispatch({ changes: { from: 0, to: view().state.doc.length, insert: TEXT } })
@@ -245,6 +246,59 @@ describe('folder documents: writing', () => {
     view().dispatch({ changes: turnBlockChanges(view().state, { language }, block, kind) })
     const prefix = kind === 'list' ? '- ' : '> '
     expect(view().state.doc.toString()).toBe(`${prefix}one\n\n${prefix}two`)
+    view().dispatch({ changes: { from: 0, to: view().state.doc.length, insert: TEXT } })
+    await redraw()
+  })
+
+  test('a multi-line paragraph becomes one heading without replacing its content characters', async () => {
+    const source = 'First line\nsecond line\nthird line'
+    view().dispatch({ changes: { from: 0, to: view().state.doc.length, insert: source } })
+    const block = sourceBlocks(view().state, { language })[0]
+    const changes = turnBlockChanges(view().state, { language }, block, 'heading')
+    expect(changes.filter((change: { to: number; from: number }) => change.to > change.from).map((change: { from: number; to: number }) => view().state.doc.sliceString(change.from, change.to))).toEqual(['\n', '\n'])
+    view().dispatch({ changes })
+    expect(view().state.doc.toString()).toBe('## First line second line third line')
+    view().dispatch({ changes: { from: 0, to: view().state.doc.length, insert: TEXT } })
+    await redraw()
+  })
+
+  test('preview lookup rejects invalid spans and parser disagreement, and requests only its own range', async () => {
+    const source = 'First.\n\n$$\na+b\n\nc+d\n$$\n\n' + 'Later.\n\n'.repeat(200)
+    view().dispatch({ changes: { from: 0, to: view().state.doc.length, insert: source } })
+    const ensure = vi.fn(language.ensureSyntaxTree)
+    const cm = { language: { ensureSyntaxTree: ensure } }
+    expect(previewBlock(view().state, cm, [1, 1])?.name).toBe('Paragraph')
+    expect(ensure).toHaveBeenLastCalledWith(view().state, 'First.'.length, 100)
+    expect(previewBlock(view().state, cm, [3, 7])).toBeNull()
+    ensure.mockClear()
+    expect(previewBlock(view().state, cm, [0, 1])).toBeNull()
+    expect(previewBlock(view().state, cm, [9999, 9999])).toBeNull()
+    expect(ensure).not.toHaveBeenCalled()
+    view().dispatch({ changes: { from: 0, to: view().state.doc.length, insert: TEXT } })
+    await redraw()
+  })
+
+  test.each([
+    ['- One\n- Two', 'list', '- ', '\n'],
+    ['* [ ] One\n* [x] Two', 'todo', '* [ ] ', '\n'],
+    ['- One\n- Two', 'todo', '* [ ] ', '\n\n'],
+    ['- [ ] One\n- [x] Two', 'list', '* ', '\n\n'],
+  ])('list insertion follows the last item’s type and marker: %s → %s', async (source, kind, expected, prefix) => {
+    view().dispatch({ changes: { from: 0, to: view().state.doc.length, insert: source } })
+    const block = sourceBlocks(view().state, { language })[0]
+    const template = kind === 'todo' ? '- [ ] ' : '- '
+    expect(listInsertion(view().state, { language }, block, kind, template)).toMatchObject({ text: expected, prefix })
+    view().dispatch({ changes: { from: 0, to: view().state.doc.length, insert: TEXT } })
+    await redraw()
+  })
+
+  test.each(['```\n```', '```\n\n```'])('empty code keeps a target template on conversion: %s', async (source) => {
+    for (const [kind, expected] of [['heading', '## '], ['list', '- '], ['quote', '> ']]) {
+      view().dispatch({ changes: { from: 0, to: view().state.doc.length, insert: source } })
+      const block = sourceBlocks(view().state, { language })[0]
+      view().dispatch({ changes: turnBlockChanges(view().state, { language }, block, kind) })
+      expect(view().state.doc.toString()).toBe(expected)
+    }
     view().dispatch({ changes: { from: 0, to: view().state.doc.length, insert: TEXT } })
     await redraw()
   })

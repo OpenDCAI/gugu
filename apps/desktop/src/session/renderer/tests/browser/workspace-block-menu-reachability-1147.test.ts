@@ -29,7 +29,7 @@ let renders = 0;
 const file = {
   entry, type: 'text', readOnly: false, status: 'online',
   get text() { return ytext.toString(); },
-  anchor: (at: number) => Y.createRelativePositionFromTypeIndex(ytext, at),
+  anchor: (at: number, assoc: -1 | 1 = 1) => Y.createRelativePositionFromTypeIndex(ytext, at, assoc < 0 ? -1 : 0),
   resolve: (anchor: Y.RelativePosition) => Y.createAbsolutePositionFromRelativePosition(anchor, ydoc)?.index ?? null,
   onChange: (fn: (event: { local: boolean }) => void) => {
     const changed = () => fn({ local: true });
@@ -405,7 +405,11 @@ it('slash divider after a paragraph remains a divider and whitespace ends slash 
 });
 
 it('keeps keyboard focus on the handle after Escape until focus leaves it', async () => {
-  await paragraphMenu('First paragraph keeps its own actions.');
+  const first = byId('preview').querySelector('p[data-line="3-3"]')!.getBoundingClientRect();
+  await pointer(first.left + 30, first.top + first.height / 2);
+  handle('block-handle').focus();
+  await userEvent.keyboard('{Enter}');
+  await until('keyboard opens the block menu', () => !byId('menu').hidden);
   const title = byId('doc-title').getBoundingClientRect();
   await pointer(title.left + 10, title.top + 5);
   await userEvent.keyboard('{Escape}');
@@ -413,6 +417,88 @@ it('keeps keyboard focus on the handle after Escape until focus leaves it', asyn
   expect(controls().hidden).toBe(false);
   byId('mode-edit').focus();
   await until('focus leaving restores hiding', () => controls().hidden);
+});
+
+it.each(['Delete', 'Move down', 'Heading'])('rejects %s after a collaborator deletes the selected block and separators', async (action) => {
+  const first = 'First paragraph keeps its own actions.';
+  await paragraphMenu(first);
+  const from = file.text.indexOf(first), to = file.text.indexOf('Second paragraph');
+  ydoc.transact(() => ytext.delete(from, to - from));
+  const after = file.text;
+  if (action === 'Heading') {
+    const turn = [...byId('menu').querySelectorAll('button')].find((item) => item.textContent === 'Turn into ›')!;
+    const box = turn.getBoundingClientRect();
+    await pointer(box.left + box.width / 2, box.top + box.height / 2);
+    await userEvent.click([...turn.parentElement!.querySelectorAll('.menu-submenu button')].find((item) => item.textContent === 'Heading')!);
+  } else await userEvent.click([...byId('menu').querySelectorAll('button')].find((item) => item.textContent === action)!);
+  await until('the stale action has a visible repair message', () => byId('banner').textContent?.includes('Choose an insertion point again') === true);
+  expect(file.text).toBe(after);
+  expect(file.text).toContain('Second paragraph has different source lines.');
+});
+
+it('turns a multi-line paragraph into one heading while preserving each content character', async () => {
+  await showSource('One line\nnext line\nlast line.\n\nAfter.');
+  const first = byId('preview').querySelector('p')!;
+  await actOnParagraph(first.textContent!, 'Turn into', 'Heading');
+  expect(file.text).toBe('## One line next line last line.\n\nAfter.');
+  await until('there is exactly one heading', () => byId('preview').querySelectorAll('h2').length === 1 && byId('preview').querySelector('h2')?.textContent === 'One line next line last line.');
+});
+
+it('does not offer a partial-block action when math preview spans disagree with the source parser', async () => {
+  await showSource('Before.\n\n$$\na+b\n\nc+d\n$$\n\nAfter.');
+  const math = byId('preview').querySelector('[data-line="3-7"]')!.getBoundingClientRect();
+  await pointer(math.left + 20, math.top + math.height / 2);
+  expect(controls().hidden).toBe(true);
+  await paragraphMenu('After.');
+  expect(controls().hidden).toBe(false);
+});
+
+it.each([
+  ['- One\n- Two', 'List', '- One\n- Two\n- ', 1],
+  ['* [ ] One\n* [x] Two', 'To-do', '* [ ] One\n* [x] Two\n* [ ] ', 1],
+  ['- One\n- Two', 'To-do', '- One\n- Two\n\n* [ ] ', 2],
+  ['- [ ] One\n- [x] Two', 'List', '- [ ] One\n- [x] Two\n\n* ', 2],
+  ['1. One\n2. Two', 'List', '1. One\n2. Two\n\n- ', 2],
+] as const)('inserts %s → %s with the agreed list continuation or separation', async (source, label, expected, count) => {
+  await showSource(source + '\n\nAfter.');
+  const list = byId('preview').querySelector('ul[data-line], ol[data-line]')!.getBoundingClientRect();
+  await pointer(list.left + 25, list.top + 8);
+  await openHandle();
+  await userEvent.click([...byId('menu').querySelectorAll('button')].find((item) => item.textContent === label)!);
+  expect(file.text).toBe(expected + '\n\nAfter.');
+  expect(editor().state.selection.main.head).toBe(expected.length);
+  await userEvent.keyboard('Added');
+  await until('the source is rendered as the requested number of lists', () => byId('preview').querySelectorAll('.gg-md > ul, .gg-md > ol').length === count && byId('preview').textContent?.includes('Added') === true);
+});
+
+it('releases mouse-menu focus and keeps focus in the reading when scrolling hides controls', async () => {
+  await paragraphMenu('First paragraph keeps its own actions.');
+  const title = byId('doc-title').getBoundingClientRect();
+  await pointer(title.left + 10, title.top + 5);
+  await userEvent.keyboard('{Escape}');
+  expect(document.activeElement).toBe(byId('preview'));
+  await until('the mouse menu cannot pin the handles after leaving', () => controls().hidden);
+  const paragraph = byId('preview').querySelector('p[data-line="3-3"]')!.getBoundingClientRect();
+  await pointer(paragraph.left + 30, paragraph.top + 5);
+  handle('block-handle').focus();
+  byId('preview').scrollTop = 200;
+  await until('scroll hides the focused controls', () => controls().hidden);
+  expect(document.activeElement).toBe(byId('preview'));
+});
+
+it.each([['Heading', '## '], ['List', '- '], ['Quote', '> ']])('turns an empty code block into an editable %s template', async (label, expected) => {
+  await showSource('```\n```\n\nAfter.');
+  const box = byId('preview').querySelector('.gg-md-code')!.getBoundingClientRect();
+  await pointer(box.left + 30, box.top + box.height / 2);
+  await openHandle('block-handle');
+  const turn = [...byId('menu').querySelectorAll('button')].find((item) => item.textContent === 'Turn into ›')!;
+  const at = turn.getBoundingClientRect();
+  await pointer(at.left + at.width / 2, at.top + at.height / 2);
+  await userEvent.click([...turn.parentElement!.querySelectorAll('.menu-submenu button')].find((item) => item.textContent === label)!);
+  expect(file.text).toBe(expected + '\n\nAfter.');
+  expect(editor().state.selection.main.head).toBe(expected.length);
+  await userEvent.keyboard('Ready');
+  expect(file.text).toBe(expected + 'Ready\n\nAfter.');
 });
 
 it('copies the whole block link and cites that source span from the actions handle', async () => {

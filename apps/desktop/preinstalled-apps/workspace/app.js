@@ -12,7 +12,7 @@
 // workspace; with a file (ctx.file) it opens the file it was handed; with neither there is nothing to show.
 
 import { placeOf, plainWords, relocate, spanOf } from './lines.js'
-import { INSERT_BLOCKS, isFrontmatter, moveBlock, sourceBlocks, turnBlockChanges } from './blocks.js'
+import { INSERT_BLOCKS, isFrontmatter, listInsertion, moveBlock, previewBlock, sourceBlocks, turnBlockChanges } from './blocks.js'
 import { KINDS, SORTS, compareNames, comparer, defaultView, keepable, keptAs, kindOf, markOf, matches, rangeOf, sectionOf, sizeOf, timeLeft, wantsThumb } from './list.js'
 
 const $ = (id) => document.getElementById(id)
@@ -2030,6 +2030,7 @@ function format(kind) {
 // the file's existing anchor follows that position while a picker is open or another person edits the document.
 let handleBlock = null
 let handleHideTimer = null
+let blockPointerMenu = false
 
 function cancelBlockHandleHide() {
   clearTimeout(handleHideTimer)
@@ -2045,6 +2046,7 @@ function hideBlockHandle(force = false) {
   cancelBlockHandleHide()
   if (!force && $('block-controls').matches(':focus-within')) return
   if (force || $('menu').hidden || !$('block-controls').contains(state.menuAnchor)) {
+    if ($('block-controls').contains(document.activeElement)) $('preview').focus({ preventScroll: true })
     handleBlock = null
     $('block-controls').hidden = true
   }
@@ -2071,11 +2073,15 @@ function showBlockHandle(event) {
   if (!block) return
   const span = spanOf(block.dataset.line)
   const current = state.current
-  let source = state.cm.language.syntaxTree(current.view.state).resolveInner(current.view.state.doc.line(span[0]).from, 1)
-  while (source.parent && source.parent.parent) source = source.parent
-  if (isFrontmatter(source)) return hideBlockHandle(true)
+  if (!span || span[0] < 1 || span[1] < span[0] || span[1] > current.view.state.doc.lines) return hideBlockHandle(true)
   $('block-insert').hidden = current.file.readOnly || current.view.state.readOnly
   if (block === handleBlock && !$('block-controls').hidden) return
+  try {
+    if (!previewBlock(current.view.state, state.cm, span)) return hideBlockHandle(true)
+  } catch (error) {
+    hideBlockHandle(true)
+    return showBanner(fmt(state.t.failed, { e: error.message }), 'error')
+  }
   handleBlock = block
   const box = block.getBoundingClientRect()
   const handle = $('block-controls')
@@ -2084,22 +2090,26 @@ function showBlockHandle(event) {
   handle.style.left = `${Math.max(pane.left + 2, box.left - handle.offsetWidth - 6)}px`
 }
 
-// Only the start is anchored. The current syntax tree owns the extent and neighbors at the moment an action runs.
+// Opposite associations retain the first and last characters. A deleted block collapses the range, so the next
+// paragraph cannot inherit its action. The current syntax tree still owns extents and neighbors at dispatch.
 function blockRange(current, span) {
-  return { from: current.file.anchor(current.view.state.doc.line(span[0]).from) }
+  const block = previewBlock(current.view.state, state.cm, span)
+  if (!block) throw new Error(state.t.insertReloaded)
+  return { from: current.file.anchor(block.from), to: current.file.anchor(block.to, -1) }
 }
 
 function resolvedRange(current, range) {
   const from = current.file.resolve(range.from)
-  if (from === null) throw new Error(state.t.insertReloaded)
+  const end = current.file.resolve(range.to)
+  if (from === null || end === null || end <= from || from < 0 || end > current.view.state.doc.length) throw new Error(state.t.insertReloaded)
+  const blocks = sourceBlocks(current.view.state, state.cm, end)
+  const index = blocks.findIndex((block) => block.from <= from && end <= block.to)
+  if (index < 0 || isFrontmatter(blocks[index])) throw new Error(state.t.insertReloaded)
   if (range.line) {
     const line = current.view.state.doc.lineAt(from)
-    if (!/^\/\S*$/.test(line.text)) throw new Error(state.t.insertReloaded)
-    return { from: line.from, to: line.to }
+    if (end > line.to || !/^\/\S*$/.test(line.text)) throw new Error(state.t.insertReloaded)
+    return { from: line.from, to: line.to, line: true, above: blocks[index - 1], below: blocks[index + 1] }
   }
-  const blocks = sourceBlocks(current.view.state, state.cm)
-  const index = blocks.findIndex((block) => block.from <= from && from <= block.to)
-  if (index < 0 || isFrontmatter(blocks[index])) throw new Error(state.t.insertReloaded)
   return { ...blocks[index], above: blocks[index - 1], below: blocks[index + 1] }
 }
 
@@ -2107,6 +2117,11 @@ function blockAction(run) {
   return async () => {
     try { return await run() } catch (error) { showBanner(fmt(state.t.failed, { e: error.message }), 'error') }
   }
+}
+
+function openBlockMenu(event, run) {
+  blockPointerMenu = event.detail > 0
+  void blockAction(run)()
 }
 
 function changeBlock(current, range, change, userEvent = 'input.complete') {
@@ -2127,19 +2142,20 @@ function changeBlock(current, range, change, userEvent = 'input.complete') {
 }
 
 function insertionItems(current, range, below = true) {
-  const insert = (text, caret = 0) => changeBlock(current, range, (doc, at) => {
+  const insert = (text, caret = 0, kind) => changeBlock(current, range, (doc, at) => {
     const from = below ? at.to : at.from
+    const list = (kind === 'list' || kind === 'todo') && listInsertion(current.view.state, state.cm, at, kind, text)
     const after = doc.sliceString(at.to)
     const trailing = /^\n*/.exec(after)[0].length
-    const prefix = below ? '\n\n' : ''
+    const prefix = below ? list ? list.prefix : '\n\n' : ''
     const suffix = after.length === trailing ? (trailing ? '' : '\n') : '\n'.repeat(Math.max(0, 2 - trailing))
-    return { changes: { from, to: at.to, insert: prefix + text + suffix }, head: from + prefix.length + caret }
+    return { changes: { from, to: at.to, insert: prefix + (list ? list.text : text) + suffix }, head: from + prefix.length + caret + (list ? list.offset : 0) }
   })
   return INSERT_BLOCKS.map((item) => ({
     text: state.t[item.label],
     disabled: !item.text && (!current.entry.chat || !canWrite() || $('upload').disabled),
     run: blockAction(async () => {
-      if (item.text !== undefined) return insert(item.text, item.caret)
+      if (item.text !== undefined) return insert(item.text, item.caret, item.id)
       const arrived = await uploadFiles({ chat: current.entry.chat, ...(current.entry.parentId ? { folder: current.entry.parentId } : {}) })
       if (!arrived?.length) return
       insert(arrived.map((entry) => `${item.id === 'image' && (entry.contentType || '').startsWith('image/') ? '!' : ''}[${entry.name.replace(/[[\]\\]/g, '\\$&')}](gugu-file://${entry.id})`).join('\n\n'))
@@ -2170,7 +2186,10 @@ function blockMenu() {
   const edits = [
     { text: t.turnInto, children: ['heading', 'list', 'quote', 'code'].map((kind) => ({
       text: t[INSERT_BLOCKS.find((item) => item.id === kind).label],
-      run: () => changeBlock(current, range, (_doc, at) => ({ changes: turnBlockChanges(current.view.state, state.cm, at, kind), head: at.from })),
+      run: () => changeBlock(current, range, (doc, at) => {
+        const changes = turnBlockChanges(current.view.state, state.cm, at, kind)
+        return { changes, head: state.cm.state.ChangeSet.of(changes, doc.length).mapPos(at.from, 1) }
+      }),
     })) },
     [t.duplicateBlock, () => changeBlock(current, range, (doc, at) => ({ changes: { from: at.to, insert: `\n\n${doc.sliceString(at.from, at.to)}` }, head: at.to + 2 }))],
     { text: t.moveBlockUp, disabled: !at.above || isFrontmatter(at.above), run: () => move(false) },
@@ -2196,7 +2215,7 @@ function blockCompletions(current, cm) {
     for (let node = cm.language.syntaxTree(context.state).resolveInner(context.pos, -1); node; node = node.parent) {
       if (node.name === 'FencedCode' || node.name === 'CodeBlock' || isFrontmatter(node)) return null
     }
-    const range = { from: current.file.anchor(line.from), line: true }
+    const range = { from: current.file.anchor(line.from), to: current.file.anchor(line.to, -1), line: true }
     const items = insertionItems(current, range, false).filter((item) => !item.disabled)
     return { from: line.from + 1, validFor: (filter, _from, to, state) => !/\s/.test(filter) && state.doc.lineAt(to).text === `/${filter}`, options: items.map((item, index) => ({ label: item.text, boost: items.length - index, type: 'keyword', apply: () => { cm.autocomplete.closeCompletion(current.view); void item.run() } })) }
   } })
@@ -2821,6 +2840,7 @@ function closeDetails() {
 function closeMenu() {
   const blockControls = $('block-controls').contains(state.menuAnchor)
   if ($('menu').contains(document.activeElement)) state.menuAnchor?.focus({ preventScroll: true })
+  if (blockControls && blockPointerMenu && $('block-controls').contains(document.activeElement)) $('preview').focus({ preventScroll: true })
   state.menuAnchor?.setAttribute('aria-expanded', 'false')
   state.menuAnchor = null
   $('menu').hidden = true
@@ -2923,8 +2943,8 @@ function start() {
   $('block-controls').addEventListener('pointerenter', cancelBlockHandleHide)
   $('block-controls').addEventListener('pointerleave', scheduleBlockHandleHide)
   $('block-controls').addEventListener('focusout', scheduleBlockHandleHide)
-  $('block-insert').onclick = blockAction(insertMenu)
-  $('block-handle').onclick = blockAction(blockMenu)
+  $('block-insert').onclick = (event) => openBlockMenu(event, insertMenu)
+  $('block-handle').onclick = (event) => openBlockMenu(event, blockMenu)
   $('preview').addEventListener('change', tickTask)
   $('empty-write').onclick = () => {
     setMode(state.mode === 'split' && !narrowPane?.matches ? 'split' : 'edit')
