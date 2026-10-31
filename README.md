@@ -13,7 +13,7 @@ Hand a task to an Agent. It calls on tools and devices as needed, coordinates th
 
 [![Claude Code](https://img.shields.io/badge/agent-Claude%20Code-C76B4A?style=flat-square)](#key-features) [![Codex](https://img.shields.io/badge/agent-Codex-252525?style=flat-square)](#key-features) [![MCP](https://img.shields.io/badge/tools-MCP-6A50D4?style=flat-square)](#key-features) [![Skills](https://img.shields.io/badge/workflows-Skills-328788?style=flat-square)](#key-features) [![Gugu Apps](https://img.shields.io/badge/extensions-Gugu%20Apps-E58F28?style=flat-square)](#key-features)
 
-<img src="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-banner-en-20261031-v47.webp" width="100%" alt="Gugu 咕咕">
+<img src="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-banner-en-20261031-v66.webp" width="100%" alt="Gugu 咕咕">
 
 </div>
 
@@ -22,16 +22,16 @@ Hand a task to an Agent. It calls on tools and devices as needed, coordinates th
 ### Everyday capabilities
 
 <table>
-<tr><td width="50%" valign="top"><h3>01 · Workspace</h3><a href="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-chat-file-split-motion-card-20261031-v64.gif"><img src="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-chat-file-split-motion-card-20261031-v64.gif" width="100%" alt="Workspace"></a><p>Work on tasks side by side. Arrange conversations, files, web pages and terminals together, or move them into separate windows.</p></td><td width="50%" valign="top"><h3>02 · Files and delivery</h3><a href="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-group-file-collaboration-motion-card-20261031-v64.gif"><img src="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-group-file-collaboration-motion-card-20261031-v64.gif" width="100%" alt="Files and delivery"></a><p>Share files in a group, open them from chat, switch between reading, editing and comparison, and bring selected passages back into the conversation.</p></td></tr>
+<tr><td width="50%" valign="top"><h3>01 · Workspace</h3><a href="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-chat-file-split-motion-card-20261031-v66.webp"><img src="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-chat-file-split-motion-card-20261031-v66.webp" width="100%" alt="Workspace"></a><p>Work on tasks side by side. Arrange conversations, files, web pages and terminals together, or move them into separate windows.</p></td><td width="50%" valign="top"><h3>02 · Files and delivery</h3><a href="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-group-folder-edit-en-20261031-v66.webp"><img src="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-group-folder-edit-en-20261031-v66.webp" width="100%" alt="Files and delivery"></a><p>Write a document in the group folder together: @ an Agent and its edits appear in the file you have open. (The wait is shown at 2× speed.)</p></td></tr>
 <tr><td><a href="#workspace-details">See it in use</a></td><td><a href="#files-details">See it in use</a></td></tr>
-<tr><td width="50%" valign="top"><h3>03 · Personal assistant</h3><a href="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-connected-apps-card-20261031-v64.webp"><img src="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-connected-apps-card-20261031-v64.webp" width="100%" alt="Personal assistant"></a><p>Talk to your personal assistant, give it tasks and let it work with services you have connected.</p></td><td width="50%" valign="top"><h3>04 · Models and subscriptions</h3><a href="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-seven-day-usage-card-20261031-v64.webp"><img src="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-seven-day-usage-card-20261031-v64.webp" width="100%" alt="Models and subscriptions"></a><p>Use existing subscriptions or your API configuration and choose models per task. Inspect usage charts and the resource monitor.</p></td></tr>
+<tr><td width="50%" valign="top"><h3>03 · Personal assistant</h3><a href="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-connected-apps-card-20261031-v64.webp"><img src="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-connected-apps-card-20261031-v64.webp" width="100%" alt="Personal assistant"></a><p>Talk to your personal assistant, give it tasks and let it work with services you have connected.</p></td><td width="50%" valign="top"><h3>04 · Models and subscriptions</h3><a href="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-seven-day-usage-card-20261031-v66.webp"><img src="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-seven-day-usage-card-20261031-v66.webp" width="100%" alt="Models and subscriptions"></a><p>Use existing subscriptions or your API configuration and choose models per task. Inspect usage charts and the resource monitor.</p></td></tr>
 <tr><td><a href="#assistant-details">See it in use</a></td><td><a href="#models-details">See it in use</a></td></tr>
 </table>
 
 ### Advanced capabilities and development
 
 <table>
-<tr><td width="50%" valign="top"><h3>05 · Agent teamwork</h3><a href="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-parent-and-children-card-20261031-v64.webp"><img src="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-parent-and-children-card-20261031-v64.webp" width="100%" alt="Agent teamwork"></a><p>Give a larger task to an Agent and have it delegate work in parallel. Follow each Agent’s status and result separately.</p></td><td width="50%" valign="top"><h3>06 · Gugu Apps</h3><a href="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-installed-apps-card-20261031-v64.webp"><img src="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-installed-apps-card-20261031-v64.webp" width="100%" alt="Gugu Apps"></a><p>Have an Agent build an App. People use its interface while Agents work with the same data. Manage the market, versions and installed Apps in the client.</p></td></tr>
+<tr><td width="50%" valign="top"><h3>05 · Agent teamwork</h3><a href="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-parent-and-children-card-20261031-v66.webp"><img src="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-parent-and-children-card-20261031-v66.webp" width="100%" alt="Agent teamwork"></a><p>Give a larger task to an Agent and have it delegate work in parallel. Follow each Agent’s status and result separately.</p></td><td width="50%" valign="top"><h3>06 · Gugu Apps</h3><a href="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-app-market-install-en-20261031-v66.webp"><img src="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-app-market-install-en-20261031-v66.webp" width="100%" alt="Gugu Apps"></a><p>Inspect an App in the market, confirm the install and open it in the client; manage versions and enabled state in the same place.</p></td></tr>
 <tr><td><a href="#agents-details">See it in use</a></td><td><a href="#apps-details">See it in use</a></td></tr>
 <tr><td width="50%" valign="top"><h3>07 · MCP and Skills</h3><a href="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-session-tools-card-20261031-v64.webp"><img src="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-session-tools-card-20261031-v64.webp" width="100%" alt="MCP and Skills"></a><p>Manage Gugu’s MCP configurations in the resource library, inspect configurations from other engines, select tools per conversation and use tools and Skills supplied by Apps.</p></td><td width="50%" valign="top"><h3>08 · Devices and actions</h3><a href="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-device-overview-card-20261031-v64.webp"><img src="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-device-overview-card-20261031-v64.webp" width="100%" alt="Device capabilities, Browser Use and Computer Use"></a><p>Agents run on computers or servers and use device capabilities as needed. Browser Use and Computer Use bring web and desktop actions into their tasks.</p></td></tr>
 <tr><td><a href="#tools-details">See it in use</a></td><td><a href="#devices-details">See it in use</a></td></tr>
@@ -41,7 +41,7 @@ Hand a task to an Agent. It calls on tools and devices as needed, coordinates th
 
 ### Agent workspace
 
-Work on tasks side by side. Arrange conversations, files, web pages and terminals together, or move them into separate windows.
+Projects, tasks, files and windows come together in one working surface.
 
 - **Create Agents throughout a project** · Create an Agent directly in a project and give it a task.
 - **Projects are separate from devices** · Bring sessions from different devices into one project to organize and follow their work together.
@@ -49,98 +49,78 @@ Work on tasks side by side. Arrange conversations, files, web pages and terminal
 - **Side chat, review, terminal and file browser** · Keep side chat, review, a terminal and the file browser in the workspace; enable TUI Mode in Settings to choose General or Terminal for a new task.
 - **Split tasks, arrange files and detach windows** · Work on tasks side by side, split a conversation from its files, or move a tab into a separate window.
 - **Import history from other Agents and harnesses** · Import conversation history from other Agents, harnesses or applications and continue existing work.
-- **Scheduled tasks** · Schedule tasks for a particular time or a repeating schedule.
 
 **The project sidebar’s new-task control and working-folder card**
 
-<div align="center"><a href="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-project-task-card-20261031-v64.webp"><img src="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-project-task-card-20261031-v64.webp" width="100%" alt="The project sidebar’s new-task control and working-folder card"></a></div>
+<div align="center"><a href="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-project-task-card-20261031-v66.webp"><img src="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-project-task-card-20261031-v66.webp" width="100%" alt="The project sidebar’s new-task control and working-folder card"></a></div>
 
 **Split panes and windows: drag, compare, detach and restore**
 
-<div align="center"><a href="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-chat-file-split-motion-20261031-v64.gif"><img src="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-chat-file-split-motion-20261031-v64.gif" width="100%" alt="Split panes and windows: drag, compare, detach and restore"></a></div>
+<div align="center"><a href="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-chat-file-split-motion-20261031-v66.webp"><img src="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-chat-file-split-motion-20261031-v66.webp" width="100%" alt="Split panes and windows: drag, compare, detach and restore"></a></div>
 
-**Choose General or Terminal (TUI; enable it in Settings first)**
+**Choose General or Terminal (TUI; enable it in Settings first) · parts shown at 2× speed**
 
-<div align="center"><a href="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-conversation-terminal-20261031-v64.gif"><img src="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-conversation-terminal-20261031-v64.gif" width="100%" alt="Choose General or Terminal (TUI; enable it in Settings first)"></a></div>
+<div align="center"><a href="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-tui-terminal-en-20261031-v66.webp"><img src="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-tui-terminal-en-20261031-v66.webp" width="100%" alt="Choose General or Terminal (TUI; enable it in Settings first) · parts shown at 2× speed"></a></div>
 
 **Hover over a working Agent to preview its recent conversation, tool activity and progress**
 
-<div align="center"><a href="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-working-agent-preview-20261031-v64.webp"><img src="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-working-agent-preview-20261031-v64.webp" width="100%" alt="Hover over a working Agent to preview its recent conversation, tool activity and progress"></a></div>
+<div align="center"><a href="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-working-agent-preview-20261031-v66.webp"><img src="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-working-agent-preview-20261031-v66.webp" width="100%" alt="Hover over a working Agent to preview its recent conversation, tool activity and progress"></a></div>
 
 **Conversation history and source filter (Claude Code / Codex)**
 
-<div align="center"><a href="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-history-import-sources-20261031-v64.webp"><img src="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-history-import-sources-20261031-v64.webp" width="100%" alt="Conversation history and source filter (Claude Code / Codex)"></a></div>
+<div align="center"><a href="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-history-import-sources-20261031-v66.webp"><img src="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-history-import-sources-20261031-v66.webp" width="100%" alt="Conversation history and source filter (Claude Code / Codex)"></a></div>
 
 <a id="files-details"></a>
 
 ### Group files and file collaboration
 
-Share files in a group, open them from chat, switch between reading, editing and comparison, and bring selected passages back into the conversation.
+Documents and spreadsheets live in the group folder, and people and Agents work on the same file.
 
-- **Group files, opening and collaborative editing** · Share files in a group, open the preview, switch between reading, editing and comparison, and bring selected passages back into the conversation.
+- **Live co-editing in the group folder** · Create a document in the group folder and keep writing while an Agent edits the same file; its changes appear in the editor you have open.
+- **Pick cells in Gugu Office** · Open a spreadsheet from the folder in Gugu Office, select a range and put it in the composer as a reference for an Agent.
+- **Quote a passage** · Select text in a document and bring it back to the conversation with its file name.
 - **File storage management** · Inspect your file storage, used space and file-management tools.
 
-**Preview the spreadsheet in the client with all five columns visible**
+**Gugu Office: select a column, put it in the composer and ask an Agent**
 
-<div align="center"><a href="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-xlsx-table-start-en-20261031-v64.webp"><img src="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-xlsx-table-start-en-20261031-v64.webp" width="100%" alt="Preview the spreadsheet in the client with all five columns visible"></a></div>
-
-**Group files: open from chat, then switch between read, edit and compare**
-
-<div align="center"><a href="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-group-file-collaboration-motion-20261031-v64.gif"><img src="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-group-file-collaboration-motion-20261031-v64.gif" width="100%" alt="Group files: open from chat, then switch between read, edit and compare"></a></div>
+<div align="center"><a href="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-office-pick-en-20261031-v66.webp"><img src="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-office-pick-en-20261031-v66.webp" width="100%" alt="Gugu Office: select a column, put it in the composer and ask an Agent"></a></div>
 
 **Quote a passage: select text and bring it back with the file name**
 
-<div align="center"><a href="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-document-quote-motion-20261031-v64.gif"><img src="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-document-quote-motion-20261031-v64.gif" width="100%" alt="Quote a passage: select text and bring it back with the file name"></a></div>
+<div align="center"><a href="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-document-quote-motion-20261031-v66.webp"><img src="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-document-quote-motion-20261031-v66.webp" width="100%" alt="Quote a passage: select text and bring it back with the file name"></a></div>
 
 <a id="assistant-details"></a>
 
 ### Personal assistant and connected apps
 
-Talk to your personal assistant, give it tasks and let it work with services you have connected.
+The personal assistant brings plans, files and external services together.
 
 - **Give real tasks to your assistant** · Give your personal assistant an everyday plan or a specific job, then review its reply and results in one place.
-- **Activity, tasks, memory and profile** · Find activity, tasks, memory and profile information together on the assistant page.
 - **Connect Google and other external apps** · Connect Google and other external apps to your personal assistant so it can use those services in its work.
-- **Contacts for people and Agents** · Contacts include both people and Agents. Start a private conversation or collaborate from the contact list.
 
-**The personal assistant’s connected-app catalogue**
+**Personal assistant: order a weekend plan, schedule a reminder and find it under Tasks**
 
-<div align="center"><a href="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-connected-apps-20261031-v64.webp"><img src="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-connected-apps-20261031-v64.webp" width="100%" alt="The personal assistant’s connected-app catalogue"></a></div>
+<div align="center"><a href="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-assistant-schedule-en-20261031-v66.webp"><img src="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-assistant-schedule-en-20261031-v66.webp" width="100%" alt="Personal assistant: order a weekend plan, schedule a reminder and find it under Tasks"></a></div>
 
-**Two existing scheduled tasks on the assistant’s task page**
-
-<div align="center"><a href="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-assistant-scheduled-tasks-en-20261031-v64.webp"><img src="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-assistant-scheduled-tasks-en-20261031-v64.webp" width="100%" alt="Two existing scheduled tasks on the assistant’s task page"></a></div>
-
-**Conversation excerpt: ordering four weekend tasks and estimating their duration**
-
-<div align="center"><a href="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-assistant-real-plan-20261031-v64.webp"><img src="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-assistant-real-plan-20261031-v64.webp" width="100%" alt="Conversation excerpt: ordering four weekend tasks and estimating their duration"></a></div>
 
 <a id="models-details"></a>
 
 ### Models, subscriptions and system resources
 
-Use existing subscriptions or your API configuration and choose models per task. Inspect usage charts and the resource monitor.
+Models, subscriptions, usage and local resources each have a clear view.
 
-- **Subscription profiles and account switching** · Save different subscription profiles and accounts, then inspect and switch between them in Settings.
+- **Use the subscriptions you have, pick a model per task** · Keep your existing subscriptions and accounts, switch between them in Settings, and choose the model and permissions for each task.
 - **Seven-day usage** · Review recent activity in the seven-day usage chart or choose another reporting period.
-- **Models and permission controls** · Choose models and permissions for each task to suit the work.
 - **Resource monitor** · The resource monitor shows resource consumption while work runs, making current activity visible.
+
+**Local resources and cloud storage in one view**
+
+<div align="center"><a href="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-resource-storage-en-20261031-v66.png"><img src="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-resource-storage-en-20261031-v66.png" width="100%" alt="Local resources and cloud storage in one view"></a></div>
 
 **Engines and subscription settings**
 
-<div align="center"><a href="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-agent-engines-en-20261031-v64.webp"><img src="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-agent-engines-en-20261031-v64.webp" width="100%" alt="Engines and subscription settings"></a></div>
+<div align="center"><a href="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-agent-engines-en-20261031-v66.png"><img src="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-agent-engines-en-20261031-v66.png" width="100%" alt="Engines and subscription settings"></a></div>
 
-**Inspect task models, the current selection and thinking settings**
-
-<div align="center"><a href="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-task-model-selector-en-20261031-v64.webp"><img src="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-task-model-selector-en-20261031-v64.webp" width="100%" alt="Inspect task models, the current selection and thinking settings"></a></div>
-
-**Seven-day usage: calls, tokens and model-colored activity**
-
-<div align="center"><a href="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-seven-day-usage-20261031-v64.webp"><img src="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-seven-day-usage-20261031-v64.webp" width="100%" alt="Seven-day usage: calls, tokens and model-colored activity"></a></div>
-
-**Resource monitor: CPU and memory by process**
-
-<div align="center"><a href="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-resource-processes-20261031-v64.webp"><img src="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-resource-processes-20261031-v64.webp" width="100%" alt="Resource monitor: CPU and memory by process"></a></div>
 
 <a id="agents-details"></a>
 
@@ -149,51 +129,36 @@ Use existing subscriptions or your API configuration and choose models per task.
 Give a larger task to an Agent and have it delegate work in parallel. Follow each Agent’s status and result separately.
 
 - **Three-layer Agent collaboration** · One Agent can coordinate multiple workstreams and delegate subtasks to more Agents; the project sidebar keeps the parent task, child Agents and status visible.
-- **Let Agents manage projects** · Let an Agent organize and manage projects, including the coordination work itself.
 - **Multi-person, multi-Agent collaboration** · For a more advanced workflow, two people bring their respective lead Agents into the same project or group, align goals, boundaries and ownership, then let their Agent teams work in parallel and return results to the shared space.
-- **Help handle your messages** · Have an Agent handle messages and replies around the relevant conversations.
 
-**A parent task, three named child Agents and their combined result**
-
-<div align="center"><a href="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-parent-and-children-20261031-v64.webp"><img src="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-parent-and-children-20261031-v64.webp" width="100%" alt="A parent task, three named child Agents and their combined result"></a></div>
-
-**Follow Qinghe’s task result and report back to the project**
-
-<div align="center"><a href="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-child-agent-result-20261031-v64.webp"><img src="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-child-agent-result-20261031-v64.webp" width="100%" alt="Follow Qinghe’s task result and report back to the project"></a></div>
 
 <a id="apps-details"></a>
 
 ### Build, install and share Gugu Apps
 
-Have an Agent build an App. People use its interface while Agents work with the same data. Manage the market, versions and installed Apps in the client.
+Inspect an App in the market, confirm the install and open it in the client; manage versions and enabled state in the same place.
 
 - **Build and share your own Apps** · Have an Agent build a Gugu App. People use its interface while Agents work with the same data.
 - **Open source, review and the App market** · Open-source your App and submit it for review. Once approved, it can enter the App market for others to install and use.
 
-**Manage installed Gugu Apps, their versions and enabled state**
+**Installed Apps: disable an App and enable it again**
 
-<div align="center"><a href="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-installed-apps-20261031-v64.webp"><img src="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-installed-apps-20261031-v64.webp" width="100%" alt="Manage installed Gugu Apps, their versions and enabled state"></a></div>
+<div align="center"><a href="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-installed-apps-en-20261031-v66.webp"><img src="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-installed-apps-en-20261031-v66.webp" width="100%" alt="Installed Apps: disable an App and enable it again"></a></div>
 
-**Gugu App in a group sidebar: poll and conversation stay connected**
 
-<div align="center"><a href="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-built-voting-app-20261031-v64.webp"><img src="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-built-voting-app-20261031-v64.webp" width="100%" alt="Gugu App in a group sidebar: poll and conversation stay connected"></a></div>
+**Paper Club: highlight a passage and ask an Agent about it in the group · parts shown at 2× speed**
 
-**App details show the version, permissions, source and official review status**
+<div align="center"><a href="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-paper-club-reader-en-20261031-v66.webp"><img src="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-paper-club-reader-en-20261031-v66.webp" width="100%" alt="Paper Club: highlight a passage and ask an Agent about it in the group · parts shown at 2× speed"></a></div>
 
-<div align="center"><a href="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-app-market-detail-20261031-v64.webp"><img src="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-app-market-detail-20261031-v64.webp" width="100%" alt="App details show the version, permissions, source and official review status"></a></div>
 
 <a id="tools-details"></a>
 
 ### MCP, Skills and App tools
 
-Manage Gugu’s MCP configurations in the resource library, inspect configurations from other engines, select tools per conversation and use tools and Skills supplied by Apps.
+The resource library and session tools form the Agent’s working surface.
 
 - **An integrated resource library** · The resource library brings prompts, Agents, integrations and MCP together by device so you can find and configure resources for your work.
-- **Capabilities through MCP and Skills** · Bring web search, documents and spreadsheets, schedules, messages and device actions into tasks. Connect tools through MCP and use Skills for working procedures; manage MCP configurations in the resource library and select tools for each conversation.
-
-**View the conversation’s MCP, App tools and Skills**
-
-<div align="center"><a href="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-session-tools-en-20261031-v64.webp"><img src="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-session-tools-en-20261031-v64.webp" width="100%" alt="View the conversation’s MCP, App tools and Skills"></a></div>
+- **Capabilities through MCP and Skills** · Bring web search, documents and spreadsheets, schedules and messages into tasks. Connect tools through MCP and use Skills for working procedures; manage MCP configurations in the resource library and select tools for each conversation.
 
 **Resource library: MCP JSON config and integrations**
 
@@ -215,11 +180,11 @@ Agents run on computers or servers and use device capabilities as needed. Browse
 
 **Browser Use: task panel and browser configuration**
 
-<div align="center"><a href="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-task-browser-20261031-v64.webp"><img src="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-task-browser-20261031-v64.webp" width="100%" alt="Browser Use: task panel and browser configuration"></a></div>
+<div align="center"><a href="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-task-browser-20261031-v66.webp"><img src="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-task-browser-20261031-v66.webp" width="100%" alt="Browser Use: task panel and browser configuration"></a></div>
 
 **SSH and remote tunnel setup**
 
-<div align="center"><a href="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-remote-ssh-setup-20261031-v64.webp"><img src="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-remote-ssh-setup-20261031-v64.webp" width="100%" alt="SSH and remote tunnel setup"></a></div>
+<div align="center"><a href="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-remote-ssh-setup-20261031-v66.webp"><img src="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-remote-ssh-setup-20261031-v66.webp" width="100%" alt="SSH and remote tunnel setup"></a></div>
 
 ### Conversations, groups and topics
 
@@ -229,15 +194,11 @@ Agents run on computers or servers and use device capabilities as needed. Browse
 
 **Hover over the Mini Map to preview a conversation turn**
 
-<div align="center"><a href="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-minimap-preview-20261031-v64.webp"><img src="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-minimap-preview-20261031-v64.webp" width="100%" alt="Hover over the Mini Map to preview a conversation turn"></a></div>
-
-**View an Agent’s profile, message it or share it from Contacts**
-
-<div align="center"><a href="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-agent-contact-profile-20261031-v64.webp"><img src="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-agent-contact-profile-20261031-v64.webp" width="100%" alt="View an Agent’s profile, message it or share it from Contacts"></a></div>
+<div align="center"><a href="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-minimap-preview-20261031-v66.webp"><img src="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-minimap-preview-20261031-v66.webp" width="100%" alt="Hover over the Mini Map to preview a conversation turn"></a></div>
 
 **Open a topic from a message and continue the discussion beside the group**
 
-<div align="center"><a href="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-group-topic-20261031-v64.webp"><img src="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-group-topic-20261031-v64.webp" width="100%" alt="Open a topic from a message and continue the discussion beside the group"></a></div>
+<div align="center"><a href="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-group-topic-20261031-v66.webp"><img src="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-group-topic-20261031-v66.webp" width="100%" alt="Open a topic from a message and continue the discussion beside the group"></a></div>
 
 **Group members are grouped into people and Agents**
 
