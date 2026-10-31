@@ -16,7 +16,7 @@ if (!target) throw new Error('No pinned mise distribution for ' + platform + '-'
 const osName = { darwin: 'mac', win32: 'win', linux: 'linux' }[platform]
 const destination = join(root, 'mise-bundle', osName + '-' + arch)
 const executable = join(destination, 'mise', 'bin', platform === 'win32' ? 'mise.exe' : 'mise')
-const stamp = JSON.stringify({ version: release.version, sha256: target.sha256 })
+const stamp = JSON.stringify({ version: release.version, sha256: target.sha256, ...(platform === 'linux' ? { strip: 'unneeded' } : {}) })
 
 if (existsSync(executable) && existsSync(join(destination, 'release.json')) && readFileSync(join(destination, 'release.json'), 'utf8') === stamp) {
   console.log('[build-mise] pinned bundle already present: ' + platform + '-' + arch)
@@ -44,6 +44,7 @@ if (existsSync(executable) && existsSync(join(destination, 'release.json')) && r
     if (!existsSync(binary)) throw new Error('mise distribution is missing its executable')
     if (platform === 'win32' && !existsSync(join(extracted, 'mise/bin/mise-shim.exe'))) throw new Error('mise distribution is missing mise-shim.exe')
     chmodSync(binary, 0o755)
+    if (platform === 'linux') execFileSync('strip', ['--strip-unneeded', binary], { stdio: 'inherit' })
     writeFileSync(join(extracted, 'release.json'), stamp)
     mkdirSync(dirname(destination), { recursive: true })
     rmSync(destination, { recursive: true, force: true })

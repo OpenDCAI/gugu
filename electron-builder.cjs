@@ -438,6 +438,7 @@ module.exports = {
     '!node_modules/**/build/Release/obj/**',
     '!node_modules/**/build/Release/*.lib',
     '!node_modules/**/*.{iobj,ipdb,exp,ilk,obj,tlog}',
+    '!**/node_modules/better-sqlite3/build/Release/test_extension.node',
     '!node_modules/**/deps/**/*.{c,h,cc,cpp,hpp}',
     '!node_modules/**/*.{ts,mts,cts}',
   ],
@@ -458,6 +459,12 @@ module.exports = {
   electronFuses: resolveElectronFuses({ tier }),
   extraResources,
   mac: {
+    // Electron's macOS locales use .lproj identifiers; zh-CN does not match zh_CN.
+    electronLanguages: ['zh_CN', 'en'],
+    files: [
+      '!**/node_modules/node-pty/prebuilds/!(darwin-${arch})/**',
+      '!**/node_modules/@parcel/watcher-!(darwin-${arch})/**',
+    ],
     // @@@7394 Mac 自己的标识与清单(见 TIERS 上方注释);验收包没有,沿用顶层 appId 与 channel。
     ...(t.macAppId ? { appId: t.macAppId } : {}),
     ...(t.macChannel ? { publish: { provider: 'generic', url: t.feedUrl, channel: t.macChannel } } : {}),
@@ -500,6 +507,11 @@ module.exports = {
     ...macSigning
   },
   win: {
+    // Keep the target prebuilds and the rebuilt Release/conpty payload intact.
+    files: [
+      '!**/node_modules/node-pty/prebuilds/!(win32-${arch})/**',
+      '!**/node_modules/@parcel/watcher-!(win32-${arch})/**',
+    ],
     // 9 档尺寸 16→256,scripts/gen-app-icons.py 生成。此前这一项是空的,electron-builder 只能
     // 临时从 icns 转一份出来 —— 尺寸档位由它自己定,任务栏/开始菜单的小尺寸得不到专门优化。
     icon: 'build-resources/icon.ico',
@@ -521,6 +533,10 @@ module.exports = {
   // cross-built from macOS: the vendored tmux (@@@bundle-tmux) is platform-specific, so a macOS host
   // would bundle the macOS tmux into the Linux artifact. Linux needs a PNG icon (icns is rejected).
   linux: {
+    files: [
+      '!**/node_modules/node-pty/prebuilds/!(linux-${arch})/**',
+      '!**/node_modules/@parcel/watcher-!(linux-${arch}-*)/**',
+    ],
     icon: 'public/assets/app/gugu-icon-512.png',
     category: 'Network',
     target: [{ target: 'AppImage', arch: ['x64'] }]
