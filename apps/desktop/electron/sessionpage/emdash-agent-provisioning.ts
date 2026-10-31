@@ -1,3 +1,4 @@
+import type { SessionBootTasks } from '@gugu/core/shared/sessionBootTasks'
 import { isImplicitSessionHomeProjectId } from '@gugu/core/shared/sessionProject'
 import { createGroupAdmin } from '@gugu/core/cloud/groupAdmin'
 // @@@sessionpage TASKPAGE-FUSION — AUTO-PROVISIONING (Part C, the real thing). Turns a session-page session
@@ -1698,7 +1699,7 @@ export function resolveProvisionedProjectGroup(
  */
 export async function registerExistingSessionpageAgents(
   env: NodeJS.ProcessEnv = process.env,
-  options: { ownerUserId?: string | null } = {},
+  options: { ownerUserId?: string | null; bootTasks?: SessionBootTasks } = {},
 ): Promise<number> {
   const log = createLogger('sessionpage/boot')
   const startedAt = Date.now()
@@ -1707,8 +1708,9 @@ export async function registerExistingSessionpageAgents(
   const readMs = Date.now() - startedAt
   log.info({ readMs, rows: roster.length }, 'persisted binding roster read finished')
   let count = 0
-  const incompleteCapabilityRows: string[] = []
+  const incomplete: string[] = []
   for (const agent of roster) {
+    const register = () => {
     const sessionId = cacheString(agent.cache, SESSION_CACHE_KEY)
     const providerId = cacheString(agent.cache, PROVIDER_CACHE_KEY)
     const surface = cacheString(agent.cache, SURFACE_CACHE_KEY)
@@ -1726,24 +1728,22 @@ export async function registerExistingSessionpageAgents(
     }
     if (!providerId || (surface !== 'acp' && surface !== 'tui')) {
       registerOfflineOwner()
-      if (providerId || surface) incompleteCapabilityRows.push(agent.gugu_user_id)
-      continue
+      if (providerId || surface) throw new Error('Persisted task capability is incomplete')
+      return
     }
     try {
       const integration = resolveSessionpageSessionIntegration(providerId, surface)
-      if (integration.identity !== 'addressable') continue
+      if (integration.identity !== 'addressable') return
     } catch {
       registerOfflineOwner()
-      incompleteCapabilityRows.push(agent.gugu_user_id)
-      continue
+      throw new Error('Persisted task capability is invalid')
     }
     registerOfflineOwner()
+    }
+    if (options.bootTasks) options.bootTasks.runSync('roster-rehydrate', cacheString(agent.cache, SESSION_CACHE_KEY) || '', register)
+    else { try { register() } catch { incomplete.push(agent.gugu_user_id) } }
   }
-  if (incompleteCapabilityRows.length) {
-    throw new Error(
-      `session-page capability cache is incomplete or invalid for agent record(s): ${incompleteCapabilityRows.join(', ')}`,
-    )
-  }
+  if (incomplete.length) throw new Error(`session-page capability cache is incomplete or invalid for agent record(s): ${incomplete.join(', ')}`)
   log.info({ readMs, registerMs: Date.now() - startedAt - readMs, bindings: count }, 'persisted binding reconstruction finished')
   return count
 }
@@ -1765,15 +1765,20 @@ export async function registerExistingSessionpageAgents(
 export async function unregisterForeignSessionpageAgents(
   env: NodeJS.ProcessEnv = process.env,
   ownerUserId: string,
+  bootTasks?: SessionBootTasks,
 ): Promise<number> {
   if (!ownerUserId) return 0
   let released = 0
   for (const agent of agentsForOwner(await listAgents(env, { includeGuests: true }), null, { includeArchived: true })) {
     if (!agent.gugu_user_id) continue
     if (agentsForOwner([agent], ownerUserId, { includeArchived: true }).length) continue
-    unregisterEmdashAgent(agent.gugu_user_id)
-    unregisterLocalSessionDeliveryForAgent(agent.gugu_user_id)
-    released++
+    const release = () => {
+      unregisterEmdashAgent(agent.gugu_user_id)
+      unregisterLocalSessionDeliveryForAgent(agent.gugu_user_id)
+      released++
+    }
+    if (bootTasks) bootTasks.runSync('roster-release', cacheString(agent.cache, SESSION_CACHE_KEY) || '', release)
+    else release()
   }
   return released
 }

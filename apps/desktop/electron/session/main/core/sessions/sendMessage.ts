@@ -1,3 +1,4 @@
+import { sessionBootTasks } from '../boot-tasks';
 import { and, eq } from 'drizzle-orm';
 import { resolveSessionpageSessionIntegration } from '@gugu/session-plugins/agents';
 import { recordLocalSessionDeliveryFailureForTest } from '@main/core/sessionpage/local-session-delivery';
@@ -778,14 +779,20 @@ export async function drainAllSessionMessageOutboxes(): Promise<void> {
     .select({
       id: sessions.id,
       projectId: sessions.projectId,
-      config: sessions.config,
+      archivedAt: sessions.archivedAt,
     })
     .from(sessions)
     .all();
-  const targets = rows.filter((row) => row.config && nextPendingSessionMessage(row.config));
-  await Promise.all(targets.map((row) => drainSessionMessageOutbox({
-    projectId: row.projectId,
-    sessionId: row.id,
+  const targets = rows.filter((row) => !row.archivedAt);
+  await Promise.all(targets.map((row) => sessionBootTasks.run('outbox-drain', row.id, async () => {
+    try {
+      const task = db.select({ config: sessions.config }).from(sessions).where(eq(sessions.id, row.id)).get();
+      if (!task?.config || !nextPendingSessionMessage(task.config)) return;
+      await drainSessionMessageOutbox({ projectId: row.projectId, sessionId: row.id });
+    } catch (error) {
+      // Archival may win after selection; this is not a boot failure. Restore owns the next drain.
+      if (!(error instanceof SessionArchivedError)) throw error;
+    }
   })));
 }
 
@@ -804,19 +811,15 @@ setSessionMessageOutboxDrain(() => drainAllSessionMessageOutboxes());
  */
 export function claimInterruptedDispatches(): number {
   const rows = db
-    .select({ id: sessions.id, config: sessions.config })
+    .select({ id: sessions.id })
     .from(sessions)
     .all();
-  const interrupted = rows.flatMap((row) =>
-    (row.config?.messageOutbox ?? [])
-      .filter((message) => message.state === 'dispatching')
-      .map((message) => message.id),
-  );
-  if (interrupted.length === 0) return 0;
-
   let claimed = 0;
-  db.transaction((tx) => {
-    for (const messageId of interrupted) {
+  for (const row of rows) {
+    const result = sessionBootTasks.runSync('dispatch-recovery', row.id, () => db.transaction((tx) => {
+      let taskClaimed = 0;
+      const task = tx.select({ config: sessions.config }).from(sessions).where(eq(sessions.id, row.id)).get();
+    for (const messageId of (task?.config?.messageOutbox ?? []).filter((message) => message.state === 'dispatching').map((message) => message.id)) {
       const [receipt] = tx
         .select({ id: messages.id, metadata: messages.metadata })
         .from(messages)
@@ -833,9 +836,12 @@ export function claimInterruptedDispatches(): number {
         .set({ metadata: JSON.stringify({ ...parsed, state: 'outcome-unknown' }) })
         .where(eq(messages.id, messageId))
         .run();
-      claimed += 1;
+      taskClaimed += 1;
     }
-  });
+      return taskClaimed;
+    }));
+    claimed += result ?? 0;
+  }
   if (claimed > 0) {
     log.warn('claimed interrupted message dispatches as outcome-unknown', { count: claimed });
   }

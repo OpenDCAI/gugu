@@ -1,3 +1,4 @@
+import type { SessionBootTasks } from '@gugu/core/shared/sessionBootTasks'
 import type { SessionCredentialLifecycle, SessionpageSessionSurface } from '@gugu/session-core/agents/plugins'
 
 export type SessionpagePlatformRecoveryStatus = 'live' | 'expired' | 'reopening' | 'failed'
@@ -40,6 +41,7 @@ export type SessionpageSessionReadyResult =
   | { status: 'failed'; error: string }
 
 export interface SessionpagePlatformRecoveryDeps {
+  bootTasks?: SessionBootTasks
   isExpired(sessionId: string): boolean
   resolveTarget(sessionId: string): SessionpagePlatformRecoveryTarget | null | Promise<SessionpagePlatformRecoveryTarget | null>
   reopen(target: SessionpagePlatformRecoveryTarget): Promise<void>
@@ -122,8 +124,12 @@ export class SessionpagePlatformRecoveryCoordinator {
   async reconcileExpired(): Promise<void> {
     const targetIds = [...this.targets.keys()]
     await Promise.all(targetIds.map(async (sessionId) => {
-      const target = await this.deps.resolveTarget(sessionId)
-      if (target && this.deps.isExpired(sessionId)) this.markExpired(target)
+      const reconcile = async () => {
+        const target = await this.deps.resolveTarget(sessionId)
+        if (target && this.deps.isExpired(sessionId)) this.markExpired(target)
+      }
+      if (this.deps.bootTasks) await this.deps.bootTasks.run('platform-recovery', sessionId, reconcile)
+      else await reconcile()
     }))
   }
 

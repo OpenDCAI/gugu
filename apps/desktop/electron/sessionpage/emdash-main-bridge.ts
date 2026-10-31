@@ -146,6 +146,8 @@ export {
   sessionpageSessionDigest,
   // server 换版看的忙闲(activity.json)。同上,经桥拿。
   sessionpageBusyForVersionSwitch,
+  sessionpageVersionSwitchActivity,
+  sessionpageBootFailures,
   onSessionpageAuthorizationActivityChange,
   setSessionLiveNotifier,
   listPendingSessionDirectMessages,
@@ -196,3 +198,4 @@ export { broadcastDeviceSessionHostEvent, setDeviceSessionHostShellHandlers } fr
 export { setDirectTerminalResolver, type DirectTerminalResolver } from '@main/core/pty/direct-terminal/controller'
 // #113 这台机器的项目记到账号上:那一份,与「它可能变了」的信号(订阅在 boot 之后,同 onEmdashSessionpageReapTrigger)。
 export { listDeviceProjectRecords, onDeviceProjectsMaybeChanged } from '@main/core/projects/operations/device-project-records'
+export { sessionBootTasks } from '../session/main/core/boot-tasks'
