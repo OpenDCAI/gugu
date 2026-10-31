@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
-import { deterministicModuleSideEffects, sideEffectsRule } from '../../../scripts/deterministic-module-side-effects.mjs'
+import { deterministicModuleSideEffects, sideEffectsRule } from '../../../scripts/build/deterministic-module-side-effects.mjs'
 
 /*
  * #7066 同一个 sha 打两次 dist-electron 不一样:rollup 只认模块第一次被解析时的 moduleSideEffects,而同一个文件经别名

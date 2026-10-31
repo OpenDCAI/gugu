@@ -263,11 +263,11 @@ If AGI arrives, it will not be one model solving everything. However capable a m
 | [OpenDCAI/gugu](https://github.com/OpenDCAI/gugu) | Desktop clients, Android, headless server and shared Agent runtime |
 | [OpenDCAI/gugu-supabase](https://github.com/OpenDCAI/gugu-supabase) | Accounts, messages, sync, device communication and permissions |
 
-See the [community setup guide](docs/self-hosting.md) for configuration and startup, and [Contributing](CONTRIBUTING.md) for installation and checks.
+See the [community setup guide](docs/guides/self-hosting.md) for configuration and startup, and [Contributing](CONTRIBUTING.md) for installation and checks.
 
 ## Contributing
 
-Contribute code, documentation, translations or Gugu Apps: [Contributing](CONTRIBUTING.md) · [Issues and ideas](https://github.com/OpenDCAI/gugu/issues) · [App development](docs/writing-a-tab-extension.md).
+Contribute code, documentation, translations or Gugu Apps: [Contributing](CONTRIBUTING.md) · [Issues and ideas](https://github.com/OpenDCAI/gugu/issues) · [App development](docs/guides/writing-a-tab-extension.md).
 
 ## License
 

@@ -5,7 +5,7 @@ import { afterEach, describe, expect, test, vi } from 'vitest'
 
 const repoRoot = path.resolve(__dirname, '../../..')
 const require_ = createRequire(import.meta.url)
-const { resolveElectronFuses } = require_('../../../scripts/electron-fuses.cjs') as {
+const { resolveElectronFuses } = require_('../../../scripts/build/electron-fuses.cjs') as {
   resolveElectronFuses: (input: { tier: string }) => Record<string, boolean | undefined>
 }
 
@@ -26,7 +26,7 @@ afterEach(() => vi.unstubAllEnvs())
 
 const TIERS = ['production', 'beta', 'acceptance-abc123']
 
-// @@@7195 Electron Fuses。决策与「为什么没翻」的清单在 scripts/electron-fuses.cjs;这里只钉**危险的翻法**,
+// @@@7195 Electron Fuses。决策与「为什么没翻」的清单在 scripts/build/electron-fuses.cjs;这里只钉**危险的翻法**,
 // 不钉实现本身 —— 每一条都对应「翻了就坏」的真实后果。
 describe('Electron Fuses(#7195)', () => {
   test('正式版关掉 --inspect / SIGUSR1;beta 与验收包保留,dogfood 排障要用', () => {

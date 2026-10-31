@@ -3,8 +3,8 @@ import { createHash } from 'node:crypto'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join, relative, resolve } from 'node:path'
 import { JSDOM } from 'jsdom'
-import { assertNoUndefinedBindingsInEmdashBundles } from './verify-emdash-bundle-no-undef.mts'
-import { assertMainStaticGraphDefersHomeReaders } from './verify-main-static-graph.mts'
+import { assertNoUndefinedBindingsInEmdashBundles } from './build/verify-emdash-bundle-no-undef.mts'
+import { assertMainStaticGraphDefersHomeReaders } from './build/verify-main-static-graph.mts'
 
 const root = resolve(process.cwd())
 const manifestRelative = 'dist/gugu-build-provenance.json'
@@ -21,7 +21,7 @@ const testNotes = process.env.GUGU_TEST_NOTES?.trim() || null
 //     必须显式纳入;它们的 package.json 也算输入 —— exports 表变了解析结果就变。
 //   · `apps/desktop/session-embedded.html` 是本次 rollup 的**第二个入口**,与 index.html 同级。
 //   · `scripts/build-emdash-assets.mjs` 已删,从脚本白名单里去掉。
-const buildInputs = /^(?:apps\/desktop\/(?:electron|src)\/|apps\/desktop\/(?:index\.html|session-embedded\.html|package\.json)$|packages\/core\/src\/|packages\/session-[^/]+\/(?:src\/|package\.json$)|public\/|vite\.config\.mts$|package\.json$|pnpm-lock\.yaml$|tsconfig[^/]*\.json$|(?:postcss\.config\.mjs|tailwind\.config\.cjs)$|scripts\/(?:renderer-chunking|build-env-preflight|build-tmux-bundle|fetch-acp-adapters|extract-pr-test-notes|verify-emdash-bundle-no-undef|verify-main-static-graph)\.mjs$)/
+const buildInputs = /^(?:apps\/desktop\/(?:electron|src)\/|apps\/desktop\/(?:index\.html|session-embedded\.html|package\.json)$|packages\/core\/src\/|packages\/session-[^/]+\/(?:src\/|package\.json$)|public\/|vite\.config\.mts$|package\.json$|pnpm-lock\.yaml$|tsconfig[^/]*\.json$|(?:postcss\.config\.mjs|tailwind\.config\.cjs)$|scripts\/(?:build\/(?:renderer-chunking|build-env-preflight|build-tmux-bundle|fetch-acp-adapters|verify-emdash-bundle-no-undef|verify-main-static-graph)|release\/extract-pr-test-notes)\.m[jt]s$)/
 
 function sourceFiles() {
   const output = execFileSync('git', ['ls-files', '-co', '--exclude-standard', '-z'], { cwd: root })

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { PlaywrightDeadlineReporter } from '../../../scripts/playwright-deadline-reporter.mts'
+import { PlaywrightDeadlineReporter } from '../../../scripts/test-infra/playwright-deadline-reporter.mts'
 
 afterEach(() => {
   vi.useRealTimers()

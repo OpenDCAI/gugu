@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { mobileRuntimeClosure } from '../../../scripts/mobile-runtime-libraries.mts'
-import { filterIcuLocaleIndex, retainIcuDependencies } from '../../../scripts/mobile-runtime-icu.mts'
+import { mobileRuntimeClosure } from '../../../scripts/build/mobile-runtime-libraries.mts'
+import { filterIcuLocaleIndex, retainIcuDependencies } from '../../../scripts/build/mobile-runtime-icu.mts'
 
 describe('Android packaged native dependency closure', () => {
   const libraries = () => new Map([

@@ -5,7 +5,7 @@ import { afterAll, beforeAll, describe, expect, test } from 'vitest'
 
 const repoRoot = resolve(__dirname, '../../..')
 const playwrightCli = join(repoRoot, 'node_modules/playwright/cli.js')
-const reporterPath = join(repoRoot, 'scripts/playwright-collection-guard.mts')
+const reporterPath = join(repoRoot, 'scripts/test-infra/playwright-collection-guard.mts')
 let fixtureRoot: string
 let configPath: string
 
@@ -77,6 +77,6 @@ describe('Playwright collection guard', () => {
 
   test('canonical config installs the guard', () => {
     const config = readFileSync(join(repoRoot, 'playwright.config.mts'), 'utf8')
-    expect(config).toContain("['./scripts/playwright-collection-guard.mts']")
+    expect(config).toContain("['./scripts/test-infra/playwright-collection-guard.mts']")
   })
 })

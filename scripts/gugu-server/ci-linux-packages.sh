@@ -30,7 +30,7 @@ here="$(dirname "$0")"
 bash "$here/../seed-mise-cache.sh" linux-arm64
 bash "$here/../seed-mise-cache.sh" --pin "$here/tmux-release.json" --base https://github.com/tmux/tmux-builds/releases/download \
   linux-x64 linux-arm64
-# 远程隧道的中转客户端 frpc(scripts/build-frpc-bundle.mjs),同一个缓存、同一条「容器里不联网」的规矩。
+# 远程隧道的中转客户端 frpc(scripts/build/build-frpc-bundle.mjs),同一个缓存、同一条「容器里不联网」的规矩。
 bash "$here/../seed-mise-cache.sh" --pin "$here/../frpc-release.json" --base https://github.com/fatedier/frp/releases/download \
   linux-x64 linux-arm64
 NODE_PIN="$(tr -d '[:space:]' < "$here/../../.node-version")"
@@ -39,7 +39,7 @@ NPM_CACHE_VOLUME=$("$DOCKER" inspect -f '{{range .Mounts}}{{if eq .Destination "
 NO_DOWNLOAD_ENV=(-e npm_config_cache=/npm-cache -e npm_config_nodedir=/usr/local -e GUGU_SERVER_NODE_PREFIX=/usr/local)
 
 "$DOCKER" exec -e "$VERSION_ENV" "${NO_DOWNLOAD_ENV[@]}" "$GUGU_LINUX_CONTAINER" \
-  bash -lc 'rm -rf release/server && node scripts/build-gugu-server.mjs'
+  bash -lc 'rm -rf release/server && node scripts/build/build-gugu-server.mjs'
 # arm64 那一趟:产物与打包脚本用 tar 流送进 arm64 容器,打完的包再用 tar 流送回构建容器 —— ❌ 经宿主目录 bind-mount:
 # mac1 上 colima 的共享目录里,node 24 的 fs.cpSync 报 EACCES(同样的拷贝 cp -r 没事;2026-09-25 实测),
 # 打包脚本拷 dist-electron 用的正是 cpSync。容器自己的文件系统里没有这个问题(x64 那一趟就是)。
@@ -56,7 +56,7 @@ NO_DOWNLOAD_ENV=(-e npm_config_cache=/npm-cache -e npm_config_nodedir=/usr/local
       bash -lc 'set -euo pipefail
                 [ "$(uname -m)" = aarch64 ] || { echo "::error::不是 aarch64 容器" >&2; exit 1; }
                 tar -xf -
-                GUGU_SERVER_EXTERNALS=release/server/externals.json node scripts/build-gugu-server.mjs 1>&2
+                GUGU_SERVER_EXTERNALS=release/server/externals.json node scripts/build/build-gugu-server.mjs 1>&2
                 cd release/server && tar -cf - gugu-server-*-linux-arm64.tar.gz*' \
   | "$DOCKER" exec -i "$GUGU_LINUX_CONTAINER" tar -C /work/release/server -xf -
 "$DOCKER" exec "$GUGU_LINUX_CONTAINER" bash -lc 'ls -lh release/server/*.tar.gz'

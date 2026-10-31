@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { countSource } from '../../../scripts/user-copy-leak-check.mts'
+import { countSource } from '../../../scripts/checks/user-copy-leak-check.mts'
 
 const field = (source: string, file = 'host.ts'): number => countSource(source, file).field
 

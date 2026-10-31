@@ -673,7 +673,7 @@ registerFileViewerMenus(app, () => currentHostCatalog().fileViewerMenu, (error) 
 // @@@gugu-tier - inlined at build time by vite (define in vite.config.mts), default 'production'.
 declare const __GUGU_TIER__: string
 declare const __GUGU_BUILD_DISTRIBUTION__: string
-// 给别的机器装哪条通道的 server,构建时按连的库定(vite.config.mts → scripts/build-env-preflight.mts serverChannelForDb)。
+// 给别的机器装哪条通道的 server,构建时按连的库定(vite.config.mts → scripts/build/build-env-preflight.mts serverChannelForDb)。
 declare const __GUGU_SERVER_CHANNEL__: 'stable' | 'beta'
 
 // @@@home-unify - one account home shared by desktop, CLI, and runtime host. The DEFAULT instance's
@@ -6393,7 +6393,7 @@ app.whenReady().then(async () => {
   // @@@tray-icon-blank — 图标按 app 根解析(`app.getAppPath()`:开发态=仓库根,打包=Resources/app),
   // ❌ 别再按 `__dirname/../build-resources` 拼:main.js 在 apps/desktop/dist-electron/ 下,那条路指向不存在的
   // apps/desktop/build-resources/,于是 nativeImage 静默给空图 → 所有 mac 用户的菜单栏挂着一个透明空槽(owner 实机圈出)。
-  // 空图直接抛,别再静默。资源规格见 scripts/gen-tray-icons.py:mac 模板图 16 + @2x 32(文件名以 Template
+  // 空图直接抛,别再静默。资源规格见 scripts/build/gen-tray-icons.py:mac 模板图 16 + @2x 32(文件名以 Template
   // 结尾,系统按亮/暗/毛玻璃自己着色);Windows ICO / Linux PNG 各出黑白两套,按系统深浅色换。
   if (SERVER_MODE) {
     // 心跳 = 这个账号进程真的起来了(守护进程据此判新版本站稳):后端没起完、或起不来,❌ 先报心跳。
