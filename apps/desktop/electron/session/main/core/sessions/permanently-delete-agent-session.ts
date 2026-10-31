@@ -6,6 +6,7 @@ import { sessionChangedChannel } from '@shared/core/sessions/sessionEvents';
 import { viewStateService } from '../view-state/view-state-service';
 import { archiveOneLocked } from './archiveSession';
 import { sessionLife } from './session-life';
+import { sessionWorkspaceManager } from './session-workspace-manager';
 import { serializeSessionArchival } from './session-archival';
 import { deleteSessionAttachmentFiles } from './attachments/session-attachment-store';
 import { tombstoneDeletedSession } from './fork-capture';
@@ -25,7 +26,14 @@ export async function permanentlyDeleteAgentSession(sessionId: string): Promise<
     try {
       // ACP: session-life's delete stops the run, ends its dependents and removes the row; nothing is left to
       // archive. Other runtimes archive first as before.
-      if (row.runtime === 'acp') await sessionLife().interrupt(sessionId, { k: 'interrupt', reason: 'delete' });
+      if (row.runtime === 'acp') {
+        // The workspace mount is not a session-life lease (ACP stops never unmount): release it here, then delete.
+        if (sessionWorkspaceManager.getSession(sessionId)) {
+          const released = await sessionWorkspaceManager.teardownSession(sessionId, 'archive');
+          if (!released.success) throw new Error(`session ${sessionId} workspace could not be released: ${released.error.message}`);
+        }
+        await sessionLife().interrupt(sessionId, { k: 'interrupt', reason: 'delete' });
+      }
       else await archiveOneLocked(row.projectId, sessionId, false);
     } finally {
       try {

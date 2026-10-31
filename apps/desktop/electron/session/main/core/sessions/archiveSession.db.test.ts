@@ -609,7 +609,10 @@ describe('restoreSession(内部接口,UI 上没有入口)', () => {
     expect(fixture.sqlite.prepare('SELECT id FROM messages ORDER BY id').all()).toHaveLength(2);
     expect(fixture.sqlite.prepare('SELECT id FROM session_turns ORDER BY id').all()).toHaveLength(2);
     expect(sessionEvents._emit).not.toHaveBeenCalledWith('session:deleted', expect.any(String));
+    mocks.life.interrupt.mockClear();
     await permanentlyDeleteAgentSession('deleted-agent');
+    // An ACP identity deletion is session-life's delete, not a second archive.
+    expect(mocks.life.interrupt.mock.calls).toEqual([['deleted-agent', { k: 'interrupt', reason: 'delete' }]]);
     expect(sessionEvents._emit).toHaveBeenCalledWith('session:deleted', 'deleted-agent');
     expect(fixture.sqlite.prepare('SELECT id FROM sessions ORDER BY id').all()).toEqual([{ id: 'kept-agent' }]);
     expect(fixture.sqlite.prepare('SELECT id FROM messages ORDER BY id').all()).toEqual([{ id: 'kept-agent:message' }]);
@@ -620,11 +623,15 @@ describe('restoreSession(内部接口,UI 上没有入口)', () => {
     await expect(restoreSession('p1', 'kept-agent')).resolves.toMatchObject({ id: 'kept-agent', archivedAt: null });
   });
 
-  it('does not leave a restorable task when stopping the deleted Agent fails', async () => {
-    insert('stop-failed');
+  // ACP deletion is session-life's delete (its stop failing is the owner's rejection); other runtimes still stop
+  // through the archive teardown of their mount.
+  it.each(['acp', null] as const)('does not leave a restorable task when stopping the deleted Agent fails (runtime %s)', async (runtime) => {
+    insert('stop-failed', runtime);
     mocks.mounted.add('stop-failed');
-    mocks.teardown.mockRejectedValueOnce(new Error('runtime stop unavailable'));
+    if (runtime === 'acp') mocks.life.interrupt.mockRejectedValueOnce(new Error('runtime stop unavailable'));
+    else mocks.teardown.mockRejectedValueOnce(new Error('runtime stop unavailable'));
     await expect(permanentlyDeleteAgentSession('stop-failed')).rejects.toThrow('runtime stop unavailable');
+    expect(mocks.life.interrupt.mock.calls).toEqual(runtime === 'acp' ? [['stop-failed', { k: 'interrupt', reason: 'delete' }]] : []);
     expect(fixture.sqlite.prepare('SELECT id FROM sessions WHERE id = ?').get('stop-failed')).toBeUndefined();
     await expect(restoreSession('p1', 'stop-failed')).rejects.toThrow('Session not found');
   });
@@ -676,13 +683,19 @@ describe('restoreSession(内部接口,UI 上没有入口)', () => {
     expect(fixture.sqlite.prepare("SELECT key FROM kv WHERE key = 'session-archival:purged'").get()).toBeUndefined();
   });
 
-  it('serializes permanent deletion with a Restore queued while runtime teardown is pending', async () => {
-    insert('delete-race');
+  // ACP: the pending stop is session-life's delete transition; other runtimes: their mount's archive teardown.
+  it.each(['acp', null] as const)('serializes permanent deletion with a Restore queued while runtime teardown is pending (runtime %s)', async (runtime) => {
+    insert('delete-race', runtime);
     mocks.mounted.add('delete-race');
     const stopping = Promise.withResolvers<{ success: boolean }>();
-    mocks.teardown.mockReturnValueOnce(stopping.promise);
+    if (runtime === 'acp') mocks.life.interrupt.mockReturnValueOnce(stopping.promise.then(() => undefined));
+    else mocks.teardown.mockReturnValueOnce(stopping.promise);
     const deleting = permanentlyDeleteAgentSession('delete-race');
-    await vi.waitFor(() => expect(mocks.teardown).toHaveBeenCalledWith('delete-race', 'archive'));
+    if (runtime === 'acp') {
+      await vi.waitFor(() => expect(mocks.life.interrupt).toHaveBeenCalledWith('delete-race', { k: 'interrupt', reason: 'delete' }));
+    } else {
+      await vi.waitFor(() => expect(mocks.teardown).toHaveBeenCalledWith('delete-race', 'archive'));
+    }
     let restoreSettled = false;
     const restoring = restoreSession('p1', 'delete-race').then(
       () => { restoreSettled = true; return 'restored'; },

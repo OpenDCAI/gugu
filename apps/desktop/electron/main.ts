@@ -195,7 +195,6 @@ import {
 import { fetchThreadMessagesViaRest } from '@gugu/core/cloud/threadMessagesRest'
 // #4280 —— 壳的唯一 producer 住在这里,三条渠道都从它出字节。
 import {
-  buildAgentDeliveryEnvelope,
   formatDeliveryTimestamp,
   type GuguIdentity,
 } from '@gugu/core/local/agent/deliveryEnvelope'

@@ -12,6 +12,9 @@ const mocks = vi.hoisted(() => ({
   /** session-life (owner of ACP sessions): stops and archives are interrupts carrying a reason; restore hands it back. */
   lifeInterrupt: vi.fn(async (_sessionId: string, _event: { k: 'interrupt'; reason: string }): Promise<void> => undefined),
   lifeRestore: vi.fn((_sessionId: string): void => undefined),
+  /** Creation turns are admitted as pending rows (enqueue); an empty creation queue is an explicit start. */
+  lifeEnqueue: vi.fn((_input: { sessionId: string; messageId: string; text: string; kind: string; turn?: unknown }) => ({ seq: 1, state: 'queued' })),
+  lifeStart: vi.fn((_sessionId: string, _origin?: string): void => undefined),
   emit: vi.fn(),
   on: vi.fn(),
   openFileResultListener: undefined as ((result: { requestId: string; success: boolean; error?: string; openedWith?: string | null; tabs?: SessionPaneTab[]; closed?: boolean }) => void) | undefined,
@@ -113,7 +116,17 @@ vi.mock('@main/core/pty/tmux-session-name', () => ({
   decodeTmuxSessionName: (name: string) => (name.startsWith('tmux:') ? name.slice('tmux:'.length) : null),
 }));
 vi.mock('@main/lib/events', () => ({ events: { emit: mocks.emit, on: mocks.on } }));
-vi.mock('./session-life', () => ({ sessionLife: () => ({ interrupt: mocks.lifeInterrupt, restore: mocks.lifeRestore }) }));
+vi.mock('@main/core/sessions/session-life', () => ({ sessionLife: () => ({
+  interrupt: mocks.lifeInterrupt, restore: mocks.lifeRestore, enqueue: mocks.lifeEnqueue, start: mocks.lifeStart,
+}) }));
+/** The creation turns session-life was handed for this session (admitCreationTurns' observable effect). */
+const admittedTurns = (sessionId: string) => mocks.lifeEnqueue.mock.calls.map(([input]) => input).filter((input) => input.sessionId === sessionId);
+/** Nothing started this session: no direct ACP runtime start, no admitted creation turn, no explicit Life start. */
+function expectNothingStarted(): void {
+  expect(mocks.startSession).not.toHaveBeenCalled();
+  expect(mocks.lifeEnqueue).not.toHaveBeenCalled();
+  expect(mocks.lifeStart).not.toHaveBeenCalled();
+}
 /** Sessions session-life was asked to interrupt for `reason`, in call order. */
 const interruptedFor = (reason: string) => mocks.lifeInterrupt.mock.calls
   .filter(([, event]) => event.reason === reason).map(([sessionId]) => sessionId);
@@ -207,6 +220,8 @@ describe('session orchestration', () => {
     mocks.lifeInterrupt.mockReset();
     mocks.lifeInterrupt.mockResolvedValue(undefined);
     mocks.lifeRestore.mockReset();
+    mocks.lifeEnqueue.mockClear();
+    mocks.lifeStart.mockClear();
     mocks.emit.mockReset();
     mocks.on.mockReset();
     mocks.openFileResultListener = undefined;
@@ -336,6 +351,9 @@ describe('session orchestration', () => {
     expect(mocks.stopSession).not.toHaveBeenCalled();
     expect(interruptedFor('archive')).toEqual([sessionId]);
     expect(mocks.lifeRestore).toHaveBeenCalledExactlyOnceWith(sessionId);
+    // A child cancelled before its start never had its creation turn admitted, and Restore does not start it.
+    expect(mocks.lifeEnqueue).not.toHaveBeenCalled();
+    expect(mocks.lifeStart).not.toHaveBeenCalled();
   }
 
   /** 这条会话挂载好了:pty 会话的进程经这个 provider 起停。 */
@@ -451,7 +469,7 @@ describe('session orchestration', () => {
         .rejects.toMatchObject({ code: 'SESSION_ARCHIVED' });
       expect(mocks.sendMessage).not.toHaveBeenCalled();
       expect(fixture.sqlite.prepare("SELECT id FROM messages WHERE session_id='peer'").all()).toEqual([]);
-      expect(mocks.startSession).not.toHaveBeenCalled();
+      expectNothingStarted();
     });
 
     it('hands queue to the delivery, with the key scoped to the App', async () => {
@@ -566,8 +584,9 @@ describe('session orchestration', () => {
         spawned_by_extension_id: 'board',
         parent_session_id: null,
       });
-      // Started already (an App names the agent by the identity its start writes), in the App's envelope.
-      expect(mocks.startSession).toHaveBeenCalledTimes(1);
+      // Admitted before it answers: the App's envelope is the session's first pending row (session-life starts it).
+      expect(mocks.startSession).not.toHaveBeenCalled();
+      expect(admittedTurns(row.id)).toEqual([expect.objectContaining({ text: lastAcpDelegationEnvelope(), kind: 'ordinary' })]);
       expect(lastAcpDelegationEnvelope()).toMatch(/^<app-envelope msg="[^"]+">keep it warm<\/app-envelope>$/);
     });
 
@@ -675,7 +694,7 @@ describe('session orchestration', () => {
         expect(first.assistant_work_target).toMatchObject({session_id:intent.child_session_id,device_id:'device-b'});
         await runRemoteSessionAction(remoteCaller,action);
         expect(childRows()).toHaveLength(1);
-        expect(mocks.startSession).not.toHaveBeenCalled();
+        expectNothingStarted();
         expect(mocks.ptyStartSession).not.toHaveBeenCalled();
         expect(mocks.sendMessage).not.toHaveBeenCalled();
         expect(mocks.recordDeliveredSessionDirectMessage).not.toHaveBeenCalled();
@@ -720,12 +739,14 @@ describe('session orchestration', () => {
       expect(envelope).toContain('from="Claude 7 · mac1"');
       expect(envelope).toContain('from_id="session:remote-caller"');
       expect(envelope).toContain('Train the model on this box.');
-      await vi.waitFor(() => expect(mocks.startSession).toHaveBeenCalledTimes(1));
-      expect(mocks.startSession.mock.calls[0][0].input).toEqual(expect.objectContaining({
-        sessionId: result.session_id,
+      // Its start is session-life's: the delegation is admitted as the first pending row; the start reads the
+      // session row, which carries the project and the unattended permission mode.
+      expect(admittedTurns(result.session_id)).toEqual([expect.objectContaining({ text: envelope })]);
+      expect(mocks.startSession).not.toHaveBeenCalled();
+      expect((await getSessions()).find((session) => session.id === result.session_id)).toMatchObject({
         projectId: 'project-2',
         permissionMode: 'full-access',
-      }));
+      });
     });
 
     it('keeps a child unnested when asked — the same choice as on one machine', async () => {
@@ -756,7 +777,7 @@ describe('session orchestration', () => {
       await expect(runRemoteSessionAction(remoteCaller, { action: 'spawn', prompt: 'x', parent_session_id: childId, assistant_work: intent }))
         .rejects.toThrow('a session cannot be its own parent');
       expect(childRows()).toEqual([]);
-      expect(mocks.startSession).not.toHaveBeenCalled();
+      expectNothingStarted();
       expect(mocks.sendMessage).not.toHaveBeenCalled();
     });
 
@@ -1088,17 +1109,17 @@ describe('session orchestration', () => {
     ]);
     // #5665 child 是一条独立会话,只共用 caller 的工作目录。
     expect(childRows()[0]!.workspace_id).toBe('workspace-1');
-    await vi.waitFor(() => expect(mocks.startSession).toHaveBeenCalledTimes(1));
-    expect(mocks.startSession).toHaveBeenCalledWith({
-      input: expect.objectContaining({
-        sessionId: result.session_id,
-        workspaceId: 'workspace-1',
-        cwd: '/repo/ws-1',
-        permissionMode: 'full-access',
-      }),
+    // session-life starts it from the session row (workspace + unattended permission mode); nothing here starts the runtime.
+    expect(mocks.startSession).not.toHaveBeenCalled();
+    expect((await getSessions()).find((session) => session.id === result.session_id)).toMatchObject({
+      workspaceId: 'workspace-1',
+      permissionMode: 'full-access',
     });
-    // #6497 the default (codex) ACP child carries its delegation in the start, not in the outbox.
-    expect(mocks.startSession.mock.calls[0][0].input.initialQueue?.[0]?.text).toContain('Implement the parser.');
+    // #6497 the default (codex) ACP child's delegation is its first pending row (one queue), not the legacy outbox.
+    const [turn, ...rest] = admittedTurns(result.session_id);
+    expect(rest).toEqual([]);
+    expect(turn?.text).toContain('Implement the parser.');
+    expect(mocks.lifeStart).not.toHaveBeenCalled();
     expect(mocks.sendMessage).not.toHaveBeenCalled();
   });
 
@@ -1114,21 +1135,19 @@ describe('session orchestration', () => {
       transport: 'acp',
     })) as { session_id: string };
 
-    await vi.waitFor(() => expect(mocks.startSession).toHaveBeenCalledTimes(1));
-    const input = mocks.startSession.mock.calls[0][0].input as {
-      initialQueue?: Array<{ text: string; origin?: string }>;
-      startupOrigin?: string;
-      initialMessageId?: string;
-    };
-    expect(input.initialQueue?.[0]?.text).toContain('Record this delegation in the child transcript.');
-    // #6823 the delegation is an envelope the host wrote: it says so, the runtime does not read it off the text.
-    expect(input.initialQueue?.[0]?.origin).toBe('communication');
-    expect(input.startupOrigin).toBe('session-page');
-    expect(input.initialMessageId).toEqual(expect.any(String));
+    // Retargeted: the delegation is admitted into session-life's queue at creation (no start-carried initialQueue).
+    expect(mocks.startSession).not.toHaveBeenCalled();
     expect(mocks.recordDeliveredSessionDirectMessage).toHaveBeenCalledWith(
       { sessionId: result.session_id },
       expect.objectContaining({ text: expect.stringContaining('Record this delegation in the child transcript.') }),
     );
+    const recorded = mocks.recordDeliveredSessionDirectMessage.mock.calls.at(-1)![1] as { id: string; text: string };
+    // Same id as the recorded transcript message; #6823 the envelope is the host's, so its origin says so.
+    expect(admittedTurns(result.session_id)).toEqual([{
+      sessionId: result.session_id, messageId: recorded.id, text: recorded.text, kind: 'ordinary',
+      turn: { kind: 'prompt', origin: 'communication' },
+    }]);
+    expect(mocks.lifeStart).not.toHaveBeenCalled();
     // one channel only: the same delegation must not also sit in the outbox and be delivered twice
     expect(mocks.sendMessage).not.toHaveBeenCalled();
   });
@@ -1439,22 +1458,23 @@ describe('session orchestration', () => {
     });
   });
 
+  // Retargeted: ACP spawn no longer writes the spawnStartupState gate; get projects starting from the runtime summary.
   it('projects starting through get while the provider startup is still pending', async () => {
-    const startup = deferred<{ success: true; data: { providerSessionId: string } }>();
-    mocks.startSession.mockImplementationOnce(() => startup.promise);
     const child = (await runSessionAction(context, {
       action: 'spawn',
       prompt: 'Keep the stable id while starting.',
     })) as { session_id: string; status: string };
+    const { config } = fixture.sqlite.prepare('SELECT config FROM sessions WHERE id = ?').get(child.session_id) as { config: string | null };
+    expect(config ? JSON.parse(config) : {}).not.toHaveProperty('spawnStartupState');
 
-    expect(child.status).toBe('starting');
+    mocks.summaries = { [child.session_id]: { lifecycle: 'starting', isGenerating: false, queuedPromptCount: 0, pendingPermissionCount: 0, backgroundAgentCount: 0 } };
     await expect(runSessionAction(context, {
       action: 'get',
       session_id: child.session_id,
     })).resolves.toMatchObject({ session_id: child.session_id, status: 'starting' });
 
-    // 起动门关上之后,没有活摘要的 ACP 子会话报状态写入者写下的那一句:带着首句出生即 working。
-    startup.resolve({ success: true, data: { providerSessionId: 'native-started' } });
+    // 起动之后,没有活摘要的 ACP 子会话报状态写入者写下的那一句:带着首句出生即 working。
+    mocks.summaries = {};
     await vi.waitFor(async () => {
       await expect(runSessionAction(context, {
         action: 'get',
@@ -1739,30 +1759,43 @@ describe('session orchestration', () => {
     })).rejects.toThrow('current session is closed');
   });
 
+  // Retargeted to PTY children: an ACP spawn no longer waits on any start (session-life owns it), so only the
+  // terminal leg still has a start a sibling could queue behind.
   it('does not serialize siblings that share the current workspace', async () => {
-    const firstStart = deferred<{ success: true; data: { providerSessionId: string } }>();
-    mocks.startSession
+    const firstStart = deferred<undefined>();
+    mocks.ptyStartSession
       .mockImplementationOnce(() => firstStart.promise)
-      .mockResolvedValueOnce({ success: true, data: { providerSessionId: 'native-second' } });
+      .mockResolvedValueOnce(undefined);
 
     const firstSpawn = runSessionAction(context, {
       action: 'spawn',
       prompt: 'First sibling remains in start.',
+      transport: 'pty',
     });
-    await vi.waitFor(() => expect(mocks.startSession).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() => expect(mocks.ptyStartSession).toHaveBeenCalledTimes(1));
 
     const secondSpawn = runSessionAction(context, {
       action: 'spawn',
       prompt: 'Second sibling must not queue behind it.',
+      transport: 'pty',
     });
     await expect(secondSpawn).resolves.toEqual(
       expect.objectContaining({ parent_session_id: 'caller' })
     );
 
-    firstStart.resolve({ success: true, data: { providerSessionId: 'native-first' } });
+    firstStart.resolve(undefined);
     await expect(firstSpawn).resolves.toEqual(
       expect.objectContaining({ parent_session_id: 'caller' })
     );
+    expect(childRows()).toHaveLength(2);
+  });
+
+  it('admits ACP siblings without waiting on either start', async () => {
+    const first = (await runSessionAction(context, { action: 'spawn', prompt: 'First ACP sibling.' })) as { session_id: string };
+    const second = (await runSessionAction(context, { action: 'spawn', prompt: 'Second ACP sibling.' })) as { session_id: string };
+    expect(admittedTurns(first.session_id)).toHaveLength(1);
+    expect(admittedTurns(second.session_id)).toHaveLength(1);
+    expect(mocks.startSession).not.toHaveBeenCalled();
     expect(childRows()).toHaveLength(2);
   });
 
@@ -1814,7 +1847,7 @@ describe('session orchestration', () => {
     await expect(runSessionAction(context, { action: 'spawn', prompt: 'x', parent_session_id: 'not-owned-or-missing' }))
       .rejects.toThrow('parent session not found on any of your machines');
     expect(childRows()).toEqual([]);
-    expect(mocks.startSession).not.toHaveBeenCalled();
+    expectNothingStarted();
     expect(mocks.sendMessage).not.toHaveBeenCalled();
   });
 
@@ -1862,7 +1895,8 @@ describe('session orchestration', () => {
 
     expect(panelChild.transport).toBe('acp');
     expect(transportOfRow(panelChild.session_id)).toBe('acp');
-    await vi.waitFor(() => expect(mocks.startSession).toHaveBeenCalledTimes(1));
+    expect(admittedTurns(panelChild.session_id)).toHaveLength(1);
+    expect(mocks.ptyStartSession).not.toHaveBeenCalled();
 
     fixture.sqlite.prepare('UPDATE sessions SET runtime = ? WHERE id = ?').run('acp', 'caller');
     const terminalChild = (await runSessionAction(context, {
@@ -1874,6 +1908,7 @@ describe('session orchestration', () => {
     expect(terminalChild.transport).toBe('pty');
     expect(transportOfRow(terminalChild.session_id)).toBe('pty');
     await vi.waitFor(() => expect(mocks.ptyStartSession).toHaveBeenCalledTimes(1));
+    expect(admittedTurns(terminalChild.session_id)).toEqual([]);
   });
 
   it('reads a pty child status from its agent-hook row and stops it through its mount', async () => {
@@ -2026,7 +2061,7 @@ describe('session orchestration', () => {
       prompt: 'Panel child.',
       transport: 'acp',
     })) as { session_id: string };
-    await vi.waitFor(() => expect(mocks.startSession).toHaveBeenCalledTimes(1));
+    expect(admittedTurns(child.session_id)).toHaveLength(1);
 
     mocks.summaries = {
       [child.session_id]: {
@@ -2055,18 +2090,18 @@ describe('session orchestration', () => {
     expect((receipt as { status: string }).status).not.toBe('closed');
   });
 
-  it('returns a starting child immediately and archives it for Restore when ACP start fails', async () => {
-    mocks.startSession.mockResolvedValueOnce({
-      success: false,
-      error: { type: 'spawn_failed', message: 'runtime rejected child' },
-    });
-
+  // Retargeted: an ACP startup failure is the session's own failed state in session-life, so spawn hands the start
+  // over and returns; nothing here waits on it or archives the child for it.
+  it('returns the child immediately and never archives it for its ACP start', async () => {
     const result = (await runSessionAction(context, {
       action: 'spawn',
       prompt: 'Will fail to start.',
     })) as { session_id: string; status: string };
-    expect(result.status).toBe('starting');
-    await expectFailedChildToRestore(result.session_id);
+    expect(admittedTurns(result.session_id)).toHaveLength(1);
+    expect(mocks.startSession).not.toHaveBeenCalled();
+    await Promise.resolve();
+    expect(fixture.sqlite.prepare('SELECT archived_at FROM sessions WHERE id = ?').get(result.session_id)).toEqual({ archived_at: null });
+    expect(mocks.lifeInterrupt).not.toHaveBeenCalled();
   });
 
   it('archives the child for Restore when cancellation lands after creation but before ACP start', async () => {
@@ -2076,7 +2111,7 @@ describe('session orchestration', () => {
     await expect(spawning).rejects.toThrow('grant revoked');
     const children = childRows();
     expect(children).toHaveLength(1);
-    expect(mocks.startSession).not.toHaveBeenCalled();
+    expectNothingStarted();
     await expectFailedChildToRestore(children[0]!.id);
   });
 
@@ -2084,9 +2119,12 @@ describe('session orchestration', () => {
     const controller = new AbortController();
     const spawning = await runSessionAction(context, { action: 'spawn', prompt: 'Compensate.' }, controller.signal);
     controller.abort(new Error('request ended after spawn'));
-    expect(spawning).toMatchObject({ status: 'starting' });
-    await vi.waitFor(() => expect(mocks.startSession).toHaveBeenCalledOnce());
+    // The start was handed to session-life before the response; the abort neither interrupts nor archives it.
+    expect(admittedTurns((spawning as { session_id: string }).session_id)).toHaveLength(1);
+    await Promise.resolve();
+    expect(mocks.lifeInterrupt).not.toHaveBeenCalled();
     expect(childRows()).toHaveLength(1);
+    expect(fixture.sqlite.prepare('SELECT archived_at FROM sessions WHERE id = ?').get((spawning as { session_id: string }).session_id)).toEqual({ archived_at: null });
   });
 
   it('reaches a child in another project and a session it did not spawn alike, but never stops itself', async () => {

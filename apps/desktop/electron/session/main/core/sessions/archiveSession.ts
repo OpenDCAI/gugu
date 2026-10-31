@@ -6,7 +6,6 @@ import { db } from '@main/db/client';
 import { projects, sessions } from '@main/db/schema';
 import { events } from '@main/lib/events';
 import { sessionEvents } from './session-events';
-import { getAcpRuntimeClient } from '@main/core/acp/controller';
 import { projectManager } from '@main/core/projects/project-manager';
 import { cleanupDetachedSessions, sessionWorkspaceManager } from './session-workspace-manager';
 import { log } from '@main/lib/logger';

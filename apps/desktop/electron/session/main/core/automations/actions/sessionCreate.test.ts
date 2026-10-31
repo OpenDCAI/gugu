@@ -24,9 +24,12 @@ import {
 } from '../run-transitions';
 import { automationInitialSession, executeSessionCreate } from './sessionCreate';
 
-const { mockAcpStartSession } = vi.hoisted(() => ({
+const { mockAcpStartSession, life } = vi.hoisted(() => ({
   mockAcpStartSession: vi.fn(),
+  // session-life (owner of ACP sessions): the launcher admits the creation turns as its first pending rows.
+  life: { enqueue: vi.fn((_input: Record<string, unknown>) => ({ seq: 1, state: 'queued' })), start: vi.fn() },
 }));
+vi.mock('@main/core/sessions/session-life', () => ({ sessionLife: () => life }));
 
 // 起 agent 那一步用的是**真的** launchCreatedSession(与别的机器建会话同一份),只把它按需取的
 // 几个重依赖换成桩:读回刚落库的会话行、ACP 启动入参构造、终端腿的首启。
@@ -172,6 +175,8 @@ describe('executeSessionCreate', () => {
       data: { path: '/tmp/session', workspaceId: 'workspace-1' },
     });
     vi.mocked(hydrateSession).mockResolvedValue(undefined as never);
+    life.enqueue.mockClear();
+    life.start.mockClear();
     mockAcpStartSession.mockResolvedValue({
       success: true,
       data: { providerSessionId: 'acp-session' },
@@ -370,14 +375,14 @@ describe('executeSessionCreate', () => {
     expect(session?.model).toBeUndefined();
     expect(session?.initialPrompt).toBeUndefined();
     expect(vi.mocked(prepareCreateSession).mock.calls[0]?.[0].automationRunId).toBe(run.id);
-    expect(mockAcpStartSession).toHaveBeenCalledWith({
-      input: {
-        sessionId: session?.id,
-        workspaceId: 'workspace-1',
-        cwd: '/tmp/session',
-        initialQueue: [{ text: 'Check things', origin: 'manual' }],
-      },
+    // The shared launcher hands the first sentence to session-life as the session's first pending row; session-life
+    // starts it (no direct ACP runtime start, no start-carried initialQueue).
+    expect(life.enqueue).toHaveBeenCalledExactlyOnceWith({
+      sessionId: session?.id, messageId: `${session?.id}:creation:0`, text: 'Check things', kind: 'ordinary',
+      turn: { kind: 'prompt', origin: 'manual' },
     });
+    expect(life.start).not.toHaveBeenCalled();
+    expect(mockAcpStartSession).not.toHaveBeenCalled();
     expect(hydrateSession).not.toHaveBeenCalled();
   });
 

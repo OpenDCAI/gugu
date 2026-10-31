@@ -14,9 +14,8 @@ import { isLibraryAgentAction, runLibraryAgentAction, type LibraryAgentAction } 
 import { randomUUID } from 'node:crypto';
 import { sessionDirectMessageId } from './session-direct-identity';
 import { parseGuguLink } from '@gugu/core/shared/ui/guguLink';
-import { resolveSessionPermissionMode, type SessionSummary } from '@gugu/session-core/acp';
+import type { SessionSummary } from '@gugu/session-core/acp';
 import { and, eq, inArray } from 'drizzle-orm';
-import { getAcpRuntimeClient } from '@main/core/acp/controller';
 import type { MessagePreviewEntry, MessagePreviewProjection } from '@gugu/session-core/session-record/message-preview';
 import { readSessionPreview } from '@main/core/session-timeline/preview-rpc';
 import {
@@ -488,10 +487,6 @@ function defaultTitle(prompt: string): string {
     .map((line) => line.trim())
     .find(Boolean);
   return (firstLine || 'Child session').slice(0, MAX_SESSION_TITLE_LENGTH);
-}
-
-function runtimeError(result: { error: { type: string; message?: string } }): Error {
-  return new Error(result.error.message ?? result.error.type);
 }
 
 /** Why a session stops: a person, the idle reclaimer, or a restart for new configuration (no stop barrier). */

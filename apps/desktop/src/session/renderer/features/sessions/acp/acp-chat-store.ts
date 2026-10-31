@@ -38,7 +38,9 @@ import { permissionWaitKind } from '@gugu/session-core/acp/models/permissions';
 import type { AgentState, LiveSettingResult, PermissionWaitKind } from '@gugu/session-core/acp';
 import { errorDetail } from '@gugu/session-shared';
 import { WireError, type BlobSource } from '@gugu/session-wire';
-import { action, computed, makeObservable, observable, runInAction, toJS } from 'mobx';
+import { action, computed, makeObservable, observable, runInAction, toJS, when } from 'mobx';
+import { sessionLifeView, startSessionLife, stopSessionLife } from '../stores/session-life-views';
+import { sendThroughCustody } from './queue-native-input';
 import { batch } from 'solid-js';
 // TODO(conversations-extraction): Inject task/workspace lookups instead of importing task stores.
 import { asProvisioned, getSessionPageStore } from '@renderer/features/sessions/stores/session-selectors';
@@ -1083,6 +1085,8 @@ export class AcpChatStore {
     preserveComposerDraft = false,
   ): void {
     if (this.reverting || this.messageEdit) return;
+    // A session-life session has one send path: the custody chain (sender outbox → host session_pending).
+    if (!this.runtimeView) { this._custody(text, attachments); return; }
     const promptAttachments = attachments.map((attachment) => attachment.ref);
     const input: PromptInput = {
       text,
@@ -1139,6 +1143,7 @@ export class AcpChatStore {
     messageContext?: string,
     origin: 'manual' | 'communication' = 'manual'
   ): void {
+    if (!this.runtimeView) { this._custody(text, attachments); return; }
     const promptAttachments = attachments.map((attachment) => attachment.ref);
     const input: PromptInput = {
       text,
@@ -1263,6 +1268,11 @@ export class AcpChatStore {
   }
 
   stop(): void {
+    // Not attached yet (session-life is still starting it): stopping is the host owner's user-stop.
+    if (!this.session && !this.runtimeView) {
+      void stopSessionLife(this.sessionId).catch((error: unknown) => this._toastError('acpFailure.stop', error));
+      return;
+    }
     if (!this.session && this._startupRunningId !== null) {
       this._stopStartup();
       return;
@@ -1968,8 +1978,11 @@ export class AcpChatStore {
         return;
       }
       // 纯附着不解析 start 输入 —— 那份输入只有「要建立」时才有意义。
-      const input = options?.attachOnly ? undefined : this._startInput();
+      // A side-chat view starts its own runtime fork; every session-life session is started by its host and the
+      // page only attaches once the host says it is ready (one start owner).
+      const input = options?.attachOnly || !this.runtimeView ? undefined : this._startInput();
       providerId = input?.providerId ?? session?.providerId;
+      if (!options?.attachOnly && !this.runtimeView) await this._startThroughLife();
       // 第一条消息不等会话建立:发出那一刻就以乐观行上屏,样子与之后每条消息发出时相同(气泡 + 「处理中」)。
       // 上一次没跑起来、留在屏上的那一句同理:这次起来时运行时会先发它。
       const preview = firstPromptPreview(input);
@@ -2203,6 +2216,21 @@ export class AcpChatStore {
         error,
       });
     }
+  }
+
+  private _custody(text: string, attachments: readonly AcpPromptAttachment[]): void {
+    void sendThroughCustody(this, text, attachments).catch((error: unknown) => this._toastError('acpFailure.sendMessage', error));
+  }
+
+  /** Ask the host's session-life to start this session and wait for its projection to settle. */
+  private async _startThroughLife(): Promise<void> {
+    await startSessionLife(this.sessionId);
+    await when(() => {
+      const view = sessionLifeView(this.sessionId);
+      return view?.kind === 'ready' || view?.kind === 'failed';
+    });
+    const view = sessionLifeView(this.sessionId);
+    if (view?.kind === 'failed') throw new Error(view.failure?.message ?? 'The session could not start');
   }
 
   private _startInput() {

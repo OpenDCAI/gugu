@@ -16,6 +16,7 @@ import { setSessionPinned } from './setSessionPinned';
 import { setSessionParent } from './session-family';
 import { switchSessionRuntime } from './switch-session-runtime';
 import { sendMessage } from './sendMessage';
+import { sessionLife } from './session-life';
 import { ensurePlatformSessionReady } from './platform-recovery-gate';
 import { recordLiveSessionSetting } from './record-live-session-setting';
 import { recordLiveModelSwitch } from './live-model-switch';
@@ -70,4 +71,9 @@ export const sessionController = createRPCController({
   reportSessionsOnScreen: async (sessionIds: string[]) => {
     setSessionsOnScreen(sessionIds);
   },
+  // session-life: the ACP lifecycle projection (later changes arrive on sessionLifeViewChannel) and the person's
+  // explicit start — the only way a page brings an ACP session up.
+  lifeView: async (sessionId: string) => sessionLife().read(sessionId),
+  lifeStart: async (sessionId: string) => { sessionLife().start(sessionId, 'user-open'); },
+  lifeStop: (sessionId: string) => sessionLife().interrupt(sessionId, { k: 'interrupt', reason: 'user-stop' }),
 });

@@ -221,7 +221,7 @@ import {
   setSessionStatusFeed,
 } from '@main/core/session-timeline/service'
 import { connectionConfigRoot } from '@main/core/agents/harness-connections'
-import { acpSessionLive, setSessionCancel, setSessionWake } from '@main/core/session-timeline/write-bridge'
+import { setSessionCancel, setSessionWake } from '@main/core/session-timeline/write-bridge'
 import { setOtherMachines } from '@main/core/sessions/session-family'
 import { setAgentSessionHost } from '@main/core/sessions/agent-session-controller'
 import { answerAppMessage } from '@main/core/extensions/extension-send'
@@ -1049,24 +1049,9 @@ async function wakeEmdashSessionStages(sessionId: string, ledger: StageLedger): 
     ledger.settle({ outcome: 'reopened' })
     return
   }
-  // 「ACP 会话活没活」只认 acpSessionLive(`starting` 也算活:再起一次只会撞上正在起的那个)。
-  if (await acpSessionLive(sessionId)) {
-    ledger.mark('already-live')
-    ledger.settle({ outcome: 'already-live' })
-    return
-  }
-  ledger.mark('summary-read')
-  if (!session.workspaceId) throw new Error(`session ${sessionId} workspace is not ready`)
-  const mounted = await sessionService.ensureSessionMounted(sessionId)
-  ledger.mark('session-mounted')
-  const workspace = resolveWorkspace(session.projectId, mounted.workspaceId)
-  if (!workspace) throw new Error(`session ${sessionId} workspace is not mounted`)
-  const result = await (await getAcpRuntimeClient()).startSession({
-    input: acpStartInputFor(session, mounted.workspaceId, workspace.path),
-  })
-  ledger.mark('acp-start-returned', { success: result.success })
-  ledger.settle({ outcome: result.success ? 'reopened' : 'failed' })
-  if (!result.success) throw new Error(`session ${sessionId} failed to reopen: ${JSON.stringify(result)}`)
+  // ACP: session-life is the only starter — a delivery (enqueue) or the person's explicit start. A wake would be a
+  // second start owner, so it is refused loudly.
+  throw new Error(`ACP session ${sessionId} is started by session-life (deliver or start), not by a wake`)
 }
 
 /**
@@ -1893,9 +1878,7 @@ export async function startSessionpageAgentSession(
     })
     throwIfAborted()
     mark('session-attached')
-    const workspaceId = existing
-      ? (await sessionService.ensureSessionMounted(session.id)).workspaceId
-      : repositoryWorkspaceId
+    if (existing) await sessionService.ensureSessionMounted(session.id)
     const mounted = resolveSession(project.id, session.id)
     if (!mounted) throw new Error(`session-page agent session ${session.id} is not mounted`)
     const provisioned = await provision({

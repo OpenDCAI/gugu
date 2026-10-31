@@ -855,6 +855,11 @@ export function createStartOwningClient(client: ContractClient<AcpRuntimeApiCont
   //    而 worker 手里只剩一条 lost 记录 —— 那句话被拒,会话也没重起(#5233 评审,单测 A 实测)。
   //    停会话先撤掉在途启动:停之后的下一次启动必须是新的一次,❌ 并入一个刚被停掉的启动
   //    (它的结果是「起来了」,它手里那张平台票已经被停会话结清)。
+  // A persisted session is started by session-life (one owner); this renderer-facing entry serves side-chat
+  // runtime forks, which live outside Life and end with their parent's archive or delete.
+  const sideChatOnly = (input: { sessionId: string; sourceSessionId?: string }): void => {
+    if (!input.sourceSessionId) throw new Error(`ACP session ${input.sessionId} is started by session-life; only side-chat forks start here`);
+  };
   const startsInFlight = new Map<string, StartOperation>();
   const stopsInFlight = new Map<string, ReturnType<typeof client.stopSession>>();
   const conditionalStops = new Set<string>();
@@ -972,6 +977,7 @@ export function createStartOwningClient(client: ContractClient<AcpRuntimeApiCont
     queuePrompt: async (input, meta) => {
       const { startInput: rendererStartInput, ...queued } = input;
       if (!rendererStartInput) return client.queuePrompt(queued, meta);
+      sideChatOnly(rendererStartInput);
       const sessionId = rendererStartInput.sessionId;
       if (!startsInFlight.has(sessionId)) {
         const owner = await detachedClient.adapterProvenance({ sessionId });
@@ -1002,9 +1008,10 @@ export function createStartOwningClient(client: ContractClient<AcpRuntimeApiCont
       await startsInFlight.get(input.sessionId)?.prepared.catch(() => undefined);
       return client.setModelOption(input, meta);
     },
-    startSession: async (input, meta) => (await startOnce(input, meta)).result,
+    startSession: async (input, meta) => { sideChatOnly(input.input); return (await startOnce(input, meta)).result; },
     stopSession,
     resumeSession: async (input, meta) => {
+      sideChatOnly(input.input);
       while (stopsInFlight.has(input.input.sessionId)) await waitForStop(input.input.sessionId);
       await finishClosingProcess(input.input.sessionId);
       // 重开同样要带注入 —— 见 withEmdashPlatformInjection 抬头那段:漏在这里,首轮正常、重开翻车。
