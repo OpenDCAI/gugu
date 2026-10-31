@@ -90,6 +90,7 @@ export function withSubagentSources(
     async catchUp() { if (replacement) return replacement.catchUp?.(); await root.catchUp?.(); await Promise.all(starting.values()); await Promise.all([...children.values()].map((child) => child.catchUp?.())); },
     // The position names its own file (a child's pictures are in the child's record), so any reader of this harness reads it.
     ...(root.readImage ? { readImage: (ref: RecordImageRef) => root.readImage!(ref) } : {}),
+    ...(root.getLineage ? { getLineage: () => root.getLineage!() } : {}),
     async resumePoint() {
       if (replacement) return replacement.resumePoint!();
       // The host starts archiving and immediately stops the source. Start every

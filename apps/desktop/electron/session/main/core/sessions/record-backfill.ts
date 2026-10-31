@@ -57,8 +57,8 @@ export async function syncStoredHistoryFromRecord(sessionId: string, options: { 
         if (missing !== null || tail.length < limit) break;
       }
       return missing;
-    }, { images: true, committedOnly: row.runtime !== 'acp', includeArchived: true });
-    if (!picked.ok) return result('unavailable');
+    }, { images: true, committedOnly: row.runtime !== 'acp', includeArchived: true, afterForkOf: row.config?.forkedFrom?.sessionId });
+    if (!picked.ok) return result(picked.reason ?? 'unavailable');
     if (picked.turns === null) {
       log.warn('[record-backfill] the record and the store diverged; nothing filled in', { sessionId });
       return result('diverged');

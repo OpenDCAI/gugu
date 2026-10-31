@@ -5,7 +5,7 @@ import { hasRecordedAnswers, serializePayload, toolOutputText } from '../../acp/
 
 export type RecordContentBlock = { type: 'text'; text: string } | { type: 'image'; data: string; mimeType: string };
 
-import { RECORD_KEY_BOUNDARY_SUFFIX, type RecordBoundary, type RecordEntry } from '../contract';
+import { RECORD_KEY_BOUNDARY_SUFFIX, type RecordBoundary, type RecordEntry, type RecordLineageNode } from '../contract';
 
 /**
  * 各家记录源共用的小件：可见性出口、轮询节拍、JSON 收敛、逐行解析与分批、边界条、工具调用。
@@ -24,6 +24,8 @@ export type RecordSourceWarn = (message: string, detail?: Record<string, unknown
 export type SessionRecordSourceOptions = {
   /** A bounded historical read; compressed archives are never followed as live files. */
   readMode?: 'snapshot';
+  /** The parent's primary-file UUID chain. A fork snapshot emits only after its proven common prefix. */
+  parentLineage?: readonly RecordLineageNode[];
   /**
    * 轮询间隔（ms）。
    *
@@ -153,6 +155,13 @@ export class SessionRecordNotFoundError extends Error {
   ) {
     super(message);
     this.name = 'SessionRecordNotFoundError';
+  }
+}
+
+export class SessionRecordForkDivergedError extends Error {
+  constructor() {
+    super('Fork history has no provable common UUID prefix');
+    this.name = 'SessionRecordForkDivergedError';
   }
 }
 

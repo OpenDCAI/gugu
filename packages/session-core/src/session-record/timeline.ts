@@ -416,6 +416,8 @@ class RecordTimeline implements SessionTimeline {
     return this.epochValue;
   }
 
+  getRecordLineage() { return this.source.getLineage?.() ?? null; }
+
   getSnapshot(options?: { limit?: number; committedOnly?: boolean }): TimelineSnapshot {
     const limit = options?.limit ?? this.defaultLimit;
     const all = options?.committedOnly ? [...this.parser.history] : this.currentTurns();

@@ -435,6 +435,33 @@ describe('session timeline service', () => {
     expect(state.questionSend).not.toHaveBeenCalled();
   });
 
+  it('passes a proved parent primary lineage to the child snapshot and disposes both readers', async () => {
+    state.rows.push(row({ id: 'parent' }));
+    const parent = makeTimeline(), child = makeTimeline();
+    const lineage = [{ uuid: 'ancestor', parentUuid: null }];
+    parent.timeline.getRecordLineage = () => lineage;
+    const factory = vi.fn().mockResolvedValueOnce(parent.timeline).mockResolvedValueOnce(child.timeline);
+    service.setSessionTimelineFactory(factory);
+    expect(await service.pickRecordTurns('conv-1', async turns => turns, { images: false, afterForkOf: 'parent' }))
+      .toEqual({ ok: true, turns: [], complete: true });
+    expect(factory.mock.calls[1][0]).toMatchObject({ conversationId: 'conv-1', readMode: 'snapshot', parentLineage: lineage });
+    expect(parent.timeline.disposed).toBe(1);
+    expect(child.timeline.disposed).toBe(1);
+    expect(state.pendingWatchCalls).toEqual([]);
+  });
+
+  it('settles a fork without lineage fields as diverged and never indexes a guessed child prefix', async () => {
+    state.rows.push(row({ id: 'parent', provider: 'codex' }));
+    const parent = makeTimeline(), pick = vi.fn(async (turns: TimelineSnapshot['turns']) => turns);
+    const factory = vi.fn(async () => parent.timeline);
+    service.setSessionTimelineFactory(factory);
+    expect(await service.pickRecordTurns('conv-1', pick, { images: false, afterForkOf: 'parent' }))
+      .toEqual({ ok: false, reason: 'diverged' });
+    expect(factory).toHaveBeenCalledOnce();
+    expect(pick).not.toHaveBeenCalled();
+    expect(parent.timeline.disposed).toBe(1);
+  });
+
   it('uses the native archive at the first unread stored identity, with bounded older/newer pages and the real active turn', async () => {
     state.rows = [row({ runtime: 'acp' })];
     service.setSessionTimelineFactory(async () => makeTimeline().timeline);

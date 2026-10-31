@@ -17,6 +17,7 @@ import type { OpenedOutput, ToolImage } from '@gugu/session-core/acp/client';
 import {
   findToolImage,
   type RecordCursor,
+  type RecordLineageNode,
   type SessionRecordLocator,
   type SessionTimeline,
   type PendingRequest,
@@ -134,6 +135,7 @@ export type SessionTimelineFactory = (input: {
   /** 记录里认出来的提问宿主能不能代答(#6798);能 ⇒ 提问结算带上整份题目。 */
   answerableQuestions?: boolean;
   readMode?: 'snapshot';
+  parentLineage?: readonly RecordLineageNode[];
 }) => Promise<SessionTimeline>;
 
 /**
@@ -141,13 +143,13 @@ export type SessionTimelineFactory = (input: {
  * 会让每一个只想测服务层记账的用例都替记录源交税（也会把原生模块拖进不需要它的进程）。
  * 真开一份时间线的那一刻才加载。
  */
-const defaultTimelineFactory: SessionTimelineFactory = async ({ locator, conversationId: sessionId, answerableQuestions, readMode }) => {
+const defaultTimelineFactory: SessionTimelineFactory = async ({ locator, conversationId: sessionId, answerableQuestions, readMode, parentLineage }) => {
   const { createSessionRecordSource, createSessionTimeline } = await import(
     '@gugu/session-core/session-record'
   );
   // 存档只是捷径:读不出来 / 对不上,`createSessionTimeline` 自己会退回整份重读。
   const archive = readMode === 'snapshot' ? null : await loadTimelineArchive(sessionId);
-  return createSessionTimeline(createSessionRecordSource(locator, { readMode }), {
+  return createSessionTimeline(createSessionRecordSource(locator, { readMode, parentLineage }), {
     sessionId,
     archive,
     ...(answerableQuestions ? { answerableQuestions } : {}),
@@ -161,8 +163,6 @@ export function setSessionTimelineFactory(next: SessionTimelineFactory | null): 
 }
 
 type TimelineEntry = {
-  /** A record snapshot is scoped to ingestion, never promoted into the interactive reader cache. */
-  recordOnly?: boolean;
   conversationId: string;
   timeline: SessionTimeline;
   refs: number;
@@ -423,7 +423,7 @@ export function syncAsked(conversationId: string): void {
 }
 
 function syncPending(entry: TimelineEntry): void {
-  if (entry.disposed || entry.standIn || entry.recordOnly) return;
+  if (entry.disposed || entry.standIn) return;
   const asked = [...(hostAsks.get(entry.conversationId)?.values() ?? [])].map((ask) => ask.request);
   entry.timeline.syncPendingRequests([...entry.runtimeRequests, ...asked]);
 }
@@ -487,13 +487,10 @@ function scheduleIdleDispose(entry: TimelineEntry): void {
   entry.idleTimer.unref?.();
 }
 
-async function acquire(
-  conversationId: string,
-  options: { recordOnly?: boolean; includeArchived?: boolean } = {},
-): Promise<SessionTimelineResult<TimelineEntry>> {
-  const row = readSessionRow(conversationId, options);
+async function acquire(conversationId: string): Promise<SessionTimelineResult<TimelineEntry>> {
+  const row = readSessionRow(conversationId);
   if (!row) return fail('session_not_found', `这台机器上没有会话 ${conversationId}`);
-  const cached = options.recordOnly ? undefined : entries.get(conversationId);
+  const cached = entries.get(conversationId);
   if (cached) {
     cached.refs += 1;
     if (cached.idleTimer) {
@@ -519,7 +516,7 @@ async function acquire(
   // 并发的两次 acquire 只开一份实例：两份实例 = 两个 epoch，游标当场作废。
   // ⚠️ 等待那一支同样要把拒绝收敛成 Result —— 让它抛穿过去，第二个调用方拿到的就是一个
   //    异常而不是带 code 的失败，而第一个调用方拿到的是规规矩矩的 `{ok:false}`。
-  const inFlight = options.recordOnly ? undefined : opening.get(conversationId);
+  const inFlight = opening.get(conversationId);
   if (inFlight) {
     try {
       const entry = await inFlight;
@@ -535,15 +532,12 @@ async function acquire(
   const generation = resetGeneration;
   // 审批只有 ACP 腿有可结算的请求 id；TUI 腿的审批画在终端里，没有通道
   // （`write-bridge` 对它 fail loud）。所以这条订阅只对 ACP 腿开。
-  const promise = factory({ locator: location.locator, conversationId, answerableQuestions: remoteAnswerFor(row),
-    ...(options.recordOnly ? { readMode: 'snapshot' as const } : {}),
-  }).then((timeline) => {
+  const promise = factory({ locator: location.locator, conversationId, answerableQuestions: remoteAnswerFor(row) }).then((timeline) => {
     if (generation !== resetGeneration) {
       timeline.dispose();
       throw new Error('会话时间线服务在这份记录打开的过程中被重置了');
     }
     const entry: TimelineEntry = {
-      recordOnly: true,
       conversationId,
       timeline,
       refs: 1,
@@ -552,12 +546,12 @@ async function acquire(
       runtimeRequests: [],
       disposed: false,
     };
-    if (!options.recordOnly) entries.set(conversationId, entry);
-    try { if (!options.recordOnly) attachInteractive(entry, row); }
+    entries.set(conversationId, entry);
+    try { attachInteractive(entry, row); }
     catch (error) { entries.delete(conversationId); timeline.dispose(); throw error; }
     return entry;
   });
-  if (!options.recordOnly) opening.set(conversationId, promise);
+  opening.set(conversationId, promise);
   try {
     return { ok: true, value: await promise };
   } catch (error) {
@@ -568,7 +562,6 @@ async function acquire(
 }
 
 function attachInteractive(entry: TimelineEntry, row: SessionRow): void {
-  entry.recordOnly = false;
   restoreAgentQuestions(entry, row.projectId);
   if (summaryRuntime(row.runtime) === 'acp') attachPendingRequests(entry);
   withdrawOrphanHostAsks(entry);
@@ -620,11 +613,6 @@ function openFailure<T>(error: unknown): SessionTimelineResult<T> {
 
 function release(entry: TimelineEntry): void {
   entry.refs -= 1;
-  if (entry.recordOnly) {
-    entry.disposed = true;
-    entry.timeline.dispose();
-    return;
-  }
   if (entry.standIn) {
     if (entry.refs <= 0 && !entry.disposed) {
       entry.disposed = true;
@@ -1031,16 +1019,38 @@ type TranscriptTurns = TimelineSnapshot['turns'];
  * 拿到的必须是带图的那份 —— 库里那份没有别处可以再取。读不回来的那张保持只有字数(与「图不在了」同一种降级)。
  * `ok: false` = 这里没有记录可读;`turns: null` = `pick` 说不挑(记录与库岔开了)。
  */
+/** Ingestion owns this reader for one call. It cannot populate or dispose the interactive cache. */
+async function openRecordSnapshot(conversationId: string, includeArchived?: boolean, parentLineage?: readonly RecordLineageNode[]): Promise<SessionTimeline | null> {
+  const row = readSessionRow(conversationId, { includeArchived });
+  if (!row || !timelineFactory) return null;
+  const location = locateRow(row);
+  if (!location.supported) return null;
+  const generation = resetGeneration;
+  const timeline = await timelineFactory({ locator: location.locator, conversationId, readMode: 'snapshot', parentLineage });
+  if (generation !== resetGeneration) { timeline.dispose(); return null; }
+  return timeline;
+}
+
 export async function pickRecordTurns(
   conversationId: string,
   pick: (turns: TranscriptTurns) => Promise<TranscriptTurns | null>,
-  options: { images: boolean; committedOnly?: boolean; includeArchived?: boolean } = { images: true },
-): Promise<{ ok: true; turns: TranscriptTurns | null; complete: boolean } | { ok: false }> {
-  const acquired = await acquire(conversationId, { recordOnly: true, includeArchived: options.includeArchived });
-  if (!acquired.ok) return { ok: false };
+  options: { images: boolean; committedOnly?: boolean; includeArchived?: boolean; afterForkOf?: string } = { images: true },
+): Promise<{ ok: true; turns: TranscriptTurns | null; complete: boolean } | { ok: false; reason?: 'diverged' }> {
+  const opened: SessionTimeline[] = [];
+  let provingParent = !!options.afterForkOf;
   try {
-    if (acquired.value.standIn) return { ok: false };
-    const timeline = acquired.value.timeline;
+    let parentLineage: readonly RecordLineageNode[] | undefined;
+    if (options.afterForkOf) {
+      const parent = await openRecordSnapshot(options.afterForkOf, true);
+      if (!parent) return { ok: false, reason: 'diverged' };
+      opened.push(parent);
+      parentLineage = parent.getRecordLineage?.() ?? undefined;
+      if (!parentLineage?.length) return { ok: false, reason: 'diverged' };
+    }
+    provingParent = false;
+    const timeline = await openRecordSnapshot(conversationId, options.includeArchived, parentLineage);
+    if (!timeline) return { ok: false };
+    opened.push(timeline);
     await timeline.catchUp();
     const all = timeline.getSnapshot({ limit: Number.MAX_SAFE_INTEGER }).turns;
     const prefix = options.committedOnly ? timeline.getSnapshot({ limit: Number.MAX_SAFE_INTEGER, committedOnly: true }).turns : all;
@@ -1050,9 +1060,9 @@ export async function pickRecordTurns(
     return { ok: true, turns: await Promise.all(picked.map((turn) => withImagesReadBack(timeline, turn))), complete };
   } catch (error) {
     log.warn('[session-timeline] record unreadable', { conversationId, error: (error as Error)?.message ?? String(error) });
-    return { ok: false };
+    return { ok: false, ...(provingParent || (error as Error)?.name === 'SessionRecordForkDivergedError' ? { reason: 'diverged' as const } : {}) };
   } finally {
-    release(acquired.value);
+    for (const timeline of opened.reverse()) timeline.dispose();
   }
 }
 
