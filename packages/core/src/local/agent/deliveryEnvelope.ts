@@ -99,8 +99,8 @@ export function arrivalHint(route: DeliveryRouteKind, mode: DeliveryMode | null 
   if (mode === 'notice') {
     return `A 咕咕 system notice, not a request; anything you do post about it goes through ${RETURN_TOOL_BY_ROUTE[route]} — what you print here does not reach the chat.`
   }
-  // Your owner's own DM with you is rendered from this session: what you print here is the reply they read.
-  if (route === 'chat' && ownDm) return 'Sent by your owner in your own DM through 咕咕; reply right here in this session — that is the message they see.'
+  // 主人在和你的私聊里发的:怎么回由平台提示词 <gugu_transport> 定(普通 agent 在会话里回,助理用工具说话),信封只陈述这件事实。
+  if (route === 'chat' && ownDm) return 'Sent by your owner in your private chat with you; answer it the way <gugu_transport> says for that chat.'
   const hint = `Sent to you through 咕咕; what you print here does not reach the sender — reply with ${RETURN_TOOL_BY_ROUTE[route]}.`
   return route === 'chat' && chatKind === 'dm' ? `${hint} After replying through message_send, finish this turn without repeating the answer or adding a separate task summary here.` : hint
 }

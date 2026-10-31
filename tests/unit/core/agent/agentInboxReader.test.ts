@@ -417,13 +417,13 @@ describe('P-E4 离线追赶:未读行逐条受理,由队列 drain 合批', () =>
     expect(readDeliveryEnvelope(injections[0]!.text)?.segments[0]?.facts?.replyTo).toMatchObject({ fromId: `user:${AGENT}`, from: expect.stringContaining('Claude 1') })
   })
 
-  // The owner's own DM with this agent is rendered from the agent's session: the reply is printed there, not sent.
+  // The owner's own DM: the envelope states only that fact; <gugu_transport> says how to answer it (agent vs assistant).
   it.each([
     ['the owner in its own DM', 'dm', HUMAN, true],
     ['the owner in an ai DM', 'ai', HUMAN, true],
     ['someone else in a DM', 'dm', OTHER_AGENT, false],
     ['the owner in a group', 'group', HUMAN, false],
-  ] as const)('tells the agent to reply in its session only for %s', async (_case, kind, sender, ownDm) => {
+  ] as const)('marks only %s as the owner\'s private chat', async (_case, kind, sender, ownDm) => {
     const chat = '00000000-0000-4000-8000-00000000001e'
     const cloud = new FakeCloud()
     cloud.addChat(chat, kind)
@@ -434,7 +434,7 @@ describe('P-E4 离线追赶:未读行逐条受理,由队列 drain 合批', () =>
     await expect(pullAgentInbox(AGENT, deps)).resolves.toMatchObject({ injected: 1 })
     const arrival = injections[0]!.text.match(/<arrival>(.*)<\/arrival>/)?.[1] ?? ''
     if (ownDm) {
-      expect(arrival).toContain('reply right here in this session')
+      expect(arrival).toContain('Sent by your owner in your private chat with you')
       expect(arrival).not.toContain('message_send')
     } else expect(arrival).toContain('reply with message_send')
   })

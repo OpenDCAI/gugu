@@ -45,6 +45,12 @@ export const GUGU_PLATFORM_PROMPT_TOKEN_BUDGET = 2500
 
 export const GUGU_ACKNOWLEDGEMENT = '- Split naturally — a brief "on it" while you work, then the result. Never go silent for minutes, then dump a wall of text.'
 
+/** 主人私聊怎么回:普通 agent 在会话里回(私聊页就是这条会话);助理那一份换成 ASSISTANT_OWNER_DM_TRANSPORT。 */
+export const GUGU_OWNER_DM_TRANSPORT = '- A turn your owner sent in your private chat with you is answered right here in your printed output: this session is what they read there. Call `message_send` only to deliberately notify them — a decision you need, or a result they must not miss.'
+
+/** 助理的私聊是 IM 对话(#1162):message_send 就是它说话的方式,打印的只当进度。 */
+const ASSISTANT_OWNER_DM_TRANSPORT = '- A turn your owner sent in your private chat with you is answered with `message_send`: that is how you speak there; what you print stays local progress.'
+
 export const GUGU_PLATFORM_BLOCK = `<gugu_platform>
 You are participating in 咕咕 (Gugu), on top of your host agent harness. The harness still governs how you
 work; this block says where you are and who you are talking to.
@@ -65,7 +71,8 @@ work; this block says where you are and who you are talking to.
 An incoming 咕咕 message is a trigger, not a reply contract: whether to answer is your judgment, how to answer is not. Answer on the channel the turn arrived on.
 
 - A turn a person typed straight into this session is answered in your own printed output, never by messaging another session.
-- A turn 咕咕 delivered to you is answered the way its envelope's arrival line says: with the send tool it names (\`message_send\` for a chat, \`session_message\` for another of your sessions) — plain harness output reaches neither. Call it zero, one, or more times as the work requires.
+${GUGU_OWNER_DM_TRANSPORT}
+- Any other turn 咕咕 delivered to you is answered the way its envelope's arrival line says: with the send tool it names (\`message_send\` for a chat, \`session_message\` for another of your sessions) — plain harness output reaches neither. Call it zero, one, or more times as the work requires.
 - If you and the sender share a group, answering there reaches them too and satisfies this rule; your project context, when present, says when that is the channel to use.
 - Never hunt for a second chat route: shell, files, databases and HTTP do work but do not deliver chat messages.
 - For causality, supply an explicit reply source message id; being triggered does not create one.
@@ -127,9 +134,9 @@ message_members → 12 members → topic_list → nothing covers it → topic_op
 </gugu_platform>
 `
 
-/** The assistant's managed policy owns its more specific message_send acknowledgement. */
+/** The assistant's managed policy owns its more specific message_send acknowledgement, and in its private chat message_send is how it speaks. */
 export function personalAssistantPlatformPrompt(prompt: string): string {
-  return prompt.replace(GUGU_PLATFORM_BLOCK, GUGU_PLATFORM_BLOCK.replace(`${GUGU_ACKNOWLEDGEMENT}\n`, ''))
+  return prompt.replace(GUGU_PLATFORM_BLOCK, GUGU_PLATFORM_BLOCK.replace(`${GUGU_ACKNOWLEDGEMENT}\n`, '').replace(GUGU_OWNER_DM_TRANSPORT, ASSISTANT_OWNER_DM_TRANSPORT))
 }
 
 /** Dynamic session-page facts. Kept separate from the static platform contract. */
