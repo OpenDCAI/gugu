@@ -51,10 +51,9 @@ describe('server update confirmation and feedback', () => {
     expect(node('update')!.textContent).toBe('新版本已就绪，等待空闲')
   })
 
-  it.each([true, false, undefined])('confirms before choosing the existing update RPC (capability: %s)', async (capability) => {
+  it.each([true, false])('confirms before choosing the existing update RPC (confirmed restart support: %s)', async (capability) => {
     const device = server()
-    if (capability === undefined) delete device.capabilities.server_confirmed_restart
-    else device.capabilities.server_confirmed_restart = capability
+    if (!capability) delete device.capabilities.server_confirmed_restart
     await render(device)
     await click('update-now')
     expect(node('update-now-confirm')!.textContent).toContain('Remote')
@@ -73,7 +72,7 @@ describe('server update confirmation and feedback', () => {
     expect(toast).not.toHaveBeenCalled()
   })
 
-  it.each([true, false])('preserves scope and readiness restrictions (capability: %s)', async (capability) => {
+  it.each([true, false])('preserves scope and readiness restrictions (confirmed restart support: %s)', async (capability) => {
     for (const update of [
       { state: 'ready', version: target, scope: 'supervisor' },
       { state: 'ready', version: target, scope: undefined },
@@ -81,7 +80,7 @@ describe('server update confirmation and feedback', () => {
       { state: 'failed', version: target },
     ] as const) {
       const device = server(update)
-      device.capabilities.server_confirmed_restart = capability
+      if (!capability) delete device.capabilities.server_confirmed_restart
       await render(device)
       expect(node('update-now')).toBeNull()
       expect(node('update-now-confirm')).toBeNull()
@@ -89,10 +88,10 @@ describe('server update confirmation and feedback', () => {
     expect(rpc).not.toHaveBeenCalled()
   })
 
-  it.each([true, false])('names the device and distinguishes a known busy count from unknown (capability: %s)', async (capability) => {
+  it.each([true, false])('names the device and distinguishes a known busy count from unknown (confirmed restart support: %s)', async (capability) => {
     for (const count of [0, 1, 3, undefined]) {
       const device = server({ state: 'ready', version: target, busy_agents: count })
-      device.capabilities.server_confirmed_restart = capability
+      if (!capability) delete device.capabilities.server_confirmed_restart
       await render(device); await click('update-now')
       const confirmation = node('update-now-confirm')!.textContent!
       expect(confirmation).toContain('「Remote」')
@@ -114,9 +113,9 @@ describe('server update confirmation and feedback', () => {
     expect(rpc).not.toHaveBeenCalled()
   })
 
-  it.each([true, false])('reports failed update requests and allows another attempt (capability: %s)', async (capability) => {
+  it.each([true, false])('reports failed update requests and allows another attempt (confirmed restart support: %s)', async (capability) => {
     const device = server()
-    device.capabilities.server_confirmed_restart = capability
+    if (!capability) delete device.capabilities.server_confirmed_restart
     for (const failure of ['refused', 'rejected', 'transport']) {
       if (failure === 'refused') rpc.mockResolvedValueOnce({ result: { requested: false } })
       else if (failure === 'rejected') rpc.mockRejectedValueOnce(new Error('remote disconnected'))
