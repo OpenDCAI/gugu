@@ -239,7 +239,7 @@ function MobileAssistantAppContent({
         )}
       />
       <div id={`assistant-${assistant.id}-chat`} role="tabpanel" aria-label={labels.chat} className="ta-phone-chat ta-chat" hidden={tab !== 'chat'} ref={setChatColumn}>
-        <FilePreviewHost.Provider value={{}}><ChatAreaPanel viewportKey="assistant"
+        <FilePreviewHost.Provider value={{}}><ChatAreaPanel assistantChat viewportKey="assistant"
           chatId={chatId}
           navigationTarget={navigationTarget}
           activeTab="chats"
