@@ -232,9 +232,9 @@ describe('row slot survives turn commit', () => {
     };
     const vars = messageUnitDef.vars ?? {};
     const item = renderMsg('control', CODE_BLOCK_MESSAGE);
-    // oxlint-disable-next-line typescript/no-explicit-any -- defs are typed at the registry boundary
+    // defs are typed at the registry boundary
     const estimated = (messageUnitDef as any).estimate(item, mctx, vars) as number;
-    // oxlint-disable-next-line typescript/no-explicit-any -- same boundary
+    // same boundary
     const measured = (messageUnitDef as any).measure(item, mctx, vars) as number;
 
     expect(

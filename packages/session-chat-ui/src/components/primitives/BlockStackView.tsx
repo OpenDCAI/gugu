@@ -9,7 +9,7 @@ import { Dynamic } from 'solid-js/web';
 function BlockLeafRender(props: { node: Measured<BlockLeafLayout> }) {
   const def = BLOCK_REGISTRY[props.node.layout.kind];
   if (!def) return null;
-  // oxlint-disable-next-line typescript/no-explicit-any -- registry boundary
+  // registry boundary
   return <Dynamic component={def.Render} node={props.node as any} />;
 }
 

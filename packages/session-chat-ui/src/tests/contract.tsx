@@ -130,7 +130,7 @@ export async function renderAndMeasureUnit<D, V extends Record<string, number>>(
   let dispose: (() => void) | undefined;
 
   try {
-    // oxlint-disable-next-line typescript/no-explicit-any -- JSX typed per-def; safe at boundary
+    // JSX typed per-def; safe at boundary
     const Comp = def.Render as (p: any) => JSX.Element;
     dispose = render(
       () => (

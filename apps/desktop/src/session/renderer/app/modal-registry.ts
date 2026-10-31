@@ -40,5 +40,4 @@ export const modalRegistry = {
   addRemoteModal: createModal(AddRemoteModal),
   harnessLoginRequiredModal: createModal(HarnessLoginRequiredModal, { size: 'sm' }),
   keyboardShortcutsModal: createModal(KeyboardShortcutsCheatSheet, { size: 'lg' }),
-  // oxlint-disable-next-line typescript/no-explicit-any
 } satisfies Record<string, ModalRegistryEntry<any, any>>

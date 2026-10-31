@@ -403,7 +403,7 @@ module.exports = {
   //  · rollup 没能内联、产物里仍有运行时 require 的(@supabase/* drizzle-orm @modelcontextprotocol/sdk)。
   // 「运行时真要从磁盘加载」的判据不是猜的:把真包 dist-electron 全部 js 里残留的 require/import 裸包名
   // 扫一遍(0.2.40-beta.643.1),出现的留、没出现的挪 —— 被 rollup 内联的 SDK(@team-plain/graphql、
-  // @linear/sdk、@octokit/*、pino、ssh2 …)一个都没出现,已全部挪走。ssh2 挪走连带它 optional 的
+  // @octokit/*、pino、ssh2 …)一个都没出现,已全部挪走。ssh2 挪走连带它 optional 的
   // cpu-features 出包:那份本就没编译出 .node(ignoredBuiltDependencies),ssh2 早就在 try/catch 里降级。
   // ❌ 别回到「逐包写排除规则」:@@@2143 曾在这里排 mermaid/emoji-mart 本体,但排除一个包不会排除它的
   // 依赖树 —— cytoscape/katex/d3 等 103 个包 / 30.6 MiB 照样进包、且父节点已删谁也 require 不到,

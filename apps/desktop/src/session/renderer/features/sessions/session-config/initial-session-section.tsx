@@ -1629,7 +1629,6 @@ export function InitialSessionField({
   // Auto-inject issue context whenever the linked issue changes.
   useEffect(() => {
     state.setIssueContext(includeIssueContextByDefault ? defaultIssueContext : null);
-    // oxlint-disable-next-line react/exhaustive-deps
   }, [defaultIssueContext, includeIssueContextByDefault]);
 
   const resolvedCapabilities = useAgentCapabilities(state.provider);

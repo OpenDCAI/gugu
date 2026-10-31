@@ -336,7 +336,7 @@ const WIDE_CELL = 'y'.repeat(48)
 
 type Fixture = {
   label: string
-  // oxlint-disable-next-line typescript/no-explicit-any -- BlockDef is generic per kind; safe at the fixture boundary
+  // BlockDef is generic per kind; safe at the fixture boundary
   def: any
   block: Block
   prime?: (ctx: ContractCtx) => void | Promise<unknown>

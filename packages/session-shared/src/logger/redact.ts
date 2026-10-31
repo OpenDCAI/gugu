@@ -4,7 +4,7 @@
  * call sites that may embed secrets in message text or raw Error strings.
  *
  * Also exports DEFAULT_REDACT_PATHS for structural (field-path) redaction
- * via pino/fast-redact.
+ * via pino.
  */
 
 type RedactionReplacement = string | ((substring: string, ...args: string[]) => string);
@@ -71,7 +71,7 @@ export function redactAll(value: string): string {
 }
 
 /**
- * Field-path list for structural (pino/fast-redact) redaction.
+ * Field-path list for structural (pino) redaction.
  * Redacts well-known sensitive field names from structured log objects.
  * Used as the `redact` option in createPinoLogger.
  */

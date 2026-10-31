@@ -680,7 +680,6 @@ export function usePty(
       ptyStartedRef.current = false;
       submittedInputBufferRef.current = new SubmittedInputBuffer();
     };
-    // oxlint-disable-next-line react/exhaustive-deps
   }, [ptySessionId, pty]); // Re-run only when the session changes
 
   // 放在挂载那一段之后:同一次提交里先挂上,再按页露没露着决定用不用 WebGL(见 FrontendPty.setShown)。
