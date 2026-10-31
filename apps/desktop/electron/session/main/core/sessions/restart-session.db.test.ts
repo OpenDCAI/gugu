@@ -76,12 +76,13 @@ describe('restartSession on a session-life session', () => {
     expect(mocks.calls.filter(call => call.startsWith('reconfigure'))).toHaveLength(2);
   });
 
-  it('once the engine took the replay, the next 重来 is a new replay', async () => {
+  it.each(['accepted', 'failed', 'unknown'])('once the replay settled as %s, the next 重来 is a new replay, queued once', async (state) => {
     await restartSession('p', 's');
-    fixture.sqlite.prepare("UPDATE session_pending SET state = 'accepted' WHERE session_id = 's'").run();
+    fixture.sqlite.prepare("UPDATE session_pending SET state = ? WHERE session_id = 's'").run(state);
     await restartSession('p', 's');
-    const rows = fixture.sqlite.prepare("SELECT message_id AS id FROM session_pending WHERE session_id = 's' ORDER BY seq").all();
-    expect(rows).toEqual([{ id: 's:restart:0' }, { id: 's:restart:1' }]);
+    await restartSession('p', 's');
+    const rows = fixture.sqlite.prepare("SELECT message_id AS id, state FROM session_pending WHERE session_id = 's' ORDER BY seq").all();
+    expect(rows).toEqual([{ id: 's:restart:0', state }, { id: 's:restart:1', state: 'queued' }]);
   });
 
 });

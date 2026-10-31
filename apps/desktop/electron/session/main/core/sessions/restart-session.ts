@@ -1,4 +1,4 @@
-import { and, eq, like } from 'drizzle-orm';
+import { and, eq, inArray, like } from 'drizzle-orm';
 import { db } from '@main/db/client';
 import { sessionPending, sessions } from '@main/db/schema';
 import { events } from '@main/lib/events';
@@ -35,11 +35,6 @@ export async function restartSession(
     .limit(1);
   if (!row) throw new Error('Session not found');
   if (!row.config) throw new Error(`Session has no config: ${sessionId}`);
-  // ACP: this restart's replay is numbered by the replays the engine already took. Until it takes this one, another
-  // 重来 (a second press, another window) is this same restart: nothing to rest, nothing to enqueue again.
-  const replayId = row.runtime === 'acp' ? `${sessionId}:restart:${acceptedReplays(sessionId)}` : null;
-  if (replayId && db.select({ seq: sessionPending.seq }).from(sessionPending)
-    .where(and(eq(sessionPending.sessionId, sessionId), eq(sessionPending.messageId, replayId))).get()) return;
 
   // 记着的首轮:优先用还留在载荷里的那份(它本来就是要投递的那句),否则用创建时记下的事实。
   const replay = row.config.initialPrompt?.trim() || row.config.firstUtterance?.trim();
@@ -94,7 +89,13 @@ export async function restartSession(
   // pty 在主进程这边就地重起。ACP: the replay is a new pending row (the first run's row was accepted: reusing its id
   // would be a no-op). A reconfigure first rests a run and leaves a failure, so the replay starts a fresh run on the
   // cleared provider session and is delivered once.
-  if (replayId) {
+  if (row.runtime === 'acp') {
+    // The replay is numbered by the replays already settled (accepted, failed or unknown). While this one is still in
+    // flight, another 重来 (a second press, another window) is this same restart: nothing to rest, nothing to enqueue.
+    // Checked right before the rest, so two concurrent calls overlap as little as possible.
+    const replayId = `${sessionId}:restart:${settledReplays(sessionId)}`;
+    if (db.select({ seq: sessionPending.seq }).from(sessionPending)
+      .where(and(eq(sessionPending.sessionId, sessionId), eq(sessionPending.messageId, replayId))).get()) return;
     await sessionLife().interrupt(sessionId, { k: 'interrupt', reason: 'reconfigure' });
     sessionLife().enqueue({ sessionId, messageId: replayId, text: replay, kind: 'ordinary',
       turn: { kind: 'prompt', origin: 'manual' } });
@@ -103,8 +104,9 @@ export async function restartSession(
   }
 }
 
-function acceptedReplays(sessionId: string): number {
+function settledReplays(sessionId: string): number {
   return db.select({ seq: sessionPending.seq }).from(sessionPending)
-    .where(and(eq(sessionPending.sessionId, sessionId), eq(sessionPending.state, 'accepted'), like(sessionPending.messageId, `${sessionId}:restart:%`)))
+    .where(and(eq(sessionPending.sessionId, sessionId), inArray(sessionPending.state, ['accepted', 'failed', 'unknown']),
+      like(sessionPending.messageId, `${sessionId}:restart:%`)))
     .all().length;
 }
