@@ -100,7 +100,7 @@ import {
 } from '../agents/session-discovery';
 import { getPlugin, listPlugins, toAgentProviderId } from '../agents/plugin-registry';
 import { archiveSession } from './archiveSession';
-import { setSessionParent } from './session-family';
+import { resolveSessionParent, setSessionParent } from './session-family';
 import { attachAgentToSession, type InternalSessionRelations } from './attach-agent-to-session';
 import { deleteSession } from './deleteSession';
 import { recordSessionOutput } from './session-outputs';
@@ -157,7 +157,7 @@ export type SessionAction =
       /** The `project` parameter, decoded at the host boundary: a project id, or a folder on this machine. */
       project_id?: string;
       project_path?: string;
-      nest?: boolean;
+      parent_session_id?: string | null;
       transport?: SessionRuntime;
       /** Canonical plugin id returned by session_list_harnesses. */
       harness?: string;
@@ -222,6 +222,8 @@ export type SessionSnapshot = {
   /** 派它的会话在另一台机器上时,那台机器。 */
   spawned_by_device_id?: string;
   parent_session_id: string | null;
+  /** 父级的远端祖先暂时够不着,与 session_set_parent 同一条回执。 */
+  not_reached?: string[];
   project_id: string;
   title: string;
   provider_id: string;
@@ -828,16 +830,22 @@ export async function resolveCreateModelChoice(
 /**
  * Who spawned a session, and whether it is listed under them — one rule for every spawn (session_spawn here and from
  * another machine, and an App's page an agent works, owner 10-14): the spawner is recorded always (who started it, and
- * 「连同子会话」 follows it); it is the parent unless the call said `nest: false`. Which project the child lands in is a
- * separate fact: a child in another project still sits under its spawner (owner 2026-10-30: project and parent are
- * orthogonal).
+ * 「连同子会话」 follows it). The already-authenticated spawner is the default parent; an explicit parent uses the same
+ * ownership/cycle check as set_parent before creation. Project placement and spawn provenance remain separate.
  */
-function spawnedBy(
+async function spawnedBy(
   by: { localSessionId: string } | { deviceId: string; sessionId: string; agentUserId?: string; name?: string },
-  nest = true,
-): Omit<InternalSessionRelations, 'spawnedByExtensionId'> {
-  if ('localSessionId' in by) return { spawnedBySessionId: by.localSessionId, ...storedParent(nest ? by : null) };
-  return { spawnedByRemote: by, ...storedParent(nest ? { deviceId: by.deviceId, sessionId: by.sessionId } : null) };
+  parentId?: string | null,
+  childId?: string,
+): Promise<{ relations: Omit<InternalSessionRelations, 'spawnedByExtensionId'>; not_reached: string[] }> {
+  const spawner = 'localSessionId' in by ? by : { deviceId: by.deviceId, sessionId: by.sessionId };
+  const { parent, not_reached } = parentId === undefined
+    ? { parent: spawner, not_reached: [] }
+    : await resolveSessionParent(childId, parentId);
+  return {
+    relations: { ...('localSessionId' in by ? { spawnedBySessionId: by.localSessionId } : { spawnedByRemote: by }), ...storedParent(parent) },
+    not_reached,
+  };
 }
 
 async function spawnSession(
@@ -905,6 +913,7 @@ async function spawnSession(
   });
   signal?.throwIfAborted();
 
+  const { relations, not_reached } = await spawnedBy({ localSessionId: context.sessionId }, action.parent_session_id, action.assistant_work?.child_session_id);
   const row = await createChildSession({
     ledger,
     projectId,
@@ -940,11 +949,12 @@ async function spawnSession(
     // —— 落地就是 BYOK，也就是 owner 在军训 case 里看到的「总教官跑 gpt-5.6-luna，派出去的 agent
     // 跑 harness 默认模型」。派生路径共用 attachAgentToSession 那一处继承，这里只说源是谁。
     inheritPlatformModelFrom: context.sessionId,
-    relations: spawnedBy({ localSessionId: context.sessionId }, action.nest),
+    relations,
     signal,
   });
   return {
     ...snapshot(row, {}, await sessionModel(row)),
+    ...(not_reached.length ? { not_reached } : {}),
     ...(action.assistant_work ? {assistant_work_target:{session_id:row.id,device_id:(await assistantWorkLedgerContext()).deviceId}} : {}),
     // child 是本项目里生出来的，因此和 caller 同属这个群（[[agent-provisioning]] 的入群是它 session
     // start 的一步）。点名了别的项目时 child 入的是那个项目的群，caller 不在里面 ⇒ 只有点对点。
@@ -1306,7 +1316,7 @@ export async function spawnSessionForApp(input: AppSessionSpawnInput): Promise<S
     ...(input.chat ? { birthGroup: { chatId: input.chat, asTask: false } } : {}),
     awaitStart: true,
     relations: {
-      ...(input.bySession ? spawnedBy({ localSessionId: input.bySession }) : { parentSessionId: null }),
+      ...(input.bySession ? (await spawnedBy({ localSessionId: input.bySession })).relations : { parentSessionId: null }),
       spawnedByExtensionId: input.extensionId,
     },
   });
@@ -2226,6 +2236,12 @@ async function spawnForRemoteCaller(
   const selection = carried ?? (await resolveSpawnModelSelection(provider, transport, modelToResolve));
   signal?.throwIfAborted();
 
+  const { relations, not_reached } = await spawnedBy({
+    deviceId: caller.deviceId,
+    sessionId: caller.sessionId,
+    ...(caller.agentUserId ? { agentUserId: caller.agentUserId } : {}),
+    ...(caller.name ? { name: caller.name } : {}),
+  }, action.parent_session_id, action.assistant_work?.child_session_id);
   const row = await createChildSession({
     ledger,
     projectId,
@@ -2242,16 +2258,12 @@ async function spawnForRemoteCaller(
       ? undefined
       : selection.model ?? (inheritModel ? caller.model ?? undefined : undefined),
     platformModel: selection.kind === 'gugu' ? { modelId: selection.modelId } : inheritModel && !caller.model ? undefined : null,
-    relations: spawnedBy({
-      deviceId: caller.deviceId,
-      sessionId: caller.sessionId,
-      ...(caller.agentUserId ? { agentUserId: caller.agentUserId } : {}),
-      ...(caller.name ? { name: caller.name } : {}),
-    }, action.nest),
+    relations,
     signal,
   });
   return {
     ...snapshot(row, {}, await sessionModel(row)),
+    ...(not_reached.length ? { not_reached } : {}),
     ...(action.assistant_work ? {assistant_work_target:{session_id:row.id,device_id:(await assistantWorkLedgerContext()).deviceId}} : {}),
     // 发起方与 child 不在同一台机器、也不在同一个项目群里:往来只有点对点这一条。
     message_route: { tool: 'session_message', to: [encodeTypedId('session', row.id)] },

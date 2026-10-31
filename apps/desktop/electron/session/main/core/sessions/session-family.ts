@@ -166,15 +166,15 @@ async function sessionsElsewhere(
 }
 
 /**
- * 改一条会话挂在谁下面(`session_set_parent`;owner 2026-10-02)。只改父会话这条边 —— 侧栏和手机按它建树;
- * 由谁派的是来历,不动。在 child 所在的机器上执行(宿主按 child 的地址转过来),父会话可以在任一台机器上。
+ * 创建或修改会话时共用的父级解析。在 child 所在的机器上执行;新建时 childId 尚未分配也可省略,
+ * 已预留 id 的会话照样判自环。父会话可以在任一台机器上,由谁派的不参与这条关系。
  * 校验只有两条:父会话是这个账号的一条会话(本机库里的,或在线机器报来的);挂上去不成环。
  * 够不着的机器上的会话既找不到、也查不了环 —— 回执里照实说没够着哪台。
  */
-export async function setSessionParent(
-  childId: string,
+export async function resolveSessionParent(
+  childId: string | undefined,
   parentId: string | null
-): Promise<{ parent_session_id: string | null; not_reached: string[] }> {
+): Promise<{ parent: SessionParent; not_reached: string[] }> {
   let not_reached: string[] = [];
   let parent: SessionParent = null;
   // 挪回顶层什么都不用查。挂上去时,父会话和它往上一串都在本机库里,判环就只用本机的(别的机器上的会话
@@ -212,7 +212,15 @@ export async function setSessionParent(
     }
     parent = node.deviceId === null ? { localSessionId: node.id } : { deviceId: node.deviceId, sessionId: node.id };
   }
+  return { parent, not_reached };
+}
 
+/** 改父会话只写这一条边;由谁派的是来历,不动。 */
+export async function setSessionParent(
+  childId: string,
+  parentId: string | null
+): Promise<{ parent_session_id: string | null; not_reached: string[] }> {
+  const { parent, not_reached } = await resolveSessionParent(childId, parentId);
   const [row] = await db
     .select({ projectId: sessions.projectId, config: sessions.config })
     .from(sessions)
