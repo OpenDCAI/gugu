@@ -30,7 +30,7 @@ describe('custody chain: sender outbox → host session_pending', () => {
   });
   afterEach(() => { fixture.close(); mocks.db = undefined; });
 
-  const hostRows = () => (fixture.sqlite.prepare("SELECT message_id FROM session_pending WHERE session_id = 's'").all() as { message_id: string }[]).map(row => row.message_id);
+  const hostRows = () => (fixture.sqlite.prepare("SELECT message_id FROM session_pending WHERE session_id = 's' ORDER BY seq").all() as { message_id: string }[]).map(row => row.message_id);
 
   it('host acceptance empties the outbox in the same step; a lost reply is retried into the same single host row', async () => {
     let loseReply = true;

@@ -185,6 +185,7 @@ import {
 import type { RemoteSessionCaller, SessionpageSessionSummary } from '@gugu/session-core/session-record/contract';
 import { sessionChangedChannel } from '@shared/core/sessions/sessionEvents';
 import { setOtherMachines, type OtherMachines } from './session-family';
+import { setEmdashIdentityProvisioner } from '@main/core/acp/emdash-mcp-injector';
 import {
   REMOTE_PANE_NO_EXTENSIONS,
   REMOTE_PANE_PAGE_NOT_FILE,
@@ -531,6 +532,9 @@ describe('session orchestration', () => {
   // R 第 3 段(真源原则 13):App 起 agent 走 session_spawn 那一条起会话的路;没点名的照这个人上次自己新建的那条会话,
   // ❌ 不看页面开在哪条会话旁边。对照组(父提交 1a60bdbf45):extension-agents 自己那份继承,从页面所在的那条会话起。
   describe('an App starts a session (spawnSessionForApp)', () => {
+    // An App's ACP session is bound to its identity before its row exists (bindIdentityThenCreate).
+    beforeEach(() => setEmdashIdentityProvisioner(async () => ({ guguAgentUserId: 'app-agent', chatId: 'dm' })));
+    afterEach(() => setEmdashIdentityProvisioner(null));
     const envelope = (messageId: string, text: string) => `<app-envelope msg="${messageId}">${text}</app-envelope>`;
     /** Settings' default agent, and the new-session memory (`newSessionMemory`) — what the box reads; its shape stands in for the terminal setting. */
     let defaultAgent: string | null = null;
