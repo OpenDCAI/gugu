@@ -1,3 +1,4 @@
+import { enqueueCreationTurns } from '../session-life-creation';
 import { mcpLibraryService } from '@main/core/mcp-library/service';
 import type { AgentProviderId } from '@gugu/session-plugins/agents';
 import { err, ok, type Result } from '@gugu/session-shared';
@@ -174,5 +175,9 @@ export async function createSession(
     convRow = commitCreateSession(prepared.data, tx);
   });
 
-  return ok(finalizeCreateSession(prepared.data, convRow));
+  const created = finalizeCreateSession(prepared.data, convRow);
+  // The desktop entry (a task page creating its own session): its first message is the session's first pending row,
+  // which starts it. The other entries admit theirs where they launch (launchCreatedSession, agent.create, spawn).
+  if (created.session.runtime === 'acp') enqueueCreationTurns(created.session);
+  return ok(created);
 }

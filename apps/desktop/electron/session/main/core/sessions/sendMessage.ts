@@ -789,6 +789,8 @@ export async function drainSessionMessageOutboxById(sessionId: string): Promise<
   const [row] = db.select().from(sessions).where(eq(sessions.id, sessionId)).limit(1).all();
   // ❌ 不静默 return：查不到会话说明调用方拿着一个不存在的 id，那是要修的 bug，不是空活。
   if (!row) throw new Error(`session ${sessionId} not found for outbox drain`);
+  // An ACP session's queue is session-life's (session_pending), as in drainAll: the session-live kick has nothing here.
+  if (row.runtime === 'acp') return;
   await drainSessionMessageOutbox({
     projectId: row.projectId,
     sessionId,

@@ -6,7 +6,17 @@ import { sessionLife } from './session-life';
  * own. The first turn of a chat-page / dispatched task is typed so its gugu message lands before it is sent.
  * Without any turn the person opened an empty task: that is an explicit start.
  */
-export function admitCreationTurns(session: Pick<Session, 'id' | 'initialQueue' | 'initialMessageId' | 'startupOrigin' | 'taskChatId'>): void {
+export function admitCreationTurns(session: CreationTurns): void {
+  if (!enqueueCreationTurns(session)) sessionLife().start(session.id, 'user-open');
+}
+
+type CreationTurns = Pick<Session, 'id' | 'initialQueue' | 'initialMessageId' | 'startupOrigin' | 'taskChatId'>;
+
+/**
+ * The creation turns as the session's first pending rows (idempotent: stable message ids). Returns how many there are;
+ * a desktop task page that creates its own session starts an empty one itself (lifeStart on open).
+ */
+export function enqueueCreationTurns(session: CreationTurns): number {
   const queue = session.initialQueue ?? [];
   const life = sessionLife();
   const landsFirst = Boolean(session.initialMessageId && (session.startupOrigin === 'chat-page' || session.taskChatId));
@@ -19,7 +29,7 @@ export function admitCreationTurns(session: Pick<Session, 'id' | 'initialQueue' 
         : { kind: 'prompt', origin: turn.origin, ...(turn.hiddenContext ? { hiddenContext: turn.hiddenContext } : {}) },
     });
   });
-  if (!queue.length) life.start(session.id, 'user-open');
+  return queue.length;
 }
 
 /**
