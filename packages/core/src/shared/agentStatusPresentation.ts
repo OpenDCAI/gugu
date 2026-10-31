@@ -5,7 +5,7 @@
  * 会话页、聊天、手机都调同一个 `presentAgentStatus`,界面之间只在密度上不同(整句、点、字形),
  * ❌ 在界面里另写一份「这个状态叫什么、什么颜色、动不动」。
  */
-import type { AgentStatusView, AgentWaitKind } from './agentStatus'
+import type { AgentAttention, AgentStatusView, AgentWaitKind } from './agentStatus'
 
 /** 可达:只有聊天侧有这一轴(会话页与手机会话行上的会话就在那台机器上)。 */
 export type AgentReachability = 'online' | 'offline' | 'archived' | 'removed' | 'pending'
@@ -58,6 +58,22 @@ export interface AgentStatusPresentation {
   emphasis: boolean
 }
 
+/** 「需要你」:在等你批准 / 回答 / 看计划 / 处理对话框。侧栏分组与 Needs You 列表只收它;出错留在自己那一行(#1143)。 */
+export function isNeedsYou(presentation: AgentStatusPresentation | null | undefined): boolean {
+  return presentation?.tone === 'needs_user'
+}
+
+/** 要人来处理:需要你或出错(与 `mostUrgentAttention` 同一个词)。行尾、头像角标这类提醒标记读它。 */
+export function presentationAttention(presentation: AgentStatusPresentation | null | undefined): AgentAttention {
+  return presentation?.tone === 'needs_user' || presentation?.tone === 'error' ? presentation.tone : null
+}
+
+type AgentStatusInput = {
+  reading: AgentStatusView | null
+  reachability?: AgentReachability
+  unseen?: boolean
+}
+
 const WAIT_LABEL: Readonly<Record<AgentWaitKind, AgentStatusLabel>> = {
   approval: 'needsApproval',
   question: 'needsAnswer',
@@ -78,14 +94,14 @@ const still = (tone: AgentStatusTone, label: AgentStatusLabel = tone as AgentSta
  * - 没有读数:可达时是「在线」,否则(会话页上没有状态源的终端会话)是 `none`,❌ 画成空闲。
  * - 读数:在跑(动)/ 后台在跑(静止)/ 需要你(按在等什么写)/ 出错 / 做完(未读才算,加粗不上色)/ 空闲
  *   (聊天侧可达时写「在线」)。
+ * - 没有身份的任务只有宿主的读数:宿主连不上时,「在干活」已经说不准,不画(`null`)。
  */
-export function presentAgentStatus(input: {
-  reading: AgentStatusView | null
-  reachability?: AgentReachability
-  unseen?: boolean
-}): AgentStatusPresentation {
-  const { reading, reachability, unseen = false } = input
+export function presentAgentStatus(input: AgentStatusInput & { hostOnline: boolean }): AgentStatusPresentation | null
+export function presentAgentStatus(input: AgentStatusInput): AgentStatusPresentation
+export function presentAgentStatus(input: AgentStatusInput & { hostOnline?: boolean }): AgentStatusPresentation | null {
+  const { reading, reachability, unseen = false, hostOnline = true } = input
   if (reachability === 'removed' || reachability === 'archived' || reachability === 'offline' || reachability === 'pending') return still(reachability)
+  if (!hostOnline && reading?.status === 'working') return null
   const idle = reachability === 'online' ? still('online') : still('idle')
   if (reading === null) return reachability === 'online' ? idle : still('none')
   switch (reading.status) {
