@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join, relative, resolve } from 'node:path'
 import { JSDOM } from 'jsdom'
-import { assertNoUndefinedBindingsInEmdashBundles } from './verify-emdash-bundle-no-undef.mjs'
+import { assertNoUndefinedBindingsInEmdashBundles } from './verify-emdash-bundle-no-undef.mts'
 import { assertMainStaticGraphDefersHomeReaders } from './verify-main-static-graph.mts'
 
 const root = resolve(process.cwd())

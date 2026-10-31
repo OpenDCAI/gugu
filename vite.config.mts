@@ -18,7 +18,7 @@ import {
 import { obfuscateOwnChunks, parseObfuscateFlag } from './scripts/obfuscate-own-chunks.mjs'
 import { monacoWorkerSingleBundlePlugin } from './scripts/monaco-worker-bundle.mjs'
 import { deterministicModuleSideEffects } from './scripts/deterministic-module-side-effects.mjs'
-import { announceActiveDb, applyActiveDbEnv, serverChannelForDb } from './scripts/build-env-preflight.mjs'
+import { activateDbEnv, serverChannelForDb } from './scripts/build-env-preflight.mts'
 import { vanillaExtractPlugin } from '@vanilla-extract/vite-plugin'
 import solid from 'vite-plugin-solid'
 import { emdashAliasEntries } from './apps/desktop/electron/sessionpage/emdash-aliases.mjs'
@@ -78,10 +78,9 @@ const buildTestNotes = process.env.GUGU_TEST_NOTES ?? ''
 // process.env，于是 renderer inline（vite loadEnv 末尾的 shell 覆盖循环）与烘焙 define（本文件
 // 顶层直读 process.env）拿到的是同一组值 —— 两条通路由构造同源，而不是事后比对才发现分叉。
 // 这也让裸 `vite` 起的 `pnpm dev` 认得登记处，无需任何 wrapper。
-applyActiveDbEnv(process.cwd(), process.env)
 // @@@db-announce `pnpm dev` 是裸 vite，此前整条路上没有任何一层说过「这次连的是哪个库」。
 // product spec 要求未声明时也必须把库显示出来，不允许悄悄连上。
-announceActiveDb(process.cwd(), process.env)
+activateDbEnv()
 
 const guguTarget = process.env.GUGU_TARGET ?? 'electron'
 const isElectronTarget = guguTarget === 'electron'
@@ -144,7 +143,7 @@ const sessionMainVite: ElectronOptions['vite'] = {
     ...bakedSupabaseDefine,
     __GUGU_TIER__: JSON.stringify(guguTier),
     __GUGU_BUILD_DISTRIBUTION__: JSON.stringify(guguBuildDistribution),
-    // 给别的机器装哪条通道的 server:跟这次构建连的库走(scripts/build-env-preflight.mjs serverChannelForDb)。
+    // 给别的机器装哪条通道的 server:跟这次构建连的库走(scripts/build-env-preflight.mts serverChannelForDb)。
     __GUGU_SERVER_CHANNEL__: JSON.stringify(serverChannelForDb(process.env.VITE_SUPABASE_URL || bakedSupabaseUrl || null)),
   },
   // 与渲染层同一条(@@@renderer-ascii-output,#6484):V8 把每个模块的源码常驻堆里,一个非 Latin-1 字符

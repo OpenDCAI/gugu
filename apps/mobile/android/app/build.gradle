@@ -75,7 +75,7 @@ if (!guguMarketRoot?.startsWith("https://") || !guguMarketRoot.endsWith("/")) {
 def guguRepoRoot = rootProject.file("../../..")
 def guguDbHost = providers.exec {
     workingDir guguRepoRoot
-    commandLine "node", "scripts/build-env-preflight.mjs", "--print-host"
+    commandLine "node", "scripts/build-env-preflight.mts", "--print-host"
 }.standardOutput.asText.get().trim()
 if (!(guguDbHost ==~ /^[A-Za-z0-9.-]+(:\d+)?$/)) {
     throw new GradleException("build-env-preflight --print-host 没给出库主机(收到 '${guguDbHost}')")

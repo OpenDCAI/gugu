@@ -673,7 +673,7 @@ registerFileViewerMenus(app, () => currentHostCatalog().fileViewerMenu, (error) 
 // @@@gugu-tier - inlined at build time by vite (define in vite.config.mts), default 'production'.
 declare const __GUGU_TIER__: string
 declare const __GUGU_BUILD_DISTRIBUTION__: string
-// 给别的机器装哪条通道的 server,构建时按连的库定(vite.config.mts → scripts/build-env-preflight.mjs serverChannelForDb)。
+// 给别的机器装哪条通道的 server,构建时按连的库定(vite.config.mts → scripts/build-env-preflight.mts serverChannelForDb)。
 declare const __GUGU_SERVER_CHANNEL__: 'stable' | 'beta'
 
 // @@@home-unify - one account home shared by desktop, CLI, and runtime host. The DEFAULT instance's

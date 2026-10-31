@@ -1,11 +1,11 @@
 import { execSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import { defineConfig, devices } from '@playwright/test'
-import { loadDotEnvLocal } from './scripts/env-file'
+import { activateDbEnv } from './scripts/build-env-preflight.mts'
 
 // 只剩 PR CI 的 ci-local 一个 project(e2e/ci/local):web 目标的 renderer 打本机 auth fixture
 // (LOCAL_FIXTURE_PORT),不碰共享测试库。❌ 不再新增 e2e 用例;验收证据写成单元测试(#6270)。
-loadDotEnvLocal()
+activateDbEnv()
 
 const loopbackNoProxy = new Set(
   [process.env.NO_PROXY, process.env.no_proxy, '127.0.0.1', 'localhost', '::1']

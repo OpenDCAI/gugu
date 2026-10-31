@@ -62,7 +62,7 @@ export JAVA_HOME ANDROID_HOME ANDROID_SDK_ROOT
 # @@@one-file-per-env 一套环境 = 一个文件 .envs/<target>.env（签名与库凭据同住一份）。
 # .env.local 已退役：存在即 fail loud，别让人以为填了就生效。
 if [ -f "$ROOT_DIR/.env.local" ]; then
-  echo "error: .env.local 已退役（一套环境一个文件）。搬迁：node scripts/build-env-preflight.mjs --migrate <prod|shared-test|local>" >&2
+  echo "error: .env.local 已退役（一套环境一个文件）。搬迁：node scripts/build-env-preflight.mts --migrate <prod|shared-test|local>" >&2
   exit 1
 fi
 

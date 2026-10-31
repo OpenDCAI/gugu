@@ -1,6 +1,18 @@
 import { readFileSync, readdirSync, statSync } from 'node:fs'
+import { createRequire } from 'node:module'
 import { basename, join } from 'node:path'
-import { Linter } from 'eslint'
+
+// eslint 8 ships no type declarations; this is the slice of its Linter API the verifier uses.
+interface LintMessage {
+  severity: number
+  line?: number
+  column?: number
+  message: string
+}
+interface EslintLinter {
+  verify(code: string, config: object, options: { filename: string; allowInlineConfig: boolean }): LintMessage[]
+}
+const { Linter } = createRequire(import.meta.url)('eslint') as { Linter: new () => EslintLinter }
 
 const EMDASH_BUNDLE_GLOBALS = Object.fromEntries(
   [
@@ -18,8 +30,8 @@ const EMDASH_BUNDLE_GLOBALS = Object.fromEntries(
 
 const BUNDLE_FILE_RE = /(?:^|[\\/])emdash-main-bridge(?:-[^/\\]+)?\.(?:cjs|js)$|(?:^|[\\/])(?:acp-runtime|agent-config-runtime|fs-watch-runtime)\.js$/
 
-function bundleFiles(root) {
-  const files = []
+function bundleFiles(root: string): string[] {
+  const files: string[] = []
   for (const entry of readdirSync(root)) {
     const path = join(root, entry)
     if (statSync(path).isDirectory()) files.push(...bundleFiles(path))
@@ -32,7 +44,7 @@ function bundleFiles(root) {
  * Verify every emitted session bridge/worker bundle rejects no-undef references.
  * The verifier is independent of the bundler so esbuild and Rollup share the same gate.
  */
-export function assertNoUndefinedBindingsInEmdashBundles(distElectronDir) {
+export function assertNoUndefinedBindingsInEmdashBundles(distElectronDir: string): { files: string[] } {
   const files = bundleFiles(distElectronDir)
   if (files.length === 0) {
     throw new Error(`session bundle verifier found no bridge/worker artifacts under ${distElectronDir}`)
@@ -45,7 +57,7 @@ export function assertNoUndefinedBindingsInEmdashBundles(distElectronDir) {
     globals: EMDASH_BUNDLE_GLOBALS,
     rules: { 'no-undef': 'error' },
   }
-  const failures = []
+  const failures: Array<{ file: string; errors: Array<{ line?: number; column?: number; message: string }>; count: number }> = []
   for (const file of files) {
     const messages = linter.verify(readFileSync(file, 'utf8'), config, {
       filename: file,
@@ -76,9 +88,9 @@ export function assertNoUndefinedBindingsInEmdashBundles(distElectronDir) {
   return { files }
 }
 
-if (process.argv[1] && process.argv[1].endsWith('verify-emdash-bundle-no-undef.mjs')) {
+if (process.argv[1] && process.argv[1].endsWith('verify-emdash-bundle-no-undef.mts')) {
   const distElectronDir = process.argv[2]
-  if (!distElectronDir) throw new Error('usage: node scripts/verify-emdash-bundle-no-undef.mjs <dist-electron>')
+  if (!distElectronDir) throw new Error('usage: node scripts/verify-emdash-bundle-no-undef.mts <dist-electron>')
   const started = Date.now()
   const result = assertNoUndefinedBindingsInEmdashBundles(distElectronDir)
   process.stdout.write(

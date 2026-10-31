@@ -1,7 +1,7 @@
 // ❌ 不要给这个文件加 shebang。vite.config.mts 会 import 它，而 vite 加载 config 时给每个文件
 // **前置**注入 __vite_injected_original_filename 等变量——shebang 因此不在第 0 位，esbuild 的
 // shebang 处理不再生效，`#!` 变成语法错误，整个 renderer build 挂掉（CI 实测）。
-// 本文件一律经 `node scripts/build-env-preflight.mjs` 调用（644，从不直接执行），不需要 shebang。
+// 本文件一律经 `node scripts/build-env-preflight.mts` 调用（644，从不直接执行），不需要 shebang。
 // tests/unit/scripts/buildEnvPreflight.test.ts 用 vite 自己的 loadConfigFromFile 钉住这条。
 // @@@build-env-preflight (#2782) — 打包前核对「这个包要连哪个库」，打包后核对「库地址真的烘进去了」。
 //
@@ -24,35 +24,152 @@
 import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import {
-  createEnvRegistryRuntime,
-  DB_TARGETS,
-  ENV_REGISTRY_DIR,
-  hostOf,
-  parseEnvFile,
-  PRODUCTION_DB_HOST,
-  registryFileFor,
-  resetDbAnnounceForTest,
-} from './env-registry.cjs'
+export type DbTarget = 'prod' | 'shared-test' | 'local'
+export const DB_TARGETS: readonly DbTarget[] = Object.freeze(['prod', 'shared-test', 'local'] as const)
+const isDbTarget = (value: unknown): value is DbTarget => DB_TARGETS.includes(value as DbTarget)
+export const ENV_REGISTRY_DIR: string = '.envs'
 
-const { announceActiveDb, applyActiveDbEnv, assertNoLegacyEnvLocal, loadActiveDbEnv } = createEnvRegistryRuntime({
-  existsSync,
-  readFileSync,
-  join: path.join,
-})
+// Both native ESM build tooling and Playwright's CommonJS config loader consume this value. Keep the
+// literal at their existing format-neutral boundary so safety checks share one fact without crossing
+// the loader boundary.
+export const PRODUCTION_DB_HOST: string = process.env.GUGU_PRODUCTION_DB_HOST || 'db.gugu.nextmind.space'
 
-export {
-  announceActiveDb,
-  applyActiveDbEnv,
-  assertNoLegacyEnvLocal,
-  DB_TARGETS,
-  ENV_REGISTRY_DIR,
-  hostOf,
-  loadActiveDbEnv,
-  parseEnvFile,
-  PRODUCTION_DB_HOST,
-  registryFileFor,
-  resetDbAnnounceForTest,
+export function registryFileFor(target: string): string {
+  return `${ENV_REGISTRY_DIR}/${target}.env`
+}
+
+// Deliberately supports only the dotenv subset used by the registry. Variable expansion would make
+// the selected value's source ambiguous, while source attribution is the point of this mechanism.
+export function parseEnvFile(text: string): Record<string, string> {
+  const out: Record<string, string> = {}
+  for (const rawLine of text.split(/\r?\n/)) {
+    const line = rawLine.trim().replace(/^export\s+/, '')
+    if (!line || line.startsWith('#')) continue
+    const eq = line.indexOf('=')
+    if (eq <= 0) continue
+    const key = line.slice(0, eq).trim()
+    let value = line.slice(eq + 1).trim()
+    if (value.startsWith('"') || value.startsWith("'")) {
+      const quote = value[0]
+      const close = value.indexOf(quote, 1)
+      if (close !== -1) value = value.slice(1, close)
+    } else if (value.startsWith('#')) {
+      value = ''
+    } else {
+      const commentAt = value.search(/\s#/)
+      if (commentAt !== -1) value = value.slice(0, commentAt).trimEnd()
+    }
+    if (key) out[key] = value
+  }
+  return out
+}
+
+export function hostOf(url: string): string | null {
+  try {
+    return new URL(url).host
+  } catch {
+    return null
+  }
+}
+
+let dbAnnounced = false
+
+export function resetDbAnnounceForTest(): void {
+  dbAnnounced = false
+}
+
+function announceHostSource(env: Record<string, string | undefined>): { url: string | null; from: string | null } {
+  const direct = env.GUGU_SUPABASE_URL || env.VITE_SUPABASE_URL
+  if (direct) return { url: direct, from: 'shell / 登记处' }
+  return { url: null, from: null }
+}
+
+export interface ActiveDbEnv {
+  values: Record<string, string>
+  source: string | null
+  target: string | null
+}
+
+export interface AnnouncedDb {
+  target: string | null
+  host: string | null
+  source: string | null
+  line: string
+}
+
+// A named target activates one complete registry file. No target means no implicit file selection.
+export function loadActiveDbEnv(rootDir: string, processEnv: Record<string, string | undefined> = {}): ActiveDbEnv {
+  const target = processEnv.GUGU_DB_TARGET
+  if (!target) return { values: {}, source: null, target: null }
+  const file = path.join(rootDir, registryFileFor(target))
+  if (!existsSync(file)) return { values: {}, source: null, target }
+  return { values: parseEnvFile(readFileSync(file, 'utf8')), source: registryFileFor(target), target }
+}
+
+// Soft compatibility would hide a stale second credential container, so legacy .env.local fails loud.
+export function assertNoLegacyEnvLocal(rootDir: string = process.cwd()): void {
+  const legacy = path.join(rootDir, '.env.local')
+  if (!existsSync(legacy)) return
+  throw new Error(
+    `.env.local 已退役（#2782 → 一套环境一个文件）。它的内容不会再被读取，留着只会让人以为配置生效了。\n` +
+      `  搬迁：node scripts/build-env-preflight.mts --migrate <${DB_TARGETS.join('|')}>\n` +
+      `  搬完 .env.local 会被删除，原件留在 .env.local.bak；核对无误后自行删掉 .bak。\n` +
+      `  模板与全部键的说明见 .envs/example.env`,
+  )
+}
+
+export function applyActiveDbEnv(rootDir: string = process.cwd(), env: Record<string, string | undefined> = process.env): ActiveDbEnv {
+  const active = loadActiveDbEnv(rootDir, env)
+  for (const [key, value] of Object.entries(active.values)) env[key] = value
+  return active
+}
+
+// Diagnostics use stderr because several env consumers reserve stdout for structured output.
+export function announceActiveDb(
+  rootDir: string = process.cwd(),
+  env: Record<string, string | undefined> = process.env,
+  log: (line: string) => void = console.error,
+): AnnouncedDb | null {
+  if (dbAnnounced || env.GUGU_DB_QUIET) return null
+
+  const target = env.GUGU_DB_TARGET || null
+  const { url, from } = announceHostSource(env)
+  const host = url ? hostOf(url) || url : null
+  let line: string
+
+  if (target && isDbTarget(target)) {
+    const file = registryFileFor(target)
+    const fileExists = existsSync(path.join(rootDir, file))
+    if (!fileExists && !host) {
+      throw new Error(
+        `[db] 声明了 GUGU_DB_TARGET=${target}，但 ${file} 不存在且 shell 没有库地址 —— ` +
+          `请创建并填写 ${file}（见 .envs/example.env），或显式注入完整的 Supabase 环境。`,
+      )
+    }
+    line = fileExists
+      ? `[db] ${target} → ${host ?? '(无库地址)'}   ${file}`
+      : `[db] 声明了 GUGU_DB_TARGET=${target}，但 ${file} 不存在 —— 落回 ${host ?? '(无库地址)'}（${from ?? '无来源'}）`
+  } else if (target) {
+    line = `[db] GUGU_DB_TARGET=${JSON.stringify(target)} 不是 ${DB_TARGETS.join(' / ')} 之一 —— 落回 ${host ?? '(无库地址)'}（${from ?? '无来源'}）`
+  } else if (host) {
+    line = `[db] 未声明 GUGU_DB_TARGET → ${host}（${from}）；设 GUGU_DB_TARGET=${DB_TARGETS.join('|')} 可让它变成硬核对`
+  } else {
+    line = `[db] 未声明 GUGU_DB_TARGET，也没找到库地址 —— 连接会 fail-loud。见 .envs/example.env`
+  }
+
+  dbAnnounced = true
+  log(line)
+  return { target, host, source: from, line }
+}
+
+/**
+ * The one node-side env bootstrap (vite config, Playwright config, integration tests): refuse the retired
+ * .env.local, let the declared GUGU_DB_TARGET set win over stale shell exports, then say which database.
+ */
+export function activateDbEnv(rootDir: string = process.cwd(), env: Record<string, string | undefined> = process.env): void {
+  assertNoLegacyEnvLocal(rootDir)
+  applyActiveDbEnv(rootDir, env)
+  announceActiveDb(rootDir, env)
 }
 
 // 给别的机器装哪条通道的 server:跟这次构建连的库走,❌ 跟构建类型(tier)走。正式通道的包烘的是生产库,Beta 通道
@@ -60,13 +177,23 @@ export {
 // 连测试库的开发版装上连生产库的 server,测试账号的登录码被送去生产库(10-28 真机撞到)。
 // 生产库以外一律 Beta:自建的本地库没有发布过的包,要用 GUGU_SERVER_DOWNLOAD_BASE 指到自己打的包。
 // 烘进产物的只有通道名:❌ 把生产库 host 烘进主进程 —— verifyDistBake 靠在产物里找这个 host 判断库地址烘进去了没有。
-export function serverChannelForDb(url) {
-  return hostOf(url) === PRODUCTION_DB_HOST ? 'stable' : 'beta'
+export function serverChannelForDb(url: string | null | undefined): 'stable' | 'beta' {
+  return hostOf(url ?? '') === PRODUCTION_DB_HOST ? 'stable' : 'beta'
 }
 
 // vite 的 cascade 顺序（弱 → 强）。这是 vite 内部 getEnvFilesForMode 的顺序，不是文档转述；
 // tests/unit/scripts/buildEnvPreflight.test.ts 用真 loadEnv 把它钉住，vite 改了顺序测试就红。
-export function envFileOrder(mode) {
+export interface EnvSlot {
+  value: string
+  source: string | null
+}
+
+export interface ResolvedBuildEnv {
+  renderer: { url: EnvSlot; anonKey: EnvSlot }
+  baked: { url: EnvSlot; anonKey: EnvSlot }
+}
+
+export function envFileOrder(mode: string): string[] {
   return [`.env`, `.env.local`, `.env.${mode}`, `.env.${mode}.local`]
 }
 
@@ -74,14 +201,22 @@ export function envFileOrder(mode) {
 // 返回两条通路各自的值与来源；来源是给人看的，出问题时「谁把它盖掉了」必须一眼可见。
 // processEnvLabel：选中某套后这些值其实来自登记处而非用户的 shell，标成 "shell env" 会误导
 // —— 排错时「谁给的这个值」必须指得准，指错等于把人往错误的文件上引。
-export function resolveBuildEnv({ envFiles = [], processEnv = {}, processEnvLabel = 'shell env' } = {}) {
-  const fromCascade = (key) => {
+export function resolveBuildEnv({
+  envFiles = [],
+  processEnv = {},
+  processEnvLabel = 'shell env',
+}: {
+  envFiles?: Array<{ name: string; values?: Record<string, string> }>
+  processEnv?: Record<string, string | undefined>
+  processEnvLabel?: string
+} = {}): ResolvedBuildEnv {
+  const fromCascade = (key: string): EnvSlot => {
     // shell 一旦定义就赢，**哪怕是空串**——vite 的覆盖循环不判空。这正是 #2710 那类
     // 「export 了个空值把文件里的好值抹掉」的形状，必须能被指认出来，不能静默当作未设置。
     if (Object.prototype.hasOwnProperty.call(processEnv, key)) {
       return { value: processEnv[key] ?? '', source: processEnvLabel }
     }
-    let hit = { value: '', source: null }
+    let hit: EnvSlot = { value: '', source: null }
     for (const file of envFiles) {
       const v = file.values?.[key]
       if (v !== undefined) hit = { value: v, source: file.name }
@@ -90,9 +225,9 @@ export function resolveBuildEnv({ envFiles = [], processEnv = {}, processEnvLabe
   }
 
   // 通路 B 精确镜像 vite.config.mts 的 `GUGU_… || VITE_… || ''`：`||` 会让空串继续下落。
-  const fromShellOnly = (guguKey, viteKey) => {
-    if (processEnv[guguKey]) return { value: processEnv[guguKey], source: `${processEnvLabel} ${guguKey}` }
-    if (processEnv[viteKey]) return { value: processEnv[viteKey], source: `${processEnvLabel} ${viteKey}` }
+  const fromShellOnly = (guguKey: string, viteKey: string): EnvSlot => {
+    if (processEnv[guguKey]) return { value: processEnv[guguKey]!, source: `${processEnvLabel} ${guguKey}` }
+    if (processEnv[viteKey]) return { value: processEnv[viteKey]!, source: `${processEnvLabel} ${viteKey}` }
     return { value: '', source: null }
   }
 
@@ -110,7 +245,7 @@ export function resolveBuildEnv({ envFiles = [], processEnv = {}, processEnvLabe
 
 // anon key 可能是 JWT，也可能是新式 sb_publishable_… ——后者无法离线取证。
 // 认不出就返回 null，由调用方降级为「不可离线核对」，❌ 不因为格式不认识就拦构建。
-export function decodeJwtClaims(token) {
+export function decodeJwtClaims(token: unknown): Record<string, unknown> | null {
   if (typeof token !== 'string') return null
   const parts = token.split('.')
   if (parts.length !== 3) return null
@@ -129,9 +264,9 @@ export function decodeJwtClaims(token) {
 // 于是文档里那条 `GUGU_DB_TARGET=shared-test pnpm build:app` 对所有按标准姿势配置的人都 exit 1。
 // URL 上根本区分不了这两者，就别假装能分 —— 假判据比没判据坏，它会把对的拦下、把错的放过。
 // 真正值钱且可判的只有一条：**生产库不能被当成非生产用，非生产也不能是生产库。**
-export function checkTargetHost(target, host) {
+export function checkTargetHost(target: string, host: string | null): string | null {
   if (!host) return `无法从 URL 解析出 host`
-  if (!DB_TARGETS.includes(target)) {
+  if (!isDbTarget(target)) {
     return `GUGU_DB_TARGET 只接受 ${DB_TARGETS.join(' / ')}，收到 ${JSON.stringify(target)}`
   }
   const isProdHost = host === PRODUCTION_DB_HOST
@@ -147,11 +282,15 @@ export function checkTargetHost(target, host) {
 //   - 显式声明的 target 与 host 不符（用户自己声明的，不符就是错）
 //   - URL 是 *.supabase.co 且 key 是能解出 ref 的 JWT，但 ref 与 URL 对不上
 // 其余一律 warning：拦不住的东西不假装拦住，也不因为无法取证就阻断 CD。
-export function checkBuildEnv({ renderer, baked, target = null } = {}) {
-  const errors = []
-  const warnings = []
+export function checkBuildEnv({
+  renderer,
+  baked,
+  target = null,
+}: ResolvedBuildEnv & { target?: string | null }): { errors: string[]; warnings: string[] } {
+  const errors: string[] = []
+  const warnings: string[] = []
 
-  const need = (label, slot) => {
+  const need = (label: string, slot: EnvSlot) => {
     if (slot.value) return true
     errors.push(
       slot.source === 'shell env'
@@ -168,7 +307,7 @@ export function checkBuildEnv({ renderer, baked, target = null } = {}) {
   for (const [label, a, b] of [
     ['URL', renderer.url, baked.url],
     ['anon key', renderer.anonKey, baked.anonKey],
-  ]) {
+  ] as const) {
     if (a.value && b.value && a.value !== b.value) {
       errors.push(
         `renderer 与烘焙 define 的 ${label} 不一致 —— 同一个包会连两个库。` +
@@ -201,11 +340,11 @@ export function checkBuildEnv({ renderer, baked, target = null } = {}) {
     // URL 与 key 是否属于同一个实例。托管域名能从子域推出 ref，自部署推不出，只能降级。
     const claims = decodeJwtClaims(renderer.anonKey.value)
     const hosted = host && /^([a-z0-9]+)\.supabase\.co$/.exec(host)
-    if (hosted && claims?.ref && claims.ref !== hosted[1]) {
+    if (hosted && typeof claims?.ref === 'string' && claims.ref !== hosted[1]) {
       errors.push(`anon key 属于项目 ${claims.ref}，但 URL 指向 ${hosted[1]} —— 地址与密钥不是一套`)
     } else if (!claims && renderer.anonKey.value) {
       warnings.push(`anon key 不是 JWT，无法离线核对它与 ${host} 是否同一套（新式 sb_* key 属正常）`)
-    } else if (claims?.exp && claims.exp * 1000 < Date.now()) {
+    } else if (typeof claims?.exp === 'number' && claims.exp * 1000 < Date.now()) {
       errors.push(`anon key 已于 ${new Date(claims.exp * 1000).toISOString()} 过期`)
     }
   }
@@ -213,7 +352,7 @@ export function checkBuildEnv({ renderer, baked, target = null } = {}) {
   return { errors, warnings }
 }
 
-function describe(slot) {
+function describe(slot: EnvSlot): string {
   if (!slot.value) return slot.source ? `（空，被 ${slot.source} 置空）` : '（未设置）'
   return `${hostOf(slot.value) ?? slot.value}（来自 ${slot.source}）`
 }
@@ -232,10 +371,10 @@ function describe(slot) {
 //   的引号。这三条正是 vite/dotenv 读 .env.local 时的语义，手抄版才是不一致的那个。
 //
 // 调用方保持 `{ ...readScriptEnv(), ...process.env }` 的优先级：文件垫底，shell 覆盖。
-export function readScriptEnv(rootDir = process.cwd(), env = process.env) {
+export function readScriptEnv(rootDir: string = process.cwd(), env: Record<string, string | undefined> = process.env): Record<string, string> {
   assertNoLegacyEnvLocal(rootDir)
   const target = env.GUGU_DB_TARGET
-  if (!target || !DB_TARGETS.includes(target)) return {}
+  if (!target || !isDbTarget(target)) return {}
   const file = path.join(rootDir, registryFileFor(target))
   return existsSync(file) ? parseEnvFile(readFileSync(file, 'utf8')) : {}
 }
@@ -249,7 +388,7 @@ export function readScriptEnv(rootDir = process.cwd(), env = process.env) {
 // mode 文件没写全的键会静默落回 .env.local，凑出 URL 与密钥分属两库的半套错。
 // 子目录 vite 从不扫，所以 .envs/ 里的三套是纯惰性存储，只有被显式选中才整套生效。
 // 一套凭据必须写全的四个连接键：缺任何一个都会静默落回别处，凑出半套错。
-export const DB_CONNECTION_KEYS = Object.freeze([
+export const DB_CONNECTION_KEYS: readonly string[] = Object.freeze([
   'VITE_SUPABASE_URL',
   'VITE_SUPABASE_ANON_KEY',
   'GUGU_SUPABASE_URL',
@@ -258,12 +397,12 @@ export const DB_CONNECTION_KEYS = Object.freeze([
 
 // 归属这套库、跟着 target 走的全部键（含 service_role：它是分库的，生产那把对 dev 库 401）。
 // 「必须写全」只要求上面四个；service_role 选填，但填了就跟着整套生效、也参与遮蔽检查。
-export const DB_ENV_KEYS = Object.freeze([...DB_CONNECTION_KEYS, 'SUPABASE_SERVICE_ROLE_KEY'])
+export const DB_ENV_KEYS: readonly string[] = Object.freeze([...DB_CONNECTION_KEYS, 'SUPABASE_SERVICE_ROLE_KEY'])
 
 // 也是分库的，但不影响构建：`pnpm seed:yatu-accounts` 把 Alice/Bob 建在当时指向的那个库里，
 // 换了 target 这两个账号就不存在。所以跟着 target 走，但缺了不拦（只有集成测试才用得上），
 // 留在 .env.local 里也只 warn —— 它不会让你打出连错库的包，够不上 error。
-export const DB_OPTIONAL_KEYS = Object.freeze([
+export const DB_OPTIONAL_KEYS: readonly string[] = Object.freeze([
   'ALICE_EMAIL',
   'ALICE_PASSWORD',
   'ALICE_NICKNAME',
@@ -276,10 +415,20 @@ export const DB_OPTIONAL_KEYS = Object.freeze([
 //   - 同时注入 VITE_* 与 GUGU_*，于是 renderer 与烘焙 define 两条通路**由构造保证一致**，
 //     而不是靠事后比对才发现不一致。这是本模块从「检测」升级到「消除」的那一步。
 //   - .env.local 里若还留着库相关的键，它们已经是过期副本 → 报错要求搬走，不静默共存。
-export function selectTargetEnv({ target, registryValues = null, localValues = {}, shellEnv = {} } = {}) {
-  const errors = []
-  const warnings = []
-  if (!DB_TARGETS.includes(target)) {
+export function selectTargetEnv({
+  target,
+  registryValues = null,
+  localValues = {},
+  shellEnv = {},
+}: {
+  target?: string
+  registryValues?: Record<string, string> | null
+  localValues?: Record<string, string>
+  shellEnv?: Record<string, string | undefined>
+} = {}): { injected: Record<string, string>; errors: string[]; warnings: string[] } {
+  const errors: string[] = []
+  const warnings: string[] = []
+  if (!isDbTarget(target)) {
     return { injected: {}, errors: [`GUGU_DB_TARGET 只接受 ${DB_TARGETS.join(' / ')}，收到 ${JSON.stringify(target)}`], warnings }
   }
   if (!registryValues) {
@@ -304,7 +453,7 @@ export function selectTargetEnv({ target, registryValues = null, localValues = {
     }
   }
 
-  const injected = {}
+  const injected: Record<string, string> = {}
   for (const key of [...DB_ENV_KEYS, ...DB_OPTIONAL_KEYS]) {
     const value = registryValues[key]
     if (value) injected[key] = value
@@ -363,9 +512,22 @@ export function selectTargetEnv({ target, registryValues = null, localValues = {
 // 两个目录都得扫:renderer 输出在根 dist,而烘焙 define(__GUGU_DEFAULT_SUPABASE_*__)落在
 // apps/desktop/dist-electron。只扫根 dist 的话,这道叫「烘焙门」的闸恰恰扫不到烘焙 define,
 // 通路 B 永远判不了 —— 它只是在重复验证 renderer inline。
-export const BAKE_SCAN_DIRS = Object.freeze(['dist', 'apps/desktop/dist-electron'])
+export const BAKE_SCAN_DIRS: readonly string[] = Object.freeze(['dist', 'apps/desktop/dist-electron'])
 
-export function verifyDistBake({ files = [], expectedHost, readText = (file) => file.text }) {
+export interface BakeCandidate {
+  path?: string
+  text?: string
+}
+
+export function verifyDistBake({
+  files = [],
+  expectedHost,
+  readText = (file) => file.text,
+}: {
+  files?: BakeCandidate[]
+  expectedHost: string | null
+  readText?: (file: BakeCandidate) => string | undefined
+}): { hits: number; errors: string[] } {
   if (!expectedHost) return { hits: 0, errors: [`无法核对烘焙：没有可比对的 host`] }
   let hits = 0
   for (const file of files) {
@@ -381,7 +543,7 @@ export function verifyDistBake({ files = [], expectedHost, readText = (file) => 
 }
 
 // 只返回路径，不读内容（读取交给 verifyDistBake 的 readText）。
-export function listBakeCandidates(dir, out = []) {
+export function listBakeCandidates(dir: string, out: BakeCandidate[] = []): BakeCandidate[] {
   if (!existsSync(dir)) return out
   for (const entry of readdirSync(dir)) {
     const full = path.join(dir, entry)
@@ -393,7 +555,7 @@ export function listBakeCandidates(dir, out = []) {
   return out
 }
 
-function readCascade(rootDir, mode) {
+function readCascade(rootDir: string, mode: string): Array<{ name: string; values: Record<string, string> }> {
   return envFileOrder(mode).map((name) => {
     const full = path.join(rootDir, name)
     return { name, values: existsSync(full) ? parseEnvFile(readFileSync(full, 'utf8')) : {} }
@@ -401,7 +563,7 @@ function readCascade(rootDir, mode) {
 }
 
 // warnings 默认空数组：烘焙门只产 errors，早期版本在这里直接解构迭代，一跑就 TypeError。
-function report({ errors = [], warnings = [] }, header) {
+function report({ errors = [], warnings = [] }: { errors?: string[]; warnings?: string[] }, header: string): void {
   console.log(header)
   for (const w of warnings) console.log(`  ⚠ ${w}`)
   for (const e of errors) console.error(`  ✖ ${e}`)
@@ -415,7 +577,7 @@ function report({ errors = [], warnings = [] }, header) {
   console.log('  ✓ 通过')
 }
 
-function readFileValues(full) {
+function readFileValues(full: string): Record<string, string> | null {
   return existsSync(full) ? parseEnvFile(readFileSync(full, 'utf8')) : null
 }
 
@@ -425,8 +587,8 @@ function readFileValues(full) {
 // 而其中一个（.env.local）根本没有自动加载路径。现在一套环境 = 一个文件,整份搬走、原地不留。
 // ❌ 不静默覆盖已有登记文件；❌ 不打印任何值（只打印键名）；改写前先留 .env.local.bak ——
 // 这文件里是人家的密钥,搬错了得能原样退回去。
-function migrate(rootDir, target) {
-  if (!DB_TARGETS.includes(target)) {
+function migrate(rootDir: string, target: string): void {
+  if (!isDbTarget(target)) {
     console.error(`--migrate 只接受 ${DB_TARGETS.join(' / ')}，收到 ${JSON.stringify(target)}`)
     process.exit(1)
   }
@@ -480,7 +642,7 @@ function migrate(rootDir, target) {
   }
 }
 
-function main(argv) {
+function main(argv: string[]): void {
   const migrateAt = argv.indexOf('--migrate')
   if (migrateAt !== -1) {
     migrate(process.cwd(), argv[migrateAt + 1])
@@ -495,7 +657,7 @@ function main(argv) {
   const target = process.env.GUGU_DB_TARGET || null
 
   // 选中的那一套整体注入，覆盖 shell 与 .env 文件 —— renderer 与烘焙 define 从此同源。
-  let selection = { injected: {}, errors: [], warnings: [] }
+  let selection: { injected: Record<string, string>; errors: string[]; warnings: string[] } = { injected: {}, errors: [], warnings: [] }
   if (target) {
     selection = selectTargetEnv({
       target,
@@ -511,7 +673,7 @@ function main(argv) {
     // 只有真从登记处注了值才标成登记文件名。CI 那种「声明了 target 但没有登记文件」的形态,
     // 值其实来自 shell —— 标成文件名会自相矛盾(紧接着还打印「该文件不存在」),
     // 还会让 need() 里 `source === 'shell env'` 那条空串诊断失效。
-    processEnvLabel: Object.keys(selection.injected).length ? registryFileFor(target) : 'shell env',
+    processEnvLabel: target && Object.keys(selection.injected).length ? registryFileFor(target) : 'shell env',
   })
 
   // 安卓壳的 build.gradle 拿它填 App Links 的主机(server-login 链接直接进 App):与网页构建同一个选库,❌ 另写一份。
@@ -542,7 +704,7 @@ function main(argv) {
             result: verifyDistBake({
               files: listBakeCandidates(d),
               expectedHost: host,
-              readText: (file) => readFileSync(file.path, 'utf8'),
+              readText: (file) => readFileSync(file.path!, 'utf8'),
             }),
           }))
           .reduce(
@@ -552,7 +714,7 @@ function main(argv) {
                 ...result.errors.map((e) => `${path.relative(rootDir, dir) || '.'}：${e}`),
               ],
             }),
-            { errors: [] }
+            { errors: [] as string[] }
           )
       : { errors: [`没有可核对的产物目录（${dirs.map((d) => path.relative(rootDir, d)).join(' / ')} 都不存在）`] }
     // 选套本身就错时(target 名乱写、.env.local 里还留着过期副本)不能只报烘焙结果就 exit 0 ——
@@ -585,7 +747,7 @@ function main(argv) {
 // 少了它，从任何软链路径（macOS 的 /tmp → /private/tmp、~/dev → /Volumes/…、部分 CI checkout
 // 布局）调用本脚本都会静默变成空操作 —— 一道 exit 0 却什么都没做的闸比没有还危险。
 if (process.argv[1]) {
-  const real = (p) => {
+  const real = (p: string): string => {
     try {
       return realpathSync(p)
     } catch {
