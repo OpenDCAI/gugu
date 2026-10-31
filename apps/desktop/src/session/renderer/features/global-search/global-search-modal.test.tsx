@@ -62,7 +62,7 @@ describe('global search modal', () => {
     showHit({ ...hits[0], kind: 'task', taskId: 's', projectId: 'p', title: 'Archived task', reference: 's:turn:s0:m', role: 'assistant', archived: true, attachment: null });
     expect(calls.links).toEqual([]);
     expect(modalStore.activeModalId).toBe('sessionHistoryModal');
-    expect(modalStore.activeModalArgs).toMatchObject({ sessionId: 's', title: 'Archived task' });
+    expect(modalStore.activeModalArgs).toMatchObject({ projectId: 'p', sessionId: 's', title: 'Archived task' });
     modalStore.closeModal();
   })
   it('states that some history is unavailable instead of claiming completeness', async () => {
