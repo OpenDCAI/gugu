@@ -133,6 +133,22 @@ describe('session-life ACP leg', () => {
     expect(exits).toEqual([]);
   });
 
+  it('#552: the worker going away while a dispatch is out releases the exit at once; the dispatch ends by its own rejection', async () => {
+    const adapter = await boundAdapter();
+    const process = await processLease();
+    const exits: ExitFact[] = [];
+    adapter.onExit({ process }, exit => exits.push(exit));
+    let refuse!: (error: Error) => void;
+    h.inject.mockImplementationOnce(() => new Promise((_resolve, reject) => { refuse = reject; }));
+    const dispatch = adapter.dispatch({} as StageOut, row, ctx());
+    h.gone!('ACP runtime exited');
+    expect(exits).toHaveLength(1);
+    // session-wire rejects every call still out when the worker transport closes.
+    refuse(Object.assign(new Error('Wire transport disconnected'), { code: 'DISCONNECTED' }));
+    await expect(dispatch).rejects.toThrow('Wire transport disconnected');
+    expect(exits).toHaveLength(1);
+  });
+
   it('a delivery into a next-tool-call harness steers its running turn unless the sender queued it (#4708)', async () => {
     const adapter = await boundAdapter();
     h.inject.mockResolvedValue({ outcome: 'started', completion: Promise.resolve(), turnId: 't' });

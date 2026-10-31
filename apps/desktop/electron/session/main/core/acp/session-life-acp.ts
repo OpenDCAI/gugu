@@ -235,15 +235,16 @@ export function createAcpLegAdapter(sessionId: string, fork: RuntimeFork | null)
     onExit(have, cb) {
       const worker = read<Worker>(have.process);
       let fired = false;
-      // An exit seen while a dispatch is out waits for it: a missing session closes too, and its receipt already restarts
-  // this run (#552).
+      const settle = (fact: ExitFact) => { if (!fired) { fired = true; cb(fact); } };
+      // A session closing while a dispatch is out waits for that dispatch: a missing session closes too, and its receipt
+      // already restarts this run (#552). The worker going away never waits: its transport closing rejects every call
+      // still out (session-wire's onDisconnect), so that dispatch ends on its own.
       const exit = (fact: ExitFact) => {
-        const settle = () => { if (!fired) { fired = true; cb(fact); } };
-        if (admitting) void admitting.then(lost => { if (!lost) settle(); });
-        else settle();
+        if (admitting) void admitting.then(lost => { if (!lost) settle(fact); });
+        else settle(fact);
       };
       const gone = (message: string): ExitFact => ({ cause: { name: 'AcpSessionGone', message }, code: null, signal: null });
-      const offWorker = worker.onGone(cause => exit(gone(cause)));
+      const offWorker = worker.onGone(cause => settle(gone(cause)));
       // Only a summary this attempt has seen alive counts: a stale lost/closed of an earlier attempt is not this exit.
       let alive = false;
       const offSummary = acpAgentStatusBridge.watch(sessionId, summary => {
