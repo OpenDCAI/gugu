@@ -115,6 +115,8 @@ export async function runMatchVersion(args: readonly string[], out: (line: strin
   const waitMs = deps.waitMs ?? 10 * 60_000
   const deadline = now() + waitMs
   let seen = running()
+  // 账号已登录、守护进程活着却没有账号进程 = 守护进程正在(退避)重启它,❌ 说成「没在跑」。
+  const currentText = (version: string | null): string => version ?? (deps.supervisorRunning() ? '(正在重启)' : '(没在跑)')
   while (now() < deadline) {
     seen = deps.runningVersion(account)
     if (seen === parsed.version) {
@@ -136,7 +138,7 @@ export async function runMatchVersion(args: readonly string[], out: (line: strin
         ? pin.version !== parsed.version && pin.previous === null && pin.at >= requestedAt
           && (pin.at !== originalPin?.at || pin.version !== originalPin?.version)
         : originalPin !== null
-      err(`换版请求 ${parsed.version} 启动失败${rolledBack ? `，已回滚到 ${pin?.version ?? '守护进程版本'}` : ''}，这个账号当前版本 ${seen ?? '(没在跑)'}`)
+      err(`换版请求 ${parsed.version} 启动失败${rolledBack ? `，已回滚到 ${pin?.version ?? '守护进程版本'}` : ''}，这个账号当前版本 ${currentText(seen)}`)
       return 6
     }
     // 装好了、守护进程在等这个账号空闲(有 agent 在跑):当场说,桌面问人「现在重启更新 / 稍后」,❌ 干等 10 分钟。
@@ -151,24 +153,24 @@ export async function runMatchVersion(args: readonly string[], out: (line: strin
         err(`这台机器连不上下载站,装不了 ${parsed.version}:要把包传过来`)
         return 7
       }
-      err(`这台机器装 ${parsed.version} 失败了(原因在咕咕 server 的日志里),这个账号还在跑 ${seen ?? '(没在跑)'}`)
+      err(`这台机器装 ${parsed.version} 失败了(原因在咕咕 server 的日志里),这个账号还在跑 ${currentText(seen)}`)
       return 6
     }
     const replacement = readVersionSwitchRequest(account.dataDir, now())
     // Consumption removes the request file, so a changed pin also reports a superseded/rolled-back
     // target. An older, different pin is normal while the requested package is still being staged.
     if (replacement?.target && replacement.target !== parsed.version && replacement.at >= requestedAt) {
-      err(`换版请求 ${parsed.version} 已被另一个请求 ${replacement.target} 替代（${replacement.reason}），这个账号当前版本 ${seen ?? '(没在跑)'}`)
+      err(`换版请求 ${parsed.version} 已被另一个请求 ${replacement.target} 替代（${replacement.reason}），这个账号当前版本 ${currentText(seen)}`)
       return 6
     }
     if (pin && pin.version !== parsed.version && pin.at >= requestedAt
       && (pin.at !== originalPin?.at || pin.version !== originalPin?.version)) {
-      err(`换版请求 ${parsed.version} 已被守护进程改为 ${pin.version}，这个账号当前版本 ${seen ?? '(没在跑)'}`)
+      err(`换版请求 ${parsed.version} 已被守护进程改为 ${pin.version}，这个账号当前版本 ${currentText(seen)}`)
       return 6
     }
     await sleep(500)
   }
   const installed = exists(versionBinary(versionsDir, parsed.version))
-  err(`等了 ${Math.round(waitMs / 1000)} 秒,这个账号还在跑 ${seen ?? '(没在跑)'}${installed ? '' : `(${parsed.version} 还没装好,装好后会自己换过去)`}`)
+  err(`等了 ${Math.round(waitMs / 1000)} 秒,这个账号还在跑 ${currentText(seen)}${installed ? '' : `(${parsed.version} 还没装好,装好后会自己换过去)`}`)
   return 4
 }

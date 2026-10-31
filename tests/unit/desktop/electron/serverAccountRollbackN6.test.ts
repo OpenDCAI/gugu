@@ -94,6 +94,8 @@ describe.runIf(process.platform !== 'win32')('account rollback across supervisor
     expect(rc).toBe(6)
     expect(error).toHaveBeenLastCalledWith(expect.stringContaining(previous))
     expect(error).toHaveBeenLastCalledWith(expect.stringContaining('回滚'))
+    // Between the rollback and the next start the supervisor is restarting the account, not leaving it stopped.
+    expect(error).toHaveBeenLastCalledWith(expect.stringContaining('(正在重启)'))
     expect(readBadVersions(home)[target]).toBe(clock)
     expect(converger.binaryFor(userId)?.version).toBe(previous)
     expect(fs.readFileSync(path.join(home, 'versions', previous, 'bin', 'gugu-server'))).toEqual(previousBytes)
