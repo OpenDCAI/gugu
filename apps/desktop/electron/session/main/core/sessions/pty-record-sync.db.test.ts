@@ -1,7 +1,6 @@
 import { openFixture } from '@tooling/utils/db';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import type Database from 'better-sqlite3';
-import { makePtySessionId } from '@shared/core/pty/ptySessionId';
 
 const state = vi.hoisted(() => ({ sqlite: null as Database.Database | null, sync: vi.fn(), watch: vi.fn(),
   status: null as ((change: { sessionId: string; reading: { running: boolean } }) => void) | null }));
@@ -14,7 +13,6 @@ vi.mock('../agent-status/agent-status-writer', () => ({ agentStatusWriter: { on:
 } } }));
 
 const { ptyRecordResumeSet, startPtyRecordSync } = await import('./pty-record-sync');
-const { makeTmuxSessionName } = await import('@main/core/pty/tmux-session-name');
 
 type Fixture = Awaited<ReturnType<typeof openFixture>>;
 let fixture: Fixture;
@@ -71,14 +69,13 @@ it('ends a settling watch when a new turn starts; that turn is read at its own s
   await vi.waitFor(() => expect(state.sync).toHaveBeenCalledTimes(2));
 });
 
-it('reads at boot only tasks running at shutdown, or with an unfinished record turn while tmux still runs the engine', () => {
+it('reads at boot only tasks running at shutdown, or with an unfinished record turn whether or not its engine survived', () => {
   fixture.sqlite.exec(`INSERT INTO sessions(id,project_id,title,runtime,agent_status) VALUES
-    ('running','p','R','pty','working'), ('flushing','p','F','pty','idle'), ('final','p','D','pty','idle'), ('chat','p','C','acp','working');`);
+    ('running','p','R','pty','working'), ('flushing','p','F','pty','idle'), ('engine-gone','p','D','pty','idle'), ('chat','p','C','acp','working');`);
   const turn = (session: string, outcome: boolean) => fixture.sqlite.prepare('INSERT INTO session_turns(id,session_id,seq,turn_id,data) VALUES (?,?,?,?,?)')
     .run(`${session}-t`, session, 0, `record:${session}:turn:0`, JSON.stringify({ id: `${session}:turn:s0`, items: [], ...(outcome ? { outcome: { kind: 'done' } } : {}) }));
-  turn('flushing', false); turn('final', false); turn('s', true);
-  const tmux = new Set([makeTmuxSessionName(makePtySessionId('p', 'flushing', 'flushing'))]);
-  expect(ptyRecordResumeSet(tmux).sort()).toEqual(['flushing', 'running']);
+  turn('flushing', false); turn('engine-gone', false); turn('s', true);
+  expect(ptyRecordResumeSet().sort()).toEqual(['engine-gone', 'flushing', 'running']);
 });
 
 it('stops following records and edges when it is stopped', async () => {

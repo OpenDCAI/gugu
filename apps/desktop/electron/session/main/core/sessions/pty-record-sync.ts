@@ -3,22 +3,21 @@ import { sqlite } from '@main/db/client';
 import { log } from '@main/lib/logger';
 import { agentStatusWriter } from '../agent-status/agent-status-writer';
 import { syncStoredHistoryFromRecord } from './record-backfill';
-import { sessionsAliveInTmux } from './session-process';
 
 /**
  * Terminal tasks whose record must be read once at boot, from facts that were persisted before this host started:
  * the task was running at shutdown (its status, read before the boot sweep settles it), or its stored record turn is
- * still unfinished while tmux still runs its engine (a reply that was being written when the host stopped).
+ * still unfinished (the host stopped between the reply's write and its read; the engine may have gone with it).
+ * Reading decides the rest as at any settled edge: settling while its engine runs, final once it is gone.
  * Everything else was read at its settled edge and is not read again.
  */
-export function ptyRecordResumeSet(tmuxSessionNames: ReadonlySet<string>): string[] {
-  const alive = sessionsAliveInTmux(tmuxSessionNames);
+export function ptyRecordResumeSet(): string[] {
   const rows = sqlite.prepare(`SELECT id, agent_status AS status, EXISTS (SELECT 1 FROM session_turns t WHERE t.session_id = sessions.id
       AND t.turn_id LIKE 'record:%' AND json_extract(t.data, '$.outcome.kind') IS NULL) AS unfinished
     FROM sessions WHERE runtime IS NULL OR runtime = 'pty'`).all() as { id: string; status: string | null; unfinished: number }[];
   return rows.filter(row => {
     const status = parseAgentStatus(row.status);
-    return isAgentActive(status ? { status } : null) || (row.unfinished === 1 && alive.has(row.id));
+    return isAgentActive(status ? { status } : null) || row.unfinished === 1;
   }).map(row => row.id);
 }
 
