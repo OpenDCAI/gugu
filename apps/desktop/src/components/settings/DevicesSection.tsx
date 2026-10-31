@@ -475,12 +475,15 @@ function DeviceRow({
   const [retriedFor, setRetriedFor] = useState<string | null>(null)
   const retrying = failedUpdate !== null && retriedFor === failedUpdate
   // 「有新版本」在等空闲:人可以「现在重启更新」(先说清会中断正在跑的 agent,再点一次才发)。点过就收起,心跳报回新版本时这颗标签自己没了。
-  const [updateNow, setUpdateNow] = useState<'ask' | { version: string; deadline: number } | null>(null)
+  const [updateNow, setUpdateNow] = useState<'ask' | { version: string; deadline: number; fromFailed: boolean } | null>(null)
   const restarting = updateNow !== null && typeof updateNow === 'object' ? updateNow : null
   const canRestart = serverSupportsConfirmedRestart(device.capabilities) && model.update?.scope === 'account'
-  if ((updateNow === 'ask' && (!canRestart || model.update?.state !== 'ready'))
+  // 起不来的那一版只有确认重启能再试(普通「重试」解不开它的冷却):失败行给「现在重启更新」,❌ 给一颗按了没用的「重试」。
+  const bootFailed = model.update?.state === 'failed' && model.update.reason === 'boot-failed'
+  const restartable = canRestart && (model.update?.state === 'ready' || bootFailed)
+  if ((updateNow === 'ask' && !restartable)
     || (restarting && (model.version === restarting.version
-      || (model.update?.state === 'failed' && model.update.version === restarting.version)))) setUpdateNow(null)
+      || (!restarting.fromFailed && model.update?.state === 'failed' && model.update.version === restarting.version)))) setUpdateNow(null)
   useEffect(() => {
     if (!restarting) return
     const timer = setTimeout(() => {
@@ -551,13 +554,13 @@ function DeviceRow({
         ))}
 
         {/* 「现在重启更新」的当面确认:单独一行,❌ 挤进名字那一行把机器名压成省略号。 */}
-        {model.update?.state === 'ready' && canRestart && onRestartVersionNow && updateNow === 'ask' && (
+        {restartable && onRestartVersionNow && updateNow === 'ask' && (
           <div className="mt-[6px] flex flex-wrap items-center gap-2" data-testid="settings-device-update-now-confirm">
             <span className="min-w-0 flex-1 text-[length:var(--font-caption)] text-[var(--muted-fg)]">{t('devices.update.updateNowConfirm', { name: device.label })}</span>
             <Button size="sm" onClick={() => setUpdateNow(null)} data-testid="settings-device-update-now-no">{t('devices.cancel')}</Button>
             <Button size="sm" variant="primary" onClick={() => {
               if (!model.update) return
-              setUpdateNow({ version: model.update.version, deadline: Date.now() + 120_000 })
+              setUpdateNow({ version: model.update.version, deadline: Date.now() + 120_000, fromFailed: model.update.state === 'failed' })
               const failed = (error?: unknown) => {
                 setUpdateNow(null)
                 toast(t('devices.update.restartFailed', { name: device.label }), 'error', error ? messageForUser(error) : undefined)
@@ -596,9 +599,12 @@ function DeviceRow({
             ) : link === 'unreachable' ? (
               t('devices.loginState.reconnecting')
             ) : failedUpdate !== null ? (
-              <span className={retrying ? undefined : 'text-[var(--danger-fg)]'} data-testid="settings-device-match-failed">
-                {retrying ? t('devices.loginState.matchRetrying') : t('devices.loginState.matchFailed')}
-                {!retrying && onRetryVersionMatch && (
+              <span className={retrying || restarting ? undefined : 'text-[var(--danger-fg)]'} data-testid="settings-device-match-failed">
+                {retrying || restarting ? t('devices.loginState.matchRetrying') : t('devices.loginState.matchFailed')}
+                {!retrying && !restarting && bootFailed && canRestart && onRestartVersionNow && updateNow === null && (
+                  <>{' '}<InlineAction onClick={() => setUpdateNow('ask')} testId="settings-device-match-restart-now">{t('devices.update.updateNow')}</InlineAction></>
+                )}
+                {!retrying && !bootFailed && onRetryVersionMatch && (
                   <>{' '}<InlineAction
                     onClick={() => {
                       setRetriedFor(failedUpdate)

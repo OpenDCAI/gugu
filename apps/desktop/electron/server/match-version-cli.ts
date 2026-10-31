@@ -167,8 +167,11 @@ export async function runMatchVersion(args: readonly string[], out: (line: strin
         err(`这台机器连不上下载站,装不了 ${parsed.version}:要把包传过来`)
         return 7
       }
+      // 确认重启就是这一版的最后一招:它还起不来就请人等新版本,❌ 再叫人 --now 一次。
       err(state.reason === 'boot-failed'
-        ? `${parsed.version} 在这台机器上启动失败过,冷却中不再自动尝试;检查后显式确认现在重启:match-version --account ${parsed.account} --apply ${parsed.version} --now。这个账号当前版本 ${currentText(seen)}`
+        ? parsed.now
+          ? `${parsed.version} 在这台机器上仍然启动失败,没有换过去;请等待新版本。这个账号当前版本 ${currentText(seen)}`
+          : `${parsed.version} 在这台机器上启动失败过,冷却中不再自动尝试;检查后显式确认现在重启:match-version --account ${parsed.account} --apply ${parsed.version} --now。这个账号当前版本 ${currentText(seen)}`
         : `这台机器装 ${parsed.version} 失败了(原因在咕咕 server 的日志里),这个账号还在跑 ${currentText(seen)}`)
       return 6
     }

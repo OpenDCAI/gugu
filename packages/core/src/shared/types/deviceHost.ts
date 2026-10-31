@@ -48,8 +48,9 @@ export interface DeviceServerUpdate {
   version: string
   /** Fresh count of this account's agents whose work a restart would interrupt. Absent = unknown. */
   busy_agents?: number
-  /** No runtime ownership proof: automatic restart is paused; explicit confirmation is required. */
-  reason?: 'runtime-unverified'
+  /** runtime-unverified (ready): no runtime ownership proof, automatic restart is paused; explicit confirmation is required.
+   *  boot-failed (failed): it installed but did not start; only the confirmed restart for this version retries it. */
+  reason?: 'runtime-unverified' | 'boot-failed'
 }
 
 export interface DeviceHostInfo {

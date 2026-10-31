@@ -327,6 +327,7 @@ function normalizeServerUpdate(value: unknown): { server_update?: DeviceServerUp
   const count = row.busy_agents
   return { server_update: { state: row.state, version: row.version.slice(0, 64),
     ...(row.scope === 'account' || row.scope === 'supervisor' ? { scope: row.scope } : {}),
+    ...(row.reason === 'runtime-unverified' || row.reason === 'boot-failed' ? { reason: row.reason } : {}),
     ...(typeof count === 'number' && Number.isSafeInteger(count) && count >= 0 ? { busy_agents: count } : {}) } }
 }
 

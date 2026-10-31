@@ -667,6 +667,15 @@ describe('gugu-server match-version', () => {
     expect(errors.pop()).toMatch(/0\.3\.1 在这台机器上启动失败过.*--apply 0\.3\.1 --now.*当前版本 \(正在重启\)/)
     expect(await apply(undefined, 'not-started')).toBe(6)
     expect(errors.pop()).toMatch(/装 0\.3\.1 失败了.*\(没有能启动的版本,未启动\)/)
+    // 确认重启后仍起不来:请人等新版本,❌ 再叫人 --now。
+    let clock = NOW
+    expect(await runMatchVersion(['--account', U1, '--apply', '0.3.1', '--now'], () => undefined, (l) => errors.push(l), {
+      home, runningVersion: () => '0.3.0', supervisorRunning: () => true, sleep: async () => undefined, waitMs: 1_000,
+      now: () => (clock += 100), readUpdateState: () => JSON.stringify({ state: 'failed', version: '0.3.1', at: NOW + 500, reason: 'boot-failed' }),
+    })).toBe(6)
+    const last = errors.pop()!
+    expect(last).toContain('0.3.1 在这台机器上仍然启动失败,没有换过去;请等待新版本。这个账号当前版本 0.3.0')
+    expect(last).not.toContain('--now')
   })
 
   it('换过去:这个账号有 agent 在跑、守护进程在等空闲 ⇒ 当场退 8(桌面问人);--now 不退,请求带上「人确认过」', async () => {

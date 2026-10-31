@@ -93,7 +93,7 @@ export function parseServerUpdateState(text: string, nowMs: number, activityText
     data.state === 'downloading' ? SERVER_UPDATE_DOWNLOADING_STALE_MS : data.state === 'failed' ? SERVER_UPDATE_FAILED_STALE_MS : SERVER_UPDATE_READY_STALE_MS
   if (age > limit) return null
   const update: DeviceServerUpdate = { state: data.state, version: data.version }
-  if (data.reason === 'runtime-unverified') update.reason = data.reason
+  if ((data.state === 'ready' && data.reason === 'runtime-unverified') || (data.state === 'failed' && data.reason === 'boot-failed')) update.reason = data.reason
   if (data.state === 'ready' && activityText && !update.reason) {
     try {
       const activity = JSON.parse(activityText) as { at?: unknown; busyAgents?: unknown }
