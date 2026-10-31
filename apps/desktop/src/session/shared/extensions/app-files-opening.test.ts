@@ -17,7 +17,7 @@ const rpc = vi.fn((name: string) => {
 vi.mock('@gugu/core/cloud/supabase', () => ({ createGuguSupabaseClient: () => ({ rpc }) }));
 const { createAppFiles } = await import('./app-files-core');
 const identities = vi.fn(async () => [{ id: PERSON, name: 'Creator', kind: 'human' as const, avatar: null }]);
-const claimant = vi.fn(() => ({ suffix: '.md', app: { id: 'workspace', name: 'Folder', icon: null } }));
+const claimant = vi.fn(() => ({ suffix: '.md', app: { id: 'workspace', name: 'Folder', icon: null }, state: false }));
 const warn = vi.fn();
 const grant = vi.fn<(page: unknown, grant: Grant) => void>();
 const ensureFor = vi.fn();

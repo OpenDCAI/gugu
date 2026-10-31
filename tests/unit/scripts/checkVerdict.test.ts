@@ -30,7 +30,7 @@ import {
   parseJobOutputsAnnotations,
   pullRequestEvents,
   workflowRunsForEvent
-} from '../../../scripts/check-verdict.mjs'
+} from '../../../scripts/ci/check-verdict.mts'
 
 type CheckRun = {
   id: number
@@ -121,7 +121,7 @@ describe('exact-head check verdict', () => {
   it('rejects abbreviated head SHAs with a rev-parse repair hint', () => {
     const result = spawnSync(
       process.execPath,
-      [resolve('scripts/check-verdict.mjs'), '--sha', '7d435d2501', '--push', 'dev'],
+      [resolve('scripts/ci/check-verdict.mts'), '--sha', '7d435d2501', '--push', 'dev'],
       { cwd: process.cwd(), encoding: 'utf8' }
     )
 
@@ -137,7 +137,7 @@ describe('exact-head check verdict', () => {
     const result = spawnSync(
       process.execPath,
       [
-        resolve('scripts/check-verdict.mjs'),
+        resolve('scripts/ci/check-verdict.mts'),
         '--sha',
         '7d435d25015b2c15ea3c7f729799cddd399405a7',
         '--push',
@@ -481,7 +481,7 @@ describe('exact-head check verdict', () => {
       cwd: fixtureRoot,
       encoding: 'utf8'
     }).trim()
-    // @@@4918 假 gh 经 GUGU_GH 被 check-verdict.mjs 执行。正文全静态
+    // @@@4918 假 gh 经 GUGU_GH 被 check-verdict.mts 执行。正文全静态
     // (调用日志与 sha 都走 env),所以能按内容寻址、跨 worker/跨 run 复用同一个 inode。
     const fakeGh = cachedFixtureExecutable(
       'gh.mjs',
@@ -514,7 +514,7 @@ if (args[0] === 'pr') {
       const result = spawnSync(
         process.execPath,
         [
-          resolve('scripts/check-verdict.mjs'),
+          resolve('scripts/ci/check-verdict.mts'),
           '--repo',
           'fixture/repo',
           '--sha',

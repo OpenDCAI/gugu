@@ -22,6 +22,12 @@ describe('task-owned boot boundary', () => {
     expect(tasks.runSync('dispatch-recovery', 'good', () => 1)).toBe(1)
     expect(tasks.snapshot()[0]?.taskId).toBe('bad')
   })
+  it('records a non-Error result object as readable text', () => {
+    const tasks = new SessionBootTasks(vi.fn())
+    tasks.record('project-open', 'p1', { type: 'path-not-found', path: '/gone' })
+    tasks.record('project-open', 'p2', { type: 'error', message: 'Project not found: p2' })
+    expect(tasks.snapshot().map(row => row.message)).toEqual(['{"type":"path-not-found","path":"/gone"}', 'Project not found: p2'])
+  })
   it('rejects malformed diagnostics without affecting a heartbeat', () => {
     expect(parseSessionBootFailures([null, {}, { operation: 'x', taskId: 1, message: 'y' }])).toEqual([])
   })

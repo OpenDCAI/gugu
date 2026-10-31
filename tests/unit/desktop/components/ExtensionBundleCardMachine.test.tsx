@@ -12,6 +12,7 @@ const manifest = {
   name: 'Reader',
   version: '1.0.0',
   apiVersion: 3,
+  defaultLocale: 'en',
   entry: 'main.html',
   permissions: {},
   contributes: { tabs: [{ name: 'main', title: 'Read' }] },

@@ -12,7 +12,7 @@ import { EXTENSION_API_VERSION, parseExtensionManifest } from '../../../../../ap
 import { UI_EVENTS } from '../../../../../apps/desktop/src/lib/uiEvents'
 
 const app = (id: string, name: string, tab: Record<string, unknown>) =>
-  parseExtensionManifest({ id, name, version: '1.0.0', apiVersion: EXTENSION_API_VERSION, entry: 'index.html', contributes: { tabs: [{ name: 'main', title: name, ...tab }] } })
+  parseExtensionManifest({ id, name, version: '1.0.0', apiVersion: EXTENSION_API_VERSION, defaultLocale: 'en', entry: 'index.html', contributes: { tabs: [{ name: 'main', title: name, ...tab }] } })
 
 vi.mock('@/lib/chatAppPins', () => ({ readChatAppPins: async () => [], setChatAppPin: async () => [], watchChatAppPins: () => () => {} }))
 vi.mock('@/lib/chatPinSettings', () => ({ readChatPinSettings: async () => ({ appIds: [], topicIds: [] }), setChatPinPreference: vi.fn() }))

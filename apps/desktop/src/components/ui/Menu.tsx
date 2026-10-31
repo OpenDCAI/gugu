@@ -35,7 +35,7 @@ const menuPopup = cn(
 // @@@menu-spacing - 菜单是可重复操作的控件组，弹层与每行都必须留出稳定的内容安全区。
 // Inline padding keeps the spacing alive under the renderer's global reset without exempting the
 // entire menu-item subtree from the reset.
-// (这里刻意不写那个标签的字面量:scripts/check-ui-visual-spec.mjs 连注释一起数 rawButtons。)
+// (这里刻意不写那个标签的字面量:scripts/checks/check-ui-visual-spec.mts 连注释一起数 rawButtons。)
 // ⚠️ `w-full` 与 `text-left` 不能省:行可以经 `render` 换成原生按钮元素(头栏 ⋯ 菜单的「群公告 / 设置」),
 // 而按钮 ① 即使 display:flex,宽度 auto 也按内容收缩(HTML 规范给 button 的 fit-content),不像 div 那样撑满 ⇒
 // 可点范围与高亮只剩「图标 + 两个字」那一截,行右边大半截点了没反应(owner 2026-09-27 真机);

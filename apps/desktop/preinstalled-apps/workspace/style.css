@@ -273,6 +273,10 @@ body[data-mode='split'] .preview { padding: 32px 40px 96px; }
 body[data-mode='preview'] .doc-info { width: 100%; max-width: calc(720px + 112px); margin-inline: auto; padding: 16px 56px 0; box-sizing: border-box; }
 @media (max-width: 640px) { body[data-mode='preview'] .doc-info { padding: 12px 18px 0; } }
 @media (max-width: 640px) { .preview { padding: 16px 18px 80px; } }
+/* Keep the existing desktop reading gutter wherever mouse-operated block controls can appear. */
+@media (hover: hover) {
+  .preview, body[data-mode='split'] .preview, body[data-mode='preview'] .doc-info { padding-left: 56px; }
+}
 /* Writing: no line numbers or folds while only the source is shown; side by side keeps them to read lines against. */
 body[data-mode='edit'] .editor .cm-gutters { display: none; }
 body[data-mode='edit'] .editor .cm-content { max-width: 720px; margin-inline: auto; padding: 32px 40px 96px; box-sizing: border-box; }
@@ -281,11 +285,12 @@ body[data-mode='edit'] .editor .cm-content { max-width: 720px; margin-inline: au
 .doc-empty { min-height: 0; overflow: auto; }
 .doc-empty .row { justify-content: center; margin-top: var(--em-spacing-sm); }
 body.empty-doc .preview, body[data-mode='edit'] .doc-empty, body[data-kind='json'] .doc-empty { display: none; }
-/* The reading block under the pointer: its ⋯ in the left margin. */
-.block-handle { position: fixed; z-index: 9; width: 22px; min-width: 0; height: 22px; min-height: 0; padding: 0; justify-content: center; border: 0; border-radius: var(--em-radius-document); background: transparent; color: var(--em-foreground-passive); }
+/* The reading block under the pointer: its insertion and block actions in the left margin. */
+.block-controls { position: fixed; z-index: 9; display: flex; }
+.block-handle { width: 22px; min-width: 0; height: 22px; min-height: 0; padding: 0; justify-content: center; border: 0; border-radius: var(--em-radius-document); background: transparent; color: var(--em-foreground-passive); }
 .block-handle:hover, .block-handle[aria-expanded='true'] { background: var(--em-hover); color: var(--em-foreground); }
 .block-handle gugu-icon { width: var(--em-icon-sm); height: var(--em-icon-sm); }
-body:not([data-state='doc']) .block-handle, body[data-mode='edit'] .block-handle { display: none; }
+body:not([data-state='doc']) .block-controls, body[data-mode='edit'] .block-controls { display: none; }
 body[data-mode='edit'] .panes, body[data-mode='preview'] .panes, body[data-kind='json'] .panes { grid-template-columns: 1fr; }
 body[data-mode='edit'] .preview, body[data-mode='preview'] .editor { display: none; }
 body[data-kind='json'] .modes, body[data-kind='json'] .preview { display: none; }

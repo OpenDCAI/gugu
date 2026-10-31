@@ -10,7 +10,7 @@
  * 这个转发文件保留是刻意的:235 个文件写的是 `@/lib/icons`,不必为了搬家全改一遍。
  * app 侧继续用 `@/lib/icons`,session-ui 内部用相对路径。
  *
- * ❌ 别在这里加图标 —— 改 `scripts/icons/solar-icons.json` 再跑 `node scripts/gen-icons.mjs`。
+ * ❌ 别在这里加图标 —— 改 `scripts/icons/solar-icons.json` 再跑 `node scripts/build/gen-icons.mjs`。
  */
 // react-refresh 那条规则没法看穿 `export *`,所以只能定向豁免。
 // 这里转发的确实只有组件:173 个图标组件 + `IconProps` / `IconComponent` 两个类型

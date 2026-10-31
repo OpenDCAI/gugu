@@ -25,7 +25,7 @@ const COMMIT = '6f46446' + 'a'.repeat(33);
 
 function manifestOf(id: string, version = '1.0.0') {
   return {
-    apiVersion: EXTENSION_API_VERSION,
+    apiVersion: EXTENSION_API_VERSION, defaultLocale: 'en',
     platforms: ['desktop'],
     id,
     name: `Extension ${id}`,
@@ -58,7 +58,6 @@ function versionFor(
     bytes: bytes.byteLength,
     bundle: `bundles/${id}/${version}.zip`,
     icon: null,
-    readme: null,
     source: { repo: 'shuxueshuxue/gugu-apps', path: `examples/${id}`, commit: COMMIT },
     yanked: null,
     ...extra,
@@ -168,7 +167,7 @@ describe('CloudExtensionMarket.list', () => {
     const good = await zipOf({ 'manifest.json': '{}' });
     const site = siteOf([
       appOf('good-one', [versionFor(good, 'good-one')]),
-      appOf('broken', [versionFor(good, 'broken', '1.0.0', { manifest: { apiVersion: EXTENSION_API_VERSION, id: 'broken' } })]),
+      appOf('broken', [versionFor(good, 'broken', '1.0.0', { manifest: { apiVersion: EXTENSION_API_VERSION, defaultLocale: 'en', id: 'broken' } })]),
     ]);
     const { extensions, invalid } = await marketOf(site).list();
     expect(extensions.map((entry) => entry.manifest.id)).toEqual(['good-one']);
@@ -450,7 +449,7 @@ describe('CloudExtensionMarket 手上那份目录', () => {
   });
 });
 
-describe('CloudExtensionMarket.history / readme / updatesFor', () => {
+describe('CloudExtensionMarket.history / listing / updatesFor', () => {
   it('历史最新在前,撤回的带原因,每一版带兼容结论', async () => {
     const bytes = await zipOf({ 'manifest.json': '{}' });
     const site = siteOf([
@@ -467,15 +466,18 @@ describe('CloudExtensionMarket.history / readme / updatesFor', () => {
     expect(history[2]!.compat).toBeNull();
   });
 
-  it('README 从下载站那一版的文件取;没写就 null', async () => {
+  it('产品页内容从下载站那一版的 meta 取,截图换成地址;早于 store/ 的那一版说清楚', async () => {
     const bytes = await zipOf({ 'manifest.json': '{}' });
-    const site = siteOf(
-      [appOf('ext', [versionFor(bytes, 'ext', '1.0.0', { readme: 'media/ext/readme-1.md' }), versionFor(bytes, 'ext', '1.1.0')])],
-      { 'media/ext/readme-1.md': '# hello' }
-    );
+    const site = siteOf([appOf('ext', [versionFor(bytes, 'ext', '1.0.0'), versionFor(bytes, 'ext', '1.1.0')])], {
+      'meta/ext/1.1.0.json': JSON.stringify({ about: { en: 'Hello.' }, screenshots: ['media/ext/a.png'], releaseNotes: 'x' }),
+      'meta/ext/1.0.0.json': JSON.stringify({ releaseNotes: 'x', readme: 'media/ext/readme-1.md' }),
+    });
     const market = marketOf(site);
-    expect(await market.readme('ext', '1.0.0')).toBe('# hello');
-    expect(await market.readme('ext', '1.1.0')).toBeNull();
+    const listing = await market.listing('ext', '1.1.0');
+    expect(listing.about).toEqual({ en: 'Hello.' });
+    expect(listing.screenshots).toHaveLength(1);
+    expect(listing.screenshots[0]).toMatch(/media\/ext\/a\.png$/);
+    await expect(market.listing('ext', '1.0.0')).rejects.toThrow(/ext@1\.0\.0 has no store listing/);
   });
 
   it('装着的:有新版 / 这版被撤回 / 扩展已弃用,各归各;本地比市场新的不提示', async () => {

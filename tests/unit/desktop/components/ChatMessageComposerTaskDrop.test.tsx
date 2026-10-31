@@ -6,7 +6,7 @@ import { SCREEN_CONTENT_DRAG_TYPE, type DraggedScreenContent } from '../../../..
 import { clickElement, contact, createReactHarness, renderWithAppProviders } from '../../../support/testHarness'
 import { readComposer, writeComposer } from '../../../support/composerEditor'
 import type { MentionItem } from '@gugu/session-ui/react/components'
-import type { GroupCollabSnapshot } from '@gugu/core/shared/types/chat'
+import type { GroupChatSettings, GroupCollabSnapshot } from '@gugu/core/shared/types/chat'
 import type { ChatMessageComposerProps } from '../../../../apps/desktop/src/components/chat/chatComposerModels'
 import { i18n } from '../../../../apps/desktop/src/i18n'
 
@@ -27,6 +27,10 @@ const snapshot = (): GroupCollabSnapshot => ({
   scheduler: { chat_id: 'chat', paused: false, queue_count: 0, blocked_count: 0, summary: null, updated_at: '2026-01-01T00:00:00Z' },
   humans: [{ id: 'owner-1', role: 'member', type: 'human', account_status: null }], agents: [], tasks: [], outputs: [],
 })
+// The viewer's authority is the server projection (group_info_as), not the roster role.
+const settings = (over: Partial<GroupChatSettings> = {}) => ({
+  id: 'chat', my_role: 'member', can_manage: false, can_dissolve: false, can_archive_topic: false, allow_member_invite: false, ...over,
+}) as GroupChatSettings
 const mention = (id: string): MentionItem => ({ id: `aid:${id}`, label: `aid:${id}`, name: 'Task agent', kind: 'custom', role: 'agent' })
 const input = () => harness.container.querySelector('[data-testid="chat-composer"]')!
 const dialog = () => document.querySelector('[role="dialog"]')
@@ -51,7 +55,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   resolveSession.mockReset().mockResolvedValue(mention('outside-agent'))
   service.getGroupCollab.mockReset().mockImplementation(async () => ({ snapshot: snapshot(), identities: [] }))
-  service.getGroupChatSettings.mockReset().mockResolvedValue({ allow_member_invite: false })
+  service.getGroupChatSettings.mockReset().mockResolvedValue(settings())
   service.inviteGroupMember.mockReset().mockResolvedValue({ status: 'joined', chat_id: 'chat' })
   service.listMyAgentJoinRequests.mockReset().mockResolvedValue(new Map())
 })
@@ -135,10 +139,11 @@ describe('task references in the shared chat composer', () => {
 
   it('explains that a viewer who left cannot invite, without mutating the group or draft', async () => {
     service.getGroupCollab.mockResolvedValue({ snapshot: { ...snapshot(), humans: [] }, identities: [] })
+    service.getGroupChatSettings.mockResolvedValue(settings({ my_role: null }))
     await renderGroup()
     await drop()
     expect(dialog()!.querySelector('[role="alert"]')?.textContent).toBe(i18n.t('group.join.denied.notMember', { ns: 'messaging' }))
-    expect(service.getGroupChatSettings).not.toHaveBeenCalled()
+    expect(dialog()!.querySelector('button[aria-label="移除 Task agent"]'), 'no picker opens for a non-member').toBeNull()
     expect(service.inviteGroupMember).not.toHaveBeenCalled()
     expect(readComposer(input())).toBe('')
   })

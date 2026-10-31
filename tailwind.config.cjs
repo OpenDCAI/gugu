@@ -49,7 +49,7 @@ const config = {
       // document**(#2802 拆掉 shadow root 之后),同名 utility 谁后注入谁全文档赢 —— 从前
       // `full` 在这里是 50%、在那边是 v4 默认的 calc(infinity*1px),于是「打开一次会话页,
       // 全 app 的 rounded-full 从椭圆翻成胶囊」。两张表现在逐档相同,由
-      // scripts/check-ui-visual-spec.mjs 的 radiusScaleParity 钉住。
+      // scripts/checks/check-ui-visual-spec.mts 的 radiusScaleParity 钉住。
       // 真要正圆用 --radius-circle(50%),❌ 别再劫持 full。
       borderRadius: {
         sm: '6px',

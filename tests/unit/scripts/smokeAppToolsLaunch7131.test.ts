@@ -5,11 +5,11 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { extensionAgentPrograms, type ExtensionAgentContribution } from '../../../apps/desktop/electron/extension-session-mcp';
-import { launchOf } from '../../../scripts/gugu-server/smoke-app-tools.mjs';
+import { launchOf } from '../../../scripts/gugu-server/smoke-app-tools.mts';
 
 /*
  * #7131 出包冒烟照抄产品的两样东西,抄的那一份不跟,冒烟就悄悄失去意义(2026-10-11 评审第 1、2 节):
- * 1. smoke-app-tools.mjs 起预装 App 程序的样子 —— 产品哪天多要一样东西(参数、环境变量、stdio 约定),冒烟没跟就照样绿,
+ * 1. smoke-app-tools.mts 起预装 App 程序的样子 —— 产品哪天多要一样东西(参数、环境变量、stdio 约定),冒烟没跟就照样绿,
  *    产品却起不来。这里拿每个预装 App 真实的 manifest,把 launchOf 和 extensionAgentPrograms 逐项比。
  * 2. ci-linux-packages.sh grep 的那句「替身缺成员」提示 —— server-entry.ts 改了措辞,grep 就悄悄不命中。
  */
@@ -80,7 +80,7 @@ describe('the server package smoke starts preinstalled Apps\' programs as gugu d
     // Run through a symlink, as a path with one in it is: node runs the real file.
     const empty = mkdtempSync(join(tmpdir(), 'smoke-7131-'));
     try {
-      symlinkSync(join(repoRoot, 'scripts/gugu-server/smoke-app-tools.mjs'), join(empty, 'smoke.mjs'));
+      symlinkSync(join(repoRoot, 'scripts/gugu-server/smoke-app-tools.mts'), join(empty, 'smoke.mjs'));
       const run = spawnSync(process.execPath, [join(empty, 'smoke.mjs'), empty], { encoding: 'utf8' });
       expect(run.status).toBe(1);
       expect(run.stderr).toContain('::error::包里的 App 运行时不是恰好一份');

@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, createElement, memo, Profiler, useState, type FunctionComponent, type ReactNode } from 'react'
 import type { ChatItem, Device, MessageItem } from '@gugu/core/shared/types/chat'
 import { ChatAreaPanel } from '../../../../apps/desktop/src/components/ChatAreaPanel'
+import { createShellTabStore, ShellTabContext } from '../../../../apps/desktop/src/lib/shellTab'
 import { ToastContext } from '../../../../apps/desktop/src/components/toastContext'
 import { AuthContext, type AuthUser } from '../../../../apps/desktop/src/store/auth'
 import { ChatStoreProvider, type ChatContextValue } from '../../../../apps/desktop/src/store/chatContext'
@@ -52,6 +53,8 @@ vi.mock('../../../../apps/desktop/src/lib/chat', () => ({
       identities: [],
     })),
     getThreadMessages: vi.fn(async () => []),
+    // The chat surface reads the viewer's authority from the server projection (group_info_as).
+    getGroupChatSettings: vi.fn(async () => ({ id: 'chat-1', my_role: 'member', can_manage: false, can_dissolve: false, can_archive_topic: false, allow_member_invite: false })),
   },
 }))
 // 真 hook 的返回值在状态不变时身份稳定;替身也必须稳定,否则量到的是替身制造的重渲。
@@ -138,11 +141,11 @@ function StoreHost({ initial, children }: { initial: ChatContextValue; children?
 }
 
 async function mount(store: ReturnType<typeof makeStore>) {
-  const panel = createElement(Profiler, { id: 'panel', onRender: () => { counts.panelCommits += 1 } }, createElement(ChatAreaPanel, { activeTab: 'chats' }))
-  await harness.render(createElement(AuthContext.Provider, { value: AUTH },
+  const panel = createElement(Profiler, { id: 'panel', onRender: () => { counts.panelCommits += 1 } }, createElement(ChatAreaPanel, {}))
+  await harness.render(createElement(ShellTabContext.Provider, { value: createShellTabStore('chats') }, createElement(AuthContext.Provider, { value: AUTH },
     createElement(ToastContext.Provider, { value: TOAST },
       createElement(DevicesContext.Provider, { value: DEVICES },
-        createElement(StoreHost, { initial: store.get() }, panel)))))
+        createElement(StoreHost, { initial: store.get() }, panel))))))
   await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)) })
   await flushFrames()
   counts.bubble.clear()

@@ -36,7 +36,7 @@ export const sessionController = createRPCController({
   getStoredHistory,
   getStoredToolImage,
   // #980 打开一条没在跑的会话时:把 agent 自己的记录里有、库里还没有的那几轮补进库,回补进了几轮。
-  syncStoredHistoryFromRecord,
+  syncStoredHistoryFromRecord: (sessionId: string) => syncStoredHistoryFromRecord(sessionId),
   forkSession,
   restartSession,
   switchSessionRuntime,

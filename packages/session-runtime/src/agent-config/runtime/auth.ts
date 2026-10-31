@@ -558,6 +558,12 @@ export class AgentAuthManager {
       // 留着,下次开机读数探到之前就先被说成「登录已失效」(10-07 mac1:没 key 的 MiMo、没登录的 Claude)。
       const key = authExpiryKey(providerId, runContext.connectionId);
       if (status.data.kind === 'unauthenticated') this.expiry.clear(key);
+      // 另一半前提是这份凭据**是一份能续的登录**(#1163):用户自己递的 key / 中转令牌不是 —— 没有
+      // 重新登录那条路可走。旧版本会在这种机器上留下标记(凭据被拒时标上,而之后没有任何一条路能撤),
+      // 所以这里与上面那条同一个处置:前提不成立就撤掉,❌ 让它一直躺到用户换一份凭据。
+      if (status.data.kind === 'authenticated' && status.data.credentialKind === 'api-key') {
+        this.expiry.clear(key);
+      }
       return applyAuthExpiry(status.data, this.expiry.has(key));
     } catch (error) {
       this.deps.logger.warn('AgentAuthManager: status probe failed', {

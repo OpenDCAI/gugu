@@ -9,7 +9,7 @@
 //   ⑤ 主动 / 被动归 agent 的主人(owner 10-17):主人改得动、能让它退群;群主改不动别人的 agent,改得动自己的。
 import { act, Fragment, type ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { GroupAgentItem, GroupCollabSnapshot, GroupMemberItem } from '../../../packages/core/src/shared/types/chat'
+import type { GroupChatSettings, GroupAgentItem, GroupCollabSnapshot, GroupMemberItem } from '../../../packages/core/src/shared/types/chat'
 import type { DisplayIdentity } from '../../../apps/desktop/src/lib/displayIdentity'
 import { createNode, createReactHarness, device, displayIdentity, renderWithAppProviders, typeInto, waitForCondition } from '../../support/testHarness'
 import { closeInfoTab, infoTabOf, openInfoTab } from '../../../apps/desktop/src/session/renderer/features/chats/chat-tabs/chat-layouts'
@@ -48,6 +48,10 @@ const getGroupCollab = vi.mocked(chatService.getGroupCollab)
 const listJoinRequests = vi.mocked(chatService.listGroupJoinRequests)
 const removeMember = vi.mocked(chatService.removeGroupMember)
 const setListenMode = vi.mocked(chatService.setAgentListenMode)
+const getSettings = vi.mocked(chatService.getGroupChatSettings)
+function authority(canManage = true): GroupChatSettings {
+  return { id: 'chat-1', name: 'Topic', my_role: canManage ? 'owner' : 'member', can_manage: canManage, can_dissolve: canManage, can_archive_topic: canManage, allow_member_invite: false } as GroupChatSettings
+}
 
 function agentItem(id: string, overrides: Partial<GroupAgentItem> = {}): GroupAgentItem {
   return {
@@ -80,6 +84,7 @@ const IDENTITIES: DisplayIdentity[] = [
 let harness: ReturnType<typeof createReactHarness>
 beforeEach(() => {
   harness = createReactHarness()
+  getSettings.mockResolvedValue(authority())
   getGroupCollab.mockResolvedValue({ snapshot: SNAPSHOT, identities: IDENTITIES })
   listJoinRequests.mockResolvedValue([])
 })
@@ -114,6 +119,7 @@ describe('member drawer uses the conversation snapshot', () => {
 })
 let revisionListeners: Array<{ event: unknown; listener: (operations: { revision: string; event: string; payload: unknown }[]) => void }> = []
 async function renderPanel(viewerId = 'owner-1', chatId = 'chat-1') {
+  getSettings.mockResolvedValue(authority(viewerId === 'owner-1'))
   revisionListeners = []
   await renderWithAppProviders(
     harness,
@@ -388,5 +394,74 @@ describe('主动 / 被动归 agent 的主人', () => {
     // 阳控:换回来还在 —— 证明上面是按群过滤掉的,不是面板重挂把状态清了。
     await renderPanel('member-1', 'chat-1')
     expect(q('[data-listen-mode-error="codex"]')).not.toBeNull()
+  })
+})
+
+
+describe('topic participant controls project server authority', () => {
+  const renameAgent = vi.fn(async () => {})
+  async function renderTopic(viewerId: string, manageable: boolean, snapshot = SNAPSHOT) {
+    getSettings.mockResolvedValue({ ...authority(manageable), can_dissolve: false })
+    const reload = vi.fn(async () => {})
+    await renderWithAppProviders(harness, createNode(ControlledMemberListPanel, {
+      chatId: 'topic-1', chatKind: 'topic', chatName: 'Topic', head, snapshot, onReload: reload,
+    }), { auth: { id: viewerId }, chat: { identitiesById: Object.fromEntries(IDENTITIES.map((identity) => [identity.id, identity])) }, contacts: { contacts: [], renameAgent } })
+    return reload
+  }
+  it.each([false, true])('a non-admin owner can change their topic Agent listen mode and remove it on mobile=%s', async (mobile) => {
+    shell.mobile = mobile
+    const reload = await renderTopic('member-1', false)
+    await click(q('[data-member-row="codex"] [data-listen-mode-toggle]'))
+    expect(setListenMode).toHaveBeenCalledWith('topic-1', 'codex', 'active')
+    await click(q('[data-member-row="codex"]'))
+    await waitForCondition(() => q('[data-profile-remove-button="codex"]') !== null, 'owned topic Agent profile')
+    expect(q('[data-profile-role-select="codex"]')).toBeNull()
+    await click(q('[data-profile-remove-button="codex"]'))
+    expect(removeMember).toHaveBeenCalledWith('topic-1', 'codex')
+    expect(reload).toHaveBeenCalled()
+  })
+  it('reuses the canonical owned-Agent name editor inside a topic profile', async () => {
+    await renderTopic('member-1', false)
+    await click(q('[data-member-row="codex"]'))
+    const nameEdit = document.querySelector<HTMLButtonElement>('[data-testid="group-member-profile-menu"] button[aria-label="重命名"]')
+    expect(nameEdit).toBeTruthy()
+    await click(nameEdit)
+    const input = document.querySelector<HTMLInputElement>('[data-testid="group-member-profile-menu"] input')
+    expect(input).not.toBeNull()
+    await typeInto(input!, 'New canonical name')
+    await act(async () => { input!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })) })
+    expect(renameAgent).toHaveBeenCalledWith('codex', 'New canonical name')
+  })
+  it('a source manager without a topic seat can manage participants but cannot edit another owner’s listen mode', async () => {
+    await renderTopic('owner-1', true, { ...SNAPSHOT, humans: SNAPSHOT.humans.filter((human) => human.id !== 'owner-1') })
+    expect(q('[data-testid="topic-name-edit"] [data-testid="group-name-edit"]')).not.toBeNull()
+    expect(q('[data-testid="member-list-invite"]')).toBeNull()
+    await click(q('[data-member-row="codex"]'))
+    expect(q('[data-profile-remove-button="codex"]')).not.toBeNull()
+    expect(q('[data-profile-role-select="codex"]')).toBeNull()
+    const active = [...document.querySelectorAll<HTMLElement>('.gg-pop-lmseg-btn')].find((element) => element.textContent === '主动')
+    await click(active!)
+    expect(setListenMode).not.toHaveBeenCalled()
+  })
+  it('protects the main-group owner’s group seat without treating their topic participation as ownership', async () => {
+    await renderTopic('member-2', true)
+    await click(q('[data-member-row="owner-1"]'))
+    expect(q('[data-profile-remove-button="owner-1"]')).not.toBeNull()
+    expect(q('[data-profile-role-select="owner-1"]')).toBeNull()
+  })
+  it('a legacy topic owner gets no management controls when the server denies source authority', async () => {
+    await renderTopic('owner-1', false)
+    expect(q('[data-testid="topic-name-edit"] [data-testid="group-name-edit"]')).toBeNull()
+    await click(q('[data-member-row="member-1"]'))
+    expect(q('[data-profile-remove-button="member-1"]')).toBeNull()
+    expect(q('[data-profile-role-select="member-1"]')).toBeNull()
+  })
+  it('a topic participant can leave through their own profile regardless of management role', async () => {
+    await renderTopic('member-2', false)
+    await click(q('[data-member-row="member-2"]'))
+    const leave = q('[data-profile-remove-button="member-2"]')
+    expect(leave?.textContent).toBe('离开群组')
+    await click(leave)
+    expect(removeMember).toHaveBeenCalledWith('topic-1', 'member-2')
   })
 })

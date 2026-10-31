@@ -28,7 +28,7 @@
          不设 `windowSplashScreenAnimatedIcon` 时 Android 12+ 会回落到 `android:icon`,
          把自适应图标圆形裁出中心 2/3(鸽子缺脚少翅,像张头像)—— 这里明确指成
          @drawable/splash_loading,那是「咕咕唯一的加载态」那段动效照着素材量出来的安卓版本
-         (由 scripts/gen-mobile-splash-avd.mjs 生成,❌ 别手改)。
+         (由 scripts/build/gen-mobile-splash-avd.mjs 生成,❌ 别手改)。
          底色也必须一种到底:系统启动画面与其后的窗口底色(@drawable/splash)同用
          gugu_mobile_shell_surface,否则启动中途会跳一次色。 -->
     <style name="AppTheme.NoActionBarLaunch" parent="Theme.SplashScreen">

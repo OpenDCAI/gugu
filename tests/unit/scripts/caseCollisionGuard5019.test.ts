@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 // @ts-expect-error -- 守卫脚本是 .mjs,没有类型声明;这里只吃它导出的那个纯函数。
-import { findCaseCollisions } from '../../../scripts/check-case-collisions.mjs'
+import { findCaseCollisions } from '../../../scripts/checks/check-case-collisions.mjs'
 
 // #5019 这道闸防的是:两条只差大小写的路径在 Linux 上是两个文件、在 mac/Windows 上是同一个,
 // 于是开发机四门全绿而 CI 判红。

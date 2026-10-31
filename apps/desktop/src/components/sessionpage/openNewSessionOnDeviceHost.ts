@@ -9,7 +9,7 @@ import { handOverToSessionpage, HOST_OPEN_NEW_SESSION_KEY, type NewSessionBridge
 export function useOpenNewSessionOnDeviceHost(
   enabled: boolean,
   setSettingsModalOpen: Dispatch<SetStateAction<boolean>>,
-  setActiveTab: Dispatch<SetStateAction<SidebarTab>>,
+  setActiveTab: (tab: SidebarTab) => void,
 ) {
   useEffect(() => {
     if (!enabled) return

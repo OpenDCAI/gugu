@@ -139,8 +139,8 @@ function normalizeGroupAgentType(
   return nullableAgentType(value)
 }
 
-// 群设置行 → GroupChatSettings 的单一映射（get/update 共用，避免 select 列 / 默认值漂移）。
 interface GroupChatSettingsRow {
+  my_role: GroupMemberRole | null; can_manage: boolean; can_dissolve: boolean; can_archive_topic: boolean
   id: string; public_id: number | null; creator_user_id: string | null
   name: string | null
   status: ChatStatus
@@ -169,7 +169,7 @@ function normalizeGroupJoinMode(value: string | null | undefined): GroupJoinMode
 
 function mapGroupChatSettingsRow(row: GroupChatSettingsRow): GroupChatSettings {
   return {
-    id: row.id,
+    id: row.id, my_role: row.my_role, can_manage: row.can_manage, can_dissolve: row.can_dissolve, can_archive_topic: row.can_archive_topic,
     public_id: row.public_id,
     creator_user_id: row.creator_user_id ?? null,
     name: resolveOrLoud(row.name, `group chat name ${row.id}`),
@@ -624,7 +624,7 @@ export const chatService = {
             .select('chat_id, paused, queue_count, blocked_count, summary, updated_at')
             .eq('chat_id', chatId)
             .maybeSingle(),
-          collabChatDb.from('active_members').select('chat_id, user_id, role, listen_mode').eq('chat_id', chatId),
+          collabChatDb.rpc('list_member_ids', { p_chat_id: chatId }),
           collabChatDb
             .from('group_tasks')
             .select(

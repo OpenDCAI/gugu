@@ -12,7 +12,7 @@ describe('bundler-agnostic session bundle no-undef gate (#4904)', () => {
 
   it('rejects the known requestMode-shaped undefined binding in a hashed Rollup chunk', async () => {
     const { assertNoUndefinedBindingsInEmdashBundles } = await import(
-      '../../../scripts/verify-emdash-bundle-no-undef.mjs'
+      '../../../scripts/build/verify-emdash-bundle-no-undef.mts'
     );
     const dist = join(root, 'rollup-dist');
     mkdirSync(dist, { recursive: true });
@@ -27,7 +27,7 @@ describe('bundler-agnostic session bundle no-undef gate (#4904)', () => {
 
   it('accepts the bridge stub and a declaration-safe CJS bridge', async () => {
     const { assertNoUndefinedBindingsInEmdashBundles } = await import(
-      '../../../scripts/verify-emdash-bundle-no-undef.mjs'
+      '../../../scripts/build/verify-emdash-bundle-no-undef.mts'
     );
     const dist = join(root, 'esbuild-dist');
     mkdirSync(join(dist, 'sessionpage'), { recursive: true });

@@ -31,7 +31,7 @@ function line(installedVersion: string, installable: string): string {
 
 const probe = (version: string) =>
   parseExtensionManifest({
-    id: 'probe', name: 'Probe', version, apiVersion: EXTENSION_API_VERSION, entry: 'index.html',
+    id: 'probe', name: 'Probe', version, apiVersion: EXTENSION_API_VERSION, defaultLocale: 'en', entry: 'index.html',
     contributes: { tabs: [{ name: 'main', title: 'Probe' }] },
   });
 

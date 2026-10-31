@@ -7,7 +7,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { DUR_FAST_MS, tween } from '@/styles/motion'
 import type { FlowListHandle } from '@/lib/flowList'
 import { ChevronLeft, MessageCircle } from '@/lib/icons'
-import type { SidebarTab } from '@gugu/core/shared/enums/sidebarTabModels'
+import { useImPageTab } from '../lib/shellTab'
 import { useChatStore } from '../store/chatContext'
 import { ChatLineScope } from '../store/chatLineScope'
 import { useAuth } from '../store/auth'
@@ -39,7 +39,7 @@ import { useShownAgentStatus } from './chat/useAgentsOnCloudComputer'
 import { MemberProfilePopover } from './MemberProfilePopover'
 import { ReadReceiptPopover } from './ReadReceiptPopover'
 import { useListenModeEditControls } from './chat/useListenModeEditControls'
-import { RightPanel } from './chat/RightPanel'; import { isGroupManagerRole } from '../lib/groupMemberPermissions'
+import { RightPanel } from './chat/RightPanel'
 import {
   buildMemberProfileMap,
   type ActiveMemberProfile,
@@ -80,10 +80,10 @@ import { useChatSlotProjectName } from '../lib/shellSlots'
 import { useChatHasMessages } from '../lib/chatSummariesBridge'
 import { ChatPartSlot } from '../session/renderer/lib/chat-slot'
 interface ChatAreaPanelProps {
+  imPage?: boolean // see useImPageTab
   /** 这块面显示哪条会话:对话页给列表选中的那条,「助理」App 给和它的私聊(#7199);不给 = 跟着那条活的线(store/chatLineScope.tsx)。 */
   chatId?: string | null
   viewportKey?: string; assistantChat?: boolean // Personal assistant keeps IM bubbles; task agents use the shared transcript.
-  activeTab: SidebarTab
   /** The main navigation route owns unscoped unread requests; explicit panes receive their scroller. */
   navigationTarget?: boolean
   /** 常驻但不可见(新建 agent/任务的创建面盖在它上面):与切到别的 tab 同一套门控 —— 不算「看见」、不接全局快捷键。 */
@@ -115,12 +115,12 @@ export function ChatAreaPanel({ chatId, ...surface }: ChatAreaPanelProps) {
   return chatId === undefined ? <ChatAreaSurface {...surface} /> : <ChatLineScope chatId={chatId}><ChatAreaSurface {...surface} /></ChatLineScope>
 }
 
-function ChatAreaSurface({ viewportKey = 'chats', assistantChat = false, activeTab, navigationTarget = false, hidden = false, mobile = false, openNonce, onBack, chrome, blockHost, onOpenUserChat }: Omit<ChatAreaPanelProps, 'chatId'>) {
+function ChatAreaSurface({ viewportKey = 'chats', assistantChat = false, imPage = false, navigationTarget = false, hidden = false, mobile = false, openNonce, onBack, chrome, blockHost, onOpenUserChat }: Omit<ChatAreaPanelProps, 'chatId'>) {
   const { toast } = useToast()
   const { t } = useTranslation('messaging')
   const { getImRepository, subscribeAccountRevision, identitiesById, chats, activeChat, activeChatId, messages, loadingMessages, messagesError, refreshMessages, sendMessage, toggleReaction, memberReadSeqs, clearMessages, deleteMessage, sendAttachments, pinChat, deleteChat, leaveGroup, setChatNotificationLevel, loadOlderMessages, messageWindow, unreadEntry, jumpToUnreadEntry, loadNewerMessages, loadMessageAnchor, returnToLatestMessages, markMessageVisible, setFollowingTail, threadScope, setActiveChatId } = useChatStore('getImRepository', 'subscribeAccountRevision', 'identitiesById', 'chats', 'activeChat', 'activeChatId', 'messages', 'loadingMessages', 'messagesError', 'refreshMessages', 'sendMessage', 'toggleReaction', 'memberReadSeqs', 'clearMessages', 'deleteMessage', 'sendAttachments', 'pinChat', 'deleteChat', 'leaveGroup', 'setChatNotificationLevel', 'loadOlderMessages', 'messageWindow', 'unreadEntry', 'jumpToUnreadEntry', 'loadNewerMessages', 'loadMessageAnchor', 'returnToLatestMessages', 'markMessageVisible', 'setFollowingTail', 'threadScope', 'setActiveChatId')
   const { user } = useAuth()
-  const surfaceVisible = activeTab === 'chats' && !hidden
+  const surfaceTab = useImPageTab(imPage), surfaceVisible = surfaceTab === 'chats' && !hidden
   const surfaceElement = useRef<HTMLDivElement>(null)
   const [showHeaderMenu, setShowHeaderMenu] = useState(false)
   const search = useChatSearch(activeChatId, surfaceVisible, messages, surfaceElement, viewportKey)
@@ -217,7 +217,7 @@ function ChatAreaSurface({ viewportKey = 'chats', assistantChat = false, activeT
 
   const groupRename = useChatCommands({
     chatId: activeChatId, visible: surfaceVisible, surface: surfaceElement,
-    canRename: isGroupChat && isGroupManagerRole(groupCollabSnapshot.humans.find((h) => h.id === user?.id)?.role),
+    isGroup: isGroupChat, snapshot: groupCollabSnapshot,
     openSettings: handleOpenSettingsDrawer,
   })
 
@@ -565,9 +565,9 @@ function ChatAreaSurface({ viewportKey = 'chats', assistantChat = false, activeT
     enterSelectMode,
   ])
 
-  const emptyCaption = activeTab === 'chats'
+  const emptyCaption = surfaceTab === 'chats'
     ? t('chatArea.empty.chats')
-    : activeTab === 'contacts'
+    : surfaceTab === 'contacts'
       ? t('chatArea.empty.contacts')
       : ''
 

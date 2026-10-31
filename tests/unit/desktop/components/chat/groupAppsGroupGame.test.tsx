@@ -22,7 +22,7 @@ const { EXTENSION_API_VERSION, parseExtensionManifest } = await import('@/sessio
 const { UI_EVENTS } = await import('@/lib/uiEvents')
 
 const manifest = (id: string, tab: Record<string, unknown>) =>
-  parseExtensionManifest({ id, name: id, version: '1.0.0', apiVersion: EXTENSION_API_VERSION, entry: 'index.html', contributes: { tabs: [{ name: 'main', title: id, ...tab }] } })
+  parseExtensionManifest({ id, name: id, version: '1.0.0', apiVersion: EXTENSION_API_VERSION, defaultLocale: 'en', entry: 'index.html', contributes: { tabs: [{ name: 'main', title: id, ...tab }] } })
 
 let harness: ReturnType<typeof createReactHarness>
 beforeEach(() => {

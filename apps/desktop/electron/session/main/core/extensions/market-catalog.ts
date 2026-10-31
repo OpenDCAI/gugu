@@ -17,7 +17,7 @@ import { requireAppPlatform } from '@shared/extensions/app-platforms';
 import { appSearchText, marketCategoryOf, marketCategoryRank } from '@shared/extensions/catalog';
 import { queryScore, queryWords } from '@shared/extensions/query-score';
 import { archiveRefusal, unpackedTooMuch } from '@shared/extensions/bundle-checks';
-import { marketEntriesFrom, marketHistoryFrom, marketUpdatesFrom, type InvalidMarketRow } from '@shared/extensions/market-entries';
+import { marketEntriesFrom, marketHistoryFrom, marketListingFrom, marketMetaPath, marketUpdatesFrom, type InvalidMarketRow, type MarketListing } from '@shared/extensions/market-entries';
 import {
   marketSnapshotSource,
   type MarketRefreshed,
@@ -260,20 +260,19 @@ export class CloudExtensionMarket {
     return marketEntriesFrom(apps, await this.host(), (relativePath) => this.backend.urlOf(relativePath));
   }
 
-  // ── 版本历史 / README ──────────────────────────────────────────────────
+  // ── 版本历史 / 产品页内容 ──────────────────────────────────────────────────
 
   /** 一个扩展的全部版本,最新的在前;每一版带这台机器装不装得了、撤回没有。不在市场上就是空的。 */
   async history(extensionId: string): Promise<MarketVersionHistoryEntry[]> {
     return marketHistoryFrom(await this.app(extensionId), await this.host());
   }
 
-  /** 这一版包里的 README(没有就 null)。详情面板打开时才取。 */
-  async readme(extensionId: string, version: string): Promise<string | null> {
-    const readme = (await this.app(extensionId))?.versions.find((entry) => entry.version === version)?.readme;
-    return readme ? this.backend.readText(readme) : null;
+  /** 这一版的产品页内容(关于、截图),从它在下载站上的 meta 读。产品页打开时才取。 */
+  async listing(extensionId: string, version: string): Promise<MarketListing> {
+    return marketListingFrom(await this.backend.readText(marketMetaPath(extensionId, version)), extensionId, version, (relativePath) => this.backend.urlOf(relativePath));
   }
 
-  /** 下载站 `media/` 下的一个文件(README 里的截图),超过 `maxBytes` 当场断。 */
+  /** 下载站 `media/` 下的一个文件(截图),超过 `maxBytes` 当场断。 */
   async media(relativePath: string, maxBytes: number): Promise<Uint8Array> {
     if (!/^media\/[\w.\-/]+$/.test(relativePath) || relativePath.split('/').includes('..')) {
       throw new Error(`Not a market media path: ${relativePath}`);

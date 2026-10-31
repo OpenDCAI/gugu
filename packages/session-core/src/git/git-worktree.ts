@@ -247,17 +247,17 @@ export class GitWorktree implements IGitWorktree {
   }
 
   async getFileAtRef(filePath: string, ref: string): Promise<string | null> {
+    // Before the first commit HEAD has no tree: every path is absent there, not unreadable.
+    if (ref === 'HEAD' && (await this.getHead()).kind === 'unborn') return null;
     return this.repository.readBlobAtRef(ref, this.toRelativePath(filePath));
   }
 
   async getFileAtIndex(filePath: string): Promise<string | null> {
     const relativePath = this.toRelativePath(filePath);
-    try {
-      const { stdout } = await this.exec.exec(['show', `:${relativePath}`]);
-      return stdout;
-    } catch {
-      return null;
-    }
+    const entries = await this.exec.exec(['--literal-pathspecs', 'ls-files', '--stage', '-z', '--', relativePath]);
+    if (entries.stdout.length === 0) return null;
+    const { stdout } = await this.exec.exec(['show', `:${relativePath}`]);
+    return stdout;
   }
 
   async getImageAtRef(filePath: string, ref: string): Promise<ImageReadResult> {

@@ -20,7 +20,7 @@ env:
   PLAYWRIGHT_IMAGE: mcr.microsoft.com/playwright:v1.59.1-noble@sha256:b0ab6f3cb99aa7803adbc14d9027ec1785fc6e433b97e134e0f8fe61683b6b53
 jobs:
   # Decides which packaging jobs a pull request needs. Test jobs never depend on this: they run on
-  # every event (scripts/ci-spec-coverage.mjs rejects conditions on any job that runs a test runner).
+  # every event (scripts/ci/ci-spec-coverage.mts rejects conditions on any job that runs a test runner).
   # Push to dev/main and manual runs always build everything.
   changes:
     name: Detect changed areas
@@ -73,7 +73,7 @@ jobs:
               esac
               # The web bundle the Android shell wraps is built by renderer-build on every PR.
               case "$file" in
-                apps/mobile/*|capacitor.config.ts|scripts/android-gradle-build.sh|scripts/phone-web-dir.mjs)
+                apps/mobile/*|capacitor.config.ts|scripts/build/android-gradle-build.sh|scripts/build/phone-web-dir.mts)
                   android=true
                   ;;
               esac
@@ -84,7 +84,7 @@ jobs:
             echo "desktop-mac=$desktop_mac"
             echo "android=$android"
           } >> "$GITHUB_OUTPUT"
-          # scripts/check-verdict.mjs reads this annotation (JOB_OUTPUTS_MARKER) to tell a build
+          # scripts/ci/check-verdict.mts reads this annotation (JOB_OUTPUTS_MARKER) to tell a build
           # skipped by design from an unexpected skip; keep it in step with the outputs above.
           echo "::notice title=ci-job-outputs::build=$build desktop-mac=$desktop_mac android=$android"
   policy:
@@ -102,10 +102,10 @@ jobs:
       - uses: actions/cache@v4
         with:
           path: node_modules/.cache/eslint
-          key: eslint-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.setup.outputs.node-version }}-${{ hashFiles('pnpm-lock.yaml', '.eslintrc*', 'scripts/eslint-cached.mjs', 'scripts/button-style-debt-baseline.json') }}-${{ steps.setup.outputs.source-tree }}
-          restore-keys: eslint-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.setup.outputs.node-version }}-${{ hashFiles('pnpm-lock.yaml', '.eslintrc*', 'scripts/eslint-cached.mjs', 'scripts/button-style-debt-baseline.json') }}-
+          key: eslint-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.setup.outputs.node-version }}-${{ hashFiles('pnpm-lock.yaml', '.eslintrc*', 'scripts/checks/eslint-cached.mts', 'scripts/checks/button-style-debt-baseline.json') }}-${{ steps.setup.outputs.source-tree }}
+          restore-keys: eslint-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.setup.outputs.node-version }}-${{ hashFiles('pnpm-lock.yaml', '.eslintrc*', 'scripts/checks/eslint-cached.mts', 'scripts/checks/button-style-debt-baseline.json') }}-
       - name: Check permanent removal call sites
-        run: node scripts/check-permanent-removal.mjs
+        run: node scripts/checks/check-permanent-removal.mts
       - name: Check frozen source file growth
         if: github.event_name == 'pull_request'
         env:
@@ -128,7 +128,7 @@ jobs:
             fi
           done
           exit "$failed"
-      - run: node scripts/ui-state-debt-check.mjs --root apps/desktop/src
+      - run: node scripts/checks/ui-state-debt-check.mjs --root apps/desktop/src
       - run: pnpm typecheck
       - run: pnpm lint
       - name: Verify e2e and integration spec execution coverage
@@ -138,7 +138,7 @@ jobs:
             git fetch --no-tags --depth=1 origin "${{ github.base_ref }}"
             args+=(--base FETCH_HEAD --head HEAD --base-ref "${{ github.base_ref }}" --event-action "${{ github.event.action }}")
           fi
-          node scripts/ci-spec-coverage.mjs "${args[@]}"
+          node scripts/ci/ci-spec-coverage.mts "${args[@]}"
   unit:
     name: Unit tests (${{ matrix.shard }}/4)
     runs-on: ubuntu-24.04

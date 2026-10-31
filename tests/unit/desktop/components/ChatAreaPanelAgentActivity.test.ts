@@ -93,6 +93,8 @@ vi.mock('../../../../apps/desktop/src/lib/chat', () => ({
       })),
     })),
     getThreadMessages: vi.fn(async () => []),
+    // The chat surface reads the viewer's authority from the server projection (group_info_as).
+    getGroupChatSettings: vi.fn(async () => ({ id: 'chat-1', my_role: 'member', can_manage: false, can_dissolve: false, can_archive_topic: false, allow_member_invite: false })),
   },
 }))
 
@@ -212,7 +214,7 @@ describe('ChatAreaPanel agent activity placement', () => {
     const groupChat = chat({ id: 'chat-1', kind: 'group', name: 'Ops' })
     vi.mocked(chatService.getGroupCollab).mockClear()
 
-    await renderWithAppProviders(harness, createNode(ChatAreaPanel, { activeTab: 'chats', openNonce: 0 }), {
+    await renderWithAppProviders(harness, createNode(ChatAreaPanel, { openNonce: 0 }), {
       chat: { getImRepository: getImRepositoryMock, activeChatId: 'chat-1', activeChat: groupChat, messages: [] },
     })
     const before = vi.mocked(chatService.getGroupCollab).mock.calls.length
@@ -220,7 +222,7 @@ describe('ChatAreaPanel agent activity placement', () => {
 
     // Reopening the SAME chat on mobile bumps openNonce without changing activeChatId — the reset clears the
     // collab snapshot, so the load effect must refire to refill it (the #461 asymmetry this guards).
-    await renderWithAppProviders(harness, createNode(ChatAreaPanel, { activeTab: 'chats', openNonce: 1 }), {
+    await renderWithAppProviders(harness, createNode(ChatAreaPanel, { openNonce: 1 }), {
       chat: { getImRepository: getImRepositoryMock, activeChatId: 'chat-1', activeChat: groupChat, messages: [] },
     })
     expect(vi.mocked(chatService.getGroupCollab).mock.calls.length).toBeGreaterThan(before)
@@ -241,7 +243,7 @@ describe('ChatAreaPanel agent activity placement', () => {
       })
       vi.mocked(chatService.getGroupCollab).mockClear()
 
-      await renderWithAppProviders(harness, createNode(ChatAreaPanel, { activeTab: 'chats', openNonce: 0 }), {
+      await renderWithAppProviders(harness, createNode(ChatAreaPanel, { openNonce: 0 }), {
         chat: { getImRepository: getImRepositoryMock, subscribeAccountRevision, activeChatId: 'chat-1', activeChat: chat({ id: 'chat-1', kind: 'group', name: 'Ops' }), messages: [] },
       })
       const afterOpen = vi.mocked(chatService.getGroupCollab).mock.calls.length
@@ -266,7 +268,7 @@ describe('ChatAreaPanel agent activity placement', () => {
   it('uses public Gugu numbers in direct chat message profile popovers', async () => {
     await renderWithAppProviders(
       harness,
-      createNode(ChatAreaPanel, { activeTab: 'chats' }),
+      createNode(ChatAreaPanel, {}),
       {
         auth: { id: 'owner-1', email: 'owner@example.com', nickname: 'Owner', gugu_number: 100001 },
         chat: {
@@ -327,7 +329,7 @@ async function renderChatArea(chatState: {
     createElement(
       DevicesContext.Provider,
       { value: devicesStore(devices) },
-      createNode(ChatAreaPanel, { activeTab: 'chats', mobile: chatState.mobile }),
+      createNode(ChatAreaPanel, { mobile: chatState.mobile }),
     ),
     {
       chat: {

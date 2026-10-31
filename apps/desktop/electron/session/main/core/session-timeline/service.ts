@@ -7,7 +7,7 @@ import { readAgentQuestionRecords, rememberAgentQuestion } from '../sessions/age
 import { nativeConversationAliases, nativeConversationUnread } from '../sessions/session-conversation-read';
 import { nativeConversationActivity } from '../sessions/session-conversation-activity';
 import { deliverAgentQuestionAnswer, restoredAgentQuestion } from '../sessions/agent-question-delivery';
-import { eq, isNull } from 'drizzle-orm';
+import { and, eq, isNull } from 'drizzle-orm';
 import { readProjects } from '@main/core/projects/operations/getProjects';
 import { isImplicitSessionHomeProjectId } from '@shared/core/projects/session-home-project';
 import { resolveAgentHome } from '@gugu/session-core/agents/plugins/helpers';
@@ -17,6 +17,7 @@ import type { OpenedOutput, ToolImage } from '@gugu/session-core/acp/client';
 import {
   findToolImage,
   type RecordCursor,
+  type RecordLineageNode,
   type SessionRecordLocator,
   type SessionTimeline,
   type PendingRequest,
@@ -134,6 +135,8 @@ export type SessionTimelineFactory = (input: {
   conversationId: string;
   /** 记录里认出来的提问宿主能不能代答(#6798);能 ⇒ 提问结算带上整份题目。 */
   answerableQuestions?: boolean;
+  readMode?: 'snapshot';
+  parentLineage?: readonly RecordLineageNode[];
 }) => Promise<SessionTimeline>;
 
 /**
@@ -141,13 +144,13 @@ export type SessionTimelineFactory = (input: {
  * 会让每一个只想测服务层记账的用例都替记录源交税（也会把原生模块拖进不需要它的进程）。
  * 真开一份时间线的那一刻才加载。
  */
-const defaultTimelineFactory: SessionTimelineFactory = async ({ locator, conversationId: sessionId, answerableQuestions }) => {
+const defaultTimelineFactory: SessionTimelineFactory = async ({ locator, conversationId: sessionId, answerableQuestions, readMode, parentLineage }) => {
   const { createSessionRecordSource, createSessionTimeline } = await import(
     '@gugu/session-core/session-record'
   );
   // 存档只是捷径:读不出来 / 对不上,`createSessionTimeline` 自己会退回整份重读。
-  const archive = await loadTimelineArchive(sessionId);
-  return createSessionTimeline(createSessionRecordSource(locator), {
+  const archive = readMode === 'snapshot' ? null : await loadTimelineArchive(sessionId);
+  return createSessionTimeline(createSessionRecordSource(locator, { readMode, parentLineage }), {
     sessionId,
     archive,
     ...(answerableQuestions ? { answerableQuestions } : {}),
@@ -200,7 +203,7 @@ const subscriptions = new Map<string, ActiveSubscription>();
  * 早先这里只选了列表要显示的那几列，再把它 `as Conversation` 递给注入路径 —— 那是一句
  * 类型上的谎：注入路径哪天多读一个字段，拿到的是 undefined 而类型说它在，静默走错。
  */
-function readSessionRows(): Array<{
+function readSessionRows(includeArchived = false, id?: string): Array<{
   session: SessionRow;
   project: SessionpageProjectSummary;
 }> {
@@ -212,7 +215,7 @@ function readSessionRows(): Array<{
     .from(sessions)
     .innerJoin(projects, eq(sessions.projectId, projects.id))
     // 归档的会话不上这张面 —— 与 `getSessions()` 同一条口径:归属键是**会话自己**那一列(spec session-graph)。
-    .where(isNull(sessions.archivedAt))
+    .where(and(includeArchived ? undefined : isNull(sessions.archivedAt), id === undefined ? undefined : eq(sessions.id, id)))
     .all()
     .map(({ session, project }) => ({ session, project: projectSummary(project) }));
 }
@@ -226,9 +229,9 @@ function projectSummary({ kind, ...project }: { id: string; name: string; path: 
   return kind === 'workspace' ? { ...project, kind } : project;
 }
 
-export function readSessionRow(conversationId: string): SessionRow | null {
+export function readSessionRow(conversationId: string, options: { includeArchived?: boolean } = {}): SessionRow | null {
   return (
-    readSessionRows().find((row) => row.session.id === conversationId)?.session ??
+    readSessionRows(options.includeArchived, conversationId).find((row) => row.session.id === conversationId)?.session ??
     null
   );
 }
@@ -485,9 +488,9 @@ function scheduleIdleDispose(entry: TimelineEntry): void {
   entry.idleTimer.unref?.();
 }
 
-async function acquire(
-  conversationId: string
-): Promise<SessionTimelineResult<TimelineEntry>> {
+async function acquire(conversationId: string): Promise<SessionTimelineResult<TimelineEntry>> {
+  const row = readSessionRow(conversationId);
+  if (!row) return fail('session_not_found', `这台机器上没有会话 ${conversationId}`);
   const cached = entries.get(conversationId);
   if (cached) {
     cached.refs += 1;
@@ -498,10 +501,6 @@ async function acquire(
     return { ok: true, value: cached };
   }
 
-  const row = readSessionRow(conversationId);
-  if (!row) {
-    return fail('session_not_found', `这台机器上没有会话 ${conversationId}`);
-  }
   const location = locateRow(row);
   if (!location.supported) {
     // 没有记录可读也要打得开(spec session-always-openable):给一个只含第一句话的替身,
@@ -534,7 +533,6 @@ async function acquire(
   const generation = resetGeneration;
   // 审批只有 ACP 腿有可结算的请求 id；TUI 腿的审批画在终端里，没有通道
   // （`write-bridge` 对它 fail loud）。所以这条订阅只对 ACP 腿开。
-  const live = summaryRuntime(row.runtime) === 'acp';
   const promise = factory({ locator: location.locator, conversationId, answerableQuestions: remoteAnswerFor(row) }).then((timeline) => {
     if (generation !== resetGeneration) {
       timeline.dispose();
@@ -550,12 +548,8 @@ async function acquire(
       disposed: false,
     };
     entries.set(conversationId, entry);
-    try { restoreAgentQuestions(entry, row.projectId); }
+    try { attachInteractive(entry, row); }
     catch (error) { entries.delete(conversationId); timeline.dispose(); throw error; }
-    if (live) attachPendingRequests(entry);
-    withdrawOrphanHostAsks(entry);
-    // A host ask made before this timeline opened (D-31): on it from the start.
-    if (hostAsks.has(conversationId)) syncPending(entry);
     return entry;
   });
   opening.set(conversationId, promise);
@@ -566,6 +560,13 @@ async function acquire(
   } finally {
     if (opening.get(conversationId) === promise) opening.delete(conversationId);
   }
+}
+
+function attachInteractive(entry: TimelineEntry, row: SessionRow): void {
+  restoreAgentQuestions(entry, row.projectId);
+  if (summaryRuntime(row.runtime) === 'acp') attachPendingRequests(entry);
+  withdrawOrphanHostAsks(entry);
+  if (hostAsks.has(row.id)) syncPending(entry);
 }
 
 /** 会话行上的建立时间(SQLite `CURRENT_TIMESTAMP`,UTC)→ epoch ms;读不出来 = 不知道。 */
@@ -1030,25 +1031,74 @@ type TranscriptTurns = TimelineSnapshot['turns'];
  * 拿到的必须是带图的那份 —— 库里那份没有别处可以再取。读不回来的那张保持只有字数(与「图不在了」同一种降级)。
  * `ok: false` = 这里没有记录可读;`turns: null` = `pick` 说不挑(记录与库岔开了)。
  */
+/** Ingestion owns this reader. It cannot populate or dispose the interactive cache. */
+async function openIngestionRecord(conversationId: string, includeArchived?: boolean, parentLineage?: readonly RecordLineageNode[], readMode: 'snapshot' | 'live' = 'snapshot'): Promise<SessionTimeline | null> {
+  const row = readSessionRow(conversationId, { includeArchived });
+  if (!row || !timelineFactory) return null;
+  const location = locateRow(row);
+  if (!location.supported) return null;
+  const generation = resetGeneration;
+  const timeline = await timelineFactory({ locator: location.locator, conversationId, ...(readMode === 'snapshot' ? { readMode } : {}), parentLineage });
+  if (generation !== resetGeneration) { timeline.dispose(); return null; }
+  return timeline;
+}
+
 export async function pickRecordTurns(
   conversationId: string,
   pick: (turns: TranscriptTurns) => Promise<TranscriptTurns | null>,
-  options: { images: boolean } = { images: true },
-): Promise<{ ok: true; turns: TranscriptTurns | null } | { ok: false }> {
-  const acquired = await acquire(conversationId);
-  if (!acquired.ok) return { ok: false };
+  options: { images: boolean; committedOnly?: boolean; includeArchived?: boolean; afterForkOf?: string } = { images: true },
+): Promise<{ ok: true; turns: TranscriptTurns | null; complete: boolean } | { ok: false; reason?: 'diverged' }> {
+  const opened: SessionTimeline[] = [];
+  let provingParent = !!options.afterForkOf;
   try {
-    if (acquired.value.standIn) return { ok: false };
-    const timeline = acquired.value.timeline;
+    let parentLineage: readonly RecordLineageNode[] | undefined;
+    if (options.afterForkOf) {
+      const parent = await openIngestionRecord(options.afterForkOf, true);
+      if (!parent) return { ok: false, reason: 'diverged' };
+      opened.push(parent);
+      parentLineage = parent.getRecordLineage?.() ?? undefined;
+      if (!parentLineage?.length) return { ok: false, reason: 'diverged' };
+    }
+    provingParent = false;
+    const timeline = await openIngestionRecord(conversationId, options.includeArchived, parentLineage);
+    if (!timeline) return { ok: false };
+    opened.push(timeline);
     await timeline.catchUp();
-    const picked = await pick(timeline.getSnapshot({ limit: Number.MAX_SAFE_INTEGER }).turns);
-    if (!picked || !options.images) return { ok: true, turns: picked };
-    return { ok: true, turns: await Promise.all(picked.map((turn) => withImagesReadBack(timeline, turn))) };
+    const all = timeline.getSnapshot({ limit: Number.MAX_SAFE_INTEGER }).turns;
+    const prefix = options.committedOnly ? timeline.getSnapshot({ limit: Number.MAX_SAFE_INTEGER, committedOnly: true }).turns : all;
+    const complete = prefix.length === all.length;
+    const picked = await pick(prefix);
+    if (!picked || !options.images) return { ok: true, turns: picked, complete };
+    return { ok: true, turns: await Promise.all(picked.map((turn) => withImagesReadBack(timeline, turn))), complete };
   } catch (error) {
     log.warn('[session-timeline] record unreadable', { conversationId, error: (error as Error)?.message ?? String(error) });
-    return { ok: false };
+    return { ok: false, ...(provingParent || (error as Error)?.name === 'SessionRecordForkDivergedError' ? { reason: 'diverged' as const } : {}) };
   } finally {
-    release(acquired.value);
+    for (const timeline of opened.reverse()) timeline.dispose();
+  }
+}
+
+/**
+ * A terminal reports idle before its buffered record write lands (record-backfill `settling`). Ingestion follows
+ * the same live record reader until the last turn carries its outcome: `true` = it settled, `false` = `signal` ended
+ * the watch first. A record that cannot be reopened fails loudly.
+ */
+export async function watchRecordSettled(conversationId: string, signal: AbortSignal): Promise<boolean> {
+  const timeline = await openIngestionRecord(conversationId, true, undefined, 'live');
+  if (!timeline) throw new Error(`record unavailable for ${conversationId}`);
+  let unsubscribe = () => {};
+  try {
+    return await new Promise<boolean>((resolve) => {
+      const check = () => { if (timeline.getSnapshot({ limit: 1 }).turns.at(-1)?.outcome) resolve(true); };
+      signal.addEventListener('abort', () => resolve(false), { once: true });
+      if (signal.aborted) resolve(false);
+      unsubscribe = timeline.subscribe(timeline.getSnapshot({ limit: 1 }).cursor, check);
+      // The reader caught up while opening: an outcome that landed after the settling snapshot is already here.
+      check();
+    });
+  } finally {
+    unsubscribe();
+    timeline.dispose();
   }
 }
 

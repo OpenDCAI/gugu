@@ -28,7 +28,7 @@ const groups = [
 
 async function render(options: { mobile?: boolean; contacts?: Parameters<typeof contactsStore>[0] } = {}) {
   const onOpenGroupChat = vi.fn()
-  await renderWithAppProviders(harness, createNode(ContactsPanel, { activeTab: 'contacts', mobile: options.mobile ?? false, onOpenGroupChat }), {
+  await renderWithAppProviders(harness, createNode(ContactsPanel, { mobile: options.mobile ?? false, onOpenGroupChat }), { shellTab: 'contacts',
     auth: { id: 'owner-1', email: 'owner@example.com', nickname: 'Owner' },
     contacts: { contacts: people, groupChats: groups, ...options.contacts },
     chat: { chats: [] },

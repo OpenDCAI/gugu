@@ -9,7 +9,14 @@ import {
 } from '@gugu/session-shared/format'
 import { getLocaleSnapshot, i18n } from './runtime'
 
+import { formatCalendarDay as formatCalendarDayValue } from '@gugu/session-shared/format'
+
 export { differenceInCalendarDays, formatCalendarDate, toLocalDateTimeInput } from '@gugu/session-shared/format'
+
+/** 会话列表、公告、消息分隔的日历时间(见 session-shared `formatCalendarDay`);没有时间(还没有消息)是空串。 */
+export function formatCalendarDay(value: DateValue | null | undefined, options: { withTime?: boolean; now?: Date } = {}): string {
+  return value == null || value === '' ? '' : formatCalendarDayValue(value, getLocaleSnapshot().resolvedLocale, options)
+}
 
 function locale(override?: string): string {
   return override ?? getLocaleSnapshot().resolvedLocale

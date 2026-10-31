@@ -53,6 +53,7 @@ export const appsView = {
   TitlebarSlot: ShellTitlebar,
   MainPanel: AppsMainPanel,
   withoutSessionSidebar: true,
+  retained: true,
 } satisfies ViewDefinition<AppsViewParams>;
 
 type AppViewParams = { appId?: string; tab?: string };

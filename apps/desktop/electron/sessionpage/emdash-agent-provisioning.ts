@@ -1532,10 +1532,9 @@ async function findOwnerDirectChat(accessToken: string, guguAgentUserId: string)
 }
 
 /**
- * @@@chat-page-dm — 聊天页「新建 Agent」的私聊，在 ensure-agent-address 那个 seam 显式开。
- * 这不是 provision 自动开（#4121 @@@no-auto-dm 禁的那种）：走到这里的只有聊天页首条消息一条路
- * （use-create-session-callback → sessionpage:ensure-agent-address），即 owner「真去开私聊」的那一刻，
- * 而私聊正是这条路的消息容器（sendMessageToChat / openAgentChat 都以它为地址）。
+ * @@@chat-page-dm — agent 和主人的私聊，在 ensure-agent-address 那个 seam 显式开。
+ * 这不是 provision 自动开（#4121 @@@no-auto-dm 禁的那种）：走到这里的是界面上要用这条私聊的那一刻
+ * （会话页 session-verb-dock → sessionpage:ensure-agent-address），即 owner「真去开私聊」的那一刻。
  * `open_dm` 幂等（find-or-create）；开出来写回 roster 缓存，后续 resume 的只读查询直接命中。
  *
  * 私聊地址是**公网身份的派生物**（spec agent-provisioning「身份分两层」）：`open_dm` 按目标 id 查的正是
