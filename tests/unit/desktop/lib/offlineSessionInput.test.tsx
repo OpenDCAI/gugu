@@ -23,5 +23,7 @@ it('accepts and visibly retains a native message without any mounted remote work
   await vi.waitFor(() => expect(harness.container.querySelector('[data-native-input-id]')?.textContent).toContain('Send when the host returns'))
   // The device online fact names why it has not gone out yet.
   await vi.waitFor(() => expect(harness.container.querySelector('[data-native-input-id] [role="alert"]')).not.toBeNull())
+  // It is sent by itself once the host is back: no retry to press (the copy says so).
+  expect(harness.container.querySelector('[data-native-input-id] button')).toBeNull()
   expect(harness.container.querySelector('textarea')?.value).toBe('')
 })

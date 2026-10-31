@@ -763,7 +763,7 @@ export default {
       "held": "等待重试",
       "unknownNotResent": "结果未知，没有重发",
       "failure": {
-        "hostOffline": "这个任务所在的电脑现在不在线，等它上线后点重试",
+        "hostOffline": "这个任务所在的电脑现在不在线，它上线后会自动发出",
         "hostNotReady": "这个任务所在的电脑还没准备好接收消息，稍后点重试",
         "phoneUnconfirmed": "手机还没确认收到这条消息，稍后点重试",
         "noAcknowledgement": "任务没有回应，稍后点重试"

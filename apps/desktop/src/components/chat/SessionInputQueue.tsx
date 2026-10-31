@@ -39,7 +39,8 @@ export function SessionInputQueue({ sessionId, waitingForConnection, life = null
       {bubble.state === 'held' ? <div className="text-xs text-foreground-muted" role="status" data-send-state="held">{t('message.sendStatus.held')}</div> : null}
       {bubble.state === 'failed' ? <div className="flex items-center gap-2 text-sm">
         <span role="alert">{bubble.failure ? failureText(bubble.failure, t) : bubble.hostReason ? messageForUser(bubble.hostReason) : t('message.sendStatus.failed')}</span>
-        {bubble.failure ? <Button size="xs" variant="ghost" onClick={() => { void retry() }}>{t('common.retry')}</Button> : null}
+        {/* A host that is offline gets the input once it is back: no retry to press. */}
+        {bubble.failure && bubble.failure.code !== 'host-offline' ? <Button size="xs" variant="ghost" onClick={() => { void retry() }}>{t('common.retry')}</Button> : null}
       </div> : null}
       {bubble.state === 'unknown' ? <div className="text-xs text-foreground-muted" role="status">{t('message.sendStatus.unknownNotResent')}</div> : null}
     </div>)}
