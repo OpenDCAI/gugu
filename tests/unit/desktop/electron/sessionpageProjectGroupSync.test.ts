@@ -1559,7 +1559,6 @@ describe('#3969 新进程第一次归档唯一的任务', () => {
     vi.resetModules()
     const restarted = await import(REAPER)
     expect((await restarted.reconcileSessionpageAgents(inventory)).reapedAgents).toBe(0)
-    const provision = await import(SUT)
     const restored = await provisionCreated(input, deps)
     await settleCloud()
     expect(restored?.guguAgentUserId).toBe(original?.guguAgentUserId)

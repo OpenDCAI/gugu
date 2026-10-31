@@ -113,7 +113,7 @@ describe('task name renames', () => {
       await updateAgent({ guguUserId: 'agent-7' }, { cache: { emdash_session_id: 'named', sessionpage_owner_user_id: 'owner' } }, env);
       await setTaskNameOwner('owner', env);
       await renameSession('named', 'Parser');
-      expect(renameBound).toHaveBeenCalledWith('named', 'agent-7', 'Parser');
+      expect(renameBound).toHaveBeenCalledWith('named', 'agent-7', 'Parser', 'manual');
       expect(nameOf('named')).toBe('Reviewer');
     } finally {
       await setTaskNameOwner(null, env);
