@@ -91,6 +91,11 @@ export type ChatViewOptions = {
 
 export type ChatView = {
   /**
+   * Whether the transcript is on screen. Hidden (a retained page behind another), it keeps applying every update to its
+   * model but measures and lays out nothing until shown again (@@@hidden-no-layout in ChatRoot).
+   */
+  setShown(shown: boolean): void;
+  /**
    * The composer slot element (non-null only when `composer === 'slot'` and
    * after mount). Host should portal a React composer into this element.
    * Use `onViewMounted` to be notified when it becomes available.
@@ -174,11 +179,17 @@ export type ChatView = {
 export function createChatView(opts: ChatViewOptions): ChatView {
   const [padTop, setPadTop] = createSignal(opts.padTop ?? 0);
   const [padBottom, setPadBottom] = createSignal(opts.padBottom ?? 0);
-  const [commands, setCommandsSignal] = createSignal<ChatCommands>(opts.commands ?? {});
+  // @@@stable-commands — the host hands in fresh callbacks on every render (closures over its latest state). Rows read
+  // commands() inside their measure context, so a new object re-laid-out the whole transcript (≈380 ms with a long
+  // one). The view keeps one object whose functions call the host's latest callbacks and publishes a new one only when
+  // what a row can see changes: which commands exist, or a value command (editingMessage, …).
+  let latestCommands: ChatCommands = opts.commands ?? {};
+  const [commands, setCommandsSignal] = createSignal<ChatCommands>(stableCommands(latestCommands, () => latestCommands));
   // Hold the active ChatState in a signal so view.setModel() can swap models
   // reactively without tearing down the Solid root. Use a function form of
   // setCurrentModel to prevent Solid from treating the ChatState as a factory.
   const [currentModel, setCurrentModel] = createSignal<ChatState>(opts.state);
+  const [shown, setShownSignal] = createSignal(true);
 
   const controls: EngineControls = {
     scrollToTop: () => {},
@@ -212,8 +223,13 @@ export function createChatView(opts: ChatViewOptions): ChatView {
     get contentOverlay() {
       return controls.contentOverlay ?? null;
     },
+    setShown(value) {
+      setShownSignal(value);
+    },
     setCommands(c) {
-      setCommandsSignal(c);
+      const previous = latestCommands;
+      latestCommands = c;
+      if (!sameCommandShape(previous, c)) setCommandsSignal(stableCommands(c, () => latestCommands));
     },
     scrollToTop(o) {
       controls.scrollToTop(o);
@@ -270,6 +286,7 @@ export function createChatView(opts: ChatViewOptions): ChatView {
         padTop={padTop}
         padBottom={padBottom}
         commands={commands}
+        shown={shown}
         onReachStart={onReachStart}
         onAtBottomChange={onAtBottomChange}
         onActiveUserMessageVisibilityChange={onActiveUserMessageVisibilityChange}
@@ -285,4 +302,23 @@ export function createChatView(opts: ChatViewOptions): ChatView {
   );
 
   return view;
+}
+
+type CommandEntries = [string, unknown][];
+const presentCommands = (c: ChatCommands): CommandEntries =>
+  Object.entries(c).filter(([, value]) => value !== undefined);
+
+/** Functions delegate to the latest host callbacks; values are copied (they are layout inputs). */
+export function stableCommands(c: ChatCommands, latest: () => ChatCommands): ChatCommands {
+  return Object.fromEntries(presentCommands(c).map(([key, value]) => [key, typeof value === 'function'
+    ? (...args: unknown[]) => (latest() as Record<string, (...a: unknown[]) => unknown>)[key]?.(...args)
+    : value])) as ChatCommands;
+}
+
+/** Same commands present, and every value command identical: the rows cannot tell the difference. */
+export function sameCommandShape(a: ChatCommands, b: ChatCommands): boolean {
+  const left = presentCommands(a), right = new Map(presentCommands(b));
+  return left.length === right.size && left.every(([key, value]) => right.has(key) && (typeof value === 'function'
+    ? typeof right.get(key) === 'function'
+    : Object.is(value, right.get(key))));
 }

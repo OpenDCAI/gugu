@@ -263,6 +263,11 @@ export type ChatRootProps = {
    * createChatView via a signal so setCommands can update them without remounting.
    */
   commands?: () => ChatCommands;
+  /**
+   * @@@hidden-no-layout — false while this transcript is not on screen (a retained page behind another). The model keeps
+   * every live update; estimating, projecting and scheduling frames wait until it is shown again.
+   */
+  shown?: () => boolean;
   /** Fired when the user scrolls near the top and the engine has run out of history. */
   onReachStart?: () => void;
   /** Fired when the "at bottom" sticky state changes. */
@@ -342,6 +347,7 @@ export function ChatRoot(props: ChatRootProps) {
   const theme = () => props.context.theme;
   const contentClass = () => props.contentClass ?? DEFAULT_CONTENT_CLASS;
   const commands = () => props.commands?.() ?? {};
+  const shown = () => props.shown?.() ?? true;
   const editingMessage = () => commands().editingMessage;
   const [composerPlacement, setComposerPlacementSignal] = createSignal<ComposerPlacement>(
     resolveComposerPlacement(props.composerPlacement)
@@ -810,6 +816,7 @@ export function ChatRoot(props: ChatRootProps) {
 
   // ── Count sync effect ─────────────────────────────────────────────────────
   createEffect(() => {
+    if (!shown()) return; // @@@hidden-no-layout: re-runs once with the latest units when shown
     const us = units();
     const t = theme();
     untrack(() => {
@@ -1556,6 +1563,7 @@ export function ChatRoot(props: ChatRootProps) {
   // Output signals (visible, pin) are intentionally NOT in this list —
   // reading them here would create a feedback loop.
   createEffect(() => {
+    if (!shown()) return; // @@@hidden-no-layout
     // units() already tracks committedUnitsVersion() transitively — no need to
     // list it here separately.
     units();
