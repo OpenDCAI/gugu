@@ -112,7 +112,6 @@ export function StickyDiffEditor({
       disposed = true;
       teardown?.();
     };
-    // oxlint-disable-next-line react/exhaustive-deps
   }, []);
 
   // Sync diffStyle changes to the mounted editor.
@@ -182,7 +181,6 @@ export function StickyDiffEditor({
       disposer();
     };
     // editorBox is a stable ref created once; only URI changes recreate the autorun.
-    // oxlint-disable-next-line react/exhaustive-deps
   }, [originalUri, modifiedUri]);
 
   return <div ref={mountRef} className="h-full" />;

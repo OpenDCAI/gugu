@@ -181,7 +181,6 @@ export const EditorProvider = observer(function EditorProvider({
       disposed = true;
       teardown?.();
     };
-    // oxlint-disable-next-line react/exhaustive-deps
   }, []);
 
   // ---------------------------------------------------------------------------
@@ -259,7 +258,6 @@ export const EditorProvider = observer(function EditorProvider({
         modelRegistry.attach(editor, newBufUri, prevBufUriRef.current);
         prevBufUriRef.current = newBufUri;
       }),
-    // oxlint-disable-next-line react/exhaustive-deps
     []
   );
 
@@ -269,7 +267,6 @@ export const EditorProvider = observer(function EditorProvider({
   useEffect(() => {
     if (!sessionId) return;
     void editorView.restoreBuffers();
-    // oxlint-disable-next-line react/exhaustive-deps
   }, [sessionId]);
 
   // ---------------------------------------------------------------------------

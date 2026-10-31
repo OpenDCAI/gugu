@@ -55,7 +55,7 @@ export const nextPaint = (): Promise<void> =>
  * Returns `undefined` in environments that do not expose performance.memory.
  */
 export const heapUsed = (): number | undefined =>
-  // oxlint-disable-next-line typescript/no-explicit-any -- performance.memory is a non-standard Chromium API
+  // performance.memory is a non-standard Chromium API
   (performance as any).memory?.usedJSHeapSize as number | undefined;
 
 /**
@@ -64,7 +64,7 @@ export const heapUsed = (): number | undefined =>
  * `--expose-gc` window.gc shim.  Resolves immediately when unsupported.
  */
 export const gcHint = async (): Promise<void> => {
-  // oxlint-disable-next-line typescript/no-explicit-any -- non-standard APIs
+  // non-standard APIs
   const perf = performance as any;
   if (typeof perf.measureUserAgentSpecificMemory === 'function') {
     try {
@@ -74,9 +74,7 @@ export const gcHint = async (): Promise<void> => {
       // not in a cross-origin isolated context or not supported — fall through
     }
   }
-  // oxlint-disable-next-line typescript/no-explicit-any
   if (typeof (globalThis as any).gc === 'function') {
-    // oxlint-disable-next-line typescript/no-explicit-any
     (globalThis as any).gc();
   }
 };
