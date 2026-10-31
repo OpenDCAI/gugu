@@ -14,5 +14,5 @@ export async function rollbackAgentSessionStartup(input: {
   // Provision can throw after writing the binding. Read its SSOT even on failure;
   // Failed startup retains the task and its existing identity for Restore.
   if (await localAgentForSession(input.sessionId, process.env)) return
-  await archiveSession(input.projectId, input.sessionId, { skipTransportStop: true })
+  await archiveSession(input.projectId, input.sessionId, { skipTransportStop: true, removeSocialIdentity: false })
 }

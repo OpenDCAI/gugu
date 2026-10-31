@@ -2018,7 +2018,7 @@ export async function disposeSessionpageAgentSession(input: {
   sessionId: string
 }): Promise<void> {
   await stopExactSessionpageSession(input).catch(() => false)
-  await archiveSession(input.projectId, input.sessionId, { skipTransportStop: true })
+  await archiveSession(input.projectId, input.sessionId, { skipTransportStop: true, removeSocialIdentity: false })
     .catch(() => undefined)
 }
 
@@ -2082,8 +2082,8 @@ export type EmdashSessionProvisionInput = {
 export async function emdashSessionProvisionInput(target: {
   projectId: string
   sessionId: string
-}): Promise<EmdashSessionProvisionInput | null> {
-  const rows = await getSessions()
+}, options: { includeArchived?: boolean } = {}): Promise<EmdashSessionProvisionInput | null> {
+  const rows = await getSessions(options)
   const session = rows.find((row) => row.id === target.sessionId && row.projectId === target.projectId)
   if (!session) return null
   if (!session.workspaceId) throw new Error('Session workspace is not ready')

@@ -231,6 +231,8 @@ async function findOwnerDirectChatMemoized(accessToken: string, agentUserId: str
 /** The slice of the session-page session-start info this module needs. */
 export interface SessionpageSessionInfo {
   sessionId: string
+  /** Explicit same-session Restore may replace this removed identity through normal spawn provisioning. */
+  replacesRemovedIdentity?: string
   providerId: string
   surface: SessionpageSessionSurface
   cwd: string
@@ -739,7 +741,16 @@ export async function provisionSessionpageAgentForSession(
   const tombstoneOwner = (await deps.getAuth())?.userId
   const authMs = Date.now() - preLockAt
   const tombstoneAt = Date.now()
-  if (await findReapedAgentForSession(info.sessionId, deps.env ?? process.env, tombstoneOwner)) return null
+  const reaped = await findReapedAgentForSession(info.sessionId, deps.env ?? process.env, tombstoneOwner)
+  if (reaped && reaped.gugu_user_id !== info.replacesRemovedIdentity) {
+    const bound = (await listAgents(deps.env ?? process.env, { includeGuests: true })).find((agent) =>
+      cacheString(agent.cache, SESSION_CACHE_KEY) === info.sessionId
+      && cacheString(agent.cache, OWNER_CACHE_KEY) === tombstoneOwner)
+    // An explicit Restore already minted this session's replacement; the old identity remains tombstoned.
+    if (!bound || bound.gugu_user_id === reaped.gugu_user_id) return null
+  }
+  // Later starts of the replacement still cannot consume the old identity's birth-group invitation.
+  if (reaped) info = { ...info, replacesRemovedIdentity: reaped.gugu_user_id }
   const tombstoneMs = Date.now() - tombstoneAt
   const queuedAt = Date.now()
   return serialize(
@@ -872,7 +883,7 @@ async function provisionLockedBody(
           afterBinding,
           provisionalLocalRow: false,
           // The creation's cloud send never landed, so this is still its first mint — it still joins where it was born.
-          ...(deps.takeBirthGroup ? { birthGroup: () => deps.takeBirthGroup!(info.sessionId) } : {}),
+          ...(!info.replacesRemovedIdentity && deps.takeBirthGroup ? { birthGroup: () => deps.takeBirthGroup!(info.sessionId) } : {}),
         })
       }
     }
@@ -1112,7 +1123,7 @@ async function provisionFreshLocalFirst(
     groupChatId,
     afterBinding,
     provisionalLocalRow: true,
-    ...(deps.takeBirthGroup ? { birthGroup: () => deps.takeBirthGroup!(info.sessionId) } : {}),
+    ...(!info.replacesRemovedIdentity && deps.takeBirthGroup ? { birthGroup: () => deps.takeBirthGroup!(info.sessionId) } : {}),
   })
   return { guguAgentUserId, displayName, groupChatId, projectName }
 }

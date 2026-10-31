@@ -3626,7 +3626,7 @@ function crossMachine(): CrossMachineSessions {
     lookupAgents: async ({ userIds, numbers }) => {
       const auth = await requireAuth()
       const query = (column: 'id' | 'gugu_number', values: Array<string | number>) => makeIdentityClient(auth.accessToken)
-        .from('users').select('id, device_id, gugu_number')
+        .from('active_users').select('id, device_id, gugu_number')
         .eq('type', 'agent').eq('owner_user_id', auth.userId).in(column, values)
       const results = await Promise.all([userIds.length ? query('id', userIds) : null, numbers.length ? query('gugu_number', numbers) : null])
       return results.flatMap((result) => {
@@ -4930,7 +4930,7 @@ app.whenReady().then(async () => {
       isThisDevice: (deviceId) => crossMachine().isThisDevice(deviceId),
       appSpawn: (app, deviceId, action) => crossMachine().appSpawn(app, deviceId, action),
       sessions: (since, options) => crossMachine().sessionsElsewhere(since, options),
-      archive: (deviceId, sessionId) => crossMachine().archiveOn(deviceId, sessionId),
+      archive: (deviceId, sessionId, removeSocialIdentity) => crossMachine().archiveOn(deviceId, sessionId, removeSocialIdentity),
       appMessage: (app, deviceId, sessionId, text, how) => crossMachine().appMessage(app, deviceId, sessionId, text, how),
       appReadFile: (app, deviceId, action) => crossMachine().appReadFile(app, deviceId, action),
       appCall: (app, deviceId, action) => crossMachine().appCall(app, deviceId, action),
@@ -4984,10 +4984,11 @@ app.whenReady().then(async () => {
       resolveDeviceId: localDeviceId,
       resolveProjectName: (projectId: string) => emdash.emdashProjectName(projectId),
       takeBirthGroup: (sessionId: string) => emdash.emdashTakeBirthGroup(sessionId),
-      sessionFacts: (target) => emdash.emdashSessionProvisionInput(target),
+      sessionFacts: (target, options) => emdash.emdashSessionProvisionInput(target, options),
       listSessionFacts: () => emdash.emdashSessionpageSessionFacts(),
     })
     const sessionpageIdentityDeps = sessionpageIdentityHost.provisionDeps
+    emdash.setSessionIdentityHost(sessionpageIdentityHost)
     const nativeInbox = emdash.startNativeConversationInboxHost({
       open: async target => (await sessionpageIdentityHost.ensureAgentAddress(target)).chatId,
       failed: error => createLogger('sessionpage/personal-inbox').warn({ error: String(error) }, 'Personal conversation address remains pending'),

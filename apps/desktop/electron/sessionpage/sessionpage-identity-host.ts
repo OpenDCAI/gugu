@@ -33,6 +33,9 @@ import { resolveSessionpageSessionPeers } from './session-addressing'
 import { agentNamesFromPeers } from '../../src/session/shared/lib/ipc/shell-port'
 import type { LocalSessionFacts } from './emdash-agent-registry'
 import { loadSessionpageCanonicalAgentIdentities } from './sessionpage-agent-identity'
+import { archiveIdentity } from '@gugu/core/cloud/agentIdentityRemoval'
+import type { SessionIdentityHost } from '../session/main/core/sessions/session-identity-host'
+import { releaseAgentLocalFootprint } from './agent-local-footprint'
 
 export type SessionpageIdentityAuthSnapshot = { accessToken: string; refreshToken: string; userId: string }
 
@@ -52,7 +55,7 @@ export interface SessionpageIdentityHostDeps {
   resolveProjectName: (projectId: string) => Promise<string | null>
   /** The chat a conversation's agent was born in (SessionpageProvisionDeps `takeBirthGroup`). */
   takeBirthGroup?: (sessionId: string) => Promise<BirthGroup | null>
-  sessionFacts: (target: SessionShellAgentAddressInput) => Promise<SessionpageSessionFacts | null>
+  sessionFacts: (target: SessionShellAgentAddressInput, options?: { includeArchived?: boolean }) => Promise<SessionpageSessionFacts | null>
   /** 这台机器侧栏上的会话(名册 session_peers 拿它对标题;名字表是那份名册的投影)。 */
   listSessionFacts: () => Promise<readonly LocalSessionFacts[]>
   env?: NodeJS.ProcessEnv
@@ -70,7 +73,7 @@ export interface SessionpageSessionStartFacts {
   lifecycle?: 'fresh' | 'fork' | 'resume'
 }
 
-export interface SessionpageIdentityHost {
+export interface SessionpageIdentityHost extends SessionIdentityHost {
   readonly provisionDeps: SessionpageProvisionDeps
   agentCard(sessionId: string): Promise<SessionShellAgentCard | null>
   /** 侧栏身份卡要的那张表:本机名册(session_peers)的投影。 */
@@ -135,6 +138,32 @@ export function createSessionpageIdentityHost(deps: SessionpageIdentityHostDeps)
   }
   return {
     provisionDeps,
+    async archive(sessionId) {
+      const auth = await deps.getAuth()
+      if (!auth) throw new Error('Removing the identity needs a connection; retry, or archive without removing it.')
+      const agent = await localAgentForSession(sessionId, env, auth.userId)
+      if (!agent?.gugu_user_id) return null
+      try {
+        const receipt = await archiveIdentity(makeIdentityClient(auth.accessToken), agent.gugu_user_id)
+        return { userId: receipt.userId, removedAt: receipt.removedAt! }
+      } catch (error) {
+        throw new Error(`${error instanceof Error ? error.message : String(error)}. Removing the identity needs a connection; retry, or archive without removing it.`, { cause: error })
+      }
+    },
+    async release(identity) {
+      await releaseAgentLocalFootprint({ agentUserId: identity.userId, identityRemoved: true, env })
+    },
+    async restore(target, removedIdentity) {
+      if (!(await deps.getAuth())) throw new Error('Restoring this task needs a connection and a signed-in account')
+      const info = await deps.sessionFacts(target, { includeArchived: true })
+      if (!info) throw new Error('Session-page session not found')
+      // Retry cleanup before provisioning: a partial local teardown must never reuse the removed binding.
+      await releaseAgentLocalFootprint({ agentUserId: removedIdentity.userId, identityRemoved: true, env })
+      const provisioned = await provisionSessionpageAgentForSession({ ...info, replacesRemovedIdentity: removedIdentity.userId }, provisionDeps)
+      if (!provisioned || provisioned.guguAgentUserId === removedIdentity.userId) {
+        throw new Error('Restoring this task requires a new identity')
+      }
+    },
     async agentCard(sessionId) {
       // 名片按当下登录的账号解析(#4277):网页版换账号不重启宿主,不收紧就会把上一个账号的号递给现在这位。
       const auth = await deps.getAuth()

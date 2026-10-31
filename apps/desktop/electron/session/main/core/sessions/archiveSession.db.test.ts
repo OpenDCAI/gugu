@@ -7,6 +7,7 @@ import { openFixture } from '@tooling/utils/db';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AppDb } from '@main/db/client';
 import type { SessionpageSessionSummary } from '@gugu/session-core/session-record/contract';
+import type { RemovedSessionIdentity } from '@gugu/core/shared/sessionArchival';
 
 /**
  * spec session-graph 的归档合同,打在真 SQLite 上。
@@ -78,9 +79,20 @@ const { setOtherMachines } = await import('./session-family');
 const { events } = await import('@main/lib/events');
 const { sessionCreatedChannel } = await import('@shared/core/sessions/sessionEvents');
 const { sessionEvents } = await import('./session-events');
+const { setSessionIdentityHost } = await import('./session-identity-host');
+const identityHost = {
+  archive: vi.fn(async (_sessionId: string): Promise<RemovedSessionIdentity | null> => null),
+  release: vi.fn(async (_identity: RemovedSessionIdentity) => {}),
+  restore: vi.fn(async (_target: { projectId: string; sessionId: string }, _identity: RemovedSessionIdentity) => {}),
+};
 
-beforeEach(async () => { mocks.userData = await mkdtemp(join(tmpdir(), 'gugu-agent-delete-files-')); });
-afterEach(async () => { await rm(mocks.userData, { recursive: true, force: true }); });
+beforeEach(async () => {
+  mocks.userData = await mkdtemp(join(tmpdir(), 'gugu-agent-delete-files-'));
+  identityHost.archive.mockReset(); identityHost.archive.mockResolvedValue(null);
+  identityHost.release.mockReset(); identityHost.restore.mockReset();
+  setSessionIdentityHost(identityHost);
+});
+afterEach(async () => { setSessionIdentityHost(null); await rm(mocks.userData, { recursive: true, force: true }); });
 
 describe('archiveSession', () => {
   let fixture: Awaited<ReturnType<typeof openFixture>>;
@@ -133,6 +145,57 @@ describe('archiveSession', () => {
   afterEach(() => {
     fixture.close();
     mocks.db = undefined;
+  });
+
+  it('waits for the cloud receipt before any local archival and leaves failure retryable', async () => {
+    insertSession('needs-cloud');
+    const receipt = Promise.withResolvers<RemovedSessionIdentity | null>();
+    identityHost.archive.mockReturnValueOnce(receipt.promise);
+    const pending = archiveSession('p1', 'needs-cloud');
+    await vi.waitFor(() => expect(identityHost.archive).toHaveBeenCalledWith('needs-cloud'));
+    expect(archivedAt('needs-cloud')).toBeNull();
+    expect(mocks.stopped).toEqual([]);
+    expect(fixture.sqlite.prepare("SELECT key FROM kv WHERE key='session-archival:needs-cloud'").get()).toBeUndefined();
+    receipt.reject(new Error('Identity removal needs a connection'));
+    await expect(pending).rejects.toThrow('needs a connection');
+    expect(archivedAt('needs-cloud')).toBeNull();
+    expect(identityHost.release).not.toHaveBeenCalled();
+    identityHost.archive.mockResolvedValueOnce({ userId: 'old-identity', removedAt: '2026-10-31T00:00:00Z' });
+    await archiveSession('p1', 'needs-cloud');
+    expect(archivedAt('needs-cloud')).not.toBeNull();
+    expect(identityHost.release).toHaveBeenCalledWith({ userId: 'old-identity', removedAt: '2026-10-31T00:00:00Z' });
+  });
+
+  it('keeps the existing offline archive and restore path when removal is explicitly false', async () => {
+    insertSession('offline');
+    setSessionIdentityHost(null);
+    await archiveSession('p1', 'offline', { removeSocialIdentity: false });
+    expect(archivedAt('offline')).not.toBeNull();
+    await expect(restoreSession('p1', 'offline')).resolves.toMatchObject({ id: 'offline', archivedAt: null });
+    expect(identityHost.archive).not.toHaveBeenCalled();
+    expect(identityHost.restore).not.toHaveBeenCalled();
+  });
+
+  it('restores the same session with history, files and config while replacing only its removed identity', async () => {
+    insertSession('same-task');
+    const file = join(mocks.userData, 'retained.txt');
+    await writeFile(file, 'the original task file');
+    const config = JSON.stringify({ version: '1', type: 'acp', model: 'original-model' });
+    fixture.sqlite.prepare('UPDATE sessions SET config=? WHERE id=?').run(config, 'same-task');
+    fixture.sqlite.prepare("INSERT INTO messages (id, session_id, content, sender) VALUES ('old-message', 'same-task', 'original history', 'user')").run();
+    fixture.sqlite.prepare("INSERT INTO session_attachments (id, session_id, name, size, stored_path, origin) VALUES ('old-file', 'same-task', 'retained.txt', 22, ?, 'copy')").run(file);
+    const receipt = { userId: 'old-identity', removedAt: '2026-10-31T00:00:00Z' };
+    identityHost.archive.mockResolvedValueOnce(receipt);
+    await archiveSession('p1', 'same-task');
+    identityHost.restore.mockRejectedValueOnce(new Error('new identity provisioning unavailable'));
+    await expect(restoreSession('p1', 'same-task')).rejects.toThrow('provisioning unavailable');
+    expect(archivedAt('same-task')).not.toBeNull();
+    await restoreSession('p1', 'same-task');
+    expect(identityHost.restore).toHaveBeenLastCalledWith({ projectId: 'p1', sessionId: 'same-task' }, receipt);
+    expect(fixture.sqlite.prepare('SELECT id, project_id, config, archived_at FROM sessions').all()).toEqual([{ id: 'same-task', project_id: 'p1', config, archived_at: null }]);
+    expect(fixture.sqlite.prepare('SELECT session_id, content FROM messages').all()).toEqual([{ session_id: 'same-task', content: 'original history' }]);
+    expect(fixture.sqlite.prepare('SELECT stored_path FROM session_attachments').all()).toEqual([{ stored_path: file }]);
+    expect(existsSync(file)).toBe(true);
   });
 
   it.each(['PR cleanup', 'task archival'])('retains a task and messages arriving during %s when removing a project', async (boundary) => {

@@ -97,7 +97,7 @@ function makeFakeChat() {
       } = {}
       const rows = (): { data?: unknown; error: null } => {
         if (!ctx.selected || ctx.patch) return { error: null }
-        if (table === 'chat_members' && ctx.userId) {
+        if (table === 'active_members' && ctx.userId) {
           const userId = ctx.userId
           return {
             data: [
@@ -1253,6 +1253,31 @@ describe('项目→群 映射:并发不丢条目、读失败必出声', () => {
 })
 const FOOTPRINT = '../../../../apps/desktop/electron/sessionpage/agent-local-footprint'
 describe('#4526 A:owner 删除 ⇒ 释放本机足迹 + 墓碑挡住重新开户', () => {
+  it('replaces a removed identity only on explicit Restore, keeping the session binding and only its project group', async () => {
+    const { provisionSessionpageAgentForSession } = await import(SUT)
+    const { releaseAgentLocalFootprint } = await import(FOOTPRINT)
+    const info = { sessionId: 'same-session', providerId: 'codex', surface: 'tui' as const, cwd: '/w/a', projectId: 'proj-alpha' }
+    const original = await provisionSessionpageAgentForSession(info, deps)
+    await settleCloud()
+    await releaseAgentLocalFootprint({ agentUserId: original!.guguAgentUserId, identityRemoved: true, env: deps.env })
+    await releaseAgentLocalFootprint({ agentUserId: original!.guguAgentUserId, identityRemoved: true, env: deps.env })
+    expect(tombstones).toHaveLength(1)
+    expect(tombstones[0]).toMatchObject({ gugu_user_id: original!.guguAgentUserId, conversation_id: info.sessionId })
+    expect(await provisionSessionpageAgentForSession(info, deps)).toBeNull()
+    const takeBirthGroup = vi.fn(async () => ({ chatId: 'old-social-group', asTask: true }))
+    const replacement = await provisionSessionpageAgentForSession({ ...info, replacesRemovedIdentity: original!.guguAgentUserId }, { ...deps, takeBirthGroup })
+    await settleCloud()
+    expect(replacement!.guguAgentUserId).not.toBe(original!.guguAgentUserId)
+    expect(roster).toHaveLength(1)
+    expect(roster[0]).toMatchObject({ gugu_user_id: replacement!.guguAgentUserId, cache: { emdash_session_id: info.sessionId, emdash_project_id: info.projectId } })
+    expect(groups.filter(group => group.members.includes(replacement!.guguAgentUserId)).map(group => group.name)).toEqual(['阿尔法项目'])
+    expect(await provisionSessionpageAgentForSession(info, { ...deps, takeBirthGroup })).toMatchObject({ guguAgentUserId: replacement!.guguAgentUserId })
+    await settleCloud()
+    expect(takeBirthGroup).not.toHaveBeenCalled()
+    expect(roster.map(row => row.gugu_user_id)).not.toContain(original!.guguAgentUserId)
+    expect(tombstones[0].gugu_user_id).toBe(original!.guguAgentUserId)
+  })
+
   async function provisionOne(sessionId: string) {
     const { provisionSessionpageAgentForSession } = await import(SUT)
     return provisionSessionpageAgentForSession(

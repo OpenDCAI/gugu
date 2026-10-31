@@ -675,6 +675,17 @@ export async function listSessions(): Promise<SessionpageSessionsListResult> {
   return sessionList(await agentIdsBySession(process.env));
 }
 
+/** Resolve the canonical binding even when its task is archived; a missing task is an orphan, not an offline host. */
+export async function sessionOfAgent(agentUserId: string): Promise<{ projectId: string; sessionId: string } | null> {
+  const wanted = agentUserId.replace(/^user:/, '');
+  if (!wanted) throw new Error('Agent identity is required');
+  const bound = [...await agentIdsBySession(process.env)].filter(([, id]) => id === `user:${wanted}`);
+  if (bound.length > 1) throw new Error('Agent identity is bound to multiple tasks');
+  if (!bound.length) return null;
+  const [row] = db.select({ projectId: sessions.projectId, sessionId: sessions.id }).from(sessions).where(eq(sessions.id, bound[0][0])).limit(1).all();
+  return row ?? null;
+}
+
 /** 同一份列表,同步、不读名录(行上不带 agent):心跳的离线摘要与换版忙不忙只要状态。 */
 export function listSessionStates(): SessionpageSessionsListResult {
   return sessionList(null);
@@ -1413,7 +1424,7 @@ export async function updateSession(
     }
     if (input.archived === true) {
       const { archiveSession } = await import('@main/core/sessions/archiveSession');
-      await archiveSession(row.projectId, row.id);
+      await archiveSession(row.projectId, row.id, { removeSocialIdentity: input.removeSocialIdentity });
     }
     const after = db.select().from(sessions).where(eq(sessions.id, row.id)).get();
     return {
