@@ -235,8 +235,8 @@ class SearchService {
          VALUES (?, ?, ?, ?, ?)`
       );
 
-      // Names as they read now. The roster projection may not be loaded yet (the owner is set after
-      // boot); when it fills in, each bound name arrives as `session:renamed` and is reindexed above.
+      // Names as they read now: boot loads the roster projection before the search index, and every later
+      // name change arrives as `session:renamed` and is reindexed above.
       sqlite.transaction(() => {
         for (const p of allProjects) {
           upsertStmt.run('project', p.id, null, p.name, p.path);

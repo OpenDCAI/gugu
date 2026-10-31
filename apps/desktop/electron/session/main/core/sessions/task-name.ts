@@ -105,8 +105,8 @@ async function reproject(env: NodeJS.ProcessEnv): Promise<void> {
 }
 
 /**
- * The host projects the roster once its session database is up (names change rows and are announced),
- * whether or not anyone is signed in; from then on every roster write re-projects.
+ * Boot projects the roster once the session database is up and before any reader of a name (names change
+ * rows and are announced), whether or not anyone is signed in; from then on every roster write re-projects.
  */
 export async function loadTaskNames(env: NodeJS.ProcessEnv = process.env): Promise<void> {
   loaded = true;

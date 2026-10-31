@@ -251,7 +251,6 @@ export {
   setOtherMachines,
   setTaskNamer,
   setTaskNameOwner,
-  loadTaskNames,
   hasPendingTaskNames,
   adoptLegacyTaskNames,
   runRemoteSessionAction,
@@ -544,6 +543,9 @@ export async function bootSessionHostCore(options: SessionHostBootOptions): Prom
   )
   // 开门即已迁完(退役的 lifecycle 条目在门里先迁走);同上面两段一样不等占用判定。
   await setSessionMessageOutboxReady()
+  // Task names: a bound task is named by its roster identity (task-name.ts). The roster keys were just
+  // renamed above, and every reader of a name below (search backfill first) needs the projection.
+  await loadTaskNames()
   // #6892 起任何 agent / worker 之前问一次系统代理,只补给 agent 与安装器(utils/systemProxyEnv.ts)。
   log.info('[session-host] system proxy for agent processes', await resolveSystemProxy((url) => electronSession.defaultSession.resolveProxy(url)))
 

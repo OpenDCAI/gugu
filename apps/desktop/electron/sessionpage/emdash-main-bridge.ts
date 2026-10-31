@@ -76,7 +76,6 @@ export {
   // A session is named at creation; the identity host numbers default names (task-name.ts).
   setTaskNamer,
   setTaskNameOwner,
-  loadTaskNames,
   hasPendingTaskNames,
   adoptLegacyTaskNames,
   // 打开会话那一条路上只有宿主知道的两件事(agent 的会话在哪、本机会话的平台恢复)。

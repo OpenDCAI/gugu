@@ -6073,11 +6073,10 @@ app.whenReady().then(async () => {
     })
     sessionHostBoot = emdashBoot
     platformCredentialsBoot = emdashBoot.catch(() => undefined)
-    // Task names: the roster is projected onto the session database once it is up, then names are adopted.
+    // Task names are projected during boot; adopting names (cloud, then the one-time legacy ones) follows it.
     void emdashBoot
-      .then(() => emdash.loadTaskNames())
       .then(() => { adoptCloudTaskNames = adoptTaskNames; return adoptTaskNames() })
-      .catch((error: unknown) => createLogger('sessionpage/task-names').error({ error: String(error) }, 'Loading task names failed'))
+      .catch((error: unknown) => createLogger('sessionpage/task-names').error({ error: String(error) }, 'Adopting task names failed'))
     refreshPlatformCredentials()
     void emdashBoot.then(() => {
       emdash.onAgentStatus(change => {
