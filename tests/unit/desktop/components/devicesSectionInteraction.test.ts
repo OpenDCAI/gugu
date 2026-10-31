@@ -9,7 +9,7 @@ import { ProjectFolderCard } from '@/session/renderer/features/projects/componen
 import { DevicesContext, type DevicesContextValue } from '@/store/devicesContext'
 import type { Device } from '@gugu/core/shared/types/chat'
 const retryMatch = vi.hoisted(() => vi.fn(async (_deviceId: string) => true))
-const restartNow = vi.hoisted(() => vi.fn(async (_deviceId: string, _version: string) => true))
+const restartNow = vi.hoisted(() => vi.fn(async (_deviceId: string, _version: string, _confirmedRpc: boolean) => true))
 vi.mock('@/lib/serverVersionRetry', () => ({ retryServerVersionMatch: retryMatch, restartServerVersionNow: restartNow }))
 function device(overrides: Partial<Device> = {}): Device {
   return {
@@ -335,7 +335,7 @@ describe('DevicesSection interaction', () => {
       expect(server.dataset.kind).toBe('server')
       expect(server.textContent).toContain('Ubuntu 22.04.5 LTS · arm64')
       expect(server.textContent).toContain('咕咕 server 0.2.99')
-      expect(server.textContent).toContain('新版本已就绪，等待空闲')
+      expect(server.textContent).toContain('新版本已就绪')
       expect(server.textContent).toContain('上次在线 3 小时前')
       expect(server.textContent).toContain('远程 SSH：alice@box:2222')
       const me = Array.from(rows).find((row) => row.dataset.deviceId === 'me')!
@@ -399,7 +399,7 @@ describe('DevicesSection interaction', () => {
       container.querySelector<HTMLElement>('[data-testid="settings-device-update-now-yes"]')!.click()
     })
     await flush()
-    expect(restartNow).toHaveBeenCalledWith('srv', '0.3.1')
+    expect(restartNow).toHaveBeenCalledWith('srv', '0.3.1', true)
     const status = container.querySelector<HTMLElement>('[data-testid="settings-device-match-failed"]')!
     expect(status.textContent).toContain('正在更新')
     expect(status.className).not.toContain('danger')

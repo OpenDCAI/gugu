@@ -3,7 +3,8 @@ import { readDesktopReports } from '@gugu/core/cloud/serverDesktopVersions'
 import { checkAccountBoot } from './server-selftest'
 import fs from 'node:fs'
 import path from 'node:path'
-import { pruneVersions, readAccountVersionPin, writeAccountVersionPin, touchVersion, ACCOUNT_VERSION_FILE } from './server-account-versions'
+import { pruneVersions, readVersionPin, writeVersionPin } from './server-account-versions'
+import { readAccountState } from './server-account-machine'
 import { listAccounts } from './server-layout'
 
 export const UPGRADE_PENDING_FILE = 'upgrade-pending.json'
@@ -48,17 +49,18 @@ export function pointCurrent(home: string, versionDir: string): void {
 
 /** The watchdog records an actual successful transition, never a directory-number or mtime guess. */
 export function recordVerifiedSupervisorVersion(home: string, marker: UpgradeMarker): void {
-  writeAccountVersionPin(dataDir(home), { version: marker.to, previous: marker.from, at: marker.switchedAt })
+  writeVersionPin(dataDir(home), { version: marker.to, previous: marker.from, at: marker.switchedAt })
 }
 
 export type ServerVersionLifecycle = ReturnType<typeof createServerVersionLifecycle>
 export function createServerVersionLifecycle(options: {
   layout: { home: string; versions: string; version: string }
   running?: () => Iterable<string>
-  verifyBoot?: (binary: string) => Promise<void | { runtimeOwned: boolean }>
+  /** 试跑一个账号(缺省:真的起一个,见 server-selftest.ts checkAccountBoot)。 */
+  verifyBoot?: (binary: string) => Promise<void>
 }) {
   const { layout } = options
-  const flights = new Map<string, { promise: Promise<void>; ready: boolean; runtimeOwned: boolean }>()
+  const flights = new Map<string, { promise: Promise<void>; ready: boolean }>()
   const held = new Map<string, string>()
   const ready = (version: string): boolean => flights.get(version)?.ready === true
     && fs.existsSync(path.join(layout.versions, version, 'bin', 'gugu-server'))
@@ -66,7 +68,7 @@ export function createServerVersionLifecycle(options: {
     if (!ready(version)) throw new Error('Target version has not passed account boot verification')
   }
   const reclaim = (): string[] => {
-    const supervisor = readAccountVersionPin(dataDir(layout.home))
+    const supervisor = readVersionPin(dataDir(layout.home))
     // Old installations did not record previous. Preserve their directories until a verified transition supplies it.
     if (!supervisor) return []
     const keep = new Set([layout.version, supervisor.version,
@@ -78,8 +80,9 @@ export function createServerVersionLifecycle(options: {
     if (marker) { keep.add(marker.from); keep.add(marker.to) }
     for (const account of listAccounts()) {
       for (const report of Object.values(readDesktopReports(account.dataDir))) keep.add(report.version)
-      const pin = readAccountVersionPin(account.dataDir)
-      if (pin) { keep.add(pin.version); if (pin.previous) keep.add(pin.previous) }
+      const state = readAccountState(account.dataDir) ?? readVersionPin(account.dataDir)
+      if (state?.version) keep.add(state.version)
+      if (state?.previous) keep.add(state.previous)
     }
     // install.sh publishes this lease BEFORE its target directory becomes visible. Recheck at deletion.
     const removed = pruneVersions(layout.versions, keep, version => fs.existsSync(path.join(layout.versions, '.prepared', version)))
@@ -88,7 +91,6 @@ export function createServerVersionLifecycle(options: {
   }
   return {
     ready,
-    runtimeOwned: (version: string): boolean => ready(version) && flights.get(version)?.runtimeOwned === true,
     hold(owner: string, version: string | null): void { if (version) held.set(owner, version); else held.delete(owner) },
     async stage(version: string, work: () => Promise<unknown>): Promise<void> {
       const existing = flights.get(version)
@@ -97,28 +99,18 @@ export function createServerVersionLifecycle(options: {
       let resolve!: () => void
       let reject!: (error: unknown) => void
       const flight = new Promise<void>((ok, fail) => { resolve = ok; reject = fail })
-      const stage = { promise: flight, ready: false, runtimeOwned: false }
+      const stage = { promise: flight, ready: false }
       flights.set(version, stage)
       try {
         Promise.resolve(work())
           .then(() => Promise.resolve((options.verifyBoot ?? checkAccountBoot)(path.join(layout.versions, version, 'bin', 'gugu-server')))
             .catch((error: unknown) => { throw new AccountBootRejectedError(error instanceof Error ? error.message : String(error)) }))
-          .then(proof => { stage.ready = true; stage.runtimeOwned = proof ? proof.runtimeOwned : options.verifyBoot !== undefined; resolve() }, reject)
+          .then(() => { stage.ready = true; resolve() }, reject)
       } catch (error) { reject(error) }
       try { await flight } catch (error) {
         if (flights.get(version) === stage) flights.delete(version)
         throw error
       }
-    },
-    switchAccount(data: string, version: string, previous: string | null, at: number): void {
-      requireBoot(version)
-      writeAccountVersionPin(data, { version, previous, at })
-      fs.rmSync(path.join(layout.versions, '.prepared', version), { force: true })
-      touchVersion(layout.versions, version)
-    },
-    rollbackAccount(data: string, previous: string | null, at: number): void {
-      if (previous) writeAccountVersionPin(data, { version: previous, previous: null, at })
-      else fs.rmSync(path.join(data, ACCOUNT_VERSION_FILE), { force: true })
     },
     switchSupervisor(marker: UpgradeMarker, beforeSwitch: () => void): void {
       requireBoot(marker.to)

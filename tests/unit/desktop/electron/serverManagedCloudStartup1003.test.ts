@@ -3,9 +3,9 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { readAccountVersionPin, writeAccountVersionPin } from '../../../../apps/desktop/electron/server/server-account-versions'
+import { readVersionPin, writeVersionPin } from '../../../../apps/desktop/electron/server/server-account-versions'
+import { readAccountState } from '../../../../apps/desktop/electron/server/server-account-machine'
 import { checkAccountBoot } from '../../../../apps/desktop/electron/server/server-selftest'
-import { readBadVersions } from '../../../../apps/desktop/electron/server/server-upgrade-guard'
 import { runMatchVersion } from '../../../../apps/desktop/electron/server/match-version-cli'
 import { runSupervisor } from '../../../../apps/desktop/electron/server/server-supervisor'
 
@@ -26,7 +26,7 @@ vi.mock('../../../../apps/desktop/electron/server/server-upgrade-guard', async (
 }))
 
 vi.mock('../../../../apps/desktop/electron/server/server-selftest', () => ({
-  checkAccountBoot: vi.fn(async () => ({ runtimeOwned: true })),
+  checkAccountBoot: vi.fn(async () => undefined),
 }))
 
 const U = '11111111-1111-4111-8111-111111111111'
@@ -43,7 +43,7 @@ beforeEach(() => {
   vi.useFakeTimers()
   listeners = new Map(['exit', 'SIGTERM', 'SIGINT', 'SIGUSR2'].map((event) => [event, emitter.listeners(event)]))
   vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
-  vi.mocked(checkAccountBoot).mockReset().mockResolvedValue({ runtimeOwned: true })
+  vi.mocked(checkAccountBoot).mockReset().mockResolvedValue(undefined)
   mocks.spawn.mockReset().mockImplementation(() => Object.assign(new EventEmitter(), { pid: 999, exitCode: null, signalCode: null, kill: vi.fn() }))
   for (const version of [A, B]) {
     const bin = path.join(home, 'versions', version, 'bin')
@@ -53,7 +53,7 @@ beforeEach(() => {
   const data = path.join(home, 'accounts', U, 'data')
   fs.mkdirSync(data, { recursive: true })
   fs.writeFileSync(path.join(data, 'server-session.enc'), 'x')
-  writeAccountVersionPin(data, { version: A, previous: null, at: Date.now() })
+  writeVersionPin(data, { version: A, previous: null, at: Date.now() })
 })
 afterEach(() => {
   for (const [event, original] of listeners) for (const listener of emitter.listeners(event)) {
@@ -80,19 +80,19 @@ describe('supervisor cold-start package selection', () => {
     await runSupervisor()
     expect(checkAccountBoot).toHaveBeenCalledWith(path.join(home, 'versions', B, 'bin', 'gugu-server'))
     expect(mocks.spawn.mock.calls[0]!.slice(0, 2)).toEqual([path.join(home, 'versions', A, 'bin', 'gugu-server'), ['run-account', U]])
-    expect(readAccountVersionPin(path.join(home, 'accounts', U, 'data'))?.version).toBe(A)
-    expect(readBadVersions(home)[B]).toBe(Date.now())
+    expect(readAccountState(path.join(home, 'accounts', U, 'data'))?.version).toBe(A)
+    expect(readAccountState(path.join(home, 'accounts', U, 'data'))?.failures[B]?.cause).toBe('boot')
   })
   it.each(['none', 'same', 'missing'] as const)('does not launch a rejected managed package without a usable previous pin (%s)', async fallback => {
     vi.stubEnv('GUGU_CLOUD_COMPUTER', '1')
     const data = path.join(home, 'accounts', U, 'data')
     if (fallback === 'none') fs.rmSync(path.join(data, 'server-version.json'))
-    if (fallback === 'same') writeAccountVersionPin(data, { version: B, previous: null, at: Date.now() })
+    if (fallback === 'same') writeVersionPin(data, { version: B, previous: null, at: Date.now() })
     if (fallback === 'missing') fs.rmSync(path.join(home, 'versions', A, 'bin', 'gugu-server'))
     vi.mocked(checkAccountBoot).mockRejectedValueOnce(new Error('Account backend boot failed'))
     await runSupervisor()
     expect(checkAccountBoot).toHaveBeenCalledWith(path.join(home, 'versions', B, 'bin', 'gugu-server'))
-    expect(readBadVersions(home)[B]).toBe(Date.now())
+    expect(readAccountState(path.join(home, 'accounts', U, 'data'))?.failures[B]?.cause).toBe('boot')
     expect(mocks.spawn).not.toHaveBeenCalled()
     expect(JSON.parse(fs.readFileSync(path.join(data, 'server-update.json'), 'utf8'))).toMatchObject({ state: 'failed', version: B })
     await vi.advanceTimersByTimeAsync(9_000)
@@ -114,7 +114,7 @@ describe('supervisor cold-start package selection', () => {
     vi.stubEnv('GUGU_CLOUD_COMPUTER', '1')
     const data = path.join(home, 'accounts', U, 'data')
     if (!keepPin) fs.rmSync(path.join(data, 'server-version.json'))
-    const originalPin = readAccountVersionPin(data)
+    const originalPin = keepPin ? A : null
     vi.mocked(checkAccountBoot).mockRejectedValueOnce(new Error('Account backend boot failed'))
     const error = vi.fn()
     const rc = await runMatchVersion(['--account', U, '--apply', B, '--now'], vi.fn(), error, {
@@ -122,8 +122,8 @@ describe('supervisor cold-start package selection', () => {
       now: () => Date.now(), sleep: async () => { vi.setSystemTime(Date.now() + 1); await runSupervisor() },
     })
     expect(rc).toBe(6)
-    expect(readBadVersions(home)[B]).toBe(Date.now())
-    expect(readAccountVersionPin(data)).toEqual(originalPin)
+    expect(readAccountState(path.join(home, 'accounts', U, 'data'))?.failures[B]?.cause).toBe('boot')
+    expect(readAccountState(data)?.version).toEqual(originalPin)
     expect(mocks.spawn).toHaveBeenCalledTimes(keepPin ? 1 : 0)
     expect(error).toHaveBeenLastCalledWith(expect.stringContaining('启动失败'))
     expect(error).not.toHaveBeenLastCalledWith(expect.stringContaining('已回滚'))
@@ -137,15 +137,17 @@ describe('supervisor cold-start package selection', () => {
       if (delay < 9_000) await vi.advanceTimersByTimeAsync(delay)
     }
     const data = path.join(home, 'accounts', U, 'data')
-    expect(readAccountVersionPin(data)?.version).toBe(A)
-    expect(readBadVersions(home)[B]).toBe(Date.now())
+    expect(readAccountState(data)?.version).toBe(A)
+    expect(readAccountState(path.join(home, 'accounts', U, 'data'))?.failures[B]?.cause).toBe('boot')
     await vi.advanceTimersByTimeAsync(3_000)
-    expect(readAccountVersionPin(data)?.version).toBe(A)
+    expect(readAccountState(data)?.version).toBe(A)
     expect(mocks.spawn).toHaveBeenCalledTimes(3)
   })
-  it('ordinary SSH retains its existing pinned package at cold start', async () => {
+  it('ordinary SSH retains its existing pinned package at cold start, and keeps projecting the pin for an older watchdog', async () => {
     vi.stubEnv('GUGU_CLOUD_COMPUTER', '0')
     await runSupervisor()
     expect(mocks.spawn.mock.calls[0]!.slice(0, 2)).toEqual([path.join(home, 'versions', A, 'bin', 'gugu-server'), ['run-account', U]])
+    // The previous supervisor's upgrade watchdog runs old code and reads only this file to exclude the account.
+    expect(readVersionPin(path.join(home, 'accounts', U, 'data'))?.version).toBe(A)
   })
 })

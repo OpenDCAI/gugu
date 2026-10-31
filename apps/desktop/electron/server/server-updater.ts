@@ -1,5 +1,4 @@
 import type { ServerVersionLifecycle } from './server-version-lifecycle'
-import type { AccountHandoff } from './server-account-handoff'
 /**
  * 咕咕 server 自己升级(product spec 第 5 条):后台悄悄下好、校验、解开,
  * **这台机器上没有 agent 在跑的时候**才切过去;切的时候终端会话(tmux)不受影响。
@@ -50,9 +49,8 @@ type Layout = { home: string; versions: string; current: string; running: string
  * 守护进程半路没了,这个文件不会让界面永远挂着「更新中」。
  */
 export type ServerUpdateStateWriter = {
-  /** reason 'unreachable' = 连不上下载站(桌面经 SSH 读到它就把包的字节传过来,见 match-version-cli.ts);
-   *  'boot-failed' = 装上了、起不来(冷却只认确认重启)。 */
-  set: (state: 'downloading' | 'ready' | 'failed', version: string, reason?: 'unreachable' | 'runtime-unverified' | 'boot-failed') => void
+  /** reason 'unreachable' = 连不上下载站(桌面经 SSH 读到它就把包的字节传过来,见 match-version-cli.ts)。 */
+  set: (state: 'downloading' | 'ready' | 'failed', version: string, reason?: 'unreachable') => void
   clear: () => void
 }
 
@@ -203,9 +201,6 @@ export type ServerUpdaterDeps = {
   lifecycle: ServerVersionLifecycle | null
   /** 这台机器上有没有 agent 正在干活(在跑一轮,或卡在等人批准)。 */
   isBusy: () => boolean
-  /** Same current-process heartbeat proof as isBusy; old binaries cannot establish runtime idle. */
-  unverifiedAccounts?: () => string[]
-  prepareHandoff?: (target: string) => Promise<AccountHandoff | null>
   /** 走正常退出流程(收子进程、放锁)。 */
   shutdown: () => void
   /** 升级状态写到哪(缺省:数据目录下的状态文件)。测试注入用。 */
@@ -227,20 +222,6 @@ export function startServerUpdater(deps: ServerUpdaterDeps): () => void {
   let waitingWith: string | null = null
   let retry: ReturnType<typeof setTimeout> | null = null
   const state = deps.stateWriter ?? createServerUpdateStateWriter(layout.home)
-  let reportedUnverified = ''
-  const ready = (version: string): void => {
-    const accounts = deps.unverifiedAccounts?.() ?? []
-    const unverified = accounts.length > 0 || !deps.lifecycle?.runtimeOwned(version)
-    state.set('ready', version, unverified ? 'runtime-unverified' : undefined)
-    const key = unverified ? JSON.stringify([version, accounts]) : ''
-    if (key && key !== reportedUnverified) log.info('Automatic supervisor upgrade paused: runtime ownership is unverified', {
-      version, accounts,
-      action: accounts.length > 0
-        ? accounts.map(id => `Check tasks, then explicitly restart this account: gugu-server match-version --account ${id} --apply ${version} --now`)
-        : 'The target cannot report runtime ownership; select a supported server version',
-    })
-    reportedUnverified = key
-  }
   // 上一个守护进程留下的(它在等空闲时被停掉、或升级已经完成)一律作废,从此刻的事实重来。
   state.clear()
 
@@ -255,7 +236,7 @@ export function startServerUpdater(deps: ServerUpdaterDeps): () => void {
     try {
       // 等空闲的那 30 s 一轮、此刻仍忙:不取清单(等的是空闲;新版本由半小时那一轮去发现、后台装上)。
       if (idlePoll && waitingWith !== null && deps.isBusy()) {
-        ready(waitingWith)
+        state.set('ready', waitingWith)
         return void retryWhenIdle(waitingWith)
       }
       const manifest = await fetchManifest(layout.home)
@@ -284,15 +265,12 @@ export function startServerUpdater(deps: ServerUpdaterDeps): () => void {
       await deps.lifecycle.stage(manifest.version, () => stageVersion(layout, manifest))
       const versionDir = path.join(layout.versions, manifest.version)
       // 每一轮都续写一次:读侧据此知道守护进程还在等,而不是早就没了。
-      ready(manifest.version)
-      if (!deps.lifecycle.runtimeOwned(manifest.version) || deps.isBusy()) return void retryWhenIdle(manifest.version)
+      state.set('ready', manifest.version)
+      if (deps.isBusy()) return void retryWhenIdle(manifest.version)
       if (stopped) return
-      const permit = deps.prepareHandoff ? await deps.prepareHandoff(manifest.version) : undefined
-      if (deps.prepareHandoff && !permit?.valid()) { await permit?.release(); return void retryWhenIdle(manifest.version) }
-      if (stopped || deps.isBusy()) { await permit?.release(); return void retryWhenIdle(manifest.version) }
       log.info('没有 agent 在跑,切到新版本', { from: layout.version, to: manifest.version })
       // #6264 先留下「从哪切到哪」,再请看门狗(用本进程 —— 已知能跑的这一版)盯着:新版本站不稳就切回来。
-      try { deps.lifecycle.switchSupervisor({
+      deps.lifecycle.switchSupervisor({
         from: layout.version,
         to: manifest.version,
         fromDir: layout.running,
@@ -301,7 +279,7 @@ export function startServerUpdater(deps: ServerUpdaterDeps): () => void {
       }, () => {
       const guard = spawnUpgradeGuard(layout.home)
       log.info('升级看门狗已就位', { guard: guard ?? null })
-      }) } catch (error) { await permit?.release(); throw error }
+      })
       if (!process.env.GUGU_SERVER_SUPERVISED && liveKeeperPid(layout.home) === null) {
         // 没有系统服务管:自己先起新版本,它会等本进程退干净(放掉单实例锁)再启动。
         startDetached(path.join(layout.current, 'bin', 'gugu-server'), { GUGU_SERVER_WAIT_PID: String(process.pid) })

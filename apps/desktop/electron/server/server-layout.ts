@@ -167,10 +167,10 @@ export function readAccountActivity(
   dataDir: string,
   now = Date.now(),
   expectedProcess?: { pid: number | undefined; startedAt: number },
-): { busy: unknown; runtimeOwned?: unknown; at: number; pid: number; startedAt: number } | null {
+): { busy: unknown; at: number; pid: number; startedAt: number } | null {
   try {
     const activity = JSON.parse(fs.readFileSync(path.join(dataDir, 'activity.json'), 'utf8')) as {
-      busy?: unknown; runtimeOwned?: unknown; at?: unknown; pid?: unknown; startedAt?: unknown
+      busy?: unknown; at?: unknown; pid?: unknown; startedAt?: unknown
     }
     if (typeof activity.at !== 'number' || !Number.isFinite(activity.at)
       || activity.at > now || now - activity.at >= SERVER_ACTIVITY_STALE_MS
@@ -178,15 +178,15 @@ export function readAccountActivity(
       || typeof activity.startedAt !== 'number' || !Number.isFinite(activity.startedAt)
       || activity.startedAt > activity.at
       || (expectedProcess && (activity.pid !== expectedProcess.pid || activity.startedAt < expectedProcess.startedAt))) return null
-    return { busy: activity.busy, runtimeOwned: activity.runtimeOwned, at: activity.at, pid: activity.pid, startedAt: activity.startedAt }
+    return { busy: activity.busy, at: activity.at, pid: activity.pid, startedAt: activity.startedAt }
   } catch { return null }
 }
 
-/** Only a fresh, positively known runtime idle reading can permit an automatic switch. */
-export function accountIsBusy(dataDir: string, now = Date.now(), expectedProcess?: { pid: number | undefined; startedAt: number }): boolean {
+/** 账号此刻忙不忙,唯一的判据:它自己(pid 对得上)的新鲜心跳;没有 ⇒ unverified。 */
+export function activityProof(dataDir: string, now = Date.now(), expectedProcess?: { pid: number | undefined; startedAt: number }): 'idle' | 'busy' | 'unverified' {
   const activity = readAccountActivity(dataDir, now, expectedProcess)
-  // Old account binaries publish DB status here; their false does not prove runtime idle.
-  return !activity || activity.runtimeOwned !== true || activity.busy !== false
+  if (!activity || typeof activity.busy !== 'boolean') return 'unverified'
+  return activity.busy ? 'busy' : 'idle'
 }
 
 /**
@@ -216,30 +216,3 @@ export function writeServerConnectVia(
   return true
 }
 
-/**
- * 守护进程眼里这个账号的子进程此刻在哪一步(守护进程在状态变化时写,CLI 读):在跑 / 退出后等着重启 / 没有能起的版本、没起。
- * 只是给人看的一句话的来源,❌ 拿它判活(判活看 server.lock 的持有者)。
- */
-export const ACCOUNT_CHILD_FILE = 'account-child.json'
-export type AccountChildState = 'running' | 'restarting' | 'not-started'
-
-export function writeAccountChildState(dataDir: string, state: AccountChildState, at = Date.now()): void {
-  const file = path.join(dataDir, ACCOUNT_CHILD_FILE)
-  const tmp = `${file}.${process.pid}.tmp`
-  try {
-    fs.mkdirSync(dataDir, { recursive: true })
-    fs.writeFileSync(tmp, JSON.stringify({ state, at }), { mode: 0o600 })
-    fs.renameSync(tmp, file)
-  } catch {
-    fs.rmSync(tmp, { force: true })
-  }
-}
-
-export function readAccountChildState(dataDir: string): AccountChildState | null {
-  try {
-    const value = (JSON.parse(fs.readFileSync(path.join(dataDir, ACCOUNT_CHILD_FILE), 'utf8')) as { state?: unknown }).state
-    return value === 'running' || value === 'restarting' || value === 'not-started' ? value : null
-  } catch {
-    return null
-  }
-}

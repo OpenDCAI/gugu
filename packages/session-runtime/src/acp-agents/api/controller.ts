@@ -20,8 +20,7 @@ export function createAcpRuntimeController(
     requested: EventStreamHost<typeof acpRuntimeApiContract.nativePromptPreparationRequested>;
     settled: EventStreamHost<typeof acpRuntimeApiContract.nativePromptPreparationSettled>;
     bridge: ReturnType<typeof createHostPromptPreparation>;
-  },
-  liveSessionsChanged: EventStreamHost<typeof acpRuntimeApiContract.liveSessionsChanged>,
+  }
 ) {
   const procedures = createAcpProcedures(runtime);
   return createController(acpRuntimeApiContract, {
@@ -31,7 +30,6 @@ export function createAcpRuntimeController(
     platformSessionClosed,
     turnCommitted,
     promptSteered,
-    liveSessionsChanged,
     nativePromptPreparationRequested: preparation.requested,
     nativePromptPreparationSettled: preparation.settled,
     enableNativePromptPreparation: () => preparation.bridge.enable(),

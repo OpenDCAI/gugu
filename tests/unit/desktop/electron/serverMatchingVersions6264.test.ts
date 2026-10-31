@@ -1,4 +1,3 @@
-import { createServerVersionLifecycle } from '../../../../apps/desktop/electron/server/server-version-lifecycle'
 /*
  * #6264「server 和桌面版本不匹配时，当场换成匹配的版本，升降都算」(product spec 第 5 条例外,owner 2026-09-25):
  *  · 不同账号共用一台机器:各跑和自己桌面匹配的那一份,换版只重启那一个账号;
@@ -26,32 +25,15 @@ import {
   readVersionSwitchRequest,
   recordDesktopReport,
   reportedDesktopVersion,
-  requestVersionRetry,
-  requestVersionSwitch,
   VERSION_SWITCH_FILE,
 } from '../../../../packages/core/src/cloud/serverDesktopVersions'
 import { parseServerUpdateState } from '../../../../packages/core/src/cloud/deviceHostInfo'
 import { normalizeDeviceCapabilities } from '../../../../packages/core/src/cloud/devices'
-import { DownloadSiteUnreachableError, fetchVersionManifest, VersionNotPublishedError } from '../../../../apps/desktop/electron/server/server-updater'
+import { fetchVersionManifest, VersionNotPublishedError } from '../../../../apps/desktop/electron/server/server-updater'
 import { MIN_CLIENT_PROTOCOL, REMOTE_PROTOCOL_VERSION } from '../../../../packages/core/src/cloud/serverMachineHealth'
-import {
-  pinnedVersionToRun,
-  planAccountVersion,
-  pruneVersions,
-  readAccountVersionPin,
-  versionsToKeep,
-  writeAccountVersionPin,
-} from '../../../../apps/desktop/electron/server/server-account-versions'
-import {
-  createAccountVersionConverger,
-  VERSION_FAILURE_COOLDOWN_MS,
-  VERSION_NOT_PUBLISHED_MAX_RETRY_MS,
-  VERSION_NOT_PUBLISHED_RETRY_MS,
-  notPublishedRetryMs,
-} from '../../../../apps/desktop/electron/server/server-account-converge'
-import { listAccounts } from '../../../../apps/desktop/electron/server/server-layout'
-import { readBadVersions } from '../../../../apps/desktop/electron/server/server-upgrade-guard'
+import { pruneVersions, versionsToKeep } from '../../../../apps/desktop/electron/server/server-account-versions'
 import { parseMatchArgs, runMatchVersion } from '../../../../apps/desktop/electron/server/match-version-cli'
+import { INITIAL_ACCOUNT_STATE, writeAccountState, type AccountState, type Outcome } from '../../../../apps/desktop/electron/server/server-account-machine'
 import { InstallRun, runSshInstall, type SpawnSsh, type SshInstallDeps } from '../../../../apps/desktop/electron/server/ssh-install/runner'
 import { createSshAutoUpgrader } from '../../../../apps/desktop/electron/server/ssh-install/auto-upgrade'
 import { PROBE_BEGIN, PROBE_END } from '../../../../apps/desktop/electron/server/ssh-install/logic'
@@ -60,7 +42,6 @@ import type { SshUpgradeEvent } from '../../../../apps/desktop/src/lib/sshLink'
 const U1 = '11111111-1111-4111-8111-111111111111'
 const U2 = '22222222-2222-4222-8222-222222222222'
 const NOW = 1_800_000_000_000
-const quietLog = { info: () => undefined, warn: () => undefined }
 
 let home = ''
 const previousHome = process.env.GUGU_SERVER_HOME
@@ -112,15 +93,6 @@ describe('目标版本:用这台机器的桌面里最新的那一台', () => {
     expect(compareServerVersions('0.2.160', '0.2.160')).toBe(0)
   })
 
-  it('账号跑钉住的那一版:钉了、不是守护进程那一版、装在盘上;否则跟着守护进程(converge 与升级看门狗同一条)', () => {
-    const pin = (version: string) => ({ version, previous: null, at: 0 })
-    const installed = (version: string) => version !== '0.2.137'
-    expect(pinnedVersionToRun(pin('0.2.138'), '0.2.140', installed)).toBe('0.2.138')
-    expect(pinnedVersionToRun(null, '0.2.140', installed)).toBeNull()
-    expect(pinnedVersionToRun(pin('0.2.140'), '0.2.140', installed)).toBeNull()
-    expect(pinnedVersionToRun(pin('0.2.137'), '0.2.140', installed)).toBeNull()
-  })
-
   it('兼容窗口 = [MIN_CLIENT_PROTOCOL, REMOTE_PROTOCOL_VERSION];不报协议的老桌面不下结论', () => {
     expect(desktopProtocolOutsideWindow(REMOTE_PROTOCOL_VERSION)).toBe(false)
     expect(desktopProtocolOutsideWindow(MIN_CLIENT_PROTOCOL)).toBe(false)
@@ -164,396 +136,6 @@ describe('目标版本:用这台机器的桌面里最新的那一台', () => {
   })
 })
 
-describe('planAccountVersion', () => {
-  const base = { now: NOW, switchRequested: false, installed: () => true, busy: false, failed: () => false }
-  it('已经是目标 / 没有报告:什么也不做', () => {
-    expect(planAccountVersion({ ...base, reports: {}, running: '0.2.1' }).kind).toBe('none')
-    expect(planAccountVersion({ ...base, reports: { a: { version: '0.2.1', protocol: 2, at: NOW } }, running: '0.2.1' }).kind).toBe('none')
-  })
-  it('没装先装;装好了有版本信号当场换,没有就等空闲;有 agent 在跑时版本信号也等空闲,只有人点的「现在重启更新」当场换', () => {
-    const reports = { a: { version: '0.2.9', protocol: 2, at: NOW } }
-    expect(planAccountVersion({ ...base, reports, running: '0.3.0', installed: () => false })).toEqual({ kind: 'stage', version: '0.2.9' })
-    expect(planAccountVersion({ ...base, reports, running: '0.3.0', busy: true })).toEqual({ kind: 'wait-idle', version: '0.2.9' })
-    // 10-28 Linux 2:桌面升了一版来敲门(版本信号),7 条车道正在跑的那一轮全断 —— 有 agent 在跑就等。
-    expect(planAccountVersion({ ...base, reports, running: '0.3.0', busy: true, switchRequested: true })).toEqual({ kind: 'wait-idle', version: '0.2.9' })
-    expect(planAccountVersion({ ...base, reports, running: '0.3.0', busy: true, switchRequested: true, switchConfirmed: true })).toEqual({ kind: 'switch', version: '0.2.9', urgent: true })
-    expect(planAccountVersion({ ...base, reports, running: '0.3.0', switchRequested: true })).toEqual({ kind: 'switch', version: '0.2.9', urgent: false })
-    expect(planAccountVersion({ ...base, reports, running: '0.3.0' })).toEqual({ kind: 'switch', version: '0.2.9', urgent: false })
-  })
-  it('这一版刚失败过:不再自己下、不再等空闲换;换版请求也不绕过冷却(能否解除由 failed 判)', () => {
-    const reports = { a: { version: '0.2.9', protocol: 2, at: NOW } }
-    expect(planAccountVersion({ ...base, reports, running: '0.3.0', installed: () => false, failed: () => true })).toEqual({ kind: 'failed', version: '0.2.9' })
-    expect(planAccountVersion({ ...base, reports, running: '0.3.0', failed: () => true })).toEqual({ kind: 'failed', version: '0.2.9' })
-    expect(planAccountVersion({ ...base, reports, running: '0.3.0', failed: () => true, switchRequested: true })).toEqual({ kind: 'failed', version: '0.2.9' })
-    expect(planAccountVersion({ ...base, reports, running: '0.3.0', failed: () => false, switchRequested: true }).kind).toBe('switch')
-  })
-  it('目标版本下载站上没有:退回次新的那一版;一版都不剩就跟守护进程', () => {
-    const reports = { a: { version: '0.2.9', protocol: 2, at: NOW }, b: { version: '0.3.1', protocol: 2, at: NOW } }
-    const unpublished = (v: string) => v === '0.3.1'
-    expect(planAccountVersion({ ...base, reports, running: '0.3.0', installed: () => false })).toEqual({ kind: 'stage', version: '0.3.1' })
-    expect(planAccountVersion({ ...base, reports, running: '0.3.0', unpublished })).toEqual({ kind: 'switch', version: '0.2.9', urgent: false })
-    expect(planAccountVersion({ ...base, reports: { b: reports.b }, running: '0.3.0', fallback: '0.3.0', unpublished }).kind).toBe('none')
-  })
-  it('再看的间隔:5 分钟起,每次翻倍,最多 6 小时', () => {
-    expect([1, 2, 3, 4].map(notPublishedRetryMs)).toEqual([5, 10, 20, 40].map((m) => m * 60_000))
-    expect(notPublishedRetryMs(100)).toBe(VERSION_NOT_PUBLISHED_MAX_RETRY_MS)
-  })
-})
-
-// These planning fixtures represent packages whose cold boot was already verified.
-// The real staging/boot admission is exercised by serverLiveActivity1013.test.ts.
-async function verifiedLifecycle() {
-  const lifecycle = createServerVersionLifecycle({
-    layout: { home, versions: path.join(home, 'versions'), version: '0.3.0' },
-    verifyBoot: async () => {},
-  })
-  for (const version of fs.readdirSync(path.join(home, 'versions'))) {
-    if (fs.existsSync(path.join(home, 'versions', version, 'bin', 'gugu-server'))) await lifecycle.stage(version, async () => {})
-  }
-  return lifecycle
-}
-
-describe('守护进程:各账号各跑各的版本,换版只重启那一个账号', () => {
-  async function converger(running: Map<string, string | null>, options: { stage?: (v: string) => Promise<void>; busy?: boolean } = {}) {
-    const restarted: string[] = []
-    const staged: string[] = []
-    const c = createAccountVersionConverger({
-      lifecycle: await verifiedLifecycle(),
-      layout: { home, versions: path.join(home, 'versions'), version: '0.3.0' },
-      log: quietLog,
-      running: (userId) => (running.has(userId) ? running.get(userId) ?? null : undefined),
-      restart: (userId) => restarted.push(userId),
-      now: () => NOW,
-      busy: () => options.busy ?? false,
-      stage: async (v) => {
-        staged.push(v)
-        await (options.stage ?? (async (version: string) => installVersion(version)))(v)
-      },
-    })
-    return { c, restarted, staged }
-  }
-  const flush = () => new Promise((resolve) => setTimeout(resolve, 0))
-
-  it('两个账号各报各的桌面版本 ⇒ 各自记下、各自从自己那一版起;只重启版本变了的那个', async () => {
-    signIn(U1)
-    signIn(U2)
-    for (const v of ['0.3.0', '0.2.9', '0.3.1']) installVersion(v)
-    report(U1, 'alice-mbp', '0.2.9')
-    report(U2, 'bob-mbp', '0.3.0')
-    const running = new Map<string, string | null>([[U1, '0.3.0'], [U2, '0.3.0']])
-    const { c, restarted } = await converger(running)
-    c.converge(listAccounts())
-    expect(restarted).toEqual([U1])
-    expect(readAccountVersionPin(dataDir(U1))?.version).toBe('0.2.9')
-    expect(readAccountVersionPin(dataDir(U2))).toBeNull()
-    expect(c.binaryFor(U1)).toEqual({ binary: path.join(home, 'versions', '0.2.9', 'bin', 'gugu-server'), version: '0.2.9' })
-    // 守护进程自己这一版:照旧用自己的入口起。
-    expect(c.binaryFor(U2)).toBeNull()
-    // bob 的桌面升到 0.3.1:只动 bob。
-    running.set(U1, '0.2.9')
-    report(U2, 'bob-mbp', '0.3.1')
-    c.converge(listAccounts())
-    expect(restarted).toEqual([U1, U2])
-    expect(readAccountVersionPin(dataDir(U2))?.version).toBe('0.3.1')
-  })
-
-  it('同一账号两台桌面:按新的那一边跑,旧桌面换回来 ❌ 来回重启', async () => {
-    signIn(U1)
-    for (const v of ['0.3.0', '0.3.1']) installVersion(v)
-    report(U1, 'home', '0.3.1')
-    report(U1, 'office', '0.3.0')
-    const running = new Map<string, string | null>([[U1, '0.3.0']])
-    const { c, restarted } = await converger(running)
-    c.converge(listAccounts())
-    expect(readAccountVersionPin(dataDir(U1))?.version).toBe('0.3.1')
-    running.set(U1, '0.3.1')
-    report(U1, 'office', '0.3.0')
-    c.converge(listAccounts())
-    expect(restarted).toEqual([U1])
-  })
-
-  it('降级:桌面比装着的旧 ⇒ 装旧版(后台下载)、有版本信号就当场只切这个账号(有 agent 在跑时要人点过「现在重启更新」)', async () => {
-    signIn(U1)
-    signIn(U2)
-    installVersion('0.3.0')
-    report(U1, 'alice-old', '0.2.9', MIN_CLIENT_PROTOCOL)
-    fs.writeFileSync(path.join(dataDir(U1), 'version-switch.json'), JSON.stringify({ reason: 'test', at: NOW, confirmed: true, target: '0.2.9' }))
-    const running = new Map<string, string | null>([[U1, '0.3.0'], [U2, '0.3.0']])
-    const { c, restarted, staged } = await converger(running, { busy: true })
-    c.converge(listAccounts())
-    expect(staged).toEqual(['0.2.9'])
-    expect(restarted).toEqual([])
-    // 下载中:设备行上说「正在下载」(随这个账号的心跳报)。
-    expect(JSON.parse(fs.readFileSync(path.join(dataDir(U1), 'server-update.json'), 'utf8'))).toMatchObject({ state: 'downloading', version: '0.2.9' })
-    await flush()
-    c.converge(listAccounts())
-    expect(restarted).toEqual([U1])
-    expect(readAccountVersionPin(dataDir(U1))).toMatchObject({ version: '0.2.9', previous: '0.3.0' })
-    expect(fs.existsSync(path.join(dataDir(U1), 'version-switch.json'))).toBe(false)
-  })
-
-  it('版本信号来了、账号在干活:不结束账号进程,等空闲(设备行说「空闲时自动更新」);人点「现在重启更新」才当场换', async () => {
-    signIn(U1)
-    for (const v of ['0.3.0', '0.3.1']) installVersion(v)
-    report(U1, 'mbp', '0.3.1')
-    fs.writeFileSync(path.join(dataDir(U1), 'version-switch.json'), JSON.stringify({ reason: 'desktop speaks protocol 13', at: NOW }))
-    const { c, restarted } = await converger(new Map([[U1, '0.3.0']]), { busy: true })
-    c.converge(listAccounts())
-    expect(restarted).toEqual([])
-    expect(JSON.parse(fs.readFileSync(path.join(dataDir(U1), 'server-update.json'), 'utf8'))).toMatchObject({ state: 'ready', version: '0.3.1' })
-    expect(fs.existsSync(path.join(dataDir(U1), 'version-switch.json'))).toBe(true)
-    fs.writeFileSync(path.join(dataDir(U1), 'version-switch.json'), JSON.stringify({ reason: 'confirmed restart from desktop', at: NOW, confirmed: true, target: '0.3.1' }))
-    c.converge(listAccounts())
-    expect(restarted).toEqual([U1])
-  })
-
-  it('人点的「现在重启更新」10 分钟内算数,过了只是普通的版本信号', () => {
-    signIn(U1)
-    fs.writeFileSync(path.join(dataDir(U1), 'version-switch.json'), JSON.stringify({ reason: 'confirmed restart from desktop', at: NOW, confirmed: true, target: '0.3.1' }))
-    expect(readVersionSwitchRequest(dataDir(U1), NOW + 60_000)).toMatchObject({ confirmed: true })
-    expect(readVersionSwitchRequest(dataDir(U1), NOW + 11 * 60_000)).toMatchObject({ confirmed: false })
-  })
-
-  it('没有版本信号、账号在干活:装好了也等空闲(设备行说「空闲时自动更新」)', async () => {
-    signIn(U1)
-    for (const v of ['0.3.0', '0.3.1']) installVersion(v)
-    report(U1, 'mbp', '0.3.1')
-    const { c, restarted } = await converger(new Map([[U1, '0.3.0']]), { busy: true })
-    c.converge(listAccounts())
-    expect(restarted).toEqual([])
-    expect(JSON.parse(fs.readFileSync(path.join(dataDir(U1), 'server-update.json'), 'utf8'))).toMatchObject({ state: 'ready', version: '0.3.1' })
-  })
-
-  it('装不上(下载 / 校验 / 试跑失败):冷却 ❌ 每 3 秒重下一遍;设备行报「更新没成功」;人点「重试」(更晚的换版请求)再试一次', async () => {
-    signIn(U1)
-    installVersion('0.3.0')
-    report(U1, 'dev', '0.2.1-dev')
-    let t = NOW
-    const staged: string[] = []
-    const c = createAccountVersionConverger({
-      lifecycle: await verifiedLifecycle(),
-      layout: { home, versions: path.join(home, 'versions'), version: '0.3.0' },
-      log: quietLog,
-      running: () => '0.3.0',
-      restart: () => undefined,
-      now: () => t,
-      busy: () => false,
-      stage: async (v) => {
-        staged.push(v)
-        throw new Error('下载失败(500)')
-      },
-    })
-    const update = () => JSON.parse(fs.readFileSync(path.join(dataDir(U1), 'server-update.json'), 'utf8'))
-    c.converge(listAccounts())
-    await flush()
-    c.converge(listAccounts())
-    expect(staged).toEqual(['0.2.1-dev'])
-    expect(update()).toMatchObject({ state: 'failed', version: '0.2.1-dev' })
-    // 「重试」:设备 RPC → 账号进程留一个比失败更晚的请求。
-    t += 1000
-    expect(requestVersionRetry({ GUGU_SERVER_MODE: '1', GUGU_TASK_HOST_USER_DATA: dataDir(U1) }, t)).toBe(true)
-    c.converge(listAccounts())
-    expect(staged).toEqual(['0.2.1-dev', '0.2.1-dev'])
-    expect(update()).toMatchObject({ state: 'downloading', version: '0.2.1-dev' })
-    await flush()
-    expect(update()).toMatchObject({ state: 'failed' })
-  })
-
-  it('装上了、试跑账号起不来:记成「起不来」(reason=boot-failed);普通重试 ❌ 解除,只有绑定这一版的确认重启才再试', async () => {
-    signIn(U1)
-    installVersion('0.3.0')
-    report(U1, 'mbp', '0.3.1')
-    let t = NOW
-    const staged: string[] = []
-    const lifecycle = await verifiedLifecycle()
-    const rejecting = createServerVersionLifecycle({
-      layout: { home, versions: path.join(home, 'versions'), version: '0.3.0' },
-      verifyBoot: async () => { throw new Error('Account boot exited before serving (1)') },
-    })
-    const c = createAccountVersionConverger({
-      lifecycle: { ...lifecycle, stage: rejecting.stage },
-      layout: { home, versions: path.join(home, 'versions'), version: '0.3.0' },
-      log: quietLog,
-      running: () => '0.3.0',
-      restart: () => undefined,
-      now: () => t,
-      busy: () => false,
-      stage: async (v) => { staged.push(v) },
-    })
-    const update = () => JSON.parse(fs.readFileSync(path.join(dataDir(U1), 'server-update.json'), 'utf8'))
-    c.converge(listAccounts())
-    await flush()
-    c.converge(listAccounts())
-    expect(staged).toEqual(['0.3.1'])
-    expect(update()).toMatchObject({ state: 'failed', version: '0.3.1', reason: 'boot-failed' })
-    t += 1000
-    expect(requestVersionRetry({ GUGU_SERVER_MODE: '1', GUGU_TASK_HOST_USER_DATA: dataDir(U1) }, t)).toBe(true)
-    c.converge(listAccounts())
-    await flush()
-    expect(staged).toEqual(['0.3.1'])
-    expect(update()).toMatchObject({ state: 'failed', version: '0.3.1', reason: 'boot-failed' })
-    t += 1000
-    requestVersionSwitch(dataDir(U1), 'confirmed restart from desktop', t, true, '0.3.1')
-    c.converge(listAccounts())
-    await flush()
-    expect(staged).toEqual(['0.3.1', '0.3.1'])
-  })
-
-  it('连不上下载站:设备行照报「更新没成功」,并记下 reason=unreachable(桌面读到它就把包的字节传过来);别的失败不带', async () => {
-    signIn(U1)
-    installVersion('0.3.0')
-    report(U1, 'mbp', '0.3.1')
-    let error: Error = new DownloadSiteUnreachableError('下载站上没有 0.3.1 这一版(连不上)')
-    let t = NOW
-    const c = createAccountVersionConverger({
-      lifecycle: await verifiedLifecycle(),
-      layout: { home, versions: path.join(home, 'versions'), version: '0.3.0' },
-      log: quietLog,
-      running: () => '0.3.0',
-      restart: () => undefined,
-      now: () => t,
-      busy: () => false,
-      stage: async () => { throw error },
-    })
-    const update = () => JSON.parse(fs.readFileSync(path.join(dataDir(U1), 'server-update.json'), 'utf8'))
-    c.converge(listAccounts())
-    await new Promise((resolve) => setTimeout(resolve, 0))
-    expect(update()).toMatchObject({ state: 'failed', version: '0.3.1', reason: 'unreachable' })
-    error = new Error('包校验不通过')
-    t += 1000
-    fs.writeFileSync(path.join(dataDir(U1), VERSION_SWITCH_FILE), JSON.stringify({ reason: 'retry', at: t }))
-    c.converge(listAccounts())
-    await new Promise((resolve) => setTimeout(resolve, 0))
-    expect(update()).toMatchObject({ state: 'failed', version: '0.3.1' })
-    expect(update().reason).toBeUndefined()
-  })
-
-  it('下载站上还没有这一版(server 包比桌面包晚发):❌ 冷却,先让位给能装的那一版,5 分钟后再取;真失败照旧冷却 6 小时', async () => {
-    signIn(U1)
-    installVersion('0.3.0')
-    report(U1, 'dev', '0.3.1')
-    let t = NOW
-    let outcome: 'not-published' | 'broken' | 'ok' = 'not-published'
-    const staged: string[] = []
-    const c = createAccountVersionConverger({
-      lifecycle: await verifiedLifecycle(),
-      layout: { home, versions: path.join(home, 'versions'), version: '0.3.0' },
-      log: quietLog,
-      running: () => '0.3.0',
-      restart: () => undefined,
-      now: () => t,
-      busy: () => true,
-      stage: async (v) => {
-        staged.push(v)
-        if (outcome === 'not-published') throw new VersionNotPublishedError('404')
-        if (outcome === 'broken') throw new Error('包校验不通过')
-        installVersion(v)
-      },
-    })
-    const update = () => JSON.parse(fs.readFileSync(path.join(dataDir(U1), 'server-update.json'), 'utf8'))
-    c.converge(listAccounts())
-    await flush()
-    t += VERSION_NOT_PUBLISHED_RETRY_MS - 1
-    c.converge(listAccounts())
-    expect(staged).toEqual(['0.3.1'])
-    // 等 0.3.1 发出来的这几分钟里它让位:没有别的报告 ⇒ 跟守护进程 0.3.0,账号已经在跑 ⇒ 设备行没有待办。
-    expect(fs.existsSync(path.join(dataDir(U1), 'server-update.json'))).toBe(false)
-    // 5 分钟到了、包也发出来了:再取一次,装好。
-    t += 1
-    outcome = 'ok'
-    c.converge(listAccounts())
-    await flush()
-    c.converge(listAccounts())
-    expect(staged).toEqual(['0.3.1', '0.3.1'])
-    expect(update()).toMatchObject({ state: 'ready', version: '0.3.1' })
-    // 同一台机器上真失败:照旧冷却 6 小时。
-    report(U1, 'dev', '0.3.2')
-    outcome = 'broken'
-    c.converge(listAccounts())
-    await flush()
-    t += VERSION_FAILURE_COOLDOWN_MS - 1
-    c.converge(listAccounts())
-    expect(staged).toEqual(['0.3.1', '0.3.1', '0.3.2'])
-    expect(update()).toMatchObject({ state: 'failed', version: '0.3.2' })
-  })
-
-  it('下载站上一直没有的版本(没打后缀的测试包):退回次新的那一版,再看的间隔翻倍到 6 小时,❌ 每 5 分钟 404 一次', async () => {
-    signIn(U1)
-    for (const v of ['0.3.0', '0.2.9']) installVersion(v)
-    report(U1, 'alice-mbp', '0.2.9')
-    report(U1, 'test-pkg', '0.3.1')
-    let t = NOW
-    const staged: number[] = []
-    const switched: string[] = []
-    let running = '0.3.0'
-    const c = createAccountVersionConverger({
-      lifecycle: await verifiedLifecycle(),
-      layout: { home, versions: path.join(home, 'versions'), version: '0.3.0' },
-      log: quietLog,
-      running: () => running,
-      restart: (userId) => {
-        switched.push(userId)
-        running = JSON.parse(fs.readFileSync(path.join(dataDir(userId), 'server-version.json'), 'utf8')).version
-      },
-      now: () => t,
-      busy: () => false,
-      stage: async () => {
-        staged.push(t - NOW)
-        throw new VersionNotPublishedError('404')
-      },
-    })
-    // 每分钟一轮,跑 8 小时。
-    for (let minute = 0; minute <= 8 * 60; minute += 1) {
-      t = NOW + minute * 60_000
-      c.converge(listAccounts())
-      await flush()
-    }
-    const min = 60_000
-    expect(staged).toEqual([0, 5, 15, 35, 75, 155, 315].map((m) => m * min))
-    // 404 之后当场换去次新的 0.2.9(空闲),❌ 一直停在守护进程那一版等。
-    expect(switched).toEqual([U1])
-    expect(running).toBe('0.2.9')
-  })
-
-  it('上一个守护进程留下的「更新没成功」:换了守护进程、账号已跑在目标版本上 ⇒ 第一轮就清掉,❌ 挂到过期', async () => {
-    signIn(U1)
-    installVersion('0.3.0')
-    report(U1, 'dev', '0.3.0')
-    const file = path.join(dataDir(U1), 'server-update.json')
-    fs.writeFileSync(file, JSON.stringify({ state: 'failed', version: '0.3.0', at: NOW - 1000 }))
-    const { c } = await converger(new Map([[U1, '0.3.0']]))
-    c.converge(listAccounts())
-    expect(fs.existsSync(file)).toBe(false)
-  })
-
-  it('用它的桌面都很久没来(报告全过期):空闲时回到这台机器自己的版本', async () => {
-    signIn(U1)
-    for (const v of ['0.3.0', '0.2.9']) installVersion(v)
-    report(U1, 'old', '0.2.9', 2, NOW - DESKTOP_REPORT_TTL_MS - 1)
-    writeAccountVersionPin(dataDir(U1), { version: '0.2.9', previous: null, at: NOW })
-    const { c, restarted } = await converger(new Map([[U1, '0.2.9']]))
-    c.converge(listAccounts())
-    expect(restarted).toEqual([U1])
-    expect(readAccountVersionPin(dataDir(U1))?.version).toBe('0.3.0')
-    expect(c.binaryFor(U1)).toBeNull()
-  })
-
-  it('换过去秒退三次:退回原来那一版', async () => {
-    signIn(U1)
-    for (const v of ['0.3.0', '0.3.1']) installVersion(v)
-    report(U1, 'mbp', '0.3.1')
-    const { c } = await converger(new Map([[U1, '0.3.0']]))
-    c.converge(listAccounts())
-    c.quickExit(U1, '0.3.1')
-    c.quickExit(U1, '0.3.1')
-    expect(readAccountVersionPin(dataDir(U1))?.version).toBe('0.3.1')
-    c.quickExit(U1, '0.3.1')
-    expect(readAccountVersionPin(dataDir(U1))?.version).toBe('0.3.0')
-    // 记进那本唯一的「起不来」账:守护进程追通道时也会跳过它,下一轮这个账号也不再换过去(冷却期内)。
-    expect(readBadVersions(home)['0.3.1']).toBe(NOW)
-  })
-})
-
 describe('reclamation uses explicit ownership only', () => {
   it('keeps explicitly protected versions without additional mtime guesses', () => {
     const installed = ['0.1.0', '0.1.1', '0.1.2', '0.1.3', '0.1.4', '0.1.5', '0.1.6', '0.1.7', '.download-x'].map((name, i) => ({ name, mtimeMs: i }))
@@ -565,7 +147,6 @@ describe('reclamation uses explicit ownership only', () => {
     for (let i = 0; i < 9; i++) installVersion(`0.1.${i}`, NOW + i * 1000)
     fs.mkdirSync(path.join(home, 'versions', '.download-abc'))
     signIn(U1)
-    writeAccountVersionPin(dataDir(U1), { version: '0.1.0', previous: null, at: NOW })
     const removed = pruneVersions(path.join(home, 'versions'), ['0.1.0', '0.1.8'])
     expect(removed.sort()).toEqual(['0.1.1', '0.1.2', '0.1.3', '0.1.4', '0.1.5', '0.1.6', '0.1.7'])
     expect(fs.readdirSync(path.join(home, 'versions')).sort()).toEqual(['.download-abc', '0.1.0', '0.1.8'])
@@ -617,84 +198,52 @@ describe('gugu-server match-version', () => {
     expect(parseMatchArgs(['--account', U1, '--desktop', 'mbp', '--version', '../x'])).toHaveProperty('error')
   })
 
-  it('报告:打出目标(同账号取最新)、在跑的、装没装;换过去:没装也请守护进程换,等这个账号真的跑上那一版', async () => {
+  it('报告:打出目标(同账号取最新)、在跑的、装没装', async () => {
     signIn(U1)
     installVersion('0.3.0')
     report(U1, 'home', '0.3.1')
     const out: string[] = []
-    let running = '0.3.0'
-    let clock = NOW
-    const deps = { home, runningVersion: () => running, supervisorRunning: () => true, now: () => (clock += 100), sleep: async () => { running = '0.3.1' }, waitMs: 5_000 }
-    expect(await runMatchVersion(['--account', U1, '--desktop', 'office', '--version', '0.3.0', '--protocol', '2'], (l) => out.push(l), () => undefined, deps)).toBe(0)
+    expect(await runMatchVersion(['--account', U1, '--desktop', 'office', '--version', '0.3.0', '--protocol', '2'], (l) => out.push(l), () => undefined,
+      { home, runningVersion: () => '0.3.0', supervisorRunning: () => true, now: () => NOW })).toBe(0)
     expect(out.pop()).toBe('__GUGU_MATCH__ target=0.3.1 running=0.3.0 installed=0 supervisor=1')
-    // 0.3.1 没装:❌ 拒绝(装由守护进程收到换版请求后自己装),等它装好换过去。
-    expect(await runMatchVersion(['--account', U1, '--apply', '0.3.1'], (l) => out.push(l), () => undefined, deps)).toBe(0)
-    expect(out.pop()).toBe('__GUGU_MATCH__ switched=0.3.1')
-    expect(readVersionSwitchRequest(dataDir(U1), clock)).not.toBeNull()
   })
 
-  it('换过去:守护进程在这次请求之后记下「装失败」⇒ 当场退 6,「连不上下载站」⇒ 退 7 要字节(❌ 干等到超时);更早的失败 ⇒ 接着等', async () => {
+  // 换过去的结论只有一个来源:守护进程对「这一次请求」写下的 lastOutcome(按请求时刻认)。
+  const answered = async (args: string[], outcome: (request: number) => Outcome, over: Partial<AccountState> = {}) => {
     signIn(U1)
-    installVersion('0.3.0')
-    const failedAt = (at: number, reason?: string) => JSON.stringify({ state: 'failed', version: '0.3.1', at, ...(reason ? { reason } : {}) })
-    const errors: string[] = []
-    const base = { home, runningVersion: () => '0.3.0', supervisorRunning: () => true, sleep: async () => undefined, waitMs: 1_000 }
-    const apply = (deps: Partial<Parameters<typeof runMatchVersion>[3]>) => {
-      let clock = NOW
-      return runMatchVersion(['--account', U1, '--apply', '0.3.1'], () => undefined, (l) => errors.push(l), { ...base, now: () => (clock += 100), ...deps })
-    }
-    expect(await apply({ readUpdateState: () => failedAt(NOW + 500) })).toBe(6)
-    expect(errors.pop()).toContain('装 0.3.1 失败了')
-    expect(await apply({ readUpdateState: () => failedAt(NOW - 1) })).toBe(4)
-    expect(errors.pop()).toContain('0.3.1 还没装好,装好后会自己换过去')
-    expect(await apply({ readUpdateState: () => failedAt(NOW + 500, 'unreachable') })).toBe(7)
-    expect(errors.pop()).toContain('连不上下载站')
-  })
-
-  it('换过去失败的原因与当前版本照实说:起不来 ⇒ 说启动失败过、要确认重启;没有账号进程 ⇒ 照守护进程记的子进程状态说', async () => {
-    signIn(U1)
-    installVersion('0.3.0')
-    const errors: string[] = []
-    const apply = (reason: string | undefined, child: 'restarting' | 'not-started' | null) => {
-      let clock = NOW
-      return runMatchVersion(['--account', U1, '--apply', '0.3.1'], () => undefined, (l) => errors.push(l), {
-        home, runningVersion: () => null, supervisorRunning: () => true, sleep: async () => undefined, waitMs: 1_000,
-        now: () => (clock += 100), accountChildState: () => child,
-        readUpdateState: () => JSON.stringify({ state: 'failed', version: '0.3.1', at: NOW + 500, ...(reason ? { reason } : {}) }),
-      })
-    }
-    expect(await apply('boot-failed', 'restarting')).toBe(6)
-    expect(errors.pop()).toMatch(/0\.3\.1 在这台机器上启动失败过.*--apply 0\.3\.1 --now.*当前版本 \(正在重启\)/)
-    expect(await apply(undefined, 'not-started')).toBe(6)
-    expect(errors.pop()).toMatch(/装 0\.3\.1 失败了.*\(没有能启动的版本,未启动\)/)
-    // 确认重启后仍起不来:请人等新版本,❌ 再叫人 --now。
+    fs.rmSync(path.join(dataDir(U1), 'server-update.json'), { force: true })
+    const lines: string[] = []
     let clock = NOW
-    expect(await runMatchVersion(['--account', U1, '--apply', '0.3.1', '--now'], () => undefined, (l) => errors.push(l), {
-      home, runningVersion: () => '0.3.0', supervisorRunning: () => true, sleep: async () => undefined, waitMs: 1_000,
-      now: () => (clock += 100), readUpdateState: () => JSON.stringify({ state: 'failed', version: '0.3.1', at: NOW + 500, reason: 'boot-failed' }),
-    })).toBe(6)
-    const last = errors.pop()!
-    expect(last).toContain('0.3.1 在这台机器上仍然启动失败,没有换过去;请等待新版本。这个账号当前版本 0.3.0')
-    expect(last).not.toContain('--now')
+    const rc = await runMatchVersion(['--account', U1, '--apply', '0.3.1', ...args], (l) => lines.push(l), (l) => lines.push(l), {
+      home, runningVersion: () => null, supervisorRunning: () => true, waitMs: 1_000, now: () => (clock += 100),
+      sleep: async () => {
+        const request = readVersionSwitchRequest(dataDir(U1), clock)!
+        writeAccountState(dataDir(U1), { ...INITIAL_ACCOUNT_STATE, version: '0.3.0', supervisor: '0.3.0', child: 'running', ...over, lastOutcome: outcome(request.at) }, clock)
+      },
+    })
+    return { rc, line: lines.pop()! }
+  }
+
+  it('换过去:每种结论对应一个退出码与一句照实的话', async () => {
+    expect(await answered([], (request) => ({ kind: 'switched', target: '0.3.1', at: NOW, request }))).toEqual({ rc: 0, line: '__GUGU_MATCH__ switched=0.3.1' })
+    expect(await answered([], (request) => ({ kind: 'failed', target: '0.3.1', cause: 'install', at: NOW, request }))).toMatchObject({ rc: 6, line: expect.stringContaining('装 0.3.1 失败了') })
+    expect(await answered([], (request) => ({ kind: 'failed', target: '0.3.1', cause: 'unreachable', at: NOW, request }))).toMatchObject({ rc: 7, line: expect.stringContaining('连不上下载站') })
+    expect(await answered(['--now'], (request) => ({ kind: 'rolledBack', bad: '0.3.1', back: '0.3.0', at: NOW, request }), { child: 'restarting' }))
+      .toEqual({ rc: 6, line: '换版请求 0.3.1 启动失败，已回滚到 0.3.0，这个账号当前版本 (正在重启)' })
+    expect(await answered([], (request) => ({ kind: 'waiting', target: '0.3.1', at: NOW, request }))).toMatchObject({ rc: 8, line: expect.stringContaining('不会自己重启') })
+    expect(await answered([], (request) => ({ kind: 'switched', target: '0.3.2', at: NOW, request }))).toMatchObject({ rc: 6, line: expect.stringContaining('已被守护进程改为 0.3.2') })
   })
 
-  it('换过去:这个账号有 agent 在跑、守护进程在等空闲 ⇒ 当场退 8(桌面问人);--now 不退,请求带上「人确认过」', async () => {
-    signIn(U1)
-    installVersion('0.3.0')
-    const ready = JSON.stringify({ state: 'ready', version: '0.3.1', at: NOW + 500 })
-    const errors: string[] = []
-    const run = (args: string[]) => {
-      let clock = NOW
-      return runMatchVersion(['--account', U1, '--apply', '0.3.1', ...args], () => undefined, (l) => errors.push(l), {
-        home, runningVersion: () => '0.3.0', supervisorRunning: () => true, sleep: async () => undefined, waitMs: 1_000,
-        now: () => (clock += 100), readUpdateState: () => ready,
-      })
-    }
-    expect(await run([])).toBe(8)
-    expect(errors.pop()).toContain('任务仍附着')
-    expect(readVersionSwitchRequest(dataDir(U1), NOW + 1_000)).toMatchObject({ confirmed: false })
-    expect(await run(['--now'])).toBe(4)
-    expect(readVersionSwitchRequest(dataDir(U1), NOW + 1_000)).toMatchObject({ confirmed: true })
+  it('起不来的那一版:普通重试被冷却挡下 ⇒ 提示确认重启;确认重启仍起不来 ⇒ 请人等新版本,❌ 再叫 --now;没有账号进程照实说', async () => {
+    const refused = await answered([], (request) => ({ kind: 'refused', target: '0.3.1', cause: 'boot', at: NOW, request }))
+    expect(refused).toMatchObject({ rc: 6, line: expect.stringMatching(/0\.3\.1 在这台机器上启动失败过.*--apply 0\.3\.1 --now.*当前版本 0\.3\.0/) })
+    const again = await answered(['--now'], (request) => ({ kind: 'failed', target: '0.3.1', cause: 'boot', at: NOW, request }),
+      { version: null, child: 'none', phase: { kind: 'failed', target: '0.3.1' } })
+    expect(again).toEqual({ rc: 6, line: '0.3.1 在这台机器上仍然启动失败,没有换过去;请等待新版本。这个账号当前版本 (没有能启动的版本,未启动)' })
+  })
+
+  it('另一次请求的结论不算这一次的;等不到结论 ⇒ 退 4', async () => {
+    expect(await answered([], () => ({ kind: 'switched', target: '0.3.1', at: NOW, request: 1 }))).toMatchObject({ rc: 4 })
   })
 })
 

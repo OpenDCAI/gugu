@@ -16,17 +16,6 @@ export type SessionProcess = {
 };
 
 const processes = new Map<string, SessionProcess>();
-const listeners = new Set<() => void>();
-
-/** Read the same ownership map LocalSessionProvider writes; tmux survives a host restart. */
-export function hostSessionProcessIds(): string[] {
-  return [...processes].filter(([, process]) => process.home === 'host').map(([id]) => id);
-}
-
-export function onSessionProcessesChanged(listener: () => void): () => void {
-  listeners.add(listener);
-  return () => { listeners.delete(listener); };
-}
 
 export function sessionProcess(sessionId: string): SessionProcess | null {
   return processes.get(sessionId) ?? null;
@@ -34,11 +23,10 @@ export function sessionProcess(sessionId: string): SessionProcess | null {
 
 export function recordSessionProcess(sessionId: string, process: SessionProcess): void {
   processes.set(sessionId, process);
-  for (const listener of listeners) listener();
 }
 
 export function forgetSessionProcess(sessionId: string): void {
-  if (processes.delete(sessionId)) for (const listener of listeners) listener();
+  processes.delete(sessionId);
 }
 
 /**

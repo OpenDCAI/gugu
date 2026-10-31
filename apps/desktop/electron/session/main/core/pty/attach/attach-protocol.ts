@@ -121,7 +121,6 @@ export function parseJson<T>(payload: Buffer): T | null {
 // ── 一问一答(open-url)────────────────────────────────────────────────────
 
 export type AttachCall = { v: number; type: string; payload: unknown };
-export const VERSION_HANDOFF_CALL = 'version.prepareHandoff';
 
 const RPC_TYPE = /^[A-Za-z0-9_.-]{1,128}$/;
 

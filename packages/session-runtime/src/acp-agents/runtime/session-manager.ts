@@ -398,14 +398,6 @@ export class SessionManager implements InboundRouter {
     private readonly ports: { fs: FsPort; terminals: TerminalPort }
   ) {}
 
-  /** Attached or starting, regardless of turn/DB status. Lost cells own history, not a process. */
-  liveSessionIds(): string[] {
-    return [...new Set([
-      ...this.startingSessions.keys(),
-      ...[...this.cells].filter(([, record]) => record.phase !== 'lost').map(([id]) => id),
-    ])];
-  }
-
   start(input: AcpStartInput): Promise<Result<{ providerSessionId: string }, AcpStartSessionError>> {
     const stopping = this.stoppingSessions.get(input.sessionId);
     if (stopping) return stopping.then(() => this.start(input));
@@ -479,11 +471,9 @@ export class SessionManager implements InboundRouter {
       this.startProgress.delete(startInput.sessionId);
     });
     this.startingSessions.set(startInput.sessionId, operation);
-    this.deps.onLiveSessionsChanged?.();
     const clear = (): void => {
       if (this.startingSessions.get(startInput.sessionId) === operation) {
         this.startingSessions.delete(startInput.sessionId);
-        this.deps.onLiveSessionsChanged?.();
       }
     };
     void operation.then(clear, clear);
@@ -2098,7 +2088,6 @@ export class SessionManager implements InboundRouter {
           phase: 'lost',
           loss: failure,
         });
-        this.deps.onLiveSessionsChanged?.();
         this.deps.logger.error('SessionManager: ACP adapter exited; session is lost', {
           sessionId,
           processKey,
@@ -2287,7 +2276,6 @@ export class SessionManager implements InboundRouter {
       lastSynced: initialLastSynced(cell),
     });
     this.cells.set(input.sessionId, record);
-    this.deps.onLiveSessionsChanged?.();
     if (input.providerId === 'claude' && isRecord(assistant) && assistant.idleCompaction === true) {
       record.idleCompaction = new IdleCompaction(
         () => ({ ...cell.idleCompactionState, idle: record.phase === 'ready' && cell.idleCompactionState.idle }),
@@ -2741,7 +2729,6 @@ export class SessionManager implements InboundRouter {
     this.emitCommittedTurns(record);
     if (record.processKey) this.unregisterRoutes(record.processKey, sessionId);
     this.cells.delete(sessionId);
-    this.deps.onLiveSessionsChanged?.();
     this.terminals.disposeSession(sessionId);
     this.terminalLiveRegistry.disposeSession(sessionId);
     // #6497 dispose 之前把状态最后发一次 `closed`(与 getSessionState 对不存在的会话给的同一个形状):dispose 本身

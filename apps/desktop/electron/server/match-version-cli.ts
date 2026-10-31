@@ -6,7 +6,7 @@
  *   match-version --account <id> --apply <版本> [--now]
  *       请守护进程把**这一个账号**换到这一版,等它真的换过去再返回。有 agent 在跑时守护进程等它空闲,这里当场退 8;
  *       `--now` = 人点了「现在重启更新」,有 agent 在跑也当场换。没装就由守护进程自己装(下载,或用桌面经 SSH
- *       放进 `versions/.incoming/` 的包,见 server-account-converge.ts)—— 装的只有它一个,桌面 ❌ 再装一份。
+ *       放进 `versions/.incoming/` 的包,见 server-account-driver.ts)—— 装的只有它一个,桌面 ❌ 再装一份。
  *
  * 标准输出上机器可读的一行:`MATCH_MARK key=value …`。
  * 退出码:0 成;2 用法;3 守护进程没在跑;4 等不到换过去;6 安装/试跑失败、请求被替代或受控云电脑拒绝;8 有 agent 在跑、等空闲再换;
@@ -15,18 +15,16 @@
  */
 import fs from 'node:fs'
 import path from 'node:path'
-import { SERVER_UPDATE_STATE_FILE } from '@gugu/core/cloud/deviceHostInfo'
 import {
   isServerVersion,
   pickTargetVersion,
   recordDesktopReport,
-  readVersionSwitchRequest,
   requestVersionSwitch,
 } from '@gugu/core/cloud/serverDesktopVersions'
-import { MATCH_MARK, readAccountVersionPin, versionBinary } from './server-account-versions'
+import { MATCH_MARK, versionBinary } from './server-account-versions'
 import { pickAttachAccount } from './account-call'
-import { listAccounts, readAccountChildState, type AccountChildState, type ServerAccount } from './server-layout'
-import { readBadVersions } from './server-upgrade-guard'
+import { listAccounts, type ServerAccount } from './server-layout'
+import { readAccountState, type AccountState, type Outcome } from './server-account-machine'
 
 const ID = /^[A-Za-z0-9:_-]{1,128}$/
 
@@ -67,10 +65,7 @@ export type MatchDeps = {
   supervisorRunning: () => boolean
   /** 受控云电脑的守护进程(从它的进程环境读)跑的那一版;普通 SSH = null。账号只跟随它。 */
   managedSupervisorVersion?: () => Promise<string | null> | string | null
-  accountChildState?: (dataDir: string) => AccountChildState | null
   exists?: (file: string) => boolean
-  /** 这个账号的升级状态文件(守护进程写的,见 server-account-converge.ts);没有 = null。 */
-  readUpdateState?: (account: ServerAccount) => string | null
   now?: () => number
   sleep?: (ms: number) => Promise<void>
   waitMs?: number
@@ -90,7 +85,7 @@ export async function runMatchVersion(args: readonly string[], out: (line: strin
   const versionsDir = path.join(deps.home, 'versions')
   const exists = deps.exists ?? ((file: string) => fs.existsSync(file))
   const now = deps.now ?? Date.now
-  const running = () => deps.runningVersion(account) ?? readAccountVersionPin(account.dataDir)?.version ?? null
+  const running = () => deps.runningVersion(account) ?? readAccountState(account.dataDir)?.version ?? null
 
   if (parsed.mode === 'report') {
     const reports = recordDesktopReport(account.dataDir, { id: parsed.desktop, version: parsed.version, protocol: parsed.protocol }, now())
@@ -110,86 +105,56 @@ export async function runMatchVersion(args: readonly string[], out: (line: strin
     return 6
   }
   const requestedAt = now()
-  const originalPin = readAccountVersionPin(account.dataDir)
   requestVersionSwitch(account.dataDir, `desktop asked to switch to ${parsed.version}`, requestedAt, parsed.now, parsed.version)
-  const readState = deps.readUpdateState ?? ((a: ServerAccount) => {
-    try {
-      return fs.readFileSync(path.join(a.dataDir, SERVER_UPDATE_STATE_FILE), 'utf8')
-    } catch {
-      return null
-    }
-  })
   const sleep = deps.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)))
   // 没装的要先下载(上百 MB),所以等得比只换版久。
   const waitMs = deps.waitMs ?? 10 * 60_000
   const deadline = now() + waitMs
-  let seen = running()
-  // 没有账号进程时照守护进程记下的子进程状态说:退避重启中 / 没有能起的版本、没起,❌ 一律说成「正在重启」。
-  const currentText = (version: string | null): string => {
-    if (version) return version
-    if (!deps.supervisorRunning()) return '(没在跑)'
-    const child = (deps.accountChildState ?? readAccountChildState)(account.dataDir)
-    return child === 'restarting' ? '(正在重启)' : child === 'not-started' ? '(没有能启动的版本,未启动)' : '(正在启动)'
-  }
+  // 结论只有一个来源:守护进程的状态机对「这一次请求」(按请求时刻认)写下的 lastOutcome。
+  let state = readAccountState(account.dataDir)
   while (now() < deadline) {
-    seen = deps.runningVersion(account)
-    if (seen === parsed.version) {
-      out(formatMatchLine({ switched: parsed.version }))
-      return 0
-    }
-    // 守护进程在这次请求之后记下「装这一版失败」:当场说,❌ 干等到超时。原因在它的日志里。
-    const state = (() => {
-      try {
-        return JSON.parse(readState(account) ?? '') as { state?: unknown; version?: unknown; at?: unknown; reason?: unknown }
-      } catch {
-        return null
-      }
-    })()
-    const pin = readAccountVersionPin(account.dataDir)
-    // Bad marks also record rejected first boots. A rollback additionally changes/removes the account pin.
-    if ((readBadVersions(deps.home)[parsed.version] ?? -Infinity) >= requestedAt) {
-      const rolledBack = pin
-        ? pin.version !== parsed.version && pin.previous === null && pin.at >= requestedAt
-          && (pin.at !== originalPin?.at || pin.version !== originalPin?.version)
-        : originalPin !== null
-      err(`换版请求 ${parsed.version} 启动失败${rolledBack ? `，已回滚到 ${pin?.version ?? '守护进程版本'}` : ''}，这个账号当前版本 ${currentText(seen)}`)
-      return 6
-    }
-    // 装好了、守护进程在等这个账号空闲(有 agent 在跑):当场说,桌面问人「现在重启更新 / 稍后」,❌ 干等 10 分钟。
-    if (!parsed.now && state?.state === 'ready' && state.version === parsed.version && typeof state.at === 'number' && state.at >= requestedAt) {
-      err(state.reason === 'runtime-unverified'
-        ? `无法核实这个账号的任务活体，自动切换已暂停。检查任务后显式确认现在重启：match-version --account ${parsed.account} --apply ${parsed.version} --now`
-        : `这个账号有任务仍附着，停止任务后会换到 ${parsed.version}；也可以检查任务后显式确认现在重启`)
-      return 8
-    }
-    if (state?.state === 'failed' && state.version === parsed.version && typeof state.at === 'number' && state.at >= requestedAt) {
-      if (state.reason === 'unreachable') {
-        err(`这台机器连不上下载站,装不了 ${parsed.version}:要把包传过来`)
-        return 7
-      }
-      // 确认重启就是这一版的最后一招:它还起不来就请人等新版本,❌ 再叫人 --now 一次。
-      err(state.reason === 'boot-failed'
-        ? parsed.now
-          ? `${parsed.version} 在这台机器上仍然启动失败,没有换过去;请等待新版本。这个账号当前版本 ${currentText(seen)}`
-          : `${parsed.version} 在这台机器上启动失败过,冷却中不再自动尝试;检查后显式确认现在重启:match-version --account ${parsed.account} --apply ${parsed.version} --now。这个账号当前版本 ${currentText(seen)}`
-        : `这台机器装 ${parsed.version} 失败了(原因在咕咕 server 的日志里),这个账号还在跑 ${currentText(seen)}`)
-      return 6
-    }
-    const replacement = readVersionSwitchRequest(account.dataDir, now())
-    // Consumption removes the request file, so a changed pin also reports a superseded/rolled-back
-    // target. An older, different pin is normal while the requested package is still being staged.
-    if (replacement?.target && replacement.target !== parsed.version && replacement.at >= requestedAt) {
-      err(`换版请求 ${parsed.version} 已被另一个请求 ${replacement.target} 替代（${replacement.reason}），这个账号当前版本 ${currentText(seen)}`)
-      return 6
-    }
-    if (pin && pin.version !== parsed.version && pin.at >= requestedAt
-      && (pin.at !== originalPin?.at || pin.version !== originalPin?.version)) {
-      err(`换版请求 ${parsed.version} 已被守护进程改为 ${pin.version}，这个账号当前版本 ${currentText(seen)}`)
-      return 6
+    state = readAccountState(account.dataDir)
+    const outcome = state?.lastOutcome
+    if (state && outcome && outcome.request === requestedAt) {
+      const answer = answerFor(parsed, state, outcome)
+      if (answer.rc === 0) out(answer.text)
+      else if (answer.rc !== null) err(answer.text)
+      if (answer.rc !== null) return answer.rc
     }
     await sleep(500)
   }
-  const installed = exists(versionBinary(versionsDir, parsed.version))
-  err(`等了 ${Math.round(waitMs / 1000)} 秒,这个账号还在跑 ${currentText(seen)}${installed ? '' : `(${parsed.version} 还没装好,装好后会自己换过去)`}`)
+  err(`等了 ${Math.round(waitMs / 1000)} 秒,这个账号还在跑 ${state ? currentText(state) : '(没在跑)'}`)
   return 4
+}
+
+/** 这个账号此刻在跑什么,照守护进程记下的子进程状态说。 */
+export function currentText(state: AccountState): string {
+  if (state.child === 'restarting') return '(正在重启)'
+  if (state.child === 'none') return state.phase.kind === 'failed' || state.phase.kind === 'staging' ? '(没有能启动的版本,未启动)' : '(没在跑)'
+  return state.version ?? state.supervisor ?? '(守护进程那一版)'
+}
+
+function answerFor(parsed: { account: string; version: string; now: boolean }, state: AccountState, outcome: Outcome): { rc: number | null; text: string } {
+  const current = currentText(state)
+  const v = parsed.version
+  switch (outcome.kind) {
+    case 'switched':
+      return outcome.target === v
+        ? { rc: 0, text: formatMatchLine({ switched: v }) }
+        : { rc: 6, text: `换版请求 ${v} 已被守护进程改为 ${outcome.target},这个账号当前版本 ${current}` }
+    case 'rolledBack':
+      return { rc: 6, text: `换版请求 ${outcome.bad} 启动失败，已回滚到 ${outcome.back ?? state.supervisor ?? '守护进程那一版'}，这个账号当前版本 ${current}` }
+    case 'failed':
+    case 'refused':
+      if (outcome.cause === 'unreachable') return { rc: 7, text: `这台机器连不上下载站,装不了 ${outcome.target}:要把包传过来` }
+      if (outcome.cause === 'install') return { rc: 6, text: `这台机器装 ${outcome.target} 失败了(原因在咕咕 server 的日志里),这个账号还在跑 ${current}` }
+      // 确认重启就是这一版的最后一招:它还起不来就请人等新版本,❌ 再叫人 --now 一次。
+      return outcome.kind === 'failed' || parsed.now
+        ? { rc: 6, text: `${outcome.target} 在这台机器上仍然启动失败,没有换过去;请等待新版本。这个账号当前版本 ${current}` }
+        : { rc: 6, text: `${outcome.target} 在这台机器上启动失败过,冷却中不再自动尝试;检查后显式确认现在重启:match-version --account ${parsed.account} --apply ${outcome.target} --now。这个账号当前版本 ${current}` }
+    case 'waiting':
+      // 装好了、要人确认才换:当场说,桌面问人「现在重启更新 / 稍后」,❌ 干等 10 分钟。
+      if (parsed.now) return { rc: null, text: '' }
+      return { rc: 8, text: `${outcome.target} 已装好;为了不打断任务不会自己重启,检查任务后显式确认现在重启:match-version --account ${parsed.account} --apply ${outcome.target} --now` }
+  }
 }

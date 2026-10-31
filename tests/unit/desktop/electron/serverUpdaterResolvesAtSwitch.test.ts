@@ -1,5 +1,4 @@
 import { createServerVersionLifecycle } from '../../../../apps/desktop/electron/server/server-version-lifecycle'
-import { formatUpgradeLines } from '../../../../apps/desktop/electron/server/server-status'
 /*
  * 守护进程自升级:切到哪一版在**切的那一刻**现取清单,❌ 用等空闲开始时取到的那一版。
  * 10-08 ThinkPad 实读:59.1 在 08:11 取到 62.1、等空闲 2 h 38 min,其间发布了 63.1;10:49 切到的仍是 62.1,
@@ -53,10 +52,10 @@ afterEach(() => {
   fs.rmSync(home, { recursive: true, force: true })
 })
 
-function updater(isBusy: () => boolean, unverifiedAccounts?: () => string[]) {
+function updater(isBusy: () => boolean) {
   const log = { info: vi.fn(), warn: vi.fn() }
   const shutdown = vi.fn()
-  const stop = startServerUpdater({ lifecycle: createServerVersionLifecycle({ verifyBoot: async () => {}, layout: { home, versions: path.join(home, 'versions'), version: '0.2.53-beta.59.1' } }), log, isBusy, unverifiedAccounts, shutdown })
+  const stop = startServerUpdater({ lifecycle: createServerVersionLifecycle({ verifyBoot: async () => undefined, layout: { home, versions: path.join(home, 'versions'), version: '0.2.53-beta.59.1' } }), log, isBusy, shutdown, stateWriter: { set: () => {}, clear: () => {} } })
   return { log, shutdown, stop }
 }
 
@@ -123,27 +122,4 @@ describe('server self-upgrade resolves its target at the moment it switches', ()
     expect(shutdown).toHaveBeenCalledTimes(1)
     stop()
   })
-  it('publishes an explicit legacy migration exit while unverified, then upgrades only after that account establishes runtime ownership and goes idle', async () => {
-    stage('0.2.53-beta.62.1')
-    published = '0.2.53-beta.62.1'
-    let unknown = true, busy = true
-    const { log, shutdown, stop } = updater(() => busy, () => unknown ? ['legacy-account'] : [])
-    try {
-      await vi.advanceTimersByTimeAsync(60_000)
-      const text = () => fs.readFileSync(path.join(home, 'data', 'server-update.json'), 'utf8')
-      expect(JSON.parse(text())).toMatchObject({ state: 'ready', reason: 'runtime-unverified', version: published })
-      const account = { userId: 'legacy-account', signedIn: true, running: true, email: null, signedOut: null }
-      expect(formatUpgradeLines(text(), [account]).join('\n')).toContain(`gugu-server match-version --account legacy-account --apply ${published} --now`)
-      expect(log.info).toHaveBeenCalledWith(expect.stringContaining('runtime ownership is unverified'), expect.objectContaining({ accounts: ['legacy-account'] }))
-      expect(shutdown).not.toHaveBeenCalled()
-      unknown = false
-      await vi.advanceTimersByTimeAsync(30_000)
-      expect(JSON.parse(text())).not.toHaveProperty('reason')
-      expect(shutdown).not.toHaveBeenCalled()
-      busy = false
-      await vi.advanceTimersByTimeAsync(30_000)
-      expect(shutdown).toHaveBeenCalledOnce()
-    } finally { stop() }
-  })
-
 })

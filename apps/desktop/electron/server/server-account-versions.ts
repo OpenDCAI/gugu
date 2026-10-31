@@ -4,32 +4,28 @@
  *
  *   versions/<版本>/          好几份并存:在用的 + 明确记录的上一版(VS Code 的做法,microsoft/vscode-remote-release#969)
  *   versions/.incoming/       上不了网的机器:桌面经 SSH 放进来的包 `<版本>.tar.gz` + 它的清单行 `<版本>.txt`,
- *                             守护进程装它而 ❌ 下载(装的仍只有守护进程一个,见 server-account-converge.ts)
+ *                             守护进程装它而 ❌ 下载(装的仍只有守护进程一个,见 server-account-driver.ts)
  *   current                   守护进程自己跑的那一份;没有桌面报过版本的账号也跑它
  *   accounts/<id>/data/
  *     desktop-versions.json   用这台机器的各台桌面报的版本(core/cloud/serverDesktopVersions.ts)
- *     version-switch.json     普通请求等空闲;仅目标匹配的显式确认允许中断
- *     server-version.json     这个账号现在跑哪一版(守护进程写;账号进程从 versions/<它>/ 起)
- *
- * 规则(纯函数 planAccountVersion):目标 = 没过期的桌面报告里最新的、下载站上有的那一版;和在跑的不一样 ⇒
- * 没装就先装(下载、校验、试跑),装好了等空闲;只有明确确认才允许中断。只重启这一个账号的进程,
- * 同一台机器上别的账号 ❌ 受影响。换过去秒退(起不来)就退回原来那一版,这一版几个小时内不再试。
+ *     version-switch.json     换版请求(CLI / 设备 RPC 写,守护进程作答后删)
+ *     server-update.json      这个账号的版本状态机(server-account-machine.ts):跑哪一版、在做什么、上次请求的结论
  */
 import fs from 'node:fs'
 import path from 'node:path'
-import { isServerVersion, pickTargetVersion, type DesktopReports } from '@gugu/core/cloud/serverDesktopVersions'
+import { isServerVersion } from '@gugu/core/cloud/serverDesktopVersions'
 
-export const ACCOUNT_VERSION_FILE = 'server-version.json'
+/** 守护进程自己的版本指针(看门狗确认过的 to/from);账号的版本记在它的状态文件里(server-account-machine.ts),
+ *  旧布局的账号目录里也有一份,守护进程第一次读到就并进状态文件。 */
+export const VERSION_PIN_FILE = 'server-version.json'
 /** `gugu-server match-version` 打给桌面看的机器可读行(ssh-install/logic.ts 读)。 */
 export const MATCH_MARK = '__GUGU_MATCH__'
-/** 不额外保留按 mtime 猜出的版本;上一版由 supervisor 的明确回滚指针传入。 */
-export const KEEP_RECENT_VERSIONS = 0
 
-export type AccountVersionPin = { version: string; previous: string | null; at: number }
+export type VersionPin = { version: string; previous: string | null; at: number }
 
-export function readAccountVersionPin(dataDir: string): AccountVersionPin | null {
+export function readVersionPin(dataDir: string): VersionPin | null {
   try {
-    const value = JSON.parse(fs.readFileSync(path.join(dataDir, ACCOUNT_VERSION_FILE), 'utf8')) as Partial<AccountVersionPin>
+    const value = JSON.parse(fs.readFileSync(path.join(dataDir, VERSION_PIN_FILE), 'utf8')) as Partial<VersionPin>
     if (!isServerVersion(value.version)) return null
     return {
       version: value.version,
@@ -41,9 +37,9 @@ export function readAccountVersionPin(dataDir: string): AccountVersionPin | null
   }
 }
 
-export function writeAccountVersionPin(dataDir: string, pin: AccountVersionPin): void {
+export function writeVersionPin(dataDir: string, pin: VersionPin): void {
   fs.mkdirSync(dataDir, { recursive: true })
-  const file = path.join(dataDir, ACCOUNT_VERSION_FILE)
+  const file = path.join(dataDir, VERSION_PIN_FILE)
   const tmp = `${file}.${process.pid}.tmp`
   fs.writeFileSync(tmp, `${JSON.stringify(pin)}\n`, { mode: 0o600 })
   fs.renameSync(tmp, file)
@@ -57,62 +53,6 @@ export const incomingPackage = (versionsDir: string, version: string): { archive
   archive: path.join(versionsDir, INCOMING_DIR, `${version}.tar.gz`),
   manifest: path.join(versionsDir, INCOMING_DIR, `${version}.txt`),
 })
-
-/**
- * 这个账号该跑钉住的哪一版:钉了、不是守护进程自己那一版、而且装在盘上 = 那一版;否则 null = 跟着守护进程那一版。
- * converge 起账号进程(binaryFor)与升级看门狗判谁该跑新版本(server-upgrade-guard.ts readProbe)都按这一条。纯函数。
- */
-export function pinnedVersionToRun(pin: AccountVersionPin | null, supervisorVersion: string, installed: (version: string) => boolean): string | null {
-  return pin && pin.version !== supervisorVersion && installed(pin.version) ? pin.version : null
-}
-
-export type AccountVersionPlan =
-  /** 没有桌面报过版本 / 已经是目标版本:什么也不做。 */
-  | { kind: 'none'; clearSwitchRequest: boolean }
-  /** 目标这一版刚失败过(冷却中):不再自己试,设备行说「更新没成功 · 重试」。 */
-  | { kind: 'failed'; version: string }
-  /** 目标版本还没装:先装。 */
-  | { kind: 'stage'; version: string }
-  /** 装好了、在等这个账号空闲。 */
-  | { kind: 'wait-idle'; version: string }
-  /** 现在就把这个账号换过去。 */
-  | { kind: 'switch'; version: string; urgent: boolean }
-
-/**
- * 一个账号这一轮该做什么。纯函数。
- * running:此刻这个账号的进程跑的是哪一版(没在跑 = 它下次会用的那一版)。
- */
-export function planAccountVersion(input: {
-  reports: DesktopReports
-  now: number
-  running: string | null
-  switchRequested: boolean
-  /** A target-bound confirmed command selects this one handoff, independently of old desktop affinity. */
-  requestedTarget?: string
-  /** 仅绑定当前目标的明确重启确认允许中断工作；普通 Retry 不授予此权限。 */
-  switchConfirmed?: boolean
-  installed: (version: string) => boolean
-  busy: boolean
-  /** 这一版刚在这台机器上失败过(下载 / 试跑失败、换过去起不来):冷却中不再试。 */
-  failed: (version: string) => boolean
-  /** 报告全过期了(用它的桌面都很久没来):回到这台机器自己的版本(守护进程那一版,跟着自动升级走)。 */
-  fallback?: string | null
-  /** 下载站上没有的版本(刚 404 过、还没到再看的时刻):让位给次新的那一版。 */
-  unpublished?: (version: string) => boolean
-}): AccountVersionPlan {
-  const target = input.requestedTarget ?? pickTargetVersion(input.reports, input.now, undefined, input.unpublished) ?? input.fallback ?? null
-  if (!target || target === input.running) return { kind: 'none', clearSwitchRequest: true }
-  const failed = input.failed(target)
-  if (!input.installed(target)) return failed ? { kind: 'failed', version: target } : { kind: 'stage', version: target }
-  // 冷却中的版本连换版请求也拦:哪种请求能解除冷却由 `failed` 判(起不来的那一版只认绑定它的确认重启)。
-  if (failed) return { kind: 'failed', version: target }
-  // 版本信号(桌面说的协议对不上,或桌面经 SSH 刚把这一版装好、请它换过去):那是人那边在等。
-  // 但有 agent 在跑就等它空闲,除非人点过「现在重启更新」:换版结束账号进程,在跑的那一轮跟着没了。
-  if (input.switchRequested) {
-    return input.busy && !input.switchConfirmed ? { kind: 'wait-idle', version: target } : { kind: 'switch', version: target, urgent: input.switchConfirmed === true }
-  }
-  return input.busy ? { kind: 'wait-idle', version: target } : { kind: 'switch', version: target, urgent: false }
-}
 
 /**
  * versions/ 下留哪些:正在被任一账号(以及守护进程自己)用的 + 明确传入的上一版(按目录的修改时刻,

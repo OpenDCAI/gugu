@@ -84,10 +84,6 @@ export class AcpRuntime {
     return ok({ providerSessionId: result.data.providerSessionId, ...page });
   }
 
-  liveSessionIds(): string[] {
-    return this.manager.liveSessionIds();
-  }
-
   stopSession(sessionId: string, onlyIfIdle = false): Promise<Result<void, AcpStopSessionError>> {
     return this.manager.stop(sessionId, onlyIfIdle);
   }

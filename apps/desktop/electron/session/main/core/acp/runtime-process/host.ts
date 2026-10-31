@@ -60,7 +60,6 @@ import { desktopWorkerPath } from '@main/worker-manifest';
 import { stripUntrustedSessionAuthority, trustedPlatformInputPatch } from './session-meta';
 import { persistAcpStartResult } from './session-persistence-policy';
 import { notifySessionLive } from '@main/core/sessions/session-message-router';
-import { withSessionStartAdmission } from '@main/core/sessions/version-handoff';
 
 export { mergeTrustedSessionMeta, stripUntrustedSessionAuthority } from './session-meta';
 
@@ -248,11 +247,6 @@ const acpWorker = lazyWorker(
   },
   {
     onSpawned: async (handle) => {
-      handle.scope.add(await handle.client.liveSessionsChanged.subscribe(undefined, {
-        onEvent: notifyRuntimeActivityChange,
-        onGap: notifyRuntimeActivityChange,
-        onError: notifyRuntimeActivityChange,
-      }));
       handle.scope.add(
         await handle.client.promptSteered.subscribe(undefined, {
           onEvent: ({ sessionId }) => {
@@ -290,14 +284,12 @@ const acpWorker = lazyWorker(
       handle.scope.add(await connectNativePromptPreparation(handle.client, log));
       handle.scope.add(
         handle.onRestarted(() => {
-          notifyRuntimeActivityChange();
           // A restarted worker has no surviving adapter processes or session records.
           void releaseEmdashPlatformSession(null);
         })
       );
       // 起来之后才告诉订阅者:订阅者会再 `get()`,那要等这里返回 ⇒ 只排出去、❌ 在这里 await。
       for (const listener of spawnedListeners) queueMicrotask(() => listener(handle.process));
-      queueMicrotask(notifyRuntimeActivityChange);
     },
   }
 );
@@ -314,21 +306,6 @@ export function onAcpRuntimeSpawned(listener: (runtime: object) => void): () => 
   return () => {
     spawnedListeners.delete(listener);
   };
-}
-
-const activityListeners = new Set<() => void>();
-function notifyRuntimeActivityChange(): void {
-  for (const listener of activityListeners) listener();
-}
-export function onAcpRuntimeActivityChange(listener: () => void): () => void {
-  activityListeners.add(listener);
-  return () => { activityListeners.delete(listener); };
-}
-
-/** Does not start a worker, and a failed ownership read must never become an empty list. */
-export async function readAcpLiveSessionIds(): Promise<string[]> {
-  const handle = await acpWorker.peek();
-  return handle ? handle.client.liveSessionIds(undefined) : [];
 }
 
 let rendererWireDispose: (() => void) | null = null;
@@ -919,7 +896,7 @@ export function createStartOwningClient(client: ContractClient<AcpRuntimeApiCont
       await inFlight.result.catch(() => undefined);
       return detachedClient.announceSession(input);
     },
-    queuePrompt: (input, meta) => withSessionStartAdmission(async () => {
+    queuePrompt: async (input, meta) => {
       const { startInput: rendererStartInput, ...queued } = input;
       if (!rendererStartInput) return client.queuePrompt(queued, meta);
       const sessionId = rendererStartInput.sessionId;
@@ -944,7 +921,7 @@ export function createStartOwningClient(client: ContractClient<AcpRuntimeApiCont
         return acpErr.invalidState(`Session ${sessionId} was stopped before its start reached the runtime`);
       }
       return client.queuePrompt({ ...queued, startInput: injected.input }, meta);
-    }),
+    },
     // #6552 会话还在起的时候用户选了模型 / 强度:worker 在启动的「设模型/强度」那一步采用它。
     // 这条会话的启动还在主进程准备(注入)的话,worker 那边还没有它 ⇒ 等到启动交给 worker 再递 ——
     // 与上面 announceSession 同一个等法;❌ 不等启动起完(那一步早过了,选择就成了第二次热切)。
@@ -952,9 +929,9 @@ export function createStartOwningClient(client: ContractClient<AcpRuntimeApiCont
       await startsInFlight.get(input.sessionId)?.prepared.catch(() => undefined);
       return client.setModelOption(input, meta);
     },
-    startSession: (input, meta) => withSessionStartAdmission(async () => (await startOnce(input, meta)).result),
+    startSession: async (input, meta) => (await startOnce(input, meta)).result,
     stopSession,
-    resumeSession: (input, meta) => withSessionStartAdmission(async () => {
+    resumeSession: async (input, meta) => {
       while (stopsInFlight.has(input.input.sessionId)) await waitForStop(input.input.sessionId);
       await finishClosingProcess(input.input.sessionId);
       // 重开同样要带注入 —— 见 withEmdashPlatformInjection 抬头那段:漏在这里,首轮正常、重开翻车。
@@ -995,7 +972,7 @@ export function createStartOwningClient(client: ContractClient<AcpRuntimeApiCont
         await persistProviderSessionMissing(injected.input.sessionId, injected.input.providerSessionId);
       }
       return result;
-    }),
+    },
   };
 }
 

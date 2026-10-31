@@ -8,7 +8,7 @@ import { DevicesContext, type DevicesContextValue } from '@/store/devicesContext
 import type { Device } from '@gugu/core/shared/types/chat'
 
 const retry = vi.hoisted(() => vi.fn(async (_deviceId: string) => true))
-const restart = vi.hoisted(() => vi.fn(async (_deviceId: string, _version: string) => true))
+const restart = vi.hoisted(() => vi.fn(async (_deviceId: string, _version: string, _confirmedRpc: boolean) => true))
 vi.mock('@/lib/serverVersionRetry', () => ({ retryServerVersionMatch: retry, restartServerVersionNow: restart }))
 
 const current = '0.2.58-beta.1056.1'
@@ -48,17 +48,17 @@ describe('confirmed server update feedback', () => {
     await render(server({ state: 'ready', version: target, busy_agents: 2 }))
     expect(node('update')!.textContent).toContain('2 个任务')
     await render()
-    expect(node('update')!.textContent).toBe('新版本已就绪，等待空闲')
-    await render(server({ state: 'ready', version: target, reason: 'runtime-unverified' }))
-    expect(node('update')!.textContent).toBe('任务活体未知，自动重启已暂停')
-    expect(node('update')!.getAttribute('title')).toContain('SSH')
+    expect(node('update')!.textContent).toBe('新版本已就绪')
   })
 
-  it('does not offer confirmed restart to an older server', async () => {
+  it('offers Update now on an older account process too, through the RPC it understands', async () => {
     const legacy = server({ state: 'ready', version: target }, '0.2.58')
     delete legacy.capabilities.server_confirmed_restart
+    delete legacy.capabilities.server_update!.scope // Old account processes report neither capability nor scope.
     await render(legacy)
-    expect(node('update-now')).toBeNull()
+    await click('update-now')
+    await click('update-now-yes')
+    expect(restart).toHaveBeenCalledExactlyOnceWith('remote', target, false)
     expect(retry).not.toHaveBeenCalled()
   })
 
@@ -75,7 +75,7 @@ describe('confirmed server update feedback', () => {
     await click('update-now')
     expect(retry).not.toHaveBeenCalled()
     await click('update-now-yes')
-    expect(restart).toHaveBeenCalledExactlyOnceWith('remote', target)
+    expect(restart).toHaveBeenCalledExactlyOnceWith('remote', target, true)
     expect(retry).not.toHaveBeenCalled()
     expect(node('restarting')!.textContent).toBe('正在重启…')
     expect(node('update-now')).toBeNull()

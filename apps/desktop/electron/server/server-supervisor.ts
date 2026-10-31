@@ -1,5 +1,4 @@
 import { createServerVersionLifecycle } from './server-version-lifecycle'
-import { prepareAccountHandoff } from './server-account-handoff'
 /**
  * 咕咕 server 的守护进程(`gugu-server run`,系统服务拉起的就是它)。
  *
@@ -20,10 +19,10 @@ import { isOwnProcessAlive, SERVER_PROCESS_MARK } from './process-alive'
 import { applyLoginShell, clearStopped, liveKeeperPid, markStopped, startKeeper, SUPERVISOR_EXIT_ALREADY_RUNNING } from './server-keeper'
 import { noteExitReason } from '../lib/exit-reason'
 import { removeLegacyBrowserLogins } from '../lib/remove-legacy-browser-logins'
-import { accountDataDir, accountIsBusy, listAccounts, readAccountActivity, serverHome, supervisorDataDir, writeAccountChildState, type AccountChildState } from './server-layout'
+import { accountDataDir, listAccounts, serverHome, supervisorDataDir } from './server-layout'
 import { rotateByCopyTruncate, rotateByRename, SERVICE_LOG_CHECK_MS } from './server-log-rotate'
-import { addBadVersion, ensureUpgradeGuard, writeSupervisorHealth, SUPERVISOR_HEALTH_MS } from './server-upgrade-guard'
-import { createAccountVersionConverger } from './server-account-converge'
+import { ensureUpgradeGuard, writeSupervisorHealth, SUPERVISOR_HEALTH_MS } from './server-upgrade-guard'
+import { createAccountDriver } from './server-account-driver'
 import { managedLayout, startServerUpdater } from './server-updater'
 
 const RECONCILE_MS = 3_000
@@ -128,54 +127,41 @@ export async function runSupervisor(): Promise<void> {
   if (!serverScript) throw new Error('找不到 server.js 的路径(process.argv[1])')
   const children = new Map<string, Child>()
   const backoff = new Map<string, { failures: number; notBefore: number }>()
-  const childStates = new Map<string, AccountChildState>()
-  const noteChild = (userId: string, state: AccountChildState): void => {
-    if (childStates.get(userId) === state) return
-    childStates.set(userId, state)
-    writeAccountChildState(accountDataDir(userId), state)
-  }
   let stopping = false
 
   const layout = managedLayout()
   const lifecycle = layout ? createServerVersionLifecycle({ layout, running: () => [...children.values()].flatMap(child => child.version ? [child.version] : []) }) : null
   const followSupervisor = process.env.GUGU_CLOUD_COMPUTER === '1'
-  const versions = createAccountVersionConverger({
-    layout,
-    lifecycle,
-    followSupervisor,
-    coldStart: userId => !children.has(userId) && !backoff.has(userId),
-    log,
-    running: (userId) => (children.has(userId) ? (children.get(userId)?.version ?? null) : undefined),
-    runningProcess: userId => {
-      const child = children.get(userId)
-      return child ? { pid: child.process.pid, startedAt: child.startedAt } : undefined
-    },
-    prepareHandoff: (account, target) => prepareAccountHandoff(account, children.get(account.userId)?.process, target),
-    // 换版:先留一句「更新」,账号进程开机收残据此说清在跑的那一轮是被更新打断的。
-    restart: (userId) => {
-      noteExitReason(accountDataDir(userId), 'update')
-      const child = children.get(userId)
-      if (!child) return
-      child.restarting = true
-      child.process.kill('SIGTERM')
-      // A live but unready/hung account must not retain takeover forever after rollback.
-      const force = setTimeout(() => {
-        if (children.get(userId) === child && child.process.exitCode === null && child.process.signalCode === null) child.process.kill('SIGKILL')
-      }, CHILD_STOP_GRACE_MS)
-      force.unref()
-    },
-  })
+  // 换版:先留一句「更新」,账号进程开机收残据此说清在跑的那一轮是被更新打断的。
+  const restart = (userId: string): void => {
+    noteExitReason(accountDataDir(userId), 'update')
+    const child = children.get(userId)
+    if (!child) return
+    child.restarting = true
+    child.process.kill('SIGTERM')
+    // A live but unready/hung account must not retain takeover forever after rollback.
+    const force = setTimeout(() => {
+      if (children.get(userId) === child && child.process.exitCode === null && child.process.signalCode === null) child.process.kill('SIGKILL')
+    }, CHILD_STOP_GRACE_MS)
+    force.unref()
+  }
+  const childOf = (userId: string) => {
+    const child = children.get(userId)
+    return child ? { pid: child.process.pid, startedAt: child.startedAt, restarting: child.restarting === true } : undefined
+  }
+  const versions = layout && lifecycle
+    ? createAccountDriver({ layout, lifecycle, followSupervisor, log, child: childOf, started: userId => children.has(userId) || backoff.has(userId), restart })
+    : null
 
   const start = (userId: string): void => {
     // #6264 这个账号该跑哪一版:记着的那一版(装着)就从它的目录起;否则跑守护进程自己这一版。
-    const pinned = versions.binaryFor(userId)
-    if (followSupervisor && !pinned && layout && !lifecycle?.ready(layout.version)) return noteChild(userId, 'not-started')
+    const pinned = versions?.binaryFor(userId) ?? null
+    if (pinned === 'none') return
     const child = pinned
       ? spawn(pinned.binary, ['run-account', userId], { env: accountProcessEnv(process.env), stdio: ['ignore', 'inherit', 'inherit'] })
       : spawn(process.execPath, [serverScript, 'run-account', userId], { env: accountProcessEnv(process.env), stdio: ['ignore', 'inherit', 'inherit'] })
     const version = pinned?.version ?? process.env.GUGU_TASK_HOST_VERSION ?? null
     children.set(userId, { process: child, startedAt: Date.now(), version })
-    noteChild(userId, 'running')
     log.info('账号进程已启动', { account: userId, pid: child.pid, version })
     // 起不来(可执行文件没了、fd 用尽)时 Node 只发 'error' 不发 'exit':没人接会把守护进程带崩,
     // 接了但不收尾,这个账号会一直挂着一条死记录、再也不重启。两条路走同一个收尾。
@@ -188,12 +174,12 @@ export async function runSupervisor(): Promise<void> {
       if (stopping) return
       const ranFor = Date.now() - (entry?.startedAt ?? Date.now())
       // 刚换过去的那一版起不来:退回原来那一版(❌ 把这个账号切死),这一版冷却一阵不再试。
-      if (ranFor < QUICK_EXIT_MS) versions.quickExit(userId, version)
+      const account = listAccounts().find((entry) => entry.userId === userId)
+      if (account) versions?.childExited(account, ranFor < QUICK_EXIT_MS)
       const previous = backoff.get(userId)?.failures ?? 0
       const failures = ranFor < QUICK_EXIT_MS ? previous + 1 : 0
       const delay = failures === 0 ? 1_000 : Math.min(MAX_BACKOFF_MS, 2_000 * 2 ** (failures - 1))
       backoff.set(userId, { failures, notBefore: Date.now() + delay })
-      noteChild(userId, 'restarting')
       log.warn('账号进程退出了', { account: userId, ...reason, ranForMs: ranFor, restartInMs: delay })
     }
     child.on('exit', (code, signal) => settle({ code, signal }))
@@ -207,8 +193,8 @@ export async function runSupervisor(): Promise<void> {
   const reconcile = (): void => {
     if (stopping) return
     const signedIn = listAccounts().filter((account) => account.signedIn)
-    // 受控云电脑先纠正旧 pin 再冷启动,避免先起桌面报告留下的旧包。
-    if (followSupervisor) versions.converge(signedIn)
+    // 先过一遍状态机再起进程:冷启动的账号直接从目标版本起,❌ 先起旧包再打断它。
+    versions?.tick(signedIn)
     const wanted = new Set(signedIn.map((account) => account.userId))
     for (const userId of wanted) {
       if (children.has(userId)) continue
@@ -221,8 +207,6 @@ export async function runSupervisor(): Promise<void> {
       log.info('账号已退出登录,停掉它的进程', { account: userId })
       child.process.kill('SIGTERM')
     }
-    // #6264 各账号对一对版本:只读每个账号目录里的两个小文件,要换的只重启那一个账号。
-    if (!followSupervisor) versions.converge(signedIn)
     try { lifecycle?.reclaim() } catch (error) {
       log.warn('Version reclamation failed', { error: error instanceof Error ? error.message : String(error) })
     }
@@ -265,13 +249,6 @@ export async function runSupervisor(): Promise<void> {
     followSupervisor,
     shell,
   })
-  // Managed cold starts retain the controller's package choice, with the same account boot admission as every switch.
-  if (followSupervisor && lifecycle && layout) {
-    try { await lifecycle.stage(layout.version, async () => {}) } catch (error) {
-      addBadVersion(home, layout.version, Date.now())
-      log.warn('守护包未通过账号启动验证,保留原账号版本', { error: error instanceof Error ? error.message : String(error) })
-    }
-  }
   // #6264 升级看门狗读这份「我起来了、还活着」(没有账号登录时它是唯一的健康读数);每 30 秒续写一次。
   const health = (): void => writeSupervisorHealth(home, { version: process.env.GUGU_TASK_HOST_VERSION ?? null, pid: process.pid, startedAt })
   health()
@@ -286,52 +263,19 @@ export async function runSupervisor(): Promise<void> {
   rotateServiceLog()
   setInterval(rotateServiceLog, SERVICE_LOG_CHECK_MS).unref()
   if (accounts.length === 0) log.info(`还没有账号登录这台机器:${SERVER_LOGIN_ACTION}`)
+  // 冷启动:先让每个账号的状态机走一轮、等装包 / 试跑的结论,第一批进程才从对的那一版起。
+  versions?.tick(accounts)
+  await versions?.settled()
   reconcile()
   setInterval(reconcile, RECONCILE_MS)
 
   startServerUpdater({
     log,
     lifecycle,
-    unverifiedAccounts: () => listAccounts().filter(account => {
-      if (!account.signedIn) return false
-      const child = children.get(account.userId)
-      if (!child || child.restarting) return true
-      const activity = readAccountActivity(account.dataDir, Date.now(), { pid: child.process.pid, startedAt: child.startedAt })
-      return activity?.runtimeOwned !== true || typeof activity.busy !== 'boolean'
-    }).map(account => account.userId),
-    prepareHandoff: async target => {
-      const accounts = listAccounts()
-      const replies = await Promise.all(accounts.map(async account => {
-        const child = children.get(account.userId)
-        if (!child) return account.signedIn ? null : undefined
-        if (child.restarting) return null
-        const permit = await prepareAccountHandoff(account, child.process, target)
-        return permit && { permit, child, userId: account.userId }
-      }))
-      const held = replies.filter((reply): reply is NonNullable<typeof reply> => reply != null)
-      const valid = () => replies.every(reply => reply !== null)
-        && held.every(({ permit, child, userId }) => permit.valid() && !child.restarting && children.get(userId) === child)
-        // An account may have appeared while the existing accounts were closing admission.
-        && listAccounts().filter(account => account.signedIn).every(account => held.some(reply => reply.userId === account.userId))
-      const release = async () => { await Promise.all(held.map(({ permit }) => permit.release())) }
-      if (!valid()) { await release(); return null }
-      return { valid, release }
-    },
-    // Account restart confirmation never authorises a supervisor-wide upgrade.
-    isBusy: () =>
-      listAccounts().some(
-        (account) => {
-          const child = children.get(account.userId)
-          // Backoff/rollback is unknown, not a gap in which the supervisor may upgrade.
-          if (!child) return account.signedIn
-          if (child.restarting) return true
-          return accountIsBusy(account.dataDir, Date.now(), {
-            pid: child.process.pid, startedAt: child.startedAt,
-          })
-        },
-      ),
+    // 整台机器换版:每个登着的账号都要有自己的新鲜心跳说空闲。账号自己的确认重启 ❌ 授权整机升级。
+    isBusy: () => listAccounts().some((account) => account.signedIn && versions?.proofOf(account) !== 'idle'),
     shutdown: () => shutdown('upgrade'),
-    inUse: () => versions.inUse(),
+    inUse: () => versions?.inUse() ?? [],
   })
 }
 
