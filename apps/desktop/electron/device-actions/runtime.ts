@@ -73,8 +73,8 @@ function groupTitle(id: string): string {
 }
 
 /**
- * 原生组件在哪:Mac 打包后在 Resources/mac-native、开发时在仓库根的 mac-native/<arch>(scripts/build-mac-native.mjs);
- * Windows 是 win-native(scripts/build-win-native.mjs)。别的平台没有。
+ * 原生组件在哪:Mac 打包后在 Resources/mac-native、开发时在仓库根的 mac-native/<arch>(scripts/build/build-mac-native.mjs);
+ * Windows 是 win-native(scripts/build/build-win-native.mjs)。别的平台没有。
  */
 export function nativeComponentsDir(input: { platform?: NodeJS.Platform; isPackaged: boolean; resourcesPath: string; appPath: string }): string | null {
   const platform = input.platform ?? process.platform
@@ -113,7 +113,7 @@ export function createDeviceActionsRuntime(input: {
   const store = createDeviceActionGrantsStore(defaultDeviceActionGrantsFile(input.userData))
   const missing = input.isPackaged
     ? '这台电脑上的咕咕缺原生组件（安装包不完整），请重新安装咕咕'
-    : `开发环境还没编原生组件:在仓库根运行 node scripts/${(input.platform ?? process.platform) === 'win32' ? 'build-win-native' : 'build-mac-native'}.mjs`
+    : `开发环境还没编原生组件:在仓库根运行 node scripts/build/${(input.platform ?? process.platform) === 'win32' ? 'build-win-native' : 'build-mac-native'}.mjs`
   const platform = input.platform ?? process.platform
   let helper: MacHelperClient | null = null
   let cua: CuaClient | null = null

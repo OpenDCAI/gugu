@@ -2,19 +2,19 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { describe, expect, test } from 'vitest'
-import { cacheBucket, eslintArgs } from '../../../scripts/eslint-cached.mts'
+import { cacheBucket, eslintArgs } from '../../../scripts/checks/eslint-cached.mts'
 import {
   nativeRebuildNeeded,
   packageJsonNativeFieldsChanged,
   pathNeedsNativeRebuild,
-} from '../../../scripts/native-rebuild-needed.mts'
+} from '../../../scripts/ci/native-rebuild-needed.mts'
 import {
   STASH_SUFFIX,
   removeNewEntries,
   restoreBuild,
   snapshotEntries,
   stashBuild,
-} from '../../../scripts/rebuild-native-isolated.mts'
+} from '../../../scripts/build/rebuild-native-isolated.mts'
 
 const repoRoot = path.resolve(__dirname, '../../..')
 const scripts = JSON.parse(fs.readFileSync(path.join(repoRoot, 'package.json'), 'utf8')).scripts as Record<
@@ -47,7 +47,7 @@ describe('PR CI 构建变体与发布构建同源(#6270)', () => {
   })
 
   test('rebuild:native:isolated 跑的正是 rebuild:native 的两段', () => {
-    const src = fs.readFileSync(path.join(repoRoot, 'scripts/rebuild-native-isolated.mts'), 'utf8')
+    const src = fs.readFileSync(path.join(repoRoot, 'scripts/build/rebuild-native-isolated.mts'), 'utf8')
     for (const step of scripts['rebuild:native'].split(' && ')) {
       expect(src).toContain(`'${step.replace(/^node /, '')}'`)
     }
@@ -87,9 +87,9 @@ describe('原生重编的触发判据(#6270)', () => {
     'pnpm-lock.yaml',
     'pnpm-workspace.yaml',
     'patches/node-pty@1.1.0.patch',
-    'scripts/rebuild-native.cjs',
-    'scripts/verify-dev-native-probe.cjs',
-    'scripts/native-addon-build-policy.cjs',
+    'scripts/build/rebuild-native.cjs',
+    'scripts/build/verify-dev-native-probe.cjs',
+    'scripts/build/native-addon-build-policy.cjs',
     '.node-version',
   ])('%s 变了要重编', (file) => {
     expect(pathNeedsNativeRebuild(file)).toBe(true)

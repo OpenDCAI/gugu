@@ -262,7 +262,7 @@
   /* Colors */
   /* @@@one-knob — 这一族全部改成引用 canonical token,❌ 不再各抄一份 hex。
      ⚠️ 唯一的例外是 --color-white:它**不是**中性族的一员,而是「绝对白」这个名字本身 ——
-     消费它的是 .text-destructive-foreground(白字画在饱和红上,见 docs/ui-visual-spec.md §7
+     消费它的是 .text-destructive-foreground(白字画在饱和红上,见 docs/design/ui-visual-spec.md §7
      那整段:它是 19 条语义桥里唯一不走两段式的一条,靠的是 Tailwind 默认主题那条**另一个**机制)。
      把它染成 oklch(0.995 0 0) 会让那条契约在会话页作用域里悄悄换值 ——
      design-tokens-3334 那条 browser 判据当场判红,而它判得对:
@@ -354,7 +354,7 @@
      packages/session-ui、packages/session-chat-ui(及已拆出本仓的中台、顾客面板)一律逐字等值,
      ❌ 不许再各拍一套(改之前全仓是六套刻度,见 #6103 审计 F-06)。
      三问定档:这是纸(page=0)? 印在纸上的东西(document=6)? 还是压出来的物件(其余各档)?
-     ⚠️ tailwind.config.cjs 与会话页 @theme 的数值由 scripts/check-ui-visual-spec.mts 的
+     ⚠️ tailwind.config.cjs 与会话页 @theme 的数值由 scripts/checks/check-ui-visual-spec.mts 的
      radiusScaleParity 逐档比对,改一处不改另一处 `pnpm lint` 当场红。 */
   --radius-page: 0;
   /* #7333 视觉规范的小档:徽标、行内小块。 */
@@ -429,7 +429,7 @@
      删掉之后 `var(--shadow-card)` 是 computed-value-time 无效,box-shadow 落回初始值 none,
      结果与全局清零一致,而浮层那一档照样点得亮。
        已删:--shadow-card / --shadow-panel / --shadow-sm / --shadow-switch-knob
-             (残留消费点见 docs/ui-visual-spec.md §6 的清单,归第二阶段改成密度分层)
+             (残留消费点见 docs/design/ui-visual-spec.md §6 的清单,归第二阶段改成密度分层)
      浮层那一档是 --shadow-lift(就定义在下面第一行,浅色侧只重定义它自己)。其余名字全部
      留着但**只是它的别名** —— 浮层只有一种表达,深浅不是可选项:
      两个都能「浮起来」的浮层若投影一深一浅,读到的是「它们不是一类东西」,而它们是。 */
@@ -1483,7 +1483,7 @@ body.barcode-scanner-active #root {
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
-   @@@2322 交互状态与动效地基(P1) —— 规范全文(活样例)docs/ui-states-motion-spec.html,
+   @@@2322 交互状态与动效地基(P1) —— 规范全文(活样例)docs/design/ui-states-motion-spec.html,
    行为预期 product spec。六态:rest/hover/press/selected/focus/disabled,
    缺态=bug。状态一律 CSS(伪类/data 属性),❌ onMouseEnter+useState、❌ 命令式改 style。
    叠色阶梯:hover(--hover) < press(--press) < selected(--selected)。
@@ -1731,7 +1731,7 @@ body.barcode-scanner-active #root {
    圆角 2/3/4/5/6/7/8/9/10/11/12/14/16/20/22。同一角色(列/面板头/列表行/图标钮/分区标签)有 3–5 种实现。
    「不像大厂」的本质不是配色,是几何没有统一的标尺:每处自己拍数。下面这组 token + 原型类就是那把尺子,
    原语(ui/Pane · ui/ListRow · ui/IconButton · ui/SectionLabel · ui/Chip)只消费这里,业务面只消费原语。
-   ❌ 新代码再写 fontSize/borderRadius/padding 字面量(scripts/check-ui-visual-spec.mts 棘轮只减不增)。 */
+   ❌ 新代码再写 fontSize/borderRadius/padding 字面量(scripts/checks/check-ui-visual-spec.mts 棘轮只减不增)。 */
 :root {
   /* 面板/列头:所有 tab 的标题坐在同一条基线上(会话列表 / 通讯录 / 发现 / 设置 / 会话头) */
   --pane-header-h: 52px;
@@ -1768,7 +1768,7 @@ body.barcode-scanner-active #root {
      owner 2026-09-03 拍板消灭它:11、12、13 相邻各差 1px,人眼分辨不出,三档在干一档的事。
      分流规则(已执行完):要读的内容 → --font-body(13) 配次级色;只是标记(时间戳/计数/徽标/归属小字)
      → --font-caption(11)。层级靠颜色与字重,字号是最后手段。
-     ❌ 别再把它加回来,也❌ 别写裸 12px —— scripts/check-ui-visual-spec.mts 是硬闸,一处都判红。 */
+     ❌ 别再把它加回来,也❌ 别写裸 12px —— scripts/checks/check-ui-visual-spec.mts 是硬闸,一处都判红。 */
   /* 列表行 */
   --row-pad: 8px;
   --row-gap: 10px;

@@ -3,7 +3,7 @@ import {
   configureEnvHttpProxy,
   readProxyEnv,
   redactProxyUrl
-} from '../../../scripts/proxy-config.mts'
+} from '../../../scripts/dev/proxy-config.mts'
 
 describe('shared Node proxy configuration', () => {
   it('uses the same proxy environment precedence for both jobs', () => {

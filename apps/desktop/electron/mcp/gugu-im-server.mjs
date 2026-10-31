@@ -638,7 +638,7 @@ async function currentAuthUserId(deps) {
 // created_by 写 agent。❌ 以主人的 JWT 直读直写 workspace_items —— 那是主人的可见域,agent 不在的群也读得到。
 // 读写文件本身是群文件夹 App 的工具(preinstalled-apps/workspace/folder.mjs);这里只剩 App 平台以 agent 身份做的两件事:
 // app_install 的数据文件(groupDataFileOf)、app_check 的范围(extensionCheckScopeOf)。
-// CI 闸 scripts/check-im-server-direct-access.mts 钉着:本文件不许出现 workspace_items 的 REST 路径。
+// CI 闸 scripts/checks/check-im-server-direct-access.mts 钉着:本文件不许出现 workspace_items 的 REST 路径。
 async function workspaceRpcRows(deps, name, body, label) {
   const rows = await deps.restRpc(name, { ...body, p_as_user_id: deps.context.agentId })
   if (!Array.isArray(rows)) throw new Error(`${label}: ${name} returned a non-list result`)
