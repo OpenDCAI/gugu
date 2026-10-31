@@ -13,6 +13,7 @@ import type {
 import type { Project } from '@shared/projects';
 import { sessionEvents } from '../sessions/session-events';
 import { mapSessionRowToSession } from '../sessions/utils';
+import { taskName } from '../sessions/task-name';
 import { projectEvents } from '../projects/project-events';
 import { workspaceFileIndexService } from './workspace-file-index-service';
 
@@ -26,7 +27,7 @@ type FtsRow = {
 
 type RecentSessionRow = {
   id: string;
-  title: string;
+  agent_display_name: string | null;
   project_id: string;
 };
 
@@ -46,6 +47,8 @@ class SearchService {
       if (project) this.upsertProject(project);
       void this.upsertSession(session);
     });
+    // Every change of a task's one name is announced here (renameSession.ts), bound names included:
+    // a rename, a publish, another device, and the roster projection filling in at sign-in.
     sessionEvents.on('session:renamed', (sessionId) => {
       const [row] = db.select().from(sessions).where(eq(sessions.id, sessionId)).limit(1).all();
       if (row) void this.upsertSession(mapSessionRowToSession(row));
@@ -118,7 +121,7 @@ class SearchService {
   private recents(): SearchItem[] {
     const rows = sqlite
       .prepare(
-        `SELECT c.id, c.title, c.project_id
+        `SELECT c.id, json_extract(c.config, '$.agentDisplayName') AS agent_display_name, c.project_id
          FROM sessions c
          WHERE c.archived_at IS NULL AND c.automation_run_id IS NULL
            AND NOT EXISTS (SELECT 1 FROM projects p
@@ -132,7 +135,7 @@ class SearchService {
       kind: 'session' as const,
       id: r.id,
       projectId: r.project_id,
-      title: r.title,
+      title: taskName({ id: r.id, config: { agentDisplayName: r.agent_display_name ?? undefined } }),
       subtitle: '',
       score: 0,
     }));
@@ -203,7 +206,7 @@ class SearchService {
         .select({
           id: sessions.id,
           projectId: sessions.projectId,
-          title: sessions.title,
+          config: sessions.config,
           archivedAt: sessions.archivedAt,
           linkedIssue: sessions.linkedIssue,
           branchName: workspaces.branchName,
@@ -218,13 +221,15 @@ class SearchService {
          VALUES (?, ?, ?, ?, ?)`
       );
 
+      // Names as they read now. The roster projection may not be loaded yet (the owner is set after
+      // boot); when it fills in, each bound name arrives as `session:renamed` and is reindexed above.
       sqlite.transaction(() => {
         for (const p of allProjects) {
           upsertStmt.run('project', p.id, null, p.name, p.path);
         }
         for (const c of allSessions) {
           const keywords = [c.branchName, c.linkedIssue?.identifier, c.linkedIssue?.title].filter(Boolean).join(' ');
-          upsertStmt.run('session', c.id, c.projectId, c.title, keywords);
+          upsertStmt.run('session', c.id, c.projectId, taskName(c), keywords);
         }
       })();
 

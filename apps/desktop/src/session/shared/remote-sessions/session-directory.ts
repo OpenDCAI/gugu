@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useSyncExternalStore } from 'react'
+import { useEffect, useSyncExternalStore } from 'react'
 import { isDeepEqual } from '@gugu/session-shared'
 import type { Device } from '@gugu/core/shared/types/chat'
 import { isPhoneDevice } from '@gugu/core/cloud/devices'
@@ -6,9 +6,6 @@ import type {
   SessionpageProjectSummary,
   SessionpageSessionSummary,
 } from '@gugu/session-core/session-record/contract'
-import type { SessionShellAgentName } from '@/session/shared/lib/ipc/shell-port'
-import { useContactsStore } from '@/store/contactsContext'
-import { useChatStore } from '@/store/chatContext'
 import { sessionListFromDigest } from './session-list-sync'
 
 /**
@@ -203,22 +200,3 @@ export function listedSession(
   return { unread: unread.map((device) => device.label) }
 }
 
-/**
- * agent 的显示名:只有云端 `identity.users` 这一份。手机上它已经在通讯录里(自己的 agent 全在、改名与新建跟着
- * `agent_changed` 重拉),行上只带 agent 的 id,按 id 对上即可 —— ❌ 再逐台机器问一遍名字。
- */
-export function useAgentNames(): ReadonlyMap<string, string> {
-  const { contacts } = useContactsStore()
-  const { identitiesById } = useChatStore('identitiesById')
-  return useMemo(() => new Map([
-    ...Object.values(identitiesById).filter(identity => identity.type === 'agent' && identity.display_name).map(identity => [identity.id, identity.display_name] as const),
-    ...contacts.map(contact => [contact.id, contact.display_name] as const),
-  ]), [contacts, identitiesById])
-}
-
-/** 这条会话背后的 agent(有身份、通讯录里有它);否则不给。 */
-export function agentOfSession(session: SessionpageSessionSummary, agentNames: ReadonlyMap<string, string>): SessionShellAgentName | undefined {
-  const userId = session.agent?.userId
-  const displayName = userId ? agentNames.get(userId) : undefined
-  return userId && displayName ? { conversationId: session.conversationId, displayName, agentUserId: userId } : undefined
-}

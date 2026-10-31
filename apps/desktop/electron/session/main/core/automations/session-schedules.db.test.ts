@@ -44,7 +44,7 @@ beforeEach(async () => {
     .prepare(`INSERT INTO projects (id, name, path, created_at, updated_at) VALUES ('project-1', 'Home', '/home', 0, 0)`)
     .run();
   for (const id of [AGENT.sessionId, OTHER.sessionId]) {
-    fixture.sqlite.prepare(`INSERT INTO sessions (id, project_id, title) VALUES (?, 'project-1', ?)`).run(id, id);
+    fixture.sqlite.prepare(`INSERT INTO sessions (id, project_id, config) VALUES (?, 'project-1', json_object('version', '1', 'type', 'pty', 'agentDisplayName', ?))`).run(id, id);
   }
 });
 

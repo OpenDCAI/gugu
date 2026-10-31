@@ -12,7 +12,7 @@ import { useDevicesStore } from '@/store/devicesContext'
 import { useBackLayer } from '@/components/ui/sheetStack'
 import { navigateMobile } from '../navigateMobile'
 import { requestAlertPermissionOnce, useAgentWatchAlerts, useAgentWatchFocus } from './useAgentWatchAlerts'
-import { agentOfSession, rowOpens, useAgentNames, useLiveDeviceSessions } from '@/session/shared/remote-sessions/session-directory'
+import { rowOpens, useLiveDeviceSessions } from '@/session/shared/remote-sessions/session-directory'
 import { MachinesPage } from './MachinesPage'
 import { ProjectsPage } from './ProjectsPage'
 import { SessionTimelinePage } from './SessionTimelinePage'
@@ -96,7 +96,6 @@ export function AgentWatchPage({
 
   // 订阅在 AgentWatchRoot;这里只读会话目录,并报正盯着的那条(它不弹横幅:页头状态词已经在说这件事)。
   const live = useLiveDeviceSessions()
-  const agentNames = useAgentNames()
 
   // 路由只存 deviceId,机器行每次从 store 现查:在线状态会实时翻转,
   // 存下 Device 快照就会停在进页那一帧(离线机器上线了,页面还说它离线)。
@@ -160,7 +159,6 @@ export function AgentWatchPage({
         device={device}
         initialAppKind={route.appKind}
         session={liveSession ?? route.session}
-        agent={agentOfSession(liveSession ?? route.session, agentNames)}
         firstPrompt={route.firstPrompt}
         draft={route.draft}
         onBack={() => setRoute({ name: 'projects' })}

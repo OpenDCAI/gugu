@@ -11,7 +11,7 @@ import '@renderer/index.css';
 // Keep both real layout layers: the production sidebar adds its own border beneath
 // WorkspaceLayout. Replace only data/services and list contents unrelated to that edge.
 vi.mock('@gugu/core/cloud/config', async (original) => ({ ...(await original<object>()), getSupabaseUrl: () => 'http://supabase.test.local', getSupabaseAnonKey: () => 'test-anon-key' }));
-vi.mock('@renderer/features/sessions/stores/session-agent-names', () => ({ sessionAgentNames: { start: () => {} } }));
+vi.mock('@renderer/features/sessions/stores/session-agent-bindings', () => ({ sessionAgentBindings: { start: () => {} } }));
 vi.mock('@renderer/features/remote-hosts/remote-hosts-store', () => ({ remoteHostsStore: { start: () => {} } }));
 vi.mock('@renderer/features/assistant/assistant-shell', () => ({ useAssistantShell: () => null }));
 vi.mock('@renderer/features/assistant/assistant-home-sessions', () => ({ localHomeSessions: { sessions: [] } }));

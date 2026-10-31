@@ -1,11 +1,17 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi, afterEach } from 'vitest';
 import { takeBirthGroup } from '@main/core/sessions/birth-groups';
 import { createSession } from './createSession';
+import { setTaskNamer } from '../task-name';
+
+// Sessions are named at creation by the host's namer (task-name.ts); number defaults per provider.
+beforeEach(() => setTaskNamer({ defaultName: async (provider, taken) => `${provider} ${taken.length + 1}`, renameBound: async () => { throw new Error("no identities in this test") } }));
+afterEach(() => setTaskNamer(null));
 
 const mocks = vi.hoisted(() => ({
   transaction: vi.fn(),
   getProject: vi.fn(),
-  select: vi.fn(),
+  // The task namer reads the names this host's sessions already carry.
+  select: vi.fn(() => ({ from: async () => [] })),
   recordSessionPlatformModel: vi.fn(async () => {}),
   checkLocalHarnessAvailable: vi.fn(async () => null as unknown),
   resolveProjectFolder: vi.fn(async () => ({ kind: 'root' }) as unknown),

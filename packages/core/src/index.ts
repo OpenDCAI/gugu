@@ -133,6 +133,7 @@ export {
   removeAgents,
   archiveAgents,
   updateAgent,
+  writeAgentName,
   type LocalAgentUpdate,
   type LocalAgentRecord
 } from './local/state/agents'

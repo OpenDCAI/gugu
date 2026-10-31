@@ -1,7 +1,6 @@
 import z from 'zod';
 import { GUGU_PERMISSION_MODES, promptInputSchema } from '@gugu/session-core/acp/client';
 import { defineVersionedSchema } from '@shared/lib/versioned-schema/versioned-schema';
-import { sessionTitleSourceSchema } from './session-config';
 import { linkedIssue } from '../linked-issue';
 
 const initialQueuePromptSchema = z.object({
@@ -18,12 +17,8 @@ const v1Schema = z.object({
     .object({
       id: z.string(),
       provider: z.string(),
+      /** A name chosen by the caller (an automation's name); absent = the engine default (task-name.ts). */
       title: z.string().optional(),
-      /**
-       * 标题的来历,口径见 `sessionTitleSourceSchema`。只有调用方**知道**标题是人起的时才带
-       * `manual`(定时任务:会话名就是那条自动化的名字);缺席 = 首轮兜底,harness 自己起的名可以盖掉它。
-       */
-      titleSource: sessionTitleSourceSchema.optional(),
       /** 咕咕四档权限(规划/只读/编辑/完全访问);缺席按编辑档。 */
       permissionMode: z.enum(GUGU_PERMISSION_MODES).optional(),
       /**

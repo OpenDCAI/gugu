@@ -98,7 +98,8 @@ export function applyMigrations(
 function ensureSearchIndex(connection: BetterSqlite3.Database): void {
   // Bump this version string whenever the FTS schema changes — the table is
   // dropped and recreated, and backfill() + seedCommands() repopulate it.
-  const SEARCH_INDEX_VERSION = '5';
+  // 6: a session is indexed by its one name (task-name.ts), not the dropped `sessions.title`.
+  const SEARCH_INDEX_VERSION = '6';
 
   const row = connection.prepare(`SELECT value FROM kv WHERE key = 'fts_version'`).get() as
     | { value: string }

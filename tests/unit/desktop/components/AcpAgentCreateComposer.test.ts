@@ -161,7 +161,7 @@ vi.mock('../../../../apps/desktop/src/lib/deviceFs', () => ({
   deviceFsListDirectory: vi.fn(),
 }))
 
-vi.mock('../../../../apps/desktop/src/lib/agentDefaultName', () => ({
+vi.mock('@gugu/core/shared/agentDefaultName', () => ({
   resolveAgentDefaultName: vi.fn().mockResolvedValue('Claude Code 1'),
 }))
 

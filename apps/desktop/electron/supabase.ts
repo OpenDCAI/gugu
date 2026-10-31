@@ -6,11 +6,25 @@ import { createLogger } from './lib/logger'
 
 // #5331 主进程里所有云往返共用 Chromium 的连接池:已用过的空闲连接保活约 5 分钟,不像 Node 全局 fetch
 // (undici 默认 keepAliveTimeout 4 s)那样在两次新建会话之间断掉、下一发重握 0.95 s 的 TLS。
-export const electronFetch = ((input: RequestInfo | URL, init?: RequestInit) =>
-  net.fetch(
+export const electronFetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+  const response = await net.fetch(
     input instanceof URL ? input.toString() : (input as RequestInfo),
     init as Parameters<typeof net.fetch>[1]
-  )) as typeof fetch
+  )
+  if (response.status < 500) for (const listener of cloudAnswerListeners) listener()
+  return response
+}) as typeof fetch
+
+const cloudAnswerListeners = new Set<() => void>()
+
+/**
+ * The backend answered a main-process cloud request (any status below 500). Work deferred because the cloud
+ * was unreachable resumes on this transport fact, not on a timer. Listeners must stay cheap and synchronous.
+ */
+export function onElectronCloudAnswer(listener: () => void): () => void {
+  cloudAnswerListeners.add(listener)
+  return () => { cloudAnswerListeners.delete(listener) }
+}
 
 const electronRealtime = {
   // @@@electron-realtime-transport - Electron main runs in Node, so pin Realtime to ws instead of environment-detected globals.

@@ -223,6 +223,7 @@ import {
 import { connectionConfigRoot } from '@main/core/agents/harness-connections'
 import { acpSessionLive, setSessionCancel, setSessionWake } from '@main/core/session-timeline/write-bridge'
 import { setOtherMachines } from '@main/core/sessions/session-family'
+import { hasPendingTaskNames, setTaskNamer, setTaskNameOwner } from '@main/core/sessions/task-name'
 import { setAgentSessionHost } from '@main/core/sessions/agent-session-controller'
 import { answerAppMessage } from '@main/core/extensions/extension-send'
 import { answerAppReadFile } from '@main/core/extensions/app-files-elsewhere'
@@ -247,6 +248,9 @@ export {
 export {
   localSessionIds,
   setOtherMachines,
+  setTaskNamer,
+  setTaskNameOwner,
+  hasPendingTaskNames,
   runRemoteSessionAction,
   runSessionAction,
   sessionCallerFacts,
@@ -1945,9 +1949,8 @@ export async function startSessionpageAgentSession(
       projectId: project.id,
       workspaceId: repositoryWorkspaceId,
       provider,
-      title: input.displayName,
-      // 这条会话就是这个 agent 的运行时,标题 = 它在通讯录里的名字 —— 显式命名,harness 起的名不盖它。
-      titleSource: 'manual',
+      // 这条会话就是这个 agent 的运行时:它的名字就是这个 agent 在通讯录里的名字。
+      agentDisplayName: input.displayName,
       permissionMode,
       ...(effort ? { effort } : {}),
       // 不带首句 = 常驻,等主人的第一条消息:出生 idle(#7199;从前记一句占位当首轮,一出生就「在干活」,云电脑永远不闲)。

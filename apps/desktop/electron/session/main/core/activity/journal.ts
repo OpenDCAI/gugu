@@ -3,6 +3,7 @@ import type Database from 'better-sqlite3';
 import { activityEventSchema, activityObservationSchema, activityQuerySchema, type ActivityEvent, type ActivityObservation,
   type ActivityQuery } from '@shared/core/activity';
 import { withoutSleep, type ConfirmedSleep } from './confirmed-sleep';
+import { taskName } from '../sessions/task-name';
 
 type Row = { seq: number; data: string };
 type Coverage = { started_at: number; last_seen_at: number; ended_at: number | null };
@@ -111,9 +112,10 @@ export class ActivityJournal {
       const event = activityEventSchema.parse(JSON.parse(row.data));
       return event.session_id ? [event.session_id] : [];
     }))];
-    const titles = sessionIds.length === 0 ? [] : this.sql.prepare(
-      `SELECT id, title FROM sessions WHERE id IN (${sessionIds.map(() => '?').join(',')})`
-    ).all(...sessionIds) as Array<{ id: string; title: string }>;
+    // A session's one name (task-name.ts): its pending-bind record is the only stored copy.
+    const named = sessionIds.length === 0 ? [] : this.sql.prepare(
+      `SELECT id, json_extract(config, '$.agentDisplayName') AS agentDisplayName FROM sessions WHERE id IN (${sessionIds.map(() => '?').join(',')})`
+    ).all(...sessionIds) as Array<{ id: string; agentDisplayName: string | null }>;
     const segments = this.sql.prepare(`SELECT started_at, last_seen_at, ended_at FROM activity_coverage
       WHERE started_at < ? AND COALESCE(ended_at, last_seen_at) >= ? ORDER BY started_at`).all(Date.parse(q.until), Date.parse(q.since)) as Coverage[];
     // Sleep can start before this query window and has no session/project. Read
@@ -125,7 +127,7 @@ export class ActivityJournal {
       .map(event => ({ since: event.occurred_at!, until: event.sleep_until_at!, source: event.sleep_source! }));
     return {
       events: page.map(row => ({ ...activityEventSchema.parse(JSON.parse(row.data)), sequence: row.seq })),
-      session_titles: Object.fromEntries(titles.map(row => [row.id, row.title])),
+      session_titles: Object.fromEntries(named.map(row => [row.id, taskName({ id: row.id, config: { agentDisplayName: row.agentDisplayName ?? undefined } })])),
       next_cursor: rows.length > q.limit ? Buffer.from(JSON.stringify({ v: 1, signature, after: page.at(-1)!.seq, high })).toString('base64url') : null,
       order: 'observation_sequence',
       coverage: { scope: 'this_machine', queried_at: this.now(), collector_running: this.segmentId !== null,

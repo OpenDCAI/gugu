@@ -37,6 +37,7 @@ import {
   createAgent,
   listReapedAgentsForSession,
   listAgents,
+  writeAgentName,
   removeAgents,
   updateAgent,
   writeAgentRuntimeSession,
@@ -62,7 +63,7 @@ import {
   type SessionpageDeliveryOwnerKind,
 } from './sessionpage-delivery-owner-registry'
 import { forgetProjectGroupId, readProjectGroupId, rememberProjectGroupId } from './sessionpage-project-groups'
-import { agentNameSerial, nextAgentDefaultName, uniqueAgentDisplayName } from '../../src/lib/agentDefaultName'
+import { agentNameSerial, nextAgentDefaultName, uniqueAgentDisplayName } from '@gugu/core/shared/agentDefaultName'
 import { listAgentNameSerialsViaSupabase } from '@gugu/core/cloud/agentIdentityReconcile'
 import { registerOfflineLocalSessionDelivery, unregisterLocalSessionDeliveryForAgent } from './local-session-delivery'
 import {
@@ -158,6 +159,27 @@ function serialFloor(ownerUserId: string, label: string): number {
 function noteAgentName(ownerUserId: string, name: string, label: string): void {
   const serial = agentNameSerial(name, label)
   if (serial !== null) raiseSerialFloor(ownerUserId, label, serial)
+}
+
+/**
+ * The engine default name a new task is created with (`<label> <n>`): numbered past the owner's
+ * roster names and the account's serial floor, and reserved so the next task gets the next number.
+ */
+export async function defaultTaskAgentName(
+  providerId: string,
+  taken: readonly string[],
+  ownerUserId: string | null,
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<string> {
+  const label = getAgentTypeLabel(normalizeAgentType(providerId))
+  const roster = await listAgents(env, { includeGuests: true })
+  const owned = ownerUserId ? agentsForOwner(roster, ownerUserId) : roster
+  const name = nextAgentDefaultName(owned.map((a) => ({ display_name: a.name })), label, {
+    reservedNames: taken,
+    floor: ownerUserId ? serialFloor(ownerUserId, label) : 0,
+  })
+  if (ownerUserId) noteAgentName(ownerUserId, name, label)
+  return name
 }
 
 const listAgentNameSerialsDefault = (auth: { accessToken: string; userId: string }): Promise<Map<string, number>> =>
@@ -686,8 +708,8 @@ async function adoptSessionpageAgentIdentityLocked(
   mark('direct-chat-resolved')
   // #4277 每一行都记 owner:这个身份是拿当前账号复用的。
   const local = existing
+    // A bound identity keeps its own name; the session's pending-bind name only names a new identity.
     ? await updateAgent({ guguUserId: existing.gugu_user_id }, {
-      name: displayName,
       agent_type: agentType,
       path: info.projectPath || '',
       gugu_user_id: guguAgentUserId,
@@ -1075,11 +1097,11 @@ async function provisionFreshLocalFirst(
   // #6396 序号只增不减:起点 = max(服务端账本记的这个前缀用到几号, 本机名册里归这个账号的最大号) + 1。
   // 账本落后时服务端会往上抬(会话起来后再改名),所以每铸一次都在后台把账本再取一次,给下一条会话用。
   const rosterNames = agentsForOwner(roster, ownerAuth.userId).map((a) => ({ display_name: a.name }))
-  const requested = info.displayName?.trim() || ''
+  // The session was named at creation (task-name.ts); binding only makes that name unique.
+  const requested = info.displayName?.trim()
+  if (!requested) throw new Error(`session ${info.sessionId} reached provisioning without a name`)
   const label = getAgentTypeLabel(agentType)
-  const displayName = requested
-    ? uniqueAgentDisplayName(rosterNames, requested)
-    : nextAgentDefaultName(rosterNames, label, { floor: serialFloor(ownerAuth.userId, label) })
+  const displayName = uniqueAgentDisplayName(rosterNames, requested)
   noteAgentName(ownerAuth.userId, displayName, label)
   refreshSerialFloors(ownerAuth, deps.listAgentNameSerials)
   const guguAgentUserId = randomUUID()
@@ -1117,7 +1139,8 @@ async function provisionFreshLocalFirst(
     projectId,
     guguAgentUserId,
     displayName,
-    nameMode: requested ? 'explicit' : 'serial',
+    // A name shaped `<label> <n>` is a serial name the server may lift past numbers used elsewhere (#6396).
+    nameMode: agentNameSerial(displayName, label) === null ? 'explicit' : 'serial',
     agentType,
     deviceId: deviceIdPromise,
     localPath: info.cwd || null,
@@ -1210,8 +1233,8 @@ function startCloudProvision(job: {
     if (!minted) throw new Error('unreachable')
     noteAgentName(job.ownerAuth.userId, minted.displayName, getAgentTypeLabel(job.agentType))
     await job.afterBinding
-    const patch: Record<string, unknown> = {}
-    if (minted.displayName !== job.displayName) patch.name = minted.displayName
+    // The server may lift a serial past numbers used elsewhere: that is the identity's name now.
+    if (minted.displayName !== job.displayName) await writeAgentName(job.guguAgentUserId, minted.displayName, 'cloud', job.env)
     const resolved = resolveProvisionedProjectGroup(job, minted)
     const groupChatId = resolved.groupChatId
     if (resolved.kind === 'pending-approval') {
@@ -1230,7 +1253,6 @@ function startCloudProvision(job: {
     if (job.birthGroup) await joinBirthGroup(job.ownerAuth.accessToken, job.ownerAuth.userId, await job.birthGroup(), job.guguAgentUserId, log)
     const current = (await listAgents(job.env, { includeGuests: true })).find((a) => a.gugu_user_id === job.guguAgentUserId)
     await updateAgent({ guguUserId: job.guguAgentUserId }, {
-      ...patch,
       cache: {
         ...(current?.cache ?? {}),
         [GROUP_CACHE_KEY]: groupChatId,

@@ -33,11 +33,11 @@ describe('recordUnstartedSessionChoice', () => {
     mocks.emit.mockClear();
     fixture.sqlite.exec(`
       INSERT INTO projects (id, name, path) VALUES ('project-1', 'Project', '/repo');
-      INSERT INTO sessions (id, project_id, title, provider, runtime, config)
-        VALUES ('pty-1', 'project-1', 'Task', 'codex', 'pty',
+      INSERT INTO sessions (id, project_id, provider, runtime, config)
+        VALUES ('pty-1', 'project-1', 'codex', 'pty',
                 '{"version":"1","type":"pty","effort":"high","initialPrompt":"hi","permissionMode":"edit"}');
-      INSERT INTO sessions (id, project_id, title, provider, runtime, config)
-        VALUES ('acp-1', 'project-1', 'Task', 'codex', 'acp',
+      INSERT INTO sessions (id, project_id, provider, runtime, config)
+        VALUES ('acp-1', 'project-1', 'codex', 'acp',
                 '{"version":"1","type":"acp","model":"gpt-own","permissionMode":"full-access"}');
     `);
     await recordSessionPlatformModel('pty-1', { modelId: 'glm-5.3' });

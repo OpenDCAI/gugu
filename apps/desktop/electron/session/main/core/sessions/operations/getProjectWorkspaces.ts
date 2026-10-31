@@ -4,6 +4,7 @@ import { db } from '@main/db/client';
 import { sessions, projects, workspaces } from '@main/db/schema';
 import type { ProjectWorkspace } from '@shared/core/workspaces/project-workspace';
 import { resolveWorkspaceKind } from '../../workspaces/resolve-workspace-kind';
+import { taskName } from '../task-name';
 
 /**
  * Returns all workspaces for a project:
@@ -36,7 +37,7 @@ export async function getProjectWorkspaces(projectId: string): Promise<ProjectWo
       wsLinesAdded: workspaces.linesAdded,
       wsLinesDeleted: workspaces.linesDeleted,
       sessionId: sessions.id,
-      title: sessions.title,
+      sessionConfig: sessions.config,
     })
     .from(sessions)
     .innerJoin(workspaces, eq(sessions.workspaceId, workspaces.id))
@@ -94,7 +95,7 @@ export async function getProjectWorkspaces(projectId: string): Promise<ProjectWo
       linesAdded: row.wsLinesAdded,
       linesDeleted: row.wsLinesDeleted,
       sessionId: row.sessionId,
-      title: row.title,
+      title: taskName({ id: row.sessionId, config: row.sessionConfig }),
       isLive: !!workspaceRegistry.get(row.wsId),
       linkedSessionCount: wsSessionCount.get(row.wsId) ?? 0,
     });
