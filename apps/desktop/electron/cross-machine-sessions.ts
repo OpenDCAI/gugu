@@ -248,8 +248,21 @@ export function createCrossMachineSessions(deps: CrossMachineDeps) {
     }
   }
 
-  const call = async (deviceId: string, caller: RemoteCaller, action: Action, signal?: AbortSignal): Promise<unknown> =>
-    request(await reachable(deviceId, !('kind' in caller), signal, action.action === 'message' || action.action === 'spawn'), action.action === 'spawn' && action.assistant_work ? 'assistantWork.prepare' : `agentSession.${action.action}`, [caller, action], remoteActionTimeoutMs(action), action.action, signal)
+  const call = async (deviceId: string, caller: RemoteCaller, action: Action, signal?: AbortSignal): Promise<unknown> => {
+    const sessionCaller = 'kind' in caller ? null : caller
+    // Older hosts understand default/spawner and root through nest. The new parent field stays authoritative.
+    const wire = sessionCaller && action.action === 'spawn' ? { ...action, nest: action.parent_session_id !== null } : action
+    const result = await request(await reachable(deviceId, !!sessionCaller, signal, action.action === 'message' || action.action === 'spawn'), action.action === 'spawn' && action.assistant_work ? 'assistantWork.prepare' : `agentSession.${action.action}`, [caller, wire], remoteActionTimeoutMs(action), action.action, signal)
+    if (sessionCaller && action.action === 'spawn' && typeof action.parent_session_id === 'string'
+      && action.parent_session_id !== sessionCaller.sessionId) {
+      const created = result as { session_id: string; parent_session_id?: string | null }
+      if (created?.parent_session_id !== action.parent_session_id) {
+        throw new CrossMachineError('SESSION_PARENT_UNSUPPORTED',
+          `${created?.session_id ? encodeTypedId('session', created.session_id) : 'The session'} was created, but that device's version does not support putting it under the given parent; update that device, or move it with session_set_parent. Do not spawn it again`)
+      }
+    }
+    return result
+  }
 
   const assertFileHandoffSupported = async (deviceIds: string[]) => {
     for (const id of new Set(deviceIds)) {
@@ -637,6 +650,17 @@ export function parseAgentSessionRequest(
   const sessionId = text('sessionId')
   if (!sessionId) return { error: 'caller.sessionId is required' }
   if (caller.transport !== 'acp' && caller.transport !== 'pty') return { error: 'caller.transport must be acp or pty' }
+  let sessionAction = action as AgentSessionAction
+  if (name === 'spawn') {
+    // Older senders put nest on this wire. Keep that translation at the receiving boundary only.
+    const { nest, ...spawn } = action
+    if (spawn.parent_session_id === undefined && nest !== undefined && typeof nest !== 'boolean') return { error: 'nest must be a boolean' }
+    if (spawn.parent_session_id !== undefined && spawn.parent_session_id !== null
+      && (typeof spawn.parent_session_id !== 'string' || !spawn.parent_session_id)) {
+      return { error: 'parent_session_id must be a session id or null' }
+    }
+    sessionAction = { ...spawn, ...(spawn.parent_session_id === undefined && nest === false ? { parent_session_id: null } : {}) } as AgentSessionAction
+  }
   return {
     caller: {
       deviceId,
@@ -649,6 +673,6 @@ export function parseAgentSessionRequest(
       model: text('model'),
       platformModel: text('platformModel'),
     },
-    action: action as AgentSessionAction,
+    action: sessionAction,
   }
 }

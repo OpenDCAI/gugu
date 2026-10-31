@@ -17,7 +17,7 @@ vi.mock('@main/db/client', () => ({
 vi.mock('@main/lib/events', () => ({ events: { emit: vi.fn() } }));
 vi.mock('@main/lib/logger', () => ({ log: { warn: vi.fn(), error: vi.fn(), info: vi.fn() } }));
 
-const { setOtherMachines, setSessionParent } = await import('./session-family');
+const { resolveSessionParent, setOtherMachines, setSessionParent } = await import('./session-family');
 
 describe('setSessionParent asks other machines only when this one cannot answer', () => {
   let fixture: Awaited<ReturnType<typeof openFixture>>;
@@ -68,5 +68,29 @@ describe('setSessionParent asks other machines only when this one cannot answer'
     insert('child');
     await expect(setSessionParent('child', 'missing')).rejects.toThrow('parent session not found on any of your machines (not reached: Silent Mac)');
     expect(sessions).toHaveBeenCalledOnce();
+  });
+
+  it('resolves a parent for a not-yet-created child without changing rows', async () => {
+    insert('parent');
+    expect(await resolveSessionParent(undefined, 'parent')).toEqual({ parent: { localSessionId: 'parent' }, not_reached: [] });
+    expect(await resolveSessionParent(undefined, null)).toEqual({ parent: null, not_reached: [] });
+    expect(fixture.sqlite.prepare('SELECT id, parent_session_id FROM sessions').all()).toEqual([{ id: 'parent', parent_session_id: null }]);
+    expect(sessions).not.toHaveBeenCalled();
+  });
+
+  it('uses the same self and ancestor-cycle checks for a reserved child id before creation', async () => {
+    insert('reserved'); insert('descendant', 'reserved');
+    await expect(resolveSessionParent('reserved', 'reserved')).rejects.toThrow('a session cannot be its own parent');
+    await expect(resolveSessionParent('reserved', 'descendant')).rejects.toThrow('session:descendant is under session:reserved');
+    expect(parentOf('reserved')).toBeNull();
+    expect(sessions).not.toHaveBeenCalled();
+  });
+
+  it('preserves the existing warning when a selected parent has an unreachable ancestor', async () => {
+    sessions.mockResolvedValue({ sessions: [remote('remote-parent', 'offline-ancestor')], unreached: [{ deviceId: 'dev-c', label: 'Silent Mac', detail: 'no answer' }] });
+    expect(await resolveSessionParent(undefined, 'remote-parent')).toEqual({
+      parent: { deviceId: 'dev-b', sessionId: 'remote-parent' }, not_reached: ['Silent Mac'],
+    });
+    expect(fixture.sqlite.prepare('SELECT id FROM sessions').all()).toEqual([]);
   });
 });

@@ -39,7 +39,7 @@ export function sessionParentId(row: Pick<SessionRow, 'parentSessionId' | 'confi
 export type SessionParent = { localSessionId: string } | { deviceId: string; sessionId: string } | null;
 
 /**
- * 父会话在行里的存法 —— 建行(spawn 的 nest)与改(session_set_parent)都经这一处:本机的进外键,
+ * 父会话在行里的存法 —— 建行(spawn)与改(session_set_parent)都经这一处:本机的进外键,
  * 别的机器上的进 config `parentRemote`,两格只有一格有值。
  */
 export function storedParent(parent: SessionParent): {

@@ -40,7 +40,7 @@ const spawnedByRemoteSchema = z.object({
   nested: z.boolean().optional(),
 });
 
-/** 父会话在别的机器上(本机外键装不下):spawn 的 nest 或 session_set_parent 写下。与 `parent_session_id` 只有一格有值。 */
+/** 父会话在别的机器上(本机外键装不下):spawn 或 session_set_parent 写下。与 `parent_session_id` 只有一格有值。 */
 const parentRemoteSchema = z.object({
   deviceId: z.string().min(1),
   sessionId: z.string().min(1),

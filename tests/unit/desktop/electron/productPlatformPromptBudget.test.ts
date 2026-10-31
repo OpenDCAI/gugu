@@ -115,7 +115,8 @@ describe('tool usage belongs to schemas and assistant duplicates keep one owner'
     expect(brief).toContain('中文。')
     expect(brief).not.toContain('简洁，先说结果')
     expect(brief).not.toContain('schedule_create')
-    expect(brief).toContain('session_spawn(nest:true)')
+    expect(brief).toContain('session_spawn，默认挂在你名下')
+    expect(brief).not.toContain('session_spawn(nest:')
     for (const name of ['session_spawn', 'session_message']) {
       const schema = SESSION_TOOL_DEFS.find(tool => tool.name === name)!.schema
       const json = z.toJSONSchema(schema, { io: 'input' })

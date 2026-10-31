@@ -275,6 +275,7 @@ describe('session orchestration', () => {
   });
 
   afterEach(() => {
+    setOtherMachines(null);
     fixture.close();
     mocks.db = undefined;
     vi.unstubAllEnvs();
@@ -567,15 +568,15 @@ describe('session orchestration', () => {
       expect(takeBirthGroup(row.id)).toEqual({ chatId: 'chat-7', asTask: false });
     });
 
-    // owner 10-14: started from a page an agent works — spawned by that agent, by session_spawn's rule (its child unless a
-    // project is named), and still the App's own agent.
-    it('for the agent that works the page: spawned by it, its child unless a project is named; still the App\'s', async () => {
+    // owner 10-14: started from a page an agent works — spawned by that agent, by session_spawn's rule (its child, whatever
+    // project it lands in: owner 2026-10-30), and still the App's own agent.
+    it('for the agent that works the page: spawned by it, its child even in a named project; still the App\'s', async () => {
       project2Root();
       const relationsOf = (id: string) => fixture.sqlite.prepare('SELECT spawned_by_session_id, parent_session_id, spawned_by_extension_id FROM sessions WHERE id = ?').get(id);
       const child = await spawnSessionForApp({ extensionId: 'board', bySession: 'caller', envelope, prompt: 'x' });
       expect(relationsOf(child.id)).toEqual({ spawned_by_session_id: 'caller', parent_session_id: 'caller', spawned_by_extension_id: 'board' });
       const placed = await spawnSessionForApp({ extensionId: 'board', bySession: 'caller', envelope, prompt: 'x', project: 'project-2' });
-      expect(relationsOf(placed.id)).toEqual({ spawned_by_session_id: 'caller', parent_session_id: null, spawned_by_extension_id: 'board' });
+      expect(relationsOf(placed.id)).toEqual({ spawned_by_session_id: 'caller', parent_session_id: 'caller', spawned_by_extension_id: 'board' });
     });
 
     // 125 (10-06 02:06): one choice for a new session, the box's (`resolveSessionProviderSelection`), wherever it
@@ -675,7 +676,6 @@ describe('session orchestration', () => {
         action: 'spawn',
         prompt: 'Train the model on this box.',
         project_id: 'project-2',
-        nest: true,
       })) as {
         session_id: string;
         parent_session_id: string | null;
@@ -718,21 +718,56 @@ describe('session orchestration', () => {
 
     it('keeps a child unnested when asked — the same choice as on one machine', async () => {
       project2Root();
-      const flat = (await runRemoteSessionAction(remoteCaller, { action: 'spawn', prompt: 'x', nest: false })) as { session_id: string; parent_session_id: string | null };
+      const flat = (await runRemoteSessionAction(remoteCaller, { action: 'spawn', prompt: 'x', parent_session_id: null })) as { session_id: string; parent_session_id: string | null };
       expect(flat.parent_session_id).toBeNull();
       expect(configOf(flat.session_id)).not.toHaveProperty('parentRemote');
     });
 
-    it('spawns into a named project on this machine at its root — a root session unless nest is asked for', async () => {
+    it('lets a remote spawner choose a parent on the receiving machine without changing provenance', async () => {
+      project2Root();
+      const child = await runRemoteSessionAction(remoteCaller, {
+        action: 'spawn', prompt: 'x', project_id: 'project-2', parent_session_id: 'caller',
+      }) as { session_id: string; parent_session_id: string | null; spawned_by_session_id: string };
+      expect(child).toMatchObject({ parent_session_id: 'caller', spawned_by_session_id: 'remote-caller' });
+      expect(fixture.sqlite.prepare('SELECT parent_session_id, spawned_by_session_id, project_id FROM sessions WHERE id = ?').get(child.session_id))
+        .toEqual({ parent_session_id: 'caller', spawned_by_session_id: null, project_id: 'project-2' });
+      expect(configOf(child.session_id)).not.toHaveProperty('parentRemote');
+      expect(configOf(child.session_id).spawnedByRemote).toMatchObject({ deviceId: 'device-a', sessionId: 'remote-caller' });
+      expect(await runRemoteSessionAction(remoteCaller, { action: 'children' })).toEqual([]);
+      expect(await runSessionAction(context, { action: 'children' })).toEqual([expect.objectContaining({ session_id: child.session_id })]);
+    });
+
+    it('refuses a reserved child self-parent before creating a dormant remote work seat', async () => {
+      project2Root();
+      const childId = '10000000-0000-4000-8000-000000000005';
+      const intent = { version: 1 as const, assistant_id: '10000000-0000-4000-8000-000000000001', work_id: '10000000-0000-4000-8000-000000000002', operation_id: '10000000-0000-4000-8000-000000000003', message_id: '10000000-0000-4000-8000-000000000004', child_session_id: childId, coordinator: { session_id: 'remote-caller', device_id: 'device-a' }, title: 'Task', continuation: false };
+      await expect(runRemoteSessionAction(remoteCaller, { action: 'spawn', prompt: 'x', parent_session_id: childId, assistant_work: intent }))
+        .rejects.toThrow('a session cannot be its own parent');
+      expect(childRows()).toEqual([]);
+      expect(mocks.startSession).not.toHaveBeenCalled();
+      expect(mocks.sendMessage).not.toHaveBeenCalled();
+    });
+
+    // owner 2026-10-30: project and parent are orthogonal — naming a project does not unhook the child from its spawner.
+    it('spawns into a named project on this machine at its root — still under the caller unless the parent is null', async () => {
       project2Root();
       const result = (await runRemoteSessionAction(remoteCaller, { action: 'spawn', prompt: 'x', project_id: 'project-2' })) as {
         session_id: string;
         parent_session_id: string | null;
       };
       expect(mocks.resolveProjectWorkspace).toHaveBeenCalledWith({ projectId: 'project-2', projectPath: '' });
-      expect(result.parent_session_id).toBeNull();
-      expect(configOf(result.session_id)).not.toHaveProperty('parentRemote');
+      expect(result.parent_session_id).toBe('remote-caller');
+      expect(configOf(result.session_id).parentRemote).toEqual({ deviceId: 'device-a', sessionId: 'remote-caller' });
       expect(childRows()[0]!.workspace_id).toBe('workspace-p2');
+      const flat = (await runRemoteSessionAction(remoteCaller, { action: 'spawn', prompt: 'x', project_id: 'project-2', parent_session_id: null })) as { session_id: string; parent_session_id: string | null };
+      expect(flat.parent_session_id).toBeNull();
+      expect(configOf(flat.session_id)).not.toHaveProperty('parentRemote');
+      expect(configOf(flat.session_id).spawnedByRemote).toEqual(configOf(result.session_id).spawnedByRemote);
+      expect(fixture.sqlite.prepare('SELECT project_id, workspace_id FROM sessions WHERE id = ?').get(flat.session_id))
+        .toEqual({ project_id: 'project-2', workspace_id: 'workspace-p2' });
+      expect(await runRemoteSessionAction(remoteCaller, { action: 'children' })).toEqual([
+        expect.objectContaining({ session_id: result.session_id, parent_session_id: 'remote-caller', project_id: 'project-2' }),
+      ]);
     });
 
     it('with no project lands in this machine\'s home project through the same step', async () => {
@@ -1104,7 +1139,7 @@ describe('session orchestration', () => {
     expect(mocks.sessionpageProjectGroupForSession).toHaveBeenCalledWith('caller', expect.anything());
   });
 
-  it('spawns into a named project at its root — the task page new-task pick — unnested and point-to-point', async () => {
+  it('spawns into a named project at its root — the task page new-task pick — still under the caller, point-to-point', async () => {
     project2Root();
     mocks.sessionpageProjectGroup = { kind: 'group', projectId: 'project-1', groupChatId: 'group-chat-1' };
 
@@ -1116,11 +1151,11 @@ describe('session orchestration', () => {
 
     expect(mocks.resolveProjectWorkspace).toHaveBeenCalledWith({ projectId: undefined, projectPath: '/other' });
     const [child] = childRows();
-    expect(child).toEqual(expect.objectContaining({ id: result.session_id, parent_session_id: null, spawned_by_session_id: 'caller' }));
+    expect(child).toEqual(expect.objectContaining({ id: result.session_id, parent_session_id: 'caller', spawned_by_session_id: 'caller' }));
     expect(child!.workspace_id).toBe('workspace-p2');
     expect(fixture.sqlite.prepare('SELECT project_id FROM sessions WHERE id = ?').get(result.session_id))
       .toEqual({ project_id: 'project-2' });
-    expect(result.parent_session_id).toBeNull();
+    expect(result.parent_session_id).toBe('caller');
     // child 入的是 project-2 的群,caller 不在里面:回执只给点对点。
     expect(result.message_route).toEqual({ tool: 'session_message', to: [`session:${result.session_id}`] });
   });
@@ -1712,22 +1747,84 @@ describe('session orchestration', () => {
     expect(childRows()).toHaveLength(2);
   });
 
-  it('nests under the caller wherever the child starts when nest is asked for: another project', async () => {
+  // owner 2026-10-30: project and parent are orthogonal — naming another project still nests by default; only parent_session_id:null
+  // leaves the child at its project's root.
+  it('nests under the caller by default even in another project; parent_session_id:null leaves it a root session there', async () => {
     project2Root();
     const otherProject = (await runSessionAction(context, {
       action: 'spawn',
       prompt: 'Work in the other repo for me.',
       project_path: '/other',
-      nest: true,
     })) as { session_id: string; parent_session_id: string | null };
     expect(otherProject.parent_session_id).toBe('caller');
-    expect(fixture.sqlite.prepare('SELECT project_id, parent_session_id FROM sessions WHERE id = ?').get(otherProject.session_id))
-      .toEqual({ project_id: 'project-2', parent_session_id: 'caller' });
+    expect(fixture.sqlite.prepare('SELECT project_id, parent_session_id, spawned_by_session_id FROM sessions WHERE id = ?').get(otherProject.session_id))
+      .toEqual({ project_id: 'project-2', parent_session_id: 'caller', spawned_by_session_id: 'caller' });
+    const flat = (await runSessionAction(context, {
+      action: 'spawn',
+      prompt: 'A session of your own in the other repo.',
+      project_path: '/other',
+      parent_session_id: null,
+    })) as { session_id: string; parent_session_id: string | null };
+    expect(flat.parent_session_id).toBeNull();
+    expect(fixture.sqlite.prepare('SELECT project_id, parent_session_id, spawned_by_session_id FROM sessions WHERE id = ?').get(flat.session_id))
+      .toEqual({ project_id: 'project-2', parent_session_id: null, spawned_by_session_id: 'caller' });
+    expect(await runSessionAction(context, { action: 'children' })).toEqual([
+      expect.objectContaining({ session_id: otherProject.session_id, parent_session_id: 'caller', project_id: 'project-2' }),
+    ]);
   });
 
   function makePtyCaller() {
     fixture.sqlite.prepare('UPDATE sessions SET runtime = ? WHERE id = ?').run('pty', 'caller');
   }
+
+  it('chooses a local parent independently of the spawner and project before starting', async () => {
+    project2Root();
+    fixture.sqlite.prepare("INSERT INTO sessions (id, project_id, title, runtime) VALUES ('chosen-parent', 'project-1', 'Parent', 'acp')").run();
+    const child = await runSessionAction(context, {
+      action: 'spawn', prompt: 'Work elsewhere.', project_id: 'project-2', parent_session_id: 'chosen-parent',
+    }) as { session_id: string; parent_session_id: string | null };
+    expect(child.parent_session_id).toBe('chosen-parent');
+    expect(fixture.sqlite.prepare('SELECT project_id, parent_session_id, spawned_by_session_id FROM sessions WHERE id = ?').get(child.session_id))
+      .toEqual({ project_id: 'project-2', parent_session_id: 'chosen-parent', spawned_by_session_id: 'caller' });
+    expect(await runSessionAction(context, { action: 'children', session_id: 'chosen-parent' }))
+      .toEqual([expect.objectContaining({ session_id: child.session_id })]);
+    expect(await runSessionAction(context, { action: 'children' })).toEqual([]);
+  });
+
+  it('rejects an unavailable parent before creating or starting a child', async () => {
+    await expect(runSessionAction(context, { action: 'spawn', prompt: 'x', parent_session_id: 'not-owned-or-missing' }))
+      .rejects.toThrow('parent session not found on any of your machines');
+    expect(childRows()).toEqual([]);
+    expect(mocks.startSession).not.toHaveBeenCalled();
+    expect(mocks.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it.each([false, true])('stores a chosen parent on a third machine and preserves the spawner (remote caller: %s)', async (remoteCaller) => {
+    project2Root();
+    setOtherMachines({
+      devices: async () => [], isThisDevice: async () => false, appSpawn: vi.fn(),
+      sessions: async () => ({
+        sessions: [{ deviceId: 'device-c', label: 'Third computer', session: { conversationId: 'chosen-remote', projectId: 'remote-project', parentConversationId: 'unreachable-ancestor' } as SessionpageSessionSummary, listsAgents: true }],
+        unreached: [{ deviceId: 'device-d', label: 'Offline computer', detail: 'no answer' }],
+      }),
+      archive: vi.fn(), appMessage: vi.fn(), appReadFile: vi.fn(), appCall: vi.fn(),
+    });
+    const action = { action: 'spawn' as const, prompt: 'x', project_id: 'project-2', parent_session_id: 'chosen-remote' };
+    const child = await (remoteCaller
+      ? runRemoteSessionAction({ deviceId: 'device-a', deviceLabel: null, sessionId: 'remote-spawner', agentUserId: null, name: null, harness: 'codex', transport: 'acp', model: null, platformModel: null }, action)
+      : runSessionAction(context, action)) as { session_id: string; parent_session_id: string; not_reached: string[]; spawned_by_session_id: string };
+    expect(child).toMatchObject({ parent_session_id: 'chosen-remote', not_reached: ['Offline computer'], spawned_by_session_id: remoteCaller ? 'remote-spawner' : 'caller' });
+    const row = fixture.sqlite.prepare('SELECT parent_session_id, spawned_by_session_id, config FROM sessions WHERE id = ?').get(child.session_id) as { parent_session_id: string | null; spawned_by_session_id: string | null; config: string };
+    expect(row.parent_session_id).toBeNull();
+    expect(row.spawned_by_session_id).toBe(remoteCaller ? null : 'caller');
+    const config = JSON.parse(row.config);
+    expect(config.parentRemote).toEqual({ deviceId: 'device-c', sessionId: 'chosen-remote' });
+    if (remoteCaller) expect(config.spawnedByRemote).toMatchObject({ deviceId: 'device-a', sessionId: 'remote-spawner' });
+    else expect(config).not.toHaveProperty('spawnedByRemote');
+    expect(await runSessionAction(context, { action: 'children', session_id: 'chosen-remote' }))
+      .toEqual([expect.objectContaining({ session_id: child.session_id })]);
+    expect(await runSessionAction(context, { action: 'children' })).toEqual([]);
+  });
 
   function transportOfRow(sessionId: string): string | null {
     const row = fixture.sqlite
@@ -2065,7 +2162,7 @@ describe('session orchestration', () => {
     ).resolves.toEqual(expect.objectContaining({ status: 'working', runtime: null }));
   });
 
-// spec session-graph「nest 是调用方的主动选择」+ session_set_parent(owner 2026-10-02): the parent edge can be changed at any
+// spec session-graph「父会话是调用方的主动选择」+ session_set_parent(owner 2026-10-02): the parent edge can be changed at any
 // time, by the same encoding spawn writes it with; who spawned a session stays as it was.
 describe('session_set_parent', () => {
   const context: SessionCallerContext = {
