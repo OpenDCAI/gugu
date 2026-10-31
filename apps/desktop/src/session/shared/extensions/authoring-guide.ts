@@ -244,9 +244,9 @@ Free, from a click or key (they read and write no data):
 
 Needs \`notifications\`:
 
-- \`notify({ title, body?, tag?, data?, open? })\` → a system banner, shown under your
-  App's name. Obeys the person's notification settings: when those are off this
-  REJECTS rather than pretending. At most 10 a minute — reuse a \`tag\` to update one banner.
+- \`notify({ title, body?, tag?, data?, open? })\` → system banner under your App's name.
+  Rejects when notifications are off. Max 10/min; reuse \`tag\` to update a banner.
+  Only when the person must act; use \`setTabBadge\` for progress/completion.
   \`open\` is what a click opens: \`{ session, tab? }\` (your tab there), \`{ chat }\` (you, in its panel), \`{ file }\`
   (where it lives); none, your own page. Back to the tab that posted: \`open: { session: ctx.session.id, tab: 'main' }\`.
 - \`onNotificationClicked(fn)\` → \`{ tag?, data? }\`, your own values back. Delivered to the

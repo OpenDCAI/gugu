@@ -5,7 +5,7 @@ const work: NativeWork = { source: 'source', project: 'project:one', minimumExec
   forbiddenMemoryPaths: ['/memory/private.md'], forbiddenHandoffFacts: ['private-code'], requiredHandoffFacts: ['12000'] }
 const call = (name: string, input: Record<string, unknown>, line: number, result?: unknown): NativeCall => ({ id: String(line), name, input, line, result, outcome: 'succeeded', timestamp: `2026-10-21T00:00:${String(line).padStart(2, '0')}Z` })
 const executor = [call('Write', { file_path: '/out/report.md' }, 3)]
-const parent = () => [call('mcp__gugu__session_spawn', { project: 'project:one', nest: true, prompt: '12000', source_link: 'source' }, 1, { session_id: 'session:worker' }),
+const parent = () => [call('mcp__gugu__session_spawn', { project: 'project:one', prompt: '12000', source_link: 'source' }, 1, { session_id: 'session:worker' }),
   call('Read', { file_path: '/out/report.md' }, 4), call('mcp__gugu__message_send_file', { file_path: '/out/package.zip' }, 5)]
 
 describe('actual native evidence', () => {
@@ -28,7 +28,7 @@ describe('actual native evidence', () => {
     expect(assessNativeWork(work, parent(), executor).semanticReview).toBe('required')
   })
   it('rejects wrong project, copied private facts and coordinator edits independently of correct output', () => {
-    for (const input of [{ project: 'wrong' }, { prompt: '12000 private-code' }]) {
+    for (const input of [{ project: 'wrong' }, { prompt: '12000 private-code' }, { parent_session_id: null }]) {
       const changed = parent(); changed[0].input = { ...changed[0].input, ...input }
       expect(assessNativeWork(work, changed, executor).status).toBe('FAIL')
     }

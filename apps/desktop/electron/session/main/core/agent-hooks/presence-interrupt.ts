@@ -8,7 +8,6 @@ import { log } from '@main/lib/logger';
 import { isProcessAlive } from '../../../../server/process-alive';
 import { agentHookService } from './agent-hook-service';
 import { harnessConfigRootOf } from './harness-config-roots';
-import { isAppFocused } from './app-focus';
 
 /**
  * spec hook-status-derivation「打断边:会话在场文件」—— hooks 不报打断(在批准框上或回合中按 Esc,一条 hook 都不来),
@@ -215,7 +214,6 @@ export function startPresenceInterrupt(input: {
     onInterrupted: () => {
       agentHookService.emitAgentEvent(
         { type: 'stop', providerId, projectId, sessionId, timestamp: Date.now(), payload: { outcome: 'cancelled' } },
-        isAppFocused(),
       );
     },
     onFault: (message) => {

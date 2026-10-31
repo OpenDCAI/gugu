@@ -9,6 +9,7 @@ import { PairPlacementContext } from './pair-placement-context';
 import { PaneContent } from './pane-content';
 import { PaneContext } from './pane-context';
 import { PaneLayoutStore } from './pane-layout-store';
+import { tabFullscreen } from './tab-fullscreen';
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -124,5 +125,96 @@ describe('并排:同一种两页时内容不挪地方', () => {
     const { pane, b } = mountTwo('file');
     act(() => void pane.splitTab(b, 'right'));
     expect(mounts.get(b)).toBe(2);
+  });
+
+  it('uses the shared fullscreen layer and restores the divider without remounting', () => {
+    const { pane, a, b } = mountTwo('page');
+    act(() => pane.splitTab(b, 'right'));
+    const divider = () => dom.window.document.querySelector<HTMLElement>('[data-pair-divider]');
+    expect(divider()?.style.zIndex).toBe('var(--z-pane-divider)');
+    try {
+      act(() => pane.tabFill(b)!.toggle());
+      const fullscreen = dom.window.document.querySelector<HTMLElement>('[data-tab-fullscreen]')!;
+      expect(fullscreen.style.position).toBe('fixed');
+      expect(fullscreen.style.zIndex).toBe('var(--z-pane-fullscreen)');
+      expect(divider()).toBeNull();
+      expect([mounts.get(a), mounts.get(b)]).toEqual([1, 1]);
+    } finally {
+      act(() => tabFullscreen.exit());
+    }
+    expect(dom.window.document.querySelector('[data-tab-fullscreen]')).toBeNull();
+    expect(divider()?.style.zIndex).toBe('var(--z-pane-divider)');
+    expect([mounts.get(a), mounts.get(b)]).toEqual([1, 1]);
+  });
+
+  it.each(['pointerup', 'pointercancel', 'lostpointercapture', 'blur', 'unmount'] as const)(
+    'shields embedded pages during divider dragging and restores them on %s',
+    (ending) => {
+      const { pane, b } = mountTwo('page');
+      act(() => pane.splitTab(b, 'right'));
+      const divider = dom.window.document.querySelector<HTMLElement>('[data-pair-divider]')!;
+      vi.spyOn(divider.closest<HTMLElement>('.bg-tab-face')!, 'getBoundingClientRect').mockReturnValue({
+        left: 0, top: 0, width: 1000, height: 600,
+      } as DOMRect);
+      const shielded = () => dom.window.document.documentElement.hasAttribute('data-gugu-dragging');
+      let captured = false;
+      const capture = vi.fn(() => {
+        expect(shielded()).toBe(true);
+        captured = true;
+      });
+      Object.assign(divider, {
+        setPointerCapture: capture,
+        hasPointerCapture: () => captured,
+        releasePointerCapture: () => { captured = false; },
+      });
+      const pointer = (type: string, clientX = 400) => {
+        const event = new dom.window.MouseEvent(type, { bubbles: true, button: 0, buttons: 1, clientX });
+        Object.defineProperty(event, 'pointerId', { value: 17 });
+        act(() => { divider.dispatchEvent(event); });
+      };
+
+      expect(shielded()).toBe(false);
+      pointer('pointerdown');
+      expect(capture).toHaveBeenCalledWith(17);
+      expect(shielded()).toBe(true);
+      pointer('pointermove');
+      expect(pane.pairShare).toBe(0.4);
+
+      if (ending === 'unmount') act(() => root.render(null));
+      else if (ending === 'blur') act(() => { dom.window.dispatchEvent(new dom.window.Event('blur')); });
+      else pointer(ending);
+      expect(shielded()).toBe(false);
+      expect(captured).toBe(false);
+      pointer('pointermove', 600);
+      expect(pane.pairShare).toBe(0.4);
+    },
+  );
+
+  it.each(['a', 'b'] as const)('shows only fullscreen page %s and restores its pair without remounting', (selected) => {
+    const { pane, a, b, placed } = mountTwo('page');
+    act(() => {
+      pane.splitTab(b, 'right');
+      pane.setPairRatio(0.4);
+      pane.setActiveTab(selected === 'a' ? a : b);
+    });
+    const before = pane.snapshot;
+    const positions = [placed('a'), placed('b')];
+    expect(pane.shownTabIds).toEqual([a, b]);
+    expect(positions).toEqual([['true:0px/0px'], ['true:40%/0px']]);
+
+    try {
+      act(() => tabFullscreen.toggle(pane, selected === 'a' ? a : b));
+      expect(pane.shownTabIds).toEqual([selected === 'a' ? a : b]);
+      expect(placed(selected)).toEqual(['true:-/-']);
+      expect(placed(selected === 'a' ? 'b' : 'a')).toEqual(['false:-/-']);
+      expect(pane.snapshot).toEqual(before);
+      expect([mounts.get(a), mounts.get(b)]).toEqual([1, 1]);
+    } finally {
+      act(() => tabFullscreen.exit());
+    }
+
+    expect([placed('a'), placed('b')]).toEqual(positions);
+    expect(pane.snapshot).toEqual(before);
+    expect([mounts.get(a), mounts.get(b)]).toEqual([1, 1]);
   });
 });

@@ -396,6 +396,7 @@ export class PaneStore<R extends TabRegistry = TabRegistry>
    * 放不下时一对照样连着,屏上只显示点着的那一页,宽了自动回并排(spec session-page「并排」)。
    */
   get pairShown(): boolean {
+    if (tabFullscreen.isOn(this)) return false;
     const pair = this.livePair;
     if (!pair) return false;
     const active = this.resolvedActiveTabId;

@@ -16,6 +16,7 @@ import {
   PaneDimensionProvider,
   type PaneDimensionSink,
 } from '@renderer/features/tabs/pane-dimension-provider';
+import { setDragShield } from '@renderer/lib/drag-shield';
 import { PaneContext, usePaneContext } from '../tabs/pane-context';
 import { PairPlacementContext } from './pair-placement-context';
 import { paneSlotView, sameKindSide as sameKindSideOf } from './pane-slot-view';
@@ -50,7 +51,7 @@ const FULLSCREEN_STYLE = {
   bottom: 'anchor(bottom)',
   left: 'anchor(left)',
   right: 'anchor(right)',
-  zIndex: 30,
+  zIndex: 'var(--z-pane-fullscreen)',
 } as CSSProperties;
 
 export const PaneContent = observer(function PaneContent({
@@ -340,12 +341,15 @@ const PairDivider = observer(function PairDivider({
   containerRef: RefObject<HTMLDivElement | null>;
   sizing?: { onResize: (width: number) => void; onReset: () => void };
 }) {
+  const dragCleanup = useRef<(() => void) | null>(null);
+  useEffect(() => () => dragCleanup.current?.(), []);
+
   const onPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     const container = containerRef.current;
     if (!container || event.button !== 0) return;
     event.preventDefault();
+    dragCleanup.current?.();
     const handle = event.currentTarget;
-    handle.setPointerCapture(event.pointerId);
     const move = (moveEvent: PointerEvent) => {
       const rect = container.getBoundingClientRect();
       const extent = vertical ? rect.height : rect.width;
@@ -357,13 +361,30 @@ const PairDivider = observer(function PairDivider({
       sizing?.onResize(extent * (1 - share));
     };
     const end = () => {
+      if (dragCleanup.current !== end) return;
+      dragCleanup.current = null;
       handle.removeEventListener('pointermove', move);
       handle.removeEventListener('pointerup', end);
       handle.removeEventListener('pointercancel', end);
+      handle.removeEventListener('lostpointercapture', end);
+      window.removeEventListener('blur', end);
+      setDragShield(false);
+      if (handle.hasPointerCapture(event.pointerId)) handle.releasePointerCapture(event.pointerId);
     };
+    dragCleanup.current = end;
     handle.addEventListener('pointermove', move);
     handle.addEventListener('pointerup', end);
     handle.addEventListener('pointercancel', end);
+    handle.addEventListener('lostpointercapture', end);
+    window.addEventListener('blur', end);
+    // A webview runs in another process: capture alone cannot keep a fast drag in the host.
+    setDragShield(true);
+    try {
+      handle.setPointerCapture(event.pointerId);
+    } catch (error) {
+      end();
+      throw error;
+    }
   };
   return (
     <div
@@ -372,10 +393,10 @@ const PairDivider = observer(function PairDivider({
       data-pair-divider=""
       className={
         vertical
-          ? 'absolute inset-x-0 z-10 h-px -translate-y-1/2 cursor-row-resize bg-[var(--border-subtle)] after:absolute after:inset-x-0 after:top-1/2 after:h-2 after:-translate-y-1/2'
-          : 'absolute inset-y-0 z-10 w-px -translate-x-1/2 cursor-col-resize bg-[var(--border-subtle)] after:absolute after:inset-y-0 after:left-1/2 after:w-2 after:-translate-x-1/2'
+          ? 'absolute inset-x-0 h-px -translate-y-1/2 cursor-row-resize bg-[var(--border-subtle)] after:absolute after:inset-x-0 after:top-1/2 after:h-2 after:-translate-y-1/2'
+          : 'absolute inset-y-0 w-px -translate-x-1/2 cursor-col-resize bg-[var(--border-subtle)] after:absolute after:inset-y-0 after:left-1/2 after:w-2 after:-translate-x-1/2'
       }
-      style={vertical ? { top: at } : { left: at }}
+      style={{ ...(vertical ? { top: at } : { left: at }), zIndex: 'var(--z-pane-divider)' }}
       onPointerDown={onPointerDown}
       onDoubleClick={() => { pane.setPairRatio(null); sizing?.onReset(); }}
     />

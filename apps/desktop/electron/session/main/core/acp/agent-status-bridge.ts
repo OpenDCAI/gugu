@@ -5,7 +5,6 @@ import { z } from 'zod';
 import { agentHookService } from '@main/core/agent-hooks/agent-hook-service';
 import { learnHarnessConfigRoot } from '@main/core/agent-hooks/harness-config-roots';
 import { agentStatusWriter } from '@main/core/agent-status/agent-status-writer';
-import { isAppFocused } from '@main/core/agent-hooks/app-focus';
 import { log } from '@main/lib/logger';
 import { applyHarnessTitle } from '../sessions/renameSession';
 import { SessionActivityObserver } from '../activity/session-observation';
@@ -203,7 +202,7 @@ class AcpAgentStatusBridge {
   private applyActions(actions: AcpAgentStatusAction[]): void {
     for (const action of actions) {
       if (action.kind === 'event') {
-        agentHookService.emitAgentEvent(action.event, isAppFocused());
+        agentHookService.emitAgentEvent(action.event);
       } else {
         void agentStatusWriter
           .interrupt({

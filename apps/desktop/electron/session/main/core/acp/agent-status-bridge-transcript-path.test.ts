@@ -24,7 +24,6 @@ vi.mock('@gugu/session-wire', async (importOriginal) => ({
 }));
 vi.mock('@main/core/agent-hooks/agent-hook-service', () => ({ agentHookService: { emitAgentEvent: () => {} } }));
 vi.mock('@main/core/agent-status/agent-status-writer', () => ({ agentStatusWriter: { interrupt: async () => {} } }));
-vi.mock('@main/core/agent-hooks/app-focus', () => ({ isAppFocused: () => false }));
 vi.mock('@main/lib/logger', () => ({ log: { warn: vi.fn(), error: vi.fn() } }));
 vi.mock('../sessions/renameSession', () => ({ applyHarnessTitle: () => {} }));
 vi.mock('../sessions/record-context-usage', () => ({

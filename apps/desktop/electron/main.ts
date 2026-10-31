@@ -1958,7 +1958,10 @@ function deviceActionsRuntime(): DeviceActionsRuntime {
         }
         return null
       },
-      notify: (title, body) => { new Notification({ title, body }).show() },
+      notify: async (...args) => {
+        const { showDeviceNotification } = await import('./session/main/core/extensions/extension-notifications')
+        return showDeviceNotification(...args)
+      },
       openExternal: (url) => shell.openExternal(url),
       trashItem: (target) => shell.trashItem(target),
       sampleImage: data => sampleCuaImage(nativeImage.createFromBuffer, data),

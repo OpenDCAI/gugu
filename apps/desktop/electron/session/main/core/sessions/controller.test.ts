@@ -4,7 +4,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 // 拆掉那一层,咕咕自己的错就会带着原文交回渲染层,下面两条都会红。
 vi.mock('@main/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
 vi.mock('@main/core/agent-hooks/agent-hook-service', () => ({ agentHookService: { emitAgentEvent: vi.fn() } }));
-vi.mock('@main/core/agent-hooks/app-focus', () => ({ isAppFocused: () => false }));
 
 const hydrate = vi.fn();
 vi.mock('./hydrateSession', () => ({ hydrateSession: (...args: unknown[]) => hydrate(...args) }));

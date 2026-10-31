@@ -29,16 +29,18 @@ const manifest = parseExtensionManifest({
   contributes: { tabs: [{ name: 'main', title: 'Main' }, { name: 'inbox', title: 'Inbox' }] },
 });
 
+let nextWindow = 1_000_000;
+
 function setup(overrides: Partial<ExtensionNotifierDeps> = {}) {
-  const shown: { title: string; body: string; onClick: () => void; closed: boolean }[] = [];
+  const shown: { title: string; body: string; silent: boolean; onClick: () => void; closed: boolean }[] = [];
   const delivered: { event: ExtensionHostEvent; opened: AppPlace | 'own' | null }[] = [];
   // 点击的处理以把点击交给扩展收尾(打开失败也照样交):交出第一条就是点击处理完了。
   const firstDelivery = Promise.withResolvers<void>();
-  let now = 1_000_000;
+  let now = nextWindow += 120_000;
   const deps: ExtensionNotifierDeps = {
     manifestOf: () => manifest,
     locale: () => 'en-US',
-    notificationsAllowed: async () => true,
+    notificationSettings: async () => ({ enabled: true, sound: true }),
     show: (banner) => {
       const entry = { ...banner, closed: false };
       shown.push(entry);
@@ -68,7 +70,7 @@ describe('extension notifications (#6387)', () => {
   it('shows the banner under the extension\'s installed name', async () => {
     const { notifier, shown } = setup();
     await notifier.notify({ extensionId: 'notes', request: { title: 'Saved', body: '3 notes' } });
-    expect(shown[0]).toMatchObject({ title: 'Notes · Saved', body: '3 notes' });
+    expect(shown[0]).toMatchObject({ title: 'Notes · Saved', body: '3 notes', silent: false });
   });
 
   it('names the App in the interface language, as its manifest localizes it', async () => {
@@ -87,10 +89,16 @@ describe('extension notifications (#6387)', () => {
   });
 
   it('refuses out loud when the person turned notifications off', async () => {
-    const { notifier, shown } = setup({ notificationsAllowed: async () => false });
+    const { notifier, shown } = setup({ notificationSettings: async () => ({ enabled: false, sound: true }) });
     await expect(notifier.notify({ extensionId: 'notes', request: { title: 'x' } }))
       .rejects.toThrow('system notifications are turned off in gugu settings');
     expect(shown).toHaveLength(0);
+  });
+
+  it('keeps App banners silent when sound is off', async () => {
+    const { notifier, shown } = setup({ notificationSettings: async () => ({ enabled: true, sound: false }) });
+    await notifier.notify({ extensionId: 'notes', request: { title: 'Please review' } });
+    expect(shown[0]).toMatchObject({ silent: true });
   });
 
   it('rejects malformed requests instead of showing half a banner — what a click opens said how', async () => {

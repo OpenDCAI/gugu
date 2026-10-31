@@ -50,7 +50,7 @@ function setup(exec: ExecFn, appDirs: string[] = [], jxa: FamilyDeps['jxa'] = vi
     homedir: () => home,
     clipboardRead: () => '',
     clipboardWrite: vi.fn(),
-    notify: vi.fn(),
+    notify: vi.fn(async () => ({ shown: true })),
     openExternal: vi.fn(async () => undefined),
     trashItem: vi.fn(async () => undefined),
     jxa,

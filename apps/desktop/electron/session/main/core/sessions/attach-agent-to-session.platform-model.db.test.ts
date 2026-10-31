@@ -21,7 +21,6 @@ vi.mock('@main/core/agent-hooks/agent-hook-service', () => ({
 vi.mock('@main/core/agent-status/agent-status-writer', () => ({
   agentStatusWriter: { birth: vi.fn(async () => undefined) },
 }));
-vi.mock('@main/core/agent-hooks/app-focus', () => ({ isAppFocused: () => false }));
 vi.mock('../agents/plugin-registry', () => ({
   // fork 只对声明了 fork 能力的 provider 开放,attachAgentToSession 会先问这一句。
   getPlugin: () => ({ capabilities: { sessions: { fork: 'supported' } } }),

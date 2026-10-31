@@ -5,6 +5,7 @@ import { platform } from '@/platform'
 import { useAuth } from '@/store/auth'
 import { claimBackgroundWatch } from '../backgroundWatchClaims'
 import { agentStatusText } from '@/lib/agentStatusText'
+import { readNotificationSettings } from '@/lib/notificationSettings'
 import {
   diffAlerts,
   statusMapOf,
@@ -183,13 +184,14 @@ export function useAgentWatchAlerts(devices: readonly Device[]): void {
  * 不是两个通道。发不出去(用户没给通知权限)就没有提醒 —— 那正是「我的 → 权限」那一页要解决的事。
  */
 async function announce(text: string): Promise<void> {
+  const silent = !readNotificationSettings().sound
   if (platform.systemPermissions.includes('notifications')) {
-    void platform.showNotification({ title: text, chatId: null }).catch(() => undefined)
+    void platform.showNotification({ title: text, chatId: null, silent }).catch(() => undefined)
     return
   }
   if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return
   try {
-    new Notification(text)
+    new Notification(text, { silent })
   } catch {
     // 通知发不出去不该把看管页拖垮（部分浏览器在非安全上下文里直接抛）。
   }

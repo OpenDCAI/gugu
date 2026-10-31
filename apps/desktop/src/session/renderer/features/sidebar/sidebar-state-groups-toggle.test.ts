@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import { sessionRegistry } from '@renderer/features/sessions/stores/session-registry';
 import { IMPLICIT_SESSION_HOME_PROJECT_ID } from '@renderer/features/sessions/session-home-project-constants';
+import { sidebarStateGroup } from './session-groups';
+import { presentAgentStatus } from '@gugu/core/shared/agentStatusPresentation';
 import { SidebarStore } from './sidebar-store';
 
 type SidebarProjectManager = ConstructorParameters<typeof SidebarStore>[0];
@@ -76,6 +78,24 @@ function session(
 // behavior session-page「会话列表与状态」: 二级分类(agent 状态分组)是一个可关的层。
 // 关掉 = 不出组头,会话按最后交互时间平铺成一条列表。
 describe('sidebar state groups toggle', () => {
+  it('counts only waits as needs-you and leaves errors in their ordinary rows', () => {
+    expect(sidebarStateGroup(presentAgentStatus({ reading: { status: 'error', detail: null } }))).toBeNull();
+    expect(sidebarStateGroup(presentAgentStatus({ reading: { status: 'needs_user', detail: 'approval' } }))).toBe('needs-you');
+    sessionRegistry.acquire('attention-task', 'attention-project', [
+      session('attention-error', 'attention-project', 'error', '01'),
+      session('attention-wait', 'attention-project', 'needs_user', '02'),
+    ] as never);
+    const store = new SidebarStore(projectManagerWith('attention-project', 'attention-task'));
+    try {
+      store.ensureProjectExpanded('attention-project');
+      store.setStateGroupsEnabled(true);
+      expect(store.needsYouCountForProject('attention-project')).toBe(1);
+      expect(store.projectsNeedYouCount).toBe(1);
+      expect(store.sidebarRows.filter((row) => row.kind === 'conversation').map((row) => row.sessionId))
+        .toContain('attention-error');
+    } finally { sessionRegistry.release('attention-task'); }
+  });
+
   it('drops every state header and lists sessions newest-first when turned off', () => {
     sessionRegistry.acquire('task-g', 'project-g', [
       // 造成「分组顺序」与「时间顺序」不同,否则平铺是不是真按时间排就分辨不出来。

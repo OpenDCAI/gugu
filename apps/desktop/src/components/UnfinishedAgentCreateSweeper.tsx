@@ -28,16 +28,11 @@ export function UnfinishedAgentCreateSweeper({ active = true }: { active?: boole
     void sweepUnfinishedSingleAgents(ownerUserId).then(async (outcomes) => {
       let refresh = false
       for (const outcome of outcomes) {
-        if (outcome.kind === 'discarded') {
-          toast(t('create.unfinishedSweep.cancelled'), 'info')
-        } else if (outcome.kind === 'cancelled') {
-          toast(outcome.warningStages.length > 0
-            ? t('create.unfinishedSweep.cancelledWithWarning', { steps: cleanupStepsText(outcome.warningStages, t, i18n.language) })
-            : t('create.unfinishedSweep.cancelled'), outcome.warningStages.length > 0 ? 'warning' : 'info')
+        if (outcome.kind === 'cancelled' && outcome.warningStages.length > 0) {
+          toast(t('create.unfinishedSweep.cancelledWithWarning', { steps: cleanupStepsText(outcome.warningStages, t, i18n.language) }), 'warning')
         } else if (outcome.kind === 'completed') {
           refresh = true
-          toast(t('create.unfinishedSweep.completed', { name: outcome.session.agent.display_name }), 'success')
-        } else {
+        } else if (outcome.kind === 'pending') {
           sweepLog.error({ operationId: outcome.operationId, stages: outcome.stages, err: outcome.error }, 'unfinished single agent could not be settled; record kept for next launch')
           toast(outcome.stages.length > 0
             ? t('create.unfinishedSweep.pending', { steps: cleanupStepsText(outcome.stages, t, i18n.language) })

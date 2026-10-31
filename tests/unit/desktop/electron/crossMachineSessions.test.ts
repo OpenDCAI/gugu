@@ -262,10 +262,32 @@ describe('reaching another machine', () => {
 })
 
 describe('doing things on another machine', () => {
-  it('passes nest through: a child on another machine can hang under the caller', async () => {
-    const { xm, call } = makeCrossMachine(async () => ({ result: { session_id: 'child-1', parent_session_id: 'caller-session' } }))
-    await xm.runOnDevice('dev-b', CALLER, { action: 'spawn', prompt: 'x', nest: true })
-    expect(call.mock.calls[0]![2].action).toEqual({ action: 'spawn', prompt: 'x', nest: true })
+  it('passes a chosen parent through to the other machine independently of placement', async () => {
+    const { xm, call } = makeCrossMachine(async () => ({ result: { session_id: 'child-1', parent_session_id: 'chosen-parent' } }))
+    await xm.runOnDevice('dev-b', CALLER, { action: 'spawn', prompt: 'x', parent_session_id: 'chosen-parent' })
+    expect(call.mock.calls[0]![2].action).toEqual({ action: 'spawn', prompt: 'x', parent_session_id: 'chosen-parent', nest: true })
+  })
+
+  it.each([
+    [{}, true, 'caller-session'],
+    [{ parent_session_id: 'caller-session' }, true, 'caller-session'],
+    [{ parent_session_id: null }, false, null],
+  ])('preserves representable parent choices on an older receiver: %j', async (parent, nest, expected) => {
+    const { xm, call } = makeCrossMachine(async (_device, _channel, { action, caller }) => ({
+      result: { session_id: 'child-1', parent_session_id: action.nest ? caller.sessionId : null },
+    }))
+    expect(await xm.runOnDevice('dev-b', CALLER, { action: 'spawn', prompt: 'x', project_id: 'elsewhere', ...parent }))
+      .toMatchObject({ session_id: 'child-1', parent_session_id: expected })
+    expect(call.mock.calls[0]![2].action).toMatchObject({ ...parent, nest })
+    expect(call).toHaveBeenCalledTimes(1)
+  })
+
+  it('reports the created session when an old receiver ignores an explicit third-party parent, without retrying or moving it', async () => {
+    const { xm, call } = makeCrossMachine(async () => ({ result: { session_id: 'already-created', parent_session_id: 'caller-session' } }))
+    await expect(xm.runOnDevice('dev-b', CALLER, { action: 'spawn', prompt: 'x', parent_session_id: 'third-party' }))
+      .rejects.toMatchObject({ code: 'SESSION_PARENT_UNSUPPORTED', message: expect.stringContaining("session:already-created was created, but that device's version does not support putting it under the given parent; update that device, or move it with session_set_parent. Do not spawn it again") })
+    expect(call).toHaveBeenCalledTimes(1)
+    expect(call.mock.calls[0]![2].action).toEqual({ action: 'spawn', prompt: 'x', parent_session_id: 'third-party', nest: true })
   })
 
   it('marks a spawned child with its machine and reaches it later without searching', async () => {
@@ -434,6 +456,26 @@ describe('agentSession.<action> arguments', () => {
   it('keeps only the caller facts it knows', () => {
     expect(parseAgentSessionRequest('get', { ...CALLER, extra: 'ignored' }, { action: 'get', session_id: 's' }))
       .toEqual({ caller: CALLER, action: { action: 'get', session_id: 's' } })
+  })
+
+  it.each([
+    [{ nest: true }, {}],
+    [{ nest: false }, { parent_session_id: null }],
+    [{ nest: false, parent_session_id: 'chosen' }, { parent_session_id: 'chosen' }],
+    [{ nest: true, parent_session_id: null }, { parent_session_id: null }],
+    [{ nest: 'ignored', parent_session_id: 'chosen' }, { parent_session_id: 'chosen' }],
+  ])('adapts an older spawn sender at the receiving boundary: %j', (legacy, expected) => {
+    expect(parseAgentSessionRequest('spawn', CALLER, { action: 'spawn', prompt: 'x', ...legacy }))
+      .toEqual({ caller: CALLER, action: { action: 'spawn', prompt: 'x', ...expected } })
+  })
+
+  it('refuses malformed parent or legacy nesting values on the spawn wire', () => {
+    for (const parent_session_id of ['', false, 1, {}]) {
+      expect(parseAgentSessionRequest('spawn', CALLER, { action: 'spawn', prompt: 'x', parent_session_id }))
+        .toHaveProperty('error')
+    }
+    expect(parseAgentSessionRequest('spawn', CALLER, { action: 'spawn', prompt: 'x', nest: 'false' }))
+      .toHaveProperty('error')
   })
 
   it('refuses a request without a caller device and session, or whose action is not the method it came on', () => {

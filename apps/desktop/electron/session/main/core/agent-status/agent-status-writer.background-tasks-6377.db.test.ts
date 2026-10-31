@@ -31,7 +31,6 @@ vi.mock('../agent-hooks/hook-server', () => ({
   },
 }));
 vi.mock('../agent-hooks/event-enricher', () => ({ parseHookEvent: vi.fn() }));
-vi.mock('../agent-hooks/app-focus', () => ({ isAppFocused: () => false }));
 vi.mock('@main/core/sessions/set-session-id', () => ({ setProviderSessionId: vi.fn() }));
 vi.mock('@main/lib/events', () => ({ events: { emit: mocks.emit, on: vi.fn(() => () => {}) } }));
 vi.mock('@main/lib/logger', () => ({ log: { warn: vi.fn(), error: vi.fn(), info: vi.fn(), debug: vi.fn() } }));
@@ -72,21 +71,16 @@ describe('#6377 回合结束但后台任务还在 ⇒ 仍在工作,后台做完�
       .get(cid) as { status: string; seen: number };
   const deliver = async (e: AgentEvent) => {
     const before = statuses.length;
-    agentHookService.emitAgentEvent(e, false);
+    agentHookService.emitAgentEvent(e);
     await statusWritesSettled(agentStatusWriter, e.sessionId);
     expect(statuses.length).toBe(before + 1);
   };
   const deliverNoop = async (e: AgentEvent) => {
     const before = statuses.length;
-    agentHookService.emitAgentEvent(e, false);
+    agentHookService.emitAgentEvent(e);
     await statusWritesSettled(agentStatusWriter, e.sessionId);
     expect(statuses.length, `${e.type}/${String(e.payload.notificationType)} must not write a status`).toBe(before);
   };
-  const sounds = () =>
-    mocks.emit.mock.calls
-      .filter(([, payload]) => payload && 'soundEvent' in payload)
-      .map(([, payload]) => (payload as { soundEvent?: string }).soundEvent)
-      .filter(Boolean);
 
   beforeAll(async () => {
     await agentHookService.initialize();
@@ -125,7 +119,6 @@ describe('#6377 回合结束但后台任务还在 ⇒ 仍在工作,后台做完�
     await deliver(event('start'));
     await deliver(event('stop', undefined, 1));
     expect(row()).toEqual({ status: 'working', seen: 1 });
-    expect(sounds(), '这一轮没真结束,不响').toEqual([]);
 
     await deliverNoop(event('notification', 'idle_prompt'));
     expect(row(), '闲置提醒不看后台,不能把它抹成 idle').toEqual({ status: 'working', seen: 1 });
@@ -134,14 +127,12 @@ describe('#6377 回合结束但后台任务还在 ⇒ 仍在工作,后台做完�
     await deliver(event('start'));
     await deliver(event('stop', undefined, 0));
     expect(row()).toEqual({ status: 'idle', seen: 0 });
-    expect(sounds()).toEqual(['task_complete']);
   });
 
   it('阴控:没有后台任务的回合原样 —— stop 即 idle + 做完,之后的 idle_prompt 不改', async () => {
     await deliver(event('start'));
     await deliver(event('stop', undefined, 0));
     expect(row()).toEqual({ status: 'idle', seen: 0 });
-    expect(sounds()).toEqual(['task_complete']);
     await deliverNoop(event('notification', 'idle_prompt'));
     expect(row()).toEqual({ status: 'idle', seen: 0 });
   });

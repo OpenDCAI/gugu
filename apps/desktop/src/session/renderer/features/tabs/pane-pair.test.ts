@@ -812,10 +812,11 @@ describe('并排:页面自己声明在对话旁边多宽(sideWidth,owner 10-26)'
     expect(tabFullscreen.isOn(pane, side)).toBe(true);
     expect(pane.tabFill(side)?.full).toBe(true);
     expect(pane.livePair).toEqual(pairBefore);
-    expect(pane.shownTabIds).toEqual([chatTabId, side]);
+    expect(pane.shownTabIds).toEqual([side]);
     expect(JSON.stringify(layout.snapshot)).toBe(savedBefore);
     pane.tabFill(side)!.toggle();
     expect(tabFullscreen.isOn(pane)).toBe(false);
+    expect(pane.shownTabIds).toEqual([chatTabId, side]);
     expect(JSON.stringify(layout.snapshot)).toBe(savedBefore);
   });
 

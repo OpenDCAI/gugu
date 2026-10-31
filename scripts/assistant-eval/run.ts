@@ -130,7 +130,7 @@ async function run(test: AssistantCase) {
       const device = placement?.device ?? 'unknown'
       const accepted = Boolean(placement) && device !== 'device:phone' && test.route !== 'closed'
       evidence.delegations.push({ session, device, project: placement?.project,
-        nested: input.nest === undefined ? !input.project : input.nest === true,
+        nested: input.parent_session_id !== null,
         // Every fixture turn has exactly one canonical delivered input. Production ACP observes that active turn.
         ...delegationSource(input.source_link as string | undefined, evidence.requestSourceLink),
         prompt: context, reused, accepted })
@@ -170,7 +170,7 @@ async function run(test: AssistantCase) {
     ['session_children', 'List existing child task agents.', {}],
     ['session_peers', 'List task agents on a device.', { device: z.string().optional(), project: z.string().optional() }],
     ['session_get', 'Read current task messages, status and artifacts.', { session_id: z.string() }],
-    ['session_spawn', 'Create a Task Agent on the device where work can execute.', { prompt: z.string(), device: z.string().optional(), project: z.string().optional(), nest: z.boolean().optional(), source_link: z.string().optional(), title: z.string().optional() }],
+    ['session_spawn', 'Create a Task Agent on the device where work can execute.', { prompt: z.string(), device: z.string().optional(), project: z.string().optional(), parent_session_id: z.string().nullable().optional(), source_link: z.string().optional(), title: z.string().optional() }],
     ['session_message', 'Continue an existing Task Agent.', { to: z.array(z.string()), text: z.string(), source_link: z.string().optional(), then: z.enum(['continue', 'wait', 'stop']).optional() }],
     // Messaging descriptions match gugu-im-server.mjs; importing that ESM host also loads runtime dependencies.
     ['message_send', 'Set destination fields before writing text. Post a message to a chat; chat_id and to_user_ids are never inferred from the message that triggered you. Each call is independent; multiple distinct calls are valid. With reply_to_message_id a DM peer is implied; in a group still name recipients. Sessions: session_message.',

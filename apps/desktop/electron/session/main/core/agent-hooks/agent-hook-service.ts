@@ -12,7 +12,6 @@ import { parseHookEvent } from './event-enricher';
 import { forgetSessionAutonomy } from './turn-autonomy';
 import { HookServer, type HookSource, type PersistedHookSource } from './hook-server';
 import { EndpointPorts, PersistedRecords } from '@main/lib/stable-endpoint';
-import { isAppFocused } from './app-focus';
 import {
   applyHookToAuthExpiry,
   sessionUsesPlatformCredentials,
@@ -42,7 +41,7 @@ function learnAuthExpiryFromEvent(event: AgentEvent): void {
 }
 
 export type AgentHookServiceHooks = {
-  'agent:event': (event: AgentEvent, appFocused: boolean) => void | Promise<void>;
+  'agent:event': (event: AgentEvent) => void | Promise<void>;
   /** The harness of this spawn called the hook server (any type) — never an event the host emits on its behalf. */
   'agent:hook': (input: { sourceId: string }) => void | Promise<void>;
   'agent:session': (input: {
@@ -116,17 +115,17 @@ class AgentHookService implements IInitializable, IDisposable, Hookable<AgentHoo
     return this._hooks.on(name, handler);
   }
 
-  emitAgentEvent(event: AgentEvent, appFocused: boolean): void {
-    this._hooks.callHookBackground('agent:event', event, appFocused);
+  emitAgentEvent(event: AgentEvent): void {
+    this._hooks.callHookBackground('agent:event', event);
   }
 
   /**
    * 不经 CLI 钩子服务器的终端会话回合边界(codex app-server / opencode serve 的 sidecar)。
    * 与钩子那条腿同一套后续:先把回合终局落到「登录已失效」标记上,再照常播状态事件(#6264)。
    */
-  emitProviderLifecycleEvent(event: AgentEvent, appFocused: boolean): void {
+  emitProviderLifecycleEvent(event: AgentEvent): void {
     learnAuthExpiryFromEvent(event);
-    this.emitAgentEvent(event, appFocused);
+    this.emitAgentEvent(event);
   }
 
   async initialize(): Promise<void> {
@@ -151,7 +150,7 @@ class AgentHookService implements IInitializable, IDisposable, Hookable<AgentHoo
               timestamp: Date.now(),
               payload: {},
             };
-            this.emitAgentEvent(agentEvent, isAppFocused());
+            this.emitAgentEvent(agentEvent);
           }
         }
       )
@@ -199,10 +198,7 @@ class AgentHookService implements IInitializable, IDisposable, Hookable<AgentHoo
 
       const event = parsed.event;
       learnAuthExpiryFromEvent(event);
-      // appFocused 只喂给下游的**提示音**(用户可在任务设置里选「只在未聚焦时响」);
-      // 系统通知本身不看聚焦,见 maybeShowNotification 的注释。
-      const appFocused = isAppFocused();
-      this.emitAgentEvent(event, appFocused);
+      this.emitAgentEvent(event);
     });
   }
 
