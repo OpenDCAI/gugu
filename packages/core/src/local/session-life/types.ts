@@ -21,7 +21,7 @@ export type CapabilityGrant = Brand<object, 'CapabilityGrant'> | None
 export type PlatformTicket = Brand<object, 'PlatformTicket'> | None
 export type ResolvedCli = Brand<object, 'ResolvedCli'> | None
 export type ProcessLease = Brand<object, 'ProcessLease'>
-export type AdmittedChannel = Brand<Readonly<{ gen: Gen }>, 'AdmittedChannel'>
+export type AdmittedChannel = Brand<Readonly<{ gen: Gen; timing: Timing }>, 'AdmittedChannel'>
 
 export interface StageOut {
   readonly identity: BoundIdentity
@@ -39,7 +39,7 @@ type Before<K extends StageName, T extends readonly StageName[] = typeof STAGES,
     : never
 export type Have<K extends StageName> = Readonly<Pick<StageOut, Before<K>>>
 export type Progress = {
-  [K in StageName]: Readonly<{ at: K; have: Have<K>; since: number }>
+  [K in StageName]: Readonly<{ at: K; have: Have<K> }>
 }[StageName]
 export type StageResult = {
   [K in StageName]: Readonly<{ at: K; value: StageOut[K] }>
@@ -68,7 +68,7 @@ export interface ExitFact {
 export type LifeShape =
   | Readonly<{ kind: 'dormant'; hold: UserStopHold | SignOutHold | null; lastExit: ExitFact | null }>
   | Readonly<{ kind: 'starting'; gen: Gen; progress: Progress }>
-  | Readonly<{ kind: 'ready'; gen: Gen; have: StageOut; timing: Timing; admission: Admission }>
+  | Readonly<{ kind: 'ready'; gen: Gen; have: StageOut; admission: Admission }>
   | Readonly<{ kind: 'stopping'; gen: Gen | null; destination: Destination; have: Partial<StageOut> }>
   | Readonly<{ kind: 'failed'; hold: StartFailedHold }>
   | Readonly<{ kind: 'archived' }>
@@ -82,6 +82,9 @@ export type Receipt =
   | Readonly<{ state: 'unknown' }>
 
 export type Interrupt = 'user-stop' | 'archive' | 'delete' | 'sign-out' | 'version-switch' | 'idle-reap'
+export type InterruptEvent =
+  | Readonly<{ k: 'interrupt'; reason: Exclude<Interrupt, 'sign-out'> }>
+  | Readonly<{ k: 'interrupt'; reason: 'sign-out'; ownerUserId: string }>
 export type ReceiptEvent = Readonly<{ k: 'receipt'; gen: Gen; seq: Seq }> & (
   | Readonly<{ result: 'accepted'; nativeReceiptId: string | null }>
   | Readonly<{ result: 'rejected-before-admission'; nativeReceiptId: null; cause: SerializedError }>
@@ -95,7 +98,7 @@ export type Event =
   | Readonly<{ k: 'turn-busy'; gen: Gen }>
   | Readonly<{ k: 'turn-idle'; gen: Gen }>
   | Readonly<{ k: 'exit'; gen: Gen; exit: ExitFact }>
-  | Readonly<{ k: 'interrupt'; reason: Interrupt }>
+  | InterruptEvent
   | Readonly<{ k: 'settled'; gen: Gen | null }>
   | Readonly<{ k: 'restore' }>
   | Readonly<{ k: 'signed-in'; userId: string }>
@@ -114,19 +117,14 @@ export type Effect =
   | Readonly<{ e: 'mark-source-read'; seq: Seq }>
   | Readonly<{ e: 'remove' }>
 
-/** Immutable database facts for the current decision, excluding the row already in flight. */
+/** Immutable database rows in ascending seq order; queued excludes rows already in flight. */
 export interface PendingView {
-  head(): Seq | null
-  maxSeq(): Seq | null
-  queued(): readonly Seq[]
-  dispatching(): readonly Seq[]
+  readonly queued: readonly Seq[]
+  readonly dispatching: readonly Seq[]
 }
 
-/** The owner supplies facts; step never reads a clock, account singleton or attempt counter. */
+/** The owner allocates the next generation; the reducer owns no counters or clocks. */
 export interface StepContext {
   readonly next: Gen
-  readonly ownerUserId: string
-  readonly since: number
-  readonly timing: Timing
 }
 export type Transition = readonly [Life, readonly Effect[]]
