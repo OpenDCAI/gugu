@@ -9,7 +9,7 @@
  *       放进 `versions/.incoming/` 的包,见 server-account-converge.ts)—— 装的只有它一个,桌面 ❌ 再装一份。
  *
  * 标准输出上机器可读的一行:`MATCH_MARK key=value …`。
- * 退出码:0 成;2 用法;3 守护进程没在跑;4 等不到换过去;6 安装/试跑失败或请求被替代;8 有 agent 在跑、等空闲再换;
+ * 退出码:0 成;2 用法;3 守护进程没在跑;4 等不到换过去;6 安装/试跑失败、请求被替代或受控云电脑拒绝;8 有 agent 在跑、等空闲再换;
  * 7 它连不上下载站(要桌面把包的字节放进 `versions/.incoming/` 再来一次,见 ssh-install/runner.ts)。
  * ⚠️ 只在 CLI 里跑:不碰 electron、不加载主进程。
  */
@@ -65,6 +65,8 @@ export type MatchDeps = {
   /** 这个账号此刻在跑的那一版(读它的进程);没在跑 = null。 */
   runningVersion: (account: ServerAccount) => string | null
   supervisorRunning: () => boolean
+  /** 受控云电脑的守护进程(从它的进程环境读)跑的那一版;普通 SSH = null。账号只跟随它。 */
+  managedSupervisorVersion?: () => Promise<string | null> | string | null
   exists?: (file: string) => boolean
   /** 这个账号的升级状态文件(守护进程写的,见 server-account-converge.ts);没有 = null。 */
   readUpdateState?: (account: ServerAccount) => string | null
@@ -99,6 +101,12 @@ export async function runMatchVersion(args: readonly string[], out: (line: strin
   if (!deps.supervisorRunning()) {
     err('咕咕 server 没在运行:执行 gugu-server service install')
     return 3
+  }
+  // 受控云电脑上账号只跟随守护进程的包:换到别的版本永远不会发生,当场说,❌ 干等到超时。
+  const managed = (await deps.managedSupervisorVersion?.()) ?? null
+  if (managed && managed !== parsed.version) {
+    err(`受控云电脑:账号只跟随守护进程的包 ${managed},不能换到 ${parsed.version}`)
+    return 6
   }
   const requestedAt = now()
   const originalPin = readAccountVersionPin(account.dataDir)

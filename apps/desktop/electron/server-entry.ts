@@ -389,6 +389,11 @@ async function runCommand(command: string | undefined, args: string[]): Promise<
           return runningVersionOf(pid, read) ?? (activity.pid === pid && typeof activity.version === 'string' ? activity.version : null)
         },
         supervisorRunning: () => lockHolder(supervisorDataDir()) !== null,
+        managedSupervisorVersion: async () => {
+          const { readRunningServer } = await import('./server/server-service')
+          const supervisor = readRunningServer()
+          return supervisor?.managedCloud ? supervisor.version : null
+        },
       }))
     }
     case 'help':

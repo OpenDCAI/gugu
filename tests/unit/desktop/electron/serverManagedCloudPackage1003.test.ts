@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { recordDesktopReport, requestConfirmedVersionRestart, requestVersionRetry, requestVersionSwitch } from '../../../../packages/core/src/cloud/serverDesktopVersions'
+import { recordDesktopReport, requestConfirmedVersionRestart, readVersionSwitchRequest, requestVersionRetry, requestVersionSwitch } from '../../../../packages/core/src/cloud/serverDesktopVersions'
 import { REMOTE_PROTOCOL_VERSION } from '../../../../packages/core/src/cloud/serverMachineHealth'
 import { createAccountVersionConverger, VERSION_FAILURE_COOLDOWN_MS } from '../../../../apps/desktop/electron/server/server-account-converge'
 import { readAccountVersionPin, writeAccountVersionPin } from '../../../../apps/desktop/electron/server/server-account-versions'
@@ -150,6 +150,19 @@ describe('managed cloud accounts follow the running supervisor package', () => {
     expect(error).toHaveBeenLastCalledWith(expect.stringContaining(A))
     expect(error).toHaveBeenLastCalledWith(expect.stringContaining(B))
     expect(f.restarted).toEqual([])
+  })
+  it('refuses a managed target outside the supervisor package at once, without leaving a request to wait on', async () => {
+    pin(B)
+    const error = vi.fn()
+    const sleep = vi.fn(async () => {})
+    const rc = await runMatchVersion(['--account', U1, '--apply', A, '--now'], vi.fn(), error, {
+      home, runningVersion: () => B, supervisorRunning: () => true, managedSupervisorVersion: () => B, now: () => clock, sleep,
+    })
+    expect(rc).toBe(6)
+    expect(sleep).not.toHaveBeenCalled()
+    expect(error).toHaveBeenCalledWith(expect.stringContaining(`守护进程的包 ${B}`))
+    expect(error).toHaveBeenCalledWith(expect.stringContaining(`不能换到 ${A}`))
+    expect(readVersionSwitchRequest(data(), clock)).toBeNull()
   })
   it('restarts only the mismatched account and does not repeatedly kill its draining process', () => {
     signIn(U2)
