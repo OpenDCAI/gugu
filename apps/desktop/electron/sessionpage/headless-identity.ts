@@ -181,6 +181,7 @@ export function wireHeadlessSessionpageIdentity(hostIpc: HostIpc): { dispose(): 
       await setTaskNameOwner(next?.userId ?? null)
       // The browser pushes auth when it reconnects: names renamed meanwhile are published now.
       if (next) await identity.publishPendingNames()
+      if (next) await identity.adoptCloudNames()
       log.info('[session-host] identity auth ' + (next ? `set for ${next.userId}` : 'cleared'))
     },
     agentCard: (sessionId) => identity.agentCard(sessionId),

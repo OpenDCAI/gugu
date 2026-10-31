@@ -23,6 +23,7 @@ import { createLogger } from '../lib/logger'
 const log = createLogger('sessionpage/task-names')
 import { electronFetch, makeIdentityClient } from '../supabase'
 import {
+  SESSION_CACHE_KEY,
   isSessionpageAddressable,
   openOwnerDirectChatForAgent,
   provisionSessionpageAgentForSession,
@@ -84,6 +85,8 @@ export interface SessionpageIdentityHost extends SessionIdentityHost {
   renameBound(sessionId: string, agentUserId: string, name: string): Promise<void>
   /** Publish every pending local name of the signed-in owner's agents. */
   publishPendingNames(): Promise<void>
+  /** Take the cloud names of the owner's bound agents (renamed on another device); pending local names win. */
+  adoptCloudNames(): Promise<void>
   agentCard(sessionId: string): Promise<SessionShellAgentCard | null>
   /** 侧栏身份卡要的那张表:本机名册(session_peers)的投影。 */
   agentNames(): Promise<SessionShellAgentName[]>
@@ -240,6 +243,14 @@ export function createSessionpageIdentityHost(deps: SessionpageIdentityHostDeps)
       return peersForAuth(auth, sessionId)
     },
     renameBound: (_sessionId, agentUserId, name) => renameBound(agentUserId, name),
+    async adoptCloudNames() {
+      const auth = await deps.getAuth()
+      if (!auth) return
+      const bound = agentsForOwner(await listAgents(env, { includeGuests: true }), auth.userId)
+        .filter((agent) => agent.gugu_user_id && typeof agent.cache?.[SESSION_CACHE_KEY] === 'string')
+      const cloud = await loadSessionpageCanonicalAgentIdentities(auth, bound.map((agent) => agent.gugu_user_id))
+      for (const identity of cloud) await writeAgentName(identity.id, identity.display_name, 'cloud', env)
+    },
     async publishPendingNames() {
       const auth = await deps.getAuth()
       if (!auth) return

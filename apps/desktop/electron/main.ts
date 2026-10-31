@@ -2527,6 +2527,8 @@ ipcMain.handle('clipboard:write-text', async (_event, value: unknown) => {
 ipcMain.handle('notifications:show', (_event, params: unknown) => showAppNotification(params))
 // #5906 —— 登录态的变化是**事件**,设备 runtime 靠它当场重新确立 owner 边界 / 订上命令 wake / 登出时撤订阅。
 // 宿主不再有 2 秒一轮的 tick 去「碰巧发现」登录了;不通知的话,要等一个对账周期(30 s)设备才跟上。
+let adoptCloudTaskNames: (() => Promise<void>) | null = null
+
 function humanAuthUserId(): string | null {
   return typeof pushedHumanAuth === 'object' ? pushedHumanAuth?.userId ?? null : null
 }
@@ -2614,6 +2616,8 @@ ipcMain.on('device-runtime:scheduled-tasks-changed', () => {
 // agent_changed,收它的是渲染层的修订总线;主进程不另开一条订阅,由渲染层转一声。本机下一条会话页会话起名时
 // 「用到几号」就已跟上 —— ❌ 否则要等它落地被服务端改名,会话起来一秒就换名字。
 ipcMain.on('owned-agents:changed', () => {
+  // Another device may have renamed one of this device's tasks: take the cloud names (pending local names win).
+  void adoptCloudTaskNames?.().catch((error: unknown) => createLogger('sessionpage/task-names').error({ error: String(error) }, 'Adopting cloud task names failed'))
   void authProvider?.getAuth()
     .then((auth) => {
       if (auth?.accessToken && auth.userId) refreshAgentNamingFacts({ accessToken: auth.accessToken, userId: auth.userId })
@@ -4994,6 +4998,8 @@ app.whenReady().then(async () => {
     }
     onElectronCloudAnswer(() => { if (emdash.hasPendingTaskNames()) publishPendingTaskNames() })
     publishPendingTaskNames()
+    adoptCloudTaskNames = () => sessionpageIdentityHost.adoptCloudNames()
+    void adoptCloudTaskNames().catch((error: unknown) => createLogger('sessionpage/task-names').error({ error: String(error) }, 'Adopting cloud task names failed'))
     const nativeInbox = emdash.startNativeConversationInboxHost({
       open: async target => (await sessionpageIdentityHost.ensureAgentAddress(target)).chatId,
       failed: error => createLogger('sessionpage/personal-inbox').warn({ error: String(error) }, 'Personal conversation address remains pending'),
