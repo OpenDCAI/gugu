@@ -1,6 +1,7 @@
 import { eq } from 'drizzle-orm';
 import { db, sqlite } from '@main/db/client';
-import { sessions, projects, workspaces } from '@main/db/schema';
+import { sessions, workspaces } from '@main/db/schema';
+import { readProjects } from '../projects/operations/getProjects';
 import { log } from '@main/lib/logger';
 import type { Session } from '@shared/core/sessions/sessions';
 import type {
@@ -40,16 +41,17 @@ class SearchService {
     projectEvents.on('project:created', (project) => this.upsertProject(project));
     projectEvents.on('project:deleted', (projectId) => this.removeByType('project', projectId));
 
-    sessionEvents.on('session:created', (session) => void this.upsertSession(session));
+    sessionEvents.on('session:created', (session) => {
+      const project = readProjects().find(project => project.id === session.projectId);
+      if (project) this.upsertProject(project);
+      void this.upsertSession(session);
+    });
     sessionEvents.on('session:renamed', (sessionId) => {
       const [row] = db.select().from(sessions).where(eq(sessions.id, sessionId)).limit(1).all();
       if (row) void this.upsertSession(mapSessionRowToSession(row));
     });
-    // 归档与删除对搜索索引同效:列表里点不到的会话不该还能被搜出来。
+    // 已归档任务离开活动搜索,历史仍保留。
     sessionEvents.on('session:archived', (sessionId) =>
-      this.removeByType('session', sessionId)
-    );
-    sessionEvents.on('session:deleted', (sessionId) =>
       this.removeByType('session', sessionId)
     );
 
@@ -196,7 +198,7 @@ class SearchService {
 
       if (count > 0) return;
 
-      const allProjects = db.select().from(projects).all();
+      const allProjects = readProjects();
       const allSessions = db
         .select({
           id: sessions.id,

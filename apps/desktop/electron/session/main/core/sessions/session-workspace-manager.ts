@@ -46,7 +46,7 @@ export type SessionManagerHooks = {
     // @@@sessionpage TASKPAGE-FUSION — which teardown this was: what happened to the RUNTIME, not whether
     // the session still exists. App/project shutdown uses `terminate` too when tmux is off, and that session is
     // still there. A subscriber that projects session existence elsewhere (gugu: agent 联系人) must take death
-    // from `session:archived` / `session:deleted`, never from this mode (#6168).
+    // from persisted task inventory, never from this mode (#6168).
     mode: SessionTeardownMode;
   }) => void | Promise<void>;
 };

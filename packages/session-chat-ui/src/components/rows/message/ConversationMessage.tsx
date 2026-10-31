@@ -1,6 +1,9 @@
 /** @jsxImportSource solid-js */
 import { useSenderName } from '@session-chat/lib/sender-avatar';
+import { conversationSpeaker, messageReplyReference } from '@session-chat/state/conversation-density';
 import { For, Show } from 'solid-js';
+import { conversationHeaderLayout } from './conversation-header-layout';
+export { conversationDestinationLayout } from './conversation-destination';
 import { useCommands } from '@session-chat/components/contexts/CommandsContext';
 import { useSelfIdentity, shownSender, isSelfAddress } from '@session-chat/lib/self-identity';
 import { useChatTranslator } from '@session-chat/localization';
@@ -8,8 +11,7 @@ import { useChatName } from '@session-chat/lib/chat-name';
 import type { MeasureCtx, RenderCtx } from '@session-chat/core/define';
 import type { ChatMessage } from '@session-chat/model';
 import { turnProcessExpanded } from '@session-chat/state/turn-fold';
-import { readableLabel, rowTranslator } from '../readable-label';
-import { agentSendLabel } from '@session-chat/state/agent-send';
+import { rowTranslator } from '../readable-label';
 import { processRowHeight, backgroundPillLayout } from './process-row-layout';
 import { ConversationProcess } from './ConversationProcess';
 import { SenderName } from './SenderName';
@@ -20,17 +22,15 @@ import { BACKGROUND_TASKS_TOGGLE } from '@session-chat/state/flatten';
 import { segmentItem } from './DeliveryCard';
 import { isMessageEditing } from './message-editor-metrics';
 import { UserMessageCard } from './UserMessageCard';
-import { CONVERSATION_EXPAND_H, CONVERSATION_FOOTER_H, CONVERSATION_HEADER_H, CONVERSATION_PROCESS_H, conversationBubbleKey, hasConversationActions } from './conversation-body';
+import { ConversationReplyReference } from './ConversationReplyReference';
+import { CONVERSATION_EXPAND_H, CONVERSATION_FOOTER_H, conversationBubbleKey, hasConversationActions } from './conversation-body';
 export { isConversationMessage } from './conversation-body';
 import { ConversationNarration, conversationNarrationHeight } from './ConversationNarration';
 import { measureUserMessage } from './user-message-metrics';
 import { userMessageActionsHeight, type MessageVars } from './metrics';
-import { conversationRoot, conversationHeader, conversationName, conversationQuote, conversationQuoteFrom, conversationTime, conversationProcessButton, conversationProcessChevron, conversationTimeSeparator } from './conversation-message.css';
+import { conversationRoot, conversationHeader, conversationName, conversationTime, conversationProcessButton, conversationProcessChevron, conversationTimeSeparator, conversationReferenceSeparator } from './conversation-message.css';
 
 import { CONVERSATION_PREVIEW_MAX_H } from '@session-chat/components/engine/row-metrics';
-
-const HEADER_H = CONVERSATION_HEADER_H;
-const TIME_H = CONVERSATION_PROCESS_H;
 
 export function conversationContext(ctx: MeasureCtx, item?: ChatMessage): MeasureCtx {
   return { ...ctx,
@@ -45,7 +45,13 @@ export function conversationVars(item: ChatMessage, vars: MessageVars): MessageV
 
 function segments(item: ChatMessage): ChatMessage[] {
   const batch = item.guguDelivery?.segments;
-  return batch && batch.length > 1 ? batch.map((segment, index) => ({ ...segmentItem(item, segment, index), conversationReply: undefined })) : [item];
+  return batch && batch.length > 1 ? batch.map((segment, index) => {
+    const reply = segment.facts?.replyTo;
+    return { ...segmentItem(item, segment, index), conversationReply: reply ? {
+      itemId: reply.messageId.replace(/^msg:/, ''), text: reply.preview ?? '',
+      ...(reply.from ? { from: reply.from } : {}), ...(reply.fromId ? { fromId: reply.fromId } : {}), unloaded: true,
+    } : undefined, conversationPreviousSpeaker: index ? conversationSpeaker(segmentItem(item, batch[index - 1]!, index - 1)) : item.conversationPreviousSpeaker };
+  }) : [item];
 }
 
 export function conversationMessageHeight(item: ChatMessage, ctx: MeasureCtx, vars: MessageVars): number {
@@ -54,14 +60,7 @@ export function conversationMessageHeight(item: ChatMessage, ctx: MeasureCtx, va
 
 /** Only an explicit IM reply or persisted timeline source gets a clickable quote. */
 function messageQuote(item: ChatMessage): NonNullable<ChatMessage['conversationReply']> | null {
-  return item.conversationPart !== 'body' && item.conversationReply ? item.conversationReply : null;
-}
-
-/** 引用里的摘要截短一点(owner 10-28「比现在短一点」);一行放不下再由 CSS 省略。 */
-const QUOTE_CHARS = 60;
-function quoteSummary(text: string): string {
-  const flat = text.replace(/\s+/g, ' ').trim();
-  return flat.length > QUOTE_CHARS ? `${flat.slice(0, QUOTE_CHARS)}…` : flat;
+  return messageReplyReference(item) ?? null;
 }
 
 export function conversationSenderName(item: ChatMessage, ctx: MeasureCtx): string {
@@ -80,33 +79,26 @@ function replySenderLabel(quote: NonNullable<ChatMessage['conversationReply']>, 
     .filter((part): part is string => Boolean(part?.trim())).join(' · ');
 }
 function headerLayout(item: ChatMessage, ctx: MeasureCtx) {
-  const quote = messageQuote(item);
-  const name = readableLabel(conversationSenderName(item, ctx), ctx, quote ? ctx.width * .52 : ctx.width, 12, 18, 650);
-  const disabled = quote && !ctx.commands?.onConversationReply;
-  const label = quote ? replySenderLabel(quote, ctx) : '';
-  const quoteText = disabled ? readableLabel(`${label ? `${label}：` : ''}${quote.text}`, ctx, ctx.width * .48 - 36, 12, 18) : null;
-  return { name, quote: quoteText, height: Math.max(HEADER_H, name.height + 6, (quoteText?.height ?? 0) + 6) };
-}
-
-export function conversationDestinationLayout(item: ChatMessage, ctx: MeasureCtx) {
-  if (!item.sentTo) return null;
-  return readableLabel(agentSendLabel(item.sentTo, rowTranslator(ctx), ctx.chatName ?? (() => null)), ctx, ctx.width - 120, 12, 18);
+  return conversationHeaderLayout(item, ctx, conversationSenderName(item, ctx));
 }
 
 function singleHeight(item: ChatMessage, ctx: MeasureCtx, vars: MessageVars): number {
   if (item.conversationNarration) return conversationNarrationHeight(item, ctx);
-  if (item.conversationPart === 'head') return headerLayout(item, ctx).height + (item.conversationProcess ? processRowHeight(item.id, item.conversationProcess, ctx) : TIME_H) + backgroundHeight(item, ctx);
+  if (item.conversationPart === 'head') {
+    const head = headerLayout(item, ctx);
+    return head.height + backgroundHeight(item, ctx) + (head.referenceInFooter ? measureUserMessage(item, conversationContext(ctx, item), conversationVars(item, vars)) : 0);
+  }
   const header = item.conversationPart === 'body' ? 0 : headerLayout(item, ctx).height;
   const bodyVars = conversationVars(item, vars);
   // 时间、复制、编辑那一行照原气泡画在气泡下面(owner 定稿 0 号图);没有正文就没有气泡,也不留这一行。
-  const actions = hasConversationActions(item) || isMessageEditing(item.id, ctx) ? 0 : userMessageActionsHeight(bodyVars);
   const bodyCtx = conversationContext(ctx, item);
   const body = measureUserMessage(item, bodyCtx, bodyVars);
   // 折着 ⇔ 展开量出来比现在高;那时气泡下面多一行「展开全文」。
   const folded = bodyCtx.expandedId !== item.id && !isMessageEditing(item.id, ctx) && measureUserMessage(item, { ...bodyCtx, expandedId: item.id }, bodyVars) > body;
   const canCollapse = ctx.expanded(conversationBubbleKey(item)) && ctx.latestConversationMessageId !== item.id
     && measureUserMessage(item, { ...bodyCtx, expandedId: null }, bodyVars) < body;
-  return header + body - actions + (hasConversationActions(item) ? Math.max(0, (conversationDestinationLayout(item, ctx)?.height ?? 0) - bodyVars.footerH) : 0) + (folded || canCollapse ? CONVERSATION_EXPAND_H : 0) + (item.role === 'assistant' && item.conversationProcess ? processRowHeight(item.id, item.conversationProcess, ctx) + backgroundHeight(item, ctx) : 0);
+  const actions = hasConversationActions(item) || headerLayout(item, ctx).referenceInFooter || isMessageEditing(item.id, ctx) || canCollapse ? 0 : userMessageActionsHeight(bodyVars);
+  return header + body - actions + (folded ? CONVERSATION_EXPAND_H : 0) + (item.role === 'assistant' && item.conversationProcess ? backgroundHeight(item, ctx) : 0);
 }
 
 /** 后台任务挂在这条过程行上、单子又展开着 ⇒ 多出单子的高(挂在哪由 ChatRoot 算,见 MeasureCtx.background)。 */
@@ -145,40 +137,32 @@ function SingleConversationMessage(props: { data: ChatMessage; ctx: RenderCtx; v
     return messageSenderTarget(facts()) ?? (!facts() && self()?.userId ? { kind: 'sender', userId: self()!.userId } : null);
   };
   const quoteLabel = (quote: NonNullable<ChatMessage['conversationReply']>) => replySenderLabel(quote, measuredCtx());
+  const reference = () => <Show when={messageQuote(props.data)}>{quote => <ConversationReplyReference itemId={quote().itemId}
+    text={`${quoteLabel(quote()) ? `${quoteLabel(quote())}\n\n` : ''}${quote().text || translate('transcript.showOriginalMessage')}`} />}</Show>;
   const bodyCtx: RenderCtx = { ...props.ctx, measureCtx: () => conversationContext(props.ctx.measureCtx!(), props.data) };
   return <div class={conversationRoot} data-agent-conversation-message={props.data.id} data-side={subject() ? 'left' : 'right'}
     data-conversation-part={props.data.conversationPart}>
-    <Show when={props.data.conversationPart !== 'body'}>
-    <div class={conversationHeader} style={{ height: `${head().height}px` }}>
-      <SenderName class={conversationName} name={head().name.text} target={senderTarget()} />
-      <Show when={messageQuote(props.data)}>{quote => <>
-        <span class={conversationTimeSeparator} aria-hidden="true" />
-        <button type="button" class={conversationQuote} data-slot="conversation-quote" title={quote().text}
-          style={head().quote ? { 'white-space': 'pre-wrap', overflow: 'visible' } : undefined}
-          disabled={!commands().onConversationReply} onClick={() => commands().onConversationReply?.(quote().itemId)}
-          aria-label={translate('transcript.showOriginalMessage')}>
-          <Show when={!head().quote} fallback={<span style={{ 'white-space': 'pre-wrap', overflow: 'visible' }}>{head().quote!.text}</span>}>
-          <Show when={quoteLabel(quote())}>{label => <span class={conversationQuoteFrom}>{`${label()}：`}</span>}</Show>
-          <span>{quoteSummary(quote().text) || translate('transcript.showOriginalMessage')}</span>
-          </Show>
-          <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M12.5 3v4.5a3 3 0 0 1-3 3H3m3.5-3.5L3 10.5 6.5 14" /></svg>
-        </button>
-      </>}</Show>
-      {/* owner 0 号图:名字那一行只写名字 —— ❌ 后面再跟被回复那条的摘要(管家 10-28 定)。 */}
+    <Show when={props.data.conversationPart !== 'body' && head().height > 0}>
+    <div class={conversationHeader} style={{ height: `${head().height}px`, gap: `${head().gap}px` }}>
+      <Show when={head().name}>{label => <SenderName class={conversationName} name={label().text} target={senderTarget()} style={{ width: `${head().nameWidth}px` }} />}</Show>
+      {reference()}
+      <Show when={messageQuote(props.data) && subject() && props.data.conversationProcess}>
+        <span class={conversationReferenceSeparator} data-slot="conversation-reference-separator" aria-hidden="true">·</span>
+      </Show>
+      <Show when={subject() && props.data.conversationProcess}>{process =>
+        <div class={conversationTime} style={{ width: `${head().processWidth}px`, height: `${processRowHeight(props.data.id, process(), head().processCtx)}px` }}>
+          <ConversationProcess measureCtx={() => head().processCtx} process={process()} anchorId={props.data.id} expanded={turnProcessExpanded(process().live, props.ctx.viewState.isCollapsed(process().id))} />
+          <ProcessBackgroundPill ownerId={props.data.id} ctx={{ ...props.ctx, measureCtx: () => head().processCtx }} />
+        </div>
+      }</Show>
     </div>
     </Show>
-    {/* owner 2026-10-27 原型:过程行在气泡上方(正文流式长高时它不挪窝);还在跑的后台任务与它同一行,单子就地展开在它下面。 */}
-    <Show when={subject() && props.data.conversationProcess}>{process =>
-      <>
-        <div class={conversationTime} style={{ height: `${processRowHeight(props.data.id, process(), props.ctx.measureCtx!())}px` }}>
-          <ConversationProcess measureCtx={props.ctx.measureCtx!} process={process()} anchorId={props.data.id} expanded={turnProcessExpanded(process().live, props.ctx.viewState.isCollapsed(process().id))} />
-          <ProcessBackgroundPill ownerId={props.data.id} ctx={props.ctx} />
-        </div>
-        <ProcessBackgroundList ownerId={props.data.id} ctx={props.ctx} />
-      </>
-    }</Show>
-    <Show when={props.data.conversationPart !== 'head'}>
-      <UserMessageCard data={props.data} ctx={bodyCtx} vars={conversationVars(props.data, props.vars)} conversation sender={name} />
+    <Show when={subject() && props.data.conversationProcess}>
+      <ProcessBackgroundList ownerId={props.data.id} ctx={props.ctx} />
+    </Show>
+    <Show when={props.data.conversationPart !== 'head' || head().referenceInFooter}>
+      <UserMessageCard data={props.data} ctx={bodyCtx} vars={conversationVars(props.data, props.vars)} conversation sender={name}
+        footerReference={head().referenceInFooter ? reference : undefined} />
     </Show>
   </div>;
 }

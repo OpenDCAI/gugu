@@ -36,6 +36,7 @@ import {
   createAgent,
   findReapedAgentForSession,
   listAgents,
+  removeAgents,
   updateAgent,
   writeAgentRuntimeSession,
 } from '@gugu/core'
@@ -48,7 +49,7 @@ import {
   type SessionpageSessionSurface,
 } from '@gugu/session-plugins/agents'
 import { electronFetch, makeChatClient } from '../supabase'
-import { agentMayBelongTo, agentsForOwner } from '@gugu/core/local/state/agentOwner'
+import { agentsForOwner } from '@gugu/core/local/state/agentOwner'
 import { AGENT_CLOUD_IDENTITY_STATE_CACHE_KEY } from '@gugu/core/local/state/agentCloudIdentity'
 import { emdashAgentRegistry, unregisterEmdashAgent } from './emdash-agent-registry'
 // #5419 撤回一行没落地的本机身份 = 释放它的本机足迹,与「owner 删 agent」「回收器收 agent」
@@ -75,7 +76,7 @@ import {
 /** Roster-record cache keys binding a gugu agent to its session-page conversation, its project + task, and
  *  (project-scoped conversations only) the gugu group mirroring its project. Projectless conversations store
  *  empty project/group → they are plain DM agent-contacts, not group members (spec ⑨). project+task ids let
- *  a task/project cascade-delete reap this agent (cascade fires no per-conversation delete event). */
+ *  task/project reconciliation archive this binding without deleting its identity. */
 // 这三格另有一个读者:会话页会话自己的 MCP 面(`@main/core/sessionpage/sessionpage-session-agent`,
 // spawn 回执据此说出对话该落在哪个项目群)。写者在这边、读者在那边,键名各写一份就会在改名时
 // 无声分家 —— 读者查不到、回执悄悄退回点对点,正是 #4566 的病灶形状。所以键名只有一处定义。
@@ -612,9 +613,9 @@ export function cacheString(cache: Record<string, unknown> | null | undefined, k
 
 /** Replay a create against its durable roster binding, never the process-local registry. */
 export async function sessionpageAgentSessionForStart(agentUserId: string, ownerUserId: string): Promise<string | undefined> {
-  const agent = (await listAgents()).find((row) => row.gugu_user_id === agentUserId)
+  const agent = agentsForOwner(await listAgents(), null, { includeArchived: true }).find((row) => row.gugu_user_id === agentUserId)
   if (!agent) return undefined
-  if (!agentMayBelongTo(agent, ownerUserId)) throw new Error('agent.create roster owner mismatch')
+  if (!agentsForOwner([agent], ownerUserId, { includeArchived: true }).length) throw new Error('agent.create roster owner mismatch')
   return cacheString(agent.cache, SESSION_CACHE_KEY) || cacheString(agent.cache, PARKED_SESSION_CACHE_KEY) || undefined
 }
 
@@ -876,6 +877,7 @@ async function provisionLockedBody(
       }
     }
     await updateAgent({ guguUserId: existing.gugu_user_id }, {
+      ...(existing.status === 'archived' ? { status: 'idle' } : {}),
       cache: {
         ...(existing.cache ?? {}),
         [DIRECT_CHAT_CACHE_KEY]: directChatId,
@@ -1268,6 +1270,8 @@ function startCloudProvision(job: {
           // identityRemoved:false —— 云端那一行**从来没存在过**,这不是删除,不立碑:
           // 这条会话下次起来照常重新开户(「随后落地被接纳」的另一支)。
           await releaseAgentLocalFootprint({ agentUserId: job.guguAgentUserId, identityRemoved: false, env: job.env })
+          // No cloud identity was created; withdraw the provisional binding rather than retaining it for Restore.
+          await removeAgents((agent) => agent.gugu_user_id === job.guguAgentUserId, job.env)
           withdrawnIdentityBySession.set(job.sessionId, job.guguAgentUserId)
         } else {
           const current = (await listAgents(job.env, { includeGuests: true })).find((a) => a.gugu_user_id === job.guguAgentUserId)
@@ -1366,11 +1370,12 @@ async function resolveOwnedBindingForSession(
   const ownerUserId = ownerAuth.userId
   const isMine = async (agent: RosterRow): Promise<boolean> => {
     const recorded = cacheString(agent.cache, OWNER_CACHE_KEY)
-    if (recorded) return recorded === ownerUserId
+    if (recorded) return agentsForOwner([agent], ownerUserId, { includeArchived: true }).length > 0
     if (!deps.isAgentOwnedByCurrentUser) return true
     return deps.isAgentOwnedByCurrentUser(agent.gugu_user_id)
   }
 
+  roster = agentsForOwner(roster, null, { includeArchived: true })
   const active = roster.find(
     (agent) => agent.gugu_user_id && cacheString(agent.cache, SESSION_CACHE_KEY) === sessionId,
   )
@@ -1647,11 +1652,8 @@ export function findGroupIdForProject(
   projectId: string,
   ownerUserId: string,
 ): string | null {
-  for (const agent of roster) {
+  for (const agent of agentsForOwner(roster, ownerUserId)) {
     if (cacheString(agent.cache, PROJECT_CACHE_KEY) !== projectId) continue
-    // #4277 别家的行记着别家的群,拿来只会白问一次云端(RLS 看不见)—— 只看归我的与不知道归谁的老行。
-    const rowOwner = cacheString(agent.cache, OWNER_CACHE_KEY)
-    if (rowOwner && rowOwner !== ownerUserId) continue
     const groupId = cacheString(agent.cache, GROUP_CACHE_KEY)
     if (groupId) return groupId
   }
@@ -1703,15 +1705,12 @@ export async function registerExistingSessionpageAgents(
   const log = createLogger('sessionpage/boot')
   const startedAt = Date.now()
   log.info({}, 'persisted binding roster read started')
-  const roster = await listAgents(env, { includeGuests: true })
+  const roster = agentsForOwner(await listAgents(env, { includeGuests: true }), options.ownerUserId)
   const readMs = Date.now() - startedAt
   log.info({ readMs, rows: roster.length }, 'persisted binding roster read finished')
   let count = 0
   const incompleteCapabilityRows: string[] = []
   for (const agent of roster) {
-    // #4277 别家账号的行不注册:它在这个账号的进程里既收不到投递也拉不到收件箱,挂着只会每次
-    // 开机扫出一行 400。没记 owner 的老行照旧;不知道当前是谁(未登录)也照旧。
-    if (!agentMayBelongTo(agent, options.ownerUserId)) continue
     const sessionId = cacheString(agent.cache, SESSION_CACHE_KEY)
     const providerId = cacheString(agent.cache, PROVIDER_CACHE_KEY)
     const surface = cacheString(agent.cache, SURFACE_CACHE_KEY)
@@ -1771,9 +1770,9 @@ export async function unregisterForeignSessionpageAgents(
 ): Promise<number> {
   if (!ownerUserId) return 0
   let released = 0
-  for (const agent of await listAgents(env, { includeGuests: true })) {
+  for (const agent of agentsForOwner(await listAgents(env, { includeGuests: true }), null, { includeArchived: true })) {
     if (!agent.gugu_user_id) continue
-    if (agentMayBelongTo(agent, ownerUserId)) continue
+    if (agentsForOwner([agent], ownerUserId, { includeArchived: true }).length) continue
     unregisterEmdashAgent(agent.gugu_user_id)
     unregisterLocalSessionDeliveryForAgent(agent.gugu_user_id)
     released++

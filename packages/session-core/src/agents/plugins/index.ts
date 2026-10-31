@@ -95,6 +95,7 @@ export type {
 export {
   providerConsumesStartupPrompt,
   providerStartupTurnViaLocalSession,
+  providerTakesMessageStartupInPty,
   type AgentCommand,
   type CommandContext,
 } from './capabilities/prompt';

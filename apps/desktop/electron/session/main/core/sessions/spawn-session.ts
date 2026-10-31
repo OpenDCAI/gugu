@@ -1,5 +1,5 @@
 import { sessionService } from '@main/core/sessions/session-service';
-import { deleteSession } from './deleteSession';
+import { archiveSession } from './archiveSession';
 
 /**
  * #5665 / #6269 —— 派生出来的会话(`session_spawn`、扩展派活、分叉)各是一条独立的会话,工作目录取自来源会话:
@@ -16,7 +16,7 @@ export async function mountSpawnedSession(
     const mounted = await sessionService.ensureSessionMounted(sessionId);
     return { workspaceId: mounted.workspaceId, path: mounted.path };
   } catch (error) {
-    await deleteSession(projectId, sessionId, { skipTransportStop: true });
+    await archiveSession(projectId, sessionId, { skipTransportStop: true });
     throw error;
   }
 }

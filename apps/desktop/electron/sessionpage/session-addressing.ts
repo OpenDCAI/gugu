@@ -1,5 +1,5 @@
+import { agentsForOwner } from '@gugu/core/local/state/agentOwner'
 import type { LocalAgentRecord } from '@gugu/core'
-import { agentMayBelongTo } from '@gugu/core/local/state/agentOwner'
 import type {
   EmdashAgentRegistration,
   LocalSessionFacts,
@@ -33,11 +33,9 @@ export async function resolveSessionpageSenderBinding(
   sessionId: string,
   deps: SessionpageSenderBindingDeps,
 ): Promise<SessionpageSenderBinding> {
-  const roster = await deps.listRoster()
+  const roster = agentsForOwner(await deps.listRoster(), deps.ownerUserId)
   const candidates = roster.filter((agent) => cachedString(agent, SESSION_CACHE_KEY) === sessionId)
-  const owned = deps.ownerUserId
-    ? candidates.filter((agent) => agentMayBelongTo(agent, deps.ownerUserId))
-    : candidates
+  const owned = candidates
   if (owned.length > 1) {
     throw new Error(
       `session-page identity lookup: session ${sessionId} maps to ${owned.length} canonical identities`,
@@ -71,9 +69,8 @@ type SessionpageSessionPeerBinding = EmdashAgentRegistration & { engine: string 
 export async function resolveSessionpageSessionPeers(
   deps: SessionpageSessionPeersDeps,
 ): Promise<(LocalSessionPeer & { engine: string })[]> {
-  const roster = await deps.listRoster()
+  const roster = agentsForOwner(await deps.listRoster(), deps.ownerUserId)
   const bindings: SessionpageSessionPeerBinding[] = roster
-    .filter((agent) => agentMayBelongTo(agent, deps.ownerUserId))
     .filter((agent) => Boolean(agent.gugu_user_id))
     .map((agent) => ({
       guguAgentUserId: agent.gugu_user_id,

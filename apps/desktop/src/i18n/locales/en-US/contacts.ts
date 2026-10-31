@@ -64,7 +64,7 @@ export default {
     "wakeHint": "Messages without a mention will wake the Agent after you join"
   },
   "confirmations": {
-    "deleteAgent": "Delete Agent “{{name}}”? This removes its group memberships and runtime status records.",
+    "deleteAgent": "Permanently delete Agent “{{name}}” and its tasks and task history? This also removes its group memberships and cannot be undone.",
     "deleteContact": "Delete contact “{{name}}”? This ends the friendship.",
     "dissolveGroup": "Dissolving this group removes every member. Continue?",
     "leaveGroup": "Leave this group chat?"

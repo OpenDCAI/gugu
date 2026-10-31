@@ -4,13 +4,11 @@ import { page } from 'vitest/browser';
 import { SessionConversation } from '@/mobile/agent-watch/SessionConversation';
 import { emptyAgentWatchTimeline } from '@/mobile/agent-watch/agent-watch-store';
 import { finishRendererContentMenu, RENDERER_CONTENT_MENU_OPEN } from '@/lib/contentContextMenu';
-import { handoffNativeComposer } from '@/lib/nativeComposerHandoff';
-import { messageQuoteText, readMessageQuote } from '@gugu/core/shared/ui/messageQuote';
+import { messageQuoteText } from '@gugu/core/shared/ui/messageQuote';
 import type { ContentContextMenu } from '@shared/content-context-menu';
 import type { TranscriptTurn } from '@gugu/session-chat-ui';
 import { createReactHarness, renderWithAppProviders, deferred, clickElement } from '../../../../../../../tests/support/testHarness';
 import { until } from '../../../../../../../tests/support/awaitCondition';
-import { translateSessionMessage } from '@renderer/localization/locale-store';
 import { i18n } from '@/i18n/runtime';
 import '@/styles/tokens.css';
 import '@renderer/index.css';
@@ -71,40 +69,15 @@ async function quoteSource() {
     row.dispatchEvent(new PointerEvent('pointerdown', { pointerType: 'touch', clientX: 20, clientY: 20, bubbles: true }));
     await vi.advanceTimersByTimeAsync(501);
     expect(requests).toHaveLength(1);
-    await act(async () => { finishRendererContentMenu(requests[0].requestId, 'quote'); });
+    await act(async () => { expect(requests[0].items.some(item => 'id' in item && item.id === 'quote')).toBe(false); finishRendererContentMenu(requests[0].requestId); });
   } finally { vi.useRealTimers(); window.removeEventListener(RENDERER_CONTENT_MENU_OPEN, capture); }
 }
 
-it('wires the real phone host to whole-message quoting with a visible preview', async () => {
+it('does not expose whole-message quoting in the phone host or create a composer quote', async () => {
   await mount();
   await quoteSource();
-  expect(preview(), 'the actual phone composer shows the cancellable quote').toBeDefined();
-  expect(preview()?.parentElement?.textContent).toContain('Phone original message');
-});
-
-it('keeps the quote on a failed native send and consumes it only after a successful retry', async () => {
-  const failed = deferred<void>(), accepted = deferred<void>();
-  const send = vi.fn().mockReturnValueOnce(failed.promise).mockReturnValueOnce(accepted.promise);
-  await mount(conversation({ onSend: send }));
-  await quoteSource();
-  await act(async () => handoffNativeComposer(SESSION, { text: '手机原话' }));
-  expect(editor().textContent).toBe('手机原话');
-  expect(editor().innerHTML).not.toContain(SOURCE);
-  const submit = () => [...harness.container.querySelectorAll('button')].find(button => button.getAttribute('aria-label') === translateSessionMessage('composer.sendMessage'))!;
-  await clickElement(submit());
-  await until('phone sends its serialized quote once', () => send.mock.calls.length === 1);
-  expect(readMessageQuote(send.mock.calls[0][0])).toMatchObject({ source, excerpt: 'Phone original message', body: '手机原话' });
-  expect(preview()).toBeDefined();
-  await act(async () => failed.reject(new Error('Connection lost')));
-  await until('failed send restores the body', () => editor().textContent === '手机原话');
-  expect(preview()).toBeDefined();
-  await clickElement(submit());
-  await until('explicit retry sends once more', () => send.mock.calls.length === 2);
-  expect(send.mock.calls[1]).toEqual(send.mock.calls[0]);
-  expect(preview()).toBeDefined();
-  await act(async () => accepted.resolve());
-  await until('successful native send clears the quote', () => !preview());
-  expect(editor().textContent).toBe('');
+  expect(preview()).toBeUndefined();
+  expect(harness.container.querySelector('[data-user-message-actions] button[aria-label="Quote"]')).toBeNull();
 });
 
 it('loads the stored quote source through the phone host once and reveals that exact row', async () => {
@@ -125,7 +98,7 @@ it('loads the stored quote source through the phone host once and reveals that e
     return conversation({ timeline, onLoadOlder: async () => { if (timeline.hasOlder) await loadOlder(); } });
   }
   await mount(<Host />);
-  const quoteSelector = '[data-slot="conversation-quote"][title="Repeated original words"]';
+  const quoteSelector = '[data-slot="conversation-quote"]';
   await until('phone history has its real scroll container', () => !!harness.container.querySelector('[data-chat-scroll]'));
   const history = harness.container.querySelector<HTMLElement>('[data-chat-scroll]')!;
   history.scrollTop = history.scrollHeight;
@@ -135,7 +108,15 @@ it('loads the stored quote source through the phone host once and reveals that e
   // Enable pagination after the initial top-edge layout, as a host metadata refresh would.
   await act(async () => publish({ ...latest, hasOlder: true }));
   loadOlder.mockClear();
-  await clickElement(harness.container.querySelector<HTMLElement>(quoteSelector)!);
+  await act(async () => {
+    const arrow = harness.container.querySelector<HTMLElement>(quoteSelector)!;
+    arrow.dispatchEvent(new PointerEvent('pointerdown', { pointerType: 'touch', bubbles: true }));
+    arrow.click();
+  });
+  await until('phone tap previews the stored quote', () => !!document.querySelector('[data-slot="conversation-quote-preview"]'));
+  expect(document.querySelector('[data-slot="conversation-quote-preview"]')?.textContent).toContain('Repeated original words');
+  expect(loadOlder, 'previewing alone does not fetch or navigate').not.toHaveBeenCalled();
+  await clickElement(document.querySelector<HTMLElement>('[data-slot="conversation-quote-preview"]')!);
   try {
     await until('quote requests its missing page', () => loadOlder.mock.calls.length > 0);
     const scroll = harness.container.querySelector<HTMLElement>('[data-chat-scroll]')!;

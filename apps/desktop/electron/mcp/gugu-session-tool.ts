@@ -81,7 +81,7 @@ export const SESSION_TOOL_DEFS: readonly SessionpageToolDef[] = [
   },
   {
     name: 'device_actions',
-    description: 'Inspect native actions; Computer Use: control macOS/Windows desktop apps (screen, mouse, keys; computer); no scripts/bypass. Omit device: devices/status/timezone/groups. With device: actions; group/name: read schema first. Other-device work: session_spawn there. available:false has unavailable_detail.',
+    description: 'Inspect native actions; Computer Use: control macOS/Windows desktop apps (screen, mouse, keys; computer). Omit device: devices/status/timezone/groups. With device: actions; group/name: read schema first. Other-device work: session_spawn there. available:false has unavailable_detail.',
     schema: z.object({
       device: deviceSchema.describe('Omit for all devices.').optional(),
       group: z.string().min(1).optional(),

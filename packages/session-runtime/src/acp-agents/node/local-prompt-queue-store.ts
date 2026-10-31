@@ -28,7 +28,8 @@ export class LocalPromptQueueStore implements PromptQueueStore {
     mkdirSync(dirname(path), { recursive: true });
     // A renderer-only edit reservation must not strand the queue after a runtime restart.
     // Persist the last committed prompt, never its unsaved edit or another composer draft.
-    const inputs = prompts.map(({ id: _id, createdAt: _createdAt, updatedAt: _updatedAt, queueEdit: _queueEdit, ...input }) => input);
+    const inputs = prompts.map(({ id: _id, createdAt: _createdAt, updatedAt: _updatedAt, queueEdit: _queueEdit,
+      queueDispatching: _queueDispatching, ...input }) => input);
     const temporary = `${path}.${process.pid}.${Date.now()}.tmp`;
     writeFileSync(temporary, JSON.stringify(inputs));
     renameSync(temporary, path);

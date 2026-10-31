@@ -20,7 +20,7 @@ vi.mock('@main/db/client', () => ({
   },
 }));
 vi.mock('@main/lib/events', () => ({ events: { emit: vi.fn() } }));
-vi.mock('@main/core/sessions/deleteSession', () => ({ deleteSession: vi.fn() }));
+vi.mock('@main/core/sessions/archiveSession', () => ({ archiveSession: vi.fn() }));
 vi.mock('./actions/sessionCreate', () => ({ executeSessionCreate: vi.fn() }));
 vi.mock('@main/core/sessions/session-orchestration', () => ({
   messageSessionFrom: mocks.messageSessionFrom,

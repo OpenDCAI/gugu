@@ -6,8 +6,9 @@ import { openOwnedAgentEntry } from '../../../../apps/desktop/src/lib/ownedAgent
 import { APP_SHOW_SESSION_EVENT } from '../../../../apps/desktop/src/session/shared/extensions/app-runtime-protocol'
 import type { ChatItem } from '@gugu/core/shared/types/chat'
 import type { ContactUser } from '@gugu/core/shared/types/contacts'
+import { installSessionViewRequestBridge, SESSION_VIEW_REQUEST_BRIDGE_KEY } from '../../../../apps/desktop/src/session/renderer/features/sessions/stores/session-view-requests'
 const scope = vi.hoisted(() => ({
-  compose: vi.fn(), open: vi.fn(), lookup: vi.fn(), onOpen: vi.fn(),
+  compose: vi.fn(), open: vi.fn(), lookup: vi.fn(), onOpen: vi.fn(), notify: vi.fn(),
   drafts: {} as Record<string, string>, attachments: {} as Record<string, unknown[]>,
   write: vi.fn(), setFiles: vi.fn(), select: vi.fn(), assistant: null as string | null,
   identities: {} as Record<string, ContactUser>, mobile: false,
@@ -22,18 +23,19 @@ vi.mock('../../../../apps/desktop/src/platform/desktopIpc', () => ({ desktopIpc:
 vi.mock('../../../../apps/desktop/src/lib/composeDraft', () => ({ composeTaskDraft: scope.compose }))
 vi.mock('../../../../apps/desktop/src/lib/guguLinks', () => ({ openTarget: scope.open }))
 vi.mock('../../../../apps/desktop/src/lib/assistantShellBridge', () => ({ readAssistantShellBridge: () => ({ getSnapshot: () => ({ assistant: { id: scope.assistant } }) }) }))
-vi.mock('../../../../apps/desktop/src/lib/notices', () => ({ notify: vi.fn() }))
+vi.mock('../../../../apps/desktop/src/lib/notices', () => ({ notify: scope.notify }))
 let harness: ReturnType<typeof createReactHarness>
 const chats = [{ id: 'dm', kind: 'dm', peer_user_id: 'agent' }] as ChatItem[]
 const contacts = [{ id: 'agent', type: 'agent', owner_user_id: 'owner' }] as ContactUser[]
-function Fixture() { useOwnedAgentConversationEntry({ ownerId: 'owner', chats, contacts: scope.contacts, mobile: scope.mobile, onOpen: scope.onOpen }); return null }
+let openEntry: ReturnType<typeof useOwnedAgentConversationEntry>
+function Fixture() { openEntry = useOwnedAgentConversationEntry({ ownerId: 'owner', chats, contacts: scope.contacts, mobile: scope.mobile, onOpen: scope.onOpen }); return null }
 beforeEach(() => {
   harness = createReactHarness(); vi.clearAllMocks(); scope.drafts = {}; scope.attachments = {}; scope.assistant = null
   scope.identities = {}; scope.contacts = contacts; scope.mobile = false; scope.native = true; scope.devices = []
   scope.lookup.mockResolvedValue({ projectId: 'project', sessionId: 'session', view: 'general', projectionError: null, platformRecovery: null })
   scope.compose.mockResolvedValue(undefined)
 })
-afterEach(() => harness.cleanup())
+afterEach(() => { harness.cleanup(); delete (window as unknown as Record<string, unknown>)[SESSION_VIEW_REQUEST_BRIDGE_KEY] })
 it('opens the same task from the conversation bridge and leaves the assistant App entrance alone', async () => {
   await harness.render(<Fixture />)
   expect(openOwnedAgentEntry('dm')).toBe(true)
@@ -84,3 +86,85 @@ it('retains the old draft when its destination cannot accept the attachment', as
   await vi.waitFor(() => expect(scope.compose).toHaveBeenCalled())
   expect(scope.write).not.toHaveBeenCalled()
 })
+
+it('keeps the source group selected while resolving a participant, then prepares placement before opening the authorized session', async () => {
+  let resolve!: (value: unknown) => void
+  scope.lookup.mockImplementation(() => new Promise(value => { resolve = value }))
+  const prepare = vi.fn(() => Object.assign(vi.fn(), { requestId: 'group-open-request' }))
+  installSessionViewRequestBridge(window, { openChat: vi.fn(), prepareGroupSession: prepare })
+  await harness.render(<Fixture />)
+  expect(openOwnedAgentEntry('dm', 'agent', undefined, 'source-group')).toBe(true)
+  expect(scope.select).not.toHaveBeenCalled()
+  expect(scope.onOpen).not.toHaveBeenCalled()
+  expect(scope.open).not.toHaveBeenCalled()
+  resolve({ projectId: 'project', sessionId: 'session', view: 'general', projectionError: null, platformRecovery: null })
+  await vi.waitFor(() => expect(scope.open).toHaveBeenCalledOnce())
+  expect(prepare).toHaveBeenCalledWith('source-group', expect.objectContaining({ projectId: 'project', sessionId: 'session' }))
+  expect(prepare.mock.invocationCallOrder[0]).toBeLessThan(scope.open.mock.invocationCallOrder[0]!)
+  expect(scope.open).toHaveBeenCalledWith(expect.objectContaining({ sessionId: 'session' }), 'group-open-request')
+})
+
+it('retains the group when the participant cannot be resolved instead of showing a new-task page', async () => {
+  scope.lookup.mockRejectedValue(new Error('host unavailable'))
+  await harness.render(<Fixture />)
+  expect(openOwnedAgentEntry('dm', 'agent', undefined, 'source-group')).toBe(true)
+  await vi.waitFor(() => expect(scope.lookup).toHaveBeenCalledOnce())
+  await new Promise(resolve => setTimeout(resolve, 0))
+  expect(scope.onOpen).not.toHaveBeenCalled()
+  expect(scope.select).not.toHaveBeenCalled()
+  expect(scope.open).not.toHaveBeenCalled()
+})
+
+it('opens an owned group participant without an IM conversation or draft key', async () => {
+  const prepare = vi.fn(() => Object.assign(vi.fn(), { requestId: 'group-no-dm-request' }));
+  installSessionViewRequestBridge(window, { openChat: vi.fn(), prepareGroupSession: prepare });
+  await harness.render(<Fixture />);
+  expect(openEntry(undefined, 'agent', undefined, 'source-group')).toBe(true);
+  await vi.waitFor(() => expect(scope.open).toHaveBeenCalledOnce());
+  expect(prepare).toHaveBeenCalledOnce();
+  expect(scope.select).not.toHaveBeenCalled();
+  expect(scope.write).not.toHaveBeenCalled();
+});
+
+it('carries the group request receipt through the existing draft-opening path', async () => {
+  scope.drafts = { dm: 'group draft' };
+  const prepare = vi.fn(() => Object.assign(vi.fn(), { requestId: 'group-draft-request' }));
+  installSessionViewRequestBridge(window, { openChat: vi.fn(), prepareGroupSession: prepare });
+  await harness.render(<Fixture />);
+  openOwnedAgentEntry('dm', 'agent', undefined, 'source-group');
+  await vi.waitFor(() => expect(scope.compose).toHaveBeenCalledWith(expect.anything(), 'group draft', false, [], 'group-draft-request'));
+  expect(scope.open).not.toHaveBeenCalled();
+});
+
+it('carries the group receipt and device hint when the participant session is remote', async () => {
+  scope.lookup.mockResolvedValue(null);
+  scope.devices = [{ device_id: 'remote-device', is_online: true, capabilities: {}, projects: [], session_digest: [{ conversationId: 'remote-session', projectId: 'remote-project', title: 'Remote task', harness: 'claude', supported: true, agentUserId: 'agent', runtime: 'acp' }] }];
+  const prepare = vi.fn(() => Object.assign(vi.fn(), { requestId: 'remote-group-request' }));
+  installSessionViewRequestBridge(window, { openChat: vi.fn(), prepareGroupSession: prepare });
+  await harness.render(<Fixture />);
+  expect(openEntry(undefined, 'agent', undefined, 'project-group')).toBe(true);
+  await vi.waitFor(() => expect(scope.open).toHaveBeenCalledWith({ kind: 'session', deviceId: 'remote-device', projectId: 'remote-project', sessionId: 'remote-session' }, 'remote-group-request'));
+  expect(prepare).toHaveBeenCalledWith('project-group', { projectId: 'remote-project', sessionId: 'remote-session' });
+  expect(scope.select).not.toHaveBeenCalled();
+  expect(scope.notify).not.toHaveBeenCalled();
+});
+
+it('reports an absent local mapping and directory entry instead of silently preparing a participant', async () => {
+  scope.lookup.mockResolvedValue(null);
+  const prepare = vi.fn();
+  installSessionViewRequestBridge(window, { openChat: vi.fn(), prepareGroupSession: prepare });
+  await harness.render(<Fixture />);
+  expect(openEntry(undefined, 'agent', undefined, 'project-group')).toBe(true);
+  await vi.waitFor(() => expect(scope.notify).toHaveBeenCalledWith(expect.objectContaining({ tier: 'error' })));
+  expect(prepare).not.toHaveBeenCalled();
+  expect(scope.open).not.toHaveBeenCalled();
+});
+
+it('reports a missing mapped task without treating it as an empty new conversation', async () => {
+  scope.lookup.mockResolvedValue({ projectId: 'project', sessionId: 'session', view: null, projectionError: 'Mapped task is missing', platformRecovery: null });
+  await harness.render(<Fixture />);
+  expect(openEntry(undefined, 'agent', undefined, 'project-group')).toBe(true);
+  await vi.waitFor(() => expect(scope.notify).toHaveBeenCalledWith(expect.objectContaining({ tier: 'error' })));
+  expect(scope.open).not.toHaveBeenCalled();
+  expect(scope.onOpen).not.toHaveBeenCalled();
+});

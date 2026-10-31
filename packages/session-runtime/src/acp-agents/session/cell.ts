@@ -149,6 +149,14 @@ export class SessionCell {
   /** Native steering acknowledges admission, not consumption. Keep uncertain inputs until a
    * subsequent tool call or a completed turn proves the provider moved past their admission. */
   private pendingNativeSteers: Array<{ prompt: QueuedPrompt; toolsAtAdmission: ReadonlySet<string> }> = [];
+  private returnedNativeSteerIds: string[] = [];
+  private queuedSteeringScheduled = false;
+  private queuedSteeringInFlight = false;
+  private blockedQueuedSteer: QueuedPrompt | null = null;
+  private interruptedQueuedHead: string | null = null;
+  private queuedTurnFence = false;
+  /** Cancellation/teardown retires native admissions started before that boundary, even after ready/resume. */
+  private nativeAdmissionGeneration = 0;
   /** Cancellation would also withdraw inputs already admitted by the native adapter. */
   private nativeInputAfterStart = false;
   /** 这一轮被这一家以「正常结束」掩盖的失败(见 `acp.turnFailure`)。 */
@@ -425,7 +433,8 @@ export class SessionCell {
 
   private reconcileReplayedQueue(): void {
     const queued = this.machine.queuedPrompts.filter((prompt) => prompt.origin === 'communication');
-    const hasCanonicalReplay = this.deps.providerId === 'claude' || this.deps.providerId === 'codex';
+    const hasCanonicalReplay = this.deps.providerId === 'claude'
+      || this.deps.providerId === 'codex' || this.deps.historyRecovery?.canonicalReplay === true;
     const recorded = this.recordedDeliveryIds;
     const historyUnknown = this.replayHistoryUnknown || recorded === null;
     if (!queued.length || (!hasCanonicalReplay && !historyUnknown)) return;
@@ -528,6 +537,7 @@ export class SessionCell {
     }
     if (event.kind === 'agent_state') {
       this.onAgentState(event);
+      this.scheduleQueuedSteering();
       return;
     }
     if (event.kind === 'transcript_path') {
@@ -538,6 +548,7 @@ export class SessionCell {
     }
     if (event.kind === 'interrupted_for_message') {
       if (this.machine.phase.kind === 'working') {
+        this.nativeAdmissionGeneration += 1;
         this.interruptedForMessage = true;
         this.applyEvent({ type: 'CancellationRequested' });
       }
@@ -549,7 +560,9 @@ export class SessionCell {
       const dequeueAfterFailure = this.dequeueAfterFailure;
       if (event.error) this.deps.logger.error('SessionCell: prompt failed', { sessionId: this.sessionId, requestId: event.requestId, cause: event.error });
       if (request?.prompt.origin === 'communication' && event.error && isInvalidToken(event.error)) {
-        const queued = this.dispatch({ type: 'QueuePrompt', prompt: request.prompt });
+        // A refused token needs the next foreground/token boundary, not another immediate steer.
+        const { queueTiming: _timing, ...retry } = request.prompt;
+        const queued = this.dispatch({ type: 'QueuePrompt', prompt: retry });
         if (queued.success && !request.steered) this.requeuedAfterTokenBoundary = true;
       }
       if (event.error && request && !request.steered && request.cycle === this.activeTurnCompletion
@@ -637,6 +650,7 @@ export class SessionCell {
     if (event.kind === 'tool_call') {
       this.fillToolCall(this.machine.pendingPermissions.find((request) => request.toolCall?.toolCallId === event.toolCallId)?.toolCall ?? null);
     }
+    if (event.kind === 'tool_call' || event.kind === 'tool_update') this.scheduleQueuedSteering();
   }
 
   /** Wait for the native message’s cycle; queued/steered inputs return admission. */
@@ -704,6 +718,7 @@ export class SessionCell {
         prompt: {
           id: crypto.randomUUID(),
           ...input,
+          queueDispatching: undefined,
           createdAt: now,
           updatedAt: now,
         },
@@ -785,6 +800,7 @@ export class SessionCell {
     );
     if (!result.success) return result;
     if (queueEdit === null) this.releaseQueueAfterEdit();
+    this.scheduleQueuedSteering();
     return ok();
   }
 
@@ -802,6 +818,7 @@ export class SessionCell {
     ]);
     if (!result.success) return result;
     if (wasEditing) this.releaseQueueAfterEdit();
+    this.scheduleQueuedSteering();
     return ok();
   }
 
@@ -810,6 +827,7 @@ export class SessionCell {
       'invalid_state',
     ]);
     if (!result.success) return result;
+    this.scheduleQueuedSteering();
     return ok();
   }
 
@@ -848,6 +866,7 @@ export class SessionCell {
       'invalid_state',
     ]);
     if (!dispatchResult.success) return dispatchResult;
+    this.nativeAdmissionGeneration += 1;
     try {
       await this.agent.cancel({ sessionId: this.acpSessionId });
       return ok();
@@ -939,6 +958,7 @@ export class SessionCell {
   }
 
   async closeSession(): Promise<void> {
+    this.nativeAdmissionGeneration += 1;
     this.closeRequested = true;
     this.returnPendingNativeSteers();
     if (!this.agent.closeSession) return;
@@ -962,8 +982,19 @@ export class SessionCell {
     // If the provider consumed one without a later tool/completion, replay once: prefer duplicates
     // to silently losing an accepted message. Assistant text alone is not a consumption receipt.
     for (const { prompt } of pending) {
-      const result = this.dispatch({ type: 'QueuePrompt', prompt });
+      const { coalesceKey: _key, ...retained } = prompt;
+      const result = this.dispatch({ type: 'QueuePrompt', prompt: retained, retainIdentity: true });
       if (!result.success) throw new Error(`Cannot retain admitted steering: ${result.error.type}`);
+    }
+    if (pending.length) {
+      // Late receipts during close must follow earlier returned inputs. They are already admitted,
+      // so neither same-key replacement nor a newer still-reserved head may erase/reorder them.
+      const ids = new Set(this.machine.queuedPrompts.map(prompt => prompt.id));
+      this.returnedNativeSteerIds = [...new Set([
+        ...this.returnedNativeSteerIds.filter(id => ids.has(id)), ...pending.map(({ prompt }) => prompt.id),
+      ])];
+      this.applyEvent({ type: 'QueueReordered', ids: [...this.returnedNativeSteerIds,
+        ...this.machine.queuedPrompts.map(prompt => prompt.id).filter(id => !this.returnedNativeSteerIds.includes(id))] });
     }
   }
 
@@ -1418,6 +1449,7 @@ export class SessionCell {
 
   /** agent 停下:转录里开着的那一组按结局收口,状态回到 ready(抽干队列)。 */
   private endWork(outcome: TranscriptTurnOutcome, opts?: { dequeueQueuedPrompt?: boolean; foreground?: TranscriptTurn['foreground']; result?: Result<SessionPromptResult, AcpSendPromptError> }): boolean {
+    if (outcome.kind === 'cancelled' || outcome.kind === 'error') this.nativeAdmissionGeneration += 1;
     const working = this.machine.isWorking;
     if (!working && this.transcript.activeTurn === null) {
       settleAcceptedRequests(this.requests, this.transcript);
@@ -1439,6 +1471,7 @@ export class SessionCell {
     const resolve = this.resolveActiveTurnCompletion;
     this.resolveActiveTurnCompletion = null;
     this.closeTurnCompletion();
+    this.queuedTurnFence = false;
     try {
       // 正在关:这时出队的那一句只会被 `sendPromptInternal` 以「Session is closing」拒掉,而出队已经把它从队列里拿走了
       // ⇒ 人排的话凭空没了(2026-10-28 07:34:06)。关的时候不出队,队列原样留给关闭那一侧决定去留。
@@ -1529,6 +1562,7 @@ export class SessionCell {
    * 只是当年的回调签名把它们截断了。⇒ 现在整条事实带进来,分类交给唯一那个分类器。
    */
   processClosed(exit: AdapterExit, opts?: { abnormal?: boolean }): void {
+    this.nativeAdmissionGeneration += 1;
     const abnormal = opts?.abnormal !== false;
     // 这一轮的 reason 是从哪条路来的 —— 三条路的分岔就在下面,而它们在产品面长得**一模一样**
     // (都是一行「回合失败」)。不记这一行,下次问「为什么它说的是 A 不是 B」就只能靠猜。
@@ -1593,6 +1627,7 @@ export class SessionCell {
   }
 
   dispose(): void {
+    this.nativeAdmissionGeneration += 1;
     if (this.activeTurnCompletion || this.transcript.activeTurn) {
       this.endWork(this.closeRequested ? { kind: 'cancelled', reason: 'cancelled' }
         : classifyTurnFailure({ at: 'connection-lost', failure: null }).outcome,
@@ -1817,6 +1852,10 @@ export class SessionCell {
     },
   ): Promise<Result<SessionPromptResult, AcpSendPromptError>> {
     if (this.closeRequested) return acpErr.sessionBusy('Session is closing; resume it after teardown');
+    if (!opts?.fromQueue) {
+      prompt = { ...prompt, queueTiming: opts?.steerIfBusy && prompt.origin === 'communication'
+        ? 'next-tool-call' : undefined };
+    }
     // A delivery cannot be steered into the native summarization request. Retain its
     // original id/bytes in the ordinary durable queue, which drains at command completion.
     if (this.compacting) {
@@ -1875,6 +1914,8 @@ export class SessionCell {
     const started = decision.data.some((effect) => effect.type === 'promptStarted');
     if (started) {
       this.workStartedByOwner = isOwnerOrigin(prompt.origin);
+      this.queuedTurnFence = opts?.fromQueue === true
+        && (prompt.queueTiming !== 'next-tool-call' || prompt.origin !== 'communication' || !!prompt.attachments?.length);
       this.promptSequence += 1;
     }
     // spec session-injection 的 mid-turn 支:同一条标准 session/prompt 立即发进当前 turn。
@@ -1890,6 +1931,7 @@ export class SessionCell {
     if (!started && !steered) {
       const queued = ok({ queued: true });
       if (!opts?.skipAdmission) opts?.onAdmission?.(queued);
+      this.scheduleQueuedSteering();
       return queued;
     }
     // #6387 受理结果说清是「开了一轮」还是「插进了在飞的那一轮」—— 投递方要如实告诉扩展。
@@ -2058,6 +2100,12 @@ export class SessionCell {
           ? [...textBlocks, ...contextBlocks, ...turnContextBlocks, ...attachmentBlocks, ...trailingBlocks]
           : [...contextBlocks, ...turnContextBlocks, ...attachmentBlocks, ...textBlocks, ...trailingBlocks],
       };
+      const promptMeta = this.deps.historyRecovery?.promptMeta?.(promptRequest.prompt);
+      if (promptMeta) {
+        // Bind the exact native bytes to our original prompt, without putting any marker on the wire.
+        submittedMessage._meta = promptMeta;
+        if (!nativeSteer) this.push({ ...submittedMessage, steering: true, trigger: undefined });
+      }
       this.rawLog.record({
         kind: 'prompt',
         sessionId: this.acpSessionId,
@@ -2226,6 +2274,69 @@ export class SessionCell {
     const turn = this.transcript.activeTurn;
     if (!turn) return new Set();
     return new Set(replyItems(turn).flatMap(item => 'toolCallId' in item && item.status === 'running' ? [item.toolCallId] : []));
+  }
+
+  private scheduleQueuedSteering(): void {
+    if (this.queuedSteeringScheduled || this.queuedSteeringInFlight || this.replayingHistory) return;
+    this.queuedSteeringScheduled = true;
+    queueMicrotask(() => {
+      this.queuedSteeringScheduled = false;
+      void this.steerWaitingQueueHead();
+    });
+  }
+
+  /** Advance only an explicitly steerable queue prefix. Retain each input until its real receipt. */
+  private async steerWaitingQueueHead(): Promise<void> {
+    if (this.queuedSteeringInFlight) return;
+    this.queuedSteeringInFlight = true;
+    try {
+      while (!this.closeRequested && !this.replayingHistory && !this.compacting && !this.reverting
+        && !this.queuedTurnFence
+        && this.machine.phase.kind === 'working' && this.settingsInFlight === 0
+        && this.settingsBlockedReason === null && this.machine.pendingPermissions.length === 0) {
+        const [head] = this.machine.queuedPrompts;
+        if (!head || head === this.blockedQueuedSteer || head.queueTiming !== 'next-tool-call'
+          || head.origin !== 'communication' || head.attachments?.length || head.queueEdit || head.queueDispatching) return;
+        // Interrupt-only transports already own the next-tool boundary; retain the queue for WorkEnded.
+        if (!this.supportsSteering && this.agent.interruptForMessage) {
+          if (this.interruptedQueuedHead === head.id) return;
+          this.interruptedQueuedHead = head.id;
+          await this.agent.interruptForMessage({ sessionId: this.acpSessionId });
+          return;
+        }
+        const reserved = this.dispatchFor<InvalidStateError>({ type: 'ReserveQueuedPrompt', id: head.id }, ['invalid_state']);
+        if (!reserved.success) return;
+        const admissionGeneration = this.nativeAdmissionGeneration;
+        const admission = Promise.withResolvers<Result<{ queued: boolean }, AcpSendPromptError>>();
+        const sending = this.sendPromptInternal(head, {
+          fromQueue: true, steerIfBusy: true, onAdmission: result => admission.resolve(result),
+        });
+        void sending.then(result => admission.resolve(result), error => admission.resolve(acpErr.promptFailed(toSerializedError(error))));
+        const result = await admission.promise;
+        const phaseAfterAdmission = this.sessionState.lifecycle;
+        // injected proves admission, not consumption. A receipt from a withdrawn generation
+        // cannot remove this input's replay copy, regardless of the cell's current phase.
+        const accepted = result.success && !result.data.queued && !this.closeRequested
+          && admissionGeneration === this.nativeAdmissionGeneration;
+        this.dispatch({ type: 'ReleaseQueuedPrompt', id: head.id, accepted });
+        if (!result.success) {
+          this.blockedQueuedSteer = this.machine.queuedPrompts.find(prompt => prompt.id === head.id) ?? null;
+          this.deps.logger.error('SessionCell: queued steering refused; input retained', {
+            sessionId: this.sessionId, promptId: head.id, error: result.error,
+          });
+          return;
+        }
+        if (!accepted) return;
+        // A normal promptRequired race may have opened a new foreground cycle.
+        if (phaseAfterAdmission === 'ready') this.releaseQueueAfterEdit();
+      }
+    } catch (error) {
+      this.deps.logger.error('SessionCell: queued steering failed; input retained', {
+        sessionId: this.sessionId, error: toSerializedError(error),
+      });
+    } finally {
+      this.queuedSteeringInFlight = false;
+    }
   }
 
   private requestSteering(

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { ChatItem } from '@gugu/core/shared/types/chat'
+import { useAuth } from '@/store/auth'
 import { useChatStore } from '@/store/chatContext'
 import { useAgentDmSession } from '@/hooks/useAgentDmSession'
 import { useTimelineSession } from '@/mobile/agent-watch/use-timeline-session'
@@ -68,6 +69,7 @@ function DmConversation({ chat, target, shown: requestedShown, mobile, onBack, c
 }) {
   const { ref, shown } = useConversationVisibility(requestedShown)
   const { toast } = useToast()
+  const { user } = useAuth()
   const filePreview = useMessageFilePreview({ mobile, visible: shown, closeRightSurfaces: () => {}, toast })
   const [dismissals, setDismissals] = useState(0)
   const { t } = useTranslation('messaging')
@@ -119,7 +121,7 @@ function DmConversation({ chat, target, shown: requestedShown, mobile, onBack, c
     {messages.filter(message => message.local_send_state === 'failed').map(message => <button key={message.id} type="button" data-failed-message={message.id} onClick={() => retrySend(message.id)}>{t('outbox.sendFailed')} · {t('agent.dm.retry')}</button>)}
     {read.actionError ? <div role="alert">{read.actionError}</div> : null}
     {queue.error ? <div role="alert">{queue.error}</div> : null}
-    <ChatMessageComposer chatId={chat.id} hidden={!shown} attachGlyph={chrome?.attachGlyph} attachMenu={chrome?.attachMenu}
+    <ChatMessageComposer currentUserId={user?.id} chatId={chat.id} hidden={!shown} attachGlyph={chrome?.attachGlyph} attachMenu={chrome?.attachMenu}
       beforeSend={createSessionpageChatSendPreflight(true, chat.peer_user_id, t('agent.taskpage.recoveryFailed.unknown'))}
       disabled={gate.disabled} disabledReason={gate.disabledReason ? t(`composer.agent.disabledReason.${gate.disabledReason}`) : undefined} conversation={{ ...options.props, ...queue.props, isWorking: working,
       onStop: target ? () => { void read.cancel() } : undefined }}

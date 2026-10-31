@@ -312,7 +312,7 @@ describe('#2260 teamProvisionSaga', () => {
     installStatefulRpc()
     const res = await cancelTeamProvision(OP)
     expect(rpc.mock.calls.filter((c) => c[0] === 'cancel_agent_provision_operation')).toHaveLength(1)
-    expect(rpc.mock.calls.filter((c) => c[0] === 'remove_owned_agent')).toHaveLength(1)
+    expect(rpc.mock.calls.filter((c) => c[0] === 'remove_owned_agent')).toEqual([['remove_owned_agent', { p_agent_user_id: 'a-m1' }]])
     expect(rpc.mock.calls.filter((c) => c[0] === 'settle_provision_cancellation')).toHaveLength(1)
     expect(fakeMembers[0].phase).toBe('cancelled')
     expect(res.fullyCancelled).toBe(true)

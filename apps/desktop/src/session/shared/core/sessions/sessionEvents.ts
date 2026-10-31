@@ -76,11 +76,6 @@ export const sessionCreatedChannel = defineEvent<{
   session: Session;
 }>('session:created');
 
-export const sessionDeletedChannel = defineEvent<{
-  sessionId: string;
-  projectId: string;
-}>('session:deleted');
-
 /**
  * spec agent-status-writer —— 一条会话的状态写下之后的那一份输出。写入者是它唯一的来源:进程内读者、
  * 会话页渲染层、宿主按 agent 的流拿的都是这同一个形状,❌ 各自再推导。

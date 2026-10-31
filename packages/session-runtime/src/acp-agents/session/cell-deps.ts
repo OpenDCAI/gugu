@@ -1,6 +1,7 @@
 import type { AttachmentRef, PromptAttachment, ProviderPermissionModeMap } from '@gugu/session-core/acp';
 import type {
   AcpAgentApi,
+  IAcpBehavior,
   LiveSettingCapability,
   LiveSettingsCapability,
 } from '@gugu/session-core/agents/plugins';
@@ -74,6 +75,8 @@ export interface SessionCellDeps {
   liveSettings?: LiveSettingsCapability;
   /** Stable ACP modes are a permission source unless the provider explicitly says otherwise. */
   sessionModes?: 'permission' | 'none';
+  /** Provider-declared replay evidence and native/original prompt binding. */
+  historyRecovery?: IAcpBehavior['historyRecovery'];
   /**
    * 会话开出来时用户选的档是不是完全访问(`isAutoApproveIntent(input)`)。
    * 是 ⇒ `session/request_permission` 由 cell 当场替用户作答,不进待决、不带状态。

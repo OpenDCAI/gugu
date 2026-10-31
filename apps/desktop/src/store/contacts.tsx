@@ -504,22 +504,24 @@ export function ContactsProvider({ children, active = true }: { children: React.
   const removeOwnedAgent = useCallback(
     async (agentId: string) => {
       await contactsService.removeOwnedAgent(agentId)
-      // @@@4526 删除有两半,云端与本机。上面那行只做了云端那半:它删掉 identity.users 的身份、归档 DM、
-      // 清 chat 成员与云端 runtime state。本机那半——花名册记录、runtime session/activity、投递注册——
-      // 在此之前**没有任何一条路**会碰它(唯一的清理驱动是会话页那边会话消失时的 reaper,方向相反)。
-      // 于是删完之后花名册仍留着它,而会话页 provisioning 的幂等键正是花名册上那条 conversation 绑定:
-      // 切到会话页再切回来,它按"这条会话还没供给过"重新开户,被删掉的联系人带着 Online 又回到列表里。
-      //
-      // ❌ 不 catch。本机足迹没释放干净还让下面的 toast 说「Agent deleted」,就是这张票的形状本身。
-      await platform.releaseOwnedAgentLocalFootprint?.(agentId)
+      // The identity RPC is the deletion receipt. Local teardown/refresh cannot undo it.
+      try {
+        await platform.releaseOwnedAgentLocalFootprint?.(agentId)
+      } catch (error) {
+        rendererLogger('contacts/delete').error({ error: String(error) }, 'confirmed Agent deletion: local cleanup failed')
+      }
       // 删除已确认成功后:
       //  · 通讯录:立即移除；权威 getContacts 也不再枚举 tombstone；
       //  · 会话列表:直接走 chat store 既有 API 乐观移除(removeAgentFromChatList);
       //  · 已打开的群成员抽屉(ChatAreaPanel 组件态、外部够不到):广播事件由其自身监听即时收敛。
       // RPC 抛错则走不到这里 → 不会误移除(fail loud)。
-      removeAgentFromChatList(agentId, chatListRemovalRef.current)
-      window.dispatchEvent(new CustomEvent(UI_EVENTS.ownedAgentRemoved, { detail: { agentUserId: agentId } }))
-      await dropContactAndReload(agentId)
+      try {
+        removeAgentFromChatList(agentId, chatListRemovalRef.current)
+        window.dispatchEvent(new CustomEvent(UI_EVENTS.ownedAgentRemoved, { detail: { agentUserId: agentId } }))
+        await dropContactAndReload(agentId)
+      } catch (error) {
+        rendererLogger('contacts/delete').error({ error: String(error) }, 'confirmed Agent deletion: contact refresh failed')
+      }
     },
     [dropContactAndReload],
   )

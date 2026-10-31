@@ -295,6 +295,5 @@ export const extensionProjections = new ExtensionProjectionBridge((id) => {
 });
 
 // These hooks run synchronously, before another input can be admitted; a round finishing is not a task ending.
-sessionEvents.on('session:deleted', sessionId => extensionProjections.closeScope({ sessionId }));
 sessionEvents.on('session:archived', sessionId => extensionProjections.closeScope({ sessionId }));
 projectEvents.on('project:deleted', projectId => extensionProjections.closeScope({ projectId }));

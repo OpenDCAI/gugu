@@ -15,7 +15,32 @@ import {
 // #6938 gone 守卫删掉的名册行交给宿主,宿主据此收回发给它的卡。只交**真删掉**的:公网身份还在铸的行(#5331)留着,
 // 它的卡也就照留。
 describe('#6938 gone 守卫把真删掉的名册行交给宿主', () => {
-  test('原因是 cloud-gone;公网身份还在铸的行不交', async () => {
+  test('an owner-less legacy row rejected as not writable is not a confirmed deletion', async () => {
+    const env = await isolatedGuguEnv('gugu-not-writable-997-')
+    const agentId = 'legacy-other-account'
+    await createTestLocalAgent(env, { name: 'Legacy', gugu_user_id: agentId })
+    const client = pollOnlyRuntimeIdentityClient([], 'not writable is not deleted')
+    client.presence.set(agentId, presenceRow(agentId, { activity_status: 'running' }))
+    const rpc = client.rpc.bind(client)
+    client.rpc = (async (fn: string, args: Record<string, unknown>) => fn === 'set_agent_runtime_state'
+      ? { data: null, error: { message: 'agent is not writable by current user' } }
+      : rpc(fn, args)) as typeof client.rpc
+    const removed: string[] = []
+    const host = createDeviceRuntimeHostLoop({
+      env, intervalMs: 20, subscribeCommandWake: () => () => undefined,
+      machineIdentifier: () => 'not-writable-machine', capabilities: { terminals: [], runtimes: [] },
+      authProvider: { getAuth: async () => ({ accessToken: 'token', userId: 'new-owner' }) },
+      makeIdentityClient: () => client as unknown as DeviceRuntimeIdentityClient,
+      onAgentRosterRemoved: (_agent, reason) => { removed.push(reason) },
+    })
+    host.start()
+    try {
+      await awaitFact('not-writable row reached the host', async () => removed.length ? true : undefined)
+    } finally { await host.stop() }
+    expect(removed).toEqual(['cloud-gone'])
+  })
+
+  test('明确 removed 才给 cloud-removed;公网身份还在铸的行不交', async () => {
     const env = await isolatedGuguEnv('gugu-gone-revokes-6938-')
     const MINTING = 'agent-minting-now'
     const GONE = 'agent-deleted-elsewhere'
@@ -51,6 +76,6 @@ describe('#6938 gone 守卫把真删掉的名册行交给宿主', () => {
     } finally {
       await host.stop()
     }
-    expect(removed).toEqual([[GONE, 'cloud-gone']])
+    expect(removed).toEqual([[GONE, 'cloud-removed']])
   })
 })

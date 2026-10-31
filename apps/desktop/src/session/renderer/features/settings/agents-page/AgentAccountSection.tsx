@@ -42,7 +42,7 @@ function statusLabel(translate: Translate, row: MergedAccountRow): string {
 }
 
 /**
- * 还差的那几条腿用 composer 里「模式」控件的原词说(通用 / 编程)——❌ 不用「程序 / 腿 / agy」这类
+ * 还差的那几条腿用 composer 里「模式」控件的原词说(通用 / 终端)——❌ 不用「程序 / 腿 / agy」这类
  * 界面上没有的词。
  */
 function modesText(translate: Translate, legs: SessionpageLeg[]): string {

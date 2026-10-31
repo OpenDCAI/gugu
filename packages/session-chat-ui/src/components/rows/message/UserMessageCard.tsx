@@ -11,7 +11,7 @@ import { blockPlainText } from '@session-chat/core/markdown/plain-text';
 import { pxTokens } from '@session-chat/styles/px-tokens';
 import { vars as themeVars } from '@session-chat/styles/theme.css';
 import { assignInlineVars } from '@vanilla-extract/dynamic';
-import { For, Show, createEffect, createMemo, createResource, createSignal, onCleanup } from 'solid-js';
+import { For, Show, createEffect, createMemo, createResource, createSignal, onCleanup, type JSX } from 'solid-js';
 import type { ChatAttachment, ChatMessage } from '@session-chat/model';
 import {
   attachChipHeight,
@@ -26,9 +26,8 @@ import {
 import { isDoubleColumnLayout } from '@session-chat/core/layout/preset';
 import { srOnly } from './message.css';
 import { useChatTranslator } from '@session-chat/localization';
-import { useChatName } from '@session-chat/lib/chat-name';
-import { agentSendLabel } from '@session-chat/state/agent-send';
-import { readableLabel } from '../readable-label';
+import { conversationDestinationLayout } from './conversation-destination';
+import { ConversationDestination } from './ConversationDestination';
 import { UserMessageActions } from './UserMessageActions';
 import { CONVERSATION_EXPAND_H, conversationBubbleKey, hasConversationActions } from './conversation-body';
 import { UserMessageEditor } from './UserMessageEditor';
@@ -50,9 +49,8 @@ import {
   userMessageExpandRow,
 } from './user-message.css';
 
-export function UserMessageCard(props: { data: ChatMessage; ctx: RenderCtx; vars: MessageVars; conversation?: boolean; sender?: () => string | null }) {
+export function UserMessageCard(props: { data: ChatMessage; ctx: RenderCtx; vars: MessageVars; conversation?: boolean; sender?: () => string | null; footerReference?: () => JSX.Element }) {
   const translate = useChatTranslator();
-  const chatName = useChatName();
   const commands = useCommands();
   const [textRoot, setTextRoot] = createSignal<HTMLDivElement>();
   const [menuRoot, setMenuRoot] = createSignal<HTMLDivElement>();
@@ -65,10 +63,7 @@ export function UserMessageCard(props: { data: ChatMessage; ctx: RenderCtx; vars
     if (cleanup) onCleanup(cleanup);
   });
   const turn = useTurnState();
-  /** 对话布局里发出去的那条:气泡下面那一行最前面常驻「发到 群名」(管家 10-28)。 */
-  const sentTo = () => props.conversation && props.data.sentTo ? agentSendLabel(props.data.sentTo, translate, chatName) : undefined;
-  const destination = () => sentTo() && props.ctx.measureCtx ? readableLabel(sentTo()!, props.ctx.measureCtx(), props.ctx.measureCtx().width - 120) : null;
-  const actionVars = () => destination() ? { ...props.vars, footerH: Math.max(props.vars.footerH, destination()!.height) } : props.vars;
+  const destination = () => props.conversation && props.ctx.measureCtx ? conversationDestinationLayout(props.data, props.ctx.measureCtx(), innerWidth()) : null;
 
   const mCtx = () => props.ctx.measureCtx?.();
   // Layout-resolved geometry (#4874): `base` narrows padding, drops the border
@@ -155,7 +150,7 @@ export function UserMessageCard(props: { data: ChatMessage; ctx: RenderCtx; vars
     const available = availableWidth();
     if (!isDoubleColumnLayout(layout())) return available;
     const s = stack();
-    return userPillWidth(available, s ? s.width : null, vars(), layout());
+    return userPillWidth(available, s ? Math.max(s.width, destination()?.width ?? 0) : null, vars(), layout());
   });
 
   const isExpanded = () => mCtx()?.expandedId === props.data.id;
@@ -223,7 +218,7 @@ export function UserMessageCard(props: { data: ChatMessage; ctx: RenderCtx; vars
       data-conversation-caret={props.data.conversationCaret ? 'true' : undefined}
       class={`${card({ state: isOverflowing() && !isExpanded() ? 'overflowing' : 'static', current: isGenerating() })} ${cardRoot} ${userCardGroup}`}
       style={{
-        ...assignInlineVars(cardVars, pxTokens({ ...styleVars(), height: cardH() })),
+        ...assignInlineVars(cardVars, pxTokens({ ...styleVars(), height: cardH() + (destination()?.height ?? 0) })),
         // 对话布局里人那一侧的字色由 conversation-message.css 给(跟着气泡底色反色),这里只管 agent 那一侧。
         ...(props.conversation && props.data.role !== 'assistant' ? {} : assignInlineVars({ [themeVars.fgBody]: props.conversation ? themeVars.fg : themeVars.bubbleUserFg, [themeVars.link]: props.conversation ? themeVars.fg : themeVars.bubbleUserFg })),
         // `base` pill: explicit hug width + right alignment. Left as-is in
@@ -239,12 +234,14 @@ export function UserMessageCard(props: { data: ChatMessage; ctx: RenderCtx; vars
       }}
     >
       <div class={srOnly}>{plainText()}</div>
-      <div ref={setTextRoot} data-conversation-text={props.conversation ? props.data.id : undefined}>
+      <div ref={setTextRoot} data-conversation-text={props.conversation ? props.data.id : undefined}
+        style={destination() ? { height: `${Math.max(0, cardH() - 2 * vars().userCardPadY - 2 * vars().cardBorder)}px`, overflow: 'hidden' } : undefined}>
         <Show when={stack()}>{(s) => <BlockStackView node={s()} />}</Show>
       </div>
       <Show when={!isExpanded() && isOverflowing()}>
-        <div class={cardFadeOverlay} />
+        <div class={cardFadeOverlay} style={destination() ? { bottom: `${destination()!.height}px` } : undefined} />
       </Show>
+      <Show when={destination()}>{target => <ConversationDestination text={target().text} width={target().width} />}</Show>
       <Show when={showStop()}>
         <button
           type="button"
@@ -260,6 +257,11 @@ export function UserMessageCard(props: { data: ChatMessage; ctx: RenderCtx; vars
       </Show>
     </div>
     </Show>
+    <Show when={!stack() && !props.data.streaming && Boolean(props.data.attachments?.length) && destination()}>{target =>
+      <div data-attachment-destination style={{ display: 'flex', 'justify-content': props.data.role === 'assistant' ? 'flex-start' : 'flex-end' }}>
+        <ConversationDestination text={target().text} width={target().width} />
+      </div>
+    }</Show>
     {/* 对话布局里气泡折着:气泡下面单起一行「展开全文」,再下面才是时间那一行(owner 定稿 0 号图)。点了和点气泡一样展开(ChatRoot 认 `data-expand-user-card`)。 */}
     <Show when={props.conversation && isOverflowing() && !isExpanded()}>
       <div class={userMessageExpandRow} style={{ height: `${CONVERSATION_EXPAND_H}px` }}>
@@ -267,15 +269,11 @@ export function UserMessageCard(props: { data: ChatMessage; ctx: RenderCtx; vars
           data-conversation-bubble-key={conversationBubbleKey(props.data)}>{translate('transcript.showFullText')}</button>
       </div>
     </Show>
-    <Show when={canCollapse()}>
-      <div class={userMessageExpandRow} style={{ height: `${CONVERSATION_EXPAND_H}px` }}>
-        <button type="button" class={userMessageExpand} data-collapse-id={conversationBubbleKey(props.data)}
-          data-collapse-anchor={props.data.id}>{translate('transcript.collapseFullText')}</button>
-      </div>
-    </Show>
-    <Show when={!props.conversation || hasConversationActions(props.data)}>
+    <Show when={!props.conversation || hasConversationActions(props.data) || props.footerReference || canCollapse()}>
     <UserMessageActions itemId={props.data.id} text={props.data.text} at={props.data.at}
-      generating={isGenerating()} readOnly={Boolean(props.data.guguDelivery) || (props.conversation && props.data.role === 'assistant')} vars={actionVars()} prefix={destination()?.text ?? sentTo()} controlHeight={destination() && destination()!.height > props.vars.footerH ? props.vars.footerH : undefined} />
+      reference={props.footerReference}
+      collapse={canCollapse() ? { bubbleKey: conversationBubbleKey(props.data), anchorId: props.data.id } : undefined}
+      generating={isGenerating()} readOnly={Boolean(props.data.guguDelivery) || (props.conversation && props.data.role === 'assistant')} vars={props.vars} />
     </Show>
     </>}>
       {(editing) => <UserMessageEditor edit={editing()} height={editorMetrics().height} textHeight={editorMetrics().textHeight} />}

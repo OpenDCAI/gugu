@@ -49,6 +49,7 @@ describe('AgentSettingsModal removed lifecycle boundary (#2219)', () => {
     ) as HTMLButtonElement | undefined
     expect(deleteButton, 'active owned agent exposes the real settings delete path').toBeTruthy()
     await clickElement(deleteButton!)
+    expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining('任务历史'))
     await waitForCondition(() => removeOwnedAgent.mock.calls.length === 1, 'agent deletion should finish')
     expect(onClose, 'successful deletion must exit the live settings container').toHaveBeenCalledOnce()
   })

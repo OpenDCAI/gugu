@@ -1,4 +1,4 @@
-import type { LocalAgentRecord } from './agents'
+type AgentRosterRecord = { cache?: Record<string, unknown> | null; ownerId?: string; status?: string | null }
 
 // #4277 会话不带账号,但 agent 身份有主人:名册行在 cache 里记着它归哪个咕咕账号(缓存云端
 // identity.users.owner_user_id 这个既有事实)。同一台机器上换账号时,别家的行**留着**(它的主人回来
@@ -7,14 +7,14 @@ import type { LocalAgentRecord } from './agents'
 // 时会被 provisioning 问一次云端并补上)。
 export const AGENT_OWNER_CACHE_KEY = 'sessionpage_owner_user_id'
 
-export function agentOwnerUserId(record: Pick<LocalAgentRecord, 'cache'> | null | undefined): string {
-  const value = record?.cache?.[AGENT_OWNER_CACHE_KEY]
+export function agentOwnerUserId(record: AgentRosterRecord | null | undefined): string {
+  const value = record?.ownerId ?? record?.cache?.[AGENT_OWNER_CACHE_KEY]
   return typeof value === 'string' ? value : ''
 }
 
 /** 这行可能归这个账号吗:记了 owner 就比对,没记的按「可能」。 */
 export function agentMayBelongTo(
-  record: Pick<LocalAgentRecord, 'cache'> | null | undefined,
+  record: AgentRosterRecord | null | undefined,
   ownerUserId: string | null | undefined
 ): boolean {
   const recorded = agentOwnerUserId(record)
@@ -23,9 +23,16 @@ export function agentMayBelongTo(
 }
 
 /** 运行时巡扫的候选行:只留可能归这个账号的。 */
-export function agentsForOwner<T extends Pick<LocalAgentRecord, 'cache'>>(
+export function agentsForOwner<T extends AgentRosterRecord>(
   agents: readonly T[],
-  ownerUserId: string | null | undefined
+  ownerUserId: string | null | undefined,
+  options: { includeArchived?: boolean } = {},
 ): T[] {
-  return agents.filter((agent) => agentMayBelongTo(agent, ownerUserId))
+  return agents.filter((agent) => agentMayBelongTo(agent, ownerUserId) && (options.includeArchived || agent.status !== 'archived'))
+}
+
+/** The single roster archival mutation; each host retains its existing persistence. */
+export function archiveAgentRecord<T extends AgentRosterRecord>(record: T): T {
+  record.status = 'archived'
+  return record
 }

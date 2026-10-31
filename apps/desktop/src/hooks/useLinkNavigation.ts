@@ -19,7 +19,7 @@ export function useLinkNavigation(input: {
   chats: readonly ChatItem[]
   contacts: readonly ContactUser[]
   openChat: (chatId: string) => string | void
-  openSender?: (sender: ContactUser) => Promise<void> | void
+  openSender?: (sender: ContactUser, sourceChatId?: string) => Promise<void> | void
   openFile: (chatId: string, target: Extract<GuguLinkTarget, { kind: 'file' }>, source: Pick<LinkNavigation, 'message' | 'restore'>) => void
   openApp: (chatId: string, extensionId: string, tab: string) => void
   openProject: (projectId: string) => void
@@ -42,7 +42,13 @@ export function useLinkNavigation(input: {
         const sender = state.contacts.find(contact => contact.id === target.userId)
           ?? readIdentityDirectoryBridge()?.getSnapshot()?.[target.userId]
         if (!sender || !state.openSender) throw new Error(messages.current.t('links.unavailable'))
-        await state.openSender(sender)
+        if (target.sourceChatId && !readMobileShell()) {
+          const source = state.chats.find(chat => chat.id === target.sourceChatId)
+          if (!source || (source.kind !== 'group' && source.kind !== 'topic')) throw new Error(messages.current.t('links.unavailable'))
+          const sourceChatId = source.kind === 'topic' ? source.source_chat_id : source.id
+          if (!sourceChatId) throw new Error(messages.current.t('links.unavailable'))
+          await state.openSender(sender, sourceChatId)
+        } else await state.openSender(sender)
         return 'own' as const
       }
       if (target.kind === 'file') {
