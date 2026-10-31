@@ -31,9 +31,9 @@ describe('shared ACP prompt admission', () => {
     const promptDetached = vi.fn(async () => ({ requestId: 'native-1', queued: true }));
     state.client = { promptDetached, waitPromptDetached: async () => ({}) };
     const attachments = [{ type: 'attachment' as const, id: 'image-a', mimeType: 'image/png' as const }];
-    const result = await injectEmdashPromptDetached('conv-1', 'caption', { origin: 'manual', attachments });
+    const result = await injectEmdashPromptDetached('conv-1', 'caption', { origin: 'manual', attachments, clientMessageId: 'sender-input' });
     await result.completion;
-    expect(promptDetached).toHaveBeenCalledExactlyOnceWith({ sessionId: 'conv-1', prompt: { text: 'caption', origin: 'manual', attachments } });
+    expect(promptDetached).toHaveBeenCalledExactlyOnceWith({ sessionId: 'conv-1', prompt: { text: 'caption', origin: 'manual', attachments, clientMessageId: 'sender-input' } });
   });
   it('keeps several idle-only replies as separate user messages with exact provider-visible text', async () => {
     const { harness, runtime, finish } = await busySession();

@@ -71,7 +71,7 @@ import type {
 } from './cell-deps';
 import { PermissionBroker, selectAutoApproveOption } from './permission-broker';
 import { RawAcpLog, type RawAcpEvent } from './raw-log';
-import { acceptPromptMessage, settleAcceptedRequests, type PromptRequest, type PromptResult } from './prompt-request';
+import { acceptPromptMessage, confirmedPromptMessage, settleAcceptedRequests, type PromptRequest, type PromptResult } from './prompt-request';
 import { prepareNativePrompt, type NativePromptPreparation } from './prompt-preparation';
 import { canYieldRepliedAssistant, replyItems } from '@gugu/session-core/session-record/reply-process';
 
@@ -2187,6 +2187,7 @@ export class SessionCell {
         } else {
           // Request-activity transports identify their aggregate cycle on dispatch acknowledgement.
           request.dispatched = true;
+          if (prompt.clientMessageId) this.push(confirmedPromptMessage(request));
           void (cycle ?? Promise.resolve(ok({ queued: false }))).then(result => {
             request.completion.resolve(result);
             this.requests.delete(requestId);

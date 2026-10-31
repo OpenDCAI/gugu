@@ -41,7 +41,7 @@ export interface EmdashDeliveryBridge {
   injectEmdashPromptDetached(
     sessionId: string,
     text: string,
-    opts?: { steerIfBusy?: boolean; coalesceKey?: string; deferredDispatch?: true; origin?: 'manual'; attachments?: import('@gugu/session-core/acp/client').PromptAttachment[] },
+    opts?: { clientMessageId?: string; steerIfBusy?: boolean; coalesceKey?: string; deferredDispatch?: true; origin?: 'manual'; attachments?: import('@gugu/session-core/acp/client').PromptAttachment[] },
   ): Promise<{ outcome: 'started' | 'queued' | 'declined' | 'missing'; completion: Promise<void>; turnId?: string }>
   ensureEmdashSession?(sessionId: string): Promise<void>
   /** @@@4526B 宿主 ACP 通道的取消口。 */
@@ -385,7 +385,7 @@ class EmdashAgentRegistry {
     // codex 明明声明了 next-tool-call,军训教官照样堆出 Queued prompts (21)。
     return this.tryInjectInternal(sessionId, message.text, {
       // session-direct 的唤醒由发送方 await(#6546 injectWithWake),这里不另踢一脚。
-      ...(message.kind === 'session-direct' ? { suppressWake: true } : {}),
+      ...(message.kind === 'session-direct' ? { suppressWake: true, clientMessageId: message.id } : {}),
       ...(message.delivery ? { delivery: message.delivery } : {}),
       ...(message.deferredDispatch ? { deferredDispatch: true } : {}),
     })
@@ -415,7 +415,7 @@ class EmdashAgentRegistry {
   private async tryInjectInternal(
     sessionId: string,
     text: string,
-    opts?: { suppressWake?: boolean; delivery?: SessionMessageDelivery; deferredDispatch?: true },
+    opts?: { clientMessageId?: string; suppressWake?: boolean; delivery?: SessionMessageDelivery; deferredDispatch?: true },
   ): Promise<false | SessionpageDeliveryReceipt> {
     const bridge = this.bridge
     if (!bridge) {
@@ -469,6 +469,7 @@ class EmdashAgentRegistry {
     const steerIfBusy = !isHumanDmDelivery(text) && !opts?.delivery?.queue
       && sessionInjectionCapabilityFor(summary.providerId, 'acp').timing === 'next-tool-call'
     const injectOpts = {
+      ...(opts?.clientMessageId ? { clientMessageId: opts.clientMessageId } : {}),
       ...(opts?.delivery?.attachments?.length ? { attachments: opts.delivery.attachments } : {}),
       ...(opts?.delivery?.origin ? { origin: opts.delivery.origin } : {}),
       ...(steerIfBusy ? { steerIfBusy: true } : {}),

@@ -4,6 +4,8 @@ export type { PromptAttachment } from './attachments';
 
 export const promptInputSchema = z.object({
   text: z.string(),
+  /** Sender-owned identity preserved on the accepted user row, independent of native turn ids. */
+  clientMessageId: z.string().min(1).max(256).optional(),
   hiddenContext: z.string().optional(),
   attachments: z.array(promptAttachmentSchema).optional(),
   /**

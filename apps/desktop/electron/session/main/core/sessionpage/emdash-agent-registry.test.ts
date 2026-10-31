@@ -47,7 +47,7 @@ describe('native refusal at the admission boundary', () => {
     if (recovers) {
       await expect(result).resolves.toMatchObject({ turnId: 'native-receipt' })
       expect(inject).toHaveBeenCalledTimes(2)
-      expect(inject.mock.calls.map(call => call)).toEqual([['ended', 'same bytes', { steerIfBusy: true }], ['ended', 'same bytes', { steerIfBusy: true }]])
+      expect(inject.mock.calls.map(call => call)).toEqual([['ended', 'same bytes', { clientMessageId: 'same-message', steerIfBusy: true }], ['ended', 'same bytes', { clientMessageId: 'same-message', steerIfBusy: true }]])
     } else {
       await expect(result).rejects.toThrow('original provider session cannot resume')
       expect(inject).toHaveBeenCalledTimes(1)
@@ -464,7 +464,7 @@ describe('#4708 session-direct honors the per-harness injection tier', () => {
       kind: 'session-direct',
     })
 
-    expect(injectEmdashPromptDetached).toHaveBeenCalledExactlyOnceWith(sessionId, text, { steerIfBusy: true })
+    expect(injectEmdashPromptDetached).toHaveBeenCalledExactlyOnceWith(sessionId, text, { clientMessageId: 'count-off-1', steerIfBusy: true })
     expect(receipt).toMatchObject({ turnId: `turn-${providerId}` })
   })
 
@@ -481,7 +481,7 @@ describe('#4708 session-direct honors the per-harness injection tier', () => {
     await emdashAgentRegistry.tryInjectSessionMessage('conv-codex-acp', {
       id: 'app-message', text: 'APP FACT', kind: 'session-direct', deferredDispatch: true,
     })
-    expect(injectEmdashPromptDetached.mock.calls[0]?.[2]).toEqual({ steerIfBusy: true, deferredDispatch: true })
+    expect(injectEmdashPromptDetached.mock.calls[0]?.[2]).toEqual({ clientMessageId: 'app-message', steerIfBusy: true, deferredDispatch: true })
   })
 
   // 发信方要排队:同一个 next-tool-call 家不带 steerIfBusy(会话机忙就排进队列),key 原样交给会话机的同键替换。
@@ -503,8 +503,8 @@ describe('#4708 session-direct honors the per-harness injection tier', () => {
     })
 
     expect(injectEmdashPromptDetached.mock.calls.map((call) => call[2])).toEqual([
-      undefined,
-      { coalesceKey: 'app:lens:paper' },
+      { clientMessageId: 'queued-1' },
+      { clientMessageId: 'queued-2', coalesceKey: 'app:lens:paper' },
     ])
   })
 
@@ -518,7 +518,7 @@ describe('#4708 session-direct honors the per-harness injection tier', () => {
     })
 
     expect(injectEmdashPromptDetached).toHaveBeenCalledTimes(1)
-    expect(injectEmdashPromptDetached.mock.calls[0]?.[2]).toBeUndefined()
+    expect(injectEmdashPromptDetached.mock.calls[0]?.[2]).toEqual({ clientMessageId: 'count-off-2' })
   })
 
   it('surfaces a queued-only detached result as loud failure', async () => {

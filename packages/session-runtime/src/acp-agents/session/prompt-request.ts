@@ -17,9 +17,15 @@ export type PromptRequest = {
   completion: ReturnType<typeof Promise.withResolvers<PromptResult>>;
 };
 
+/** Both native receipt kinds annotate the existing user row without changing its cycle ownership. */
+export function confirmedPromptMessage(request: PromptRequest, messageId = request.messageId): PromptRequest['submitted'] {
+  return { ...request.submitted, messageId, contentMode: 'replace',
+    ...(request.prompt.clientMessageId ? { _meta: { ...request.submitted._meta, clientMessageId: request.prompt.clientMessageId } } : {}) };
+}
+
 export function acceptPromptMessage(request: PromptRequest, messageId: string, transcript: AcpTranscriptParser,
   push: (event: NormalizedEvent) => void, providerId: string): void {
-  const inserted = { ...request.submitted, messageId, contentMode: 'replace' as const };
+  const inserted = confirmedPromptMessage(request, messageId);
   if (!transcript.hasEntity(inserted)) throw new Error(`ACP provider '${providerId}' returned an accepted receipt before its user echo (${messageId})`);
   request.messageId = messageId;
   request.accepted = true;
