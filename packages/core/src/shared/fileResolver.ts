@@ -102,12 +102,29 @@ export function requireFileRevision(revision: FileRevision): void {
     /(^\/|\/\/|\/$|:|\\|\p{Cc}|(^|\/)\.\.?($|\/))/u.test(revision.relative_path))) throw new Error('Invalid local file revision')
 }
 
+/** The resolver response and an authorized message projection carry the same display metadata. */
+export function parseFileMetadata(value: unknown, ref?: FileRef): FileMetadata {
+  if (!value || typeof value !== 'object') throw new Error('Invalid file metadata')
+  const row = value as FileRevision & { status: string; code?: string; bucket_id?: string; object_name?: string; message_id?: string }
+  if (row.status === 'missing' && row.code === 'object_not_found') return { status: 'missing', sha256: row.sha256 ?? null }
+  if (row.status === 'gone' || row.status === 'expired') return { status: row.status, sha256: row.sha256 ?? null }
+  if (row.status !== 'ready') throw new Error('Invalid file metadata')
+  const { source, item_id, version, chat_id, file_name, content_type, size_bytes, sha256, width, height, host_device_id, host_project_id, host_account_id, host_label, host_online, relative_path, temporary_transfer } = row
+  const revision = { source, item_id, version, chat_id, file_name, content_type, size_bytes, sha256, width, height, host_device_id, host_project_id, host_account_id, host_label, host_online, relative_path, temporary_transfer }
+  if (source === 'managed-object' && sha256 === null && row.bucket_id === 'chat-media' && typeof row.object_name === 'string' && row.object_name &&
+    ref && 'message_id' in ref && row.message_id === ref.message_id) {
+    Object.assign(revision, { legacy_object: Object.freeze({ bucket_id: 'chat-media', object_name: row.object_name, message_id: row.message_id }) })
+  }
+  requireFileRevision(revision)
+  return { status: 'ready', revision }
+}
+
 /** Resolving metadata never signs or reads. The first byte read opens exactly one authorized snapshot. */
 export function createFileResolver(providers: FileProviders) {
   function resolveFile(ref: FileRef, actor: FileActor, options: { localOnly: true; purpose?: 'file'; signal?: AbortSignal }): Promise<ResolvedFile | null>
-  function resolveFile(ref: FileRef, actor: FileActor, options: { purpose: 'preview'; signal?: AbortSignal }): Promise<ResolvedPreview>
+  function resolveFile(ref: FileRef, actor: FileActor, options: { purpose: 'preview'; metadata?: FileMetadata; signal?: AbortSignal }): Promise<ResolvedPreview>
   function resolveFile(ref: FileRef, actor: FileActor, options?: { purpose?: 'file'; signal?: AbortSignal }): Promise<ResolvedFile>
-  async function resolveFile(ref: FileRef, actor: FileActor, options: { purpose?: 'file' | 'preview'; localOnly?: boolean; signal?: AbortSignal } = {}): Promise<ResolvedFile | ResolvedPreview | null> {
+  async function resolveFile(ref: FileRef, actor: FileActor, options: { purpose?: 'file' | 'preview'; metadata?: FileMetadata; localOnly?: boolean; signal?: AbortSignal } = {}): Promise<ResolvedFile | ResolvedPreview | null> {
     if (!actor.accountId || !actor.actorId) throw new Error('File reader is not signed in')
     fileRefKey(ref)
     const cancellation = new AbortController()
@@ -116,7 +133,12 @@ export function createFileResolver(providers: FileProviders) {
     const local = await providers.local(context)
     if (options.localOnly && !local) return null
     if (local && (local.revision.source !== 'local' || local.revision.host_account_id !== context.actor.accountId)) throw new Error('Local file is not owned by this account')
-    const metadata = local ? { status: 'ready' as const, revision: local.revision } : await providers.metadata(context)
+    // A message supplies display metadata only. Full-file reads always re-resolve authorization.
+    const projected = options.purpose === 'preview' ? options.metadata : undefined
+    if (projected && projected.status !== 'ready') return projected
+    if (projected?.status === 'ready' && 'item_id' in ref && (projected.revision.item_id !== ref.item_id ||
+      ref.version !== undefined && projected.revision.version !== ref.version)) throw new Error('File preview reference changed')
+    const metadata = local ? { status: 'ready' as const, revision: local.revision } : projected ?? await providers.metadata(context)
     if (metadata.status !== 'ready') return metadata
     const revision = Object.freeze({ ...metadata.revision })
     requireFileRevision(revision)

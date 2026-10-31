@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type RefObject } from 'react'
+import { useEffect, useRef, useState, type RefObject, type CSSProperties } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useQuery } from '@tanstack/react-query'
 import type { ParsedAttachment } from '@gugu/core/shared/ui/attachmentModels'
@@ -44,7 +44,7 @@ export function MediaAttachmentBubble({ meta, messageId, isMine, onOpenFile, sen
   // A sending row owns an ephemeral blob preview, not a committed download capability.
   if (meta.source.kind === 'url' && meta.source.url.startsWith('blob:')) return <div ref={box} className={FIT_BUBBLE}>
     {isRenderableImage(meta.fileName, meta.mimeType)
-      ? <img src={meta.source.url} alt={meta.fileName} className="chat-inline-image" />
+      ? <img src={meta.source.url} alt={meta.fileName} className="chat-inline-image" style={inlineImageStyle(meta.imageDimensions)} />
       : <FileAttachmentCard file={meta} isMine={isMine} onOpen={() => undefined} />}{caption}
   </div>
   // App 包:按这条消息装(发布者就是发送者,装的时候由宿主读这条消息)。
@@ -62,8 +62,10 @@ function InlineImage({ meta, messageId, chatId, isMine }: { meta: ParsedAttachme
   const { t } = useTranslation('messaging')
   const box = useRef<HTMLDivElement>(null)
   const near = useNearViewport(box)
-  const view = useAttachmentObjectUrl(meta.source, 'thumb', near)
+  const view = useAttachmentObjectUrl(meta.source, 'thumb', near, meta.fileMetadata)
   const img = useRef<HTMLImageElement>(null)
+  const dimensions = meta.fileMetadata?.status === 'ready' ? meta.fileMetadata.revision : meta.imageDimensions ?? ('link' in view ? view.link : undefined)
+  const imageStyle = inlineImageStyle(dimensions)
   const ready = view.status === 'ready'
   const sourceKey = sourceKeyOf(meta.source)
   // 查看器:先拿缩略图打开,翻到这一张再取原图(同一份缓存);卸载时收回 object URL。
@@ -96,25 +98,34 @@ function InlineImage({ meta, messageId, chatId, isMine }: { meta: ParsedAttachme
   }
   if (view.status === 'ready') {
     return (
-      <Button variant="ghost" size="icon" onClick={(e) => openImageFromThumb(e.currentTarget.querySelector('img') as HTMLImageElement)} style={{ display: 'block', width: 'auto', minHeight: 0, padding: 0, border: 'none', background: 'none', cursor: 'zoom-in' }}>
+      <Button variant="ghost" size="icon" onClick={(e) => openImageFromThumb(e.currentTarget.querySelector('img') as HTMLImageElement)} style={{ display: 'block', width: 'auto', minHeight: 0, padding: 0, border: 'none', background: 'none', cursor: 'zoom-in', ...imageStyle, ...(imageStyle ? { position: 'relative' } : {}) }}>
         <img
           ref={img}
           data-testid={AUTOMATION_TEST_IDS.messageAttachmentImage} data-image-viewer-src={view.objectUrl}
           src={view.objectUrl}
           alt={meta.fileName}
           className="chat-inline-image"
+          style={imageStyle ? { position: 'absolute', inset: 0, width: '100%', height: '100%' } : undefined}
           decoding="async"
         />
       </Button>
     )
   }
-  const dims = view.link?.width && view.link.height ? fitInline(view.link.width, view.link.height) : null
-  return <div ref={box} aria-label={meta.fileName} className="chat-inline-image chat-inline-image--pending" style={dims ?? undefined} />
+  return <div ref={box} aria-label={meta.fileName} className="chat-inline-image chat-inline-image--pending" style={imageStyle} />
 }
 
 function fitInline(width: number, height: number): { width: number; height: number } {
   const scale = Math.min(1, INLINE_MAX / width, INLINE_MAX / height)
-  return { width: Math.round(width * scale), height: Math.round(height * scale) }
+  return { width: Math.max(1, Math.round(width * scale)), height: Math.max(1, Math.round(height * scale)) }
+}
+
+
+/** Sending, loading and decoded pixels keep the same fitted box, including narrow columns. */
+function inlineImageStyle(dimensions?: { width?: number | null; height?: number | null }): CSSProperties | undefined {
+  const { width, height } = dimensions ?? {}
+  if (typeof width !== 'number' || typeof height !== 'number' || !Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return undefined
+  const fitted = fitInline(width, height)
+  return { width: fitted.width, height: 'auto', aspectRatio: `${fitted.width} / ${fitted.height}`, maxWidth: 'min(100%, calc(100cqw - 24px))' }
 }
 
 /** 滚到眼前(含上下 400px)才去取:一屏一批,往回翻历史时不把整段都下了。 */

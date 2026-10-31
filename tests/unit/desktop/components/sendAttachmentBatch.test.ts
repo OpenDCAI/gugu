@@ -137,6 +137,37 @@ describe('sendAttachmentBatch', () => {
     expect(commits()[0]!.message_id, 'the commit reuses the placeholder id').toBe(appended[0].id)
     expect(getByIdMock).toHaveBeenCalledWith(appended[0].id, 'user-1')
   })
+  it('knows image dimensions before publishing the optimistic row, without trusting them in the commit', async () => {
+    arrange()
+    vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:preview')
+    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
+    const close = vi.fn()
+    const decode = vi.fn(async () => ({ width: 1200, height: 900, close }))
+    vi.stubGlobal('createImageBitmap', decode)
+    const image = new File(['png'], 'shot.png', { type: 'image/png' })
+    const appended: MessageItem[] = []
+    await sendAttachmentBatch({ files: [image], chatId: 'chat-1', senderId: 'user-1', toUserIds: null,
+      appendMessage: message => { appended.push(message) }, removePlaceholder: vi.fn() })
+    expect(appended[0]).toMatchObject({ image_dimensions: { width: 1200, height: 900 }, local_send_state: 'sending' })
+    expect(decode).toHaveBeenCalledWith(image)
+    expect(close).toHaveBeenCalledOnce()
+    expect(commits()[0].message_id).toBe(appended[0].id)
+    expect(commits()[0]).not.toHaveProperty('image_dimensions')
+  })
+
+  it('a missing local image decoder does not turn a valid upload into a send failure', async () => {
+    arrange()
+    vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:preview')
+    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
+    vi.stubGlobal('createImageBitmap', vi.fn(async () => { throw new Error('No local decoder') }))
+    const appended: MessageItem[] = []
+    await sendAttachmentBatch({ files: [new File(['svg'], 'shot.svg', { type: 'image/svg+xml' })], chatId: 'chat-1', senderId: 'user-1', toUserIds: null,
+      appendMessage: message => { appended.push(message) }, removePlaceholder: vi.fn() })
+    expect(appended[0]).not.toHaveProperty('image_dimensions')
+    expect(uploadMock).toHaveBeenCalledOnce()
+    expect(commits()).toHaveLength(1)
+  })
+
   it('a failed batch takes down the placeholders of the unsent files', async () => {
     arrange()
     vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:preview')
