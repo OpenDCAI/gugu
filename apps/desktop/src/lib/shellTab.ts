@@ -58,3 +58,13 @@ export function useShellTabAmong(tabs: readonly SidebarTab[]): SidebarTab | null
 }
 
 const subscribeNothing = () => () => {}
+
+const IM_PAGE_TABS: readonly SidebarTab[] = ['chats', 'contacts']
+const NO_TABS: readonly SidebarTab[] = []
+
+/** Which tab a chat area belongs to. Only the IM page's panel (web / phone 消息, `imPage`) follows the shell tab; every
+ *  other host (task-page block, assistant slot, task window, phone assistant) owns its visibility through `hidden`,
+ *  draws as 消息 and never subscribes. */
+export function useImPageTab(imPage: boolean): SidebarTab | null {
+  return useShellTabAmong(imPage ? IM_PAGE_TABS : NO_TABS) ?? (imPage ? null : 'chats')
+}
