@@ -73,7 +73,7 @@ type Membership = { lastReadSeq: number; listenMode: string; notificationLevel: 
 class FakeCloud {
   rows: CloudRow[] = []
   members = new Map<string, Membership>()
-  chatMeta = new Map<string, { kind: 'dm' | 'group'; creatorUserId: string }>()
+  chatMeta = new Map<string, { kind: 'dm' | 'ai' | 'group'; creatorUserId: string }>()
   readRows = new Set<string>()
   /** 假的服务端时钟:join 与 post 都从它取时刻,与真库同一个 now()。 */
   now = '2026-08-29T00:00:00.000Z'
@@ -81,7 +81,7 @@ class FakeCloud {
   ingest = 0
   markReadCalls: Array<{ chatId: string; messageId: string }> = []
 
-  addChat(chatId: string, kind: 'dm' | 'group', creatorUserId = HUMAN): void {
+  addChat(chatId: string, kind: 'dm' | 'ai' | 'group', creatorUserId = HUMAN): void {
     this.chatMeta.set(chatId, { kind, creatorUserId })
   }
 
@@ -415,6 +415,28 @@ describe('P-E4 离线追赶:未读行逐条受理,由队列 drain 合批', () =>
     await expect(pullAgentInbox(AGENT, deps)).resolves.toMatchObject({ injected: 1 })
     expect(asked.flat()).toContain(AGENT)
     expect(readDeliveryEnvelope(injections[0]!.text)?.segments[0]?.facts?.replyTo).toMatchObject({ fromId: `user:${AGENT}`, from: expect.stringContaining('Claude 1') })
+  })
+
+  // The owner's own DM: the envelope states only that fact; <gugu_transport> says how to answer it (agent vs assistant).
+  it.each([
+    ['the owner in its own DM', 'dm', HUMAN, true],
+    ['the owner in an ai DM', 'ai', HUMAN, true],
+    ['someone else in a DM', 'dm', OTHER_AGENT, false],
+    ['the owner in a group', 'group', HUMAN, false],
+  ] as const)('marks only %s as the owner\'s private chat', async (_case, kind, sender, ownDm) => {
+    const chat = '00000000-0000-4000-8000-00000000001e'
+    const cloud = new FakeCloud()
+    cloud.addChat(chat, kind)
+    cloud.join(chat, AGENT)
+    cloud.join(chat, sender)
+    cloud.post({ chatId: chat, id: '10000000-0000-4000-8000-00000000001e', seq: 1, senderUserId: sender, senderType: sender === HUMAN ? 'human' : 'agent', content: 'hi', toUserIds: [AGENT] })
+    const { deps, injections } = makeDeps(cloud, { ownerUserId: HUMAN })
+    await expect(pullAgentInbox(AGENT, deps)).resolves.toMatchObject({ injected: 1 })
+    const arrival = injections[0]!.text.match(/<arrival>(.*)<\/arrival>/)?.[1] ?? ''
+    if (ownDm) {
+      expect(arrival).toContain('Sent by your owner in your private chat with you')
+      expect(arrival).not.toContain('message_send')
+    } else expect(arrival).toContain('reply with message_send')
   })
 
   // #6835 悄悄话:库里的 is_whisper 行到信封上就是一格 whisper_to,agent 知道这句只有它和发信人看得见。

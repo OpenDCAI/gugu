@@ -3,7 +3,7 @@ import {
   GUGU_PLATFORM_BLOCK,
   GUGU_PLATFORM_PROMPT_TOKEN_BUDGET,
   estimatePromptTokens,
-  GUGU_ACKNOWLEDGEMENT, personalAssistantPlatformPrompt,
+  GUGU_ACKNOWLEDGEMENT, GUGU_OWNER_DM_TRANSPORT, personalAssistantPlatformPrompt,
 } from '../../../../apps/desktop/electron/product-platform-prompt'
 import { GUGU_APPS_SEARCH_LINE, guguSessionSurfaceBlock } from '../../../../apps/desktop/electron/capability-bundle'
 import { z } from 'zod'
@@ -102,10 +102,17 @@ describe('tool usage belongs to schemas and assistant duplicates keep one owner'
 
   it('keeps all group guidance and general style when suppressing only the assistant acknowledgement duplicate', () => {
     const assistant = personalAssistantPlatformPrompt(GUGU_PLATFORM_BLOCK)
-    for (const tag of ['gugu_transport', 'gugu_silence', 'gugu_collaboration', 'gugu_examples']) {
+    for (const tag of ['gugu_silence', 'gugu_collaboration', 'gugu_examples']) {
       const section = GUGU_PLATFORM_BLOCK.match(new RegExp(`<${tag}>[\\s\\S]*?</${tag}>`))![0]
       expect(assistant).toContain(section)
     }
+    // Same mechanism, different prompt (scenario 09): an agent answers its owner's private chat in its session,
+    // the assistant speaks there through message_send. Only that one transport line differs.
+    expect(GUGU_PLATFORM_BLOCK).toContain(GUGU_OWNER_DM_TRANSPORT)
+    expect(assistant).not.toContain(GUGU_OWNER_DM_TRANSPORT)
+    expect(assistant).toContain('private chat with you is answered with `message_send`')
+    expect(assistant.match(/<gugu_transport>[\s\S]*?<\/gugu_transport>/)![0].split('\n').length)
+      .toBe(GUGU_PLATFORM_BLOCK.match(/<gugu_transport>[\s\S]*?<\/gugu_transport>/)![0].split('\n').length)
     expect(assistant).toContain('Short. Lead with the answer')
     expect(assistant).toContain('In mathematical prose')
     expect(assistant).not.toContain(GUGU_ACKNOWLEDGEMENT)
