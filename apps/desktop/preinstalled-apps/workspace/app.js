@@ -54,6 +54,7 @@ const STRINGS = {
     openWith: '用别的 App 打开',
     more: '更多',
     downloadOnly: '这个文件在这里只能下载，不能在这里看和改。',
+    storedTextReadOnly: '这是已存储的文本，只能在这里阅读。要编辑它，请下载后用文件路径和当前版本保存下一版。',
     remove: '删除',
     confirmRemove: '确认删除',
     rename: '改名',
@@ -224,6 +225,7 @@ const STRINGS = {
     openWith: 'Open with another App',
     more: 'More',
     downloadOnly: 'This file can only be downloaded here; it cannot be shown or changed here.',
+    storedTextReadOnly: 'This is stored text and is read-only here. To edit it, download it and save a new version using its file path and current version.',
     remove: 'Delete',
     confirmRemove: 'Confirm delete',
     rename: 'Rename',
@@ -1692,6 +1694,21 @@ async function openHanded() {
     // A stored file (a .json over a document's size is one): its details, to download — this App edits documents. The host
     // handed it to this App (it claims the name), so nobody else says why: this page does (复核 10-15).
     if (file.type === 'binary') {
+      if (typeof file.textPreview === 'string') {
+        const current = {
+          entry: file.entry,
+          file: Object.freeze({ ...file, type: 'text', text: file.textPreview }),
+          view: null,
+          unbind: null,
+          offs: [],
+        }
+        state.current = current
+        bindFileMenu(current)
+        showDoc(file.entry)
+        setMode('preview')
+        await mountStoredTextPreview(current, previewReady)
+        return
+      }
       file.close()
       showDocMessage(state.t.downloadOnly)
       document.body.classList.add('binary', 'show-doc')
@@ -1712,6 +1729,23 @@ async function openHanded() {
   } finally {
     if (state.opening === token) state.opening = null
   }
+}
+
+async function mountStoredTextPreview(current, preview) {
+  const prepared = await preview
+  if ('error' in prepared) throw prepared.error
+  if (state.current !== current) return
+  const { md } = prepared
+  const text = current.file.text
+  document.body.dataset.kind = 'text'
+  md.render($('preview'), text, { density: 'comfortable', frontmatter: true, sourceLines: true, file: current.entry })
+  previewMarks()
+  for (const box of $('preview').querySelectorAll('li > input[type=checkbox], li > p:first-child > input[type=checkbox]')) box.disabled = true
+  $('doc-empty').hidden = !!text.trim()
+  document.body.classList.toggle('empty-doc', !text.trim())
+  $('empty-write').hidden = true
+  $('empty-draft').hidden = true
+  showBanner(state.t.storedTextReadOnly, 'info')
 }
 
 async function mountText(current, preview) {

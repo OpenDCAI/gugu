@@ -2,6 +2,7 @@ import { fileSearchOf, folderOf, placeOf, type AppFileEntry, type AppFileOpened,
 import { guguError, refOf, type GuguHost } from './host';
 import { askingMain, fileKey, openFiles, OpenFile } from './open-file';
 import { syncLink } from './sync-link';
+import { workspaceStoredText } from '@gugu/core/shared/workspaceUpload.mjs';
 
 export { bindText } from './text-binding';
 
@@ -91,7 +92,8 @@ function entryAfterPaint(docName: string): void {
  */
 function storedFile(entry: AppFileEntry, bytes: ArrayBuffer): object {
   const blob = new Blob([bytes], { type: entry.contentType });
-  return Object.freeze({ entry: { ...entry }, type: 'binary', readOnly: true, blob: async () => blob, close: () => undefined });
+  const preview = workspaceStoredText(entry.name, entry.contentType, new Uint8Array(bytes));
+  return Object.freeze({ entry: { ...entry }, type: 'binary', readOnly: true, ...(preview ? { textPreview: preview.text } : {}), blob: async () => blob, close: () => undefined });
 }
 
 /** A place as the page passed it, checked: what is not one throws `invalid`, as a coded Error. */

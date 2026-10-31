@@ -31,3 +31,17 @@ it('requests decoration after two frames and updates the entry without a documen
   expect(changed).toHaveBeenCalledExactlyOnceWith({ local: false, entry: true });
   file.close();
 });
+
+it('gives a stored UTF-8 text file a read-only preview alongside its original bytes', async () => {
+  const { host, open } = await loadPage<{ type: string; textPreview?: string; readOnly: boolean; blob(): Promise<Blob>; close(): void }>();
+  const opened = fileOpened('text');
+  opened.entry.type = 'binary';
+  opened.entry.contentType = 'text/markdown';
+  opened.bytes = new TextEncoder().encode('# legacy note\n').buffer;
+  host.appFiles.open.mockResolvedValueOnce(opened);
+
+  const file = await open();
+  expect(file).toMatchObject({ type: 'binary', readOnly: true, textPreview: '# legacy note\n' });
+  expect(await (await file.blob()).text()).toBe('# legacy note\n');
+  file.close();
+});

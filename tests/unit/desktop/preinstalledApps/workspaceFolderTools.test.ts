@@ -21,6 +21,7 @@ const CHAT = '33333333-3333-4333-8333-333333333333'
 const DOC = '0d000000-0000-4000-8000-000000000001'
 const SHEET = '0d000000-0000-4000-8000-000000000002'
 const PDF = '0d000000-0000-4000-8000-000000000003'
+const LEGACY_TEXT = '0d000000-0000-4000-8000-000000000004'
 const MESSAGE = '55555555-5555-4555-8555-555555555555'
 const by = { id: 'user:22222222-2222-4222-8222-222222222222', name: 'Kip', kind: 'agent' }
 const entry = (id: string, name: string, type: string, more: Record<string, unknown> = {}) => {
@@ -37,6 +38,7 @@ const OTHER_AGENT = 'user:0a000000-0000-4000-8000-0000000000a2'
 const savedIn = (agent: string, id: string, version: number) => join(tmpdir(), 'gugu-workspace', agent.slice('user:'.length), id, `v${version}`)
 
 let texts: Record<string, string>
+let storedTexts: Record<string, string>
 const calls: unknown[][] = []
 const closed: string[] = []
 // As an App sees a refusal: its code and, where it says which one, `detail.reason` (bridge-protocol.ts `ErrorDetail`).
@@ -46,7 +48,7 @@ function handle(id: string) {
   const e = ENTRIES.find((candidate) => candidate.id === id)
   if (!e) throw coded('not-found', 'No such file in a chat you are in')
   const close = () => closed.push(id)
-  if (e.type === 'binary') return { entry: e, type: 'binary', blob: async () => new Blob([new Uint8Array([1, 2, 3])]), close }
+  if (e.type === 'binary') return { entry: e, type: 'binary', ...(storedTexts[id] !== undefined ? { textPreview: storedTexts[id] } : {}), blob: async () => new Blob([new Uint8Array([1, 2, 3])]), close }
   return {
     entry: e,
     type: e.type,
@@ -65,6 +67,7 @@ function handle(id: string) {
 beforeEach(() => {
   ENTRIES.splice(0, ENTRIES.length, entry(DOC, 'notes [v2].md', 'text'), entry(SHEET, 'prices.json', 'json'), entry(PDF, 'deck.pdf', 'binary'))
   texts = { [DOC]: '# Notes\n\n## One\nfirst\n\n## Two\nsecond\n', [SHEET]: '{\n  "widget": 12\n}' }
+  storedTexts = {}
   calls.length = 0
   closed.length = 0
   vi.stubGlobal('gugu', {
@@ -202,6 +205,29 @@ describe('the folder\'s tools as tools.js gives them', () => {
     if (type === 'binary') expect([...readFileSync(saved.saved_to)]).toEqual([1, 2, 3])
     else expect(readFileSync(saved.saved_to, 'utf8')).toBe(texts[id])
     expect(closed).toEqual([id])
+  })
+
+  test('read: a stored UTF-8 text file is paged read-only, with the existing save-and-edit route explained', async () => {
+    ENTRIES.push(entry(LEGACY_TEXT, 'legacy.md', 'binary', { contentType: 'text/markdown' }))
+    storedTexts[LEGACY_TEXT] = '# Older note\nsecond line\nthird line\n'
+    const { read } = await tools()
+    const page = String(await read!.run({ item_id: LEGACY_TEXT, limit: 2 }, { agent: AGENT }))
+    const [head, blank, ...body] = page.split('\n')
+    expect(blank).toBe('')
+    expect(JSON.parse(head!)).toMatchObject({
+      id: LEGACY_TEXT,
+      name: 'legacy.md',
+      type: 'binary',
+      read_only: true,
+      edit: expect.stringContaining('save: true'),
+      total_lines: 3,
+      lines: '1-2',
+      next_offset: 3,
+    })
+    expect(head).not.toContain('saved_to')
+    expect(body.join('\n')).toBe('# Older note\nsecond line\n')
+    expect(calls).toContainEqual(['open', { id: LEGACY_TEXT }, { readOnly: true }])
+    expect(closed).toContain(LEGACY_TEXT)
   })
 
   // 10-13(#7174,搬进来):同一台机器上主人的两个 agent 读同一个文件,各拿各的副本 —— 共用一份时,一个的读会冲掉另一个

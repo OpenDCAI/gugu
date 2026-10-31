@@ -608,6 +608,8 @@ function ownSuffix(name: string): string {
  */
 export function fileSuffixOf(file: { name: string; contentType?: string | null }): string {
   const type = (file.contentType ?? '').split(';')[0]!.trim().toLowerCase();
+  // Generic text MIME does not override a source suffix (.ini, for example); it still opens as a text document.
+  if (type === 'text/plain' && ownSuffix(file.name)) return ownSuffix(file.name);
   return SUFFIX_OF_CONTENT_TYPE[type] || ownSuffix(file.name);
 }
 
