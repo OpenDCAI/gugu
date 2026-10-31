@@ -61,7 +61,7 @@ export async function trimMobileIcu({ input, output, work, languages, version })
   run(icu('icupkg'), ['--extract', indexList, '--destdir', indexRoot, dat])
   for (const index of indexes) {
     const directory = dirname(join(indexRoot, index))
-    const source = run(icu('derb'), ['--to-stdout', '--encoding', 'UTF-8', '--sourcedir', directory, 'res_index'])
+    const source = run(icu('derb'), ['--to-stdout', '--sourcedir', directory, 'res_index'])
     const result = filterIcuLocaleIndex(source, languages)
     const text = join(directory, 'res_index.txt')
     await writeFile(text, result.source)
