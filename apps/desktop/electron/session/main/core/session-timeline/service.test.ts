@@ -1,4 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { appendFile, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { awaitFact } from '../../../../../../../tests/support/awaitFact';
 import * as asks from '../asks';
 import type { QueuedPrompt } from '@gugu/session-core/acp/client';
 import type {
@@ -402,6 +406,110 @@ describe('session timeline service', () => {
       throw new Error('❌ 没开起来的会话不许走唤醒');
     });
     state.readOptions.mockClear();
+  });
+
+  it('record ingestion owns a silent snapshot and cannot turn an archived reader into a live tail', async () => {
+    const fake = makeTimeline();
+    fake.put({ itemId: 'agent-question:11111111-1111-4111-8111-111111111111', kind: 'question', title: 'Choose',
+      questions: [{ question: 'Choose', multiSelect: false, options: [{ optionId: 'one', name: 'One' }] }],
+      origin: { source: 'agent-question', payload: { sourceLink: 'gugu-chat://22222222-2222-4222-8222-222222222222/33333333-3333-4333-8333-333333333333' } },
+      state: 'pending', optionId: null, resolvedBy: null, resolvedAt: null });
+    const interactive = makeTimeline();
+    const factory = vi.fn().mockResolvedValueOnce(fake.timeline).mockResolvedValueOnce(interactive.timeline);
+    service.setSessionTimelineFactory(factory);
+    expect(await service.pickRecordTurns('conv-1', async turns => turns, { images: false, committedOnly: true, includeArchived: true }))
+      .toEqual({ ok: true, turns: [], complete: true });
+    expect(state.pendingWatchCalls).toEqual([]);
+    expect(state.wake).not.toHaveBeenCalled();
+    expect(state.questionSend).not.toHaveBeenCalled();
+    expect(persistedQuestions.has('conv-1')).toBe(false);
+    expect(factory.mock.calls[0][0]).toMatchObject({ readMode: 'snapshot' });
+    expect(fake.timeline.disposed).toBe(1);
+    await service.snapshot({ conversationId: 'conv-1' });
+    expect(factory).toHaveBeenCalledTimes(2);
+    expect(factory.mock.calls[1][0]).not.toHaveProperty('readMode');
+    expect(state.pendingWatchCalls).toEqual(['conv-1']);
+  });
+
+  it('reports a broken record snapshot as unreadable without attaching interactive effects', async () => {
+    service.setSessionTimelineFactory(async () => { throw new Error('damaged zstd frame'); });
+    expect(await service.pickRecordTurns('conv-1', async turns => turns)).toEqual({ ok: false });
+    expect(state.pendingWatchCalls).toEqual([]);
+    expect(state.wake).not.toHaveBeenCalled();
+    expect(state.questionSend).not.toHaveBeenCalled();
+  });
+
+  it('passes a proved parent primary lineage to the child snapshot and disposes both readers', async () => {
+    state.rows.push(row({ id: 'parent' }));
+    const parent = makeTimeline(), child = makeTimeline();
+    const lineage = [{ uuid: 'ancestor', parentUuid: null }];
+    parent.timeline.getRecordLineage = () => lineage;
+    const factory = vi.fn().mockResolvedValueOnce(parent.timeline).mockResolvedValueOnce(child.timeline);
+    service.setSessionTimelineFactory(factory);
+    expect(await service.pickRecordTurns('conv-1', async turns => turns, { images: false, afterForkOf: 'parent' }))
+      .toEqual({ ok: true, turns: [], complete: true });
+    expect(factory.mock.calls[1][0]).toMatchObject({ conversationId: 'conv-1', readMode: 'snapshot', parentLineage: lineage });
+    expect(parent.timeline.disposed).toBe(1);
+    expect(child.timeline.disposed).toBe(1);
+    expect(state.pendingWatchCalls).toEqual([]);
+  });
+
+  it('follows a settling record on its own live reader until the last turn lands, without interactive effects', async () => {
+    const { createSessionRecordSource, createSessionTimeline } = await import('@gugu/session-core/session-record');
+    const root = await mkdtemp(join(tmpdir(), 'claude-settling-watch-'));
+    const file = join(root, 'record.jsonl');
+    const line = (uuid: string, role: 'user' | 'assistant', text: string) => JSON.stringify({
+      type: role, uuid, parentUuid: role === 'user' ? null : 'question', sessionId: 'record', timestamp: '2026-10-31T00:00:00Z',
+      message: { id: uuid, role, content: [{ type: 'text', text }], ...(role === 'assistant' ? { stop_reason: 'end_turn' } : {}) },
+    }) + '\n';
+    await writeFile(file, line('question', 'user', 'The last prompt'));
+    const opened: SessionTimeline[] = [];
+    const factory = vi.fn(async ({ readMode }: { readMode?: 'snapshot' }) => {
+      const timeline = await createSessionTimeline(createSessionRecordSource({ harness: 'claude', providerSessionId: 'record', roots: [root] },
+        { readMode }), { sessionId: 'conv-1' });
+      const dispose = timeline.dispose.bind(timeline);
+      let disposed = 0;
+      opened.push(Object.assign(timeline, { dispose: () => { disposed++; dispose(); }, disposals: () => disposed }));
+      return timeline;
+    });
+    service.setSessionTimelineFactory(factory);
+    try {
+      let settled: boolean | undefined;
+      const watching = service.watchRecordSettled('conv-1', new AbortController().signal).then(value => { settled = value; });
+      await awaitFact('watch opened', () => opened.length === 1 || undefined);
+      await new Promise(resolve => setImmediate(resolve));
+      expect(settled).toBeUndefined();
+      await appendFile(file, line('answer', 'assistant', 'LATE REPLY'));
+      await watching;
+      expect(settled).toBe(true);
+      expect(factory.mock.calls[0][0]).not.toHaveProperty('readMode');
+      expect((opened[0] as unknown as { disposals: () => number }).disposals()).toBe(1);
+
+      const stop = new AbortController();
+      await writeFile(file, line('question', 'user', 'The last prompt'));
+      const aborted = service.watchRecordSettled('conv-1', stop.signal);
+      await awaitFact('second watch opened', () => opened.length === 2 || undefined);
+      stop.abort();
+      expect(await aborted).toBe(false);
+      expect((opened[1] as unknown as { disposals: () => number }).disposals()).toBe(1);
+      expect(state.pendingWatchCalls).toEqual([]);
+      expect(state.wake).not.toHaveBeenCalled();
+      expect(state.questionSend).not.toHaveBeenCalled();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('settles a fork without lineage fields as diverged and never indexes a guessed child prefix', async () => {
+    state.rows.push(row({ id: 'parent', provider: 'codex' }));
+    const parent = makeTimeline(), pick = vi.fn(async (turns: TimelineSnapshot['turns']) => turns);
+    const factory = vi.fn(async () => parent.timeline);
+    service.setSessionTimelineFactory(factory);
+    expect(await service.pickRecordTurns('conv-1', pick, { images: false, afterForkOf: 'parent' }))
+      .toEqual({ ok: false, reason: 'diverged' });
+    expect(factory).toHaveBeenCalledOnce();
+    expect(pick).not.toHaveBeenCalled();
+    expect(parent.timeline.disposed).toBe(1);
   });
 
   it('uses the native archive at the first unread stored identity, with bounded older/newer pages and the real active turn', async () => {
@@ -1507,8 +1615,6 @@ describe('session timeline service', () => {
  * 判据喂记录 + 临时文件;阴控是同一个目录里、记录里没有的文件 —— 必须被拒。
  */
 const { mkdtempSync, writeFileSync } = await import('node:fs');
-const { tmpdir } = await import('node:os');
-const { join } = await import('node:path');
 
 describe('readOpenedFile', () => {
   const dir = mkdtempSync(join(tmpdir(), 'opened-file-'));
