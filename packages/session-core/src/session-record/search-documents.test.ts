@@ -73,11 +73,14 @@ describe('visible task search projection', () => {
     expect(taskSearchDocuments('s', turn([send('session_message')])).map(doc => doc.text)).toEqual(['delivered']);
     expect(taskSearchDocuments('s', turn([send('session_message', 'error'), send('session_message', 'running')]))).toEqual([]);
   });
-  it('uses the same visible private-reply projection as the transcript, excluding a hidden task summary', () => {
+  it('keeps direct output after a canonical send and hides only shared silence markers', () => {
     const envelope = renderDeliveryEnvelope({ route: 'chat', chat: 'chat', chatKind: 'dm', from: 'Human', fromId: 'user:person', fromType: 'human', messageId: 'msg:cloud', at, content: 'input' });
     const output = JSON.stringify({ message_id: '11111111-1111-4111-8111-111111111111' });
     expect(taskSearchDocuments('s', turn([message(envelope), send('message_send', 'done', output),
-      { ...message('not a second visible reply', 'assistant'), id: 's:turn:s0:summary' }]))).toEqual([]);
+      { ...message('visible direct reply', 'assistant'), id: 's:turn:s0:summary' }]))
+      .map(doc => doc.text)).toEqual(['visible direct reply']);
+    expect(taskSearchDocuments('s', turn([message('[NO_REPLY]', 'assistant')]))).toEqual([]);
+    expect(taskSearchDocuments('s', turn([message('`[NO_REPLY]`', 'assistant')]))).toEqual([]);
   });
   it('leaves canonical successful message_send rows to the chat index', () => {
     const output = JSON.stringify({ message_id: '11111111-1111-4111-8111-111111111111' });
