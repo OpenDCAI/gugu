@@ -70,3 +70,37 @@ it('does not report narration clipped by the process viewport until that row is 
   await act(async () => { view.scrollToItem(id(0), { align: 'start' }); });
   await until('the targeted inner row is really readable', () => visible.has(id(0)));
 });
+
+it('does not move a retained reader to the replies that arrived while its page was hidden', async () => {
+  const { context, state, harness } = fixture(3);
+  let journal = addNativeReplies({}, []);
+  const publish = () => updateDeviceSessions('host', { cached: false, sessions: [{ conversationId: 's', nativeInputVersion: 1,
+    nativeUnreadKeys: unreadNativeMessages(journal), nativeUnreadAliases: { msg_reply_9: id(9) } } as never] });
+  rpc.visible.mockImplementation(async () => ({ unreadKeys: unreadNativeMessages(journal) }));
+  publish();
+  let view: ChatView | undefined;
+  function Reader({ shown }: { shown: boolean }) {
+    const reading = useNativeConversationRead('host', 's', shown, () => state.transcript.state.committedTurns);
+    return <AgentConversationView context={context} state={state} shown={shown} style={{ position: 'absolute', inset: 0 }} onVisibleItems={reading.onVisibleItems}
+      onReady={(ready) => { view = ready; reading.onReady(ready); }} />;
+  }
+  await loadChatUi();
+  await harness.render(<Reader shown />);
+  await until('the reader is ready', () => !!view && !!harness.container.querySelector('[data-agent-conversation-message]'));
+  const reveal = vi.spyOn(view!, 'revealItem');
+  await harness.render(<Reader shown={false} />);
+  // The agent keeps replying while the page is behind another rail section; nobody reads it there.
+  await act(async () => {
+    state.transcript.history.append([{ id: 't2', seq: 2, initiator: 'agent', outcome: { kind: 'done' }, items: [
+      { kind: 'message', id: id(9), seq: 1, role: 'assistant', text: 'Arrived while away' },
+    ] } as TranscriptTurn]);
+    journal = addNativeReplies(journal, [id(9)]);
+    publish();
+  });
+  expect(unreadNativeMessages(journal), 'the reply that arrived while away was not unread, so this asserts nothing').toEqual([id(9)]);
+  await harness.render(<Reader shown />);
+  // Its acknowledgement runs on the same shown-page tick as the landing retry, so by then a landing would have happened.
+  await until('the reply that arrived while away is read where it is', () =>
+    rpc.visible.mock.calls.some(([request]) => (request as { itemIds: string[] }).itemIds.includes(id(9))));
+  expect(reveal).not.toHaveBeenCalled();
+});

@@ -18,15 +18,19 @@ export function useNativeConversationRead(deviceId: string | null, sessionId: st
   useEffect(() => { const id = key.current; if (!shown) publishNativeConversationVisibility(id, null); return () => publishNativeConversationVisibility(id, null) }, [shown, sessionId])
   const chats = useChatSummaries()
   const legacyFirst = [...chats.values()].find(chat => chat.peerUserId === summary?.agent?.userId)?.firstUnreadMessageId
-  const current = useRef({ shown, sessionId, deviceId, view: null as ChatView | null, visible: new Set<NativeItemId>(), placed: false, legacy: { first: null as string | null, placed: false } })
+  const current = useRef({ shown, sessionId, deviceId, view: null as ChatView | null, visible: new Set<NativeItemId>(), landing: true, placed: false, legacy: { first: null as string | null, placed: false } })
+  // Landing on the first unread belongs to entering the conversation, and the entry ends when the page is first hidden.
+  // A retained page shown again (back from another rail section) lands nowhere: the replies that arrived while it was
+  // hidden must not pull a reader who was following the tail to the first of them.
   if (current.current.sessionId !== sessionId || current.current.deviceId !== deviceId) {
-    current.current = { shown, sessionId, deviceId, view: null, visible: new Set(), placed: false, legacy: { first: null, placed: false } }
-  } else if (shown && !current.current.shown) {
-    current.current.visible.clear(); current.current.placed = false; current.current.legacy = { first: null, placed: false }
+    current.current = { shown, sessionId, deviceId, view: null, visible: new Set(), landing: true, placed: false, legacy: { first: null, placed: false } }
+  } else if (!shown && current.current.shown) {
+    current.current.landing = false
   }
   current.current.shown = shown
   const place = useCallback(() => {
     const state = current.current
+    if (!state.landing) return
     const first = summary?.nativeUnreadKeys?.[0]
     if (!legacyFirst) state.legacy = { first: null, placed: false }
     else if (!state.legacy.first) state.legacy.first = legacyFirst
