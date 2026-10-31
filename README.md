@@ -87,7 +87,7 @@ Documents and spreadsheets live in the group folder, and people and Agents work 
 
 **Quote a passage: select text and bring it back with the file name**
 
-<div align="center"><a href="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-document-quote-motion-20261031-v64.gif"><img src="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-document-quote-motion-20261031-v64.gif" width="100%" alt="Quote a passage: select text and bring it back with the file name"></a></div>
+<div align="center"><a href="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-document-quote-motion-20261031-v66.webp"><img src="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-document-quote-motion-20261031-v66.webp" width="100%" alt="Quote a passage: select text and bring it back with the file name"></a></div>
 
 <a id="assistant-details"></a>
 
@@ -119,7 +119,7 @@ Models, subscriptions, usage and local resources each have a clear view.
 
 **Engines and subscription settings**
 
-<div align="center"><a href="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-agent-engines-en-20261031-v64.webp"><img src="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-agent-engines-en-20261031-v64.webp" width="100%" alt="Engines and subscription settings"></a></div>
+<div align="center"><a href="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-agent-engines-en-20261031-v66.png"><img src="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-agent-engines-en-20261031-v66.png" width="100%" alt="Engines and subscription settings"></a></div>
 
 
 <a id="agents-details"></a>
@@ -131,10 +131,6 @@ Give a larger task to an Agent and have it delegate work in parallel. Follow eac
 - **Three-layer Agent collaboration** · One Agent can coordinate multiple workstreams and delegate subtasks to more Agents; the project sidebar keeps the parent task, child Agents and status visible.
 - **Multi-person, multi-Agent collaboration** · For a more advanced workflow, two people bring their respective lead Agents into the same project or group, align goals, boundaries and ownership, then let their Agent teams work in parallel and return results to the shared space.
 
-
-**Follow Qinghe’s task result and report back to the project**
-
-<div align="center"><a href="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-child-agent-result-20261031-v64.webp"><img src="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-child-agent-result-20261031-v64.webp" width="100%" alt="Follow Qinghe’s task result and report back to the project"></a></div>
 
 <a id="apps-details"></a>
 
@@ -188,7 +184,7 @@ Agents run on computers or servers and use device capabilities as needed. Browse
 
 **SSH and remote tunnel setup**
 
-<div align="center"><a href="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-remote-ssh-setup-20261031-v64.webp"><img src="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-remote-ssh-setup-20261031-v64.webp" width="100%" alt="SSH and remote tunnel setup"></a></div>
+<div align="center"><a href="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-remote-ssh-setup-20261031-v66.webp"><img src="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-remote-ssh-setup-20261031-v66.webp" width="100%" alt="SSH and remote tunnel setup"></a></div>
 
 ### Conversations, groups and topics
 

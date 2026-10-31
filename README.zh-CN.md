@@ -87,7 +87,7 @@
 
 **选段引用：从文档选择内容并带文件名回到输入框**
 
-<div align="center"><a href="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-document-quote-motion-20261031-v64.gif"><img src="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-document-quote-motion-20261031-v64.gif" width="100%" alt="选段引用：从文档选择内容并带文件名回到输入框"></a></div>
+<div align="center"><a href="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-document-quote-motion-20261031-v66.webp"><img src="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-document-quote-motion-20261031-v66.webp" width="100%" alt="选段引用：从文档选择内容并带文件名回到输入框"></a></div>
 
 <a id="assistant-details"></a>
 
@@ -131,10 +131,6 @@
 - **三层 Agent 协作** · 一个 Agent 可以统筹多个工作流，再把子任务交给更多 Agent 执行；项目侧栏保留父任务、子 Agent 和状态，方便逐层跟进。
 - **多人 + 多 Agent 协作** · 更进阶的协作是两位成员把各自的上层 Agent 拉进同一项目或群，先对齐目标、边界和分工，再让各自的 Agent 并行执行并回传结果。
 
-
-**单独跟进清禾，查看任务结果与回传**
-
-<div align="center"><a href="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-child-agent-result-20261031-v64.webp"><img src="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-child-agent-result-20261031-v64.webp" width="100%" alt="单独跟进清禾，查看任务结果与回传"></a></div>
 
 <a id="apps-details"></a>
 
@@ -185,7 +181,7 @@ App 从市场安装，版本和启用状态在客户端管理。
 
 **SSH 与远程隧道接入**
 
-<div align="center"><a href="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-remote-ssh-setup-20261031-v64.webp"><img src="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-remote-ssh-setup-20261031-v64.webp" width="100%" alt="SSH 与远程隧道接入"></a></div>
+<div align="center"><a href="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-remote-ssh-setup-20261031-v66.webp"><img src="https://github.com/OpenDCAI/gugu/releases/download/assets/gugu-readme-remote-ssh-setup-20261031-v66.webp" width="100%" alt="SSH 与远程隧道接入"></a></div>
 
 ### 对话、群与话题
 
