@@ -1,8 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { readStoredAgentTurnFailures, type StoredAgentTurnFailure } from '../lib/storedAgentTurnFailures'
-import { agentTurnFailureMuteKind, agentTurnFailureMuted, readAgentTurnFailureMutes, writeAgentTurnFailureMutes, type AgentTurnFailureMutes } from '../lib/agentTurnFailureMute'
 import { readAgentTurnFailureDismissals, writeAgentTurnFailureDismissals, type AgentTurnFailureDismissals } from '../lib/agentTurnFailureDismissals'
-import type { AgentTurnFailure } from '../lib/agentTurnFailure'
 import { subscribePrivateUserEventBus, unsubscribePrivateUserEventBus } from '../lib/realtimeChannel'
 import { rendererLogger } from '../lib/log'
 import { useAuth } from '../store/auth'
@@ -10,16 +8,6 @@ import { useAuth } from '../store/auth'
 const log = rendererLogger('agent/stored-turn-failure')
 const EMPTY: StoredAgentTurnFailure[] = []
 
-function loadMutes(userId: string | undefined): AgentTurnFailureMutes {
-  if (!userId) return {}
-  try {
-    return readAgentTurnFailureMutes(userId)
-  } catch (error) {
-    // 读坏了就等于没提醒过：toast 会再弹一次，原因进日志，❌ 不让聊天面板崩。
-    log.error({ error: String(error) }, 'could not read notified agent turn failures')
-    return {}
-  }
-}
 function loadDismissals(userId: string | undefined): AgentTurnFailureDismissals {
   if (!userId) return {}
   try {
@@ -54,23 +42,14 @@ export function useStoredAgentTurnFailure(chatId: string | null, threadRootId: s
     }
     setDismissals({ userId: user.id, value: next })
   }, [user?.id])
-  const [mutes, setMutes] = useState<{ userId: string | undefined; value: AgentTurnFailureMutes }>(() => ({ userId: user?.id, value: loadMutes(user?.id) }))
-  const currentMutes = mutes.userId === user?.id ? mutes.value : loadMutes(user?.id)
-
   useEffect(() => {
     if (!user?.id || !chatId || !ids) return
     let live = true
     let generation = 0
     const refresh = () => {
       const current = ++generation
-      void readStoredAgentTurnFailures(user.id, chatId, threadRootId, ids.split(',')).then(({ failures: rows, recovered }) => {
+      void readStoredAgentTurnFailures(user.id, chatId, threadRootId, ids.split(',')).then(({ failures: rows }) => {
         if (!live || current !== generation) return
-        // 每次补读都从存储取一次：别的聊天里已提醒过的这里也要认；最新一次投递成功的 Agent 清掉记录，下次失败再提醒。
-        const stored = loadMutes(user.id)
-        const next = { ...stored }
-        for (const agentId of recovered) delete next[agentId]
-        if (recovered.some((agentId) => agentId in stored)) writeAgentTurnFailureMutes(user.id, next)
-        setMutes({ userId: user.id, value: next })
         changeDismissals((now) => {
           const pending = rows.filter((row) => now[row.commandId]?.revision === null)
           return pending.length ? { ...now, ...Object.fromEntries(pending.map((row) => [row.commandId, { revision: row.revision, at: Date.now() }])) } : null
@@ -115,19 +94,9 @@ export function useStoredAgentTurnFailure(chatId: string | null, threadRootId: s
     const revision = rows.find((row) => row.commandId === commandId)?.revision ?? null
     changeDismissals((now) => ({ ...now, [commandId]: { revision, at: Date.now() } }))
   }, [rows, changeDismissals])
-  const markNotified = useCallback((failure: Pick<AgentTurnFailure, 'agentUserId' | 'rawMessage'>) => {
-    const kind = agentTurnFailureMuteKind(failure.rawMessage)
-    if (!user?.id || !kind) return
-    const next = { ...loadMutes(user.id), [failure.agentUserId]: kind }
-    writeAgentTurnFailureMutes(user.id, next)
-    setMutes({ userId: user.id, value: next })
-  }, [user?.id])
-  const wasNotified = useCallback((failure: Pick<AgentTurnFailure, 'agentUserId' | 'rawMessage'>) => agentTurnFailureMuted(currentMutes, failure), [currentMutes])
   return {
     failure: rows.find((row) => currentDismissals[row.commandId]?.revision !== row.revision) ?? null,
     dismiss,
-    markNotified,
-    wasNotified,
     readFailed: snapshot.subject === subject && snapshot.readFailed,
     retry: () => setAttempt((value) => value + 1),
   }

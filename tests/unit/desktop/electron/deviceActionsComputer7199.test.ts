@@ -60,7 +60,7 @@ function setup(options: { callTool?: CallTool; control?: ComputerControlHooks; h
     homedir: () => dir,
     clipboardRead: () => '',
     clipboardWrite: vi.fn(),
-    notify: vi.fn(),
+    notify: vi.fn(async () => ({ shown: true })),
     openExternal: vi.fn(async () => undefined),
     trashItem: vi.fn(async () => undefined),
     jxa: vi.fn(async () => ({})),

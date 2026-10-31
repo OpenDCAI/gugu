@@ -33,7 +33,6 @@ vi.mock('../agent-hooks/hook-server', () => ({
   },
 }));
 vi.mock('../agent-hooks/event-enricher', () => ({ parseHookEvent: vi.fn() }));
-vi.mock('../agent-hooks/app-focus', () => ({ isAppFocused: () => false }));
 vi.mock('@main/core/sessions/set-session-id', () => ({ setProviderSessionId: vi.fn() }));
 vi.mock('@main/lib/events', () => ({ events: { emit: mocks.emit, on: vi.fn(() => () => {}) } }));
 vi.mock('@main/lib/logger', () => ({ log: { warn: vi.fn(), error: vi.fn(), info: vi.fn(), debug: vi.fn() } }));
@@ -75,20 +74,16 @@ describe('#6167 做完未读只由回合结束那条边写出', () => {
   /** 送一条事件并等宿主把它写完(以 'agent:status' 播出为完成信号)。 */
   const deliver = async (e: AgentEvent) => {
     const before = statuses.length;
-    agentHookService.emitAgentEvent(e, false);
+    agentHookService.emitAgentEvent(e);
     await statusWritesSettled(agentStatusWriter, e.sessionId);
     expect(statuses.length).toBe(before + 1);
   };
   /** 送一条**不该产生任何写入**的事件:等处理跑完,再证明它确实没播。 */
   const deliverNoop = async (e: AgentEvent) => {
     const before = statuses.length;
-    agentHookService.emitAgentEvent(e, false);
+    agentHookService.emitAgentEvent(e);
     await statusWritesSettled(agentStatusWriter, e.sessionId);
     expect(statuses.length, `${e.type}/${String(e.payload.notificationType)} must not write a status`).toBe(before);
-  };
-  const lastSound = () => {
-    const calls = mocks.emit.mock.calls.filter(([, payload]) => payload && 'soundEvent' in payload);
-    return (calls.at(-1)?.[1] as { soundEvent?: string } | undefined)?.soundEvent;
   };
 
   beforeAll(async () => {
@@ -131,7 +126,6 @@ describe('#6167 做完未读只由回合结束那条边写出', () => {
 
     await deliver(event('stop'));
     expect(row()).toEqual({ status: 'idle', seen: 0 });
-    expect(lastSound()).toBe('task_complete');
 
     // Claude Code 闲置约 60 秒发的「waiting for your input」:不是新事实。
     await deliverNoop(event('notification', 'idle_prompt'));
@@ -141,14 +135,12 @@ describe('#6167 做完未读只由回合结束那条边写出', () => {
   it('阴控:没在跑时的 stop 不是回合结束 ⇒ 不写未读、不响', async () => {
     await deliverNoop(event('stop'));
     expect(row()).toEqual({ status: 'idle', seen: 1 });
-    expect(lastSound()).toBeUndefined();
   });
 
   it('阴控:跑着时来的 idle_prompt 回到 idle 但不是「做完」⇒ 已读、不响', async () => {
     await deliver(event('start'));
     await deliver(event('notification', 'idle_prompt'));
     expect(row()).toEqual({ status: 'idle', seen: 1 });
-    expect(lastSound()).toBeUndefined();
   });
 
   it('失败的回合一分钟后的 idle_prompt 不抹掉 error(等批准同理)', async () => {
@@ -168,7 +160,6 @@ describe('#6167 做完未读只由回合结束那条边写出', () => {
     await deliver(event('start'));
     await deliver(event('notification', 'permission_prompt'));
     expect(row()).toEqual({ status: 'needs_user', seen: 0 });
-    expect(lastSound()).toBe('needs_attention');
 
     await deliver(event('wait_resolved'));
     expect(row()).toEqual({ status: 'working', seen: 1 });
@@ -192,7 +183,6 @@ describe('#6167 做完未读只由回合结束那条边写出', () => {
     ).resolves.toBe(true);
     expect(interrupt).toHaveBeenCalledWith(`p1:${cid}:${cid}`);
     expect(row(), '打断不是做完:已读、不进托盘').toEqual({ status: 'idle', seen: 1 });
-    expect(lastSound()).toBeUndefined();
     // 会发 Stop 的家:迟到的 stop 看到的已经不在跑 ⇒ 同样不写「做完未读」
     await deliverNoop(event('stop'));
     expect(row()).toEqual({ status: 'idle', seen: 1 });

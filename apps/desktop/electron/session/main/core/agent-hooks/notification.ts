@@ -63,12 +63,12 @@ export async function maybeShowNotification(
   next: AgentStatusView,
 ): Promise<void> {
   try {
-    const { enabled, osNotifications } = await appSettingsService.get('notifications');
+    const { enabled, sound } = await appSettingsService.get('notifications');
     // @@@5301 ❌ 这里**不看窗口聚焦**(onScreen 恒为 false)。焦点只说明这个窗口在最前面,不说明人在电脑前 ——
     // 拿它当「用户已经看见了」的证据,结果就是人离开时该响的不响(owner 2026-09-09 定)。
-    // 要不要打扰由用户自己的显式选择决定:上面这两个开关,以及会话级静音。
+    // 要不要打扰由用户自己的显式选择决定:通知总开关；声音只跟横幅。
     if (!Notification.isSupported()) return;
-    if (!shouldNotify({ kind: 'agent', previous, next }, { enabled: enabled && osNotifications, onScreen: false })) return;
+    if (!shouldNotify({ kind: 'agent', previous, next }, { enabled, onScreen: false })) return;
 
     const body = getNotificationBody(next);
 
@@ -76,7 +76,7 @@ export async function maybeShowNotification(
     const providerName = label.provider ? getProviderName(label.provider) : 'Agent';
     const title = label.title ? `${providerName} — ${label.title}` : providerName;
 
-    const notification = new Notification({ title, body, silent: true });
+    const notification = new Notification({ title, body, silent: !sound });
     activeNotifications.add(notification);
 
     const releaseNotification = () => activeNotifications.delete(notification);

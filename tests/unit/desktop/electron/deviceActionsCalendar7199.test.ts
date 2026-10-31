@@ -30,7 +30,7 @@ function setup(answer: Answer, connected = true) {
     homedir: () => dir,
     clipboardRead: () => '',
     clipboardWrite: () => undefined,
-    notify: () => undefined,
+    notify: async () => ({ shown: true }),
     openExternal: async () => undefined,
     trashItem: async () => undefined,
     jxa: vi.fn() as unknown as FamilyDeps['jxa'],

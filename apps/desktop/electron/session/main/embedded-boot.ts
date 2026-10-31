@@ -203,7 +203,6 @@ import { browserWebContentsRegistry } from '@main/core/browser/browser-webconten
 import { setBrowserCorsRelaxationSettings } from '@main/core/browser/browser-profile-session'
 import { promptLibraryService } from '@main/core/prompt-library/service'
 import { agentHookService } from '@main/core/agent-hooks/agent-hook-service'
-import { isAppFocused } from '@main/core/agent-hooks/app-focus'
 import {
   disposeAcpRuntimeProcess,
   getAcpRuntimeClient,
@@ -2349,12 +2348,12 @@ function installSessionsGoneFeed(): void {
  * (badge + sidebar dot) is 100% the shipped pipeline; only the trigger is delivered by the test.
  */
 export function emitSessionpageAgentEventForTest(event: AgentEvent): void {
-  agentHookService.emitAgentEvent(event, false)
+  agentHookService.emitAgentEvent(event)
 }
 
 /** Host bridge for provider lifecycle sources that do not pass through the CLI hook server. */
 export function emitSessionpageAgentEvent(event: AgentEvent): void {
-  agentHookService.emitProviderLifecycleEvent(event, isAppFocused())
+  agentHookService.emitProviderLifecycleEvent(event)
 }
 
 /**

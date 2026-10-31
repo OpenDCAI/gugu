@@ -29,7 +29,6 @@ vi.mock('../agent-hooks/hook-server', () => ({
   },
 }));
 vi.mock('../agent-hooks/event-enricher', () => ({ parseHookEvent: vi.fn() }));
-vi.mock('../agent-hooks/app-focus', () => ({ isAppFocused: () => false }));
 vi.mock('@main/core/sessions/set-session-id', () => ({ setProviderSessionId: vi.fn() }));
 vi.mock('@main/lib/events', () => ({ events: { emit: vi.fn(), on: vi.fn(() => () => {}) } }));
 vi.mock('@main/lib/logger', () => ({ log: { warn: vi.fn(), error: vi.fn(), info: vi.fn(), debug: vi.fn() } }));
@@ -74,7 +73,6 @@ describe('状态来源失效:随状态输出发布,不改读数', () => {
 
     agentHookService.emitAgentEvent(
       { type: 'start', providerId: 'claude', projectId: 'p1', sessionId: 'c1', timestamp: Date.now(), payload: {} },
-      false,
     );
     await statusWritesSettled(agentStatusWriter, 'c1');
     expect(agentStatusWriter.isWorkingOrWaiting('c1')).toBe(true);

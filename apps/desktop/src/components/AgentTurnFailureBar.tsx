@@ -3,11 +3,11 @@
 // 重排原 deliver 命令（真重投递，❌ 假按钮）；原始错误只进 console（useAgentTurnFailure 已记）。
 // 与聊天流共用 TurnFailureCard；原因仍为既有本地化文案，宿主诊断不进入展示层。
 
-import { useEffect, useState, type ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import { X } from '@/lib/icons'
 import { turnFailureReasonFromError } from '@gugu/core/shared/turnFailurePresentation'
 import { TurnFailureCard } from './chat/TurnFailureCard'
-import { agentTurnFailureUserMessage, type AgentTurnFailure } from '../lib/agentTurnFailure'
+import { type AgentTurnFailure } from '../lib/agentTurnFailure'
 import { rendererLogger } from '../lib/log'
 import { requeueErroredDeviceCommand } from '../lib/supabase'
 import { platform } from '../platform'
@@ -19,7 +19,6 @@ import { Button } from './ui/Button'
 import { IconButton } from './ui/IconButton'
 import { useStoredAgentTurnFailure } from '../hooks/useStoredAgentTurnFailure'
 import { agentTurnFailureMuteKind } from '../lib/agentTurnFailureMute'
-import { dismissNotice, notify } from '../lib/notices'
 import { Avatar } from './Avatar'
 
 type AgentTurnFailureSlotProps = {
@@ -56,15 +55,6 @@ export function AgentTurnFailureSlot({
   const [modelOpen, setModelOpen] = useState(false)
   const stateKind = failure ? agentTurnFailureMuteKind(failure.rawMessage) : null
   const displayName = failure ? profiles[failure.agentUserId]?.displayName ?? t('agent.fallbackName') : ''
-  const { wasNotified, markNotified } = stored
-  // #7685 额度/模型类：同一位 agent 在恢复之前只 toast 一次，之后只剩状态位。
-  useEffect(() => {
-    if (!failure || !stateKind || wasNotified(failure)) return
-    // 走 lib/notices 而不是 useToast():聊天面板也挂在会话页那个 React 根里，那里没有 ToastProvider，
-    // useToast() 拿到的是空实现(mac1 真机验证时发现)。notices 是两个根共用的那一个提示条。
-    notify({ key: `agent-quota:${failure.agentUserId}`, tier: 'warning', title: displayName, description: agentTurnFailureUserMessage(failure.rawMessage) })
-    markNotified(failure)
-  }, [failure, stateKind, displayName, wasNotified, markNotified])
   if (!chatId) return null
   if (!failure) return stored.readFailed ? <div data-chat-composer-notice="" className="mx-3 my-2 flex items-center gap-2 text-[var(--muted-fg)]" role="status"><span>{t('agent.turnFailure.statusReadFailed')}</span><Button variant="ghost" size="sm" onClick={stored.retry}>{t('agent.turnFailure.retry')}</Button></div> : null
   const profile = profiles[failure.agentUserId]
@@ -72,7 +62,6 @@ export function AgentTurnFailureSlot({
   const dismiss = () => {
     local.dismiss()
     stored.dismiss(failure.commandId)
-    if (stateKind) dismissNotice(`agent-quota:${failure.agentUserId}`)
   }
   return (
     <>

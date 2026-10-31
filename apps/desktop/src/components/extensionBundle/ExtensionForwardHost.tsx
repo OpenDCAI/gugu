@@ -11,7 +11,7 @@ import { useAuth } from '../../store/auth'
 import { useChatStore } from '../../store/chatContext'
 import { rpc } from '../../session/renderer/lib/ipc'
 import { appsHere } from '../appSlot/appsHere'
-import { onUpdatedUnasked, updateUnasked } from '../appSlot/updateUnasked'
+import { updateUnasked } from '../appSlot/updateUnasked'
 import { ForwardMessageDialog } from '../chat/ForwardMessageDialog'
 import { useToast } from '../toastContext'
 import { ListRow } from '../ui/ListRow'
@@ -38,7 +38,7 @@ export function ExtensionForwardHost() {
   const { user } = useAuth()
   const { toast } = useToast()
   // 摩擦单 F66: an App package sent in any chat here (the account revision bus, whatever is on screen) — that chat's list
-  // of packages is behind, and an App on this device may update itself from it; when one does, a line says so.
+  // of packages is behind, and an App on this device may update itself from it.
   useEffect(() => {
     if (!appsHere) return undefined
     const sent = subscribeAccountRevision('message_created', (operations) => {
@@ -51,14 +51,8 @@ export function ExtensionForwardHost() {
         void updateUnasked(installPackageOf({ source: meta.source, messageId: String(message.id) }))
       }
     })
-    const updated = onUpdatedUnasked(({ name, version }) =>
-      toast(translateSessionMessage('extensions.updatedUnasked', { name, version }), 'info'),
-    )
-    return () => {
-      sent()
-      updated()
-    }
-  }, [subscribeAccountRevision, toast])
+    return sent
+  }, [subscribeAccountRevision])
   const [request, setRequest] = useState<ExtensionForwardRequest | null>(null)
   useEffect(() => {
     const open = (event: Event) => setRequest((event as CustomEvent<ExtensionForwardRequest>).detail)

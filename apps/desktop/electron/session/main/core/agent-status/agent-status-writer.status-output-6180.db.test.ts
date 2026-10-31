@@ -32,7 +32,6 @@ vi.mock('../agent-hooks/hook-server', () => ({
   },
 }));
 vi.mock('../agent-hooks/event-enricher', () => ({ parseHookEvent: vi.fn() }));
-vi.mock('../agent-hooks/app-focus', () => ({ isAppFocused: () => false }));
 vi.mock('@main/core/sessions/set-session-id', () => ({ setProviderSessionId: vi.fn() }));
 vi.mock('@main/lib/events', () => ({ events: { emit: vi.fn(), on: vi.fn(() => () => {}) } }));
 vi.mock('@main/lib/logger', () => ({ log: { warn: vi.fn(), error: vi.fn(), info: vi.fn(), debug: vi.fn() } }));
@@ -82,8 +81,7 @@ describe('#6180 状态输出按写入顺序播出,取消重置也在其中', () 
         sessionId: 'c1',
         timestamp: Date.now(),
         payload: {},
-      },
-      false
+      }
     );
     await agentStatusWriter.interrupt({ sessionId: 'c1', projectId: 'p1' });
     off();

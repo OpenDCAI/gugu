@@ -812,7 +812,6 @@ describe('conversation provider respawn state', () => {
     );
     expect(agentHookService.emitAgentEvent).not.toHaveBeenCalledWith(
       expect.objectContaining({ type: 'error' }),
-      expect.anything(),
     );
   });
 
@@ -831,7 +830,7 @@ describe('conversation provider respawn state', () => {
       expect(spawnLocalPty).toHaveBeenCalledTimes(1);
       expect(agentStatusWriter.settleSessionExited).toHaveBeenCalledWith({ sessionId: item.id });
       expect(agentHookService.emitAgentEvent).not.toHaveBeenCalledWith(
-        expect.objectContaining({ type: 'error' }), expect.any(Boolean),
+        expect.objectContaining({ type: 'error' }),
       );
     } finally {
       vi.useRealTimers();
@@ -1115,8 +1114,7 @@ describe('conversation provider respawn state', () => {
           payload: {
             message: 'fork session exited without reporting a new resumable session id',
           },
-        }),
-        expect.any(Boolean)
+        })
       );
     } finally {
       vi.useRealTimers();
@@ -1142,7 +1140,6 @@ describe('conversation provider respawn state', () => {
           message: 'fork session exited without reporting a new resumable session id',
         },
       }),
-      expect.any(Boolean),
     );
   });
 
@@ -1217,8 +1214,7 @@ describe('conversation provider respawn state', () => {
           sessionId: item.id,
           payload: { message: `Agent session failed to resume thread ${item.providerSessionId} (exit code 1).`
             + ' Retry restoring this task; if the original thread was deleted, start a new task.' },
-        }),
-        expect.any(Boolean)
+        })
       );
     } finally {
       vi.useRealTimers();
@@ -1253,7 +1249,7 @@ describe('conversation provider respawn state', () => {
       expect(agentStatusWriter.settleSessionExited).not.toHaveBeenCalled();
       expect(events.emit).not.toHaveBeenCalledWith(sessionDeliveryFailedChannel, expect.anything());
       expect(agentHookService.emitAgentEvent).not.toHaveBeenCalledWith(
-        expect.objectContaining({ type: 'error' }), expect.any(Boolean),
+        expect.objectContaining({ type: 'error' }),
       );
       expect(spawnLocalPty).toHaveBeenCalledTimes(1);
     } finally {
@@ -1278,7 +1274,7 @@ describe('conversation provider respawn state', () => {
       expect(ctx.exec.mock.calls.filter(([, args]) => (args as string[]).includes('list-sessions')).length).toBeGreaterThanOrEqual(2);
       if (isResuming) {
         expect(agentHookService.emitAgentEvent).toHaveBeenCalledWith(
-          expect.objectContaining({ type: 'error', sessionId: item.id }), expect.any(Boolean),
+          expect.objectContaining({ type: 'error', sessionId: item.id }),
         );
       } else {
         expect(agentStatusWriter.settleSessionExited).toHaveBeenCalledWith({ sessionId: item.id });

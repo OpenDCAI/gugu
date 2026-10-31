@@ -40,7 +40,6 @@ vi.mock('@main/core/mcp-library/service', () => ({ mcpLibraryService: { list: as
 vi.mock('@main/core/agent-hooks/agent-hook-service', () => ({
   agentHookService: { emitAgentEvent: vi.fn() },
 }));
-vi.mock('@main/core/agent-hooks/app-focus', () => ({ isAppFocused: () => false }));
 
 // @@@5173 引擎可用性判据本身在 resolve-agent-executable.test.ts 里测；这里测的是
 // **判据说不可用时 createSession 做了什么**，所以桩掉它并直接给出两种答案。

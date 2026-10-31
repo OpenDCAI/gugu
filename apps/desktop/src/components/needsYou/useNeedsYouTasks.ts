@@ -10,6 +10,7 @@ import { sessionReading } from '@/mobile/agent-watch/watch-status'
 import { usePhoneAgentDirectory } from '@/mobile/local-agent/usePhoneAgentDirectory'
 import { isPhoneDevice } from '@gugu/core/cloud/devices'
 import { mostUrgentAttention, type AgentAttention, type AgentStatus } from '@gugu/core/shared/agentStatus'
+import { asksYou } from '@gugu/core/shared/ui/notificationModels'
 
 export type NeedsYouTask = {
   deviceId: string
@@ -50,9 +51,9 @@ export function useNeedsYouTasks(): { tasks: NeedsYouTask[]; attention: AgentAtt
       ? local?.ownerId === ownerId && local.deviceId === localId ? local.list.sessions : []
       : device.is_online && live && !live.cached && !live.error ? live.sessions : []
     for (const session of sessions) {
-      const status = sessionReading(session)?.status ?? null
-      statuses.push(status)
-      if (status !== 'needs_user') continue
+      const reading = sessionReading(session)
+      statuses.push(reading?.status ?? null)
+      if (!asksYou(reading)) continue
       tasks.push({ deviceId: device.device_id, machine: device.label, local: here, phoneHost: isPhoneDevice(device), session })
     }
   }
