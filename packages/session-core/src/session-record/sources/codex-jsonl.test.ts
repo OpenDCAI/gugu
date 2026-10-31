@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { zstdCompressSync } from 'node:zlib';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { awaitPending } from '../../../../../tests/support/awaitFact';
 
 import type { RecordEntry, SessionRecordSource, TimelineAfterResult } from '../contract';
@@ -106,6 +106,27 @@ describe('codex rollout 记录源', () => {
     await rm(file);
     await expect(startAll(createCodexJsonlSource({ harness: 'codex', providerSessionId: THREAD_ID, roots: [root] },
       { readMode: 'snapshot' }))).rejects.toThrow();
+  });
+
+  it('rejects a zero-byte zstd archive as damaged history', async () => {
+    const { root, file } = await stage();
+    await writeFile(`${file}.zst`, Buffer.alloc(0)); await rm(file);
+    await expect(startAll(createCodexJsonlSource({ harness: 'codex', providerSessionId: THREAD_ID, roots: [root] },
+      { readMode: 'snapshot' }))).rejects.toThrow('Empty zstd snapshot');
+  });
+
+  it.each(['half-line', 'unterminated-object'])('reads only newline-terminated JSONL records before a %s', async kind => {
+    const { root, file } = await stage();
+    const expected = recordProjection(await startAll(createCodexJsonlSource({ harness: 'codex', providerSessionId: THREAD_ID, roots: [root] })));
+    const fragment = kind === 'half-line' ? '{"type":' : JSON.stringify({ type: 'event_msg',
+      payload: { type: 'user_message', message: 'not a newline-terminated record' } });
+    await appendFile(file, fragment);
+    const warn = vi.fn();
+    const source = createCodexJsonlSource({ harness: 'codex', providerSessionId: THREAD_ID, roots: [root] }, { readMode: 'snapshot', warn });
+    expect(recordProjection(await startAll(source))).toEqual(expected);
+    expect(warn).toHaveBeenCalledExactlyOnceWith('Ignored unterminated JSONL snapshot fragment', { bytes: Buffer.byteLength(fragment) });
+    await source.catchUp?.();
+    expect(warn).toHaveBeenCalledTimes(1);
   });
 
   it.each(['empty', 'no-newline', 'half-line', 'wrong-size'])('rejects a %s compressed snapshot instead of claiming complete history', async kind => {

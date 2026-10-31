@@ -114,7 +114,9 @@ export class TailReader {
     if (!this.path.endsWith('.zst')) {
       await this.readFromStart(sink);
       this.acceptText(this.decoder.end(), sink);
-      if (this.partial.length) throw new Error('Incomplete JSONL snapshot line');
+      // JSONL records end at a newline. A crashed writer's final fragment is not a record.
+      if (this.partial.length) this.warn('Ignored unterminated JSONL snapshot fragment', { bytes: Buffer.byteLength(this.partial) });
+      this.partial = '';
       return;
     }
     this.lineOffset = 0;
@@ -124,6 +126,7 @@ export class TailReader {
     let decoded = 0n;
     try {
       const { size } = await file.stat();
+      if (size === 0) throw new Error('Empty zstd snapshot');
       // Node 24 can finish a truncated stream without error. Prove each frame envelope and declared size too.
       for await (const frame of zstdFrames(file, size)) {
         if (this.stopped) throw new Error('Record snapshot stopped');
