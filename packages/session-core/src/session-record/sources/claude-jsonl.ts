@@ -250,7 +250,7 @@ class ClaudeJsonlSource implements SessionRecordSource {
     this.seenUuids.add(uuid);
     this.lastUuid = uuid;
     if (!this.nativeChild && record.isSidechain === true) return [];
-    if (!this.nativeChild && this.reader?.currentPath === this.primaryPath) {
+    if (this.options?.readMode === 'snapshot' && !this.nativeChild && this.reader?.currentPath === this.primaryPath) {
       const parentUuid = record.parentUuid;
       const valid = parentUuid === null || typeof parentUuid === 'string';
       if (valid) this.lineage.push({ uuid, parentUuid });

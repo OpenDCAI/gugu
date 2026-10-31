@@ -66,7 +66,8 @@ export function startTaskSearch(store: MessageSearchStore, signal: AbortSignal, 
   const runningTasks = new Set(inventory.filter(row => row.active).map(row => row.task.id));
   const pending = new Map<string, Scan>(inventory.map(({ task: row }) => {
     const coverage = persisted.get(row.id);
-    return [row.id, { from: -1, validate: true, record: !coverage?.exhausted || !!coverage.reason }];
+    return [row.id, { from: -1, validate: true,
+      record: !coverage || coverage.reason === 'active' || coverage.reason === 'unavailable' || (!coverage.exhausted && !coverage.reason) }];
   }));
   let running = false;
 

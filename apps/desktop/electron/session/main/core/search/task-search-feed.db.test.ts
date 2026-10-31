@@ -119,6 +119,11 @@ it.each(['unsupported', 'diverged'])('settles %s records while retaining the una
   start();
   await waitFor(() => expect(store.global(request).coverage.complete).toBe(true));
   expect(store.taskCoverage()).toEqual([{ taskId: 's', lastSeq: -1, exhausted: true, reason: status }]);
+  abort.abort(); store.close(); store = new MessageSearchStore(root, 'owner');
+  start();
+  await waitFor(() => expect(store.global(request).coverage.complete).toBe(true));
+  expect(state.sync).toHaveBeenCalledOnce();
+  expect(store.taskCoverage()[0].reason).toBe(status);
 });
 
 it('does not begin another existing PTY task after the account closes during record backfill', async () => {
