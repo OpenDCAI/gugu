@@ -54,7 +54,7 @@ describe('#6264 设备行上报「这是台什么机器」', () => {
       arch: 'arm64',
       os_name: 'Ubuntu 22.04.5 LTS',
       home_dir: '/home/ubuntu',
-      server_update: { state: 'ready', version: '0.3.0' },
+      server_update: { state: 'ready', version: '0.3.0', scope: 'supervisor' },
       remote_protocol: REMOTE_PROTOCOL_VERSION,
       min_client_protocol: MIN_CLIENT_PROTOCOL,
     })

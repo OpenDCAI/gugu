@@ -1,3 +1,4 @@
+import { sessionBootTasks } from './core/boot-tasks'
 // @@@sessionpage — the session backend's EMBEDDED-MODULE entry. The session backend is a cohesive
 // submodule (owner #43), NOT a set of gugu subsystems: it exposes exactly ONE boot entry here, and gugu
 // (the host) invokes it + bridges IPC — the host never reaches into the session backend's DB / pty /
@@ -108,8 +109,8 @@ import { resolveDatabasePath } from '@main/db/path'
 import { backupBeforeTaskToSession, runTaskToSessionOnce } from '../../migrations/task-to-session'
 import { backupBeforeSessionNaming, runSessionNamingOnce } from '../../migrations/session-naming'
 import { tmuxBackendStartupSweepSettled } from '../../sessionpage/tmux-backend'
-import { sessions, workspaces as workspacesTable } from '@main/db/schema'
-import { eq } from 'drizzle-orm'
+import { sessions, projects as projectsTable, workspaces as workspacesTable } from '@main/db/schema'
+import { and, eq, inArray, isNull } from 'drizzle-orm'
 import { agentStatusWriter } from '@main/core/agent-status/agent-status-writer'
 import {
   closeInterruptedRunIntervals,
@@ -563,7 +564,7 @@ export async function bootSessionHostCore(options: SessionHostBootOptions): Prom
   } else {
     // 用量页的运行区间:上一个进程没来得及收口的,按它最后一次心跳收 —— 与下面的状态收残同一道闸
     // (别的活宿主占着这份数据目录时,它那几段区间还开着是对的)。
-    closeInterruptedRunIntervals()
+    sessionBootTasks.runSync('run-interval-sweep', '', closeInterruptedRunIntervals)
     // 收残只收引擎随上一个进程没了的会话;在 tmux 里活下来的照旧在跑。tmux 只问这一次,所有会话按同一份列表判。
     // 没有 tmux 服务器 = 空列表(listTmuxSessionNames 自己这样答);问不出来(没装 tmux、tmux 坏了)= 一个都没活下来,
     // 照旧全收 —— 响亮记一条,❌ 为此让开机失败。
@@ -572,11 +573,11 @@ export async function bootSessionHostCore(options: SessionHostBootOptions): Prom
       return new Set<string>()
     })
     // 上一次是怎么退出的(更新 / 重启 / 没正常退出):被打断的那几条会话据此说清原因。读一次就删。
-    await agentStatusWriter.settleAfterRestart(tmuxSessionNames, takeLastExit(dataDir))
+    await sessionBootTasks.run('status-sweep', '', () => agentStatusWriter.settleAfterRestart(tmuxSessionNames, takeLastExit(dataDir)))
     // 上一个进程投到一半就没了的消息：现在认领为「结果未知」终态（不能重投，只能如实说）。
     // 必须在任何人看见会话之前做完 —— 正常在途不经过这里，所以新建会话不会闪这条提示。
-    claimInterruptedDispatches()
-    claimInterruptedDeferredMessages()
+    sessionBootTasks.runSync('dispatch-sweep', '', claimInterruptedDispatches)
+    sessionBootTasks.runSync('deferred-sweep', '', claimInterruptedDeferredMessages)
   }
   searchService.initialize()
   workspaceFileIndexService.initialize()
@@ -673,7 +674,13 @@ export async function bootSessionHostCore(options: SessionHostBootOptions): Prom
   // 写入者先于任何事件来源就位:它订 hook 总线,births / 收残 / 回收都经它(spec agent-status-writer)。
   agentStatusWriter.initialize()
   installSessionsGoneFeed()
-  onSessionsGone((scope) => agentStatusWriter.forget(scope))
+  onSessionsGone((scope) => {
+    agentStatusWriter.forget(scope)
+    sessionBootTasks.clearTask('sessionId' in scope ? scope.sessionId : scope.projectId)
+  })
+  agentStatusWriter.on('agent:status', ({ sessionId, reading }) => {
+    if (reading.status === 'idle' && reading.detail === 'done') sessionBootTasks.clearTask(sessionId)
+  })
   agentHookService.initialize().catch((e) => {
     log.error('Failed to start agent event service:', e)
   })
@@ -1840,10 +1847,10 @@ export async function openAllEmdashProjects(): Promise<void> {
   results.forEach((result, index) => {
     const project = projects[index]!
     if (result.status === 'rejected') {
-      agentSessionLog.error({ projectId: project.id, err: result.reason }, '启动时打开项目失败')
+      sessionBootTasks.record('project-open', project.id, result.reason)
     } else if (!result.value.success) {
-      agentSessionLog.error({ projectId: project.id, error: result.value.error }, '启动时打开项目失败')
-    }
+      sessionBootTasks.record('project-open', project.id, result.value.error)
+    } else sessionBootTasks.clear('project-open', project.id)
   })
 }
 
@@ -2494,13 +2501,36 @@ function refreshDigestAgents(): void {
  * 本机读数,❌ 进云端摘要。
  */
 export function sessionpageBusyForVersionSwitch(): boolean {
-  return integrationConnectionService.hasPendingAuthorizations() || listSessionStates().sessions.some((session) =>
+  return sessionpageVersionSwitchActivity().busy
+}
+
+/** One reading supplies both the existing idle policy and its visible agent count. */
+/** Same heartbeat, same ledger; discard tasks archived/deleted through any entry point. */
+export function sessionpageBootFailures() {
+  const failures = sessionBootTasks.snapshot()
+  const ids = failures.map(failure => failure.taskId).filter(Boolean)
+  if (ids.length) {
+    try {
+      const live = new Set([
+        ...db.select({ id: sessions.id }).from(sessions)
+          .where(and(inArray(sessions.id, ids), isNull(sessions.archivedAt))).all().map(row => row.id),
+        ...db.select({ id: projectsTable.id }).from(projectsTable).where(inArray(projectsTable.id, ids)).all().map(row => row.id),
+      ])
+      for (const id of ids) if (!live.has(id)) sessionBootTasks.clearTask(id)
+    } catch { /* A failed optional read retains bounded diagnostics, never blocks the heartbeat. */ }
+  }
+  return sessionBootTasks.snapshot()
+}
+
+export function sessionpageVersionSwitchActivity(): { busy: boolean; busyAgents: number } {
+  const busyAgents = listSessionStates().sessions.filter((session) =>
     busyForVersionSwitch(
       parseAgentStatusView(session.status ?? null),
       session.runtime,
       sessionProcess(session.conversationId)?.home ?? null,
     ),
-  )
+  ).length
+  return { busy: integrationConnectionService.hasPendingAuthorizations() || busyAgents > 0, busyAgents }
 }
 
 /** Refresh the account heartbeat at authorization boundaries, without waiting

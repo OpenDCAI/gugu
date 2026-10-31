@@ -957,6 +957,14 @@ export function notifyInstalledAppsChanged(): Promise<void> {
       log.warn('extensions: a listener of the installed Apps failed', { error: String(error) });
     }
   }
+  return notifyWatchedChatsChanged();
+}
+
+/**
+ * Every chat a page is watching, read again whole: what changed is how its files are shown (the Apps that claim them, or
+ * whether the machine that keeps one is on), not the files themselves.
+ */
+export function notifyWatchedChatsChanged(): Promise<void> {
   const chats = new Set<string>();
   for (const places of pageWatches.values()) for (const { resource } of places.values()) if ('chat' in resource) chats.add(resource.chat);
   return notifyGroupWorkspaceChanged([...chats].map((chatId) => ({ chatId, itemIds: 'all' as const })));

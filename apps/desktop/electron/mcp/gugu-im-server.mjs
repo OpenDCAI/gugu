@@ -2073,13 +2073,12 @@ async function uploadForSend(args, deps, label, chatId) {
 }
 
 /**
- * A project chat that keeps its files on its machine (file storage policy): on that machine a file other than an image is
- * published by the host, through the one publisher the composer uses — it stays on the machine, the message pins it.
- * `next` (a folder file and the version it started from) makes it that file's next version — an image too: a file kept
- * on the machine changes only there. Null when this is not that machine or chat, or for a new image (uploaded when
- * sent): the ordinary upload then decides.
+ * A project chat: a file other than an image stays on this machine, through the one publisher the composer uses — the
+ * message pins it. `next` (a folder file and the version it started from) makes it that file's next version, kept here
+ * too, an image included. Null when this is not a project chat, the account uploads its files, or for a new image
+ * (uploaded when sent): the ordinary upload then decides.
  */
-async function publishOnHost(args, deps, chatId, message, next) {
+async function publishHere(args, deps, chatId, message, next) {
   const publish = deps.context.publishFile
   if (!publish) return null
   const fileName = resolveUploadName(args)
@@ -2093,48 +2092,6 @@ async function publishOnHost(args, deps, chatId, message, next) {
   const sent = await publish(chatId, { name: fileName, path: target, size: info.size, contentType }, deps.context.agentId,
     { ...message, file_name: fileName, content_type: contentType }, next)
   return sent?.message ?? null
-}
-
-/** Every layer's way of saying only the machine that keeps a project chat's files may add or change them. */
-const KEPT_ON_HOST = /Only the bound (file )?host|not uploaded proactively|Remote project files are read-only|Local revisions must be published by the host/
-
-/**
- * The machine that keeps a project chat's files, as people know it: its name and whose computer it is (the name is in
- * file_project_policy_for, or already in a handoff's answer), the way a project file's mark names it to the chat's members.
- */
-async function hostMachineOf(deps, chatId, known = null) {
-  const policy = known?.host_account_id ? known : await deps.restRpc('file_project_policy_for', { p_chat: chatId, p_as: deps.context.agentId }).catch(() => null)
-  const account = typeof policy?.host_account_id === 'string' ? policy.host_account_id : null
-  const label = typeof policy?.host_label === 'string' && policy.host_label.trim() ? policy.host_label.trim() : null
-  const [owner] = account ? await deps.restGet(`users?id=eq.${enc(account)}&select=display_name`, 'identity').catch(() => []) : []
-  const ownerName = owner?.display_name || null
-  const computer = ownerName ? `${ownerName}'s computer` : 'another computer', computerZh = ownerName ? `${ownerName} 的电脑` : '另一台电脑'
-  return label ? { en: `"${label}" (${computer})`, zh: `「${label}」（${computerZh}）` } : { en: computer, zh: computerZh }
-}
-
-/**
- * The refusal said for people: whose computer keeps this project chat's files, that only an agent there can add or change
- * them, and that nothing was sent — never the layers' words for it ("published by the host").
- */
-async function keptOnHostRefusal(deps, chatId, fileName) {
-  const machine = await hostMachineOf(deps, chatId)
-  return `message_send_file: ${fileName} was not sent, and nothing was changed. This project chat keeps its files on ${machine.en}, `
-    + `and only an agent on that computer can add or change them here.\n`
-    + `${fileName} 没有发出去，什么都没改。这个项目群的文件存在${machine.zh}上，只有那台电脑上的 agent 能在这里添加或修改。`
-}
-
-/**
- * #791: the publisher handed a next version to the machine that keeps the file, and that machine did not write it (offline,
- * or not in time): which machine, that the changed copy is where it was, and what to do.
- */
-async function handoffRefusal(deps, chatId, args, outcome) {
-  const fileName = resolveUploadName(args), machine = await hostMachineOf(deps, chatId, outcome)
-  const why = outcome.status === 'host_offline'
-    ? { en: `${machine.en} keeps this project chat's files and is offline`, zh: `这个项目群的文件存在${machine.zh}上，它现在离线` }
-    : { en: `${machine.en} keeps this project chat's files and did not take the new version in time`, zh: `这个项目群的文件存在${machine.zh}上，它没有及时收下新版本` }
-  return `message_send_file: ${fileName} was not sent, and nothing was changed: ${why.en}. Your changed copy is still at ${args.file_path}. `
-    + `Send it again with file ${args.file} once that computer is online, or ask an agent on that computer to make the change.\n`
-    + `${fileName} 没有发出去，什么都没改：${why.zh}。改好的副本还在 ${args.file_path}。等那台电脑上线以后用同一个 file（${args.file}）再发一次，或者请那台电脑上的 agent 来改。`
 }
 
 /** A next version that started from a version the file is no longer at: nothing was sent, and what to do. */
@@ -2273,21 +2230,16 @@ async function handleFile(args, deps) {
         sender_user_id: deps.context.agentId, to_user_ids: toUserIds ?? [], ...thread,
       })
       fileName = attachmentNameOf(message)
-    } else if ((message = await publishOnHost(args, deps, chatId, { message_id: messageId, chat_id: chatId,
+    } else if ((message = await publishHere(args, deps, chatId, { message_id: messageId, chat_id: chatId,
       sender_user_id: deps.context.agentId, to_user_ids: toUserIds ?? [], ...thread },
       folderFile ? { itemId: folderFile.itemId, expectedVersion: folderFile.version } : undefined).catch(async (error) => {
       const said = String(error?.message ?? error)
-      if (error?.name === 'NextVersionHandoffRefused') throw new Error(await handoffRefusal(deps, chatId, args, error.outcome))
-      if (KEPT_ON_HOST.test(said)) throw new Error(await keptOnHostRefusal(deps, chatId, resolveUploadName(args)))
       if (folderFile && /File revision conflict/.test(said)) throw new Error(newerVersionRefusal(args.file, folderFile.version))
       throw error
     }))) {
       fileName = resolveUploadName(args)
     } else {
-      const upload = await uploadForSend(args, deps, 'message_send_file', chatId).catch(async (error) => {
-        if (!(error instanceof AttachmentsError && KEPT_ON_HOST.test(error.message))) throw error
-        throw new Error(await keptOnHostRefusal(deps, chatId, resolveUploadName(args)))
-      })
+      const upload = await uploadForSend(args, deps, 'message_send_file', chatId)
       const { endpoint, contentType, stagingKey } = upload
       fileName = upload.fileName
       const commit = {
@@ -2305,7 +2257,6 @@ async function handleFile(args, deps) {
         ...(args.temporary === true ? { keep: 'temporary' } : {}),
       }
       message = await commitWithReplay(() => commitAttachment(endpoint, commit)).catch(async (error) => {
-        if (error instanceof AttachmentsError && KEPT_ON_HOST.test(error.message)) throw new Error(await keptOnHostRefusal(deps, chatId, fileName))
         if (!(error instanceof AttachmentsError && error.code === 'version_conflict')) throw error
         throw new Error(newerVersionRefusal(args.file, folderFile.version))
       })

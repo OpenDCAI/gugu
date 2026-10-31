@@ -42,7 +42,7 @@ describe('project composer attachments use the group-file publisher', () => {
     expect(f.upload).toHaveBeenCalledWith(endpoint, { bytes: selected, name: selected.name, contentType: 'application/pdf' }, { chat_id: 'group', as: 'owner' }, { onPlan: undefined, retry: false })
     expect(f.commit).toHaveBeenCalledWith(endpoint, { ...args, staging_key: 'staging' })
   })
-  it('uploads an image when sent, also in a project chat that keeps other files on the machine', async () => {
+  it('uploads an image when sent, also in a project chat whose other files stay on the machine', async () => {
     const n = native(), image = new File(['png'], 'shot.png', { type: 'image/png' })
     await expect(prepareChatAttachment(endpoint, image, { chat_id: 'group', as: 'owner' })).resolves.toEqual({ staging_key: 'staging' })
     expect(n.invoke).not.toHaveBeenCalled()
@@ -54,14 +54,14 @@ describe('project composer attachments use the group-file publisher', () => {
     await expect(commitPreparedChatAttachment(endpoint, { local: selected }, { ...args, is_whisper: true })).rejects.toThrow('audience changed')
     expect(n.invoke).not.toHaveBeenCalled()
   })
-  it('reauthorizes through the same cloud uploader when the project policy changed after planning', async () => {
+  it('reauthorizes through the same cloud uploader when the sender\'s storage setting changed after planning', async () => {
     const n = native(), selected = file(), prepared = await prepareChatAttachment(endpoint, selected, { chat_id: 'group', as: 'owner' })
     n.invoke.mockResolvedValueOnce(null as never)
     await expect(commitPreparedChatAttachment(endpoint, prepared, args)).resolves.toEqual({ id: 'cloud-message' })
     expect(f.upload).toHaveBeenCalledExactlyOnceWith(endpoint, { bytes: selected, name: selected.name, contentType: 'application/pdf' }, { chat_id: 'group', as: 'owner' }, { onPlan: undefined, retry: false })
     expect(f.commit).toHaveBeenCalledExactlyOnceWith(endpoint, { ...args, staging_key: 'staging' })
   })
-  it('propagates a host fence or atomic message refusal without falling back to cloud', async () => {
+  it('propagates a publication or atomic message refusal without falling back to cloud', async () => {
     const n = native(), prepared = await prepareChatAttachment(endpoint, file(), { chat_id: 'group', as: 'owner' })
     n.invoke.mockRejectedValueOnce(new Error('outside workspace'))
     await expect(commitPreparedChatAttachment(endpoint, prepared, args)).rejects.toThrow(i18n.t('attachmentView.fileUnavailable', { ns: 'messaging' }))

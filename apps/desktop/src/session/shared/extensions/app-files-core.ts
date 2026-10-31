@@ -1,14 +1,11 @@
 import { readDocumentText, ChatFolderReadError } from './chat-folder-text';
 import { FILE_KEEPS, type FileKeep } from '@gugu/core/shared/fileStorage';
 import { AttachmentsError, configuredEndpoint, placeAttachment, uploadAttachmentBytes } from '@gugu/core/cloud/attachmentsApi';
-import { NextVersionHandoffRefused } from '@gugu/core/cloud/fileVersionHandoff';
 import { createGuguSupabaseClient } from '@gugu/core/cloud/supabase';
 import { fileBlob, type FileHandle, type ResolvedFile } from '@gugu/core/shared/fileResolver';
 import { fetchInChunks } from '@gugu/core/shared/inChunks';
 import { mimeTypeFromName } from '@gugu/core/shared/imageMime.mjs';
 import { workspaceUploadKind } from '@gugu/core/shared/workspaceUpload.mjs';
-import { isDeviceOnline } from '@gugu/core/shared/enums/deviceModels';
-import type { DeviceStatus } from '@gugu/core/shared/types/chat';
 import type { ErrorDetail, ExtensionChat } from './bridge-protocol';
 import type { Grant, PageSync } from './file-sync-core';
 import {
@@ -90,8 +87,8 @@ export interface FilesPlatform {
   /** Installed identity, never an identity supplied by the App page. */
   appIdentity?(extensionId: string): OwnerIdentity | null;
   /**
-   * The shared project file publisher: `next` is published on the host or handed to it from another machine. Null when
-   * the ordinary uploader should decide. `next` names the file and the version the edit started from.
+   * The shared project file publisher: kept on this device, `next` as the version after the one the edit started from.
+   * Null when the ordinary uploader should decide.
    */
   publishFile?(chatId: string, file: AppFileUpload, parentId: string | null, actor: string, store?: () => Promise<ItemRow>,
     options?: { next?: { itemId: string; expectedVersion: number } }): Promise<ItemRow | null>;
@@ -167,6 +164,8 @@ interface ItemRow {
    */
   expires_at?: string | null;
   is_mine?: boolean | null;
+  /** `workspace_list_as` only: the device that keeps its current version, when that is not in the cloud. */
+  host_device_id?: string | null;
 }
 
 /** A row `workspace_search` / `workspace_recent` answers (gugu-supabase 20261017002319): with its chat, and when opened. */
@@ -390,42 +389,40 @@ async function entriesOf(token: string, rows: readonly ItemRow[], platform: Pick
   return entryDetails(token, rows.map((row) => entryOf(row, platform.claimant)), platform.identities, actor);
 }
 
-/** A chat's files as its folder lists them: entries, and which machine keeps the ones that stay on it. */
+/** A chat's files as its folder lists them: entries, and which machine keeps each one that stays on a machine. */
 async function listedEntriesOf(token: string, rows: readonly ItemRow[], platform: Pick<FilesPlatform, 'claimant' | 'identities'>, actor: string): Promise<AppFileEntry[]> {
   const [entries, storedOn] = await Promise.all([entriesOf(token, rows, platform, actor), storedOnOf(token, rows, platform.identities, actor)]);
-  const local = new Set(rows.filter(onMachine).map((row) => row.id));
-  return entries.map((entry) => (local.has(entry.id) && storedOn.has(entry.chat!) ? { ...entry, storedOn: storedOn.get(entry.chat!)! } : entry));
+  return entries.map((entry) => (storedOn.has(entry.id) ? { ...entry, storedOn: storedOn.get(entry.id)! } : entry));
 }
 
 const onMachine = (row: ItemRow) => row.kind === 'file' && !row.pointer;
 
 /**
- * The machine a project chat keeps its files on, for its files that have no cloud copy (no blob pointer): one policy read
- * per chat. The machine's name is read only when it is the reader's own (a device row only its owner reads).
+ * The machine that keeps each file with no cloud copy (no blob pointer): the device that sent its current version, as the
+ * one metadata entry point resolves it (`file_resolve_as`: its name and whether it is online, for any reader). One read
+ * per machine when the list names it (`workspace_list_as`), otherwise one per file.
  */
 async function storedOnOf(token: string, rows: readonly ItemRow[], identities: Identities, actor: string): Promise<Map<string, NonNullable<AppFileEntry['storedOn']>>> {
-  const chats = [...new Set(rows.filter(onMachine).map((row) => row.chat_id))];
-  const found = new Map<string, NonNullable<AppFileEntry['storedOn']>>();
-  await Promise.all(chats.map(async (chatId) => {
-    const { data, error } = await chatClient(token).rpc('file_project_policy_for', { p_chat: chatId, p_as: actor });
+  const local = rows.filter(onMachine);
+  const asked = new Map<string, ItemRow>();
+  for (const row of local) asked.set(row.host_device_id ? `device:${row.host_device_id}` : `item:${row.id}`, row);
+  const holders = new Map<string, { host_device_id: string; host_account_id: string; host_label?: string | null; host_online?: boolean }>();
+  await Promise.all([...asked].map(async ([key, row]) => {
+    const { data, error } = await chatClient(token).rpc('file_resolve_as', { p_ref: { item_id: row.id }, p_as: actor });
     if (error) throw new AppFileError(codeOf(error), error.message);
-    const policy = data as { host_device_id?: unknown; host_account_id?: unknown } | null;
-    // Not a project chat; or a server from before the account-wide policy, which names no owner: no mark.
-    if (typeof policy?.host_account_id !== 'string' || typeof policy.host_device_id !== 'string') return;
-    const mine = personId(policy.host_account_id) === personId(actor);
-    const [owner] = await identities(token, [policy.host_account_id]);
-    let machine: string | null = null;
-    let online: boolean | undefined;
-    if (mine) {
-      const device = await createGuguSupabaseClient({ schema: 'identity', headers: { Authorization: `Bearer ${token}` } })
-        .from('gugu_devices').select('label, status').eq('device_id', policy.host_device_id).maybeSingle();
-      if (device.error) throw new AppFileError('failed', device.error.message);
-      const row = device.data as { label: string; status?: string } | null;
-      machine = row?.label ?? null;
-      if (typeof row?.status === 'string') online = isDeviceOnline(row.status as DeviceStatus);
-    }
-    found.set(chatId, { machine, owner: owner?.name ?? policy.host_account_id.slice(0, 8), mine, ...(online === undefined ? {} : { online }) });
+    const resolved = data as { status?: string; source?: string; host_device_id?: unknown; host_account_id?: unknown; host_label?: string | null; host_online?: boolean } | null;
+    if (resolved?.source !== 'local' || typeof resolved.host_device_id !== 'string' || typeof resolved.host_account_id !== 'string') return;
+    holders.set(key, resolved as { host_device_id: string; host_account_id: string; host_label?: string | null; host_online?: boolean });
   }));
+  const accounts = [...new Set([...holders.values()].map((holder) => holder.host_account_id))];
+  const owners = new Map((accounts.length ? await identities(token, accounts) : []).map((person) => [personId(person.id), person]));
+  const found = new Map<string, NonNullable<AppFileEntry['storedOn']>>();
+  for (const row of local) {
+    const holder = holders.get(row.host_device_id ? `device:${row.host_device_id}` : `item:${row.id}`);
+    if (!holder) continue;
+    found.set(row.id, { machine: holder.host_label ?? null, owner: owners.get(personId(holder.host_account_id))?.name ?? holder.host_account_id.slice(0, 8),
+      mine: personId(holder.host_account_id) === personId(actor), ...(typeof holder.host_online === 'boolean' ? { online: holder.host_online } : {}) });
+  }
   return found;
 }
 
@@ -491,33 +488,6 @@ const ATTACHMENTS_CODES: Readonly<Record<string, AppFileError['code']>> = {
   invalid: 'invalid',
   too_large: 'too-large',
 };
-
-/**
- * Every layer's way of saying that only the machine a project chat keeps its files on may change them: the host
- * publisher, the cloud upload a project chat refuses, and the database's read-only fence.
- */
-const KEPT_ON_HOST = /Only the bound (file )?host|not uploaded proactively|Remote project files are read-only|Local revisions must be published by the host/;
-
-/**
- * Host refusals said for people: a handoff that could not finish names the machine and can be retried; a host-only
- * operation names whose computer keeps the file. Null for other failures.
- */
-async function keptOnHostError(token: string, row: ItemRow, actor: string, identities: Identities, error: unknown): Promise<AppFileError | null> {
-  if (error instanceof NextVersionHandoffRefused) {
-    const { host_label, host_account_id, status } = error.outcome;
-    const [owner] = host_account_id ? await identities(token, [host_account_id]).catch(() => []) : [];
-    const computer = owner?.name ? `${owner.name}'s computer` : 'another computer';
-    const where = host_label?.trim() ? `"${host_label.trim()}" (${computer})` : computer;
-    const why = status === 'host_offline' ? 'is offline' : 'did not take the new version in time';
-    return new AppFileError('unavailable', `${row.filename} was not changed: ${where} keeps this project chat's files and ${why}. Nothing was changed. Try again once that computer is online.`, { reason: status });
-  }
-  if (!KEPT_ON_HOST.test(error instanceof Error ? error.message : String(error))) return null;
-  const on = (await storedOnOf(token, [{ ...row, kind: 'file', pointer: null }], identities, actor).catch(() => null))?.get(row.chat_id);
-  const where = !on ? 'another computer'
-    : on.mine ? (on.machine ? `your computer "${on.machine}"` : 'another of your computers')
-    : `${on.owner}'s computer`;
-  return new AppFileError('denied', `${row.filename} was not changed: this project chat keeps its files on ${where}, and only an agent on that computer can change them. Nothing was changed.`, { reason: 'kept-on-host' });
-}
 
 /** The code a refusal keeps on its way out: the door's own, or what attachments/* said; anything else failed. */
 function refusalCode(error: unknown): AppFileError['code'] {
@@ -853,8 +823,7 @@ export function createAppFiles(platform: FilesPlatform) {
       throw new AppFileError('invalid', 'files.move(file, { folder, name }) puts it in another folder, renames it, or both: say which');
     }
     const { row } = await resolve(surface, { token, userId }, args.ref);
-    const moved = await agentRow(token, 'workspace_move_as', { p_item_id: row.id, p_as_user_id: surface.asAgent ?? userId, p_folder: folder ?? null, p_name: name })
-      .catch(async (error: unknown) => { throw await keptOnHostError(token, row, surface.asAgent ?? userId, platform.identities, error) ?? error; });
+    const moved = await agentRow(token, 'workspace_move_as', { p_item_id: row.id, p_as_user_id: surface.asAgent ?? userId, p_folder: folder ?? null, p_name: name });
     return entryOne(token, { ...moved, metadata: row.metadata }, surface.asAgent ?? userId);
   }
 
@@ -1149,7 +1118,7 @@ export function createAppFiles(platform: FilesPlatform) {
       if (row.version !== expected) throw replacedSinceError(row.filename, row.version, expected);
       const contentType = file.contentType || row.content_type;
       const actor = surface.asAgent ?? userId;
-      // The shared publisher writes on the host or hands the new version to it. Null: the ordinary cloud path decides.
+      // The shared publisher keeps the new version on this device. Null: the ordinary cloud path decides.
       let published: ItemRow | null = null;
       try {
         published = await platform.publishFile?.(row.chat_id, { name: row.filename, contentType, bytes: file.bytes }, row.parent_id, actor,
@@ -1159,8 +1128,7 @@ export function createAppFiles(platform: FilesPlatform) {
           const { row: now } = await resolve(surface, { token, userId }, args.ref);
           throw replacedSinceError(row.filename, now.version, expected);
         }
-        throw await keptOnHostError(token, row, actor, platform.identities, error)
-          ?? new AppFileError(refusalCode(error), `${row.filename} was not replaced: ${error instanceof Error ? error.message : String(error)}`);
+        throw new AppFileError(refusalCode(error), `${row.filename} was not replaced: ${error instanceof Error ? error.message : String(error)}`);
       }
       if (published) return entryOne(token, { ...published, metadata: row.metadata }, actor);
       // #7290 gugu-3: the bytes go to OSS (attachments/upload) and the server makes them the next version (attachments/place);
@@ -1175,8 +1143,7 @@ export function createAppFiles(platform: FilesPlatform) {
       } catch (error) {
         const changed = error instanceof AttachmentsError && error.code === 'version_conflict' ? /got (\d+)/.exec(error.message) : null;
         if (changed) throw replacedSinceError(row.filename, Number(changed[1]), expected);
-        throw await keptOnHostError(token, row, actor, platform.identities, error)
-          ?? new AppFileError(refusalCode(error), `${row.filename} was not replaced: ${error instanceof Error ? error.message : String(error)}`);
+        throw new AppFileError(refusalCode(error), `${row.filename} was not replaced: ${error instanceof Error ? error.message : String(error)}`);
       }
       // Versions older than the 50 kept, from before the switch, still have their bytes in the workspace bucket.
       const pruned = replaced.pruned_pointers ?? [];
@@ -1243,8 +1210,6 @@ export function createAppFiles(platform: FilesPlatform) {
             .slice(index)
             .map((f) => f.name)
             .join(', ');
-          const kept = await keptOnHostError(token, { chat_id: chatId, filename: name, kind: 'file', pointer: null } as ItemRow, actor, platform.identities, error);
-          if (kept) throw kept;
           const why = error instanceof Error ? error.message : String(error);
           // The door's own refusal keeps its code (and detail) — the App branches on it; anything else failed.
           throw new AppFileError(refusalCode(error), `Upload stopped at ${name} (${why}); not uploaded: ${notIn}`, error instanceof AppFileError ? error.detail : undefined);

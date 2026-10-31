@@ -162,6 +162,7 @@ export default {
     "usageWindows": "Usage windows"
   },
   "devices": {
+    "bootTaskFailed": "Task {{task}} could not resume ({{operation}}): {{message}}. Other tasks remain available.",
     "longOffline": "Long offline",
     "configurations": "Versions",
     "configurationUnknown": "Version unavailable",
@@ -389,7 +390,7 @@ export default {
       "waitingIdle": "Agents are running on {{name}}. It updates once they're idle.",
       "updateNow": "Restart and update now",
       "later": "Later",
-      "updateNowConfirm": "Restart Gugu on {{name}} now? Agents running there will have their current turn interrupted.",
+      "updateNowConfirm": "Restart Gugu on {{name}} now? Tasks running there will have their current turn interrupted.",
       "confirmRestart": "Restart",
       "reinstall": "Gugu server on {{name}} is too old to update automatically. Run the install command on that machine again:",
       "refused": "Gugu server on {{name}} refused the connection.",
@@ -781,13 +782,18 @@ export default {
       "you": " (you)"
     },
     "update": {
-      "downloading": "Updating",
+      "downloading": "Downloading {{version}}",
       "downloadingHint": "Downloading {{version}}; switches when idle.",
       "ready": "New version ready, waiting for idle",
+      "readyCount_one": "New version ready, waiting for {{count}} task to go idle",
+      "readyCount_other": "New version ready, waiting for {{count}} tasks to go idle",
       "readyHint": "{{version}} downloaded; switches when idle.",
       "updateNow": "Restart and update now",
-      "updateNowConfirm": "Restart Gugu on {{name}} now? Agents running there will have their current turn interrupted.",
-      "confirmRestart": "Restart"
+      "updateNowConfirm": "Restart Gugu on {{name}} now? Tasks running there will have their current turn interrupted.",
+      "confirmRestart": "Restart",
+      "restarting": "Restarting…",
+      "restartFailed": "Couldn't confirm the restart on {{name}}. Check its connection and try again.",
+      "restartTimeout": "{{name}} hasn't reported {{version}} yet. Check the device before trying again."
     },
     "versionUnknown": "Version unknown",
     "via": {
@@ -860,11 +866,11 @@ export default {
     "title": "File storage",
     "entryHint": "How project groups on your machines keep images and other files, and for how long; next to ordinary groups.",
     "projectTitle": "Project groups",
-    "machines": "Applies to project groups on your machines: {{machines}}. A project group on someone else's machine follows that machine owner's settings.",
+    "machines": "Applies to the files you send into project groups from your computers. Files others send follow their own settings.",
     "files": "Where project group files are stored",
     "filesMachine": "On the machine",
     "filesCloud": "Upload to the cloud",
-    "filesMachineHint": "Files stay only on the machine bound to the project. When someone opens one, a copy is uploaded to the cloud for a while.",
+    "filesMachineHint": "Files stay on the computer you sent them from. When someone opens one, a copy is uploaded to the cloud for a while. While that computer is offline, it can't be opened.",
     "filesCloudHint": "Every file sent is stored in the cloud and kept, as in ordinary groups; images are no longer deleted either.",
     "temporaryRetention": "Cloud copy when others open a file",
     "ordinaryTitle": "Ordinary groups",
