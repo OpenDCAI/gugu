@@ -6,7 +6,10 @@ import type { TranscriptTurn } from '@gugu/session-core/acp/client'
 
 describe('native session input persistence', () => {
   it('survives an offline restart and delivers in order automatically with the same identities', async () => {
-    const storage = await openSessionInputStorage(new IDBFactory())
+    const indexed = await openSessionInputStorage(new IDBFactory())
+    // Storage order is not delivery order (IndexedDB keys contain UUIDs).
+    const storage = { ...indexed, list: async (accountId: string) =>
+      (await indexed.list(accountId)).sort((a, b) => b.createdAt - a.createdAt) }
     let online = false
     const received: SessionInput[] = []
     const send = async (input: SessionInput) => { if (!online) throw new Error('offline'); received.push(input) }

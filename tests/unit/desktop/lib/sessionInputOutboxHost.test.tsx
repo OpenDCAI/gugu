@@ -76,7 +76,7 @@ describe('native input shell lifecycle', () => {
     expect(harness.container.innerHTML).not.toContain(source.itemId)
     expect(harness.container.innerHTML).not.toContain('/Users/')
     expect(harness.container.textContent).not.toContain('Waiting for host')
-    expect(harness.container.querySelector('[role="alert"]')?.textContent).toBe('Session host is offline')
+    await vi.waitFor(() => expect(harness.container.querySelector('[role="alert"]')?.textContent).toBe('Session host is offline'))
     expect(scope.send).not.toHaveBeenCalled()
     scope.devices = [{ device_id: 'host-a', is_online: true, capabilities: {} }]
     await harness.render(<><SessionInputOutboxHost accountId={scope.owner} /><SessionInputQueue sessionId="session-a" /></>)
@@ -118,10 +118,14 @@ describe('native input shell lifecycle', () => {
     updateDeviceSessions('host-a', { cached: false, sessions: [{ conversationId: 'session-a', nativeInputVersion: 1 } as never] })
     await harness.render(<><SessionInputOutboxHost accountId={scope.owner} /><SessionInputQueue sessionId="session-a" /></>)
     let input!: Awaited<ReturnType<typeof enqueueSessionInput>>
-    const attachments = [{ type: 'attachment' as const, id: 'image', mimeType: 'image/png' as const, name: 'image.png' }]
+    const attachments = [
+      { type: 'attachment' as const, id: 'image', mimeType: 'image/png' as const, name: 'image.png' },
+      { type: 'local-file' as const, originalPath: '/tmp/local-image.png', mimeType: 'image/png' as const, name: 'local-image.png' },
+    ]
     await act(async () => { input = await enqueueSessionInput({ deviceId, sessionId: 'session-a', text: 'same original body', attachments }) })
     await vi.waitFor(() => expect(harness.container.querySelector('[role="alert"]')?.textContent).toBe('Provider login expired'))
     expect(harness.container.textContent).toContain('image.png')
+    expect(harness.container.textContent).toContain('local-image.png')
     await act(async () => { harness.container.querySelector<HTMLButtonElement>('button')!.click() })
     await vi.waitFor(() => expect(scope.send).toHaveBeenCalledTimes(2))
     expect(scope.send.mock.calls.map(([request]) => request)).toEqual([
@@ -180,7 +184,7 @@ describe('native input shell lifecycle', () => {
     makeObservable(store, { transcriptRevision: observable })
     let historicalReads = 0
     const old: TranscriptTurn = { id: 'old', seq: 0, initiator: 'user',
-      get items() { historicalReads++; return [{ kind: 'message', id: 'old-user', seq: 0, role: 'user', text: 'same text' }] } }
+      get items(): TranscriptTurn['items'] { historicalReads++; return [{ kind: 'message', id: 'old-user', seq: 0, role: 'user', text: 'same text' }] } }
     try {
       chatState.transcript.history.seed([old])
       await harness.render(<><SessionInputOutboxHost accountId={scope.owner} /><AcpSessionInputQueue store={store} /></>)

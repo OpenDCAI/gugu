@@ -32,7 +32,7 @@ export class SessionInputOutbox {
     })
   }
 
-  list(): Promise<SessionInput[]> { return this.storage.list(this.accountId) }
+  async list(): Promise<SessionInput[]> { return (await this.storage.list(this.accountId)).sort((a, b) => a.createdAt - b.createdAt) }
 
   /** One fact, two adapters: ACP confirms a recorded user row's _meta.clientMessageId;
    * phone Pi confirms the same clientRequestId after accepted:true means its job is persisted. */
@@ -74,7 +74,7 @@ export class SessionInputOutbox {
 
   private async drain(): Promise<void> {
     const blocked = new Set<string>()
-    const rows = (await this.list()).sort((a, b) => a.createdAt - b.createdAt)
+    const rows = await this.list()
     for (const input of rows) {
       if (!this.current()) return
       const target = `${input.deviceId ?? 'local'}/${input.sessionId}`

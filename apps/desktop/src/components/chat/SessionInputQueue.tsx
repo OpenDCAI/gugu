@@ -29,7 +29,7 @@ export function SessionInputQueue({ sessionId, confirmedClientMessageIds = NO_CO
     {visible.map(input => <div key={input.id} className="flex flex-col items-end gap-1" data-native-input-id={input.id}>
       <div className="max-w-[85%] whitespace-pre-wrap break-words rounded-[var(--radius-thread)] bg-[var(--chat-bubble-user)] px-4 py-2 text-[length:var(--font-body)] text-foreground-muted">
         {conversationQuoteText(readMessageQuote(input.text)?.body ?? input.text)}
-        {input.attachments?.map(attachment => <div key={attachment.id}>{attachment.name ?? t('message.attachment')}</div>)}
+        {input.attachments?.map(attachment => <div key={attachment.type === 'attachment' ? attachment.id : attachment.originalPath}>{attachment.name ?? t('message.attachment')}</div>)}
       </div>
       {input.error ? <div className="flex items-center gap-2 text-sm">
         <span role="alert">{input.error}</span>
