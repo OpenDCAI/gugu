@@ -11,13 +11,14 @@ import { emptyAgentWatchTimeline } from '../../../../apps/desktop/src/mobile/age
 import { turnFailureMarker } from '@gugu/core/shared/ui/systemNotice'
 import { dmRecord } from '../../../../apps/desktop/src/components/chat/agent-dm-record'
 
-const probe = vi.hoisted(() => ({ props: null as unknown, read: vi.fn(), find: vi.fn(), scrollToItem: vi.fn(), setScrollMode: vi.fn(), fail: false, session: { state: 'no-session' } as AgentDmSession, turns: [] as TranscriptTurn[], settlements: {} as ReturnType<typeof emptyAgentWatchTimeline>['settlements'], respond: vi.fn() }))
+const probe = vi.hoisted(() => ({ props: null as unknown, read: vi.fn(), find: vi.fn(), scrollToItem: vi.fn(), setScrollMode: vi.fn(), fail: false, hostError: null as string | null, session: { state: 'no-session' } as AgentDmSession, turns: [] as TranscriptTurn[], settlements: {} as ReturnType<typeof emptyAgentWatchTimeline>['settlements'], respond: vi.fn() }))
 vi.mock('../../../../apps/desktop/src/hooks/useAgentDmSession', () => ({ useAgentDmSession: () => ({ session: probe.session }) }))
 vi.mock('../../../../apps/desktop/src/hooks/useAgentDisplayStatus', () => import('../../../support/agentDisplayStatusTestDouble'))
 vi.mock('../../../../apps/desktop/src/lib/chat', () => import('../../../support/contactsChatServiceTestDouble'))
+vi.mock('../../../../apps/desktop/src/lib/topics', () => ({ topicService: { listTopicsOfChat: vi.fn(async () => []) } }))
 vi.mock('../../../../apps/desktop/src/mobile/agent-watch/use-timeline-session', () => ({ useTimelineSession: (...args: unknown[]) => {
   probe.read(...args)
-  return { timeline: { ...emptyAgentWatchTimeline(), turns: probe.turns, settlements: probe.settlements }, phase: 'idle', respondingItemId: null, actionError: null, respond: probe.respond }
+  return { timeline: { ...emptyAgentWatchTimeline(), turns: probe.turns, settlements: probe.settlements }, phase: probe.hostError ? 'error' : 'idle', error: probe.hostError, respondingItemId: null, actionError: null, respond: probe.respond }
 } }))
 vi.mock('../../../../apps/desktop/src/components/assistant-ui/session-transcript-view.aui', () => ({ SessionTranscriptView: (props: { turns: TranscriptTurn[]; composerContent: ReactNode; onReady?: (view: unknown) => void }) => {
   if (probe.fail) throw new Error('Conversation render failure')
@@ -33,7 +34,7 @@ import { ShellErrorBoundary } from '../../../../apps/desktop/src/components/Shel
 import { AUTOMATION_TEST_IDS } from '../../../../apps/desktop/src/lib/automationDom'
 let harness: ReturnType<typeof createReactHarness>
 let intersections: { target: Element; notify: (visible: boolean) => void }[]
-beforeEach(() => { harness = createReactHarness(); probe.fail = false; probe.session = { state: 'no-session' }; probe.turns = []; probe.read.mockClear(); probe.find.mockClear(); probe.scrollToItem.mockClear(); probe.setScrollMode.mockClear(); probe.settlements = {}; probe.respond.mockReset(); intersections = []; vi.stubGlobal('IntersectionObserver', class {
+beforeEach(() => { harness = createReactHarness(); probe.fail = false; probe.hostError = null; probe.session = { state: 'no-session' }; probe.turns = []; probe.read.mockClear(); probe.find.mockClear(); probe.scrollToItem.mockClear(); probe.setScrollMode.mockClear(); probe.settlements = {}; probe.respond.mockReset(); intersections = []; vi.stubGlobal('IntersectionObserver', class {
   constructor(private callback: IntersectionObserverCallback) {}
   observe(target: Element) {
     const notify = (visible: boolean) => this.callback([{ target, isIntersecting: visible, intersectionRect: { width: visible ? 900 : 0, height: visible ? 850 : 0 } } as IntersectionObserverEntry], this as unknown as IntersectionObserver)
@@ -44,6 +45,44 @@ beforeEach(() => { harness = createReactHarness(); probe.fail = false; probe.ses
 afterEach(() => { harness.cleanup(); vi.unstubAllGlobals() })
 const dm = chat({ id: 'external-dm', kind: 'ai', peer_user_id: 'external-agent', name: 'External agent' })
 const received = message({ id: 'received', chat_id: dm.id, sender_user_id: 'external-agent', is_mine: false, content: '外部 agent 的已有回复。' })
+
+it.each([false, true])('keeps the assistant on its IM bubbles and composer on mobile=%s without opening the sleeping host transcript', async mobile => {
+  probe.session = { state: 'ready', deviceId: 'sleeping-cloud', sessionId: 'assistant-session', local: false }
+  probe.hostError = '此刻连不上「咕咕」。'
+  const sendMessage = vi.fn<(content: string) => Promise<undefined>>(async () => undefined)
+  await renderWithAppProviders(harness, createElement(ChatAreaPanel, {
+    activeTab: 'chats', assistantChat: true, mobile,
+    chrome: { placeholder: '和咕咕聊天', attachGlyph: null, typing: createElement('span', { 'data-assistant-typing': '' }, '正在处理'), hideRunningStatus: true },
+  }), { chat: {
+    activeChat: dm, activeChatId: dm.id, messages: [received],
+    identitiesById: { 'external-agent': displayIdentity('external-agent', { type: 'agent' }) }, sendMessage,
+  } })
+  expect(harness.container.querySelector('[data-testid="agent-dm-conversation"]')).toBeNull()
+  expect(probe.read, 'idle host connection failures cannot become assistant message-load errors').not.toHaveBeenCalled()
+  expect(harness.container.querySelector('[data-testid="chat-load-failed"]')).toBeNull()
+  expect(harness.container.querySelector('[data-testid="chat-message-list"]')).not.toBeNull()
+  expect(harness.container.querySelector('[data-msg-id="received"]')).not.toBeNull()
+  expect(harness.container.querySelector('[data-assistant-typing]')).not.toBeNull()
+  expect(harness.container.querySelector('[data-chat-bottom-dock]')).not.toBeNull()
+  expect(harness.container.querySelector('[data-running-bar-slot]')).toBeNull()
+  const editor = harness.container.querySelector<HTMLElement>('[contenteditable="true"]')!
+  await act(async () => writeComposer(editor, '这条消息照常唤醒助理'))
+  await clickElement(harness.container.querySelector<HTMLElement>('button[aria-label="发送消息"]')!)
+  await vi.waitFor(() => expect(sendMessage).toHaveBeenCalledTimes(1))
+  expect(sendMessage.mock.calls[0]?.[0]).toBe('这条消息照常唤醒助理')
+})
+
+it('still reports a real assistant IM read failure and retries without opening the host transcript', async () => {
+  const refreshMessages = vi.fn(async () => {})
+  await renderWithAppProviders(harness, <ChatAreaPanel activeTab="chats" assistantChat />, { chat: {
+    activeChat: dm, activeChatId: dm.id, messages: [received], messagesError: new Error('IM read failed'), refreshMessages,
+  } })
+  expect(harness.container.querySelector('[data-testid="chat-load-failed"]')).not.toBeNull()
+  expect(harness.container.querySelector('[data-msg-id="received"]')).not.toBeNull()
+  await clickElement(harness.container.querySelector<HTMLElement>('[data-testid="chat-load-retry"]')!)
+  expect(refreshMessages).toHaveBeenCalledWith(dm.id)
+  expect(probe.read).not.toHaveBeenCalled()
+})
 
 async function openOwnedAgentFromContacts() {
   const own = contact({ id: 'my-agent', type: 'agent', display_name: 'My agent', owner_user_id: 'user-1', device_id: 'local-device' })
