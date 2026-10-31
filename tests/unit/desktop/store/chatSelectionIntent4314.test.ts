@@ -3,7 +3,7 @@
  * #4314 —— 「在对话页新建 agent 之后，概率性不跳转到那个 agent 的会话」。
  *
  * 产品里那一跳的落点是 chat store 的 `activeChatId`：创建流拿到新会话地址后
- * （MainLayout 的 `__GUGU_SESSIONPAGE_MESSAGES__.openAgentChat`）登记乐观行 + 选中它。
+ * 登记乐观行 + 选中它(这一跳的入口已随对话页创建删掉;选中意图本身仍是 store 的契约)。
  * 「概率性」= 竞态：`open_dm` 写 chat_members 会广播 `chat_members_changed`，
  * 它驱动的那次列表刷新可能**在导航发生之前就发出**、却**在导航之后才落地**；
  * 落地时它的快照里还没有这条新会话，store 于是把用户刚表达的选择清掉。
@@ -204,7 +204,7 @@ async function renderStore(): Promise<void> {
   await harness.render(createNode(Provider, { active: true }, createNode(Probe)))
   await flushReact()
 }
-/** 产品里那一步：创建流拿到新会话地址后原地进入它（MainLayout 的 openAgentChat 同一序列）。 */
+/** 创建流拿到新会话地址后原地进入它:登记乐观行 + 选中。 */
 async function openCreatedAgentChat(): Promise<void> {
   await act(async () => {
     latestStore?.upsertChat(createOptimisticAgentChat(NEW_CHAT_ID, AGENT_ID))

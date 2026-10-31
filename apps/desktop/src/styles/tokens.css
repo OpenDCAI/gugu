@@ -178,17 +178,6 @@
   display: flex;
   -webkit-app-region: no-drag;
 }
-/* 让出车道后,默认宽(240)放不下「标题 + 新建 Agent 整钮 + ＋」,标题会被压成一个字母:列表头内容盒窄于 206px 时
-   「新建 Agent」只留图标(全名仍在提示里)。容器查询量的是内容盒,车道 / 内距已扣掉,所以 Windows 不必另判。
-   206 ≈ 英文标题 41 + 间距 4 + 整钮 119 + 间距 2 + ＋ 32 = 198(mac1 实测),留一点余量。 */
-[data-testid='chat-list-pane'] .gg-pane-header {
-  container-type: inline-size;
-}
-@container (max-width: 205px) {
-  [data-testid='chat-create-agent-draft-action'] > [data-button-label] {
-    display: none;
-  }
-}
 /* 会话列表收起时,对话头左端同样让出这条车道(与会话页会话头同一条,session-chat-column.tsx)。 */
 [data-list-collapsed] ~ * [data-chat-area-header] {
   padding-inline-start: max(var(--pane-pad-x), var(--list-toggle-lane));

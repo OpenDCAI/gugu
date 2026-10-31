@@ -182,8 +182,8 @@ async function bootstrap() {
     setPortalContainer(mountEl);
   }
 
-  // gugu #2549: the ONE persistent embed instance can render either the full session-page Workspace
-  // or a composer-only root (对话页原地创建 Agent) — see lib/stores/embed-view.ts for why this is a
+  // The ONE persistent embed instance can render either the full session-page Workspace
+  // or the session-create root — see lib/stores/embed-view.ts for why this is a
   // reactive switch on a single instance rather than a second independent module load. The host
   // (gugu MainLayout) flips this via __EMDASH_SET_EMBED_VIEW__ whenever it needs the embed to show
   // a different root; App.tsx reads the store reactively. __EMDASH_EMBED_VIEW__ only seeds the
