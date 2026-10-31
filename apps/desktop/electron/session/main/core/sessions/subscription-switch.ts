@@ -15,7 +15,7 @@ import { SubscriptionSessionsBusyError } from './subscription-sessions-busy';
 import { sessionLife } from './session-life';
 
 type SubscriptionProvider = 'claude' | 'codex';
-type LiveSession = { projectId: string; sessionId: string; busy: boolean };
+type LiveSession = { projectId: string; sessionId: string; busy: boolean; sideChat: boolean };
 
 /** 停一条会话等它的进程退出,一轮最多 10 s(`stop_pending` = 信号发了、还没退)。几轮都没退才报失败。 */
 const STOP_ATTEMPTS = 3;
@@ -34,24 +34,31 @@ function liveSessions(providerId: SubscriptionProvider): LiveSession[] {
   const live = new Map<string, LiveSession>();
   // ACP: session-life says which sessions have a run; the runtime summary says only whether it is busy.
   const summaries = acpAgentStatusBridge.current();
-  for (const sessionId of sessionLife().running()) {
-    const row = db.select({ projectId: sessions.projectId, provider: sessions.provider }).from(sessions).where(eq(sessions.id, sessionId)).get();
-    if (!row) throw new Error(`subscription switch: running session ${sessionId} has no row`);
+  // A side chat runs the same harness on the same config root as its session: it stops too.
+  for (const { sessionId, parentId } of sessionLife().running()) {
+    const recordId = parentId ?? sessionId;
+    const row = db.select({ projectId: sessions.projectId, provider: sessions.provider }).from(sessions).where(eq(sessions.id, recordId)).get();
+    if (!row) throw new Error(`subscription switch: running session ${recordId} has no row`);
     if (row.provider !== providerId) continue;
-    live.set(sessionId, { projectId: row.projectId, sessionId, busy: acpBusy(summaries.get(sessionId)) });
+    live.set(sessionId, { projectId: row.projectId, sessionId, busy: acpBusy(summaries.get(sessionId)), sideChat: parentId !== null });
   }
   for (const pty of ptySessionRegistry.listActiveSessions()) {
     if (pty.metadata?.providerId !== providerId) continue;
     const parsed = parsePtySessionId(pty.ptySessionId);
     if (!parsed) continue;
     const status = db.select({ status: sessions.agentStatus }).from(sessions).where(eq(sessions.id, parsed.leafId)).get()?.status;
-    live.set(parsed.leafId, { projectId: parsed.projectId, sessionId: parsed.leafId, busy: status === 'working' || status === 'needs_user' });
+    live.set(parsed.leafId, { projectId: parsed.projectId, sessionId: parsed.leafId, busy: status === 'working' || status === 'needs_user', sideChat: false });
   }
   return [...live.values()];
 }
 
 /** 停不下来先别放弃:`stop_pending` 是进程收到信号还没退,再等一轮。别的失败照抛。 */
 async function stopForSwitch(session: LiveSession): Promise<boolean> {
+  // A side chat has no session row: its fork entry rests, and its next message starts it on the new account.
+  if (session.sideChat) {
+    await sessionLife().interrupt(session.sessionId, { k: 'interrupt', reason: 'version-switch' });
+    return true;
+  }
   for (let attempt = 1; ; attempt++) {
     try {
       return await stopExactSessionpageSession({ ...session, reason: 'version-switch' });

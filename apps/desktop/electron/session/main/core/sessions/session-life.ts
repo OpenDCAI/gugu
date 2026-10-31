@@ -32,6 +32,8 @@ export interface SessionLifePorts {
   adapter(sessionId: string): LegAdapter;
   /** The runtime forks whose life depends on this session; a fork's own parent, or null for a persisted session. */
   forks(sessionId: string): readonly string[];
+  /** Every open side chat, entered (sent to) or not. */
+  allForks(): readonly string[];
   parentOf(sessionId: string): string | null;
   /** Hydrate only: the session's canonical binding names exactly this account (unknown owner = false). */
   ownedBy(sessionId: string, userId: string): Promise<boolean>;
@@ -111,8 +113,9 @@ export class SessionLife {
     if (ownerUserId === null) return;
     this.leaving = true;
     try {
-      // A runtime fork exists only for this account's run: it ends instead of waiting for a sign-in that cannot reach it.
-      for (const [sessionId] of this.entries) {
+      // A side chat exists only for this account's run: every open one ends (an unsent one too, or the next account
+      // would start it on this account's parent binding) instead of waiting for a sign-in that cannot reach it.
+      for (const sessionId of new Set([...this.entries.keys(), ...this.ports.allForks()])) {
         this.send(sessionId, this.ports.parentOf(sessionId) === null
           ? { k: 'interrupt', reason: 'sign-out', ownerUserId } : { k: 'interrupt', reason: 'delete' });
       }
@@ -203,10 +206,10 @@ export class SessionLife {
       version: 0, since: this.ports.now(), run: null, effects: Promise.resolve() });
   }
 
-  /** Persisted sessions whose run holds a process or is building one (starting, ready, stopping); side chats excluded. */
-  running(): readonly string[] {
-    return [...this.entries].filter(([id, entry]) => this.ports.parentOf(id) === null
-      && (entry.life.kind === 'starting' || entry.life.kind === 'ready' || entry.life.kind === 'stopping')).map(([id]) => id);
+  /** Entries whose run holds a process or is building one (starting, ready, stopping); a side chat names its parent. */
+  running(): readonly { readonly sessionId: string; readonly parentId: string | null }[] {
+    return [...this.entries].filter(([, entry]) => entry.life.kind === 'starting' || entry.life.kind === 'ready' || entry.life.kind === 'stopping')
+      .map(([sessionId]) => ({ sessionId, parentId: this.ports.parentOf(sessionId) }));
   }
 
   quiescent(sessionId: string): Promise<void> {

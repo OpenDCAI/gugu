@@ -16,7 +16,7 @@ import type {
   AgentDeliveryToolNames,
 } from '@gugu/core/local/agent/deviceCommandRuntime'
 import type {
-  AgentInboxUnreadRow,
+  AgentInboxSource,
   AgentInboxInjectionInput,
   AgentInboxInjectionResult,
   AgentInboxInjectionVerdict,
@@ -105,7 +105,7 @@ export interface SessionpageDeliveryTarget {
    * A leg owned by the host's session lifecycle (ACP) never injects from the reader: it takes the unit into its
    * durable queue with the rows it settles, and marks them read when the agent accepts it.
    */
-  enqueueInbox?(sessionId: string, unit: { messageId: string; text: string; agentUserId: string; sources: readonly AgentInboxUnreadRow[] }): void
+  enqueueInbox?(sessionId: string, unit: { messageId: string; text: string; agentUserId: string; sources: readonly AgentInboxSource[] }): void
 }
 
 export type SessionpageSessionMessage = {
@@ -157,7 +157,7 @@ export async function sessionInjectionCapabilityForSession(
   return channel ? sessionInjectionCapabilityFor(channel.providerId, channel.surface) : null
 }
 
-type InboxUnitMessage = { id: string; text: string; kind?: 'ordinary' | 'session-direct'; sources?: readonly AgentInboxUnreadRow[] }
+type InboxUnitMessage = { id: string; text: string; kind?: 'ordinary' | 'session-direct'; sources?: readonly AgentInboxSource[] }
 
 export class SessionpageLocalDeliveryRouter {
   private readonly wakeFlights = new Map<string, Promise<'reopened' | 'already-running'>>()

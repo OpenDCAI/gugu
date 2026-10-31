@@ -104,14 +104,14 @@ describe('ACP inbox delivery goes into session-life', () => {
     registerEmdashAgent({ guguAgentUserId: 'agent-1', sessionId: 'conv-1' })
     return { enqueue }
   }
-  const row = (id: string) => ({ id, chatId: 'chat-1', seq: 1 }) as never
+  const row = (id: string) => ({ row: { id, chatId: 'chat-1', seq: 1 } }) as never
 
   it('the reader\'s unit is enqueued with the rows it settles, whatever the session is doing', async () => {
     const { enqueue } = rig()
     const router = new SessionpageLocalDeliveryRouter([emdashAgentRegistry])
     await expect(router.injectForAgent('agent-1', { id: 'm1', text: 'envelope', sources: [row('m1'), row('m2')] })).resolves.toBe('enqueued')
     expect(enqueue).toHaveBeenCalledExactlyOnceWith({ sessionId: 'conv-1', messageId: 'm1', text: 'envelope', kind: 'inbox-batch',
-      sources: [{ agentUserId: 'agent-1', row: row('m1') }, { agentUserId: 'agent-1', row: row('m2') }] })
+      sources: [{ agentUserId: 'agent-1', ...(row('m1') as object) }, { agentUserId: 'agent-1', ...(row('m2') as object) }] })
   })
 
   it('nothing injects into an ACP session directly', async () => {

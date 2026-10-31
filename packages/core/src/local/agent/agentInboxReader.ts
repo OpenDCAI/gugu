@@ -123,7 +123,7 @@ export interface AgentInboxInjectionInput {
    * The rows this unit settles once accepted (its members, and skipped rows it passes): an enqueuing host freezes them.
    * Absent: a host-made unit (a notice) with no inbox row behind it.
    */
-  sources?: readonly AgentInboxUnreadRow[]
+  sources?: readonly AgentInboxSource[]
   /** Image bytes travel as content blocks, never as a URL for the agent to fetch. */
   attachments?: Array<{ data: string; mimeType: string; fileName: string; localPath?: string }>
 }
@@ -518,10 +518,10 @@ async function filterArchivedRows(agentUserId: string, rows: AgentInboxUnreadRow
   return rows.filter((_, index) => !refused[index])
 }
 
-async function unclaimedRows(agentUserId: string, rows: AgentInboxUnreadRow[], deps: AgentInboxReaderDeps): Promise<AgentInboxUnreadRow[]> {
-  if (!deps.claimedSources || rows.length === 0) return rows
+async function unclaimedRows(agentUserId: string, rows: AgentInboxUnreadRow[], deps: AgentInboxReaderDeps): Promise<{ rows: AgentInboxUnreadRow[]; queuedAhead: boolean }> {
+  if (!deps.claimedSources || rows.length === 0) return { rows, queuedAhead: false }
   const claimed = await deps.claimedSources(agentUserId, rows.map((row) => row.id))
-  return rows.filter((row) => !claimed.has(row.id))
+  return { rows: rows.filter((row) => !claimed.has(row.id)), queuedAhead: claimed.size > 0 }
 }
 
 async function pullOnce(agentUserId: string, deps: AgentInboxReaderDeps): Promise<AgentInboxPullResult> {
@@ -550,8 +550,8 @@ async function pullOnce(agentUserId: string, deps: AgentInboxReaderDeps): Promis
     if (rawRows.length === 0) break
     const archival = await deps.sessionArchival?.(agentUserId) ?? null
     if (archival?.archivedAt) { verdict = 'not-now'; break }
-    const rows = await unclaimedRows(agentUserId, await filterArchivedRows(agentUserId, rawRows, archival, deps), deps)
-    const batchResult = await injectBatch(agentUserId, rows, deps)
+    const unclaimed = await unclaimedRows(agentUserId, await filterArchivedRows(agentUserId, rawRows, archival, deps), deps)
+    const batchResult = await injectBatch(agentUserId, unclaimed.rows, deps, unclaimed.queuedAhead)
     injectedTotal += batchResult.injected
     verdict = batchResult.verdict
     if (batchResult.completion) completions.push(batchResult.completion)
@@ -575,7 +575,8 @@ async function pullOnce(agentUserId: string, deps: AgentInboxReaderDeps): Promis
     if (forumRows.length > 0) {
       const archival = await deps.sessionArchival?.(agentUserId) ?? null
       if (archival?.archivedAt) return { pulled, injected: injectedTotal, verdict: 'not-now' }
-      const batchResult = await injectBatch(agentUserId, await unclaimedRows(agentUserId, await filterArchivedRows(agentUserId, forumRows, archival, deps), deps), deps)
+      const unclaimed = await unclaimedRows(agentUserId, await filterArchivedRows(agentUserId, forumRows, archival, deps), deps)
+      const batchResult = await injectBatch(agentUserId, unclaimed.rows, deps, unclaimed.queuedAhead)
       injectedTotal += batchResult.injected
       verdict = batchResult.verdict
       if (batchResult.completion) completions.push(batchResult.completion)
@@ -588,6 +589,9 @@ async function pullOnce(agentUserId: string, deps: AgentInboxReaderDeps): Promis
     ...(completions.length > 0 ? { completion: Promise.all(completions).then(() => undefined) } : {}),
   }
 }
+
+/** One row a unit settles once its agent accepts it, with what acceptance records for it. */
+export type AgentInboxSource = Pick<PreparedMessage, 'row' | 'rulesDelivered' | 'bootstrapKey'>
 
 type PreparedMessage = {
   row: AgentInboxUnreadRow
@@ -659,6 +663,8 @@ async function injectBatch(
   agentUserId: string,
   pulledRows: AgentInboxUnreadRow[],
   deps: AgentInboxReaderDeps,
+  /** Rows an enqueuing host still holds unread were left out of this pull. */
+  queuedAhead = false,
 ): Promise<{ injected: number; verdict: AgentInboxInjectionVerdict; completion?: Promise<void> }> {
   const env = deps.env ?? process.env
   const toolNames = deps.deliveryToolNames?.(agentUserId) ?? undefined
@@ -674,7 +680,7 @@ async function injectBatch(
     return false
   })
   if (rows.length === 0) {
-    await advanceCursor(agentUserId, skipped, deps)
+    if (!queuedAhead) await advanceCursor(agentUserId, skipped, deps)
     return { injected: 0, verdict: 'accepted' }
   }
   const rulesPlan = await planGroupRules(agentUserId, rows, deps, env)
@@ -745,7 +751,8 @@ async function injectBatch(
         agentUserId,
         messageId: unit.members[0]!.row.id,
         text: unit.text,
-        sources: [...passed, ...unit.members].map((entry) => entry.row),
+        sources: [...passed, ...unit.members].map(({ row, rulesDelivered, bootstrapKey }) =>
+          ({ row, ...(rulesDelivered ? { rulesDelivered } : {}), ...(bootstrapKey ? { bootstrapKey } : {}) })),
         ...(unit.attachments ? { attachments: unit.attachments } : {}),
       })
       if (typeof result === 'string') {
@@ -778,20 +785,12 @@ async function injectBatch(
     injected += unit.members.length
     if (completion) completions.push(completion)
     for (const entry of passed) skipped.splice(skipped.indexOf(entry), 1)
-    // Enqueued: the host's queue now owns these rows; they are marked read when the agent accepts them.
+    // Enqueued: the host's queue owns these rows now; acceptance settles them (markInboxRowsRead).
     if (unitVerdict === 'enqueued') enqueued = true
-    else await advanceCursor(agentUserId, [...passed, ...unit.members], deps)
-    deps.onOutcome?.({ agentUserId, ok: true })
-    for (const member of unit.members) {
-      if (member.bootstrapKey) threadBootstrapped.add(member.bootstrapKey)
-      if (member.rulesDelivered) {
-        await (deps.groupRulesLedger ?? groupRulesLedgerFor(env))
-          .write(agentUserId, member.rulesDelivered.chatId, member.rulesDelivered.entry)
-      }
-    }
+    else await settleAccepted(agentUserId, [...passed, ...unit.members], deps)
   }
-  // Behind an enqueued unit a skipped row would pass rows that are still unread: it waits for a later unit.
-  if (skipped.length > 0 && !enqueued) await advanceCursor(agentUserId, skipped, deps)
+  // Behind queued rows (this pull's, or held from an earlier one) a skipped row would pass rows still unread: it waits.
+  if (skipped.length > 0 && !enqueued && !queuedAhead) await advanceCursor(agentUserId, skipped, deps)
   return {
     injected,
     verdict: enqueued ? 'enqueued' : 'accepted',
@@ -954,15 +953,29 @@ function rebuildEnvelopeWithThreadContext(
   )
 }
 
+/**
+ * What an accepted unit records, once: its rows read (in chat order), the group rules it carried delivered, its
+ * threads bootstrapped, and the outcome. An injection runs it at admission; an enqueuing host at its agent's acceptance.
+ */
+async function settleAccepted(agentUserId: string, sources: readonly AgentInboxSource[], deps: AgentInboxReaderDeps): Promise<void> {
+  await advanceCursor(agentUserId, sources.map((source) => ({ ...source, envelope: '' })), deps)
+  deps.onOutcome?.({ agentUserId, ok: true })
+  const ledger = deps.groupRulesLedger ?? groupRulesLedgerFor(deps.env ?? process.env)
+  for (const source of sources) {
+    if (source.bootstrapKey) threadBootstrapped.add(source.bootstrapKey)
+    if (source.rulesDelivered) await ledger.write(agentUserId, source.rulesDelivered.chatId, source.rulesDelivered.entry)
+  }
+}
+
 /** An enqueuing host's agent accepted these rows: settle them exactly as an accepted injection does. */
-export function markInboxRowsRead(agentUserId: string, rows: readonly AgentInboxUnreadRow[], deps: AgentInboxReaderDeps): Promise<void> {
-  return advanceCursor(agentUserId, rows.map((row) => ({ row, envelope: '' })), deps)
+export function markInboxRowsRead(agentUserId: string, sources: readonly AgentInboxSource[], deps: AgentInboxReaderDeps): Promise<void> {
+  return settleAccepted(agentUserId, sources, deps)
 }
 
 /** An enqueuing host could not deliver these rows: say so in their chats, as a failed injection does. */
-export async function discloseInboxRowsFailed(agentUserId: string, rows: readonly AgentInboxUnreadRow[], deps: AgentInboxReaderDeps): Promise<void> {
+export async function discloseInboxRowsFailed(agentUserId: string, sources: readonly AgentInboxSource[], deps: AgentInboxReaderDeps): Promise<void> {
   deps.onOutcome?.({ agentUserId, ok: false })
-  await discloseBatchFailure(agentUserId, rows.map((row) => ({ row })), deps)
+  await discloseBatchFailure(agentUserId, sources, deps)
 }
 
 /**

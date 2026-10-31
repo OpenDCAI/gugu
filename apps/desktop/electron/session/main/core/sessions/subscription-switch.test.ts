@@ -4,6 +4,8 @@ const mocks = vi.hoisted(() => ({
   summaries: new Map<string, Record<string, unknown>>(),
   calls: [] as string[],
   progress: [] as string[],
+  /** side chat id → its session. */
+  forks: new Map<string, string>(),
 }));
 
 vi.mock('@main/core/acp/agent-status-bridge', () => ({
@@ -11,7 +13,10 @@ vi.mock('@main/core/acp/agent-status-bridge', () => ({
 }));
 vi.mock('@main/core/pty/pty-session-registry', () => ({ ptySessionRegistry: { listActiveSessions: () => [] } }));
 // session-life says which sessions run (here: every summarized one); the row says its project and provider.
-vi.mock('./session-life', () => ({ sessionLife: () => ({ running: () => [...mocks.summaries.keys()] }) }));
+vi.mock('./session-life', () => ({ sessionLife: () => ({
+  running: () => [...mocks.summaries.keys()].map(sessionId => ({ sessionId, parentId: mocks.forks.get(sessionId) ?? null })),
+  interrupt: async (sessionId: string, event: { reason: string }) => { mocks.calls.push(`${event.reason}:${sessionId}`); },
+}) }));
 vi.mock('drizzle-orm', () => ({ eq: (_column: unknown, id: string) => id }));
 vi.mock('@main/db/schema', () => ({ sessions: { id: 'id' } }));
 vi.mock('@main/db/client', () => ({ db: {
@@ -64,6 +69,7 @@ beforeEach(() => {
   mocks.summaries.clear();
   mocks.calls.length = 0;
   mocks.progress.length = 0;
+  mocks.forks.clear();
 });
 
 it('stops idle Codex sessions before the credentials change and hands them back afterwards', async () => {
@@ -172,4 +178,12 @@ it('keeps running sessions alive when the target connection cannot be switched t
   vi.mocked(assertHarnessConnectionSelectable).mockRejectedValueOnce(new Error('no saved sign-in'));
   await expect(switchSubscription('codex', 'work', {})).rejects.toThrow('no saved sign-in');
   expect(mocks.calls).toEqual([]);
+});
+
+it('rests a side chat of a session on that provider too: it runs on the same config root', async () => {
+  summary('a');
+  summary('view-a');
+  mocks.forks.set('view-a', 'a');
+  await switchSubscription('codex', 'work', {});
+  expect(mocks.calls).toEqual(['stop:a', 'version-switch:view-a', 'select:codex:work', 'reclaimed:a', 'reclaimed:view-a']);
 });

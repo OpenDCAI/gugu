@@ -2,13 +2,10 @@ import type {
   ExitFact, Gen, Have, SerializedError, StageName, StageOut, Timing,
 } from '@gugu/core/local/session-life/types';
 import type { SessionMessage, SessionMessageDelivery } from '@shared/core/sessions/sessions';
-import type { AgentInboxUnreadRow } from '@gugu/core/local/agent/agentInboxReader';
+import type { AgentInboxSource } from '@gugu/core/local/agent/agentInboxReader';
 
-/** One inbox row an inbox-batch settles: marked read when the agent accepts the batch, told of its failure otherwise. */
-export interface PendingSource {
-  readonly agentUserId: string;
-  readonly row: AgentInboxUnreadRow;
-}
+/** One inbox row an inbox-batch settles: marked read (with what acceptance records) when the agent accepts the batch. */
+export type PendingSource = AgentInboxSource & { readonly agentUserId: string };
 
 /** How a row is written for the agent: a fact of the row itself, set at enqueue. */
 export type PendingTurn =

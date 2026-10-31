@@ -61,10 +61,10 @@ function rig(options: { block?: StageName; delayReceipt?: boolean; dispatchThrow
     claim(id) { for (const row of rows.values()) if (row.sessionId === id && row.state === 'dispatching') rows.set(row.seq, { ...row, state: 'unknown' }); },
     acceptedUnsettled(id) { return [...rows.values()].filter(row => row.sessionId === id && row.state === 'accepted' && !settled.has(row.seq)).map(row => row.seq); },
     settleRead(_id, s) { settled.add(s); },
-    remove(id) { records.delete(id); for (const row of rows.values()) if (row.sessionId === id) rows.delete(row.seq); },
+    remove(id) { records.delete(id); forks.delete(id); for (const row of rows.values()) if (row.sessionId === id) rows.delete(row.seq); },
   };
   const ports: SessionLifePorts = { sessions: () => [...records.keys()].filter(id => !forks.has(id)), store: () => store,
-    forks: id => [...forks].filter(([, parent]) => parent === id).map(([fork]) => fork), parentOf: id => forks.get(id) ?? null,
+    forks: id => [...forks].filter(([, parent]) => parent === id).map(([fork]) => fork), allForks: () => [...forks.keys()], parentOf: id => forks.get(id) ?? null,
     ownedBy: async (id, user) => records.get(id)?.owner === user,
     adapter(sessionId) {
       return { leg: 'acp', timing: 'next-tool-call',
@@ -169,11 +169,11 @@ export const ownerCases: readonly { name: string; run: () => Promise<void> }[] =
     await r.owner.interrupt('s', { k: 'interrupt', reason: 'delete' });
     assert.deepEqual(r.removed, ['s', 'f']); assert.deepEqual(r.trace, ['removed:s', 'removed:f']);
   } },
-  { name: 'sign-out ends side chats instead of holding them for a sign-in that cannot reach them', async run() {
-    const r = rig(); r.session(); r.fork('f'); await r.owner.signIn('A');
+  { name: 'sign-out ends side chats instead of holding them for a sign-in that cannot reach them, unsent ones too', async run() {
+    const r = rig(); r.session(); r.fork('f'); r.fork('unsent'); await r.owner.signIn('A');
     r.owner.start('f'); await r.owner.quiescent('f');
     await r.owner.signOut();
-    assert.deepEqual(r.removed, ['f']); assert.equal(r.active.size, 0);
+    assert.deepEqual([...r.removed].sort(), ['f', 'unsent']); assert.equal(r.active.size, 0);
     assert.equal(r.records.get('s')?.hold?.reason, 'sign-out');
   } },
   { name: 'a session id re-created right after delete starts only after the deleted entry finished its IO', async run() {

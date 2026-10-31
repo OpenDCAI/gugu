@@ -52,7 +52,7 @@ import {
 import { electronFetch, makeChatClient } from '../supabase'
 import { agentsForOwner } from '@gugu/core/local/state/agentOwner'
 import { AGENT_CLOUD_IDENTITY_STATE_CACHE_KEY } from '@gugu/core/local/state/agentCloudIdentity'
-import { emdashAgentRegistry, unregisterEmdashAgent } from './emdash-agent-registry'
+import { emdashAgentRegistry, registerEmdashAgent, unregisterEmdashAgent } from './emdash-agent-registry'
 // #5419 撤回一行没落地的本机身份 = 释放它的本机足迹,与「owner 删 agent」「回收器收 agent」
 // 是同一个动作的第三条驱动 ⇒ 用同一个实现。(该模块回头引本文件的 cache key 常量,两边都只在
 // 调用时用,模块初始化期互不依赖。)
@@ -1714,9 +1714,9 @@ export async function registerExistingSessionpageAgents(
     const sessionId = cacheString(agent.cache, SESSION_CACHE_KEY)
     const providerId = cacheString(agent.cache, PROVIDER_CACHE_KEY)
     const surface = cacheString(agent.cache, SURFACE_CACHE_KEY)
-    // Identity reconstruction is surface-blind. Every persisted conversation binding is kept behind
-    // the same offline owner until its actual transport promotes; no owner-kind branch may decide
-    // whether the identity exists.
+    // Identity reconstruction is surface-blind: every persisted binding gets an owner, so no owner-kind branch
+    // decides whether the identity exists. A terminal binding waits behind the offline owner until its transport
+    // promotes; an ACP binding gets its session-life claimant at once.
     const registerOfflineOwner = () => {
       if (agent.gugu_user_id && sessionId) {
         registerOfflineLocalSessionDelivery(agent.gugu_user_id, {
@@ -1737,6 +1737,13 @@ export async function registerExistingSessionpageAgents(
     } catch {
       registerOfflineOwner()
       throw new Error('Persisted task capability is invalid')
+    }
+    // An ACP session's claimant needs nothing live: it enqueues into session-life, which starts the session when a
+    // delivery arrives. Behind the offline owner an inbox unit would answer not-live and wake a leg no wake starts.
+    if (surface === 'acp' && agent.gugu_user_id && sessionId) {
+      registerEmdashAgent({ guguAgentUserId: agent.gugu_user_id, sessionId })
+      count++
+      return
     }
     registerOfflineOwner()
     }

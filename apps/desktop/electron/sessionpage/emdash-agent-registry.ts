@@ -13,7 +13,7 @@
 
 import { isImplicitSessionHomeProjectId } from '@gugu/core/shared/sessionProject'
 import type { AgentStatusView } from '@gugu/core/shared/agentStatus'
-import type { AgentInboxUnreadRow } from '@gugu/core/local/agent/agentInboxReader'
+import type { AgentInboxSource } from '@gugu/core/local/agent/agentInboxReader'
 
 export interface SessionpageDeliveryReceipt {
   turnId: string
@@ -25,7 +25,7 @@ export interface SessionpageDeliveryReceipt {
 /** The session-backend module-boundary surface this registry needs (injected by main.ts from the loaded .cjs). */
 export interface EmdashDeliveryBridge {
   /** The host's session lifecycle owner: its one queue entry. */
-  sessionLife(): { enqueue(input: { sessionId: string; messageId: string; text: string; kind: 'inbox-batch'; sources: readonly { agentUserId: string; row: AgentInboxUnreadRow }[] }): unknown }
+  sessionLife(): { enqueue(input: { sessionId: string; messageId: string; text: string; kind: 'inbox-batch'; sources: readonly (AgentInboxSource & { agentUserId: string })[] }): unknown }
   /** @@@4526B 宿主 ACP 通道的取消口。 */
   cancelEmdashTurn?(sessionId: string): Promise<boolean>
   emdashSessionSummaries(): Promise<Array<{
@@ -286,10 +286,10 @@ class EmdashAgentRegistry {
     throw new Error(`ACP session ${sessionId} takes messages only through session-life; nothing injects into it directly`)
   }
 
-  enqueueInbox(sessionId: string, unit: { messageId: string; text: string; agentUserId: string; sources: readonly AgentInboxUnreadRow[] }): void {
+  enqueueInbox(sessionId: string, unit: { messageId: string; text: string; agentUserId: string; sources: readonly AgentInboxSource[] }): void {
     if (!this.bridge) throw new Error(`session-page delivery bridge unavailable — cannot enqueue into ${sessionId}`)
     this.bridge.sessionLife().enqueue({ sessionId, messageId: unit.messageId, text: unit.text, kind: 'inbox-batch',
-      sources: unit.sources.map((row) => ({ agentUserId: unit.agentUserId, row })) })
+      sources: unit.sources.map((source) => ({ ...source, agentUserId: unit.agentUserId })) })
   }
 
   /**

@@ -298,10 +298,23 @@ describe('an enqueuing host (session-life)', () => {
     const handed: AgentInboxInjectionInput[] = []
     const { deps } = makeDeps(cloud, { inject: async (input) => { handed.push(input); return 'enqueued' } })
     expect(await pullAgentInbox(AGENT, deps)).toMatchObject({ pulled: 2, injected: 2, verdict: 'enqueued' })
-    expect(handed.flatMap((input) => (input.sources ?? []).map((source) => source.id))).toEqual([row(1).id, row(2).id])
+    expect(handed.flatMap((input) => (input.sources ?? []).map((source) => source.row.id))).toEqual([row(1).id, row(2).id])
     expect(cloud.markReadCalls).toEqual([])
     await markInboxRowsRead(AGENT, handed.flatMap((input) => input.sources ?? []), deps)
     expect(cloud.markReadCalls).toEqual([{ chatId: chat, messageId: row(1).id }, { chatId: chat, messageId: row(2).id }])
+  })
+
+  it('a skipped row waits while queued rows ahead of it are unread, on this pull and the next', async () => {
+    const cloud = cloudWith(1, 2)
+    cloud.post({ ...row(3), senderUserId: 'not-a-uuid' })
+    const held = new Set<string>()
+    const { deps } = makeDeps(cloud, {
+      inject: async (input) => { for (const source of input.sources ?? []) held.add(source.row.id); return 'enqueued' },
+      claimedSources: (_agent, ids) => new Set(ids.filter((id) => held.has(id))),
+    })
+    await pullAgentInbox(AGENT, deps)
+    await pullAgentInbox(AGENT, deps)
+    expect(cloud.markReadCalls).toEqual([])
   })
 
   it('leaves rows the host already holds out of every later unit (frozen batches never overlap)', async () => {
@@ -312,7 +325,7 @@ describe('an enqueuing host (session-life)', () => {
       claimedSources: (_agent, ids) => new Set(ids.filter((id) => id === row(1).id)),
     })
     await pullAgentInbox(AGENT, deps)
-    expect(handed.flatMap((input) => (input.sources ?? []).map((source) => source.id))).toEqual([row(2).id])
+    expect(handed.flatMap((input) => (input.sources ?? []).map((source) => source.row.id))).toEqual([row(2).id])
   })
 })
 

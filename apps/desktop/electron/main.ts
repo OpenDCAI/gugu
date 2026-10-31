@@ -194,7 +194,7 @@ import {
   markInboxRowsRead,
   readAgentInboxBatchAuditForTest,
   type AgentInboxReaderDeps,
-  type AgentInboxUnreadRow,
+  type AgentInboxSource,
 } from '@gugu/core/local/agent/agentInboxReader'
 import type { PendingRow as SessionLifePendingRow } from './session/main/core/sessions/session-life-adapter'
 import { fetchThreadMessagesViaRest } from '@gugu/core/cloud/threadMessagesRest'
@@ -3767,11 +3767,11 @@ function inboxDepsFor(auth: { accessToken: string; userId: string }, trigger: st
  * session-life's pending inbox batches settle their cloud rows here, through the reader's own settle and disclosure:
  * marked read once the agent accepted the batch, told in their chats once it could not be delivered.
  */
-async function settleSessionLifeSources(rows: readonly SessionLifePendingRow[], settle: (agentUserId: string, sources: AgentInboxUnreadRow[], deps: AgentInboxReaderDeps) => Promise<void>): Promise<void> {
+async function settleSessionLifeSources(rows: readonly SessionLifePendingRow[], settle: (agentUserId: string, sources: AgentInboxSource[], deps: AgentInboxReaderDeps) => Promise<void>): Promise<void> {
   const auth = await authProvider?.getAuth()
   if (!auth?.accessToken) throw new Error('session-life: the inbox rows of a pending batch cannot be settled while signed out')
-  const byAgent = new Map<string, AgentInboxUnreadRow[]>()
-  for (const source of rows.flatMap(row => row.sources)) byAgent.set(source.agentUserId, [...byAgent.get(source.agentUserId) ?? [], source.row])
+  const byAgent = new Map<string, AgentInboxSource[]>()
+  for (const { agentUserId, ...source } of rows.flatMap(row => row.sources)) byAgent.set(agentUserId, [...byAgent.get(agentUserId) ?? [], source])
   for (const [agentUserId, sources] of byAgent) await settle(agentUserId, sources, inboxDepsFor(auth, 'session-life'))
 }
 
@@ -4989,8 +4989,6 @@ app.whenReady().then(async () => {
       markRead: row => settleSessionLifeSources([row], markInboxRowsRead),
       reportFailure: (rows) => settleSessionLifeSources(rows, discloseInboxRowsFailed),
     })
-    // 编号 5: the reconnect a delivery kicked for a lost session ended (up, failed, or over budget): pull its inbox again —
-    // up, the batch goes in; not, it fails in its chat. The same shape as the claude TUI leg's onOverdue.
     // @@@sessionpage TASKPAGE-FUSION — re-map every persisted session-page agent binding at boot so it stays
     // addressable BEFORE its session-page session reopens: a deliver to a mapped-but-not-live agent becomes
     // ordered local debt instead of silently passing through to a gugu-native engine spawn.

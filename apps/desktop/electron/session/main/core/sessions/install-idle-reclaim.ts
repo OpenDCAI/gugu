@@ -42,7 +42,9 @@ async function readLive(): Promise<{ live: LiveSession[]; withTerminals: Set<str
   const live: LiveSession[] = [];
   // ACP: session-life says which sessions have a run; the runtime summary says only whether it is at rest.
   const summaries = acpAgentStatusBridge.current();
-  for (const sessionId of sessionLife().running()) {
+  // A side chat lives as long as its page (it ends with lifeEnd or its parent), never by idle reclaim.
+  for (const { sessionId, parentId } of sessionLife().running()) {
+    if (parentId !== null) continue;
     const row = db.select({ projectId: sessions.projectId }).from(sessions).where(eq(sessions.id, sessionId)).get();
     if (!row) throw new Error(`idle reclaim: running session ${sessionId} has no row`);
     live.push({ projectId: row.projectId, sessionId, runtime: 'acp', acpAtRest: acpAtRest(summaries.get(sessionId)) });

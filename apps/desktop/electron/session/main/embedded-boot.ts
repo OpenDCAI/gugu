@@ -366,7 +366,7 @@ import { unbindSessionAgent } from '@main/core/sessionpage/sessionpage-session-a
 import { lifeSessions, lifeStore } from '@main/core/sessions/session-pending'
 import { sessionLifeSources } from '@main/core/sessions/session-life-host'
 import { createAcpLegAdapter } from '@main/core/acp/session-life-acp'
-import { forkStore, runtimeFork, runtimeForksOf } from '@main/core/sessions/session-life-forks'
+import { forkStore, runtimeFork, runtimeForks, runtimeForksOf } from '@main/core/sessions/session-life-forks'
 import { sessionOwnedBy } from '@main/core/sessionpage/sessionpage-session-agent'
 import { sessionLifeViewChannel } from '@shared/core/sessions/sessionEvents'
 import { guguNodeTarget, installGuguNode } from './core/pty/gugu-node'
@@ -548,6 +548,7 @@ export async function bootSessionHostCore(options: SessionHostBootOptions): Prom
     store: sessionId => runtimeFork(sessionId) ? forkStore : lifeStore,
     adapter: sessionId => createAcpLegAdapter(sessionId, runtimeFork(sessionId)),
     forks: runtimeForksOf,
+    allForks: runtimeForks,
     parentOf: sessionId => runtimeFork(sessionId)?.parentId ?? null,
     ownedBy: (sessionId, userId) => sessionOwnedBy(sessionId, process.env, userId),
     markRead: row => sessionLifeSources.markRead(row),
