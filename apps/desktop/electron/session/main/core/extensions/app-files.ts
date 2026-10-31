@@ -41,8 +41,8 @@ import {
 import { extensionsService } from '@main/core/extensions/extensions-root';
 import { currentAccountAccessToken, resolveAccountFile, publishAccountFile } from '@main/core/extensions/account-token';
 import { fileServiceUrl, fileSync, localFileService } from '@main/core/extensions/file-sync';
-import { createLocalAppFiles, type LocalSurface } from '@main/core/extensions/local-files';
-import { readElsewhere } from '@main/core/extensions/app-files-elsewhere';
+import { createLocalAppFiles, workingCopyEntry, type LocalSurface } from '@main/core/extensions/local-files';
+import { REMOTE_WORKSPACE_CHUNK_BYTES } from '@gugu/session-core/session-record/contract';
 import { renderExtensionIcon } from '@main/core/extensions/extension-icon';
 import { fileIconKey } from '@shared/extensions/app-icon';
 import { claimantOf, openerChoice as chatOpenerChoice } from '@shared/extensions/file-openers';
@@ -245,21 +245,6 @@ async function localFolder(page: DesktopFilePage, place: WorkspacePlace): Promis
   return { pageId: page.pageId, extensionId: page.extensionId, place: where, filePath: handed, ...(await localRootOf(where)) };
 }
 
-/**
- * With `files:read:all-machines`, a file of a session that is not on this computer: read whole, on the machine that has
- * it. Null otherwise — the working copy here answers, as it always did.
- */
-async function fileElsewhere(page: DesktopFilePage, ref: WorkspaceFileRef) {
-  // A project is named by this computer's id for it: another computer's projects are not named here.
-  const session = workspaceSession(ref);
-  if (!session) return null;
-  if (!extensionsService().hasCapability(page.extensionId, 'files:read:all-machines')) return null;
-  const { agentSessionContext } = await import('@main/core/extensions/extension-agent-context');
-  if (await agentSessionContext(session)) return null;
-  const app = { extensionId: page.extensionId, extensionName: extensionsService().get(page.extensionId).manifest.name };
-  return readElsewhere(app, session, 'id' in ref ? ref.id : ref.name);
-}
-
 const isChat = (ref: AppFileRef): ref is ChatFileRef => !isWorkspace(ref);
 const withId = (ref: AppFileRef, what: string): AppFileRef & { id: string } => {
   if (!('id' in ref)) throw new AppFileError('invalid', `${what} takes a file by its id`);
@@ -269,9 +254,11 @@ const withId = (ref: AppFileRef, what: string): AppFileRef & { id: string } => {
 export async function openAppFile(page: DesktopFilePage, args: { ref?: unknown; readOnly?: boolean; deferDetails?: boolean; expectedVersion?: number }): Promise<AppFileOpened> {
   const ref = fileRefOf(args.ref);
   const readOnly = args.readOnly === true ? { readOnly: true } : {};
-  const elsewhere = isChat(ref) ? null : await fileElsewhere(page, ref as WorkspaceFileRef);
-  // Another machine's file comes as its bytes, read only, whatever it is: no live document across machines.
-  if (elsewhere) return { entry: elsewhere.entry, docName: '', access: 'ro', self: await files.self(), bytes: elsewhere.bytes.slice().buffer };
+  // Another machine's file is read there in pieces (`f.read`), read only, whatever it is: no live document across machines.
+  if (!isChat(ref) && await elsewhereGated(page, ref)) {
+    const name = 'id' in ref ? ref.id : ref.name;
+    return { entry: workingCopyEntry({ workspace: ref.workspace }, name, null), docName: '', access: 'ro', self: await files.self(), chunked: true };
+  }
   return isChat(ref)
     ? files.open(chatSurface(page), { ref, ...readOnly, deferDetails: args.deferDetails === true, ...(typeof args.expectedVersion === 'number' ? { expectedVersion: args.expectedVersion } : {}) }, page.takeOpening?.())
     : local.open(await localFolder(page, ref), { ref: ref as WorkspaceFileRef, ...readOnly });
@@ -321,6 +308,18 @@ export async function readAppFile(page: DesktopFilePage, args: { ref?: unknown; 
   return readWorkingCopy(ref, 'id' in ref ? ref.id : ref.name, offset, length);
 }
 
+/**
+ * Whether a working copy is a session's on another of the person's machines — whose files only an App with
+ * `files:read:all-machines` reads (list, pieces, open, save). Refused, said why, without it; false for this computer's.
+ */
+async function elsewhereGated(page: DesktopFilePage, place: WorkspacePlace): Promise<boolean> {
+  if (!(await sessionElsewhere(place))) return false;
+  if (!extensionsService().hasCapability(page.extensionId, 'files:read:all-machines')) {
+    throw new AppFileError('denied', 'Not permitted: a working copy on another of your computers needs "files:read:all-machines"');
+  }
+  return true;
+}
+
 /** A session's working copy on another of the person's machines, and that session's project there; null for this computer's. */
 async function sessionElsewhere(place: WorkspacePlace): Promise<{ sessionId: string; projectId: string | null } | null> {
   const sessionId = workspaceSession(place);
@@ -337,6 +336,7 @@ async function sessionElsewhere(place: WorkspacePlace): Promise<{ sessionId: str
 async function onItsMachine(page: DesktopFilePage, place: WorkspacePlace, method: 'filesList' | 'filesRead', args: Record<string, unknown>) {
   const session = workspaceSession(place);
   if (!session) return { there: false } as const;
+  if (!(await elsewhereGated(page, place))) return { there: false } as const;
   const { callOnSessionMachine } = await import('./app-programs-elsewhere');
   const manifest = extensionsService().get(page.extensionId).manifest;
   return callOnSessionMachine({ extensionId: page.extensionId, manifest }, session, method, args, page.asAgent != null);
@@ -572,12 +572,21 @@ type SaveSource = Awaited<ReturnType<typeof files.downloadSource>> | { name: str
 
 async function downloadSourceOf(page: DesktopFilePage, given: unknown): Promise<SaveSource> {
   const ref = fileRefOf(given);
-  const elsewhere = isChat(ref) ? null : await fileElsewhere(page, ref as WorkspaceFileRef);
-  return isChat(ref)
-    ? await files.downloadSource(chatSurface(page), { ref })
-    : elsewhere
-      ? { name: elsewhere.entry.name, bytes: elsewhere.bytes, kind: 'bytes' as const }
-      : { ...local.downloadSource(await localFolder(page, ref), { ref: ref as WorkspaceFileRef }), kind: 'bytes' as const };
+  if (isChat(ref)) return await files.downloadSource(chatSurface(page), { ref });
+  if (await elsewhereGated(page, ref)) {
+    // Another machine's file: its pieces, one after another, as `f.blob()` reads it.
+    const pieces: Buffer[] = [];
+    for (let offset = 0, size = Infinity; offset < size;) {
+      const chunk = await readAppFile(page, { ref, offset, length: REMOTE_WORKSPACE_CHUNK_BYTES });
+      const bytes = Buffer.from(chunk.data, 'base64');
+      size = chunk.size;
+      if (bytes.byteLength === 0) break;
+      pieces.push(bytes);
+      offset += bytes.byteLength;
+    }
+    return { name: path.posix.basename('id' in ref ? ref.id : ref.name), bytes: Buffer.concat(pieces), kind: 'bytes' as const };
+  }
+  return { ...local.downloadSource(await localFolder(page, ref), { ref: ref as WorkspaceFileRef }), kind: 'bytes' as const };
 }
 
 async function saveTo(source: SaveSource, filePath: string): Promise<void> {

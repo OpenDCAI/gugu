@@ -49,8 +49,6 @@ describe('FileTreeProjector.listDir: one folder of the tree, as an App lists it'
     const src = await projector.listDir(opened.data.subscriptionId, '/w/src');
     expect(src.success && src.data.map((n) => n.path)).toEqual(['/w/src/a.ts']);
     expect(registered).toEqual([null, 1]);
-    expect(projector.scopePath(1)).toBe('/w/src');
-    expect(projector.scopePath(null)).toBeNull();
   });
 
   it('a path that is no folder of the tree is not_found', async () => {

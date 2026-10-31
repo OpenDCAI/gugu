@@ -84,7 +84,6 @@ export {
   setAgentSessionHost,
   answerAppMessage,
   spawnAgentForExtension,
-  answerAppReadFile,
   answerAppCall,
   // @@@2374 —— `gugu_session` 的 app_* 动作分派。宿主(main.ts)按 `EmdashBridgeModule`
   // 调它,而那只是个 TS 类型:漏在这张清单外**不会**有任何编译期或加载期报错,直到 agent 真

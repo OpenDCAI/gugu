@@ -50,4 +50,3 @@ export async function agentSessionContext(agentId: string): Promise<AgentSession
   const modelLabel = await sessionModelLabel(agentId, decision, session.provider, session.runtime);
   return { sessionId: agentId, projectId: session.projectId, workspaceId: session.workspaceId ?? null, workspaceRoot: workspace?.path ?? null, model, modelLabel };
 }
-

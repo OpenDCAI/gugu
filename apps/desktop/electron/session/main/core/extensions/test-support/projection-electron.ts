@@ -150,7 +150,7 @@ void app.whenReady().then(async () => {
     await until(async () => await value(source) === '中文粘贴\n第二行');
     assert.deepEqual(inputs, [{ kind: 'text', text: '中文', source: 'ime' }, { kind: 'text', text: '粘贴\n第二行', source: 'paste' }]);
     assert.equal(await value(other), '');
-    for (const forged of [{ ...page, binding: { ...page.binding!, sessionId: 'task-b' } }, { ...page, extensionId: b.caller.extensionId }]) {
+    for (const forged of [{ ...page, binding: { ...page.binding!, workspace: 'session:task-b' } }, { ...page, extensionId: b.caller.extensionId }]) {
       await assert.rejects(bridge.call(forged, 'projectionWatch', { id: publisher.id, watchId: 'forged' }), /not in this App session/);
     }
   });

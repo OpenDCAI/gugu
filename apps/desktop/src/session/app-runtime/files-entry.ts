@@ -110,7 +110,7 @@ function chunkedFile(host: GuguHost, entry: AppFileEntry): object {
   const read = async (offset = 0, length = CHUNK_BYTES): Promise<Uint8Array<ArrayBuffer>> => {
     const out: Uint8Array[] = [];
     let at = Math.max(0, Math.floor(offset));
-    let left = Math.max(0, Math.floor(length));
+    let left = Math.max(0, length === Infinity ? Infinity : Math.floor(length));
     while (left > 0) {
       const chunk = await host.appFiles.read({ ref, offset: at, length: Math.min(left, CHUNK_BYTES) });
       const bytes = Uint8Array.from(atob(chunk.data), (c) => c.charCodeAt(0));
@@ -134,7 +134,8 @@ function chunkedFile(host: GuguHost, entry: AppFileEntry): object {
     readOnly: true,
     size: entry.size,
     read,
-    blob: async () => new Blob([await read(0, entry.size ?? 0)], { type: entry.contentType }),
+    // All of it, to its end: a file on another machine comes with no size until its first piece says it.
+    blob: async () => new Blob([await read(0, Infinity)], { type: entry.contentType }),
     close: () => undefined,
   });
 }

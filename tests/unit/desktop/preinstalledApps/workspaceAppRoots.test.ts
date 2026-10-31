@@ -88,11 +88,16 @@ describe('a session\'s tab: one folder, two roots', () => {
     expect(listed()).toHaveLength(2)
   })
 
-  test('a folder listed hears its changes: a new file is drawn, a gone one is not', () => {
-    hear!({ kind: 'entries', entries: [...TREE.src!, wc('src/new.md', 'text')], gone: [] })
-    expect(names()).toContain('new.md')
-    hear!({ kind: 'entries', entries: TREE.src!, gone: ['src/new.md'] })
-    expect(names()).not.toContain('new.md')
+  test('a change in a folder listed reads that folder again; one in a folder never listed reads nothing', async () => {
+    TREE.src = [...TREE.src!, wc('src/new.md', 'text')]
+    hear!({ kind: 'changes', changes: [{ kind: 'create', path: 'src/new.md' }] })
+    await until('src read again', () => names().includes('new.md'))
+    const calls = listed().length
+    hear!({ kind: 'changes', changes: [{ kind: 'update', path: 'src/lib/deep.md' }] })
+    expect(listed()).toHaveLength(calls)
+    TREE.src = TREE.src!.filter((e) => e.id !== 'src/new.md')
+    hear!({ kind: 'changes', changes: [{ kind: 'delete', path: 'src/new.md' }] })
+    await until('src read again', () => !names().includes('new.md'))
   })
 
   test('the conversation\'s folder is the other root: listed by its chat, whole, as in a group', async () => {

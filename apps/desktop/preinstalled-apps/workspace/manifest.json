@@ -13,7 +13,7 @@
   "entry": "index.html",
   "icon": "icon.png",
   "permissions": {
-    "capabilities": ["files:read", "files:write", "agents:tools"]
+    "capabilities": ["files:read:all-machines", "files:write", "agents:tools"]
   },
   "contributes": {
     "tabs": [

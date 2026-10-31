@@ -188,7 +188,7 @@ export interface ExtensionHostContext {
   workspace?: ExtensionWorkspace;
   /**
    * The file this surface was opened for — present only when the person opened that file with this App. It names
-   * where it lives (`{ chat, id }`, `{ session, id }` or `{ project, id }`), so `gugu.files.open(ctx.file)` opens it, and it is the one
+   * where it lives (`{ chat, id }` or `{ workspace, id }`), so `gugu.files.open(ctx.file)` opens it, and it is the one
    * file an App that asked for nothing may open. Absent is a real answer: opened for its own sake.
    */
   file?: AppFileRef & { id: string };

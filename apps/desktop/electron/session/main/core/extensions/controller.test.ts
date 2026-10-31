@@ -47,7 +47,7 @@ let unwatched = 0;
 let watchStarted: (() => void) | undefined;
 // A working copy's watch is the file tree's push for the folders the page listed (working-copy-files.ts).
 vi.mock('@main/core/extensions/working-copy-files', () => ({
-  watchWorkingCopy: async (_pageId: number, _place: unknown, hear: (update: { kind: 'resync' }) => void) => {
+  watchWorkingCopy: async (_place: unknown, _folder: unknown, hear: (update: { kind: 'resync' }) => void) => {
     fileChange = hear;
     watchStarted?.();
     return () => (unwatched += 1);

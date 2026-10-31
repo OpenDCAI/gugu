@@ -46,7 +46,7 @@ import type {
   ExtensionHostActionResult,
 } from '@shared/extensions/host-actions';
 import { fileSync } from '@main/core/extensions/file-sync';
-import { fileRefOf, isWorkspace, placeKey, placeOf, projectWorkspace, sessionIdOf, sessionWorkspace, workspaceSession, workspaceTarget, type AppFileEntry, type AppFileRef, type AppPlace, type AppWhere, type WorkspacePlace, type PreparedChatFile } from '@shared/extensions/app-runtime-protocol';
+import { fileRefOf, folderOf, isWorkspace, placeKey, placeOf, projectWorkspace, sessionIdOf, sessionWorkspace, workspaceSession, workspaceTarget, type AppFileEntry, type AppFileRef, type AppPlace, type AppWhere, type WorkspacePlace, type PreparedChatFile } from '@shared/extensions/app-runtime-protocol';
 import { placeFor, placeLink, type FileOpenerCandidate } from '@shared/extensions/file-openers';
 import type { FilePlace } from '@gugu/core/shared/ui/guguLink';
 import { rosterMoved, type MemberChange } from '@shared/extensions/app-files-core';
@@ -435,18 +435,21 @@ async function watchForum(caller: BridgeCaller, target: unknown, on: boolean): P
   mine.set(key, stop);
 }
 
+/** The pages that listed a working copy: they hold its tree's folders (working-copy-files.ts) until they go. */
+const workingCopyPages = new Set<number>();
+
 export function stopPageWatches(pageId: number): void {
   for (const stop of forumWatches.get(pageId)?.values() ?? []) stop();
   forumWatches.delete(pageId);
   const watching = pageWatches.get(pageId);
   for (const watch of watching?.values() ?? []) watch.disk?.stop();
   pageWatches.delete(pageId);
-  void import('@main/core/extensions/working-copy-files').then(({ releaseWorkingCopies }) => releaseWorkingCopies(pageId));
+  if (workingCopyPages.delete(pageId)) void import('@main/core/extensions/working-copy-files').then(({ releaseWorkingCopies }) => releaseWorkingCopies(pageId));
   for (const { resource, caller } of watching?.values() ?? []) forgetUnheard(resource, caller);
 }
 
 /** Start (or stop) telling a caller that files changed in one place. Rides on `files:read`, re-read at every batch. */
-async function watchFiles(caller: BridgeCaller, watchId: string, place: AppPlace, on: boolean): Promise<void> {
+async function watchFiles(caller: BridgeCaller, watchId: string, place: AppPlace, on: boolean, folder?: string): Promise<void> {
   let watching = pageWatches.get(caller.pageId);
   const existing = watching?.get(watchId);
   if (!on) {
@@ -462,9 +465,9 @@ async function watchFiles(caller: BridgeCaller, watchId: string, place: AppPlace
   if (watching.has(watchId)) throw Object.assign(new Error('This file watch is already registered'), { code: 'invalid' });
   let disk: { stop: () => void } | null = null;
   if (isWorkspace(place)) {
-    // The folders this page listed, told as the file tree pushes them (the file panel's own pushes): no watch of its own.
+    // The working copy's own change stream (the file panel's), under the folder named: no watch of its own.
     const { watchWorkingCopy } = await import('@main/core/extensions/working-copy-files');
-    const stop = await watchWorkingCopy(caller.pageId, place, (change) => {
+    const stop = await watchWorkingCopy(place, folder, (change) => {
       if (extensionsService().hasCapability(caller.extensionId, 'files:read')) caller.hear({ type: 'filesChanged', watchId, place, change });
     });
     if (pageWatches.get(caller.pageId) !== watching) return stop();
@@ -1822,6 +1825,7 @@ async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, arg
       // Every call names where its file is (真源原则 13); the caller only says which file it may open as handed. Closing
       // what it opened is never refused.
       const page = method === 'filesClose' ? caller.filePage(args) : asCallingAgent(caller, await caller.resourcePage(args), args);
+      if (method === 'filesList' && (args.place as { workspace?: unknown } | null)?.workspace) workingCopyPages.add(caller.pageId);
       const verbs = {
         filesOpen: 'openAppFile',
         filesReopen: 'reopenAppFile',
@@ -1846,7 +1850,7 @@ async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, arg
 
     case 'filesWatch':
       if (typeof args.watchId !== 'string' || !args.watchId) throw Object.assign(new Error('A file watch needs its subscription id'), { code: 'invalid' });
-      await watchFiles(caller, args.watchId, placeOf(args.place), args.on !== false);
+      await watchFiles(caller, args.watchId, placeOf(args.place), args.on !== false, folderOf((args.place as { folder?: unknown } | null)?.folder));
       return undefined;
 
     case 'filesUpload': {

@@ -400,7 +400,6 @@ describe('answering another machine', () => {
       run: vi.fn(async () => ({ ran: true })),
       app: vi.fn(async () => ({ id: 'm-1' })),
       appSpawn: vi.fn(async () => ({ agentId: 'user:a-new' })),
-      appReadFile: vi.fn(),
       appCall: vi.fn(),
       ...overrides,
     }
@@ -450,8 +449,6 @@ describe('answering another machine', () => {
 
 describe('agentSession.<action> arguments', () => {
   const APP = { kind: 'app', deviceId: 'dev-a', deviceLabel: 'this box', extensionId: 'radar', extensionName: 'Radar' } as const
-  const READ = { action: 'read_file', session_id: 's', path: 'renders/cut.mp4', offset: 0, length: 524288 } as const
-  const CHUNK = { path: 'renders/cut.mp4', size: 3, etag: '9-3', offset: 0, data: 'YWJj' }
 
   it('keeps only the caller facts it knows', () => {
     expect(parseAgentSessionRequest('get', { ...CALLER, extra: 'ignored' }, { action: 'get', session_id: 's' }))
@@ -505,42 +502,32 @@ describe('agentSession.<action> arguments', () => {
       .toEqual({ error: 'delivery is queue or defer' })
     expect(parseAgentSessionRequest('spawn', APP, { action: 'spawn', prompt: 'x' }))
       .toEqual({ caller: APP, action: { action: 'spawn', prompt: 'x', spawn: {} } })
-    expect(parseAgentSessionRequest('read_file', APP, { ...READ, junk: 1 })).toEqual({ caller: APP, action: READ })
-    expect(parseAgentSessionRequest('read_file', APP, { ...READ, offset: '0' }))
-      .toEqual({ error: 'read_file names a session (session_id), a path in its working copy, an offset and a length' })
-    expect(parseAgentSessionRequest('read_file', CALLER, READ))
-      .toEqual({ error: 'read_file is for an App on another machine; an agent works on its own machine' })
+    // A working copy's files are read through app_call (filesList / filesRead): there is no read_file of its own any more.
+    expect(parseAgentSessionRequest('read_file' as never, APP, { action: 'read_file', session_id: 's', path: 'a', offset: 0, length: 1 }))
+      .toEqual({ error: "an App may only send a message, start an agent, or have a page's call done on another machine, not read_file" })
     expect(parseAgentSessionRequest('message', APP, { action: 'message', session_ids: ['a', 'b'], text: 'hi' }))
       .toEqual({ error: 'an App message names one session (session_ids: [id]) and text' })
     expect(parseAgentSessionRequest('message', { ...APP, extensionName: '' }, { action: 'message', session_ids: ['s'], text: 'hi' }))
       .toEqual({ error: 'an App caller needs extensionId and extensionName' })
   })
 
-  it('hands an App\'s message and file read to the host\'s App parts, never to the session part', async () => {
+  it('hands an App\'s message and page call to the host\'s App parts, never to the session part', async () => {
     const { xm } = makeCrossMachine()
     const run = vi.fn()
     const app = vi.fn(async () => ({ id: 'm-1' }))
-    const appReadFile = vi.fn(async () => CHUNK)
     const appCall = vi.fn()
     await expect(xm.answer('message', APP, { action: 'message', session_ids: ['s'], text: 'hi' }, {
-      peers: vi.fn(), run, app, appSpawn: vi.fn(), appReadFile, appCall,
+      peers: vi.fn(), run, app, appSpawn: vi.fn(), appCall,
     })).resolves.toEqual({ id: 'm-1' })
-    await expect(xm.answer('read_file', APP, READ, { peers: vi.fn(), run, app, appSpawn: vi.fn(), appReadFile, appCall })).resolves.toEqual(CHUNK)
     // A page's call on that machine (its program, its data folder): its own part, the verb and args as the page gave them.
     const CALL = { action: 'app_call', call_id: 'c-1', session_id: 's', version: '0.7.0', method: 'writeData', args: { path: 'journal.json', content: '{}' } } as const
     appCall.mockResolvedValueOnce(undefined)
-    await expect(xm.answer('app_call', APP, CALL, { peers: vi.fn(), run, app, appSpawn: vi.fn(), appReadFile, appCall })).resolves.toBeUndefined()
+    await expect(xm.answer('app_call', APP, CALL, { peers: vi.fn(), run, app, appSpawn: vi.fn(), appCall })).resolves.toBeUndefined()
     expect(appCall).toHaveBeenCalledWith(APP, CALL)
     expect(app).toHaveBeenCalledWith(APP, { action: 'message', session_ids: ['s'], text: 'hi' })
-    expect(appReadFile).toHaveBeenCalledWith(APP, READ)
     expect(run).not.toHaveBeenCalled()
   })
 
-  it('an App reads a chunk on the machine it names, asked as that App', async () => {
-    const { xm, call } = makeCrossMachine(async () => ({ result: CHUNK }))
-    await expect(xm.appReadFile({ extensionId: 'radar', extensionName: 'Radar' }, 'dev-b', READ)).resolves.toEqual(CHUNK)
-    expect(call).toHaveBeenCalledWith('dev-b', 'agentSession.read_file', { caller: APP, action: READ, args: [APP, READ] })
-  })
 })
 
 // owner 2026-10-01「一起收」「链路统一」:归档 / 删除「连同子会话」按父子关系找后代 —— 别的机器报来会话表,

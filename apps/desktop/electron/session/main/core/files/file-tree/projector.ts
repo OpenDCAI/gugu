@@ -150,12 +150,6 @@ export class FileTreeProjector {
     return ok(this.materialize(node.id));
   }
 
-  /** The directory (absolute path, `null` the root) each scope of a push lists. */
-  scopePath(scope: Scope): string | null | undefined {
-    if (scope === null) return null;
-    return this.nodeById.get(scope)?.path;
-  }
-
   async closeProjection(subscriptionId: string): Promise<void> {
     const sub = this.subscriptions.get(subscriptionId);
     if (!sub) return;

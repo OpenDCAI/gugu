@@ -466,13 +466,13 @@ function stringsFor(locale, chat) {
 function can(capability) {
   return !!state.ctx?.capabilities?.includes(capability)
 }
-const canRead = () => can('files:read') || can('files:write')
+const canRead = () => can('files:read') || can('files:read:all-machines') || can('files:write')
 const canWrite = () => can('files:write')
 // A working copy is browsed and its files opened here; what is made, moved and uploaded goes to the conversation's folder.
 const inWorkspace = () => state.root === 'workspace'
 const canWriteHere = () => canWrite() && !inWorkspace()
 // The roots this page has: its conversation's folder, and — in a session's tab — that session's working copy.
-const rootsOf = (ctx) => [ctx?.chat ? 'chat' : null, ctx?.workspace && (ctx.capabilities ?? []).some((c) => c === 'files:read' || c === 'files:write') ? 'workspace' : null].filter(Boolean)
+const rootsOf = (ctx) => [ctx?.chat ? 'chat' : null, ctx?.workspace && (ctx.capabilities ?? []).some((c) => c.startsWith('files:')) ? 'workspace' : null].filter(Boolean)
 const rootPlace = () => (inWorkspace() ? { workspace: state.ctx.workspace.id } : { chat: state.ctx.chat.id })
 
 function debounce(fn, ms) {
@@ -668,9 +668,14 @@ async function listFolder(folder, again = false) {
   showList()
 }
 
-// What one root says of its files: heard only while that root is the one shown.
+// What one root says of its files: heard only while that root is the one shown. A working copy says which paths changed:
+// the folders shown here that hold them are read again (one folder each, as the file panel reads it).
 const heardIn = (root) => (change) => {
-  if (state.root === root) heard(change)
+  if (state.root !== root) return
+  if (root === 'chat') return heard(change)
+  const folders = change.kind === 'resync' ? [...state.listed]
+    : (change.changes ?? []).map((c) => (c.path.includes('/') ? c.path.slice(0, c.path.lastIndexOf('/')) : ''))
+  for (const folder of new Set(folders)) if (state.listed.has(folder)) void listFolder(folder, true)
 }
 
 // What the chat says of its files (#7257), or a working copy of a folder listed here: those as they are now, and the
