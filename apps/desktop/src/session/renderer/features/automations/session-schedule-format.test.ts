@@ -24,6 +24,10 @@ describe('formatScheduleWhen', () => {
   it('再远带日期(与「已安排」页同一个写法)', () => {
     expect(formatScheduleWhen(new Date(2026, 9, 21, 9, 0).getTime(), 'zh-CN', translate, NOW)).toBe('10月21日 09:00');
   });
+  it('exactly one hour is outside the positive less-than-one-hour window', () => {
+    expect(formatScheduleWhen(NOW + 3_600_000, 'zh-CN', translate, NOW)).toBe('今天 11:00');
+    expect(formatScheduleWhen(NOW, 'zh-CN', translate, NOW)).toBe('今天 10:00');
+  });
   it('已经过去的(没送到的那一次)不说「还有几分钟」', () => {
     expect(formatScheduleWhen(new Date(2026, 9, 19, 9, 50).getTime(), 'zh-CN', translate, NOW)).toBe('今天 09:50');
   });

@@ -1,5 +1,6 @@
 /** @jsxImportSource solid-js */
 import { createContext, useContext } from 'solid-js';
+import type { SupportedLocale } from '@gugu/session-shared/format';
 
 export type ChatTranslationValues = Readonly<Record<string, string | number>>;
 export type ChatTranslator = (key: string, values?: ChatTranslationValues) => string;
@@ -298,10 +299,15 @@ export const defaultChatTranslator: ChatTranslator = (key, values = {}) => {
   });
 };
 
-const ChatTranslationContext = createContext<ChatTranslator>(defaultChatTranslator);
+const ChatTranslationContext = createContext<{ translate: ChatTranslator; locale: () => SupportedLocale }>();
 
 export const ChatTranslationProvider = ChatTranslationContext.Provider;
 
 export function useChatTranslator(): ChatTranslator {
-  return useContext(ChatTranslationContext);
+  return useContext(ChatTranslationContext)?.translate ?? defaultChatTranslator;
+}
+
+/** Transcript dates use the same host capability and translation epoch as their text. */
+export function useChatLocale(): () => SupportedLocale {
+  return useContext(ChatTranslationContext)!.locale;
 }

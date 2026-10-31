@@ -1,5 +1,5 @@
 import { ArrowRight, Cable, FileText, Globe, Plus, SquareTerminal } from '@/lib/icons'
-import { GitFork, GitPullRequest } from 'lucide-react'
+import { GitFork, GitPullRequest } from '@/lib/icons'
 import { observer } from 'mobx-react-lite';
 import type { ReactNode } from 'react';
 import { ExtensionMark } from '@renderer/features/extensions/extension-mark';

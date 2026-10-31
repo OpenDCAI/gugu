@@ -10,7 +10,7 @@ let cleanup: (() => void) | undefined;
 afterEach(() => cleanup?.());
 
 function mount(text = 'Checking the original request.') {
-  const context = createChatContext();
+  const context = createChatContext({ locale: () => 'en-US' });
   context.setLayout({ preset: 'double', userGutter: 0, agentConversation: true });
   const state = createChatState(context);
   const host = document.createElement('div');
@@ -56,7 +56,7 @@ describe('native unread intermediate replies (#1136)', () => {
   });
 
   it.each([false, true])('does not move a new model process viewport with old identity navigation (queued=%s)', async queued => {
-    const context = createChatContext();
+    const context = createChatContext({ locale: () => 'en-US' });
     context.setLayout({ preset: 'double', userGutter: 0, agentConversation: true });
     const a = createChatState(context), b = createChatState(context);
     const turn = (count: number): TranscriptTurn => ({ id: 't', seq: 1, initiator: 'user', outcome: { kind: 'done' }, items: [

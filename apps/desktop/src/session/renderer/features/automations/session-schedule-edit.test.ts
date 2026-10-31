@@ -15,6 +15,7 @@ describe('改时间:一次性', () => {
     expect(toLocalInputValue(at)).toBe('2026-10-19T10:30');
     expect(fromLocalInputValue('2026-10-19T10:30')).toBe(at);
     expect(fromLocalInputValue('')).toBeNull();
+    expect(fromLocalInputValue('invalid')).toBeNull();
   });
   it('只换那一刻,tz 原样', () => {
     expect(oneTimeTrigger({ expr: '', tz: 'Asia/Shanghai', at: 1 }, 2)).toEqual({ expr: '', tz: 'Asia/Shanghai', at: 2 });

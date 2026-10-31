@@ -10,6 +10,7 @@
 import { DEFAULT_THEME } from '@session-chat/core/theme';
 import { describe, expect, it } from 'vitest';
 import { createChatContext } from '@session-chat/chat-context';
+import type { SupportedLocale } from '@gugu/session-shared/format';
 import { createChatView } from '@session-chat/chat-view';
 import { generateMockTranscript } from '@session-chat/mock-transcript';
 import type { ChatMessage, TranscriptTurn } from '@session-chat/model';
@@ -25,8 +26,40 @@ const nextPaint = (): Promise<void> =>
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 describe('createChatView', () => {
+  it('updates an old history date in place when the host locale changes', async () => {
+    let locale: SupportedLocale = 'en-US';
+    let changed!: () => void;
+    const ctx = createChatContext({
+      locale: () => locale,
+      subscribeTranslator: (listener) => { changed = listener; return () => {}; },
+      theme: DEFAULT_THEME,
+    });
+    const state = createChatState(ctx);
+    const oldYear = new Date().getFullYear() - 1;
+    const old = new Date(oldYear, 0, 15, 9).getTime();
+    state.transcript.history.seed([{
+      id: 'old-history', seq: 0, initiator: 'user', startedAt: old,
+      items: [{ kind: 'message', id: 'old-message', seq: 0, role: 'user', text: 'History' }],
+    }]);
+    const host = document.createElement('div');
+    host.style.cssText = 'position:fixed;top:0;left:0;width:800px;height:600px;';
+    document.body.appendChild(host);
+    const view = createChatView({ context: ctx, state, parent: host });
+    const text = () => host.querySelector('[data-slot="day-separator-label"]')?.textContent;
+    try {
+      await until('English history date is rendered', () => text() === `Jan 15 ${oldYear} 9:00`);
+      const row = host.querySelector('[data-slot="day-separator"]');
+      locale = 'zh-CN';
+      changed();
+      await until('Chinese history date is rendered', () => text() === `${oldYear}年1月15日 9:00`);
+      expect(host.querySelector('[data-slot="day-separator"]')).toBe(row);
+    } finally {
+      view.dispose(); state.dispose(); ctx.dispose(); host.remove();
+    }
+  });
+
   it('mounts without error', async () => {
-    const ctx = createChatContext({ theme: DEFAULT_THEME });
+    const ctx = createChatContext({ locale: () => 'en-US', theme: DEFAULT_THEME });
     const state = createChatState(ctx);
     state.transcript.history.seed(generateMockTranscript(10, 1));
 
@@ -53,7 +86,7 @@ describe('createChatView', () => {
   });
 
   it('scrolls to top and bottom through the view handle', async () => {
-    const ctx = createChatContext({ theme: DEFAULT_THEME });
+    const ctx = createChatContext({ locale: () => 'en-US', theme: DEFAULT_THEME });
     const state = createChatState(ctx);
     state.transcript.history.seed(generateMockTranscript(80, 10));
 
@@ -82,7 +115,7 @@ describe('createChatView', () => {
   });
 
   it('aligns pinned user messages with the measured transcript column', async () => {
-    const ctx = createChatContext({ theme: DEFAULT_THEME });
+    const ctx = createChatContext({ locale: () => 'en-US', theme: DEFAULT_THEME });
     const state = createChatState(ctx);
     state.transcript.history.seed(generateMockTranscript(80, 11));
 
@@ -120,7 +153,7 @@ describe('createChatView', () => {
   });
 
   it('keeps transcript rows disjoint while the pinned header is active', async () => {
-    const ctx = createChatContext({ theme: DEFAULT_THEME });
+    const ctx = createChatContext({ locale: () => 'en-US', theme: DEFAULT_THEME });
     const state = createChatState(ctx);
     state.transcript.history.seed(generateMockTranscript(24, 17));
 
@@ -151,7 +184,7 @@ describe('createChatView', () => {
   });
 
   it('keeps host typography overrides outside measurement-sensitive fragments', async () => {
-    const ctx = createChatContext({ theme: DEFAULT_THEME });
+    const ctx = createChatContext({ locale: () => 'en-US', theme: DEFAULT_THEME });
     const state = createChatState(ctx);
     const message: ChatMessage = {
       kind: 'message',
@@ -202,7 +235,7 @@ describe('createChatView', () => {
 
 describe('ChatView.setModel', () => {
   it('swaps models without throwing', async () => {
-    const ctx = createChatContext({ theme: DEFAULT_THEME });
+    const ctx = createChatContext({ locale: () => 'en-US', theme: DEFAULT_THEME });
     const stateA = createChatState(ctx, { uri: 'conv-a' });
     const stateB = createChatState(ctx, { uri: 'conv-b' });
     stateA.transcript.history.seed(generateMockTranscript(12, 2));
@@ -229,7 +262,7 @@ describe('ChatView.setModel', () => {
   });
 
   it('is a no-op when called with the current model', async () => {
-    const ctx = createChatContext({ theme: DEFAULT_THEME });
+    const ctx = createChatContext({ locale: () => 'en-US', theme: DEFAULT_THEME });
     const stateA = createChatState(ctx, { uri: 'conv-a' });
     stateA.transcript.history.seed(generateMockTranscript(8, 4));
 
@@ -251,7 +284,7 @@ describe('ChatView.setModel', () => {
   });
 
   it('continues rendering streaming updates on the new model after swap', async () => {
-    const ctx = createChatContext({ theme: DEFAULT_THEME });
+    const ctx = createChatContext({ locale: () => 'en-US', theme: DEFAULT_THEME });
     const stateA = createChatState(ctx, { uri: 'conv-a' });
     const stateB = createChatState(ctx, { uri: 'conv-b' });
     stateA.transcript.history.seed(generateMockTranscript(6, 5));
@@ -302,7 +335,7 @@ describe('ChatView.setModel', () => {
   });
 
   it('survives rapid model thrashing without error', async () => {
-    const ctx = createChatContext({ theme: DEFAULT_THEME });
+    const ctx = createChatContext({ locale: () => 'en-US', theme: DEFAULT_THEME });
     const states = Array.from({ length: 3 }, (_, i) => {
       const s = createChatState(ctx, { uri: `conv-${i}` });
       s.transcript.history.seed(generateMockTranscript(10, i + 7));
@@ -338,7 +371,7 @@ describe('ChatView.setModel', () => {
 
 
 it('stops a pinned instruction before an independently sent reply at the unread anchor', async () => {
-  const ctx = createChatContext({ layout: { agentConversation: true, preset: 'double', userGutter: 0 } });
+  const ctx = createChatContext({ locale: () => 'en-US', layout: { agentConversation: true, preset: 'double', userGutter: 0 } });
   const state = createChatState(ctx);
   const sent = Array.from({ length: 10 }, (_, i): ChatMessage => ({
     kind: 'message', id: `call${i}:sent:message${i}`, seq: i + 1, role: 'assistant', text: `H${i + 1}`,

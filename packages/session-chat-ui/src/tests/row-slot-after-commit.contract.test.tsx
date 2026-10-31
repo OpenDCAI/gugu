@@ -181,7 +181,7 @@ type Mounted = {
 };
 
 async function mountAtBottom(): Promise<Mounted> {
-  const ctx = createChatContext({ theme: DEFAULT_THEME });
+  const ctx = createChatContext({ locale: () => 'en-US', theme: DEFAULT_THEME });
   const state = createChatState(ctx);
   const host = document.createElement('div');
   host.dataset.rowSlotHost = '';

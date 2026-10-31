@@ -112,7 +112,7 @@ function expectRowChromeFollowsData(host: HTMLElement) {
 
 describe('settled-turn process fold on a mounted ChatView', () => {
   it('classic shows all rows; base folds them behind a header that expands on click', async () => {
-    const ctx = createChatContext();
+    const ctx = createChatContext({ locale: () => 'en-US' });
     const state = createChatState(ctx);
     state.transcript.history.seed([TURN, TURN2]);
     const host = document.createElement('div');
@@ -209,7 +209,7 @@ describe('settled-turn process fold on a mounted ChatView', () => {
   });
 
   it('#5350 钩子劈开的一轮画成两个头:结束语与结束都在外面,点第二个头还原钩子那一段', async () => {
-    const ctx = createChatContext({ layout: { preset: 'double', userGutter: 72 } });
+    const ctx = createChatContext({ locale: () => 'en-US', layout: { preset: 'double', userGutter: 72 } });
     const state = createChatState(ctx);
     state.transcript.history.seed([HOOK_TURN]);
     const host = document.createElement('div');
@@ -269,7 +269,7 @@ describe('settled-turn process fold on a mounted ChatView', () => {
   });
 
   it('a cancelled turn keeps its process rows in base', async () => {
-    const ctx = createChatContext({ layout: { preset: 'double', userGutter: 72 } });
+    const ctx = createChatContext({ locale: () => 'en-US', layout: { preset: 'double', userGutter: 72 } });
     const state = createChatState(ctx);
     state.transcript.history.seed([{ ...TURN, id: 't2', outcome: { kind: 'cancelled', reason: 'cancelled' } }]);
     const host = document.createElement('div');
@@ -309,7 +309,7 @@ describe('#4981 合并:一轮一轮落进来,和整条重建画得一样(#70 rev
   };
 
   it('后一轮追加进来时并进前一轮的头,❌ 等下次整条重建才跳进去', async () => {
-    const ctx = createChatContext({ layout: { preset: 'double', userGutter: 72 } });
+    const ctx = createChatContext({ locale: () => 'en-US', layout: { preset: 'double', userGutter: 72 } });
     const state = createChatState(ctx);
     state.transcript.history.seed([ASK]);
     const host = document.createElement('div');
@@ -359,7 +359,7 @@ describe('#4981 #12 活动层的过程也折', () => {
    * 跑完「已处理 42s ›」收成一条。头是同一条,只是默认开合与文案不同。
    */
   it('活动轮:时间头在数、内容摊开;落定后同一条头收起、写总时长', async () => {
-    const ctx = createChatContext({ layout: { preset: 'double', userGutter: 72 } });
+    const ctx = createChatContext({ locale: () => 'en-US', layout: { preset: 'double', userGutter: 72 } });
     const state = createChatState(ctx);
     const host = document.createElement('div');
     host.style.cssText = 'position:fixed;top:0;left:0;width:800px;height:600px;';
@@ -471,7 +471,7 @@ describe('一轮开始了、还没有可折的过程:头占位', () => {
   } as TranscriptTurn['items'][number];
 
   it.each(['double', 'single'] as const)('%s:头占位、带微光、高度与 measure() 一致;思考到了之后', async (preset) => {
-    const ctx = createChatContext({ layout: { preset, userGutter: 0 } });
+    const ctx = createChatContext({ locale: () => 'en-US', layout: { preset, userGutter: 0 } });
     const state = createChatState(ctx);
     const host = document.createElement('div');
     host.style.cssText = 'position:fixed;top:0;left:0;width:800px;height:600px;';
@@ -519,7 +519,7 @@ describe('一轮开始了、还没有可折的过程:头占位', () => {
 
   // owner 10-23 真机:agent 先说一句再去干活,头被撤掉,第二句话到了又冒出来(消失 13.7 s)。
   it('先开口再干活:头一直在原处,只说了话时占位、不带微光,一开始干活就数秒', async () => {
-    const ctx = createChatContext({ layout: { preset: 'double', userGutter: 0 } });
+    const ctx = createChatContext({ locale: () => 'en-US', layout: { preset: 'double', userGutter: 0 } });
     const state = createChatState(ctx);
     const host = document.createElement('div');
     host.style.cssText = 'position:fixed;top:0;left:0;width:800px;height:600px;';
@@ -563,7 +563,7 @@ describe('一轮开始了、还没有可折的过程:头占位', () => {
   });
 
   it('末轮空时保留无展开按钮的确认，后面有新轮后收起', async () => {
-    const ctx = createChatContext({ layout: { preset: 'double', userGutter: 0 } });
+    const ctx = createChatContext({ locale: () => 'en-US', layout: { preset: 'double', userGutter: 0 } });
     const state = createChatState(ctx);
     const host = document.createElement('div');
     host.style.cssText = 'position:fixed;top:0;left:0;width:800px;height:600px;';

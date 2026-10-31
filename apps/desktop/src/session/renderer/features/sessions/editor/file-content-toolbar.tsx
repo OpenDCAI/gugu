@@ -1,4 +1,4 @@
-import { PanelRightClose, PanelRightOpen } from 'lucide-react'
+import { PanelRightClose, PanelRightOpen } from '@/lib/icons'
 import { Braces, Eye } from '@/lib/icons'
 import { observer } from 'mobx-react-lite';
 import { OpenInMenu } from '@renderer/lib/components/titlebar/open-in-menu';

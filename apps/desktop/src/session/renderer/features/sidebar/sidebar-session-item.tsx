@@ -4,7 +4,7 @@ import { safeFailureLine } from '../sessions/gugu-reason';
 import { commandRegistry } from '@renderer/lib/commands/registry';
 import { dissolveScreenGroup, isScreenView, showSessionBeside, takeSessionOutOfGroup } from '@renderer/app/screen-layout-actions';
 import { AlertTriangle, Archive, Copy, LayoutGrid, Pencil, Pin, PinOff, Scissors, Sparkles, SquareMinus } from '@/lib/icons'
-import { GitFork } from 'lucide-react'
+import { GitFork } from '@/lib/icons'
 import { installedExtensionsStore } from '@renderer/features/extensions/installed-extensions-store';
 import { spawnedByExtensionLabel as spawnedByExtensionLabelFor } from '@renderer/features/extensions/spawned-by-extension-label';
 import { useAssistantShell } from '@renderer/features/assistant/assistant-shell';

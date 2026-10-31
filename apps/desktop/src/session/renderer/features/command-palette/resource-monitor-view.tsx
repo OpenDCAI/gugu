@@ -2,7 +2,7 @@ import { platform } from '@/platform';
 import { rendererLogger } from '@/lib/log';
 import { messageForUser } from '@/lib/userFacingError';
 import { Check, ChevronRight, Copy, Folder, Terminal, X } from '@/lib/icons'
-import { GitBranch } from 'lucide-react'
+import { GitBranch } from '@/lib/icons'
 import { observer } from 'mobx-react-lite';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { getSessionView } from '@renderer/features/sessions/stores/session-selectors';
