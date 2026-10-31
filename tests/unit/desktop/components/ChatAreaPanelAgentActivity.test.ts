@@ -93,6 +93,8 @@ vi.mock('../../../../apps/desktop/src/lib/chat', () => ({
       })),
     })),
     getThreadMessages: vi.fn(async () => []),
+    // The chat surface reads the viewer's authority from the server projection (group_info_as).
+    getGroupChatSettings: vi.fn(async () => ({ id: 'chat-1', my_role: 'member', can_manage: false, can_dissolve: false, can_archive_topic: false, allow_member_invite: false })),
   },
 }))
 

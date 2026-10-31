@@ -37,11 +37,24 @@ export function useGroupChatSettings(chatId: string | null, revision?: string) {
   const latestWrite = useRef(new Map<SettingsKey, number>())
   const writeSeq = useRef(0)
 
+  // A chat switch starts empty; a role change re-reads in place (the first roster load is not a change).
+  const [roleChange, setRoleChange] = useState(0)
+  const seenRevision = useRef<{ chatId: string | null; revision?: string }>({ chatId })
   useEffect(() => {
-    let cancelled = false
+    const seen = seenRevision.current
+    if (seen.chatId !== chatId) seenRevision.current = { chatId, revision }
+    else if (seen.revision && revision && seen.revision !== revision) { seen.revision = revision; setRoleChange((n) => n + 1) }
+    else if (!seen.revision) seen.revision = revision
+  }, [chatId, revision])
+
+  useEffect(() => {
     setSettings(null)
     setError(null)
     latestWrite.current.clear()
+  }, [chatId])
+
+  useEffect(() => {
+    let cancelled = false
     if (!chatId) return
     chatService.getGroupChatSettings(chatId)
       .then((loaded) => { if (!cancelled) setSettings(loaded) })
@@ -51,7 +64,7 @@ export function useGroupChatSettings(chatId: string | null, revision?: string) {
         setError(t('group.settings.loadFailed', { reason: String((err as Error)?.message ?? err) }))
       })
     return () => { cancelled = true }
-  }, [chatId, t, revision])
+  }, [chatId, t, roleChange])
 
   const update = useCallback(async (input: UpdateGroupChatSettingsInput): Promise<boolean> => {
     const before = settingsRef.current

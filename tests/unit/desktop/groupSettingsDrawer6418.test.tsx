@@ -182,6 +182,11 @@ describe('settings follow the viewer authority, not roster object identity', () 
     await renderSection('owner-1', { ...props, snapshot: { ...SNAPSHOT, humans: [humanItem('owner-1', 'owner'), humanItem('member-1', 'admin')] } })
     await waitForCondition(() => getSettings.mock.calls.length === 2, 'settings re-read after a role change')
   })
+  it('the first roster load after opening is not a role change', async () => {
+    const props = await renderDrawer('owner-1', { snapshot: { ...SNAPSHOT, humans: [] } })
+    await renderSection('owner-1', { ...props, snapshot: SNAPSHOT })
+    expect(getSettings).toHaveBeenCalledTimes(1)
+  })
 })
 
 describe('#6418 群聊设置 —— 谁看得到什么', () => {

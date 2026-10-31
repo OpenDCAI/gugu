@@ -17,6 +17,7 @@ vi.mock('../../../../apps/desktop/src/lib/topics', () => ({ topicService: {
 vi.mock('../../../../apps/desktop/src/lib/chat', () => ({ chatService: {
   getMessages: async () => [], getOtherMembersReadSeqs: async () => ({}),
   getGroupCollab: async () => ({ snapshot: { scheduler: null, humans: [], agents: [], tasks: [], outputs: [] }, identities: [] }),
+  getGroupChatSettings: async () => ({ id: 'g1', my_role: 'member', can_manage: false, can_dissolve: false, can_archive_topic: false, allow_member_invite: false }),
 } }))
 
 const question = serializeComposerCard({ v: 1, type: 'question', text: 'Pick one', options: ['First', 'Second'], ownerUserId: 'user-1', questionId: 'q1', sessionId: 's1', projectId: 'p1', deviceId: 'd1', machineLabel: 'Mac' })
