@@ -580,6 +580,11 @@ export interface AppFileOpened {
    * for it (`docName` is empty); the page hands them over as `f.blob()`.
    */
   bytes?: ArrayBuffer;
+  /**
+   * A working copy's file that is not a document: nothing is sent with the answer; the page reads it in pieces
+   * (`filesRead`, 512 KB each) — `f.read(offset, length)`, or `f.blob()` for all of it.
+   */
+  chunked?: true;
 }
 
 /** The click's authorized document metadata, consumed by exactly one bound file open. */

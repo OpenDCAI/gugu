@@ -12,7 +12,7 @@ import type { WatchEvent } from '@gugu/session-core/services/fs-watch/api';
 import type { WatchSink } from '../../../../../../../packages/session-core/src/services/fs-watch/impl/backend';
 import { createWatchService } from '../../../../../../../packages/session-core/src/services/fs-watch/impl/watch-service';
 import { awaitFact } from '../../../../../../../tests/support/awaitFact';
-import { createLocalAppFiles, createLocalFileService, type LocalSurface } from './local-files';
+import { createLocalAppFiles, createLocalFileService, workingCopyEntry, type LocalSurface } from './local-files';
 
 /**
  * `gugu.files` on a task's working copy, end to end in one process: the real relay (`file-sync-core.ts`) with the local
@@ -377,18 +377,14 @@ describe('gugu.files on a working copy', () => {
   });
 
   it('a file is known by its own suffix, a name the type table does not know too (复核 101 K1): main.ts is .ts, not .txt', () => {
-    mkdirs('src');
-    write('src/main.ts', 'x');
-    write('ci.yaml', 'y');
-    write('notes.md', 'z');
-    const suffixes = Object.fromEntries(files.list({ pageId: 0, extensionId: 'ext', place: { session: SESSION }, workspaceRoot: root, filePath: 'notes.md' }).map((entry) => [entry.name, entry.suffix]));
+    const stat = fs.statSync(root);
+    const suffixes = Object.fromEntries(['src/main.ts', 'ci.yaml', 'notes.md'].map((rel) => workingCopyEntry({ session: SESSION }, rel, stat)).map((entry) => [entry.name, entry.suffix]));
     expect(suffixes).toEqual({ 'main.ts': '.ts', 'ci.yaml': '.yaml', 'notes.md': '.md' });
   });
 
-  it("a project's folder (L1): the same files and gates, each entry naming the project it is in — never a session", () => {
-    write('plan.md', 'x');
-    const entry = files.list({ pageId: 0, extensionId: 'ext', place: { project: 'p-1' }, workspaceRoot: root, filePath: null }).find((one) => one.name === 'plan.md');
-    expect(entry).toMatchObject({ id: 'plan.md', project: 'p-1' });
+  it("a project's folder (L1): each entry names the project it is in — never a session", () => {
+    const entry = workingCopyEntry({ project: 'p-1' }, 'plan.md', null);
+    expect(entry).toMatchObject({ id: 'plan.md', project: 'p-1', size: null });
     expect(entry).not.toHaveProperty('session');
   });
 
@@ -423,7 +419,7 @@ describe('gugu.files on a working copy', () => {
     fs.rmSync(outside, { recursive: true, force: true });
   });
 
-  it('a stored file (an image) opens read-only, as its bytes, under the same gate; nothing is synced for it (owner 10-07)', async () => {
+  it('a stored file (an image) opens read-only, read in pieces by the page, under the same gate; nothing is synced for it (owner 10-07)', async () => {
     const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x01]);
     write('shot.png', png);
     write('mine.md', 'x');
@@ -445,8 +441,8 @@ describe('gugu.files on a working copy', () => {
     await expect(gated.open(new Page(nextId++, 'mine.md').surface, { ref })).rejects.toMatchObject({ code: 'denied' });
     granted.add('files:write');
     const opened = await gated.open(new Page(nextId++, 'mine.md').surface, { ref });
-    expect(opened).toMatchObject({ docName: '', access: 'ro', entry: { name: 'shot.png', type: 'binary', contentType: 'image/png' } });
-    expect(Buffer.from(opened.bytes!)).toEqual(png);
+    expect(opened).toMatchObject({ docName: '', access: 'ro', chunked: true, entry: { name: 'shot.png', type: 'binary', contentType: 'image/png', size: png.byteLength } });
+    expect(opened.bytes).toBeUndefined();
     granted.clear();
     expect((await gated.open(new Page(nextId++, 'shot.png').surface, { ref })).access).toBe('ro');
     expect(grants).toEqual([]);

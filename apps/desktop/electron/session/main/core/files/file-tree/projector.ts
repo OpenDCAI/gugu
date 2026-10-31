@@ -133,6 +133,29 @@ export class FileTreeProjector {
     return ok({ version: this.flushScopes(subscriptionId, sub, scopes) });
   }
 
+  /**
+   * One directory's children as this view now holds them, registered first (`null`: the root). What an App's
+   * `files.list({ session }, { folder })` reads: the same listing this tree sends the file panel, one level at a time.
+   */
+  async listDir(
+    subscriptionId: string,
+    absDir: string | null
+  ): Promise<Result<FileNode[], FileTreeOperationError>> {
+    if (absDir === null) return ok(this.materialize(null));
+    const revealed = await this.revealPath(subscriptionId, absDir);
+    if (!revealed.success) return err(revealed.error);
+    const id = this.idByPath.get(absDir);
+    const node = id === undefined ? undefined : this.nodeById.get(id);
+    if (!node || !isExpandableFileNode(node)) return err({ type: 'not_found' });
+    return ok(this.materialize(node.id));
+  }
+
+  /** The directory (absolute path, `null` the root) each scope of a push lists. */
+  scopePath(scope: Scope): string | null | undefined {
+    if (scope === null) return null;
+    return this.nodeById.get(scope)?.path;
+  }
+
   async closeProjection(subscriptionId: string): Promise<void> {
     const sub = this.subscriptions.get(subscriptionId);
     if (!sub) return;

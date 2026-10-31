@@ -40,10 +40,6 @@ import {
   needsGesture,
   callRefusal,
 } from '@shared/extensions/bridge-protocol';
-import {
-  watchWorkspaceForSurface,
-  type WorkspaceWatch,
-} from '@main/core/extensions/extension-file-events';
 import type {
   ExtensionHostAction,
   ExtensionHostActionOrigin,
@@ -407,7 +403,7 @@ export function watchExtensionSurfaceErrors(webContentsId: number, onError: (mes
  * background page, a program — by subscription: a chat (told by `notifyGroupWorkspaceChanged`) or a session's working copy
  * (its own disk watch). Torn down with the caller.
  */
-const pageWatches = new Map<number, Map<string, { caller: BridgeCaller; place: AppPlace; resource: AppPlace; disk: WorkspaceWatch | null }>>();
+const pageWatches = new Map<number, Map<string, { caller: BridgeCaller; place: AppPlace; resource: AppPlace; disk: { stop: () => void } | null }>>();
 
 /** The map itself is the document's identity; navigation removes it before a later document can subscribe. */
 function fileWatchesFor(pageId: number) {
@@ -443,6 +439,7 @@ export function stopPageWatches(pageId: number): void {
   const watching = pageWatches.get(pageId);
   for (const watch of watching?.values() ?? []) watch.disk?.stop();
   pageWatches.delete(pageId);
+  void import('@main/core/extensions/working-copy-files').then(({ releaseWorkingCopies }) => releaseWorkingCopies(pageId));
   for (const { resource, caller } of watching?.values() ?? []) forgetUnheard(resource, caller);
 }
 
@@ -461,16 +458,15 @@ async function watchFiles(caller: BridgeCaller, watchId: string, place: AppPlace
   if (pageWatches.get(caller.pageId) !== watching) return;
   asCallingAgent(caller, caller.filePage({ place: resource }, true), { place });
   if (watching.has(watchId)) throw Object.assign(new Error('This file watch is already registered'), { code: 'invalid' });
-  let disk: WorkspaceWatch | null = null;
+  let disk: { stop: () => void } | null = null;
   if (isLocal(place)) {
-    const { localRootOf } = await import('@main/core/extensions/app-files');
-    const { workspaceRoot } = await localRootOf(place);
-    if (pageWatches.get(caller.pageId) !== watching) return;
-    disk = watchWorkspaceForSurface({
-      extensionId: caller.extensionId,
-      workspaceRoot,
-      deliver: (change) => caller.hear({ type: 'filesChanged', watchId, place, change }),
+    // The folders this page listed, told as the file tree pushes them (the file panel's own pushes): no watch of its own.
+    const { watchWorkingCopy } = await import('@main/core/extensions/working-copy-files');
+    const stop = await watchWorkingCopy(caller.pageId, place, (change) => {
+      if (extensionsService().hasCapability(caller.extensionId, 'files:read')) caller.hear({ type: 'filesChanged', watchId, place, change });
     });
+    if (pageWatches.get(caller.pageId) !== watching) return stop();
+    disk = { stop };
   }
   watching.set(watchId, { caller, place, resource, disk });
 }
@@ -1802,6 +1798,7 @@ async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, arg
     case 'filesReopen':
     case 'filesClose':
     case 'filesList':
+    case 'filesRead':
     case 'filesSearch':
     case 'filesRecent':
     case 'filesViewPreferences':
@@ -1823,6 +1820,7 @@ async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, arg
         filesReopen: 'reopenAppFile',
         filesClose: 'closeAppFile',
         filesList: 'listAppFiles',
+        filesRead: 'readAppFile',
         filesSearch: 'searchAppFiles',
         filesRecent: 'recentAppFiles',
         filesCreate: 'createAppFile',

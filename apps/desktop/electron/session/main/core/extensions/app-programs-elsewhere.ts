@@ -3,7 +3,7 @@ import type { AppCallAction, RemoteAppCaller } from '@gugu/session-core/session-
 import type { ExtensionManifest } from '@shared/extensions/manifest';
 import { appCallAction, notOnSessionMachine, overCallLimit } from '@shared/extensions/machine-call';
 import { machineVerbs } from '@main/core/extensions/machine-verbs';
-import type { MachineVerb } from '@shared/extensions/bridge-protocol';
+import type { MachineVerb, PlaceVerb } from '@shared/extensions/bridge-protocol';
 import { callRefusal } from '@shared/extensions/bridge-protocol';
 import { log } from '@main/lib/logger';
 
@@ -123,7 +123,7 @@ export async function answerAppCall(caller: RemoteAppCaller, action: AppCallActi
   const result = (async () => {
     await admit(caller, action);
     reached = true;
-    const value = await machineVerbs[action.method as MachineVerb](caller.extensionId, action.args, action.session_id ? { sessionId: action.session_id } : {});
+    const value = await machineVerbs[action.method as MachineVerb | PlaceVerb](caller.extensionId, action.args, action.session_id ? { sessionId: action.session_id } : {});
     const tooLarge = overCallLimit('answer', action, value);
     if (tooLarge) throw tooLarge;
     log.info('[app-programs] a call done for a page on another machine', { device: caller.deviceId, app: caller.extensionId, session: action.session_id, method: action.method });

@@ -299,8 +299,33 @@ export async function listAppFiles(page: DesktopFilePage, args: { place?: unknow
   const place = placeOf(args.place);
   const folder = folderOf(args.folder);
   if ('chat' in place) return files.groupFiles(place.chat, { asAgent: page.asAgent ?? null, ...(folder === undefined ? {} : { folder }) });
-  noFoldersInWorkingCopy(folder);
-  return local.list(await localFolder(page, place));
+  const there = await onItsMachine(page, place, 'filesList', { place, ...(folder === undefined ? {} : { folder }) });
+  if (there.there) return there.value as AppFileEntry[];
+  const { listWorkingCopy } = await import('./working-copy-files');
+  return listWorkingCopy(place, folder, page.pageId);
+}
+
+/** `f.read(offset, length)`: up to 512 KB of a working copy's file, read on the machine its working copy is on. */
+export async function readAppFile(page: DesktopFilePage, args: { ref?: unknown; offset?: unknown; length?: unknown }): Promise<{ size: number; offset: number; data: string }> {
+  const ref = fileRefOf(args.ref);
+  if (isChat(ref)) throw new AppFileError('invalid', "A chat's file is opened whole: files.open");
+  const offset = Number(args.offset) || 0;
+  const length = Number(args.length) || 0;
+  const there = await onItsMachine(page, ref, 'filesRead', { ref, offset, length });
+  if (there.there) return there.value as { size: number; offset: number; data: string };
+  const { readWorkingCopy } = await import('./working-copy-files');
+  return readWorkingCopy(ref, 'id' in ref ? ref.id : ref.name, offset, length);
+}
+
+/**
+ * A working copy's file call (`machine: 'place'`) for a session on another of the person's machines: done there, by the
+ * same `machineVerbs` that machine's own pages reach. `{ there: false }` for a working copy on this computer.
+ */
+async function onItsMachine(page: DesktopFilePage, place: LocalPlace, method: 'filesList' | 'filesRead', args: Record<string, unknown>) {
+  if (!('session' in place)) return { there: false } as const;
+  const { callOnSessionMachine } = await import('./app-programs-elsewhere');
+  const manifest = extensionsService().get(page.extensionId).manifest;
+  return callOnSessionMachine({ extensionId: page.extensionId, manifest }, place.session, method, args, page.asAgent != null);
 }
 
 /** Across every chat whoever the page works as is in (`files:read`, checked at the door): by a piece of the path; opened last. */

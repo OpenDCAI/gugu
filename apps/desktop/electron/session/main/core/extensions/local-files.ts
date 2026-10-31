@@ -189,8 +189,11 @@ function localContentType(name: string): string {
 /** Whether a file of the working copy is a document to open — the one rule a group upload follows too (F19). */
 const documentKind = (name: string, raw: Uint8Array) => workspaceUploadKind(name, localContentType(name), raw);
 
-/** A file's entry as `gugu.files.list` shows it — the same shape as a chat file's. Its id is its path; it names its folder (`place`). */
-function entryOf(place: LocalPlace, rel: string, stat: fs.Stats, contentType = localContentType(rel)): AppFileEntry {
+/**
+ * A working copy's file (or folder: no `stat` read) as `gugu.files` shows it — the same shape as a chat file's. Its id is
+ * its path; it names its folder (`place`).
+ */
+export function workingCopyEntry(place: LocalPlace, rel: string, stat: fs.Stats | null, contentType = localContentType(rel)): AppFileEntry {
   const name = path.posix.basename(rel);
   const kind = /^text\//.test(contentType) || isJson(contentType) ? 'document' : 'file';
   return {
@@ -209,10 +212,10 @@ function entryOf(place: LocalPlace, rel: string, stat: fs.Stats, contentType = l
     displayName: name,
     claimedBy: null,
     appState: false,
-    size: stat.size,
+    size: stat?.size ?? null,
     version: null,
-    createdAt: stat.birthtime.toISOString(),
-    updatedAt: stat.mtime.toISOString(),
+    createdAt: stat?.birthtime.toISOString() ?? null,
+    updatedAt: stat?.mtime.toISOString() ?? null,
     createdBy: null,
     updatedBy: null,
     sourceMessageIds: [],
@@ -619,13 +622,11 @@ export function createLocalAppFiles(platform: {
     // The gate before a byte is read, as for a chat's files: the one handed to the page, or files:read / files:write.
     const found = readable(surface, args.ref, 'opening');
     const stat = fs.statSync(found.abs);
-    if (stat.size > APP_FILE_MAX_BYTES) throw new AppFileError('too-large', `${found.rel} is over the ${APP_FILE_MAX_BYTES / 1024 / 1024} MB of an open file`);
-    const raw = fs.readFileSync(found.abs);
-    // Over a document's size, or not text: a stored file (an image, a clip, a sound) — its bytes, read-only, as in a chat.
-    const kind = stat.size > MAX_BYTES ? null : documentKind(found.rel, raw);
+    // Over a document's size, or not text: read in pieces by the page (`f.read`, `f.blob`), as the file panel reads it —
+    // never whole here, whatever its size.
+    const kind = stat.size > MAX_BYTES ? null : documentKind(found.rel, fs.readFileSync(found.abs));
     if (kind?.kind !== 'document') {
-      const bytes = raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.byteLength) as ArrayBuffer;
-      return { entry: entryOf(surface.place, found.rel, stat), docName: '', access: 'ro', self: await platform.self(), bytes };
+      return { entry: workingCopyEntry(surface.place, found.rel, stat), docName: '', access: 'ro', self: await platform.self(), chunked: true };
     }
     const handedOver = found.rel === surface.filePath;
     let access: Grant['access'];
@@ -643,7 +644,7 @@ export function createLocalAppFiles(platform: {
     const self = await platform.self();
     const docName = service.register({ ...found, root: surface.workspaceRoot }, kind.contentType, self);
     sync.grant(sync.pageFor(surface.pageId, surface.extensionId), { docName, itemId: grantKey(surface.place, found.rel), access, needs });
-    return { entry: entryOf(surface.place, found.rel, stat, kind.contentType), docName, access, self };
+    return { entry: workingCopyEntry(surface.place, found.rel, stat, kind.contentType), docName, access, self };
   }
 
   return {
@@ -652,7 +653,7 @@ export function createLocalAppFiles(platform: {
     /** After `stale-epoch:<n>`: the same file under its new generation; the old grant is dropped. */
     async reopen(surface: LocalSurface, args: { ref: LocalFileRef & { id: string }; readOnly?: boolean }): Promise<AppFileOpened> {
       const opened = await open(surface, { ref: args.ref, ...(args.readOnly ? { readOnly: true } : {}) });
-      if (opened.bytes) throw new AppFileError('invalid', `${opened.entry.id} is no longer a document (it is binary now, or over a document's size)`);
+      if (opened.bytes || opened.chunked) throw new AppFileError('invalid', `${opened.entry.id} is no longer a document (it is binary now, or over a document's size)`);
       const key = grantKey(surface.place, opened.entry.id);
       sync.revoke(surface.pageId, null, (grant) => grant.itemId === key && grant.docName !== opened.docName);
       return opened;
@@ -660,25 +661,6 @@ export function createLocalAppFiles(platform: {
 
     close(surface: LocalSurface, args: { docName: string }): void {
       sync.ungrant(surface.pageId, String(args.docName));
-    },
-
-    /**
-     * The working copy's files. Hidden entries (`.git`, `.env`) and `node_modules` are left out, and the list stops at
-     * 5000: it crosses to the page in one message.
-     */
-    list(surface: LocalSurface): AppFileEntry[] {
-      const out: AppFileEntry[] = [];
-      const walk = (dir: string) => {
-        for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-          if (out.length >= 5000) return;
-          if (entry.name.startsWith('.') || entry.name === 'node_modules') continue;
-          const abs = path.join(dir, entry.name);
-          if (entry.isDirectory()) walk(abs);
-          else if (entry.isFile()) out.push(entryOf(surface.place, path.relative(surface.workspaceRoot, abs).split(path.sep).join('/'), fs.statSync(abs)));
-        }
-      };
-      walk(surface.workspaceRoot);
-      return out;
     },
 
     create(surface: LocalSurface, args: { name: string; content: string }): AppFileEntry {
@@ -700,7 +682,7 @@ export function createLocalAppFiles(platform: {
         if (code(error) === 'EEXIST') throw new AppFileError('invalid', `${target.rel} already exists`);
         throw error;
       }
-      return entryOf(surface.place, target.rel, fs.statSync(target.abs));
+      return workingCopyEntry(surface.place, target.rel, fs.statSync(target.abs));
     },
 
     rename(surface: LocalSurface, args: { ref: LocalFileRef; name: string }): AppFileEntry {
@@ -714,7 +696,7 @@ export function createLocalAppFiles(platform: {
       if (fs.existsSync(to.abs)) throw new AppFileError('invalid', `${to.rel} already exists`);
       fs.renameSync(from.abs, to.abs);
       service.renamed(from.abs, to.abs, to.rel);
-      return entryOf(surface.place, to.rel, fs.statSync(to.abs));
+      return workingCopyEntry(surface.place, to.rel, fs.statSync(to.abs));
     },
 
     /**
@@ -742,7 +724,7 @@ export function createLocalAppFiles(platform: {
         fs.rmSync(tmp, { force: true });
         throw new AppFileError('failed', `${found.rel} was not replaced: ${messageOf(error)}`);
       }
-      return entryOf(surface.place, found.rel, fs.statSync(found.abs));
+      return workingCopyEntry(surface.place, found.rel, fs.statSync(found.abs));
     },
 
     remove(surface: LocalSurface, args: { ref: LocalFileRef }): void {
@@ -772,7 +754,7 @@ export function createLocalAppFiles(platform: {
           makeFolderOf(surface.workspaceRoot, name);
           const target = inside(surface.workspaceRoot, name, 'new');
           fs.writeFileSync(target.abs, new Uint8Array(file.bytes), { flag: 'wx', mode: FRESH_MODE });
-          entries.push(entryOf(surface.place, target.rel, fs.statSync(target.abs)));
+          entries.push(workingCopyEntry(surface.place, target.rel, fs.statSync(target.abs)));
         } catch (error) {
           const notIn = files.slice(index).map((f) => f.name).join(', ');
           const why = code(error) === 'EEXIST' ? `${name} already exists` : messageOf(error);

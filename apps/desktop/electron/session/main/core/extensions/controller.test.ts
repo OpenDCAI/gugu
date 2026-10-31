@@ -44,21 +44,14 @@ let fileChange: ((update: { kind: 'resync' }) => void) | null = null;
 let unwatched = 0;
 /** 绑定 surface 时监听是异步建起来的;建起来的那一刻由这里告诉用例。 */
 let watchStarted: (() => void) | undefined;
-vi.mock('@main/core/runtime/runtime-manager', () => ({
-  runtimeManager: {
-    acquire: async () => ({
-      value: {
-        files: {
-          watchChanges: (_root: string, cb: (update: { kind: 'resync' }) => void) => {
-            fileChange = cb;
-            watchStarted?.();
-            return { success: true, data: { unsubscribe: () => (unwatched += 1), ready: Promise.resolve() } };
-          },
-        },
-      },
-      release: () => undefined,
-    }),
+// A working copy's watch is the file tree's push for the folders the page listed (working-copy-files.ts).
+vi.mock('@main/core/extensions/working-copy-files', () => ({
+  watchWorkingCopy: async (_pageId: number, _place: unknown, hear: (update: { kind: 'resync' }) => void) => {
+    fileChange = hear;
+    watchStarted?.();
+    return () => (unwatched += 1);
   },
+  releaseWorkingCopies: () => undefined,
 }));
 
 const emitted: { name: string; data: unknown }[] = [];

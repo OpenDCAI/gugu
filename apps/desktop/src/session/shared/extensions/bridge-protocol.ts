@@ -636,8 +636,10 @@ export interface VerbFacts {
   /**
    * It follows the machine of the page's session (owner 10-16「程序跟着数据」): a page in a session on another of the
    * person's machines has it done THERE (`agentSession.app_call`), and that machine does it only for a verb with this.
+   * `place`: the machine of the working copy the call names (`{ session }`), never a chat's — a chat's files are the same
+   * from every machine.
    */
-  machine?: true;
+  machine?: true | 'place';
 }
 
 /**
@@ -801,7 +803,9 @@ export const BRIDGE_VERBS = {
   filesOpen: { needs: null },
   filesReopen: { needs: null },
   filesClose: { needs: null },
-  filesList: { needs: 'files:read' },
+  filesList: { needs: 'files:read', machine: 'place' },
+  /** Up to 512 KB of a working copy's file at an offset (`f.read`): how a file of any size is read, on its own machine. */
+  filesRead: { needs: 'files:read', machine: 'place' },
   /**
    * Files across every chat the reader is in (gugu-supabase 20261017002319): found by a piece of their path, and the ones
    * this person opened last. `files:read` already reads any chat they are in, so it is the same consent.
@@ -876,6 +880,9 @@ export type ExtensionBridgeMethod = keyof typeof BRIDGE_VERBS;
 
 /** The verbs whose row says `machine`: read off the table, so a row is the one place that makes a verb follow the session's machine. */
 export type MachineVerb = { [K in ExtensionBridgeMethod]: (typeof BRIDGE_VERBS)[K] extends { machine: true } ? K : never }[ExtensionBridgeMethod];
+
+/** The verbs whose row says `machine: 'place'`: done on the machine of the working copy a call names. */
+export type PlaceVerb = { [K in ExtensionBridgeMethod]: (typeof BRIDGE_VERBS)[K] extends { machine: 'place' } ? K : never }[ExtensionBridgeMethod];
 
 export function isMachineVerb(method: string): method is MachineVerb {
   return verbFacts(method)?.machine === true;
