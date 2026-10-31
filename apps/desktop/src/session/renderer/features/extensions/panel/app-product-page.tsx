@@ -803,7 +803,7 @@ export function AppProductPage({
       </div>
 
       <Dialog open={aboutOpen} onOpenChange={setAboutOpen}>
-        <DialogContent className="sm:max-w-2xl" data-testid="app-product-about-dialog">
+        <DialogContent className="max-h-[80dvh] sm:max-w-2xl" data-testid="app-product-about-dialog">
           <DialogHeader>
             <span className="mk-icon is-40">
               <ExtensionMonogram name={text.name} iconDataUrl={cloud?.iconUrl ?? iconDataUrl} />
