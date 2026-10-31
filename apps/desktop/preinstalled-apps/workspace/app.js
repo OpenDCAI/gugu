@@ -1992,8 +1992,20 @@ function format(kind) {
 // Reading with a pointer: the top-level block under it gets a ⋯ in its left margin. Its menu does with the whole block
 // what a selection's bar does (Cite, ＋ Keep), copies a link to its lines (the pill's own `at`), or shows them in the source.
 let handleBlock = null
+let handleHideTimer = null
+
+function cancelBlockHandleHide() {
+  clearTimeout(handleHideTimer)
+  handleHideTimer = null
+}
+
+function scheduleBlockHandleHide() {
+  cancelBlockHandleHide()
+  handleHideTimer = setTimeout(hideBlockHandle, 150)
+}
 
 function hideBlockHandle() {
+  cancelBlockHandleHide()
   if ($('menu').hidden || state.menuAnchor !== $('block-handle')) {
     handleBlock = null
     $('block-handle').hidden = true
@@ -2001,15 +2013,24 @@ function hideBlockHandle() {
 }
 
 function showBlockHandle(event) {
+  cancelBlockHandleHide()
   if (touchPane?.matches || !state.current || state.current.file.type !== 'text') return
   const root = $('preview').firstElementChild
+  const pane = $('preview').getBoundingClientRect()
   let block = null
-  for (let node = event.target; node && node !== root && node !== $('preview'); node = node.parentElement) if (node.parentElement === root) block = node
-  if (!block?.dataset.line) return hideBlockHandle()
+  // The reading column's left padding belongs to the block's row too: the pointer crosses it to reach its ⋯.
+  for (const node of root?.children ?? []) {
+    if (!node.dataset.line) continue
+    const box = node.getBoundingClientRect()
+    if (event.clientX >= pane.left && event.clientX <= box.right && event.clientY >= box.top && event.clientY <= box.bottom) {
+      block = node
+      break
+    }
+  }
+  if (!block) return
   if (block === handleBlock && !$('block-handle').hidden) return
   handleBlock = block
   const box = block.getBoundingClientRect()
-  const pane = $('preview').getBoundingClientRect()
   const handle = $('block-handle')
   handle.hidden = false
   handle.style.top = `${box.top + 2}px`
@@ -2755,8 +2776,11 @@ function start() {
     button.onclick = () => format(button.dataset.fmt)
   }
   $('preview').addEventListener('pointermove', showBlockHandle)
-  $('preview').addEventListener('pointerleave', (event) => { if (event.relatedTarget !== $('block-handle') && !$('block-handle').contains(event.relatedTarget)) hideBlockHandle() })
+  $('preview').addEventListener('pointerenter', cancelBlockHandleHide)
+  $('preview').addEventListener('pointerleave', scheduleBlockHandleHide)
   $('preview').addEventListener('scroll', () => hideBlockHandle())
+  $('block-handle').addEventListener('pointerenter', cancelBlockHandleHide)
+  $('block-handle').addEventListener('pointerleave', scheduleBlockHandleHide)
   $('block-handle').onclick = () => blockMenu()
   $('preview').addEventListener('change', tickTask)
   $('empty-write').onclick = () => {

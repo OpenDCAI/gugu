@@ -80,6 +80,10 @@ const view = () => EditorView.findFromDOM(document.querySelector('.cm-editor') a
 const line = (n: number) => view().state.doc.line(n)
 const select = (from: number, to: number) => view().dispatch({ selection: EditorSelection.single(from, to) })
 const menuItems = () => [...$('menu').querySelectorAll('button')]
+function hoverBlock(block: Element) {
+  vi.spyOn(block, 'getBoundingClientRect').mockReturnValue(new DOMRect(56, 100, 600, 30))
+  block.dispatchEvent(new MouseEvent('pointermove', { bubbles: true, clientX: 80, clientY: 110 }))
+}
 /** The text changed in the source: the file says so and the preview draws it again. */
 async function redraw() {
   file.text = view().state.doc.toString()
@@ -121,7 +125,7 @@ describe('folder documents: reading', () => {
 
   test('the block under the pointer gets a ⋯: cite it, keep it, copy a link to its lines, find it in the source', async () => {
     const block = $('preview').querySelector('p[data-line="6-6"]')!
-    block.dispatchEvent(new MouseEvent('pointermove', { bubbles: true }))
+    hoverBlock(block)
     expect($('block-handle').hidden).toBe(false)
     $('block-handle').click()
     expect(menuItems().map((item) => item.textContent)).toEqual(['Cite in the chat', 'Keep to cite', 'Copy a link to it', 'Find in the source'])
@@ -140,6 +144,34 @@ describe('folder documents: reading', () => {
     expect(document.body.dataset.mode, 'beside the reading when there is room').toBe('split')
     expect([...document.querySelectorAll('.cm-line')].flatMap((l, i) => (l.classList.contains('cm-found') ? [i + 1] : []))).toEqual([6])
     $('mode-preview').click()
+  })
+
+  test('leaving gets a short grace, returning to the preview or handle cancels it, and scrolling still hides immediately', () => {
+    const block = $('preview').querySelector('p[data-line="6-6"]')!
+    vi.useFakeTimers()
+    try {
+      hoverBlock(block)
+      $('preview').dispatchEvent(new MouseEvent('pointerleave'))
+      vi.advanceTimersByTime(149)
+      expect($('block-handle').hidden).toBe(false)
+      $('block-handle').dispatchEvent(new MouseEvent('pointerenter'))
+      vi.advanceTimersByTime(200)
+      expect($('block-handle').hidden).toBe(false)
+
+      $('block-handle').dispatchEvent(new MouseEvent('pointerleave'))
+      $('preview').dispatchEvent(new MouseEvent('pointerenter'))
+      vi.advanceTimersByTime(200)
+      expect($('block-handle').hidden).toBe(false)
+      $('preview').dispatchEvent(new MouseEvent('pointerleave'))
+      vi.advanceTimersByTime(150)
+      expect($('block-handle').hidden).toBe(true)
+
+      hoverBlock(block)
+      $('preview').dispatchEvent(new Event('scroll'))
+      expect($('block-handle').hidden).toBe(true)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
 
