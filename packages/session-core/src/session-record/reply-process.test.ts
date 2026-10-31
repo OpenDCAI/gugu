@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { liveReplyOf } from './live-reply';
-import { agentSendOf, canYieldRepliedAssistant, filterTurnsForChat, replyProcess, replyProcesses } from './reply-process';
+import { agentSendOf, canYieldRepliedAssistant, filterTurnsForChat, messageSendTargetOf, replyProcess, replyProcesses } from './reply-process';
 import { renderDeliveryEnvelope, mergeDeliveryEnvelopes } from '@gugu/core/local/agent/deliveryEnvelope';
 import type { TranscriptTurn } from '../acp/models/turns/turn';
 import type { McpToolCall } from '../acp/models/turns/tool-calls';
@@ -145,6 +145,22 @@ describe('agentSendOf: what the agent said through 咕咕, and where it went', (
   it('session_message counts its recipients', () => {
     const relay = { ...send(), tool: 'session_message', rawInput: JSON.stringify({ to: ['session:a', 'session:b'], text: 'done' }) };
     expect(agentSendOf(relay)).toEqual({ text: 'done', to: { kind: 'session', count: 2 } });
+  });
+
+  it.each(['message_send_file', 'mcp__gugu__message_send_file'])('names a captionless %s destination without turning the attachment into text', toolName => {
+    const file = { ...send(), tool: toolName, rawInput: JSON.stringify({ chat_id: '216012', file_path: '/fixture/proof.txt' }) };
+    expect(messageSendTargetOf(file, inGroup(file, groupInput({ thread: 'msg:root-1' }))))
+      .toEqual({ kind: 'chat', conversationId: chat, threadRootId: 'msg:root-1', whisper: false });
+    expect(agentSendOf(file)).toBeNull();
+  });
+
+  it('preserves a file destination instead of borrowing the last input, and rejects missing or untrusted addresses', () => {
+    const file = { ...send(), tool: 'message_send_file', rawInput: JSON.stringify({ chat_id: '999', file_name: 'proof.txt' }) };
+    expect(messageSendTargetOf(file, inGroup(file))).toEqual({ kind: 'chat', conversationId: null, chatId: '999', threadRootId: null, whisper: false });
+    for (const item of [{ ...file, status: 'error' as const }, { ...file, parentToolCallId: 'child' }, { ...file, server: 'unrelated' },
+      { ...file, tool: 'unrelated_send_file' }, { ...file, rawInput: '{truncated' }, { ...file, rawInput: '{"file_name":"proof.txt"}' }]) {
+      expect(messageSendTargetOf(item, inGroup(item))).toBeNull();
+    }
   });
 
   it('stays a tool row when it failed, is a subagent\'s, is not 咕咕\'s, or its text did not survive transport', () => {

@@ -7,14 +7,13 @@ import { platform } from '@/platform';
 import { toast } from '@renderer/lib/hooks/use-toast';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
 import type { AcpChatStore } from './acp-chat-store';
-import { selectedMessageText, sessionMessageQuoteSource } from './session-message-quote';
-import { restoreSessionQuote, setSessionQuote } from './session-quote-draft';
+import { selectedMessageText, sessionPromptBody } from './session-message-quote';
 import { bindMessageQuoteTouchMenu } from './message-quote-touch-menu';
 
 type Target = Parameters<NonNullable<ChatCommands['onMessageTextMount']>>[0];
-const log = rendererLogger('session/message-quotes');
+const log = rendererLogger('session/message-actions');
 
-/** Whole-message quotes keep their source; selected-text sending stays disabled until compatible receivers ship. */
+/** Copy menus and restoration of previously saved prompts; whole-message quoting has no creation entry. */
 export function useSessionMessageQuotes(store: Pick<AcpChatStore, 'sessionId' | 'setDraftText'> | null | undefined, editor: MutableRefObject<PromptEditorRef | null>) {
   const { translate } = useSessionMessages();
   const latest = useRef({ store, translate });
@@ -25,7 +24,7 @@ export function useSessionMessageQuotes(store: Pick<AcpChatStore, 'sessionId' | 
   const restorePrompt = useCallback(({ text }: { text: string }) => {
     const current = latest.current.store;
     if (!current) return;
-    const body = restoreSessionQuote(current, text);
+    const body = sessionPromptBody(text);
     current.setDraftText(body);
     editor.current?.setText(body);
     editor.current?.focus('end');
@@ -38,29 +37,22 @@ export function useSessionMessageQuotes(store: Pick<AcpChatStore, 'sessionId' | 
       if (selection === null) return;
       if (selection === undefined && (event.target as Element | null)?.closest?.('a,button,input,textarea,[contenteditable],img')) return;
       const message = target.message();
-      const source = sessionMessageQuoteSource(message, current.sessionId);
       const text = selection ?? message.text;
       if (!text.trim()) return;
       // Snapshot before the menu takes focus or virtualization reuses the row.
-      const sender = target.sender?.() ?? '';
       const t = latest.current.translate;
       event.preventDefault();
       event.stopPropagation();
-      const canQuote = source !== null && selection === undefined;
       void showRendererContentMenu([
-        ...(canQuote ? [{ id: 'quote', label: t('transcript.quoteMessage'), icon: 'quote' } as const, { type: 'separator' } as const] : []),
         { id: 'copy', label: t(selection === undefined ? 'transcript.copyMessage' : 'transcript.copySelection') },
       ], { x: event.clientX, y: event.clientY }).then(async action => {
         if (!alive.current || latest.current.store !== current) return;
-        if (action === 'quote' && canQuote && source) {
-          setSessionQuote(current, { source, text, sender });
-          editor.current?.focus('end');
-        } else if (action === 'copy') {
+        if (action === 'copy') {
           await platform.writeClipboardText(text);
           toast({ title: t('transcript.copied') });
         }
       }).catch(error => {
-        log.error({ error }, 'Message quote menu failed');
+        log.error({ error }, 'Message copy menu failed');
         toast({ title: t('task.copyFailed'), tier: 'error' });
       });
     };
@@ -70,6 +62,6 @@ export function useSessionMessageQuotes(store: Pick<AcpChatStore, 'sessionId' | 
       open(new MouseEvent('contextmenu', { clientX: x, clientY: y }));
     });
     return () => { menuRoot.removeEventListener('contextmenu', open); unbindTouch(); };
-  }, [editor]);
+  }, []);
   return { onMessageTextMount, restorePrompt };
 }

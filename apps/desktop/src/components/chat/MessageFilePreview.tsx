@@ -5,6 +5,7 @@ import { bindFileViewerMenu } from '../preview/file-viewer-menu'
 import { quoteChatFile, selectedTextQuote } from '../preview/quote-preview-file'
 import type { ParsedAttachment } from '@gugu/core/shared/ui/attachmentModels'
 import { useTranslation } from 'react-i18next'
+import type { TFunction } from 'i18next'
 import { downloadBlob } from '../../lib/download'
 import { attachmentBytes, attachmentPreview, openAttachmentImage, openAttachmentInSystemApp, sourceKeyOf } from '../../lib/attachmentBytes'
 import { rendererLogger } from '../../lib/log'
@@ -39,7 +40,11 @@ async function previewBytes(file: PreviewFile): Promise<Blob> {
  * ranges); anything else, its bytes — as text for what is read as text. A file gone throws `gone`. The chat's preview and
  * a peek beside an App (AppPeek) read it this one way.
  */
-type PreviewRead = { content: string | ArrayBuffer | null; videoUrl?: string; expiresAt?: number; renew?: () => Promise<{ videoUrl: string; expiresAt: number }>; release?: () => Promise<void>; error?: string }
+type PreviewRead = { content: string | ArrayBuffer | null; videoUrl?: string; expiresAt?: number; renew?: () => Promise<{ videoUrl: string; expiresAt: number }>; release?: () => Promise<void>; error?: string; errorStatus?: 'gone' | 'expired' | 'missing' | 'failed' }
+function previewFailure(error: unknown, t: TFunction<'messaging'>): PreviewRead {
+  const errorStatus = error instanceof Error && (error.message === 'gone' || error.message === 'expired' || error.message === 'missing') ? error.message : 'failed'
+  return { content: null, errorStatus, error: t(errorStatus === 'gone' ? 'attachmentView.fileGone' : errorStatus === 'expired' ? 'attachmentView.fileExpired' : errorStatus === 'missing' ? 'attachmentView.fileMissing' : 'attachmentView.fileUnavailable') }
+}
 async function readPreview(file: PreviewFile, kind: DocumentPreviewKind): Promise<PreviewRead> {
   if (!documentPreviewNeedsFetch(kind)) {
     const preview = await attachmentPreview(file.source)
@@ -64,6 +69,7 @@ export function MessageFilePreview({ file, mobile = false, fill = false, tabbed 
   const { toast } = useToast()
   const kind = classifyDocumentPreview(file)
   const key = sourceKeyOf(file.source)
+  const activeKey = useRef(key)
   const viewerRef = useRef<HTMLElement>(null)
   useEffect(() => {
     if (!viewerRef.current || (file.source.kind !== 'item' && !message)) return
@@ -91,6 +97,7 @@ export function MessageFilePreview({ file, mobile = false, fill = false, tabbed 
     if (seenOff.current) { seenOff.current = false; setWaitingFor(null); setAttempt((n) => n + 1) }
   }, [devices, waitingFor])
   useEffect(() => {
+    activeKey.current = key
     let live = true, release: PreviewRead['release']
     setRead(null)
     const source = file.source
@@ -100,9 +107,9 @@ export function MessageFilePreview({ file, mobile = false, fill = false, tabbed 
       async (error) => {
         // A project file kept on a machine that is off now says so, from a fresh read of where it is kept.
         const offline = source.kind === 'item' ? await offlineHolder(source.itemId, source.version) : null
-        if (live) setWaitingFor(offline?.deviceId ?? null)
-        if (live) setRead({ content: null, error: offline !== null ? t('attachmentView.holderOffline', { machine: offline.machine || t('attachmentView.holderMachine') })
-          : t(error instanceof Error && error.message === 'gone' ? 'attachmentView.fileGone' : error instanceof Error && error.message === 'expired' ? 'attachmentView.fileExpired' : 'attachmentView.fileUnavailable') })
+        if (!live) return
+        setWaitingFor(offline?.deviceId ?? null)
+        setRead(offline !== null ? { content: null, errorStatus: 'failed', error: t('attachmentView.holderOffline', { machine: offline.machine || t('attachmentView.holderMachine') }) } : previewFailure(error, t))
       },
     )
     return () => { live = false; void release?.() }
@@ -111,7 +118,7 @@ export function MessageFilePreview({ file, mobile = false, fill = false, tabbed 
   const renewVideo = async (video: HTMLVideoElement) => {
     const current = read
     if (video.dataset.renewing) return
-    const fail = () => setRead(row => row === current ? { ...row!, error: t('attachmentView.fileUnavailable') } : row)
+    const fail = (error?: unknown) => setRead(row => row === current ? { ...row, ...previewFailure(error, t) } : row)
     if (!current?.renew || Date.now() < (current.expiresAt ?? Infinity)) { fail(); return }
     video.dataset.renewing = 'true'
     const time = video.currentTime, playing = !video.paused
@@ -119,17 +126,32 @@ export function MessageFilePreview({ file, mobile = false, fill = false, tabbed 
       const next = await current.renew()
       video.addEventListener('loadedmetadata', () => { video.currentTime = time; if (playing) void video.play().catch(fail) }, { once: true })
       setRead(row => row === current ? { ...row, ...next } : row)
-    } catch { fail() } finally { delete video.dataset.renewing }
+    } catch (error) { fail(error) } finally { delete video.dataset.renewing }
+  }
+  const missing = read?.errorStatus === 'missing'
+  const rememberMissing = (error: unknown) => {
+    const failure = previewFailure(error, t)
+    if (failure.errorStatus !== 'missing') return false
+    if (activeKey.current === key) setRead(failure)
+    return true
   }
   const openExternal = () => {
+    if (missing) return
     const fileName = kind === 'html' && !/\.html?$/i.test(file.fileName) ? `${file.fileName}.html` : file.fileName
     void openAttachmentInSystemApp(file.source, fileName).catch((error) => {
+      if (rememberMissing(error)) return
       fileOpenLog.error({ error }, 'system app handoff failed')
       toast(t('chatArea.downloadFailed'), 'error', messageForUser(error))
     })
   }
-  const download = () => void previewBytes(file).then((blob) => downloadBlob(blob, file.fileName)).catch((error) => { fileOpenLog.error({ error }, 'preview file download failed'); toast(t('chatArea.downloadFailed'), 'error', messageForUser(error)) })
-  const actions = messageActionItems({ isRetracted: !!message?.retracted_at, content: message?.content ?? null, onForward: message && onForward ? () => onForward(message) : undefined, onDownload: download }, t)
+  const download = () => {
+    if (missing) return
+    void previewBytes(file).then((blob) => downloadBlob(blob, file.fileName)).catch((error) => {
+      if (rememberMissing(error)) return
+      fileOpenLog.error({ error }, 'preview file download failed'); toast(t('chatArea.downloadFailed'), 'error', messageForUser(error))
+    })
+  }
+  const actions = messageActionItems({ isRetracted: !!message?.retracted_at, content: message?.content ?? null, onForward: message && onForward ? () => onForward(message) : undefined, onDownload: missing ? undefined : download }, t)
   if (kind === 'image' && !read?.error) return null
-  return <MessageFilePreviewPanel viewerRef={viewerRef} fill={fill} tabbed={tabbed} mobile={mobile} file={file} kind={kind} content={read?.content ?? null} videoUrl={read?.videoUrl} onVideoError={renewVideo} loading={kind !== 'unsupported' && read === null} error={read?.error} onBack={onBack} onClose={onClose} actions={actions} onOpenExternal={kind === 'unsupported' || file.document ? undefined : openExternal} />
+  return <MessageFilePreviewPanel viewerRef={viewerRef} fill={fill} tabbed={tabbed} mobile={mobile} file={file} kind={kind} content={read?.content ?? null} videoUrl={read?.videoUrl} onVideoError={renewVideo} loading={kind !== 'unsupported' && read === null} error={read?.error} onBack={onBack} onClose={onClose} actions={actions} onOpenExternal={missing || kind === 'unsupported' || file.document ? undefined : openExternal} />
 }

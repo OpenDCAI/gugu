@@ -288,6 +288,13 @@
       "when": 1792586255143,
       "tag": "0040_project_kind",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "6",
+      "when": 1792586255144,
+      "tag": "0041_project_archival",
+      "breakpoints": true
     }
   ]
 }

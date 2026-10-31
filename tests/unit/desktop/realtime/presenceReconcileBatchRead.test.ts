@@ -88,7 +88,7 @@ describe('presence 对账:一次批量读,只写不一样的', () => {
     }
   })
 
-  test('removed 收回名册行(cloud-gone);unauthorized 只说一声、留着;公网身份还在铸的行不去问', async () => {
+  test('removed 收回名册行(cloud-removed);unauthorized 只说一声、留着;公网身份还在铸的行不去问', async () => {
     const env = await isolatedGuguEnv('gugu-presence-reconcile-gone-')
     await createTestLocalAgent(env, { name: 'gone', gugu_user_id: 'agent-gone' })
     await createTestLocalAgent(env, { name: 'opaque', gugu_user_id: 'agent-opaque' })
@@ -110,7 +110,7 @@ describe('presence 对账:一次批量读,只写不一样的', () => {
     } finally {
       await host.stop()
     }
-    expect(removed).toEqual([['agent-gone', 'cloud-gone']])
+    expect(removed).toEqual([['agent-gone', 'cloud-removed']])
     expect((await listAgents(env)).map((agent) => agent.gugu_user_id).sort()).toEqual(['agent-minting', 'agent-opaque'])
     expect(asked[0].sort()).toEqual(['agent-gone', 'agent-opaque'])
     expect(warnings.some((message) => message.includes('agent-opaque is unauthorized'))).toBe(true)

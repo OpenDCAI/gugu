@@ -1,8 +1,43 @@
 import { PassThrough } from 'node:stream';
+import { performance } from 'node:perf_hooks';
 import type { SessionNotification } from '@agentclientprotocol/sdk';
 import { AcpTranscriptParser, decodeSessionUpdate, type NormalizedEvent } from '@gugu/session-core/acp';
 import { expect, it, vi } from 'vitest';
 import { connectStdioAcp } from './acp-stdio';
+
+it('yields within one v1 stdout chunk while preserving all updates in order', async () => {
+  const stdin = new PassThrough(), stdout = new PassThrough();
+  const received: string[] = [];
+  let seenByOtherTask: number | undefined;
+  let otherTask: Promise<void> | undefined;
+  stdin.on('data', bytes => {
+    const request = JSON.parse(bytes.toString());
+    if (request.method === 'initialize') stdout.write(JSON.stringify({ jsonrpc: '2.0', id: request.id,
+      result: { protocolVersion: 1, agentCapabilities: {} } }) + '\n');
+    if (request.method === 'session/load') stdout.write(Array.from({ length: 100 }, (_, i) => JSON.stringify({
+      jsonrpc: '2.0', method: 'session/update', params: { sessionId: 's',
+        update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: `part-${i}` } } },
+    })).join('\n') + '\n' + JSON.stringify({ jsonrpc: '2.0', id: request.id, result: {} }) + '\n');
+  });
+  const api = connectStdioAcp({ stdin, stdout }, () => ({
+    sessionEvent: ({ event }) => {
+      if (event.kind !== 'message') return;
+      received.push(event.text);
+      if (received.length === 1) otherTask = new Promise(resolve => setImmediate(() => { seenByOtherTask = received.length; resolve(); }));
+    },
+    requestPermission: async () => ({ outcome: { outcome: 'cancelled' } }),
+  }));
+  await api.initialize({ protocolVersion: 1 });
+  let elapsed = performance.now();
+  const clock = vi.spyOn(performance, 'now').mockImplementation(() => elapsed += 10);
+  try {
+    await api.loadSession!({ sessionId: 's', cwd: '/w', mcpServers: [] });
+    expect(received).toHaveLength(100); // The load reply cannot overtake the replay it finishes.
+    await otherTask;
+    expect(seenByOtherTask).toBeLessThan(100);
+    expect(received).toEqual(Array.from({ length: 100 }, (_, i) => `part-${i}`));
+  } finally { clock.mockRestore(); stdout.end(); stdin.end(); }
+});
 
 it('keeps a tool and its negotiated async-task announcement in the same stdout chunk in wire order', async () => {
   const stdin = new PassThrough(), stdout = new PassThrough();

@@ -46,7 +46,11 @@ export interface FileRevision {
   /** Actual workspace metadata kept at publication in the existing local revision index. */
   workspace?: { path: string; parent_id: string | null; created_at: string | null; updated_at: string | null; created_by: string | null; source_message_ids: string[] }
 }
-export type FileMetadata = { status: 'ready'; revision: FileRevision } | { status: 'gone' | 'expired'; sha256: string | null }
+export type FileMetadata = { status: 'ready'; revision: FileRevision } | { status: 'gone' | 'expired' | 'missing'; sha256: string | null }
+/** The authenticated server explicitly identified a physically missing object. */
+export class MissingFileObjectError extends Error {
+  constructor() { super('missing') }
+}
 export interface FileBytes {
   /** An authorized immutable snapshot with exact length; stored digests are verified when present. */
   readonly size: number

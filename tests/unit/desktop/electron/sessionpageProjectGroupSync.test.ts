@@ -1,3 +1,4 @@
+import { archiveAgentRecord, agentsForOwner } from '@gugu/core/local/state/agentOwner'
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -12,6 +13,7 @@ const SUT = '../../../../apps/desktop/electron/sessionpage/emdash-agent-provisio
 const REAPER = '../../../../apps/desktop/electron/sessionpage/sessionpage-agent-reaper'
 const IMPLICIT_PROJECT = '00000000-0000-4000-8000-000000000001'
 interface RosterRec {
+  status?: string
   id: string
   name: string
   agent_type: string
@@ -23,7 +25,6 @@ const groups: Array<{ chatId: string; name: string; members: string[]; status?: 
 const chatUpdates: Array<{ table: string; patch: Record<string, unknown>; id: string }> = []
 const rpcCalls: Array<{ name: string; args: Record<string, unknown> }> = []
 const dms: Array<{ target: string; chatId: string }> = []
-const removedIdentities: string[] = []
 interface Tombstone { gugu_user_id: string; name: string; reaped_at: string; conversation_id?: string }
 const tombstones: Tombstone[] = []
 const removedRuntimeSessions: string[] = []
@@ -50,9 +51,15 @@ vi.mock('@gugu/core', () => ({
     const rec = roster.find((r) => r.gugu_user_id === selector.guguUserId)
     if (!rec) throw new Error(`updateAgent: no roster record for ${JSON.stringify(selector)}`)
     if (patch.cache) rec.cache = patch.cache as Record<string, unknown>
+    if (typeof patch.status === 'string') rec.status = patch.status
     return { ...rec }
   }),
   writeAgentRuntimeSession: vi.fn(async () => undefined),
+  archiveAgents: vi.fn(async (match: (rec: RosterRec) => boolean) => {
+    const archived = roster.filter((rec) => rec.status !== 'archived' && match(rec))
+    archived.forEach(archiveAgentRecord)
+    return archived
+  }),
   removeAgents: vi.fn(async (match: (rec: RosterRec) => boolean) => {
     const removed = roster.filter(match)
     for (const rec of removed) roster.splice(roster.indexOf(rec), 1)
@@ -67,12 +74,6 @@ vi.mock('@gugu/core', () => ({
 vi.mock('@gugu/core/cloud/config', () => ({
   getSupabaseUrl: () => 'http://127.0.0.1:55321',
   getSupabaseAnonKey: () => 'anon-public-not-a-secret',
-}))
-vi.mock('@gugu/core/cloud/agentIdentityRemoval', () => ({
-  removeAgentCloudIdentityViaSupabase: vi.fn(async ({ agentUserId }: { agentUserId: string }) => {
-    removedIdentities.push(agentUserId)
-    return { removed: true }
-  }),
 }))
 /** 模拟「owner 早先自己开过一条私聊」——@@@no-auto-dm 之后这是私聊唯一的来源。 */
 function seedExistingDm(target: string): string {
@@ -279,7 +280,6 @@ beforeEach(async () => {
   chatUpdates.length = 0
   rpcCalls.length = 0
   dms.length = 0
-  removedIdentities.length = 0
   tombstones.length = 0
   removedRuntimeSessions.length = 0
   registered.length = 0
@@ -592,6 +592,14 @@ describe('spec ⑨ 创建侧:项目=群 / 无项目=私聊 / 序号命名', () =
       sessionpage_group_chat_id: '',
     })
   })
+  it('boot registration excludes archived rows using the shared roster view', async () => {
+    const { provisionSessionpageAgentForSession, registerExistingSessionpageAgents } = await import(SUT)
+    await provisionSessionpageAgentForSession({ sessionId: 'archived-boot', providerId: 'codex', surface: 'tui', cwd: '/w/a', projectId: '' }, deps)
+    archiveAgentRecord(roster[0])
+    expect(await registerExistingSessionpageAgents({ GUGU_HOME: home }, { ownerUserId: 'owner-1' })).toBe(0)
+    expect(roster[0].cache?.emdash_session_id).toBe('archived-boot')
+  })
+
   it('boot registration consumes the persisted OpenCode ACP claimant surface', async () => {
     const { registerExistingSessionpageAgents } = await import(SUT)
     roster.push(
@@ -948,7 +956,7 @@ describe('spec ⑨ 删除侧:删除必同步,且只摘该摘的', () => {
     getInventory: async () => inventory,
     env: { GUGU_HOME: home } as NodeJS.ProcessEnv,
   })
-  it('回收器收掉的会话再 session start ⇒ 照常开户(碑不钉会话)', async () => {
+  it('orphan archival retains the identity for a later task Restore', async () => {
     const { provisionSessionpageAgentForSession } = await import(SUT)
     const { reconcileSessionpageAgents } = await import(REAPER)
     await provisionSessionpageAgentForSession(
@@ -957,12 +965,12 @@ describe('spec ⑨ 删除侧:删除必同步,且只摘该摘的', () => {
       { sessionId: 'conv-archived', providerId: 'codex', surface: 'tui', cwd: '/w/a', projectId: '' }, deps)
     const res = await reconcileSessionpageAgents(reapDeps({ sessionIds: ['conv-keep'], projectIds: [] }))
     expect(res.reapedAgents).toBe(1)
-    expect(tombstones.map((t) => t.gugu_user_id)).toEqual([gone!.guguAgentUserId])
-    expect(tombstones[0]!.conversation_id, '回收器立的碑不钉会话').toBeUndefined()
+    expect(tombstones).toEqual([])
+    expect(roster.find(row => row.gugu_user_id === gone!.guguAgentUserId)?.status).toBe('archived')
     const again = await provisionSessionpageAgentForSession(
       { sessionId: 'conv-archived', providerId: 'codex', surface: 'tui', cwd: '/w/a', projectId: '' }, deps)
     expect(again?.guguAgentUserId, '取消归档后再驱动 ⇒ 重新开户').toBeTruthy()
-    expect(again!.guguAgentUserId).not.toBe(gone!.guguAgentUserId)
+    expect(again!.guguAgentUserId).toBe(gone!.guguAgentUserId)
   })
   it('别家账号的行:会话没了也不动,留给主人;主人登录后再收', async () => {
     const { provisionSessionpageAgentForSession } = await import(SUT)
@@ -975,13 +983,14 @@ describe('spec ⑨ 删除侧:删除必同步,且只摘该摘的', () => {
     const inventory = { sessionIds: ['conv-a'], projectIds: [] }
     const asAReap = await reconcileSessionpageAgents(reapDeps(inventory))
     expect(asAReap.reapedAgents, 'A 不收 B 的').toBe(0)
-    expect(removedIdentities).toEqual([])
+    expect(rpcCalls.filter(call => call.name === 'remove_owned_agent' || call.name === 'cleanup_removed_group_agent')).toEqual([])
     expect(roster.map((r) => r.gugu_user_id).sort(), 'B 的行留在名册里')
       .toEqual([a!.guguAgentUserId, b!.guguAgentUserId].sort())
     const asBReap = await reconcileSessionpageAgents({ ...reapDeps(inventory), getAuth: asB.getAuth })
     expect(asBReap.reapedAgents).toBe(1)
-    expect(removedIdentities).toEqual([b!.guguAgentUserId])
-    expect(roster.map((r) => r.gugu_user_id)).toEqual([a!.guguAgentUserId])
+    expect(rpcCalls.filter(call => call.name === 'remove_owned_agent' || call.name === 'cleanup_removed_group_agent')).toEqual([])
+    expect(agentsForOwner(roster, null).map((r) => r.gugu_user_id)).toEqual([a!.guguAgentUserId])
+    expect(roster).toHaveLength(2)
   })
   it('会话没了(归档/删除)→ 摘掉它的 agent;其它 agent 不受牵连', async () => {
     const { provisionSessionpageAgentForSession } = await import(SUT)
@@ -1002,38 +1011,35 @@ describe('spec ⑨ 删除侧:删除必同步,且只摘该摘的', () => {
       reapDeps({ sessionIds: ['conv-b'], projectIds: ['proj-alpha'] }),
     )
     expect(res.reapedAgents).toBe(1)
-    expect(removedIdentities, '只销毁了 conv-a 的身份').toEqual([a!.guguAgentUserId])
-    expect(roster.map((r) => r.gugu_user_id), '本地名册只剩 conv-b 的').toEqual([b!.guguAgentUserId])
+    expect(rpcCalls.filter(call => call.name === 'remove_owned_agent' || call.name === 'cleanup_removed_group_agent')).toEqual([])
+    expect(agentsForOwner(roster, null).map((r) => r.gugu_user_id)).toEqual([b!.guguAgentUserId])
+    expect(roster).toHaveLength(2)
     expect(res.archivedGroups, '项目还在 → 群不动').toBe(0)
-    expect(localSessionDeliveryTarget.liveSessionIdByAgent(a!.guguAgentUserId), '真实 identity 删除后才释放 blocker').toBeNull()
+    expect(localSessionDeliveryTarget.liveSessionIdByAgent(a!.guguAgentUserId)).toBeNull()
   })
-  it('identity 未在本机删除时保留 offline blocker,不会落到 inner.deliver', async () => {
+  it('reuses an active binding without resetting its status; restoring archive alone resets it to idle', async () => {
+    const { provisionSessionpageAgentForSession } = await import(SUT)
+    const input = { sessionId: 'conv-status', providerId: 'codex', surface: 'tui' as const, cwd: '/w/a', projectId: 'proj-alpha' }
+    const first = await provisionSessionpageAgentForSession(input, deps)
+    await settleCloud()
+    roster[0].status = 'working'
+    expect((await provisionSessionpageAgentForSession(input, deps))?.guguAgentUserId).toBe(first?.guguAgentUserId)
+    expect(roster[0].status).toBe('working')
+    roster[0].status = 'archived'
+    expect((await provisionSessionpageAgentForSession(input, deps))?.guguAgentUserId).toBe(first?.guguAgentUserId)
+    expect(roster[0].status).toBe('idle')
+  })
+  it('never attempts identity or membership removal when the task is missing', async () => {
     const { provisionSessionpageAgentForSession } = await import(SUT)
     const { reconcileSessionpageAgents } = await import(REAPER)
-    const {
-      localSessionDeliveryTarget,
-      registerOfflineLocalSessionDelivery,
-      unregisterLocalSessionDelivery,
-    } = await import('../../../../apps/desktop/electron/sessionpage/local-session-delivery')
-    const removal = await import('@gugu/core/cloud/agentIdentityRemoval')
-    const a = await provisionSessionpageAgentForSession(
-      { sessionId: 'conv-not-homed', providerId: 'codex', surface: 'tui', cwd: '/w/a', projectId: '' }, deps)
-    registerOfflineLocalSessionDelivery(a!.guguAgentUserId, {
-      sessionId: 'conv-not-homed',
-      providerId: 'codex',
-    })
-    vi.mocked(removal.removeAgentCloudIdentityViaSupabase).mockResolvedValueOnce({
-      removed: false,
-      reason: 'not-homed',
-      message: 'owned by another device',
-    })
-    await reconcileSessionpageAgents(reapDeps({ sessionIds: [], projectIds: [] }))
-    expect(localSessionDeliveryTarget.liveSessionIdByAgent(a!.guguAgentUserId)).toBe('conv-not-homed')
-    await expect(localSessionDeliveryTarget.tryInjectSessionMessage?.('conv-not-homed', {
-      id: 'not-homed-message',
-      text: 'must stay pending',
-    })).resolves.toBe(false)
-    unregisterLocalSessionDelivery('conv-not-homed')
+    await provisionSessionpageAgentForSession({ sessionId: 'missing', providerId: 'codex', surface: 'tui', cwd: '/w/a', projectId: 'proj-alpha' }, deps)
+    const members = [...groups[0].members]
+    await reconcileSessionpageAgents(reapDeps({ sessionIds: ['missing'], projectIds: ['proj-alpha'] }))
+    await reconcileSessionpageAgents(reapDeps({ sessionIds: [], projectIds: ['proj-alpha'] }))
+    expect(rpcCalls.filter(call => call.name === 'remove_owned_agent' || call.name === 'cleanup_removed_group_agent')).toEqual([])
+    expect(groups[0].members).toEqual(members)
+    expect(roster[0].status).toBe('archived')
+    expect(tombstones).toEqual([])
   })
   it('项目没了 → 归档镜像它的群,并摘掉它产生的 agent', async () => {
     const { provisionSessionpageAgentForSession } = await import(SUT)
@@ -1041,12 +1047,14 @@ describe('spec ⑨ 删除侧:删除必同步,且只摘该摘的', () => {
     await provisionSessionpageAgentForSession(
       { sessionId: 'conv-a', providerId: 'codex', surface: 'tui', cwd: '/w/a', projectId: 'proj-alpha' }, deps)
     const groupId = groups[0].chatId
+    await reconcileSessionpageAgents(reapDeps({ sessionIds: ['conv-a'], projectIds: ['proj-alpha'] }))
     const res = await reconcileSessionpageAgents(reapDeps({ sessionIds: [], projectIds: [] }))
     expect(res.reapedAgents).toBe(1)
     expect(res.archivedGroups).toBe(1)
     expect(chatUpdates, '群被置为 archived(咕咕没有群硬删能力)').toEqual(
       expect.arrayContaining([{ table: 'chats', patch: { status: 'archived' }, id: groupId }]))
-    expect(roster, '本地名册清空').toHaveLength(0)
+    expect(agentsForOwner(roster, null)).toHaveLength(0)
+    expect(roster).toHaveLength(1)
   })
   it('什么都没少 → 一个都不摘(不会误删)', async () => {
     const { provisionSessionpageAgentForSession } = await import(SUT)
@@ -1055,7 +1063,7 @@ describe('spec ⑨ 删除侧:删除必同步,且只摘该摘的', () => {
       { sessionId: 'conv-a', providerId: 'codex', surface: 'tui', cwd: '/w/a', projectId: 'proj-alpha' }, deps)
     const res = await reconcileSessionpageAgents(reapDeps({ sessionIds: ['conv-a'], projectIds: ['proj-alpha'] }))
     expect(res).toEqual({ reapedAgents: 0, archivedGroups: 0 })
-    expect(removedIdentities).toEqual([])
+    expect(rpcCalls.filter(call => call.name === 'remove_owned_agent' || call.name === 'cleanup_removed_group_agent')).toEqual([])
     expect(roster).toHaveLength(1)
   })
   it('云端家在本机、本安装名册里没有的 agent ⇒ 不删(重装 / 同机另一个数据目录 / agents.json 为 {} 都长这样)', async () => {
@@ -1066,23 +1074,22 @@ describe('spec ⑨ 删除侧:删除必同步,且只摘该摘的', () => {
       const res = await reconcileSessionpageAgents(reapDeps(inventory))
       expect(res).toEqual({ reapedAgents: 0, archivedGroups: 0 })
     }
-    expect(removedIdentities).toEqual([])
+    expect(rpcCalls.filter(call => call.name === 'remove_owned_agent' || call.name === 'cleanup_removed_group_agent')).toEqual([])
     expect(rpcCalls.map((call) => call.name)).not.toContain('remove_owned_agent')
   })
-  it('会话被点名已删 → 当场摘掉它的 agent,不必等行真的消失', async () => {
+  it('清单中缺失的任务归档名册,仍在的任务保持活动', async () => {
     const { provisionSessionpageAgentForSession } = await import(SUT)
     const { reconcileSessionpageAgents } = await import(REAPER)
-    const a = await provisionSessionpageAgentForSession(
+    await provisionSessionpageAgentForSession(
       { sessionId: 'conv-a', providerId: 'codex', surface: 'tui', cwd: '/w/a', projectId: 'proj-alpha' }, deps)
     await provisionSessionpageAgentForSession(
       { sessionId: 'conv-b', providerId: 'codex', surface: 'tui', cwd: '/w/b', projectId: 'proj-alpha' }, deps)
     const res = await reconcileSessionpageAgents({
-      ...reapDeps({ sessionIds: ['conv-a', 'conv-b'], projectIds: ['proj-alpha'] }),
-      deadSessionIds: ['conv-a'],
+      ...reapDeps({ sessionIds: ['conv-b'], projectIds: ['proj-alpha'] }),
     })
-    expect(res.reapedAgents, '被点名的那个当场摘掉').toBe(1)
-    expect(removedIdentities).toEqual([a!.guguAgentUserId])
-    expect(roster.map((r) => r.name), '同项目里活着的 agent 不受牵连').toEqual(['Codex 2'])
+    expect(res.reapedAgents, '缺失任务只归档它自己的名册').toBe(1)
+    expect(rpcCalls.filter(call => call.name === 'remove_owned_agent' || call.name === 'cleanup_removed_group_agent')).toEqual([])
+    expect(agentsForOwner(roster, null).map((r) => r.name), '同项目里活着的 agent 不受牵连').toEqual(['Codex 2'])
   })
   it('detach 不点名任何会话 → 一个都不摘(会话还活着)', async () => {
     const { provisionSessionpageAgentForSession } = await import(SUT)
@@ -1091,7 +1098,6 @@ describe('spec ⑨ 删除侧:删除必同步,且只摘该摘的', () => {
       { sessionId: 'conv-a', providerId: 'codex', surface: 'tui', cwd: '/w/a', projectId: 'proj-alpha' }, deps)
     const res = await reconcileSessionpageAgents({
       ...reapDeps({ sessionIds: ['conv-a'], projectIds: ['proj-alpha'] }),
-      deadSessionIds: undefined,
     })
     expect(res).toEqual({ reapedAgents: 0, archivedGroups: 0 })
     expect(roster).toHaveLength(1)
@@ -1102,9 +1108,11 @@ describe('spec ⑨ 删除侧:删除必同步,且只摘该摘的', () => {
     await provisionSessionpageAgentForSession(
       { sessionId: 'conv-a', providerId: 'codex', surface: 'tui', cwd: '/w/a', projectId: 'proj-alpha' }, deps)
     const firstGroupId = groups[0].chatId
+    await reconcileSessionpageAgents(reapDeps({ sessionIds: ['conv-a'], projectIds: ['proj-alpha'] }))
     const res = await reconcileSessionpageAgents(reapDeps({ sessionIds: [], projectIds: ['proj-alpha'] }))
     expect(res.reapedAgents).toBe(1)
-    expect(roster, '该项目已经没有任何 agent 记录了').toHaveLength(0)
+    expect(agentsForOwner(roster, null)).toHaveLength(0)
+    expect(roster).toHaveLength(1)
     await provisionSessionpageAgentForSession(
       { sessionId: 'conv-c', providerId: 'codex', surface: 'tui', cwd: '/w/c', projectId: 'proj-alpha' }, deps)
     expect(groups[0].chatId, '回到原来那个群').toBe(firstGroupId)
@@ -1113,16 +1121,24 @@ describe('spec ⑨ 删除侧:删除必同步,且只摘该摘的', () => {
   it('项目没了(群已归档)→ 忘掉映射,同 id 项目再出现时不复用归档群', async () => {
     const { provisionSessionpageAgentForSession } = await import(SUT)
     const { reconcileSessionpageAgents } = await import(REAPER)
+    const { readProjectGroupId } = await import('../../../../apps/desktop/electron/sessionpage/sessionpage-project-groups')
     await provisionSessionpageAgentForSession(
       { sessionId: 'conv-a', providerId: 'codex', surface: 'tui', cwd: '/w/a', projectId: 'proj-alpha' }, deps)
     const firstGroupId = groups[0].chatId
+    await reconcileSessionpageAgents(reapDeps({ sessionIds: ['conv-a'], projectIds: ['proj-alpha'] }))
     const res = await reconcileSessionpageAgents(reapDeps({ sessionIds: [], projectIds: [] }))
     expect(res.archivedGroups).toBe(1)
+    expect(roster).toHaveLength(1)
+    expect(roster[0].status).toBe('archived')
+    const archivedAgentId = roster[0].gugu_user_id
+    expect(await readProjectGroupId('proj-alpha', 'owner-1', deps.env)).toBeNull()
     groups.length = 0 // 归档的群不再算「可复用的活群」(替身的 groupExists 按这个数组回答)
     await provisionSessionpageAgentForSession(
       { sessionId: 'conv-d', providerId: 'codex', surface: 'tui', cwd: '/w/d', projectId: 'proj-alpha' }, deps)
     expect(groups[0].chatId, '建了新群,不复用归档的那个').not.toBe(firstGroupId)
     expect(groups).toHaveLength(1)
+    expect(await readProjectGroupId('proj-alpha', 'owner-1', deps.env)).toBe(groups[0].chatId)
+    expect(roster.find((agent) => agent.gugu_user_id === archivedAgentId)?.status).toBe('archived')
   })
   it('清单不自洽(有会话却零项目)→ 拒绝归档任何群,只按会话摘 agent', async () => {
     const { provisionSessionpageAgentForSession } = await import(SUT)
@@ -1277,10 +1293,11 @@ describe('#4526 A:owner 删除 ⇒ 释放本机足迹 + 墓碑挡住重新开户
       identityRemoved: false,
       env: { GUGU_HOME: home } as NodeJS.ProcessEnv,
     })
-    expect(roster, '本机记录照摘').toHaveLength(0)
+    expect(roster).toHaveLength(1)
+    expect(roster[0].status).toBe('archived')
     expect(tombstones, 'not-homed 不是删除:身份还活着,不能立「永久不可达」的碑').toHaveLength(0)
     const again = await provisionOne('conv-nothome')
-    expect(again?.guguAgentUserId, '没立碑 ⇒ 这条会话照常重新绑定').toBeTruthy()
+    expect(again?.guguAgentUserId).toBe(provisioned.guguAgentUserId)
   })
 })
 
@@ -1348,10 +1365,9 @@ describe('#7341 项目群跨设备:预留的群 id、别的机器还在用的群
       { sessionId: 'conv-a', providerId: 'codex', surface: 'tui', cwd: '/w/a', projectId: 'proj-alpha' }, deps)
     const groupId = groups[0]!.chatId
     const checker = vi.fn(async () => ['agent-on-the-other-machine'])
-    // 点名那条会话已删:agent 的回收不依赖「本进程读出过非空清单」那条模块级事实(#3969),这条用例单独跑也成立。
+    await reconcileSessionpageAgents(reapDeps({ sessionIds: ['conv-a'], projectIds: ['proj-alpha'] }))
     const res = await reconcileSessionpageAgents({
       ...reapDeps({ sessionIds: [], projectIds: [] }),
-      deadSessionIds: ['conv-a'],
       listGroupAgentsElsewhere: checker,
     })
     expect(checker).toHaveBeenCalledWith({ chatId: groupId, deviceId: 'device-1', accessToken: 'token', ownerUserId: 'owner-1' })
@@ -1367,6 +1383,7 @@ describe('#7341 项目群跨设备:预留的群 id、别的机器还在用的群
     await provisionSessionpageAgentForSession(
       { sessionId: 'conv-a', providerId: 'codex', surface: 'tui', cwd: '/w/a', projectId: 'proj-alpha' }, deps)
     const groupId = groups[0]!.chatId
+    await reconcileSessionpageAgents(reapDeps({ sessionIds: ['conv-a'], projectIds: ['proj-alpha'] }))
     const res = await reconcileSessionpageAgents({
       ...reapDeps({ sessionIds: [], projectIds: [] }),
       listGroupAgentsElsewhere: async () => [],
@@ -1382,14 +1399,15 @@ describe('#7341 项目群跨设备:预留的群 id、别的机器还在用的群
     await provisionSessionpageAgentForSession(
       { sessionId: 'conv-a', providerId: 'codex', surface: 'tui', cwd: '/w/a', projectId: 'proj-alpha' }, deps)
     const groupId = groups[0]!.chatId
+    await reconcileSessionpageAgents(reapDeps({ sessionIds: ['conv-a'], projectIds: ['proj-alpha'] }))
     await expect(reconcileSessionpageAgents({
       ...reapDeps({ sessionIds: [], projectIds: [] }),
-      deadSessionIds: ['conv-a'],
       listGroupAgentsElsewhere: async () => { throw new Error('network down') },
     })).rejects.toThrow(/check other machines before archiving: network down/)
     expect(archived()).toEqual([])
     expect(await listProjectGroupIds('owner-1', env()), '映射留着,下次触发再判').toEqual([{ projectId: 'proj-alpha', chatId: groupId }])
-    expect(roster, '回收其余部分照常做完(完整但响亮)').toHaveLength(0)
+    expect(roster, '保留归档名册以便恢复').toHaveLength(1)
+    expect(roster[0].status).toBe('archived')
   })
 
   it('本机设备还没解析出来 ⇒ 判不了别的机器,这一轮不归档', async () => {
@@ -1496,13 +1514,13 @@ describe('#3969 新进程第一次归档唯一的任务', () => {
     await settleCloud()
     expect(restored?.guguAgentUserId).toBe(original?.guguAgentUserId)
     expect(roster[0].name).toBe(name); expect(roster).toHaveLength(1)
-    expect(groups[0].members).toEqual(members); expect(removedIdentities).toEqual([])
+    expect(groups[0].members).toEqual(members); expect(rpcCalls.filter(call => call.name === 'remove_owned_agent' || call.name === 'cleanup_removed_group_agent')).toEqual([])
     const fresh = await provision.provisionSessionpageAgentForSession({ ...input, sessionId: 'conv-new', cwd: '/w/new' }, deps)
     await settleCloud()
     expect(fresh?.guguAgentUserId).not.toBe(original?.guguAgentUserId)
     expect(roster).toHaveLength(2); expect(groups[0].members).toHaveLength(members.length + 1)
   })
-  it('没点名的空清单不按缺席摘;被点名的死任务照样摘', async () => {
+  it('首次空清单不猜缺席;读出过非空清单后才能归档缺失任务', async () => {
     vi.resetModules()
     const { provisionSessionpageAgentForSession } = await import(SUT)
     const { reconcileSessionpageAgents } = await import(REAPER)
@@ -1517,9 +1535,12 @@ describe('#3969 新进程第一次归档唯一的任务', () => {
     const unnamed = await reconcileSessionpageAgents(emptyInventory)
     expect(unnamed.reapedAgents, '空清单不是删除的证据').toBe(0)
     expect(roster).toHaveLength(1)
-    const named = await reconcileSessionpageAgents({ ...emptyInventory, deadSessionIds: ['conv-only'] })
-    expect(named.reapedAgents, '点名是阳性读数,不靠清单').toBe(1)
-    expect(removedIdentities).toEqual([only!.guguAgentUserId])
-    expect(roster).toHaveLength(0)
+    await reconcileSessionpageAgents({ ...emptyInventory, getInventory: async () => ({ sessionIds: ['conv-only'], projectIds: ['proj-alpha'] }) })
+    const missing = await reconcileSessionpageAgents(emptyInventory)
+    expect(missing.reapedAgents).toBe(1)
+    expect(rpcCalls.filter(call => call.name === 'remove_owned_agent' || call.name === 'cleanup_removed_group_agent')).toEqual([])
+    expect(roster).toHaveLength(1)
+    expect(roster[0].gugu_user_id).toBe(only!.guguAgentUserId)
+    expect(roster[0].status).toBe('archived')
   })
 })

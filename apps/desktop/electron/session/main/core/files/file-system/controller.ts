@@ -14,7 +14,7 @@ import {
   resolveWorkspacePath,
 } from './workspace-file-policy';
 import { dirnameMachinePath, isAbsoluteMachinePath, joinMachinePath } from '../path-utils';
-import { createDocumentPreview, createPreview, createRemotePreview, releasePreview, setPreviewDocument } from '../preview-protocol';
+import { createDocumentPreview, createPreview, createRemotePreview, previewAssetsChanged, releasePreview, setPreviewDocument } from '../preview-protocol';
 import {
   createWorkspaceUploads,
   readWorkspaceChunk,
@@ -146,6 +146,9 @@ export const workspaceFileSystemController = createRPCController({
     setPreviewDocument(previewId, documentHtml);
     return ok({ success: true as const });
   },
+
+  previewAssetsChanged: async (previewId: string, changedPaths?: string[]) =>
+    ok(await previewAssetsChanged(previewId, changedPaths)),
 
   /** tab 关掉就撤登记 —— 留着等于那份文件一直可被取。 */
   releasePreview: async (previewId: string) => {

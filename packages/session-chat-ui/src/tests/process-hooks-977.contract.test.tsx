@@ -110,7 +110,8 @@ describe('conversation hooks remain semantic process steps', () => {
     const heads = [...v.host.querySelectorAll<HTMLElement>('[data-conversation-part="head"]')];
     expect(heads).toHaveLength(2);
     expect(heads[0].textContent).toContain('Fixture agent');
-    expect(heads[1].textContent).toContain('Fixture agent');
+    expect(heads[1].textContent).not.toContain('Fixture agent');
+    expect(heads[1].querySelector('[data-conversation-process]')).not.toBeNull();
     v.state.viewState.setCollapsed('hooks:process@stop-hook', true);
     await until('the hook summary appears', () => v.host.textContent?.includes('triggered 1 hook') === true);
     expect(v.host.textContent).not.toContain('Stop says:');
@@ -181,7 +182,7 @@ describe('conversation hooks remain semantic process steps', () => {
     expect(v.host.textContent).not.toContain('Bash');
   });
 
-  it('retains a name and factual process header for a reply after sends to another destination', async () => {
+  it('omits the repeated name and retains a factual process header after sends to another destination', async () => {
     const v = mount([
       { kind: 'mcp-tool-call', id: 'call', seq: 1, toolCallId: 'call', title: 'message_send', status: 'done', server: 'gugu', tool: 'message_send',
         rawInput: JSON.stringify({ chat_id: 'other', text: 'Sent elsewhere.' }),
@@ -193,7 +194,7 @@ describe('conversation hooks remain semantic process steps', () => {
     const body = left.findIndex(el => el.dataset.agentConversationMessage === 'reply');
     expect(body).toBeGreaterThan(0);
     expect(left[body - 1].dataset.conversationPart).toBe('head');
-    expect(left[body - 1].textContent).toContain('Fixture agent');
+    expect(left[body - 1].textContent).not.toContain('Fixture agent');
     expect(left[body - 1].querySelector('[data-conversation-process]')).not.toBeNull();
   });
 });

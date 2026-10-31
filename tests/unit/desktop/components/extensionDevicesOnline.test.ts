@@ -10,7 +10,7 @@ const { devicesOnlineChanged, state } = vi.hoisted(() => ({
   devicesOnlineChanged: vi.fn(async () => ({ success: true })),
   state: { devices: [] as { device_id: string; status: string; last_seen_at?: string }[] },
 }))
-vi.mock('@/session/renderer/lib/ipc', () => ({ rpc: { extensions: { devicesOnlineChanged, groupWorkspaceChanged: vi.fn(), chatMembersChanged: vi.fn() } } }))
+vi.mock('@/session/renderer/lib/ipc', () => ({ rpc: { extensions: { devicesOnlineChanged, groupWorkspaceChanged: vi.fn(), chatMembersChanged: vi.fn() } }, events: { on: () => () => undefined } }))
 vi.mock('@/platform', () => ({ platform: { kind: 'electron', capabilities: { agentRuntime: true } } }))
 vi.mock('@/store/chatContext', () => ({ useChatStore: () => ({ subscribeAccountRevision: () => () => undefined }) }))
 vi.mock('@/store/devicesContext', () => ({ useDevicesStore: () => ({ devices: state.devices }) }))

@@ -11,8 +11,7 @@ import { SessionInputQueue } from '@/components/chat/SessionInputQueue';
 import { NeedsYouSlot } from '@/components/needsYou/NeedsYouSlot';
 import { takeComposerCarry, useComposerVerb } from '@/lib/composerVerbBridge';
 import { useSessionMessageQuotes } from './use-session-message-quotes';
-import { useSessionQuoteComposer } from './use-session-quote-composer';
-import { consumeSessionQuote, getSessionQuote, quotedSessionPrompt } from './session-quote-draft';
+import { useSessionPromptEditor } from './use-session-prompt-editor';
 import { continueSessionTurn } from './continue-session-turn';
 import { projectGroupsStore } from '@renderer/features/projects/stores/project-groups-store';
 import { SessionComposerVerbs, SessionVerbDock, sessionVerbKey } from '../session-verb-dock';
@@ -476,7 +475,7 @@ const ComposerForStore = observer(function ComposerForStore({
   /** 发送时附件还没传完:在等(发送键禁用、输入框上方一句话);有一件没成:不发,说一句。 */
   const [sendHold, setSendHold] = useState<'waiting' | 'blocked' | null>(null);
   const sendingRef = useRef(false);
-  const quoteComposer = useSessionQuoteComposer(store, editorApiRef);
+  const promptEditor = useSessionPromptEditor(store, editorApiRef);
   const { value: promptLibrary } = usePromptLibrary();
 
   // Autofocus when the slot becomes available — only while the session page is on screen. 宿主把它常驻挂载在
@@ -501,7 +500,6 @@ const ComposerForStore = observer(function ComposerForStore({
     async (value: string, deliver: (text: string, attachments: AcpPromptAttachment[]) => void | Promise<void>) => {
       if (sendingRef.current) return;
       sendingRef.current = true;
-      const quote = getSessionQuote(store);
       try {
         // 没有还在传的就当场发(❌ 每次发送都闪一下「在等」)。
         if (fileUploads.unsettled() || pendingImagesRef.current.size > 0) {
@@ -520,8 +518,7 @@ const ComposerForStore = observer(function ComposerForStore({
         const promptAttachments = imagePromptAttachments(current, imageRefsRef.current);
         const text = composePromptText(value, fileMentionsFor(current, filePathsRef.current));
         if (!text && promptAttachments.length === 0) return;
-        try { await deliver(quotedSessionPrompt(text, quote), promptAttachments); } catch { editorApiRef.current?.setText(value); return; }
-        consumeSessionQuote(store, quote);
+        try { await deliver(text, promptAttachments); } catch { editorApiRef.current?.setText(value); return; }
         setAttachments([]);
         filePathsRef.current.clear();
         imageRefsRef.current.clear();
@@ -1682,7 +1679,6 @@ const ComposerForStore = observer(function ComposerForStore({
       <NeedsYouSlot />
       <SessionInputQueue sessionId={store.runtimeSessionId} waitingForConnection={canQueueNativeInput(store)} />
       <SessionHostQuestion sessionId={store.runtimeSessionId} session={hostSession} />
-      {quoteComposer.preview}
       <ChatComposer
         className={schedules.length > 0 ? sessionComposerFrameLiftClassName : undefined}
         hideLockedAgent
@@ -1708,12 +1704,12 @@ const ComposerForStore = observer(function ComposerForStore({
         queuedPrompts={queuedPrompts}
         // 排队条打印的是原文,而 @ 提及在原文里是它的地址 —— 显示成名字,与输入框里的 pill、
         // 聊天记录里的 pill 一致(点进去编辑仍是原文,那才是真要发出去的东西)。
-        renderQueuedPromptText={quoteComposer.renderQueuedPromptText}
+        renderQueuedPromptText={promptEditor.renderQueuedPromptText}
         onEditQueuedPrompt={(id, text) => { void store.editQueuedPrompt(id, text); }}
-        queuedPromptEdit={quoteComposer.queuedPromptEdit}
+        queuedPromptEdit={promptEditor.queuedPromptEdit}
         onBeginEditQueuedPrompt={(id) => { void store.beginQueuedPromptEdit(id); }}
-        onChangeQueuedPromptEdit={quoteComposer.changeQueuedPromptEdit}
-        onFinishQueuedPromptEdit={quoteComposer.finishQueuedPromptEdit}
+        onChangeQueuedPromptEdit={promptEditor.changeQueuedPromptEdit}
+        onFinishQueuedPromptEdit={promptEditor.finishQueuedPromptEdit}
         onDeleteQueuedPrompt={(id) => store.deleteQueuedPrompt(id)}
         onReorderQueuedPrompts={(ids) => store.reorderQueuedPrompts(ids)}
         onSendQueuedPromptNow={handleSendQueuedPromptNow}

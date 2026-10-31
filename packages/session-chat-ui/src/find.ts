@@ -182,6 +182,7 @@ export function createChatFind(deps: {
   let current = -1;
   let range: Range | null = null;
   let frame = 0;
+  let identityFrame = 0;
   let observer: MutationObserver | null = null;
 
   const rowOf = (itemId: string) =>
@@ -202,7 +203,7 @@ export function createChatFind(deps: {
       .filter((p) => p.gates.every(isOpen))
       .reduce((n, p) => n + nonWs(p.text), nonWs((m.entry.parts[m.part] as Part).text.slice(0, m.start)));
 
-  const search = () => {
+  const allUnits = () => {
     const state = deps.state();
     const caches: ChatCaches = { ...deps.context.sharedCaches, ...state.parseCaches };
     // Every row the transcript can show: flattened like the engine does, with all folds open.
@@ -211,7 +212,11 @@ export function createChatFind(deps: {
     const head = flattenTier(committedTurns, ctx(false), SEGMENTERS, UNIT_REGISTRY);
     const dayKey = trailingDayKey(committedTurns, undefined, ctx(false).latestTurnId);
     const tail = live ? flattenTier([live], ctx(true), SEGMENTERS, UNIT_REGISTRY, head.at(-1)?.kind, dayKey) : [];
-    const units = [...head, ...tail];
+    return { units: [...head, ...tail], caches };
+  };
+
+  const search = () => {
+    const { units, caches } = allUnits();
     const needle = query.toLowerCase();
     const found: Match[] = [];
     units.forEach((unit, order) => {
@@ -311,6 +316,25 @@ export function createChatFind(deps: {
 
   return {
     find,
+    /** Identity navigation uses the same fold map as find, without matching private text. */
+    revealItem(itemId: string): boolean {
+      const unit = allUnits().units.find(unit => unit.itemId === itemId);
+      if (!unit) return false;
+      const state = deps.state();
+      batch(() => {
+        for (const gate of unit.folds ?? []) state.viewState.setCollapsed(gate.id, gate.stored);
+        if (unit.kind === 'message' && (unit.data as ChatMessage).conversationNarration) {
+          state.viewState.setCollapsed(`${itemId}:conversation-text`, true);
+        }
+      });
+      scrollTo(itemId, -8);
+      // The process has its own bounded scroll viewport; position its actual row too.
+      cancelAnimationFrame(identityFrame);
+      identityFrame = requestAnimationFrame(() => {
+        if (deps.state() === state) deps.controls.scrollToItem(itemId, { align: 'start', offset: -8 });
+      });
+      return true;
+    },
     step(direction: 'next' | 'prev'): ChatFindStatus {
       const was = matches[current];
       matches = query ? search().found : [];
@@ -322,6 +346,6 @@ export function createChatFind(deps: {
       if (at === -1) return go(n === 0 ? -1 : direction === 'next' ? 0 : n - 1);
       return go((at + (direction === 'next' ? 1 : n - 1)) % n);
     },
-    clear: () => void find(''),
+    clear: () => { cancelAnimationFrame(identityFrame); void find(''); },
   };
 }

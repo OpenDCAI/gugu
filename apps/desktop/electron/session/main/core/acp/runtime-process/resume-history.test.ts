@@ -3,15 +3,17 @@ import { describe, expect, it, vi } from 'vitest';
 import type { AcpRuntimeStartInput } from '@gugu/session-core/acp';
 import { resumeHistoryFacts } from './resume-history';
 
+vi.mock('@main/lib/logger', () => ({ log: { warn: vi.fn() } }));
+
 const input = (patch: Partial<AcpRuntimeStartInput> = {}) => ({
   sessionId: 's1', projectId: 'p', providerId: 'codex', workspaceId: 'w', cwd: '/w',
   providerSessionId: 'thread-1', model: null, ...patch,
 }) as AcpRuntimeStartInput;
 
 describe('resuming without replay (#980)', () => {
-  it('turns replay off for a provider whose record gugu reads, continuing turn numbers after the stored ones', async () => {
+  it.each(['claude', 'codex', 'hermes'])('%s resumes without replay, continuing turn numbers after the stored ones', async (providerId) => {
     const recordedDeliveryIds = vi.fn(async () => ['msg:a']);
-    const facts = await resumeHistoryFacts(input(), {
+    const facts = await resumeHistoryFacts(input({ providerId }), {
       recordedDeliveryIds,
       fillFromRecord: async () => undefined, turnIndexBase: async () => 12,
     });
@@ -48,13 +50,13 @@ describe('resuming without replay (#980)', () => {
     expect(recordedDeliveryIds).toHaveBeenCalledWith('s1');
   });
 
-  it('resumes with replay when the record cannot be read, since replay is then the only way to the history', async () => {
-    const facts = await resumeHistoryFacts(input(), { recordedDeliveryIds: async () => null, fillFromRecord: async () => undefined, turnIndexBase: async () => 0 });
+  it.each(['claude', 'codex', 'hermes'])('%s resumes with replay when the record cannot be read', async (providerId) => {
+    const facts = await resumeHistoryFacts(input({ providerId }), { recordedDeliveryIds: async () => null, fillFromRecord: async () => undefined, turnIndexBase: async () => 0 });
     expect(facts).toEqual({ replayHistory: undefined, recordedDeliveryIds: undefined, turnIndexBase: undefined });
   });
 
-  it('resumes with replay when it cannot tell where turn numbers continue', async () => {
-    const facts = await resumeHistoryFacts(input(), {
+  it.each(['claude', 'codex', 'hermes'])('%s resumes with replay when it cannot tell where turn numbers continue', async (providerId) => {
+    const facts = await resumeHistoryFacts(input({ providerId }), {
       recordedDeliveryIds: async () => [], fillFromRecord: async () => undefined,
       turnIndexBase: async () => { throw new Error('store unreadable'); },
     });

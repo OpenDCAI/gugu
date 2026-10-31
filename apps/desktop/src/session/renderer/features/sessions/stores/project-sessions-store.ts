@@ -16,7 +16,6 @@ import { viewStateCache } from '@renderer/lib/stores/view-state-cache';
 import {
   sessionChangedChannel,
   sessionCreatedChannel,
-  sessionDeletedChannel,
 } from '@shared/core/sessions/sessionEvents';
 import type { Session } from '@shared/core/sessions/sessions';
 import { firstUtteranceOf, initialAgentStatus } from '@shared/core/sessions/initial-agent-status';
@@ -125,7 +124,7 @@ function formatErrorMessage(error: unknown): string {
 
 /**
  * 一个项目里的会话在会话页的那一份(按会话 id 记)。会话出现、消失跟着会话自己的事件走:
- * session:created(新建、派生、分叉、从历史恢复)放进来,session:deleted 与归档拿出去。
+ * session:created(新建、派生、分叉、从历史恢复)放进来,归档拿出去。
  */
 export class ProjectSessionsStore {
   private readonly projectId: string;
@@ -155,10 +154,6 @@ export class ProjectSessionsStore {
     this._offs.push(
       onMachineEvent(machine, sessionCreatedChannel, ({ session }) => {
         this.acceptCreatedSession(session);
-      }),
-      onMachineEvent(machine, sessionDeletedChannel, ({ sessionId, projectId: evtProjectId }) => {
-        if (evtProjectId !== this.projectId) return;
-        this._removeSessionLocally(sessionId);
       }),
       // 归档 = 这条会话离开列表:与删除同形,收起它在会话页的那一份(恢复时 session:created 再放回来)。
       onMachineEvent(machine, sessionChangedChannel, ({ sessionId, projectId: evtProjectId, changes }) => {

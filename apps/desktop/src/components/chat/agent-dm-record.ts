@@ -6,7 +6,6 @@ import type { TranscriptTurn } from '@gugu/session-core/acp/client'
 import type { ChatMessage } from '@gugu/session-chat-ui'
 import { parseAttachmentContent } from '@gugu/core/shared/ui/attachmentModels'
 import { composerCardLine } from '@/lib/composerCardCopy'
-import { visibleReplyQuoteIds } from './replyQuoteVisibility'
 import { isPendingDelivery } from '@gugu/core/shared/ui/systemNotice'
 
 /** Pending delivery status ends only when that agent actually answers on the same line. */
@@ -18,9 +17,8 @@ export function displayedDmMessages(messages: readonly MessageItem[]): MessageIt
 
 /** Adapt authorized IM rows to the project transcript; never synthesize tool execution. */
 export function dmRecord(messages: readonly MessageItem[], names: Readonly<Record<string, { display_name: string }>>): TranscriptTurn[] {
-  const quotes = visibleReplyQuoteIds(messages)
   return displayedDmMessages(messages).map(message => {
-    const replyId = quotes.has(message.id) ? message.reply_to_message_id : null
+    const replyId = message.reply_to_message_id
     const reply = replyId ? {
       itemId: replyId, text: message.reply_to_content ?? '',
       from: names[message.reply_to_sender_user_id ?? '']?.display_name,

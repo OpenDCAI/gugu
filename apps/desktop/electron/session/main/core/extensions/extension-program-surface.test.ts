@@ -171,13 +171,13 @@ describe('an App program as a caller of its App (F16)', () => {
     await release();
   });
 
-  it.each(['session:deleted', 'session:archived'] as const)('closes a task projection from the actual %s lifecycle hook', async event => {
+  it('closes a task projection from the actual archive lifecycle hook', async () => {
     granted.add('agents:tools');
     const child = fakeChild(); const surface = attachProgramSurface('board', child as unknown as ChildProcess);
     surface.hand('ending-call', 'agent-1', [], [], 'task-ending');
     await call(child, 1300, 'projectionCreate', {}, 'ending-call');
     const { sessionEvents } = await import('../sessions/session-events');
-    sessionEvents._emit(event, 'task-ending');
+    sessionEvents._emit('session:archived', 'task-ending');
     await vi.waitFor(() => expect(surface.openFiles()).toBe(0));
     expect(child.sent).toContainEqual(expect.objectContaining({ t: 'event', event: { type: 'projectionSource', event: expect.objectContaining({ type: 'close' }) } }));
     await surface.close();
