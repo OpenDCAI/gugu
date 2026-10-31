@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { PRODUCTION_DB_HOST, serverChannelForDb } from '../../../scripts/build-env-preflight.mts'
+import { PRODUCTION_DB_HOST, serverChannelForDb } from '../../../scripts/build/build-env-preflight.mts'
 
 describe('给别的机器装哪条通道的 server(#6264):跟这次构建连的库走', () => {
   it('连生产库 ⇒ 正式通道', () => {

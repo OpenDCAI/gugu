@@ -2,7 +2,7 @@
 
 咕咕 Android App 打包 ARM64 Node 和 Pi SDK。Android 前台服务拥有 Node 子进程；任务、模型请求、收件箱、设备命令与消息投递不依赖 WebView 的计时器。当前运行时要求 Android 8 或以上。模型推理使用咕咕平台的短效票据。
 
-`pnpm android:build` 与 `pnpm android:build:release` 都会先执行 `build:mobile-agent`。Node 二进制及依赖来自 `android-node.lock.json`，构建只从锁文件里的 `mirror`（以 SHA-256 命名、上传后不再变的 release 附件）下载，并通过 SHA-256 校验——Termux 源只留每个包的最新一版，旧版一被替换就 404。改锁文件后趁上游还在，跑一次 `node scripts/mirror-mobile-node.mjs` 把缺的包补进镜像；Pi 与 npm 依赖由锁文件固定。生成的二进制、资源、已收集的第三方许可证及依赖清单放在 Android assets / jniLibs 中，不入 Git。
+`pnpm android:build` 与 `pnpm android:build:release` 都会先执行 `build:mobile-agent`。Node 二进制及依赖来自 `android-node.lock.json`，构建只从锁文件里的 `mirror`（以 SHA-256 命名、上传后不再变的 release 附件）下载，并通过 SHA-256 校验——Termux 源只留每个包的最新一版，旧版一被替换就 404。改锁文件后趁上游还在，跑一次 `node scripts/build/mirror-mobile-node.mjs` 把缺的包补进镜像；Pi 与 npm 依赖由锁文件固定。生成的二进制、资源、已收集的第三方许可证及依赖清单放在 Android assets / jniLibs 中，不入 Git。
 
 原生库按 Node 的 ELF `DT_NEEDED` 和包内实际别名取传递闭包；缺失依赖、循环别名或 SONAME 不符会中止构建。`native-libraries.json` 保存解析后的边；不打包未被加载链引用的 ICU 工具库和另一份 SQLite。Gradle 保留 `arm64-v8a` / `armeabi-v7a`，嵌入 Node 的架构仍以锁文件为准。
 

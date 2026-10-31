@@ -5,7 +5,7 @@ import { createRequire } from 'node:module'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 
 const require = createRequire(import.meta.url)
-const { packNpmBundledDependencies, packedAppDir } = require('../../../scripts/pack-npm-bundled-deps.cjs') as {
+const { packNpmBundledDependencies, packedAppDir } = require('../../../scripts/build/pack-npm-bundled-deps.cjs') as {
   packNpmBundledDependencies: (opts: { appDir: string; repoRoot: string }) => number
   packedAppDir: (context: unknown) => string
 }

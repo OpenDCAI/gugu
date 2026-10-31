@@ -1,6 +1,6 @@
 /**
  * 示例项目(#709)的全部内容:一次真跑(真 agent、真咕咕)原样固化下来,打包在 app 里,随界面语言换一份;❌ 进库、❌ 调模型、
- * ❌ 手写。人这一边的话是跑的时候人写的,其余都是 agent 那一趟真做出来的。由 scripts/freeze-sample-project.mjs 生成。
+ * ❌ 手写。人这一边的话是跑的时候人写的,其余都是 agent 那一趟真做出来的。由 scripts/dev/freeze-sample-project.mjs 生成。
  */
 export type SampleFile = {
   /** 对话里链接到它用的 id(示例自己的,❌ 是任何真文件)。 */

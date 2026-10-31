@@ -386,7 +386,7 @@
      (0.75rem / 1rem / **1.5rem** / calc(infinity*1px)),而这张表与主 app 那张进的是**同一个
      document**(#2802 拆 shadow root 之后),后注入者全文档赢 ⇒ 「打开一次会话页,全 app 的
      rounded-full 从 50% 翻成 ∞、rounded-3xl 从 16 翻成 24」。三张表由
-     scripts/check-ui-visual-spec.mts 的 radiusScaleParity 逐档钉住。
+     scripts/checks/check-ui-visual-spec.mts 的 radiusScaleParity 逐档钉住。
      原来这三行是 shadcn 的相对公式(--radius ± 2/4px = 8/6/4),那是第三套刻度。 */
   --radius-sm: 6px;
   --radius-md: 8px;

@@ -21,7 +21,7 @@ import {
   resolveBuildEnv,
   selectTargetEnv,
   verifyDistBake,
-} from '../../../scripts/build-env-preflight.mts'
+} from '../../../scripts/build/build-env-preflight.mts'
 
 const tempDirs: string[] = []
 function tempEnvDir(files: Record<string, string>): string {
@@ -52,7 +52,7 @@ function viteLoadEnv(mode: string, dir: string, shellEnv: Record<string, string>
   return JSON.parse(run.stdout)
 }
 
-const script = path.join(repoRoot, 'scripts/build-env-preflight.mts')
+const script = path.join(repoRoot, 'scripts/build/build-env-preflight.mts')
 function runCli(args: string[], cwd: string, shellEnv: Record<string, string>) {
   // 剥掉 VITE_*/GUGU_*：vitest.config.ts 注了假的 Supabase 值，继承进来会污染断言。
   const base = Object.fromEntries(

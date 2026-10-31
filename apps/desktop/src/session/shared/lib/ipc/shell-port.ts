@@ -7,7 +7,7 @@
 // `invoke('sessionpage:…')`——逃出类型系统的正是这几条,网页版把宿主与壳物理拆开后全部无人应答。
 //
 // 规则:通道名只在本文件出现一次;会话页与壳的源码里 ❌ 裸 `invoke('…')` 字面量
-// (scripts/check-session-shell-port.mjs 守着,判语法形状不判清单)。桌面版 main 的 handler 与网页版壳
+// (scripts/checks/check-session-shell-port.mjs 守着,判语法形状不判清单)。桌面版 main 的 handler 与网页版壳
 // 的应答表都引这份常量,漏一条是编译期 / lint 期的事,不是上线后的 `No handler registered`。
 
 export const SESSION_SHELL_CHANNELS = {

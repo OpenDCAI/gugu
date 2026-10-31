@@ -263,11 +263,11 @@ Agent 跑在具体的电脑或服务器上，按任务调用设备能力；通�
 | [OpenDCAI/gugu](https://github.com/OpenDCAI/gugu) | 桌面客户端、Android、无界面服务器与共享 Agent 运行代码 |
 | [OpenDCAI/gugu-supabase](https://github.com/OpenDCAI/gugu-supabase) | 账号、消息、同步、设备通信与权限 |
 
-配置与启动见[社区部署指南](docs/self-hosting.zh-CN.md)，安装与检查见[贡献指南](CONTRIBUTING.zh-CN.md)。
+配置与启动见[社区部署指南](docs/guides/self-hosting.zh-CN.md)，安装与检查见[贡献指南](CONTRIBUTING.zh-CN.md)。
 
 ## 参与贡献
 
-欢迎贡献代码、文档、翻译和 Gugu App：[贡献指南](CONTRIBUTING.zh-CN.md) · [问题与建议](https://github.com/OpenDCAI/gugu/issues) · [App 开发](docs/writing-a-tab-extension.md)。
+欢迎贡献代码、文档、翻译和 Gugu App：[贡献指南](CONTRIBUTING.zh-CN.md) · [问题与建议](https://github.com/OpenDCAI/gugu/issues) · [App 开发](docs/guides/writing-a-tab-extension.md)。
 
 ## 许可
 
