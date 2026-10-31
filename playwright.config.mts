@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs'
 import { defineConfig, devices } from '@playwright/test'
 import { activateDbEnv } from './scripts/build-env-preflight.mts'
 
-// 只剩 PR CI 的 ci-local 一个 project(e2e/ci/local):web 目标的 renderer 打本机 auth fixture
+// 只剩 PR CI 的 ci-local 一个 project(tests/e2e/ci/local):web 目标的 renderer 打本机 auth fixture
 // (LOCAL_FIXTURE_PORT),不碰共享测试库。❌ 不再新增 e2e 用例;验收证据写成单元测试(#6270)。
 activateDbEnv()
 
@@ -43,7 +43,7 @@ const COMMIT = (() => {
 })()
 const TIER = process.env.GUGU_TIER || 'production'
 
-// #6270:只剩 PR CI 真跑的 ci-local 一个 project(e2e/ci/local 三条);其余 project 与它们的 spec 已删。
+// #6270:只剩 PR CI 真跑的 ci-local 一个 project(tests/e2e/ci/local 三条);其余 project 与它们的 spec 已删。
 // CI 仍会导出 GUGU_E2E_CI_PROJECT=local,未设时同样按 local 走。
 const CI_WEB_PROJECT = process.env.GUGU_E2E_CI_PROJECT
 const LOCAL_FIXTURE_PORT = PORT + 1
@@ -93,7 +93,7 @@ if (CI_WEB_PROJECT !== undefined && CI_WEB_PROJECT !== 'local') {
 process.env.CLOCK_SKEW_AUTH_PORT = String(LOCAL_FIXTURE_PORT)
 
 export default defineConfig({
-  testDir: './e2e',
+  testDir: './tests/e2e',
   outputDir: process.env.GUGU_E2E_OUTPUT_DIR ?? 'test-results',
   // Stamped onto the HTML report so every run records the build under test.
   metadata: { appVersion: APP_VERSION, tier: TIER, commit: COMMIT },

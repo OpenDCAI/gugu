@@ -62,9 +62,9 @@ export interface ChangedSpecExecutionResult {
 type RawRunnerCommand = Pick<RunnerCommand, 'runner' | 'args'>
 type ParsedSource = ts.SourceFile & { parseDiagnostics: ts.DiagnosticWithLocation[] }
 
-const TEST_ROOTS = ['e2e', 'tests/integration']
+const TEST_ROOTS = ['tests/e2e', 'tests/integration']
 export const NO_NEW_E2E: string = '❌ 不再新增 e2e 用例;验收证据写成单元测试(必要时把被测逻辑重构成可注入依赖的纯函数)。'
-  + 'e2e/ 只留 PR CI 的 ci-local 真跑的那几条,且不接受豁免(#6270)'
+  + 'tests/e2e/ 只留 PR CI 的 ci-local 真跑的那几条,且不接受豁免(#6270)'
 const SOURCE_EXTENSION = /\.[cm]?[jt]sx?$/
 const DECLARATION_PROPERTIES = new Set(['describe', 'each', 'fixme', 'only', 'skip'])
 // eslint-disable-next-line no-control-regex -- 这条正则的**用途**就是剥 ANSI 转义序列,\x1B 是它的本分
@@ -174,7 +174,7 @@ export function discoverSpecFiles({ root, trackedPaths = listTrackedSources(root
 }
 
 export function isChangedExecutionCandidate(file: string): boolean {
-  return (file.startsWith('e2e/') && file.endsWith('.spec.ts'))
+  return (file.startsWith('tests/e2e/') && file.endsWith('.spec.ts'))
     || file.startsWith('tests/integration/')
 }
 
@@ -783,7 +783,7 @@ function validateWorkflowExecutor(
     const selectedWorkflow = { ...workflow, jobs: { [executor.job]: job } }
     const commands = collectAutomaticRunnerCommands({
       workflows: [{ path: executor.workflow, workflow: selectedWorkflow }],
-      changedPaths: ['e2e/ci/automatic-discovery.spec.ts'],
+      changedPaths: ['tests/e2e/ci/automatic-discovery.spec.ts'],
       packageScripts,
     })
     if (commands.length === 0) {
@@ -862,9 +862,9 @@ export function auditCoverage({
   }
   for (const [spec, reasonId] of Object.entries(exemptions)) {
     const label = `exemption ${spec}`
-    // @@@no-new-e2e (#6270) — e2e/ 只收 PR CI 自动执行的 spec。豁免一条 e2e spec = 又造一条没人再跑的死用例,
+    // @@@no-new-e2e (#6270) — tests/e2e/ 只收 PR CI 自动执行的 spec。豁免一条 e2e spec = 又造一条没人再跑的死用例,
     // 正是 #6270 删掉的那 370 多条的来路 ⇒ e2e 不接受豁免,只有 tests/integration 可以。
-    if (spec.startsWith('e2e/')) {
+    if (spec.startsWith('tests/e2e/')) {
       errors.push(`${label}: ${NO_NEW_E2E}`)
       registerSpec(spec, label)
       continue
@@ -885,7 +885,7 @@ export function auditCoverage({
 
   const discoveredSet = new Set(discovered)
   for (const spec of discovered) {
-    if (!registrations.has(spec) && spec.startsWith('e2e/')) {
+    if (!registrations.has(spec) && spec.startsWith('tests/e2e/')) {
       errors.push(`e2e spec not run by any automatic PR executor: ${spec}; ${NO_NEW_E2E}`)
       continue
     }
@@ -907,7 +907,7 @@ export function auditCoverage({
 function reportChangedSpecExecution(result: ChangedSpecExecutionResult, summaryPath = process.env.GITHUB_STEP_SUMMARY): void {
   const lines = ['## PR spec execution coverage', '']
   if (result.candidates.length === 0) {
-    lines.push('No added or modified `e2e/**/*.spec.ts` or `tests/integration/**` files.')
+    lines.push('No added or modified `tests/e2e/**/*.spec.ts` or `tests/integration/**` files.')
   } else if (result.gaps.length === 0) {
     lines.push(`All ${result.candidates.length} changed spec/integration file(s) are collected by an automatic PR job.`)
   } else {
