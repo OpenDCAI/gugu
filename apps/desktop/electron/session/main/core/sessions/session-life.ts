@@ -171,8 +171,9 @@ export class SessionLife {
   }
 
   interrupt(sessionId: string, event: InterruptEvent): Promise<void> {
+    const entry = this.entry(sessionId);
     this.send(sessionId, event);
-    return this.quiescent(sessionId);
+    return this.drain(entry); // the entry, not the id: a delete removes it from the map before its IO ends
   }
 
   restore(sessionId: string): void { this.send(sessionId, { k: 'restore' }); }
@@ -188,10 +189,13 @@ export class SessionLife {
       version: 0, since: this.ports.now(), run: null, effects: Promise.resolve() });
   }
 
-  async quiescent(sessionId: string): Promise<void> {
+  quiescent(sessionId: string): Promise<void> {
+    const entry = this.entries.get(sessionId);
+    return entry ? this.drain(entry) : Promise.resolve();
+  }
+
+  private async drain(entry: Entry): Promise<void> {
     for (;;) {
-      const entry = this.entries.get(sessionId);
-      if (!entry) return;
       const pending = entry.effects;
       await pending;
       if (entry.effects === pending) return;
@@ -216,14 +220,14 @@ export class SessionLife {
     if (life.kind !== previous.kind || (life.kind === 'starting' && previous.kind === 'starting' && life.progress.at !== previous.progress.at)) {
       entry.since = this.ports.now();
     }
-    if (effects.some(effect => effect.e === 'remove')) {
+    const removed = effects.some(effect => effect.e === 'remove');
+    if (removed) {
       oldRun?.unlisten?.();
       this.ports.store.remove(sessionId);
       this.entries.delete(sessionId);
       this.ports.removed(sessionId);
-      return; // The internal sealed archived result of delete is never a published projection.
-    }
-    if (previous !== life || effects.length) this.publish(sessionId, entry);
+      // The internal sealed archived result of delete is never a published projection; its IO still runs below.
+    } else if (previous !== life || effects.length) this.publish(sessionId, entry);
     const run = entry.run;
     const current = entry.effects.then(async () => {
       for (const effect of effects) {
@@ -297,8 +301,8 @@ export class SessionLife {
         return;
       case 'mark-source-read': this.reconcileRead(sessionId, effect.seq); return;
       case 'report-failure': await this.ports.reportFailure(effect.seqs.map(seq => this.ports.store.row(sessionId, seq)), effect.cause); return;
-      case 'abort': case 'write-receipt': case 'write-hold': return;
-      case 'remove': throw new Error('Removal must be committed before publishing');
+      case 'end-dependents': await (run?.adapter ?? this.ports.adapter(sessionId)).endDependents(); return;
+      case 'abort': case 'write-receipt': case 'write-hold': case 'remove': return;
       default: return assertNever(effect);
     }
   }

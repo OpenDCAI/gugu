@@ -189,8 +189,8 @@ function stepDormant(state: Extract<Life, { kind: 'dormant' }>, event: Event, q:
           const hold = { reason: 'sign-out' as const, ownerUserId: event.ownerUserId, prior: state.hold }
           return [seal({ ...state, hold }), [{ e: 'write-hold', hold }]]
         }
-        case 'archive': return [seal({ kind: 'archived' }), [...archivedRows(q), { e: 'write-hold', hold: null }]]
-        case 'delete': return [seal({ kind: 'archived' }), [{ e: 'remove' }]]
+        case 'archive': return [seal({ kind: 'archived' }), [...archivedRows(q), { e: 'write-hold', hold: null }, { e: 'end-dependents' }]]
+        case 'delete': return [seal({ kind: 'archived' }), [{ e: 'end-dependents' }, { e: 'remove' }]]
         case 'version-switch':
         case 'idle-reap': return unchanged(state)
         default: return assertNever(event)
@@ -218,8 +218,8 @@ function stepFailed(state: Extract<Life, { kind: 'failed' }>, event: Event, q: P
     }
     case 'interrupt':
       switch (event.reason) {
-        case 'archive': return [seal({ kind: 'archived' }), [...residueTeardown(state), ...archivedRows(q), { e: 'write-hold', hold: null }]]
-        case 'delete': return [seal({ kind: 'archived' }), [...residueTeardown(state), { e: 'remove' }]]
+        case 'archive': return [seal({ kind: 'archived' }), [...residueTeardown(state), ...archivedRows(q), { e: 'write-hold', hold: null }, { e: 'end-dependents' }]]
+        case 'delete': return [seal({ kind: 'archived' }), [...residueTeardown(state), { e: 'end-dependents' }, { e: 'remove' }]]
         case 'user-stop': case 'sign-out': case 'version-switch': case 'idle-reap': return unchanged(state)
         default: return assertNever(event)
       }
@@ -231,7 +231,7 @@ function stepFailed(state: Extract<Life, { kind: 'failed' }>, event: Event, q: P
   }
 }
 
-function stepStarting(state: Extract<Life, { kind: 'starting' }>, event: Event, q: PendingView, ctx: StepContext): Transition {
+function stepStarting(state: Extract<Life, { kind: 'starting' }>, event: Event, q: PendingView, _ctx: StepContext): Transition {
   switch (event.k) {
     case 'deliver': case 'start': return unchanged(state)
     case 'stage-ok': return advance(state, event.out, q)
@@ -298,8 +298,8 @@ function settle(state: Extract<Life, { kind: 'stopping' }>, q: PendingView, ctx:
   const effects: Effect[] = q.dispatching.map(seq => ({ e: 'write-receipt', seq, receipt: { state: 'unknown' } }))
   const dest = state.destination
   switch (dest.kind) {
-    case 'deleted': return [seal({ kind: 'archived' }), [...effects, { e: 'remove' }]]
-    case 'archived': return [seal({ kind: 'archived' }), [...effects, ...archivedRows(q), { e: 'write-hold', hold: null }]]
+    case 'deleted': return [seal({ kind: 'archived' }), [...effects, { e: 'end-dependents' }, { e: 'remove' }]]
+    case 'archived': return [seal({ kind: 'archived' }), [...effects, ...archivedRows(q), { e: 'write-hold', hold: null }, { e: 'end-dependents' }]]
     case 'rest': {
       if (dest.wakeAfter || hasStartableRow(null, q)) {
         const [next, run] = start(ctx, true)

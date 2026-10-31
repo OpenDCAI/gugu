@@ -125,6 +125,8 @@ export type Effect =
   | Readonly<{ e: 'report-failure'; seqs: readonly Seq[]; cause: SerializedError }>
   | Readonly<{ e: 'mark-source-read'; seq: Seq }>
   | Readonly<{ e: 'remove' }>
+  // Entering archived or deleted: the leg ends what lives only because of this session (e.g. runtime children).
+  | Readonly<{ e: 'end-dependents' }>
 
 /** Immutable database rows in ascending seq order; queued excludes rows already in flight. */
 export interface PendingView {

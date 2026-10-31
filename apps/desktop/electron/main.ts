@@ -5256,24 +5256,13 @@ app.whenReady().then(async () => {
       sessionpageLocalSessionSource = createHostLocalSessionSource(app.getPath('userData'))
       emdash.setEmdashLocalSessionSource(sessionpageLocalSessionSource)
     }
-    emdash.setEmdashMcpInjector(async (info) => {
+    // 运行时分叉(侧边聊天)递自己的 view id + 来源会话:它没有会话页身份,provisioning 据此
+    // 返回 null,归属与绑定一格都不动(见 SessionpageSessionInfo.sourceConversationId)。
+    // spec agent-provisioning:显式命名过的会话用那个名字开户;缺席才落到「<引擎 label> <序号>」。
+    emdash.setEmdashIdentityProvisioner(request =>
+      provisionSessionpageAgentForSession({ ...request, surface: 'acp' }, sessionpageIdentityDeps))
+    emdash.setEmdashMcpInjector(async (info, provisioned) => {
       const persistedSessionId = info.sourceSessionId ?? info.sessionId
-      const provisioned = await provisionSessionpageAgentForSession(
-        {
-          // 运行时分叉(侧边聊天)递自己的 view id + 来源会话:它没有会话页身份,provisioning 据此
-          // 返回 null,归属与绑定一格都不动(见 SessionpageSessionInfo.sourceConversationId)。
-          sessionId: info.sessionId,
-          sourceSessionId: info.sourceSessionId,
-          providerId: info.providerId,
-          surface: 'acp',
-          cwd: info.cwd,
-          projectId: info.projectId,
-          // spec agent-provisioning:显式命名过的会话用那个名字开户;缺席才落到「<引擎 label> <序号>」。
-          displayName: info.agentDisplayName,
-          lifecycle: info.lifecycle,
-        },
-        sessionpageIdentityDeps,
-      )
       if (!provisioned) {
         if (!authProvider) throw new Error('[sessionpage] MCP injector: runtime auth provider not ready')
         if (!primaryGuguMcpHost) throw new Error('[sessionpage] MCP injector: Gugu MCP host not ready')

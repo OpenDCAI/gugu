@@ -273,6 +273,7 @@ export {
 // host can give session-page codex sessions the gugu MCP send tool + gugu identity at session start.
 export {
   setEmdashMcpInjector,
+  setEmdashIdentityProvisioner,
   type EmdashMcpInjector,
   type EmdashSessionStartInfo,
 } from '@main/core/acp/emdash-mcp-injector'

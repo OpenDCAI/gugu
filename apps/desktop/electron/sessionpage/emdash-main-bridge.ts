@@ -118,6 +118,7 @@ export {
   // 宿主的界面语言的注入口(见 host-locale.ts)。
   setSessionHostLocale,
   setEmdashMcpInjector,
+  setEmdashIdentityProvisioner,
   // @@@2503 平台额度:给走咕咕模型的 Chat UI(ACP)会话按会话签发中转令牌并随 `_meta` 送进适配器。
   setEmdashPlatformInjector,
   setPlatformRecoveryReadyGate,

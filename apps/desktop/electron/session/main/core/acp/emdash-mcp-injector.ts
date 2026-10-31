@@ -125,8 +125,41 @@ export type SessionPromptDelivery = {
   carrier: 'system' | 'session-context';
 };
 
+/** The bound gugu identity of a session, as the capability injector consumes it. null = a runtime fork (private). */
+export interface EmdashSessionIdentity {
+  guguAgentUserId: string;
+  chatId: string;
+  agentIdentityFacts?: { specialFocus: string | null };
+  projectContext?: { projectId: string; projectName: string; projectPath: string; groupChatId: string; groupName: string };
+}
+
+export interface EmdashIdentityRequest {
+  sessionId: string;
+  sourceSessionId?: string;
+  providerId: string;
+  projectId: string;
+  cwd: string;
+  displayName?: string;
+  lifecycle: 'fresh' | 'fork' | 'resume';
+}
+
+/** The single ACP identity step: bind (or reuse) the session's gugu identity. Throws when it cannot. */
+export type EmdashIdentityProvisioner = (request: EmdashIdentityRequest) => Promise<EmdashSessionIdentity | null>;
+
+let provisioner: EmdashIdentityProvisioner | null = null;
+
+export function setEmdashIdentityProvisioner(fn: EmdashIdentityProvisioner | null): void {
+  provisioner = fn;
+}
+
+export function getEmdashIdentityProvisioner(): EmdashIdentityProvisioner {
+  if (!provisioner) throw new Error('ACP identity provisioner is not installed');
+  return provisioner;
+}
+
 export type EmdashMcpInjector = (
-  info: EmdashSessionStartInfo
+  info: EmdashSessionStartInfo,
+  identity: EmdashSessionIdentity | null,
 ) => Promise<EmdashSessionCapabilityInjection>;
 
 let injector: EmdashMcpInjector | null = null;

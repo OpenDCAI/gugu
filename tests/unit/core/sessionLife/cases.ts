@@ -121,6 +121,14 @@ export const invariantCases: readonly { name: string; run: () => void }[] = [
   { name: 'channel readiness cannot be forged from a stale proof in a current completion', run() { assert.throws(() => decide(starting('channel'), { k: 'stage-ok', gen: G, out: { at: 'channel', value: { gen: STALE, timing: 'next-tool-call' } as AdmittedChannel } }), LifeProtocolError) } },
   { name: 'all seven stage completions reject the other six current-generation stages', run() { for (const at of STAGES) for (const other of STAGES) if (at !== other) assert.throws(() => decide(starting(at), { k: 'stage-ok', gen: G, out: output(other) }), LifeProtocolError) } },
   { name: 'a wake followed by sign-out cannot start while signing out', run() { const wake = decide(stopping(), deliver, pending([20]))[0]; const out = decide(wake, interrupt('sign-out'), pending([20]))[0]; const r = decide(out, { k: 'settled', gen: G }, pending([20])); kind(r, 'dormant'); assert.equal(r[1].some(e => e.e === 'run-stage'), false) } },
+  { name: 'only entering archived or deleted ends the dependents', run() {
+    const ends = (t: Transition) => t[1].some(e => e.e === 'end-dependents')
+    for (const s of [dormant(), dormant(FAILED)]) for (const r of ['archive', 'delete'] as const) assert.equal(ends(decide(s, interrupt(r), pending([20]))), true)
+    for (const r of ['archive', 'delete'] as const) assert.equal(ends(decide(stopping(r), { k: 'settled', gen: G }, pending([20]))), true)
+    for (const s of [stopping('user-stop'), stopping('version-switch'), stopping('sign-out')]) assert.equal(ends(decide(s, { k: 'settled', gen: G }, pending([20]))), false)
+    assert.equal(ends(decide(ready(), { k: 'exit', gen: G, exit: EXIT }, pending([20]))), false)
+    assert.equal(ends(decide(ready(), interrupt('idle-reap'))), false)
+  } },
   { name: 'sign-out outranks a startup-failure hold (v3.1 #7)', run() { const s = decide(stoppingFailed(), interrupt('sign-out'))[0]; assert.ok(s.kind === 'stopping'); assert.deepEqual(s.destination, { kind: 'held', hold: OUT }); kind(decide(s, { k: 'settled', gen: G }, pending([20])), 'dormant') } },
   { name: 'v3.1 #9: a current-run fault fails every live state; in-flight rows become unknown, queued rows stay', run() {
     for (const s of [starting('cli'), ready('next-tool-call', 'awaiting'), stopping('user-stop')]) {
@@ -140,7 +148,7 @@ export const invariantCases: readonly { name: string; run: () => void }[] = [
     const f = decide(ready(), { k: 'fault', run: G, cause: CAUSE, unreleased: null }, pending([20]))[0]
     for (const e of [start, deliver] as const) { const r = decide(f, e, pending([20])); kind(r, 'starting'); assert.equal(r[1][0]?.e, 'teardown'); assert.deepEqual(r[1][0], { e: 'teardown', gen: G, have: (ready() as Extract<Life, { kind: 'ready' }>).have }) }
     assert.equal(decide(f, interrupt('archive'), pending([20]))[1][0]?.e, 'teardown')
-    assert.deepEqual(decide(f, interrupt('delete'))[1].map(e => e.e), ['teardown', 'remove'])
+    assert.deepEqual(decide(f, interrupt('delete'))[1].map(e => e.e), ['teardown', 'end-dependents', 'remove'])
     assert.equal(shouldStartOnHydrate(hydrateLife({ archived: false, hold: { reason: 'effect-fault', barrier: seq(20), cause: CAUSE } }), pending([20])), false)
     kind([hydrateLife({ archived: false, hold: { reason: 'effect-fault', barrier: seq(20), cause: CAUSE } }), []], 'failed')
   } },

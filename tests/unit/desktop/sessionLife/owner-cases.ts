@@ -3,7 +3,7 @@ import { SessionLife } from '../../../../apps/desktop/electron/session/main/core
 import type { LifeStore, SessionLifePorts } from '../../../../apps/desktop/electron/session/main/core/sessions/session-life';
 import type { LegAdapter, PendingRow } from '../../../../apps/desktop/electron/session/main/core/sessions/session-life-adapter';
 import { STAGES } from '../../../../packages/core/src/local/session-life/types';
-import type { Effect, ExitFact, Gen, Hold, Seq, StageName, StageOut } from '../../../../packages/core/src/local/session-life/types';
+import type { ExitFact, Gen, Hold, Seq, StageName, StageOut } from '../../../../packages/core/src/local/session-life/types';
 import type { LifeView } from '../../../../apps/desktop/src/session/shared/core/sessions/session-life';
 
 function deferred<T>() {
@@ -16,7 +16,7 @@ const seq = (value: number) => value as Seq;
 const EXIT: ExitFact = { cause: { name: 'Lost', message: 'adapter exited' }, code: 1, signal: null };
 
 function rig(options: { block?: StageName; delayReceipt?: boolean; dispatchThrowsOnce?: boolean; markReadFailsOnce?: boolean;
-  failAt?: StageName; teardownThrowsOnce?: boolean; reportFailureThrowsOnce?: boolean; commitThrowsOnSignOutHold?: boolean } = {}) {
+  failAt?: StageName; exitBeforeFail?: boolean; teardownThrowsOnce?: boolean; reportFailureThrowsOnce?: boolean; commitThrowsOnSignOutHold?: boolean } = {}) {
   const records = new Map<string, { owner: string | null; hold: Hold | null; archived: boolean }>();
   const rows = new Map<Seq, PendingRow>();
   const settled = new Set<Seq>();
@@ -69,7 +69,10 @@ function rig(options: { block?: StageName; delayReceipt?: boolean; dispatchThrow
         async run<K extends StageName>(at: K, _have: unknown, ctx: { gen: Gen; signal: AbortSignal }): Promise<StageOut[K]> {
           ctx.signal.throwIfAborted();
           trace.push(`stage:${ctx.gen.attempt}:${at}`);
-          if (options.failAt === at) throw new Error(`${at} unavailable`);
+          if (options.failAt === at) {
+            if (options.exitBeforeFail) exitCallbacks.at(-1)!(EXIT);
+            throw new Error(`${at} unavailable`);
+          }
           if (blockOnce === at) {
             blockOnce = undefined;
             blocked.resolve();
@@ -83,6 +86,7 @@ function rig(options: { block?: StageName; delayReceipt?: boolean; dispatchThrow
           if (throwOnce) { throwOnce = false; throw new Error('worker RPC failed'); } return options.delayReceipt ? receipt.promise : { result: 'accepted', nativeReceiptId: row.message.id }; },
         async teardown(have) { trace.push('teardown'); if (teardownThrows) { teardownThrows = false; throw new Error('teardown failed'); } for (const lease of Object.values(have)) active.delete(lease); },
         onExit(_have, cb) { exitCallbacks.push(cb); return () => { trace.push('unlisten'); }; },
+        async endDependents() { trace.push('end-dependents'); },
       } satisfies LegAdapter;
     },
     markRead: async row => { if (markFailOnce) { markFailOnce = false; throw new Error('read marker failed'); } marked.push(row.seq); }, reportFailure: async (_rows, cause) => { if (reportThrows) { reportThrows = false; throw new Error('report failed'); } trace.push(`failure:${cause.name}`); },
@@ -147,6 +151,18 @@ export const ownerCases: readonly { name: string; run: () => Promise<void> }[] =
     assert.equal(r.trace.filter(line => line.endsWith(':identity')).length, 1);
     assert.equal(r.owner.read('s').lastExit, 'adapter exited');
     assert.deepEqual(r.failures, []);
+  } },
+  { name: 'archive and delete end the dependents; delete still runs its IO and interrupt waits for it', async run() {
+    for (const reason of ['archive', 'delete'] as const) {
+      const r = rig(); r.session(); await r.owner.signIn('A'); r.owner.start('s'); await r.owner.quiescent('s');
+      await r.owner.interrupt('s', { k: 'interrupt', reason });
+      assert.equal(r.active.size, 0, reason);
+      assert.deepEqual(r.trace.filter(line => line === 'teardown' || line === 'end-dependents'), ['teardown', 'end-dependents'], reason);
+      assert.deepEqual(r.failures, []);
+    }
+    const r = rig(); r.session(); await r.owner.signIn('A');
+    await r.owner.interrupt('s', { k: 'interrupt', reason: 'delete' });
+    assert.deepEqual(r.trace, ['end-dependents']); assert.deepEqual(r.removed, ['s']);
   } },
   { name: 'delete removes the actor without publishing an archived projection', async run() {
     const r = rig(); r.session(); await r.owner.signIn('A'); r.owner.start('s'); await r.owner.quiescent('s');
@@ -243,6 +259,13 @@ export const ownerCases: readonly { name: string; run: () => Promise<void> }[] =
     const view = r.owner.read('s'); assert.equal(view.kind, 'failed'); assert.equal(view.failure?.at, null);
     assert.equal(r.rows.get(row)!.state, 'queued'); assert.deepEqual(r.dispatched, []);
     assert.equal(r.active.size, 0); assert.equal(r.failures.length, 1);
+  } },
+  { name: 'a channel failure racing the exit keeps the first fact: the exit cause becomes the failure hold', async run() {
+    const r = rig({ failAt: 'channel', exitBeforeFail: true }); r.session(); await r.owner.signIn('A');
+    r.send(); await r.owner.quiescent('s');
+    const hold = r.records.get('s')!.hold;
+    assert.ok(hold?.reason === 'start-failed'); assert.equal(hold.stage, 'channel'); assert.equal(hold.cause.message, 'adapter exited');
+    assert.equal(r.owner.read('s').kind, 'failed'); assert.equal(r.active.size, 0); assert.deepEqual(r.failures, []);
   } },
   { name: 'v3.1 #10: a failed leave keeps the epoch and account and reopens starts; the caller can retry', async run() {
     const r = rig({ commitThrowsOnSignOutHold: true }); r.session(); r.enqueue(); await r.owner.signIn('A'); await r.owner.quiescent('s');

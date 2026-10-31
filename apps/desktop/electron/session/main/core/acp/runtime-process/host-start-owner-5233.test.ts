@@ -37,7 +37,7 @@ vi.mock('@main/core/sessions/runtime-fork-ownership', () => ({
   closeRuntimeForkOwnershipForRuntimeSession: vi.fn(async () => {}),
   recordRuntimeForkOwnership: vi.fn(async () => {}),
 }));
-vi.mock('@main/core/acp/emdash-mcp-injector', () => ({ getEmdashMcpInjector: () => null }));
+vi.mock('@main/core/acp/emdash-mcp-injector', () => ({ getEmdashMcpInjector: () => null, getEmdashIdentityProvisioner: () => async () => null }));
 const platform = vi.hoisted(() => ({ issued: 0, released: [] as Array<string | null> }));
 vi.mock('@main/core/acp/emdash-platform-injector', () => ({
   getEmdashPlatformInjector: () => async () => {

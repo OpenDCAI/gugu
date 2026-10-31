@@ -31,4 +31,6 @@ export interface LegAdapter {
   >;
   teardown(have: Partial<StageOut>, ctx: { gen: Gen | null }): Promise<void>;
   onExit(have: Pick<StageOut, 'process'>, cb: (exit: ExitFact) => void): () => void;
+  /** The session is archived or deleted: end what lives only because of it. Try all, then throw the aggregate. */
+  endDependents(): Promise<void>;
 }
