@@ -77,10 +77,10 @@ beforeEach(() => {
 });
 
 describe('#3500 发送只走 custody', () => {
-  it('submit 与 queue 不论挂没挂上都交给 custody,❌ 直接发给运行时', () => {
+  it('发送不论挂没挂上都交给 custody(在跑时由宿主排在后面),❌ 直接发给运行时', () => {
     const store = makeStore();
     store.submitPrompt('现在发送');
-    store.queuePrompt('稍后发送');
+    store.submitPrompt('稍后发送');
     // 挂上了也一样:句柄上没有发送的口子,一旦被调到就会抛。
     store.session = {
       sessionState: { current: () => ({ isGenerating: false, pendingPermissions: [] }) },

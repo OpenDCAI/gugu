@@ -4,7 +4,7 @@ import { appendToDraft } from '@/store/chatContext';
 import { registerNativeComposer } from '@/lib/nativeComposerHandoff';
 import { sessionAgentNames } from '@renderer/features/sessions/stores/session-agent-names';
 import { useSessionSourceMessage } from './use-session-source-message';
-import { canQueueNativeInput, sendThroughCustody } from './queue-native-input';
+import { canQueueNativeInput } from './queue-native-input';
 import { useConversationVisibility } from '@/components/chat/useConversationVisibility';
 import { useNativeConversationRead } from '@/hooks/useNativeConversationRead';
 import { SessionInputQueue } from '@/components/chat/SessionInputQueue';
@@ -536,7 +536,8 @@ const ComposerForStore = observer(function ComposerForStore({
   );
 
   const handleSubmit = useCallback(
-    (value: string) => sendWhenReady(value, (text, attachments) => sendThroughCustody(store, text, attachments)),
+    // The store's one send entry (custody); a send that cannot be kept puts its words back in the draft itself.
+    (value: string) => sendWhenReady(value, (text, attachments) => store.submitPrompt(text, attachments)),
     [store, sendWhenReady]
   );
 

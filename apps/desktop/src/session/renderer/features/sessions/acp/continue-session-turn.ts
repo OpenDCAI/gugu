@@ -6,8 +6,6 @@ import type { AcpChatStore } from './acp-chat-store';
  */
 export function continueSessionTurn(store: AcpChatStore | null | undefined, text: string): void {
   if (!store) return;
-  // 这颗按钮长在已经结算的行上，后面又起了一轮时那行仍留在屏幕里。
-  // 与 composer 同一规则：空闲 submit、在跑 queue。无条件 submit 会把指令塞进正在跑的会话。
-  if (store.affordances.isWorking) store.queuePrompt(text);
-  else store.submitPrompt(text);
+  // The composer's one send: the host queues it behind a running turn (custody), it never steers into one.
+  store.submitPrompt(text);
 }

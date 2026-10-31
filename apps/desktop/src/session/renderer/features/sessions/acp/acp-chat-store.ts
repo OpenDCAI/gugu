@@ -330,7 +330,6 @@ export class AcpChatStore {
       releaseTranscript: action,
       isEmpty: computed,
       submitPrompt: action,
-      queuePrompt: action,
       stop: action,
       setModel: action,
       setMode: action,
@@ -1032,10 +1031,6 @@ export class AcpChatStore {
    */
   submitPrompt(text: string, attachments: AcpPromptAttachment[] = []): void {
     if (this.reverting || this.messageEdit) return;
-    this._custody(text, attachments);
-  }
-
-  queuePrompt(text: string, attachments: AcpPromptAttachment[] = []): void {
     this._custody(text, attachments);
   }
 
