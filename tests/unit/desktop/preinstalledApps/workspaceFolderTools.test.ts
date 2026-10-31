@@ -8,6 +8,7 @@ import { join, resolve } from 'node:path'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 import { HANDED_CHAT_FORMAT, handedIds } from '../../../../apps/desktop/electron/session/main/core/extensions/extension-programs'
 import { expectedVersionOf, replacedSinceError } from '../../../../apps/desktop/src/session/shared/extensions/app-files-core'
+import { savedFileName } from '../../../../apps/desktop/src/session/shared/extensions/app-runtime-protocol'
 import { guguLink, linkTargetOf } from '@gugu/core/shared/ui/guguLink'
 
 const appDir = resolve(__dirname, '../../../../apps/desktop/preinstalled-apps/workspace')
@@ -22,10 +23,13 @@ const SHEET = '0d000000-0000-4000-8000-000000000002'
 const PDF = '0d000000-0000-4000-8000-000000000003'
 const MESSAGE = '55555555-5555-4555-8555-555555555555'
 const by = { id: 'user:22222222-2222-4222-8222-222222222222', name: 'Kip', kind: 'agent' }
-const entry = (id: string, name: string, type: string, more: Record<string, unknown> = {}) => ({
-  id, chat: CHAT, name, type, contentType: type === 'json' ? 'application/json' : type === 'binary' ? 'application/pdf' : 'text/markdown',
-  size: 10, version: 1, createdBy: by, updatedAt: '2026-10-11T00:00:00Z', sourceMessageIds: [], ...more,
-})
+const entry = (id: string, name: string, type: string, more: Record<string, unknown> = {}) => {
+  const file = {
+    id, chat: CHAT, name, type, contentType: type === 'json' ? 'application/json' : type === 'binary' ? 'application/pdf' : 'text/markdown',
+    size: 10, version: 1, createdBy: by, updatedAt: '2026-10-11T00:00:00Z', sourceMessageIds: [], ...more,
+  }
+  return { ...file, savedName: savedFileName(file) }
+}
 const ENTRIES: ReturnType<typeof entry>[] = []
 /** The agents calling, as the gateway stamps them (`_meta['gugu/agent']`); each saves under its own folder. */
 const AGENT = 'user:0a000000-0000-4000-8000-0000000000a1'
@@ -184,6 +188,22 @@ describe('the folder\'s tools as tools.js gives them', () => {
     await expect(read!.run({ item_id: '0d000000-0000-4000-8000-0000000000ff' }, { agent: AGENT })).rejects.toThrow(/no file .* in a chat you are in: list shows what is there/)
   })
 
+  test.each([
+    [DOC, '周报', 'text', 'text/markdown', '周报.md'],
+    [SHEET, '投票', 'json', 'application/json', '投票.json'],
+    [PDF, '报告', 'binary', 'application/pdf', '报告.pdf'],
+    [PDF, 'photo.jpeg', 'binary', 'image/jpeg', 'photo.jpeg'],
+    [PDF, 'archive', 'binary', 'application/octet-stream', 'archive'],
+  ] as const)('read: %s named %s saves the host filename for %s (%s)', async (id, name, type, contentType, savedName) => {
+    ENTRIES.splice(0, ENTRIES.length, entry(id, name, type, { contentType }))
+    const { read } = await tools()
+    const saved = (await read!.run({ item_id: id, save: true }, { agent: AGENT })) as { saved_to: string; name: string }
+    expect(saved).toMatchObject({ name, saved_to: join(savedIn(AGENT, id, 1), savedName) })
+    if (type === 'binary') expect([...readFileSync(saved.saved_to)]).toEqual([1, 2, 3])
+    else expect(readFileSync(saved.saved_to, 'utf8')).toBe(texts[id])
+    expect(closed).toEqual([id])
+  })
+
   // 10-13(#7174,搬进来):同一台机器上主人的两个 agent 读同一个文件,各拿各的副本 —— 共用一份时,一个的读会冲掉另一个
   // 还没存回的改动,而版本号对得上,检查看不见。没有 agent 的调用拒掉,不退回大家共用的目录(148)。
   test('read: each agent its own copy on this computer; a call with no agent of its own is refused', async () => {
@@ -253,6 +273,18 @@ describe('the folder\'s tools as tools.js gives them', () => {
     expect(made).toMatchObject({ stored_as: expect.stringMatching(/^stored bytes \(application\/octet-stream\)/) })
     await expect(create!.run({ chat_id: CHAT, path: 'relative.txt' })).rejects.toThrow(/absolute path/)
     await expect(create!.run({ chat_id: CHAT, path: join(dir, 'missing') })).rejects.toThrow(/cannot read/)
+  })
+
+  test.each([
+    ['季度报告', '季度报告.pdf'],
+    ['季度报告.txt', '季度报告.txt'],
+    [undefined, 'q3.pdf'],
+  ])('create with path: title %s preserves the source suffix as %s unless it has its own', async (title, name) => {
+    const { create } = await tools()
+    const path = join(mkdtempSync(join(tmpdir(), 'folder-tools-')), 'q3.pdf')
+    writeFileSync(path, 'pdf bytes')
+    await create!.run({ chat_id: CHAT, path, title })
+    expect(calls.at(-1)?.slice(0, 5)).toEqual(['upload', { chat: CHAT }, name, '', 'pdf bytes'])
   })
 
   test('edit: old → new on the open file, then closed; what the folder refused, said as the next step', async () => {
@@ -344,7 +376,7 @@ describe('localFileName: a file\'s name on this computer', () => {
 
   test('read saves under it: the name a disk takes, in the version\'s folder', async () => {
     const { read } = await tools()
-    ENTRIES.find((candidate) => candidate.id === PDF)!.name = 'CON.pdf'
+    Object.assign(ENTRIES.find((candidate) => candidate.id === PDF)!, entry(PDF, 'CON.pdf', 'binary'))
     const saved = (await read!.run({ item_id: PDF }, { agent: AGENT })) as { saved_to: string }
     expect(saved.saved_to).toBe(join(savedIn(AGENT, PDF, 1), '_CON.pdf'))
     expect(readdirSync(savedIn(AGENT, PDF, 1))).toContain('_CON.pdf')

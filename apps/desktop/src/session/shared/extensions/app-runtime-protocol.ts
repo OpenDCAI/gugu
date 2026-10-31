@@ -1,5 +1,6 @@
 import type { SessionpageSessionSummary } from '@gugu/session-core/session-record/contract';
 import type { FileOpenerCandidate } from './file-openers';
+import { extensionFromMimeType, mimeTypeFromName, normalizeMimeType } from '@gugu/core/shared/imageMime.mjs';
 /**
  * The App runtime's wire: what the platform script, the preload and main agree on
  * (the App platform's L3 runtime interface).
@@ -317,6 +318,8 @@ export interface AppFileEntry {
   session?: string;
   project?: string;
   name: string;
+  /** The host-resolved name for saving a local copy, including the suffix its content type stands for. */
+  savedName: string;
   contentType: string;
   /** `folder` (子文件夹): a chat folder's subfolder — listed, entered, moved, never opened. */
   type: 'text' | 'json' | 'binary' | 'folder';
@@ -545,6 +548,17 @@ export interface AppShowMessageDetail {
   messageId: string;
 }
 
+/**
+ * `gugu.files.forward`: the chat's own forward page (ForwardMessageDialog) opens for these files; each chat picked gets one
+ * file card per file, sent by reference (attachments/share) — a stored file at the version the page named, a text
+ * document as its text is now. Where the files are is the chat the page leaves out of the list, as a message's forward does.
+ */
+export const APP_FORWARD_FILES_EVENT = 'gugu:app-forward-files';
+export interface AppForwardFilesDetail {
+  chatId: string;
+  files: Array<{ itemId: string; version: number; name: string; document: boolean }>;
+}
+
 /** `gugu.showSession` on the phone: the task tab opens the session's row — the machine it is on, and the row as listed. */
 export const APP_SHOW_SESSION_EVENT = 'gugu:app-show-session';
 export type AppShowSessionDetail = { deviceId: string; session: SessionpageSessionSummary; tabKind?: string; draft?: { text: string } } | { projectId: string };
@@ -604,6 +618,16 @@ export function fileSuffixOf(file: { name: string; contentType?: string | null }
 export function typedFileName(file: { name: string; contentType?: string | null }): string {
   const suffix = fileSuffixOf(file);
   return file.name.toLowerCase().endsWith(suffix) ? file.name : `${file.name}${suffix}`;
+}
+
+/** The name handed to a save or system-open operation; opener matching stays with typedFileName. */
+export function savedFileName(file: { name: string; contentType?: string | null }): string {
+  const type = normalizeMimeType(file.contentType);
+  const namedType = mimeTypeFromName(file.name);
+  if (SUFFIX_OF_CONTENT_TYPE[type] && namedType !== type) return typedFileName(file);
+  if (namedType) return file.name;
+  const extension = extensionFromMimeType(type);
+  return extension ? `${file.name}.${extension}` : file.name;
 }
 
 export function fileTypeOf(kind: string, contentType: string): AppFileEntry['type'] {

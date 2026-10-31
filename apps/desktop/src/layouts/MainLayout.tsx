@@ -57,6 +57,7 @@ import { sendAttachmentBatch } from '../components/chat/sendAttachmentBatch'
 import { SharePosterDialog } from '../components/SharePosterDialog'
 import { ExtensionConsentSheet } from '../components/extensionBundle/ExtensionConsentSheet'
 import { ExtensionForwardHost } from '../components/extensionBundle/ExtensionForwardHost'
+import { ChatFileForwardHost } from '../components/chat/ChatFileForwardHost'
 import { useSessionpageReveal } from '../hooks/useSessionpageReveal'
 import { useOwnedAgentConversationEntry } from '../hooks/useOwnedAgentConversationEntry'
 import { SessionInputOutboxHost } from '../hooks/useSessionInputOutbox'
@@ -1413,6 +1414,7 @@ function InnerLayout({
         </Sheet>
       )}
       <ExtensionForwardHost />
+      <ChatFileForwardHost />
       {/* 摩擦单 F6: an install is consented to here, over whatever view is on screen. */}
       <ExtensionConsentSheet />
       <NeedsYouHost onAttentionChange={setSessionAttention} />

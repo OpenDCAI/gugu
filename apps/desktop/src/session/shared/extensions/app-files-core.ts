@@ -14,6 +14,7 @@ import {
   fileTypeOf,
   folderOf,
   personId,
+  savedFileName,
   typedFileName,
   type AppFileClaimant,
   type AppFileEntry,
@@ -24,6 +25,7 @@ import {
   type AppFileUpload,
   type AppFileVersion,
   type AppFileVersionContent,
+  type AppForwardFilesDetail,
   type AppOpenWithDetail,
   type AppShowMessageDetail,
   type ChatPeekFile,
@@ -242,6 +244,7 @@ function entryOf(row: ItemRow, claimant: Claimant): AppFileEntry {
     chat: row.chat_id,
     metadata: row.metadata ?? {},
     name: row.filename,
+    savedName: folder ? row.filename : savedFileName(file),
     contentType: row.content_type,
     type: fileTypeOf(row.kind, row.content_type),
     parentId: row.parent_id ?? null,
@@ -756,7 +759,7 @@ export function createAppFiles(platform: FilesPlatform) {
   }
 
   /** A file the page may read: the one handed to it, or any other with `files:read`/`:write`. */
-  async function readable(surface: FileSurface, account: { token: string; userId: string }, ref: ChatFileRef, what: 'saving' | 'opening'): Promise<ItemRow> {
+  async function readable(surface: FileSurface, account: { token: string; userId: string }, ref: ChatFileRef, what: 'saving' | 'opening' | 'forwarding'): Promise<ItemRow> {
     const { row, handedOver } = await resolve(surface, account, ref);
     if (row.kind === 'folder') throw notAFile(row);
     if (!handedOver && !has(surface.extensionId, 'files:read') && !has(surface.extensionId, 'files:write')) {
@@ -1226,12 +1229,13 @@ export function createAppFiles(platform: FilesPlatform) {
      */
     async downloadSource(surface: FileSurface, args: { ref: ChatFileRef }): Promise<DownloadSource> {
       const local = await localFile(surface, args.ref);
-      if (local) return { name: local.entry.name, kind: 'file', file: local.file };
+      if (local) return { name: savedFileName(local.entry), kind: 'file', file: local.file };
       const { token, userId } = await platform.account();
       const row = await readable(surface, { token, userId }, args.ref, 'saving');
-      if (row.kind === 'file') return { name: row.filename, kind: 'file', file: (await fileFor(surface, { id: row.id }, row.version))! };
+      const name = savedFileName({ name: row.filename, contentType: row.content_type });
+      if (row.kind === 'file') return { name, kind: 'file', file: (await fileFor(surface, { id: row.id }, row.version))! };
       try {
-        return { name: row.filename, kind: 'text', text: await readDocumentText({ filesUrl: platform.filesUrl, fetch }, token, row.id, surface.asAgent) };
+        return { name, kind: 'text', text: await readDocumentText({ filesUrl: platform.filesUrl, fetch }, token, row.id, surface.asAgent) };
       } catch (error) {
         throw new AppFileError(error instanceof ChatFolderReadError && error.status === 404 ? 'not-found' : 'failed', `${row.filename} could not be read from the file service: ${error instanceof Error ? error.message : String(error)}`);
       }
@@ -1293,6 +1297,29 @@ export function createAppFiles(platform: FilesPlatform) {
         selfName(token, surface.asAgent ?? userId),
       ]);
       return target;
+    },
+
+    /**
+     * `files.forward`: what the forward page sends — each file read as a download reads it (the page's own file, or
+     * `files:read`: forwarding a reference gives no one more than reading it does), all of one chat. A working copy's
+     * file goes as its chat file at the version the computer published.
+     */
+    async forwardTargets(surface: FileSurface, args: { refs: ChatFileRef[] }): Promise<AppForwardFilesDetail> {
+      if (args.refs.length === 0) throw new AppFileError('invalid', 'files.forward(files): give one file or more');
+      const { token, userId } = await platform.account();
+      const files = await Promise.all(args.refs.map(async (ref) => {
+        const local = await localFile(surface, ref);
+        if (local) {
+          const file = { chatId: local.file.revision.chat_id!, itemId: local.entry.id, version: local.entry.version!, name: local.entry.name, document: false };
+          await local.file.dispose();
+          return file;
+        }
+        const row = await readable(surface, { token, userId }, ref, 'forwarding');
+        return { chatId: row.chat_id, itemId: row.id, version: row.version, name: row.filename, document: row.kind === 'document' };
+      }));
+      const chatId = files[0]!.chatId;
+      if (files.some((file) => file.chatId !== chatId)) throw new AppFileError('invalid', 'files.forward(files): the files are of one chat');
+      return { chatId, files: files.map(({ chatId: _chat, ...file }) => file) };
     },
 
     /**

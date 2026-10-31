@@ -16,6 +16,7 @@ import { messageForUser } from '../../lib/userFacingError'
 import { useToast } from '../toastContext'
 import { MessageFilePreviewPanel } from './MessageFilePreviewPanel'
 import { classifyDocumentPreview, documentPreviewNeedsFetch, type DocumentPreviewKind } from './documentPreview'
+import { savedFileName } from '../../session/shared/extensions/app-runtime-protocol'
 
 const fileOpenLog = rendererLogger('chat/file-open')
 
@@ -135,10 +136,10 @@ export function MessageFilePreview({ file, mobile = false, fill = false, tabbed 
     if (activeKey.current === key) setRead(failure)
     return true
   }
+  const savedName = savedFileName({ name: file.fileName, contentType: file.mimeType })
   const openExternal = () => {
     if (missing) return
-    const fileName = kind === 'html' && !/\.html?$/i.test(file.fileName) ? `${file.fileName}.html` : file.fileName
-    void openAttachmentInSystemApp(file.source, fileName).catch((error) => {
+    void openAttachmentInSystemApp(file.source, savedName).catch((error) => {
       if (rememberMissing(error)) return
       fileOpenLog.error({ error }, 'system app handoff failed')
       toast(t('chatArea.downloadFailed'), 'error', messageForUser(error))
@@ -146,7 +147,7 @@ export function MessageFilePreview({ file, mobile = false, fill = false, tabbed 
   }
   const download = () => {
     if (missing) return
-    void previewBytes(file).then((blob) => downloadBlob(blob, file.fileName)).catch((error) => {
+    void previewBytes(file).then((blob) => downloadBlob(blob, savedName)).catch((error) => {
       if (rememberMissing(error)) return
       fileOpenLog.error({ error }, 'preview file download failed'); toast(t('chatArea.downloadFailed'), 'error', messageForUser(error))
     })
