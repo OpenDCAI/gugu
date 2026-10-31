@@ -13,7 +13,6 @@ import { useAgentLookPostersVersion } from '../agentAvatar/posters'
 import { SharePosterDialog } from '../SharePosterDialog'
 import { buildUnifiedMembers } from './groupMemberModels'
 import { chatService } from '../../lib/chat'
-import { isGroupManagerRole } from '../../lib/groupMemberPermissions'
 import { useToast } from '../toastContext'
 import { useChatStore } from '../../store/chatContext'
 import { ChatManagementActions } from './ChatManagementActions'
@@ -108,12 +107,9 @@ export function GroupMembersSection({
   const mobileShell = useMobileShell()
   const { page, push, pop } = useSettingsPages(chatId, initialPage)
 
-  const { settings, error: settingsError, setError: setSettingsError, update, setAvatarUrl } = useGroupChatSettings(chatId)
-  const viewerRole = useMemo(
-    () => (currentUserId ? snapshot.humans.find((h) => h.id === currentUserId)?.role ?? null : null),
-    [currentUserId, snapshot.humans],
-  )
-  const viewerIsManager = isGroupManagerRole(viewerRole)
+  const { settings, error: settingsError, setError: setSettingsError, update, setAvatarUrl } = useGroupChatSettings(chatId, snapshot)
+  const viewerRole = settings?.my_role ?? null
+  const viewerIsManager = settings?.can_manage === true
 
   const [busy, setBusy] = useState(false)
   const [actionError, setActionError] = useState<string | null>(null)
@@ -164,7 +160,7 @@ export function GroupMembersSection({
 
   // #1730/#1731 离开/解散都 await 回调,失败进错误行;busy 防双击并发。确认改为抽屉内确认(与单聊清空同一形态)。
   const handleExit = useCallback(async () => {
-    if (busy || !currentUserId) return
+    if (busy || !currentUserId || !settings) return
     setBusy(true)
     setActionError(null)
     try {
@@ -182,7 +178,7 @@ export function GroupMembersSection({
     } finally {
       setBusy(false)
     }
-  }, [busy, chatId, currentUserId, onDissolveGroup, onLeaveGroup, onReload, viewerRole])
+  }, [busy, chatId, currentUserId, onDissolveGroup, onLeaveGroup, onReload, settings, viewerRole])
 
   const openTextPage = useCallback((next: 'rules' | 'description') => {
     // 设置还没读到时不进编辑页:草稿会从空串起步,点「完成」就把库里原有的规则/描述清掉。
@@ -201,7 +197,7 @@ export function GroupMembersSection({
   const error = actionError ?? settingsError
   const errorLine = error ? <div role="alert" style={settingsErrorStyle}>{error}</div> : null
   const bodyStyle = mobileShell ? settingsMobileBodyStyle : settingsBodyStyle
-  const canExit = viewerRole !== 'owner' || Boolean(onDissolveGroup)
+  const canExit = !!settings && (viewerRole !== 'owner' || Boolean(onDissolveGroup))
   const groupName = settings?.name ?? chat.name ?? null
 
   const subHead = (title: ReactNode, action?: ReactNode) => <SettingsPageHead title={title} action={action} onBack={pop} onClose={mobileShell ? onClose : undefined} mobile={mobileShell} />

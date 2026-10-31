@@ -39,7 +39,7 @@ import { useShownAgentStatus } from './chat/useAgentsOnCloudComputer'
 import { MemberProfilePopover } from './MemberProfilePopover'
 import { ReadReceiptPopover } from './ReadReceiptPopover'
 import { useListenModeEditControls } from './chat/useListenModeEditControls'
-import { RightPanel } from './chat/RightPanel'; import { isGroupManagerRole } from '../lib/groupMemberPermissions'
+import { RightPanel } from './chat/RightPanel'
 import {
   buildMemberProfileMap,
   type ActiveMemberProfile,
@@ -217,7 +217,7 @@ function ChatAreaSurface({ viewportKey = 'chats', assistantChat = false, activeT
 
   const groupRename = useChatCommands({
     chatId: activeChatId, visible: surfaceVisible, surface: surfaceElement,
-    canRename: isGroupChat && isGroupManagerRole(groupCollabSnapshot.humans.find((h) => h.id === user?.id)?.role),
+    isGroup: isGroupChat,
     openSettings: handleOpenSettingsDrawer,
   })
 

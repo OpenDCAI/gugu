@@ -6,6 +6,7 @@ import { useMarkChatsRead } from '../../hooks/useMarkChatsRead'
 import { chatsInReadScope, hasUnreadInRows } from '../../session/shared/conversation-row-menu'
 import { rendererLogger } from '../../lib/log'
 import { messageForUser } from '../../lib/userFacingError'
+import { useGroupChatSettings } from './useGroupChatSettings'
 import { ConversationRowContextMenu } from './ConversationRowContextMenu'
 
 const log = rendererLogger('chat/row-menu')
@@ -23,7 +24,8 @@ export function ChatRowContextMenu({ chat, onPin, onSetNotificationLevel, onDele
   const { t } = useTranslation('messaging')
   const { toast } = useToast()
   const markRead = useMarkChatsRead()
-  return <ConversationRowContextMenu {...menu} state={{ kind: 'chat', pinned: chat.is_pinned,
+  const { settings, error } = useGroupChatSettings(chat.kind === 'topic' ? chat.id : null)
+  return <ConversationRowContextMenu {...menu} loadError={error} state={{ kind: 'chat', canDelete: chat.kind !== 'topic' || settings?.can_archive_topic === true, pinned: chat.is_pinned,
     notificationsMuted: chat.notification_level === 'none', hasUnread: hasUnreadInRows(chatsInReadScope(chats, chat.id)), hasAnyUnread: hasUnreadInRows(chats) }}
     onAction={(action) => {
       if (action === 'mark-read') markRead(chat.id)

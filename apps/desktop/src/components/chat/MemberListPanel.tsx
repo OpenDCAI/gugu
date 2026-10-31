@@ -27,6 +27,7 @@ import { HeaderSearch } from '../ui/HeaderSearch'
 import { useMobileShell } from '../../hooks/useMobileShell'
 import type { MemberProfileChatTarget } from '../MemberProfileCard'
 import { useGroupMemberPanelControls } from './GroupMemberPanelControls'
+import { useGroupChatSettings } from './useGroupChatSettings'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -271,9 +272,11 @@ export function MemberListPanel({ chatId, chatKind, head, chatName, snapshot, er
   const people = useMemo(() => unified.filter((member) => member.type === 'human'), [unified])
   const agentMembers = useMemo(() => unified.filter((member) => member.type === 'agent'), [unified])
 
+  const { settings, error: settingsError } = useGroupChatSettings(chatId, snapshot)
   const group = useGroupMemberPanelControls({
     chatId,
-    enabled: chatKind === 'group',
+    chatKind,
+    settings,
     snapshot,
     identities,
     agentStatuses,
@@ -296,15 +299,10 @@ export function MemberListPanel({ chatId, chatKind, head, chatName, snapshot, er
     onReload: load,
   })
 
-  // 改名:落库口径与群名同一条(chats_update_owner 要 owner/admin),所以能不能改直接问同一个 hook。
-  // create_topic 把创建者置为 owner,所以开话题的人总改得动自己那条。
+  // 管理能力来自服务端;话题参与角色不授予改名权。
   const [renamed, setRenamed] = useState<string | null>(null)
   const topicName = renamed ?? chatName ?? null
-  // 落库口径是 chats_update_owner,要 owner/admin。
-  const viewerIsManager = useMemo(() => {
-    const role = snapshot?.humans.find((human) => human.id === user?.id)?.role ?? null
-    return role === 'owner' || role === 'admin'
-  }, [snapshot, user?.id])
+  const viewerIsManager = settings?.can_manage === true
   const canRenameTopic = chatKind === 'topic' && viewerIsManager
   const handleRenameTopic = useCallback(async (next: string) => {
     const updated = await chatService.updateGroupChatSettings(chatId, { name: next })
@@ -373,8 +371,8 @@ export function MemberListPanel({ chatId, chatKind, head, chatName, snapshot, er
         isAgent
         roleLabel={roleLabel(agent.role)}
         statusBadge={shownAgent.status(agent.id, groupAgentDisplayStatus(agent, agentStatuses))}
-        onOpen={chatKind === 'group' ? (anchor) => group.openProfile(agent.id, anchor) : undefined}
-        actions={chatKind === 'group' ? group.rowActions(agent.id) : undefined}
+        onOpen={(anchor) => group.openProfile(agent.id, anchor)}
+        actions={group.rowActions(agent.id)}
         selected={group.activeMemberId === agent.id}
         metaCells={(
           <>
@@ -447,6 +445,7 @@ export function MemberListPanel({ chatId, chatKind, head, chatName, snapshot, er
           </div>
         ) : null}
 
+        {settingsError ? <div role="alert" style={MEMBER_LIST_ERROR_STYLE}>{settingsError}</div> : null}
         {group.errorLine}
 
         {error ? (
@@ -485,8 +484,8 @@ export function MemberListPanel({ chatId, chatKind, head, chatName, snapshot, er
                   roleLabel={roleLabel((member.raw as GroupMemberItem).role)}
                   // 在线态:人这一侧产品里没有真值 ⇒ 不给角标(❌ 不编一个「在线」出来)。
                   statusBadge={undefined}
-                  onOpen={chatKind === 'group' ? (anchor) => group.openProfile(member.id, anchor) : undefined}
-                  actions={chatKind === 'group' ? group.rowActions(member.id) : undefined}
+                  onOpen={(anchor) => group.openProfile(member.id, anchor)}
+                  actions={group.rowActions(member.id)}
                   selected={group.activeMemberId === member.id}
                 />
               ))}

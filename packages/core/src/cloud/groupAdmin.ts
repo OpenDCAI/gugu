@@ -11,6 +11,7 @@ export interface GroupInfo extends Record<string, unknown> {
   my_role: 'owner' | 'admin' | 'member' | null
   can_manage: boolean
   can_dissolve: boolean
+  can_archive_topic: boolean
 }
 
 export type GroupMemberRole = 'admin' | 'member'
@@ -53,8 +54,11 @@ export function createGroupAdmin(client: GroupAdminRpcClient, actor: string) {
     return rows.map((row) => record(row, name))
   }
   function infoResult(row: Record<string, unknown>): GroupInfo {
-    if (typeof row.can_manage !== 'boolean' || typeof row.can_dissolve !== 'boolean') {
+    if (typeof row.can_manage !== 'boolean' || typeof row.can_dissolve !== 'boolean' || typeof row.can_archive_topic !== 'boolean') {
       throw new Error('group_info_as: database returned no capabilities')
+    }
+    if (row.my_role !== null && !['owner', 'admin', 'member'].includes(String(row.my_role))) {
+      throw new Error('group_info_as: database returned no actor role')
     }
     return row as GroupInfo
   }

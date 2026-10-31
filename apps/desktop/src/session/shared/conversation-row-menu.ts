@@ -1,7 +1,6 @@
 /** Row actions are shared by desktop context menus and future touch menus. */
 export type ConversationRowAction = 'mark-read' | 'pin' | 'notifications' | 'mark-all-read' | 'delete-chat' | 'remove-project'
-export type ConversationRowMenuState = {
-  kind: 'chat' | 'project'
+export type ConversationRowMenuState = ({ kind: 'chat'; canDelete: boolean } | { kind: 'project' }) & {
   hasUnread: boolean
   hasAnyUnread?: boolean
   pinned?: boolean
@@ -24,7 +23,7 @@ export function conversationRowMenu(state: ConversationRowMenuState): RowMenuIte
         { id: 'pin', label: state.pinned ? 'unpin' : 'pin', icon: 'pin' },
         { id: 'notifications', label: state.notificationsMuted ? 'enableNotifications' : 'disableNotifications', icon: 'notifications' },
         { id: 'mark-all-read', label: 'markAllRead', icon: 'read', disabled: !state.hasAnyUnread },
-        { id: 'delete-chat', label: 'delete', icon: 'trash', danger: true },
+        ...(state.canDelete ? [{ id: 'delete-chat', label: 'delete', icon: 'trash', danger: true } as const] : []),
       ]
 }
 
