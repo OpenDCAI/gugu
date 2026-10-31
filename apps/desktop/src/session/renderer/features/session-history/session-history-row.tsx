@@ -143,6 +143,7 @@ export function SessionHistoryRow({
             className="block truncate text-sm leading-5 text-foreground-muted tabular-nums"
             dateTime={new Date(row.updatedAt).toISOString()}
           >
+            {/* 绝对时间、年份总写:列表里一眼要能比先后。 */}
             {formatCalendarDate(row.updatedAt, locale, { includeYear: true })}
           </time>
         </div>
