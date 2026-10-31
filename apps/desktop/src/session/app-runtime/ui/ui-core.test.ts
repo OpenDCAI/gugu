@@ -31,14 +31,14 @@ describe('<gugu-time>: as gugu\'s own lists say a time', () => {
     expect(timePhrase(new Date(now.getTime() - 3 * 60_000), now, true)).toBe('3 分钟前');
     expect(timePhrase(new Date(now.getTime() - 3 * 60_000), now, false)).toBe('3 min ago');
     expect(timePhrase(at(2026, 9, 5, 8, 20), now, true)).toBe('08:20');
-    expect(timePhrase(at(2026, 9, 4, 14, 20), now, true)).toBe('昨天');
-    expect(timePhrase(at(2026, 9, 4, 14, 20), now, false)).toBe('yesterday');
-    expect(timePhrase(at(2026, 7, 3, 9, 0), now, true)).toBe('8月3日');
-    expect(timePhrase(at(2025, 10, 20, 9, 0), now, true)).toBe('2025年11月20日');
+    expect(timePhrase(at(2026, 9, 4, 14, 20), now, true)).toBe('昨天 14:20');
+    expect(timePhrase(at(2026, 9, 4, 14, 20), now, false)).toBe('Yesterday 02:20 PM');
+    expect(timePhrase(at(2026, 7, 3, 9, 0), now, true)).toBe('8月3日 09:00');
+    expect(timePhrase(at(2025, 10, 20, 9, 0), now, true)).toBe('2025年11月20日 09:00');
   });
 
   it('a time ahead (a deadline) is said as its clock or date, never as "ago"', () => {
     expect(timePhrase(at(2026, 9, 5, 22, 0), now, true)).toBe('22:00');
-    expect(timePhrase(at(2026, 9, 9, 22, 0), now, false)).toBe('Oct 9');
+    expect(timePhrase(at(2026, 9, 9, 22, 0), now, false)).toBe('Oct 9, 10:00 PM');
   });
 });

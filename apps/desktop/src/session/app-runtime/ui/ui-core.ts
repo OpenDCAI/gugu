@@ -32,7 +32,7 @@ export const ICON_SVG_ATTRIBUTES: ReadonlyMap<string, Record<string, string | nu
     .map(([alias, target]) => [iconName(alias), ICON_ATTRIBUTES[target]!] as const),
 ]);
 
-/** How gugu's own lists say a time: relative within the hour, then the host lists' own writing (clock today, 昨天, the date). */
+/** An App's timestamp: relative within the hour, then the transcript separators' writing, clock kept (today 14:20, 昨天 14:20, 8月3日 09:00). */
 export function timePhrase(date: Date, now: Date, zh: boolean): string {
   const seconds = (now.getTime() - date.getTime()) / 1000;
   if (Math.abs(seconds) < 45) return zh ? '刚刚' : 'just now';
@@ -40,5 +40,5 @@ export function timePhrase(date: Date, now: Date, zh: boolean): string {
     const minutes = Math.max(1, Math.round(seconds / 60));
     return zh ? `${minutes} 分钟前` : `${minutes} min ago`;
   }
-  return formatCalendarDay(date, zh ? 'zh-CN' : 'en-US', { now });
+  return formatCalendarDay(date, zh ? 'zh-CN' : 'en-US', { now, withTime: true });
 }
