@@ -20,6 +20,7 @@ import {
   type PromptInput,
   type QueuedPrompt,
   type QueuedPromptEdit,
+  type AcpRuntimeError,
 } from '@gugu/session-core/acp/client';
 import type {
   CommandItem,
@@ -37,10 +38,11 @@ import type { AgentState, LiveSettingResult, PermissionWaitKind } from '@gugu/se
 import { errorDetail } from '@gugu/session-shared';
 import { WireError, type BlobSource } from '@gugu/session-wire';
 import { action, computed, makeObservable, observable, runInAction, when } from 'mobx';
-import { endSessionLife, forkSessionLife, sessionLifeView, startSessionLife, stopSessionLife } from '../stores/session-life-views';
+import { endSessionLife, forkSessionLife, readSessionLife, sessionLifeView, startSessionLife, stopSessionLife } from '../stores/session-life-views';
+import { ACP_START_FAILED, type LifeView } from '@shared/core/sessions/session-life';
 import { sendThroughCustody } from './queue-native-input';
 import { batch } from 'solid-js';
-import { AcpLiveSession, asValueSource } from '@renderer/lib/acp/acp-live-session';
+import { AcpLiveSession, AcpStartError, asValueSource } from '@renderer/lib/acp/acp-live-session';
 import { getAcpRuntimeClient } from '@renderer/lib/acp/runtime-client';
 import { watchRunningSession, type RunningSessionWatch } from '@renderer/lib/acp/running-sessions';
 import { machineLinkHandingOff, machineLinkState, onMachineReconnected } from '@renderer/lib/machine-clients';
@@ -833,7 +835,7 @@ export class AcpChatStore {
     this.historyLoading = true;
     this.loadError = null;
     this._reopenOnRetry = false;
-    void (mode === 'open' ? this._open() : this._runBootstrap());
+    void (mode === 'open' ? this._open() : this._runBootstrap({ retry: true }));
   }
 
   /**
@@ -1407,7 +1409,7 @@ export class AcpChatStore {
    * ❌ 不再建立一次。
    * @param keepStoredPage #980 库里那页这次打开已经画上了(停着时 / 打开那一下读的):沿用,❌ 再读一遍。
    */
-  private async _runBootstrap(options?: { attachOnly?: boolean; keepStoredPage?: boolean }): Promise<void> {
+  private async _runBootstrap(options?: { attachOnly?: boolean; keepStoredPage?: boolean; retry?: boolean }): Promise<void> {
     runInAction(() => {
       this._bootstrapsInFlight += 1;
     });
@@ -1682,7 +1684,7 @@ export class AcpChatStore {
     }
   }
 
-  private async _runBootstrapInner(options?: { attachOnly?: boolean; keepStoredPage?: boolean }): Promise<void> {
+  private async _runBootstrapInner(options?: { attachOnly?: boolean; keepStoredPage?: boolean; retry?: boolean }): Promise<void> {
     let providerId: string | undefined;
     let bootstrapSession: AcpLiveSession | undefined;
     this._closedByHost = false;
@@ -1736,7 +1738,7 @@ export class AcpChatStore {
       // Every session, side chat included, is started by its host's session-life; the page only attaches once the
       // host says it is ready (one start owner).
       providerId = session?.providerId;
-      if (!options?.attachOnly) await this._startThroughLife();
+      if (!options?.attachOnly) await this._startThroughLife(options?.retry === true);
       // 起引擎与读库**并行**:两件事互不依赖。❌ 不许把 spawn 排在一次读之后 ——
       // 本机库读起来接近零延迟,会把这个串行藏得看不见,换到读得慢的那一侧(库大、盘忙、
       // 将来换成非本机的存储)它就是白等的一段,而 spec 要求会话启动不被任何东西挡住。
@@ -1912,19 +1914,24 @@ export class AcpChatStore {
    * Ask the host's session-life to start this session and wait for its projection to settle. A side chat first
    * opens its fork entry (idempotent), then starts like any session.
    */
-  private async _startThroughLife(): Promise<void> {
+  /** `retry`: the person asked to start it again; opening a failed session only shows why it failed (contract (e)). */
+  private async _startThroughLife(retry: boolean): Promise<void> {
     const id = this.runtimeSessionId;
     if (this.runtimeView) {
       this._forkOpened = forkSessionLife({ forkId: id, parentId: this.sessionId, forkFromProviderSessionId: this.runtimeView.forkFromProviderSessionId });
       await this._forkOpened;
     }
+    // Only a view published after this start answers it: an older failed view is the previous attempt's.
+    const before = await readSessionLife(id);
+    if (before.kind === 'ready') return;
+    if (before.kind === 'failed' && !retry) throw lifeFailureError(before.failure!);
     await startSessionLife(id);
     await when(() => {
-      const view = sessionLifeView(id);
-      return view?.kind === 'ready' || view?.kind === 'failed';
+      const view = sessionLifeView(id)!;
+      return view.version > before.version && (view.kind === 'ready' || view.kind === 'failed');
     });
-    const view = sessionLifeView(id);
-    if (view?.kind === 'failed') throw new Error(view.failure?.message ?? 'The session could not start');
+    const failure = sessionLifeView(id)!.failure;
+    if (failure) throw lifeFailureError(failure);
   }
 
   private _queuedPromptModels(): QueuedPrompt[] {
@@ -2593,3 +2600,9 @@ function queuedPromptTurn(prompt: QueuedPrompt): TranscriptTurn {
   };
 }
 
+/** The ACP leg's typed refusal keeps its runtime error (and so the load-error remedies); any other failure its words. */
+function lifeFailureError(failure: NonNullable<LifeView['failure']>): Error {
+  return failure.cause.name === ACP_START_FAILED
+    ? new AcpStartError(JSON.parse(failure.cause.data as string) as AcpRuntimeError)
+    : new Error(failure.message);
+}

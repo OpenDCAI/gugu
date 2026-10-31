@@ -355,9 +355,10 @@ export class SessionLife {
     return { sessionId, version: entry.version, kind: life.kind,
       stage: life.kind === 'starting' ? { at: life.progress.at, index: STAGES.indexOf(life.progress.at) + 1, total: 7, since: entry.since } : null,
       pending: { count: rows.filter(row => row.state === 'queued' || row.state === 'dispatching').length,
-        items: rows.map(row => ({ seq: row.seq, messageId: row.message.id, preview: row.message.text.slice(0, 160), state: row.state })) },
+        items: rows.map(row => ({ seq: row.seq, messageId: row.message.id, preview: row.message.text.slice(0, 160), kind: row.kind,
+          state: row.state, failure: row.failure?.message ?? null })) },
       hold: hold?.reason ?? null,
-      failure: life.kind === 'failed' ? { at: life.hold.reason === 'start-failed' ? life.hold.stage : null, message: life.hold.cause.message } : null,
+      failure: life.kind === 'failed' ? { at: life.hold.reason === 'start-failed' ? life.hold.stage : null, message: life.hold.cause.message, cause: life.hold.cause } : null,
       lastExit: life.kind === 'dormant' ? life.lastExit?.cause.message ?? null : null,
       nativeSession: life.kind === 'ready' && entry.reconfigured ? life.have.channel.nativeSession : null };
   }

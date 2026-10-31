@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import 'fake-indexeddb/auto'
 import { IDBFactory } from 'fake-indexeddb'
-import { openSessionInputStorage, SessionInputOutbox, type SessionInput } from '../../../../apps/desktop/src/lib/sessionInputOutbox'
+import { openSessionInputStorage, SessionInputOutbox, sessionInputBubbles, withSessionInputDeadline, type HostPendingRow, type SessionInput } from '../../../../apps/desktop/src/lib/sessionInputOutbox'
 
 describe('native session input persistence', () => {
   it('survives an offline restart and delivers in order automatically with the same identities', async () => {
@@ -62,4 +62,46 @@ it('keeps an image and its caption in one durable request across a reopened data
   await restored.flush()
   expect(received).toEqual([expect.objectContaining({ id: input.id, text: 'look at this', attachments })])
   expect(await restored.list()).toEqual([])
+})
+
+it('stores a missing acknowledgement as its failure code and keeps a host refusal in the host words', async () => {
+  const storage = await openSessionInputStorage(new IDBFactory())
+  let send = (_input: SessionInput) => withSessionInputDeadline(new Promise<void>(() => {}), 1)
+  const outbox = new SessionInputOutbox('owner', storage, input => send(input), () => true)
+  const input = await outbox.enqueue({ deviceId: null, sessionId: 'agent', text: 'silent host' })
+  await outbox.flush()
+  expect((await outbox.list())[0]).toMatchObject({ id: input.id, failure: { code: 'no-acknowledgement' } })
+  send = async () => { throw new Error('Provider login expired') }
+  await outbox.flush()
+  expect((await outbox.list())[0]).toMatchObject({ id: input.id, failure: { code: 'send-failed', message: 'Provider login expired' } })
+})
+
+describe('a bubble reads the one custody owner of its messageId', () => {
+  const sender = (id: string, createdAt: number, extra: Partial<SessionInput> = {}): SessionInput =>
+    ({ id, accountId: 'owner', deviceId: null, sessionId: 'agent', text: `sender ${id}`, createdAt, ...extra })
+  const host = (seq: number, messageId: string, state: HostPendingRow['state'], over: Partial<HostPendingRow> = {}): HostPendingRow =>
+    ({ seq, messageId, preview: `host ${messageId}`, kind: 'session-direct', state, failure: null, ...over })
+
+  it('sender row until the host row exists, the host row until accepted, then nothing (the transcript has it)', () => {
+    expect(sessionInputBubbles([sender('m', 1)], [])).toEqual([{ id: 'm', text: 'sender m', state: 'sending' }])
+    expect(sessionInputBubbles([sender('m', 1)], [host(1, 'm', 'dispatching')])).toEqual([{ id: 'm', text: 'host m', state: 'sending' }])
+    expect(sessionInputBubbles([sender('m', 1)], [host(1, 'm', 'accepted')])).toEqual([])
+    expect(sessionInputBubbles([], [host(1, 'm', 'accepted')])).toEqual([])
+  })
+
+  it('an inbox batch is the agent\'s mail, never drawn as the person\'s bubble; a failed host row says the host\'s reason', () => {
+    expect(sessionInputBubbles([], [host(1, 'mail', 'queued', { kind: 'inbox-batch' })])).toEqual([])
+    expect(sessionInputBubbles([], [host(1, 'f', 'failed', { failure: 'The session stopped before dispatch' })]))
+      .toEqual([{ id: 'f', text: 'host f', state: 'failed', failure: null, hostReason: 'The session stopped before dispatch' }])
+  })
+
+  it('names each state: queued sending, failed with the sender reason or the host failure, unknown not resent', () => {
+    expect(sessionInputBubbles(
+      [sender('b', 2, { failure: { code: 'host-offline' } }), sender('a', 1)],
+      [host(3, 'q', 'queued'), host(1, 'f', 'failed'), host(2, 'u', 'unknown')],
+    ).map(bubble => [bubble.id, bubble.state, bubble.state === 'failed' ? bubble.failure : null])).toEqual([
+      ['f', 'failed', null], ['u', 'unknown', null], ['q', 'sending', null],
+      ['a', 'sending', null], ['b', 'failed', { code: 'host-offline' }],
+    ])
+  })
 })

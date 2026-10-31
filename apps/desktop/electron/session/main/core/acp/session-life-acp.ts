@@ -24,6 +24,7 @@ import {
 } from './runtime-process/host';
 import { resumeHistoryFacts } from './runtime-process/resume-history';
 import { renderFirstTurn } from '@gugu/core/local/agent/firstTurnRender';
+import { ACP_START_FAILED } from '@shared/core/sessions/session-life';
 import { lifeStore } from '../sessions/session-pending';
 import { forkStore } from '../sessions/session-life-forks';
 import { log } from '@main/lib/logger';
@@ -158,7 +159,12 @@ export function createAcpLegAdapter(sessionId: string, fork: RuntimeFork | null)
       await persistAcpStartResult(command.input, result, {
         persistReturnedProviderSessionId, persistProviderSessionMissing, recordRuntimeForkOwnership,
       });
-      if (!result.success) throw new Error(`ACP session ${sessionId} did not start: ${result.error.message ?? result.error.type}`);
+      // The runtime's typed reason travels whole (in `data`): the task page turns it back into its specific
+      // remedies (sign in, install, update, pick another model), the same as when a page started the runtime itself.
+      if (!result.success) {
+        throw Object.assign(new Error(`ACP session ${sessionId} did not start: ${result.error.message ?? result.error.type}`),
+          { name: ACP_START_FAILED, data: JSON.stringify(result.error) });
+      }
       const { injection, facts: f } = read<Capabilities>(have.capabilities);
       void import('../asks/human-tool-wait').then(({ restoreHumanToolResults }) =>
         restoreHumanToolResults(sessionId, command.input.projectId, true))

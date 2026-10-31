@@ -759,7 +759,14 @@ export default {
       "failedActions": "Undelivered message actions",
       "failedHint": "Not delivered. Click to retry or discard.",
       "queued": "Sending. Your assistant will reply when ready.",
-      "sending": "Sending"
+      "sending": "Sending",
+      "unknownNotResent": "Result unknown; not resent",
+      "failure": {
+        "hostOffline": "The computer running this task is offline. Retry once it is back online.",
+        "hostNotReady": "The computer running this task is not ready for messages yet. Retry in a moment.",
+        "phoneUnconfirmed": "Your phone has not confirmed this message yet. Retry in a moment.",
+        "noAcknowledgement": "The task did not respond. Retry in a moment."
+      }
     },
     "showQuoted": "Go to the quoted message",
     "taskCard": {

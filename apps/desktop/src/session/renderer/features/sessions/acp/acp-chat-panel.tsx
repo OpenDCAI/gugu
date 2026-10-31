@@ -8,6 +8,8 @@ import { canQueueNativeInput, sendThroughCustody } from './queue-native-input';
 import { useConversationVisibility } from '@/components/chat/useConversationVisibility';
 import { useNativeConversationRead } from '@/hooks/useNativeConversationRead';
 import { SessionInputQueue } from '@/components/chat/SessionInputQueue';
+import { sessionLifeView } from '../stores/session-life-views';
+import type { LifeView } from '@shared/core/sessions/session-life';
 import { NeedsYouSlot } from '@/components/needsYou/NeedsYouSlot';
 import { takeComposerCarry, useComposerVerb } from '@/lib/composerVerbBridge';
 import { useSessionMessageQuotes } from './use-session-message-quotes';
@@ -424,6 +426,7 @@ const ComposerForStore = observer(function ComposerForStore({
   onScrollToBottom?: () => void;
 }) {
   const { translate } = useSessionMessages();
+  const life = sessionLifeView(store.runtimeSessionId);
   // 这个任务给自己排的定时:有就在输入框上沿挂一条托盘放那颗芯片,输入框往上压住它的下沿(与芯片读同一份缓存)。
   const scheduleMachine = machineRegistry.machineOf(store.projectId);
   const schedules = useSessionSchedules(scheduleMachine, store.sessionId);
@@ -1675,7 +1678,19 @@ const ComposerForStore = observer(function ComposerForStore({
         </div>
       ) : null}
       <NeedsYouSlot />
-      <SessionInputQueue sessionId={store.runtimeSessionId} waitingForConnection={canQueueNativeInput(store)} />
+      {/* While the page is empty its loading overlay carries the stage instead. */}
+      {life?.stage && !(store.historyLoading && store.isEmpty) ? (
+        <div className="flex justify-center px-3 py-1 text-xs text-foreground-muted" data-life-stage={life.stage.at}>
+          <LoadingIndicator ariaLabel={lifeStageLabel(life.stage, translate)} label={lifeStageLabel(life.stage, translate)} />
+        </div>
+      ) : null}
+      {life?.nativeSession ? (
+        <div className="px-3 py-1 text-center text-xs text-foreground-muted" role="status" data-native-session={life.nativeSession}>
+          {translate(life.nativeSession === 'preserved' ? 'chat.reloadPreserved' : 'chat.reloadReplaced')}
+        </div>
+      ) : null}
+      {/* Every send of a task page is in custody until the transcript has it, so its bubbles always show here. */}
+      <SessionInputQueue sessionId={store.runtimeSessionId} waitingForConnection host={life?.pending.items} />
       <SessionHostQuestion sessionId={store.runtimeSessionId} session={hostSession} />
       <ChatComposer
         className={schedules.length > 0 ? sessionComposerFrameLiftClassName : undefined}
@@ -1936,6 +1951,7 @@ export const AcpChatPanel = observer(function AcpChatPanel({
   const agent = agents?.find((candidate) => candidate.id === providerId) ?? null;
   const startupNotice = agent?.capabilities.acp.startup?.noticeKey;
   const startupNoticeKey = declaredMessageKey(startupNotice);
+  const lifeStage = store ? sessionLifeView(store.runtimeSessionId)?.stage ?? null : null;
   // 与 composer、抽屉的「账号」行共用同一份判据(#6100)—— ❌ 不在这里再抄一个 find。
   // 聊天面板跑的是 `acp` 那条腿的程序(#6335):两条腿是两个程序的家,这里登的是聊天面板那个。
   const cliAuthMethod = resolveSignInTarget(agent, 'acp')?.method ?? null;
@@ -2176,7 +2192,9 @@ export const AcpChatPanel = observer(function AcpChatPanel({
           const membership = reason !== null && guguReasonCopy(reason).action === 'join-membership';
           const text = failureText(error.message, translate, membership ? membershipLock?.modelName : null);
           if (!reason) {
-            return { code: 'start-failed', label: `${translate('transcript.condition.startFailed')}: ${text}`, detail: text, actions: [retry] };
+            const at = sessionLifeView(store.runtimeSessionId)?.failure?.at;
+            const lead = at ? translate('chat.lifeStageFailed', { stage: translate(`chat.lifeStage.${at}`) }) : translate('transcript.condition.startFailed');
+            return { code: 'start-failed', label: `${lead}: ${text}`, detail: text, actions: [retry] };
           }
           return {
             code: membership ? 'membership-required' : 'start-failed',
@@ -2501,7 +2519,8 @@ export const AcpChatPanel = observer(function AcpChatPanel({
             <LoadingIndicator
               ariaLabel={translate('chat.loading')}
               label={
-                startupNoticeKey ? translate(startupNoticeKey) : translate('chat.loading')
+                lifeStage ? lifeStageLabel(lifeStage, translate)
+                  : startupNoticeKey ? translate(startupNoticeKey) : translate('chat.loading')
               }
               data-testid="acp-chat-history-loading"
             />
@@ -2578,4 +2597,9 @@ export const AcpChatPanel = observer(function AcpChatPanel({
 function eventComposedPathContains(event: Event, element: HTMLElement): boolean {
   if (event.composedPath().includes(element)) return true;
   return event.target instanceof Node && element.contains(event.target);
+}
+
+/** Step index/total and the stage's name while session-life starts the session. */
+function lifeStageLabel(stage: NonNullable<LifeView['stage']>, translate: ReturnType<typeof useSessionMessages>['translate']): string {
+  return translate('chat.lifeStarting', { index: stage.index, total: stage.total, stage: translate(`chat.lifeStage.${stage.at}`) });
 }

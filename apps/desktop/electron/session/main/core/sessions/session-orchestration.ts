@@ -42,6 +42,7 @@ import type { BirthGroup } from '@shared/core/sessions/create-session';
 import { rememberedProviderOf, resolveSessionProviderSelection, sessionpageLegFor } from '@shared/core/sessions/provider-selection';
 import type { NewSessionMemory } from '@shared/core/app-settings';
 import { sessionLife } from './session-life';
+import { displayStatus } from '@shared/core/sessions/session-life';
 import { admitCreationTurns, bindIdentityThenCreate } from './session-life-creation';
 import { provisionStartIdentity } from '@main/core/acp/runtime-process/host';
 import { unbindSessionAgent } from '@main/core/sessionpage/sessionpage-session-agent';
@@ -446,7 +447,7 @@ function snapshot(
     provider_id: row.provider ?? 'unknown',
     model,
     transport,
-    status: sessionStatus(row, runtime),
+    status: sessionStatus(row),
     detail: parseAgentStatusDetail(row.agentStatusDetail, status),
     pinned: row.isPinned === 1,
     last_active_at: row.lastInteractedAt ?? null,
@@ -468,17 +469,17 @@ function activeMs(at: string | null): number {
 
 /**
  * 一条会话在工具里的状态 = 运行时这一轴压过活动这一轴(spec agent-status-writer):
- *  - 运行时:ACP 报 lost / 起动中、spawn 起动门还开着;
+ *  - 运行时:ACP 读 session-life 的投影(displayStatus);终端腿是 spawn 起动门还开着;
  *  - 否则是状态写入者写下的那一句,用 core 的词原样给(侧栏、session_peers、手机读的是同一份)——
  *    两种腿同一个来源,❌ 从 ACP 摘要再推一遍活动,❌ 另起一套词。没有状态源就是 `null`,❌ 猜一个终态。
  * 进程在不在不是一种状态(#6546):停掉、没起的会话照样收得进 `session_message`(发送方按原会话唤醒它),
  * 所以 ❌ 由「没有运行时」推出一个 `closed`。
  */
-function sessionStatus(row: SessionRow, runtime: SessionSummary | null): SessionSnapshot['status'] {
+function sessionStatus(row: SessionRow): SessionSnapshot['status'] {
   // 归档 = 离开会话列表、只在会话历史里(#6720):行照列,状态说它已经收起,❌ 从列表里滤掉。
   if (row.archivedAt) return 'archived';
-  if (runtime?.lifecycle === 'lost') return 'error';
-  if (runtime?.lifecycle === 'starting' || runtime?.lifecycle === 'replaying') return 'starting';
+  // ACP: session-life's projection is the lifecycle axis (contract §3, the one composition point).
+  if (transportOf(row) === 'acp') return displayStatus(sessionLife().read(row.id), parseAgentStatus(row.agentStatus));
   if (row.config?.spawnStartupState === 'starting') return 'starting';
   return parseAgentStatus(row.agentStatus);
 }

@@ -19,6 +19,8 @@ export interface PendingRow {
   readonly sessionId: string;
   readonly kind: 'ordinary' | 'session-direct' | 'inbox-batch';
   readonly state: 'queued' | 'dispatching' | 'accepted' | 'failed' | 'unknown';
+  /** Why a failed row failed (its receipt's cause); null otherwise. */
+  readonly failure: SerializedError | null;
   readonly message: SessionMessage & { readonly delivery?: SessionMessageDelivery };
   readonly sources: readonly PendingSource[];
   readonly turn: PendingTurn;

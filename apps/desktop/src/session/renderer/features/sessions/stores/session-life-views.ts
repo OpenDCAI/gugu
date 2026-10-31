@@ -37,6 +37,14 @@ export function sessionLifeView(sessionId: string): LifeView | null {
   return views.get(sessionId) ?? null;
 }
 
+/** Read the host's current view (also when this page already mirrors it): the newest version this page knows. */
+export async function readSessionLife(sessionId: string): Promise<LifeView> {
+  const machine = machineRegistry.machineOf(sessionId);
+  listenOn(machine);
+  accept(await rpcOn(machine).sessions.lifeView(sessionId));
+  return views.get(sessionId)!;
+}
+
 /** The person stopped this session (also mid-start): its host's session-life tears it down and holds it. */
 export function stopSessionLife(sessionId: string): Promise<void> {
   return rpcOn(machineRegistry.machineOf(sessionId)).sessions.lifeStop(sessionId);

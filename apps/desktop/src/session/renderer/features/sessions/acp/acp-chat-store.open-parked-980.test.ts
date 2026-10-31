@@ -44,14 +44,21 @@ const life = vi.hoisted(() => ({
   stop: vi.fn(async (_sessionId: string) => {}),
   fork: vi.fn(async (_fork: unknown) => {}),
   end: vi.fn(async (_forkId: string) => {}),
-  settle: (_sessionId: string, _kind: 'ready' | 'failed') => {},
+  settle: (_sessionId: string, _kind: 'ready' | 'failed', _failure?: Failure) => {},
 }));
+type Failure = { at: string; message: string; cause: { name: string; message: string; data?: string } };
 vi.mock('../stores/session-life-views', async () => {
   const { observable, runInAction } = await import('mobx');
-  const views = observable.map<string, { kind: string; failure: null }>();
-  life.settle = (sessionId, kind) => runInAction(() => views.set(sessionId, { kind, failure: null }));
+  type View = { kind: string; version: number; failure: Failure | null };
+  const views = observable.map<string, View>();
+  life.settle = (sessionId, kind, failure) => runInAction(() =>
+    views.set(sessionId, { kind, version: (views.get(sessionId)?.version ?? 0) + 1, failure: failure ?? null }));
   return {
     sessionLifeView: (sessionId: string) => views.get(sessionId) ?? null,
+    readSessionLife: async (sessionId: string) => {
+      if (!views.has(sessionId)) runInAction(() => views.set(sessionId, { kind: 'dormant', version: 0, failure: null }));
+      return views.get(sessionId)!;
+    },
     startSessionLife: (sessionId: string) => life.start(sessionId),
     stopSessionLife: (sessionId: string) => life.stop(sessionId),
     forkSessionLife: (fork: unknown) => life.fork(fork),
@@ -355,6 +362,56 @@ describe('#980 照旧当场起的', () => {
     life.settle(store.sessionId, 'ready');
     await vi.waitFor(() => expect(store.session).not.toBeNull());
     expect(create).toHaveBeenCalledWith(store.sessionId);
+  });
+});
+
+describe('a start answered by session-life', () => {
+  const startFresh = () => {
+    create.mockImplementation(async () => liveSession());
+    return storeFor({ providerId: 'claude', initialQueue: [{ text: 'hello', origin: 'manual' }] }).store;
+  };
+
+  it('a typed ACP refusal becomes its load error (remedies), an untyped one keeps the stage message', async () => {
+    const store = startFresh();
+    store.bootstrap();
+    await vi.waitFor(() => expect(life.start).toHaveBeenCalled());
+    life.settle(store.sessionId, 'failed', { at: 'channel', message: 'did not start',
+      cause: { name: 'AcpStartFailed', message: 'did not start', data: JSON.stringify({ type: 'auth_required', message: 'Sign in to Claude' }) } });
+    await vi.waitFor(() => expect(store.loadError).toEqual({ kind: 'auth_required', message: 'Sign in to Claude' }));
+
+    const other = startFresh();
+    other.bootstrap();
+    await vi.waitFor(() => expect(life.start).toHaveBeenCalledWith(other.sessionId));
+    life.settle(other.sessionId, 'failed', { at: 'platform', message: 'Ticket refused', cause: { name: 'Error', message: 'Ticket refused' } });
+    await vi.waitFor(() => expect(other.loadError?.message).toBe('Ticket refused'));
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it('opening a failed session (after a restart) only says why; it starts again only on retry (contract (e))', async () => {
+    const store = startFresh();
+    life.settle(store.sessionId, 'failed', { at: 'identity', message: 'No identity', cause: { name: 'Error', message: 'No identity' } });
+    store.bootstrap();
+    await vi.waitFor(() => expect(store.loadError?.message).toBe('No identity'));
+    expect(life.start).not.toHaveBeenCalled();
+    runInAction(() => store.retry());
+    await vi.waitFor(() => expect(life.start).toHaveBeenCalledTimes(1));
+  });
+
+  it('retry waits for the new attempt: the previous failed view does not answer it', async () => {
+    const store = startFresh();
+    store.bootstrap();
+    await vi.waitFor(() => expect(life.start).toHaveBeenCalledTimes(1));
+    life.settle(store.sessionId, 'failed', { at: 'cli', message: 'No CLI', cause: { name: 'Error', message: 'No CLI' } });
+    await vi.waitFor(() => expect(store.loadError).not.toBeNull());
+
+    runInAction(() => store.retry());
+    await vi.waitFor(() => expect(life.start).toHaveBeenCalledTimes(2));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(store.loadError, 'the old failed view answered the retry').toBeNull();
+    expect(create).not.toHaveBeenCalled();
+
+    life.settle(store.sessionId, 'ready');
+    await vi.waitFor(() => expect(store.session).not.toBeNull());
   });
 });
 
