@@ -2073,7 +2073,6 @@ function showBlockHandle(event) {
   if (!block) return
   const span = spanOf(block.dataset.line)
   const current = state.current
-  if (!span || span[0] < 1 || span[1] < span[0] || span[1] > current.view.state.doc.lines) return hideBlockHandle(true)
   $('block-insert').hidden = current.file.readOnly || current.view.state.readOnly
   if (block === handleBlock && !$('block-controls').hidden) return
   try {
@@ -2101,7 +2100,7 @@ function blockRange(current, span) {
 function resolvedRange(current, range) {
   const from = current.file.resolve(range.from)
   const end = current.file.resolve(range.to)
-  if (from === null || end === null || end <= from || from < 0 || end > current.view.state.doc.length) throw new Error(state.t.insertReloaded)
+  if (from === null || end === null || end <= from) throw new Error(state.t.insertReloaded)
   const blocks = sourceBlocks(current.view.state, state.cm, end)
   const index = blocks.findIndex((block) => block.from <= from && end <= block.to)
   if (index < 0 || isFrontmatter(blocks[index])) throw new Error(state.t.insertReloaded)

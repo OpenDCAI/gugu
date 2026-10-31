@@ -13,14 +13,23 @@ export const INSERT_BLOCKS = [
 ]
 
 export function sourceBlocks(state, cm, upto = state.doc.length) {
-  const tree = cm.language.ensureSyntaxTree(state, upto, 100)
-  if (!tree) throw new Error('Markdown syntax is not ready')
-  const blocks = []
-  for (let node = tree.topNode.firstChild; node; node = node.nextSibling) {
-    blocks.push({ from: state.doc.lineAt(node.from).from, to: state.doc.lineAt(Math.max(node.from, node.to - 1)).to, name: node.name })
-    if (node.from > upto) break
+  const { doc } = state
+  let through = doc.line(Math.min(doc.lineAt(upto).number + 1, doc.lines)).to
+  for (;;) {
+    const tree = cm.language.ensureSyntaxTree(state, through, 100)
+    if (!tree) throw new Error('Markdown syntax is not ready')
+    const blocks = []
+    for (let node = tree.topNode.firstChild; node; node = node.nextSibling) {
+      blocks.push({ from: doc.lineAt(node.from).from, to: doc.lineAt(Math.max(node.from, node.to - 1)).to, name: node.name })
+      if (node.from > upto) {
+        // A partial tree can end inside this neighbor (for example, after its first list item).
+        if (node.nextSibling || tree.length === doc.length) return blocks
+        break
+      }
+    }
+    if (tree.length === doc.length) return blocks
+    through = doc.line(Math.min(doc.lineAt(tree.length).number + 1, doc.lines)).to
   }
-  return blocks
 }
 
 export function previewBlock(state, cm, span) {
@@ -48,7 +57,7 @@ export function listInsertion(state, cm, block, kind, text) {
     const item = list.lastChild, line = state.doc.lineAt(item.from)
     let marker = null, task = false
     tree.iterate({ from: item.from, to: line.to, enter(node) {
-      if (node.name === 'ListMark') marker = { from: node.from, to: node.to }
+      if (node.name === 'ListMark' && !marker) marker = { from: node.from, to: node.to }
       if (node.name === 'TaskMarker') task = true
     } })
     if (marker && task === (kind === 'todo')) {

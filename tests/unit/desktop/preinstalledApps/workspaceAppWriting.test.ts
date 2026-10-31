@@ -262,13 +262,13 @@ describe('folder documents: writing', () => {
     await redraw()
   })
 
-  test('preview lookup rejects invalid spans and parser disagreement, and requests only its own range', async () => {
+  test('preview lookup rejects invalid spans and parser disagreement, with local neighbor lookahead', async () => {
     const source = 'First.\n\n$$\na+b\n\nc+d\n$$\n\n' + 'Later.\n\n'.repeat(200)
     view().dispatch({ changes: { from: 0, to: view().state.doc.length, insert: source } })
     const ensure = vi.fn(language.ensureSyntaxTree)
     const cm = { language: { ensureSyntaxTree: ensure } }
     expect(previewBlock(view().state, cm, [1, 1])?.name).toBe('Paragraph')
-    expect(ensure).toHaveBeenLastCalledWith(view().state, 'First.'.length, 100)
+    expect(ensure.mock.calls[0]).toEqual([view().state, 'First.\n'.length, 100])
     expect(previewBlock(view().state, cm, [3, 7])).toBeNull()
     ensure.mockClear()
     expect(previewBlock(view().state, cm, [0, 1])).toBeNull()
@@ -278,8 +278,29 @@ describe('folder documents: writing', () => {
     await redraw()
   })
 
+  test('a partial syntax tree retains the complete next block for Move down', async () => {
+    const source = 'Before.\n\n- One\n- Two\n- Three\n\nAfter.\n\n' + 'Later.\n\n'.repeat(200)
+    view().dispatch({ changes: { from: 0, to: view().state.doc.length, insert: source } })
+    const ensure = vi.fn((state: cmState.EditorState, upto: number) => {
+      const parse = markdownLanguage.parser.startParse(state.doc.toString())
+      parse.stopAt(upto)
+      let tree
+      while (!(tree = parse.advance())) { /* Complete this partial parse, not the whole document. */ }
+      return tree
+    })
+    const blocks = sourceBlocks(view().state, { language: { ensureSyntaxTree: ensure } }, 'Before.'.length)
+    expect(blocks.map((block: { name: string }) => block.name)).toEqual(['Paragraph', 'BulletList'])
+    expect(view().state.doc.sliceString(blocks[1].from, blocks[1].to)).toBe('- One\n- Two\n- Three')
+    const move = moveBlock(view().state.doc, blocks[0], blocks[1], true)
+    view().dispatch({ changes: move.changes })
+    expect(view().state.doc.toString()).toBe(source.replace('Before.\n\n- One\n- Two\n- Three', '- One\n- Two\n- Three\n\nBefore.'))
+    view().dispatch({ changes: { from: 0, to: view().state.doc.length, insert: TEXT } })
+    await redraw()
+  })
+
   test.each([
     ['- One\n- Two', 'list', '- ', '\n'],
+    ['- - nested', 'list', '- ', '\n'],
     ['* [ ] One\n* [x] Two', 'todo', '* [ ] ', '\n'],
     ['- One\n- Two', 'todo', '* [ ] ', '\n\n'],
     ['- [ ] One\n- [x] Two', 'list', '* ', '\n\n'],
