@@ -2484,9 +2484,11 @@ export class AcpChatStore {
   private _loadStoredFirstPage(generation: number): Promise<void> {
     return rpc.sessions
       .getStoredHistory({ sessionId: this.sessionId, limit: 100 })
-      .then((stored) => {
+      .then(async (stored) => {
         if (stored.turns.length === 0 || this._disposed) return;
         if (generation !== this._historyGeneration) return;
+        const older = await this._storedPagesToAnchor(stored.turns, stored.nextCursor);
+        if (this._disposed || generation !== this._historyGeneration) return;
         runInAction(() => {
           this._storedHistoryTurns = stored.turns;
           this._storedOrigins = stored.originTurnIds;
@@ -2494,8 +2496,9 @@ export class AcpChatStore {
           this._storedBootstrapMaxSeq = stored.turns.at(-1)!.seq;
           // 往上翻从这里接着翻:库里那份是完整的,一直翻它。
           this._olderSource = 'stored';
-          this._olderCursor = stored.nextCursor;
-          this.chatState.transcript.history.seed(stored.turns);
+          this._olderCursor = older.cursor;
+          this._olderHistoryTurns = older.turns;
+          this.chatState.transcript.history.seed([...older.turns, ...stored.turns]);
           this.historyLoading = false;
         });
       })
@@ -2505,6 +2508,30 @@ export class AcpChatStore {
           error,
         });
       });
+  }
+
+  /**
+   * @@@anchor-page — a reader who had scrolled up (`chatState.scroll` holds their row) comes back to that row: the pages
+   * down to it are read before the first seed, so the view never shows the end of the newest page and jumps later.
+   * A row no longer in the record leaves the reader at the end.
+   */
+  private async _storedPagesToAnchor(newest: TranscriptTurn[], nextCursor: number | null): Promise<{ turns: TranscriptTurn[]; cursor: number | null }> {
+    const mode = this.chatState.scroll.get();
+    let turns: TranscriptTurn[] = [];
+    let cursor = nextCursor;
+    if (mode.kind !== 'anchor') return { turns, cursor };
+    const holds = (page: TranscriptTurn[]) => page.some(turn => turn.items.some(item => mode.itemId === item.id || mode.itemId.startsWith(`${item.id}:`)));
+    while (!holds(turns) && !holds(newest)) {
+      if (typeof cursor !== 'number') {
+        this.chatState.scroll.set({ kind: 'tail' });
+        break;
+      }
+      const page = await rpc.sessions.getStoredHistory({ sessionId: this.sessionId, before: cursor, limit: 100 }).catch(() => null);
+      if (!page || this._disposed) break;
+      turns = [...page.turns, ...turns];
+      cursor = page.nextCursor;
+    }
+    return { turns, cursor };
   }
 
   private _visibleHistoryTurns(turns: TranscriptTurn[]): TranscriptTurn[] {

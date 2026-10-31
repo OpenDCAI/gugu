@@ -17,13 +17,12 @@ afterEach(() => { harness.cleanup(); removeDeviceSessions('host'); scope.visible
 it('opens at the first unread provider identity and acknowledges only visible replies, without scrolling', async () => {
   updateDeviceSessions('host', { sessions: [{ conversationId: 's', nativeInputVersion: 1, nativeUnreadKeys: ['msg_first', 'msg_covered'] } as never] })
   const turns = [{ id: 's:turn:s4', items: ['first', 'covered'].map(name => ({ id: `s:turn:s4:message:msg_${name}`, kind: 'message', role: 'assistant', text: name })) }] as TranscriptTurn[]
-  const anchor = vi.fn()
-  const revealItem = vi.fn((itemId: string) => { anchor({ kind: 'anchor', itemId, edge: 'top', offset: -8 }); return true })
+  const openItem = vi.fn(() => true)
   let controls!: ReturnType<typeof useNativeConversationRead>
   function Fixture({ shown }: { shown: boolean }) { controls = useNativeConversationRead('host', 's', shown, () => turns); return null }
   await harness.render(<Fixture shown />)
-  await act(async () => { controls.onReady({ revealItem } as unknown as ChatView); controls.onVisibleItems(['s:turn:4:message:msg_first']) })
-  expect(anchor).toHaveBeenCalledWith({ kind: 'anchor', itemId: 's:turn:s4:message:msg_first', edge: 'top', offset: -8 })
+  await act(async () => { controls.onReady({ openItem } as unknown as ChatView); controls.onVisibleItems(['s:turn:4:message:msg_first']) })
+  expect(openItem).toHaveBeenCalledWith('s:turn:s4:message:msg_first')
   await vi.waitFor(() => expect(scope.visible).toHaveBeenCalledWith({ conversationId: 's', itemIds: ['s:turn:4:message:msg_first'] }))
   expect(scope.visible.mock.calls.some(([request]) => request.itemIds.includes('s:turn:s4:message:msg_covered'))).toBe(false)
   await harness.render(<Fixture shown={false} />)
@@ -39,14 +38,14 @@ it('retries identity navigation after the target render units become available w
     const turns = [{ id: 's:turn:s4', items: [{ id: 's:turn:s4:message:msg_first', kind: 'message', role: 'assistant', text: 'Reply' }] }] as TranscriptTurn[]
     let controls!: ReturnType<typeof useNativeConversationRead>
     const Fixture = () => { controls = useNativeConversationRead('host', 's', true, () => turns); return null }
-    const revealItem = vi.fn().mockReturnValueOnce(false).mockReturnValue(true)
+    const openItem = vi.fn().mockReturnValueOnce(false).mockReturnValue(true)
     await harness.render(<Fixture />)
-    await act(async () => { controls.onReady({ revealItem } as unknown as ChatView) })
-    expect(revealItem).toHaveBeenCalledTimes(1)
+    await act(async () => { controls.onReady({ openItem } as unknown as ChatView) })
+    expect(openItem).toHaveBeenCalledTimes(1)
     await act(async () => { await vi.advanceTimersByTimeAsync(500) })
-    expect(revealItem).toHaveBeenCalledTimes(2)
+    expect(openItem).toHaveBeenCalledTimes(2)
     await act(async () => { await vi.advanceTimersByTimeAsync(500) })
-    expect(revealItem).toHaveBeenCalledTimes(2)
+    expect(openItem).toHaveBeenCalledTimes(2)
     expect(scope.visible).not.toHaveBeenCalled()
   } finally { vi.useRealTimers() }
 })
