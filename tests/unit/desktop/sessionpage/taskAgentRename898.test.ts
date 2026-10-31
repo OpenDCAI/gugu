@@ -18,6 +18,8 @@ const state = vi.hoisted(() => ({
   actualQueue: false,
   syncError: null as { message: string } | null,
   cloudAnswer: undefined as (() => void) | undefined,
+  errorStatus: undefined as number | undefined,
+  writes: 0,
 }))
 vi.mock('@gugu/core', () => ({
   listAgents: async () => state.roster,
@@ -29,7 +31,7 @@ vi.mock('@gugu/core/local/state/agents', () => ({
     state.roster[index] = { ...state.roster[index], ...patch }
   },
 }))
-vi.mock('../../../../apps/desktop/electron/lib/logger', () => ({ createLogger: () => ({ warn: state.warn }) }))
+vi.mock('../../../../apps/desktop/electron/lib/logger', () => ({ createLogger: () => ({ warn: state.warn, error: state.warn }) }))
 vi.mock('../../../../apps/desktop/src/lib/realtimeChannel', () => ({
   subscribePrivateUserEventBus: (_account: string, _event: string, _listener: unknown, options: { onSubscribed: () => void }) => {
     state.reconnected = options.onSubscribed
@@ -64,7 +66,8 @@ vi.mock('../../../../apps/desktop/electron/supabase', () => ({
     let patch: { display_name: string } | null = null
     let ids: string[] | undefined
     const result = () => {
-      if (state.error) return { data: null, error: { message: state.error } }
+      if (patch) state.writes += 1
+      if (state.error) return { data: null, error: { message: state.error }, status: state.errorStatus }
       const rows = state.rows.filter((row) => (!ids || ids.includes(row.id)) && filters.every(([key, value]) => row[key as keyof typeof row] === value))
       if (patch) for (const row of rows) Object.assign(row, patch)
       return { data: rows, error: null }
@@ -154,6 +157,8 @@ beforeEach(() => {
   state.warn.mockClear()
   state.beforeWrite = undefined
   state.syncError = null
+  state.errorStatus = undefined
+  state.writes = 0
   state.provision.mockReset().mockImplementation(async () => { state.rows[0].name_serial = 1; return { displayName: state.rows[0].display_name } })
 })
 
@@ -280,6 +285,26 @@ describe('task and identity shared rename operation', () => {
     state.cloudAnswer!()
     await state.lockTail
     expect(state.lock.mock.calls.filter(([label]) => label === 'task identity name changes')).toHaveLength(passes)
+  })
+
+  it('records a refused name once and never retries it on later answers or synchronizations', async () => {
+    const app = setup()
+    state.error = 'permission denied'
+    state.errorStatus = 403
+    await app.host.renameAgent({ sessionId: 'task', name: 'Refused name' })
+    expect(state.writes).toBe(1)
+    expect(app.title()).toBe('Refused name')
+    state.error = null
+    state.errorStatus = undefined
+    state.cloudAnswer!()
+    await state.lockTail
+    expect(state.lock).not.toHaveBeenCalledWith('task identity name changes')
+    await app.host.synchronizeNames()
+    expect(state.writes).toBe(1)
+    expect(state.rows[0].display_name).toBe('Claude 1')
+    // A new explicit rename is a new decision and is published normally.
+    await app.host.renameAgent({ sessionId: 'task', name: 'Accepted name' })
+    expect(state.rows[0].display_name).toBe('Accepted name')
   })
 
   it('retains a bound signed-out manual edit without touching the cloud', async () => {

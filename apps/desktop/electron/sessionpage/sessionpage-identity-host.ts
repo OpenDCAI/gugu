@@ -113,6 +113,17 @@ export function reconcileSessionpageOwnerNames(
   reap()
 }
 
+/**
+ * The backend refused a task identity name (not owned, not authorized, invalid). Retrying cannot change that, so the
+ * name stays on this device and is not retried. 401 (expiring token), 408 and 429 are transient like 5xx and no answer.
+ */
+class TaskIdentityNameRefused extends Error {}
+
+function identityNameWriteError(message: string, status: number | undefined): Error {
+  const refused = status !== undefined && status >= 400 && status < 500 && ![401, 408, 429].includes(status)
+  return refused ? new TaskIdentityNameRefused(message) : new Error(message)
+}
+
 function requireAddressInput(input: unknown): SessionShellAgentAddressInput {
   const target = input as Partial<SessionShellAgentAddressInput> | null
   if (!target?.projectId || !target.sessionId) {
@@ -128,10 +139,17 @@ export function createSessionpageIdentityHost(deps: SessionpageIdentityHostDeps)
     const state = deps.taskNames?.state(sessionId)
     return state?.pendingManual ? state.title : undefined
   }
-  // A manual name whose identity write failed waits for the backend to answer main again, then the existing
-  // synchronization publishes it once. Armed only by a deferred publication; a repeated failure re-arms it.
+  // A manual name whose identity write failed transiently waits for the backend to answer main again, then the
+  // existing synchronization publishes it once; another transient failure re-arms it. A refused name is recorded
+  // once (agent → name) and never retried, by this signal or by later synchronizations.
   let publicationDeferred = false
   const deferPublication = () => { publicationDeferred = true }
+  const refusedNames = new Map<string, string>()
+  const publicationFailed = (agentUserId: string, name: string, error: unknown) => {
+    if (!(error instanceof TaskIdentityNameRefused)) return deferPublication()
+    refusedNames.set(agentUserId, name)
+    log.error({ agentUserId, error: String(error) }, 'Task identity name refused by the backend; kept on this device and not retried')
+  }
   onElectronCloudAnswer(() => {
     if (!publicationDeferred) return
     publicationDeferred = false
@@ -241,18 +259,19 @@ export function createSessionpageIdentityHost(deps: SessionpageIdentityHostDeps)
         let write = updateOwnedAgentIdentity(client, agent.gugu_user_id, { display_name: name }, 'id', auth.userId)
         // A remote manual rename received while the automatic name was in flight wins too.
         if (source === 'generated') write = write.eq('display_name', agent.name)
-        const { data, error } = await write.maybeSingle()
-        if (error) throw new Error(`Session-page agent rename failed for ${agent.gugu_user_id}: ${error.message}`)
+        const { data, error, status } = await write.maybeSingle()
+        if (error) throw identityNameWriteError(`Session-page agent rename failed for ${agent.gugu_user_id}: ${error.message}`, status)
         if (!data) {
           if (source === 'generated') return false
-          throw new Error(`Session-page agent ${agent.gugu_user_id} is not owned by the current account`)
+          throw new TaskIdentityNameRefused(`Session-page agent ${agent.gugu_user_id} is not owned by the current account`)
         }
+        refusedNames.delete(agent.gugu_user_id)
         const adopted = await adoptAgentName(agent.gugu_user_id, name, source, source === 'manual' ? name : undefined)
         return adopted || source === 'manual' ? current() : false
       })
     } catch (error) {
       if (source !== 'manual') throw error
-      deferPublication()
+      publicationFailed(agent.gugu_user_id, name, error)
       log.warn({ sessionId, error: String(error) }, 'Local task name saved; identity publication deferred until synchronization')
       return current()
     }
@@ -307,6 +326,7 @@ export function createSessionpageIdentityHost(deps: SessionpageIdentityHostDeps)
         const identities = await loadSessionpageCanonicalAgentIdentities(auth, roster.map((agent) => agent.gugu_user_id), false)
         for (const agent of roster) {
           const sessionId = agent.cache![SESSION_CACHE_KEY] as string
+          let publishing: string | undefined
           try {
             const state = deps.taskNames!.state(sessionId)
             if (!state.title) continue
@@ -316,11 +336,13 @@ export function createSessionpageIdentityHost(deps: SessionpageIdentityHostDeps)
             const localManual = state.pendingManual
             let name = identity.display_name
             if (localManual) {
-              name = taskAgentName(state.title)
-              const { data, error } = await updateOwnedAgentIdentity(makeIdentityClient(auth.accessToken), agent.gugu_user_id,
+              if (refusedNames.get(agent.gugu_user_id) === state.title) continue
+              publishing = state.title
+              try { name = taskAgentName(state.title) } catch (error) { throw new TaskIdentityNameRefused(String(error)) }
+              const { data, error, status } = await updateOwnedAgentIdentity(makeIdentityClient(auth.accessToken), agent.gugu_user_id,
                 { display_name: name }, 'id', auth.userId).maybeSingle()
-              if (error) throw new Error(error.message)
-              if (!data) throw new Error('Task identity name update was not authorized')
+              if (error) throw identityNameWriteError(error.message, status)
+              if (!data) throw new TaskIdentityNameRefused('Task identity name update was not authorized')
             } else if (!state.managed) {
               const agentType = normalizeAgentType(agent.agent_type)
               const label = getAgentTypeLabel(agentType)
@@ -337,7 +359,7 @@ export function createSessionpageIdentityHost(deps: SessionpageIdentityHostDeps)
             const source = localManual || !state.managed || (state.identityName && state.identityName !== name) ? 'manual' : state.source
             await adoptRecordName(agent, name, source === 'harness' ? 'manual' : source)
           } catch (error) {
-            if (deps.taskNames!.state(sessionId).pendingManual) deferPublication()
+            if (publishing !== undefined) publicationFailed(agent.gugu_user_id, publishing, error)
             log.warn({ sessionId, agentUserId: agent.gugu_user_id, error: String(error) }, 'Task identity name synchronization failed; continuing with the remaining tasks')
           }
         }
