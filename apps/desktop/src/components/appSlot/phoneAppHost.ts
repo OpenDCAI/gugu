@@ -27,7 +27,9 @@ import {
   SYNC_PORT_WINDOW_MESSAGE,
   fileRefOf,
   fileSearchOf,
-  isLocal,
+  isWorkspace,
+  sessionWorkspace,
+  workspaceSession,
   placeOf,
   sessionIdOf,
   type AppForumConsentDetail,
@@ -98,7 +100,7 @@ export interface PhoneAppBinding {
   /** The slot drawing it. */
   tabId: string
   tabName: string
-  /** The chat it is drawn for — null for a page in a session (`session`). */
+  /** The conversation it is in (`AppWhere`): the chat it is drawn for; in a session's tab, the person's private chat with its agent. */
   chatId: string | null
   /**
    * owner 10-16 The session it is drawn in, on one of the person's computers (the phone has none of its own): what its
@@ -284,7 +286,9 @@ function takeOpeningLinks(binding: PhoneAppBinding): ExtensionHostEvent[] {
   const taken: ExtensionHostEvent[] = []
   for (let i = 0; i < openingLinks.length; ) {
     const opening = openingLinks[i]!
-    const mine = opening.extensionId === binding.extensionId && opening.chatId === binding.chatId && (opening.sessionId ?? null) === (binding.session?.id ?? null)
+    // Told every page where it opened: a session's tab is at its working copy and in its agent's chat both (`AppWhere`).
+    const mine = opening.extensionId === binding.extensionId
+      && (opening.sessionId ? opening.sessionId === binding.session?.id : opening.chatId ? opening.chatId === binding.chatId : !binding.chatId && !binding.session)
       && (opening.event.type !== 'link' || opening.event.tab === binding.tabName)
       && (opening.itemId === null ? !binding.itemId : opening.itemId === binding.itemId)
     if (opening.expiresAt < now || mine) {
@@ -408,7 +412,7 @@ export function hostAppFrame(
   const readMembers = async () => {
     const chatId = hosted.binding.chatId ? await files.resourceChat(hosted.binding.chatId) : null
     hosted.binding.chatId = chatId
-    // A page in a session is in no chat: its context says so (no `chat`), never a chat read for nothing.
+    // A page in no conversation: its context says so (no `chat`), never a chat read for nothing.
     if (!chatId) {
       members = []
       chat = null
@@ -441,12 +445,12 @@ export function hostAppFrame(
   /** A chat file a call names: a phone has no session's working copy to reach. */
   const chatRef = (value: unknown): ChatFileRef => {
     const ref = fileRefOf(value)
-    if (isLocal(ref)) refused('not-found', 'A phone has no folders of a computer (session working copies, projects): only chat files')
+    if (isWorkspace(ref)) refused('not-found', 'A phone has no folders of a computer (session working copies, projects): only chat files')
     return ref as ChatFileRef
   }
   const chatPlace = (value: unknown): string => {
     const place = placeOf(value)
-    if (isLocal(place)) refused('not-found', 'A phone has no folders of a computer (session working copies, projects): only chat files')
+    if (isWorkspace(place)) refused('not-found', 'A phone has no folders of a computer (session working copies, projects): only chat files')
     return (place as { chat: string }).chat
   }
   const unread = (error: unknown) => log.warn({ error: error instanceof Error ? error.message : String(error) }, 'the chat could not be read')
@@ -458,8 +462,9 @@ export function hostAppFrame(
     ...(hosted.binding.itemId && hosted.binding.chatId ? { file: { chat: hosted.binding.chatId, id: hosted.binding.itemId } } : {}),
     ...(hosted.binding.session
       ? {
-          session: {
-            id: hosted.binding.session.id,
+          workspace: {
+            id: sessionWorkspace(hosted.binding.session.id),
+            sessionId: hosted.binding.session.id,
             deviceId: hosted.binding.session.deviceId,
             ...(hosted.binding.session.deviceLabel ? { deviceLabel: hosted.binding.session.deviceLabel } : {}),
             ...(hosted.binding.session.projectId ? { projectId: hosted.binding.session.projectId } : {}),
@@ -932,7 +937,8 @@ export async function openPhoneLink(target: string | OpenTarget) {
     },
     deliver: (extensionId, event, opened) => {
       const place = opened === 'own' ? null : opened
-      openingLinks.push({ extensionId, event, chatId: place && 'chat' in place ? place.chat : null, itemId: null, ...(place && 'session' in place ? { sessionId: place.session } : {}), expiresAt: Date.now() + OPENING_LINK_TTL_MS })
+      const sessionId = place && isWorkspace(place) ? workspaceSession(place) : null
+      openingLinks.push({ extensionId, event, chatId: place && 'chat' in place ? place.chat : null, itemId: null, ...(sessionId ? { sessionId } : {}), expiresAt: Date.now() + OPENING_LINK_TTL_MS })
       for (const frame of frames.values()) for (const waiting of takeOpeningLinks(frame.binding)) frame.deliver(waiting)
     },
   }, target)

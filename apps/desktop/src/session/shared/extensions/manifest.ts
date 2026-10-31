@@ -21,7 +21,7 @@ export { EXTENSION_API_VERSION };
  * gugu. Both are compatibility facts, not「the bundle is broken」— the market keeps
  * them apart (see shared/extensions/market.ts `compatOf`).
  */
-export const EXTENSION_API_VERSION_MIN_SUPPORTED = 24;
+export const EXTENSION_API_VERSION_MIN_SUPPORTED = 25;
 
 // `engines.gugu`: the oldest gugu this bundle runs on, as a lower bound only.
 // Same idea as VS Code's `engines.vscode` (`^1.8.0`), narrowed to the two spellings

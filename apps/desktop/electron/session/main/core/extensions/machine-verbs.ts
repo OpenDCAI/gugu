@@ -1,6 +1,6 @@
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type { MachineVerb, PlaceVerb } from '@shared/extensions/bridge-protocol';
-import { folderOf, isLocal, placeOf, fileRefOf } from '@shared/extensions/app-runtime-protocol';
+import { folderOf, isWorkspace, placeOf, fileRefOf } from '@shared/extensions/app-runtime-protocol';
 import { HOSTED_PROGRAM_ELSEWHERE, hostsProgram } from '@shared/extensions/program-place';
 import { listExtensionData, readExtensionData, writeExtensionData } from '@main/core/extensions/extension-data';
 import { extensionDataRoot, extensionsService } from '@main/core/extensions/extensions-root';
@@ -50,13 +50,13 @@ export const machineVerbs = {
   // A working copy's files (`machine: 'place'`), for a page whose working copy is on this machine.
   filesList: async (_extensionId, args) => {
     const place = placeOf(args.place);
-    if (!isLocal(place)) throw invalid('A chat\'s files are listed where the page is');
+    if (!isWorkspace(place)) throw invalid('A chat\'s files are listed where the page is');
     const { listWorkingCopy } = await import('./working-copy-files');
     return listWorkingCopy(place, folderOf(args.folder), null);
   },
   filesRead: async (_extensionId, args) => {
     const ref = fileRefOf(args.ref);
-    if (!isLocal(ref)) throw invalid('A chat\'s file is opened whole: files.open');
+    if (!isWorkspace(ref)) throw invalid('A chat\'s file is opened whole: files.open');
     const { readWorkingCopy } = await import('./working-copy-files');
     return readWorkingCopy(ref, 'id' in ref ? ref.id : ref.name, Number(args.offset) || 0, Number(args.length) || 0);
   },

@@ -16,8 +16,8 @@ import {
   type AppFileEntry,
   type AppFileOpened,
   type AppFileUpload,
-  type LocalFileRef,
-  type LocalPlace,
+  type WorkspaceFileRef,
+  type WorkspacePlace,
   placeKey,
 } from '@shared/extensions/app-runtime-protocol';
 import { LOCAL_DOC_PREFIX, type Grant, type SocketEvents, type SocketHandle } from '@shared/extensions/file-sync-core';
@@ -193,7 +193,7 @@ const documentKind = (name: string, raw: Uint8Array) => workspaceUploadKind(name
  * A working copy's file (or folder: no `stat` read) as `gugu.files` shows it — the same shape as a chat file's. Its id is
  * its path; it names its folder (`place`).
  */
-export function workingCopyEntry(place: LocalPlace, rel: string, stat: fs.Stats | null, contentType = localContentType(rel)): AppFileEntry {
+export function workingCopyEntry(place: WorkspacePlace, rel: string, stat: fs.Stats | null, contentType = localContentType(rel)): AppFileEntry {
   const name = path.posix.basename(rel);
   const kind = /^text\//.test(contentType) || isJson(contentType) ? 'document' : 'file';
   return {
@@ -560,7 +560,7 @@ export interface LocalSurface {
   pageId: number;
   extensionId: string;
   /** Which folder this is, as the call named it. */
-  place: LocalPlace;
+  place: WorkspacePlace;
   /** The folder's real path. */
   workspaceRoot: string;
   /** The file (relative to it) the host opened this page for, if it is in this folder: it needs no capability. */
@@ -568,7 +568,7 @@ export interface LocalSurface {
 }
 
 /** What a local file's grant goes by: a path is only unique in its folder, and a page may hold two folders' files. */
-const grantKey = (place: LocalPlace, rel: string) => `${placeKey(place)}/${rel}`;
+const grantKey = (place: WorkspacePlace, rel: string) => `${placeKey(place)}/${rel}`;
 
 /**
  * `gugu.files` on a session's working copy: the same verbs and gates as a chat's (`app-files-core.ts`), over the files
@@ -606,10 +606,10 @@ export function createLocalAppFiles(platform: {
   }
 
   /** In a working copy a file's id and its name are the same thing: its path. */
-  const pathOf = (ref: LocalFileRef) => ('id' in ref ? ref.id : ref.name);
+  const pathOf = (ref: WorkspaceFileRef) => ('id' in ref ? ref.id : ref.name);
 
   /** A file the page may read: the one handed to it, or any other with `files:read`/`:write`. */
-  function readable(surface: LocalSurface, ref: LocalFileRef, what: 'saving' | 'opening'): { abs: string; rel: string } {
+  function readable(surface: LocalSurface, ref: WorkspaceFileRef, what: 'saving' | 'opening'): { abs: string; rel: string } {
     const found = inside(surface.workspaceRoot, pathOf(ref), 'existing');
     if (found.rel !== surface.filePath && !has(surface, 'files:read') && !has(surface, 'files:write')) {
       throw new AppFileError('denied', `Not permitted: ${what} a file other than the one this page was opened for needs "files:read" or "files:write"`);
@@ -618,7 +618,7 @@ export function createLocalAppFiles(platform: {
     return found;
   }
 
-  async function open(surface: LocalSurface, args: { ref: LocalFileRef; readOnly?: boolean }): Promise<AppFileOpened> {
+  async function open(surface: LocalSurface, args: { ref: WorkspaceFileRef; readOnly?: boolean }): Promise<AppFileOpened> {
     // The gate before a byte is read, as for a chat's files: the one handed to the page, or files:read / files:write.
     const found = readable(surface, args.ref, 'opening');
     const stat = fs.statSync(found.abs);
@@ -651,7 +651,7 @@ export function createLocalAppFiles(platform: {
     open,
 
     /** After `stale-epoch:<n>`: the same file under its new generation; the old grant is dropped. */
-    async reopen(surface: LocalSurface, args: { ref: LocalFileRef & { id: string }; readOnly?: boolean }): Promise<AppFileOpened> {
+    async reopen(surface: LocalSurface, args: { ref: WorkspaceFileRef & { id: string }; readOnly?: boolean }): Promise<AppFileOpened> {
       const opened = await open(surface, { ref: args.ref, ...(args.readOnly ? { readOnly: true } : {}) });
       if (opened.bytes || opened.chunked) throw new AppFileError('invalid', `${opened.entry.id} is no longer a document (it is binary now, or over a document's size)`);
       const key = grantKey(surface.place, opened.entry.id);
@@ -685,7 +685,7 @@ export function createLocalAppFiles(platform: {
       return workingCopyEntry(surface.place, target.rel, fs.statSync(target.abs));
     },
 
-    rename(surface: LocalSurface, args: { ref: LocalFileRef; name: string }): AppFileEntry {
+    rename(surface: LocalSurface, args: { ref: WorkspaceFileRef; name: string }): AppFileEntry {
       const from = inside(surface.workspaceRoot, pathOf(args.ref), 'existing');
       const name = String(args.name ?? '').trim();
       if (!name) throw new AppFileError('invalid', 'A file needs a name');
@@ -703,7 +703,7 @@ export function createLocalAppFiles(platform: {
      * G1 A stored file of the working copy written over with its next content — the bytes beside it, renamed over it.
      * Its history is the working copy's own (git). Gated like opening it read-write; a document changes through its open file.
      */
-    replace(surface: LocalSurface, args: { ref: LocalFileRef; file: AppFileUpload }): AppFileEntry {
+    replace(surface: LocalSurface, args: { ref: WorkspaceFileRef; file: AppFileUpload }): AppFileEntry {
       const file = args.file;
       if (!file || !(file.bytes instanceof ArrayBuffer)) throw new AppFileError('invalid', 'files.replace(file, content) takes the new content: a Blob');
       const found = inside(surface.workspaceRoot, pathOf(args.ref), 'existing');
@@ -727,7 +727,7 @@ export function createLocalAppFiles(platform: {
       return workingCopyEntry(surface.place, found.rel, fs.statSync(found.abs));
     },
 
-    remove(surface: LocalSurface, args: { ref: LocalFileRef }): void {
+    remove(surface: LocalSurface, args: { ref: WorkspaceFileRef }): void {
       const found = inside(surface.workspaceRoot, pathOf(args.ref), 'existing');
       if (!fs.statSync(found.abs).isFile()) throw new AppFileError('invalid', `${found.rel} is not a file`);
       fs.rmSync(found.abs);
@@ -765,13 +765,13 @@ export function createLocalAppFiles(platform: {
     },
 
     /** What saving a file of the working copy takes — gated like opening it read-only: its name and its bytes. */
-    downloadSource(surface: LocalSurface, args: { ref: LocalFileRef }): { name: string; bytes: Uint8Array } {
+    downloadSource(surface: LocalSurface, args: { ref: WorkspaceFileRef }): { name: string; bytes: Uint8Array } {
       const found = readable(surface, args.ref, 'saving');
       return { name: path.posix.basename(found.rel), bytes: fs.readFileSync(found.abs) };
     },
 
     /** 「用 X 打开」: which file of the working copy — gated like saving it. Who opens it is the host's to work out. */
-    openTarget(surface: LocalSurface, args: { ref: LocalFileRef }): { place: LocalPlace; path: string; name: string } {
+    openTarget(surface: LocalSurface, args: { ref: WorkspaceFileRef }): { place: WorkspacePlace; path: string; name: string } {
       const found = readable(surface, args.ref, 'opening');
       return { place: surface.place, path: found.rel, name: path.posix.basename(found.rel) };
     },

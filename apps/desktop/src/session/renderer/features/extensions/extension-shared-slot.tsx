@@ -3,6 +3,7 @@ import { PageShownContext } from '@renderer/app/recent-session-pages';
 import { AppPeekSlot } from '@/components/appSlot/AppPeekSlot';
 import { ExtensionTabToolbar } from './extension-tab-toolbar';
 import { extensionViewStore } from './extension-view-store';
+import { useTaskConversation } from '@/lib/taskConversation';
 
 /**
  * 常驻扩展在一条会话页里的那一格:**只是一个位置**,页不在这里。
@@ -35,15 +36,18 @@ export function ExtensionSharedSlot({
   // root layer only re-places it on a claim change, so a hidden claim would leave it drawn over the
   // session now shown. Claim while shown, release when hidden — the page itself stays in the root layer.
   const shown = useContext(PageShownContext);
+  // A chat's slot is in that chat; a session's slot in the person's private chat with its agent (`AppWhere`).
+  const taskConversation = useTaskConversation(chatId ? null : sessionId);
+  const conversation = chatId ?? taskConversation ?? undefined;
 
   // Where it is, and nothing else: the session's own facts (its agent, project, working copy) are main's to read
   // (真源原则 13), and what is on screen is `getAppState()`'s.
   useLayoutEffect(() => {
     const element = slotRef.current;
     if (!element || !shown) return;
-    const token = extensionViewStore.claim(tabKind, { ...(sessionId ? { sessionId } : {}), ...(chatId ? { chatId } : {}), ...(itemId ? { itemId } : {}), ...(perSession ? { perSession } : {}), tabId, element });
+    const token = extensionViewStore.claim(tabKind, { ...(sessionId ? { sessionId } : {}), ...(chatId ? { chatId } : {}), ...(conversation ? { conversation } : {}), ...(itemId ? { itemId } : {}), ...(perSession ? { perSession } : {}), tabId, element });
     return () => extensionViewStore.release(tabKind, token);
-  }, [tabKind, sessionId, chatId, itemId, tabId, shown, perSession]);
+  }, [tabKind, sessionId, chatId, conversation, itemId, tabId, shown, perSession]);
 
   return (
     <div className="flex h-full w-full flex-col">

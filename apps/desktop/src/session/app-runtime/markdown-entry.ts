@@ -130,8 +130,8 @@ function drawDiagrams(root: HTMLElement): void {
  * A relative link in a file (`plan.md`, `./notes/a.md`, `../b.md`) names a file in the same place, beside it: from the
  * folder the file is in (its `path`; a chat file's `name` is its name alone). Above the top of the place is no file.
  */
-function siblingOf(file: unknown, href: string): { chat: string; name: string } | { session: string; name: string } | { project: string; name: string } | null {
-  const entry = ((file as { entry?: unknown } | null)?.entry ?? file) as { chat?: unknown; session?: unknown; project?: unknown; name?: unknown; path?: unknown } | null;
+function siblingOf(file: unknown, href: string): { chat: string; name: string } | { workspace: string; name: string } | null {
+  const entry = ((file as { entry?: unknown } | null)?.entry ?? file) as { chat?: unknown; workspace?: unknown; name?: unknown; path?: unknown } | null;
   if (!entry || typeof entry !== 'object' || href.startsWith('/') || /^[a-z][a-z\d+.-]*:/i.test(href)) return null;
   let path: string;
   try {
@@ -148,8 +148,7 @@ function siblingOf(file: unknown, href: string): { chat: string; name: string } 
   if (parts.length === 0) return null;
   const name = parts.join('/');
   if (typeof entry.chat === 'string') return { chat: entry.chat, name };
-  if (typeof entry.session === 'string') return { session: entry.session, name };
-  if (typeof entry.project === 'string') return { project: entry.project, name };
+  if (typeof entry.workspace === 'string') return { workspace: entry.workspace, name };
   return null;
 }
 

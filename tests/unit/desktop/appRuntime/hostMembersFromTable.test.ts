@@ -12,7 +12,7 @@ const names = (host: Record<string, unknown>) =>
   Object.entries(host).flatMap(([key, value]) =>
     value && typeof value === 'object' ? Object.keys(value).map((inner) => `${key}.${inner}`) : typeof value === 'function' ? [key] : []).sort()
 
-const FILES = ['open', 'reopen', 'close', 'list', 'search', 'recent', 'create', 'remove', 'rename', 'mkdir', 'move', 'watch', 'replace', 'versions', 'readVersion', 'upload'].map((verb) => `appFiles.${verb}`)
+const FILES = ['open', 'reopen', 'close', 'list', 'read', 'search', 'recent', 'create', 'remove', 'rename', 'mkdir', 'move', 'watch', 'replace', 'versions', 'readVersion', 'upload'].map((verb) => `appFiles.${verb}`)
 const MESSAGES = ['messages.history', 'messages.search', 'chats.list', 'chats.members']
 // L1 This computer's projects: the desktop's and an App's program's; a phone has none (no member).
 const PROJECTS = ['projects.list']

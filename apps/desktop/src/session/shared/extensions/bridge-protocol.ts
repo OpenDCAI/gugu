@@ -77,7 +77,7 @@ export const EXTENSION_THEME_CHANNEL = 'gugu-ext:theme';
 // 24 (App model v2): `description` and `contributes.agentInstructions` are gone; `contributes.instructions` is the App's
 // line for agents and `defaultLocale` says what language the base fields are in. The product page is the market's
 // `store/` listing (app-listing.ts). No earlier manifest runs here any more (EXTENSION_API_VERSION_MIN_SUPPORTED, owner 10-31).
-export const EXTENSION_API_VERSION = 24;
+export const EXTENSION_API_VERSION = 25;
 
 /**
  * The page `app_check` runs is started with this argument (摩擦单 F5, F69): it says how often it wrote, set presence and
@@ -125,9 +125,15 @@ export interface ExtensionMember {
   avatar?: string;
 }
 
-/** The session a surface is drawn in, as `getContext().session` gives it. */
-export interface ExtensionSession {
+/**
+ * The working copy a surface works on, as `getContext().workspace` gives it: a session's (`sessionId`, its agent, the
+ * machine it is on) or a project's root folder. `id` is what `gugu.files` names it by (`{ workspace: id }`).
+ */
+export interface ExtensionWorkspace {
+  /** `session:<id>` or `project:<id>`: the place `gugu.files.list({ workspace: id })` lists. */
   id: string;
+  /** The session it is the working copy of; absent for a project's root folder. */
+  sessionId?: string;
   /** Its agent, `user:<uuid>` — the one id an App names an agent by (F35), `listAgents`' `agentId`. Absent: none yet. */
   agentId?: string;
   /** The project it is in; absent for a session in none — a real answer, ❌ "". */
@@ -169,13 +175,17 @@ export interface ExtensionHostContext {
   /** A host modal's initial data, under the opener's context and existing grants. */
   modal?: { data?: unknown };
   /**
-   * The chat this surface is drawn for (its panel, 「在本群打开」): a group, a topic or a private chat, with who is in
+   * The conversation this surface is in (its panel, 「在本群打开」, a session's tab): a group, a topic or a private chat, with who is in
    * it — changes arrive by `onContextChanged`. Absent is a real answer: not in a chat. ❌ No `placement` field: an App
    * decides how to look from which of these facts are present, its capabilities and its layout (L3 评审第 2 条).
    */
   chat?: ExtensionChat & { members: ExtensionMember[] };
-  /** The session this surface is drawn in (a session's tab). Absent is a real answer: in no session. */
-  session?: ExtensionSession;
+  /**
+   * The working copy this surface works on — a session's tab: that session's; a page opened on a project's file: that
+   * project's folder. Absent is a real answer: it works on none. A session's tab has both: `chat` is the person's
+   * private chat with that session's agent.
+   */
+  workspace?: ExtensionWorkspace;
   /**
    * The file this surface was opened for — present only when the person opened that file with this App. It names
    * where it lives (`{ chat, id }`, `{ session, id }` or `{ project, id }`), so `gugu.files.open(ctx.file)` opens it, and it is the one
@@ -198,7 +208,7 @@ export interface ExtensionHostContext {
  * Which page a message or a call came from, as the host knows it — the place facts of that page's `getContext()`, in
  * the same shape (`onViewMessage`'s `from`, a page's `callProgram`). Filled by the host, never by the page.
  */
-export type ExtensionPageFrom = Pick<ExtensionHostContext, 'tabId' | 'session' | 'file' | 'operator'> & {
+export type ExtensionPageFrom = Pick<ExtensionHostContext, 'tabId' | 'workspace' | 'file' | 'operator'> & {
   chat?: ExtensionChat;
 };
 

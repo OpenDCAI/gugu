@@ -181,7 +181,7 @@ export {
 // 不必等 bootEmdashModule 成功(它可失败,失败后宿主继续跑)。注册幂等。
 export { registerWebviewAttachPolicy } from '@main/app/webview-policy'
 // #6615 问题 11 扩展网关给程序盖的调用方上下文(任务、工作副本),每次调用现读。
-export { agentSessionContext as emdashAgentSessionContext } from '@main/core/extensions/extension-agent-context'
+export { callerSessionContext as emdashAgentSessionContext } from '@main/core/extensions/extension-programs'
 // #7191 会话的 agent 操作它会话页里的浏览器页签:宿主的 MCP 层(Playwright 工具)经它拿到连那个页签的 transport。
 export { agentBrowserBridge as emdashAgentBrowser } from '@main/core/browser/agent-browser'
 // @@@touchid-passkey 网页要选通行密钥时,对话框挂在那张网页此刻所在、看得见的咕咕窗口上(停放着 / 窗口收起 ⇒ 无)。

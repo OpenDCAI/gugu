@@ -5,6 +5,8 @@ import { AGENT_OWNER_CACHE_KEY, agentsForOwner } from '@gugu/core/local/state/ag
 export const SESSIONPAGE_SESSION_CACHE_KEY = 'emdash_session_id'
 export const SESSIONPAGE_PROJECT_CACHE_KEY = 'emdash_project_id'
 export const SESSIONPAGE_GROUP_CHAT_CACHE_KEY = 'sessionpage_group_chat_id'
+/** The person's private chat with the session's agent (provisioning's `DIRECT_CHAT_CACHE_KEY`). */
+export const SESSIONPAGE_DIRECT_CHAT_CACHE_KEY = 'sessionpage_direct_chat_id'
 /**
  * #4277 会话不带账号:这两格让同一条会话在不同账号名下各有各的 agent。
  * - owner:这条记录的 agent 归哪个咕咕账号(缓存云端 identity.users.owner_user_id 这个既有事实;
@@ -50,6 +52,15 @@ export async function agentIdsBySession(env: NodeJS.ProcessEnv): Promise<Map<str
     if (sessionId && agent.gugu_user_id) ids.set(sessionId, `user:${agent.gugu_user_id}`)
   }
   return ids
+}
+
+/**
+ * The conversation of a session-page session: the person's private chat with its agent, as provisioning recorded it —
+ * what an App in that session's tab is in (`getContext().chat`), and what its agent's App tool call names
+ * (`gugu/conversation`). Null when its agent has none yet.
+ */
+export async function directChatOfSession(sessionId: string, env: NodeJS.ProcessEnv): Promise<string | null> {
+  return cached(await localAgentForSession(sessionId, env), SESSIONPAGE_DIRECT_CHAT_CACHE_KEY) || null
 }
 
 export async function guguAgentUserIdForSession(

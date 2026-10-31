@@ -93,7 +93,7 @@ describe('the machine that has the session answers a chunk', () => {
 });
 
 const page = { pageId: 1, extensionId: 'studio', handed: null };
-const far = { session: 's-far', name: 'renders/cut.mp4' };
+const far = { workspace: 'session:s-far', name: 'renders/cut.mp4' };
 const listed = (rows: Array<{ id: string; deviceId: string }>, unreached: Array<{ label: string }> = []) =>
   sessionsElsewhere.mockResolvedValue({ rows: rows.map(({ id, deviceId }) => ({ session: { conversationId: id }, deviceId, deviceLabel: 'studio' })), unreached });
 /** The other machine: chunks of `bytes`, each with the etag given for it (the first one when no more are given). */
@@ -140,8 +140,8 @@ describe("another machine's session: the door is files:read:all-machines", () =>
     expect(await refusal(files.openAppFile(page, { ref: far }))).toMatchObject({ code: 'not-found' });
     expect(await refusal(files.downloadAppFile(page, { ref: far }, null))).toMatchObject({ code: 'not-found' });
     granted = ['files:read:all-machines'];
-    expect(await refusal(files.openAppFile(page, { ref: { session: 's-closed', name: 'a.md' } }))).toMatchObject({ code: 'not-found' });
-    expect(await refusal(files.openAppFile(page, { ref: { session: 's-here', name: 'a.md' } }))).toMatchObject({ message: 'local open reached' });
+    expect(await refusal(files.openAppFile(page, { ref: { workspace: 'session:s-closed', name: 'a.md' } }))).toMatchObject({ code: 'not-found' });
+    expect(await refusal(files.openAppFile(page, { ref: { workspace: 'session:s-here', name: 'a.md' } }))).toMatchObject({ message: 'local open reached' });
     expect(sessionsElsewhere).not.toHaveBeenCalled();
     expect(appReadFile).not.toHaveBeenCalled();
   });
@@ -152,7 +152,7 @@ describe("another machine's session: the door is files:read:all-machines", () =>
     expect(opened).toMatchObject({
       access: 'ro',
       docName: '',
-      entry: { id: 'renders/cut.mp4', session: 's-far', name: 'cut.mp4', savedName: 'cut.mp4', contentType: 'video/mp4', type: 'binary', size: clip.length, version: null },
+      entry: { id: 'renders/cut.mp4', workspace: 'session:s-far', name: 'cut.mp4', savedName: 'cut.mp4', contentType: 'video/mp4', type: 'binary', size: clip.length, version: null },
     });
     expect(sha(new Uint8Array(opened.bytes!))).toBe(sha(clip));
     expect(appReadFile).toHaveBeenCalledTimes(3);

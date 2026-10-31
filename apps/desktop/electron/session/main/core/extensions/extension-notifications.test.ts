@@ -33,7 +33,7 @@ let nextWindow = 1_000_000;
 
 function setup(overrides: Partial<ExtensionNotifierDeps> = {}) {
   const shown: { title: string; body: string; silent: boolean; onClick: () => void; closed: boolean }[] = [];
-  const delivered: { event: ExtensionHostEvent; opened: AppPlace | 'own' | null }[] = [];
+  const delivered: { event: ExtensionHostEvent; opened: AppPlace | { session: string } | 'own' | null }[] = [];
   // 点击的处理以把点击交给扩展收尾(打开失败也照样交):交出第一条就是点击处理完了。
   const firstDelivery = Promise.withResolvers<void>();
   let now = nextWindow += 120_000;

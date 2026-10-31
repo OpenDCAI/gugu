@@ -78,7 +78,7 @@ export interface GuguHost extends ProjectionHost {
     history(args: Record<string, unknown>): Promise<unknown>;
     search(args: Record<string, unknown>): Promise<unknown>;
   };
-  /** `gugu.projects`: this computer's projects, each one's folder a place (`{ project: id }`). */
+  /** `gugu.projects`: this computer's projects, each one's folder a place (`{ workspace: project.workspace }`). */
   readonly projects?: {
     list(): Promise<unknown>;
   };

@@ -20,6 +20,8 @@ import {
   readFrameHead,
   readSyncStatus,
   splitRoutingKey,
+  workspaceSession,
+  workspaceTarget,
 } from './app-runtime-protocol';
 
 const TAG = `<script src="${APP_RUNTIME_ENTRY}"></script>`;
@@ -133,26 +135,30 @@ describe('frames main writes and reads for a will', () => {
 // 真源原则 13: every call names its place or file; where the page is never fills one in.
 describe('places and file refs, as a call names them', () => {
   const C1 = '6f1c2b84-3d1e-4c3a-9f0e-0a1b2c3d4e5f';
-  it('a place is exactly one of a chat, a session and a project; anything else is invalid, said how', () => {
+  it('a place is exactly one of a conversation and a working copy; anything else is invalid, said how', () => {
     expect(placeOf({ chat: C1 })).toEqual({ chat: C1 });
-    expect(placeOf({ session: 's-1' })).toEqual({ session: 's-1' });
-    expect(placeOf({ project: 'p-1' })).toEqual({ project: 'p-1' });
-    for (const bad of [undefined, {}, { chat: '' }, { chat: C1, session: 's-1' }, { session: 's-1', project: 'p-1' }, { project: '' }, { chat: 7 }]) {
+    expect(placeOf({ workspace: 'session:s-1' })).toEqual({ workspace: 'session:s-1' });
+    expect(placeOf({ workspace: 'project:p-1' })).toEqual({ workspace: 'project:p-1' });
+    // API 25: a session and a project are one root now — the old keys are not places.
+    for (const bad of [undefined, {}, { chat: '' }, { chat: C1, workspace: 'session:s-1' }, { session: 's-1' }, { project: 'p-1' }, { workspace: 's-1' }, { workspace: '' }, { chat: 7 }]) {
       expect(() => placeOf(bad)).toThrow(expect.objectContaining({ code: 'invalid' }));
     }
+    expect(workspaceTarget({ workspace: 'session:s-1' })).toEqual({ session: 's-1' });
+    expect(workspaceTarget({ workspace: 'project:p-1' })).toEqual({ project: 'p-1' });
+    expect([workspaceSession({ workspace: 'session:s-1' }), workspaceSession({ workspace: 'project:p-1' }), workspaceSession(null)]).toEqual(['s-1', null, null]);
   });
 
   it('a file: an entry or ctx.file, a chat file by its id alone, or a name with its place', () => {
     expect(fileRefOf({ chat: C1, id: 'i-1', name: 'a.json', type: 'json' })).toEqual({ chat: C1, id: 'i-1' });
-    expect(fileRefOf({ session: 's-1', id: 'docs/TODO.md' })).toEqual({ session: 's-1', id: 'docs/TODO.md' });
+    expect(fileRefOf({ workspace: 'session:s-1', id: 'docs/TODO.md' })).toEqual({ workspace: 'session:s-1', id: 'docs/TODO.md' });
     expect(fileRefOf({ id: 'i-1' })).toEqual({ id: 'i-1' });
     expect(fileRefOf({ chat: C1, name: 'a.json' })).toEqual({ chat: C1, name: 'a.json' });
     // L1 A project's file is its folder's, never a chat file by its id: the place it names stays on it.
-    expect(fileRefOf({ project: 'p-1', id: 'docs/plan.md', name: 'plan.md' })).toEqual({ project: 'p-1', id: 'docs/plan.md' });
-    expect(fileRefOf({ project: 'p-1', name: 'docs/plan.md' })).toEqual({ project: 'p-1', name: 'docs/plan.md' });
-    expect(placeKey({ project: 'p-1' })).not.toBe(placeKey({ session: 'p-1' }));
+    expect(fileRefOf({ workspace: 'project:p-1', id: 'docs/plan.md', name: 'plan.md' })).toEqual({ workspace: 'project:p-1', id: 'docs/plan.md' });
+    expect(fileRefOf({ workspace: 'project:p-1', name: 'docs/plan.md' })).toEqual({ workspace: 'project:p-1', name: 'docs/plan.md' });
+    expect(placeKey({ workspace: 'project:p-1' })).not.toBe(placeKey({ workspace: 'session:p-1' }));
     // A name says nothing of where; a session file's path says nothing of whose.
-    for (const bad of ['a.json', { name: 'a.json' }, { session: '', id: 'x' }, { chat: '', id: 'x' }, {}]) {
+    for (const bad of ['a.json', { name: 'a.json' }, { workspace: '', id: 'x' }, { chat: '', id: 'x' }, {}]) {
       expect(() => fileRefOf(bad)).toThrow(expect.objectContaining({ code: 'invalid' }));
     }
   });

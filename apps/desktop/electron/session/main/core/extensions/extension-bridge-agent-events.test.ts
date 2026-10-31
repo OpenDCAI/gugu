@@ -1,3 +1,4 @@
+import { sessionWorkspace } from '@shared/extensions/app-runtime-protocol';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 /**
@@ -122,7 +123,7 @@ beforeEach(async () => {
   await bindExtensionSurface({
     webContentsId: fakeContents.id,
     extensionId: 'ext.notes',
-    sessionId: 'task-1',
+    workspace: sessionWorkspace('task-1'),
     tabId: 'tab-1',
     tabKind: 'ext.notes.main',
   });
@@ -176,7 +177,7 @@ describe('没申报就收不到,申报多宽收多宽', () => {
 // 还听得到它那条会话的 agent,群侧栏和后台页只听得到自己起的。
 describe('每一页听到的都一样:这个 App 够得着的 agent(F13;L12 后台页)', () => {
   it('群侧栏的页和会话里的 tab:同一批,一次算一遍', async () => {
-    await bindExtensionSurface({ webContentsId: 8, extensionId: 'ext.notes', tabId: 'panel', tabKind: 'ext.notes.main', chatId: 'chat-1' });
+    await bindExtensionSurface({ webContentsId: 8, extensionId: 'ext.notes', tabId: 'panel', tabKind: 'ext.notes.main', conversation: 'chat-1' });
     notifyExtensionAgentsChanged('agent-1');
     notifyExtensionAgentsChanged('other-task-agent');
     await settle();

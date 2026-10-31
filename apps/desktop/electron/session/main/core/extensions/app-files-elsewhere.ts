@@ -1,3 +1,4 @@
+import { sessionWorkspace } from '@shared/extensions/app-runtime-protocol';
 import * as path from 'node:path';
 import type { AppReadFileAction, RemoteAppCaller } from '@gugu/session-core/session-record/contract';
 import { AppFileError, contentTypeOf } from '@shared/extensions/app-files-core';
@@ -53,7 +54,7 @@ export async function readElsewhere(
     bytes: read.bytes,
     entry: {
       id: rel,
-      session: sessionId,
+      workspace: sessionWorkspace(sessionId),
       name,
       savedName: name,
       contentType,

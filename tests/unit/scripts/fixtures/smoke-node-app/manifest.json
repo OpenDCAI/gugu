@@ -3,7 +3,7 @@
   "name": "Smoke node App",
   "author": "gugu",
   "version": "1.0.0",
-  "apiVersion": 24,
+  "apiVersion": 25,
   "defaultLocale": "en",
   "entry": "index.html",
   "permissions": { "capabilities": ["agents:tools"] },

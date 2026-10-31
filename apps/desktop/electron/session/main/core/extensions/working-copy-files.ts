@@ -3,7 +3,7 @@ import * as path from 'node:path';
 import { isExpandableFileNode, type FileNode } from '@gugu/session-core/files';
 import { REMOTE_WORKSPACE_CHUNK_BYTES } from '@gugu/session-core/session-record/contract';
 import { AppFileError } from '@shared/extensions/app-files-core';
-import { placeKey, type AppFileEntry, type LocalPlace } from '@shared/extensions/app-runtime-protocol';
+import { placeKey, workspaceSession, type AppFileEntry, type WorkspacePlace } from '@shared/extensions/app-runtime-protocol';
 import type { ExtensionFileChangeBatch } from '@shared/extensions/bridge-protocol';
 import { fileTreeProjectionChannel, type FileTreeProjectionEvent } from '@shared/core/fs/fsEvents';
 import { tapMainEvents } from '@main/lib/events';
@@ -22,7 +22,7 @@ import { workingCopyEntry } from './local-files';
 type Root = { workspaceRoot: string; projectId: string; workspaceId: string | null };
 
 /** Where a call's folder is on this machine (`localRootOf`): a session's working copy, a project's root folder. */
-async function rootOf(place: LocalPlace): Promise<Root & { projector: FileTreeProjector }> {
+async function rootOf(place: WorkspacePlace): Promise<Root & { projector: FileTreeProjector }> {
   const { localRootOf } = await import('./app-files');
   const root = await localRootOf(place);
   const workspace = root.workspaceId ? resolveWorkspace(root.projectId, root.workspaceId) : null;
@@ -42,7 +42,7 @@ function folderPath(root: string, folder: string | undefined): string | null {
 const relOf = (root: string, abs: string) => path.relative(root, abs).split(path.sep).join('/');
 
 /** The tree's nodes of one folder as entries: folders first-class (`type: 'folder'`), a file's size and dates read now. */
-async function entriesOf(place: LocalPlace, root: string, nodes: readonly FileNode[]): Promise<AppFileEntry[]> {
+async function entriesOf(place: WorkspacePlace, root: string, nodes: readonly FileNode[]): Promise<AppFileEntry[]> {
   const entries = await Promise.all(nodes.map(async (node): Promise<AppFileEntry | null> => {
     const rel = relOf(root, node.path);
     const parent = path.posix.dirname(rel);
@@ -58,7 +58,7 @@ async function entriesOf(place: LocalPlace, root: string, nodes: readonly FileNo
 
 /** A page's view of one working copy: its subscription to the tree, the folders it listed, and whom a change is told. */
 interface View {
-  place: LocalPlace;
+  place: WorkspacePlace;
   root: string;
   projector: FileTreeProjector;
   subscriptionId: string;
@@ -68,9 +68,9 @@ interface View {
 }
 
 const views = new Map<string, View>();
-const viewKey = (pageId: number, place: LocalPlace) => `${pageId}/${placeKey(place)}`;
+const viewKey = (pageId: number, place: WorkspacePlace) => `${pageId}/${placeKey(place)}`;
 
-async function viewOf(pageId: number, place: LocalPlace): Promise<View> {
+async function viewOf(pageId: number, place: WorkspacePlace): Promise<View> {
   const key = viewKey(pageId, place);
   const known = views.get(key);
   if (known) return known;
@@ -102,7 +102,7 @@ async function listIn(view: View, folder: string | undefined): Promise<AppFileEn
  * A page's listing is kept with the page (`pageId`), so its watch hears the folders it listed; a call for a page on another
  * machine (`answerAppCall`) has none, and lets go of the tree as it answers.
  */
-export async function listWorkingCopy(place: LocalPlace, folder: string | undefined, pageId: number | null): Promise<AppFileEntry[]> {
+export async function listWorkingCopy(place: WorkspacePlace, folder: string | undefined, pageId: number | null): Promise<AppFileEntry[]> {
   if (pageId !== null) return listIn(await viewOf(pageId, place), folder);
   const { workspaceRoot, projector } = await rootOf(place);
   const opened = await projector.openProjection();
@@ -116,7 +116,7 @@ export async function listWorkingCopy(place: LocalPlace, folder: string | undefi
 }
 
 /** `files.read(file, { offset, length })`: up to 512 KB of a working copy's file, as the file panel reads it. */
-export async function readWorkingCopy(place: LocalPlace, file: string, offset: number, length: number): Promise<{ size: number; offset: number; data: string }> {
+export async function readWorkingCopy(place: WorkspacePlace, file: string, offset: number, length: number): Promise<{ size: number; offset: number; data: string }> {
   const { workspaceRoot } = await rootOf(place);
   try {
     const chunk = await readWorkspaceChunk(workspaceRoot, { path: file, offset, length: Math.min(length, REMOTE_WORKSPACE_CHUNK_BYTES) });
@@ -128,7 +128,14 @@ export async function readWorkingCopy(place: LocalPlace, file: string, offset: n
 }
 
 /** Tell a page that files changed in the folders it listed of this working copy: each one as it is now, and what went. */
-export async function watchWorkingCopy(pageId: number, place: LocalPlace, hear: (change: ExtensionFileChangeBatch) => void): Promise<() => void> {
+export async function watchWorkingCopy(pageId: number, place: WorkspacePlace, hear: (change: ExtensionFileChangeBatch) => void): Promise<() => void> {
+  // A session's working copy on another machine sends no pushes across machines: the watch is taken and stays quiet —
+  // listing again shows what changed there.
+  const session = workspaceSession(place);
+  if (session) {
+    const { sessionMachine } = await import('./app-programs-elsewhere');
+    if (await sessionMachine(session).catch(() => null)) return () => {};
+  }
   const view = await viewOf(pageId, place);
   view.hear = hear;
   return () => {

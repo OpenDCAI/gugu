@@ -115,7 +115,7 @@ void app.whenReady().then(async () => {
     preload: path.join(__dirname, 'preload.cjs'), backgroundThrottling: false,
   } });
   windows.push(viewer);
-  const page = { kind: 'page', extensionId: a.caller.extensionId, pageId: viewer.webContents.id, binding: { sessionId: 'task-a' },
+  const page = { kind: 'page', extensionId: a.caller.extensionId, pageId: viewer.webContents.id, binding: { workspace: 'session:task-a' },
     hear: (event: { type: string; watchId: string; packet: ProjectionHostPacket }) => {
       if (event.type === 'projection') { packets.push(event.packet); viewer.webContents.send('projection', event.watchId, event.packet); }
     },

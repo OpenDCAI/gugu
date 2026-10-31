@@ -29,8 +29,8 @@ export function followsSessionMachine(manifest: Pick<ExtensionManifest, 'contrib
 /** The session whose working copy a `machine: 'place'` call names (`place`, or the file `ref`), or null for a chat's. */
 export function placeSessionOf(args: Record<string, unknown>): string | null {
   for (const named of [args.place, args.ref]) {
-    const session = (named as { session?: unknown } | null | undefined)?.session
-    if (typeof session === 'string' && session) return session
+    const workspace = (named as { workspace?: unknown } | null | undefined)?.workspace
+    if (typeof workspace === 'string' && workspace.startsWith('session:')) return workspace.slice('session:'.length)
   }
   return null
 }

@@ -20,7 +20,9 @@ import {
   fileRefOf,
   fileSearchOf,
   folderOf,
-  isLocal,
+  isWorkspace,
+  workspaceSession,
+  workspaceTarget,
   placeKey,
   placeOf,
   type AppFileEntry,
@@ -30,8 +32,8 @@ import {
   type AppFileUpload,
   type AppFileVersion,
   type AppFileVersionContent,
-  type LocalFileRef,
-  type LocalPlace,
+  type WorkspaceFileRef,
+  type WorkspacePlace,
   type ChatPeekFile,
   type PeekTarget,
   type PreparedChatFile,
@@ -222,23 +224,24 @@ function chatSurface(page: DesktopFilePage): FileSurface {
  * (`listProjectFolders`). A session not on this computer or whose working copy is not open, a project not on this
  * computer, is `not-found`. The same files, gates and watch either way: a folder is a folder.
  */
-export async function localRootOf(place: LocalPlace): Promise<{ workspaceRoot: string; projectId: string; workspaceId: string | null }> {
-  if ('project' in place) {
+export async function localRootOf(place: WorkspacePlace): Promise<{ workspaceRoot: string; projectId: string; workspaceId: string | null }> {
+  const target = workspaceTarget(place);
+  if ('project' in target) {
     const { projectRootFolder } = await import('@main/core/projects/operations/project-folders');
-    const root = await projectRootFolder(place.project);
-    if (!root) throw new AppFileError('not-found', `Project ${place.project} is not a project on this computer`);
-    return { workspaceRoot: await fs.realpath(root.path), projectId: place.project, workspaceId: root.workspaceId };
+    const root = await projectRootFolder(target.project);
+    if (!root) throw new AppFileError('not-found', `Project ${target.project} is not a project on this computer`);
+    return { workspaceRoot: await fs.realpath(root.path), projectId: target.project, workspaceId: root.workspaceId };
   }
   const { agentSessionContext } = await import('@main/core/extensions/extension-agent-context');
-  const session = await agentSessionContext(place.session);
-  if (!session?.workspaceRoot) throw new AppFileError('not-found', `Session ${place.session} has no working copy open on this computer`);
+  const session = await agentSessionContext(target.session);
+  if (!session?.workspaceRoot) throw new AppFileError('not-found', `Session ${target.session} has no working copy open on this computer`);
   return { workspaceRoot: await fs.realpath(session.workspaceRoot), projectId: session.projectId, workspaceId: session.workspaceId ?? null };
 }
 
-async function localFolder(page: DesktopFilePage, place: LocalPlace): Promise<LocalSurface & { projectId: string; workspaceId: string | null }> {
-  const handed = page.handed && isLocal(page.handed) && placeKey(page.handed) === placeKey(place) ? page.handed.id : null;
-  // Only the keys that say where: a file's ref names its place and itself.
-  const where: LocalPlace = 'project' in place ? { project: place.project } : { session: place.session };
+async function localFolder(page: DesktopFilePage, place: WorkspacePlace): Promise<LocalSurface & { projectId: string; workspaceId: string | null }> {
+  const handed = page.handed && isWorkspace(page.handed) && placeKey(page.handed) === placeKey(place) ? page.handed.id : null;
+  // Only the key that says where: a file's ref names its place and itself.
+  const where: WorkspacePlace = { workspace: place.workspace };
   return { pageId: page.pageId, extensionId: page.extensionId, place: where, filePath: handed, ...(await localRootOf(where)) };
 }
 
@@ -246,17 +249,18 @@ async function localFolder(page: DesktopFilePage, place: LocalPlace): Promise<Lo
  * With `files:read:all-machines`, a file of a session that is not on this computer: read whole, on the machine that has
  * it. Null otherwise — the working copy here answers, as it always did.
  */
-async function fileElsewhere(page: DesktopFilePage, ref: LocalFileRef) {
+async function fileElsewhere(page: DesktopFilePage, ref: WorkspaceFileRef) {
   // A project is named by this computer's id for it: another computer's projects are not named here.
-  if (!('session' in ref)) return null;
+  const session = workspaceSession(ref);
+  if (!session) return null;
   if (!extensionsService().hasCapability(page.extensionId, 'files:read:all-machines')) return null;
   const { agentSessionContext } = await import('@main/core/extensions/extension-agent-context');
-  if (await agentSessionContext(ref.session)) return null;
+  if (await agentSessionContext(session)) return null;
   const app = { extensionId: page.extensionId, extensionName: extensionsService().get(page.extensionId).manifest.name };
-  return readElsewhere(app, ref.session, 'id' in ref ? ref.id : ref.name);
+  return readElsewhere(app, session, 'id' in ref ? ref.id : ref.name);
 }
 
-const isChat = (ref: AppFileRef): ref is ChatFileRef => !isLocal(ref);
+const isChat = (ref: AppFileRef): ref is ChatFileRef => !isWorkspace(ref);
 const withId = (ref: AppFileRef, what: string): AppFileRef & { id: string } => {
   if (!('id' in ref)) throw new AppFileError('invalid', `${what} takes a file by its id`);
   return ref;
@@ -265,12 +269,12 @@ const withId = (ref: AppFileRef, what: string): AppFileRef & { id: string } => {
 export async function openAppFile(page: DesktopFilePage, args: { ref?: unknown; readOnly?: boolean; deferDetails?: boolean; expectedVersion?: number }): Promise<AppFileOpened> {
   const ref = fileRefOf(args.ref);
   const readOnly = args.readOnly === true ? { readOnly: true } : {};
-  const elsewhere = isChat(ref) ? null : await fileElsewhere(page, ref as LocalFileRef);
+  const elsewhere = isChat(ref) ? null : await fileElsewhere(page, ref as WorkspaceFileRef);
   // Another machine's file comes as its bytes, read only, whatever it is: no live document across machines.
   if (elsewhere) return { entry: elsewhere.entry, docName: '', access: 'ro', self: await files.self(), bytes: elsewhere.bytes.slice().buffer };
   return isChat(ref)
     ? files.open(chatSurface(page), { ref, ...readOnly, deferDetails: args.deferDetails === true, ...(typeof args.expectedVersion === 'number' ? { expectedVersion: args.expectedVersion } : {}) }, page.takeOpening?.())
-    : local.open(await localFolder(page, ref), { ref: ref as LocalFileRef, ...readOnly });
+    : local.open(await localFolder(page, ref), { ref: ref as WorkspaceFileRef, ...readOnly });
 }
 
 /** After `stale-epoch:<n>`: the same file at its new epoch. */
@@ -279,7 +283,7 @@ export async function reopenAppFile(page: DesktopFilePage, args: { ref?: unknown
   const readOnly = args.readOnly === true ? { readOnly: true } : {};
   return isChat(ref)
     ? files.reopen(chatSurface(page), { ref: ref as Extract<ChatFileRef, { id: string }>, ...readOnly })
-    : local.reopen(await localFolder(page, ref), { ref: ref as LocalFileRef & { id: string }, ...readOnly });
+    : local.reopen(await localFolder(page, ref), { ref: ref as WorkspaceFileRef & { id: string }, ...readOnly });
 }
 
 /** Let go of an open file: the grant goes, wherever the file lives. */
@@ -317,15 +321,25 @@ export async function readAppFile(page: DesktopFilePage, args: { ref?: unknown; 
   return readWorkingCopy(ref, 'id' in ref ? ref.id : ref.name, offset, length);
 }
 
+/** A session's working copy on another of the person's machines, and that session's project there; null for this computer's. */
+async function sessionElsewhere(place: WorkspacePlace): Promise<{ sessionId: string; projectId: string | null } | null> {
+  const sessionId = workspaceSession(place);
+  if (!sessionId) return null;
+  const { sessionMachine } = await import('./app-programs-elsewhere');
+  const machine = await sessionMachine(sessionId);
+  return machine ? { sessionId, projectId: machine.projectId } : null;
+}
+
 /**
  * A working copy's file call (`machine: 'place'`) for a session on another of the person's machines: done there, by the
  * same `machineVerbs` that machine's own pages reach. `{ there: false }` for a working copy on this computer.
  */
-async function onItsMachine(page: DesktopFilePage, place: LocalPlace, method: 'filesList' | 'filesRead', args: Record<string, unknown>) {
-  if (!('session' in place)) return { there: false } as const;
+async function onItsMachine(page: DesktopFilePage, place: WorkspacePlace, method: 'filesList' | 'filesRead', args: Record<string, unknown>) {
+  const session = workspaceSession(place);
+  if (!session) return { there: false } as const;
   const { callOnSessionMachine } = await import('./app-programs-elsewhere');
   const manifest = extensionsService().get(page.extensionId).manifest;
-  return callOnSessionMachine({ extensionId: page.extensionId, manifest }, place.session, method, args, page.asAgent != null);
+  return callOnSessionMachine({ extensionId: page.extensionId, manifest }, session, method, args, page.asAgent != null);
 }
 
 /** Across every chat whoever the page works as is in (`files:read`, checked at the door): by a piece of the path; opened last. */
@@ -374,7 +388,7 @@ export async function renameAppFile(page: DesktopFilePage, args: { ref?: unknown
   const ref = fileRefOf(args.ref);
   return isChat(ref)
     ? files.rename(chatSurface(page), { ref, name: args.name })
-    : local.rename(await localFolder(page, ref), { ref: ref as LocalFileRef, name: args.name });
+    : local.rename(await localFolder(page, ref), { ref: ref as WorkspaceFileRef, name: args.name });
 }
 
 /** 「设为临时 / 一直保留」: a chat file's cloud copy (a working copy's file has none). */
@@ -400,7 +414,7 @@ export async function moveAppFile(page: DesktopFilePage, args: { ref?: unknown; 
 
 export async function removeAppFile(page: DesktopFilePage, args: { ref?: unknown }): Promise<void> {
   const ref = fileRefOf(args.ref);
-  return isChat(ref) ? files.remove(chatSurface(page), { ref }) : local.remove(await localFolder(page, ref), { ref: ref as LocalFileRef });
+  return isChat(ref) ? files.remove(chatSurface(page), { ref }) : local.remove(await localFolder(page, ref), { ref: ref as WorkspaceFileRef });
 }
 
 /** A file's next content (G1): a chat's stored file becomes its next version; a working copy's file is written over. */
@@ -410,7 +424,7 @@ export async function replaceAppFile(page: DesktopFilePage, args: { ref?: unknow
   const expectedVersion = (args.expectedVersion ?? null) as number | null;
   if (isChat(ref)) return files.replace(chatSurface(page), { ref, file, expectedVersion });
   if (expectedVersion !== null) throw new AppFileError('invalid', "A working copy's file has no versions here: replace it without expectedVersion");
-  return local.replace(await localFolder(page, ref), { ref: ref as LocalFileRef, file });
+  return local.replace(await localFolder(page, ref), { ref: ref as WorkspaceFileRef, file });
 }
 
 /** G2 A chat file's kept versions. A working copy's history is its own (git): not kept here, said so. */
@@ -498,15 +512,30 @@ export async function openWithTarget(
 > {
   const ref = fileRefOf(args.ref);
   if (isChat(ref)) return { kind: 'chat', target: await files.openTarget(chatSurface(page), { ref }) };
+  // A session's working copy on another machine: its file opens in that session's pane, read there in pieces as the
+  // file panel reads it — gated as opening it read-only (the file the page was handed needs nothing).
+  const elsewhere = await sessionElsewhere(ref);
+  if (elsewhere) {
+    const name = 'id' in ref ? ref.id : ref.name;
+    const handed = page.handed && isWorkspace(page.handed) && page.handed.workspace === ref.workspace && page.handed.id === name;
+    const service = extensionsService();
+    if (!handed && !service.hasCapability(page.extensionId, 'files:read') && !service.hasCapability(page.extensionId, 'files:write')) {
+      throw new AppFileError('denied', 'Not permitted: opening a file other than the one this page was opened for needs "files:read" or "files:write"');
+    }
+    const { openSessionFileForApp } = await import('@main/core/sessions/session-orchestration');
+    await openSessionFileForApp({ projectId: elsewhere.projectId ?? '', sessionId: elsewhere.sessionId, path: name, ask: args.ask === true });
+    return { kind: 'session' };
+  }
   const copy = await localFolder(page, ref);
-  const found = local.openTarget(copy, { ref: ref as LocalFileRef });
-  if (args.peek || !('session' in found.place)) {
+  const found = local.openTarget(copy, { ref: ref as WorkspaceFileRef });
+  const session = workspaceSession(found.place);
+  if (args.peek || !session) {
     if (!copy.workspaceId) throw new AppFileError('not-found', `${found.name} is in no workspace this computer has open`);
     const { place } = found;
     return { kind: 'peek', target: { kind: 'local', place, projectId: copy.projectId, workspaceId: copy.workspaceId, path: found.path, absolutePath: path.join(copy.workspaceRoot, found.path), name: found.name, ask: args.ask === true } };
   }
   const { openSessionFileForApp } = await import('@main/core/sessions/session-orchestration');
-  await openSessionFileForApp({ projectId: copy.projectId, sessionId: found.place.session, path: path.join(copy.workspaceRoot, found.path), ask: args.ask === true });
+  await openSessionFileForApp({ projectId: copy.projectId, sessionId: session, path: path.join(copy.workspaceRoot, found.path), ask: args.ask === true });
   return { kind: 'session' };
 }
 
@@ -543,12 +572,12 @@ type SaveSource = Awaited<ReturnType<typeof files.downloadSource>> | { name: str
 
 async function downloadSourceOf(page: DesktopFilePage, given: unknown): Promise<SaveSource> {
   const ref = fileRefOf(given);
-  const elsewhere = isChat(ref) ? null : await fileElsewhere(page, ref as LocalFileRef);
+  const elsewhere = isChat(ref) ? null : await fileElsewhere(page, ref as WorkspaceFileRef);
   return isChat(ref)
     ? await files.downloadSource(chatSurface(page), { ref })
     : elsewhere
       ? { name: elsewhere.entry.name, bytes: elsewhere.bytes, kind: 'bytes' as const }
-      : { ...local.downloadSource(await localFolder(page, ref), { ref: ref as LocalFileRef }), kind: 'bytes' as const };
+      : { ...local.downloadSource(await localFolder(page, ref), { ref: ref as WorkspaceFileRef }), kind: 'bytes' as const };
 }
 
 async function saveTo(source: SaveSource, filePath: string): Promise<void> {

@@ -23,6 +23,7 @@ import { createLocalAppFiles, createLocalFileService, workingCopyEntry, type Loc
 
 /** The session whose working copy these pages name (`{ session, id }`, 真源原则 13). */
 const SESSION = 'session-1';
+const WS = `session:${SESSION}`;
 let root: string;
 let service: ReturnType<typeof createLocalFileService>;
 let relay: FileSyncRelay;
@@ -117,7 +118,7 @@ class Page {
     readonly id: number,
     filePath: string | null,
   ) {
-    this.surface = { pageId: id, extensionId: 'ext', place: { session: SESSION }, workspaceRoot: root, filePath };
+    this.surface = { pageId: id, extensionId: 'ext', place: { workspace: WS }, workspaceRoot: root, filePath };
     this.sync = relay.attachPage(id, 'ext', {
       // A MessagePort delivers later, and a copy.
       post: (message) => setTimeout(() => this.fromMain(message instanceof ArrayBuffer ? message.slice(0) : message), 0),
@@ -188,12 +189,12 @@ class Page {
 
   /** `gugu.files.open(ref)` (none: the file the host handed the page) and a provider on what it grants, resolved once synced. */
   async open(ref?: string) {
-    return this.provide(await files.open(this.surface, { ref: { session: SESSION, id: ref ?? this.surface.filePath ?? '' } }));
+    return this.provide(await files.open(this.surface, { ref: { workspace: WS, id: ref ?? this.surface.filePath ?? '' } }));
   }
 
   /** What the runtime does when main says `back` (or `stale-epoch`): `files.reopen`, and a provider on the new grant. */
   async reopen(itemId: string) {
-    return this.provide(await files.reopen(this.surface, { ref: { session: SESSION, id: itemId } }));
+    return this.provide(await files.reopen(this.surface, { ref: { workspace: WS, id: itemId } }));
   }
 
   private async provide(opened: Awaited<ReturnType<typeof files.open>>) {
@@ -371,20 +372,20 @@ describe('gugu.files on a working copy', () => {
     const a = new Page(nextId++, null);
     expect(() => files.create(a.surface, { name: `../${sibling}/x.md`, content: '' })).toThrow();
     expect(() => files.create(a.surface, { name: 'out/made/x.md', content: '' })).toThrow();
-    expect(() => files.rename(a.surface, { ref: { session: SESSION, id: 'mine.md' }, name: 'out/moved/mine.md' })).toThrow();
+    expect(() => files.rename(a.surface, { ref: { workspace: WS, id: 'mine.md' }, name: 'out/moved/mine.md' })).toThrow();
     expect([fs.existsSync(path.join(root, '..', sibling)), fs.readdirSync(outside)]).toEqual([false, []]);
     fs.rmSync(outside, { recursive: true, force: true });
   });
 
   it('a file is known by its own suffix, a name the type table does not know too (复核 101 K1): main.ts is .ts, not .txt', () => {
     const stat = fs.statSync(root);
-    const suffixes = Object.fromEntries(['src/main.ts', 'ci.yaml', 'notes.md'].map((rel) => workingCopyEntry({ session: SESSION }, rel, stat)).map((entry) => [entry.name, entry.suffix]));
+    const suffixes = Object.fromEntries(['src/main.ts', 'ci.yaml', 'notes.md'].map((rel) => workingCopyEntry({ workspace: WS }, rel, stat)).map((entry) => [entry.name, entry.suffix]));
     expect(suffixes).toEqual({ 'main.ts': '.ts', 'ci.yaml': '.yaml', 'notes.md': '.md' });
   });
 
-  it("a project's folder (L1): each entry names the project it is in — never a session", () => {
-    const entry = workingCopyEntry({ project: 'p-1' }, 'plan.md', null);
-    expect(entry).toMatchObject({ id: 'plan.md', project: 'p-1', size: null });
+  it("a project's folder (L1): each entry names the project's workspace it is in — never a session", () => {
+    const entry = workingCopyEntry({ workspace: 'project:p-1' }, 'plan.md', null);
+    expect(entry).toMatchObject({ id: 'plan.md', workspace: 'project:p-1', size: null });
     expect(entry).not.toHaveProperty('session');
   });
 
@@ -408,14 +409,14 @@ describe('gugu.files on a working copy', () => {
       self: async () => ({ userId: 'user:x', name: 'x' }),
     });
     const a = new Page(nextId++, 'mine.md');
-    expect((await gated.open(a.surface, { ref: { session: SESSION, id: 'mine.md' } })).access).toBe('rw');
-    await expect(gated.open(a.surface, { ref: { session: SESSION, id: 'other.md' } })).rejects.toMatchObject({ code: 'denied' });
+    expect((await gated.open(a.surface, { ref: { workspace: WS, id: 'mine.md' } })).access).toBe('rw');
+    await expect(gated.open(a.surface, { ref: { workspace: WS, id: 'other.md' } })).rejects.toMatchObject({ code: 'denied' });
     granted.add('files:read');
-    expect((await gated.open(a.surface, { ref: { session: SESSION, id: 'other.md' } })).access).toBe('ro');
+    expect((await gated.open(a.surface, { ref: { workspace: WS, id: 'other.md' } })).access).toBe('ro');
     granted.add('files:write');
-    expect((await gated.open(a.surface, { ref: { session: SESSION, id: 'other.md' } })).access).toBe('rw');
-    await expect(gated.open(a.surface, { ref: { session: SESSION, id: 'link.md' } })).rejects.toMatchObject({ code: 'not-found' });
-    await expect(gated.open(a.surface, { ref: { session: SESSION, id: '../x.md' } })).rejects.toMatchObject({ code: 'not-found' });
+    expect((await gated.open(a.surface, { ref: { workspace: WS, id: 'other.md' } })).access).toBe('rw');
+    await expect(gated.open(a.surface, { ref: { workspace: WS, id: 'link.md' } })).rejects.toMatchObject({ code: 'not-found' });
+    await expect(gated.open(a.surface, { ref: { workspace: WS, id: '../x.md' } })).rejects.toMatchObject({ code: 'not-found' });
     fs.rmSync(outside, { recursive: true, force: true });
   });
 
@@ -437,7 +438,7 @@ describe('gugu.files on a working copy', () => {
       hasCapability: (_id, capability) => granted.has(capability),
       self: async () => ({ userId: 'user:x', name: 'x' }),
     });
-    const ref = { session: SESSION, id: 'shot.png' };
+    const ref = { workspace: WS, id: 'shot.png' };
     await expect(gated.open(new Page(nextId++, 'mine.md').surface, { ref })).rejects.toMatchObject({ code: 'denied' });
     granted.add('files:write');
     const opened = await gated.open(new Page(nextId++, 'mine.md').surface, { ref });
@@ -463,7 +464,7 @@ describe('gugu.files on a working copy', () => {
       hasCapability: (_id, capability) => granted.has(capability),
       self: async () => ({ userId: 'user:x', name: 'x' }),
     });
-    const ref = { session: SESSION, id: 'locked.png' };
+    const ref = { workspace: WS, id: 'locked.png' };
     try {
       await expect(gated.open(new Page(nextId++, 'mine.md').surface, { ref })).rejects.toMatchObject({ code: 'denied' });
       // Control: with files:read the gate lets it through, and the read is what fails.
@@ -479,7 +480,7 @@ describe('gugu.files on a working copy', () => {
     const a = new Page(nextId++, 'note.md');
     await a.open();
     write('note.md', Buffer.from([0xff, 0xfe, 0x00, 0x01]));
-    await expect(files.reopen(a.surface, { ref: { session: SESSION, id: 'note.md' } })).rejects.toMatchObject({ code: 'invalid' });
+    await expect(files.reopen(a.surface, { ref: { workspace: WS, id: 'note.md' } })).rejects.toMatchObject({ code: 'invalid' });
   });
 
   it('closed and opened again: built from the disk under a new generation; an old one is told stale-epoch', async () => {
@@ -682,7 +683,7 @@ describe('the relay with a working copy', () => {
 /** A page running the real runtime (`files-entry` → OpenFile), its sync port on the relay, as main wires a page's port. */
 async function runtimePage(filePath: string) {
   const id = nextId++;
-  const surface: LocalSurface = { pageId: id, extensionId: 'ext', place: { session: SESSION }, workspaceRoot: root, filePath };
+  const surface: LocalSurface = { pageId: id, extensionId: 'ext', place: { workspace: WS }, workspaceRoot: root, filePath };
   vi.resetModules();
   const { setSyncPortSource } = await import('../../../../../src/session/app-runtime/sync-link');
   const told: SyncToPage[] = [];
@@ -708,13 +709,13 @@ async function runtimePage(filePath: string) {
     },
     onFilesChanged: () => () => undefined,
     appFiles: {
-      open: (args: { ref: { session: string; id: string }; readOnly?: boolean }) => files.open(surface, args),
-      reopen: (args: { ref: { session: string; id: string }; readOnly?: boolean }) => files.reopen(surface, args),
+      open: (args: { ref: { workspace: string; id: string }; readOnly?: boolean }) => files.open(surface, args),
+      reopen: (args: { ref: { workspace: string; id: string }; readOnly?: boolean }) => files.reopen(surface, args),
       close: async (args: { docName: string }) => files.close(surface, args),
     },
     clipboard: { writeText: async () => undefined },
   };
-  const file = (await openFile(host as never, host.appFiles.open({ ref: { session: SESSION, id: filePath } }))) as {
+  const file = (await openFile(host as never, host.appFiles.open({ ref: { workspace: WS, id: filePath } }))) as {
     text: string;
     insert(index: number, text: string): void;
     readonly status: string;

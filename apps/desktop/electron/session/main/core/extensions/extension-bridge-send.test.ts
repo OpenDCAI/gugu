@@ -65,7 +65,7 @@ const ENTRY = { chat: CHAT, id: ITEM, name: 'game.chess.json' };
 beforeEach(async () => {
   granted.clear();
   dispatchForApp.mockReset();
-  await bindExtensionSurface({ webContentsId: PAGE, extensionId: 'chess', tabId: 'tab-1', tabKind: 'chess.main', chatId: CHAT });
+  await bindExtensionSurface({ webContentsId: PAGE, extensionId: 'chess', tabId: 'tab-1', tabKind: 'chess.main', conversation: CHAT });
 });
 
 const MEMBER = { chat: CHAT, member: AGENT };
@@ -122,7 +122,7 @@ describe('the check’s page, worked by the agent that asks (owner 10-14)', () =
     roster.set('session-f', WORKER);
     spawnAgentForExtension.mockReset();
     stopAgentForExtension.mockReset();
-    await bindExtensionSurface({ webContentsId: CHECK, extensionId: 'chess', tabId: 'check', tabKind: 'chess.main', chatId: CHAT, operator: { kind: 'agent', id: WORKER } });
+    await bindExtensionSurface({ webContentsId: CHECK, extensionId: 'chess', tabId: 'check', tabKind: 'chess.main', conversation: CHAT, operator: { kind: 'agent', id: WORKER } });
   });
 
   it('a named target goes, as that agent: written as it to a chat, told and started from its session; the sheet is handed back', async () => {
