@@ -23,16 +23,18 @@ describe('phone session status', () => {
       .toMatchObject({ tone: 'pending', label: 'pending' })
   })
 
-  it('reads the new host reading first, the old word only when the reading is absent', () => {
+  it('reads the host reading; a host older than 0.2.51 sends none and is "status unavailable"', () => {
     expect(sessionReading(session({ agentStatus: 'needs_approval', status: { status: 'needs_user', detail: 'question' } })))
       .toEqual({ status: 'needs_user', detail: 'question' })
-    expect(sessionReading(session({ agentStatus: 'needs_approval' }))).toEqual({ status: 'needs_user', detail: null })
+    expect(sessionReading(session({ agentStatus: 'needs_approval' }))).toBeNull()
+    expect(sessionPresentation(session({ agentStatus: 'needs_approval' }), true)).toMatchObject({ tone: 'none', label: 'none' })
     expect(sessionReading(session({ agentStatus: 'working', status: null }))).toBeNull()
   })
 
   it('a word outside the vocabulary is "status unavailable", not idle and not a crash', () => {
-    expect(sessionReading(session({ agentStatus: 'thinking-hard' }))).toBeNull()
-    expect(sessionPresentation(session({ agentStatus: 'thinking-hard' }), true)).toMatchObject({ tone: 'none', label: 'none' })
+    const unknown = { status: 'thinking-hard', detail: null } as unknown as SessionpageSessionSummary['status']
+    expect(sessionReading(session({ status: unknown }))).toBeNull()
+    expect(sessionPresentation(session({ status: unknown }), true)).toMatchObject({ tone: 'none', label: 'none' })
   })
 
   it('draws the table: waiting is needs-you (yellow tone), parked rests, done is bold only while unseen', () => {
@@ -79,8 +81,8 @@ describe('phone alerts speak the same words', () => {
     expect(diffAlerts(before, [session({ status: { status: 'needs_user', detail: 'approval' } })], (id) => id === 'conversation-1')).toEqual([])
   })
 
-  it('still understands an old host that only writes the old word', () => {
+  it('an old host that only writes the old word raises no alert', () => {
     const before = statusMapOf([session({ agentStatus: 'working' })])
-    expect(diffAlerts(before, [session({ agentStatus: 'needs_approval' })], offScreen)[0]).toMatchObject({ label: 'needsAction' })
+    expect(diffAlerts(before, [session({ agentStatus: 'needs_approval' })], offScreen)).toEqual([])
   })
 })
