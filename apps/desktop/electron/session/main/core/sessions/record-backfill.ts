@@ -43,6 +43,14 @@ export async function syncStoredHistoryFromRecord(sessionId: string, options: { 
       return latest && latest.runtime === row.runtime && latest.provider === row.provider
         && latest.providerSessionId === row.providerSessionId;
     };
+    const active = () => {
+      const latest = readSessionRow(sessionId, { includeArchived: true });
+      if (!latest || latest.archivedAt) return false;
+      const status = parseAgentStatus(latest.agentStatus);
+      return isAgentActive(status ? { status } : null) || (!status && sessionProcess(sessionId) !== null);
+    };
+    // End metadata is not a liveness signal: a stopped/crashed terminal can retain an unfinished last turn.
+    const committedOnly = row.runtime !== 'acp' && active();
     const picked = await pickRecordTurns(sessionId, async (record) => {
       if (record.length === 0) return [];
       // 库尾一般第一行就对得上记录最后那一轮;对不上(最近几轮是失败的、没进记录)再往前多读一些。
@@ -57,7 +65,7 @@ export async function syncStoredHistoryFromRecord(sessionId: string, options: { 
         if (missing !== null || tail.length < limit) break;
       }
       return missing;
-    }, { images: true, committedOnly: row.runtime !== 'acp', includeArchived: true, afterForkOf: row.config?.forkedFrom?.sessionId });
+    }, { images: true, committedOnly, includeArchived: true, afterForkOf: row.config?.forkedFrom?.sessionId });
     if (!picked.ok) return result(picked.reason ?? 'unavailable');
     if (picked.turns === null) {
       log.warn('[record-backfill] the record and the store diverged; nothing filled in', { sessionId });
@@ -67,6 +75,8 @@ export async function syncStoredHistoryFromRecord(sessionId: string, options: { 
     for (const turn of picked.turns) {
       if (options.signal?.aborted) return result('cancelled', inserted);
       if (!current()) return result('runtime-changed', inserted);
+      // If a new turn started during an idle snapshot, leave its unproved suffix for the settled edge.
+      if (row.runtime !== 'acp' && !committedOnly && active()) return result('active', inserted);
       await appendRecordTurnNow(sessionId, turn);
       inserted++;
       // Reuse the account feed's serial worker; yield without starting another queue or polling loop.
@@ -74,10 +84,7 @@ export async function syncStoredHistoryFromRecord(sessionId: string, options: { 
     }
     if (picked.turns.length > 0) log.info('[record-backfill] filled in turns from the record', { sessionId, inserted: picked.turns.length });
     if (!current()) return result('runtime-changed', inserted);
-    const latest = readSessionRow(sessionId, { includeArchived: true })!;
-    const status = parseAgentStatus(latest.agentStatus);
-    const active = isAgentActive(status ? { status } : null) || (!status && sessionProcess(sessionId) !== null);
-    return result(picked.complete && !active ? 'complete' : 'active', inserted);
+    return result(picked.complete && !active() ? 'complete' : 'active', inserted);
   });
 }
 
