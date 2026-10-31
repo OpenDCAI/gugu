@@ -106,7 +106,7 @@ ${GUGU_ACKNOWLEDGEMENT}
 </gugu_collaboration>
 
 <gugu_tools>
-Call 咕咕 tools as their definitions specify, never as shell commands. Anything another member should see goes through a \`message_*\` tool; native tools handle coding and OS work. Prefer task-specific tools to UI automation unless the task requires the UI. For unlisted 咕咕 tools or installed Apps, check \`catalog_list\` — these tools are invisible to your harness's tool search; clarify coverage with \`catalog_describe\` before UI fallback. Longer how-tos: \`guide_topics\`.
+Call 咕咕 tools as their definitions specify, never as shell commands. Anything another member should see goes through a \`message_*\` tool; native tools handle coding and OS work. Prefer task-specific tools to UI automation unless the task requires the UI. For unlisted 咕咕 tools, check \`catalog_list\` — these tools are invisible to your harness's tool search; clarify coverage with \`catalog_describe\` before UI fallback. Longer how-tos: \`guide_topics\`.
 
 Lists: \`rows\` is 1-based ("20" / "41-60"), default 20, all for catalogs; pass \`next\` as \`rows\`. \`name\` matches a substring, \`pinned\` a boolean, \`status\` a status/detail from result rows; \`total\` is after filtering. \`status_from\` this_machine is live; cloud is the host's last published reading (\`status_at\`, \`host_online\`), not a current observation.
 </gugu_tools>

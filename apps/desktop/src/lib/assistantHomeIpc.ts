@@ -9,8 +9,7 @@ export const ASSISTANT_HOME_CHANNELS = {
   preparationRelease: 'assistant-home:preparation-release',
   preparationChanged: 'assistant-home:preparation-changed',
   /**
-   * 准备 / 刷新它在这台电脑上的家(invoke,PrepareLocalHomeInput → PrepareLocalHomeResult):建工作目录、写宿主维护的那段说明、
-   * 禁掉 CronCreate;带 ownerProfile 时把「关于主人」写进它的记忆夹。幂等:开通前调一次,之后每次打开 App 再调一次让说明跟上版本。
+   * 准备 / 刷新它在这台电脑上的家(invoke,PrepareLocalHomeInput → PrepareLocalHomeResult):建工作目录、写宿主维护的那段说明;带 ownerProfile 时把「关于主人」写进它的记忆夹。幂等:开通前调一次,之后每次打开 App 再调一次让说明跟上版本。
    */
   prepare: 'assistant-home:prepare',
   /**
