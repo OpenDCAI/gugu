@@ -60,11 +60,11 @@ function marketItem({ manifest, ...cloud }: CloudMarketEntry): MarketListItem {
 }
 
 export const phoneProductApi: ProductPageApi = {
-  marketReadme: async ({ extensionId, version }) => {
+  marketListing: async ({ extensionId, version }) => {
     try {
-      return { success: true, data: { readme: await phoneApps.market.readme(extensionId, version) } }
+      return { success: true as const, data: await phoneApps.market.listing(extensionId, version) }
     } catch (error) {
-      return { success: false, error: String(error) }
+      return { success: false as const, error: String(error) }
     }
   },
   // 桌面主进程的 marketRead 同一个形状:页面那一套(精选卡的首帧占位图)两端一样调。

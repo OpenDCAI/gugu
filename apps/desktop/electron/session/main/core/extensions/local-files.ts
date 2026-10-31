@@ -208,6 +208,7 @@ function entryOf(place: LocalPlace, rel: string, stat: fs.Stats, contentType = l
     suffix: fileSuffixOf({ name, contentType: contentTypeOf(name) }),
     displayName: name,
     claimedBy: null,
+    appState: false,
     size: stat.size,
     version: null,
     createdAt: stat.birthtime.toISOString(),

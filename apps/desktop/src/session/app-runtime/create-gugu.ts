@@ -77,12 +77,12 @@ export function createGugu(
     });
   // Every call names where its file is (真源原则 13): an entry or `ctx.file` carries it, a place says it.
   const files = Object.freeze({
-    open: (file: unknown, options?: { readOnly?: boolean; appData?: boolean }) => {
+    open: (file: unknown, options?: { readOnly?: boolean }) => {
       const counts = countsOf(host);
       counts?.opened();
       return withRef(file, (ref) => {
         const entry = (file as { entry?: { version?: unknown }; version?: unknown } | null)?.entry ?? file as { version?: unknown } | null;
-        const requested = host.appFiles.open({ ref, ...(options?.appData === true ? { appData: true } : {}), ...(!host.program ? { deferDetails: true } : {}), ...(typeof entry?.version === 'number' ? { expectedVersion: entry.version } : {}), ...(options?.readOnly === true ? { readOnly: true } : {}) });
+        const requested = host.appFiles.open({ ref, ...(!host.program ? { deferDetails: true } : {}), ...(typeof entry?.version === 'number' ? { expectedVersion: entry.version } : {}), ...(options?.readOnly === true ? { readOnly: true } : {}) });
         const opening = loadFiles().then((m) => m.openFile(host, requested));
         // Observe a fast refusal even while the runtime is still loading.
         return Promise.all([opening, requested]).then(([opened]) => opened);
@@ -92,7 +92,7 @@ export function createGugu(
     /** Across every chat the reader is in, needing `files:read`: by a piece of the path, newest first; what this person opened last. */
     search: (options?: unknown) => loadFiles().then((m) => m.searchEntries(host, options)),
     recent: (options?: unknown) => loadFiles().then((m) => m.recentEntries(host, options)),
-    create: (target: unknown, content: string | object, options?: { contentType?: string; sourceMessageIds?: string[]; appData?: boolean }) =>
+    create: (target: unknown, content: string | object, options?: { contentType?: string; sourceMessageIds?: string[] }) =>
       loadFiles().then((m) => m.createFile(host, target, content, options)),
     remove: (file: unknown) => loadFiles().then((m) => m.removeFile(host, file)),
     rename: (file: unknown, name: string) => loadFiles().then((m) => m.renameFile(host, file, name)),

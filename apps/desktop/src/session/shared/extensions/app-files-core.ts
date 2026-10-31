@@ -36,7 +36,6 @@ import {
 import { fileOpenersFor } from './file-openers';
 import type { ExtensionManifest } from './manifest';
 import { displayNameOf } from './file-openers';
-import type { AppIdentity as OwnerIdentity } from './app-identity';
 import { readUserSettingsConfig, updateUserSettingsConfig, type VersionedSettingsTableClient } from '@gugu/core/cloud/userSettings';
 
 /**
@@ -84,8 +83,6 @@ export interface FileSurface {
 }
 
 export interface FilesPlatform {
-  /** Installed identity, never an identity supplied by the App page. */
-  appIdentity?(extensionId: string): OwnerIdentity | null;
   /**
    * The shared project file publisher: kept on this device, `next` as the version after the one the edit started from.
    * Null when the ordinary uploader should decide.
@@ -108,7 +105,7 @@ export interface FilesPlatform {
    * Which App opens a file of this kind here, and by which claimed suffix (摩擦单 F39): the host knows what is
    * installed (desktop) or shipped (phone). Absent: no file says who opens it.
    */
-  claimant?(typedName: string): { suffix: string; app: AppFileClaimant } | null;
+  claimant?(typedName: string): { suffix: string; app: AppFileClaimant; state: boolean } | null;
   /**
    * These people's names and kinds (a file's creator, a chat's members, the page's own person), read where each host
    * reads identities: main with this token, the phone through the renderer's identity adapter (the IM architecture's one
@@ -253,6 +250,7 @@ function entryOf(row: ItemRow, claimant: Claimant): AppFileEntry {
     suffix: folder ? '' : fileSuffixOf(file),
     displayName: row.filename,
     claimedBy: null,
+    appState: false,
     size: row.size_bytes ?? null,
     version: row.version ?? null,
     createdAt: row.created_at ?? null,
@@ -273,7 +271,7 @@ function entryOf(row: ItemRow, claimant: Claimant): AppFileEntry {
 function claimEntry(entry: AppFileEntry, claimant: Claimant): AppFileEntry {
   if (!claimant || entry.type === 'folder') return entry;
   const claim = claimant(typedFileName({ name: entry.name, contentType: entry.contentType }));
-  return { ...entry, displayName: claim ? displayNameOf(entry.name, claim.suffix) : entry.name, claimedBy: claim?.app ?? null };
+  return { ...entry, displayName: claim ? displayNameOf(entry.name, claim.suffix) : entry.name, claimedBy: claim?.app ?? null, appState: claim?.state === true };
 }
 
 /**
@@ -593,9 +591,8 @@ function insertDocument(
   token: string,
   doc: { chatId: string; name: string; contentType: string; content: string; sourceMessageIds: readonly string[]; parentId: string | null },
   actor: string,
-  app?: OwnerIdentity,
 ): Promise<ItemRow> {
-  return agentRow(token, app ? 'workspace_create_app_document_as' : 'workspace_create_document_as', { ...(app ? { p_app: app } : {}), p_chat_id: doc.chatId, p_as_user_id: actor, p_title: doc.name,
+  return agentRow(token, 'workspace_create_document_as', { p_chat_id: doc.chatId, p_as_user_id: actor, p_title: doc.name,
     p_content: doc.content, p_content_type: doc.contentType, p_source_message_ids: doc.sourceMessageIds, p_folder: doc.parentId });
 }
 
@@ -634,12 +631,6 @@ async function versionPointers(token: string, row: ItemRow, actor: string): Prom
 
 
 export function createAppFiles(platform: FilesPlatform) {
-  function appIdentity(extensionId: string | undefined): OwnerIdentity {
-    const identity = extensionId ? platform.appIdentity?.(extensionId) : null;
-    if (!identity) throw new AppFileError('invalid', 'This App has no recorded publisher: install it again before marking App data');
-    return identity;
-  }
-
   async function localRevision(itemId: string) {
     const local = await platform.resolveFile?.({ id: itemId }, null, { localOnly: true });
     if (local?.status !== 'ready') return null;
@@ -708,8 +699,8 @@ export function createAppFiles(platform: FilesPlatform) {
     return { userId: personId(userId), name: await selfName(token, userId) };
   }
 
-  async function open(surface: FileSurface, args: { ref: ChatFileRef; readOnly?: boolean; appData?: boolean; deferDetails?: boolean; expectedVersion?: number }, opening?: PreparedChatFile): Promise<AppFileOpened> {
-    const local = args.appData ? null : await localFile(surface, args.ref);
+  async function open(surface: FileSurface, args: { ref: ChatFileRef; readOnly?: boolean; deferDetails?: boolean; expectedVersion?: number }, opening?: PreparedChatFile): Promise<AppFileOpened> {
+    const local = await localFile(surface, args.ref);
     if (local) return { entry: local.entry, docName: '', access: 'ro', self: local.self, bytes: await bytesOf(local.file) };
     const { token, userId } = await platform.account();
     const actor = surface.asAgent ?? userId;
@@ -735,17 +726,6 @@ export function createAppFiles(platform: FilesPlatform) {
       needs = has(surface.extensionId, 'files:read') ? 'files:read' : 'files:write';
     } else {
       throw new AppFileError('denied', 'Not permitted: opening a file other than the one this page was opened for needs "files:read" or "files:write"');
-    }
-    if (args.appData === true) {
-      if (args.readOnly || (!handedOver && !has(surface.extensionId, 'files:write'))) {
-        throw new AppFileError('denied', 'Marking App data needs write access to that file');
-      }
-      const { data, error } = await chatClient(token).rpc('workspace_mark_app_data_as', {
-        p_item_id: entry.id, p_as_user_id: actor, p_app: appIdentity(surface.extensionId),
-      });
-      if (error) throw new AppFileError(codeOf(error), error.message);
-      entry.metadata = data as Record<string, unknown>;
-      if (row) row.metadata = entry.metadata;
     }
     const self = { userId: personId(actor), name: await selfName(token, actor) };
     if (stored) return { entry: await entryOne(token, row!, actor), docName: '', access, self, bytes: await bytesOf((await fileFor(surface, { id: row!.id }, row!.version))!) };
@@ -950,7 +930,7 @@ export function createAppFiles(platform: FilesPlatform) {
     },
 
     /** `folder` (子文件夹): the folder it goes in, made all the way down when it is not there; not given, the top. */
-    async create(chatId: string, args: { name: string; content: string; contentType?: string; sourceMessageIds?: unknown; folder?: unknown; appData?: boolean },
+    async create(chatId: string, args: { name: string; content: string; contentType?: string; sourceMessageIds?: unknown; folder?: unknown },
       as: { asAgent?: string | null; extensionId?: string } = {}): Promise<AppFileEntry> {
       const { token, userId } = await platform.account();
       const name = String(args.name ?? '').trim();
@@ -973,7 +953,7 @@ export function createAppFiles(platform: FilesPlatform) {
       }
       const actor = as.asAgent ?? userId;
       const parentId = await folderIdFor(token, chatId, folder, actor);
-      return entryOne(token, await insertDocument(token, { chatId, name, contentType, content, sourceMessageIds, parentId }, actor, args.appData === true ? appIdentity(as.extensionId) : undefined), actor);
+      return entryOne(token, await insertDocument(token, { chatId, name, contentType, content, sourceMessageIds, parentId }, actor), actor);
     },
 
     /** 子文件夹: a chat's folder at `path`, made all the way down — one already there is answered as it is. */

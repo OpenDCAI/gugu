@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { describe, expect, it } from 'vitest'
-import { assertNodeVersion } from '../../../scripts/node-version-preflight.mts'
+import { assertNodeVersion } from '../../../scripts/build/node-version-preflight.mts'
 
 describe('node version preflight', () => {
   it('accepts the exact repository pin', () => {

@@ -104,6 +104,7 @@ function drawDiagrams(root: HTMLElement): void {
     const show = (svg: string) => {
       const box = document.createElement('div');
       box.className = 'gg-md-mermaid';
+      if (pre.dataset.line) box.dataset.line = pre.dataset.line;
       box.innerHTML = svg;
       pre.replaceWith(box);
     };

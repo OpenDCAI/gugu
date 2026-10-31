@@ -7,11 +7,10 @@ import { join } from 'node:path'
 import { CODEX_GUGU_CAPABILITY_PACKAGE, materializeCodexSessionBundle, pluginRegistry } from '@gugu/session-plugins/agents'
 import { mountsExtensionSkillsNatively, type SessionCapabilityBundle } from '@gugu/session-core/agents/plugins'
 import { describe, expect, it, vi } from 'vitest'
-import { catalogAppsOf, extensionAgentPrograms, readExtensionSkills } from '../../../../apps/desktop/electron/extension-session-mcp'
-import { GUGU_APPS_LINES_TOKEN_BUDGET, GUGU_APPS_LINE_MAX_CHARS, GUGU_APPS_SEARCH_LINE, PRODUCT_CAPABILITY_PACKAGES, guguAppsBlock, sessionExtensionDelivery, loadCodexAppServerCapabilities, loadClaudeTuiCapabilities, loadSessionTuiCapabilities } from '../../../../apps/desktop/electron/capability-bundle'
-import { firstSentence } from '../../../../apps/desktop/electron/mcp/first-sentence'
+import { agentAppsOf, extensionAgentPrograms, readExtensionSkills } from '../../../../apps/desktop/electron/extension-session-mcp'
+import { GUGU_APPS_LINES_TOKEN_BUDGET, GUGU_APPS_SEARCH_LINE, PRODUCT_CAPABILITY_PACKAGES, guguAppsBlock, sessionExtensionDelivery, loadCodexAppServerCapabilities, loadClaudeTuiCapabilities, loadSessionTuiCapabilities } from '../../../../apps/desktop/electron/capability-bundle'
 import { estimatePromptTokens } from '../../../../apps/desktop/electron/product-platform-prompt'
-import { safeParseExtensionManifest } from '../../../../apps/desktop/src/session/shared/extensions/manifest'
+import { EXTENSION_API_VERSION, safeParseExtensionManifest } from '../../../../apps/desktop/src/session/shared/extensions/manifest'
 import { GUGU_MCP_SERVER_NAME } from '../../../../apps/desktop/electron/mcp/gugu-mcp-name.mjs'
 
 function extensionFolder(skills: Record<string, string>): string {
@@ -228,50 +227,57 @@ describe('where extension skills reach the agent (#6387)', () => {
   })
 })
 
-describe('上下文工程第二批 P3: <gugu_apps> names the Apps whose tools are in the catalog (owner 10-07 chose (c), D-27)', () => {
-  const omnisearch = { extensionId: 'omnisearch', name: '全能搜索', description: '给 agent 的搜索工具：网页搜索、读网页、查编程库文档。填上 key 就能用。' }
+describe('上下文工程第二批 P3: <gugu_apps> names the Apps that give a session programs or skills (D-27; owner 10-31: 600, overflow by name)', () => {
+  const omnisearch = { extensionId: 'omnisearch', name: '全能搜索', instructions: 'omnisearch__search(query)、read(url)、docs(library, query)：网页搜索、读网页、查编程库文档。' }
   const skills = readExtensionSkills('agent-notes', join(extensionFolder({ 'agent-notes': NOTES_SKILL }), 'skills'), noProblem)
   const appLinesOf = (block: string) => block.split('\n').filter((line) => line.startsWith('- '))
 
-  it('one line per App: its name, its id and the first sentence of its manifest description', () => {
-    const block = guguAppsBlock([omnisearch, { extensionId: 'plain', name: 'Plain' }], [])
-    expect(appLinesOf(block)).toEqual(['- 全能搜索 (omnisearch): 给 agent 的搜索工具：网页搜索、读网页、查编程库文档。', '- Plain (plain)'])
+  it('one line per App: its name, its id and its instructions, whole', () => {
+    const long = { extensionId: 'long', name: 'Long', instructions: `${'一'.repeat(159)}。` }
+    const block = guguAppsBlock([omnisearch, long], [])
+    expect(appLinesOf(block)).toEqual([`- 全能搜索 (omnisearch): ${omnisearch.instructions}`, `- Long (long): ${long.instructions}`])
     expect(block).toContain('Apps available in this session (use their listed tools, or catalog_list / catalog_call):')
   })
 
-  it('a line is cut at 120 characters', () => {
-    const [line] = appLinesOf(guguAppsBlock([{ extensionId: 'long', name: 'Long', description: `${'一'.repeat(200)}。` }], []))
-    expect([...line].length).toBe(GUGU_APPS_LINE_MAX_CHARS)
-    expect(line.endsWith('…')).toBe(true)
-  })
-
-  it('the App lines stay within 300 units; the ones left out are counted, in catalog order', () => {
-    const apps = Array.from({ length: 20 }, (_, index) => ({ extensionId: `app-${index}`, name: `App ${index}`, description: `${'用'.repeat(60)}。` }))
+  it('the App lines stay within 600 units; the ones left out are still named, in order, with name and id', () => {
+    const apps = Array.from({ length: 20 }, (_, index) => ({ extensionId: `app-${index}`, name: `App ${index}`, instructions: `${'用'.repeat(60)}。` }))
     const lines = appLinesOf(guguAppsBlock(apps, []))
+    expect(GUGU_APPS_LINES_TOKEN_BUDGET).toBe(600)
     expect(estimatePromptTokens(lines.join('\n'))).toBeLessThanOrEqual(GUGU_APPS_LINES_TOKEN_BUDGET)
     const shown = lines.length - 1
     expect(shown).toBeGreaterThan(0)
     expect(lines.slice(0, shown).map((line) => line.slice(2, line.indexOf(' (')))).toEqual(apps.slice(0, shown).map((app) => app.name))
-    expect(lines.at(-1)).toBe(`- …and ${20 - shown} more Apps; catalog_list names them all.`)
-    // Not cut too early (复核 84 4(c)): showing one more App — its own line, one fewer counted — would go past 300.
+    const rest = apps.slice(shown).map((app) => `${app.name} (${app.extensionId})`).join(', ')
+    expect(lines.at(-1)).toBe(`- …more Apps: ${rest}; catalog_list for details`)
+    // Not cut too early (复核 84 4(c)): showing one more App in full would go past the budget.
     const nextLine = appLinesOf(guguAppsBlock([apps[shown]!], []))[0]!
-    const oneMore = [...lines.slice(0, shown), nextLine, `- …and ${20 - shown - 1} more Apps; catalog_list names them all.`]
+    const oneMore = [...lines.slice(0, shown), nextLine, `- …more Apps: ${apps.slice(shown + 1).map((app) => `${app.name} (${app.extensionId})`).join(', ')}; catalog_list for details`]
     expect(estimatePromptTokens(oneMore.join('\n'))).toBeGreaterThan(GUGU_APPS_LINES_TOKEN_BUDGET)
-    // Few Apps fit whole: one typical App is far from the budget.
-    expect(appLinesOf(guguAppsBlock([omnisearch], []))).toHaveLength(1)
+    // Thirteen typical Apps fit whole.
+    expect(appLinesOf(guguAppsBlock(Array.from({ length: 13 }, (_, index) => ({ ...omnisearch, extensionId: `o-${index}` })), []))).toHaveLength(13)
   })
 
-  it('names only Apps whose tools the catalog will show: progressive, with a program gugu runs (复核 84 2(d))', () => {
+  it('names every App even when the names alone run past the budget', () => {
+    const apps = Array.from({ length: 200 }, (_, index) => ({ extensionId: `app-${index}`, name: `App ${index}`, instructions: '用'.repeat(160) }))
+    const lines = appLinesOf(guguAppsBlock(apps, []))
+    expect(lines).toHaveLength(1)
+    expect(lines[0]).toContain('App 0 (app-0), ')
+    expect(lines[0]).toContain('App 199 (app-199); catalog_list for details')
+  })
+
+  it('names the Apps whose programs run or whose skills are read, native or catalog alike (复核 84 2(d))', () => {
     const rootDir = extensionFolder({})
     writeFileSync(join(rootDir, 'tools.js'), 'export const follow = {}')
-    const app = (extensionId: string, tools: string, disclosure: 'progressive' | 'full', description?: string) => ({
-      extensionId, name: `App ${extensionId}`, ...(description ? { description } : {}), rootDir, dataDir: `/data/${extensionId}`,
-      digest: 'd1', disclosure, servers: [{ tools }], skillsDir: null,
+    const app = (extensionId: string, tools: string | null, disclosure: 'progressive' | 'full', skillsDir: string | null = null) => ({
+      extensionId, name: `App ${extensionId}`, instructions: `${extensionId} line`, rootDir, dataDir: `/data/${extensionId}`,
+      digest: 'd1', disclosure, servers: tools ? [{ tools }] : [], skillsDir,
     })
     const contributions = [
-      app('board', 'tools.js', 'progressive', 'Boards. Second sentence.'),
-      app('gone', 'lib/gone.js', 'progressive'), // its tools module is not in the bundle: no program, nothing in the catalog
-      app('listed', 'tools.js', 'full'), // its tools are already in the tool list
+      app('board', 'tools.js', 'progressive'),
+      app('gone', 'lib/gone.js', 'progressive'), // its tools module is not in the bundle: no program, nothing runs
+      app('listed', 'tools.js', 'full'),
+      app('notes', null, 'progressive', join(rootDir, 'skills')),
+      { ...app('page', null, 'progressive'), instructions: undefined },
     ]
     const host = {
       nodeExecutable: '/Applications/咕咕.app/Contents/MacOS/咕咕',
@@ -280,7 +286,11 @@ describe('上下文工程第二批 P3: <gugu_apps> names the Apps whose tools ar
       onProblem: vi.fn(),
     }
     const { programs } = extensionAgentPrograms(contributions, host)
-    expect(catalogAppsOf(contributions, programs)).toEqual([{ extensionId: 'board', name: 'App board', description: 'Boards. Second sentence.' }])
+    expect(agentAppsOf(contributions, programs)).toEqual([
+      { extensionId: 'board', name: 'App board', instructions: 'board line' },
+      { extensionId: 'listed', name: 'App listed', instructions: 'listed line' },
+      { extensionId: 'notes', name: 'App notes', instructions: 'notes line' },
+    ])
   })
 
   it('Apps and skills share the one block', () => {
@@ -288,13 +298,6 @@ describe('上下文工程第二批 P3: <gugu_apps> names the Apps whose tools ar
     expect(block.match(/<gugu_apps>/g)).toHaveLength(1)
     expect(block).toContain('- 全能搜索 (omnisearch)')
     expect(block).toContain('- agent-notes (App agent-notes)')
-  })
-
-  it('the first sentence is the same cut catalog_list uses for about: a Latin "." before a space, or a Chinese "。"', () => {
-    expect(firstSentence('Search the web. Then read a page.')).toBe('Search the web.')
-    expect(firstSentence('Supports v1.2 schemas. More.')).toBe('Supports v1.2 schemas.')
-    expect(firstSentence('网页搜索、读网页。填上 key 就能用。')).toBe('网页搜索、读网页。')
-    expect(firstSentence('no end')).toBe('no end')
   })
 })
 
@@ -359,52 +362,33 @@ describe('a secret in a codex stdio program’s env (#6387 review)', () => {
 })
 
 
-describe('App standing instructions', () => {
-  it('keeps the whole rule in the platform block independently of skills and summary cuts', () => {
-    const rule = 'On each user message, record definite personal plans without waiting for a request. '.repeat(30) + 'END-OF-RULE';
-    const block = guguAppsBlock([{ extensionId: 'calendar', name: 'Calendar', description: 'Calendar. Short summary.', agentInstructions: rule }], []);
-    expect(block).toContain(rule);
-    expect(block).not.toContain('Short summary.');
-    expect(guguAppsBlock([{ extensionId: 'calendar', name: 'Calendar' }], [])).not.toContain('Standing instructions');
-  });
-
-  it('carries rules for both native and catalog tools, but not a program that cannot run', () => {
-    const rootDir = extensionFolder({});
-    writeFileSync(join(rootDir, 'tools.js'), 'export const record = {}');
-    const base = { rootDir, dataDir: '/data', digest: 'd', skillsDir: null, name: 'Calendar', agentInstructions: 'Record personal plans.' };
-    const contributions = [
-      { ...base, extensionId: 'native', disclosure: 'full' as const, servers: [{ tools: 'tools.js' }] },
-      { ...base, extensionId: 'catalog', disclosure: 'progressive' as const, servers: [{ tools: 'tools.js' }] },
-      { ...base, extensionId: 'broken', disclosure: 'progressive' as const, servers: [{ tools: 'missing.js' }] },
-    ];
-    const { programs } = extensionAgentPrograms(contributions, { nodeExecutable: process.execPath, toolsRuntime: '/runtime.mjs', linkPrefix: 'gugu://ext', onProblem: vi.fn() });
-    const apps = catalogAppsOf(contributions, programs);
-    expect(apps.map((a) => a.extensionId)).toEqual(['native', 'catalog']);
-    expect(apps.every((a) => a.agentInstructions === base.agentInstructions)).toBe(true);
-  });
-
+describe('App instructions: an App\'s one line for agents', () => {
   it('reaches real harness instruction payloads without reading a skill', () => {
     const base = {
       mcpServers: [], mcpDisabled: undefined, env: { GUGU_HOME: '/tmp/calendar-instructions' },
       model: null, autonomy: null, promptBlocks: { platform: 'Platform.' }, packages: PRODUCT_CAPABILITY_PACKAGES,
       extensionSkills: [], extensionServerOrigins: [],
-      extensionApps: [{ extensionId: 'calendar', name: 'Calendar', agentInstructions: 'AUTO-RECORD-TENNIS' }],
+      extensionApps: [{ extensionId: 'calendar', name: 'Calendar', instructions: 'AUTO-RECORD-TENNIS' }],
     };
     const ctx = { cwd: '/tmp/calendar-instructions', lifecycle: 'fresh' as const };
-    expect(loadCodexAppServerCapabilities(base, ctx).developerInstructions).toContain('AUTO-RECORD-TENNIS');
+    expect(loadCodexAppServerCapabilities(base, ctx).developerInstructions).toContain('- Calendar (calendar): AUTO-RECORD-TENNIS');
     expect(loadClaudeTuiCapabilities(base, ctx).artifacts?.some((a) => a.content.includes('AUTO-RECORD-TENNIS'))).toBe(true);
     expect(loadSessionTuiCapabilities('pi', base, ctx).spawnEnv?.GUGU_PI_SYSTEM_PROMPT).toContain('AUTO-RECORD-TENNIS');
     expect(JSON.stringify(loadCodexAppServerCapabilities({ ...base, extensionApps: [] }, ctx))).not.toContain('AUTO-RECORD-TENNIS');
   });
 
-  it('requires explicit agents:tools authorization and rejects empty or oversized rules', () => {
-    const manifest = { id: 'calendar', name: 'Calendar', version: '1.0.0', apiVersion: 3, entry: 'main.html',
+  it('is required with programs or skills, refused without, at most 160 characters', () => {
+    const manifest = { id: 'calendar', name: 'Calendar', version: '1.0.0', apiVersion: EXTENSION_API_VERSION, defaultLocale: 'en', entry: 'main.html',
       permissions: { capabilities: ['agents:tools'] },
-      contributes: { tabs: [{ name: 'main', title: 'Calendar', entry: 'main.html' }], mcpServers: [{ tools: 'tools.js' }], agentInstructions: 'Record plans.' } };
+      contributes: { tabs: [{ name: 'main', title: 'Calendar', entry: 'main.html' }], mcpServers: [{ tools: 'tools.js' }], instructions: 'calendar__add(when, what): record plans.' } };
     expect(safeParseExtensionManifest(manifest).ok).toBe(true);
     expect(safeParseExtensionManifest({ ...manifest, permissions: { capabilities: [] } }).ok).toBe(false);
-    for (const agentInstructions of ['', ' '.repeat(10), 'x'.repeat(8001)]) {
-      expect(safeParseExtensionManifest({ ...manifest, contributes: { ...manifest.contributes, agentInstructions } }).ok).toBe(false);
+    for (const instructions of ['', ' '.repeat(10), 'x'.repeat(161), undefined]) {
+      expect(safeParseExtensionManifest({ ...manifest, contributes: { ...manifest.contributes, instructions } }).ok).toBe(false);
     }
+    expect(safeParseExtensionManifest({ ...manifest, contributes: { ...manifest.contributes, instructions: 'x'.repeat(160) } }).ok).toBe(true);
+    const { mcpServers: _programs, ...pageOnly } = manifest.contributes;
+    expect(safeParseExtensionManifest({ ...manifest, permissions: {}, contributes: pageOnly }).ok).toBe(false);
+    expect(safeParseExtensionManifest({ ...manifest, contributes: { ...manifest.contributes, agentInstructions: 'gone' } }).ok).toBe(false);
   });
 });

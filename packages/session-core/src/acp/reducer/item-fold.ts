@@ -667,28 +667,22 @@ function foldItemContent(
    */
   stampAt?: number
 ): TranscriptItem[] {
+  // 流式片段(消息 / 思维)只改写**一个顶层条目**的内容,改不动任何工具结构:那棵树是从 id / kind / seq
+  // 派生的,而这三样一个片段都动不了。所以这条路上不必先把整份条目摊平、排序、再重建树 —— 那是
+  // O(全部条目) 的活,而它恰好是全应用最热的一条路(一个回合里每来一个片段就走一次,见 `foldItem`)。
+  // 实测(Windows,2000 条目的回合,3000 个片段):重建树每个片段 0.90ms、合计 2.71s;只改那一条之后
+  // 0.05ms、合计 0.16s(#1181)。
+  // ❌ 这一趟只接「条目已经在场」的更新:新条目要现算 seq、可能插在别处,那条路照旧走下面。
+  const streamed = updateStreamedItem(items, event, turnId, at);
+  if (streamed) return streamed;
+
   const flatItems = flattenItems(items);
   switch (event.kind) {
     case 'message': {
       const id = makeMessageId(turnId, event.messageId, event.role);
-      const base = finalizeOpenThinking(flatItems, at);
-      const idx = base.findIndex((it) => it.kind === 'message' && it.id === id);
-      if (idx >= 0) {
-        // Append chunk to existing message.
-        const msg = base[idx] as TranscriptMessage;
-        const updated: TranscriptMessage = foldMessageContent({
-          ...msg,
-          ...(event.revertAnchor ? { revertAnchor: event.revertAnchor } : {}),
-          ...(event.attachments && (event.attachments.length || event.attachmentsMode === 'replace')
-            ? { attachments: event.attachmentsMode === 'replace' ? event.attachments : [...(msg.attachments ?? []), ...event.attachments] }
-            : {}),
-        }, event);
-        return normalizeToolStructure(
-          base.map((it, i) => (i === idx ? updated : it)),
-          turnId
-        );
-      }
+      // 已经在这个回合里的消息由 `updateStreamedItem` 接走了(那条路不重建树),走到这里的一律是新消息。
       // New message.
+      const base = finalizeOpenThinking(flatItems, at);
       const newMsg: TranscriptMessage = foldMessageContent({
         kind: 'message',
         id,
@@ -705,16 +699,7 @@ function foldItemContent(
 
     case 'thinking': {
       const id = makeThinkingId(turnId, event.messageId);
-      const idx = flatItems.findIndex(
-        (it) => it.kind === 'thinking' && it.id === id
-      );
-      if (idx >= 0) {
-        const th = flatItems[idx] as TranscriptThinking;
-        return normalizeToolStructure(
-          flatItems.map((it, i) => (i === idx ? foldMessageContent(th, event) : it)),
-          turnId
-        );
-      }
+      // 同上:已经在场的思维行由 `updateStreamedItem` 接走,这里只剩新建。
       const newThinking: TranscriptThinking = foldMessageContent({
         kind: 'thinking',
         id,
@@ -935,6 +920,55 @@ function foldItemContent(
     default:
       return items;
   }
+}
+
+/**
+ * 就地改写一个**已经在场的**顶层消息 / 思维条目;没有它(或它不在顶层)返回 null,由调用方走那条
+ * 「摊平 + 重建树」的老路。
+ *
+ * 为什么「顶层」够用:`buildTree` 只把工具调用收进 `children`(子调用)与读组(`wrapReadGroups`),
+ * 消息与思维条目永远挂在回合的第一层 —— 所以按顶层线性找一个 id,与按摊平后的整份列表找一个 id
+ * 是同一件事(见 `flattenItems`)。
+ *
+ * 返回的一定是新数组:调用方(与整条转录的读侧)靠「换了引用」认定这一回合变了。
+ */
+function updateStreamedItem(
+  items: TranscriptItem[],
+  event: FoldEvent,
+  turnId: string,
+  at: number
+): TranscriptItem[] | null {
+  if (event.kind === 'message') {
+    const id = makeMessageId(turnId, event.messageId, event.role);
+    const idx = items.findIndex((item) => item.kind === 'message' && item.id === id);
+    if (idx < 0) return null;
+    return items.map((item, i) => {
+      if (i === idx) {
+        const message = item as TranscriptMessage;
+        return foldMessageContent({
+          ...message,
+          ...(event.revertAnchor ? { revertAnchor: event.revertAnchor } : {}),
+          ...(event.attachments && (event.attachments.length || event.attachmentsMode === 'replace')
+            ? { attachments: event.attachmentsMode === 'replace' ? event.attachments : [...(message.attachments ?? []), ...event.attachments] }
+            : {}),
+        }, event);
+      }
+      // 内容型事件到达 = 代理已经离开推理阶段:顺手把还开着的思维行落定 —— 与老路里那次
+      // `finalizeOpenThinking(flatItems, at)` 是同一件事(思维条目同样只在顶层)。
+      return item.kind === 'thinking' && item.status === 'thinking'
+        ? { ...item, status: 'done' as const, durationMs: at - item.startedAt }
+        : item;
+    });
+  }
+
+  if (event.kind === 'thinking') {
+    const id = makeThinkingId(turnId, event.messageId);
+    const idx = items.findIndex((item) => item.kind === 'thinking' && item.id === id);
+    if (idx < 0) return null;
+    return items.map((item, i) => (i === idx ? foldMessageContent(item as TranscriptThinking, event) : item));
+  }
+
+  return null;
 }
 
 /**

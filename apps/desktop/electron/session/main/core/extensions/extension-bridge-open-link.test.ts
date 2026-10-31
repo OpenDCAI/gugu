@@ -67,7 +67,7 @@ beforeEach(async () => {
 describe('a link of gugu\'s own, clicked in an App page (openLink)', () => {
   it('delivers a topic link to the App already bound in its source chat', async () => {
     const manifest = parseExtensionManifest({
-      id: 'chess', name: 'Chess', version: '1.0.0', apiVersion: EXTENSION_API_VERSION,
+      id: 'chess', name: 'Chess', version: '1.0.0', apiVersion: EXTENSION_API_VERSION, defaultLocale: 'en',
       entry: 'main.html', contributes: { tabs: [{ name: 'main', title: 'Main' }] },
     });
     const openApp = vi.fn(async () => ({ chat: CHAT }));

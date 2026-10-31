@@ -40,7 +40,7 @@ for (const kind of ['group', 'dm'] as const) for (const mobile of [false, true])
     mobileShell.enabled = mobile
     const source = message({ id: 'source', chat_id: 'g1', sender_user_id: 'ada', content_type, content })
     const sendMessage = vi.fn(async () => undefined)
-    await renderWithAppProviders(h, createNode(ChatAreaPanel, { activeTab: 'chats', mobile }), { chat: {
+    await renderWithAppProviders(h, createNode(ChatAreaPanel, { mobile }), { chat: {
       activeChatId: 'g1', activeChat: chat({ id: 'g1', kind, peer_user_id: 'ada', name: 'Ada' }), messages: [source],
       identitiesById: { ada: displayIdentity('ada', { display_name: 'Ada', type: 'human' }) },
       getImRepository: async () => repository, sendMessage,
@@ -60,7 +60,7 @@ for (const kind of ['group', 'dm'] as const) for (const mobile of [false, true])
 it('does not restore an old mobile DM quote or focus the composer after A → B → A', async () => {
   mobileShell.enabled = true
   const source = message({ id: 'source-A', chat_id: 'chat-A', sender_user_id: 'ada', content: 'Alpha Beta' })
-  const surface = (id: string) => renderWithAppProviders(h, createNode(ChatAreaPanel, { activeTab: 'chats', mobile: true }), { chat: {
+  const surface = (id: string) => renderWithAppProviders(h, createNode(ChatAreaPanel, { mobile: true }), { chat: {
     activeChatId: id, activeChat: chat({ id, kind: 'dm', peer_user_id: 'ada', name: id }), messages: id === 'chat-A' ? [source] : [],
     identitiesById: { ada: displayIdentity('ada', { display_name: 'Ada' }) }, getImRepository: async () => repository,
   } })
@@ -87,7 +87,7 @@ it('does not restore an old mobile DM quote or focus the composer after A → B 
 
 it.each(['dm', 'group'] as const)('keeps the original main %s preview without applying the topic prefix', async kind => {
   const source = message({ id: 'source', chat_id: 'g1', sender_user_id: 'ada', content: 'Alpha first line.\n\nBeta second paragraph.' })
-  await renderWithAppProviders(h, createNode(ChatAreaPanel, { activeTab: 'chats', mobile: true }), { chat: {
+  await renderWithAppProviders(h, createNode(ChatAreaPanel, { mobile: true }), { chat: {
     activeChatId: 'g1', activeChat: chat({ id: 'g1', kind, peer_user_id: 'ada', name: 'Ada' }), messages: [source],
     identitiesById: { ada: displayIdentity('ada', { display_name: 'Ada' }) }, getImRepository: async () => repository,
   } })

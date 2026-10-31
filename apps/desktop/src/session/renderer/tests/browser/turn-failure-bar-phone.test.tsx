@@ -47,14 +47,18 @@ it.each(['zh-CN', 'en-US'] as const)('%s: a long agent name leaves a readable ph
   const dismiss = host.querySelector<HTMLElement>('[data-testid="agent-turn-failure-dismiss"]')!.getBoundingClientRect()
   const nameElement = host.querySelector<HTMLElement>('.tfc-name')!
   const name = nameElement.getBoundingClientRect()
-  const title = host.querySelector<HTMLElement>('.tfc-title')!.getBoundingClientRect()
+  const titleElement = host.querySelector<HTMLElement>('.tfc-title')!
+  const title = titleElement.getBoundingClientRect()
   const messageStyle = getComputedStyle(messageElement)
   const lineHeight = Number.parseFloat(messageStyle.lineHeight)
   const messageInsets = Number.parseFloat(messageStyle.borderTopWidth) + Number.parseFloat(messageStyle.borderBottomWidth)
     + Number.parseFloat(messageStyle.paddingTop) + Number.parseFloat(messageStyle.paddingBottom)
   expect(nameElement.scrollWidth, 'the long name is shortened').toBeGreaterThan(nameElement.clientWidth)
   expect(Math.abs(name.top + name.height / 2 - (title.top + title.height / 2)), 'name and failure title share the header row').toBeLessThanOrEqual(1)
-  expect(title.width, 'the failure title stays readable').toBeGreaterThan(48)
+  const titleText = document.createRange()
+  titleText.selectNodeContents(titleElement)
+  // 量字本身的宽与它的格子比,不设像素门槛:换字体也成立;差一点点也会被省略号吃掉,所以按亚像素比。
+  expect(titleText.getBoundingClientRect().width, 'the failure title is shown whole, whatever the font').toBeLessThanOrEqual(title.width + 0.01)
   expect(message.top, 'the cause occupies its own row').toBeGreaterThanOrEqual(name.bottom - 1)
   expect(message.height - messageInsets, 'the cause text stays on one line').toBeLessThanOrEqual(lineHeight + 1)
   expect(message.width, 'the reason takes the room the name gave up').toBeGreaterThan(name.width)

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 // #6158 聊天面在别的 tab 上由 MainLayout 隐藏而非卸载。这里钉住 ChatAreaPanel 自己那三条:
 //   ① 别的 tab 上不换成空态(树留着,分栏/右栏/滚动才在);
-//   ② 隐藏态不算「看见」:IntersectionObserver 那条已读路径按 activeTab 门控,切回时重新数一遍;
+//   ② 隐藏态不算「看见」:IntersectionObserver 那条已读路径按壳的 tab(ShellTabContext)门控,切回时重新数一遍;
 //   ③ 隐藏态不接全局快捷键(Mod+F 搜索)。
 // jsdom 没有 IntersectionObserver ⇒ MessageList 一挂载就同步调 onVisible(产品自己的降级分支),
 // 所以「隐藏态 0 次调用」是门控的真读数,不是观察器没装。每条都带同场景的阳性对照。
@@ -60,7 +60,8 @@ afterEach(() => {
 const PEER_MESSAGE = message({ id: 'peer-msg-1', chat_id: 'chat-1', seq: 7, sender_user_id: 'peer-1', content: '隐藏期间到达的一条' })
 
 async function renderPanel(activeTab: 'chats' | 'tasks', markMessageVisible = vi.fn()) {
-  await renderWithAppProviders(harness, createNode(Fragment, null, createNode(CommandShortcutBinder), createNode(ChatAreaPanel, { activeTab, openNonce: 0 })), {
+  await renderWithAppProviders(harness, createNode(Fragment, null, createNode(CommandShortcutBinder), createNode(ChatAreaPanel, { imPage: true, openNonce: 0 })), {
+    shellTab: activeTab,
     chat: {
       getImRepository: getImRepositoryMock,
       activeChatId: 'chat-1',

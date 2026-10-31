@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 // @ts-expect-error — 守卫脚本是无类型的 .mjs,这里只跑它导出的扫描函数。
-import { scanSessionShellPort, SCANNED_ROOTS, SHELL_PORT_MODULE } from '../../../scripts/check-session-shell-port.mjs'
+import { scanSessionShellPort, SCANNED_ROOTS, SHELL_PORT_MODULE } from '../../../scripts/checks/check-session-shell-port.mjs'
 
 const repoRoot = join(import.meta.dirname, '../../..')
 const tempRoots: string[] = []

@@ -1,13 +1,14 @@
 {
   "id": "ext-debug",
   "name": "App 调试台",
-  "description": "写 App 时用的仪器,不是给日常用的:把桥上每个动词当场跑一遍,哪条挂了就把错误原文摊在脸上。所以它申请了全部能力。",
   "author": "咕咕",
   "categories": [
     "dev-tools"
   ],
   "version": "2.0.0",
-  "apiVersion": 15,
+  "apiVersion": 24,
+  "defaultLocale": "zh-CN",
+  "subtitle": "把桥上每个动词当场跑一遍",
   "platforms": ["desktop"],
   "engines": {
     "gugu": ">=0.2.40"

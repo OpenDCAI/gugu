@@ -18,7 +18,7 @@ const providers = () => ({ auth: { id: 'owner-1' }, contacts: { contacts: [conta
 async function back() { await act(async () => { window.dispatchEvent(new CustomEvent('gugu:native-back')) }) }
 
 it('contacts group creation: the form survives dismissal and is fresh on reopening', async () => {
-  await renderWithAppProviders(h, createNode(ContactsPanel, { mobile: true, activeTab: 'contacts' }), providers())
+  await renderWithAppProviders(h, createNode(ContactsPanel, { mobile: true }), { ...providers(), shellTab: 'contacts' })
   await clickElement([...h.container.querySelectorAll('button')].find((b) => /^(群组|Groups)/.test(b.textContent ?? ''))!)
   const open = () => clickElement(q(AUTOMATION_TEST_IDS.contactsGroupEmptyAction))
   await open(); await frame()
@@ -31,7 +31,7 @@ it('contacts group creation: the form survives dismissal and is fresh on reopeni
 })
 
 for (const kind of ['group', 'friend'] as const) it(`chat list ${kind}: the actual menu owner keeps the sheet through dismissal`, async () => {
-  await renderWithAppProviders(h, createNode(ChatListPanel, { mobile: true, activeTab: 'chats' }), providers())
+  await renderWithAppProviders(h, createNode(ChatListPanel, { mobile: true }), providers())
   await clickElement(q('chat-list-plus-button')); await frame()
   await clickElement(q(kind === 'group' ? 'plus-menu-create-group' : 'plus-menu-add-friend')); await frame()
   const popup = document.querySelector<HTMLElement>('[data-slot="dialog-popup"]')!
@@ -43,7 +43,7 @@ it('chat group creation: selecting the new chat happens after the sheet exits', 
   const selected = vi.fn()
   const setChat = vi.fn()
   const props = providers()
-  await renderWithAppProviders(h, createNode(ChatListPanel, { mobile: true, activeTab: 'chats', onChatSelected: selected }), { ...props, chat: { ...props.chat, setActiveChatId: setChat } })
+  await renderWithAppProviders(h, createNode(ChatListPanel, { mobile: true, onChatSelected: selected }), { ...props, chat: { ...props.chat, setActiveChatId: setChat } })
   await clickElement(q('chat-list-plus-button')); await frame()
   await clickElement(q('plus-menu-create-group')); await frame()
   const popup = q('create-group-modal')

@@ -20,7 +20,7 @@ import path from 'node:path'
 import { isProcessAlive } from './process-alive'
 import { readAccountRuntime } from './server-account-runtime'
 import { recordLoginShell, startKeeper } from './server-keeper'
-import { accountIsBusy, listAccounts, supervisorDataDir } from './server-layout'
+import { activityProof, listAccounts, supervisorDataDir } from './server-layout'
 import { SERVICE_UMASK } from './server-permissions'
 import { spawnUpgradeGuard, writeUpgradeMarker } from './server-upgrade-guard'
 
@@ -474,7 +474,7 @@ export async function installService(out: Out): Promise<boolean> {
     running: readRunningServer,
     accountsMatchPackage: (version) => listAccounts().filter((account) => account.signedIn).every((account) => readAccountRuntime(account.dataDir).version === version),
     isAlive: isProcessAlive,
-    isBusy: () => listAccounts().some((account) => account.signedIn && accountIsBusy(account.dataDir)),
+    isBusy: () => listAccounts().some((account) => account.signedIn && activityProof(account.dataDir) !== 'idle'),
     stop: (pid) => {
       try {
         process.kill(pid, 'SIGTERM')

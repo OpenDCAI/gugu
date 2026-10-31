@@ -30,6 +30,7 @@ const mocks = vi.hoisted(() => ({
   workspaceGet: vi.fn(),
   installedManifests: [] as Array<{
     id: string;
+    defaultLocale?: string;
     contributes: { tabs: Array<{ name: string; title: string; opensFiles?: { session?: string[]; group?: string[] } }> };
   }>,
 }));
@@ -791,8 +792,8 @@ describe('task file preview routing', () => {
   describe('「用哪个打开」 when several Apps claim it (真源 §2.4, 主人 09-29)', () => {
     const twoClaims = () => {
       mocks.installedManifests.push(
-        { id: 'sheets', contributes: { tabs: [{ name: 'grid', title: 'Grid', opensFiles: { session: ['.csv'] } }] } },
-        { id: 'tables', contributes: { tabs: [{ name: 'main', title: 'Tables', opensFiles: { session: ['.csv'] } }] } },
+        { id: 'sheets', defaultLocale: 'en', contributes: { tabs: [{ name: 'grid', title: 'Grid', opensFiles: { session: ['.csv'] } }] } },
+        { id: 'tables', defaultLocale: 'en', contributes: { tabs: [{ name: 'main', title: 'Tables', opensFiles: { session: ['.csv'] } }] } },
       );
     };
 

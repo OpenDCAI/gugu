@@ -1,6 +1,5 @@
-import { useEffect, useId, useState, type ReactNode } from 'react';
+import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import {
-  ArrowRight,
   ArrowUp,
   Bell,
   Check,
@@ -23,7 +22,6 @@ import {
 import './extensions-panel.css';
 import './app-store.css';
 import { Button } from '@renderer/lib/ui/button';
-import { Dialog, DialogContent, DialogContentArea, DialogHeader, DialogTitle } from '@renderer/lib/ui/dialog';
 import { InfoTooltip } from '@renderer/lib/ui/info-tooltip';
 import { MarkdownRenderer } from '@renderer/lib/ui/markdown-renderer';
 import { ExpandableImage } from '@renderer/lib/ui/expandable-image';
@@ -44,7 +42,7 @@ import {
   type DeclaredPermission,
 } from '@shared/extensions/catalog';
 import { claimedSuffixes, compareExtensionVersions, type ExtensionCapability, type ExtensionManifest } from '@shared/extensions/manifest';
-import { pinsAutoUpdate } from '@shared/extensions/market-entries';
+import { pinsAutoUpdate, type MarketListing } from '@shared/extensions/market-entries';
 import {
   marketSourceLabel,
   marketSourceUrl,
@@ -83,16 +81,16 @@ export interface ExtensionDetailSubject {
 
 type Loadable<T> = { status: 'idle' } | { status: 'loading' } | { status: 'ready'; data: T } | { status: 'error' };
 
-export type ProductPageApi = Pick<typeof rpc.extensions, 'marketReadme' | 'marketHistory'> &
+export type ProductPageApi = Pick<typeof rpc.extensions, 'marketListing' | 'marketHistory'> &
   Partial<Pick<ExtensionsApi, 'agentTools' | 'marketRead'>>;
 
 /**
  * 一个 App 的产品页(#7059,取代原来的居中详情框):在「App」那一栏里整页铺开,左上「‹ App」回到清单。
- * 版面照 Google Play 的应用页(owner 10-10「这个是我想要的」):头上大字名字、发布方、一排要点、大按钮,右边大图标;
- * 下面左栏 截图一排 → 关于此 App(这个语言的简介;→ 打开 README 全文和信息表)→「对 agent 说」→ 新功能和版本历史
- * → 装上后多了什么 → 权限(它能看 / 它能做,每项能单独收回,照 Slack);右栏 审核那张卡、链接、类似 App。
- * 名字、简介、示例句跟界面语言走(manifest `localized`);它还写了别的语言,「关于」旁边给一个切换。
- * 读完再决定的东西都在这一页,装、开、更新也在这一页头上那一颗。
+ * 版面照 Google Play 的应用页(owner 10-10「这个是我想要的」):头上大字名字、副标题、发布方、一排要点、大按钮,右边大图标;
+ * 下面左栏(App 模型 v2)截图轮播 → 关于(页内,默认折叠到四行,点「展开」看全文)→ 新功能和版本历史 → 它带来了什么
+ * (页签、给 agent 的工具和技能、它给 agent 的那一行原文、「对 agent 说」)→ 权限(它能看 / 它能做,每项能单独收回,照 Slack)
+ * → 信息;右栏 审核那张卡、链接、类似 App。截图和关于是市场上这一版的 `store/`(`marketListing`),本机装的 App 没有。
+ * 名字、副标题、关于、示例句跟界面语言走;它还写了别的语言,「关于」旁边给一个切换。装、开、更新在这一页头上那一颗。
  */
 export function AppProductPage({
   subject,
@@ -141,7 +139,7 @@ export function AppProductPage({
   translate: SessionTranslate;
   /** 看的是另一台机器的 App 时,那台的名字:权限那一张卡如实写它,❌ 写「这台电脑」。不给 = 本机。 */
   machine?: string;
-  /** README、版本历史、工具清单问哪台机器(#6264)。不给 = 本机。 */
+  /** 产品页内容、版本历史、工具清单问哪台机器(#6264)。不给 = 本机。 */
   api?: ProductPageApi;
   /** 那台机器此刻做不了事(离线 / server 太旧,#6264):照旧看,动作全灰。 */
   readOnly?: boolean;
@@ -195,32 +193,40 @@ export function AppProductPage({
   const text = localizedManifestText(manifest, textLocale);
   const compat = cloud?.compat ?? null;
   const deprecated = cloud?.deprecated ?? null;
-  const [readme, setReadme] = useState<Loadable<string | null>>({ status: 'idle' });
+  const [listing, setListing] = useState<Loadable<MarketListing> | { status: 'outdated' }>({ status: 'idle' });
   const [history, setHistory] = useState<Loadable<MarketVersionHistoryEntry[]>>({ status: 'idle' });
   const [historyOpen, setHistoryOpen] = useState(false);
   const [aboutOpen, setAboutOpen] = useState(false);
+  const [aboutClamped, setAboutClamped] = useState(false);
+  const aboutRef = useRef<HTMLDivElement | null>(null);
 
-  // 懒加载,换了 App(id / 版本变了)才取一次;卸下时取消挂起的那次,免得旧数据落进新的一页。README 由那台机器答:
-  // 装着这一版就读装好的那份(文件夹装的也有,#6950),没装才问市场;没有云端记录的版本历史是空的 —— 空态本身就是正确的画法。
+  // 懒加载,换了 App(id / 版本变了)才取一次;卸下时取消挂起的那次,免得旧数据落进新的一页。只有市场上的版本有产品页内容
+  // (`store/` 不进安装包);读不到就照实说(那台机器的咕咕太旧 / 市场上这一版没有),❌ 改读别处。
+  const listedVersion = cloud?.version ?? null;
   useEffect(() => {
+    setAboutOpen(false);
+    if (!listedVersion) {
+      setListing({ status: 'idle' });
+      return;
+    }
     let cancelled = false;
-    setReadme({ status: 'loading' });
+    setListing({ status: 'loading' });
     void api
-      .marketReadme({ extensionId: manifest.id, version: manifest.version })
+      .marketListing({ extensionId: manifest.id, version: listedVersion })
       .then((result) => {
         if (cancelled) return;
-        if (!result.success || !result.data) throw new Error(result.error ?? 'readme unreadable');
-        setReadme({ status: 'ready', data: result.data.readme });
+        if (!result.success) throw new Error(result.error);
+        setListing({ status: 'ready', data: result.data });
       })
       .catch((error: unknown) => {
         if (cancelled) return;
-        log.warn('extension README unreadable:', error);
-        setReadme({ status: 'error' });
+        log.warn('App market listing unreadable:', error);
+        setListing({ status: (error as { code?: unknown } | null)?.code === 'server_outdated' ? 'outdated' : 'error' });
       });
     return () => {
       cancelled = true;
     };
-  }, [api, manifest.id, manifest.version]);
+  }, [api, manifest.id, listedVersion]);
 
   useEffect(() => {
     let cancelled = false;
@@ -278,8 +284,13 @@ export function AppProductPage({
   const publishedAt = historyEntry?.publishedAt ?? (cloudIsShown ? cloud?.publishedAt : undefined);
   const permissions = declaredPermissions(installed ?? manifest);
   const withdrawn = permissions.filter((permission) => revoked.includes(permission.key)).length;
-  const readmeParts = readme.status === 'ready' && readme.data ? splitReadme(readme.data) : null;
-  const shots = readmeParts?.images ?? [];
+  const shots = listing.status === 'ready' ? listing.data.screenshots : [];
+  const aboutText = listing.status === 'ready' ? listing.data.about[textLocale] : undefined;
+  // 折叠到四行放不下才给「展开」:量的是画出来的高度,换语言、换 App 都重量。
+  useLayoutEffect(() => {
+    const box = aboutRef.current;
+    setAboutClamped(Boolean(box && box.scrollHeight > box.clientHeight + 1));
+  }, [aboutText]);
   const official = Boolean(cloud);
   const publisher = official ? translate('extensions.official') : (manifest.author ?? translate('extensions.publisherLocal'));
   const category = marketCategoryOf(manifest);
@@ -287,28 +298,28 @@ export function AppProductPage({
   const declaring = installed ?? manifest;
   const programs = (declaring.contributes.mcpServers ?? []).map((server) => ('name' in server ? server.name : server.tools));
 
-  // ── 截图一排(照 Google Play:产品页头下面一排图,放不下就横着翻)──
+  // ── 截图轮播(照 Google Play:产品页头下面一排图,放不下就横着翻;不写图注)。截图是 defaultLocale 那种语言的界面:
+  // 界面语言是别的,就照实说一句是哪种语言的,❌ 当成这种语言的 ──
+  const shotsLanguage = screenshotsLanguage(manifest, locale);
   const screenshots =
     shots.length > 0 ? (
       <section className="mk-dsec is-shots" key="shots" data-testid="app-product-preview" data-image-gallery="">
+        {shotsLanguage ? <p className="mk-note" data-testid="app-product-shots-language">{translate('extensions.screenshotsIn', { language: shotsLanguage })}</p> : null}
         <AppShelfRow label={translate('extensions.preview')} prevLabel={translate('extensions.shelfPrev')} nextLabel={translate('extensions.shelfNext')}>
-          {shots.map((shot) => (
-            <figure className="mk-shot" role="listitem" key={shot.src}>
-              {/* README 里的图片是发布时一起传到下载站的公开地址(sync.mjs 改写过);会话页主渲染进程没对 img-src 设 CSP。 */}
-              <ExpandableImage src={shot.src} alt={shot.alt} loading="lazy" decoding="async" />
-              {/* 图注只在它说了名字以外的话时才写:README 里多半就是 App 的名字,再写一遍是废字。 */}
-              {shot.alt && shot.alt !== text.name ? <figcaption>{shot.alt}</figcaption> : null}
+          {shots.map((src, index) => (
+            <figure className="mk-shot" role="listitem" key={src}>
+              {/* 截图是发布时传到下载站的公开地址(sync.mjs);会话页主渲染进程没对 img-src 设 CSP。 */}
+              <ExpandableImage src={src} alt={translate('extensions.screenshotOf', { name: text.name, index: index + 1 })} loading="lazy" decoding="async" />
             </figure>
           ))}
         </AppShelfRow>
       </section>
     ) : null;
 
-  // ── 对 agent 说:点一句 = 新建任务、这句已填好 ──
+  // ── 对 agent 说:点一句 = 新建任务、这句已填好(放在「它带来了什么」里)──
   const ask =
     text.examples.length > 0 ? (
-      <section className="mk-dsec" key="ask" data-testid="app-product-ask">
-        <h3>{translate('extensions.askAgent')}</h3>
+      <AddsEntry key="ask" icon={<MessageCircle className="size-4" />} label={translate('extensions.askAgent')} testId="app-product-ask">
         <div className="mk-asks">
           {text.examples.map((example) => (
             <button
@@ -324,18 +335,14 @@ export function AppProductPage({
             </button>
           ))}
         </div>
-      </section>
+      </AddsEntry>
     ) : null;
 
-  // ── 关于此 App:这个语言的简介整句(manifest 写的,≤280 字);README 全文在 → 打开的框里(照 Google Play「关于此应用 →」)──
-  const readmeText = readmeParts?.text.trim() ?? '';
-  const about = (
+  // ── 关于:市场上这一版的 store/about*.md,页内直接画,默认折叠到四行(照 App Store 产品页的「more」)──
+  const about = listedVersion ? (
     <section className="mk-dsec" key="about" data-testid="app-product-about">
       <div className="mk-sec-h">
-        <button type="button" className="mk-dsec-link" onClick={() => setAboutOpen(true)} data-testid="app-product-about-open">
-          <h3>{translate('extensions.aboutApp')}</h3>
-          <ArrowRight className="size-4" />
-        </button>
+        <h3>{translate('extensions.aboutApp')}</h3>
         {languages.length > 1 ? (
           <ToggleGroup
             size="sm"
@@ -348,15 +355,36 @@ export function AppProductPage({
           >
             {languages.map((option) => (
               <ToggleGroupItem key={option.locale} value={option.locale} className="px-2 text-sm">
-                {option.language ? languageName(option.language) : translate('extensions.languageOriginal')}
+                {languageName(option.language)}
               </ToggleGroupItem>
             ))}
           </ToggleGroup>
         ) : null}
       </div>
-      <p className="mk-about">{text.description ?? translate('extensions.noDescription')}</p>
+      {aboutText !== undefined ? (
+        <>
+          <div ref={aboutRef} className={cn('mk-about', !aboutOpen && 'is-clamped')} data-testid="app-product-about-text">
+            <MarkdownRenderer content={aboutText} onOpenLink={(url) => { onOpenExternal(url); return true; }} />
+          </div>
+          {aboutClamped || aboutOpen ? (
+            <button type="button" className="mk-link" aria-expanded={aboutOpen} onClick={() => setAboutOpen((open) => !open)} data-testid="app-product-about-toggle">
+              {translate(aboutOpen ? 'extensions.collapse' : 'extensions.expand')}
+            </button>
+          ) : null}
+        </>
+      ) : (
+        <p className="mk-note" role={listing.status === 'idle' || listing.status === 'loading' ? undefined : 'alert'}>
+          {translate(
+            listing.status === 'idle' || listing.status === 'loading'
+              ? 'extensions.loading'
+              : listing.status === 'outdated'
+                ? 'extensions.listingPeerOutdated'
+                : 'extensions.listingUnavailable'
+          )}
+        </p>
+      )}
     </section>
-  );
+  ) : null;
 
   // ── 新功能 + 版本历史 ──
   let news: ReactNode = null;
@@ -458,6 +486,13 @@ export function AppProductPage({
           )}
           {/* 带程序又带技能说明的:说明那一句跟在工具后面,❌ 再单起一行「技能说明」。 */}
           {programs.length > 0 && declaring.contributes.skills ? <i>{translate('extensions.addsSkillsText')}</i> : null}
+          {/* 它给每个 agent 的那一行(`<gugu_apps>` 里原样就是这句):人看得到 agent 读到的是什么。 */}
+          {declaring.contributes.instructions ? (
+            <span className="mk-instructions" data-testid="app-product-instructions">
+              <span>{translate('extensions.addsInstructions')}</span>
+              <q>{declaring.contributes.instructions}</q>
+            </span>
+          ) : null}
           {agentStatus?.lastFailure ? (
             // 程序在 stderr 上的原话可能是一整段栈,不进文案(仓规 copy-leaks-internal-detail),放在悬停里。
             <i className="text-foreground-destructive" title={agentStatus.lastFailure.stderrTail || undefined}>
@@ -487,6 +522,7 @@ export function AppProductPage({
       </AddsEntry>
     );
   }
+  if (ask) adds.push(ask);
   if (manifest.permissions?.capabilities?.includes('notifications')) {
     adds.push(
       <AddsEntry key="notify" icon={<Bell className="size-4" />} label={translate('extensions.addsNotify')}>
@@ -783,7 +819,6 @@ export function AppProductPage({
           )}
           {screenshots}
           {about}
-          {ask}
           {news}
           {addsSection}
           {permissionsSection}
@@ -802,22 +837,6 @@ export function AppProductPage({
         {side}
       </div>
 
-      <Dialog open={aboutOpen} onOpenChange={setAboutOpen}>
-        <DialogContent className="sm:max-w-2xl" data-testid="app-product-about-dialog">
-          <DialogHeader>
-            <span className="mk-icon is-40">
-              <ExtensionMonogram name={text.name} iconDataUrl={cloud?.iconUrl ?? iconDataUrl} />
-            </span>
-            <span className="mk-dialog-title">
-              <DialogTitle>{text.name}</DialogTitle>
-              <span>{translate('extensions.aboutApp')}</span>
-            </span>
-          </DialogHeader>
-          <DialogContentArea className="gap-4">
-            {readmeText ? <MarkdownRenderer content={readmeText} onOpenLink={(url) => { onOpenExternal(url); return true; }} /> : text.description ? <p>{text.description}</p> : null}
-          </DialogContentArea>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }
@@ -831,30 +850,6 @@ function PermissionIcon({ permission, side }: { permission: DeclaredPermission; 
   if (permission.key === 'notifications') return <Bell className="size-4" />;
   if (permission.key === 'chat:relay') return <MessageCircle className="size-4" />;
   return <Pencil className="size-4" />;
-}
-
-/**
- * README 拆成两半:图片(预览那一排用)和其余的字(简介用)。截图放 README 是 owner 09-14 定的(「readme 中放这个插件的截图」),
- * 所以 README 里的图就是这个 App 的截图;字里不再重复画一遍。
- */
-export function splitReadme(markdown: string): { images: { src: string; alt: string }[]; text: string } {
-  const images: { src: string; alt: string }[] = [];
-  const markdownImage = /!\[([^\]]*)\]\(\s*<?([^)\s>]+)>?(?:\s+"[^"]*")?\s*\)/g;
-  const htmlImage = /<img\b[^>]*?\bsrc=["']([^"']+)["'][^>]*>/gi;
-  let text = markdown.replace(markdownImage, (_whole, alt: string, src: string) => {
-    images.push({ src, alt: alt.trim() });
-    return '';
-  });
-  text = text.replace(htmlImage, (whole, src: string) => {
-    const alt = /\balt=["']([^"']*)["']/i.exec(whole)?.[1] ?? '';
-    images.push({ src, alt: alt.trim() });
-    return '';
-  });
-  // 只留绝对地址的图(下载站改写过的都是);别的(相对路径、data:)在这里画不出来。开头那个一级标题就是名字,头上已有。
-  return {
-    images: images.filter((image) => /^https?:\/\//.test(image.src)),
-    text: text.replace(/^\s*#\s+[^\n]*\n/, '').replace(/\n{3,}/g, '\n\n'),
-  };
 }
 
 /** 「2026年10月8日」:关于此 App 里的更新日期(照 Google Play 写全)。 */
@@ -871,6 +866,17 @@ function shortDate(iso: string, locale: string): string {
     return new Intl.DateTimeFormat(locale, { month: 'short', day: 'numeric' }).format(new Date(iso));
   } catch {
     return iso;
+  }
+}
+
+/** 截图的语言(manifest 的 defaultLocale)不是界面语言时,那种语言用界面语言怎么叫;是同一种就是 null。 */
+export function screenshotsLanguage(manifest: Pick<ExtensionManifest, 'defaultLocale'>, locale: string): string | null {
+  const language = manifest.defaultLocale.split('-')[0]!;
+  if (language === locale.split('-')[0]) return null;
+  try {
+    return new Intl.DisplayNames([locale], { type: 'language' }).of(language) ?? language;
+  } catch {
+    return language;
   }
 }
 

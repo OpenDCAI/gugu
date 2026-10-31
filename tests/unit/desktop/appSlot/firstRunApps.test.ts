@@ -13,7 +13,7 @@ import type { ExtensionManifest } from '../../../../apps/desktop/src/session/sha
 
 const GUGU = { repo: 'shuxueshuxue/gugu-apps' }
 const app = (id: string, capabilities: string[] = []): ExtensionManifest =>
-  ({ id, name: id.toUpperCase(), version: '1.0.0', apiVersion: 4, entry: 'index.html', permissions: { capabilities, network: [] }, contributes: { tabs: [{ name: 'main', title: id }] } }) as ExtensionManifest
+  ({ id, name: id.toUpperCase(), version: '1.0.0', apiVersion: 24, defaultLocale: 'en', entry: 'index.html', permissions: { capabilities, network: [] }, contributes: { tabs: [{ name: 'main', title: id }] } }) as ExtensionManifest
 const offer = (id: string, firstRun = true, source = GUGU): FirstRunOffer => ({ manifest: app(id), version: '1.0.0', firstRun, source })
 
 /** A device: its record, the market, what is here, and the one silent install. */

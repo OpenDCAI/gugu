@@ -23,6 +23,7 @@ import {
 import type { CloudMarketEntry } from '@shared/extensions/market';
 import { APP_RUNTIME_GLUE_MODULE } from '@shared/extensions/app-runtime-protocol';
 import { extensionsService } from '@main/core/extensions/extensions-root';
+import { sessionHostLocale } from '@main/core/host-locale';
 import { installPlan } from './install-plan';
 import { windowNoteOf, requestExtensionInstallConsent } from './extension-bridge-relay';
 import type { ExtensionInstallConsentRequest, ExtensionInstallConsentResult } from '@shared/extensions/host-actions';
@@ -289,6 +290,8 @@ function bundleOf(
     manifest: {
       // A new App's; one being changed keeps its own, and an older one is refused with what to change.
       apiVersion: EXTENSION_API_VERSION,
+      // Written into manifest.json, as `version` is: a new App's name is in the language its person reads gugu in, unless `manifest` says.
+      defaultLocale: sessionHostLocale(),
       ...(tabs[0]?.entry ? { entry: tabs[0].entry } : {}),
       ...manifest,
       id: action.id,

@@ -869,8 +869,7 @@ export async function runEmdashExtensionAction(
 export function emdashExtensionAgentContributions(): {
   extensionId: string
   name: string
-  description?: string
-  agentInstructions?: string
+  instructions?: string
   /** The manifest as installed: what an agent's app_search filters and shows (app-search.ts). */
   manifest: ExtensionManifest
   /** Switched on in 「App」: an agent's app_search says a switched-off one is there, and who switches it on. */
@@ -905,8 +904,7 @@ export function emdashExtensionAgentContributions(): {
       return {
       extensionId: manifest.id,
       name: manifest.name,
-      ...(manifest.description ? { description: manifest.description } : {}),
-      ...(manifest.contributes.agentInstructions ? { agentInstructions: manifest.contributes.agentInstructions } : {}),
+      ...(manifest.contributes.instructions ? { instructions: manifest.contributes.instructions } : {}),
       manifest,
       enabled: service.isEnabled(manifest.id),
       rootDir,

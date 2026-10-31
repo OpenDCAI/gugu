@@ -1,7 +1,7 @@
 /**
  * Solar 图标集的字形 —— Icons: Solar Icon Set by 480 Design — CC BY 4.0 (https://github.com/480-Design/Solar-Icon-Set)
  * Lucide 0.564.0 original glyphs: ISC / Feather MIT; full notices in THIRD_PARTY_NOTICES.md.
- * 自动生成, 勿手改 —— 改 scripts/icons/solar-icons.json 后跑 `node scripts/gen-icons.mjs`.
+ * 自动生成, 勿手改 —— 改 scripts/icons/solar-icons.json 后跑 `node scripts/build/gen-icons.mjs`.
  * 纯数据,不 import 任何东西:React 的图标组件(icons.tsx)和 App 页面的 <gugu-icon>(app-runtime/ui)都读这一份。
  */
 

@@ -109,9 +109,16 @@ export class AuthExpiryMarks {
  *
  * CLI 答「已登录」或「判不出」而这家被标着 ⇒ 登录已失效。CLI 自己都说没登录时照它说
  * (那是更直接的事实:用户退出登录了 / 文件没了),不再叠「失效」。
+ *
+ * ⚠️ 凭据是**用户自己递进来的**(`credentialKind: 'api-key'`)时也不叠(#1163)。这一格说的是
+ * 「这份 Anthropic 登录不能用了,去重新登录」—— 而这类用户手上没有可续的登录:钥匙是他在咕咕之外
+ * 自己管的(控制台 key / cc-switch 一类中转的令牌),被拒说明那把钥匙或它指的服务此刻不认他。
+ * 借这一格说那件事,错的还不只是措辞:界面把唯一动作换成「重新登录」(一条他没有的路),他自家的
+ * 模型清单也一起被顶掉(见 `withAuthExpiry`)。凭据被拒这件事由**那一轮会话自己**说,❌ 不借这一格。
  */
 export function applyAuthExpiry(status: AgentAuthStatus, expired: boolean): AgentAuthStatus {
   if (!expired || status.kind === 'unauthenticated') return status;
+  if (status.kind === 'authenticated' && status.credentialKind === 'api-key') return status;
   return { kind: 'unauthenticated', reason: 'expired' };
 }
 

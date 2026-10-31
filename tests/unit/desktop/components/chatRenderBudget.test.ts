@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, createElement, memo, Profiler, useState, type FunctionComponent, type ReactNode } from 'react'
 import type { ChatItem, Device, MessageItem } from '@gugu/core/shared/types/chat'
 import { ChatAreaPanel } from '../../../../apps/desktop/src/components/ChatAreaPanel'
+import { createShellTabStore, ShellTabContext } from '../../../../apps/desktop/src/lib/shellTab'
 import { ToastContext } from '../../../../apps/desktop/src/components/toastContext'
 import { AuthContext, type AuthUser } from '../../../../apps/desktop/src/store/auth'
 import { ChatStoreProvider, type ChatContextValue } from '../../../../apps/desktop/src/store/chatContext'
@@ -140,11 +141,11 @@ function StoreHost({ initial, children }: { initial: ChatContextValue; children?
 }
 
 async function mount(store: ReturnType<typeof makeStore>) {
-  const panel = createElement(Profiler, { id: 'panel', onRender: () => { counts.panelCommits += 1 } }, createElement(ChatAreaPanel, { activeTab: 'chats' }))
-  await harness.render(createElement(AuthContext.Provider, { value: AUTH },
+  const panel = createElement(Profiler, { id: 'panel', onRender: () => { counts.panelCommits += 1 } }, createElement(ChatAreaPanel, {}))
+  await harness.render(createElement(ShellTabContext.Provider, { value: createShellTabStore('chats') }, createElement(AuthContext.Provider, { value: AUTH },
     createElement(ToastContext.Provider, { value: TOAST },
       createElement(DevicesContext.Provider, { value: DEVICES },
-        createElement(StoreHost, { initial: store.get() }, panel)))))
+        createElement(StoreHost, { initial: store.get() }, panel))))))
   await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)) })
   await flushFrames()
   counts.bubble.clear()

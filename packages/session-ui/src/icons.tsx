@@ -4,7 +4,7 @@
  * Lucide 0.564.0 original glyphs: ISC / Feather MIT; full notices in THIRD_PARTY_NOTICES.md.
  * 用法不变: import { Settings } from '@/lib/icons';  <Settings size={16} className="..." />
  *
- * 自动生成, 勿手改 —— 改 scripts/icons/solar-icons.json 后跑 `node scripts/gen-icons.mjs`.
+ * 自动生成, 勿手改 —— 改 scripts/icons/solar-icons.json 后跑 `node scripts/build/gen-icons.mjs`.
  * 加图标: 在清单的 "solar" 栏加一行 "导出名": "<solar 图标名>", body 会从 @iconify-json/solar
  * 逐字节取来。literal 保留已有字形及固定版本的上游原图,❌ 别手绘新 path。
  * 同形别名(lucide 的 *Icon 后缀、CircleAlert/AlertCircle 这类历史改名): 写进 `alias` 栏,

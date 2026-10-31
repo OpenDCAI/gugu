@@ -3,11 +3,13 @@
   "name": "Smoke node App",
   "author": "gugu",
   "version": "1.0.0",
-  "apiVersion": 4,
+  "apiVersion": 24,
+  "defaultLocale": "en",
   "entry": "index.html",
   "permissions": { "capabilities": ["agents:tools"] },
   "contributes": {
     "tabs": [{ "name": "main", "title": "Smoke node App" }],
-    "mcpServers": [{ "name": "search", "command": "node", "args": ["launch.mjs", "--stdio"], "env": { "SMOKE_MODE": "fixture" } }]
+    "mcpServers": [{ "name": "search", "command": "node", "args": ["launch.mjs", "--stdio"], "env": { "SMOKE_MODE": "fixture" } }],
+    "instructions": "search: the smoke fixture tool."
   }
 }

@@ -142,14 +142,14 @@ scrollTop 写者，症状是「偶尔跳一下」，且难以归因。上游自�
 | `ThreadSuggestions` | `SuggestionPrimitive.Trigger send` | `items` + `onSelect` props | 无 runtime |
 | `ThreadSuggestions` | `rounded-full` | Button 默认 `--radius` 派生圆角 | 同上 |
 
-上游取值与本仓 calm-ui 硬限冲突时**本仓规格赢**（`docs/ui-visual-spec.md` §2/§4/§5/§6）
+上游取值与本仓 calm-ui 硬限冲突时**本仓规格赢**（`docs/design/ui-visual-spec.md` §2/§4/§5/§6）
 ——这些差异就是各改动表存在的理由，不要在下次同步 registry 时把它们「改回去」。
 
 ⚠️ 抄新元素进来时会撞到的两把尺子（都真实存在，都会红）：
 
 - `tests/visual-scale-guard-3334.test.ts` —— 按 **TS 字符串字面量**判 `text-2xl`+ / `rounded-xl`+ /
   `shadow-md`+ 与非 inset 任意值阴影。注释不算字面量，注释里的取值它看不见。
-- `scripts/check-ui-visual-spec.mts` —— 按 **原始源码文本**给 0.5 步进间距 utility 记双向棘轮
+- `scripts/checks/check-ui-visual-spec.mts` —— 按 **原始源码文本**给 0.5 步进间距 utility 记双向棘轮
   （会话页基线 341，只减不增）。**注释算数** —— 在 `.ts`/`.tsx` 的注释里引用一句上游的半步取值
   （`gap-1.5` 这种），棘轮照样顶破一格（落 `surfaces.tsx` 时实测踩到：342 vs 341）。
   它只扫 `.css/.js/.jsx/.ts/.tsx`，所以本 README 这类 `.md` 不在它的量程里。

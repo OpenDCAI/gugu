@@ -110,7 +110,7 @@ describe('agent runtime capability visibility', () => {
 async function renderOwnedAgentChat() {
   await renderWithAppProviders(
     harness,
-    createNode(ChatAreaPanel, { activeTab: 'chats', mobile: true }),
+    createNode(ChatAreaPanel, { mobile: true }),
     {
       auth: { id: 'owner-1', email: 'owner@example.com', nickname: 'Owner' },
       chat: {
@@ -130,11 +130,11 @@ async function renderOwnedAgentContact() {
   await renderWithAppProviders(
     harness,
     createNode(ContactsPanel, {
-      activeTab: 'contacts',
       externalContactId: 'agent-1',
       mobile: true
     }),
     {
+      shellTab: 'contacts',
       auth: { id: 'owner-1', email: 'owner@example.com', nickname: 'Owner' },
       contacts: {
         contacts: [

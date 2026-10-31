@@ -45,7 +45,7 @@ describe('whisper sent by an App in the person\'s name (#6835)', () => {
   })
 
   it('names the App from its manifest', async () => {
-    runInAction(() => { installedExtensionsStore.manifests = [{ id: 'waimai-review-vote', name: '外卖评审投票' } as ExtensionManifest] })
+    runInAction(() => { installedExtensionsStore.manifests = [{ id: 'waimai-review-vote', name: '外卖评审投票', defaultLocale: 'zh-CN' } as ExtensionManifest] })
     await renderWhisper('waimai-review-vote')
     expect(viaAppLine()).toBe('由『外卖评审投票』App 代你发送')
     expect(harness.container.textContent).toContain('悄悄话')
@@ -54,7 +54,7 @@ describe('whisper sent by an App in the person\'s name (#6835)', () => {
   it('writes the id where this device has no manifest for it, and follows the list once it loads', async () => {
     await renderWhisper('waimai-review-vote')
     expect(viaAppLine()).toBe('由『waimai-review-vote』App 代你发送')
-    await act(async () => { runInAction(() => { installedExtensionsStore.manifests = [{ id: 'waimai-review-vote', name: '外卖评审投票' } as ExtensionManifest] }) })
+    await act(async () => { runInAction(() => { installedExtensionsStore.manifests = [{ id: 'waimai-review-vote', name: '外卖评审投票', defaultLocale: 'zh-CN' } as ExtensionManifest] }) })
     expect(viaAppLine()).toBe('由『外卖评审投票』App 代你发送')
   })
 
@@ -65,7 +65,7 @@ describe('whisper sent by an App in the person\'s name (#6835)', () => {
   })
 
   it('the recipient reads which App spoke for the sender, by the sender\'s name in the bubble header', async () => {
-    runInAction(() => { installedExtensionsStore.manifests = [{ id: 'waimai-review-vote', name: '外卖评审投票' } as ExtensionManifest] })
+    runInAction(() => { installedExtensionsStore.manifests = [{ id: 'waimai-review-vote', name: '外卖评审投票', defaultLocale: 'zh-CN' } as ExtensionManifest] })
     await renderWhisper('waimai-review-vote', 'recipient')
     expect(viaAppLine()).toBe('由『外卖评审投票』App 代 Alice 发送')
     expect(harness.container.textContent).toContain('Alice')

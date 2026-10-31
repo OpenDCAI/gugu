@@ -16,7 +16,7 @@ function manifest(version: string, capabilities: string[] = []): ExtensionManife
     id: 'notes',
     name: 'Notes',
     version,
-    apiVersion: EXTENSION_API_VERSION,
+    apiVersion: EXTENSION_API_VERSION, defaultLocale: 'en',
     entry: 'index.html',
     permissions: { capabilities },
     contributes: { tabs: [{ name: 'main', title: 'Notes' }] },

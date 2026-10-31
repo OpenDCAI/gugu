@@ -9,7 +9,7 @@ import {
 // #6646 聊天里的扩展卡片只读包里的 manifest.json。
 const APP = '0.2.57'
 const MANIFEST = {
-  id: 'demo-share', name: 'Demo Share', version: '1.0.0', apiVersion: EXTENSION_API_VERSION, entry: 'index.html',
+  id: 'demo-share', name: 'Demo Share', version: '1.0.0', apiVersion: EXTENSION_API_VERSION, defaultLocale: 'en', entry: 'index.html',
   contributes: { tabs: [{ name: 'main', title: 'Demo' }] },
 }
 

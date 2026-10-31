@@ -15,21 +15,21 @@ import {
   declaresTestCase,
   parsePlaywrightList,
   workflowRunsForPullRequest,
-} from '../../../scripts/ci-spec-coverage.mts'
+} from '../../../scripts/ci/ci-spec-coverage.mts'
 
 const roots: string[] = []
 
 function fixtureRoot(): string {
   const root = mkdtempSync(path.join(tmpdir(), 'gugu-ci-spec-'))
   roots.push(root)
-  mkdirSync(path.join(root, 'e2e'), { recursive: true })
+  mkdirSync(path.join(root, 'tests/e2e'), { recursive: true })
   mkdirSync(path.join(root, 'tests/integration'), { recursive: true })
   return root
 }
 
 /**
  * 一棵**在仓库树之外**、能真跑 Playwright 收集的根:配置逐字节复制(testDir 相对它自己的目录解析),
- * 依赖与脚本软链回仓库。❌ 别把临时 spec 写进本仓的 e2e/:并发跑着的其它用例在遍历 e2e/**,
+ * 依赖与脚本软链回仓库。❌ 别把临时 spec 写进本仓的 tests/e2e/:并发跑着的其它用例在遍历 tests/e2e/**,
  * 这边一拆目录,那边就 ENOENT(#4357:e2eNoIconClassSelectors 撞过)。
  */
 function playwrightRootOutsideCheckout(): string {
@@ -65,12 +65,12 @@ describe('CI e2e/integration spec coverage', () => {
   it('classifies every current repository test declaration', () => {
     const result = auditCoverage({ root: process.cwd() })
     expect(result.errors).toEqual([])
-    const e2eSpecs = result.discovered.filter((file) => file.startsWith('e2e/'))
+    const e2eSpecs = result.discovered.filter((file) => file.startsWith('tests/e2e/'))
     const exemptions = JSON.parse(readFileSync('.github/ci-spec-coverage.json', 'utf8')).exemptions
     // #6270:e2e/ 只剩 PR CI 的 ci-local 真跑的那几条,全部由自动执行器收走、一条豁免都没有。
     expect(e2eSpecs.length).toBeGreaterThan(0)
-    expect(e2eSpecs.every((file) => file.startsWith('e2e/ci/local/'))).toBe(true)
-    expect(Object.keys(exemptions).filter((file) => file.startsWith('e2e/'))).toEqual([])
+    expect(e2eSpecs.every((file) => file.startsWith('tests/e2e/ci/local/'))).toBe(true)
+    expect(Object.keys(exemptions).filter((file) => file.startsWith('tests/e2e/'))).toEqual([])
     expect(result.groupCounts
       .filter((group) => group.disposition === 'automatic executor')
       .reduce((total, group) => total + group.count, 0)).toBe(e2eSpecs.length)
@@ -111,20 +111,20 @@ describe('CI e2e/integration spec coverage', () => {
 
     const commands = collectAutomaticRunnerCommands({
       workflows: [{ path: '.github/workflows/ci.yml', workflow }],
-      changedPaths: ['e2e/ci/local/search-field-consistency.spec.ts'],
+      changedPaths: ['tests/e2e/ci/local/search-field-consistency.spec.ts'],
       packageScripts: {},
     }).filter((command) => command.job === 'web-smoke')
     expect(commands).toHaveLength(1)
     const perShard = commands.map((command) => collectRunnerFiles(process.cwd(), command))
     expect(perShard.every((files) => files.length > 0)).toBe(true)
     // e2e/ci 下的每个 spec 都必须被这个 job 真收走(#6270 起 e2e 不接受豁免)。
-    const allCiSpecs = execFileSync('git', ['ls-files', '-z', '--', 'e2e/ci'], { encoding: 'utf8' })
+    const allCiSpecs = execFileSync('git', ['ls-files', '-z', '--', 'tests/e2e/ci'], { encoding: 'utf8' })
       .split('\0')
       .filter((file) => file.endsWith('.spec.ts'))
       .sort()
     const collected = [...new Set(perShard.flat())].sort()
     expect(collected).toEqual(allCiSpecs)
-    expect(collected.every((file) => file.startsWith('e2e/ci/local/'))).toBe(true)
+    expect(collected.every((file) => file.startsWith('tests/e2e/ci/local/'))).toBe(true)
 
     const manifest = JSON.parse(readFileSync('.github/ci-spec-coverage.json', 'utf8'))
     expect(manifest.automaticExecutors).toHaveLength(1)
@@ -137,7 +137,7 @@ describe('CI e2e/integration spec coverage', () => {
   // 而 #3223 建这套机制正是为了终结「加了 spec 忘了登记 → 静默不跑」。
   it('collects the next local CI spec without editing the workflow or registry', () => {
     const root = playwrightRootOutsideCheckout()
-    const fixture = path.join(root, 'e2e/ci/local/.automatic-discovery')
+    const fixture = path.join(root, 'tests/e2e/ci/local/.automatic-discovery')
     mkdirSync(fixture, { recursive: true })
     const spec = path.join(fixture, 'next.spec.ts')
     writeFileSync(spec, "import { test } from '@playwright/test'\ntest('next automatic case', () => {})\n")
@@ -166,7 +166,7 @@ describe('CI e2e/integration spec coverage', () => {
       workflows: [{
         path: 'ci.yml',
         workflow: workflowWith(
-          "node scripts/ci-concurrent.mts 'db=pnpm session:test:db' 'browser=pnpm exec vitest run --project session-browser'",
+          "node scripts/ci/ci-concurrent.mts 'db=pnpm session:test:db' 'browser=pnpm exec vitest run --project session-browser'",
         ),
       }],
       changedPaths: [],
@@ -177,7 +177,7 @@ describe('CI e2e/integration spec coverage', () => {
       ['vitest', '--project', 'session-browser'],
     ])
     expect(() => collectAutomaticRunnerCommands({
-      workflows: [{ path: 'ci.yml', workflow: workflowWith("node scripts/ci-concurrent.mts 'pnpm exec vitest run'") }],
+      workflows: [{ path: 'ci.yml', workflow: workflowWith("node scripts/ci/ci-concurrent.mts 'pnpm exec vitest run'") }],
       changedPaths: [],
       packageScripts: {},
     })).toThrow(/label=command/)
@@ -216,12 +216,12 @@ describe('CI e2e/integration spec coverage', () => {
   it('runs unconditionally on the required policy path', () => {
     const workflow = YAML.parse(readFileSync('.github/workflows/ci.yml', 'utf8'))
     const step = workflow.jobs.policy.steps.find(
-      (candidate: { run?: string }) => candidate.run?.includes('node scripts/ci-spec-coverage.mts'),
+      (candidate: { run?: string }) => candidate.run?.includes('node scripts/ci/ci-spec-coverage.mts'),
     )
 
     expect(step.run).toContain('--base FETCH_HEAD --head HEAD')
     expect(step.run).toContain('--event-action "${{ github.event.action }}"')
-    expect(step.run).toContain('node scripts/ci-spec-coverage.mts "${args[@]}"')
+    expect(step.run).toContain('node scripts/ci/ci-spec-coverage.mts "${args[@]}"')
     expect(step.if).toBeUndefined()
     expect(step['continue-on-error']).toBeUndefined()
     expect(workflow.jobs.gate.name).toBe('Typecheck, lint, and test')
@@ -379,7 +379,7 @@ describe('CI e2e/integration spec coverage', () => {
 
   it('refuses to exempt an e2e spec: e2e only holds specs the PR CI runs (#6270)', () => {
     const root = fixtureRoot()
-    const spec = 'e2e/new-feature.spec.ts'
+    const spec = 'tests/e2e/new-feature.spec.ts'
     writeFileSync(path.join(root, spec), "import { test } from '@playwright/test'\ntest('new', () => {})\n")
 
     const exempted = auditCoverage({ root, manifest: exemption([spec]), trackedPaths: [spec] })
@@ -392,7 +392,7 @@ describe('CI e2e/integration spec coverage', () => {
   it('distinguishes test declarations from helper-only test API calls', () => {
     expect(declaresTestCase(
       "import { test } from '@playwright/test'\ntest.step('helper', async () => {})\n",
-      'e2e/helper.ts',
+      'tests/e2e/helper.ts',
     )).toBe(false)
     expect(declaresTestCase(
       "import * as vitest from 'vitest'\nvitest.it('case', () => {})\n",
@@ -402,9 +402,9 @@ describe('CI e2e/integration spec coverage', () => {
 
   it('derives changed-spec execution from PR trigger and real Playwright collection', () => {
     const root = playwrightRootOutsideCheckout()
-    const fixture = path.join(root, 'e2e/ci/local/.ci-spec-coverage')
+    const fixture = path.join(root, 'tests/e2e/ci/local/.ci-spec-coverage')
     const webSpec = path.relative(root, path.join(fixture, 'covered.spec.ts')).replaceAll(path.sep, '/')
-    const agentDir = path.join(root, 'e2e/.ci-spec-coverage/agent')
+    const agentDir = path.join(root, 'tests/e2e/.ci-spec-coverage/agent')
     mkdirSync(fixture, { recursive: true })
     const agentSpec = path.relative(root, path.join(agentDir, 'ignored.spec.ts')).replaceAll(path.sep, '/')
     mkdirSync(agentDir, { recursive: true })
@@ -463,19 +463,19 @@ describe('CI e2e/integration spec coverage', () => {
     )).toBe(true)
     expect(workflowRunsForPullRequest(
       { on: { pull_request: { paths: ['supabase/**'] } } },
-      ['e2e/example.spec.ts'],
+      ['tests/e2e/example.spec.ts'],
     )).toBe(false)
     expect(workflowRunsForPullRequest(
-      { on: { pull_request: { 'paths-ignore': ['e2e/**'] } } },
-      ['e2e/example.spec.ts'],
+      { on: { pull_request: { 'paths-ignore': ['tests/e2e/**'] } } },
+      ['tests/e2e/example.spec.ts'],
     )).toBe(false)
     expect(workflowRunsForPullRequest(
-      { on: { pull_request: { 'paths-ignore': ['e2e/**'] } } },
-      ['e2e/example.spec.ts', 'apps/desktop/src/App.tsx'],
+      { on: { pull_request: { 'paths-ignore': ['tests/e2e/**'] } } },
+      ['tests/e2e/example.spec.ts', 'apps/desktop/src/App.tsx'],
     )).toBe(true)
     expect(workflowRunsForPullRequest(
       { on: { pull_request: { types: ['closed'] } } },
-      ['e2e/example.spec.ts'],
+      ['tests/e2e/example.spec.ts'],
       'dev',
       'synchronize',
     )).toBe(false)
@@ -511,7 +511,7 @@ describe('CI e2e/integration spec coverage', () => {
 
   it('does not treat an empty Playwright suite container as a collected file', () => {
     const report = JSON.stringify({
-      config: { rootDir: path.join(process.cwd(), 'e2e') },
+      config: { rootDir: path.join(process.cwd(), 'tests/e2e') },
       suites: [{
         file: 'empty.spec.ts',
         specs: [],
@@ -522,12 +522,12 @@ describe('CI e2e/integration spec coverage', () => {
       }],
     })
 
-    expect(parsePlaywrightList(process.cwd(), report)).toEqual(['e2e/covered.spec.ts'])
+    expect(parsePlaywrightList(process.cwd(), report)).toEqual(['tests/e2e/covered.spec.ts'])
   })
 
   it('preserves a bounded stdout tail when Playwright JSON collection is contaminated', () => {
     const report = JSON.stringify({
-      config: { rootDir: path.join(process.cwd(), 'e2e') },
+      config: { rootDir: path.join(process.cwd(), 'tests/e2e') },
       suites: [{ specs: [{ file: 'known.spec.ts', tests: [{ projectName: 'chromium' }] }] }],
     })
     const sentinel = 'GUGU_STDOUT_CONTAMINATION_3070'
@@ -548,7 +548,7 @@ describe('CI e2e/integration spec coverage', () => {
   it('fails loudly when a runner job condition makes execution unknowable', () => {
     expect(() => auditChangedSpecExecution({
       root: process.cwd(),
-      changedPaths: ['e2e/example.spec.ts'],
+      changedPaths: ['tests/e2e/example.spec.ts'],
       workflows: [{
         path: '.github/workflows/conditional.yml',
         workflow: {
@@ -564,7 +564,7 @@ describe('CI e2e/integration spec coverage', () => {
   it('does not treat a commented runner command as execution', () => {
     expect(auditChangedSpecExecution({
       root: process.cwd(),
-      changedPaths: ['e2e/example.spec.ts'],
+      changedPaths: ['tests/e2e/example.spec.ts'],
       workflows: [{
         path: '.github/workflows/comment-only.yml',
         workflow: {
@@ -573,8 +573,8 @@ describe('CI e2e/integration spec coverage', () => {
         },
       }],
       packageScripts: {},
-      collectFiles: () => ['e2e/example.spec.ts'],
-    }).gaps).toEqual(['e2e/example.spec.ts'])
+      collectFiles: () => ['tests/e2e/example.spec.ts'],
+    }).gaps).toEqual(['tests/e2e/example.spec.ts'])
   })
 
   it.each([
@@ -583,13 +583,13 @@ describe('CI e2e/integration spec coverage', () => {
   ])('does not treat runner text as a provably executed command: %s', (run) => {
     expect(() => auditChangedSpecExecution({
       root: process.cwd(),
-      changedPaths: ['e2e/example.spec.ts'],
+      changedPaths: ['tests/e2e/example.spec.ts'],
       workflows: [{
         path: '.github/workflows/text-only.yml',
         workflow: { on: { pull_request: null }, jobs: { web: { steps: [{ run }] } } },
       }],
       packageScripts: {},
-      collectFiles: () => ['e2e/example.spec.ts'],
+      collectFiles: () => ['tests/e2e/example.spec.ts'],
     })).toThrow('provably executed command')
   })
 
@@ -599,7 +599,7 @@ describe('CI e2e/integration spec coverage', () => {
   ])('fails loudly when runner configuration cannot be reproduced: $message', ({ step, message }) => {
     expect(() => auditChangedSpecExecution({
       root: process.cwd(),
-      changedPaths: ['e2e/example.spec.ts'],
+      changedPaths: ['tests/e2e/example.spec.ts'],
       workflows: [{
         path: '.github/workflows/dynamic.yml',
         workflow: {
@@ -624,7 +624,7 @@ describe('CI e2e/integration spec coverage', () => {
     // 不是手写的形状。只把路径换成中性值。
     const report = {
           "config": {
-                "rootDir": "/repo/e2e"
+                "rootDir": "/repo/tests/e2e"
           },
           "suites": [
                 {
@@ -667,6 +667,6 @@ describe('CI e2e/integration spec coverage', () => {
           }
     }
     const files = parsePlaywrightList('/repo', noise + JSON.stringify(report))
-    expect(files, '前缀里的 JSON 对象不得被当成报告').toEqual(['e2e/sample.spec.ts'])
+    expect(files, '前缀里的 JSON 对象不得被当成报告').toEqual(['tests/e2e/sample.spec.ts'])
   })
 })

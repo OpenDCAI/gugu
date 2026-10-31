@@ -39,6 +39,18 @@ class MachineUnreachableError extends Error {
   }
 }
 
+/**
+ * 那台机器的咕咕还没有这个方法(它比这边旧):它的路由表原样说「No handler registered for '<方法>'」。换成一个带
+ * `server_outdated`(machine-clients.ts 认的同一个码)的错,界面据此说「那台咕咕需要更新」,❌ 把原话当成功能坏了。
+ */
+export class MachineOutdatedError extends Error {
+  readonly code = 'server_outdated';
+  constructor(deviceId: string, channel: string) {
+    super(`[machine] ${deviceId} runs an older 咕咕 without ${channel}: update it`);
+    this.name = 'MachineOutdatedError';
+  }
+}
+
 function remoteApi(deviceId: string): SessionHostBridgeApi {
   const client = machineClient(deviceId);
   if (!client) throw new MachineUnreachableError(deviceId);
@@ -55,7 +67,12 @@ function receiveFrom(deviceId: string, value: unknown): unknown {
 async function invokeOn(deviceId: string, channel: string, args: unknown[]): Promise<unknown> {
   // 发过去的参数与拿回来的结果里出现的实体 id 都记到那台机器名下(新建的任务 / 会话从此认得出)。
   machineRegistry.absorb(deviceId, args);
-  const result = await remoteApi(deviceId).invoke(channel, ...codecOf(deviceId).outbound(args));
+  const result = await remoteApi(deviceId)
+    .invoke(channel, ...codecOf(deviceId).outbound(args))
+    .catch((error: unknown) => {
+      if (error instanceof Error && error.message.includes(`No handler registered for '${channel}'`)) throw new MachineOutdatedError(deviceId, channel);
+      throw error;
+    });
   return receiveFrom(deviceId, result);
 }
 

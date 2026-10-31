@@ -6,6 +6,7 @@ import JSZip from 'jszip';
 import { EXTENSION_ARCHIVE_MIME } from '@gugu/core/shared/imageMime.mjs';
 import type { ExtensionManifest } from '@shared/extensions/manifest';
 import { BUNDLE_SKIP_NAMES } from '@shared/extensions/market';
+import { STORE_DIR } from '@shared/extensions/app-listing';
 import { validateExtensionBundle, type ExtensionBundleReport } from './extension-validate';
 import type { ExtensionsService } from './extensions-service';
 import { unpackBundle } from './market-catalog';
@@ -85,13 +86,13 @@ function sha256(bytes: Uint8Array): string {
   return createHash('sha256').update(bytes).digest('hex');
 }
 
-/** Every file to pack, in the market publisher's recursive en-US order, skipping the same names. */
+/** Every file to pack, in the market publisher's recursive en-US order, skipping the same names and the top-level `store/` (the market listing, never part of the App). */
 function bundleFiles(root: string): string[] {
   const files: string[] = [];
   const walk = (dir: string) => {
     const entries = fs.readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name, 'en-US'));
     for (const entry of entries) {
-      if (BUNDLE_SKIP_NAMES.has(entry.name)) continue;
+      if (BUNDLE_SKIP_NAMES.has(entry.name) || (dir === root && entry.name === STORE_DIR)) continue;
       const full = path.join(dir, entry.name);
       if (entry.isDirectory()) walk(full);
       else if (entry.isFile()) files.push(full);

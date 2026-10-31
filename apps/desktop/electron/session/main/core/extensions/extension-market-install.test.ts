@@ -50,7 +50,7 @@ async function publish(id: string, permissions?: { network: string[]; capabiliti
   const dir = path.join(work, 'src', id);
   mkdirSync(dir, { recursive: true });
   const manifest = {
-    id, name: 'Share', version: '1.0.0', apiVersion: EXTENSION_API_VERSION, platforms: ['desktop'], entry: 'index.html',
+    id, name: 'Share', version: '1.0.0', apiVersion: EXTENSION_API_VERSION, defaultLocale: 'en', platforms: ['desktop'], entry: 'index.html',
     ...(permissions ? { permissions } : {}), contributes: { tabs: [{ name: 'main', title: 'Share' }] },
   };
   writeFileSync(path.join(dir, 'manifest.json'), JSON.stringify(manifest));
@@ -58,7 +58,7 @@ async function publish(id: string, permissions?: { network: string[]; capabiliti
   const { bytes, sha256 } = await packExtensionArchive(service, dir);
   const row: MarketIndexVersion = {
     version: '1.0.0', manifest, apiVersion: EXTENSION_API_VERSION, minAppVersion: '0.1.0', releaseNotes: 'Shares a file.',
-    publishedAt: '2026-10-15T00:00:00Z', sha256, bytes: bytes.byteLength, bundle: `bundles/${id}/1.0.0.zip`, icon: null, readme: null,
+    publishedAt: '2026-10-15T00:00:00Z', sha256, bytes: bytes.byteLength, bundle: `bundles/${id}/1.0.0.zip`, icon: null,
     source: at, yanked: null,
   };
   const site = new Site({ apps: [{ id, deprecated: null, versions: [row] }] }, { [row.bundle]: new Uint8Array(bytes) });

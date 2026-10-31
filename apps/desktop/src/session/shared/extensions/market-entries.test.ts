@@ -47,7 +47,7 @@ describe('marketUpdatesFrom: an App no longer in the market', () => {
 it('reports a fork falling behind without offering it an automatic replacement, and keeps upstream deprecation', () => {
   const host = { platform: 'desktop' as const, appVersion: '0.2.60', apiVersionMin: 1, apiVersionMax: 99 };
   const versions = ['1.0.0', '1.1.0', '1.2.0'].map((version, i) => ({ version, apiVersion: EXTENSION_API_VERSION, minAppVersion: '0.1.0',
-    manifest: { id: 'radar', name: 'Radar', version, apiVersion: EXTENSION_API_VERSION, platforms: ['desktop'], entry: 'index.html', contributes: { tabs: [{ name: 'main', title: 'Radar' }] } },
+    manifest: { id: 'radar', name: 'Radar', version, apiVersion: EXTENSION_API_VERSION, defaultLocale: 'en', platforms: ['desktop'], entry: 'index.html', contributes: { tabs: [{ name: 'main', title: 'Radar' }] } },
     source: { repo: 'owner/repo', path: '.', commit: String(i).repeat(40) }, yanked: i === 1 ? { reason: 'withdrawn' } : null }) as MarketIndexVersion);
   const deprecated = { note: 'No longer maintained', replacedBy: null };
   const index = { apps: [{ id: 'radar', deprecated, versions }] };

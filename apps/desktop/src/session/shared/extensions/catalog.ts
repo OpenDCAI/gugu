@@ -116,11 +116,9 @@ export function installedGroupOf(enabled = true, flag: InstalledUpdateFlag = nul
 }
 
 /**
- * Search over the words a person would actually type: the name, the id, the
- * subtitle, the description, the author and the categories. Not the permission keys — nobody
- * looks for an extension by typing `files:read`. The name and description in each
- * language of `localized` count too: that is what the cards show people (群文件夹's
- * base description is its tools line for agents, its「markdown」「JSON」are there).
+ * Search over the words a person or an agent would actually type: the name, the id, the subtitle, the instructions
+ * (群文件夹's「markdown」「JSON」are there), the author and the categories. Not the permission keys — nobody looks for
+ * an App by typing `files:read`. The name and subtitle in each language of `localized` count too.
  * The same text an agent's app_search reads (app-search.ts); scored word by word (query-score.ts).
  */
 export function appSearchText(manifest: ExtensionManifest): string {
@@ -128,8 +126,8 @@ export function appSearchText(manifest: ExtensionManifest): string {
     manifest.name,
     manifest.id,
     manifest.subtitle ?? '',
-    manifest.description ?? '',
-    ...Object.values(manifest.localized ?? {}).flatMap((text) => [text.name ?? '', text.subtitle ?? '', text.description ?? '']),
+    manifest.contributes.instructions ?? '',
+    ...Object.values(manifest.localized ?? {}).flatMap((text) => [text.name ?? '', text.subtitle ?? '']),
     manifest.author ?? '',
     ...(manifest.categories ?? []),
     ...manifest.contributes.tabs.map((tab) => tab.title),
@@ -177,58 +175,38 @@ export function shelfRelation(
   return order > 0 ? 'installed-older' : 'installed-newer';
 }
 
+/** `tag` and `other` name the same language (`zh-CN` and `zh`): what the market's language choice and `localized` match by. */
+const sameLanguage = (tag: string, other: string) => tag.split('-')[0] === other.split('-')[0];
+
 /**
- * 卡片/详情页画的名字与简介,按当前界面语言从 `manifest.localized` 里挑;挑不到就回落
- * 主字段。`locale` 是咕咕的两个受支持值(`zh-CN` / `en-US`),`localized` 的键是 BCP 47
- * 标签(`en`、`zh-CN` 这类,manifest.ts 的 schema)—— 两边格式不同,所以先原样试一次
- * 完整值,再试语言前缀(`zh-CN` → `zh`,`en-US` → `en`)。
+ * 卡片/产品页画的名字、副标题、示例句,用 `locale` 那种语言:是 `defaultLocale` 的语言就是主字段,`localized` 写了这种语言就用它
+ * (先试完整标签,再试语言前缀,`zh-CN` → `zh`),都没有就是主字段。没写副标题就是空的,❌ 回落到别的字段或别的语言。
  */
 export function localizedManifestText(
-  manifest: Pick<ExtensionManifest, 'name' | 'description' | 'localized'> & Partial<Pick<ExtensionManifest, 'examples' | 'subtitle'>>,
+  manifest: Pick<ExtensionManifest, 'name' | 'defaultLocale' | 'localized'> & Partial<Pick<ExtensionManifest, 'examples' | 'subtitle'>>,
   locale: string
-): { name: string; description: string | undefined; subtitle: string; examples: readonly string[] } {
+): { name: string; subtitle: string; examples: readonly string[] } {
   const table = manifest.localized ?? {};
-  const languagePrefix = locale.split('-')[0] ?? locale;
-  const entry = table[locale] ?? table[languagePrefix];
-  const description = entry?.description ?? manifest.description;
+  const entry = sameLanguage(locale, manifest.defaultLocale)
+    ? undefined
+    : (table[locale] ?? Object.entries(table).find(([tag]) => sameLanguage(tag, locale))?.[1]);
   return {
     name: entry?.name ?? manifest.name,
-    description,
-    // 名字下面那一句:这种语言写了副标题就用它;这种语言只写了简介,就取简介的第一句(❌ 拿另一种语言的副标题顶上)。
-    subtitle: entry?.subtitle ?? (entry?.description ? firstSentence(entry.description) : (manifest.subtitle ?? firstSentence(description ?? ''))),
+    subtitle: entry ? (entry.subtitle ?? '') : (manifest.subtitle ?? ''),
     examples: entry?.examples ?? manifest.examples ?? [],
   };
 }
 
-/** 简介里副标题以外的话:简介以副标题开头就去掉那一句和跟着的标点;副标题是另写的,简介整段都是。 */
-export function featuredBody(description: string, subtitle: string): string {
-  return description.startsWith(subtitle) ? description.slice(subtitle.length).replace(/^[：:。！？!?.,，;；\s]+/, '') : description;
-}
-
-/** 一段话的第一句:截到第一个冒号、句号、问号或叹号(全角半角都算;英文句点要后面跟空白或到头,`v1.2` 不算)。 */
-export function firstSentence(text: string): string {
-  return text.split(/[：:。！？!?]|\.(?:\s|$)/)[0]!.trim();
-}
-
 /**
- * 产品页的名字与简介能换成哪几种语言:manifest 自己写了的(`localized` 的键,同一语言的几个键只取一个),
- * 界面语言那一格打头。界面语言没写的,打头那格是主字段 —— 作者的原文,写的是哪种语言 manifest 没说,
- * 所以 `language` 是 null,❌ 冠上界面语言的名字。每一格的 `locale` 原样交给 `localizedManifestText`。
- * 只有一格 = 没得换。
+ * 产品页能换成哪几种语言:`defaultLocale` 和 `localized` 的每一个(同一语言只取一个),界面语言那一格打头,没有就是 `defaultLocale`。
+ * 每一格的 `locale` 原样交给 `localizedManifestText`,也是市场 `about` 的键。只有一格 = 没得换。
  */
-export function manifestLanguages(
-  manifest: Pick<ExtensionManifest, 'localized'>,
-  locale: string
-): { locale: string; language: string | null }[] {
-  const languageOf = (tag: string) => tag.split('-')[0] ?? tag;
-  const written = Object.keys(manifest.localized ?? {}).filter(
-    (tag, index, tags) => tags.findIndex((other) => languageOf(other) === languageOf(tag)) === index
+export function manifestLanguages(manifest: Pick<ExtensionManifest, 'defaultLocale' | 'localized'>, locale: string): { locale: string; language: string }[] {
+  const written = [manifest.defaultLocale, ...Object.keys(manifest.localized ?? {})].filter(
+    (tag, index, tags) => tags.findIndex((other) => sameLanguage(other, tag)) === index
   );
-  const own = written.find((tag) => languageOf(tag) === languageOf(locale));
-  return [
-    own ? { locale: own, language: languageOf(own) } : { locale, language: null },
-    ...written.filter((tag) => tag !== own).map((tag) => ({ locale: tag, language: languageOf(tag) })),
-  ];
+  const own = written.find((tag) => sameLanguage(tag, locale)) ?? manifest.defaultLocale;
+  return [own, ...written.filter((tag) => tag !== own)].map((tag) => ({ locale: tag, language: tag.split('-')[0]! }));
 }
 
 /**

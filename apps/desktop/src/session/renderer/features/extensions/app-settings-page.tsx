@@ -94,7 +94,7 @@ export const AppSettingsPage = observer(function AppSettingsPage({ manifest, act
         {icon ? <img className="tool-app-icon" src={icon} alt="" /> : <Monitor className="tool-app-icon text-foreground-muted" />}
         <div className="tool-app-heading">
           <div className="tool-app-title"><h1>{text.name}</h1><span>v{manifest.version}</span></div>
-          {text.description ? <p>{text.description}</p> : null}
+          {text.subtitle ? <p>{text.subtitle}</p> : null}
         </div>
       </header>
       {/* #7317 Computer Use is the switch of computer control: the permissions it needs are given here, once. */}

@@ -26,7 +26,7 @@ export interface FileOpenerCandidate {
    * language it gives it: whoever draws it picks one with `localizedManifestText` (the candidate is made in main and on
    * the phone as well as in the window, and only the drawing side knows the language).
    */
-  app: Pick<ExtensionManifest, 'name' | 'localized'>;
+  app: Pick<ExtensionManifest, 'name' | 'defaultLocale' | 'localized'>;
   /** The App has this one tab: its title adds nothing under the App's name. */
   onlyTab: boolean;
   /**
@@ -34,6 +34,11 @@ export interface FileOpenerCandidate {
    * also what a remembered 「始终用它」 is kept under (`openWithKey`).
    */
   suffix: string;
+  /**
+   * The file is this App's own state in a chat: the tab names it as its `chatFile` (App 模型 v2 — the one sign of App
+   * data; the folder hides such files until 「显示 App 数据」). A file claimed by suffix is a person's document.
+   */
+  state: boolean;
 }
 
 /**
@@ -127,9 +132,10 @@ export function fileOpenersFor(
           extensionId: manifest.id,
           tabKind: `${manifest.id}.${tab.name}`,
           tabTitle: tab.title,
-          app: { name: manifest.name, ...(manifest.localized ? { localized: manifest.localized } : {}) },
+          app: { name: manifest.name, defaultLocale: manifest.defaultLocale, ...(manifest.localized ? { localized: manifest.localized } : {}) },
           onlyTab: manifest.contributes.tabs.length === 1,
           suffix: claimed,
+          state: context === 'chat' && tab.chatFile?.toLowerCase() === name,
         });
       }
     }
