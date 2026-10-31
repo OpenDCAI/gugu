@@ -56,7 +56,7 @@ async function render(query: string, scope: PaletteScope) {
 }
 const rows = () => [...host.querySelectorAll<HTMLElement>('[cmdk-item]')];
 
-describe('palette task content and message hits', () => {
+describe('global search panel: task content and message hits', () => {
   it('shows both groups under all, and searches every chat the person is in', async () => {
     await render('登录', 'all');
     expect(rows().map((row) => row.textContent)).toEqual(['登录页已经修好了登录修复', '明天一起看登录页咕咕内测群 · 阿威']);
