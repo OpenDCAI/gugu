@@ -10,13 +10,17 @@ vi.mock('@renderer/lib/ipc', () => ({ rpc: { extensions: {} }, events: { on: () 
 // The 「给哪些 agent」 section reaches the window-bound platform layer; these pages are about the page's own words.
 vi.mock('./app-given-section', () => ({ AppGivenSection: () => null }));
 
-const { AppProductPage, splitReadme } = await import('./app-product-page');
-const { manifestLanguages } = await import('@shared/extensions/catalog');
+const { AppProductPage } = await import('./app-product-page');
 
-const readmeOf = (readme: string | null) => ({
-  marketReadme: vi.fn(async () => ({ success: true, data: { readme } })),
+const listingOf = (listing: { about: Record<string, string>; screenshots: string[] } | Error | null) => ({
+  marketListing: vi.fn(async () => {
+    if (listing instanceof Error) throw listing;
+    return listing ? { success: true, data: listing } : { success: false, error: 'no store listing' };
+  }),
   marketHistory: vi.fn(async () => ({ success: true, data: [] })),
 });
+/** What the market says of the version shown: only a market version has a store listing. */
+const cloud = (version: string) => ({ version, compat: null, deprecated: null, releaseNotes: '', publishedAt: '2026-10-01T00:00:00Z', bundleBytes: 1, minAppVersion: '0.2.60', source: null, iconUrl: null, newerNeedsApp: null }) as never;
 // Keys and their parameters stay readable in the rendered text.
 const translate = ((key: string, params?: Record<string, string>) =>
   params ? `${key}(${Object.values(params).join('|')})` : key) as never;
@@ -25,8 +29,9 @@ const pomodoro = {
   id: 'pomodoro-log',
   name: 'Pomodoro',
   version: '1.2.0',
+  defaultLocale: 'en',
   permissions: { capabilities: ['agents:tools'] },
-  contributes: { tabs: [], mcpServers: [{ name: 'pomodoro', command: 'node', args: ['mcp/server.mjs'] }] },
+  contributes: { tabs: [], mcpServers: [{ name: 'pomodoro', command: 'node', args: ['mcp/server.mjs'] }], instructions: 'pomodoro__log(minutes): log a focus block.' },
 } as never;
 
 async function render(props: Record<string, unknown>, act_?: (document: Document) => Promise<void>) {
@@ -43,7 +48,7 @@ async function render(props: Record<string, unknown>, act_?: (document: Document
         lifecycle: null,
         locale: 'en',
         translate,
-        api: readmeOf(null) as never,
+        api: listingOf(null) as never,
         onBack: () => undefined,
         onLifecycle: () => undefined,
         onInstallVersion: () => undefined,
@@ -70,13 +75,15 @@ describe('App 的产品页 (#7059)', () => {
     const opened = vi.fn();
     const unregister = registerImageViewerHost(opened);
     try {
-      await render({ api: readmeOf('![First](https://download.example/first.png)\n\n![Second](https://download.example/second.png)') as never }, async (document) => {
+      const listing = { about: { en: 'Pomodoro logs focus.' }, screenshots: ['https://download.example/first.png', 'https://download.example/second.png'] };
+      await render({ subject: { manifest: pomodoro, installed: undefined, installRef: undefined, cloud: cloud('1.2.0') }, api: listingOf(listing) as never }, async (document) => {
         const shots = document.querySelectorAll<HTMLImageElement>('[data-testid="app-product-preview"] img');
         expect(shots).toHaveLength(2);
+        expect(document.querySelector('[data-testid="app-product-preview"] figcaption')).toBeNull();
         await act(async () => shots[1].click());
         expect(opened).toHaveBeenCalledExactlyOnceWith({ items: [
-          { url: 'https://download.example/first.png', alt: 'First', thumb: shots[0] },
-          { url: 'https://download.example/second.png', alt: 'Second', thumb: shots[1] },
+          { url: 'https://download.example/first.png', alt: 'extensions.screenshotOf(Pomodoro|1)', thumb: shots[0] },
+          { url: 'https://download.example/second.png', alt: 'extensions.screenshotOf(Pomodoro|2)', thumb: shots[1] },
         ], index: 1 });
       });
     } finally { unregister(); }
@@ -111,7 +118,7 @@ describe('App 的产品页 (#7059)', () => {
   it('does not offer to install a history version unavailable on this device', async () => {
     const installed = vi.fn();
     const entry = { publishedAt: '2026-10-24T00:00:00Z', releaseNotes: 'A release', compat: null, yanked: null };
-    const api = { ...readmeOf(null), marketHistory: async () => ({ success: true, data: [
+    const api = { ...listingOf(null), marketHistory: async () => ({ success: true, data: [
       { ...entry, version: '3.0.0', platformRefusal: 'platforms: this App does not support phone' },
       { ...entry, version: '2.0.0' },
     ] }) };
@@ -206,28 +213,48 @@ describe('App 的产品页 (#7059)', () => {
     expect(text).toContain('extensions.askAgent');
     expect(asked).toEqual(['把刚才查到的三个结论记进随手记']);
   });
+
+  it('「它带来了什么」原样写出它给每个 agent 的那一行(`<gugu_apps>` 里就是这句)', async () => {
+    await render({}, async (document) => {
+      expect(document.querySelector('[data-testid="app-product-instructions"]')?.textContent).toContain('pomodoro__log(minutes): log a focus block.');
+    });
+  });
+
+  it('本机装的(没有市场版本)没有「关于」和截图,也不去问;市场版本读不到就照实说', async () => {
+    const api = listingOf(null);
+    await render({ api: api as never }, async (document) => {
+      expect(document.querySelector('[data-testid="app-product-about"]')).toBeNull();
+      expect(document.querySelector('[data-testid="app-product-preview"]')).toBeNull();
+    });
+    expect(api.marketListing).not.toHaveBeenCalled();
+    const market = { subject: { manifest: pomodoro, installed: undefined, installRef: undefined, cloud: cloud('1.2.0') } };
+    expect((await render({ ...market, api: listingOf(null) as never })).text).toContain('extensions.listingUnavailable');
+    const outdated = Object.assign(new Error('older gugu'), { code: 'server_outdated' });
+    expect((await render({ ...market, api: listingOf(outdated) as never })).text).toContain('extensions.listingPeerOutdated');
+  });
 });
 
 describe('产品页的语言与去重', () => {
   const office = {
     ...(pomodoro as object),
     id: 'office',
-    name: '咕咕办公',
-    description: 'Base text, written once.',
-    localized: { zh: { name: '咕咕办公', description: '中文简介。' }, en: { name: 'Gugu Office', description: 'English blurb.' } },
-    contributes: { tabs: [], skills: 'skills' },
+    name: 'Gugu Office',
+    defaultLocale: 'en',
+    localized: { zh: { name: '咕咕办公' } },
+    contributes: { tabs: [], skills: 'skills', instructions: 'Read skill office first.' },
   } as never;
-  const subject = (manifest: unknown) => ({ subject: { manifest, installed: undefined, installRef: undefined, cloud: null } });
+  const listing = { about: { en: 'English blurb.', zh: '中文简介。' }, screenshots: ['https://download.example/a.png'] };
+  const subject = (manifest: unknown) => ({ subject: { manifest, installed: undefined, installRef: undefined, cloud: cloud('1.2.0') }, api: listingOf(listing) as never });
 
-  it('「关于」写界面语言的那句简介,README 正文不进页面(在 → 打开的框里)', async () => {
-    const readme = '# 咕咕办公\n\nREADME body in one language only.';
-    const { text } = await render({ ...subject(office), api: readmeOf(readme) as never });
+  it('「关于」是市场上这一版 store/about 里界面语言的那份,页内直接画,❌ 弹框', async () => {
+    const { text } = await render(subject(office), async (document) => {
+      expect(document.querySelector('[data-testid="app-product-about-text"]')?.textContent).toContain('English blurb.');
+      expect(document.querySelector('[role="dialog"]')).toBeNull();
+    });
     expect(text).toContain('Gugu Office');
-    expect(text).toContain('English blurb.');
-    expect(text).not.toContain('README body');
   });
 
-  it('manifest 写了别的语言才有切换;点「中文」名字和简介一起换', async () => {
+  it('manifest 写了别的语言才有切换;点「中文」名字和关于一起换', async () => {
     let after = '';
     const { text } = await render(subject(office), async (document) => {
       const items = [...document.querySelectorAll('[data-testid="app-product-language"] button')] as HTMLButtonElement[];
@@ -237,8 +264,9 @@ describe('产品页的语言与去重', () => {
     });
     expect(text).toContain('English blurb.');
     expect(after).toContain('中文简介。');
+    expect(after).toContain('咕咕办公');
     expect(after).not.toContain('English blurb.');
-    // 只写了一种语言(或没写):没得换,❌ 画一个只有一格的切换。
+    // 只写了一种语言:没得换,❌ 画一个只有一格的切换。
     let single = 0;
     await render(subject(pomodoro), async (document) => void (single = document.querySelectorAll('[data-testid="app-product-language"]').length));
     expect(single).toBe(0);
@@ -263,37 +291,5 @@ describe('产品页的语言与去重', () => {
     // 技能说明只出现那一句(从前还单起一行,名目 extensions.addsSkills)。
     expect(text.split('extensions.addsSkills').length - 1).toBe(1);
     expect(text).toContain('extensions.addsSkillsText');
-  });
-});
-
-describe('manifestLanguages', () => {
-  it('界面语言写了就用它打头;没写的那格是原文(不冠语言名);同一语言的几个键只算一种', () => {
-    const both = { localized: { 'zh-CN': {}, zh: {}, en: {} } };
-    expect(manifestLanguages(both, 'en-US')).toEqual([
-      { locale: 'en', language: 'en' },
-      { locale: 'zh-CN', language: 'zh' },
-    ]);
-    expect(manifestLanguages({ localized: { 'zh-CN': {} } }, 'en-US')).toEqual([
-      { locale: 'en-US', language: null },
-      { locale: 'zh-CN', language: 'zh' },
-    ]);
-    expect(manifestLanguages({ localized: { 'zh-CN': {} } }, 'zh-CN')).toHaveLength(1);
-    expect(manifestLanguages({}, 'zh-CN')).toEqual([{ locale: 'zh-CN', language: null }]);
-  });
-});
-
-describe('README 拆成截图和正文 (#7059)', () => {
-  it('图片(markdown 与 <img>)进预览,正文里不再画;开头的一级标题(就是名字)去掉;相对路径的图不要', () => {
-    const { images, text } = splitReadme(
-      '# 随手记\n\n你和 agent 共用的一本随手记。\n\n![随手记页签](https://download.example/market/media/a.png)\n\n<img src="https://download.example/b.png" alt="第二张">\n\n![本地](shot.png)\n\n## 用法\n点一条。'
-    );
-    expect(images).toEqual([
-      { src: 'https://download.example/market/media/a.png', alt: '随手记页签' },
-      { src: 'https://download.example/b.png', alt: '第二张' },
-    ]);
-    expect(text).not.toContain('# 随手记\n');
-    expect(text).not.toContain('a.png');
-    expect(text).toContain('你和 agent 共用的一本随手记。');
-    expect(text).toContain('## 用法');
   });
 });

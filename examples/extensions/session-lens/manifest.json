@@ -1,11 +1,12 @@
 {
   "id": "session-lens",
   "name": "任务镜",
-  "description": "照出「这一格现在是给谁看的」:所在项目、任务,以及这个任务最近 10 条用户消息。切到别的项目 / 任务,内容跟着变,页面本身不重建 —— 一个 App 整个咕咕一张页。",
   "author": "咕咕",
   "categories": ["dev-tools"],
   "version": "1.0.0",
-  "apiVersion": 12,
+  "apiVersion": 24,
+  "defaultLocale": "zh-CN",
+  "subtitle": "照出这一格现在给谁看",
   "platforms": ["desktop"],
   "entry": "lens.html",
   "permissions": {

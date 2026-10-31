@@ -27,7 +27,7 @@ void app.whenReady().then(async () => {
   fs.mkdirSync(bundle, { recursive: true });
   fs.writeFileSync(path.join(bundle, 'index.html'), '<body>Fixture App</body>');
   fs.writeFileSync(path.join(bundle, 'fixture.mjs'), 'process.stdin.resume();');
-  fs.writeFileSync(path.join(bundle, 'manifest.json'), JSON.stringify({ id, name: id, version: '1.0.0', apiVersion: EXTENSION_API_VERSION,
+  fs.writeFileSync(path.join(bundle, 'manifest.json'), JSON.stringify({ id, name: id, version: '1.0.0', apiVersion: EXTENSION_API_VERSION, defaultLocale: 'en',
     platforms: ['desktop'], entry: 'index.html', permissions: { capabilities: ['agents:tools'], network: [] },
     contributes: { tabs: [{ name: 'main', title: 'Fixture' }], mcpServers: [{ name: 'fixture', command: 'node', args: ['fixture.mjs'] }] },
   }));

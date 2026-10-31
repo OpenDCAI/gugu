@@ -245,7 +245,7 @@ describe('the phone refuses a verb whose capability the App lacks, as the deskto
       id: 'board',
       name: 'Board',
       version: '1.0.0',
-      apiVersion: EXTENSION_API_VERSION,
+      apiVersion: EXTENSION_API_VERSION, defaultLocale: 'en',
       entry: 'index.html',
       permissions: { capabilities: ['files:read:all-machines', 'chat:relay'] },
       contributes: { tabs: [{ name: 'main', title: 'Board', opensFiles: { chat: ['.board.json'] } }] },

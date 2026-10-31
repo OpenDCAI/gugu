@@ -1,13 +1,14 @@
 {
   "id": "standup-board",
   "name": "Standup Board",
-  "description": "把代码里的 TODO / FIXME 扫成一块看板,按文件归堆;挑几条要点,一键放进当前对话的输入框,你发给 agent 接着办。",
   "author": "咕咕",
   "categories": [
     "productivity"
   ],
   "version": "0.1.0",
-  "apiVersion": 15,
+  "apiVersion": 24,
+  "defaultLocale": "zh-CN",
+  "subtitle": "代码里的 TODO 扫成看板",
   "platforms": ["desktop"],
   "engines": {
     "gugu": ">=0.2.40"

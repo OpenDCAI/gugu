@@ -151,7 +151,7 @@ describe('Markdown local file links in chat', () => {
       id: 'draw-guess',
       name: '你画我猜',
       version: '1.0.0',
-      apiVersion: EXTENSION_API_VERSION,
+      apiVersion: EXTENSION_API_VERSION, defaultLocale: 'en',
       entry: 'index.html',
       contributes: { tabs: [{ name: 'main', title: '你画我猜', opensFiles: { chat: ['.draw-guess.json'] } }] },
     })

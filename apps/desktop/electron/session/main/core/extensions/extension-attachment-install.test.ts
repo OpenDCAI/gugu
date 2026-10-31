@@ -70,7 +70,7 @@ async function sendInChat(id: string, permissions?: { network: string[] }, versi
   const dir = path.join(work, 'src', id);
   mkdirSync(dir, { recursive: true });
   writeFileSync(path.join(dir, 'manifest.json'), JSON.stringify({
-    id, name: 'Share', version, apiVersion: EXTENSION_API_VERSION, platforms: ['desktop'], entry: 'index.html',
+    id, name: 'Share', version, apiVersion: EXTENSION_API_VERSION, defaultLocale: 'en', platforms: ['desktop'], entry: 'index.html',
     ...(permissions ? { permissions } : {}), contributes: { tabs: [{ name: 'main', title: 'Share' }] },
   }));
   writeFileSync(path.join(dir, 'index.html'), '<!doctype html>');

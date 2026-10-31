@@ -44,7 +44,7 @@ const app = {
   id: 'pomodoro-log',
   name: 'Pomodoro',
   version: '1.2.0',
-  apiVersion: EXTENSION_API_VERSION,
+  apiVersion: EXTENSION_API_VERSION, defaultLocale: 'en',
   permissions: { capabilities: ['agents:tools'] },
   contributes: { tabs: [], mcpServers: [{ name: 'pomodoro', command: 'node', args: ['mcp/server.mjs'] }] },
 } as never;

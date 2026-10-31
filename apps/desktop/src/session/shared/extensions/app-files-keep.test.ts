@@ -32,7 +32,7 @@ let platform: FilesPlatform;
 beforeEach(() => {
   vi.clearAllMocks();
   refusal = null;
-  platform = { account: async () => ({ token: 'token', userId: person }), appIdentity: () => null, hasCapability: () => true,
+  platform = { account: async () => ({ token: 'token', userId: person }), hasCapability: () => true,
     sync: { pageFor: () => ({}), grant: vi.fn(), ungrant: vi.fn(), revoke: vi.fn() } as never,
     identities: async () => [], faces: async () => ({}), filesUrl: () => 'http://files.invalid', warn: vi.fn() };
 });

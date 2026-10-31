@@ -17,7 +17,7 @@ const manifest = parseExtensionManifest({
   id: 'notes',
   name: 'Notes',
   version: '1.0.0',
-  apiVersion: EXTENSION_API_VERSION,
+  apiVersion: EXTENSION_API_VERSION, defaultLocale: 'en',
   entry: 'main.html',
   contributes: { tabs: [{ name: 'main', title: 'Main' }, { name: 'inbox', title: 'Inbox' }] },
 });

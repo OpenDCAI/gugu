@@ -71,9 +71,13 @@ export const EXTENSION_THEME_CHANNEL = 'gugu-ext:theme';
 // 20: several files at once — `files.download([…])` (one folder on the desktop, the share sheet on the phone) and
 // `files.keep([…], how)`.
 // 21: tools modules receive the real MCP per-call AbortSignal in run(args, call).
+// 22 (#987): scoped local projection and input.
 // 23: `files.forward(file | files)` — the host's forward page for chat files, sent by reference; file entries expose
 // savedName, the host-resolved filename for local copies.
-export const EXTENSION_API_VERSION = 23;
+// 24 (App model v2): `description` and `contributes.agentInstructions` are gone; `contributes.instructions` is the App's
+// line for agents and `defaultLocale` says what language the base fields are in. The product page is the market's
+// `store/` listing (app-listing.ts). No earlier manifest runs here any more (EXTENSION_API_VERSION_MIN_SUPPORTED, owner 10-31).
+export const EXTENSION_API_VERSION = 24;
 
 /**
  * The page `app_check` runs is started with this argument (摩擦单 F5, F69): it says how often it wrote, set presence and

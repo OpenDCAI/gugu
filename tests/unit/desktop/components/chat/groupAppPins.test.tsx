@@ -47,7 +47,7 @@ beforeEach(() => {
   queryClient.clear()
   harness = createReactHarness()
   runInAction(() => {
-    installedExtensionsStore.manifests = ['board', 'calendar'].map((id) => parseExtensionManifest({ id, name: id, version: '1.0.0', apiVersion: EXTENSION_API_VERSION, entry: 'index.html', contributes: { tabs: [{ name: 'main', title: id }] } }))
+    installedExtensionsStore.manifests = ['board', 'calendar'].map((id) => parseExtensionManifest({ id, name: id, version: '1.0.0', apiVersion: EXTENSION_API_VERSION, defaultLocale: 'en', entry: 'index.html', contributes: { tabs: [{ name: 'main', title: id }] } }))
     installedExtensionsStore.disabled = []
     installedExtensionsStore.isLoaded = true
   })

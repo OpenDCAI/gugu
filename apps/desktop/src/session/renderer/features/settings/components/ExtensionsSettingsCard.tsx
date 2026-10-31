@@ -1143,7 +1143,7 @@ export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard({
     const withdrawn = declared.filter((permission) => (revoked[manifest.id] ?? []).includes(permission.key)).length;
     if (withdrawn > 0) return <span>{translate('extensions.rowRevoked', { count: withdrawn })}</span>;
     const text = localizedManifestText(manifest, locale);
-    return <span>{text.description ?? translate('extensions.noDescription')}</span>;
+    return <span>{text.subtitle}</span>;
   };
 
   const header = (aside?: ReactNode) => (

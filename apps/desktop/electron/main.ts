@@ -414,7 +414,7 @@ import { previewSchemePrivilege } from '../src/session/shared/preview/preview-ur
 import { setExtensionCheckAvailable } from './mcp/gugu-extension-tool'
 import { setGuideLookPicture } from './mcp/gugu-guide-tool'
 import { guguLinkScheme } from '@gugu/core/shared/ui/guguLink'
-import { catalogAppsOf, extensionAgentPrograms } from './extension-session-mcp'
+import { agentAppsOf, extensionAgentPrograms } from './extension-session-mcp'
 // 仅类型:编译期擦除,不会把会话页主进程图提升到 app.setPath 之前(运行时加载见 whenReady 里的动态 import)。
 import type { SessionAction } from './sessionpage/emdash-main-bridge'
 import type { AgentEvent } from '../src/session/shared/core/agents/agentEvents'
@@ -6279,12 +6279,12 @@ app.whenReady().then(async () => {
           // D-10:开场只给「完全披露」的扩展开网关卡,其余经 catalog_*。
           const full = new Set(contributions.filter((c) => c.disclosure === 'full').map((c) => c.extensionId))
           const programs = installed.filter((program) => full.has(program.extensionId))
-          // 上下文工程第二批 P3 (D-27, owner 10-07 chose (c)): the opening names the Apps whose tools this session reaches
-          // through the catalog — now or never, like a skill, so their scope is waited for too.
-          const catalogApps = catalogAppsOf(contributions, installed)
-          const appsKept = await Promise.all(catalogApps.map((app) => inScope(app.extensionId)))
+          // 上下文工程第二批 P3 (D-27, owner 10-07 chose (c)): the opening names the Apps that give this session programs or
+          // skills — now or never, like a skill, so their scope is waited for too.
+          const agentApps = agentAppsOf(contributions, installed)
+          const appsKept = await Promise.all(agentApps.map((app) => inScope(app.extensionId)))
           // Computer Use is this computer's, not a place's (#7317).
-          const apps = catalogApps.filter((app, index) => app.computerUse || appsKept[index])
+          const apps = agentApps.filter((app, index) => app.computerUse || appsKept[index])
           // 网关起不来只让扩展工具缺席,❌ 把会话拖死 —— 会话永远要能开。
           const gateway = programs.length === 0 || !authProvider
             ? { servers: [], origins: [] }

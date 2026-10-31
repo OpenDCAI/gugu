@@ -638,12 +638,8 @@ function relativeTime(iso) {
 const changedAt = (entry) => entry.updatedAt ?? entry.createdAt
 
 const isFolder = (entry) => entry.type === 'folder'
-// Ownership is explicitly stored on the item. Opener claims and names do not classify App data.
-function visibleEntry(entry) {
-  const app = entry.metadata?.app
-  const marked = app && typeof app.publisher === 'string' && app.publisher.trim() && typeof app.id === 'string' && app.id.trim()
-  return state.showAppData || !marked
-}
+// App data is what an App's tab names as its chatFile (entry.appState, from its declaration); a file claimed by suffix is a person's.
+const visibleEntry = (entry) => state.showAppData || !entry.appState
 
 async function folderContextMenu(x, y) {
   if (!state.ctx?.chat || state.ctx.file || !canRead()) return

@@ -1,5 +1,5 @@
 import { compatOf, pickForHost, type CloudMarketEntry, type MarketCodeSource, type MarketHost, type MarketIndex, type MarketIndexVersion, type MarketUpdatesSummary, type MarketVersionHistoryEntry } from '../../session/shared/extensions/market'
-import { marketEntriesFrom, marketHistoryFrom, marketUpdatesFrom } from '../../session/shared/extensions/market-entries'
+import { marketEntriesFrom, marketHistoryFrom, marketListingFrom, marketMetaPath, marketUpdatesFrom, type MarketListing } from '../../session/shared/extensions/market-entries'
 import { marketSnapshotSource, type MarketRefreshed, type MarketSnapshotStore } from '../../session/shared/extensions/market-snapshot'
 import { appPlatformDeclarationProblems, requireAppPlatform } from '../../session/shared/extensions/app-platforms'
 
@@ -25,9 +25,9 @@ export interface MarketPackage {
 export interface PhoneMarket {
   /** Every App the market offers this phone (the index taken now when `fresh`, else the one in hand). */
   entries(fresh?: boolean): Promise<CloudMarketEntry[]>
-  /** This published version's README, including its market screenshot URLs. */
-  readme(extensionId: string, version: string): Promise<string | null>
-  /** One file under the market's `media/` (a README screenshot), through the shell: the page cannot read its bytes itself. */
+  /** This published version's product page text and screenshot URLs (the desktop's `listing`). */
+  listing(extensionId: string, version: string): Promise<MarketListing>
+  /** One file under the market's `media/` (a screenshot), through the shell: the page cannot read its bytes itself. */
   media(relativePath: string): Promise<Uint8Array>
   /** Every version of one App, newest first, each with whether this phone can install it — the desktop's version history. */
   history(extensionId: string): Promise<MarketVersionHistoryEntry[]>
@@ -55,10 +55,8 @@ export function phoneMarket(
       const apps = (await index(fresh)).apps
       return marketEntriesFrom(apps, host(), urlOf).extensions
     },
-    readme: async (extensionId, version) => {
-      const path = (await index(false)).apps.find((app) => app.id === extensionId)?.versions.find((entry) => entry.version === version)?.readme
-      return path ? new TextDecoder().decode(await read(path)) : null
-    },
+    listing: async (extensionId, version) =>
+      marketListingFrom(new TextDecoder().decode(await read(marketMetaPath(extensionId, version))), extensionId, version, urlOf),
     media: async (relativePath) => {
       if (!relativePath.startsWith('media/')) throw new Error(`Not a market media path: ${relativePath}`)
       return read(relativePath)

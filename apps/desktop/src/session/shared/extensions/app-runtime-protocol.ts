@@ -338,6 +338,11 @@ export interface AppFileEntry {
   displayName: string;
   /** The App that opens it here (the most specific claim, or the one chosen to always use); `null` when none does. */
   claimedBy: AppFileClaimant | null;
+  /**
+   * The file is its claiming App's own state here: that App's tab names it as its `chatFile` (App 模型 v2: derived from the
+   * declaration, nothing stored on the file). The folder hides it until 「显示 App 数据」.
+   */
+  appState: boolean;
   size: number | null;
   /**
    * A project chat's file kept on the machine that sent its current version and uploaded only when someone opens it: that

@@ -46,7 +46,7 @@ vi.mock('@gugu/core/cloud/supabase', () => ({
 }))
 
 const workspace = parseExtensionManifest({
-  id: 'workspace', name: '文件夹', version: '1.0.0', apiVersion: EXTENSION_API_VERSION, entry: 'index.html',
+  id: 'workspace', name: '文件夹', version: '1.0.0', apiVersion: EXTENSION_API_VERSION, defaultLocale: 'en', entry: 'index.html',
   contributes: { tabs: [{ name: 'main', title: '文件夹', icon: 'icon.png', opensFiles: { chat: ['.md', '.json'] }, fileIcons: { '.md': 'md.png' } }] },
 })
 

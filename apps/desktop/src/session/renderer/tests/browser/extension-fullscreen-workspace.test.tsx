@@ -24,7 +24,7 @@ import '@renderer/index.css';
 // guest rendering, while this test checks its host element's clipping and hits.
 const manifest = parseExtensionManifest({
   id: 'fullscreen-fixture', name: 'Document', version: '1.0.0',
-  apiVersion: EXTENSION_API_VERSION, entry: 'index.html',
+  apiVersion: EXTENSION_API_VERSION, defaultLocale: 'en', entry: 'index.html',
   contributes: { tabs: [{ name: 'main', title: 'Document' }] },
 });
 const kind = 'fullscreen-fixture.main';
