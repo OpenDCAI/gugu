@@ -11,7 +11,7 @@ const { nativeConversationActivity } = await import('./session-conversation-acti
 let fixture: Awaited<ReturnType<typeof openFixture>>;
 beforeEach(async () => {
   fixture = await openFixture(); mock.db = fixture.db;
-  fixture.sqlite.exec("INSERT INTO projects(id,name,path) VALUES('p','Fixture','/fixture'); INSERT INTO sessions(id,project_id,title) VALUES('s','p','Fixture')");
+  fixture.sqlite.exec("INSERT INTO projects(id,name,path) VALUES('p','Fixture','/fixture'); INSERT INTO sessions(id,project_id) VALUES('s','p')");
 });
 afterEach(() => { fixture.close(); mock.db = undefined; });
 const turn = (ids: string[]): TranscriptTurn => ({ id: 's:turn:1', seq: 1, initiator: 'user', items: ids.map((id, seq) => ({ kind: 'message', id: `s:turn:1:message:${id}`, seq, role: 'assistant', text: 'reply' })) });

@@ -46,7 +46,6 @@ import type { NewSessionMemory } from '@shared/core/app-settings';
 import { createStageLedger } from '@main/lib/stage-ledger';
 import { events } from '@main/lib/events';
 import {
-  MAX_SESSION_TITLE_LENGTH,
   sessionpageLegOfView,
   type Session,
   type SessionRuntime,
@@ -430,7 +429,7 @@ function snapshot(
     ...(!row.spawnedBySessionId && remoteSpawner ? { spawned_by_device_id: remoteSpawner.deviceId } : {}),
     parent_session_id: sessionParentId(row),
     project_id: row.projectId,
-    title: row.title,
+    title: taskName(row),
     provider_id: row.provider ?? 'unknown',
     model,
     transport,
@@ -469,14 +468,6 @@ function sessionStatus(row: SessionRow, runtime: SessionSummary | null): Session
   if (runtime?.lifecycle === 'starting' || runtime?.lifecycle === 'replaying') return 'starting';
   if (row.config?.spawnStartupState === 'starting') return 'starting';
   return parseAgentStatus(row.agentStatus);
-}
-
-function defaultTitle(prompt: string): string {
-  const firstLine = prompt
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .find(Boolean);
-  return (firstLine || 'Child session').slice(0, MAX_SESSION_TITLE_LENGTH);
 }
 
 function runtimeError(result: { error: { type: string; message?: string } }): Error {
@@ -1096,11 +1087,8 @@ async function createChildSession(input: {
     projectId,
     workspaceId: input.workspaceId,
     provider,
-    title: (title || defaultTitle(input.prompt)).slice(0, MAX_SESSION_TITLE_LENGTH),
-    // spec session-graph: explicit title is also the addressable agent name.
+    // spec session-graph: an explicit title is the task's addressable name; absent = the engine default.
     agentDisplayName: title,
-    // 派活的一方显式起了名 ⇒ harness 自己拟的名不盖它;没起名 ⇒ 首轮兜底,等 harness 起名。
-    ...(title ? { titleSource: 'manual' as const } : {}),
     permissionMode: UNATTENDED_SESSION_PERMISSION_MODE,
     model: input.model,
     platformModel: input.platformModel,

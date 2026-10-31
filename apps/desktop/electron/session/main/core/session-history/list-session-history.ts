@@ -23,6 +23,7 @@ import {
   type SessionHistorySort,
 } from '@shared/core/session-history/session-history';
 import { sessionParentId } from '@main/core/sessions/utils';
+import { taskName } from '@main/core/sessions/task-name';
 import { createLocalGroupOf } from './local-session-group';
 
 // spec session-page「会话历史」(#6083):把咕咕自己的会话(活跃 + 已归档)与本机引擎磁盘上还没导入的会话
@@ -130,7 +131,7 @@ function toGuguRow(
     key: `gugu:${session.id}`,
     source: 'gugu',
     status: archivedAt === null ? 'active' : 'archived',
-    title: displaySessionTitle(session.title),
+    title: displaySessionTitle(taskName(session)),
     providerSessionId: session.providerSessionId ?? null,
     providerId: session.provider ?? null,
     // 独立任务住在用户从没见过的 task-home 项目里(spec session-page 任务分区),它的路径不是用户的目录。
@@ -229,7 +230,7 @@ async function collect(params: SessionHistoryParams): Promise<Collected> {
       : Promise.resolve<ListLocalSessionsResult | null>(null),
   ]);
 
-  const titles = new Map(guguJoined.map(({ session }) => [session.id, session.title]));
+  const titles = new Map(guguJoined.map(({ session }) => [session.id, taskName(session)]));
   const descendants = countDescendants(guguJoined);
   const guguRows = guguJoined.map((joined) => toGuguRow(joined, titles, descendants));
 

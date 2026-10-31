@@ -19,7 +19,7 @@ function candidate(
   uuids: string[],
   lastInteractedAt: string | null = null
 ): ForkParentCandidate {
-  return { sessionId, title: sessionId, uuids: new Set(uuids), lastInteractedAt };
+  return { sessionId, uuids: new Set(uuids), lastInteractedAt };
 }
 
 describe('claudeTranscriptDirFor', () => {

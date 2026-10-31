@@ -52,11 +52,11 @@ describe('task name renames', () => {
     setTaskNamer({ defaultName: async () => 'unused', renameBound });
     fixture.sqlite.exec(`
       INSERT INTO projects (id, name, path) VALUES ('project-1', 'Project', '/repo');
-      INSERT INTO sessions (id, project_id, title, provider, runtime, config)
-        VALUES ('default', 'project-1', 'Claude 2', 'claude', 'acp',
+      INSERT INTO sessions (id, project_id, provider, runtime, config)
+        VALUES ('default', 'project-1', 'claude', 'acp',
                 '{"version":"1","type":"acp","agentDisplayName":"Claude 2","firstUtterance":"In one sentence, without reading any files, what is gugu?"}');
-      INSERT INTO sessions (id, project_id, title, provider, runtime, config)
-        VALUES ('named', 'project-1', 'Reviewer', 'codex', 'pty',
+      INSERT INTO sessions (id, project_id, provider, runtime, config)
+        VALUES ('named', 'project-1', 'codex', 'pty',
                 '{"version":"1","type":"pty","agentDisplayName":"Reviewer"}');
     `);
   });

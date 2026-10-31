@@ -105,8 +105,8 @@ describe('#6167 做完未读只由回合结束那条边写出', () => {
     // 会话出生:idle + 已读(build-session-row 的口径)。
     fixture.sqlite
       .prepare(
-        `INSERT INTO sessions (id, project_id, title, provider, runtime, agent_status, agent_status_seen)
-         VALUES (?, 'p1', 'C', 'claude', 'pty', 'idle', 1)`
+        `INSERT INTO sessions (id, project_id, provider, runtime, agent_status, agent_status_seen)
+         VALUES (?, 'p1', 'claude', 'pty', 'idle', 1)`
       )
       .run(cid);
     off = agentStatusWriter.on('agent:status', ({ reading }) => {

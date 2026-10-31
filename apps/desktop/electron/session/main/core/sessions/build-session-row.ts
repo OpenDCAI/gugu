@@ -3,10 +3,7 @@ import { pluginRegistry, type AgentProviderId } from '@gugu/session-plugins/agen
 import type { GuguPermissionMode } from '@gugu/session-core/acp';
 import type { sessions } from '@main/db/schema';
 import type { LinkedIssue } from '@shared/core/linked-issue';
-import type {
-  SessionConfig,
-  SessionTitleSource,
-} from '@shared/core/sessions/session-config';
+import type { SessionConfig } from '@shared/core/sessions/session-config';
 import type {
   SessionOrigin,
   SessionRuntime,
@@ -35,7 +32,6 @@ export type BuildSessionRowInput = {
   workspaceId: string;
   linkedIssue?: LinkedIssue;
   automationRunId?: string;
-  title: string;
   provider: AgentProviderId;
   runtime: SessionRuntime;
   /**
@@ -58,13 +54,8 @@ export type BuildSessionRowInput = {
   startupOrigin?: 'chat-page' | 'session-page';
   initialMessageId?: string;
   taskChatId?: string;
-  /** Required: the task's name until it is bound to an identity (task-name.ts). ❌ Never derived from `title` or the first prompt. */
+  /** Required: the task's one name until it is bound to an identity (task-name.ts). ❌ Never derived from the first prompt. */
   agentDisplayName: string;
-  /**
-   * 标题的来历(见 `sessionTitleSourceSchema`)。只在调用方**知道**这个标题是显式命名时带 `manual`;
-   * 缺席 = 首轮兜底,harness 自己起的名可以盖掉它。
-   */
-  titleSource?: SessionTitleSource;
   parentSessionId?: string | null;
   /** 父会话在别的机器上(config `parentRemote`);与 parentConversationId 一起由 `storedParent` 给出。 */
   parentRemote?: { deviceId: string; sessionId: string };
@@ -148,7 +139,6 @@ export function buildSessionRow(input: BuildSessionRowInput): SessionInsert {
           ...(input.initialMessageId && { initialMessageId: input.initialMessageId }),
           ...(input.taskChatId && { taskChatId: input.taskChatId }),
           agentDisplayName,
-          ...(input.titleSource && { titleSource: input.titleSource }),
           ...(input.spawnedByRemote && { spawnedByRemote: input.spawnedByRemote }),
           ...(input.parentRemote && { parentRemote: input.parentRemote }),
           // spec session-fork-share:ACP 分叉把「分叉自谁」和「要分叉哪条 provider 会话」
@@ -173,7 +163,6 @@ export function buildSessionRow(input: BuildSessionRowInput): SessionInsert {
           ...(input.initialMessageId && { initialMessageId: input.initialMessageId }),
           ...(input.taskChatId && { taskChatId: input.taskChatId }),
           agentDisplayName,
-          ...(input.titleSource && { titleSource: input.titleSource }),
           ...(input.spawnedByRemote && { spawnedByRemote: input.spawnedByRemote }),
           ...(input.parentRemote && { parentRemote: input.parentRemote }),
           ...(input.origin?.kind === 'fork' && { forkedFrom: input.origin.forkedFrom }),
@@ -185,7 +174,6 @@ export function buildSessionRow(input: BuildSessionRowInput): SessionInsert {
     workspaceId: input.workspaceId,
     linkedIssue: input.linkedIssue ?? null,
     automationRunId: input.automationRunId ?? null,
-    title: input.title,
     provider: input.provider,
     config,
     providerSessionId: providerSessionIdAtBirth(input),

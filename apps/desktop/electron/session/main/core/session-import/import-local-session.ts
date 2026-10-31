@@ -166,9 +166,8 @@ export async function importLocalSession(
       initialSession: {
         id: sessionId,
         provider,
-        title,
         // The engine's own title is the name the person knows this session by.
-        titleSource: 'manual',
+        title,
         // 导入是另一个动词:历史本来就在引擎那边，咕咕只是把它认领进来 ——
         // 带上 provider 自己的会话 id，第一次启动就 resume 它而不是开新的。
         origin: { kind: 'import', providerSessionId: providerSessionId },

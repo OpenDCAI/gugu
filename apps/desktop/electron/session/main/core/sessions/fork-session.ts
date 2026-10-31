@@ -48,7 +48,7 @@ export async function forkSession(params: ForkSessionParams): Promise<Session> {
   if (!row) throw new Error('Session not found');
 
   const source = mapSessionRowToSession(row);
-  const title = `${source.title}-fork`.slice(0, MAX_SESSION_TITLE_LENGTH);
+  const name = `${source.title}-fork`.slice(0, MAX_SESSION_TITLE_LENGTH);
   // 先把「这次分叉成不成立」说清楚,再落任何一行。
   const forkFromProviderSessionId = providerSessionIdForFork(source);
   // #6269 分叉出来的会话是一条独立会话,工作目录与来源同一行 workspace(与 session_spawn / 扩展派活同一处)。
@@ -62,14 +62,11 @@ export async function forkSession(params: ForkSessionParams): Promise<Session> {
     projectId: params.projectId,
     workspaceId: source.workspaceId,
     provider: source.providerId,
-    title,
-    agentDisplayName: title,
+    agentDisplayName: name,
     origin: {
       kind: 'fork',
       forkedFrom: { sessionId: source.id, title: source.title },
     },
-    // 分叉名是谱系标记,harness 照抄来源的标题会让两行同名 —— 当显式命名处理。
-    titleSource: 'manual',
     // 分叉照抄源会话的权限档 —— 分出来的会话不该比原来更放权,也不该更受限。
     ...(source.permissionMode !== undefined && { permissionMode: source.permissionMode }),
     model: source.model,

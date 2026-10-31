@@ -388,7 +388,6 @@ export const sessions = sqliteTable(
     projectId: text('project_id')
       .notNull()
       .references(() => projects.id, { onDelete: 'cascade' }),
-    title: text('title').notNull(),
     provider: text('provider'),
     config: versionedJsonColumn(sessionConfig)('config'),
     createdAt: text('created_at')

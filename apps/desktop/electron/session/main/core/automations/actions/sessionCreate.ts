@@ -131,7 +131,6 @@ export function automationInitialSession(
       ...(platformModel !== undefined ? { platformModel } : {}),
     }),
     title: config.title ?? automation.name,
-    titleSource: 'manual',
     ...(runtime === 'acp' ? { initialQueue: input.initialQueue } : { initialPrompt: input.prompt }),
   };
 }

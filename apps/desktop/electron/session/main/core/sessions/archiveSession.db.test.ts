@@ -112,11 +112,10 @@ describe('archiveSession', () => {
     fixture.sqlite
       .prepare(
         `INSERT INTO sessions
-           (id, project_id, title, runtime, parent_session_id, spawned_by_session_id, config)
-         VALUES (?, 'p1', ?, 'acp', ?, ?, ?)`
+           (id, project_id, runtime, parent_session_id, spawned_by_session_id, config)
+         VALUES (?, 'p1', 'acp', ?, ?, ?)`
       )
       .run(
-        id,
         id,
         opts.parent ?? null,
         opts.spawnedBy ?? null,
@@ -318,8 +317,8 @@ describe('archiveSession', () => {
     fixture.sqlite.exec(`
       UPDATE projects SET root_folder_detached = 1 WHERE id = 'p1';
       INSERT INTO workspaces (id, kind, location, type, path, key) VALUES ('historic-ws', 'path', 'local', 'local', '/repo', 'historic-key');
-      INSERT INTO sessions (id, project_id, workspace_id, title, runtime, provider_session_id, config)
-        VALUES ('historic-session', 'p1', 'historic-ws', 'history survives', 'acp', 'provider-original',
+      INSERT INTO sessions (id, project_id, workspace_id, runtime, provider_session_id, config)
+        VALUES ('historic-session', 'p1', 'historic-ws', 'acp', 'provider-original',
           json_object('version', '1', 'type', 'acp', 'agentDisplayName', 'history survives'));
     `);
     const originalTurn = JSON.stringify({ id: 'original-turn', seq: 0, initiator: 'user', items: [{ kind: 'message', id: 'original-message', seq: 0, role: 'user', text: '完整时间线必须保留' }] });
@@ -584,10 +583,10 @@ describe('restoreSession(内部接口,UI 上没有入口)', () => {
   const insert = (id: string) =>
     fixture.sqlite
       .prepare(
-        `INSERT INTO sessions (id, project_id, title, runtime, config)
-         VALUES (?, 'p1', ?, 'acp', json_object('version', '1', 'type', 'acp', 'agentDisplayName', ?))`
+        `INSERT INTO sessions (id, project_id, runtime, config)
+         VALUES (?, 'p1', 'acp', json_object('version', '1', 'type', 'acp', 'agentDisplayName', ?))`
       )
-      .run(id, id, id);
+      .run(id, id);
   const archivedAt = (id: string) =>
     (fixture.sqlite.prepare(`SELECT archived_at FROM sessions WHERE id = ?`).get(id) as {
       archived_at: string | null

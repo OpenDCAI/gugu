@@ -46,6 +46,7 @@ import { sessionListDelta } from '@gugu/session-core/session-record/session-list
 import { SessionOptionsError, readSessionOptions, setSessionOption } from './live-options';
 import { getPlugin, isValidProviderId } from '@main/core/agents/plugin-registry';
 import { sessionParentId, sessionSpawnerId, mapSessionRowToSession } from '@main/core/sessions/utils';
+import { taskName } from '@main/core/sessions/task-name';
 import { agentIdsBySession } from '@main/core/sessionpage/sessionpage-session-agent';
 import { db } from '@main/db/client';
 import { sessions, projects, type SessionRow } from '@main/db/schema';
@@ -735,7 +736,7 @@ function summaryOf(
   return {
     conversationId: session.id,
     projectId: session.projectId,
-    title: session.title,
+    title: taskName(session),
     // `harness` 报的是 provider 自己的 id：三家之外也要看得见是哪一家，
     // 而不是被折叠成一个「不支持」。
     harness: session.provider ?? 'unknown',
@@ -1430,7 +1431,7 @@ export async function updateSession(
     return {
       ok: true,
       value: {
-        title: after?.title ?? row.title,
+        title: taskName(after ?? row),
         isPinned: (after?.isPinned ?? row.isPinned) === 1,
         archived: !!after?.archivedAt,
       },

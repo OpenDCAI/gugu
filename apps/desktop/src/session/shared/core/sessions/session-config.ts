@@ -49,22 +49,6 @@ const parentRemoteSchema = z.object({
 });
 
 /**
- * `sessions.title` 是谁定的 —— 优先级:显式命名 > 自动起的名 > 首轮兜底。
- * - 缺席 = 首轮推出来的兜底(或 provider 计数),自动起的名可以盖掉它;
- * - 自动起的名有两个来源,**先到先得、只起一次**(#7337):
- *   - `harness` = harness 自己起的名(ACP `session_info_update`、TUI 落盘的标题记录),harness 再改名照样跟;
- *   - `generated` = 咕咕拿首轮找平台模型起的名;落下之后 harness 起的名 ❌ 再盖它,反之咕咕也不再起。
- * - `manual` = 人或 agent 显式命名的(侧栏/手机改名、`session_spawn` 的 title、harness 里的 `/rename`、
- *   分叉名),自动起的名 ❌ 再也盖不掉它。
- * 标题这一列本身分不出这几种(同形),所以来历单记一格。Additive optional,两种形态口径一致。
- *
- * 这一格出现之前落库的会话没有它:标题正好是咕咕自己推出来的兜底形状才算兜底,别的一律按显式命名
- * (那时 `session_spawn` 的 title、侧栏改过的名、分叉名都长在同一列里)。
- */
-export const sessionTitleSourceSchema = z.enum(['manual', 'harness', 'generated']);
-export type SessionTitleSource = z.infer<typeof sessionTitleSourceSchema>;
-
-/**
  * #7342 引擎**最后一次**报的上下文读数,进程停了也留着 —— 输入框停下后照旧画得出那个圈。
  * 一份读数只属于「一条原生会话 × 一个模型」,两样都记下,对不上就不是它的(❌ 拿旧的冒充现在的):
  * - `modelId` = 量它时会话自报的模型(活会话 `currentModelId` 那个 id)—— 上限随模型变;
@@ -121,14 +105,11 @@ const ptyConfigV1 = z.object({
   /** Reasoning-effort level for the model above. Absent = the CLI's own default for it. */
   effort: z.string().optional(),
   /**
-   * spec session-graph:起这条会话的一方**显式**给的名字(`gugu_session spawn` 的 `title`)。
-   * 它同时是这个 agent 在咕咕通讯录里的显示名(spec agent-provisioning「命名即寻址名」)。
-   * 缺席 = 没人显式命名过,显示名回落到「<引擎 label> <序号>」自增约定。
-   * ❌ 不许改读 `sessions.title` 代替它:那个字段「显式给的」与「从首轮推出来的」同形,
-   * 读它等于把一整行提示词当成人名。Additive optional,两种形态口径一致。
+   * The task's name until it is bound to an agent identity (its pending-bind record, task-name.ts):
+   * written at creation, consumed by provisioning, and the permanent name of a session that never
+   * gets an identity. Optional only for rows written before 0043; the migration filled every one.
    */
   agentDisplayName: z.string().optional(),
-  titleSource: sessionTitleSourceSchema.optional(),
   providerSessionState: providerSessionStateSchema.optional(),
   pendingRestart: pendingRestartSchema.optional(),
   /**
@@ -199,14 +180,11 @@ const acpConfigV1 = z.object({
   /** Reasoning-effort level for the model above. Absent = the CLI's own default for it. */
   effort: z.string().optional(),
   /**
-   * spec session-graph:起这条会话的一方**显式**给的名字(`gugu_session spawn` 的 `title`)。
-   * 它同时是这个 agent 在咕咕通讯录里的显示名(spec agent-provisioning「命名即寻址名」)。
-   * 缺席 = 没人显式命名过,显示名回落到「<引擎 label> <序号>」自增约定。
-   * ❌ 不许改读 `sessions.title` 代替它:那个字段「显式给的」与「从首轮推出来的」同形,
-   * 读它等于把一整行提示词当成人名。Additive optional,两种形态口径一致。
+   * The task's name until it is bound to an agent identity (its pending-bind record, task-name.ts):
+   * written at creation, consumed by provisioning, and the permanent name of a session that never
+   * gets an identity. Optional only for rows written before 0043; the migration filled every one.
    */
   agentDisplayName: z.string().optional(),
-  titleSource: sessionTitleSourceSchema.optional(),
   providerSessionState: providerSessionStateSchema.optional(),
   pendingRestart: pendingRestartSchema.optional(),
   /** spec session-resume:口径与 pty 那份完全一致 —— 咕咕记着的那句首轮。 */

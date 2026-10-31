@@ -9,13 +9,13 @@ const { getSessions } = await import('./getSessions')
 let fixture: Awaited<ReturnType<typeof openFixture>>
 beforeEach(async () => {
   fixture = await openFixture(); mock.db = fixture.db
-  fixture.sqlite.exec("INSERT INTO projects(id,name,path) VALUES('p','Fixture','/fixture'); INSERT INTO sessions(id,project_id,title,config) VALUES('s','p','Fixture',json_object('version','1','type','acp','agentDisplayName','Fixture'))")
+  fixture.sqlite.exec("INSERT INTO projects(id,name,path) VALUES('p','Fixture','/fixture'); INSERT INTO sessions(id,project_id,config) VALUES('s','p',json_object('version','1','type','acp','agentDisplayName','Fixture'))")
 })
 afterEach(() => { fixture.close(); mock.db = undefined })
 
 describe('atomic local archival journal', () => {
   it('keeps archived task titles available to identity directories while the sidebar hides them', async () => {
-    fixture.sqlite.exec("INSERT INTO sessions(id,project_id,title,config) VALUES('normal','p','Normal peer',json_object('version','1','type','acp','agentDisplayName','Normal peer'))")
+    fixture.sqlite.exec("INSERT INTO sessions(id,project_id,config) VALUES('normal','p',json_object('version','1','type','acp','agentDisplayName','Normal peer'))")
     setSessionArchival('s', true, '2026-10-28T09:00:00Z')
     const visible = (await getSessions()).map((session) => session.id)
     expect(visible).toContain('normal')
@@ -29,7 +29,7 @@ describe('atomic local archival journal', () => {
   })
   it('keeps archived sessions in the authoritative existence inventory after restart', () => {
     setSessionArchival('s', true, '2026-10-28T09:00:00Z')
-    fixture.sqlite.exec("INSERT INTO sessions(id,project_id,title,config) VALUES('new','p','New',json_object('version','1','type','acp','agentDisplayName','New'))")
+    fixture.sqlite.exec("INSERT INTO sessions(id,project_id,config) VALUES('new','p',json_object('version','1','type','acp','agentDisplayName','New'))")
     initializeSessionArchival()
     expect(sessionArchivalInventory().map((state) => state.sessionId)).toEqual(expect.arrayContaining(['new', 's']))
     expect(sessionArchivalInventory().find((state) => state.sessionId === 's')!.archivedAt).toBe('2026-10-28T09:00:00Z')
@@ -73,7 +73,7 @@ describe('atomic local archival journal', () => {
   })
   it('does not reuse another session’s journal', () => {
     setSessionArchival('s', true, '2026-10-28T09:00:00Z')
-    fixture.sqlite.exec("INSERT INTO sessions(id,project_id,title,config) VALUES('new','p','New',json_object('version','1','type','acp','agentDisplayName','New'))")
+    fixture.sqlite.exec("INSERT INTO sessions(id,project_id,config) VALUES('new','p',json_object('version','1','type','acp','agentDisplayName','New'))")
     expect(sessionArchivalState('new')).toEqual({ sessionId: 'new', revision: 0, archivedAt: null, intervals: [] })
   })
 })

@@ -14,6 +14,7 @@ import { sessionCreatedChannel } from '@shared/core/sessions/sessionEvents';
 import { MAX_SESSION_TITLE_LENGTH } from '@shared/core/sessions/sessions';
 import { sessionWorkspaceManager } from './session-workspace-manager';
 import { buildSessionRow } from './build-session-row';
+import { taskName } from './task-name';
 import { sessionBorn } from './session-born';
 import {
   claudeTranscriptDirFor,
@@ -269,13 +270,10 @@ async function captureCodexForks(
           id: randomUUID(),
           projectId,
           workspaceId,
-          title: `${parent.title}-fork`.slice(0, MAX_SESSION_TITLE_LENGTH),
-          // 分叉名是谱系标记:harness 照抄来源的名盖上来,两行会同名 —— 当显式命名处理。
-          titleSource: 'manual',
-          agentDisplayName: `${parent.title}-fork`.slice(0, MAX_SESSION_TITLE_LENGTH),
+          agentDisplayName: `${taskName(parent)}-fork`.slice(0, MAX_SESSION_TITLE_LENGTH),
           provider: 'codex',
           runtime: 'pty',
-          origin: { kind: 'fork', forkedFrom: { sessionId: parent.id, title: parent.title } },
+          origin: { kind: 'fork', forkedFrom: { sessionId: parent.id, title: taskName(parent) } },
           // 分叉照抄源会话的权限档、模型和推理档(同 fork-session.ts):缺了档位,只读的源会被补成「编辑」。
           permissionMode: parentConfig?.permissionMode,
           model: parentConfig?.model,
@@ -456,7 +454,6 @@ async function bindProviderContinuations(
 type LineageCandidate = {
   sessionId: string;
   providerSessionId: string;
-  title: string;
   lastInteractedAt: string | null;
   filePath: string;
   /** 开头 + 各压缩点的 uuid;fork 的首条消息落在父亲的锚里。 */
@@ -481,7 +478,6 @@ async function resolveForkParent(
   const ranked = await Promise.all(
     sameRoot.map(async (candidate) => ({
       sessionId: candidate.sessionId,
-      title: candidate.title,
       lastInteractedAt: candidate.lastInteractedAt,
       uuids: await readTranscriptUuids(candidate.filePath),
     }))
@@ -577,7 +573,6 @@ export async function captureExternalForks(projectId: string, sessionId: string)
     pool.push({
       sessionId: row.id,
       providerSessionId,
-      title: row.title,
       lastInteractedAt: row.lastInteractedAt,
       filePath: file.filePath,
       anchors,
@@ -623,7 +618,6 @@ export async function captureExternalForks(projectId: string, sessionId: string)
       pool.push({
         sessionId: transcript.providerSessionId,
         providerSessionId: transcript.providerSessionId,
-        title: '',
         lastInteractedAt,
         filePath: transcript.filePath,
         anchors: await managedTranscriptAnchors.anchorsOf(transcript.filePath),
@@ -632,8 +626,11 @@ export async function captureExternalForks(projectId: string, sessionId: string)
       continue;
     }
 
+    // A candidate that is not deferred is the owner row or a fork this sweep registered: both are in `managed`.
     const parentRow = managed.find((row) => row.id === parent.sessionId);
-    const parentConfig = parentRow?.config?.type === 'pty' ? parentRow.config : undefined;
+    if (!parentRow) throw new Error(`forkCapture: fork parent ${parent.sessionId} is not a managed session`);
+    const parentName = taskName(parentRow);
+    const parentConfig = parentRow.config?.type === 'pty' ? parentRow.config : undefined;
     const [inserted] = await db
       .insert(sessions)
       .values({
@@ -643,12 +640,10 @@ export async function captureExternalForks(projectId: string, sessionId: string)
           id: transcript.providerSessionId,
           projectId,
           workspaceId: workspace.id,
-          title: `${parent.title}-fork`.slice(0, MAX_SESSION_TITLE_LENGTH),
-          titleSource: 'manual',
-          agentDisplayName: `${parent.title}-fork`.slice(0, MAX_SESSION_TITLE_LENGTH),
+          agentDisplayName: `${parentName}-fork`.slice(0, MAX_SESSION_TITLE_LENGTH),
           provider: 'claude',
           runtime: 'pty',
-          origin: { kind: 'fork', forkedFrom: { sessionId: parent.sessionId, title: parent.title } },
+          origin: { kind: 'fork', forkedFrom: { sessionId: parent.sessionId, title: parentName } },
           // 分叉照抄源会话的权限档(同 fork-session.ts):缺了它,只读的源会被补成「编辑」。
           permissionMode: parentConfig?.permissionMode,
           model: parentConfig?.model,
@@ -665,7 +660,6 @@ export async function captureExternalForks(projectId: string, sessionId: string)
     pool.push({
       sessionId: inserted.id,
       providerSessionId: transcript.providerSessionId,
-      title: inserted.title,
       lastInteractedAt: inserted.lastInteractedAt,
       filePath: transcript.filePath,
       anchors: await managedTranscriptAnchors.anchorsOf(transcript.filePath),

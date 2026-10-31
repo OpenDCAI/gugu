@@ -2,6 +2,7 @@ import { and, eq, gt, sql, inArray } from 'drizzle-orm';
 import { db } from '@main/db/client';
 import { messages, sessions } from '@main/db/schema';
 import { log } from '@main/lib/logger';
+import { taskName } from '@main/core/sessions/task-name';
 import { taskExchangeFromRow, type TaskExchangePage, type TaskExchangeRequest } from '@shared/core/sessions/task-collaboration';
 
 const PAGE_SIZE = 200;
@@ -44,7 +45,7 @@ export function readAssistantWorkReceipts(after=0,retry:number[]=[]) {
   if(!Number.isSafeInteger(after)||after<0||retry.length>32||retry.some(value=>!Number.isSafeInteger(value)||value<=0)) throw new Error('Invalid historical receipt cursor')
   const position=sql<number>`${messages}.rowid`
   const read=()=>db.select({id:messages.id,position,sessionId:messages.sessionId,content:messages.content,timestamp:messages.timestamp,
-    metadata:messages.metadata,title:sessions.title,config:sessions.config,spawnedBySessionId:sessions.spawnedBySessionId})
+    metadata:messages.metadata,config:sessions.config,spawnedBySessionId:sessions.spawnedBySessionId})
     .from(messages).innerJoin(sessions,eq(sessions.id,messages.sessionId))
   const kind=sql`CASE WHEN json_valid(${messages.metadata}) THEN json_extract(${messages.metadata}, '$.kind') END = 'session-direct'`
   const scanned=read().where(and(kind,gt(position,after))).orderBy(position).limit(PAGE_SIZE).all()
@@ -53,10 +54,9 @@ export function readAssistantWorkReceipts(after=0,retry:number[]=[]) {
   const cursor=scanned.length===PAGE_SIZE?(scanned.at(-1)?.position??after):Math.max(after,tail)
   const pending:number[]=[]
   return {entries:rows.flatMap(({metadata,config,...row})=>{
-    try {
-      const receipt=JSON.parse(metadata??'null')
-      if(receipt?.state==='queued')pending.push(row.position)
-      return receipt?.kind==='session-direct' && receipt.state==='accepted' ? [{...row,spawnedByRemote:config?.spawnedByRemote??null}] : []
-    }catch{return []}
+    let receipt
+    try { receipt=JSON.parse(metadata??'null') }catch{return []}
+    if(receipt?.state==='queued')pending.push(row.position)
+    return receipt?.kind==='session-direct' && receipt.state==='accepted' ? [{...row,title:taskName({id:row.sessionId,config}),spawnedByRemote:config?.spawnedByRemote??null}] : []
   }),cursor,hasMore:scanned.length===PAGE_SIZE,pending}
 }
