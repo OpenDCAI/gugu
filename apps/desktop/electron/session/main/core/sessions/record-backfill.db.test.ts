@@ -13,7 +13,7 @@ import { MessageSearchStore } from '../search/message-store';
 const state = vi.hoisted(() => ({ db: undefined as AppDb | undefined,
   row: { runtime: 'pty', provider: 'codex', providerSessionId: 'record', agentStatus: 'idle' as string | null,
     archivedAt: null as string | null, config: undefined as { forkedFrom: { sessionId: string } } | undefined },
-  process: null as { home: 'host'; start: 'fresh' } | null,
+  process: null as { home: 'host'; start: 'fresh' } | null, tmux: false,
   turns: [] as TranscriptTurn[], committed: null as TranscriptTurn[] | null, complete: true, available: true, pick: vi.fn() }));
 vi.mock('@main/db/client', () => ({ get db() { return state.db; } }));
 vi.mock('@main/lib/events', () => ({ events: { emit: vi.fn() } }));
@@ -24,7 +24,8 @@ vi.mock('@main/core/session-timeline/service', () => ({
 }));
 vi.mock('@main/core/session-timeline/locate', () => ({ sessionRecordHarnessForProvider: (provider: string) => provider }));
 vi.mock('@main/core/session-timeline/write-bridge', () => ({ acpSessionLive: async () => false }));
-vi.mock('./session-process', () => ({ sessionProcess: () => state.process }));
+vi.mock('./session-process', () => ({ sessionProcess: () => state.process,
+  sessionEngine: async () => state.process ? 'owned' : state.tmux ? 'detached' : 'gone' }));
 
 import { events } from '@main/lib/events';
 import { onActivitySignal } from '../activity/signals';
@@ -46,7 +47,7 @@ beforeEach(async () => {
   fixture = await openFixture('empty'); state.db = fixture.db;
   fixture.sqlite.exec("INSERT INTO projects(id,name,path) VALUES ('p1','P','/repo'); INSERT INTO sessions(id,project_id,title,runtime,agent_status) VALUES ('c1','p1','C','pty','idle');");
   state.row = { runtime: 'pty', provider: 'codex', providerSessionId: 'record', agentStatus: 'idle', archivedAt: null, config: undefined };
-  state.turns = [turn(0), turn(1)]; state.committed = null; state.process = null; state.complete = true; state.available = true;
+  state.turns = [turn(0), turn(1)]; state.committed = null; state.process = null; state.tmux = false; state.complete = true; state.available = true;
   state.pick.mockReset().mockImplementation(async (_id: string, pick: (turns: TranscriptTurn[]) => Promise<TranscriptTurn[] | null>, options: { committedOnly?: boolean }) => {
     const selected = options.committedOnly && state.committed ? state.committed : state.turns;
     return state.available ? { ok: true, turns: await pick(selected), complete: state.complete } : { ok: false };
@@ -162,6 +163,18 @@ it('reports a live idle terminal whose last record turn has no outcome as settli
   expect((rows() as { data: string }[]).map(row => JSON.parse(row.data).outcome?.kind)).toEqual(['done', 'done']);
   state.turns = [...state.turns, turn(2)]; state.process = null;
   expect(await syncStoredHistoryFromRecord('c1', { runtime: 'pty' })).toEqual({ inserted: 1, status: 'complete' });
+});
+
+it('keeps a restarted terminal whose engine is still in tmux settling before reattach, and completes it when the turn lands', async () => {
+  // After a host restart the process table is empty until reattach; tmux still holds the running engine.
+  state.tmux = true;
+  state.turns = [turn(0)];
+  expect(await syncStoredHistoryFromRecord('c1', { runtime: 'pty' })).toEqual({ inserted: 1, status: 'settling' });
+  state.process = { home: 'host', start: 'fresh' };
+  expect(await syncStoredHistoryFromRecord('c1', { runtime: 'pty' })).toEqual({ inserted: 0, status: 'settling' });
+  state.turns = [{ ...turn(0), outcome: { kind: 'done', reason: 'end_turn' } }];
+  expect(await syncStoredHistoryFromRecord('c1', { runtime: 'pty' })).toEqual({ inserted: 0, status: 'complete' });
+  expect((rows() as { data: string }[]).map(row => JSON.parse(row.data).outcome?.kind)).toEqual(['done']);
 });
 
 it('uses the owned process fact when no status source exists', async () => {

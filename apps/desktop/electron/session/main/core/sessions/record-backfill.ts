@@ -5,7 +5,7 @@ import { log } from '@main/lib/logger';
 import { sessionRecordHarnessForProvider } from '@main/core/session-timeline/locate';
 import { recordIdentityFor, recordTurnsAfterStore } from './record-backfill-match';
 import { appendRecordTurnNow, readUnfinishedRecordTurnsNow, readStoredTailNow, reviseRecordTurnNow, withStoredTurns } from './session-turn-store';
-import { sessionProcess } from './session-process';
+import { sessionEngine, sessionProcess } from './session-process';
 
 export type RecordBackfillResult = {
   inserted: number;
@@ -102,9 +102,9 @@ export async function syncStoredHistoryFromRecord(sessionId: string, options: { 
     if (inserted > 0) log.info('[record-backfill] filled in turns from the record', { sessionId, inserted });
     if (!current()) return result('runtime-changed', inserted);
     if (!picked.complete || active()) return result('active', inserted);
-    // A terminal reports idle before its buffered record write lands. While its process lives, an unsettled
-    // last turn is still being written; once the process is gone, the record is final as it stands.
-    return result(row.runtime !== 'acp' && !lastSettled && sessionProcess(sessionId) !== null ? 'settling' : 'complete', inserted);
+    // A terminal reports idle before its buffered record write lands. While its engine runs (owned, or in tmux and
+    // not yet reattached after a restart), an unsettled last turn is still being written; once it is gone, the record is final.
+    return result(row.runtime !== 'acp' && !lastSettled && await sessionEngine(sessionId) !== 'gone' ? 'settling' : 'complete', inserted);
   });
 }
 
