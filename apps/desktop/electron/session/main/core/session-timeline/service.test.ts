@@ -404,13 +404,14 @@ describe('session timeline service', () => {
     state.readOptions.mockClear();
   });
 
-  it('record ingestion does not attach runtime or ask effects, and a later interactive reader uses the same timeline', async () => {
+  it('record ingestion owns a silent snapshot and cannot turn an archived reader into a live tail', async () => {
     const fake = makeTimeline();
     fake.put({ itemId: 'agent-question:11111111-1111-4111-8111-111111111111', kind: 'question', title: 'Choose',
       questions: [{ question: 'Choose', multiSelect: false, options: [{ optionId: 'one', name: 'One' }] }],
       origin: { source: 'agent-question', payload: { sourceLink: 'gugu-chat://22222222-2222-4222-8222-222222222222/33333333-3333-4333-8333-333333333333' } },
       state: 'pending', optionId: null, resolvedBy: null, resolvedAt: null });
-    const factory = vi.fn(async () => fake.timeline);
+    const interactive = makeTimeline();
+    const factory = vi.fn().mockResolvedValueOnce(fake.timeline).mockResolvedValueOnce(interactive.timeline);
     service.setSessionTimelineFactory(factory);
     expect(await service.pickRecordTurns('conv-1', async turns => turns, { images: false, committedOnly: true, includeArchived: true }))
       .toEqual({ ok: true, turns: [], complete: true });
@@ -418,9 +419,20 @@ describe('session timeline service', () => {
     expect(state.wake).not.toHaveBeenCalled();
     expect(state.questionSend).not.toHaveBeenCalled();
     expect(persistedQuestions.has('conv-1')).toBe(false);
+    expect(factory.mock.calls[0][0]).toMatchObject({ readMode: 'snapshot' });
+    expect(fake.timeline.disposed).toBe(1);
     await service.snapshot({ conversationId: 'conv-1' });
-    expect(factory).toHaveBeenCalledOnce();
+    expect(factory).toHaveBeenCalledTimes(2);
+    expect(factory.mock.calls[1][0]).not.toHaveProperty('readMode');
     expect(state.pendingWatchCalls).toEqual(['conv-1']);
+  });
+
+  it('reports a broken record snapshot as unreadable without attaching interactive effects', async () => {
+    service.setSessionTimelineFactory(async () => { throw new Error('damaged zstd frame'); });
+    expect(await service.pickRecordTurns('conv-1', async turns => turns)).toEqual({ ok: false });
+    expect(state.pendingWatchCalls).toEqual([]);
+    expect(state.wake).not.toHaveBeenCalled();
+    expect(state.questionSend).not.toHaveBeenCalled();
   });
 
   it('uses the native archive at the first unread stored identity, with bounded older/newer pages and the real active turn', async () => {

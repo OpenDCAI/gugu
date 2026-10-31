@@ -133,6 +133,7 @@ export type SessionTimelineFactory = (input: {
   conversationId: string;
   /** 记录里认出来的提问宿主能不能代答(#6798);能 ⇒ 提问结算带上整份题目。 */
   answerableQuestions?: boolean;
+  readMode?: 'snapshot';
 }) => Promise<SessionTimeline>;
 
 /**
@@ -140,13 +141,13 @@ export type SessionTimelineFactory = (input: {
  * 会让每一个只想测服务层记账的用例都替记录源交税（也会把原生模块拖进不需要它的进程）。
  * 真开一份时间线的那一刻才加载。
  */
-const defaultTimelineFactory: SessionTimelineFactory = async ({ locator, conversationId: sessionId, answerableQuestions }) => {
+const defaultTimelineFactory: SessionTimelineFactory = async ({ locator, conversationId: sessionId, answerableQuestions, readMode }) => {
   const { createSessionRecordSource, createSessionTimeline } = await import(
     '@gugu/session-core/session-record'
   );
   // 存档只是捷径:读不出来 / 对不上,`createSessionTimeline` 自己会退回整份重读。
-  const archive = await loadTimelineArchive(sessionId);
-  return createSessionTimeline(createSessionRecordSource(locator), {
+  const archive = readMode === 'snapshot' ? null : await loadTimelineArchive(sessionId);
+  return createSessionTimeline(createSessionRecordSource(locator, { readMode }), {
     sessionId,
     archive,
     ...(answerableQuestions ? { answerableQuestions } : {}),
@@ -160,7 +161,7 @@ export function setSessionTimelineFactory(next: SessionTimelineFactory | null): 
 }
 
 type TimelineEntry = {
-  /** Record ingestion borrows the same cached reader without attaching interactive runtime/ask effects. */
+  /** A record snapshot is scoped to ingestion, never promoted into the interactive reader cache. */
   recordOnly?: boolean;
   conversationId: string;
   timeline: SessionTimeline;
@@ -492,9 +493,8 @@ async function acquire(
 ): Promise<SessionTimelineResult<TimelineEntry>> {
   const row = readSessionRow(conversationId, options);
   if (!row) return fail('session_not_found', `这台机器上没有会话 ${conversationId}`);
-  const cached = entries.get(conversationId);
+  const cached = options.recordOnly ? undefined : entries.get(conversationId);
   if (cached) {
-    if (!options.recordOnly && cached.recordOnly) attachInteractive(cached, row);
     cached.refs += 1;
     if (cached.idleTimer) {
       clearTimeout(cached.idleTimer);
@@ -519,11 +519,10 @@ async function acquire(
   // 并发的两次 acquire 只开一份实例：两份实例 = 两个 epoch，游标当场作废。
   // ⚠️ 等待那一支同样要把拒绝收敛成 Result —— 让它抛穿过去，第二个调用方拿到的就是一个
   //    异常而不是带 code 的失败，而第一个调用方拿到的是规规矩矩的 `{ok:false}`。
-  const inFlight = opening.get(conversationId);
+  const inFlight = options.recordOnly ? undefined : opening.get(conversationId);
   if (inFlight) {
     try {
       const entry = await inFlight;
-      if (!options.recordOnly && entry.recordOnly) attachInteractive(entry, row);
       entry.refs += 1;
       return { ok: true, value: entry };
     } catch (error) {
@@ -536,7 +535,9 @@ async function acquire(
   const generation = resetGeneration;
   // 审批只有 ACP 腿有可结算的请求 id；TUI 腿的审批画在终端里，没有通道
   // （`write-bridge` 对它 fail loud）。所以这条订阅只对 ACP 腿开。
-  const promise = factory({ locator: location.locator, conversationId, answerableQuestions: remoteAnswerFor(row) }).then((timeline) => {
+  const promise = factory({ locator: location.locator, conversationId, answerableQuestions: remoteAnswerFor(row),
+    ...(options.recordOnly ? { readMode: 'snapshot' as const } : {}),
+  }).then((timeline) => {
     if (generation !== resetGeneration) {
       timeline.dispose();
       throw new Error('会话时间线服务在这份记录打开的过程中被重置了');
@@ -551,12 +552,12 @@ async function acquire(
       runtimeRequests: [],
       disposed: false,
     };
-    entries.set(conversationId, entry);
+    if (!options.recordOnly) entries.set(conversationId, entry);
     try { if (!options.recordOnly) attachInteractive(entry, row); }
     catch (error) { entries.delete(conversationId); timeline.dispose(); throw error; }
     return entry;
   });
-  opening.set(conversationId, promise);
+  if (!options.recordOnly) opening.set(conversationId, promise);
   try {
     return { ok: true, value: await promise };
   } catch (error) {
@@ -619,6 +620,11 @@ function openFailure<T>(error: unknown): SessionTimelineResult<T> {
 
 function release(entry: TimelineEntry): void {
   entry.refs -= 1;
+  if (entry.recordOnly) {
+    entry.disposed = true;
+    entry.timeline.dispose();
+    return;
+  }
   if (entry.standIn) {
     if (entry.refs <= 0 && !entry.disposed) {
       entry.disposed = true;
