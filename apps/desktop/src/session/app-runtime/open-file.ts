@@ -1536,6 +1536,11 @@ export class StoredTextSnapshot {
     return this.text;
   }
 
+  /** Stored bytes never swap under a binding. */
+  onSwap(): () => void {
+    return () => undefined;
+  }
+
   internalsForBinding(): FileInternals {
     const noop = () => () => undefined;
     return {
