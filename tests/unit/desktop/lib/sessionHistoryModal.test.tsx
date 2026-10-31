@@ -5,7 +5,7 @@ import { createNode, createReactHarness } from '../../../support/testHarness';
 
 const calls = vi.hoisted(() => ({ restore: vi.fn(), toast: vi.fn() }));
 vi.mock('@renderer/features/sessions/restore-session-flow', () => ({ restoreArchivedSession: calls.restore }));
-vi.mock('@renderer/features/sessions/history/session-history-view', () => ({ SessionHistoryView: () => 'Read-only history' }));
+vi.mock('@renderer/features/sessions/history/stored-transcript-view', () => ({ StoredTranscriptView: () => 'Read-only history' }));
 vi.mock('@renderer/lib/hooks/use-toast', () => ({ toast: calls.toast }));
 vi.mock('@renderer/localization/use-session-messages', () => ({ useSessionMessages: () => ({ translate: (key: string) => key }) }));
 import { Dialog, DialogContent } from '@renderer/lib/ui/dialog';

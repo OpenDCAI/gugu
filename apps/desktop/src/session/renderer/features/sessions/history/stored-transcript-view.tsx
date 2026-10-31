@@ -14,7 +14,7 @@ import { useSessionSourceMessage } from '../acp/use-session-source-message';
 const disconnected = () => () => {};
 
 /** A read-only host for the existing transcript and reveal controller. It never acquires an ACP or PTY runtime. */
-export function SessionHistoryView({ sessionId, shown = true }: { sessionId: string; shown?: boolean }) {
+export function StoredTranscriptView({ sessionId, shown = true }: { sessionId: string; shown?: boolean }) {
   const identity = readSelfIdentityBridge();
   const accountId = useSyncExternalStore(identity?.subscribe ?? disconnected, () => identity?.getSnapshot()?.userId ?? null);
   return accountId ? <StoredSessionHistory key={`${accountId}:${sessionId}`} accountId={accountId} sessionId={sessionId} shown={shown} /> : null;
