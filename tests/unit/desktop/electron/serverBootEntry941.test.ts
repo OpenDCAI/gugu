@@ -88,9 +88,9 @@ describe('real session host boot entry', () => {
   it('retains the fatal boundary for real database initialisation failure', async () => {
     await expect(boot('', true)).rejects.toThrow('database init failed')
   })
-  it('wires archive, delete and successful task completion to the same ledger cleanup', async () => {
+  it('wires archive (the one gone event, deletion included) and successful task completion to the same ledger cleanup', async () => {
     const result = await boot('')
-    for (const event of ['session:archived', 'session:deleted']) {
+    for (const event of ['session:archived']) {
       result.tasks.record('outbox-drain', 'task', 'refused')
       result.sessionHooks.get(event)!('task')
       expect(result.tasks.snapshot()).toEqual([])
