@@ -17,7 +17,7 @@ import '@/styles/tokens.css'
 
 vi.mock('@renderer/lib/shell-port', async (importOriginal) => ({
   ...await importOriginal<typeof import('@renderer/lib/shell-port')>(),
-  shellPort: () => ({ sessionPeers: async () => [{ sessionId: 'task-claude', engine: 'codex',
+  shellPort: () => ({ sessionPeers: async () => [{ sessionId: 'task-claude', title: 'Claude', engine: 'codex',
     identity: { users: { id: 'agent-claude', display_name: 'Claude', gugu_number: 123 } },
   }] }),
 }))

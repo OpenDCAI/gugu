@@ -21,7 +21,7 @@ export interface TaskNamer {
    * published to the cloud identity. A failed publish keeps the local name pending; it never throws
    * for being offline.
    */
-  renameBound(sessionId: string, agentUserId: string, name: string): Promise<void>;
+  renameBound(sessionId: string, agentUserId: string, name: string, source: 'manual' | 'auto'): Promise<void>;
 }
 
 let namer: TaskNamer | null = null;

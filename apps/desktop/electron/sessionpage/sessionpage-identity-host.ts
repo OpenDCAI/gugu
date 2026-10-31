@@ -13,7 +13,6 @@ import type {
   SessionShellAgentAddressInput,
   SessionShellAgentCard,
   SessionShellAgentName,
-  SessionShellRenameAgentInput,
   SessionShellPeer,
 } from '../../src/session/shared/lib/ipc/shell-port'
 import { localAgentForSession } from './sessionpage-session-agent'
@@ -24,7 +23,6 @@ import { createLogger } from '../lib/logger'
 const log = createLogger('sessionpage/task-names')
 import { electronFetch, makeIdentityClient } from '../supabase'
 import {
-  SESSION_CACHE_KEY,
   isSessionpageAddressable,
   openOwnerDirectChatForAgent,
   provisionSessionpageAgentForSession,
@@ -90,12 +88,6 @@ export interface SessionpageIdentityHost extends SessionIdentityHost {
   /** 侧栏身份卡要的那张表:本机名册(session_peers)的投影。 */
   agentNames(): Promise<SessionShellAgentName[]>
   sessionPeers(sessionId?: string): Promise<SessionShellPeer[]>
-  /**
-   * 改这条会话的 agent 名(#6091)。云端 identity.users.display_name 是显示真源；本机花名册只同步运行时需要的
-   * 本地元数据，云端认了才跟上。
-   * 只改自己名下的 agent;没身份 / 不归当前账号 / 空名 / 云端拒绝 → 抛,❌ 静默改一半。
-   */
-  renameAgent(input: SessionShellRenameAgentInput): Promise<SessionShellAgentName>
   /** 「这条会话的地址是什么」—— 与桌面版 `sessionpage:ensure-agent-address` 同一条逻辑,逐字搬来。 */
   ensureAgentAddress(input: SessionShellAgentAddressInput): Promise<SessionShellAgentAddress>
   /** 会话启动即开账号(幂等,按 conversationId 收敛);运行时分叉 / 不可寻址的引擎返回 null。 */
@@ -246,28 +238,6 @@ export function createSessionpageIdentityHost(deps: SessionpageIdentityHostDeps)
       const auth = await deps.getAuth()
       if (!auth) throw new Error('Session-page peer directory: owner not authenticated')
       return peersForAuth(auth, sessionId)
-    },
-    async renameAgent(input) {
-      const row = input as Partial<SessionShellRenameAgentInput> | null
-      const sessionId = typeof row?.sessionId === 'string' ? row.sessionId.trim() : ''
-      const name = typeof row?.name === 'string' ? row.name.trim() : ''
-      if (!sessionId) throw new Error('Session-page agent rename requires sessionId')
-      // 空名不是「不改」,是一个会把花名册与通讯录同时写坏的值 —— 响亮拒绝。
-      if (!name) throw new Error('Session-page agent rename requires a non-empty name')
-      const auth = await deps.getAuth()
-      if (!auth) throw new Error('Session-page agent rename: owner not authenticated')
-      const agent = await localAgentForSession(sessionId, env, auth.userId)
-      const agentUserId = agent?.gugu_user_id
-      if (!agent || !agentUserId) {
-        throw new Error(`Session-page session ${sessionId} has no agent identity to rename`)
-      }
-      await renameBound(agentUserId, name)
-      const boundSessionId = agent.cache?.[SESSION_CACHE_KEY]
-      return {
-        conversationId: typeof boundSessionId === 'string' && boundSessionId ? boundSessionId : sessionId,
-        agentUserId,
-        displayName: name,
-      }
     },
     renameBound: (_sessionId, agentUserId, name) => renameBound(agentUserId, name),
     async publishPendingNames() {

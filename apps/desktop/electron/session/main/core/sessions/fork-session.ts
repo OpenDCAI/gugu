@@ -65,7 +65,7 @@ export async function forkSession(params: ForkSessionParams): Promise<Session> {
     agentDisplayName: name,
     origin: {
       kind: 'fork',
-      forkedFrom: { sessionId: source.id, title: source.title },
+      forkedFrom: { sessionId: source.id },
     },
     // 分叉照抄源会话的权限档 —— 分出来的会话不该比原来更放权,也不该更受限。
     ...(source.permissionMode !== undefined && { permissionMode: source.permissionMode }),

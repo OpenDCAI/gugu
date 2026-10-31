@@ -273,7 +273,7 @@ async function captureCodexForks(
           agentDisplayName: `${taskName(parent)}-fork`.slice(0, MAX_SESSION_TITLE_LENGTH),
           provider: 'codex',
           runtime: 'pty',
-          origin: { kind: 'fork', forkedFrom: { sessionId: parent.id, title: taskName(parent) } },
+          origin: { kind: 'fork', forkedFrom: { sessionId: parent.id } },
           // 分叉照抄源会话的权限档、模型和推理档(同 fork-session.ts):缺了档位,只读的源会被补成「编辑」。
           permissionMode: parentConfig?.permissionMode,
           model: parentConfig?.model,
@@ -643,7 +643,7 @@ export async function captureExternalForks(projectId: string, sessionId: string)
           agentDisplayName: `${parentName}-fork`.slice(0, MAX_SESSION_TITLE_LENGTH),
           provider: 'claude',
           runtime: 'pty',
-          origin: { kind: 'fork', forkedFrom: { sessionId: parent.sessionId, title: parentName } },
+          origin: { kind: 'fork', forkedFrom: { sessionId: parent.sessionId } },
           // 分叉照抄源会话的权限档(同 fork-session.ts):缺了它,只读的源会被补成「编辑」。
           permissionMode: parentConfig?.permissionMode,
           model: parentConfig?.model,

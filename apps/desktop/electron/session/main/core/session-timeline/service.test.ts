@@ -538,7 +538,7 @@ describe('session timeline service', () => {
     const rootsOf = () => (factory.mock.calls.at(-1) as unknown as [{ locator: { roots: string[] } }])[0].locator.roots;
     state.rows = [
       row({ id: 'src', providerSessionId: 'sess-src', config: { type: 'acp', subscriptionConnectionId: 'conn-1' } }),
-      row({ id: 'fork', providerSessionId: 'sess-fork', config: { type: 'pty', forkedFrom: { sessionId: 'src', title: 's' } } }),
+      row({ id: 'fork', providerSessionId: 'sess-fork', config: { type: 'pty', forkedFrom: { sessionId: 'src' } } }),
     ];
     await service.snapshot({ conversationId: 'fork' });
     expect(rootsOf().at(-1)).toBe('/conn/conn-1/.claude/projects');

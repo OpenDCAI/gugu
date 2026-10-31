@@ -153,9 +153,10 @@ describe('captureExternalForks — chained external forks in one sweep', () => {
     // because the sweep feeds each just-inserted fork back into the candidate pool. Without
     // that, the grandchild would mis-bind to the grandparent.
     expect(forkedFromId(byId.get(GRANDCHILD))).toBe(CHILD);
-    // A fork is named after its parent's one name, and records that name as its lineage.
-    expect(byId.get(CHILD)?.config).toMatchObject({ agentDisplayName: '母会话-fork', forkedFrom: { title: '母会话' } });
-    expect(byId.get(GRANDCHILD)?.config).toMatchObject({ agentDisplayName: '母会话-fork-fork', forkedFrom: { title: '母会话-fork' } });
+    // A fork is named after its parent's one name; its lineage is the parent's id only (no copy of the name).
+    expect(byId.get(CHILD)?.config).toMatchObject({ agentDisplayName: '母会话-fork', forkedFrom: { sessionId: PARENT } });
+    expect((byId.get(CHILD)?.config as { forkedFrom?: object }).forkedFrom).not.toHaveProperty('title');
+    expect(byId.get(GRANDCHILD)?.config).toMatchObject({ agentDisplayName: '母会话-fork-fork', forkedFrom: { sessionId: CHILD } });
   });
 
   it('carries the source session\'s permission mode onto captured forks, so a read-only source stays read-only', async () => {
@@ -225,7 +226,7 @@ describe('captureExternalForks — chained external forks in one sweep', () => {
         agentDisplayName: '母会话-fork',
         version: '1',
         type: 'pty',
-        forkedFrom: { sessionId: PARENT, title: '母会话' },
+        forkedFrom: { sessionId: PARENT },
       },
       providerSessionId: FORK,
       runtime: 'pty',
@@ -283,7 +284,7 @@ describe('captureExternalForks — chained external forks in one sweep', () => {
         agentDisplayName: '母会话-fork',
         version: '1',
         type: 'acp',
-        forkedFrom: { sessionId: PARENT, title: '母会话' },
+        forkedFrom: { sessionId: PARENT },
         forkFromProviderSessionId: PARENT,
       },
       providerSessionId: null,

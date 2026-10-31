@@ -276,7 +276,7 @@ import {
 import { resolveSessionpageAgentCard } from './sessionpage/sessionpage-agent-card'
 import { loadSessionpageCanonicalAgentIdentities } from './sessionpage/sessionpage-agent-identity'
 import { SESSION_SHELL_CHANNELS, agentNamesFromPeers, type SessionShellAgentName } from '../src/session/shared/lib/ipc/shell-port'
-import { sessionpageAgentProvisionedEvent, sessionpageAgentRenamedEvent } from '../src/session/shared/lib/ipc/sessionpage-identity-contract'
+import { sessionpageAgentProvisionedEvent } from '../src/session/shared/lib/ipc/sessionpage-identity-contract'
 import type { EventDefinition } from '../src/session/shared/lib/ipc/events'
 import { MAIN_UI_EVENTS } from '../src/lib/mainUiEvents'
 import { createSessionpageIdentityHost } from './sessionpage/sessionpage-identity-host'
@@ -2650,13 +2650,10 @@ ipcMain.handle('owned-agent:rename-local-footprint', async (_e, arg: unknown) =>
   // The cloud already took this person's rename: it is this device's latest name and it is published.
   await writeAgentName(agentUserId, name, 'local', process.env)
   await writeAgentName(agentUserId, name, 'published', process.env)
-  // 分享按钮 / 侧栏身份卡的名字是查一次存下来的,不播这一下就还挂着旧名。按 conversationId 认领(同一个 task 里
-  // N 条会话 N 个 agent,按 agent 认领会让兄弟会话跟着改名);花名册上没记会话绑定(还没起会话)就没人要听,不播。
+  // The roster write renames the bound task (task-name.ts announces it to every surface). Its agent is told
+  // only when it has a session to hear it (no session binding = nothing is running under that name yet).
   const sessionId = existing.cache?.[SESSION_CACHE_KEY]
-  if (typeof sessionId === 'string' && sessionId) {
-    sendSessionpageIdentityEvent(sessionpageAgentRenamedEvent, { conversationId: sessionId, agentUserId, displayName: name })
-    if (existing.name !== name) tellRenamedAgentsSession({ agentUserId, displayName: name })
-  }
+  if (typeof sessionId === 'string' && sessionId && existing.name !== name) tellRenamedAgentsSession({ agentUserId, displayName: name })
   return true
 })
 
@@ -4979,7 +4976,13 @@ app.whenReady().then(async () => {
     emdash.setSessionIdentityHost(sessionpageIdentityHost)
     emdash.setTaskNamer({
       defaultName: (provider, taken) => sessionpageIdentityHost.defaultTaskName(provider, taken),
-      renameBound: (sessionId, agentUserId, name) => sessionpageIdentityHost.renameBound(sessionId, agentUserId, name),
+      // A task rename renames its agent: the shell's contacts re-read the published name.
+      renameBound: async (sessionId, agentUserId, name, source) => {
+        await sessionpageIdentityHost.renameBound(sessionId, agentUserId, name)
+        // A person renamed the task: its agent learns its new name (an automatic first name is not news to it).
+        if (source === 'manual') tellRenamedAgentsSession({ agentUserId, displayName: name })
+        sendUiEvent(MAIN_UI_EVENTS.ownedAgentRenamed, { agentUserId, displayName: name })
+      },
     })
     await emdash.setTaskNameOwner(humanAuthUserId())
     // A name renamed offline is published once the backend answers this process again (no timer).
@@ -5215,18 +5218,6 @@ app.whenReady().then(async () => {
     handleShellChannel(SESSION_SHELL_CHANNELS.ensureAgentAddress, (_event, input: unknown) =>
       sessionpageIdentityHost.ensureAgentAddress(input as Parameters<typeof sessionpageIdentityHost.ensureAgentAddress>[0]),
     )
-    // #6091 会话页「重命名」弹窗里改 agent 名。改完两处要知道:会话页(侧栏身份卡 / 分享按钮提示,按 conversationId
-    // 认领)与 gugu 渲染层的通讯录(它缓存着 display_name,不叫它刷新,聊天页就还挂着旧名)。
-    ipcMain.removeHandler(SESSION_SHELL_CHANNELS.renameAgent)
-    handleShellChannel(SESSION_SHELL_CHANNELS.renameAgent, async (_event, input: unknown) => {
-      const renamed = await sessionpageIdentityHost.renameAgent(
-        input as Parameters<typeof sessionpageIdentityHost.renameAgent>[0],
-      )
-      sendSessionpageIdentityEvent(sessionpageAgentRenamedEvent, renamed)
-      sendUiEvent(MAIN_UI_EVENTS.ownedAgentRenamed, { agentUserId: renamed.agentUserId, displayName: renamed.displayName })
-      tellRenamedAgentsSession({ agentUserId: renamed.agentUserId, displayName: renamed.displayName })
-      return renamed
-    })
     const runSessionpageReap = (reason: string): void => {
       void reconcileSessionpageAgents({
         onFailure: (operation, taskId, error) => emdash.sessionBootTasks.record(operation, taskId, error),

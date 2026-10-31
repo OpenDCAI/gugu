@@ -50,7 +50,7 @@ async function renameTask(sessionId: string, rawName: string, source: 'manual' |
   const bound = boundTaskName(sessionId);
   if (bound) {
     // The roster write announces the new name (onTaskNamesChanged); publication follows.
-    await taskNamer().renameBound(sessionId, bound.agentUserId, name);
+    await taskNamer().renameBound(sessionId, bound.agentUserId, name, source);
     return true;
   }
   db.update(sessions)

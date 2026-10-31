@@ -135,12 +135,8 @@ const ptyConfigV1 = z.object({
   parentRemote: parentRemoteSchema.optional(),
   /** spec session-fork-share: lineage marker — set when this conversation was forked
    * from another one (in-app fork or externally captured TUI fork). Additive optional. */
-  forkedFrom: z
-    .object({
-      sessionId: z.string(),
-      title: z.string(),
-    })
-    .optional(),
+  // The parent's name is read live from the parent; rows written before carry a `title` copy, stripped on parse.
+  forkedFrom: z.object({ sessionId: z.string() }).optional(),
   /** Host-owned provider control endpoint for native session-TUI sessions. */
   providerSessionEndpoint: z.string().url().optional(),
   /**
@@ -205,12 +201,8 @@ const acpConfigV1 = z.object({
   /** 父会话在别的机器上(见 parentRemoteSchema)。Additive optional。 */
   parentRemote: parentRemoteSchema.optional(),
   /** spec session-fork-share:谱系标记 —— 口径与 pty 那份完全一致。 */
-  forkedFrom: z
-    .object({
-      sessionId: z.string(),
-      title: z.string(),
-    })
-    .optional(),
+  // The parent's name is read live from the parent; rows written before carry a `title` copy, stripped on parse.
+  forkedFrom: z.object({ sessionId: z.string() }).optional(),
   /** Host-owned provider control endpoint for native session-TUI sessions. */
   providerSessionEndpoint: z.string().url().optional(),
   /**

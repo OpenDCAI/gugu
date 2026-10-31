@@ -77,7 +77,7 @@ describe('#2503 fork 继承源会话的 composer 模型选择', () => {
       provider: 'claude',
       title: '母会话-fork',
       type: 'pty',
-      origin: { kind: 'fork', forkedFrom: { sessionId: SOURCE, title: '母会话' } },
+      origin: { kind: 'fork', forkedFrom: { sessionId: SOURCE } },
       forkFromProviderSessionId: SOURCE,
     } as never);
   }
@@ -123,7 +123,7 @@ describe('#2503 fork 继承源会话的 composer 模型选择', () => {
       title: '母会话-fork',
       type: 'pty',
       platformModel: null,
-      origin: { kind: 'fork', forkedFrom: { sessionId: SOURCE, title: '母会话' } },
+      origin: { kind: 'fork', forkedFrom: { sessionId: SOURCE } },
       forkFromProviderSessionId: SOURCE,
     } as never);
 

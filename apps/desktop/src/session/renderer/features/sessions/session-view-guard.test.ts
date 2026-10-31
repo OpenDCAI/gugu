@@ -7,7 +7,7 @@ vi.mock('@renderer/lib/stores/app-state', () => ({ appState: { history: { push: 
 
 const state = vi.hoisted(() => ({ agentId: 'assistant', assistantId: 'assistant', archived: false, listed: true, listState: 'read' as 'reading' | 'read' | 'failed' }));
 vi.mock('@/lib/assistantShellBridge', () => ({ readAssistantShellBridge: () => ({ getSnapshot: () => ({ assistant: { id: state.assistantId } }) }) }));
-vi.mock('@renderer/features/sessions/stores/session-agent-names', () => ({ sessionAgentNames: { identityFor: () => state.agentId ? { agentUserId: state.agentId } : undefined } }));
+vi.mock('@renderer/features/sessions/stores/session-agent-bindings', () => ({ sessionAgentBindings: { bindingFor: () => state.agentId ? { agentUserId: state.agentId } : undefined } }));
 vi.mock('@renderer/features/projects/project-presence', () => ({ projectPresence: () => 'present' }));
 vi.mock('@renderer/features/sessions/stores/session-selectors', () => ({ getSessionManagerStore: () => ({ listState: state.listState, sessions: state.listed ? new Map([['task', { data: { archivedAt: state.archived ? '2026-10-27' : null } }]]) : new Map() }) }));
 vi.mock('@renderer/features/sessions/leave-session-view', () => ({ sessionLeaveDestination: () => ({ viewId: 'new-session' }) }));

@@ -1035,7 +1035,7 @@ describe('conversation provider respawn state', () => {
       providerId: 'antigravity',
       id: 'agy-fork',
       providerSessionId: undefined,
-      forkedFrom: { sessionId: 'source-conversation', title: 'Source conversation' },
+      forkedFrom: { sessionId: 'source-conversation' },
     });
 
     await provider.startSession(item, undefined, false, undefined, 'source-agy-session');
@@ -1083,7 +1083,7 @@ describe('conversation provider respawn state', () => {
       providerId: 'claude',
       id: 'claude-fork',
       providerSessionId: 'claude-fork',
-      forkedFrom: { sessionId: 'source-conversation', title: 'Source conversation' },
+      forkedFrom: { sessionId: 'source-conversation' },
     });
 
     await provider.startSession(item, undefined, false, undefined, 'source-claude-session');
@@ -1126,7 +1126,7 @@ describe('conversation provider respawn state', () => {
     const item = session({
       providerId: 'codex',
       providerSessionId: undefined,
-      forkedFrom: { sessionId: 'source-conversation', title: 'Source conversation' },
+      forkedFrom: { sessionId: 'source-conversation' },
     });
 
     await expect(provider.startSession(item, undefined, true)).rejects.toThrow(
