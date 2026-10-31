@@ -1,3 +1,4 @@
+import type { SessionBootTasks } from '@gugu/core/shared/sessionBootTasks'
 // @@@sessionpage TASKPAGE-FUSION — platform model quota for session-page sessions.
 //
 // The session page ships every agent the session backend supports, and each one spawns through the same
@@ -206,6 +207,7 @@ function persistedRelayFiles(): Set<string> {
 export type RelayRestoreResult = { restored: string[]; dropped: string[] }
 
 type RelayRestoreInput = {
+  bootTasks?: SessionBootTasks
   authProvider: RuntimeAuthProvider
   liveSessions: () => Promise<ReadonlySet<string>>
 }
@@ -254,14 +256,15 @@ async function restoreRelaySessions(input: RelayRestoreInput): Promise<RelayRest
     return result
   }
   for (const record of records) {
-    if (activeAccessSessions.has(record.key)) continue
+    const restore = async () => {
+    if (activeAccessSessions.has(record.key)) return
     if (!live.has(record.key)) {
       persistence.sessions.remove(record.key)
       await Promise.all([record.settingsPath, record.credentialConfigPath, record.helperPath]
         .filter((file): file is string => Boolean(file))
         .map((file) => rm(file, { force: true }).catch(() => undefined)))
       result.dropped.push(record.key)
-      continue
+      return
     }
     try {
       await claimPlatformAccessForThisProcess(record.accessSessionId)
@@ -295,6 +298,9 @@ async function restoreRelaySessions(input: RelayRestoreInput): Promise<RelayRest
       },
     })
     result.restored.push(record.key)
+    }
+    if (input.bootTasks) await input.bootTasks.run('relay-restore', record.key, restore)
+    else await restore()
   }
   if (result.restored.length > 0) await ensureCredentialEndpoint()
   persistence.log.info('平台转发口:认回重启前的终端会话', { restored: result.restored.length, dropped: result.dropped.length })

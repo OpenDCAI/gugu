@@ -1,5 +1,5 @@
 import { listAgents, type LocalAgentRecord } from '@gugu/core'
-import { AGENT_OWNER_CACHE_KEY, agentMayBelongTo } from '@gugu/core/local/state/agentOwner'
+import { AGENT_OWNER_CACHE_KEY, agentsForOwner } from '@gugu/core/local/state/agentOwner'
 
 /** Roster cache keys written by the host's session-page provisioning flow. */
 export const SESSIONPAGE_SESSION_CACHE_KEY = 'emdash_session_id'
@@ -27,11 +27,8 @@ export async function localAgentForSession(
   env: NodeJS.ProcessEnv,
   ownerUserId?: string | null,
 ): Promise<LocalAgentRecord | null> {
-  const agents = await listAgents(env, { includeGuests: true })
-  const candidates = agents.filter((agent) => agent.cache?.[SESSIONPAGE_SESSION_CACHE_KEY] === sessionId)
-  const owned = ownerUserId
-    ? candidates.filter((agent) => agentMayBelongTo(agent, ownerUserId))
-    : candidates
+  const owned = agentsForOwner(await listAgents(env, { includeGuests: true }), ownerUserId, { includeArchived: true })
+    .filter((agent) => agent.cache?.[SESSIONPAGE_SESSION_CACHE_KEY] === sessionId)
   if (owned.length > 1) {
     throw new Error(
       `session-page identity lookup: session ${sessionId} maps to ${owned.length} canonical identities`,
@@ -46,7 +43,7 @@ export async function localAgentForSession(
  */
 export async function agentIdsBySession(env: NodeJS.ProcessEnv): Promise<Map<string, string>> {
   const ids = new Map<string, string>()
-  for (const agent of await listAgents(env, { includeGuests: true })) {
+  for (const agent of agentsForOwner(await listAgents(env, { includeGuests: true }), null, { includeArchived: true })) {
     const sessionId = cached(agent, SESSIONPAGE_SESSION_CACHE_KEY)
     if (sessionId && agent.gugu_user_id) ids.set(sessionId, `user:${agent.gugu_user_id}`)
   }

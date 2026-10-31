@@ -33,10 +33,13 @@ export function MentionPill({
   const kind = ((node.attrs.kind as string | null) ?? 'custom') as MentionKind;
   const role = (node.attrs.role as MentionRole | null) ?? null;
   const engine = (node.attrs.engine as string | null)?.trim() || null;
+  const isParticipant = role !== null;
   const isAgent = role === 'agent';
   // file 引用 = 斜杠命令 pill 同款:真 pill + 文件图标。旧的 bare-文本处理里 ✕ 覆盖层
   // (surfaceHover 色块)被拉满整枚 pill,悬浮时文字整段被吞(#5736 试玩反馈);✕ 只许盖图标位。
-  const isFile = !isAgent && kind === 'file';
+  // 参与者身份优先。provider 偶发返回过期或错误的 file 类型时，不能把群成员变成文件 pill，
+  // 否则悬停删除按钮会盖住可见的 `@name` 文字。
+  const isFile = !isParticipant && kind === 'file';
   const title = isAgent || isFile
     ? ((node.attrs.title as string | null)?.trim() || name)
     : null;
@@ -84,7 +87,7 @@ export function MentionPill({
           </span>
         )}
         {/* Display name */}
-        <span className={styles.pillName}>{kind === 'custom' ? '@' : ''}{name}</span>
+        <span className={styles.pillName}>{isParticipant || kind === 'custom' ? '@' : ''}{name}</span>
         {node.attrs.annotation && <small data-mention-annotation="" className={styles.pillAnnotation}>{String(node.attrs.annotation)}</small>}
       </span>
     </NodeViewWrapper>

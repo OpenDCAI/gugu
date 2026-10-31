@@ -1,9 +1,14 @@
+import { sessionBootTasks } from '../boot-tasks';
+import { drainSessionMessageOutbox } from './sendMessage';
 import { and, eq } from 'drizzle-orm';
 import { db } from '@main/db/client';
-import { sessions } from '@main/db/schema';
+import { projects, sessions } from '@main/db/schema';
 import { events } from '@main/lib/events';
 import { sessionEvents } from './session-events';
-import { stopSessionRuntime } from './deleteSession';
+import { getAcpRuntimeClient } from '@main/core/acp/controller';
+import { projectManager } from '@main/core/projects/project-manager';
+import { cleanupDetachedSessions, sessionWorkspaceManager } from './session-workspace-manager';
+import { log } from '@main/lib/logger';
 import { setSessionArchival, serializeSessionArchival } from './session-archival';
 import { archiveOnOtherMachine, familyOf } from './session-family';
 import { mapSessionRowToSession } from './utils';
@@ -37,7 +42,7 @@ import {
 export async function archiveSession(
   projectId: string,
   sessionId: string,
-  options: { withChildren?: boolean } = {}
+  options: { withChildren?: boolean; skipTransportStop?: boolean } = {}
 ): Promise<ArchiveOutcome> {
   const [row] = await db
     .select({ archivedAt: sessions.archivedAt })
@@ -58,18 +63,19 @@ export async function archiveSession(
       archived.push({ projectId: member.projectId, sessionId: member.id });
     }
   }
-  archived.push(...(await archiveOne(projectId, sessionId)));
+  archived.push(...(await archiveOne(projectId, sessionId, options.skipTransportStop)));
   return { archived, unreached };
 }
 
 /**
  * 本机的一条:状态和拒投区间一起落库,再停运行时。工作区与身份保留。
  */
-async function archiveOne(projectId: string, sessionId: string): Promise<ArchivedSessionRef[]> {
-  return serializeSessionArchival(sessionId, () => archiveOneLocked(projectId, sessionId));
+async function archiveOne(projectId: string, sessionId: string, skipTransportStop = false): Promise<ArchivedSessionRef[]> {
+  return serializeSessionArchival(sessionId, () => archiveOneLocked(projectId, sessionId, skipTransportStop));
 }
 
-async function archiveOneLocked(projectId: string, sessionId: string): Promise<ArchivedSessionRef[]> {
+/** Caller holds serializeSessionArchival, including permanent identity-driven deletion. */
+export async function archiveOneLocked(projectId: string, sessionId: string, skipTransportStop: boolean): Promise<ArchivedSessionRef[]> {
   const [row] = await db
     .select({ runtime: sessions.runtime, archivedAt: sessions.archivedAt })
     .from(sessions)
@@ -78,7 +84,7 @@ async function archiveOneLocked(projectId: string, sessionId: string): Promise<A
   if (!row || row.archivedAt) return [];
 
   const archivedAt = setSessionArchival(sessionId, true);
-  await stopSessionRuntime(projectId, sessionId, row.runtime, 'archive');
+  await stopSessionRuntime(projectId, sessionId, row.runtime, skipTransportStop);
 
   events.emit(sessionChangedChannel, {
     sessionId,
@@ -91,8 +97,8 @@ async function archiveOneLocked(projectId: string, sessionId: string): Promise<A
 }
 
 /**
- * 恢复只做一件事:把 `archived_at` 抹掉,这条会话回到列表。❌ 不顺手起进程 —— 归档停掉的运行时由人
- * 再打开这条会话时按既有路径重来,恢复不是一个偷偷起 agent 的动词。
+ * 恢复保留原身份并把任务放回列表。若存在持久 pending 消息，锁释放后仅排一次自己的 outbox；
+ * 没有 pending 消息不启动运行时，dispatching 收据不重放。
  *
  * spec session-graph:会话列表那一片**没有**恢复入口(owner 2026-09-11:「程序内部可以有 restore session 的
  * 接口,但 UI 上的这个区域不需要」)。入口在**另一个区域** —— 「会话历史」面板(#6083),已归档的行从那里
@@ -107,7 +113,11 @@ export async function restoreSession(
   projectId: string,
   sessionId: string
 ): Promise<Session> {
-  return serializeSessionArchival(sessionId, () => restoreSessionLocked(projectId, sessionId));
+  const restored = await serializeSessionArchival(sessionId, () => restoreSessionLocked(projectId, sessionId));
+  // Run after releasing the archival lock: the existing router may wake this task through that lock.
+  // Restore admits the retained outbox exactly once, without replaying any dispatching receipt.
+  await sessionBootTasks.run('restore-outbox', sessionId, () => drainSessionMessageOutbox({ projectId, sessionId }));
+  return restored;
 }
 
 async function restoreSessionLocked(projectId: string, sessionId: string): Promise<Session> {
@@ -118,7 +128,10 @@ async function restoreSessionLocked(projectId: string, sessionId: string): Promi
     .limit(1);
   if (!row) throw new Error(`Session not found: ${sessionId}`);
   // A closed interval and the restored row become visible in one transaction.
-  setSessionArchival(sessionId, false);
+  db.transaction((tx) => {
+    setSessionArchival(sessionId, false);
+    tx.update(projects).set({ archivedAt: null }).where(eq(projects.id, projectId)).run();
+  });
   const restored = db.select().from(sessions).where(eq(sessions.id, sessionId)).get()!;
 
   events.emit(sessionChangedChannel, {
@@ -131,4 +144,36 @@ async function restoreSessionLocked(projectId: string, sessionId: string): Promi
   sessionEvents._emit('session:created', session);
   events.emit(sessionCreatedChannel, { session });
   return session;
+}
+
+/**
+ * 归档时停掉任务的运行时:挂着就拆它的挂载(会话进程、它的终端、ACP 那条腿,工作区
+ * 按引用计数放掉);没挂载就直接收 ACP 会话 / tmux 会话。
+ *
+ * 拆挂载失败只记一笔:那条路失败时自己已经把这条会话的 tmux 会话收掉了(session-workspace-manager 的兜底)。
+ * 没挂载的 ACP 会话停不下来就抛 —— 一条还在跑的会话被从列表里收起,人再也点不到它,却仍在花钱。
+ *
+ * `skipTransportStop`:provider 从没启动过(spawn 的补偿路径),只拆挂载,不去停一个不存在的进程。
+ */
+async function stopSessionRuntime(
+  projectId: string,
+  sessionId: string,
+  runtime: string | null,
+  skipTransportStop = false
+): Promise<void> {
+  if (sessionWorkspaceManager.getSession(sessionId)) {
+    const result = await sessionWorkspaceManager.teardownSession(sessionId, 'archive');
+    if (!result.success) {
+      log.warn('stopSessionRuntime: teardown failed', { sessionId, error: result.error.message });
+    }
+    return;
+  }
+  if (skipTransportStop) return;
+  if (runtime === 'acp') {
+    const result = await (await getAcpRuntimeClient()).stopSession({ sessionId });
+    if (!result.success) throw new Error('failed to stop ACP session');
+    return;
+  }
+  const project = projectManager.getProject(projectId);
+  if (project) await cleanupDetachedSessions(projectId, sessionId, project.ctx);
 }

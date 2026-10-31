@@ -1,3 +1,4 @@
+import type { SessionBootFailure } from '../sessionBootTasks'
 // #6264 心跳随行报的「这是台什么机器」(见 packages/core/src/cloud/deviceHostInfo.ts);
 // 设备行上以 DeviceCapabilities 的可选字段出现:老宿主不报 = 不知道(界面退回平台名),❌ 补默认值。
 
@@ -40,9 +41,13 @@ export interface DeviceServerRollback {
  * downloading = 后台正在下新版本;ready = 新版本已下好,等这台机器上没有 agent 在干活时切过去。
  */
 export interface DeviceServerUpdate {
+  /** Only an account update can be restarted by that account's confirmed RPC. Missing on old hosts. */
+  scope?: 'account' | 'supervisor'
   /** failed:#6264 换成和桌面匹配的那一版没成(下载 / 试跑失败、换过去起不来),设备行给「更新没成功 · 重试」。 */
   state: 'downloading' | 'ready' | 'failed'
   version: string
+  /** Fresh count of this account's agents whose work a restart would interrupt. Absent = unknown. */
+  busy_agents?: number
 }
 
 export interface DeviceHostInfo {
@@ -54,6 +59,9 @@ export interface DeviceHostInfo {
    * 那一端又从没连上过它时也认得出。老宿主不报 = 缺席。
    */
   home_dir?: string
+  /** Supervisor explicitly supports target-bound, one-shot confirmed account restarts. */
+  server_confirmed_restart?: true
+  server_boot_failures?: SessionBootFailure[]
   server_update?: DeviceServerUpdate
   /** 这台咕咕 server 以 root 身份运行(智能体能改整台机器);不是 = 缺席。 */
   runs_as_root?: true

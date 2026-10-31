@@ -50,4 +50,18 @@ describe('SearchService · retired SSH projects', () => {
     expect(ids).toContain('session-local');
     expect(ids).not.toContain('session-ssh');
   });
+
+  it('does not backfill archived projects and restores the project search entry with its task', async () => {
+    const { db, sqlite } = fixtureRef.current!;
+    sqlite.exec("UPDATE projects SET archived_at='2026-10-30' WHERE id='proj-local'; UPDATE sessions SET archived_at='2026-10-30' WHERE id='session-local'; DELETE FROM search_index;");
+    searchService.initialize();
+    expect(searchService.search({ query: 'alpha' }).map(item => item.id)).not.toContain('proj-local');
+    const { eq } = await import('drizzle-orm');
+    const { sessionEvents } = await import('../sessions/session-events');
+    const { mapSessionRowToSession } = await import('../sessions/utils');
+    sqlite.exec("UPDATE projects SET archived_at=NULL WHERE id='proj-local'; UPDATE sessions SET archived_at=NULL WHERE id='session-local';");
+    const row = db.select().from(sessions).where(eq(sessions.id, 'session-local')).get()!;
+    sessionEvents._emit('session:created', mapSessionRowToSession(row));
+    expect(searchService.search({ query: 'alpha' }).map(item => item.id)).toContain('proj-local');
+  });
 });

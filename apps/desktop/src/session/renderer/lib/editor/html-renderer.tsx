@@ -56,12 +56,13 @@ export const HtmlRenderer = observer(function HtmlRenderer({ tab }: HtmlRenderer
       </div>
     );
   }
-  return <HtmlContentRenderer filePath={tab.path} rawContent={content} />;
+  return <HtmlContentRenderer filePath={tab.path} rawContent={content} scrollPosition={tab.htmlPreviewScroll} />;
 });
 
 interface HtmlContentRendererProps {
   filePath: string;
   rawContent: string;
+  scrollPosition?: { x: number; y: number };
 }
 
 /**
@@ -71,6 +72,7 @@ interface HtmlContentRendererProps {
 export const HtmlContentRenderer = observer(function HtmlContentRenderer({
   filePath,
   rawContent,
+  scrollPosition,
 }: HtmlContentRendererProps) {
   const { projectId } = useSessionViewContext();
   const workspaceId = useWorkspaceId();
@@ -120,6 +122,7 @@ export const HtmlContentRenderer = observer(function HtmlContentRenderer({
       register={register}
       onLink={onLink}
       subscribeChanges={subscribeChanges}
+      scrollPosition={scrollPosition}
     />
   );
 });

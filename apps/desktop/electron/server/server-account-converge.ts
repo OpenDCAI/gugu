@@ -1,3 +1,4 @@
+import type { ServerVersionLifecycle } from './server-version-lifecycle'
 /**
  * #6264 守护进程这一侧:让每个账号跑和自己桌面匹配的那一版(规则见 server-account-versions.ts)。
  *
@@ -6,18 +7,15 @@
  * 换版 = 记下这个账号跑哪一版(server-version.json)→ 只结束这一个账号的进程 → 对账把它从新版本的目录拉起来。
  */
 import fs from 'node:fs'
-import { readDesktopReports, readVersionSwitchRequest, VERSION_SWITCH_FILE } from '@gugu/core/cloud/serverDesktopVersions'
+import { readDesktopReports, readVersionSwitchRequest, pickTargetVersion, VERSION_SWITCH_FILE } from '@gugu/core/cloud/serverDesktopVersions'
 import path from 'node:path'
 import {
-  ACCOUNT_VERSION_FILE,
   incomingPackage,
   pinnedVersionToRun,
   planAccountVersion,
-  pruneVersions,
   readAccountVersionPin,
   touchVersion,
   versionBinary,
-  writeAccountVersionPin,
 } from './server-account-versions'
 import { accountDataDir, accountIsBusy, listAccounts, type ServerAccount } from './server-layout'
 import type { SupervisorLog } from './server-supervisor'
@@ -66,6 +64,7 @@ export function createAccountVersionConverger(options: {
   layout: Layout | null
   /** 受控云电脑跟随控制器启动的守护包;普通 SSH 仍按桌面报告选包。 */
   followSupervisor?: boolean
+  lifecycle: ServerVersionLifecycle | null
   log: SupervisorLog
   /** 这个账号的进程此刻跑的哪一版;没在跑 = undefined。 */
   running: (userId: string) => string | null | undefined
@@ -83,6 +82,7 @@ export function createAccountVersionConverger(options: {
 }): AccountVersionConverger {
   const { layout, log } = options
   const followSupervisor = options.followSupervisor === true
+  if (layout && !options.lifecycle) throw new Error('Supervisor version lifecycle is required')
   const now = options.now ?? Date.now
   const exists = options.exists ?? ((file: string) => fs.existsSync(file))
   const busy = options.busy ?? ((dataDir: string) => accountIsBusy(dataDir))
@@ -160,10 +160,12 @@ export function createAccountVersionConverger(options: {
     if (layout) versions.add(layout.version)
     for (const account of listAccounts()) {
       const pin = readAccountVersionPin(account.dataDir)
-      if (pin) versions.add(pin.version)
+      if (pin) { versions.add(pin.version); if (pin.previous) versions.add(pin.previous) }
       const running = options.running(account.userId)
       if (running) versions.add(running)
     }
+    for (const version of staging) versions.add(version)
+    for (const version of pending.values()) versions.add(version)
     return [...versions]
   }
 
@@ -172,7 +174,7 @@ export function createAccountVersionConverger(options: {
     if (staging.has(version)) return
     staging.add(version)
     log.info('目标包尚未安装,后台准备那一版', { account: account.userId, version })
-    void stage(version)
+    void options.lifecycle!.stage(version, () => stage(version))
       .then(() => {
         if (layout) touchVersion(layout.versions, version)
         log.info('那一版装好了', { version })
@@ -196,19 +198,14 @@ export function createAccountVersionConverger(options: {
 
   const switchTo = (account: ServerAccount, version: string, from: string | null, urgent: boolean): void => {
     if (!layout) return
-    writeAccountVersionPin(account.dataDir, { version, previous: from, at: now() })
+    options.lifecycle?.switchAccount(account.dataDir, version, from, now())
     touchVersion(layout.versions, version)
     fs.rmSync(path.join(account.dataDir, VERSION_SWITCH_FILE), { force: true })
     switches.set(account.userId, { version, previous: from, at: now(), quickExits: 0 })
     pending.set(account.userId, version)
     log.info(followSupervisor ? '这个账号跟随守护进程的包' : '这个账号换到和桌面匹配的那一版', { account: account.userId, from, to: version, urgent })
     if (options.running(account.userId) !== undefined) options.restart(account.userId)
-    try {
-      const removed = pruneVersions(layout.versions, [...inUse(), version])
-      if (removed.length) log.info('清掉没人用的旧版本', { removed })
-    } catch (error) {
-      log.warn('清旧版本失败', { error: error instanceof Error ? error.message : String(error) })
-    }
+
   }
 
   return {
@@ -241,7 +238,7 @@ export function createAccountVersionConverger(options: {
           now: now(),
           running: effective,
           switchRequested: !followSupervisor && request !== null,
-          switchConfirmed: request?.confirmed === true,
+          switchConfirmed: request?.confirmed === true && request.target === (pickTargetVersion(reports, now(), undefined, unpublished) ?? layout.version),
           installed,
           busy: current !== undefined && busy(account.dataDir),
           failed: (version) => failed(version, followSupervisor && !request?.confirmed ? null : request),
@@ -250,8 +247,8 @@ export function createAccountVersionConverger(options: {
         })
         switch (plan.kind) {
           case 'none':
-            // 人点的「现在重启更新」留着(它自己 10 分钟过期):这个账号已对得上时,它是给守护进程自己的升级看的(server-supervisor.ts isBusy)。
-            if (plan.clearSwitchRequest && request && !request.confirmed) fs.rmSync(path.join(account.dataDir, VERSION_SWITCH_FILE), { force: true })
+            // A confirmation belongs to this account switch only; an already-matching target consumes it too.
+            if (plan.clearSwitchRequest && request) fs.rmSync(path.join(account.dataDir, VERSION_SWITCH_FILE), { force: true })
             state.clear()
             break
           case 'failed':
@@ -280,8 +277,7 @@ export function createAccountVersionConverger(options: {
       switches.delete(userId)
       if (layout) addBadVersion(layout.home, last.version, now())
       const dataDir = accountDataDir(userId)
-      if (last.previous) writeAccountVersionPin(dataDir, { version: last.previous, previous: null, at: now() })
-      else fs.rmSync(path.join(dataDir, ACCOUNT_VERSION_FILE), { force: true })
+      options.lifecycle?.rollbackAccount(dataDir, last.previous, now())
       log.warn('换过去的那一版在这台机器上起不来,退回原来那一版', { account: userId, version: last.version, back: last.previous })
     },
   }

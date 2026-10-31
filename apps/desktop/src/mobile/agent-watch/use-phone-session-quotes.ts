@@ -3,9 +3,8 @@ import type { ChatView } from '@gugu/session-chat-ui'
 import type { PromptEditorRef } from '@gugu/session-ui/react/components'
 import type { useConversationQueue } from '@/components/chat/useConversationQueue'
 import { useSessionMessageQuotes } from '@renderer/features/sessions/acp/use-session-message-quotes'
-import { useSessionQuoteComposer } from '@renderer/features/sessions/acp/use-session-quote-composer'
+import { useSessionPromptEditor } from '@renderer/features/sessions/acp/use-session-prompt-editor'
 import { useSessionSourceMessage } from '@renderer/features/sessions/acp/use-session-source-message'
-import { consumeSessionQuote, getSessionQuote, quotedSessionPrompt, type SessionQuoteDraft } from '@renderer/features/sessions/acp/session-quote-draft'
 import { toast } from '@renderer/lib/hooks/use-toast'
 import { translateSessionMessage } from '@renderer/localization/locale-store'
 import type { AgentWatchTimeline } from './agent-watch-store'
@@ -39,15 +38,12 @@ export function usePhoneSessionQuotes(input: {
     },
   }), [deviceId, sessionId])
   const menus = useSessionMessageQuotes(owner, editor)
-  const composer = useSessionQuoteComposer(owner, editor)
+  const composer = useSessionPromptEditor(owner, editor)
   const source = useSessionSourceMessage(owner, view, () => toast({ title: translateSessionMessage('transcript.originalMessageMissing'), tier: 'error' }))
   return {
     composer,
     loadOlder: () => owner.canLoadOlderHistory ? source.loadOlder() : Promise.resolve([]),
-    commands: { onQuoteMessage: menus.onQuoteMessage, onMessageTextMount: menus.onMessageTextMount, onRestorePrompt: menus.restorePrompt,
+    commands: { onMessageTextMount: menus.onMessageTextMount, onRestorePrompt: menus.restorePrompt,
       onConversationReply: source.reveal, flashMessageId: source.flashMessageId },
-    capture: () => getSessionQuote(owner),
-    prompt: (text: string, quote: SessionQuoteDraft | null) => quotedSessionPrompt(text, quote),
-    consume: (quote: SessionQuoteDraft | null) => consumeSessionQuote(owner, quote),
   }
 }

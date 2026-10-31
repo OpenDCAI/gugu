@@ -3,6 +3,7 @@ import type { JoinedGroup } from '@/lib/sidebarJoinedGroups';
 import { contentKey, screenLayout, type ScreenBlockContent, type ScreenLayoutStore } from '@renderer/app/screen-layout';
 import type { PaneLayoutNode } from '@renderer/features/tabs/pane-layout-tree';
 import { MIN_PANE_WIDTH_PX } from '@renderer/features/tabs/pane-store';
+import { participantSplitSizes } from './group-participant-width';
 
 type Placement = { source: ScreenBlockContent; target: ScreenBlockContent };
 type Storage = Pick<globalThis.Storage, 'getItem' | 'setItem'>;
@@ -137,13 +138,7 @@ export class GroupParticipantPanes {
       const pair = this.pairIn(node);
       if (pair?.chatId === chatId) {
         const at = pair.targetIndex;
-        const total = node.sizes[at - 1] + node.sizes[at];
-        const minShare = Math.min(0.5, MIN_PANE_WIDTH_PX / extent);
-        const right = Math.min(1 - minShare, Math.max(minShare, this.rightWidth / extent)) * total;
-        const sizes = [...node.sizes];
-        sizes[at - 1] = total - right;
-        sizes[at] = right;
-        this.screen.setSplitSizes(node.id, sizes);
+        this.screen.setSplitSizes(node.id, participantSplitSizes(node, at, this.rightWidth, extent));
         return;
       }
       node.children.forEach(visit);

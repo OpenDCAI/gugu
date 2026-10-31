@@ -1,3 +1,5 @@
+import { readUpgradeMarker, clearUpgradeMarker, pointCurrent, recordVerifiedSupervisorVersion, type UpgradeMarker } from './server-version-lifecycle'
+export { UPGRADE_PENDING_FILE, readUpgradeMarker, writeUpgradeMarker, clearUpgradeMarker, pointCurrent, type UpgradeMarker } from './server-version-lifecycle'
 /**
  * #6264 升级看门狗:新版本切过去之后真的站稳了没有;没站稳就自动退回上一版(product spec 第 5 条
  * 「❌ 不把自己切死」)。
@@ -27,7 +29,7 @@ import { isOwnProcessAlive, SERVER_PROCESS_MARK } from './process-alive'
 import { pinnedVersionToRun, readAccountVersionPin, versionBinary } from './server-account-versions'
 import { liveKeeperPid, startKeeper } from './server-keeper'
 
-export const UPGRADE_PENDING_FILE = 'upgrade-pending.json'
+
 export const UPGRADE_GUARD_PID_FILE = 'upgrade-guard.pid'
 export const BAD_VERSIONS_FILE = 'bad-versions.json'
 export const SUPERVISOR_HEALTH_MS = 30_000
@@ -40,13 +42,6 @@ export const GUARD_POLL_MS = 15_000
 const FRESH_MS = 60_000
 const GUARD_MARK = 'upgrade-guard'
 
-export type UpgradeMarker = {
-  from: string
-  to: string
-  fromDir: string
-  toDir: string
-  switchedAt: number
-}
 
 export type Heartbeat = { version: string | null; startedAt: number; at: number }
 
@@ -104,7 +99,7 @@ function writeJson(file: string, value: unknown): boolean {
 }
 
 export function writeSupervisorHealth(home: string, input: { version: string | null; pid: number; startedAt: number }, now = Date.now()): void {
-  writeJson(path.join(dataDir(home), SUPERVISOR_HEALTH_FILE), { ...input, at: now })
+  writeJson(path.join(dataDir(home), SUPERVISOR_HEALTH_FILE), { ...input, confirmedRestart: true, at: now })
 }
 
 export function parseHeartbeat(value: unknown): Heartbeat | null {
@@ -112,21 +107,6 @@ export function parseHeartbeat(value: unknown): Heartbeat | null {
   const row = value as Record<string, unknown>
   if (typeof row.at !== 'number' || typeof row.startedAt !== 'number') return null
   return { version: typeof row.version === 'string' ? row.version : null, startedAt: row.startedAt, at: row.at }
-}
-
-export function readUpgradeMarker(home: string): UpgradeMarker | null {
-  const raw = readJson<Partial<UpgradeMarker>>(path.join(dataDir(home), UPGRADE_PENDING_FILE))
-  if (!raw || typeof raw.from !== 'string' || typeof raw.to !== 'string') return null
-  if (typeof raw.fromDir !== 'string' || typeof raw.toDir !== 'string' || typeof raw.switchedAt !== 'number') return null
-  return raw as UpgradeMarker
-}
-
-export function writeUpgradeMarker(home: string, marker: UpgradeMarker): boolean {
-  return writeJson(path.join(dataDir(home), UPGRADE_PENDING_FILE), marker)
-}
-
-export function clearUpgradeMarker(home: string): void {
-  fs.rmSync(path.join(dataDir(home), UPGRADE_PENDING_FILE), { force: true })
 }
 
 export function readBadVersions(home: string): Record<string, number> {
@@ -177,14 +157,6 @@ export function readProbe(home: string, marker: UpgradeMarker, watchingSince: nu
 // ── 回滚 ──────────────────────────────────────────────────────────────────────
 
 /** 原子切 current:临时软链再改名(守护进程换版与看门狗回滚都用它)。 */
-export function pointCurrent(home: string, versionDir: string): void {
-  const current = path.join(home, 'current')
-  const tmp = `${current}.tmp-${process.pid}`
-  fs.rmSync(tmp, { force: true })
-  fs.symlinkSync(path.relative(home, versionDir), tmp)
-  fs.renameSync(tmp, current)
-}
-
 function currentVersionName(home: string): string | null {
   try {
     return path.basename(fs.realpathSync(path.join(home, 'current')))
@@ -250,6 +222,7 @@ export async function runGuardLoop(home: string, deps: GuardDeps): Promise<'heal
     if (!marker) return 'abandoned'
     const verdict = judgeUpgrade(deps.readProbe(marker, watchingSince))
     if (verdict === 'healthy') {
+      recordVerifiedSupervisorVersion(home, marker)
       clearUpgradeMarker(home)
       deps.log('新版本已站稳', { version: marker.to })
       return 'healthy'

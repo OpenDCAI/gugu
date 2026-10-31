@@ -113,14 +113,14 @@ describe('run-interval-recorder', () => {
     ]);
   });
 
-  it('error 也收口;会话删了收口但区间留着', () => {
+  it('error 也收口;任务归档后结束区间并保留用量历史', () => {
     recorder.observeStatus('c1', 'working');
     recorder.observeStatus('c2', 'working');
     clock += MIN;
     recorder.observeStatus('c1', 'error');
-    fixture.sqlite.exec(`DELETE FROM sessions WHERE id = 'c2'`);
+    fixture.sqlite.exec(`UPDATE sessions SET archived_at = '2026-09-28 23:11:00' WHERE id = 'c2'`);
     clock += MIN;
-    recorder.observeDeleted('c2');
+    recorder.observeArchived('c2');
     expect(intervals().map((row) => [row.session_id, row.ended_at])).toEqual([
       ['c1', at(23, 10, 1)],
       ['c2', at(23, 10, 2)],
@@ -226,7 +226,7 @@ describe('run-interval-recorder', () => {
     expect(intervals()[0]).toMatchObject({ started_at: at(23, 10), ended_at: at(23, 10, 3) });
   });
 
-  it('装上之后,agent:status 与 conversation:deleted 都进得来;订阅方抛错不会传回状态管道', () => {
+  it('装上之后,agent:status 与 session:archived 都进得来;订阅方抛错不会传回状态管道', () => {
     const handlers: Record<string, (arg: never) => void> = {};
     const source = {
       on: (name: string, handler: (arg: never) => void) => {
@@ -245,7 +245,7 @@ describe('run-interval-recorder', () => {
         reading: { status: 'working' },
       });
       clock += MIN;
-      (handlers['session:deleted'] as (id: string) => void)('c1');
+      (handlers['session:archived'] as (id: string) => void)('c1');
       expect(intervals()[0]).toMatchObject({ session_id: 'c1', ended_at: at(23, 10, 1) });
 
       // 库坏了:只记一笔日志,不抛。

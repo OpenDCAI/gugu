@@ -162,6 +162,7 @@ export default {
     "usageWindows": "Usage windows"
   },
   "devices": {
+    "bootTaskFailed": "Task {{task}} could not resume ({{operation}}): {{message}}. Other tasks remain available.",
     "longOffline": "Long offline",
     "configurations": "Versions",
     "configurationUnknown": "Version unavailable",
@@ -389,7 +390,7 @@ export default {
       "waitingIdle": "Agents are running on {{name}}. It updates once they're idle.",
       "updateNow": "Restart and update now",
       "later": "Later",
-      "updateNowConfirm": "Restart Gugu on {{name}} now? Agents running there will have their current turn interrupted.",
+      "updateNowConfirm": "Restart Gugu on {{name}} now? Tasks running there will have their current turn interrupted.",
       "confirmRestart": "Restart",
       "reinstall": "Gugu server on {{name}} is too old to update automatically. Run the install command on that machine again:",
       "refused": "Gugu server on {{name}} refused the connection.",
@@ -781,13 +782,18 @@ export default {
       "you": " (you)"
     },
     "update": {
-      "downloading": "Updating",
+      "downloading": "Downloading {{version}}",
       "downloadingHint": "Downloading {{version}}; switches when idle.",
       "ready": "New version ready, waiting for idle",
+      "readyCount_one": "New version ready, waiting for {{count}} task to go idle",
+      "readyCount_other": "New version ready, waiting for {{count}} tasks to go idle",
       "readyHint": "{{version}} downloaded; switches when idle.",
       "updateNow": "Restart and update now",
-      "updateNowConfirm": "Restart Gugu on {{name}} now? Agents running there will have their current turn interrupted.",
-      "confirmRestart": "Restart"
+      "updateNowConfirm": "Restart Gugu on {{name}} now? Tasks running there will have their current turn interrupted.",
+      "confirmRestart": "Restart",
+      "restarting": "Restarting…",
+      "restartFailed": "Couldn't confirm the restart on {{name}}. Check its connection and try again.",
+      "restartTimeout": "{{name}} hasn't reported {{version}} yet. Check the device before trying again."
     },
     "versionUnknown": "Version unknown",
     "via": {

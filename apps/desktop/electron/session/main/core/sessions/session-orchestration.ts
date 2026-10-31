@@ -99,10 +99,9 @@ import {
   type SessionTransport,
 } from '../agents/session-discovery';
 import { getPlugin, listPlugins, toAgentProviderId } from '../agents/plugin-registry';
-import { archiveSession } from './archiveSession';
 import { resolveSessionParent, setSessionParent } from './session-family';
 import { attachAgentToSession, type InternalSessionRelations } from './attach-agent-to-session';
-import { deleteSession } from './deleteSession';
+import { archiveSession } from './archiveSession';
 import { recordSessionOutput } from './session-outputs';
 import { sessionPlatformModel } from './platform-model-selection';
 import type { AgentScheduleAction } from '../automations/agent-schedules';
@@ -646,7 +645,7 @@ async function startSpawnedSession(input: {
     }
     if (row) {
       try {
-        await deleteSession(input.projectId, input.session.id, { skipTransportStop: true });
+        await archiveSession(input.projectId, input.session.id, { skipTransportStop: true });
       } catch (cleanupError) {
         log.error('spawn session failed to remove its session', {
           sessionId: input.session.id,
@@ -1131,7 +1130,7 @@ async function createChildSession(input: {
     if (input.sourceLink) await rememberActivitySource(sessionId, input.sourceLink);
     await setSpawnStartupState(sessionId, 'starting');
   } catch (error) {
-    await deleteSession(projectId, sessionId, { skipTransportStop: true });
+    await archiveSession(projectId, sessionId, { skipTransportStop: true });
     ledger.settle({ outcome: 'failed' });
     throw error;
   }
@@ -1156,7 +1155,7 @@ async function createChildSession(input: {
         queuedStartupDelegation: true,
       });
     } catch (error) {
-      await deleteSession(projectId, sessionId, { skipTransportStop: true });
+      await archiveSession(projectId, sessionId, { skipTransportStop: true });
       ledger.settle({ outcome: 'failed' });
       throw error;
     }

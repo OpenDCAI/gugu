@@ -10,6 +10,8 @@ import { ComposerCardHead } from './ComposerCardView'
 import { partialQuotedContent } from './messageQuoteContent'
 import { quoteSummary } from './quoteSummary'
 import { ChatReplyQuote, type ReplyQuoteDisclosure } from './ChatReplyQuote'
+import { SourcePreview } from '@/components/markdown/SourcePreview'
+import { imSourcePreview } from './messageQuote.css'
 
 /**
  * 气泡里引的那一条:谁说的 + 原话,点一下跳到被引用的消息。
@@ -36,6 +38,7 @@ export function MessageQuote({ msg, quoterIsAgent, memberProfiles, onShowMessage
       head={quotedCard ? <ComposerCardHead type={quotedCard.type} agentUserId={quoterIsAgent ? msg.sender_user_id : null} />
         : resolveOrLoud(memberProfiles?.[msg.reply_to_sender_user_id ?? '']?.displayName, `reply sender ${msg.reply_to_message_id ?? msg.id}`)}
       text={displayAgentReferences(quotedCard?.text ?? quotedContent ?? '', (_id, label) => `@${label}`)}
+      preview={Boolean(disclosure)}
     />
   )
   return disclosure ? <ChatReplyQuote disclosure={disclosure} onJump={onShowMessage ? () => onShowMessage(msg.reply_to_message_id!) : undefined}>{preview}</ChatReplyQuote> : preview
@@ -45,10 +48,11 @@ export function MessageQuote({ msg, quoterIsAgent, memberProfiles, onShowMessage
  * 引用块那一面:左边一道竖线、第一行是谁(或卡头)、第二行是原话。只管长相,❌ 读任何数据 ——
  * 群里的引用(MessageQuote)和示例项目(#709)里 agent 引它那张卡画的是同一面。
  */
-export function MessageQuoteFrame({ mine, head, text, onClick }: {
+export function MessageQuoteFrame({ mine, head, text, onClick, preview }: {
   mine: boolean
   head: ReactNode
   text: string
+  preview?: boolean
   /** 给了 = 点一下跳到被引用的那一条。 */
   onClick?: (event: MouseEvent) => void
 }) {
@@ -66,9 +70,9 @@ export function MessageQuoteFrame({ mine, head, text, onClick }: {
       <div style={{ fontSize: 'var(--font-body)', lineHeight: 'var(--lh-body)', fontWeight: 600, opacity: 0.6, marginBottom: '1px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
         {head}
       </div>
-      <div style={{ fontSize: 'var(--font-body)', lineHeight: 'var(--lh-body)', opacity: 0.55, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+      {preview ? <SourcePreview text={text} lines={2} className={imSourcePreview} /> : <div style={{ fontSize: 'var(--font-body)', lineHeight: 'var(--lh-body)', opacity: 0.55, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
         {text}
-      </div>
+      </div>}
     </div>
   )
 }
@@ -91,7 +95,8 @@ export function DirectMessageQuote({ msg, quoterIsAgent, memberProfiles, onShowM
   const quotedCard = composerCardPreview(quotedContent)
   const sender = quotedCard ? <ComposerCardHead type={quotedCard.type} agentUserId={quoterIsAgent ? msg.sender_user_id : null} />
     : resolveOrLoud(memberProfiles?.[msg.reply_to_sender_user_id ?? '']?.displayName, `reply sender ${msg.reply_to_message_id ?? msg.id}`)
-  const summary = quoteSummary(displayAgentReferences(quotedCard?.text ?? quotedContent ?? '', (_id, label) => `@${label}`))
+  const source = displayAgentReferences(quotedCard?.text ?? quotedContent ?? '', (_id, label) => `@${label}`)
+  const summary = quoteSummary(source)
   const showQuoted = (event: MouseEvent) => {
     event.stopPropagation()
     if (msg.reply_to_message_id) onShowMessage?.(msg.reply_to_message_id)
@@ -104,5 +109,7 @@ export function DirectMessageQuote({ msg, quoterIsAgent, memberProfiles, onShowM
       <span className="min-w-0 truncate">{summary}</span>
     </div>
   )
-  return disclosure ? <ChatReplyQuote disclosure={disclosure} onJump={onShowMessage ? () => onShowMessage(msg.reply_to_message_id!) : undefined}>{preview}</ChatReplyQuote> : preview
+  return disclosure ? <ChatReplyQuote disclosure={disclosure} onJump={onShowMessage ? () => onShowMessage(msg.reply_to_message_id!) : undefined}>
+    <MessageQuoteFrame mine={msg.is_mine} head={sender} text={source} onClick={onShowMessage ? showQuoted : undefined} preview />
+  </ChatReplyQuote> : preview
 }

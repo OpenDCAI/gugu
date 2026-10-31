@@ -67,7 +67,7 @@ export function ask(
   if (options.signal?.aborted) return Promise.resolve('withdrawn');
   if (request.origin.source === 'agent-question') rememberAgentQuestion(conversationId, request);
   const withdrawQuestions = (sessionId: string) => withdrawAll(sessionId, 'agent-question');
-  hostAskLifecycle ??= [sessionEvents.on('session:archived', withdrawQuestions), sessionEvents.on('session:deleted', withdrawQuestions)];
+  hostAskLifecycle ??= [sessionEvents.on('session:archived', withdrawQuestions)];
   return new Promise((resolve) => {
     let unregisterHumanTool = () => undefined as void;
     const asks = hostAsks.get(conversationId) ?? new Map<string, AskEntry>();

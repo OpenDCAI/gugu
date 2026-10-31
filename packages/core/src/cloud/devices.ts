@@ -1,3 +1,5 @@
+import { permanentlyRemove } from './agentIdentityRemoval'
+import { parseSessionBootFailures } from '../shared/sessionBootTasks'
 import { isImplicitSessionHomeProjectId } from '../shared/sessionProject'
 import { normalizeDeviceActionsSummary, type DeviceActionsSummary } from '../shared/deviceActions'
 import { parseMachineLimitRefusal, type MachineLimitRefusal } from './machineLimit'
@@ -120,11 +122,7 @@ export async function removeDevice(
   deviceId: string,
   options: { cascade?: boolean } = {},
 ): Promise<void> {
-  const { error } = await client.rpc('remove_device', {
-    p_device_id: deviceId,
-    p_cascade: options.cascade ?? false,
-  })
-  if (error) throw new Error(error.message)
+  await permanentlyRemove({ client, deviceId, cascade: options.cascade })
 }
 
 // @@@1962 只列当前用户自己的设备(user_id = ownerId 显式过滤)。gugu_devices 生产 RLS 虽已 owner-scoped
@@ -280,6 +278,8 @@ export function normalizeDeviceCapabilities(value: unknown): DeviceCapabilities 
     ...(typeof row.home_dir === 'string' && row.home_dir && row.home_dir.length <= 4096 ? { home_dir: row.home_dir } : {}),
     ...(row.runs_as_root === true ? { runs_as_root: true } : {}),
     ...(row.assistant_home === true ? { assistant_home: true } : {}),
+    ...(row.server_confirmed_restart === true ? { server_confirmed_restart: true as const } : {}),
+    ...(parseSessionBootFailures(row.server_boot_failures).length ? { server_boot_failures: parseSessionBootFailures(row.server_boot_failures) } : {}),
     ...normalizeServerUpdate(row.server_update),
     ...normalizeServerDisk(row.server_disk),
     ...normalizeServerRollback(row.server_rollback),
@@ -324,7 +324,10 @@ function normalizeServerUpdate(value: unknown): { server_update?: DeviceServerUp
   const row = value as Record<string, unknown>
   if (row.state !== 'downloading' && row.state !== 'ready' && row.state !== 'failed') return {}
   if (typeof row.version !== 'string' || !row.version) return {}
-  return { server_update: { state: row.state, version: row.version.slice(0, 64) } }
+  const count = row.busy_agents
+  return { server_update: { state: row.state, version: row.version.slice(0, 64),
+    ...(row.scope === 'account' || row.scope === 'supervisor' ? { scope: row.scope } : {}),
+    ...(typeof count === 'number' && Number.isSafeInteger(count) && count >= 0 ? { busy_agents: count } : {}) } }
 }
 
 // @@@5912 设备在线只有一处判据(isDeviceOnline),它吃的是这个枚举 —— 所以解析也只留一处。
