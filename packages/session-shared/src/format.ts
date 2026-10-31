@@ -58,7 +58,9 @@ export function formatCalendarDay(value: DateValue, locale: string, { withTime =
   const days = differenceInCalendarDays(now, date);
   if (days === 0) return formatDate(date, CLOCK, locale);
   if (days === 1) {
-    const yesterday = new Intl.RelativeTimeFormat(locale, { numeric: 'auto' }).format(-1, 'day');
+    // 英文 Intl 给小写「yesterday」;它常单独当标签用,首字母大写(中文不受影响)。
+    const word = new Intl.RelativeTimeFormat(locale, { numeric: 'auto' }).format(-1, 'day');
+    const yesterday = word.charAt(0).toLocaleUpperCase(locale) + word.slice(1);
     return withTime ? `${yesterday} ${formatDate(date, CLOCK, locale)}` : yesterday;
   }
   return formatCalendarDate(date, locale, { includeTime: withTime, now });

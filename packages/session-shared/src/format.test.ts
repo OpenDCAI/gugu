@@ -84,12 +84,14 @@ describe('calendar day: one style for lists, separators and the chat day boundar
     expect(formatCalendarDay(new Date(2026, 9, 30, 9, 5), 'zh-CN', { now })).toBe('昨天');
     expect(formatCalendarDay(new Date(2026, 9, 3, 9, 5), 'zh-CN', { now })).toBe('10月3日');
     expect(formatCalendarDay(new Date(2025, 9, 31, 9, 5), 'zh-CN', { now })).toBe('2025年10月31日');
+    expect(formatCalendarDay(new Date(2026, 9, 30, 9, 5), 'en-US', { now })).toBe('Yesterday');
     expect(formatCalendarDay(new Date(2026, 9, 3, 9, 5), 'en-US', { now })).toBe('Oct 3');
     expect(formatCalendarDay(new Date(2025, 9, 31, 9, 5), 'en-US', { now })).toBe('Oct 31 2025');
   });
   it('separators carry the clock on every day', () => {
     expect(formatCalendarDay(new Date(2026, 9, 30, 9, 5), 'zh-CN', { now, withTime: true })).toBe('昨天 09:05');
     expect(formatCalendarDay(new Date(2026, 9, 3, 9, 5), 'zh-CN', { now, withTime: true })).toBe('10月3日 09:05');
+    expect(formatCalendarDay(new Date(2026, 9, 30, 21, 5), 'en-US', { now, withTime: true })).toBe('Yesterday 09:05 PM');
     expect(formatCalendarDay(new Date(2026, 9, 3, 21, 5), 'en-US', { now, withTime: true })).toBe('Oct 3, 09:05 PM');
     expect(formatCalendarDay(new Date(2026, 9, 31, 21, 5), 'en-US', { now })).toBe('09:05 PM');
     expect(formatCalendarDay(new Date(2026, 9, 31, 21, 5), 'zh-CN', { now })).toBe('21:05');
