@@ -1,4 +1,5 @@
 import type { Device } from '@gugu/core/shared/types/chat'
+import type { DeviceServerUpdate } from '@gugu/core/shared/types/deviceHost'
 import { serverMachineNotices, type ServerMachineNotice } from '@gugu/core/cloud/serverMachineHealth'
 import { deviceAcceptsWork } from '@gugu/core/cloud/cloudComputer'
 import { isPhoneDevice } from '@gugu/core/cloud/devices'
@@ -30,7 +31,7 @@ export type DeviceRowModel = {
   /** 系统 · 架构,例如「Ubuntu 22.04.5 LTS · arm64」;都不知道时退回平台名。 */
   system: string | null
   version: string | null
-  update: { state: 'downloading' | 'ready' | 'failed'; version: string } | null
+  update: DeviceServerUpdate | null
   /** #6264 这台 server 有件事要人知道(版本对不上 / 磁盘快满 / 升级被退回),按要紧程度排;别的机器为空。 */
   notices: ServerMachineNotice[]
   connection: DeviceConnection

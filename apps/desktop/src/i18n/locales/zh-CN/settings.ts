@@ -162,6 +162,7 @@ export default {
     "usageWindows": "用量窗口"
   },
   "devices": {
+    "bootTaskFailed": "任务 {{task}} 恢复失败（{{operation}}）：{{message}}。其他任务仍可使用。",
     "longOffline": "很久没上线",
     "configurations": "版本",
     "configurationUnknown": "版本未知",
@@ -389,7 +390,7 @@ export default {
       "waitingIdle": "「{{name}}」有 agent 在运行，空闲后自动更新。",
       "updateNow": "现在重启更新",
       "later": "稍后",
-      "updateNowConfirm": "现在重启「{{name}}」上的咕咕？正在运行的 agent 这一轮会被中断。",
+      "updateNowConfirm": "现在重启「{{name}}」上的咕咕？正在运行的任务这一轮会被中断。",
       "confirmRestart": "重启",
       "reinstall": "「{{name}}」上的咕咕 server 太旧，没法自动更新。请在那台机器上重新运行安装命令：",
       "refused": "「{{name}}」上的咕咕 server 拒绝了连接。",
@@ -781,13 +782,18 @@ export default {
       "you": "（你）"
     },
     "update": {
-      "downloading": "更新中",
+      "downloading": "正在下载 {{version}}",
       "downloadingHint": "正在下载 {{version}}，空闲时自动切换。",
       "ready": "新版本已就绪，等待空闲",
+      "readyCount_one": "新版本已就绪，等待 {{count}} 个任务空闲",
+      "readyCount_other": "新版本已就绪，等待 {{count}} 个任务空闲",
       "readyHint": "{{version}} 已下载，空闲时自动切换。",
       "updateNow": "现在重启更新",
-      "updateNowConfirm": "现在重启「{{name}}」上的咕咕？正在运行的 agent 这一轮会被中断。",
-      "confirmRestart": "重启"
+      "updateNowConfirm": "现在重启「{{name}}」上的咕咕？正在运行的任务这一轮会被中断。",
+      "confirmRestart": "重启",
+      "restarting": "正在重启…",
+      "restartFailed": "未能确认「{{name}}」已开始重启，请检查连接后重试。",
+      "restartTimeout": "「{{name}}」尚未报告 {{version}}，请先检查那台设备再重试。"
     },
     "versionUnknown": "版本未知",
     "via": {
@@ -860,11 +866,11 @@ export default {
     "title": "文件存储",
     "entryHint": "你名下机器上的项目群：图片、其他文件怎么存，留多久；和普通群对照。",
     "projectTitle": "项目群",
-    "machines": "管你名下这些机器上的项目群：{{machines}}。别人机器上的项目群，按那台机器主人的设置。",
+    "machines": "对你从自己的电脑发进项目群的文件生效。别人发的文件，按他自己的设置。",
     "files": "项目群的文件存在哪",
     "filesMachine": "留在机器上",
     "filesCloud": "上传到云端",
-    "filesMachineHint": "文件只存在绑定项目的那台机器上，有人打开时才临时传一份到云端。",
+    "filesMachineHint": "文件存在你发出它的那台电脑上，有人打开时才临时传一份到云端；那台电脑离线时打不开。",
     "filesCloudHint": "发出的文件都存到云端，一直保留，和普通群一样；图片也不再自动删除。",
     "temporaryRetention": "别人打开时的云端副本",
     "ordinaryTitle": "普通群",

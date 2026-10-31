@@ -4,6 +4,11 @@ import { sha256 } from '@noble/hashes/sha2.js'
 export type FileRef = { item_id: string; version?: number } | { message_id: string } | { attachment_id: string }
 export type FileActor = { accountId: string; actorId: string }
 export const FILE_CHUNK_BYTES = 512 * 1024
+/**
+ * The project id a local revision names when its device has no project bound to the chat: the files that device sent
+ * are kept in its own device store, which it serves like a project root.
+ */
+export const DEVICE_STORE = 'device-store'
 
 export function fileRefKey(ref: FileRef): string {
   const keys = Object.keys(ref)
@@ -29,9 +34,13 @@ export interface FileRevision {
   legacy_object?: { bucket_id: 'chat-media'; object_name: string; message_id: string }
   width?: number | null
   height?: number | null
+  /** The device that keeps this version: the one that sent it. */
   host_device_id?: string
   host_project_id?: string
   host_account_id?: string
+  /** That device's name and whether it is online now, as the backend resolved them (readers of other accounts included). */
+  host_label?: string | null
+  host_online?: boolean
   relative_path?: string
   temporary_transfer?: boolean
   /** Actual workspace metadata kept at publication in the existing local revision index. */
@@ -100,8 +109,8 @@ export function parseFileMetadata(value: unknown, ref?: FileRef): FileMetadata {
   if (row.status === 'missing' && row.code === 'object_not_found') return { status: 'missing', sha256: row.sha256 ?? null }
   if (row.status === 'gone' || row.status === 'expired') return { status: row.status, sha256: row.sha256 ?? null }
   if (row.status !== 'ready') throw new Error('Invalid file metadata')
-  const { source, item_id, version, chat_id, file_name, content_type, size_bytes, sha256, width, height, host_device_id, host_project_id, host_account_id, relative_path, temporary_transfer } = row
-  const revision = { source, item_id, version, chat_id, file_name, content_type, size_bytes, sha256, width, height, host_device_id, host_project_id, host_account_id, relative_path, temporary_transfer }
+  const { source, item_id, version, chat_id, file_name, content_type, size_bytes, sha256, width, height, host_device_id, host_project_id, host_account_id, host_label, host_online, relative_path, temporary_transfer } = row
+  const revision = { source, item_id, version, chat_id, file_name, content_type, size_bytes, sha256, width, height, host_device_id, host_project_id, host_account_id, host_label, host_online, relative_path, temporary_transfer }
   if (source === 'managed-object' && sha256 === null && row.bucket_id === 'chat-media' && typeof row.object_name === 'string' && row.object_name &&
     ref && 'message_id' in ref && row.message_id === ref.message_id) {
     Object.assign(revision, { legacy_object: Object.freeze({ bucket_id: 'chat-media', object_name: row.object_name, message_id: row.message_id }) })
@@ -148,7 +157,7 @@ export function createFileResolver(providers: FileProviders) {
         const ownSsh = await providers.ssh(revision, context)
         if (ownSsh) return ownSsh
       }
-      if (!revision.temporary_transfer) throw new Error('Cloud transfer is disabled for this project')
+      if (!revision.temporary_transfer) throw new Error('Cloud transfer is disabled for this file')
       return providers.temporary(revision, context)
     }
     const get = () => opened ??= open().then(async file => {

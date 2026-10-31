@@ -1,10 +1,12 @@
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
+import { isDeviceOnline } from '@gugu/core/shared/enums/deviceModels'
 import { fetchInChunks } from '@gugu/core/shared/inChunks'
 import { readMemberRosterRevision, readWorkspaceChanges } from '../../lib/accountRevisionCoordinator'
 import { rendererLogger } from '../../lib/log'
 import { chatDb } from '../../lib/supabase'
 import { platform } from '../../platform'
 import { useChatStore } from '../../store/chatContext'
+import { useDevicesStore } from '../../store/devicesContext'
 import { rpc } from '../../session/renderer/lib/ipc'
 import { installedExtensionsStore } from '../../session/renderer/features/extensions/installed-extensions-store'
 import { openFileIds, updateFileNames } from '../../session/renderer/features/chats/chat-tabs/chat-layouts'
@@ -57,4 +59,17 @@ export function useExtensionWorkspaceRevisions(): void {
       members()
     }
   }, [subscribeAccountRevision])
+  // Where a project file is kept is shown with whether that machine is on: the device list's own facts say when one went
+  // on or off (not every heartbeat), and the folders on screen read their files again.
+  const { devices } = useDevicesStore()
+  const online = useRef<Map<string, boolean> | null>(null)
+  useEffect(() => {
+    const now = new Map(devices.map((device) => [device.device_id, isDeviceOnline(device.status)]))
+    const before = online.current
+    online.current = now
+    if (!before || !platform.capabilities.agentRuntime || ![...now].some(([id, on]) => before.has(id) && before.get(id) !== on)) return
+    void rpc.extensions.devicesOnlineChanged().catch((error: unknown) => {
+      log.warn({ error: error instanceof Error ? error.message : String(error) }, 'telling App pages a device went on or off failed')
+    })
+  }, [devices])
 }

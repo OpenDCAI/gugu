@@ -1,3 +1,4 @@
+import { sessionBootTasks } from '../boot-tasks';
 import type { IDisposable, IInitializable } from '@gugu/session-shared';
 import { eq, inArray } from 'drizzle-orm';
 import {
@@ -315,11 +316,14 @@ class AgentStatusWriter implements IInitializable, IDisposable, Hookable<AgentSt
     const alive = sessionsAliveInTmux(tmuxSessionNames);
     const gone = inFlight.filter((row) => !alive.has(row.id)).map((row) => row.id);
     if (gone.length === 0) return;
-    await db
-      .update(sessions)
-      .set({ agentStatus: 'error', agentStatusDetail: null, agentStatusSeen: 0 })
-      .where(inArray(sessions.id, gone));
-    recordInterruptedTurns(gone, lastExit);
+    for (const sessionId of gone) {
+      await sessionBootTasks.run('status-recovery', sessionId, async () => {
+        await db.update(sessions)
+          .set({ agentStatus: 'error', agentStatusDetail: null, agentStatusSeen: 0 })
+          .where(eq(sessions.id, sessionId));
+        recordInterruptedTurns([sessionId], lastExit);
+      });
+    }
   }
 
   /** 宿主停下了在飞的一切(停止键、ACP 取消 / 关闭):被打断,不是做完也不是失败。 */

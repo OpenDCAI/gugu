@@ -2,6 +2,7 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { drainSessionMessageOutbox } from './sendMessage';
 import { openFixture } from '@tooling/utils/db';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AppDb } from '@main/db/client';
@@ -26,6 +27,7 @@ vi.mock('electron', () => ({ app: { getPath: () => mocks.userData }, clipboard: 
 // Only the assistant ownership UI helper is replaced; close/delete/archive below are real.
 vi.mock('@/lib/myAssistant', () => ({ isMyAssistant: () => false }));
 
+vi.mock('./sendMessage', () => ({ drainSessionMessageOutbox: vi.fn(async () => undefined) }));
 vi.mock('@main/db/client', () => ({
   get db() {
     if (!mocks.db) throw new Error('Test database not initialized');
@@ -743,4 +745,16 @@ describe('restoreSession(内部接口,UI 上没有入口)', () => {
       session: expect.objectContaining({ id: 'a', archivedAt: null }),
     });
   });
+  it('drains only the restored task once after releasing its archival lock', async () => {
+    insert('restore-owner'); insert('other-owner');
+    await archiveSession('p1', 'restore-owner');
+    vi.mocked(drainSessionMessageOutbox).mockClear();
+    vi.mocked(drainSessionMessageOutbox).mockImplementationOnce(async () => {
+      const { serializeSessionArchival } = await import('./session-archival');
+      await serializeSessionArchival('restore-owner', async () => undefined);
+    });
+    await restoreSession('p1', 'restore-owner');
+    expect(drainSessionMessageOutbox).toHaveBeenCalledExactlyOnceWith({ projectId: 'p1', sessionId: 'restore-owner' });
+  });
+
 });

@@ -2104,8 +2104,8 @@ function startDeviceRuntimeWhenRendererReady(): void {
       supabase,
       createHandlers: (io) => createPrimaryDeviceRpcHandlers(io),
       askerLimits: deviceRpcAskerLimitsFromEnv(process.env),
-      broadcastEvents: { 'files.transfer': () => drainProjectFiles(), 'files.handoff': () => drainVersionHandoffs() },
-      onSubscribed: () => { drainProjectFiles(); drainVersionHandoffs() },
+      broadcastEvents: { 'files.transfer': () => drainProjectFiles() },
+      onSubscribed: () => { drainProjectFiles() },
     }),
     ...heartbeatRowSources,
     // server 首次注册报的名字(deviceLabelOption):经远程 SSH 装上的报人填的 SSH 别名 / 主机(登录时记在 connect-via.json);
@@ -2354,9 +2354,9 @@ const desktopFiles = createDesktopFileAccess({ auth: () => desktopAuthProvider()
   rpc: async (name, args) => { const auth = await desktopAuthProvider().getAuth(); if (!auth) throw new Error('File reader is not signed in'); const { data, error } = await makeChatClient(auth.accessToken).rpc(name, args); if (error) throw error; return data },
   downloads: join(resolveGuguHome(process.env), 'attachments'), fetch: electronFetch, links: () => sshLinks,
   root: async projectId => { const bridge = loadEmdashBridge(); if (!bridge) throw new Error('Project registry is unavailable'); return bridge.emdashProjectRoot(projectId) },
+  deviceStore: join(resolveGuguHome(process.env), 'project-files'), identityDb: makeIdentityClient,
 })
 function drainProjectFiles() { void desktopFiles.drain().catch(error => createLogger('files').warn({ error: String(error) }, 'Project transfer reconciliation failed')) }
-function drainVersionHandoffs() { void desktopFiles.handoffs().catch(error => createLogger('files').warn({ error: String(error) }, 'Next version handoffs failed')) }
 const nativeFiles = createNativeFileHost({ root: remoteFileTempRoot,
   owner: async () => (await desktopAuthProvider().getAuth())?.userId ?? null,
   alive: scope => !!webContents.fromId(scope) && !webContents.fromId(scope)!.isDestroyed(),
@@ -3689,11 +3689,12 @@ async function cloudComputerClient() {
  * S2b 读者触发装配:四个触发(nudge 在 device runtime 里;这里接②回合结束/③唤醒完成/④开机扫)
  * 都收敛到同一个 core 读者入口。deps 每次现装(token 会轮换);没登录就不拉(loud debug,不静默)。
  */
-function kickInboxForAgent(agentUserId: string, trigger: string): void {
+function kickInboxForAgent(agentUserId: string, trigger: string, bootTaskId = ''): void {
   // #7225 不等它的一脚:拿不到登录态(含续期被拒的 RuntimeAuthExpiredError)由 kickInboxWhenAuthed 记一行收掉。
   void kickInboxWhenAuthed({
     agentUserId,
     trigger,
+    onFailure: trigger === 'boot-scan' ? error => loadEmdashBridge()?.sessionBootTasks.record('inbox-wake', bootTaskId, error) : undefined,
     getAuth: () => authProvider?.getAuth(),
     log: createLogger('agent-inbox'),
     kick: (auth) => {
@@ -5056,6 +5057,7 @@ app.whenReady().then(async () => {
       return session?.providerId === target.providerId && session.surface === target.surface ? owner!.target : null
     }
     const recovery = new SessionpagePlatformRecoveryCoordinator({
+      bootTasks: emdash.sessionBootTasks,
       isExpired: (sessionId) => expiredPlatformModelSessions().includes(sessionId),
       resolveTarget: (sessionId) => sessionpagePlatformRecoveryHooks?.targetForSession(sessionId) ?? null,
       currentGeneration: platformCredentialGenerationForSession,
@@ -5221,6 +5223,7 @@ app.whenReady().then(async () => {
     })
     const runSessionpageReap = (reason: string): void => {
       void reconcileSessionpageAgents({
+        onFailure: (operation, taskId, error) => emdash.sessionBootTasks.record(operation, taskId, error),
         getAuth: getSessionpageAuth,
         resolveDeviceId: localDeviceId,
         getInventory: () => emdash.emdashSessionpageInventory(),
@@ -6074,7 +6077,7 @@ app.whenReady().then(async () => {
     // (task-to-session 改 tmux 名、session-naming 改账本键)—— 先读就把旧名下活着的会话判死、删掉它的取票文件。
     // 所以与下面的开机重注册一样排在 boot 之后。只读本机、不等登录;boot 失败也照样跑,终端腿与启动结清都在等它落定。
     void emdashBoot.catch(() => undefined)
-      .then(() => restorePlatformRelaySessions({ authProvider: desktopAuthProvider(), liveSessions: liveTmuxSessionIds }))
+      .then(() => restorePlatformRelaySessions({ authProvider: desktopAuthProvider(), liveSessions: liveTmuxSessionIds, bootTasks: emdash.sessionBootTasks }))
       .catch((error: unknown) => createLogger('stable-endpoint').error({ err: error }, '认回重启前的平台会话失败'))
     // 开机重注册读名册,而名册的键名是 boot 里那段名字迁移改的(embedded-boot.ts runSessionNamingOnce):
     // 先读就读到旧键,一条也登记不上,冷会话从此唤不醒。所以和下面的收残一样排在 boot 之后。
@@ -6083,7 +6086,7 @@ app.whenReady().then(async () => {
     // #4277/#5025 重注册**不等**归属:真问一次归属要等渲染进程就绪(真机实测约 2.7s),让路由多等那 2.7s
     // 不值。所以先按老行为全注册,再在归属定下来之后把别家的行摘掉(见下)。
     sessionpageAgentRehydration = emdashBoot.then(() =>
-      registerExistingSessionpageAgents(process.env, { ownerUserId: null })
+      registerExistingSessionpageAgents(process.env, { ownerUserId: null, bootTasks: emdash.sessionBootTasks })
         .then((n) => {
           if (n > 0) console.log(`[sessionpage] re-registered ${n} persisted session-page agent binding(s)`)
         })
@@ -6097,7 +6100,7 @@ app.whenReady().then(async () => {
     // 补偿:归属一确定就把明确属于别的账号的行摘掉。不挂在路由的关键路径上。
     void sessionpageAgentRehydration
       .then(() => bootOwnerWithin(60_000))
-      .then((ownerUserId) => (ownerUserId ? unregisterForeignSessionpageAgents(process.env, ownerUserId) : 0))
+      .then((ownerUserId) => (ownerUserId ? unregisterForeignSessionpageAgents(process.env, ownerUserId, emdash.sessionBootTasks) : 0))
       .then((released) => {
         if (released > 0)
           createLogger('sessionpage/boot').info(
@@ -6120,7 +6123,8 @@ app.whenReady().then(async () => {
         // #4277 只扫当前账号(与老行)的 agent —— 别家的行这个账号拉不到,只会扫出一行 400。
         const roster = agentsForOwner(await listAgents(process.env), await bootOwnerWithin(60_000))
         for (const agent of roster) {
-          if (agent.gugu_user_id) kickInboxForAgent(agent.gugu_user_id, 'boot-scan')
+          const taskId = cacheString(agent.cache, SESSION_CACHE_KEY) ?? ''
+          if (agent.gugu_user_id) emdash.sessionBootTasks.runSync('inbox-wake', taskId, () => kickInboxForAgent(agent.gugu_user_id, 'boot-scan', taskId))
         }
       })
       .catch((err) => createLogger('agent-inbox').warn({ err: (err as Error).message }, 'boot scan skipped'))
@@ -6412,10 +6416,12 @@ app.whenReady().then(async () => {
     // #6264 同一份读数也是升级看门狗判「新版本站稳了没有」的依据(server-upgrade-guard.ts):带上自己的版本与起始时刻。
     const activityStartedAt = Date.now()
     const reportActivity = (): void => {
-      const busy = loadEmdashBridge()?.sessionpageBusyForVersionSwitch?.() ?? false
+      const activity = loadEmdashBridge()?.sessionpageVersionSwitchActivity?.()
       try {
         writeFileSync(activityFile, JSON.stringify({
-          busy,
+          busy: activity?.busy ?? false,
+          busyAgents: activity?.busyAgents,
+          bootFailures: loadEmdashBridge()?.sessionpageBootFailures(),
           at: Date.now(),
           version: process.env.GUGU_TASK_HOST_VERSION ?? null,
           pid: process.pid,

@@ -21,7 +21,7 @@ async function publishNative(args: Record<string, unknown>) {
 const cloudChatAttachment = async (endpoint: AttachmentsEndpoint, file: File, chatId: string, actor: string, requestId?: string, onPlan?: (plan: AttachmentUploadPlan) => void, retry = false, onProgress?: (progress: AttachmentByteProgress) => void): Promise<PreparedChatAttachment> => ({
   staging_key: await uploadAttachmentBytes(endpoint, { bytes: file, name: file.name || 'file', contentType: resolveFileMimeType(file) }, { chat_id: chatId, as: actor, ...(requestId ? { request_id: requestId } : {}) }, { onPlan, retry, onProgress }),
 })
-/** An image is uploaded when sent, also in a project chat that keeps its other files on the machine (file storage policy). */
+/** An image is uploaded when sent, also in a project chat whose other files stay on the machine that sends them. */
 export async function prepareChatAttachment(endpoint: AttachmentsEndpoint, file: File, scope: { chat_id: string; as: string; is_whisper?: boolean; request_id?: string }, onPlan?: (plan: AttachmentUploadPlan) => void, retry = false, onProgress?: (progress: AttachmentByteProgress) => void): Promise<PreparedChatAttachment> {
   const native = globalThis.window?.electronAPI
   if (native && !scope.is_whisper && !resolveFileMimeType(file).startsWith('image/') && await publishNative({ chatId: scope.chat_id }) === true) return { local: file }
@@ -34,7 +34,7 @@ export async function commitPreparedChatAttachment(endpoint: AttachmentsEndpoint
   // A pasted file is memory-backed and has no disk path: hand main its bytes instead.
   const path = window.electronAPI.getPathForFile(file), data = path ? undefined : await file.arrayBuffer()
   const row = await publishNative({ chatId: args.chat_id, file: { name: file.name, path, size: file.size, contentType: resolveFileMimeType(file), ...(data && { data }) }, message: args }) as { id: string; version: number; message?: Record<string, unknown> } | null
-  // A policy changed after planning: the same cloud provider must authorize any upload afresh.
+  // This account's file storage setting changed after planning: the same cloud provider must authorize any upload afresh.
   if (!row) return commitPreparedChatAttachment(endpoint, await cloudChatAttachment(endpoint, file, args.chat_id, args.sender_user_id), args)
   const message = row.message
   if (!message || message.id !== args.message_id || message.sender_user_id !== args.sender_user_id || message.chat_id !== args.chat_id || message.file_item_id !== row.id || message.file_version !== row.version) throw new Error('Project attachment was not committed')
