@@ -2,6 +2,7 @@
 //   会员 → 一键领取,住云上:交给管家开一台它的宿主,建它时带上引导里起的名字、选的形象和主人留的「称呼和基本信息」;
 //   非会员 → 装在这台电脑上:主进程先把它的家准备好(工作目录、说明、那条记忆),再走与「新建 agent」同一条链建它(member_key='assistant')。
 // 两条都带同一份初始化任务(@gugu/core/shared/assistantPolicy):建好它先开口。界面在 components/assistant/onboarding;手机也用这里。
+import { getLocaleSnapshot } from '@/i18n'
 import {
   ASSISTANT_CHILD_HARNESS,
   ASSISTANT_DEFAULT_MODEL,
@@ -66,7 +67,7 @@ function cleanDraft(draft: AssistantSetupDraft) {
 
 /** 会员一键领取:管家开它的宿主、在上面建它(要几分钟;进度看管家的 /state,界面在 CloudComputerProvisionPanel 那三步)。 */
 export async function claimCloudAssistant(draft: AssistantSetupDraft): Promise<void> {
-  await provisionCloudComputer({ assistant: cleanDraft(draft) })
+  await provisionCloudComputer({ assistant: { ...cleanDraft(draft), locale: getLocaleSnapshot().resolvedLocale } })
 }
 
 /** 助理的续建记录另放一份:❌ 被启动时「收掉没建完的单 agent」那一扫当成普通 agent 撤掉(见 createResumeStore)。 */
