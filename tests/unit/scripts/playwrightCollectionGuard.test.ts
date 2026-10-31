@@ -76,7 +76,7 @@ describe('Playwright collection guard', () => {
   })
 
   test('canonical config installs the guard', () => {
-    const config = readFileSync(join(repoRoot, 'playwright.config.ts'), 'utf8')
+    const config = readFileSync(join(repoRoot, 'playwright.config.mts'), 'utf8')
     expect(config).toContain("['./scripts/playwright-collection-guard.mts']")
   })
 })

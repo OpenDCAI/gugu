@@ -35,7 +35,7 @@ function fixtureRoot(): string {
 function playwrightRootOutsideCheckout(): string {
   const root = realpathSync(mkdtempSync(path.join(tmpdir(), 'gugu-ci-discovery-')))
   roots.push(root)
-  for (const file of ['playwright.config.ts', 'package.json']) copyFileSync(file, path.join(root, file))
+  for (const file of ['playwright.config.mts', 'package.json']) copyFileSync(file, path.join(root, file))
   for (const entry of ['node_modules', 'scripts', 'tsconfig.json', 'pnpm-workspace.yaml']) {
     symlinkSync(path.resolve(entry), path.join(root, entry))
   }

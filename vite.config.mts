@@ -283,7 +283,7 @@ const sessionMainVite: ElectronOptions['vite'] = {
 const sessionHostEnabled = process.env.GUGU_TASK_HOST !== '0'
 const sessionHostDevToken =
   process.env.GUGU_TASK_HOST_TOKEN ?? randomBytes(18).toString('base64url')
-// 端口与数据目录默认按 worktree 路径哈希(与 playwright.config.ts #1897 的 e2e 端口同一套办法):
+// 端口与数据目录默认按 worktree 路径哈希(与 playwright.config.mts #1897 的 e2e 端口同一套办法):
 // fleet 机器上几十个 worktree / 16 个 CI 槽并行起 dev:web,固定端口 + 共享 ~/.gugu-task-host
 // 会互相撞死(第二个宿主绑不上口 → 退出 → vite 跟着退)。显式 env 仍然优先。
 const sessionHostWorktreeHash = (() => {
