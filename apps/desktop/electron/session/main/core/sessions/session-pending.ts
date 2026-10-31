@@ -3,12 +3,13 @@ import type { Receipt, Seq } from '@gugu/core/local/session-life/types';
 import { db } from '@main/db/client';
 import { messages, sessionPending, sessionPendingSource, sessions } from '@main/db/schema';
 import type { LifeStore } from './session-life';
-import type { PendingRow, PendingSource } from './session-life-adapter';
+import type { PendingRow, PendingSource, PendingTurn } from './session-life-adapter';
 
 interface PendingMetadata {
   kind: string;
   delivery?: PendingRow['message']['delivery'];
   sources?: PendingSource[];
+  turn?: PendingTurn;
 }
 
 export interface EnqueuePending {
@@ -18,6 +19,7 @@ export interface EnqueuePending {
   readonly kind: PendingRow['kind'];
   readonly delivery?: PendingRow['message']['delivery'];
   readonly sources?: readonly PendingSource[];
+  readonly turn?: PendingTurn;
 }
 
 function metadata(raw: string | null): PendingMetadata {
@@ -29,7 +31,7 @@ function pendingRow(row: { pending: typeof sessionPending.$inferSelect; message:
   return { seq: row.pending.seq as Seq, sessionId: row.pending.sessionId, kind: row.pending.kind, state: row.pending.state,
     message: { id: row.message.id, text: row.message.content,
       ...(row.pending.kind === 'session-direct' ? { kind: 'session-direct' as const } : {}),
-      ...(meta.delivery ? { delivery: meta.delivery } : {}) }, sources: meta.sources ?? [] };
+      ...(meta.delivery ? { delivery: meta.delivery } : {}) }, sources: meta.sources ?? [], turn: meta.turn ?? { kind: 'prompt' } };
 }
 
 export function readPending(sessionId: string, seq: Seq): PendingRow {
@@ -69,7 +71,8 @@ export function enqueuePending(input: EnqueuePending): { inserted: boolean; seq:
     }
     if (!existingMessage) tx.insert(messages).values({ id: input.messageId, sessionId: input.sessionId, content: input.text, sender: 'user',
       metadata: JSON.stringify({ kind: input.kind === 'ordinary' ? 'ordinary-message' : input.kind,
-        ...(input.delivery ? { delivery: input.delivery } : {}), ...(input.sources ? { sources: input.sources } : {}) }) }).run();
+        ...(input.delivery ? { delivery: input.delivery } : {}), ...(input.sources ? { sources: input.sources } : {}),
+        ...(input.turn ? { turn: input.turn } : {}) }) }).run();
     const pending = tx.insert(sessionPending).values({ sessionId: input.sessionId, messageId: input.messageId, kind: input.kind, state: 'queued' }).returning().get();
     for (const source of input.sources ?? []) tx.insert(sessionPendingSource).values({ seq: pending.seq, sessionId: input.sessionId, sourceMessageId: source.messageId }).run();
     return { inserted: true, seq: pending.seq as Seq, state: pending.state };

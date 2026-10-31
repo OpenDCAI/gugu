@@ -547,12 +547,15 @@ describe('session timeline service', () => {
     expect(rootsOf().some((root) => root.startsWith('/conn/'))).toBe(false);
   });
 
-  it('从没开起来的会话(不论有没有记下原因码):发消息先按「再试一次」那条路起来,读选项不唤醒、报建时选的模型', async () => {
+  // Retargeted: ACP never-started sessions are now started by the delivery itself (session-life), not pre-started here.
+  it('从没开起来的 ACP 会话:发消息直接投递(投递自己把它起来),❌ 先走「再试一次」;读选项不唤醒、报建时选的模型', async () => {
     startCalls.length = 0;
     state.deliverText.mockResolvedValue({ accepted: 'started' });
     state.rows = [row({ providerSessionId: null, config: { type: 'acp', initialQueue: [{ text: 'hi' }] } })];
-    await service.send('conv-1', '在吗');
-    expect(startCalls).toEqual(['conv-1']);
+    expect(await service.send('conv-1', '在吗')).toEqual({ ok: true, value: { accepted: 'started' } });
+    expect(startCalls).toEqual([]);
+    expect(state.deliverText).toHaveBeenCalledTimes(1);
+    expect(state.deliverText.mock.calls[0]?.[1]).toBe('在吗');
     expect(await service.sessionOptions({ conversationId: 'conv-1' })).toEqual({
       ok: true,
       value: { mode: null, effort: null, model: { selected: 'platform:gpt-5', available: [{ id: 'platform:gpt-5', name: 'GPT-5' }] } },

@@ -7,6 +7,7 @@ import { createAssistantWorkAvailabilityNotifier } from '@gugu/core/cloud/assist
 import { registerFileViewerMenus } from './file-viewer-context-menu'
 import { registerContentContextMenus } from './content-context-menu'
 import { configuredEndpoint } from '@gugu/core/cloud/attachmentsApi'
+import { renderFirstTurn, type FirstTurnRender } from '@gugu/core/local/agent/firstTurnRender'
 import { createDesktopFileAccess } from './desktopFileAccess'
 import { createNativeFileHost, registerNativeFileIpc } from './nativeFileHost'
 import { uploadSessionFiles } from '@gugu/core/local/agent/sessionFileHandoff'
@@ -5167,7 +5168,7 @@ app.whenReady().then(async () => {
       /** gugu-dev#181 派任务:首句落成这个对话里的一张任务卡(task-card-first-turn.ts),❌ 进 agent 私聊。 */
       taskChatId?: string
       projectId: string
-    }): Promise<{ chatId: string; firstTurn: string; envelope: boolean }> => {
+    }): Promise<{ chatId: string; render: FirstTurnRender }> => {
       const content = input.text.trim()
       if (!content) {
         throw new Error(`chat-page first turn for ${input.sessionId} has no text`)
@@ -5197,20 +5198,14 @@ app.whenReady().then(async () => {
         auth.accessToken,
         process.env,
       )
-      const envelope = buildAgentDeliveryEnvelope(
-        {
-          guguUserId: input.guguAgentUserId,
-          chatId,
-          messageId: input.messageId,
-          senderUserId: auth.userId,
-          content,
-          replyTo: null,
-          threadRootId: null,
-        },
-        await envelopeSenderIdentities(auth.userId, auth.accessToken),
-        { publicId: null, name: null, kind: 'dm' },
-        formatDeliveryTimestamp(new Date().toISOString()),
-      )
+      // The row's own text is rendered later (renderFirstTurn); landing fixes the chat facts it renders with.
+      const render: FirstTurnRender = {
+        kind: 'envelope',
+        envelope: { guguUserId: input.guguAgentUserId, chatId, messageId: input.messageId, senderUserId: auth.userId, replyTo: null, threadRootId: null },
+        identities: await envelopeSenderIdentities(auth.userId, auth.accessToken),
+        chat: { publicId: null, name: null, kind: 'dm' },
+        timestamp: formatDeliveryTimestamp(new Date().toISOString()),
+      }
       const { error: messageError } = await makeChatClient(auth.accessToken).rpc('send_message_idempotent', {
         p_message_id: input.messageId,
         p_chat_id: chatId,
@@ -5230,7 +5225,7 @@ app.whenReady().then(async () => {
         p_user_id: input.guguAgentUserId,
       })
       if (readError) throw new Error(`chat-page initial message read mark failed: ${readError.message}`)
-      return { chatId, firstTurn: envelope, envelope: true }
+      return { chatId, render }
     }
     ipcMain.removeHandler(SESSION_SHELL_CHANNELS.ensureAgentAddress)
     handleShellChannel(SESSION_SHELL_CHANNELS.ensureAgentAddress, (_event, input: unknown) =>
@@ -5504,7 +5499,7 @@ app.whenReady().then(async () => {
             : {}),
         }
       }
-      let startupQueue: Array<{ text: string; origin: 'communication' | 'manual' }> | undefined
+      let firstTurn: FirstTurnRender | undefined
       let provisionedChatId = provisioned.chatId
       if (info.initialMessageId && !info.startupOrigin) {
         throw new Error(`startup first turn for ${info.sessionId} requires an explicit creation surface`)
@@ -5557,7 +5552,7 @@ app.whenReady().then(async () => {
           projectId: info.projectId,
         })
         provisionedChatId = delivered.chatId
-        startupQueue = [{ text: delivered.firstTurn, origin: delivered.envelope ? 'communication' : 'manual' }]
+        firstTurn = delivered.render
       }
       // #5323 能力注入这一段过去是个黑盒(真机实测 1.5 s,是 gugu 侧最大的一块)。逐步计时,
       // 才判得出哪一步真的必须挡在用户前面。
@@ -5728,7 +5723,7 @@ app.whenReady().then(async () => {
         return {
           mcpServers: mapped,
           extensionDelivery: sessionExtensionDelivery(bundle),
-          ...(startupQueue ? { initialQueue: startupQueue } : {}),
+          ...(firstTurn ? { firstTurn } : {}),
           spawnEnv: capabilities.spawnEnv,
           spawnArgs: capabilities.extraArgs,
           sessionMeta: capabilities.sessionNewPatch?.meta,
@@ -5970,7 +5965,8 @@ app.whenReady().then(async () => {
         taskChatId: request.taskChatId,
         projectId: request.projectId,
       })
-      return delivered.firstTurn
+      // The terminal leg is not in session-life yet (⑤): its first turn is rendered here, once.
+      return renderFirstTurn(request.text.trim(), delivered.render).text
     })
     // Dispose host-owned native inference transports whenever stopSession tears down the PTY.
     // A controlled platform restart uses this same boundary: the replacement must not reuse an

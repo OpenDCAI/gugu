@@ -5,7 +5,11 @@ import { openFixture } from '@tooling/utils/db';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AppDb } from '@main/db/client';
 
-const mocks = vi.hoisted(() => ({ db: undefined as AppDb | undefined }));
+const mocks = vi.hoisted(() => ({
+  db: undefined as AppDb | undefined,
+  // session-life owns ACP sessions; here only its enqueue boundary is observed.
+  enqueue: vi.fn((_input: Record<string, unknown>): { seq: number; state: string } => ({ seq: 1, state: 'queued' })),
+}));
 
 vi.mock('@main/db/client', () => ({
   get db() {
@@ -19,13 +23,18 @@ vi.mock('@gugu/session-plugins/agents', () => ({
 vi.mock('@main/core/projects/utils', () => ({ resolveSession: () => null }));
 vi.mock('@main/lib/logger', () => ({ log: { warn: vi.fn() } }));
 vi.mock('@main/lib/events', () => ({ events: { emit: vi.fn() } }));
+vi.mock('./session-life', () => ({ sessionLife: () => ({ enqueue: mocks.enqueue }) }));
 
 import {
   claimInterruptedDispatches,
+  drainAllSessionMessageOutboxes,
+  drainSessionMessageOutbox,
   sendMessage,
 } from './sendMessage';
 import { setSessionMessageRouter } from './session-message-router';
 
+// Retargeted to a PTY session (runtime null): the legacy SQLite outbox now serves only non-ACP sessions;
+// ACP sessions go to session-life's queue (covered by session-pending.db.test.ts and the owner cases).
 describe('conversation message SQLite outbox', () => {
   let fixture: Awaited<ReturnType<typeof openFixture>>;
   const target = {
@@ -44,13 +53,15 @@ describe('conversation message SQLite outbox', () => {
           'project-1',
           'Conversation',
           'codex',
-          'acp',
-          '{"version":"1","type":"acp"}'
+          NULL,
+          '{"version":"1","type":"pty"}'
         );
     `);
+    mocks.enqueue.mockClear();
   });
 
   afterEach(() => {
+    expect(mocks.enqueue, 'a non-ACP session never reaches session-life').not.toHaveBeenCalled();
     setSessionMessageRouter(null);
     fixture.close();
     mocks.db = undefined;
@@ -131,5 +142,78 @@ describe('conversation message SQLite outbox', () => {
     expect(fixture.sqlite
       .prepare('SELECT id FROM messages WHERE id IN (?, ?) ORDER BY id')
       .all('direct-1', 'direct-2')).toHaveLength(2);
+  });
+});
+
+describe('ACP sessions: sendMessage hands the message to session-life', () => {
+  let fixture: Awaited<ReturnType<typeof openFixture>>;
+  const target = { projectId: 'project-1', sessionId: 'acp-1' };
+  const router = vi.fn();
+  const outbox = () => fixture.sqlite
+    .prepare("SELECT json_extract(config, '$.messageOutbox') AS outbox FROM sessions WHERE id = ?")
+    .get(target.sessionId);
+
+  beforeEach(async () => {
+    fixture = await openFixture('empty');
+    mocks.db = fixture.db;
+    fixture.sqlite.exec(`
+      INSERT INTO projects (id, name, path) VALUES ('project-1', 'Project', '/repo');
+      INSERT INTO sessions (id, project_id, title, provider, runtime, config)
+        VALUES ('acp-1', 'project-1', 'Conversation', 'codex', 'acp', '{"version":"1","type":"acp"}');
+    `);
+    mocks.enqueue.mockReset();
+    router.mockReset();
+    setSessionMessageRouter(router);
+  });
+
+  afterEach(() => {
+    // The legacy transport and outbox never see an ACP message.
+    expect(router).not.toHaveBeenCalled();
+    expect(outbox()).toEqual({ outbox: null });
+    setSessionMessageRouter(null);
+    fixture.close();
+    mocks.db = undefined;
+  });
+
+  it('enqueues the exact message (id, text, kind, delivery) and nothing else', async () => {
+    mocks.enqueue.mockReturnValueOnce({ seq: 1, state: 'queued' });
+    const delivery = { queue: true as const, coalesceKey: 'session:caller:paper' };
+    await expect(sendMessage({ ...target, clientMessageId: 'm-1', text: 'paper 5', kind: 'session-direct', delivery }))
+      .resolves.toEqual({ id: 'm-1', status: 'queued' });
+    expect(mocks.enqueue).toHaveBeenCalledExactlyOnceWith({
+      sessionId: 'acp-1', messageId: 'm-1', text: 'paper 5', kind: 'session-direct', delivery,
+    });
+
+    mocks.enqueue.mockReturnValueOnce({ seq: 2, state: 'queued' });
+    await sendMessage({ ...target, clientMessageId: 'm-2', text: 'hello' });
+    expect(mocks.enqueue).toHaveBeenLastCalledWith({ sessionId: 'acp-1', messageId: 'm-2', text: 'hello', kind: 'ordinary' });
+    expect(fixture.sqlite.prepare('SELECT id FROM messages').all()).toEqual([]);
+  });
+
+  it.each([
+    ['queued', 'queued'],
+    ['dispatching', 'queued'],
+    ['accepted', 'delivered'],
+    ['unknown', 'outcome-unknown'],
+  ] as const)('maps a %s receipt to %s', async (state, status) => {
+    mocks.enqueue.mockReturnValueOnce({ seq: 1, state });
+    await expect(sendMessage({ ...target, clientMessageId: 'm', text: 'hi', kind: 'session-direct' }))
+      .resolves.toEqual({ id: 'm', status });
+  });
+
+  it('a message whose receipt already failed is a caller-visible failure', async () => {
+    mocks.enqueue.mockReturnValueOnce({ seq: 1, state: 'failed' });
+    await expect(sendMessage({ ...target, clientMessageId: 'm-failed', text: 'hi', kind: 'session-direct' }))
+      .rejects.toMatchObject({ code: 'SESSION_DIRECT_NOT_LIVE', message: expect.stringContaining('m-failed already failed') });
+  });
+
+  it('the legacy outbox refuses an ACP session and the boot sweep skips it', async () => {
+    await expect(drainSessionMessageOutbox(target)).rejects.toThrow('owned by session-life');
+    // A stale legacy row left on an ACP session is not replayed by the boot sweep.
+    fixture.sqlite.prepare("UPDATE sessions SET config = ? WHERE id = 'acp-1'")
+      .run(JSON.stringify({ version: '1', type: 'acp', messageOutbox: [{ id: 'stale', text: 'old', kind: 'ordinary', state: 'pending' }] }));
+    await expect(drainAllSessionMessageOutboxes()).resolves.toBeUndefined();
+    expect(JSON.parse((outbox() as { outbox: string }).outbox)).toEqual([{ id: 'stale', text: 'old', kind: 'ordinary', state: 'pending' }]);
+    fixture.sqlite.prepare("UPDATE sessions SET config = ? WHERE id = 'acp-1'").run('{"version":"1","type":"acp"}');
   });
 });

@@ -96,8 +96,8 @@ export type EmdashSessionCapabilityInjection = {
   sessionMeta?: Record<string, unknown>;
   /** 会话级系统提示词及其载体。见 {@link SessionPromptDelivery}。 */
   sessionPrompt?: SessionPromptDelivery;
-  /** Optional replacement for the renderer's bare startup queue after trusted envelope construction. */
-  initialQueue?: Array<{ text: string; hiddenContext?: string }>;
+  /** The first turn's gugu message has landed: how its pending row is written for the agent (renderFirstTurn). */
+  firstTurn?: import('@gugu/core/local/agent/firstTurnRender').FirstTurnRender;
   /** The provider adapter already included the selected platform model in its process config. */
   platformConfigured?: boolean;
   /** The platform model the adapter's process config pins (canonical id); present iff `platformConfigured`. */

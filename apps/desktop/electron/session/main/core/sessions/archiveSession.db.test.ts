@@ -21,6 +21,11 @@ const mocks = vi.hoisted(() => ({
   mounted: new Set<string>(),
   userData: '',
   getProject: vi.fn(),
+  // session-life owner of ACP sessions: archive/restore are asked of it, not of the ACP runtime client.
+  life: {
+    interrupt: vi.fn(async (_sessionId: string, _event: { k: 'interrupt'; reason: string }) => undefined),
+    restore: vi.fn((_sessionId: string) => undefined),
+  },
 }));
 
 vi.mock('electron', () => ({ app: { getPath: () => mocks.userData }, clipboard: {}, nativeImage: {} }));
@@ -28,13 +33,15 @@ vi.mock('electron', () => ({ app: { getPath: () => mocks.userData }, clipboard: 
 vi.mock('@/lib/myAssistant', () => ({ isMyAssistant: () => false }));
 
 vi.mock('./sendMessage', () => ({ drainSessionMessageOutbox: vi.fn(async () => undefined) }));
+vi.mock('./session-life', () => ({ sessionLife: () => mocks.life }));
 vi.mock('@main/db/client', () => ({
   get db() {
     if (!mocks.db) throw new Error('Test database not initialized');
     return mocks.db;
   },
 }));
-// 停 runtime 与收 tmux 不是这一层的命题:这里量的是「哪些行被动了」。
+// 停 runtime 与收 tmux 不是这一层的命题:这里量的是「哪些行被动了」。ACP 归档不再直接停 runtime(交给 session-life),
+// 这里记下的直接停应当始终为空。
 vi.mock('@main/core/acp/controller', () => ({
   getAcpRuntimeClient: async () => ({
     stopSession: async ({ sessionId }: { sessionId: string }) => {
@@ -79,7 +86,17 @@ const { events } = await import('@main/lib/events');
 const { sessionCreatedChannel } = await import('@shared/core/sessions/sessionEvents');
 const { sessionEvents } = await import('./session-events');
 
-beforeEach(async () => { mocks.userData = await mkdtemp(join(tmpdir(), 'gugu-agent-delete-files-')); });
+beforeEach(async () => {
+  mocks.userData = await mkdtemp(join(tmpdir(), 'gugu-agent-delete-files-'));
+  mocks.life.interrupt.mockReset();
+  mocks.life.interrupt.mockResolvedValue(undefined);
+  mocks.life.restore.mockReset();
+});
+/** Sessions session-life was asked to archive, in call order (every interrupt here must carry reason 'archive'). */
+const archivedByLife = () => mocks.life.interrupt.mock.calls.map(([sessionId, event]) => {
+  expect(event).toEqual({ k: 'interrupt', reason: 'archive' });
+  return sessionId;
+});
 afterEach(async () => { await rm(mocks.userData, { recursive: true, force: true }); });
 
 describe('archiveSession', () => {
@@ -298,7 +315,8 @@ describe('archiveSession', () => {
     expect(archivedAt('the-fork')).not.toBeNull();
     // 阴控落在这一行:#5413 之前归档落在容器上,于是来源会话跟着从列表消失。
     expect(archivedAt('origin')).toBeNull();
-    expect(mocks.stopped).toEqual(['the-fork']);
+    expect(archivedByLife()).toEqual(['the-fork']);
+    expect(mocks.stopped).toEqual([]);
   });
 
   it('归档 spawn 出来的子会话,父会话原样留下', async () => {
@@ -335,7 +353,9 @@ describe('archiveSession', () => {
     expect(archivedAt('child')).not.toBeNull();
     expect(archivedAt('grandchild')).not.toBeNull();
     expect(archivedAt('bystander')).toBeNull();
-    expect(mocks.stopped.sort()).toEqual(['child', 'grandchild', 'parent']);
+    // ACP runtime 全停 = 每一条都由 session-life 的 archive 迁移停下。
+    expect(archivedByLife().sort()).toEqual(['child', 'grandchild', 'parent']);
+    expect(mocks.stopped).toEqual([]);
   });
 
   // owner 2026-10-08:子会话 = 挂在你下面的。派出去但没挂(nest:false)的是给人用的,不跟着收;
@@ -372,17 +392,51 @@ describe('archiveSession', () => {
 
     expect(archivedAt('mounted')).not.toBeNull();
     expect(mocks.teardown).toHaveBeenCalledWith('mounted', 'archive');
+    // ACP 腿由 session-life 的 archive 迁移停下(恰一次),挂载外不另停 runtime。
+    expect(archivedByLife()).toEqual(['mounted']);
     expect(mocks.stopped).toEqual([]);
+  });
+
+  it('ACP:先让 session-life 归档(拒收后续投递、结掉排队的),归档标记随后才落', async () => {
+    insertSession('acp-task');
+    mocks.life.interrupt.mockImplementationOnce(async (sessionId) => {
+      expect(archivedAt(sessionId)).toBeNull();
+    });
+
+    await archiveSession('p1', 'acp-task');
+
+    expect(archivedByLife()).toEqual(['acp-task']);
+    expect(archivedAt('acp-task')).not.toBeNull();
+  });
+
+  it('ACP:session-life 归档失败就不落归档标记,失败原样抛出', async () => {
+    insertSession('acp-refused');
+    mocks.life.interrupt.mockRejectedValueOnce(new Error('archive transition failed'));
+
+    await expect(archiveSession('p1', 'acp-refused')).rejects.toThrow('archive transition failed');
+
+    expect(archivedAt('acp-refused')).toBeNull();
+  });
+
+  it('非 ACP 会话不经 session-life 归档', async () => {
+    fixture.sqlite.prepare(`INSERT INTO sessions (id, project_id, title, runtime) VALUES ('pty-task', 'p1', 'pty-task', NULL)`).run();
+
+    await archiveSession('p1', 'pty-task');
+
+    expect(archivedAt('pty-task')).not.toBeNull();
+    expect(mocks.life.interrupt).not.toHaveBeenCalled();
   });
 
   it('已经归档过的会话再归档是空动作,不会二次停 runtime', async () => {
     insertSession('a');
     insertSession('b');
     await archiveSession('p1', 'a');
-    mocks.stopped = [];
+    expect(archivedByLife()).toEqual(['a']);
+    mocks.life.interrupt.mockClear();
 
     await archiveSession('p1', 'a');
 
+    expect(mocks.life.interrupt).not.toHaveBeenCalled();
     expect(mocks.stopped).toEqual([]);
   });
 
@@ -511,12 +565,12 @@ describe('restoreSession(内部接口,UI 上没有入口)', () => {
     mocks.db = undefined;
   });
 
-  const insert = (id: string) =>
+  const insert = (id: string, runtime: 'acp' | null = 'acp') =>
     fixture.sqlite
       .prepare(
-        `INSERT INTO sessions (id, project_id, title, runtime) VALUES (?, 'p1', ?, 'acp')`
+        `INSERT INTO sessions (id, project_id, title, runtime) VALUES (?, 'p1', ?, ?)`
       )
-      .run(id, id);
+      .run(id, id, runtime);
   const archivedAt = (id: string) =>
     (fixture.sqlite.prepare(`SELECT archived_at FROM sessions WHERE id = ?`).get(id) as {
       archived_at: string | null
@@ -745,8 +799,9 @@ describe('restoreSession(内部接口,UI 上没有入口)', () => {
       session: expect.objectContaining({ id: 'a', archivedAt: null }),
     });
   });
+  // Retargeted to PTY (runtime null): the legacy outbox drain on restore now applies only to non-ACP sessions.
   it('drains only the restored task once after releasing its archival lock', async () => {
-    insert('restore-owner'); insert('other-owner');
+    insert('restore-owner', null); insert('other-owner', null);
     await archiveSession('p1', 'restore-owner');
     vi.mocked(drainSessionMessageOutbox).mockClear();
     vi.mocked(drainSessionMessageOutbox).mockImplementationOnce(async () => {
@@ -755,6 +810,18 @@ describe('restoreSession(内部接口,UI 上没有入口)', () => {
     });
     await restoreSession('p1', 'restore-owner');
     expect(drainSessionMessageOutbox).toHaveBeenCalledExactlyOnceWith({ projectId: 'p1', sessionId: 'restore-owner' });
+    expect(mocks.life.restore).not.toHaveBeenCalled();
+  });
+
+  it('ACP restore hands the session back to session-life (dormant, not started) and never drains the legacy outbox', async () => {
+    insert('acp-restore'); insert('acp-other');
+    await archiveSession('p1', 'acp-restore');
+    vi.mocked(drainSessionMessageOutbox).mockClear();
+
+    await expect(restoreSession('p1', 'acp-restore')).resolves.toMatchObject({ id: 'acp-restore', archivedAt: null });
+
+    expect(mocks.life.restore).toHaveBeenCalledExactlyOnceWith('acp-restore');
+    expect(drainSessionMessageOutbox).not.toHaveBeenCalled();
   });
 
 });

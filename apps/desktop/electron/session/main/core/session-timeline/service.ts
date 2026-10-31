@@ -1341,12 +1341,7 @@ export async function send(
   }
   // 还没开起来的会话(建的时候 agent 没起来,#6264):先按「再试一次」同一条路把它起来 —— 第一句话随之投递 ——
   // 再发这一句。❌ 直接唤醒:唤醒不带第一句,agent 会只看到后来这一句。
-  // ACP: the delivery itself starts a dormant session (session-life row 1); only other runtimes start first.
-  if (row.runtime !== 'acp' && await neverStarted(row)) {
-    const { startSession } = await import('./create-session');
-    const started = await startSession(conversationId);
-    if (!started.ok) return fail(started.error.code, started.error.message);
-  }
+  // A never-started session is ACP only (neverStarted), and its delivery itself starts it (session-life row 1).
   try {
     const accepted = await deliverSessionText(writeTargetFrom(row), text, clientMessageId, attachments);
     return { ok: true, value: { ...accepted, ...(clientMessageId ? { clientMessageId } : {}) } };

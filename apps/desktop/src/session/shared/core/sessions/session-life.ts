@@ -14,4 +14,6 @@ export interface LifeView {
   /** at = the failed startup stage; null = an effect fault outside any stage. */
   readonly failure: { readonly at: StageName | null; readonly message: string } | null;
   readonly lastExit: string | null;
+  /** Only for an attempt started by a reconfigure: did it continue the provider session or start a new one. */
+  readonly nativeSession: 'preserved' | 'replaced' | null;
 }

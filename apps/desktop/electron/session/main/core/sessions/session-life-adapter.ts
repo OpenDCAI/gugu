@@ -12,6 +12,13 @@ export interface PendingSource {
   readonly forum?: { readonly postId: string; readonly seq: number };
 }
 
+/** How a row is written for the agent: a fact of the row itself, set at enqueue. */
+export type PendingTurn =
+  | Readonly<{ kind: 'prompt'; origin?: 'manual' | 'typed' | 'communication'; hiddenContext?: string }>
+  // The first turn of a chat-page / dispatched task: its gugu message lands in the capabilities stage and the
+  // row's text is rendered through renderFirstTurn at dispatch.
+  | Readonly<{ kind: 'chat-page-first-turn' }>;
+
 export interface PendingRow {
   readonly seq: import('@gugu/core/local/session-life/types').Seq;
   readonly sessionId: string;
@@ -19,6 +26,7 @@ export interface PendingRow {
   readonly state: 'queued' | 'dispatching' | 'accepted' | 'failed' | 'unknown';
   readonly message: SessionMessage & { readonly delivery?: SessionMessageDelivery };
   readonly sources: readonly PendingSource[];
+  readonly turn: PendingTurn;
 }
 
 export interface LegAdapter {

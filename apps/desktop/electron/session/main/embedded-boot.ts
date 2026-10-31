@@ -361,6 +361,7 @@ import {
 import { log } from '@main/lib/logger'
 import { events } from '@main/lib/events'
 import { installSessionLife, sessionLife } from '@main/core/sessions/session-life'
+import { admitCreationTurns } from '@main/core/sessions/session-life-creation'
 import { lifeStore } from '@main/core/sessions/session-pending'
 import { sessionLifeSources } from '@main/core/sessions/session-life-host'
 import { createAcpLegAdapter } from '@main/core/acp/session-life-acp'
@@ -493,9 +494,9 @@ export async function bootSessionHostCore(options: SessionHostBootOptions): Prom
       .from(sessions)
       .where(eq(sessions.id, sessionId))
       .limit(1)
-    if (row?.runtime !== 'acp') return
-    // session-life owns the stop (an archive repeated on an archived session changes nothing).
-    await sessionLife().interrupt(sessionId, { k: 'interrupt', reason: mode === 'archive' ? 'archive' : 'user-stop' })
+    // Archive already went through session-life (archiveOneLocked) before the workspace is torn down.
+    if (row?.runtime !== 'acp' || mode === 'archive') return
+    await sessionLife().interrupt(sessionId, { k: 'interrupt', reason: 'user-stop' })
   })
 
   // --- The half of the bridge that acts (#2374). Installed here rather than beside the attach
@@ -1105,7 +1106,7 @@ export function acpStartInputFor(
  * `sourceChangeSession=replace` 起了一条新的原生会话(咕咕这边的对话记录仍在,harness 自己的上下文从零开始)。
  * `not-started` = 这条会话从没起来过(#7092):只把新选择落进了记录,没停也没起 —— 调用方按正常首启起它。
  */
-export type ReloadNativeSession = 'preserved' | 'replaced' | 'not-started'
+export type ReloadNativeSession = 'issued' | 'preserved' | 'replaced' | 'not-started'
 
 /**
  * 重载一条活着的 ACP 会话 —— **换掉会话级注入,但保住这条会话的历史**。
@@ -1477,18 +1478,13 @@ export async function reloadEmdashSession(input: {
     }
   }
 
-  const client = await getAcpRuntimeClient()
-  // 停之前先记下这条会话此刻attach的适配器进程 —— 重载的真判据是**进程换没换**,见下面那段。
-  const before = await client.adapterProvenance({ sessionId })
-  const stopped = await client.stopSession({ sessionId })
-  // 停不下来就别往下走:接着 start 会撞上一个还活着的适配器进程,而它手里是**旧**凭据 ——
-  // 那正是「界面写着新模型、实际跑旧的」那类静默错。
-  if (!stopped.success) {
-    const message = `could not be stopped for reload (${reason}): ${JSON.stringify(stopped)}`
-    throw new Error(
-      `session ${sessionId} ${message}`
-      + await restoreConfig(message),
-    )
+  // session-life reconfigures (contract v3.1 #13): stop without a barrier, patch the record, start again. The
+  // attempt's channel reports preserved/replaced in the LifeView; this call returns once the reload is issued.
+  const life = sessionLife()
+  await life.interrupt(sessionId, { k: 'interrupt', reason: 'reconfigure' })
+  if (life.read(sessionId).kind === 'failed') {
+    const message = `could not be stopped for reload (${reason})`
+    throw new Error(`session ${sessionId} ${message}` + await restoreConfig(message))
   }
   if (sourceChanged) {
     // Clear transient provider state before the source-change reload. The descriptor decides
@@ -1541,78 +1537,7 @@ export async function reloadEmdashSession(input: {
       + await restoreConfig(message),
     )
   }
-  /**
-   * ⚠️ **抛与「返回失败」都要回滚** —— 这两种起不来长得完全不一样,而我只挡了后一种。
-   *
-   * 2026-09-07 隔离栈阴性控实撞:把一个**没有渠道分组**的模型上架,重开时服务端在**铸令牌那一步**
-   * 就拒了(「refusing to mint a session token that would land in a group with no channel」)——
-   * 那是 `startSession` **抛异常**,不是返回 `{success:false}`。于是我的回滚整段被跳过,
-   * 会话记录停在 `glm-4.5` 上 —— 正是这个回滚存在的理由本身。
-   *
-   * ⇒ 把「写完记录之后、确认新会话跑起来之前」整段包住:任何一条出口都先把记录放回去再抛。
-   */
-  let result: Awaited<ReturnType<typeof client.startSession>>
-  try {
-    result = await client.startSession({
-      input: acpStartInputFor(fresh, mounted.workspaceId, workspace.path),
-    })
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
-    const restored = await restoreConfig(message)
-    throw new Error(
-      `session ${sessionId} failed to reload (${reason}): `
-      + `${message}${restored}`,
-    )
-  }
-  if (!result.success) {
-    throw new Error(
-      `session ${sessionId} failed to reload (${reason}): ${JSON.stringify(result)}`
-      + await restoreConfig(JSON.stringify(result)),
-    )
-  }
-  // A restart normally succeeds only when the provider returns the same session id that was loaded.
-  // Providers that declare sourceChangeSession=replace intentionally start a new native session
-  // when the billing route changes; the host transcript remains the durable history for that path.
-  const expectedProviderSessionId = providerSessionId
-  if (result.data.providerSessionId !== expectedProviderSessionId && !(sourceChanged && sourceChangeSession === 'replace')) {
-    const message = `provider resume returned a different session (asked ${expectedProviderSessionId}, got ${result.data.providerSessionId})`
-    throw new Error(
-      `session ${sessionId} failed to reload (${reason}): ${message}`
-      + await restoreConfig(message),
-    )
-  }
-  /**
-   * 进程真的换了吗 —— 这是重载**唯一**够格的判据。
-   *
-   * 每条 conversation 的 `makeAcpConnectionKey` 都含有会话 id，同工作区的兄弟会话不会共用
-   * adapter。这里仍对**进程身份**取证，以便重载明确证明新进程已建立，而不是只依赖返回的 session id。
-   * 拿不到 pid(平台不给)时不假装判过 —— 那种情况下这条判据不成立,交给上面那道 sessionId 判据。
-   */
-  const after = await client.adapterProvenance({ sessionId })
-  if (
-    before && after
-    && before.pid !== null && after.pid !== null
-    && before.pid === after.pid
-  ) {
-    if (before.connectionKey === after.connectionKey) {
-      // 进程没换 = 新的会话级注入一个字节都没到达 ⇒ 记录里那个新选择**没有生效**,
-      // 留着它只会让下一次启动带着一个从没跑过的配置。⇒ 与「起不来」同一处置:先放回去再抛。
-      const message = `reload (${reason}) reused the SAME adapter process`
-      const restored = await restoreConfig(message)
-      throw new Error(
-        `session ${sessionId} reload (${reason}) reused the SAME adapter process `
-        + `(pid ${after.pid}, connection ${after.connectionKey}) —— 新的会话级注入一个字节都没到达。`
-        + '这条会话与同工作区的另一条会话共用一个适配器进程,停掉自己那一份租约不会让进程重启。'
-        + '请检查这条会话的 adapter ownership 后再重试。'
-        + restored,
-      )
-    }
-    throw new Error(
-      `session ${sessionId} reload (${reason}) kept pid ${after.pid} across two `
-      + `different connections (${before.connectionKey} → ${after.connectionKey}) —— 这不是正常的会话重载,`
-      + '而是一个进程被两条连接同时认领,属于另一类事故,❌ 不要按「重载失败」重试。',
-    )
-  }
+  life.start(sessionId, 'reconfigure')
   const currentConfigRows = await db.select({ config: sessions.config })
     .from(sessions).where(eq(sessions.id, sessionId))
   const currentConfig = currentConfigRows[0]?.config
@@ -1621,7 +1546,7 @@ export async function reloadEmdashSession(input: {
     await db.update(sessions).set({ config: cleanConfig }).where(eq(sessions.id, sessionId))
   }
   if (input.resetModel) await recordReportedDefaultModel(sessionId, platformBefore ?? null)
-  return { nativeSession: result.data.providerSessionId === expectedProviderSessionId ? 'preserved' : 'replaced' }
+  return { nativeSession: 'issued' }
 }
 
 /**
@@ -1779,6 +1704,8 @@ function reloadOutcome(reloaded: { warning?: string; nativeSession: ReloadNative
 } {
   const warning = reloaded.warning ? { warning: reloaded.warning } : {}
   if (reloaded.nativeSession === 'not-started') return { applied: 'next-session', ...warning }
+  // ACP: issued; its preserved/replaced arrives as the attempt's LifeView fact once the channel is up.
+  if (reloaded.nativeSession === 'issued') return { applied: 'reload', ...warning }
   return { applied: 'reload', nativeSession: reloaded.nativeSession, ...warning }
 }
 
@@ -1941,9 +1868,8 @@ export async function startSessionpageAgentSession(
       `agent.create ${provider} received an initial prompt but does not declare an argv/stdin startup channel`,
     )
   }
-  let runtimeStartedByAttempt = false
   const cleanup = () => rollbackAgentSessionStartup({
-    projectId: project.id, sessionId, created: !existing, started: runtimeStartedByAttempt,
+    projectId: project.id, sessionId, created: !existing, started: false,
   })
   try {
     throwIfAborted()
@@ -1985,36 +1911,15 @@ export async function startSessionpageAgentSession(
     mark('identity-provisioned')
     // 在首轮跑起来之前记下:首轮里就可能开子 agent。
     if (childHarness) await recordChildHarnessDefault(provisioned.guguAgentUserId, childHarness)
-    if (existing && await acpSessionLive(session.id)) {
-      throwIfAborted()
-      return { ...provisioned, sessionId: session.id, projectId: project.id }
-    }
-    runtimeStartedByAttempt = true
-    const startPromise = (await getAcpRuntimeClient()).startSession({
-      input: {
-        ...acpStartInputFor(session, workspaceId, mounted.sessionPath),
-        ...(!session.providerSessionId && input.initialPrompt ? { initialQueue: [{ text: input.initialPrompt, origin: 'communication' as const }] } : {}),
-      },
-    })
-    let removeAbortListener: () => void = () => undefined
-    const abortPromise = new Promise<never>((_, reject) => {
-      const onAbort = () => {
-        reject(signal.reason ?? new Error('session-page agent session start aborted'))
-      }
-      if (signal.aborted) onAbort()
-      else {
-        signal.addEventListener('abort', onAbort, { once: true })
-        removeAbortListener = () => signal.removeEventListener('abort', onAbort)
-      }
-    })
-    let result: Awaited<typeof startPromise>
-    try {
-      result = await Promise.race([startPromise, abortPromise])
-    } finally {
-      removeAbortListener()
-    }
-    if (!result.success) throw new Error(result.error.message ?? result.error.type)
-    mark('runtime-started')
+    // The identity is bound above as part of creation; session-life starts the session from here and its LifeView
+    // tells whether the start succeeded. The command answers now with the identity it was given.
+    if (!existing) {
+      admitCreationTurns({ ...session, initialQueue: input.initialPrompt ? [{ text: input.initialPrompt, origin: 'communication' }] : undefined })
+    } else if (input.initialPrompt && !session.providerSessionId) {
+      sessionLife().enqueue({ sessionId: session.id, messageId: `${session.id}:agent-create:${randomUUID()}`, text: input.initialPrompt,
+        kind: 'ordinary', turn: { kind: 'prompt', origin: 'communication' } })
+    } else sessionLife().start(session.id, 'user-open')
+    mark('life-admitted')
     return { ...provisioned, sessionId: session.id, projectId: project.id }
   } catch (error) {
     agentSessionLog.error(

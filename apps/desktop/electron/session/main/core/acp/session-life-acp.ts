@@ -17,6 +17,8 @@ import {
   withEmdashPlatformInjection, withHostResolvedCli,
 } from './runtime-process/host';
 import { resumeHistoryFacts } from './runtime-process/resume-history';
+import { renderFirstTurn } from '@gugu/core/local/agent/firstTurnRender';
+import { lifeStore } from '../sessions/session-pending';
 import { log } from '@main/lib/logger';
 import { persistAcpStartResult } from './runtime-process/session-persistence-policy';
 
@@ -70,13 +72,13 @@ export function createAcpLegAdapter(sessionId: string): LegAdapter {
   async function startInput(workspace: Workspace): Promise<StartInput> {
     const { acpStartInputFor } = await import('@main/embedded-boot');
     const session = known();
-    // Not yet claimed by a first start: the creation queue and a pending persistent fork ride on it.
+    // Not yet claimed by a first start: a pending persistent fork rides on it. The creation turns are pending
+    // rows (one queue), never part of the start.
     const unclaimed = session.providerSessionId == null;
     return {
       input: {
         ...acpStartInputFor(session, workspace.workspaceId, workspace.path),
         ...(unclaimed && session.forkFromProviderSessionId ? { forkFromProviderSessionId: session.forkFromProviderSessionId } : {}),
-        ...(unclaimed && session.initialQueue?.length ? { initialQueue: session.initialQueue } : {}),
       },
     } as StartInput;
   }
@@ -104,7 +106,9 @@ export function createAcpLegAdapter(sessionId: string): LegAdapter {
     async capabilities(have): Promise<CapabilityGrant> {
       if (!facts) throw new Error('ACP capabilities ran before identity');
       const command = await startInput(read<Workspace>(have.workspace));
-      const injection = await withEmdashMcpInjection(command, lifecycleOf(known()), facts, identity);
+      // The injector lands a still-queued first turn's gugu message; it only needs that row's text.
+      const firstTurn = lifeStore.rows(sessionId).find(row => row.turn.kind === 'chat-page-first-turn' && row.state === 'queued');
+      const injection = await withEmdashMcpInjection(command, lifecycleOf(known()), facts, identity, firstTurn?.message.text);
       return lease<Capabilities>({ injection, facts }) as CapabilityGrant;
     },
     async platform(have): Promise<PlatformTicket> {
@@ -137,7 +141,9 @@ export function createAcpLegAdapter(sessionId: string): LegAdapter {
         restoreHumanToolResults(sessionId, command.input.projectId, true))
         .catch(error => log.error('Human tool results could not resume', { sessionId, error: String(error) }));
       void persistSessionMcpServers(sessionId, command.input.providerId, command.input.cwd, f.mcpDisabledServers, injection.extensionDelivery);
-      return lease({ gen, timing: 'next-tool-call' }) as AdmittedChannel;
+      const previous = known().providerSessionId ?? null;
+      const nativeSession = previous === null ? null : result.data.providerSessionId === previous ? 'preserved' : 'replaced';
+      return lease({ gen, timing: 'next-tool-call', nativeSession }) as AdmittedChannel;
     },
   };
 
@@ -148,14 +154,30 @@ export function createAcpLegAdapter(sessionId: string): LegAdapter {
       ctx.signal.throwIfAborted();
       return (stages[at] as (have: unknown, signal: AbortSignal, gen: Gen) => Promise<StageOut[typeof at]>)(have, ctx.signal, ctx.gen);
     },
-    async dispatch(_have, pending) {
+    async dispatch(have, pending) {
       const delivery = pending.message.delivery;
-      // The row carries the sender's delivery choice; an envelope's own origin is still read from its text.
-      const sent = await injectEmdashPromptDetached(sessionId, pending.message.text, {
-        ...(delivery?.origin ? { origin: delivery.origin } : {}),
-        ...(delivery?.coalesceKey ? { coalesceKey: delivery.coalesceKey } : {}),
-        ...(delivery?.attachments?.length ? { attachments: delivery.attachments } : {}),
-      });
+      const attachments = delivery?.attachments?.length ? { attachments: delivery.attachments } : {};
+      let sent: Awaited<ReturnType<typeof injectEmdashPromptDetached>>;
+      switch (pending.turn.kind) {
+        case 'prompt': {
+          // The row carries the sender's choice; an envelope's own origin is still read from its text.
+          const origin = pending.turn.origin ?? delivery?.origin;
+          sent = await injectEmdashPromptDetached(sessionId, pending.message.text, {
+            ...(origin ? { origin } : {}),
+            ...(pending.turn.hiddenContext ? { hiddenContext: pending.turn.hiddenContext } : {}),
+            ...(delivery?.coalesceKey ? { coalesceKey: delivery.coalesceKey } : {}),
+            ...attachments,
+          });
+          break;
+        }
+        case 'chat-page-first-turn': {
+          const render = read<Capabilities>(have.capabilities).injection.firstTurn;
+          if (!render) throw new Error(`Session ${sessionId}: the first turn's gugu message did not land in this attempt`);
+          const turn = renderFirstTurn(pending.message.text, render);
+          sent = await injectEmdashPromptDetached(sessionId, turn.text, { origin: turn.origin, ...attachments });
+          break;
+        }
+      }
       if (sent.outcome === 'declined' || sent.outcome === 'missing') {
         return { result: 'rejected-before-admission', cause: { name: 'AdmissionDeclined', message: `The ACP runtime ${sent.outcome === 'missing' ? 'has no such session' : 'declined the prompt'}` } };
       }

@@ -5,6 +5,7 @@ import { events } from '@main/lib/events';
 import { sessionChangedChannel } from '@shared/core/sessions/sessionEvents';
 import { viewStateService } from '../view-state/view-state-service';
 import { archiveOneLocked } from './archiveSession';
+import { sessionLife } from './session-life';
 import { serializeSessionArchival } from './session-archival';
 import { deleteSessionAttachmentFiles } from './attachments/session-attachment-store';
 import { tombstoneDeletedSession } from './fork-capture';
@@ -22,7 +23,10 @@ export async function permanentlyDeleteAgentSession(sessionId: string): Promise<
     tombstoneDeletedSession([sessionId, row.providerSessionId]);
     // Hold the same lock through stop, file cleanup and deletion; Restore cannot interleave.
     try {
-      await archiveOneLocked(row.projectId, sessionId, false);
+      // ACP: session-life's delete stops the run, ends its dependents and removes the row; nothing is left to
+      // archive. Other runtimes archive first as before.
+      if (row.runtime === 'acp') await sessionLife().interrupt(sessionId, { k: 'interrupt', reason: 'delete' });
+      else await archiveOneLocked(row.projectId, sessionId, false);
     } finally {
       try {
         // Read owned file paths before their rows cascade away. User references stay untouched.

@@ -21,7 +21,8 @@ export type CapabilityGrant = Brand<object, 'CapabilityGrant'> | None
 export type PlatformTicket = Brand<object, 'PlatformTicket'> | None
 export type ResolvedCli = Brand<object, 'ResolvedCli'> | None
 export type ProcessLease = Brand<object, 'ProcessLease'>
-export type AdmittedChannel = Brand<Readonly<{ gen: Gen; timing: Timing }>, 'AdmittedChannel'>
+// nativeSession: this attempt continued the previous provider session or got a new one (null on a first start).
+export type AdmittedChannel = Brand<Readonly<{ gen: Gen; timing: Timing; nativeSession: 'preserved' | 'replaced' | null }>, 'AdmittedChannel'>
 
 export interface StageOut {
   readonly identity: BoundIdentity
@@ -87,7 +88,7 @@ export type Receipt =
   | Readonly<{ state: 'failed'; cause: SerializedError }>
   | Readonly<{ state: 'unknown' }>
 
-export type Interrupt = 'user-stop' | 'archive' | 'delete' | 'sign-out' | 'version-switch' | 'idle-reap'
+export type Interrupt = 'user-stop' | 'archive' | 'delete' | 'sign-out' | 'version-switch' | 'idle-reap' | 'reconfigure'
 export type InterruptEvent =
   | Readonly<{ k: 'interrupt'; reason: Exclude<Interrupt, 'sign-out'> }>
   | Readonly<{ k: 'interrupt'; reason: 'sign-out'; ownerUserId: string }>
@@ -97,7 +98,7 @@ export type ReceiptEvent = Readonly<{ k: 'receipt'; gen: Gen; seq: Seq }> & (
 )
 export type Event =
   | Readonly<{ k: 'deliver'; seq: Seq }>
-  | Readonly<{ k: 'start'; origin: 'user-open' | 'retry' }>
+  | Readonly<{ k: 'start'; origin: 'user-open' | 'retry' | 'reconfigure' }>
   | Readonly<{ k: 'stage-ok'; gen: Gen; out: StageResult }>
   | Readonly<{ k: 'stage-fail'; gen: Gen; at: StageName; cause: SerializedError }>
   | ReceiptEvent

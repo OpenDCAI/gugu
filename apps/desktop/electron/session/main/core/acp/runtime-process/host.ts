@@ -387,6 +387,7 @@ export async function withEmdashMcpInjection<T extends { input: { sessionId: str
   lifecycle: 'fresh' | 'fork' | 'resume',
   facts: SessionInjectionFacts,
   identity: EmdashSessionIdentity | null,
+  firstTurnText?: string,
 ): Promise<{
   command: T;
   mcpServers?: EmdashSessionCapabilityInjection['mcpServers'];
@@ -398,6 +399,7 @@ export async function withEmdashMcpInjection<T extends { input: { sessionId: str
   platformModel?: string;
   platformAccessSessionId?: string;
   extensionDelivery?: SessionExtensionDelivery;
+  firstTurn?: EmdashSessionCapabilityInjection['firstTurn'];
 }> {
   const injector = getEmdashMcpInjector();
   // ⚠️ 档位必须在**调注入器之前**解析：会话包是在 spawn 那一刻物化的，晚一步递过去
@@ -433,7 +435,7 @@ export async function withEmdashMcpInjection<T extends { input: { sessionId: str
     startupOrigin: input.input.startupOrigin,
     initialMessageId: input.input.initialMessageId,
     taskChatId: input.input.taskChatId,
-    initialMessageText: input.input.initialQueue?.[0]?.text,
+    initialMessageText: firstTurnText,
     // @@@5004 行上有没有 provider session 是「首次 spawn / 重来」与「重开」的分水岭;注入器据此判
     // 「sessionId 为空却没带首句载荷」这种不一致,❌ 不再拿 lifecycle=fresh 当首次 spawn 用。
     //
@@ -459,9 +461,9 @@ export async function withEmdashMcpInjection<T extends { input: { sessionId: str
       input: {
         ...input.input,
         permissionMode,
-        ...(injection.initialQueue ? { initialQueue: injection.initialQueue } : {}),
       },
     },
+    firstTurn: injection.firstTurn,
     mcpServers: injection.mcpServers,
     capabilitySpawnEnv: injection.spawnEnv,
     capabilitySpawnArgs: injection.spawnArgs,

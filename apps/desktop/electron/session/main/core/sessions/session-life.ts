@@ -47,6 +47,8 @@ interface Run {
 
 interface Entry {
   life: Life;
+  /** The current attempt was started by a reconfigure (its LifeView reports preserved/replaced). */
+  reconfigured: boolean;
   attempt: number;
   version: number;
   since: number;
@@ -77,7 +79,7 @@ export class SessionLife {
   private entry(sessionId: string): Entry {
     const existing = this.entries.get(sessionId);
     if (existing) return existing;
-    const entry: Entry = { life: hydrateLife(this.ports.store.read(sessionId)), attempt: 0,
+    const entry: Entry = { life: hydrateLife(this.ports.store.read(sessionId)), reconfigured: false, attempt: 0,
       version: 0, since: this.ports.now(), run: null, effects: this.draining.get(sessionId) ?? Promise.resolve() };
     this.entries.set(sessionId, entry);
     return entry;
@@ -166,7 +168,7 @@ export class SessionLife {
   }
 
   /** Explicit user intent may enter identity to establish a previously unresolved binding. */
-  start(sessionId: string, origin: 'user-open' | 'retry' = 'user-open'): void {
+  start(sessionId: string, origin: 'user-open' | 'retry' | 'reconfigure' = 'user-open'): void {
     if (this.account === null) throw new Error('Sign in before starting this session');
     if (this.leaving) throw new Error('Sign-out is in progress; this session cannot start now');
     this.send(sessionId, { k: 'start', origin });
@@ -187,7 +189,7 @@ export class SessionLife {
 
   read(sessionId: string): LifeView {
     const existing = this.entries.get(sessionId);
-    return this.view(sessionId, existing ?? { life: hydrateLife(this.ports.store.read(sessionId)), attempt: 0,
+    return this.view(sessionId, existing ?? { life: hydrateLife(this.ports.store.read(sessionId)), reconfigured: false, attempt: 0,
       version: 0, since: this.ports.now(), run: null, effects: Promise.resolve() });
   }
 
@@ -215,6 +217,7 @@ export class SessionLife {
       ? [{ e: 'write-receipt', seq: effect.seq, receipt: { state: 'dispatching', attempt: effect.gen.attempt } }] : [])]);
     entry.life = life;
     if (life.kind === 'starting' && (!oldRun || !same(life.gen, oldRun.gen))) {
+      entry.reconfigured = event.k === 'start' && event.origin === 'reconfigure';
       entry.attempt += 1;
       entry.run = { gen: life.gen, abort: new AbortController(), adapter: this.ports.adapter(sessionId), unlisten: null };
     }
@@ -330,7 +333,8 @@ export class SessionLife {
         items: rows.map(row => ({ seq: row.seq, messageId: row.message.id, preview: row.message.text.slice(0, 160), state: row.state })) },
       hold: hold?.reason ?? null,
       failure: life.kind === 'failed' ? { at: life.hold.reason === 'start-failed' ? life.hold.stage : null, message: life.hold.cause.message } : null,
-      lastExit: life.kind === 'dormant' ? life.lastExit?.cause.message ?? null : null };
+      lastExit: life.kind === 'dormant' ? life.lastExit?.cause.message ?? null : null,
+      nativeSession: life.kind === 'ready' && entry.reconfigured ? life.have.channel.nativeSession : null };
   }
 
   private publish(sessionId: string, entry: Entry): void { entry.version += 1; this.ports.publish(this.view(sessionId, entry)); }

@@ -73,7 +73,7 @@ describe('idle reclaim resource enumeration', () => {
     const target = { projectId: 'p', sessionId: 'idle' };
     vi.mocked(stopExactSessionpageSession).mockClear();
     await state.deps!.stop(target, 'acp');
-    expect(stopExactSessionpageSession).toHaveBeenCalledWith({ ...target, onlyIfIdle: true });
+    expect(stopExactSessionpageSession).toHaveBeenCalledWith({ ...target, reason: 'idle-reap' });
     expect(state.closeBrowser).toHaveBeenCalledWith('idle');
   });
 

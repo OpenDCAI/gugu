@@ -121,6 +121,11 @@ export const invariantCases: readonly { name: string; run: () => void }[] = [
   { name: 'channel readiness cannot be forged from a stale proof in a current completion', run() { assert.throws(() => decide(starting('channel'), { k: 'stage-ok', gen: G, out: { at: 'channel', value: { gen: STALE, timing: 'next-tool-call' } as AdmittedChannel } }), LifeProtocolError) } },
   { name: 'all seven stage completions reject the other six current-generation stages', run() { for (const at of STAGES) for (const other of STAGES) if (at !== other) assert.throws(() => decide(starting(at), { k: 'stage-ok', gen: G, out: output(other) }), LifeProtocolError) } },
   { name: 'a wake followed by sign-out cannot start while signing out', run() { const wake = decide(stopping(), deliver, pending([20]))[0]; const out = decide(wake, interrupt('sign-out'), pending([20]))[0]; const r = decide(out, { k: 'settled', gen: G }, pending([20])); kind(r, 'dormant'); assert.equal(r[1].some(e => e.e === 'run-stage'), false) } },
+  { name: 'v3.1 #13: reconfigure stops like a version switch (no barrier) and a reconfigure start follows', run() {
+    const s = decide(ready(), interrupt('reconfigure'))[0]; assert.ok(s.kind === 'stopping'); assert.deepEqual(s.destination, { kind: 'rest', wakeAfter: false })
+    kind(decide(s, { k: 'settled', gen: G }), 'dormant'); kind(decide(decide(s, { k: 'settled', gen: G })[0], { k: 'start', origin: 'reconfigure' }), 'starting')
+    for (const d of [dormant(), dormant(FAILED)]) noChange(d, interrupt('reconfigure'))
+  } },
   { name: 'only entering archived or deleted ends the dependents', run() {
     const ends = (t: Transition) => t[1].some(e => e.e === 'end-dependents')
     for (const s of [dormant(), dormant(FAILED)]) for (const r of ['archive', 'delete'] as const) assert.equal(ends(decide(s, interrupt(r), pending([20]))), true)
@@ -230,7 +235,7 @@ export function verifyMatrix(): void {
   const events: Event[] = [deliver, start, ...STAGES.map(at => ({ k: 'stage-ok' as const, gen: G, out: output(at) })),
     ...STAGES.map(at => ({ k: 'stage-fail' as const, gen: G, at, cause: CAUSE })), accepted, rejected,
     { ...accepted, seq: seq(99) }, { k: 'turn-busy', gen: G }, { k: 'turn-idle', gen: G }, { k: 'exit', gen: G, exit: EXIT },
-    ...(['user-stop', 'sign-out', 'archive', 'delete', 'version-switch', 'idle-reap'] as const).map(interrupt),
+    ...(['user-stop', 'sign-out', 'archive', 'delete', 'version-switch', 'idle-reap', 'reconfigure'] as const).map(interrupt),
     { k: 'settled', gen: G }, { k: 'restore' }, signedIn, { k: 'signed-in', userId: 'other' },
     { k: 'fault', run: G, cause: CAUSE, unreleased: null }, { k: 'fault', run: null, cause: CAUSE, unreleased: null }, { k: 'fault', run: STALE, cause: CAUSE, unreleased: null }]
   for (const { name, state: s } of states) for (const e of events) {

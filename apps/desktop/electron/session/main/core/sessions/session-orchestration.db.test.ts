@@ -9,6 +9,9 @@ const mocks = vi.hoisted(() => ({
   db: undefined as AppDb | undefined,
   startSession: vi.fn(),
   stopSession: vi.fn(),
+  /** session-life (owner of ACP sessions): stops and archives are interrupts carrying a reason; restore hands it back. */
+  lifeInterrupt: vi.fn(async (_sessionId: string, _event: { k: 'interrupt'; reason: string }): Promise<void> => undefined),
+  lifeRestore: vi.fn((_sessionId: string): void => undefined),
   emit: vi.fn(),
   on: vi.fn(),
   openFileResultListener: undefined as ((result: { requestId: string; success: boolean; error?: string; openedWith?: string | null; tabs?: SessionPaneTab[]; closed?: boolean }) => void) | undefined,
@@ -110,6 +113,10 @@ vi.mock('@main/core/pty/tmux-session-name', () => ({
   decodeTmuxSessionName: (name: string) => (name.startsWith('tmux:') ? name.slice('tmux:'.length) : null),
 }));
 vi.mock('@main/lib/events', () => ({ events: { emit: mocks.emit, on: mocks.on } }));
+vi.mock('./session-life', () => ({ sessionLife: () => ({ interrupt: mocks.lifeInterrupt, restore: mocks.lifeRestore }) }));
+/** Sessions session-life was asked to interrupt for `reason`, in call order. */
+const interruptedFor = (reason: string) => mocks.lifeInterrupt.mock.calls
+  .filter(([, event]) => event.reason === reason).map(([sessionId]) => sessionId);
 vi.mock('./sendMessage', () => ({
   sendMessage: mocks.sendMessage,
   readAcceptedMessage: mocks.readAcceptedMessage,
@@ -197,6 +204,9 @@ describe('session orchestration', () => {
     mocks.db = fixture.db;
     mocks.startSession.mockReset();
     mocks.stopSession.mockReset();
+    mocks.lifeInterrupt.mockReset();
+    mocks.lifeInterrupt.mockResolvedValue(undefined);
+    mocks.lifeRestore.mockReset();
     mocks.emit.mockReset();
     mocks.on.mockReset();
     mocks.openFileResultListener = undefined;
@@ -322,7 +332,10 @@ describe('session orchestration', () => {
     expect(fixture.sqlite.prepare('SELECT archived_at FROM sessions WHERE id = ?').get('caller'))
       .toEqual({ archived_at: null });
     expect(mocks.startSession).toHaveBeenCalledTimes(started);
+    // The compensation archives through session-life (never a direct runtime stop) and Restore hands it back dormant.
     expect(mocks.stopSession).not.toHaveBeenCalled();
+    expect(interruptedFor('archive')).toEqual([sessionId]);
+    expect(mocks.lifeRestore).toHaveBeenCalledExactlyOnceWith(sessionId);
   }
 
   /** 这条会话挂载好了:pty 会话的进程经这个 provider 起停。 */
@@ -934,9 +947,18 @@ describe('session orchestration', () => {
       sessionId: 'caller',
     };
 
-    it('stops the exact ACP conversation through the ACP runtime', async () => {
+    // Retargeted: an ACP stop is now session-life's interrupt (default reason user-stop), never a direct runtime stop.
+    it('stops the exact ACP conversation through session-life as a user stop', async () => {
       await expect(stopExactSessionpageSession(exactTarget)).resolves.toBe(true);
-      expect(mocks.stopSession).toHaveBeenCalledWith({ sessionId: 'caller' });
+      expect(mocks.lifeInterrupt).toHaveBeenCalledExactlyOnceWith('caller', { k: 'interrupt', reason: 'user-stop' });
+      expect(mocks.stopSession).not.toHaveBeenCalled();
+      expect(mocks.settleSessionExited).toHaveBeenCalledWith({ sessionId: 'caller', projectId: 'project-1' });
+    });
+
+    it.each(['idle-reap', 'version-switch'] as const)('carries the %s reason to session-life unchanged', async (reason) => {
+      await expect(stopExactSessionpageSession({ ...exactTarget, reason })).resolves.toBe(true);
+      expect(mocks.lifeInterrupt).toHaveBeenCalledExactlyOnceWith('caller', { k: 'interrupt', reason });
+      expect(mocks.stopSession).not.toHaveBeenCalled();
     });
 
     it('does not stop a same-id target whose project is stale', async () => {
@@ -947,10 +969,7 @@ describe('session orchestration', () => {
     });
 
     it('surfaces an ACP stop failure unchanged', async () => {
-      mocks.stopSession.mockResolvedValueOnce({
-        success: false,
-        error: { type: 'stop_failed', message: 'ACP stop exploded' },
-      });
+      mocks.lifeInterrupt.mockRejectedValueOnce(new Error('ACP stop exploded'));
       await expect(stopExactSessionpageSession(exactTarget)).rejects.toThrow('ACP stop exploded');
     });
 
@@ -968,6 +987,7 @@ describe('session orchestration', () => {
         sessionId: 'pty-exact',
       })).resolves.toBe(true);
       expect(mocks.ptyStopSession).toHaveBeenCalledWith('pty-exact');
+      expect(mocks.lifeInterrupt).not.toHaveBeenCalled();
       // 挂载会广播 session:provisioned,渲染层据此把会话准备起来、把刚停的进程又拉起来(#4377)。
       expect(mocks.ensureSessionMounted).not.toHaveBeenCalled();
     });
@@ -2091,7 +2111,7 @@ describe('session orchestration', () => {
     await expect(
       runSessionAction(context, { action: 'stop', session_id: child.session_id })
     ).resolves.toEqual(expect.objectContaining({ session_id: child.session_id }));
-    expect(mocks.stopSession).toHaveBeenCalledWith({ sessionId: child.session_id });
+    expect(mocks.lifeInterrupt).toHaveBeenCalledWith(child.session_id, { k: 'interrupt', reason: 'user-stop' });
 
     await expect(
       runSessionAction(context, { action: 'get', session_id: 'unrelated' })
@@ -2099,13 +2119,14 @@ describe('session orchestration', () => {
     await expect(
       runSessionAction(context, { action: 'stop', session_id: 'unrelated' })
     ).resolves.toEqual(expect.objectContaining({ session_id: 'unrelated' }));
-    expect(mocks.stopSession).toHaveBeenCalledWith({ sessionId: 'unrelated' });
+    expect(mocks.lifeInterrupt).toHaveBeenCalledWith('unrelated', { k: 'interrupt', reason: 'user-stop' });
+    expect(mocks.stopSession).not.toHaveBeenCalled();
 
-    mocks.stopSession.mockClear();
+    mocks.lifeInterrupt.mockClear();
     await expect(
       runSessionAction(context, { action: 'stop', session_id: context.sessionId })
     ).rejects.toThrow('a session cannot stop itself');
-    expect(mocks.stopSession).not.toHaveBeenCalled();
+    expect(mocks.lifeInterrupt).not.toHaveBeenCalled();
   });
 
   const liveSummary = (sessionId: string, overrides: Record<string, unknown> = {}) => ({
@@ -2315,7 +2336,9 @@ describe('session_archive', () => {
       with_children: false,
       children_archived: 0,
     });
-    expect(mocks.stopSession.mock.calls.map(([arg]) => arg.sessionId)).toEqual(['child-a']);
+    // Runtime stopped = session-life archived it (ACP archive no longer stops the runtime client directly).
+    expect(interruptedFor('archive')).toEqual(['child-a']);
+    expect(mocks.stopSession).not.toHaveBeenCalled();
     // The row stays, so a person can restore it from session history; its own child is left as it was.
     expect(archivedAt('child-a')).not.toBeNull();
     expect(archivedAt('grandchild')).toBeNull();
@@ -2352,11 +2375,12 @@ describe('session_archive', () => {
     await expect(
       runSessionAction(context, { action: 'archive', session_id: 'child-a', with_children: true })
     ).resolves.toEqual({ session_id: 'child-a', archived: true, with_children: true, children_archived: 2 });
-    expect(mocks.stopSession.mock.calls.map(([arg]) => arg.sessionId)).toEqual([
+    expect(interruptedFor('archive')).toEqual([
       'great-grandchild',
       'grandchild',
       'child-a',
     ]);
+    expect(mocks.stopSession).not.toHaveBeenCalled();
     for (const id of ['child-a', 'grandchild', 'great-grandchild']) expect(archivedAt(id), id).not.toBeNull();
     expect(archivedAt('child-b')).toBeNull();
   });
@@ -2364,12 +2388,12 @@ describe('session_archive', () => {
   it('says so when the session is already archived instead of reporting a second archive', async () => {
     seedChild('child-a');
     await runSessionAction(context, { action: 'archive', session_id: 'child-a' });
-    mocks.stopSession.mockClear();
+    mocks.lifeInterrupt.mockClear();
 
     await expect(
       runSessionAction(context, { action: 'archive', session_id: 'child-a' })
     ).rejects.toThrow('session is already archived');
-    expect(mocks.stopSession).not.toHaveBeenCalled();
+    expect(mocks.lifeInterrupt).not.toHaveBeenCalled();
   });
 
   it('archives a session in the project it did not spawn, but never itself', async () => {
@@ -2390,12 +2414,12 @@ describe('session_archive', () => {
     expect(archivedAt('sibling')).not.toBeNull();
     expect(archivedAt('stranger')).not.toBeNull();
 
-    mocks.stopSession.mockClear();
+    mocks.lifeInterrupt.mockClear();
     await expect(
       runSessionAction(context, { action: 'archive', session_id: 'caller' })
     ).rejects.toThrow('a session cannot archive itself');
     expect(archivedAt('caller')).toBeNull();
-    expect(mocks.stopSession).not.toHaveBeenCalled();
+    expect(mocks.lifeInterrupt).not.toHaveBeenCalled();
   });
 
   // owner 2026-09-30 拍板跨机器之后 `session:<id>` 是账号级地址:本机别的项目里的会话也够得着(别的机器上的由宿主转过去)。

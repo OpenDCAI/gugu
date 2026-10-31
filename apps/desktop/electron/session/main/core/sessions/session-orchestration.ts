@@ -43,6 +43,7 @@ import type { BirthGroup } from '@shared/core/sessions/create-session';
 import { rememberedProviderOf, resolveSessionProviderSelection, sessionpageLegFor } from '@shared/core/sessions/provider-selection';
 import type { NewSessionMemory } from '@shared/core/app-settings';
 import { sessionLife } from './session-life';
+import { admitCreationTurns } from './session-life-creation';
 import { createStageLedger } from '@main/lib/stage-ledger';
 import { events } from '@main/lib/events';
 import {
@@ -571,6 +572,12 @@ async function startSpawnedSession(input: {
   transport: SessionRuntime;
   initialPrompt?: string;
 }): Promise<void> {
+  // ACP: the creation turns are the session's first pending rows and session-life starts it. A startup failure is
+  // the session's failed state with its stage and cause — the person's session is never archived for it.
+  if (input.transport === 'acp') {
+    admitCreationTurns(input.session);
+    return;
+  }
   let transportStarted = false;
   const ledger = createStageLedger({
     scope: 'sessionpage/session-spawn',
@@ -580,49 +587,19 @@ async function startSpawnedSession(input: {
   });
   const mark = (stage: string, extra?: Record<string, unknown>) => ledger.mark(stage, extra);
   try {
-    if (input.transport === 'acp') {
-      const acpClient = await getAcpRuntimeClient();
-      mark('runtime-client-ready');
-      const result = await acpClient.startSession({
-        input: {
-          sessionId: input.session.id,
-          projectId: input.projectId,
-          providerId: input.session.providerId,
-          workspaceId: input.targetWorkspaceId,
-          cwd: input.targetWorkspacePath,
-          providerSessionId: null,
-          ...(input.session.initialQueue?.length
-            ? { initialQueue: input.session.initialQueue }
-            : {}),
-          ...(input.session.startupOrigin
-            ? { startupOrigin: input.session.startupOrigin }
-            : {}),
-          ...(input.session.initialMessageId
-            ? { initialMessageId: input.session.initialMessageId }
-            : {}),
-          ...(input.session.taskChatId ? { taskChatId: input.session.taskChatId } : {}),
-          model: input.session.model ?? null,
-          permissionMode: resolveSessionPermissionMode(input.session),
-        },
-      });
-      if (!result.success) throw runtimeError(result);
-      transportStarted = true;
-      mark('transport-started');
-    } else {
-      await sessionService.ensureSessionMounted(input.session.id);
-      mark('session-mounted');
-      const mounted = resolveSession(input.projectId, input.session.id);
-      if (!mounted) throw new Error('spawned session workspace is not mounted');
-      await mounted.sessions.startSession(
-        input.session,
-        undefined,
-        false,
-        input.initialPrompt,
-        undefined,
-      );
-      transportStarted = true;
-      mark('transport-started');
-    }
+    await sessionService.ensureSessionMounted(input.session.id);
+    mark('session-mounted');
+    const mounted = resolveSession(input.projectId, input.session.id);
+    if (!mounted) throw new Error('spawned session workspace is not mounted');
+    await mounted.sessions.startSession(
+      input.session,
+      undefined,
+      false,
+      input.initialPrompt,
+      undefined,
+    );
+    transportStarted = true;
+    mark('transport-started');
 
     await setSpawnStartupState(input.session.id, 'ready');
     mark('startup-state-ready');
@@ -1131,7 +1108,8 @@ async function createChildSession(input: {
   try {
     signal?.throwIfAborted();
     if (input.sourceLink) await rememberActivitySource(sessionId, input.sourceLink);
-    await setSpawnStartupState(sessionId, 'starting');
+    // ACP startup is session-life's own projection; only other runtimes keep this config flag (until ⑤).
+    if (transport !== 'acp') await setSpawnStartupState(sessionId, 'starting');
   } catch (error) {
     await archiveSession(projectId, sessionId, { skipTransportStop: true });
     ledger.settle({ outcome: 'failed' });

@@ -103,7 +103,8 @@ function destination(event: InterruptEvent, q: PendingView): Destination {
     case 'archive': return { kind: 'archived' }
     case 'delete': return { kind: 'deleted' }
     case 'version-switch':
-    case 'idle-reap': return { kind: 'rest', wakeAfter: false }
+    case 'idle-reap':
+    case 'reconfigure': return { kind: 'rest', wakeAfter: false }
     default: return assertNever(event)
   }
 }
@@ -111,7 +112,7 @@ function destination(event: InterruptEvent, q: PendingView): Destination {
 function tighten(current: Destination, event: InterruptEvent, q: PendingView): Destination {
   switch (current.kind) {
     case 'rest':
-      return event.reason === 'version-switch' || event.reason === 'idle-reap' ? current : destination(event, q)
+      return event.reason === 'version-switch' || event.reason === 'idle-reap' || event.reason === 'reconfigure' ? current : destination(event, q)
     case 'held':
       if (event.reason === 'archive' || event.reason === 'delete') return destination(event, q)
       if (current.hold.reason === 'user-stop' && event.reason === 'sign-out') {
@@ -192,7 +193,8 @@ function stepDormant(state: Extract<Life, { kind: 'dormant' }>, event: Event, q:
         case 'archive': return [seal({ kind: 'archived' }), [...archivedRows(q), { e: 'write-hold', hold: null }, { e: 'end-dependents' }]]
         case 'delete': return [seal({ kind: 'archived' }), [{ e: 'end-dependents' }, { e: 'remove' }]]
         case 'version-switch':
-        case 'idle-reap': return unchanged(state)
+        case 'idle-reap':
+        case 'reconfigure': return unchanged(state)
         default: return assertNever(event)
       }
     case 'signed-in': {
@@ -220,7 +222,7 @@ function stepFailed(state: Extract<Life, { kind: 'failed' }>, event: Event, q: P
       switch (event.reason) {
         case 'archive': return [seal({ kind: 'archived' }), [...residueTeardown(state), ...archivedRows(q), { e: 'write-hold', hold: null }, { e: 'end-dependents' }]]
         case 'delete': return [seal({ kind: 'archived' }), [...residueTeardown(state), { e: 'end-dependents' }, { e: 'remove' }]]
-        case 'user-stop': case 'sign-out': case 'version-switch': case 'idle-reap': return unchanged(state)
+        case 'user-stop': case 'sign-out': case 'version-switch': case 'idle-reap': case 'reconfigure': return unchanged(state)
         default: return assertNever(event)
       }
     case 'signed-in': return unchanged(state)

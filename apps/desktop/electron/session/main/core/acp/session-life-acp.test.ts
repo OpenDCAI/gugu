@@ -39,7 +39,7 @@ import { createAcpLegAdapter } from './session-life-acp';
 
 const gen = { auth: 1, attempt: 1 } as unknown as Gen;
 const ctx = () => ({ gen, signal: new AbortController().signal });
-const row = { seq: 1, sessionId: 's', kind: 'ordinary', state: 'dispatching', message: { id: 'm', text: 'hi' }, sources: [] } as never;
+const row = { seq: 1, sessionId: 's', kind: 'ordinary', state: 'dispatching', message: { id: 'm', text: 'hi' }, sources: [], turn: { kind: 'prompt' } } as never;
 const processLease = async () => (await acpWorkerLease()) as unknown as ProcessLease;
 
 describe('session-life ACP leg', () => {
@@ -88,6 +88,18 @@ describe('session-life ACP leg', () => {
     expect(await adapter.dispatch({} as StageOut, row, ctx())).toEqual({ result: 'accepted', nativeReceiptId: 't1' });
     h.inject.mockResolvedValueOnce({ outcome: 'declined', completion: Promise.resolve() });
     expect(await adapter.dispatch({} as StageOut, row, ctx())).toMatchObject({ result: 'rejected-before-admission' });
+  });
+
+  it("a row's turn decides how it is sent: prompt as-is with its own origin; the first turn rendered from the landed context", async () => {
+    const adapter = createAcpLegAdapter('s');
+    h.inject.mockResolvedValue({ outcome: 'started', completion: Promise.resolve(), turnId: 't' });
+    const prompt = { ...(row as object), turn: { kind: 'prompt', origin: 'communication', hiddenContext: 'ctx' } } as never;
+    await adapter.dispatch({} as StageOut, prompt, ctx());
+    expect(h.inject).toHaveBeenLastCalledWith('s', 'hi', { origin: 'communication', hiddenContext: 'ctx' });
+    const first = { ...(row as object), turn: { kind: 'chat-page-first-turn' } } as never;
+    await adapter.dispatch({ capabilities: { injection: { firstTurn: { kind: 'plain' } } } } as never, first, ctx());
+    expect(h.inject).toHaveBeenLastCalledWith('s', 'hi', { origin: 'manual' });
+    await expect(adapter.dispatch({ capabilities: { injection: {} } } as never, first, ctx())).rejects.toThrow(/did not land/);
   });
 
   it('teardown uses the one ACP stop; without a process it only settles the ticket; a failed stop fails loudly', async () => {
