@@ -5,9 +5,6 @@
 import type { SessionMaterialization } from '@gugu/session-core/agents/plugins';
 import { describe, expect, it } from 'vitest';
 import { CLAUDE_GUGU_CAPABILITY_PACKAGE, pluginRegistry } from '../../registry';
-import { CLAUDE_TIMERS_REPLACED_BY_SCHEDULE } from './session-bundle';
-
-const TIMERS = [...CLAUDE_TIMERS_REPLACED_BY_SCHEDULE];
 
 const GUGU_HOME = '/gugu-home-under-test';
 const GUGU = { name: 'gugu', url: 'http://127.0.0.1:1/mcp' };
@@ -85,7 +82,6 @@ describe('switching a server off in /mcp, in a Claude chat-panel session', () =>
     const LINEAR = { name: 'linear', url: 'http://127.0.0.1:4/mcp', owner: 'integration' as const };
     const m = materialize('acp', [GUGU, EXTENSION, LINEAR, USER], ['linear', 'mine', 'from-a-project']);
     expect(disallowedTools(m)).toEqual([
-      ...TIMERS,
       // 咕咕经插件投递的(集成)按插件名摘,与 allowedTools 同一个前缀。
       'mcp__plugin_gugu-product_linear',
       'mcp__mine',
@@ -97,24 +93,11 @@ describe('switching a server off in /mcp, in a Claude chat-panel session', () =>
   });
 
   it('gugu’s own server and what extensions deliver can never be switched off, even if asked', () => {
-    expect(disallowedTools(materialize('acp', [GUGU, EXTENSION, USER], ['gugu', 'quiet-probe-quiet']))).toEqual(TIMERS);
+    expect(disallowedTools(materialize('acp', [GUGU, EXTENSION, USER], ['gugu', 'quiet-probe-quiet']))).toBeUndefined();
   });
 
-  it('nothing switched off: only Claude Code’s own timers, which schedule_create replaces', () => {
-    expect(disallowedTools(materialize('acp', [GUGU, USER]))).toEqual(TIMERS);
-  });
-});
-
-describe("Claude Code's own timers come off a session that has gugu's schedule_create", () => {
-  it('terminal: --disallowedTools names them, before the allow rules and --plugin-dir', () => {
-    const args = materialize('tui', [GUGU, USER]).argsAppend;
-    const at = args.indexOf('--disallowedTools');
-    expect(args.slice(at, at + TIMERS.length + 2)).toEqual(['--disallowedTools', ...TIMERS, '--allowedTools']);
-  });
-
-  it('no gugu server, no schedule_create: the timers stay', () => {
-    expect(disallowedTools(materialize('acp', [USER]))).toBeUndefined();
-    expect(materialize('tui', [USER]).argsAppend).not.toContain('--disallowedTools');
+  it('nothing switched off: no disallowedTools at all', () => {
+    expect(disallowedTools(materialize('acp', [GUGU, USER]))).toBeUndefined();
   });
 });
 
@@ -143,6 +126,6 @@ describe('library MCP servers get a plugin of their own in a Claude session', ()
     const options = (m.acp?.meta as { claudeCode: { options: { plugins: { path: string }[]; allowedTools: string[]; disallowedTools?: string[] } } }).claudeCode.options;
     expect(options.plugins).toHaveLength(2);
     expect(options.allowedTools).toEqual(['mcp__plugin_gugu-product_gugu', 'mcp__plugin_mcp-library_lib-tui']);
-    expect(options.disallowedTools).toEqual([...TIMERS, 'mcp__plugin_mcp-library_lib-tui']);
+    expect(options.disallowedTools).toEqual(['mcp__plugin_mcp-library_lib-tui']);
   });
 });

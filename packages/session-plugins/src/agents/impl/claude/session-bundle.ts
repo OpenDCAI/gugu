@@ -36,16 +36,6 @@ export const CLAUDE_GUGU_PACKAGE_VERSION = '1.0.0';
 export const CLAUDE_LIBRARY_PLUGIN_ID = 'mcp-library';
 
 /** 这一台在 Claude 里装在哪个插件里(工具名的前缀跟着它)。 */
-/**
- * Claude Code's own timers. They fire only while that one process lives and the host never sees them; 咕咕's
- * `schedule_create` is the timer (it survives restarts and shows in 已安排). A session that has 咕咕's tools gets that
- * one, so these come off its tool list — ~1.8k tokens of schema in every opening (2026-10-31 startup capture).
- */
-export const CLAUDE_TIMERS_REPLACED_BY_SCHEDULE: readonly string[] = ['ScheduleWakeup', 'CronCreate', 'CronDelete', 'CronList'];
-
-const timersOff = (bundle: SessionCapabilityBundle): string[] =>
-  bundle.mcpServers.some((server) => (server.owner ?? 'gugu') === 'gugu') ? [...CLAUDE_TIMERS_REPLACED_BY_SCHEDULE] : [];
-
 const pluginIdOf = (server: SessionMcpServer): string => (server.library ? CLAUDE_LIBRARY_PLUGIN_ID : CLAUDE_GUGU_PACKAGE_ID);
 
 const pluginManifest = {
@@ -691,8 +681,7 @@ export function materializeClaudeSessionBundle(
       ...common,
       artifacts: [...artifacts, ...(promptFile ? [promptFile] : [])],
       argsAppend: [
-        // `--disallowedTools` / `--allowedTools` take every argument up to the next flag: `--plugin-dir` must follow them.
-        ...(timersOff(bundle).length > 0 ? ['--disallowedTools', ...timersOff(bundle)] : []),
+        // `--allowedTools` takes every argument up to the next flag: `--plugin-dir` must follow it.
         ...(allowed.length > 0 ? ['--allowedTools', ...allowed] : []),
         ...(plugin ? ['--plugin-dir', plugin.root] : []),
         ...(library ? ['--plugin-dir', library.root] : []),
@@ -735,15 +724,12 @@ export function materializeClaudeSessionBundle(
     // 与下面 `allowedTools` 同一个前缀。用户自己装的插件带的 server,读侧按 claude 的列法叫
     // `plugin:<插件>:<名>`(mcp-scopes.ts),工具前缀同样是 `mcp__plugin_<插件>_<名>`。
     const pluginOf = new Map(bundle.mcpServers.filter((server) => server.owner !== 'user').map((server) => [server.name, pluginIdOf(server)]));
-    const disallowed = [
-      ...timersOff(bundle),
-      ...(directive.kind === 'disallowed-tools'
-        ? directive.disabled.map((name) => {
-            const pluginId = pluginOf.get(name);
-            return pluginId ? `mcp__plugin_${pluginId}_${name}` : claudeUserServerToolPrefix(name);
-          })
-        : []),
-    ];
+    const disallowed = directive.kind === 'disallowed-tools'
+      ? directive.disabled.map((name) => {
+          const pluginId = pluginOf.get(name);
+          return pluginId ? `mcp__plugin_${pluginId}_${name}` : claudeUserServerToolPrefix(name);
+        })
+      : [];
     const allowed = guguMcpAllowRules(bundle);
     return {
       ...common,
@@ -776,7 +762,7 @@ export function materializeClaudeSessionBundle(
     acp: {
       mcpServers: [],
       meta: {
-        claudeCode: { options: { ...options, ...(timersOff(bundle).length > 0 ? { disallowedTools: timersOff(bundle) } : {}) } },
+        claudeCode: { options },
         ...(bundle.promptBlocks.platform
           ? { systemPrompt: { append: bundle.promptBlocks.platform } }
           : {}),

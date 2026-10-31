@@ -36,7 +36,7 @@ describe('prepareLocalAssistantHome', () => {
     expect(brief.length).toBeLessThan(2400)
     expect(brief).not.toContain('"batches"')
     expect(await readFile(join(result.workdir, '.gugu-assistant-reference.md'), 'utf8')).toBe(assistantGuide('computer'))
-    // Claude Code's own timers come off every session with 咕咕's tools (claude session-bundle), not via this file.
+    // The host writes no tool denials here: Claude Code's own tools are the harness's (owner 10-31).
     expect(JSON.parse(await readFile(p.settings, 'utf8')).permissions).toBeUndefined()
     expect(await readFile(join(p.memoryDir, 'owner-profile.md'), 'utf8')).toContain('- 称呼：小明')
     expect(await readFile(p.memoryIndex, 'utf8')).toContain('(owner-profile.md)')
