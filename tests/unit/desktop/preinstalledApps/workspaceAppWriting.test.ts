@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 // Folder documents, Notion/Craft polish (owner 10-30): judged on the real app.js and the real CodeMirror (bound by a
 // stand-in that puts the file's text in). A task ticked where it is read ticks its line in the source; the source's
-// selection is wrapped in (and out of) a mark; the reading block's ⋯ cites it, copies a link to its lines and finds it in
-// the source; an empty document says what can be done; front matter is one block in the source, not a setext heading.
+// selection is wrapped in (and out of) a mark; the reading block's + inserts after its source span;
+// an empty document says what can be done; front matter is one block in the source, not a setext heading.
 // The preview is a stand-in that marks lines as gugu.markdown's `sourceLines` does (judged in markdown-entry.test.ts).
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
@@ -14,10 +14,11 @@ import * as cmView from '@codemirror/view'
 import { EditorView } from '@codemirror/view'
 import * as lezerHighlight from '@lezer/highlight'
 import { basicSetup } from 'codemirror'
+import * as autocomplete from '@codemirror/autocomplete'
 import { beforeAll, beforeEach, describe, expect, test, vi } from 'vitest'
-// @ts-expect-error — 内置 App 是不经构建的纯 ES module,没有类型;运行时 import 可用。
-import { fingerprint } from '../../../../apps/desktop/preinstalled-apps/workspace/lines.js'
 import { until } from '../../../support/awaitCondition'
+// @ts-expect-error — the built-in App's source-edit commands are plain ES modules.
+import { blockContent, turnBlock } from '../../../../apps/desktop/preinstalled-apps/workspace/blocks.js'
 
 const TEXT = ['# 计划', '', '- [ ] 写完', '- [x] 定了', '', '正文 一句'].join('\n')
 const entry = {
@@ -32,6 +33,8 @@ const file = {
   status: 'online',
   saved: true,
   text: TEXT,
+  anchor: (at: number) => at,
+  resolve: (anchor: number) => anchor,
   onChange: vi.fn((handler: (event: { local: boolean }) => void) => {
     changed = handler
     return () => {}
@@ -64,7 +67,7 @@ const gugu = {
   onLink: vi.fn(() => () => {}),
   dispatch: vi.fn(async (_text: string, _options: unknown) => ({ to: { chat: 'chat-1' } })),
   clipboard: { writeText: vi.fn(async (_text: string) => {}) },
-  codemirror: vi.fn(async () => ({ EditorView, EditorState: cmState.EditorState, basicSetup, markdown, markdownLanguage, view: cmView, state: cmState, language, lezerHighlight })),
+  codemirror: vi.fn(async () => ({ EditorView, EditorState: cmState.EditorState, basicSetup, markdown, markdownLanguage, view: cmView, state: cmState, language, autocomplete, lezerHighlight })),
   markdown: vi.fn(async () => md),
   bind: {
     codemirror: vi.fn((view: EditorView, f: typeof file) => {
@@ -123,27 +126,34 @@ describe('folder documents: reading', () => {
     await redraw()
   })
 
-  test('the block under the pointer gets a ⋯: cite it, keep it, copy a link to its lines, find it in the source', async () => {
-    const block = $('preview').querySelector('p[data-line="6-6"]')!
+  test.each([
+    ['Heading', '## ', 3], ['List', '- ', 2], ['To-do', '- [ ] ', 6],
+    ['Quote', '> ', 2], ['Code block', '```\n\n```', 4], ['Divider', '---\n', 4],
+  ])('%s inserts after the entire multi-line block, with its caret in the template', async (label, text, caret) => {
+    const block = $('preview').querySelector('ul[data-line="3-4"]')!
     hoverBlock(block)
-    expect($('block-handle').hidden).toBe(false)
-    $('block-handle').click()
-    expect(menuItems().map((item) => item.textContent)).toEqual(['Cite in the chat', 'Keep to cite', 'Copy a link to it', 'Find in the source'])
-    menuItems()[0]!.click()
-    await until('Cite has composed', () => gugu.dispatch.mock.calls.length > 0)
-    expect(gugu.dispatch).toHaveBeenCalledWith('', { draft: true, refs: [{ file: entry, at: { lines: '6', h: fingerprint('正文 一句') }, label: 'Line 6 · 正文 一句' }] })
-
-    $('block-handle').click()
-    menuItems()[2]!.click()
-    await until('the link is copied', () => gugu.clipboard.writeText.mock.calls.length > 0)
-    expect(gugu.linkTo).toHaveBeenCalledWith({ kind: 'file', file: entry, at: { lines: '6', h: fingerprint('正文 一句') } })
-    expect(gugu.clipboard.writeText).toHaveBeenCalledWith('gugu-file://plan#6')
-
-    $('block-handle').click()
-    menuItems()[3]!.click()
-    expect(document.body.dataset.mode, 'beside the reading when there is room').toBe('split')
-    expect([...document.querySelectorAll('.cm-line')].flatMap((l, i) => (l.classList.contains('cm-found') ? [i + 1] : []))).toEqual([6])
+    expect($('block-controls').hidden).toBe(false)
+    $('block-insert').click()
+    expect(menuItems().map((item) => item.textContent)).toEqual(['Table', 'Image…', 'File…', 'Heading', 'List', 'To-do', 'Quote', 'Code block', 'Divider'])
+    menuItems().find((item) => item.textContent === label)!.click()
+    const at = TEXT.indexOf('- [x] 定了') + '- [x] 定了'.length
+    expect(view().state.doc.toString()).toBe(`${TEXT.slice(0, at)}\n\n${text}\n${TEXT.slice(at)}`)
+    expect(view().state.selection.main.head).toBe(at + 2 + Number(caret))
+    expect(document.body.dataset.mode).toBe('split')
+    expect($('block-controls').hidden).toBe(true)
+    view().dispatch({ changes: { from: 0, to: view().state.doc.length, insert: TEXT } })
+    await redraw()
     $('mode-preview').click()
+  })
+
+  test('read-only documents do not offer insertion', () => {
+    file.readOnly = true
+    try {
+      hoverBlock($('preview').querySelector('p[data-line="6-6"]')!)
+      expect($('block-controls').hidden).toBe(true)
+    } finally {
+      file.readOnly = false
+    }
   })
 
   test('leaving gets a short grace, returning to the preview or handle cancels it, and scrolling still hides immediately', () => {
@@ -153,22 +163,22 @@ describe('folder documents: reading', () => {
       hoverBlock(block)
       $('preview').dispatchEvent(new MouseEvent('pointerleave'))
       vi.advanceTimersByTime(149)
-      expect($('block-handle').hidden).toBe(false)
-      $('block-handle').dispatchEvent(new MouseEvent('pointerenter'))
+      expect($('block-controls').hidden).toBe(false)
+      $('block-controls').dispatchEvent(new MouseEvent('pointerenter'))
       vi.advanceTimersByTime(200)
-      expect($('block-handle').hidden).toBe(false)
+      expect($('block-controls').hidden).toBe(false)
 
-      $('block-handle').dispatchEvent(new MouseEvent('pointerleave'))
+      $('block-controls').dispatchEvent(new MouseEvent('pointerleave'))
       $('preview').dispatchEvent(new MouseEvent('pointerenter'))
       vi.advanceTimersByTime(200)
-      expect($('block-handle').hidden).toBe(false)
+      expect($('block-controls').hidden).toBe(false)
       $('preview').dispatchEvent(new MouseEvent('pointerleave'))
       vi.advanceTimersByTime(150)
-      expect($('block-handle').hidden).toBe(true)
+      expect($('block-controls').hidden).toBe(true)
 
       hoverBlock(block)
       $('preview').dispatchEvent(new Event('scroll'))
-      expect($('block-handle').hidden).toBe(true)
+      expect($('block-controls').hidden).toBe(true)
     } finally {
       vi.useRealTimers()
     }
@@ -176,6 +186,24 @@ describe('folder documents: reading', () => {
 })
 
 describe('folder documents: writing', () => {
+  test.each([
+    ['## **Title** and `code`', '**Title** and `code`'],
+    ['Title\n=====', 'Title'],
+    ['- [ ] first\n- [x] second', 'first\nsecond'],
+    ['> - [ ] nested', 'nested'],
+    ['````js\nconst fence = "```"\n````', 'const fence = "```"'],
+    ['literal - item and # marks with `tick`', 'literal - item and # marks with `tick`'],
+  ])('conversion removes only parsed block marks: %s', async (source, content) => {
+    view().dispatch({ changes: { from: 0, to: view().state.doc.length, insert: source } })
+    const actual = blockContent(view().state, { language }, 0, source.length)
+    expect(actual).toBe(content)
+    const code = turnBlock(actual, 'code')
+    expect(code).toContain(content)
+    if (content.includes('```')) expect(code).toBe(`\`\`\`\`\n${content}\n\`\`\`\``)
+    view().dispatch({ changes: { from: 0, to: view().state.doc.length, insert: TEXT } })
+    await redraw()
+  })
+
   test('the source\'s selection is wrapped in a mark and out of it again; a link leaves the caret in its ()', () => {
     $('mode-edit').click()
     const from = line(6).from

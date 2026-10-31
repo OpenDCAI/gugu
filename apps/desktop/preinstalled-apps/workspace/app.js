@@ -12,6 +12,7 @@
 // workspace; with a file (ctx.file) it opens the file it was handed; with neither there is nothing to show.
 
 import { placeOf, plainWords, relocate, spanOf } from './lines.js'
+import { INSERT_BLOCKS, blockContent, swapBlocks, turnBlock } from './blocks.js'
 import { KINDS, SORTS, compareNames, comparer, defaultView, keepable, keptAs, kindOf, markOf, matches, rangeOf, sectionOf, sizeOf, timeLeft, wantsThumb } from './list.js'
 
 const $ = (id) => document.getElementById(id)
@@ -68,11 +69,25 @@ const STRINGS = {
     italic: '斜体',
     code: '代码',
     link: '链接',
-    block: '这一段',
+    insertBelow: '在这一段下面插入',
+    insertTable: '表格',
+    insertImage: '图片…',
+    insertFile: '文件…',
+    blockActions: '这一块的操作',
+    turnInto: '转换为',
+    duplicateBlock: '复制一份',
+    moveBlockUp: '上移',
+    moveBlockDown: '下移',
+    deleteBlock: '删除',
+    copyBlockLink: '复制这一块的链接',
     citeBlock: '引用到聊天',
-    holdBlock: '加入待引用',
-    copyBlockLink: '复制这一段的链接',
-    findSource: '在源码里定位',
+    insertHeading: '标题',
+    insertList: '列表',
+    insertTodo: '待办',
+    insertQuote: '引用块',
+    insertCode: '代码块',
+    insertDivider: '分割线',
+    insertReloaded: '文档已重新载入，请重新选择插入位置。',
     emptyTitle: '这份文档还是空的',
     emptyHint: '直接开始写，或者请 agent 起个草稿',
     emptyWrite: '开始写',
@@ -236,11 +251,25 @@ const STRINGS = {
     italic: 'Italic',
     code: 'Code',
     link: 'Link',
-    block: 'This block',
-    citeBlock: 'Cite in the chat',
-    holdBlock: 'Keep to cite',
-    copyBlockLink: 'Copy a link to it',
-    findSource: 'Find in the source',
+    insertBelow: 'Insert below this paragraph',
+    insertTable: 'Table',
+    insertImage: 'Image…',
+    insertFile: 'File…',
+    blockActions: 'Block actions',
+    turnInto: 'Turn into',
+    duplicateBlock: 'Duplicate',
+    moveBlockUp: 'Move up',
+    moveBlockDown: 'Move down',
+    deleteBlock: 'Delete',
+    copyBlockLink: 'Copy link to block',
+    citeBlock: 'Cite in chat',
+    insertHeading: 'Heading',
+    insertList: 'List',
+    insertTodo: 'To-do',
+    insertQuote: 'Quote',
+    insertCode: 'Code block',
+    insertDivider: 'Divider',
+    insertReloaded: 'The document was reloaded. Choose an insertion point again.',
     emptyTitle: 'This document is empty',
     emptyHint: 'Start writing, or ask an agent for a draft',
     emptyWrite: 'Start writing',
@@ -539,7 +568,8 @@ function renderChrome() {
     $(`fmt-${fmt}`).setAttribute('aria-label', t[fmt])
     $(`fmt-${fmt}`).title = t[fmt]
   }
-  $('block-handle').setAttribute('aria-label', t.block)
+  $('block-insert').setAttribute('aria-label', t.insertBelow)
+  $('block-handle').setAttribute('aria-label', t.blockActions)
   $('doc-empty-title').textContent = t.emptyTitle
   $('doc-empty-hint').textContent = t.emptyHint
   $('empty-write-label').textContent = t.emptyWrite
@@ -1546,17 +1576,18 @@ async function createFolder() {
   }
 }
 
-async function uploadFiles() {
+async function uploadFiles(place = { chat: state.ctx.chat.id, ...(state.folder ? { folder: state.folder } : {}) }) {
   hideBanner()
   // One upload at a time: the button is back once the files are in the list and anything to ask is asked.
   $('upload').disabled = true
   try {
     const before = new Set(state.entries.map((e) => e.id))
     // The host's file picker, into the folder on screen; [] when the person cancels.
-    const arrived = await gugu.files.upload({ chat: state.ctx.chat.id, ...(state.folder ? { folder: state.folder } : {}) })
+    const arrived = await gugu.files.upload(place)
     // What arrived is in the list, to open like any other file (the picker took the gesture's time).
     await refreshList()
     askAboutNames(arrived, before)
+    return arrived
   } catch (error) {
     // A partial failure rejects too, after the rest are stored: the list shows what arrived.
     await refreshList()
@@ -1709,6 +1740,8 @@ async function mountText(current, preview) {
   const render = () => {
     if (state.current !== current) return
     md.render($('preview'), file.text, { density: 'comfortable', frontmatter: true, sourceLines: true, file: current.entry })
+    current.previewPending = false
+    if (file.readOnly) hideBlockHandle(true)
     previewMarks()
     // A task is ticked where it is read (its line's [ ] / [x], below); not in a file this person may only read.
     for (const box of $('preview').querySelectorAll('li > input[type=checkbox], li > p:first-child > input[type=checkbox]')) box.disabled = !!file.readOnly
@@ -1718,7 +1751,7 @@ async function mountText(current, preview) {
     $('empty-write').hidden = $('empty-draft').hidden = !!file.readOnly
   }
   const changed = debounce(render, 120)
-  current.offs.push(file.onChange((event) => { if (!event.entry) changed() }))
+  current.offs.push(file.onChange((event) => { if (!event.entry) { current.previewPending = true; hideBlockHandle(); changed() } }))
   render()
   // Reading does not wait for the source editor's module and construction.
   await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))
@@ -1727,7 +1760,7 @@ async function mountText(current, preview) {
   current.marks = lineMarks(cm)
   current.view = new cm.EditorView({
     parent: $('editor'),
-    extensions: [cm.basicSetup, markdownSupport(cm), cm.EditorView.lineWrapping, editorTheme(cm), selectionWatch(cm), current.marks.extension],
+    extensions: [cm.basicSetup, markdownSupport(cm), cm.EditorView.lineWrapping, editorTheme(cm), selectionWatch(cm), current.marks.extension, blockCompletions(current, cm)],
   })
   current.unbind = gugu.bind.codemirror(current.view, file)
   showPlace()
@@ -1989,8 +2022,8 @@ function format(kind) {
   view.focus()
 }
 
-// Reading with a pointer: the top-level block under it gets a ⋯ in its left margin. Its menu does with the whole block
-// what a selection's bar does (Cite, ＋ Keep), copies a link to its lines (the pill's own `at`), or shows them in the source.
+// Reading with a pointer: + inserts after the top-level block's source span. The bound editor owns writes and undo;
+// the file's existing anchor follows that position while a picker is open or another person edits the document.
 let handleBlock = null
 let handleHideTimer = null
 
@@ -2004,64 +2037,147 @@ function scheduleBlockHandleHide() {
   handleHideTimer = setTimeout(hideBlockHandle, 150)
 }
 
-function hideBlockHandle() {
+function hideBlockHandle(force = false) {
   cancelBlockHandleHide()
-  if ($('menu').hidden || state.menuAnchor !== $('block-handle')) {
+  if (force || $('menu').hidden || !$('block-controls').contains(state.menuAnchor)) {
     handleBlock = null
-    $('block-handle').hidden = true
+    $('block-controls').hidden = true
   }
 }
 
 function showBlockHandle(event) {
   cancelBlockHandleHide()
-  if (touchPane?.matches || !state.current || state.current.file.type !== 'text') return
+  if (!state.current?.view || state.current.file.readOnly || state.current.view.state.readOnly) return hideBlockHandle(true)
+  if (touchPane?.matches || state.current.previewPending || state.current.file.type !== 'text') return hideBlockHandle()
   const root = $('preview').firstElementChild
   const pane = $('preview').getBoundingClientRect()
   let block = null
-  // The reading column's left padding belongs to the block's row too: the pointer crosses it to reach its ⋯.
+  // The reading column's left padding belongs to the block's row too: the pointer crosses it to reach its +.
   for (const node of root?.children ?? []) {
     if (!node.dataset.line) continue
     const box = node.getBoundingClientRect()
+    if (box.top > event.clientY) break
+    if (box.bottom < event.clientY) continue
     if (event.clientX >= pane.left && event.clientX <= box.right && event.clientY >= box.top && event.clientY <= box.bottom) {
       block = node
       break
     }
   }
   if (!block) return
-  if (block === handleBlock && !$('block-handle').hidden) return
+  if (block === handleBlock && !$('block-controls').hidden) return
   handleBlock = block
   const box = block.getBoundingClientRect()
-  const handle = $('block-handle')
+  const handle = $('block-controls')
   handle.hidden = false
   handle.style.top = `${box.top + 2}px`
   handle.style.left = `${Math.max(pane.left + 2, box.left - handle.offsetWidth - 6)}px`
 }
 
+// Positions are native file anchors while a menu or picker is open, never a second block/document model.
+function blockRange(current, span) {
+  const { doc } = current.view.state
+  return { from: current.file.anchor(doc.line(span[0]).from), to: current.file.anchor(doc.line(Math.min(span[1], doc.lines)).to) }
+}
+
+function resolvedRange(current, range) {
+  const from = current.file.resolve(range.from), to = current.file.resolve(range.to)
+  if (from === null || to === null) {
+    showBanner(state.t.insertReloaded, 'error')
+    return null
+  }
+  return { from, to }
+}
+
+function changeBlock(current, range, change) {
+  const view = current.view
+  if (state.current !== current || current.file.readOnly || !view || view.state.readOnly) return
+  const at = resolvedRange(current, range)
+  if (!at) return
+  try {
+    const edit = change(view.state.doc, at)
+    if (!edit) return
+    const { caret = 0, ...changes } = edit
+    const head = changes.from + caret
+    view.dispatch({ changes, selection: { anchor: head }, effects: state.cm.EditorView.scrollIntoView(head, { y: 'center' }), userEvent: 'input' })
+    if (state.mode === 'preview') setMode(narrowPane?.matches ? 'edit' : 'split')
+    hideBlockHandle()
+    view.focus()
+  } catch (error) {
+    showBanner(fmt(state.t.failed, { e: error.message }), 'error')
+  }
+}
+
+function insertionItems(current, range, below = true) {
+  const insert = (text, caret = 0) => changeBlock(current, range, (_doc, at) => ({
+    from: below ? at.to : at.from, to: at.to, insert: `${below ? '\n\n' : ''}${text}\n`, caret: (below ? 2 : 0) + caret,
+  }))
+  return INSERT_BLOCKS.map((item) => ({
+    text: state.t[item.label],
+    disabled: !item.text && (!current.entry.chat || !canWrite() || $('upload').disabled),
+    run: async () => {
+      if (item.text !== undefined) return insert(item.text, item.caret)
+      const arrived = await uploadFiles({ chat: current.entry.chat, ...(current.entry.parentId ? { folder: current.entry.parentId } : {}) })
+      if (!arrived?.length) return
+      insert(arrived.map((entry) => `${item.id === 'image' && entry.contentType.startsWith('image/') ? '!' : ''}[${entry.name.replace(/[[\]\\]/g, '\\$&')}](gugu-file://${entry.id})`).join('\n\n'))
+    },
+  }))
+}
+
+function insertMenu() {
+  const current = state.current, span = spanOf(handleBlock?.dataset.line)
+  if (!current?.view || !span || current.file.readOnly || current.view.state.readOnly) return
+  toggleMenu($('block-insert'), [{ label: state.t.insertBelow }, ...insertionItems(current, blockRange(current, span))])
+}
+
 function blockMenu() {
-  const current = state.current
-  const block = handleBlock
+  const current = state.current, block = handleBlock
   const span = spanOf(block?.dataset.line)
-  if (!current || !span) return
-  const t = state.t
-  const pick = { text: block.innerText || block.textContent || '', lines: span }
+  if (!current?.view || !span || current.file.readOnly || current.view.state.readOnly) return
+  const t = state.t, range = blockRange(current, span)
+  const blocks = [...block.parentElement.children].filter((node) => node.dataset.line)
+  const index = blocks.indexOf(block)
+  const neighbor = (offset) => blocks[index + offset] ? blockRange(current, spanOf(blocks[index + offset].dataset.line)) : null
+  const above = neighbor(-1), below = neighbor(1)
+  const move = (other, down) => changeBlock(current, range, (doc, at) => {
+    const adjacent = resolvedRange(current, other)
+    if (!adjacent) return null
+    const { movedDown, ...edit } = down ? swapBlocks(doc, at, adjacent) : swapBlocks(doc, adjacent, at)
+    return { ...edit, caret: down ? movedDown : 0 }
+  })
+  const pick = () => {
+    const at = resolvedRange(current, range), doc = current.view.state.doc
+    return at && { text: doc.sliceString(at.from, at.to), lines: [doc.lineAt(at.from).number, doc.lineAt(at.to).number] }
+  }
   toggleMenu($('block-handle'), [
-    [t.citeBlock, () => void cite(current, [pick], state.held)],
-    [t.holdBlock, () => {
-      state.held.push(refOf(current, pick))
-      renderHeld()
-    }],
-    [t.copyBlockLink, () => void copyLink(current.entry, placeOf(current.file.text, span[0], span[1]))],
-    [t.findSource, () => findInSource(span)],
+    { text: t.turnInto, children: ['heading', 'list', 'quote', 'code'].map((kind) => ({
+      text: t[INSERT_BLOCKS.find((item) => item.id === kind).label],
+      run: () => changeBlock(current, range, (_doc, at) => ({ ...at, insert: turnBlock(blockContent(current.view.state, state.cm, at.from, at.to), kind) })),
+    })) },
+    [t.duplicateBlock, () => changeBlock(current, range, (doc, at) => ({ from: at.to, to: at.to, insert: `\n\n${doc.sliceString(at.from, at.to)}`, caret: 2 }))],
+    { text: t.moveBlockUp, disabled: !above, run: () => move(above, false) },
+    { text: t.moveBlockDown, disabled: !below, run: () => move(below, true) },
+    [t.deleteBlock, () => changeBlock(current, range, (_doc, at) => {
+      const next = below && resolvedRange(current, below), previous = above && resolvedRange(current, above)
+      return { from: next ? at.from : previous ? previous.to : at.from, to: next ? next.from : at.to, insert: '' }
+    })],
+    { separator: true },
+    [t.copyBlockLink, () => { const p = pick(); if (p) void copyLink(current.entry, placeOf(current.file.text, p.lines[0], p.lines[1])) }],
+    [t.citeBlock, () => { const p = pick(); if (p) void cite(current, [p], state.held) }],
   ])
 }
 
-// The block's lines marked in the source, as a pill's are: beside the reading when there is room, else the source alone.
-function findInSource(span) {
-  if (state.mode === 'preview') setMode(narrowPane?.matches ? 'edit' : 'split')
-  state.found = { lines: span, said: false }
-  applyMarks()
-  const view = state.current?.view
-  if (view) view.dispatch({ effects: state.cm.EditorView.scrollIntoView(view.state.doc.line(Math.min(span[0], view.state.doc.lines)).from, { y: 'center' }) })
+function blockCompletions(current, cm) {
+  return cm.autocomplete.autocompletion({ override: [(context) => {
+    if (current.file.readOnly || context.state.readOnly) return null
+    const line = context.state.doc.lineAt(context.pos)
+    if (context.pos !== line.to || !line.text.startsWith('/')) return null
+    for (let node = cm.language.syntaxTree(context.state).resolveInner(context.pos, -1); node; node = node.parent) {
+      if (node.name === 'FencedCode' || node.name === 'CodeBlock') return null
+    }
+    const range = { from: current.file.anchor(line.from), to: current.file.anchor(line.to) }
+    const items = insertionItems(current, range, false).filter((item) => !item.disabled)
+    return { from: line.from + 1, options: items.map((item, index) => ({ label: item.text, boost: items.length - index, type: 'keyword', apply: () => { cm.autocomplete.closeCompletion(current.view); void item.run() } })) }
+  }] })
 }
 
 // A task ticked in the reading page ticks its line in the source: that line's `[ ]` / `[x]`, nothing else.
@@ -2206,6 +2322,7 @@ function watchStatus(current) {
 
 // Gone: deleted, removed from the chat, capability withdrawn. The text stays readable; editing stops.
 function goneState(current) {
+  hideBlockHandle(true)
   showBanner(state.t.gone, 'error', true)
   const text = current.file.type === 'text' ? current.file.text : JSON.stringify(current.file.toJSON(), null, 2)
   current.unbind?.()
@@ -2779,8 +2896,9 @@ function start() {
   $('preview').addEventListener('pointerenter', cancelBlockHandleHide)
   $('preview').addEventListener('pointerleave', scheduleBlockHandleHide)
   $('preview').addEventListener('scroll', () => hideBlockHandle())
-  $('block-handle').addEventListener('pointerenter', cancelBlockHandleHide)
-  $('block-handle').addEventListener('pointerleave', scheduleBlockHandleHide)
+  $('block-controls').addEventListener('pointerenter', cancelBlockHandleHide)
+  $('block-controls').addEventListener('pointerleave', scheduleBlockHandleHide)
+  $('block-insert').onclick = () => insertMenu()
   $('block-handle').onclick = () => blockMenu()
   $('preview').addEventListener('change', tickTask)
   $('empty-write').onclick = () => {
