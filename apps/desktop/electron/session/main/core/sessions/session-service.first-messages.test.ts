@@ -8,12 +8,13 @@ const mocks = vi.hoisted(() => ({
 vi.mock('@main/core/projects/project-manager', () => ({ projectManager: {} }));
 vi.mock('@main/core/workspaces/workspace-bootstrap-service', () => ({ workspaceBootstrapService: {} }));
 vi.mock('@main/core/workspaces/workspace-registry', () => ({ workspaceRegistry: { get: () => ({ path: '/repo' }) } }));
-vi.mock('@main/db/client', () => ({ db: { select: () => ({ from: () => ({ where: () => ({ limit: async () => [{ projectId: 'p' }] }) }) }) } }));
+// One row read serves both the provision (its project) and the admission (the session as mapped).
+vi.mock('@main/db/client', () => ({ db: { select: () => ({ from: () => ({ where: () => ({ limit: async () => [{ projectId: 'p', ...mocks.sessions[0] }] }) }) }) } }));
+vi.mock('./utils', () => ({ mapSessionRowToSession: (row: unknown) => row }));
 vi.mock('@main/db/schema', () => ({ sessions: { id: 'id', projectId: 'projectId' } }));
 vi.mock('drizzle-orm', () => ({ eq: () => null }));
 vi.mock('@main/lib/events', () => ({ events: { emit: vi.fn() } }));
 vi.mock('./operations/createSession', () => ({ createSession: vi.fn() }));
-vi.mock('./getSessions', () => ({ getSessions: async () => mocks.sessions }));
 vi.mock('./session-life-creation', () => ({ enqueueCreationTurns: mocks.enqueue }));
 vi.mock('./session-workspace-manager', () => ({ sessionWorkspaceManager: { getWorkspaceId: () => 'w' } }));
 
@@ -29,7 +30,7 @@ describe('provisionWorkspace admits a never-run ACP session\'s first messages', 
   it('admits them once the workspace exists', async () => {
     mocks.sessions = [{ id: 's', runtime: 'acp', initialQueue: [{ text: '开工' }] }];
     await sessionService.provisionWorkspace('s');
-    expect(mocks.enqueue).toHaveBeenCalledExactlyOnceWith(mocks.sessions[0]);
+    expect(mocks.enqueue).toHaveBeenCalledExactlyOnceWith(expect.objectContaining(mocks.sessions[0]));
   });
 
   it('leaves a terminal session, and an ACP session without first messages, alone', async () => {

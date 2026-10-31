@@ -18,7 +18,7 @@ import type {
   ProvisionWorkspaceError,
 } from '@shared/core/sessions/create-session';
 import { createSession } from './operations/createSession';
-import { getSessions } from './getSessions';
+import { mapSessionRowToSession } from './utils';
 import { enqueueCreationTurns } from './session-life-creation';
 import type { TeardownSessionError } from './provision-session-error';
 import { sessionWorkspaceManager } from './session-workspace-manager';
@@ -35,8 +35,10 @@ type ProvisionResult = ProvisionSessionResult & { sshConnectionId?: string };
  * the other creation entries admit theirs where they launch.
  */
 async function admitFirstMessages(sessionId: string): Promise<void> {
-  const session = (await getSessions()).find((candidate) => candidate.id === sessionId);
-  if (session?.runtime === 'acp' && session.initialQueue?.length) enqueueCreationTurns(session);
+  const [row] = await db.select().from(sessions).where(eq(sessions.id, sessionId)).limit(1);
+  if (!row) throw new Error(`Session not found: ${sessionId}`);
+  const session = mapSessionRowToSession(row);
+  if (session.runtime === 'acp' && session.initialQueue?.length) enqueueCreationTurns(session);
 }
 
 export class SessionService {
