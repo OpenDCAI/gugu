@@ -361,7 +361,8 @@ import {
 import { log } from '@main/lib/logger'
 import { events } from '@main/lib/events'
 import { installSessionLife, sessionLife } from '@main/core/sessions/session-life'
-import { admitCreationTurns } from '@main/core/sessions/session-life-creation'
+import { admitCreationTurns, bindIdentityThenCreate, claimIdentityCreation } from '@main/core/sessions/session-life-creation'
+import { unbindSessionAgent } from '@main/core/sessionpage/sessionpage-session-agent'
 import { lifeStore } from '@main/core/sessions/session-pending'
 import { sessionLifeSources } from '@main/core/sessions/session-life-host'
 import { createAcpLegAdapter } from '@main/core/acp/session-life-acp'
@@ -1793,6 +1794,18 @@ export async function startSessionpageAgentSession(
   input: SessionpageAgentSessionStartInput,
   provision: SessionpageAgentSessionProvisioner,
 ): Promise<SessionpageAgentSessionProvisioned> {
+  const release = claimIdentityCreation(input.agentUserId)
+  try {
+    return await startSessionpageAgentSessionClaimed(input, provision)
+  } finally {
+    release()
+  }
+}
+
+async function startSessionpageAgentSessionClaimed(
+  input: SessionpageAgentSessionStartInput,
+  provision: SessionpageAgentSessionProvisioner,
+): Promise<SessionpageAgentSessionProvisioned> {
   // #4181 —— 这条链路曾静默挂死 30 分钟以上且零日志。每个阶段落一行，挂点自己报名；
   // #4184 —— host-owned abort：每个阶段边界检查取消（150s 有界启动预算）。两套互补：测点管可见，abort 管有界。
   const signal = input.signal
@@ -1859,7 +1872,31 @@ export async function startSessionpageAgentSession(
   try {
     throwIfAborted()
     // 落行并挂载(挂不上就撤掉这一行再抛,见 attachAgentToSession);ACP 会话的引擎在下面显式起。
-    const session = existing ?? await attachAgentToSession({
+    // The identity this command was given is bound first (identity is its own persistent fact; the identity stage
+    // reads it as bound). A new session row that cannot be written takes its binding back with it.
+    let provisioned!: Awaited<ReturnType<typeof provision>>
+    const bindIdentity = async (projectPath: string) => {
+      provisioned = await provision({
+        agentUserId: input.agentUserId,
+        displayName: input.displayName,
+        providerId: provider,
+        projectPath,
+        chatId: input.chatId,
+        sessionId,
+        projectId: project.id,
+      })
+    }
+    let session: Awaited<ReturnType<typeof attachAgentToSession>>
+    if (existing) {
+      session = existing
+      await sessionService.ensureSessionMounted(session.id)
+      const mounted = resolveSession(project.id, session.id)
+      if (!mounted) throw new Error(`session-page agent session ${session.id} is not mounted`)
+      await bindIdentity(mounted.sessionPath)
+    } else {
+      const projectPath = resolveWorkspace(project.id, repositoryWorkspaceId)?.path
+      if (!projectPath) throw new Error(`session-page project ${project.id} has no repository workspace path`)
+      session = await bindIdentityThenCreate(() => bindIdentity(projectPath), () => attachAgentToSession({
       id: sessionId,
       projectId: project.id,
       workspaceId: repositoryWorkspaceId,
@@ -1875,21 +1912,9 @@ export async function startSessionpageAgentSession(
       ...(modelChoice
         ? { ...(modelChoice.model ? { model: modelChoice.model } : {}), platformModel: modelChoice.platformModel }
         : {}),
-    })
-    throwIfAborted()
-    mark('session-attached')
-    if (existing) await sessionService.ensureSessionMounted(session.id)
-    const mounted = resolveSession(project.id, session.id)
-    if (!mounted) throw new Error(`session-page agent session ${session.id} is not mounted`)
-    const provisioned = await provision({
-      agentUserId: input.agentUserId,
-      displayName: input.displayName,
-      providerId: provider,
-      projectPath: mounted.sessionPath,
-      chatId: input.chatId,
-      sessionId: session.id,
-      projectId: project.id,
-    })
+    }),
+      () => unbindSessionAgent(sessionId, process.env))
+    }
     throwIfAborted()
     mark('identity-provisioned')
     // 在首轮跑起来之前记下:首轮里就可能开子 agent。

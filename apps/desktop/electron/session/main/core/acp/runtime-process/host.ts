@@ -862,8 +862,6 @@ export function createStartOwningClient(client: ContractClient<AcpRuntimeApiCont
   };
   const startsInFlight = new Map<string, StartOperation>();
   const stopsInFlight = new Map<string, ReturnType<typeof client.stopSession>>();
-  const conditionalStops = new Set<string>();
-  const closeBrowserToolsBestEffort = closeAcpBrowserToolsBestEffort;
   const stopWorker = (input: Parameters<typeof client.stopSession>[0], meta: Parameters<typeof client.stopSession>[1]) =>
     stopAcpWorkerSession(client, input, meta);
   async function waitForStop(sessionId: string): Promise<void> {
@@ -897,43 +895,26 @@ export function createStartOwningClient(client: ContractClient<AcpRuntimeApiCont
     return operation;
   };
 
-  const stopSession: typeof client.stopSession = (input, meta) => {
+  // Side-chat forks only (session-life stops every persisted session): cancel an in-flight start, then the one
+  // ACP stop. Idle reclamation is session-life's idle-reap, never this entry.
+  const stopSession: typeof client.stopSession = (input) => {
+    if (input.onlyIfIdle) throw new Error(`Idle stop of ${input.sessionId} belongs to session-life (idle-reap)`);
     const pending = stopsInFlight.get(input.sessionId);
-    if (pending) {
-      // An unconditional user stop must still run when idle reclamation declines.
-      if (!input.onlyIfIdle && conditionalStops.has(input.sessionId)) {
-        return pending.then(() => stopSession(input, meta));
-      }
-      return pending;
-    }
+    if (pending) return pending;
     const inFlight = startsInFlight.get(input.sessionId);
-    if (!input.onlyIfIdle && inFlight) inFlight.stopped = true;
-    if (input.onlyIfIdle) conditionalStops.add(input.sessionId);
-    const operation = Promise.resolve().then(async () => {
-      const idleStop = input.onlyIfIdle ? await stopWorker(input, meta) : null;
-      if (idleStop && !idleStop.success) {
-        if (await detachedClient.adapterProvenance({ sessionId: input.sessionId }) === null) {
-          await closeRuntimeForkOwnershipForRuntimeSession(input.sessionId);
-          await releaseEmdashPlatformSession(input.sessionId);
-        }
-        return idleStop;
-      }
-      if (inFlight) inFlight.stopped = true;
+    if (inFlight) inFlight.stopped = true;
+    const operation: ReturnType<typeof client.stopSession> = Promise.resolve().then(async () => {
       if (startsInFlight.get(input.sessionId) === inFlight) startsInFlight.delete(input.sessionId);
-      const [result] = await Promise.all([idleStop ?? stopWorker(input, meta), closeBrowserToolsBestEffort(input.sessionId)]);
-      // Lost replies do not retain credentials after the worker proves the process is gone.
-      if (!result.success && await detachedClient.adapterProvenance({ sessionId: input.sessionId }) !== null) return result;
-      await closeRuntimeForkOwnershipForRuntimeSession(input.sessionId);
-      await releaseEmdashPlatformSession(input.sessionId);
+      try {
+        await stopAcpSessionAndSettle(client, input.sessionId);
+      } catch (error) {
+        return acpErr.stopFailed({ name: 'StopFailed', message: error instanceof Error ? error.message : String(error) });
+      }
       if (inFlight) await settleStoppedStart(input.sessionId, inFlight.projectId);
-      return result;
+      return { success: true as const, data: undefined };
     });
     stopsInFlight.set(input.sessionId, operation);
-    const clear = (): void => {
-      if (stopsInFlight.get(input.sessionId) !== operation) return;
-      stopsInFlight.delete(input.sessionId);
-      conditionalStops.delete(input.sessionId);
-    };
+    const clear = (): void => { if (stopsInFlight.get(input.sessionId) === operation) stopsInFlight.delete(input.sessionId); };
     void operation.then(clear, clear);
     return operation;
   };

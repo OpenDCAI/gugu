@@ -42,7 +42,9 @@ import type { BirthGroup } from '@shared/core/sessions/create-session';
 import { rememberedProviderOf, resolveSessionProviderSelection, sessionpageLegFor } from '@shared/core/sessions/provider-selection';
 import type { NewSessionMemory } from '@shared/core/app-settings';
 import { sessionLife } from './session-life';
-import { admitCreationTurns } from './session-life-creation';
+import { admitCreationTurns, bindIdentityThenCreate } from './session-life-creation';
+import { provisionStartIdentity } from '@main/core/acp/runtime-process/host';
+import { unbindSessionAgent } from '@main/core/sessionpage/sessionpage-session-agent';
 import { createStageLedger } from '@main/lib/stage-ledger';
 import { events } from '@main/lib/events';
 import {
@@ -996,6 +998,8 @@ function envelopeOf(sender: EnvelopeSender): DeliveryEnvelope {
  * 会话行 + 挂载 → 首句 → 起引擎。
  */
 async function createChildSession(input: {
+  /** ACP creation that needs its identity at once (an App spawn): bind it before the row exists. */
+  bindIdentityFirst?: boolean;
   ledger: ReturnType<typeof createStageLedger>;
   projectId: string;
   /** child 在哪个工作区里干活。 */
@@ -1075,7 +1079,7 @@ async function createChildSession(input: {
   // 落行放在所有校验之后:任何一道校验抛了都不该留下一条会话。行落下之后当场挂载(挂不上就撤掉这一行再抛)。
   // Born in a chat: its identity joins it when first minted (birth-groups.ts).
   if (input.birthGroup) rememberBirthGroup(sessionId, input.birthGroup);
-  const session = await attachAgentToSession({
+  const attach = () => attachAgentToSession({
     id: sessionId,
     projectId,
     workspaceId: input.workspaceId,
@@ -1095,7 +1099,19 @@ async function createChildSession(input: {
     ...(initialQueue ? { startupOrigin: 'session-page' as const, initialMessageId: messageId } : {}),
     runtime: transport,
     deferStart: true,
-  }, db, input.relations).catch((error: unknown) => {
+  }, db, input.relations);
+  const created = input.bindIdentityFirst && transport === 'acp'
+    ? bindIdentityThenCreate(
+      async () => {
+        const cwd = resolveWorkspace(projectId, input.workspaceId)?.path;
+        if (!cwd) throw new Error(`workspace ${input.workspaceId} is unknown`);
+        const identity = await provisionStartIdentity({ sessionId, providerId: provider, projectId, cwd }, 'fresh', { agentDisplayName: title || undefined });
+        if (!identity) throw new Error(`session ${sessionId} could not be given an identity`);
+      },
+      attach,
+      () => unbindSessionAgent(sessionId, process.env))
+    : attach();
+  const session = await created.catch((error: unknown) => {
     ledger.settle({ outcome: 'failed' });
     throw error;
   });
@@ -1290,6 +1306,7 @@ export async function spawnSessionForApp(input: AppSessionSpawnInput): Promise<S
     platformModel: selection.kind === 'gugu' ? { modelId: selection.modelId } : requestedHarness || requestedModel || last ? null : undefined,
     ...(input.chat ? { birthGroup: { chatId: input.chat, asTask: false } } : {}),
     awaitStart: true,
+    bindIdentityFirst: true,
     relations: {
       ...(input.bySession ? (await spawnedBy({ localSessionId: input.bySession })).relations : { parentSessionId: null }),
       spawnedByExtensionId: input.extensionId,
