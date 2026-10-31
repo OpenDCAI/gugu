@@ -60,7 +60,7 @@ afterEach(() => {
 })
 
 async function render(hidden: boolean, openNonce: number) {
-  await renderWithAppProviders(harness, createNode(ChatAreaPanel, { activeTab: 'chats', mobile: true, hidden, openNonce }), {
+  await renderWithAppProviders(harness, createNode(ChatAreaPanel, { mobile: true, hidden, openNonce }), {
     chat: {
       getImRepository: getImRepositoryMock,
       activeChatId: 'g1',

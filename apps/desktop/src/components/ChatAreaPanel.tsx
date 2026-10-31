@@ -8,6 +8,7 @@ import { DUR_FAST_MS, tween } from '@/styles/motion'
 import type { FlowListHandle } from '@/lib/flowList'
 import { ChevronLeft, MessageCircle } from '@/lib/icons'
 import type { SidebarTab } from '@gugu/core/shared/enums/sidebarTabModels'
+import { useShellTabAmong } from '../lib/shellTab'
 import { useChatStore } from '../store/chatContext'
 import { ChatLineScope } from '../store/chatLineScope'
 import { useAuth } from '../store/auth'
@@ -81,10 +82,11 @@ import { useChatSlotProjectName } from '../lib/shellSlots'
 import { useChatHasMessages } from '../lib/chatSummariesBridge'
 import { ChatPartSlot } from '../session/renderer/lib/chat-slot'
 interface ChatAreaPanelProps {
+  /** The panel of the IM page (web / phone 消息): shown while the shell shows 消息. Other hosts pass `hidden`. */
+  imPage?: boolean
   /** 这块面显示哪条会话:对话页给列表选中的那条,「助理」App 给和它的私聊(#7199);不给 = 跟着那条活的线(store/chatLineScope.tsx)。 */
   chatId?: string | null
   viewportKey?: string; assistantChat?: boolean // Personal assistant keeps IM bubbles; task agents use the shared transcript.
-  activeTab: SidebarTab
   /** The main navigation route owns unscoped unread requests; explicit panes receive their scroller. */
   navigationTarget?: boolean
   /** 常驻但不可见(新建 agent/任务的创建面盖在它上面):与切到别的 tab 同一套门控 —— 不算「看见」、不接全局快捷键。 */
@@ -116,12 +118,18 @@ export function ChatAreaPanel({ chatId, ...surface }: ChatAreaPanelProps) {
   return chatId === undefined ? <ChatAreaSurface {...surface} /> : <ChatLineScope chatId={chatId}><ChatAreaSurface {...surface} /></ChatLineScope>
 }
 
-function ChatAreaSurface({ viewportKey = 'chats', assistantChat = false, activeTab, navigationTarget = false, hidden = false, mobile = false, openNonce, onBack, chrome, blockHost, onOpenUserChat }: Omit<ChatAreaPanelProps, 'chatId'>) {
+const NO_TABS: readonly SidebarTab[] = []
+const IM_SURFACE_TABS: readonly SidebarTab[] = ['chats', 'contacts']
+
+function ChatAreaSurface({ viewportKey = 'chats', assistantChat = false, imPage = false, navigationTarget = false, hidden = false, mobile = false, openNonce, onBack, chrome, blockHost, onOpenUserChat }: Omit<ChatAreaPanelProps, 'chatId'>) {
   const { toast } = useToast()
   const { t } = useTranslation('messaging')
   const { getImRepository, subscribeAccountRevision, identitiesById, chats, activeChat, activeChatId, messages, loadingMessages, messagesError, refreshMessages, sendMessage, toggleReaction, memberReadSeqs, clearMessages, deleteMessage, sendAttachments, pinChat, deleteChat, leaveGroup, setChatNotificationLevel, loadOlderMessages, messageWindow, unreadEntry, jumpToUnreadEntry, loadNewerMessages, loadMessageAnchor, returnToLatestMessages, markMessageVisible, setFollowingTail, threadScope, setActiveChatId } = useChatStore('getImRepository', 'subscribeAccountRevision', 'identitiesById', 'chats', 'activeChat', 'activeChatId', 'messages', 'loadingMessages', 'messagesError', 'refreshMessages', 'sendMessage', 'toggleReaction', 'memberReadSeqs', 'clearMessages', 'deleteMessage', 'sendAttachments', 'pinChat', 'deleteChat', 'leaveGroup', 'setChatNotificationLevel', 'loadOlderMessages', 'messageWindow', 'unreadEntry', 'jumpToUnreadEntry', 'loadNewerMessages', 'loadMessageAnchor', 'returnToLatestMessages', 'markMessageVisible', 'setFollowingTail', 'threadScope', 'setActiveChatId')
   const { user } = useAuth()
-  const surfaceVisible = activeTab === 'chats' && !hidden
+  // Only the IM page's panel is shown or hidden by the shell tab (store); every other host (task-page block, assistant
+  // slot, task window, phone assistant) owns its visibility through `hidden`.
+  const surfaceTab = useShellTabAmong(imPage ? IM_SURFACE_TABS : NO_TABS) ?? (imPage ? null : 'chats')
+  const surfaceVisible = surfaceTab === 'chats' && !hidden
   const surfaceElement = useRef<HTMLDivElement>(null)
   const [showHeaderMenu, setShowHeaderMenu] = useState(false)
   const search = useChatSearch(activeChatId, surfaceVisible, messages, surfaceElement, viewportKey)
@@ -571,9 +579,9 @@ function ChatAreaSurface({ viewportKey = 'chats', assistantChat = false, activeT
     enterSelectMode,
   ])
 
-  const emptyCaption = activeTab === 'chats'
+  const emptyCaption = surfaceTab === 'chats'
     ? t('chatArea.empty.chats')
-    : activeTab === 'contacts'
+    : surfaceTab === 'contacts'
       ? t('chatArea.empty.contacts')
       : ''
 

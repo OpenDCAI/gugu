@@ -23,7 +23,7 @@ describe('ContactsPanel shared-group Agent cloud projection', () => {
       id: 'shared-group', kind: 'group' as const, name: 'Owner + Agent + Me', avatar_url: null,
       member_count: 3, is_muted: false, member_user_ids: ['owner-1', 'other-owner', sharedAgent.id],
     }
-    await renderWithAppProviders(harness, createNode(ContactsPanel, { activeTab: 'contacts', onOpenGroupChat, onSwitchToChat }), {
+    await renderWithAppProviders(harness, createNode(ContactsPanel, { onOpenGroupChat, onSwitchToChat }), { shellTab: 'contacts',
       auth: { id: 'owner-1', email: 'owner@example.com', nickname: 'Owner' },
       contacts: { sharedGroupAgents: [sharedAgent], groupChats: [sharedGroup] },
       chat: { chats: [] },
