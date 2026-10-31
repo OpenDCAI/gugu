@@ -15,7 +15,7 @@ vi.mock('../../../../apps/desktop/src/lib/topics', () => ({ topicService: {
   listTopicsOfChat: async () => [], getAgentFloodAdjustment: async () => null, getSourceState: async () => ({ kind: 'gone' }),
 } }))
 vi.mock('../../../../apps/desktop/src/lib/chat', () => ({ chatService: {
-  getMessages: async () => [], markMessageRead: async () => {}, getOtherMembersReadSeqs: async () => ({}),
+  getMessages: async () => [], getOtherMembersReadSeqs: async () => ({}),
   getGroupCollab: async () => ({ snapshot: { scheduler: null, humans: [], agents: [], tasks: [], outputs: [] }, identities: [] }),
 } }))
 

@@ -5,7 +5,7 @@ import { publishNativeConversationVisibility } from '@/lib/nativeConversationVis
 import { useCallback, useEffect, useRef } from 'react'
 import type { ChatView } from '@gugu/session-chat-ui'
 import { nativeMessageKey } from '@gugu/session-core/session-record/native-read'
-import { platform } from '@/platform'
+import { nativeItemId, writeRead, type NativeItemId } from '@/lib/readWriter'
 import { useConversationSessionSummary } from './useConversationSessionSummary'
 import { rendererLogger } from '@/lib/log'
 
@@ -18,7 +18,7 @@ export function useNativeConversationRead(deviceId: string | null, sessionId: st
   useEffect(() => { const id = key.current; if (!shown) publishNativeConversationVisibility(id, null); return () => publishNativeConversationVisibility(id, null) }, [shown, sessionId])
   const chats = useChatSummaries()
   const legacyFirst = [...chats.values()].find(chat => chat.peerUserId === summary?.agent?.userId)?.firstUnreadMessageId
-  const current = useRef({ shown, sessionId, deviceId, view: null as ChatView | null, visible: new Set<string>(), placed: false, legacy: { first: null as string | null, placed: false } })
+  const current = useRef({ shown, sessionId, deviceId, view: null as ChatView | null, visible: new Set<NativeItemId>(), placed: false, legacy: { first: null as string | null, placed: false } })
   if (current.current.sessionId !== sessionId || current.current.deviceId !== deviceId) {
     current.current = { shown, sessionId, deviceId, view: null, visible: new Set(), placed: false, legacy: { first: null, placed: false } }
   } else if (shown && !current.current.shown) {
@@ -63,10 +63,7 @@ export function useNativeConversationRead(deviceId: string | null, sessionId: st
       if (!itemIds.length) return
       busy = true
       try {
-        const api = platform.kind === 'electron'
-          ? (await import('@/session/renderer/lib/ipc')).rpcOn(deviceId).sessionTimeline
-          : (await import('@/mobile/agent-watch/sessionpage-rpc')).machineRpc(deviceId!).sessionTimeline
-        await api.sessionVisible({ conversationId: sessionId, itemIds: itemIds.slice(0, 500) })
+        await writeRead({ kind: 'native', deviceId, conversationId: sessionId, itemIds: itemIds.slice(0, 500) })
         if (active) for (const id of itemIds.slice(0, 500)) state.visible.delete(id)
       } catch (error) {
         rendererLogger('session/read').warn({ sessionId, error: String(error) }, 'Visible replies could not be acknowledged')
@@ -81,7 +78,7 @@ export function useNativeConversationRead(deviceId: string | null, sessionId: st
       const state = current.current
       if (!state.shown) return
       if (state.sessionId) publishNativeConversationVisibility(key.current, { sessionId: state.sessionId, visible: ids, aliases: dmRecordIds(readTurns.current()) })
-      for (const id of ids) state.visible.add(id)
+      for (const id of ids) state.visible.add(nativeItemId(id))
     }, []),
   }
 }

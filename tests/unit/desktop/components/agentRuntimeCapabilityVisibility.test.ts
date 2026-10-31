@@ -26,7 +26,6 @@ vi.mock('../../../../apps/desktop/src/lib/chat', () => ({
   chatService: {
     getCommonGroupChats: vi.fn(async () => []),
     getGroupCollab: vi.fn(async () => null),
-    markMessageRead: vi.fn(async () => {}),
   }
 }))
 vi.mock(

@@ -27,7 +27,7 @@ import { resolveOrLoud } from '@gugu/core/shared/resolveOrLoud'
 import { readDeviceDisplayIdentities, readDisplayIdentities } from './identityReadAdapter'
 import type { DisplayIdentity } from './displayIdentity'
 import { rendererLogger } from './log'
-import { markMemberRead, markMemberUnread } from './chatMemberReadState'
+import { markMemberUnread } from './chatMemberReadState'
 import { i18n } from '@/i18n'
 import { platform } from '../platform'
 import {
@@ -548,7 +548,6 @@ export const chatService = {
     return messageItemFromRow(msg as RawMessageRow, userId)
   },
 
-  markRead: markMemberRead,
   markUnread: markMemberUnread,
 
   /**
@@ -565,15 +564,6 @@ export const chatService = {
       .limit(1)
     if (error) throw new Error(error.message)
     return (data as { user_id: string }[] | null)?.[0]?.user_id ?? null
-  },
-
-  async markMessageRead(chatId: string, messageId: string, agentUserId: string): Promise<void> {
-    const { error } = await chatDb.rpc('mark_message_read', {
-      p_chat_id: chatId,
-      p_message_id: messageId,
-      p_agent_user_id: agentUserId
-    })
-    if (error) throw new Error(error.message)
   },
 
   /** Toggle an emoji reaction on a message. */

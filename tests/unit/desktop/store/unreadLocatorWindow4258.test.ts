@@ -25,8 +25,6 @@ const {
     getOtherMembersReadSeqs: vi.fn(),
     fetchMessageOverlays: vi.fn(),
     revalidateWindow: vi.fn(),
-    markMessageRead: vi.fn(async () => {}),
-    markRead: vi.fn(),
     markThreadRoot: vi.fn(),
   },
   getUnreadLocatorWindowMock: vi.fn(),
@@ -54,10 +52,11 @@ vi.mock('../../../../apps/desktop/src/lib/chatUnreadLocatorMessages', () => ({
   getUnreadLocatorWindow: getUnreadLocatorWindowMock,
   getUnreadLocatorMessages: getUnreadLocatorMessagesMock,
 }))
-vi.mock('../../../../apps/desktop/src/lib/chatMemberReadState', () => ({
-  markStreamRead: markStreamReadMock,
-  markMemberRead: vi.fn(),
-  markMemberUnread: vi.fn(),
+vi.mock('../../../../apps/desktop/src/lib/readWriter', async (original) => ({
+  ...await original<typeof import('../../../../apps/desktop/src/lib/readWriter')>(),
+  // 云端读位按 (chatId, streamId, seq) 记,与 mark_stream_read 同形。
+  writeRead: async (target: { kind: string; chatId: string; rootId?: string; seq: number }) => target.kind === 'receipt' ? undefined
+    : markStreamReadMock(target.chatId, target.kind === 'thread' ? `thread:${target.chatId}:${target.rootId}` : `main:${target.chatId}`, target.seq),
 }))
 vi.mock('../../../../apps/desktop/src/lib/imRepository', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../../../apps/desktop/src/lib/imRepository')>()
@@ -251,8 +250,6 @@ beforeEach(async () => {
   chatServiceMock.revalidateWindow.mockImplementation(async (ids: string[]) => ({
     overlays: new Map(), mutations: new Map(), presentIds: new Set(ids),
   }))
-  // chat.mark_read 与 mark_stream_read 写的是同一个主线水位(服务端单调取大)。
-  chatServiceMock.markRead.mockImplementation(async (_chatId: string, seq: number) => { serverMainReadSeq = Math.max(serverMainReadSeq, seq) })
   chatServiceMock.markThreadRoot.mockResolvedValue(undefined)
   chatServiceMock.getMessages.mockImplementation(
     async (chatId: string, _userId: string, _source: string, limit = 60, beforeSeq?: number, afterSeq?: number) => {
@@ -317,16 +314,16 @@ describe('#6610 arrival only reads the selected chat while it is on screen', () 
     await setChatOnScreen(false)
     serverRows = [...serverRows, peerRow(12), peerRow(13)]
     await act(async () => { await latestStore!.refreshChats() })
-    chatServiceMock.markRead.mockClear()
+    markStreamReadMock.mockClear()
     await act(async () => { await latestStore!.refreshMessages(CHAT_ID) })
     expect(latestStore!.messages.at(-1)?.seq, 'the new rows did land in the selected chat').toBe(13)
-    expect(chatServiceMock.markRead, 'off screen: arriving is not reading').not.toHaveBeenCalled()
+    expect(markStreamReadMock, 'off screen: arriving is not reading').not.toHaveBeenCalled()
     expect(latestStore!.chats[0]?.unread_count).toBe(2)
 
     // 阳性对照:同一场景只差「回到屏幕上」,同一次重拉照旧推到尾部。
     await setChatOnScreen(true)
     await act(async () => { await latestStore!.refreshMessages(CHAT_ID) })
-    expect(chatServiceMock.markRead).toHaveBeenLastCalledWith(CHAT_ID, 13)
+    expect(markStreamReadMock).toHaveBeenLastCalledWith(CHAT_ID, `main:${CHAT_ID}`, 13)
   })
 })
 // @@@6530 列表点开有未读的会话:停在最新处、尾部对账落定时清零;第一条未读留给「↑ N 条新消息」。
@@ -342,7 +339,7 @@ describe('#6530 opening a badged chat lands on the latest message (WeChat)', () 
     await openBadgedChat()
     expect(revealedRequests, '打开不跳到第一条未读').toEqual([])
     expect(latestStore?.messages.at(-1)?.seq).toBe(11)
-    expect(chatServiceMock.markRead).toHaveBeenLastCalledWith(CHAT_ID, 11)
+    expect(markStreamReadMock).toHaveBeenLastCalledWith(CHAT_ID, `main:${CHAT_ID}`, 11)
     expect(serverMainReadSeq).toBe(11)
     expect(latestStore?.chats[0]?.unread_locator).toBeNull()
     expect(latestStore?.unreadEntry?.locator).toMatchObject({ message_id: 'm10', message_seq: 10, unread_count: 2 })
@@ -366,12 +363,13 @@ describe('#4258 jumping to the unread locator', () => {
   it('consumes a naturally seen entry without letting its late callback consume a newer entry', async () => {
     serverRows = Array.from({ length: 11 }, (_, index) => peerRow(index + 1))
     serverMainReadSeq = 9
-    chatServiceMock.markRead.mockImplementation(async (_chatId: string, seq: number) => {
+    markStreamReadMock.mockImplementation(async (_chatId: string, _streamId: string, seq: number) => {
       if (seq > serverMainReadSeq) readStateVersion += 1
       serverMainReadSeq = Math.max(serverMainReadSeq, seq)
     })
     await renderProvider()
     await openBadgedChat()
+    markStreamReadMock.mockClear()
     const seenEntry = latestStore!.unreadEntry!
     await act(async () => { seenEntry.onSeen() })
     expect(latestStore!.unreadEntry).toBeNull()
@@ -393,6 +391,7 @@ describe('#4258 jumping to the unread locator', () => {
     serverMainReadSeq = 9
     await renderProvider()
     await openBadgedChat()
+    markStreamReadMock.mockClear()
     const read = deferred()
     markStreamReadMock.mockImplementationOnce(() => read.promise)
     let jump!: Promise<void>, finished = false
@@ -410,6 +409,7 @@ describe('#4258 jumping to the unread locator', () => {
     serverMainReadSeq = 9
     await renderProvider()
     await openBadgedChat()
+    markStreamReadMock.mockClear()
     const entry = latestStore!.unreadEntry
     let jump!: Promise<void>
     await act(async () => { jump = latestStore!.jumpToUnreadEntry(); void jump.catch(() => {}) })
@@ -423,7 +423,7 @@ describe('#4258 jumping to the unread locator', () => {
   it('does not consume a newer captured entry when an earlier presenter confirms', async () => {
     serverRows = Array.from({ length: 11 }, (_, index) => peerRow(index + 1))
     serverMainReadSeq = 9
-    chatServiceMock.markRead.mockImplementation(async (_chatId: string, seq: number) => {
+    markStreamReadMock.mockImplementation(async (_chatId: string, _streamId: string, seq: number) => {
       if (seq > serverMainReadSeq) readStateVersion += 1
       serverMainReadSeq = Math.max(serverMainReadSeq, seq)
     })
@@ -450,6 +450,7 @@ describe('#4258 jumping to the unread locator', () => {
     serverMainReadSeq = 9
     await renderProvider()
     await openBadgedChat()
+    markStreamReadMock.mockClear()
     const a = document.createElement('div'), b = document.createElement('div')
     let first!: Promise<void>, second!: Promise<void>
     await act(async () => {
@@ -525,23 +526,23 @@ describe('#4258 jumping to the unread locator', () => {
     await act(async () => { await latestStore!.refreshChats() })
     expect(latestStore!.chats[0]?.unread_count, '打开之后新到的 40 条重新攒成未读').toBe(40)
 
-    chatServiceMock.markRead.mockClear()
+    markStreamReadMock.mockClear()
     await act(async () => { await latestStore!.refreshMessages(CHAT_ID) })
-    expect(chatServiceMock.markRead, '窗口离开尾部时重拉不许推水位').not.toHaveBeenCalled()
+    expect(markStreamReadMock, '窗口离开尾部时重拉不许推水位').not.toHaveBeenCalled()
     expect(latestStore!.chats[0]?.unread_count).toBe(40)
     expect(Math.max(...latestStore!.messages.map((row) => row.seq)), '有界窗口不被重拉换成 live tail')
       .toBe(boundedTop)
 
     await act(async () => { await latestStore!.returnToLatestMessages() })
-    chatServiceMock.markRead.mockClear()
+    markStreamReadMock.mockClear()
     const visible = latestStore!.messages.find((row) => row.seq === 200)!
     expect(visible).toBeDefined()
     await act(async () => { latestStore!.markMessageVisible(visible) })
-    expect(chatServiceMock.markRead).toHaveBeenCalledWith(CHAT_ID, 200)
+    expect(markStreamReadMock).toHaveBeenCalledWith(CHAT_ID, `main:${CHAT_ID}`, 200)
     expect(latestStore!.chats[0]?.unread_locator, '读一页不许抹掉服务端为后面几页留的 locator').not.toBeNull()
 
     await act(async () => { latestStore!.markMessageVisible({ ...visible, chat_id: 'another-chat', seq: 999 }) })
-    expect(chatServiceMock.markRead).toHaveBeenCalledTimes(1)
+    expect(markStreamReadMock).toHaveBeenCalledTimes(1)
   })
   it('applies the same window rule to a thread stream', async () => {
     serverRows = [
