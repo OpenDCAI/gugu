@@ -11,6 +11,7 @@ import { chatComposerTarget, scheduleComposerFocus } from '@/lib/focusComposer'
 import { conversationLink } from '@gugu/core/shared/ui/guguLink'
 import { commandRegistry } from '@renderer/lib/commands/registry'
 import { rpcOn } from '@renderer/lib/ipc'
+import { showModal } from '@renderer/lib/modal/modal-provider'
 
 export type SearchChip =
   | { kind: 'in'; chatId: string }
@@ -112,6 +113,10 @@ export function showHit(hit: SearchHit): void {
   if (hit.kind === 'task') {
     set({ selectedId: hit.id, barChatId: `task:${hit.taskId}` })
     askReveal(`task:${hit.taskId}`, messageQuoteLink({ kind: 'session', sessionId: hit.taskId, itemId: hit.reference }), 'primary', session.query?.text)
+    if (hit.archived) {
+      showModal('sessionHistoryModal', { sessionId: hit.taskId, title: hit.title })
+      return
+    }
     followLink({ kind: 'session', sessionId: hit.taskId, projectId: hit.projectId })
     focusCleanup?.()
     void import('../sessions/open-session-in-session').then(({ openSessionInSessionWhenReady }) => {

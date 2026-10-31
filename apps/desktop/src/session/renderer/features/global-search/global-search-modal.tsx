@@ -232,7 +232,7 @@ export function GlobalSearchModal({ onClose }: BaseModalProps) {
         {coverage && (
           <span className="ml-auto shrink-0 pl-2 text-xs text-foreground/40">
             {translate(coverage.complete ? 'globalSearch.coverageComplete' : 'globalSearch.coveragePartial')}
-            {coverage.tasks?.some(task => task.reason === 'terminal') && <> · {translate('globalSearch.terminalNotIndexed')}</>}
+            {coverage.tasks?.some(task => task.reason && task.reason !== 'active') && <> · {translate('globalSearch.historyUnavailable')}</>}
           </span>
         )}
       </div>

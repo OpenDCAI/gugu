@@ -26,13 +26,13 @@ vi.mock('@renderer/lib/ipc', () => ({
     const results = !calls.paged ? hits : request.cursor ? hits.slice(1) : hits.slice(0, 1)
     const nextCursor = calls.paged && !request.cursor ? 'page-2' : null
     return { results, facets: { total: 2, file: 1, image: 0, link: 0, otherChats: 23 },
-      coverage: { complete: true, chats: [], tasks: calls.terminal ? [{ taskId: 'terminal', lastSeq: -1, exhausted: false, reason: 'terminal' }] : [] }, nextCursor } satisfies SearchResults
+      coverage: { complete: !calls.terminal, chats: [], tasks: calls.terminal ? [{ taskId: 'terminal', lastSeq: -1, exhausted: false, reason: 'unavailable' }] : [] }, nextCursor } satisfies SearchResults
   } } }),
 }))
 import { COMMANDS } from '@shared/commands'
 import { modalStore } from '@renderer/lib/modal/modal-store'
 import { GlobalSearchModal } from './global-search-modal'
-import { closeSearchBar, openGlobalSearch, readSearchSession, stepHit, takeGlobalSearchOpen, useIsSearchCurrent } from './search-session'
+import { closeSearchBar, openGlobalSearch, readSearchSession, showHit, stepHit, takeGlobalSearchOpen, useIsSearchCurrent } from './search-session'
 
 globalThis.ResizeObserver ??= class { observe() {} unobserve() {} disconnect() {} } as unknown as typeof ResizeObserver
 Element.prototype.scrollIntoView ??= () => {}
@@ -58,13 +58,20 @@ beforeEach(() => {
 afterEach(() => { act(() => root.unmount()); host.remove() })
 
 describe('global search modal', () => {
-  it('states that terminal tasks are not indexed instead of claiming all history is present', async () => {
+  it('opens archived task hits in the existing read-only dialog without task navigation', () => {
+    showHit({ ...hits[0], kind: 'task', taskId: 's', projectId: 'p', title: 'Archived task', reference: 's:turn:s0:m', role: 'assistant', archived: true, attachment: null });
+    expect(calls.links).toEqual([]);
+    expect(modalStore.activeModalId).toBe('sessionHistoryModal');
+    expect(modalStore.activeModalArgs).toMatchObject({ sessionId: 's', title: 'Archived task' });
+    modalStore.closeModal();
+  })
+  it('states that some history is unavailable instead of claiming completeness', async () => {
     calls.terminal = true
     openGlobalSearch({ text: '回滚' })
     await render()
-    expect(host.textContent).toContain('globalSearch.terminalNotIndexed')
-    expect(host.textContent).toContain('globalSearch.coverageComplete')
-    expect(host.textContent).not.toContain('globalSearch.coveragePartial')
+    expect(host.textContent).toContain('globalSearch.historyUnavailable')
+    expect(host.textContent).not.toContain('globalSearch.coverageComplete')
+    expect(host.textContent).toContain('globalSearch.coveragePartial')
   })
   it('opens scoped to a chat from an in-chat entry, newest first, and queries through the shared filters', async () => {
     openGlobalSearch({ text: '回滚', chips: [{ kind: 'in', chatId: G }] })
