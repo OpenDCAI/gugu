@@ -1152,13 +1152,14 @@ async function createChildSession(input: {
       ledger.settle({ outcome: 'failed' });
       throw error;
     }
-  } else {
+  } else if (!initialQueue) {
     // Native argv/stdin delivery replaces the outbox transport, but the child conversation still
     // needs the durable entity row used by the chat/task transcript. Recording it is independent
-    // from provider startup, so a failed spawn never erases what the caller sent.
+    // from provider startup, so a failed spawn never erases what the caller sent. An ACP child's first
+    // turn gets that row from its pending row (admitted below, with the same id): one writer only.
     recordDeliveredSessionDirectMessage(
       { sessionId },
-      { id: messageId, text: initialPrompt ?? initialQueue![0]!.text },
+      { id: messageId, text: initialPrompt! },
     );
   }
   if (!initialPrompt && !initialQueue) mark('delegation-enqueued', { sessionId });

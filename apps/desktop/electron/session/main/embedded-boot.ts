@@ -1935,12 +1935,10 @@ async function startSessionpageAgentSessionClaimed(
     if (childHarness) await recordChildHarnessDefault(provisioned.guguAgentUserId, childHarness)
     // The identity is bound above as part of creation; session-life starts the session from here and its LifeView
     // tells whether the start succeeded. The command answers now with the identity it was given.
-    if (!existing) {
-      admitCreationTurns({ ...session, initialQueue: input.initialPrompt ? [{ text: input.initialPrompt, origin: 'communication' }] : undefined })
-    } else if (input.initialPrompt && !session.providerSessionId) {
-      sessionLife().enqueue({ sessionId: session.id, messageId: `${session.id}:agent-create:${randomUUID()}`, text: input.initialPrompt,
-        kind: 'ordinary', turn: { kind: 'prompt', origin: 'communication' } })
-    } else sessionLife().start(session.id, 'user-open')
+    // Its creation turn (the first task / first message) is admitted here once, under the session's stable
+    // `<id>:creation:0`: a replayed create of the same bound session finds it queued and admits nothing twice.
+    if (session.providerSessionId) sessionLife().start(session.id, 'user-open')
+    else admitCreationTurns({ ...session, initialQueue: input.initialPrompt ? [{ text: input.initialPrompt, origin: 'communication' }] : undefined })
     mark('life-admitted')
     return { ...provisioned, sessionId: session.id, projectId: project.id }
   } catch (error) {

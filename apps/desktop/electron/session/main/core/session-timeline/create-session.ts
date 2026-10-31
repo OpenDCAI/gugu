@@ -497,7 +497,6 @@ async function createSessionSteps(
     sessionId,
     projectId,
     runtime,
-    initialQueue: runtime === 'acp' ? [{ text: prompt, origin: 'manual' as const }] : undefined,
     launchWorkspace: () => sessionService.provisionWorkspace(sessionId),
   });
   if (!launched.ok) {
@@ -539,7 +538,6 @@ export async function startSession(sessionId: string): Promise<CreateSessionResu
     sessionId,
     projectId: row.projectId,
     runtime,
-    initialQueue: session.initialQueue,
     launchWorkspace: async () => ({ success: true, data: await sessionService.ensureSessionMounted(row.id) }),
   });
   if (!launched.ok) {

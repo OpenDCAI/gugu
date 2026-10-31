@@ -34,7 +34,8 @@ vi.mock('@main/core/sessions/session-life', () => ({ sessionLife: () => life }))
 // 起 agent 那一步用的是**真的** launchCreatedSession(与别的机器建会话同一份),只把它按需取的
 // 几个重依赖换成桩:读回刚落库的会话行、ACP 启动入参构造、终端腿的首启。
 vi.mock('@main/core/sessions/getSessions', () => ({
-  getSessions: async () => [{ id: createdSession()?.id }],
+  // As the real reader maps it: the created row, its creation turns included (the launch admits them from it).
+  getSessions: async () => [createdSession()],
 }));
 vi.mock('@main/embedded-boot', () => ({
   acpStartInputFor: (session: { id: string }, workspaceId: string, cwd: string) => ({

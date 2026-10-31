@@ -1,9 +1,18 @@
+import { eq } from 'drizzle-orm';
+import { db } from '@main/db/client';
+import { sessions } from '@main/db/schema';
 import type { Session } from '@shared/core/sessions/sessions';
 import { sessionLife } from './session-life';
+import { mapSessionRowToSession } from './utils';
 
 /**
- * A new ACP session's creation turns become its first pending rows, so the first start carries no queue of its
- * own. The first turn of a chat-page / dispatched task is typed so its gugu message lands before it is sent.
+ * A new ACP session's creation turns are admitted at its launch, once per creation entry: the launch of a session made
+ * elsewhere (another machine, the phone, a task card, an automation: launchCreatedSession), a spawn (startSpawnedSession),
+ * agent.create, and for the desktop task page its own provision request (admitFirstMessages). Mounting a workspace never
+ * admits them. Their message ids are stable, so a turn reached again (a replayed launch, a page opening a child its
+ * launch already admitted) is the same single row.
+ *
+ * They become its first pending rows, so the first start carries no queue of its own. The first turn of a chat-page / dispatched task is typed so its gugu message lands before it is sent.
  * Without any turn the person opened an empty task: that is an explicit start.
  */
 export function admitCreationTurns(session: CreationTurns): void {
@@ -11,6 +20,18 @@ export function admitCreationTurns(session: CreationTurns): void {
 }
 
 type CreationTurns = Pick<Session, 'id' | 'initialQueue' | 'initialMessageId' | 'startupOrigin' | 'taskChatId'>;
+
+/**
+ * The desktop task page's launch: it creates its own session, then asks for its workspace; once that exists (a fresh
+ * profile's first workspace is only registered then), the session's creation turns are admitted (their enqueue starts
+ * it). An empty task is started by the page itself when it opens. `initialQueue` is only read while it never ran.
+ */
+export async function admitFirstMessages(sessionId: string): Promise<void> {
+  const [row] = await db.select().from(sessions).where(eq(sessions.id, sessionId)).limit(1);
+  if (!row) throw new Error(`Session not found: ${sessionId}`);
+  const session = mapSessionRowToSession(row);
+  if (session.runtime === 'acp' && session.initialQueue?.length) enqueueCreationTurns(session);
+}
 
 /**
  * The creation turns as the session's first pending rows (idempotent: stable message ids). Returns how many there are;

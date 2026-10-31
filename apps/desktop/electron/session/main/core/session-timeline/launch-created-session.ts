@@ -1,5 +1,3 @@
-import type { InitialQueuePrompt } from '@shared/core/sessions/sessions';
-
 export type LaunchOutcome =
   | { ok: true }
   | { ok: false; code: 'provision_failed' | 'session_start_failed'; detail: string };
@@ -20,7 +18,6 @@ export async function launchCreatedSession(input: {
   sessionId: string;
   projectId: string;
   runtime: 'acp' | 'pty';
-  initialQueue: InitialQueuePrompt[] | undefined;
   launchWorkspace: () => Promise<
     { success: true; data: { workspaceId: string; path: string } } | { success: false; error: unknown }
   >;
@@ -43,7 +40,7 @@ export async function launchCreatedSession(input: {
     // session-life starts it: the creation turns are its first pending rows; startup progress and failure are
     // the session's own lifecycle facts from here on.
     try {
-      admitCreationTurns({ ...session, initialQueue: input.initialQueue ?? session.initialQueue });
+      admitCreationTurns(session);
     } catch (error) {
       return { ok: false, code: 'session_start_failed', detail: (error as Error)?.message ?? String(error) };
     }

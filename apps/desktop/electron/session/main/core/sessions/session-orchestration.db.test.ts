@@ -171,6 +171,7 @@ import {
   recordSessionPlatformModel,
 } from './platform-model-selection';
 import { restoreSession } from './archiveSession';
+import { enqueuePending } from './session-pending';
 import { getSessions } from './getSessions';
 import { takeBirthGroup } from './birth-groups';
 import { recordChildHarnessDefault } from './child-harness-default';
@@ -229,6 +230,8 @@ describe('session orchestration', () => {
     mocks.lifeInterrupt.mockResolvedValue(undefined);
     mocks.lifeRestore.mockReset();
     mocks.lifeEnqueue.mockClear();
+    // The real durable queue: what a start would deliver, one row per message id.
+    mocks.lifeEnqueue.mockImplementation((input) => enqueuePending(input as Parameters<typeof enqueuePending>[0]));
     mocks.lifeStart.mockClear();
     mocks.emit.mockReset();
     mocks.on.mockReset();
@@ -323,9 +326,9 @@ describe('session orchestration', () => {
     return { title: row.title, agentDisplayName: config.agentDisplayName };
   }
 
-  /** The envelope the last ACP child was started with — its delegation travels in the start (#6497). */
+  /** The envelope the last ACP child was handed: its delegation is its first pending row (#6497). */
   function lastAcpDelegationEnvelope() {
-    return mocks.recordDeliveredSessionDirectMessage.mock.calls.at(-1)![1].text as string;
+    return mocks.lifeEnqueue.mock.calls.at(-1)![0].text;
   }
 
   function childRows() {
@@ -1147,18 +1150,18 @@ describe('session orchestration', () => {
       transport: 'acp',
     })) as { session_id: string };
 
-    // Retargeted: the delegation is admitted into session-life's queue at creation (no start-carried initialQueue).
+    // The delegation is admitted into session-life's queue once, at the child's launch. That pending row is its
+    // transcript row too: nothing records the same message a second time (that insert collided with it and failed the
+    // spawn after the child was already queued, so a caller's retry made a second child).
     expect(mocks.startSession).not.toHaveBeenCalled();
-    expect(mocks.recordDeliveredSessionDirectMessage).toHaveBeenCalledWith(
-      { sessionId: result.session_id },
-      expect.objectContaining({ text: expect.stringContaining('Record this delegation in the child transcript.') }),
-    );
-    const recorded = mocks.recordDeliveredSessionDirectMessage.mock.calls.at(-1)![1] as { id: string; text: string };
-    // Same id as the recorded transcript message; #6823 the envelope is the host's, so its origin says so.
-    expect(admittedTurns(result.session_id)).toEqual([{
-      sessionId: result.session_id, messageId: recorded.id, text: recorded.text, kind: 'ordinary',
-      turn: { kind: 'prompt', origin: 'communication' },
-    }]);
+    expect(mocks.recordDeliveredSessionDirectMessage).not.toHaveBeenCalled();
+    // #6823 the envelope is the host's, so its origin says so.
+    const [turn, ...more] = admittedTurns(result.session_id);
+    expect(more).toEqual([]);
+    expect(turn).toMatchObject({ sessionId: result.session_id, kind: 'ordinary', turn: { kind: 'prompt', origin: 'communication' } });
+    expect(turn!.text).toContain('Record this delegation in the child transcript.');
+    expect(fixture.sqlite.prepare('SELECT message_id AS id FROM session_pending WHERE session_id = ?').all(result.session_id)).toEqual([{ id: turn!.messageId }]);
+    expect(fixture.sqlite.prepare('SELECT id FROM messages WHERE session_id = ?').all(result.session_id)).toEqual([{ id: turn!.messageId }]);
     expect(mocks.lifeStart).not.toHaveBeenCalled();
     // one channel only: the same delegation must not also sit in the outbox and be delivered twice
     expect(mocks.sendMessage).not.toHaveBeenCalled();

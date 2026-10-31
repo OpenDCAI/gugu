@@ -256,7 +256,6 @@ export async function executeSessionCreate(
       sessionId,
       projectId,
       runtime: sessionRuntime,
-      initialQueue,
       launchWorkspace: async () => {
         const provision = await sessionService.provisionWorkspace(sessionId);
         if (!provision.success) {
