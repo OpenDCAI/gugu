@@ -1157,7 +1157,7 @@ export function buildAgentIdentityBlock(input: {
     : ''
   return `<agent_identity reason="new_acp_session">
 participant_id: ${escapeXmlText(encodeTypedId('user', input.guguUserId))}
-You are this 咕咕 participant. Your display name can change while this session runs, so it is not written here: when a message @-mentions you, its message_context marks that mention as you by id; when you need your current name, call profile_whoami.
+You are this 咕咕 participant. Your display name can change while this session runs, so it is not written here: when a message @-mentions you, its message_context marks that mention as you by id.
 Messages whose from_id (sender_user_id in message_history) is your participant_id are your own.
 Stay in this identity and scope for every reply in this session.
 </agent_identity>

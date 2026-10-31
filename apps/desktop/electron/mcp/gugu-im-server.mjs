@@ -2304,7 +2304,7 @@ const toUserIdsSchema = z.preprocess(normalizeRecipientInput, z.array(
 // 正文的规矩只在 message_send 上写一次(P5);别的工具拒收时,报错原话会说清楚。
 const CHAT_MESSAGE_TEXT_RULES = 'Message body in Markdown. Visible escaped line breaks and malformed math are rejected.'
 const chatMessageTextSchema = z.string()
-const chatRecipientsSchema = toUserIdsSchema.describe(`Who you address and notify; multiple recipients allowed. ${RECIPIENT_ADDRESS_FORMS} Plain names in text address nobody; @mentions must match this list.`)
+const chatRecipientsSchema = toUserIdsSchema.describe(`Who you address and notify; multiple recipients allowed. ${RECIPIENT_ADDRESS_FORMS} @mentions must match this list.`)
 // 话题里点名 = 把人拉进来,所以收件人**必填**:一条谁也没点名的邀请消息拉不进任何人,是静默的空动作。
 // 地址形态与 chatRecipientsSchema 同一份契约(RECIPIENT_ADDRESS_FORMS),只是去掉 optional。
 const topicInviteeIdsSchema = z.preprocess(normalizeRecipientInput, z.array(recipientIdSchema).min(1)).describe(
@@ -2514,7 +2514,7 @@ export const TOOL_DEFS = [
   },
   {
     name: 'topic_list',
-    description: 'The topics of one chat; is_participant: whether you are in it (only participants are notified). Check here before opening a second line for a question.',
+    description: 'The topics of one chat; is_participant: whether you are in it.',
     schema: z.object({
       chat_id: chatIdSchema.describe('The source chat.'),
       ...listWindowShape,
