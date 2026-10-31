@@ -1,16 +1,17 @@
 import { createContext, useState, type RefObject } from 'react'
-import { useGroupChatSettings } from './useGroupChatSettings'
+import type { GroupCollabSnapshot } from '@gugu/core/shared/types/chat'
+import { groupRoleRevision, useGroupChatSettings } from './useGroupChatSettings'
 import { useCommandProvider } from '@renderer/lib/commands/use-command-provider'
 
 export const GroupRenameContext = createContext<{ request: number } | null>(null)
 
 /** Commands reveal the chat's info and its name's editor there; all validation and saving stay there. */
-export function useChatCommands({ chatId, isGroup, visible, surface, openSettings, roleRevision }: {
+export function useChatCommands({ chatId, isGroup, visible, surface, openSettings, snapshot }: {
   chatId: string | null; isGroup: boolean; visible: boolean; surface: RefObject<HTMLElement | null>
-  roleRevision: string
+  snapshot: GroupCollabSnapshot
   openSettings: () => void
 }) {
-  const { settings } = useGroupChatSettings(isGroup ? chatId : null, roleRevision)
+  const { settings } = useGroupChatSettings(isGroup ? chatId : null, groupRoleRevision(snapshot))
   const [rename, setRename] = useState({ chatId, count: 0 })
   useCommandProvider({
     scopeId: 'session-sub',
