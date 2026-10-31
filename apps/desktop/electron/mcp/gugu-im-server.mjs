@@ -1498,7 +1498,7 @@ async function myChats(deps) {
  */
 async function ownerFriendIds(deps, ownerUserId) {
   const friendships = await deps.restGet(
-    `friendships?or=(user_a_id.eq.${enc(ownerUserId)},user_b_id.eq.${enc(ownerUserId)})&select=user_a_id,user_b_id`,
+    `active_friendships?or=(user_a_id.eq.${enc(ownerUserId)},user_b_id.eq.${enc(ownerUserId)})&select=user_a_id,user_b_id`,
     'identity',
   )
   const ids = new Set()
@@ -1780,7 +1780,7 @@ async function handleConv(args, deps) {
     // 好友关系的唯一真值是 identity.friendships（无 status 列，行存在即已接受；#1985 收敛后 chat.contacts 是死表）。
     // owner token + fs_select RLS 只回当事人两行，两向匹配即「是 owner 的好友」。❌ 吞错：查失败要响亮报错。
     const friendships = await deps.restGet(
-      `friendships?or=(user_a_id.eq.${enc(hit.id)},user_b_id.eq.${enc(hit.id)})&select=user_a_id,user_b_id`,
+      `active_friendships?or=(user_a_id.eq.${enc(hit.id)},user_b_id.eq.${enc(hit.id)})&select=user_a_id,user_b_id`,
       'identity',
     )
     return JSON.stringify({

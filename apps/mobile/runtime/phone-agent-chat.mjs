@@ -45,7 +45,7 @@ export function createPhoneChatAccess({ agent, cloud, store, env }) {
       return target.agentUserId
     }
     if (/^gugu:\d+$/.test(address)) {
-      const { data, error } = await cloud.identity.from('users').select('id').eq('gugu_number', Number(bare(address, 'gugu'))).single()
+      const { data, error } = await cloud.identity.from('active_users').select('id').eq('gugu_number', Number(bare(address, 'gugu'))).single()
       if (error) throw new Error(error.message)
       return uuid(data.id, 'recipient')
     }
