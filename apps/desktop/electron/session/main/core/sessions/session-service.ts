@@ -18,6 +18,8 @@ import type {
   ProvisionWorkspaceError,
 } from '@shared/core/sessions/create-session';
 import { createSession } from './operations/createSession';
+import { getSessions } from './getSessions';
+import { enqueueCreationTurns } from './session-life-creation';
 import type { TeardownSessionError } from './provision-session-error';
 import { sessionWorkspaceManager } from './session-workspace-manager';
 
@@ -27,6 +29,16 @@ type ProvisionResult = ProvisionSessionResult & { sshConnectionId?: string };
  * 一条会话的运行时挂载:它的工作区(文件系统、git、监视器)加上挂在会话上的 provider(会话本身、它的终端)。
  * 按会话 id 记;多条会话可以挂在同一个工作区上(工作区按引用计数)。
  */
+/**
+ * A never-run ACP session's first messages become its first pending rows once its workspace exists (which starts it):
+ * a task page that created its own session provisions it right after creation. Idempotent (stable message ids);
+ * the other creation entries admit theirs where they launch.
+ */
+async function admitFirstMessages(sessionId: string): Promise<void> {
+  const session = (await getSessions()).find((candidate) => candidate.id === sessionId);
+  if (session?.runtime === 'acp' && session.initialQueue?.length) enqueueCreationTurns(session);
+}
+
 export class SessionService {
   private readonly _mountPromises = new Map<string, Promise<ProvisionResult>>();
 
@@ -56,6 +68,7 @@ export class SessionService {
     if (mountedWorkspaceId && mountedWorkspace) {
       const provisionResult: ProvisionResult = { path: mountedWorkspace.path, workspaceId: mountedWorkspaceId };
       events.emit(sessionProvisionedChannel, { sessionId, projectId, ...provisionResult });
+      await admitFirstMessages(sessionId);
       return ok(provisionResult);
     }
 
@@ -69,6 +82,7 @@ export class SessionService {
       workspaceId: result.data.workspaceId,
     };
     events.emit(sessionProvisionedChannel, { sessionId, projectId, ...provisionResult });
+    await admitFirstMessages(sessionId);
     return ok(provisionResult);
   }
 

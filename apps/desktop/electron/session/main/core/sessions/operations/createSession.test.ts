@@ -3,7 +3,6 @@ import { takeBirthGroup } from '@main/core/sessions/birth-groups';
 import { createSession } from './createSession';
 
 const mocks = vi.hoisted(() => ({
-  enqueueCreationTurns: vi.fn((_session: { id: string; initialQueue?: unknown }) => 0),
   transaction: vi.fn(),
   getProject: vi.fn(),
   select: vi.fn(),
@@ -21,7 +20,6 @@ vi.mock('@main/db/client', () => ({
 
 // 带 initialConversation 的用例会走到 finalizeCreateSession 的事件广播（需要 electron BrowserWindow）。
 vi.mock('@main/lib/events', () => ({ events: { emit: vi.fn() } }));
-vi.mock('../session-life-creation', () => ({ enqueueCreationTurns: mocks.enqueueCreationTurns }));
 
 vi.mock('@main/core/projects/project-manager', () => ({
   projectManager: {
@@ -291,15 +289,6 @@ describe('createTask', () => {
         expect(convInsert.agentStatus).toBe('working');
         expect(convInsert.agentStatusSeen).toBe(1);
       }
-    });
-
-    it('an ACP task page\'s first message becomes its first pending row at creation; a terminal task keeps its own path', async () => {
-      await createWithInitialSession({ type: 'acp', initialQueue: [{ text: '开工', origin: 'manual' }] });
-      expect(mocks.enqueueCreationTurns).toHaveBeenCalledTimes(1);
-      expect(mocks.enqueueCreationTurns.mock.calls[0]![0]).toMatchObject({ id: 'conv-1', initialQueue: [{ text: '开工' }] });
-      mocks.enqueueCreationTurns.mockClear();
-      await createWithInitialSession({ type: 'pty' });
-      expect(mocks.enqueueCreationTurns).not.toHaveBeenCalled();
     });
 
     it('导入的会话出生即 idle —— 历史在引擎侧,没人在等它回答', async () => {
