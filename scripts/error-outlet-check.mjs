@@ -2,7 +2,7 @@ import { readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import ts from 'typescript'
-import { readTreeBlobs, repoRoot, treeFiles } from './git-tree-blobs.mjs'
+import { readTreeBlobs, repoRoot, treeFiles } from './git-tree-blobs.mts'
 
 // @@@unhandled-error-event (#4942) — 拦「新建了长命的错误发射器,却没人订阅它的 'error'」。
 //

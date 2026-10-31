@@ -28,7 +28,7 @@ import {
   webHostEntries,
   desktopPreloadEntry,
   extensionPreloadEntry,
-} from './scripts/product-build-entries.mjs'
+} from './scripts/product-build-entries.mts'
 import {
   EMDASH_EXTERNAL,
   SESSIONPAGE_NODE18_BANNER,

@@ -3,7 +3,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import ts from 'typescript'
 import postcss from 'postcss'
-import { readTreeBlobs, repoRoot, treeFiles } from './git-tree-blobs.mjs'
+import { readTreeBlobs, repoRoot, treeFiles } from './git-tree-blobs.mts'
 
 const COUNTER_LABELS = [
   ['imperative-style-hover', 'styleWrites'],

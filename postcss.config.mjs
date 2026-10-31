@@ -1,5 +1,5 @@
 import tailwind from '@tailwindcss/postcss'
-import fontFaceFirstUsable from './scripts/postcss-font-face-first-usable.mjs'
+import fontFaceFirstUsable from './scripts/postcss-font-face-first-usable.mts'
 
 export default {
   plugins: [

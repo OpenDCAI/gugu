@@ -4,8 +4,8 @@ import { cp, lstat, mkdir, readFile, readdir, readlink, rm, stat, writeFile } fr
 import { dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { copyMobileRuntimeNotices } from './mobile-runtime-notices.mjs'
-import { inspectMobileElf, mobileRuntimeClosure } from './mobile-runtime-libraries.mjs'
-import { trimMobileIcu } from './mobile-runtime-icu.mjs'
+import { inspectMobileElf, mobileRuntimeClosure } from './mobile-runtime-libraries.mts'
+import { trimMobileIcu } from './mobile-runtime-icu.mts'
 
 // Only the Android Node executable and its shared libraries; no terminal, npm or shell tools.
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')

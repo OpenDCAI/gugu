@@ -27,7 +27,7 @@
 ## 0.0 当前取值(#7333,2026-10-17)
 
 定义处只有 `apps/desktop/src/styles/tokens.css`;会话页 `@theme`、`tailwind.config.cjs`、`packages/session-ui` 是逐字等值的副本,
-`scripts/check-ui-visual-spec.mjs` 钉圆角三表对拍与字阶。
+`scripts/check-ui-visual-spec.mts` 钉圆角三表对拍与字阶。
 
 | 角色 | 值 | 范围 |
 |---|---|---|
@@ -278,7 +278,7 @@ Do not compose a one-off size.**」⇒ 角色自己得带上它的排版:
 
 会话页现有的 `--text-code: 13px` / `--text-tiny: 11px` / `--text-micro: 10px` 三个自定义档继续保留：
 它们服务于文件树、diff 行号等密集工具 UI，删除会伤可读性。`--text-micro: 10px` 低于移动壳 14px 下限，
-但完整会话页只在桌面 Electron 壳出现（桌面永不进移动壳，#3566），所以当前不冲突。`scripts/check-ui-visual-spec.mjs` 在源码文本层守住
+但完整会话页只在桌面 Electron 壳出现（桌面永不进移动壳，#3566），所以当前不冲突。`scripts/check-ui-visual-spec.mts` 在源码文本层守住
 这个前提：`apps/desktop/src/session/renderer/**` 一旦出现 `useMobileShell` 或等价移动壳分支就失败，并要求先重判本节。
 
 ⚠️ 上面这三档定义在 `apps/desktop/src/session/renderer/index.css`（会话页自己的 Tailwind 主题），
@@ -305,7 +305,7 @@ Do not compose a one-off size.**」⇒ 角色自己得带上它的排版:
   13 × 0.92 = 11.96，与原来写死的 12px 差 0.04px，且标题里的行内代码从此会跟着标题放大。
 
 **两道闸挡的不是同一件事**：字阶本体由 token 契约守——删掉的键再被引用 tsc 直接编不过；
-字面量那一路由 `scripts/check-ui-visual-spec.mjs` 守——绕开 token 直接写 `fontSize: '12px'`
+字面量那一路由 `scripts/check-ui-visual-spec.mts` 守——绕开 token 直接写 `fontSize: '12px'`
 不动契约，tsc 照样过。禁用字号的扫描面因此从 `apps/desktop/src`（主 renderer）扩到
 **主 renderer + `apps/desktop/src/session/renderer` + `packages/session-ui/src`** 共 1705 个文件。
 `tests/unit/scripts/uiVisualSpecGeometryDebt.test.ts` 里两条**可达性阳控**钉住后两支：
@@ -334,7 +334,7 @@ turn-outcome 徽标这类界面自己的字)走本包自己的三档闭集
 不是「它是不是字号」。
 
 **为什么也不能写裸 px**:12 / 14 / 半像素字号在全仓是硬闸。
-⚠️ **这条闸 2026-09-22 之前够不到本包**:`check-ui-visual-spec.mjs` 的扫描面不含
+⚠️ **这条闸 2026-09-22 之前够不到本包**:`check-ui-visual-spec.mts` 的扫描面不含
 `packages/session-chat-ui/src`,而专用守卫 `check-session-chat-ui-geometry.mjs` 只解析 JSX 的 class 串与
 CSS `@apply`,对本包几乎全用的 `style({ fontSize: '12px' })` 结构上不可见(两条的量程见 §10)。
 于是主 app 早就消灭掉的 12px 在这里原样活着(普查 4 处:mermaid 占位 / 附件名 / 结局动作键)。
@@ -361,7 +361,7 @@ CSS `@apply`,对本包几乎全用的 `style({ fontSize: '12px' })` 结构上不
 ## 4. 间距刻度
 
 **Tailwind 原生 spacing 刻度是全 app 的现状口径。** 源码文本层实测的 0.5 步进 utility 为：会话页 353 处、
-咕咕主 renderer 96 处；这不是会话页偏差。`scripts/check-ui-visual-spec.mjs` 用双向棘轮冻结这两个基线：
+咕咕主 renderer 96 处；这不是会话页偏差。`scripts/check-ui-visual-spec.mts` 用双向棘轮冻结这两个基线：
 超基线必须删新增，低于基线必须同步降低 `scripts/ui-visual-spec-baseline.json`，只减不增。
 
 `4 / 8 / 12 / 16 / 20 / 24`（对应 `--spacing-xs…2xl`）是**新写组件与重画组件的偏好刻度**，不是对存量的
@@ -451,7 +451,7 @@ dist/assets/task-*.css    逐字相同
 
 改之前:`.rounded-full{border-radius:50%}` vs `.rounded-full{border-radius:3.40282e38px}`。
 
-**判据**:`scripts/check-ui-visual-spec.mjs` 的 `radiusScaleParity`(在 `pnpm lint`,见 §10)。
+**判据**:`scripts/check-ui-visual-spec.mts` 的 `radiusScaleParity`(在 `pnpm lint`,见 §10)。
 它读三处源文本逐档比对;判的是**几何**不是拼写(`0.5rem` 与 `8px`、`0` 与 `0px` 读成同一个值)。
 ❌ 别把它改成「只看 tailwind.config」:那样会话页那张表改回默认不会有任何东西变红。
 
@@ -1111,9 +1111,9 @@ Tailwind utility。`--color-ring` 位于 `@theme inline`，是编译期映射而
 | 字阶上限 / 圆角 / 阴影（会话页 renderer） | ~~`tests/visual-scale-guard-3334.test.ts`~~ | 🗑️ **已删** |
 | 圆角 / 阴影（`packages/session-ui` 的 vanilla-extract 那半边） | ~~`tests/vanilla-extract-visual-guard-3334.test.ts`~~ | 🗑️ **已删** |
 | §2.1 两条可达性阳控 | ~~`tests/unit/scripts/uiVisualSpecGeometryDebt.test.ts`~~ | 🗑️ **已删** |
-| **圆角三张表是同一张表**(见 §5.2，**不含 surface 这一档**) | `scripts/check-ui-visual-spec.mjs` 的 `radiusScaleParity` | ✔（`pnpm lint`） |
+| **圆角三张表是同一张表**(见 §5.2，**不含 surface 这一档**) | `scripts/check-ui-visual-spec.mts` 的 `radiusScaleParity` | ✔（`pnpm lint`） |
 | radix 只在 vendored assistant-ui 目录内 | `.eslintrc.cjs` 的 `no-restricted-imports` | ✔（`pnpm lint`） |
-| task/main/assistant-ui 的 0.5 步进与几何债计数双向棘轮 | `scripts/check-ui-visual-spec.mjs` | ✔（`pnpm lint`） |
+| task/main/assistant-ui 的 0.5 步进与几何债计数双向棘轮 | `scripts/check-ui-visual-spec.mts` | ✔（`pnpm lint`） |
 | **每个 `.css` 能被 postcss 解析**（补的是「四门不读 CSS」这个洞，见本节末尾的变异自测） | `scripts/check-css-parses.mjs` | ✔（`pnpm lint`，2026-09-22 新增） |
 | 12 / 14 / 半像素字号硬闸（一处都不许有） | 同上 | ✔（`pnpm lint`，扫描面见下） |
 | task renderer 保持 desktop-only（移动壳引用为 0） | 同上 | ✔（`pnpm lint`） |
@@ -1128,7 +1128,7 @@ Tailwind utility。`--color-ring` 位于 `@theme inline`，是编译期映射而
 
 | 判据 | 它看得见什么 | ❌ 它看不见什么 |
 |---|---|---|
-| `check-ui-visual-spec.mjs` 的**硬闸**(12 / 14 / 半像素) | 五个扫描根:主 renderer、`…/session/renderer`、`…/components/assistant-ui`、`packages/session-ui/src`、**`packages/session-chat-ui/src`**(2026-09-22 新接入)。正则吃得下 `fontSize: '12px'` 这种 CSS-in-JS 写法 | 中台与顾客面板已拆出本仓,不在本仓任何一个根里 |
+| `check-ui-visual-spec.mts` 的**硬闸**(12 / 14 / 半像素) | 五个扫描根:主 renderer、`…/session/renderer`、`…/components/assistant-ui`、`packages/session-ui/src`、**`packages/session-chat-ui/src`**(2026-09-22 新接入)。正则吃得下 `fontSize: '12px'` 这种 CSS-in-JS 写法 | 中台与顾客面板已拆出本仓,不在本仓任何一个根里 |
 | 同文件的**棘轮**(半步间距 / 内联字号 / 内联圆角 / 裸 button / 内联 style) | 前四个根,各自一档独立基线 | **`packages/session-chat-ui/src` 不在棘轮里** —— 硬闸接了它,棘轮没接 ⇒ 本包里「不在字阶上但不犯硬闸」的值(9px / 10px / 一批 11px)没有东西判 |
 | `check-session-chat-ui-geometry.mjs` | `packages/session-chat-ui/src` 里 JSX 的 `class` / `className` / `classList` **字符串**与 CSS `@apply` | **vanilla-extract 的对象字面量**(`style({ fontSize: '12px' })`)——本包几乎全是这种写法,结构上抓不到 |
 | `radiusScaleParity` | 两张 Tailwind 表的**七档数字别名** + `tokens.css` 的九档语义表 | 两张 Tailwind 表里的 `surface` 档(见 §5.2) |

@@ -104,8 +104,8 @@ export default defineConfig({
   fullyParallel: true,
   retries: 1,
   reporter: [
-    ['./scripts/playwright-deadline-reporter.mjs'],
-    ['./scripts/playwright-collection-guard.mjs'],
+    ['./scripts/playwright-deadline-reporter.mts'],
+    ['./scripts/playwright-collection-guard.mts'],
     ['list'],
     ['html', { open: 'never' }],
   ],

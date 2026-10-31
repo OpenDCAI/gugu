@@ -6,10 +6,10 @@ import { describe, expect, test } from 'vitest'
 import {
   compareToBaseline,
   countTree,
-} from '../../../scripts/console-usage-check.mjs'
+} from '../../../scripts/console-usage-check.mts'
 
 const repoRoot = resolve(__dirname, '../../..')
-const checker = join(repoRoot, 'scripts/console-usage-check.mjs')
+const checker = join(repoRoot, 'scripts/console-usage-check.mts')
 const baselineFile = 'baseline.json'
 
 function git(cwd: string, args: string[]): string {

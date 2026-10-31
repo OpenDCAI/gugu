@@ -365,7 +365,7 @@
      packages/session-ui、packages/session-chat-ui(及已拆出本仓的中台、顾客面板)一律逐字等值,
      ❌ 不许再各拍一套(改之前全仓是六套刻度,见 #6103 审计 F-06)。
      三问定档:这是纸(page=0)? 印在纸上的东西(document=6)? 还是压出来的物件(其余各档)?
-     ⚠️ tailwind.config.cjs 与会话页 @theme 的数值由 scripts/check-ui-visual-spec.mjs 的
+     ⚠️ tailwind.config.cjs 与会话页 @theme 的数值由 scripts/check-ui-visual-spec.mts 的
      radiusScaleParity 逐档比对,改一处不改另一处 `pnpm lint` 当场红。 */
   --radius-page: 0;
   /* #7333 视觉规范的小档:徽标、行内小块。 */
@@ -1742,7 +1742,7 @@ body.barcode-scanner-active #root {
    圆角 2/3/4/5/6/7/8/9/10/11/12/14/16/20/22。同一角色(列/面板头/列表行/图标钮/分区标签)有 3–5 种实现。
    「不像大厂」的本质不是配色,是几何没有统一的标尺:每处自己拍数。下面这组 token + 原型类就是那把尺子,
    原语(ui/Pane · ui/ListRow · ui/IconButton · ui/SectionLabel · ui/Chip)只消费这里,业务面只消费原语。
-   ❌ 新代码再写 fontSize/borderRadius/padding 字面量(scripts/check-ui-visual-spec.mjs 棘轮只减不增)。 */
+   ❌ 新代码再写 fontSize/borderRadius/padding 字面量(scripts/check-ui-visual-spec.mts 棘轮只减不增)。 */
 :root {
   /* 面板/列头:所有 tab 的标题坐在同一条基线上(会话列表 / 通讯录 / 发现 / 设置 / 会话头) */
   --pane-header-h: 52px;
@@ -1779,7 +1779,7 @@ body.barcode-scanner-active #root {
      owner 2026-09-03 拍板消灭它:11、12、13 相邻各差 1px,人眼分辨不出,三档在干一档的事。
      分流规则(已执行完):要读的内容 → --font-body(13) 配次级色;只是标记(时间戳/计数/徽标/归属小字)
      → --font-caption(11)。层级靠颜色与字重,字号是最后手段。
-     ❌ 别再把它加回来,也❌ 别写裸 12px —— scripts/check-ui-visual-spec.mjs 是硬闸,一处都判红。 */
+     ❌ 别再把它加回来,也❌ 别写裸 12px —— scripts/check-ui-visual-spec.mts 是硬闸,一处都判红。 */
   /* 列表行 */
   --row-pad: 8px;
   --row-gap: 10px;

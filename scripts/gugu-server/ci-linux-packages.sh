@@ -67,7 +67,7 @@ NO_DOWNLOAD_ENV=(-e npm_config_cache=/npm-cache -e npm_config_nodedir=/usr/local
 out="$RUNNER_TEMP/gugu-server-smoke"
 rm -rf "$out" && mkdir -p "$out"
 "$DOCKER" cp "$GUGU_LINUX_CONTAINER:/work/release/server/." "$out/"
-cp "$here/smoke-app-tools.mjs" "$out/"   # 预装 App 的 tools/list(见下)
+cp "$here/smoke-app-tools.mts" "$out/"   # 预装 App 的 tools/list(见下)
 chmod -R a+rX "$out"   # 同上:冒烟容器以只读挂载读这些包
 for arch in x64 arm64; do
   platform=$([ "$arch" = x64 ] && echo linux/amd64 || echo linux/arm64)
@@ -97,7 +97,7 @@ for arch in x64 arm64; do
     # 替身缺成员:server-entry 对 electron.X 缺了的会在 stderr 喊一句(这里两份日志都收了 stderr)。
     if grep -h "未在 server-electron-shim.ts 覆盖" /tmp/run.log /tmp/acct.log; then echo "::error::$PKG 用到了替身没有的 electron 成员(上面那几行)"; exit 1; fi
     # 预装 App 的程序照咕咕起程序的样子起一次、问 tools/list —— 程序在 server 的 node 上能不能起来。
-    su smoke -c "$d/node/bin/node /pkg/smoke-app-tools.mjs $d" || { echo "::error::$PKG 预装 App 的程序起不来(上面那几行)"; exit 1; }
+    su smoke -c "$d/node/bin/node /pkg/smoke-app-tools.mts $d" || { echo "::error::$PKG 预装 App 的程序起不来(上面那几行)"; exit 1; }
     echo "smoke ok: $PKG"
   '
 done

@@ -1,7 +1,7 @@
 // @@@5856 转发出处的 renderer hook ——「引自:某某线」(product spec)。
 //
 // 缓存与批量往返在 lib/forwardedSource.ts;这里只负责订阅与重绘。**放在 hooks/ 里是故意的**:
-// scripts/subject-scoped-hooks.mjs 只扫这个目录,hook 搁在 lib 里就绕开了 #3922 那道登记闸。
+// scripts/subject-scoped-hooks.mts 只扫这个目录,hook 搁在 lib 里就绕开了 #3922 那道登记闸。
 import { useEffect, useState } from 'react'
 import {
   forwardedSourceCache,

@@ -3,8 +3,8 @@ import { execFileSync } from 'node:child_process'
 import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { defaultMiseCacheDir, DEFAULT_MISE_DOWNLOAD_BASE, obtainMiseArchive } from './mise-archive-cache.mjs'
-import { assertPeMachine } from './cua-driver-release.mjs'
+import { defaultMiseCacheDir, DEFAULT_MISE_DOWNLOAD_BASE, obtainMiseArchive } from './mise-archive-cache.mts'
+import { assertPeMachine } from './cua-driver-release.mts'
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)))
 const release = JSON.parse(readFileSync(join(root, 'apps/desktop/src/session/shared/core/agents/mise-release.json'), 'utf8'))
@@ -24,7 +24,7 @@ if (existsSync(executable) && existsSync(join(destination, 'release.json')) && r
   mkdirSync(join(root, 'mise-bundle'), { recursive: true })
   const temporary = mkdtempSync(join(root, 'mise-bundle', '.staging-'))
   try {
-    // 归档来自按 sha256 内容寻址的缓存(#6258,见 mise-archive-cache.mjs);未命中才下载,拿不到就响亮失败。
+    // 归档来自按 sha256 内容寻址的缓存(#6258,见 mise-archive-cache.mts);未命中才下载,拿不到就响亮失败。
     const archive = obtainMiseArchive({
       cacheDir: defaultMiseCacheDir(),
       downloadBase: process.env.GUGU_MISE_DOWNLOAD_BASE || DEFAULT_MISE_DOWNLOAD_BASE,
