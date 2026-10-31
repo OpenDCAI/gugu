@@ -14,7 +14,7 @@ export function DeviceMachineConfigurations({ devices = [], actions, selectedDev
   if (devices.length < 2) return null
   return <SettingsGroup title={t('devices.configurations')} data-testid="device-machine-configurations">
     {devices.map(device => {
-      const seen = formatRelativeTime(device.last_seen_at, { dateAfterDays: 30 })
+      const seen = formatRelativeTime(device.last_seen_at, { mode: 'elapsed', dateAfterDays: 30 })
       const status = device.is_online ? t('devices.online') : seen ? t('devices.lastSeen', { time: seen }) : t('devices.offline')
       return <div key={device.device_id} className="[&+div]:border-t [&+div]:border-[var(--border)]"><SettingsRow title={device.label}
         className="device-machine-version" data-testid={`device-configuration-${device.device_id}`} onClick={onSelect ? () => onSelect(device) : undefined}

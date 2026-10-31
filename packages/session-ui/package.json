@@ -51,7 +51,6 @@
     "@tiptap/react": "^3.26.1",
     "@tiptap/starter-kit": "^3.26.1",
     "@tiptap/suggestion": "^3.26.1",
-    "lucide-react": "^0.564.0",
     "lottie-web": "5.13.0"
   },
   "peerDependencies": {

@@ -2038,7 +2038,7 @@ export function ChatRoot(props: ChatRootProps) {
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
-    <ChatTranslationProvider value={props.context.translate}>
+    <ChatTranslationProvider value={props.context}>
       <SelfIdentityProvider value={props.context.selfIdentity}>
       <SenderAvatarProvider value={props.context.senderAvatar}>
       <AppNameProvider value={props.context.appName}>

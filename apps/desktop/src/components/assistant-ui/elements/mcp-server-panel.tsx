@@ -1,7 +1,7 @@
 "use client";
 
 import type { ComponentProps } from "react";
-import { ChevronRightIcon, PlugIcon } from "lucide-react";
+import { ChevronRight as ChevronRightIcon, LucidePlug as PlugIcon } from "@/lib/icons";
 import { cn } from "@/lib/utils";
 import { field, mono, paper } from "./surfaces";
 

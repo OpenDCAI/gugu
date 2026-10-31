@@ -24,7 +24,8 @@
     "./plugins": "./src/plugins/index.ts",
     "./result": "./src/result/index.ts",
     "./logger": "./src/logger/index.ts",
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./format": "./src/format.ts"
   },
   "scripts": {
     "test": "vitest run"

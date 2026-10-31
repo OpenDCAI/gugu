@@ -1,5 +1,5 @@
 import type { GitChange } from '@gugu/session-core/git';
-import { Minus } from 'lucide-react'
+import { Minus } from '@/lib/icons'
 import { observer } from 'mobx-react-lite';
 import { toast } from 'sonner';
 import { activeDiffEntry } from '@renderer/features/sessions/diff-view/pane-selectors';

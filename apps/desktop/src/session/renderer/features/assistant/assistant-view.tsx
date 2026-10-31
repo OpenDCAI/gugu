@@ -5,7 +5,7 @@ import './assistant-today.css';
 import { refreshLocalAssistantHome } from '@/lib/assistantSetup';
 import { homeTarget } from './assistant-home-sessions';
 import { rendererLogger } from '@/lib/log';
-import { PanelRight } from 'lucide-react';
+import { PanelRight } from '@/lib/icons';
 import { observer } from 'mobx-react-lite';
 import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { useAssistantPanelPage } from '@/lib/assistantPanelPage';

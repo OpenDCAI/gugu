@@ -2,7 +2,7 @@ import { Button } from '@session-ui/react/primitives/button';
 import { DropdownMenu } from '@session-ui/react/primitives/dropdown-menu';
 import { cx } from '@session-ui/styles/utilities/cx';
 import { ArrowRight, Ellipsis, ListTree, Pencil, X } from '../../../icons'
-import { GripVertical } from 'lucide-react'
+import { GripVertical } from '../../../icons'
 import * as React from 'react';
 import * as styles from './queued-prompts-band.css';
 import { useMessages } from '../../localization/message-provider';

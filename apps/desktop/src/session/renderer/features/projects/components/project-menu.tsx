@@ -1,5 +1,5 @@
 import { Globe, Trash2 } from '@/lib/icons'
-import { GithubIcon } from 'lucide-react'
+import { GithubIcon } from '@/lib/icons'
 import { observer } from 'mobx-react-lite'
 import type { ReactNode } from 'react'
 import { useConfirmDeleteProject } from '@renderer/features/projects/hooks/use-confirm-delete-project'

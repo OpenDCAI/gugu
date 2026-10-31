@@ -62,7 +62,7 @@ afterEach(() => {
 });
 
 async function mount() {
-  const ctx = createChatContext({ theme: DEFAULT_THEME });
+  const ctx = createChatContext({ locale: () => 'en-US', theme: DEFAULT_THEME });
   const state = createChatState(ctx);
   const host = document.createElement('div');
   host.style.cssText = 'position:fixed;top:0;left:0;width:800px;height:700px;';

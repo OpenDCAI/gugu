@@ -1,4 +1,4 @@
-import { Github } from 'lucide-react'
+import { Github } from '@/lib/icons'
 import { Button } from '@renderer/lib/ui/button';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
 

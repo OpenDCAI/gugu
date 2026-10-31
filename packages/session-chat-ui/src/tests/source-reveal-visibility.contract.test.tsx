@@ -13,7 +13,7 @@ describe('source message visibility below the pinned question', () => {
     { count: 15, preamble: false }, { count: 35, preamble: false },
     { count: 15, preamble: true }, { count: 35, preamble: true },
   ])('keeps the first line readable with $count paragraphs and preamble=$preamble', async ({ count, preamble }) => {
-    const context = createChatContext({ theme: buildChatTheme(DEFAULT_CONFIG, { preset: 'double', userGutter: 72 }) });
+    const context = createChatContext({ locale: () => 'en-US', theme: buildChatTheme(DEFAULT_CONFIG, { preset: 'double', userGutter: 72 }) });
     const state = createChatState(context);
     const source = 'SOURCE913-MARKER\n\n' + Array.from({ length: count }, (_, i) => `Paragraph ${i}: the original message must remain readable.`).join('\n\n');
     const turns: TranscriptTurn[] = [...Array.from({ length: 3 }, (_, i): TranscriptTurn => ({ id: `earlier-${i}`, seq: i, initiator: 'user', items: [

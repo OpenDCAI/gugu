@@ -389,9 +389,6 @@ importers:
       cronstrue:
         specifier: ^3.14.0
         version: 3.24.0
-      date-fns:
-        specifier: ^4.1.0
-        version: 4.4.0
       devicon:
         specifier: ^2.17.0
         version: 2.17.0
@@ -464,9 +461,6 @@ importers:
       libsodium-wrappers:
         specifier: 0.8.4
         version: 0.8.4
-      lucide-react:
-        specifier: ^0.564.0
-        version: 0.564.0(react@19.2.7)
       mobx:
         specifier: ^6.15.0
         version: 6.16.1
@@ -750,9 +744,6 @@ importers:
       clsx:
         specifier: ^2.1.1
         version: 2.1.1
-      date-fns:
-        specifier: ^4.1.0
-        version: 4.4.0
       hast-util-to-html:
         specifier: ^9.0.5
         version: 9.0.5
@@ -1019,9 +1010,6 @@ importers:
       lottie-web:
         specifier: 5.13.0
         version: 5.13.0
-      lucide-react:
-        specifier: ^0.564.0
-        version: 0.564.0(react@19.2.7)
       mobx:
         specifier: ^6.15.0
         version: 6.16.1
@@ -9412,11 +9400,6 @@ packages:
   lru-cache@6.0.0:
     resolution: {integrity: sha512-Jo6dJ04CmSjuznwJSS3pUeWmd/H0ffTlkXXgwZi+eq1UCmqQwCh+eLsYOYCwY991i2Fah4h1BEMCx4qThGbsiA==}
     engines: {node: '>=10'}
-
-  lucide-react@0.564.0:
-    resolution: {integrity: sha512-JJ8GVTQqFwuliifD48U6+h7DXEHdkhJ/E87kksGByII3qHxtPciVb8T8woQONHBQgHVOl7rSMrrip3SeVNy7Fg==}
-    peerDependencies:
-      react: ^16.5.1 || ^17.0.0 || ^18.0.0 || ^19.0.0
 
   lz-string@1.5.0:
     resolution: {integrity: sha512-h5bgJWpxJNswbU7qCrV0tIKQCaS3blPDrqKWx+QxzuzL1zGUzij9XCWLrSLsJPu5t+eWA/ycetzYAO5IOMcWAQ==}
@@ -21545,10 +21528,6 @@ snapshots:
   lru-cache@6.0.0:
     dependencies:
       yallist: 4.0.0
-
-  lucide-react@0.564.0(react@19.2.7):
-    dependencies:
-      react: 19.2.7
 
   lz-string@1.5.0: {}
 

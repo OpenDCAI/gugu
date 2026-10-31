@@ -167,7 +167,7 @@ function storyTurn(id: string, seq: number, item: ChatItem): TranscriptTurn {
 
 // Create a shared ChatContext for all stories in this module.
 // In a real app this would be a singleton created once at app startup.
-const storyChatContext = createChatContext({ mentionProvider: chatMentionProvider });
+const storyChatContext = createChatContext({ locale: () => 'en-US', mentionProvider: chatMentionProvider });
 
 function LiveChatPanel({
   notice,

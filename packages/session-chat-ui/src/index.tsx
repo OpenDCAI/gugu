@@ -10,7 +10,7 @@
  *   createChatView(opts)   — per-mount DOM owner (virtualizer, scroll, scheduler).
  *
  * Quick start:
- *   const ctx  = createChatContext({ highlighter });
+ *   const ctx  = createChatContext({ locale, highlighter });
  *   const st   = createChatState(ctx);
  *   const view = createChatView({ context: ctx, state: st, parent, composer: 'slot' });
  *   st.transcript.history.seed(items);

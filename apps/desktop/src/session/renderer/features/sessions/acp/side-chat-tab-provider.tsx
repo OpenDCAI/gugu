@@ -1,4 +1,4 @@
-import { GitFork } from 'lucide-react';
+import { GitFork } from '@/lib/icons';
 import { observer } from 'mobx-react-lite';
 import type { ResolvedTab, TabBarItemProps, TabEntry, TabHandle, TabProvider, TabViewContext } from '@renderer/features/tabs/core/tab-provider';
 import { createTabProvider } from '@renderer/features/tabs/core/tab-provider-registry';

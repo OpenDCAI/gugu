@@ -6,7 +6,7 @@
  *
  * 自动生成, 勿手改 —— 改 scripts/icons/solar-icons.json 后跑 `node scripts/gen-icons.mjs`.
  * 加图标: 在清单的 "solar" 栏加一行 "导出名": "<solar 图标名>", body 会从 @iconify-json/solar
- * 逐字节取来。❌ 别手写 path —— "literal" 栏那些就是手写攒出来的, 与上游对不上。
+ * 逐字节取来。literal 保留已有字形及固定版本的上游原图,❌ 别手绘新 path。
  * 同形别名(lucide 的 *Icon 后缀、CircleAlert/AlertCircle 这类历史改名): 写进 `alias` 栏,
  * ❌ 别在 `solar` 栏写两条指向同一个图标 —— 那会生成两份一模一样的 body。
  * 填充态: 另开一个 `*Filled` 导出取 `-bold` 字形 (HeartFilled 是样板)。
@@ -254,6 +254,7 @@ export const SquareCheck = makeIcon("SquareCheck")
 export const SquareDot = makeIcon("SquareDot")
 export const SquareMinus = makeIcon("SquareMinus")
 export const SquarePen = makeIcon("SquarePen")
+export const SquarePenFilled = makeIcon("SquarePenFilled")
 export const SquarePlus = makeIcon("SquarePlus")
 export const SquareTerminal = makeIcon("SquareTerminal")
 export const SquareX = makeIcon("SquareX")

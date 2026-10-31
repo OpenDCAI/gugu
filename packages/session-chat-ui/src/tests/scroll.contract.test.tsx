@@ -111,7 +111,7 @@ async function mountTranscript(
     pinUserMessages?: boolean; unreadId?: string; top?: number; agentConversation?: boolean;
   } = {}
 ): Promise<Mounted> {
-  const ctx = createChatContext(opts.agentConversation ? { layout: { preset: 'double', userGutter: 0, agentConversation: true } } : { theme: DEFAULT_THEME });
+  const ctx = createChatContext(opts.agentConversation ? { locale: () => 'en-US', layout: { preset: 'double', userGutter: 0, agentConversation: true } } : { locale: () => 'en-US', theme: DEFAULT_THEME });
   const state = createChatState(ctx);
   state.transcript.history.seed(opts.turns ?? generateMockTranscript(itemCount, 7));
 

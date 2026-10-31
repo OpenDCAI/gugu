@@ -14,7 +14,7 @@ const pending: TranscriptItem = { kind: 'mcp-tool-call', id: 'send', seq: 1, too
   rawInput: JSON.stringify({ chat_id: '977', text: 'Status update.' }) };
 
 function mount(items: TranscriptItem[], trigger?: TranscriptTurn['trigger']) {
-  const context = createChatContext();
+  const context = createChatContext({ locale: () => 'en-US' });
   context.setLayout({ preset: 'double', userGutter: 72, agentConversation: true });
   const state = createChatState(context);
   const host = document.createElement('div');

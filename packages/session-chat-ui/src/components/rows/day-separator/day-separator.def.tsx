@@ -34,7 +34,7 @@
  */
 import { defineUnit } from '@session-chat/core/units';
 import { dayBoundaryLabel, msUntilNextLocalMidnight } from '@session-chat/lib/day-boundary';
-import { useChatTranslator } from '@session-chat/localization';
+import { useChatLocale, useChatTranslator } from '@session-chat/localization';
 import type { DaySeparatorItem } from '@session-chat/model';
 import { createSignal, onCleanup } from 'solid-js';
 import { separatorLabel, separatorRow, separatorRule } from './day-separator.css';
@@ -59,6 +59,7 @@ export const daySeparatorUnitDef = defineUnit<DaySeparatorItem, { rowH: number }
 
   Render(props) {
     const translate = useChatTranslator();
+    const locale = useChatLocale();
 
     // 「今天／昨天」是相对现在说的，所以窗口一直开着跨过午夜时这句话会过期。
     // 一次性定时器对准下一个本地零点，到点后把 now 推进并重排下一次。
@@ -78,7 +79,7 @@ export const daySeparatorUnitDef = defineUnit<DaySeparatorItem, { rowH: number }
     const label = (): string => {
       const started = new Date(props.data.startedAt);
       const time = `${started.getHours()}:${String(started.getMinutes()).padStart(2, '0')}`;
-      return `${dayBoundaryLabel(props.data.startedAt, now(), translate)} ${time}`;
+      return `${dayBoundaryLabel(props.data.startedAt, now(), translate, locale())} ${time}`;
     };
 
     return (

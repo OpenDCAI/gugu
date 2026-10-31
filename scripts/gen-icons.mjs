@@ -11,7 +11,8 @@
 //
 // 清单 scripts/icons/solar-icons.json 分两栏,是刻意的:
 //   solar   —— 从 @iconify-json/solar 现取 body。加图标只需在这里加一行。
-//   literal —— 上面那 20 个手写货,原样保留。
+//   literal —— 保留既有字形及固定版本的非 Solar 原图。
+//   svg     —— 原图的 SVG 默认属性;React 与 App 元素共用。
 // 分栏让「让文件可重生」这一步**零像素变化**(重生结果与改动前逐字节相同,有测试钉住),
 // 而「把 literal 换成真 Solar」是一次看得见的产品改动,该单独过审,
 // ❌ 不该混在工具重建里偷偷发生 —— 那 20 个是 Check/Plus/X 这类全站高频图标。
@@ -43,7 +44,7 @@ const HEADER = `/**
  *
  * 自动生成, 勿手改 —— 改 scripts/icons/solar-icons.json 后跑 \`node scripts/gen-icons.mjs\`.
  * 加图标: 在清单的 "solar" 栏加一行 "导出名": "<solar 图标名>", body 会从 @iconify-json/solar
- * 逐字节取来。❌ 别手写 path —— "literal" 栏那些就是手写攒出来的, 与上游对不上。
+ * 逐字节取来。literal 保留已有字形及固定版本的上游原图,❌ 别手绘新 path。
  * 同形别名(lucide 的 *Icon 后缀、CircleAlert/AlertCircle 这类历史改名): 写进 \`alias\` 栏,
  * ❌ 别在 \`solar\` 栏写两条指向同一个图标 —— 那会生成两份一模一样的 body。
  * 填充态: 另开一个 \`*Filled\` 导出取 \`-bold\` 字形 (HeartFilled 是样板)。

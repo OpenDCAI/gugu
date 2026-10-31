@@ -5,7 +5,7 @@
     "literal = 保留既有字形及有上游出处的原图;新图不能手绘。Lucide 0.564.0 的完整 ISC/Feather MIT 见 THIRD_PARTY_NOTICES.md。",
     "alias   = 同形别名(*Icon 后缀、lucide 历史改名),复用已有导出,❌ 不重复一份 body。",
     "",
-    "literal 里 16 个虽是手写但符合 Solar linear 签名(stroke + stroke-width=1.5,",
+    "既有 literal 里 16 个虽是手写但符合 Solar linear 签名(stroke + stroke-width=1.5,",
     "实测基线 400/400 如此),风格一致,不必换。只有 Pin / PinOff 是纯 fill:",
     "Solar 没有 unpin 字形,而它们是 `isPinned ? PinOff : Pin` 的切换对 —— 只换 Pin",
     "会变成「空心图钉 vs 实心取消」,比两个都手写更糟。所以成对保留,这不是债。"
@@ -148,6 +148,7 @@
     "SquareDot": "record-square-linear",
     "SquareMinus": "minus-square-linear",
     "SquarePen": "pen-new-square-linear",
+    "SquarePenFilled": "pen-new-square-bold",
     "SquarePlus": "add-square-linear",
     "SquareTerminal": "programming-linear",
     "SquareX": "close-square-linear",

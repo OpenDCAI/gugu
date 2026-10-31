@@ -15,7 +15,7 @@ it.each([390, 1280])('renders a decoded user thumbnail and opens its full image 
   const host = document.createElement('div');
   host.style.cssText = `position:fixed;top:45px;left:0;width:${width}px;height:800px`;
   document.body.append(host);
-  const context = createChatContext();
+  const context = createChatContext({ locale: () => 'en-US' });
   context.setLayout({ preset: 'double', agentConversation: true, userGutter: 0 });
   const state = createChatState(context);
   state.transcript.history.seed(turns);

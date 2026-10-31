@@ -24,7 +24,7 @@ let dispose: (() => void) | undefined;
 afterEach(() => { dispose?.(); dispose = undefined; vi.restoreAllMocks(); });
 
 function mount(composer: 'slot' | 'none' = 'none', agentConversation = false) {
-  const context = createChatContext({ layout: { preset: 'double', userGutter: 72, agentConversation }, translator: defaultChatTranslator });
+  const context = createChatContext({ locale: () => 'en-US', layout: { preset: 'double', userGutter: 72, agentConversation }, translator: defaultChatTranslator });
   const state = createChatState(context);
   const host = document.createElement('div');
   host.className = nativeChatAppearance;
