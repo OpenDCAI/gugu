@@ -3,11 +3,11 @@ import type { SearchTaskDocument } from '@gugu/core/shared/search/types';
 import { messageReferenceId } from '../acp/models/turns/message-reference';
 import type { TranscriptTurn } from '../acp/models/turns/turn';
 import { visibleConversationItems } from './visible-conversation-items';
-import { agentSendOf, replyItems, successfulMessageSend } from './reply-process';
+import { agentSendOf, successfulMessageSend } from './reply-process';
 
 /** Visible conversation bodies only. Canonical IM messages are indexed by their own account read. */
 export function taskSearchDocuments(taskId: string, turn: TranscriptTurn): SearchTaskDocument[] {
-  return replyItems({ ...turn, items: visibleConversationItems(turn) }).flatMap(item => {
+  return visibleConversationItems(turn).flatMap(item => {
     const reference = messageReferenceId(turn, item.id);
     if (!reference) return [];
     const document = (text: string, role: 'user' | 'assistant', at: number | string | null | undefined,
