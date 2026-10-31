@@ -11,7 +11,6 @@ const rpcs = new Set(Object.values(PERMANENT_REMOVAL_RPCS))
 const removalCallers = {
   permanentlyDeleteAgentSession: {},
   permanentlyRemove: {
-    'apps/desktop/src/lib/agentProvision.ts': 'defaultRemoveOwnedAgent',
     'packages/core/src/cloud/devices.ts': 'removeDevice',
   },
   removeAgents: {

@@ -615,7 +615,6 @@ export const chatService = {
 
   async getGroupCollab(chatId: string): Promise<GroupCollabLoad> {
     const collabChatDb = dataClient.schema('chat')
-    const collabIdentityDb = dataClient.schema('identity')
 
     const fetchSnapshotRows = async () => {
       const [schedulerResult, membersResult, tasksResult, agentStatesResult, outputsResult] =
