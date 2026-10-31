@@ -15,7 +15,7 @@ const jumps: string[] = []
 afterEach(() => { harness?.cleanup(); jumps.length = 0 })
 const popup = () => document.querySelector<HTMLElement>('[data-chat-reply-preview-popup]')
 
-async function mount(group: boolean, mobile = false, target: string | null = 'question', selected = false) {
+async function mount(group: boolean, mobile = false, target: string | null = 'question', selected = false, source = 'Original question') {
   await page.viewport(mobile ? 390 : 1100, 800)
   harness = createReactHarness()
   harness.container.className = 'gugu-skin emlight'
@@ -23,7 +23,7 @@ async function mount(group: boolean, mobile = false, target: string | null = 'qu
   harness.container.dataset.testid = 'chat-message-list'
   await renderWithAppProviders(harness, <>
     <span data-testid="away" style={{ position: 'fixed', left: 0, top: 0, width: 20, height: 20 }}>.</span>
-    <MessageBubble msg={message({ id: 'answer', content: selected ? '> [Owner]: Selected excerpt.\nThe actual reply body.' : 'The actual reply body.', is_mine: false, sender_user_id: 'agent', reply_to_message_id: target, reply_to_sender_user_id: 'owner', reply_to_content: selected ? 'Unselected start. Selected excerpt.' : 'Original question' })}
+    <MessageBubble msg={message({ id: 'answer', content: selected ? '> [Owner]: Selected excerpt.\nThe actual reply body.' : 'The actual reply body.', is_mine: false, sender_user_id: 'agent', reply_to_message_id: target, reply_to_sender_user_id: 'owner', reply_to_content: selected ? 'Unselected start. Selected excerpt.' : source })}
       memberProfiles={{ owner: { displayName: 'Owner' } } as unknown as Record<string, MemberProfileCardModel>}
       isGroup={group} compactMobile={mobile}
       onReaction={() => {}} onQuote={() => {}} onForward={() => {}} onDelete={() => {}}
@@ -84,4 +84,23 @@ it.each([false, true])('keeps a selected excerpt and its jump inside the disclos
   expect(popup()).not.toBeNull()
   await act(async () => { await userEvent.click(popup()!.querySelector<HTMLElement>('[title]')!) })
   expect(jumps).toEqual(['question'])
+})
+
+
+it.each([false, true])('renders only a compact Markdown opening in a chat source preview (group=%s)', async group => {
+  const source = '| Key | Value |\n| --- | --- |\n' + '| **A** | B |\n'.repeat(30) + 'TAIL_MARKER'
+  const view = await mount(group, false, 'question', false, source)
+  await act(async () => { await userEvent.hover(harness.container.querySelector<HTMLElement>('[data-testid="away"]')!) })
+  await act(async () => { await userEvent.hover(view.jump!) })
+  await until('chat source preview opens', () => !!popup())
+  const body = popup()!.querySelector<HTMLElement>('[data-conversation-source-markdown]')!
+  expect(body.querySelector('table')).not.toBeNull()
+  expect(body.querySelector('strong')?.textContent).toBe('A')
+  expect(body.textContent).not.toContain('TAIL_MARKER')
+  const typography = getComputedStyle(body)
+  expect(Number.parseFloat(typography.fontSize)).toBe(14)
+  expect(Number.parseFloat(typography.lineHeight)).toBe(20)
+  expect(typography.webkitLineClamp).toBe('2')
+  expect(body.getBoundingClientRect().height).toBeLessThanOrEqual(40)
+  expect(body.hasAttribute('data-source-truncated')).toBe(true)
 })

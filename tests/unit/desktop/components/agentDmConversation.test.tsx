@@ -2,7 +2,7 @@
 import { act, createElement, useEffect, useState, type ReactNode } from 'react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import type { AgentDmSession } from '../../../../apps/desktop/src/hooks/useAgentDmSession'
-import type { ChatCommands, ChatMessage } from '@gugu/session-chat-ui'
+import type { ChatCommands } from '@gugu/session-chat-ui'
 import { openMessageSender } from '../../../../apps/desktop/src/lib/openMessageSender'
 import type { TranscriptTurn } from '@gugu/session-core/acp/client'
 import { chat, clickElement, contact, createReactHarness, displayIdentity, message, renderWithAppProviders } from '../../../support/testHarness'
@@ -294,21 +294,11 @@ it('captures unread on return to a retained desktop slot even when its logical s
 })
 
 
-it.each([false, true])('quotes an exact visible IM reply through the shared hover action and preserves its delivery (private: %s)', async privateReply => {
-  const incoming = { ...received, is_whisper: privateReply, to_user_ids: privateReply ? ['user-1'] : null }
-  const sendMessage = vi.fn<(content: string, options?: unknown) => Promise<string | undefined>>(async () => undefined)
+it('does not expose the removed whole-message quote action in agent DM commands', async () => {
   await renderWithAppProviders(harness, createElement(AgentDmConversation, { chat: dm, shown: true }), { chat: {
-    activeChat: dm, activeChatId: dm.id, messages: [incoming], identitiesById: { 'external-agent': displayIdentity('external-agent', { type: 'agent', display_name: 'External agent' }) }, sendMessage,
+    activeChat: dm, activeChatId: dm.id, messages: [received], identitiesById: { 'external-agent': displayIdentity('external-agent', { type: 'agent', display_name: 'External agent' }) },
   } })
-  const item: ChatMessage = { kind: 'message', id: received.id, role: 'assistant', text: 'The visible projection is not an identity.' }
-  const commands = () => (probe.props as { commands: ChatCommands }).commands
-  expect(commands().canQuoteMessage?.(item)).toBe(true)
-  expect(commands().canQuoteMessage?.({ ...item, id: 'another-message-with-the-same-text' })).toBe(false)
-  await act(async () => { commands().onQuoteMessage?.({ message: item, sender: 'External agent' }) })
-  expect(harness.container.textContent).toContain(received.content)
-  const editor = harness.container.querySelector<HTMLElement>('[contenteditable="true"]')!
-  await act(async () => writeComposer(editor, '回复这条原消息'))
-  await clickElement(harness.container.querySelector<HTMLElement>('button[aria-label="发送消息"]')!)
-  await vi.waitFor(() => expect(sendMessage).toHaveBeenCalledTimes(1))
-  expect(sendMessage).toHaveBeenCalledWith('回复这条原消息', expect.objectContaining({ replyToMessageId: received.id, ...(privateReply ? { isWhisper: true, toUserIds: ['external-agent'] } : {}) }))
+  const commands = (probe.props as { commands: ChatCommands }).commands
+  expect(commands).not.toHaveProperty('onQuoteMessage')
+  expect(commands).not.toHaveProperty('canQuoteMessage')
 })
