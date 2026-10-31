@@ -38,6 +38,48 @@ async function started() {
 }
 
 describe('terminal publication lifecycle', () => {
+  it('coalesces replayed terminal exits without losing output or starting a prompt', async () => {
+    const h = makeAcpHarness({ nativeState: true });
+    const loaded = Promise.withResolvers<Record<string, never>>();
+    h.agent.loadSession = vi.fn(() => loaded.promise);
+    const rt = new AcpRuntime(h.deps);
+    const resuming = rt.resumeSession({ ...makeStartInput({ sessionId: SESSION }), providerSessionId: 'replay-provider' });
+    await h.agent.called('loadSession');
+    await vi.runAllTimersAsync();
+    const sync = vi.spyOn(rt.manager, 'syncTerminals');
+    const snapshots = vi.spyOn(rt.manager, 'getTerminals');
+    try {
+      for (let index = 0; index < 50; index++) {
+        await h.client().sessionEvent({ sessionId: 'replay-provider', event: {
+          ...reference, toolCallId: `command-${index}`,
+          contentBlocks: [{ type: 'terminal', terminalId: `replayed-${index}` }],
+        } });
+        await h.client().sessionEvent({ sessionId: 'replay-provider', event: decodeV2SessionUpdate({
+          sessionUpdate: 'terminal_update', terminalId: `replayed-${index}`,
+          output: { data: Buffer.from(`output-${index}`).toString('base64') },
+          exitStatus: { exitCode: 0, signal: null },
+        }) });
+      }
+      // The authoritative registry stays current; full publication follows the display tick.
+      expect(snapshots).toHaveBeenCalledTimes(1);
+      expect(rt.getTerminals(SESSION)).toHaveLength(50);
+      expect(sync).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(100);
+      expect(sync).toHaveBeenCalledTimes(2);
+      expect(rt.sessionLiveModels(SESSION)!.states.terminals.snapshot().data).toEqual(rt.getTerminals(SESSION));
+    } finally {
+      loaded.resolve({});
+    }
+    expect(await resuming).toMatchObject({ success: true });
+    expect(rt.getTerminals(SESSION).map(terminal => terminal.output)).toEqual(
+      Array.from({ length: 50 }, (_, index) => `output-${index}`),
+    );
+    expect(h.agent.prompt).not.toHaveBeenCalled();
+    expect(await rt.stopSession(SESSION)).toMatchObject({ success: true });
+    await rt.dispose();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
   it('publishes the first and trailing output while authority stays current and old turns backfill', async () => {
     const { rt, send, committed, launchId } = await started();
     const live = rt.sessionLiveModels(SESSION)!.states.terminals;
