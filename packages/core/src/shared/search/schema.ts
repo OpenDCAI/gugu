@@ -1,5 +1,5 @@
-export const SCHEMA_VERSION = 5
-export const EXTRACTOR_VERSION = 2
+export const SCHEMA_VERSION = 6
+export const EXTRACTOR_VERSION = 3
 
 /**
  * One database per account, holding only rows that account's own reads returned (the server already
@@ -17,12 +17,14 @@ CREATE TABLE IF NOT EXISTS task (
   title TEXT NOT NULL,
   project_id TEXT NOT NULL,
   agent_user_id TEXT,
-  terminal INTEGER NOT NULL CHECK (terminal IN (0, 1))
+  terminal INTEGER NOT NULL CHECK (terminal IN (0, 1)),
+  archived INTEGER NOT NULL CHECK (archived IN (0, 1))
 );
 CREATE TABLE IF NOT EXISTS task_coverage (
   task_id TEXT PRIMARY KEY REFERENCES task(id) ON DELETE CASCADE,
   last_seq INTEGER NOT NULL,
-  exhausted INTEGER NOT NULL CHECK (exhausted IN (0, 1))
+  exhausted INTEGER NOT NULL CHECK (exhausted IN (0, 1)),
+  reason TEXT CHECK (reason IN ('active', 'unavailable', 'unsupported', 'diverged'))
 );
 CREATE TABLE IF NOT EXISTS msg (
   rowid INTEGER PRIMARY KEY,

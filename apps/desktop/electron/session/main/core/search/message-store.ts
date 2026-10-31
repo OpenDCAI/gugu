@@ -58,8 +58,8 @@ export class MessageSearchStore {
   }
 
   tasks(): SearchTask[] {
-    return (this.db.prepare('SELECT id,title,project_id,agent_user_id,terminal FROM task').all() as { id: string; title: string; project_id: string; agent_user_id: string | null; terminal: number }[])
-      .map(row => ({ id: row.id, title: row.title, projectId: row.project_id, agentUserId: row.agent_user_id, terminal: row.terminal === 1 }));
+    return (this.db.prepare('SELECT id,title,project_id,agent_user_id,terminal,archived FROM task').all() as { id: string; title: string; project_id: string; agent_user_id: string | null; terminal: number; archived: number }[])
+      .map(row => ({ id: row.id, title: row.title, projectId: row.project_id, agentUserId: row.agent_user_id, terminal: row.terminal === 1, archived: row.archived === 1 }));
   }
 
   taskCoverage() {

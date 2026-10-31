@@ -11,10 +11,15 @@ import { awaitFact } from '../../../../../../../tests/support/awaitFact';
 import type { Session } from '@shared/core/sessions/sessions';
 import { formatDeliveryTimestamp, mergeDeliveryEnvelopes, renderDeliveryEnvelope } from '@gugu/core/local/agent/deliveryEnvelope';
 
-const state = vi.hoisted(() => ({ source: null as Database.Database | null }));
+const state = vi.hoisted(() => ({ source: null as Database.Database | null,
+  sync: vi.fn(), status: null as ((change: { sessionId: string; reading: { running: boolean } }) => void) | null }));
 vi.mock('@main/db/client', () => ({ db: undefined, get sqlite() { return state.source; } }));
 vi.mock('@main/lib/events', () => ({ events: { emit: vi.fn() } }));
 vi.mock('@main/lib/logger', () => ({ log: { error: vi.fn() } }));
+vi.mock('../sessions/record-backfill', () => ({ syncStoredHistoryFromRecord: state.sync }));
+vi.mock('../agent-status/agent-status-writer', () => ({ agentStatusWriter: { on: (_name: string, handler: typeof state.status) => {
+  state.status = handler; return () => { state.status = null; };
+} } }));
 let root: string;
 let store: MessageSearchStore;
 let abort: AbortController;
@@ -35,6 +40,7 @@ function start(observe?: () => void) {
   });
 }
 beforeEach(() => {
+  state.sync.mockReset().mockResolvedValue({ inserted: 0, status: 'complete' });
   root = mkdtempSync(join(tmpdir(), 'task-search-feed-'));
   store = new MessageSearchStore(root, 'owner');
   state.source = new Database(':memory:');
@@ -56,15 +62,45 @@ it('resumes a checkpoint then validates an arbitrarily old revised turn before c
   expect(store.global(request).results.map(hit => hit.text)).toEqual(['tail', 'new old turn']);
 });
 
-it('keeps PTY tasks explicitly unindexed even if they already have stored turns', async () => {
+it('scans existing archived PTY tasks through the same queue and indexes only visible conversation bodies', async () => {
   put(0, 'terminal body');
-  state.source!.prepare("UPDATE sessions SET runtime='pty'").run();
+  const stored = JSON.parse(body(0, 'terminal body'));
+  stored.items.push({ kind: 'thinking', id: 'thought', seq: 1, text: 'private-thought' },
+    { kind: 'execute-tool-call', id: 'tool', seq: 2, toolCallId: 'tool', status: 'done', command: 'private-call', output: 'private-output' });
+  state.source!.prepare('UPDATE session_turns SET data=?').run(JSON.stringify(stored));
+  state.source!.prepare("UPDATE sessions SET runtime='pty',archived_at='2026-10-30'").run();
   start();
-  await waitFor(() => expect(store.global(request).coverage.tasks).toEqual([
-    { taskId: 's', lastSeq: -1, exhausted: false, reason: 'terminal' },
-  ]));
+  await waitFor(() => expect(store.global(request).coverage.complete).toBe(true));
+  expect(state.sync).toHaveBeenCalledExactlyOnceWith('s', { signal: abort.signal, runtime: 'pty' });
+  expect(store.global(request).results).toMatchObject([{ text: 'terminal body', archived: true }]);
+  for (const text of ['private-thought', 'private-call', 'private-output']) {
+    expect(store.global({ query: { ...request.query, text } }).results).toEqual([]);
+  }
+});
+
+it('reports missing record history without exhausting it, then retries on the existing settled-status fact', async () => {
+  state.source!.prepare("UPDATE sessions SET runtime='pty'").run();
+  state.sync.mockResolvedValueOnce({ inserted: 0, status: 'unavailable' });
+  start();
+  await waitFor(() => expect(store.taskCoverage()).toEqual([{ taskId: 's', lastSeq: -1, exhausted: false, reason: 'unavailable' }]));
+  expect(store.global(request).coverage.complete).toBe(false);
+  state.status!({ sessionId: 's', reading: { running: false } });
+  await waitFor(() => expect(store.global(request).coverage.complete).toBe(true));
+  expect(state.sync).toHaveBeenCalledTimes(2);
+});
+
+it('does not begin another existing PTY task after the account closes during record backfill', async () => {
+  state.source!.prepare("UPDATE sessions SET runtime='pty'").run();
+  state.source!.prepare("INSERT INTO sessions VALUES ('other','Other','p',NULL,'idle','2026-10-29','pty')").run();
+  let finish!: (value: { inserted: number; status: string }) => void;
+  state.sync.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+  start();
+  await waitFor(() => expect(state.sync).toHaveBeenCalledOnce());
+  abort.abort();
+  finish({ inserted: 0, status: 'cancelled' });
+  await Promise.resolve();
+  expect(state.sync).toHaveBeenCalledOnce();
   expect(store.global(request).results).toEqual([]);
-  expect(store.global(request).coverage.complete).toBe(true);
 });
 
 it('uses the command palette local-project predicate to exclude retired remote project tasks', () => {
@@ -139,7 +175,7 @@ it('replaces revised items, handles truncation, and follows committed archive/re
   await waitFor(() => expect(store.global(request).results.map(hit => hit.text)).toEqual(['revision']));
   state.source!.prepare("UPDATE sessions SET archived_at='2026-10-30'").run();
   sessionEvents._emit('session:archived', 's');
-  await waitFor(() => expect(store.global(request).results).toEqual([]));
+  await waitFor(() => expect(store.global(request).results).toMatchObject([{ text: 'revision', archived: true }]));
   state.source!.prepare("UPDATE sessions SET archived_at=NULL,title='Restored'").run();
   sessionEvents._emit('session:created', { id: 's' } as Session);
   await waitFor(() => expect(store.global(request).results[0]).toMatchObject({ title: 'Restored', text: 'revision' }));

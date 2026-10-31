@@ -52,7 +52,7 @@ afterEach(() => {
 });
 
 describe('account message index on real SQLite FTS5', () => {
-  it('immediately excludes cached terminal hits using the authoritative task metadata', () => {
+  it('retains visible hits when a task uses terminal presentation', () => {
     const store = open();
     store.apply([{ kind: 'task', task: { id: 's', title: 'Task', projectId: 'p' } },
       { kind: 'taskTurn', taskId: 's', seq: 0, documents: [{ id: 'cached', taskId: 's', reference: 'ref',
@@ -60,11 +60,11 @@ describe('account message index on real SQLite FTS5', () => {
       { kind: 'taskCoverage', coverage: { taskId: 's', lastSeq: 0, exhausted: true } }]);
     expect(ids(store, 'needle')).toEqual(['cached']);
     store.apply([{ kind: 'task', task: { id: 's', title: 'Task', projectId: 'p', terminal: true } }]);
-    expect(ids(store, 'needle')).toEqual([]);
+    expect(ids(store, 'needle')).toEqual(['cached']);
     expect(store.global(query('needle', { kind: 'task' })).coverage).toMatchObject({ complete: true,
-      tasks: [{ taskId: 's', exhausted: false, reason: 'terminal' }] });
+      tasks: [{ taskId: 's', exhausted: true }] });
   });
-  it('requires eligible task coverage while terminal tasks stay explicitly outside its progress', () => {
+  it('requires both terminal and ACP history coverage, including explicit unavailable history', () => {
     const store = open();
     store.apply([{ kind: 'tasks', tasks: [
       { id: 'terminal', title: 'Terminal', projectId: 'p', terminal: true },
@@ -73,8 +73,11 @@ describe('account message index on real SQLite FTS5', () => {
     const request = query('', { kind: 'task' });
     expect(store.global(request).coverage.complete).toBe(false);
     store.apply([{ kind: 'taskCoverage', coverage: { taskId: 'acp', lastSeq: 4, exhausted: true } }]);
-    expect(store.global(request).coverage).toMatchObject({ complete: true,
-      tasks: expect.arrayContaining([{ taskId: 'terminal', lastSeq: -1, exhausted: false, reason: 'terminal' }]) });
+    store.apply([{ kind: 'taskCoverage', coverage: { taskId: 'terminal', lastSeq: -1, exhausted: false, reason: 'unavailable' } }]);
+    expect(store.global(request).coverage).toMatchObject({ complete: false,
+      tasks: expect.arrayContaining([{ taskId: 'terminal', lastSeq: -1, exhausted: false, reason: 'unavailable' }]) });
+    store.apply([{ kind: 'taskCoverage', coverage: { taskId: 'terminal', lastSeq: 0, exhausted: true } }]);
+    expect(store.global(request).coverage.complete).toBe(true);
   });
   it('places unknown task dates last without a recent reason or any date-filter match', () => {
     const store = open();
@@ -301,7 +304,7 @@ describe('account message index on real SQLite FTS5', () => {
     const store = open();
     const rebuilt = new Database(path, { readonly: true });
     try {
-      expect(rebuilt.prepare("SELECT value FROM search_meta WHERE key='version'").get()).toEqual({ value: '5:2' });
+      expect(rebuilt.prepare("SELECT value FROM search_meta WHERE key='version'").get()).toEqual({ value: '6:3' });
       expect(rebuilt.prepare("SELECT name FROM sqlite_master WHERE name IN ('actor_scope','msg_actor')").all()).toEqual([]);
     } finally { rebuilt.close(); }
     expect(storedRows(store, 'msg')).toBe(0);

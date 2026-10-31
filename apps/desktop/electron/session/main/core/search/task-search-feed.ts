@@ -2,25 +2,27 @@ import { setTimeout as pause } from 'node:timers/promises';
 import type { TranscriptTurn } from '@gugu/session-core/acp';
 import { taskSearchDocuments } from '@gugu/session-core/session-record/search-documents';
 import { isAgentActive, parseAgentStatus } from '@gugu/core/shared/agentStatus';
-import type { SearchIndexOp, SearchTask } from '@gugu/core/shared/search/types';
+import type { SearchIndexOp, SearchTask, SearchTaskCoverage } from '@gugu/core/shared/search/types';
 import { sqlite } from '@main/db/client';
 import { log } from '@main/lib/logger';
 import { projectEvents } from '../projects/project-events';
 import { filterReadableStoredRows } from '../sessions/session-turn-replay';
 import { sessionEvents } from '../sessions/session-events';
+import { agentStatusWriter } from '../agent-status/agent-status-writer';
+import { syncStoredHistoryFromRecord } from '../sessions/record-backfill';
 import type { MessageSearchStore } from './message-store';
 import { localProjectsOnly } from './local-projects-only';
 
 type Stored = { seq: number; data: string; turnId: string };
 type Write = (read: (store: MessageSearchStore) => readonly SearchIndexOp[]) => Promise<boolean>;
-type Scan = { from: number; validate: boolean };
+type Scan = { from: number; validate: boolean; record: boolean };
 const PAGE_BYTES = 1024 * 1024;
 
 function task(id: string, agentUserId: string | null): SearchTask | undefined {
-  const row = sqlite.prepare(`SELECT id,title,project_id,runtime FROM sessions WHERE id=? AND archived_at IS NULL
+  const row = sqlite.prepare(`SELECT id,title,project_id,runtime,archived_at FROM sessions WHERE id=?
     AND ${localProjectsOnly('sessions.project_id')}`).get(id) as
-    { id: string; title: string; project_id: string; runtime: string | null } | undefined;
-  return row && { id: row.id, title: row.title, projectId: row.project_id, agentUserId, terminal: row.runtime !== 'acp' };
+    { id: string; title: string; project_id: string; runtime: string | null; archived_at: string | null } | undefined;
+  return row && { id: row.id, title: row.title, projectId: row.project_id, agentUserId, terminal: row.runtime !== 'acp', archived: row.archived_at !== null };
 }
 
 /** Bound each page by source bytes. An indivisible oversized turn is read alone, never truncated. */
@@ -49,23 +51,30 @@ function turnOps(id: string, rows: Stored[]): SearchIndexOp[] {
     documents: visible.has(row.seq) ? taskSearchDocuments(id, { ...row.turn, seq: row.seq }) : [] }));
 }
 
-/** One cancellable reconciliation per account-index lifetime. No provider or network reads. */
+/** One account-owned serial feed. Record history enters canonical storage before the same index projection. */
 export function startTaskSearch(store: MessageSearchStore, signal: AbortSignal, write: Write, identity: (sessionId: string, accountId: string) => Promise<string | null> = async () => null): void {
-  const inventory = (sqlite.prepare(`SELECT id,title,project_id,runtime,agent_status FROM sessions WHERE archived_at IS NULL
-    AND ${localProjectsOnly('sessions.project_id')}
-    ORDER BY updated_at DESC, id`).all() as { id: string; title: string; project_id: string; runtime: string | null; agent_status: string | null }[])
+  const inventory = (sqlite.prepare(`SELECT id,title,project_id,runtime,agent_status,archived_at FROM sessions WHERE
+    ${localProjectsOnly('sessions.project_id')}
+    ORDER BY updated_at DESC, id`).all() as { id: string; title: string; project_id: string; runtime: string | null; agent_status: string | null; archived_at: string | null }[])
     .map(row => {
       const status = parseAgentStatus(row.agent_status);
-      return { task: { id: row.id, title: row.title, projectId: row.project_id, terminal: row.runtime !== 'acp' }, active: isAgentActive(status ? { status } : null) };
+      return { task: { id: row.id, title: row.title, projectId: row.project_id, terminal: row.runtime !== 'acp', archived: row.archived_at !== null }, active: isAgentActive(status ? { status } : null) };
     })
     .sort((a, b) => Number(a.active) - Number(b.active)).map(row => row.task);
   store.apply([{ kind: 'tasks', tasks: inventory }]);
-  const pending = new Map<string, Scan>(inventory.map(row => [row.id, { from: -1, validate: true }]));
+  const pending = new Map<string, Scan>(inventory.map(row => [row.id, { from: -1, validate: true, record: true }]));
   let running = false;
 
   const backfill = async (id: string, scan: Scan) => {
     const agentUserId = await identity(id, store.accountId);
     if (signal.aborted) return;
+    let reason: SearchTaskCoverage['reason'] = store.taskCoverage().find(row => row.taskId === id)?.reason;
+    if (scan.record && task(id, agentUserId)?.terminal) {
+      const result = await syncStoredHistoryFromRecord(id, { signal, runtime: 'pty' });
+      if (signal.aborted) return;
+      reason = result.status === 'complete' || result.status === 'runtime-changed' ? undefined
+        : result.status === 'cancelled' ? 'unavailable' : result.status;
+    }
     let highWater = store.taskCoverage().find(row => row.taskId === id)?.lastSeq ?? -1;
     // Resume the interrupted tail first, then validate the prefix. Its cursor must not overwrite highWater.
     let cursor = scan.validate ? highWater : scan.from - 1;
@@ -76,24 +85,19 @@ export function startTaskSearch(store: MessageSearchStore, signal: AbortSignal, 
         highWater = Math.max(highWater, current.taskCoverage().find(row => row.taskId === id)?.lastSeq ?? -1);
         const meta = task(id, agentUserId);
         if (!meta) { done = true; return [{ kind: 'removeTask', taskId: id }]; }
-        if (meta.terminal) {
-          done = true;
-          return [{ kind: 'task', task: meta }, { kind: 'truncateTask', taskId: id, fromSeq: 0 },
-            { kind: 'taskCoverage', coverage: { taskId: id, lastSeq: -1, exhausted: false, reason: 'terminal' } }];
-        }
         const rows = page(id, cursor);
         const ops: SearchIndexOp[] = [{ kind: 'task', task: meta }, ...turnOps(id, rows)];
         if (rows.length) {
           cursor = rows.at(-1)!.seq;
           highWater = Math.max(highWater, cursor);
-          ops.push({ kind: 'taskCoverage', coverage: { taskId: id, lastSeq: highWater, exhausted: false } });
+          ops.push({ kind: 'taskCoverage', coverage: { taskId: id, lastSeq: highWater, exhausted: false, reason } });
         } else if (!validating) {
           validating = true;
           cursor = -1;
         } else {
           const last = sqlite.prepare('SELECT max(seq) AS seq FROM session_turns WHERE session_id=?').get(id) as { seq: number | null };
           ops.push({ kind: 'truncateTask', taskId: id, fromSeq: cursor + 1 },
-            { kind: 'taskCoverage', coverage: { taskId: id, lastSeq: last.seq ?? -1, exhausted: !pending.has(id) } });
+            { kind: 'taskCoverage', coverage: { taskId: id, lastSeq: last.seq ?? -1, exhausted: !reason && !pending.has(id), reason } });
           done = true;
         }
         return ops;
@@ -109,17 +113,18 @@ export function startTaskSearch(store: MessageSearchStore, signal: AbortSignal, 
       for (const [id, scan] of pending) {
         pending.delete(id);
         if (signal.aborted) break;
-        try { await backfill(id, scan); }
+        try { await backfill(id, scan); if (!signal.aborted) await pause(200, undefined, { signal }); }
         catch (error) { if (!signal.aborted) log.error('Task search backfill failed', { sessionId: id, error: String(error) }); }
       }
     } finally { running = false; }
   };
-  const reconcile = (id: string, from = -1, scan = true) => {
+  const reconcile = (id: string, from = -1, scan = true, record = false) => {
     if (signal.aborted) return;
     const coverage = store.taskCoverage().find(row => row.taskId === id);
     if (scan) {
       const prior = pending.get(id);
-      pending.set(id, { from: Math.min(prior?.from ?? from, from), validate: prior?.validate || from < 0 || !coverage?.exhausted });
+      pending.set(id, { from: Math.min(prior?.from ?? from, from), validate: prior?.validate || from < 0 || !coverage?.exhausted,
+        record: prior?.record === true || record });
     }
     void write(current => {
       const meta = task(id, current.tasks().find(row => row.id === id)?.agentUserId ?? null);
@@ -127,7 +132,7 @@ export function startTaskSearch(store: MessageSearchStore, signal: AbortSignal, 
       const ops: SearchIndexOp[] = [{ kind: 'task', task: meta }];
       const latest = current.taskCoverage().find(row => row.taskId === id);
       if (scan) ops.push({ kind: 'truncateTask', taskId: id, fromSeq: Math.max(0, from) },
-        { kind: 'taskCoverage', coverage: { taskId: id, lastSeq: latest?.lastSeq ?? -1, exhausted: false } });
+        { kind: 'taskCoverage', coverage: { taskId: id, lastSeq: latest?.lastSeq ?? -1, exhausted: false, reason: latest?.reason } });
       return ops;
     }).then(accepted => { if (accepted && scan && !signal.aborted) void drain(); })
       .catch(error => log.error('Task search reconciliation failed', { sessionId: id, error: String(error) }));
@@ -153,10 +158,13 @@ export function startTaskSearch(store: MessageSearchStore, signal: AbortSignal, 
         .map(row => ({ kind: 'removeTask' as const, taskId: row.id }))).then(() => {});
     }),
     sessionEvents.on('session:history-changed', changed),
-    sessionEvents.on('session:created', row => reconcile(row.id)),
+    sessionEvents.on('session:created', row => reconcile(row.id, -1, true, true)),
     sessionEvents.on('session:renamed', id => reconcile(id, -1, false)),
     sessionEvents.on('session:deleted', id => reconcile(id, -1, false)),
-    sessionEvents.on('session:archived', id => reconcile(id, -1, false)),
+    sessionEvents.on('session:archived', id => reconcile(id, -1, true, true)),
+    agentStatusWriter.on('agent:status', change => {
+      if (!change.reading.running) reconcile(change.sessionId, -1, true, true);
+    }),
   ];
   signal.addEventListener('abort', () => { for (const unsubscribe of off) unsubscribe(); pending.clear(); changes.clear(); }, { once: true });
   void drain();

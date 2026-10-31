@@ -7,7 +7,7 @@ import { readAgentQuestionRecords, rememberAgentQuestion } from '../sessions/age
 import { nativeConversationAliases, nativeConversationUnread } from '../sessions/session-conversation-read';
 import { nativeConversationActivity } from '../sessions/session-conversation-activity';
 import { deliverAgentQuestionAnswer, restoredAgentQuestion } from '../sessions/agent-question-delivery';
-import { eq, isNull } from 'drizzle-orm';
+import { and, eq, isNull } from 'drizzle-orm';
 import { readProjects } from '@main/core/projects/operations/getProjects';
 import { isImplicitSessionHomeProjectId } from '@shared/core/projects/session-home-project';
 import { resolveAgentHome } from '@gugu/session-core/agents/plugins/helpers';
@@ -160,6 +160,8 @@ export function setSessionTimelineFactory(next: SessionTimelineFactory | null): 
 }
 
 type TimelineEntry = {
+  /** Record ingestion borrows the same cached reader without attaching interactive runtime/ask effects. */
+  recordOnly?: boolean;
   conversationId: string;
   timeline: SessionTimeline;
   refs: number;
@@ -199,7 +201,7 @@ const subscriptions = new Map<string, ActiveSubscription>();
  * 早先这里只选了列表要显示的那几列，再把它 `as Conversation` 递给注入路径 —— 那是一句
  * 类型上的谎：注入路径哪天多读一个字段，拿到的是 undefined 而类型说它在，静默走错。
  */
-function readSessionRows(): Array<{
+function readSessionRows(includeArchived = false, id?: string): Array<{
   session: SessionRow;
   project: SessionpageProjectSummary;
 }> {
@@ -211,7 +213,7 @@ function readSessionRows(): Array<{
     .from(sessions)
     .innerJoin(projects, eq(sessions.projectId, projects.id))
     // 归档的会话不上这张面 —— 与 `getSessions()` 同一条口径:归属键是**会话自己**那一列(spec session-graph)。
-    .where(isNull(sessions.archivedAt))
+    .where(and(includeArchived ? undefined : isNull(sessions.archivedAt), id === undefined ? undefined : eq(sessions.id, id)))
     .all()
     .map(({ session, project }) => ({ session, project: projectSummary(project) }));
 }
@@ -225,9 +227,9 @@ function projectSummary({ kind, ...project }: { id: string; name: string; path: 
   return kind === 'workspace' ? { ...project, kind } : project;
 }
 
-export function readSessionRow(conversationId: string): SessionRow | null {
+export function readSessionRow(conversationId: string, options: { includeArchived?: boolean } = {}): SessionRow | null {
   return (
-    readSessionRows().find((row) => row.session.id === conversationId)?.session ??
+    readSessionRows(options.includeArchived, conversationId).find((row) => row.session.id === conversationId)?.session ??
     null
   );
 }
@@ -420,7 +422,7 @@ export function syncAsked(conversationId: string): void {
 }
 
 function syncPending(entry: TimelineEntry): void {
-  if (entry.disposed || entry.standIn) return;
+  if (entry.disposed || entry.standIn || entry.recordOnly) return;
   const asked = [...(hostAsks.get(entry.conversationId)?.values() ?? [])].map((ask) => ask.request);
   entry.timeline.syncPendingRequests([...entry.runtimeRequests, ...asked]);
 }
@@ -485,10 +487,14 @@ function scheduleIdleDispose(entry: TimelineEntry): void {
 }
 
 async function acquire(
-  conversationId: string
+  conversationId: string,
+  options: { recordOnly?: boolean; includeArchived?: boolean } = {},
 ): Promise<SessionTimelineResult<TimelineEntry>> {
+  const row = readSessionRow(conversationId, options);
+  if (!row) return fail('session_not_found', `这台机器上没有会话 ${conversationId}`);
   const cached = entries.get(conversationId);
   if (cached) {
+    if (!options.recordOnly && cached.recordOnly) attachInteractive(cached, row);
     cached.refs += 1;
     if (cached.idleTimer) {
       clearTimeout(cached.idleTimer);
@@ -497,10 +503,6 @@ async function acquire(
     return { ok: true, value: cached };
   }
 
-  const row = readSessionRow(conversationId);
-  if (!row) {
-    return fail('session_not_found', `这台机器上没有会话 ${conversationId}`);
-  }
   const location = locateRow(row);
   if (!location.supported) {
     // 没有记录可读也要打得开(spec session-always-openable):给一个只含第一句话的替身,
@@ -521,6 +523,7 @@ async function acquire(
   if (inFlight) {
     try {
       const entry = await inFlight;
+      if (!options.recordOnly && entry.recordOnly) attachInteractive(entry, row);
       entry.refs += 1;
       return { ok: true, value: entry };
     } catch (error) {
@@ -533,13 +536,13 @@ async function acquire(
   const generation = resetGeneration;
   // 审批只有 ACP 腿有可结算的请求 id；TUI 腿的审批画在终端里，没有通道
   // （`write-bridge` 对它 fail loud）。所以这条订阅只对 ACP 腿开。
-  const live = summaryRuntime(row.runtime) === 'acp';
   const promise = factory({ locator: location.locator, conversationId, answerableQuestions: remoteAnswerFor(row) }).then((timeline) => {
     if (generation !== resetGeneration) {
       timeline.dispose();
       throw new Error('会话时间线服务在这份记录打开的过程中被重置了');
     }
     const entry: TimelineEntry = {
+      recordOnly: true,
       conversationId,
       timeline,
       refs: 1,
@@ -549,12 +552,8 @@ async function acquire(
       disposed: false,
     };
     entries.set(conversationId, entry);
-    try { restoreAgentQuestions(entry, row.projectId); }
+    try { if (!options.recordOnly) attachInteractive(entry, row); }
     catch (error) { entries.delete(conversationId); timeline.dispose(); throw error; }
-    if (live) attachPendingRequests(entry);
-    withdrawOrphanHostAsks(entry);
-    // A host ask made before this timeline opened (D-31): on it from the start.
-    if (hostAsks.has(conversationId)) syncPending(entry);
     return entry;
   });
   opening.set(conversationId, promise);
@@ -565,6 +564,14 @@ async function acquire(
   } finally {
     if (opening.get(conversationId) === promise) opening.delete(conversationId);
   }
+}
+
+function attachInteractive(entry: TimelineEntry, row: SessionRow): void {
+  entry.recordOnly = false;
+  restoreAgentQuestions(entry, row.projectId);
+  if (summaryRuntime(row.runtime) === 'acp') attachPendingRequests(entry);
+  withdrawOrphanHostAsks(entry);
+  if (hostAsks.has(row.id)) syncPending(entry);
 }
 
 /** 会话行上的建立时间(SQLite `CURRENT_TIMESTAMP`,UTC)→ epoch ms;读不出来 = 不知道。 */
@@ -1021,17 +1028,20 @@ type TranscriptTurns = TimelineSnapshot['turns'];
 export async function pickRecordTurns(
   conversationId: string,
   pick: (turns: TranscriptTurns) => Promise<TranscriptTurns | null>,
-  options: { images: boolean } = { images: true },
-): Promise<{ ok: true; turns: TranscriptTurns | null } | { ok: false }> {
-  const acquired = await acquire(conversationId);
+  options: { images: boolean; committedOnly?: boolean; includeArchived?: boolean } = { images: true },
+): Promise<{ ok: true; turns: TranscriptTurns | null; complete: boolean } | { ok: false }> {
+  const acquired = await acquire(conversationId, { recordOnly: true, includeArchived: options.includeArchived });
   if (!acquired.ok) return { ok: false };
   try {
     if (acquired.value.standIn) return { ok: false };
     const timeline = acquired.value.timeline;
     await timeline.catchUp();
-    const picked = await pick(timeline.getSnapshot({ limit: Number.MAX_SAFE_INTEGER }).turns);
-    if (!picked || !options.images) return { ok: true, turns: picked };
-    return { ok: true, turns: await Promise.all(picked.map((turn) => withImagesReadBack(timeline, turn))) };
+    const all = timeline.getSnapshot({ limit: Number.MAX_SAFE_INTEGER }).turns;
+    const prefix = options.committedOnly ? timeline.getSnapshot({ limit: Number.MAX_SAFE_INTEGER, committedOnly: true }).turns : all;
+    const complete = prefix.length === all.length;
+    const picked = await pick(prefix);
+    if (!picked || !options.images) return { ok: true, turns: picked, complete };
+    return { ok: true, turns: await Promise.all(picked.map((turn) => withImagesReadBack(timeline, turn))), complete };
   } catch (error) {
     log.warn('[session-timeline] record unreadable', { conversationId, error: (error as Error)?.message ?? String(error) });
     return { ok: false };

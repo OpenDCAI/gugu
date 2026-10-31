@@ -28,7 +28,7 @@ export function buildSearchSql(
 ): SearchSql {
   if (!accountId) throw new Error('A signed-in search account is required')
   const params: (string | number)[] = []
-  const where: string[] = ['(m.task_id IS NULL OR task.terminal = 0)']
+  const where: string[] = []
   const positives: string[] = []
   const negatives: string[] = []
   for (const term of parseSearchTerms(query.text)) {
@@ -83,7 +83,7 @@ export function buildSearchSql(
   let sql = `SELECT m.id,m.chat_id,m.task_id,m.message_ref,m.role,m.thread_root_id,m.seq,
     CASE WHEN m.role = 'assistant' THEN task.agent_user_id ELSE m.sender_id END AS sender_id,
     m.created_at,m.created_at_iso,m.text,m.is_whisper,m.to_user_ids,m.has_file,m.has_image,m.has_link,
-    task.title AS task_title,task.project_id, ${fts ? 'bm25(msg_fts)' : '0'} AS text_rank
+    task.title AS task_title,task.project_id,task.archived, ${fts ? 'bm25(msg_fts)' : '0'} AS text_rank
     FROM msg m
     LEFT JOIN chat ON chat.id = m.chat_id
     LEFT JOIN task ON task.id = m.task_id

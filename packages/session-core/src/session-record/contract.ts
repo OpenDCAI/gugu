@@ -524,7 +524,7 @@ export type SettleResult = { ok: true; settlement: Settlement } | { ok: false; e
 
 export interface SessionTimeline {
   readonly epoch: string;
-  getSnapshot(options?: { limit?: number }): TimelineSnapshot;
+  getSnapshot(options?: { limit?: number; committedOnly?: boolean }): TimelineSnapshot;
   /** 从 cursor 之后取；epoch 不对或 cursor 超前 → reset + 快照。 */
   getAfter(cursor: RecordCursor): TimelineAfterResult;
   /** 取 `beforeTurnId` 之前的若干轮。那一轮不在手里这份里（已被分叉掉）时按「没有更早的」回。 */
