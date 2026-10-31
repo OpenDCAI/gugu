@@ -603,12 +603,12 @@ export const chatService = {
    * just the other person's cursor.
    */
   async getOtherMembersReadSeqs(chatId: string, userId: string): Promise<Record<string, number>> {
-    const { data } = await chatDb
+    const { data, error } = await chatDb
       .from('active_members')
       .select('user_id, last_read_seq')
       .eq('chat_id', chatId)
       .neq('user_id', userId)
-
+    if (error) throw new Error(error.message)
     const seqs: Record<string, number> = {}
     for (const row of (data as { user_id: string; last_read_seq: number }[] | null) ?? []) {
       seqs[row.user_id] = row.last_read_seq

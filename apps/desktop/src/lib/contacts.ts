@@ -1,4 +1,4 @@
-import { permanentlyRemove } from '@gugu/core/cloud/agentIdentityRemoval'
+import { archiveOwnedAgent, type AgentArchiveOptions } from './archiveOwnedAgent'
 import { updateDisplayAlias } from './displayOverrides'
 import { messageForUser } from './userFacingError'
 import { dbPayload } from '@gugu/core/cloud/supabase'
@@ -545,9 +545,9 @@ export const contactsService = {
     if (error) throw new Error(messageForUser(error), { cause: error })
   },
 
-  async removeOwnedAgent(agentUserId: string): Promise<void> {
+  async removeOwnedAgent(agentUserId: string, options?: AgentArchiveOptions): Promise<void> {
     try {
-      await permanentlyRemove({ client: identityDb, agentId: agentUserId })
+      await archiveOwnedAgent(agentUserId, options)
     } catch (error) {
       throw new Error(messageForUser(error), { cause: error })
     }

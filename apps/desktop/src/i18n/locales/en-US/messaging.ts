@@ -717,6 +717,7 @@ export default {
   },
   "message": {
     "myAgentTag": "my agent",
+    "removedIdentityTag": "removed",
     "agentOwnerUnavailableTag": "owner unavailable",
     "agentOwnerTag": "{{owner}}'s agent",
     "agentOwnerSuffix": " ({{owner}}'s agent)",

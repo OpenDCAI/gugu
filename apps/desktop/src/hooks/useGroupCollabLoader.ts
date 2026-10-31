@@ -10,6 +10,7 @@ import {
 } from '../lib/imRepository'
 import { i18n } from '@/i18n'
 import { rendererLogger } from '../lib/log'
+import { UI_EVENTS } from '../lib/uiEvents'
 
 const groupCollabLog = rendererLogger('chat/group-collab')
 
@@ -146,6 +147,19 @@ export function useGroupCollabLoader(params: UseGroupCollabLoaderParams): UseGro
     const cachedRoster = activeChatId && isRoomChat ? groupRosterMemoryCacheRef.current.get(activeChatId) : null
     setGroupCollabSnapshot(cachedRoster ?? EMPTY_GROUP_COLLAB)
   }, [activeChatId, isRoomChat, groupRosterMemoryCacheRef, setGroupCollabSnapshot])
+
+  useEffect(() => {
+    const invalidate = (event: Event) => {
+      if (!activeChatId || !isRoomChat) return
+      const id = (event as CustomEvent<{ id: string | null }>).detail.id
+      const cached = groupRosterMemoryCacheRef.current.get(activeChatId)
+      if (id !== null && ![...(cached?.humans ?? []), ...(cached?.agents ?? [])].some(member => member.id === id)) return
+      groupRosterMemoryCacheRef.current.delete(activeChatId)
+      void loadGroupCollab()
+    }
+    window.addEventListener(UI_EVENTS.identityInvalidated, invalidate)
+    return () => window.removeEventListener(UI_EVENTS.identityInvalidated, invalidate)
+  }, [activeChatId, isRoomChat, groupRosterMemoryCacheRef, loadGroupCollab])
 
   return { loadGroupCollab, resetGroupCollabForChat, error: failure && failure.chatId === activeChatId ? failure.reason : null }
 }

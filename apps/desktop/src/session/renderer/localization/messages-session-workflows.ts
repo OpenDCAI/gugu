@@ -255,6 +255,7 @@ export const enUSSessionWorkflowMessages = {
   // 显式分支而非 i18next 复数后缀 —— 与本文件 archiveTaskDescription* 同一个理由(见 messages.ts 头部:
   // 中文没有 `_one` 形态,写了也永远选不中)。英文这一条真的会读到「the 1 child sessions」,所以单复数
   // 各写一句。
+  'task.archiveRemoveSocialIdentity': 'Also remove from all groups and contacts; restoring creates a new identity',
   'task.archiveSessionWithChildrenOne': 'Also archive the child task under it',
   'task.archiveSessionWithChildren': 'Also archive the {count} child tasks under it',
   'task.archiveDontAskAgain': "Don't ask again",
@@ -885,6 +886,7 @@ export const zhCNSessionWorkflowMessages: Record<keyof typeof enUSSessionWorkflo
   'task.archiveTaskTitle': '归档会话',
   'task.archiveTaskConfirm': '归档会话',
   'task.archiveSessionDescription': '任务将从列表中隐藏，正在运行的 agent 会停止。不会删除任何内容。',
+  'task.archiveRemoveSocialIdentity': '同时移出所有群和联系人；恢复将创建新身份',
   'task.archiveSessionWithChildrenOne': '连同它下面的那个子会话一起归档',
   'task.archiveSessionWithChildren': '连同它下面的 {count} 个子会话一起归档',
   'task.archiveDontAskAgain': '不再询问',
