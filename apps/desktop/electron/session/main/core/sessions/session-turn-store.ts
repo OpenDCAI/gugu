@@ -1,5 +1,5 @@
 import { findToolImage, trimCursorPageForTransport, trimTurnsForTransport } from '@gugu/session-core/session-record';
-import { and, asc, desc, eq, gte, lt, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, like, lt, sql } from 'drizzle-orm';
 import type { TranscriptTurn } from '@gugu/session-core/acp';
 import { db } from '@main/db/client';
 import { sessionTurns } from '@main/db/schema';
@@ -191,9 +191,30 @@ export async function readStoredTailNow(sessionId: string, limit: number): Promi
 }
 
 /**
- * #980 把 agent 记录里的一轮接在库尾。只在写链里调(`withStoredTurns`)。
+ * Record-backed rows retain their source identity so a later snapshot can complete the same stored row.
+ * Only call inside `withStoredTurns`; revisions are historical and publish no live-message side effects.
  * `turn_id` 记 `record:` 开头的记录侧 id:这一行**不来自引擎的哪一轮**,界面按引擎 turn id 去重时不会把它认成谁。
  */
+export async function readUnfinishedRecordTurnsNow(sessionId: string): Promise<TranscriptTurn[]> {
+  const rows = await db.select({ data: sessionTurns.data }).from(sessionTurns)
+    .where(and(eq(sessionTurns.sessionId, sessionId), like(sessionTurns.turnId, 'record:%'),
+      sql`json_extract(${sessionTurns.data}, '$.outcome.kind') IS NULL`));
+  return rows.map(row => JSON.parse(row.data) as TranscriptTurn);
+}
+
+/** The record matcher has proved this unfinished row's native identity; keep its stored sequence/references. */
+export async function reviseRecordTurnNow(sessionId: string, seq: number, turn: TranscriptTurn): Promise<void> {
+  const [stored] = await db.select({ id: sessionTurns.id, seq: sessionTurns.seq, data: sessionTurns.data })
+    .from(sessionTurns).where(and(eq(sessionTurns.sessionId, sessionId), eq(sessionTurns.seq, seq), like(sessionTurns.turnId, 'record:%'))).limit(1);
+  if (!stored) throw new Error(`Cannot revise missing record turn: sessionId=${sessionId} seq=${seq}`);
+  const data = JSON.stringify(renumberStoredTurn(turn, sessionId, stored.seq));
+  if (stored.data !== data) {
+    db.update(sessionTurns).set({ data }).where(eq(sessionTurns.id, stored.id)).run();
+    sessionEvents._emit('session:history-changed', { sessionId, seq: stored.seq });
+  }
+}
+
+/** Append only a missing record turn, inside `withStoredTurns`. */
 export async function appendRecordTurnNow(sessionId: string, turn: TranscriptTurn): Promise<void> {
   const next = await nextSeq(sessionId);
   const inserted = db

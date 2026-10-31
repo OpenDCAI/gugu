@@ -2,7 +2,7 @@ import { openFixture } from '@tooling/utils/db';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import type { AppDb } from '@main/db/client';
 import type { TranscriptTurn } from '@gugu/session-core/acp';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { appendFile, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createSessionRecordSource, createSessionTimeline } from '@gugu/session-core/session-record';
@@ -82,6 +82,66 @@ it('keeps an active suffix incomplete while persisting only the timeline-owned c
   state.turns = [turn(0), turn(1)]; state.complete = true; state.row.agentStatus = 'idle';
   expect(await syncStoredHistoryFromRecord('c1', { runtime: 'pty' })).toEqual({ inserted: 1, status: 'complete' });
   expect(state.pick.mock.calls[1][2]).toMatchObject({ committedOnly: false });
+});
+
+it.each([false, true])('finds a settled Claude reply after a live snapshot (earlier prompt row: %s)', async earlyPrompt => {
+  const root = await mkdtemp(join(tmpdir(), 'claude-settled-backfill-'));
+  const file = join(root, 'record.jsonl');
+  const index = new MessageSearchStore(join(root, 'index'), 'owner');
+  const line = (uuid: string, role: 'user' | 'assistant', text: string) => JSON.stringify({
+    type: role, uuid, parentUuid: role === 'user' ? null : 'question', sessionId: 'record',
+    timestamp: '2026-10-31T00:00:00Z', message: { id: uuid, role, content: [{ type: 'text', text }],
+      ...(role === 'assistant' ? { stop_reason: 'end_turn' } : {}) },
+  }) + '\n';
+  await writeFile(file, line('question', 'user', 'The live prompt'));
+  state.row.provider = 'claude';
+  state.pick.mockImplementation(async (_id: string, pick: (turns: TranscriptTurn[]) => Promise<TranscriptTurn[] | null>, options: { committedOnly?: boolean }) => {
+    const timeline = await createSessionTimeline(createSessionRecordSource({ harness: 'claude', providerSessionId: 'record', roots: [root] },
+      { readMode: 'snapshot' }), { sessionId: 'c1' });
+    try {
+      const all = timeline.getSnapshot().turns;
+      const prefix = timeline.getSnapshot({ committedOnly: options.committedOnly }).turns;
+      return { ok: true, turns: await pick(prefix), complete: all.length === prefix.length };
+    } finally { timeline.dispose(); }
+  });
+  const historyChanged = vi.fn();
+  const off = sessionEvents.on('session:history-changed', historyChanged);
+  const activity = vi.fn();
+  const offActivity = onActivitySignal(activity);
+  try {
+    // Preserve/revise an actual early snapshot too: status notification can follow the record's prompt write.
+    if (earlyPrompt) expect(await syncStoredHistoryFromRecord('c1', { runtime: 'pty' })).toEqual({ inserted: 1, status: 'complete' });
+    const before = rows();
+    const sessionBefore = fixture.sqlite.prepare('SELECT * FROM sessions WHERE id=?').get('c1');
+    const unreadBefore = await nativeConversationUnread('c1');
+    state.row.agentStatus = 'working';
+    historyChanged.mockClear();
+    expect(await syncStoredHistoryFromRecord('c1', { runtime: 'pty' })).toEqual({ inserted: 0, status: 'active' });
+    expect(rows()).toEqual(before);
+    expect(historyChanged).not.toHaveBeenCalled();
+    await appendFile(file, line('answer', 'assistant', 'SETTLEDREPLY'));
+    state.row.agentStatus = 'idle';
+    expect(await syncStoredHistoryFromRecord('c1', { runtime: 'pty' })).toEqual({ inserted: earlyPrompt ? 0 : 1, status: 'complete' });
+    const stored = rows() as { seq: number; data: string }[];
+    expect(stored).toHaveLength(1);
+    expect(JSON.parse(stored[0].data)).toMatchObject({ id: 'c1:turn:s0', seq: 0, outcome: { kind: 'done' } });
+    index.apply([{ kind: 'task', task: { id: 'c1', projectId: 'p1', title: 'Claude' } },
+      ...stored.map(row => ({ kind: 'taskTurn' as const, taskId: 'c1', seq: row.seq, documents: taskSearchDocuments('c1', JSON.parse(row.data) as TranscriptTurn) }))]);
+    const hits = index.global({ query: { text: 'SETTLEDREPLY', filters: { kind: 'task' }, sort: 'recent' } }).results;
+    expect(hits).toHaveLength(1);
+    expect(hits[0]).toMatchObject({ kind: 'task', role: 'assistant' });
+    expect(historyChanged).toHaveBeenCalledOnce();
+    expect(events.emit).not.toHaveBeenCalled();
+    expect(activity).not.toHaveBeenCalled();
+    expect(await nativeConversationUnread('c1')).toEqual(unreadBefore);
+    expect(fixture.sqlite.prepare('SELECT * FROM sessions WHERE id=?').get('c1')).toEqual(sessionBefore);
+    historyChanged.mockClear();
+    expect(await syncStoredHistoryFromRecord('c1', { runtime: 'pty' })).toEqual({ inserted: 0, status: 'complete' });
+    expect(rows()).toEqual(stored);
+    expect(historyChanged).not.toHaveBeenCalled();
+  } finally {
+    off(); offActivity(); index.close(); await rm(root, { recursive: true, force: true });
+  }
 });
 
 it.each(['error', 'archived'])('keeps the unfinished last turn of a %s PTY without inventing an outcome', async kind => {

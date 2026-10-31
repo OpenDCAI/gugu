@@ -4,7 +4,7 @@ import { isAgentActive, parseAgentStatus } from '@gugu/core/shared/agentStatus';
 import { log } from '@main/lib/logger';
 import { sessionRecordHarnessForProvider } from '@main/core/session-timeline/locate';
 import { recordIdentityFor, recordTurnsAfterStore } from './record-backfill-match';
-import { appendRecordTurnNow, readStoredTailNow, withStoredTurns } from './session-turn-store';
+import { appendRecordTurnNow, readUnfinishedRecordTurnsNow, readStoredTailNow, reviseRecordTurnNow, withStoredTurns } from './session-turn-store';
 import { sessionProcess } from './session-process';
 
 export type RecordBackfillResult = {
@@ -19,7 +19,7 @@ export type RecordBackfillResult = {
  * #5381 之前建的会话(库是空的),都只在记录里。从前它们靠「重放 + 按条数对齐」补进来 —— 条数在压缩、失败的轮
  * 之后就对不齐;而接回会话已经不再重放。
  *
- * 只补**库尾之后**新长出来的那一截,接在库尾:先后次序与记录一致,而且永远不会插进已有的两行中间。
+ * 新轮只接在库尾;同一条记录轮的迟到答复在原行更新,不改它的库内顺序/引用。
  * 本次改动之前就漏在中间的那些轮(老会话里早年在终端跑过的)不补 —— 接在末尾会把次序打乱,比缺着更糟。
  */
 export async function syncStoredHistoryFromRecord(sessionId: string, options: { signal?: AbortSignal; runtime?: 'pty' } = {}): Promise<RecordBackfillResult> {
@@ -51,6 +51,8 @@ export async function syncStoredHistoryFromRecord(sessionId: string, options: { 
     };
     // End metadata is not a liveness signal: a stopped/crashed terminal can retain an unfinished last turn.
     const committedOnly = row.runtime !== 'acp' && active();
+    const unfinished = await readUnfinishedRecordTurnsNow(sessionId);
+    const revisions = new Map<string, number>();
     const picked = await pickRecordTurns(sessionId, async (record) => {
       if (record.length === 0) return [];
       // 库尾一般第一行就对得上记录最后那一轮;对不上(最近几轮是失败的、没进记录)再往前多读一些。
@@ -64,7 +66,18 @@ export async function syncStoredHistoryFromRecord(sessionId: string, options: { 
         });
         if (missing !== null || tail.length < limit) break;
       }
-      return missing;
+      // An earlier idle snapshot may have ended at the prompt. Identity matching finds that row, but must
+      // not treat its old projection as final: the same record identity now carries its settled reply.
+      if (missing === null) return null;
+      const revised: TranscriptTurn[] = [];
+      for (const turn of record) {
+        const matches = unfinished.filter(stored => recordTurnsAfterStore([turn], [stored], identity)?.length === 0);
+        if (matches.length > 1) return null;
+        if (matches.length === 0) continue;
+        revisions.set(turn.id, matches[0].seq);
+        revised.push(turn);
+      }
+      return [...revised, ...missing];
     }, { images: true, committedOnly, includeArchived: true, afterForkOf: row.config?.forkedFrom?.sessionId });
     if (!picked.ok) return result(picked.reason ?? 'unavailable');
     if (picked.turns === null) {
@@ -72,17 +85,19 @@ export async function syncStoredHistoryFromRecord(sessionId: string, options: { 
       return result('diverged');
     }
     let inserted = 0;
+    let processed = 0;
     for (const turn of picked.turns) {
       if (options.signal?.aborted) return result('cancelled', inserted);
       if (!current()) return result('runtime-changed', inserted);
       // If a new turn started during an idle snapshot, leave its unproved suffix for the settled edge.
       if (row.runtime !== 'acp' && !committedOnly && active()) return result('active', inserted);
-      await appendRecordTurnNow(sessionId, turn);
-      inserted++;
+      const seq = revisions.get(turn.id);
+      if (seq !== undefined) await reviseRecordTurnNow(sessionId, seq, turn);
+      else { await appendRecordTurnNow(sessionId, turn); inserted++; }
       // Reuse the account feed's serial worker; yield without starting another queue or polling loop.
-      if (options.signal && inserted % 64 === 0) await pause(200, undefined, { signal: options.signal });
+      if (options.signal && ++processed % 64 === 0) await pause(200, undefined, { signal: options.signal });
     }
-    if (picked.turns.length > 0) log.info('[record-backfill] filled in turns from the record', { sessionId, inserted: picked.turns.length });
+    if (inserted > 0) log.info('[record-backfill] filled in turns from the record', { sessionId, inserted });
     if (!current()) return result('runtime-changed', inserted);
     return result(picked.complete && !active() ? 'complete' : 'active', inserted);
   });
