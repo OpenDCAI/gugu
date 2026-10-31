@@ -273,6 +273,7 @@ export {
 // host can give session-page codex sessions the gugu MCP send tool + gugu identity at session start.
 export { sessionLife }
 export { setSessionLifeSourceHost } from '@main/core/sessions/session-life-host'
+export { claimedSessionSources } from '@main/core/sessions/session-pending'
 export {
   setEmdashMcpInjector,
   setEmdashIdentityProvisioner,
@@ -308,7 +309,6 @@ export {
 } from '@main/core/sessions/impl/emdash-pty-sessionpage-hook'
 export {
   setSessionMessageRouter,
-  setSessionLiveNotifier,
   setSessionMessageOutboxReady,
   type SessionMessageRouter,
 } from '@main/core/sessions/session-message-router'
@@ -363,9 +363,10 @@ import { events } from '@main/lib/events'
 import { installSessionLife, sessionLife } from '@main/core/sessions/session-life'
 import { admitCreationTurns, bindIdentityThenCreate, claimIdentityCreation } from '@main/core/sessions/session-life-creation'
 import { unbindSessionAgent } from '@main/core/sessionpage/sessionpage-session-agent'
-import { lifeStore } from '@main/core/sessions/session-pending'
+import { lifeSessions, lifeStore } from '@main/core/sessions/session-pending'
 import { sessionLifeSources } from '@main/core/sessions/session-life-host'
 import { createAcpLegAdapter } from '@main/core/acp/session-life-acp'
+import { forkStore, runtimeFork, runtimeForksOf } from '@main/core/sessions/session-life-forks'
 import { sessionOwnedBy } from '@main/core/sessionpage/sessionpage-session-agent'
 import { sessionLifeViewChannel } from '@shared/core/sessions/sessionEvents'
 import { guguNodeTarget, installGuguNode } from './core/pty/gugu-node'
@@ -543,8 +544,11 @@ export async function bootSessionHostCore(options: SessionHostBootOptions): Prom
   // session-life: the single owner of ACP session lifecycle. Installed before any entry can deliver; the host signs
   // it in once its account is known.
   installSessionLife({
-    store: lifeStore,
-    adapter: createAcpLegAdapter,
+    sessions: lifeSessions,
+    store: sessionId => runtimeFork(sessionId) ? forkStore : lifeStore,
+    adapter: sessionId => createAcpLegAdapter(sessionId, runtimeFork(sessionId)),
+    forks: runtimeForksOf,
+    parentOf: sessionId => runtimeFork(sessionId)?.parentId ?? null,
     ownedBy: (sessionId, userId) => sessionOwnedBy(sessionId, process.env, userId),
     markRead: row => sessionLifeSources.markRead(row),
     reportFailure: (rows, cause) => sessionLifeSources.reportFailure(rows, cause),

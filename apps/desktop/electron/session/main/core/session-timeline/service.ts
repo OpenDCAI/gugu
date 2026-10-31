@@ -87,6 +87,8 @@ import { findSessionAttachmentCopy } from '../sessions/attachments/session-attac
 import { createStandInTimeline } from './stand-in-timeline';
 import { readStartFailure } from './start-failures';
 import { knownHarnessConfigRoots } from '@main/core/agent-hooks/harness-config-roots';
+import { sessionLife } from '@main/core/sessions/session-life';
+import { runtimeFork } from '@main/core/sessions/session-life-forks';
 import { notStartedSessionOptions } from './not-started-options';
 import { readSessionModelMenu, type SessionpageSessionOptionsWithMenu } from './session-model-menu';
 import {
@@ -1333,6 +1335,13 @@ export async function send(
 ): Promise<SessionTimelineResult<{ accepted: 'started' | 'queued'; clientMessageId?: string }>> {
   if (attachments !== undefined && !promptAttachmentSchema.array().safeParse(attachments).success) return fail('invalid_request', '附件引用无效');
   if (clientMessageId !== undefined && (!clientMessageId.trim() || clientMessageId.length > 256)) return fail('invalid_request', '消息标识无效');
+  // A side chat has no session row: its custody send lands in its fork entry's queue.
+  if (runtimeFork(conversationId)) {
+    if (!text.trim() && !attachments?.length) return fail('empty_text', '消息是空的');
+    sessionLife().enqueue({ sessionId: conversationId, messageId: clientMessageId ?? crypto.randomUUID(), text: text.trim(), kind: 'ordinary',
+      delivery: { queue: true, origin: 'manual', ...(attachments?.length ? { attachments } : {}) } });
+    return { ok: true, value: { accepted: 'queued', ...(clientMessageId ? { clientMessageId } : {}) } };
+  }
   const row = readSessionRow(conversationId);
   if (!row) return fail('session_not_found', `这台机器上没有会话 ${conversationId}`);
   // provider 为空 = 这一行没记下是哪家引擎；再往下走只会在插件表里抛一句认不出来的话。

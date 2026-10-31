@@ -13,7 +13,7 @@ vi.mock('@main/db/client', () => ({
 
 import { enqueuePending, lifeStore } from './session-pending';
 
-const source = (messageId: string) => ({ messageId, chatId: 'chat', seq: 1, agentUserId: 'agent' });
+const source = (messageId: string) => ({ agentUserId: 'agent', row: { id: messageId, chatId: 'chat', seq: 1 } as never });
 const batch = (messageId: string, ids: string[]) =>
   ({ sessionId: 's', messageId, text: messageId, kind: 'inbox-batch' as const, sources: ids.map(source) });
 

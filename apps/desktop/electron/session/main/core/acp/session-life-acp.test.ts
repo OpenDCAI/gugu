@@ -9,10 +9,8 @@ const h = vi.hoisted(() => ({
   stopAndSettle: vi.fn(async (_client: unknown, _id: string) => undefined),
   inject: vi.fn(),
   release: vi.fn(async (_id: string) => undefined),
-  forks: [] as Array<{ runtimeSessionId: string; sourceSessionId: string; status: 'active' | 'closed' }>,
   identity: null as unknown,
-  workerUp: true,
-  closeFork: vi.fn(async (_id: string) => undefined),
+  parentAgent: null as { gugu_user_id?: string } | null,
 }));
 
 vi.mock('./agent-status-bridge', () => ({
@@ -21,13 +19,13 @@ vi.mock('./agent-status-bridge', () => ({
 vi.mock('./runtime-process/host', () => ({
   acpWorkerLease: async () => ({ client: h.client, onGone: (cb: (cause: string) => void) => { h.gone = cb; return () => { h.gone = null; }; } }),
   stopAcpSessionAndSettle: h.stopAndSettle,
-  peekAcpWorkerClient: async () => h.workerUp ? h.client : null,
   readSessionInjectionFacts: async () => ({ agentDisplayName: undefined }),
   provisionStartIdentity: async () => h.identity,
 }));
 vi.mock('./inject-prompt', () => ({ injectEmdashPromptDetached: h.inject }));
 vi.mock('./emdash-platform-injector', () => ({ releaseEmdashPlatformSession: h.release }));
-vi.mock('@main/core/sessions/runtime-fork-ownership', () => ({ recordRuntimeForkOwnership: vi.fn(), readRuntimeForkOwnership: async () => h.forks, closeRuntimeForkOwnershipForRuntimeSession: h.closeFork }));
+vi.mock('@main/core/sessions/runtime-fork-ownership', () => ({ recordRuntimeForkOwnership: vi.fn() }));
+vi.mock('@main/core/sessionpage/sessionpage-session-agent', () => ({ localAgentForSession: async () => h.parentAgent }));
 vi.mock('@main/core/projects/utils', () => ({ resolveWorkspace: () => ({ path: '/repo' }) }));
 vi.mock('@main/core/sessions/getSessions', () => ({ getSessions: async () => [{ id: 's', runtime: 'acp', providerId: 'claude', projectId: 'p', workspaceId: 'w', providerSessionId: null }] }));
 vi.mock('@main/core/sessions/session-service', () => ({ sessionService: {} }));
@@ -41,9 +39,16 @@ const gen = { auth: 1, attempt: 1 } as unknown as Gen;
 const ctx = () => ({ gen, signal: new AbortController().signal });
 const row = { seq: 1, sessionId: 's', kind: 'ordinary', state: 'dispatching', message: { id: 'm', text: 'hi' }, sources: [], turn: { kind: 'prompt' } } as never;
 const processLease = async () => (await acpWorkerLease()) as unknown as ProcessLease;
+/** An attempt past its identity stage: dispatch reads the session's harness from it. */
+async function boundAdapter() {
+  h.identity = { guguAgentUserId: 'agent-1', chatId: 'dm' };
+  const adapter = createAcpLegAdapter('s', null);
+  await adapter.run('identity', {}, ctx());
+  return adapter;
+}
 
 describe('session-life ACP leg', () => {
-  beforeEach(() => { h.watchers.clear(); h.gone = null; h.forks = []; h.identity = null; h.workerUp = true; vi.clearAllMocks(); });
+  beforeEach(() => { h.watchers.clear(); h.gone = null; h.identity = null; h.parentAgent = null; vi.clearAllMocks(); });
 
   it('one exit per attempt, from whichever fact ends the session first', async () => {
     const process = await processLease();
@@ -54,7 +59,7 @@ describe('session-life ACP leg', () => {
       () => h.gone!('ACP runtime restarted'),
     ]) {
       const exits: ExitFact[] = [];
-      const off = createAcpLegAdapter('s').onExit({ process }, exit => exits.push(exit));
+      const off = createAcpLegAdapter('s', null).onExit({ process }, exit => exits.push(exit));
       h.watchers.get('s')!({ lifecycle: 'starting' });
       end();
       h.gone?.('ACP runtime exited');
@@ -67,7 +72,7 @@ describe('session-life ACP leg', () => {
 
   it("a stale lost/closed or an absence before this attempt saw the session alive is not this attempt's exit", async () => {
     const exits: ExitFact[] = [];
-    createAcpLegAdapter('s').onExit({ process: await processLease() }, exit => exits.push(exit));
+    createAcpLegAdapter('s', null).onExit({ process: await processLease() }, exit => exits.push(exit));
     h.watchers.get('s')!({ lifecycle: 'lost' });
     h.watchers.get('s')!(undefined);
     h.watchers.get('s')!({ lifecycle: 'closed' });
@@ -76,14 +81,14 @@ describe('session-life ACP leg', () => {
 
   it("the exit carries the runtime's own failure, so the cause survives a race with the channel failure", async () => {
     const exits: ExitFact[] = [];
-    createAcpLegAdapter('s').onExit({ process: await processLease() }, exit => exits.push(exit));
+    createAcpLegAdapter('s', null).onExit({ process: await processLease() }, exit => exits.push(exit));
     h.watchers.get('s')!({ lifecycle: 'starting' });
     h.watchers.get('s')!({ lifecycle: 'lost', failure: { kind: 'adapter-exit', message: 'claude exited: login required', exitCode: 1, signal: null } });
     expect(exits).toEqual([{ cause: { name: 'adapter-exit', message: 'claude exited: login required' }, code: 1, signal: null }]);
   });
 
   it('maps the worker admission: started/queued is accepted with its turn, declined/missing is rejected before admission', async () => {
-    const adapter = createAcpLegAdapter('s');
+    const adapter = await boundAdapter();
     h.inject.mockResolvedValueOnce({ outcome: 'queued', completion: Promise.resolve(), turnId: 't1' });
     expect(await adapter.dispatch({} as StageOut, row, ctx())).toEqual({ result: 'accepted', nativeReceiptId: 't1' });
     h.inject.mockResolvedValueOnce({ outcome: 'declined', completion: Promise.resolve() });
@@ -91,9 +96,9 @@ describe('session-life ACP leg', () => {
   });
 
   it("a row's turn decides how it is sent: prompt as-is with its own origin; the first turn rendered from the landed context", async () => {
-    const adapter = createAcpLegAdapter('s');
+    const adapter = await boundAdapter();
     h.inject.mockResolvedValue({ outcome: 'started', completion: Promise.resolve(), turnId: 't' });
-    const prompt = { ...(row as object), turn: { kind: 'prompt', origin: 'communication', hiddenContext: 'ctx' } } as never;
+    const prompt = { ...(row as object), message: { id: 'm', text: 'hi', delivery: { queue: true } }, turn: { kind: 'prompt', origin: 'communication', hiddenContext: 'ctx' } } as never;
     await adapter.dispatch({} as StageOut, prompt, ctx());
     expect(h.inject).toHaveBeenLastCalledWith('s', 'hi', { origin: 'communication', hiddenContext: 'ctx' });
     const first = { ...(row as object), turn: { kind: 'chat-page-first-turn' } } as never;
@@ -102,40 +107,36 @@ describe('session-life ACP leg', () => {
     await expect(adapter.dispatch({ capabilities: { injection: {} } } as never, first, ctx())).rejects.toThrow(/did not land/);
   });
 
+  it('a delivery into a next-tool-call harness steers its running turn unless the sender queued it (#4708)', async () => {
+    const adapter = await boundAdapter();
+    h.inject.mockResolvedValue({ outcome: 'started', completion: Promise.resolve(), turnId: 't' });
+    await adapter.dispatch({} as StageOut, row, ctx());
+    expect(h.inject).toHaveBeenLastCalledWith('s', 'hi', { steerIfBusy: true });
+    await adapter.dispatch({} as StageOut, { ...(row as object), message: { id: 'm', text: 'hi', delivery: { queue: true } } } as never, ctx());
+    expect(h.inject).toHaveBeenLastCalledWith('s', 'hi', {});
+  });
+
   it('teardown uses the one ACP stop; without a process it only settles the ticket; a failed stop fails loudly', async () => {
     const process = await processLease();
-    await createAcpLegAdapter('s').teardown({ process, platform: {} as never }, { gen });
+    await createAcpLegAdapter('s', null).teardown({ process, platform: {} as never }, { gen });
     expect(h.stopAndSettle).toHaveBeenCalledWith(h.client, 's');
     expect(h.release).not.toHaveBeenCalled();
-    await createAcpLegAdapter('s').teardown({ platform: {} as never }, { gen });
+    await createAcpLegAdapter('s', null).teardown({ platform: {} as never }, { gen });
     expect(h.release).toHaveBeenCalledWith('s');
     h.stopAndSettle.mockRejectedValueOnce(new Error('ACP session s did not stop: busy'));
-    await expect(createAcpLegAdapter('s').teardown({ process }, { gen })).rejects.toThrow(/did not stop/);
-  });
-
-  it('ending dependents stops every active fork of this session, tries all, then throws the aggregate', async () => {
-    h.forks = [
-      { runtimeSessionId: 'view-1', sourceSessionId: 's', status: 'active' },
-      { runtimeSessionId: 'view-2', sourceSessionId: 's', status: 'active' },
-      { runtimeSessionId: 'view-old', sourceSessionId: 's', status: 'closed' },
-      { runtimeSessionId: 'view-other', sourceSessionId: 'other', status: 'active' },
-    ];
-    h.stopAndSettle.mockImplementation(async (_client, id) => { if (id === 'view-1') throw new Error('view-1 stuck'); });
-    await expect(createAcpLegAdapter('s').endDependents()).rejects.toThrow(/1 runtime fork\(s\) of session s did not stop/);
-    expect(h.stopAndSettle.mock.calls.map(([, id]) => id)).toEqual(['view-1', 'view-2']);
-  });
-
-  it('with no worker up, ending dependents never spawns one: the forks are gone, only their records are closed', async () => {
-    h.workerUp = false;
-    h.forks = [{ runtimeSessionId: 'view-1', sourceSessionId: 's', status: 'active' }];
-    await createAcpLegAdapter('s').endDependents();
-    expect(h.stopAndSettle).not.toHaveBeenCalled();
-    expect(h.closeFork).toHaveBeenCalledWith('view-1');
+    await expect(createAcpLegAdapter('s', null).teardown({ process }, { gen })).rejects.toThrow(/did not stop/);
   });
 
   it('identity: a persisted session without a provisionable identity fails the identity stage', async () => {
-    await expect(createAcpLegAdapter('s').run('identity', {}, ctx())).rejects.toThrow(/has no gugu identity/);
+    await expect(createAcpLegAdapter('s', null).run('identity', {}, ctx())).rejects.toThrow(/has no gugu identity/);
     h.identity = { guguAgentUserId: 'agent-1', chatId: 'dm' };
-    await expect(createAcpLegAdapter('s').run('identity', {}, ctx())).resolves.toEqual({ kind: 'bound', agentUserId: 'agent-1' });
+    await expect(createAcpLegAdapter('s', null).run('identity', {}, ctx())).resolves.toEqual({ kind: 'bound', agentUserId: 'agent-1' });
+  });
+
+  it('identity: a side chat is its session\'s binding, read only; an unbound session fails the fork\'s identity stage', async () => {
+    const fork = { forkId: 'view-1', parentId: 's', forkFromProviderSessionId: 'native-s' };
+    await expect(createAcpLegAdapter('view-1', fork).run('identity', {}, ctx())).rejects.toThrow(/session s has no gugu identity/);
+    h.parentAgent = { gugu_user_id: 'agent-1' };
+    await expect(createAcpLegAdapter('view-1', fork).run('identity', {}, ctx())).resolves.toEqual({ kind: 'bound', agentUserId: 'agent-1' });
   });
 });

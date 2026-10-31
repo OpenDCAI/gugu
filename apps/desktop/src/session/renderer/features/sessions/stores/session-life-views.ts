@@ -46,3 +46,13 @@ export function stopSessionLife(sessionId: string): Promise<void> {
 export function startSessionLife(sessionId: string): Promise<void> {
   return rpcOn(machineRegistry.machineOf(sessionId)).sessions.lifeStart(sessionId);
 }
+
+/** A side chat's page opens its fork entry in the source session's host (idempotent for the same parent and source). */
+export function forkSessionLife(fork: { forkId: string; parentId: string; forkFromProviderSessionId: string }): Promise<void> {
+  return rpcOn(machineRegistry.machineOf(fork.forkId)).sessions.lifeFork(fork);
+}
+
+/** The page closed this side chat: its host's session-life ends the fork entry. */
+export function endSessionLife(forkId: string): Promise<void> {
+  return rpcOn(machineRegistry.machineOf(forkId)).sessions.lifeEnd(forkId);
+}

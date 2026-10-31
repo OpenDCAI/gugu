@@ -1,3 +1,4 @@
+import { openRuntimeFork, runtimeFork, type RuntimeFork } from './session-life-forks';
 import { createRPCController } from '@shared/lib/ipc/rpc';
 import { archiveSession, restoreSession } from './archiveSession';
 import { dehydrateSession } from './dehydrateSession';
@@ -76,4 +77,11 @@ export const sessionController = createRPCController({
   lifeView: async (sessionId: string) => sessionLife().read(sessionId),
   lifeStart: async (sessionId: string) => { sessionLife().start(sessionId, 'user-open'); },
   lifeStop: (sessionId: string) => sessionLife().interrupt(sessionId, { k: 'interrupt', reason: 'user-stop' }),
+  // A side chat is a fork entry of Life: opened by its page, fed through the same custody send, ended when the
+  // page closes it or its session ends.
+  lifeFork: async (fork: RuntimeFork) => openRuntimeFork(fork),
+  lifeEnd: (forkId: string) => {
+    if (!runtimeFork(forkId)) throw new Error(`Session ${forkId} is not a side chat; it ends by archive or delete`);
+    return sessionLife().interrupt(forkId, { k: 'interrupt', reason: 'delete' });
+  },
 });

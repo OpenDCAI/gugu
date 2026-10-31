@@ -71,7 +71,11 @@ import { historyPageInputSchema, historyPageSchema, resumeResultSchema, toolImag
 const startSessionResultSchema = z.object({ providerSessionId: z.string() });
 const sessionKeySchema = z.object({ sessionId: z.string() });
 
-export const acpApiContract = defineContract({
+/**
+ * Starting, resuming and stopping a session belong to the host's session-life (the one start owner), never to a
+ * renderer: these procedures exist only on the worker's runtime contract.
+ */
+export const acpSessionLifecycleProcedures = {
   startSession: fallible({
     input: startSessionCommandSchema,
     data: startSessionResultSchema,
@@ -87,6 +91,9 @@ export const acpApiContract = defineContract({
     data: z.void(),
     error: acpStopSessionErrorSchema,
   }),
+};
+
+export const acpApiContract = defineContract({
   revertSession: fallible({
     input: z.object({ sessionId: z.string().min(1), anchor: z.string().min(1) }),
     data: z.object({ providerSessionId: z.string().min(1) }),

@@ -10,7 +10,16 @@ vi.mock('@main/core/acp/agent-status-bridge', () => ({
   acpAgentStatusBridge: { current: () => mocks.summaries },
 }));
 vi.mock('@main/core/pty/pty-session-registry', () => ({ ptySessionRegistry: { listActiveSessions: () => [] } }));
-vi.mock('@main/db/client', () => ({ db: {} }));
+// session-life says which sessions run (here: every summarized one); the row says its project and provider.
+vi.mock('./session-life', () => ({ sessionLife: () => ({ running: () => [...mocks.summaries.keys()] }) }));
+vi.mock('drizzle-orm', () => ({ eq: (_column: unknown, id: string) => id }));
+vi.mock('@main/db/schema', () => ({ sessions: { id: 'id' } }));
+vi.mock('@main/db/client', () => ({ db: {
+  select: () => ({ from: () => ({ where: (id: string) => ({ get: () => {
+    const found = mocks.summaries.get(id);
+    return found && { projectId: found.projectId, provider: found.providerId };
+  } }) }) }),
+} }));
 vi.mock('@main/lib/logger', () => ({ log: { warn: vi.fn() } }));
 vi.mock('@main/lib/events', () => ({
   events: {

@@ -20,6 +20,7 @@ import {
   __pullOnceUnguardedForTests,
   kickAgentInboxPull,
   pullAgentInbox,
+  markInboxRowsRead,
   resetAgentInboxReaderStateForTests,
   type AgentInboxFetchInput,
   type AgentInboxInjectionVerdict,
@@ -279,6 +280,39 @@ describe('archived session admission', () => {
     const { deps, injections } = makeDeps(cloud, { sessionArchival: () => ({ ...restored, revision: 0, intervals: [] }) })
     expect(await pullAgentInbox(AGENT, deps)).toMatchObject({ injected: 1 })
     expect(injections).toHaveLength(1)
+  })
+})
+
+describe('an enqueuing host (session-life)', () => {
+  const chat = '00000000-0000-4000-8000-000000000075'
+  const row = (seq: number): CloudRow => ({ chatId: chat, id: `20000000-0000-4000-8000-${String(seq).padStart(12, '0')}`, seq,
+    senderUserId: HUMAN, senderType: 'human', content: `Queued ${seq}`, createdAt: '2026-10-31T09:00:00Z' })
+  const cloudWith = (...seqs: number[]) => {
+    const cloud = new FakeCloud(); cloud.addChat(chat, 'dm'); cloud.join(chat, AGENT)
+    for (const seq of seqs) cloud.post(row(seq))
+    return cloud
+  }
+
+  it('hands each unit over with the rows it settles and leaves them unread until the host marks them', async () => {
+    const cloud = cloudWith(1, 2)
+    const handed: AgentInboxInjectionInput[] = []
+    const { deps } = makeDeps(cloud, { inject: async (input) => { handed.push(input); return 'enqueued' } })
+    expect(await pullAgentInbox(AGENT, deps)).toMatchObject({ pulled: 2, injected: 2, verdict: 'enqueued' })
+    expect(handed.flatMap((input) => (input.sources ?? []).map((source) => source.id))).toEqual([row(1).id, row(2).id])
+    expect(cloud.markReadCalls).toEqual([])
+    await markInboxRowsRead(AGENT, handed.flatMap((input) => input.sources ?? []), deps)
+    expect(cloud.markReadCalls).toEqual([{ chatId: chat, messageId: row(1).id }, { chatId: chat, messageId: row(2).id }])
+  })
+
+  it('leaves rows the host already holds out of every later unit (frozen batches never overlap)', async () => {
+    const cloud = cloudWith(1, 2)
+    const handed: AgentInboxInjectionInput[] = []
+    const { deps } = makeDeps(cloud, {
+      inject: async (input) => { handed.push(input); return 'enqueued' },
+      claimedSources: (_agent, ids) => new Set(ids.filter((id) => id === row(1).id)),
+    })
+    await pullAgentInbox(AGENT, deps)
+    expect(handed.flatMap((input) => (input.sources ?? []).map((source) => source.id))).toEqual([row(2).id])
   })
 })
 

@@ -48,7 +48,7 @@ export function enqueuePending(input: EnqueuePending): { inserted: boolean; seq:
     const existing = tx.select().from(sessionPending)
       .where(and(eq(sessionPending.sessionId, input.sessionId), eq(sessionPending.messageId, input.messageId))).get();
     if (existing) return { inserted: false, seq: existing.seq as Seq, state: existing.state };
-    const ids = input.sources?.map(source => source.messageId) ?? [];
+    const ids = input.sources?.map(source => source.row.id) ?? [];
     if (ids.length !== new Set(ids).size) throw new Error('An inbox batch repeats a source message');
     if (ids.length) {
       const claimed = tx.select({ seq: sessionPendingSource.seq }).from(sessionPendingSource)
@@ -74,14 +74,24 @@ export function enqueuePending(input: EnqueuePending): { inserted: boolean; seq:
         ...(input.delivery ? { delivery: input.delivery } : {}), ...(input.sources ? { sources: input.sources } : {}),
         ...(input.turn ? { turn: input.turn } : {}) }) }).run();
     const pending = tx.insert(sessionPending).values({ sessionId: input.sessionId, messageId: input.messageId, kind: input.kind, state: 'queued' }).returning().get();
-    for (const source of input.sources ?? []) tx.insert(sessionPendingSource).values({ seq: pending.seq, sessionId: input.sessionId, sourceMessageId: source.messageId }).run();
+    for (const source of input.sources ?? []) tx.insert(sessionPendingSource).values({ seq: pending.seq, sessionId: input.sessionId, sourceMessageId: source.row.id }).run();
     return { inserted: true, seq: pending.seq as Seq, state: pending.state };
   });
 }
 
+/** The reader leaves out of a new batch every source this session's queue already holds (frozen batches never overlap). */
+export function claimedSessionSources(sessionId: string, sourceMessageIds: readonly string[]): ReadonlySet<string> {
+  if (!sourceMessageIds.length) return new Set();
+  return new Set(db.select({ id: sessionPendingSource.sourceMessageId }).from(sessionPendingSource)
+    .where(and(eq(sessionPendingSource.sessionId, sessionId), inArray(sessionPendingSource.sourceMessageId, [...sourceMessageIds]))).all().map(row => row.id));
+}
+
+/** Legs move into Life one by one (②: ACP). Other runtimes keep their own queue until their PR. */
+export function lifeSessions(): readonly string[] {
+  return db.select({ id: sessions.id }).from(sessions).where(eq(sessions.runtime, 'acp')).all().map(row => row.id);
+}
+
 export const lifeStore: LifeStore = {
-  // Legs move into Life one by one (②: ACP). Other runtimes keep their own queue until their PR.
-  sessions: () => db.select({ id: sessions.id }).from(sessions).where(eq(sessions.runtime, 'acp')).all().map(row => row.id),
   read(sessionId) {
     const row = db.select({ archivedAt: sessions.archivedAt, hold: sessions.lifeHold }).from(sessions).where(eq(sessions.id, sessionId)).get();
     if (!row) throw new Error(`Session ${sessionId} not found`);

@@ -16,6 +16,7 @@ import type {
   AgentDeliveryToolNames,
 } from '@gugu/core/local/agent/deviceCommandRuntime'
 import type {
+  AgentInboxUnreadRow,
   AgentInboxInjectionInput,
   AgentInboxInjectionResult,
   AgentInboxInjectionVerdict,
@@ -100,6 +101,11 @@ export interface SessionpageDeliveryTarget {
     sessionId: string,
     message: { id: string; text: string; kind?: 'ordinary' | 'session-direct'; delivery?: SessionMessageDelivery; deferredDispatch?: true },
   ): Promise<boolean | SessionpageTurnReceipt>
+  /**
+   * A leg owned by the host's session lifecycle (ACP) never injects from the reader: it takes the unit into its
+   * durable queue with the rows it settles, and marks them read when the agent accepts it.
+   */
+  enqueueInbox?(sessionId: string, unit: { messageId: string; text: string; agentUserId: string; sources: readonly AgentInboxUnreadRow[] }): void
 }
 
 export type SessionpageSessionMessage = {
@@ -150,6 +156,8 @@ export async function sessionInjectionCapabilityForSession(
   const channel = await target.sessionProviderSurface(deliveryKey)
   return channel ? sessionInjectionCapabilityFor(channel.providerId, channel.surface) : null
 }
+
+type InboxUnitMessage = { id: string; text: string; kind?: 'ordinary' | 'session-direct'; sources?: readonly AgentInboxUnreadRow[] }
 
 export class SessionpageLocalDeliveryRouter {
   private readonly wakeFlights = new Map<string, Promise<'reopened' | 'already-running'>>()
@@ -402,7 +410,7 @@ export class SessionpageLocalDeliveryRouter {
    */
   async injectForAgent(
     agentUserId: string,
-    message: { id: string; text: string; kind?: 'ordinary' | 'session-direct' },
+    message: InboxUnitMessage,
   ): Promise<AgentInboxInjectionVerdict> {
     const result = await this.injectForAgentResult(agentUserId, message)
     return typeof result === 'string' ? result : result.verdict
@@ -411,14 +419,14 @@ export class SessionpageLocalDeliveryRouter {
   /** Reader-facing admission result; native turn completion stays outside the reader/tick. */
   async injectForAgentWithCompletion(
     agentUserId: string,
-    message: { id: string; text: string; kind?: 'ordinary' | 'session-direct' },
+    message: InboxUnitMessage,
   ): Promise<AgentInboxInjectionResult> {
     return this.injectForAgentResult(agentUserId, message)
   }
 
   private async injectForAgentResult(
     agentUserId: string,
-    message: { id: string; text: string; kind?: 'ordinary' | 'session-direct' },
+    message: InboxUnitMessage,
   ): Promise<AgentInboxInjectionResult> {
     const mappedOwner = this.deliveryTargetFor(agentUserId)
     if (!mappedOwner) {
@@ -428,6 +436,10 @@ export class SessionpageLocalDeliveryRouter {
     // 'not-live',消息留在收件箱等下一次触发(reader 对 'not-live' 不动游标并 wake)。
     const sessionId = mappedOwner.liveSessionIdByAgent(agentUserId)
     if (!sessionId) return 'not-live'
+    if (mappedOwner.enqueueInbox) {
+      mappedOwner.enqueueInbox(sessionId, { messageId: message.id, text: message.text, agentUserId, sources: message.sources ?? [] })
+      return 'enqueued'
+    }
     const accepted = await this.injectIntoSession(sessionId, message, { route: 'agentInbox.injectForAgent', agentUserId })
     if (accepted === false) return 'not-live'
     if (accepted === true) return 'accepted'
@@ -464,6 +476,8 @@ export function createSessionpageDeliveryBridge(
     agentStatus?: Pick<AgentStatusFeed, 'get' | 'subscribe'>
     /** #3641 会话此刻的 provider 原生 session id(换新上下文时它变);群规据此判断要不要重达。 */
     providerSessionIdForSession?: (sessionId: string) => Promise<string | null>
+    /** The session queue's frozen inbox sources (session-life's session_pending_source). */
+    claimedSessionSources?: (sessionId: string, messageIds: readonly string[]) => ReadonlySet<string>
   } = {},
 ): AgentRuntimeBridge {
   const statusFeed = options.agentStatus ?? agentStatusFeed
@@ -497,6 +511,12 @@ export function createSessionpageDeliveryBridge(
       : {}),
     // 读者的注入口:等 persisted owner 恢复完成再解析映射,启动窗口不会把「还没重注册」误判成 not-live
     // 后又立即唤醒一个其实活着的会话。
+    ...(options.claimedSessionSources ? {
+      claimedInboxSources: (agentUserId: string, messageIds: readonly string[]): ReadonlySet<string> => {
+        const sessionId = localDelivery.sessionIdForAgent(agentUserId)
+        return sessionId ? options.claimedSessionSources!(sessionId, messageIds) : new Set()
+      },
+    } : {}),
     injectAgentInbox: async (input: AgentInboxInjectionInput): Promise<AgentInboxInjectionResult> => {
       await localDelivery.waitUntilReady()
       const sessionId = localDelivery.sessionIdForAgent(input.agentUserId)
@@ -513,6 +533,7 @@ export function createSessionpageDeliveryBridge(
       return localDelivery.injectForAgentWithCompletion(input.agentUserId, {
         id: input.messageId ?? randomUUID(),
         text: input.text,
+        ...(input.sources ? { sources: input.sources } : {}),
       })
     },
     // #4320 —— 唤醒是**踢一脚**,不是站在门口等对方开机:收信方开机的代价记在收信方身上。

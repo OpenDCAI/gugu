@@ -4,20 +4,19 @@
  *
  * ## 修之前是什么样
  *
- * 「打开」= `_runBootstrap()` = `AcpLiveSession.create(id, startInput)` = `client.startSession`:点开、切到、重启后摆回来,
+ * 「打开」= `_runBootstrap()` = 起引擎:点开、切到、重启后摆回来,
  * 每一条都把它的 agent 起一遍。重启后摆回 9 条,9 个 agent 一起起,一起卡了约 7 分钟。
  *
  * ## 现在的合同
  *
- * 打开只画对话:库里那份当场上屏;问运行时会话表它在不在跑 —— 在跑就只挂上(❌ 带启动输入),没在跑就停着
- * (输入框照常能用,下一句当场上屏、显示在跑,按起会话那条路起);停着时宿主自己把它拉起来,起完就挂上。
- * 新建会话带着第一句的照旧当场起。agent 自己的记录里有、库里没有的几轮请主进程补,补进了就地重读,补不了不吭声。
+ * 打开只画对话:库里那份当场上屏;问运行时会话表它在不在跑 —— 在跑就只挂上,没在跑就停着
+ * (输入框照常能用,下一句经 custody 交给宿主,由宿主起它);宿主把它拉起来,起完就挂上。
+ * 新建会话带着第一句的照旧当场请宿主起(lifeStart)。agent 自己的记录里有、库里没有的几轮请主进程补,补进了就地重读,补不了不吭声。
  *
  * ## 判据能判假吗
  *
  * 能:把 `bootstrap()` 里的 `this._open()` 换回 `this._runBootstrap()`(修之前的样子),第一条用例当场红
- * (`create` 带着启动输入被调了)。`AcpLiveSession.create` 只在拿到启动输入时才 `client.startSession`,
- * 所以「create 没被调 / 调时没有启动输入」就是「没起它」。
+ * (请宿主起了它:`lifeStart` 被调了)。
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { reaction, runInAction } from 'mobx';
@@ -33,9 +32,32 @@ vi.mock('../stores/session-registry', () => ({
 }));
 
 const runtime = vi.hoisted(() => ({
-  queuePrompt: vi.fn(async (..._args: unknown[]) => ({ success: true, data: { queued: true } })),
   getStoredQueue: vi.fn(async (..._args: unknown[]) => [] as unknown[]),
 }));
+
+const custody = vi.hoisted(() => vi.fn(async (..._args: unknown[]) => {}));
+vi.mock('./queue-native-input', () => ({ sendThroughCustody: custody, canQueueNativeInput: () => false }));
+
+/** session-life 的桩:`lifeStart` 记下,LifeView 由用例推(`life.settle`)。 */
+const life = vi.hoisted(() => ({
+  start: vi.fn(async (_sessionId: string) => {}),
+  stop: vi.fn(async (_sessionId: string) => {}),
+  fork: vi.fn(async (_fork: unknown) => {}),
+  end: vi.fn(async (_forkId: string) => {}),
+  settle: (_sessionId: string, _kind: 'ready' | 'failed') => {},
+}));
+vi.mock('../stores/session-life-views', async () => {
+  const { observable, runInAction } = await import('mobx');
+  const views = observable.map<string, { kind: string; failure: null }>();
+  life.settle = (sessionId, kind) => runInAction(() => views.set(sessionId, { kind, failure: null }));
+  return {
+    sessionLifeView: (sessionId: string) => views.get(sessionId) ?? null,
+    startSessionLife: (sessionId: string) => life.start(sessionId),
+    stopSessionLife: (sessionId: string) => life.stop(sessionId),
+    forkSessionLife: (fork: unknown) => life.fork(fork),
+    endSessionLife: (forkId: string) => life.end(forkId),
+  };
+});
 vi.mock('@renderer/lib/acp/runtime-client', () => ({
   getAcpRuntimeClient: async () => runtime,
 }));
@@ -70,10 +92,10 @@ vi.mock('@renderer/lib/acp/running-sessions', () => ({
   },
 }));
 
-const create = vi.hoisted(() => vi.fn<(sessionId: string, input?: unknown) => Promise<unknown>>());
+const create = vi.hoisted(() => vi.fn<(sessionId: string) => Promise<unknown>>());
 vi.mock('@renderer/lib/acp/acp-live-session', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@renderer/lib/acp/acp-live-session')>()),
-  AcpLiveSession: { create: (sessionId: string, input?: unknown) => create(sessionId, input) },
+  AcpLiveSession: { create: (sessionId: string) => create(sessionId) },
 }));
 
 const toasts = vi.hoisted(() => [] as unknown[]);
@@ -159,9 +181,7 @@ function storeFor(record: Partial<Session> = { providerId: 'claude', providerSes
   n += 1;
   const store = new AcpChatStore(`conv-980-${n}`, 'proj-1');
   records.set(store.sessionId, record);
-  const startInput = { sessionId: store.sessionId, providerId: 'claude', ...(record.initialQueue ? { initialQueue: record.initialQueue } : {}) };
-  (store as unknown as { _startInput: () => unknown })._startInput = () => startInput;
-  return { store, startInput };
+  return { store };
 }
 
 const committedIds = (store: Store) => store.chatState.transcript.state.committedTurns.map((t) => t.id);
@@ -180,8 +200,12 @@ beforeEach(() => {
   host.storedPages = [page(turn('s0', 0), turn('s1', 1))];
   host.storedReads = [];
   host.sync.mockReset().mockResolvedValue({ inserted: 0 });
-  runtime.queuePrompt.mockClear();
   runtime.getStoredQueue.mockClear();
+  custody.mockClear();
+  life.start.mockClear();
+  life.stop.mockClear();
+  life.fork.mockClear();
+  life.end.mockClear();
   create.mockReset().mockImplementation(() => new Promise(() => {}));
 });
 
@@ -191,8 +215,8 @@ describe('#980 打开一条没在跑的会话', () => {
     store.bootstrap();
     await parked(store);
 
-    expect(create, '打开就起了 agent(或挂了它)').not.toHaveBeenCalled();
-    expect(runtime.queuePrompt).not.toHaveBeenCalled();
+    expect(create, '打开就挂了它').not.toHaveBeenCalled();
+    expect(life.start, '打开就请宿主起了 agent').not.toHaveBeenCalled();
     expect(committedIds(store)).toEqual(['s0', 's1']);
     expect(store.session).toBeNull();
     expect(store.starting, '停着不是「在起」').toBe(false);
@@ -202,6 +226,14 @@ describe('#980 打开一条没在跑的会话', () => {
     expect(toasts).toEqual([]);
     // 停着时运行时替它存着的队列照样摆出来(只读存档,不叫醒它)。
     expect(runtime.getStoredQueue).toHaveBeenCalledWith({ sessionId: store.runtimeSessionId });
+  });
+
+  it('停着时按停止:请宿主的 session-life 停它(用户的停),❌ 静默无操作', async () => {
+    const { store } = storeFor();
+    store.bootstrap();
+    await parked(store);
+    store.stop();
+    expect(life.stop).toHaveBeenCalledWith(store.runtimeSessionId);
   });
 
   it('记录里补进来几轮:库里那份就地重读,❌ 再亮「加载中」', async () => {
@@ -235,29 +267,24 @@ describe('#980 打开一条没在跑的会话', () => {
     expect(toasts).toEqual([]);
   });
 
-  it('停着时发一句:当场上屏、显示在跑,按起会话那条路起(带启动输入),库里那页不再读一遍', async () => {
-    const { store, startInput } = storeFor();
+  it('停着时发一句:经 custody 交给宿主,页面不自己起、不挂,库里那页不再读一遍', async () => {
+    const { store } = storeFor();
     store.bootstrap();
     await parked(store);
     const readsBefore = host.storedReads.filter((read) => read.fromSeq === undefined).length;
 
     runInAction(() => store.submitPrompt('接着上次的来'));
 
-    expect(store.chatState.session.state.pendingPrompt?.text).toBe('接着上次的来');
-    expect(store.affordances.isWorking, '「正在思考…」:发出去的这一句在跑').toBe(true);
-    await vi.waitFor(() => expect(create).toHaveBeenCalledWith(store.sessionId, startInput));
-    await vi.waitFor(() =>
-      expect(runtime.queuePrompt).toHaveBeenCalledWith(
-        expect.objectContaining({ prompt: expect.objectContaining({ text: '接着上次的来' }), startInput })
-      )
-    );
+    expect(custody).toHaveBeenCalledWith(store, '接着上次的来', []);
+    expect(life.start).not.toHaveBeenCalled();
+    expect(create).not.toHaveBeenCalled();
     expect(host.storedReads.filter((read) => read.fromSeq === undefined).length).toBe(readsBefore);
     expect(committedIds(store)).toEqual(['s0', 's1']);
   });
 
-  it('库原本是空的老会话:补库还在读时人就发了一句 —— 引擎就绪后再读一次库,补进来的历史照库上屏', async () => {
+  it('库原本是空的老会话:宿主把它起起来、引擎就绪后再读一次库,补进来的历史照库上屏', async () => {
     host.sync.mockReturnValue(new Promise(() => {}));
-    // 打开时读一次、发话起开场又读一次,都还是空的;宿主起会话前补完库,引擎就绪后那一读才读到。
+    // 打开时读一次、挂上开场又读一次,都还是空的;宿主起会话前补完库,引擎就绪后那一读才读到。
     host.storedPages = [page(), page(), page(turn('r0', 0), turn('r1', 1))];
     create.mockImplementation(async () => liveSession());
     const { store } = storeFor();
@@ -265,12 +292,12 @@ describe('#980 打开一条没在跑的会话', () => {
     await vi.waitFor(() => expect(host.sync).toHaveBeenCalledWith(store.sessionId));
     expect(committedIds(store), '阳控:打开时库是空的').toEqual([]);
 
-    runInAction(() => store.submitPrompt('接着上次的来'));
+    running.set(store.runtimeSessionId, 'running');
     await vi.waitFor(() => expect(store.session).not.toBeNull());
     expect(committedIds(store), '引擎那页只有新轮,历史来自补完的库').toEqual(['r0', 'r1']);
   });
 
-  it('停着时宿主把它拉起来(投递、定时):起完就挂上 —— 只附着、❌ 带启动输入,不等人发一句', async () => {
+  it('停着时宿主把它拉起来(投递、定时):起完就挂上 —— 只附着、❌ 请宿主再起一次,不等人发一句', async () => {
     create.mockImplementation(async () => liveSession());
     const { store } = storeFor();
     store.bootstrap();
@@ -282,27 +309,17 @@ describe('#980 打开一条没在跑的会话', () => {
     running.set(store.runtimeSessionId, 'running');
     await vi.waitFor(() => expect(store.session).not.toBeNull());
     expect(create).toHaveBeenCalledTimes(1);
-    expect(create).toHaveBeenCalledWith(store.sessionId, undefined);
+    expect(create).toHaveBeenCalledWith(store.sessionId);
+    expect(life.start).not.toHaveBeenCalled();
     expect(host.storedReads.filter((read) => read.fromSeq === undefined), '库里那页沿用,❌ 再读一遍').toHaveLength(1);
     expect(committedIds(store)).toEqual(['s0', 's1']);
     expect(running.watchers.size, '挂上了就不再盯会话表').toBe(0);
   });
 
-  it('发了一句、开场在路上时宿主那边也起来了:不挂第二次', async () => {
-    const { store } = storeFor();
-    store.bootstrap();
-    await parked(store);
-    runInAction(() => store.submitPrompt('在吗'));
-    await vi.waitFor(() => expect(create).toHaveBeenCalledTimes(1));
-
-    running.set(store.runtimeSessionId, 'running');
-
-    expect(create).toHaveBeenCalledTimes(1);
-  });
 });
 
 describe('#980 打开一条在跑的会话', () => {
-  it('只挂上(❌ 带启动输入),库里那页不再读一遍,也不去补记录', async () => {
+  it('只挂上(❌ 请宿主起它),库里那页不再读一遍,也不去补记录', async () => {
     create.mockImplementation(async () => liveSession());
     const { store } = storeFor();
     running.phases.set(store.runtimeSessionId, 'running');
@@ -311,7 +328,8 @@ describe('#980 打开一条在跑的会话', () => {
     await vi.waitFor(() => expect(store.session).not.toBeNull());
 
     expect(create).toHaveBeenCalledTimes(1);
-    expect(create).toHaveBeenCalledWith(store.sessionId, undefined);
+    expect(create).toHaveBeenCalledWith(store.sessionId);
+    expect(life.start).not.toHaveBeenCalled();
     expect(host.storedReads.filter((read) => read.fromSeq === undefined)).toHaveLength(1);
     expect(committedIds(store)).toEqual(['s0', 's1']);
     expect(store.loadError).toBeNull();
@@ -320,25 +338,54 @@ describe('#980 打开一条在跑的会话', () => {
 });
 
 describe('#980 照旧当场起的', () => {
-  it('新建会话带着第一句:打开就起,第一句当场上屏;不去问会话表', async () => {
-    const { store, startInput } = storeFor({
+  it('新建会话带着第一句:打开就请宿主起,宿主说起好了才挂;不去问会话表', async () => {
+    create.mockImplementation(async () => liveSession());
+    const { store } = storeFor({
       providerId: 'claude',
       initialQueue: [{ text: '看看这个项目的启动流程', origin: 'manual' }],
     });
 
     store.bootstrap();
 
-    await vi.waitFor(() => expect(create).toHaveBeenCalledWith(store.sessionId, startInput));
-    expect(store.chatState.session.state.pendingPrompt?.text).toBe('看看这个项目的启动流程');
+    await vi.waitFor(() => expect(life.start).toHaveBeenCalledWith(store.sessionId));
     expect(store.starting).toBe(true);
+    expect(create, '宿主还没说起好:❌ 先挂').not.toHaveBeenCalled();
     expect(running.watchCalls).toBe(0);
+
+    life.settle(store.sessionId, 'ready');
+    await vi.waitFor(() => expect(store.session).not.toBeNull());
+    expect(create).toHaveBeenCalledWith(store.sessionId);
+  });
+});
+
+describe('侧边聊天:session-life 的分叉条目', () => {
+  it('打开:先开分叉条目,再与持久会话同一条路请宿主起、起好才挂;关掉页面就结束它', async () => {
+    create.mockImplementation(async () => liveSession());
+    n += 1;
+    const sourceId = `conv-980-${n}`;
+    records.set(sourceId, { providerId: 'claude', providerSessionId: 'prov-1' });
+    const store = new AcpChatStore(sourceId, 'proj-1', { id: `side-${n}`, forkFromProviderSessionId: 'prov-1' });
+
+    store.bootstrap();
+
+    await vi.waitFor(() => expect(life.start).toHaveBeenCalledWith(`side-${n}`));
+    expect(life.fork).toHaveBeenCalledWith({ forkId: `side-${n}`, parentId: sourceId, forkFromProviderSessionId: 'prov-1' });
+    expect(life.fork.mock.invocationCallOrder[0]).toBeLessThan(life.start.mock.invocationCallOrder[0]!);
+    expect(create).not.toHaveBeenCalled();
+
+    life.settle(`side-${n}`, 'ready');
+    await vi.waitFor(() => expect(store.session).not.toBeNull());
+    expect(create).toHaveBeenCalledWith(`side-${n}`);
+
+    store.dispose();
+    await vi.waitFor(() => expect(life.end).toHaveBeenCalledWith(`side-${n}`));
   });
 });
 
 describe('#980 打开那一下读不到会话表', () => {
-  it('与开场失败同一条路说出来;「再试一次」是再打开一次,❌ 借机起它;发一句才起', async () => {
+  it('与开场失败同一条路说出来;「再试一次」是再打开一次,❌ 借机起它', async () => {
     running.failWith = new Error('runtime unreachable');
-    const { store, startInput } = storeFor();
+    const { store } = storeFor();
     store.bootstrap();
     await vi.waitFor(() => expect(store.loadError).not.toBeNull());
     expect(create).not.toHaveBeenCalled();
@@ -349,13 +396,6 @@ describe('#980 打开那一下读不到会话表', () => {
     expect(store.loadError).toBeNull();
     expect(create, '再试一次 = 再打开一次').not.toHaveBeenCalled();
 
-    // 读不到表之后直接发一句:按「起」重来。
-    running.failWith = new Error('runtime unreachable');
-    const other = storeFor();
-    other.store.bootstrap();
-    await vi.waitFor(() => expect(other.store.loadError).not.toBeNull());
-    runInAction(() => other.store.submitPrompt('起来干活'));
-    await vi.waitFor(() => expect(create).toHaveBeenCalledWith(other.store.sessionId, other.startInput));
-    expect(startInput.sessionId).not.toBe(other.startInput.sessionId);
+    expect(life.start).not.toHaveBeenCalled();
   });
 });

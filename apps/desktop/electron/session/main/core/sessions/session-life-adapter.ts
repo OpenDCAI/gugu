@@ -2,14 +2,12 @@ import type {
   ExitFact, Gen, Have, SerializedError, StageName, StageOut, Timing,
 } from '@gugu/core/local/session-life/types';
 import type { SessionMessage, SessionMessageDelivery } from '@shared/core/sessions/sessions';
+import type { AgentInboxUnreadRow } from '@gugu/core/local/agent/agentInboxReader';
 
-/** Only references and transport details: the message body remains in messages.content. */
+/** One inbox row an inbox-batch settles: marked read when the agent accepts the batch, told of its failure otherwise. */
 export interface PendingSource {
-  readonly messageId: string;
-  readonly chatId: string;
-  readonly seq: number;
   readonly agentUserId: string;
-  readonly forum?: { readonly postId: string; readonly seq: number };
+  readonly row: AgentInboxUnreadRow;
 }
 
 /** How a row is written for the agent: a fact of the row itself, set at enqueue. */
@@ -39,6 +37,4 @@ export interface LegAdapter {
   >;
   teardown(have: Partial<StageOut>, ctx: { gen: Gen | null }): Promise<void>;
   onExit(have: Pick<StageOut, 'process'>, cb: (exit: ExitFact) => void): () => void;
-  /** The session is archived or deleted: end what lives only because of it. Try all, then throw the aggregate. */
-  endDependents(): Promise<void>;
 }

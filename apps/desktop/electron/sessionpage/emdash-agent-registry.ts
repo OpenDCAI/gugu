@@ -4,22 +4,16 @@
 // while this map records which conversation currently owns the ACP control channel. Identity resolution never
 // consults this map.
 //
-// A claimant whose session-page session is not live remains mapped here: delivery records durable local debt
-// and drains it when the session returns. This never falls through to pty or gugu-native ACP. A busy-but-live
-// session returning {queued:true} is an inbox delivery only when the runtime supplies its request identity;
-// callers surface identity-less queued results as a loud failure.
+// A mapped claimant's inbox units go into the host's session lifecycle owner (session-life): its durable queue starts
+// the session when needed and marks the rows read once the agent accepts them. Nothing here injects or wakes.
 //
 // The session backend stays a cohesive module (owner #43): we reach it only through the bridge's exported entries
-// (`injectEmdashPromptDetached` / `emdashSessionSummaries`), injected here via setBridge — never a deep-import of
+// (`sessionLife` / `emdashSessionSummaries`), injected here via setBridge — never a deep-import of
 // the session backend's ACP runtime internals from gugu main.
 
-import { createHash } from 'node:crypto'
-import { isHumanDmDelivery } from '@gugu/core/local/agent/deliveryEnvelope'
-import { sessionInjectionCapabilityFor } from './session-injection'
-import { createLogger } from '../lib/logger'
 import { isImplicitSessionHomeProjectId } from '@gugu/core/shared/sessionProject'
 import type { AgentStatusView } from '@gugu/core/shared/agentStatus'
-import type { SessionMessageDelivery } from '@shared/core/sessions/sessions'
+import type { AgentInboxUnreadRow } from '@gugu/core/local/agent/agentInboxReader'
 
 export interface SessionpageDeliveryReceipt {
   turnId: string
@@ -27,23 +21,11 @@ export interface SessionpageDeliveryReceipt {
   queued?: boolean
 }
 
-const log = createLogger('sessionpage/agent-registry')
-
-/**
- * 编号 5: how long a lost session's reconnect, kicked by a delivery, has to come up before that batch fails in its chat. The
- * runtime's start keeps no clock (#6183); this is the delivery's own bound, the same as the claude TUI leg's readiness budget.
- * A reconnect that comes up later still goes live and pulls the batch again.
- */
-export const RECONNECT_BUDGET_MS = 60_000
 
 /** The session-backend module-boundary surface this registry needs (injected by main.ts from the loaded .cjs). */
 export interface EmdashDeliveryBridge {
-  injectEmdashPromptDetached(
-    sessionId: string,
-    text: string,
-    opts?: { steerIfBusy?: boolean; coalesceKey?: string; deferredDispatch?: true; origin?: 'manual'; attachments?: import('@gugu/session-core/acp/client').PromptAttachment[] },
-  ): Promise<{ outcome: 'started' | 'queued' | 'declined' | 'missing'; completion: Promise<void>; turnId?: string }>
-  ensureEmdashSession?(sessionId: string): Promise<void>
+  /** The host's session lifecycle owner: its one queue entry. */
+  sessionLife(): { enqueue(input: { sessionId: string; messageId: string; text: string; kind: 'inbox-batch'; sources: readonly { agentUserId: string; row: AgentInboxUnreadRow }[] }): unknown }
   /** @@@4526B 宿主 ACP 通道的取消口。 */
   cancelEmdashTurn?(sessionId: string): Promise<boolean>
   emdashSessionSummaries(): Promise<Array<{
@@ -197,28 +179,9 @@ class EmdashAgentRegistry {
   readonly deliveryTargetName = 'gugu-acp'
   private bridge: EmdashDeliveryBridge | null = null
   private readonly byAgent = new Map<string, { sessionId: string }>()
-  /**
-   * 编号 5: per lost session, the reconnect a delivery kicked — the batch it was for (a digest of its text) and, once it ended,
-   * how. A wake is a kick, not a wait (#4320): the delivery leaves its batch on the cursor and returns, so one agent's reconnect
-   * never holds the device's other deliveries. When it ends — up, failed, or not up within RECONNECT_BUDGET_MS —
-   * `onReconnectSettled` pulls the inbox again: up, the batch goes in; not up, it fails as before (its row in the chat). The
-   * claude TUI leg's readiness budget is the same shape (claude-session-delivery.ts `markOverdue`). The same batch finding the
-   * session lost again after it came up fails too, instead of restarting the adapter round and round; a new message makes a
-   * new batch, and one more try. Over the budget with the start still going (`overdue`), every batch fails at once, without
-   * another wake, until that start ends either way — then the record goes and things are as before (148 r3: the retry a person
-   * sends after that row must not sink without a word).
-   */
-  private readonly reconnects = new Map<string, { batch: string; outcome?: 'up' | Error; overdue?: true; refused?: true }>()
-  private onReconnectSettled: ((guguAgentUserId: string) => void) | null = null
-
   /** Inject the session-backend module-boundary bridge (main.ts, after loadEmdashBridge). */
   setBridge(bridge: EmdashDeliveryBridge | null): void {
     this.bridge = bridge
-  }
-
-  /** How the host pulls an agent's inbox again (main.ts); see `reconnects`. */
-  setReconnectSettledHook(hook: ((guguAgentUserId: string) => void) | null): void {
-    this.onReconnectSettled = hook
   }
 
   registerEmdashAgent(reg: EmdashAgentRegistration): void {
@@ -306,14 +269,6 @@ class EmdashAgentRegistry {
     return summary?.isGenerating === true
   }
 
-  async waitUntilReady(sessionId: string): Promise<void> {
-    const summary = (await this.bridge?.emdashSessionSummaries())
-      ?.find((candidate) => candidate.sessionId === sessionId)
-    if (!summary || summary.closing || !['ready', 'working', 'cancelling'].includes(summary.lifecycle)) {
-      throw new Error(`ACP session ${sessionId} has not admitted after reopen (${summary?.lifecycle ?? 'absent'})`)
-    }
-  }
-
   /**
    * 这条 ACP 会话跑的 harness × surface —— 注入时机声明按它查(spec session-injection)。
    * ACP 结构化聊天是多家共用的一根管子,时机不是这个 target 的属性,是会话上那家 harness 的声明。
@@ -326,69 +281,15 @@ class EmdashAgentRegistry {
     return summary && !summary.closing ? { providerId: summary.providerId, surface: 'acp' } : null
   }
 
-  /** Reopen one mapped conversation (`ensureEmdashSession` is idempotent: ACP counts `starting` as live, PTY hydrate merges in its supervisor). */
-  async ensureSessionForAgent(guguAgentUserId: string): Promise<void> {
-    const binding = this.byAgent.get(guguAgentUserId)
-    if (!binding) return
-    if (!this.bridge?.ensureEmdashSession) {
-      throw new Error(`session-page session wake is unavailable — cannot wake ${binding.sessionId}`)
-    }
-    await this.bridge.ensureEmdashSession(binding.sessionId)
+  /** Messages to an ACP session are enqueued (sendMessage, the reader's unit): the router never injects into one. */
+  async tryInjectSessionMessage(sessionId: string): Promise<false | SessionpageDeliveryReceipt> {
+    throw new Error(`ACP session ${sessionId} takes messages only through session-life; nothing injects into it directly`)
   }
 
-  private agentOfSession(sessionId: string): string | undefined {
-    return [...this.byAgent.entries()].find(([, binding]) => binding.sessionId === sessionId)?.[0]
-  }
-
-  /** 编号 5: kick a lost session's reconnect for this batch, bounded by RECONNECT_BUDGET_MS; see `reconnects`. */
-  private kickReconnect(sessionId: string, batch: string, ensure: (sessionId: string) => Promise<void>): void {
-    const entry: { batch: string; outcome?: 'up' | Error; overdue?: true } = { batch }
-    this.reconnects.set(sessionId, entry)
-    const start = ensure(sessionId)
-    let startEnded = false
-    let overBudget = false
-    let budget: ReturnType<typeof setTimeout> | undefined
-    const overdue = new Promise<never>((_, reject) => {
-      budget = setTimeout(() => {
-        overBudget = true
-        reject(new Error(`Session '${sessionId}' lost its ACP adapter and was not reconnected within ${RECONNECT_BUDGET_MS}ms`))
-      }, RECONNECT_BUDGET_MS)
-      budget.unref?.()
-    })
-    // A start that ends after the budget, either way: the record goes (up: the start's own session-live pull brings the batch).
-    const ended = () => {
-      startEnded = true
-      if (entry.overdue && this.reconnects.get(sessionId) === entry) this.reconnects.delete(sessionId)
-    }
-    void start.then(ended, ended)
-    void Promise.race([start, overdue]).then(
-      () => 'up' as const,
-      (error: unknown) => (error instanceof Error ? error : new Error(String(error))),
-    ).then((outcome) => {
-      clearTimeout(budget)
-      if (this.reconnects.get(sessionId) !== entry) return
-      entry.outcome = outcome
-      if (overBudget && !startEnded) entry.overdue = true
-      if (outcome !== 'up') log.warn({ sessionId, error: outcome.message }, 'lost session reconnect gave up; its batch fails in its chat')
-      const agent = this.agentOfSession(sessionId)
-      if (agent) this.onReconnectSettled?.(agent)
-    })
-  }
-
-  async tryInjectSessionMessage(
-    sessionId: string,
-    message: { id: string; text: string; kind?: 'ordinary' | 'session-direct'; delivery?: SessionMessageDelivery; deferredDispatch?: true },
-  ): Promise<false | SessionpageDeliveryReceipt> {
-    // @@@4708 session-direct 与读者路同一条 detached 受理路 —— 旗按这家声明的时机档置
-    // (next-tool-call ⇒ steer 进当前 turn;未声明 ⇒ 会话机队列,回合末一次抽干),受理即返回、
-    // completion 出带。此前这一支走非 detached「旧语义」:不看声明、忙时一律 PromptQueued,
-    // codex 明明声明了 next-tool-call,军训教官照样堆出 Queued prompts (21)。
-    return this.tryInjectInternal(sessionId, message.text, {
-      // session-direct 的唤醒由发送方 await(#6546 injectWithWake),这里不另踢一脚。
-      ...(message.kind === 'session-direct' ? { suppressWake: true } : {}),
-      ...(message.delivery ? { delivery: message.delivery } : {}),
-      ...(message.deferredDispatch ? { deferredDispatch: true } : {}),
-    })
+  enqueueInbox(sessionId: string, unit: { messageId: string; text: string; agentUserId: string; sources: readonly AgentInboxUnreadRow[] }): void {
+    if (!this.bridge) throw new Error(`session-page delivery bridge unavailable — cannot enqueue into ${sessionId}`)
+    this.bridge.sessionLife().enqueue({ sessionId, messageId: unit.messageId, text: unit.text, kind: 'inbox-batch',
+      sources: unit.sources.map((row) => ({ agentUserId: unit.agentUserId, row })) })
   }
 
   /**
@@ -410,114 +311,6 @@ class EmdashAgentRegistry {
       )
     }
     return bridge.cancelEmdashTurn(sessionId)
-  }
-
-  private async tryInjectInternal(
-    sessionId: string,
-    text: string,
-    opts?: { suppressWake?: boolean; delivery?: SessionMessageDelivery; deferredDispatch?: true },
-  ): Promise<false | SessionpageDeliveryReceipt> {
-    const bridge = this.bridge
-    if (!bridge) {
-      throw new Error(
-        `session-page delivery bridge unavailable — cannot inject into ${sessionId} (fail-loud, no pty fallback)`,
-      )
-    }
-    // Optional liveness pre-check for a clearer loud error; injectEmdashPromptDetached is the fail-loud backstop
-    // regardless (a summaries read failure must not mask a dead session, so it does NOT swallow the throw).
-    const summaries = await bridge.emdashSessionSummaries()
-    const summary = summaries.find((candidate) => candidate.sessionId === sessionId)
-    const reconnect = opts?.suppressWake ? undefined : this.reconnects.get(sessionId)
-    const batch = createHash('sha256').update(text).digest('hex')
-    if (reconnect?.refused && reconnect.batch === batch) {
-      throw new Error(`Session '${sessionId}' refused these messages before a turn again after recovery`)
-    }
-    // 编号 5: the reconnect a delivery kicked gave up — the pull it triggered fails the batch in hand (the one that kicked it is
-    // in it: the cursor did not move), said in its chat as before (「…咕咕这边出错了」): never silence. A failed start says it
-    // once, and a later message is a new try; one over the budget and still going fails every batch at once, without another
-    // wake, until it ends (148 r3). A session already up by this pull (the runtime has it, the host is still recording the
-    // start) takes the batch instead: a row saying it failed would be untrue (148 r4).
-    if (reconnect?.outcome instanceof Error) {
-      if (summary && ['ready', 'working', 'cancelling'].includes(summary.lifecycle)) {
-        this.reconnects.delete(sessionId)
-      } else {
-        if (!reconnect.overdue) this.reconnects.delete(sessionId)
-        throw reconnect.outcome
-      }
-    }
-    // `replaying` = the session is being loaded (a reconnect's session/load): not up yet, so the batch waits on the cursor
-    // like `starting` — the start's own session-live pull brings it — instead of failing as「while session is 'replaying'」.
-    // 不在跑的会话由调用方经路由器的唯一唤醒口唤醒(SessionpageLocalDeliveryRouter.wakeSession),这里只答「没收」。
-    if (!summary || summary.closing || summary.lifecycle === 'starting' || summary.lifecycle === 'replaying' || summary.lifecycle === 'closed') {
-      return false
-    }
-    // 编号 5 (10-12 片场试演): an adapter that exited on its own (a crash, a stop) leaves the session `lost`. This message kicks
-    // its reconnect — the runtime resumes the lost session, as the task page's Reconnect does — and waits on the cursor.
-    if (summary.lifecycle === 'lost') {
-      if (opts?.suppressWake) return false
-      if (!bridge.ensureEmdashSession) throw new Error(`session-page session wake is unavailable — cannot reconnect ${sessionId}`)
-      if (reconnect && !reconnect.outcome) return false
-      if (reconnect?.batch === batch) {
-        throw new Error(`Session '${sessionId}' lost its ACP adapter again after it was reconnected for these messages; not reconnecting it again for them`)
-      }
-      this.kickReconnect(sessionId, batch, bridge.ensureEmdashSession.bind(bridge))
-      return false
-    }
-    // per-harness 时机档(spec session-injection):next-tool-call 家带 steerIfBusy;idle-only 家直接尝试注入。
-    // runtime 带 request identity 的 queue admission 视为一次已受理投递;无 identity 的 queued 结果才转成 loud failure。
-    // 发信方要「排队」(delivery.queue)时不插:忙就排进会话机的队列,这一轮结束作为下一轮送出;同键的排队消息原地替换。
-    const steerIfBusy = !isHumanDmDelivery(text) && !opts?.delivery?.queue
-      && sessionInjectionCapabilityFor(summary.providerId, 'acp').timing === 'next-tool-call'
-    const injectOpts = {
-      ...(opts?.delivery?.attachments?.length ? { attachments: opts.delivery.attachments } : {}),
-      ...(opts?.delivery?.origin ? { origin: opts.delivery.origin } : {}),
-      ...(steerIfBusy ? { steerIfBusy: true } : {}),
-      ...(opts?.delivery?.coalesceKey ? { coalesceKey: opts.delivery.coalesceKey } : {}),
-      ...(opts?.deferredDispatch ? { deferredDispatch: true as const } : {}),
-    }
-    let nativeMissing = false
-    try {
-      const result = await bridge.injectEmdashPromptDetached(
-        sessionId,
-        text,
-        Object.keys(injectOpts).length > 0 ? injectOpts : undefined,
-      )
-      // 会话此刻不收(原位回退进行中):没收下,消息留在来源侧。
-      if (result.outcome === 'declined') return false
-      if (result.outcome === 'missing') {
-        nativeMissing = true
-        if (opts?.suppressWake) return false // The session-direct sender owns its one reopen attempt.
-        if (reconnect?.batch === batch) {
-          reconnect.refused = true
-          throw new Error(`Session '${sessionId}' refused these messages before a turn again after recovery`)
-        }
-        if (!bridge.ensureEmdashSession) throw new Error(`session-page session wake is unavailable — cannot reconnect ${sessionId}`)
-        this.kickReconnect(sessionId, batch, bridge.ensureEmdashSession.bind(bridge))
-        return false
-      }
-      if (result.outcome === 'queued' && !result.turnId) {
-        throw new Error(
-          `session-page session ${sessionId} returned queued without an admission identity; `
-            + 'live inbox delivery cannot determine whether the machine accepted it',
-        )
-      }
-      // Taken: a later loss of this session is a new one (148 评审: the same text may come again).
-      this.reconnects.delete(sessionId)
-      return {
-        // 宿主 ACP 桥给的是 runtime 的受理 request id;不给 id 的桥才退到 conversationId(仅标识、非回执)。
-        turnId: result.turnId ?? sessionId,
-        completion: result.completion,
-        queued: result.outcome === 'queued',
-      }
-    } catch (error) {
-      if (nativeMissing) throw error
-      const afterFailure = await bridge.emdashSessionSummaries()
-      const current = afterFailure.find((candidate) => candidate.sessionId === sessionId)
-      // Native admission can discover a dead executor after the liveness read. Hand the
-      // unaccepted message back to the same wake owner as an already-lost session.
-      if (!current || current.lifecycle === 'closed' || current.lifecycle === 'lost') return false
-      throw error
-    }
   }
 }
 

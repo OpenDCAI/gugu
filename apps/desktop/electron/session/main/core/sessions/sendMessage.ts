@@ -489,8 +489,7 @@ async function drain(params: {
       | { status: 'not-ready' }
       | { status: 'accepted'; messageId: string; nativeReceiptId?: string };
     try {
-      const surface = row.runtime === 'acp' ? 'acp' : 'tui';
-      const integration = resolveSessionpageSessionIntegration(row.provider, surface);
+      const integration = resolveSessionpageSessionIntegration(row.provider, 'tui');
       if (integration.messageTransport === 'none') {
         throw new Error(
           `session ${params.sessionId} does not declare a session message transport`,
@@ -596,8 +595,7 @@ async function sendMessageOnce(
   // exact message in the existing outbox until the coordinator's retry kicks the common reader.
   if (params.kind === 'session-direct' && !params.queuedStartupDelegation) {
     const row = await readSession(params);
-    const surface = row.runtime === 'acp' ? 'acp' : 'tui';
-    const integration = resolveSessionpageSessionIntegration(row.provider, surface);
+    const integration = resolveSessionpageSessionIntegration(row.provider, 'tui');
     if (integration.messageTransport === 'none') {
       throw new Error(
         `session ${params.sessionId} does not declare a session message transport`,
@@ -667,8 +665,7 @@ async function sendMessageOnce(
 
   const status = await serialize(enqueueOperations, params.sessionId, async (): Promise<SendSessionMessageResult['status']> => {
     const row = await readSession(params);
-    const surface = row.runtime === 'acp' ? 'acp' : 'tui';
-    const integration = resolveSessionpageSessionIntegration(row.provider, surface);
+    const integration = resolveSessionpageSessionIntegration(row.provider, 'tui');
     if (integration.messageTransport === 'none') {
       recordLocalSessionDeliveryFailureForTest({
         sessionId: params.sessionId,

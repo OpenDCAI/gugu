@@ -189,9 +189,14 @@ import {
   type AgentRosterRemovalReason,
 } from '@gugu/core/local/agent/deviceCommandRuntime'
 import {
+  discloseInboxRowsFailed,
   kickAgentInboxPull,
+  markInboxRowsRead,
   readAgentInboxBatchAuditForTest,
+  type AgentInboxReaderDeps,
+  type AgentInboxUnreadRow,
 } from '@gugu/core/local/agent/agentInboxReader'
+import type { PendingRow as SessionLifePendingRow } from './session/main/core/sessions/session-life-adapter'
 import { fetchThreadMessagesViaRest } from '@gugu/core/cloud/threadMessagesRest'
 // #4280 —— 壳的唯一 producer 住在这里,三条渠道都从它出字节。
 import {
@@ -918,6 +923,11 @@ function createDeviceSessionpageBridge() {
     retireAgent: retireSessionpageAgent,
     ensureSessionReady: ensureSessionpageSessionReady,
     providerSessionIdForSession,
+    claimedSessionSources: (sessionId, messageIds) => {
+      const emdash = loadEmdashBridge()
+      if (!emdash) throw new Error('session-life: the session page module is not loaded')
+      return emdash.claimedSessionSources(sessionId, messageIds)
+    },
     applyAgentModelSelection: applyAgentModelSelectionOnDevice,
     // #6264 远端建 agent:目标机器(比如刚装好的咕咕 server)还没装这个 agent 时先装上,再进启动预算。
     ensureAgentInstalled: async (agentType, signal) => {
@@ -3724,31 +3734,45 @@ function kickInboxForAgent(agentUserId: string, trigger: string, bootTaskId = ''
     onFailure: trigger === 'boot-scan' ? error => loadEmdashBridge()?.sessionBootTasks.record('inbox-wake', bootTaskId, error) : undefined,
     getAuth: () => authProvider?.getAuth(),
     log: createLogger('agent-inbox'),
-    kick: (auth) => {
-      const accessToken = auth.accessToken
-      const deps = agentInboxDepsFromBridge({
-        accessToken,
-        ownerUserId: auth.userId,
-        env: process.env,
-        runtimeBridge: createDeviceSessionpageBridge(),
-        resolveGuguIds: resolveGuguIdsForInbox,
-        fetchThreadMessages: (chatId, threadRootId) => fetchThreadMessagesViaRest(chatId, threadRootId, accessToken),
-        overrides: {
-          onBatch: ({ agentUserId: batchAgentUserId, rows, units }) => {
-            if (process.env.GUGU_SESSION_TEST_HOOKS === '1') {
-              createLogger('agent-inbox').info({
-                agentUserId: batchAgentUserId,
-                rows,
-                units,
-                trigger,
-              }, 'injectBatch')
-            }
-          },
-        },
-      })
-      kickAgentInboxPull(agentUserId, deps, trigger)
+    kick: (auth) => kickAgentInboxPull(agentUserId, inboxDepsFor(auth, trigger), trigger),
+  })
+}
+
+/** The reader's deps for one signed-in account, assembled fresh each time (tokens rotate). */
+function inboxDepsFor(auth: { accessToken: string; userId: string }, trigger: string) {
+  const accessToken = auth.accessToken
+  return agentInboxDepsFromBridge({
+    accessToken,
+    ownerUserId: auth.userId,
+    env: process.env,
+    runtimeBridge: createDeviceSessionpageBridge(),
+    resolveGuguIds: resolveGuguIdsForInbox,
+    fetchThreadMessages: (chatId, threadRootId) => fetchThreadMessagesViaRest(chatId, threadRootId, accessToken),
+    overrides: {
+      onBatch: ({ agentUserId: batchAgentUserId, rows, units }) => {
+        if (process.env.GUGU_SESSION_TEST_HOOKS === '1') {
+          createLogger('agent-inbox').info({
+            agentUserId: batchAgentUserId,
+            rows,
+            units,
+            trigger,
+          }, 'injectBatch')
+        }
+      },
     },
   })
+}
+
+/**
+ * session-life's pending inbox batches settle their cloud rows here, through the reader's own settle and disclosure:
+ * marked read once the agent accepted the batch, told in their chats once it could not be delivered.
+ */
+async function settleSessionLifeSources(rows: readonly SessionLifePendingRow[], settle: (agentUserId: string, sources: AgentInboxUnreadRow[], deps: AgentInboxReaderDeps) => Promise<void>): Promise<void> {
+  const auth = await authProvider?.getAuth()
+  if (!auth?.accessToken) throw new Error('session-life: the inbox rows of a pending batch cannot be settled while signed out')
+  const byAgent = new Map<string, AgentInboxUnreadRow[]>()
+  for (const source of rows.flatMap(row => row.sources)) byAgent.set(source.agentUserId, [...byAgent.get(source.agentUserId) ?? [], source.row])
+  for (const [agentUserId, sources] of byAgent) await settle(agentUserId, sources, inboxDepsFor(auth, 'session-life'))
 }
 
 const inheritedOwnerTimeZone = ownerTimeZoneFromEnvironment()
@@ -4638,26 +4662,6 @@ app.whenReady().then(async () => {
       }
     }
     emdash.setSessionMessageRouter(sessionMessageRouter)
-    // ACP 腿的 live 转换 = 运行时登记好这条会话(启动成功)。与 codex / claude 的 onLive 同一个形状。
-    emdash.setSessionLiveNotifier((sessionId) => {
-      // @@@4629 conversation → agent 走 roster(那份 cache 就是这层绑定的 SSOT,见 agent-provisioning)。
-      void guguAgentUserIdForSession(sessionId, process.env).then(
-        (agentUserId) => {
-          if (agentUserId) return onSessionpageSessionLive(agentUserId, sessionId, 'acp-started')
-          // ❌ 不静默丢:排着的消息要等下一个触发。
-          createLogger('sessionpage/deliver').warn(
-            { sessionId },
-            'ACP 会话已起,却无处可投:这条会话在 roster 上没有 agent(还没 provision / 已被 reap)',
-          )
-        },
-        (error: unknown) => {
-          createLogger('sessionpage/deliver').error(
-            { sessionId, err: error instanceof Error ? error.message : String(error) },
-            'ACP 会话已起,解析不出它的 agent(未读留在本机 outbox,等下一个触发)',
-          )
-        },
-      )
-    })
     const senderBinding = async (context: LocalSessionBridgeContext, ownerUserId: string | null) => {
       return resolveSessionpageSenderBinding(context.sessionId, {
         listRoster: () => listAgents(process.env, { includeGuests: true }),
@@ -4981,9 +4985,12 @@ app.whenReady().then(async () => {
     // surface, so an agent.deliver addressed to a live session-page agent injects a new ACP turn; a
     // mapped offline target is queued, while transport errors remain fail-loud. Never a pty write.
     emdashAgentRegistry.setBridge(emdash)
+    emdash.setSessionLifeSourceHost({
+      markRead: row => settleSessionLifeSources([row], markInboxRowsRead),
+      reportFailure: (rows) => settleSessionLifeSources(rows, discloseInboxRowsFailed),
+    })
     // 编号 5: the reconnect a delivery kicked for a lost session ended (up, failed, or over budget): pull its inbox again —
     // up, the batch goes in; not, it fails in its chat. The same shape as the claude TUI leg's onOverdue.
-    emdashAgentRegistry.setReconnectSettledHook((agentUserId) => kickInboxForAgent(agentUserId, 'reconnect-settled'))
     // @@@sessionpage TASKPAGE-FUSION — re-map every persisted session-page agent binding at boot so it stays
     // addressable BEFORE its session-page session reopens: a deliver to a mapped-but-not-live agent becomes
     // ordered local debt instead of silently passing through to a gugu-native engine spawn.

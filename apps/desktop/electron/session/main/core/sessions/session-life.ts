@@ -10,7 +10,6 @@ import type { LegAdapter, PendingRow } from './session-life-adapter';
 import type { EnqueuePending } from './session-pending';
 
 export interface LifeStore {
-  sessions(): readonly string[];
   read(sessionId: string): { archived: boolean; hold: Hold | null };
   pending(sessionId: string): PendingView;
   row(sessionId: string, seq: Seq): PendingRow;
@@ -26,8 +25,14 @@ export interface LifeStore {
 }
 
 export interface SessionLifePorts {
-  readonly store: LifeStore;
+  /** The persisted sessions boot hydrate walks; a runtime fork is never among them. */
+  sessions(): readonly string[];
+  /** A persisted session lives in the database store, a runtime fork (side chat) in the memory store. */
+  store(sessionId: string): LifeStore;
   adapter(sessionId: string): LegAdapter;
+  /** The runtime forks whose life depends on this session; a fork's own parent, or null for a persisted session. */
+  forks(sessionId: string): readonly string[];
+  parentOf(sessionId: string): string | null;
   /** Hydrate only: the session's canonical binding names exactly this account (unknown owner = false). */
   ownedBy(sessionId: string, userId: string): Promise<boolean>;
   markRead(row: PendingRow): Promise<void>;
@@ -79,7 +84,7 @@ export class SessionLife {
   private entry(sessionId: string): Entry {
     const existing = this.entries.get(sessionId);
     if (existing) return existing;
-    const entry: Entry = { life: hydrateLife(this.ports.store.read(sessionId)), reconfigured: false, attempt: 0,
+    const entry: Entry = { life: hydrateLife(this.ports.store(sessionId).read(sessionId)), reconfigured: false, attempt: 0,
       version: 0, since: this.ports.now(), run: null, effects: this.draining.get(sessionId) ?? Promise.resolve() };
     this.entries.set(sessionId, entry);
     return entry;
@@ -106,9 +111,14 @@ export class SessionLife {
     if (ownerUserId === null) return;
     this.leaving = true;
     try {
-      for (const [sessionId] of this.entries) this.send(sessionId, { k: 'interrupt', reason: 'sign-out', ownerUserId });
+      // A runtime fork exists only for this account's run: it ends instead of waiting for a sign-in that cannot reach it.
+      for (const [sessionId] of this.entries) {
+        this.send(sessionId, this.ports.parentOf(sessionId) === null
+          ? { k: 'interrupt', reason: 'sign-out', ownerUserId } : { k: 'interrupt', reason: 'delete' });
+      }
       for (const [sessionId, entry] of this.entries) {
-        await this.quiescent(sessionId);
+        await this.drain(entry);
+        if (this.entries.get(sessionId) !== entry) continue; // a fork's delete removed it
         if (!terminal(entry.life)) throw new Error(`Session ${sessionId} did not finish sign-out teardown`);
       }
     } finally {
@@ -126,17 +136,17 @@ export class SessionLife {
     await this.leave();
     this.account = userId;
     this.epoch += 1;
-    for (const sessionId of this.ports.store.sessions()) {
+    for (const sessionId of this.ports.sessions()) {
       // v3.1 #8: only boot hydrate filters by owner; old rows of unknown or foreign bindings stay put.
       if (!await this.ports.ownedBy(sessionId, userId)) continue;
-      this.ports.store.claim(sessionId);
+      this.ports.store(sessionId).claim(sessionId);
       const entry = this.entry(sessionId);
       if (entry.life.kind === 'dormant' && entry.life.hold?.reason === 'sign-out') {
         this.send(sessionId, { k: 'signed-in', userId });
-      } else if (shouldStartOnHydrate(entry.life, this.ports.store.pending(sessionId))) {
+      } else if (shouldStartOnHydrate(entry.life, this.ports.store(sessionId).pending(sessionId))) {
         this.send(sessionId, { k: 'start', origin: 'retry' });
       } else this.publish(sessionId, entry);
-      for (const seq of this.ports.store.acceptedUnsettled(sessionId)) this.reconcileRead(sessionId, seq);
+      for (const seq of this.ports.store(sessionId).acceptedUnsettled(sessionId)) this.reconcileRead(sessionId, seq);
     }
   }
 
@@ -146,7 +156,7 @@ export class SessionLife {
    * one re-delivers only into ready{free}, the one state where a head must be pumped (invariant 3).
    */
   enqueue(input: EnqueuePending): { seq: Seq; state: PendingRow['state'] } {
-    const result = this.ports.store.enqueue(input);
+    const result = this.ports.store(input.sessionId).enqueue(input);
     const sessionId = input.sessionId;
     if (result.inserted) this.deliver(sessionId, result.seq);
     else if (result.state === 'accepted') this.reconcileRead(sessionId, result.seq);
@@ -189,8 +199,14 @@ export class SessionLife {
 
   read(sessionId: string): LifeView {
     const existing = this.entries.get(sessionId);
-    return this.view(sessionId, existing ?? { life: hydrateLife(this.ports.store.read(sessionId)), reconfigured: false, attempt: 0,
+    return this.view(sessionId, existing ?? { life: hydrateLife(this.ports.store(sessionId).read(sessionId)), reconfigured: false, attempt: 0,
       version: 0, since: this.ports.now(), run: null, effects: Promise.resolve() });
+  }
+
+  /** Persisted sessions whose run holds a process or is building one (starting, ready, stopping); side chats excluded. */
+  running(): readonly string[] {
+    return [...this.entries].filter(([id, entry]) => this.ports.parentOf(id) === null
+      && (entry.life.kind === 'starting' || entry.life.kind === 'ready' || entry.life.kind === 'stopping')).map(([id]) => id);
   }
 
   quiescent(sessionId: string): Promise<void> {
@@ -212,8 +228,8 @@ export class SessionLife {
     const previous = entry.life;
     const oldRun = entry.run;
     const next: Gen = { auth: this.epoch as AuthEpoch, attempt: (entry.attempt + 1) as Attempt };
-    const [life, effects] = step(previous, event, this.ports.store.pending(sessionId), { next });
-    this.ports.store.commit(sessionId, [...effects, ...effects.flatMap((effect): Effect[] => effect.e === 'dispatch'
+    const [life, effects] = step(previous, event, this.ports.store(sessionId).pending(sessionId), { next });
+    this.ports.store(sessionId).commit(sessionId, [...effects, ...effects.flatMap((effect): Effect[] => effect.e === 'dispatch'
       ? [{ e: 'write-receipt', seq: effect.seq, receipt: { state: 'dispatching', attempt: effect.gen.attempt } }] : [])]);
     entry.life = life;
     if (life.kind === 'starting' && (!oldRun || !same(life.gen, oldRun.gen))) {
@@ -228,7 +244,7 @@ export class SessionLife {
     const removed = effects.some(effect => effect.e === 'remove');
     if (removed) {
       oldRun?.unlisten?.();
-      this.ports.store.remove(sessionId);
+      this.ports.store(sessionId).remove(sessionId);
       this.entries.delete(sessionId);
       this.ports.removed(sessionId);
       // The internal sealed archived result of delete is never a published projection; its IO still runs below.
@@ -291,7 +307,7 @@ export class SessionLife {
         }
         let result: Awaited<ReturnType<LegAdapter['dispatch']>>;
         try {
-          result = await run.adapter.dispatch(entry.life.have, this.ports.store.row(sessionId, effect.seq), { gen: run.gen, signal: run.abort.signal });
+          result = await run.adapter.dispatch(entry.life.have, this.ports.store(sessionId).row(sessionId, effect.seq), { gen: run.gen, signal: run.abort.signal });
         } catch (error) {
           // @@@dispatch-throw - bytes may have left: the channel is no longer a proven admission path.
           // Exit records this row as unknown (never replayed) and restarts only for the rows behind it.
@@ -309,8 +325,14 @@ export class SessionLife {
         await run.adapter.teardown(effect.have, { gen: effect.gen });
         return;
       case 'mark-source-read': this.reconcileRead(sessionId, effect.seq); return;
-      case 'report-failure': await this.ports.reportFailure(effect.seqs.map(seq => this.ports.store.row(sessionId, seq)), effect.cause); return;
-      case 'end-dependents': await (run?.adapter ?? this.ports.adapter(sessionId)).endDependents(); return;
+      case 'report-failure': await this.ports.reportFailure(effect.seqs.map(seq => this.ports.store(sessionId).row(sessionId, seq)), effect.cause); return;
+      case 'end-dependents': {
+        // v3.1 #11 + 3d: side chats are fork entries of Life; their parent's end deletes each of them, all tried.
+        const failures = (await Promise.allSettled(this.ports.forks(sessionId)
+          .map(fork => this.interrupt(fork, { k: 'interrupt', reason: 'delete' })))).flatMap(r => r.status === 'rejected' ? [r.reason] : []);
+        if (failures.length) throw new AggregateError(failures, `${failures.length} side chat(s) of session ${sessionId} did not end`);
+        return;
+      }
       case 'abort': case 'write-receipt': case 'write-hold': case 'remove': return;
       default: return assertNever(effect);
     }
@@ -318,14 +340,14 @@ export class SessionLife {
 
   /** A failed read marker leaves an accepted, unsettled row: a later cloud nudge reconciles it without dispatch. */
   reconcileRead(sessionId: string, seq: Seq): void {
-    const row = this.ports.store.row(sessionId, seq);
+    const row = this.ports.store(sessionId).row(sessionId, seq);
     if (row.state !== 'accepted') return;
-    void this.ports.markRead(row).then(() => this.ports.store.settleRead(sessionId, seq), error => this.ports.failed(sessionId, error));
+    void this.ports.markRead(row).then(() => this.ports.store(sessionId).settleRead(sessionId, seq), error => this.ports.failed(sessionId, error));
   }
 
   private view(sessionId: string, entry: Entry): LifeView {
     const life = entry.life;
-    const rows = this.ports.store.rows(sessionId);
+    const rows = this.ports.store(sessionId).rows(sessionId);
     const hold = life.kind === 'dormant' || life.kind === 'failed' ? life.hold : life.kind === 'stopping' && life.destination.kind === 'held' ? life.destination.hold : null;
     return { sessionId, version: entry.version, kind: life.kind,
       stage: life.kind === 'starting' ? { at: life.progress.at, index: STAGES.indexOf(life.progress.at) + 1, total: 7, since: entry.since } : null,

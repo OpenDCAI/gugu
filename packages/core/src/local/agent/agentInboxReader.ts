@@ -102,8 +102,11 @@ export interface AgentInboxUnreadRow {
   forum?: { postId: string; seq: number; envelope: string }
 }
 
-/** 注入尝试的三态判决(通道给出;投递层不检查忙闲、不因忙扣消息)。 */
-export type AgentInboxInjectionVerdict = 'accepted' | 'not-live' | 'not-now'
+/**
+ * 注入尝试的判决(通道给出;投递层不检查忙闲、不因忙扣消息)。`enqueued`: the host's session lifecycle owner took the unit
+ * into its durable queue; its rows are marked read only when the agent accepts it (the host calls markInboxRowsRead).
+ */
+export type AgentInboxInjectionVerdict = 'accepted' | 'enqueued' | 'not-live' | 'not-now'
 
 /** Provider admission plus an optional out-of-band turn settlement. */
 export type AgentInboxInjectionResult = AgentInboxInjectionVerdict | {
@@ -116,6 +119,11 @@ export interface AgentInboxInjectionInput {
   /** 稳定注入 id = 批首条消息的 msg id(幂等重放/审计锚;单条时即该条)。 */
   messageId?: string
   text: string
+  /**
+   * The rows this unit settles once accepted (its members, and skipped rows it passes): an enqueuing host freezes them.
+   * Absent: a host-made unit (a notice) with no inbox row behind it.
+   */
+  sources?: readonly AgentInboxUnreadRow[]
   /** Image bytes travel as content blocks, never as a URL for the agent to fetch. */
   attachments?: Array<{ data: string; mimeType: string; fileName: string; localPath?: string }>
 }
@@ -157,6 +165,8 @@ export interface AgentInboxReaderDeps {
   markLocalRead?: (input: { agentUserId: string; sessionId: string; messageId: string }) => Promise<void>
   /** injectable:游标推进(默认 mark_read_on_deliver)。 */
   markRead?: (input: AgentDeliveredMessageRead) => Promise<void>
+  /** Rows an enqueuing host already holds in its queue (still unread until accepted): left out of every new unit. */
+  claimedSources?: (agentUserId: string, messageIds: readonly string[]) => ReadonlySet<string> | Promise<ReadonlySet<string>>
   /**
    * 论坛来源(forumInbox.ts):有它才拉论坛(宿主的装配 agentInboxDepsFromBridge 接上 forum_pull_agent_inbox);确认与失败记录
    * 默认 forum_ack / forum_record_delivery_failure。
@@ -203,7 +213,7 @@ export interface AgentInboxPullResult {
   pulled: number
   /** 注入成功且云端游标已推进或本机行已删除的行数。 */
   injected: number
-  verdict: 'idle' | 'accepted' | 'not-live' | 'not-now'
+  verdict: 'idle' | AgentInboxInjectionVerdict
   /** Resolves when all provider turns admitted by this pull have settled. */
   completion?: Promise<void>
 }
@@ -508,6 +518,12 @@ async function filterArchivedRows(agentUserId: string, rows: AgentInboxUnreadRow
   return rows.filter((_, index) => !refused[index])
 }
 
+async function unclaimedRows(agentUserId: string, rows: AgentInboxUnreadRow[], deps: AgentInboxReaderDeps): Promise<AgentInboxUnreadRow[]> {
+  if (!deps.claimedSources || rows.length === 0) return rows
+  const claimed = await deps.claimedSources(agentUserId, rows.map((row) => row.id))
+  return rows.filter((row) => !claimed.has(row.id))
+}
+
 async function pullOnce(agentUserId: string, deps: AgentInboxReaderDeps): Promise<AgentInboxPullResult> {
   if (deps.recipientIsRegistered && !(await deps.recipientIsRegistered(agentUserId))) return { pulled: 0, injected: 0, verdict: 'not-now' }
   if ((await deps.sessionArchival?.(agentUserId))?.archivedAt) return { pulled: 0, injected: 0, verdict: 'not-now' }
@@ -534,13 +550,13 @@ async function pullOnce(agentUserId: string, deps: AgentInboxReaderDeps): Promis
     if (rawRows.length === 0) break
     const archival = await deps.sessionArchival?.(agentUserId) ?? null
     if (archival?.archivedAt) { verdict = 'not-now'; break }
-    const rows = await filterArchivedRows(agentUserId, rawRows, archival, deps)
+    const rows = await unclaimedRows(agentUserId, await filterArchivedRows(agentUserId, rawRows, archival, deps), deps)
     const batchResult = await injectBatch(agentUserId, rows, deps)
     injectedTotal += batchResult.injected
     verdict = batchResult.verdict
     if (batchResult.completion) completions.push(batchResult.completion)
     // not-live / not-now:游标不动,本轮结束,等下一个触发(唤醒完成/回合末)。
-    if (batchResult.verdict !== 'accepted') break
+    if (batchResult.verdict !== 'accepted' && batchResult.verdict !== 'enqueued') break
     if (fetchedRows.length < PULL_LIMIT) break
     const tail = fetchedRows[fetchedRows.length - 1]!
     if (scanAfter && (tail.chatId < scanAfter.chatId || (tail.chatId === scanAfter.chatId && tail.seq <= scanAfter.seq))) {
@@ -553,13 +569,13 @@ async function pullOnce(agentUserId: string, deps: AgentInboxReaderDeps): Promis
     scanAfter = { chatId: tail.chatId, seq: tail.seq }
   }
   // 论坛来源:聊天这一轮受理完(或本来就没有)才拉 —— 会话不 live / 此刻不收时它也不收,等下一个触发。
-  if (deps.fetchForumUnread && (verdict === 'idle' || verdict === 'accepted')) {
+  if (deps.fetchForumUnread && (verdict === 'idle' || verdict === 'accepted' || verdict === 'enqueued')) {
     const forumRows = await deps.fetchForumUnread(agentUserId)
     pulled += forumRows.length
     if (forumRows.length > 0) {
       const archival = await deps.sessionArchival?.(agentUserId) ?? null
       if (archival?.archivedAt) return { pulled, injected: injectedTotal, verdict: 'not-now' }
-      const batchResult = await injectBatch(agentUserId, await filterArchivedRows(agentUserId, forumRows, archival, deps), deps)
+      const batchResult = await injectBatch(agentUserId, await unclaimedRows(agentUserId, await filterArchivedRows(agentUserId, forumRows, archival, deps), deps), deps)
       injectedTotal += batchResult.injected
       verdict = batchResult.verdict
       if (batchResult.completion) completions.push(batchResult.completion)
@@ -710,9 +726,14 @@ async function injectBatch(
   }
 
   let injected = 0
+  let enqueued = false
   const completions: Promise<void>[] = []
   for (let unitIndex = 0; unitIndex < units.length; unitIndex += 1) {
     const unit = units[unitIndex]!
+    // Skipped rows this unit passes are settled with it, in chat order (the server cursor never passes an unread row).
+    const reach = new Map<string, number>()
+    for (const member of unit.members) reach.set(member.row.chatId, Math.max(reach.get(member.row.chatId) ?? -Infinity, member.row.seq))
+    const passed = skipped.filter((entry) => entry.row.seq < (reach.get(entry.row.chatId) ?? -Infinity))
     const archival = await deps.sessionArchival?.(agentUserId) ?? null
     if (archival?.archivedAt || (await Promise.all(unit.members.map(({ row }) => refusesArchivedRow(agentUserId, row, archival, deps)))).some(Boolean)) {
       return { injected, verdict: 'not-now', ...(completions.length ? { completion: Promise.all(completions).then(() => undefined) } : {}) }
@@ -724,6 +745,7 @@ async function injectBatch(
         agentUserId,
         messageId: unit.members[0]!.row.id,
         text: unit.text,
+        sources: [...passed, ...unit.members].map((entry) => entry.row),
         ...(unit.attachments ? { attachments: unit.attachments } : {}),
       })
       if (typeof result === 'string') {
@@ -745,7 +767,7 @@ async function injectBatch(
       const unadmitted = units.slice(unitIndex).flatMap((remaining) => remaining.members)
       throw saidIfDisclosed(error, await discloseBatchFailure(agentUserId, unadmitted, deps))
     }
-    if (unitVerdict !== 'accepted') {
+    if (unitVerdict !== 'accepted' && unitVerdict !== 'enqueued') {
       if (unitVerdict === 'not-live') deps.wake?.(agentUserId)
       return {
         injected,
@@ -755,11 +777,10 @@ async function injectBatch(
     }
     injected += unit.members.length
     if (completion) completions.push(completion)
-    const reach = new Map<string, number>()
-    for (const member of unit.members) reach.set(member.row.chatId, Math.max(reach.get(member.row.chatId) ?? -Infinity, member.row.seq))
-    const passed = skipped.filter((entry) => entry.row.seq < (reach.get(entry.row.chatId) ?? -Infinity))
     for (const entry of passed) skipped.splice(skipped.indexOf(entry), 1)
-    await advanceCursor(agentUserId, [...passed, ...unit.members], deps)
+    // Enqueued: the host's queue now owns these rows; they are marked read when the agent accepts them.
+    if (unitVerdict === 'enqueued') enqueued = true
+    else await advanceCursor(agentUserId, [...passed, ...unit.members], deps)
     deps.onOutcome?.({ agentUserId, ok: true })
     for (const member of unit.members) {
       if (member.bootstrapKey) threadBootstrapped.add(member.bootstrapKey)
@@ -769,10 +790,11 @@ async function injectBatch(
       }
     }
   }
-  if (skipped.length > 0) await advanceCursor(agentUserId, skipped, deps)
+  // Behind an enqueued unit a skipped row would pass rows that are still unread: it waits for a later unit.
+  if (skipped.length > 0 && !enqueued) await advanceCursor(agentUserId, skipped, deps)
   return {
     injected,
-    verdict: 'accepted',
+    verdict: enqueued ? 'enqueued' : 'accepted',
     ...(completions.length > 0 ? { completion: Promise.all(completions).then(() => undefined) } : {}),
   }
 }
@@ -930,6 +952,17 @@ function rebuildEnvelopeWithThreadContext(
     toolNames,
     { listenMode: resolveListenModeDefault(row.listenMode), threadContext, messageContext, groupRules },
   )
+}
+
+/** An enqueuing host's agent accepted these rows: settle them exactly as an accepted injection does. */
+export function markInboxRowsRead(agentUserId: string, rows: readonly AgentInboxUnreadRow[], deps: AgentInboxReaderDeps): Promise<void> {
+  return advanceCursor(agentUserId, rows.map((row) => ({ row, envelope: '' })), deps)
+}
+
+/** An enqueuing host could not deliver these rows: say so in their chats, as a failed injection does. */
+export async function discloseInboxRowsFailed(agentUserId: string, rows: readonly AgentInboxUnreadRow[], deps: AgentInboxReaderDeps): Promise<void> {
+  deps.onOutcome?.({ agentUserId, ok: false })
+  await discloseBatchFailure(agentUserId, rows.map((row) => ({ row })), deps)
 }
 
 /**

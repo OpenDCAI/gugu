@@ -13,11 +13,9 @@ export function canQueueNativeInput(store: AcpChatStore): boolean {
 
 /**
  * The one send path of a task page (custody chain): the sender's outbox holds the input until the host's
- * session_pending accepts it, then the host row is its only owner. A side-chat view is not a session-life session
- * and keeps its runtime's own prompt path.
+ * session_pending accepts it, then the host row is its only owner. A side chat sends to its fork entry by its own id.
  */
 export async function sendThroughCustody(store: AcpChatStore, text: string, attachments: readonly AcpPromptAttachment[]): Promise<void> {
-  if (store.runtimeSessionId !== store.sessionId) { store.submitPrompt(text, [...attachments]); return }
   if (!sessionInputOutboxAvailable()) throw new Error('Task input needs a signed-in account; the draft is kept')
   await enqueueSessionInput({ deviceId: machineRegistry.machineOf(store.runtimeSessionId), sessionId: store.runtimeSessionId, text, ...(attachments.length ? { attachments: attachments.map(attachment => attachment.ref) } : {}) }).catch(error => {
     store.setDraftText([text, store.draftText].filter(Boolean).join('\n'))

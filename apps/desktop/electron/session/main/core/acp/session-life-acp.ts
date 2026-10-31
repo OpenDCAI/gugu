@@ -1,3 +1,7 @@
+import { isHumanDmDelivery } from '@gugu/core/local/agent/deliveryEnvelope';
+import { declaredInjectionTiming } from '@gugu/session-core/agents/plugins';
+import { resolveSessionpageSessionIntegration } from '@gugu/session-plugins/agents';
+import type { StartSessionInput } from '@gugu/session-core/acp';
 import type {
   AdmittedChannel, BoundIdentity, CapabilityGrant, ExitFact, Gen, Have, PlatformTicket, ProcessLease,
   ResolvedCli, StageName, StageOut, WorkspaceLease,
@@ -5,20 +9,23 @@ import type {
 import { resolveWorkspace } from '@main/core/projects/utils';
 import { getSessions } from '@main/core/sessions/getSessions';
 import { sessionService } from '@main/core/sessions/session-service';
-import { closeRuntimeForkOwnershipForRuntimeSession, readRuntimeForkOwnership, recordRuntimeForkOwnership } from '@main/core/sessions/runtime-fork-ownership';
+import { recordRuntimeForkOwnership } from '@main/core/sessions/runtime-fork-ownership';
 import type { LegAdapter } from '../sessions/session-life-adapter';
+import type { RuntimeFork } from '../sessions/session-life-forks';
+import { localAgentForSession } from '@main/core/sessionpage/sessionpage-session-agent';
 import { acpAgentStatusBridge } from './agent-status-bridge';
 import type { EmdashSessionIdentity } from './emdash-mcp-injector';
 import { releaseEmdashPlatformSession } from './emdash-platform-injector';
 import { injectEmdashPromptDetached } from './inject-prompt';
 import {
-  type AcpRuntimeClient, acpWorkerLease, callSessionStart, peekAcpWorkerClient, persistProviderSessionMissing, persistReturnedProviderSessionId,
+  acpWorkerLease, callSessionStart, persistProviderSessionMissing, persistReturnedProviderSessionId,
   persistSessionMcpServers, provisionStartIdentity, readSessionInjectionFacts, stopAcpSessionAndSettle, withEmdashMcpInjection,
   withEmdashPlatformInjection, withHostResolvedCli,
 } from './runtime-process/host';
 import { resumeHistoryFacts } from './runtime-process/resume-history';
 import { renderFirstTurn } from '@gugu/core/local/agent/firstTurnRender';
 import { lifeStore } from '../sessions/session-pending';
+import { forkStore } from '../sessions/session-life-forks';
 import { log } from '@main/lib/logger';
 import { persistAcpStartResult } from './runtime-process/session-persistence-policy';
 
@@ -34,10 +41,14 @@ import { persistAcpStartResult } from './runtime-process/session-persistence-pol
  *   cli          host-resolved CLI + resume history
  *   process      the ACP worker lease
  *   channel      this attempt's startSession returned: the worker answers only after SessionReady
+ *
+ * A runtime fork (side chat, `fork` given) is the same leg over its parent's record: identity is the parent's binding
+ * (read only; the fork's grant stays private, as the injector gives every runtime fork), the workspace is the parent's,
+ * and it has no provider session of its own — it branches from the parent's.
  */
 
 type Row = Awaited<ReturnType<typeof getSessions>>[number];
-type StartInput = Parameters<AcpRuntimeClient['startSession']>[0];
+type StartInput = { input: StartSessionInput };
 type Facts = Awaited<ReturnType<typeof readSessionInjectionFacts>>;
 type Lifecycle = 'fresh' | 'fork' | 'resume';
 type Worker = Awaited<ReturnType<typeof acpWorkerLease>>;
@@ -50,7 +61,8 @@ type Cli = { command: Parameters<Worker['client']['startSession']>[0] };
 const lease = <T>(value: T) => value as unknown;
 const read = <T>(value: object): T => value as T;
 
-function lifecycleOf(row: Row): Lifecycle {
+function lifecycleOf(row: Row, fork: RuntimeFork | null): Lifecycle {
+  if (fork) return 'fork';
   if (row.providerSessionId) return 'resume';
   return row.forkFromProviderSessionId ? 'fork' : 'fresh';
 }
@@ -62,7 +74,7 @@ async function sessionRow(sessionId: string): Promise<Row> {
   return row;
 }
 
-export function createAcpLegAdapter(sessionId: string): LegAdapter {
+export function createAcpLegAdapter(sessionId: string, fork: RuntimeFork | null): LegAdapter {
   let row: Row | null = null;
   let facts: Facts | null = null;
   let identity: EmdashSessionIdentity | null = null;
@@ -72,6 +84,10 @@ export function createAcpLegAdapter(sessionId: string): LegAdapter {
   async function startInput(workspace: Workspace): Promise<StartInput> {
     const { acpStartInputFor } = await import('@main/embedded-boot');
     const session = known();
+    if (fork) {
+      return { input: { ...acpStartInputFor(session, workspace.workspaceId, workspace.path), sessionId,
+        sourceSessionId: fork.parentId, forkFromProviderSessionId: fork.forkFromProviderSessionId, providerSessionId: null } } as StartInput;
+    }
     // Not yet claimed by a first start: a pending persistent fork rides on it. The creation turns are pending
     // rows (one queue), never part of the start.
     const unclaimed = session.providerSessionId == null;
@@ -85,20 +101,27 @@ export function createAcpLegAdapter(sessionId: string): LegAdapter {
 
   const stages: { [K in StageName]: (have: Have<K>, signal: AbortSignal, gen: Gen) => Promise<StageOut[K]> } = {
     async identity(): Promise<BoundIdentity> {
+      if (fork) {
+        row = await sessionRow(fork.parentId);
+        facts = await readSessionInjectionFacts({ sessionId, sourceSessionId: fork.parentId });
+        const agentUserId = (await localAgentForSession(fork.parentId, process.env))?.gugu_user_id;
+        if (!agentUserId) throw new Error(`Side chat ${sessionId}: its session ${fork.parentId} has no gugu identity`);
+        return { kind: 'bound', agentUserId };
+      }
       row = await sessionRow(sessionId);
       if (!row.workspaceId) throw new Error(`Session ${sessionId} has no workspace`);
       // Read-only: the same path the workspace stage will mount, without mounting it yet.
       const cwd = resolveWorkspace(row.projectId, row.workspaceId)?.path;
       if (!cwd) throw new Error(`Session ${sessionId} workspace is unknown`);
       facts = await readSessionInjectionFacts({ sessionId });
-      identity = await provisionStartIdentity({ sessionId, providerId: row.providerId, projectId: row.projectId, cwd }, lifecycleOf(row), facts);
+      identity = await provisionStartIdentity({ sessionId, providerId: row.providerId, projectId: row.projectId, cwd }, lifecycleOf(row, null), facts);
       // A persisted session is never a runtime fork: no identity here means tombstoned or not provisionable.
       if (!identity) throw new Error(`Session ${sessionId} has no gugu identity and cannot be given one`);
       return { kind: 'bound', agentUserId: identity.guguAgentUserId };
     },
     async workspace(): Promise<WorkspaceLease> {
       const session = known();
-      const mounted = await sessionService.ensureSessionMounted(sessionId);
+      const mounted = await sessionService.ensureSessionMounted(fork?.parentId ?? sessionId);
       const workspace = resolveWorkspace(session.projectId, mounted.workspaceId);
       if (!workspace) throw new Error(`Session ${sessionId} workspace is not mounted`);
       return lease<Workspace>({ workspaceId: mounted.workspaceId, path: workspace.path }) as WorkspaceLease;
@@ -107,14 +130,14 @@ export function createAcpLegAdapter(sessionId: string): LegAdapter {
       if (!facts) throw new Error('ACP capabilities ran before identity');
       const command = await startInput(read<Workspace>(have.workspace));
       // The injector lands a still-queued first turn's gugu message; it only needs that row's text.
-      const firstTurn = lifeStore.rows(sessionId).find(row => row.turn.kind === 'chat-page-first-turn' && row.state === 'queued');
-      const injection = await withEmdashMcpInjection(command, lifecycleOf(known()), facts, identity, firstTurn?.message.text);
+      const firstTurn = (fork ? forkStore : lifeStore).rows(sessionId).find(row => row.turn.kind === 'chat-page-first-turn' && row.state === 'queued');
+      const injection = await withEmdashMcpInjection(command, lifecycleOf(known(), fork), facts, identity, firstTurn?.message.text);
       return lease<Capabilities>({ injection, facts }) as CapabilityGrant;
     },
     async platform(have): Promise<PlatformTicket> {
       const { injection, facts: f } = read<Capabilities>(have.capabilities);
       const platform = await withEmdashPlatformInjection(
-        injection.command, lifecycleOf(known()), f, injection.mcpServers, injection.sessionPrompt, injection.sessionMeta,
+        injection.command, lifecycleOf(known(), fork), f, injection.mcpServers, injection.sessionPrompt, injection.sessionMeta,
         injection.capabilitySpawnEnv, injection.capabilitySpawnArgs, injection.platformConfigured,
         injection.platformAccessSessionId, injection.platformModel,
       );
@@ -141,7 +164,7 @@ export function createAcpLegAdapter(sessionId: string): LegAdapter {
         restoreHumanToolResults(sessionId, command.input.projectId, true))
         .catch(error => log.error('Human tool results could not resume', { sessionId, error: String(error) }));
       void persistSessionMcpServers(sessionId, command.input.providerId, command.input.cwd, f.mcpDisabledServers, injection.extensionDelivery);
-      const previous = known().providerSessionId ?? null;
+      const previous = fork ? null : known().providerSessionId ?? null;
       const nativeSession = previous === null ? null : result.data.providerSessionId === previous ? 'preserved' : 'replaced';
       return lease({ gen, timing: 'next-tool-call', nativeSession }) as AdmittedChannel;
     },
@@ -162,8 +185,13 @@ export function createAcpLegAdapter(sessionId: string): LegAdapter {
         case 'prompt': {
           // The row carries the sender's choice; an envelope's own origin is still read from its text.
           const origin = pending.turn.origin ?? delivery?.origin;
+          // A delivery into a harness that takes input at its next tool call steers the running turn, unless the
+          // sender asked to queue or it is a person's own DM (moved here from the old ACP delivery target, #4708).
+          const steerIfBusy = !delivery?.queue && !isHumanDmDelivery(pending.message.text)
+            && declaredInjectionTiming(resolveSessionpageSessionIntegration(known().providerId, 'acp')) === 'next-tool-call';
           sent = await injectEmdashPromptDetached(sessionId, pending.message.text, {
             ...(origin ? { origin } : {}),
+            ...(steerIfBusy ? { steerIfBusy: true } : {}),
             ...(pending.turn.hiddenContext ? { hiddenContext: pending.turn.hiddenContext } : {}),
             ...(delivery?.coalesceKey ? { coalesceKey: delivery.coalesceKey } : {}),
             ...attachments,
@@ -187,18 +215,6 @@ export function createAcpLegAdapter(sessionId: string): LegAdapter {
       if (have.process || have.channel) {
         await stopAcpSessionAndSettle((have.process ? read<Worker>(have.process) : await acpWorkerLease()).client, sessionId);
       } else if (have.platform || have.capabilities) await releaseEmdashPlatformSession(sessionId);
-    },
-    async endDependents() {
-      // Side-chat forks are runtime children outside Life: they end only when the session itself ends.
-      const forks = (await readRuntimeForkOwnership())
-        .filter(fork => fork.sourceSessionId === sessionId && fork.status === 'active').map(fork => fork.runtimeSessionId);
-      if (!forks.length) return;
-      // No worker up ⇒ no fork process exists (#4467: never spawn one to stop it); only its record is left.
-      const client = await peekAcpWorkerClient();
-      const end = (id: string) => client ? stopAcpSessionAndSettle(client, id) : closeRuntimeForkOwnershipForRuntimeSession(id);
-      const failures = (await Promise.allSettled(forks.map(end)))
-        .flatMap(result => result.status === 'rejected' ? [result.reason] : []);
-      if (failures.length) throw new AggregateError(failures, `${failures.length} runtime fork(s) of session ${sessionId} did not stop`);
     },
     onExit(have, cb) {
       const worker = read<Worker>(have.process);

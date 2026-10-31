@@ -12,16 +12,16 @@ import { sessionReclaimedChannel } from '@shared/core/sessions/provisionEvents';
 import { subscriptionSwitchProgressChannel } from '@shared/core/sessions/subscriptionSwitchEvents';
 import { stopExactSessionpageSession } from './session-orchestration';
 import { SubscriptionSessionsBusyError } from './subscription-sessions-busy';
+import { sessionLife } from './session-life';
 
 type SubscriptionProvider = 'claude' | 'codex';
 type LiveSession = { projectId: string; sessionId: string; busy: boolean };
 
-const ACP_LIVE = new Set<SessionSummary['lifecycle']>(['starting', 'replaying', 'ready', 'working', 'cancelling']);
 /** 停一条会话等它的进程退出,一轮最多 10 s(`stop_pending` = 信号发了、还没退)。几轮都没退才报失败。 */
 const STOP_ATTEMPTS = 3;
 
-function acpBusy(summary: SessionSummary): boolean {
-  return summary.lifecycle !== 'ready'
+function acpBusy(summary: SessionSummary | undefined): boolean {
+  return summary === undefined || summary.lifecycle !== 'ready'
     || summary.isGenerating
     || summary.pendingPermissionCount > 0
     || summary.queuedPromptCount > 0
@@ -32,9 +32,13 @@ function acpBusy(summary: SessionSummary): boolean {
 /** 此刻进程在跑的这一家的会话(两种腿);它们都跑在用户的配置根上。 */
 function liveSessions(providerId: SubscriptionProvider): LiveSession[] {
   const live = new Map<string, LiveSession>();
-  for (const summary of acpAgentStatusBridge.current().values()) {
-    if (summary.providerId !== providerId || !ACP_LIVE.has(summary.lifecycle)) continue;
-    live.set(summary.sessionId, { projectId: summary.projectId, sessionId: summary.sessionId, busy: acpBusy(summary) });
+  // ACP: session-life says which sessions have a run; the runtime summary says only whether it is busy.
+  const summaries = acpAgentStatusBridge.current();
+  for (const sessionId of sessionLife().running()) {
+    const row = db.select({ projectId: sessions.projectId, provider: sessions.provider }).from(sessions).where(eq(sessions.id, sessionId)).get();
+    if (!row) throw new Error(`subscription switch: running session ${sessionId} has no row`);
+    if (row.provider !== providerId) continue;
+    live.set(sessionId, { projectId: row.projectId, sessionId, busy: acpBusy(summaries.get(sessionId)) });
   }
   for (const pty of ptySessionRegistry.listActiveSessions()) {
     if (pty.metadata?.providerId !== providerId) continue;

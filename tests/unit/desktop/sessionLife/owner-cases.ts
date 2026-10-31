@@ -16,7 +16,7 @@ const seq = (value: number) => value as Seq;
 const EXIT: ExitFact = { cause: { name: 'Lost', message: 'adapter exited' }, code: 1, signal: null };
 
 function rig(options: { block?: StageName; delayReceipt?: boolean; dispatchThrowsOnce?: boolean; markReadFailsOnce?: boolean;
-  failAt?: StageName; exitBeforeFail?: boolean; holdEndDependents?: Promise<void>; teardownThrowsOnce?: boolean; reportFailureThrowsOnce?: boolean; commitThrowsOnSignOutHold?: boolean } = {}) {
+  failAt?: StageName; exitBeforeFail?: boolean; holdTeardownOf?: { id: string; until: Promise<void> }; teardownThrowsOnce?: boolean; reportFailureThrowsOnce?: boolean; commitThrowsOnSignOutHold?: boolean } = {}) {
   const records = new Map<string, { owner: string | null; hold: Hold | null; archived: boolean }>();
   const rows = new Map<Seq, PendingRow>();
   const settled = new Set<Seq>();
@@ -38,8 +38,8 @@ function rig(options: { block?: StageName; delayReceipt?: boolean; dispatchThrow
   let reportThrows = options.reportFailureThrowsOnce;
   let commitThrows = options.commitThrowsOnSignOutHold;
   let counter = 0;
+  const forks = new Map<string, string>();
   const store: LifeStore = {
-    sessions: () => [...records.keys()],
     read(id) { const record = records.get(id); assert.ok(record); return record; },
     pending(id) { const local = [...rows.values()].filter(row => row.sessionId === id).sort((a, b) => a.seq - b.seq);
       return { queued: local.filter(row => row.state === 'queued').map(row => row.seq), dispatching: local.filter(row => row.state === 'dispatching').map(row => row.seq) }; },
@@ -63,8 +63,10 @@ function rig(options: { block?: StageName; delayReceipt?: boolean; dispatchThrow
     settleRead(_id, s) { settled.add(s); },
     remove(id) { records.delete(id); for (const row of rows.values()) if (row.sessionId === id) rows.delete(row.seq); },
   };
-  const ports: SessionLifePorts = { store, ownedBy: async (id, user) => records.get(id)?.owner === user,
-    adapter() {
+  const ports: SessionLifePorts = { sessions: () => [...records.keys()].filter(id => !forks.has(id)), store: () => store,
+    forks: id => [...forks].filter(([, parent]) => parent === id).map(([fork]) => fork), parentOf: id => forks.get(id) ?? null,
+    ownedBy: async (id, user) => records.get(id)?.owner === user,
+    adapter(sessionId) {
       return { leg: 'acp', timing: 'next-tool-call',
         async run<K extends StageName>(at: K, _have: unknown, ctx: { gen: Gen; signal: AbortSignal }): Promise<StageOut[K]> {
           ctx.signal.throwIfAborted();
@@ -84,19 +86,19 @@ function rig(options: { block?: StageName; delayReceipt?: boolean; dispatchThrow
         },
         async dispatch(_have, row) { dispatched.push(row.seq); dispatchStarted.resolve();
           if (throwOnce) { throwOnce = false; throw new Error('worker RPC failed'); } return options.delayReceipt ? receipt.promise : { result: 'accepted', nativeReceiptId: row.message.id }; },
-        async teardown(have) { trace.push('teardown'); if (teardownThrows) { teardownThrows = false; throw new Error('teardown failed'); } for (const lease of Object.values(have)) active.delete(lease); },
+        async teardown(have) { trace.push('teardown'); if (options.holdTeardownOf?.id === sessionId) await options.holdTeardownOf.until; if (teardownThrows) { teardownThrows = false; throw new Error('teardown failed'); } for (const lease of Object.values(have)) active.delete(lease); },
         onExit(_have, cb) { exitCallbacks.push(cb); return () => { trace.push('unlisten'); }; },
-        async endDependents() { trace.push('end-dependents'); if (options.holdEndDependents) await options.holdEndDependents; trace.push('end-dependents-done'); },
       } satisfies LegAdapter;
     },
     markRead: async row => { if (markFailOnce) { markFailOnce = false; throw new Error('read marker failed'); } marked.push(row.seq); }, reportFailure: async (_rows, cause) => { if (reportThrows) { reportThrows = false; throw new Error('report failed'); } trace.push(`failure:${cause.name}`); },
-    publish: view => { views.push(view); }, removed: id => { removed.push(id); }, failed: (_id, error) => { failures.push(error); }, now: () => 1234,
+    publish: view => { views.push(view); }, removed: id => { removed.push(id); trace.push(`removed:${id}`); }, failed: (_id, error) => { failures.push(error); }, now: () => 1234,
   };
   const owner = new SessionLife(ports);
   function session(id = 's', account: string | null = 'A') { records.set(id, { owner: account, hold: null, archived: false }); }
+  function fork(id: string, parent = 's') { forks.set(id, parent); records.set(id, { owner: null, hold: null, archived: false }); }
   function enqueue(id = 's') { const s = seq(++counter); rows.set(s, { seq: s, sessionId: id, kind: 'ordinary', state: 'queued', message: { id: `m${s}`, text: `input ${s}` }, sources: [], turn: { kind: 'prompt' } }); return s; }
   const send = (id = 's', messageId = `user-${++counter}`) => owner.enqueue({ sessionId: id, messageId, text: messageId, kind: 'ordinary' });
-  return { owner, records, rows, active, views, removed, dispatched, failures, marked, trace, blocked, dispatchStarted, receipt, exitCallbacks, session, enqueue, send, store };
+  return { owner, records, rows, active, views, removed, dispatched, failures, marked, trace, blocked, dispatchStarted, receipt, exitCallbacks, session, fork, enqueue, send, store };
 }
 
 export const ownerCases: readonly { name: string; run: () => Promise<void> }[] = [
@@ -152,30 +154,41 @@ export const ownerCases: readonly { name: string; run: () => Promise<void> }[] =
     assert.equal(r.owner.read('s').lastExit, 'adapter exited');
     assert.deepEqual(r.failures, []);
   } },
-  { name: 'archive and delete end the dependents; delete still runs its IO and interrupt waits for it', async run() {
+  { name: 'archive and delete end the side chats (fork entries); delete still runs its IO and interrupt waits for it', async run() {
     for (const reason of ['archive', 'delete'] as const) {
-      const r = rig(); r.session(); await r.owner.signIn('A'); r.owner.start('s'); await r.owner.quiescent('s');
+      const r = rig(); r.session(); r.fork('f'); await r.owner.signIn('A');
+      r.owner.start('s'); r.owner.start('f'); await r.owner.quiescent('s'); await r.owner.quiescent('f');
+      assert.equal(r.owner.read('f').kind, 'ready', reason);
       await r.owner.interrupt('s', { k: 'interrupt', reason });
       assert.equal(r.active.size, 0, reason);
-      assert.deepEqual(r.trace.filter(line => line === 'teardown' || line === 'end-dependents'), ['teardown', 'end-dependents'], reason);
+      assert.ok(r.removed.includes('f'), reason);
+      assert.equal(r.removed.includes('s'), reason === 'delete', reason);
       assert.deepEqual(r.failures, []);
     }
-    const r = rig(); r.session(); await r.owner.signIn('A');
+    const r = rig(); r.session(); r.fork('f'); await r.owner.signIn('A');
     await r.owner.interrupt('s', { k: 'interrupt', reason: 'delete' });
-    assert.deepEqual(r.trace, ['end-dependents', 'end-dependents-done']); assert.deepEqual(r.removed, ['s']);
+    assert.deepEqual(r.removed, ['s', 'f']); assert.deepEqual(r.trace, ['removed:s', 'removed:f']);
+  } },
+  { name: 'sign-out ends side chats instead of holding them for a sign-in that cannot reach them', async run() {
+    const r = rig(); r.session(); r.fork('f'); await r.owner.signIn('A');
+    r.owner.start('f'); await r.owner.quiescent('f');
+    await r.owner.signOut();
+    assert.deepEqual(r.removed, ['f']); assert.equal(r.active.size, 0);
+    assert.equal(r.records.get('s')?.hold?.reason, 'sign-out');
   } },
   { name: 'a session id re-created right after delete starts only after the deleted entry finished its IO', async run() {
     const held = deferred<void>();
-    const r = rig({ holdEndDependents: held.promise }); r.session(); await r.owner.signIn('A'); r.owner.start('s');
-    await r.owner.quiescent('s');
+    const r = rig({ holdTeardownOf: { id: 'f', until: held.promise } }); r.session(); r.fork('f'); await r.owner.signIn('A');
+    r.owner.start('s'); r.owner.start('f');
+    await r.owner.quiescent('s'); await r.owner.quiescent('f');
     const deleting = r.owner.interrupt('s', { k: 'interrupt', reason: 'delete' });
     while (!r.removed.includes('s')) await new Promise(resolve => setTimeout(resolve, 0));
     r.session(); r.owner.start('s');
     await new Promise(resolve => setTimeout(resolve, 0));
-    assert.equal(r.trace.filter(line => line.endsWith(':identity')).length, 1);
+    assert.equal(r.trace.filter(line => line === 'stage:1:identity').length, 2); // s and f once each
     held.resolve(); await deleting; await r.owner.quiescent('s');
-    const done = r.trace.indexOf('end-dependents-done'); const second = r.trace.lastIndexOf('stage:1:identity');
-    assert.ok(done >= 0 && second > done, JSON.stringify(r.trace));
+    const forkGone = r.trace.indexOf('removed:f'); const second = r.trace.lastIndexOf('stage:1:identity');
+    assert.ok(forkGone >= 0 && second > forkGone, JSON.stringify(r.trace));
     assert.equal(r.owner.read('s').kind, 'ready'); assert.deepEqual(r.failures, []);
   } },
   { name: 'delete removes the actor without publishing an archived projection', async run() {

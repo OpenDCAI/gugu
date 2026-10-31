@@ -12,7 +12,7 @@
  * ## 现在的合同
  *
  * 状态副本 `onGone` ⇒ 与宿主停掉(#6497)同一个状态:句柄还掉、记录留着、不当场重起;打字不报错;
- * 下一句走首次打开那条路把会话起起来。
+ * 下一句经 custody 交给宿主,由宿主的 session-life 把会话起起来。
  *
  * ## 判据能判假吗
  *
@@ -22,10 +22,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { translateSessionMessage } from '@renderer/localization/locale-store';
 import { runInAction } from 'mobx';
 
-const startupQueue = vi.fn().mockResolvedValue({ success: true, data: { queued: true } });
 vi.mock('@renderer/lib/acp/runtime-client', () => ({
-  getAcpRuntimeClient: async () => ({ queuePrompt: startupQueue }),
+  getAcpRuntimeClient: async () => ({}),
 }));
+const custody = vi.fn(async () => {});
+vi.mock('./queue-native-input', () => ({ sendThroughCustody: custody, canQueueNativeInput: () => false }));
 
 const toasts: Array<{ title: string }> = [];
 vi.mock('@renderer/lib/hooks/use-toast', () => ({
@@ -123,7 +124,6 @@ function fakeSession() {
 
 type Internal = {
   _bootstrapped: boolean;
-  _startInput: () => unknown;
   _subscribeLiveSession: (session: unknown) => void;
   _runBootstrap: () => Promise<void>;
 };
@@ -133,7 +133,6 @@ function attachedStore() {
   seq += 1;
   const store = new AcpChatStore(`conv-7327-${seq}`, 'proj-1');
   const internal = store as unknown as Internal;
-  internal._startInput = () => ({ sessionId: store.sessionId });
   const boot = vi.spyOn(internal, '_runBootstrap').mockResolvedValue(undefined);
   const { session, disposed, sendPrompt } = fakeSession();
   runInAction(() => {
@@ -147,7 +146,7 @@ function attachedStore() {
 
 beforeEach(() => {
   toasts.length = 0;
-  startupQueue.mockClear();
+  custody.mockClear();
 });
 
 describe('#7327 运行时进程重启过之后的聊天面', () => {
@@ -184,23 +183,14 @@ describe('#7327 运行时进程重启过之后的聊天面', () => {
     }
   });
 
-  it('之后的第一句:开场一次 + 排进启动队列,❌ 发给死句柄', async () => {
+  it('之后的第一句:经 custody 交给宿主,页面不自己开场,❌ 发给死句柄', () => {
     const { store, session, sendPrompt, boot } = attachedStore();
     session.sessionState.gone();
 
     store.submitPrompt('接着说');
-    // 两条路走哪条都会落一次调用;等到落下再判是哪条(❌ 只等启动队列:走错路时用例挂死而不是判红)。
-    await vi.waitFor(() =>
-      expect(startupQueue.mock.calls.length + sendPrompt.mock.calls.length).toBeGreaterThan(0)
-    );
 
-    expect(startupQueue).toHaveBeenCalledWith(
-      expect.objectContaining({
-        prompt: expect.objectContaining({ text: '接着说' }),
-        startInput: expect.objectContaining({ sessionId: store.sessionId }),
-      })
-    );
-    expect(boot).toHaveBeenCalledTimes(1);
+    expect(custody).toHaveBeenCalledWith(store, '接着说', []);
+    expect(boot).not.toHaveBeenCalled();
     expect(sendPrompt).not.toHaveBeenCalled();
     expect(toasts.map((t) => t.title)).not.toContain(translateSessionMessage('acpFailure.sendMessage'));
   });
