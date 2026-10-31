@@ -44,8 +44,11 @@ export interface AvatarProps {
 
 const SIZE_MAP = { xs: 18, sm: 32, md: 40, lg: 64 } as const
 const AVATAR_STATUS_DOT_CLASS = 'av-status__dot relative motion-reduce:animate-none'
-const AVATAR_STATUS_PULSE_CLASS = 'av-status__pulse pointer-events-none absolute -inset-0.5 rounded-full border-2 border-solid animate-[av-status-pulse_1.4s_ease-out_infinite] motion-reduce:animate-none'
-const AVATAR_STATUS_PULSE_DELAY_CLASS = `${AVATAR_STATUS_PULSE_CLASS} av-status__pulse--delay [animation-delay:0.7s]`
+// 进入 working 时脉冲 3 下,然后停成一个静止的环(动画结束后就是这条 class 的本样:0.55 透明度的环):无限脉冲让一屏
+// 十几个在跑的 agent 头像每一帧都要合成、重绘。状态一变这两个环就重新挂上,脉冲随之重来;减弱动态直接是静止的环。
+// 节律(1.4s × 3、第二个环晚半拍)写在 tokens.css 里 av-status-pulse 的关键帧旁边。
+const AVATAR_STATUS_PULSE_CLASS = 'av-status__pulse pointer-events-none absolute -inset-0.5 rounded-full border-2 border-solid opacity-[0.55]'
+const AVATAR_STATUS_PULSE_DELAY_CLASS = `${AVATAR_STATUS_PULSE_CLASS} av-status__pulse--delay`
 
 // @@@ wechat-composite-layout — see git history for full context.
 interface TileRect { x: number; y: number; w: number; h: number }
@@ -177,7 +180,7 @@ function CompositeTile({
 
 // @@@avatar-status-badge - top-right status indicator. Color and words come from the shared presentation
 // (packages/core/src/shared/agentStatusPresentation.ts — one table for the session page, chat and phone). Motion uses
-// Tailwind animation utilities plus global keyframes. working = solid dot + two staggered pulse rings; parked = the
+// Tailwind animation utilities plus global keyframes. working = solid dot + two staggered pulse rings that settle into a still ring; parked = the
 // same color, still; needs_user = Solar exclamation glyph; idle/offline/removed = static dot.
 function AgentStatusBadge({ status, size }: { status: AgentDisplayStatus; size: number }) {
   const { t } = useTranslation('common')
