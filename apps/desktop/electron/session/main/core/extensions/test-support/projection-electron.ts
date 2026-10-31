@@ -34,7 +34,7 @@ void app.whenReady().then(async () => {
     fs.writeFileSync(path.join(bundle, 'fixture.mjs'), 'process.stdin.resume();');
     fs.writeFileSync(path.join(bundle, 'manifest.json'), JSON.stringify({ id, name: id, version: '1.0.0', apiVersion: EXTENSION_API_VERSION, defaultLocale: 'en',
       platforms: ['desktop'], entry: 'index.html', permissions: { capabilities: ['agents:tools'], network: [] },
-      contributes: { tabs: [{ name: 'main', title: 'Projection' }], mcpServers: [{ name: 'fixture', command: 'node', args: ['fixture.mjs'] }] },
+      contributes: { instructions: 'Projection fixture tools.', tabs: [{ name: 'main', title: 'Projection' }], mcpServers: [{ name: 'fixture', command: 'node', args: ['fixture.mjs'] }] },
     }));
     service.installFromDirectory(bundle, service.inspectDirectory(bundle).manifestDigest, 'folder');
   }
