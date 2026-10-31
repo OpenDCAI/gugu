@@ -437,15 +437,20 @@ export function ContactsProvider({ children, active = true }: { children: React.
 
   const removeOwnedAgent = useCallback(
     async (agentId: string, options?: { removeSocialIdentity?: boolean }) => {
+      // The host archive is the receipt: once it resolves the archive happened, and a failed
+      // re-read below cannot turn it into a failure. Views reload their authority.
       await contactsService.removeOwnedAgent(agentId, options)
-      // The host owns archiving and returns only after any requested cloud removal. Views reload their authority.
-      await (await getImRepository()).putIdentities(await readRequiredDisplayIdentities([agentId]))
-      window.dispatchEvent(new CustomEvent(UI_EVENTS.identityInvalidated, { detail: { id: agentId } }))
-      await Promise.all([
-        loadContacts({ throwOnError: true }),
-        loadGroups({ throwOnError: true }),
-        refreshChats({ acceptEmpty: true, preserveMissingActive: false, throwOnError: true }),
-      ])
+      try {
+        await (await getImRepository()).putIdentities(await readRequiredDisplayIdentities([agentId]))
+        window.dispatchEvent(new CustomEvent(UI_EVENTS.identityInvalidated, { detail: { id: agentId } }))
+        await Promise.all([
+          loadContacts({ throwOnError: true }),
+          loadGroups({ throwOnError: true }),
+          refreshChats({ acceptEmpty: true, preserveMissingActive: false, throwOnError: true }),
+        ])
+      } catch (error) {
+        rendererLogger('contacts/archive').error({ error, agentId }, 'Archived agent; refreshing contacts and chats failed')
+      }
     },
     [getImRepository, loadContacts, loadGroups, refreshChats],
   )

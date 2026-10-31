@@ -22,7 +22,7 @@ export function useIdentityLifecycle(userId: string | null | undefined, getRepos
       if (id !== null && !known.has(id)) return
       const ids = id === null ? [...known] : [id]
       await Promise.all([
-        readDisplayIdentities(ids).then(rows => active && repository.putIdentities(rows)),
+        readDisplayIdentities(ids).then(rows => { if (active) return repository.putIdentities(rows) }),
         refreshObservedAgentPresenceFromRevision(ids.map(agent_user_id => ({ agent_user_id }))),
         reloadRef.current(),
       ])

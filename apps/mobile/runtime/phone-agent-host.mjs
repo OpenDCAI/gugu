@@ -262,7 +262,8 @@ export async function startPhoneAgentHost(initialConfig, { runTurn, cancelTurn, 
     'agent.create': createFromCommand,
     'agent.deliver': async (command) => ({ agent_user_id: command.payload.agent_user_id, delivered: (await inbox(command.payload.agent_user_id)).injected > 0 }),
     'agent.stop': async (command) => { const agent = agents().find((row) => row.agentUserId === command.payload.agent_user_id); if (!agent) throw new Error('Agent 没有在这台手机上建立会话'); await cancel(agent); return { stopped: true } },
-    'agent.retire': async (command) => { const agent = agents().find((row) => row.agentUserId === command.payload.agent_user_id); if (agent) await archive(agent); return { retired: true } },
+    // Retire hands the identity to its new device: archive here, keep the social identity.
+    'agent.retire': async (command) => { const agent = agents().find((row) => row.agentUserId === command.payload.agent_user_id); if (agent) await archive(agent, false); return { retired: true } },
     'agent.set_model': async (command) => {
       const agent = agents().find((row) => row.agentUserId === command.payload.agent_user_id)
       if (!agent) throw new Error('Agent 没有在这台手机上建立会话')

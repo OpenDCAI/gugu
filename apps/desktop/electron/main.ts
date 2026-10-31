@@ -2623,7 +2623,7 @@ ipcMain.on('owned-agents:changed', () => {
 // @@@local-device-self - The renderer should not ask the cloud whether its own machine
 ipcMain.handle('device:get-self-snapshot', () => getLocalDeviceSelfSnapshot())
 
-// @@@share-card-rename 改名也有两半,云端与本机 —— 与删除(release-local-footprint)对称。
+// @@@share-card-rename 改名也有两半,云端与本机。
 // 云端那半是 identity.users.display_name(聊天页 / 通讯录 / 名片海报读它);本机那半是花名册 agents.json
 // 上的 name,会话页读它(分享按钮的提示、分享卡片里那个名字、按名字寻址)。provisioning 复用花名册上的
 // existing.name 且**从不**回读云端,所以只改云端 = 同一个 agent 在两页叫两个名字,而这正是
