@@ -1,5 +1,5 @@
 {
   "repository": "OpenDCAI/gugu-supabase",
-  "ref": "b0df98fe611226b568d5dc013089b24b5405e1db",
-  "status": "merged in OpenDCAI/gugu-supabase#107; project chat files kept by the device that sent each version, no host and no handoff"
+  "ref": "b336fd3b3076932b5f964f51413d6cc3d46eb10f",
+  "status": "merged in OpenDCAI/gugu-supabase#117; archive removes social identity and live membership reads use chat.active_members"
 }
