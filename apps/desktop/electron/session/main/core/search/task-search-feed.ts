@@ -70,6 +70,21 @@ export function startTaskSearch(store: MessageSearchStore, signal: AbortSignal, 
       record: !coverage || coverage.reason === 'active' || coverage.reason === 'unavailable' || (!coverage.exhausted && !coverage.reason) }];
   }));
   let running = false;
+  // A settling record is followed until its last turn lands, then re-enters this feed. A new turn ends the watch:
+  // its own settled edge syncs again.
+  const watches = new Map<string, AbortController>();
+  const unwatch = (id: string) => { watches.get(id)?.abort(); watches.delete(id); };
+  const watch = (id: string) => {
+    unwatch(id);
+    const controller = new AbortController();
+    watches.set(id, controller);
+    import('@main/core/session-timeline/service').then(({ watchRecordSettled }) =>
+      watchRecordSettled(id, AbortSignal.any([signal, controller.signal]))).then(settled => {
+      if (!settled || watches.get(id) !== controller) return;
+      watches.delete(id);
+      reconcile(id, -1, true, true);
+    }, error => log.error('Task search record watch failed', { sessionId: id, error: String(error) }));
+  };
 
   const backfill = async (id: string, scan: Scan) => {
     const agentUserId = await identity(id, store.accountId);
@@ -79,7 +94,8 @@ export function startTaskSearch(store: MessageSearchStore, signal: AbortSignal, 
       const result = await syncStoredHistoryFromRecord(id, { signal, runtime: 'pty' });
       if (signal.aborted) return;
       reason = result.status === 'complete' || result.status === 'runtime-changed' ? undefined
-        : result.status === 'cancelled' ? 'unavailable' : result.status;
+        : result.status === 'cancelled' ? 'unavailable' : result.status === 'settling' ? 'active' : result.status;
+      if (result.status === 'settling') watch(id);
     }
     let highWater = store.taskCoverage().find(row => row.taskId === id)?.lastSeq ?? -1;
     // Resume the interrupted tail first, then validate the prefix. Its cursor must not overwrite highWater.
@@ -170,15 +186,15 @@ export function startTaskSearch(store: MessageSearchStore, signal: AbortSignal, 
     sessionEvents.on('session:history-changed', changed),
     sessionEvents.on('session:created', row => reconcile(row.id, -1, true, true)),
     sessionEvents.on('session:renamed', id => reconcile(id, -1, false)),
-    sessionEvents.on('session:deleted', id => { runningTasks.delete(id); reconcile(id, -1, false); }),
+    sessionEvents.on('session:deleted', id => { runningTasks.delete(id); unwatch(id); reconcile(id, -1, false); }),
     sessionEvents.on('session:archived', id => reconcile(id, -1, true, true)),
     agentStatusWriter.on('agent:status', change => {
       const wasRunning = runningTasks.has(change.sessionId);
-      if (change.reading.running) runningTasks.add(change.sessionId);
+      if (change.reading.running) { runningTasks.add(change.sessionId); unwatch(change.sessionId); }
       else runningTasks.delete(change.sessionId);
       if (wasRunning && !change.reading.running) reconcile(change.sessionId, -1, true, true);
     }),
   ];
-  signal.addEventListener('abort', () => { for (const unsubscribe of off) unsubscribe(); pending.clear(); changes.clear(); runningTasks.clear(); }, { once: true });
+  signal.addEventListener('abort', () => { for (const unsubscribe of off) unsubscribe(); pending.clear(); changes.clear(); runningTasks.clear(); watches.clear(); }, { once: true });
   void drain();
 }

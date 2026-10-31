@@ -9,7 +9,7 @@ import { sessionProcess } from './session-process';
 
 export type RecordBackfillResult = {
   inserted: number;
-  status: 'complete' | 'active' | 'unavailable' | 'unsupported' | 'diverged' | 'cancelled' | 'runtime-changed';
+  status: 'complete' | 'active' | 'settling' | 'unavailable' | 'unsupported' | 'diverged' | 'cancelled' | 'runtime-changed';
 };
 
 /**
@@ -53,8 +53,10 @@ export async function syncStoredHistoryFromRecord(sessionId: string, options: { 
     const committedOnly = row.runtime !== 'acp' && active();
     const unfinished = await readUnfinishedRecordTurnsNow(sessionId);
     const revisions = new Map<string, number>();
+    let lastSettled = true;
     const picked = await pickRecordTurns(sessionId, async (record) => {
       if (record.length === 0) return [];
+      lastSettled = !!record.at(-1)!.outcome;
       // 库尾一般第一行就对得上记录最后那一轮;对不上(最近几轮是失败的、没进记录)再往前多读一些。
       let missing: TranscriptTurn[] | null = null;
       const windows = identity === 'content' ? [...TAIL_WINDOWS, Number.MAX_SAFE_INTEGER] : TAIL_WINDOWS;
@@ -99,7 +101,10 @@ export async function syncStoredHistoryFromRecord(sessionId: string, options: { 
     }
     if (inserted > 0) log.info('[record-backfill] filled in turns from the record', { sessionId, inserted });
     if (!current()) return result('runtime-changed', inserted);
-    return result(picked.complete && !active() ? 'complete' : 'active', inserted);
+    if (!picked.complete || active()) return result('active', inserted);
+    // A terminal reports idle before its buffered record write lands. While its process lives, an unsettled
+    // last turn is still being written; once the process is gone, the record is final as it stands.
+    return result(row.runtime !== 'acp' && !lastSettled && sessionProcess(sessionId) !== null ? 'settling' : 'complete', inserted);
   });
 }
 

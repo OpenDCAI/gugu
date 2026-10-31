@@ -153,6 +153,17 @@ it.each(['error', 'archived'])('keeps the unfinished last turn of a %s PTY witho
   expect((rows() as { data: string }[]).map(row => JSON.parse(row.data).outcome)).toEqual([undefined, undefined]);
 });
 
+it('reports a live idle terminal whose last record turn has no outcome as settling, and final once its process is gone', async () => {
+  state.process = { home: 'host', start: 'fresh' };
+  state.turns = [{ ...turn(0), outcome: { kind: 'done', reason: 'end_turn' } }, turn(1)];
+  expect(await syncStoredHistoryFromRecord('c1', { runtime: 'pty' })).toEqual({ inserted: 2, status: 'settling' });
+  state.turns = [state.turns[0], { ...turn(1), outcome: { kind: 'done', reason: 'end_turn' } }];
+  expect(await syncStoredHistoryFromRecord('c1', { runtime: 'pty' })).toEqual({ inserted: 0, status: 'complete' });
+  expect((rows() as { data: string }[]).map(row => JSON.parse(row.data).outcome?.kind)).toEqual(['done', 'done']);
+  state.turns = [...state.turns, turn(2)]; state.process = null;
+  expect(await syncStoredHistoryFromRecord('c1', { runtime: 'pty' })).toEqual({ inserted: 1, status: 'complete' });
+});
+
 it('uses the owned process fact when no status source exists', async () => {
   state.row.agentStatus = null; state.process = { home: 'host', start: 'fresh' };
   state.committed = [turn(0)]; state.complete = false;

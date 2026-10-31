@@ -13,11 +13,12 @@ import type { SearchIndexOp } from '@gugu/core/shared/search/types';
 import { formatDeliveryTimestamp, mergeDeliveryEnvelopes, renderDeliveryEnvelope } from '@gugu/core/local/agent/deliveryEnvelope';
 
 const state = vi.hoisted(() => ({ source: null as Database.Database | null,
-  sync: vi.fn(), status: null as ((change: { sessionId: string; reading: { running: boolean } }) => void) | null }));
+  sync: vi.fn(), watch: vi.fn(), status: null as ((change: { sessionId: string; reading: { running: boolean } }) => void) | null }));
 vi.mock('@main/db/client', () => ({ db: undefined, get sqlite() { return state.source; } }));
 vi.mock('@main/lib/events', () => ({ events: { emit: vi.fn() } }));
 vi.mock('@main/lib/logger', () => ({ log: { error: vi.fn() } }));
 vi.mock('../sessions/record-backfill', () => ({ syncStoredHistoryFromRecord: state.sync }));
+vi.mock('@main/core/session-timeline/service', () => ({ watchRecordSettled: state.watch }));
 vi.mock('../agent-status/agent-status-writer', () => ({ agentStatusWriter: { on: (_name: string, handler: typeof state.status) => {
   state.status = handler; return () => { state.status = null; };
 } } }));
@@ -43,6 +44,7 @@ function start(observe?: (ops: readonly SearchIndexOp[]) => void) {
 }
 beforeEach(() => {
   state.sync.mockReset().mockResolvedValue({ inserted: 0, status: 'complete' });
+  state.watch.mockReset();
   root = mkdtempSync(join(tmpdir(), 'task-search-feed-'));
   store = new MessageSearchStore(root, 'owner');
   state.source = new Database(':memory:');
@@ -111,6 +113,58 @@ it('does not reparse completed PTY records on reopen or idle republish, and neve
   expect(store.global(request).results.map(hit => hit.text)).toEqual(['retained body']);
   await waitFor(() => { expect(state.sync).toHaveBeenCalledTimes(2); expect(store.global(request).coverage.complete).toBe(true); });
   expect(ops.filter(op => op.kind === 'truncateTask').every(op => op.fromSeq > 0)).toBe(true);
+});
+
+it('follows a settling record until its last turn lands, then completes it through the same feed', async () => {
+  state.source!.prepare("UPDATE sessions SET runtime='pty'").run();
+  state.sync.mockResolvedValueOnce({ inserted: 1, status: 'settling' });
+  let land!: (settled: boolean) => void;
+  state.watch.mockImplementationOnce(() => new Promise(resolve => { land = resolve; }));
+  start();
+  await waitFor(() => expect(state.watch).toHaveBeenCalledOnce());
+  await waitFor(() => expect(store.taskCoverage()).toEqual([{ taskId: 's', lastSeq: -1, exhausted: false, reason: 'active' }]));
+  expect(state.watch.mock.calls[0][0]).toBe('s');
+  expect(state.sync).toHaveBeenCalledOnce();
+  land(true);
+  await waitFor(() => expect(store.global(request).coverage.complete).toBe(true));
+  expect(state.sync).toHaveBeenCalledTimes(2);
+  expect(store.taskCoverage()[0].reason).toBeUndefined();
+});
+
+it('ends a settling watch when a new turn starts, and leaves that turn to its own settled edge', async () => {
+  state.source!.prepare("UPDATE sessions SET runtime='pty'").run();
+  state.sync.mockResolvedValueOnce({ inserted: 1, status: 'settling' });
+  let land!: (settled: boolean) => void;
+  state.watch.mockImplementationOnce((_id: string, signal: AbortSignal) => new Promise(resolve => {
+    land = resolve; signal.addEventListener('abort', () => resolve(false), { once: true });
+  }));
+  start();
+  await waitFor(() => expect(state.watch).toHaveBeenCalledOnce());
+  const watchSignal = state.watch.mock.calls[0][1] as AbortSignal;
+  state.status!({ sessionId: 's', reading: { running: true } });
+  expect(watchSignal.aborted).toBe(true);
+  land(true);
+  await new Promise(resolve => setImmediate(resolve));
+  expect(state.sync).toHaveBeenCalledOnce();
+  state.status!({ sessionId: 's', reading: { running: false } });
+  await waitFor(() => expect(store.global(request).coverage.complete).toBe(true));
+  expect(state.sync).toHaveBeenCalledTimes(2);
+});
+
+it('rereads a record left settling by an earlier lifetime and closes the watch with the account', async () => {
+  state.source!.prepare("UPDATE sessions SET runtime='pty'").run();
+  state.sync.mockResolvedValueOnce({ inserted: 1, status: 'settling' });
+  state.watch.mockImplementation((_id: string, signal: AbortSignal) => new Promise(resolve => signal.addEventListener('abort', () => resolve(false), { once: true })));
+  start();
+  await waitFor(() => expect(store.taskCoverage()[0]).toMatchObject({ exhausted: false, reason: 'active' }));
+  const watchSignal = state.watch.mock.calls[0][1] as AbortSignal;
+  abort.abort(); store.close();
+  expect(watchSignal.aborted).toBe(true);
+  store = new MessageSearchStore(root, 'owner');
+  start();
+  await waitFor(() => expect(store.global(request).coverage.complete).toBe(true));
+  expect(state.sync).toHaveBeenCalledTimes(2);
+  expect(state.watch).toHaveBeenCalledOnce();
 });
 
 it.each(['unsupported', 'diverged'])('settles %s records while retaining the unavailable-history reason', async status => {

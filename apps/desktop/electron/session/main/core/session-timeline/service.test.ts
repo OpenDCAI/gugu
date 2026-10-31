@@ -1,4 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { appendFile, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { awaitFact } from '../../../../../../../tests/support/awaitFact';
 import * as asks from '../asks';
 import type { QueuedPrompt } from '@gugu/session-core/acp/client';
 import type {
@@ -448,6 +452,52 @@ describe('session timeline service', () => {
     expect(parent.timeline.disposed).toBe(1);
     expect(child.timeline.disposed).toBe(1);
     expect(state.pendingWatchCalls).toEqual([]);
+  });
+
+  it('follows a settling record on its own live reader until the last turn lands, without interactive effects', async () => {
+    const { createSessionRecordSource, createSessionTimeline } = await import('@gugu/session-core/session-record');
+    const root = await mkdtemp(join(tmpdir(), 'claude-settling-watch-'));
+    const file = join(root, 'record.jsonl');
+    const line = (uuid: string, role: 'user' | 'assistant', text: string) => JSON.stringify({
+      type: role, uuid, parentUuid: role === 'user' ? null : 'question', sessionId: 'record', timestamp: '2026-10-31T00:00:00Z',
+      message: { id: uuid, role, content: [{ type: 'text', text }], ...(role === 'assistant' ? { stop_reason: 'end_turn' } : {}) },
+    }) + '\n';
+    await writeFile(file, line('question', 'user', 'The last prompt'));
+    const opened: SessionTimeline[] = [];
+    const factory = vi.fn(async ({ readMode }: { readMode?: 'snapshot' }) => {
+      const timeline = await createSessionTimeline(createSessionRecordSource({ harness: 'claude', providerSessionId: 'record', roots: [root] },
+        { readMode }), { sessionId: 'conv-1' });
+      const dispose = timeline.dispose.bind(timeline);
+      let disposed = 0;
+      opened.push(Object.assign(timeline, { dispose: () => { disposed++; dispose(); }, disposals: () => disposed }));
+      return timeline;
+    });
+    service.setSessionTimelineFactory(factory);
+    try {
+      let settled: boolean | undefined;
+      const watching = service.watchRecordSettled('conv-1', new AbortController().signal).then(value => { settled = value; });
+      await awaitFact('watch opened', () => opened.length === 1 || undefined);
+      await new Promise(resolve => setImmediate(resolve));
+      expect(settled).toBeUndefined();
+      await appendFile(file, line('answer', 'assistant', 'LATE REPLY'));
+      await watching;
+      expect(settled).toBe(true);
+      expect(factory.mock.calls[0][0]).not.toHaveProperty('readMode');
+      expect((opened[0] as unknown as { disposals: () => number }).disposals()).toBe(1);
+
+      const stop = new AbortController();
+      await writeFile(file, line('question', 'user', 'The last prompt'));
+      const aborted = service.watchRecordSettled('conv-1', stop.signal);
+      await awaitFact('second watch opened', () => opened.length === 2 || undefined);
+      stop.abort();
+      expect(await aborted).toBe(false);
+      expect((opened[1] as unknown as { disposals: () => number }).disposals()).toBe(1);
+      expect(state.pendingWatchCalls).toEqual([]);
+      expect(state.wake).not.toHaveBeenCalled();
+      expect(state.questionSend).not.toHaveBeenCalled();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 
   it('settles a fork without lineage fields as diverged and never indexes a guessed child prefix', async () => {
@@ -1565,8 +1615,6 @@ describe('session timeline service', () => {
  * 判据喂记录 + 临时文件;阴控是同一个目录里、记录里没有的文件 —— 必须被拒。
  */
 const { mkdtempSync, writeFileSync } = await import('node:fs');
-const { tmpdir } = await import('node:os');
-const { join } = await import('node:path');
 
 describe('readOpenedFile', () => {
   const dir = mkdtempSync(join(tmpdir(), 'opened-file-'));

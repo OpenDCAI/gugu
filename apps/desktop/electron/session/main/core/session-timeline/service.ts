@@ -1019,14 +1019,14 @@ type TranscriptTurns = TimelineSnapshot['turns'];
  * 拿到的必须是带图的那份 —— 库里那份没有别处可以再取。读不回来的那张保持只有字数(与「图不在了」同一种降级)。
  * `ok: false` = 这里没有记录可读;`turns: null` = `pick` 说不挑(记录与库岔开了)。
  */
-/** Ingestion owns this reader for one call. It cannot populate or dispose the interactive cache. */
-async function openRecordSnapshot(conversationId: string, includeArchived?: boolean, parentLineage?: readonly RecordLineageNode[]): Promise<SessionTimeline | null> {
+/** Ingestion owns this reader. It cannot populate or dispose the interactive cache. */
+async function openIngestionRecord(conversationId: string, includeArchived?: boolean, parentLineage?: readonly RecordLineageNode[], readMode: 'snapshot' | 'live' = 'snapshot'): Promise<SessionTimeline | null> {
   const row = readSessionRow(conversationId, { includeArchived });
   if (!row || !timelineFactory) return null;
   const location = locateRow(row);
   if (!location.supported) return null;
   const generation = resetGeneration;
-  const timeline = await timelineFactory({ locator: location.locator, conversationId, readMode: 'snapshot', parentLineage });
+  const timeline = await timelineFactory({ locator: location.locator, conversationId, ...(readMode === 'snapshot' ? { readMode } : {}), parentLineage });
   if (generation !== resetGeneration) { timeline.dispose(); return null; }
   return timeline;
 }
@@ -1041,14 +1041,14 @@ export async function pickRecordTurns(
   try {
     let parentLineage: readonly RecordLineageNode[] | undefined;
     if (options.afterForkOf) {
-      const parent = await openRecordSnapshot(options.afterForkOf, true);
+      const parent = await openIngestionRecord(options.afterForkOf, true);
       if (!parent) return { ok: false, reason: 'diverged' };
       opened.push(parent);
       parentLineage = parent.getRecordLineage?.() ?? undefined;
       if (!parentLineage?.length) return { ok: false, reason: 'diverged' };
     }
     provingParent = false;
-    const timeline = await openRecordSnapshot(conversationId, options.includeArchived, parentLineage);
+    const timeline = await openIngestionRecord(conversationId, options.includeArchived, parentLineage);
     if (!timeline) return { ok: false };
     opened.push(timeline);
     await timeline.catchUp();
@@ -1063,6 +1063,30 @@ export async function pickRecordTurns(
     return { ok: false, ...(provingParent || (error as Error)?.name === 'SessionRecordForkDivergedError' ? { reason: 'diverged' as const } : {}) };
   } finally {
     for (const timeline of opened.reverse()) timeline.dispose();
+  }
+}
+
+/**
+ * A terminal reports idle before its buffered record write lands (record-backfill `settling`). Ingestion follows
+ * the same live record reader until the last turn carries its outcome: `true` = it settled, `false` = `signal` ended
+ * the watch first. A record that cannot be reopened fails loudly.
+ */
+export async function watchRecordSettled(conversationId: string, signal: AbortSignal): Promise<boolean> {
+  const timeline = await openIngestionRecord(conversationId, true, undefined, 'live');
+  if (!timeline) throw new Error(`record unavailable for ${conversationId}`);
+  let unsubscribe = () => {};
+  try {
+    return await new Promise<boolean>((resolve) => {
+      const check = () => { if (timeline.getSnapshot({ limit: 1 }).turns.at(-1)?.outcome) resolve(true); };
+      signal.addEventListener('abort', () => resolve(false), { once: true });
+      if (signal.aborted) resolve(false);
+      unsubscribe = timeline.subscribe(timeline.getSnapshot({ limit: 1 }).cursor, check);
+      // The reader caught up while opening: an outcome that landed after the settling snapshot is already here.
+      check();
+    });
+  } finally {
+    unsubscribe();
+    timeline.dispose();
   }
 }
 
