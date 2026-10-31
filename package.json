@@ -12,6 +12,7 @@
     "pnpm": ">=10.28.0"
   },
   "main": "apps/desktop/dist-electron/main.js",
+  "//scripts": "The private CD calls these by name, not by file path, because it also builds older commits: android:build:release, build:app, build:app:pack, build:win, build:win:beta, ci:kept-tree, release:closure, release:manifest, release:verify-dmg, release:version-check. Keep the names; the files behind them may move.",
   "scripts": {
     "android:build": "pnpm build:mobile-agent && pnpm cap:sync && scripts/android-gradle-build.sh assembleDebug",
     "android:build:release": "pnpm build:mobile-agent && pnpm cap:sync && scripts/android-gradle-build.sh assembleRelease",
@@ -33,6 +34,7 @@
     "e2e:package": "node scripts/e2e-artifact-store.mjs publish",
     "build:win:beta": "GUGU_TIER=beta pnpm build:win",
     "cap:add:android": "pnpm build:renderer && node scripts/phone-web-dir.mjs && cap add android",
+    "ci:kept-tree": "node scripts/ci-kept-tree.mjs",
     "cap:sync": "pnpm build:renderer && node scripts/phone-web-dir.mjs && cap sync",
     "dev": "node scripts/verify-dev-native.mjs && pnpm build:mise && pnpm build:frpc && vite",
     "dev:alice": "node scripts/verify-dev-native.mjs && pnpm build:mise && pnpm build:frpc && GUGU_USER_DATA_DIR=$HOME/.gugu-alice vite --port=5173",
@@ -53,7 +55,10 @@
     "preflight:node": "node scripts/node-version-preflight.mjs",
     "rebuild:native": "node scripts/rebuild-native.cjs && node scripts/verify-dev-native.mjs",
     "rebuild:native:isolated": "node scripts/rebuild-native-isolated.mjs",
+    "release:closure": "node scripts/release-closure.mjs",
     "release:manifest": "node scripts/aggregate-release-manifest.cjs",
+    "release:verify-dmg": "node scripts/verify-pr-dmg.mjs",
+    "release:version-check": "node scripts/check-version-above-released.mjs",
     "smoke:agent-acp": "node scripts/p0-agent-acp-smoke.mjs",
     "storybook:session-chat-ui": "storybook dev -p 6007 -c packages/session-chat-ui/.storybook",
     "storybook:session-ui": "storybook dev -p 6006 -c packages/session-ui/.storybook",
