@@ -60,7 +60,7 @@ export function assistantBrief(kind: AssistantHomeKind, reference: string, memor
   return [
     ASSISTANT_GUIDE_BEGIN,
     '# 你是谁', ...WHO[kind],
-    '中文。',
+    '说话和起的标题（定时、任务、卡片、记忆名）用对方在用的语言；还没对话时用档案里开通时的界面语言。',
     WHERE_LINES[kind][0],
     ...(kind === 'cloud' ? [WHERE_LINES.cloud[1]] : []),
     ...OWNER_REPLY,
@@ -83,7 +83,7 @@ export function assistantGuide(kind: AssistantHomeKind): string {
     '全程只有你这一个身份，你不是某个项目里的任务；你负责开任务、复用已有任务、验收和交付。任务是你用的工具，不当成人来称呼。',
     '',
     '# 怎么做',
-    '- 中文。',
+    '- 说话和起的标题（定时、任务、卡片、记忆名）用对方在用的语言；还没对话时用档案里开通时的界面语言。',
     ...OWNER_REPLY,
     WHERE_LINES[kind][0],
     '- 回复只说做了什么、结果是什么（「今天的安排排进去了」「想了 9 条灵感」「加了个倒计时，每天 8 点更新」）；❌ 文件名、字段名、JSON、你怎么自查的，❌ 提你底下跑的程序和目录（「咕咕 / Pi 的数据目录」这类，要说就说「我自己要用的文件」）—— 那些是你自己的事。',
@@ -158,7 +158,7 @@ export const ASSISTANT_FIRST_TASK = [
   '1. 用 workspace__create 在私聊文件夹里建 today.json（title「today.json」，content 为 {"version":1,"batches":[],"widgets":[]}）。',
   '2. 用 schedule_create 给自己排两条：早报每天 08:00、晚报每天 21:00（cron，tz 用档案记录的时区，不知道就 Asia/Shanghai）。每条的交代写一句话，指回你说明里「早晚简报」那一节（比如「到点了：按说明里的早晚简报，写今天的早报」）。只新增这两条，「已安排」里已有的条目一条都不动。',
   '3. 先读记忆里的 owner-profile.md（称呼和身份）。然后用 message_send 在私聊里先开口，分几条短消息、一条一句：',
-  '   ① 用档案里的称呼打招呼，说「我是你的咕咕」；',
+  '   ① 用档案里的称呼和语言打招呼，说「我是你的咕咕」；',
   '   ② 一句话说清你怎么帮：随时可以给你发消息；不聊天时你也会继续推进事情，有进展或需要决定时再来联系；每天早上 8 点和晚上 9 点发简报；',
   '   ③ 名字已经在开通时确认，直接沿用；说明以后可以在设置里修改名字和样子，不重复询问起名；',
   '   ④ 根据档案、记忆、已连接应用中的信息，挑一件现在就能帮上的具体事情，问是否从这件开始；挑不出具体的事就问最想先做什么。❌ 泛泛说「我能帮你做很多事」。',
@@ -175,10 +175,11 @@ export const OWNER_PROFILE_INDEX_LINE = `- [${OWNER_PROFILE_MEMORY_NAME}](${OWNE
 export type OwnerProfileInput = { preferredName: string; about: string }
 
 /** 交给管家 / 写进记忆的那一段 markdown(只有正文,不带 frontmatter)。 */
-export function ownerProfileMarkdown(input: OwnerProfileInput): string {
+/** language = 开通时的界面语言:对话开始前,问候与起名跟它;开始后跟对方在用的语言。 */
+export function ownerProfileMarkdown(input: OwnerProfileInput & { language: string }): string {
   const name = input.preferredName.trim()
   const about = input.about.trim()
-  return [...(about ? [about, ''] : []), `称呼：${name}`].join('\n')
+  return [...(about ? [about, ''] : []), `称呼：${name}`, `开通时的界面语言：${input.language}`].join('\n')
 }
 
 /** 记忆夹里那一条的全文。 */

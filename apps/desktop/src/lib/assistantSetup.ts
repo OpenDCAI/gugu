@@ -14,6 +14,7 @@ import { REST_FACES } from '../components/agentAvatar/engine/identity'
 import type { AgentLook } from '../components/agentAvatar/look'
 import type { ExpressionId } from '../components/agentAvatar/engine/spec'
 import { desktopIpc } from '../platform/desktopIpc'
+import { getLocaleSnapshot } from '../i18n/runtime'
 import {
   completedSingleProvisionSession,
   assertResumeRecordOwner,
@@ -61,7 +62,7 @@ function cleanDraft(draft: AssistantSetupDraft) {
   if (!name || name.length > ASSISTANT_NAME_MAX) throw new Error(`assistant name must be 1–${ASSISTANT_NAME_MAX} characters`)
   const preferredName = draft.owner.preferredName.trim()
   if (!preferredName || preferredName.length > OWNER_NAME_MAX) throw new Error(`owner name must be 1–${OWNER_NAME_MAX} characters`)
-  return { name, avatar: draftAvatarUrl(draft), ownerProfile: ownerProfileMarkdown({ preferredName, about: draft.owner.about.slice(0, OWNER_ABOUT_MAX) }) }
+  return { name, avatar: draftAvatarUrl(draft), ownerProfile: ownerProfileMarkdown({ preferredName, about: draft.owner.about.slice(0, OWNER_ABOUT_MAX), language: getLocaleSnapshot().resolvedLocale }) }
 }
 
 /** 会员一键领取:管家开它的宿主、在上面建它(要几分钟;进度看管家的 /state,界面在 CloudComputerProvisionPanel 那三步)。 */
