@@ -1,10 +1,10 @@
 import { execFileSync } from 'node:child_process'
-import { basename, join } from 'node:path'
+import { basename } from 'node:path'
 
 // Android's linker supplies these; every other dependency must resolve in the locked packages.
 const systemLibraries = new Set(['libc.so', 'libm.so', 'libdl.so'])
 
-export function inspectMobileElf(path, readelf = process.env.GUGU_MOBILE_LLVM_PREFIX ? join(process.env.GUGU_MOBILE_LLVM_PREFIX, 'bin/llvm-readelf') : 'readelf') {
+export function inspectMobileElf(path, readelf = 'llvm-readelf') {
   const output = execFileSync(readelf, ['--file-header', '--dynamic', '--wide', path], { encoding: 'utf8', env: { ...process.env, LC_ALL: 'C' } })
   if (!/Class:\s+ELF64/.test(output) || !/Machine:\s+AArch64/.test(output)) throw new Error(`${basename(path)}: expected locked AArch64 ELF`)
   if (!output.includes('Dynamic section')) throw new Error(`${basename(path)}: no ELF dynamic section`)

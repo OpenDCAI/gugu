@@ -6,7 +6,7 @@
 
 原生库按 Node 的 ELF `DT_NEEDED` 和包内实际别名取传递闭包；缺失依赖、循环别名或 SONAME 不符会中止构建。`native-libraries.json` 保存解析后的边；不打包未被加载链引用的 ICU 工具库和另一份 SQLite。Gradle 保留 `arm64-v8a` / `armeabi-v7a`，嵌入 Node 的架构仍以锁文件为准。
 
-构建机还需已有的 ICU 数据工具（`icupkg`、`derb`、`genrb`）和 LLVM（`llvm-readelf`、`llvm-objcopy`、`clang`、`ld.lld`）。默认从 PATH 查找；非默认安装可设 `GUGU_MOBILE_ICU_PREFIX` / `GUGU_MOBILE_LLVM_PREFIX`，指向各自安装前缀。ICU prefix 下使用 `sbin/icupkg` 和 `bin/derb` / `bin/genrb`；LLVM prefix 下使用 `bin/`。工具缺失直接报错，不自动安装或回退全量数据。
+构建机还需已有的 ICU 数据工具（`icupkg`、`derb`、`genrb`）和 LLVM（`llvm-readelf`、`llvm-objcopy`、`clang`、`ld.lld`）。全部从 PATH 查找（macOS 用 Homebrew 的 `icu4c`、`llvm`、`lld`，把它们的 `bin`/`sbin` 加进 PATH）。工具缺失直接报错，不自动安装或回退全量数据。
 
 数据裁剪复用 [ICU 的数据打包工具](https://unicode-org.github.io/icu/userguide/icu_data/)：从验证过的 ICU ELF 数据段取得 `.dat`，保留 en/zh/ja 的全部区域和脚本变体、root、共享 Unicode/时区/排序/分词字典。用 derb/genrb 更新原索引中的 InstalledLocales，保留其余字段；icupkg 的依赖校验保持开启。LLVM 仅重封同数据符号与 SONAME 的 AArch64 共享数据对象，无 Android 头文件、运行库或 Node 重编译。`icu-data.json` 保存实际条目清单、尺寸和 SHA。
 
