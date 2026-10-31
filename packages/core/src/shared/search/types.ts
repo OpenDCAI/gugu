@@ -60,8 +60,9 @@ export interface SearchTask {
   title: string
   projectId: string
   agentUserId?: string | null
-  /** Terminal history requires the separately admitted source-storage backfill. */
+  /** Presentation only; terminal and ACP tasks use the same visible-message index. */
   terminal?: boolean
+  archived?: boolean
 }
 
 export interface SearchTaskDocument {
@@ -80,7 +81,7 @@ export interface SearchTaskCoverage {
   taskId: string
   lastSeq: number
   exhausted: boolean
-  reason?: 'terminal'
+  reason?: 'active' | 'unavailable' | 'unsupported' | 'diverged'
 }
 
 export interface SearchCoverageReport {
@@ -131,6 +132,7 @@ export interface SearchTaskHit extends Omit<SearchMessageHit, 'kind' | 'chatId' 
   title: string
   reference: string
   role: 'user' | 'assistant'
+  archived?: boolean
   attachment: null
 }
 

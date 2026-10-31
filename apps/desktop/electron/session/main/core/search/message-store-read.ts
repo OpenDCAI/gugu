@@ -8,6 +8,7 @@ import { SEARCH_FACET_CAP, type SearchCoverage, type SearchCoverageReport, type 
 import type { MessageSearchRequest } from '@shared/core/message-search';
 
 type MessageRow = {
+  archived: number | null;
   id: string; chat_id: string | null; task_id: string | null; task_title: string | null; project_id: string | null; message_ref: string | null; role: 'user' | 'assistant' | null; thread_root_id: string | null; seq: number; sender_id: string | null;
   created_at_iso: string | null; text: string; to_user_ids: string; text_rank: number; has_file: number; has_image: number;
 };
@@ -25,10 +26,10 @@ export const taskCoverageKey = (taskId: string) => `task:${taskId}`;
 
 export function readTaskCoverage(db: Database.Database): SearchTaskCoverage[] {
   return (db.prepare(`SELECT task.id AS task_id,coalesce(task_coverage.last_seq,-1) AS last_seq,
-    coalesce(task_coverage.exhausted,0) AS exhausted,task.terminal FROM task LEFT JOIN task_coverage ON task.id=task_id`).all() as
-    { task_id: string; last_seq: number; exhausted: number; terminal: number }[])
-    .map(row => ({ taskId: row.task_id, lastSeq: row.last_seq, exhausted: row.exhausted === 1 && row.terminal === 0,
-      ...(row.terminal === 1 ? { reason: 'terminal' as const } : {}) }));
+    coalesce(task_coverage.exhausted,0) AS exhausted,task_coverage.reason FROM task LEFT JOIN task_coverage ON task.id=task_id`).all() as
+    { task_id: string; last_seq: number; exhausted: number; reason: SearchTaskCoverage['reason'] | null }[])
+    .map(row => ({ taskId: row.task_id, lastSeq: row.last_seq, exhausted: row.exhausted === 1,
+      ...(row.reason ? { reason: row.reason } : {}) }));
 }
 
 export const coverageKey = (chatId: string, threadRootId: string | null) => `${chatId}\u0000${threadRootId ?? ''}`;
@@ -48,7 +49,7 @@ function readSearchCoverage(db: Database.Database, current: ReadonlySet<string>,
     exhausted: stored.get(taskId)?.exhausted === true && current.has(taskCoverageKey(taskId)),
     ...(stored.get(taskId)?.reason ? { reason: stored.get(taskId)!.reason } : {}) }));
   return { chats: chatReport.chats, tasks,
-    complete: (query.filters.kind === 'task' || chatReport.complete) && (query.filters.kind === 'message' || tasks.every(row => row.reason === 'terminal' || row.exhausted)) };
+    complete: (query.filters.kind === 'task' || chatReport.complete) && (query.filters.kind === 'message' || tasks.every(row => row.exhausted)) };
 }
 
 function scopedChatIds(db: Database.Database, query: SearchQuery): string[] | undefined {
@@ -62,7 +63,7 @@ function scopedChatIds(db: Database.Database, query: SearchQuery): string[] | un
 function hit(row: MessageRow, accountId: string, query: SearchQuery, now: number): SearchHit {
   const terms = parseSearchTerms(query.text).filter((term) => !term.exclude);
   const origin = row.task_id ? { kind: 'task' as const, taskId: row.task_id, projectId: row.project_id!, title: row.task_title!,
-    reference: row.message_ref!, role: row.role!, attachment: null }
+    reference: row.message_ref!, role: row.role!, archived: row.archived === 1, attachment: null }
     : { kind: 'message' as const, chatId: row.chat_id!, threadRootId: row.thread_root_id,
       attachment: row.has_image ? 'image' as const : row.has_file ? 'file' as const : null };
   return {

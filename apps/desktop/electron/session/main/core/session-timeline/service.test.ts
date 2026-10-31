@@ -404,6 +404,25 @@ describe('session timeline service', () => {
     state.readOptions.mockClear();
   });
 
+  it('record ingestion does not attach runtime or ask effects, and a later interactive reader uses the same timeline', async () => {
+    const fake = makeTimeline();
+    fake.put({ itemId: 'agent-question:11111111-1111-4111-8111-111111111111', kind: 'question', title: 'Choose',
+      questions: [{ question: 'Choose', multiSelect: false, options: [{ optionId: 'one', name: 'One' }] }],
+      origin: { source: 'agent-question', payload: { sourceLink: 'gugu-chat://22222222-2222-4222-8222-222222222222/33333333-3333-4333-8333-333333333333' } },
+      state: 'pending', optionId: null, resolvedBy: null, resolvedAt: null });
+    const factory = vi.fn(async () => fake.timeline);
+    service.setSessionTimelineFactory(factory);
+    expect(await service.pickRecordTurns('conv-1', async turns => turns, { images: false, committedOnly: true, includeArchived: true }))
+      .toEqual({ ok: true, turns: [], complete: true });
+    expect(state.pendingWatchCalls).toEqual([]);
+    expect(state.wake).not.toHaveBeenCalled();
+    expect(state.questionSend).not.toHaveBeenCalled();
+    expect(persistedQuestions.has('conv-1')).toBe(false);
+    await service.snapshot({ conversationId: 'conv-1' });
+    expect(factory).toHaveBeenCalledOnce();
+    expect(state.pendingWatchCalls).toEqual(['conv-1']);
+  });
+
   it('uses the native archive at the first unread stored identity, with bounded older/newer pages and the real active turn', async () => {
     state.rows = [row({ runtime: 'acp' })];
     service.setSessionTimelineFactory(async () => makeTimeline().timeline);
