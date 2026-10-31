@@ -13,7 +13,6 @@ const nowMs = new Date(2026, 0, 15, 12).getTime();
 const words: RelativeTimeWords = {
   now: 'NOW',
   elapsed: (count, unit) => `${count}:${unit}:elapsed`,
-  compact: (count, unit) => `${count}:${unit}`,
 };
 const label = (offset: number, options: RelativeTimeOptions) =>
   formatRelativeTime(nowMs + offset, 'en-US', words, { ...options, nowMs });
@@ -31,11 +30,11 @@ describe('relative-time modes', () => {
   it('rounds strict distances, floors compact distances, and retains future direction', () => {
     expect(label(-90_000, { mode: 'strict' })).toBe('2 minutes ago');
     expect(label(90_000, { mode: 'strict' })).toBe('in 2 minutes');
-    expect(label(-90_000, { mode: 'compact' })).toBe('1:minute');
+    expect(label(-90_000, { mode: 'compact' })).toBe('1m');
     expect(label(90_000, { mode: 'compact', addSuffix: true })).toBe('NOW');
     expect(label(-30_000, { mode: 'strict', addSuffix: false })).toBe('30 seconds');
     expect(label(-59_999, { mode: 'compact' })).toBe('NOW');
-    expect(label(-60_000, { mode: 'compact' })).toBe('1:minute');
+    expect(label(-60_000, { mode: 'compact' })).toBe('1m');
     expect(label(-30 * 86_400_000, { mode: 'strict' })).toBe('1 month ago');
     expect(label(-365 * 86_400_000, { mode: 'strict' })).toBe('1 year ago');
   });
@@ -45,6 +44,9 @@ describe('relative-time modes', () => {
     expect(parts.map((part) => part.value).join('')).toBe('3分钟前');
     expect(parts.filter((part) => part.type === 'suffix').map((part) => part.value).join('')).toBe('分钟前');
     expect(formatRelativeTime(nowMs + 180_000, 'zh-CN', words, { mode: 'strict', nowMs })).toBe('3分钟后');
+    expect(formatRelativeTime(nowMs - 3 * 3_600_000, 'zh-CN', words, { mode: 'compact', nowMs })).toBe('3小时');
+    expect(formatRelativeTime(nowMs - 59 * 60_000, 'zh-CN', words, { mode: 'compact', nowMs })).toBe('59分钟');
+    expect(formatRelativeTime(nowMs - 3 * 3_600_000, 'zh-CN', words, { mode: 'strict', nowMs })).toBe('3小时前');
   });
 });
 

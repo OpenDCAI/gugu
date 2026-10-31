@@ -76,14 +76,6 @@ export default {
     "zhCN": "简体中文"
   },
   "relativeTime": {
-    "compact": {
-      "second": "{{count}}s",
-      "minute": "{{count}}m",
-      "hour": "{{count}}h",
-      "day": "{{count}}d",
-      "month": "{{count}}mo",
-      "year": "{{count}}y"
-    },
     "daysAgo": "{{count}} days ago",
     "daysAgo_one": "{{count}} day ago",
     "daysAgo_other": "{{count}} days ago",

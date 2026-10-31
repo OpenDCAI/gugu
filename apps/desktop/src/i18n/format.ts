@@ -35,14 +35,9 @@ export function formatRelativeTimeParts(
   const resolvedLocale = localeOverride ?? getLocaleSnapshot().resolvedLocale
   const t = i18n.getFixedT(resolvedLocale, 'common')
   const elapsedKeys = { minute: 'relativeTime.minutesAgo', hour: 'relativeTime.hoursAgo', day: 'relativeTime.daysAgo' } as const
-  const compactKeys = {
-    second: 'relativeTime.compact.second', minute: 'relativeTime.compact.minute', hour: 'relativeTime.compact.hour',
-    day: 'relativeTime.compact.day', month: 'relativeTime.compact.month', year: 'relativeTime.compact.year',
-  } as const
   return formatRelativeParts(timestamp, resolvedLocale, {
     now: t('relativeTime.justNow'),
     elapsed: (count, unit) => t(elapsedKeys[unit], { count }),
-    compact: (count, unit) => t(compactKeys[unit], { count }),
   }, options)
 }
 

@@ -47,7 +47,6 @@ export function toLocalDateTimeInput(value: Date | number): string {
 export interface RelativeTimeWords {
   now: string;
   elapsed: (count: number, unit: 'minute' | 'hour' | 'day') => string;
-  compact: (count: number, unit: TimeUnit) => string;
 }
 
 export type RelativeTimeOptions = { nowMs?: number } & (
@@ -95,9 +94,8 @@ export function formatRelativeTimeParts(
   const text = (value: string): RelativeTimePart[] => [{ type: 'value', value }];
   const distanceParts = (compact: boolean, addSuffix: boolean): RelativeTimePart[] => {
     const { count, unit } = strictDistance(timestamp, nowMs, compact ? Math.floor : Math.round);
-    if (!addSuffix) return text(compact
-      ? words.compact(count, unit)
-      : new Intl.NumberFormat(locale, { style: 'unit', unit, unitDisplay: 'long' }).format(count));
+    // 短形(侧栏、提交列表)与长形是同一个 Intl 单位格式,只差 narrow/long:中文「10分钟 / 3小时」,英文「10m / 3h」。
+    if (!addSuffix) return text(new Intl.NumberFormat(locale, { style: 'unit', unit, unitDisplay: compact ? 'narrow' : 'long' }).format(count));
     return new Intl.RelativeTimeFormat(locale, { numeric: 'always', style: compact ? 'narrow' : 'long' })
       .formatToParts(timestamp > nowMs ? count : -count, unit)
       .map((part): RelativeTimePart => ({ type: part.type === 'literal' ? 'suffix' : 'value', value: part.value }));
