@@ -2527,9 +2527,14 @@ ipcMain.handle('clipboard:write-text', async (_event, value: unknown) => {
 ipcMain.handle('notifications:show', (_event, params: unknown) => showAppNotification(params))
 // #5906 —— 登录态的变化是**事件**,设备 runtime 靠它当场重新确立 owner 边界 / 订上命令 wake / 登出时撤订阅。
 // 宿主不再有 2 秒一轮的 tick 去「碰巧发现」登录了;不通知的话,要等一个对账周期(30 s)设备才跟上。
+function humanAuthUserId(): string | null {
+  return typeof pushedHumanAuth === 'object' ? pushedHumanAuth?.userId ?? null : null
+}
+
 function onHumanAuthSessionChanged(): void {
   projectionDeviceRuntime.invalidate()
-  void nativeFiles.ownerChanged(typeof pushedHumanAuth === 'object' ? pushedHumanAuth?.userId ?? null : null).catch(error => createLogger('files').warn({ error: String(error) }, 'File handle cleanup failed'))
+  void emdashBridgeModule?.setTaskNameOwner(humanAuthUserId()).catch(error => createLogger('sessionpage/names').error({ error: String(error) }, 'Task name owner change failed'))
+  void nativeFiles.ownerChanged(humanAuthUserId()).catch(error => createLogger('files').warn({ error: String(error) }, 'File handle cleanup failed'))
   void refreshElectronSupabaseAuth().catch((error: unknown) => {
     createLogger('device-runtime/auth').warn({ error: String(error) }, 'Realtime account auth update failed')
   })
@@ -4971,6 +4976,7 @@ app.whenReady().then(async () => {
     const sessionpageIdentityDeps = sessionpageIdentityHost.provisionDeps
     emdash.setSessionIdentityHost(sessionpageIdentityHost)
     emdash.setTaskNamer({ defaultName: (provider, taken) => sessionpageIdentityHost.defaultTaskName(provider, taken) })
+    await emdash.setTaskNameOwner(humanAuthUserId())
     const nativeInbox = emdash.startNativeConversationInboxHost({
       open: async target => (await sessionpageIdentityHost.ensureAgentAddress(target)).chatId,
       failed: error => createLogger('sessionpage/personal-inbox').warn({ error: String(error) }, 'Personal conversation address remains pending'),

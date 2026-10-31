@@ -74,12 +74,22 @@ async function loadAgentsPayload(env: NodeJS.ProcessEnv = process.env): Promise<
   }
 }
 
+type AgentsSavedListener = (agents: readonly LocalAgentRecord[]) => void
+const agentsSavedListeners = new Set<AgentsSavedListener>()
+
+/** Every roster write lands here; projections of the roster (task names) rebuild from it. */
+export function onAgentsSaved(listener: AgentsSavedListener): () => void {
+  agentsSavedListeners.add(listener)
+  return () => { agentsSavedListeners.delete(listener) }
+}
+
 async function saveAgentsPayload(
   payload: AgentsPayload,
   env: NodeJS.ProcessEnv = process.env
 ): Promise<void> {
   await ensureStateDirs(env)
   await atomicWriteText(agentsFile(env), JSON.stringify(payload, null, 2))
+  for (const listener of agentsSavedListeners) listener(payload.agents)
 }
 
 async function acquireAgentsLock(env: NodeJS.ProcessEnv): Promise<() => Promise<void>> {
