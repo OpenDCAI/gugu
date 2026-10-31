@@ -3,6 +3,7 @@ import { createReadStream, watch, type FSWatcher, type ReadStream } from 'node:f
 import { StringDecoder } from 'node:string_decoder';
 import { pipeline } from 'node:stream/promises';
 import { createZstdDecompress } from 'node:zlib';
+import { zstdFrames } from './zstd-frames';
 
 import type { RecordSourceWarn } from './shared';
 
@@ -110,21 +111,40 @@ export class TailReader {
 
   /** A complete historical archive, streamed through the same UTF-8/line decoder without tail-follow. */
   async readSnapshot(sink: LineSink): Promise<void> {
-    if (!this.path.endsWith('.zst')) return this.readFromStart(sink);
+    if (!this.path.endsWith('.zst')) {
+      await this.readFromStart(sink);
+      this.acceptText(this.decoder.end(), sink);
+      if (this.partial.length) throw new Error('Incomplete JSONL snapshot line');
+      return;
+    }
     this.lineOffset = 0;
     this.partial = '';
     this.decoder = new StringDecoder('utf8');
-    const input = createReadStream(this.path);
-    this.snapshotInput = input;
+    const file = await open(this.path, 'r');
+    let decoded = 0n;
     try {
-      await pipeline(input, createZstdDecompress(), async (chunks: AsyncIterable<Buffer>) => {
-        for await (const chunk of chunks) this.acceptText(this.decoder.write(chunk), sink);
-      });
+      const { size } = await file.stat();
+      // Node 24 can finish a truncated stream without error. Prove each frame envelope and declared size too.
+      for await (const frame of zstdFrames(file, size)) {
+        if (this.stopped) throw new Error('Record snapshot stopped');
+        const input = createReadStream(this.path, { fd: file.fd, autoClose: false, start: frame.start, end: frame.end });
+        this.snapshotInput = input;
+        let frameBytes = 0n;
+        await pipeline(input, createZstdDecompress(), async (chunks: AsyncIterable<Buffer>) => {
+          for await (const chunk of chunks) {
+            frameBytes += BigInt(chunk.length);
+            this.acceptText(this.decoder.write(chunk), sink);
+          }
+        });
+        if (frame.contentSize !== null && frame.contentSize !== frameBytes) throw new Error('Zstd frame content size mismatch');
+        decoded += frameBytes;
+      }
+      if (size > 0 && decoded === 0n) throw new Error('Non-empty zstd snapshot decoded no content');
       this.acceptText(this.decoder.end(), sink);
-      if (this.partial.trim()) sink([this.partial], [this.lineOffset]);
-      this.partial = '';
+      if (this.partial.length) throw new Error('Incomplete zstd JSONL snapshot line');
     } finally {
       this.snapshotInput = null;
+      await file.close();
     }
   }
 
