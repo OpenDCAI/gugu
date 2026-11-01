@@ -24,6 +24,7 @@ import { isIpLikeLabel } from '@gugu/core/shared/ipLikeLabel'
 import { isServerVersion } from '@gugu/core/cloud/serverDesktopVersions'
 import { quoteShellArg } from '../../session/main/utils/shellEscape'
 import { INCOMING_DIR, MATCH_MARK, versionManifestUrl } from '../server-account-versions'
+import { desktopServerChannel, remoteServerPaths } from '../server-names'
 
 // ── 用户填的地址 ───────────────────────────────────────────────────────────────
 
@@ -438,8 +439,8 @@ const ALIVE_MARK = '__GUGU_ALIVE__'
 /** 下载脚本连不上下载站时的退出码(桌面据此改走「本机下载后传过去」)。 */
 export const NO_INTERNET_EXIT = 3
 
-const SERVER_BIN = '"$HOME/.local/bin/gugu-server"'
-const SERVER_HOME = '"${GUGU_SERVER_HOME:-$HOME/.gugu-server}"'
+/** 找的、装的都是这台桌面那条通道的 server(server-names.ts):正式版桌面看不见同一个用户下的 Beta,反过来也一样。 */
+const { bin: SERVER_BIN, home: SERVER_HOME } = remoteServerPaths(desktopServerChannel())
 /** 本机下载好的包经 SSH 传到那台机器上的落点(相对家目录,登录 shell 的起点就是家目录)。 */
 export const UPLOAD_FILE = '.gugu-server-upload.tar.gz'
 
