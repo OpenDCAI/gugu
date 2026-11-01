@@ -25,7 +25,7 @@ import { deriveAttention } from './agent-watch-store'
 import { useShownAgentStatus } from '@/components/chat/useAgentsOnCloudComputer'
 import { sessionPresentation } from './watch-status'
 import { agentStatusText } from '@/lib/agentStatusText'
-import { agentStatusColorVar } from '@gugu/core/shared/agentStatusPresentation'
+import { agentStatusColorVar, presentAgentStatus } from '@gugu/core/shared/agentStatusPresentation'
 import { useAgentWatchSession } from './useAgentWatchSession'
 import { SessionActions } from './SessionsPage'
 import { SessionAppMenu } from './SessionAppMenu'
@@ -97,13 +97,12 @@ export const SessionTimelinePage = observer(function SessionTimelinePage({
     reload, loadOlder, loadToolImage, pendingSends, respond, sending, respondingItemId, cancel, cancelling, link, errorCode,
   } =
     useAgentWatchSession(device.device_id, session.conversationId, online, firstPrompt, phoneHost)
-  // The directory says a crashed / unplugged machine is online until its lease runs out (about two minutes): its not
-  // answering is the earlier fact. Same note as offline; the session keeps trying and the page comes back by itself.
-  const hostSilent = online && link === 'lost' && (!error || errorCode === 'timeout')
-  const reachable = online && !hostSilent
-
   const native = !phoneHost && session.runtime === 'acp' && session.nativeInputVersion === 1
   const nativeRecord = useNativeSessionRecord(device.device_id, session.conversationId, native, online)
+  // The directory says a crashed / unplugged machine is online until its lease runs out (about two minutes): its not
+  // answering is the earlier fact. Same note as offline; the reads keep trying and the page comes back by itself.
+  const hostSilent = online && ((link === 'lost' && (!error || errorCode === 'timeout')) || (native && nativeRecord.unreachable))
+  const reachable = online && !hostSilent
   const conversation = native ? { ...timeline, turns: [...(nativeRecord.record?.turns ?? []), ...(nativeRecord.record?.activeTurn ? [nativeRecord.record.activeTurn] : [])], hasOlder: nativeRecord.record ? nativeRecord.record.nextCursor !== null : false } : timeline
 
   // 提醒**不在这一页**发:它挂在看管入口的根上(useAgentWatchAlerts),这样在机器列表、
@@ -113,7 +112,7 @@ export const SessionTimelinePage = observer(function SessionTimelinePage({
   const shownStatus = useShownAgentStatus()
   const agentUserId = agent?.agentUserId ?? session.agent?.userId
   // A machine that does not answer: its own reading, offline — ❌ the agent's presence, which outlives it as long as its lease.
-  const presentation = !reachable ? (agentUserId ? sessionPresentation(session, false, agentUserId) : null)
+  const presentation = !reachable ? (agentUserId ? presentAgentStatus({ reading: null, reachability: 'offline' }) : null)
     : shownStatus.presentation(agentUserId, sessionPresentation(session, true, agentUserId))
   const statusColor = presentation ? agentStatusColorVar(presentation.tone) : null
   const statusStyle: CSSProperties | undefined = statusColor ? { color: statusColor } : undefined

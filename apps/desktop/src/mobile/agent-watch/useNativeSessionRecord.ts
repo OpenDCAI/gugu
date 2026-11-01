@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { isDeepEqual } from '@gugu/session-shared'
-import type { NativeSessionRecord } from '@gugu/session-core/session-record/contract'
+import { remoteFailureKind, type NativeSessionRecord } from '@gugu/session-core/session-record/contract'
 import { machineRpc } from './sessionpage-rpc'
 import { messageForUser } from '@/lib/userFacingError'
 import { hydrateCachedNativeRecord, readCachedNativeRecord, writeCachedNativeRecord } from './timeline-cache'
@@ -10,6 +10,8 @@ export function useNativeSessionRecord(deviceId: string, sessionId: string, enab
   // What this phone read last time is drawn first, and is all there is while that machine is away.
   const [record, setRecord] = useState<NativeSessionRecord | null>(() => readCachedNativeRecord({ deviceId, sessionId }))
   const [error, setError] = useState<string | null>(null)
+  /** The last read failed because that machine did not answer (not because it refused): the page says it is away. */
+  const [unreachable, setUnreachable] = useState(false)
   const epoch = useRef(0)
   const current = useRef({ deviceId, sessionId, enabled })
   current.current = { deviceId, sessionId, enabled }
@@ -41,7 +43,7 @@ export function useNativeSessionRecord(deviceId: string, sessionId: string, enab
         : previous?.hasNewer && last !== undefined ? { before: last + 1 }
         : last !== undefined ? { after: Math.max(-1, last - 29) } : {}
       const result = await machineRpc(deviceId).sessionTimeline.sessionNativeRecord({ conversationId: sessionId, ...input })
-      if (!result.ok) throw new Error(result.error.message)
+      if (!result.ok) throw Object.assign(new Error(result.error.message), { code: result.error.code })
       if (epoch.current !== ownEpoch || current.current.deviceId !== requested.deviceId || current.current.sessionId !== requested.sessionId || !current.current.enabled) return
       const page = result.value
       if (tail) tailRequested.current = false
@@ -61,7 +63,7 @@ export function useNativeSessionRecord(deviceId: string, sessionId: string, enab
       const next = merge(value.current)
       if (next !== value.current) writeCachedNativeRecord({ deviceId, sessionId }, next)
       value.current = next; setRecord(next)
-      setError(null)
+      setError(null); setUnreachable(false)
     })
     requests.current = nextRequest
     return nextRequest
@@ -71,14 +73,19 @@ export function useNativeSessionRecord(deviceId: string, sessionId: string, enab
     let active = true
     let timer: ReturnType<typeof setTimeout> | undefined
     const poll = async () => {
-      try { if (document.visibilityState !== 'hidden') await read() } catch (error) { if (active) setError(messageForUser(error)) }
+      try { if (document.visibilityState !== 'hidden') await read() } catch (error) {
+        if (!active) return
+        setError(messageForUser(error))
+        const code = (error as { code?: unknown } | null)?.code
+        setUnreachable(remoteFailureKind(typeof code === 'string' ? code : null) === 'machine-unreachable')
+      }
       if (active) timer = setTimeout(() => { void poll() }, 1000)
     }
     void poll()
     return () => { active = false; clearTimeout(timer) }
   }, [enabled, online, read])
   const report = (error: unknown) => setError(messageForUser(error))
-  return { record, error,
+  return { record, error, unreachable,
     loadOlder: async () => { if (value.current?.nextCursor !== null && value.current?.nextCursor !== undefined) await read('older') },
     loadNewer: () => { if (value.current?.hasNewer) void read('newer').catch(report) },
     followTail: () => { tailRequested.current = true; if (online) void read('tail').catch(report) },
