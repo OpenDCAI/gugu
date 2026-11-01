@@ -107,6 +107,8 @@ export interface DesktopFilePage {
   extensionId: string;
   handed: (AppFileRef & { id: string }) | null;
   asAgent?: string | null;
+  /** A page's own chat, as it was bound: already its resource container (`surfaceResourceChat`). */
+  boundChat?: string | null;
 }
 
 
@@ -304,10 +306,10 @@ export async function listAppFiles(page: DesktopFilePage, args: { place?: unknow
 }
 
 /** Across every chat whoever the page works as is in (`files:read`, checked at the door): by a piece of the path; opened last. */
-export async function appFileViewPreferences(_page: DesktopFilePage, args: { place?: unknown; showAppData?: boolean }) {
+export async function appFileViewPreferences(page: DesktopFilePage, args: { place?: unknown; showAppData?: boolean }) {
   const place = placeOf(args.place);
   if (!('chat' in place)) throw new AppFileError('invalid', 'Folder preferences belong to a chat');
-  return files.viewPreferences(place.chat, args.showAppData);
+  return files.viewPreferences(place.chat, args.showAppData, page.asAgent ? null : page.boundChat);
 }
 
 export async function searchAppFiles(page: DesktopFilePage, args: unknown): Promise<AppFileEntry[]> {

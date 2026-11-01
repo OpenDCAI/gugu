@@ -861,9 +861,10 @@ export function createAppFiles(platform: FilesPlatform) {
     groupFiles,
 
     /** A person's folder preference, scoped to the source chat and shared across their devices. Never an API filter. */
-    async viewPreferences(chatId: string, showAppData?: boolean): Promise<{ showAppData: boolean }> {
+    async viewPreferences(chatId: string, showAppData?: boolean, bound?: string | null): Promise<{ showAppData: boolean }> {
       const { token, userId } = await platform.account();
-      const source = await resourceChatIdOf(token, chatId, userId);
+      // `bound`: the asking page's own chat, already its resource container when it was drawn.
+      const source = chatId === bound ? chatId : await resourceChatIdOf(token, chatId, userId);
       const client = createGuguSupabaseClient({ schema: 'identity', headers: { Authorization: `Bearer ${token}` } }) as unknown as VersionedSettingsTableClient;
       const scope = `chat:${source}` as const;
       if (showAppData !== undefined) {

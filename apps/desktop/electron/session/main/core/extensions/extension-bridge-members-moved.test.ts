@@ -37,7 +37,7 @@ vi.mock('@main/core/extensions/app-files', () => ({
   surfaceChatOf: async () => ({ id: '0b000000-0000-4000-8000-000000000001', name: 'G', kind: 'group', groupId: '0b000000-0000-4000-8000-000000000001' }),
 }));
 
-const { bindExtensionSurface, chatMembersChanged, setExtensionBridgeHost, unbindExtensionSurface, updateExtensionSurfaceLayout } = await import('./extension-bridge');
+const { bindExtensionSurface, chatMembersChanged, pushContext, setExtensionBridgeHost, unbindExtensionSurface, updateExtensionSurfaceLayout } = await import('./extension-bridge');
 
 const pushes = () => sent.filter(({ event }) => event.type === 'context').length;
 
@@ -83,6 +83,21 @@ describe('members that changed while no page was drawn for the chat', () => {
     await bind();
     const told = sent.filter(({ event }) => event.type === 'context').at(-1)!.event.context!.chat!.members.map((member) => member.id);
     expect(told).toEqual([`user:${A}`, `user:${B}`, `user:${C}`]);
+    expect(reads.members).toBe(1);
+  });
+});
+
+/** A folder page opening asked who is in its chat three ways at once (bound, laid out, its own getContext): one read serves them. */
+describe('a chat not read yet, asked about several times at once', () => {
+  it('is read once', async () => {
+    unbindExtensionSurface(PAGE);
+    await chatMembersChanged(CHAT, [{ memberId: C, left: false }]);
+    sent.length = 0;
+    await bindExtensionSurface({ webContentsId: PAGE, extensionId: 'workspace', tabId: 'slot-1', tabKind: 'workspace.main', chatId: CHAT });
+    pushContext(PAGE);
+    pushContext(PAGE);
+    // Both asks answered: each push follows the read it waited on.
+    await vi.waitFor(() => expect(pushes()).toBe(2), { timeout: 15_000 });
     expect(reads.members).toBe(1);
   });
 });
