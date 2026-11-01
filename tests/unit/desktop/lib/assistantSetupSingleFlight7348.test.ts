@@ -122,6 +122,12 @@ describe('assistant setup appearance', () => {
     expect(parseAgentLook(provision.provisionSingleAgent.mock.calls[0][1].avatar)).toEqual({ color: 9, rest: 'happy', wear: [{ id: 'set-puppy', cw: 0 }] })
   })
 
+  it('cloud setup carries the UI language (the assistant\'s welcome line is written in it)', async () => {
+    const { getLocaleSnapshot } = await import('../../../../apps/desktop/src/i18n')
+    await claimCloudAssistant({ ...draft, ...DEFAULT_ASSISTANT_LOOK })
+    expect(vi.mocked(provisionCloudComputer).mock.calls[0][0]?.assistant).toMatchObject({ locale: getLocaleSnapshot().resolvedLocale })
+  })
+
   it('sends the same plain default to cloud setup', async () => {
     await claimCloudAssistant({ ...draft, ...DEFAULT_ASSISTANT_LOOK })
     expect(parseAgentLook(cloudAvatar())).toEqual(DEFAULT_ASSISTANT_LOOK)

@@ -28,7 +28,9 @@ const DEFAULT_BASELINE = 'scripts/checks/error-outlet-baseline.json'
  * wire 层的连线,它们都不产生任何 node 发射器。只按名字判会把这些一并算进来 —— 那不是「严格」,那是把
  * 基线撑成噪声,真债务反而藏在里面看不见。
  */
+// 产品代码经 @gugu/core/local/childProcess 起子进程(同一套 API,Windows 上默认隐藏控制台):它的导出就是 child_process 的。
 const CHILD_PROCESS_MODULES = new Set(['node:child_process', 'child_process'])
+const isChildProcessModule = (from) => CHILD_PROCESS_MODULES.has(from) || /(^|\/)local\/childProcess(\.ts)?$/.test(from)
 const SOCKET_MODULES = new Set(['node:net', 'net', 'node:tls', 'tls', 'node:http', 'http', 'node:https', 'https'])
 const WS_MODULES = new Set(['ws'])
 /**
@@ -89,7 +91,7 @@ export function analyzeSource(file, sourceText) {
   const collectImports = (node) => {
     if (ts.isImportDeclaration(node) && ts.isStringLiteralLike(node.moduleSpecifier)) {
       const from = node.moduleSpecifier.text
-      const relevant = CHILD_PROCESS_MODULES.has(from) || SOCKET_MODULES.has(from) || WS_MODULES.has(from)
+      const relevant = isChildProcessModule(from) || SOCKET_MODULES.has(from) || WS_MODULES.has(from)
       const bindings = node.importClause?.namedBindings
       if (relevant && node.importClause?.name) emitterNames.add(node.importClause.name.text)
       if (relevant && bindings && ts.isNamespaceImport(bindings)) namespaceNames.add(bindings.name.text)

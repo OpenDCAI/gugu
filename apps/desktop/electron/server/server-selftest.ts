@@ -9,7 +9,7 @@
  *  · 自带的 tmux:跑 `-V`(终端会话跨重启靠它)。
  * 任何一项不过就非 0 退出,自动升级与安装脚本据此留在旧版本上。只做加载与最小调用,几百毫秒。
  */
-import { execFileSync } from 'node:child_process'
+import { execFileSync } from '@gugu/core/local/childProcess'
 import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
@@ -44,7 +44,7 @@ export async function checkAccountBoot(binary: string): Promise<void> {
     })
     watcher.on('error', error => ready.reject(error))
     owned = spawnOwnedChild(binary, ['run-account', userId], {
-      detached: process.platform !== 'win32', stdio: ['ignore', 'pipe', 'pipe'],
+      detached: true, stdio: ['ignore', 'pipe', 'pipe'],
       env: { ...process.env, GUGU_SERVER_HOME: home, GUGU_HOME: path.join(account, 'home'),
         GUGU_TASK_HOST_USER_DATA: data, GUGU_USER_DATA_DIR: data,
         GUGU_SERVER_ACCOUNT: userId, GUGU_SERVER_WAIT_PID: '', HOME: home, USERPROFILE: home },

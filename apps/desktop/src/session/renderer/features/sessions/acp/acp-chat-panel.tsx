@@ -2,7 +2,6 @@ import { readNativeOfflineDraft, writeNativeOfflineDraft } from '@/lib/nativeOff
 import { useSessionInputAccount } from '@/lib/sessionInputOutboxBridge';
 import { appendToDraft } from '@/store/chatContext';
 import { registerNativeComposer } from '@/lib/nativeComposerHandoff';
-import { sessionAgentNames } from '@renderer/features/sessions/stores/session-agent-names';
 import { useSessionSourceMessage } from './use-session-source-message';
 import { canQueueNativeInput, queueNativeInput } from './queue-native-input';
 import { useConversationVisibility } from '@/components/chat/useConversationVisibility';
@@ -1881,7 +1880,7 @@ export const AcpChatPanel = observer(function AcpChatPanel({
     setHeroSlot(null);
     setOverlaySlot(null);
   }, [bindGoneView]);
-  // A message found by search (the command palette) is revealed once this task's view is on screen, now or when it opens.
+  // A message found by the global search panel is revealed once this task's view is on screen, now or when it opens.
   const sessionId = store?.sessionId;
   const revealSearched = sourceMessage.reveal;
   useEffect(() => {
@@ -2291,7 +2290,8 @@ export const AcpChatPanel = observer(function AcpChatPanel({
   const historyActionsEnabled = store?.canRevertHistory ?? false;
   const messageEdit = store?.messageEdit;
   const messageEditPending = store?.reverting ?? false;
-  const conversationAgentName = store ? sessionAgentNames.nameFor(store.sessionId) ?? null : null;
+  // The agent speaking in this transcript is this task; its name is the task's one name.
+  const conversationAgentName = sessionStore?.data.title ?? null;
   const quotes = useSessionMessageQuotes(store, editorApiRef);
   const transcriptCommands = useMemo<ChatCommands>(
     () => ({

@@ -16,7 +16,9 @@ import {
   cancelTeamProvision,
   type TeamMemberProvisionInput,
 } from '../../../../apps/desktop/src/lib/teamProvisionSaga'
+import { getLocaleSnapshot } from '../../../../apps/desktop/src/i18n'
 import {
+  buildSingleBlueprint,
   buildTeamBlueprint,
   getProvision,
   listOperationMembers,
@@ -371,6 +373,12 @@ describe('#2260 teamProvisionSaga fresh-review fixes (fail-first)', () => {
     const rec: ProvisionResumeRecord = { version: 2, ownerUserId: 'other-owner', operationId: OP, deviceId: 'd', blueprint: bp, members: [{ provisionId: 'p1', memberKey: 'm1', memorySourceRef: { sources: ['claude-code'], clientDigest: 'x' } }] }
     await expect(resumeTeam(rec, { readMemory, computeSourceDigest: digestFn })).rejects.toThrow(/owner/)
     expect(readMemory).not.toHaveBeenCalled()
+  })
+  it('a blueprint carries the UI language at setup (the agent\'s welcome line is written in it)', () => {
+    const member = { memberKey: 'm1', displayName: 'm1', agentType: 'codex', inheritMemory: false, historyImportRequired: false, provisionId: 'p1' }
+    const locale = getLocaleSnapshot().resolvedLocale
+    expect(buildSingleBlueprint(member).locale).toBe(locale)
+    expect(buildTeamBlueprint({ groupChatId: 'g'.padEnd(36, '0'), teamName: 'T', groupPrompt: 'c', members: [{ ...member, listenMode: 'passive' }] }).locale).toBe(locale)
   })
   it('P1.5 provisionTeam fails loud when a member gives memoryContent without memory_sources (no silent drop)', async () => {
     installStatefulRpc()

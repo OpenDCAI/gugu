@@ -22,7 +22,6 @@ const localSessionMentionsByUri = new Map<string, Map<string, ChatMentionMeta>>(
 export type LocalSessionMention = {
   id: string;
   name: string;
-  title?: string;
   engine?: string;
   iconUrl?: string;
 };
@@ -43,7 +42,6 @@ export function registerLocalSessionMentions(
       label: token,
       name,
       kind: 'custom',
-      title: mention.title?.trim() || undefined,
       engine: mention.engine?.trim() || undefined,
       iconUrl: mention.iconUrl?.trim() || undefined,
     };

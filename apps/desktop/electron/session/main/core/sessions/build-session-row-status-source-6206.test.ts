@@ -12,6 +12,7 @@ const create = {
   projectId: 'p1',
   workspaceId: 'w1',
   title: 'T',
+  agentDisplayName: 'Codex 1',
   origin: { kind: 'create' as const, firstUtterance: 'hi' },
   claimsFirstSpawn: false,
 };

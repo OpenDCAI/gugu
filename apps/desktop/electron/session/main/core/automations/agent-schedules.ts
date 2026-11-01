@@ -8,13 +8,14 @@ import { describeScheduleTime, resolveScheduleTrigger } from './schedule-time';
 import { getOwnerTimeZoneContext } from '@shared/core/automations/timezone';
 
 /**
- * #7221 agent 的 schedule_* 工具:在它自己所在的这台机器上,给**自己**建、看、取消「已安排」。
- * 只能给自己排 —— 没有「目标会话」这个参数,送回的永远是发起调用的那条会话。
+ * #7221 agent 的 schedule_* 工具:给**自己**建「已安排」—— 建没有「目标会话」这个参数,送回的永远是发起调用的那条会话。
+ * 看与取消可以指名主人的另一条会话(`session_id`,与 session_archive 同一个口径、同一个账号);
+ * 那条会话在哪台机器上,就在哪台机器上做(宿主按 session_id 路由,这里只认这台机器上的会话)。
  */
 export type AgentScheduleAction =
   | { action: 'schedule_create'; prompt: string; title?: string; at?: string; cron?: string; tz?: string }
-  | { action: 'schedule_list' }
-  | { action: 'schedule_cancel'; schedule_id: string };
+  | { action: 'schedule_list'; session_id?: string }
+  | { action: 'schedule_cancel'; schedule_id: string; session_id?: string };
 
 export type AgentScheduleCaller = { sessionId: string; projectId: string; provider: string | null };
 
@@ -108,6 +109,7 @@ export async function runAgentScheduleAction(
       time_zone_source: action.tz?.trim() ? { status: 'explicit' } : getOwnerTimeZoneContext() };
   }
 
+  // 看与取消作用于 `caller` 这条会话:不指名就是发起调用的那条,指名了由会话分派器换成那一条。
   if (action.action === 'schedule_list') {
     const list = await listAgentSchedules(caller.sessionId);
     return { schedules: await Promise.all(list.map((automation) => rowOf(service, automation))) };
@@ -116,9 +118,11 @@ export async function runAgentScheduleAction(
   if (action.action === 'schedule_cancel') {
     const id = decodeTypedId('schedule', action.schedule_id, 'schedule_id');
     const automation = await getAutomation(id);
-    // 别人的与不存在的同一个答案:不告诉这个 agent 别的会话排了什么。
+    // 不是这条会话的与不存在的同一个答案。
     if (!automation || automation.agentSessionId !== caller.sessionId) {
-      throw new Error(`no schedule ${action.schedule_id} of yours — schedule_list shows the ones you set`);
+      throw new Error(action.session_id === undefined
+        ? `no schedule ${action.schedule_id} of yours — schedule_list shows the ones you set; another session's needs its session_id`
+        : `no schedule ${action.schedule_id} of session:${action.session_id} — schedule_list with that session_id shows its schedules`);
     }
     await service.deleteAutomation(id);
     return { schedule_id: action.schedule_id, cancelled: true };

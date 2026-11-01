@@ -171,8 +171,8 @@ export class ChildAcpProcessHost implements AcpRuntimeProcessHost {
         // @@@5405 POSIX 上自成进程组:child.pid 即组长 pid,这棵树从此有了一个**在组长死后仍然
         // 有效**的地址(父子链会被 SIGKILL 当场摧毁,进程组不会)。没有它,适配器与这个 worker
         // 同组 —— 那时 kill(-pid) 会把 worker 连同其它会话一起收掉,收树这条路根本不存在。
-        // Windows 没有进程组,detached 在那里另有语义(独立控制台),所以只在非 win32 开。
-        detached: process.platform !== 'win32',
+        // Windows 上 spawnOwnedChild 不把 detached 传下去(那里没有进程组,收树靠 taskkill /T)。
+        detached: true,
         onError,
       })
     );

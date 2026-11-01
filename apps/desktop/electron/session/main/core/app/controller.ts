@@ -1,4 +1,4 @@
-import { execFile } from 'node:child_process';
+import { execFile } from '@gugu/core/local/childProcess';
 import { mkdir } from 'node:fs/promises';
 import { legacySessionHomeDir, migrateLegacySessionHome, sessionHomeDir } from '@main/core/app/session-home-dir';
 import { arch, homedir, release } from 'node:os';

@@ -1361,6 +1361,7 @@ describe('InitialSessionField', () => {
           {
             sessionId: 'codex-conversation',
             engine: 'codex',
+            title: 'Codex 1',
             identity: { users: { id: userId, display_name: 'Codex 1', gugu_number: null } },
           },
         ]);
@@ -1437,6 +1438,7 @@ describe('InitialSessionField', () => {
           {
             sessionId: 'codex-conversation',
             engine: 'codex',
+            title: 'ENG-123 helper',
             identity: { users: { id: userId, display_name: 'ENG-123 helper', gugu_number: null } },
           },
         ]);

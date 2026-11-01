@@ -2,7 +2,8 @@
  * #6264 离线的 SSH 机器:问一句「这个账号在那台机器上还登着吗」(经同一条 SSH 读 `gugu-server status --json`)。
  * 答案决定设备行上写「离线」还是「登录已失效 · 重新登录」。连不上 / 那边太旧 = unknown,照旧只说离线。
  */
-import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
+import type { ChildProcessWithoutNullStreams } from 'node:child_process'
+import { spawn } from '@gugu/core/local/childProcess'
 import type { SshSignInState } from '../../src/lib/serverSshMachines'
 import type { SshTarget } from './ssh-install/logic'
 import { parseStatusJson, type StatusReport } from './server-status'
@@ -28,7 +29,7 @@ export function sshSignInState(options: {
 }): Promise<SshSignInState> {
   const args = sshBatchArgs(options.target, 'exec ~/.local/bin/gugu-server status --json', options.controlPath)
   return new Promise((resolve) => {
-    const child = (options.spawnSsh ?? ((a) => spawn('ssh', a, { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true })))(args)
+    const child = (options.spawnSsh ?? ((a) => spawn('ssh', a, { stdio: ['pipe', 'pipe', 'pipe'] })))(args)
     let stdout = ''
     let settled = false
     const done = (state: SshSignInState) => {

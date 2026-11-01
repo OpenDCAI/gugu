@@ -11,7 +11,7 @@ import { SectionLabel } from '@/components/ui/SectionLabel'
 import { ChevronDown, ChevronRight, Plus } from '@/lib/icons'
 import { useAssistantName } from '@/hooks/useAssistantHomeLabel'
 import { useDevicesStore } from '@/store/devicesContext'
-import { agentOfSession, deviceSessionsOf, directoryRows, useAgentNames, useLiveDeviceSessions } from '@/session/shared/remote-sessions/session-directory'
+import { deviceSessionsOf, directoryRows, useLiveDeviceSessions } from '@/session/shared/remote-sessions/session-directory'
 import { translateSessionMessage } from '@/session/renderer/localization/locale-store'
 import { usePhoneAssistantIdentity } from '../assistant/phoneAssistantIdentity'
 import { AgentWatchNote, AgentWatchScreen } from './AgentWatchChrome'
@@ -105,7 +105,6 @@ export const ProjectsPage = observer(function ProjectsPage({
   const { devices: allDevices, phones, loading: devicesLoading, error: devicesError } = useDevicesStore()
   const devices = useMemo(() => [...new Map([...(phones ?? []), ...allDevices].map((device) => [device.device_id, device])).values()], [allDevices, phones])
   const live = useLiveDeviceSessions()
-  const agentNames = useAgentNames()
   // #7199 个人助理不住项目区:它自己的会话不列,它派的归一组、标「由它发起」(桌面侧栏同一条)。
   const assistant = usePhoneAssistantIdentity()
   const assistantName = useAssistantName()
@@ -190,7 +189,7 @@ export const ProjectsPage = observer(function ProjectsPage({
   const manyMachines = machines.length > 1
   const twins = nameTwinIds(sections.flatMap((section) => (section.project ? [{ id: section.key, name: section.project.name }] : [])))
   /**
-   * 行上除 agent 名之外的标记。❌ 标机器(owner 10-28:会话列表不标机器,机器只在会话里说)。分区页头已经说了项目的格里
+   * 行上的标记。❌ 标机器(owner 10-28:会话列表不标机器,机器只在会话里说)。分区页头已经说了项目的格里
    * 不重复;置顶那格标自己的项目;挂在父会话下的行与父会话不在同一个项目里时标项目。
    */
   const tagsOf = (node: SessionNode, section: SessionSection, parent?: { deviceId: string; projectId: string }): string[] => {
@@ -226,7 +225,6 @@ export const ProjectsPage = observer(function ProjectsPage({
         <SessionRow
           key={node.item.id}
           session={node.item.session}
-          agentName={agentOfSession(node.item.session, agentNames)?.displayName}
           tags={tagsOf(node, section, parent)}
           depth={depth}
           childCount={node.children.length}

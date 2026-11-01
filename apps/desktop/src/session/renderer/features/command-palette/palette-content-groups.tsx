@@ -13,7 +13,7 @@ import { rpc } from '@renderer/lib/ipc';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
 import { PALETTE_ITEM_CLASS } from './palette-item-styles';
 
-/** What the palette searches inside: everything, what was said in local tasks, or IM messages in every chat. */
+/** What the global search panel searches inside: everything, what was said in local tasks, or IM messages in every chat. */
 export type PaletteScope = 'all' | 'taskContent' | 'messages';
 
 type MessageHit = { id: string; chat_id: string; sender_name: string; content: string | null };

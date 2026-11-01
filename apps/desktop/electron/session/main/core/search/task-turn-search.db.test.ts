@@ -57,7 +57,10 @@ describe('task content search (turn_text, fed by session_turns triggers)', () =>
     fixture().sqlite.exec(`
       INSERT INTO projects (id, name, path) VALUES ('p1', 'P', '/repo');
       INSERT INTO projects (id, name, path, workspace_provider) VALUES ('p-ssh', 'R', '/srv', 'ssh');
-      INSERT INTO sessions (id, project_id, title) VALUES ('s1', 'p1', 'Task one'), ('s2', 'p1', 'Task two'), ('s-ssh', 'p-ssh', 'Remote');
+      INSERT INTO sessions (id, project_id, config) VALUES
+        ('s1', 'p1', '{"version":"1","type":"acp","agentDisplayName":"Task one"}'),
+        ('s2', 'p1', '{"version":"1","type":"acp","agentDisplayName":"Task two"}'),
+        ('s-ssh', 'p-ssh', '{"version":"1","type":"acp","agentDisplayName":"Remote"}');
     `);
   });
 
@@ -151,11 +154,26 @@ describe('search_index writes', () => {
     const { sessionEvents } = await import('../sessions/session-events');
     const { mapSessionRowToSession } = await import('../sessions/utils');
     const { db, sqlite } = fixture();
-    sqlite.exec("INSERT INTO sessions (id, project_id, title) VALUES ('s1', 'p1', 'alpha one'), ('s2', 'p1', 'alpha two')");
+    sqlite.exec(`INSERT INTO sessions (id, project_id, config) VALUES
+      ('s1', 'p1', '{"version":"1","type":"acp","agentDisplayName":"alpha one"}'),
+      ('s2', 'p1', '{"version":"1","type":"acp","agentDisplayName":"alpha two"}')`);
     for (const id of ['s1', 's2']) sessionEvents._emit('session:created', mapSessionRowToSession(db.select().from(sessions).where(eq(sessions.id, id)).get()!));
-    sqlite.exec("UPDATE sessions SET title = 'alpha renamed' WHERE id = 's1'");
+    sqlite.exec(`UPDATE sessions SET config = json_set(config, '$.agentDisplayName', 'alpha renamed') WHERE id = 's1'`);
     sessionEvents._emit('session:renamed', 's1', 'p1', 'alpha renamed');
     await vi.waitFor(() => expect(sqlite.prepare("SELECT title FROM search_index WHERE item_id = 's1'").all()).toEqual([{ title: 'alpha renamed' }]));
     expect(sqlite.prepare("SELECT title FROM search_index WHERE item_id = 'p1'").all()).toEqual([{ title: 'alpha project' }]);
+  });
+  it('an index built as version 6 (said-in-tasks search) is rebuilt once and names each task by its one name', async () => {
+    const { sqlite } = fixture();
+    sqlite.exec(`INSERT INTO sessions (id, project_id, title, config) VALUES
+      ('s1', 'p1', 'old shown title', '{"version":"1","type":"acp","agentDisplayName":"Task one"}')`);
+    sqlite.exec(`DELETE FROM search_index;
+      INSERT INTO search_index (item_type, item_id, project_id, title, keywords) VALUES ('session', 's1', 'p1', 'old shown title', '');
+      UPDATE kv SET value = '6' WHERE key = 'fts_version'`);
+    await initializeDatabase(sqlite);
+    expect(sqlite.prepare("SELECT value FROM kv WHERE key = 'fts_version'").get()).toEqual({ value: '7' });
+    expect(sqlite.prepare('SELECT count(*) AS n FROM search_index').get()).toEqual({ n: 0 });
+    searchService.initialize(); // boot backfills the rebuilt index
+    expect(sqlite.prepare("SELECT title FROM search_index WHERE item_id = 's1'").all()).toEqual([{ title: 'Task one' }]);
   });
 });

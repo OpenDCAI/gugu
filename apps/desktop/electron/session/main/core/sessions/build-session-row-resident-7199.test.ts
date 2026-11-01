@@ -10,6 +10,7 @@ const base = {
   projectId: 'p1',
   workspaceId: 'w1',
   title: '个人助理',
+  agentDisplayName: '个人助理',
   claimsFirstSpawn: false,
   runtime: 'acp' as const,
 };

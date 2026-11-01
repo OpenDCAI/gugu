@@ -3,7 +3,7 @@ import { getSessionManagerStore } from '@renderer/features/sessions/stores/sessi
 import { projectPresence } from '@renderer/features/projects/project-presence';
 import { readAssistantShellBridge } from '@/lib/assistantShellBridge';
 import { isAssistantSession } from '@renderer/features/assistant/assistant-lineage';
-import { sessionAgentNames } from '@renderer/features/sessions/stores/session-agent-names';
+import { sessionAgentBindings } from '@renderer/features/sessions/stores/session-agent-bindings';
 import type { GuardResult } from '@renderer/app/view-registry';
 
 /**
@@ -25,7 +25,7 @@ export function sessionViewCanActivate(params: unknown): GuardResult {
   if (typeof projectId !== 'string' || typeof sessionId !== 'string') {
     return { ok: false, redirect: 'home' };
   }
-  const identity = sessionAgentNames.identityFor(sessionId);
+  const identity = sessionAgentBindings.bindingFor(sessionId);
   if (isAssistantSession({ agent: identity ? { userId: identity.agentUserId } : null }, readAssistantShellBridge()?.getSnapshot()?.assistant?.id)) {
     return { ok: false, redirect: 'assistant' };
   }

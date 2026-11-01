@@ -1,4 +1,5 @@
-import { fork, type ChildProcess } from 'node:child_process';
+import type { ChildProcess } from 'node:child_process';
+import { fork } from '@gugu/core/local/childProcess';
 import { Emitter, onErrorEvents, type Unsubscribe } from '@gugu/session-shared';
 import type { Scope } from '../../util';
 import { listen, type EventEmitterLike } from '../events';

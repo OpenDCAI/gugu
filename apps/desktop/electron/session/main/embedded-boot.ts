@@ -223,6 +223,8 @@ import {
 import { connectionConfigRoot } from '@main/core/agents/harness-connections'
 import { acpSessionLive, setSessionCancel, setSessionWake } from '@main/core/session-timeline/write-bridge'
 import { setOtherMachines } from '@main/core/sessions/session-family'
+import { hasPendingTaskNames, loadTaskNames, setTaskNamer, setTaskNameOwner } from '@main/core/sessions/task-name'
+import { adoptLegacyTaskNames } from '@main/core/sessions/renameSession'
 import { setAgentSessionHost } from '@main/core/sessions/agent-session-controller'
 import { answerAppMessage } from '@main/core/extensions/extension-send'
 import { answerAppReadFile } from '@main/core/extensions/app-files-elsewhere'
@@ -247,6 +249,10 @@ export {
 export {
   localSessionIds,
   setOtherMachines,
+  setTaskNamer,
+  setTaskNameOwner,
+  hasPendingTaskNames,
+  adoptLegacyTaskNames,
   runRemoteSessionAction,
   runSessionAction,
   sessionCallerFacts,
@@ -537,6 +543,9 @@ export async function bootSessionHostCore(options: SessionHostBootOptions): Prom
   )
   // 开门即已迁完(退役的 lifecycle 条目在门里先迁走);同上面两段一样不等占用判定。
   await setSessionMessageOutboxReady()
+  // Task names: a bound task is named by its roster identity (task-name.ts). The roster keys were just
+  // renamed above, and every reader of a name below (search backfill first) needs the projection.
+  await loadTaskNames()
   // #6892 起任何 agent / worker 之前问一次系统代理,只补给 agent 与安装器(utils/systemProxyEnv.ts)。
   log.info('[session-host] system proxy for agent processes', await resolveSystemProxy((url) => electronSession.defaultSession.resolveProxy(url)))
 
@@ -1943,9 +1952,8 @@ export async function startSessionpageAgentSession(
       projectId: project.id,
       workspaceId: repositoryWorkspaceId,
       provider,
-      title: input.displayName,
-      // 这条会话就是这个 agent 的运行时,标题 = 它在通讯录里的名字 —— 显式命名,harness 起的名不盖它。
-      titleSource: 'manual',
+      // 这条会话就是这个 agent 的运行时:它的名字就是这个 agent 在通讯录里的名字。
+      agentDisplayName: input.displayName,
       permissionMode,
       ...(effort ? { effort } : {}),
       // 不带首句 = 常驻,等主人的第一条消息:出生 idle(#7199;从前记一句占位当首轮,一出生就「在干活」,云电脑永远不闲)。

@@ -105,9 +105,8 @@ describe('captureExternalForks — chained external forks in one sweep', () => {
       id: PARENT,
       projectId,
       workspaceId: 'workspace-1',
-      title: '母会话',
       provider: 'claude',
-      config: { version: '1', type: 'pty' },
+      config: { agentDisplayName: '母会话', version: '1', type: 'pty' },
       providerSessionId: PARENT,
       runtime: 'pty',
       lastInteractedAt: '2026-07-01T00:00:00.000Z',
@@ -154,11 +153,15 @@ describe('captureExternalForks — chained external forks in one sweep', () => {
     // because the sweep feeds each just-inserted fork back into the candidate pool. Without
     // that, the grandchild would mis-bind to the grandparent.
     expect(forkedFromId(byId.get(GRANDCHILD))).toBe(CHILD);
+    // A fork is named after its parent's one name; its lineage is the parent's id only (no copy of the name).
+    expect(byId.get(CHILD)?.config).toMatchObject({ agentDisplayName: '母会话-fork', forkedFrom: { sessionId: PARENT } });
+    expect((byId.get(CHILD)?.config as { forkedFrom?: object }).forkedFrom).not.toHaveProperty('title');
+    expect(byId.get(GRANDCHILD)?.config).toMatchObject({ agentDisplayName: '母会话-fork-fork', forkedFrom: { sessionId: CHILD } });
   });
 
   it('carries the source session\'s permission mode onto captured forks, so a read-only source stays read-only', async () => {
     await fixture.db.update(sessions)
-      .set({ config: { version: '1', type: 'pty', permissionMode: 'read-only' } })
+      .set({ config: { version: '1', type: 'pty', agentDisplayName: '母会话', permissionMode: 'read-only' } })
       .where(eq(sessions.id, PARENT));
     await captureExternalForks(projectId, PARENT);
 
@@ -218,12 +221,12 @@ describe('captureExternalForks — chained external forks in one sweep', () => {
       id: FORK,
       projectId,
       workspaceId: 'workspace-1',
-      title: '母会话-fork',
       provider: 'claude',
       config: {
+        agentDisplayName: '母会话-fork',
         version: '1',
         type: 'pty',
-        forkedFrom: { sessionId: PARENT, title: '母会话' },
+        forkedFrom: { sessionId: PARENT },
       },
       providerSessionId: FORK,
       runtime: 'pty',
@@ -276,12 +279,12 @@ describe('captureExternalForks — chained external forks in one sweep', () => {
       id: FORK,
       projectId,
       workspaceId: 'workspace-1',
-      title: '母会话-fork',
       provider: 'claude',
       config: {
+        agentDisplayName: '母会话-fork',
         version: '1',
         type: 'acp',
-        forkedFrom: { sessionId: PARENT, title: '母会话' },
+        forkedFrom: { sessionId: PARENT },
         forkFromProviderSessionId: PARENT,
       },
       providerSessionId: null,
@@ -325,9 +328,8 @@ describe('captureExternalForks — chained external forks in one sweep', () => {
       id: '66666666-6666-4666-8666-666666666666',
       projectId,
       workspaceId: 'workspace-1',
-      title: 'Codex 母会话',
       provider: 'codex',
-      config: { version: '1', type: 'pty', model: 'gpt-test', permissionMode: 'read-only' },
+      config: { agentDisplayName: 'Codex 母会话', version: '1', type: 'pty', model: 'gpt-test', permissionMode: 'read-only' },
       providerSessionId: codexParentId,
       runtime: 'pty',
       lastInteractedAt: '2026-07-04T00:00:00.000Z',
@@ -375,9 +377,8 @@ describe('captureExternalForks — chained external forks in one sweep', () => {
       id: '99999999-9999-4999-8999-999999999999',
       projectId,
       workspaceId: 'workspace-1',
-      title: 'Codex 母会话',
       provider: 'codex',
-      config: { version: '1', type: 'pty', model: 'gpt-test' },
+      config: { agentDisplayName: 'Codex 母会话', version: '1', type: 'pty', model: 'gpt-test' },
       providerSessionId: codexParentId,
       runtime: 'pty',
       lastInteractedAt: '2026-07-04T00:00:00.000Z',
@@ -461,9 +462,8 @@ describe('captureExternalForks — chained external forks in one sweep', () => {
       id: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
       projectId,
       workspaceId: 'workspace-1',
-      title: 'Codex 母会话',
       provider: 'codex',
-      config: { version: '1', type: 'pty', model: 'gpt-test' },
+      config: { agentDisplayName: 'Codex 母会话', version: '1', type: 'pty', model: 'gpt-test' },
       providerSessionId: codexParentId,
       runtime: 'pty',
       lastInteractedAt: new Date(bornAt).toISOString(),

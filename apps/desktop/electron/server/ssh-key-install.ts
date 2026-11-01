@@ -16,7 +16,7 @@
  *
  * 装进 authorized_keys 的那一行末尾是 `gugu@<这台电脑>`,认得出是谁加的;同一把钥匙已经在了就不再追加。
  */
-import { spawn, spawnSync } from 'node:child_process'
+import { spawn, spawnSync } from '@gugu/core/local/childProcess'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -169,7 +169,7 @@ export type GuguKeyDeps = {
 
 function defaultKeygen(args: string[]): Promise<{ code: number | null; stderr: string }> {
   return new Promise((resolve, reject) => {
-    const child = spawn('ssh-keygen', args, { stdio: ['ignore', 'ignore', 'pipe'], windowsHide: true })
+    const child = spawn('ssh-keygen', args, { stdio: ['ignore', 'ignore', 'pipe'] })
     let stderr = ''
     child.stderr.setEncoding('utf8').on('data', (chunk: string) => {
       if (stderr.length < 16_384) stderr += chunk

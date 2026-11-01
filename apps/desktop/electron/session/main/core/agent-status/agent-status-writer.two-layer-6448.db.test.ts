@@ -92,8 +92,8 @@ describe('#6448 基础态 + 附属态 + 功能布尔', () => {
   const seed = (status: string | null, detail: string | null = null, runtime = 'pty') => {
     fixture.sqlite
       .prepare(
-        `INSERT INTO sessions (id, project_id, title, provider, runtime, agent_status, agent_status_detail, agent_status_seen)
-         VALUES (?, 'p1', 'C', 'claude', ?, ?, ?, 1)`
+        `INSERT INTO sessions (id, project_id, provider, runtime, agent_status, agent_status_detail, agent_status_seen)
+         VALUES (?, 'p1', 'claude', ?, ?, ?, 1)`
       )
       .run(cid, runtime, status, detail);
   };

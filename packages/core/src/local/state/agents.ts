@@ -26,7 +26,6 @@ export interface LocalAgentRecord {
 }
 
 export interface LocalAgentUpdate {
-  name?: string | null
   agent_type?: string | null
   path?: string | null
   gugu_user_id?: string | null
@@ -74,12 +73,22 @@ async function loadAgentsPayload(env: NodeJS.ProcessEnv = process.env): Promise<
   }
 }
 
+type AgentsSavedListener = (agents: readonly LocalAgentRecord[]) => void
+const agentsSavedListeners = new Set<AgentsSavedListener>()
+
+/** Every roster write lands here; projections of the roster (task names) rebuild from it. */
+export function onAgentsSaved(listener: AgentsSavedListener): () => void {
+  agentsSavedListeners.add(listener)
+  return () => { agentsSavedListeners.delete(listener) }
+}
+
 async function saveAgentsPayload(
   payload: AgentsPayload,
   env: NodeJS.ProcessEnv = process.env
 ): Promise<void> {
   await ensureStateDirs(env)
   await atomicWriteText(agentsFile(env), JSON.stringify(payload, null, 2))
+  for (const listener of agentsSavedListeners) listener(payload.agents)
 }
 
 async function acquireAgentsLock(env: NodeJS.ProcessEnv): Promise<() => Promise<void>> {
@@ -190,9 +199,6 @@ export async function updateAgent(
       if (key === 'agent_type') {
         rejectNullRequiredAgentField(key, value)
         agent.agent_type = normalizeAgentType(String(value))
-      } else if (key === 'name') {
-        rejectNullRequiredAgentField(key, value)
-        agent.name = String(value)
       } else if (key === 'path') {
         rejectNullRequiredAgentField(key, value)
         agent.path = String(value)
@@ -214,6 +220,44 @@ export async function updateAgent(
     }
     await saveAgentsPayload(payload, env)
     return agent
+  } finally {
+    await release()
+  }
+}
+
+/**
+ * The only writer of an agent's name on the roster (the local mirror of its identity name).
+ * - `local`: renamed on this device; pending until published.
+ * - `published`: the cloud accepted `name`; clears pending if the name is still the one published.
+ * - `cloud`: the cloud identity's name observed (another device, provisioning, refusal); never
+ *   replaces a pending local name.
+ * Returns whether the stored name changed.
+ */
+export async function writeAgentName(
+  guguUserId: string,
+  name: string,
+  origin: 'local' | 'published' | 'cloud',
+  env: NodeJS.ProcessEnv = process.env
+): Promise<boolean> {
+  const next = name.trim()
+  if (!next) throw new Error(`Agent '${guguUserId}' cannot be given an empty name`)
+  const release = await acquireAgentsLock(env)
+  try {
+    const payload = await loadAgentsPayload(env)
+    const agent = payload.agents.find((item) => item.gugu_user_id === guguUserId)
+    if (!agent) throw new Error(`Agent '${guguUserId}' does not exist`)
+    const pending = agent.cache?.name_pending === true
+    if (origin === 'cloud' && pending) return false
+    if (origin === 'published' && agent.name !== next) return false
+    const before = agent.name
+    agent.name = origin === 'published' ? agent.name : next
+    const cache = { ...(agent.cache ?? {}) }
+    if (origin === 'local') cache.name_pending = true
+    else delete cache.name_pending
+    agent.cache = cache
+    if (before === agent.name && pending === (cache.name_pending === true)) return false
+    await saveAgentsPayload(payload, env)
+    return before !== agent.name
   } finally {
     await release()
   }
