@@ -65,8 +65,7 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
   const [chatsLoad, setChatsLoad] = useState<'unread' | 'idle' | 'loading' | 'failed'>('unread') // unread = 这个号的列表还没读成过;failed = 最近一次读失败了(#2118:空着不是「没有」)
   const { track: trackMessageRead, noteFreshRead: noteFreshMessageRead, failureOf: messageReadFailureOf } = useMessageReadFailures() // #7199 读失败按会话、按最新一次读记
   const { dropTextDraft, ...textDraftContext } = useTextDraftStore()
-  const draftMentionContext = useDraftMentionsStore()
-  const draftQuoteContext = useDraftQuotesStore()
+  const draftMentionContext = useDraftMentionsStore(), draftQuoteContext = useDraftQuotesStore()
   // @@@draft-attachment (#1872) - per-chat queued-attachment store (state/set/get/drop live in the hook).
   const { dropDraftAttachments, ...draftAttachmentContext } = useDraftAttachmentsStore()
   const cancelChatOpenRef = useRef<(chatId: string, error: Error) => void>(() => undefined)
@@ -928,8 +927,7 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
         setChatNotificationLevel,
         patchChat,
         ...textDraftContext,
-        ...draftMentionContext,
-        ...draftQuoteContext,
+        ...draftMentionContext, ...draftQuoteContext,
         ...draftAttachmentContext,
       }}
     >
