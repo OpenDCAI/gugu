@@ -1068,7 +1068,7 @@ async function createChildSession(input: {
   // a working child as "The engine could not start" (real Electron on dev: 4/4; the guard fired 37 ms
   // before the first turn began).
   const initialQueue = !intent && transport === 'acp'
-    ? [{ text: input.envelope(messageId, prompt), origin: 'communication' as const }]
+    ? [{ text: input.envelope(messageId, prompt), origin: 'communication' as const, kind: 'session-direct' as const }]
     : undefined;
   signal?.throwIfAborted();
   // Providers whose declared prompt capability consumes the startup prompt (argv/stdin, not

@@ -1,10 +1,17 @@
 import { and, eq, gt, sql, inArray } from 'drizzle-orm';
 import { db } from '@main/db/client';
-import { messages, sessions } from '@main/db/schema';
+import { messages, sessionPending, sessions } from '@main/db/schema';
 import { log } from '@main/lib/logger';
 import { taskExchangeFromRow, type TaskExchangePage, type TaskExchangeRequest } from '@shared/core/sessions/task-collaboration';
 
 const PAGE_SIZE = 200;
+
+/**
+ * A message's one receipt: session-life's pending row when the session's leg is on session-life (its receipt lives only
+ * there), else the receipt the legacy outbox wrote into the message row (legs not moved yet, and rows from before).
+ */
+const receipt = sql<string | null>`coalesce(${sessionPending.state}, CASE WHEN json_valid(${messages.metadata}) THEN json_extract(${messages.metadata}, '$.state') END)`;
+const ownPendingRow = and(eq(sessionPending.messageId, messages.id), eq(sessionPending.sessionId, messages.sessionId));
 const watchers = new Map<string, { request: TaskExchangeRequest; changed: () => void }>();
 
 /** Reads only the named recipient's durable inbox, then filters the exact sender. No provider startup. */
@@ -16,8 +23,8 @@ export function readTaskExchanges(request: TaskExchangeRequest): TaskExchangePag
     throw new Error('Task exchange recipient session is missing');
   }
   const position = sql<number>`${messages}.rowid`;
-  const rows = db.select({ id: messages.id, position, sessionId: messages.sessionId, content: messages.content, timestamp: messages.timestamp, metadata: messages.metadata })
-    .from(messages).where(and(eq(messages.sessionId, request.conversationId), gt(position, request.after ?? 0)))
+  const rows = db.select({ id: messages.id, position, sessionId: messages.sessionId, content: messages.content, timestamp: messages.timestamp, metadata: messages.metadata, receipt })
+    .from(messages).leftJoin(sessionPending, ownPendingRow).where(and(eq(messages.sessionId, request.conversationId), gt(position, request.after ?? 0)))
     .orderBy(position).limit(PAGE_SIZE).all();
   return {
     entries: rows.flatMap((row) => { const entry = taskExchangeFromRow(row, request.fromSessionId); return entry ? [entry] : []; }),
@@ -44,19 +51,16 @@ export function readAssistantWorkReceipts(after=0,retry:number[]=[]) {
   if(!Number.isSafeInteger(after)||after<0||retry.length>32||retry.some(value=>!Number.isSafeInteger(value)||value<=0)) throw new Error('Invalid historical receipt cursor')
   const position=sql<number>`${messages}.rowid`
   const read=()=>db.select({id:messages.id,position,sessionId:messages.sessionId,content:messages.content,timestamp:messages.timestamp,
-    metadata:messages.metadata,title:sessions.title,config:sessions.config,spawnedBySessionId:sessions.spawnedBySessionId})
-    .from(messages).innerJoin(sessions,eq(sessions.id,messages.sessionId))
+    receipt,title:sessions.title,config:sessions.config,spawnedBySessionId:sessions.spawnedBySessionId})
+    .from(messages).innerJoin(sessions,eq(sessions.id,messages.sessionId)).leftJoin(sessionPending,ownPendingRow)
   const kind=sql`CASE WHEN json_valid(${messages.metadata}) THEN json_extract(${messages.metadata}, '$.kind') END = 'session-direct'`
   const scanned=read().where(and(kind,gt(position,after))).orderBy(position).limit(PAGE_SIZE).all()
   const rows=[...(retry.length?read().where(and(kind,inArray(position,retry))).all():[]),...scanned]
   const tail=db.select({position:sql<number>`coalesce(max(${position}), 0)`}).from(messages).get()?.position??after
   const cursor=scanned.length===PAGE_SIZE?(scanned.at(-1)?.position??after):Math.max(after,tail)
   const pending:number[]=[]
-  return {entries:rows.flatMap(({metadata,config,...row})=>{
-    try {
-      const receipt=JSON.parse(metadata??'null')
-      if(receipt?.state==='queued')pending.push(row.position)
-      return receipt?.kind==='session-direct' && receipt.state==='accepted' ? [{...row,spawnedByRemote:config?.spawnedByRemote??null}] : []
-    }catch{return []}
+  return {entries:rows.flatMap(({config,receipt:state,...row})=>{
+    if(state==='queued'||state==='dispatching')pending.push(row.position)
+    return state==='accepted' ? [{...row,spawnedByRemote:config?.spawnedByRemote??null}] : []
   }),cursor,hasMore:scanned.length===PAGE_SIZE,pending}
 }

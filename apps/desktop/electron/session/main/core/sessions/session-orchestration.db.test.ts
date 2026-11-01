@@ -601,7 +601,7 @@ describe('session orchestration', () => {
       });
       // Admitted before it answers: the App's envelope is the session's first pending row (session-life starts it).
       expect(mocks.startSession).not.toHaveBeenCalled();
-      expect(admittedTurns(row.id)).toEqual([expect.objectContaining({ text: lastAcpDelegationEnvelope(), kind: 'ordinary' })]);
+      expect(admittedTurns(row.id)).toEqual([expect.objectContaining({ text: lastAcpDelegationEnvelope(), kind: 'session-direct' })]);
       expect(lastAcpDelegationEnvelope()).toMatch(/^<app-envelope msg="[^"]+">keep it warm<\/app-envelope>$/);
     });
 
@@ -1158,7 +1158,7 @@ describe('session orchestration', () => {
     // #6823 the envelope is the host's, so its origin says so.
     const [turn, ...more] = admittedTurns(result.session_id);
     expect(more).toEqual([]);
-    expect(turn).toMatchObject({ sessionId: result.session_id, kind: 'ordinary', turn: { kind: 'prompt', origin: 'communication' } });
+    expect(turn).toMatchObject({ sessionId: result.session_id, kind: 'session-direct', turn: { kind: 'prompt', origin: 'communication' } });
     expect(turn!.text).toContain('Record this delegation in the child transcript.');
     expect(fixture.sqlite.prepare('SELECT message_id AS id FROM session_pending WHERE session_id = ?').all(result.session_id)).toEqual([{ id: turn!.messageId }]);
     expect(fixture.sqlite.prepare('SELECT id FROM messages WHERE session_id = ?').all(result.session_id)).toEqual([{ id: turn!.messageId }]);

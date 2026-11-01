@@ -16,9 +16,16 @@ export function setSessionLifeSourceHost(next: SessionLifeSourceHost | null): vo
   host = next;
 }
 
-/** A row without sources has nothing to mark or report outside this device; its receipt is the whole story. */
+/**
+ * What follows a row's accepted receipt (`markRead`, once per accepted row): a session-direct message is a task exchange
+ * (its views and the delivery activity hear of it, as for the legacy outbox); a row's cloud sources are marked read.
+ * A row without sources has nothing to mark or report outside this device; its receipt is the whole story.
+ */
 export const sessionLifeSources: SessionLifeSourceHost = {
   async markRead(row) {
+    if (row.kind === 'session-direct') {
+      (await import('./sendMessage')).sessionDirectAccepted(row.sessionId, { id: row.message.id, text: row.message.text });
+    }
     if (!row.sources.length) return;
     if (!host) throw new Error('session-life source host is not installed');
     await host.markRead(row);

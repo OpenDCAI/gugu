@@ -86,6 +86,8 @@ export type InitialQueuePrompt = {
   text: string;
   hiddenContext?: string;
   origin: NonNullable<PromptInput['origin']>;
+  /** A spawn's delegation is a session-direct message from its caller (a task exchange); absent = ordinary. */
+  kind?: 'session-direct';
 };
 
 /**

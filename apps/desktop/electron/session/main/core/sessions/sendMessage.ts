@@ -320,10 +320,7 @@ function persistAcceptedMessage(
       ))
       .run();
   });
-  if (pending.kind === 'session-direct') {
-    taskExchangeRecorded(params.sessionId);
-    recordDeliveryActivity(params.sessionId, pending);
-  }
+  if (pending.kind === 'session-direct') sessionDirectAccepted(params.sessionId, pending);
 }
 
 function persistFailedMessage(
@@ -396,8 +393,13 @@ function persistDeliveredSessionDirect(
       metadata: messageMetadata('session-direct', 'accepted', nativeReceiptId),
     }).run();
   });
-  taskExchangeRecorded(params.sessionId);
-  recordDeliveryActivity(params.sessionId, message);
+  sessionDirectAccepted(params.sessionId, message);
+}
+
+/** A session-direct message its recipient accepted: the task exchange views and the delivery activity hear of it. */
+export function sessionDirectAccepted(sessionId: string, message: { id: string; text: string }): void {
+  taskExchangeRecorded(sessionId);
+  recordDeliveryActivity(sessionId, message);
 }
 
 function recordDeliveryActivity(sessionId: string, message: { id: string; text: string }): void {
