@@ -46,24 +46,24 @@ const life = vi.hoisted(() => ({
   end: vi.fn(async (_forkId: string) => {}),
   settle: (_sessionId: string, _kind: 'ready' | 'failed', _failure?: Failure) => {},
   /** The host's view while it starts the session, with its custody rows. */
-  pend: (_sessionId: string, _kind: 'starting' | 'ready' | 'failed', _items: PendingRow[]) => {},
+  pend: (_sessionId: string, _kind: 'starting' | 'ready' | 'failed' | 'dormant' | 'stopping', _items: PendingRow[], _hold?: string | null) => {},
   /** Sessions whose view the page asked for (the real mirror reads the host on the first ask). */
   viewed: new Set<string>(),
 }));
 type Failure = { at: string; message: string; cause: { name: string; message: string; data?: string } };
-type PendingRow = { seq: number; messageId: string; preview: string; text: string; kind: 'ordinary'; sentAt: number; state: 'queued' | 'dispatching' | 'accepted' | 'failed' | 'unknown'; failure: string | null };
+type PendingRow = { seq: number; messageId: string; preview: string; text: string; kind: 'ordinary'; sentAt?: number; state: 'queued' | 'dispatching' | 'accepted' | 'failed' | 'unknown'; failure: string | null };
 vi.mock('../stores/session-life-views', async () => {
   const { observable, runInAction } = await import('mobx');
-  type View = { kind: string; version: number; failure: Failure | null; pending: { items: PendingRow[] } };
+  type View = { kind: string; hold: string | null; version: number; failure: Failure | null; pending: { items: PendingRow[]; count: number } };
   const views = observable.map<string, View>();
   life.settle = (sessionId, kind, failure) => runInAction(() =>
-    views.set(sessionId, { kind, version: (views.get(sessionId)?.version ?? 0) + 1, failure: failure ?? null, pending: { items: [] } }));
-  life.pend = (sessionId, kind, items) => runInAction(() =>
-    views.set(sessionId, { kind, version: (views.get(sessionId)?.version ?? 0) + 1, failure: null, pending: { items } }));
+    views.set(sessionId, { kind, hold: null, version: (views.get(sessionId)?.version ?? 0) + 1, failure: failure ?? null, pending: { items: [], count: 0 } } as View));
+  life.pend = (sessionId, kind, items, hold = null) => runInAction(() =>
+    views.set(sessionId, { kind, hold, version: (views.get(sessionId)?.version ?? 0) + 1, failure: null, pending: { items, count: items.filter(row => row.state === 'queued' || row.state === 'dispatching').length } } as View));
   return {
     sessionLifeView: (sessionId: string) => { life.viewed.add(sessionId); return views.get(sessionId) ?? null; },
     readSessionLife: async (sessionId: string) => {
-      if (!views.has(sessionId)) runInAction(() => views.set(sessionId, { kind: 'dormant', version: 0, failure: null, pending: { items: [] } }));
+      if (!views.has(sessionId)) runInAction(() => views.set(sessionId, { kind: 'dormant', hold: null, version: 0, failure: null, pending: { items: [], count: 0 } } as View));
       return views.get(sessionId)!;
     },
     startSessionLife: (sessionId: string) => life.start(sessionId),
@@ -399,6 +399,41 @@ describe('the first message keeps one place while its session starts', () => {
     life.pend(store.sessionId, 'ready', [row('accepted')]);
     await vi.waitFor(() => expect(store.transcriptPendingId).toBeNull());
     expect(store.chatState.session.state.pendingPrompt, 'kept until its turn lands: no empty frame').toMatchObject({ id: 'm-first', starting: false, held: false });
+  });
+
+  it('accepted means gone from the view (the real shape): kept, then taken once history has its turn', async () => {
+    const { store } = storeFor({ providerId: 'claude', initialQueue: [{ text: '说一句你好', origin: 'manual' }] });
+    store.bootstrap();
+    life.pend(store.sessionId, 'starting', [row('dispatching')]);
+    await vi.waitFor(() => expect(store.transcriptPendingId).toBe('m-first'));
+    life.pend(store.sessionId, 'ready', []);
+    await vi.waitFor(() => expect(store.transcriptPendingId).toBeNull());
+    expect(store.chatState.session.state.pendingPrompt?.id).toBe('m-first');
+    runInAction(() => { store.chatState.transcript.history.seed([{ ...turn('t', 0), startedAt: 5000 }]); store.transcriptRevision += 1; });
+    await vi.waitFor(() => expect(store.chatState.session.state.pendingPrompt).toBeNull());
+  });
+
+  it('stopped mid-start: never again says Starting; the composer could stop it, and the tray has it', async () => {
+    const { store } = storeFor({ providerId: 'claude', initialQueue: [{ text: '说一句你好', origin: 'manual' }] });
+    store.bootstrap();
+    life.pend(store.sessionId, 'starting', [row('queued')]);
+    await vi.waitFor(() => expect(store.affordances.isWorking).toBe(true));
+    expect(store.affordances.canCancel).toBe(true);
+    life.pend(store.sessionId, 'dormant', [row('queued')], 'user-stop');
+    await vi.waitFor(() => expect(store.transcriptPendingId).toBeNull());
+    expect(store.chatState.session.state.pendingPrompt).toBeNull();
+    expect(store.affordances.isWorking).toBe(false);
+  });
+
+  it('stopping says nothing false and an older host (no sentAt) has no clock rather than a NaN', async () => {
+    const { store } = storeFor({ providerId: 'claude', initialQueue: [{ text: '说一句你好', origin: 'manual' }] });
+    store.bootstrap();
+    const { sentAt: _sentAt, ...old } = row('queued');
+    life.pend(store.sessionId, 'starting', [old as PendingRow]);
+    await vi.waitFor(() => expect(store.transcriptPendingId).toBe('m-first'));
+    expect(store.chatState.session.state.pendingPrompt).not.toHaveProperty('sentAt');
+    life.pend(store.sessionId, 'stopping', [row('queued')]);
+    await vi.waitFor(() => expect(store.transcriptPendingId).toBeNull());
   });
 
   it('a row that fails goes back to the tray, where its failure and retry are', async () => {

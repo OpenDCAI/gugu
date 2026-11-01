@@ -28,7 +28,8 @@ function metadata(raw: string | null): PendingMetadata {
 
 function pendingRow(row: { pending: typeof sessionPending.$inferSelect; message: typeof messages.$inferSelect }): PendingRow {
   const meta = metadata(row.message.metadata);
-  return { seq: row.pending.seq as Seq, sessionId: row.pending.sessionId, sentAt: Date.parse(row.pending.enqueuedAt), kind: row.pending.kind, state: row.pending.state,
+  return { seq: row.pending.seq as Seq, sessionId: row.pending.sessionId, sentAt: Date.parse(row.pending.enqueuedAt.includes('T') ? row.pending.enqueuedAt : `${row.pending.enqueuedAt.replace(' ', 'T')}Z`), // SQLite's default is UTC without a zone (rows the migration moved)
+      kind: row.pending.kind, state: row.pending.state,
     failure: row.pending.failure ? JSON.parse(row.pending.failure) as SerializedError : null,
     message: { id: row.message.id, text: row.message.content,
       ...(row.pending.kind === 'session-direct' ? { kind: 'session-direct' as const } : {}),

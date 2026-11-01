@@ -22,7 +22,7 @@ export function SessionInputQueue({ sessionId, waitingForConnection, life = null
   const pending = useQueuedSessionInputs(sessionId)
   const { t } = useTranslation('messaging')
   const [retryError, setRetryError] = useState<string | null>(null)
-  const bubbles = sessionInputBubbles(waitingForConnection ? pending : [], life?.pending.items ?? [], life?.kind ?? null)
+  const bubbles = sessionInputBubbles(waitingForConnection ? pending : [], life?.pending.items ?? [], life?.hold ?? null)
     .filter(bubble => bubble.id !== inTranscript)
   if (!bubbles.length && !retryError) return null
   const retry = async () => {
@@ -41,6 +41,7 @@ export function SessionInputQueue({ sessionId, waitingForConnection, life = null
         {bubble.state === 'sending' ? <MessageSendingIndicator label={t('message.sendStatus.sending')} /> : null}
       </div>
       {bubble.state === 'held' ? <div className="text-xs text-foreground-muted" role="status" data-send-state="held">{t('message.sendStatus.held')}</div> : null}
+      {bubble.state === 'stopped' ? <div className="text-xs text-foreground-muted" role="status" data-send-state="stopped">{t('message.sendStatus.stopped')}</div> : null}
       {bubble.state === 'failed' ? <div className="flex items-center gap-2 text-sm">
         <span role="alert">{bubble.failure ? failureText(bubble.failure, t) : bubble.hostReason ? messageForUser(bubble.hostReason) : t('message.sendStatus.failed')}</span>
         {/* A host that is offline gets the input once it is back: no retry to press. */}

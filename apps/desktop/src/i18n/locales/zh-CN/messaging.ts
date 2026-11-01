@@ -765,6 +765,7 @@ export default {
       "queued": "发送中，助理就绪后回复",
       "sending": "发送中",
       "held": "等待重试",
+      "stopped": "已停止，下一句发出时一起发送",
       "unknownNotResent": "结果未知，没有重发",
       "failure": {
         "hostOffline": "这个任务所在的电脑现在不在线，它上线后会自动发出",

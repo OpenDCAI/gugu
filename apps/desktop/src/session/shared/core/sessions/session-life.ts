@@ -13,7 +13,7 @@ export interface LifeView {
   readonly pending: {
     readonly count: number;
     /** kind: who wrote the row (the person's own input is ordinary / session-direct; inbox-batch is the agent's mail). */
-    readonly items: readonly { seq: number; messageId: string; preview: string; text: string; kind: 'ordinary' | 'session-direct' | 'inbox-batch'; sentAt: number; state: Receipt['state']; failure: string | null }[];
+    readonly items: readonly { seq: number; messageId: string; preview: string; text: string; kind: 'ordinary' | 'session-direct' | 'inbox-batch'; /** Absent from a host older than this client. */ sentAt?: number; state: Receipt['state']; failure: string | null }[];
   };
   readonly hold: Hold['reason'] | null;
   /** at = the failed startup stage; null = an effect fault outside any stage. cause = what the leg reported. */
@@ -21,6 +21,11 @@ export interface LifeView {
   readonly lastExit: string | null;
   /** Only for an attempt started by a reconfigure: did it continue the provider session or start a new one. */
   readonly nativeSession: 'preserved' | 'replaced' | null;
+}
+
+/** The session is starting, or is about to for a row it can start for. Held (a stop, sign-out, failure) is not starting. */
+export function lifeIsStarting(view: Pick<LifeView, 'kind' | 'hold'> & { pending: Pick<LifeView['pending'], 'count'> }): boolean {
+  return view.kind === 'starting' || (view.kind === 'dormant' && view.hold === null && view.pending.count > 0);
 }
 
 /** What the agent status feed carries of a session's LifeView (the chat-page pill). */

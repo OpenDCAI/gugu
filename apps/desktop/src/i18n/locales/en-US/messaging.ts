@@ -766,6 +766,7 @@ export default {
       "queued": "Sending. Your assistant will reply when ready.",
       "sending": "Sending",
       "held": "Waiting for retry",
+      "stopped": "Stopped. Sends with your next message.",
       "unknownNotResent": "Result unknown; not resent",
       "failure": {
         "hostOffline": "The computer running this task is offline. It will be sent automatically once that computer is back.",

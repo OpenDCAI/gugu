@@ -21,8 +21,10 @@ export type HostPendingRow = LifeView['pending']['items'][number]
 /** from: a delivery (another task's or agent's message) shows its sender and body, read the way the transcript reads it. */
 export type SessionInputBubble = { id: string; text: string; from?: string | null } & (
   | { state: 'sending' }
-  /** The host holds it while its session is failed: it goes when the person retries (or sends again). */
+  /** The host holds it (a failed start, sign-out): it goes when the person retries or sends again. */
   | { state: 'held' }
+  /** The person stopped the session before it went: it goes with their next message. */
+  | { state: 'stopped' }
   /** failure: the sender named it (retry re-sends its copy); hostReason: the host row failed, in the host's words. */
   | { state: 'failed'; failure: SessionInputFailure | null; hostReason: string | null }
   | { state: 'unknown' })
@@ -31,7 +33,7 @@ export type SessionInputBubble = { id: string; text: string; from?: string | nul
  * Custody of a messageId has one owner at a time: the transcript once the host row is accepted, else the host row,
  * else the sender row. A bubble is drawn from whichever owns it; the transcript draws its own.
  */
-export function sessionInputBubbles(sender: readonly SessionInput[], host: readonly HostPendingRow[], lifeKind: LifeView['kind'] | null): SessionInputBubble[] {
+export function sessionInputBubbles(sender: readonly SessionInput[], host: readonly HostPendingRow[], hold: LifeView['hold']): SessionInputBubble[] {
   const hosted = new Set(host.map(row => row.messageId))
   return [
     // Every pending row, whatever wrote it (the person, another task, the inbox): one projection of the queue.
@@ -40,7 +42,7 @@ export function sessionInputBubbles(sender: readonly SessionInput[], host: reado
       const base = delivered ? { id: row.messageId, text: delivered.body, from: delivered.segments[0]?.facts?.from ?? null } : { id: row.messageId, text: row.text }
       switch (row.state) {
         case 'accepted': return []
-        case 'queued': case 'dispatching': return [{ ...base, state: lifeKind === 'failed' ? 'held' : 'sending' }]
+        case 'queued': case 'dispatching': return [{ ...base, state: hold === 'user-stop' ? 'stopped' : hold ? 'held' : 'sending' }]
         case 'failed': return [{ ...base, state: 'failed', failure: null, hostReason: row.failure }]
         case 'unknown': return [{ ...base, state: 'unknown' }]
       }

@@ -39,7 +39,7 @@ import { errorDetail } from '@gugu/session-shared';
 import { WireError, type BlobSource } from '@gugu/session-wire';
 import { action, computed, makeObservable, observable, reaction, runInAction, when } from 'mobx';
 import { endSessionLife, forkSessionLife, readSessionLife, sessionLifeView, startSessionLife, stopSessionLife } from '../stores/session-life-views';
-import { ACP_START_FAILED, type LifeView } from '@shared/core/sessions/session-life';
+import { ACP_START_FAILED, lifeIsStarting, type LifeView } from '@shared/core/sessions/session-life';
 import { sendThroughCustody } from './queue-native-input';
 import { sessionInputBubbles } from '@/lib/sessionInputOutbox';
 import { batch } from 'solid-js';
@@ -717,12 +717,14 @@ export class AcpChatStore {
       : false;
     // Not attached: input goes to the host's custody outbox, which holds it until session-life runs the session —
     // unless the start failed terminally (the engine is not there), when queueing waits for something that never happens.
+    // Starting with its message drawn is running: the composer stops it (`stop` asks the host), as in any turn.
+    const startingDrawn = !state && this.transcriptPendingId !== null;
     return {
-      isWorking: agentWorking,
+      isWorking: agentWorking || startingDrawn,
       isBusy: state?.isGenerating ?? false,
       hasPendingPermission: (state?.pendingPermissions.length ?? 0) > 0,
       canSubmit: !this.reverting && !this.messageEdit && (state?.canSubmit ?? !(this.loadError && isTerminalLoadError(this.loadError))),
-      canCancel: state?.canCancel ?? false,
+      canCancel: state?.canCancel ?? startingDrawn,
     };
   }
 
@@ -774,9 +776,17 @@ export class AcpChatStore {
   private _drawLifeHead(view: LifeView | null): void {
     const session = this.chatState.session;
     const drawn = this.transcriptPendingId;
-    const bubbles = view ? sessionInputBubbles([], view.pending.items, view.kind) : [];
-    const head = bubbles[0]?.state === 'sending' ? bubbles[0] : null;
+    const bubbles = view ? sessionInputBubbles([], view.pending.items, view.hold) : [];
+    const starting = view !== null && lifeIsStarting(view);
+    const head = bubbles[0]?.state === 'sending' && (starting || view?.kind === 'ready') ? bubbles[0] : null;
     runInAction(() => {
+      // An accepted row whose turn already finished before this page saw it: history has it, nothing will take it over.
+      const landed = session.state.pendingPrompt;
+      if (landed && !landed.held && landed.sentAt !== undefined
+        && this.chatState.transcript.state.committedTurns.some(turn => turn.startedAt !== undefined && turn.startedAt >= landed.sentAt!)) {
+        session.setPendingPrompt(null);
+        this._syncMessageCount();
+      }
       if (drawn && head?.id !== drawn) {
         this.transcriptPendingId = null;
         const shown = session.state.pendingPrompt;
@@ -791,7 +801,6 @@ export class AcpChatStore {
       if (!head || this.chatState.transcript.state.activeTurnSnapshot) return;
       if (session.state.pendingPrompt && session.state.pendingPrompt.id !== head.id) return;
       this.transcriptPendingId = head.id;
-      const starting = view?.kind !== 'ready';
       const shown = session.state.pendingPrompt;
       if (shown) {
         if (shown.starting !== starting) session.setPendingPrompt({ ...shown, starting });
@@ -799,8 +808,8 @@ export class AcpChatStore {
       }
       // Same origin as the turn that takes this row over (`SessionCell`): the send, or the end of the turn it waited behind.
       const row = view!.pending.items.find(item => item.messageId === head.id)!;
-      const sentAt = Math.max(row.sentAt, this.chatState.transcript.state.committedTurns.at(-1)?.endedAt ?? 0);
-      session.setPendingPrompt({ id: head.id, text: head.text, sentAt, starting, held: true });
+      const sentAt = row.sentAt === undefined ? undefined : Math.max(row.sentAt, this.chatState.transcript.state.committedTurns.at(-1)?.endedAt ?? 0);
+      session.setPendingPrompt({ id: head.id, text: head.text, ...(sentAt !== undefined ? { sentAt } : {}), starting, held: true });
       this._syncMessageCount();
     });
   }

@@ -10,6 +10,7 @@ import { takeTaskReveal } from '@/hooks/useSourceMessageReveal';
 import { UI_EVENTS } from '@/lib/uiEvents';
 import { SessionInputQueue } from '@/components/chat/SessionInputQueue';
 import { sessionLifeView } from '../stores/session-life-views';
+import { lifeIsStarting } from '@shared/core/sessions/session-life';
 import { NeedsYouSlot } from '@/components/needsYou/NeedsYouSlot';
 import { takeComposerCarry, useComposerVerb } from '@/lib/composerVerbBridge';
 import { useSessionMessageQuotes } from './use-session-message-quotes';
@@ -1680,7 +1681,7 @@ const ComposerForStore = observer(function ComposerForStore({
       ) : null}
       <NeedsYouSlot />
       {/* Starting with no message drawn (a drawn one's live line says it): the lifecycle's state, nothing more. */}
-      {life?.kind === 'starting' && !store.transcriptPendingId ? (
+      {life && lifeIsStarting(life) && !store.transcriptPendingId ? (
         <div className="flex justify-center px-3 py-1 text-xs text-foreground-muted" data-life-stage={life.stage?.at}>
           <LoadingIndicator ariaLabel={translate('transcript.starting')} label={translate('transcript.starting')} />
         </div>
