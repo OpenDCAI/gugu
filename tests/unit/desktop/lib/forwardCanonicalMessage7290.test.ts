@@ -5,11 +5,11 @@ import { createMemoryLocalSyncDb } from '../../../../apps/desktop/src/lib/localS
 import { openImRepository, readOutboxRecords } from '../../../../apps/desktop/src/lib/imRepository'
 import { chatService } from '../../../../apps/desktop/src/lib/chat'
 import type { MessageItem } from '@gugu/core/shared/types/chat'
-const attachmentForward = vi.hoisted(() => vi.fn())
+const { attachmentForward, fileShare } = vi.hoisted(() => ({ attachmentForward: vi.fn(), fileShare: vi.fn() }))
 vi.mock('../../../../apps/desktop/src/lib/attachmentsEndpoint', () => ({ attachmentsEndpoint: async () => ({ token: 'fixture' }) }))
-vi.mock('@gugu/core/cloud/attachmentsApi', async original => ({ ...await original<typeof import('@gugu/core/cloud/attachmentsApi')>(), forwardAttachment: attachmentForward }))
+vi.mock('@gugu/core/cloud/attachmentsApi', async original => ({ ...await original<typeof import('@gugu/core/cloud/attachmentsApi')>(), forwardAttachment: attachmentForward, shareAttachment: fileShare }))
 vi.mock('../../../../apps/desktop/src/lib/readWriter', () => ({ writeRead: vi.fn(async () => {}) }))
-afterEach(() => { vi.restoreAllMocks(); window.localStorage.clear() })
+afterEach(() => { vi.restoreAllMocks(); vi.useRealTimers(); window.localStorage.clear() })
 function fixture() {
   const repository = openImRepository('me', { adapter: createMemoryLocalSyncDb(), storage: window.localStorage })
   let rows: MessageItem[] = []
@@ -46,5 +46,23 @@ it('attachment forwarding uses the server operation with the same queued id', as
   await f.wiring.outbox.delivered(id)
   expect(attachmentForward).toHaveBeenCalledWith(expect.anything(), { source_message_id: 'source', message_id: id, chat_id: 'destination', sender_user_id: 'me', to_user_ids: [] })
   expect(send).not.toHaveBeenCalled()
+  f.wiring.dispose()
+})
+
+it('folder file forwarding reuses its queued id after a lost response and never uploads bytes', async () => {
+  vi.useFakeTimers()
+  const f = fixture()
+  fileShare.mockRejectedValueOnce(new TypeError('response lost')).mockImplementation(async (_endpoint, args) => ({
+    ...source('attachment'), id: args.message_id, chat_id: args.chat_id, sender_user_id: args.sender_user_id, seq: 10,
+  }))
+  await f.wiring.forward({ itemId: 'file-id', version: 4, document: false, name: 'proof.pdf' }, 'destination', 'me')
+  const id = f.rows()[0].id
+  const delivered = f.wiring.outbox.delivered(id)
+  await vi.advanceTimersByTimeAsync(2000)
+  await delivered
+  expect(fileShare.mock.calls.map(([, args]) => args)).toEqual([
+    { item_id: 'file-id', version: 4, message_id: id, chat_id: 'destination', sender_user_id: 'me' },
+    { item_id: 'file-id', version: 4, message_id: id, chat_id: 'destination', sender_user_id: 'me' },
+  ])
   f.wiring.dispose()
 })

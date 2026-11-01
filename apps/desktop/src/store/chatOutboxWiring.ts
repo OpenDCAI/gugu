@@ -1,4 +1,5 @@
-import { commitAttachment, forwardAttachment, type CommitArgs } from '@gugu/core/cloud/attachmentsApi'
+import type { AppForwardFilesDetail } from '../session/shared/extensions/app-runtime-protocol'
+import { commitAttachment, forwardAttachment, shareAttachment, type CommitArgs } from '@gugu/core/cloud/attachmentsApi'
 import { messageItemFromRow } from '@gugu/core/cloud/messageItem'
 import { attachmentsEndpoint, commitPreparedChatAttachment, type PreparedChatAttachment } from '../lib/attachmentsEndpoint'
 import { topicService, type CreateTopicInput, type CreatedTopic } from '../lib/topics'
@@ -48,7 +49,7 @@ export interface OutboxWiring {
   outbox: ChatOutbox
   stageAttachment(message: MessageItem): Promise<void>
   commitAttachment(message: MessageItem, prepared: PreparedChatAttachment, commit: Omit<CommitArgs, 'staging_key'>): Promise<void>
-  forward(source: MessageItem, targetChatId: string, senderUserId: string): Promise<void>
+  forward(source: MessageItem | AppForwardFilesDetail['files'][number], targetChatId: string, senderUserId: string): Promise<void>
   createTopic(input: CreateTopicInput, senderUserId: string): Promise<CreatedTopic>
   dispose(): void
   /** sendMessage 入队入口:建持久化记录并入队(乐观行由 chat.tsx 先行插入,二者同 id)。 */
@@ -103,7 +104,7 @@ export function outboxRecordToMessage(
     local_send_state: record.state === 'failed' ? 'failed' : 'sending',
     local_send_error: record.lastError,
     local_send_retryable: !record.dependencyDiscarded && record.operation?.kind !== 'upload',
-    ...(record.operation?.kind === 'forward' ? { forwarded_from_message_id: record.operation.sourceMessageId } : {}),
+    ...(record.operation?.kind === 'forward' && record.operation.source.kind === 'message' ? { forwarded_from_message_id: record.operation.source.id } : {}),
   }
 }
 
@@ -115,7 +116,7 @@ export function outboxRecordForMessage(message: MessageItem, operation: OutboxOp
     clientMessageId: message.id, chatId: message.chat_id, senderUserId: message.sender_user_id,
     preview: { file_item_id: message.file_item_id, file_version: message.file_version, file_blob_id: message.file_blob_id,
       file_metadata: message.file_metadata, image_dimensions: message.image_dimensions },
-    operation, dependsOn: operation.kind === 'forward' ? operation.sourceMessageId : message.reply_to_message_id ?? undefined,
+    operation, dependsOn: operation.kind === 'forward' && operation.source.kind === 'message' ? operation.source.id : message.reply_to_message_id ?? undefined,
     payload: { content: message.content ?? '', contentType: message.content_type, toUserIds: message.to_user_ids ?? null,
       replyToMessageId: message.reply_to_message_id ?? null, threadRootId: message.thread_root_id ?? null,
       isThreadRoot: !!message.is_thread_root, isWhisper: !!message.is_whisper },
@@ -265,9 +266,15 @@ export function createOutboxWiring(io: OutboxWiringIo): OutboxWiring {
           throw new Error(i18n.t('outbox.selectFileAgain', { ns: 'messaging' }))
         }
       }
-      if (operation?.kind === 'forward' && record.payload.contentType === 'attachment') {
+      if (operation?.kind === 'forward' && operation.source.kind === 'file') {
+        raw = await shareAttachment(await attachmentsEndpoint(), {
+          item_id: operation.source.id, version: operation.source.version, message_id: record.clientMessageId,
+          chat_id: record.chatId, sender_user_id: record.senderUserId,
+        })
+      }
+      if (operation?.kind === 'forward' && operation.source.kind === 'message' && record.payload.contentType === 'attachment') {
         raw = await forwardAttachment(await attachmentsEndpoint(), {
-          source_message_id: operation.sourceMessageId, message_id: record.clientMessageId,
+          source_message_id: operation.source.id, message_id: record.clientMessageId,
           chat_id: record.chatId, sender_user_id: record.senderUserId, to_user_ids: record.payload.toUserIds ?? [],
         })
       }
@@ -280,7 +287,7 @@ export function createOutboxWiring(io: OutboxWiringIo): OutboxWiring {
         record.clientMessageId, record.payload.contentType, {
           toUserIds: record.payload.toUserIds, replyToMessageId: record.payload.replyToMessageId,
           threadRootId: record.payload.threadRootId, isThreadRoot: record.payload.isThreadRoot, isWhisper: record.payload.isWhisper,
-          ...(operation?.kind === 'forward' ? { forwardedFromMessageId: operation.sourceMessageId } : {}),
+          ...(operation?.kind === 'forward' && operation.source.kind === 'message' ? { forwardedFromMessageId: operation.source.id } : {}),
         })
     },
     onState: reflectState,
@@ -307,10 +314,15 @@ export function createOutboxWiring(io: OutboxWiringIo): OutboxWiring {
       if (!await outbox.commitUpload(outboxRecordForMessage(message, operation))) nativeCommits.delete(message.id)
     },
     async forward(source, targetChatId, senderUserId) {
-      const message: MessageItem = { ...source, id: crypto.randomUUID(), chat_id: targetChatId, sender_user_id: senderUserId,
+      const file = 'itemId' in source
+      const message: MessageItem = { ...(file ? { content: source.name, content_type: 'system' as const } : source),
+        id: crypto.randomUUID(), chat_id: targetChatId, sender_user_id: senderUserId,
         to_user_ids: null, is_whisper: false, thread_root_id: null, reply_to_message_id: null, is_thread_root: false,
-        seq: -1, created_at: new Date().toISOString(), reactions: [], is_mine: true, local_send_state: 'sending' }
-      const record = outboxRecordForMessage(message, { kind: 'forward', sourceMessageId: source.id })
+        seq: -1, created_at: new Date().toISOString(), reactions: [], is_mine: true, local_send_state: 'sending',
+        retracted_at: null, delivered: false, delivery_status: null }
+      const record = outboxRecordForMessage(message, { kind: 'forward', source: file
+        ? { kind: 'file', id: source.itemId, version: source.document ? null : source.version }
+        : { kind: 'message', id: source.id } })
       const target = io.chats().find(chat => chat.id === targetChatId)
       record.payload.resolveDmPeer = target?.kind === 'dm' || target?.kind === 'ai'
       await outbox.enqueue(record)

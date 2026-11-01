@@ -52,7 +52,7 @@ export type OutboxOperation =
   | { kind: 'message' }
   | { kind: 'upload' }
   | { kind: 'nativeAttachment'; commit: Omit<CommitArgs, 'staging_key'> }
-  | { kind: 'forward'; sourceMessageId: string }
+  | { kind: 'forward'; source: { kind: 'message'; id: string } | { kind: 'file'; id: string; version: number | null } }
   | { kind: 'attachment'; commit: CommitArgs }
   | { kind: 'topic'; input: CreateTopicInput & { topicId: string } }
 
