@@ -1,10 +1,12 @@
 // @vitest-environment jsdom
-import { afterEach, beforeEach, expect, it } from 'vitest'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { createReactHarness } from '../../../support/testHarness'
 import { useNativeAgentChats } from '../../../../apps/desktop/src/hooks/useNativeAgentChats'
 import { installOwnedAgentEntry } from '../../../../apps/desktop/src/lib/ownedAgentConversation'
 import { publishDirectoryDevices, updateDeviceSessions, removeDeviceSessions } from '../../../../apps/desktop/src/session/shared/remote-sessions/session-directory'
 import type { ChatItem, Device } from '@gugu/core/shared/types/chat'
+const shell = vi.hoisted(() => ({ mobile: false }))
+vi.mock('@/hooks/useMobileShell', () => ({ useMobileShell: () => shell.mobile }))
 let harness: ReturnType<typeof createReactHarness>
 beforeEach(() => { harness = createReactHarness() })
 let remove: (() => void) | undefined
@@ -32,7 +34,8 @@ it('uses newer native activity for the same agent row and keeps newer IM activit
   await harness.render(<Fixture />)
   expect(harness.container.textContent).toBe('Newer MCP reply|2026-10-29T12:00:00Z')
 })
-it('keeps the agent row listed from the heartbeat summary while its machine is away', async () => {
+it('on the phone, keeps the agent row listed from the heartbeat summary while its machine is away; on a computer it stays hidden', async () => {
+  shell.mobile = true
   remove = installOwnedAgentEntry({ open: () => true, owns: id => id === 'own-agent' })
   const digest = [{ conversationId: 'session', title: 'Task', harness: 'codex', runtime: 'acp', agentStatus: 'idle', lastInteractedAt: '2026-10-31T09:00:00Z', supported: true, nativeInputVersion: 1, agentUserId: 'own-agent' }]
   publishDirectoryDevices([{ device_id: 'host', is_online: false, capabilities: {}, session_digest: digest } as unknown as Device])
@@ -40,4 +43,7 @@ it('keeps the agent row listed from the heartbeat summary while its machine is a
   function Fixture() { return <div>{useNativeAgentChats(chats)[0]!.last_message_at}</div> }
   await harness.render(<Fixture />)
   expect(harness.container.textContent).toBe('2026-10-31T09:00:00Z')
+  shell.mobile = false
+  await harness.render(<Fixture />)
+  expect(harness.container.textContent, 'its session page would wait without a word: the row would do nothing').toBe('')
 })
