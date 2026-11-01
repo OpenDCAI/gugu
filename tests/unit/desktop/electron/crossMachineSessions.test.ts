@@ -706,7 +706,7 @@ it('prepares a dormant work seat only through the dedicated capability and never
 
 it.each([false, true])('thinking requires the receiving router capability; ordinary spawn remains compatible (supportsThinking=%s)', async (supportsThinking) => {
   const handlers = new Map<string, (event: { sender: { id: number } }, ...args: unknown[]) => unknown>()
-  const hostRun = vi.fn(async (_name: string, _caller: unknown, action: { thinking?: unknown }) => ({ session_id: 'child', effort: action.thinking }))
+  const hostRun = vi.fn(async (_name: string, _caller: unknown, action: unknown) => ({ session_id: 'child', effort: (action as { thinking?: unknown }).thinking }))
   setAgentSessionHost(hostRun)
   registerRPCRouter({ agentSession: supportsThinking ? agentSessionController : { spawn: agentSessionController.spawn } }, {
     handle: (channel, handler) => { handlers.set(channel, handler) },
