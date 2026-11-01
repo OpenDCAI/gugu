@@ -93,6 +93,7 @@ const fs = require('node:fs')
 const path = require('node:path')
 const { packNpmBundledDependencies, packedAppDir } = require('./scripts/build/pack-npm-bundled-deps.cjs')
 const { resolveElectronFuses } = require('./scripts/build/electron-fuses.cjs')
+const PACKED_APP_ENTRIES = new Set(['apps', 'build-resources', 'dist', 'node_modules', 'package.json'])
 const excludeClaudeNative = '!**/node_modules/@anthropic-ai/claude-agent-sdk-*/**'
 const targetArgs = new Set(process.argv.slice(2))
 const isWindowsOnlyBuild =
@@ -368,6 +369,15 @@ module.exports = {
     // 三个平台都要,所以在图标那段(只对 darwin)之前。
     const npmDeps = packNpmBundledDependencies({ appDir: packedAppDir(context), repoRoot: __dirname })
     console.log(`[npm-bundled-deps] npm 的 ${npmDeps} 个 bundled 依赖已进包`)
+    // @@@packed-app-allowlist - resources/app holds the build output and its runtime dependencies, nothing else.
+    // The checkout around it is not product: in CD it also carries the private operations overlay.
+    const appDir = packedAppDir(context)
+    const stray = [
+      ...fs.readdirSync(appDir).filter((name) => !PACKED_APP_ENTRIES.has(name)),
+      ...fs.readdirSync(path.join(appDir, 'apps')).filter((name) => name !== 'desktop').map((name) => `apps/${name}`),
+      ...fs.readdirSync(path.join(appDir, 'apps', 'desktop')).filter((name) => name !== 'dist-electron').map((name) => `apps/desktop/${name}`),
+    ]
+    if (stray.length > 0) throw new Error(`[packed-app] resources/app has entries outside the build output: ${stray.join(', ')}`)
     if (context.electronPlatformName !== 'darwin') return
     const fullIcns = path.join(__dirname, 'build-resources', 'icon.icns')
     const packed = path.join(
@@ -441,6 +451,11 @@ module.exports = {
     '!**/node_modules/better-sqlite3/build/Release/test_extension.node',
     '!node_modules/**/deps/**/*.{c,h,cc,cpp,hpp}',
     '!node_modules/**/*.{ts,mts,cts}',
+    // @@@target-prebuilds - only the target's native prebuilds ship (the rebuilt Release/conpty payload stays).
+    // ❌ Never as a mac/win/linux `files` list: a platform list of only `!` patterns makes electron-builder
+    // add `**/*` and pack the whole checkout (0.3.1 betas shipped the repo and the CD overlay that way).
+    '!**/node_modules/node-pty/prebuilds/!(${platform}-${arch})/**',
+    '!**/node_modules/@parcel/watcher-!(${platform}-${arch}*)/**',
   ],
   // @@@kill-asar (#2299 / 0.2.26 闪退治本) — asar 关闭:整个 app 落地为 Contents/Resources/app/ 一棵
   // 真实目录树,不再有 app.asar(虚拟 fs)+ app.asar.unpacked(真实旁挂)的「双世界」。原本 asarUnpack
@@ -461,10 +476,6 @@ module.exports = {
   mac: {
     // Electron's macOS locales use .lproj identifiers; zh-CN does not match zh_CN.
     electronLanguages: ['zh_CN', 'en'],
-    files: [
-      '!**/node_modules/node-pty/prebuilds/!(darwin-${arch})/**',
-      '!**/node_modules/@parcel/watcher-!(darwin-${arch})/**',
-    ],
     // @@@7394 Mac 自己的标识与清单(见 TIERS 上方注释);验收包没有,沿用顶层 appId 与 channel。
     ...(t.macAppId ? { appId: t.macAppId } : {}),
     ...(t.macChannel ? { publish: { provider: 'generic', url: t.feedUrl, channel: t.macChannel } } : {}),
@@ -507,11 +518,6 @@ module.exports = {
     ...macSigning
   },
   win: {
-    // Keep the target prebuilds and the rebuilt Release/conpty payload intact.
-    files: [
-      '!**/node_modules/node-pty/prebuilds/!(win32-${arch})/**',
-      '!**/node_modules/@parcel/watcher-!(win32-${arch})/**',
-    ],
     // 9 档尺寸 16→256,scripts/build/gen-app-icons.py 生成。此前这一项是空的,electron-builder 只能
     // 临时从 icns 转一份出来 —— 尺寸档位由它自己定,任务栏/开始菜单的小尺寸得不到专门优化。
     icon: 'build-resources/icon.ico',
@@ -533,10 +539,6 @@ module.exports = {
   // cross-built from macOS: the vendored tmux (@@@bundle-tmux) is platform-specific, so a macOS host
   // would bundle the macOS tmux into the Linux artifact. Linux needs a PNG icon (icns is rejected).
   linux: {
-    files: [
-      '!**/node_modules/node-pty/prebuilds/!(linux-${arch})/**',
-      '!**/node_modules/@parcel/watcher-!(linux-${arch}-*)/**',
-    ],
     icon: 'public/assets/app/gugu-icon-512.png',
     category: 'Network',
     target: [{ target: 'AppImage', arch: ['x64'] }]
