@@ -7,7 +7,7 @@ import { useTranslation } from 'react-i18next'
 import { PhoneTaskSkills } from '../local-agent/PhoneTaskSkillsButton'
 import type { Device } from '@gugu/core/shared/types/chat'
 import { isAgentHostDevice, isPhoneDevice } from '@gugu/core/cloud/devices'
-import type { SessionpageSessionSummary } from '@gugu/session-core/session-record/contract'
+import { remoteFailureKind, type SessionpageSessionSummary } from '@gugu/session-core/session-record/contract'
 import type { SessionShellAgentName } from '@/session/shared/lib/ipc/shell-port'
 import { Button } from '@/components/ui/Button'
 import { useBackLayer } from '@/components/ui/sheetStack'
@@ -101,7 +101,7 @@ export const SessionTimelinePage = observer(function SessionTimelinePage({
   const nativeRecord = useNativeSessionRecord(device.device_id, session.conversationId, native, online)
   // The directory says a crashed / unplugged machine is online until its lease runs out (about two minutes): its not
   // answering is the earlier fact. Same note as offline; the reads keep trying and the page comes back by itself.
-  const hostSilent = online && ((link === 'lost' && (!error || errorCode === 'timeout')) || (native && nativeRecord.unreachable))
+  const hostSilent = online && ((link === 'lost' && (!error || remoteFailureKind(errorCode) === 'machine-unreachable')) || (native && nativeRecord.unreachable))
   const reachable = online && !hostSilent
   const conversation = native ? { ...timeline, turns: [...(nativeRecord.record?.turns ?? []), ...(nativeRecord.record?.activeTurn ? [nativeRecord.record.activeTurn] : [])], hasOlder: nativeRecord.record ? nativeRecord.record.nextCursor !== null : false } : timeline
 
