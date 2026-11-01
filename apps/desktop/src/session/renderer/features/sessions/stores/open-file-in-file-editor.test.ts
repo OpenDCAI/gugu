@@ -98,6 +98,22 @@ const {
 } = await import('./open-file-in-file-editor');
 
 describe('task file preview routing', () => {
+  it('reports an unprepared or missing workspace rather than acknowledging an open', async () => {
+    mocks.getSessionPageStore.mockReturnValue(undefined);
+    await expect(openFileInSessionEditor('project-1', 'session-1', 'a.txt')).rejects.toThrow('prepared workspace');
+    mocks.getSessionPageStore.mockReturnValue({ workspaceId: 'missing' });
+    mocks.workspaceGet.mockReturnValue(undefined);
+    await expect(openFileInSessionEditor('project-1', 'session-1', 'a.txt')).rejects.toThrow('no workspace');
+    expect(mocks.paneLayoutOpen).not.toHaveBeenCalled();
+  });
+
+  it('reports a cancelled App choice rather than acknowledging an open', async () => {
+    mocks.installedManifests.push({ id: 'text', contributes: { tabs: [{ name: 'view', title: 'Text', opensFiles: { session: ['.txt'] } }] } });
+    mocks.showModal.mockImplementation((_kind: unknown, props: { onClose: () => void }) => props.onClose());
+    await expect(openFileInSessionEditor('project-1', 'session-1', 'a.txt', { ask: true })).rejects.toThrow('did not pick');
+    expect(mocks.paneLayoutOpen).not.toHaveBeenCalled();
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.showPage.mockReset();
@@ -304,8 +320,7 @@ describe('task file preview routing', () => {
       data: { exists: false, isDirectory: false },
     });
 
-    await openFresh('project-1', 'session-1', '~/gugu-linktest/b.md');
-    await vi.waitFor(() => expect(mocks.toastError).toHaveBeenCalled());
+    await expect(openFresh('project-1', 'session-1', '~/gugu-linktest/b.md')).rejects.toThrow();
 
     await openFresh('project-1', 'session-1', '~/gugu-linktest/b.md');
     // 第二次必须已经展开 —— rejected promise 被 cache 住的话这一步还是 toast。

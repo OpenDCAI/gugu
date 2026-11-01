@@ -9,13 +9,13 @@ import { getProjectManagerStore } from '@renderer/features/projects/stores/proje
  * `reviveArchived: false`:打开任务块时不把归档的任务准备回来(等满期限照常报不可打开);打开文件照旧准备。
  */
 export function sessionPaneReady(projectId: string, sessionId: string, { reviveArchived = true } = {}): () => boolean {
-  void getProjectManagerStore()
-    .mountProject(projectId)
-    .then(() => {
-      if (!reviveArchived && sessionViewKind(getSessionPageStore(projectId, sessionId), projectId) === 'archived') return;
-      return getSessionManagerStore(projectId)?.provisionSession(sessionId);
-    })
-    .catch(() => {});
+  void prepareSessionPane(projectId, sessionId, { reviveArchived }).catch(() => {});
   return () => Boolean(asProvisioned(getSessionPageStore(projectId, sessionId))?.viewModel);
 }
 
+/** Prepare the pane without navigation or a timed event acknowledgement. */
+export async function prepareSessionPane(projectId: string, sessionId: string, { reviveArchived = true } = {}): Promise<void> {
+  await getProjectManagerStore().mountProject(projectId);
+  if (!reviveArchived && sessionViewKind(getSessionPageStore(projectId, sessionId), projectId) === 'archived') return;
+  await getSessionManagerStore(projectId)?.provisionSession(sessionId);
+}

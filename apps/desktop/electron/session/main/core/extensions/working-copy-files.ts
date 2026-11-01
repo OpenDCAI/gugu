@@ -83,12 +83,12 @@ export function releaseWorkingCopies(pageId: number): void {
 }
 
 /** `f.read(offset, length)`: up to 512 KB of a working copy's file, as the file panel reads it. */
-export async function readWorkingCopy(place: WorkspacePlace, file: string, offset: number, length: number): Promise<{ size: number; offset: number; data: string }> {
+export async function readWorkingCopy(place: WorkspacePlace, file: string, offset: number, length: number): Promise<{ size: number; etag: string; offset: number; data: string }> {
   const [{ localRootOf }, { readWorkspaceChunk, WorkspaceTransferError }] = await Promise.all([import('./app-files'), import('@main/core/files/workspace-transfer')]);
   const { workspaceRoot } = await localRootOf(place);
   try {
     const chunk = await readWorkspaceChunk(workspaceRoot, { path: file, offset, length: Math.min(length, REMOTE_WORKSPACE_CHUNK_BYTES) });
-    return { size: chunk.size, offset: chunk.offset, data: chunk.data };
+    return { size: chunk.size, etag: chunk.etag, offset: chunk.offset, data: chunk.data };
   } catch (error) {
     if (error instanceof WorkspaceTransferError) throw new AppFileError(error.code === 'not_a_file' ? 'invalid' : 'not-found', error.message);
     throw error;

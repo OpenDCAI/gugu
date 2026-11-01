@@ -237,10 +237,17 @@ function perform(sessionId: string | null, tabId: string, action: ExtensionHostA
     // An App's 「用 X 打开」 on a session's working-copy file: in that session's pane, by the resolver a click there goes
     // through (`openFileInSessionEditor`) — the same for a session on this computer and one on another.
     case 'openSessionFile': {
-      const found = findSession(action.sessionId);
-      if (!found) throw new Error('This session is not open in this window');
-      return import('@renderer/features/sessions/stores/open-file-in-file-editor').then(({ openFileInSessionEditor }) =>
-        openFileInSessionEditor(found.projectId, action.sessionId, action.path, { beside: true, ask: action.ask }));
+      return (async () => {
+        const { remoteHostsStore } = await import('@renderer/features/remote-hosts/remote-hosts-store');
+        const projectId = findSession(action.sessionId)?.projectId
+          ?? remoteHostsStore.findListedSession(action.sessionId)?.projectId ?? action.projectId;
+        if (!projectId) throw new Error('This session has no known project');
+        const { prepareSessionPane } = await import('@renderer/features/sessions/session-pane-ready');
+        await prepareSessionPane(projectId, action.sessionId);
+        if (!findSession(action.sessionId)) throw new Error('This session has no prepared pane');
+        const { openFileInSessionEditor } = await import('@renderer/features/sessions/stores/open-file-in-file-editor');
+        await openFileInSessionEditor(projectId, action.sessionId, action.path, { beside: true, ask: action.ask });
+      })();
     }
     case 'forwardFiles':
       window.dispatchEvent(new CustomEvent(APP_FORWARD_FILES_EVENT, { detail: action.detail }));

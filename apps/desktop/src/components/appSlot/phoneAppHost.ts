@@ -66,6 +66,7 @@ import { cachedPhoneAgents, phoneDispatch } from './phoneDispatch'
 import { onPhoneAppState, phoneAppState } from './phoneAppState'
 import { subscribeDeviceSessions } from '../../session/shared/remote-sessions/session-directory'
 import { callOnComputer } from './phoneProgramCall'
+import { openPhoneWorkingCopyFile, type ReadWorkingCopyChunk } from './phone-working-copy-file'
 import { appDeviceId, followsSessionMachine, notOnSessionMachine } from '../../session/shared/extensions/machine-call'
 import { HOSTED_PROGRAM_ELSEWHERE } from '../../session/shared/extensions/program-place'
 import { rendererFileServiceUrl } from '../../lib/chatFolder'
@@ -353,6 +354,7 @@ export function hostAppFrame(
     showSession(sessionId: string, peek: boolean): { shown: true } | { unread: string[] }
     /** 「用 X 打开」 resolved: the slot opens that App on the file, or asks when several claim it. */
     openWith(detail: AppOpenWithDetail): void
+    openWorkingCopy?(path: string, read: ReadWorkingCopyChunk): void
     /** G1 Beside the page, over its frame: the frame stays as it was, for the way back. A host without it refuses a peek. */
     peek?(target: PeekTarget): void
     /** `setTabTitle` / `setTabBadge`: drawn on the header of the slot the App is in (摩擦单 F13). */
@@ -662,7 +664,23 @@ export function hostAppFrame(
         }
         return Promise.resolve(undefined)
       }
-      case 'filesOpenWith':
+      case 'filesOpenWith': {
+        const ref = fileRefOf(args.ref)
+        if (isWorkspace(ref)) {
+          if (!hooks.openWorkingCopy) refused('invalid', 'No file preview in this surface')
+          const id = workspaceSession(ref)
+          const listed = id ? listedSession(readCachedDevices(), liveDeviceSessions(), id) : null
+          if (!listed || !('row' in listed)) refused('not-found', 'This session is not in your task list')
+          const manifest = installedExtensionsStore.manifestFor(hosted.binding.extensionId)
+          if (!manifest) refused('not-installed', 'This App is not installed')
+          const device = readCachedDevices().find((device) => device.device_id === listed.row.deviceId)
+          // The phone has no host for an App's session-file tab yet: its existing file preview is the available opener.
+          return openPhoneWorkingCopyFile(
+            { extensionId: manifest.id, extensionName: manifest.name, version: manifest.version },
+            { id: id!, deviceId: listed.row.deviceId, deviceLabel: device?.label ?? null, online: device?.is_online },
+            ref, hooks.openWorkingCopy,
+          )
+        }
         return files.openTarget(surface(), { ref: chatRef(args.ref) }).then((target) => {
           const choice = openerChoice(target.typedName, appsHereNow(), 'chat', phoneApps.remembered, args.ask === true)
           // A pill in the page: its place, for the page about to open the file — as a file link in the chat (`groupFileOpener`).
@@ -672,6 +690,7 @@ export function hostAppFrame(
           if (args.peek === true) return peek({ kind: 'chat', detail: { ...target, choice } })
           hooks.openWith({ ...target, choice })
         })
+      }
       case 'filesOpen':
         return files.open(surface(), { ref: chatRef(args.ref), ...(args.readOnly === true ? { readOnly: true } : {}), deferDetails: args.deferDetails === true })
       case 'filesReopen': {

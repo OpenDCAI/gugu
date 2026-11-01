@@ -159,13 +159,13 @@ async function openSessionFile(
   ask = false
 ): Promise<void> {
   const provisioned = asProvisioned(getSessionPageStore(projectId, sessionId));
-  if (!provisioned) return;
+  if (!provisioned) throw new Error('This session has no prepared workspace');
   const workspace = workspaceRegistry.get(projectId, provisioned.workspaceId);
-  if (!workspace) return;
+  if (!workspace) throw new Error('This session has no workspace');
   const filePath = await expandHomeTildePath(rawFilePath);
   const resolvedPath = resolveEditorFilePath(workspace.path, filePath);
   if (resolvedPath === null) {
-    void openExternalFilePath(projectId, sessionId, filePath, { beside: target === 'beside' });
+    await openExternalFilePath(projectId, sessionId, filePath, { beside: target === 'beside' });
     return;
   }
 
@@ -178,8 +178,7 @@ async function openSessionFile(
     resolvedPath
   );
   if (!exists.success || !exists.data.exists) {
-    toast.error(translateSessionMessage('taskError.fileNotFound', { path: filePath }));
-    return;
+    throw new Error(translateSessionMessage('taskError.fileNotFound', { path: filePath }));
   }
   // 目录交给系统文件管理器开它自己的窗口 —— 塞进编辑器只会开出永远 Loading 的页签。
   if (exists.data.isDirectory) {
@@ -188,14 +187,15 @@ async function openSessionFile(
   }
 
   const viewModel = provisioned.viewModel;
-  if (!viewModel) return;
+  if (!viewModel) throw new Error('This session has no prepared pane');
 
-  await openResolvedFileInPane(viewModel, resolvedPath, {
+  const opened = await openResolvedFileInPane(viewModel, resolvedPath, {
     preview: false,
     beside: target === 'beside',
     ...(at ? { place: { sessionId, at } } : {}),
     ...(ask ? { ask } : {}),
   });
+  if (opened === undefined) throw new Error('The person did not pick an App to open it with');
 }
 
 /**
