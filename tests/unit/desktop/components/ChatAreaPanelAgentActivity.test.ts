@@ -271,6 +271,7 @@ describe('ChatAreaPanel agent activity placement', () => {
         return () => undefined
       }
       await renderWithAppProviders(harness, createNode(ChatAreaPanel, {}), {
+        auth: { id: 'viewer-1' },
         chat: { getImRepository: getImRepositoryMock, subscribeAccountRevision, setActiveChatId: vi.fn(), activeChatId: 'topic-1', activeChat: chat({ id: 'topic-1', kind: 'topic', source_chat_id: 'source-1' }), messages: [] },
       })
       const settings = vi.mocked(chatService.getGroupChatSettings)
@@ -281,7 +282,12 @@ describe('ChatAreaPanel agent activity placement', () => {
       })
       expect(settings).toHaveBeenCalledTimes(before)
       await act(async () => {
-        onChange([{ revision: '2', event: 'chat_members_changed', payload: { chat_id: 'source-1' } }])
+        onChange([{ revision: 'other-reader', event: 'chat_members_changed', payload: { chat_id: 'source-1', user_id: 'another-user', last_read_seq: 42 } }])
+        await vi.advanceTimersByTimeAsync(350)
+      })
+      expect(settings).toHaveBeenCalledTimes(before)
+      await act(async () => {
+        onChange([{ revision: '2', event: 'chat_members_changed', payload: { chat_id: 'source-1', user_id: 'viewer-1' } }])
         await vi.advanceTimersByTimeAsync(350)
       })
       expect(settings).toHaveBeenCalledTimes(before + 1)

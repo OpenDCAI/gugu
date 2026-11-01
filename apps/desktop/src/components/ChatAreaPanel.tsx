@@ -225,21 +225,25 @@ function ChatAreaSurface({ viewportKey = 'chats', imPage = false, navigationTarg
     const refreshTimers = new Set<number>()
     // @@@ collab-refetch-coalesce (#597) — see git history for full context.
     let pendingReload: number | null = null
-    const handleCollabChange = () => {
+    let refreshAuthority = false
+    const handleCollabChange = (authorityChanged = false) => {
+      refreshAuthority ||= authorityChanged
       if (pendingReload !== null) return
       pendingReload = window.setTimeout(() => {
         refreshTimers.delete(pendingReload as number)
         pendingReload = null
-        setAuthorityRevision((n) => n + 1)
+        if (refreshAuthority) setAuthorityRevision((n) => n + 1)
+        refreshAuthority = false
         loadGroupCollab()
       }, 300)
       refreshTimers.add(pendingReload)
     }
     const handleRevision = (operations: readonly { payload: unknown }[]) => {
-      if (operations.some((operation) => {
+      const relevant = operations.filter((operation) => {
         const id = (operation.payload as { chat_id?: unknown })?.chat_id
         return id === activeChatId || (!!activeChat?.source_chat_id && id === activeChat.source_chat_id)
-      })) handleCollabChange()
+      })
+      if (relevant.length) handleCollabChange(relevant.some((operation) => (operation.payload as { user_id?: unknown })?.user_id === user.id))
     }
     const unsubscribeGroup = subscribeAccountRevision('group_collab_changed', handleRevision)
     const unsubscribeMembers = subscribeAccountRevision('chat_members_changed', handleRevision)

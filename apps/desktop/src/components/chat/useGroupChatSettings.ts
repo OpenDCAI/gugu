@@ -56,7 +56,6 @@ export function useGroupChatSettings(chatId: string | null, revision?: string, a
   useEffect(() => {
     let cancelled = false
     if (!chatId) return
-    setSettings(null)
     chatService.getGroupChatSettings(chatId)
       .then((loaded) => { if (!cancelled) setSettings(loaded) })
       .catch((err: unknown) => {
@@ -98,7 +97,7 @@ export function useGroupChatSettings(chatId: string | null, revision?: string, a
     setSettings((current) => (current ? { ...current, avatar_url: avatarUrl } : current))
   }, [])
 
-  const reload = useCallback(() => { setSettings(null); setRoleChange((n) => n + 1) }, [])
+  const reload = useCallback(() => { setRoleChange((n) => n + 1) }, [])
 
   return { settings, error, setError, update, setAvatarUrl, reload }
 }
