@@ -3,10 +3,12 @@ import { isDeepEqual } from '@gugu/session-shared'
 import type { NativeSessionRecord } from '@gugu/session-core/session-record/contract'
 import { machineRpc } from './sessionpage-rpc'
 import { messageForUser } from '@/lib/userFacingError'
+import { hydrateCachedNativeRecord, readCachedNativeRecord, writeCachedNativeRecord } from './timeline-cache'
 
 /** ACP records come from the task page archive, not a second parse of the provider's JSONL. */
 export function useNativeSessionRecord(deviceId: string, sessionId: string, enabled: boolean, online: boolean) {
-  const [record, setRecord] = useState<NativeSessionRecord | null>(null)
+  // What this phone read last time is drawn first, and is all there is while that machine is away.
+  const [record, setRecord] = useState<NativeSessionRecord | null>(() => readCachedNativeRecord({ deviceId, sessionId }))
   const [error, setError] = useState<string | null>(null)
   const epoch = useRef(0)
   const current = useRef({ deviceId, sessionId, enabled })
@@ -18,7 +20,12 @@ export function useNativeSessionRecord(deviceId: string, sessionId: string, enab
   useEffect(() => {
     const generation = ++epoch.current
     requests.current = Promise.resolve(); tailRequested.current = false
-    value.current = null; setRecord(null); setError(null)
+    const cached = readCachedNativeRecord({ deviceId, sessionId })
+    value.current = cached; setRecord(cached); setError(null)
+    if (!cached) void hydrateCachedNativeRecord({ deviceId, sessionId }).then((stored) => {
+      if (!stored || epoch.current !== generation || value.current) return
+      value.current = stored; setRecord(stored)
+    })
     return () => { epoch.current = generation + 1 }
   }, [deviceId, sessionId, enabled])
   const read = useCallback((mode: 'poll' | 'older' | 'newer' | 'tail' = 'poll') => {
@@ -51,7 +58,9 @@ export function useNativeSessionRecord(deviceId: string, sessionId: string, enab
         next.originTurnIds = next.turns.map(turn => origins.get(turn.id)!)
         return isDeepEqual(previous, next) ? previous : next
       }
-      value.current = merge(value.current); setRecord(value.current)
+      const next = merge(value.current)
+      if (next !== value.current) writeCachedNativeRecord({ deviceId, sessionId }, next)
+      value.current = next; setRecord(next)
       setError(null)
     })
     requests.current = nextRequest

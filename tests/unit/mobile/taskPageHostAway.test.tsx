@@ -7,7 +7,7 @@ import {
   type AgentWatchSession,
   type SessionpageTimelineClient,
 } from '../../../apps/desktop/src/mobile/agent-watch/use-timeline-session'
-import { clearTimelineCache, forgetInMemoryTimelines } from '../../../apps/desktop/src/mobile/agent-watch/timeline-cache'
+import { clearTimelineCache, forgetInMemoryTimelines, hydrateCachedNativeRecord, writeCachedNativeRecord } from '../../../apps/desktop/src/mobile/agent-watch/timeline-cache'
 import { createNode, createReactHarness } from '../../support/testHarness'
 
 /**
@@ -93,5 +93,13 @@ describe('task page, machine away', () => {
     await vi.waitFor(() => expect(session.timeline.turns).toHaveLength(1))
     expect(session.link).toBe('lost')
     expect(away.fetchSnapshot).not.toHaveBeenCalled()
+  })
+
+  it('an ACP task keeps the record page it last read on the phone, across a cold start', async () => {
+    const key = { deviceId: 'machine-1', sessionId: 'conversation-2' }
+    const record = { latestStoredSeq: 1, hasNewer: false, turns: SNAPSHOT.turns, originTurnIds: ['a'], nextCursor: null, activeTurn: null }
+    writeCachedNativeRecord(key, record)
+    forgetInMemoryTimelines()
+    await vi.waitFor(async () => expect(await hydrateCachedNativeRecord(key)).toEqual(record))
   })
 })
