@@ -6,7 +6,7 @@ import type {
   AdmittedChannel, BoundIdentity, CapabilityGrant, ExitFact, Gen, Have, PlatformTicket, ProcessLease,
   ResolvedCli, StageName, StageOut, WorkspaceLease,
 } from '@gugu/core/local/session-life/types';
-import { resolveWorkspace } from '@main/core/projects/utils';
+import { persistedWorkspacePath, resolveWorkspace } from '@main/core/projects/utils';
 import { getSessions } from '@main/core/sessions/getSessions';
 import { sessionService } from '@main/core/sessions/session-service';
 import { recordRuntimeForkOwnership } from '@main/core/sessions/runtime-fork-ownership';
@@ -111,9 +111,11 @@ export function createAcpLegAdapter(sessionId: string, fork: RuntimeFork | null)
       }
       row = await sessionRow(sessionId);
       if (!row.workspaceId) throw new Error(`Session ${sessionId} has no workspace`);
-      // Read-only: the same path the workspace stage will mount, without mounting it yet.
-      const cwd = resolveWorkspace(row.projectId, row.workspaceId)?.path;
-      if (!cwd) throw new Error(`Session ${sessionId} workspace is unknown`);
+      // Read-only: the same path the workspace stage will mount (bootstrap mounts exactly this row's path), from its
+      // persisted record. The in-memory registry holds it only once mounted: after a restart, a session no page has
+      // opened is first started by a delivery, before anything mounted it.
+      const cwd = persistedWorkspacePath(row.workspaceId);
+      if (!cwd) throw new Error(`Session ${sessionId} workspace ${row.workspaceId} has no path`);
       facts = await readSessionInjectionFacts({ sessionId });
       identity = await provisionStartIdentity({ sessionId, providerId: row.providerId, projectId: row.projectId, cwd }, lifecycleOf(row, null), facts);
       // A persisted session is never a runtime fork: no identity here means tombstoned or not provisionable.

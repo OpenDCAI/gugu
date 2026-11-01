@@ -11,6 +11,9 @@ const h = vi.hoisted(() => ({
   release: vi.fn(async (_id: string) => undefined),
   identity: null as unknown,
   parentAgent: null as { gugu_user_id?: string } | null,
+  /** The in-memory registry: empty until something mounts the session (e.g. right after a restart). */
+  registered: true,
+  identityCwd: null as string | null,
 }));
 
 vi.mock('./agent-status-bridge', () => ({
@@ -20,13 +23,13 @@ vi.mock('./runtime-process/host', () => ({
   acpWorkerLease: async () => ({ client: h.client, onGone: (cb: (cause: string) => void) => { h.gone = cb; return () => { h.gone = null; }; } }),
   stopAcpSessionAndSettle: h.stopAndSettle,
   readSessionInjectionFacts: async () => ({ agentDisplayName: undefined }),
-  provisionStartIdentity: async () => h.identity,
+  provisionStartIdentity: async (input: { cwd: string }) => { h.identityCwd = input.cwd; return h.identity; },
 }));
 vi.mock('./inject-prompt', () => ({ injectEmdashPromptDetached: h.inject }));
 vi.mock('./emdash-platform-injector', () => ({ releaseEmdashPlatformSession: h.release }));
 vi.mock('@main/core/sessions/runtime-fork-ownership', () => ({ recordRuntimeForkOwnership: vi.fn() }));
 vi.mock('@main/core/sessionpage/sessionpage-session-agent', () => ({ localAgentForSession: async () => h.parentAgent }));
-vi.mock('@main/core/projects/utils', () => ({ resolveWorkspace: () => ({ path: '/repo' }) }));
+vi.mock('@main/core/projects/utils', () => ({ resolveWorkspace: () => (h.registered ? { path: '/repo' } : null), persistedWorkspacePath: () => '/repo' }));
 vi.mock('@main/core/sessions/getSessions', () => ({ getSessions: async () => [{ id: 's', runtime: 'acp', providerId: 'claude', projectId: 'p', workspaceId: 'w', providerSessionId: null }] }));
 vi.mock('@main/core/sessions/session-service', () => ({ sessionService: {} }));
 vi.mock('./runtime-process/resume-history', () => ({ resumeHistoryFacts: vi.fn() }));
@@ -173,6 +176,14 @@ describe('session-life ACP leg', () => {
     await expect(createAcpLegAdapter('s', null).run('identity', {}, ctx())).rejects.toThrow(/has no gugu identity/);
     h.identity = { guguAgentUserId: 'agent-1', chatId: 'dm' };
     await expect(createAcpLegAdapter('s', null).run('identity', {}, ctx())).resolves.toEqual({ kind: 'bound', agentUserId: 'agent-1' });
+  });
+
+  it('identity: a session nothing has mounted yet (after a restart, first started by a delivery) binds at its persisted path', async () => {
+    h.registered = false;
+    h.identity = { guguAgentUserId: 'agent-1', chatId: 'dm' };
+    await expect(createAcpLegAdapter('s', null).run('identity', {}, ctx())).resolves.toEqual({ kind: 'bound', agentUserId: 'agent-1' });
+    expect(h.identityCwd).toBe('/repo');
+    h.registered = true;
   });
 
   it('identity: a side chat is its session\'s binding, read only; an unbound session fails the fork\'s identity stage', async () => {
