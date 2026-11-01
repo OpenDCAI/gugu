@@ -6,7 +6,7 @@ import { platform } from '@/platform';
 /** 平台只决定如何供给正文。调用方可提供文件登记,默认是没有目录权限的群正文。 */
 export async function registerHtmlPreview(
   html: string,
-  register: (html: string) => Promise<{ success: true; data: { url: string; previewId: string } } | { success: false; error: object }> = (content) => rpc.workspace.files.createDocumentPreview(content),
+  register: (html: string) => Promise<{ success: true; data: { url: string; previewId: string } } | { success: false; error: { message?: string } | object }> = (content) => rpc.workspace.files.createDocumentPreview(content),
 ): Promise<HtmlPreviewRegistration> {
   if (platform.kind !== 'electron') {
     // 网页/手机只供正文;Blob URL 不提供目录资源,与原群预览的能力范围一致。
@@ -23,7 +23,10 @@ export async function registerHtmlPreview(
     };
   }
   const result = await register(html);
-  if (!result.success) return { ok: false, message: 'message' in result.error ? result.error.message : 'Preview unavailable' };
+  if (!result.success) {
+    const message = 'message' in result.error && typeof result.error.message === 'string' ? result.error.message : 'Preview unavailable';
+    return { ok: false, message };
+  }
   const { url, previewId } = result.data;
   let revision = 0;
   return {
