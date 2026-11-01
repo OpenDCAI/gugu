@@ -153,7 +153,7 @@ interface BubbleProps {
   // #1163 perf — 由父层(MessageListRow / thread map)按本消息预算好的发送/已读态(primitive 字符串)。
   // 旧版直接收整个 `memberReadSeqs` map 自己 derive：任一成员已读回执到达就换 map 引用 → 破 memo →
   // 全群可视气泡重渲。上移计算后，只有本消息状态真翻转时该 prop 才变，气泡才重渲。
-  sendState?: MessageSendState
+  sendState?: MessageSendState; /** Comma-joined agent ids: a primitive keeps this row's memo. */ undeliveredTo?: string
   // @@@1345 已读回执做成进度圆环(替文字)：父层预算好的「已读数 / 收件总数」两个 primitive(memo 安全——
   // 传整个 memberReadSeqs map 会破 memo)。环填充比例=read/total；点击展开「谁已读/谁未读」名单(onShowReadReceipt)。
   // total===1 → 私聊(满环=已读/空环=未读)；total>1 → 群聊(部分填充)。仅本人已发(非撤回/非发送中)显示。
@@ -197,7 +197,7 @@ interface BubbleProps {
 export const MessageBubble = memo(function MessageBubble({
   msg,
   onReaction,
-  sendState,
+  sendState, undeliveredTo,
   readReceiptRead,
   readReceiptTotal,
   onShowReadReceipt,
@@ -426,7 +426,7 @@ export const MessageBubble = memo(function MessageBubble({
             Design: .msg-actions{position:absolute}  agent → right:0 / own → left:0  */}
         <MessageHoverTrigger data-message-bubble-row="true" style={{ position: 'relative', display: 'flex', flexDirection: 'row', alignItems: 'flex-end', justifyContent: msg.is_mine ? 'flex-end' : 'flex-start', gap: '4px', width: 'fit-content', maxWidth: '100%', minWidth: 0, ...(msg.is_mine ? { marginLeft: 'auto' } : {}) }}>
           {msg.is_mine && !msg.retracted_at && sendState && (
-            <MessageSendStatus state={sendState} messageId={msg.id} reason={msg.local_send_error} blocks={msg.delivery_blocks} />
+            <MessageSendStatus state={sendState} messageId={msg.id} reason={msg.local_send_error} blocks={msg.delivery_blocks} undeliveredTo={undeliveredTo ? undeliveredTo.split(',') : undefined} />
           )}
 
           {/* @@@1345 逐成员读回执做成进度圆环(替文字)：本人已发消息显示 ○ 环(填充比例=已读%)，
@@ -436,7 +436,7 @@ export const MessageBubble = memo(function MessageBubble({
               showReadReceipt：每条本人消息各自挂环（#2098 owner 要逐条，撤 #1779 只挂末条的降噪）。
               read=0 的空环 = 「已发出、还没人读」(#5649 owner 拍板四态:发送中/已发出/已读/失败;发送中已改成虚线流动环,与空环可区分)。
               任务卡不挂环:它是交给一个 agent 的事件(gugu-dev#181),接没接、做到哪看卡行尾的状态,❌ 再问谁读了。 */}
-          {showReadReceipt && msg.is_mine && !card && !msg.retracted_at && sendState !== 'sending' && sendState !== 'queued' && sendState !== 'failed' && readReceiptTotal != null && readReceiptTotal > 0 && readReceiptRead != null && (
+          {showReadReceipt && msg.is_mine && !card && !msg.retracted_at && sendState !== 'sending' && sendState !== 'queued' && sendState !== 'undelivered' && sendState !== 'failed' && readReceiptTotal != null && readReceiptTotal > 0 && readReceiptRead != null && (
             <button
               type="button"
               data-testid="message-read-receipt"
