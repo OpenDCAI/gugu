@@ -620,6 +620,13 @@ async function startSpawnedSession(input: {
   }
 }
 
+/** A person's stop from the task page: the one stop path, so the status writer hears it too. A side chat has no row: its entry only. */
+export async function stopSessionByPerson(sessionId: string): Promise<void> {
+  const [row] = await db.select().from(sessions).where(eq(sessions.id, sessionId)).limit(1);
+  if (row) await stopSessionTransport(row);
+  else await sessionLife().interrupt(sessionId, { k: 'interrupt', reason: 'user-stop' });
+}
+
 export async function stopExactSessionpageSession(target: {
   projectId: string;
   sessionId: string;

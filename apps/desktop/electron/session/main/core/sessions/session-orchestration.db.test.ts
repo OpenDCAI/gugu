@@ -186,6 +186,7 @@ import {
   setRemotePaneOpener,
   stopExactSessionpageSession,
   type SessionCallerContext,
+  stopSessionByPerson,
 } from './session-orchestration';
 import type { RemoteSessionCaller, SessionpageSessionSummary } from '@gugu/session-core/session-record/contract';
 import { sessionChangedChannel } from '@shared/core/sessions/sessionEvents';
@@ -995,6 +996,17 @@ describe('session orchestration', () => {
       projectId: 'project-1',
       sessionId: 'caller',
     };
+
+    it('a person\'s stop from the task page is the same stop: the status writer hears it, a side chat only stops its entry', async () => {
+      await stopSessionByPerson('caller');
+      expect(mocks.lifeInterrupt).toHaveBeenCalledExactlyOnceWith('caller', { k: 'interrupt', reason: 'user-stop' });
+      expect(mocks.settleSessionExited).toHaveBeenCalledWith({ sessionId: 'caller', projectId: 'project-1' });
+      mocks.lifeInterrupt.mockClear();
+      mocks.settleSessionExited.mockClear();
+      await stopSessionByPerson('side-chat-without-a-row');
+      expect(mocks.lifeInterrupt).toHaveBeenCalledExactlyOnceWith('side-chat-without-a-row', { k: 'interrupt', reason: 'user-stop' });
+      expect(mocks.settleSessionExited).not.toHaveBeenCalled();
+    });
 
     // Retargeted: an ACP stop is now session-life's interrupt (default reason user-stop), never a direct runtime stop.
     it('stops the exact ACP conversation through session-life as a user stop', async () => {

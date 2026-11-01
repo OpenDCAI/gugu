@@ -413,6 +413,17 @@ describe('the first message keeps one place while its session starts', () => {
     await vi.waitFor(() => expect(store.chatState.session.state.pendingPrompt).toBeNull());
   });
 
+  it('a seed that already holds its turn, then the acceptance: the row leaves at once, with no later change to trigger it', async () => {
+    const { store } = storeFor({ providerId: 'claude', initialQueue: [{ text: '说一句你好', origin: 'manual' }] });
+    store.bootstrap();
+    life.pend(store.sessionId, 'ready', [row('dispatching')]);
+    await vi.waitFor(() => expect(store.transcriptPendingId).toBe('m-first'));
+    runInAction(() => store.chatState.transcript.history.seed([{ ...turn('t', 0), startedAt: 5000 }]));
+    expect(store.chatState.session.state.pendingPrompt?.held).toBe(true);
+    life.pend(store.sessionId, 'ready', []);
+    await vi.waitFor(() => expect(store.chatState.session.state.pendingPrompt).toBeNull());
+  });
+
   it('stopped mid-start: never again says Starting; the composer could stop it, and the tray has it', async () => {
     const { store } = storeFor({ providerId: 'claude', initialQueue: [{ text: '说一句你好', origin: 'manual' }] });
     store.bootstrap();

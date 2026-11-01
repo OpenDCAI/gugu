@@ -780,13 +780,6 @@ export class AcpChatStore {
     const starting = view !== null && lifeIsStarting(view);
     const head = bubbles[0]?.state === 'sending' && (starting || view?.kind === 'ready') ? bubbles[0] : null;
     runInAction(() => {
-      // An accepted row whose turn already finished before this page saw it: history has it, nothing will take it over.
-      const landed = session.state.pendingPrompt;
-      if (landed && !landed.held && landed.sentAt !== undefined
-        && this.chatState.transcript.state.committedTurns.some(turn => turn.startedAt !== undefined && turn.startedAt >= landed.sentAt!)) {
-        session.setPendingPrompt(null);
-        this._syncMessageCount();
-      }
       if (drawn && head?.id !== drawn) {
         this.transcriptPendingId = null;
         const shown = session.state.pendingPrompt;
@@ -797,6 +790,13 @@ export class AcpChatStore {
           if (!row || row.state === 'accepted') session.setPendingPrompt({ ...shown, starting: false, held: false });
           else { session.setPendingPrompt(null); this._syncMessageCount(); }
         }
+      }
+      // An accepted row whose turn already finished before this page saw it: history has it, nothing will take it over.
+      const landed = session.state.pendingPrompt;
+      if (landed && !landed.held && landed.sentAt !== undefined
+        && this.chatState.transcript.state.committedTurns.some(turn => turn.startedAt !== undefined && turn.startedAt >= landed.sentAt!)) {
+        session.setPendingPrompt(null);
+        this._syncMessageCount();
       }
       if (!head || this.chatState.transcript.state.activeTurnSnapshot) return;
       if (session.state.pendingPrompt && session.state.pendingPrompt.id !== head.id) return;
