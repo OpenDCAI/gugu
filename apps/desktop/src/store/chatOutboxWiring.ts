@@ -1,7 +1,8 @@
+import { openTopicTab } from '../session/renderer/features/chats/chat-tabs/chat-layouts'
 import type { AppForwardFilesDetail } from '../session/shared/extensions/app-runtime-protocol'
 import { commitAttachment, forwardAttachment, shareAttachment, type CommitArgs } from '@gugu/core/cloud/attachmentsApi'
 import { messageItemFromRow } from '@gugu/core/cloud/messageItem'
-import { attachmentsEndpoint, commitPreparedChatAttachment, type PreparedChatAttachment } from '../lib/attachmentsEndpoint'
+import { attachmentsEndpoint, type PreparedChatAttachment } from '../lib/attachmentsEndpoint'
 import { topicService, type CreateTopicInput, type CreatedTopic } from '../lib/topics'
 // @@@send-outbox (#1762 洞③/#1941) — outbox 与 chat store 的接线层(卫星,参照 chatRealtimeMutations
 // 的 mutators-bag 抽法):乐观行构造、状态迁移落 UI、送达连带动作(水位/预览/agent 运行态点亮)、
@@ -13,6 +14,8 @@ import type { SetStateAction } from 'react'
 import type { ToastType } from '../components/toastContext'
 import type { ChatItem, MessageContentType, MessageItem } from '@gugu/core/shared/types/chat'
 import { upsertMessageById } from '@gugu/core/shared/ui/messageListModels'
+import { attachmentSendTiming, type AttachmentSendTiming } from '../lib/attachmentSendTiming'
+import { settleAttachmentSend, type ObserveAttachmentMessage } from '../lib/attachmentSendRecovery'
 import { chatService } from '../lib/chat'
 import {
   ackOutboxRecord,
@@ -30,6 +33,7 @@ import { rendererLogger } from '@/lib/log'
 import { chatSendTimings, finishChatSendTiming } from '../lib/chatSendTiming'
 
 export interface OutboxWiringIo {
+  observeMessage?: (senderId: string, chatId: string) => ObserveAttachmentMessage
   getImRepository(): Promise<AccountImRepository>
   user(): { id: string; nickname: string; avatarUrl: string | null } | null
   chats(): ChatItem[]
@@ -48,9 +52,9 @@ export interface OutboxWiringIo {
 export interface OutboxWiring {
   outbox: ChatOutbox
   stageAttachment(message: MessageItem): Promise<void>
-  commitAttachment(message: MessageItem, prepared: PreparedChatAttachment, commit: Omit<CommitArgs, 'staging_key'>): Promise<void>
+  commitAttachment(message: MessageItem, prepared: PreparedChatAttachment, commit: Omit<CommitArgs, 'staging_key'>, timing?: AttachmentSendTiming): Promise<void>
   forward(source: MessageItem | AppForwardFilesDetail['files'][number], targetChatId: string, senderUserId: string): Promise<void>
-  createTopic(input: CreateTopicInput, senderUserId: string): Promise<CreatedTopic>
+  createTopic(input: CreateTopicInput, senderUserId: string): Promise<CreatedTopic | null>
   dispose(): void
   /** sendMessage 入队入口:建持久化记录并入队(乐观行由 chat.tsx 先行插入,二者同 id)。 */
   enqueue(input: {
@@ -138,7 +142,8 @@ export async function resolveOutboxRecipients(
 export function createOutboxWiring(io: OutboxWiringIo): OutboxWiring {
   let active = true
   // Bytes never enter persistence. An interrupted native publication requires a fresh selection.
-  const nativeCommits = new Map<string, () => Promise<Record<string, unknown>>>()
+  const attachmentTimings = new Map<string, AttachmentSendTiming>()
+  const nativeCommits = new Map<string, () => Promise<MessageItem>>()
   const topicResults = new Map<string, CreatedTopic | undefined>()
   // clientMessageId → 本次会话里发送方交来的投递前置。送达/丢弃即删;失败保留,手动重试会再跑一次。
   const beforeDeliverHooks = new Map<string, () => Promise<void>>()
@@ -156,6 +161,7 @@ export function createOutboxWiring(io: OutboxWiringIo): OutboxWiring {
     // fail-loud 不许失踪(#1762 评审[9]):终态 failed 时那条乐观行若不在屏上(话题已关/切了会话),
     // 「未送达」badge 无处渲染 → 用全局 toast 外化;行仍在 outbox,回到现场即可重试/丢弃。
     if (record.state === 'failed') {
+      if (record.operation?.kind === 'attachment') attachmentTimings.get(record.clientMessageId)?.finish('failed', 'outbox')
       finishChatSendTiming(record.clientMessageId)
       rendererLogger('chat/outbox').error({ chatId: record.chatId, messageId: record.clientMessageId, error: record.lastError }, 'message send failed')
       const onScreen = record.payload.threadRootId
@@ -168,6 +174,7 @@ export function createOutboxWiring(io: OutboxWiringIo): OutboxWiring {
   function removeRow(record: OutboxRecord): void {
     beforeDeliverHooks.delete(record.clientMessageId)
     nativeCommits.delete(record.clientMessageId)
+    attachmentTimings.delete(record.clientMessageId)
     if (!active) return
     if (record.payload.threadRootId) {
       io.setThreadMessages((prev) => prev.filter((m) => m.id !== record.clientMessageId), record.chatId)
@@ -183,6 +190,8 @@ export function createOutboxWiring(io: OutboxWiringIo): OutboxWiring {
   async function handleSent(record: OutboxRecord, persisted: MessageItem): Promise<void> {
     beforeDeliverHooks.delete(record.clientMessageId)
     nativeCommits.delete(record.clientMessageId)
+    attachmentTimings.get(record.clientMessageId)?.finish('success', 'outbox')
+    attachmentTimings.delete(record.clientMessageId)
     if (!active) return
     const user = io.user()
     if (!user) return
@@ -252,16 +261,21 @@ export function createOutboxWiring(io: OutboxWiringIo): OutboxWiring {
       if (operation?.kind === 'topic') return topicService.createTopic(operation.input)
       if (operation?.kind === 'upload') throw new Error(i18n.t('outbox.selectFileAgain', { ns: 'messaging' }))
       let raw: Record<string, unknown> | undefined
-      if (operation?.kind === 'attachment') raw = await commitAttachment(await attachmentsEndpoint(), operation.commit)
+      if (operation?.kind === 'attachment') {
+        const timing = attachmentTimings.get(record.clientMessageId) ?? attachmentSendTiming(record.clientMessageId, record.chatId)
+        raw = await timing.stage('commit', record.attempts + 1, async () => commitAttachment(await attachmentsEndpoint(), operation.commit))
+      }
       if (operation?.kind === 'nativeAttachment') {
         const publish = nativeCommits.get(record.clientMessageId)
         if (publish) {
           // Publish native bytes at most once. A lost IPC acknowledgement is
           // reconciled by the same message id on a later attempt.
           nativeCommits.delete(record.clientMessageId)
-          raw = await publish()
+          const result = await publish()
+          return result
         } else {
-          const existing = await chatService.getMessageById(record.clientMessageId, record.senderUserId)
+          const timing = attachmentTimings.get(record.clientMessageId) ?? attachmentSendTiming(record.clientMessageId, record.chatId)
+          const existing = await timing.stage('readback', record.attempts + 1, () => chatService.getMessageById(record.clientMessageId, record.senderUserId))
           if (existing) return existing
           throw new Error(i18n.t('outbox.selectFileAgain', { ns: 'messaging' }))
         }
@@ -292,7 +306,12 @@ export function createOutboxWiring(io: OutboxWiringIo): OutboxWiring {
     },
     onState: reflectState,
     onSent: (record, acknowledged) => {
-      if (record.operation?.kind === 'topic') { removeRow(record); return }
+      if (record.operation?.kind === 'topic') {
+        const topic = acknowledged as CreatedTopic
+        openTopicTab(record.chatId, { topicChatId: topic.chat_id, name: topic.name })
+        removeRow(record)
+        return
+      }
       return handleSent(record, acknowledged as MessageItem).catch((err) => {
         // 连带动作失败(回读/摘要刷新)不影响送达事实——realtime 回显会补;大声记录不静默。
         console.error('[chatOutbox] post-send side effects failed', err)
@@ -306,11 +325,19 @@ export function createOutboxWiring(io: OutboxWiringIo): OutboxWiring {
     async stageAttachment(message) {
       await outbox.stageUpload(outboxRecordForMessage(message, { kind: 'upload' }))
     },
-    async commitAttachment(message, prepared, commit) {
+    async commitAttachment(message, prepared, commit, timing = attachmentSendTiming(message.id, message.chat_id)) {
+      attachmentTimings.set(message.id, timing)
       const operation: OutboxOperation = 'staging_key' in prepared
         ? { kind: 'attachment', commit: { ...commit, staging_key: prepared.staging_key } }
         : { kind: 'nativeAttachment', commit }
-      if ('local' in prepared) nativeCommits.set(message.id, async () => commitPreparedChatAttachment(await attachmentsEndpoint(), prepared, commit))
+      if ('local' in prepared) nativeCommits.set(message.id, async () => {
+        const row = await settleAttachmentSend({ endpoint: await attachmentsEndpoint(), prepared, commit, timing,
+          observeMessage: io.observeMessage?.(commit.sender_user_id, message.chat_id),
+          onLateMessage: row => { if (active) void outbox.confirm(message.id, row) },
+        })
+        if (!row) throw new Error(i18n.t('outbox.sendFailed', { ns: 'messaging' }))
+        return row
+      })
       if (!await outbox.commitUpload(outboxRecordForMessage(message, operation))) nativeCommits.delete(message.id)
     },
     async forward(source, targetChatId, senderUserId) {
@@ -338,7 +365,7 @@ export function createOutboxWiring(io: OutboxWiringIo): OutboxWiring {
       try {
         await outbox.enqueue(record)
         io.appendMessage(outboxRecordToMessage(record, io.user()!))
-        await outbox.delivered(id)
+        try { await outbox.delivered(id) } catch { return null } // durable failure is actionable in the existing row
         const created = topicResults.get(id)
         if (!created) throw new Error('Topic creation was not acknowledged')
         return created
@@ -348,6 +375,7 @@ export function createOutboxWiring(io: OutboxWiringIo): OutboxWiring {
       active = false
       beforeDeliverHooks.clear()
       nativeCommits.clear()
+      attachmentTimings.clear()
       topicResults.clear()
       outbox.dispose()
     },

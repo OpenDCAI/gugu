@@ -178,6 +178,7 @@ export function useTopicSurface({
           name: source.content_type === 'text' ? topicNameFromMessage(source.content)
             : source.content_type === 'card' ? topicNameFromMessage(parseComposerCard(source.content)?.text) : null,
         })
+        if (!created) return // retained outbox failure already exposes retry/discard
         reloadTopics()
         openSplit({ chatId: created.chat_id, name: created.name })
       } catch (error) {

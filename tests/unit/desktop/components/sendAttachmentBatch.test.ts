@@ -14,9 +14,10 @@ function fixture() {
   const stageAttachment = vi.fn(async (_message: MessageItem) => {})
   const commitAttachment = vi.fn(async () => {})
   const failUpload = vi.fn(async () => {})
-  const outbox = { stageAttachment, commitAttachment, outbox: { delivered: () => new Promise<void>(() => {}), failUpload } }
+  const discard = vi.fn(async () => {})
+  const outbox = { stageAttachment, commitAttachment, outbox: { delivered: () => new Promise<void>(() => {}), failUpload, discard } }
   const appendMessage = vi.fn(), onSent = vi.fn()
-  return { stageAttachment, commitAttachment, failUpload, args: {
+  return { stageAttachment, commitAttachment, failUpload, discard, args: {
     chatId: 'group', senderId: 'user', toUserIds: ['peer'], appendMessage, onSent, outbox,
     files: [new File(['png'], 'photo.png', { type: 'image/png' })],
   } }
@@ -38,13 +39,13 @@ describe('attachment ownership transfers to the durable chat outbox', () => {
     expect(f.stageAttachment.mock.invocationCallOrder[0]).toBeLessThan(f.args.appendMessage.mock.invocationCallOrder[0])
     expect(f.stageAttachment.mock.invocationCallOrder[0]).toBeLessThan(upload.mock.invocationCallOrder[0])
     expect(f.args.onSent).toHaveBeenCalledWith(f.args.files[0], 0)
-    expect(f.commitAttachment).toHaveBeenCalledWith(message, { staging_key: 'staging/photo.png' }, expect.objectContaining({ message_id: id, to_user_ids: ['peer'] }))
+    expect(f.commitAttachment).toHaveBeenCalledWith(message, { staging_key: 'staging/photo.png' }, expect.objectContaining({ message_id: id, to_user_ids: ['peer'] }), expect.anything())
   })
   it('keeps the original whisper, reply, thread and caption on the queued commit', async () => {
     const f = fixture()
     await sendAttachmentBatch({ ...f.args, isWhisper: true, replyToMessageId: 'source', threadRootId: 'thread', caption: '① Move this' })
     expect(f.args.appendMessage.mock.calls[0][0]).toMatchObject({ is_whisper: true, reply_to_message_id: 'source', thread_root_id: 'thread' })
-    expect(f.commitAttachment).toHaveBeenCalledWith(expect.anything(), expect.anything(), expect.objectContaining({ is_whisper: true, reply_to_message_id: 'source', thread_root_id: 'thread', caption: '① Move this' }))
+    expect(f.commitAttachment).toHaveBeenCalledWith(expect.anything(), expect.anything(), expect.objectContaining({ is_whisper: true, reply_to_message_id: 'source', thread_root_id: 'thread', caption: '① Move this' }), expect.anything())
   })
   it('persists ownership of all files while uploads are pending, without committing early', async () => {
     const f = fixture()
@@ -52,23 +53,27 @@ describe('attachment ownership transfers to the durable chat outbox', () => {
     upload.mockImplementation(() => new Promise<string>(resolve => { finish = resolve }))
     const done = sendAttachmentBatch(f.args)
     await vi.waitFor(() => expect(upload).toHaveBeenCalledOnce())
-    expect(f.args.onSent).toHaveBeenCalledOnce()
+    expect(f.args.onSent).not.toHaveBeenCalled()
     expect(f.commitAttachment).not.toHaveBeenCalled()
     finish('staging/photo')
     await done
     expect(f.commitAttachment).toHaveBeenCalledOnce()
   })
-  it('a refused upload stays failed in the outbox; later files can still commit', async () => {
+  it('returns uncommitted files to composer on upload failure and removes their markers', async () => {
     const f = fixture()
-    const second = new File(['pdf'], 'second.pdf', { type: 'application/pdf' })
-    upload.mockImplementation(async (_endpoint, file) => {
-      if (file.name === 'photo.png') throw new AttachmentsError('upload', 403, 'denied', 'quota denied')
-      return 'staging/second'
-    })
-    await sendAttachmentBatch({ ...f.args, files: [...f.args.files, second] })
-    expect(f.args.onSent).toHaveBeenCalledTimes(2)
-    expect(f.failUpload).toHaveBeenCalledWith(f.stageAttachment.mock.calls[0][0].id, expect.objectContaining({ message: expect.stringContaining('quota denied') }))
-    expect(f.commitAttachment).toHaveBeenCalledOnce()
+    upload.mockRejectedValue(new AttachmentsError('upload', 403, 'denied', 'quota denied'))
+    await expect(sendAttachmentBatch({ ...f.args, files: [...f.args.files, new File(['pdf'], 'second.pdf')] })).rejects.toThrow('quota denied')
+    expect(f.args.onSent).not.toHaveBeenCalled()
+    expect(f.discard.mock.calls).toEqual(f.stageAttachment.mock.calls.map(([row]) => [row.id]))
+    expect(f.commitAttachment).not.toHaveBeenCalled()
+  })
+  it('cleans earlier upload markers if staging a later file fails', async () => {
+    const f = fixture()
+    f.stageAttachment.mockResolvedValueOnce().mockRejectedValueOnce(new Error('disk full'))
+    await expect(sendAttachmentBatch({ ...f.args, files: [...f.args.files, new File(['pdf'], 'second.pdf')] })).rejects.toThrow('disk full')
+    expect(f.discard.mock.calls).toEqual(f.stageAttachment.mock.calls.map(([row]) => [row.id]))
+    expect(f.args.onSent).not.toHaveBeenCalled()
+    expect(upload).not.toHaveBeenCalled()
   })
   it('failed durable staging leaves ownership in the composer and sends no bytes', async () => {
     const f = fixture()
@@ -88,8 +93,8 @@ describe('attachment ownership transfers to the durable chat outbox', () => {
     const f = fixture()
     await sendAttachmentBatch({ ...f.args, files: [...f.args.files, new File(['pdf'], 'spec.pdf', { type: 'application/pdf' })], caption: 'look' })
     expect(f.commitAttachment.mock.calls).toEqual([
-      [expect.anything(), { staging_key: 'staging/photo.png' }, expect.objectContaining({ caption: 'look', content_type: 'image/png' })],
-      [expect.anything(), { staging_key: 'staging/spec.pdf' }, expect.not.objectContaining({ caption: expect.anything() })],
+      [expect.anything(), { staging_key: 'staging/photo.png' }, expect.objectContaining({ caption: 'look', content_type: 'image/png' }), expect.anything()],
+      [expect.anything(), { staging_key: 'staging/spec.pdf' }, expect.not.objectContaining({ caption: expect.anything() }), expect.anything()],
     ])
   })
 })

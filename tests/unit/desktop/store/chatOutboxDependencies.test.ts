@@ -51,7 +51,8 @@ describe('durable source dependencies in the chat outbox', () => {
     await outbox.enqueue(record('later', 'B'))
     await outbox.failUpload('image', new Error('upload refused'))
     await flush()
-    expect(saved.get('forward')).toMatchObject({ state: 'failed', attempts: 0, lastError: 'upload refused' })
+    expect(saved.get('forward')).toMatchObject({ state: 'failed', attempts: 0 })
+    expect(saved.get('forward')?.lastError).not.toContain('upload refused')
     expect(send.mock.calls.map(([r]) => r.clientMessageId)).toEqual(['later'])
     outbox.dispose()
   })
@@ -74,7 +75,7 @@ describe('durable source dependencies in the chat outbox', () => {
     await outbox.retry('source')
     await outbox.retry('forward')
     await flush()
-    expect(saved.get('forward')?.state).toBe('sending')
+    expect(saved.get('forward')?.state).toBe('pending')
     finish()
     await flush()
     expect(send.mock.calls.filter(([r]) => r.clientMessageId === 'forward')).toHaveLength(1)
@@ -168,4 +169,72 @@ it('discard wins over upload completion while dependent failure is being persist
   await flush()
   expect(send).not.toHaveBeenCalled()
   outbox.dispose()
+})
+
+describe('creation order prevents lane/dependency cycles', () => {
+  it('commits an earlier upload before a cross-lane forwarding chain waiting back on it', async () => {
+    vi.useFakeTimers()
+    const { outbox, send, saved } = fixture()
+    await outbox.stageUpload({ ...record('u', 'A'), operation: { kind: 'upload' } })
+    await outbox.enqueue(record('f_b', 'B', 'u'))
+    await outbox.enqueue(record('b2', 'B'))
+    await outbox.enqueue(record('f_a', 'A', 'b2'))
+    await flush()
+    await outbox.commitUpload(record('u', 'A'))
+    await flush()
+    expect(send.mock.calls.map(([row]) => row.clientMessageId)).toEqual(['u', 'f_b', 'b2', 'f_a'])
+    expect([...saved.values()]).toEqual([])
+    outbox.dispose()
+  })
+  it('does not deliver a dependent while discard persistence is suspended', async () => {
+    vi.useFakeTimers()
+    let releaseSave!: () => void, releaseSend!: () => void
+    const saving = new Promise<void>(resolve => { releaseSave = resolve })
+    const sending = new Promise<void>(resolve => { releaseSend = resolve })
+    const f = fixture(new Map(), async row => { if (row.clientMessageId === 'dep' && row.state === 'failed') await saving })
+    f.send.mockImplementation(async row => { if (row.clientMessageId === 't0' || row.clientMessageId === 'source') await sending })
+    await f.outbox.enqueue(record('source', 'S'))
+    await f.outbox.enqueue(record('t0', 'T'))
+    await f.outbox.enqueue(record('dep', 'T', 'source'))
+    await flush()
+    const discarding = f.outbox.discard('source')
+    releaseSend()
+    await flush()
+    releaseSave()
+    await discarding
+    await flush()
+    expect(f.send.mock.calls.map(([row]) => row.clientMessageId)).not.toContain('dep')
+    expect(f.saved.get('dep')).toMatchObject({ state: 'failed', dependencyDiscarded: true })
+    f.outbox.dispose()
+  })
+  it('terminates seeded interleavings of lanes, uploads, forwarding, failure, discard and restart', async () => {
+    vi.useFakeTimers()
+    for (let seed = 1; seed <= 30; seed++) {
+      let randomState = seed
+      const random = () => { randomState = (Math.imul(randomState, 1664525) + 1013904223) >>> 0; return randomState }
+      let f = fixture()
+      const configure = () => f.send.mockImplementation(async row => { if (Number(row.clientMessageId.slice(1)) % 7 === 0) throw new Error('offline') })
+      configure()
+      const ids: string[] = []
+      for (let n = 0; n < 24; n++) {
+        const id = `m${n}`, lane = String(random() % 3)
+        const dependsOn = ids.length && random() % 3 === 0 ? ids[random() % ids.length] : undefined
+        const row = record(id, lane, dependsOn)
+        if (random() % 3 === 0) await f.outbox.stageUpload({ ...row, operation: { kind: 'upload' } })
+        else await f.outbox.enqueue(row)
+        ids.push(id)
+        if (random() % 4 === 0) await f.outbox.discard(ids[random() % ids.length])
+        if (random() % 5 === 0) {
+          const uploading = [...f.saved.values()].find(r => r.state === 'uploading')
+          if (uploading) await f.outbox.commitUpload({ ...uploading, operation: undefined })
+        }
+        await flush()
+        if (n === 12) { f.outbox.dispose(); f = fixture(f.saved); configure(); await f.outbox.restore(); await flush() }
+      }
+      for (const row of [...f.saved.values()]) if (row.state === 'uploading') await f.outbox.commitUpload({ ...row, operation: undefined })
+      await flush()
+      expect([...f.saved.values()].filter(row => row.state !== 'failed'), `seed ${seed}`).toEqual([])
+      f.outbox.dispose()
+    }
+  })
 })

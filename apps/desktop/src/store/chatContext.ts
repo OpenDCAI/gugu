@@ -112,7 +112,7 @@ export interface ChatContextValue {
   // @@@threads (#1531) — isThreadRoot：新建话题首条 INSERT 即标 root，触发器据此把 agent 回复路由进本条 thread。
   sendMessage: (content: string, opts?: SendMessageOptions) => Promise<string | undefined>
   forwardMessage: (source: MessageItem | AppForwardFilesDetail['files'][number], targetChatId: string) => Promise<void>
-  createTopic: (input: CreateTopicInput) => Promise<CreatedTopic>
+  createTopic: (input: CreateTopicInput) => Promise<CreatedTopic | null>
   sendAttachmentsToChat: (chatId: string, files: File[], opts?: SendAttachmentOptions) => Promise<string | undefined>
   sendAttachments: (files: File[], opts?: SendAttachmentOptions) => Promise<string | undefined>
   sendMessageToChat: (chatId: string, content: string, opts?: SendMessageOptions) => Promise<string | undefined>

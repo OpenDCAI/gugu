@@ -1,3 +1,4 @@
+import { observeAttachmentMessage } from '../lib/attachmentSendRecovery'
 import type { UnreadLocatorCommit } from '../lib/chatUnreadLocatorWindow'
 import { topicService } from '../lib/topics'
 import type { ConversationViewport } from './chatWindowCache'
@@ -236,6 +237,7 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
   useEffect(() => {
     if (!userId) return
     const wiring = createOutboxWiring({
+      observeMessage: (senderId, chatId) => observeAttachmentMessage(subscribeAccountRevision, senderId, chatId),
       getImRepository,
       user: () => userRef.current ? { id: userRef.current.id, nickname: userRef.current.nickname, avatarUrl: userRef.current.avatarUrl ?? null } : null,
       chats: () => chatsRef.current,
@@ -255,7 +257,7 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
       wiring.dispose()
       if (outboxRef.current === wiring) outboxRef.current = null
     }
-  }, [cache, userId, getImRepository])
+  }, [cache, userId, getImRepository, subscribeAccountRevision])
 
   const { epochOf: getMessageSnapshotEpoch, bump: bumpMessageSnapshotEpoch } = useMessageSnapshotEpochs()
 

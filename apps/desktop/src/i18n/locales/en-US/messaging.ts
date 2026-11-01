@@ -808,6 +808,7 @@ export default {
   },
   "outbox": {
     "selectFileAgain": "Upload interrupted. Select the file again.",
+    "sourceNotSent": "The original message was not sent. Retry it before forwarding again.",
     "sourceDiscarded": "The original message was discarded before it was sent",
     "deliveryTimeout": "Delivery timed out after {{seconds}}s because the network stopped responding",
     "discarded": "Discarded",

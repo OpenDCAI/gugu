@@ -4,7 +4,7 @@ import type { MessageItem } from '@gugu/core/shared/types/chat'
 import { upsertMessageById } from '@gugu/core/shared/ui/messageListModels'
 import { chatService } from '../../../../apps/desktop/src/lib/chat'
 import { createMemoryLocalSyncDb } from '../../../../apps/desktop/src/lib/localSyncDb'
-import { openImRepository, type AccountImRepository } from '../../../../apps/desktop/src/lib/imRepository'
+import { openImRepository, putOutboxRecord, type AccountImRepository } from '../../../../apps/desktop/src/lib/imRepository'
 import {
   createOutboxWiring,
   resolveOutboxRecipients,
@@ -75,6 +75,7 @@ function wiringHarness(messageId: string) {
     appendMessage,
   }
   return {
+    repository,
     wiring: createOutboxWiring(io),
     messages: () => messages,
     patchChat,
@@ -278,4 +279,20 @@ describe('resolveOutboxRecipients (C2)', () => {
     expect(resolved.payload).toMatchObject({ toUserIds: ['peer-1'], resolveDmPeer: false })
     await expect(resolveOutboxRecipients(pending, async () => { throw new Error('network down') })).rejects.toThrow('network down')
   })
+})
+
+it('reconciles a restored native commit before asking the user to select bytes again', async () => {
+  const f = wiringHarness('native-restart')
+  const persisted = { ...persistedMessage('native-restart'), content_type: 'attachment' as const }
+  const read = vi.spyOn(chatService, 'getMessageById').mockResolvedValue(persisted)
+  const now = new Date().toISOString()
+  await putOutboxRecord(await f.repository, { clientMessageId: persisted.id, chatId: 'chat-1', senderUserId: 'owner-1',
+    payload: { content: 'native.txt', contentType: 'attachment', toUserIds: [], replyToMessageId: null, threadRootId: null, isThreadRoot: false, isWhisper: false },
+    operation: { kind: 'nativeAttachment', commit: { message_id: persisted.id, chat_id: 'chat-1', sender_user_id: 'owner-1', file_name: 'native.txt', to_user_ids: [] } },
+    state: 'sending', attempts: 0, lastError: null, enqueuedAt: now, updatedAt: now })
+  await f.wiring.outbox.restore()
+  await vi.waitFor(() => expect(f.appendMessage).toHaveBeenCalledWith(persisted))
+  expect(read).toHaveBeenCalledWith(persisted.id, 'owner-1')
+  expect((await f.repository).snapshot().outbox).toEqual([])
+  f.wiring.dispose()
 })

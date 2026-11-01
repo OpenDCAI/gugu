@@ -15,7 +15,7 @@ export type TopicSourceCandidate =
 export function canSourceTopic(message: TopicSourceCandidate): boolean {
   // 话题名截自来源正文且对全线可见 ⇒ 悄悄话与撤回不许当来源
   // (20260919001500 / 20260919003000 两条迁移硬拒)。
-  if (message.is_whisper || message.retracted_at) return false
+  if (message.is_whisper || message.retracted_at || message.local_send_state === 'failed') return false
   return true
 }
 

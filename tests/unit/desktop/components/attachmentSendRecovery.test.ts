@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { afterEach, expect, it, vi } from 'vitest'
 import { attachmentAttemptEndpoint, retryAttachmentUpload } from '../../../../apps/desktop/src/lib/attachmentSendRecovery'
 import { AttachmentsError } from '@gugu/core/cloud/attachmentsApi'

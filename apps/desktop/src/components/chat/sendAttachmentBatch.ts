@@ -98,36 +98,29 @@ export async function sendAttachmentBatch(args: {
   isThreadRoot?: boolean
   onSent?: (file: File, index: number) => void
   caption?: string
-  outbox: Pick<OutboxWiring, 'stageAttachment' | 'commitAttachment'> & { outbox: Pick<OutboxWiring['outbox'], 'delivered' | 'failUpload'> }
+  outbox: Pick<OutboxWiring, 'stageAttachment' | 'commitAttachment'> & { outbox: Pick<OutboxWiring['outbox'], 'delivered' | 'failUpload' | 'discard'> }
   appendMessage: (message: MessageItem) => void
 }): Promise<string | undefined> {
   if (!args.files.length) return undefined
   if (args.threadRootId != null || args.isThreadRoot === true) await requireThreadCapableChat(args.chatId, 'sendAttachmentBatch')
   const captionIndex = args.files.findLastIndex(file => inferAttachmentKind(file) === 'image')
   const placeholders: Awaited<ReturnType<typeof placeholderRow>>[] = []
-  for (const [index, file] of args.files.entries()) {
-    const row = await placeholderRow(file, index === captionIndex ? args.caption : undefined, args)
-    // Durable ownership precedes visibility. Upload markers do not occupy the FIFO lane.
-    await args.outbox.stageAttachment(row.message)
-    placeholders.push(row)
-    args.appendMessage(row.message)
-    args.onSent?.(file, index)
-    void args.outbox.outbox.delivered(row.message.id).then(row.release, () => {})
-  }
-  const timings = placeholders.map(row => attachmentSendTiming(row.message.id, args.chatId))
-  let uploads: Promise<PreparedChatAttachment>[]
+  let index = 0
   try {
-    uploads = startBoundedUploads(args.files, await attachmentsEndpoint(), {
+    for (const [fileIndex, file] of args.files.entries()) {
+      const row = await placeholderRow(file, fileIndex === captionIndex ? args.caption : undefined, args)
+      placeholders.push(row)
+      // Durable ownership precedes visibility; uploading does not block the lane.
+      await args.outbox.stageAttachment(row.message)
+      args.appendMessage(row.message)
+      void args.outbox.outbox.delivered(row.message.id).then(row.release, () => {})
+    }
+    const timings = placeholders.map(row => attachmentSendTiming(row.message.id, args.chatId))
+    const uploads = startBoundedUploads(args.files, await attachmentsEndpoint(), {
       chat_id: args.chatId, as: args.senderId, is_whisper: args.isWhisper,
     }, timings)
-  } catch (error) {
-    for (const row of placeholders) await args.outbox.outbox.failUpload(row.message.id, error)
-    return placeholders[0].message.id
-  }
-  // Only ready commits join the lane. Text sent while bytes upload may arrive first, as on dev.
-  for (const [index, file] of args.files.entries()) {
-    const row = placeholders[index]
-    try {
+    for (; index < args.files.length; index++) {
+      const file = args.files[index], row = placeholders[index]
       const prepared = await uploads[index]
       await args.outbox.commitAttachment(row.message, prepared, {
         message_id: row.message.id, chat_id: args.chatId, sender_user_id: args.senderId,
@@ -135,10 +128,19 @@ export async function sendAttachmentBatch(args: {
         reply_to_message_id: args.replyToMessageId ?? null, thread_root_id: args.threadRootId ?? null,
         is_thread_root: !!args.isThreadRoot, is_whisper: !!args.isWhisper,
         ...(index === captionIndex && args.caption ? { caption: args.caption } : {}),
-      })
-    } catch (error) {
-      await args.outbox.outbox.failUpload(row.message.id, error)
+      }, timings[index])
+      // Only ready commits belong to outbox retry now. Uncommitted File objects
+      // still belong to the composer and return there on this round's failure.
+      args.onSent?.(file, index)
     }
+  } catch (error) {
+    // Also handles a partially staged batch: never leave an upload marker with
+    // no upload task. Source-dependent forwards fail through ordinary discard.
+    for (const row of placeholders.slice(index)) {
+      await args.outbox.outbox.discard(row.message.id)
+      row.release()
+    }
+    throw error
   }
-  return placeholders[0].message.id
+  return placeholders[0]?.message.id
 }
