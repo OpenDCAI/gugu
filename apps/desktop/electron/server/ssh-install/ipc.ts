@@ -5,7 +5,7 @@
  * 登录凭证以桌面此刻登着的身份向云端 server-login/grant 要(见 nmhjklnm/gugu-supabase 的 supabase/functions/server-login),
  * 只在内存里过一手就经 SSH 标准输入递走,❌ 写日志、❌ 发给渲染层。
  */
-import { spawn } from 'node:child_process'
+import { spawn } from '@gugu/core/local/childProcess'
 import crypto from 'node:crypto'
 import { ipcMain, type BrowserWindow } from 'electron'
 import type { RuntimeAuth } from '@gugu/core'

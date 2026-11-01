@@ -1,4 +1,4 @@
-import { execFile } from 'node:child_process';
+import { execFile } from '@gugu/core/local/childProcess';
 import { promisify } from 'node:util';
 import { setTimeout as delay } from 'node:timers/promises';
 import * as fs from 'node:fs';

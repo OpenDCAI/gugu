@@ -18,7 +18,7 @@
  * 开销:守护进程活着时看门人阻塞在 wait 上,零轮询;只有「接手一个已在跑的守护进程」那一段每 10 秒读一次
  * /proc/<pid>/stat(一次 sed,微秒级)。
  */
-import { spawn } from 'node:child_process'
+import { spawn } from '@gugu/core/local/childProcess'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'

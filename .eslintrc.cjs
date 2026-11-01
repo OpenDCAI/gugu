@@ -35,6 +35,21 @@ const noSyncSpawnInput = {
     "同步 spawn 的 `input` 在 macOS 上会间歇性挂死到超时(#3766，详见 .eslintrc.cjs 顶部 @@@spawnsync-input)。改成:参数传值 / 从文件喂 stdin(stdio:[fd,…]) / 空 stdin 用 stdio:['ignore',…] / 需要管道语义的改异步 spawn。"
 }
 
+const radixImportGate = {
+  group: ['radix-ui', 'radix-ui/*', '@radix-ui/*'],
+  message:
+    'radix-ui 只允许出现在 apps/desktop/src/session/renderer/lib/ui/assistant-ui/(vendored assistant-ui Elements，#3334 记的有界例外)。产品代码的原语一律用 Base UI —— 见 design-system spec 的「组件模板只有一套」。'
+}
+
+// Windows 上 GUI 进程起控制台子进程不带 windowsHide 就弹一个黑框;逐个调用点记着写总有漏的。
+// 起子进程一律经 @gugu/core/local/childProcess(windowsHide 默认 true);类型照旧从 node:child_process 导。
+const childProcessImportGate = ['node:child_process', 'child_process'].map((name) => ({
+  name,
+  importNames: ['spawn', 'spawnSync', 'exec', 'execSync', 'execFile', 'execFileSync', 'fork'],
+  message:
+    '起子进程用 @gugu/core/local/childProcess:同一套 API,windowsHide 默认 true(Windows 上不弹黑框)。要人看见窗口的(「用 X 打开」)显式写 windowsHide: false。'
+}))
+
 module.exports = {
   root: true,
   env: { browser: true, es2020: true, node: true },
@@ -173,18 +188,26 @@ module.exports = {
       files: ['**/*.{ts,tsx,js,jsx,cjs,mjs}'],
       excludedFiles: ['apps/desktop/src/session/renderer/lib/ui/assistant-ui/**'],
       rules: {
-        'no-restricted-imports': [
-          'error',
-          {
-            patterns: [
-              {
-                group: ['radix-ui', 'radix-ui/*', '@radix-ui/*'],
-                message:
-                  'radix-ui 只允许出现在 apps/desktop/src/session/renderer/lib/ui/assistant-ui/(vendored assistant-ui Elements，#3334 记的有界例外)。产品代码的原语一律用 Base UI —— 见 design-system spec 的「组件模板只有一套」。'
-              }
-            ]
-          }
-        ]
+        'no-restricted-imports': ['error', { patterns: [radixImportGate], paths: childProcessImportGate }]
+      }
+    },
+    {
+      // 构建脚本、测试与公共模块本身照旧直接用 node:child_process(它们不在 GUI 进程里起子进程)。
+      // 同名规则在 override 里是整条替换:这里只把 radix 那一半原样留下。
+      files: [
+        'packages/core/src/local/childProcess.ts',
+        'scripts/**',
+        'tests/**',
+        '**/*.test.*',
+        '**/*.node-test.*',
+        '**/test-support/**',
+        '**/fixtures/**',
+        'packages/session-plugins/tooling/**',
+        'electron-builder.cjs',
+        'playwright.config.mts'
+      ],
+      rules: {
+        'no-restricted-imports': ['error', { patterns: [radixImportGate] }]
       }
     },
     {

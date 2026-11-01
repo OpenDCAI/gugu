@@ -11,7 +11,7 @@
  *
  * 成本:每台通着的机器一个 frpc 进程 + 一条 ssh 共享连接;只在渲染层要(那台机器在线且中转通着)时才建。
  */
-import { spawn } from 'node:child_process'
+import { spawn } from '@gugu/core/local/childProcess'
 import fs from 'node:fs'
 import net from 'node:net'
 import path from 'node:path'
@@ -182,7 +182,7 @@ export function createTunnelMachines(deps: {
   }
 
   const runSsh = deps.runSsh ?? ((args, timeoutMs) => new Promise((resolve) => {
-    const child = spawn('ssh', args, { stdio: ['ignore', 'ignore', 'pipe'], windowsHide: true })
+    const child = spawn('ssh', args, { stdio: ['ignore', 'ignore', 'pipe'] })
     let stderr = ''
     child.stderr.setEncoding('utf8').on('data', (chunk: string) => {
       if (stderr.length < 16_384) stderr += chunk

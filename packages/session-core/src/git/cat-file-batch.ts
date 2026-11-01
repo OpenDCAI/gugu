@@ -1,4 +1,5 @@
-import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
+import type { ChildProcessWithoutNullStreams } from 'node:child_process';
+import { spawn } from '@gugu/core/local/childProcess';
 import { onErrorEvents, type IDisposable } from '@gugu/session-shared';
 import type { BoundExec } from '../exec';
 

@@ -12,7 +12,7 @@
 
 import { createHash } from 'node:crypto'
 import { readdir, readFile, unlink } from 'node:fs/promises'
-import { execFile, execFileSync } from 'node:child_process'
+import { execFile, execFileSync } from '@gugu/core/local/childProcess'
 import { promisify } from 'node:util'
 import path from 'node:path'
 import { atomicWriteText, resolveGuguHome } from '@gugu/core/local/state/paths'
@@ -368,7 +368,7 @@ async function readCmdlineReal(pid: number, platform: NodeJS.Platform = process.
         ? path.join(process.env.SystemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe')
         : 'powershell.exe'
       const script = `[Console]::OutputEncoding=[Text.UTF8Encoding]::new(); $p=Get-CimInstance Win32_Process -Filter "ProcessId = ${pid}"; if($null -ne $p.CommandLine){[Console]::Out.Write($p.CommandLine)}`
-      const { stdout } = await execFileAsync(powershell, ['-NoProfile', '-NonInteractive', '-Command', script], { windowsHide: true })
+      const { stdout } = await execFileAsync(powershell, ['-NoProfile', '-NonInteractive', '-Command', script])
       return stdout.trim() || null
     }
     return null
@@ -381,7 +381,7 @@ function killWindowsProcessTreeReal(pid: number): void {
   const taskkill = process.env.SystemRoot
     ? path.join(process.env.SystemRoot, 'System32', 'taskkill.exe')
     : 'taskkill.exe'
-  execFileSync(taskkill, ['/PID', String(pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true })
+  execFileSync(taskkill, ['/PID', String(pid), '/T', '/F'], { stdio: 'ignore' })
 }
 
 export interface CreateReapDepsOptions {

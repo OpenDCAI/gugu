@@ -6,7 +6,7 @@
  * 这里用与直连终端同一套 askpass + 提问卡片问一次,登上后共享连接一直留着(ControlPersist),再开设备连接不再问。
  * 密码提问上照样给「以后连这台机器不用再输密码」(下次免密,见 ssh-key-install.ts)。
  */
-import { spawn } from 'node:child_process'
+import { spawn } from '@gugu/core/local/childProcess'
 import type { BrowserWindow } from 'electron'
 import {
   SSH_LINK_CHANNELS,
@@ -212,7 +212,6 @@ export function registerSshLinkIpc(options: {
           const child = spawn('ssh', buildEnsureMasterArgs(sshTargetOf(machine), controlPath), {
             stdio: ['ignore', 'ignore', 'pipe'],
             env: { ...process.env, ...askpass.env },
-            windowsHide: true,
           })
           let stderr = ''
           child.stderr.setEncoding('utf8').on('data', (chunk: string) => {

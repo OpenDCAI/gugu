@@ -57,7 +57,7 @@ export function runMiseProcess(command: string, args: string[], options: {
   options.signal?.throwIfAborted();
   return new Promise((resolve, reject) => {
     const owned = spawnOwnedChild(command, args, {
-      cwd: options.cwd, env: options.env, detached: true, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'],
+      cwd: options.cwd, env: options.env, detached: true, stdio: ['ignore', 'pipe', 'pipe'],
       onError: (error) => { options.signal?.removeEventListener('abort', abort); reject(error); },
     });
     const child = owned.child;

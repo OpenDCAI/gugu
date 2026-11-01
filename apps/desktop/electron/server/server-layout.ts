@@ -12,7 +12,7 @@
  * 每个账号一个独立进程、独立目录:两个人共用一个 Linux 用户,他们的会话、agent、任务库互不相见;
  * 一个人退出登录不影响另一个。登录态存在即「这个账号在这台机器上」。
  */
-import { execFile } from 'node:child_process'
+import { execFile } from '@gugu/core/local/childProcess'
 import fs from 'node:fs'
 import path from 'node:path'
 import { promisify } from 'node:util'
