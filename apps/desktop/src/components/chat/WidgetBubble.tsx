@@ -20,7 +20,7 @@ export const WidgetBubble = observer(function WidgetBubble({ message }: { messag
   if (!installedExtensionsStore.isLoaded) return <p>{widget.text}</p>
   const manifest = installedExtensionsStore.manifestFor(widget.app)
   const tab = manifest?.contributes.tabs.find(tab => tab.name === widget.view)
-  const reason = !appsHere || (manifest && !manifest.platforms.includes(platform.kind === 'electron' ? 'desktop' : 'phone')) ? 'platform'
+  const reason = !appsHere || (manifest?.platforms && !manifest.platforms.includes(platform.kind === 'electron' ? 'desktop' : 'phone')) ? 'platform'
     : !manifest ? 'missing' : !installedExtensionsStore.isEnabled(widget.app) ? 'disabled' : !tab?.widget ? 'view' : null
   if (reason || !tab?.widget) return <WidgetUnavailable widget={widget} reason={reason ?? 'view'} chatId={message.chat_id} />
   return <WidgetView key={`${message.id}:${manifest?.version}`} message={message} widget={widget} height={tab.widget.height} />

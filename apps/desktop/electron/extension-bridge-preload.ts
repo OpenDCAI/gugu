@@ -71,7 +71,7 @@ async function call(method: string, args?: unknown): Promise<unknown> {
 const events = hostEventHub();
 let messageView = false;
 ipcRenderer.on(EXTENSION_BRIDGE_EVENT_CHANNEL, (_event: unknown, payload: ExtensionHostEvent) => {
-  if (payload.type === 'context') messageView = payload.context.widget !== undefined;
+  if (payload.type === 'context') messageView = payload.context.widget !== undefined && !payload.context.modal;
   events.deliver(payload);
 });
 window.addEventListener('wheel', event => {

@@ -146,6 +146,10 @@ describe('agentSendOf: what the agent said through 咕咕, and where it went', (
     const relay = { ...send(), tool: 'session_message', rawInput: JSON.stringify({ to: ['session:a', 'session:b'], text: 'done' }) };
     expect(agentSendOf(relay)).toEqual({ text: 'done', to: { kind: 'session', count: 2 } });
   });
+  it('shows a widget send as plain text in the task timeline', () => {
+    const widget = { ...send(), tool: 'widget_send', rawInput: JSON.stringify({ chat_id: '999', app: 'board', view: 'main', text: 'Build results', data: { count: 3 } }) };
+    expect(agentSendOf(widget)).toEqual({ text: 'Build results', to: { kind: 'chat', conversationId: null, chatId: '999', threadRootId: null, whisper: false } });
+  });
 
   it.each(['message_send_file', 'mcp__gugu__message_send_file'])('names a captionless %s destination without turning the attachment into text', toolName => {
     const file = { ...send(), tool: toolName, rawInput: JSON.stringify({ chat_id: '216012', file_path: '/fixture/proof.txt' }) };

@@ -2046,6 +2046,7 @@ export function registerExtensionBridge(): void {
                   tabId: source.tabId, tabKind: `${source.extensionId}.${source.tabName}`,
                   workspace: source.workspace,
                   conversation: source.conversation,
+                  ...(source.widget ? { widget: source.widget } : {}),
                   ...(source.itemId ? { itemId: source.itemId } : {}),
                   ...(source.filePath ? { filePath: source.filePath } : {}),
                   operator: source.operator, modal: { id: modal.id, data: modal.options.data },
