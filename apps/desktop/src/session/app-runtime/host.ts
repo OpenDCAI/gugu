@@ -58,6 +58,8 @@ export interface GuguHost extends ProjectionHost {
     keep(args: { refs: AppFileRef[]; how: 'temporary' | 'permanent' }): Promise<{ changed: number }>;
     watch(args: { watchId: string; place: AppPlace; on: boolean }): Promise<void>;
     replace(args: { ref: AppFileRef; file: AppFileUpload; expectedVersion?: number | null }): Promise<AppFileEntry>;
+    /** Whether whoever reads may delete each file, in order: asked as a file's menu opens, never carried by a list. */
+    canDelete(args: { refs: AppFileRef[] }): Promise<boolean[]>;
     versions(args: { ref: AppFileRef }): Promise<AppFileVersion[]>;
     readVersion(args: { ref: AppFileRef; n: number }): Promise<AppFileVersionContent>;
     /** Bytes the caller has, or (no `files`) the person's picker — which only a page has, inside a gesture. */

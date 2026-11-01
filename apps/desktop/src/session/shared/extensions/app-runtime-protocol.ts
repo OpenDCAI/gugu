@@ -367,12 +367,6 @@ export interface AppFileEntry {
   /** The chat messages it came from, for `gugu.showMessage` — ids only, never their content. */
   sourceMessageIds: string[];
   /**
-   * Whether whoever reads (the person, or the agent a program works for) may delete it, as the folder decides (owner 10-18):
-   * who made it, the owner of the agent that made it, or the chat's owner or an admin — a folder with all in it; never
-   * 「附件」. A working copy's file: true on this computer.
-   */
-  canDelete: boolean;
-  /**
    * `files.upload`'s answer only: the file of its folder that already had the name this one was picked with — the
    * database gave this one 「 (n)」 (子文件夹); `null` when it kept the name it was picked with.
    */

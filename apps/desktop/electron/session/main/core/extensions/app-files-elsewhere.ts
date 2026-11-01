@@ -62,7 +62,6 @@ export async function readElsewhere(
       path: rel,
       systemRole: null,
       // Read from another machine: removed there, not from here.
-      canDelete: false,
       suffix: fileSuffixOf({ name, contentType }),
       displayName: name,
       claimedBy: null,

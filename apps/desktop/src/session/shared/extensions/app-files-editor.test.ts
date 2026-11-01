@@ -33,7 +33,7 @@ it('resolves creators and human/agent editors in the same deduplicated identity 
     [{ id: `user:${HUMAN}`, name: 'Human creator', kind: 'human' }, { id: `user:${AGENT}`, name: 'Editor agent', kind: 'agent' }],
   ]);
   expect(identities.mock.calls).toEqual([['token', [HUMAN, AGENT]]]);
-  expect(rpc.mock.calls.map(([name]) => name)).toEqual(['workspace_list_as', 'workspace_deletable_as']);
+  expect(rpc.mock.calls.map(([name]) => name), 'a list asks no delete answer').toEqual(['workspace_list_as']);
 });
 
 it('keeps an unknown editor null rather than assigning the creator', async () => {

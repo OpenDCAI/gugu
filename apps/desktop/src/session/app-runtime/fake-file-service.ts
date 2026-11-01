@@ -287,7 +287,6 @@ export function fileOpened(type: 'text' | 'json'): AppFileOpened {
       parentId: null,
       path: type === 'json' ? 'board.json' : 'notes.md',
       systemRole: null,
-      canDelete: true,
       suffix: type === 'json' ? '.json' : '.md',
       displayName: type === 'json' ? 'board' : 'notes',
       claimedBy: null,

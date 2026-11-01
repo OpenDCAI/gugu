@@ -388,6 +388,17 @@ export async function replaceAppFile(page: DesktopFilePage, args: { ref?: unknow
   return local.replace(await localFolder(page, ref), { ref: ref as LocalFileRef, file });
 }
 
+/**
+ * Whether whoever reads may delete each file, in the order asked: a chat file's answer is the database's (its delete's own
+ * rule); a working copy's is this computer's — yes for a file here, no for one only another computer has.
+ */
+export async function appFilesCanDelete(page: DesktopFilePage, args: { refs?: unknown }): Promise<boolean[]> {
+  const refs = (Array.isArray(args.refs) ? args.refs : []).map((ref) => fileRefOf(ref));
+  const chat = await files.canDelete(chatSurface(page), { refs: refs.filter(isChat) });
+  let next = 0;
+  return Promise.all(refs.map(async (ref) => (isChat(ref) ? chat[next++]! : !(await fileElsewhere(page, ref as LocalFileRef)))));
+}
+
 /** G2 A chat file's kept versions. A working copy's history is its own (git): not kept here, said so. */
 export async function appFileVersions(page: DesktopFilePage, args: { ref?: unknown }): Promise<AppFileVersion[]> {
   const ref = fileRefOf(args.ref);

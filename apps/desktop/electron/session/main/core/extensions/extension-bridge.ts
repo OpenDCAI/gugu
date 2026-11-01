@@ -1808,6 +1808,7 @@ async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, arg
     case 'filesCreate':
     case 'filesRemove':
     case 'filesReplace':
+    case 'filesCanDelete':
     case 'filesVersions':
     case 'filesReadVersion':
     case 'filesRename':
@@ -1833,6 +1834,7 @@ async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, arg
         filesMkdir: 'makeAppFolder',
         filesMove: 'moveAppFile',
         filesReplace: 'replaceAppFile',
+        filesCanDelete: 'appFilesCanDelete',
         filesVersions: 'appFileVersions',
         filesReadVersion: 'readAppFileVersion',
       } as const satisfies Record<typeof method, keyof typeof files>;

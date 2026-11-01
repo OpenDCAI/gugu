@@ -262,7 +262,6 @@ function entryOf(row: ItemRow, claimant: Claimant): AppFileEntry {
       ? { id: personId(row.updated_by), name: row.updated_by.slice(0, 8), kind: 'human' }
       : null,
     sourceMessageIds: row.source_message_ids ?? [],
-    canDelete: false,
     ...('is_mine' in row ? { keep: typeof row.is_mine === 'boolean' ? { expiresAt: row.expires_at ?? null, mine: row.is_mine } : null } : {}),
   }, claimant);
 }
@@ -380,8 +379,8 @@ export async function extensionChatOf(
 }
 
 /**
- * Rows as entries, as `actor` (the person, or the agent a program works for) has them: who made each, and whether `actor`
- * may delete it — the database's answer (`workspace_deletable_as`, the rule its delete keeps), one read for the batch.
+ * Rows as entries, as `actor` (the person, or the agent a program works for) has them: who made each, in one read. Whether
+ * `actor` may delete one is asked for that one as its menu opens (`canDelete`), never for a whole list.
  */
 async function entriesOf(token: string, rows: readonly ItemRow[], platform: Pick<FilesPlatform, 'claimant' | 'identities'>, actor: string): Promise<AppFileEntry[]> {
   return entryDetails(token, rows.map((row) => entryOf(row, platform.claimant)), platform.identities, actor);
@@ -393,17 +392,18 @@ async function listedEntriesOf(token: string, rows: readonly ItemRow[], platform
   return entries.map((entry) => (storedOn.has(entry.id) ? { ...entry, storedOn: storedOn.get(entry.id)! } : entry));
 }
 
-const onMachine = (row: ItemRow) => row.kind === 'file' && !row.pointer;
-
 /**
- * The machine that keeps each file with no cloud copy (no blob pointer): the device that sent its current version, as the
- * one metadata entry point resolves it (`file_resolve_as`: its name and whether it is online, for any reader). One read
- * per machine when the list names it (`workspace_list_as`), otherwise one per file.
+ * The machine that keeps each file kept on one: the device that sent its current version. The list names it
+ * (`workspace_list_as`.host_device_id, from file_device_revisions — the one record `file_resolve_as` calls a file local by);
+ * a file it names none for has no machine to ask about. A row read on its own (`itemById`, a file that changed) has no such
+ * column: with no cloud copy, that file is asked about. One read per machine (`file_resolve_as`: its name, its owner and
+ * whether it is online, for any reader), whatever the number of its files.
  */
 async function storedOnOf(token: string, rows: readonly ItemRow[], identities: Identities, actor: string): Promise<Map<string, NonNullable<AppFileEntry['storedOn']>>> {
-  const local = rows.filter(onMachine);
+  const local = rows.filter((row) => row.kind === 'file' && (row.host_device_id || (row.host_device_id === undefined && !row.pointer)));
   const asked = new Map<string, ItemRow>();
-  for (const row of local) asked.set(row.host_device_id ? `device:${row.host_device_id}` : `item:${row.id}`, row);
+  const keyOf = (row: ItemRow) => (row.host_device_id ? `device:${row.host_device_id}` : `item:${row.id}`);
+  for (const row of local) asked.set(keyOf(row), row);
   const holders = new Map<string, { host_device_id: string; host_account_id: string; host_label?: string | null; host_online?: boolean }>();
   await Promise.all([...asked].map(async ([key, row]) => {
     const { data, error } = await chatClient(token).rpc('file_resolve_as', { p_ref: { item_id: row.id }, p_as: actor });
@@ -416,7 +416,7 @@ async function storedOnOf(token: string, rows: readonly ItemRow[], identities: I
   const owners = new Map((accounts.length ? await identities(token, accounts) : []).map((person) => [personId(person.id), person]));
   const found = new Map<string, NonNullable<AppFileEntry['storedOn']>>();
   for (const row of local) {
-    const holder = holders.get(row.host_device_id ? `device:${row.host_device_id}` : `item:${row.id}`);
+    const holder = holders.get(keyOf(row));
     if (!holder) continue;
     found.set(row.id, { machine: holder.host_label ?? null, owner: owners.get(personId(holder.host_account_id))?.name ?? holder.host_account_id.slice(0, 8),
       mine: personId(holder.host_account_id) === personId(actor), ...(typeof holder.host_online === 'boolean' ? { online: holder.host_online } : {}) });
@@ -424,19 +424,13 @@ async function storedOnOf(token: string, rows: readonly ItemRow[], identities: I
   return found;
 }
 
-async function entryDetails(token: string, entries: readonly AppFileEntry[], identities: Identities, actor: string): Promise<AppFileEntry[]> {
+async function entryDetails(token: string, entries: readonly AppFileEntry[], identities: Identities, _actor: string): Promise<AppFileEntry[]> {
   if (entries.length === 0) return [];
-  const [people, deletable] = await Promise.all([
-    peopleOf(token, entries, identities),
-    agentRows(token, 'workspace_deletable_as', { p_item_ids: entries.map((entry) => entry.id), p_as_user_id: actor }),
-  ]);
-  // A set of ids, as PostgREST answers a SETOF uuid.
-  const mayDelete = new Set(deletable as unknown as string[]);
+  const people = await peopleOf(token, entries, identities);
   return entries.map(({ detailsPending: _pending, ...entry }) => ({
     ...entry,
     createdBy: entry.createdBy ? people.get(entry.createdBy.id) ?? entry.createdBy : null,
     updatedBy: entry.updatedBy ? people.get(entry.updatedBy.id) ?? entry.updatedBy : null,
-    canDelete: mayDelete.has(entry.id),
   }));
 }
 
@@ -1055,6 +1049,20 @@ export function createAppFiles(platform: FilesPlatform) {
      * G2 A file's kept versions, newest first — read like opening it read-only, through `workspace_versions_as` (the
      * person, or the agent an App's program acts for: one path). Restoring one is writing it back as a change of now.
      */
+    /**
+     * Whether whoever works the page (the person, or the agent it works as) may delete each of these chat files, in
+     * the order asked — the database's rule, the one its delete keeps (`workspace_deletable_as`). Asked as a file's menu
+     * opens, for that file: a list never carries it (a whole folder's answer cost seconds and held its first screen).
+     */
+    async canDelete(surface: FileSurface, args: { refs: readonly ChatFileRef[] }): Promise<boolean[]> {
+      if (args.refs.length === 0) return [];
+      const { token, userId } = await platform.account();
+      const ids = await Promise.all(args.refs.map(async (ref) => ('id' in ref ? ref.id : (await resolve(surface, { token, userId }, ref)).row.id)));
+      // A set of ids, as PostgREST answers a SETOF uuid.
+      const allowed = new Set(await agentRows(token, 'workspace_deletable_as', { p_item_ids: ids, p_as_user_id: surface.asAgent ?? userId }) as unknown as string[]);
+      return ids.map((id) => allowed.has(id));
+    },
+
     async versions(surface: FileSurface, args: { ref: ChatFileRef }): Promise<AppFileVersion[]> {
       const { token, userId } = await platform.account();
       const row = await readable(surface, { token, userId }, args.ref, 'opening');

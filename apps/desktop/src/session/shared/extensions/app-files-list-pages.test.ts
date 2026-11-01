@@ -47,10 +47,28 @@ it('lists every file of a folder larger than one gateway answer', async () => {
   rows = Array.from({ length: 1001 }, (_, n) => file(n));
   expect(await createAppFiles(platform).groupFiles(chat, { folder: '附件' })).toHaveLength(1001);
 });
+
 it('lists a file once when one added between two pages pushes it onto the next', async () => {
   rows = Array.from({ length: 1001 }, (_, n) => file(n));
   betweenPages = () => { betweenPages = null; rows = [file(5000), ...rows]; };
   const entries = await createAppFiles(platform).groupFiles(chat);
   expect(entries).toHaveLength(1001);
   expect(new Set(entries.map((entry) => entry.id)).size).toBe(1001);
+});
+
+it('asks no machine about a file the list names no machine for (its copy is in the cloud)', async () => {
+  rows = Array.from({ length: 300 }, (_, n) => file(n));
+  await createAppFiles(platform).groupFiles(chat);
+  expect(rpc.mock.calls.some(([name]) => name === 'file_resolve_as')).toBe(false);
+});
+
+it('does not ask who may delete what for a list; asks for the files named, in order, when asked', async () => {
+  rows = [file(1), { ...file(2), id: 'item-2-mine' }];
+  const files = createAppFiles(platform);
+  const listed = await files.groupFiles(chat);
+  expect(listed.every((entry) => !('canDelete' in entry))).toBe(true);
+  expect(rpc.mock.calls.some(([name]) => name === 'workspace_deletable_as')).toBe(false);
+  const surface = { pageId: 'page', extensionId: 'workspace', asAgent: null } as never;
+  expect(await files.canDelete(surface, { refs: [{ chat, id: 'item-2-mine' }, { chat, id: 'item-1' }] })).toEqual([true, false]);
+  expect(rpc.mock.calls.filter(([name]) => name === 'workspace_deletable_as').map(([, args]) => args.p_item_ids)).toEqual([['item-2-mine', 'item-1']]);
 });

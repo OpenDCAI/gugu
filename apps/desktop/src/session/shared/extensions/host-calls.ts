@@ -95,6 +95,7 @@ export const HOST_CALLS = {
   'appFiles.move': { verb: 'filesMove' },
   'appFiles.watch': { verb: 'filesWatch' },
   'appFiles.replace': { verb: 'filesReplace' },
+  'appFiles.canDelete': { verb: 'filesCanDelete' },
   'appFiles.versions': { verb: 'filesVersions' },
   'appFiles.readVersion': { verb: 'filesReadVersion' },
   /** Bytes the caller has, or (no `files`) the person's picker — a page's, inside a gesture. */

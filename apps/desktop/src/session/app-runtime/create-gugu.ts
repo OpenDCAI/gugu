@@ -104,6 +104,8 @@ export function createGugu(
     onChanged,
     viewPreferences: (place: unknown, options?: { showAppData?: boolean }) => withPlace(place, (where) => host.appFiles.viewPreferences({ place: where, ...options })),
     replace,
+    /** Whether whoever reads may delete each file (an entry, or a list of them), in order — ask as its menu opens. */
+    canDelete: (files: unknown) => withRefs(files, (refs) => host.appFiles.canDelete({ refs })),
     /** G2 A chat file's kept versions, newest first; one's content: a text file's as text, a stored file's as a Blob. */
     versions: (file: unknown) => withRef(file, (ref) => host.appFiles.versions({ ref })),
     readVersion: (file: unknown, n: number) =>
