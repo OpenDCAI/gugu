@@ -86,6 +86,29 @@ beforeEach(() => {
   setProbePlatformEnvResolver(async () => ({ env: {} }))
 })
 describe('ACP 模型目录探测', () => {
+  it.each(['target-low', 'target-none', 'ignored'])('reads the requested native model axis, refusing an unconfirmed switch (%s)', async (target) => {
+    await useAgent(`
+const options = (model, levels) => [
+  { configId: 'native-model', category: 'model', type: 'select', currentValue: model, options: ['default', 'target-low', 'target-none', 'ignored'].map(value => ({ value, name: value })) },
+  ...(levels.length ? [{ id: 'depth', category: 'thought_level', type: 'select', currentValue: levels[0], options: levels.map(value => ({ value, name: value })) }] : []),
+];
+function handle(msg) {
+  if (msg.method === 'initialize') return reply(msg.id, { protocolVersion: 1 });
+  if (msg.method === 'session/new') return reply(msg.id, { sessionId: 'probe', configOptions: options('default', ['high']) });
+  if (msg.method === 'session/set_config_option') {
+    if (msg.params.sessionId !== 'probe' || msg.params.configId !== 'native-model') return fail(msg.id, { code: -32602, message: 'wrong session or native axis' });
+    const model = msg.params.value;
+    return reply(msg.id, { configOptions: model === 'ignored' ? options('default', ['high']) : options(model, model === 'target-low' ? ['low'] : []) });
+  }
+}
+`)
+    const state = await probeHarnessModelCatalog('codex', 'acp', target)
+    if (target === 'ignored') {
+      expect(state).toMatchObject({ kind: 'unavailable', reason: expect.stringContaining('did not confirm') })
+    } else {
+      expect(state).toMatchObject({ kind: 'ready', selected: target, efforts: target === 'target-low' ? [{ id: 'low', name: 'low' }] : [] })
+    }
+  })
   it('清理失败进入 unavailable，不发布 ready 或误报 harness 未安装', async () => {
     await useAgent(SESSION_WITH_MODELS)
     const stop = engineTree.signalEngineTree

@@ -301,6 +301,8 @@ describe('single Gugu MCP surface (session_* + app_* atomic tools)', () => {
       { tool: 'session_spawn', args: { prompt: 'p', device: 'device:dev-b', parent_session_id: 'session:parent' }, dispatched: { action: 'spawn', prompt: 'p', device: 'dev-b', parent_session_id: 'parent' } },
       { tool: 'session_list_models', args: {}, dispatched: { action: 'list_models' } },
       { tool: 'session_spawn', args: { prompt: 'inspect' }, dispatched: { action: 'spawn', prompt: 'inspect' } },
+      { tool: 'session_spawn', args: { prompt: 'inspect', thinking: 'native-level' }, dispatched: { action: 'spawn', prompt: 'inspect', thinking: 'native-level' } },
+      { tool: 'session_spawn', args: { prompt: 'inspect', device: 'device:dev-b', thinking: 'native-level' }, dispatched: { action: 'spawn', prompt: 'inspect', device: 'dev-b', thinking: 'native-level' } },
       { tool: 'session_ask_user', args: { questions: [{ question: 'Which?', options: [{ label: 'One' }, { label: 'Two' }] }] }, dispatched: { action: 'ask_user', questions: [{ question: 'Which?', options: [{ label: 'One' }, { label: 'Two' }] }] } },
       { tool: 'session_children', args: {}, dispatched: { action: 'children' } },
       {
