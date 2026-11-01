@@ -126,6 +126,7 @@ describe('task file preview routing', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.showModal.mockReset();
     mocks.showPage.mockReset();
     mocks.installedManifests.length = 0;
     mocks.openWithDefaults = {};
