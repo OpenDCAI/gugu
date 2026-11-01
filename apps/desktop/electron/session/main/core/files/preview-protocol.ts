@@ -94,7 +94,7 @@ interface PreviewRegistration {
  * 取不到时给人看的话:`outside` 在会话目录外;其余(读不到、超时、太大、登记已撤)一律 `unavailable`。
  * `offline`: a chat document's file is kept on a machine that is off — `{machine}` is its name.
  */
-export type PreviewFailureCopy = { unavailable: string; outside: string; offline?: string };
+export type PreviewFailureCopy = { unavailable: string; outside: string; offline?: string; palette?: ChatFolderPreviewCopy['palette'] };
 
 type BesideFile = Awaited<ReturnType<typeof import('@main/core/extensions/app-files').besideChatDocument>>;
 
@@ -542,7 +542,12 @@ async function serveBesideDocument(previewId: string, registration: PreviewRegis
 
 function chatFolderCopy(copy: PreviewFailureCopy | undefined): ChatFolderPreviewCopy {
   const unavailable = copy?.unavailable ?? 'This file is not available right now.';
-  return { unavailable, outside: copy?.outside ?? unavailable, offline: copy?.offline ?? '{machine} is offline' };
+  return {
+    unavailable,
+    outside: copy?.outside ?? unavailable,
+    offline: copy?.offline ?? '{machine} is offline',
+    palette: copy?.palette ?? { surface: 'none', border: 'currentColor', text: 'currentColor' },
+  };
 }
 
 /**

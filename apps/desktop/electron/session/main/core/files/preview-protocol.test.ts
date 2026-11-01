@@ -495,7 +495,7 @@ it('cancels a timed-out served remote stream and removes its pending reply liste
 });
 
 describe('a chat folder document previewed with its folder', () => {
-  const copy = { unavailable: '这个文件现在取不到。', outside: '只能取到这份文档所在文件夹里的文件。', offline: '在「{machine}」上，未连接' };
+  const copy = { unavailable: '这个文件现在取不到。', outside: '只能取到这份文档所在文件夹里的文件。', offline: '在「{machine}」上，未连接', palette: { surface: 'white', border: 'gray', text: 'black' } };
   const get = (url: string, headers: Record<string, string> = {}) => handlePreviewRequest(new Request(url, { headers }), 'pane');
 
   it('gives the document its folder: the files beside it are served, a video by ranges, nothing above the folder', async () => {

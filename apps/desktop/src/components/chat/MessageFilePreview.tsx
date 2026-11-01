@@ -101,11 +101,16 @@ export function MessageFilePreview({ file, mobile = false, fill = false, tabbed 
     if (seenOff.current) { seenOff.current = false; setWaitingFor(null); setBesideOffline(null); setAttempt((n) => n + 1) }
   }, [devices, waitingFor])
   const itemId = file.source.kind === 'item' ? file.source.itemId : null
-  const registerHtml = useMemo(() => itemId === null ? undefined : chatFolderPreview(itemId, {
-    unavailable: t('attachmentView.besideUnavailable'),
-    outside: t('attachmentView.besideOutside'),
-    offline: t('attachmentView.besideOffline'),
-  }, (holder) => { setBesideOffline(holder); setWaitingFor(holder.deviceId) }), [itemId, t])
+  const registerHtml = useMemo(() => {
+    if (itemId === null) return undefined
+    const style = getComputedStyle(document.documentElement)
+    return chatFolderPreview(itemId, {
+      unavailable: t('attachmentView.besideUnavailable'),
+      outside: t('attachmentView.besideOutside'),
+      offline: t('attachmentView.besideOffline'),
+      palette: { surface: style.getPropertyValue('--bg-secondary').trim(), border: style.getPropertyValue('--border-strong').trim(), text: style.getPropertyValue('--text-secondary').trim() },
+    }, (holder) => { setBesideOffline(holder); setWaitingFor(holder.deviceId) })
+  }, [itemId, t])
   useEffect(() => {
     activeKey.current = key
     let live = true, release: PreviewRead['release']

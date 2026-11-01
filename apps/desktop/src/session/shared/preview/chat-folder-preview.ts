@@ -19,8 +19,16 @@ export interface PreviewAnswer {
   offline?: { machine: string; deviceId: string };
 }
 
-/** What the person sees when a file cannot be had: copy the window wrote in its language. `{machine}` is filled in here. */
-export type ChatFolderPreviewCopy = { unavailable: string; outside: string; offline: string };
+/**
+ * What the person sees when a file cannot be had: copy the window wrote in its language (`{machine}` is filled in here),
+ * and the theme's colours for a picture drawn in a file's place — an image in the page cannot read the window's CSS.
+ */
+export type ChatFolderPreviewCopy = {
+  unavailable: string;
+  outside: string;
+  offline: string;
+  palette: { surface: string; border: string; text: string };
+};
 
 /** One answer to a `Range` at most this long: a video plays while its next piece is asked for. */
 export const BESIDE_RANGE_BYTES = 4 * 1024 * 1024;
@@ -110,8 +118,8 @@ export async function answerBesideDocument(
     if (!PICTURE.test(request.path)) return { ...text(503, said, 'holder_offline'), offline };
     const svg = new TextEncoder().encode(
       '<svg xmlns="http://www.w3.org/2000/svg" width="320" height="120" viewBox="0 0 320 120">' +
-        '<rect x="0.5" y="0.5" width="319" height="119" rx="8" fill="#f4f4f5" stroke="#a1a1aa" stroke-dasharray="4 3"/>' +
-        `<text x="160" y="64" text-anchor="middle" font-family="sans-serif" font-size="14" fill="#3f3f46">${escapeXml(said)}</text></svg>`,
+        `<rect x="0.5" y="0.5" width="319" height="119" rx="8" fill="${escapeXml(request.copy.palette.surface)}" stroke="${escapeXml(request.copy.palette.border)}" stroke-dasharray="4 3"/>` +
+        `<text x="160" y="64" text-anchor="middle" font-family="sans-serif" font-size="14" fill="${escapeXml(request.copy.palette.text)}">${escapeXml(said)}</text></svg>`,
     );
     return { status: 200, headers: { ...headers('image/svg+xml', svg.byteLength), 'X-Gugu-Preview-Failure': 'holder_offline' }, body: svg, offline };
   }
