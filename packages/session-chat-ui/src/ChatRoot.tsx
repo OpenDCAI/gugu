@@ -719,6 +719,12 @@ export function ChatRoot(props: ChatRootProps) {
     const committedTurns = s.transcript.state.committedTurns;
     const hasActiveTurn = s.transcript.state.activeTurnSnapshot !== null;
     if (pendingPrompt && (hasActiveTurn || (!pendingPrompt.held && committedTurns !== pendingPromptCommittedTurns))) {
+      // The pin moves with the takeover: its row is about to be gone, and a lost anchor falls through to a tail
+      // projection over unmeasured rows (the message overshoots for one frame).
+      const pin = untrack(anchor);
+      const items = s.transcript.state.activeTurnSnapshot?.items ?? [];
+      const message = [...items].reverse().find(item => item.kind === 'message' && (item as ChatMessage).role === 'user');
+      if (pin.kind === 'anchor' && pin.itemId === pendingPrompt.id && message) setAnchor({ ...pin, itemId: message.id });
       s.session.setPendingPrompt(null);
     }
     pendingPromptCommittedTurns = committedTurns;

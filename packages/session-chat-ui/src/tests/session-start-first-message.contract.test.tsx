@@ -34,7 +34,7 @@ function mount(preset: ChatLayoutPreset, { agentConversation, ...opts }: { pinUs
     context.dispose()
     host.remove()
   })
-  return { state, host }
+  return { state, host, view }
 }
 
 const FIRST = 'Look at this project.'
@@ -110,6 +110,19 @@ describe('session start with a first message', () => {
       })
     }
   )
+
+  it('the pin on the pending message moves to the real one when its turn takes over', async () => {
+    const { state, host, view } = mount('double', { pinUserMessages: true, agentConversation: true })
+    state.session.setPendingPrompt({ id: 'row', text: FIRST, sentAt: Date.now(), held: true })
+    view.setScrollMode({ kind: 'anchor', itemId: 'row', edge: 'top', offset: 0 })
+    await until('the pending message is on screen', () => (host.textContent ?? '').includes(FIRST))
+    state.transcript.activeTurn.set({
+      id: 'live', seq: 0, initiator: 'user', startedAt: Date.now(),
+      items: [{ kind: 'message', id: 'prompt', seq: 0, role: 'user', text: FIRST }],
+    })
+    await until('the pending row is taken over', () => state.session.state.pendingPrompt === null)
+    expect(state.scroll.get(), 'a lost anchor would fall through to a tail projection').toMatchObject({ kind: 'anchor', itemId: 'prompt', edge: 'top' })
+  })
 
   it('a queued first message says Starting, stays through a history seed, and keeps its clock', async () => {
     const { state, host } = mount('double', { agentConversation: true })
