@@ -218,7 +218,7 @@ host manages their lifetimes independently.
 | `parent` | `HTMLElement` | — | **Required.** DOM element to render into. |
 | `composer` | `'slot' \| 'none'` | `'none'` | When `'slot'`: renders a sticky bottom slot; internal ResizeObserver drives `padBottom`. Use `view.composerSlot` to portal content into it. |
 | `stickToBottom` | `boolean` | `false` | Auto-scroll to bottom as content streams in. |
-| `pinUserMessages` | `boolean` | `false` | Pin the active turn's user message to the top while scrolling. |
+| `pinUserMessages` | `boolean` | `false` | Pin user messages while scrolling. Keep trailing space for the latest user message after short turns complete or stop, including when the conversation is reopened. |
 | `class` | `string` | — | Extra class on the scroll container. |
 | `contentClass` | `string` | — | Class for the centered content column. |
 | `padTop` | `number` | `0` | Top padding (px) baked into the virtualizer coordinate space. |
