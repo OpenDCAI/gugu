@@ -54,6 +54,21 @@ describe('markdown dialect', () => {
     expect(textOf(tree)).toContain('。然后继续');
   });
 
+  it('reads a bare group file link as the same link its markdown form is', () => {
+    const id = '3e393e34-4bfb-418f-9909-9bb9aca6970d';
+    const urls = (text: string) => collect(run(text, { trust: 'chat' }), 'link').map((node) => ('url' in node ? node.url : ''));
+    expect(urls(`图在这里 gugu-file://${id}?v=1 请看`)).toEqual([`gugu-file://${id}?v=1`]);
+    expect(urls(`图在这里 [对比图](gugu-file://${id}?v=1) 请看`)).toEqual([`gugu-file://${id}?v=1`]);
+    // Sentence punctuation after it stays prose (ASCII as GFM leaves it out of an autolink, CJK at the boundary).
+    expect(urls(`see gugu-file://${id}?v=2.`)).toEqual([`gugu-file://${id}?v=2`]);
+    const cjk = run(`在 gugu-file://${id}?v=3。下一句`, { trust: 'chat' });
+    expect(collect(cjk, 'link').map((node) => ('url' in node ? node.url : ''))).toEqual([`gugu-file://${id}?v=3`]);
+    expect(textOf(cjk)).toContain('。下一句');
+    // Two in one line, and a link inside inline code or one that names no file, stay as written.
+    expect(urls(`a gugu-file://${id} b gugu-file://${id}?v=4`)).toEqual([`gugu-file://${id}`, `gugu-file://${id}?v=4`]);
+    expect(urls(`\`gugu-file://${id}\` and gugu-file://not-a-file`)).toEqual([]);
+  });
+
   it('keeps raw HTML and images literal for chat trust, and parses them for documents', () => {
     const source = 'hi <b>bold</b> ![pic](https://example.com/p.png)';
     const chat = run(source, { trust: 'chat' });

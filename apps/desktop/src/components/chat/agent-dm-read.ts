@@ -1,4 +1,8 @@
 import type { MessageItem } from '@gugu/core/shared/types/chat'
+import type { TranscriptTurn } from '@gugu/session-core/acp/client'
+import { readDeliveryEnvelope } from '@gugu/core/local/agent/deliveryEnvelope'
+import { replyItems, successfulMessageSend } from '@gugu/session-core/session-record/reply-process'
+import { sentAttachmentOf, type AttachmentTurn } from '@gugu/session-core/session-record/sent-attachment'
 
 /** A visible later reply cannot read an earlier reply that has never entered the viewport. */
 export class AgentDmReadCursor {
@@ -42,19 +46,33 @@ export class AgentDmReadCursor {
   }
 }
 
-export function dmTranscriptItem(messageId: string, aliases: ReadonlyMap<string, readonly string[]>): string | null {
-  // Prefer the projected item (tool:sent:id / provider delivery) over its canonical alias.
-  for (const [itemId, ids] of aliases) if (itemId !== messageId && ids.includes(messageId)) return itemId
-  return aliases.has(messageId) ? messageId : null
-}
-
 /** Native replay and session snapshots can use different turn prefixes; a send receipt stays canonical. */
-export function visibleDmMessageIds(ids: readonly string[], aliases: ReadonlyMap<string, readonly string[]>, rows: readonly MessageItem[]): string[] {
+export function visibleDmMessageIds(ids: readonly string[], dmIds: ReadonlyMap<string, readonly string[]>, rows: readonly MessageItem[]): string[] {
   const authorized = new Set(rows.map(row => row.id))
   return ids.flatMap(id => {
-    const known = aliases.get(id)
+    const known = dmIds.get(id)
     if (known) return known.filter(messageId => authorized.has(messageId))
     const receipt = /:sent:([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})$/i.exec(id)?.[1]
     return authorized.has(id) ? [id] : receipt && authorized.has(receipt) ? [receipt] : []
   })
+}
+
+/**
+ * The DM message ids each task-page item shows, read off the record itself: a delivery carries its message id in its
+ * envelope (one per row of a batched delivery), an agent's deliberate message is its message_send receipt.
+ */
+export function dmMessageIdsByItem(turns: readonly TranscriptTurn[]): Map<string, readonly string[]> {
+  const ids = new Map<string, readonly string[]>()
+  for (const turn of turns) for (const item of replyItems(turn)) {
+    if (item.kind === 'message') {
+      const messages = (readDeliveryEnvelope(item.text)?.segments ?? [])
+        .flatMap(segment => segment.facts?.messageId ? [segment.facts.messageId.replace(/^msg:/, '')] : [])
+      if (messages.length) ids.set(item.id, messages)
+      if (messages.length > 1) messages.forEach((id, index) => ids.set(`${item.id}:batch-${index}`, [id]))
+    } else if (item.kind === 'mcp-tool-call') {
+      const sent = successfulMessageSend(item)?.id ?? sentAttachmentOf(item, (turn as AttachmentTurn).sentAttachments)?.messageId
+      if (sent) ids.set(`${item.id}:sent:${sent}`, [sent])
+    }
+  }
+  return ids
 }
