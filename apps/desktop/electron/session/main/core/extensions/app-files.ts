@@ -498,33 +498,32 @@ export function openerChoice(typedName: string, ask = false) {
 
 /**
  * 「用 X 打开」, gated like saving the file: a chat file — who opens it, for the window that shows the chat to open
- * (`AppOpenWithDetail`); a working-copy file — opened in its session's pane by the resolver a click goes through
- * (`openSessionFileForApp`), here and now. Beside the page (`peek`, G1), and always for a project's file (no session's pane
- * holds it): which file in which workspace, for the window to open in the page's own slot.
+ * (`AppOpenWithDetail`); a session's working-copy file — which file of which session, for the window that shows the page
+ * to open in that session's pane the way a click there does (the same resolver, on this computer or another: the window
+ * reaches the session's machine as its own file panel does). Beside the page (`peek`, G1), and always for a project's file
+ * (no session's pane holds it): which file in which workspace, for the window to open in the page's own slot.
  */
 export async function openWithTarget(
   page: DesktopFilePage,
   args: { ref?: unknown; ask?: boolean; peek?: boolean },
 ): Promise<
   | { kind: 'chat'; target: { chatId: string; itemId: string; name: string; typedName: string; file: ChatPeekFile; opening?: PreparedChatFile } }
-  | { kind: 'session' }
+  | { kind: 'session'; target: { sessionId: string; path: string; ask: boolean } }
   | { kind: 'peek'; target: Extract<PeekTarget, { kind: 'local' }> }
 > {
   const ref = fileRefOf(args.ref);
   if (isChat(ref)) return { kind: 'chat', target: await files.openTarget(chatSurface(page), { ref }) };
-  // A session's working copy on another machine: its file opens in that session's pane, read there in pieces as the
-  // file panel reads it — gated as opening it read-only (the file the page was handed needs nothing).
+  const name = 'id' in ref ? ref.id : ref.name;
+  const ask = args.ask === true;
+  // A session's working copy on another machine: gated as opening it read-only (the file the page was handed needs nothing).
   const elsewhere = await sessionElsewhere(ref);
   if (elsewhere) {
-    const name = 'id' in ref ? ref.id : ref.name;
     const handed = page.handed && isWorkspace(page.handed) && page.handed.workspace === ref.workspace && page.handed.id === name;
     const service = extensionsService();
     if (!handed && !service.hasCapability(page.extensionId, 'files:read') && !service.hasCapability(page.extensionId, 'files:write')) {
       throw new AppFileError('denied', 'Not permitted: opening a file other than the one this page was opened for needs "files:read" or "files:write"');
     }
-    const { openSessionFileForApp } = await import('@main/core/sessions/session-orchestration');
-    await openSessionFileForApp({ projectId: elsewhere.projectId ?? '', sessionId: elsewhere.sessionId, path: name, ask: args.ask === true });
-    return { kind: 'session' };
+    return { kind: 'session', target: { sessionId: elsewhere.sessionId, path: name, ask } };
   }
   const copy = await localFolder(page, ref);
   const found = local.openTarget(copy, { ref: ref as WorkspaceFileRef });
@@ -532,11 +531,9 @@ export async function openWithTarget(
   if (args.peek || !session) {
     if (!copy.workspaceId) throw new AppFileError('not-found', `${found.name} is in no workspace this computer has open`);
     const { place } = found;
-    return { kind: 'peek', target: { kind: 'local', place, projectId: copy.projectId, workspaceId: copy.workspaceId, path: found.path, absolutePath: path.join(copy.workspaceRoot, found.path), name: found.name, ask: args.ask === true } };
+    return { kind: 'peek', target: { kind: 'local', place, projectId: copy.projectId, workspaceId: copy.workspaceId, path: found.path, absolutePath: path.join(copy.workspaceRoot, found.path), name: found.name, ask } };
   }
-  const { openSessionFileForApp } = await import('@main/core/sessions/session-orchestration');
-  await openSessionFileForApp({ projectId: copy.projectId, sessionId: session, path: path.join(copy.workspaceRoot, found.path), ask: args.ask === true });
-  return { kind: 'session' };
+  return { kind: 'session', target: { sessionId: session, path: found.path, ask } };
 }
 
 /**

@@ -1,5 +1,4 @@
-import { ArrowRight, Cable, Folder, Globe, Plus, SquareTerminal } from '@/lib/icons'
-import { WORKSPACE_APP_KIND } from '@renderer/features/chats/chat-tabs/chat-panel-item';
+import { ArrowRight, Cable, Globe, Plus, SquareTerminal } from '@/lib/icons'
 import { GitFork, GitPullRequest } from '@/lib/icons'
 import { observer } from 'mobx-react-lite';
 import type { ReactNode } from 'react';
@@ -88,13 +87,6 @@ export function useSessionWorkspaceActions(
       label: translate('remotePorts.tool'),
       icon: <Cable className="size-3.5" />,
       onClick: () => sessionView.paneLayout.open('remote-ports', {}, { preview: false })
-    },
-    // 文件夹:预装的文件夹 App —— 这个对话的文件夹和这条会话的工作目录,一个文件夹两个根(和对话的「+」里同一个)。
-    files: {
-      id: 'files',
-      label: translate('workspace.folder'),
-      icon: <Folder className="size-3.5" />,
-      onClick: () => onOpenApp(WORKSPACE_APP_KIND)
     }
   };
 
@@ -122,7 +114,7 @@ export function useSessionWorkspaceActions(
   ];
 }
 
-export type SessionWorkspaceActionId = 'side-session' | 'review' | 'terminal' | 'browser' | 'ports' | 'files';
+export type SessionWorkspaceActionId = 'side-session' | 'review' | 'terminal' | 'browser' | 'ports';
 
 /**
  * #6264 会话在别的机器上(照 VS Code Remote):与本机同序同项,在浏览器旁边多一格「端口」
@@ -148,9 +140,7 @@ export function getSessionWorkspaceActionOrder(projectId?: string, terminalEnabl
 export function sessionWorkspaceActionBlocked(
   projectId: string | undefined,
   id: SessionWorkspaceActionId
-): 'direct-only' | 'cloud-computer' | 'folder-missing' | null {
-  // 文件夹 = 预装的文件夹 App:它没装上(装失败只写日志),这一格就灰着说出来,❌ 点了什么都不发生。
-  if (id === 'files') return installedExtensionsStore.allTabContributions.some((entry) => entry.kind === WORKSPACE_APP_KIND && entry.enabled) ? null : 'folder-missing';
+): 'direct-only' | 'cloud-computer' | null {
   if (id !== 'terminal' && id !== 'browser' && id !== 'ports') return null;
   const backend = projectId ? workspaceBackend(projectId) : null;
   if (!backend || backend.machine.kind === 'local') return null;
@@ -162,12 +152,11 @@ export function sessionWorkspaceActionBlocked(
 
 /** 灰掉的那一格悬停说的那句:远程隧道在连 / 连不上的原因照实说(directToolsUnavailableText)。 */
 export function workspaceBlockedTitle(
-  reason: 'direct-only' | 'cloud-computer' | 'folder-missing' | null,
+  reason: 'direct-only' | 'cloud-computer' | null,
   translate: ReturnType<typeof useSessionMessages>['translate'],
   projectId?: string
 ): string | undefined {
   if (!reason) return undefined;
-  if (reason === 'folder-missing') return translate('workspace.folderMissing');
   const backend = projectId ? workspaceBackend(projectId) : null;
   const device = backend && backend.machine.kind !== 'local' ? remoteHostsStore.device(backend.machine.deviceId) : null;
   if (device) return directToolsUnavailableText(device, translate);
@@ -182,7 +171,7 @@ function localSessionWorkspaceActionOrder(): SessionWorkspaceActionId[] {
   // (它本身就是 git 仓库)、一样有可分叉的活跃会话,所以侧边聊天/文件/审阅照给 —— 早先只
   // 给浏览器+终端是当初做减法的临时形态,不是产品终态。够不着的项按 product spec
   // 的既定标准 disabled 并说明原因(见上面 side-session 的 disabled/title),❌ 不从清单里删。
-  return ['side-session', 'review', 'terminal', 'browser', 'files'];
+  return ['side-session', 'review', 'terminal', 'browser'];
 }
 
 /**

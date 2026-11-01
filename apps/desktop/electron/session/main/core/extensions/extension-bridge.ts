@@ -1916,7 +1916,7 @@ async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, arg
           }
           throw error;
         }
-        if (target.kind === 'session') return undefined;
+        if (target.kind === 'session') return void (await deliver(shown, { kind: 'openSessionFile', ...target.target }));
         if (target.kind === 'peek') return void (await deliver(shown, { kind: 'peek', target: target.target }));
         const choice = files.openerChoice(target.target.typedName, ask);
         const { chatId, itemId } = target.target;

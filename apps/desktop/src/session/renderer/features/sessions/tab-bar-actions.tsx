@@ -32,7 +32,7 @@ import { canStartSideSession, startSideSession } from './start-side-session';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
 import { useAgents } from '@renderer/lib/stores/use-agents';
 import { useTerminalEnabled } from '@renderer/features/settings/use-terminal-enabled';
-import { folderItem, WORKSPACE_APP_KIND } from '@renderer/features/chats/chat-tabs/chat-panel-item';
+import { folderItem } from '@renderer/features/chats/chat-tabs/chat-panel-item';
 import { openPanelItem } from '@renderer/features/chats/chat-tabs/chat-layouts';
 import { useChatFolderName } from '@/components/chat/chatFolderName';
 import { openApp } from '@/components/appSlot/useOpenApp';
@@ -87,7 +87,6 @@ const TaskAddItems = observer(function TaskAddItems() {
           blocked: sessionWorkspaceActionBlocked(projectId, actionId) !== null,
           blockedTitle: workspaceBlockedTitle(sessionWorkspaceActionBlocked(projectId, actionId), translate, projectId),
           openBrowser: () => pane.open('browser', { preview: false }),
-          openFiles: () => openTab(WORKSPACE_APP_KIND),
           openReview: () => sessionView.paneLayout.open('review', {}),
           openTerminal: () => void sessionView.openTerminalAsTab(),
           openPorts: () => sessionView.paneLayout.open('remote-ports', {}, { preview: false }),
@@ -177,7 +176,6 @@ function renderWorkspaceActionMenuItem(
     /** 悬停说的那句(远程 SSH 才有 / 云电脑只有通用)。 */
     blockedTitle?: string;
     openBrowser: () => void;
-    openFiles: () => void;
     openReview: () => void;
     openTerminal: () => void;
     openPorts: () => void;
@@ -239,17 +237,6 @@ function renderWorkspaceActionMenuItem(
           onClick={actions.openPorts}
         >
           <Cable className="size-3.5" /> {translate('remotePorts.tool')}
-        </DropdownMenuItem>
-      );
-    case 'files':
-      return (
-        <DropdownMenuItem
-          key={actionId}
-          disabled={actions.blocked}
-          title={actions.blocked ? actions.blockedTitle : undefined}
-          onClick={actions.openFiles}
-        >
-          <Folder className="size-3.5" /> {translate('workspace.folder')}
         </DropdownMenuItem>
       );
   }

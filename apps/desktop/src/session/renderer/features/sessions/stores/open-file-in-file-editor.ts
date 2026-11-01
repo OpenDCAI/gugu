@@ -155,7 +155,8 @@ async function openSessionFile(
   sessionId: string,
   rawFilePath: string,
   target: FileOpenTarget,
-  at?: FilePlace
+  at?: FilePlace,
+  ask = false
 ): Promise<void> {
   const provisioned = asProvisioned(getSessionPageStore(projectId, sessionId));
   if (!provisioned) return;
@@ -193,6 +194,7 @@ async function openSessionFile(
     preview: false,
     beside: target === 'beside',
     ...(at ? { place: { sessionId, at } } : {}),
+    ...(ask ? { ask } : {}),
   });
 }
 
@@ -219,9 +221,9 @@ export async function openFileInSessionEditor(
   projectId: string,
   sessionId: string,
   filePath: string,
-  opts?: { beside?: boolean; at?: FilePlace }
+  opts?: { beside?: boolean; at?: FilePlace; ask?: boolean }
 ): Promise<void> {
-  await openSessionFile(projectId, sessionId, filePath, opts?.beside ? 'beside' : 'active', opts?.at);
+  await openSessionFile(projectId, sessionId, filePath, opts?.beside ? 'beside' : 'active', opts?.at, opts?.ask === true);
 }
 
 /**

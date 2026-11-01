@@ -68,9 +68,14 @@ import { groupPageSlot } from '@renderer/features/chats/chat-tabs/chat-panel-ite
  * way to tell it one would hand extensions a fact they have no use for.
  */
 function findSessionView(sessionId: string): WorkspaceViewModel | undefined {
-  for (const project of getProjectManagerStore().projects.values()) {
+  return findSession(sessionId)?.viewModel;
+}
+
+/** The session this window shows, on this computer or another, by its id alone: its project here and its view. */
+function findSession(sessionId: string): { projectId: string; viewModel: WorkspaceViewModel } | undefined {
+  for (const [projectId, project] of getProjectManagerStore().projects) {
     const store = project.mountedProject?.sessionManager.sessions.get(sessionId);
-    if (store?.viewModel) return store.viewModel;
+    if (store?.viewModel) return { projectId, viewModel: store.viewModel };
   }
   return undefined;
 }
@@ -229,6 +234,14 @@ function perform(sessionId: string | null, tabId: string, action: ExtensionHostA
       });
       window.dispatchEvent(new CustomEvent(APP_OPEN_WITH_EVENT, { detail: action.detail }));
       return;
+    // An App's 「用 X 打开」 on a session's working-copy file: in that session's pane, by the resolver a click there goes
+    // through (`openFileInSessionEditor`) — the same for a session on this computer and one on another.
+    case 'openSessionFile': {
+      const found = findSession(action.sessionId);
+      if (!found) throw new Error('This session is not open in this window');
+      return import('@renderer/features/sessions/stores/open-file-in-file-editor').then(({ openFileInSessionEditor }) =>
+        openFileInSessionEditor(found.projectId, action.sessionId, action.path, { beside: true, ask: action.ask }));
+    }
     case 'forwardFiles':
       window.dispatchEvent(new CustomEvent(APP_FORWARD_FILES_EVENT, { detail: action.detail }));
       return;
