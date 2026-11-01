@@ -24,9 +24,10 @@ export function useListenModeEditControls(opts: {
   chatId: string | null
   currentUserId: string | null
   settings: Pick<GroupChatSettings, 'my_role' | 'can_manage'> | null
+  onAuthorityReload?: () => void
   onReload: () => Promise<void> | void
 }): (profile: MemberProfileCardModel) => MemberProfileEditControls | undefined {
-  const { chatId, currentUserId, settings, onReload } = opts
+  const { chatId, currentUserId, settings, onReload, onAuthorityReload } = opts
   const { t } = useTranslation('messaging')
   const [busy, setBusy] = useState(false)
   // 上一次没改成,记在「这个群里的这个 agent」名下:只在它的卡 / 行上显示,下一次点击先清掉。
@@ -44,10 +45,11 @@ export function useListenModeEditControls(opts: {
     } catch (error) {
       listenLog.error({ error, ...target }, 'set listen mode failed')
       setFailed(target)
+      onAuthorityReload?.()
     } finally {
       setBusy(false)
     }
-  }, [onReload])
+  }, [onReload, onAuthorityReload])
 
   return useCallback((profile: MemberProfileCardModel): MemberProfileEditControls | undefined => {
     if (!chatId || !canEditAgentListenMode(profile, currentUserId, settings)) return undefined

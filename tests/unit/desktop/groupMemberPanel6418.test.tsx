@@ -102,6 +102,15 @@ const head = (title: ReactNode, actions: ReactNode) => createNode(Fragment, null
 
 describe('member drawer uses the conversation snapshot', () => {
   const identitiesById = Object.fromEntries(IDENTITIES.map((identity) => [identity.id, identity]))
+  it('uses the host settings without issuing another settings request', async () => {
+    getSettings.mockClear()
+    await renderWithAppProviders(harness, createNode(ControlledMemberListPanel, {
+      chatId: 'chat-1', chatKind: 'group', head, snapshot: SNAPSHOT, onReload: vi.fn(async () => {}),
+      settingsState: { settings: authority(true), error: null, setError: vi.fn(), update: vi.fn(async () => true), setAvatarUrl: vi.fn(), reload: vi.fn() },
+    }), { auth: { id: 'owner-1' }, chat: { identitiesById }, contacts: { contacts: [] } })
+    expect(getSettings).not.toHaveBeenCalled()
+    expect(harness.container.querySelector('[data-member-row="codex"]')).not.toBeNull()
+  })
   it('renders known names, roles and agent metadata while the refresh is pending, including on reopen', async () => {
     const refresh = vi.fn(() => new Promise<void>(() => {}))
     const render = () => renderWithAppProviders(harness, createNode(ControlledMemberListPanel, {

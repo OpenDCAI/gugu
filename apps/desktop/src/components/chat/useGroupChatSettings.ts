@@ -28,7 +28,7 @@ export function groupRoleRevision(snapshot: GroupCollabSnapshot): string {
   return [...snapshot.humans, ...snapshot.agents].map((member) => `${member.id}:${member.role}`).sort().join(',')
 }
 
-export function useGroupChatSettings(chatId: string | null, revision?: string) {
+export function useGroupChatSettings(chatId: string | null, revision?: string, authorityRevision = 0) {
   const { t } = useTranslation('messaging')
   const [settings, setSettings] = useState<GroupChatSettings | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -56,6 +56,7 @@ export function useGroupChatSettings(chatId: string | null, revision?: string) {
   useEffect(() => {
     let cancelled = false
     if (!chatId) return
+    setSettings(null)
     chatService.getGroupChatSettings(chatId)
       .then((loaded) => { if (!cancelled) setSettings(loaded) })
       .catch((err: unknown) => {
@@ -64,7 +65,7 @@ export function useGroupChatSettings(chatId: string | null, revision?: string) {
         setError(t('group.settings.loadFailed', { reason: String((err as Error)?.message ?? err) }))
       })
     return () => { cancelled = true }
-  }, [chatId, t, roleChange])
+  }, [chatId, t, roleChange, authorityRevision])
 
   const update = useCallback(async (input: UpdateGroupChatSettingsInput): Promise<boolean> => {
     const before = settingsRef.current
@@ -97,5 +98,9 @@ export function useGroupChatSettings(chatId: string | null, revision?: string) {
     setSettings((current) => (current ? { ...current, avatar_url: avatarUrl } : current))
   }, [])
 
-  return { settings, error, setError, update, setAvatarUrl }
+  const reload = useCallback(() => { setSettings(null); setRoleChange((n) => n + 1) }, [])
+
+  return { settings, error, setError, update, setAvatarUrl, reload }
 }
+
+export type GroupChatSettingsState = ReturnType<typeof useGroupChatSettings>

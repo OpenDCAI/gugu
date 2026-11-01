@@ -19,7 +19,7 @@ import { ChatManagementActions } from './ChatManagementActions'
 import { GroupSettingsManagePage } from './GroupSettingsManagePage'
 import { MemberListPanel, type MemberListPanelProps } from './MemberListPanel'
 import { AnnouncementDrawer } from './AnnouncementDrawer'
-import { groupRoleRevision, useGroupChatSettings } from './useGroupChatSettings'
+import { groupRoleRevision, useGroupChatSettings, type GroupChatSettingsState } from './useGroupChatSettings'
 import { useSettingsPages } from './useSettingsPages'
 import { MemberInviteLink, SettingsNavRow, SettingsPageFrame, SettingsPageHead } from './groupSettingsUi'
 import {
@@ -69,6 +69,7 @@ export function GroupMembersSection({
   initialPage,
   snapshot,
   snapshotError,
+  settingsState,
   currentUserId,
   onReload,
   onClose,
@@ -85,6 +86,7 @@ export function GroupMembersSection({
   /** Opened at the members' list or the announcement (the info tab's members button); back: the first page. */
   initialPage?: 'main' | 'members' | 'announcement'
   snapshot: GroupCollabSnapshot
+  settingsState?: GroupChatSettingsState
   snapshotError?: MemberListPanelProps['error']
   currentUserId: string | null
   onReload: () => Promise<void>
@@ -107,7 +109,8 @@ export function GroupMembersSection({
   const mobileShell = useMobileShell()
   const { page, push, pop } = useSettingsPages(chatId, initialPage)
 
-  const { settings, error: settingsError, setError: setSettingsError, update, setAvatarUrl } = useGroupChatSettings(chatId, groupRoleRevision(snapshot))
+  const ownSettings = useGroupChatSettings(settingsState ? null : chatId, groupRoleRevision(snapshot))
+  const { settings, error: settingsError, setError: setSettingsError, update, setAvatarUrl } = settingsState ?? ownSettings
   const viewerRole = settings?.my_role ?? null
   const viewerIsManager = settings?.can_manage === true
 
@@ -203,7 +206,7 @@ export function GroupMembersSection({
   const subHead = (title: ReactNode, action?: ReactNode) => <SettingsPageHead title={title} action={action} onBack={pop} onClose={mobileShell ? onClose : undefined} mobile={mobileShell} />
   let content: ReactNode
   if (page === 'members') {
-    content = <MemberListPanel chatId={chatId} chatKind="group" snapshot={snapshot} error={snapshotError} onReload={onReload} onOpenUserChat={onOpenUserChat} onWhisper={onWhisper} head={subHead} />
+    content = <MemberListPanel settingsState={settingsState ?? ownSettings} chatId={chatId} chatKind="group" snapshot={snapshot} error={snapshotError} onReload={onReload} onOpenUserChat={onOpenUserChat} onWhisper={onWhisper} head={subHead} />
   } else if (page === 'announcement') {
     content = <AnnouncementDrawer chatId={chatId} isAdmin={viewerIsManager} head={subHead} />
   } else if (page === 'manage' && settings) {

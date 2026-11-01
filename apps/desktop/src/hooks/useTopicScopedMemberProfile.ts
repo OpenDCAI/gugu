@@ -25,10 +25,11 @@ import { EMPTY_GROUP_COLLAB } from './useGroupCollabLoader'
 export function useTopicScopedMemberProfile(opts: {
   profile: ActiveMemberProfile | null
   topicChatId: string | null
+  authorityRevision?: number
   currentUserId: string | null
   groupEditControlsFor: (profile: MemberProfileCardModel) => MemberProfileEditControls | undefined
 }): { profile: ActiveMemberProfile; editControls: MemberProfileEditControls | undefined } | null {
-  const { profile, topicChatId, currentUserId, groupEditControlsFor } = opts
+  const { profile, topicChatId, currentUserId, groupEditControlsFor, authorityRevision = 0 } = opts
   const [roster, setRoster] = useState<{ chatId: string; snapshot: GroupCollabSnapshot } | null>(null)
 
   const loadSeqRef = useRef(0)
@@ -49,11 +50,12 @@ export function useTopicScopedMemberProfile(opts: {
   useEffect(() => { void load() }, [load, openedMemberId])
 
   const topicSnapshot = roster && roster.chatId === topicChatId ? roster.snapshot : null
-  const { settings } = useGroupChatSettings(topicChatId, topicSnapshot ? groupRoleRevision(topicSnapshot) : undefined)
+  const { settings, reload } = useGroupChatSettings(topicChatId, topicSnapshot ? groupRoleRevision(topicSnapshot) : undefined, authorityRevision)
   const topicEditControlsFor = useListenModeEditControls({
     chatId: topicChatId,
     currentUserId,
     settings,
+    onAuthorityReload: reload,
     onReload: load,
   })
 

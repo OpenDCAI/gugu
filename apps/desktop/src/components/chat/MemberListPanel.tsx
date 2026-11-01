@@ -27,7 +27,7 @@ import { HeaderSearch } from '../ui/HeaderSearch'
 import { useMobileShell } from '../../hooks/useMobileShell'
 import type { MemberProfileChatTarget } from '../MemberProfileCard'
 import { useGroupMemberPanelControls } from './GroupMemberPanelControls'
-import { groupRoleRevision, useGroupChatSettings } from './useGroupChatSettings'
+import { groupRoleRevision, useGroupChatSettings, type GroupChatSettingsState } from './useGroupChatSettings'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -244,6 +244,7 @@ export type MemberListPanelProps = {
    */
   chatName?: string | null
   /** @@@6418 群:名册被这里改动(邀请/移出/改角色/审批)后通知外层重读它自己的那份快照。 */
+  settingsState?: GroupChatSettingsState
   snapshot: GroupCollabSnapshot | null
   error?: UseGroupCollabLoaderResult['error']
   onReload: () => Promise<void>
@@ -251,7 +252,7 @@ export type MemberListPanelProps = {
   onWhisper?: (target: MemberProfileChatTarget) => void
 }
 
-export function MemberListPanel({ chatId, chatKind, head, chatName, snapshot, error, onReload: load, onOpenUserChat, onWhisper }: MemberListPanelProps) {
+export function MemberListPanel({ chatId, chatKind, head, chatName, snapshot, settingsState, error, onReload: load, onOpenUserChat, onWhisper }: MemberListPanelProps) {
   const { t } = useTranslation('messaging')
   const { t: tContacts } = useTranslation('contacts')
   const { user } = useAuth()
@@ -272,7 +273,9 @@ export function MemberListPanel({ chatId, chatKind, head, chatName, snapshot, er
   const people = useMemo(() => unified.filter((member) => member.type === 'human'), [unified])
   const agentMembers = useMemo(() => unified.filter((member) => member.type === 'agent'), [unified])
 
-  const { settings, error: settingsError } = useGroupChatSettings(chatId, snapshot ? groupRoleRevision(snapshot) : undefined)
+  const ownSettings = useGroupChatSettings(settingsState ? null : chatId, snapshot ? groupRoleRevision(snapshot) : undefined)
+  const { settings, error: settingsError, reload: reloadSettings } = settingsState ?? ownSettings
+  const reload = useCallback(async () => { reloadSettings(); await load() }, [reloadSettings, load])
   const group = useGroupMemberPanelControls({
     chatId,
     chatKind,
@@ -281,7 +284,7 @@ export function MemberListPanel({ chatId, chatKind, head, chatName, snapshot, er
     identities,
     agentStatuses,
     currentUserId: user?.id ?? null,
-    onReload: load,
+    onReload: reload,
     onOpenUserChat,
     onWhisper,
   })
@@ -297,7 +300,8 @@ export function MemberListPanel({ chatId, chatKind, head, chatName, snapshot, er
     chatId,
     currentUserId: user?.id ?? null,
     settings,
-    onReload: load,
+    onAuthorityReload: reloadSettings,
+    onReload: reload,
   })
 
   // 管理能力来自服务端;话题参与角色不授予改名权。

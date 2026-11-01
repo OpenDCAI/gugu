@@ -135,6 +135,7 @@ function ChatAreaSurface({ viewportKey = 'chats', imPage = false, navigationTarg
   const [mentionToInsert, setMentionToInsert] = useState<{ id: string; name: string } | null>(null)
   // @@@whisper (#820) — 悄悄话目标：设置后 ChatMessageComposer 进入悄悄话模式，发送强制 isWhisper+toUserIds。
   const [whisperTarget, setWhisperTarget] = useState<{ userId: string; displayName: string } | null>(null)
+  const [authorityRevision, setAuthorityRevision] = useState(0)
   const [groupCollabSnapshot, setGroupCollabSnapshot] = useState<GroupCollabSnapshot>(EMPTY_GROUP_COLLAB)
   const [activeMessageProfile, setActiveMessageProfile] = useState<ActiveMemberProfile | null>(null)
   const peerIdentity = identitiesById[activeChat?.peer_user_id ?? '']
@@ -229,18 +230,22 @@ function ChatAreaSurface({ viewportKey = 'chats', imPage = false, navigationTarg
       pendingReload = window.setTimeout(() => {
         refreshTimers.delete(pendingReload as number)
         pendingReload = null
+        setAuthorityRevision((n) => n + 1)
         loadGroupCollab()
       }, 300)
       refreshTimers.add(pendingReload)
     }
     const handleRevision = (operations: readonly { payload: unknown }[]) => {
-      if (operations.some((operation) => (operation.payload as { chat_id?: unknown })?.chat_id === activeChatId)) handleCollabChange()
+      if (operations.some((operation) => {
+        const id = (operation.payload as { chat_id?: unknown })?.chat_id
+        return id === activeChatId || (!!activeChat?.source_chat_id && id === activeChat.source_chat_id)
+      })) handleCollabChange()
     }
     const unsubscribeGroup = subscribeAccountRevision('group_collab_changed', handleRevision)
     const unsubscribeMembers = subscribeAccountRevision('chat_members_changed', handleRevision)
     const handleLocalCollabChange = (event: Event) => {
       const detail = (event as CustomEvent<{ chatId?: string }>).detail
-      if (detail?.chatId === activeChatId) handleCollabChange()
+      if (detail?.chatId === activeChatId || (!!activeChat?.source_chat_id && detail?.chatId === activeChat.source_chat_id)) handleCollabChange()
     }
     window.addEventListener(UI_EVENTS.groupCollabChanged, handleLocalCollabChange)
     return () => {
@@ -249,7 +254,7 @@ function ChatAreaSurface({ viewportKey = 'chats', imPage = false, navigationTarg
       unsubscribeGroup()
       unsubscribeMembers()
     }
-  }, [activeChatId, isRoomChatSurface, loadGroupCollab, subscribeAccountRevision, user?.id])
+  }, [activeChatId, activeChat?.source_chat_id, isRoomChatSurface, loadGroupCollab, subscribeAccountRevision, user?.id])
 
   const openMessageMemberProfile = useCallback((
     member: MemberProfileCardModel,
@@ -495,9 +500,9 @@ function ChatAreaSurface({ viewportKey = 'chats', imPage = false, navigationTarg
     chatId: activeChatId, messages: displayedMessages, memberReadSeqs, memberProfiles: messageMemberProfiles,
   })
 
-  const { settings: messageGroupSettings } = useGroupChatSettings(isRoomChatSurface ? activeChatId : null, groupRoleRevision(groupCollabSnapshot))
-  const messageListenEditControlsFor = useListenModeEditControls({ chatId: isRoomChatSurface ? activeChatId : null, currentUserId: user?.id ?? null, settings: messageGroupSettings, onReload: loadGroupCollab })
-  const shownMessageProfile = useTopicScopedMemberProfile({ profile: renderedActiveMessageProfile, topicChatId: topicSurface.splitTopic?.chatId ?? null, currentUserId: user?.id ?? null, groupEditControlsFor: messageListenEditControlsFor })
+  const groupSettings = useGroupChatSettings(isRoomChatSurface ? activeChatId : null, groupRoleRevision(groupCollabSnapshot), authorityRevision)
+  const messageListenEditControlsFor = useListenModeEditControls({ chatId: isRoomChatSurface ? activeChatId : null, currentUserId: user?.id ?? null, settings: groupSettings.settings, onAuthorityReload: groupSettings.reload, onReload: loadGroupCollab })
+  const shownMessageProfile = useTopicScopedMemberProfile({ profile: renderedActiveMessageProfile, authorityRevision, topicChatId: topicSurface.splitTopic?.chatId ?? null, currentUserId: user?.id ?? null, groupEditControlsFor: messageListenEditControlsFor })
   const drawerMemberProfiles = useMemo(() => Object.values(messageMemberProfiles).filter((profile) => profile.membership !== 'former'), [messageMemberProfiles])
 
   // #2098 owner 定:已读回执逐条显示 → 去掉原「只挂末条」的 lastOwnMessageId/threadLastOwnMessageId 计算。
@@ -641,6 +646,7 @@ function ChatAreaSurface({ viewportKey = 'chats', imPage = false, navigationTarg
       onOpenUserChat={onOpenUserChat}
       onWhisper={isGroupChat ? (target) => setWhisperTarget({ userId: target.id, displayName: target.displayName }) : undefined}
       groupCollabSnapshot={groupCollabSnapshot}
+      groupSettings={groupSettings}
       groupCollabError={groupCollabError}
       groupAgentStatuses={groupAgentStatuses}
       onReloadGroupCollab={loadGroupCollab}

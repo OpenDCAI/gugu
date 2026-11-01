@@ -45,7 +45,7 @@ const groupEdit = { onChangeListenMode: vi.fn(async () => {}), busy: false }
 
 let harness: ReturnType<typeof createReactHarness>
 let result: ReturnType<typeof useTopicScopedMemberProfile>
-function Probe(props: { profile: ActiveMemberProfile | null; topicChatId: string | null }) {
+function Probe(props: { profile: ActiveMemberProfile | null; topicChatId: string | null; authorityRevision?: number }) {
   result = useTopicScopedMemberProfile({ ...props, currentUserId: 'owner-1', groupEditControlsFor: () => groupEdit })
   return null
 }
@@ -102,4 +102,29 @@ describe('useTopicScopedMemberProfile', () => {
     expect(result?.profile.member.listenMode).toBe('passive')
     expect(result?.editControls).toBeUndefined()
   })
+})
+
+
+it('re-reads topic authority on a source-group revision without changing its topic roster', async () => {
+  getSettings.mockResolvedValue({ id: 'topic-1', my_role: 'admin', can_manage: true } as GroupChatSettings)
+  getGroupCollab.mockResolvedValue({ snapshot: collab([agentItem('a1', 'passive')], [humanItem('owner-1', 'member')]), identities: [] })
+  const profile = { ...opened('aside'), member: { ...groupMember, ownerUserId: 'member-9' } }
+  await harness.render(createNode(Probe, { profile, topicChatId: 'topic-1', authorityRevision: 0 }))
+  expect(result?.editControls).toBeDefined()
+  const before = getSettings.mock.calls.length
+  getSettings.mockResolvedValue({ id: 'topic-1', my_role: 'member', can_manage: false } as GroupChatSettings)
+  await harness.render(createNode(Probe, { profile, topicChatId: 'topic-1', authorityRevision: 1 }))
+  expect(getSettings).toHaveBeenCalledTimes(before + 1)
+  expect(getSettings).toHaveBeenLastCalledWith('topic-1')
+  expect(result?.editControls).toBeUndefined()
+})
+
+it('re-reads authority after a rejected mode write even without a revision event', async () => {
+  getSettings.mockResolvedValue({ id: 'topic-1', my_role: 'admin', can_manage: true } as GroupChatSettings)
+  getGroupCollab.mockResolvedValue({ snapshot: collab([agentItem('a1', 'passive')], [humanItem('owner-1', 'member')]), identities: [] })
+  await render({ ...opened('aside'), member: { ...groupMember, ownerUserId: 'member-9' } })
+  setAgentListenMode.mockRejectedValueOnce(Object.assign(new Error('permission denied'), { code: '42501' }))
+  getSettings.mockResolvedValue({ id: 'topic-1', my_role: 'member', can_manage: false } as GroupChatSettings)
+  await act(async () => { await result?.editControls?.onChangeListenMode?.('active') })
+  expect(result?.editControls).toBeUndefined()
 })

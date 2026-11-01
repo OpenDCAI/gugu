@@ -6,6 +6,7 @@ import type { MemberProfileCardModel, MemberProfileChatTarget } from '../MemberP
 import { MemberProfileAvatarButton } from '../MemberProfileAvatarButton'
 import { MemberProfilePopover } from '../MemberProfilePopover'
 import type { ActiveMemberProfile } from '../memberProfileModels'
+import type { GroupChatSettingsState } from './useGroupChatSettings'
 import { GroupMembersSection } from './GroupMembersSection'
 import type { MemberListPanelProps } from './MemberListPanel'
 import { GroupAgentFloodSettings } from './GroupAgentFloodSettings'
@@ -44,6 +45,7 @@ interface ChatRightPanelBodyProps {
   onOpenUserChat?: (target: MemberProfileChatTarget) => void
   // @@@whisper (#820) — 悄悄话回调透传到内部 MemberProfilePopover。
   onWhisper?: (target: MemberProfileChatTarget) => void
+  groupSettings?: GroupChatSettingsState
   groupCollabSnapshot: GroupCollabSnapshot
   /** Why the roster could not be read: its members' page says so. */
   groupCollabError?: MemberListPanelProps['error']
@@ -55,7 +57,7 @@ interface ChatRightPanelBodyProps {
 
 // @@@right-panel-body - One right-side surface for DM + group + mobile. Members section differs by chat
 // kind (group gets the rich role-switching list, DM keeps the simple peer card), then ChatManagementActions.
-function ChatRightPanelBody({ activeChat, initialPage, onClose, onClearMessages, onOpenSearch, onSetNotificationLevel, onTogglePinned, memberProfiles, currentUserId, onOpenUserChat, onWhisper, groupCollabSnapshot, groupCollabError, onReloadGroupCollab, onLeaveGroup, onDissolveGroup }: ChatRightPanelBodyProps) {
+function ChatRightPanelBody({ activeChat, initialPage, onClose, onClearMessages, onOpenSearch, onSetNotificationLevel, onTogglePinned, memberProfiles, currentUserId, onOpenUserChat, onWhisper, groupSettings, groupCollabSnapshot, groupCollabError, onReloadGroupCollab, onLeaveGroup, onDissolveGroup }: ChatRightPanelBodyProps) {
   const { t } = useTranslation('messaging')
   const [activeProfile, setActiveProfile] = useState<ActiveMemberProfile | null>(null)
   const isGroupChat = activeChat.kind === 'group'
@@ -77,6 +79,7 @@ function ChatRightPanelBody({ activeChat, initialPage, onClose, onClearMessages,
           chat={activeChat}
           initialPage={initialPage}
           snapshot={groupCollabSnapshot}
+          settingsState={groupSettings}
           snapshotError={groupCollabError}
           currentUserId={currentUserId}
           onReload={onReloadGroupCollab}
