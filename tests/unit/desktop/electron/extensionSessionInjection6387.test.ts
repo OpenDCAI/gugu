@@ -236,7 +236,7 @@ describe('上下文工程第二批 P3: <gugu_apps> names the Apps that give a se
     const long = { extensionId: 'long', name: 'Long', instructions: `${'一'.repeat(159)}。` }
     const block = guguAppsBlock([omnisearch, long], [])
     expect(appLinesOf(block)).toEqual([`- 全能搜索 (omnisearch): ${omnisearch.instructions}`, `- Long (long): ${long.instructions}`])
-    expect(block).toContain('Apps available in this session (use their listed tools, or catalog_list / catalog_call):')
+    expect(block).toContain('Apps available in this session:\n')
   })
 
   it('the App lines stay within 600 units; the ones left out are still named, in order, with name and id', () => {

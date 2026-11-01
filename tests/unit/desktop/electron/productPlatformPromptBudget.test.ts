@@ -26,7 +26,7 @@ describe('platform block carries no per-harness tool naming (#6192)', () => {
   it('keeps harness tool-name decoration out of the constant platform block', () => {
     expect(GUGU_PLATFORM_BLOCK).not.toMatch(/mcp__|gugu_<tool>|Pi `|Claude `|Codex `/)
     expect(GUGU_PLATFORM_BLOCK).not.toContain('canonical suffix')
-    expect(guguSessionSurfaceBlock('acp', 'claude', true)).toContain("follow that tool definition's invocation form")
+    expect(guguSessionSurfaceBlock('acp', 'claude', true)).toContain('Your harness lists each 咕咕 tool as')
     const fallback = 'Call the tool exactly as your tool list names it, not by the bare suffix.'
     expect(GUGU_PLATFORM_BLOCK).not.toContain(fallback)
     for (const provider of ['amp', 'antigravity']) {
@@ -59,6 +59,12 @@ describe('a routing or usage sentence has one owner (#6634 问题 15)', () => {
     ['instead of only reporting its path', 'surface routing'],
     // A typed turn is answered in printed output: said once, in <gugu_transport>.
     ['answered in your own printed output', '<gugu_transport>'],
+    // How to call a 咕咕 tool: said once, in <gugu_tools>; the surface block only names where the tools are.
+    ['as their definitions specify', '<gugu_tools>'],
+    // Who a message addresses: said once, in <gugu_collaboration>; to_user_ids keeps only its own constraint.
+    ['a remembered name is not an address', '<gugu_collaboration>'],
+    // Who a topic notifies: topic_open's.
+    ['Only participants are notified', 'topic_open description'],
   ])('%s — only in the %s', (phrase) => {
     expect(count(phrase)).toBe(1)
   })
@@ -67,6 +73,9 @@ describe('a routing or usage sentence has one owner (#6634 问题 15)', () => {
     for (const gone of [
       'Sending tools refuse', 'also waits for the human friend', 'people accept for themselves', 'what you print IS the answer',
       'intent=preview', 'A harness Task, Agent', 'GUI-visible Gugu conversation',
+      // 2026-10-31 startup-context duplication pass: each said in a tool description or the delivery's arrival line already.
+      'Invite with', 'use `owner_friends_list` then', 'for another of your sessions)', 'Plain names in text address nobody',
+      'Check here before opening a second line', 'or installed Apps', 'the workspace App, `workspace__*`', 'invocation form',
     ]) {
       expect(everything).not.toContain(gone)
     }
