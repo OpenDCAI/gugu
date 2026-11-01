@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtemp, rm, readFile, mkdir, writeFile, appendFile } from 'node:fs/promises'
+import { mkdtemp, rm, readFile, mkdir, writeFile, appendFile, rename } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
@@ -605,11 +605,25 @@ test('a failed chat turn is said in the chat as the desktop says it: one system 
     return { status: 'failed', text: '', error: 'simulated model failure with private detail' }
   })
   const messageId = randomUUID()
+  // What is on disk at the moment the notice goes out: a failure said in the chat is already durable in the task.
+  const onDiskAtNotice = []
+  const from = fx.cloud.chat.from
+  fx.cloud.chat.from = (table) => {
+    const query = from(table)
+    if (table !== 'messages') return query
+    const insert = query.insert
+    query.insert = async (row) => {
+      onDiskAtNotice.push(JSON.parse(await readFile(join(fx.root, 'hosts', ownerId, 'host.json'), 'utf8')).jobs[messageId].status)
+      return insert(row)
+    }
+    return query
+  }
   fx.inboxRows.push({ chat_id: chatId, chat_kind: 'dm', chat_public_id: null, id: messageId, seq: 1, sender_user_id: ownerId, sender_type: 'human', sender_display_name: '主人', content: '你好', content_type: 'text', to_user_ids: [agentId], is_whisper: false, file_item_id: null, file_version: null, file_blob_id: null, created_at: new Date().toISOString() })
   try {
     await fx.host.invoke('sessionTimeline.sessionCreate', [{ harness: 'pi', model: 'platform:free', prompt: '你好' }], 'failing-chat-turn')
     await until(() => fx.notices.length > 0, fx.events)
     assert.equal(fx.notices.length, 1)
+    assert.deepEqual(onDiskAtNotice, ['failed'])
     const [notice] = fx.notices
     assert.deepEqual(Object.keys(notice).sort(), ['chat_id', 'client_message_id', 'content', 'content_type', 'id', 'is_thread_root', 'sender_user_id', 'thread_root_id'])
     assert.equal(notice.chat_id, chatId)
@@ -621,6 +635,33 @@ test('a failed chat turn is said in the chat as the desktop says it: one system 
     const journal = JSON.parse(await readFile(join(fx.root, 'hosts', ownerId, 'host.json'), 'utf8'))
     assert.equal(journal.jobs[messageId].status, 'failed')
     assert.match(journal.jobs[messageId].error, /simulated model failure/)
+  } finally { await fx.close() }
+})
+
+test('a failed chat turn still posts its notice when saving the failure fails', async () => {
+  let journalDirectory
+  const fx = await fixture(async (command) => {
+    if (!command.prompt.includes('gugu_delivery')) return { status: 'done', text: '[NO_REPLY]' }
+    // The save before the notice cannot write: its directory is gone until the notice goes out.
+    await rename(journalDirectory, `${journalDirectory}.away`)
+    return { status: 'failed', text: '', error: 'simulated model failure' }
+  })
+  journalDirectory = join(fx.root, 'hosts', ownerId)
+  const from = fx.cloud.chat.from
+  fx.cloud.chat.from = (table) => {
+    const query = from(table)
+    if (table !== 'messages') return query
+    const insert = query.insert
+    query.insert = async (row) => { await rename(`${journalDirectory}.away`, journalDirectory); return insert(row) }
+    return query
+  }
+  const messageId = randomUUID()
+  fx.inboxRows.push({ chat_id: chatId, chat_kind: 'dm', chat_public_id: null, id: messageId, seq: 1, sender_user_id: ownerId, sender_type: 'human', sender_display_name: '主人', content: '你好', content_type: 'text', to_user_ids: [agentId], is_whisper: false, file_item_id: null, file_version: null, file_blob_id: null, created_at: new Date().toISOString() })
+  try {
+    await fx.host.invoke('sessionTimeline.sessionCreate', [{ harness: 'pi', model: 'platform:free', prompt: '你好' }], 'failing-save-turn')
+    await until(() => fx.notices.length > 0, fx.events)
+    assert.equal(fx.notices.length, 1)
+    assert.equal(fx.notices[0].content_type, 'system')
   } finally { await fx.close() }
 })
 
