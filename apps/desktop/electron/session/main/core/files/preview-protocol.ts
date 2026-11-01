@@ -377,7 +377,7 @@ function escapeHtml(text: string): string {
  */
 function failurePage(
   copy: PreviewFailureCopy | undefined,
-  kind: keyof PreviewFailureCopy,
+  kind: 'unavailable' | 'outside',
   status: number,
   reason: string
 ): Response {
