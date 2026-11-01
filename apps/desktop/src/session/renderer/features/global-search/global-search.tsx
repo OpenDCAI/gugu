@@ -91,7 +91,7 @@ export function GlobalSearch({ tasks, onClose }: { tasks: boolean; onClose: () =
       <div className="flex h-12 shrink-0 items-center gap-2 px-4">
         <Search className="h-4 w-4 shrink-0 text-foreground/40" />
         {chips.map((chip, index) => (
-          <span key={`${chip.kind}:${index}`} className="flex h-6 max-w-40 shrink-0 items-center gap-1 rounded-md bg-foreground/[0.06] pl-2 pr-0.5 text-xs text-foreground/75">
+          <span key={`${chip.kind}:${index}`} className="flex h-6 max-w-40 shrink-0 items-center gap-1 rounded-md bg-foreground/[0.06] pl-2 pr-1 text-xs text-foreground/75">
             <span className="truncate">{chipLabel(chip)}</span>
             <button type="button" aria-label={translate('globalSearch.removeChip')} onClick={() => setChips(chips.filter((_, at) => at !== index))}
               className="grid h-5 w-5 place-items-center rounded text-foreground/40 hover:bg-foreground/10 hover:text-foreground"><X className="h-3 w-3" /></button>
@@ -99,7 +99,7 @@ export function GlobalSearch({ tasks, onClose }: { tasks: boolean; onClose: () =
         ))}
         <input autoFocus value={composition ?? text} data-testid="global-search-input" aria-label={translate('globalSearch.placeholder')}
           placeholder={translate(chips.length ? 'globalSearch.placeholderScoped' : 'globalSearch.placeholder')}
-          className="h-full min-w-24 flex-1 bg-transparent text-[15px] outline-none placeholder:text-foreground/35"
+          className="h-full min-w-24 flex-1 bg-transparent text-[length:var(--font-title)] outline-none placeholder:text-foreground/35"
           onCompositionStart={(event) => setComposition(event.currentTarget.value)}
           onCompositionEnd={(event) => { setComposition(null); updateSearchSession({ text: event.currentTarget.value, selectedId: null }) }}
           onChange={(event) => { if (composition === null) updateSearchSession({ text: event.target.value, selectedId: null }); else setComposition(event.target.value) }}
@@ -121,7 +121,7 @@ export function GlobalSearch({ tasks, onClose }: { tasks: boolean; onClose: () =
             return (
               <button type="button" role="tab" aria-selected={on} key={value} tabIndex={-1}
                 onClick={() => updateSearchSession({ facet: value, selectedId: null })}
-                className={cn('relative flex h-full shrink-0 items-center gap-1.5 text-[13px] transition-colors',
+                className={cn('relative flex h-full shrink-0 items-center gap-2 text-[length:var(--font-body)] transition-colors',
                   on ? 'text-foreground after:absolute after:inset-x-0 after:-bottom-px after:h-[2px] after:rounded-full after:bg-foreground' : 'text-foreground/50 hover:text-foreground/80')}>
                 {translate(`globalSearch.facet.${value}`)}
                 {count ? <span className="tabular-nums text-foreground/35">{countLabel(count)}</span> : null}
@@ -135,7 +135,7 @@ export function GlobalSearch({ tasks, onClose }: { tasks: boolean; onClose: () =
       <div ref={listRef} className={cn('flex-1 overflow-y-auto px-2', hasQuery && 'min-h-48 pb-2')} role="listbox" aria-label={translate('globalSearch.results')}>
         {view.error && <div role="alert" className="px-3 py-3 text-sm text-[var(--em-foreground-destructive)]">{messageForUser(view.error)}</div>}
         {!hasQuery && (
-          <div className="border-t border-foreground/[0.08] px-3 pb-4 pt-3 text-[13px] leading-6 text-foreground/50">
+          <div className="border-t border-foreground/[0.08] px-3 pb-4 pt-3 text-[length:var(--font-body)] leading-6 text-foreground/50">
             <div>{translate(tasks ? 'globalSearch.introWhat' : 'globalSearch.introWhatChats')}</div>
             <div>{translate('globalSearch.introScope')} <code className="rounded bg-foreground/[0.06] px-1 font-mono text-xs text-foreground/70">in:</code> <code className="rounded bg-foreground/[0.06] px-1 font-mono text-xs text-foreground/70">from:</code></div>
           </div>
@@ -145,7 +145,7 @@ export function GlobalSearch({ tasks, onClose }: { tasks: boolean; onClose: () =
           <div className="flex flex-col items-center gap-2 px-3 py-10 text-center text-sm text-foreground/45">
             <span>{view.query ? translate('globalSearch.emptyFor', { text: view.query }) : translate('globalSearch.typeWords')}</span>
             {view.query && (facet !== 'all' || chips.length > 0) && (
-              <button type="button" className="text-[13px] text-foreground/70 underline-offset-4 hover:underline"
+              <button type="button" className="text-[length:var(--font-body)] text-foreground/70 underline-offset-4 hover:underline"
                 onClick={() => updateSearchSession({ facet: 'all', chips: [], selectedId: null })}>{translate('globalSearch.widen')}</button>
             )}
           </div>
@@ -153,7 +153,7 @@ export function GlobalSearch({ tasks, onClose }: { tasks: boolean; onClose: () =
         {groups.map((group) => (
           <Fragment key={group.key}>
             {!scoped && <button type="button" title={translate('globalSearch.scopeTo')}
-              className="flex w-full items-center gap-1.5 px-3 pb-1 pt-3 text-left text-xs text-foreground/45 hover:text-foreground/70"
+              className="flex w-full items-center gap-2 px-3 pb-1 pt-3 text-left text-xs text-foreground/45 hover:text-foreground/70"
               onClick={() => setChips([...chips, group.scope])}>
               <span className="truncate font-medium">{group.label}</span>
               {group.task && <span className="shrink-0 text-foreground/35">· {translate('globalSearch.task')}</span>}
@@ -166,17 +166,17 @@ export function GlobalSearch({ tasks, onClose }: { tasks: boolean; onClose: () =
                   onMouseMove={() => { if (!isSelected) updateSearchSession({ selectedId: hit.id }) }}
                   onClick={() => open(hit)}
                   className={cn('flex w-full items-start gap-3 rounded-lg px-3 py-2 text-left outline-none', isSelected && 'bg-foreground/[0.06]')}>
-                  <span className="mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full bg-foreground/[0.07] text-[10px] font-medium text-foreground/55">
+                  <span className="mt-1 grid h-5 w-5 shrink-0 place-items-center rounded-full bg-foreground/[0.07] text-[length:var(--font-caption)] font-medium text-foreground/55">
                     {hit.kind === 'message' && hit.file ? <FileText size={11} /> : Array.from(sender)[0]}
                   </span>
                   <span className="min-w-0 flex-1">
                     <span className="line-clamp-2 text-sm leading-5 text-foreground/85"><Highlighted text={hit.text} query={view.query} /></span>
-                    <span className="mt-0.5 flex items-center gap-1.5 text-xs text-foreground/40">
+                    <span className="mt-1 flex items-center gap-2 text-xs text-foreground/40">
                       <span className="truncate">{sender}</span>
                       <span aria-hidden>·</span><span className="shrink-0 tabular-nums">{formatWhen(hit.at)}</span>
                     </span>
                   </span>
-                  {isSelected && <span className="mt-0.5 shrink-0 text-foreground/35 max-sm:hidden"><Shortcut hotkey="Enter" variant="keycaps" /></span>}
+                  {isSelected && <span className="mt-1 shrink-0 text-foreground/35 max-sm:hidden"><Shortcut hotkey="Enter" variant="keycaps" /></span>}
                 </button>
               )
             })}
