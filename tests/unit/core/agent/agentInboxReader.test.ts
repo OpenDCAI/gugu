@@ -1645,7 +1645,7 @@ describe('a failure notice from another agent reaches the agent whose message it
     expect(cloud.markReadCalls.map((call) => call.messageId)).toEqual([NOTICE, LATER])
   })
 
-  it('a row that cannot be prepared is disclosed to its chat and the real error is what the pull throws', async () => {
+  it('a group-rules plan that cannot be made leaves the batch unadmitted and says nothing in the chat', async () => {
     const cloud = seed()
     const disclosures: Array<{ chatId: string; reason: string }> = []
     const { deps, injections, outcomes } = makeDeps(cloud, {
@@ -1654,11 +1654,11 @@ describe('a failure notice from another agent reaches the agent whose message it
     })
     const thrown = await pullAgentInbox(AGENT, deps).then(() => null, (error: unknown) => error)
     expect((thrown as Error).message).toBe('group rules ledger unreadable')
-    expect(isSaidInChat(thrown)).toBe(true)
+    expect(isSaidInChat(thrown)).toBe(false)
     expect(injections).toEqual([])
-    expect(disclosures).toEqual([{ chatId: CHAT, reason: 'notAdmitted' }])
+    expect(disclosures).toEqual([])
     expect(cloud.markReadCalls).toEqual([])
-    expect(outcomes).toEqual([{ ok: false }])
+    expect(outcomes).toEqual([])
   })
 
   it('writes a new notice under a UUID derived from its key; its marker still names it and links reach it', async () => {

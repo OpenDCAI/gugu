@@ -688,9 +688,9 @@ async function injectBatch(
     await advanceCursor(agentUserId, skipped, deps)
     return { injected: 0, verdict: 'accepted' }
   }
+  const rulesPlan = await planGroupRules(agentUserId, rows, deps, env)
   const prepared: PreparedMessage[] = []
   try {
-    const rulesPlan = await planGroupRules(agentUserId, rows, deps, env)
     for (const row of rows) {
       const planned = row.localSessionDirect ? undefined : rulesPlan.get(row.chatId)
       // 原文只随这一批里该线的第一条投递附一次;其余同线投递只带版本号。
