@@ -38,7 +38,7 @@ import type { AgentState, LiveSettingResult, PermissionWaitKind } from '@gugu/se
 import { errorDetail } from '@gugu/session-shared';
 import { WireError, type BlobSource } from '@gugu/session-wire';
 import { action, computed, makeObservable, observable, reaction, runInAction, when } from 'mobx';
-import { endSessionLife, forkSessionLife, readSessionLife, sessionLifeView, startSessionLife, stopSessionLife } from '../stores/session-life-views';
+import { discardSessionLifeRow, endSessionLife, forkSessionLife, readSessionLife, sessionLifeView, startSessionLife, stopSessionLife } from '../stores/session-life-views';
 import { ACP_START_FAILED, lifeIsStarting, type LifeView } from '@shared/core/sessions/session-life';
 import { sendThroughCustody } from './queue-native-input';
 import { sessionInputBubbles } from '@/lib/sessionInputOutbox';
@@ -142,6 +142,8 @@ export class AcpChatStore {
   private _lifeRetriedVersion = 0;
   private _unwatchLife: (() => void) | null = null;
   private _unwatchLifeHead: (() => void) | null = null;
+  /** Opened on a stopped session: nothing to attach to until it runs again. */
+  private _attachWhenReady = false;
   /**
    * The custody row the transcript draws as the next turn (`pendingPrompt`), while it waits for that turn: from the
    * send on it sits where its turn will be, ❌ first in the tray above the composer and then up in the transcript.
@@ -781,6 +783,10 @@ export class AcpChatStore {
 
   /** The queue's head, still on its way, is the next turn: the transcript draws it (and its placeholder header) there. */
   private _drawLifeHead(view: LifeView | null): void {
+    if (this._attachWhenReady && view?.kind === 'ready') {
+      this._attachWhenReady = false;
+      void this._open();
+    }
     const session = this.chatState.session;
     const drawn = this.transcriptPendingId;
     const bubbles = view ? sessionInputBubbles([], view.pending.items, view.hold) : [];
@@ -827,28 +833,58 @@ export class AcpChatStore {
    * actions. The row itself stays queued, and goes first when the person continues or sends again; then this turn leaves
    * and the row draws as the next turn, ❌ the same words twice.
    */
-  private _drawStoppedRow(stopped: { id: string; text: string } | null, view: LifeView | null): void {
-    const history = this.chatState.transcript.history;
-    const turns = () => this.chatState.transcript.state.committedTurns;
+  private _drawStoppedRow(stopped: { id: string } | null, view: LifeView | null): void {
+    const transcript = this.chatState.transcript;
+    const turns = () => transcript.state.committedTurns;
+    const live = transcript.state.activeTurnSnapshot;
     const previous = this.stoppedRowId;
     if (previous && previous !== stopped?.id) {
       this.stoppedRowId = null;
-      history.seed(turns().filter(turn => turn.id !== stoppedTurnId(previous)));
+      // A seed clears the active turn by contract: one that landed in the meantime stays.
+      batch(() => {
+        transcript.history.seed(turns().filter(turn => turn.id !== stoppedTurnId(previous)));
+        if (live) transcript.activeTurn.set(live);
+      });
       this._syncMessageCount();
     }
-    if (!stopped) return;
+    // A turn is running (stopped from elsewhere while attached): its own outcome says so, nothing to draw ahead of it.
+    if (!stopped || live) return;
     this.stoppedRowId = stopped.id;
     if (turns().some(turn => turn.id === stoppedTurnId(stopped.id))) return;
-    const sentAt = view?.pending.items.find(item => item.messageId === stopped.id)?.sentAt;
-    history.append([{
+    const row = view?.pending.items.find(item => item.messageId === stopped.id);
+    if (!row) return;
+    transcript.history.append([{
       id: stoppedTurnId(stopped.id),
       seq: (turns().at(-1)?.seq ?? -1) + 1,
-      initiator: 'user',
-      ...(sentAt !== undefined ? { startedAt: sentAt } : {}),
-      items: [{ kind: 'message', id: stopped.id, seq: 0, role: 'user', text: stopped.text }],
+      initiator: row.kind === 'ordinary' ? 'user' : 'agent',
+      ...(row.sentAt !== undefined ? { startedAt: row.sentAt } : {}),
+      // The row's own text: a delivery's envelope reads as that delivery here too, ❌ as the person's words.
+      items: [{ kind: 'message', id: stopped.id, seq: 0, role: 'user', text: row.text }],
       outcome: { kind: 'cancelled', reason: 'cancelled' },
     } as TranscriptTurn]);
     this._syncMessageCount();
+  }
+
+  /** 「继续」 on a message stopped before it went: the host starts and sends it, once, ❌ with a prompt about continuing. */
+  continueStoppedRow(): void {
+    void startSessionLife(this.runtimeSessionId).catch((error: unknown) => this._toastError('acpFailure.sendMessage', error));
+  }
+
+  /** Only the person's own words can be taken back here; a delivery has a sender to answer to. */
+  canDiscardTurn(turnId: string): boolean {
+    const id = this.stoppedRowId;
+    if (!id || turnId !== stoppedTurnId(id)) return true;
+    return sessionLifeView(this.runtimeSessionId)?.pending.items.find(item => item.messageId === id)?.kind === 'ordinary';
+  }
+
+  /** 「丢弃」 on a message stopped before it went: gone from the queue, and the words back in the composer. */
+  discardStoppedTurn(turnId: string): void {
+    const id = this.stoppedRowId;
+    if (!id || turnId !== stoppedTurnId(id)) return;
+    const row = sessionLifeView(this.runtimeSessionId)?.pending.items.find(item => item.messageId === id);
+    void discardSessionLifeRow(this.runtimeSessionId, id).then(() => runInAction(() => {
+      if (row && !this.draftText.trim()) this.setDraftText(row.text);
+    })).catch((error: unknown) => this._toastError('acpFailure.sendMessage', error));
   }
 
   private _lifeFailure(): LifeView['failure'] {
@@ -2058,13 +2094,21 @@ export class AcpChatStore {
     if (before.kind === 'ready') return true;
     if (before.kind === 'failed' && !retry) return false;
     if (retry) runInAction(() => { this._lifeRetriedVersion = before.version; });
-    // A person's stop holds across a reopen: opening never undoes it. Continuing or sending starts it, and this page attaches then.
-    if (retry || before.hold !== 'user-stop') await startSessionLife(id);
+    // A person's stop holds across a reopen: opening never undoes it, and the page is simply open. Continuing or sending
+    // starts it, and the view going ready attaches this page then (`_drawLifeHead`).
+    if (!retry && before.hold === 'user-stop') {
+      runInAction(() => {
+        this._attachWhenReady = true;
+        this.historyLoading = false;
+      });
+      return false;
+    }
+    await startSessionLife(id);
     await when(() => {
       const view = sessionLifeView(id)!;
-      return view.version > before.version && (view.kind === 'ready' || view.kind === 'failed');
+      return this._disposed || (view.version > before.version && (view.kind === 'ready' || view.kind === 'failed'));
     });
-    return sessionLifeView(id)!.kind === 'ready';
+    return !this._disposed && sessionLifeView(id)!.kind === 'ready';
   }
 
   private _queuedPromptModels(): QueuedPrompt[] {

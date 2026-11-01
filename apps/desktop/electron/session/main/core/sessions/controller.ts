@@ -79,6 +79,7 @@ export const sessionController = createRPCController({
   lifeView: async (sessionId: string) => sessionLife().read(sessionId),
   lifeStart: async (sessionId: string) => { sessionLife().start(sessionId, 'user-open'); },
   lifeStop: (sessionId: string) => stopSessionByPerson(sessionId),
+  lifeDiscard: async (sessionId: string, messageId: string) => { sessionLife().discardRow(sessionId, messageId); },
   // A side chat is a fork entry of Life: opened by its page, fed through the same custody send, ended when the
   // page closes it or its session ends.
   lifeFork: async (fork: RuntimeFork) => openRuntimeFork(fork),

@@ -228,6 +228,14 @@ export class SessionLife {
     return this.drain(entry); // the entry, not the id: a delete removes it from the map before its IO ends
   }
 
+  /** A person discards their own message they stopped before it went: it is gone, and nothing sends it later. */
+  discardRow(sessionId: string, messageId: string): void {
+    const row = this.ports.store(sessionId).unaccepted(sessionId).find(item => item.message.id === messageId);
+    if (!row) throw new Error(`Session ${sessionId} holds no pending row for ${messageId}`);
+    if (row.kind !== 'ordinary') throw new Error(`Pending ${row.seq} of session ${sessionId} came from elsewhere: it cannot be discarded here`);
+    this.send(sessionId, { k: 'discard-row', seq: row.seq });
+  }
+
   restore(sessionId: string): void { this.send(sessionId, { k: 'restore' }); }
   turn(sessionId: string, busy: boolean): void {
     const entry = this.entries.get(sessionId);
@@ -391,7 +399,7 @@ export class SessionLife {
         if (failures.length) throw new AggregateError(failures, `${failures.length} side chat(s) of session ${sessionId} did not end`);
         return;
       }
-      case 'abort': case 'write-receipt': case 'write-hold': case 'remove': return;
+      case 'abort': case 'write-receipt': case 'write-hold': case 'remove': case 'delete-row': return;
       default: return assertNever(effect);
     }
   }

@@ -2349,7 +2349,13 @@ export const AcpChatPanel = observer(function AcpChatPanel({
       // 而重发不是重试（出错的那一轮可能已经写过文件、调过工具），
       // 那正是 #3498 拒绝交付的那个会骗人的按钮。见 ChatCommands.onRestorePrompt。
       onRestorePrompt: quotes.restorePrompt,
-      onContinueTurn: () => continueSessionTurn(store, translate('transcript.continueTurnPrompt')),
+      onContinueTurn: () => {
+        // A message stopped before it went has nothing to continue from: it just goes now.
+        if (store?.stoppedRowId) store.continueStoppedRow();
+        else continueSessionTurn(store, translate('transcript.continueTurnPrompt'));
+      },
+      onDiscardTurn: ({ turnId }) => store?.discardStoppedTurn(turnId),
+      canDiscardTurn: (turnId) => store?.canDiscardTurn(turnId) ?? true,
       // 计划审批卡上的选项（#7139）：与输入框上那条审批同一个答法。
       onResolvePermission: ({ requestId, optionId }) => store?.resolvePermission(requestId, optionId),
       // #7103 咕咕拒了这一轮的票:「回合失败」那一行按原因表说那一句、给那个按钮(与起会话失败同一张表)。

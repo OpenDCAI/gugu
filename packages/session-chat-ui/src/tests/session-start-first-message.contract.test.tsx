@@ -34,7 +34,7 @@ function mount(preset: ChatLayoutPreset, { agentConversation, ...opts }: { pinUs
     context.dispose()
     host.remove()
   })
-  return { state, host }
+  return { state, host, view }
 }
 
 const FIRST = 'Look at this project.'
@@ -110,6 +110,23 @@ describe('session start with a first message', () => {
       })
     }
   )
+
+  it('discard reaches its command before the click delegate toggles the row away; a turn can opt out', async () => {
+    const { state, host, view } = mount('double', { agentConversation: true })
+    const discarded: string[] = []
+    view.setCommands({ onDiscardTurn: ({ turnId }) => discarded.push(turnId), canDiscardTurn: (turnId) => turnId !== 'delivered' })
+    const stopped = (id: string, seq: number) => ({ id, seq, initiator: 'user' as const, startedAt: Date.now(), endedAt: Date.now(),
+      items: [{ kind: 'message' as const, id: `${id}-m`, seq: 0, role: 'user' as const, text: FIRST }],
+      outcome: { kind: 'cancelled' as const, reason: 'cancelled' as const } })
+    state.transcript.history.seed([stopped('delivered', 0)] as unknown as TranscriptTurn[])
+    await until('its stopped line', () => Boolean(host.querySelector('[data-slot="turn-outcome-continue"], [data-slot="turn-outcome-badge"]')))
+    expect(host.querySelector('[data-slot="turn-outcome-discard"]'), 'a delivery offers no discard').toBeNull()
+
+    state.transcript.history.seed([stopped('mine', 0)] as unknown as TranscriptTurn[])
+    await until('its discard', () => Boolean(host.querySelector('[data-slot="turn-outcome-discard"]')))
+    host.querySelector<HTMLButtonElement>('[data-slot="turn-outcome-discard"]')!.click()
+    expect(discarded).toEqual(['mine'])
+  })
 
   it('a queued first message says Starting, stays through a history seed, and keeps its clock', async () => {
     const { state, host } = mount('double', { agentConversation: true })

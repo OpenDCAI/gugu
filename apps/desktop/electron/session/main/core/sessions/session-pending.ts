@@ -126,6 +126,16 @@ export const lifeStore: LifeStore = {
     db.transaction(tx => {
       for (const effect of effects) {
         if (effect.e === 'write-hold') tx.update(sessions).set({ lifeHold: effect.hold }).where(eq(sessions.id, sessionId)).run();
+        if (effect.e === 'delete-row') {
+          const deleted = tx.delete(sessionPending).where(and(eq(sessionPending.sessionId, sessionId), eq(sessionPending.seq, effect.seq))).run();
+          if (deleted.changes !== 1) throw new Error(`Discard ${effect.seq} has no pending row`);
+          // Creation turns are all queued together and re-admitted from this list while it stands: a discarded one must not come back.
+          const row = tx.select({ config: sessions.config }).from(sessions).where(eq(sessions.id, sessionId)).get();
+          if (row?.config?.type === 'acp' && row.config.initialQueue) {
+            const { initialQueue: _gone, ...config } = row.config;
+            tx.update(sessions).set({ config }).where(eq(sessions.id, sessionId)).run();
+          }
+        }
         if (effect.e === 'write-receipt') {
           const receipt = effect.receipt;
           const changed = tx.update(sessionPending).set({ state: receipt.state,
