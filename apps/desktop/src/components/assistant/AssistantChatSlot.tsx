@@ -146,7 +146,7 @@ function AssistantChatSlotContent({ dm, assistantId, assistantName, visible, ...
   // 助理 App 的聊天面:没有会话头(名字胶囊和搜索、齿轮在 App 顶上),输入框「和 X 聊天」、左边一个「+」。
   return (
     <>
-      <FilePreviewHost.Provider value={previewHost}><ChatAreaPanel assistantChat
+      <FilePreviewHost.Provider value={previewHost}><ChatAreaPanel
         viewportKey={assistantSlotKey('chat')}
         hidden={!visible}
         chrome={{ placeholder: t('chat.placeholder', { name: assistantName }), attachGlyph: <Plus />, attachMenu, typing, composerHeader: composerEntries, hideRunningStatus: true }}
