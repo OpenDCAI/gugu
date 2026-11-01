@@ -756,6 +756,7 @@ export default {
       "title": "Read receipt"
     },
     "retracted": "Message retracted",
+    "deliveredFrom": "From {{name}}",
     "sendStatus": {
       "unknown": "Awaiting confirmation",
       "unknownHint": "Waiting for the publication result. This message will update automatically; no need to resend.",

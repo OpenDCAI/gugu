@@ -1,4 +1,5 @@
 import type { LifeView } from '@/session/shared/core/sessions/session-life'
+import { readDeliveryEnvelope } from '@gugu/core/local/agent/deliveryEnvelope'
 export type SessionInput = {
   id: string; accountId: string; deviceId: string | null; sessionId: string; text: string; createdAt: number
   attachments?: import('@gugu/session-core/session-record/contract').SessionpageSessionSendRequest['attachments']
@@ -16,7 +17,8 @@ export class SessionInputFailureError extends Error {
 }
 /** A host session_pending row as its LifeView shows it. */
 export type HostPendingRow = LifeView['pending']['items'][number]
-export type SessionInputBubble = { id: string; text: string } & (
+/** from: a delivery (another task's or agent's message) shows its sender and body, read the way the transcript reads it. */
+export type SessionInputBubble = { id: string; text: string; from?: string | null } & (
   | { state: 'sending' }
   /** The host holds it while its session is failed: it goes when the person retries (or sends again). */
   | { state: 'held' }
@@ -33,7 +35,8 @@ export function sessionInputBubbles(sender: readonly SessionInput[], host: reado
   return [
     // An inbox batch is the agent's mail, not the person's input: the transcript shows it once the agent takes it.
     ...[...host].filter(row => row.kind !== 'inbox-batch').sort((a, b) => a.seq - b.seq).flatMap((row): SessionInputBubble[] => {
-      const base = { id: row.messageId, text: row.text }
+      const delivered = readDeliveryEnvelope(row.text)
+      const base = delivered ? { id: row.messageId, text: delivered.body, from: delivered.segments[0]?.facts?.from ?? null } : { id: row.messageId, text: row.text }
       switch (row.state) {
         case 'accepted': return []
         case 'queued': case 'dispatching': return [{ ...base, state: lifeKind === 'failed' ? 'held' : 'sending' }]

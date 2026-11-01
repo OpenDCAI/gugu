@@ -906,6 +906,13 @@ describe('session orchestration', () => {
       await expect(runRemoteSessionAction(remoteCaller, { ...action, delivery_at: undefined })).rejects.toThrow(/original timestamp/);
     });
 
+    it('an agent\'s message durably queued in the recipient\'s session is queued, not failed (a failure invites a resend: a second copy)', async () => {
+      mocks.sendMessage.mockImplementation(async (params) => ({ id: params.clientMessageId, status: 'queued' }));
+      const result = (await runRemoteSessionAction(remoteCaller, { action: 'message', session_ids: ['caller'], text: 'the run finished' })) as
+        { recipients: Array<{ to: string; status: string; message_id?: string; error?: unknown }> };
+      expect(result.recipients).toEqual([{ to: 'session:caller', status: 'queued', message_id: expect.any(String) }]);
+    });
+
     it('keeps the cloud message pending until native acceptance and formats its original time locally', async () => {
       const id = '8ff7b564-892b-4aa5-9d49-a85c1d5cb9ea';
       mocks.sendMessage.mockImplementation(async (params) => ({ id: params.clientMessageId, status: 'queued' }));

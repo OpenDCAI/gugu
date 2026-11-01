@@ -1714,8 +1714,11 @@ export async function revealExtensionTabInSession(target: {
 export type SessionDirectRecipientResult = {
   /** Typed recipient address, exactly as the caller may reuse it. */
   to: string;
-  /** `deferred`: kept, to be sent when the target next starts working (delivery "defer"). */
-  status: 'delivered' | 'deferred' | 'failed';
+  /**
+   * `deferred`: kept, to be sent when the target next starts working (delivery "defer").
+   * `queued`: durably in the target's queue (its session takes it when it runs); it is not resent, so do not resend it.
+   */
+  status: 'delivered' | 'queued' | 'deferred' | 'failed';
   message_id?: string;
   error?: { code: string; message: string };
 };
@@ -1834,11 +1837,15 @@ async function sendSessionMessage(
         ...(plan && 'queue' in plan ? { delivery: plan.queue } : {}),
       });
       const admitted = result.status === 'delivered' || (action.client_message_id !== undefined && result.status === 'accepted');
+      // The receipt is the recipient queue's own: a durably queued message is queued, never a failure (a failure invites a
+      // resend, and a resend without a stable id is one more copy). A caller with its own stable id (the cloud's
+      // client_message_id) keeps its protocol: it holds the message pending until accepted and its resends dedupe here.
+      const queued = !admitted && result.status === 'queued' && action.client_message_id === undefined;
       recipients.push({
         to: encodeTypedId('session', target.id),
-        status: admitted ? 'delivered' : 'failed',
+        status: admitted ? 'delivered' : queued ? 'queued' : 'failed',
         message_id: result.id,
-        ...(admitted
+        ...(admitted || queued
           ? {}
           : {
               error: result.status === 'outcome-unknown'

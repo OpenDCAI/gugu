@@ -755,6 +755,7 @@ export default {
       "title": "已读回执"
     },
     "retracted": "消息已撤回",
+    "deliveredFrom": "来自 {{name}}",
     "sendStatus": {
       "unknown": "状态待确认",
       "unknownHint": "正在等待发布结果，消息到达后会自动更新，无需重发。",

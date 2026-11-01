@@ -32,6 +32,7 @@ export function SessionInputQueue({ sessionId, waitingForConnection, life = null
     {bubbles.map(bubble => <div key={bubble.id} className="flex flex-col items-end gap-1" data-native-input-id={bubble.id}>
       <div className="flex items-end justify-end gap-1">
         <div className="max-w-[85%] whitespace-pre-wrap break-words rounded-[var(--radius-thread)] bg-[var(--chat-bubble-user)] px-4 py-2 text-[length:var(--font-body)] text-[var(--chat-bubble-user-fg)]">
+          {bubble.from ? <div className="text-xs text-foreground-muted" data-delivered-from="">{t('message.deliveredFrom', { name: bubble.from })}</div> : null}
           {conversationQuoteText(readMessageQuote(bubble.text)?.body ?? bubble.text)}
         </div>
         {bubble.state === 'sending' ? <MessageSendingIndicator label={t('message.sendStatus.sending')} /> : null}

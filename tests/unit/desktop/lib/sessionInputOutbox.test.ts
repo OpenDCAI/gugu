@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import 'fake-indexeddb/auto'
 import { IDBFactory } from 'fake-indexeddb'
+import { buildSessionDirectEnvelope } from '@gugu/core/local/agent/deliveryEnvelope'
 import { openSessionInputStorage, SessionInputOutbox, sessionInputBubbles, withSessionInputDeadline, type HostPendingRow, type SessionInput } from '../../../../apps/desktop/src/lib/sessionInputOutbox'
 
 describe('native session input persistence', () => {
@@ -84,6 +85,11 @@ describe('a bubble reads the one custody owner of its messageId', () => {
 
   it('sender row until the host row exists, the host row until accepted, then nothing (the transcript has it)', () => {
     expect(sessionInputBubbles([sender('m', 1)], [], 'ready')).toEqual([{ id: 'm', text: 'sender m', state: 'sending' }])
+    // A queued message from another task is a delivery: its sender and body, the way the transcript reads it, never the envelope.
+    const envelope = buildSessionDirectEnvelope({ senderSessionId: 'other-task', senderTitle: 'Builder', messageId: 'd', content: 'the run finished', at: '2026-11-01 08:00 北京时间' })
+    const [delivered] = sessionInputBubbles([], [{ ...host(1, 'd', 'queued'), text: envelope, kind: 'session-direct' }], 'failed')
+    expect(delivered).toMatchObject({ id: 'd', text: 'the run finished', from: 'Builder', state: 'held' })
+    expect(delivered!.text).not.toContain('<gugu_delivery')
     expect(sessionInputBubbles([sender('m', 1)], [host(1, 'm', 'dispatching')], 'ready')).toEqual([{ id: 'm', text: 'host m', state: 'sending' }])
     expect(sessionInputBubbles([sender('m', 1)], [host(1, 'm', 'accepted')], 'ready')).toEqual([])
     expect(sessionInputBubbles([], [host(1, 'm', 'accepted')], 'ready')).toEqual([])
