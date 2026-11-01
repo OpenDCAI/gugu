@@ -736,10 +736,10 @@ describe('TopicSplitPane 是分栏，不是话题的开关', () => {
 
 describe('@@@5856 「这条消息开得出话题吗」只有一个判据,顶栏与右键共用', () => {
   const base = { id: 'm', seq: 1, local_send_state: undefined, is_whisper: false, retracted_at: null, content_type: 'text' } as Parameters<typeof canSourceTopic>[0]
-  it('发送中 / 未送达 / 悄悄话 / 已撤回 都开不出;正常消息开得出', () => {
+  it('发送中等来源送达;未送达、悄悄话与已撤回不能开话题', () => {
     expect(canSourceTopic(base)).toBe(true)
-    expect(canSourceTopic({ ...base, seq: -1 })).toBe(false)
-    expect(canSourceTopic({ ...base, local_send_state: 'sending' })).toBe(false)
+    expect(canSourceTopic({ ...base, seq: -1 })).toBe(true)
+    expect(canSourceTopic({ ...base, local_send_state: 'sending' })).toBe(true)
     expect(canSourceTopic({ ...base, local_send_state: 'failed' })).toBe(false)
     expect(canSourceTopic({ ...base, is_whisper: true })).toBe(false)
     expect(canSourceTopic({ ...base, retracted_at: new Date().toISOString() })).toBe(false)

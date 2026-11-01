@@ -20,7 +20,7 @@ const getMessages = vi.fn<() => Promise<MessageItem[]>>()
 const markRead = vi.hoisted(() => vi.fn<(chatId: string, seq: number) => Promise<unknown>>())
 const sendScopedMessage = vi.fn()
 const actionsOf = vi.fn((id: string | null) => ({ ...topicHistoryStub(id ?? ''), sendMessage: sendScopedMessage }))
-function sendingFixture() { const fixture = chatWindowStub(); fixture.conversations.actions = actionsOf; return fixture }
+function sendingFixture() { const fixture = chatWindowStub(); fixture.conversations.actions = actionsOf; return { ...fixture, createTopic } }
 const onCreateFailed = vi.fn()
 const createTopic = vi.fn()
 let sourceMessages: MessageItem[]

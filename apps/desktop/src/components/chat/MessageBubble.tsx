@@ -426,7 +426,7 @@ export const MessageBubble = memo(function MessageBubble({
             Design: .msg-actions{position:absolute}  agent → right:0 / own → left:0  */}
         <MessageHoverTrigger data-message-bubble-row="true" style={{ position: 'relative', display: 'flex', flexDirection: 'row', alignItems: 'flex-end', justifyContent: msg.is_mine ? 'flex-end' : 'flex-start', gap: '4px', width: 'fit-content', maxWidth: '100%', minWidth: 0, ...(msg.is_mine ? { marginLeft: 'auto' } : {}) }}>
           {msg.is_mine && !msg.retracted_at && sendState && (
-            <MessageSendStatus state={sendState} messageId={msg.id} reason={msg.local_send_error} blocks={msg.delivery_blocks} />
+            <MessageSendStatus state={sendState} messageId={msg.id} reason={msg.local_send_error} retryable={msg.local_send_retryable} blocks={msg.delivery_blocks} />
           )}
 
           {/* @@@1345 逐成员读回执做成进度圆环(替文字)：本人已发消息显示 ○ 环(填充比例=已读%)，

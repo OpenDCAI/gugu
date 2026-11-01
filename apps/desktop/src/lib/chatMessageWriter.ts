@@ -17,6 +17,7 @@ export interface IdempotentChatMessageInput {
   threadRootId: string | null
   isThreadRoot: boolean
   isWhisper: boolean
+  forwardedFromMessageId?: string
 }
 
 interface MessageWriteRpc {
@@ -41,6 +42,7 @@ export async function writeIdempotentChatMessage(
     p_thread_root_id: input.threadRootId,
     p_is_thread_root: input.isThreadRoot,
     p_is_whisper: input.isWhisper,
+    ...(input.forwardedFromMessageId ? { p_forwarded_from_message_id: input.forwardedFromMessageId } : {}),
   } as never)
   if (error) throw new Error(error.message, { cause: error })
   const rows = Array.isArray(data) ? data : [data]

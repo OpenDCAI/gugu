@@ -1,3 +1,4 @@
+import { observeAttachmentMessage } from '../lib/attachmentSendRecovery'
 import type { UnreadLocatorCommit } from '../lib/chatUnreadLocatorWindow'
 import { topicService } from '../lib/topics'
 import type { ConversationViewport } from './chatWindowCache'
@@ -23,7 +24,7 @@ import { createChatListProjectionLedger, useChatProjectionBinding } from './chat
 import { adoptOptimisticChatRow } from '../lib/optimisticChatIdentity'
 import { applyMessageWindowRevalidation } from '../lib/chatMessageRevalidation'
 import { platform } from '../platform'
-import { createOutboxWiring, type OutboxWiring } from './chatOutboxWiring'
+import { bindOutboxActions, createOutboxWiring, type OutboxWiring } from './chatOutboxWiring'
 import { markLatestThreadRead, markManualUnreadAndRefresh } from '../lib/chatUnreadLocator'
 import { useChatUnreadStreamNavigation } from '../lib/chatUnreadStreamNavigation'
 import { ChatStoreProvider, type SendMessageOptions, type SendAttachmentOptions, useDraftAttachmentsStore, useDraftMentionsStore, useTextDraftStore, type RefreshChatsOptions } from './chatContext'
@@ -50,7 +51,6 @@ import { createSupabaseAccountRevisionSource } from '../lib/supabaseAccountRevis
 import { initializeAccountSync } from '../lib/accountSyncSnapshot'
 import { subscribeAgentPresenceRevisions } from '../lib/agentPresenceStore'
 import { sendAttachmentBatch } from '../components/chat/sendAttachmentBatch'
-import { observeAttachmentMessage } from '../lib/attachmentSendRecovery'
 import { i18n } from '../i18n'
 import { rendererLogger } from '../lib/log'
 const revisionLog = rendererLogger('chat/account-revision')
@@ -220,10 +220,8 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
     [cache, getImRepository],
   )
 
-  // @@@send-outbox (#1762 洞③/#1941) — 发送 outbox 接线。io 依赖全经 outboxDepsRef 惰性委托:wiring
-  // 单例首次 render 构造,而 patchChat 等定义在本文件更靠后(直接闭包会 TDZ)——
-  // depsRef 在每次 render 末尾(provider return 前)刷新为最新身份,回调只在事件时刻解引用。
-  // retrySend/discardSend 经 context 供 MessageSendStatus 直连,无 props 钻孔(冻结文件零增行)。
+  // @@@send-outbox (#1762 洞③/#1941) — 账号级接线在 effect 中创建;io 经 outboxDepsRef 惰性委托。
+  // depsRef 在每次 render 末尾刷新;context 操作经同一 wiring ref 调用。
   const userRef = useRef(user)
   userRef.current = user
   const outboxDepsRef = useRef<{
@@ -237,6 +235,7 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
   useEffect(() => {
     if (!userId) return
     const wiring = createOutboxWiring({
+      observeMessage: (senderId, chatId) => observeAttachmentMessage(subscribeAccountRevision, senderId, chatId),
       getImRepository,
       user: () => userRef.current ? { id: userRef.current.id, nickname: userRef.current.nickname, avatarUrl: userRef.current.avatarUrl ?? null } : null,
       chats: () => chatsRef.current,
@@ -256,7 +255,7 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
       wiring.dispose()
       if (outboxRef.current === wiring) outboxRef.current = null
     }
-  }, [cache, userId, getImRepository])
+  }, [cache, userId, getImRepository, subscribeAccountRevision])
 
   const { epochOf: getMessageSnapshotEpoch, bump: bumpMessageSnapshotEpoch } = useMessageSnapshotEpochs()
 
@@ -737,9 +736,7 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
     [userId, cache, setMessagesAndCache, setThreadMessagesFor, loadHistoryPage],
   )
 
-  // @@@send-outbox — failed 态的重试/丢弃(MessageSendStatus 经 context 直连)。
-  const retrySend = useCallback((messageId: string) => { outboxRef.current?.retrySend(messageId) }, [])
-  const discardSend = useCallback((messageId: string) => { outboxRef.current?.discardSend(messageId) }, [])
+  const outboxActions = useMemo(() => bindOutboxActions(outboxRef, userId), [userId])
 
   const toggleReaction = useCallback(
     async (messageId: string, emoji: string, chatId = activeChatIdRef.current) => {
@@ -772,6 +769,10 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
   }, [cache, persistWindowToLocalSync, setMessagesAndCache])
   const deleteMessage = useCallback(async (messageId: string, targetChatId = activeChatIdRef.current) => {
     if (targetChatId) invalidateMessageSnapshots(targetChatId)
+    if (outboxRef.current?.outbox.has(messageId)) {
+      await outboxRef.current.outbox.discard(messageId)
+      return
+    }
     const { chatId } = await chatService.deleteMessage(messageId)
     invalidateMessageSnapshots(chatId)
     removeMessage(messageId, chatId)
@@ -805,9 +806,8 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
     if (!opts.threadRootId) {
       if (!cache.history(chatId, viewport).followForSend()) await loadHistoryPage('latest', chatId, viewport)
     }
-    return sendAttachmentBatch({ ...opts, files, chatId, senderId: userId, toUserIds, appendMessage,
-      observeMessage: observeAttachmentMessage(subscribeAccountRevision, userId, chatId), removePlaceholder: (id) => removeMessage(id, chatId) })
-  }, [userId, cache, loadHistoryPage, appendMessage, removeMessage, subscribeAccountRevision])
+    return sendAttachmentBatch({ ...opts, files, chatId, senderId: userId, toUserIds, appendMessage, outbox: outboxRef.current! })
+  }, [userId, cache, loadHistoryPage, appendMessage])
 
   const pinChat = useCallback(async (chatId: string, pinned: boolean) => {
     if (!userId) throw new Error('Not authenticated')
@@ -915,8 +915,8 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
         loadingChats: chatsLoad === 'loading', chatsLoadFailed: chatsLoad === 'failed', chatsRead: chatsLoad === 'idle',
         setActiveChatId,
         sendMessageToChat,
-        retrySend,
-        discardSend,
+        sendAttachmentsToChat,
+        ...outboxActions,
         refreshChats: loadChats,
         createGroupChat,
         upsertChat,

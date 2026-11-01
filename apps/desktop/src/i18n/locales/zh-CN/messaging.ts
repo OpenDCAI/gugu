@@ -817,6 +817,9 @@ export default {
     "widget": "[Widget]"
   },
   "outbox": {
+    "selectFileAgain": "上传已中断，请重新选择文件。",
+    "sourceNotSent": "原消息尚未送达，请先重试原消息再转发。",
+    "sourceDiscarded": "原消息未发出，已被丢弃",
     "deliveryTimeout": "投递超时 {{seconds}}s（网络挂起）",
     "discarded": "已丢弃",
     "offscreenFailure": "有消息未送达，回到对应对话可重试或丢弃",

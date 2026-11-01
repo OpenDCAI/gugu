@@ -5,10 +5,11 @@ import type { MessageItem } from '@gugu/core/shared/types/chat'
 import type { TurnFailureGroup } from '@/lib/projectTurnFailureMessages'
 import { useContactsStore } from '@/store/contactsContext'
 import { TurnFailureCard } from './TurnFailureCard'
+import { MessageSendStatus } from './MessageSendStatus'
 import { InlineAction } from '../settings/addServer/InlineAction'
 import './system-message-notice.css'
 
-type NoticeMessage = Pick<MessageItem, 'id' | 'content' | 'content_type' | 'sender_user_id' | 'client_message_id'> & {
+type NoticeMessage = Pick<MessageItem, 'id' | 'content' | 'content_type' | 'sender_user_id' | 'client_message_id' | 'local_send_state' | 'local_send_error' | 'local_send_retryable'> & {
   created_at?: string
   turnFailure?: TurnFailureGroup
 }
@@ -26,7 +27,9 @@ export function SystemMessageNotice({ message, senderName, onOpenTopic }: { mess
     const end = split + separator.length
     return <div className="system-message-notice"><span>{message.content!.slice(0, end)}<InlineAction testId="topic-opened-link" onClick={() => onOpenTopic(notice.topicChatId)}>{message.content!.slice(end)}</InlineAction></span></div>
   }
-  return <div className="system-message-notice"><span>{message.content}</span></div>
+  return <div className="system-message-notice"><span>{message.content}</span>
+    {message.local_send_state && <MessageSendStatus state={message.local_send_state} messageId={message.id} reason={message.local_send_error} retryable={message.local_send_retryable} />}
+  </div>
 }
 
 function AgentReplyFailureNotice({ reason, message, senderName }: { reason: AgentFailureReason; message: NoticeMessage; senderName?: string }) {
