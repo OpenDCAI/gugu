@@ -738,9 +738,9 @@ describe('@@@5856 「这条消息开得出话题吗」只有一个判据,顶栏�
   const base = { id: 'm', seq: 1, local_send_state: undefined, is_whisper: false, retracted_at: null, content_type: 'text' } as Parameters<typeof canSourceTopic>[0]
   it('发送中 / 未送达 / 悄悄话 / 已撤回 都开不出;正常消息开得出', () => {
     expect(canSourceTopic(base)).toBe(true)
-    expect(canSourceTopic({ ...base, seq: -1 })).toBe(false)
-    expect(canSourceTopic({ ...base, local_send_state: 'sending' })).toBe(false)
-    expect(canSourceTopic({ ...base, local_send_state: 'failed' })).toBe(false)
+    expect(canSourceTopic({ ...base, seq: -1 })).toBe(true)
+    expect(canSourceTopic({ ...base, local_send_state: 'sending' })).toBe(true)
+    expect(canSourceTopic({ ...base, local_send_state: 'failed' })).toBe(true)
     expect(canSourceTopic({ ...base, is_whisper: true })).toBe(false)
     expect(canSourceTopic({ ...base, retracted_at: new Date().toISOString() })).toBe(false)
     // 系统消息与附件服务端是收的(名字回落成「话题」)⇒ 客户端也收,❌ 不许比服务端严。

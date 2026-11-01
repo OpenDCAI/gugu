@@ -1,3 +1,7 @@
+import { commitAttachment, forwardAttachment, type CommitArgs } from '@gugu/core/cloud/attachmentsApi'
+import { messageItemFromRow } from '@gugu/core/cloud/messageItem'
+import { attachmentsEndpoint, commitPreparedChatAttachment, type PreparedChatAttachment } from '../lib/attachmentsEndpoint'
+import { topicService, type CreateTopicInput, type CreatedTopic } from '../lib/topics'
 // @@@send-outbox (#1762 洞③/#1941) — outbox 与 chat store 的接线层(卫星,参照 chatRealtimeMutations
 // 的 mutators-bag 抽法):乐观行构造、状态迁移落 UI、送达连带动作(水位/预览/agent 运行态点亮)、
 // 重启恢复注入、online kick。god-file chat.tsx 只保留「建乐观行 + enqueue」。
@@ -16,6 +20,7 @@ import {
   readOutboxRecords,
   type AccountImRepository,
   type OutboxRecord,
+  type OutboxOperation,
 } from '../lib/imRepository'
 import { advanceReadWatermark, applyThreadSnapshot } from './chatRealtimeMutations'
 import { createChatOutbox, type ChatOutbox } from './chatOutbox'
@@ -41,6 +46,10 @@ export interface OutboxWiringIo {
 
 export interface OutboxWiring {
   outbox: ChatOutbox
+  stageAttachment(message: MessageItem): Promise<void>
+  commitAttachment(message: MessageItem, prepared: PreparedChatAttachment, commit: Omit<CommitArgs, 'staging_key'>): Promise<void>
+  forward(source: MessageItem, targetChatId: string, senderUserId: string): Promise<void>
+  createTopic(input: CreateTopicInput, senderUserId: string): Promise<CreatedTopic>
   dispose(): void
   /** sendMessage 入队入口:建持久化记录并入队(乐观行由 chat.tsx 先行插入,二者同 id)。 */
   enqueue(input: {
@@ -73,6 +82,7 @@ export function outboxRecordToMessage(
   _user: { id: string; nickname: string; avatarUrl: string | null },
 ): MessageItem {
   return {
+    ...record.preview,
     id: record.clientMessageId,
     chat_id: record.chatId,
     sender_user_id: record.senderUserId,
@@ -92,6 +102,24 @@ export function outboxRecordToMessage(
     delivery_status: null,
     local_send_state: record.state === 'failed' ? 'failed' : 'sending',
     local_send_error: record.lastError,
+    local_send_retryable: !record.dependencyDiscarded && record.operation?.kind !== 'upload',
+    ...(record.operation?.kind === 'forward' ? { forwarded_from_message_id: record.operation.sourceMessageId } : {}),
+  }
+}
+
+/** The same durable shape backs text, attachment commits, forwards, and topic requests. */
+export function outboxRecordForMessage(message: MessageItem, operation: OutboxOperation): OutboxRecord {
+  if (!message.sender_user_id) throw new Error('An outbox operation requires a sender')
+  const now = new Date().toISOString()
+  return {
+    clientMessageId: message.id, chatId: message.chat_id, senderUserId: message.sender_user_id,
+    preview: { file_item_id: message.file_item_id, file_version: message.file_version, file_blob_id: message.file_blob_id,
+      file_metadata: message.file_metadata, image_dimensions: message.image_dimensions },
+    operation, dependsOn: operation.kind === 'forward' ? operation.sourceMessageId : message.reply_to_message_id ?? undefined,
+    payload: { content: message.content ?? '', contentType: message.content_type, toUserIds: message.to_user_ids ?? null,
+      replyToMessageId: message.reply_to_message_id ?? null, threadRootId: message.thread_root_id ?? null,
+      isThreadRoot: !!message.is_thread_root, isWhisper: !!message.is_whisper },
+    state: 'pending', attempts: 0, lastError: null, enqueuedAt: now, updatedAt: now,
   }
 }
 
@@ -108,6 +136,9 @@ export async function resolveOutboxRecipients(
 
 export function createOutboxWiring(io: OutboxWiringIo): OutboxWiring {
   let active = true
+  // Bytes never enter persistence. An interrupted native publication requires a fresh selection.
+  const nativeCommits = new Map<string, () => Promise<Record<string, unknown>>>()
+  const topicResults = new Map<string, CreatedTopic | undefined>()
   // clientMessageId → 本次会话里发送方交来的投递前置。送达/丢弃即删;失败保留,手动重试会再跑一次。
   const beforeDeliverHooks = new Map<string, () => Promise<void>>()
   // 状态迁移 → 乐观行 local_send_state(pending/sending 统一显示「发送中」,failed 显示「未送达」)。
@@ -115,7 +146,7 @@ export function createOutboxWiring(io: OutboxWiringIo): OutboxWiring {
     if (!active) return
     const state = record.state === 'failed' ? 'failed' : 'sending'
     const patchRow = (m: MessageItem) =>
-      m.id === record.clientMessageId ? { ...m, local_send_state: state as MessageItem['local_send_state'], local_send_error: record.lastError } : m
+      m.id === record.clientMessageId ? { ...m, local_send_state: state as MessageItem['local_send_state'], local_send_error: record.lastError, local_send_retryable: !record.dependencyDiscarded && record.operation?.kind !== 'upload' } : m
     if (record.payload.threadRootId) {
       io.setThreadMessages((prev) => prev.map(patchRow), record.chatId)
     } else {
@@ -135,6 +166,7 @@ export function createOutboxWiring(io: OutboxWiringIo): OutboxWiring {
 
   function removeRow(record: OutboxRecord): void {
     beforeDeliverHooks.delete(record.clientMessageId)
+    nativeCommits.delete(record.clientMessageId)
     if (!active) return
     if (record.payload.threadRootId) {
       io.setThreadMessages((prev) => prev.filter((m) => m.id !== record.clientMessageId), record.chatId)
@@ -149,6 +181,7 @@ export function createOutboxWiring(io: OutboxWiringIo): OutboxWiring {
   // 运行态只由跑这个 agent 的宿主宣布,见 spec agent-status。
   async function handleSent(record: OutboxRecord, persisted: MessageItem): Promise<void> {
     beforeDeliverHooks.delete(record.clientMessageId)
+    nativeCommits.delete(record.clientMessageId)
     if (!active) return
     const user = io.user()
     if (!user) return
@@ -199,6 +232,11 @@ export function createOutboxWiring(io: OutboxWiringIo): OutboxWiring {
       if (!active || !isActive()) throw new Error('outbox scope disposed before durable ack')
       const repository = await io.getImRepository()
       if (!active || !isActive()) throw new Error('outbox scope disposed before durable ack')
+      if (record.operation?.kind === 'topic') {
+        await deleteOutboxRecord(repository, record.clientMessageId)
+        if (topicResults.has(record.clientMessageId)) topicResults.set(record.clientMessageId, delivered as CreatedTopic)
+        return delivered
+      }
       const persisted = delivered as MessageItem
       if (!active || !isActive()) throw new Error('outbox scope disposed before durable ack')
       await ackOutboxRecord(repository, record.clientMessageId, persisted)
@@ -208,29 +246,97 @@ export function createOutboxWiring(io: OutboxWiringIo): OutboxWiring {
       await beforeDeliverHooks.get(record.clientMessageId)?.()
       return resolveOutboxRecipients(record, (chatId, userId) => chatService.getDmPeerUserId(chatId, userId))
     },
-    deliver: (record) =>
-      chatService.sendMessage(record.chatId, record.senderUserId, record.payload.content,
+    deliver: async (record) => {
+      const operation = record.operation
+      if (operation?.kind === 'topic') return topicService.createTopic(operation.input)
+      if (operation?.kind === 'upload') throw new Error(i18n.t('outbox.selectFileAgain', { ns: 'messaging' }))
+      let raw: Record<string, unknown> | undefined
+      if (operation?.kind === 'attachment') raw = await commitAttachment(await attachmentsEndpoint(), operation.commit)
+      if (operation?.kind === 'nativeAttachment') {
+        const publish = nativeCommits.get(record.clientMessageId)
+        if (publish) {
+          // Publish native bytes at most once. A lost IPC acknowledgement is
+          // reconciled by the same message id on a later attempt.
+          nativeCommits.delete(record.clientMessageId)
+          raw = await publish()
+        } else {
+          const existing = await chatService.getMessageById(record.clientMessageId, record.senderUserId)
+          if (existing) return existing
+          throw new Error(i18n.t('outbox.selectFileAgain', { ns: 'messaging' }))
+        }
+      }
+      if (operation?.kind === 'forward' && record.payload.contentType === 'attachment') {
+        raw = await forwardAttachment(await attachmentsEndpoint(), {
+          source_message_id: operation.sourceMessageId, message_id: record.clientMessageId,
+          chat_id: record.chatId, sender_user_id: record.senderUserId, to_user_ids: record.payload.toUserIds ?? [],
+        })
+      }
+      if (raw) {
+        const message = messageItemFromRow(raw, record.senderUserId)
+        if (!message || message.id !== record.clientMessageId || message.chat_id !== record.chatId || message.sender_user_id !== record.senderUserId || message.seq <= 0) throw new Error('Attachment commit returned an invalid message')
+        return message
+      }
+      return chatService.sendMessage(record.chatId, record.senderUserId, record.payload.content,
         record.clientMessageId, record.payload.contentType, {
-          toUserIds: record.payload.toUserIds,
-          replyToMessageId: record.payload.replyToMessageId,
-          threadRootId: record.payload.threadRootId,
-          isThreadRoot: record.payload.isThreadRoot,
-          isWhisper: record.payload.isWhisper,
-        }),
+          toUserIds: record.payload.toUserIds, replyToMessageId: record.payload.replyToMessageId,
+          threadRootId: record.payload.threadRootId, isThreadRoot: record.payload.isThreadRoot, isWhisper: record.payload.isWhisper,
+          ...(operation?.kind === 'forward' ? { forwardedFromMessageId: operation.sourceMessageId } : {}),
+        })
+    },
     onState: reflectState,
-    onSent: (record, acknowledged) =>
-      handleSent(record, acknowledged as MessageItem).catch((err) => {
+    onSent: (record, acknowledged) => {
+      if (record.operation?.kind === 'topic') { removeRow(record); return }
+      return handleSent(record, acknowledged as MessageItem).catch((err) => {
         // 连带动作失败(回读/摘要刷新)不影响送达事实——realtime 回显会补;大声记录不静默。
         console.error('[chatOutbox] post-send side effects failed', err)
-      }),
+      })
+    },
     onDiscarded: removeRow,
   })
 
   return {
     outbox,
+    async stageAttachment(message) {
+      await outbox.stageUpload(outboxRecordForMessage(message, { kind: 'upload' }))
+    },
+    async commitAttachment(message, prepared, commit) {
+      const operation: OutboxOperation = 'staging_key' in prepared
+        ? { kind: 'attachment', commit: { ...commit, staging_key: prepared.staging_key } }
+        : { kind: 'nativeAttachment', commit }
+      if ('local' in prepared) nativeCommits.set(message.id, async () => commitPreparedChatAttachment(await attachmentsEndpoint(), prepared, commit))
+      if (!await outbox.commitUpload(outboxRecordForMessage(message, operation))) nativeCommits.delete(message.id)
+    },
+    async forward(source, targetChatId, senderUserId) {
+      const message: MessageItem = { ...source, id: crypto.randomUUID(), chat_id: targetChatId, sender_user_id: senderUserId,
+        to_user_ids: null, is_whisper: false, thread_root_id: null, reply_to_message_id: null, is_thread_root: false,
+        seq: -1, created_at: new Date().toISOString(), reactions: [], is_mine: true, local_send_state: 'sending' }
+      const record = outboxRecordForMessage(message, { kind: 'forward', sourceMessageId: source.id })
+      const target = io.chats().find(chat => chat.id === targetChatId)
+      record.payload.resolveDmPeer = target?.kind === 'dm' || target?.kind === 'ai'
+      await outbox.enqueue(record)
+      io.appendMessage(outboxRecordToMessage(record, io.user()!))
+    },
+    async createTopic(input, senderUserId) {
+      const id = crypto.randomUUID()
+      const record = outboxRecordForMessage({ id, chat_id: input.sourceChatId, sender_user_id: senderUserId,
+        content: input.name || i18n.t('history.createTopic', { ns: 'messaging' }), content_type: 'system' } as MessageItem,
+        { kind: 'topic', input: { ...input, topicId: id } })
+      record.dependsOn = input.sourceMessageId
+      topicResults.set(id, undefined)
+      try {
+        await outbox.enqueue(record)
+        io.appendMessage(outboxRecordToMessage(record, io.user()!))
+        await outbox.delivered(id)
+        const created = topicResults.get(id)
+        if (!created) throw new Error('Topic creation was not acknowledged')
+        return created
+      } finally { topicResults.delete(id) }
+    },
     dispose() {
       active = false
       beforeDeliverHooks.clear()
+      nativeCommits.clear()
+      topicResults.clear()
       outbox.dispose()
     },
     async enqueue(input) {
@@ -249,6 +355,7 @@ export function createOutboxWiring(io: OutboxWiringIo): OutboxWiring {
           isWhisper: input.isWhisper,
           ...(input.resolveDmPeer ? { resolveDmPeer: true } : {}),
         },
+        dependsOn: input.replyToMessageId ?? undefined,
         state: 'pending',
         attempts: 0,
         lastError: null,

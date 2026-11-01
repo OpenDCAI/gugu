@@ -1,3 +1,4 @@
+import type { CreateTopicInput, CreatedTopic } from '../lib/topics'
 import type { UnreadLocatorCommit } from '../lib/chatUnreadLocatorWindow'
 import type { ChatConversationAccess } from './useChatConversation'
 import type { HistoryWindow } from './chatHistoryWindow'
@@ -109,6 +110,9 @@ export interface ChatContextValue {
   // 返回成功落库的消息 id（「新建话题」首条发完后用它 openThread 进入话题）；未发送返回 undefined。
   // @@@threads (#1531) — isThreadRoot：新建话题首条 INSERT 即标 root，触发器据此把 agent 回复路由进本条 thread。
   sendMessage: (content: string, opts?: SendMessageOptions) => Promise<string | undefined>
+  forwardMessage: (source: MessageItem, targetChatId: string) => Promise<void>
+  createTopic: (input: CreateTopicInput) => Promise<CreatedTopic>
+  sendAttachmentsToChat: (chatId: string, files: File[], opts?: SendAttachmentOptions) => Promise<string | undefined>
   sendAttachments: (files: File[], opts?: SendAttachmentOptions) => Promise<string | undefined>
   sendMessageToChat: (chatId: string, content: string, opts?: SendMessageOptions) => Promise<string | undefined>
   // @@@send-outbox (#1762 洞③/#1941) — failed 消息的重试/丢弃(MessageSendStatus 直连,无 props 钻孔)
@@ -176,6 +180,9 @@ const EMPTY_CHAT_STORE: ChatContextValue = {
   jumpToUnreadEntry: async () => {},
   setActiveChatId: () => {},
   sendMessage: async () => undefined,
+  forwardMessage: async () => { throw new Error('Chat store is not ready') },
+  createTopic: async () => { throw new Error('Chat store is not ready') },
+  sendAttachmentsToChat: async () => undefined,
   sendAttachments: async () => undefined,
   sendMessageToChat: async () => undefined,
   retrySend: () => {},

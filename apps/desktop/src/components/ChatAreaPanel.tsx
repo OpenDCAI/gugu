@@ -12,7 +12,6 @@ import { useChatStore } from '../store/chatContext'
 import { ChatLineScope } from '../store/chatLineScope'
 import { useAuth } from '../store/auth'
 import type { AgentConversationActivity, GroupCollabSnapshot, MessageItem } from '@gugu/core/shared/types/chat'
-import { chatService } from '../lib/chat'
 import { useUnreadLocatorNavigation } from '../hooks/useUnreadLocatorNavigation'; import { useQueuedMessageIds } from '../hooks/useQueuedMessageIds'
 import { useSourceMessageReveal } from '../hooks/useSourceMessageReveal'
 import { useChatHistoryPagination } from './chat/useChatHistoryPagination'
@@ -117,7 +116,7 @@ export function ChatAreaPanel({ chatId, ...surface }: ChatAreaPanelProps) {
 function ChatAreaSurface({ viewportKey = 'chats', imPage = false, navigationTarget = false, hidden = false, mobile = false, openNonce, onBack, chrome, blockHost, onOpenUserChat }: Omit<ChatAreaPanelProps, 'chatId'>) {
   const { toast } = useToast()
   const { t } = useTranslation('messaging')
-  const { getImRepository, subscribeAccountRevision, identitiesById, chats, activeChat, activeChatId, messages, loadingMessages, messagesError, refreshMessages, sendMessage, toggleReaction, memberReadSeqs, clearMessages, deleteMessage, sendAttachments, pinChat, deleteChat, leaveGroup, setChatNotificationLevel, loadOlderMessages, messageWindow, unreadEntry, jumpToUnreadEntry, loadNewerMessages, loadMessageAnchor, returnToLatestMessages, markMessageVisible, setFollowingTail, threadScope, setActiveChatId } = useChatStore('getImRepository', 'subscribeAccountRevision', 'identitiesById', 'chats', 'activeChat', 'activeChatId', 'messages', 'loadingMessages', 'messagesError', 'refreshMessages', 'sendMessage', 'toggleReaction', 'memberReadSeqs', 'clearMessages', 'deleteMessage', 'sendAttachments', 'pinChat', 'deleteChat', 'leaveGroup', 'setChatNotificationLevel', 'loadOlderMessages', 'messageWindow', 'unreadEntry', 'jumpToUnreadEntry', 'loadNewerMessages', 'loadMessageAnchor', 'returnToLatestMessages', 'markMessageVisible', 'setFollowingTail', 'threadScope', 'setActiveChatId')
+  const { getImRepository, subscribeAccountRevision, identitiesById, chats, activeChat, activeChatId, messages, loadingMessages, messagesError, refreshMessages, sendMessage, forwardMessage, toggleReaction, memberReadSeqs, clearMessages, deleteMessage, sendAttachments, pinChat, deleteChat, leaveGroup, setChatNotificationLevel, loadOlderMessages, messageWindow, unreadEntry, jumpToUnreadEntry, loadNewerMessages, loadMessageAnchor, returnToLatestMessages, markMessageVisible, setFollowingTail, threadScope, setActiveChatId } = useChatStore('getImRepository', 'subscribeAccountRevision', 'identitiesById', 'chats', 'activeChat', 'activeChatId', 'messages', 'loadingMessages', 'messagesError', 'refreshMessages', 'sendMessage', 'forwardMessage', 'toggleReaction', 'memberReadSeqs', 'clearMessages', 'deleteMessage', 'sendAttachments', 'pinChat', 'deleteChat', 'leaveGroup', 'setChatNotificationLevel', 'loadOlderMessages', 'messageWindow', 'unreadEntry', 'jumpToUnreadEntry', 'loadNewerMessages', 'loadMessageAnchor', 'returnToLatestMessages', 'markMessageVisible', 'setFollowingTail', 'threadScope', 'setActiveChatId')
   const { user } = useAuth()
   const surfaceTab = useImPageTab(imPage), surfaceVisible = surfaceTab === 'chats' && !hidden
   const surfaceElement = useRef<HTMLDivElement>(null)
@@ -389,11 +388,11 @@ function ChatAreaSurface({ viewportKey = 'chats', imPage = false, navigationTarg
     if (!user || forwardMessages.length === 0) return
     for (const msg of forwardMessages) {
       for (const targetChatId of targetChatIds) {
-        await chatService.forwardMessage(msg.id, targetChatId, user.id)
+        await forwardMessage(msg, targetChatId)
       }
     }
     if (selectMode) exitSelectMode()
-  }, [forwardMessages, user, selectMode, exitSelectMode])
+  }, [forwardMessages, user, selectMode, exitSelectMode, forwardMessage])
 
   // Listen for RPC-triggered quote
   useEffect(() => {

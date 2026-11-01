@@ -89,7 +89,7 @@ export function useTopicSurface({
   onCreateFailed,
   embedded,
 }: UseTopicSurfaceArgs): TopicSurface {
-  const { conversations } = useChatStore('conversations')
+  const { conversations, createTopic } = useChatStore('conversations', 'createTopic')
   const chatId = chat?.id ?? null
   const sourceMessages = useRef(messages)
   sourceMessages.current = messages
@@ -171,7 +171,7 @@ export function useTopicSurface({
           const existing = (await topicService.listTopicsOfChat(chatId)).find((topic) => topic.source_message_id === sourceMessageId)
           if (existing) { openSplit({ chatId: existing.chat_id, name: existing.name }); return }
         }
-        const created = await topicService.createTopic({
+        const created = await createTopic({
           sourceChatId: chatId,
           sourceMessageId,
           // 任务卡上开的话题(手机点卡、老卡还没有话题时)叫任务那句话,❌ 落成服务端的默认名。
@@ -187,7 +187,7 @@ export function useTopicSurface({
         onCreateFailedRef.current(error)
       }
     },
-    [chatId, openSplit, reloadTopics],
+    [chatId, openSplit, reloadTopics, createTopic],
   )
 
   return {

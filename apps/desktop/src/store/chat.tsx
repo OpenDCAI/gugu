@@ -50,7 +50,6 @@ import { createSupabaseAccountRevisionSource } from '../lib/supabaseAccountRevis
 import { initializeAccountSync } from '../lib/accountSyncSnapshot'
 import { subscribeAgentPresenceRevisions } from '../lib/agentPresenceStore'
 import { sendAttachmentBatch } from '../components/chat/sendAttachmentBatch'
-import { observeAttachmentMessage } from '../lib/attachmentSendRecovery'
 import { i18n } from '../i18n'
 import { rendererLogger } from '../lib/log'
 const revisionLog = rendererLogger('chat/account-revision')
@@ -772,6 +771,10 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
   }, [cache, persistWindowToLocalSync, setMessagesAndCache])
   const deleteMessage = useCallback(async (messageId: string, targetChatId = activeChatIdRef.current) => {
     if (targetChatId) invalidateMessageSnapshots(targetChatId)
+    if (outboxRef.current?.outbox.has(messageId)) {
+      await outboxRef.current.outbox.discard(messageId)
+      return
+    }
     const { chatId } = await chatService.deleteMessage(messageId)
     invalidateMessageSnapshots(chatId)
     removeMessage(messageId, chatId)
@@ -805,9 +808,8 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
     if (!opts.threadRootId) {
       if (!cache.history(chatId, viewport).followForSend()) await loadHistoryPage('latest', chatId, viewport)
     }
-    return sendAttachmentBatch({ ...opts, files, chatId, senderId: userId, toUserIds, appendMessage,
-      observeMessage: observeAttachmentMessage(subscribeAccountRevision, userId, chatId), removePlaceholder: (id) => removeMessage(id, chatId) })
-  }, [userId, cache, loadHistoryPage, appendMessage, removeMessage, subscribeAccountRevision])
+    return sendAttachmentBatch({ ...opts, files, chatId, senderId: userId, toUserIds, appendMessage, outbox: outboxRef.current! })
+  }, [userId, cache, loadHistoryPage, appendMessage])
 
   const pinChat = useCallback(async (chatId: string, pinned: boolean) => {
     if (!userId) throw new Error('Not authenticated')
@@ -915,6 +917,15 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
         loadingChats: chatsLoad === 'loading', chatsLoadFailed: chatsLoad === 'failed', chatsRead: chatsLoad === 'idle',
         setActiveChatId,
         sendMessageToChat,
+        sendAttachmentsToChat,
+        forwardMessage: async (source, targetChatId) => {
+          if (!outboxRef.current || !userId) throw new Error('Not authenticated')
+          await outboxRef.current.forward(source, targetChatId, userId)
+        },
+        createTopic: async (input) => {
+          if (!outboxRef.current || !userId) throw new Error('Not authenticated')
+          return outboxRef.current.createTopic(input, userId)
+        },
         retrySend,
         discardSend,
         refreshChats: loadChats,

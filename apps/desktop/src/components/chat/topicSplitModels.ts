@@ -8,32 +8,11 @@ export function quotePrefixOf(message: Pick<MessageItem, 'content'>): string {
   return `> ${firstLine.length > 60 ? `${firstLine.slice(0, 60)}…` : firstLine}`
 }
 
-/**
- * 顶栏那颗「开话题」的来源:这条线上**最新一条真能当来源**的消息,没有就返回 null(按钮不画)。
- *
- * 判据与服务端一一对应,❌ 不许只在这边挡:
- * - `seq >= 0` 且没有 `local_send_state` —— 乐观行服务端还不存在;发失败的红气泡会一直挂在末尾,
- *   直接取末尾等于这颗按钮**每次都开不出来**,而 create_topic 只会说「来源消息不是这条线上的活消息」。
- * - 非悄悄话、未撤回 —— 话题名截自来源正文且对全线可见,拿这两种当来源就是把不该看见的那句话
- *   重新贴到所有人眼前(20260919001500 / 20260919003000 两条迁移硬拒)。
- * ❗判据到此为止,**与服务端逐条对齐**:系统消息与附件服务端是收的(只是名字回落成「话题」),
- * 所以这里也收。客户端比服务端严的后果是这颗按钮在「最近全是附件」的线上**整颗消失、不给任何解释**
- * (刚建好、只有一条入群系统消息的新群就是这种线),而用户只剩右键那一条路 —— 那是自找的缺陷。
- */
+/** Source eligibility matches server privacy rules; outbox waits for local sources. */
 export type TopicSourceCandidate =
   Pick<MessageItem, 'id' | 'seq' | 'local_send_state' | 'is_whisper' | 'retracted_at' | 'content_type'>
 
-/**
- * 「这条消息开得出话题吗」—— 顶栏那颗按钮与右键菜单**共用这一个判据**。
- *
- * @@@5856 找茬第八轮:原先两处各写一份 —— 顶栏挡了乐观行,右键只挡了悄悄话与撤回,
- * 于是在「发送中 / 未送达」的红气泡上右键还能点「开话题」,点完服务端必拒
- * (`Source message … is not a live message`),界面只给一句帮不上忙的 toast。
- * 两份判据就是允许它们漂开;收成一份之后,漏的那一半不可能只在一边补上。
- */
 export function canSourceTopic(message: TopicSourceCandidate): boolean {
-  // 乐观行服务端还不存在;发失败的红气泡会一直挂着,拿它当来源是必拒。
-  if (message.seq < 0 || message.local_send_state) return false
   // 话题名截自来源正文且对全线可见 ⇒ 悄悄话与撤回不许当来源
   // (20260919001500 / 20260919003000 两条迁移硬拒)。
   if (message.is_whisper || message.retracted_at) return false

@@ -807,6 +807,8 @@ export default {
     "widget": "[Widget]"
   },
   "outbox": {
+    "selectFileAgain": "Upload interrupted. Select the file again.",
+    "sourceDiscarded": "The original message was discarded before it was sent",
     "deliveryTimeout": "Delivery timed out after {{seconds}}s because the network stopped responding",
     "discarded": "Discarded",
     "offscreenFailure": "A message was not delivered. Return to its chat to retry or discard it.",

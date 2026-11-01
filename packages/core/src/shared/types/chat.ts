@@ -139,6 +139,7 @@ export interface MessageItem {
   delivery_blocks?: Array<{ agent_user_id: string; reason: 'agent_archived' }>
   local_send_state?: 'sending' | 'failed' | 'unknown' | null
   local_send_error?: string | null
+  local_send_retryable?: boolean
   forwarded_from_message_id?: string | null
   // @@@threads (#957) — 非空 = 此消息是某话题(thread_root_id 指向的 root)下的回复；
   // 主时间线过滤掉这些(不刷屏主线)、thread 视图按 root 聚合。root 消息本身 thread_root_id 为 null。

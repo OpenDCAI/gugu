@@ -13,6 +13,7 @@ import type { TopicSummary } from '@gugu/core/shared/types/chat'
 import { chatDb, getCurrentAuthUserId } from './supabase'
 
 export type CreateTopicInput = {
+  topicId?: string
   sourceChatId: string
   sourceMessageId: string
   /** 不给就由服务端截自来源消息首行前 40 字(spec:名字没人会认真起,不值得为它多一次等待)。 */
@@ -74,6 +75,7 @@ export const topicService = {
    */
   async createTopic(input: CreateTopicInput): Promise<CreatedTopic> {
     const { data, error } = await chatDb.rpc('create_topic', {
+      ...(input.topicId ? { p_topic_id: input.topicId } : {}),
       p_source_chat_id: input.sourceChatId,
       p_source_message_id: input.sourceMessageId,
       p_name: input.name?.trim() || null,
