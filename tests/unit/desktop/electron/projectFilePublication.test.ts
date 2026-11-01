@@ -116,7 +116,11 @@ describe('external selections become durable project-owned copies through the sa
   })
   it.each(['copy-failure', 'changed-source'])('cleans only its unpublished copy after %s, keeping the user original and no index', async mode => {
     const f = fixture(); await writeFile(selected().path, data); copyFault.mode = mode
-    await expect(f.publish('group', selected(), null, 'owner')).rejects.toThrow()
+    // This fault is injected at Node's copyFile, so exercise that branch on every test platform.
+    const platform = Object.getOwnPropertyDescriptor(process, 'platform')!
+    Object.defineProperty(process, 'platform', { ...platform, value: 'linux' })
+    try { await expect(f.publish('group', selected(), null, 'owner')).rejects.toThrow() }
+    finally { Object.defineProperty(process, 'platform', platform) }
     expect(await readdir(join(root, '.gugu/attachments'))).toEqual([])
     expect(await readFile(join(root, file.name))).toEqual(Buffer.from(data))
     expect(publishedPaths(f)).toEqual([]); expect(await readProjectFile({ item_id: 'item' }, 'owner', 'device', env)).toBeNull()
