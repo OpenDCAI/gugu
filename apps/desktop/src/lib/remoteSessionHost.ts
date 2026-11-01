@@ -254,6 +254,9 @@ export function openRemoteSessionHostPipe(
         else void deps.requestCloudUpgrade?.(deviceId)
         throw new SessionHostTooOldError()
       }
+      // No answer to the open within its bound: that machine is not there, whatever the directory still says (its lease
+      // outlives a crash or a cut network by minutes). Say so by code, so a page does not wait it out as a hiccup.
+      if (error instanceof DeviceRpcTimeoutError) throw Object.assign(error, { code: 'timeout' })
       throw error
     }
     abandonOpen = null

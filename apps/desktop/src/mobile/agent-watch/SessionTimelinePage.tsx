@@ -94,9 +94,13 @@ export const SessionTimelinePage = observer(function SessionTimelinePage({
   const apps = useSessionApps()
   const {
     timeline, phase, error, actionError, dismissActionError, waitingForRecord,
-    reload, loadOlder, loadToolImage, pendingSends, respond, sending, respondingItemId, cancel, cancelling,
+    reload, loadOlder, loadToolImage, pendingSends, respond, sending, respondingItemId, cancel, cancelling, link, errorCode,
   } =
     useAgentWatchSession(device.device_id, session.conversationId, online, firstPrompt, phoneHost)
+  // The directory says a crashed / unplugged machine is online until its lease runs out (about two minutes): its not
+  // answering is the earlier fact. Same note as offline; the session keeps trying and the page comes back by itself.
+  const hostSilent = online && link === 'lost' && (!error || errorCode === 'timeout')
+  const reachable = online && !hostSilent
 
   const native = !phoneHost && session.runtime === 'acp' && session.nativeInputVersion === 1
   const nativeRecord = useNativeSessionRecord(device.device_id, session.conversationId, native, online)
@@ -108,8 +112,8 @@ export const SessionTimelinePage = observer(function SessionTimelinePage({
   // Identified agents share the group/avatar reading; transport only governs timeline access.
   const shownStatus = useShownAgentStatus()
   const agentUserId = agent?.agentUserId ?? session.agent?.userId
-  const presentation = !agentUserId && !online ? null
-    : shownStatus.presentation(agentUserId, sessionPresentation(session, online, agentUserId))
+  const presentation = !agentUserId && !reachable ? null
+    : shownStatus.presentation(agentUserId, sessionPresentation(session, reachable, agentUserId))
   const statusColor = presentation ? agentStatusColorVar(presentation.tone) : null
   const statusStyle: CSSProperties | undefined = statusColor ? { color: statusColor } : undefined
   const distinctAgentName = agent && agent.displayName !== session.title ? agent.displayName : null
@@ -135,7 +139,7 @@ export const SessionTimelinePage = observer(function SessionTimelinePage({
   }
   const offlineNotice = !networkOnline
     ? <AgentWatchNote title={translateSessionMessage('conversation.connectionUnavailable')} testId="agent-watch-local-offline" />
-    : cloudAsleep ? <CloudComputerNote device={device} issue={wakeIssue} dropped={wakeDropped} onRetry={retryWake} /> : <OfflineNote lastSeenAt={device.last_seen_at} phone={phoneHost} />
+    : cloudAsleep ? <CloudComputerNote device={device} issue={wakeIssue} dropped={wakeDropped} onRetry={retryWake} /> : <OfflineNote device={device} sendLater />
 
   // Keep the same task composer even before a cold offline phone has any timeline.
   // Its durable input queue waits for the host's stable acknowledgement contract.
@@ -176,7 +180,7 @@ export const SessionTimelinePage = observer(function SessionTimelinePage({
         apps={apps}
         onOpenApp={setAppKind}
       /> : null}
-      {online ? (
+      {reachable ? (
         <IconButton size="md" aria-label={t('agentWatch.sessions.menu')} data-testid="agent-watch-session-page-menu" onClick={(event) => setMenuAnchor(event.currentTarget)}>
           <MoreHorizontal />
         </IconButton>
@@ -208,12 +212,12 @@ export const SessionTimelinePage = observer(function SessionTimelinePage({
         />
       ) : null}
 
-      {!online && queuedInputs.length === 0 ? (
+      {!reachable && queuedInputs.length === 0 ? (
         /* 待发消息只带正常发送中状态;没有待发内容时才显示机器连接状态。 */
         offlineNotice
       ) : null}
 
-      {networkOnline && (error || nativeRecord.error) ? (
+      {networkOnline && !hostSilent && (error || nativeRecord.error) ? (
         <AgentWatchNote
           title={t('agentWatch.timeline.loadFailed')}
           detail={nativeRecord.error ?? error ?? undefined}
@@ -249,11 +253,11 @@ export const SessionTimelinePage = observer(function SessionTimelinePage({
           headerRunning={presentation?.tone === 'running'}
           onStop={cancel}
           stopping={cancelling}
-          footerNotice={<><SessionInputQueue sessionId={session.conversationId} waitingForConnection={!online} />{actionErrorNotice}</>}
+          footerNotice={<><SessionInputQueue sessionId={session.conversationId} waitingForConnection={!reachable} />{actionErrorNotice}</>}
           onAtBottom={native ? nativeRecord.loadNewer : undefined}
           onLoadOlder={native ? nativeRecord.loadOlder : loadOlder}
           onLoadToolImage={loadToolImage}
-          emptyNote={online && (phase === 'loading' || timeline.turns.length > 0) ? (
+          emptyNote={reachable && (phase === 'loading' || timeline.turns.length > 0) ? (
             /* 刚建的会话:记录要等 agent 写下第一行才有。那时说「正在等它开口」,❌ 不说「正在读取」——
                读取早就成功了,是对面还没写。线上已画着刚发的那句时不说(线程有内容就不画空态):那句本身就是「发出去了」。
                画在线程自己的空态位上,❌ 在线程上方另起一行:那样空着的线程还会再说一句「Nothing in this task yet」
