@@ -215,6 +215,32 @@ describe('useCreateSessionCallback ordinary messaging', () => {
     expect(mocks.localSendMessage).not.toHaveBeenCalled();
   });
 
+  it.each([undefined, 'chat-target'])('PTY startup only includes a local path outside a chat task card (chat=%s)', async taskChatId => {
+    const ref = { itemId: 'brief', version: 1, name: 'brief.txt', mimeType: 'text/plain', sizeBytes: 3, path: '/private/brief.txt' };
+    initialSession.sessionView = 'code';
+    initialSession.sessionpage = { 'tui': { identity: 'addressable', messageTransport: 'local-session' } };
+    initialSession.promptCapability = { kind: 'argv', startupDelivery: 'startup-prompt' };
+    initialSession.attachments = [{ id: 'file', name: ref.name, kind: 'file' }];
+    initialSession.prepareAttachments = async () => [ref];
+    initialSession.placeAttachments = async () => [ref];
+    await act(async () => root.render(React.createElement(Probe, { taskChatId })));
+    try {
+      await act(async () => latest?.handleCreateSession());
+      const prompt = mocks.createSession.mock.calls.at(-1)?.[0].sessionConfig.initialSession.initialPrompt as string;
+      expect(prompt).toContain('make one task');
+      expect(prompt).toContain('brief.txt');
+      expect(prompt).toContain('gugu-file://brief?v=1');
+      if (taskChatId) {
+        expect(prompt).not.toContain(ref.path);
+        expect(prompt).toContain('not saved');
+      } else expect(prompt).toContain(ref.path);
+    } finally {
+      initialSession.attachments = [];
+      initialSession.prepareAttachments = async () => [];
+      initialSession.placeAttachments = async () => [];
+    }
+  });
+
   it('keeps a selected local-session mention in the startup queue text', async () => {
     const peerId = '11111111-1111-4111-8111-111111111111';
     const mentionContext = `@user:${peerId}: name: Codex 1; kind=agent; scope=local ACP session in this task; send with session_message to=user:${peerId}`;

@@ -645,8 +645,6 @@ export function mergeTypedPrompts(sources: readonly QueuedPrompt[]): QueuedPromp
     origin: 'typed',
     text: join(sources.map((prompt) => prompt.text)),
     ...(hiddenContext ? { hiddenContext } : {}),
-    ...(sources.some(prompt => prompt.files?.length) ? { files: sources.flatMap(prompt => prompt.files ?? []) } : {}),
-    ...(sources.some(prompt => prompt.attachments?.length) ? { attachments: sources.flatMap(prompt => prompt.attachments ?? []) } : {}),
     createdAt: head.createdAt,
     updatedAt: Math.max(...sources.map((prompt) => prompt.updatedAt)),
   };

@@ -44,7 +44,7 @@ interface UseCreateSessionCallbackParams {
   birthChatId?: string;
   /**
    * gugu-dev#181 派任务:这一轮由哪个对话的输入框派出。首句由宿主落成那里的一张任务卡(task-card-first-turn.ts),
-   * 结果回那里。只对会话页那一面成立:首句是 spawn 的启动载荷(装不下附件引用,带附件就不建,见下)。
+   * 结果回那里。ACP 首句的附件引用由 Life 准备;PTY 卡片只放文件夹引用,不带本机路径。
    */
   taskChatId?: string;
   /**
@@ -185,7 +185,7 @@ export function useCreateSessionCallback({
       ? { ...ref, path: undefined, workspacePath: taskAttachmentWorkspacePath(ref.itemId, ref.name) } : ref);
     // ACP keeps the person's words: Life prepares file context only after placement. PTY retains its text-only leg.
     const text = baseSession.type === 'acp' ? initialSession.prompt.trim() : [initialSession.prompt.trim(),
-      ...named.map(ref => turnAttachmentText(ref, deviceId || !ref.path
+      ...named.map(ref => turnAttachmentText(ref, deviceId || !ref.path || taskChatId
         ? { failure: 'kept on the computer it was attached from — open the folder file above' }
         : { localPath: ref.path })),
     ].filter(Boolean).join('\n');
