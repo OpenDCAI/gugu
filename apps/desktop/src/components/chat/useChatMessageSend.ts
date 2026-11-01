@@ -83,7 +83,7 @@ export function useChatMessageSend(props: ChatMessageComposerProps, draft: ChatD
       if (pendingFiles.length > 0 && onSendAttachments) await beforeSend?.()
 
       if (pendingFiles.length > 0 && onSendAttachments) {
-        await onSendAttachments(pendingFiles, { toUserIds: sendOptions.toUserIds, isWhisper: !!whisperTarget, caption: captionOnImage ? content || undefined : undefined, onSent: (_file, index) => { committed.add(index) } })
+        await onSendAttachments(pendingFiles, { toUserIds: sendOptions.toUserIds, replyToMessageId: !typed && replyToMessageId ? replyToMessageId : undefined, isWhisper: !!whisperTarget, caption: captionOnImage ? content || undefined : undefined, onSent: (_file, index) => { committed.add(index) } })
       }
       if (typed && (!captionOnImage || !onSendAttachments)) {
         await onSend(content, { ...sendOptions, beforeDeliver: beforeSend, submittedAt })

@@ -14,7 +14,7 @@ vi.mock('@renderer/features/settings/use-app-settings-key', () => ({ useAppSetti
 vi.mock('@tanstack/react-hotkeys', async original => ({ ...await original<typeof import('@tanstack/react-hotkeys')>(), detectPlatform: () => 'linux' }))
 vi.mock('@/components/imageAnnotate/annotateRender', async original => ({ ...await original<typeof import('@/components/imageAnnotate/annotateRender')>(), loadAnnotationImage: mocks.image }))
 vi.mock('@/components/imageAnnotate/annotateSource', () => ({ annotationItem: async (item: unknown) => item }))
-vi.mock('@/components/imageAnnotate/useAnnotateSend', () => ({ useAnnotateSend: vi.fn() }))
+vi.mock('@/components/imageAnnotate/useAnnotateActions', () => ({ useAnnotateActions: vi.fn() }))
 vi.mock('@/platform', () => import('../../../support/capacitorPlatformTestDouble'))
 
 let harness: ReturnType<typeof createReactHarness>, remove: () => void
