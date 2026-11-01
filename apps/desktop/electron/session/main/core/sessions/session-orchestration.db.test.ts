@@ -2499,8 +2499,8 @@ describe('schedule_list / schedule_cancel with session_id', () => {
 
   async function seedArchivedWithSchedule(): Promise<string> {
     fixture.sqlite
-      .prepare(`INSERT INTO sessions (id, project_id, workspace_id, title, provider, runtime, archived_at)
-                VALUES ('patrol', 'project-1', 'workspace-1', 'Patrol', 'codex', 'acp', '2026-10-31T21:36:10.836Z')`)
+      .prepare(`INSERT INTO sessions (id, project_id, workspace_id, provider, runtime, config, archived_at)
+                VALUES ('patrol', 'project-1', 'workspace-1', 'codex', 'acp', '{"version":"1","type":"acp","agentDisplayName":"Patrol"}', '2026-10-31T21:36:10.836Z')`)
       .run();
     const { runAgentScheduleAction } = await import('../automations/agent-schedules');
     const created = await runAgentScheduleAction(
