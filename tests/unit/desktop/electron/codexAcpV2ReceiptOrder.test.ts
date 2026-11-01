@@ -149,7 +149,7 @@ it('steering admits later inputs without an echo, suppresses its echoes and pres
     expect(await p.agent.request(v2.methods.agent.session.prompt, prompt('start'))).toEqual({ messageId: 'start' });
     for (const text of ['first', 'second']) expect(await p.agent.request('_session/steering', prompt(text))).toEqual({ outcome: 'injected' });
     await awaitFact('unsolicited user echo after both suppressed echoes', () => p.updates.some(update => update.sessionUpdate === 'user_message' && update.messageId === 'other-client') ? true : undefined, { producer: p.child });
-    expect(p.updates.filter(update => update.sessionUpdate === 'user_message').map(update => update.messageId)).toEqual(['start', 'other-client']);
+    expect(p.updates.flatMap(update => update.sessionUpdate === 'user_message' ? [update.messageId] : [])).toEqual(['start', 'other-client']);
   } finally { await p.close(); }
 });
 
