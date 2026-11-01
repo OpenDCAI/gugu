@@ -22,6 +22,7 @@ function fakeCloud() {
   const commands = []
   const calls = []
   const messages = []
+  const notices = []
   const inboxRows = []
   const devices = []
   const users = [{ id: agentId, type: 'agent', owner_user_id: ownerId, device_id: deviceId, display_name: '手机 Agent', desired_status: 'online' }, { id: ownerId, type: 'human', display_name: '主人' }]
@@ -55,6 +56,11 @@ function fakeCloud() {
         throw new Error(`unexpected table ${table}`)
       }
       const query = {
+        insert: async (row) => {
+          if (table !== 'messages') throw new Error(`unexpected insert into ${table}`)
+          if (!notices.some((notice) => notice.id === row.id)) notices.push(structuredClone(row))
+          return { data: null, error: null }
+        },
         upsert: async (row) => {
           calls.push(['upsert_device', row])
           const existing = devices.find((device) => device.device_id === row.device_id)
@@ -107,7 +113,7 @@ function fakeCloud() {
       throw new Error(`unexpected ${schema} RPC ${name}`)
     },
   }
-  return { cloud, commands, calls, messages, inboxRows, devices, users }
+  return { cloud, commands, calls, messages, notices, inboxRows, devices, users }
 }
 
 async function fixture(runTurn, { nativeCall = async () => ({ ok: true }), cancelTurn = () => true, actionFactory = async () => ({ tools: () => [], confirmationForMessage: () => null, cancel: async () => undefined }), prepare = async () => undefined, onRpcStart = () => undefined, onSessionReply = () => undefined, preparationOptions = {} } = {}) {
@@ -590,6 +596,47 @@ test('a local initial message enters the shared inbox envelope and replies with 
     const journal = JSON.parse(await readFile(join(fx.root, 'hosts', ownerId, 'host.json'), 'utf8'))
     assert.equal(journal.jobs[messageId].prompt.includes('gugu_delivery'), true)
     assert.equal(JSON.stringify(journal).includes('private-turn-token'), false)
+  } finally { await fx.close() }
+})
+
+test('a failed chat turn is said in the chat as the desktop says it: one system notice, its fixed text, addressing no one', async () => {
+  const fx = await fixture(async (command) => {
+    if (!command.prompt.includes('gugu_delivery')) return { status: 'done', text: '[NO_REPLY]' }
+    return { status: 'failed', text: '', error: 'simulated model failure with private detail' }
+  })
+  const messageId = randomUUID()
+  fx.inboxRows.push({ chat_id: chatId, chat_kind: 'dm', chat_public_id: null, id: messageId, seq: 1, sender_user_id: ownerId, sender_type: 'human', sender_display_name: '主人', content: '你好', content_type: 'text', to_user_ids: [agentId], is_whisper: false, file_item_id: null, file_version: null, file_blob_id: null, created_at: new Date().toISOString() })
+  try {
+    await fx.host.invoke('sessionTimeline.sessionCreate', [{ harness: 'pi', model: 'platform:free', prompt: '你好' }], 'failing-chat-turn')
+    await until(() => fx.notices.length > 0, fx.events)
+    assert.equal(fx.notices.length, 1)
+    const [notice] = fx.notices
+    assert.deepEqual(Object.keys(notice).sort(), ['chat_id', 'client_message_id', 'content', 'content_type', 'id', 'is_thread_root', 'sender_user_id', 'thread_root_id'])
+    assert.equal(notice.chat_id, chatId)
+    assert.equal(notice.sender_user_id, agentId)
+    assert.equal(notice.content_type, 'system')
+    assert.equal(notice.content, 'This reply could not be completed. Please try again later.')
+    assert.equal(fx.messages.some((message) => message.p_sender_user_id === agentId), false)
+    // The raw error stays in the task: failed job, its error.
+    const journal = JSON.parse(await readFile(join(fx.root, 'hosts', ownerId, 'host.json'), 'utf8'))
+    assert.equal(journal.jobs[messageId].status, 'failed')
+    assert.match(journal.jobs[messageId].error, /simulated model failure/)
+  } finally { await fx.close() }
+})
+
+test('a failed turn on a whispered message posts only the fixed notice: no raw error reaches the chat', async () => {
+  const fx = await fixture(async (command) => {
+    if (!command.prompt.includes('gugu_delivery')) return { status: 'done', text: '[NO_REPLY]' }
+    return { status: 'failed', text: '', error: 'simulated model failure with private detail' }
+  })
+  const messageId = randomUUID()
+  fx.inboxRows.push({ chat_id: chatId, chat_kind: 'dm', chat_public_id: null, id: messageId, seq: 1, sender_user_id: ownerId, sender_type: 'human', sender_display_name: '主人', content: '悄悄话', content_type: 'text', to_user_ids: [agentId], is_whisper: true, file_item_id: null, file_version: null, file_blob_id: null, created_at: new Date().toISOString() })
+  try {
+    await fx.host.invoke('sessionTimeline.sessionCreate', [{ harness: 'pi', model: 'platform:free', prompt: '悄悄话' }], 'failing-whisper-turn')
+    await until(() => fx.notices.length > 0, fx.events)
+    assert.equal(fx.notices.length, 1)
+    assert.doesNotMatch(JSON.stringify(fx.notices), /private detail|simulated/)
+    assert.equal(fx.messages.some((message) => message.p_sender_user_id === agentId), false)
   } finally { await fx.close() }
 })
 
