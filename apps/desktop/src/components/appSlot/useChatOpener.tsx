@@ -71,7 +71,7 @@ export function useChatOpener(chatId: string | null): { overlay: ReactNode; open
       if (detail.chatId !== chatId) return
       if (detail.choice.kind === 'none') {
         if (isRenderableImage(detail.name, detail.file.contentType)) {
-          openAttachmentImage({ kind: 'item', itemId: detail.itemId, version: detail.file.version }, detail.name, { chatId: detail.chatId, ...(from.message ? { messageId: from.message.id } : {}) })
+          openAttachmentImage({ kind: 'item', itemId: detail.itemId, version: detail.file.version }, detail.name, from.message ? { chatId: from.message.chat_id, messageId: from.message.id } : { chatId: detail.chatId })
           noteOpened(detail.itemId)
           return
         }

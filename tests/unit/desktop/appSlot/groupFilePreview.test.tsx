@@ -101,6 +101,12 @@ describe('unclaimed group files use the message preview from every entry', () =>
     expect(harness.container.querySelector('[data-testid="message-file-preview-panel"]')).toBeNull()
     expect(boundary.read).not.toHaveBeenCalled()
   })
+  it.each(['preview-group', 'another-chat'])('an image link retains its originating message in %s', async (chatId) => {
+    const file = detail('png')
+    const message = { id: 'image-reference', chat_id: chatId } as MessageItem
+    await slot(file, true, { message })
+    expect(boundary.image).toHaveBeenCalledWith({ kind: 'item', itemId: file.itemId, version: 3 }, file.name, { chatId, messageId: message.id })
+  })
   it('renews an expired video preview after a late Range failure, preserving position without downloading the original', async () => {
     let now = 1_800_000_000_000
     vi.spyOn(Date, 'now').mockImplementation(() => now)
