@@ -12,7 +12,6 @@ import {PaneHeader} from '../ui/Pane'
 import {IconButton} from '../ui/IconButton'
 import {ChevronLeft} from '../../lib/icons'
 import {AssistantTaskChatWindow} from './AssistantTaskChatWindow'
-import type {AssistantChatHandlers} from './AssistantChatSlot'
 import {useAssistantWorkDetail} from './useAssistantWorkDetail'
 import {assistantWorkExchanges} from './assistant-work-projection'
 import {taskChatRows} from './taskChatRows'
@@ -21,7 +20,7 @@ import {TaskChatFilePreviewHost} from './TaskChatFilePreviewHost'
 import {useMessageFilePreview} from '../chat/useMessageFilePreview'
 import {useAssistantWorkRuntime} from './useAssistantWorkRuntime'
 
-export function AssistantWorkTaskWindow({ownerId,request,...handlers}:{ownerId:string;request:AssistantTaskChat}&AssistantChatHandlers){
+export function AssistantWorkTaskWindow({ownerId,request}:{ownerId:string;request:AssistantTaskChat}){
  const {t}=useTranslation('assistant'),mobile=useMobileShell()
  const {contacts}=useContactsStore(),opened=useOpenedAssistantTaskChat()
  const read=useAssistantWorkDetail(ownerId,request.assistantId,request.workId!,request.task.sessionId)
@@ -69,7 +68,7 @@ export function AssistantWorkTaskWindow({ownerId,request,...handlers}:{ownerId:s
    :runtime.waking?<div className="task-chat-notice" role="status">{t('tasks.liveWaking')}</div>:null}</>
  const close=()=>showAssistantTaskChat(null)
  const transcript=<CloudTaskTranscript mobile={mobile} request={canonical??request} events={detail?.events??[]}/>
- if(agent)return <AssistantTaskChatWindow agent={{...agent,display_name:title}} onClose={close} status={status} notice={notice} pendingContent={transcript} runtimeReady={runtime.ready} {...handlers}/>
+ if(agent)return <AssistantTaskChatWindow agent={{...agent,display_name:title}} task={(canonical??request).task} onClose={close} status={status} notice={notice} pendingContent={transcript}/>
  return <section className="assistant-task-chat-window ta-skin" data-testid="assistant-task-chat-window" aria-label={title}>
   <TaskChatFilePreviewHost mobile={mobile}>
    <PaneHeader title={title} subtitle={status} mobile={mobile} divider leading={<IconButton aria-label={t('panel.back')} onClick={close} data-testid="assistant-task-chat-close"><ChevronLeft/></IconButton>}/>

@@ -27,6 +27,12 @@ const UUID = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'
 const GROUP_FILE_LINK = new RegExp(`^gugu-file://(${UUID})/?(?:\\?([^#]*))?(?:#(.*))?$`, 'is')
 
 /**
+ * A group file's link as it stands in text (a message, an App's words): it ends where markdown or prose would end it
+ * — `groupFileLink` escapes all of these inside one. What it found is read by `parseGroupFileLink`.
+ */
+export const FILE_LINK_IN_TEXT = /gugu-file:\/\/[^\s()[\]<>"'`]+/gi
+
+/**
  * `gugu-file://<itemId>[?v=<version>][#<place>]` — a file of a group's (or a topic's) workspace, as the MCP tools and
  * `gugu.dispatch` write it (摩擦单 F10). Its id is unique, and which chat it is in is read from it when it opens (F112 — a chat
  * id in the link was one more thing an agent had to copy, and got wrong). `?v=` and `#` are what an App reference adds:

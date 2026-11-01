@@ -11,6 +11,7 @@ import type {
 } from '@modelcontextprotocol/sdk/shared/auth.js';
 import type { FetchLike } from '@modelcontextprotocol/sdk/shared/transport.js';
 import { LATEST_PROTOCOL_VERSION } from '@modelcontextprotocol/sdk/types.js';
+import { anySignal } from '@gugu/core/shared/anySignal';
 
 // 远程 MCP 服务的浏览器授权里「协议这一半」:发现 → 动态注册客户端 → PKCE → 换令牌。桌面主进程(收回跳的是本机
 // 127.0.0.1 的一次性监听)与手机(没有监听,回跳由人把地址贴回来)共用这一份;收回跳、开浏览器各端自己做,
@@ -117,16 +118,13 @@ export async function probeProtectedResource(
   /** 手机的网页没有跨域许可,走原生 HTTP;不给 = 全局 fetch。 */
   fetchFn: FetchLike = fetch
 ): Promise<ProtectedResourceChallenge> {
-  // 手写「调用方取消 ∪ 限时」两路:AbortSignal.any / .timeout 要 WebView 116 / 103,手机上的系统 WebView 不一定这么新。
-  const controller = new AbortController();
+  // The time limit is our own timer (AbortSignal.timeout needs WebView 103), joined with the caller's cancel.
+  const deadline = new AbortController();
   let timedOut = false;
   const timer = setTimeout(() => {
     timedOut = true;
-    controller.abort();
+    deadline.abort();
   }, timeoutMs);
-  const onAbort = () => controller.abort(signal.reason);
-  if (signal.aborted) controller.abort(signal.reason);
-  else signal.addEventListener('abort', onAbort, { once: true });
   let response: Response;
   try {
     response = await fetchFn(serverUrl, {
@@ -145,7 +143,7 @@ export async function probeProtectedResource(
           clientInfo: { name: 'gugu', version: '1.0.0' },
         },
       }),
-      signal: controller.signal,
+      signal: anySignal([signal, deadline.signal]),
     });
   } catch (error) {
     if (timedOut && !signal.aborted) {
@@ -154,7 +152,6 @@ export async function probeProtectedResource(
     throw error;
   } finally {
     clearTimeout(timer);
-    signal.removeEventListener('abort', onAbort);
   }
   await response.body?.cancel();
   if (response.status !== 401) return {};

@@ -57,6 +57,7 @@ export const SessionTimelinePage = observer(function SessionTimelinePage({
   firstPrompt,
   draft,
   initialAppKind,
+  local = false,
   onBack,
 }: {
   device: Device
@@ -65,6 +66,8 @@ export const SessionTimelinePage = observer(function SessionTimelinePage({
   firstPrompt?: string
   draft?: { text: string }
   initialAppKind?: string
+  /** The session is on this computer (desktop assistant task pane): read it over IPC, also without a network. */
+  local?: boolean
   onBack: () => void
 }) {
   const { t } = useTranslation('main')
@@ -72,7 +75,9 @@ export const SessionTimelinePage = observer(function SessionTimelinePage({
   const phoneHost = isPhoneDevice(device)
   const networkOnline = useNetworkOnline()
   const queuedInputs = useQueuedSessionInputs(session.conversationId)
-  const online = networkOnline && device.is_online && (!phoneHost || isAgentHostDevice(device))
+  // The session menu's actions travel by device RPC, so it follows the network; the timeline itself is local over IPC.
+  const reachable = networkOnline && device.is_online && (!phoneHost || isAgentHostDevice(device))
+  const online = local || reachable
   // #7199 打开睡着的云电脑上的会话 = 叫醒它的三件事之一;醒了时间线照常连上。
   const { issue: wakeIssue, dropped: wakeDropped, retry: retryWake } = useCloudComputerWake(device)
   const cloudAsleep = device.cloud_computer === 'asleep' || device.cloud_computer === 'waking'
@@ -92,10 +97,10 @@ export const SessionTimelinePage = observer(function SessionTimelinePage({
     timeline, phase, error, actionError, dismissActionError, waitingForRecord,
     reload, loadOlder, loadToolImage, pendingSends, respond, sending, respondingItemId, cancel, cancelling,
   } =
-    useAgentWatchSession(device.device_id, session.conversationId, online, firstPrompt, phoneHost)
+    useAgentWatchSession(device.device_id, session.conversationId, online, firstPrompt, phoneHost, local)
 
   const native = !phoneHost && session.runtime === 'acp' && session.nativeInputVersion === 1
-  const nativeRecord = useNativeSessionRecord(device.device_id, session.conversationId, native, online)
+  const nativeRecord = useNativeSessionRecord(device.device_id, session.conversationId, native, online, local)
   const conversation = native ? { ...timeline, turns: [...(nativeRecord.record?.turns ?? []), ...(nativeRecord.record?.activeTurn ? [nativeRecord.record.activeTurn] : [])], hasOlder: nativeRecord.record ? nativeRecord.record.nextCursor !== null : false } : timeline
 
   // 提醒**不在这一页**发:它挂在看管入口的根上(useAgentWatchAlerts),这样在机器列表、
@@ -168,7 +173,7 @@ export const SessionTimelinePage = observer(function SessionTimelinePage({
         apps={apps}
         onOpenApp={setAppKind}
       /> : null}
-      {online ? (
+      {reachable ? (
         <IconButton size="md" aria-label={t('agentWatch.sessions.menu')} data-testid="agent-watch-session-page-menu" onClick={(event) => setMenuAnchor(event.currentTarget)}>
           <MoreHorizontal />
         </IconButton>
@@ -205,7 +210,7 @@ export const SessionTimelinePage = observer(function SessionTimelinePage({
         offlineNotice
       ) : null}
 
-      {networkOnline && (error || nativeRecord.error) ? (
+      {(networkOnline || local) && (error || nativeRecord.error) ? (
         <AgentWatchNote
           title={t('agentWatch.timeline.loadFailed')}
           detail={nativeRecord.error ?? error ?? undefined}
@@ -229,7 +234,7 @@ export const SessionTimelinePage = observer(function SessionTimelinePage({
           sessionId={session.conversationId}
           draft={draft === appliedDraft ? undefined : draft}
           onDraftApplied={() => setAppliedDraft(draft)}
-          phoneHost={phoneHost} nativeRecord={native}
+          phoneHost={phoneHost} local={local} nativeRecord={native}
           machineLabel={machineLabel(device)}
           sessionRuntime={session.runtime}
           respondingItemId={respondingItemId}

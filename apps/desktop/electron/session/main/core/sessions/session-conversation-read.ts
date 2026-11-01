@@ -36,7 +36,7 @@ function update(sessionId: string, change: (journal: NativeReadJournal) => Nativ
   };
   const result = transaction ? write(transaction) : db.transaction(write);
   const publish = () => {
-    if (result.dirty) events.emit(sessionChangedChannel, { sessionId, projectId: result.projectId, changes: { nativeUnreadCount: result.unread.length } });
+    if (result.dirty) events.emit(sessionChangedChannel, { sessionId, projectId: result.projectId, changes: { nativeUnreadKeys: true } });
   };
   if (!transaction) publish();
   return { unread: result.unread, publish };

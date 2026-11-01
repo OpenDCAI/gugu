@@ -1,6 +1,6 @@
 import { useChatSummaries } from '@/lib/chatSummariesBridge'
 import type { TranscriptTurn } from '@gugu/session-core/acp/client'
-import { dmRecordIds } from '@/components/chat/agent-dm-record'
+import { dmMessageIdsByItem } from '@/components/chat/agent-dm-read'
 import { publishNativeConversationVisibility } from '@/lib/nativeConversationVisibility'
 import { useCallback, useEffect, useRef } from 'react'
 import type { ChatView } from '@gugu/session-chat-ui'
@@ -34,7 +34,7 @@ export function useNativeConversationRead(deviceId: string | null, sessionId: st
     if (!state.entering || !state.shown || !state.view) return
     const turnsNow = readTurns.current()
     const nativeFirst = summary?.nativeUnreadKeys?.[0]
-    const imTargets = imFirst ? [...dmRecordIds(turnsNow)].filter(([id, ids]) => id !== imFirst && ids.includes(imFirst)).map(([id]) => id) : []
+    const imTargets = imFirst ? [...dmMessageIdsByItem(turnsNow)].filter(([, ids]) => ids.includes(imFirst)).map(([id]) => id) : []
     let target: string | undefined
     for (const item of turnsNow.flatMap(turn => turn.items)) {
       if (nativeFirst && (summary?.nativeUnreadAliases?.[nativeMessageKey(item.id)] ?? nativeMessageKey(item.id)) === nativeFirst) target = item.id
@@ -77,7 +77,7 @@ export function useNativeConversationRead(deviceId: string | null, sessionId: st
     onVisibleItems: useCallback((ids: readonly string[]) => {
       const state = current.current
       if (!state.shown) return
-      if (state.sessionId) publishNativeConversationVisibility(key.current, { sessionId: state.sessionId, visible: ids, aliases: dmRecordIds(readTurns.current()) })
+      if (state.sessionId) publishNativeConversationVisibility(key.current, { sessionId: state.sessionId, visible: ids, dmIds: dmMessageIdsByItem(readTurns.current()) })
       for (const id of ids) state.visible.add(nativeItemId(id))
     }, []),
   }

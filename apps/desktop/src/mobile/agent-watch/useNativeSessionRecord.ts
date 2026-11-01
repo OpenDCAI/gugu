@@ -5,7 +5,7 @@ import { machineRpc } from './sessionpage-rpc'
 import { messageForUser } from '@/lib/userFacingError'
 
 /** ACP records come from the task page archive, not a second parse of the provider's JSONL. */
-export function useNativeSessionRecord(deviceId: string, sessionId: string, enabled: boolean, online: boolean) {
+export function useNativeSessionRecord(deviceId: string, sessionId: string, enabled: boolean, online: boolean, local = false) {
   const [record, setRecord] = useState<NativeSessionRecord | null>(null)
   const [error, setError] = useState<string | null>(null)
   const epoch = useRef(0)
@@ -33,7 +33,7 @@ export function useNativeSessionRecord(deviceId: string, sessionId: string, enab
         : tail ? { tail: true } : mode === 'newer' && last !== undefined ? { after: last }
         : previous?.hasNewer && last !== undefined ? { before: last + 1 }
         : last !== undefined ? { after: Math.max(-1, last - 29) } : {}
-      const result = await machineRpc(deviceId).sessionTimeline.sessionNativeRecord({ conversationId: sessionId, ...input })
+      const result = await machineRpc(deviceId, local).sessionTimeline.sessionNativeRecord({ conversationId: sessionId, ...input })
       if (!result.ok) throw new Error(result.error.message)
       if (epoch.current !== ownEpoch || current.current.deviceId !== requested.deviceId || current.current.sessionId !== requested.sessionId || !current.current.enabled) return
       const page = result.value
@@ -56,7 +56,7 @@ export function useNativeSessionRecord(deviceId: string, sessionId: string, enab
     })
     requests.current = nextRequest
     return nextRequest
-  }, [deviceId, sessionId])
+  }, [deviceId, sessionId, local])
   useEffect(() => {
     if (!enabled || !online) return
     let active = true

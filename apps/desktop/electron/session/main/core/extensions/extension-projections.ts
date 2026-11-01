@@ -5,6 +5,7 @@ import {
 } from '@shared/extensions/projection-protocol';
 import { openExtensionProgramAccess } from './extension-program-access';
 import { ProjectionViewer, type ProjectionConnection } from './projection-viewer';
+import { anySignal } from '@gugu/core/shared/anySignal';
 
 /** Supplied by the invoking tool/page's host binding, never by an App's parameters. */
 export interface ProjectionPrincipal { extensionId: string; sessionId: string; projectId?: string }
@@ -153,7 +154,7 @@ export class ExtensionProjections {
           if (releasesThisViewer()) return releaseBarrier();
           throw error;
         }
-        const signal = AbortSignal.any([viewer.abort.signal, resource.controller.signal]);
+        const signal = anySignal([viewer.abort.signal, resource.controller.signal]);
         let started = false;
         resource.queued += 1;
         const task = resource.queue.then(async () => {

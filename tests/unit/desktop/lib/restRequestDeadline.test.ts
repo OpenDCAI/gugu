@@ -35,11 +35,11 @@ function controllableTimeouts() {
   return timers
 }
 
-// WebView <116 没有 AbortSignal.any:删掉它,authBoundedFetch 走自己合并 signal 的降级分支。
+// WebView <116 has no AbortSignal.any: remove it so authBoundedFetch goes through anySignal's fallback.
 function withoutAbortSignalAny() {
   const native = Object.getOwnPropertyDescriptor(AbortSignal, 'any')
   delete (AbortSignal as { any?: unknown }).any
-  expect(typeof AbortSignal.any).toBe('undefined')
+  expect('any' in AbortSignal).toBe(false)
   return () => { if (native) Object.defineProperty(AbortSignal, 'any', native) }
 }
 
