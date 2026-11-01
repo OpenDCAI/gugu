@@ -1,4 +1,5 @@
 import type { SessionpageSessionSummary } from '@gugu/session-core/session-record/contract';
+import type { MessageItem } from '@gugu/core/shared/types/chat';
 import type { FileOpenerCandidate } from './file-openers';
 import { extensionFromMimeType, mimeTypeFromName, normalizeMimeType } from '@gugu/core/shared/imageMime.mjs';
 /**
@@ -507,6 +508,8 @@ export const APP_COMPOSE_EVENT = 'gugu:app-compose';
 export interface AppComposeDetail {
   chatId: string;
   text: string;
+  /** The original reply context, placed with this chat's draft rather than broadcast to the visible panel. */
+  quote?: MessageItem;
   /** G3 Images beside the text, as attachments of the draft: the person sends them, or not. */
   images?: AppComposeImage[];
   /** File references inserted as inline mention tokens in the draft text. */

@@ -38,6 +38,7 @@ export default {
     "savedToFolder": "已存进群文件夹",
     "noSource": "这张图没有来源对话，可以复制或保存到本机。",
     "notSignedIn": "请先登录后将图片放进对话",
+    "originalUnavailable": "原消息已不可用，无法回复。",
     "canvas": "标注画布",
     "keyboardHint": "R 框 · A 箭头 · N 编号 · P 画笔 · T 文字 · M 马赛克 · C 裁剪 · 空格加拖动平移 · ⌘ +/− 缩放",
     "touchHint": "单指绘制 · 双指缩放、平移 · 长按标注选择"

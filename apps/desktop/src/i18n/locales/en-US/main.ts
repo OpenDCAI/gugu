@@ -38,6 +38,7 @@ export default {
     "savedToFolder": "Saved to chat folder",
     "noSource": "This image has no source chat. Copy it or save it to your device.",
     "notSignedIn": "Sign in to put the image in a chat",
+    "originalUnavailable": "The original message is no longer available to reply to.",
     "canvas": "Annotation canvas",
     "keyboardHint": "R rectangle · A arrow · N number · P pen · T text · M mosaic · C crop · Space + drag to pan · ⌘ +/− zoom",
     "touchHint": "Draw with one finger · Pan and zoom with two fingers · Hold a mark to select it"

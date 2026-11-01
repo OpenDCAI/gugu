@@ -10,7 +10,7 @@ import { UI_EVENTS } from '../../../../apps/desktop/src/lib/uiEvents'
 import { openLinkTarget } from '../../../../apps/desktop/src/lib/guguLinks'
 import { conversationLink, parseGuguLink } from '@gugu/core/shared/ui/guguLink'
 import { ToastContext } from '../../../../apps/desktop/src/components/toastContext'
-import { clickElement, createNode, createReactHarness } from '../../../support/testHarness'
+import { clickElement, createNode, createReactHarness, message } from '../../../support/testHarness'
 import { chatOnScreen } from '../../../../apps/desktop/src/lib/onScreenChat'
 import { takeChatAsk } from '../../../../apps/desktop/src/session/renderer/features/chats/chat-tabs/chat-layouts'
 import { drainTopicSplitRequest } from '../../../../apps/desktop/src/lib/topicSplitRequest'
@@ -286,6 +286,7 @@ const { platformMock, chatStoreMock, chatServiceMock, draftValues } = vi.hoisted
     identitiesById: {},
     draftAttachments: {},
     setDraftAttachments: vi.fn(),
+    setDraftQuote: vi.fn(),
     activeChatId: null as string | null,
     setActiveChatId: vi.fn(),
     refreshChats: vi.fn(),
@@ -340,6 +341,7 @@ beforeEach(() => {
   chatStoreMock.refreshChats.mockReset()
   chatStoreMock.upsertChat.mockReset()
   chatStoreMock.writeDraft.mockReset()
+  chatStoreMock.setDraftQuote.mockReset()
   chatStoreMock.sendMessageToChat.mockReset()
   chatStoreMock.sendMessageToChat.mockResolvedValue(MESSAGE_ID)
   draftValues.clear()
@@ -1034,6 +1036,25 @@ describe('MainLayout: personal assistant destinations', () => {
     expect(harness.container.querySelector('nav')).toBeNull()
     expect((takeChatAsk('personal-dm') as { itemId?: string } | null)?.itemId).toBe('phone-file')
   })
+})
+
+it.each(['group', 'topic', 'owned', 'assistant'] as const)('places an image reply in its %s destination while another chat is active', async kind => {
+  const target = '0b1e7c1a-0000-4000-8000-000000000002', parent = '0b1e7c1a-0000-4000-8000-000000000001'
+  const original = message({ id: 'original-image', chat_id: target, sender_user_id: 'agent', is_whisper: true, to_user_ids: ['user-1'] })
+  const dm = kind === 'owned' || kind === 'assistant'
+  chatStoreMock.activeChatId = 'other-chat'
+  chatStoreMock.chats = [{ id: parent, kind: 'group' }, { id: target, kind: dm ? 'dm' : kind, source_chat_id: kind === 'topic' ? parent : null, peer_user_id: dm ? 'agent' : null }] as never
+  if (kind === 'owned') taskRoute.contacts = [{ id: 'agent', type: 'agent', owner_user_id: 'user-1' }]
+  if (kind === 'assistant') { installAssistantShellBridge(); publishAssistantShell({ assistant: { id: 'agent' }, chatId: target } as never) }
+  await renderMainLayoutWithToast()
+  await act(async () => { window.dispatchEvent(new CustomEvent(APP_COMPOSE_EVENT, { detail: {
+    chatId: target, text: '① Check this', quote: original, images: [{ name: 'edited.png', type: 'image/png', bytes: new ArrayBuffer(3) }],
+  } })) })
+  expect(chatStoreMock.setDraftQuote).toHaveBeenCalledWith(target, kind === 'owned' ? null : expect.objectContaining({ messageId: original.id, source: original }))
+  expect(chatStoreMock.writeDraft).toHaveBeenCalledWith(target, kind === 'owned' ? '① Check this' : { at: 'end', text: '① Check this' })
+  expect(chatStoreMock.setDraftAttachments).toHaveBeenCalledWith(target, [expect.objectContaining({ file: expect.objectContaining({ name: 'edited.png', type: 'image/png' }) })])
+  if (kind === 'topic') expect(drainTopicSplitRequest(parent)).toMatchObject({ chatId: target })
+  if (kind === 'assistant') await act(async () => publishAssistantShell({ assistant: null, chatId: null } as never))
 })
 
 // Links and notifications retain the topic address. Files open the shared source slot.
