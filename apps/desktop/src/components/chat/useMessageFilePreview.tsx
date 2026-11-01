@@ -11,6 +11,8 @@ import { Sheet } from '../ui/Sheet'
 import { useBackLayer } from '../ui/sheetStack'
 import { openLinkTarget } from '../../lib/guguLinks'
 import { MessageFilePreview, type PreviewFile } from './MessageFilePreview'
+import { isRenderableImage } from '@gugu/core/shared/imageMime.mjs'
+import { openAttachmentImage } from '../../lib/attachmentBytes'
 
 export type { PreviewFile } from './MessageFilePreview'
 
@@ -37,6 +39,10 @@ export function useMessageFilePreview({ mobile, visible, closeRightSurfaces, toa
   const opening = useRef(0)
   const restoreRef = useRef<(() => void) | null>(null)
   const open = useCallback((file: PreviewFile, message?: MessageItem, restore: () => void = () => {}) => {
+    if (isRenderableImage(file.fileName, file.mimeType)) {
+      openAttachmentImage(file.source, file.fileName, message ? { chatId: message.chat_id, messageId: message.id } : undefined)
+      return
+    }
     // A personal assistant conversation hosts its own preview; other group files use the App-first path.
     if (!hosted && file.source.kind === 'item' && platform.kind !== 'web') {
       void openLinkTarget({ kind: 'file', itemId: file.source.itemId }, { message, restore }).catch((error) => {

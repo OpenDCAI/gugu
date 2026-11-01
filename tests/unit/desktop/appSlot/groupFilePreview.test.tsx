@@ -15,6 +15,7 @@ const boundary = vi.hoisted(() => ({
   open: vi.fn(),
   close: vi.fn(),
   preview: vi.fn(),
+  image: vi.fn(),
   previewContents: new Map<string, string>(),
 }))
 vi.mock('@/components/preview/html-preview-registration', () => ({ registerHtmlPreview: boundary.preview }))
@@ -25,6 +26,7 @@ vi.mock('@/lib/attachmentBytes', () => ({
   attachmentBytes: boundary.read,
   attachmentPreview: boundary.signed,
   openAttachmentInSystemApp: boundary.open,
+  openAttachmentImage: boundary.image,
   sourceKeyOf: (source: { itemId: string; version: number }) => `${source.itemId}@${source.version}`,
 }))
 vi.mock('@/lib/chatFolder', () => ({ readChatFolderText: boundary.document, rendererFileServiceUrl: () => 'https://files.test' }))
@@ -88,6 +90,17 @@ async function closeFromTab(chatId: string) {
 }
 
 describe('unclaimed group files use the message preview from every entry', () => {
+  it.each([false, true])('an image opens in the viewer while keeping its folder tab (mobile=%s)', async (mobile) => {
+    boundary.mobile = mobile
+    const folder = openPanelItem('preview-group', folderItem())
+    const file = detail('png')
+    await slot(file, true, { fromPage: true })
+    expect(boundary.image).toHaveBeenCalledWith({ kind: 'item', itemId: file.itemId, version: 3 }, file.name, { chatId: file.chatId })
+    expect(shownPanelTab(file.chatId)?.tabId).toBe(folder)
+    expect(panelTabsOf(file.chatId)).toHaveLength(1)
+    expect(harness.container.querySelector('[data-testid="message-file-preview-panel"]')).toBeNull()
+    expect(boundary.read).not.toHaveBeenCalled()
+  })
   it('renews an expired video preview after a late Range failure, preserving position without downloading the original', async () => {
     let now = 1_800_000_000_000
     vi.spyOn(Date, 'now').mockImplementation(() => now)

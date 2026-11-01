@@ -11,6 +11,7 @@ const bytesMocks = vi.hoisted(() => ({
   attachmentBytes: vi.fn(), downloadAttachment: vi.fn(),
   attachmentPreview: vi.fn(),
   openAttachmentInSystemApp: vi.fn(),
+  openAttachmentImage: vi.fn(),
   sourceKeyOf: (source: { kind: string; url?: string }) => `${source.kind}:${source.url ?? ''}`,
 }))
 const bytesOf = (text: () => Promise<string>) => ({ status: 'ready', blob: { text, arrayBuffer: async () => new ArrayBuffer(0) } })
@@ -93,6 +94,18 @@ describe('useMessageFilePreview', () => {
     visible = true
     vi.unstubAllGlobals()
     vi.clearAllMocks()
+  })
+
+  it.each([false, true])('opens images without creating or closing a file panel (mobile=%s)', async (phone) => {
+    mobile = phone
+    await act(async () => { root.render(React.createElement(Probe)) })
+    const image: PreviewFile = { ...file, fileName: 'photo.png', mimeType: 'image/png', source: { kind: 'item', itemId: 'image', version: 2 } }
+    const message = { id: 'message', chat_id: 'chat' } as MessageItem
+    act(() => openPreview?.(image, message))
+    expect(bytesMocks.openAttachmentImage).toHaveBeenCalledWith(image.source, image.fileName, { chatId: 'chat', messageId: 'message' })
+    expect(appMocks.openResource).not.toHaveBeenCalled()
+    expect(closeRightSurfaces).not.toHaveBeenCalled()
+    expect(container.childElementCount).toBe(0)
   })
 
   it.each([
