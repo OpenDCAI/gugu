@@ -33,6 +33,7 @@ export type { ChatTranslator, ChatTranslationSubscriber, ChatTranslationValues }
 
 export { connectSession, createChatState, tailMode, pinTopMode } from './state/chat-state';
 export { pendingPromptTurn } from './state/pending-prompt';
+export { turnDiscardedId } from './state/flatten';
 export type {
   ChatState,
   ChatStateOptions,

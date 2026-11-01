@@ -4,7 +4,7 @@ import type {
   ChatView,
   TranscriptTurn,
 } from '@gugu/session-chat-ui';
-import { connectSession, createChatState, pinTopMode, runningBackgroundTaskIds } from '@gugu/session-chat-ui';
+import { connectSession, createChatState, pinTopMode, runningBackgroundTaskIds, turnDiscardedId } from '@gugu/session-chat-ui';
 import {
   attachmentRefSchema,
   permissionTitle,
@@ -38,7 +38,7 @@ import type { AgentState, LiveSettingResult, PermissionWaitKind } from '@gugu/se
 import { errorDetail } from '@gugu/session-shared';
 import { WireError, type BlobSource } from '@gugu/session-wire';
 import { action, computed, makeObservable, observable, reaction, runInAction, when } from 'mobx';
-import { endSessionLife, forkSessionLife, readSessionLife, sessionLifeView, startSessionLife, stopSessionLife } from '../stores/session-life-views';
+import { discardSessionLifeRow, endSessionLife, forkSessionLife, readSessionLife, sessionLifeView, startSessionLife, stopSessionLife } from '../stores/session-life-views';
 import { ACP_START_FAILED, lifeIsStarting, type LifeView } from '@shared/core/sessions/session-life';
 import { sendThroughCustody } from './queue-native-input';
 import { sessionInputBubbles } from '@/lib/sessionInputOutbox';
@@ -126,6 +126,10 @@ import { conversationQueueText, editedConversationQueueText } from '@shared/core
 
 export type { AcpLoadError } from './acp-load-error';
 
+function stoppedTurnId(rowId: string): string {
+  return `${rowId}:stopped`;
+}
+
 export class AcpChatStore {
   readonly chatContext: ChatContext;
   readonly chatState: ChatState;
@@ -138,11 +142,15 @@ export class AcpChatStore {
   private _lifeRetriedVersion = 0;
   private _unwatchLife: (() => void) | null = null;
   private _unwatchLifeHead: (() => void) | null = null;
+  /** Opened on a stopped session: nothing to attach to until it runs again. */
+  private _attachWhenReady = false;
   /**
    * The custody row the transcript draws as the next turn (`pendingPrompt`), while it waits for that turn: from the
    * send on it sits where its turn will be, ❌ first in the tray above the composer and then up in the transcript.
    */
   transcriptPendingId: string | null = null;
+  /** The row the person stopped before it went: drawn as a stopped turn, where it was, until it goes (`_drawStoppedRow`). */
+  stoppedRowId: string | null = null;
   /**
    * #6552 在飞的开场(`_runBootstrap`)数。>0 且还没挂上会话 = 引擎会话在起:这段里模型 / 强度照样能选 ——
    * 选择交给运行时,由启动在 `session/new` 之后设模型/强度那一步采用。计数而不是布尔:重挂 / 重试会在
@@ -308,6 +316,7 @@ export class AcpChatStore {
       _loadError: observable.ref,
       _lifeRetriedVersion: observable,
       transcriptPendingId: observable,
+      stoppedRowId: observable,
       loadError: computed,
       _bootstrapsInFlight: observable,
       starting: computed,
@@ -774,19 +783,16 @@ export class AcpChatStore {
 
   /** The queue's head, still on its way, is the next turn: the transcript draws it (and its placeholder header) there. */
   private _drawLifeHead(view: LifeView | null): void {
+    if (this._attachWhenReady && view?.kind === 'ready') {
+      this._attachWhenReady = false;
+      void this._open();
+    }
     const session = this.chatState.session;
     const drawn = this.transcriptPendingId;
     const bubbles = view ? sessionInputBubbles([], view.pending.items, view.hold) : [];
     const starting = view !== null && lifeIsStarting(view);
     const head = bubbles[0]?.state === 'sending' && (starting || view?.kind === 'ready') ? bubbles[0] : null;
     runInAction(() => {
-      // An accepted row whose turn already finished before this page saw it: history has it, nothing will take it over.
-      const landed = session.state.pendingPrompt;
-      if (landed && !landed.held && landed.sentAt !== undefined
-        && this.chatState.transcript.state.committedTurns.some(turn => turn.startedAt !== undefined && turn.startedAt >= landed.sentAt!)) {
-        session.setPendingPrompt(null);
-        this._syncMessageCount();
-      }
       if (drawn && head?.id !== drawn) {
         this.transcriptPendingId = null;
         const shown = session.state.pendingPrompt;
@@ -798,6 +804,14 @@ export class AcpChatStore {
           else { session.setPendingPrompt(null); this._syncMessageCount(); }
         }
       }
+      // An accepted row whose turn already finished before this page saw it: history has it, nothing will take it over.
+      const landed = session.state.pendingPrompt;
+      if (landed && !landed.held && landed.sentAt !== undefined
+        && this.chatState.transcript.state.committedTurns.some(turn => turn.startedAt !== undefined && turn.startedAt >= landed.sentAt!)) {
+        session.setPendingPrompt(null);
+        this._syncMessageCount();
+      }
+      this._drawStoppedRow(bubbles[0]?.state === 'stopped' ? bubbles[0] : null, view);
       if (!head || this.chatState.transcript.state.activeTurnSnapshot) return;
       if (session.state.pendingPrompt && session.state.pendingPrompt.id !== head.id) return;
       this.transcriptPendingId = head.id;
@@ -811,6 +825,70 @@ export class AcpChatStore {
       const sentAt = row.sentAt === undefined ? undefined : Math.max(row.sentAt, this.chatState.transcript.state.committedTurns.at(-1)?.endedAt ?? 0);
       session.setPendingPrompt({ id: head.id, text: head.text, ...(sentAt !== undefined ? { sentAt } : {}), starting, held: true });
       this._syncMessageCount();
+    });
+  }
+
+  /**
+   * A stop before the message went ends it like any stopped turn: it stays where it was, with 「你停止了这一轮」 and its
+   * actions. The row itself stays queued, and goes first when the person continues or sends again; then this turn leaves
+   * and the row draws as the next turn, ❌ the same words twice.
+   */
+  private _drawStoppedRow(stopped: { id: string } | null, view: LifeView | null): void {
+    const transcript = this.chatState.transcript;
+    const turns = () => transcript.state.committedTurns;
+    const live = transcript.state.activeTurnSnapshot;
+    const previous = this.stoppedRowId;
+    if (previous && previous !== stopped?.id) {
+      this.stoppedRowId = null;
+      // A seed clears the active turn by contract: one that landed in the meantime stays.
+      batch(() => {
+        transcript.history.seed(turns().filter(turn => turn.id !== stoppedTurnId(previous)));
+        if (live) transcript.activeTurn.set(live);
+      });
+      this._syncMessageCount();
+    }
+    // A turn is running (stopped from elsewhere while attached): its own outcome says so, nothing to draw ahead of it.
+    if (!stopped || live) return;
+    this.stoppedRowId = stopped.id;
+    if (turns().some(turn => turn.id === stoppedTurnId(stopped.id))) return;
+    const row = view?.pending.items.find(item => item.messageId === stopped.id);
+    if (!row) return;
+    transcript.history.append([{
+      id: stoppedTurnId(stopped.id),
+      seq: (turns().at(-1)?.seq ?? -1) + 1,
+      initiator: row.kind === 'ordinary' ? 'user' : 'agent',
+      ...(row.sentAt !== undefined ? { startedAt: row.sentAt } : {}),
+      // The row's own text: a delivery's envelope reads as that delivery here too, ❌ as the person's words.
+      items: [{ kind: 'message', id: stopped.id, seq: 0, role: 'user', text: row.text }],
+      outcome: { kind: 'cancelled', reason: 'cancelled' },
+    } as TranscriptTurn]);
+    this._syncMessageCount();
+  }
+
+  /** 「继续」 on a message stopped before it went: the host starts and sends it, once, ❌ with a prompt about continuing. */
+  continueStoppedRow(): void {
+    void startSessionLife(this.runtimeSessionId).catch((error: unknown) => this._toastError('acpFailure.sendMessage', error));
+  }
+
+  /** What the host says can be taken back (`discardable`): an older host says nothing, so it offers no discard. */
+  canDiscardTurn(turnId: string): boolean {
+    const id = this.stoppedRowId;
+    if (!id || turnId !== stoppedTurnId(id)) return true;
+    return sessionLifeView(this.runtimeSessionId)?.pending.items.find(item => item.messageId === id)?.discardable === true;
+  }
+
+  /** 「丢弃」 on a message stopped before it went: gone from the queue, and the words back in the composer. */
+  discardStoppedTurn(turnId: string): void {
+    const id = this.stoppedRowId;
+    if (!id || turnId !== stoppedTurnId(id)) return;
+    const row = sessionLifeView(this.runtimeSessionId)?.pending.items.find(item => item.messageId === id);
+    void discardSessionLifeRow(this.runtimeSessionId, id).then(() => runInAction(() => {
+      if (row) this.setDraftText([row.text, this.draftText.trim()].filter(Boolean).join('\n'));
+    })).catch((error: unknown) => {
+      // The click already folded the turn away: it did not go, so it comes back into view.
+      const folded = turnDiscardedId(turnId);
+      if (this.chatState.viewState.isCollapsed(folded)) this.chatState.viewState.toggleCollapsed(folded);
+      this._toastError('acpFailure.sendMessage', error);
     });
   }
 
@@ -833,8 +911,8 @@ export class AcpChatStore {
       this.historyLoading = false;
       this._syncMessageCount();
     }, { fireImmediately: true });
-    // A reconciled history may drop the drawn row (`_refreshHistory`): redraw it.
-    this._unwatchLifeHead = reaction(() => [sessionLifeView(this.runtimeSessionId), this.transcriptRevision] as const,
+    // Loaded or reconciled history replaces what is drawn from the queue: redraw it.
+    this._unwatchLifeHead = reaction(() => [sessionLifeView(this.runtimeSessionId), this.transcriptRevision, this.historyLoading] as const,
       ([view]) => this._drawLifeHead(view), { fireImmediately: true });
     void this._open();
   }
@@ -2021,6 +2099,15 @@ export class AcpChatStore {
     if (before.kind === 'ready') return true;
     if (before.kind === 'failed' && !retry) return false;
     if (retry) runInAction(() => { this._lifeRetriedVersion = before.version; });
+    // A person's stop holds across a reopen: opening never undoes it, and the page is simply open. Continuing or sending
+    // starts it, and the view going ready attaches this page then (`_drawLifeHead`).
+    if (!retry && before.hold === 'user-stop') {
+      runInAction(() => {
+        this._attachWhenReady = true;
+        this.historyLoading = false;
+      });
+      return false;
+    }
     await startSessionLife(id);
     await when(() => {
       const view = sessionLifeView(id)!;

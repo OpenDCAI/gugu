@@ -176,6 +176,11 @@ export type ChatCommands = {
    */
   onContinueTurn?: (arg: { itemId: string; source: 'turn-outcome' }) => void;
 
+  /** The person pressed 「丢弃」 on a stopped turn; the view hides it either way, the host may have more to take back. */
+  onDiscardTurn?: (arg: { turnId: string }) => void;
+  /** False: this stopped turn offers no 「丢弃」. Absent: it does. */
+  canDiscardTurn?: (turnId: string) => boolean;
+
   /**
    * 计划审批卡（#7139）上点了一个选项：宿主用会话自己的 `requestId` / `optionId` 答那条待批请求
    * —— 与输入框上那条审批答的是同一个请求、同一个动作。宿主不注入 ⇒ 卡上的选项置灰（卡照画，答不了）。
