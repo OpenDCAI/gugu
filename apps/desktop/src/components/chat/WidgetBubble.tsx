@@ -6,6 +6,7 @@ import { parseWidgetMessage, type WidgetMessage } from '@gugu/core/shared/ui/wid
 import { platform } from '../../platform'
 import { appsHere } from '../appSlot/appsHere'
 import { PhoneAppFrame } from '../appSlot/PhoneAppFrame'
+import { Button } from '../ui/Button'
 import { APP_OPEN_WITH_EVENT } from '../../session/shared/extensions/app-runtime-protocol'
 import { installedExtensionsStore } from '../../session/renderer/features/extensions/installed-extensions-store'
 import { ExtensionPage } from '../../session/renderer/features/extensions/extension-view-layer'
@@ -69,7 +70,7 @@ function WidgetUnavailable({ widget, reason, chatId }: { widget: WidgetMessage; 
   return <div ref={ref} className="max-w-full min-w-0">
     <p className="whitespace-pre-wrap break-words">{widget.text}</p>
     <p className="text-[length:var(--font-caption)] text-[var(--text-secondary)]">{t(`message.widgetUnavailable.${reason}`)}{' '}
-      {offer ? <button disabled={installing} onClick={() => void install()} className="underline">{t('chatArea.openWith.install')}</button> : null}
+      {offer ? <Button size="sm" variant="ghost" disabled={installing} onClick={() => void install()}>{t('chatArea.openWith.install')}</Button> : null}
     </p>
     {error ? <p role="alert">{error}</p> : null}
   </div>
