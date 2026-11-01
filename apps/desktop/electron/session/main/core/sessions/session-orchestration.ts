@@ -202,7 +202,7 @@ export type SessionAction =
   | { action: 'archive'; session_id: string; with_children?: boolean; remove_social_identity?: boolean }
   /** `parent_session_id` null = 不挂在谁下面(根会话)。两个 id 都已在宿主边界解成裸 id。 */
   | { action: 'set_parent'; session_id: string; parent_session_id: string | null }
-  /** #7221 schedule_*:给自己排的「已安排」,只作用于发起调用的这条会话(agent-schedules.ts)。 */
+  /** #7221 schedule_*:建只给自己;看与取消可指名主人的另一条会话(agent-schedules.ts)。 */
   | AgentScheduleAction
   | ProjectAgentAction
   | LibraryAgentAction
@@ -1973,10 +1973,15 @@ export async function runSessionAction(
   if (action.action === 'schedule_create' || action.action === 'schedule_list' || action.action === 'schedule_cancel') {
     // 到点是把交代当一条消息送回来:这条腿收不进消息,排上了也送不到,当场说。
     if (action.action === 'schedule_create') assertMessageableTarget([caller], null, caller);
+    // 看与取消可以指名主人的另一条会话(与 session_archive 同一个口径):那条会话必须在这台机器上,别的机器由宿主路由过去。
+    const target = action.action !== 'schedule_create' && action.session_id !== undefined
+      ? resolveSessionRow(await allSessionRows(), action.session_id)
+      : caller;
+    signal?.throwIfAborted();
     // 动态取:已安排那一侧到点要回头用本模块投递,静态互相 import 会成环。
     const { runAgentScheduleAction } = await import('../automations/agent-schedules');
     return runAgentScheduleAction(
-      { sessionId: caller.id, projectId: caller.projectId, provider: caller.provider ?? null },
+      { sessionId: target.id, projectId: target.projectId, provider: target.provider ?? null },
       action,
     );
   }
@@ -2163,8 +2168,15 @@ export async function runRemoteSessionAction(
   if (action.action === 'open_in_tab') {
     throw new Error('session_open_in_tab opens a tab in the calling session\'s own pane; it has no meaning on another machine');
   }
+  // 别的机器上的 agent 指名这台机器上的一条会话,看它的或取消它的「已安排」(宿主按 session_id 路由到这里)。
+  if ((action.action === 'schedule_list' || action.action === 'schedule_cancel') && action.session_id !== undefined) {
+    const target = resolveSessionRow(await allSessionRows(), action.session_id);
+    signal?.throwIfAborted();
+    const { runAgentScheduleAction } = await import('../automations/agent-schedules');
+    return runAgentScheduleAction({ sessionId: target.id, projectId: target.projectId, provider: target.provider ?? null }, action);
+  }
   if (action.action === 'schedule_create' || action.action === 'schedule_list' || action.action === 'schedule_cancel') {
-    throw new Error(`${action.action} works on the machine the calling session runs on; it has no meaning on another machine`);
+    throw new Error(`${action.action} without session_id works on the machine the calling session runs on; it has no meaning on another machine`);
   }
 
   const rows = await allSessionRows();
