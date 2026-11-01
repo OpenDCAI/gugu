@@ -1,5 +1,6 @@
 import { recordPresenceBatch } from './perfCounters'
 import { desktopIpc } from '../platform/desktopIpc'
+import { rendererLogger } from './log'
 import type { DeviceCommandHolding } from '@gugu/core/cloud/deviceCommands'
 import { readMemberRosterRevision, type AccountRevisionEvent, type AccountRevisionListener } from './accountRevisionCoordinator'
 // 渲染层**唯一**的那张 agent 状态表:键是 agentId,值是「关于这个 agent 我观测到什么」。
@@ -540,8 +541,16 @@ async function runSnapshotBatch(waiters: BatchWaiter[]): Promise<void> {
       ready.push({ waiter, payload })
     }
     const api = desktopIpc()
-    const holdings = api && ready.length ? await api.invoke('agent-status-feed:holding', ready.map(({ payload }) => ({ agentUserId: payload.agentUserId, deviceId: payload.deviceId }))) as Record<string, DeviceCommandHolding> : {}
-    if (Object.values(holdings).some(value => value !== 'held' && value !== 'held-elsewhere' && value !== 'unheld')) throw new Error('Invalid local agent holding response')
+    let holdings: Record<string, DeviceCommandHolding> = {}
+    if (api && ready.length) {
+      try {
+        const observed = await api.invoke('agent-status-feed:holding', ready.map(({ payload }) => ({ agentUserId: payload.agentUserId, deviceId: payload.deviceId }))) as Record<string, DeviceCommandHolding>
+        if (!observed || typeof observed !== 'object' || Array.isArray(observed) || Object.values(observed).some(value => value !== 'held' && value !== 'held-elsewhere' && value !== 'unheld')) throw new Error('Invalid local agent holding response')
+        holdings = observed
+      } catch (err) {
+        rendererLogger('agent-presence').error({ err }, 'Read local agent holding failed')
+      }
+    }
     for (const { waiter, payload } of ready) {
       if (entries.get(payload.agentUserId) === waiter.entry && shouldApplyAgentPresencePayload(waiter.entry.state.payload, payload)) {
         waiter.entry.holding = holdings[payload.agentUserId] ?? null

@@ -7,7 +7,8 @@ import { readPerfCounters } from '@/lib/perfCounters'
 //
 // ⚠️ 这条改动是**客户端 ↔ 数据库的契约变更**,合并前无法对 devdb 自测(DDL 只能由
 // deploy-migrations 施加)。所以这一层必须把能在本地判的都判掉,合并后再补真库读数。
-const { rpcMock, ipcMock, host } = vi.hoisted(() => ({ rpcMock: vi.fn(), ipcMock: vi.fn(), host: { enabled: false } }))
+const { rpcMock, ipcMock, logErrorMock, host } = vi.hoisted(() => ({ rpcMock: vi.fn(), ipcMock: vi.fn(), logErrorMock: vi.fn(), host: { enabled: false } }))
+vi.mock('@/lib/log', () => ({ rendererLogger: () => ({ error: logErrorMock }) }))
 vi.mock('@/platform/desktopIpc', () => ({ desktopIpc: () => host.enabled ? { invoke: ipcMock } : null }))
 vi.mock('@/lib/supabase', () => ({ dataClient: { schema: vi.fn(() => ({ rpc: rpcMock })) } }))
 import {
@@ -52,7 +53,7 @@ function watch(agentUserId: string, listener: (state: AgentPresenceState) => voi
   return off
 }
 beforeEach(() => {
-  rpcMock.mockReset(); ipcMock.mockReset(); host.enabled = false
+  rpcMock.mockReset(); ipcMock.mockReset(); logErrorMock.mockReset(); host.enabled = false
   setPresenceBusContext({ currentUserId: `owner-${++seq}` })
 })
 afterEach(() => {
@@ -73,14 +74,24 @@ it('uses local holding for local contacts while leaving remote reachability and 
   await settle()
   expect(getAgentPresenceSnapshot('missing')?.status).toBe('idle')
 })
-it('reports a failed holding read without declaring a missing local agent', async () => {
+it('retains local and remote cloud presence and records the original error while the local host is not ready', async () => {
   host.enabled = true
-  ipcMock.mockRejectedValue(new Error('holding read failed'))
-  rpcMock.mockImplementation(answerAll())
-  watch('unmeasured')
+  const error = new Error('Local agent host is not ready')
+  ipcMock.mockRejectedValue(error)
+  rpcMock.mockImplementation(answerAll(id => {
+    const result = presenceEntry(id)
+    if (id === 'remote') result.presence.device_id = 'remote-device'
+    return result
+  }))
+  for (const id of ['local', 'remote']) watch(id)
   await settle()
-  expect(getAgentPresenceSnapshot('unmeasured')?.error).toContain('holding read failed')
-  expect(getAgentPresenceSnapshot('unmeasured')?.status).toBe('pending')
+  for (const id of ['local', 'remote']) {
+    expect(getAgentPresenceSnapshot(id)?.payload?.agentUserId).toBe(id)
+    expect(getAgentPresenceSnapshot(id)?.status).toBe('idle')
+    expect(getAgentPresenceSnapshot(id)?.error).toBeNull()
+  }
+  expect(logErrorMock).toHaveBeenCalledExactlyOnceWith({ err: error }, 'Read local agent holding failed')
+  expect(ipcMock).toHaveBeenCalledTimes(1)
 })
 
 describe('#3841 presence 批量快照', () => {
