@@ -14,6 +14,7 @@
  * 不碰 node / electron:渲染层(设置 → 设备、「在哪跑」)和主进程(agent 的 session_* 跨机器)共用这一份。
  */
 import type { CloudComputerPresence } from '../shared/types/deviceHost'
+import { anySignal } from '../shared/anySignal'
 
 export type { CloudComputerPresence }
 
@@ -170,7 +171,7 @@ export function createCloudComputerClient(options: {
         method,
         headers,
         body: body === undefined ? undefined : JSON.stringify(body),
-        signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
+        signal: anySignal([signal, timeout]),
       })
       raw = await response.text()
     } catch (error) {

@@ -4,6 +4,7 @@ import type { SessionWebSearch } from '../mcp/gugu-web-search-tool'
 import { getSessions } from '../session/main/core/sessions/getSessions'
 import { claudePlatformSearchSession, credentialForRuntimeRequest } from './sessionpage-platform-model'
 import { withinCredentialDeadline } from './platform-credential-proxy'
+import { anySignal } from '@gugu/core/shared/anySignal'
 
 /** No retries: a search request is metered separately from inference. */
 export function platformWebSearchForSession(sessionId: string): SessionWebSearch {
@@ -13,7 +14,7 @@ export function platformWebSearchForSession(sessionId: string): SessionWebSearch
       return platformStandaloneSearchGranted(held?.callableRoutes, held?.model)
     },
     run: async (query, requestSignal) => {
-      const signal = AbortSignal.any([requestSignal, AbortSignal.timeout(60_000)])
+      const signal = anySignal([requestSignal, AbortSignal.timeout(60_000)])
       const selected = (await getSessions()).find(session => session.id === sessionId)?.model?.trim()
       let held = claudePlatformSearchSession(sessionId)
       const option = selected || held?.model

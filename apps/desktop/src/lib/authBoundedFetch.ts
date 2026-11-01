@@ -1,5 +1,6 @@
 import { currentAuthSessionSignal } from './authSessionLoss'
 import { chatSendTimings } from './chatSendTiming'
+import { anySignal } from '@gugu/core/shared/anySignal'
 
 // @@@clock-skew-guard-removed (#4935, owner 2026-09-04) — 这里曾有 #2755 的时钟偏移守卫:拿「响应被处理的时刻」减
 // 响应头 Date,两次一致就整屏锁死并指控用户电脑。它把页面挂起(合盖/App Nap/后台冻结)期间在路上的响应
@@ -38,27 +39,7 @@ async function fetchWithSignals(
   const complete = async (response: Response): Promise<Response> => requestPath(input).startsWith('/rest/v1/') && response.body
     ? response.clone().arrayBuffer().then(() => response)
     : response
-  if (signals.length === 1) return fetch(input, { ...init, signal: signals[0] }).then(complete)
-  if (typeof AbortSignal.any === 'function') {
-    return fetch(input, { ...init, signal: AbortSignal.any(signals) }).then(complete)
-  }
-
-  const controller = new AbortController()
-  const listeners: Array<() => void> = []
-  for (const signal of signals) {
-    if (signal.aborted) {
-      controller.abort()
-      break
-    }
-    const listener = () => controller.abort()
-    signal.addEventListener('abort', listener, { once: true })
-    listeners.push(() => signal.removeEventListener('abort', listener))
-  }
-  try {
-    return await fetch(input, { ...init, signal: controller.signal }).then(complete)
-  } finally {
-    listeners.forEach((remove) => remove())
-  }
+  return fetch(input, { ...init, signal: anySignal(signals) }).then(complete)
 }
 
 // @@@rejected-token-recovery (#6338) — 服务端不认这张登录通行证时(换了签名章、被提前作废),数据面请求

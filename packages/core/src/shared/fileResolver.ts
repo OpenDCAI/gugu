@@ -1,4 +1,5 @@
 import { sha256 } from '@noble/hashes/sha2.js'
+import { anySignal } from './anySignal'
 
 /** One read-only entry point. Providers own byte acquisition; callers never select URLs or transports. */
 export type FileRef = { item_id: string; version?: number } | { message_id: string } | { attachment_id: string }
@@ -143,7 +144,7 @@ export function createFileResolver(providers: FileProviders) {
     const revision = Object.freeze({ ...metadata.revision })
     requireFileRevision(revision)
     if (revision.legacy_object && (!('message_id' in context.ref) || context.ref.message_id !== revision.legacy_object.message_id)) throw new Error('Historical file reference changed')
-    context.signal = options.signal ? AbortSignal.any([options.signal, cancellation.signal]) : cancellation.signal
+    context.signal = anySignal([options.signal, cancellation.signal])
     let disposed = false
     let opened: Promise<FileBytes> | undefined
     const check = () => {
