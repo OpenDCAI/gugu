@@ -6,6 +6,7 @@ import { messageForUser } from '@/lib/userFacingError'
 import { markFileStorage, readFileStorageOverview, type FileStorageClass, type FileStorageOverview } from '../../lib/fileStorage'
 import { Button } from '../ui/Button'
 import { Popover } from '../ui/Popover'
+import { InfoTooltip } from '@renderer/lib/ui/info-tooltip'
 import { SettingsGroup, SettingsNote, SettingsRow } from './SettingsPrimitives'
 import '../usage/usage.css'
 
@@ -160,6 +161,9 @@ export function FileStorageDashboard() {
             <span key={name} data-testid={`file-storage-legend-${name}`} className="inline-flex items-center">
               <span aria-hidden className={`mr-[6px] size-2 rounded-full ${SWATCH[name]}`} />
               {classLabel(name)}
+              {name === 'kept' && <span className="ml-1 inline-flex"><InfoTooltip label={t('fileStorage.dashboard.keptRuleLabel')} contentClassName="max-w-sm"
+                content={overview.expiry ? t('fileStorage.dashboard.keptRule', { size: size(overview.expiry.large_file_bytes), days: Math.round(overview.expiry.idle_seconds / 86400) })
+                  : t('fileStorage.dashboard.keptRuleNoExpiry')} /></span>}
               <b className="ml-1 font-medium text-[var(--fg)]">{size(overview.classes[name].bytes)}</b>
               <span>&nbsp;· {t('fileStorage.dashboard.files', { count: overview.classes[name].count })}</span>
             </span>
