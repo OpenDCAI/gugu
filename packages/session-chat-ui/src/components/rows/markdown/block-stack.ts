@@ -34,6 +34,8 @@ function collapsedLayout(block: Block): BlockLeafLayout {
       return { kind: 'code', id: block.id, top: 0, height: 0, contentWidth: 0, lines: [], raw: block };
     case 'mermaid':
       return { kind: 'mermaid', id: block.id, top: 0, height: 0, contentWidth: 0, source: block.source, raw: block };
+    case 'svg':
+      return { kind: 'svg', id: block.id, top: 0, height: 0, contentWidth: 0, raw: block };
     case 'math':
       return {
         kind: 'math',

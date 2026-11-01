@@ -29,11 +29,15 @@ export type FileStorageOverview = {
   groups: { chat_id: string; name: string | null; project: boolean; bytes: number; count: number }[]
   expiring: { chat_id: string; expires_at: string; bytes: number; class: FileStorageClass; item_id: string | null; file_name: string | null }[]
   machines: { device_id: string; label: string; files: number; bytes: number; temporary_copy_bytes: number }[]
+  /** The deployment's idle-expiry policy (chat.file_transfer_expire): larger than large_file_bytes and unopened for
+   *  idle_seconds is deleted from the cloud; null = the deployment sets none. */
+  expiry: { large_file_bytes: number; idle_seconds: number } | null
 }
 
 export async function readFileStorageOverview(): Promise<FileStorageOverview> {
   const { data, error } = await chatDb.rpc('file_storage_overview_as')
   if (error) throw new Error(error.message)
+  if (!data || typeof data !== 'object' || !('expiry' in data)) throw new Error('The storage overview has no expiry policy: the backend is older than this app')
   return data as FileStorageOverview
 }
 

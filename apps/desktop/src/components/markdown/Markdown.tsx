@@ -10,7 +10,7 @@ import {
   type ReactNode,
 } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Streamdown, type CustomRendererProps, type PluginConfig } from 'streamdown'
+import { CodeBlock, Streamdown, type CustomRendererProps, type PluginConfig } from 'streamdown'
 import 'katex/dist/katex.min.css'
 import '@gugu/session-shared/markdown.css'
 import {
@@ -22,10 +22,12 @@ import {
 } from '@gugu/session-shared/markdown/dialect'
 import { readEffectiveHostTheme, subscribeToHostTheme } from '@renderer/lib/theme/host-theme'
 import { MermaidDiagram } from '@renderer/lib/ui/mermaid-diagram'
+import { svgFigure, svgPalette } from '@gugu/session-chat-ui/svg'
 import { parseGroupFileLink } from '@gugu/core/shared/ui/guguLink'
 import { displayAgentReferences, isMentionMarkerUrl } from '../../lib/mentionMdast'
 import { markdownCodeHighlighter } from './codeHighlight'
 import { PlatformCodeBlock } from './PlatformCodeBlock'
+import { PlatformCopyButton } from './PlatformCopyButton'
 import { PlatformTable } from './PlatformTable'
 import { useMobileShell } from '@/hooks/useMobileShell'
 import { FILE_PILL_CLASS, hookFilePillCopy, rehypeGroupFilePills } from './filePills'
@@ -77,9 +79,33 @@ function MermaidRenderer({ code, isIncomplete }: CustomRendererProps) {
   return <MermaidDiagram chart={code} isDark={theme === 'dark'} compact={density === 'compact'} />
 }
 
+const SVG_FAILURE = { 'too-large': 'tooLarge', invalid: 'invalid', 'no-viewbox': 'noViewbox' } as const
+
+/** A ```svg fence: the agent's figure as an image (`svgFigure`); one that cannot be drawn stays code, saying why. */
+function SvgRenderer({ code, isIncomplete }: CustomRendererProps) {
+  const { t } = useTranslation('messaging')
+  // Subscribed so a light/dark flip re-renders: the palette is read from the page as the theme is now.
+  useSyncExternalStore(subscribeToHostTheme, readEffectiveHostTheme, () => 'light' as const)
+  const figure = isIncomplete ? null : svgFigure(code, svgPalette(document.documentElement))
+  if (figure?.ok) {
+    return <img className="gg-md-svg" src={figure.src} width={figure.width} height={figure.height} alt="" draggable={false} />
+  }
+  return (
+    <div>
+      {figure && <div className="gg-md-svg-failed" role="alert">{t(`message.svgFigure.${SVG_FAILURE[figure.reason]}`)}</div>}
+      <CodeBlock code={code} language="svg" isIncomplete={isIncomplete} lineNumbers={false}>
+        <PlatformCopyButton key={code} text={code} kind="code" />
+      </CodeBlock>
+    </div>
+  )
+}
+
 const PLUGINS: PluginConfig = {
   code: markdownCodeHighlighter,
-  renderers: [{ language: 'mermaid', component: MermaidRenderer }],
+  renderers: [
+    { language: 'mermaid', component: MermaidRenderer },
+    { language: 'svg', component: SvgRenderer },
+  ],
 }
 
 // Plugin arrays keep their identity per dialect option set, so a re-render never re-creates the processor.

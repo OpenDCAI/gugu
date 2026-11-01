@@ -1,5 +1,4 @@
 import { agentLocationText } from '../../lib/agentRunningStatusModels'
-import type { CSSProperties } from 'react'
 import type { TFunction } from 'i18next'
 import type { GroupJoinMode } from '@gugu/core/shared/types/chat'
 import type { AgentStatusLabel } from '@gugu/core/shared/agentStatusPresentation'
@@ -13,23 +12,6 @@ export const COLOR_ACCENT = 'var(--accent)'
 export const COLOR_ON_ACCENT = 'var(--text-on-accent)'
 export const COLOR_MUTED = 'var(--text-secondary)'
 export const COLOR_PLACEHOLDER = 'var(--text-tertiary)'
-
-/**
- * @deprecated 用 `ui/IconButton` —— 图标钮的唯一实现(尺寸取 --control-h-*、图标取 --icon-*、三态来自 .gg-ghost)。
- * 这份 28×28 / 4px 圆角的内联副本只剩 WidgetCard 一个消费点(不在本轮迁移范围)；它迁完这个常量随即删除。
- * ❌ 新代码别再引用。同族的 `GHOST_BTN`(30×30 药丸)消费点已清空、常量已删。
- */
-export const ICON_BTN: CSSProperties = {
-  width: '28px',
-  height: '28px',
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  background: 'none',
-  border: 'none',
-  cursor: 'pointer',
-  borderRadius: 'var(--radius-document)',
-}
 
 /**
  * 单聊头「{状态} · {位置} · {引擎}」。状态是这个 agent 的完整 presentation 那一句(等你批准 / 后台运行中 …);

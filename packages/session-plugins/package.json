@@ -44,7 +44,7 @@
     "jira.js": "^5.4.0",
     "mailparser": "3.9.39",
     "nodemailer": "10.1.1",
-    "pi-acp": "npm:@gugu-acp/pi-acp@1.0.0",
+    "pi-acp": "npm:@gugu-acp/pi-acp@1.1.0",
     "smol-toml": "^1.6.0",
     "trello.js": "^2.1.4",
     "undici": "^6.27.0",

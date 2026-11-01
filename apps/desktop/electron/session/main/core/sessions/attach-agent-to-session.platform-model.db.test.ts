@@ -26,10 +26,9 @@ vi.mock('@main/core/agent-hooks/agent-hook-service', () => ({
 vi.mock('@main/core/agent-status/agent-status-writer', () => ({
   agentStatusWriter: { birth: vi.fn(async () => undefined) },
 }));
-vi.mock('../agents/plugin-registry', () => ({
-  // fork 只对声明了 fork 能力的 provider 开放,attachAgentToSession 会先问这一句。
-  getPlugin: () => ({ capabilities: { sessions: { fork: 'supported' } } }),
-}));
+vi.mock('../agents/plugin-registry', () => ({ getPlugin: () => ({}) }));
+// fork 只对能在来源那条腿上分叉的 provider 开放,attachAgentToSession 会先问这一句。
+vi.mock('../agents/fork-legs', () => ({ forkRuntimes: () => ['pty', 'acp'] }));
 vi.mock('../projects/utils', () => ({
   resolveSession: () => ({ sessions: { startSession: mocks.startSession } }),
 }));
