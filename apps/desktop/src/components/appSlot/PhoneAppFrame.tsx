@@ -22,7 +22,7 @@ import type { SessionpageOpenedFileChunk, SessionpageOpenedFileReadRequest } fro
 import { composeChatDraft } from '../../lib/composeDraft'
 import { peekStore } from '../../session/renderer/features/extensions/peek-store'
 
-const OpenedFilePreview = lazy(() => import('../../mobile/agent-watch/opened-output-opener').then((m) => ({ default: m.OpenedFilePreview })))
+const OpenedFilePreview = lazy(() => import('../../mobile/agent-watch/opened-file-preview').then((m) => ({ default: m.OpenedFilePreview })))
 
 /** The App a frame draws: its page, what it may do, and the version — a new one reloads the frame in place (摩擦单 F66). */
 interface FramedPage {

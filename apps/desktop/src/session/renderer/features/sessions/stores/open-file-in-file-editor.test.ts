@@ -108,7 +108,7 @@ describe('task file preview routing', () => {
   });
 
   it('returns a cancelled choice without an error toast on the click path', async () => {
-    for (const id of ['text', 'other-text']) mocks.installedManifests.push({ id, contributes: { tabs: [{ name: 'view', title: 'Text', opensFiles: { session: ['.txt'] } }] } });
+    for (const id of ['text', 'other-text']) mocks.installedManifests.push({ id, defaultLocale: 'en', contributes: { tabs: [{ name: 'view', title: 'Text', opensFiles: { session: ['.txt'] } }] } });
     mocks.showModal.mockImplementation((_kind: unknown, props: { onClose: () => void }) => props.onClose());
     await expect(openFileInSessionEditor('project-1', 'session-1', 'a.txt', { ask: true })).resolves.toBeUndefined();
     await makeFileLinkHandlers('project-1', 'session-1').onOpenFile('a.txt');
