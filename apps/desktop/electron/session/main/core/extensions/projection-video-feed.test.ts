@@ -12,7 +12,7 @@ const principal = { extensionId: 'projection-video-feed-test', sessionId: 'task-
 const context = { ownerId: 'owner-a', deviceId: 'viewer-a', appId: principal.extensionId,
   sessionId: principal.sessionId, pageId: '10', epoch: '0' };
 const caller = () => ({ extensionId: principal.extensionId, kind: 'page', pageId: 10,
-  binding: { sessionId: principal.sessionId } }) as unknown as BridgeCaller;
+  binding: { workspace: `session:${principal.sessionId}` } }) as unknown as BridgeCaller;
 const frame = { width: 128, height: 96, mime: 'image/png' as const, data: 'YQ==' };
 const control = new AbortController().signal;
 const tick = () => new Promise(resolve => setTimeout(resolve, 0));
@@ -109,7 +109,7 @@ describe('actual projection resource → host encoder → correlated input', () 
     expect(ack).toHaveBeenCalledTimes(2);
     await s.feed.lease.receive(s.packet(generation), control);
     expect(ack).toHaveBeenCalledTimes(2);
-    s.page.binding!.sessionId = 'task-b';
+    s.page.binding!.workspace = 'session:task-b';
     await expect(s.feed.lease.receive(s.packet(generation), control)).rejects.toThrow(/binding changed/);
     await s.finish(); await media.close();
   });
@@ -146,7 +146,7 @@ describe('actual projection resource → host encoder → correlated input', () 
     const pixels = deferred<ProjectionPixelLease>(); const s = setup({ decode: () => pixels.promise });
     const media = await s.feed.openMedia(control, () => {});
     await media.answer({ type: 'answer', sdp: 'fixture' }); await tick();
-    s.page.binding!.sessionId = 'task-b';
+    s.page.binding!.workspace = 'session:task-b';
     const lease = pixelLease(); pixels.resolve(lease); await tick();
     expect(lease.release).toHaveBeenCalledExactlyOnceWith();
     expect(s.publish).not.toHaveBeenCalled();

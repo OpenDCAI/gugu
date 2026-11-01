@@ -581,7 +581,7 @@ describe('session orchestration', () => {
       setOtherMachines({
         devices: async () => [], isThisDevice: async () => false, appSpawn,
         sessions: async () => ({ sessions: [], unreached: [] }), archive: vi.fn(),
-        appMessage: vi.fn(), appReadFile: vi.fn(), appCall: vi.fn(),
+        appMessage: vi.fn(), appCall: vi.fn(),
       });
       try {
         expect(await spawnSessionForApp({ extensionId: 'context', extensionName: 'Context', envelope, prompt: 'inspect', device: 'device:remote', project: '/remote/project', harness: 'codex' })).toEqual({ agentId: 'user:remote-agent' });
@@ -1882,7 +1882,7 @@ describe('session orchestration', () => {
         sessions: [{ deviceId: 'device-c', label: 'Third computer', session: { conversationId: 'chosen-remote', projectId: 'remote-project', parentConversationId: 'unreachable-ancestor' } as SessionpageSessionSummary, listsAgents: true }],
         unreached: [{ deviceId: 'device-d', label: 'Offline computer', detail: 'no answer' }],
       }),
-      archive: vi.fn(), appMessage: vi.fn(), appReadFile: vi.fn(), appCall: vi.fn(),
+      archive: vi.fn(), appMessage: vi.fn(), appCall: vi.fn(),
     });
     const action = { action: 'spawn' as const, prompt: 'x', project_id: 'project-2', parent_session_id: 'chosen-remote' };
     const child = await (remoteCaller
@@ -2342,7 +2342,6 @@ describe('session_set_parent', () => {
       }),
       archive: async () => undefined,
       appMessage: async () => ({ id: 'unused' }),
-      appReadFile: async () => { throw new Error('no file is read in this test'); },
       appCall: async () => { throw new Error('no App call is made in this test'); },
     });
 

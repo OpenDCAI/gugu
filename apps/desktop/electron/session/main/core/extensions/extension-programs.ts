@@ -194,9 +194,11 @@ export const WORKSPACE_META_KEY = 'gugu/workspaceRoot';
 /** The model gugu runs the caller's session on, as `listAgents()` gives it — an App shows which model did a thing (片场's cards). */
 export const MODEL_META_KEY = 'gugu/model';
 export const MODEL_LABEL_META_KEY = 'gugu/modelLabel';
+/** The caller's conversation: the person's private chat with it — where `gugu.dispatch` / `sendToMember` reaches them. */
+export const CONVERSATION_META_KEY = 'gugu/conversation';
 
 /** Where the calling session works, read at call time; null when the session is not a session-page one. */
-export type CallerSessionContext = (agentId: string) => Promise<{ sessionId: string; workspaceRoot: string | null; model: string | null; modelLabel?: string | null } | null>;
+export type CallerSessionContext = (agentId: string) => Promise<{ sessionId: string; workspaceRoot: string | null; model: string | null; modelLabel?: string | null; conversation?: string | null } | null>;
 
 /** The agent calling: its session here (`agentId`) and its gugu identity (`agentUserId`, a uuid). */
 export interface Caller {
@@ -211,6 +213,20 @@ export function agentAddress(agentUserId: string | undefined): string | null {
   return bare && UUID.test(bare) ? `user:${bare}` : null;
 }
 
+/**
+ * What an App program is told of the session that called it (its `_meta`): `agentSessionContext`, and the session's
+ * conversation — the person's private chat with its agent (`gugu/conversation`), where the App reaches them.
+ */
+export async function callerSessionContext(sessionId: string) {
+  const { agentSessionContext } = await import('./extension-agent-context');
+  const context = await agentSessionContext(sessionId);
+  if (!context) return null;
+  const conversation = await import('@main/core/sessionpage/sessionpage-session-agent')
+    .then(async ({ sessionAgents }) => (await sessionAgents(process.env)).get(sessionId)?.chatId ?? null)
+    .catch(() => null);
+  return { ...context, conversation };
+}
+
 /** The `_meta` a program receives: who called, and — when known — from which session, working copy and model. */
 export async function callerMeta(caller: Caller, sessionContext?: CallerSessionContext): Promise<Record<string, string>> {
   const agent = agentAddress(caller.agentUserId);
@@ -218,6 +234,7 @@ export async function callerMeta(caller: Caller, sessionContext?: CallerSessionC
   return {
     ...(agent ? { [AGENT_META_KEY]: agent } : {}),
     ...(context ? { [SESSION_META_KEY]: context.sessionId } : {}),
+    ...(context?.conversation ? { [CONVERSATION_META_KEY]: context.conversation } : {}),
     ...(context?.workspaceRoot ? { [WORKSPACE_META_KEY]: context.workspaceRoot } : {}),
     ...(context?.model ? { [MODEL_META_KEY]: context.model } : {}),
     ...(context?.modelLabel ? { [MODEL_LABEL_META_KEY]: context.modelLabel } : {}),
@@ -626,14 +643,14 @@ export const extensionPrograms: ExtensionPrograms = {
       if (!('agent' in from)) {
         // A page in a session: the program is told that session and its working copy on this machine (`gugu/workspaceRoot`),
         // as an agent's call is — a page on another machine knows neither the path nor this machine's layout.
-        const { agentSessionContext } = await import('./extension-agent-context');
-        const root = from.sessionId ? (await agentSessionContext(from.sessionId))?.workspaceRoot : undefined;
+        const context = from.sessionId ? await callerSessionContext(from.sessionId) : null;
         const id = randomUUID();
         const _meta = {
           'gugu/caller': 'app',
           [PROGRAM_CALL_META_KEY]: id,
           ...(from.sessionId ? { [SESSION_META_KEY]: from.sessionId } : {}),
-          ...(root ? { [WORKSPACE_META_KEY]: root } : {}),
+          ...(context?.workspaceRoot ? { [WORKSPACE_META_KEY]: context.workspaceRoot } : {}),
+          ...(context?.conversation ? { [CONVERSATION_META_KEY]: context.conversation } : {}),
         };
         if (program.native) return extensionPrograms.call(program, { name, arguments: args, _meta }, { signal, sessionId: from.sessionId });
         return use(program, signal, (client) => client.callTool({ name, arguments: args, _meta }, undefined, { signal }) as Promise<CallToolResult>,
@@ -641,8 +658,7 @@ export const extensionPrograms: ExtensionPrograms = {
       }
       // Worked by an agent (owner 10-14): its call, as the agent's own tool call is — stamped the same (its session, working
       // copy, model), what it hands checked as that agent, and what the program does in it done as that agent (`gugu/call`).
-      const { agentSessionContext } = await import('./extension-agent-context');
-      const stamp = await callerMeta({ agentId: from.agentSession, agentUserId: from.agent }, agentSessionContext);
+      const stamp = await callerMeta({ agentId: from.agentSession, agentUserId: from.agent }, callerSessionContext);
       const given = await handedAs(extensionPrograms, from.agent.slice('user:'.length), tool, name, args);
       const id = randomUUID();
       const _meta = { 'gugu/caller': 'app', ...stamp, [PROGRAM_CALL_META_KEY]: id };

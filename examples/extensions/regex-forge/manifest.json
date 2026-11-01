@@ -6,7 +6,7 @@
     "dev-tools"
   ],
   "version": "0.1.0",
-  "apiVersion": 24,
+  "apiVersion": 25,
   "defaultLocale": "zh-CN",
   "subtitle": "边打边试的正则工作台",
   "platforms": ["desktop"],

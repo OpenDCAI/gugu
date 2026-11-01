@@ -75,12 +75,12 @@ beforeEach(async () => {
   reads.asked.length = 0;
   reads.hold = null;
   reads.failFor = null;
-  await bindExtensionSurface({ webContentsId: PERSON_PAGE, extensionId: 'workspace', tabId: 'slot-1', tabKind: 'workspace.main', chatId: CHAT });
+  await bindExtensionSurface({ webContentsId: PERSON_PAGE, extensionId: 'workspace', tabId: 'slot-1', tabKind: 'workspace.main', conversation: CHAT });
   await bindExtensionSurface({
-    webContentsId: AGENT_PAGE, extensionId: 'workspace', tabId: 'check-1', tabKind: 'workspace.main', chatId: CHAT,
+    webContentsId: AGENT_PAGE, extensionId: 'workspace', tabId: 'check-1', tabKind: 'workspace.main', conversation: CHAT,
     operator: { kind: 'agent', id: `user:${AGENT}` },
   });
-  await bindExtensionSurface({ webContentsId: OTHER_PAGE, extensionId: 'workspace', tabId: 'slot-2', tabKind: 'workspace.main', chatId: OTHER_CHAT });
+  await bindExtensionSurface({ webContentsId: OTHER_PAGE, extensionId: 'workspace', tabId: 'slot-2', tabKind: 'workspace.main', conversation: OTHER_CHAT });
   for (const [id, chat] of [[PERSON_PAGE, CHAT], [AGENT_PAGE, CHAT], [OTHER_PAGE, OTHER_CHAT]] as const) {
     expect(await watch(id, { chat })).toMatchObject({ ok: true });
   }
