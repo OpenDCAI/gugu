@@ -1258,6 +1258,10 @@ describe('三态判决与失败面', () => {
     try {
       await postDeliveryDisclosureRow({ agentUserId: AGENT, chatId: 'chat-a', key: 'notice', threadRootId: null, reason: 'notAdmitted' }, 'test-token')
       const body = JSON.parse(post.mock.calls[0]![1]!.body as string)
+      // A notice addresses no one: a reply target reads to the backend as naming its sender, and two agents' failure
+      // notices then woke each other in turn. It stays in its thread.
+      expect(body).not.toHaveProperty('reply_to_message_id')
+      expect(body).toMatchObject({ content_type: 'system', thread_root_id: null, is_thread_root: false })
       expect(body.content).toBe('消息已保留，助理就绪后回复。')
       expect(body.content).not.toMatch(/failed|could not hand|失败/)
     } finally { vi.unstubAllGlobals() }

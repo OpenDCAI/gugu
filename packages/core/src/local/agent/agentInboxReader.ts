@@ -315,7 +315,7 @@ export function unreadRowFromRpc(raw: Record<string, unknown>): AgentInboxUnread
 type InlineImage = { data: string; mimeType: string; fileName: string; localPath: string }
 type SavedAttachment = { bytes: Uint8Array; localPath: string }
 
-export type DisclosureRow = { agentUserId: string; chatId: string; threadRootId: string | null; key: string; reason: AgentFailureReason; replyToMessageId?: string }
+export type DisclosureRow = { agentUserId: string; chatId: string; threadRootId: string | null; key: string; reason: AgentFailureReason }
 
 /**
  * The failure row's content: what agents and clients that cannot read the reason see. Fixed English, so an agent reads the
@@ -369,7 +369,6 @@ export async function postDeliveryDisclosureRow(input: DisclosureRow, accessToke
       content: FAILURE_CONTENT[input.reason],
       content_type: 'system',
       client_message_id: turnFailureMarker(id, input.reason),
-      ...(input.replyToMessageId ? { reply_to_message_id: input.replyToMessageId } : {}),
       thread_root_id: input.threadRootId,
       is_thread_root: false,
     }),
@@ -1051,8 +1050,7 @@ async function discloseBatchFailure(
     }
     const key = `turn-failure:batch:${createHash('sha256').update([agentUserId, ...ids].join(',')).digest('hex').slice(0, 32)}`
     try {
-      await post({ agentUserId, chatId, threadRootId: chatMembers[0]!.row.threadRootId, key, reason,
-        replyToMessageId: chatMembers.at(-1)!.row.id })
+      await post({ agentUserId, chatId, threadRootId: chatMembers[0]!.row.threadRootId, key, reason })
       log.warn({ agentUserId, chatId, messageIds: ids, key }, 'turn-failure disclosed to the source chat')
     } catch (error) {
       said = false
