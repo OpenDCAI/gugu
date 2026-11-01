@@ -236,8 +236,8 @@ describe('text runs', () => {
     expect(root.textContent?.trim()).toBe(text.replaceAll('> ', ''));
   });
 
-  it('gives code, display math and mermaid blocks of their own, ids in document order', () => {
-    const blocks = parseMarkdownToBlocks('t', 'a\n\n```ts\nx\n```\n\nb\n\n$$\ny\n$$\n\n```mermaid\ngraph TD\n```\n\nc');
+  it('gives code, display math, mermaid and svg blocks of their own, ids in document order', () => {
+    const blocks = parseMarkdownToBlocks('t', 'a\n\n```ts\nx\n```\n\nb\n\n$$\ny\n$$\n\n```mermaid\ngraph TD\n```\n\nc\n\n```svg\n<svg/>\n```');
     expect(blocks.map((block) => `${block.kind}:${block.id}`)).toEqual([
       'html:t#0',
       'code:t#1',
@@ -245,7 +245,9 @@ describe('text runs', () => {
       'math:t#3',
       'mermaid:t#4',
       'html:t#5',
+      'svg:t#6',
     ]);
+    expect(blockPlainText(blocks[6]!)).toBe('<svg/>');
   });
 
   it('reads like the chat bubble: raw HTML stays text, a typed newline is a line break', () => {

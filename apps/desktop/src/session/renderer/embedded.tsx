@@ -54,6 +54,7 @@ import { wireModelRegistryInvalidation } from '@renderer/lib/monaco/invalidation
 import { monacoBootstrap } from '@renderer/lib/monaco/monaco-bootstrap';
 import { modelRegistry } from '@renderer/lib/monaco/monaco-model-registry';
 import { wirePrCacheInvalidation } from '@renderer/lib/pr-cache-invalidation';
+import { wireAgentCapabilityInvalidation } from '@renderer/lib/stores/use-agents';
 import { viewStateCache } from '@renderer/lib/stores/view-state-cache';
 import { log } from '@renderer/utils/logger';
 import type { NavigationSnapshot, SidebarSnapshot } from '@shared/view-state';
@@ -206,6 +207,7 @@ async function bootstrap() {
 
   wireModelRegistryInvalidation(modelRegistry);
   wirePrCacheInvalidation();
+  wireAgentCapabilityInvalidation();
   wireCommitHistoryInvalidation();
   wireExternalLinkRequests();
   // 屏上的会话报给主进程:闲置回收不停人正看着的会话(spec idle-reclaim「不在屏上」)。

@@ -1,11 +1,14 @@
 import type { MarketHome } from '@shared/extensions/market-home';
+import { safeParseExtensionManifest } from '@shared/extensions/manifest';
 
 /**
  * Apps 页上次画出来的那份,留到下次启动的第一帧(owner 10-30「既然曾经缓存过,为什么又要失效又要重新读取」)。
  * 存 localStorage,理由同 devicesCache.ts:第一帧要的是**同步**读到 —— 异步读(问主进程、IndexedDB)会把第一帧推到下一个
  * 宏任务,白白闪一下骨架。它不是事实源:画出来之后照常重读,读回来整份换上。
  * 每个 App 只存一份,推荐页那几排(精选 / 其余 / 最新 / 热门)只存 id —— 同一个 App 不在里面重复几遍。
- * 形状不对、读不出来就当没有:❌ 迁移,❌ 让它把页面带崩。
+ * 形状不对、读不出来就当没有:❌ 迁移,❌ 让它把页面带崩。每个 App 的 manifest 都过一遍 live 路径用的同一个解析器
+ * (`safeParseExtensionManifest`):写它的那一版客户端的 manifest 形状不是这一版的(#1188 之前存的没有 `defaultLocale`,
+ * 页面一读就崩),就整份当没有。
  */
 const SHELF_KEY = 'gugu.appsShelf.v1:';
 const SHOT_KEY = 'gugu.appsShot.v1';
@@ -49,6 +52,7 @@ export function keepShelf<T extends Item, X>(hostKey: string, items: readonly T[
 export function keptShelf<T extends Item, X>(hostKey: string): { items: T[]; home: MarketHome<T>; extra: X } | null {
   const kept = read(SHELF_KEY + hostKey) as { items?: unknown; ids?: Partial<Ids>; extra?: X } | null;
   if (!kept || !Array.isArray(kept.items) || !kept.ids) return null;
+  if (!kept.items.every((item) => safeParseExtensionManifest((item as Partial<Item> | null)?.manifest).ok)) return null;
   const items = kept.items as T[];
   const byId = new Map(items.map((item) => [item.manifest?.id, item]));
   const rows = (ids: unknown): T[] | null => {
