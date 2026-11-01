@@ -1,8 +1,56 @@
+import type { LifeView } from '@/session/shared/core/sessions/session-life'
+import { readDeliveryEnvelope } from '@gugu/core/local/agent/deliveryEnvelope'
 import { rendererLogger } from './log'
 export type SessionInput = {
   id: string; accountId: string; deviceId: string | null; sessionId: string; text: string; createdAt: number
   attachments?: import('@gugu/session-core/session-record/contract').SessionpageSessionSendRequest['attachments']
-  error?: string
+  failure?: SessionInputFailure
+}
+/** Failures the sender itself names; any other send error keeps the host's own words. */
+export type SessionInputFailure =
+  | { code: 'host-offline' }
+  | { code: 'host-not-ready' }
+  | { code: 'phone-unconfirmed' }
+  | { code: 'no-acknowledgement' }
+  | { code: 'send-failed'; message: string }
+export class SessionInputFailureError extends Error {
+  constructor(readonly failure: Exclude<SessionInputFailure, { code: 'send-failed' }>) { super(failure.code) }
+}
+/** A host session_pending row as its LifeView shows it. */
+export type HostPendingRow = LifeView['pending']['items'][number]
+/** from: a delivery (another task's or agent's message) shows its sender and body, read the way the transcript reads it. */
+export type SessionInputBubble = { id: string; text: string; from?: string | null } & (
+  | { state: 'sending' }
+  /** The host holds it (a failed start, sign-out): it goes when the person retries or sends again. */
+  | { state: 'held' }
+  /** The person stopped the session before it went: it goes with their next message. */
+  | { state: 'stopped' }
+  /** failure: the sender named it (retry re-sends its copy); hostReason: the host row failed, in the host's words. */
+  | { state: 'failed'; failure: SessionInputFailure | null; hostReason: string | null }
+  | { state: 'unknown' })
+
+/**
+ * Custody of a messageId has one owner at a time: the transcript once the host row is accepted, else the host row,
+ * else the sender row. A bubble is drawn from whichever owns it; the transcript draws its own.
+ */
+export function sessionInputBubbles(sender: readonly SessionInput[], host: readonly HostPendingRow[], hold: LifeView['hold']): SessionInputBubble[] {
+  const hosted = new Set(host.map(row => row.messageId))
+  return [
+    // Every pending row, whatever wrote it (the person, another task, the inbox): one projection of the queue.
+    ...[...host].sort((a, b) => a.seq - b.seq).flatMap((row): SessionInputBubble[] => {
+      const delivered = readDeliveryEnvelope(row.text)
+      const base = delivered ? { id: row.messageId, text: delivered.body, from: delivered.segments[0]?.facts?.from ?? null } : { id: row.messageId, text: row.text }
+      switch (row.state) {
+        case 'accepted': return []
+        case 'queued': case 'dispatching': return [{ ...base, state: hold === 'user-stop' ? 'stopped' : hold ? 'held' : 'sending' }]
+        case 'failed': return [{ ...base, state: 'failed', failure: null, hostReason: row.failure }]
+        case 'unknown': return [{ ...base, state: 'unknown' }]
+      }
+    }),
+    ...[...sender].filter(input => !hosted.has(input.id)).sort((a, b) => a.createdAt - b.createdAt)
+      .map((input): SessionInputBubble => ({ id: input.id, text: input.text,
+        ...(input.failure ? { state: 'failed', failure: input.failure, hostReason: null } : { state: 'sending' }) })),
+  ]
 }
 export interface SessionInputStorage {
   list(accountId: string): Promise<SessionInput[]>
@@ -58,7 +106,8 @@ export class SessionInputOutbox {
       } catch (error) {
         blocked.add(target)
         rendererLogger('session/input-outbox').warn({ deviceId: input.deviceId, sessionId: input.sessionId, error: String(error) }, 'Native input not delivered; it stays queued')
-        await this.storage.put({ ...input, error: error instanceof Error ? error.message : String(error) })
+        await this.storage.put({ ...input, failure: error instanceof SessionInputFailureError ? error.failure
+          : { code: 'send-failed', message: error instanceof Error ? error.message : String(error) } })
       }
       this.changed()
     }
@@ -70,7 +119,7 @@ export async function withSessionInputDeadline<T>(operation: Promise<T>, timeout
   let timer: ReturnType<typeof setTimeout> | undefined
   try {
     return await Promise.race([operation, new Promise<never>((_, reject) => {
-      timer = setTimeout(() => reject(new Error('Native session input acknowledgement timed out')), timeoutMs)
+      timer = setTimeout(() => reject(new SessionInputFailureError({ code: 'no-acknowledgement' })), timeoutMs)
     })])
   } finally { if (timer) clearTimeout(timer) }
 }

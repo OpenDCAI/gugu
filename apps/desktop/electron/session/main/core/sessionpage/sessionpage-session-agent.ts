@@ -1,5 +1,5 @@
-import { listAgents, type LocalAgentRecord } from '@gugu/core'
-import { AGENT_OWNER_CACHE_KEY, agentsForOwner } from '@gugu/core/local/state/agentOwner'
+import { listAgents, updateAgent, type LocalAgentRecord } from '@gugu/core'
+import { AGENT_OWNER_CACHE_KEY, agentOwnerUserId, agentsForOwner } from '@gugu/core/local/state/agentOwner'
 
 /** Roster cache keys written by the host's session-page provisioning flow. */
 export const SESSIONPAGE_SESSION_CACHE_KEY = 'emdash_session_id'
@@ -59,6 +59,24 @@ export async function sessionAgents(env: NodeJS.ProcessEnv): Promise<Map<string,
 /** `sessionAgents`, the agent ids alone. */
 export async function agentIdsBySession(env: NodeJS.ProcessEnv): Promise<Map<string, string>> {
   return new Map([...await sessionAgents(env)].map(([sessionId, { agentId }]) => [sessionId, agentId]))
+}
+
+/**
+ * Exact canonical owner (session-life hydrate): the session's active binding names exactly this account.
+ * Unknown owner is not "possibly this account" here — that wide reading stays with agentsForOwner.
+ */
+export async function sessionOwnedBy(sessionId: string, env: NodeJS.ProcessEnv, userId: string): Promise<boolean> {
+  const active = (await listAgents(env, { includeGuests: true })).filter((agent) => cached(agent, SESSIONPAGE_SESSION_CACHE_KEY) === sessionId)
+  if (active.length > 1) throw new Error(`session-page identity lookup: session ${sessionId} has ${active.length} active bindings`)
+  return active.length === 1 && agentOwnerUserId(active[0]) === userId
+}
+
+/** Creation rollback: remove the binding written for a session whose row could not be written. */
+export async function unbindSessionAgent(sessionId: string, env: NodeJS.ProcessEnv): Promise<void> {
+  for (const agent of (await listAgents(env, { includeGuests: true })).filter((row) => cached(row, SESSIONPAGE_SESSION_CACHE_KEY) === sessionId)) {
+    const { [SESSIONPAGE_SESSION_CACHE_KEY]: _unbound, ...cache } = agent.cache ?? {}
+    await updateAgent({ guguUserId: agent.gugu_user_id }, { cache }, env)
+  }
 }
 
 export async function guguAgentUserIdForSession(

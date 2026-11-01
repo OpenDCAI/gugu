@@ -88,6 +88,7 @@ export default {
       "close": "关闭",
       "generic": "Agent 本次回复出错，未能完成",
       "notAdmitted": "消息已保留，助理就绪后回复。",
+      "outcomeUnknown": "投递结果未知：消息可能已经送到助理，没有重投。",
       "undelivered": "消息暂未送达：没有运行中的咕咕实例持有这个 Agent，打开那个实例后会由它读取。",
       "offline": "设备连接中断，本次回复未完成",
       "retry": "重试",
@@ -291,6 +292,8 @@ export default {
     "markUnreadFailed": "标记未读失败，请重试",
     "muted": "消息免打扰",
     "noResults": "未找到对话",
+    "searchMessages": "搜索消息「{{query}}」",
+    "searchMessagesTitle": "搜索消息",
     "listLabel": "对话列表",
     "pin": "置顶",
     "scan": "扫一扫",
@@ -361,6 +364,10 @@ export default {
     "fileUnavailable": "文件暂时打不开",
     "holderOffline": "{{machine}} 离线，上线后才能打开这个文件。",
     "holderMachine": "保存它的那台电脑",
+    "besideOffline": "在「{machine}」上，未连接",
+    "besideOfflineNotice": "这页里有文件存在「{{machine}}」上，它现在未连接；它上线后会自动显示。",
+    "besideUnavailable": "这个文件现在取不到。",
+    "besideOutside": "只能取到这份文档所在文件夹里的文件。",
     "imageUnavailable": "图片暂时打不开",
     "newerInFolder": "文件夹里有新版",
     "retry": "重试"
@@ -720,9 +727,9 @@ export default {
     "agentOwnerSuffix": "（{{owner}} 的 agent）",
     "actions": {
       "keepTemporary": "设为临时",
-      "keepPermanent": "一直保留",
+      "keepPermanent": "持续保存",
       "keptTemporary": "已设为临时：到期后删除云端那份",
-      "keptPermanent": "已设为一直保留",
+      "keptPermanent": "已设为持续保存",
       "keepFailed": "没改成",
       "copy": "复制文本",
       "copyLink": "复制链接",
@@ -752,6 +759,7 @@ export default {
       "title": "已读回执"
     },
     "retracted": "消息已撤回",
+    "deliveredFrom": "来自 {{name}}",
     "sendStatus": {
       "unknown": "状态待确认",
       "unknownHint": "正在等待发布结果，消息到达后会自动更新，无需重发。",
@@ -760,9 +768,23 @@ export default {
       "failedActions": "未送达消息操作",
       "failedHint": "未送达，点击重试或丢弃",
       "queued": "发送中，助理就绪后回复",
-      "sending": "发送中"
+      "sending": "发送中",
+      "held": "等待重试",
+      "stopped": "已停止，下一句发出时一起发送",
+      "unknownNotResent": "结果未知，没有重发",
+      "failure": {
+        "hostOffline": "这个任务所在的电脑现在不在线，它上线后会自动发出",
+        "hostNotReady": "这个任务所在的电脑还没准备好接收消息，稍后点重试",
+        "phoneUnconfirmed": "手机还没确认收到这条消息，稍后点重试",
+        "noAcknowledgement": "任务没有回应，稍后点重试"
+      }
     },
     "showQuoted": "跳到被引用的消息",
+    "svgFigure": {
+      "invalid": "这段 SVG 无法显示：不是格式正确的 SVG 文档",
+      "noViewbox": "这段 SVG 无法显示：根元素缺少 viewBox",
+      "tooLarge": "这段 SVG 无法显示：超过 64 KB"
+    },
     "taskCard": {
       "task": "新任务",
       "schedule": "已安排",
@@ -791,11 +813,7 @@ export default {
     "whisperBoth": "悄悄话 · 仅你与对方可见",
     "whisperOnlyYou": "悄悄话 · 仅你可见",
     "whisperTo": "悄悄话给 {{name}} · 仅你与对方可见",
-    "widget": "[Widget]",
-    "widgetCard": {
-      "empty": "无内容",
-      "loading": "加载中"
-    }
+    "widget": "[Widget]"
   },
   "outbox": {
     "deliveryTimeout": "投递超时 {{seconds}}s（网络挂起）",

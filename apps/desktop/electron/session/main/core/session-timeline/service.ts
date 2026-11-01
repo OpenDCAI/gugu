@@ -89,6 +89,8 @@ import { findSessionAttachmentCopy } from '../sessions/attachments/session-attac
 import { createStandInTimeline } from './stand-in-timeline';
 import { readStartFailure } from './start-failures';
 import { knownHarnessConfigRoots } from '@main/core/agent-hooks/harness-config-roots';
+import { sessionLife } from '@main/core/sessions/session-life';
+import { runtimeFork } from '@main/core/sessions/session-life-forks';
 import { notStartedSessionOptions } from './not-started-options';
 import { readSessionModelMenu, type SessionpageSessionOptionsWithMenu } from './session-model-menu';
 import {
@@ -1397,6 +1399,13 @@ export async function send(
 ): Promise<SessionTimelineResult<{ accepted: 'started' | 'queued'; clientMessageId?: string }>> {
   if (attachments !== undefined && !promptAttachmentSchema.array().safeParse(attachments).success) return fail('invalid_request', '附件引用无效');
   if (clientMessageId !== undefined && (!clientMessageId.trim() || clientMessageId.length > 256)) return fail('invalid_request', '消息标识无效');
+  // A side chat has no session row: its custody send lands in its fork entry's queue.
+  if (runtimeFork(conversationId)) {
+    if (!text.trim() && !attachments?.length) return fail('empty_text', '消息是空的');
+    sessionLife().enqueue({ sessionId: conversationId, messageId: clientMessageId ?? crypto.randomUUID(), text: text.trim(), kind: 'ordinary',
+      delivery: { queue: true, origin: 'manual', ...(attachments?.length ? { attachments } : {}) } });
+    return { ok: true, value: { accepted: 'queued', ...(clientMessageId ? { clientMessageId } : {}) } };
+  }
   const row = readSessionRow(conversationId);
   if (!row) return fail('session_not_found', `这台机器上没有会话 ${conversationId}`);
   // provider 为空 = 这一行没记下是哪家引擎；再往下走只会在插件表里抛一句认不出来的话。
@@ -1405,11 +1414,7 @@ export async function send(
   }
   // 还没开起来的会话(建的时候 agent 没起来,#6264):先按「再试一次」同一条路把它起来 —— 第一句话随之投递 ——
   // 再发这一句。❌ 直接唤醒:唤醒不带第一句,agent 会只看到后来这一句。
-  if (await neverStarted(row)) {
-    const { startSession } = await import('./create-session');
-    const started = await startSession(conversationId);
-    if (!started.ok) return fail(started.error.code, started.error.message);
-  }
+  // A never-started session is ACP only (neverStarted), and its delivery itself starts it (session-life row 1).
   try {
     const accepted = await deliverSessionText(writeTargetFrom(row), text, clientMessageId, attachments);
     return { ok: true, value: { ...accepted, ...(clientMessageId ? { clientMessageId } : {}) } };

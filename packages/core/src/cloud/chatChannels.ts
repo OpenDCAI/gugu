@@ -6,6 +6,7 @@
  * 不碰 node / electron:渲染层(设置 → 聊天渠道)与主进程(把本机旧连接交给管家)共用。
  */
 import { CloudComputerError, cloudComputerErrorFromResponse } from './cloudComputer'
+import { anySignal } from '../shared/anySignal'
 
 export type ChatChannelKind = 'wechat' | 'feishu' | 'dingtalk' | 'telegram'
 
@@ -85,7 +86,7 @@ export function createChatChannelsClient(options: {
         method,
         headers,
         body: body === undefined ? undefined : JSON.stringify(body),
-        signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
+        signal: anySignal([signal, timeout]),
       })
       raw = await response.text()
     } catch (error) {

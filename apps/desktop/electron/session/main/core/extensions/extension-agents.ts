@@ -300,9 +300,8 @@ export async function stopAgentForExtension(options: {
   if (!row) throw notVisible(options.agentId);
 
   if (row.runtime === 'acp') {
-    const { getAcpRuntimeClient } = await import('@main/core/acp/controller');
-    const result = await (await getAcpRuntimeClient()).stopSession({ sessionId: row.id });
-    if (!result.success) throw new Error(`Could not stop that agent: ${JSON.stringify(result)}`);
+    const { sessionLife } = await import('@main/core/sessions/session-life');
+    await sessionLife().interrupt(row.id, { k: 'interrupt', reason: 'user-stop' });
     return;
   }
   const { resolveSession } = await import('@main/core/projects/utils');

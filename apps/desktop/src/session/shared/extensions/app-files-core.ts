@@ -130,6 +130,12 @@ export interface AppIdentity {
 
 type Identities = FilesPlatform['identities'];
 
+/** A file beside a document its preview asked for: its bytes, a document's text, or the machine that keeps it is off. */
+export type BesideDocument =
+  | { kind: 'file'; file: FileHandle; contentType: string }
+  | { kind: 'text'; text: string; contentType: string }
+  | { kind: 'offline'; machine: string; deviceId: string };
+
 /** What a download saves: bytes behind a short-lived signed URL, or a document's text. */
 export type DownloadSource = { name: string; kind: 'file'; file: FileHandle } | { name: string; kind: 'text'; text: string };
 
@@ -1207,6 +1213,43 @@ export function createAppFiles(platform: FilesPlatform) {
      * the read an agent's download makes too (MCP `workspaceDocumentCopy`); `inline_text` is only its
      * last save (B7). Where it goes is the platform's to ask.
      */
+    /**
+     * Where a chat document is (its chat, its path from the top of the folder), read as the signed-in person: the host's
+     * own preview of the document gives it that address, so the page's relative URLs land beside it. Null: not theirs.
+     */
+    async documentPlace(itemId: string): Promise<{ chatId: string; path: string } | null> {
+      const { token, userId } = await platform.account();
+      const row = await itemById(token, itemId, userId);
+      return row && row.kind !== 'folder' ? { chatId: row.chat_id, path: row.path } : null;
+    },
+
+    /**
+     * A file a document's page names beside it (`<img src="shots/a.png">`), by its path from the top of the same chat's
+     * folder, read as the signed-in person: the database finds it only for a member (`workspace_list_as`), and its bytes
+     * come through the one resolver an opened file's do (in the cloud, or fetched from the machine that keeps it). Null:
+     * no such file. A file kept on a machine that is off is said as such, before any byte is asked for.
+     */
+    async besideDocument(chatId: string, path: string): Promise<BesideDocument | null> {
+      const { token, userId } = await platform.account();
+      const rows = (await itemsByPath(token, chatId, path, userId)).filter((row) => row.kind !== 'folder');
+      if (rows.length === 0) return null;
+      if (rows.length > 1) throw new AppFileError('ambiguous', `More than one file is at ${path}`);
+      const row = rows[0]!;
+      if (row.kind !== 'file') {
+        const text = await readDocumentText({ filesUrl: platform.filesUrl, fetch }, token, row.id, null);
+        return { kind: 'text', text, contentType: row.content_type };
+      }
+      const file = await platform.resolveFile?.({ id: row.id }, null, {});
+      if (!file) throw new AppFileError('failed', 'Verified file resolver is not installed');
+      if (file.status !== 'ready') return null;
+      const { revision } = file;
+      if (revision.source === 'local' && revision.host_online === false) {
+        await file.dispose();
+        return { kind: 'offline', machine: revision.host_label?.trim() ?? '', deviceId: revision.host_device_id ?? '' };
+      }
+      return { kind: 'file', file, contentType: revision.content_type };
+    },
+
     async downloadSource(surface: FileSurface, args: { ref: ChatFileRef }): Promise<DownloadSource> {
       const local = await localFile(surface, args.ref);
       if (local) return { name: savedFileName(local.entry), kind: 'file', file: local.file };

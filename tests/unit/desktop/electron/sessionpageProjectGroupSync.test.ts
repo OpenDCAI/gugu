@@ -621,7 +621,7 @@ describe('spec ⑨ 创建侧:项目=群 / 无项目=私聊 / 序号命名', () =
     expect(roster[0].cache?.emdash_session_id).toBe('archived-boot')
   })
 
-  it('boot registration consumes the persisted OpenCode ACP claimant surface', async () => {
+  it('boot registers a persisted ACP binding with its session-life claimant (an inbox unit enqueues; nothing waits for live)', async () => {
     const { registerExistingSessionpageAgents } = await import(SUT)
     roster.push(
       {
@@ -633,7 +633,7 @@ describe('spec ⑨ 创建侧:项目=群 / 无项目=私聊 / 序号命名', () =
       },
     )
     await expect(registerExistingSessionpageAgents({ GUGU_HOME: home })).resolves.toBe(1)
-    expect(registered).toEqual([])
+    expect(registered).toEqual([{ guguAgentUserId: 'agent-acp', sessionId: 'conv-acp' }])
   })
   it('boot keeps a legacy taskpage binding owned until reopen stamps the exact capability cell', async () => {
     const { registerExistingSessionpageAgents } = await import(SUT)

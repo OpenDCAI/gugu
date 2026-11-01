@@ -89,6 +89,7 @@ export default {
       "close": "Close",
       "generic": "This Agent could not complete the reply",
       "notAdmitted": "Messages retained. Your assistant will reply when ready.",
+      "outcomeUnknown": "Delivery result unknown: the message may have reached your assistant, and it was not resent.",
       "undelivered": "Not delivered yet: no running Gugu instance holds this Agent. It will read the message once that instance is open.",
       "offline": "The device disconnected before the reply completed",
       "retry": "Retry",
@@ -292,6 +293,8 @@ export default {
     "markUnreadFailed": "Could not mark this chat unread. Try again.",
     "muted": "Notifications muted",
     "noResults": "No chats found",
+    "searchMessages": "Search messages for “{{query}}”",
+    "searchMessagesTitle": "Search messages",
     "listLabel": "Chats",
     "pin": "Pin",
     "scan": "Scan",
@@ -362,6 +365,10 @@ export default {
     "fileUnavailable": "File unavailable right now",
     "holderOffline": "{{machine}} is offline. This file opens when it is back online.",
     "holderMachine": "The computer that keeps it",
+    "besideOffline": "On {machine}, not connected",
+    "besideOfflineNotice": "Some files on this page are kept on {{machine}}, which is not connected. They appear when it is back online.",
+    "besideUnavailable": "This file is not available right now.",
+    "besideOutside": "Only files in this document's folder can be shown.",
     "imageUnavailable": "Image unavailable right now",
     "newerInFolder": "Newer version in the folder",
     "retry": "Retry"
@@ -753,6 +760,7 @@ export default {
       "title": "Read receipt"
     },
     "retracted": "Message retracted",
+    "deliveredFrom": "From {{name}}",
     "sendStatus": {
       "unknown": "Awaiting confirmation",
       "unknownHint": "Waiting for the publication result. This message will update automatically; no need to resend.",
@@ -761,9 +769,23 @@ export default {
       "failedActions": "Undelivered message actions",
       "failedHint": "Not delivered. Click to retry or discard.",
       "queued": "Sending. Your assistant will reply when ready.",
-      "sending": "Sending"
+      "sending": "Sending",
+      "held": "Waiting for retry",
+      "stopped": "Stopped. Sends with your next message.",
+      "unknownNotResent": "Result unknown; not resent",
+      "failure": {
+        "hostOffline": "The computer running this task is offline. It will be sent automatically once that computer is back.",
+        "hostNotReady": "The computer running this task is not ready for messages yet. Retry in a moment.",
+        "phoneUnconfirmed": "Your phone has not confirmed this message yet. Retry in a moment.",
+        "noAcknowledgement": "The task did not respond. Retry in a moment."
+      }
     },
     "showQuoted": "Go to the quoted message",
+    "svgFigure": {
+      "invalid": "This SVG could not be drawn: it is not a well-formed SVG document",
+      "noViewbox": "This SVG could not be drawn: its root needs a viewBox",
+      "tooLarge": "This SVG could not be drawn: it is larger than 64 KB"
+    },
     "taskCard": {
       "task": "New task",
       "schedule": "Scheduled",
@@ -792,11 +814,7 @@ export default {
     "whisperBoth": "Whisper · only visible to you both",
     "whisperOnlyYou": "Whisper · only visible to you",
     "whisperTo": "Whisper to {{name}} · only visible to you both",
-    "widget": "[Widget]",
-    "widgetCard": {
-      "empty": "No content",
-      "loading": "Loading"
-    }
+    "widget": "[Widget]"
   },
   "outbox": {
     "deliveryTimeout": "Delivery timed out after {{seconds}}s because the network stopped responding",

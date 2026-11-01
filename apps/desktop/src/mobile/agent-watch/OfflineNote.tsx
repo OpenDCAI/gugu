@@ -4,6 +4,9 @@ import { ChevronDown } from '@/lib/icons'
 import { Button } from '@/components/ui/Button'
 import { Collapse } from '@/components/ui/Collapse'
 import { formatRelativeTime } from '@/i18n/format'
+import type { Device } from '@gugu/core/shared/types/chat'
+import { isPhoneDevice } from '@gugu/core/cloud/devices'
+import { useMachineLabel } from './useMachineLabel'
 
 /**
  * 「机器离线」提示 —— **一行说完，解释收起来**。
@@ -15,11 +18,17 @@ import { formatRelativeTime } from '@/i18n/format'
  * 形制照 orca 的 `HostRouteNoticeBanner`：单行次级文字、单色，❌ 不借用报错的红
  * —— 机器关机不是故障，是常态。
  */
-export function OfflineNote({ lastSeenAt, phone = false }: { lastSeenAt: string | null; phone?: boolean }) {
+export function OfflineNote({ device, sendLater = false }: {
+  device: Pick<Device, 'device_id' | 'cloud_computer' | 'label' | 'capabilities' | 'last_seen_at'>
+  /** A task page: what is typed now waits in this phone's outbox and goes out once the machine is back. */
+  sendLater?: boolean
+}) {
   const { t } = useTranslation('main')
+  const { label } = useMachineLabel()
   const [open, setOpen] = useState(false)
   const panelId = useId()
-  const seen = lastSeenAt ? (formatRelativeTime(lastSeenAt) ?? lastSeenAt) : null
+  const phone = isPhoneDevice(device)
+  const seen = device.last_seen_at ? (formatRelativeTime(device.last_seen_at) ?? device.last_seen_at) : null
 
   return (
     <div className="gg-aw-offline">
@@ -33,7 +42,7 @@ export function OfflineNote({ lastSeenAt, phone = false }: { lastSeenAt: string 
         onClick={() => setOpen((v) => !v)}
       >
         <span className="gg-aw-offline-text">
-          {t(phone ? 'agentWatch.offline.phoneTitle' : 'agentWatch.offline.title')}
+          {phone ? t('agentWatch.offline.phoneTitle') : t('agentWatch.offline.title', { machine: label(device) })}
           {seen ? (
             <>
               <span className="gg-aw-item-sep">·</span>
@@ -46,7 +55,10 @@ export function OfflineNote({ lastSeenAt, phone = false }: { lastSeenAt: string 
         </span>
       </Button>
       <Collapse open={open} id={panelId}>
-        <div className="gg-aw-offline-body">{t(phone ? 'agentWatch.offline.phoneBody' : 'agentWatch.offline.body')}</div>
+        <div className="gg-aw-offline-body">
+          {t(phone ? 'agentWatch.offline.phoneBody' : 'agentWatch.offline.body')}
+          {sendLater ? ` ${t('agentWatch.offline.sendLater')}` : null}
+        </div>
       </Collapse>
     </div>
   )

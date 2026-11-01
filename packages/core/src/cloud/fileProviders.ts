@@ -4,6 +4,7 @@ import { FILE_CHUNK_BYTES, MissingFileObjectError, fileRefKey, requireFileRange,
 import type { FileChunkCache } from '../shared/fileCache'
 import { attachmentRequest, type AttachmentsEndpoint } from './attachmentsApi'
 import { withBoundedOperation } from './boundedOperation'
+import { anySignal } from '../shared/anySignal'
 
 export type { FileChunkCache } from '../shared/fileCache'
 type Download = { status: string; code?: string; url: string; expires_at?: string; thumb_url?: string | null; download_id: string; key?: string; codec?: string; sha256: string | null; size_bytes: number; ciphertext_bytes?: number; ciphertext_sha256?: string; bucket_id?: string; object_name?: string; message_id?: string }
@@ -82,7 +83,7 @@ export function cloudFileProviders(deps: {
   const read = async (revision: FileRevision, context: FileContext, encrypted: boolean): Promise<FileBytes> => {
     const ref = 'item_id' in context.ref ? { ...context.ref, version: revision.version } : context.ref
     if (encrypted) await withBoundedOperation(600_000, () => new Error('File device is unavailable or its transfer timed out'), async timeout => {
-      const waiting = { ...context, signal: context.signal ? AbortSignal.any([context.signal, timeout]) : timeout }, requestId = crypto.randomUUID()
+      const waiting = { ...context, signal: anySignal([context.signal, timeout]) }, requestId = crypto.randomUUID()
       for (;;) {
         waiting.signal.throwIfAborted()
         const state = await request(waiting, 'file-request', { ref, as: context.actor.actorId, request_id: requestId }) as { status: string; transfer_status: string; host_label?: string | null; host_online?: boolean }

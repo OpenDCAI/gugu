@@ -1,9 +1,7 @@
 import type {
   ChatContext,
-  ChatAttachment,
   ChatState,
   ChatView,
-  PendingPrompt,
   TranscriptTurn,
 } from '@gugu/session-chat-ui';
 import { connectSession, createChatState, pinTopMode, runningBackgroundTaskIds } from '@gugu/session-chat-ui';
@@ -22,6 +20,7 @@ import {
   type PromptInput,
   type QueuedPrompt,
   type QueuedPromptEdit,
+  type AcpRuntimeError,
 } from '@gugu/session-core/acp/client';
 import type {
   CommandItem,
@@ -38,12 +37,13 @@ import { permissionWaitKind } from '@gugu/session-core/acp/models/permissions';
 import type { AgentState, LiveSettingResult, PermissionWaitKind } from '@gugu/session-core/acp';
 import { errorDetail } from '@gugu/session-shared';
 import { WireError, type BlobSource } from '@gugu/session-wire';
-import { action, computed, makeObservable, observable, runInAction, toJS } from 'mobx';
+import { action, computed, makeObservable, observable, reaction, runInAction, when } from 'mobx';
+import { endSessionLife, forkSessionLife, readSessionLife, sessionLifeView, startSessionLife, stopSessionLife } from '../stores/session-life-views';
+import { ACP_START_FAILED, lifeIsStarting, type LifeView } from '@shared/core/sessions/session-life';
+import { sendThroughCustody } from './queue-native-input';
+import { sessionInputBubbles } from '@/lib/sessionInputOutbox';
 import { batch } from 'solid-js';
-// TODO(conversations-extraction): Inject task/workspace lookups instead of importing task stores.
-import { asProvisioned, getSessionPageStore } from '@renderer/features/sessions/stores/session-selectors';
-import { workspaceRegistry } from '@renderer/features/sessions/stores/workspace-registry';
-import { AcpLiveSession, asValueSource } from '@renderer/lib/acp/acp-live-session';
+import { AcpLiveSession, AcpStartError, asValueSource } from '@renderer/lib/acp/acp-live-session';
 import { getAcpRuntimeClient } from '@renderer/lib/acp/runtime-client';
 import { watchRunningSession, type RunningSessionWatch } from '@renderer/lib/acp/running-sessions';
 import { machineLinkHandingOff, machineLinkState, onMachineReconnected } from '@renderer/lib/machine-clients';
@@ -132,7 +132,17 @@ export class AcpChatStore {
 
   session: AcpLiveSession | null = null;
   historyLoading = true;
-  loadError: AcpLoadError | null = null;
+  /** A failure of opening / attaching this page; a failed session-life view says its own (`loadError`). */
+  private _loadError: AcpLoadError | null = null;
+  /** Life views up to this version answered an earlier attempt: a retry does not show them again. */
+  private _lifeRetriedVersion = 0;
+  private _unwatchLife: (() => void) | null = null;
+  private _unwatchLifeHead: (() => void) | null = null;
+  /**
+   * The custody row the transcript draws as the next turn (`pendingPrompt`), while it waits for that turn: from the
+   * send on it sits where its turn will be, ❌ first in the tray above the composer and then up in the transcript.
+   */
+  transcriptPendingId: string | null = null;
   /**
    * #6552 在飞的开场(`_runBootstrap`)数。>0 且还没挂上会话 = 引擎会话在起:这段里模型 / 强度照样能选 ——
    * 选择交给运行时,由启动在 `session/new` 之后设模型/强度那一步采用。计数而不是布尔:重挂 / 重试会在
@@ -153,7 +163,6 @@ export class AcpChatStore {
   private _queueEditTimer: ReturnType<typeof setTimeout> | null = null;
   reverting = false;
   messageEdit: { itemId: string; text: string } | null = null;
-  private _preserveComposerDraft = false;
   /**
    * 运行时最近一次报的「本进程里还在跑」的后台任务 id(#6582);`null` = 对面没报这一格(旧运行时)。
    * 只由挂着的活会话的 sessionState 写 —— 读它走 `runningBackgroundTaskIds`。
@@ -207,30 +216,8 @@ export class AcpChatStore {
   private _permissionModeRequestId = 0;
   private _draftTimer: number | null = null;
   private _lastQueuedPrompts: QueuedPrompt[] = [];
-  /**
-   * 会话还没连上时排进去的那几句(behavior session-page「打开速度」:发出就要看得见)。运行时排队只回
-   * 「排上了没有」、不回它在队列里的编号 ⇒ 这一侧改不了、删不了它们:排队条里先锁着显示,会话一连上就换成
-   * 运行时那份真队列。
-   */
-  private _startupQueued: Array<{ id: string; text: string; origin: 'manual' | 'typed' }> = [];
-  /** 会话还没连上时上屏的那几句乐观行(第一条消息、连上之前发的那句):连上那一刻由真的那一轮或队列接手。 */
-  private _startupPendingIds = new Set<string>();
-  /**
-   * 会话还没连上时正在「处理中」的那一句。这段算运行中 ⇒ 输入框是停止键(behavior session-page「打开速度」)。
-   * ⚠️ 乐观行本身在 Solid 那一侧,MobX 看不见它的变化 ⇒ 这一格单独记,`affordances` 读它。
-   */
-  private _startupRunningId: string | null = null;
-  /** 新建会话带着的第一条消息的乐观行 id:停下时它留在对话里(会话记录里存着,接着跑会再发),别的撤回输入框。 */
-  private _firstPromptId: string | null = null;
-  /**
-   * 上一次没跑起来、留在屏上的那一句(第一条,或老会话里发的、运行时已经收下的那句)。它还存着:
-   * 下次接着跑时运行时会先发它 ⇒ 那时这一句换回「处理中」。
-   */
-  private _heldStartupPrompt: PendingPrompt | null = null;
-  /** 用户在会话建立途中按了停止的那次开场:它随后的「起不来」是他要的,❌ 说成失败。 */
-  private _stoppedStartGeneration: number | null = null;
-  /** 停止时撤回输入框的那几句:它们随后被运行时拒收,❌ 再弹一次错误、再还一次字。 */
-  private _stoppedPromptIds = new Set<string>();
+  /** The side chat's fork entry in session-life (`lifeFork`); ended when the page is disposed. */
+  private _forkOpened: Promise<void> | null = null;
   private _lastActiveTurnId: string | null = null;
   /**
    * 库里那份历史(#5381)。重开一条会话时先画它,**不等引擎起来** —— 从前历史只能等
@@ -308,11 +295,9 @@ export class AcpChatStore {
       this.commands.map((command) => command.name)
     );
 
-    makeObservable<this, '_bootstrapped' | '_bootstrapsInFlight' | '_runtimeBackgroundTaskIds' | '_runtimeLiveSubagentIds' | '_startupQueued' | '_storedQueue' | '_startupRunningId'>(this, {
+    makeObservable<this, '_bootstrapped' | '_bootstrapsInFlight' | '_runtimeBackgroundTaskIds' | '_runtimeLiveSubagentIds' | '_storedQueue' | '_loadError' | '_lifeRetriedVersion'>(this, {
       _bootstrapped: observable,
-      _startupQueued: observable.ref,
       _storedQueue: observable.ref,
-      _startupRunningId: observable,
       _runtimeBackgroundTaskIds: observable.ref,
       runningBackgroundTaskIds: computed,
       _runtimeLiveSubagentIds: observable.ref,
@@ -320,7 +305,10 @@ export class AcpChatStore {
       session: observable.ref,
       pendingPermissionMode: observable.ref,
       historyLoading: observable,
-      loadError: observable,
+      _loadError: observable.ref,
+      _lifeRetriedVersion: observable,
+      transcriptPendingId: observable,
+      loadError: computed,
       _bootstrapsInFlight: observable,
       starting: computed,
       startupChoice: observable.ref,
@@ -352,12 +340,10 @@ export class AcpChatStore {
       queuedPrompts: computed,
       usage: computed,
       affordances: computed,
-      canQueueBeforeSession: computed,
       bootstrap: action,
       releaseTranscript: action,
       isEmpty: computed,
       submitPrompt: action,
-      queuePrompt: action,
       stop: action,
       setModel: action,
       setMode: action,
@@ -388,7 +374,7 @@ export class AcpChatStore {
 
   get model(): string | null {
     if (this.session) return this.session.config.current().modelOptions?.selected ?? null;
-    // #6552 还在起 / #7342 停下了:下一次起就用的那个 —— 用户起动这段里选的,否则会话记录里的(与 `_startInput` 同一份)。
+    // #6552 还在起 / #7342 停下了:下一次起就用的那个 —— 用户起动这段里选的,否则会话记录里的(宿主照它起)。
     // ❌ 停下时答 null:触发器会退回占位的「模型」,把一个记着的事实画成了不知道。
     return this.startupChoice.model ?? this._sessionRecord()?.model ?? null;
   }
@@ -424,7 +410,7 @@ export class AcpChatStore {
   }
 
   /**
-   * #7342 停下了(没有活会话、也不在起)时,记录里那一档 —— 下一次起就按它设(与 `_startInput` 同一个函数)。
+   * #7342 停下了(没有活会话、也不在起)时,记录里那一档 —— 下一次起就按它设(宿主照记录起)。
    * 活会话、还在起、侧边聊天(借来源会话的记录)都答 null:前两者有自己的读数或已经发出去的启动参数,
    * 后者那份记录不是它的。
    */
@@ -528,7 +514,6 @@ export class AcpChatStore {
           id: `stored:${index}`, text: prompt.text, origin: prompt.origin, locked: true,
         }];
       }),
-      ...this._startupQueued.map((prompt) => ({ ...prompt, locked: true })),
     ];
     return this._queuedPromptModels().filter(isVisibleQueuedPrompt).map(
       (prompt) => ({ id: prompt.id, text: conversationQueueText(prompt.text), origin: prompt.origin })
@@ -666,7 +651,8 @@ export class AcpChatStore {
     const session = this.session;
     if (!await this.revertMessage(itemId, false) || this.session !== session) return;
     runInAction(() => { this.messageEdit = null; });
-    this.submitPrompt(edit.text, attachments, undefined, 'manual', true);
+    // History is already cut back: a send that fails keeps the edited words in the draft.
+    await this.submitPrompt(edit.text, attachments).catch(() => this.setDraftText([edit.text, this.draftText].filter(Boolean).join('\n')));
   }
 
   async revertMessage(itemId: string, restoreDraft = true): Promise<boolean> {
@@ -729,14 +715,16 @@ export class AcpChatStore {
     const agentWorking = state
       ? state.lifecycle === 'working' || state.lifecycle === 'cancelling'
       : false;
-    // 会话还在建立、已有一句在「处理中」:这段也是在跑 —— 停止键在,打字照在跑时一样进排队条。
-    const startupRunning = !state && this.starting && this._startupRunningId !== null;
+    // Not attached: input goes to the host's custody outbox, which holds it until session-life runs the session —
+    // unless the start failed terminally (the engine is not there), when queueing waits for something that never happens.
+    // Starting with its message drawn is running: the composer stops it (`stop` asks the host), as in any turn.
+    const startingDrawn = !state && this.transcriptPendingId !== null;
     return {
-      isWorking: agentWorking || startupRunning,
-      isBusy: (state?.isGenerating ?? false) || startupRunning,
+      isWorking: agentWorking || startingDrawn,
+      isBusy: state?.isGenerating ?? false,
       hasPendingPermission: (state?.pendingPermissions.length ?? 0) > 0,
-      canSubmit: !this.reverting && !this.messageEdit && (state?.canSubmit ?? this.canQueueBeforeSession),
-      canCancel: (state?.canCancel ?? false) || startupRunning,
+      canSubmit: !this.reverting && !this.messageEdit && (state?.canSubmit ?? !(this.loadError && isTerminalLoadError(this.loadError))),
+      canCancel: state?.canCancel ?? startingDrawn,
     };
   }
 
@@ -771,6 +759,66 @@ export class AcpChatStore {
     return !this.historyLoading && this.messageCount === 0 && !this.hasPriorContext;
   }
 
+  /**
+   * The page's failed state is the session-life view's alone, whatever path opened the page (start, parked, attached):
+   * a failed view newer than the last retry says why; opening it never starts it again, only `retry` does.
+   */
+  get loadError(): AcpLoadError | null {
+    const failure = this._lifeFailure();
+    return failure ? toLoadError(lifeFailureError(failure), machineRegistry.machineOf(this.runtimeSessionId)) : this._loadError;
+  }
+
+  set loadError(error: AcpLoadError | null) {
+    this._loadError = error;
+  }
+
+  /** The queue's head, still on its way, is the next turn: the transcript draws it (and its placeholder header) there. */
+  private _drawLifeHead(view: LifeView | null): void {
+    const session = this.chatState.session;
+    const drawn = this.transcriptPendingId;
+    const bubbles = view ? sessionInputBubbles([], view.pending.items, view.hold) : [];
+    const starting = view !== null && lifeIsStarting(view);
+    const head = bubbles[0]?.state === 'sending' && (starting || view?.kind === 'ready') ? bubbles[0] : null;
+    runInAction(() => {
+      // An accepted row whose turn already finished before this page saw it: history has it, nothing will take it over.
+      const landed = session.state.pendingPrompt;
+      if (landed && !landed.held && landed.sentAt !== undefined
+        && this.chatState.transcript.state.committedTurns.some(turn => turn.startedAt !== undefined && turn.startedAt >= landed.sentAt!)) {
+        session.setPendingPrompt(null);
+        this._syncMessageCount();
+      }
+      if (drawn && head?.id !== drawn) {
+        this.transcriptPendingId = null;
+        const shown = session.state.pendingPrompt;
+        const row = view?.pending.items.find(item => item.messageId === drawn);
+        if (shown?.id === drawn) {
+          // Accepted: its turn is on its way to this page, and takes the row over when it lands (no empty frame between).
+          // Failed / held: the tray says why.
+          if (!row || row.state === 'accepted') session.setPendingPrompt({ ...shown, starting: false, held: false });
+          else { session.setPendingPrompt(null); this._syncMessageCount(); }
+        }
+      }
+      if (!head || this.chatState.transcript.state.activeTurnSnapshot) return;
+      if (session.state.pendingPrompt && session.state.pendingPrompt.id !== head.id) return;
+      this.transcriptPendingId = head.id;
+      const shown = session.state.pendingPrompt;
+      if (shown) {
+        if (shown.starting !== starting) session.setPendingPrompt({ ...shown, starting });
+        return;
+      }
+      // Same origin as the turn that takes this row over (`SessionCell`): the send, or the end of the turn it waited behind.
+      const row = view!.pending.items.find(item => item.messageId === head.id)!;
+      const sentAt = row.sentAt === undefined ? undefined : Math.max(row.sentAt, this.chatState.transcript.state.committedTurns.at(-1)?.endedAt ?? 0);
+      session.setPendingPrompt({ id: head.id, text: head.text, ...(sentAt !== undefined ? { sentAt } : {}), starting, held: true });
+      this._syncMessageCount();
+    });
+  }
+
+  private _lifeFailure(): LifeView['failure'] {
+    const view = sessionLifeView(this.runtimeSessionId);
+    return view?.kind === 'failed' && view.version > this._lifeRetriedVersion ? view.failure : null;
+  }
+
   bootstrap(): void {
     if (this._transcriptReleased) {
       this._reloadReleasedTranscript();
@@ -779,6 +827,15 @@ export class AcpChatStore {
     if (this._bootstrapped) return;
     this._bootstrapped = true;
     if (this._disposed) return;
+    // One observer for the store's lifetime: reads the view at open and ends loading once it says failed.
+    this._unwatchLife = reaction(() => this._lifeFailure(), (failure) => {
+      if (!failure) return;
+      this.historyLoading = false;
+      this._syncMessageCount();
+    }, { fireImmediately: true });
+    // A reconciled history may drop the drawn row (`_refreshHistory`): redraw it.
+    this._unwatchLifeHead = reaction(() => [sessionLifeView(this.runtimeSessionId), this.transcriptRevision] as const,
+      ([view]) => this._drawLifeHead(view), { fireImmediately: true });
     void this._open();
   }
 
@@ -862,8 +919,9 @@ export class AcpChatStore {
     this._storedQueueGeneration += 1;
     this.historyLoading = true;
     this.loadError = null;
+    this._lifeRetriedVersion = sessionLifeView(this.runtimeSessionId)?.version ?? 0;
     this._reopenOnRetry = false;
-    void (mode === 'open' ? this._open() : this._runBootstrap());
+    void (mode === 'open' ? this._open() : this._runBootstrap({ retry: true }));
   }
 
   /**
@@ -1023,26 +1081,6 @@ export class AcpChatStore {
    * 停在屏幕上、实际一个字节没发出去的消息。
    */
   /**
-   * 一条**没能发出去**的用户输入的善后：回滚乐观行，并把文字还给 composer。
-   *
-   * ⚠️ 「回滚 + 弹错误」两条**都做还不够**，必须连文字一起还回去：
-   * `acp-chat-panel.tsx:304-307` 在调用 `submitPrompt` **之前**就
-   * `editorApiRef.current?.clear()` 了。只回滚乐观行的话，用户输入的内容在
-   * **屏幕上和输入框里同时消失** —— 那比修之前更糟（修之前它至少还以气泡形式留着）。
-   *
-   * 草稿回填是真通的：`acp-chat-panel.tsx:258-259` 有 effect 监听 `store.draftText`
-   * 并 `editor.setText(...)`。
-   */
-  private _rollbackUnsentPrompt(text: string, insertedOptimistic: boolean): void {
-    if (insertedOptimistic) {
-      this.chatState.session.setPendingPrompt(null);
-      this._syncMessageCount();
-    }
-    // 只在输入框确实空了的时候还回去，避免覆盖用户在这期间新键入的内容。
-    if (!this.draftText.trim()) this.setDraftText(text);
-  }
-
-  /**
    * provider 已确认的活设置 → 会话记录。
    *
    * ⚠️ 少了这一步,重开(app 重启 / 进程重拉 / 重载)时两条启动路读到的仍是建会话时那一档,
@@ -1074,184 +1112,19 @@ export class AcpChatStore {
     return session;
   }
 
-  /** `origin`: `communication` for a delivery envelope gugu wrote (an extension's relay), not typed text. */
-  submitPrompt(
-    text: string,
-    attachments: AcpPromptAttachment[] = [],
-    messageContext?: string,
-    origin: 'manual' | 'communication' = 'manual',
-    preserveComposerDraft = false,
-  ): void {
-    if (this.reverting || this.messageEdit) return;
-    const promptAttachments = attachments.map((attachment) => attachment.ref);
-    const input: PromptInput = {
-      text,
-      origin,
-      ...(messageContext ? { hiddenContext: messageContext } : {}),
-      ...(promptAttachments.length > 0 ? { attachments: promptAttachments } : {}),
-    };
-    if (this.canQueueBeforeSession) {
-      this._queuePromptDuringStartup(input, text, 'acpFailure.sendMessage', attachments, 'send');
-      return;
+  /**
+   * Both sends take the one custody path (sender outbox → host session_pending), persisted session or side chat;
+   * the host decides whether the input runs now or queues.
+   */
+  async submitPrompt(text: string, attachments: AcpPromptAttachment[] = []): Promise<void> {
+    try {
+      if (this.reverting || this.messageEdit) throw new Error('A message is being edited; send or cancel the edit first');
+      await sendThroughCustody(this, text, attachments);
+    } catch (error) {
+      // The one toast of a failed send; the caller keeps its words.
+      this._toastError('acpFailure.sendMessage', error);
+      throw error;
     }
-    // 只有我们自己插入过乐观消息时才回滚它 —— 无条件清空会顺手抹掉别处设置的 pendingPrompt。
-    let insertedOptimistic = false;
-    if (!this.affordances.isWorking) {
-      const optimisticId = `optimistic:user:${Date.now()}`;
-      this.chatState.session.setPendingPrompt({
-        id: optimisticId,
-        text,
-        attachments: attachments.map(toPendingAttachment),
-        sentAt: Date.now(),
-      });
-      insertedOptimistic = true;
-      this._syncMessageCount();
-      const pinMode = pinTopMode(optimisticId);
-      this._view?.setScrollMode(pinMode);
-      this.chatState.scroll.set(pinMode);
-    }
-
-    const session = this._requireSession('acpFailure.sendMessage');
-    if (!session) {
-      this._rollbackUnsentPrompt(text, insertedOptimistic);
-      return;
-    }
-
-    if (preserveComposerDraft) this._preserveComposerDraft = true;
-    void session
-      .sendPrompt(input)
-      .then((result) => {
-        if (result.success) return;
-        // #7103 同一次失败只说一次:这一轮已经以失败结算,转录里「回合失败」那一行就是它,❌ 再弹一条。
-        if ((result.error as { type?: unknown } | null)?.type === 'prompt_failed') {
-          log.warn('ACP prompt failed; the failed turn row reports it', { sessionId: this.sessionId, error: describeFailureCause(result.error) });
-          return;
-        }
-        this._toastError('acpFailure.sendMessage', result.error);
-      })
-      .catch((error: unknown) => this._toastError('acpFailure.sendMessage', error))
-      .finally(() => { if (preserveComposerDraft) this._preserveComposerDraft = false; });
-  }
-
-  queuePrompt(
-    text: string,
-    attachments: AcpPromptAttachment[] = [],
-    messageContext?: string,
-    origin: 'manual' | 'communication' = 'manual'
-  ): void {
-    const promptAttachments = attachments.map((attachment) => attachment.ref);
-    const input: PromptInput = {
-      text,
-      origin,
-      ...(messageContext ? { hiddenContext: messageContext } : {}),
-      ...(promptAttachments.length > 0 ? { attachments: promptAttachments } : {}),
-    };
-    if (this.canQueueBeforeSession) {
-      this._queuePromptDuringStartup(input, text, 'acpFailure.sendMessage', attachments, 'queue');
-      return;
-    }
-    const session = this._requireSession('acpFailure.sendMessage');
-    if (!session) {
-      // 队列项没有乐观行，但 composer 已经清空了（acp-chat-panel.tsx:316-319）⇒ 仍要把文字还回去。
-      this._rollbackUnsentPrompt(text, false);
-      return;
-    }
-    void session
-      .queuePrompt(input)
-      .then((result) => {
-        if (!result.success) this._toastError('acpFailure.sendMessage', result.error);
-      })
-      .catch((error: unknown) => this._toastError('acpFailure.sendMessage', error));
-  }
-
-  private _queuePromptDuringStartup(
-    input: PromptInput,
-    text: string,
-    title: AcpFailureTitle,
-    attachments: readonly AcpPromptAttachment[],
-    intent: 'send' | 'queue',
-  ): void {
-    // #6497 会话被宿主停掉之后的第一句:与首次打开走同一条路 —— 开场(起会话 + 重挂 live models)
-    // 与这句排进运行时的启动队列**同时**发出。主进程把两个入口并成同一次在途启动
-    // (`@@@one-start-owner`,#5233):注入只做一次、平台票只签一张,谁先到都一样。
-    // ❌ 不在这里只排队不开场:排队那条会把会话起起来,可这一侧没人订它,回复永远画不出来。
-    // 眼下没有开场在跑的别的情形(起不来之后再发一句……)也一样:运行时收到它会把会话起起来,这一侧得挂上去;
-    // 不挂,上屏的那一句会永远停在「处理中」。
-    if (this._closedByHost) {
-      this._closedByHost = false;
-      this._storedQueue = [];
-      this._storedQueueGeneration += 1;
-      void this._runBootstrap(this._storedPageReusable() ? { keepStoredPage: true } : undefined);
-    } else if (!this.starting) {
-      // 发一句就是要它起来:哪怕上一次失败出在打开那一步,也按「起」重来(❌ `retry()` 那条再打开一次)。
-      if (this.loadError) this._retry('start');
-      else void this._runBootstrap();
-    }
-    // 发出就要看得见(behavior session-page「打开速度」):没有别的在跑 ⇒ 这一句上屏、显示「处理中」,与第一条
-    // 消息一样;已经有一句在跑(第一条还在等会话建好)⇒ 进排队条,与 agent 正忙时发的一样。
-    // 别的 agent 派来的(`communication`)不是这里打的字,照旧不画(同 `firstPromptPreview`)。
-    let optimisticId: string | null = null;
-    let queuedId: string | null = null;
-    if (input.origin !== 'communication') {
-      const running = this.chatState.session.state.pendingPrompt !== null;
-      if (intent === 'send' && !running) {
-        optimisticId = `optimistic:user:${Date.now()}`;
-        this._startupPendingIds.add(optimisticId);
-        this._startupRunningId = optimisticId;
-        this.chatState.session.setPendingPrompt({
-          id: optimisticId,
-          text,
-          attachments: attachments.map(toPendingAttachment),
-          sentAt: Date.now(),
-        });
-        this._syncMessageCount();
-        const pinMode = pinTopMode(optimisticId);
-        this._view?.setScrollMode(pinMode);
-        this.chatState.scroll.set(pinMode);
-      } else {
-        queuedId = `startup-queued:${Date.now()}:${this._startupQueued.length}`;
-        this._startupQueued = [
-          ...this._startupQueued,
-          { id: queuedId, text, origin: input.origin === 'typed' ? 'typed' : 'manual' },
-        ];
-      }
-    }
-    // 运行时拒收(会话起不来,它不替你存着)⇒ 这一句没发出去:撤下、字还回输入框,原因由失败那一行与提示说。
-    // ❌ 像第一条那样留在屏上 —— 第一条存在会话记录里、重试会再发,这一句不会,留着就是假的「已发出」。
-    // 用户按停止时已经把它撤回输入框了(`_stopStartup`)⇒ 随后的拒收是那次停止的回声,❌ 再还一次字、再弹错误。
-    const stoppedByUser = (): boolean =>
-      (optimisticId !== null && this._stoppedPromptIds.has(optimisticId))
-      || (queuedId !== null && this._stoppedPromptIds.has(queuedId));
-    const undo = (): void =>
-      runInAction(() => {
-        if (queuedId) this._startupQueued = this._startupQueued.filter((prompt) => prompt.id !== queuedId);
-        const ours = optimisticId !== null && this.chatState.session.state.pendingPrompt?.id === optimisticId;
-        if (ours) this._startupRunningId = null;
-        // 起不来时它已经作为「还存着」留在屏上(`_holdStartupPrompt`);运行时这才回话说没收下 ⇒ 那一份也撤。
-        if (optimisticId !== null && this._heldStartupPrompt?.id === optimisticId) {
-          const heldId = heldFirstPromptTurnId(this._heldStartupPrompt);
-          const turns = this.chatState.transcript.state.committedTurns;
-          this.chatState.transcript.history.seed(turns.filter((turn) => turn.id !== heldId));
-          this._heldStartupPrompt = null;
-        }
-        this._rollbackUnsentPrompt(text, ours);
-      });
-    void getAcpRuntimeClient(machineRegistry.machineOf(this.runtimeSessionId))
-      .then((client) => client.queuePrompt({
-        sessionId: this.runtimeSessionId,
-        prompt: input,
-        startInput: this._startInput(),
-      }))
-      .then((result) => {
-        if (result.success || stoppedByUser()) return;
-        undo();
-        this._toastError(title, result.error);
-      })
-      .catch((error: unknown) => {
-        if (stoppedByUser()) return;
-        undo();
-        this._toastError(title, error);
-      });
   }
 
   setDraftText(text: string): void {
@@ -1263,12 +1136,12 @@ export class AcpChatStore {
   }
 
   stop(): void {
-    if (!this.session && this._startupRunningId !== null) {
-      this._stopStartup();
+    const session = this.session;
+    // Not attached yet (session-life is still starting it): stopping is the host owner's user-stop.
+    if (!session) {
+      void stopSessionLife(this.runtimeSessionId).catch((error: unknown) => this._toastError('acpFailure.stop', error));
       return;
     }
-    const session = this._requireSession('acpFailure.stop');
-    if (!session) return;
     void session
       .cancelTurn()
       .then((result) => {
@@ -1357,23 +1230,6 @@ export class AcpChatStore {
     }
     toast({ title: translateSessionMessage('acpNotice.pendingNextTurn', { value: result.data.requestedValue }) });
     return null;
-  }
-
-  /**
-   * 还没有引擎会话、但这句话可以**先进队列**等它（spec `session-always-openable`）。
-   *
-   * ⚠️ 这个判据此前是 `historyLoading && loadError === null` —— 只有「还在读历史、且一切正常」
-   * 那一小段窗口能入队。启动失败之后两条都不成立，而 composer 现在是常驻的 ⇒ 用户打字按回车
-   * 只会弹一条「发送失败」、文字被塞回输入框，队列里什么都没有。那等于「看得见但动不了」，
-   * 是另一种打不开。
-   *
-   * ⇒ 判据改成：**引擎会话还没建立**，且这次失败不是终态（引擎根本不在盘上那种 ——
-   *   那时排队等的是一件不会发生的事，如实拒绝才诚实）。`queuePrompt` 走的是运行时侧的
-   *   启动队列，它本来就接未启动的会话。
-   */
-  get canQueueBeforeSession(): boolean {
-    if (!this._bootstrapped || this.session) return false;
-    return this.loadError === null || !isTerminalLoadError(this.loadError);
   }
 
   async setModel(model: string): Promise<LiveSettingOutcome> {
@@ -1591,11 +1447,19 @@ export class AcpChatStore {
       this._draftTimer = null;
     }
     this._unsubs.splice(0).forEach((unsub) => unsub());
+    this._unwatchLife?.();
+    this._unwatchLife = null;
+    this._unwatchLifeHead?.();
+    this._unwatchLifeHead = null;
     this._setParkWatch(null);
     this._unwatchMachineLink?.();
     this._unwatchMachineLink = null;
     for (const wake of [...this._linkWaiters]) wake();
-    if (this.isTransient && this.session) void this._stopTransientSession(this.session);
+    // A side chat ends with its page; one whose fork entry never opened has nothing to end.
+    void this._forkOpened?.then(
+      () => endSessionLife(this.runtimeSessionId).catch((error: unknown) => this._toastError('acpFailure.stop', error)),
+      () => undefined,
+    );
     this.session?.dispose();
     this.chatState.dispose();
   }
@@ -1637,7 +1501,7 @@ export class AcpChatStore {
    * ❌ 不再建立一次。
    * @param keepStoredPage #980 库里那页这次打开已经画上了(停着时 / 打开那一下读的):沿用,❌ 再读一遍。
    */
-  private async _runBootstrap(options?: { attachOnly?: boolean; keepStoredPage?: boolean }): Promise<void> {
+  private async _runBootstrap(options?: { attachOnly?: boolean; keepStoredPage?: boolean; retry?: boolean }): Promise<void> {
     runInAction(() => {
       this._bootstrapsInFlight += 1;
     });
@@ -1784,16 +1648,14 @@ export class AcpChatStore {
   }
 
   /**
-   * 打开时照旧走原来那条开场的几种:
+   * 打开时照旧走原来那条开场(请宿主起它)的几种:
    *  · 侧边聊天:它就是为这一问开出来的运行时分叉;
-   *  · 新建会话带着第一句、还没认领首启:那句话是人已经发出去的,当场起、当场显示「正在思考…」;
+   *  · 新建会话带着第一句、还没认领首启:那句话是人已经发出去的,当场起;
    *  · 持久分叉还没分出去:分叉这一步就发生在首启;
-   *  · 上一次没跑起来、留在屏上的那一句(再起时运行时先发它);
    *  · provider 那侧的会话已失效:那条路不起,只画库里那份并说原因。
-   * 判据与 `_startInput` 是同一组函数,❌ 各判各的。
    */
   private _opensThroughStartup(): boolean {
-    if (this.isTransient || this._heldStartupPrompt) return true;
+    if (this.isTransient) return true;
     const record = this._sessionRecord();
     if (!record) return false;
     return record.providerSessionState === 'missing'
@@ -1803,8 +1665,7 @@ export class AcpChatStore {
 
   /**
    * #980 打开时它没在跑(或正被宿主拉起来):停着 —— 与宿主停掉它之后同一个状态(`_closedByHost`,#6497)。
-   *  · 库里那份就是屏上那份,❌「正在启动 / 正在连接」、❌ 骨架、❌ 失败那一行;输入框照常能用,下一句按停着的会话起
-   *    (`_queuePromptDuringStartup`:与新建会话的第一句一样当场上屏、显示「正在思考…」)。
+   *  · 库里那份就是屏上那份,❌「正在启动 / 正在连接」、❌ 骨架、❌ 失败那一行;输入框照常能用,下一句经 custody 交给宿主,由宿主起它。
    *  · 宿主自己把它拉起来(投递、定时、别的设备上发的那句)⇒ 跟着运行时会话表挂上去(`_onRunningChange`),❌ 等人发一句。
    *  · agent 自己的记录里有、库里没有的那几轮(编程模式里跑的、咕咕外面跑的、库还空着的老会话)请主进程补进库。
    */
@@ -1813,7 +1674,6 @@ export class AcpChatStore {
       this._setParkWatch(watch);
       this._closedByHost = true;
       this.historyLoading = false;
-      this.loadError = null;
       this._syncMessageCount();
     });
     this._loadStoredQueue((error) => log.warn('stored queue of a parked session unavailable', { sessionId: this.sessionId, error }));
@@ -1915,10 +1775,9 @@ export class AcpChatStore {
     }
   }
 
-  private async _runBootstrapInner(options?: { attachOnly?: boolean; keepStoredPage?: boolean }): Promise<void> {
+  private async _runBootstrapInner(options?: { attachOnly?: boolean; keepStoredPage?: boolean; retry?: boolean }): Promise<void> {
     let providerId: string | undefined;
     let bootstrapSession: AcpLiveSession | undefined;
-    let firstPrompt: PendingPrompt | null = null;
     this._closedByHost = false;
     this._reopenOnRetry = false;
     this._storedQueue = [];
@@ -1950,7 +1809,10 @@ export class AcpChatStore {
       const session = sessionRegistry
         .get(this.sessionId)
         ?.sessions.get(this.sessionId)?.data;
-      if (session?.providerSessionState === 'missing') {
+      // Opening a session whose engine record is gone only shows why; the person's retry (reconnect to the original
+      // engine session) goes on to session-life, which loads the recorded id again and fails the same way if it is
+      // still gone.
+      if (session?.providerSessionState === 'missing' && options?.retry !== true) {
         // provider 那侧的会话引用永久失效了。会话**照常打开**,库里那份记录照常上屏 ——
         // 失效的是「接着聊」这件事,不是「看看我说过什么」。
         //
@@ -1967,35 +1829,18 @@ export class AcpChatStore {
         });
         return;
       }
-      // 纯附着不解析 start 输入 —— 那份输入只有「要建立」时才有意义。
-      const input = options?.attachOnly ? undefined : this._startInput();
-      providerId = input?.providerId ?? session?.providerId;
-      // 第一条消息不等会话建立:发出那一刻就以乐观行上屏,样子与之后每条消息发出时相同(气泡 + 「处理中」)。
-      // 上一次没跑起来、留在屏上的那一句同理:这次起来时运行时会先发它。
-      const preview = firstPromptPreview(input);
-      const held = this._heldStartupPrompt;
-      firstPrompt = preview ? { ...preview, sentAt: held?.sentAt ?? Date.now() } : held;
-      if (firstPrompt) {
-        const prompt = firstPrompt;
-        this._startupPendingIds.add(prompt.id);
-        if (preview) this._firstPromptId = prompt.id;
-        runInAction(() => {
-          this._startupRunningId = prompt.id;
-          // 留在屏上的那一句(`_holdStartupPrompt`)换回在跑的样子,❌ 同一句画两遍。
-          const turns = this.chatState.transcript.state.committedTurns;
-          const heldIds = new Set([heldFirstPromptTurnId(prompt), ...(held ? [heldFirstPromptTurnId(held)] : [])]);
-          if (turns.some((turn) => heldIds.has(turn.id))) {
-            this.chatState.transcript.history.seed(turns.filter((turn) => !heldIds.has(turn.id)));
-          }
-          this._heldStartupPrompt = null;
-          this.chatState.session.setPendingPrompt(prompt);
-          this._syncMessageCount();
-        });
+      // Every session, side chat included, is started by its host's session-life; the page only attaches once the
+      // host says it is ready (one start owner).
+      providerId = session?.providerId;
+      // Not ready = failed: the page says why from the view (`loadError`).
+      if (!options?.attachOnly && !await this._startThroughLife(options?.retry === true)) {
+        if (this.loadError?.kind === 'auth_required' && providerId) void this._refreshAuthStatus(providerId);
+        return;
       }
       // 起引擎与读库**并行**:两件事互不依赖。❌ 不许把 spawn 排在一次读之后 ——
       // 本机库读起来接近零延迟,会把这个串行藏得看不见,换到读得慢的那一侧(库大、盘忙、
       // 将来换成非本机的存储)它就是白等的一段,而 spec 要求会话启动不被任何东西挡住。
-      const clientSessionReady = AcpLiveSession.create(this.runtimeSessionId, input);
+      const clientSessionReady = AcpLiveSession.create(this.runtimeSessionId);
       // 引擎这一路的错误统一在下面 await 时抛;这里只是别让它在等库期间变成未处理拒绝。
       clientSessionReady.catch(() => {});
 
@@ -2043,7 +1888,6 @@ export class AcpChatStore {
         // 就该重挂)⇒ 慢的那次会在快的那次**之后**回到这里。没有这道代次闸的话,它会把自己那份
         // 陈的 history + 陈的 session handle 提交进 `this.session`,而界面上选中的是新的那条。
         if (this._disposed || generation !== this._historyGeneration) {
-          if (this.isTransient) await this._stopTransientSession(clientSession);
           clientSession.dispose();
           return;
         }
@@ -2089,35 +1933,18 @@ export class AcpChatStore {
         this.session = clientSession;
         this.chatState.transcript.history.seed(visibleTurns);
         this._subscribeLiveSession(clientSession);
-        // 引擎就绪时首轮已经开出(活动轮接过了乐观行)或已讲完(在历史里);仍挂着就是它还排在运行时队列里,
-        // 由队列那一格显示 —— 再留着就是同一句话画两遍。连上之前排进去的那几句同理,换成运行时那份真队列。
-        this._handOffStartupPreviews();
         this._applyDraftSnapshot(clientSession.draft.current());
         this.historyLoading = false;
         this.loadError = null;
         this._syncMessageCount();
       });
     } catch (error) {
-      if (this.isTransient && bootstrapSession) {
-        await this._stopTransientSession(bootstrapSession);
-        bootstrapSession.dispose();
-      }
       if (this._disposed || generation !== this._historyGeneration) {
         if (generation !== this._historyGeneration) bootstrapSession?.dispose();
         return;
       }
       if (this._visualEvidenceOverride) {
         bootstrapSession?.dispose();
-        return;
-      }
-      if (this._stoppedStartGeneration === generation) {
-        // 用户在会话建立途中按了停止:这次「起不来」是他要的 —— ❌ 说失败。停下的那一句已经按停掉的一轮
-        // 留在对话里(`_stopStartup`);下一句照首次打开那条路重新起。
-        log.info('ACP session start stopped by the user', { sessionId: this.sessionId });
-        runInAction(() => {
-          this.historyLoading = false;
-          this.loadError = null;
-        });
         return;
       }
       const machine = machineRegistry.machineOf(this.runtimeSessionId);
@@ -2132,11 +1959,6 @@ export class AcpChatStore {
         if (back) {
           log.info('ACP chat machine link came back within the grace; starting the session again', { sessionId: this.sessionId, machine });
           bootstrapSession?.dispose();
-          // 与「再试一次」同一条路:在跑的那一句先留住,再开时换回在跑的样子(sentAt 不变)。
-          runInAction(() => {
-            const pending = this.chatState.session.state.pendingPrompt;
-            this._holdStartupPrompt(pending && this._startupPendingIds.has(pending.id) ? pending : null);
-          });
           void this._runBootstrap(options);
           return;
         }
@@ -2156,9 +1978,6 @@ export class AcpChatStore {
       runInAction(() => {
         this.historyLoading = false;
         this.loadError = loadError;
-        // 在「处理中」的那一句(第一条,或连上之前发的那句)不再显示在跑,留在屏上;原因与去路在它下面。
-        const pending = this.chatState.session.state.pendingPrompt;
-        this._holdStartupPrompt(pending && this._startupPendingIds.has(pending.id) ? pending : null);
         this._syncMessageCount();
       });
       if (this.loadError?.kind === 'auth_required' && providerId) {
@@ -2166,26 +1985,6 @@ export class AcpChatStore {
       }
     }
   }
-
-  private async _stopTransientSession(session: AcpLiveSession): Promise<void> {
-    try {
-      const result = await session.stop();
-      if (!result.success) {
-        log.warn('Failed to stop runtime-only side chat', {
-          sessionId: this.sessionId,
-          runtimeSessionId: this.runtimeSessionId,
-          error: result.error,
-        });
-      }
-    } catch (error) {
-      log.warn('Failed to stop runtime-only side chat', {
-        sessionId: this.sessionId,
-        runtimeSessionId: this.runtimeSessionId,
-        error,
-      });
-    }
-  }
-
 
   private async _refreshAuthStatus(providerId: string): Promise<void> {
     try {
@@ -2205,54 +2004,29 @@ export class AcpChatStore {
     }
   }
 
-  private _startInput() {
-    const session = sessionRegistry
-      .get(this.sessionId)
-      ?.sessions.get(this.sessionId)?.data;
-    if (!session) throw new Error('Session not found');
-
-    const page = asProvisioned(getSessionPageStore(this.projectId, this.sessionId));
-    if (!page?.workspaceId) throw new Error('No workspace found for session');
-
-    const workspace = workspaceRegistry.get(this.projectId, page.workspaceId);
-    if (!workspace) throw new Error('Workspace not found');
-
-    const queued = pendingInitialQueue(session);
-    const initialQueue = queued ? toJS(queued) : undefined;
-
-    // 两种分叉在这条载荷上的区别就是**带不带 `sourceConversationId`**,运行时靠它分路:
-    //  · 运行时分叉(侧边聊天)= 带 —— 不落库、不进会话列表,产出的 id 就是来源的。
-    //  · 持久分叉(spec session-fork-share 的 fork)= 不带 —— 走 `session/fork` 拿一个
-    //    **独立**的新 id 落进这条会话,此后它就是一条普通 ACP 会话。
-    const persistentForkFromProviderSessionId = this.runtimeView ? undefined : pendingPersistentFork(session);
-
-    return {
-      sessionId: this.runtimeSessionId,
-      ...(this.runtimeView
-        ? {
-            sourceSessionId: this.sessionId,
-            forkFromProviderSessionId: this.runtimeView.forkFromProviderSessionId,
-          }
-        : persistentForkFromProviderSessionId
-          ? { forkFromProviderSessionId: persistentForkFromProviderSessionId }
-          : {}),
-      projectId: this.projectId,
-      providerId: session.providerId,
-      workspaceId: page.workspaceId,
-      cwd: workspace.path,
-      providerSessionId: session.providerSessionId ?? null,
-      ...(session.startupOrigin ? { startupOrigin: session.startupOrigin } : {}),
-      ...(session.initialMessageId ? { initialMessageId: session.initialMessageId } : {}),
-      ...(session.taskChatId ? { taskChatId: session.taskChatId } : {}),
-      model: session.model ?? null,
-      effort: session.effort ?? null,
-      // Runtime translates this intent after session/new exposes provider mode ids and before
-      // initialQueue can start. ⚠️ session/load 上**同样**重新下发(session-manager
-      // applyConfiguredPermissionMode)⇒ 记录必须是用户最后确认的那一档,见 _recordLiveSetting。
-      // 缺省按编辑档;❌ 别把缺省当 read-only,那会把存量会话静默降权。
-      permissionMode: resolveSessionPermissionMode(session),
-      ...(initialQueue && { initialQueue }),
-    };
+  /**
+   * Ask the host's session-life to start this session and wait for its projection to settle. A side chat first
+   * opens its fork entry (idempotent), then starts like any session.
+   * `retry`: the person asked to start it again; opening a failed session only shows why it failed (contract (e)).
+   * Resolves whether the view became ready; a failed one is said by `loadError`.
+   */
+  private async _startThroughLife(retry: boolean): Promise<boolean> {
+    const id = this.runtimeSessionId;
+    if (this.runtimeView) {
+      this._forkOpened = forkSessionLife({ forkId: id, parentId: this.sessionId, forkFromProviderSessionId: this.runtimeView.forkFromProviderSessionId });
+      await this._forkOpened;
+    }
+    // Only a view published after this start answers it: an older failed view is the previous attempt's.
+    const before = await readSessionLife(id);
+    if (before.kind === 'ready') return true;
+    if (before.kind === 'failed' && !retry) return false;
+    if (retry) runInAction(() => { this._lifeRetriedVersion = before.version; });
+    await startSessionLife(id);
+    await when(() => {
+      const view = sessionLifeView(id)!;
+      return view.version > before.version && (view.kind === 'ready' || view.kind === 'failed');
+    });
+    return sessionLifeView(id)!.kind === 'ready';
   }
 
   private _queuedPromptModels(): QueuedPrompt[] {
@@ -2424,10 +2198,8 @@ export class AcpChatStore {
     this._draftTimer = window.setTimeout(() => {
       this._draftTimer = null;
       const draft = { rev, input: text.trim().length > 0 ? { text } : null };
-      // Before ACP bootstrap completes the draft is local to this store. Persisting it through
-      // the absent session would emit a false "Failed to sync draft" error while the startup
-      // queue is explicitly holding user input.
-      if (this.canQueueBeforeSession) return;
+      // Until the page attaches the draft is local to this store; there is no session to persist it through.
+      if (!this.session) return;
       const session = this._requireSession('acpFailure.syncDraft');
       if (!session) return;
       void session
@@ -2447,14 +2219,6 @@ export class AcpChatStore {
   private _applyDraftSnapshot(draft: PromptDraft | null | undefined): void {
     if (draft === undefined) return;
     if (draft === null) {
-      if (this._preserveComposerDraft) {
-        if (this.draftText.trim()) {
-          this._draftRev += 1;
-          this._pendingDraftRev = this._draftRev;
-          this._scheduleDraftWrite(this.draftText, this._draftRev);
-        }
-        return;
-      }
       if (this._pendingDraftRev === null) {
         this._draftRev += 1;
         this.draftText = '';
@@ -2733,7 +2497,7 @@ export class AcpChatStore {
    *
    * ❌ 不在这里把会话重新起起来:停是宿主的本意 —— 归档了、切到编程腿了、被父会话停了,
    * 聊天面自己把它拉起来就是在违背那个决定(切到编程腿时还会和伪终端那条腿同时活着)。
-   * 起它的是用户的下一句(`_queuePromptDuringStartup`),或者宿主自己(定时、投递、重开):句柄的副本跟着会话 id 走
+   * 起它的是宿主:用户的下一句(经 custody),或者定时、投递、重开:句柄的副本跟着会话 id 走
    * (session-wire @@@follow-key),宿主把它再拉起来时重新 seed,这一侧随即重挂,❌ 等人发一句(10-19 实撞)。
    */
   private _onSessionClosedByHost(closed: AcpLiveSession, loadError: AcpLoadError | null = null): void {
@@ -2844,83 +2608,6 @@ export class AcpChatStore {
     }));
   }
 
-  /** 会话连上了:连上之前画出来的那几句交给真的那一轮 / 运行时队列。 */
-  private _handOffStartupPreviews(): void {
-    const pending = this.chatState.session.state.pendingPrompt;
-    if (pending && this._startupPendingIds.has(pending.id)) this.chatState.session.setPendingPrompt(null);
-    this._startupPendingIds.clear();
-    this._startupQueued = [];
-    this._startupRunningId = null;
-    this._heldStartupPrompt = null;
-  }
-
-  /**
-   * 会话还在建立时按了停止(behavior session-page「打开速度」:这段算运行中,就能停;启动没有超时,
-   * 引擎卡住时这是唯一的出口)。放弃这次启动,然后与平时停掉一轮一样收场:
-   * - 第一条消息留在对话里,下面是「你停止了这一轮」(点「继续」接着跑)—— 它存在会话记录里,接着跑会先发它;
-   * - 第一条之外还没发出去的那几句(运行时没替你存着)撤下、字还回输入框。
-   * ❌ 说成「起不来」、❌ 弹错误:这是用户要的停。
-   */
-  private _stopStartup(): void {
-    this._stoppedStartGeneration = this._historyGeneration;
-    const unsent: string[] = [];
-    const pending = this.chatState.session.state.pendingPrompt;
-    if (pending && this._startupPendingIds.has(pending.id)) {
-      this._stoppedPromptIds.add(pending.id);
-      if (pending.id === this._firstPromptId) {
-        this._holdStartupPrompt(pending, { kind: 'cancelled', reason: 'cancelled' });
-      } else {
-        unsent.push(pending.text);
-        this.chatState.session.setPendingPrompt(null);
-      }
-    }
-    for (const prompt of this._startupQueued) {
-      this._stoppedPromptIds.add(prompt.id);
-      unsent.push(prompt.text);
-    }
-    this._startupQueued = [];
-    this._startupPendingIds.clear();
-    this._startupRunningId = null;
-    if (unsent.length > 0) {
-      this.setDraftText([...unsent, this.draftText].filter((text) => text.trim()).join('\n\n'));
-    }
-    this._syncMessageCount();
-    void getAcpRuntimeClient(machineRegistry.machineOf(this.runtimeSessionId))
-      .then((client) => client.stopSession({ sessionId: this.runtimeSessionId }))
-      .then((result) => {
-        if (!result.success) this._toastError('acpFailure.stop', result.error);
-      })
-      .catch((error: unknown) => this._toastError('acpFailure.stop', error));
-  }
-
-  /** 只撤自己挂上的那一条:这期间换上来的乐观行(别的发送)不是它的。 */
-  private _dropFirstPromptPreview(prompt: PendingPrompt | null): boolean {
-    if (!prompt || this.chatState.session.state.pendingPrompt?.id !== prompt.id) return false;
-    this.chatState.session.setPendingPrompt(null);
-    return true;
-  }
-
-  /**
-   * 首条没能跑起来(要登录、引擎没装、起不来):那句话留在屏上、不再显示在跑,原因由它下面那一行说。
-   * ❌ 撤掉它 —— 用户刚说完的话凭空消失,只剩一行「去登录」。重试时首条随启动输入再发,这一句换回在跑的样子。
-   */
-  private _holdStartupPrompt(prompt: PendingPrompt | null, outcome?: TranscriptTurn['outcome']): void {
-    if (!prompt || !this._dropFirstPromptPreview(prompt)) return;
-    this._startupRunningId = null;
-    this._heldStartupPrompt = prompt;
-    this.chatState.transcript.history.append([
-      {
-        id: heldFirstPromptTurnId(prompt),
-        seq: 0,
-        initiator: 'user',
-        ...(prompt.sentAt !== undefined ? { startedAt: prompt.sentAt } : {}),
-        items: [{ kind: 'message', id: prompt.id, seq: 0, role: 'user', text: prompt.text }],
-        // 用户停下的那一句:与平时停掉的一轮同一个收尾(「你停止了这一轮」+「继续」)。
-        ...(outcome ? { outcome } : {}),
-      } as TranscriptTurn,
-    ]);
-  }
-
   private _syncMessageCount(): void {
     const state = this.chatState.transcript.state;
     const committedCount = state.committedTurns.reduce(
@@ -2994,24 +2681,9 @@ function containsUserPrompt(turn: TranscriptTurn | null, prompt: QueuedPrompt): 
   );
 }
 
-/**
- * 新建会话带着的第一条消息,在引擎起来之前的乐观行(behavior session-page「打开速度」)。
- *
- * 只认用户在会话页打的那一句:聊天页起的会话,宿主会把首条换成一封投递再交给引擎;别的 agent 派来的
- * (`communication`)也不是这里打的字 —— 两者若先画成气泡,真的那一轮到了会换成另一副样子。
- * 只画队首:乐观行只有一格,后面几条在启动队列里,会话挂上后由队列那一格显示。
- */
-export function firstPromptPreview(
-  input: { sessionId: string; startupOrigin?: 'chat-page' | 'session-page'; initialQueue?: readonly { text: string; origin?: PromptInput['origin'] }[] } | undefined,
-): PendingPrompt | null {
-  const first = input?.initialQueue?.[0];
-  if (!first || input.startupOrigin === 'chat-page' || first.origin === 'communication') return null;
-  return { id: `first-prompt:${input.sessionId}`, text: first.text };
-}
-
 type StartRecord = Pick<Session, 'providerSessionId' | 'initialQueue' | 'forkFromProviderSessionId'>;
 
-/** 新建会话还没认领首启时带着的那几句(第一句在队首):有就交给首启,打开它就当场起(#980 照旧)。 */
+/** 新建会话还没认领首启时带着的那几句(第一句在队首):有就打开它就当场请宿主起(#980 照旧)。 */
 function pendingInitialQueue(record: StartRecord): Session['initialQueue'] {
   return record.providerSessionId === undefined && record.initialQueue?.length ? record.initialQueue : undefined;
 }
@@ -3022,10 +2694,6 @@ function pendingInitialQueue(record: StartRecord): Session['initialQueue'] {
  */
 function pendingPersistentFork(record: StartRecord): string | undefined {
   return record.providerSessionId == null ? record.forkFromProviderSessionId : undefined;
-}
-
-function heldFirstPromptTurnId(prompt: PendingPrompt): string {
-  return `${prompt.id}:held`;
 }
 
 function queuedPromptTurn(prompt: QueuedPrompt): TranscriptTurn {
@@ -3054,10 +2722,9 @@ function queuedPromptTurn(prompt: QueuedPrompt): TranscriptTurn {
   };
 }
 
-function toPendingAttachment(attachment: AcpPromptAttachment): ChatAttachment {
-  return {
-    id: attachment.ref.id,
-    name: attachment.ref.name ?? 'image',
-    dataUrl: attachment.previewUrl,
-  };
+/** The ACP leg's typed refusal keeps its runtime error (and so the load-error remedies); any other failure its words. */
+function lifeFailureError(failure: NonNullable<LifeView['failure']>): Error {
+  return failure.cause.name === ACP_START_FAILED
+    ? new AcpStartError(JSON.parse(failure.cause.data as string) as AcpRuntimeError)
+    : new Error(failure.message);
 }

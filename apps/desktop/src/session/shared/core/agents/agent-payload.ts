@@ -13,7 +13,7 @@ import type {
   SelectedSource,
 } from '@gugu/session-core/deps/runtime/types';
 import type { ProviderCustomConfig } from '@shared/core/app-settings';
-import type { SessionView, SessionpageLeg } from '@shared/core/sessions/sessions';
+import type { SessionRuntime, SessionView, SessionpageLeg } from '@shared/core/sessions/sessions';
 
 // ---------------------------------------------------------------------------
 // Install-source model — re-exported from @gugu/session-core, never re-declared here.
@@ -136,7 +136,7 @@ export type AgentCapabilities = {
   models: AgentModelsCapability;
   effort: AgentEffortCapability;
   prompt: { kind: string; startupDelivery?: 'startup-prompt' | 'delivery-bridge' };
-  sessions: { kind: string; fork?: 'supported'; freshPtyPrompt?: 'required' };
+  sessions: { kind: string; fork?: readonly SessionRuntime[]; freshPtyPrompt?: 'required' };
   autoApprove: {
     kind: string;
     /** harness 自报的原生档位 ↔ 咕咕三档;缺席 = 这个 harness 没声明过对应关系。 */
@@ -201,6 +201,17 @@ export function agentSteersActiveAcpTurn(
   return declaredInjectionTiming(capabilities?.sessionpage?.['acp']) === 'next-tool-call';
 }
 
+/**
+ * 这一家能不能在**这条腿**上分叉。Side chat 永远在 acp 腿上分叉;Fork 任务与来源同 runtime。
+ * 入口显不显示、主进程拒不拒都问这一处 —— 终端腿的 `--fork` 证明不了聊天腿(pi:CLI 能分、pi-acp 不报 fork)。
+ */
+export function agentForksOn(
+  capabilities: Pick<AgentCapabilities, 'sessions'> | undefined | null,
+  runtime: SessionRuntime,
+): boolean {
+  return capabilities?.sessions.fork?.includes(runtime) === true;
+}
+
 export function agentSupportsAutoApprove(
   capabilities: AgentCapabilities | undefined | null,
 ): boolean {
@@ -215,7 +226,7 @@ export function agentSupportsAutoApprove(
  * codex 的 permissionProfile 里没有规划档,claude 有 `plan`。
  */
 export function agentSupportsPermissionMode(
-  capabilities: AgentCapabilities | undefined | null,
+  capabilities: Pick<AgentCapabilities, 'autoApprove'> | undefined | null,
   mode: GuguPermissionMode,
   /** 会话跑在哪条腿;给了就只认这条腿兑现得了的档(见 `autoApprove.modes[*].legs`)。 */
   leg?: 'acp' | 'tui',

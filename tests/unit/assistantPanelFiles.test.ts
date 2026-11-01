@@ -21,7 +21,7 @@ function fixture() {
     const id = String(args.p_operation_id); operations.push(id)
     if (receipts.has(id)) return { data: receipts.get(id),error: null }
     const old = rows.get(key)
-    if (String(args.p_expected_revision) !== (old?.revision ?? '0')) return { data: null,error: { code: '40001',message: 'Resource changed' } }
+    if (String(args.p_expected_revision) !== (old?.revision ?? '0')) return { data: null,error: { code: 'PT409',message: 'Resource changed' } }
     const row = put(args.p_domain as AssistantPanelDomain,String(args.p_resource_key),args.p_data as Record<string, unknown>)
     row.body_item_id = args.p_body_item_id as string ?? null; row.body_sha256 = args.p_body_sha256 as string ?? null
     row.deleted_at = args.p_operation === 'remove' ? '2026-10-26' : null
@@ -99,7 +99,7 @@ it('rejects a stale personality edit and rejects reads after switching accounts'
   const original = f.put('personality','instructions',{ text: 'Original' }).revision
   expect(await f.panel.text('性格约定')).toBe('Original')
   f.put('personality','instructions',{ text: 'Another window' }); f.panel.invalidate()
-  await expect(f.panel.write('性格约定',new TextEncoder().encode('Stale draft'),'text/plain',original)).rejects.toMatchObject({ code: '40001' })
+  await expect(f.panel.write('性格约定',new TextEncoder().encode('Stale draft'),'text/plain',original)).rejects.toMatchObject({ code: 'PT409' })
   expect(await f.panel.text('性格约定')).toBe('Another window')
   f.switchOwner()
   await expect(f.panel.text('性格约定')).rejects.toThrow('Account changed')
@@ -121,7 +121,7 @@ it('allows an explicit new upload at a deleted path using the tombstone version 
   await f.panel.remove('给助理的资料/file.txt')
   await f.panel.write('给助理的资料/file.txt',new TextEncoder().encode('new'),'text/plain')
   expect(await f.panel.text('给助理的资料/file.txt')).toBe('new')
-  await expect(f.panel.write('给助理的资料/file.txt',new TextEncoder().encode('stale'),'text/plain',old)).rejects.toMatchObject({ code: '40001' })
+  await expect(f.panel.write('给助理的资料/file.txt',new TextEncoder().encode('stale'),'text/plain',old)).rejects.toMatchObject({ code: 'PT409' })
 })
 
 it('reports stale and rejected host state instead of presenting it as current applied data', async () => {

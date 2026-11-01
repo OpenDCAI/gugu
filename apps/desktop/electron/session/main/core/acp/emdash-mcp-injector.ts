@@ -96,8 +96,8 @@ export type EmdashSessionCapabilityInjection = {
   sessionMeta?: Record<string, unknown>;
   /** 会话级系统提示词及其载体。见 {@link SessionPromptDelivery}。 */
   sessionPrompt?: SessionPromptDelivery;
-  /** Optional replacement for the renderer's bare startup queue after trusted envelope construction. */
-  initialQueue?: Array<{ text: string; hiddenContext?: string }>;
+  /** The first turn's gugu message has landed: how its pending row is written for the agent (renderFirstTurn). */
+  firstTurn?: import('@gugu/core/local/agent/firstTurnRender').FirstTurnRender;
   /** The provider adapter already included the selected platform model in its process config. */
   platformConfigured?: boolean;
   /** The platform model the adapter's process config pins (canonical id); present iff `platformConfigured`. */
@@ -125,8 +125,41 @@ export type SessionPromptDelivery = {
   carrier: 'system' | 'session-context';
 };
 
+/** The bound gugu identity of a session, as the capability injector consumes it. null = a runtime fork (private). */
+export interface EmdashSessionIdentity {
+  guguAgentUserId: string;
+  chatId: string;
+  agentIdentityFacts?: { specialFocus: string | null };
+  projectContext?: { projectId: string; projectName: string; projectPath: string; groupChatId: string; groupName: string };
+}
+
+export interface EmdashIdentityRequest {
+  sessionId: string;
+  sourceSessionId?: string;
+  providerId: string;
+  projectId: string;
+  cwd: string;
+  displayName?: string;
+  lifecycle: 'fresh' | 'fork' | 'resume';
+}
+
+/** The single ACP identity step: bind (or reuse) the session's gugu identity. Throws when it cannot. */
+export type EmdashIdentityProvisioner = (request: EmdashIdentityRequest) => Promise<EmdashSessionIdentity | null>;
+
+let provisioner: EmdashIdentityProvisioner | null = null;
+
+export function setEmdashIdentityProvisioner(fn: EmdashIdentityProvisioner | null): void {
+  provisioner = fn;
+}
+
+export function getEmdashIdentityProvisioner(): EmdashIdentityProvisioner {
+  if (!provisioner) throw new Error('ACP identity provisioner is not installed');
+  return provisioner;
+}
+
 export type EmdashMcpInjector = (
-  info: EmdashSessionStartInfo
+  info: EmdashSessionStartInfo,
+  identity: EmdashSessionIdentity | null,
 ) => Promise<EmdashSessionCapabilityInjection>;
 
 let injector: EmdashMcpInjector | null = null;

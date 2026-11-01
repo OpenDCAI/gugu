@@ -2,6 +2,7 @@ import { questionAnswerError } from '@gugu/session-core/session-record';
 import { getAcpRuntimeClient } from '@main/core/acp/runtime-process/host';
 import { readAcpSessionSummaries } from '@main/core/acp/session-summary-reader';
 import { sendMessage } from '@main/core/sessions/sendMessage';
+import { sessionLife } from '@main/core/sessions/session-life';
 import type { Session } from '@shared/core/sessions/sessions';
 import {
   remoteSettlementGap,
@@ -139,14 +140,22 @@ export async function deliverSessionText(
   //    在 conversation provider 自己的 `sessions` 里。两张表都用 makePtySessionId 造 key、
   //    长得一模一样,查错了不报错 —— 只会永远 `session_not_live`。实测:一条刚建的、
   //    桌面上正在跑的会话也被判成死的,手机端给 TUI 腿发消息从来没成功过。
-  if (target.runtime === 'acp' || target.runtime === 'pty' || target.runtime === null) {
+  // ACP: custody chain. The host's session_pending now owns this message id; whatever its receipt says (a
+  // refetch after a lost reply finds the existing row), the sender's outbox copy ends here.
+  if (target.runtime === 'acp') {
+    sessionLife().enqueue({
+      sessionId: target.id, messageId: clientMessageId ?? crypto.randomUUID(), text: body, kind: 'session-direct',
+      delivery: { queue: true, origin: 'manual', ...(attachments?.length ? { attachments } : {}) },
+    });
+    return { accepted: 'queued' };
+  }
+  if (target.runtime === 'pty' || target.runtime === null) {
     const params = {
       projectId: target.projectId,
       sessionId: target.id,
       clientMessageId: clientMessageId ?? crypto.randomUUID(),
       text: body,
       kind: 'session-direct' as const,
-      ...(target.runtime === 'acp' ? { delivery: { queue: true as const, origin: 'manual' as const, ...(attachments?.length ? { attachments } : {}) } } : {}),
     };
     // 冷着的终端腿(app 重启后没起、被停过)由 session-direct 的路由自己唤醒再投(#6546),
     // 这里 ❌ 再拉一遍 —— owner 2026-09-06 真机撞的那格(codex 终端腿)现在走的是同一条恢复。

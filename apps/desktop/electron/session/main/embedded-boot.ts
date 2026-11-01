@@ -221,7 +221,7 @@ import {
   setSessionStatusFeed,
 } from '@main/core/session-timeline/service'
 import { connectionConfigRoot } from '@main/core/agents/harness-connections'
-import { acpSessionLive, setSessionCancel, setSessionWake } from '@main/core/session-timeline/write-bridge'
+import { setSessionCancel, setSessionWake } from '@main/core/session-timeline/write-bridge'
 import { setOtherMachines } from '@main/core/sessions/session-family'
 import { hasPendingTaskNames, loadTaskNames, setTaskNamer, setTaskNameOwner } from '@main/core/sessions/task-name'
 import { adoptLegacyTaskNames } from '@main/core/sessions/renameSession'
@@ -277,8 +277,12 @@ export {
 } from '@main/core/agents/platform-model-catalog-hook'
 // @@@sessionpage TASKPAGE-FUSION — re-export the MCP-injector setter on the module boundary so the gugu
 // host can give session-page codex sessions the gugu MCP send tool + gugu identity at session start.
+export { sessionLife }
+export { setSessionLifeSourceHost } from '@main/core/sessions/session-life-host'
+export { claimedSessionSources } from '@main/core/sessions/session-pending'
 export {
   setEmdashMcpInjector,
+  setEmdashIdentityProvisioner,
   type EmdashMcpInjector,
   type EmdashSessionStartInfo,
 } from '@main/core/acp/emdash-mcp-injector'
@@ -311,7 +315,6 @@ export {
 } from '@main/core/sessions/impl/emdash-pty-sessionpage-hook'
 export {
   setSessionMessageRouter,
-  setSessionLiveNotifier,
   setSessionMessageOutboxReady,
   type SessionMessageRouter,
 } from '@main/core/sessions/session-message-router'
@@ -362,6 +365,17 @@ import {
   type SessionScope,
 } from '@shared/core/sessions/sessionEvents'
 import { log } from '@main/lib/logger'
+import { events } from '@main/lib/events'
+import { installSessionLife, sessionLife } from '@main/core/sessions/session-life'
+import { admitCreationTurns, bindIdentityThenCreate, claimIdentityCreation } from '@main/core/sessions/session-life-creation'
+import { unbindSessionAgent } from '@main/core/sessionpage/sessionpage-session-agent'
+import { isLifeSession, lifeSessions, lifeStore } from '@main/core/sessions/session-pending'
+import { sessionLifeSources } from '@main/core/sessions/session-life-host'
+import { createAcpLegAdapter } from '@main/core/acp/session-life-acp'
+import { forkStore, runtimeFork, runtimeForks, runtimeForksOf } from '@main/core/sessions/session-life-forks'
+import { sessionOwnedBy } from '@main/core/sessionpage/sessionpage-session-agent'
+import { sessionLifeViewChannel } from '@shared/core/sessions/sessionEvents'
+import type { LifeStatus, LifeView } from '@shared/core/sessions/session-life'
 import { guguNodeTarget, installGuguNode } from './core/pty/gugu-node'
 import { createStageLedger, type StageLedger } from '@main/lib/stage-ledger'
 import { openProject } from '@main/core/projects/operations/openProject'
@@ -483,23 +497,15 @@ export async function bootSessionHostCore(options: SessionHostBootOptions): Prom
   // 删 0600 settings 文档 + 清续期定时器)。少这条腿,归档在用户眼里结束了,凭证还留在盘上。
   // 由组合根接线(与 setEmdashPlatform* 那批同形):session-main 的中心件不该静态引 ACP host 的模块级 scope。
   // ⚠️ worker 没起就什么都不做:那意味着一条 ACP 会话都不存在,把它叫醒等于收尾自己制造出要收的东西。
-  setSessionAcpSessionStopper(async ({ sessionId }) => {
-    const client = await peekAcpRuntimeClient()
-    if (!client) return
+  setSessionAcpSessionStopper(async ({ sessionId }, mode) => {
     const [row] = await db
       .select({ runtime: sessions.runtime })
       .from(sessions)
       .where(eq(sessions.id, sessionId))
       .limit(1)
-    if (row?.runtime !== 'acp') return
-    const result = await client.stopSession({ sessionId }).catch((error: unknown) => {
-      log.warn('session teardown: ACP session stop threw', { sessionId, error: String(error) })
-      return null
-    })
-    // 归档在用户眼里已经发生了,没停干净不该把整个归档判失败;响亮记一笔。
-    if (result && !result.success) {
-      log.warn('session teardown: ACP session stop reported an error', { sessionId, error: result.error })
-    }
+    // Archive already went through session-life (archiveOneLocked) before the workspace is torn down.
+    if (row?.runtime !== 'acp' || mode === 'archive') return
+    await sessionLife().interrupt(sessionId, { k: 'interrupt', reason: 'user-stop' })
   })
 
   // --- The half of the bridge that acts (#2374). Installed here rather than beside the attach
@@ -542,6 +548,26 @@ export async function bootSessionHostCore(options: SessionHostBootOptions): Prom
   )
   // 开门即已迁完(退役的 lifecycle 条目在门里先迁走);同上面两段一样不等占用判定。
   await setSessionMessageOutboxReady()
+  // session-life: the single owner of ACP session lifecycle. Installed before any entry can deliver; the host signs
+  // it in once its account is known.
+  installSessionLife({
+    sessions: lifeSessions,
+    store: sessionId => runtimeFork(sessionId) ? forkStore : lifeStore,
+    adapter: sessionId => createAcpLegAdapter(sessionId, runtimeFork(sessionId)),
+    forks: runtimeForksOf,
+    allForks: runtimeForks,
+    parentOf: sessionId => runtimeFork(sessionId)?.parentId ?? null,
+    ownedBy: (sessionId, userId) => sessionOwnedBy(sessionId, process.env, userId),
+    markRead: row => sessionLifeSources.markRead(row),
+    reportFailure: (rows, cause) => sessionLifeSources.reportFailure(rows, cause),
+    publish: view => {
+      events.emit(sessionLifeViewChannel, view)
+      for (const cb of lifeViewSubscribers) cb(view)
+    },
+    removed: sessionId => log.info('session-life: session removed', { sessionId }),
+    failed: (sessionId, error) => log.error('session-life: failure', { sessionId, error: String(error) }),
+    now: Date.now,
+  })
   // Task names: a bound task is named by its roster identity (task-name.ts). The roster keys were just
   // renamed above, and every reader of a name below (search backfill first) needs the projection.
   await loadTaskNames()
@@ -1046,24 +1072,9 @@ async function wakeEmdashSessionStages(sessionId: string, ledger: StageLedger): 
     ledger.settle({ outcome: 'reopened' })
     return
   }
-  // 「ACP 会话活没活」只认 acpSessionLive(`starting` 也算活:再起一次只会撞上正在起的那个)。
-  if (await acpSessionLive(sessionId)) {
-    ledger.mark('already-live')
-    ledger.settle({ outcome: 'already-live' })
-    return
-  }
-  ledger.mark('summary-read')
-  if (!session.workspaceId) throw new Error(`session ${sessionId} workspace is not ready`)
-  const mounted = await sessionService.ensureSessionMounted(sessionId)
-  ledger.mark('session-mounted')
-  const workspace = resolveWorkspace(session.projectId, mounted.workspaceId)
-  if (!workspace) throw new Error(`session ${sessionId} workspace is not mounted`)
-  const result = await (await getAcpRuntimeClient()).startSession({
-    input: acpStartInputFor(session, mounted.workspaceId, workspace.path),
-  })
-  ledger.mark('acp-start-returned', { success: result.success })
-  ledger.settle({ outcome: result.success ? 'reopened' : 'failed' })
-  if (!result.success) throw new Error(`session ${sessionId} failed to reopen: ${JSON.stringify(result)}`)
+  // ACP: session-life is the only starter — a delivery (enqueue) or the person's explicit start. A wake would be a
+  // second start owner, so it is refused loudly.
+  throw new Error(`ACP session ${sessionId} is started by session-life (deliver or start), not by a wake`)
 }
 
 /**
@@ -1103,7 +1114,7 @@ export function acpStartInputFor(
  * `sourceChangeSession=replace` 起了一条新的原生会话(咕咕这边的对话记录仍在,harness 自己的上下文从零开始)。
  * `not-started` = 这条会话从没起来过(#7092):只把新选择落进了记录,没停也没起 —— 调用方按正常首启起它。
  */
-export type ReloadNativeSession = 'preserved' | 'replaced' | 'not-started'
+export type ReloadNativeSession = 'issued' | 'preserved' | 'replaced' | 'not-started'
 
 /**
  * 重载一条活着的 ACP 会话 —— **换掉会话级注入,但保住这条会话的历史**。
@@ -1475,18 +1486,13 @@ export async function reloadEmdashSession(input: {
     }
   }
 
-  const client = await getAcpRuntimeClient()
-  // 停之前先记下这条会话此刻attach的适配器进程 —— 重载的真判据是**进程换没换**,见下面那段。
-  const before = await client.adapterProvenance({ sessionId })
-  const stopped = await client.stopSession({ sessionId })
-  // 停不下来就别往下走:接着 start 会撞上一个还活着的适配器进程,而它手里是**旧**凭据 ——
-  // 那正是「界面写着新模型、实际跑旧的」那类静默错。
-  if (!stopped.success) {
-    const message = `could not be stopped for reload (${reason}): ${JSON.stringify(stopped)}`
-    throw new Error(
-      `session ${sessionId} ${message}`
-      + await restoreConfig(message),
-    )
+  // session-life reconfigures (contract v3.1 #13): stop without a barrier, patch the record, start again. The
+  // attempt's channel reports preserved/replaced in the LifeView; this call returns once the reload is issued.
+  const life = sessionLife()
+  await life.interrupt(sessionId, { k: 'interrupt', reason: 'reconfigure' })
+  if (life.read(sessionId).kind === 'failed') {
+    const message = `could not be stopped for reload (${reason})`
+    throw new Error(`session ${sessionId} ${message}` + await restoreConfig(message))
   }
   if (sourceChanged) {
     // Clear transient provider state before the source-change reload. The descriptor decides
@@ -1539,78 +1545,7 @@ export async function reloadEmdashSession(input: {
       + await restoreConfig(message),
     )
   }
-  /**
-   * ⚠️ **抛与「返回失败」都要回滚** —— 这两种起不来长得完全不一样,而我只挡了后一种。
-   *
-   * 2026-09-07 隔离栈阴性控实撞:把一个**没有渠道分组**的模型上架,重开时服务端在**铸令牌那一步**
-   * 就拒了(「refusing to mint a session token that would land in a group with no channel」)——
-   * 那是 `startSession` **抛异常**,不是返回 `{success:false}`。于是我的回滚整段被跳过,
-   * 会话记录停在 `glm-4.5` 上 —— 正是这个回滚存在的理由本身。
-   *
-   * ⇒ 把「写完记录之后、确认新会话跑起来之前」整段包住:任何一条出口都先把记录放回去再抛。
-   */
-  let result: Awaited<ReturnType<typeof client.startSession>>
-  try {
-    result = await client.startSession({
-      input: acpStartInputFor(fresh, mounted.workspaceId, workspace.path),
-    })
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
-    const restored = await restoreConfig(message)
-    throw new Error(
-      `session ${sessionId} failed to reload (${reason}): `
-      + `${message}${restored}`,
-    )
-  }
-  if (!result.success) {
-    throw new Error(
-      `session ${sessionId} failed to reload (${reason}): ${JSON.stringify(result)}`
-      + await restoreConfig(JSON.stringify(result)),
-    )
-  }
-  // A restart normally succeeds only when the provider returns the same session id that was loaded.
-  // Providers that declare sourceChangeSession=replace intentionally start a new native session
-  // when the billing route changes; the host transcript remains the durable history for that path.
-  const expectedProviderSessionId = providerSessionId
-  if (result.data.providerSessionId !== expectedProviderSessionId && !(sourceChanged && sourceChangeSession === 'replace')) {
-    const message = `provider resume returned a different session (asked ${expectedProviderSessionId}, got ${result.data.providerSessionId})`
-    throw new Error(
-      `session ${sessionId} failed to reload (${reason}): ${message}`
-      + await restoreConfig(message),
-    )
-  }
-  /**
-   * 进程真的换了吗 —— 这是重载**唯一**够格的判据。
-   *
-   * 每条 conversation 的 `makeAcpConnectionKey` 都含有会话 id，同工作区的兄弟会话不会共用
-   * adapter。这里仍对**进程身份**取证，以便重载明确证明新进程已建立，而不是只依赖返回的 session id。
-   * 拿不到 pid(平台不给)时不假装判过 —— 那种情况下这条判据不成立,交给上面那道 sessionId 判据。
-   */
-  const after = await client.adapterProvenance({ sessionId })
-  if (
-    before && after
-    && before.pid !== null && after.pid !== null
-    && before.pid === after.pid
-  ) {
-    if (before.connectionKey === after.connectionKey) {
-      // 进程没换 = 新的会话级注入一个字节都没到达 ⇒ 记录里那个新选择**没有生效**,
-      // 留着它只会让下一次启动带着一个从没跑过的配置。⇒ 与「起不来」同一处置:先放回去再抛。
-      const message = `reload (${reason}) reused the SAME adapter process`
-      const restored = await restoreConfig(message)
-      throw new Error(
-        `session ${sessionId} reload (${reason}) reused the SAME adapter process `
-        + `(pid ${after.pid}, connection ${after.connectionKey}) —— 新的会话级注入一个字节都没到达。`
-        + '这条会话与同工作区的另一条会话共用一个适配器进程,停掉自己那一份租约不会让进程重启。'
-        + '请检查这条会话的 adapter ownership 后再重试。'
-        + restored,
-      )
-    }
-    throw new Error(
-      `session ${sessionId} reload (${reason}) kept pid ${after.pid} across two `
-      + `different connections (${before.connectionKey} → ${after.connectionKey}) —— 这不是正常的会话重载,`
-      + '而是一个进程被两条连接同时认领,属于另一类事故,❌ 不要按「重载失败」重试。',
-    )
-  }
+  life.start(sessionId, 'reconfigure')
   const currentConfigRows = await db.select({ config: sessions.config })
     .from(sessions).where(eq(sessions.id, sessionId))
   const currentConfig = currentConfigRows[0]?.config
@@ -1619,7 +1554,7 @@ export async function reloadEmdashSession(input: {
     await db.update(sessions).set({ config: cleanConfig }).where(eq(sessions.id, sessionId))
   }
   if (input.resetModel) await recordReportedDefaultModel(sessionId, platformBefore ?? null)
-  return { nativeSession: result.data.providerSessionId === expectedProviderSessionId ? 'preserved' : 'replaced' }
+  return { nativeSession: 'issued' }
 }
 
 /**
@@ -1777,6 +1712,8 @@ function reloadOutcome(reloaded: { warning?: string; nativeSession: ReloadNative
 } {
   const warning = reloaded.warning ? { warning: reloaded.warning } : {}
   if (reloaded.nativeSession === 'not-started') return { applied: 'next-session', ...warning }
+  // ACP: issued; its preserved/replaced arrives as the attempt's LifeView fact once the channel is up.
+  if (reloaded.nativeSession === 'issued') return { applied: 'reload', ...warning }
   return { applied: 'reload', nativeSession: reloaded.nativeSession, ...warning }
 }
 
@@ -1879,6 +1816,18 @@ export async function startSessionpageAgentSession(
   input: SessionpageAgentSessionStartInput,
   provision: SessionpageAgentSessionProvisioner,
 ): Promise<SessionpageAgentSessionProvisioned> {
+  const release = claimIdentityCreation(input.agentUserId)
+  try {
+    return await startSessionpageAgentSessionClaimed(input, provision)
+  } finally {
+    release()
+  }
+}
+
+async function startSessionpageAgentSessionClaimed(
+  input: SessionpageAgentSessionStartInput,
+  provision: SessionpageAgentSessionProvisioner,
+): Promise<SessionpageAgentSessionProvisioned> {
   // #4181 —— 这条链路曾静默挂死 30 分钟以上且零日志。每个阶段落一行，挂点自己报名；
   // #4184 —— host-owned abort：每个阶段边界检查取消（150s 有界启动预算）。两套互补：测点管可见，abort 管有界。
   const signal = input.signal
@@ -1939,14 +1888,37 @@ export async function startSessionpageAgentSession(
       `agent.create ${provider} received an initial prompt but does not declare an argv/stdin startup channel`,
     )
   }
-  let runtimeStartedByAttempt = false
   const cleanup = () => rollbackAgentSessionStartup({
-    projectId: project.id, sessionId, created: !existing, started: runtimeStartedByAttempt,
+    projectId: project.id, sessionId, created: !existing, started: false,
   })
   try {
     throwIfAborted()
     // 落行并挂载(挂不上就撤掉这一行再抛,见 attachAgentToSession);ACP 会话的引擎在下面显式起。
-    const session = existing ?? await attachAgentToSession({
+    // The identity this command was given is bound first (identity is its own persistent fact; the identity stage
+    // reads it as bound). A new session row that cannot be written takes its binding back with it.
+    let provisioned!: Awaited<ReturnType<typeof provision>>
+    const bindIdentity = async (projectPath: string) => {
+      provisioned = await provision({
+        agentUserId: input.agentUserId,
+        displayName: input.displayName,
+        providerId: provider,
+        projectPath,
+        chatId: input.chatId,
+        sessionId,
+        projectId: project.id,
+      })
+    }
+    let session: Awaited<ReturnType<typeof attachAgentToSession>>
+    if (existing) {
+      session = existing
+      await sessionService.ensureSessionMounted(session.id)
+      const mounted = resolveSession(project.id, session.id)
+      if (!mounted) throw new Error(`session-page agent session ${session.id} is not mounted`)
+      await bindIdentity(mounted.sessionPath)
+    } else {
+      const projectPath = resolveWorkspace(project.id, repositoryWorkspaceId)?.path
+      if (!projectPath) throw new Error(`session-page project ${project.id} has no repository workspace path`)
+      session = await bindIdentityThenCreate(() => bindIdentity(projectPath), () => attachAgentToSession({
       id: sessionId,
       projectId: project.id,
       workspaceId: repositoryWorkspaceId,
@@ -1961,57 +1933,20 @@ export async function startSessionpageAgentSession(
       ...(modelChoice
         ? { ...(modelChoice.model ? { model: modelChoice.model } : {}), platformModel: modelChoice.platformModel }
         : {}),
-    })
-    throwIfAborted()
-    mark('session-attached')
-    const workspaceId = existing
-      ? (await sessionService.ensureSessionMounted(session.id)).workspaceId
-      : repositoryWorkspaceId
-    const mounted = resolveSession(project.id, session.id)
-    if (!mounted) throw new Error(`session-page agent session ${session.id} is not mounted`)
-    const provisioned = await provision({
-      agentUserId: input.agentUserId,
-      displayName: input.displayName,
-      providerId: provider,
-      projectPath: mounted.sessionPath,
-      chatId: input.chatId,
-      sessionId: session.id,
-      projectId: project.id,
-    })
+    }),
+      () => unbindSessionAgent(sessionId, process.env))
+    }
     throwIfAborted()
     mark('identity-provisioned')
     // 在首轮跑起来之前记下:首轮里就可能开子 agent。
     if (childHarness) await recordChildHarnessDefault(provisioned.guguAgentUserId, childHarness)
-    if (existing && await acpSessionLive(session.id)) {
-      throwIfAborted()
-      return { ...provisioned, sessionId: session.id, projectId: project.id }
-    }
-    runtimeStartedByAttempt = true
-    const startPromise = (await getAcpRuntimeClient()).startSession({
-      input: {
-        ...acpStartInputFor(session, workspaceId, mounted.sessionPath),
-        ...(!session.providerSessionId && input.initialPrompt ? { initialQueue: [{ text: input.initialPrompt, origin: 'communication' as const }] } : {}),
-      },
-    })
-    let removeAbortListener: () => void = () => undefined
-    const abortPromise = new Promise<never>((_, reject) => {
-      const onAbort = () => {
-        reject(signal.reason ?? new Error('session-page agent session start aborted'))
-      }
-      if (signal.aborted) onAbort()
-      else {
-        signal.addEventListener('abort', onAbort, { once: true })
-        removeAbortListener = () => signal.removeEventListener('abort', onAbort)
-      }
-    })
-    let result: Awaited<typeof startPromise>
-    try {
-      result = await Promise.race([startPromise, abortPromise])
-    } finally {
-      removeAbortListener()
-    }
-    if (!result.success) throw new Error(result.error.message ?? result.error.type)
-    mark('runtime-started')
+    // The identity is bound above as part of creation; session-life starts the session from here and its LifeView
+    // tells whether the start succeeded. The command answers now with the identity it was given.
+    // Its creation turn (the first task / first message) is admitted here once, under the session's stable
+    // `<id>:creation:0`: a replayed create of the same bound session finds it queued and admits nothing twice.
+    if (session.providerSessionId) sessionLife().start(session.id, 'user-open')
+    else admitCreationTurns({ ...session, initialQueue: input.initialPrompt ? [{ text: input.initialPrompt, origin: 'communication' }] : undefined })
+    mark('life-admitted')
     return { ...provisioned, sessionId: session.id, projectId: project.id }
   } catch (error) {
     agentSessionLog.error(
@@ -2306,6 +2241,21 @@ export function onAgentStatus(cb: (change: AgentStatusChange) => void): () => vo
 /** 启动 / 重连时的对账:每条会话此刻的读数(与写入者第一次触及它时得到的同一个)。 */
 export function agentStatusSnapshot(): Promise<AgentStatusChange[]> {
   return agentStatusWriter.snapshot()
+}
+
+const lifeViewSubscribers = new Set<(view: LifeView) => void>()
+
+/** Host-side readers of every session-life transition (`events` only reaches renderers). Returns the unsubscribe. */
+export function onSessionLifeView(cb: (view: LifeView) => void): () => void {
+  lifeViewSubscribers.add(cb)
+  return () => {
+    lifeViewSubscribers.delete(cb)
+  }
+}
+
+/** A session's current LifeView; null = session-life does not own it (terminal legs). */
+export function sessionLifeStatusOf(sessionId: string): LifeStatus | null {
+  return isLifeSession(sessionId) ? sessionLife().status(sessionId) : null
 }
 
 const sessionsGoneSubscribers = new Set<(scope: SessionScope) => void>()
