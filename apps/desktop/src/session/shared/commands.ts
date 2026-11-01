@@ -297,6 +297,13 @@ export const COMMANDS = defineCommands({
     description: 'Switch between tasks, groups, projects, and contacts',
     category: 'Navigation',
   },
+  'app.globalSearch': {
+    capture: true,
+    defaultHotkey: 'Mod+Shift+F',
+    label: 'Search Messages',
+    description: 'Search what was said in every chat and task',
+    category: 'Navigation',
+  },
   'app.toggleLeftSidebar': {
     defaultHotkey: 'Mod+Shift+S',
     label: 'Toggle Left Sidebar',

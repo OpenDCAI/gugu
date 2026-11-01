@@ -291,6 +291,8 @@ export default {
     "markUnreadFailed": "标记未读失败，请重试",
     "muted": "消息免打扰",
     "noResults": "未找到对话",
+    "searchMessages": "搜索消息「{{query}}」",
+    "searchMessagesTitle": "搜索消息",
     "listLabel": "对话列表",
     "pin": "置顶",
     "scan": "扫一扫",
