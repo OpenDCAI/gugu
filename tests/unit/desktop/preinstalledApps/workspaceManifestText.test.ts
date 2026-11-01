@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, test } from 'vitest'
 import { guguAppsBlock } from '../../../../apps/desktop/electron/capability-bundle'
-import { localizedManifestText, matchesExtensionQuery } from '../../../../apps/desktop/src/session/shared/extensions/catalog'
+import { localizedManifestText, localizedTabText, matchesExtensionQuery } from '../../../../apps/desktop/src/session/shared/extensions/catalog'
 import { declaredContexts, parseExtensionManifest } from '../../../../apps/desktop/src/session/shared/extensions/manifest'
 
 const manifest = parseExtensionManifest(
@@ -18,6 +18,13 @@ describe('the folder App: people read its subtitle, agents read its instructions
     expect(localizedManifestText(manifest, 'zh-CN').subtitle).toBe('共享文件：Markdown、JSON 预览与编辑')
     expect(localizedManifestText(manifest, 'en-US').subtitle).toBe('Shared Markdown and JSON files')
     for (const locale of ['zh-CN', 'en-US']) expect(localizedManifestText(manifest, locale).subtitle).not.toContain('workspace__')
+  })
+
+  test('task menus and phone headers read localized titles for both folder tabs', () => {
+    for (const tab of manifest.contributes.tabs) {
+      for (const locale of ['en', 'en-US', 'en-GB']) expect(localizedTabText(manifest, tab, locale).title).toBe('Folder')
+      for (const locale of ['zh', 'zh-CN']) expect(localizedTabText(manifest, tab, locale).title).toBe('文件夹')
+    }
   })
 
   test('the installed list\'s search finds it by the words people read, in either language', () => {
