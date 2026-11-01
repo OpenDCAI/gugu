@@ -1148,6 +1148,8 @@ const REMOTE_FAILURE_KIND_BY_CODE: Readonly<Record<string, RemoteFailureKind>> =
   invalid_attachment: 'attachment-missing',
   device_offline: 'machine-unreachable',
   timeout: 'machine-unreachable',
+  // The task-host client's own refusal while the directory says that machine is away (session-host-client `connect`).
+  unreachable: 'machine-unreachable',
   // #6264 远程 SSH 的设备连接(src/lib/sshLink.ts 的 SSH_LINK_ERROR_CODE)。
   ssh_unreachable: 'machine-unreachable',
   ssh_unmapped: 'machine-unreachable',
