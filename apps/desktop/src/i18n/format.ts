@@ -9,7 +9,7 @@ import {
 } from '@gugu/session-shared/format'
 import { getLocaleSnapshot, i18n } from './runtime'
 
-import { formatCalendarDay as formatCalendarDayValue } from '@gugu/session-shared/format'
+import { formatCalendarDay as formatCalendarDayValue, formatClock as formatClockValue } from '@gugu/session-shared/format'
 
 export { differenceInCalendarDays, formatCalendarDate, toLocalDateTimeInput } from '@gugu/session-shared/format'
 
@@ -20,6 +20,11 @@ export function formatCalendarDay(value: DateValue | null | undefined, options: 
 
 function locale(override?: string): string {
   return override ?? getLocaleSnapshot().resolvedLocale
+}
+
+/** 界面上「几点」(见 session-shared `formatClock`)。 */
+export function formatClock(value: DateValue, localeOverride?: string): string {
+  return formatClockValue(value, locale(localeOverride))
 }
 
 export function formatNumber(value: number, options?: Intl.NumberFormatOptions, localeOverride?: string): string {

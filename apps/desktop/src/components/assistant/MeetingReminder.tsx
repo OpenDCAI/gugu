@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { formatClock } from '../../i18n/format'
 import { meetingKey, meetingRemindable, meetingToRemind, type UpcomingMeeting } from '@gugu/core/shared/voiceNotes'
 import { platform } from '../../platform'
 import { readAssistantShellBridge, type AssistantVoiceNoteHandler } from '../../lib/assistantShellBridge'
@@ -60,7 +61,7 @@ function waitForHandler(timeoutMs: number): Promise<AssistantVoiceNoteHandler | 
 function clock(iso: string | null): string {
   if (!iso) return ''
   const at = new Date(iso)
-  return Number.isNaN(at.getTime()) ? '' : `${String(at.getHours()).padStart(2, '0')}:${String(at.getMinutes()).padStart(2, '0')}`
+  return Number.isNaN(at.getTime()) ? '' : formatClock(at)
 }
 
 /**

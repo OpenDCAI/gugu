@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Popover } from '@/components/ui/Popover';
+import { formatClock } from '@/i18n/format';
 import { CalendarClock, ChevronDown, ChevronUp, Info, MessageCircle, Plug } from '@/lib/icons';
 import { collapsedRows, dayRows, defaultOpen, eventStatus, isTodayAgenda, joinNow, type DayRows, type EventStatus } from './assistant-day';
 import type { DayEvent, TodayDay, TodayPart } from './assistant-today-file';
@@ -226,12 +227,11 @@ function statusLabel(status: EventStatus, t: T): string | null {
   return null;
 }
 
-/** 「09:00 – 10:00」(24 小时制,这台设备的时区);全天的写「全天」;没写结束的只写开始。 */
+/** 「09:00 – 10:00」(这台设备的时区,时刻写法同界面其它地方);全天的写「全天」;没写结束的只写开始。 */
 function timeRange(event: DayEvent, t: T): string {
   if (event.allDay || !event.start) return t('today.agenda.allDay');
-  const clock = new Intl.DateTimeFormat(t('today.locale'), { hour: '2-digit', minute: '2-digit', hour12: false });
-  const start = clock.format(new Date(event.start));
-  return event.end ? `${start} – ${clock.format(new Date(event.end))}` : start;
+  const start = formatClock(event.start, t('today.locale'));
+  return event.end ? `${start} – ${formatClock(event.end, t('today.locale'))}` : start;
 }
 
 function shortDate(localDate: string, t: T): string {

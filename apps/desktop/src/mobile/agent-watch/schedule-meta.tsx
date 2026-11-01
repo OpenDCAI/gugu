@@ -1,7 +1,8 @@
 import { useTranslation } from 'react-i18next'
 import type { SessionpageScheduleDigest } from '@gugu/session-core/session-record/contract'
 import { AlertTriangle, Clock } from '@/lib/icons'
-import { differenceInCalendarDays, formatDate } from '@/i18n/format'
+import { getLocaleSnapshot } from '@/i18n/runtime'
+import { differenceInCalendarDays, formatCalendarDate, formatClock } from '@/i18n/format'
 
 /**
  * 手机任务行 meta 那一行最前面的一段:这个任务给自己排了定时,下一个几点回来(#7221 schedule_create)。
@@ -30,9 +31,9 @@ export function ScheduleMetaPart({ schedule, now = Date.now() }: { schedule: Ses
 }
 
 function scheduleWhen(at: number, now: number, tomorrow: (time: string) => string): string {
-  const time = formatDate(at, { hour: '2-digit', minute: '2-digit', hour12: false })
+  const time = formatClock(at)
   const days = differenceInCalendarDays(at, now)
   if (days === 0) return time
   if (days === 1) return tomorrow(time)
-  return formatDate(at, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false })
+  return formatCalendarDate(at, getLocaleSnapshot().resolvedLocale, { now: new Date(now) })
 }

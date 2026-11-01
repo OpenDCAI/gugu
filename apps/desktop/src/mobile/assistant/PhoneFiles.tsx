@@ -1,6 +1,7 @@
 import './phone-memory.css'
 import { useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { formatCalendarDate } from '@/i18n/format'
 import type { DirectoryEntry } from '@shared/core/fs/fs'
 import { Markdown } from '@/components/markdown/Markdown'
 import { useToast } from '@/components/toastContext'
@@ -178,7 +179,7 @@ function FileView({
     Number.isNaN(modified.getTime())
       ? null
       : t('memory.updated', {
-          time: new Intl.DateTimeFormat(i18n.language, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }).format(modified),
+          time: formatCalendarDate(modified, i18n.language),
         }),
   ]
     .filter(Boolean)

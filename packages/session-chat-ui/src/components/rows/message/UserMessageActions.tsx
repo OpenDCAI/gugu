@@ -3,7 +3,8 @@ import { Show, type JSX } from 'solid-js';
 import { useCommands } from '@session-chat/components/contexts/CommandsContext';
 import { IconCheck, IconCopy, IconEdit } from '@session-chat/components/primitives/icons';
 import { createClipboard } from '@session-chat/components/primitives/use-clipboard';
-import { useChatTranslator } from '@session-chat/localization';
+import { formatClock } from '@gugu/session-shared/format';
+import { useChatLocale, useChatTranslator } from '@session-chat/localization';
 import { userMessageActionsHeight, type MessageVars } from './metrics';
 import { userMessageActionButton, userMessageActions, userMessageExpand, userMessageTime } from './user-message.css';
 
@@ -19,6 +20,7 @@ export function UserMessageActions(props: {
 }) {
   const commands = useCommands();
   const translate = useChatTranslator();
+  const locale = useChatLocale();
   const timestamp = () => {
     if (props.at === undefined || props.at <= 0) return null;
     const date = new Date(props.at);
@@ -33,7 +35,7 @@ export function UserMessageActions(props: {
         data-collapse-anchor={target().anchorId}>{translate('transcript.collapseFullText')}</button>}</Show>
       <Show when={timestamp()}>
         {(date) => <time class={userMessageTime} dateTime={date().toISOString()} title={date().toLocaleString()}>
-          {`${date().getHours()}:${String(date().getMinutes()).padStart(2, '0')}`}
+          {formatClock(date(), locale())}
         </time>}
       </Show>
       {props.reference?.()}

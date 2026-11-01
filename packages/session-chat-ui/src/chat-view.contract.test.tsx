@@ -47,11 +47,11 @@ describe('createChatView', () => {
     const view = createChatView({ context: ctx, state, parent: host });
     const text = () => host.querySelector('[data-slot="day-separator-label"]')?.textContent;
     try {
-      await until('English history date is rendered', () => text() === `Jan 15 ${oldYear} 9:00`);
+      await until('English history date is rendered', () => text() === `Jan 15 ${oldYear} 09:00 AM`);
       const row = host.querySelector('[data-slot="day-separator"]');
       locale = 'zh-CN';
       changed();
-      await until('Chinese history date is rendered', () => text() === `${oldYear}年1月15日 9:00`);
+      await until('Chinese history date is rendered', () => text() === `${oldYear}年1月15日 09:00`);
       expect(host.querySelector('[data-slot="day-separator"]')).toBe(row);
     } finally {
       view.dispose(); state.dispose(); ctx.dispose(); host.remove();
