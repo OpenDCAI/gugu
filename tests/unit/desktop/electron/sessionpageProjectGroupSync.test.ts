@@ -889,7 +889,7 @@ describe('#6396 序号只增不减', () => {
         ...oneTripDeps,
         provisionOneTrip: async (input: { agentId: string; displayName: string; priorGroupChatId?: string | null }) => {
           calls.push(input.priorGroupChatId ?? '')
-          return { agentId: input.agentId, displayName: input.displayName, groupChatId: '', groupCreated: false, priorGroupState: 'join_failed' }
+          return { agentId: input.agentId, displayName: input.displayName, groupChatId: '', groupCreated: false, priorGroupState: 'join_failed:member_limit_reached' }
         },
       }
       const first = await provisionFresh('conv-no-seat', { projectId: 'proj-alpha' }, fullGroup)

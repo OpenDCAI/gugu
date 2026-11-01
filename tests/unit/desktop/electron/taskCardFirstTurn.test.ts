@@ -10,6 +10,7 @@ const chats = new Map<string, { kind: string; public_id: number | null; name: st
 const writes: Array<Record<string, unknown>> = []
 const awaited: string[] = []
 const rpcs: Array<{ name: string; args: Record<string, unknown> }> = []
+const pendingRequests = new Set<string>()
 
 vi.mock('@gugu/core', () => ({ listAgents: vi.fn(async () => roster) }))
 vi.mock('../../../../apps/desktop/electron/sessionpage/emdash-agent-provisioning', () => ({
@@ -37,6 +38,9 @@ vi.mock('../../../../apps/desktop/electron/supabase', () => ({
           if (table === 'chats') {
             const chat = chats.get(filters.id ?? '')
             return { data: chat ? { id: filters.id, kind: chat.kind, public_id: chat.public_id, name: chat.name } : null, error: null }
+          }
+          if (table === 'group_join_requests') {
+            return { data: pendingRequests.has(filters.chat_id ?? '') ? { status: 'pending' } : null, error: null }
           }
           const chat = chats.get(filters.chat_id ?? '')
           return { data: chat?.members.includes(filters.user_id ?? '') ? { user_id: filters.user_id } : null, error: null }
@@ -79,6 +83,7 @@ beforeEach(() => {
   writes.length = 0
   awaited.length = 0
   rpcs.length = 0
+  pendingRequests.clear()
 })
 
 describe('task card first turn (gugu-dev#181)', () => {
@@ -106,10 +111,20 @@ describe('task card first turn (gugu-dev#181)', () => {
 
   it('an agent not in the group yet (approval pending) is told to answer in its own session', async () => {
     chats.set('00000000-0000-4000-8000-000000000002', { kind: 'group', public_id: 7, name: '别人的群', members: ['owner-1'] })
+    pendingRequests.add('00000000-0000-4000-8000-000000000002')
     const turn = await land('00000000-0000-4000-8000-000000000002')
     expect(writes).toHaveLength(1)
     expect(turn.envelope).toBe(true)
     expect(turn.firstTurn).toContain(TASK_CARD_NOT_MEMBER_HINT)
+    expect(turn.firstTurn).toContain('你的入群申请正在等待群管理员同意。')
+  })
+
+  it('a full group without a pending request never claims that approval will let the agent in', async () => {
+    chats.set('full', { kind: 'group', public_id: 8, name: 'Full group', members: ['owner-1'] })
+    const turn = await land('full')
+    expect(turn.firstTurn).toContain(TASK_CARD_NOT_MEMBER_HINT)
+    expect(turn.firstTurn).not.toContain('等待群管理员同意')
+    expect(turn.firstTurn).not.toContain('要等群主同意')
   })
 
   it('in a direct chat with a person the card stays there and the agent gets the plain words', async () => {

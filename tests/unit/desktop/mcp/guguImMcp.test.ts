@@ -942,13 +942,25 @@ describe('gugu 原子工具 MCP server（#1060 SDK 迁移 → #4191 原子化）
     await client.close()
   })
   test('message_send（成员合法）→ insert messages.text', async () => {
-    const h = harness(['alice'])
+    const h = harness(['agent-1', 'alice'])
     const client = await connect(h.deps)
     const r = await client.callTool({ name: 'message_send', arguments: { chat_id: '00000000-0000-4000-8000-000000000001', text: 'hi', to_user_ids: ['user:alice'] } })
     expect(text(r)).toMatch(/^sent/)
     expect(h.calls.inserts).toHaveLength(1)
     expect(h.calls.inserts[0][0]).toBe('messages')
     expect((h.calls.inserts[0][1] as Record<string, unknown>).content_type).toBe('text')
+    await client.close()
+  })
+  test('message_send does not post to a group when the readable roster omits the current agent', async () => {
+    const h = harness(['alice'])
+    const client = await connect(h.deps)
+    const result = await client.callTool({ name: 'message_send', arguments: {
+      chat_id: '00000000-0000-4000-8000-000000000001', text: 'result', to_user_ids: ['user:alice'],
+    } })
+    expect(result.isError).toBe(true)
+    expect(text(result)).toContain('you are not a member of group')
+    expect(text(result)).toContain('session_message')
+    expect(h.calls.inserts).toEqual([])
     await client.close()
   })
   test('message_send reports the persisted archived-recipient refusal while keeping the message in history', async () => {
