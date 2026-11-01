@@ -113,7 +113,7 @@ export interface CatalogInstalledApp {
 }
 
 /** What an App that is on gives the agent, and where it is: its tools and skill in the catalog, its tabs by tab_kind. */
-function onApp(app: CatalogInstalledApp): Pick<AppSearchHit, 'state' | 'next' | 'tabs'> {
+function onApp(app: CatalogInstalledApp): Pick<AppSearchHit, 'state' | 'next' | 'tabs' | 'widgetViews'> {
   const { id, contributes } = app.manifest
   return {
     state: 'on',
@@ -127,6 +127,7 @@ function onApp(app: CatalogInstalledApp): Pick<AppSearchHit, 'state' | 'next' | 
         : '') +
       '. For a feature its tools or tabs do not provide, read guide_read apps-fork and ask "Shall I fork a version?" before making changes or building a workaround.',
     tabs: contributes.tabs.map((tab) => extensionTabKind(id, tab.name)),
+    widgetViews: contributes.tabs.flatMap(tab => tab.widget ? [{ view: tab.name, height: tab.widget.height }] : []),
   }
 }
 

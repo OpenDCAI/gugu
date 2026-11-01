@@ -96,6 +96,7 @@ export function phoneRuns(manifest: ExtensionManifest): boolean {
 }
 
 export interface PhoneAppBinding {
+  widget?: import('../../session/shared/extensions/app-runtime-protocol').AppWidget
   modal?: { id: string; data?: unknown }
   extensionId: string
   /** The slot drawing it. */
@@ -468,6 +469,7 @@ export function hostAppFrame(
     apiVersion: EXTENSION_API_VERSION,
     tabId: hosted.binding.tabId,
     ...(hosted.binding.modal ? { modal: { data: hosted.binding.modal.data } } : {}),
+    ...(hosted.binding.widget ? { widget: { messageId: hosted.binding.widget.messageId, data: hosted.binding.widget.data, sender: hosted.binding.widget.senderId } } : {}),
     ...(chat ? { chat: { ...chat, members: members ?? [] } } : {}),
     ...(hosted.binding.itemId && hosted.binding.chatId ? { file: { chat: hosted.binding.chatId, id: hosted.binding.itemId } } : {}),
     ...(hosted.binding.session
@@ -491,6 +493,7 @@ export function hostAppFrame(
 
   /** `gesture` was read when the call arrived: the frame's tap activates this page too (L1, WebView 113/133). */
   const answer = async (method: string, args: Record<string, unknown>, gesture: boolean): Promise<unknown> => {
+    if (method === 'dispatch' && hosted.binding.widget && !gesture) refused('denied', 'dispatch needs your click or key press');
     // Once, from the verb's row (BRIDGE_VERBS), in the words every host says it — a phone frame is a page.
     const refusal = callRefusal(method, args, { kind: 'page', has: (capability) => hosted.binding.capabilities.includes(capability), gesture })
     if (refusal) refused(refusal.code, refusal.message)

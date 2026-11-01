@@ -815,7 +815,8 @@ export default {
     "whisperBoth": "Whisper · only visible to you both",
     "whisperOnlyYou": "Whisper · only visible to you",
     "whisperTo": "Whisper to {{name}} · only visible to you both",
-    "widget": "[Widget]"
+    "widget": "[Widget]",
+    "widgetUnavailable": { "missing": "App is not installed.", "disabled": "App is switched off.", "view": "This App view is unavailable.", "platform": "This App cannot run here." }
   },
   "outbox": {
     "deliveryTimeout": "Delivery timed out after {{seconds}}s because the network stopped responding",

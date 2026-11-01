@@ -39,7 +39,7 @@ function isRootGuguTool(item: ToolCallItem, tool: string): item is McpToolCall {
 }
 
 function isRootSend(item: ToolCallItem): item is McpToolCall {
-  return isRootGuguTool(item, 'message_send');
+  return isRootGuguTool(item, 'message_send') || isRootGuguTool(item, 'widget_send');
 }
 
 /** Where an agent's own send went, as the session timeline names it. */

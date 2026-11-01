@@ -39,6 +39,7 @@ import {
   type PageCounts,
   verbFacts,
   needsGesture,
+  gestureRefusal,
   callRefusal,
 } from '@shared/extensions/bridge-protocol';
 import type {
@@ -84,6 +85,7 @@ interface SurfaceBinding {
    */
   workspace: string | null;
   conversation: string | null;
+  widget?: AppWhere['widget'];
   tabId: string;
   /**
    * #6387 Which of the extension's declared tabs this surface draws. A banner a tab
@@ -589,6 +591,7 @@ export async function bindExtensionSurface(input: {
   // A project's folder is a page's workspace only for the file it was opened on (G1): no session holds it.
   const workspace = input.workspace && (workspaceSession({ workspace: input.workspace }) || input.filePath) ? input.workspace : null;
   const prior = bindings.get(input.webContentsId);
+  if (prior?.widget && JSON.stringify(prior.widget) !== JSON.stringify(input.widget)) throw new Error('A message view cannot change its widget');
   const change = { previousWorkspace: bindingChanges.get(input.webContentsId)?.previousWorkspace ?? prior?.workspace ?? null };
   bindingChanges.set(input.webContentsId, change);
   if (prior && prior.workspace !== workspace) {
@@ -610,6 +613,7 @@ export async function bindExtensionSurface(input: {
     extensionId: sessionExtensionId,
     workspace,
     conversation,
+    ...(input.widget ? { widget: structuredClone(input.widget) } : {}),
     tabId: input.tabId,
     tabName,
     filePath,
@@ -796,6 +800,7 @@ export async function retargetExtensionSurface(input: {
 } & Partial<AppWhere>): Promise<void> {
   const binding = bindings.get(input.webContentsId);
   if (!binding) throw new Error('That surface is not bound yet');
+  if (binding.widget || input.widget) throw new Error('A message view cannot be retargeted');
   const contents = webContents.fromId(input.webContentsId);
   if (!contents || contents.isDestroyed()) throw new Error(`No such webContents: ${input.webContentsId}`);
   // Moved to another place: a project's folder only stays its workspace for a file of it (G1).
@@ -1182,6 +1187,7 @@ function contextFor(binding: SurfaceBinding, workspace: ExtensionWorkspace | und
     ...(workspace ? { workspace } : {}),
     // Absent stays absent: a tab opened from the entry rail has no file.
     ...(file ? { file } : {}),
+    ...(binding.widget ? { widget: { messageId: binding.widget.messageId, data: binding.widget.data, sender: binding.widget.senderId } } : {}),
     operator: binding.operator,
     locale,
     themeMode: binding.themeMode ?? themeMode,
@@ -1456,7 +1462,11 @@ function deliverToEveryPage(extensionId: string, event: ExtensionHostEvent, keep
  * agent working the page gets instead of the person's screen — then the verb. A page, the background page and a program differ only in what their context
  * holds and in the few verbs about a page itself.
  */
-export async function answerCall(caller: BridgeCaller, method: string, args: Record<string, unknown>): Promise<ExtensionBridgeResponse> {
+export async function answerCall(caller: BridgeCaller, method: string, args: Record<string, unknown>, gesture = false): Promise<ExtensionBridgeResponse> {
+  if (method === 'dispatch' && caller.binding?.widget && !gesture) {
+    const refusal = gestureRefusal(method);
+    return { ok: false, code: refusal.code, message: refusal.message };
+  }
   if (extensionProjections.isCleanup(caller, method, args)) {
     try { return { ok: true, value: await extensionProjections.call(caller, method, args) }; }
     catch (error) { return failure(caller.extensionId, method, error); }
@@ -2085,7 +2095,7 @@ export function registerExtensionBridge(): void {
       if (!binding || binding.extensionId !== extensionId) {
         return { ok: false, code: 'failed', message: 'This page is not bound yet' };
       }
-      return await answerCall(pageCaller(binding, event.sender.id), method, args);
+      return await answerCall(pageCaller(binding, event.sender.id), method, args, request.gesture === true);
     }
   );
   // The theme a page loads in, for its first paint (EXTENSION_THEME_CHANNEL): what its context will say. The page is

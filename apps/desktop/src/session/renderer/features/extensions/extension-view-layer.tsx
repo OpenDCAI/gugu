@@ -9,7 +9,7 @@ import { extensionViewStore, type ExtensionViewClaim } from './extension-view-st
 import { sessionWorkspace } from '@shared/extensions/app-runtime-protocol';
 import { installedExtensionsStore } from './installed-extensions-store';
 import { AppSettingsPage } from './app-settings-page';
-import { ExtensionGuestBinding } from './extension-guest-binding';
+import { ExtensionGuestBinding, type ExtensionGuestTarget } from './extension-guest-binding';
 
 /**
  * 常驻扩展的页都住在这一层:每个 App 在每个地方(一个群、一个任务)一张,一生不换地方(摩擦单 F48,
@@ -145,22 +145,27 @@ function ancestorsOf(element: HTMLElement): Element[] {
 /**
  * One App page in the layer, for one place and optionally one file. It follows whichever slot claims it now.
  */
-const ExtensionPage = observer(function ExtensionPage({
+export const ExtensionPage = observer(function ExtensionPage({
   kind,
   extensionId,
-  layerRef,
+  layerRef: residentLayerRef,
   pageKey,
   itemId,
   managed = false,
+  inline,
 }: {
   kind: string;
   extensionId: string;
-  layerRef: React.RefObject<HTMLDivElement | null>;
+  layerRef?: React.RefObject<HTMLDivElement | null>;
   pageKey?: string;
   itemId?: string;
   /** Host settings page: no App HTML or webview. */
   managed?: boolean;
+  /** Message pages live in the document flow and are destroyed when outside the viewport. */
+  inline?: ExtensionGuestTarget;
 }) {
+  const unusedLayerRef = useRef<HTMLDivElement | null>(null);
+  const layerRef = residentLayerRef ?? unusedLayerRef;
   const claimOf = useCallback(
     () => pageKey === undefined ? undefined : extensionViewStore.claims.get(pageKey),
     [pageKey]
@@ -230,15 +235,15 @@ const ExtensionPage = observer(function ExtensionPage({
         extensionSurfaceStore.setWebContentsId(previous.sessionId, previous.tabId, null);
         registeredRef.current = null;
       }
-      if (!claim) return;
-      const target = {
+      if (!claim && !inline) return;
+      const target = inline ?? {
         // Where it is (`AppWhere`): a group's side panel works on no working copy, a session's tab is in its agent's chat.
-        workspace: claim.sessionId ? sessionWorkspace(claim.sessionId) : null,
+        workspace: claim?.sessionId ? sessionWorkspace(claim.sessionId) : null,
         // A chat's slot is in that chat; a session's slot in the person's private chat with its agent.
-        conversation: claim.chatId ?? claim.conversation ?? null,
-        tabId: claim.tabId,
-        ...(claim.itemId ? { itemId: claim.itemId } : {}),
-        ...(claim.takeOpening ? { opening: claim.takeOpening() } : {}),
+        conversation: claim?.chatId ?? claim?.conversation ?? null,
+        tabId: claim?.tabId ?? '',
+        ...(claim?.itemId ? { itemId: claim.itemId } : {}),
+        ...(claim?.takeOpening ? { opening: claim.takeOpening() } : {}),
       };
       void guestBinding.aim(target)
         .then((result) => {
@@ -248,6 +253,12 @@ const ExtensionPage = observer(function ExtensionPage({
             return;
           }
           const { webContentsId } = result;
+          if (inline) {
+            const box = boxRef.current;
+            if (box) report(document.visibilityState === 'visible', box.clientWidth, box.clientHeight);
+            return;
+          }
+          if (!claim) return;
           // The slot that claimed it can now reach this page (its header's toolbar / menu, 摩擦单 F13).
           extensionViewStore.setSurface(claim.token, webContentsId);
           // 这期间又指向别处了:登记表归最新那次管,这次的落地只算 bind 成功,别的不写。
@@ -268,7 +279,7 @@ const ExtensionPage = observer(function ExtensionPage({
           log.warn('Extension surface binding failed:', error);
         });
     },
-    [guestBinding, layerRef, report, managed]
+    [guestBinding, layerRef, report, managed, inline]
   );
 
   const attachWebview = useCallback(
@@ -301,29 +312,42 @@ const ExtensionPage = observer(function ExtensionPage({
       };
       element.addEventListener('dom-ready', ready);
       element.addEventListener('render-process-gone', gone);
+      // Electron guests are separate documents: their wheel cannot bubble into the chat's scroller.
+      const wheel = (event: Event) => {
+        const message = event as Event & { channel: string; args: { x: number; y: number }[] };
+        if (!inline || message.channel !== 'gugu-widget-wheel') return;
+        const delta = message.args[0];
+        if (!delta || !Number.isFinite(delta.x) || !Number.isFinite(delta.y)) return;
+        for (let node = boxRef.current?.parentElement; node; node = node.parentElement) {
+          if (node.scrollHeight > node.clientHeight && /auto|scroll/.test(getComputedStyle(node).overflowY)) {
+            node.scrollBy({ left: delta.x, top: delta.y, behavior: 'instant' });
+            break;
+          }
+        }
+      };
+      element.addEventListener('ipc-message', wheel);
       guestTeardownRef.current = () => {
         element.removeEventListener('dom-ready', ready);
         element.removeEventListener('render-process-gone', gone);
+        element.removeEventListener('ipc-message', wheel);
       };
     },
-    [aimAt, claimOf, guestBinding, kind]
+    [aimAt, claimOf, guestBinding, kind, inline]
   );
 
   // 认领方一换(切会话 / 换 tab / 聊天栏换会话)→ 重新指向 + 重新摆位。
   useLayoutEffect(
-    () =>
-      reaction(
+    () => inline ? undefined : reaction(
         () => claimOf(),
         (claim) => aimAt(claim),
         { fireImmediately: true }
       ),
-    [aimAt, claimOf]
+    [aimAt, claimOf, inline]
   );
 
   // 摆位与尺寸汇报:跟着认领方那一格走;一格都没有就藏起来。
   useLayoutEffect(
-    () =>
-      reaction(
+    () => inline ? undefined : reaction(
         () => claimOf(),
         (claim) => {
           teardownRef.current?.();
@@ -406,8 +430,19 @@ const ExtensionPage = observer(function ExtensionPage({
       ),
     // surface 进依赖:页的框(boxRef)要等激活之后才渲染出来,而那时认领方可能早就在了 ——
     // 不重订这条反应,它就停在「fireImmediately 那次没框可摆」上,直到下一次切会话才醒。
-    [claimOf, layerRef, report, surface, managed]
+    [claimOf, layerRef, report, surface, managed, inline]
   );
+
+  useLayoutEffect(() => {
+    const box = boxRef.current;
+    if (!inline || !box) return;
+    const layout = () => report(document.visibilityState === 'visible', box.clientWidth, box.clientHeight);
+    const resize = new ResizeObserver(layout);
+    resize.observe(box);
+    document.addEventListener('visibilitychange', layout);
+    layout();
+    return () => { resize.disconnect(); document.removeEventListener('visibilitychange', layout); };
+  }, [inline, surface, report]);
 
   useEffect(
     () => () => {
@@ -420,6 +455,14 @@ const ExtensionPage = observer(function ExtensionPage({
 
   if (!surface && !managed) return null;
   const manifest = installedExtensionsStore.manifestFor(extensionId);
+  const page = managed && manifest ? <AppSettingsPage key={`${manifest.version}:${JSON.stringify(manifest.settings)}`} manifest={manifest} active={claimOf() !== undefined} /> : surface ? <webview
+    key={`${extensionId}:${surface.partition}`}
+    ref={attachWebview}
+    src={surface.entryUrl}
+    partition={surface.partition}
+    className="h-full w-full bg-background"
+  /> : null;
+  if (inline) return <div ref={boxRef} className="h-full w-full overflow-hidden bg-background" data-extension-view={kind} data-widget-message={inline.widget?.messageId}>{page}</div>;
   return (
     <div
       ref={boxRef}
@@ -429,13 +472,7 @@ const ExtensionPage = observer(function ExtensionPage({
       data-extension-item={itemId}
     >
       <div ref={innerRef} className="absolute" style={{ left: 0, top: 0, width: 0, height: 0 }}>
-        {managed && manifest ? <AppSettingsPage key={`${manifest.version}:${JSON.stringify(manifest.settings)}`} manifest={manifest} active={claimOf() !== undefined} /> : surface ? <webview
-          key={`${extensionId}:${surface.partition}`}
-          ref={attachWebview}
-          src={surface.entryUrl}
-          partition={surface.partition}
-          className="h-full w-full bg-background"
-        /> : null}
+        {page}
       </div>
     </div>
   );

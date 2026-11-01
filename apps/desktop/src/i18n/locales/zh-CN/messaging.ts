@@ -814,7 +814,8 @@ export default {
     "whisperBoth": "悄悄话 · 仅你与对方可见",
     "whisperOnlyYou": "悄悄话 · 仅你可见",
     "whisperTo": "悄悄话给 {{name}} · 仅你与对方可见",
-    "widget": "[Widget]"
+    "widget": "[Widget]",
+    "widgetUnavailable": { "missing": "尚未安装 App。", "disabled": "App 已关闭。", "view": "此 App 视图不可用。", "platform": "此设备无法运行此 App。" }
   },
   "outbox": {
     "deliveryTimeout": "投递超时 {{seconds}}s（网络挂起）",

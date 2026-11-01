@@ -1395,7 +1395,7 @@ async function handleMessage(args, deps) {
         throw new Error('message_send: a reply in a group chat requires explicit to_user_ids')
       }
       // 寻址表达一致性（spec「寻址的表达」）：群聊里校验并修补正文 @ 与 to_user_ids。DM 的寻址隐含
-      // （对端唯一），不适用；widget 是 HTML 不适用。零寻址的 group send 还须加载 agent 名册，阻止正文
+      // （对端唯一），不适用；widget 有独立的 App 视图发送入口。零寻址的 group send 还须加载 agent 名册，阻止正文
       // 裸名形成“看得见但没唤醒”的静默断链；reply 或已寻址消息不让系统替作者重判意图。
       let sendText = args.text
       const addressesNobody = !toUserIds?.length && !isReply
@@ -2792,11 +2792,30 @@ export async function callToolWithState(context, name, args, deps, state) {
   return dispatchTool(context, name, args, deps, state)
 }
 
+/** App widgets use the same message identity, group-rules and thread boundaries as text sends, without recipients. */
+export async function sendWidgetOf(context, args, content, injected = {}, state = createSessionState()) {
+  if (context.forkOf !== undefined) throw new Error('widget_send is unavailable in a side chat')
+  const deps = createDeps(context, injected, state)
+  const decoded = decodeImArgs(args)
+  const chatId = await requireChat(decoded, deps)
+  await assertGroupRulesSeen(deps, chatId, 'widget_send')
+  const replyToMessageId = decoded.reply_to_message_id ?? null
+  if (replyToMessageId) {
+    const source = await replySourceOf(deps, chatId, replyToMessageId, context.threadRootId ?? null)
+    if (source.is_whisper) throw new Error('widget_send cannot publish a reply to a whisper')
+  }
+  const members = await memberRowsOfMyChat(chatId, deps)
+  if (!members.some(member => String(member.user_id) === context.agentId)) throw new Error('widget_send: the agent must be a member of this chat')
+  const row = buildMessageRow(context, { id: randomUUID(), chatId, content, contentType: 'widget', replyToMessageId, threadRootId: context.threadRootId ?? null })
+  await postCommandMessageRow(deps, row)
+  return `sent (id=${row.id})`
+}
+
 // ── MCP server（官方 SDK） ─────────────────────────────────────────
 // 不连 transport——便于单测用 InMemoryTransport 接客户端；deps 可注入免 live REST。
 export function createGuguImServer(getContext, deps = {}) {
   const server = new McpServer({ name: GUGU_MCP_SERVER_NAME, version: '0.3.0' })
-  const state = createSessionState()
+  const state = deps.state ?? createSessionState()
   for (const def of TOOL_DEFS) {
     const permissive = MESSAGE_WRITER_TOOLS.has(def.name)
     registerGuguTool(server, { ...def, permissive, preflight: permissive ? preflightGuguMessageArgs : undefined }, async (toolArgs, requestSignal) => {

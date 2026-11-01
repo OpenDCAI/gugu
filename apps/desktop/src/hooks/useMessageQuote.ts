@@ -1,6 +1,7 @@
 import { useCallback, useLayoutEffect, useRef, type SetStateAction } from 'react'
 import type { MessageItem } from '@gugu/core/shared/types/chat'
 import { composerCardLine } from '../lib/composerCardCopy'
+import { parseWidgetMessage } from '@gugu/core/shared/ui/widgetModels'
 import type { ChatMessageComposerProps } from '../components/chat/chatComposerModels'
 import type { QuoteSelection } from '../components/chat/messageQuoteContent'
 import { useChatStore } from '../store/chatContext'
@@ -33,7 +34,8 @@ export function useMessageQuote(chatId: string | null, senderNameOf: (id: string
         originalContent: textSelection?.originalContent, selectionId: textSelection?.selectionId,
         content: !textSelection && latest.current.previewTextOf ? latest.current.previewTextOf(msg)
           : msg.content_type === 'attachment' ? latest.current.attachmentLabel
-          : msg.content_type === 'card' ? composerCardLine(msg.content ?? '') : msg.content ?? '',
+          : msg.content_type === 'card' ? composerCardLine(msg.content ?? '')
+          : msg.content_type === 'widget' ? parseWidgetMessage(msg.content)?.text ?? '[Widget]' : msg.content ?? '',
       }
     })
   }, [setQuote])

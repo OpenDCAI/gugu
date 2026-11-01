@@ -77,7 +77,7 @@ export const EXTENSION_THEME_CHANNEL = 'gugu-ext:theme';
 // 24 (App model v2): `description` and `contributes.agentInstructions` are gone; `contributes.instructions` is the App's
 // line for agents and `defaultLocale` says what language the base fields are in. The product page is the market's
 // `store/` listing (app-listing.ts). No earlier manifest runs here any more (EXTENSION_API_VERSION_MIN_SUPPORTED, owner 10-31).
-export const EXTENSION_API_VERSION = 25;
+export const EXTENSION_API_VERSION = 26;
 
 /**
  * The page `app_check` runs is started with this argument (摩擦单 F5, F69): it says how often it wrote, set presence and
@@ -192,6 +192,8 @@ export interface ExtensionHostContext {
    * file an App that asked for nothing may open. Absent is a real answer: opened for its own sake.
    */
   file?: AppFileRef & { id: string };
+  /** API26: untrusted, immutable initial data from the sender of a message. */
+  widget?: { messageId: string; data: Record<string, unknown>; sender: string | null };
   /** Who is working this page (`user:<uuid>` for an agent). Absent on a page nobody draws — the background page, a program. */
   operator?: ExtensionOperator;
   /** BCP-47 tag of the interface language the user is reading. */
@@ -1028,6 +1030,8 @@ export function pageArgument(method: BoundedVerb, args: Record<string, unknown>)
 export interface ExtensionBridgeRequest {
   method: string;
   args?: unknown;
+  /** Read by the isolated preload, never from page-supplied arguments. */
+  gesture?: boolean;
 }
 
 /**

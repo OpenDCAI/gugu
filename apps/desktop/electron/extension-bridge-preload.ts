@@ -42,14 +42,16 @@ installProcessMetricsResponder(ipcRenderer, process, 'app');
  */
 
 async function call(method: string, args?: unknown): Promise<unknown> {
+  const gesture = (navigator as Navigator & { userActivation?: { isActive: boolean } }).userActivation?.isActive === true;
   // A verb that needs the person's gesture (a click, a key) is checked here, in the preload's world, where a page
   // script can neither fake nor extend it — and before anything is awaited: the activation lapses.
-  if (needsGesture(method, args) && !(navigator as Navigator & { userActivation?: { isActive: boolean } }).userActivation?.isActive) {
+  if (needsGesture(method, args) && !gesture) {
     throw gestureRefusal(method);
   }
   const response = (await ipcRenderer.invoke(EXTENSION_BRIDGE_CHANNEL, {
     method,
     args,
+    gesture,
   })) as ExtensionBridgeResponse;
   if (response.ok) return response.value;
   // Carrying the code out means an extension can tell "the user said no" apart
@@ -67,7 +69,17 @@ async function call(method: string, args?: unknown): Promise<unknown> {
  * for the first one (the preload runs before the page).
  */
 const events = hostEventHub();
-ipcRenderer.on(EXTENSION_BRIDGE_EVENT_CHANNEL, (_event: unknown, payload: ExtensionHostEvent) => events.deliver(payload));
+let messageView = false;
+ipcRenderer.on(EXTENSION_BRIDGE_EVENT_CHANNEL, (_event: unknown, payload: ExtensionHostEvent) => {
+  if (payload.type === 'context') messageView = payload.context.widget !== undefined;
+  events.deliver(payload);
+});
+window.addEventListener('wheel', event => {
+  if (!messageView || !event.isTrusted || event.ctrlKey) return;
+  event.preventDefault();
+  const unit = event.deltaMode === WheelEvent.DOM_DELTA_LINE ? 16 : event.deltaMode === WheelEvent.DOM_DELTA_PAGE ? innerHeight : 1;
+  ipcRenderer.sendToHost('gugu-widget-wheel', { x: event.deltaX * unit, y: event.deltaY * unit });
+}, { capture: true, passive: false });
 
 /**
  * The members, from one table (`HOST_CALLS` / `HOST_EVENTS`): who has each is its `BRIDGE_VERBS` row (`only`) — the
