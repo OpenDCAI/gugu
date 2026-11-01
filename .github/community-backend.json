@@ -1,5 +1,5 @@
 {
   "repository": "OpenDCAI/gugu-supabase",
-  "ref": "4afce707b7eef332570e4db84c797529f43c8966",
-  "status": "merged in OpenDCAI/gugu-supabase#121; group and topic management authority comes from the source conversation"
+  "ref": "457024e2650fd414f01661035b0b59ffb2266597",
+  "status": "merged in OpenDCAI/gugu-supabase#131; blank group rules are judged by the characters the hosts trim, and the agent inbox pull returns each delivery's room rules and named identities"
 }

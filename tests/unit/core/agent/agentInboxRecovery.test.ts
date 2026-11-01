@@ -9,7 +9,7 @@ const HUMAN = '00000000-0000-4000-8000-000000000004'
 
 function inbox(overrides: Partial<AgentInboxUnreadRow> = {}) {
   const row: AgentInboxUnreadRow = {
-    chatId: CHAT, chatKind: 'group', chatPublicId: 123, chatName: 'Test group', chatCreatorUserId: HUMAN,
+    chatId: CHAT, chatKind: 'group', groupRules: '', chatPublicId: 123, chatName: 'Test group', chatCreatorUserId: HUMAN,
     listenMode: 'active', notificationLevel: 'all', lastReadSeq: 0, id: MESSAGE, seq: 1,
     senderUserId: HUMAN, senderType: 'human', senderDisplayName: 'Sender', senderGuguNumber: null,
     content: 'Please read this message', contentType: 'text', toUserIds: null, isWhisper: false,
@@ -23,7 +23,7 @@ function inbox(overrides: Partial<AgentInboxUnreadRow> = {}) {
     accessToken: 'test-token', inject, postDisclosure,
     fetchUnread: vi.fn(async () => read ? [] : [row]),
     markRead: vi.fn(async () => { read = true }),
-    fetchChatFacts: async () => null, groupRulesLedger: memoryGroupRulesLedger(),
+    groupRulesLedger: memoryGroupRulesLedger(),
     agentSpokeAfter: async () => false,
   }
   return { deps, row, inject, postDisclosure }

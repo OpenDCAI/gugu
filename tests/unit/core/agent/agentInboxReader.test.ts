@@ -82,6 +82,8 @@ class FakeCloud {
   /** 假的全局入库序(镜像 chat.messages.ingest_seq,#6327):扫描围栏与入群门都按它判,❌ 按时钟。 */
   ingest = 0
   markReadCalls: Array<{ chatId: string; messageId: string }> = []
+  /** identity.users as the pull reads it for `named_identities`. */
+  identities = new Map<string, { guguNumber: number | null; displayName: string | null; isAgent: boolean }>()
 
   addChat(chatId: string, kind: 'dm' | 'group', creatorUserId = HUMAN): void {
     this.chatMeta.set(chatId, { kind, creatorUserId })
@@ -132,6 +134,11 @@ class FakeCloud {
       out.push({
         chatId: row.chatId,
         chatKind: meta.kind,
+        groupRules: meta.kind === 'group' ? '' : null,
+        // pull_agent_inbox_v2 `named_identities`: the recipients and the quoted sender it knows, never the sender.
+        namedIdentities: new Map([...(row.toUserIds ?? []), row.replyToSenderUserId ?? '']
+          .filter((id) => id !== row.senderUserId && this.identities.has(id))
+          .map((id) => [id, this.identities.get(id)!])),
         chatPublicId: 42,
         chatName: `chat-${row.chatId}`,
         chatCreatorUserId: meta.creatorUserId,
@@ -196,7 +203,6 @@ function makeDeps(
   const outcomes: Array<{ ok: boolean }> = []
   const deps: AgentInboxReaderDeps = {
     accessToken: 'owner-token',
-    fetchChatFacts: async () => null,
     agentSpokeAfter: async () => false,
     groupRulesLedger: memoryGroupRulesLedger(),
     inject: async (input) => {
@@ -261,7 +267,7 @@ describe('archived session admission', () => {
     const cloud = cloudForArchive(); cloud.addChat(chat, 'group'); cloud.post(row(1, end))
     let state = restored
     const { deps, injections, wakes } = makeDeps(cloud, { sessionArchival: () => state,
-      fetchChatFacts: async () => { state = { ...restored, archivedAt: '2026-10-28T09:02:00Z' }; return null } })
+      deliveryContextKey: async () => { state = { ...restored, archivedAt: '2026-10-28T09:02:00Z' }; return null } })
     expect(await pullAgentInbox(AGENT, deps)).toMatchObject({ injected: 0, verdict: 'not-now' })
     expect(injections).toEqual([]); expect(wakes).toEqual([]); expect(cloud.markReadCalls).toEqual([])
   })
@@ -365,7 +371,7 @@ beforeEach(() => {
 // 这里只留 reader 自己的行为:RPC 交来的每一行都注入。
 describe('reader 对 RPC 交来的行不做资格判断', () => {
   const base: AgentInboxUnreadRow = {
-    chatId: '00000000-0000-4000-8000-000000000001', chatKind: 'group', chatPublicId: 1, chatName: 'g', chatCreatorUserId: HUMAN,
+    chatId: '00000000-0000-4000-8000-000000000001', chatKind: 'group', groupRules: '', chatPublicId: 1, chatName: 'g', chatCreatorUserId: HUMAN,
     listenMode: 'active', notificationLevel: 'all', lastReadSeq: 0,
     id: '10000000-0000-4000-8000-00000000000f', seq: 1, senderUserId: HUMAN, senderType: 'human', senderDisplayName: 'Ada',
     senderGuguNumber: null, content: 'hi', contentType: 'text', toUserIds: null, isWhisper: false,
@@ -382,7 +388,6 @@ describe('reader 对 RPC 交来的行不做资格判断', () => {
     const read = new Set<string>()
     const deps: AgentInboxReaderDeps = {
       accessToken: 'test',
-      fetchChatFacts: async () => null,
       groupRulesLedger: memoryGroupRulesLedger(),
       fetchUnread: async () => rows.filter((row) => !read.has(row.id)),
       inject: async (input) => { injected.push(input); return 'accepted' },
@@ -445,15 +450,9 @@ describe('P-E4 离线追赶:未读行逐条受理,由队列 drain 合批', () =>
       content: '@Codex 2 DM-MENTION-9440',
       toUserIds: [AGENT, OTHER_AGENT],
     })
+    cloud.identities.set(OTHER_AGENT, { guguNumber: null, displayName: 'Codex 2', isAgent: true })
     const { deps, injections } = makeDeps(cloud, {
       fetchThreadMessages: async () => [{ senderUserId: HUMAN, content: 'Earlier thread context', createdAt: '2026-09-20T10:00:00Z' }],
-      resolveGuguIds: async (ids) => new Map(
-        ids.filter((id): id is string => id === OTHER_AGENT).map((id) => [id, {
-          guguNumber: null,
-          displayName: 'Codex 2',
-          isAgent: true,
-        }]),
-      ),
     })
 
     await expect(pullAgentInbox(AGENT, deps)).resolves.toMatchObject({ injected: 1, verdict: 'accepted' })
@@ -478,16 +477,10 @@ describe('P-E4 离线追赶:未读行逐条受理,由队列 drain 合批', () =>
       chatId: '00000000-0000-4000-8000-00000000000d', id: '10000000-0000-4000-8000-000000000019', seq: 1, senderUserId: HUMAN, senderType: 'human', content: '先不建', toUserIds: [AGENT],
       replyToMessageId: 'mine-1', replyToSenderUserId: AGENT, replyToContent: '要不要建 README？',
     })
-    const asked: string[][] = []
-    const { deps, injections } = makeDeps(cloud, {
-      resolveGuguIds: async (ids) => {
-        asked.push(ids.filter((id): id is string => typeof id === 'string'))
-        return new Map(ids.filter((id) => id === AGENT).map((id) => [id, { guguNumber: 7, displayName: 'Claude 1', isAgent: true }]))
-      },
-    })
+    cloud.identities.set(AGENT, { guguNumber: 7, displayName: 'Claude 1', isAgent: true })
+    const { deps, injections } = makeDeps(cloud)
 
     await expect(pullAgentInbox(AGENT, deps)).resolves.toMatchObject({ injected: 1 })
-    expect(asked.flat()).toContain(AGENT)
     expect(readDeliveryEnvelope(injections[0]!.text)?.segments[0]?.facts?.replyTo).toMatchObject({ fromId: `user:${AGENT}`, from: expect.stringContaining('Claude 1') })
   })
 
@@ -522,15 +515,8 @@ describe('P-E4 离线追赶:未读行逐条受理,由队列 drain 合批', () =>
       content: '@Codex 7 tell Codex 6 your lucky number',
       toUserIds: [AGENT],
     })
-    const { deps, injections } = makeDeps(cloud, {
-      resolveGuguIds: async (ids) => new Map(
-        ids.filter((id): id is string => id === AGENT).map((id) => [id, {
-          guguNumber: null,
-          displayName: 'Codex 7',
-          isAgent: true,
-        }]),
-      ),
-    })
+    cloud.identities.set(AGENT, { guguNumber: null, displayName: 'Codex 7', isAgent: true })
+    const { deps, injections } = makeDeps(cloud)
 
     await expect(pullAgentInbox(AGENT, deps)).resolves.toMatchObject({ injected: 1, verdict: 'accepted' })
     expect(injections[0]!.text).toContain(`"@Codex 7" = user:${AGENT} (agent, you)`)
@@ -886,11 +872,20 @@ describe('P-E4 离线追赶:未读行逐条受理,由队列 drain 合批', () =>
   })
 
   it('a pull_agent_inbox_v2 row without file_item_id / file_version / file_blob_id is refused (the database is older than this client)', () => {
-    const row = { chat_id: 'c', id: '10000000-0000-4000-8000-00000000000e', seq: 1, content: 'x', created_at: '2026-10-16T00:00:00Z' }
+    const row = { chat_id: 'c', id: '10000000-0000-4000-8000-00000000000e', seq: 1, content: 'x', created_at: '2026-10-16T00:00:00Z', group_rules: null, named_identities: {} }
     expect(() => unreadRowFromRpc(row)).toThrow('no file_item_id / file_version / file_blob_id')
     expect(() => unreadRowFromRpc({ ...row, file_item_id: null, file_version: null })).toThrow('database is older than this client')
     expect(unreadRowFromRpc({ ...row, file_item_id: 'item-1', file_version: 2, file_blob_id: null })).toMatchObject({ fileItemId: 'item-1', fileVersion: 2, fileBlobId: null })
     expect(unreadRowFromRpc({ ...row, file_item_id: null, file_version: null, file_blob_id: 'blob-1' })).toMatchObject({ fileItemId: null, fileVersion: null, fileBlobId: 'blob-1' })
+  })
+
+  it('a pull_agent_inbox_v2 row carries the line rules and the named identities; without them it is refused', () => {
+    const row = { chat_id: 'c', chat_kind: 'topic', id: '10000000-0000-4000-8000-00000000000e', seq: 1, content: 'x', created_at: '2026-10-16T00:00:00Z',
+      file_item_id: null, file_version: null, file_blob_id: null }
+    expect(() => unreadRowFromRpc(row)).toThrow('no group_rules / named_identities')
+    const parsed = unreadRowFromRpc({ ...row, group_rules: 'Rules', named_identities: { [AGENT]: { type: 'agent', display_name: ' Claude 1 ', gugu_number: 7 } } })
+    expect(parsed.groupRules).toBe('Rules')
+    expect(parsed.namedIdentities?.get(AGENT)).toEqual({ guguNumber: 7, displayName: 'Claude 1', isAgent: true })
   })
 
   it('next-tool-call rows merge at steer admission while idle-only rows stay per-entry', async () => {
@@ -1724,20 +1719,20 @@ describe('a failure notice from another agent reaches the agent whose message it
     expect(cloud.markReadCalls.map((call) => call.messageId)).toEqual([NOTICE, LATER])
   })
 
-  it('a row that cannot be prepared is disclosed to its chat and the real error is what the pull throws', async () => {
+  it('a group-rules plan that cannot be made leaves the batch unadmitted and says nothing in the chat', async () => {
     const cloud = seed()
     const disclosures: Array<{ chatId: string; reason: string }> = []
     const { deps, injections, outcomes } = makeDeps(cloud, {
-      resolveGuguIds: async () => { throw new Error('identity lookup refused') },
+      groupRulesLedger: { read: async () => { throw new Error('group rules ledger unreadable') }, write: async () => {} },
       postDisclosure: async (input) => { disclosures.push({ chatId: input.chatId, reason: input.reason }) },
     })
     const thrown = await pullAgentInbox(AGENT, deps).then(() => null, (error: unknown) => error)
-    expect((thrown as Error).message).toBe('identity lookup refused')
-    expect(isSaidInChat(thrown)).toBe(true)
+    expect((thrown as Error).message).toBe('group rules ledger unreadable')
+    expect(isSaidInChat(thrown)).toBe(false)
     expect(injections).toEqual([])
-    expect(disclosures).toEqual([{ chatId: CHAT, reason: 'notAdmitted' }])
+    expect(disclosures).toEqual([])
     expect(cloud.markReadCalls).toEqual([])
-    expect(outcomes).toEqual([{ ok: false }])
+    expect(outcomes).toEqual([])
   })
 
   it('writes a new notice under a UUID derived from its key; its marker still names it and links reach it', async () => {

@@ -1,7 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
-import { getSupabaseAnonKey, getSupabaseUrl } from '../../cloud/config'
 import { resolveGuguHome } from '../state/paths'
 
 /**
@@ -168,35 +167,4 @@ export async function effectiveGroupRules(
     if (inherited.trim()) return inherited
   }
   return ''
-}
-
-export async function fetchChatFactsViaRpc(
-  chatId: string,
-  asUserId: string,
-  accessToken: string,
-  fetchImpl: typeof fetch = fetch,
-): Promise<ChatFactsRow | null> {
-  const response = await fetchImpl(`${getSupabaseUrl().replace(/\/+$/, '')}/rest/v1/rpc/chat_facts`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      apikey: getSupabaseAnonKey(),
-      Authorization: `Bearer ${accessToken}`,
-      'Accept-Profile': 'chat',
-      'Content-Profile': 'chat',
-    },
-    body: JSON.stringify({ p_chat_id: chatId, p_as_user_id: asUserId }),
-  })
-  if (!response.ok) {
-    throw new Error(`chat_facts failed: HTTP ${response.status} ${await response.text().catch(() => '')}`)
-  }
-  const rows = (await response.json()) as unknown
-  const row = Array.isArray(rows) ? rows[0] : rows
-  if (!row || typeof row !== 'object') return null
-  const record = row as Record<string, unknown>
-  return {
-    kind: typeof record.kind === 'string' ? record.kind : null,
-    source_chat_id: typeof record.source_chat_id === 'string' ? record.source_chat_id : null,
-    group_prompt: typeof record.group_prompt === 'string' ? record.group_prompt : null,
-  }
 }
