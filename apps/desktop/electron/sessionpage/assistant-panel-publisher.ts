@@ -41,7 +41,7 @@ export async function publishAssistantPanelCollection(input: {
       try { return await input.cloud.commit(input.assistantId,change) }
       catch (error) {
         failure = error
-        if (['40001','42501','55000','22023','54000'].includes(String((error as { code?: string }).code))) throw error
+        if (['PT409','42501','55000','22023','54000'].includes(String((error as { code?: string }).code))) throw error
       }
     }
     throw failure
@@ -89,7 +89,7 @@ export async function publishAssistantPanelCollection(input: {
         // A deletion which won the version race must also remove the local copy.
         const latest = await input.cloud.resource(input.assistantId,input.domain,row.key)
         if (latest?.deleted_at) { await input.revoke(latest,row); continue }
-        if (['40001','55000'].includes(String((error as { code?: string }).code))) continue
+        if (['PT409','55000'].includes(String((error as { code?: string }).code))) continue
         if ((error as { code?: string }).code === 'invalid-body') { invalidBody ??= error; continue }
         throw error
       }
@@ -99,7 +99,7 @@ export async function publishAssistantPanelCollection(input: {
       && (!scoped || row.device_id === input.deviceId) && !seen.has(row.resource_key))) {
       if (pending.has(previous.resource_key) || revisions.get(previous.resource_key) !== previous.revision) continue
       try { await commit(previous.resource_key,previous.revision,'remove',{}) }
-      catch (error) { if (!['40001','55000'].includes(String((error as { code?: string }).code))) throw error }
+      catch (error) { if (!['PT409','55000'].includes(String((error as { code?: string }).code))) throw error }
     }
     const latest = await input.cloud.snapshot(input.assistantId)
     if (invalidBody) throw invalidBody
@@ -109,7 +109,7 @@ export async function publishAssistantPanelCollection(input: {
     const data = { state: 'ready',schemaVersion: 1,itemCount: count }
     if (marker?.stale_at || stable(marker?.data) !== stable(data)) {
       try { await commit(markerKey,marker?.revision ?? '0','prepared',data) }
-      catch (error) { if (!['40001','55000'].includes(String((error as { code?: string }).code))) throw error }
+      catch (error) { if (!['PT409','55000'].includes(String((error as { code?: string }).code))) throw error }
     }
   } catch (error) {
     for (let attempt = 0; attempt < 3; attempt++) {
@@ -122,7 +122,7 @@ export async function publishAssistantPanelCollection(input: {
       } catch (failure) {
         // Retry only the marker's version race with a fresh revision. A
         // transport/authorization failure is covered by the bounded reader.
-        if (String((failure as { code?: string }).code) !== '40001') break
+        if (String((failure as { code?: string }).code) !== 'PT409') break
       }
     }
     throw error

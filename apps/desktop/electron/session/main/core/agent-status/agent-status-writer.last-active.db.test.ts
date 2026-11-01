@@ -72,8 +72,8 @@ describe('会话的最近活动跟着每一轮走', () => {
   const seed = (id: string, provider: string, runtime: 'pty' | 'acp', agentStatus: string | null) =>
     fixture.sqlite
       .prepare(
-        `INSERT INTO sessions (id, project_id, title, provider, runtime, agent_status, agent_status_seen, last_interacted_at)
-         VALUES (?, 'p1', 'C', ?, ?, ?, 1, ?)`
+        `INSERT INTO sessions (id, project_id, provider, runtime, agent_status, agent_status_seen, last_interacted_at)
+         VALUES (?, 'p1', ?, ?, ?, 1, ?)`
       )
       .run(id, provider, runtime, agentStatus, BORN);
   const deliver = async (e: AgentEvent) => {

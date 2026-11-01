@@ -16,6 +16,7 @@ import {
 import type { Device } from '@gugu/core/shared/types/chat'
 import { rendererCloudComputerClient } from './cloudComputer'
 import { rendererLogger } from './log'
+import { anySignal } from '@gugu/core/shared/anySignal'
 
 /**
  * #7199 这个账号的云电脑此刻怎样 —— 渲染层只有这一份(设置 → 设备、「在哪跑」、会话页、建 agent 都读它)。
@@ -236,7 +237,7 @@ export function wakeAndWaitOnline(deviceId: string, deps: { isOnline: (deviceId:
   if (!entry) {
     const asked = generation
     const abort = new AbortController()
-    const signal = AbortSignal.any([wakeAbort.signal, abort.signal])
+    const signal = anySignal([wakeAbort.signal, abort.signal])
     // Explicit operations own resume; background pipe retries stay read-only.
     const pending = wakeCloudComputerUntilOnline({
       client: requireClient(), deviceId, isOnline: deps.isOnline, signal,

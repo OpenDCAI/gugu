@@ -60,15 +60,18 @@ afterEach(() => {
 const advance = (ms: number) => act(async () => { await vi.advanceTimersByTimeAsync(ms) })
 
 describe('task page, machine away', () => {
-  it('no answer to the open: says the link is lost at once instead of waiting it out, and comes back by itself', async () => {
+  it('no answer to the open: says the link is lost at once while it keeps trying, and comes back by itself', async () => {
     vi.useFakeTimers()
     const f = fakeClient()
-    f.fetchSnapshot.mockRejectedValueOnce(Object.assign(new Error('Cannot reach the task host'), { code: 'timeout' }))
+    f.fetchSnapshot.mockRejectedValue(Object.assign(new Error('Cannot reach the task host'), { code: 'timeout' }))
     await harness.render(createNode(Probe, { client: f.client, enabled: true }))
+    await advance(0)
+    expect(session.link, 'the page can say so from the first unanswered ask').toBe('lost')
+    expect(session.error).toBeNull()
     await advance(10_000)
-    expect(session.link).toBe('lost')
     expect(session.errorCode).toBe('timeout')
-    expect(f.fetchSnapshot, 'a machine that did not answer is not asked again as if it were a hiccup').toHaveBeenCalledTimes(1)
+    expect(f.fetchSnapshot, 'other readers of this hook keep their bounded retries').toHaveBeenCalledTimes(4)
+    f.fetchSnapshot.mockResolvedValue(SNAPSHOT)
     await act(async () => { f.hooks.link?.(true) })
     await advance(500)
     expect(session.phase).toBe('ready')

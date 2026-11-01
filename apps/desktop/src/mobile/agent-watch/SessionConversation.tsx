@@ -6,6 +6,7 @@ import { attachmentMimeTypeSchema, toolImageUrl, type PromptAttachment } from '@
 import { openImageViewer } from '@/lib/imageViewer'
 import { PhoneTaskDraftRecovery } from '../local-agent/PhoneTaskDraftRecovery'
 import { machineRpc, fetchToolImage } from './sessionpage-rpc'
+import { assistantTimelineClient, readConversationFile } from '@/components/assistant/assistantTimelineClient'
 import { phoneTimelineClient } from '../local-agent/phoneTimelineClient'
 import type { ChatCommands, ChatView } from '@gugu/session-chat-ui'
 import type { ComposerAttachment, PromptEditorRef } from '@gugu/session-ui/react/components'
@@ -39,12 +40,14 @@ import { nativeUserAttachmentCommands } from './native-user-attachments'
 import { usePhoneSessionQuotes } from './use-phone-session-quotes'
 
 /** The phone supplies session data and RPC actions to the same project conversation UI. */
-export function SessionConversation({ timeline, deviceId, sessionId, agentName, agentUserId, draft, onDraftApplied, phoneHost = false, nativeRecord = false, hostReachable = true,
+export function SessionConversation({ timeline, deviceId, sessionId, agentName, agentUserId, draft, onDraftApplied, phoneHost = false, local = false, nativeRecord = false, hostReachable = true,
   machineLabel, sessionRuntime, respondingItemId, onRespond, onSend, pendingSends, sending, agentWorking,
   onStop, stopping, footerNotice, onLoadOlder, onAtBottom, emptyNote,
 }: {
   timeline: AgentWatchTimeline; deviceId: string; sessionId: string; agentName: string; agentUserId?: string | null
-  draft?: { text: string }; onDraftApplied?: () => void; phoneHost?: boolean; nativeRecord?: boolean; hostReachable?: boolean; machineLabel?: string
+  draft?: { text: string }; onDraftApplied?: () => void; phoneHost?: boolean
+  /** The session is on this computer: read it over IPC (see `machineRpc`). */
+  local?: boolean; nativeRecord?: boolean; hostReachable?: boolean; machineLabel?: string
   sessionRuntime: SessionpageSessionSummary['runtime']; respondingItemId: string | null
   onRespond: (input: SettlementResponse) => Promise<SessionpageSessionRespondResult>; onSend: (text: string, attachments?: PromptAttachment[]) => Promise<void>
   pendingSends: readonly PendingSend[]; sending: boolean; agentWorking: boolean
@@ -55,6 +58,7 @@ export function SessionConversation({ timeline, deviceId, sessionId, agentName, 
   const { resolvedLocale } = useLocale()
   const { theme } = useTheme()
   const visibility = useConversationVisibility(true)
+  const localClient = local ? assistantTimelineClient(true) : null
   const reading = useNativeConversationRead(deviceId, phoneHost ? undefined : sessionId, visibility.shown, () => timeline.turns)
   const view = useRef<ChatView | null>(null)
   const [dismissals, setDismissals] = useState(0)
@@ -78,8 +82,8 @@ export function SessionConversation({ timeline, deviceId, sessionId, agentName, 
     editor.current?.setText(next)
     onDraftApplied?.()
   }, [draft, onDraftApplied, draftText, setDraftText])
-  const options = useConversationOptions({ deviceId, sessionId, local: false, phoneHost, reachable: hostReachable })
-  const queue = useConversationQueue({ deviceId, sessionId, local: false, phoneHost }, timeline.queuedPrompts, agentWorking, options.steers)
+  const options = useConversationOptions({ deviceId, sessionId, local, phoneHost, reachable: hostReachable })
+  const queue = useConversationQueue({ deviceId, sessionId, local, phoneHost }, timeline.queuedPrompts, agentWorking, options.steers)
   const quotes = usePhoneSessionQuotes({ deviceId, sessionId, timeline, draftText, setDraftText, queue: queue.props, onLoadOlder, editor, view })
   const editorState = useRef({ text: draftText, edit: quotes.composer.queuedPromptEdit })
   editorState.current = { text: draftText, edit: quotes.composer.queuedPromptEdit }
@@ -91,7 +95,7 @@ export function SessionConversation({ timeline, deviceId, sessionId, agentName, 
   }, [])
   const uploads = useComposerFileUploads({ sessionId: () => sessionId, deviceLabel: () => machineLabel ?? null,
     setAttachments, onUploaded: (id, file) => paths.current.set(id, file.mentionPath), translate: translateSessionMessage,
-    uploadRpc: sessionAttachmentRpc(deviceId, phoneHost) })
+    uploadRpc: sessionAttachmentRpc(deviceId, phoneHost, local) })
   const addFiles = (files: File[]) => {
     for (const file of files) {
       const id = crypto.randomUUID()
@@ -159,23 +163,24 @@ export function SessionConversation({ timeline, deviceId, sessionId, agentName, 
   const recoveryState = useRef({ text: composerDraft.text, attachments })
   recoveryState.current = { text: composerDraft.text, attachments }
   const recoveryComposer = useMemo(() => ({ getState: () => recoveryState.current, setText: composerDraft.setText }), [composerDraft.setText])
-  const outputs = useOpenedOutputOpener({ deviceId, sessionId, onQuote: text => composerDraft.setText(value => appendToDraft(value, text)) })
-  const background = usePhoneBackgroundTasks(deviceId, sessionId, timeline.turns, dismissals, !phoneHost)
+  const outputs = useOpenedOutputOpener({ deviceId, sessionId, onQuote: text => composerDraft.setText(value => appendToDraft(value, text)),
+    readFileChunk: local ? input => readConversationFile(true, deviceId, input) : undefined })
+  const background = usePhoneBackgroundTasks(deviceId, sessionId, timeline.turns, dismissals, !phoneHost, localClient?.fetchBackgroundTasks)
   const turns = timeline.turns
   const attachmentTurns = useRef(turns)
   attachmentTurns.current = turns
   const userAttachments = useMemo(() => nativeUserAttachmentCommands({
     turns: () => attachmentTurns.current,
     readImage: async (itemId, attachmentId) => {
-      const result = await machineRpc(deviceId).sessionTimeline.sessionNativeAttachment({ conversationId: sessionId, itemId, attachmentId })
+      const result = await machineRpc(deviceId, local).sessionTimeline.sessionNativeAttachment({ conversationId: sessionId, itemId, attachmentId })
       if (!result.ok) throw new Error(result.error.message)
       return result.value
     },
     readPathImage: async path => {
-      const client = machineRpc(deviceId)
-      const resolved = await client.sessionCreate.resolveAttachmentPath(sessionId, path)
+      const host = machineRpc(deviceId, local)
+      const resolved = await host.sessionCreate.resolveAttachmentPath(sessionId, path)
       if (!resolved.success) throw new Error('图片附件无法读取')
-      const result = await client.app.readUserImageDataUrl(resolved.data)
+      const result = await host.app.readUserImageDataUrl(resolved.data)
       if (!result.success) throw new Error(result.error)
       return result.dataUrl
     },
@@ -183,18 +188,18 @@ export function SessionConversation({ timeline, deviceId, sessionId, agentName, 
     openFile: outputs.openFile,
     unavailable: () => translateSessionMessage('attachmentViewer.unavailable'),
     onError: error => setBackgroundError(messageForUser(error)),
-  }), [deviceId, sessionId, outputs.openFile])
+  }), [deviceId, sessionId, local, outputs.openFile])
   const commands: ChatCommands = {
     ...(nativeRecord && !phoneHost ? userAttachments : {}),
     classifyLink: classifyFileLink, onOpenLink: followConversationLink, onOpenSender: openMessageSender,
     conversationAgentSession: () => sessionId, conversationAgentUserId: () => agentUserId ?? null,
     ...quotes.commands,
     onDismissBackgroundTask: ({ entryId }) => { dismissSubagent(sessionId, entryId); setDismissals(value => value + 1) },
-    resolveToolImage: async (itemId, index) => toolImageUrl(await (phoneHost ? phoneTimelineClient.fetchToolImage(deviceId, sessionId, itemId, index) : nativeRecord ? machineRpc(deviceId).sessionTimeline.sessionNativeToolImage({ conversationId: sessionId, itemId, index }).then(result => { if (!result.ok) throw new Error(result.error.message); if (!result.value.ok) throw new Error(result.value.message); return result.value.image }) : fetchToolImage(deviceId, sessionId, itemId, index))),
+    resolveToolImage: async (itemId, index) => toolImageUrl(await (phoneHost ? phoneTimelineClient.fetchToolImage(deviceId, sessionId, itemId, index) : nativeRecord ? machineRpc(deviceId, local).sessionTimeline.sessionNativeToolImage({ conversationId: sessionId, itemId, index }).then(result => { if (!result.ok) throw new Error(result.error.message); if (!result.value.ok) throw new Error(result.value.message); return result.value.image }) : (localClient ?? { fetchToolImage }).fetchToolImage(deviceId, sessionId, itemId, index))),
     onViewImages: ({ urls, index, thumb }) => { openImageViewer(urls.map(url => ({ url, alt: '', thumb })), index) }, ...outputs.handlers, conversationAgentName: () => agentName, onStop,
     onStopBackgroundTask: ({ stopId }) => {
       setBackgroundError(null)
-      void stopBackgroundTask(deviceId, sessionId, stopId).catch(error => setBackgroundError(messageForUser(error)))
+      void (localClient?.stopBackgroundTask ?? stopBackgroundTask)(deviceId, sessionId, stopId).catch(error => setBackgroundError(messageForUser(error)))
     },
   }
   const composer = <>

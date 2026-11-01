@@ -1,3 +1,4 @@
+import { taskNameFor } from './task-name';
 import { randomUUID } from 'node:crypto';
 import type { AgentProviderId } from '@gugu/session-plugins/agents';
 import type { GuguPermissionMode } from '@gugu/session-core/acp';
@@ -5,7 +6,6 @@ import { db } from '@main/db/client';
 import { sessions } from '@main/db/schema';
 import { events } from '@main/lib/events';
 import { log } from '@main/lib/logger';
-import type { SessionTitleSource } from '@shared/core/sessions/session-config';
 import { sessionCreatedChannel } from '@shared/core/sessions/sessionEvents';
 import { sessionBorn } from './session-born';
 import {
@@ -15,6 +15,7 @@ import {
   type InitialQueuePrompt,
 } from '@shared/core/sessions/sessions';
 import { getPlugin } from '../agents/plugin-registry';
+import { forkRuntimes } from '../agents/fork-legs';
 import { buildSessionRow } from './build-session-row';
 import {
   composerPlatformModel,
@@ -63,7 +64,6 @@ export type AttachAgentToSessionParams = {
   /** 来源会话的工作区:新会话和它共用同一份工作副本。 */
   workspaceId: string;
   provider: AgentProviderId;
-  title: string;
   /** 这条会话是怎么来的 —— 新建(必带首轮)/ 分叉。口径见 SessionOrigin。 */
   origin: SessionOrigin;
   permissionMode?: GuguPermissionMode;
@@ -82,13 +82,8 @@ export type AttachAgentToSessionParams = {
    * fork 从 `origin` 自报源会话,不必再传这个字段。
    */
   inheritPlatformModelFrom?: string;
-  /**
-   * spec session-graph:派活的一方**显式**给这条会话起的名字。它同时是这个 agent 在咕咕
-   * 通讯录里的显示名(spec agent-provisioning)。缺席 = 没人显式命名过。
-   */
+  /** The name the caller chose for the task (task-name.ts); absent = the engine default. */
   agentDisplayName?: string;
-  /** 标题的来历;显式命名(派活给了 title、agent 自己的名字)带 `manual`,首轮兜底不带。 */
-  titleSource?: SessionTitleSource;
   initialSize?: { cols: number; rows: number };
   /** System bootstrap compatibility only. Ordinary user text uses sendMessage. */
   initialPrompt?: string;
@@ -120,8 +115,8 @@ export async function attachAgentToSession(
     if (!params.forkFromProviderSessionId) {
       throw new Error('fork needs the source provider session id');
     }
-    if (getPlugin(params.provider).capabilities.sessions.fork !== 'supported') {
-      throw new Error(`provider ${params.provider} does not support forking sessions`);
+    if (!forkRuntimes(getPlugin(params.provider)).includes(sessionRuntime)) {
+      throw new Error(`provider ${params.provider} does not support forking ${sessionRuntime} sessions`);
     }
   }
 
@@ -152,6 +147,7 @@ export async function attachAgentToSession(
     await recordSessionPlatformModel(id, platformModel);
   }
 
+  const agentDisplayName = await taskNameFor(params.provider, params.agentDisplayName);
   const [row] = await database
     .insert(sessions)
     .values(
@@ -159,7 +155,6 @@ export async function attachAgentToSession(
         id,
         projectId: params.projectId,
         workspaceId: params.workspaceId,
-        title: params.title,
         provider: params.provider,
         runtime: sessionRuntime,
         origin: params.origin,
@@ -170,8 +165,7 @@ export async function attachAgentToSession(
         initialQueue: params.initialQueue,
         startupOrigin: params.startupOrigin,
         initialMessageId: params.initialMessageId,
-        agentDisplayName: params.agentDisplayName,
-        titleSource: params.titleSource,
+        agentDisplayName,
         forkFromProviderSessionId: params.forkFromProviderSessionId,
         parentSessionId: relations?.parentSessionId ?? null,
         ...(relations?.parentRemote ? { parentRemote: relations.parentRemote } : {}),

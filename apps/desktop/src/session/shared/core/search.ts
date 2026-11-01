@@ -34,6 +34,29 @@ export interface CommandPaletteQuery {
   query: string;
 }
 
+/** Task content search: the query and how many of the newest hits to return (the search panel counts them). */
+export interface TaskTurnQuery {
+  query: string;
+  limit?: number;
+}
+
+/** Where each whitespace-separated piece of the query occurs in text (case-insensitive), merged, for highlighting. */
+export function matchRanges(text: string, query: string): { start: number; end: number }[] {
+  const lower = text.toLowerCase();
+  const ranges: { start: number; end: number }[] = [];
+  for (const piece of query.trim().toLowerCase().split(/\s+/).filter(Boolean)) {
+    for (let at = lower.indexOf(piece); at !== -1; at = lower.indexOf(piece, at + piece.length)) ranges.push({ start: at, end: at + piece.length });
+  }
+  ranges.sort((a, b) => a.start - b.start);
+  const merged: { start: number; end: number }[] = [];
+  for (const range of ranges) {
+    const last = merged[merged.length - 1];
+    if (last && range.start <= last.end) last.end = Math.max(last.end, range.end);
+    else merged.push({ ...range });
+  }
+  return merged;
+}
+
 export interface WorkspaceFileSearchQuery {
   workspaceId: string;
   query: string;

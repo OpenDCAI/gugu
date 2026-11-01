@@ -27,6 +27,8 @@ export type AcpRuntimeProcessHost = Omit<AcpProcessHost, 'resolveSpawnContext'>;
 
 export interface AcpRuntimeDeps {
   onPromptSteered?: (sessionId: string) => void;
+  /** Every acquired connection reports whether its `initialize` advertised `sessionCapabilities.fork`. */
+  onForkHandshake?: (providerId: string, fork: boolean) => void;
   agentHost: AgentPluginHost;
   host: AcpRuntimeProcessHost;
   resolveAttachment: ResolvePromptAttachment;

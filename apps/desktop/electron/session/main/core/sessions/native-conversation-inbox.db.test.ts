@@ -8,7 +8,7 @@ let fixture: Awaited<ReturnType<typeof openFixture>>;
 let host: ReturnType<typeof startNativeConversationInboxHost> | undefined;
 beforeEach(async () => {
   fixture = await openFixture('empty'); mock.db = fixture.db;
-  fixture.sqlite.exec("INSERT INTO projects(id,name,path) VALUES('p','Fixture','/fixture'); INSERT INTO sessions(id,project_id,title) VALUES('s','p','Fixture'),('second','p','Second')");
+  fixture.sqlite.exec("INSERT INTO projects(id,name,path) VALUES('p','Fixture','/fixture'); INSERT INTO sessions(id,project_id) VALUES('s','p'),('second','p')");
 });
 afterEach(() => { host?.dispose(); host = undefined; fixture.close(); mock.db = undefined; });
 

@@ -32,7 +32,7 @@ import { taskPresentation } from '@/lib/taskAgentStatus';
 import type { AgentStatusView } from '@gugu/core/shared/agentStatus';
 import type { AgentStatusPresentation } from '@gugu/core/shared/agentStatusPresentation';
 import { sessionPresentation } from '@/mobile/agent-watch/watch-status';
-import { sessionAgentNames } from '@renderer/features/sessions/stores/session-agent-names';
+import { sessionAgentBindings } from '@renderer/features/sessions/stores/session-agent-bindings';
 import {
   EMPTY_PROJECT_GROUP_LAYOUT,
   foldProjectGroups,
@@ -158,7 +158,7 @@ export type RemoteSidebarSession = { summary: SessionpageSessionSummary; live: b
 /** 这台机器上挂着的一条会话画成什么:与列出的会话同一个 `taskPresentation`。 */
 export function mountedSessionPresentation(
   session: { data: { id: string }; status: AgentStatusView['status'] | null; detail: AgentStatusView['detail']; seen: boolean },
-  agentUserId = sessionAgentNames.identityFor(session.data.id)?.agentUserId,
+  agentUserId = sessionAgentBindings.bindingFor(session.data.id)?.agentUserId,
 ): AgentStatusPresentation | null {
   return taskPresentation({ agentUserId, reading: session.status ? { status: session.status, detail: session.detail } : null, unseen: !session.seen, hostOnline: true });
 }
@@ -752,7 +752,7 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
     for (const page of sessions) {
       const sessionId = page.data.id;
       // #7199 住在这台电脑上的个人助理:它自己的会话不进任务区(与别的机器上的同一条规矩,见 remoteEntries)。
-      if (this.assistantAgentId && sessionAgentNames.identityFor(sessionId)?.agentUserId === this.assistantAgentId) continue;
+      if (this.assistantAgentId && sessionAgentBindings.bindingFor(sessionId)?.agentUserId === this.assistantAgentId) continue;
       for (const session of pageSessions(page)) {
         entries.push({
           id: session.data.id,
@@ -797,7 +797,7 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
         time: session.lastInteractedAt ? new Date(session.lastInteractedAt).getTime() : 0,
         // Direct-link freshness only governs access; identified agents share presence with avatars.
         group: sidebarStateGroup(sessionPresentation(session, listed.live,
-          session.agent?.userId ?? sessionAgentNames.identityFor(session.conversationId)?.agentUserId)),
+          session.agent?.userId ?? sessionAgentBindings.bindingFor(session.conversationId)?.agentUserId)),
         title: formatSessionTitleForDisplay(session.harness, session.title),
       });
     }

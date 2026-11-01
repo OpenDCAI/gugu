@@ -17,6 +17,7 @@ import { isRetiredRemoteWorkspace } from './resolve-workspace-kind';
 import { createWorkspaceFactory } from './workspace-factory';
 import { workspaceGitContext, type WorkspaceGitContext } from './workspace-git-context';
 import { workspaceRegistry } from './workspace-registry';
+import { taskName } from '@main/core/sessions/task-name';
 
 export type WorkspaceBootstrapResult = {
   path: string;
@@ -98,7 +99,7 @@ export class WorkspaceBootstrapService {
     const [row] = await this.db
       .select({
         id: sessions.id,
-        title: sessions.title,
+        config: sessions.config,
         projectId: sessions.projectId,
         workspaceId: sessions.workspaceId,
       })
@@ -121,7 +122,7 @@ export class WorkspaceBootstrapService {
       projectManager.getProject(row.projectId) ?? (await this.openOnDemand(row.projectId));
     if (!project) throw new Error(`Project ${row.projectId} not found`);
 
-    return this.ensureWorkspaceSetup(wsRow, { id: row.id, title: row.title }, project);
+    return this.ensureWorkspaceSetup(wsRow, { id: row.id, title: taskName(row) }, project);
   }
 
   /**

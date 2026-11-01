@@ -162,6 +162,16 @@ const files = createAppFiles({
   warn: (message, data) => log.warn(`[app-files] ${message}`, data ?? {}),
 });
 
+/** A chat document's place, for the host's own preview of it (`gugu-preview://`, preview-protocol.ts). */
+export function chatDocumentPlace(itemId: string) {
+  return files.documentPlace(itemId);
+}
+
+/** A file that preview's page names beside the document, read as the signed-in person. */
+export function besideChatDocument(chatId: string, path: string) {
+  return files.besideDocument(chatId, path);
+}
+
 /** One account as `identities` reads it, for who published an App package (app-identity.ts `publisherOf`). */
 export async function readAccount(id: string) {
   const me = await signedIn();

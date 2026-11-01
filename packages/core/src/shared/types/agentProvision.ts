@@ -61,6 +61,8 @@ export interface SingleAgentProvisionBlueprint {
   kind: 'single'
   concurrency_limit: 1
   members: [AgentProvisionBlueprintMember]
+  /** The UI language at setup (the renderer's SupportedLocale); the agent's welcome line is written in it. */
+  locale: string
 }
 
 export interface TeamAgentProvisionBlueprint {
@@ -70,6 +72,8 @@ export interface TeamAgentProvisionBlueprint {
   group_prompt: string
   concurrency_limit: number
   members: AgentProvisionBlueprintMember[]
+  /** The UI language at setup (the renderer's SupportedLocale); the agent's welcome line is written in it. */
+  locale: string
 }
 
 export type AgentProvisionBlueprint = SingleAgentProvisionBlueprint | TeamAgentProvisionBlueprint

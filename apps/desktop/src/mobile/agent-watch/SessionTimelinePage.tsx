@@ -8,7 +8,6 @@ import { PhoneTaskSkills } from '../local-agent/PhoneTaskSkillsButton'
 import type { Device } from '@gugu/core/shared/types/chat'
 import { isAgentHostDevice, isPhoneDevice } from '@gugu/core/cloud/devices'
 import { remoteFailureKind, type SessionpageSessionSummary } from '@gugu/session-core/session-record/contract'
-import type { SessionShellAgentName } from '@/session/shared/lib/ipc/shell-port'
 import { Button } from '@/components/ui/Button'
 import { useBackLayer } from '@/components/ui/sheetStack'
 import { IconButton } from '@/components/ui/IconButton'
@@ -55,20 +54,20 @@ function useSessionApps(): Array<{ kind: string; name: string }> {
 export const SessionTimelinePage = observer(function SessionTimelinePage({
   device,
   session,
-  agent,
   firstPrompt,
   draft,
   initialAppKind,
+  local = false,
   onBack,
 }: {
   device: Device
   session: SessionpageSessionSummary
-  /** 这条会话背后的 agent;还没有身份就不给。 */
-  agent?: SessionShellAgentName | undefined
   /** 刚从新建页建成:建它时带的那句(新建页上已经画着),这一页接着画,❌ 换页时让它消失。 */
   firstPrompt?: string
   draft?: { text: string }
   initialAppKind?: string
+  /** The session is on this computer (desktop assistant task pane): read it over IPC, also without a network. */
+  local?: boolean
   onBack: () => void
 }) {
   const { t } = useTranslation('main')
@@ -76,7 +75,9 @@ export const SessionTimelinePage = observer(function SessionTimelinePage({
   const phoneHost = isPhoneDevice(device)
   const networkOnline = useNetworkOnline()
   const queuedInputs = useQueuedSessionInputs(session.conversationId)
-  const online = networkOnline && device.is_online && (!phoneHost || isAgentHostDevice(device))
+  // The session menu's actions travel by device RPC, so it follows the network; the timeline itself is local over IPC.
+  const reachable = networkOnline && device.is_online && (!phoneHost || isAgentHostDevice(device))
+  const online = local || reachable
   // #7199 打开睡着的云电脑上的会话 = 叫醒它的三件事之一;醒了时间线照常连上。
   const { issue: wakeIssue, dropped: wakeDropped, retry: retryWake } = useCloudComputerWake(device)
   const cloudAsleep = device.cloud_computer === 'asleep' || device.cloud_computer === 'waking'
@@ -96,13 +97,14 @@ export const SessionTimelinePage = observer(function SessionTimelinePage({
     timeline, phase, error, actionError, dismissActionError, waitingForRecord,
     reload, loadOlder, loadToolImage, pendingSends, respond, sending, respondingItemId, cancel, cancelling, link, errorCode,
   } =
-    useAgentWatchSession(device.device_id, session.conversationId, online, firstPrompt, phoneHost)
+    useAgentWatchSession(device.device_id, session.conversationId, online, firstPrompt, phoneHost, local)
+
   const native = !phoneHost && session.runtime === 'acp' && session.nativeInputVersion === 1
-  const nativeRecord = useNativeSessionRecord(device.device_id, session.conversationId, native, online)
+  const nativeRecord = useNativeSessionRecord(device.device_id, session.conversationId, native, online, local)
   // The directory says a crashed / unplugged machine is online until its lease runs out (about two minutes): its not
   // answering is the earlier fact. Same note as offline; the reads keep trying and the page comes back by itself.
-  const hostSilent = online && ((link === 'lost' && (!error || remoteFailureKind(errorCode) === 'machine-unreachable')) || (native && nativeRecord.unreachable))
-  const reachable = online && !hostSilent
+  const hostSilent = !local && online && ((link === 'lost' && (!error || remoteFailureKind(errorCode) === 'machine-unreachable')) || (native && nativeRecord.unreachable))
+  const answering = online && !hostSilent
   const conversation = native ? { ...timeline, turns: [...(nativeRecord.record?.turns ?? []), ...(nativeRecord.record?.activeTurn ? [nativeRecord.record.activeTurn] : [])], hasOlder: nativeRecord.record ? nativeRecord.record.nextCursor !== null : false } : timeline
 
   // 提醒**不在这一页**发:它挂在看管入口的根上(useAgentWatchAlerts),这样在机器列表、
@@ -110,29 +112,25 @@ export const SessionTimelinePage = observer(function SessionTimelinePage({
   const attention = deriveAttention(timeline)
   // Identified agents share the group/avatar reading; transport only governs timeline access.
   const shownStatus = useShownAgentStatus()
-  const agentUserId = agent?.agentUserId ?? session.agent?.userId
-  // A machine that does not answer: its own reading, offline — ❌ the agent's presence, which outlives it as long as its lease.
-  const presentation = !reachable ? (agentUserId ? presentAgentStatus({ reading: null, reachability: 'offline' }) : null)
+  const agentUserId = session.agent?.userId
+  // A machine that does not answer: offline — ❌ the agent's presence, which outlives it as long as its lease.
+  const presentation = !answering ? (agentUserId ? presentAgentStatus({ reading: null, reachability: 'offline' }) : null)
     : shownStatus.presentation(agentUserId, sessionPresentation(session, true, agentUserId))
   const statusColor = presentation ? agentStatusColorVar(presentation.tone) : null
   const statusStyle: CSSProperties | undefined = statusColor ? { color: statusColor } : undefined
-  const distinctAgentName = agent && agent.displayName !== session.title ? agent.displayName : null
+  // The task's one name is its agent's name: the header says it once.
   const taskHeader = {
-    title: agent && !distinctAgentName ? <span data-testid="agent-watch-agent-name">{session.title}</span> : session.title,
+    title: session.title,
     titleLeading: (
       <span className="gg-aw-title-avatar">
-        <SessionAvatar agentId={agent?.agentUserId ?? session.agent?.userId} sessionId={session.conversationId} presentation={presentation} />
+        <SessionAvatar agentId={agentUserId} sessionId={session.conversationId} presentation={presentation} />
       </span>
     ),
-    subtitle: distinctAgentName || presentation ? (
+    subtitle: presentation ? (
       <span className="gg-aw-head-status">
-        {distinctAgentName ? <span className="gg-aw-head-agent" data-testid="agent-watch-agent-name">{distinctAgentName}</span> : null}
-        {distinctAgentName && presentation ? <span aria-hidden="true">·</span> : null}
-        {presentation ? (
-          <span className="gg-aw-head-state" data-testid="agent-watch-session-status" data-tone={presentation.tone} data-emphasis={presentation.emphasis ? 'true' : undefined} style={statusStyle}>
-            {agentStatusText(presentation.label)}
-          </span>
-        ) : null}
+        <span className="gg-aw-head-state" data-testid="agent-watch-session-status" data-tone={presentation.tone} data-emphasis={presentation.emphasis ? 'true' : undefined} style={statusStyle}>
+          {agentStatusText(presentation.label)}
+        </span>
       </span>
     ) : undefined,
     headerTestId: 'agent-watch-hero',
@@ -180,7 +178,7 @@ export const SessionTimelinePage = observer(function SessionTimelinePage({
         apps={apps}
         onOpenApp={setAppKind}
       /> : null}
-      {reachable ? (
+      {reachable && !hostSilent ? (
         <IconButton size="md" aria-label={t('agentWatch.sessions.menu')} data-testid="agent-watch-session-page-menu" onClick={(event) => setMenuAnchor(event.currentTarget)}>
           <MoreHorizontal />
         </IconButton>
@@ -212,12 +210,12 @@ export const SessionTimelinePage = observer(function SessionTimelinePage({
         />
       ) : null}
 
-      {!reachable && queuedInputs.length === 0 ? (
+      {!answering && queuedInputs.length === 0 ? (
         /* 待发消息只带正常发送中状态;没有待发内容时才显示机器连接状态。 */
         offlineNotice
       ) : null}
 
-      {reachable && (error || nativeRecord.error) ? (
+      {answering && (error || nativeRecord.error) ? (
         <AgentWatchNote
           title={t('agentWatch.timeline.loadFailed')}
           detail={nativeRecord.error ?? error ?? undefined}
@@ -234,14 +232,14 @@ export const SessionTimelinePage = observer(function SessionTimelinePage({
           缓存里有东西时那是白藏 —— 错误已经在上面那条说明里说清楚了,内容照常给。 */}
       {(
         <SessionConversation
-          agentName={agent?.displayName ?? session.title}
-          agentUserId={agent?.agentUserId ?? session.agent?.userId}
+          agentName={session.title}
+          agentUserId={agentUserId}
           timeline={conversation}
           deviceId={device.device_id}
           sessionId={session.conversationId}
           draft={draft === appliedDraft ? undefined : draft}
           onDraftApplied={() => setAppliedDraft(draft)}
-          phoneHost={phoneHost} nativeRecord={native} hostReachable={reachable}
+          phoneHost={phoneHost} local={local} nativeRecord={native} hostReachable={answering}
           machineLabel={machineLabel(device)}
           sessionRuntime={session.runtime}
           respondingItemId={respondingItemId}
@@ -253,11 +251,11 @@ export const SessionTimelinePage = observer(function SessionTimelinePage({
           headerRunning={presentation?.tone === 'running'}
           onStop={cancel}
           stopping={cancelling}
-          footerNotice={<><SessionInputQueue sessionId={session.conversationId} waitingForConnection={!reachable} />{actionErrorNotice}</>}
+          footerNotice={<><SessionInputQueue sessionId={session.conversationId} waitingForConnection={!answering} />{actionErrorNotice}</>}
           onAtBottom={native ? nativeRecord.loadNewer : undefined}
           onLoadOlder={native ? nativeRecord.loadOlder : loadOlder}
           onLoadToolImage={loadToolImage}
-          emptyNote={reachable && (phase === 'loading' || timeline.turns.length > 0) ? (
+          emptyNote={answering && (phase === 'loading' || timeline.turns.length > 0) ? (
             /* 刚建的会话:记录要等 agent 写下第一行才有。那时说「正在等它开口」,❌ 不说「正在读取」——
                读取早就成功了,是对面还没写。线上已画着刚发的那句时不说(线程有内容就不画空态):那句本身就是「发出去了」。
                画在线程自己的空态位上,❌ 在线程上方另起一行:那样空着的线程还会再说一句「Nothing in this task yet」

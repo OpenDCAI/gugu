@@ -17,14 +17,6 @@ export function createWebSessionShellAnswers(hostInvoke: SessionShellInvoke): Se
     agentCard: (sessionId) => host.sessionpageIdentity.agentCard(sessionId),
     agentNames: () => host.sessionpageIdentity.agentNames(),
     sessionPeers: (...args) => host.sessionpageIdentity.sessionPeers(...args),
-    // 改名落在宿主(云端 + 宿主机花名册);壳这头的通讯录缓存着 display_name,改完叫它刷新(与桌面版同一条 UI 事件)。
-    renameAgent: async (input) => {
-      const renamed = await host.sessionpageIdentity.renameAgent(input)
-      window.dispatchEvent(new CustomEvent(UI_EVENTS.ownedAgentRenamed, {
-        detail: { agentUserId: renamed.agentUserId, displayName: renamed.displayName },
-      }))
-      return renamed
-    },
     ensureAgentAddress: (input) => host.sessionpageIdentity.ensureAgentAddress(input),
     // 点了必须有反应:有身份 → 与桌面版同一条 UI 事件打开分享名片;没身份 → 同一条「不可分享」toast。
     shareAgent: async (sessionId) => {

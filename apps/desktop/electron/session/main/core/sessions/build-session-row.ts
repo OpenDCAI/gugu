@@ -3,10 +3,7 @@ import { pluginRegistry, type AgentProviderId } from '@gugu/session-plugins/agen
 import type { GuguPermissionMode } from '@gugu/session-core/acp';
 import type { sessions } from '@main/db/schema';
 import type { LinkedIssue } from '@shared/core/linked-issue';
-import type {
-  SessionConfig,
-  SessionTitleSource,
-} from '@shared/core/sessions/session-config';
+import type { SessionConfig } from '@shared/core/sessions/session-config';
 import type {
   SessionOrigin,
   SessionRuntime,
@@ -35,7 +32,6 @@ export type BuildSessionRowInput = {
   workspaceId: string;
   linkedIssue?: LinkedIssue;
   automationRunId?: string;
-  title: string;
   provider: AgentProviderId;
   runtime: SessionRuntime;
   /**
@@ -58,17 +54,8 @@ export type BuildSessionRowInput = {
   startupOrigin?: 'chat-page' | 'session-page';
   initialMessageId?: string;
   taskChatId?: string;
-  /**
-   * 起这条会话的一方**显式**给的名字。它同时是这个 agent 在咕咕通讯录里的显示名
-   * (spec agent-provisioning「命名即寻址名」)——所以只在真有人说出口时才带,
-   * ❌ 不许用 `title` 顶替:标题的两种来源(显式 / 从首轮推出来)在这一层已经同形了。
-   */
-  agentDisplayName?: string;
-  /**
-   * 标题的来历(见 `sessionTitleSourceSchema`)。只在调用方**知道**这个标题是显式命名时带 `manual`;
-   * 缺席 = 首轮兜底,harness 自己起的名可以盖掉它。
-   */
-  titleSource?: SessionTitleSource;
+  /** Required: the task's one name until it is bound to an identity (task-name.ts). ❌ Never derived from the first prompt. */
+  agentDisplayName: string;
   parentSessionId?: string | null;
   /** 父会话在别的机器上(config `parentRemote`);与 parentConversationId 一起由 `storedParent` 给出。 */
   parentRemote?: { deviceId: string; sessionId: string };
@@ -113,7 +100,8 @@ function providerSessionIdAtBirth(input: BuildSessionRowInput): string | null {
 export function buildSessionRow(input: BuildSessionRowInput): SessionInsert {
   const initialPrompt = input.initialPrompt?.trim();
   const initialQueue = input.initialQueue?.filter((prompt) => prompt.text.trim());
-  const agentDisplayName = input.agentDisplayName?.trim();
+  const agentDisplayName = input.agentDisplayName.trim();
+  if (!agentDisplayName) throw new Error(`Session ${input.id} cannot be created without a name`);
 
   // 一条规则,两种写法。**创建必须有第一轮内容**:
   // - 载荷里带着它(initialPrompt / initialQueue)⇒ 那就是这一轮的内容,不必再声明一遍
@@ -150,8 +138,7 @@ export function buildSessionRow(input: BuildSessionRowInput): SessionInsert {
           ...(input.startupOrigin && { startupOrigin: input.startupOrigin }),
           ...(input.initialMessageId && { initialMessageId: input.initialMessageId }),
           ...(input.taskChatId && { taskChatId: input.taskChatId }),
-          ...(agentDisplayName && { agentDisplayName }),
-          ...(input.titleSource && { titleSource: input.titleSource }),
+          agentDisplayName,
           ...(input.spawnedByRemote && { spawnedByRemote: input.spawnedByRemote }),
           ...(input.parentRemote && { parentRemote: input.parentRemote }),
           // spec session-fork-share:ACP 分叉把「分叉自谁」和「要分叉哪条 provider 会话」
@@ -175,8 +162,7 @@ export function buildSessionRow(input: BuildSessionRowInput): SessionInsert {
           ...(input.startupOrigin && { startupOrigin: input.startupOrigin }),
           ...(input.initialMessageId && { initialMessageId: input.initialMessageId }),
           ...(input.taskChatId && { taskChatId: input.taskChatId }),
-          ...(agentDisplayName && { agentDisplayName }),
-          ...(input.titleSource && { titleSource: input.titleSource }),
+          agentDisplayName,
           ...(input.spawnedByRemote && { spawnedByRemote: input.spawnedByRemote }),
           ...(input.parentRemote && { parentRemote: input.parentRemote }),
           ...(input.origin?.kind === 'fork' && { forkedFrom: input.origin.forkedFrom }),
@@ -185,10 +171,11 @@ export function buildSessionRow(input: BuildSessionRowInput): SessionInsert {
   return {
     id: input.id,
     projectId: input.projectId,
+    // The creation name, for the previous release only (0043 @@@rollback-title); nothing here reads it.
+    legacyTitle: agentDisplayName,
     workspaceId: input.workspaceId,
     linkedIssue: input.linkedIssue ?? null,
     automationRunId: input.automationRunId ?? null,
-    title: input.title,
     provider: input.provider,
     config,
     providerSessionId: providerSessionIdAtBirth(input),

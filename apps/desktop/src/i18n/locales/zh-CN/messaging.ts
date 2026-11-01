@@ -291,6 +291,8 @@ export default {
     "markUnreadFailed": "标记未读失败，请重试",
     "muted": "消息免打扰",
     "noResults": "未找到对话",
+    "searchMessages": "搜索消息「{{query}}」",
+    "searchMessagesTitle": "搜索消息",
     "listLabel": "对话列表",
     "pin": "置顶",
     "scan": "扫一扫",
@@ -361,6 +363,10 @@ export default {
     "fileUnavailable": "文件暂时打不开",
     "holderOffline": "{{machine}} 离线，上线后才能打开这个文件。",
     "holderMachine": "保存它的那台电脑",
+    "besideOffline": "在「{machine}」上，未连接",
+    "besideOfflineNotice": "这页里有文件存在「{{machine}}」上，它现在未连接；它上线后会自动显示。",
+    "besideUnavailable": "这个文件现在取不到。",
+    "besideOutside": "只能取到这份文档所在文件夹里的文件。",
     "imageUnavailable": "图片暂时打不开",
     "newerInFolder": "文件夹里有新版",
     "retry": "重试"
@@ -721,9 +727,9 @@ export default {
     "agentOwnerSuffix": "（{{owner}} 的 agent）",
     "actions": {
       "keepTemporary": "设为临时",
-      "keepPermanent": "一直保留",
+      "keepPermanent": "持续保存",
       "keptTemporary": "已设为临时：到期后删除云端那份",
-      "keptPermanent": "已设为一直保留",
+      "keptPermanent": "已设为持续保存",
       "keepFailed": "没改成",
       "copy": "复制文本",
       "copyLink": "复制链接",
@@ -764,6 +770,11 @@ export default {
       "sending": "发送中"
     },
     "showQuoted": "跳到被引用的消息",
+    "svgFigure": {
+      "invalid": "这段 SVG 无法显示：不是格式正确的 SVG 文档",
+      "noViewbox": "这段 SVG 无法显示：根元素缺少 viewBox",
+      "tooLarge": "这段 SVG 无法显示：超过 64 KB"
+    },
     "taskCard": {
       "task": "新任务",
       "schedule": "已安排",
@@ -792,11 +803,7 @@ export default {
     "whisperBoth": "悄悄话 · 仅你与对方可见",
     "whisperOnlyYou": "悄悄话 · 仅你可见",
     "whisperTo": "悄悄话给 {{name}} · 仅你与对方可见",
-    "widget": "[Widget]",
-    "widgetCard": {
-      "empty": "无内容",
-      "loading": "加载中"
-    }
+    "widget": "[Widget]"
   },
   "outbox": {
     "deliveryTimeout": "投递超时 {{seconds}}s（网络挂起）",

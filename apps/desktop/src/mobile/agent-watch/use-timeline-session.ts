@@ -351,6 +351,8 @@ export function useTimelineSession(
          */
         const delay = loadRetryDelay({ code, attempt, elapsedMs: Date.now() - startedAt })
         if (delay !== null) {
+          // That machine did not answer: still tried again, but the page can say so meanwhile (link), ❌ a silent spinner.
+          if (code === 'timeout') setLink('lost')
           // 记录还没写出来:留在 loading,过一会儿再读;❌ 不报红。
           setWaitingForRecord(code === 'record_not_found')
           if (code === 'record_not_found') syncedRef.current = true

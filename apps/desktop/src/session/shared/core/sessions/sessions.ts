@@ -76,9 +76,9 @@ export function sessionViewOfLeg(leg: SessionpageLeg): SessionView {
 }
 
 /** spec session-fork-share: lineage marker — this conversation was forked from another one. */
+/** The parent session; its name is the parent's own (read live), never copied here. */
 export type SessionForkedFrom = {
   sessionId: string;
-  title: string;
 };
 
 export type InitialQueuePrompt = {

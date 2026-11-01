@@ -1,4 +1,5 @@
 import { archiveIdentity } from '@gugu/core/cloud/agentIdentityRemoval'
+import { getLocaleSnapshot } from '@/i18n'
 import { identityDb, getCurrentAuthUserId } from './supabase'
 import { chatService } from './chat'
 import { listDevicesOnceIdentified } from './listDevicesOnceIdentified'
@@ -740,7 +741,7 @@ function buildBlueprintMember(
 export function buildSingleBlueprint(
   member: AgentProvisionMemberInput & { provisionId: string },
 ): SingleAgentProvisionBlueprint {
-  return { kind: 'single', concurrency_limit: 1, members: [buildBlueprintMember(member, false)] }
+  return { kind: 'single', concurrency_limit: 1, locale: getLocaleSnapshot().resolvedLocale, members: [buildBlueprintMember(member, false)] }
 }
 
 export function buildTeamBlueprint(input: {
@@ -756,6 +757,7 @@ export function buildTeamBlueprint(input: {
     team_name: input.teamName,
     group_prompt: input.groupPrompt,
     concurrency_limit: input.concurrencyLimit ?? 2,
+    locale: getLocaleSnapshot().resolvedLocale,
     members: input.members.map((m) => buildBlueprintMember(m, true)),
   }
 }

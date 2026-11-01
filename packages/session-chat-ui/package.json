@@ -26,6 +26,7 @@
     "./markdown-html": "./src/core/markdown/to-html.ts",
     "./highlight": "./src/core/highlight/highlighter.ts",
     "./mermaid": "./src/core/mermaid/render.ts",
+    "./svg": "./src/core/svg/figure.ts",
     "./composer-layout": "./src/chat-root.css.ts",
     "./styles/effects": "./src/styles/effects.css.ts"
   },

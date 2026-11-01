@@ -42,8 +42,7 @@ import { useSessionDropTarget } from './use-session-drop-target';
 import { ProjectBadge } from './remote-host-chip';
 import { machineRegistry } from '@renderer/lib/machine-routing';
 import { SidebarIdentityCard, sidebarIdentityCard, useSidebarIdentityCardTrigger } from './sidebar-identity-card';
-import { sessionAgentNames } from '@renderer/features/sessions/stores/session-agent-names';
-import { showModal } from '@renderer/lib/modal/modal-provider';
+import { sessionAgentBindings } from '@renderer/features/sessions/stores/session-agent-bindings';
 import type { SidebarJoin } from '@/lib/sidebarJoinedGroups';
 import { mountedSessionPresentation, type RemoteSidebarSession } from './sidebar-store';
 import { sessionPresentation, sessionReading } from '@/mobile/agent-watch/watch-status';
@@ -52,6 +51,7 @@ import { withMountedSession } from './with-mounted-session';
 import { useSessionSchedules } from '@renderer/features/automations/use-session-schedules';
 import type { SessionpageScheduleDigest } from '@gugu/session-core/session-record/contract';
 import { sessionScheduleDigest } from '@shared/core/automations/session-schedule';
+import { agentForksOn } from '@shared/core/agents/agent-payload';
 
 // @@@sessionpage otty-state — sidebar CONVERSATION row, hanging directly under its project (spec
 // session-page: conversations ARE the sessions; tasks are an invisible workspace container). A
@@ -99,16 +99,15 @@ export const SidebarSessionItem = observer(function SidebarSessionItem({
   const { translate } = useSessionMessages();
   const shownStatus = useShownAgentStatus();
   const assistantName = useAssistantShell()?.assistant?.display_name ?? null;
-  // 这一行是谁 —— 指针停在行上,右侧弹出身份卡(#6092;#7334 起只有任务名 / agent 名,点一行复制「标签：值」)。
+  // 这一行是谁 —— 指针停在行上,右侧弹出身份卡(#6092;任务名 / 设备 / 文件夹,点一行复制「标签：值」)。
   // 它取代了 #5818 那次「标题就地翻成 agent 名」。会话 ID 不在卡上,在下面右键菜单的「复制会话 ID」。
-  // 设置里关掉 = 用户不要这个行为 → 连倒计时都不起。名字与 id 取本机花名册(session-agent-names),
-  // 与通讯录 / 分享名片 / `@` 弹层同一个事实。
+  // 设置里关掉 = 用户不要这个行为 → 连倒计时都不起。名字是会话的 title(任务只有一个名字)。
   const identityCardEnabled = sidebarStore.agentNameOnHoverEnabled;
   const rowRef = useRef<HTMLDivElement | null>(null);
   const rowAnchor = useCallback(() => rowRef.current, []);
   const identityCard = useSidebarIdentityCardTrigger(sessionId, identityCardEnabled);
   const identityCardOpen = identityCardEnabled && sidebarIdentityCard.activeSessionId === sessionId;
-  const agentIdentity = sessionAgentNames.identityFor(sessionId);
+  const agentBinding = sessionAgentBindings.bindingFor(sessionId);
   const nestDrop = useSessionDropTarget();
 
   // 挂着的会话读它自己的 store;别的机器上还没挂的读会话目录那一行(列出不挂载,见 sidebar-store)。
@@ -124,7 +123,7 @@ export const SidebarSessionItem = observer(function SidebarSessionItem({
       ? sessionScheduleDigest(localSchedules)
       : (listed ?? sidebarStore.remoteSession(projectId, sessionId))?.summary.schedule;
   const row = session ? rowOfStore(session, schedule) : rowOfListing(listed!);
-  const agentUserId = agentIdentity?.agentUserId ?? listed?.summary.agent?.userId;
+  const agentUserId = agentBinding?.agentUserId ?? listed?.summary.agent?.userId;
   const presentation = shownStatus.presentation(agentUserId, session
     ? mountedSessionPresentation(session, agentUserId)
     : sessionPresentation(listed!.summary, listed!.live, agentUserId));
@@ -147,8 +146,14 @@ export const SidebarSessionItem = observer(function SidebarSessionItem({
     !hasStatusSource({ runtime: row.runtime, hooksKind: harness.capabilities.hooks.kind });
   const title = formatSessionTitleForDisplay(providerId, row.title);
 
-  // spec session-fork-share: 父会话标题可能是一整条长消息 → tooltip 里截断,否则在窄侧栏竖成一条。
-  const forkedFromTitle = row.forkedFromTitle;
+  // spec session-fork-share: fork 自谁 = 父会话此刻的名字,从父会话自己的 store 读(❌ 存一份副本);
+  // 父会话没挂上就不写名字。名字可能很长 → tooltip 里截断,否则在窄侧栏竖成一条。
+  const forkParent = row.forkedFromSessionId
+    ? sessionRegistry.get(row.forkedFromSessionId)?.sessions.get(row.forkedFromSessionId)
+    : undefined;
+  const forkedFromTitle = forkParent
+    ? formatSessionTitleForDisplay(forkParent.data.providerId, forkParent.data.title)
+    : undefined;
   const forkedFromLabel =
     forkedFromTitle && forkedFromTitle.length > 20
       ? `${forkedFromTitle.slice(0, 20)}…`
@@ -197,10 +202,8 @@ export const SidebarSessionItem = observer(function SidebarSessionItem({
   };
 
   // spec session-fork-share:「任意会话可 fork」—— pty 与 ACP 两种 runtime 都摆这个入口,
-  // 各走各的分叉动作(pty `--fork-session`,ACP `session/fork`)。仍然 provider-gated:
-  // 这一家没有分叉能力,分叉就无从谈起。
-  const canFork =
-    agents?.find((agent) => agent.id === providerId)?.capabilities.sessions.fork === 'supported';
+  // 各走各的分叉动作,分叉与来源同 runtime ⇒ 问的是**来源那条腿**能不能分叉。
+  const canFork = agentForksOn(harness?.capabilities, row.runtime);
 
   // #7334 会话 ID 平时不摆出来(身份卡只给名字),要的人从右键主动拿。复制**完整** ID:菜单里没有显示宽度
   // 的顾虑,截断的 ID 拿去寻址什么也找不到。菜单点完就收,失败原因去敏后显示并记录。
@@ -292,13 +295,13 @@ export const SidebarSessionItem = observer(function SidebarSessionItem({
           </TooltipContent>
         </Tooltip>
       ) : null}
-      {row.forkedFromTitle !== undefined ? (
+      {row.forkedFromSessionId !== undefined ? (
         // spec session-fork-share: fork 会话挂一个 fork 图标(前缀,避开右侧 hover 浮出的
         // 置顶/归档动作),hover 才弹出「fork 自 ×」谱系 —— 不占行宽,不论从哪个入口 fork。
         <Tooltip>
           <TooltipTrigger
             render={
-              <span className="flex shrink-0 items-center text-foreground-tertiary-passive">
+              <span className="flex shrink-0 items-center text-foreground-tertiary-passive" data-testid="sidebar-forked-from">
                 <GitFork className="size-3" />
               </span>
             }
@@ -440,18 +443,6 @@ export const SidebarSessionItem = observer(function SidebarSessionItem({
       <Pencil className="size-4" />
       {translate('task.renameSession')}
     </ContextMenuItem>
-    {/* #6091 「重命名 Agent」与「重命名会话」是两件事、两个入口(owner:「他们是独立的」)。只有已经有咕咕
-        身份的会话才有这一格:没身份就没有可改的名字,❌ 摆一个点进去改不了的入口。 */}
-    {agentIdentity ? (
-      <ContextMenuItem
-        onClick={() => {
-          showModal('renameAgentModal', { sessionId, currentName: agentIdentity.displayName });
-        }}
-      >
-        <Pencil className="size-4" />
-        {translate('task.renameAgent')}
-      </ContextMenuItem>
-    ) : null}
     <ContextMenuItem onClick={() => void copySessionId()}>
       <Copy className="size-4" />
       {translate('sidebar.copySessionId')}
@@ -481,8 +472,8 @@ type SidebarRowData = {
   runtime: 'acp' | 'pty';
   isPinned: boolean;
   lastInteractedAt: string | null | undefined;
-  /** fork 来源:目录里没有,点开(挂上)之后才显示。 */
-  forkedFromTitle: string | undefined;
+  /** fork 来源会话:目录里没有,点开(挂上)之后才显示。 */
+  forkedFromSessionId: string | undefined;
   spawnedByExtensionId: string | null | undefined;
   /** 声明了的状态来源读不出(spec hook-status-derivation「打断边:会话在场文件」):一句原因。 */
   statusSourceFault: string | null;
@@ -500,7 +491,7 @@ function rowOfStore(session: SessionInRegistry, schedule: SessionpageScheduleDig
     runtime: session.data.runtime ?? 'pty',
     isPinned: session.data.isPinned === true,
     lastInteractedAt: session.data.lastInteractedAt,
-    forkedFromTitle: session.data.forkedFrom ? session.data.forkedFrom.title ?? '' : undefined,
+    forkedFromSessionId: session.data.forkedFrom?.sessionId,
     spawnedByExtensionId: session.data.spawnedByExtensionId,
     statusSourceFault: session.statusSourceFault,
     schedule,
@@ -519,7 +510,7 @@ function rowOfListing({ summary }: RemoteSidebarSession): SidebarRowData {
     runtime: summary.runtime === 'acp' ? 'acp' : 'pty',
     isPinned: summary.isPinned === true,
     lastInteractedAt: summary.lastInteractedAt,
-    forkedFromTitle: undefined,
+    forkedFromSessionId: undefined,
     spawnedByExtensionId: summary.spawnedByExtensionId,
     // 会话级标注只随本机写入者的状态输出到达;目录里另一台机器的行没有(与 providerBlocker 一样)。
     statusSourceFault: null,

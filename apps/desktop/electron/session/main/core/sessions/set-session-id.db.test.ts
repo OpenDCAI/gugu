@@ -30,8 +30,8 @@ describe('setSessionId publication', () => {
     mocks.emit.mockReset();
     fixture.sqlite.exec(`
       INSERT INTO projects (id, name, path) VALUES ('project-1', 'Project', '/repo');
-      INSERT INTO sessions (id, project_id, title, provider, runtime, config)
-        VALUES ('conversation-1', 'project-1', 'Task', 'codex', 'acp',
+      INSERT INTO sessions (id, project_id, provider, runtime, config)
+        VALUES ('conversation-1', 'project-1', 'codex', 'acp',
                 '{"version":"1","type":"acp"}');
     `);
   });
@@ -85,8 +85,8 @@ describe('clearSessionId', () => {
     mocks.emit.mockReset();
     fixture.sqlite.exec(`
       INSERT INTO projects (id, name, path) VALUES ('project-1', 'Project', '/repo');
-      INSERT INTO sessions (id, project_id, title, provider, runtime, config, provider_session_id)
-        VALUES ('conversation-1', 'project-1', 'Task', 'claude', 'pty',
+      INSERT INTO sessions (id, project_id, provider, runtime, config, provider_session_id)
+        VALUES ('conversation-1', 'project-1', 'claude', 'pty',
                 '{"version":"1","type":"pty"}', 'claimed-id');
     `);
   });

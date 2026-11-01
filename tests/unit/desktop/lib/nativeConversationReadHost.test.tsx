@@ -30,7 +30,7 @@ it('writes visible MCP receipts through the real IM account cache without openin
   updateDeviceSessions('host', { cached: false, sessions: [{ conversationId: 'session', agent: { userId: 'agent' } } as never] })
   await renderWithConversations(harness, <NativeConversationReadHost />, undefined, { chat: { chats: [row], identitiesById: { agent: displayIdentity('agent', { type: 'agent', owner_user_id: 'user-1' }) } } })
   expect(scope.mark).not.toHaveBeenCalled()
-  await act(async () => { publishNativeConversationVisibility('native', { sessionId: 'session', visible: ['tool:one:sent:one', 'tool:two:sent:two'], aliases: new Map(['one', 'two', 'three'].map(id => [`tool:${id}:sent:${id}`, [id]])) }) })
+  await act(async () => { publishNativeConversationVisibility('native', { sessionId: 'session', visible: ['tool:one:sent:one', 'tool:two:sent:two'], dmIds: new Map(['one', 'two', 'three'].map(id => [`tool:${id}:sent:${id}`, [id]])) }) })
   await vi.waitFor(() => expect(scope.mark).toHaveBeenCalledWith('dm', 2))
   expect(scope.mark).not.toHaveBeenCalledWith('dm', 3)
 })
@@ -38,7 +38,7 @@ it('starts reading an already visible task when committed ownership becomes avai
   const row = chat({ id: 'dm', peer_user_id: 'agent', kind: 'ai', last_read_seq: 0, unread_count: 2 })
   scope.messages = ['one', 'two'].map((id, i) => message({ id, chat_id: 'dm', seq: i + 1, sender_user_id: 'agent', is_mine: false }))
   updateDeviceSessions('host', { cached: false, sessions: [{ conversationId: 'session', agent: { userId: 'agent' } } as never] })
-  publishNativeConversationVisibility('native', { sessionId: 'session', visible: ['receipt-one'], aliases: new Map([['receipt-one', ['one']], ['receipt-two', ['two']]]) })
+  publishNativeConversationVisibility('native', { sessionId: 'session', visible: ['receipt-one'], dmIds: new Map([['receipt-one', ['one']], ['receipt-two', ['two']]]) })
   await renderWithConversations(harness, <NativeConversationReadHost />, undefined, { chat: { chats: [row], identitiesById: { agent: displayIdentity('agent', { type: 'agent', owner_user_id: 'user-1' }) } } })
   expect(scope.mark).not.toHaveBeenCalled()
   await act(async () => { release = installOwnedAgentEntry({ owns: id => id === 'agent', open: () => true }) })
@@ -51,7 +51,7 @@ it('resolves a current-device task from the account directory even before its li
   release = installOwnedAgentEntry({ owns: id => id === 'agent', open: () => true })
   publishDirectoryDevices([{ device_id: 'host', is_current_device: true, is_online: true, capabilities: {}, projects: [], session_digest: [{ conversationId: 'session', projectId: 'project', title: 'Task', harness: 'claude', supported: true, agentUserId: 'agent', nativeInputVersion: 1 }] } as never])
   await renderWithConversations(harness, <NativeConversationReadHost />, undefined, { chat: { chats: [row], identitiesById: { agent: displayIdentity('agent', { type: 'agent', owner_user_id: 'user-1' }) } } })
-  await act(async () => { publishNativeConversationVisibility('native', { sessionId: 'session', visible: ['receipt-one'], aliases: new Map([['receipt-one', ['one']], ['receipt-two', ['two']]]) }) })
+  await act(async () => { publishNativeConversationVisibility('native', { sessionId: 'session', visible: ['receipt-one'], dmIds: new Map([['receipt-one', ['one']], ['receipt-two', ['two']]]) }) })
   await vi.waitFor(() => expect(scope.mark).toHaveBeenCalledWith('dm', 1))
   expect(scope.mark).not.toHaveBeenCalledWith('dm', 2)
 })
@@ -62,7 +62,7 @@ it('continues reading after another surface clears the first unread captured by 
   release = installOwnedAgentEntry({ owns: id => id === 'agent', open: () => true })
   updateDeviceSessions('host', { cached: false, sessions: [{ conversationId: 'session', agent: { userId: 'agent' } } as never] })
   const aliases = new Map(['one', 'two', 'three'].map(id => [`receipt-${id}`, [id]]))
-  publishNativeConversationVisibility('native', { sessionId: 'session', visible: [], aliases })
+  publishNativeConversationVisibility('native', { sessionId: 'session', visible: [], dmIds: aliases })
   let advance!: () => void
   function Fixture() {
     const { upsertChat } = useChatStore('upsertChat')
@@ -71,7 +71,7 @@ it('continues reading after another surface clears the first unread captured by 
   }
   await renderWithConversations(harness, <Fixture />, undefined, { chat: { chats: [row], identitiesById: { agent: displayIdentity('agent', { type: 'agent', owner_user_id: 'user-1' }) } } })
   expect(scope.mark).not.toHaveBeenCalled()
-  await act(async () => { advance(); publishNativeConversationVisibility('native', { sessionId: 'session', visible: ['receipt-two'], aliases }) })
+  await act(async () => { advance(); publishNativeConversationVisibility('native', { sessionId: 'session', visible: ['receipt-two'], dmIds: aliases }) })
   await vi.waitFor(() => expect(scope.mark).toHaveBeenCalledWith('dm', 2))
   expect(scope.mark).not.toHaveBeenCalledWith('dm', 3)
 })
@@ -82,7 +82,7 @@ it('keeps reading receipts that become projected after the IM row reached an alr
   scope.messages = [message({ id: 'one', chat_id: 'dm', seq: 1, sender_user_id: 'agent', is_mine: false })]
   release = installOwnedAgentEntry({ owns: id => id === 'agent', open: () => true })
   updateDeviceSessions('host', { cached: false, sessions: [{ conversationId: 'session', agent: { userId: 'agent' } } as never] })
-  publishNativeConversationVisibility('native', { sessionId: 'session', visible: ['receipt-one'], aliases: new Map([['receipt-one', ['one']]]) })
+  publishNativeConversationVisibility('native', { sessionId: 'session', visible: ['receipt-one'], dmIds: new Map([['receipt-one', ['one']]]) })
   let arrive!: () => void
   function Fixture() {
     const { appendMessage } = useChatStore('appendMessage')
@@ -93,6 +93,6 @@ it('keeps reading receipts that become projected after the IM row reached an alr
   await vi.waitFor(() => expect(scope.mark).toHaveBeenCalledWith('dm', 1))
   await act(async () => { arrive() })
   expect(scope.mark).not.toHaveBeenCalledWith('dm', 2)
-  await act(async () => { publishNativeConversationVisibility('native', { sessionId: 'session', visible: ['receipt-two'], aliases: new Map([['receipt-one', ['one']], ['receipt-two', ['two']]]) }) })
+  await act(async () => { publishNativeConversationVisibility('native', { sessionId: 'session', visible: ['receipt-two'], dmIds: new Map([['receipt-one', ['one']], ['receipt-two', ['two']]]) }) })
   await vi.waitFor(() => expect(scope.mark).toHaveBeenCalledWith('dm', 2))
 })

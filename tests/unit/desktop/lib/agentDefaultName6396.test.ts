@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { agentNameSerial, nextAgentDefaultName, resolveAgentDefaultName } from '../../../../apps/desktop/src/lib/agentDefaultName'
+import { agentNameSerial, nextAgentDefaultName, resolveAgentDefaultName } from '@gugu/core/shared/agentDefaultName'
 
 const owned = (...names: string[]) => names.map((display_name) => ({ display_name }))
 

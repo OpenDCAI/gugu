@@ -256,7 +256,7 @@ export function openRemoteSessionHostPipe(
       }
       // No answer to the open (or to the attach before it) within its bound: that machine is not there, whatever the
       // directory still says (its lease outlives a crash or a cut network by minutes). Say so by code, so a page does not
-      // wait it out as a hiccup.
+      // show a spinner meanwhile.
       if (error instanceof DeviceRpcTimeoutError || (error instanceof DeviceRpcChannelError && error.reason === 'unreachable')) {
         throw Object.assign(error, { code: 'timeout' })
       }

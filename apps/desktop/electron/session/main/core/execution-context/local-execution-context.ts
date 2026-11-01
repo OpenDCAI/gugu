@@ -9,6 +9,7 @@ import { execInProcessGroup, planDirectSpawn, spawnOwnedChild } from '@gugu/sess
 import { NON_INTERACTIVE_GIT_ENV } from './non-interactive-git-env';
 import { buildExternalToolEnv } from '@main/utils/childProcessEnv';
 import type { ExecContextOptions, ExecResult, IExecutionContext } from '@gugu/session-core/exec';
+import { anySignal } from '@gugu/core/shared/anySignal';
 
 const execFileAsync = promisify(execFile);
 
@@ -32,7 +33,7 @@ export class LocalExecutionContext implements IExecutionContext {
   private _signal(callerSignal?: AbortSignal): AbortSignal {
     const signals: AbortSignal[] = [this._lifetime.signal];
     if (callerSignal) signals.push(callerSignal);
-    return AbortSignal.any(signals);
+    return anySignal(signals);
   }
 
   private resolveCommand(command: string): string {

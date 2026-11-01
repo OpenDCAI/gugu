@@ -1,6 +1,11 @@
 import { openFixture } from '@tooling/utils/db';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AppDb } from '@main/db/client';
+import { setTaskNamer } from './task-name';
+
+// Sessions are named at creation by the host's namer (task-name.ts); number defaults per provider.
+beforeEach(() => setTaskNamer({ defaultName: async (provider, taken) => `${provider} ${taken.length + 1}`, renameBound: async () => { throw new Error("no identities in this test") } }));
+afterEach(() => setTaskNamer(null));
 
 const mocks = vi.hoisted(() => ({
   db: undefined as AppDb | undefined,
@@ -21,10 +26,9 @@ vi.mock('@main/core/agent-hooks/agent-hook-service', () => ({
 vi.mock('@main/core/agent-status/agent-status-writer', () => ({
   agentStatusWriter: { birth: vi.fn(async () => undefined) },
 }));
-vi.mock('../agents/plugin-registry', () => ({
-  // fork 只对声明了 fork 能力的 provider 开放,attachAgentToSession 会先问这一句。
-  getPlugin: () => ({ capabilities: { sessions: { fork: 'supported' } } }),
-}));
+vi.mock('../agents/plugin-registry', () => ({ getPlugin: () => ({}) }));
+// fork 只对能在来源那条腿上分叉的 provider 开放,attachAgentToSession 会先问这一句。
+vi.mock('../agents/fork-legs', () => ({ forkRuntimes: () => ['pty', 'acp'] }));
 vi.mock('../projects/utils', () => ({
   resolveSession: () => ({ sessions: { startSession: mocks.startSession } }),
 }));
@@ -72,7 +76,7 @@ describe('#2503 fork 继承源会话的 composer 模型选择', () => {
       provider: 'claude',
       title: '母会话-fork',
       type: 'pty',
-      origin: { kind: 'fork', forkedFrom: { sessionId: SOURCE, title: '母会话' } },
+      origin: { kind: 'fork', forkedFrom: { sessionId: SOURCE } },
       forkFromProviderSessionId: SOURCE,
     } as never);
   }
@@ -118,7 +122,7 @@ describe('#2503 fork 继承源会话的 composer 模型选择', () => {
       title: '母会话-fork',
       type: 'pty',
       platformModel: null,
-      origin: { kind: 'fork', forkedFrom: { sessionId: SOURCE, title: '母会话' } },
+      origin: { kind: 'fork', forkedFrom: { sessionId: SOURCE } },
       forkFromProviderSessionId: SOURCE,
     } as never);
 

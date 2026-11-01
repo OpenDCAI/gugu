@@ -15,8 +15,6 @@ export const SESSION_SHELL_CHANNELS = {
   agentCard: 'sessionpage:agent-card',
   /** 本机绑定索引上**全部**「会话 → agent id」并加入 canonical display_name,一次读完(侧栏身份卡用,#6092)。 */
   agentNames: 'sessionpage:agent-names',
-  /** 改这条会话的 agent 名(云端 display_name + 本机花名册一起,#6091);返回改后的那一行。 */
-  renameAgent: 'sessionpage:rename-agent',
   /** 请壳打开它已有的分享名片(SharePosterDialog);没身份时由壳说明原因。 */
   shareAgent: 'sessionpage:share-agent',
   /** 请壳打开它已有的问题反馈(侧栏那一个);报障只有这一处,会话页不另建通路。 */
@@ -67,6 +65,8 @@ export interface SessionShellAgentName {
  */
 export interface SessionShellPeer {
   sessionId: string
+  /** The task's one name (its host's `taskName`): what every surface shows for this session. */
+  title: string
   identity: { users: { id: string; display_name: string; gugu_number: number | null; session_archived_at?: string | null } }
   engine: string
 }
@@ -83,11 +83,6 @@ export function agentNamesFromPeers(peers: readonly Pick<SessionShellPeer, 'sess
   }))
 }
 
-export interface SessionShellRenameAgentInput {
-  sessionId: string
-  name: string
-}
-
 export interface SessionShellAgentAddressInput {
   projectId: string
   sessionId: string
@@ -102,8 +97,6 @@ export interface SessionShellPort {
   agentCard(sessionId: string): Promise<SessionShellAgentCard | null>
   /** 已绑定身份的会话才在列;没有身份的会话不出现(❌ 不回一个空名字占位)。 */
   agentNames(): Promise<SessionShellAgentName[]>
-  /** 改会话的 agent 名。没身份 / 不归当前账号 / 云端拒绝 → 抛,由调用方就地呈现。 */
-  renameAgent(input: SessionShellRenameAgentInput): Promise<SessionShellAgentName>
   /**
    * true = 壳已接手打开分享;false = 壳已向用户说明为何不能分享。
    * `card`:#6264 会话在别的机器上时,名片由那台机器答,壳只负责画(缺席 = 壳自己按会话查)。
@@ -159,13 +152,6 @@ function agentNames(value: unknown): SessionShellAgentName[] {
   })
 }
 
-/** 改名的回执少一格就是没改成:❌ 把一个残缺回执当成功往界面上写。 */
-function requireAgentName(value: unknown): SessionShellAgentName {
-  const name = agentNameOrNull(value)
-  if (!name) throw new Error('Session-page shell did not return the renamed agent')
-  return name
-}
-
 function cardOrNull(value: unknown): SessionShellAgentCard | null {
   const card = value as Partial<SessionShellAgentCard> | null | undefined
   if (!card?.agentUserId) return null
@@ -178,7 +164,6 @@ export function createSessionShellPort(invoke: SessionShellInvoke): SessionShell
     agentCard: async (sessionId) =>
       cardOrNull(await invoke(SESSION_SHELL_CHANNELS.agentCard, sessionId)),
     agentNames: async () => agentNames(await invoke(SESSION_SHELL_CHANNELS.agentNames)),
-    renameAgent: async (input) => requireAgentName(await invoke(SESSION_SHELL_CHANNELS.renameAgent, input)),
     shareAgent: async (sessionId, card) =>
       (await invoke(SESSION_SHELL_CHANNELS.shareAgent, sessionId, ...(card === undefined ? [] : [card]))) === true,
     openFeedback: async () => (await invoke(SESSION_SHELL_CHANNELS.openFeedback)) === true,
@@ -198,7 +183,6 @@ export type SessionShellAnswers = Partial<SessionShellPort>
 const ANSWER_BY_CHANNEL: Record<SessionShellChannel, keyof SessionShellPort> = {
   [SESSION_SHELL_CHANNELS.agentCard]: 'agentCard',
   [SESSION_SHELL_CHANNELS.agentNames]: 'agentNames',
-  [SESSION_SHELL_CHANNELS.renameAgent]: 'renameAgent',
   [SESSION_SHELL_CHANNELS.shareAgent]: 'shareAgent',
   [SESSION_SHELL_CHANNELS.openFeedback]: 'openFeedback',
   [SESSION_SHELL_CHANNELS.ensureAgentAddress]: 'ensureAgentAddress',

@@ -113,7 +113,7 @@ import {
 } from '../shared/update-policy'
 import { createBuiltRendererRootResolver } from './rendererRoot'
 import { ensureWindowsNpmGlobalBinInPath, hydrateLoginShellPath, loginShellEnvSnapshot } from './shellPath'
-import { makeChatClient, makeIdentityClient, supabase, electronFetch, bindElectronSupabaseAuth, refreshElectronSupabaseAuth, resumeElectronSupabaseRealtime, createElectronRealtimeClient } from './supabase'
+import { makeChatClient, makeIdentityClient, supabase, electronFetch, onElectronCloudAnswer, bindElectronSupabaseAuth, refreshElectronSupabaseAuth, resumeElectronSupabaseRealtime, createElectronRealtimeClient } from './supabase'
 import { createAccountResumeHandler, installNativeResumeSource, installNativeSleepActivity, watchHostResumeGap } from './server/account-resume-wiring'
 import { applyOwnerTimeZoneContext, ownerTimeZoneFromEnvironment } from './server/owner-timezone'
 import { runDueScheduledTasksForOwner } from './scheduled-tasks-runner'
@@ -276,7 +276,7 @@ import {
 import { resolveSessionpageAgentCard } from './sessionpage/sessionpage-agent-card'
 import { loadSessionpageCanonicalAgentIdentities } from './sessionpage/sessionpage-agent-identity'
 import { SESSION_SHELL_CHANNELS, agentNamesFromPeers, type SessionShellAgentName } from '../src/session/shared/lib/ipc/shell-port'
-import { sessionpageAgentProvisionedEvent, sessionpageAgentRenamedEvent } from '../src/session/shared/lib/ipc/sessionpage-identity-contract'
+import { sessionpageAgentProvisionedEvent } from '../src/session/shared/lib/ipc/sessionpage-identity-contract'
 import type { EventDefinition } from '../src/session/shared/lib/ipc/events'
 import { MAIN_UI_EVENTS } from '../src/lib/mainUiEvents'
 import { createSessionpageIdentityHost } from './sessionpage/sessionpage-identity-host'
@@ -2527,9 +2527,18 @@ ipcMain.handle('clipboard:write-text', async (_event, value: unknown) => {
 ipcMain.handle('notifications:show', (_event, params: unknown) => showAppNotification(params))
 // #5906 —— 登录态的变化是**事件**,设备 runtime 靠它当场重新确立 owner 边界 / 订上命令 wake / 登出时撤订阅。
 // 宿主不再有 2 秒一轮的 tick 去「碰巧发现」登录了;不通知的话,要等一个对账周期(30 s)设备才跟上。
+let adoptCloudTaskNames: (() => Promise<void>) | null = null
+
+function humanAuthUserId(): string | null {
+  return typeof pushedHumanAuth === 'object' ? pushedHumanAuth?.userId ?? null : null
+}
+
 function onHumanAuthSessionChanged(): void {
   projectionDeviceRuntime.invalidate()
-  void nativeFiles.ownerChanged(typeof pushedHumanAuth === 'object' ? pushedHumanAuth?.userId ?? null : null).catch(error => createLogger('files').warn({ error: String(error) }, 'File handle cleanup failed'))
+  void emdashBridgeModule?.setTaskNameOwner(humanAuthUserId())
+    .then(() => adoptCloudTaskNames?.())
+    .catch(error => createLogger('sessionpage/names').error({ error: String(error) }, 'Task name owner change failed'))
+  void nativeFiles.ownerChanged(humanAuthUserId()).catch(error => createLogger('files').warn({ error: String(error) }, 'File handle cleanup failed'))
   void refreshElectronSupabaseAuth().catch((error: unknown) => {
     createLogger('device-runtime/auth').warn({ error: String(error) }, 'Realtime account auth update failed')
   })
@@ -2609,6 +2618,8 @@ ipcMain.on('device-runtime:scheduled-tasks-changed', () => {
 // agent_changed,收它的是渲染层的修订总线;主进程不另开一条订阅,由渲染层转一声。本机下一条会话页会话起名时
 // 「用到几号」就已跟上 —— ❌ 否则要等它落地被服务端改名,会话起来一秒就换名字。
 ipcMain.on('owned-agents:changed', () => {
+  // Another device may have renamed one of this device's tasks: take the cloud names (pending local names win).
+  void adoptCloudTaskNames?.().catch((error: unknown) => createLogger('sessionpage/task-names').error({ error: String(error) }, 'Adopting cloud task names failed'))
   void authProvider?.getAuth()
     .then((auth) => {
       if (auth?.accessToken && auth.userId) refreshAgentNamingFacts({ accessToken: auth.accessToken, userId: auth.userId })
@@ -2637,19 +2648,18 @@ ipcMain.handle('owned-agent:rename-local-footprint', async (_e, arg: unknown) =>
   if (!agentUserId) throw new Error('owned-agent rename 缺 agentUserId')
   // 空名不是「不改」,是一个会把花名册写坏的值 —— 调用方本就不该发出来,发出来就响亮拒绝。
   if (!name) throw new Error('owned-agent rename 缺 name')
-  const { listAgents, updateAgent } = await import('@gugu/core/local/state/agents')
+  const { listAgents, writeAgentName } = await import('@gugu/core/local/state/agents')
   // includeGuests:会话页会话的身份可能还挂在 guest 记录上,漏掉它就等于「这台机器上没有」而静默不改。
   const roster = await listAgents(process.env, { includeGuests: true })
   const existing = roster.find((agent) => agent.gugu_user_id === agentUserId)
   if (!existing) return false
-  await updateAgent({ guguUserId: agentUserId }, { name }, process.env)
-  // 分享按钮 / 侧栏身份卡的名字是查一次存下来的,不播这一下就还挂着旧名。按 conversationId 认领(同一个 task 里
-  // N 条会话 N 个 agent,按 agent 认领会让兄弟会话跟着改名);花名册上没记会话绑定(还没起会话)就没人要听,不播。
+  // The cloud already took this person's rename: it is this device's latest name and it is published.
+  await writeAgentName(agentUserId, name, 'local', process.env)
+  await writeAgentName(agentUserId, name, 'published', process.env)
+  // The roster write renames the bound task (task-name.ts announces it to every surface). Its agent is told
+  // only when it has a session to hear it (no session binding = nothing is running under that name yet).
   const sessionId = existing.cache?.[SESSION_CACHE_KEY]
-  if (typeof sessionId === 'string' && sessionId) {
-    sendSessionpageIdentityEvent(sessionpageAgentRenamedEvent, { conversationId: sessionId, agentUserId, displayName: name })
-    if (existing.name !== name) tellRenamedAgentsSession({ agentUserId, displayName: name })
-  }
+  if (typeof sessionId === 'string' && sessionId && existing.name !== name) tellRenamedAgentsSession({ agentUserId, displayName: name })
   return true
 })
 
@@ -4971,6 +4981,29 @@ app.whenReady().then(async () => {
     })
     const sessionpageIdentityDeps = sessionpageIdentityHost.provisionDeps
     emdash.setSessionIdentityHost(sessionpageIdentityHost)
+    emdash.setTaskNamer({
+      defaultName: (provider, taken) => sessionpageIdentityHost.defaultTaskName(provider, taken),
+      // A task rename renames its agent: the shell's contacts re-read the published name.
+      renameBound: async (sessionId, agentUserId, name, source) => {
+        await sessionpageIdentityHost.renameBound(sessionId, agentUserId, name)
+        // A person renamed the task: its agent learns its new name (an automatic first name is not news to it).
+        if (source === 'manual') tellRenamedAgentsSession({ agentUserId, displayName: name })
+        sendUiEvent(MAIN_UI_EVENTS.ownedAgentRenamed, { agentUserId, displayName: name })
+      },
+    })
+    await emdash.setTaskNameOwner(humanAuthUserId())
+    // A name renamed offline is published once the backend answers this process again (no timer).
+    let publishing: Promise<void> | null = null
+    const publishPendingTaskNames = () => {
+      publishing ??= sessionpageIdentityHost.publishPendingNames()
+        .catch((error: unknown) => createLogger('sessionpage/task-names').error({ error: String(error) }, 'Publishing pending task names failed'))
+        .finally(() => { publishing = null })
+    }
+    onElectronCloudAnswer(() => { if (emdash.hasPendingTaskNames()) publishPendingTaskNames() })
+    publishPendingTaskNames()
+    // Cloud names first (a rename on another device is a person's), then the one-time legacy names (0043).
+    // Both need the projected roster, so they become available once the session host booted (below).
+    const adoptTaskNames = () => sessionpageIdentityHost.adoptCloudNames().then(() => emdash.adoptLegacyTaskNames()).then(() => undefined)
     const nativeInbox = emdash.startNativeConversationInboxHost({
       open: async target => (await sessionpageIdentityHost.ensureAgentAddress(target)).chatId,
       failed: error => createLogger('sessionpage/personal-inbox').warn({ error: String(error) }, 'Personal conversation address remains pending'),
@@ -5195,18 +5228,6 @@ app.whenReady().then(async () => {
     handleShellChannel(SESSION_SHELL_CHANNELS.ensureAgentAddress, (_event, input: unknown) =>
       sessionpageIdentityHost.ensureAgentAddress(input as Parameters<typeof sessionpageIdentityHost.ensureAgentAddress>[0]),
     )
-    // #6091 会话页「重命名」弹窗里改 agent 名。改完两处要知道:会话页(侧栏身份卡 / 分享按钮提示,按 conversationId
-    // 认领)与 gugu 渲染层的通讯录(它缓存着 display_name,不叫它刷新,聊天页就还挂着旧名)。
-    ipcMain.removeHandler(SESSION_SHELL_CHANNELS.renameAgent)
-    handleShellChannel(SESSION_SHELL_CHANNELS.renameAgent, async (_event, input: unknown) => {
-      const renamed = await sessionpageIdentityHost.renameAgent(
-        input as Parameters<typeof sessionpageIdentityHost.renameAgent>[0],
-      )
-      sendSessionpageIdentityEvent(sessionpageAgentRenamedEvent, renamed)
-      sendUiEvent(MAIN_UI_EVENTS.ownedAgentRenamed, { agentUserId: renamed.agentUserId, displayName: renamed.displayName })
-      tellRenamedAgentsSession({ agentUserId: renamed.agentUserId, displayName: renamed.displayName })
-      return renamed
-    })
     const runSessionpageReap = (reason: string): void => {
       void reconcileSessionpageAgents({
         onFailure: (operation, taskId, error) => emdash.sessionBootTasks.record(operation, taskId, error),
@@ -6052,6 +6073,10 @@ app.whenReady().then(async () => {
     })
     sessionHostBoot = emdashBoot
     platformCredentialsBoot = emdashBoot.catch(() => undefined)
+    // Task names are projected during boot; adopting names (cloud, then the one-time legacy ones) follows it.
+    void emdashBoot
+      .then(() => { adoptCloudTaskNames = adoptTaskNames; return adoptTaskNames() })
+      .catch((error: unknown) => createLogger('sessionpage/task-names').error({ error: String(error) }, 'Adopting task names failed'))
     refreshPlatformCredentials()
     void emdashBoot.then(() => {
       emdash.onAgentStatus(change => {

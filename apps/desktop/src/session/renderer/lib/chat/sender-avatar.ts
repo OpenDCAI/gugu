@@ -5,7 +5,7 @@ import { decodeTypedId } from '@gugu/core/shared/typedId.mjs';
 import { displayAvatarUrl } from '@/lib/dicebearAvatar';
 import { subscribeAgentLookPosters } from '@/components/agentAvatar/posters';
 import { readIdentityDirectoryBridge, type IdentityDirectoryBridge } from '@/lib/identityDirectoryBridge';
-import { sessionAgentNames } from '@renderer/features/sessions/stores/session-agent-names';
+import { sessionAgentBindings } from '@renderer/features/sessions/stores/session-agent-bindings';
 
 /** 一条本机会话的属主 agent 的 gugu user id;没有属主(没开户 / 已被收走)⇒ undefined。 */
 export type SessionOwnerLookup = (sessionId: string) => string | undefined;
@@ -14,7 +14,7 @@ export type SessionOwnerLookup = (sessionId: string) => string | undefined;
  * 会话 → 属主 agent:读本机花名册那张表(壳口 `agentNames`,宿主按 localAgentForSession 同一行给出,
  * 事件增量更新)。graph 寻址只发生在本机会话之间,所以发信会话的属主总在这张表里;不在 = 没有属主。
  */
-const rosterOwner: SessionOwnerLookup = (sessionId) => sessionAgentNames.identityFor(sessionId)?.agentUserId;
+const rosterOwner: SessionOwnerLookup = (sessionId) => sessionAgentBindings.bindingFor(sessionId)?.agentUserId;
 
 /**
  * 投递卡发信人的头像(#6306):与聊天页**同一个来源、同一个投影**。
@@ -60,9 +60,9 @@ export function senderAvatarUrl(
 
 /** 头像该重读的时刻:身份缓存变了,会话 → 属主那张表变了(新会话开户 / 改名事件),或小鸟的定格画好了。 */
 export function subscribeSenderAvatars(listener: () => void): () => void {
-  sessionAgentNames.start();
+  sessionAgentBindings.start();
   const offIdentities = readIdentityDirectoryBridge()?.subscribe(listener) ?? (() => {});
-  const offOwners = observe(sessionAgentNames.identities, () => listener());
+  const offOwners = observe(sessionAgentBindings.bindings, () => listener());
   const offPosters = subscribeAgentLookPosters(listener);
   const offAssistant = readAssistantShellBridge()?.subscribe(listener) ?? (() => {});
   const offPhoneAssistant = subscribePhoneAssistantIdentity(listener);
