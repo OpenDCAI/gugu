@@ -1159,7 +1159,8 @@ function currentHostCatalog(): HostCatalog {
 function trayIconPath(): string {
   const dir = join(app.getAppPath(), 'build-resources')
   if (process.platform === 'darwin') return join(dir, 'tray-iconTemplate.png')
-  const tone = nativeTheme.shouldUseDarkColors ? 'dark' : 'light'
+  // Linux's system-integrated flag follows themeSource too; keep its tray mark stable.
+  const tone = process.platform === 'win32' && nativeTheme.shouldUseDarkColorsForSystemIntegratedUI ? 'dark' : 'light'
   const ext = process.platform === 'win32' ? 'ico' : 'png'
   return join(dir, `tray-icon-${tone}.${ext}`)
 }
@@ -1327,7 +1328,7 @@ function writeAppState(state: Record<string, unknown>): void {
  *
  * 真值在渲染层(`<html data-theme>` 是它的唯一写入者),主进程**问不到**,所以:
  * 建窗时用上次记住的色调(首次启动 = 产品默认的浅色),渲染层一落属性就同步过来改写并记住。
- * ❌ 别拿 `nativeTheme.shouldUseDarkColors` 冒充它:那是系统外观,不是用户在咕咕里选的那一项。
+ * 原生外观偏好通过 window:sync-theme-preference 另行同步;底色仍由 renderer 的最终色调写入。
  */
 const WINDOW_TONE_BG = { light: '#ffffff', dark: '#111114' } as const
 type WindowTone = keyof typeof WINDOW_TONE_BG

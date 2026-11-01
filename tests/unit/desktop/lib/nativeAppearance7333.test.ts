@@ -25,27 +25,29 @@ function fakeNativeTheme(osDark: boolean) {
   return theme
 }
 
-describe('native appearance follows the theme preference on mac (#7333)', () => {
+describe.each(['darwin', 'win32', 'linux'] as const)('native appearance follows the theme preference on %s (#7333)', (platform) => {
   it('copies the preference — not the resolved tone — into themeSource, and answers the real tone', () => {
     const theme = fakeNativeTheme(false)
-    expect(applyNativeThemePreference('darwin', theme, 'dark')).toBe('dark')
+    expect(applyNativeThemePreference(platform, theme, 'dark')).toBe('dark')
     expect(theme.themeSource).toBe('dark')
     // Back to following the system: themeSource is 'system' again, and the answer is the OS appearance.
-    expect(applyNativeThemePreference('darwin', theme, 'system')).toBe('light')
+    expect(applyNativeThemePreference(platform, theme, 'system')).toBe('light')
     expect(theme.themeSource).toBe('system')
   })
 
-  it('leaves Windows/Linux alone: their tray icon reads shouldUseDarkColors to match the taskbar', () => {
-    const theme = fakeNativeTheme(false)
-    expect(applyNativeThemePreference('win32', theme, 'dark')).toBe('light')
+  it('keeps an explicit light preference on a dark system and restores system following', () => {
+    const theme = fakeNativeTheme(true)
+    expect(applyNativeThemePreference(platform, theme, 'light')).toBe('light')
+    expect(theme.themeSource).toBe('light')
+    expect(applyNativeThemePreference(platform, theme, 'system')).toBe('dark')
     expect(theme.themeSource).toBe('system')
   })
 
   it('refuses a preference it does not know, and the IPC answers null instead of leaving the renderer waiting', () => {
-    expect(() => applyNativeThemePreference('darwin', fakeNativeTheme(false), 'sepia')).toThrow(/light \/ dark \/ system/)
+    expect(() => applyNativeThemePreference(platform, fakeNativeTheme(false), 'sepia')).toThrow(/light \/ dark \/ system/)
     let handler: ((event: { sender: unknown; returnValue: unknown }, ...args: unknown[]) => void) | null = null
     installNativeAppearanceSync({
-      platform: 'darwin',
+      platform,
       nativeTheme: fakeNativeTheme(false),
       ipcMain: { on: (channel, listener) => { if (channel === WINDOW_THEME_PREFERENCE_CHANNEL) handler = listener } },
     })
@@ -59,7 +61,7 @@ describe('native appearance follows the theme preference on mac (#7333)', () => 
  * The renderer side, against a fake main process. The fake matchMedia lags behind themeSource the way Chromium does:
  * it only sees the new appearance after `flush()` — which is exactly the window where a stale read would paint a wrong frame.
  */
-describe('the renderer settles the theme through the main process (#7333)', () => {
+describe.each(['darwin', 'win32', 'linux'] as const)('the renderer settles the theme through the main process on %s (#7333)', (platform) => {
   let main: ReturnType<typeof fakeNativeTheme>
   let mqDark = false
   const mqListeners = new Set<() => void>()
@@ -87,7 +89,7 @@ describe('the renderer settles the theme through the main process (#7333)', () =
     })) as unknown as typeof window.matchMedia
     window.electronAPI = {
       ...(window.electronAPI ?? {}),
-      syncThemePreference: (preference: 'light' | 'dark' | 'system') => applyNativeThemePreference('darwin', main, preference),
+      syncThemePreference: (preference: 'light' | 'dark' | 'system') => applyNativeThemePreference(platform, main, preference),
     } as typeof window.electronAPI
     observer = new MutationObserver(() => writes.push(document.documentElement.dataset.theme ?? ''))
     observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] })

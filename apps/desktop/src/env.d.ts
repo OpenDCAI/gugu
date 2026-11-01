@@ -41,7 +41,7 @@ interface Window {
     syncResolvedLocale: (locale: 'zh-CN' | 'en-US') => Promise<void>
     /** @@@window-tone 渲染层把主题真值告诉主进程,主进程据此改写无边框窗口的底色。 */
     syncWindowTone?: (tone: 'light' | 'dark') => void
-    /** mac 原生外观跟随偏好(主进程照抄成 nativeTheme.themeSource),答回此刻的真实明暗;同步失败为 null。 */
+    /** 原生外观跟随偏好(主进程照抄成 nativeTheme.themeSource),答回此刻的真实明暗;同步失败为 null。 */
     syncThemePreference?: (preference: 'light' | 'dark' | 'system') => 'light' | 'dark' | null
     relaunchApp: () => Promise<void>
     onAppForeground: (callback: () => void) => () => void

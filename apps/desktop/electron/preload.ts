@@ -156,7 +156,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   syncWindowTone: (tone: 'light' | 'dark'): void => {
     ipcRenderer.send('window:sync-tone', tone)
   },
-  // @@@native-appearance (#7333) 偏好原样给主进程(mac 上照抄成 nativeTheme.themeSource),同步答回此刻的真实明暗 ——
+  // @@@native-appearance (#7333) 偏好原样给主进程(三端照抄成 nativeTheme.themeSource),同步答回此刻的真实明暗 ——
   // 切回「跟随系统」时 renderer 用这个答案落主题,不先拿旧的 matchMedia 画错一帧。主进程同步失败答 null。
   syncThemePreference: (preference: ThemePreferenceValue): 'light' | 'dark' | null =>
     ipcRenderer.sendSync(WINDOW_THEME_PREFERENCE_CHANNEL, preference),

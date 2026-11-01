@@ -64,7 +64,7 @@ export function readThemePreference(): ThemePreference {
 }
 
 /**
- * @@@native-appearance (#7333) — 偏好同步给主进程(mac 上照抄成 nativeTheme.themeSource,原生材质跟着它的明暗走),
+ * @@@native-appearance (#7333) — 偏好同步给主进程(三端照抄成 nativeTheme.themeSource,原生材质跟着它的明暗走),
  * 拿回主进程恢复 themeSource **之后**的真实明暗。偏好是 system 时用这个答案落主题:此刻 renderer 的 matchMedia 可能
  * 还停在上一次手选的明暗上(主进程改 themeSource 之后,Chromium 才异步把 prefers-color-scheme 推过来),先拿它解析
  * 就会先画错一帧。三种结果分开走,❌ 合成一个 null:

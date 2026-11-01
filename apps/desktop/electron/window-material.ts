@@ -105,13 +105,13 @@ export interface NativeAppearanceTheme {
 }
 
 /**
- * @@@native-appearance (#7333) — 只在 mac 上把偏好照抄成 themeSource(原生材质只有 mac 有;Windows/Linux 的托盘图标
- * 读 shouldUseDarkColors 跟任务栏走,不能被咕咕的手选主题带偏)。返回此刻的真实明暗:偏好是 system 时就是系统外观。
+ * @@@native-appearance (#7333) — 三端都把偏好照抄成 themeSource,让原生外观和嵌入页跟随咕咕主题。
+ * 返回此刻的真实明暗:偏好是 system 时就是系统外观。Windows 托盘独立读取系统外观,Linux 托盘使用固定图标。
  * 认不出的偏好响亮报错,❌ 悄悄当成 system。
  */
-export function applyNativeThemePreference(platform: NodeJS.Platform, theme: NativeAppearanceTheme, preference: unknown): 'light' | 'dark' {
+export function applyNativeThemePreference(_platform: NodeJS.Platform, theme: NativeAppearanceTheme, preference: unknown): 'light' | 'dark' {
   if (!isThemePreferenceValue(preference)) throw new Error(`theme preference must be light / dark / system, got ${JSON.stringify(preference)}`)
-  if (platform === 'darwin' && theme.themeSource !== preference) theme.themeSource = preference
+  if (theme.themeSource !== preference) theme.themeSource = preference
   return theme.shouldUseDarkColors ? 'dark' : 'light'
 }
 
