@@ -2,6 +2,7 @@ import type { QuoteSelection } from './messageQuoteContent'
 import { memo, useCallback, useEffect, useMemo, useRef } from 'react'
 import type { CSSProperties, MouseEvent, ReactNode, Ref } from 'react'
 import type { MessageItem, MessageSendState, TopicSummary } from '@gugu/core/shared/types/chat'
+import type { HeldMessage } from '@gugu/core/shared/ui/systemNotice'
 import type { ParsedAttachment } from '@gugu/core/shared/ui/attachmentModels'
 import { computeGroupedWithPrev } from '@gugu/core/shared/ui/messageListModels'
 import { deriveMessageSendState, deriveReadReceipt } from '@gugu/core/shared/ui/messageState'
@@ -89,8 +90,8 @@ export interface MessageListRowProps {
   /** #1708 命中「来源消息跳转」时高亮闪烁的消息 id。 */
   flashMessageId: string | null | undefined
   memberReadSeqs: Record<string, number>
-  /** My messages an agent has not taken yet (useQueuedMessageIds): 「发送中」 until it reads them. */
-  queuedIds: ReadonlySet<string>
+  /** My messages an agent has not taken yet (useDeliveryWaits): their bubbles say so until it reads them. */
+  deliveryWaits: ReadonlyMap<string, HeldMessage>
   // 私聊/AI 没有 thread surface；群聊 thread 由右侧 panel 承载。
   isGroupChat: boolean
   threeParty: boolean | undefined
@@ -164,7 +165,7 @@ const MessageListRow = memo(function MessageListRow({
   mobile,
   highlight,
   flashMessageId,
-  memberReadSeqs, queuedIds,
+  memberReadSeqs, deliveryWaits,
   isGroupChat,
   threeParty,
   memberProfiles, bubbleMemberProfiles,
@@ -218,7 +219,8 @@ const MessageListRow = memo(function MessageListRow({
 
   const isSelected = selectedIds.has(msg.id)
   const readReceipt = computeReadReceipt(msg, memberReadSeqs) // @@@1577 M5 A6 — 单次派生,原同行同参调两次
-  const sendState = queuedIds.has(msg.id) ? 'queued' : computeSendState(msg, memberReadSeqs)
+  const held = deliveryWaits.get(msg.id)
+  const sendState = held?.wait ?? computeSendState(msg, memberReadSeqs)
 
   // 连续消息合组：同一发送者、无时间分隔线切断、双方都是普通消息时，后续消息隐藏头像+名字/时间行，
   // 只留气泡（间距也收紧）。搜索态(isFiltering)结果不连续，不合组。whisper 形态特殊，不参与合组。
@@ -245,6 +247,7 @@ const MessageListRow = memo(function MessageListRow({
       showReplyQuote={showReplyQuote}
       onReaction={onReaction}
       sendState={sendState}
+      undeliveredTo={held?.undeliveredTo.join(',')}
       readReceiptRead={readReceipt?.read}
       readReceiptTotal={readReceipt?.total}
       // #2098 owner 定:已读回执逐条显示(每条本人消息都挂环),非只末条。气泡内已按 is_mine + read>0 门控。

@@ -13,7 +13,7 @@ import { ChatLineScope } from '../store/chatLineScope'
 import { useAuth } from '../store/auth'
 import type { AgentConversationActivity, GroupCollabSnapshot, MessageItem } from '@gugu/core/shared/types/chat'
 import { chatService } from '../lib/chat'
-import { useUnreadLocatorNavigation } from '../hooks/useUnreadLocatorNavigation'; import { useQueuedMessageIds } from '../hooks/useQueuedMessageIds'
+import { useUnreadLocatorNavigation } from '../hooks/useUnreadLocatorNavigation'; import { useDeliveryWaits } from '../hooks/useDeliveryWaits'
 import { useSourceMessageReveal } from '../hooks/useSourceMessageReveal'
 import { useChatHistoryPagination } from './chat/useChatHistoryPagination'
 import { useGroupCollabLoader, EMPTY_GROUP_COLLAB } from '../hooks/useGroupCollabLoader'
@@ -411,7 +411,7 @@ function ChatAreaSurface({ viewportKey = 'chats', imPage = false, navigationTarg
     })
   }, [deleteMessage])
 
-  const { rows: chatListRows, listedMessages, notice: taskChatNotice, threeParty } = useTaskChatRows(displayedMessages, user?.id, activeChat?.peer_user_id, surfaceVisible, isFiltering ? searchQuery : ''); const queuedIds = useQueuedMessageIds(messages, memberReadSeqs)
+  const { rows: chatListRows, listedMessages, notice: taskChatNotice, threeParty } = useTaskChatRows(displayedMessages, user?.id, activeChat?.peer_user_id, surfaceVisible, isFiltering ? searchQuery : ''); const deliveryWaits = useDeliveryWaits(messages, memberReadSeqs)
   const chatResetKey = `${activeChatId ?? ''}#${openNonce ?? 0}#${messageWindow?.viewVersion ?? 0}`
   const { scrollerEl, scrollerRef, setScrollerRef, prepareForSavedPosition, isPreservingPosition, forgetSavedPosition, openLocation, revealMessage } = useConversationScrollMemory({
     chatId: activeChatId, viewportKey, activationKey: activeChatId ?? '', enabled: !isFiltering, discardSaved: !!unreadEntry,
@@ -511,7 +511,7 @@ function ChatAreaSurface({ viewportKey = 'chats', imPage = false, navigationTarg
     mobile,
     highlight: isFiltering ? searchQuery : undefined,
     flashMessageId,
-    memberReadSeqs, queuedIds,
+    memberReadSeqs, deliveryWaits,
     isGroupChat: isRoomChatSurface,
     memberProfiles: messageMemberProfiles,
     onReaction: handleReaction,
@@ -543,7 +543,7 @@ function ChatAreaSurface({ viewportKey = 'chats', imPage = false, navigationTarg
     isFiltering,
     mobile,
     searchQuery,
-    memberReadSeqs, queuedIds,
+    memberReadSeqs, deliveryWaits,
     isRoomChatSurface,
     messageMemberProfiles,
     handleReaction,

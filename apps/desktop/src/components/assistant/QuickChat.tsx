@@ -3,7 +3,7 @@ import { rendererLogger } from '@/lib/log';
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { MessageItem } from '@gugu/core/shared/types/chat'
-import { visibleDeliveryMessages } from '@gugu/core/shared/ui/systemNotice'
+import { visibleDeliveryMessages, type HeldMessage } from '@gugu/core/shared/ui/systemNotice'
 import { projectTurnFailureMessages } from '../../lib/projectTurnFailureMessages'
 import { SystemMessageNotice } from '../chat/SystemMessageNotice'
 import { Avatar } from '../Avatar'
@@ -15,7 +15,7 @@ import { LoadingIndicator } from '../../lib/loading/LoadingIndicator'
 import { useReportChatOnScreen } from '../../lib/onScreenChat'
 import { useChatStore } from '../../store/chatContext'
 import { useChatConversation } from '../../store/useChatConversation'
-import { useQueuedMessageIds } from '../../hooks/useQueuedMessageIds'
+import { useDeliveryWaits } from '../../hooks/useDeliveryWaits'
 import './quick-chat.css'
 
 export type QuickChatAssistant = { id: string; display_name: string; avatar: string | null }
@@ -102,7 +102,7 @@ function QuickThread({ chatId, name, visible }: { chatId: string; name: string; 
   useReportChatOnScreen(visible ? chatId : null)
   const { conversations } = useChatStore('conversations')
   const { messages, loadingMessages, sendMessage, setFollowingTail, memberReadSeqs } = useChatConversation(chatId, conversations)
-  const queuedIds = useQueuedMessageIds(messages, memberReadSeqs)
+  const deliveryWaits = useDeliveryWaits(messages, memberReadSeqs)
   useEffect(() => { setFollowingTail(visible ? true : undefined) }, [visible, setFollowingTail])
   const recent = projectTurnFailureMessages(visibleDeliveryMessages(messages).filter((message) => !message.thread_root_id && !message.retracted_at)).slice(-RECENT)
   const list = useRef<HTMLDivElement>(null)
@@ -153,7 +153,7 @@ function QuickThread({ chatId, name, visible }: { chatId: string; name: string; 
             <span>{t('quickChat.empty')}</span>
           </div>
         ) : (
-          recent.map((message) => <QuickMessage key={message.id} message={message} queued={queuedIds.has(message.id)} senderName={name} />)
+          recent.map((message) => <QuickMessage key={message.id} message={message} held={deliveryWaits.get(message.id)} senderName={name} />)
         )}
       </div>
       <footer className="qc-compose">
@@ -177,7 +177,7 @@ function QuickThread({ chatId, name, visible }: { chatId: string; name: string; 
   )
 }
 
-function QuickMessage({ message, queued, senderName }: { message: MessageItem; queued: boolean; senderName: string }) {
+function QuickMessage({ message, held, senderName }: { message: MessageItem; held?: HeldMessage; senderName: string }) {
   const { t } = useTranslation('assistant')
   if (message.content_type === 'system') {
     return <SystemMessageNotice message={message} senderName={senderName} />
@@ -193,10 +193,11 @@ function QuickMessage({ message, queued, senderName }: { message: MessageItem; q
       <span className="qc-other">{t('quickChat.inApp')}</span>
     )
   return (
-    <div className="qc-msg" data-mine={message.is_mine || undefined} data-sending={queued ? 'queued' : message.local_send_state ?? undefined}
-      title={queued ? t('message.sendStatus.queued', { ns: 'messaging' }) : undefined} data-testid={`quick-chat-message-${message.id}`}>
+    <div className="qc-msg" data-mine={message.is_mine || undefined} data-sending={held?.wait === 'queued' ? 'queued' : message.local_send_state ?? undefined}
+      title={held?.wait === 'queued' ? t('message.sendStatus.queued', { ns: 'messaging' }) : undefined} data-testid={`quick-chat-message-${message.id}`}>
       {body}
       {message.local_send_state === 'failed' ? <span className="qc-error" title={message.local_send_error ? messageForUser(message.local_send_error) : undefined}>{t('quickChat.notSent')}</span> : null}
+      {held?.wait === 'undelivered' ? <span className="qc-error" title={t('agent.turnFailure.undelivered', { ns: 'messaging' })}>{t('message.sendStatus.undelivered', { ns: 'messaging' })}</span> : null}
     </div>
   )
 }
