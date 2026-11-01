@@ -15,6 +15,7 @@ import {
   type InitialQueuePrompt,
 } from '@shared/core/sessions/sessions';
 import { getPlugin } from '../agents/plugin-registry';
+import { forkRuntimes } from '../agents/fork-legs';
 import { buildSessionRow } from './build-session-row';
 import {
   composerPlatformModel,
@@ -114,8 +115,8 @@ export async function attachAgentToSession(
     if (!params.forkFromProviderSessionId) {
       throw new Error('fork needs the source provider session id');
     }
-    if (getPlugin(params.provider).capabilities.sessions.fork !== 'supported') {
-      throw new Error(`provider ${params.provider} does not support forking sessions`);
+    if (!forkRuntimes(getPlugin(params.provider)).includes(sessionRuntime)) {
+      throw new Error(`provider ${params.provider} does not support forking ${sessionRuntime} sessions`);
     }
   }
 

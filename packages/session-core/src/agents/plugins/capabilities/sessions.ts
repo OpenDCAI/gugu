@@ -26,9 +26,10 @@ export const sessionsCapability = definePluginCapability<ISessionsBehavior>()(
   'sessions',
   z.object({
     kind: z.enum(['resumable', 'stateless']),
-    /** Present only when Gugu's current product fork surface can invoke a verified adapter
+    /** The terminal (pty) leg only: present when Gugu's pty fork can invoke a verified CLI fork
      * that creates a fresh session from an existing session without mutating the source.
-     * A fork command on another surface (for example CLI-only while Gugu uses ACP) is not enough. */
+     * The ACP leg is never declared here — it is read from the provider's ACP fork hook or the
+     * adapter's own `initialize` (desktop `fork-legs.ts`). */
     fork: z.enum(['supported']).optional(),
     childId: z.enum(['provider-minted', 'caller-assigned']).optional(),
     /**
