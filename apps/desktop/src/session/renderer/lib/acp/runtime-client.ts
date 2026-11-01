@@ -1,4 +1,4 @@
-import { acpApiContract, type StartSessionInput } from '@gugu/session-core/acp/client';
+import { acpApiContract } from '@gugu/session-core/acp/client';
 import {
   awaitWirePort,
   client,
@@ -18,7 +18,6 @@ export type AcpRuntimeRpcClient = ReturnType<typeof createAcpClientForPort>;
 /** 本机一个,别的机器每台一个(#6264 一套工作台:会话在哪台机器,就连哪台机器的 ACP 运行时)。 */
 const clientPromises = new Map<string, Promise<AcpRuntimeRpcClient>>();
 const clientTransports = new Set<WireTransport>();
-export type { StartSessionInput };
 
 /** machine:null = 本机;否则是会话所在的那台机器(machineRegistry.machineOf(conversationId))。 */
 export function getAcpRuntimeClient(machine: string | null = null): Promise<AcpRuntimeRpcClient> {

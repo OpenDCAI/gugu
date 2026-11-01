@@ -40,6 +40,7 @@ export default {
     "archived": "Archived",
     "removed": "Removed",
     "pending": "Confirming",
+    "starting": "Starting",
     "none": "Status unavailable"
   },
   "agentShare": {

@@ -29,6 +29,7 @@ import { isDeviceOnline } from '@gugu/core/shared/enums/deviceModels'
 import type { AgentDisplayStatus } from '@gugu/core/shared/types/chat'
 import type { AgentStatusReading, AgentStatusView } from '@gugu/core/shared/agentStatus'
 import type { ProviderBlocker, ProviderReviewGate } from './sessionpageAgentProjection'
+import { displayStatus, type LifeStatus } from '@/session/shared/core/sessions/session-life'
 
 /**
  * 本机宿主按 agent 的流里这个 agent 的那一条(spec agent-status-writer「宿主按 agent 的流」):这台机器就是它的
@@ -42,6 +43,8 @@ export type LocalAgentStatus = {
   providerBlocker: ProviderBlocker | null
   /** 声明了的状态来源读不出时的一句原因;`null` = 正常。 */
   statusSourceFault: string | null
+  /** The session's lifecycle; null = session-life does not own it (terminal legs). */
+  life: LifeStatus | null
 }
 
 export type AgentPresenceState = {
@@ -211,6 +214,7 @@ function sameLocal(a: LocalAgentStatus | null, b: LocalAgentStatus | null): bool
     && a.providerBlocker?.message === b.providerBlocker?.message
     && a.statusSourceFault === b.statusSourceFault
     && JSON.stringify(a.reading) === JSON.stringify(b.reading)
+    && JSON.stringify(a.life) === JSON.stringify(b.life)
 }
 
 export function subscribeAgentPresence(
@@ -399,7 +403,16 @@ function presentationOf(
     desiredStatus: payload.desiredStatus,
     deviceOnline,
   })
-  return presentAgentStatus({ reading: reading ?? (local ? null : readingOfPresenceProjection(payload)), reachability })
+  if (local) return presentAgentStatus({ ...composeLocal(local, reading), reachability })
+  return presentAgentStatus({ reading: reading ?? readingOfPresenceProjection(payload), reachability })
+}
+
+/** A session-life session's lifecycle answers first (`displayStatus`); otherwise the writer's reading. */
+function composeLocal(local: LocalAgentStatus, reading: AgentStatusView | null): { reading: AgentStatusView | null; lifecycle: 'starting' | 'archived' | null } {
+  if (!local.life) return { reading, lifecycle: null }
+  const shown = displayStatus(local.life, reading?.status ?? null)
+  if (shown === 'starting' || shown === 'archived') return { reading: null, lifecycle: shown }
+  return { reading: shown === reading?.status ? reading : shown && { status: shown, detail: null }, lifecycle: null }
 }
 
 // @@@3841 (#3839 的 E) 同一 tick 内的快照请求合成一次 RPC。

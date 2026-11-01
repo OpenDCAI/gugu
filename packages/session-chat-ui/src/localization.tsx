@@ -113,6 +113,7 @@ const fallbackMessages = {
   'transcript.turnProcess': 'Process',
   'transcript.thinkingAndExecution': 'Thinking and execution',
   'transcript.thinkingLive': 'Thinking and working',
+  'transcript.starting': 'Starting',
   'transcript.processStepsOne': '{count} step',
   'transcript.processSteps': '{count} steps',
   'transcript.processEarlierParts': '{count} earlier parts',

@@ -96,13 +96,13 @@ vi.mock('@main/core/sessions/utils', async (importOriginal) => ({
     permissionMode: undefined,
   }),
 }));
+// An ACP agent is stopped by session-life (the person's user-stop); the record is what this test reads.
+vi.mock('@main/core/sessions/session-life', () => ({
+  sessionLife: () => ({ interrupt: async (sessionId: string) => { stopped.push(sessionId); } }),
+}));
 vi.mock('@main/core/acp/controller', () => ({
   getAcpRuntimeClient: () =>
     Promise.resolve({
-      stopSession: ({ sessionId }: { sessionId: string }) => {
-        stopped.push(sessionId);
-        return Promise.resolve({ success: true });
-      },
       startSession: (input: unknown) => {
         startedSessions.push(input);
         return Promise.resolve({ success: true, data: { providerSessionId: 's' } });
@@ -499,7 +499,7 @@ describe('有自己记录的 agent:读它那家引擎的记录,和会话页、�
 });
 
 describe('可见的 agent 照常能用', () => {
-  it('停一个面板 agent 走宿主自己的 stopSession', async () => {
+  it('停一个面板 agent 走宿主的 session-life(user-stop)', async () => {
     openPanelAgent('mine');
     await stopAgentForExtension({ agentId: 'user:mine', visibleAgents: VISIBLE });
     expect(stopped).toEqual(['mine']);

@@ -449,6 +449,9 @@ export async function startPhoneAgentHost(initialConfig, { runTurn, cancelTurn, 
         const reason = agentFailureReason(error.message) ?? 'generic'
         if (!agentFailureNeedsModelChoice(reason)) {
           const notice = deliveryDisclosureMessage({ agentUserId: agent.agentUserId, chatId: job.route.chatId, threadRootId: job.route.threadRootId ?? null, key: `turn-failure:phone:${job.id}`, reason })
+          // Durable before it is said (a crash after the notice leaves the job failed, not interrupted). A disk that refuses
+          // does not silence the chat: the notice has a stable id, so saying it again is harmless.
+          await store.save().catch((failure) => warn(failure.message))
           const { error: posting } = await cloud.chat.from('messages').insert(notice)
           if (posting && posting.code !== '23505') warn(`turn-failure notice not posted; the failure stays in the task: ${posting.message}`)
         }

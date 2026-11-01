@@ -42,7 +42,7 @@ export function ConversationProcess(props: {
   };
   const summary = () => [elapsed(), steps()].filter(Boolean).join(' · ') || null;
   const notice = () => commands().conversationProcessNotice?.(props.process.id);
-  const label = () => notice()?.text ?? `${translate('transcript.thinkingAndExecution')}${summary() ? ` · ${summary()}` : ''}`;
+  const label = () => notice()?.text ?? `${translate(props.process.starting ? 'transcript.starting' : 'transcript.thinkingAndExecution')}${summary() ? ` · ${summary()}` : ''}`;
   // 在跑:点阵代替大脑,字写「执行中 · 1m15s」并带微光(owner 2026-10-27 原型);跑完换回大脑 + 用时。
   const collapsible = () => props.collapsible !== false && !props.process.empty;
   const layout = () => processButtonLayout(props.process, props.measureCtx());
@@ -50,7 +50,7 @@ export function ConversationProcess(props: {
     disabled={!collapsible()} data-collapse-id={collapsible() ? props.process.id : undefined} data-collapse-anchor={props.anchorId}
     aria-expanded={collapsible() ? props.expanded : undefined} aria-label={label()} title={label()}>
     <Show when={!props.process.live} fallback={<><GridLoader /><ShimmerText active multiline style={{ display: 'inline-flex', 'flex-wrap': 'wrap', 'min-width': 0, 'line-height': '22px' }}>
-      <span style={{ 'white-space': 'pre-wrap', 'overflow-wrap': 'anywhere', 'max-width': '100%' }}>{translate('transcript.thinkingLive')}{summary() ? ' · ' : ''}</span>
+      <span style={{ 'white-space': 'pre-wrap', 'overflow-wrap': 'anywhere', 'max-width': '100%' }}>{translate(props.process.starting ? 'transcript.starting' : 'transcript.thinkingLive')}{summary() ? ' · ' : ''}</span>
       <Show when={summary()}>{value => <span style={{ 'white-space': 'nowrap' }}>{value()}</span>}</Show>
     </ShimmerText></>}>
       <svg width="17" height="17" viewBox="0 0 24 22" fill="none" stroke="currentColor" stroke-width="1.4"

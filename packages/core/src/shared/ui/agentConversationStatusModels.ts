@@ -81,6 +81,7 @@ export function displayStatusOf(tone: AgentStatusTone): AgentDisplayStatus {
     case 'archived':
     case 'removed':
     case 'pending':
+    case 'starting':
       return tone
     case 'done':
     case 'idle':
@@ -105,6 +106,7 @@ export function labelOfDisplayStatus(status: AgentDisplayStatus): AgentStatusLab
     case 'archived':
     case 'removed':
     case 'pending':
+    case 'starting':
       return status
   }
 }

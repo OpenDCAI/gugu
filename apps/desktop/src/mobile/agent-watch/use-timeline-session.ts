@@ -147,7 +147,7 @@ export function useTimelineSession(
    * owner 10-12「进运行中的任务页,一进去就颤两下」。下面 effect 里那次读照旧,换会话时靠它。
    */
   const [timeline, setTimeline] = useState<AgentWatchTimeline>(() =>
-    (enabled && deviceId && sessionId ? readCachedTimeline({ deviceId, sessionId }) : null) ?? emptyAgentWatchTimeline())
+    (deviceId && sessionId ? readCachedTimeline({ deviceId, sessionId }) : null) ?? emptyAgentWatchTimeline())
   const [phase, setPhase] = useState<AgentWatchPhase>(() => (timeline.cursor ? 'ready' : 'loading'))
   const [error, setError] = useState<string | null>(null)
   const [link, setLink] = useState<TimelineLink>('connecting')
@@ -187,7 +187,18 @@ export function useTimelineSession(
   const reload = useCallback(() => setReloadNonce((n) => n + 1), [])
 
   useEffect(() => {
-    if (!enabled || !deviceId || !sessionId) return
+    if (!deviceId || !sessionId) return
+    if (!enabled) {
+      // Its machine is away: what this phone saw last time is still true, so it is still shown — ❌ a blank page.
+      let cancelled = false
+      setError(null)
+      setErrorCode(null)
+      setLink('lost')
+      const cached = readCachedTimeline({ deviceId, sessionId })
+      setTimeline(cached ?? emptyAgentWatchTimeline())
+      if (!cached) void hydrateCachedTimeline({ deviceId, sessionId }).then((stored) => { if (!cancelled && stored) setTimeline(stored) })
+      return () => { cancelled = true }
+    }
     let cancelled = false
     const subscriptionId = newLocalId()
     const cacheKey = { deviceId, sessionId }
@@ -340,6 +351,8 @@ export function useTimelineSession(
          */
         const delay = loadRetryDelay({ code, attempt, elapsedMs: Date.now() - startedAt })
         if (delay !== null) {
+          // That machine did not answer: still tried again, but the page can say so meanwhile (link), ❌ a silent spinner.
+          if (code === 'timeout') setLink('lost')
           // 记录还没写出来:留在 loading,过一会儿再读;❌ 不报红。
           setWaitingForRecord(code === 'record_not_found')
           if (code === 'record_not_found') syncedRef.current = true

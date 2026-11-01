@@ -48,6 +48,7 @@ function answerAll(_method: string, args: { p_agent_user_ids: string[] }) {
 const local = (
   status: 'idle' | 'working' | 'needs_user' | 'error',
   detail: AgentStatusDetail | null = null,
+  life: LocalAgentStatus['life'] = null,
 ): LocalAgentStatus => ({
   sessionId: 'conversation-1',
   reading: { status, detail, running: status === 'working' || status === 'needs_user', background: null },
@@ -55,6 +56,7 @@ const local = (
   reviewGate: null,
   providerBlocker: null,
   statusSourceFault: null,
+  life,
 })
 async function settle(): Promise<void> {
   await vi.dynamicImportSettled()
@@ -241,6 +243,33 @@ describe('agent presence revision routing', () => {
       rpcMock.mockResolvedValueOnce({ data: payload('removed', '2026-08-15T00:00:06Z'), error: null })
       await refreshObservedAgentPresenceFromRevision([{ agent_user_id: 'agent-1' }])
       expect(getAgentPresenceSnapshot('agent-1')?.status).toBe('removed')
+    } finally {
+      unsubscribe()
+    }
+  })
+  it('a session-life session shows its lifecycle first: starting, failed, archived, then the activity', async () => {
+    rpcMock.mockResolvedValueOnce({
+      data: payload('active', '2026-08-15T00:00:05Z', {
+        device_id: 'device-1',
+        device_status: 'online',
+        device_last_seen_at: new Date().toISOString(),
+        desired_status: 'online',
+      }),
+      error: null,
+    })
+    const unsubscribe = subscribeAgentPresence('agent-1', () => undefined)
+    try {
+      await settle()
+      const stage = { at: 'cli', index: 4, total: 7, since: 1 } as const
+      setLocalAgentStatus('agent-1', local('working', 'running', { kind: 'starting', stage }))
+      expect(getAgentPresenceSnapshot('agent-1')?.status).toBe('starting')
+      expect(getAgentPresenceSnapshot('agent-1')?.presentation).toMatchObject({ tone: 'starting', label: 'starting', animate: false })
+      setLocalAgentStatus('agent-1', local('idle', 'plain', { kind: 'failed', stage: null }))
+      expect(getAgentPresenceSnapshot('agent-1')?.status, 'failed start is an error').toBe('error')
+      setLocalAgentStatus('agent-1', local('idle', 'plain', { kind: 'archived', stage: null }))
+      expect(getAgentPresenceSnapshot('agent-1')?.status).toBe('archived')
+      setLocalAgentStatus('agent-1', local('needs_user', 'approval', { kind: 'ready', stage: null }))
+      expect(getAgentPresenceSnapshot('agent-1')?.presentation).toMatchObject({ tone: 'needs_user', label: 'needsApproval' })
     } finally {
       unsubscribe()
     }
