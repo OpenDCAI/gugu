@@ -1,5 +1,5 @@
 {
   "repository": "OpenDCAI/gugu-supabase",
-  "ref": "dae6398b09d921a73e5c8e675ef96d7a86467dff",
-  "status": "merged in OpenDCAI/gugu-supabase#127; the agent inbox pull returns each delivery's room rules and named identities"
+  "ref": "457024e2650fd414f01661035b0b59ffb2266597",
+  "status": "merged in OpenDCAI/gugu-supabase#131; blank group rules are judged by the characters the hosts trim, and the agent inbox pull returns each delivery's room rules and named identities"
 }
