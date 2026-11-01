@@ -2437,10 +2437,10 @@ async function handleAcpRequest(message) {
     if (turnId) {
       try {
         await appRequest('turn/steer', { threadId: sessionId, input: promptInputItems(params.prompt),
-          expectedTurnId: turnId, clientUserMessageId: `gugu-steer:${id}` })
+          expectedTurnId: turnId, clientUserMessageId: `gugu-steer:${randomUUID()}` })
         outcome = 'injected'
       } catch (error) {
-        if (error.code !== -32600 || error.message !== 'no active turn to steer') throw error
+        if (error.code !== -32600) throw error
       }
     }
     respond(id, { outcome })

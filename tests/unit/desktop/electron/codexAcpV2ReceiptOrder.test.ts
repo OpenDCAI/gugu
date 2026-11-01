@@ -153,20 +153,23 @@ it('steering admits later inputs without an echo, suppresses its echoes and pres
   } finally { await p.close(); }
 });
 
-it.each([false, true])('only a steer rejected because its turn ended asks the host to prompt (other error: %s)', async otherError => {
+it.each(['no active turn to steer', 'expected active turn id `old` but found `new`', 'cannot steer a compact turn', 'input must not be empty'])('a rejected steer returns to the normal prompt path: %s', async reason => {
   const p = await fixture(`
  if (m.method === 'turn/start') {
+  inputs.push(m)
+  if (inputs.length > 1 && ${JSON.stringify(reason)} === 'input must not be empty') return out({ id: m.id, error: { code: -32600, message: 'input must not be empty' } })
   out({ method: 'turn/started', params: { threadId: 'thread', turn: { id: 'turn' } } })
   out({ method: 'item/started', params: { item: { type: 'userMessage', id: 'start', clientId: m.params.clientUserMessageId, content: m.params.input } } })
   return out({ id: m.id, result: { turn: { id: 'turn' } } })
  }
- if (m.method === 'turn/steer') return out({ id: m.id, error: { code: -32600, message: ${JSON.stringify(otherError ? 'input must not be empty' : 'no active turn to steer')} } })`);
+ if (m.method === 'turn/steer') return out({ id: m.id, error: { code: -32600, message: ${JSON.stringify(reason)} } })`);
   const params = { sessionId: 'thread', prompt: [{ type: 'text' as const, text: 'input' }] };
   try {
     await p.agent.request(v2.methods.agent.session.prompt, params);
-    const steering = p.agent.request('_session/steering', params);
-    if (otherError) await expect(steering).rejects.toMatchObject({ message: 'input must not be empty' });
-    else expect(await steering).toEqual({ outcome: 'promptRequired' });
+    expect(await p.agent.request('_session/steering', params)).toEqual({ outcome: 'promptRequired' });
     expect(p.updates.filter(update => update.sessionUpdate === 'user_message')).toHaveLength(1);
+    const prompt = p.agent.request(v2.methods.agent.session.prompt, params);
+    if (reason === 'input must not be empty') await expect(prompt).rejects.toMatchObject({ message: reason });
+    else expect(await prompt).toEqual({ messageId: 'start' });
   } finally { await p.close(); }
 });
