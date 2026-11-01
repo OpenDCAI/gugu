@@ -173,6 +173,32 @@ afterEach(() => {
 });
 
 describe('transcript scroll behaviour across the P3 row redraw', () => {
+  it.each(['done', 'cancelled'] as const)('keeps a short reply in place when its turn is %s and reopened', async (status) => {
+    const { state, host, view, scrollEl, remount } = await mountTranscript(0, { pinUserMessages: true, height: 600 });
+    state.transcript.activeTurn.set({
+      id: 'short', seq: 0, initiator: 'user', items: [
+        { kind: 'message', id: 'short-user', seq: 0, role: 'user', text: 'A short question.' },
+        { kind: 'message', id: 'short-reply', seq: 1, role: 'assistant', text: 'A short reply.' },
+      ],
+    });
+    await until('the short reply mounts', () => host.querySelector('[data-item-id="short-reply"]') !== null);
+    view.setScrollMode(pinTopMode('short-user'));
+    await settled(scrollEl);
+    const before = rowOffset(scrollEl, 'short-user')!;
+    const replyBefore = rowOffset(scrollEl, 'short-reply')!;
+    expect(scrollEl.scrollTop, 'the pinned short turn needs trailing scroll space').toBeGreaterThan(0);
+
+    state.transcript.activeTurn.commit(status);
+    await until('the turn is committed', () => state.transcript.state.activeTurnSnapshot === null);
+    await settled(scrollEl);
+    expect(Math.abs(rowOffset(scrollEl, 'short-user')! - before)).toBeLessThanOrEqual(1);
+    expect(Math.abs(rowOffset(scrollEl, 'short-reply')! - replyBefore)).toBeLessThanOrEqual(1);
+
+    const reopened = await remount();
+    expect(Math.abs(rowOffset(reopened, 'short-user')! - before)).toBeLessThanOrEqual(1);
+    expect(Math.abs(rowOffset(reopened, 'short-reply')! - replyBefore)).toBeLessThanOrEqual(1);
+  });
+
   it('places an unread sent bubble below the viewport top, with its receipt and floating composer', async () => {
     const receipt = (index: number) => `00000000-0000-4000-8000-${String(index).padStart(12, '0')}`;
     const turns: TranscriptTurn[] = Array.from({ length: 30 }, (_, index) => ({

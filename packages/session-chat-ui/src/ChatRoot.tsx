@@ -488,12 +488,14 @@ export function ChatRoot(props: ChatRootProps) {
 
   // ── Geometry shadow ───────────────────────────────────────────────────────
   //
-  // activeTurnReserve: the min-height of the active turn's response region,
+  // activeTurnReserve: the min-height of the latest user message's response region,
   // expressed as trailing canvas space. When the tail of content (from the last
   // user message to the end) is shorter than the viewport, the reserve expands
   // maxScrollTop so projectAnchor('anchor'/'top') can place the user message at the
   // top. As the agent streams a response, tailHeight grows, reserve shrinks,
   // and once the tail fills the viewport reserve is 0 (normal scrolling).
+  // Committing or stopping a short turn must preserve this space: its user
+  // message and scroll anchor still occupy the same position in the transcript.
   //
   // INVARIANT: derives from virt.total() (real measured heights) and is added
   // only in contentH — never fed back into virt — so there is no feedback loop
@@ -503,11 +505,6 @@ export function ChatRoot(props: ChatRootProps) {
   // lastUserUnitIdx() is memoized on transcript changes, not per streaming tick.
   const activeTurnReserve = () => {
     if (!props.pinUserMessages) return 0;
-    const currentState = state();
-    const hasUncommittedTurn =
-      currentState.transcript.state.activeTurnSnapshot !== null ||
-      currentState.session.state.pendingPrompt !== null;
-    if (!hasUncommittedTurn) return 0;
     const idx = lastUserUnitIdx();
     if (idx < 0) return 0;
     const tailHeight = totalHeight() - virt.top(idx);
