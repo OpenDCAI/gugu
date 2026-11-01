@@ -88,7 +88,7 @@ export type TopicSplitPaneProps = {
   memberReadSeqs: Record<string, number>
   onSend: (text: string, toUserIds: readonly string[] | null, replyToMessageId: string | null, isWhisper?: boolean, submittedAt?: number) => Promise<void>
   /** 发附件。回形针在 ChatMessageComposer 里是无条件画的,不接这一口 = 挂得上发不出去。 */
-  onSendAttachments: (files: File[], opts?: { toUserIds?: string[] | null; isWhisper?: boolean; caption?: string; onSent?: (file: File, index: number) => void }) => Promise<void>
+  onSendAttachments: (files: File[], opts?: { toUserIds?: string[] | null; replyToMessageId?: string | null; isWhisper?: boolean; caption?: string; onSent?: (file: File, index: number) => void }) => Promise<void>
   /**
    * 能在这一栏里 @ 到的人 = **来源线**的名册。spec:「招 agent 同理——建完之后 @ 它,它就进来了」,
    * 而服务端只放行来源线的成员,所以候选集就取来源线的,❌ 不取话题当前那几个(那样永远拉不进新人)。
