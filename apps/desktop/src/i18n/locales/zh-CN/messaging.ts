@@ -363,6 +363,10 @@ export default {
     "fileUnavailable": "文件暂时打不开",
     "holderOffline": "{{machine}} 离线，上线后才能打开这个文件。",
     "holderMachine": "保存它的那台电脑",
+    "besideOffline": "在「{machine}」上，未连接",
+    "besideOfflineNotice": "这页里有文件存在「{{machine}}」上，它现在未连接；它上线后会自动显示。",
+    "besideUnavailable": "这个文件现在取不到。",
+    "besideOutside": "只能取到这份文档所在文件夹里的文件。",
     "imageUnavailable": "图片暂时打不开",
     "newerInFolder": "文件夹里有新版",
     "retry": "重试"

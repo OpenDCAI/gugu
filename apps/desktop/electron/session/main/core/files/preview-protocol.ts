@@ -19,7 +19,8 @@ import type { IFileSystem } from '@gugu/session-core/files';
 import { REMOTE_WORKSPACE_MAX_FILE_BYTES } from '@gugu/session-core/session-record/contract';
 import { events } from '@main/lib/events';
 import { log } from '@main/lib/logger';
-import { remotePreviewReadChannel, remotePreviewReadResultChannel } from '@shared/events/appEvents';
+import { previewHolderOfflineChannel, remotePreviewReadChannel, remotePreviewReadResultChannel } from '@shared/events/appEvents';
+import { answerBesideDocument, chatFolderPreviewCsp, unavailableAnswer, type ChatFolderPreviewCopy, type PreviewAnswer } from '@shared/preview/chat-folder-preview';
 import {
   PREVIEW_SCHEME,
   previewRootFor,
@@ -38,7 +39,12 @@ import { readRemotePreviewBytes, remotePreviewFailureStatus, withUtf8Charset, ty
  */
 type PreviewSource =
   | { kind: 'local'; projectId: string; workspaceId: string }
-  | { kind: 'remote'; projectId: string; workspaceId: string };
+  | { kind: 'remote'; projectId: string; workspaceId: string }
+  /**
+   * A document in a chat's folder: its page's relative URLs name the files beside it in that folder, read as the
+   * signed-in person (in the cloud, or fetched from the machine that keeps them). The root is the document's own folder.
+   */
+  | { kind: 'chat'; chatId: string };
 
 /**
  * 在哪一处被加载:
@@ -80,10 +86,17 @@ interface PreviewRegistration {
    * 浏览器页签里一个失败的请求必须变成一页看得见的说明,❌ 白屏。
    */
   failureCopy?: PreviewFailureCopy;
+  /** A chat document's files already resolved, by path: one verified snapshot serves every range of a video. */
+  beside?: Map<string, Promise<BesideFile | null>>;
 }
 
-/** 取不到时给人看的话:`outside` 在会话目录外;其余(读不到、超时、太大、登记已撤)一律 `unavailable`。 */
-export type PreviewFailureCopy = { unavailable: string; outside: string };
+/**
+ * 取不到时给人看的话:`outside` 在会话目录外;其余(读不到、超时、太大、登记已撤)一律 `unavailable`。
+ * `offline`: a chat document's file is kept on a machine that is off — `{machine}` is its name.
+ */
+export type PreviewFailureCopy = { unavailable: string; outside: string; offline?: string; palette?: ChatFolderPreviewCopy['palette'] };
+
+type BesideFile = Awaited<ReturnType<typeof import('@main/core/extensions/app-files').besideChatDocument>>;
 
 /** 群正文没有文件系统根;类型和请求入口都禁止退回本地/远端文件读取。 */
 type DocumentPreviewRegistration = {
@@ -99,6 +112,29 @@ export function createDocumentPreview(documentHtml: string): { url: string; prev
   const previewId = newPreviewId();
   registry.set(previewId, { source: { kind: 'document' }, surface: 'pane', documentHtml });
   return { url: `${PREVIEW_SCHEME}://${previewId}/index.html`, previewId };
+}
+
+/**
+ * A document in a chat's folder, previewed with its folder: the page's address is the document's path in the folder, so
+ * `shots/a.png` asks for the file beside it, and the fence (the document's own folder, below which nothing is served)
+ * is the one every preview has. The place is read here as the signed-in person — never taken from the renderer.
+ */
+export async function createChatFolderPreview(
+  itemId: string,
+  documentHtml: string,
+  failureCopy: PreviewFailureCopy
+): Promise<{ url: string; previewId: string } | null> {
+  const { chatDocumentPlace } = await import('@main/core/extensions/app-files');
+  const place = await chatDocumentPlace(itemId);
+  if (!place) return null;
+  const segments = place.path.split('/').filter(Boolean);
+  const documentPath = '/' + segments.join('/');
+  const root: PreviewRoot = { kind: 'workspace', prefix: '/', segments: segments.slice(0, -1) };
+  const previewId = newPreviewId();
+  const url = previewUrl(previewId, root, documentPath);
+  if (!url) return null;
+  registry.set(previewId, { source: { kind: 'chat', chatId: place.chatId }, surface: 'pane', root, documentPath, documentHtml, failureCopy });
+  return { url, previewId };
 }
 
 /**
@@ -202,6 +238,14 @@ export function releasePreview(previewId: string): void {
   const registration = registry.get(previewId);
   if (registration?.source.kind === 'remote') log.info('Remote preview released', { previewId });
   registry.delete(previewId);
+  if (registration && 'beside' in registration) disposeBeside(registration);
+}
+
+function disposeBeside(registration: PreviewRegistration): void {
+  for (const pending of registration.beside?.values() ?? []) {
+    void pending.then((found) => (found?.kind === 'file' ? found.file.dispose() : undefined)).catch(() => undefined);
+  }
+  registration.beside = undefined;
 }
 
 /** Compare served bytes, never a directory guess. Omitted paths means a watcher resync. */
@@ -269,7 +313,7 @@ export async function handlePreviewRequest(request: Request, surface: PreviewSur
   try {
     const parsed = new URL(request.url);
     url = parsed;
-    response = await withDeadline(servePreviewRequest(parsed, surface), PREVIEW_REQUEST_DEADLINE_MS, () =>
+    response = await withDeadline(servePreviewRequest(parsed, surface, request.headers.get('range')), PREVIEW_REQUEST_DEADLINE_MS, () =>
       failurePage(registry.get(parsed.hostname)?.failureCopy, 'unavailable', 504, 'timeout')
     );
   } catch (error) {
@@ -333,7 +377,7 @@ function escapeHtml(text: string): string {
  */
 function failurePage(
   copy: PreviewFailureCopy | undefined,
-  kind: keyof PreviewFailureCopy,
+  kind: 'unavailable' | 'outside',
   status: number,
   reason: string
 ): Response {
@@ -353,7 +397,7 @@ function failurePage(
   );
 }
 
-async function servePreviewRequest(url: URL, surface: PreviewSurface): Promise<Response> {
+async function servePreviewRequest(url: URL, surface: PreviewSurface, range: string | null = null): Promise<Response> {
   const registration = registry.get(url.hostname);
   if (!registration || registration.surface !== surface) {
     return failurePage(undefined, 'unavailable', 404, 'unknown_preview');
@@ -381,6 +425,8 @@ async function servePreviewRequest(url: URL, surface: PreviewSurface): Promise<R
   if (isDocument && registration.documentHtml !== undefined) {
     return htmlResponse(registration.documentHtml, registration);
   }
+
+  if (registration.source.kind === 'chat') return serveBesideDocument(url.hostname, registration, registration.source.chatId, resolved, range);
 
   const assets = (registration.assets ??= new Map());
   // A new request owns its eventual response, but does not erase bytes already supplied.
@@ -448,6 +494,7 @@ async function readPreviewBytes(
     };
   }
 
+  if (source.kind === 'chat') return { ok: false, response: notFound('a chat document is served by its own path') };
   const fileSystem = workspaceFileSystem(source);
   if (!fileSystem) return { ok: false, response: notFound('workspace is gone') };
 
@@ -461,6 +508,46 @@ async function readPreviewBytes(
     return { ok: false, response: new Response('too large', { status: 413 }) };
   }
   return { ok: true, bytes: result.data.bytes };
+}
+
+/**
+ * A file beside a chat document (chat-folder-preview.ts): found by its path in the same chat's folder (as the signed-in
+ * person) and read through the one file resolver — in the cloud, or fetched from the machine that keeps it. A `Range`
+ * (a video being sought) is answered from the same verified snapshot; a machine that is off is said on the page.
+ */
+async function serveBesideDocument(previewId: string, registration: PreviewRegistration, chatId: string, resolved: string, range: string | null): Promise<Response> {
+  const path = resolved.replace(/^\/+/, '');
+  const copy = chatFolderCopy(registration.failureCopy);
+  const csp = chatFolderPreviewCsp(`${PREVIEW_SCHEME}:`);
+  const beside = (registration.beside ??= new Map());
+  let pending = beside.get(path);
+  if (!pending) {
+    pending = import('@main/core/extensions/app-files').then(({ besideChatDocument }) => besideChatDocument(chatId, path));
+    beside.set(path, pending);
+  }
+  let answer: PreviewAnswer;
+  try {
+    const found = await pending;
+    // Asked again next time: a file not there yet, a document's text that changes, a machine that may come back.
+    if (found?.kind !== 'file') beside.delete(path);
+    answer = await answerBesideDocument(found, { path, range, copy, csp });
+  } catch (error) {
+    beside.delete(path);
+    log.warn('Chat document file unavailable', { previewId, error: String(error) });
+    answer = unavailableAnswer(copy, 'unreadable');
+  }
+  if (answer.offline) events.emit(previewHolderOfflineChannel, { previewId, ...answer.offline });
+  return new Response(answer.body ? bodyOf(answer.body) : null, { status: answer.status, headers: answer.headers });
+}
+
+function chatFolderCopy(copy: PreviewFailureCopy | undefined): ChatFolderPreviewCopy {
+  const unavailable = copy?.unavailable ?? 'This file is not available right now.';
+  return {
+    unavailable,
+    outside: copy?.outside ?? unavailable,
+    offline: copy?.offline ?? '{machine} is offline',
+    palette: copy?.palette ?? { surface: 'none', border: 'currentColor', text: 'currentColor' },
+  };
 }
 
 /**
@@ -521,9 +608,11 @@ function htmlResponse(html: string, registration: PreviewRegistration | Document
       'Content-Type': 'text/html; charset=utf-8',
       'Cache-Control': 'no-store',
       ...(isRemotePanePreview(registration) ? { 'Content-Security-Policy': REMOTE_PANE_PREVIEW_CSP } : {}),
+      ...(registration.source.kind === 'chat' ? { 'Content-Security-Policy': chatFolderPreviewCsp(`${PREVIEW_SCHEME}:`) } : {}),
     },
   });
 }
+
 
 /**
  * #6264「文件」页签里渲染别的机器上的 HTML:这个 iframe 跑在**这台电脑**的渲染层里,页面里的

@@ -364,6 +364,10 @@ export default {
     "fileUnavailable": "File unavailable right now",
     "holderOffline": "{{machine}} is offline. This file opens when it is back online.",
     "holderMachine": "The computer that keeps it",
+    "besideOffline": "On {machine}, not connected",
+    "besideOfflineNotice": "Some files on this page are kept on {{machine}}, which is not connected. They appear when it is back online.",
+    "besideUnavailable": "This file is not available right now.",
+    "besideOutside": "Only files in this document's folder can be shown.",
     "imageUnavailable": "Image unavailable right now",
     "newerInFolder": "Newer version in the folder",
     "retry": "Retry"
