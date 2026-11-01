@@ -327,7 +327,8 @@ export class SessionLife {
         try {
           out = await runStage(run, effect);
         } catch (error) {
-          if (!run.abort.signal.aborted) this.send(sessionId, { k: 'stage-fail', gen: run.gen, at: effect.at, cause: toSerializedError(error) });
+          if (!run.abort.signal.aborted) this.send(sessionId, { k: 'stage-fail', gen: run.gen, at: effect.at, cause: toSerializedError(error),
+            ...((error as { awaitsPerson?: unknown }).awaitsPerson === true ? { awaitsPerson: true as const } : {}) });
           return;
         }
         if (run.abort.signal.aborted) { await run.adapter.teardown({ [out.at]: out.value }, { gen: run.gen }); return; }

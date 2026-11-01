@@ -47,7 +47,12 @@ function afterBarrier(q: PendingView, barrier: Seq | null): boolean {
 }
 
 function hasStartableRow(hold: Hold | null, q: PendingView): boolean {
-  return hold?.reason !== 'sign-out' && afterBarrier(q, hold?.barrier ?? null)
+  return hold?.reason !== 'sign-out' && !awaitsPerson(hold) && afterBarrier(q, hold?.barrier ?? null)
+}
+
+/** A failure only the person resolves: no input starts the session again on its own (hydrate, settle, deliver). */
+function awaitsPerson(hold: Hold | null): boolean {
+  return hold?.reason === 'start-failed' && hold.awaitsPerson === true
 }
 
 /** The same durable predicate is used after teardown and after a crash before deliver was stepped. */
@@ -224,6 +229,7 @@ function stepDormant(state: Extract<Life, { kind: 'dormant' }>, event: Event, q:
 function stepFailed(state: Extract<Life, { kind: 'failed' }>, event: Event, q: PendingView, ctx: StepContext): Transition {
   switch (event.k) {
     case 'deliver': case 'start': {
+      if (event.k === 'deliver' && awaitsPerson(state.hold)) return unchanged(state)
       const [next, run] = start(ctx, true, state.hold.reason === 'start-failed' ? state.hold.barrier : null)
       return [next, [...residueTeardown(state), ...run]]
     }
@@ -255,7 +261,8 @@ function stepStarting(state: Extract<Life, { kind: 'starting' }>, event: Event, 
       // Rows already told by an earlier failure of this batch are not told again on its retry (N4).
       const untold = q.queued.filter(seq => state.told === null || seq > state.told)
       return [seal({ kind: 'stopping', gen: state.gen, have: state.progress.have,
-        destination: { kind: 'held', hold: { reason: 'start-failed', barrier: maxSeq(q), stage: state.progress.at, cause } } }),
+        destination: { kind: 'held', hold: { reason: 'start-failed', barrier: maxSeq(q), stage: state.progress.at, cause,
+          ...(event.k === 'stage-fail' && event.awaitsPerson ? { awaitsPerson: true as const } : {}) } } }),
       [{ e: 'abort', gen: state.gen }, { e: 'teardown', gen: state.gen, have: state.progress.have },
         ...(untold.length ? [{ e: 'report-failure' as const, seqs: untold, cause }] : [])]]
     }

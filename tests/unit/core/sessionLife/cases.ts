@@ -128,6 +128,15 @@ export const transitionCases: readonly { row: number; name: string; run: () => v
 ]
 
 export const invariantCases: readonly { name: string; run: () => void }[] = [
+  { name: 'a failure only the person resolves: new input waits queued (deliver, settle, hydrate); an explicit start still starts it', run() {
+    const AWAITS = { ...FAILED, awaitsPerson: true as const }
+    noChange(dormant(AWAITS), deliver, pending([20]))
+    kind(decide(dormant(AWAITS), start, pending([20])), 'starting')
+    assert.equal(shouldStartOnHydrate(dormant(AWAITS), pending([20])), false)
+    const stopping = decide(starting('channel'), { k: 'stage-fail', gen: G, at: 'channel', cause: CAUSE, awaitsPerson: true }, pending([5]))[0]
+    assert.ok(stopping.kind === 'stopping' && stopping.destination.kind === 'held' && stopping.destination.hold.reason === 'start-failed' && stopping.destination.hold.awaitsPerson === true)
+    kind(decide(stopping, { k: 'settled', gen: G }, pending([5, 20])), 'failed')
+  } },
   { name: 'hydration and settled use the identical barrier predicate', run() { for (const h of [STOP, FAILED]) { assert.equal(shouldStartOnHydrate(dormant(h), pending([5, 10])), false); assert.equal(shouldStartOnHydrate(dormant(h), pending([20])), true) } assert.equal(shouldStartOnHydrate(dormant(OUT), pending([20])), false); assert.equal(shouldStartOnHydrate(archived(), pending([20])), false); assert.equal(shouldStartOnHydrate(dormant(), pending([20])), true) } },
   { name: 'channel readiness cannot be forged from a stale proof in a current completion', run() { assert.throws(() => decide(starting('channel'), { k: 'stage-ok', gen: G, out: { at: 'channel', value: { gen: STALE, timing: 'next-tool-call' } as AdmittedChannel } }), LifeProtocolError) } },
   { name: 'all seven stage completions reject the other six current-generation stages', run() { for (const at of STAGES) for (const other of STAGES) if (at !== other) assert.throws(() => decide(starting(at), { k: 'stage-ok', gen: G, out: output(other) }), LifeProtocolError) } },

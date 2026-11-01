@@ -52,7 +52,11 @@ export type Admission =
   | Readonly<{ kind: 'busy' }>
 export type UserStopHold = Readonly<{ reason: 'user-stop'; barrier: Seq | null }>
 export type SignOutHold = Readonly<{ reason: 'sign-out'; ownerUserId: string; prior: UserStopHold | null }>
-export type StartFailedHold = Readonly<{ reason: 'start-failed'; barrier: Seq | null; stage: StageName; cause: SerializedError }>
+/**
+ * awaitsPerson: the leg said only the person can resolve it (e.g. the engine no longer has the session's record): new
+ * input waits in the queue instead of starting it again; their explicit retry or a new configuration starts it.
+ */
+export type StartFailedHold = Readonly<{ reason: 'start-failed'; barrier: Seq | null; stage: StageName; cause: SerializedError; awaitsPerson?: true }>
 /** v3.1 #9: an effect threw. Like start-failed, its barrier keeps the failed batch from retrying on its own. */
 export type FaultHold = Readonly<{ reason: 'effect-fault'; barrier: Seq | null; cause: SerializedError }>
 export type FailureHold = StartFailedHold | FaultHold
@@ -104,7 +108,7 @@ export type Event =
   | Readonly<{ k: 'deliver'; seq: Seq }>
   | Readonly<{ k: 'start'; origin: 'user-open' | 'retry' | 'reconfigure' }>
   | Readonly<{ k: 'stage-ok'; gen: Gen; out: StageResult }>
-  | Readonly<{ k: 'stage-fail'; gen: Gen; at: StageName; cause: SerializedError }>
+  | Readonly<{ k: 'stage-fail'; gen: Gen; at: StageName; cause: SerializedError; awaitsPerson?: true }>
   | ReceiptEvent
   | Readonly<{ k: 'turn-busy'; gen: Gen }>
   | Readonly<{ k: 'turn-idle'; gen: Gen }>

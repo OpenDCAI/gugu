@@ -29,6 +29,7 @@ export interface PendingRow {
 export interface LegAdapter {
   readonly leg: 'acp' | 'claude-tui' | 'codex' | 'pty';
   readonly timing: Timing;
+  /** A stage that fails with `awaitsPerson: true` on its error says only the person can resolve it (see StartFailedHold). */
   run<K extends StageName>(at: K, have: Have<K>, ctx: { gen: Gen; signal: AbortSignal }): Promise<StageOut[K]>;
   dispatch(have: StageOut, row: PendingRow, ctx: { gen: Gen; signal: AbortSignal }): Promise<
     | { result: 'accepted'; nativeReceiptId: string | null }

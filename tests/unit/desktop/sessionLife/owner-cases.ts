@@ -16,7 +16,7 @@ const seq = (value: number) => value as Seq;
 const EXIT: ExitFact = { cause: { name: 'Lost', message: 'adapter exited' }, code: 1, signal: null };
 
 function rig(options: { block?: StageName; delayReceipt?: boolean; dispatchThrowsOnce?: boolean; markReadFailsOnce?: boolean;
-  failAt?: StageName; exitBeforeFail?: boolean; holdTeardownOf?: { id: string; until: Promise<void> }; channelLostTimes?: number; failOnceAt?: StageName; teardownThrowsOnce?: boolean; reportFailureThrowsOnce?: boolean; commitThrowsOnSignOutHold?: boolean } = {}) {
+  failAt?: StageName; failAwaitsPerson?: boolean; exitBeforeFail?: boolean; holdTeardownOf?: { id: string; until: Promise<void> }; channelLostTimes?: number; failOnceAt?: StageName; teardownThrowsOnce?: boolean; reportFailureThrowsOnce?: boolean; commitThrowsOnSignOutHold?: boolean } = {}) {
   const records = new Map<string, { owner: string | null; hold: Hold | null; archived: boolean }>();
   const rows = new Map<Seq, PendingRow>();
   const settled = new Set<Seq>();
@@ -77,7 +77,7 @@ function rig(options: { block?: StageName; delayReceipt?: boolean; dispatchThrow
           if (failOnce === at) { failOnce = undefined; throw new Error(`${at} unavailable`); }
           if (options.failAt === at) {
             if (options.exitBeforeFail) exitCallbacks.at(-1)!(EXIT);
-            throw new Error(`${at} unavailable`);
+            throw Object.assign(new Error(`${at} unavailable`), options.failAwaitsPerson ? { awaitsPerson: true } : {});
           }
           if (blockOnce === at) {
             blockOnce = undefined;
@@ -184,6 +184,20 @@ export const ownerCases: readonly { name: string; run: () => Promise<void> }[] =
     assert.equal(r.owner.read('s').kind, 'dormant');
     r.owner.start('s', 'reconfigure'); await r.owner.quiescent('s');
     assert.equal(r.owner.read('s').kind, 'ready'); assert.equal(r.rows.get(row)!.state, 'accepted');
+  } },
+  { name: 'a start failure only the person resolves: later deliveries queue without starting it; an explicit start does', async run() {
+    const r = rig({ failAt: 'channel', failAwaitsPerson: true }); r.session(); await r.owner.signIn('A');
+    const rows = [r.send().seq];
+    await r.owner.quiescent('s');
+    assert.equal(r.owner.read('s').kind, 'failed');
+    // Deliveries after the failure: queued, the session is not started again for them.
+    rows.push(r.send().seq); await r.owner.quiescent('s');
+    rows.push(r.send().seq); await r.owner.quiescent('s');
+    assert.equal(r.owner.read('s').kind, 'failed');
+    assert.equal(r.trace.filter(line => line.endsWith(':identity')).length, 1);
+    for (const row of rows) assert.equal(r.rows.get(row)!.state, 'queued');
+    r.owner.start('s', 'retry'); await r.owner.quiescent('s');
+    assert.equal(r.trace.filter(line => line.endsWith(':identity')).length, 2);
   } },
   { name: '#552: a channel lost before admission redelivers the row once on a fresh run; a second loss fails it visibly', async run() {
     const once = rig({ channelLostTimes: 1 }); once.session(); await once.owner.signIn('A');

@@ -175,8 +175,11 @@ export function createAcpLegAdapter(sessionId: string, fork: RuntimeFork | null)
     // The runtime's typed reason travels whole (in `data`): the task page turns it back into its specific
     // remedies (sign in, install, update, pick another model), the same as when a page started the runtime itself.
     if (!result.success) {
+      // The engine no longer has the session's record: no retry of the same start can bring it back, so later input
+      // waits for the person (a new engine session, or their retry once the record is back).
       throw Object.assign(new Error(`ACP session ${sessionId} did not start: ${result.error.message ?? result.error.type}`),
-        { name: ACP_START_FAILED, data: JSON.stringify(result.error) });
+        { name: ACP_START_FAILED, data: JSON.stringify(result.error),
+          ...(result.error.type === 'provider_session_missing' ? { awaitsPerson: true } : {}) });
     }
     const { injection, facts: f } = read<Capabilities>(have.capabilities);
     void import('../asks/human-tool-wait').then(({ restoreHumanToolResults }) =>

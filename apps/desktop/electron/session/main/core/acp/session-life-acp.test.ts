@@ -137,7 +137,7 @@ describe('session-life ACP leg', () => {
     h.watchers.get('s')!({ lifecycle: 'starting' });
     h.watchers.get('s')!({ lifecycle: 'closed' });
     answer({ success: false, error: { type: 'provider_session_missing', message: 'Resource not found' } });
-    await expect(channel).rejects.toMatchObject({ name: 'AcpStartFailed', data: expect.stringContaining('provider_session_missing') });
+    await expect(channel).rejects.toMatchObject({ name: 'AcpStartFailed', data: expect.stringContaining('provider_session_missing'), awaitsPerson: true });
     await new Promise(resolve => setTimeout(resolve, 0));
     expect(exits).toEqual([]);
   });
