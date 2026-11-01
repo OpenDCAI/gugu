@@ -9,7 +9,7 @@ import {
 import { broadcastDeviceSessionHostEvent, installDeviceSessionHost, remoteInvokePolicyForCaller } from './device-session-host';
 import { FrameSessionHost, type FrameSocket, type FrameInvokePolicy } from './frame-host';
 import { decodeHostWsMessage, encodeHostWsMessage, HOST_WS_PROTOCOL_VERSION } from '@shared/lib/ipc/host-ws-protocol';
-import { sessionpageAgentProvisionedEvent, sessionpageAgentRenamedEvent } from '@shared/lib/ipc/sessionpage-identity-contract';
+import { sessionpageAgentProvisionedEvent } from '@shared/lib/ipc/sessionpage-identity-contract';
 
 function memoryLink(host: FrameSessionHost, policy?: FrameInvokePolicy) {
   const serverSockets: Array<{ drop(): void }> = [];
@@ -258,8 +258,8 @@ describe('FrameSessionHost over a device-shaped link', () => {
     expect(disconnected).toBe(true);
   });
 
-  // #6264 会话开户 / agent 改名:壳主进程播给本机窗口的同时经这里推给别的电脑 —— 没有窗口的 server 上
-  // 这是唯一的出口,少了它别的电脑上那条会话的身份卡一直写「未分配」。
+  // #6264 会话开户:壳主进程播给本机窗口的同时经这里推给别的电脑 —— 没有窗口的 server 上
+  // 这是唯一的出口,少了它别的电脑上那条会话一直认不出背后的 agent。
   it('pushes the shell identity events to desktops watching this machine', async () => {
     const host = installDeviceSessionHost({ appVersion: () => '9.9.9' });
     const link = memoryLink(host);
@@ -270,7 +270,6 @@ describe('FrameSessionHost over a device-shaped link', () => {
     await flush();
     const event = { conversationId: 'conv-d22-1', agentUserId: 'agent-d22-uuid', displayName: 'Codex 8' };
     broadcastDeviceSessionHostEvent(sessionpageAgentProvisionedEvent.name, event);
-    broadcastDeviceSessionHostEvent(sessionpageAgentRenamedEvent.name, event);
     await flush();
     expect(got).toEqual([event]);
   });

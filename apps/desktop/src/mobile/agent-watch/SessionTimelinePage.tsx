@@ -8,7 +8,6 @@ import { PhoneTaskSkills } from '../local-agent/PhoneTaskSkillsButton'
 import type { Device } from '@gugu/core/shared/types/chat'
 import { isAgentHostDevice, isPhoneDevice } from '@gugu/core/cloud/devices'
 import type { SessionpageSessionSummary } from '@gugu/session-core/session-record/contract'
-import type { SessionShellAgentName } from '@/session/shared/lib/ipc/shell-port'
 import { Button } from '@/components/ui/Button'
 import { useBackLayer } from '@/components/ui/sheetStack'
 import { IconButton } from '@/components/ui/IconButton'
@@ -55,7 +54,6 @@ function useSessionApps(): Array<{ kind: string; name: string }> {
 export const SessionTimelinePage = observer(function SessionTimelinePage({
   device,
   session,
-  agent,
   firstPrompt,
   draft,
   initialAppKind,
@@ -63,8 +61,6 @@ export const SessionTimelinePage = observer(function SessionTimelinePage({
 }: {
   device: Device
   session: SessionpageSessionSummary
-  /** 这条会话背后的 agent;还没有身份就不给。 */
-  agent?: SessionShellAgentName | undefined
   /** 刚从新建页建成:建它时带的那句(新建页上已经画着),这一页接着画,❌ 换页时让它消失。 */
   firstPrompt?: string
   draft?: { text: string }
@@ -107,28 +103,24 @@ export const SessionTimelinePage = observer(function SessionTimelinePage({
   const attention = deriveAttention(timeline)
   // Identified agents share the group/avatar reading; transport only governs timeline access.
   const shownStatus = useShownAgentStatus()
-  const agentUserId = agent?.agentUserId ?? session.agent?.userId
+  const agentUserId = session.agent?.userId
   const presentation = !agentUserId && !online ? null
     : shownStatus.presentation(agentUserId, sessionPresentation(session, online, agentUserId))
   const statusColor = presentation ? agentStatusColorVar(presentation.tone) : null
   const statusStyle: CSSProperties | undefined = statusColor ? { color: statusColor } : undefined
-  const distinctAgentName = agent && agent.displayName !== session.title ? agent.displayName : null
+  // The task's one name is its agent's name: the header says it once.
   const taskHeader = {
-    title: agent && !distinctAgentName ? <span data-testid="agent-watch-agent-name">{session.title}</span> : session.title,
+    title: session.title,
     titleLeading: (
       <span className="gg-aw-title-avatar">
-        <SessionAvatar agentId={agent?.agentUserId ?? session.agent?.userId} sessionId={session.conversationId} presentation={presentation} />
+        <SessionAvatar agentId={agentUserId} sessionId={session.conversationId} presentation={presentation} />
       </span>
     ),
-    subtitle: distinctAgentName || presentation ? (
+    subtitle: presentation ? (
       <span className="gg-aw-head-status">
-        {distinctAgentName ? <span className="gg-aw-head-agent" data-testid="agent-watch-agent-name">{distinctAgentName}</span> : null}
-        {distinctAgentName && presentation ? <span aria-hidden="true">·</span> : null}
-        {presentation ? (
-          <span className="gg-aw-head-state" data-testid="agent-watch-session-status" data-tone={presentation.tone} data-emphasis={presentation.emphasis ? 'true' : undefined} style={statusStyle}>
-            {agentStatusText(presentation.label)}
-          </span>
-        ) : null}
+        <span className="gg-aw-head-state" data-testid="agent-watch-session-status" data-tone={presentation.tone} data-emphasis={presentation.emphasis ? 'true' : undefined} style={statusStyle}>
+          {agentStatusText(presentation.label)}
+        </span>
       </span>
     ) : undefined,
     headerTestId: 'agent-watch-hero',
@@ -230,8 +222,8 @@ export const SessionTimelinePage = observer(function SessionTimelinePage({
           缓存里有东西时那是白藏 —— 错误已经在上面那条说明里说清楚了,内容照常给。 */}
       {(
         <SessionConversation
-          agentName={agent?.displayName ?? session.title}
-          agentUserId={agent?.agentUserId ?? session.agent?.userId}
+          agentName={session.title}
+          agentUserId={agentUserId}
           timeline={conversation}
           deviceId={device.device_id}
           sessionId={session.conversationId}

@@ -2,7 +2,7 @@ import { observable, runInAction } from 'mobx';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SessionpageSessionSummary } from '@gugu/session-core/session-record/contract';
 import { sessionRegistry } from '@renderer/features/sessions/stores/session-registry';
-import { sessionAgentNames } from '@renderer/features/sessions/stores/session-agent-names';
+import { sessionAgentBindings } from '@renderer/features/sessions/stores/session-agent-bindings';
 import { IMPLICIT_SESSION_HOME_PROJECT_ID } from '@renderer/features/sessions/session-home-project-constants';
 import { events } from '@renderer/lib/ipc';
 import { sessionCreatedChannel } from '@shared/core/sessions/sessionEvents';
@@ -510,7 +510,7 @@ describe('SidebarStore project ordering', () => {
     });
     const records = [record('own'), record('executor', 'own'), record('grandchild', 'executor'), record('other')];
     for (const record of records) sessionRegistry.acquire(record.id, home, [record]);
-    const identity = vi.spyOn(sessionAgentNames, 'identityFor').mockImplementation((id) =>
+    const identity = vi.spyOn(sessionAgentBindings, 'bindingFor').mockImplementation((id) =>
       id === 'own' ? { agentUserId: 'assistant', displayName: 'renamed assistant' } : undefined);
     try {
       const manager = projectManagerWithSessions([

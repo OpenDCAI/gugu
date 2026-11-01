@@ -28,6 +28,11 @@ vi.mock('@main/core/sessions/impl/harness-availability', () => ({
 }));
 
 import { createSession } from '@main/core/sessions/operations/createSession';
+import { setTaskNamer } from '../sessions/task-name';
+
+// Sessions are named at creation by the host's namer (task-name.ts); number defaults per provider.
+beforeEach(() => setTaskNamer({ defaultName: async (provider, taken) => `${provider} ${taken.length + 1}`, renameBound: async () => { throw new Error("no identities in this test") } }));
+afterEach(() => setTaskNamer(null));
 
 const NATIVE_SESSION_ID = '019fa62b-9ddb-7373-a1b8-807548106894';
 

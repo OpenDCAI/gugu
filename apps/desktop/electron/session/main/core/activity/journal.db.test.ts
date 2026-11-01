@@ -34,9 +34,9 @@ describe('activity journal: real SQLite, no transcript storage or reader', () =>
   });
   it('reads current session titles separately from immutable events, without retaining deleted titles', () => {
     fixture.sqlite.exec(`INSERT INTO projects (id, name, path, created_at, updated_at) VALUES ('p1', 'P1', '/p1', 0, 0);
-      INSERT INTO sessions (id, project_id, title) VALUES ('s1', 'p1', 'Old title');`);
+      INSERT INTO sessions (id, project_id, config) VALUES ('s1', 'p1', json_object('version', '1', 'type', 'pty', 'agentDisplayName', 'Old title'));`);
     journal.append(event('created'));
-    fixture.sqlite.exec(`UPDATE sessions SET title = '新名称' WHERE id = 's1'`);
+    fixture.sqlite.exec(`UPDATE sessions SET config = json_set(config, '$.agentDisplayName', '新名称') WHERE id = 's1'`);
     const current = journal.list({ since, until });
     expect(current.session_titles).toEqual({ s1: '新名称' });
     expect(current.events[0]).not.toHaveProperty('title');
@@ -92,7 +92,7 @@ describe('activity journal: real SQLite, no transcript storage or reader', () =>
   });
   it('does not depend on session or message rows remaining present, and enforces half-open time windows', () => {
     fixture.sqlite.exec(`INSERT INTO projects (id, name, path, created_at, updated_at) VALUES ('p1', 'P1', '/p1', 0, 0);
-      INSERT INTO sessions (id, project_id, title) VALUES ('s1', 'p1', 'one');
+      INSERT INTO sessions (id, project_id, config) VALUES ('s1', 'p1', json_object('version', '1', 'type', 'pty', 'agentDisplayName', 'one'));
       DELETE FROM sessions;`);
     journal.append(event('start', { occurred_at: Date.parse(since) }));
     journal.append(event('end', { occurred_at: Date.parse(until) }));
@@ -111,7 +111,7 @@ describe('activity journal: the project comes from the subject', () => {
   beforeEach(() => {
     fixture.sqlite.exec(`
       INSERT INTO projects (id, name, path, created_at, updated_at) VALUES ('p1', 'P1', '/p1', 0, 0), ('p2', 'P2', '/p2', 0, 0);
-      INSERT INTO sessions (id, project_id, title) VALUES ('s1', 'p1', 'one'), ('s2', 'p2', 'two');
+      INSERT INTO sessions (id, project_id, config) VALUES ('s1', 'p1', json_object('version', '1', 'type', 'pty', 'agentDisplayName', 'one')), ('s2', 'p2', json_object('version', '1', 'type', 'pty', 'agentDisplayName', 'two'));
       INSERT INTO automations (id, name, project_id, trigger_config, agent_config, enabled, created_at, updated_at)
         VALUES ('a1', 'Daily', 'p2', '{"expr":"0 9 * * *","tz":"UTC"}', '{"prompt":"x","provider":"claude","autoApprove":true}', 1, 0, 0);
       INSERT INTO automation_runs (id, automation_id, status, trigger_kind) VALUES ('r1', 'a1', 'queued', 'cron');
@@ -136,7 +136,7 @@ describe('activity journal: the project comes from the subject', () => {
   it('places a session created after the journal started, by any path, in its project', () => {
     // A trigger on sessions records the project. The fixture runs every migration to head, so a later migration that
     // rebuilds the sessions table (and drops its triggers with it) fails here.
-    fixture.sqlite.exec(`INSERT INTO sessions (id, project_id, title) VALUES ('s3', 'p2', 'forked outside the app')`);
+    fixture.sqlite.exec(`INSERT INTO sessions (id, project_id, config) VALUES ('s3', 'p2', json_object('version', '1', 'type', 'pty', 'agentDisplayName', 'forked outside the app'))`);
     journal.append(about('late', 'session.renamed', { session_id: 's3' }));
     expect(ids('p2')).toEqual(['late']);
   });

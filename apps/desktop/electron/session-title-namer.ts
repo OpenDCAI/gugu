@@ -59,7 +59,7 @@ export interface SessionTitleNamerDeps {
   /** 这条会话的标题此刻是不是首轮兜底,以及它的首轮。 */
   titleState: (sessionId: string) => { fallback: boolean; firstUtterance: string | undefined }
   /** 落名;返回 false = 这一刻已经有别的名(人改的 / harness 起的),不收。 */
-  applyTitle: (sessionId: string, title: string) => boolean
+  applyTitle: (sessionId: string, title: string) => Promise<boolean>
   now?: () => number
 }
 
@@ -186,7 +186,7 @@ export function createSessionTitleNamer(deps: SessionTitleNamerDeps) {
         log.warn({ sessionId, model, contentLength: contentText(payload)?.length ?? null }, 'session title: the model did not return a usable name')
         return 'unusable'
       }
-      const applied = deps.applyTitle(sessionId, title)
+      const applied = await deps.applyTitle(sessionId, title)
       log.info({ sessionId, model, applied, elapsedMs: now() - startedAt }, 'session title: generated')
       return applied ? 'named' : 'superseded'
     } catch (error) {

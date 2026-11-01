@@ -174,6 +174,11 @@ import {
   describeOutsideWorkspace,
   describePageOutsideWorkspace,
 } from '../session-timeline/remote-pane';
+import { setTaskNamer } from './task-name';
+
+// Sessions are named at creation by the host's namer (task-name.ts); number defaults per provider.
+beforeEach(() => setTaskNamer({ defaultName: async (provider, taken) => `${provider} ${taken.length + 1}`, renameBound: async () => { throw new Error("no identities in this test") } }));
+afterEach(() => setTaskNamer(null));
 
 function deferred<T>() {
   let resolve!: (value: T | PromiseLike<T>) => void;
@@ -270,8 +275,8 @@ describe('session orchestration', () => {
       INSERT INTO projects (id, name, path) VALUES ('project-2', 'Project 2', '/other');
       INSERT INTO workspaces (id, type, path) VALUES ('workspace-1', 'local', '/repo/ws-1');
       INSERT INTO workspaces (id, type, path) VALUES ('workspace-2', 'local', '/repo/ws-2');
-      INSERT INTO sessions (id, project_id, workspace_id, title, provider, runtime)
-        VALUES ('caller', 'project-1', 'workspace-1', 'Caller', 'codex', 'acp');
+      INSERT INTO sessions (id, project_id, workspace_id, provider, runtime, config)
+        VALUES ('caller', 'project-1', 'workspace-1', 'codex', 'acp', json_object('version', '1', 'type', 'acp', 'agentDisplayName', 'Caller'));
     `);
     mount('caller');
   });
@@ -287,10 +292,10 @@ describe('session orchestration', () => {
   /** 这条会话的标题与「显式命名过的那个名字」——后者只在 config 上,前者两种来源同形。 */
   function namedRow(sessionId: string) {
     const row = fixture.sqlite.prepare(
-      `SELECT title, config FROM sessions WHERE id = ?`
-    ).get(sessionId) as { title: string; config: string | null };
+      `SELECT config FROM sessions WHERE id = ?`
+    ).get(sessionId) as { config: string | null };
     const config = row.config ? (JSON.parse(row.config) as { agentDisplayName?: string }) : {};
-    return { title: row.title, agentDisplayName: config.agentDisplayName };
+    return { agentDisplayName: config.agentDisplayName };
   }
 
   /** The envelope the last ACP child was started with — its delegation travels in the start (#6497). */
@@ -364,9 +369,10 @@ describe('session orchestration', () => {
   ): void {
     fixture.sqlite
       .prepare(
-        `INSERT INTO sessions (id, project_id, workspace_id, title, provider, runtime, agent_status,
-           spawned_by_session_id, parent_session_id)
-         VALUES (?, 'project-1', 'workspace-1', 'Terminal child', 'claude', 'pty', ?, 'caller', ?)`
+        `INSERT INTO sessions (id, project_id, workspace_id, provider, runtime, agent_status,
+           spawned_by_session_id, parent_session_id, config)
+         VALUES (?, 'project-1', 'workspace-1', 'claude', 'pty', ?, 'caller', ?,
+           json_object('version', '1', 'type', 'pty', 'agentDisplayName', 'Terminal child'))`
       )
       .run(id, status, parentSessionId);
     mount(id);
@@ -427,10 +433,10 @@ describe('session orchestration', () => {
     const app = { keyScope: 'app:lens' };
     beforeEach(() => {
       fixture.sqlite.exec(`
-        INSERT INTO sessions (id, project_id, workspace_id, title, provider, runtime)
-          VALUES ('peer', 'project-1', 'workspace-1', 'Peer', 'codex', 'acp');
-        INSERT INTO sessions (id, project_id, workspace_id, title, provider, runtime)
-          VALUES ('term', 'project-1', 'workspace-1', 'Term', 'codex', 'pty');
+        INSERT INTO sessions (id, project_id, workspace_id, provider, runtime, config)
+          VALUES ('peer', 'project-1', 'workspace-1', 'codex', 'acp', json_object('version', '1', 'type', 'acp', 'agentDisplayName', 'Peer'));
+        INSERT INTO sessions (id, project_id, workspace_id, provider, runtime, config)
+          VALUES ('term', 'project-1', 'workspace-1', 'codex', 'pty', json_object('version', '1', 'type', 'pty', 'agentDisplayName', 'Term'));
       `);
       mocks.sendMessage.mockImplementation(async (params: { clientMessageId: string }) => ({ id: params.clientMessageId, status: 'delivered' }));
     });
@@ -961,8 +967,8 @@ describe('session orchestration', () => {
     it('stops the exact PTY conversation through its mount', async () => {
       fixture.sqlite
         .prepare(
-          `INSERT INTO sessions (id, project_id, workspace_id, title, provider, runtime)
-           VALUES ('pty-exact', 'project-1', 'workspace-1', 'PTY exact', 'claude', 'pty')`
+          `INSERT INTO sessions (id, project_id, workspace_id, provider, runtime, config)
+           VALUES ('pty-exact', 'project-1', 'workspace-1', 'claude', 'pty', json_object('version', '1', 'type', 'pty', 'agentDisplayName', 'PTY exact'))`
         )
         .run();
       mount('pty-exact');
@@ -982,8 +988,8 @@ describe('session orchestration', () => {
       beforeEach(() => {
         fixture.sqlite
           .prepare(
-            `INSERT INTO sessions (id, project_id, workspace_id, title, provider, runtime)
-             VALUES ('pty-cold', 'project-1', 'workspace-1', 'PTY cold', 'claude', 'pty')`
+            `INSERT INTO sessions (id, project_id, workspace_id, provider, runtime, config)
+             VALUES ('pty-cold', 'project-1', 'workspace-1', 'claude', 'pty', json_object('version', '1', 'type', 'pty', 'agentDisplayName', 'PTY cold'))`
           )
           .run();
         mocks.openProjects = new Set(['project-1']);
@@ -1447,10 +1453,9 @@ describe('session orchestration', () => {
     });
   });
 
-  // spec session-graph:`title` 是这个 child 的名字,不只是会话页那一行的标题 —— 显式给了就落在会话上,
-  // 由 agent-provisioning 在 session start 当成它在通讯录里的显示名。这里守的是**显式这条事实**本身:
-  // 标题的两种来源(显式 / 从首轮推出来)在 `sessions.title` 上已经同形,只有这一格分得开。
-  it('records an explicit spawn title as the child agent name, and records nothing when it is derived', async () => {
+  // spec session-graph:`title` 是这个 child 的名字(task-name.ts 的那一个名字)—— 显式给了就落在会话上,
+  // 由 agent-provisioning 在 session start 当成它在通讯录里的显示名。
+  it('records an explicit spawn title as the child agent name, and the engine default when none is given', async () => {
     const named = (await runSessionAction(context, {
       action: 'spawn',
       prompt: 'Implement the parser.',
@@ -1461,13 +1466,11 @@ describe('session orchestration', () => {
       prompt: 'Implement the parser.',
     })) as { session_id: string };
 
-    expect(namedRow(named.session_id)).toEqual({ title: '小弟', agentDisplayName: '小弟' });
-    // 反例对照:没显式给名字时标题照旧从首轮推出来,而名字那一格必须是空的 —— 否则一整行提示词
-    // 会被 provisioning 当成人名开户。
-    expect(namedRow(derived.session_id)).toEqual({
-      title: 'Implement the parser.',
-      agentDisplayName: undefined,
-    });
+    expect(namedRow(named.session_id)).toEqual({ agentDisplayName: '小弟' });
+    // 没显式给名字 ⇒ 创建时就拿引擎默认名(task-name.ts),❌ 绝不拿首轮那一整行提示词当人名。
+    const unnamed = namedRow(derived.session_id);
+    expect(unnamed.agentDisplayName).toMatch(/ \d+$/);
+    expect(unnamed.agentDisplayName).not.toContain('Implement the parser');
   });
 
   // #4280 —— 发信人展示名只认**显式**命名过的那个(spec session-graph:命名即寻址名)。
@@ -1475,11 +1478,8 @@ describe('session orchestration', () => {
   // (真机实测撞过:`from` 变成了「Call the session_spawn tool exactly once…」)。
   it('shows the explicit sender name and never the title derived from the first prompt line', async () => {
     fixture.sqlite.prepare(
-      `UPDATE sessions SET title = ?, config = ? WHERE id = 'caller'`,
-    ).run(
-      'Call the session_spawn tool exactly once with title …',
-      JSON.stringify({ version: '1', type: 'acp', agentDisplayName: '分析甲' }),
-    );
+      `UPDATE sessions SET config = ? WHERE id = 'caller'`,
+    ).run(JSON.stringify({ version: '1', type: 'acp', agentDisplayName: '分析甲' }));
     const child = (await runSessionAction(context, {
       action: 'spawn',
       prompt: 'delegated work',
@@ -1491,10 +1491,10 @@ describe('session orchestration', () => {
   });
 
   // #6335 —— 身份一时查不到、也没显式命名时,发信人退回这一家的名字,❌ 不留空让收信方只剩 session:<uuid>。
-  it('falls back to the agent family name when the sender has no identity name yet', async () => {
+  it('names an unbound sender by its pending-bind name, the one name it was created with', async () => {
     await runSessionAction(context, { action: 'spawn', prompt: 'delegated work' });
     const envelope = lastAcpDelegationEnvelope();
-    expect(envelope).toContain('from="Codex"');
+    expect(envelope).toContain('from="Caller"');
   });
 
   it('returns live tab hygiene from the renderer acknowledgement for every target', async () => {
@@ -1782,7 +1782,7 @@ describe('session orchestration', () => {
 
   it('chooses a local parent independently of the spawner and project before starting', async () => {
     project2Root();
-    fixture.sqlite.prepare("INSERT INTO sessions (id, project_id, title, runtime) VALUES ('chosen-parent', 'project-1', 'Parent', 'acp')").run();
+    fixture.sqlite.prepare("INSERT INTO sessions (id, project_id, runtime, config) VALUES ('chosen-parent', 'project-1', 'acp', json_object('version', '1', 'type', 'acp', 'agentDisplayName', 'Parent'))").run();
     const child = await runSessionAction(context, {
       action: 'spawn', prompt: 'Work elsewhere.', project_id: 'project-2', parent_session_id: 'chosen-parent',
     }) as { session_id: string; parent_session_id: string | null };
@@ -1926,7 +1926,7 @@ describe('session orchestration', () => {
     insertPtyChild('pty-child', 'working', 'caller');
     fixture.sqlite
       .prepare('UPDATE sessions SET config = ? WHERE id = ?')
-      .run(JSON.stringify({ version: '1', type: 'pty' }), 'pty-child');
+      .run(JSON.stringify({ version: '1', type: 'pty', agentDisplayName: 'Terminal child' }), 'pty-child');
 
     await expect(
       runSessionAction(context, { action: 'get', session_id: 'pty-child' })
@@ -1985,7 +1985,7 @@ describe('session orchestration', () => {
     insertPtyChild('pty-child', 'working', 'caller');
     fixture.sqlite
       .prepare('UPDATE sessions SET config = ? WHERE id = ?')
-      .run(JSON.stringify({ version: '1', type: 'pty', spawnStartupState: 'starting' }), 'pty-child');
+      .run(JSON.stringify({ version: '1', type: 'pty', agentDisplayName: 'Terminal child', spawnStartupState: 'starting' }), 'pty-child');
     await expect(
       runSessionAction(context, { action: 'get', session_id: 'pty-child' })
     ).resolves.toEqual(expect.objectContaining({ status: 'starting' }));
@@ -2082,8 +2082,8 @@ describe('session orchestration', () => {
     })) as { session_id: string };
     fixture.sqlite
       .prepare(
-        `INSERT INTO sessions (id, project_id, workspace_id, title, provider, runtime)
-         VALUES ('unrelated', 'project-1', 'workspace-1', 'Unrelated', 'codex', 'acp')`
+        `INSERT INTO sessions (id, project_id, workspace_id, provider, runtime, config)
+         VALUES ('unrelated', 'project-1', 'workspace-1', 'codex', 'acp', json_object('version', '1', 'type', 'acp', 'agentDisplayName', 'Unrelated'))`
       )
       .run();
 
@@ -2174,13 +2174,13 @@ describe('session_set_parent', () => {
     workspaceId: 'workspace-1',
   };
 
-  function seed(id: string, parent: string | null, spawnedBy: string | null = null, config: unknown = null) {
+  function seed(id: string, parent: string | null, spawnedBy: string | null = null, config: Record<string, unknown> | null = null) {
     fixture.sqlite
       .prepare(
-        `INSERT INTO sessions (id, project_id, workspace_id, title, provider, runtime, parent_session_id, spawned_by_session_id, config)
-         VALUES (?, 'project-1', 'workspace-1', ?, 'codex', 'acp', ?, ?, ?)`
+        `INSERT INTO sessions (id, project_id, workspace_id, provider, runtime, parent_session_id, spawned_by_session_id, config)
+         VALUES (?, 'project-1', 'workspace-1', 'codex', 'acp', ?, ?, ?)`
       )
-      .run(id, `Session ${id}`, parent, spawnedBy, config === null ? null : JSON.stringify(config));
+      .run(id, parent, spawnedBy, JSON.stringify({ version: '1', type: 'acp', agentDisplayName: `Session ${id}`, ...(config ?? {}) }));
   }
 
   function edges(id: string) {
@@ -2295,10 +2295,10 @@ describe('session_archive', () => {
   function seedChild(id: string, spawnedBy = 'caller') {
     fixture.sqlite
       .prepare(
-        `INSERT INTO sessions (id, project_id, workspace_id, title, provider, runtime, parent_session_id, spawned_by_session_id)
-         VALUES (?, 'project-1', 'workspace-1', ?, 'claude', 'acp', ?, ?)`
+        `INSERT INTO sessions (id, project_id, workspace_id, provider, runtime, parent_session_id, spawned_by_session_id, config)
+         VALUES (?, 'project-1', 'workspace-1', 'claude', 'acp', ?, ?, ?)`
       )
-      .run(id, `Child ${id}`, spawnedBy, spawnedBy);
+      .run(id, spawnedBy, spawnedBy, JSON.stringify({ version: '1', type: 'acp', agentDisplayName: `Child ${id}` }));
   }
 
   function archivedAt(id: string): string | null {
@@ -2379,8 +2379,8 @@ describe('session_archive', () => {
   it('archives a session in the project it did not spawn, but never itself', async () => {
     fixture.sqlite
       .prepare(
-        `INSERT INTO sessions (id, project_id, workspace_id, title, provider, runtime)
-         VALUES ('stranger', 'project-1', 'workspace-1', 'Stranger', 'claude', 'acp')`
+        `INSERT INTO sessions (id, project_id, workspace_id, provider, runtime, config)
+         VALUES ('stranger', 'project-1', 'workspace-1', 'claude', 'acp', json_object('version', '1', 'type', 'acp', 'agentDisplayName', 'Stranger'))`
       )
       .run();
     seedChild('sibling', 'stranger');
@@ -2406,8 +2406,8 @@ describe('session_archive', () => {
   it('reaches a session in another project on this machine', async () => {
     fixture.sqlite
       .prepare(
-        `INSERT INTO sessions (id, project_id, title, provider, runtime)
-         VALUES ('elsewhere', 'project-2', 'Elsewhere', 'claude', 'acp')`
+        `INSERT INTO sessions (id, project_id, provider, runtime, config)
+         VALUES ('elsewhere', 'project-2', 'claude', 'acp', json_object('version', '1', 'type', 'acp', 'agentDisplayName', 'Elsewhere'))`
       )
       .run();
     await expect(
@@ -2499,8 +2499,8 @@ describe('schedule_list / schedule_cancel with session_id', () => {
 
   async function seedArchivedWithSchedule(): Promise<string> {
     fixture.sqlite
-      .prepare(`INSERT INTO sessions (id, project_id, workspace_id, title, provider, runtime, archived_at)
-                VALUES ('patrol', 'project-1', 'workspace-1', 'Patrol', 'codex', 'acp', '2026-10-31T21:36:10.836Z')`)
+      .prepare(`INSERT INTO sessions (id, project_id, workspace_id, provider, runtime, config, archived_at)
+                VALUES ('patrol', 'project-1', 'workspace-1', 'codex', 'acp', '{"version":"1","type":"acp","agentDisplayName":"Patrol"}', '2026-10-31T21:36:10.836Z')`)
       .run();
     const { runAgentScheduleAction } = await import('../automations/agent-schedules');
     const created = await runAgentScheduleAction(

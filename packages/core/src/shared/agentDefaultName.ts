@@ -13,6 +13,7 @@
  * The server is the authority: identity.provision_taskpage_agent lifts a candidate that is below its
  * record. A correct `floor` just means the name a session starts with is the name it keeps.
  */
+import { coreLogger } from '../log'
 export type OwnedAgentLike = { display_name: string }
 
 function escapeRegExp(text: string): string {
@@ -84,7 +85,7 @@ export async function resolveAgentDefaultName(
     ...(owned.status === 'rejected' ? [['owned-agents list → caller snapshot', owned.reason]] : []),
     ...(floor.status === 'rejected' ? [['serial floor → 0, numbering from the names alone', floor.reason]] : []),
   ]
-  if (failed.length > 0) console.warn('[agent-default-name] fetch failed; falling back', failed)
+  if (failed.length > 0) coreLogger('agent-default-name').warn({ failed: failed.map(([what, reason]) => [what, String(reason)]) }, 'fetch failed; falling back')
   return nextAgentDefaultName(
     owned.status === 'fulfilled' ? owned.value : fallbackOwned,
     label,

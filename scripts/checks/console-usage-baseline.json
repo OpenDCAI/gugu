@@ -151,11 +151,6 @@
   },
   {
     "rule": "console-member",
-    "file": "apps/desktop/src/lib/agentDefaultName.ts",
-    "count": 1
-  },
-  {
-    "rule": "console-member",
     "file": "apps/desktop/src/lib/chatMessageRevalidation.ts",
     "count": 2
   },

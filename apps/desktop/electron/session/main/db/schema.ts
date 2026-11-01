@@ -388,7 +388,8 @@ export const sessions = sqliteTable(
     projectId: text('project_id')
       .notNull()
       .references(() => projects.id, { onDelete: 'cascade' }),
-    title: text('title').notNull(),
+    /** Read only by the previous release after a rollback (0043 @@@rollback-title); dropped next release. */
+    legacyTitle: text('title').notNull().default(''),
     provider: text('provider'),
     config: versionedJsonColumn(sessionConfig)('config'),
     createdAt: text('created_at')

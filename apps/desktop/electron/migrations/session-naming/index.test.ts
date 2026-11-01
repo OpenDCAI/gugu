@@ -70,10 +70,10 @@ function seedDatabase(db: Database.Database) {
   setting.run('sessions', json({ autoGenerateName: false }))
   db.prepare('INSERT INTO project_settings (project_id, base_project_settings_json) VALUES (?, ?)')
     .run('p1', json({ autoRunSetupScriptOnTaskCreation: false, autoRunRunScriptOnTaskCreation: true, worktreeDirectory: '/w' }))
-  const session = db.prepare('INSERT INTO sessions (id, project_id, title, config) VALUES (?, ?, ?, ?)')
-  session.run('s1', 'p1', 'One', json({ version: '1', type: 'pty', forkedFrom: { conversationId: 's0', title: 'Zero' }, startupOrigin: 'task-page' }))
-  session.run('s2', 'p1', 'Two', null)
-  session.run('s3', 'p1', 'Three', json({ version: '1', type: 'acp', startupOrigin: 'chat-page' }))
+  const session = db.prepare('INSERT INTO sessions (id, project_id, config) VALUES (?, ?, ?)')
+  session.run('s1', 'p1', json({ version: '1', type: 'pty', forkedFrom: { conversationId: 's0', title: 'Zero' }, startupOrigin: 'task-page' }))
+  session.run('s2', 'p1', null)
+  session.run('s3', 'p1', json({ version: '1', type: 'acp', startupOrigin: 'chat-page' }))
   const stored = json({
     version: '1',
     taskConfig: { version: '1', name: 'daily', initialConversation: { id: 'x', provider: 'claude', startupOrigin: 'task-page' } },

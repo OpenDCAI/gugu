@@ -1,7 +1,7 @@
 import { Clock, FolderInput, History, SquarePen } from '@/lib/icons'
 import { observer } from 'mobx-react-lite';
 import React from 'react';
-import { sessionAgentNames } from '@renderer/features/sessions/stores/session-agent-names';
+import { sessionAgentBindings } from '@renderer/features/sessions/stores/session-agent-bindings';
 import { remoteHostsStore } from '@renderer/features/remote-hosts/remote-hosts-store';
 import { useAssistantShell } from '@renderer/features/assistant/assistant-shell';
 import { localHomeSessions } from '@renderer/features/assistant/assistant-home-sessions';
@@ -55,7 +55,7 @@ export const LeftSidebar: React.FC = observer(function LeftSidebar() {
   // #5818 侧栏每一行 hover 要说「这一行是哪个 agent」:本机花名册整份读一次,之后靠 provisioned /
   // renamed 两条既有事件增量更新。要这张表的就是侧栏,所以由它点火;start() 幂等,收起再展开不重读。
   React.useEffect(() => {
-    sessionAgentNames.start();
+    sessionAgentBindings.start();
   }, []);
 
   // #6264 别的机器上的项目与本机项目混排在「项目」分区里(按 Zed):侧栏挂上就开始跟那些机器的会话列表。

@@ -13,11 +13,14 @@ import type {
   SessionShellAgentAddressInput,
   SessionShellAgentCard,
   SessionShellAgentName,
-  SessionShellRenameAgentInput,
   SessionShellPeer,
 } from '../../src/session/shared/lib/ipc/shell-port'
 import { localAgentForSession } from './sessionpage-session-agent'
-import { listAgents, provisionSessionpageAgentOneTrip } from '@gugu/core'
+import { listAgents, provisionSessionpageAgentOneTrip, writeAgentName } from '@gugu/core'
+import { agentsForOwner } from '@gugu/core/local/state/agentOwner'
+import { createLogger } from '../lib/logger'
+
+const log = createLogger('sessionpage/task-names')
 import { electronFetch, makeIdentityClient } from '../supabase'
 import {
   SESSION_CACHE_KEY,
@@ -27,6 +30,7 @@ import {
   type ProvisionedSessionpageAgent,
   type SessionpageProvisionDeps,
   type SessionpageSessionInfo,
+  defaultTaskAgentName,
 } from './emdash-agent-provisioning'
 import { resolveSessionpageAgentCard } from './sessionpage-agent-card'
 import { resolveSessionpageSessionPeers } from './session-addressing'
@@ -75,16 +79,18 @@ export interface SessionpageSessionStartFacts {
 
 export interface SessionpageIdentityHost extends SessionIdentityHost {
   readonly provisionDeps: SessionpageProvisionDeps
+  /** The default name a new task is created with on this host (task-name.ts `TaskNamer`). */
+  defaultTaskName(providerId: string, taken: readonly string[]): Promise<string>
+  /** Rename a bound session's identity locally first, then publish it (task-name.ts `TaskNamer`). */
+  renameBound(sessionId: string, agentUserId: string, name: string): Promise<void>
+  /** Publish every pending local name of the signed-in owner's agents. */
+  publishPendingNames(): Promise<void>
+  /** Take the cloud names of the owner's bound agents (renamed on another device); pending local names win. */
+  adoptCloudNames(): Promise<void>
   agentCard(sessionId: string): Promise<SessionShellAgentCard | null>
   /** 侧栏身份卡要的那张表:本机名册(session_peers)的投影。 */
   agentNames(): Promise<SessionShellAgentName[]>
   sessionPeers(sessionId?: string): Promise<SessionShellPeer[]>
-  /**
-   * 改这条会话的 agent 名(#6091)。云端 identity.users.display_name 是显示真源；本机花名册只同步运行时需要的
-   * 本地元数据，云端认了才跟上。
-   * 只改自己名下的 agent;没身份 / 不归当前账号 / 空名 / 云端拒绝 → 抛,❌ 静默改一半。
-   */
-  renameAgent(input: SessionShellRenameAgentInput): Promise<SessionShellAgentName>
   /** 「这条会话的地址是什么」—— 与桌面版 `sessionpage:ensure-agent-address` 同一条逻辑,逐字搬来。 */
   ensureAgentAddress(input: SessionShellAgentAddressInput): Promise<SessionShellAgentAddress>
   /** 会话启动即开账号(幂等,按 conversationId 收敛);运行时分叉 / 不可寻址的引擎返回 null。 */
@@ -136,6 +142,45 @@ export function createSessionpageIdentityHost(deps: SessionpageIdentityHostDeps)
     },
     env,
   }
+  /**
+   * Publish an agent's pending local name to its cloud identity. Offline / transient answers keep it
+   * pending (publishPendingNames retries when the backend answers again). A refusal (not owned, not
+   * authorized, invalid) cannot change by retrying: the local name is dropped for the cloud's, loudly.
+   */
+  const publishName = async (agentUserId: string): Promise<void> => {
+    const auth = await deps.getAuth()
+    if (!auth) return
+    const agent = (await listAgents(env, { includeGuests: true })).find((row) => row.gugu_user_id === agentUserId)
+    if (!agent || agent.cache?.name_pending !== true) return
+    const client = makeIdentityClient(auth.accessToken)
+    const { data, error, status } = await client.from('users')
+      .update({ display_name: agent.name })
+      .eq('id', agentUserId).eq('type', 'agent').eq('owner_user_id', auth.userId)
+      .select('display_name').maybeSingle()
+    const transient = !status || status >= 500 || [401, 408, 429].includes(status)
+    if (error && transient) {
+      log.warn({ agentUserId, status, error: error.message }, 'Task name publish deferred; it stays pending on this device')
+      return
+    }
+    if (error || !data) {
+      log.error({ agentUserId, status, error: error?.message ?? 'not owned' }, 'Task name refused by the backend; adopting the cloud name')
+      const cloud = await client.from('users').select('display_name').eq('id', agentUserId).maybeSingle()
+      const cloudName = typeof cloud.data?.display_name === 'string' ? cloud.data.display_name : ''
+      if (!cloudName) throw new Error(`Task name for ${agentUserId} was refused and its cloud name cannot be read`)
+      await writeAgentName(agentUserId, agent.name, 'published', env)
+      await writeAgentName(agentUserId, cloudName, 'cloud', env)
+      return
+    }
+    await writeAgentName(agentUserId, agent.name, 'published', env)
+    if (data.display_name !== agent.name) await writeAgentName(agentUserId, data.display_name, 'cloud', env)
+  }
+
+  // Local first: the roster is this device's mirror of the identity name, pending until published.
+  const renameBound = async (agentUserId: string, name: string): Promise<void> => {
+    await writeAgentName(agentUserId, name, 'local', env)
+    await publishName(agentUserId)
+  }
+
   return {
     provisionDeps,
     async archive(sessionId, confirmedRemoval) {
@@ -172,6 +217,9 @@ export function createSessionpageIdentityHost(deps: SessionpageIdentityHostDeps)
         throw new Error('Restoring this task requires a new identity')
       }
     },
+    async defaultTaskName(providerId, taken) {
+      return defaultTaskAgentName(providerId, taken, (await deps.getAuth())?.userId ?? null, env)
+    },
     async agentCard(sessionId) {
       // 名片按当下登录的账号解析(#4277):网页版换账号不重启宿主,不收紧就会把上一个账号的号递给现在这位。
       const auth = await deps.getAuth()
@@ -194,41 +242,21 @@ export function createSessionpageIdentityHost(deps: SessionpageIdentityHostDeps)
       if (!auth) throw new Error('Session-page peer directory: owner not authenticated')
       return peersForAuth(auth, sessionId)
     },
-    async renameAgent(input) {
-      const row = input as Partial<SessionShellRenameAgentInput> | null
-      const sessionId = typeof row?.sessionId === 'string' ? row.sessionId.trim() : ''
-      const name = typeof row?.name === 'string' ? row.name.trim() : ''
-      if (!sessionId) throw new Error('Session-page agent rename requires sessionId')
-      // 空名不是「不改」,是一个会把花名册与通讯录同时写坏的值 —— 响亮拒绝。
-      if (!name) throw new Error('Session-page agent rename requires a non-empty name')
+    renameBound: (_sessionId, agentUserId, name) => renameBound(agentUserId, name),
+    async adoptCloudNames() {
       const auth = await deps.getAuth()
-      if (!auth) throw new Error('Session-page agent rename: owner not authenticated')
-      const agent = await localAgentForSession(sessionId, env, auth.userId)
-      const agentUserId = agent?.gugu_user_id
-      if (!agent || !agentUserId) {
-        throw new Error(`Session-page session ${sessionId} has no agent identity to rename`)
-      }
-      // 云端那半:与 lib/contacts.ts updateOwnedAgentProfile 同一条 RLS 路(authenticated 对 display_name
-      // 有列级 UPDATE);多加 owner_user_id 一格是让「不归我」在这里就以 0 行结束,❌ 不靠错误文案猜。
-      const { data, error } = await makeIdentityClient(auth.accessToken)
-        .from('users')
-        .update({ display_name: name })
-        .eq('id', agentUserId)
-        .eq('type', 'agent')
-        .eq('owner_user_id', auth.userId)
-        .select('id')
-        .maybeSingle()
-      if (error) throw new Error(`Session-page agent rename failed for ${agentUserId}: ${error.message}`)
-      if (!data) throw new Error(`Session-page agent ${agentUserId} is not owned by the current account`)
-      // 本机元数据仍要跟上运行时身份上下文与恢复路径；会话页显示面不再从这格读取名字。
-      const { updateAgent } = await import('@gugu/core/local/state/agents')
-      await updateAgent({ guguUserId: agentUserId }, { name }, env)
-      const boundSessionId = agent.cache?.[SESSION_CACHE_KEY]
-      return {
-        conversationId: typeof boundSessionId === 'string' && boundSessionId ? boundSessionId : sessionId,
-        agentUserId,
-        displayName: name,
-      }
+      if (!auth) return
+      const bound = agentsForOwner(await listAgents(env, { includeGuests: true }), auth.userId)
+        .filter((agent) => agent.gugu_user_id && typeof agent.cache?.[SESSION_CACHE_KEY] === 'string')
+      const cloud = await loadSessionpageCanonicalAgentIdentities(auth, bound.map((agent) => agent.gugu_user_id))
+      for (const identity of cloud) await writeAgentName(identity.id, identity.display_name, 'cloud', env)
+    },
+    async publishPendingNames() {
+      const auth = await deps.getAuth()
+      if (!auth) return
+      const pending = agentsForOwner(await listAgents(env, { includeGuests: true }), auth.userId)
+        .filter((agent) => agent.gugu_user_id && agent.cache?.name_pending === true)
+      for (const agent of pending) await publishName(agent.gugu_user_id)
     },
     async ensureAgentAddress(input) {
       const target = requireAddressInput(input)
