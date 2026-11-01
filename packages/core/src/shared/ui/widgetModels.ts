@@ -12,6 +12,27 @@ export const WIDGET_CONTENT_MAX_BYTES = 6144
 const bytes = (text: string) => new TextEncoder().encode(text).length
 const object = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === 'object' && !Array.isArray(value)
 
+/** The last top-level data object's source bytes, matching the database's json -> data (including whitespace/escapes). */
+function dataSourceBytes(content: string): number {
+  let depth = 0, start = -1, size = 0
+  for (let i = 0; i < content.length; i++) {
+    const char = content[i]
+    if (char === '"') {
+      const first = i++
+      while (i < content.length && content[i] !== '"') { if (content[i] === '\\') i++; i++ }
+      if (depth === 1 && JSON.parse(content.slice(first, i + 1)) === 'data') {
+        const colon = /^\s*:\s*/.exec(content.slice(i + 1))
+        if (colon) start = i + 1 + colon[0].length
+      }
+    } else if (char === '{' || char === '[') depth++
+    else if (char === '}' || char === ']') {
+      depth--
+      if (depth === 1 && start >= 0) { size = bytes(content.slice(start, i + 1)); start = -1 }
+    }
+  }
+  return size
+}
+
 /** The same checks at the tool and the untrusted rendering boundary; errors include measured byte sizes. */
 export function widgetMessageError(value: unknown): string | null {
   if (!object(value) || value.v !== 2) return 'widget must be a v2 object'
@@ -32,6 +53,7 @@ export function parseWidgetMessage(content: string | null | undefined): WidgetMe
   try {
     const raw: unknown = JSON.parse(content)
     if (widgetMessageError(raw)) return null
+    if (dataSourceBytes(content) > WIDGET_DATA_MAX_BYTES) return null
     const { text, app, view, data } = raw as WidgetMessage
     return { v: 2, text, app, view, ...(data === undefined ? {} : { data }) }
   } catch { return null }

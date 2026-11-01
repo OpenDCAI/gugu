@@ -27,6 +27,14 @@ describe('widget messages', () => {
     expect(parseWidgetMessage(JSON.stringify({ ...widget, future: 'a'.repeat(6144) }))).toBeNull()
     expect(() => serializeWidgetMessage({ ...widget, text: '\u0000'.repeat(200), app: 'a'.repeat(5000) })).toThrow('content is')
   })
+  it('also bounds the original data representation, including whitespace and escaped keys', () => {
+    const spaced = '{"v":2,"text":"OK","app":"board","view":"main","data":{' + ' '.repeat(4095) + '}}'
+    expect(new TextEncoder().encode(spaced).length).toBeLessThan(6144)
+    expect(parseWidgetMessage(spaced)).toBeNull()
+    expect(parseWidgetMessage(spaced.replace('"data"', '"d\\u0061ta"'))).toBeNull()
+    expect(parseWidgetMessage('{"v":2,"text":"data","app":"board","view":"main","data":{"nested":{"value":"data"}}}')).not.toBeNull()
+    expect(parseWidgetMessage(spaced.slice(0, -1) + ',"data":{}}')).not.toBeNull()
+  })
   it('reads a cut reply preview without displaying the App payload or splitting escapes', () => {
     const content = serializeWidgetMessage({ ...widget, text: 'Results: "three"\n界', data: { large: 'a'.repeat(3000) } })
     expect(widgetMessagePreview(content.slice(0, 280))).toBe('Results: "three"\n界')
