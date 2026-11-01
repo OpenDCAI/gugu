@@ -270,7 +270,7 @@ function InnerLayout({
   const openOwnedAgent = useOwnedAgentConversationEntry({ ownerId: user.id, chats, contacts, mobile, onOpen: () => setActiveTab('tasks') })
   const openChatBlock = useCallback((chatId: string, focus?: ComposerFocusReason, peerId?: string, draft?: string, sourceChatId?: string): string | null => {
     if (!sourceChatId && openAssistantChat(chatId)) return mobile ? 'assistant' : assistantSlotKey('chat')
-    if (openOwnedAgent(chatId, peerId, draft, sourceChatId)) { setActiveTab('tasks'); return 'tasks' }
+    if (openOwnedAgent(chatId, peerId, draft, sourceChatId)) return 'tasks'
     if (!chatsAreBlocks) return null
     const sessionPage = readSessionpageViewRequestBridge()
     if (!sessionPage) throw new Error(t('shell.errors.taskBridgeUnavailable'))
