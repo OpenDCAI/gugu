@@ -513,6 +513,7 @@ async function loadModelCatalog(timeoutMs = 45_000) {
         name: String(raw.displayName ?? id).trim() || id,
         ...(raw.description ? { description: String(raw.description) } : {}),
         efforts,
+        defaultEffort: String(raw.defaultReasoningEffort ?? '').trim() || null,
       })
     }
     cursor = String(response?.nextCursor ?? response?.next_cursor ?? '').trim() || null
@@ -580,13 +581,14 @@ function modelConfigOptions(selected, models) {
 function effortConfigOptions(selectedModelId, selectedEffortId, models) {
   const current = models.find((model) => model.id === selectedModelId)
   const efforts = current?.efforts ?? []
-  if (efforts.length === 0 || !selectedEffortId) return []
+  const currentEffort = selectedEffortId ?? current?.defaultEffort
+  if (efforts.length === 0 || !currentEffort) return []
   return [{
     configId: 'effort',
     name: 'Reasoning effort',
     category: 'thought_level',
     type: 'select',
-    currentValue: selectedEffortId,
+    currentValue: currentEffort,
     options: efforts.map((effort) => ({ value: effort, name: effort })),
   }]
 }

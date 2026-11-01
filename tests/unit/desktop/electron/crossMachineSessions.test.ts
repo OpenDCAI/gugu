@@ -20,6 +20,8 @@ import {
 import { DeviceRpcChannelError, DeviceRpcTimeoutError } from '../../../../packages/core/src/cloud/deviceRpcRequester'
 import { createDeviceActionCaller } from '@gugu/core/cloud/deviceActionCaller'
 import { assistantStartupIndex } from '../../../../apps/desktop/electron/sessionpage/assistant-startup-index'
+import { registerRPCRouter } from '../../../../apps/desktop/src/session/shared/lib/ipc/rpc'
+import { agentSessionController, setAgentSessionHost } from '../../../../apps/desktop/electron/session/main/core/sessions/agent-session-controller'
 
 const NOW = Date.parse('2026-09-30T04:00:00.000Z')
 
@@ -700,6 +702,34 @@ it('prepares a dormant work seat only through the dedicated capability and never
   await expect(xm.runOnDevice('dev-b', CALLER, { action: 'spawn', assistant_work: { version: 1 }, prompt: 'task' })).rejects.toMatchObject({ code: 'SESSION_DEVICE_OUTDATED' })
   expect(call).toHaveBeenCalledOnce()
   expect(call.mock.calls[0]?.[1]).toBe('assistantWork.prepare')
+})
+
+it.each([false, true])('thinking requires the receiving router capability; ordinary spawn remains compatible (supportsThinking=%s)', async (supportsThinking) => {
+  const handlers = new Map<string, (event: { sender: { id: number } }, ...args: unknown[]) => unknown>()
+  const hostRun = vi.fn(async (_name: string, _caller: unknown, action: unknown) => ({ session_id: 'child', effort: (action as { thinking?: unknown }).thinking }))
+  setAgentSessionHost(hostRun)
+  registerRPCRouter({ agentSession: supportsThinking ? agentSessionController : { spawn: agentSessionController.spawn } }, {
+    handle: (channel, handler) => { handlers.set(channel, handler) },
+  })
+  const { xm, call } = makeCrossMachine(async (_device, channel, { args }) => {
+    const handler = handlers.get(channel)
+    return handler ? { result: await handler({ sender: { id: 1 } }, ...args) }
+      : { error: { code: 'unknown_method', message: `No handler registered for '${channel}'` } }
+  })
+  try {
+    const thinking = xm.runOnDevice('dev-b', CALLER, { action: 'spawn', prompt: 'work', thinking: 'native-level' })
+    if (supportsThinking) await expect(thinking).resolves.toMatchObject({ session_id: 'child', effort: 'native-level' })
+    else {
+      await expect(thinking).rejects.toMatchObject({ code: 'SESSION_DEVICE_OUTDATED' })
+      expect(hostRun).not.toHaveBeenCalled()
+    }
+    expect(call.mock.calls[0]?.[1]).toBe('agentSession.spawnWithThinking')
+    expect(call).toHaveBeenCalledOnce()
+    await expect(xm.runOnDevice('dev-b', CALLER, { action: 'spawn', prompt: 'ordinary' })).resolves.toMatchObject({ session_id: 'child' })
+    expect(call.mock.calls[1]?.[1]).toBe('agentSession.spawn')
+  } finally {
+    setAgentSessionHost(null)
+  }
 })
 
 // owner 10-28:一台机器的会话列表只问一处(sessionsOn),几秒内复用,正在问的合成一个,失败不留;往那台发了别的就作废。
