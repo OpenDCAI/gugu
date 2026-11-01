@@ -25,7 +25,7 @@ export function taskAttachmentUsesSsh(deviceId: string): boolean {
 export async function pushTaskDirectory(to: TaskAttachmentTarget, entry: FileSystemDirectoryEntry): Promise<string> {
   const items = await entryUploadItems(entry as unknown as DropEntry)
   if (items.length > MAX_ATTACHMENT_FOLDER_FILES || items.reduce((size, item) => size + item.size, 0) > MAX_ATTACHMENT_BYTES) {
-    throw new Error('A folder can contain at most 10,000 files and 50 MiB in total')
+    throw Object.assign(new Error('A folder can contain at most 10,000 files and 50 MiB in total'), { code: 'folder_too_large' })
   }
   const relative = await pushTaskFiles(to, crypto.randomUUID(), items)
   if (!items.length) {

@@ -526,7 +526,13 @@ const ComposerForStore = observer(function ComposerForStore({
         for (const entry of entries) {
           void pushTaskDirectory({ deviceId, projectId: store.projectId, workspaceId, chatId: '', owner: '' }, entry).then(path => {
             editorApiRef.current?.insertMention({ id: path, label: path, kind: 'file', name: entry.name });
-          }).catch(error => toast({ title: translate('composer.attachmentUploadFailed'), description: String(error), variant: 'destructive' }));
+          }).catch(error => {
+            log.warn('Task folder placement failed', { error: String(error) });
+            const code = (error as { code?: string })?.code;
+            toast({ title: translate('composer.attachmentUploadFailed'), description: translate(code === 'folder_too_large'
+              ? 'composer.attachmentFolderTooLarge' : code === 'host_update_required' ? 'composer.attachmentHostUpdateRequired'
+                : 'composer.attachmentUploadFailed'), variant: 'destructive' });
+          });
         }
         return;
       }

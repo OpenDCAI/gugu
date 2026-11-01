@@ -679,6 +679,7 @@ const enUSCoreMessages = {
   'composer.attachmentTransferDisabled': 'This file stays on this computer; temporary transfer is turned off.',
   'composer.attachmentUploadFailed': 'Upload failed',
   'composer.attachmentTooLarge': 'This file exceeds the server’s attachment size limit.',
+  'composer.attachmentFolderTooLarge': 'A folder can contain at most 10,000 files and 50 MiB in total.',
   'composer.attachmentIdentityRequired': 'This task has no agent identity, so attachments cannot be sent. Send text or choose a task with an agent identity.',
   'composer.attachmentsUnavailable': '{count} attachments could not be fetched. Your text was sent; please attach the files again.',
   // 这家 agent 没声明它收图片 —— 附件仍然到达,只是以文件路径的形式随正文发出。
@@ -1666,6 +1667,7 @@ const zhCNCoreMessages: Record<CoreSessionMessageKey, string> = {
   'composer.attachmentTransferDisabled': '这个文件留在本机，临时中转已关闭',
   'composer.attachmentUploadFailed': '上传失败',
   'composer.attachmentTooLarge': '文件超过此服务器允许的附件大小上限',
+  'composer.attachmentFolderTooLarge': '文件夹最多包含 10,000 个文件，总大小不能超过 50 MiB。',
   'composer.attachmentIdentityRequired': '这条任务没有 agent 身份，无法发送附件。请发送文字，或选择有 agent 身份的任务。',
   'composer.attachmentsUnavailable': '{count} 件附件没取到。正文已发送，请重新附上文件。',
   'composer.attachmentWaiting': '附件传完就发送…',
