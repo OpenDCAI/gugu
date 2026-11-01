@@ -308,14 +308,33 @@ it('publishes a native file outside the lane so later text can finish first', as
   const send = vi.spyOn(chatService, 'sendMessage').mockImplementation(async (_chat, _sender, _content, id) => persistedMessage(id!))
   const native = { ...optimisticMessage('native-slow'), content_type: 'attachment' as const }
   await f.wiring.stageAttachment(native)
-  await f.wiring.commitAttachment(native, { local: new File(['bytes'], 'large.txt') }, {
+  const committing = f.wiring.commitAttachment(native, { local: new File(['bytes'], 'large.txt') }, {
     message_id: native.id, chat_id: native.chat_id, sender_user_id: 'owner-1', file_name: 'large.txt', to_user_ids: [] })
   await f.wiring.enqueue(enqueueInput('later-text'))
   await vi.waitFor(() => expect(send).toHaveBeenCalledOnce())
   expect(publish).toHaveBeenCalledOnce()
   expect((await f.repository).snapshot().outbox.map(row => row.value)).toEqual([expect.objectContaining({ clientMessageId: 'native-slow', state: 'uploading' })])
   publication.resolve({ ...persistedMessage(native.id), content_type: 'attachment' })
+  await committing
   await vi.waitFor(() => expect((f.messages()).find(row => row.id === native.id)?.seq).toBe(42))
+  expect((await f.repository).snapshot().outbox).toEqual([])
+  f.wiring.dispose()
+})
+it('does not publish a native reply discarded while waiting for its source', async () => {
+  const f = wiringHarness('native-waiting')
+  const publish = vi.spyOn(attachmentRecovery, 'settleAttachmentSend').mockResolvedValue({ ...persistedMessage('native-waiting'), content_type: 'attachment' })
+  const source = { ...optimisticMessage('uploading-source'), content_type: 'attachment' as const }
+  const native = { ...optimisticMessage('native-waiting'), reply_to_message_id: source.id, content_type: 'attachment' as const }
+  await f.wiring.stageAttachment(source)
+  await f.wiring.stageAttachment(native)
+  const committing = f.wiring.commitAttachment(native, { local: new File(['bytes'], 'reply.txt') }, {
+    message_id: native.id, chat_id: native.chat_id, sender_user_id: 'owner-1', file_name: 'reply.txt', to_user_ids: [], reply_to_message_id: source.id })
+  await flushMicrotasks(30)
+  expect(publish).not.toHaveBeenCalled()
+  await f.wiring.outbox.discard(native.id)
+  await f.wiring.outbox.confirm(source.id, { ...persistedMessage(source.id), content_type: 'attachment' })
+  await committing
+  expect(publish).not.toHaveBeenCalled()
   expect((await f.repository).snapshot().outbox).toEqual([])
   f.wiring.dispose()
 })

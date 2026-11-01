@@ -98,3 +98,23 @@ describe('attachment ownership transfers to the durable chat outbox', () => {
     ])
   })
 })
+it('waits for publication before consuming that File or committing the next file in the batch', async () => {
+  const f = fixture()
+  let finish!: () => void
+  f.commitAttachment.mockImplementationOnce(() => new Promise<void>(resolve => { finish = resolve }))
+  const done = sendAttachmentBatch({ ...f.args, files: [...f.args.files, new File(['pdf'], 'second.pdf')] })
+  await vi.waitFor(() => expect(f.commitAttachment).toHaveBeenCalledOnce())
+  expect(f.args.onSent).not.toHaveBeenCalled()
+  finish()
+  await done
+  expect(f.commitAttachment).toHaveBeenCalledTimes(2)
+  expect(f.args.onSent.mock.calls.map(([, index]) => index)).toEqual([0, 1])
+})
+it('returns uncommitted File objects through the existing rollback when native publication rejects', async () => {
+  const f = fixture()
+  f.commitAttachment.mockRejectedValueOnce(new Error('native publish refused'))
+  await expect(sendAttachmentBatch({ ...f.args, files: [...f.args.files, new File(['pdf'], 'second.pdf')] })).rejects.toThrow('native publish refused')
+  expect(f.args.onSent).not.toHaveBeenCalled()
+  expect(f.commitAttachment).toHaveBeenCalledOnce()
+  expect(f.discard.mock.calls).toEqual(f.stageAttachment.mock.calls.map(([row]) => [row.id]))
+})

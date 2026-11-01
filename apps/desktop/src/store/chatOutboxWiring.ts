@@ -143,7 +143,7 @@ export function createOutboxWiring(io: OutboxWiringIo): OutboxWiring {
   let active = true
   // Bytes never enter persistence. An interrupted native publication requires a fresh selection.
   const attachmentTimings = new Map<string, AttachmentSendTiming>()
-  const nativeCommits = new Map<string, () => Promise<MessageItem>>()
+  const nativeCommits = new Map<string, () => Promise<MessageItem | undefined>>()
   const topicResults = new Map<string, CreatedTopic | undefined>()
   // clientMessageId → 本次会话里发送方交来的投递前置。送达/丢弃即删;失败保留,手动重试会再跑一次。
   const beforeDeliverHooks = new Map<string, () => Promise<void>>()
@@ -190,7 +190,7 @@ export function createOutboxWiring(io: OutboxWiringIo): OutboxWiring {
   async function handleSent(record: OutboxRecord, persisted: MessageItem): Promise<void> {
     beforeDeliverHooks.delete(record.clientMessageId)
     nativeCommits.delete(record.clientMessageId)
-    attachmentTimings.get(record.clientMessageId)?.finish('success', 'outbox')
+    if (record.operation?.kind !== 'nativeAttachment') attachmentTimings.get(record.clientMessageId)?.finish('success', 'outbox')
     attachmentTimings.delete(record.clientMessageId)
     if (!active) return
     const user = io.user()
@@ -319,7 +319,10 @@ export function createOutboxWiring(io: OutboxWiringIo): OutboxWiring {
       if ('local' in prepared) nativeCommits.set(message.id, async () => {
         const source = outboxRecordForMessage(message, operation).dependsOn
         if (source) await outbox.delivered(source)
-        const row = await settleAttachmentSend({ endpoint: await attachmentsEndpoint(), prepared, commit, timing,
+        if (!outbox.has(message.id)) return
+        const endpoint = await attachmentsEndpoint()
+        if (!outbox.has(message.id)) return
+        const row = await settleAttachmentSend({ endpoint, prepared, commit, timing,
           observeMessage: io.observeMessage?.(commit.sender_user_id, message.chat_id),
           onLateMessage: row => { if (active) void outbox.confirm(message.id, row) },
         })
@@ -330,8 +333,8 @@ export function createOutboxWiring(io: OutboxWiringIo): OutboxWiring {
       const publish = nativeCommits.get(message.id)
       if (publish) {
         nativeCommits.delete(message.id)
-        void publish().then(row => active ? outbox.confirm(message.id, row) : undefined,
-          error => active ? outbox.failUpload(message.id, error) : undefined)
+        const row = await publish()
+        if (row && active) await outbox.confirm(message.id, row)
       }
     },
     async forward(source, targetChatId, senderUserId) {
