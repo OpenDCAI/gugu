@@ -613,6 +613,23 @@ test('a failed chat turn says so in the chat without addressing anyone, so two f
   } finally { await fx.close() }
 })
 
+test('a failed turn on a whispered message says nothing in the chat: it stays private, in the task state', async () => {
+  const fx = await fixture(async (command) => {
+    if (!command.prompt.includes('gugu_delivery')) return { status: 'done', text: '[NO_REPLY]' }
+    return { status: 'failed', text: '', error: 'simulated model failure with private detail' }
+  })
+  const messageId = randomUUID()
+  fx.inboxRows.push({ chat_id: chatId, chat_kind: 'dm', chat_public_id: null, id: messageId, seq: 1, sender_user_id: ownerId, sender_type: 'human', sender_display_name: '主人', content: '悄悄话', content_type: 'text', to_user_ids: [agentId], is_whisper: true, file_item_id: null, file_version: null, file_blob_id: null, created_at: new Date().toISOString() })
+  try {
+    await fx.host.invoke('sessionTimeline.sessionCreate', [{ harness: 'pi', model: 'platform:free', prompt: '悄悄话' }], 'failing-whisper-turn')
+    await until(() => fx.events.some((event) => event.type === 'turn_failed' && event.status === 'failed'), fx.events)
+    assert.equal(fx.messages.some((message) => message.p_sender_user_id === agentId), false)
+    const journal = JSON.parse(await readFile(join(fx.root, 'hosts', ownerId, 'host.json'), 'utf8'))
+    assert.equal(journal.jobs[messageId].status, 'failed')
+    assert.deepEqual(Object.values(journal.outbox), [])
+  } finally { await fx.close() }
+})
+
 test('an image attachment is durably admitted as safe metadata and acknowledged without fetching bytes during inbox delivery', async () => {
   let prompt
   const fx = await fixture(async (command, hooks) => {

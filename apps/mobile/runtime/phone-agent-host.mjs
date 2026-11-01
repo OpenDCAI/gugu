@@ -443,8 +443,9 @@ export async function startPhoneAgentHost(initialConfig, { runTurn, cancelTurn, 
       const failureText = explanation ?? `手机任务${error.cancelled ? '已取消' : error.interrupted ? '已中断' : '执行失败'}${!error.cancelled || error.code === 'execution_unknown' ? `：${error.message}` : ''}`
       // Failure is visible in the source chat even if the model never reached a communication tool. It addresses no one, as the
       // desktop's turn-failure notice: a reply target or a recipient wakes that member, and two failing agents then woke
-      // each other in turn. So it is not a whisper either (a whisper needs its recipient).
-      if (job.route?.kind === 'chat' && !job.sent?.length) {
+      // each other in turn. A whisper cannot be said without its recipient, and saying it to everyone would widen who sees
+      // it: a whispered source's failure stays in this task's own state (failed job, agent error, turn_failed).
+      if (job.route?.kind === 'chat' && !job.sent?.length && job.route.whisper !== true) {
         const id = stableId('phone-failure', job.id)
         store.state.outbox[id] ??= { id, chatId: job.route.chatId, agentUserId: agent.agentUserId, toUserIds: null, content: failureText, replyToMessageId: null, threadRootId: job.route.threadRootId ?? null, isWhisper: false, status: 'pending', createdAt: new Date().toISOString() }
         await store.save(); await deliverPhoneOutbox(cloud, store, id).catch((failure) => warn(failure.message))
