@@ -4,7 +4,6 @@ import { messageFileRefOf, parseAttachmentContent } from '@gugu/core/shared/ui/a
 import { Download } from '@/lib/icons'
 import { translateSessionMessage } from '@/session/renderer/localization/locale-store'
 import { readMessageCreatedRevision } from '../../lib/accountRevisionCoordinator'
-import { sendFileToChat } from '../../lib/attachmentsEndpoint'
 import { rendererLogger } from '../../lib/log'
 import { UI_EVENTS } from '../../lib/uiEvents'
 import { useAuth } from '../../store/auth'
@@ -34,7 +33,7 @@ export interface ExtensionForwardRequest {
 export function ExtensionForwardHost() {
   // The shell's other always-mounted duty for App pages: group workspace changes (hook's own note).
   useExtensionWorkspaceRevisions()
-  const { chats, subscribeAccountRevision } = useChatStore('chats', 'subscribeAccountRevision')
+  const { chats, subscribeAccountRevision, sendAttachmentsToChat } = useChatStore('chats', 'subscribeAccountRevision', 'sendAttachmentsToChat')
   const { user } = useAuth()
   const { toast } = useToast()
   // 摩擦单 F66: an App package sent in any chat here (the account revision bus, whatever is on screen) — that chat's list
@@ -70,7 +69,7 @@ export function ExtensionForwardHost() {
       throw new Error(messageForUser(packed.error), { cause: packed.error })
     }
     const file = new File([packed.data.bytes], packed.data.fileName, { type: packed.data.mimeType })
-    for (const chatId of targetChatIds) await sendFileToChat(file, { chatId, senderId: user.id })
+    for (const chatId of targetChatIds) await sendAttachmentsToChat(chatId, [file])
   }
 
   const exportToFile = async () => {

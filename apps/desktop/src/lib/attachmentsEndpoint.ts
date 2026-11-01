@@ -40,18 +40,3 @@ export async function commitPreparedChatAttachment(endpoint: AttachmentsEndpoint
   if (!message || message.id !== args.message_id || message.sender_user_id !== args.sender_user_id || message.chat_id !== args.chat_id || message.file_item_id !== row.id || message.file_version !== row.version) throw new Error('Project attachment was not committed')
   return message
 }
-
-/** One file sent to a chat as an attachment message (upload, then commit): the message row as `messages_view` has it. */
-export async function sendFileToChat(file: File, to: { chatId: string; senderId: string; toUserIds?: string[] }): Promise<Record<string, unknown>> {
-  const endpoint = await attachmentsEndpoint()
-  const contentType = file.type || 'application/octet-stream'
-  const prepared = await prepareChatAttachment(endpoint, file, { chat_id: to.chatId, as: to.senderId })
-  return commitPreparedChatAttachment(endpoint, prepared, {
-    message_id: crypto.randomUUID(),
-    chat_id: to.chatId,
-    sender_user_id: to.senderId,
-    file_name: file.name || 'file',
-    content_type: contentType,
-    to_user_ids: to.toUserIds ?? [],
-  })
-}
