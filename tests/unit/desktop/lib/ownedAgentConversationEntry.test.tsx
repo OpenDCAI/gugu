@@ -45,6 +45,19 @@ it('opens the same task from the conversation bridge and leaves the assistant Ap
   scope.assistant = 'agent'
   expect(openOwnedAgentEntry('dm')).toBe(false)
 })
+it('keeps the current page and selection when an owned agent has no session', async () => {
+  let finishLookup!: (value: unknown) => void
+  scope.lookup.mockImplementation(() => new Promise(resolve => { finishLookup = resolve }))
+  await harness.render(<Fixture />)
+  expect(openOwnedAgentEntry('dm')).toBe(true)
+  expect(scope.onOpen).not.toHaveBeenCalled()
+  expect(scope.select).not.toHaveBeenCalled()
+  finishLookup(null)
+  await vi.waitFor(() => expect(scope.notify).toHaveBeenCalledWith(expect.objectContaining({ tier: 'error' })))
+  expect(scope.onOpen).not.toHaveBeenCalled()
+  expect(scope.select).not.toHaveBeenCalled()
+  expect(scope.open).not.toHaveBeenCalled()
+})
 it('cold-opens the native phone task from committed ownership and the offline device digest before contacts can refresh', async () => {
   scope.contacts = []; scope.identities = { agent: contacts[0]! }; scope.native = false; scope.mobile = true
   scope.devices = [{ device_id: 'host', is_online: false, capabilities: {}, projects: [], session_digest: [{ conversationId: 'session', projectId: 'project', title: 'Task', harness: 'claude', supported: true, agentUserId: 'agent', nativeInputVersion: 1, runtime: 'acp' }] }]
