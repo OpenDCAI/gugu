@@ -29,6 +29,7 @@ import { getDependencyDescriptor } from '../dependencies/registry';
 import { providerOverrideSettings } from '../settings/provider-settings-service';
 import { getPlugin, listPlugins } from './plugin-registry';
 import { foldAgentPrograms } from './agent-programs';
+import { forkRuntimes } from './fork-legs';
 
 /**
  * Optional callback injected by the controller so the builder can enrich the
@@ -55,7 +56,8 @@ function buildMetadata(provider: CLIAgentPluginProvider): AgentMetadata {
       models: capabilities.models,
       effort: capabilities.effort,
       prompt: capabilities.prompt,
-      sessions: capabilities.sessions,
+      // The plugin's `sessions.fork` is only the pty leg's claim; the payload carries both legs (fork-legs.ts).
+      sessions: { ...capabilities.sessions, fork: forkRuntimes(provider) },
       autoApprove: capabilities.autoApprove,
       hooks: capabilities.hooks,
       mcp: capabilities.mcp,

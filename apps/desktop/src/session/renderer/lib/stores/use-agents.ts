@@ -1,9 +1,18 @@
 import { useQuery } from '@tanstack/react-query';
-import { rpc, rpcOn } from '@renderer/lib/ipc';
+import { events, rpc, rpcOn } from '@renderer/lib/ipc';
+import { queryClient } from '@renderer/lib/query-client';
 import { LOCAL_HOST_KEY, useLibraryHost } from '@renderer/features/library/library-host';
 import type { AgentIconAsset, AgentPayload } from '@shared/core/agents/agent-payload';
+import { agentCapabilitiesChangedChannel } from '@shared/core/agents/agentEvents';
 
 export const AGENTS_METADATA_QUERY_KEY = ['agents', 'metadata'] as const;
+
+/** This machine's agent payloads change after boot when an ACP handshake reports fork (fork-legs.ts). */
+export function wireAgentCapabilityInvalidation(): void {
+  events.on(agentCapabilitiesChangedChannel, () => {
+    void queryClient.invalidateQueries({ queryKey: AGENTS_METADATA_QUERY_KEY });
+  });
+}
 
 /**
  * Fetches static agent metadata (name, description, icon, capabilities) for all agents.

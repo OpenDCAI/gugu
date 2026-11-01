@@ -52,6 +52,7 @@ import { withMountedSession } from './with-mounted-session';
 import { useSessionSchedules } from '@renderer/features/automations/use-session-schedules';
 import type { SessionpageScheduleDigest } from '@gugu/session-core/session-record/contract';
 import { sessionScheduleDigest } from '@shared/core/automations/session-schedule';
+import { agentForksOn } from '@shared/core/agents/agent-payload';
 
 // @@@sessionpage otty-state — sidebar CONVERSATION row, hanging directly under its project (spec
 // session-page: conversations ARE the sessions; tasks are an invisible workspace container). A
@@ -197,10 +198,8 @@ export const SidebarSessionItem = observer(function SidebarSessionItem({
   };
 
   // spec session-fork-share:「任意会话可 fork」—— pty 与 ACP 两种 runtime 都摆这个入口,
-  // 各走各的分叉动作(pty `--fork-session`,ACP `session/fork`)。仍然 provider-gated:
-  // 这一家没有分叉能力,分叉就无从谈起。
-  const canFork =
-    agents?.find((agent) => agent.id === providerId)?.capabilities.sessions.fork === 'supported';
+  // 各走各的分叉动作,分叉与来源同 runtime ⇒ 问的是**来源那条腿**能不能分叉。
+  const canFork = agentForksOn(harness?.capabilities, row.runtime);
 
   // #7334 会话 ID 平时不摆出来(身份卡只给名字),要的人从右键主动拿。复制**完整** ID:菜单里没有显示宽度
   // 的顾虑,截断的 ID 拿去寻址什么也找不到。菜单点完就收,失败原因去敏后显示并记录。
