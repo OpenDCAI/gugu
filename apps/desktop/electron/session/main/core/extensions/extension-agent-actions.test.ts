@@ -279,7 +279,7 @@ describe('app_* 的动作分派', () => {
   it('carries the older interface version through the real consent prompt before installing', async () => {
     const manifest = parseExtensionManifest({
       id: 'reader', name: 'Reader', version: '2.1.24', apiVersion: EXTENSION_API_VERSION, defaultLocale: 'en',
-      entry: 'main.html', permissions: { capabilities: ['files:read', 'files:write'] },
+      platforms: ['desktop'], entry: 'main.html', permissions: { capabilities: ['files:read', 'files:write'] },
       contributes: { tabs: [{ name: 'main', title: 'Read' }] },
     });
     olderInterface.mockReturnValue({ id: 'reader', version: '1.0.4', permissions: { capabilities: ['files:read'] } });
