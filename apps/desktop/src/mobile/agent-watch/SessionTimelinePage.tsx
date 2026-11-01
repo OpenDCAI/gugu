@@ -241,7 +241,7 @@ export const SessionTimelinePage = observer(function SessionTimelinePage({
           sessionId={session.conversationId}
           draft={draft === appliedDraft ? undefined : draft}
           onDraftApplied={() => setAppliedDraft(draft)}
-          phoneHost={phoneHost} nativeRecord={native}
+          phoneHost={phoneHost} nativeRecord={native} hostReachable={reachable}
           machineLabel={machineLabel(device)}
           sessionRuntime={session.runtime}
           respondingItemId={respondingItemId}

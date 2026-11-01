@@ -39,12 +39,12 @@ import { nativeUserAttachmentCommands } from './native-user-attachments'
 import { usePhoneSessionQuotes } from './use-phone-session-quotes'
 
 /** The phone supplies session data and RPC actions to the same project conversation UI. */
-export function SessionConversation({ timeline, deviceId, sessionId, agentName, agentUserId, draft, onDraftApplied, phoneHost = false, nativeRecord = false,
+export function SessionConversation({ timeline, deviceId, sessionId, agentName, agentUserId, draft, onDraftApplied, phoneHost = false, nativeRecord = false, hostReachable = true,
   machineLabel, sessionRuntime, respondingItemId, onRespond, onSend, pendingSends, sending, agentWorking,
   onStop, stopping, footerNotice, onLoadOlder, onAtBottom, emptyNote,
 }: {
   timeline: AgentWatchTimeline; deviceId: string; sessionId: string; agentName: string; agentUserId?: string | null
-  draft?: { text: string }; onDraftApplied?: () => void; phoneHost?: boolean; nativeRecord?: boolean; machineLabel?: string
+  draft?: { text: string }; onDraftApplied?: () => void; phoneHost?: boolean; nativeRecord?: boolean; hostReachable?: boolean; machineLabel?: string
   sessionRuntime: SessionpageSessionSummary['runtime']; respondingItemId: string | null
   onRespond: (input: SettlementResponse) => Promise<SessionpageSessionRespondResult>; onSend: (text: string, attachments?: PromptAttachment[]) => Promise<void>
   pendingSends: readonly PendingSend[]; sending: boolean; agentWorking: boolean
@@ -78,7 +78,7 @@ export function SessionConversation({ timeline, deviceId, sessionId, agentName, 
     editor.current?.setText(next)
     onDraftApplied?.()
   }, [draft, onDraftApplied, draftText, setDraftText])
-  const options = useConversationOptions({ deviceId, sessionId, local: false, phoneHost })
+  const options = useConversationOptions({ deviceId, sessionId, local: false, phoneHost, reachable: hostReachable })
   const queue = useConversationQueue({ deviceId, sessionId, local: false, phoneHost }, timeline.queuedPrompts, agentWorking, options.steers)
   const quotes = usePhoneSessionQuotes({ deviceId, sessionId, timeline, draftText, setDraftText, queue: queue.props, onLoadOlder, editor, view })
   const editorState = useRef({ text: draftText, edit: quotes.composer.queuedPromptEdit })
