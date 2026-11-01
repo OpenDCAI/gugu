@@ -1,4 +1,4 @@
-import { execFileSync } from 'node:child_process'
+import { execFileSync } from '@gugu/core/local/childProcess'
 import { win32 as winPath } from 'node:path'
 import {
   buildExternalToolEnv,

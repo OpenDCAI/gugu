@@ -1,6 +1,6 @@
 import { resolve } from 'node:path'
 import { defineConfig } from 'vitest/config'
-import { WorkerAttributionReporter } from '../../../scripts/vitest-worker-attribution-reporter'
+import { WorkerAttributionReporter } from '../../../scripts/test-infra/vitest-worker-attribution-reporter'
 
 export default defineConfig({
   test: {

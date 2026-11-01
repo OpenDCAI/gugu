@@ -11,7 +11,6 @@ import { openLinkTarget } from '../../../../apps/desktop/src/lib/guguLinks'
 import { conversationLink, parseGuguLink } from '@gugu/core/shared/ui/guguLink'
 import { ToastContext } from '../../../../apps/desktop/src/components/toastContext'
 import { clickElement, createNode, createReactHarness } from '../../../support/testHarness'
-import type { SessionpageMessageHost } from '../../../../apps/desktop/src/session/shared/sessionpage-message-host'
 import { chatOnScreen } from '../../../../apps/desktop/src/lib/onScreenChat'
 import { takeChatAsk } from '../../../../apps/desktop/src/session/renderer/features/chats/chat-tabs/chat-layouts'
 import { drainTopicSplitRequest } from '../../../../apps/desktop/src/lib/topicSplitRequest'
@@ -127,13 +126,11 @@ vi.mock('../../../../apps/desktop/src/components/ChatListPanel', async () => {
   return {
     ChatListPanel: ({
       onChatSelected,
-      onOpenAgentCreateDraft,
       onNewProject,
       lead,
       headerLeading,
     }: {
       onChatSelected?: () => void
-      onOpenAgentCreateDraft?: () => void
       onNewProject?: () => void
       lead?: React.ReactNode
       headerLeading?: React.ReactNode
@@ -142,9 +139,6 @@ vi.mock('../../../../apps/desktop/src/components/ChatListPanel', async () => {
         headerLeading,
         lead,
         React.createElement('button', { type: 'button', 'data-testid': 'mock-chat-row', onClick: onChatSelected }, 'chat-list-panel'),
-        onOpenAgentCreateDraft
-          ? React.createElement('button', { type: 'button', 'data-testid': 'mock-chat-create-agent', onClick: onOpenAgentCreateDraft }, 'create agent')
-          : null,
         onNewProject
           ? React.createElement('button', { type: 'button', 'data-testid': 'mock-chat-new-project', onClick: onNewProject }, 'new project')
           : null)
@@ -212,12 +206,6 @@ vi.mock('../../../../apps/desktop/src/components/sessionpage/EmdashSessionFrame'
   EmdashSessionFrame: () => null,
   prewarmEmdashAssets: activationProbe.prewarm,
 }))
-vi.mock('../../../../apps/desktop/src/components/AcpAgentCreateComposer', async () => {
-  const React = await vi.importActual<typeof import('react')>('react')
-  return {
-    AcpAgentCreateComposer: () => React.createElement('div', { 'data-testid': 'mock-acp-agent-create-composer' }, 'acp-agent-create-composer'),
-  }
-})
 vi.mock('../../../../apps/desktop/src/components/ContactsPanel', async () => {
   const React = await vi.importActual<typeof import('react')>('react')
   return {
@@ -524,25 +512,6 @@ describe('MainLayout', () => {
     await ask()
     expect(panel()?.getAttribute('data-section')).toBe('about')
   })
-  it('exposes the create-agent entry on a platform without a task host, wired to the ACP-only composer', async () => {
-    platformMock.kind = 'web'
-    platformMock.capabilities.sessionHost = false
-    await harness.render(createNode(MainLayout, {
-      user: { id: 'user-1', email: 'user@example.com', nickname: 'User' }
-    }))
-    const chatEntry = harness.container.querySelector('[data-testid="mock-chat-create-agent"]') as HTMLElement | null
-    expect(chatEntry, 'Messages must offer the create entry on web/Capacitor too').toBeTruthy()
-    await clickElement(chatEntry!)
-    const composer = harness.container.querySelector('[data-testid="mock-acp-agent-create-composer"]')
-    expect(composer, 'clicking it must mount the ACP-only assembly, not a no-op').toBeTruthy()
-    await clickElement(harness.container.querySelector('[data-testid="mock-open-contacts"]') as HTMLElement)
-    expect(
-      harness.container.querySelector('[data-testid="mock-contacts-create-agent"]'),
-      'Contacts must offer it on web/Capacitor too',
-    ).toBeTruthy()
-    expect(activationProbe.prewarm).not.toHaveBeenCalled()
-  })
-  // #446 手机「伙伴」(owner 10-26,v7.12 稿)取代联系人面板;「消息」右上的「新项目」推进伙伴的新项目页;伙伴推进去的页没有底栏、不横滑。
   it('#446 mobile: 伙伴 replaces the contacts panel, and 新项目 from 消息 opens it with a new-project request', async () => {
     platformMock.kind = 'capacitor'
     platformMock.capabilities.sessionHost = false
@@ -586,50 +555,6 @@ describe('MainLayout', () => {
     await clickElement(harness.container.querySelector('[data-testid="mock-chat-area-back"]') as HTMLElement)
     expect(harness.container.querySelector('[data-testid="mock-chat-area"]')?.getAttribute('data-active-tab')).toBe('contacts')
     expect(harness.container.querySelector('nav')).toBeNull()
-  })
-  it('keeps the two assemblies mutually exclusive: a task host never mounts the ACP-only composer', async () => {
-    await harness.render(createNode(MainLayout, {
-      user: { id: 'user-1', email: 'user@example.com', nickname: 'User' }
-    }))
-    await clickElement(harness.container.querySelector('[data-testid="mock-open-chats"]') as HTMLElement)
-    // gugu-dev#181 有会话页的桌面上没有单独的聊天页:建 agent 只走会话页那一个新建会话,聊天页的创建入口与 ACP 装配都不在。
-    expect(harness.container.querySelector('[data-testid="mock-chat-create-agent"]')).toBeNull()
-    expect(
-      harness.container.querySelector('[data-testid="mock-acp-agent-create-composer"]'),
-      'Electron creates through the one resident session-page composer; a second assembly here would be a fork',
-    ).toBeNull()
-  })
-  it('opens the created agent conversation on the session page, never by switching the shell chat', async () => {
-    await harness.render(createNode(MainLayout, {
-      user: { id: 'user-1', email: 'user@example.com', nickname: 'User' }
-    }))
-    // gugu-dev#181 桌面上没有单独的聊天页可切过去。
-    expect(chatSurfaceOf(harness.container)).toBeNull()
-    const host = (window as typeof window & { __GUGU_SESSIONPAGE_MESSAGES__?: SessionpageMessageHost })
-      .__GUGU_SESSIONPAGE_MESSAGES__
-    expect(host, 'the create flow reaches the shell through this host').toBeTruthy()
-    await act(async () => {
-      host!.openAgentChat({ chatId: 'agent-dm', agentUserId: 'agent-1' })
-      await Promise.resolve()
-    })
-    // gugu-dev#181 桌面上没有单独的聊天页:新建 agent 的那条对话在会话页这屏打开(一块),❌ 换壳的当前对话。
-    expect(sessionPageViewRequests.openChat).toHaveBeenCalledWith('agent-dm', false)
-    expect(chatStoreMock.setActiveChatId).not.toHaveBeenCalled()
-  })
-  it('publishes the exact ordinary sendMessageToChat API to the taskpage composer', async () => {
-    await renderMainLayoutWithToast()
-    const host = (window as typeof window & { __GUGU_SESSIONPAGE_MESSAGES__?: SessionpageMessageHost })
-      .__GUGU_SESSIONPAGE_MESSAGES__
-    expect(host).toBeTruthy()
-    expect(host!.sendMessageToChat).toBe(chatStoreMock.sendMessageToChat)
-    await host!.sendMessageToChat('chat-1', 'later message', {
-      toUserIds: ['agent-1'],
-      clientMessageId: 'later-id',
-    })
-    expect(chatStoreMock.sendMessageToChat).toHaveBeenCalledWith('chat-1', 'later message', {
-      toUserIds: ['agent-1'],
-      clientMessageId: 'later-id',
-    })
   })
   it('handles Android back from the mobile chat pane by returning to the chat list', async () => {
     platformMock.kind = 'capacitor'
@@ -718,28 +643,6 @@ describe('MainLayout', () => {
     await clickElement(harness.container.querySelector('[data-testid="mock-open-chats"]') as HTMLElement)
     expect(chatSurfaceOf(harness.container)).toBeNull()
     expect(harness.container.textContent).not.toContain('chat-list-panel')
-  })
-  // 创建面(新建 agent)盖在聊天区上时,聊天区只隐藏不卸载:从前条件卸载,关掉创建面回来整个面板重挂
-  // (消息列表、滚动位置、分栏、群协作状态全部重来 = 那一下白闪)。
-  it('keeps the chat area mounted and merely hidden under the create surface', async () => {
-    platformMock.kind = 'web'
-    platformMock.capabilities.sessionHost = false
-    await harness.render(createNode(MainLayout, { user: { id: 'user-1', email: 'user@example.com', nickname: 'User' } }))
-    const chatArea = harness.container.querySelector('[data-testid="mock-chat-area"]') as HTMLElement
-    expect(chatArea.getAttribute('data-hidden')).toBe('false')
-    await clickElement(harness.container.querySelector('[data-testid="mock-chat-area-bump"]') as HTMLElement)
-    await clickElement(harness.container.querySelector('[data-testid="mock-chat-create-agent"]') as HTMLElement)
-    expect(harness.container.querySelector('[data-testid="mock-acp-agent-create-composer"]')).toBeTruthy()
-    expect(harness.container.querySelector('[data-testid="mock-chat-area"]'), 'opening the create surface must not unmount the chat area').toBe(chatArea)
-    expect(chatArea.getAttribute('data-hidden')).toBe('true')
-    const shell = chatArea.parentElement as HTMLElement
-    expect(shell.style.contentVisibility).toBe('hidden')
-    await clickElement(harness.container.querySelector('[data-testid="mock-chat-row"]') as HTMLElement)
-    expect(harness.container.querySelector('[data-testid="mock-acp-agent-create-composer"]')?.closest('[style*="display: none"]')).toBeTruthy()
-    expect(harness.container.querySelector('[data-testid="mock-chat-area"]')).toBe(chatArea)
-    expect(chatArea.getAttribute('data-hidden')).toBe('false')
-    expect(chatArea.getAttribute('data-bumps'), 'local UI state survives the create-surface round trip').toBe('1')
-    expect(chatAreaProbe.mounts).toBe(1)
   })
   it('keeps the agent-watch root mounted across every mobile tab (#6610)', async () => {
     platformMock.kind = 'capacitor'

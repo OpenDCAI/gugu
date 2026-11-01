@@ -1,4 +1,4 @@
-import { exec } from 'node:child_process';
+import { exec } from '@gugu/core/local/childProcess';
 import { readFile, realpath, stat, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { extname, isAbsolute, join, sep } from 'node:path';
@@ -467,7 +467,8 @@ class AppService implements IInitializable, IDisposable {
     if (!command) throw new Error('Unsupported platform or app');
 
     await new Promise<void>((resolve, reject) => {
-      exec(command, { cwd: target, env: buildExternalToolEnv() }, (err) => {
+      // 「用 X 打开」:起的是要人看见的那个程序。
+      exec(command, { cwd: target, env: buildExternalToolEnv(), windowsHide: false }, (err) => {
         if (err) return reject(err);
         resolve();
       });

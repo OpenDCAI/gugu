@@ -1,6 +1,6 @@
 import type { DeviceActionsCapability } from '../shared/deviceActions'
 import { createHash, randomUUID } from 'node:crypto'
-import { execFile } from 'node:child_process'
+import { execFile } from '../local/childProcess'
 import { access, link, mkdir, readFile, unlink, writeFile } from 'node:fs/promises'
 import { hostname, platform } from 'node:os'
 import { dirname, join } from 'node:path'

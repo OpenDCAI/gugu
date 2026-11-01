@@ -8,6 +8,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AppDb } from '@main/db/client';
 import type { SessionpageSessionSummary } from '@gugu/session-core/session-record/contract';
 import type { RemovedSessionIdentity } from '@gugu/core/shared/sessionArchival';
+import { setTaskNamer } from './task-name';
+
+// Sessions are named at creation by the host's namer (task-name.ts); number defaults per provider.
+beforeEach(() => setTaskNamer({ defaultName: async (provider, taken) => `${provider} ${taken.length + 1}`, renameBound: async () => { throw new Error("no identities in this test") } }));
+afterEach(() => setTaskNamer(null));
 
 /**
  * spec session-graph 的归档合同,打在真 SQLite 上。
@@ -107,19 +112,20 @@ describe('archiveSession', () => {
     fixture.sqlite
       .prepare(
         `INSERT INTO sessions
-           (id, project_id, title, runtime, parent_session_id, spawned_by_session_id, config)
-         VALUES (?, 'p1', ?, 'acp', ?, ?, ?)`
+           (id, project_id, runtime, parent_session_id, spawned_by_session_id, config)
+         VALUES (?, 'p1', 'acp', ?, ?, ?)`
       )
       .run(
         id,
-        id,
         opts.parent ?? null,
         opts.spawnedBy ?? null,
-        opts.fork
-          ? JSON.stringify({ version: 1, data: { forkedFrom: { sessionId: opts.fork, title: 'src' } } })
-          : opts.remoteParent
-            ? JSON.stringify({ version: '1', type: 'acp', parentRemote: { deviceId: 'dev-b', sessionId: opts.remoteParent } })
-            : null
+        JSON.stringify({
+          version: '1',
+          type: 'acp',
+          agentDisplayName: id,
+          ...(opts.fork ? { forkedFrom: { sessionId: opts.fork } } : {}),
+          ...(opts.remoteParent ? { parentRemote: { deviceId: 'dev-b', sessionId: opts.remoteParent } } : {}),
+        })
       );
   };
 
@@ -179,7 +185,7 @@ describe('archiveSession', () => {
     insertSession('same-task');
     const file = join(mocks.userData, 'retained.txt');
     await writeFile(file, 'the original task file');
-    const config = JSON.stringify({ version: '1', type: 'acp', model: 'original-model' });
+    const config = JSON.stringify({ version: '1', type: 'acp', model: 'original-model', agentDisplayName: 'same-task' });
     fixture.sqlite.prepare('UPDATE sessions SET config=? WHERE id=?').run(config, 'same-task');
     fixture.sqlite.prepare("INSERT INTO messages (id, session_id, content, sender) VALUES ('old-message', 'same-task', 'original history', 'user')").run();
     fixture.sqlite.prepare("INSERT INTO session_attachments (id, session_id, name, size, stored_path, origin) VALUES ('old-file', 'same-task', 'retained.txt', 22, ?, 'copy')").run(file);
@@ -311,8 +317,9 @@ describe('archiveSession', () => {
     fixture.sqlite.exec(`
       UPDATE projects SET root_folder_detached = 1 WHERE id = 'p1';
       INSERT INTO workspaces (id, kind, location, type, path, key) VALUES ('historic-ws', 'path', 'local', 'local', '/repo', 'historic-key');
-      INSERT INTO sessions (id, project_id, workspace_id, title, runtime, provider_session_id)
-        VALUES ('historic-session', 'p1', 'historic-ws', 'history survives', 'acp', 'provider-original');
+      INSERT INTO sessions (id, project_id, workspace_id, runtime, provider_session_id, config)
+        VALUES ('historic-session', 'p1', 'historic-ws', 'acp', 'provider-original',
+          json_object('version', '1', 'type', 'acp', 'agentDisplayName', 'history survives'));
     `);
     const originalTurn = JSON.stringify({ id: 'original-turn', seq: 0, initiator: 'user', items: [{ kind: 'message', id: 'original-message', seq: 0, role: 'user', text: '完整时间线必须保留' }] });
     fixture.sqlite.prepare(`INSERT INTO session_turns (id, session_id, seq, turn_id, data) VALUES ('historic-session:0', 'historic-session', 0, 'original-turn', ?)`)
@@ -572,7 +579,8 @@ describe('restoreSession(内部接口,UI 上没有入口)', () => {
   const insert = (id: string) =>
     fixture.sqlite
       .prepare(
-        `INSERT INTO sessions (id, project_id, title, runtime) VALUES (?, 'p1', ?, 'acp')`
+        `INSERT INTO sessions (id, project_id, runtime, config)
+         VALUES (?, 'p1', 'acp', json_object('version', '1', 'type', 'acp', 'agentDisplayName', ?))`
       )
       .run(id, id);
   const archivedAt = (id: string) =>

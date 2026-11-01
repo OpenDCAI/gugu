@@ -324,6 +324,5 @@ describe('每个按机器的页面都挂在模块层、没有第二个选择器(
     // 新建页的机器选择器在 use-new-session-machine.tsx(新建页经它拿选择器)。
     expect(read('features/sessions/new-session-page.tsx')).toContain('useNewSessionMachine(');
     expect(read('features/remote-hosts/use-new-session-machine.tsx')).toMatch(/<MachinePicker\s+size="compact"/);
-    expect(read('app/composer-embed-root.tsx')).toMatch(/<MachinePicker\s+size="compact"/);
   });
 });

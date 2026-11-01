@@ -12,7 +12,7 @@ import { log } from '@main/lib/logger';
  * `machine`: the App's data folder and its program) are done on the machine that session is on — the rule the right
  * panel's Files and Review follow (owner 09-25). Every other place (a chat's panel, the dock, the background page) has no
  * machine of its own and keeps this computer's. Across machines the call is `agentSession.app_call` over `taskhost.call`,
- * beside an App's `message` and `read_file`; there it is that machine's call, with its install, consent and switches, done
+ * beside an App's `message`; there it is that machine's call, with its install, consent and switches, done
  * by the same `machineVerbs` a page there calls.
  */
 

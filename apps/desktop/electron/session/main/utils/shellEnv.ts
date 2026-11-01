@@ -3,7 +3,7 @@
  * from a GUI and may not have inherited it from the user's shell session.
  */
 
-import { execSync } from 'child_process';
+import { execSync } from '@gugu/core/local/childProcess';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';

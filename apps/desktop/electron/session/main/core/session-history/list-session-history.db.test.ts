@@ -93,8 +93,8 @@ describe('listSessionHistory', () => {
     sql.prepare(`INSERT INTO projects (id, name, path) VALUES ('p1', 'Repo', '/repo')`).run();
     sql.prepare(`INSERT INTO projects (id, name, path) VALUES ('p2', 'Other', '/other')`).run();
     const insert = sql.prepare(
-      `INSERT INTO sessions (id, project_id, title, runtime, provider, provider_session_id, created_at, updated_at, last_interacted_at, archived_at, parent_session_id)
-       VALUES (@id, @project, @title, 'acp', 'acp-prov', @providerSessionId, @createdAt, @updatedAt, @lastInteractedAt, @archivedAt, @parent)`
+      `INSERT INTO sessions (id, project_id, config, runtime, provider, provider_session_id, created_at, updated_at, last_interacted_at, archived_at, parent_session_id)
+       VALUES (@id, @project, json_object('version', '1', 'type', 'acp', 'agentDisplayName', @title), 'acp', 'acp-prov', @providerSessionId, @createdAt, @updatedAt, @lastInteractedAt, @archivedAt, @parent)`
     );
     // 时间故意与插入顺序、字母顺序都不一致:三种排序若有一种退化成「按插入顺序」就会红。
     insert.run({ id: 'a', project: 'p1', title: 'Mango', providerSessionId: null, createdAt: '2026-09-01 00:00:00', updatedAt: '2026-09-05 00:00:00', lastInteractedAt: '2026-09-12T00:00:00.000Z', archivedAt: null, parent: null });
@@ -310,7 +310,7 @@ describe('listSessionHistory', () => {
     fixture.sqlite.prepare(`INSERT INTO projects (id, name, path) VALUES ('p3', 'Users', '/Users')`).run();
     fixture.sqlite
       .prepare(
-        `INSERT INTO sessions (id, project_id, title, runtime, provider, created_at, updated_at) VALUES ('u', 'p3', 'U', 'acp', 'acp-prov', '2026-09-01 00:00:00', '2026-09-01 00:00:00')`
+        `INSERT INTO sessions (id, project_id, config, runtime, provider, created_at, updated_at) VALUES ('u', 'p3', json_object('version', '1', 'type', 'acp', 'agentDisplayName', 'U'), 'acp', 'acp-prov', '2026-09-01 00:00:00', '2026-09-01 00:00:00')`
       )
       .run();
     mocks.repoRoots = { '/repo': '/repo', '/Users/me/proj': '/Users/me/proj' };
@@ -337,7 +337,7 @@ describe('listSessionHistory', () => {
     sql.prepare(`INSERT INTO projects (id, name, path) VALUES (?, 'Task home', '/Users/me/Library/gugu/task-home')`).run(IMPLICIT_SESSION_HOME_PROJECT_ID);
     sql
       .prepare(
-        `INSERT INTO sessions (id, project_id, title, runtime, provider, created_at, updated_at) VALUES ('s', ?, 'S', 'acp', 'acp-prov', '2026-09-01 00:00:00', '2026-09-01 00:00:00')`
+        `INSERT INTO sessions (id, project_id, config, runtime, provider, created_at, updated_at) VALUES ('s', ?, json_object('version', '1', 'type', 'acp', 'agentDisplayName', 'S'), 'acp', 'acp-prov', '2026-09-01 00:00:00', '2026-09-01 00:00:00')`
       )
       .run(IMPLICIT_SESSION_HOME_PROJECT_ID);
     mocks.localRows = [

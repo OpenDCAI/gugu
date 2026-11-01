@@ -128,7 +128,6 @@ export function SessionActions({
  */
 export const SessionRow = observer(function SessionRow({
   session,
-  agentName,
   tags,
   depth,
   childCount,
@@ -140,10 +139,8 @@ export const SessionRow = observer(function SessionRow({
   phoneHost = false,
 }: {
   session: SessionpageSessionSummary
-  /** 这条会话背后的 agent 名(`Codex 3`);还没有身份就不给。 */
-  agentName?: string | undefined
   /**
-   * 行上先于 agent 名的标记(各自一小段):挂在父会话下却在别的机器上时那台机器的名字、同一台别的项目时那个项目的名字;
+   * 行上的标记(各自一小段):挂在父会话下却在别的机器上时那台机器的名字、同一台别的项目时那个项目的名字;
    * 置顶 / 个人助理那两格里的行没有分区页头可看,标自己的项目与机器;个人助理派的标「由它发起」。
    */
   tags?: readonly string[] | undefined
@@ -173,15 +170,13 @@ export const SessionRow = observer(function SessionRow({
    *     ❌ 不必 11 行重复同一句话。机器离线时状态由图标说(presentation 为 null ⇒ 灰点,❌ 替连不上的机器说「在跑」)。
    */
   /*
-   * owner 10-09:一行里塞「agent 名 · 状态 · harness · 时间」四样,手机宽度放不下,处处省略号。
+   * owner 10-09:一行里塞「状态 · harness · 时间」,手机宽度放不下,处处省略号。
    *   · 状态不写成字:左边的图标已经是它(StatusGlyph,同一份 presentation);
-   *   · 有 agent 名就不写 harness:名字(Claude 1 / Codex 3)本来就说了是哪家;
-   *   · agent 名与标题说的是一件事(带标题起的 agent 名字就是标题,或标题的开头)不再说一遍。
+   *   · 任务名就是 agent 名(一个任务一个名字),标题行说过,❌ 再说一遍。
    * 打不开 / 没起来的行照旧写它自己的那句话(下面 rowMeta)。
    */
-  const named = agentName && !session.title.startsWith(agentName) && !agentName.startsWith(session.title) ? agentName : undefined
   const agentKind = phoneHost ? tFlow('phoneAgent') : session.harness
-  const ownMeta = [named ? null : agentKind, when].filter((x): x is string => !!x)
+  const ownMeta = [agentKind, when].filter((x): x is string => !!x)
   /*
    * 没有记录可读的会话,新宿主照样打得开(spec session-always-openable,#6264):转录里是第一句话,
    * 为什么没起来说在那台机器那边。老宿主(不带 recordState)打不开,说一句「这里打不开」——
@@ -197,7 +192,7 @@ export const SessionRow = observer(function SessionRow({
         : session.unsupportedReason
           ? [t('agentWatch.sessions.cannotOpen')]
           : ownMeta
-  const meta = [...(tags ?? []), named, ...rowMeta].filter((x): x is string => !!x)
+  const meta = [...(tags ?? []), ...rowMeta].filter((x): x is string => !!x)
 
   return (
     <div

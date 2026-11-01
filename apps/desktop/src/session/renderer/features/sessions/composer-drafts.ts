@@ -32,7 +32,7 @@ export const composerDrafts = {
     const capture = captureAttachments.get(from);
     if (capture) {
       const snapshot = capture();
-      if (snapshot.uploads.length || snapshot.pending.length) attachments.set(from, snapshot);
+      if (snapshot.uploads.length) attachments.set(from, snapshot);
       else attachments.delete(from);
     }
     const text = drafts.get(from);

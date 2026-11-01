@@ -1,5 +1,5 @@
 import { Zap } from '@/lib/icons'
-import { formatCalendarDay } from '@/lib/calendarTime'
+import { formatCalendarDay } from '@/i18n/format'
 import { useChatStore } from '@/store/chatContext'
 import { Avatar } from '../Avatar'
 import { AgentContactStatusMark } from '../AgentContactStatusMark'

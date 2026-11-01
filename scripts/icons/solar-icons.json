@@ -1,6 +1,6 @@
 {
   "_": [
-    "图标清单。改这里再跑 `node scripts/gen-icons.mjs`,❌ 别改生成物 icons.tsx。",
+    "图标清单。改这里再跑 `node scripts/build/gen-icons.mjs`,❌ 别改生成物 icons.tsx。",
     "solar   = 从 @iconify-json/solar 取 body。加图标只需在这里加一行。",
     "literal = 保留既有字形及有上游出处的原图;新图不能手绘。Lucide 0.564.0 的完整 ISC/Feather MIT 见 THIRD_PARTY_NOTICES.md。",
     "alias   = 同形别名(*Icon 后缀、lucide 历史改名),复用已有导出,❌ 不重复一份 body。",

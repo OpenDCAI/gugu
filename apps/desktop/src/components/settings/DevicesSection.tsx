@@ -57,7 +57,7 @@ import { useDeviceRename } from '../../hooks/useDeviceRename'
 //  · 每行一个「⋯」菜单,动作分组:改名、复制地址 | 移除这台机器、从这台机器上卸载咕咕 server;
 //  · 机器多了能搜、能按在线状态筛;只有本机时说明「添加一台机器」能带来什么。
 // 列表 ❌ 按「怎么装上的」分组:SSH 只是一种装法(product spec),「经 SSH」只是行内一格事实。
-// store 为单一事实源(列表/排序/实时/动作),设计见 docs/devices-abstraction-design.md。
+// store 为单一事实源(列表/排序/实时/动作),设计见 docs/design/devices-abstraction-design.md。
 // 形态照 design.md 的 line budget:整张列表是一块密度面板,行靠节奏与 hover 填色分开,
 // ❌ 每行一张带框卡片(四十行四十圈框是一只笼子);「是台什么机器」写成元信息里的一个词,
 // ❌ 只靠一枚图标表达(icon standing in for a label)。

@@ -2,7 +2,7 @@
 import { codexTerminalUpdate } from './codex-terminals.mjs'
 
 // Thin protocol adapter: preserve Gugu's ACP host contract while running the user's own Codex app-server.
-import { execFile } from 'node:child_process'
+import { execFile } from '../../../../packages/core/src/local/childProcess.ts'
 import { randomUUID } from 'node:crypto'
 import { appendFileSync } from 'node:fs'
 import { createInterface } from 'node:readline'
@@ -773,7 +773,6 @@ const bundledCatalog = memoizeSuccess(() => new Promise((resolve, reject) => {
   execFile(codexBin, ['debug', 'models', '--bundled'], {
     env: process.env,
     maxBuffer: 64 * 1024 * 1024,
-    windowsHide: true,
     shell: process.platform === 'win32' && /\.(cmd|bat)$/i.test(codexBin),
   }, (error, stdout, stderr) => {
     if (error) reject(new Error(`${error.message}${stderr ? `: ${String(stderr).trim()}` : ''}`))

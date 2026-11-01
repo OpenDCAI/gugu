@@ -40,6 +40,7 @@ import {
 } from '@shared/core/automations/session-schedule';
 import { assertValidCronTrigger } from '@shared/core/automations/validation';
 import { assertTimeZone, MIN_ONE_TIME_LEAD_MS } from './schedule-time';
+import { taskName } from '@main/core/sessions/task-name';
 
 /**
  * The one way this module inserts or updates automation_runs rows. `write` performs the write and returns the rows it
@@ -121,7 +122,7 @@ function mapAutomationRow(row: AutomationRow): Automation {
 }
 
 /**
- * #7221 给 agent 排的那几条补上「谁建的」:那条会话的名字(主人起的 agent 名,没有就是侧栏那个标题),
+ * #7221 给 agent 排的那几条补上「谁建的」:那条会话的名字(task-name.ts 的那一个名字),
  * `gone` 只指身份行已删除;可恢复归档单独标记。读的是这台机器自己的会话表。
  */
 async function withAgentSessions(list: Automation[]): Promise<Automation[]> {
@@ -130,7 +131,6 @@ async function withAgentSessions(list: Automation[]): Promise<Automation[]> {
   const rows = await db
     .select({
       id: sessions.id,
-      title: sessions.title,
       config: sessions.config,
       archivedAt: sessions.archivedAt,
     })
@@ -140,7 +140,7 @@ async function withAgentSessions(list: Automation[]): Promise<Automation[]> {
   return list.map((automation) => {
     if (!automation.agentSessionId) return automation;
     const row = byId.get(automation.agentSessionId);
-    const name = row ? row.config?.agentDisplayName?.trim() || row.title.trim() || null : null;
+    const name = row ? taskName(row) : null;
     return { ...automation, agentSession: { name, gone: !row, ...(row?.archivedAt != null ? { archived: true } : {}) } };
   });
 }

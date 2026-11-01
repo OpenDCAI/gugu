@@ -49,8 +49,8 @@ describe('状态来源失效:随状态输出发布,不改读数', () => {
     fixture.sqlite.prepare(`INSERT INTO projects (id, name, path) VALUES ('p1', 'P', '/repo')`).run();
     fixture.sqlite
       .prepare(
-        `INSERT INTO sessions (id, project_id, title, runtime, agent_status, agent_status_seen)
-         VALUES ('c1', 'p1', 'C', 'acp', 'idle', 1)`
+        `INSERT INTO sessions (id, project_id, runtime, agent_status, agent_status_seen)
+         VALUES ('c1', 'p1', 'acp', 'idle', 1)`
       )
       .run();
     await agentHookService.initialize();

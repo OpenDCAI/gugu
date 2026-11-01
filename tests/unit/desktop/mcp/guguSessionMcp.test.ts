@@ -717,9 +717,9 @@ describe('single Gugu MCP surface (session_* + app_* atomic tools)', () => {
 })
 
 // #7221 schedule_*:给自己排的已安排。工具面只做两件事 —— 扁平参数原样交给会话分派器(动作名 = 工具名),
-// 结果原样回来(schedule_id 由宿主自己编成 schedule:,注册机不碰);没有任何「目标会话」参数。
+// 结果原样回来(schedule_id 由宿主自己编成 schedule:,注册机不碰)。建只给自己;看与取消可带 session_id。
 describe('schedule_* (#7221)', () => {
-  it('三把工具交给会话分派器,参数原样、没有目标会话;schedule_create 原生列出,另两把在目录', async () => {
+  it('三把工具交给会话分派器,参数原样、建没有目标会话;schedule_create 原生列出,另两把在目录', async () => {
     const seen: unknown[] = []
     const client = await connectTo({
       kind: 'session-only',
@@ -762,10 +762,16 @@ describe('schedule_* (#7221)', () => {
     expect(cancelled.isError).toBe(true)
     expect(responseText(cancelled)).toContain('no schedule schedule:zzz of yours')
 
+    // 看与取消可以指名主人的另一条会话:session:<id> 在宿主边界解成裸 id,交给分派器路由。
+    await client.callTool({ name: 'catalog_call', arguments: { tool: 'schedule_cancel', args: { schedule_id: 'schedule:zzz', session_id: 'session:other' } } })
+    await client.callTool({ name: 'catalog_call', arguments: { tool: 'schedule_list', args: { session_id: 'session:other' } } })
+
     expect(seen).toEqual([
       { action: 'schedule_create', prompt: 'remind them to drink water', at: '2026-10-16T08:00', tz: 'Asia/Shanghai' },
       { action: 'schedule_list' },
       { action: 'schedule_cancel', schedule_id: 'schedule:zzz' },
+      { action: 'schedule_cancel', schedule_id: 'schedule:zzz', session_id: 'other' },
+      { action: 'schedule_list', session_id: 'other' },
     ])
   })
 })

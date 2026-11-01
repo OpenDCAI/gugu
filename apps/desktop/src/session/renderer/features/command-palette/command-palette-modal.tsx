@@ -2,7 +2,8 @@ import { useQuery } from '@tanstack/react-query';
 import { Command } from 'cmdk';
 import { FolderOpen, MessageSquare } from '@/lib/icons';
 import { useObserver } from 'mobx-react-lite';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
+import { SegmentedTabs } from '@/components/ui/SegmentedTabs';
 import { i18n } from '@/i18n';
 import { useAppSettingsKey } from '@renderer/features/settings/use-app-settings-key';
 import { getSessionPageStore } from '@renderer/features/sessions/stores/session-selectors';
@@ -20,6 +21,7 @@ import { getCommandIcon } from './command-icons';
 import { PALETTE_ITEM_CLASS } from './palette-item-styles';
 import { PaletteProjectsGroup } from './palette-projects-group';
 import { PaletteChatGroups } from './palette-chats';
+import { PaletteContentGroups, type PaletteScope } from './palette-content-groups';
 import { PaletteSessionItem } from './palette-session-item';
 import { rankPaletteMatches } from './palette-rank';
 import { followLink } from '@/lib/guguLinks';
@@ -37,16 +39,23 @@ export function CommandPaletteModal(props: CommandPaletteProps & BaseModalProps)
 
 function Palette({ initialQuery = '', onClose }: CommandPaletteProps & BaseModalProps) {
   const [query, setQuery] = useState(initialQuery);
+  const [scope, setScope] = useState<PaletteScope>('all');
   const commandsMode = query.startsWith('>');
   const search = commandsMode ? query.slice(1).trim() : query.trim();
   const debouncedQuery = useDebounce(search, 100);
   const { navigate } = useNavigate();
   const { value: keyboard } = useAppSettingsKey('keyboard');
   const { translate } = useSessionMessages();
+  const scopes = useMemo(() => [
+    { value: 'all' as const, label: translate('palette.scopeAll') },
+    { value: 'taskContent' as const, label: translate('palette.taskContent') },
+    { value: 'messages' as const, label: translate('palette.messages') },
+  ], [translate]);
+  const names = scope === 'all';
   const { data: results = [] } = useQuery({
     queryKey: ['cmdk-search', debouncedQuery],
     queryFn: () => rpc.search.commandPalette({ query: debouncedQuery }),
-    enabled: !commandsMode,
+    enabled: !commandsMode && names,
     staleTime: 5_000,
   });
   const commands = useObserver(() => rankPaletteMatches(commandRegistry.activeCommands
@@ -75,6 +84,7 @@ function Palette({ initialQuery = '', onClose }: CommandPaletteProps & BaseModal
         <Command.Input value={query} onValueChange={setQuery}
           placeholder={commandsMode ? translate('palette.commandPlaceholder') : translate('palette.switchPlaceholder')}
           className="w-full bg-transparent px-3 py-3 text-sm outline-none placeholder:text-foreground/40" autoFocus />
+        {!commandsMode && <div className="px-2 pb-2"><SegmentedTabs items={scopes} value={scope} onChange={setScope} ariaLabel={translate('palette.scope')} /></div>}
       </div>
       <Command.List className="h-96 overflow-y-auto p-1">
         <Command.Empty className="py-8 text-center text-sm text-foreground/40">
@@ -93,7 +103,7 @@ function Palette({ initialQuery = '', onClose }: CommandPaletteProps & BaseModal
           </Command.Group>
         ) : (
           <>
-            {tasks.length > 0 && (
+            {names && tasks.length > 0 && (
               <Command.Group heading={translate(search ? 'palette.tasks' : 'palette.recentTasks')} className={GROUP_CLASS}>
                 {tasks.map((item) => {
                   const open = () => { if (item.projectId) { onClose(); followLink({ kind: 'session', sessionId: item.id, projectId: item.projectId }); } };
@@ -106,7 +116,7 @@ function Palette({ initialQuery = '', onClose }: CommandPaletteProps & BaseModal
                 })}
               </Command.Group>
             )}
-            {search ? projects.length > 0 && (
+            {!names ? null : search ? projects.length > 0 && (
               <Command.Group heading={translate('palette.projects')} className={GROUP_CLASS}>
                 {projects.map((item) => (
                   <Command.Item key={item.id} value={`project:${item.id}`} className={PALETTE_ITEM_CLASS}
@@ -116,7 +126,8 @@ function Palette({ initialQuery = '', onClose }: CommandPaletteProps & BaseModal
                 ))}
               </Command.Group>
             ) : <PaletteProjectsGroup currentProjectId={undefined} limit={5} onClose={onClose} navigate={navigate} />}
-            <PaletteChatGroups query={search} groupClassName={GROUP_CLASS} onClose={onClose} />
+            {names && <PaletteChatGroups query={search} groupClassName={GROUP_CLASS} onClose={onClose} />}
+            <PaletteContentGroups query={debouncedQuery} scope={scope} groupClassName={GROUP_CLASS} onClose={onClose} />
           </>
         )}
       </Command.List>

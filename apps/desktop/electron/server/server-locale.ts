@@ -13,7 +13,7 @@
  * 只改本进程的环境;之后起的每个子进程都继承它(终端整份继承、agent 经 buildAgentEnv 的 LANG 白名单)。
  * 纯函数(可用 locale 列表注入),每条分支都有单测。
  */
-import { execFileSync } from 'node:child_process'
+import { execFileSync } from '@gugu/core/local/childProcess'
 
 /** `UTF-8` / `utf8` / `UTF8` 都是同一个东西(glibc 把 codeset 名字归一化后再比)。 */
 export function isUtf8Locale(value: string | undefined): boolean {

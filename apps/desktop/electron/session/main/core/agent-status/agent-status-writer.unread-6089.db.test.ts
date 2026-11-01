@@ -48,8 +48,8 @@ describe('#6089 agent 被杀掉后的已读位', () => {
     fixture.sqlite.prepare(`INSERT INTO projects (id, name, path) VALUES ('p1', 'P', '/repo')`).run();
     fixture.sqlite
       .prepare(
-        `INSERT INTO sessions (id, project_id, title, provider, runtime, agent_status, agent_status_seen)
-         VALUES ('c1', 'p1', 'C', 'claude', 'pty', 'needs_user', 0)`
+        `INSERT INTO sessions (id, project_id, provider, runtime, agent_status, agent_status_seen)
+         VALUES ('c1', 'p1', 'claude', 'pty', 'needs_user', 0)`
       )
       .run();
   });

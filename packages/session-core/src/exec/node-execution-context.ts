@@ -1,4 +1,4 @@
-import { execFile } from 'node:child_process';
+import { execFile } from '@gugu/core/local/childProcess';
 import { promisify } from 'node:util';
 import type { ExecContextOptions, IExecutionContext } from './execution-context';
 import type { ExecResult } from './types';

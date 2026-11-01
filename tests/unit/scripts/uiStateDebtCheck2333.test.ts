@@ -6,10 +6,10 @@ import { describe, expect, test } from 'vitest'
 
 const repoRoot = resolve(__dirname, '../../..')
 const fixtureRoot = join(repoRoot, 'tests/fixtures/ui-state-debt-check')
-const checker = join(repoRoot, 'scripts/ui-state-debt-check.mjs')
+const checker = join(repoRoot, 'scripts/checks/ui-state-debt-check.mjs')
 
 // @@@synthetic-fixtures (#2333 计数 / #3079 方向性) — 方向性断言一律跑在**合成**仓上,
-// ❌ 不读活基线 scripts/ui-state-debt-baseline.json。
+// ❌ 不读活基线 scripts/checks/ui-state-debt-baseline.json。
 // 理由:那份基线的目标是归零;一旦真归零,读活基线的"不许回头"断言会连同"不许前进"一起变成
 // 平凡真 —— 守门的测试恰好在最该守的时刻自动失效。合成 fixture 的债务量由本文件写死,与真实债务无关。
 
@@ -331,7 +331,7 @@ describe('UI-state debt checker — fail-loud (#2333/#3079)', () => {
 
 describe('UI-state debt baseline asset', () => {
   test('the checked-in baseline is valid and non-growing (entries only shrink over time)', () => {
-    const baselineFile = join(repoRoot, 'scripts/ui-state-debt-baseline.json')
+    const baselineFile = join(repoRoot, 'scripts/checks/ui-state-debt-baseline.json')
     expect(existsSync(baselineFile)).toBe(true)
     const entries = JSON.parse(readFileSync(baselineFile, 'utf8')) as Array<{
       counter: string

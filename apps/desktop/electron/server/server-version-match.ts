@@ -9,7 +9,7 @@
  * VS Code / Zed 的做法是客户端与 server 版本严格一致(不一致就装一份对应的);我们盘上本来就留着在跑的那一版,
  * 所以直接换成那一版的可执行文件来跑这条命令 —— 两边永远说同一种话。
  */
-import { spawnSync } from 'node:child_process'
+import { spawnSync } from '@gugu/core/local/childProcess'
 import fs from 'node:fs'
 import path from 'node:path'
 

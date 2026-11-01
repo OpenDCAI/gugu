@@ -25,7 +25,6 @@ export type ComposerFocusReason =
   | 'profile-chat'
   | 'group-chat'
   | 'explore-chat'
-  | 'agent-created'
   | 'notification-open'
   | 'slash-command'
   | 'quote-attached'
@@ -41,7 +40,6 @@ const SESSION_ENTRY_REASONS: ReadonlySet<ComposerFocusReason> = new Set([
   'profile-chat',
   'group-chat',
   'explore-chat',
-  'agent-created',
   'notification-open',
 ])
 

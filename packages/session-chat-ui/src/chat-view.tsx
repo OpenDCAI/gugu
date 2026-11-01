@@ -119,6 +119,8 @@ export type ChatView = {
   scrollToItem(id: string, opts?: ScrollToItemOptions): void;
   /** Reveal a loaded item by identity, opening its process and positioning its readable row. */
   revealItem(id: string): boolean;
+  /** Open the folds a loaded item sits in, without moving the reader. */
+  openItem(id: string): boolean;
   /**
    * Prepend older history items without losing scroll position.
    * Pair with `onReachStart` for infinite-scroll pagination.
@@ -225,6 +227,7 @@ export function createChatView(opts: ChatViewOptions): ChatView {
       controls.scrollToItem(id, o);
     },
     revealItem: id => chatFind.revealItem(id),
+    openItem: id => chatFind.openItem(id),
     loadOlder(items) {
       controls.loadOlder(items);
     },

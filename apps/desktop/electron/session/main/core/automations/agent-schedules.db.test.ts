@@ -51,7 +51,7 @@ function seedProjectAndSessions(): void {
     .run();
   for (const id of [AGENT.sessionId, OTHER.sessionId]) {
     fixture.sqlite
-      .prepare(`INSERT INTO sessions (id, project_id, title) VALUES (?, 'project-1', ?)`)
+      .prepare(`INSERT INTO sessions (id, project_id, config) VALUES (?, 'project-1', json_object('version', '1', 'type', 'pty', 'agentDisplayName', ?))`)
       .run(id, id === AGENT.sessionId ? '个人助理' : 'Other');
   }
 }

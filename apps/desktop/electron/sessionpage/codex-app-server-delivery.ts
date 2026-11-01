@@ -28,7 +28,8 @@ import {
 import { onErrorEvents, type SerializedError } from '@gugu/session-shared'
 import { isSignInFailure } from '@gugu/session-core/acp'
 import { loginShellPathDiagnosis } from '../shellPath'
-import { execFile, type ChildProcess } from 'node:child_process'
+import type { ChildProcess } from 'node:child_process'
+import { execFile } from '@gugu/core/local/childProcess'
 import { statSync } from 'node:fs'
 import { writeCodexModelCatalog } from '../runtime/codex-model-catalog.mjs'
 import {
@@ -862,7 +863,6 @@ function codexBundledCatalog(
     execFile(launch.command, launch.args, {
       env,
       maxBuffer: 64 * 1024 * 1024,
-      windowsHide: true,
       windowsVerbatimArguments: launch.windowsVerbatimArguments,
     }, (error, stdout, stderr) => {
       if (error) reject(new Error(`${error.message}${stderr ? `: ${String(stderr).trim()}` : ''}`))
@@ -1823,9 +1823,8 @@ export class CodexAppServerSession {
           cwd,
           stdio: ['ignore', 'ignore', 'pipe'],
           env: childEnv,
-          windowsHide: true,
           windowsVerbatimArguments: launch.windowsVerbatimArguments,
-          detached: process.platform !== 'win32',
+          detached: true,
           onError: (error) => this.reportProcessError(error),
         })
         const proc = appServer.child

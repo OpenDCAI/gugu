@@ -147,9 +147,9 @@ vi.mock('@renderer/features/sessions/session-config/initial-session-section', ()
     return {
       prompt: mocks.prompt ?? mocks.initialPrompt ?? '',
       issueContextEditorOpen: false,
-      // #4325 —— 「这一轮带了内容」把待发附件一并算上,所以这份替身也必须有这个通道。
+      // 「这一轮带了内容」把待发附件一并算上,所以这份替身也必须有附件。
       attachments: [],
-      captureAttachmentDraft: () => ({ uploads: [], pending: [] }),
+      captureAttachmentDraft: () => ({ uploads: [] }),
     };
   }
 }));
@@ -508,17 +508,6 @@ describe('NewSessionPage', () => {
     });
     // 没选 = 项目根目录(这里的 git 上下文桩给的根目录是 null)。
     expect(mocks.createSessionStateWorkspaceId).toBeNull();
-  });
-
-  it('keeps the capability-backed permission selector on the message-page composer', async () => {
-    await act(async () => {
-      root.render(localized(React.createElement(NewSessionComposer, {
-        projectId: 'project-1',
-        creationSurface: 'chat-page'
-      })));
-    });
-
-    expect(mocks.sessionFieldProps?.showAutoApproveToggle).toBe(true);
   });
 
   it('draws the shared machine picker (compact size) in the composer tray', async () => {

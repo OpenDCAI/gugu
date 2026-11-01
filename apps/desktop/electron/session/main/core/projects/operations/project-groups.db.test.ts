@@ -77,10 +77,10 @@ describe('project groups (会话页一侧)', () => {
     fixture.sqlite.exec(`
       INSERT INTO projects (id, name, path) VALUES ('project-a', 'gugu', '/w/gugu');
       INSERT INTO projects (id, name, path) VALUES ('project-b', 'other', '/w/other');
-      INSERT INTO sessions (id, project_id, title, created_at) VALUES ('s-live-1', 'project-a', 'one', '2026-10-01 00:00:01');
-      INSERT INTO sessions (id, project_id, title, created_at) VALUES ('s-live-2', 'project-a', 'two', '2026-10-01 00:00:02');
-      INSERT INTO sessions (id, project_id, title, archived_at) VALUES ('s-archived', 'project-a', 'old', '2026-10-02');
-      INSERT INTO sessions (id, project_id, title) VALUES ('s-other', 'project-b', 'elsewhere');
+      INSERT INTO sessions (id, project_id, created_at) VALUES ('s-live-1', 'project-a', '2026-10-01 00:00:01');
+      INSERT INTO sessions (id, project_id, created_at) VALUES ('s-live-2', 'project-a', '2026-10-01 00:00:02');
+      INSERT INTO sessions (id, project_id, archived_at) VALUES ('s-archived', 'project-a', '2026-10-02');
+      INSERT INTO sessions (id, project_id) VALUES ('s-other', 'project-b');
     `);
   });
 

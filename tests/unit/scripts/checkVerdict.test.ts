@@ -30,7 +30,7 @@ import {
   parseJobOutputsAnnotations,
   pullRequestEvents,
   workflowRunsForEvent
-} from '../../../scripts/check-verdict.mts'
+} from '../../../scripts/ci/check-verdict.mts'
 
 type CheckRun = {
   id: number
@@ -121,7 +121,7 @@ describe('exact-head check verdict', () => {
   it('rejects abbreviated head SHAs with a rev-parse repair hint', () => {
     const result = spawnSync(
       process.execPath,
-      [resolve('scripts/check-verdict.mts'), '--sha', '7d435d2501', '--push', 'dev'],
+      [resolve('scripts/ci/check-verdict.mts'), '--sha', '7d435d2501', '--push', 'dev'],
       { cwd: process.cwd(), encoding: 'utf8' }
     )
 
@@ -137,7 +137,7 @@ describe('exact-head check verdict', () => {
     const result = spawnSync(
       process.execPath,
       [
-        resolve('scripts/check-verdict.mts'),
+        resolve('scripts/ci/check-verdict.mts'),
         '--sha',
         '7d435d25015b2c15ea3c7f729799cddd399405a7',
         '--push',
@@ -514,7 +514,7 @@ if (args[0] === 'pr') {
       const result = spawnSync(
         process.execPath,
         [
-          resolve('scripts/check-verdict.mts'),
+          resolve('scripts/ci/check-verdict.mts'),
           '--repo',
           'fixture/repo',
           '--sha',

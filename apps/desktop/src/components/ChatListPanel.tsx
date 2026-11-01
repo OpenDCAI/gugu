@@ -20,7 +20,7 @@ import { useAssistantWorkrooms } from './assistant/useAssistantWorkrooms'
 import { useChatStore } from '../store/chatContext'
 import { ChatRowContextMenu } from './chat/ChatRowContextMenu'
 import { chatPreviewText } from '../lib/agentTurnFailure'
-import { formatCalendarDay } from '../lib/calendarTime'
+import { formatCalendarDay } from '@/i18n/format'
 import { CreateGroupChatForm, MEMBER_PICKER_SHEET } from './CreateGroupChatModal'
 import { AddFriendSearch } from './AddFriendSearch'
 import { Avatar } from './Avatar'
@@ -83,10 +83,6 @@ interface ChatListPanelProps {
   onChatSelected?: (focusTarget?: 'composer' | 'sidebar') => void
   onScan?: () => void
   // #2549/#3195 对话页创建 Agent — all shells hand off to the shared Session Composer assembly.
-  // @@@4287 必填,不是可选:「哪套装配」是宿主的事,「有没有这个入口」不是。写成可选时,一个
-  // `sessionHostAvailable ? open : undefined` 就能在类型层面无声地把安卓出货面的创建入口整个摘掉
-  // (#3809 实际发生过)。必填让那种写法当场是编译错误 —— 比任何测试都早、也更便宜。
-  onOpenAgentCreateDraft?: () => void
   onOpenSessionCreate?: () => void
   /**
    * gugu-dev#181 `sidebar` = 画进会话页侧栏「对话」那一格(ChatListSlotHost):只有行。搜索框是侧栏那一个(一个框搜两边),
@@ -506,7 +502,6 @@ export function ChatListPanel({
   hidden = false,
   onChatSelected,
   onScan,
-  onOpenAgentCreateDraft,
   onOpenSessionCreate,
   placement = 'page',
   lead,
@@ -938,26 +933,6 @@ export function ChatListPanel({
         actions={
           <>
             {searchButton}
-            {/*
-              「新建 Agent」**只留在桌面**。owner 2026-09-06:手机端这个入口挪到「任务」页右上角 ——
-              agent 是跑在某台机器上的东西,入口该和机器在同一屏。
-              ⚠️ 桌面不跟着摘:桌面的「任务」tab 是会话页那张 IDE 面,它自带新建入口,
-              而桌面对话页摘掉就等于把一个既有入口无声删掉 —— 那不是 owner 说的事。
-              空态提示按形态分两句(见 chatList.emptyHint / emptyHintMobile),❌ 不许让提示
-              指着一颗此形态下不渲染的按钮(#4221 的墓碑就立在那儿)。
-            */}
-            {!mobile && onOpenAgentCreateDraft ? (
-              <Button
-                variant="ghost"
-                size="sm"
-                data-testid={AUTOMATION_TEST_IDS.chatCreateAgentDraftAction}
-                onClick={onOpenAgentCreateDraft}
-                title={t('chatList.createAgent')}
-              >
-                <Zap size={13} />
-                <span data-button-label="">{t('chatList.createAgent')}</span>
-              </Button>
-            ) : null}
 
             <DropdownMenu.Root
               open={showPlusMenu}

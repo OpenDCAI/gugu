@@ -81,8 +81,8 @@ function seedAutomationSession(
 ): void {
   fixture.sqlite
     .prepare(
-      `INSERT INTO sessions (id, project_id, title, automation_run_id)
-       VALUES (?, 'project-1', 'Automation session', ?)`
+      `INSERT INTO sessions (id, project_id, automation_run_id)
+       VALUES (?, 'project-1', ?)`
     )
     .run(id, runId);
 }

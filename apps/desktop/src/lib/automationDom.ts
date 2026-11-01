@@ -51,7 +51,6 @@ export const AUTOMATION_TEST_IDS = {
   chatListPane: 'chat-list-pane',
   chatListPaneResizeHandle: 'chat-list-pane-resize-handle',
   chatListSearchInput: 'chat-list-search-input',
-  chatCreateAgentDraftAction: 'chat-create-agent-draft-action',
   contactsSearchInput: 'contacts-search-input',
   contactsSelectModeButton: 'contacts-select-mode-button',
   contactsSelectModeDoneButton: 'contacts-select-mode-done-button',

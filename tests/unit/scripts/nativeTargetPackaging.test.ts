@@ -24,14 +24,15 @@ afterEach(() => {
   delete require.cache[configFile]
 })
 
-function accepts(platform: Platform, arch: string) {
+function accepts(platform: Platform, nodePlatform: string, arch: string) {
   vi.stubEnv('GUGU_TIER', 'production')
   delete require.cache[configFile]
   const config = require(configFile) as Config
   // Use builder's production-dependency matcher: it merges root and platform exclusions,
-  // expands the target macro, and reads the installed module's destination path from stat.
+  // expands the target macros (${platform} is the Node platform name, as electron-builder expands it),
+  // and reads the installed module's destination path from stat.
   const filter = getNodeModuleFileMatcher(
-    root, root, (value: string) => value.replaceAll('${arch}', arch), config[platform],
+    root, root, (value: string) => value.replaceAll('${platform}', nodePlatform).replaceAll('${arch}', arch), config[platform],
     { config, debugLogger: { isEnabled: false } },
   ).createFilter()
   const file = path.join(root, 'source-file')
@@ -43,7 +44,7 @@ describe('desktop native payloads follow the package target', () => {
   test.each(nativeTargets)('%s keeps its loader closure and excludes other prebuild targets', (target) => {
     const [os, arch] = target.split('-')
     const platform: Platform = os === 'darwin' ? 'mac' : os === 'win32' ? 'win' : 'linux'
-    const includes = accepts(platform, arch)
+    const includes = accepts(platform, os, arch)
     for (const depth of depths) {
       for (const candidate of nativeTargets) {
         const pty = `${depth}node_modules/node-pty/prebuilds/${candidate}`

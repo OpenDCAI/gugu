@@ -23,7 +23,7 @@ function seedSession(config: Record<string, unknown>, providerSessionId: string 
     .prepare(`INSERT INTO projects (id, name, path, created_at, updated_at) VALUES ('p', 'Home', '/home', 0, 0)`)
     .run();
   fixture.sqlite
-    .prepare(`INSERT INTO sessions (id, project_id, title, provider, runtime, provider_session_id, config) VALUES ('s', 'p', '个人助理', 'claude', 'acp', ?, ?)`)
+    .prepare(`INSERT INTO sessions (id, project_id, provider, runtime, provider_session_id, config) VALUES ('s', 'p', 'claude', 'acp', ?, ?)`)
     .run(providerSessionId, JSON.stringify({ version: '1', type: 'acp', ...config }));
 }
 

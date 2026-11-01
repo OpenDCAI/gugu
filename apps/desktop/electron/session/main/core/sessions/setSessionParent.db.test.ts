@@ -24,8 +24,8 @@ describe('setSessionParent asks other machines only when this one cannot answer'
   const sessions = vi.fn();
   const insert = (id: string, parent: string | null = null, remoteParent?: string) =>
     fixture.sqlite
-      .prepare(`INSERT INTO sessions (id, project_id, title, runtime, parent_session_id, config) VALUES (?, 'p1', ?, 'acp', ?, ?)`)
-      .run(id, id, parent, remoteParent ? JSON.stringify({ version: '1', type: 'acp', parentRemote: { deviceId: 'dev-b', sessionId: remoteParent } }) : null);
+      .prepare(`INSERT INTO sessions (id, project_id, runtime, parent_session_id, config) VALUES (?, 'p1', 'acp', ?, ?)`)
+      .run(id, parent, JSON.stringify({ version: '1', type: 'acp', agentDisplayName: id, ...(remoteParent ? { parentRemote: { deviceId: 'dev-b', sessionId: remoteParent } } : {}) }));
   const parentOf = (id: string) => (fixture.sqlite.prepare(`SELECT parent_session_id FROM sessions WHERE id = ?`).get(id) as { parent_session_id: string | null }).parent_session_id;
   const remote = (id: string, parent: string | null) =>
     ({ deviceId: 'dev-b', label: 'Studio Mac', session: { conversationId: id, projectId: 'p-b', parentConversationId: parent } as SessionpageSessionSummary });

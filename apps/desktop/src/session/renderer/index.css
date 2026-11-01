@@ -386,7 +386,7 @@
      (0.75rem / 1rem / **1.5rem** / calc(infinity*1px)),而这张表与主 app 那张进的是**同一个
      document**(#2802 拆 shadow root 之后),后注入者全文档赢 ⇒ 「打开一次会话页,全 app 的
      rounded-full 从 50% 翻成 ∞、rounded-3xl 从 16 翻成 24」。三张表由
-     scripts/check-ui-visual-spec.mts 的 radiusScaleParity 逐档钉住。
+     scripts/checks/check-ui-visual-spec.mts 的 radiusScaleParity 逐档钉住。
      原来这三行是 shadcn 的相对公式(--radius ± 2/4px = 8/6/4),那是第三套刻度。 */
   --radius-sm: 6px;
   --radius-md: 8px;
@@ -1412,8 +1412,8 @@
      这里是会话页那张表的等值副本,理由与 @theme 的圆角表逐字重写同一条:tokens.css 只由
      `apps/desktop/src/main.tsx` 引入,**脱开咕咕样式表的独立会话页构建拿不到它**。
      角色有了真定义之后,消费点上重复写的 `text-xl font-semibold tracking-tight` 就删掉了
-     (page-header / page-layout / thread-welcome / composer-embed-root)——
-     ⇒ 少了这一份,那四处在独立构建里会掉回继承字号。
+     (page-header / page-layout / thread-welcome)——
+     ⇒ 少了这一份,那几处在独立构建里会掉回继承字号。
      ⚠️ 放 @layer components 而不是不分层:角色出默认、utility 仍可覆盖,与 tokens.css 那份同序。
      ❌ 改字号/字重时两份必须一起动。 */
   .gg-type-page-title {

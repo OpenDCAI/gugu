@@ -2,7 +2,7 @@
  * #6264「从桌面用 SSH 一步装好」里与 Electron 无关的两件实事:真的 spawn 系统 ssh、以桌面的身份向云端要登录凭证。
  * 单独放一个文件,是为了 ipc.ts(要 electron)之外也能原样跑这条路径(本机对着容器实测时用)。
  */
-import { spawn } from 'node:child_process'
+import { spawn } from '@gugu/core/local/childProcess'
 import fs from 'node:fs'
 import type { RuntimeAuth } from '@gugu/core'
 import { getSupabaseAnonKey, getSupabaseUrl } from '@gugu/core/cloud/config'
@@ -17,7 +17,7 @@ const OUTPUT_CAP = 1024 * 1024
 export function systemSpawnSsh(env: NodeJS.ProcessEnv): SpawnSsh {
   return (args, { stdin, onStdout, onStderr, signal }) =>
     new Promise((resolve, reject) => {
-      const child = spawn('ssh', args, { env, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true })
+      const child = spawn('ssh', args, { env, stdio: ['pipe', 'pipe', 'pipe'] })
       let stdout = ''
       let stderr = ''
       let settled = false

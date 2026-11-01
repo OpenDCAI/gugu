@@ -112,7 +112,7 @@ function GuguDetail({ row }: { row: SessionHistoryRowData }) {
 /**
  * 一条 = 两行 + 右侧一个动作,几何照 设计同事 2026-09-23 的模板图(「已归档的聊天」)逐项量出来:
  * 行高 60px(min-h-15)、左右 16px、标题 13px 正文色、第二行只有时间(13px 次级色)(模板写法「2026年8月20日，19:46」)、
- * 右侧浅灰实心按钮 h-7。行与行之间**不画线**,靠行高节奏与悬停填色分开(docs/ui-visual-spec.md §6.6;
+ * 右侧浅灰实心按钮 h-7。行与行之间**不画线**,靠行高节奏与悬停填色分开(docs/design/ui-visual-spec.md §6.6;
  * design.md line budget:「Rows breathe on rhythm and a hover fill, not on dividers」—— 设计同事 2026-09-25)。
  * 状态不另贴标签 —— 动作钮本身就说了(打开 / 恢复 / 导入);session id、agent、父子范围都在详情里,
  * 行上不放(模板行上只有标题与时间)。批量导入在节头 ···,行上不放勾选框。

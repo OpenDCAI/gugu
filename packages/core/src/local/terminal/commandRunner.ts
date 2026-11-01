@@ -1,4 +1,5 @@
-import { execFile, type ExecFileException } from 'node:child_process'
+import type { ExecFileException } from 'node:child_process'
+import { execFile } from '../childProcess'
 
 export interface CommandRunOptions {
   check?: boolean
