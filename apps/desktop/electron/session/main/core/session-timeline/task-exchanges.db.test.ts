@@ -7,6 +7,10 @@ import type { TaskExchangePage } from '@shared/core/sessions/task-collaboration'
 const state = vi.hoisted(() => ({ db: undefined as AppDb | undefined }));
 vi.mock('@main/db/client', () => ({ get db() { if (!state.db) throw new Error('Missing test database'); return state.db; } }));
 vi.mock('@main/lib/logger', () => ({ log: { warn: vi.fn() } }));
+vi.mock('../sessions/session-life', async () => {
+  const { enqueuePending } = await vi.importActual<typeof import('../sessions/session-pending')>('../sessions/session-pending');
+  return { sessionLife: () => ({ enqueue: (input: Parameters<typeof enqueuePending>[0]) => enqueuePending(input), start: vi.fn() }) };
+});
 
 import { readTaskExchanges, readAssistantWorkReceipts, taskExchangeRecorded, unwatchTaskExchanges, watchTaskExchanges } from './task-exchanges';
 
@@ -68,6 +72,30 @@ describe('saved task exchange read and push', () => {
     unwatchTaskExchanges('test'); taskExchangeRecorded('task');
     expect(changed).toHaveBeenCalledTimes(1);
   });
+  // A session on session-life keeps a message's receipt only on its pending row; the message row carries no state.
+  const enqueueLife = async (id: string, sender: string, kind: 'session-direct' | 'ordinary' = 'session-direct') => {
+    const { enqueuePending } = await import('../sessions/session-pending');
+    const text = buildSessionDirectEnvelope({ senderSessionId: sender, senderTitle: sender, messageId: id, content: `report ${id}`, at: '2026-10-16 20:00 北京时间' });
+    return enqueuePending({ sessionId: 'task', messageId: id, text, kind });
+  };
+  const settle = (id: string, state: string) => fixture.sqlite.prepare('UPDATE session_pending SET state = ? WHERE message_id = ?').run(state, id);
+
+  it('reads a session-life session_message from its pending receipt: accepted is an exchange, queued is not yet', async () => {
+    await enqueueLife('direct', 'assistant');
+    expect(readTaskExchanges({ conversationId: 'task', fromSessionId: 'assistant' }).entries).toEqual([]);
+    settle('direct', 'accepted');
+    expect(readTaskExchanges({ conversationId: 'task', fromSessionId: 'assistant' }).entries.map(entry => entry.id)).toEqual(['direct']);
+    expect(readAssistantWorkReceipts(0).entries.map(entry => entry.id)).toEqual(['direct']);
+  });
+
+  it('reads a spawn delegation (the child\'s first turn, queued as session-direct) once its pending row is accepted', async () => {
+    const { enqueueCreationTurns } = await import('../sessions/session-life-creation');
+    const text = buildSessionDirectEnvelope({ senderSessionId: 'assistant', senderTitle: 'assistant', messageId: 'delegation', content: 'do it', at: '2026-10-16 20:00 北京时间' });
+    enqueueCreationTurns({ id: 'task', initialQueue: [{ text, origin: 'communication', kind: 'session-direct' }], initialMessageId: 'delegation' });
+    settle('delegation', 'accepted');
+    expect(readTaskExchanges({ conversationId: 'task', fromSessionId: 'assistant' }).entries.map(entry => entry.id)).toEqual(['delegation']);
+  });
+
   it('reports missing sessions and invalid cursors instead of an empty successful history', () => {
     expect(() => readTaskExchanges({ conversationId: 'gone', fromSessionId: 'assistant' })).toThrow('missing');
     expect(() => readTaskExchanges({ conversationId: 'task', fromSessionId: 'assistant', after: -1 })).toThrow('cursor');

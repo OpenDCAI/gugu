@@ -4,7 +4,8 @@ import { taskExchangeFromRow } from './task-collaboration';
 
 const row = {
   id: 'm-1', position: 1, sessionId: 'task', timestamp: '2026-10-16 12:00:00',
-  metadata: JSON.stringify({ kind: 'session-direct', state: 'accepted' }),
+  metadata: JSON.stringify({ kind: 'session-direct' }),
+  receipt: 'accepted',
   content: buildSessionDirectEnvelope({ senderSessionId: 'assistant', senderTitle: '助理', messageId: 'm-1', content: '请整理报告', at: '2026-10-16 20:00 北京时间' }),
 };
 
@@ -19,9 +20,9 @@ describe('task collaboration receipt projection', () => {
     expect(taskExchangeFromRow({ ...row, content: buildSessionDirectEnvelope({ senderSessionId: 'other-task', senderTitle: '另一个任务', messageId: 'm-1', content: 'session:assistant', at: '2026-10-16 20:00 北京时间' }) }, 'assistant')).toBeNull();
   });
   it.each(['queued', 'dispatching', 'failed', 'outcome-unknown'])('does not present a %s receipt as a delivered message', (state) => {
-    expect(taskExchangeFromRow({ ...row, metadata: JSON.stringify({ kind: 'session-direct', state }) }, 'assistant')).toBeNull();
+    expect(taskExchangeFromRow({ ...row, receipt: state }, 'assistant')).toBeNull();
   });
-  it.each(['broken', 'null', '{"kind":"ordinary-message","state":"accepted"}'])('rejects non-direct or unreadable metadata %s', (metadata) => {
+  it.each(['broken', 'null', '{"kind":"ordinary-message"}'])('rejects non-direct or unreadable metadata %s', (metadata) => {
     expect(taskExchangeFromRow({ ...row, metadata }, 'assistant')).toBeNull();
   });
   it('does not treat plain transcript text as an assistant message', () => {

@@ -718,7 +718,7 @@ export function ChatRoot(props: ChatRootProps) {
     const pendingPrompt = s.session.state.pendingPrompt;
     const committedTurns = s.transcript.state.committedTurns;
     const hasActiveTurn = s.transcript.state.activeTurnSnapshot !== null;
-    if (pendingPrompt && (hasActiveTurn || committedTurns !== pendingPromptCommittedTurns)) {
+    if (pendingPrompt && (hasActiveTurn || (!pendingPrompt.held && committedTurns !== pendingPromptCommittedTurns))) {
       s.session.setPendingPrompt(null);
     }
     pendingPromptCommittedTurns = committedTurns;

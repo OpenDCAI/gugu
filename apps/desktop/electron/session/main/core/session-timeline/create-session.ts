@@ -497,7 +497,6 @@ async function createSessionSteps(
     sessionId,
     projectId,
     runtime,
-    initialQueue: runtime === 'acp' ? [{ text: prompt, origin: 'manual' as const }] : undefined,
     launchWorkspace: () => sessionService.provisionWorkspace(sessionId),
   });
   if (!launched.ok) {
@@ -525,13 +524,20 @@ export async function startSession(sessionId: string): Promise<CreateSessionResu
     import('@main/core/sessions/session-service'),
   ]);
   const session = mapSessionRowToSession(row);
-  const runtime = session.runtime === 'acp' ? 'acp' : 'pty';
+  // ACP: the creation turns are already pending rows; retrying is session-life's explicit start (its LifeView
+  // carries the outcome and any failure).
+  if (session.runtime === 'acp') {
+    const { sessionLife } = await import('@main/core/sessions/session-life');
+    sessionLife().start(sessionId, 'retry');
+    clearStartFailure(sessionId);
+    return { ok: true, value: { started: true } };
+  }
+  const runtime = 'pty';
   const platformModel = (await sessionPlatformModel(sessionId).catch(() => null)) != null;
   const launched = await launchCreatedSession({
     sessionId,
     projectId: row.projectId,
     runtime,
-    initialQueue: session.initialQueue,
     launchWorkspace: async () => ({ success: true, data: await sessionService.ensureSessionMounted(row.id) }),
   });
   if (!launched.ok) {

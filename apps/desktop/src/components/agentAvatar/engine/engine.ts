@@ -707,6 +707,7 @@ export class GuguEngine {
         if (e >= 0.7 && e < 8) this.periodicFx('spark', 0.14) // 设计稿 13：周围一圈暖金色星屑慢慢往外飘
         break
       case 'pending':
+      case 'starting':
         d.expr = 'neutral'
         d.desat = 0.08
         d.follow = 0.1

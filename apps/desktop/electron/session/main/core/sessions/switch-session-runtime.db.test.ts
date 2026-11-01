@@ -13,7 +13,9 @@ import type { AppDb } from '@main/db/client';
 const mocks = vi.hoisted(() => ({
   db: undefined as AppDb | undefined,
   emit: vi.fn(),
+  /** session-life's stop of the ACP leg, and where its run ends up (failed = it could not be stopped). */
   stopSession: vi.fn(),
+  lifeKind: 'dormant' as 'dormant' | 'failed',
   detachSession: vi.fn(),
   surfaces: ['tui', 'acp'] as string[],
   sessionpage: {
@@ -30,9 +32,10 @@ vi.mock('@main/db/client', () => ({
 }));
 vi.mock('@main/lib/events', () => ({ events: { emit: mocks.emit } }));
 vi.mock('@main/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
-vi.mock('@main/core/acp/controller', () => ({
-  getAcpRuntimeClient: async () => ({ stopSession: mocks.stopSession }),
-}));
+vi.mock('./session-life', () => ({ sessionLife: () => ({
+  interrupt: async (sessionId: string, event: { reason: string }) => { mocks.stopSession({ sessionId, reason: event.reason }); },
+  read: () => ({ kind: mocks.lifeKind }),
+}) }));
 vi.mock('@main/core/agents/plugin-registry', () => ({
   getPlugin: () => ({
     capabilities: {
@@ -64,6 +67,7 @@ describe('switchSessionRuntime', () => {
     mocks.db = fixture.db;
     mocks.emit.mockReset();
     mocks.stopSession.mockReset();
+    mocks.lifeKind = 'dormant';
     mocks.detachSession.mockReset();
     mocks.surfaces = ['tui', 'acp'];
     mocks.sessionpage = {
@@ -94,7 +98,7 @@ describe('switchSessionRuntime', () => {
   it('通用 → 编程:停掉适配器、改记录、provider 会话 id 不动', async () => {
     await switchSessionRuntime('project-1', 'chat', 'pty');
 
-    expect(mocks.stopSession).toHaveBeenCalledExactlyOnceWith({ sessionId: 'chat' });
+    expect(mocks.stopSession).toHaveBeenCalledExactlyOnceWith({ sessionId: 'chat', reason: 'reconfigure' });
     const row = rowOf(fixture, 'chat');
     expect(row?.runtime).toBe('pty');
     // 同一条会话的唯一凭据:换腿不换它。
@@ -158,11 +162,9 @@ describe('switchSessionRuntime', () => {
 
   // 停不掉就不改记录:改了的话,记录说自己在另一条腿上,而旧进程还活着写着同一条 provider 会话。
   it('停不掉当前那条腿:记录一个字节都不改', async () => {
-    mocks.stopSession.mockRejectedValueOnce(new Error('适配器没停下来'));
+    mocks.lifeKind = 'failed';
 
-    await expect(switchSessionRuntime('project-1', 'chat', 'pty')).rejects.toThrow(
-      '适配器没停下来'
-    );
+    await expect(switchSessionRuntime('project-1', 'chat', 'pty')).rejects.toThrow('could not be stopped');
 
     expect(rowOf(fixture, 'chat')?.runtime).toBe('acp');
     expect(configOf(fixture, 'chat').type).toBe('acp');
