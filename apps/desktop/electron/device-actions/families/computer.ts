@@ -42,6 +42,7 @@ import {
 import type { DeviceActionPermit } from '@gugu/core/cloud/deviceActionHost'
 import type { CuaClient, CuaToolResult } from '../native/cua-client'
 import { cursorOnWindow } from '../native/cua-window-cursor'
+import { anySignal } from '@gugu/core/shared/anySignal'
 
 const isRecord = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v)
 const isNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v)
@@ -510,7 +511,7 @@ function computerAction(t: CuaTool, spec: CuaSpec | undefined, broken: string | 
         ...(appName ? { appName } : {}),
       })
       if (handle && 'refused' in handle) return fail('revoked', handle.refused)
-      const signal = handle ? (ctx.signal ? AbortSignal.any([ctx.signal, handle.signal]) : handle.signal) : ctx.signal
+      const signal = anySignal([ctx.signal, handle?.signal])
       // 人按了停止:这个 App 上在途的这一下被撤,报错其实是「人接过去了」。
       const stopped = () => (handle?.signal.aborted ? fail('revoked', String(handle.signal.reason)) : null)
       try {

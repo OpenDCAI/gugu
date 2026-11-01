@@ -7,6 +7,7 @@ import {
   VENDOR_MANIFEST_PLACEHOLDER,
   type InstallTarget,
 } from '@gugu/session-core/deps';
+import { anySignal } from '@gugu/core/shared/anySignal';
 
 export type MiseTarget = Extract<InstallTarget, { kind: 'mise' }>;
 
@@ -66,7 +67,7 @@ async function fetchManifest(
   signal?: AbortSignal,
 ): Promise<Manifest> {
   const response = await fetch(registry + '/' + encodeURIComponent(name) + '/' + encodeURIComponent(version), {
-    signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(20_000)]) : AbortSignal.timeout(20_000),
+    signal: anySignal([signal, AbortSignal.timeout(20_000)]),
   });
   if (!response.ok) throw new Error('Package metadata HTTP ' + response.status + ': ' + name + '@' + version);
   return await response.json() as Manifest;
@@ -95,7 +96,7 @@ type AcpRegistryAgent = { id?: unknown; version?: unknown; distribution?: { bina
 /** 取回官方 ACP 注册表的发布索引 —— 超时与 npm 元数据那条同一口径。 */
 export async function fetchAcpRegistry(signal?: AbortSignal): Promise<{ agents: AcpRegistryAgent[] }> {
   const response = await fetch(ACP_REGISTRY_URL, {
-    signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(20_000)]) : AbortSignal.timeout(20_000),
+    signal: anySignal([signal, AbortSignal.timeout(20_000)]),
   });
   if (!response.ok) throw new Error('ACP registry HTTP ' + response.status);
   const json = await response.json() as { agents?: unknown };
@@ -222,7 +223,7 @@ export function parseVendorManifest(json: unknown): VendorManifestRelease {
 
 export async function fetchVendorManifest(url: string, signal?: AbortSignal): Promise<VendorManifestRelease> {
   const response = await fetch(url, {
-    signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(20_000)]) : AbortSignal.timeout(20_000),
+    signal: anySignal([signal, AbortSignal.timeout(20_000)]),
   });
   if (!response.ok) throw new Error('Vendor manifest HTTP ' + response.status + ': ' + url);
   return parseVendorManifest(await response.json());
