@@ -107,10 +107,20 @@ describe('task file preview routing', () => {
     expect(mocks.paneLayoutOpen).not.toHaveBeenCalled();
   });
 
-  it('reports a cancelled App choice rather than acknowledging an open', async () => {
-    mocks.installedManifests.push({ id: 'text', contributes: { tabs: [{ name: 'view', title: 'Text', opensFiles: { session: ['.txt'] } }] } });
+  it('returns a cancelled choice without an error toast on the click path', async () => {
+    for (const id of ['text', 'other-text']) mocks.installedManifests.push({ id, contributes: { tabs: [{ name: 'view', title: 'Text', opensFiles: { session: ['.txt'] } }] } });
     mocks.showModal.mockImplementation((_kind: unknown, props: { onClose: () => void }) => props.onClose());
-    await expect(openFileInSessionEditor('project-1', 'session-1', 'a.txt', { ask: true })).rejects.toThrow('did not pick');
+    await expect(openFileInSessionEditor('project-1', 'session-1', 'a.txt', { ask: true })).resolves.toBeUndefined();
+    await makeFileLinkHandlers('project-1', 'session-1').onOpenFile('a.txt');
+    expect(mocks.toastError).not.toHaveBeenCalled();
+    expect(mocks.paneLayoutOpen).not.toHaveBeenCalled();
+  });
+
+  it('the shared click handler and change-card entry report a missing file', async () => {
+    mocks.fileExists.mockResolvedValue({ success: true, data: { exists: false, isDirectory: false } });
+    await makeFileLinkHandlers('project-1', 'session-1').onOpenFile('gone.txt');
+    await openFileBesideConversation('project-1', 'session-1', 'gone.txt');
+    expect(mocks.toastError).toHaveBeenCalledTimes(2);
     expect(mocks.paneLayoutOpen).not.toHaveBeenCalled();
   });
 

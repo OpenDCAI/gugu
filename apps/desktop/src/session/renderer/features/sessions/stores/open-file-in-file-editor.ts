@@ -157,7 +157,7 @@ async function openSessionFile(
   target: FileOpenTarget,
   at?: FilePlace,
   ask = false
-): Promise<void> {
+): Promise<string | null | undefined> {
   const provisioned = asProvisioned(getSessionPageStore(projectId, sessionId));
   if (!provisioned) throw new Error('This session has no prepared workspace');
   const workspace = workspaceRegistry.get(projectId, provisioned.workspaceId);
@@ -166,7 +166,7 @@ async function openSessionFile(
   const resolvedPath = resolveEditorFilePath(workspace.path, filePath);
   if (resolvedPath === null) {
     await openExternalFilePath(projectId, sessionId, filePath, { beside: target === 'beside' });
-    return;
+    return null;
   }
 
   // Agent output often points at paths that don't exist in the worktree
@@ -183,19 +183,18 @@ async function openSessionFile(
   // 目录交给系统文件管理器开它自己的窗口 —— 塞进编辑器只会开出永远 Loading 的页签。
   if (exists.data.isDirectory) {
     await openDirectoryInFileManager(resolvedPath);
-    return;
+    return null;
   }
 
   const viewModel = provisioned.viewModel;
   if (!viewModel) throw new Error('This session has no prepared pane');
 
-  const opened = await openResolvedFileInPane(viewModel, resolvedPath, {
+  return openResolvedFileInPane(viewModel, resolvedPath, {
     preview: false,
     beside: target === 'beside',
     ...(at ? { place: { sessionId, at } } : {}),
     ...(ask ? { ask } : {}),
   });
-  if (opened === undefined) throw new Error('The person did not pick an App to open it with');
 }
 
 /**
@@ -222,8 +221,8 @@ export async function openFileInSessionEditor(
   sessionId: string,
   filePath: string,
   opts?: { beside?: boolean; at?: FilePlace; ask?: boolean }
-): Promise<void> {
-  await openSessionFile(projectId, sessionId, filePath, opts?.beside ? 'beside' : 'active', opts?.at, opts?.ask === true);
+): Promise<string | null | undefined> {
+  return openSessionFile(projectId, sessionId, filePath, opts?.beside ? 'beside' : 'active', opts?.at, opts?.ask === true);
 }
 
 /**
@@ -235,7 +234,7 @@ export async function openFileBesideConversation(
   sessionId: string,
   filePath: string
 ): Promise<void> {
-  await openSessionFile(projectId, sessionId, filePath, 'beside');
+  await makeFileLinkHandlers(projectId, sessionId, { beside: true }).onOpenFile(filePath);
 }
 
 export async function openExternalFilePath(
@@ -311,11 +310,11 @@ export function makeFileLinkHandlers(
   projectId: string,
   sessionId: string,
   opts?: { beside?: boolean }
-): { onOpenFile: (filePath: string, at?: FilePlace) => void; onOpenExternal: (filePath: string) => void } {
+): { onOpenFile: (filePath: string, at?: FilePlace) => Promise<void>; onOpenExternal: (filePath: string) => void } {
   return {
-    onOpenFile: (filePath, at) => {
+    onOpenFile: async (filePath, at) => {
       // A click on a link: what fails is said with the same toast an open that fails says, not left in the console.
-      openFileInSessionEditor(projectId, sessionId, filePath, { ...opts, ...(at ? { at } : {}) }).catch((error: unknown) => {
+      await openFileInSessionEditor(projectId, sessionId, filePath, { ...opts, ...(at ? { at } : {}) }).catch((error: unknown) => {
         sessionLog.error({ err: String(error), filePath }, 'opening a linked file failed');
         toast.error(translateSessionMessage('taskError.openFileFailed', { path: '[path]' }), { description: messageForUser(error) });
       });

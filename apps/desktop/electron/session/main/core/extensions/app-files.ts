@@ -321,12 +321,12 @@ async function elsewhereGated(page: DesktopFilePage, place: WorkspacePlace): Pro
 }
 
 /** A session's working copy on another of the person's machines, and that session's project there; null for this computer's. */
-async function sessionElsewhere(place: WorkspacePlace): Promise<{ sessionId: string; projectId: string | null } | null> {
+async function sessionElsewhere(place: WorkspacePlace): Promise<{ sessionId: string; projectId: string | null; deviceId: string } | null> {
   const sessionId = workspaceSession(place);
   if (!sessionId) return null;
   const { sessionMachine } = await import('./app-programs-elsewhere');
   const machine = await sessionMachine(sessionId);
-  return machine ? { sessionId, projectId: machine.projectId } : null;
+  return machine ? { sessionId, projectId: machine.projectId, deviceId: machine.deviceId } : null;
 }
 
 /**
@@ -508,7 +508,7 @@ export async function openWithTarget(
   args: { ref?: unknown; ask?: boolean; peek?: boolean },
 ): Promise<
   | { kind: 'chat'; target: { chatId: string; itemId: string; name: string; typedName: string; file: ChatPeekFile; opening?: PreparedChatFile } }
-  | { kind: 'session'; target: { sessionId: string; projectId: string | null; path: string; ask: boolean } }
+  | { kind: 'session'; target: { sessionId: string; projectId: string | null; deviceId: string | null; path: string; ask: boolean } }
   | { kind: 'peek'; target: Extract<PeekTarget, { kind: 'local' }> }
 > {
   const ref = fileRefOf(args.ref);
@@ -523,7 +523,7 @@ export async function openWithTarget(
     if (!handed && !service.hasCapability(page.extensionId, 'files:read') && !service.hasCapability(page.extensionId, 'files:write')) {
       throw new AppFileError('denied', 'Not permitted: opening a file other than the one this page was opened for needs "files:read" or "files:write"');
     }
-    return { kind: 'session', target: { sessionId: elsewhere.sessionId, projectId: elsewhere.projectId, path: name, ask } };
+    return { kind: 'session', target: { sessionId: elsewhere.sessionId, projectId: elsewhere.projectId, deviceId: elsewhere.deviceId, path: name, ask } };
   }
   const copy = await localFolder(page, ref);
   const found = local.openTarget(copy, { ref: ref as WorkspaceFileRef });
@@ -533,7 +533,7 @@ export async function openWithTarget(
     const { place } = found;
     return { kind: 'peek', target: { kind: 'local', place, projectId: copy.projectId, workspaceId: copy.workspaceId, path: found.path, absolutePath: path.join(copy.workspaceRoot, found.path), name: found.name, ask } };
   }
-  return { kind: 'session', target: { sessionId: session, projectId: copy.projectId, path: found.path, ask } };
+  return { kind: 'session', target: { sessionId: session, projectId: copy.projectId, deviceId: null, path: found.path, ask } };
 }
 
 /**

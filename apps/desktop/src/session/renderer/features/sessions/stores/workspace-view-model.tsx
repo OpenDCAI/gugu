@@ -45,7 +45,7 @@ import type { SessionPageStore } from './session-store';
 import { terminalRegistry } from './terminal-registry';
 import { resolveWorkspacePath } from './workspace-path';
 import { workspaceRegistry } from './workspace-registry';
-import { openFileInSessionEditor } from './open-file-in-file-editor';
+import { makeFileLinkHandlers } from './open-file-in-file-editor';
 import { workspaceReachLabel, type WorkspaceSurface, type WorkspaceSurfaceWorkspace } from '../workspace-backend/workspace-surface';
 
 export type RendererKind =
@@ -260,7 +260,7 @@ export class WorkspaceViewModel implements ILifecycle, WorkspaceSurface {
   }
 
   openFile(path: string, opts?: { beside?: boolean }): void {
-    void openFileInSessionEditor(this.projectId, this.sessionId, path, opts);
+    void makeFileLinkHandlers(this.projectId, this.sessionId, opts).onOpenFile(path);
   }
 
   /**

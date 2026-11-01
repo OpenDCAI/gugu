@@ -238,15 +238,15 @@ function perform(sessionId: string | null, tabId: string, action: ExtensionHostA
     // through (`openFileInSessionEditor`) — the same for a session on this computer and one on another.
     case 'openSessionFile': {
       return (async () => {
-        const { remoteHostsStore } = await import('@renderer/features/remote-hosts/remote-hosts-store');
-        const projectId = findSession(action.sessionId)?.projectId
-          ?? remoteHostsStore.findListedSession(action.sessionId)?.projectId ?? action.projectId;
-        if (!projectId) throw new Error('This session has no known project');
+        if (!action.projectId) throw new Error('This session has no known project');
+        const { machineCodec } = await import('@renderer/lib/machine-routing');
+        const projectId = action.deviceId ? machineCodec(action.deviceId).inbound(action.projectId) : action.projectId;
         const { prepareSessionPane } = await import('@renderer/features/sessions/session-pane-ready');
         await prepareSessionPane(projectId, action.sessionId);
         if (!findSession(action.sessionId)) throw new Error('This session has no prepared pane');
         const { openFileInSessionEditor } = await import('@renderer/features/sessions/stores/open-file-in-file-editor');
-        await openFileInSessionEditor(projectId, action.sessionId, action.path, { beside: true, ask: action.ask });
+        const opened = await openFileInSessionEditor(projectId, action.sessionId, action.path, { beside: true, ask: action.ask });
+        if (opened === undefined) throw new Error('The person did not pick an App to open it with');
       })();
     }
     case 'forwardFiles':
