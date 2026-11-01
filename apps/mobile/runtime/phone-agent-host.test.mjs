@@ -605,7 +605,7 @@ test('a failed chat turn is said in the chat as the desktop says it: one system 
     return { status: 'failed', text: '', error: 'simulated model failure with private detail' }
   })
   const messageId = randomUUID()
-  fx.inboxRows.push({ chat_id: chatId, chat_kind: 'dm', chat_public_id: null, id: messageId, seq: 1, sender_user_id: ownerId, sender_type: 'human', sender_display_name: '主人', content: '你好', content_type: 'text', to_user_ids: [agentId], is_whisper: false, file_item_id: null, file_version: null, file_blob_id: null, created_at: new Date().toISOString() })
+  fx.inboxRows.push({ chat_id: chatId, chat_kind: 'dm', chat_public_id: null, id: messageId, seq: 1, sender_user_id: ownerId, sender_type: 'human', sender_display_name: '主人', content: '你好', content_type: 'text', to_user_ids: [agentId], is_whisper: false, file_item_id: null, file_version: null, file_blob_id: null, group_rules: null, named_identities: {}, created_at: new Date().toISOString() })
   try {
     await fx.host.invoke('sessionTimeline.sessionCreate', [{ harness: 'pi', model: 'platform:free', prompt: '你好' }], 'failing-chat-turn')
     await until(() => fx.notices.length > 0, fx.events)
@@ -630,7 +630,7 @@ test('a failed turn on a whispered message posts only the fixed notice: no raw e
     return { status: 'failed', text: '', error: 'simulated model failure with private detail' }
   })
   const messageId = randomUUID()
-  fx.inboxRows.push({ chat_id: chatId, chat_kind: 'dm', chat_public_id: null, id: messageId, seq: 1, sender_user_id: ownerId, sender_type: 'human', sender_display_name: '主人', content: '悄悄话', content_type: 'text', to_user_ids: [agentId], is_whisper: true, file_item_id: null, file_version: null, file_blob_id: null, created_at: new Date().toISOString() })
+  fx.inboxRows.push({ chat_id: chatId, chat_kind: 'dm', chat_public_id: null, id: messageId, seq: 1, sender_user_id: ownerId, sender_type: 'human', sender_display_name: '主人', content: '悄悄话', content_type: 'text', to_user_ids: [agentId], is_whisper: true, file_item_id: null, file_version: null, file_blob_id: null, group_rules: null, named_identities: {}, created_at: new Date().toISOString() })
   try {
     await fx.host.invoke('sessionTimeline.sessionCreate', [{ harness: 'pi', model: 'platform:free', prompt: '悄悄话' }], 'failing-whisper-turn')
     await until(() => fx.notices.length > 0, fx.events)
