@@ -585,7 +585,7 @@ test('a local initial message enters the shared inbox envelope and replies with 
     return { status: 'done', text: '已回复' }
   })
   const messageId = randomUUID()
-  fx.inboxRows.push({ chat_id: chatId, chat_kind: 'dm', chat_public_id: null, id: messageId, seq: 1, sender_user_id: ownerId, sender_type: 'human', sender_display_name: '主人', content: '查今天的日程', content_type: 'text', to_user_ids: [agentId], is_whisper: false, file_item_id: null, file_version: null, file_blob_id: null, created_at: new Date().toISOString() })
+  fx.inboxRows.push({ chat_id: chatId, chat_kind: 'dm', chat_public_id: null, id: messageId, seq: 1, sender_user_id: ownerId, sender_type: 'human', sender_display_name: '主人', content: '查今天的日程', content_type: 'text', to_user_ids: [agentId], is_whisper: false, file_item_id: null, file_version: null, file_blob_id: null, group_rules: null, named_identities: {}, created_at: new Date().toISOString() })
   try {
     await fx.host.invoke('sessionTimeline.sessionCreate', [{ harness: 'pi', model: 'platform:free', prompt: '查今天的日程' }], 'local-create-request')
     await until(() => fx.messages.some((message) => message.p_sender_user_id === agentId), fx.events)
@@ -618,7 +618,7 @@ test('a failed chat turn is said in the chat as the desktop says it: one system 
     }
     return query
   }
-  fx.inboxRows.push({ chat_id: chatId, chat_kind: 'dm', chat_public_id: null, id: messageId, seq: 1, sender_user_id: ownerId, sender_type: 'human', sender_display_name: '主人', content: '你好', content_type: 'text', to_user_ids: [agentId], is_whisper: false, file_item_id: null, file_version: null, file_blob_id: null, created_at: new Date().toISOString() })
+  fx.inboxRows.push({ chat_id: chatId, chat_kind: 'dm', chat_public_id: null, id: messageId, seq: 1, sender_user_id: ownerId, sender_type: 'human', sender_display_name: '主人', content: '你好', content_type: 'text', to_user_ids: [agentId], is_whisper: false, file_item_id: null, file_version: null, file_blob_id: null, group_rules: null, named_identities: {}, created_at: new Date().toISOString() })
   try {
     await fx.host.invoke('sessionTimeline.sessionCreate', [{ harness: 'pi', model: 'platform:free', prompt: '你好' }], 'failing-chat-turn')
     await until(() => fx.notices.length > 0, fx.events)
@@ -656,7 +656,7 @@ test('a failed chat turn still posts its notice when saving the failure fails', 
     return query
   }
   const messageId = randomUUID()
-  fx.inboxRows.push({ chat_id: chatId, chat_kind: 'dm', chat_public_id: null, id: messageId, seq: 1, sender_user_id: ownerId, sender_type: 'human', sender_display_name: '主人', content: '你好', content_type: 'text', to_user_ids: [agentId], is_whisper: false, file_item_id: null, file_version: null, file_blob_id: null, created_at: new Date().toISOString() })
+  fx.inboxRows.push({ chat_id: chatId, chat_kind: 'dm', chat_public_id: null, id: messageId, seq: 1, sender_user_id: ownerId, sender_type: 'human', sender_display_name: '主人', content: '你好', content_type: 'text', to_user_ids: [agentId], is_whisper: false, file_item_id: null, file_version: null, file_blob_id: null, group_rules: null, named_identities: {}, created_at: new Date().toISOString() })
   try {
     await fx.host.invoke('sessionTimeline.sessionCreate', [{ harness: 'pi', model: 'platform:free', prompt: '你好' }], 'failing-save-turn')
     await until(() => fx.notices.length > 0, fx.events)
@@ -671,7 +671,7 @@ test('a failed turn on a whispered message posts only the fixed notice: no raw e
     return { status: 'failed', text: '', error: 'simulated model failure with private detail' }
   })
   const messageId = randomUUID()
-  fx.inboxRows.push({ chat_id: chatId, chat_kind: 'dm', chat_public_id: null, id: messageId, seq: 1, sender_user_id: ownerId, sender_type: 'human', sender_display_name: '主人', content: '悄悄话', content_type: 'text', to_user_ids: [agentId], is_whisper: true, file_item_id: null, file_version: null, file_blob_id: null, created_at: new Date().toISOString() })
+  fx.inboxRows.push({ chat_id: chatId, chat_kind: 'dm', chat_public_id: null, id: messageId, seq: 1, sender_user_id: ownerId, sender_type: 'human', sender_display_name: '主人', content: '悄悄话', content_type: 'text', to_user_ids: [agentId], is_whisper: true, file_item_id: null, file_version: null, file_blob_id: null, group_rules: null, named_identities: {}, created_at: new Date().toISOString() })
   try {
     await fx.host.invoke('sessionTimeline.sessionCreate', [{ harness: 'pi', model: 'platform:free', prompt: '悄悄话' }], 'failing-whisper-turn')
     await until(() => fx.notices.length > 0, fx.events)
@@ -694,7 +694,7 @@ test('an image attachment is durably admitted as safe metadata and acknowledged 
     return { status: 'done', text: '已回复' }
   })
   const messageId = randomUUID()
-  fx.inboxRows.push({ chat_id: chatId, chat_kind: 'dm', id: messageId, seq: 1, sender_user_id: ownerId, sender_type: 'human', content: '[附件] calendar.png (image/png)\n[URL] https://unreachable.invalid/image.png\n[Size] 42\n[Kind] image\n[Caption]\n收到后告诉我', content_type: 'attachment', to_user_ids: [agentId], file_item_id: null, file_version: null, file_blob_id: null, created_at: new Date().toISOString() })
+  fx.inboxRows.push({ chat_id: chatId, chat_kind: 'dm', id: messageId, seq: 1, sender_user_id: ownerId, sender_type: 'human', content: '[附件] calendar.png (image/png)\n[URL] https://unreachable.invalid/image.png\n[Size] 42\n[Kind] image\n[Caption]\n收到后告诉我', content_type: 'attachment', to_user_ids: [agentId], file_item_id: null, file_version: null, file_blob_id: null, group_rules: null, named_identities: {}, created_at: new Date().toISOString() })
   try {
     await fx.host.invoke('sessionTimeline.sessionCreate', [{ harness: 'pi', model: 'platform:free', prompt: '收附件' }], 'image-metadata')
     await until(() => fx.messages.some((message) => message.p_sender_user_id === agentId), fx.events)
@@ -717,7 +717,7 @@ test('revoking OS permission after a successful phone read prevents data from re
     return { status: 'done', text: 'must not be delivered' }
   }, { nativeCall: async (name, args) => { permissionChecks.push([name, args]); return { ok: false, code: 'os_permission', message: '日历系统权限已撤销' } } })
   const messageId = randomUUID()
-  fx.inboxRows.push({ chat_id: chatId, chat_kind: 'dm', id: messageId, seq: 1, sender_user_id: ownerId, sender_type: 'human', content: '查询日历', content_type: 'text', to_user_ids: [agentId], file_item_id: null, file_version: null, file_blob_id: null, created_at: new Date().toISOString() })
+  fx.inboxRows.push({ chat_id: chatId, chat_kind: 'dm', id: messageId, seq: 1, sender_user_id: ownerId, sender_type: 'human', content: '查询日历', content_type: 'text', to_user_ids: [agentId], file_item_id: null, file_version: null, file_blob_id: null, group_rules: null, named_identities: {}, created_at: new Date().toISOString() })
   try {
     await fx.host.invoke('sessionTimeline.sessionCreate', [{ harness: 'pi', prompt: '查询日历' }], 'revoke-in-flight')
     await until(() => fx.events.some((event) => event.type === 'turn_failed'), fx.events)
