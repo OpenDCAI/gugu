@@ -467,12 +467,11 @@ describe('NewSessionPage', () => {
       const full = ['side-session', 'review', 'terminal', 'browser', 'ports', 'files'];
       expect(getSessionWorkspaceActionOrder('on-tunnel')).toEqual(full);
       expect(getSessionWorkspaceActionOrder('on-ssh')).toEqual(full);
-      expect(full.filter((id) => sessionWorkspaceActionBlocked('on-tunnel', id as never))).toEqual([
-        'terminal',
-        'browser',
-        'ports'
-      ]);
-      expect(full.filter((id) => sessionWorkspaceActionBlocked('on-ssh', id as never))).toEqual([]);
+      // The folder is the folder App, on every machine: here none is installed, so it is greyed for that reason alone.
+      const machineBlocked = (projectId: string) => full.filter((id) => !['files'].includes(id) && sessionWorkspaceActionBlocked(projectId, id as never));
+      expect(machineBlocked('on-tunnel')).toEqual(['terminal', 'browser', 'ports']);
+      expect(machineBlocked('on-ssh')).toEqual([]);
+      expect([sessionWorkspaceActionBlocked('on-tunnel', 'files'), sessionWorkspaceActionBlocked('on-ssh', 'files')]).toEqual(['folder-missing', 'folder-missing']);
       expect(sessionWorkspaceActionBlocked(undefined, 'terminal')).toBeNull();
     } finally {
       off();

@@ -234,7 +234,8 @@ const ExtensionPage = observer(function ExtensionPage({
       const target = {
         // Where it is (`AppWhere`): a group's side panel works on no working copy, a session's tab is in its agent's chat.
         workspace: claim.sessionId ? sessionWorkspace(claim.sessionId) : null,
-        conversation: claim.conversation ?? null,
+        // A chat's slot is in that chat; a session's slot in the person's private chat with its agent.
+        conversation: claim.chatId ?? claim.conversation ?? null,
         tabId: claim.tabId,
         ...(claim.itemId ? { itemId: claim.itemId } : {}),
         ...(claim.takeOpening ? { opening: claim.takeOpening() } : {}),

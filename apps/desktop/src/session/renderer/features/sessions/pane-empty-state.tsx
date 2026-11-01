@@ -148,7 +148,9 @@ export function getSessionWorkspaceActionOrder(projectId?: string, terminalEnabl
 export function sessionWorkspaceActionBlocked(
   projectId: string | undefined,
   id: SessionWorkspaceActionId
-): 'direct-only' | 'cloud-computer' | null {
+): 'direct-only' | 'cloud-computer' | 'folder-missing' | null {
+  // 文件夹 = 预装的文件夹 App:它没装上(装失败只写日志),这一格就灰着说出来,❌ 点了什么都不发生。
+  if (id === 'files') return installedExtensionsStore.allTabContributions.some((entry) => entry.kind === WORKSPACE_APP_KIND && entry.enabled) ? null : 'folder-missing';
   if (id !== 'terminal' && id !== 'browser' && id !== 'ports') return null;
   const backend = projectId ? workspaceBackend(projectId) : null;
   if (!backend || backend.machine.kind === 'local') return null;
@@ -160,11 +162,12 @@ export function sessionWorkspaceActionBlocked(
 
 /** 灰掉的那一格悬停说的那句:远程隧道在连 / 连不上的原因照实说(directToolsUnavailableText)。 */
 export function workspaceBlockedTitle(
-  reason: 'direct-only' | 'cloud-computer' | null,
+  reason: 'direct-only' | 'cloud-computer' | 'folder-missing' | null,
   translate: ReturnType<typeof useSessionMessages>['translate'],
   projectId?: string
 ): string | undefined {
   if (!reason) return undefined;
+  if (reason === 'folder-missing') return translate('workspace.folderMissing');
   const backend = projectId ? workspaceBackend(projectId) : null;
   const device = backend && backend.machine.kind !== 'local' ? remoteHostsStore.device(backend.machine.deviceId) : null;
   if (device) return directToolsUnavailableText(device, translate);

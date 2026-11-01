@@ -36,9 +36,8 @@ export function ExtensionSharedSlot({
   // root layer only re-places it on a claim change, so a hidden claim would leave it drawn over the
   // session now shown. Claim while shown, release when hidden — the page itself stays in the root layer.
   const shown = useContext(PageShownContext);
-  // A chat's slot is in that chat; a session's slot in the person's private chat with its agent (`AppWhere`).
-  const taskConversation = useTaskConversation(chatId ? null : sessionId);
-  const conversation = chatId ?? taskConversation ?? undefined;
+  // A session's slot is in the person's private chat with its agent (`AppWhere`); a chat's slot is in its chat.
+  const conversation = useTaskConversation(chatId ? null : sessionId) ?? undefined;
 
   // Where it is, and nothing else: the session's own facts (its agent, project, working copy) are main's to read
   // (真源原则 13), and what is on screen is `getAppState()`'s.

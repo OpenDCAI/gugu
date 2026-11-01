@@ -6,7 +6,7 @@ import { resolve } from 'node:path'
 import { describe, expect, test } from 'vitest'
 import { guguAppsBlock } from '../../../../apps/desktop/electron/capability-bundle'
 import { localizedManifestText, matchesExtensionQuery } from '../../../../apps/desktop/src/session/shared/extensions/catalog'
-import { parseExtensionManifest } from '../../../../apps/desktop/src/session/shared/extensions/manifest'
+import { declaredContexts, parseExtensionManifest } from '../../../../apps/desktop/src/session/shared/extensions/manifest'
 
 const manifest = parseExtensionManifest(
   JSON.parse(readFileSync(resolve(__dirname, '../../../../apps/desktop/preinstalled-apps/workspace/manifest.json'), 'utf8')),
@@ -33,5 +33,12 @@ describe('the folder App: people read its subtitle, agents read its instructions
   test('its line is one English line of at most 160 characters, for agents only (App 模型 v2)', () => {
     const line = manifest.contributes.instructions!
     expect([line.includes('\n'), line.length <= 160, /[\u4e00-\u9fff]/.test(line)]).toEqual([false, true, false])
+  })
+
+  // P4: its own page is a task's folder too. A tab that claims files is one a task never keeps of its own
+  // (app-placement-sync, F95/F3), so the page claims none; the files it opens open in its `file` tab.
+  test('its own page claims no files, so a task keeps it; the .md and .json it opens go to its file tab', () => {
+    const tabs = Object.fromEntries(manifest.contributes.tabs.map((tab) => [tab.name, declaredContexts(tab)]))
+    expect(tabs).toEqual({ main: [], file: ['chat'] })
   })
 })

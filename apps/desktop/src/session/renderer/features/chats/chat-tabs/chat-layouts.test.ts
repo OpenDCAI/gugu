@@ -34,7 +34,7 @@ import { tabFullscreen } from '../../tabs/tab-fullscreen';
 
 const board: PanelItem = { kind: 'kanban.board', title: 'Board' };
 const deck: PanelItem = { kind: 'slides.main', itemId: 'deck', typedName: 'deck.pptx', title: 'deck.pptx' };
-const file = (id: string): PanelItem => ({ kind: 'workspace.main', itemId: id, title: `${id}.md`, fileName: `${id}.md` });
+const file = (id: string): PanelItem => ({ kind: 'workspace.file', itemId: id, title: `${id}.md`, fileName: `${id}.md` });
 const kinds = (chatId: string) => panelTabsOf(chatId).map((tab) => tab.item.itemId ?? tab.item.kind);
 const pane = (chatId: string) => chatLayoutOf(chatId).groups[0]!.pane;
 const strip = (chatId: string) => pane(chatId).tabOrder.map((id) => pane(chatId).entries.get(id)!.kind);
@@ -77,8 +77,8 @@ describe('opening beside the chat', () => {
     openPanelItem('beside-3', { kind: 'kanban.file', itemId: 'B', title: '协作看板' });
     openPanelItem('beside-3', { kind: 'kanban.board', itemId: 'B', title: '协作看板' });
     expect(panelTabsOf('beside-3')).toHaveLength(1);
-    openPanelItem('beside-3', { kind: 'workspace.main', itemId: 'B', title: '协作看板.board' });
-    expect(panelTabsOf('beside-3').map((tab) => tab.item.kind)).toEqual(['workspace.main', 'kanban.board']);
+    openPanelItem('beside-3', { kind: 'workspace.file', itemId: 'B', title: '协作看板.board' });
+    expect(panelTabsOf('beside-3').map((tab) => tab.item.kind)).toEqual(['workspace.file', 'kanban.board']);
   });
 
   it('the folder is a tab only once it is opened, opened again it is the same one, and its × lets it go', () => {

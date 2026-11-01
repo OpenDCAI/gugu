@@ -31,8 +31,8 @@ export interface ExtensionViewClaim {
   /** 这一格是哪个群/私聊自己的右栏:它的页归这个聊天(常驻页按它分份)。 */
   chatId?: string;
   /**
-   * 这一格所在的对话(`AppWhere.conversation`):群右栏是那个群;任务里那一格是主人和这个任务的 agent 的私聊。页的 context
-   * 带上 `chat`(真源原则 13:只是事实,不是目标);❌ 不决定常驻页分几份 —— 那只看 `chatId`。
+   * 任务里那一格所在的对话(`AppWhere.conversation`):主人和这个任务的 agent 的私聊(群右栏的那一格就是 `chatId`)。页的
+   * context 带上 `chat`(真源原则 13:只是事实,不是目标);❌ 不决定常驻页分几份 —— 那只看 `chatId`。
    */
   conversation?: string;
   /** 这一格的页签每个任务一份(manifest `perSession`):页属于 `sessionId` 那个任务,不跟着挪。 */

@@ -21,6 +21,12 @@
         "name": "main",
         "title": "文件夹",
         "icon": "icon.png",
+        "sideWidth": 480
+      },
+      {
+        "name": "file",
+        "title": "文件夹",
+        "icon": "icon.png",
         "opensFiles": { "chat": [".md", ".json"] },
         "fileIcons": { ".md": "md.png", ".json": "json.png" },
         "sideWidth": 480

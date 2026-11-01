@@ -243,10 +243,13 @@ function renderWorkspaceActionMenuItem(
       );
     case 'files':
       return (
-        <DropdownMenuItem key={actionId} onClick={actions.openFiles}>
+        <DropdownMenuItem
+          key={actionId}
+          disabled={actions.blocked}
+          title={actions.blocked ? actions.blockedTitle : undefined}
+          onClick={actions.openFiles}
+        >
           <Folder className="size-3.5" /> {translate('workspace.folder')}
-          <span className="ml-auto">
-          </span>
         </DropdownMenuItem>
       );
   }
