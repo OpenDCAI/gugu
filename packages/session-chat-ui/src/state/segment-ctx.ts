@@ -34,6 +34,7 @@ export function segmentCtxFor(context: ChatContext, state: ChatState, caches: Ch
     terminalSnapshot: (terminalId: string) => state.session.state.terminalSnapshot(terminalId),
     // 这条会话此刻的状态 —— 只有 active 档会读它(flatten 在那一档的末尾发出这一行)。
     condition: () => state.session.state.condition,
+    pendingStarting: () => state.session.state.pendingPrompt?.starting === true,
     backgroundTasks: () => {
       const tasks = state.session.state.backgroundTasks;
       if (tasks.commands.length === 0 && tasks.subagents.length === 0) return null;

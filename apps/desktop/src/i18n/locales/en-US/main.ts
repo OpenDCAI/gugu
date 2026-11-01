@@ -206,8 +206,9 @@ export default {
     "offline": {
       "phoneTitle": "Phone Agent host disconnected",
       "phoneBody": "Task records stay on this phone. Reconnect and enable its Agent host to read the records and continue.",
-      "title": "Machine offline — the timeline cannot be opened",
+      "title": "{{machine}} is not connected",
       "body": "The timeline is read live from this machine, so it is unreachable while the machine is offline. Turn it on, sign in with the same account, then come back.",
+      "sendLater": "Messages sent now are delivered when it reconnects.",
       "lastSeen": "Last seen: {{time}}"
     },
     "output": {

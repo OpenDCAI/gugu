@@ -23,6 +23,13 @@ export async function enqueueSessionInput(target: Pick<SessionInput, 'deviceId' 
   return input
 }
 
+/** The person asked to send the failed inputs again now (the outbox also retries on its own schedule). */
+export async function retrySessionInputs(): Promise<void> {
+  const own = state()
+  if (!own.queue || !own.valid()) throw new Error('Session input outbox is not available for this account')
+  await (await own.queue).flush()
+}
+
 export function useQueuedSessionInputs(sessionId: string): readonly SessionInput[] {
   const rows = useSyncExternalStore(listener => { state().listeners.add(listener); return () => { state().listeners.delete(listener) } }, () => state().rows, () => EMPTY)
   const ownerId = state().valid() ? state().accountId : null

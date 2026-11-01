@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import 'fake-indexeddb/auto'
 import { IDBFactory } from 'fake-indexeddb'
-import { openSessionInputStorage, SessionInputOutbox, type SessionInput } from '../../../../apps/desktop/src/lib/sessionInputOutbox'
+import { buildSessionDirectEnvelope } from '@gugu/core/local/agent/deliveryEnvelope'
+import { openSessionInputStorage, SessionInputOutbox, sessionInputBubbles, withSessionInputDeadline, type HostPendingRow, type SessionInput } from '../../../../apps/desktop/src/lib/sessionInputOutbox'
 
 describe('native session input persistence', () => {
   it('survives an offline restart and delivers in order automatically with the same identities', async () => {
@@ -62,4 +63,67 @@ it('keeps an image and its caption in one durable request across a reopened data
   await restored.flush()
   expect(received).toEqual([expect.objectContaining({ id: input.id, text: 'look at this', attachments })])
   expect(await restored.list()).toEqual([])
+})
+
+it('stores a missing acknowledgement as its failure code and keeps a host refusal in the host words', async () => {
+  const storage = await openSessionInputStorage(new IDBFactory())
+  let send = (_input: SessionInput) => withSessionInputDeadline(new Promise<void>(() => {}), 1)
+  const outbox = new SessionInputOutbox('owner', storage, input => send(input), () => true)
+  const input = await outbox.enqueue({ deviceId: null, sessionId: 'agent', text: 'silent host' })
+  await outbox.flush()
+  expect((await outbox.list())[0]).toMatchObject({ id: input.id, failure: { code: 'no-acknowledgement' } })
+  send = async () => { throw new Error('Provider login expired') }
+  await outbox.flush()
+  expect((await outbox.list())[0]).toMatchObject({ id: input.id, failure: { code: 'send-failed', message: 'Provider login expired' } })
+})
+
+describe('a bubble reads the one custody owner of its messageId', () => {
+  const sender = (id: string, createdAt: number, extra: Partial<SessionInput> = {}): SessionInput =>
+    ({ id, accountId: 'owner', deviceId: null, sessionId: 'agent', text: `sender ${id}`, createdAt, ...extra })
+  const host = (seq: number, messageId: string, state: HostPendingRow['state'], over: Partial<HostPendingRow> = {}): HostPendingRow =>
+    ({ seq, messageId, preview: `host ${messageId}`.slice(0, 4), text: `host ${messageId}`, kind: 'session-direct', sentAt: 0, state, failure: null, ...over })
+
+  it('a row behind a person\'s stop says so: it goes with their next message, it is not on its way', () => {
+    expect(sessionInputBubbles([], [host(1, 'q', 'queued')], 'user-stop')[0]?.state).toBe('stopped')
+    expect(sessionInputBubbles([], [host(1, 'q', 'queued')], 'sign-out')[0]?.state).toBe('held')
+  })
+
+  it('sender row until the host row exists, the host row until accepted, then nothing (the transcript has it)', () => {
+    expect(sessionInputBubbles([sender('m', 1)], [], null)).toEqual([{ id: 'm', text: 'sender m', state: 'sending' }])
+    // A queued message from another task is a delivery: its sender and body, the way the transcript reads it, never the envelope.
+    const envelope = buildSessionDirectEnvelope({ senderSessionId: 'other-task', senderTitle: 'Builder', messageId: 'd', content: 'the run finished', at: '2026-11-01 08:00 北京时间' })
+    const [delivered] = sessionInputBubbles([], [{ ...host(1, 'd', 'queued'), text: envelope, kind: 'session-direct' }], 'start-failed')
+    expect(delivered).toMatchObject({ id: 'd', text: 'the run finished', from: 'Builder', state: 'held' })
+    expect(delivered!.text).not.toContain('<gugu_delivery')
+    expect(sessionInputBubbles([sender('m', 1)], [host(1, 'm', 'dispatching')], null)).toEqual([{ id: 'm', text: 'host m', state: 'sending' }])
+    expect(sessionInputBubbles([sender('m', 1)], [host(1, 'm', 'accepted')], null)).toEqual([])
+    expect(sessionInputBubbles([], [host(1, 'm', 'accepted')], null)).toEqual([])
+  })
+
+  it('a queued inbox batch is a pending row like any other (one projection); a failed host row says the host\'s reason', () => {
+    expect(sessionInputBubbles([], [host(1, 'mail', 'queued', { kind: 'inbox-batch' })], null)).toEqual([{ id: 'mail', text: 'host mail', state: 'sending' }])
+    expect(sessionInputBubbles([], [host(1, 'f', 'failed', { failure: 'The session stopped before dispatch' })], null))
+      .toEqual([{ id: 'f', text: 'host f', state: 'failed', failure: null, hostReason: 'The session stopped before dispatch' }])
+  })
+
+  it('names each state: queued sending, failed with the sender reason or the host failure, unknown not resent', () => {
+    expect(sessionInputBubbles(
+      [sender('b', 2, { failure: { code: 'host-offline' } }), sender('a', 1)],
+      [host(3, 'q', 'queued'), host(1, 'f', 'failed'), host(2, 'u', 'unknown')],
+      null,
+    ).map(bubble => [bubble.id, bubble.state, bubble.state === 'failed' ? bubble.failure : null])).toEqual([
+      ['f', 'failed', null], ['u', 'unknown', null], ['q', 'sending', null],
+      ['a', 'sending', null], ['b', 'failed', { code: 'host-offline' }],
+    ])
+  })
+
+  it('a host row draws its full text, never the summary preview', () => {
+    const long = 'x'.repeat(400)
+    expect(sessionInputBubbles([], [host(1, 'm', 'queued', { text: long, preview: long.slice(0, 160) })], null)[0]?.text).toBe(long)
+  })
+
+  it('while the session is failed its queued host rows are held for a retry, not sending; sender rows still send', () => {
+    expect(sessionInputBubbles([sender('s', 1)], [host(1, 'q', 'queued'), host(2, 'd', 'dispatching')], 'start-failed')
+      .map(bubble => [bubble.id, bubble.state])).toEqual([['q', 'held'], ['d', 'held'], ['s', 'sending']])
+  })
 })

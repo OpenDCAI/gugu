@@ -24,12 +24,10 @@ import { stopExactSessionpageSession } from './session-orchestration';
 import { sessionOnScreen } from './sessions-on-screen';
 import { tuiResumesExactly } from './tui-resume-exactness';
 import { mapSessionRowToSession } from './utils';
+import { sessionLife } from './session-life';
 
-/** 进程还在的 ACP 生命周期(`lost` = 适配器已退出,`closed` 的摘要停掉时已删)。 */
-const ACP_LIVE = new Set<SessionSummary['lifecycle']>(['starting', 'replaying', 'ready', 'working', 'cancelling']);
-
-function acpAtRest(summary: SessionSummary): boolean {
-  return summary.lifecycle === 'ready'
+function acpAtRest(summary: SessionSummary | undefined): boolean {
+  return summary !== undefined && summary.lifecycle === 'ready'
     && !summary.closing
     && !summary.isGenerating
     && summary.pendingPermissionCount === 0
@@ -42,14 +40,14 @@ function acpAtRest(summary: SessionSummary): boolean {
 /** 此刻进程在跑的会话(两种腿),以及开着终端 shell 的任务。 */
 async function readLive(): Promise<{ live: LiveSession[]; withTerminals: Set<string> }> {
   const live: LiveSession[] = [];
-  for (const summary of acpAgentStatusBridge.current().values()) {
-    if (!ACP_LIVE.has(summary.lifecycle)) continue;
-    live.push({
-      projectId: summary.projectId,
-      sessionId: summary.sessionId,
-      runtime: 'acp',
-      acpAtRest: acpAtRest(summary),
-    });
+  // ACP: session-life says which sessions have a run; the runtime summary says only whether it is at rest.
+  const summaries = acpAgentStatusBridge.current();
+  // A side chat lives as long as its page (it ends with lifeEnd or its parent), never by idle reclaim.
+  for (const { sessionId, parentId } of sessionLife().running()) {
+    if (parentId !== null) continue;
+    const row = db.select({ projectId: sessions.projectId }).from(sessions).where(eq(sessions.id, sessionId)).get();
+    if (!row) throw new Error(`idle reclaim: running session ${sessionId} has no row`);
+    live.push({ projectId: row.projectId, sessionId, runtime: 'acp', acpAtRest: acpAtRest(summaries.get(sessionId)) });
   }
   // 终端 pty 的中间段是它所属会话的 id(生命周期脚本那几个是工作区 id,碰不上任何会话)。
   const withTerminals = new Set<string>();
@@ -126,7 +124,7 @@ export function installIdleReclaim(sources: { agentStatus: StatusSource }): () =
     watchedRemotely: (sessionId) => sharedRemotePaneRoute().watching(sessionId),
     sessionsWithLiveTerminals: () => withTerminals,
     stop: async (target) => {
-      if (!(await stopExactSessionpageSession({ ...target, onlyIfIdle: true }))) {
+      if (!(await stopExactSessionpageSession({ ...target, reason: 'idle-reap' }))) {
         throw new Error('session row is gone');
       }
       await closeSessionBrowserTools(target.sessionId);
