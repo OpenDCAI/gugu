@@ -45,3 +45,11 @@ export function serializeWidgetMessage(widget: WidgetMessage): string {
   if (size > WIDGET_CONTENT_MAX_BYTES) throw new Error(`content is ${size} UTF-8 bytes; maximum is ${WIDGET_CONTENT_MAX_BYTES}`)
   return content
 }
+
+// Reply previews are cut to 280 characters by older backends, as composer-card previews are.
+const PREVIEW_HEAD = /^\{"v":2,"text":"((?:[^"\\]|\\u[0-9a-fA-F]{4}|\\[^u])*)/
+export function widgetMessagePreview(preview: string | null | undefined): string | null {
+  const head = preview ? PREVIEW_HEAD.exec(preview) : null
+  if (!head) return null
+  try { return JSON.parse(`"${head[1]}"`) as string } catch { return null }
+}

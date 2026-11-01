@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parseWidgetMessage, serializeWidgetMessage } from '@gugu/core/shared/ui/widgetModels'
+import { parseWidgetMessage, serializeWidgetMessage, widgetMessagePreview } from '@gugu/core/shared/ui/widgetModels'
 
 const widget = { v: 2 as const, text: 'Build results', app: 'board', view: 'main', data: { count: 1 } }
 describe('widget messages', () => {
@@ -26,5 +26,11 @@ describe('widget messages', () => {
     expect(parseWidgetMessage(JSON.stringify({ ...widget, text: '😀'.repeat(201) }))).toBeNull()
     expect(parseWidgetMessage(JSON.stringify({ ...widget, future: 'a'.repeat(6144) }))).toBeNull()
     expect(() => serializeWidgetMessage({ ...widget, text: '\u0000'.repeat(200), app: 'a'.repeat(5000) })).toThrow('content is')
+  })
+  it('reads a cut reply preview without displaying the App payload or splitting escapes', () => {
+    const content = serializeWidgetMessage({ ...widget, text: 'Results: "three"\n界', data: { large: 'a'.repeat(3000) } })
+    expect(widgetMessagePreview(content.slice(0, 280))).toBe('Results: "three"\n界')
+    expect(widgetMessagePreview('{"v":2,"text":"OK\\u12')).toBe('OK')
+    expect(widgetMessagePreview('{"v":"2","text":"wrong"}')).toBeNull()
   })
 })
