@@ -42,4 +42,8 @@ describe('stored reply outcomes use one roster-independent request', () => {
     await expect(readStoredAgentTurnFailures('conversation', null, ['current'])).rejects.toThrow('outcome read denied')
     expect(transport.requests).toHaveLength(1)
   })
+  it('keeps an empty thread id in the main conversation scope', async () => {
+    await readStoredAgentTurnFailures('conversation', '', ['current'])
+    expect(transport.requests[0]!.body).toEqual({ p_chat_id: 'conversation', p_thread_root_id: null })
+  })
 })

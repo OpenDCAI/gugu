@@ -47,7 +47,7 @@ export function storedAgentRecoveries(rows: unknown[], agentIds: readonly string
 export async function readStoredAgentTurnFailures(chatId: string, threadRootId: string | null, agentIds: readonly string[]) {
   const { data, error } = await identityDb.rpc('read_agent_turn_outcomes', {
     p_chat_id: chatId,
-    p_thread_root_id: threadRootId,
+    p_thread_root_id: threadRootId || null,
   })
   if (error) throw new Error(error.message)
   return { failures: storedAgentTurnFailures(data ?? [], agentIds), recovered: storedAgentRecoveries(data ?? [], agentIds) }
