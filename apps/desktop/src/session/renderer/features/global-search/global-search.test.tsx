@@ -51,7 +51,8 @@ afterEach(async () => {
   host.remove()
 })
 
-const settle = () => act(async () => { await new Promise((resolve) => setTimeout(resolve, 220)) })
+// The typed text settles after the panel's debounce; the two queries answer on the next turns.
+const settle = async () => { for (let round = 0; round < 3; round++) await act(async () => { await new Promise((resolve) => setTimeout(resolve, 120)) }) }
 async function render(text: string, tasks = true) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   await act(async () => root.render(<QueryClientProvider client={client}><GlobalSearch tasks={tasks} onClose={() => { closed++ }} /></QueryClientProvider>))
