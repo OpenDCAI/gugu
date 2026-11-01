@@ -60,7 +60,8 @@ public class GuguPreviewOrigins extends Plugin {
             JSObject asked = new JSObject();
             asked.put("requestId", requestId);
             asked.put("previewId", previewId);
-            asked.put("path", request.getUrl().getEncodedPath());
+            // Not "path": Capacitor copies these onto an Event, and an older WebView's Event has a read-only `path` (WebView 113).
+            asked.put("resource", request.getUrl().getEncodedPath());
             String range = header(request.getRequestHeaders(), "Range");
             asked.put("range", range == null ? JSONObject.NULL : range);
             bridge.triggerWindowJSEvent("guguPreviewRequest", asked.toString());

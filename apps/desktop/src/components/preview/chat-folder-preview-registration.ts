@@ -108,7 +108,7 @@ async function phonePreview(itemId: string, html: string, copy: ChatFolderPrevie
 }
 
 /** What the WebView client asks (GuguPreviewOrigins.java): one request of a preview origin. */
-type PhoneRequest = { requestId: string; previewId: string; path: string; range: string | null };
+type PhoneRequest = { requestId: string; previewId: string; resource: string; range: string | null };
 
 async function answerPhone(request: PhoneRequest): Promise<void> {
   const answer = await answerFor(request).catch((): PreviewAnswer => ({ status: 500, headers: { 'Content-Type': 'text/plain' }, body: new TextEncoder().encode('error') }));
@@ -124,7 +124,7 @@ async function answerPhone(request: PhoneRequest): Promise<void> {
 async function answerFor(request: PhoneRequest): Promise<PreviewAnswer> {
   const preview = phonePreviews.get(request.previewId);
   if (!preview) return { status: 404, headers: { 'Content-Type': 'text/plain' }, body: new TextEncoder().encode('unknown preview') };
-  const resolved = resolvePreviewRequest(preview.root, request.path);
+  const resolved = resolvePreviewRequest(preview.root, request.resource);
   if (!resolved) return outsideAnswer(preview.copy);
   if (resolved === preview.documentPath) return chatFolderDocument(preview.html, preview.csp);
   const path = resolved.replace(/^\/+/, '');
