@@ -50,7 +50,7 @@ function useIdentities() {
 export function useGlobalSearch(text: string, chips: readonly SearchChip[], facet: SearchFacet, tasks: boolean): SearchView {
   const summaries = useChatSummaries()
   const identities = useIdentities()
-  const typed = useDebounce(text, 150)
+  const typed = useDebounce(text, 100)
 
   const scopes: SearchChip[] = [...chips]
   let unresolved: string | null = null
