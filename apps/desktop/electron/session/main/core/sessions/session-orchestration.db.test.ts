@@ -714,6 +714,7 @@ describe('session orchestration', () => {
       }) as { session_id: string };
       expect(mocks.resolveCreateEffort).toHaveBeenCalledWith({ harness: 'codex', sessionView: 'general', model: 'native-model', effort: 'native-level' });
       expect(configOf(result.session_id)).toMatchObject({ effort: 'native-level' });
+      expect(admittedTurns(result.session_id)).toHaveLength(1);
     });
 
     it('prepares one stable dormant account-work seat without delivering or starting its first turn', async () => {
@@ -1418,13 +1419,14 @@ describe('session orchestration', () => {
     expect(mocks.resolveCreateEffort).toHaveBeenCalledWith({ harness: 'codex', sessionView: 'general', model: undefined, effort: 'native-level' });
     const row = fixture.sqlite.prepare('SELECT config FROM sessions WHERE id = ?').get(result.session_id) as { config: string };
     expect(JSON.parse(row.config)).toMatchObject({ effort: 'native-level' });
+    expect(admittedTurns(result.session_id)).toHaveLength(1);
   });
 
   it('rejects unsupported thinking without leaving a child row', async () => {
     mocks.resolveCreateEffort.mockResolvedValueOnce({ ok: false, error: { code: 'effort_rejected', message: 'native-model offers only native-level' } });
     await expect(runSessionAction(context, { action: 'spawn', prompt: 'inspect', thinking: 'unoffered' })).rejects.toThrow(/effort_rejected: native-model/);
     expect(childRows()).toEqual([]);
-    expect(mocks.startSession).not.toHaveBeenCalled();
+    expectNothingStarted();
   });
 
   it('refuses a harness the launch gate refuses before creating a child, with the gate\'s own words', async () => {
