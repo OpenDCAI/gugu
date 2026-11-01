@@ -314,19 +314,27 @@ export function createChatFind(deps: {
     return go(matches.length === 0 ? -1 : Math.max(0, matches.findIndex((m) => m.entry.order >= topOrder)));
   };
 
+  const openItem = (itemId: string): boolean => {
+    const unit = allUnits().units.find(unit => unit.itemId === itemId);
+    if (!unit) return false;
+    const state = deps.state();
+    batch(() => {
+      for (const gate of unit.folds ?? []) state.viewState.setCollapsed(gate.id, gate.stored);
+      if (unit.kind === 'message' && (unit.data as ChatMessage).conversationNarration) {
+        state.viewState.setCollapsed(`${itemId}:conversation-text`, true);
+      }
+    });
+    return true;
+  };
+
   return {
     find,
-    /** Identity navigation uses the same fold map as find, without matching private text. */
+    /** Open the folds an item sits in (the same fold map as find, without matching private text); nothing moves. */
+    openItem,
+    /** Identity navigation: open the item's folds, then position its row. */
     revealItem(itemId: string): boolean {
-      const unit = allUnits().units.find(unit => unit.itemId === itemId);
-      if (!unit) return false;
+      if (!openItem(itemId)) return false;
       const state = deps.state();
-      batch(() => {
-        for (const gate of unit.folds ?? []) state.viewState.setCollapsed(gate.id, gate.stored);
-        if (unit.kind === 'message' && (unit.data as ChatMessage).conversationNarration) {
-          state.viewState.setCollapsed(`${itemId}:conversation-text`, true);
-        }
-      });
       scrollTo(itemId, -8);
       // The process has its own bounded scroll viewport; position its actual row too.
       cancelAnimationFrame(identityFrame);
