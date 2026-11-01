@@ -227,10 +227,9 @@ import { hasPendingTaskNames, loadTaskNames, setTaskNamer, setTaskNameOwner } fr
 import { adoptLegacyTaskNames } from '@main/core/sessions/renameSession'
 import { setAgentSessionHost } from '@main/core/sessions/agent-session-controller'
 import { answerAppMessage } from '@main/core/extensions/extension-send'
-import { answerAppReadFile } from '@main/core/extensions/app-files-elsewhere'
 import { answerAppCall } from '@main/core/extensions/app-programs-elsewhere'
 export { spawnAgentForExtension } from '@main/core/extensions/extension-agents'
-export { answerAppMessage, answerAppReadFile, answerAppCall, setAgentSessionHost }
+export { answerAppMessage, answerAppCall, setAgentSessionHost }
 import { readAcpSessionSummaries } from '@main/core/acp/session-summary-reader'
 import { flushLogWrites, setLogFileOwner } from '@main/lib/file-logger'
 import { setSessionMessageOutboxReady } from '@main/core/sessions/session-message-router'

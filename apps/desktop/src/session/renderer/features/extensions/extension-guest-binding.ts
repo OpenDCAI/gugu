@@ -1,10 +1,9 @@
-import type { PreparedChatFile } from '@shared/extensions/app-runtime-protocol';
+import type { AppWhere, PreparedChatFile } from '@shared/extensions/app-runtime-protocol';
 
-export interface ExtensionGuestTarget {
+/** Where a page is aimed (`AppWhere`), in which tab, for which file. */
+export interface ExtensionGuestTarget extends AppWhere {
   opening?: PreparedChatFile;
   tabId: string;
-  sessionId?: string;
-  chatId?: string;
   itemId?: string;
 }
 
@@ -39,12 +38,12 @@ export class ExtensionGuestBinding {
     const work = guest.tail.then(async () => {
       if (this.guest !== guest) return null;
       const previous = guest.target;
-      if (previous && previous.tabId === target.tabId && previous.sessionId === target.sessionId && previous.chatId === target.chatId && previous.itemId === target.itemId) {
+      if (previous && previous.tabId === target.tabId && previous.workspace === target.workspace && previous.conversation === target.conversation && previous.itemId === target.itemId) {
         return { success: true, webContentsId: guest.webContentsId };
       }
       const reply = await (previous ? this.dispatch.retarget : this.dispatch.bind)(guest.webContentsId, target);
       if (this.guest !== guest) return null;
-      if (reply.success) guest.target = { tabId: target.tabId, sessionId: target.sessionId, chatId: target.chatId, itemId: target.itemId };
+      if (reply.success) guest.target = { tabId: target.tabId, workspace: target.workspace, conversation: target.conversation, itemId: target.itemId };
       return { ...reply, webContentsId: guest.webContentsId };
     });
     guest.tail = work.catch(() => undefined);

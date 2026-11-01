@@ -590,12 +590,12 @@ export interface SessionTimeline {
 // 会话页的读写都在会话页路由表上(手机和别的电脑开 `taskhost.*` 窗口问)。agent 的 session_* 跨机器动作(owner
 // 2026-09-30)是同一张表上的 `agentSession.<动作>(caller, action)`,经 `taskhost.call` 一问一答:载荷是本机工具的那一份
 // (`SessionAction`,外加 locate / peers / app_install),应答是那个动作的结果(id 裸的,发起方在 MCP 边界编码)。
-// 另一台机器上的 App 调用方只收 `message`、`read_file` 和 `app_call`;后两个也只收 App(agent 在自己那台机器上有
-// 文件工具、有自己的工具)。
+// 另一台机器上的 App 调用方只收 `message`、`spawn` 和 `app_call`;`app_call` 也只收 App(agent 在自己那台机器上有
+// 文件工具、有自己的工具)。一条会话工作副本里的文件经 `app_call` 的 `filesList` / `filesRead` 读。
 
 export const AGENT_SESSION_ACTIONS = [
   'activity_list', 'activity_context', 'peers', 'locate', 'list_harnesses', 'list_models', 'spawn', 'children', 'message',
-  'get', 'stop', 'archive', 'set_parent', 'schedule_list', 'schedule_cancel', 'app_install', 'app_manage', 'read_file', 'app_call',
+  'get', 'stop', 'archive', 'set_parent', 'schedule_list', 'schedule_cancel', 'app_install', 'app_manage', 'app_call',
   'project_list', 'project_create', 'project_get', 'project_add_folder', 'project_remove_folder',
   'project_remove_device', 'project_restore_device', 'project_prepare_device', 'project_bind_folder',
 ] as const;
@@ -649,8 +649,6 @@ export type AppSpawnAction = { action: 'spawn'; prompt: string; spawn: {
 } };
 /** App 调用方给一条会话发消息(会话 id 由发起方从那台机器的会话列表里取)。 */
 export type AppMessageAction = { action: 'message'; session_ids: [string]; text: string } & AppMessageOptions;
-/** App 调用方读一条会话工作副本里的一块(#6264 的块,路径相对那份工作副本;`files:read:all-machines`)。 */
-export type AppReadFileAction = { action: 'read_file'; session_id: string; path: string; offset: number; length: number };
 
 /**
  * App 调用方让那台机器替它的页面做一个「跟着会话的机器」的动词(页面在那台机器的一条会话里;owner 10-16「程序跟着数据」):

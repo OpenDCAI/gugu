@@ -6,7 +6,7 @@ import { revokeExtensionProgramAccess } from './extension-program-access';
 
 const principal = { extensionId: 'projection-media-access-test', sessionId: 'task-a', projectId: 'project-a' };
 const page = (pageId = 10, sessionId = principal.sessionId) => ({
-  extensionId: principal.extensionId, kind: 'page', pageId, binding: { sessionId },
+  extensionId: principal.extensionId, kind: 'page', pageId, binding: { workspace: `session:${sessionId}` },
 }) as unknown as BridgeCaller;
 function setup() {
   const authorize = vi.fn();
@@ -37,7 +37,7 @@ describe('host page and real projection-resource media authority', () => {
   it('rechecks a mutable host task binding before every use and invalidates only that page', async () => {
     const s = setup(); const caller = page(10);
     const a = s.media.open(caller, s.resource.id), b = s.media.open(page(11), s.resource.id);
-    caller.binding!.sessionId = 'other-task';
+    caller.binding!.workspace = 'session:other-task';
     expect(() => a.assertCurrent()).toThrow(/page binding changed/);
     expect(a.signal.aborted).toBe(true);
     expect(() => b.assertCurrent()).not.toThrow();

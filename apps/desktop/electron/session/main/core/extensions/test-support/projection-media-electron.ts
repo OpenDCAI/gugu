@@ -46,7 +46,7 @@ void app.whenReady().then(async () => {
     closed: args => call('projectionClosed', args) as Promise<void>, inputResult: args => call('projectionInputResult', args) as Promise<void>,
     watch: async () => {}, unwatch: async () => {}, send: async () => {},
   }, onProjectionSource: callback => { hear = callback; return () => {}; } });
-  const page = { kind: 'page', extensionId: id, pageId: appPage.webContents.id, binding: { sessionId: 'fixture-task' } } as BridgeCaller;
+  const page = { kind: 'page', extensionId: id, pageId: appPage.webContents.id, binding: { workspace: 'session:fixture-task' } } as BridgeCaller;
   const context = { ownerId: 'fixture-owner', deviceId: 'fixture-viewer', appId: id, sessionId: 'fixture-task', pageId: String(page.pageId), epoch: '0' };
   let fault: unknown, inputCalls = 0, stopped = false;
   const paints: Array<{ sequence: number; rtpTimestamp: number; rgb: number[] }> = [];

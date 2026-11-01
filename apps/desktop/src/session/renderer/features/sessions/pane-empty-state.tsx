@@ -1,4 +1,4 @@
-import { ArrowRight, Cable, FileText, Globe, Plus, SquareTerminal } from '@/lib/icons'
+import { ArrowRight, Cable, Globe, Plus, SquareTerminal } from '@/lib/icons'
 import { GitFork, GitPullRequest } from '@/lib/icons'
 import { observer } from 'mobx-react-lite';
 import type { ReactNode } from 'react';
@@ -87,12 +87,6 @@ export function useSessionWorkspaceActions(
       label: translate('remotePorts.tool'),
       icon: <Cable className="size-3.5" />,
       onClick: () => sessionView.paneLayout.open('remote-ports', {}, { preview: false })
-    },
-    files: {
-      id: 'files',
-      label: translate('workspace.files'),
-      icon: <FileText className="size-3.5" />,
-      onClick: () => sessionView.paneLayout.open('file-browser', {}, { preview: false })
     }
   };
 
@@ -120,7 +114,7 @@ export function useSessionWorkspaceActions(
   ];
 }
 
-export type SessionWorkspaceActionId = 'side-session' | 'review' | 'terminal' | 'browser' | 'ports' | 'files';
+export type SessionWorkspaceActionId = 'side-session' | 'review' | 'terminal' | 'browser' | 'ports';
 
 /**
  * #6264 会话在别的机器上(照 VS Code Remote):与本机同序同项,在浏览器旁边多一格「端口」
@@ -177,7 +171,7 @@ function localSessionWorkspaceActionOrder(): SessionWorkspaceActionId[] {
   // (它本身就是 git 仓库)、一样有可分叉的活跃会话,所以侧边聊天/文件/审阅照给 —— 早先只
   // 给浏览器+终端是当初做减法的临时形态,不是产品终态。够不着的项按 product spec
   // 的既定标准 disabled 并说明原因(见上面 side-session 的 disabled/title),❌ 不从清单里删。
-  return ['side-session', 'review', 'terminal', 'browser', 'files'];
+  return ['side-session', 'review', 'terminal', 'browser'];
 }
 
 /**

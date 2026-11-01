@@ -98,8 +98,35 @@ const {
 } = await import('./open-file-in-file-editor');
 
 describe('task file preview routing', () => {
+  it('reports an unprepared or missing workspace rather than acknowledging an open', async () => {
+    mocks.getSessionPageStore.mockReturnValue(undefined);
+    await expect(openFileInSessionEditor('project-1', 'session-1', 'a.txt')).rejects.toThrow('prepared workspace');
+    mocks.getSessionPageStore.mockReturnValue({ workspaceId: 'missing' });
+    mocks.workspaceGet.mockReturnValue(undefined);
+    await expect(openFileInSessionEditor('project-1', 'session-1', 'a.txt')).rejects.toThrow('no workspace');
+    expect(mocks.paneLayoutOpen).not.toHaveBeenCalled();
+  });
+
+  it('returns a cancelled choice without an error toast on the click path', async () => {
+    for (const id of ['text', 'other-text']) mocks.installedManifests.push({ id, defaultLocale: 'en', contributes: { tabs: [{ name: 'view', title: 'Text', opensFiles: { session: ['.txt'] } }] } });
+    mocks.showModal.mockImplementation((_kind: unknown, props: { onClose: () => void }) => props.onClose());
+    await expect(openFileInSessionEditor('project-1', 'session-1', 'a.txt', { ask: true })).resolves.toBeUndefined();
+    await makeFileLinkHandlers('project-1', 'session-1').onOpenFile('a.txt');
+    expect(mocks.toastError).not.toHaveBeenCalled();
+    expect(mocks.paneLayoutOpen).not.toHaveBeenCalled();
+  });
+
+  it('the shared click handler and change-card entry report a missing file', async () => {
+    mocks.fileExists.mockResolvedValue({ success: true, data: { exists: false, isDirectory: false } });
+    await makeFileLinkHandlers('project-1', 'session-1').onOpenFile('gone.txt');
+    await openFileBesideConversation('project-1', 'session-1', 'gone.txt');
+    expect(mocks.toastError).toHaveBeenCalledTimes(2);
+    expect(mocks.paneLayoutOpen).not.toHaveBeenCalled();
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.showModal.mockReset();
     mocks.showPage.mockReset();
     mocks.installedManifests.length = 0;
     mocks.openWithDefaults = {};
@@ -304,8 +331,7 @@ describe('task file preview routing', () => {
       data: { exists: false, isDirectory: false },
     });
 
-    await openFresh('project-1', 'session-1', '~/gugu-linktest/b.md');
-    await vi.waitFor(() => expect(mocks.toastError).toHaveBeenCalled());
+    await expect(openFresh('project-1', 'session-1', '~/gugu-linktest/b.md')).rejects.toThrow();
 
     await openFresh('project-1', 'session-1', '~/gugu-linktest/b.md');
     // 第二次必须已经展开 —— rejected promise 被 cache 住的话这一步还是 toast。

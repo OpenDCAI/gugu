@@ -243,7 +243,7 @@ describe('G1: a task\'s file beside an App in a chat\'s panel', () => {
     window.addEventListener('error', onError)
     await harness.render(createElement(AppPeekSlot, { sessionId: null, tabId: 'slot-y', narrow: true, children: createElement('div') }))
     await act(async () => {
-      peekStore.open(null, 'slot-y', { kind: 'local', place: { session: 's-1' }, projectId: 'p-1', workspaceId: 'w-1', path: 'docs/blob.zip', absolutePath: '/work/docs/blob.zip', name: 'blob.zip', ask: false })
+      peekStore.open(null, 'slot-y', { kind: 'local', place: { workspace: 'session:s-1' }, projectId: 'p-1', workspaceId: 'w-1', path: 'docs/blob.zip', absolutePath: '/work/docs/blob.zip', name: 'blob.zip', ask: false })
     })
     // 对照(父提交):useSessionMessages 读 session-ui 的 MessageProvider,壳里没有它 ⇒ 渲染期抛错,整个主界面换成出错页。
     const words = translateSessionMessage('file.openWithSystem')

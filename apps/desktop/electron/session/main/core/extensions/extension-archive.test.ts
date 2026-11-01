@@ -81,7 +81,7 @@ describe('.guguext packing (#6646)', () => {
     // LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 node --input-type=module -e 'import {packDir,sha256} from "./scripts/lib.mjs"; console.log(sha256(await packDir(process.argv[1])))' /path/to/gugu/tests/fixtures/extensions/market-pack
     // Nested, mixed-case and Chinese names distinguish directory entries, recursive order and locale sorting.
     const packed = await packExtensionArchive(service, dir);
-    expect(packed.sha256).toBe('21c62f91d7c868a5fd832fa0f6045a59288b463bd7d9c9cc0d97a4251f1f62f1');
+    expect(packed.sha256).toBe('e9e8b2f438778e19000ecadd9443a36c5de3c386c2fde8c7fb1408e5a4085b47');
     service.installFromDirectory(dir, service.inspectDirectory(dir).manifestDigest, 'folder');
     expect((await packInstalledExtension(service, 'market-pack')).bytes).toEqual(packed.bytes);
   });

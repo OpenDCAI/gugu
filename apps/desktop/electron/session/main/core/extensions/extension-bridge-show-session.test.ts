@@ -1,3 +1,4 @@
+import { sessionWorkspace } from '@shared/extensions/app-runtime-protocol';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 /**
@@ -108,8 +109,8 @@ beforeEach(async () => {
     deliver,
     presentation: () => ({ locale: 'en', themeMode: 'light' as const, fullscreen: false, windowFocused: true }),
   });
-  await bindExtensionSurface({ webContentsId: GROUP_PAGE, extensionId: 'calendar', tabId: 'slot-1', tabKind: 'calendar.main', chatId: '0b000000-0000-4000-8000-0000000000a1' });
-  await bindExtensionSurface({ webContentsId: SESSION_TAB, extensionId: 'calendar', sessionId: 's-here', tabId: 'tab-1', tabKind: 'calendar.main' });
+  await bindExtensionSurface({ webContentsId: GROUP_PAGE, extensionId: 'calendar', tabId: 'slot-1', tabKind: 'calendar.main', conversation: '0b000000-0000-4000-8000-0000000000a1' });
+  await bindExtensionSurface({ webContentsId: SESSION_TAB, extensionId: 'calendar', workspace: sessionWorkspace('s-here'), tabId: 'tab-1', tabKind: 'calendar.main' });
   await bindExtensionSurface({ webContentsId: DOCK_PAGE, extensionId: 'calendar', tabId: 'dock', tabKind: 'calendar.main' });
   await bindExtensionSurface({ webContentsId: CHECK_PAGE, extensionId: 'calendar', tabId: 'extension-check:11', tabKind: 'calendar.main', operator: { kind: 'agent', id: 'user:agent-f' } });
 });
@@ -163,13 +164,13 @@ describe('gugu.showSession: the session comes up as a click on its row in the ta
     for (const id of ['user:0a000000-0000-4000-8000-0000000000a1', 'session:s-here', 'aid:s-here']) {
       const answer = await show(SESSION_TAB, id);
       expect([id, answer.ok, answer.code]).toEqual([id, false, 'invalid']);
-      expect(answer.message).toBe(`${JSON.stringify(id)} is an address, not a session's id: pass the session's id, as ctx.session.id gives it`);
+      expect(answer.message).toBe(`${JSON.stringify(id)} is an address, not a session's id: pass the session's id, as ctx.workspace.sessionId gives it`);
     }
     for (const id of [undefined, '', 42, { session: 's-here' }]) {
       expect(await show(SESSION_TAB, id)).toEqual({
         ok: false,
         code: 'invalid',
-        message: "Say which session: its id, as ctx.session.id gives it (listAgents' sessionId, a tool call's call.session)",
+        message: "Say which session: its id, as ctx.workspace.sessionId gives it (listAgents' sessionId, a tool call's call.session)",
       });
     }
     expect(broughtUp()).toEqual([]);

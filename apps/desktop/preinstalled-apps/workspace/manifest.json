@@ -4,21 +4,27 @@
   "defaultLocale": "zh-CN",
   "subtitle": "共享文件：Markdown、JSON 预览与编辑",
   "localized": {
-    "en": { "name": "Folder", "subtitle": "Shared Markdown and JSON files" }
+    "en": { "name": "Folder", "subtitle": "Shared Markdown and JSON files", "tabs": { "main": { "title": "Folder" }, "file": { "title": "Folder" } } }
   },
   "author": "咕咕",
-  "version": "0.2.62",
-  "apiVersion": 24,
+  "version": "0.2.64",
+  "apiVersion": 25,
   "platforms": ["desktop", "phone"],
   "entry": "index.html",
   "icon": "icon.png",
   "permissions": {
-    "capabilities": ["files:read", "files:write", "agents:tools"]
+    "capabilities": ["files:read:all-machines", "files:write", "agents:tools"]
   },
   "contributes": {
     "tabs": [
       {
         "name": "main",
+        "title": "文件夹",
+        "icon": "icon.png",
+        "sideWidth": 480
+      },
+      {
+        "name": "file",
         "title": "文件夹",
         "icon": "icon.png",
         "opensFiles": { "chat": [".md", ".json"] },
@@ -27,6 +33,6 @@
       }
     ],
     "mcpServers": [{ "tools": "tools.js" }],
-    "instructions": "workspace__list(chat_id)、create(chat_id,title,content)、read/delete(item_id)、edit(item_id,old,new)。人和 agent 改的是同一份,各自的改动都在。"
+    "instructions": "Conversation folders: workspace__list(chat_id), create(chat_id,title,content), read/delete(item_id), edit(item_id,old,new). Edits merge live."
   }
 }

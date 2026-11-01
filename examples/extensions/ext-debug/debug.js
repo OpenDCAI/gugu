@@ -90,7 +90,7 @@ function setAt(path, value) {
  */
 function hereOf(context) {
   if (!context || isError(context)) return null;
-  if (context.session) return { session: context.session.id };
+  if (context.workspace) return { workspace: context.workspace.id };
   if (context.chat) return { chat: context.chat.id };
   return null;
 }
@@ -537,7 +537,7 @@ if (!window.gugu) {
   });
   action('do-compose', 'dispatch draft', async () => {
     const context = state.snapshot?.上下文;
-    const here = context && !isError(context) ? (context.chat ? { chat: context.chat.id } : context.session?.agentId ? { agent: context.session.agentId } : null) : null;
+    const here = context && !isError(context) ? (context.chat ? { chat: context.chat.id } : context.workspace?.agentId ? { agent: context.workspace.agentId } : null) : null;
     if (!here) throw new Error('这一页不在会话里，也不在对话里：没有能放进去的输入框');
     await window.gugu.dispatch('这句来自扩展调试台。', { draft: true, to: here });
     return '已放进对话的输入框（没发，按发送才发）';

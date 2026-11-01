@@ -21,7 +21,7 @@ export { EXTENSION_API_VERSION };
  * gugu. Both are compatibility facts, not「the bundle is broken」— the market keeps
  * them apart (see shared/extensions/market.ts `compatOf`).
  */
-export const EXTENSION_API_VERSION_MIN_SUPPORTED = 24;
+export const EXTENSION_API_VERSION_MIN_SUPPORTED = 25;
 
 // `engines.gugu`: the oldest gugu this bundle runs on, as a lower bound only.
 // Same idea as VS Code's `engines.vscode` (`^1.8.0`), narrowed to the two spellings
@@ -536,6 +536,16 @@ export const extensionManifestSchema = z
           name: z.string().trim().min(1).max(64).optional(),
           subtitle: z.string().trim().min(1).max(SUBTITLE_MAX_CHARS).optional(),
           examples: z.array(z.string().trim().min(1).max(80)).min(1).max(3).optional(),
+          /** API 25: a tab's title and its toolbar commands' titles in this language, by tab name and command id. */
+          tabs: z
+            .record(
+              z.string().regex(TAB_NAME_PATTERN),
+              z.strictObject({
+                title: z.string().trim().min(1).max(48).optional(),
+                toolbar: z.record(z.string().regex(TAB_NAME_PATTERN), z.string().trim().min(1).max(32)).optional(),
+              })
+            )
+            .optional(),
         })
       )
       .optional(),
@@ -590,9 +600,20 @@ export const extensionManifestSchema = z
   })
   .superRefine((manifest, ctx) => {
     const language = (tag: string) => tag.split('-')[0];
-    for (const tag of Object.keys(manifest.localized ?? {})) {
+    for (const [tag, entry] of Object.entries(manifest.localized ?? {})) {
       if (language(tag) === language(manifest.defaultLocale)) {
         ctx.addIssue({ code: 'custom', path: ['localized', tag], message: `the base fields are already in ${manifest.defaultLocale} (defaultLocale)` });
+      }
+      // A localized tab or command is one the App has: a name or id it does not declare is a typo, said so.
+      for (const [name, text] of Object.entries(entry.tabs ?? {})) {
+        const tab = manifest.contributes.tabs.find((candidate) => candidate.name === name);
+        if (!tab) {
+          ctx.addIssue({ code: 'custom', path: ['localized', tag, 'tabs', name], message: `this App has no tab named ${name}` });
+          continue;
+        }
+        for (const id of Object.keys(text.toolbar ?? {})) {
+          if (!tab.toolbar?.some((command) => command.id === id)) ctx.addIssue({ code: 'custom', path: ['localized', tag, 'tabs', name, 'toolbar', id], message: `tab ${name} has no toolbar command ${id}` });
+        }
       }
     }
     if (!manifest.entry && !manifest.contributes.tabs.some((tab) => tab.entry) && !manifest.contributes.mcpServers && !manifest.contributes.skills) {

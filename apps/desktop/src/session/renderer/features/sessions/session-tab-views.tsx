@@ -15,7 +15,6 @@ const loaders: Record<string, () => Promise<TabViewModule>> = {
   session: () => import('./session-tab-view'),
   'acp-chat': () => import('./acp/acp-chat-tab-view'),
   'side-chat': () => import('./acp/side-chat-tab-view'),
-  'file-browser': () => import('./editor/file-browser-tab-view'),
   file: () => import('./editor/file-tab-view'),
   review: () => import('./diff-view/review-tab-view'),
   diff: () => import('./diff-view/diff-tab-view'),

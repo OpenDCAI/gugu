@@ -12,13 +12,13 @@ import { until } from '../../../../../../../../tests/support/awaitCondition';
 // hand, and the download site asked behind it (`marketRefresh`); an index that came back different is read again in place.
 const h = vi.hoisted(() => {
   const item = (id: string, version = '1.0.0') => ({
-    manifest: { id, name: `App ${id}`, version, apiVersion: 24, defaultLocale: 'en', entry: 'index.html', contributes: { tabs: [{ name: 'main', title: id }] } },
+    manifest: { id, name: `App ${id}`, version, apiVersion: 25, defaultLocale: 'en', entry: 'index.html', contributes: { tabs: [{ name: 'main', title: id }] } },
     ref: { extensionId: id, version },
     cloud: {
       version,
       bundleSha256: 'a'.repeat(64),
       bundleBytes: 10,
-      apiVersion: 24,
+      apiVersion: 25,
       minAppVersion: '0.1.0',
       releaseNotes: '',
       publishedAt: '2026-10-01T00:00:00Z',

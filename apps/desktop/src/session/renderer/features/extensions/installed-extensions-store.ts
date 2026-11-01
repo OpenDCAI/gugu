@@ -8,7 +8,7 @@ import {
   type ExtensionManifest,
   type ExtensionTabKind
 } from '@shared/extensions/manifest';
-import { localizedManifestText } from '@shared/extensions/catalog';
+import { localizedManifestText, localizedTabText } from '@shared/extensions/catalog';
 import type { MarketUpdatesSummary } from '@shared/extensions/market';
 import type { ExtensionOrigin } from '@shared/extensions/upgrade';
 
@@ -136,7 +136,7 @@ export class InstalledExtensionsStore {
         kind: extensionTabKind(manifest.id, tab.name),
         extensionId: manifest.id,
         extensionName: name,
-        title: tab.hostPage ? name : tab.title,
+        title: tab.hostPage ? name : localizedTabText(manifest, tab, this.locale).title,
         hostSettings: tab.hostPage === 'settings',
         sideWidth: tab.hostPage === 'settings' ? HOST_SETTINGS_SIDE_WIDTH : tab.sideWidth,
         iconDataUrl: this.icons[extensionTabKind(manifest.id, tab.name)] ?? null,
@@ -149,14 +149,14 @@ export class InstalledExtensionsStore {
   }
 
   /**
-   * The tabs a task session can have of their own: the user's Apps' tabs that open no file, of the Apps that are on. A
-   * preinstalled App is not one of them — it appears only where the host puts it (the group's workspace entry,「用 X 打开」,
-   * later the dock), never as a tab in every session (统筹 09-29, L3); decided by origin, not manifest. Nor is a tab that
-   * opens files (`forFiles`). A switched-off App is left out, not greyed: the menus that open a tab list what can be
-   * opened (owner 10-20); switching it on is the「App」page's.
+   * The tabs a task session can have of their own — one list for every way a task opens one (its「+」, its empty pane, the
+   * phone's task page): the tabs that open no file, of the Apps that are on — the folder App's page among them (P4: a
+   * task's folder is that App, its conversation's folder and its working copy). Not a tab that opens files (`forFiles`). A
+   * switched-off App is left out, not greyed: the menus list what can be opened (owner 10-20); switching it on is the
+   * 「App」page's.
    */
   get enabledTabContributions(): ExtensionTabContributionEntry[] {
-    return this.allTabContributions.filter((entry) => entry.enabled && !entry.preinstalled && !entry.forFiles);
+    return this.allTabContributions.filter((entry) => entry.enabled && !entry.forFiles);
   }
 
   /** Every enabled App's resident page, preinstalled ones included: what the resident layer keeps alive. */
@@ -202,7 +202,9 @@ export class InstalledExtensionsStore {
   /** An App as the rail draws it, if the rail can open it: installed, on, with a page of its own. */
   private railApp(extensionId: string): RailApp | null {
     const main = this.mainTabOf(extensionId);
-    if (!main || !main.enabled) return null;
+    // A preinstalled App is where the host puts it (a chat's folder entry, a task's tabs, 「用 X 打开」), not an App of
+    // the rail or a chat's App list besides — decided by origin, not manifest (统筹 09-29, L3).
+    if (!main || !main.enabled || main.preinstalled) return null;
     return { extensionId, name: main.extensionName, kind: main.kind, iconDataUrl: this.appIcons[extensionId] ?? null };
   }
 

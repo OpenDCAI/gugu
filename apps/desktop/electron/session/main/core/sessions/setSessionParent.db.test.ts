@@ -37,7 +37,7 @@ describe('setSessionParent asks other machines only when this one cannot answer'
     sessions.mockReset();
     sessions.mockResolvedValue({ sessions: [], unreached: [{ deviceId: 'dev-c', label: 'Silent Mac', detail: 'no answer' }] });
     setOtherMachines({ devices: async () => [], isThisDevice: async () => false, appSpawn: vi.fn(), sessions, archive: vi.fn(),
-      appMessage: vi.fn(), appReadFile: vi.fn(), appCall: vi.fn() });
+      appMessage: vi.fn(), appCall: vi.fn() });
   });
   afterEach(() => {
     setOtherMachines(null);

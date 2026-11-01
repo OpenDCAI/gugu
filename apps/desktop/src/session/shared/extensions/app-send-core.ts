@@ -1,7 +1,7 @@
 import { createGuguSupabaseClient } from '@gugu/core/cloud/supabase';
 import { groupFileLink } from '@gugu/core/shared/ui/guguLink';
 import { stringifyMention } from '@gugu/session-shared/markdown';
-import { APP_COMPOSE_IMAGE_MAX_BYTES, APP_COMPOSE_MAX_IMAGES, fileRefOf, isLocal, type AppComposeDetail, type AppComposeImage, type AppComposeRef } from './app-runtime-protocol';
+import { APP_COMPOSE_IMAGE_MAX_BYTES, APP_COMPOSE_MAX_IMAGES, fileRefOf, isWorkspace, type AppComposeDetail, type AppComposeImage, type AppComposeRef } from './app-runtime-protocol';
 import { dispatchCallOf, dispatchOffers, type DispatchAsk, type DispatchPicked, type DispatchSpawn, type DispatchTarget } from './app-dispatch-core';
 
 /**
@@ -95,7 +95,7 @@ function refsOf(refs: unknown): CheckedRef[] {
     } catch (error) {
       throw new AppSendError('invalid', `refs[${index}].file: ${error instanceof Error ? error.message : String(error)}`);
     }
-    if (isLocal(place) || !('id' in place) || !UUID.test(place.id)) {
+    if (isWorkspace(place) || !('id' in place) || !UUID.test(place.id)) {
       throw new AppSendError('invalid', `refs[${index}].file is a chat file: pass its entry or ctx.file`);
     }
     const where = at === undefined ? undefined : placeOf(at, index);

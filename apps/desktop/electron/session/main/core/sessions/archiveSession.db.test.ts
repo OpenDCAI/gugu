@@ -524,7 +524,6 @@ describe('archiveSession', () => {
       listsAgents: true,
     });
     const appMessage = vi.fn();
-    const appReadFile = vi.fn();
     const appCall = vi.fn();
 
     it('两台的表拼起来找后代,叶子先、每一条在它自己那台机器上收,收走的都在清单里', async () => {
@@ -547,7 +546,6 @@ describe('archiveSession', () => {
           archivedThere.push(sessionId);
         },
         appMessage,
-        appReadFile,
         appCall,
       });
 
@@ -578,7 +576,6 @@ describe('archiveSession', () => {
           throw new Error('on "dev-b" (device:dev-b): failed to stop ACP conversation');
         },
         appMessage,
-        appReadFile,
         appCall,
       });
       expect(await archiveSession('p1', 'parent', { withChildren: true })).toEqual({
@@ -596,7 +593,6 @@ describe('archiveSession', () => {
         },
         archive: vi.fn(),
         appMessage,
-        appReadFile,
         appCall,
       });
       expect((await archiveSession('p1', 'second', { withChildren: true })).unreached).toEqual([
@@ -608,7 +604,7 @@ describe('archiveSession', () => {
     it('不勾「连同子会话」就只动点名的这一条,别的机器一台都不问', async () => {
       insertSession('only');
       const sessions = vi.fn();
-      setOtherMachines({ devices: async () => [], isThisDevice: async () => false, appSpawn: vi.fn(), sessions, archive: vi.fn(), appMessage, appReadFile, appCall });
+      setOtherMachines({ devices: async () => [], isThisDevice: async () => false, appSpawn: vi.fn(), sessions, archive: vi.fn(), appMessage, appCall });
       await archiveSession('p1', 'only');
       expect(sessions).not.toHaveBeenCalled();
     });

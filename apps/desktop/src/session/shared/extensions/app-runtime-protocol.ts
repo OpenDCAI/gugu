@@ -153,36 +153,73 @@ export type SyncToMain =
 // ─── files.* over the bridge ─────────────────────────────────────────────────
 
 /**
- * Where a file lives (真源原则 13): a chat's workspace, or a folder on this computer — a session's working copy, or a
- * project's folder (`gugu.projects.list()`). Every `gugu.files` call names it — the page's own place is a fact of
- * `getContext()`, never read behind the call's back.
+ * Where a file lives (真源原则 13): the folder of a conversation (`{ chat }`: a group, a topic, a private chat), or a
+ * working copy (`{ workspace }`: a session's, or a project's root folder — `ctx.workspace.id`, `gugu.projects.list()`'s
+ * `workspace`). Every `gugu.files` call names it — the page's own place is a fact of `getContext()`, never read behind
+ * the call's back.
  */
-export type AppPlace = { chat: string } | LocalPlace;
-
-/** A folder on this computer: a session's working copy, or a project's root folder. Its files are named by their path there. */
-export type LocalPlace = { session: string } | { project: string };
+export type AppPlace = { chat: string } | WorkspacePlace;
 
 /**
- * A file, named so that where it lives is said: a working-copy file by its session and its path there (`id`, or `name`
+ * A working copy, by its one id: `session:<id>` (the folder a session works in, on the machine it is on) or `project:<id>`
+ * (a project's root folder on this computer). Its files are named by their path there.
+ */
+export type WorkspacePlace = { workspace: string };
+
+/**
+ * Where a page is drawn (真源原则 13), the one shape every host keeps — main's binding, the window's slots, the phone's
+ * frame: the conversation it is in (a group, a topic, a private chat; in a session's tab, the person's private chat with
+ * that session's agent) and the working copy it works on (`WorkspacePlace.workspace`) — either, both, or neither (the
+ * App's own page). Facts for `getContext()`, never a target a call falls back on.
+ */
+export interface AppWhere {
+  conversation: string | null;
+  workspace: string | null;
+}
+
+/** What a workspace id names: a session's working copy, or a project's root folder. */
+export type WorkspaceTarget = { session: string } | { project: string };
+
+/**
+ * A file, named so that where it lives is said: a working-copy file by its workspace and its path there (`id`, or `name`
  * — the same thing in a working copy); a chat file by its item id, which says its chat on its own (as `send`'s `about`
  * does; an entry also carries `chat`, checked when given), or by its name in a chat — its path from the top of the chat's
  * folder when it is in a subfolder (`合同/2026/甲方.pdf`; a name is never cut by `/`, gugu-supabase 20261016012659).
  */
 export type AppFileRef =
-  | (LocalPlace & { id: string })
-  | (LocalPlace & { name: string })
+  | (WorkspacePlace & { id: string })
+  | (WorkspacePlace & { name: string })
   | { chat?: string; id: string }
   | { chat: string; name: string };
 
-/** A file of a folder on this computer, as a call names it. Its name is its path there. */
-export type LocalFileRef = Extract<AppFileRef, LocalPlace>;
+/** A file of a working copy, as a call names it. Its name is its path there. */
+export type WorkspaceFileRef = Extract<AppFileRef, WorkspacePlace>;
 
-/** Whether a place (or a file named with one) is a folder on this computer rather than a chat's. */
-export const isLocal = <T extends object>(place: T): place is Extract<T, LocalPlace> => 'session' in place || 'project' in place;
+/** Whether a place (or a file named with one) is a working copy rather than a conversation's folder. */
+export const isWorkspace = <T extends object>(place: T): place is Extract<T, WorkspacePlace> => 'workspace' in place;
 
 /** One string per place: what a page keeps its open files and watches under (a path is only unique in its folder). */
 export function placeKey(place: AppPlace): string {
-  return 'chat' in place ? `chat:${place.chat}` : 'session' in place ? `session:${place.session}` : `project:${place.project}`;
+  return 'chat' in place ? `chat:${place.chat}` : place.workspace;
+}
+
+const WORKSPACE_ID = /^(session|project):(.+)$/;
+
+/** A session's working copy's workspace id; a project's root folder's. */
+export const sessionWorkspace = (sessionId: string): string => `session:${sessionId}`;
+export const projectWorkspace = (projectId: string): string => `project:${projectId}`;
+
+/** What a workspace id names. What is not one throws `invalid`. */
+export function workspaceTarget(place: WorkspacePlace): WorkspaceTarget {
+  const match = WORKSPACE_ID.exec(place.workspace);
+  if (!match) throw invalidPlace(`workspace is a working copy's id, as ctx.workspace.id gives it — ${JSON.stringify(place.workspace)} is not one`);
+  return match[1] === 'session' ? { session: match[2]! } : { project: match[2]! };
+}
+
+/** The session whose working copy a workspace id names, or null (a project's folder, no workspace). */
+export function workspaceSession(place: { workspace?: string | null } | null | undefined): string | null {
+  const match = place?.workspace ? WORKSPACE_ID.exec(place.workspace) : null;
+  return match?.[1] === 'session' ? match[2]! : null;
 }
 
 const invalidPlace = (message: string) => Object.assign(new Error(message), { code: 'invalid' as const });
@@ -201,51 +238,52 @@ function chatIdOf(chat: string): string {
     'A tool that takes a chat from an agent marks it format: "gugu-chat", and gugu hands it over as its id');
 }
 
-/** A place as a page passed it, checked: exactly one of `chat` (a chat's id) / `session` / `project`, a non-empty string. */
+/** A place as a page passed it, checked: exactly one of `chat` (a chat's id) / `workspace` (a working copy's id). */
 export function placeOf(value: unknown): AppPlace {
-  const place = (value ?? {}) as { chat?: unknown; session?: unknown; project?: unknown };
-  const named = (['chat', 'session', 'project'] as const).filter((key) => typeof place[key] === 'string' && place[key]);
+  const place = (value ?? {}) as { chat?: unknown; workspace?: unknown };
+  const named = (['chat', 'workspace'] as const).filter((key) => typeof place[key] === 'string' && place[key]);
   if (named.length !== 1) {
-    throw invalidPlace('Say where: { chat: id } for a chat\'s files, { session: id } for a session\'s working copy — as getContext() gives them — ' +
-      'or { project: id } for a project\'s folder, as gugu.projects.list() gives it');
+    throw invalidPlace("Say where: { chat: id } for a conversation's folder, { workspace: id } for a working copy — as getContext() gives them " +
+      "(ctx.chat.id, ctx.workspace.id), or a project's workspace from gugu.projects.list()");
   }
-  const [key] = named;
-  const id = place[key!] as string;
-  return key === 'chat' ? { chat: chatIdOf(id) } : key === 'session' ? { session: id } : { project: id };
+  if (named[0] === 'chat') return { chat: chatIdOf(place.chat as string) };
+  const workspace = { workspace: place.workspace as string };
+  workspaceTarget(workspace);
+  return workspace;
 }
 
 /** An address (`user:`, `session:`, `aid:`, …) where a session's bare id belongs. */
 const ADDRESS = /^[a-z][a-z-]*:/i;
 
 /**
- * The session `gugu.showSession(id)` names, in its one spelling: its bare id, as `ctx.session.id`, `listAgents`'
+ * The session `gugu.showSession(id)` names, in its one spelling: its bare id, as `ctx.workspace.sessionId`, `listAgents`'
  * `sessionId` and a tool call's `call.session` give it. An address is refused, saying which to pass — never translated.
  */
 export function sessionIdOf(value: unknown): string {
   if (typeof value !== 'string' || !value) {
-    throw invalidPlace("Say which session: its id, as ctx.session.id gives it (listAgents' sessionId, a tool call's call.session)");
+    throw invalidPlace("Say which session: its id, as ctx.workspace.sessionId gives it (listAgents' sessionId, a tool call's call.session)");
   }
   if (ADDRESS.test(value)) {
-    throw invalidPlace(`${JSON.stringify(value)} is an address, not a session's id: pass the session's id, as ctx.session.id gives it`);
+    throw invalidPlace(`${JSON.stringify(value)} is an address, not a session's id: pass the session's id, as ctx.workspace.sessionId gives it`);
   }
   return value;
 }
 
 /**
- * A file as a page passed it: an entry from `files.list(place)`, `ctx.file`, `{ session, id | name }`, a chat file's
+ * A file as a page passed it: an entry from `files.list(place)`, `ctx.file`, `{ workspace, id | name }`, a chat file's
  * `{ id }`, or `{ chat, name }`.
  */
 export function fileRefOf(value: unknown): AppFileRef {
   if (typeof value === 'string') {
-    throw invalidPlace(`Say which file ${JSON.stringify(value)} is: pass an entry or ctx.file as it is, or { chat, name } / { session, name }`);
+    throw invalidPlace(`Say which file ${JSON.stringify(value)} is: pass an entry or ctx.file as it is, or { chat, name } / { workspace, name }`);
   }
-  const file = (value ?? {}) as { id?: unknown; name?: unknown; chat?: unknown; session?: unknown; project?: unknown };
+  const file = (value ?? {}) as { id?: unknown; name?: unknown; chat?: unknown; workspace?: unknown };
   const id = typeof file.id === 'string' && file.id ? file.id : null;
   const name = typeof file.name === 'string' && file.name ? file.name : null;
   if (id === null && name === null) {
-    throw invalidPlace('Say which file: pass an entry (from gugu.files.list) or ctx.file as it is, or { chat, name } / { session, name }');
+    throw invalidPlace('Say which file: pass an entry (from gugu.files.list) or ctx.file as it is, or { chat, name } / { workspace, name }');
   }
-  if (file.session !== undefined || file.project !== undefined || (id === null && file.chat !== undefined)) {
+  if (file.workspace !== undefined || (id === null && file.chat !== undefined)) {
     const place = placeOf(value);
     return id !== null ? { ...place, id } : { ...place, name: name! };
   }
@@ -253,13 +291,12 @@ export function fileRefOf(value: unknown): AppFileRef {
     if (file.chat !== undefined && (typeof file.chat !== 'string' || !file.chat)) throw invalidPlace('chat is a chat\'s id, as getContext() gives it');
     return typeof file.chat === 'string' ? { chat: chatIdOf(file.chat), id } : { id };
   }
-  throw invalidPlace(`Say where ${JSON.stringify(name)} is: { chat, name } or { session, name }`);
+  throw invalidPlace(`Say where ${JSON.stringify(name)} is: { chat, name } or { workspace, name }`);
 }
 
-/** Where a file the host knows lives (an entry, `ctx.file`): its session's working copy, its project's folder, or the chat it names. */
-export function placeOfFile(file: { chat?: string; session?: string; project?: string }): AppPlace {
-  if (file.session) return { session: file.session };
-  if (file.project) return { project: file.project };
+/** Where a file the host knows lives (an entry, `ctx.file`): its working copy, or the chat it names. */
+export function placeOfFile(file: { chat?: string; workspace?: string }): AppPlace {
+  if (file.workspace) return { workspace: file.workspace };
   if (file.chat) return { chat: file.chat };
   throw invalidPlace('This file does not say where it lives');
 }
@@ -315,8 +352,7 @@ export interface AppFileEntry {
   id: string;
   /** Where it lives: exactly one of these (`AppPlace`). */
   chat?: string;
-  session?: string;
-  project?: string;
+  workspace?: string;
   name: string;
   /** The host-resolved name for saving a local copy, including the suffix its content type stands for. */
   savedName: string;
@@ -497,7 +533,7 @@ export interface ChatPeekFile {
  */
 export type PeekTarget =
   | { kind: 'chat'; detail: AppOpenWithDetail }
-  | { kind: 'local'; place: LocalPlace; projectId: string; workspaceId: string; path: string; absolutePath: string; name: string; ask: boolean }
+  | { kind: 'local'; place: WorkspacePlace; projectId: string; workspaceId: string; path: string; absolutePath: string; name: string; ask: boolean }
   | { kind: 'session'; sessionId: string; projectId: string; deviceId?: string };
 
 export const GROUP_FILE_NOT_OPENED = 'Not opened: the person at this computer is not in the chat this file belongs to';
@@ -580,6 +616,11 @@ export interface AppFileOpened {
    * for it (`docName` is empty); the page hands them over as `f.blob()`.
    */
   bytes?: ArrayBuffer;
+  /**
+   * A working copy's file that is not a document: nothing is sent with the answer; the page reads it in pieces
+   * (`filesRead`, 512 KB each) — `f.read(offset, length)`, or `f.blob()` for all of it.
+   */
+  chunked?: true;
 }
 
 /** The click's authorized document metadata, consumed by exactly one bound file open. */

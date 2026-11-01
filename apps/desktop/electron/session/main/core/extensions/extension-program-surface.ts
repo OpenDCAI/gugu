@@ -1,7 +1,7 @@
 import type { ChildProcess } from 'node:child_process';
 import { userIdFromSupabaseAccessToken } from '@gugu/core';
 import { createGuguSupabaseClient } from '@gugu/core/cloud/supabase';
-import { APP_FRAME_MARKER, fileRefOf, isLocal, placeOf, type FrameToHost, type HostToFrame } from '@shared/extensions/app-runtime-protocol';
+import { APP_FRAME_MARKER, fileRefOf, isWorkspace, placeOf, type FrameToHost, type HostToFrame } from '@shared/extensions/app-runtime-protocol';
 import { currentAccountAccessToken } from '@main/core/extensions/account-token';
 import { log } from '@main/lib/logger';
 import type { BridgeCaller } from './extension-bridge';
@@ -78,7 +78,7 @@ export function attachProgramSurface(extensionId: string, child: ChildProcess): 
   const filePage = (args: Record<string, unknown>, callId: string | undefined, resource: boolean) => {
     const call = callId === undefined ? undefined : calls.get(callId);
     const ref = args.ref === undefined ? null : fileRefOf(args.ref);
-    if (call && ref && 'id' in ref && !isLocal(ref)) {
+    if (call && ref && 'id' in ref && !isWorkspace(ref)) {
       const given = call.files.find((file) => file.itemId === ref.id);
       if (given) return { pageId, extensionId, handed: { chat: given.chatId, id: given.itemId }, asAgent: given.agentUserId };
     }

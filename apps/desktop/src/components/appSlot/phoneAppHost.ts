@@ -27,7 +27,9 @@ import {
   SYNC_PORT_WINDOW_MESSAGE,
   fileRefOf,
   fileSearchOf,
-  isLocal,
+  isWorkspace,
+  sessionWorkspace,
+  workspaceSession,
   placeOf,
   sessionIdOf,
   type AppForumConsentDetail,
@@ -64,6 +66,7 @@ import { cachedPhoneAgents, phoneDispatch } from './phoneDispatch'
 import { onPhoneAppState, phoneAppState } from './phoneAppState'
 import { subscribeDeviceSessions } from '../../session/shared/remote-sessions/session-directory'
 import { callOnComputer } from './phoneProgramCall'
+import { openPhoneWorkingCopyFile, type ReadWorkingCopyChunk } from './phone-working-copy-file'
 import { appDeviceId, followsSessionMachine, notOnSessionMachine } from '../../session/shared/extensions/machine-call'
 import { HOSTED_PROGRAM_ELSEWHERE } from '../../session/shared/extensions/program-place'
 import { rendererFileServiceUrl } from '../../lib/chatFolder'
@@ -98,7 +101,7 @@ export interface PhoneAppBinding {
   /** The slot drawing it. */
   tabId: string
   tabName: string
-  /** The chat it is drawn for — null for a page in a session (`session`). */
+  /** The conversation it is in (`AppWhere`): the chat it is drawn for; in a session's tab, the person's private chat with its agent. */
   chatId: string | null
   /**
    * owner 10-16 The session it is drawn in, on one of the person's computers (the phone has none of its own): what its
@@ -292,7 +295,9 @@ function takeOpeningLinks(binding: PhoneAppBinding): ExtensionHostEvent[] {
   const taken: ExtensionHostEvent[] = []
   for (let i = 0; i < openingLinks.length; ) {
     const opening = openingLinks[i]!
-    const mine = opening.extensionId === binding.extensionId && opening.chatId === binding.chatId && (opening.sessionId ?? null) === (binding.session?.id ?? null)
+    // Told every page where it opened: a session's tab is at its working copy and in its agent's chat both (`AppWhere`).
+    const mine = opening.extensionId === binding.extensionId
+      && (opening.sessionId ? opening.sessionId === binding.session?.id : opening.chatId ? opening.chatId === binding.chatId : !binding.chatId && !binding.session)
       && (opening.event.type !== 'link' || opening.event.tab === binding.tabName)
       && (opening.itemId === null ? !binding.itemId : opening.itemId === binding.itemId)
     if (opening.expiresAt < now || mine) {
@@ -357,6 +362,7 @@ export function hostAppFrame(
     showSession(sessionId: string, peek: boolean): { shown: true } | { unread: string[] }
     /** 「用 X 打开」 resolved: the slot opens that App on the file, or asks when several claim it. */
     openWith(detail: AppOpenWithDetail): void
+    openWorkingCopy?(path: string, read: ReadWorkingCopyChunk): void
     /** G1 Beside the page, over its frame: the frame stays as it was, for the way back. A host without it refuses a peek. */
     peek?(target: PeekTarget): void
     /** `setTabTitle` / `setTabBadge`: drawn on the header of the slot the App is in (摩擦单 F13). */
@@ -416,7 +422,7 @@ export function hostAppFrame(
   const readMembers = async () => {
     const chatId = hosted.binding.chatId ? await files.resourceChat(hosted.binding.chatId) : null
     hosted.binding.chatId = chatId
-    // A page in a session is in no chat: its context says so (no `chat`), never a chat read for nothing.
+    // A page in no conversation: its context says so (no `chat`), never a chat read for nothing.
     if (!chatId) {
       members = []
       chat = null
@@ -449,12 +455,12 @@ export function hostAppFrame(
   /** A chat file a call names: a phone has no session's working copy to reach. */
   const chatRef = (value: unknown): ChatFileRef => {
     const ref = fileRefOf(value)
-    if (isLocal(ref)) refused('not-found', 'A phone has no folders of a computer (session working copies, projects): only chat files')
+    if (isWorkspace(ref)) refused('not-found', 'A phone has no folders of a computer (session working copies, projects): only chat files')
     return ref as ChatFileRef
   }
   const chatPlace = (value: unknown): string => {
     const place = placeOf(value)
-    if (isLocal(place)) refused('not-found', 'A phone has no folders of a computer (session working copies, projects): only chat files')
+    if (isWorkspace(place)) refused('not-found', 'A phone has no folders of a computer (session working copies, projects): only chat files')
     return (place as { chat: string }).chat
   }
   const unread = (error: unknown) => log.warn({ error: error instanceof Error ? error.message : String(error) }, 'the chat could not be read')
@@ -466,8 +472,9 @@ export function hostAppFrame(
     ...(hosted.binding.itemId && hosted.binding.chatId ? { file: { chat: hosted.binding.chatId, id: hosted.binding.itemId } } : {}),
     ...(hosted.binding.session
       ? {
-          session: {
-            id: hosted.binding.session.id,
+          workspace: {
+            id: sessionWorkspace(hosted.binding.session.id),
+            sessionId: hosted.binding.session.id,
             deviceId: hosted.binding.session.deviceId,
             ...(hosted.binding.session.deviceLabel ? { deviceLabel: hosted.binding.session.deviceLabel } : {}),
             ...(hosted.binding.session.projectId ? { projectId: hosted.binding.session.projectId } : {}),
@@ -665,7 +672,23 @@ export function hostAppFrame(
         }
         return Promise.resolve(undefined)
       }
-      case 'filesOpenWith':
+      case 'filesOpenWith': {
+        const ref = fileRefOf(args.ref)
+        if (isWorkspace(ref)) {
+          if (!hooks.openWorkingCopy) refused('invalid', 'No file preview in this surface')
+          const id = workspaceSession(ref)
+          const listed = id ? listedSession(readCachedDevices(), liveDeviceSessions(), id) : null
+          if (!listed || !('row' in listed)) refused('not-found', 'This session is not in your task list')
+          const manifest = installedExtensionsStore.manifestFor(hosted.binding.extensionId)
+          if (!manifest) refused('not-installed', 'This App is not installed')
+          const device = readCachedDevices().find((device) => device.device_id === listed.row.deviceId)
+          // The phone has no host for an App's session-file tab yet: its existing file preview is the available opener.
+          return openPhoneWorkingCopyFile(
+            { extensionId: manifest.id, extensionName: manifest.name, version: manifest.version },
+            { id: id!, deviceId: listed.row.deviceId, deviceLabel: device?.label ?? null, online: device?.is_online },
+            ref, hooks.openWorkingCopy,
+          )
+        }
         return files.openTarget(surface(), { ref: chatRef(args.ref) }).then((target) => {
           const choice = openerChoice(target.typedName, appsHereNow(), 'chat', phoneApps.remembered, args.ask === true)
           // A pill in the page: its place, for the page about to open the file — as a file link in the chat (`groupFileOpener`).
@@ -675,6 +698,7 @@ export function hostAppFrame(
           if (args.peek === true) return peek({ kind: 'chat', detail: { ...target, choice } })
           hooks.openWith({ ...target, choice })
         })
+      }
       case 'filesOpen':
         return files.open(surface(), { ref: chatRef(args.ref), ...(args.readOnly === true ? { readOnly: true } : {}), deferDetails: args.deferDetails === true })
       case 'filesReopen': {
@@ -940,7 +964,8 @@ export async function openPhoneLink(target: string | OpenTarget) {
     },
     deliver: (extensionId, event, opened) => {
       const place = opened === 'own' ? null : opened
-      openingLinks.push({ extensionId, event, chatId: place && 'chat' in place ? place.chat : null, itemId: null, ...(place && 'session' in place ? { sessionId: place.session } : {}), expiresAt: Date.now() + OPENING_LINK_TTL_MS })
+      const sessionId = place && isWorkspace(place) ? workspaceSession(place) : null
+      openingLinks.push({ extensionId, event, chatId: place && 'chat' in place ? place.chat : null, itemId: null, ...(sessionId ? { sessionId } : {}), expiresAt: Date.now() + OPENING_LINK_TTL_MS })
       for (const frame of frames.values()) for (const waiting of takeOpeningLinks(frame.binding)) frame.deliver(waiting)
     },
   }, target)

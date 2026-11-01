@@ -211,6 +211,8 @@ vi.mock('./session-model-menu', () => ({
 const roster = vi.hoisted(() => ({ read: async (): Promise<Map<string, string>> => new Map([['conv-1', 'user:agent-1']]) }));
 vi.mock('@main/core/sessionpage/sessionpage-session-agent', () => ({
   agentIdsBySession: () => roster.read(),
+  // The same roster read, with each agent's private chat with the person (conv-1's is dm-1).
+  sessionAgents: async () => new Map([...(await roster.read())].map(([sessionId, agentId]) => [sessionId, { agentId, chatId: sessionId === 'conv-1' ? 'dm-1' : null }])),
 }));
 vi.mock('./live-permissions', () => ({
   watchSessionState: async (
@@ -551,6 +553,9 @@ describe('session timeline service', () => {
     // 行上带 agent 的 id(名录里的绑定;显示名由看的一端去云端取),没有身份的是 null。
     expect(byId.get('conv-1')?.agent).toEqual({ userId: 'agent-1' });
     expect(byId.get('conv-2')?.agent).toBeNull();
+    // P4: the row says its conversation (the person's private chat with its agent) — what every machine and the phone read
+    // for the task's Apps; a session with no agent has none.
+    expect([byId.get('conv-1')?.chatId, byId.get('conv-2')?.chatId]).toEqual(['dm-1', undefined]);
   });
 
   it('心跳摘要那一份(listSessionStates)不读名录、不报 agent', () => {

@@ -3,7 +3,7 @@ import type { AppCallAction, RemoteAppCaller } from '@gugu/session-core/session-
 import type { ExtensionManifest } from '@shared/extensions/manifest';
 import { appCallAction, notOnSessionMachine, overCallLimit } from '@shared/extensions/machine-call';
 import { machineVerbs } from '@main/core/extensions/machine-verbs';
-import type { MachineVerb } from '@shared/extensions/bridge-protocol';
+import type { MachineVerb, PlaceVerb } from '@shared/extensions/bridge-protocol';
 import { callRefusal } from '@shared/extensions/bridge-protocol';
 import { log } from '@main/lib/logger';
 
@@ -12,7 +12,7 @@ import { log } from '@main/lib/logger';
  * `machine`: the App's data folder and its program) are done on the machine that session is on — the rule the right
  * panel's Files and Review follow (owner 09-25). Every other place (a chat's panel, the dock, the background page) has no
  * machine of its own and keeps this computer's. Across machines the call is `agentSession.app_call` over `taskhost.call`,
- * beside an App's `message` and `read_file`; there it is that machine's call, with its install, consent and switches, done
+ * beside an App's `message`; there it is that machine's call, with its install, consent and switches, done
  * by the same `machineVerbs` a page there calls.
  */
 
@@ -123,7 +123,7 @@ export async function answerAppCall(caller: RemoteAppCaller, action: AppCallActi
   const result = (async () => {
     await admit(caller, action);
     reached = true;
-    const value = await machineVerbs[action.method as MachineVerb](caller.extensionId, action.args, action.session_id ? { sessionId: action.session_id } : {});
+    const value = await machineVerbs[action.method as MachineVerb | PlaceVerb](caller.extensionId, action.args, action.session_id ? { sessionId: action.session_id } : {});
     const tooLarge = overCallLimit('answer', action, value);
     if (tooLarge) throw tooLarge;
     log.info('[app-programs] a call done for a page on another machine', { device: caller.deviceId, app: caller.extensionId, session: action.session_id, method: action.method });

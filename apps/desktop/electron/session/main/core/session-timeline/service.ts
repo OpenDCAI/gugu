@@ -48,7 +48,7 @@ import { SessionOptionsError, readSessionOptions, setSessionOption } from './liv
 import { getPlugin, isValidProviderId } from '@main/core/agents/plugin-registry';
 import { sessionParentId, sessionSpawnerId, mapSessionRowToSession } from '@main/core/sessions/utils';
 import { taskName } from '@main/core/sessions/task-name';
-import { agentIdsBySession } from '@main/core/sessionpage/sessionpage-session-agent';
+import { agentIdsBySession, sessionAgents } from '@main/core/sessionpage/sessionpage-session-agent';
 import { db } from '@main/db/client';
 import { sessions, projects, type SessionRow } from '@main/db/schema';
 import { tapMainEvents } from '@main/lib/events';
@@ -676,7 +676,7 @@ function notStartedFacts(row: SessionRow): Pick<SessionpageSessionSummary, 'reco
 
 /** 这台机器的会话列表:手机、别的电脑、App 读的都是这一份(会话页路由表 `sessionTimeline.sessionsList`)。 */
 export async function listSessions(): Promise<SessionpageSessionsListResult> {
-  return sessionList(await agentIdsBySession(process.env));
+  return sessionList(await sessionAgents(process.env));
 }
 
 /** Resolve the canonical binding even when its task is archived; a missing task is an orphan, not an offline host. */
@@ -695,7 +695,7 @@ export function listSessionStates(): SessionpageSessionsListResult {
   return sessionList(null);
 }
 
-function sessionList(agents: ReadonlyMap<string, string> | null): SessionpageSessionsListResult {
+function sessionList(agents: ReadonlyMap<string, { agentId: string; chatId: string | null }> | null): SessionpageSessionsListResult {
   const rows = readSessionRows();
   const visibleProjects = readLocalProjects();
   const visibleIds = new Set(visibleProjects.map(project => project.id));
@@ -722,19 +722,19 @@ function sessionList(agents: ReadonlyMap<string, string> | null): SessionpageSes
 /** 一条会话的摘要,与 `listSessions` 同一个投影;建会话时交回发起方,它就不用自己拼一份「不知道」的。 */
 export async function sessionSummary(conversationId: string): Promise<SessionpageSessionSummary | null> {
   const [row] = db.select().from(sessions).where(eq(sessions.id, conversationId)).limit(1).all();
-  return row ? summaryOf(row, await agentIdsBySession(process.env), schedulesBySession(listSessionSchedules())) : null;
+  return row ? summaryOf(row, await sessionAgents(process.env), schedulesBySession(listSessionSchedules())) : null;
 }
 
 /**
- * `agents`:本机名录里「会话 → agent」(`user:<uuid>`),一次读完;null = 这一份不报 agent。
+ * `agents`:本机名录里「会话 → agent」(`user:<uuid>`)与主人和它的私聊,一次读完;null = 这一份不报 agent。
  * `schedules`:整台机器给自己排的定时按会话分好(一次读完),行上那枚定时标记从这里来。
  */
 function summaryOf(
   session: SessionRow,
-  agents: ReadonlyMap<string, string> | null,
+  agents: ReadonlyMap<string, { agentId: string; chatId: string | null }> | null,
   schedules: ReadonlyMap<string, SessionSchedule[]>
 ): SessionpageSessionSummary {
-  const agentId = agents?.get(session.id);
+  const agent = agents?.get(session.id);
   const location = locateRow(session);
   return {
     conversationId: session.id,
@@ -760,7 +760,9 @@ function summaryOf(
     parentConversationId: sessionParentId(session),
     spawnedByConversationId: sessionSpawnerId(session),
     ...(session.config?.activitySourceLinks ? { activitySourceLinks: session.config.activitySourceLinks } : {}),
-    ...(agents ? { agent: agentId ? { userId: agentId.slice('user:'.length) } : null } : {}),
+    ...(agents ? { agent: agent ? { userId: agent.agentId.slice('user:'.length) } : null } : {}),
+    // 这条会话的对话:主人和它的 agent 的私聊 —— 别的机器、手机都从这一行拿到它(任务页里 App 的 `ctx.chat`)。
+    ...(agent?.chatId ? { chatId: agent.chatId } : {}),
     spawnedByExtensionId: session.spawnedByExtensionId ?? null,
     schedule: sessionScheduleDigest(schedules.get(session.id) ?? []),
   };

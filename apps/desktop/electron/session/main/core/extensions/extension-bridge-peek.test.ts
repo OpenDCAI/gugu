@@ -23,15 +23,15 @@ vi.mock('@main/lib/logger', () => ({ log: { warn: vi.fn(), error: vi.fn(), info:
 
 const CHAT = '0b000000-0000-4000-8000-0000000000a1';
 const file = { document: false, contentType: 'application/pdf', version: 3, size: 1024 };
-const local = { kind: 'local', place: { project: 'p-1' }, projectId: 'p-1', workspaceId: 'w-1', path: 'docs/plan.html', absolutePath: '/repo/docs/plan.html', name: 'plan.html', ask: false };
+const local = { kind: 'local', place: { workspace: 'project:p-1' }, projectId: 'p-1', workspaceId: 'w-1', path: 'docs/plan.html', absolutePath: '/repo/docs/plan.html', name: 'plan.html', ask: false };
 const pdfApp = { extensionId: 'pdf', tabKind: 'pdf.viewer', tabTitle: 'PDF', app: { name: 'PDF' }, onlyTab: true, suffix: '.pdf' };
 const chooser = vi.hoisted(() => ({ kind: 'none' as string }));
 // Where the file is and who opens it are app-files' (their own tests); here, what the bridge does with the answer.
 vi.mock('@main/core/extensions/app-files', async () => ({
   AppFileError: (await vi.importActual<typeof import('@shared/extensions/app-files-core')>('@shared/extensions/app-files-core')).AppFileError,
   resourceChatOf: vi.fn(async (chatId: string) => chatId),
-  openWithTarget: vi.fn(async (_page: unknown, args: { ref: { project?: string } }) =>
-    args.ref.project ? { kind: 'peek', target: local } : { kind: 'chat', target: { chatId: CHAT, itemId: 'item-1', name: 'deck.pdf', typedName: 'deck.pdf', file } }),
+  openWithTarget: vi.fn(async (_page: unknown, args: { ref: { workspace?: string } }) =>
+    args.ref.workspace ? { kind: 'peek', target: local } : { kind: 'chat', target: { chatId: CHAT, itemId: 'item-1', name: 'deck.pdf', typedName: 'deck.pdf', file } }),
   openerChoice: () => (chooser.kind === 'none' ? { kind: 'none' } : { kind: 'one', candidate: pdfApp }),
 }));
 
@@ -56,8 +56,8 @@ beforeEach(async () => {
 
 describe('an already-open live file is shown before metadata validation', () => {
   beforeEach(async () => {
-    await bindExtensionSurface({ webContentsId: PAGE, extensionId: 'kanban', tabId: 'folder', tabKind: 'kanban.board', chatId: CHAT });
-    await bindExtensionSurface({ webContentsId: 8, extensionId: 'pdf', tabId: 'file-tab', tabKind: 'pdf.viewer', chatId: CHAT, itemId: 'item-1' });
+    await bindExtensionSurface({ webContentsId: PAGE, extensionId: 'kanban', tabId: 'folder', tabKind: 'kanban.board', conversation: CHAT });
+    await bindExtensionSurface({ webContentsId: 8, extensionId: 'pdf', tabId: 'file-tab', tabKind: 'pdf.viewer', conversation: CHAT, itemId: 'item-1' });
     vi.spyOn(fileSync, 'openCount').mockImplementation((id) => id === 8 ? 1 : 0);
     vi.mocked(openWithTarget).mockClear();
   });
@@ -137,7 +137,7 @@ describe('files.openWith(file, { peek: true }): beside the page that asked (G1)'
   });
 
   it("a project's file: its workspace and path, beside the page", async () => {
-    expect(await openWith({ ref: { project: 'p-1', id: 'docs/plan.html' } })).toMatchObject({ ok: true });
+    expect(await openWith({ ref: { workspace: 'project:p-1', id: 'docs/plan.html' } })).toMatchObject({ ok: true });
     expect(actions()).toEqual([{ kind: 'peek', target: local }]);
   });
 

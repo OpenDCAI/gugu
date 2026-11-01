@@ -148,3 +148,17 @@ it('incoming-share target selection: drafts immediately, navigates only after sh
     expect(navigate).toHaveBeenCalledOnce()
   } finally { window.removeEventListener(UI_EVENTS.notificationClicked, navigate) }
 })
+
+
+it('file preview: rejects a 100 MB file after one chunk and shows the existing size warning', async () => {
+  const actual = await vi.importActual<typeof import('../../../apps/desktop/src/mobile/agent-watch/opened-output-open')>('../../../apps/desktop/src/mobile/agent-watch/opened-output-open')
+  const read = vi.fn(async () => ({ size: 100 * 1024 * 1024, etag: 'large', data: 'YQ==' }))
+  m.read.mockImplementation(() => actual.readWholeOpenedFile({ read, conversationId: 'task-1', path: '/repo/big.log' }))
+  await h.render(createNode(Preview, { path: '/repo/big.log' }))
+  await clickElement(h.container.querySelector('button')!)
+  await waitForCondition(() => q('message-file-preview-panel')?.textContent?.includes('20') === true, 'phone size warning')
+  expect(read).toHaveBeenCalledOnce()
+  expect(q('message-file-preview-panel').textContent).toContain('文件太大，手机上最多看')
+  expect(q('message-file-preview-panel').textContent).toContain('20')
+  expect(URL.createObjectURL).not.toHaveBeenCalled()
+})

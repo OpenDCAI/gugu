@@ -5,6 +5,8 @@ import { AGENT_OWNER_CACHE_KEY, agentOwnerUserId, agentsForOwner } from '@gugu/c
 export const SESSIONPAGE_SESSION_CACHE_KEY = 'emdash_session_id'
 export const SESSIONPAGE_PROJECT_CACHE_KEY = 'emdash_project_id'
 export const SESSIONPAGE_GROUP_CHAT_CACHE_KEY = 'sessionpage_group_chat_id'
+/** The person's private chat with the session's agent (provisioning's `DIRECT_CHAT_CACHE_KEY`). */
+export const SESSIONPAGE_DIRECT_CHAT_CACHE_KEY = 'sessionpage_direct_chat_id'
 /**
  * #4277 会话不带账号:这两格让同一条会话在不同账号名下各有各的 agent。
  * - owner:这条记录的 agent 归哪个咕咕账号(缓存云端 identity.users.owner_user_id 这个既有事实;
@@ -40,16 +42,23 @@ export async function localAgentForSession(
 }
 
 /**
- * Every session-page conversation here that has an agent identity → that agent's id, `user:<uuid>`: one roster read. The
- * one id an App names an agent by (F35), as members, presence and a tool call's `ctx.agent` do; the session id stays here.
+ * Every session-page conversation here that has an agent identity → that agent's id, `user:<uuid>`, and the person's private
+ * chat with it (provisioning's `sessionpage_direct_chat_id`; null until its identity is provisioned): one roster read. The one
+ * id an App names an agent by (F35), as members, presence and a tool call's `ctx.agent` do; the chat is the session's
+ * conversation — what its row says (`SessionpageSessionSummary.chatId`), its tab's Apps are in and its tool calls name.
  */
-export async function agentIdsBySession(env: NodeJS.ProcessEnv): Promise<Map<string, string>> {
-  const ids = new Map<string, string>()
+export async function sessionAgents(env: NodeJS.ProcessEnv): Promise<Map<string, { agentId: string; chatId: string | null }>> {
+  const agents = new Map<string, { agentId: string; chatId: string | null }>()
   for (const agent of agentsForOwner(await listAgents(env, { includeGuests: true }), null, { includeArchived: true })) {
     const sessionId = cached(agent, SESSIONPAGE_SESSION_CACHE_KEY)
-    if (sessionId && agent.gugu_user_id) ids.set(sessionId, `user:${agent.gugu_user_id}`)
+    if (sessionId && agent.gugu_user_id) agents.set(sessionId, { agentId: `user:${agent.gugu_user_id}`, chatId: cached(agent, SESSIONPAGE_DIRECT_CHAT_CACHE_KEY) || null })
   }
-  return ids
+  return agents
+}
+
+/** `sessionAgents`, the agent ids alone. */
+export async function agentIdsBySession(env: NodeJS.ProcessEnv): Promise<Map<string, string>> {
+  return new Map([...await sessionAgents(env)].map(([sessionId, { agentId }]) => [sessionId, agentId]))
 }
 
 /**

@@ -36,6 +36,7 @@ import { givesAgentTools } from '@shared/extensions/app-places';
 import {
   declaredPermissions,
   localizedManifestText,
+  localizedTabText,
   manifestLanguages,
   marketCategoryOf,
   permissionSide,
@@ -444,14 +445,15 @@ export function AppProductPage({
   // 同名的几个页签(会话页一个、群里一个)是用的人眼里的同一个页签:一行,各说各的。
   const tabsByTitle = new Map<string, string[]>();
   for (const tab of manifest.contributes.tabs) {
-    const toolbar = (tab.toolbar ?? []).map((command) => command.title);
+    const text = localizedTabText(manifest, tab, locale);
+    const toolbar = text.toolbar.map((command) => command.title);
     const suffixes = [...new Set([...claimedSuffixes(tab, 'session'), ...claimedSuffixes(tab, 'chat')])];
     const line = toolbar.length
       ? translate('extensions.addsTabToolbar', { commands: listOf(toolbar, locale) })
       : suffixes.length
         ? translate('extensions.addsTabOpens', { suffixes: listOf(suffixes, locale) })
         : translate('extensions.addsTabPlain');
-    tabsByTitle.set(tab.title, [...(tabsByTitle.get(tab.title) ?? []), line]);
+    tabsByTitle.set(text.title, [...(tabsByTitle.get(text.title) ?? []), line]);
   }
   const adds: ReactNode[] = [...tabsByTitle].map(([title, lines]) => (
     <AddsEntry key={`tab:${title}`} icon={<LayoutGrid className="size-4" />} label={translate('extensions.addsTabTitle', { title })}>

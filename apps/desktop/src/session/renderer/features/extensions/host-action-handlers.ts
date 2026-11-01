@@ -68,9 +68,14 @@ import { groupPageSlot } from '@renderer/features/chats/chat-tabs/chat-panel-ite
  * way to tell it one would hand extensions a fact they have no use for.
  */
 function findSessionView(sessionId: string): WorkspaceViewModel | undefined {
-  for (const project of getProjectManagerStore().projects.values()) {
+  return findSession(sessionId)?.viewModel;
+}
+
+/** The session this window shows, on this computer or another, by its id alone: its project here and its view. */
+function findSession(sessionId: string): { projectId: string; viewModel: WorkspaceViewModel } | undefined {
+  for (const [projectId, project] of getProjectManagerStore().projects) {
     const store = project.mountedProject?.sessionManager.sessions.get(sessionId);
-    if (store?.viewModel) return store.viewModel;
+    if (store?.viewModel) return { projectId, viewModel: store.viewModel };
   }
   return undefined;
 }
@@ -229,6 +234,21 @@ function perform(sessionId: string | null, tabId: string, action: ExtensionHostA
       });
       window.dispatchEvent(new CustomEvent(APP_OPEN_WITH_EVENT, { detail: action.detail }));
       return;
+    // An App's 「用 X 打开」 on a session's working-copy file: in that session's pane, by the resolver a click there goes
+    // through (`openFileInSessionEditor`) — the same for a session on this computer and one on another.
+    case 'openSessionFile': {
+      return (async () => {
+        if (!action.projectId) throw new Error('This session has no known project');
+        const { machineCodec } = await import('@renderer/lib/machine-routing');
+        const projectId = action.deviceId ? machineCodec(action.deviceId).inbound(action.projectId) : action.projectId;
+        const { prepareSessionPane } = await import('@renderer/features/sessions/session-pane-ready');
+        await prepareSessionPane(projectId, action.sessionId);
+        if (!findSession(action.sessionId)) throw new Error('This session has no prepared pane');
+        const { openFileInSessionEditor } = await import('@renderer/features/sessions/stores/open-file-in-file-editor');
+        const opened = await openFileInSessionEditor(projectId, action.sessionId, action.path, { beside: true, ask: action.ask });
+        if (opened === undefined) throw new Error('The person did not pick an App to open it with');
+      })();
+    }
     case 'forwardFiles':
       window.dispatchEvent(new CustomEvent(APP_FORWARD_FILES_EVENT, { detail: action.detail }));
       return;

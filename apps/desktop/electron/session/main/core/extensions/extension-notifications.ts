@@ -1,4 +1,4 @@
-import { fileRefOf, type AppFileRef, type AppPlace } from '@shared/extensions/app-runtime-protocol';
+import { fileRefOf, isWorkspace, workspaceSession, type AppFileRef, type AppPlace } from '@shared/extensions/app-runtime-protocol';
 import type { ExtensionHostEvent } from '@shared/extensions/bridge-protocol';
 import { sessionHostLocale } from '@main/core/host-locale';
 import { localizedManifestText } from '@shared/extensions/catalog';
@@ -47,7 +47,7 @@ export interface ExtensionNotifierDeps {
       | { file: BannerFile },
   ): Promise<void>;
   /** The click, to the background page and to the App's pages where it opened (null: the background page alone). */
-  deliver(extensionId: string, event: ExtensionHostEvent, opened: AppPlace | 'own' | null): void;
+  deliver(extensionId: string, event: ExtensionHostEvent, opened: AppPlace | { session: string } | 'own' | null): void;
   onError(message: string, error: unknown): void;
   now(): number;
 }
@@ -56,8 +56,8 @@ export interface ExtensionNotifierDeps {
  * Enough for a few distinct requests for attention in quick succession; a page that
  * posts in a loop is stopped and told why, instead of burying every other banner.
  */
-/** A file a banner's click opens: a chat's, or a session's (a project's has no place a banner opens it). */
-type BannerFile = Exclude<AppFileRef, { project: string }> & { id: string };
+/** A file a banner's click opens: a chat's, or a session's working copy's (a project's has no place a banner opens it). */
+type BannerFile = AppFileRef & { id: string };
 
 export const EXTENSION_NOTIFICATIONS_PER_MINUTE = 10;
 const recent = new Map<string, number[]>();
@@ -105,7 +105,7 @@ function parseOpen(manifest: ExtensionManifest, raw: unknown): BannerOpen | null
     const file = fileRefOf(open.file);
     if (!('id' in file)) throw new Error('open.file is a file\'s entry or ctx.file');
     // A project's file opens beside a page (G1), and a banner is no page: it names the App's tab or the file's session.
-    if ('project' in file) throw new Error('open.file is a chat\'s or a session\'s file: a project\'s file opens beside a page');
+    if (isWorkspace(file) && !workspaceSession(file)) throw new Error('open.file is a chat\'s or a session\'s file: a project\'s file opens beside a page');
     return { file };
   }
   const id = open[places[0]];
@@ -292,8 +292,9 @@ export async function showExtensionNotification(input: { extensionId: string; re
           await actInWindow({ kind: 'openApp', extensionId: target.extensionId, chatId: target.chat });
         } else if ('own' in target) {
           await actInWindow({ kind: 'openApp', extensionId: target.own });
-        } else if ('session' in target.file) {
-          await orchestration.openSessionFileForApp({ projectId: await projectOf(target.file.session), sessionId: target.file.session, path: target.file.id, ask: false });
+        } else if (isWorkspace(target.file)) {
+          const sessionId = workspaceSession(target.file)!;
+          await orchestration.openSessionFileForApp({ projectId: await projectOf(sessionId), sessionId, path: target.file.id, ask: false });
         } else {
           await actInWindow({ kind: 'openChatFile', chatId: target.file.chat ?? (await files.chatOfItem(target.file.id)), itemId: target.file.id });
         }

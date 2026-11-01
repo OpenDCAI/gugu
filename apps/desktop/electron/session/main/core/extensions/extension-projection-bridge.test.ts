@@ -13,7 +13,7 @@ const owner = { extensionId: 'projection-bridge-test', kind: 'program', pageId: 
 const noop = () => {};
 const program = (hear: BridgeCaller['hear'] = noop) => ({ ...owner, hear, filePage: noop, resourcePage: noop }) as unknown as BridgeCaller;
 const page = (pageId: number, sessionId = 'task-a', hear: BridgeCaller['hear'] = noop) => ({
-  ...owner, kind: 'page', pageId, callingSession: undefined, binding: { sessionId }, hear, filePage: noop, resourcePage: noop,
+  ...owner, kind: 'page', pageId, callingSession: undefined, binding: { workspace: `session:${sessionId}` }, hear, filePage: noop, resourcePage: noop,
 }) as unknown as BridgeCaller;
 const frame = { width: 640, height: 480, mime: 'image/png' as const, data: 'YQ==' };
 const turn = () => new Promise<void>(resolve => setTimeout(resolve, 0));
@@ -125,7 +125,7 @@ describe('App program → dedicated host resource → bound App page', () => {
     for (let index = 0; index < 20; index++) {
       await expect(bridge.call(wrongTask, 'projectionWatch', { id: publisher.id, watchId: String(index) })).rejects.toThrow(/not in this App session/);
     }
-    wrongTask.binding!.sessionId = 'task-a';
+    wrongTask.binding!.workspace = 'session:task-a';
     await expect(bridge.call(wrongTask, 'projectionWatch', { id: publisher.id, watchId: 'valid' })).resolves.toBeUndefined();
     bridge.closePage(wrongTask.pageId);
     await publisher.close();
@@ -182,7 +182,7 @@ describe('App program → dedicated host resource → bound App page', () => {
     await source.publish(frame);
     const generation = (events[0] as Extract<ExtensionHostEvent, { type: 'projection' }>).packet.generation;
     await bridge.call(viewer, 'projectionSend', { watchId: 'scope', packet: { type: 'ack', generation, frame: 1 } });
-    viewer.binding!.sessionId = 'task-b';
+    viewer.binding!.workspace = 'session:task-b';
     await expect(bridge.call(viewer, 'projectionSend', { watchId: 'scope', packet: { type: 'input', generation, frame: 1, sequence: 1, input: { kind: 'text', text: 'must not reach task-a' } } })).rejects.toThrow(/page changed/);
     expect(input).not.toHaveBeenCalled(); await source.close();
   });
