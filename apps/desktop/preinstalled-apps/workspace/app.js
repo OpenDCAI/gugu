@@ -547,11 +547,18 @@ async function applyContext(ctx) {
       : []
     state.unwatch = watching.length ? () => watching.forEach((stop) => stop()) : null
     // One root: that one. Both: the person picks (the list shows the two), unless the one shown is still here.
+    const shown = state.root
+    const shownPlace = (c) => (shown === 'workspace' ? c?.workspace?.id : shown === 'chat' ? c?.chat?.id : undefined)
     state.root = roots.length === 1 ? roots[0] : roots.includes(state.root) ? state.root : null
-    state.folder = null
-    state.listed = new Set()
-    state.entries = []
-    if (inGroup && canRead() && !ctx.file) {
+    // The root on screen is the same place still (its conversation arrived, say): the person stays where they are.
+    const stays = !!previous && state.root === shown && shown !== null && shownPlace(previous) === shownPlace(ctx) && !!previous.file === !!ctx.file
+    if (!stays) {
+      state.folder = null
+      state.listed = new Set()
+      state.entries = []
+    }
+    if (stays) renderList()
+    if (!stays && inGroup && canRead() && !ctx.file) {
       state.showAppData = false
       await refreshList(true)
     }
@@ -1366,7 +1373,8 @@ function metaOf(entry, now) {
   const t = state.t
   const cells = []
   if (isFolder(entry)) {
-    cells.push(['size', fmt(t.items, { n: inside(entry.id).filter(visibleEntry).length })])
+    // A working copy is read one folder at a time: one not entered yet has no count to say (never a 0).
+    if (!inWorkspace() || state.listed.has(entry.id)) cells.push(['size', fmt(t.items, { n: inside(entry.id).filter(visibleEntry).length })])
   } else {
     const when = whenOf(changedAt(entry), now)
     if (when) cells.push(['when', when])

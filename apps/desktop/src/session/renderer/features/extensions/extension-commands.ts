@@ -1,3 +1,4 @@
+import { localizedTabText } from '@shared/extensions/catalog';
 import { rpc } from '@renderer/lib/ipc';
 import { log } from '@renderer/utils/logger';
 import { extensionSurfaceStore } from './extension-surface-store';
@@ -31,8 +32,13 @@ export function declaredMenuCommands(kind: string): ExtensionDeclaredCommand[] {
   return contributionFor(kind)?.menu ?? [];
 }
 
+/** A tab's toolbar, its titles in the reader's language (`localized.<tag>.tabs`). */
 export function declaredToolbarCommands(kind: string): ExtensionDeclaredCommand[] {
-  return contributionFor(kind)?.toolbar ?? [];
+  const tab = contributionFor(kind);
+  const manifest = installedExtensionsStore.manifestFor(kind.split('.')[0] ?? '');
+  if (!tab || !manifest) return [];
+  const titles = new Map(localizedTabText(manifest, tab, installedExtensionsStore.locale).toolbar.map((command) => [command.id, command.title]));
+  return (tab.toolbar ?? []).map((command) => ({ ...command, title: titles.get(command.id) ?? command.title }));
 }
 
 /**

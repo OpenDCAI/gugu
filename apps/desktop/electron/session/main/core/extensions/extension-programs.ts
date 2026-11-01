@@ -222,7 +222,7 @@ export async function callerSessionContext(sessionId: string) {
   const context = await agentSessionContext(sessionId);
   if (!context) return null;
   const conversation = await import('@main/core/sessionpage/sessionpage-session-agent')
-    .then(({ directChatOfSession }) => directChatOfSession(sessionId, process.env))
+    .then(async ({ sessionAgents }) => (await sessionAgents(process.env)).get(sessionId)?.chatId ?? null)
     .catch(() => null);
   return { ...context, conversation };
 }

@@ -28,11 +28,12 @@ const context = {
   capabilities: ['files:read', 'files:write'],
 }
 let hear: ((change: unknown) => void) | null = null
+let contextChanged: ((ctx: unknown) => void) | null = null
 const gugu = {
   linkTo: vi.fn(async () => 'gugu-file://x'),
   setTabTitle: vi.fn(async () => {}),
   getContext: vi.fn(async () => context),
-  onContextChanged: vi.fn(() => () => {}),
+  onContextChanged: vi.fn((fn: (ctx: unknown) => void) => { contextChanged = fn; return () => {} }),
   onLink: vi.fn(() => () => {}),
   showContextMenu: vi.fn(async () => null),
   files: {
@@ -107,5 +108,18 @@ describe('a session\'s tab: one folder, two roots', () => {
     await until('the chat listed', () => names().includes('plan.md'))
     expect(listed().at(-1)).toEqual({ chat: 'dm-1' })
     expect(crumbs()).toEqual(['文件夹', '对话的文件夹'])
+  })
+
+  test('its conversation arriving later keeps the person where they are in the working copy (no jump to the top)', async () => {
+    crumb(0)
+    press('工作目录')
+    await until('the top drawn', () => names().includes('src'))
+    press('src')
+    await until('src drawn', () => names().includes('main.md'))
+    const calls = listed().length
+    // The same working copy; the conversation changes (it was not there yet, then is): nothing to read again.
+    contextChanged!({ ...context, chat: { ...context.chat, id: 'dm-2' } })
+    await until('the context applied', () => gugu.files.onChanged.mock.calls.some(([place]) => (place as { chat?: string }).chat === 'dm-2'))
+    expect([crumbs(), names().includes('main.md'), listed().length]).toEqual([['文件夹', '工作目录', 'src'], true, calls])
   })
 })

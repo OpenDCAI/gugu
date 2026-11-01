@@ -8,7 +8,7 @@ import {
   type ExtensionManifest,
   type ExtensionTabKind
 } from '@shared/extensions/manifest';
-import { localizedManifestText } from '@shared/extensions/catalog';
+import { localizedManifestText, localizedTabText } from '@shared/extensions/catalog';
 import type { MarketUpdatesSummary } from '@shared/extensions/market';
 import type { ExtensionOrigin } from '@shared/extensions/upgrade';
 
@@ -136,7 +136,7 @@ export class InstalledExtensionsStore {
         kind: extensionTabKind(manifest.id, tab.name),
         extensionId: manifest.id,
         extensionName: name,
-        title: tab.hostPage ? name : tab.title,
+        title: tab.hostPage ? name : localizedTabText(manifest, tab, this.locale).title,
         hostSettings: tab.hostPage === 'settings',
         sideWidth: tab.hostPage === 'settings' ? HOST_SETTINGS_SIDE_WIDTH : tab.sideWidth,
         iconDataUrl: this.icons[extensionTabKind(manifest.id, tab.name)] ?? null,

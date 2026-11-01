@@ -925,7 +925,7 @@ finds a control by role and name as the snapshot says them, so:
 ## On the market
 
 On this computer an App needs none of this. To list it, add to manifest.json \`subtitle\` (<= 30 chars, one line
-under the name; per language in \`localized\`), \`defaultLocale\`, \`engines\` (\`{ "gugu": ">=x.y.z" }\`, the oldest gugu it
+under the name; per language in \`localized\`, with \`tabs.<tab>.title\` / \`toolbar.<id>\`), \`defaultLocale\`, \`engines\` (\`{ "gugu": ">=x.y.z" }\`, the oldest gugu it
 runs on — the market picks the newest version each machine can run), and beside it a \`store/\` folder, which is never
 packed into the App:
 - \`store/about.md\` — the product page's 关于, plain text, no images; \`store/about.<tag>.md\` for each \`localized\` tag.

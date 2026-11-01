@@ -7,6 +7,7 @@ import { extensionIdForSession } from '@main/core/extensions/extension-session';
 import { extensionBackgroundWebContentsId, runningExtensionBackgrounds, postExtensionBackground } from '@main/core/extensions/extension-background';
 import { extensionsService } from '@main/core/extensions/extensions-root';
 import { AppModalSessions } from '@shared/extensions/app-modal';
+import { localizedManifestText } from '@shared/extensions/catalog';
 import { extensionPartition, extensionResourceUrl } from '@shared/extensions/partition';
 import { onExtensionProgramNotification } from '@main/core/extensions/extension-programs';
 import { extensionProjections } from './extension-projection-bridge';
@@ -1542,7 +1543,7 @@ async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, arg
         const installed = extensionsService().get(extensionId);
         if (!fs.statSync(path.join(installed.rootDir, modal.options.entry), { throwIfNoEntry: false })?.isFile()) throw new Error(`App modal page not found: ${modal.options.entry}`);
         await deliver(source, { kind: 'openAppModal', page: {
-          id: modal.id, extensionId, appName: installed.manifest.name,
+          id: modal.id, extensionId, appName: localizedManifestText(installed.manifest, requireHost().presentation().locale).name,
           title: modal.options.title, size: modal.options.size,
           partition: extensionPartition(extensionId), entryUrl: extensionResourceUrl(extensionId, modal.options.entry),
         } });

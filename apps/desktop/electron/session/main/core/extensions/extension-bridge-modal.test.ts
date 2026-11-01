@@ -22,7 +22,7 @@ vi.mock('electron', () => ({
 vi.mock('@main/core/extensions/extension-session', () => ({ extensionIdForSession: (session: { extensionId: string }) => session.extensionId, isExtensionSessionConfigured: () => true }));
 vi.mock('@main/core/extensions/extension-background', () => ({ extensionBackgroundWebContentsId: () => null }));
 vi.mock('@main/core/extensions/extensions-root', () => ({ extensionsService: () => ({
-  grantedCapabilities: () => [], hasCapability: () => false, get: () => ({ rootDir: root, manifest: { name: 'Board' } }),
+  grantedCapabilities: () => [], hasCapability: () => false, get: () => ({ rootDir: root, manifest: { name: 'Board', defaultLocale: 'en' } }),
 }) }));
 vi.mock('@main/core/extensions/app-files', () => ({ resourceChatOf: async (id: string) => id, chatMembersOf: async () => [], surfaceChatOf: async () => ({ id: 'chat-one', name: 'Group', kind: 'group', groupId: 'chat-one' }) }));
 vi.mock('@main/lib/logger', () => ({ log: { warn: vi.fn(), error: vi.fn(), info: vi.fn() } }));
