@@ -1,4 +1,6 @@
-import { EXTENSION_API_VERSION } from '@shared/extensions/manifest';
+import { EXTENSION_API_VERSION, parseExtensionManifest } from '@shared/extensions/manifest';
+import { consentPrompt } from '@renderer/features/extensions/extension-consent';
+import type { ExtensionInstallConsentRequest } from '@shared/extensions/host-actions';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
@@ -22,6 +24,7 @@ const revokedPermissions = vi.fn();
 const origins = vi.fn();
 const isEnabled = vi.fn();
 const setAutoUpdate = vi.fn();
+const olderInterface = vi.fn();
 const disclosure = vi.fn((_id: string) => 'progressive');
 
 // A folder install is published by the account installing it (app-identity.ts).
@@ -37,7 +40,7 @@ vi.mock('@main/core/extensions/extensions-root', () => ({
     isInstalled: (id: string) => list().extensions.some((entry: { manifest: { id: string } }) => entry.manifest.id === id),
     get: (id: string) => list().extensions.find((entry: { manifest: { id: string } }) => entry.manifest.id === id),
     // One publisher throughout these cases: a first install is one not installed yet.
-    olderInterface: () => null,
+    olderInterface,
     isFirstInstallOf: (id: string) => !list().extensions.some((entry: { manifest: { id: string } }) => entry.manifest.id === id),
     variants: () => ({ active: 'upstream', variants: [] }),
     inspectDirectory,
@@ -79,6 +82,8 @@ beforeEach(() => {
   revokedPermissions.mockReset();
   origins.mockReset();
   isEnabled.mockReset();
+  olderInterface.mockReset();
+  olderInterface.mockReturnValue(null);
   disclosure.mockReset();
   disclosure.mockReturnValue('progressive');
   // Nothing installed unless a test says so: `create` reads the inventory too, to say what `install` will do.
@@ -269,6 +274,32 @@ describe('app_* 的动作分派', () => {
     // #6387 与设置页那条安装路径同一套善后:后台页要拉起来,否则它的工具一个也接不住。
     expect(afterInstall).toHaveBeenCalledWith({ manifest, rootDir: '/tmp/reader' });
     expect(result).toEqual(expect.objectContaining({ installed: true, outcome: 'confirmed' }));
+  });
+
+  it('carries the older interface version through the real consent prompt before installing', async () => {
+    const manifest = parseExtensionManifest({
+      id: 'reader', name: 'Reader', version: '2.1.24', apiVersion: EXTENSION_API_VERSION, defaultLocale: 'en',
+      entry: 'main.html', permissions: { capabilities: ['files:read', 'files:write'] },
+      contributes: { tabs: [{ name: 'main', title: 'Read' }] },
+    });
+    olderInterface.mockReturnValue({ id: 'reader', version: '1.0.4', permissions: { capabilities: ['files:read'] } });
+    inspectDirectory.mockReturnValue({ manifest, manifestDigest: 'digest-new-interface' });
+    installFromDirectory.mockReturnValue({ manifest, rootDir: '/tmp/reader' });
+    const requestInstallConsent = vi.fn(async (request: ExtensionInstallConsentRequest) => {
+      expect(installFromDirectory).not.toHaveBeenCalled();
+      const prompt = consentPrompt(request.installed, request.revokedPermissions, manifest, key => key, 'en-US');
+      expect(request.installed).toEqual({ version: '1.0.4', permissions: { capabilities: ['files:read'] } });
+      expect(prompt.title).toBe('extensions.updateConfirmTitle');
+      expect(prompt.description).toBe('extensions.updateNewPermissions');
+      return { outcome: 'confirmed' as const };
+    });
+
+    await expect(runExtensionAgentAction({ action: 'install', source_dir: '/tmp/reader-source' }, {
+      requestInstallConsent, notifyInstalledChanged: vi.fn().mockResolvedValue(undefined), afterInstall: vi.fn(),
+    })).resolves.toMatchObject({ installed: true, outcome: 'confirmed', version: '2.1.24' });
+    expect(olderInterface).toHaveBeenCalledWith('reader');
+    expect(requestInstallConsent).toHaveBeenCalledOnce();
+    expect(installFromDirectory).toHaveBeenCalledWith('/tmp/reader-source', 'digest-new-interface', 'folder', INSTALLING_ACCOUNT, undefined);
   });
 
   it.each(['declined', 'dismissed', 'timeout'] as const)(
