@@ -9,6 +9,8 @@ const PAGE_SIZE = 200;
 /**
  * A message's one receipt: session-life's pending row when the session's leg is on session-life (its receipt lives only
  * there), else the receipt the legacy outbox wrote into the message row (legs not moved yet, and rows from before).
+ * When the non-ACP legs move into session-life, receipts are read from session_pending only and the metadata branch is
+ * deleted with them.
  */
 const receipt = sql<string | null>`coalesce(${sessionPending.state}, CASE WHEN json_valid(${messages.metadata}) THEN json_extract(${messages.metadata}, '$.state') END)`;
 const ownPendingRow = and(eq(sessionPending.messageId, messages.id), eq(sessionPending.sessionId, messages.sessionId));
