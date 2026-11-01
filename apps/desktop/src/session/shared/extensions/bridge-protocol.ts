@@ -961,6 +961,7 @@ export function callRefusal(
  *   and its engine keeps no record gugu reads) — apart from `not-found`, an agent you cannot see (#7126); and a `machine`
  *   verb (`callProgram`, the data folder) for a session on another machine that is offline, too old or did not answer;
  *   or `files.replace` when the machine keeping the chat's files is offline or did not take the new version in time.
+ *   Also `dispatch` from a message widget on a phone, where sending and drafting are not supported.
  * - `not-installed` / `version-mismatch`: a `machine` verb for a session on another machine, where this App is not
  *   installed, or another version of it is.
  * - `name-taken` (子文件夹): a rename or a move to a name another file of that folder already has (case not counted).

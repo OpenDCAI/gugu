@@ -60,11 +60,11 @@ Object.defineProperty(navigator, 'userActivation', { value: activation, configur
 let frame: HTMLIFrameElement
 let posted: ReturnType<typeof vi.fn>
 let host: ReturnType<typeof hostAppFrame> | undefined
-function start(capabilities: PhoneAppBinding['capabilities']) {
+function start(capabilities: PhoneAppBinding['capabilities'], widget?: PhoneAppBinding['widget']) {
   host?.dispose()
   host = hostAppFrame(
     frame,
-    { extensionId: 'board', tabId: 'tab-1', tabName: 'main', chatId: 'chat-1', capabilities, locale: 'en-US', themeMode: 'light' },
+    { extensionId: 'board', tabId: 'tab-1', tabName: 'main', chatId: 'chat-1', capabilities, locale: 'en-US', themeMode: 'light', ...(widget ? { widget } : {}) },
     {
       showMessage: vi.fn(),
       showSession: (sessionId: string) => {
@@ -123,6 +123,25 @@ const gestureCalls: Record<string, Record<string, unknown>> = {
 }
 
 describe('the phone refuses a verb outside the gesture it needs, in the same sentence as the desktop (L11 B4)', () => {
+  it.each([false, true])('message widgets cannot dispatch with outer activation %s, including drafts and named recipients', async (active) => {
+    start(['chat:relay'], { messageId: 'message-1', data: {}, senderId: 'sender-1' })
+    activation.isActive = active
+    const composed = vi.fn()
+    window.addEventListener(APP_COMPOSE_EVENT, composed)
+    try {
+      for (const args of [
+        { text: 'picked' },
+        { text: 'draft', draft: true, to: { chat: CHAT } },
+        { text: 'named', to: { chat: CHAT, member: 'user:00000000-0000-4000-8000-000000000001' }, gesture: true },
+      ]) {
+        expect(await call('dispatch', args)).toMatchObject({ ok: false, code: 'unavailable', message: 'Widgets on the phone cannot send messages' })
+      }
+      expect(composed).not.toHaveBeenCalled()
+    } finally {
+      window.removeEventListener(APP_COMPOSE_EVENT, composed)
+    }
+  })
+
   it('every verb the table marks is refused with gestureRefusal, before it does anything', async () => {
     expect(Object.keys(gestureCalls).sort()).toEqual(Object.entries(BRIDGE_VERBS).filter(([, facts]) => 'gesture' in facts).map(([verb]) => verb).sort())
     activation.isActive = false
