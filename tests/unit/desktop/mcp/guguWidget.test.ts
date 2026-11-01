@@ -40,6 +40,13 @@ describe('widget_send', () => {
     expect((await call({ ...args, text: '' })).text).toContain('1–200')
     expect(send).not.toHaveBeenCalled()
   })
+  it('returns the database rejection as a visible tool error without reporting a send', async () => {
+    const { call, send } = await connect(async () => ({ apps: [hit] }))
+    const message = '23514: new row violates check constraint messages_widget_shape'
+    send.mockRejectedValueOnce(new Error(message))
+    expect(await call({ ...args, data: { text: '\u0000' } })).toEqual({ error: true, text: message })
+    expect(send).toHaveBeenCalledTimes(1)
+  })
   it('reads current App scope at each call, refusing off Apps and undeclared views', async () => {
     let state = 'off' as AppSearchHit['state']
     const { call, send } = await connect(async () => ({ apps: [{ ...hit, state }] }))
