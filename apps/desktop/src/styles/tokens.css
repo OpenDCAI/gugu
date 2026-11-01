@@ -1156,6 +1156,9 @@ input::placeholder {
   }
 }
 
+/* The search panel's loading line: a short bar crossing under its filter row. */
+@keyframes gs-scan { from { transform: translateX(-100%); } to { transform: translateX(300%); } }
+
 @keyframes spin {
   to { transform: rotate(360deg); }
 }
@@ -1881,6 +1884,17 @@ body.barcode-scanner-active #root {
     transition-duration: var(--mobile-motion-duration);
     transition-timing-function: var(--mobile-motion-ease);
   }
+}
+/* 文件预览上方一行:页面里有文件此刻取不到(存它的电脑离线),说清是哪台。 */
+.gg-file-preview-notice {
+  margin: 0 18px 10px;
+  padding: 8px 12px;
+  border-radius: var(--radius-document);
+  background: color-mix(in oklab, var(--warn) 14%, transparent);
+  color: var(--text-primary);
+  font-size: var(--font-caption);
+  line-height: 1.5;
+  flex-shrink: 0;
 }
 /* 细进度条(手机附件卡从那台电脑取文件):原生 <progress>,读屏自带进度;颜色同更新下载那条。 */
 .gg-progress {

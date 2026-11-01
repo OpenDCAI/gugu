@@ -35,7 +35,7 @@ export async function prepareAssistantPanelAdmission(input: {
       if (pause) await wait(pause)
       try { return await operation() } catch (error) {
         failure = error
-        if (['22023','54000','55000','40001'].includes(String((error as { code?: string }).code))) throw error
+        if (['22023','54000','55000','PT409'].includes(String((error as { code?: string }).code))) throw error
       }
     }
     throw failure
@@ -79,7 +79,7 @@ export async function prepareAssistantPanelAdmission(input: {
       const admission = await retry(() => input.cloud.admit(input.assistant,input.instance,pending.revision))
       if (admission.admitted) return input.application.prepareText(input.text)
     } catch (error) {
-      if ((error as { code?: string }).code !== '40001') throw error
+      if ((error as { code?: string }).code !== 'PT409') throw error
     }
   }
   throw new AssistantPanelApplicationError('panel','current','CONCURRENT_CHANGES_RETRY',input.locale)

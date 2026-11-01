@@ -16,6 +16,7 @@ import {
 import { toExternalUrl } from '@/session/shared/preview/preview-link-script'
 import { HtmlPreviewFrame } from '../preview/HtmlPreviewFrame'
 import { registerHtmlPreview } from '../preview/html-preview-registration'
+import type { HtmlPreviewRegistration } from '../preview/HtmlPreviewFrame'
 import { truncateSheetXml } from './xlsxPreviewLimits'
 import './documentPreview.css'
 
@@ -27,6 +28,8 @@ interface DocumentPreviewContentProps {
    * 交给系统里的 Office / 默认程序打开这个文件。给了,表格太大只显示了一部分时,提示条上就带这个按钮(#7191)。
    */
   onOpenExternally?: () => void
+  /** How an HTML document is given an address: with the files beside it in its chat's folder, or (absent) on its own. */
+  registerHtml?: (documentHtml: string) => Promise<HtmlPreviewRegistration>
 }
 
 type ZipLimits = { maxEntries: number; maxEntryUncompressedBytes: number; maxTotalUncompressedBytes: number }
@@ -87,8 +90,8 @@ function openHtmlLink(href: string) {
   if (externalUrl) window.open(externalUrl)
 }
 
-export function DocumentPreviewContent({ kind, content, title, onOpenExternally }: DocumentPreviewContentProps) {
-  if (kind === 'html' && typeof content === 'string') return <HtmlPreviewFrame fileName={title} rawContent={content} register={registerHtmlPreview} onLink={openHtmlLink} />
+export function DocumentPreviewContent({ kind, content, title, onOpenExternally, registerHtml = registerHtmlPreview }: DocumentPreviewContentProps) {
+  if (kind === 'html' && typeof content === 'string') return <HtmlPreviewFrame fileName={title} rawContent={content} register={registerHtml} onLink={openHtmlLink} />
   if (typeof content === 'string') return null
   if (!content) return null
   if (kind === 'docx') return <DocxPreview data={content} onOpenExternally={onOpenExternally} />

@@ -233,6 +233,14 @@ const files = createAppFiles({
   },
 })
 
+/** A chat document's place and the files its page names beside it, for its preview (chat-folder-preview-registration.ts). */
+export function chatDocumentPlace(itemId: string) {
+  return files.documentPlace(itemId)
+}
+export function besideChatDocument(chatId: string, path: string) {
+  return files.besideDocument(chatId, path)
+}
+
 /** Human tools save with the renderer's same workspace publisher and membership contract. */
 export function saveFilesToChatFolder(chatId: string, picked: readonly AppFileUpload[], sourceMessageIds?: string[]) {
   return files.upload(chatId, picked, { sourceMessageIds })
