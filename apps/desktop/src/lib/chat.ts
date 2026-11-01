@@ -882,7 +882,7 @@ export const chatService = {
   },
 
   listMyAgentJoinRequests,
-  // 主人选择自己 Agent 的档位;数据库核实际 actor,并回执保存值。
+  // 主人或群管理员调群里 Agent 的档位;数据库核实际 actor,并回执保存值。
   async setAgentListenMode(chatId: string, agentUserId: string, mode: ListenMode): Promise<void> {
     await (await currentGroupAdmin()).setListenMode(chatId, agentUserId, mode)
   },

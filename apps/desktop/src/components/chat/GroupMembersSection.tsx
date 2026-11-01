@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { CSSProperties, ReactNode } from 'react'
 import { buildGroupInviteShareUrl } from '../../lib/groupInviteShareUrl'
@@ -110,6 +110,9 @@ export function GroupMembersSection({
 
   const ownSettings = useGroupChatSettings(settingsState ? null : chatId, groupRoleRevision(snapshot))
   const { settings, error: settingsError, setError: setSettingsError, update, setAvatarUrl } = settingsState ?? ownSettings
+  // A shared hook outlives this panel: opening the panel reads again (ownSettings has just read on its own mount).
+  const reloadShared = settingsState?.reload
+  useEffect(() => { reloadShared?.() }, [reloadShared])
   const viewerRole = settings?.my_role ?? null
   const viewerIsManager = settings?.can_manage === true
 

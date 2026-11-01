@@ -81,7 +81,7 @@ const metaCellStyle = {
 // @@@ui-ruler 其余结构性 style 一并提到模块作用域(同 ChatListPanel 的 *_STYLE 常量):
 // 既避免每次渲染重建对象,也让 JSX 里不再残留内联几何块这条债务痕迹。
 // 依赖 props/state 的那一档提成纯函数,保持同一条纪律。
-// 档位是一行淡字(❌ 带框的胶囊:看着像按钮);说明在悬停浮层里。主人点它照旧翻档。
+// 档位是一行淡字(❌ 带框的胶囊:看着像按钮);说明在悬停浮层里。agent 的主人和群管理员点它翻档。
 const listenModeToggleStyle = (editable: boolean): React.CSSProperties => ({
   padding: 0, minHeight: 0, height: 'auto', flexShrink: 0, fontWeight: 400,
   fontSize: 'var(--font-caption)', lineHeight: 1.2, color: 'var(--muted-fg)',
@@ -122,7 +122,7 @@ const MEMBER_LIST_SCROLL_STYLE: React.CSSProperties = { flex: 1, minHeight: 0, o
  * 两个值的东西不需要两个按钮占一整行 —— 那条灰底三连在视觉上不协调。
  * 现在一行只留当前档位本身,点一下就翻到另一档。
  * 变更走 useListenModeEditControls 那条**现成**的 mutation(chat_members.listen_mode);
- * 不是这个 agent 的主人拿不到 editControls ⇒ 这里就是只读镜像,点不动。
+ * 既不是这个 agent 的主人、也不是群管理员的拿不到 editControls ⇒ 这里就是只读镜像,点不动。
  */
 function ListenModeToggle({
   value,

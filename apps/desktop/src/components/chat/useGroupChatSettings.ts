@@ -16,7 +16,8 @@ function pick(source: GroupChatSettings, keys: readonly SettingsKey[]): Partial<
 /**
  * @@@6418 群设置的读与写。每一项改动**即时落库**(原来 9 项攒到底部「保存」一起写,关抽屉就丢)。
  *
- * - 读:打开抽屉读一次 getGroupChatSettings;失败 fail-loud(#1125),❌ 显示默认值假装读到了。
+ * - 读:进群读一次;每次打开面板再读一次(hook 常驻在聊天区,不订阅 chat_meta_changed,别的管理员改的靠这次读到)。
+ *   失败 fail-loud(#1125),❌ 显示默认值假装读到了;下一次读成功就清掉那行错。读的途中有写发出去,这次读的结果就作废:它可能早于那次写。
  * - 写:先把改动乐观地写进本地,再 updateGroupChatSettings。
  *   几次写可能同时在路上(连拨几个开关),所以**每次写只认领自己那几个字段**:
  *   · 成功时只把服务端返回里「这次写的字段」并回本地 —— 晚到的响应不会把别的字段盖回旧值;
@@ -56,8 +57,13 @@ export function useGroupChatSettings(chatId: string | null, revision?: string, a
   useEffect(() => {
     let cancelled = false
     if (!chatId) return
+    const writesAtStart = writeSeq.current
     chatService.getGroupChatSettings(chatId)
-      .then((loaded) => { if (!cancelled) setSettings(loaded) })
+      .then((loaded) => {
+        if (cancelled || writeSeq.current !== writesAtStart) return
+        setSettings(loaded)
+        setError(null)
+      })
       .catch((err: unknown) => {
         if (cancelled) return
         settingsLog.error({ error: err, chatId }, 'group settings load failed')
