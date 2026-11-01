@@ -810,6 +810,10 @@ export class AcpChatStore {
       const row = view!.pending.items.find(item => item.messageId === head.id)!;
       const sentAt = row.sentAt === undefined ? undefined : Math.max(row.sentAt, this.chatState.transcript.state.committedTurns.at(-1)?.endedAt ?? 0);
       session.setPendingPrompt({ id: head.id, text: head.text, ...(sentAt !== undefined ? { sentAt } : {}), starting, held: true });
+      // Pinned from its first frame, as any send: the turn's takeover then has no scroll position to settle.
+      const pinMode = pinTopMode(head.id);
+      this._view?.setScrollMode(pinMode);
+      this.chatState.scroll.set(pinMode);
       this._syncMessageCount();
     });
   }
