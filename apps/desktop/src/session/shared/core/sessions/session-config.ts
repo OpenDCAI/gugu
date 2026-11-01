@@ -1,5 +1,5 @@
 import z from 'zod';
-import { GUGU_PERMISSION_MODES, promptInputSchema, providerSessionStateSchema } from '@gugu/session-core/acp/client';
+import { GUGU_PERMISSION_MODES, turnFileRefSchema, promptInputSchema, providerSessionStateSchema } from '@gugu/session-core/acp/client';
 import { defineVersionedSchema } from '@shared/lib/versioned-schema/versioned-schema';
 
 const sessionConfigV0Schema = z.object({
@@ -15,6 +15,7 @@ const sessionConfigV0Schema = z.object({
 
 const initialQueuePromptSchema = z.object({
   text: z.string(),
+  files: z.array(turnFileRefSchema).optional(),
   hiddenContext: z.string().optional(),
   // Absent only on text stored without one (rows from before #6823, 「重来」's replay); the row reader fills it.
   origin: promptInputSchema.shape.origin,

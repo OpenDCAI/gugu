@@ -214,7 +214,7 @@ describe('#7304 原地回退后的历史对账', () => {
 
   it('发送编辑先原地回退再发送修改内容,保留原附件和主输入框草稿', async () => {
     const { store, session, turns } = setup();
-    Object.assign(turns[1]!.items[0]!, { attachments: [{ id: 'image-1', name: 'photo.png', mimeType: 'image/png' }] });
+    Object.assign(turns[1]!.items[0]!, { attachments: [{ id: 'image-1', name: 'photo.png', mimeType: 'image/png' }], files: [{ itemId: 'pdf', version: 1, name: 'brief.pdf', mimeType: 'application/pdf', sizeBytes: 3 }] });
     store.setDraftText('main composer draft');
     store.beginMessageEdit('m1');
     store.changeMessageEdit('m1', 'edited B');
@@ -223,7 +223,8 @@ describe('#7304 原地回退后的历史对账', () => {
     expect(custody).toHaveBeenCalledTimes(1);
     expect(custody.mock.calls[0]![0]).toBe(store);
     expect(custody.mock.calls[0]!.slice(1)).toEqual(['edited B',
-      [{ ref: { type: 'attachment', id: 'image-1', name: 'photo.png', mimeType: 'image/png' } }]]);
+      [{ ref: { type: 'attachment', id: 'image-1', name: 'photo.png', mimeType: 'image/png' } }],
+      [{ itemId: 'pdf', version: 1, name: 'brief.pdf', mimeType: 'application/pdf', sizeBytes: 3 }]]);
     expect(session.revertSession.mock.invocationCallOrder[0]).toBeLessThan(custody.mock.invocationCallOrder[0]!);
     expect(committedIds(store)).toEqual(['s0']);
     expect(store.messageEdit).toBeNull();
@@ -240,7 +241,7 @@ describe('#7304 原地回退后的历史对账', () => {
     expect(custody).not.toHaveBeenCalled();
     await store.sendMessageEdit('m1');
     expect(custody).toHaveBeenCalledTimes(1);
-    expect(custody.mock.calls[0]!.slice(1)).toEqual(['edited B', []]);
+    expect(custody.mock.calls[0]!.slice(1)).toEqual(['edited B', [], []]);
   });
 
   it('发送时重新检查忙态与空文本,双击发送只回退一次', async () => {

@@ -18,6 +18,7 @@ import { buildInitialSession } from './build-create-session-params';
 import { firstTurnTransportOf } from './first-turn-transport';
 import type { TurnFileRef } from '@gugu/session-core/session-record/contract';
 import { turnAttachmentText } from '@gugu/core/shared/attachmentFolderLine';
+import { taskAttachmentUsesSsh, taskAttachmentWorkspacePath } from '@/lib/taskAttachmentTarget';
 import type { CreateSessionState } from './use-create-session-state';
 
 interface CreatedSession {
@@ -29,6 +30,7 @@ interface PendingMessage extends CreatedSession {
   sessionId: string;
   clientMessageId: string;
   text: string;
+  files?: TurnFileRef[];
 }
 
 interface UseCreateSessionCallbackParams {
@@ -130,6 +132,7 @@ export function useCreateSessionCallback({
       sessionId: message.sessionId,
       clientMessageId: message.clientMessageId,
       text: message.text,
+      ...(message.files?.length ? { delivery: { queue: true as const, files: message.files } } : {}),
     });
     if (result.status === 'outcome-unknown') {
       throw new Error(`Message ${message.clientMessageId} has an outcome-unknown dispatch`);
@@ -177,21 +180,15 @@ export function useCreateSessionCallback({
       id: sessionId,
     });
     if (!baseSession) return;
-    // path-mention 的附件(P3)写在首轮正文里,与这条会话之后每一轮、与收件箱同一个格式(turnAttachmentText):
-    // 名字是建任务之前定的(它们放进私聊文件夹之后的 id),所以启动载荷照旧在这里写好,transport 不因附件而变。
-    // 任务在别的机器上:文件在这台上,那台要等首启之后才取得到 —— 本机路径那一行写成「没存下」那一支,
-    // agent 按上面那条文件夹引用去取。
-    const elsewhere = machineRegistry.machineOf(selectedProjectId) != null;
-    const text = [
-      initialSession.prompt.trim(),
-      ...named.map((ref) => turnAttachmentText(ref, elsewhere || !ref.path
+    const deviceId = machineRegistry.machineOf(selectedProjectId);
+    const files = named.map(ref => deviceId && taskAttachmentUsesSsh(deviceId)
+      ? { ...ref, path: undefined, workspacePath: taskAttachmentWorkspacePath(ref.itemId, ref.name) } : ref);
+    // ACP keeps the person's words: Life prepares file context only after placement. PTY retains its text-only leg.
+    const text = baseSession.type === 'acp' ? initialSession.prompt.trim() : [initialSession.prompt.trim(),
+      ...named.map(ref => turnAttachmentText(ref, deviceId || !ref.path
         ? { failure: 'kept on the computer it was attached from — open the folder file above' }
         : { localPath: ref.path })),
-    ].filter((part) => part.length > 0).join('\n');
-    // startup 的意思是**把这一轮的首句交给 spawn**。纯附件的一轮没有首句可交:它的第一条消息就是那条
-    // attachment 行,而 attachment 行本来就是一条普通 DM 行、由读者在会话 live 之后投递。所以这一轮
-    // 不该认领那个例外 —— 认领了就会既发不出附件(startup 分支不走普通发送)、又让注入器等一份不存在的
-    // 载荷(`chat-page first spawn … without its first-turn payload`),结果是**建出一个起不来的 agent**。
+    ].filter(Boolean).join('\n');
     const transport = firstTurnTransport;
     const initialMessageId = transport === 'startup' && taskChatId && text ? crypto.randomUUID() : undefined;
     const startupSession = transport === 'startup'
@@ -203,9 +200,10 @@ export function useCreateSessionCallback({
                 startupOrigin,
                 initialMessageId,
                 ...(taskChatId && initialMessageId ? { taskChatId } : {}),
-                initialQueue: text
+                initialQueue: text || files.length
                   ? [{
                       text,
+                      ...(files.length ? { files } : {}),
                       ...(initialSession.mentionContext
                         ? { hiddenContext: initialSession.mentionContext }
                         : {}),
@@ -229,6 +227,7 @@ export function useCreateSessionCallback({
           sessionId,
           clientMessageId: crypto.randomUUID(),
           text,
+          ...(baseSession.type === 'acp' && files.length ? { files } : {}),
         } satisfies PendingMessage
       : null;
     const resolvedWorkspaceConfig = state.workspaceConfig.resolvedConfig;
@@ -248,11 +247,12 @@ export function useCreateSessionCallback({
       ...(birthChatId ? { birthGroup: { chatId: birthChatId, asTask: Boolean(taskChatId) } } : {}),
     };
 
+    const deferFirstTurn = baseSession.type === 'acp' && files.length > 0;
     creatingRef.current = true;
     setIsCreating(true);
     setDeliveryError(null);
     // #6264 别的机器上还没装所选的家:先在那台机器上装好再建(装不上就不建,原因说出来)。
-    void (beforeCreate ? beforeCreate() : Promise.resolve()).then(() => sessionManager.createSession(createInput)).then(async () => {
+    void (beforeCreate ? beforeCreate() : Promise.resolve()).then(() => sessionManager.createSession(createInput, deferFirstTurn ? { deferFirstTurn: true } : undefined)).then(async () => {
       // The new-session memory never stands in the way (L11 复核 58): the session is made, its first line sent and the
       // box closed even when this computer cannot save what was picked — said in the log and in a light notice. Written
       // once the session exists, not awaited: a first line that fails still leaves a started session to remember, so its
@@ -261,22 +261,29 @@ export function useCreateSessionCallback({
         log.error('remember the started configuration failed', { error: error instanceof Error ? error.message : String(error) });
         toast({ title: translateSessionMessage('task.newSessionMemoryNotSaved'), description: messageForUser(error), tier: 'warning' });
       });
-      // 建任务 → 开私聊 → 放文件 → 首启(P3):正文里那几个引用这时才有对应的文件。放不成在 chip 上说;同一台机器上
-      // agent 用的是本机那个文件,不等它。
-      if (named.length > 0) {
-        const placed = await initialSession.placeAttachments(async () => {
-          const owner = getRendererSession()?.user.id;
-          if (!owner) throw new Error('attachments: not signed in');
-          return { chatId: (await shellPort().ensureAgentAddress({ projectId: selectedProjectId, sessionId })).chatId, owner, sessionId,
-            deviceId: machineRegistry.machineOf(selectedProjectId), projectId: selectedProjectId,
-            workspaceId: asProvisioned(getSessionPageStore(selectedProjectId, sessionId))?.workspaceId };
-        });
-        // ❌ 不 throw:任务已经建好,重试那条路会再建一个。没放成的那几件在日志与提示里说出来。
-        if (!placed) {
-          log.warn('new task attachments were not all placed in the agent folder', { sessionId });
-          toast({ title: translateSessionMessage('composer.attachmentUploadFailed'), tier: 'warning' });
+      // The first ACP turn stays deferred until DM placement (including SSH upload) has finished.
+      try {
+        if (named.length > 0) {
+          const placed = await initialSession.placeAttachments(async () => {
+            const owner = getRendererSession()?.user.id;
+            if (!owner) throw new Error('attachments: not signed in');
+            return { chatId: (await shellPort().ensureAgentAddress({ projectId: selectedProjectId, sessionId })).chatId, owner, sessionId,
+              deviceId: machineRegistry.machineOf(selectedProjectId), projectId: selectedProjectId,
+              workspaceId: asProvisioned(getSessionPageStore(selectedProjectId, sessionId))?.workspaceId };
+          });
+          // ❌ 不 throw:任务已经建好,重试那条路会再建一个。没放成的那几件在日志与提示里说出来。
+          if (!placed) {
+            log.warn('new task attachments were not all placed in the agent folder', { sessionId });
+            toast({ title: translateSessionMessage('composer.attachmentUploadFailed'), tier: 'warning' });
+          }
+          for (const { id } of initialSession.pendingAttachmentFiles()) initialSession.dropAttachment(id);
         }
-        for (const { id } of initialSession.pendingAttachmentFiles()) initialSession.dropAttachment(id);
+      } catch (error) {
+        log.warn('new task attachment placement failed', { sessionId, error: String(error) });
+        toast({ title: translateSessionMessage('composer.attachmentUploadFailed'), tier: 'warning' });
+      } finally {
+        // Placement errors still admit the caption; the host gives the agent a not-saved line for each missing file.
+        if (deferFirstTurn) await rpcOn(deviceId ?? null).sessionCreate.admitFirstMessages(sessionId);
       }
       if (message) {
         pendingMessageRef.current = message;

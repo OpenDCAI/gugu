@@ -189,7 +189,7 @@ describe('#7327 运行时进程重启过之后的聊天面', () => {
 
     store.submitPrompt('接着说');
 
-    expect(custody).toHaveBeenCalledWith(store, '接着说', []);
+    expect(custody).toHaveBeenCalledWith(store, '接着说', [], []);
     expect(boot).not.toHaveBeenCalled();
     expect(sendPrompt).not.toHaveBeenCalled();
     expect(toasts.map((t) => t.title)).not.toContain(translateSessionMessage('acpFailure.sendMessage'));

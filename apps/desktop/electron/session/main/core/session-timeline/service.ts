@@ -1,3 +1,4 @@
+import { promptAttachmentSchema, turnFileRefSchema } from '@gugu/session-core/acp/client';
 import { createNativeRecordReader } from './native-record';
 import { ask, withdrawAll } from '../asks';
 import { hostAsks, resetAsks, respond as respondAsk, respondQuestion as respondAskQuestion } from '../asks/ask';
@@ -1390,15 +1391,17 @@ export async function send(
   conversationId: string,
   text: string,
   clientMessageId?: string,
-  files?: import('@gugu/session-core/session-record/contract').SessionpageSessionSendRequest['files']
-): Promise<SessionTimelineResult<{ accepted: 'started' | 'queued'; clientMessageId?: string; failedFiles?: number }>> {
-  if (files !== undefined && !validTurnFiles(files)) return fail('invalid_request', '附件引用无效');
+  files?: import('@gugu/session-core/session-record/contract').SessionpageSessionSendRequest['files'],
+  attachments?: import('@gugu/session-core/acp/client').PromptAttachment[]
+): Promise<SessionTimelineResult<{ accepted: 'started' | 'queued'; clientMessageId?: string }>> {
+  if (files !== undefined && !turnFileRefSchema.array().safeParse(files).success) return fail('invalid_request', '附件引用无效');
+  if (attachments !== undefined && !promptAttachmentSchema.array().safeParse(attachments).success) return fail('invalid_request', '附件引用无效');
   if (clientMessageId !== undefined && (!clientMessageId.trim() || clientMessageId.length > 256)) return fail('invalid_request', '消息标识无效');
   // A side chat has no session row: its custody send lands in its fork entry's queue.
   if (runtimeFork(conversationId)) {
-    if (!text.trim() && !attachments?.length) return fail('empty_text', '消息是空的');
+    if (!text.trim() && !files?.length && !attachments?.length) return fail('empty_text', '消息是空的');
     sessionLife().enqueue({ sessionId: conversationId, messageId: clientMessageId ?? crypto.randomUUID(), text: text.trim(), kind: 'ordinary',
-      delivery: { queue: true, origin: 'manual', ...(attachments?.length ? { attachments } : {}) } });
+      delivery: { queue: true, origin: 'manual', ...(files?.length ? { files } : {}), ...(attachments?.length ? { attachments } : {}) } });
     return { ok: true, value: { accepted: 'queued', ...(clientMessageId ? { clientMessageId } : {}) } };
   }
   const row = readSessionRow(conversationId);
@@ -1411,21 +1414,12 @@ export async function send(
   // 再发这一句。❌ 直接唤醒:唤醒不带第一句,agent 会只看到后来这一句。
   // A never-started session is ACP only (neverStarted), and its delivery itself starts it (session-life row 1).
   try {
-    const accepted = await deliverSessionText(writeTargetFrom(row), text, clientMessageId, files);
+    const accepted = await deliverSessionText(writeTargetFrom(row), text, clientMessageId, files, attachments);
     return { ok: true, value: { ...accepted, ...(clientMessageId ? { clientMessageId } : {}) } };
   } catch (error) {
     if (error instanceof SessionWriteError) return fail(error.code, error.message);
     return fail('send_failed', (error as Error)?.message ?? String(error));
   }
-}
-
-/** A turn's attachments as they cross the wire (P3): versions of DM-folder files, nothing else. */
-function validTurnFiles(files: unknown): boolean {
-  return Array.isArray(files) && files.every((file) => file && typeof file === 'object'
-    && typeof file.itemId === 'string' && !!file.itemId && Number.isSafeInteger(file.version) && file.version >= 1
-    && typeof file.name === 'string' && !!file.name && typeof file.mimeType === 'string'
-    && Number.isSafeInteger(file.sizeBytes) && file.sizeBytes >= 0 && (file.path === undefined || typeof file.path === 'string')
-    && (file.workspacePath === undefined || typeof file.workspacePath === 'string' && file.workspacePath.startsWith('.gugu/attachments/')));
 }
 
 /** 停掉这条会话正在飞的一轮。受理即返回;停没停下来由时间线自己结算(与发送同一口径)。 */

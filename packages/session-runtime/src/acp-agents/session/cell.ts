@@ -447,7 +447,7 @@ export class SessionCell {
       if (text === prompt.text) continue;
       const result = text === null ? this.removeQueuedPrompt(prompt.id) : this.editQueuedPrompt(prompt.id, {
         text, origin: prompt.origin, hiddenContext: prompt.hiddenContext,
-        attachments: prompt.attachments, coalesceKey: prompt.coalesceKey,
+        attachments: prompt.attachments, files: prompt.files, coalesceKey: prompt.coalesceKey,
       });
       if (!result.success) throw new Error(`Cannot reconcile recovered delivery: ${result.error.type}`);
     }
@@ -1915,7 +1915,7 @@ export class SessionCell {
     if (started) {
       this.workStartedByOwner = isOwnerOrigin(prompt.origin);
       this.queuedTurnFence = opts?.fromQueue === true
-        && (prompt.queueTiming !== 'next-tool-call' || prompt.origin !== 'communication' || !!prompt.attachments?.length);
+        && (prompt.queueTiming !== 'next-tool-call' || prompt.origin !== 'communication' || !!prompt.attachments?.length || !!prompt.files?.length);
       this.promptSequence += 1;
     }
     // spec session-injection 的 mid-turn 支:同一条标准 session/prompt 立即发进当前 turn。
@@ -1979,6 +1979,7 @@ export class SessionCell {
         role: 'user',
         messageId,
         text: prompt.text,
+        ...(prompt.files?.length ? { files: prompt.files.map(({ itemId, version, name, mimeType, sizeBytes }) => ({ itemId, version, name, mimeType, sizeBytes })) } : {}),
         content: [{ type: 'text', text: prompt.text }],
         contentMode: 'replace',
         attachmentsMode: 'replace',
@@ -2081,10 +2082,10 @@ export class SessionCell {
       const turnContextBlocks = [prepared?.text, prepared?.beforeText, turnContext]
         .filter((text): text is string => !!text).map(text => ({ type: 'text' as const, text }));
       const textBlocks = prompt.text ? [{ type: 'text' as const, text: prompt.text }] : [];
-      const trailingBlocks =
-        prompt.origin === undefined && prompt.hiddenContext
-          ? [{ type: 'text' as const, text: prompt.hiddenContext }]
-          : [];
+      const trailingBlocks = [
+        ...(prompt.origin === undefined && prompt.hiddenContext ? [{ type: 'text' as const, text: prompt.hiddenContext }] : []),
+        ...(prompt.files ?? []).flatMap(file => file.promptText ? [{ type: 'text' as const, text: file.promptText }] : []),
+      ];
       // behavior `acp 命令必须是第一个块` —— 三家 harness 都只在 prompt 的**开头**找命令:
       // claude 与 codex 只读 `prompt[0]`,opencode 把所有 text 块拼起来再判首字符。所以只要
       // 这一轮前面还坐着别的块(会话级系统提示词、或用户随手带的一张图),同一句 `/review`
@@ -2298,7 +2299,7 @@ export class SessionCell {
         && this.settingsBlockedReason === null && this.machine.pendingPermissions.length === 0) {
         const [head] = this.machine.queuedPrompts;
         if (!head || head === this.blockedQueuedSteer || head.queueTiming !== 'next-tool-call'
-          || head.origin !== 'communication' || head.attachments?.length || head.queueEdit || head.queueDispatching) return;
+          || head.origin !== 'communication' || head.attachments?.length || head.files?.length || head.queueEdit || head.queueDispatching) return;
         // Interrupt-only transports already own the next-tool boundary; retain the queue for WorkEnded.
         if (!this.supportsSteering && this.agent.interruptForMessage) {
           if (this.interruptedQueuedHead === head.id) return;

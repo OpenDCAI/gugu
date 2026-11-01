@@ -1,3 +1,4 @@
+import { turnFileText } from '../session-timeline/turn-files';
 import { isHumanDmDelivery } from '@gugu/core/local/agent/deliveryEnvelope';
 import { declaredInjectionTiming } from '@gugu/session-core/agents/plugins';
 import { resolveSessionpageSessionIntegration } from '@gugu/session-plugins/agents';
@@ -141,7 +142,7 @@ export function createAcpLegAdapter(sessionId: string, fork: RuntimeFork | null)
       const command = await startInput(read<Workspace>(have.workspace));
       // The injector lands a still-queued first turn's gugu message; it only needs that row's text.
       const firstTurn = (fork ? forkStore : lifeStore).unaccepted(sessionId).find(row => row.turn.kind === 'chat-page-first-turn' && row.state === 'queued');
-      const injection = await withEmdashMcpInjection(command, lifecycleOf(known(), fork), facts, identity, firstTurn?.message.text);
+      const injection = await withEmdashMcpInjection(command, lifecycleOf(known(), fork), facts, identity, firstTurn?.message.text, firstTurn?.message.delivery?.files);
       return lease<Capabilities>({ injection, facts }) as CapabilityGrant;
     },
     async platform(have): Promise<PlatformTicket> {
@@ -196,9 +197,13 @@ export function createAcpLegAdapter(sessionId: string, fork: RuntimeFork | null)
     return lease({ gen, timing: 'next-tool-call', nativeSession }) as AdmittedChannel;
   }
 
-  async function admit(have: StageOut, pending: PendingRow): ReturnType<LegAdapter['dispatch']> {
+  async function admit(have: StageOut, pending: PendingRow, signal: AbortSignal): ReturnType<LegAdapter['dispatch']> {
     const delivery = pending.message.delivery;
-    const attachments = delivery?.attachments?.length ? { attachments: delivery.attachments } : {};
+    const turn = delivery?.files?.length ? await turnFileText(sessionId, delivery.files, true, delivery.attachments) : null;
+    // A stop during file preparation still precedes every provider byte. Use Life's existing refusal receipt.
+    if (signal.aborted) return { result: 'rejected-before-admission', cause: { name: 'AdmissionCancelled', message: 'The session stopped before dispatch' } };
+    const images = [...(delivery?.attachments ?? []), ...(turn?.images ?? [])];
+    const attachments = { ...(images.length ? { attachments: images } : {}), ...(turn?.files?.length ? { files: turn.files } : {}) };
     let sent: Awaited<ReturnType<typeof injectEmdashPromptDetached>>;
     switch (pending.turn.kind) {
       case 'prompt': {
@@ -244,8 +249,8 @@ export function createAcpLegAdapter(sessionId: string, fork: RuntimeFork | null)
       ctx.signal.throwIfAborted();
       return (stages[at] as (have: unknown, signal: AbortSignal, gen: Gen) => Promise<StageOut[typeof at]>)(have, ctx.signal, ctx.gen);
     },
-    async dispatch(have, pending) {
-      const admission = admit(have, pending);
+    async dispatch(have, pending, ctx) {
+      const admission = admit(have, pending, ctx.signal);
       admitting = admission.then(result => result.result === 'channel-lost', () => false);
       return admission;
     },

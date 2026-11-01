@@ -24,7 +24,7 @@ const state = vi.hoisted(() => ({
   warnings: [] as unknown[],
   /** session-life's queue entry: what an ACP reply hands over. */
   enqueued: [] as unknown[],
-  failedFiles: 0,
+  missingFile: false,
 }));
 vi.mock('@main/core/sessions/session-life', () => ({
   sessionLife: () => ({ enqueue: (input: unknown) => { state.enqueued.push(input); return { seq: 1, state: 'queued' }; } }),
@@ -34,9 +34,9 @@ vi.mock('@main/lib/logger', () => ({ log: { warn: (_msg: string, data: unknown) 
 // 附件那几行由 turn-files 拼(它自己的测试钉格式);这里只看它们怎么接进这一轮。
 vi.mock('./turn-files', () => ({
   turnFileText: async (_sessionId: string, _files: unknown, inline: boolean) => ({
-    text: state.failedFiles ? '[File not saved: File is no longer available]' : '[Image attached: a.png]',
+    text: state.missingFile ? '[File not saved: File is no longer available]' : '[Image attached: a.png]',
     images: inline ? [{ type: 'local-file', originalPath: '/agent/a.png', mimeType: 'image/png', name: 'a.png' }] : [],
-    failedFiles: state.failedFiles,
+    files: [],
   }),
 }));
 vi.mock('@main/core/acp/runtime-process/host', () => ({
@@ -91,7 +91,7 @@ beforeEach(() => {
   state.sendStatus = 'accepted';
   state.warnings = [];
   state.enqueued = [];
-  state.failedFiles = 0;
+  state.missingFile = false;
   state.cancelResult = { success: true, data: { written: 1 } };
   bridge.setSessionWake(null);
 });
@@ -116,12 +116,12 @@ describe('终端腿(pty)回话:唤醒归 session-direct 的路由', () => {
 describe('mobile ACP replies go into the session queue (custody)', () => {
   it('admits a caption and its image as one manual input, including image-only input', async () => {
     const attachments = [{ type: 'attachment' as const, id: 'image-a', mimeType: 'image/png' as const, name: 'a.png' }];
-    await bridge.deliverSessionText(target, 'caption', 'input-with-image', attachments);
+    await bridge.deliverSessionText(target, 'caption', 'input-with-image', undefined, attachments);
     expect(state.enqueued).toEqual([{ sessionId: 'conv-1', messageId: 'input-with-image', text: 'caption', kind: 'session-direct',
       delivery: { queue: true, origin: 'manual', attachments } }]);
-    await bridge.deliverSessionText(target, '', 'image-only', attachments);
+    await bridge.deliverSessionText(target, '', 'image-only', undefined, attachments);
     expect(state.enqueued).toHaveLength(2);
-    await expect(bridge.deliverSessionText(ptyTarget, 'caption', 'bad-terminal-image', attachments)).rejects.toMatchObject({ code: 'unsupported_runtime' });
+    await expect(bridge.deliverSessionText(ptyTarget, 'caption', 'bad-terminal-image', undefined, attachments)).rejects.toMatchObject({ code: 'unsupported_runtime' });
   });
 
   it('keeps the caller input ID when the same send is retried after reconnecting (the queue dedupes it)', async () => {
@@ -289,4 +289,15 @@ describe('终端提问:取消键 + 把回答当消息发回', () => {
     // 原因进日志,文案只留下一步(user-copy-leak-check)。
     expect(state.warnings).toEqual([expect.objectContaining({ error: expect.stringContaining('SESSION_DIRECT_NOT_LIVE') })]);
   });
+});
+
+it('ACP custody retains the original caption and unresolved file references until Life admits them', async () => {
+  const files = [{ itemId: 'gone', version: 1, name: 'gone.txt', mimeType: 'text/plain', sizeBytes: 1 }];
+  state.missingFile = true;
+  await bridge.deliverSessionText(target, 'original caption', 'queued-file', files);
+  await bridge.deliverSessionText(target, 'following text', 'queued-text');
+  expect(state.enqueued).toEqual([
+    expect.objectContaining({ text: 'original caption', delivery: { queue: true, origin: 'manual', files } }),
+    expect.objectContaining({ text: 'following text' }),
+  ]);
 });

@@ -3,7 +3,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 // #7290:附件一律由服务端转(attachments/forward)—— 新式的、老式的(字节在 chat-media,服务端登记进新链再转)都一样;
 // 客户端不再插指向 chat-media 的新消息。纯文字照旧本地插一行(不带存储列)。
-const { source, inserted, forwardMock } = vi.hoisted(() => ({
+const { source, inserted, forwardMock, resolveFile, sendFile, dispose, notify } = vi.hoisted(() => ({
+  resolveFile: vi.fn(), sendFile: vi.fn(), dispose: vi.fn(), notify: vi.fn(),
   source: { row: null as Record<string, unknown> | null },
   inserted: [] as Record<string, unknown>[],
   forwardMock: vi.fn(async (_endpoint: unknown, args: Record<string, unknown>) => ({ id: args.message_id, chat_id: args.chat_id, content: 'x', content_type: 'attachment', created_at: 't' })),
@@ -22,13 +23,15 @@ vi.mock('../../../../apps/desktop/src/lib/supabase', () => ({
   getCurrentAuthUserId: async () => 'me',
   dataClient: {},
 }))
-vi.mock('../../../../apps/desktop/src/lib/attachmentsEndpoint', () => ({ attachmentsEndpoint: async () => ({ supabaseUrl: 'https://db.test', anonKey: 'anon', token: 't' }) }))
+vi.mock('../../../../apps/desktop/src/lib/attachmentsEndpoint', () => ({ attachmentsEndpoint: async () => ({ supabaseUrl: 'https://db.test', anonKey: 'anon', token: 't' }), sendFileToChat: sendFile }))
+vi.mock('../../../../apps/desktop/src/lib/fileAccess', () => ({ resolveFile, fileReader: (id: string) => ({ accountId: 'me', actorId: id }), fileReadSignal: () => new AbortController().signal }));
+vi.mock('@renderer/lib/hooks/use-toast', () => ({ toast: notify }));
 vi.mock('@gugu/core/cloud/attachmentsApi', () => ({ forwardAttachment: forwardMock }))
 
 const { forwardCanonicalMessage } = await import('../../../../apps/desktop/src/lib/chatCanonicalStorage')
 const base = { id: 'src-1', chat_id: 'from', retracted_at: null, deleted_at: null, file_item_id: null, file_version: null, file_blob_id: null }
 
-beforeEach(() => { inserted.length = 0; forwardMock.mockClear() })
+beforeEach(() => { inserted.length = 0; vi.clearAllMocks() })
 
 describe('forwardCanonicalMessage(#7290 转发走一个入口)', () => {
   it('老式附件(正文带 [URL]、字节在 chat-media):交给服务端转,不在本地插行', async () => {
@@ -59,3 +62,20 @@ describe('forwardCanonicalMessage(#7290 转发走一个入口)', () => {
     expect(Object.keys(inserted[0]!).filter((k) => k.startsWith('storage_'))).toEqual([])
   })
 })
+
+it('forwards the card first, reads as the forwarding person and sends ordinary attachments; one missing file leaves the card intact', async () => {
+  const ref = { itemId: 'brief', version: 1, name: 'brief.txt', mimeType: 'text/plain', sizeBytes: 3 };
+  const card = { v: 1, type: 'task', text: 'read these', deviceId: 'device', machineLabel: 'Computer', agentUserId: 'agent', agentName: 'Agent', sessionId: 'session', projectId: 'project', files: [ref, { ...ref, itemId: 'missing', name: 'missing.txt' }] };
+  source.row = { ...base, content_type: 'card', content: JSON.stringify(card) };
+  resolveFile.mockImplementation(async (reference: { item_id: string }) => {
+    expect(inserted).toHaveLength(1);
+    return reference.item_id === 'missing' ? { status: 'gone' } : { status: 'ready', revision: { size_bytes: 3 }, read: async () => new TextEncoder().encode('abc'), dispose };
+  });
+  const forwarded = await forwardCanonicalMessage('src-1', 'destination', 'me');
+  expect(forwarded.chat_id).toBe('destination');
+  expect(resolveFile).toHaveBeenCalledWith({ item_id: 'brief', version: 1 }, { accountId: 'me', actorId: 'me' }, expect.anything());
+  expect(sendFile).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ name: 'brief.txt', size: 3 }), { chatId: 'destination', senderId: 'me' });
+  expect(dispose).toHaveBeenCalledOnce();
+  expect(notify).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ tier: 'warning' }));
+  expect(forwardMock).not.toHaveBeenCalled();
+});

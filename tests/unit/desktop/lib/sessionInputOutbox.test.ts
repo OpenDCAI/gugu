@@ -5,17 +5,17 @@ import { buildSessionDirectEnvelope } from '@gugu/core/local/agent/deliveryEnvel
 import { openSessionInputStorage, SessionInputOutbox, sessionInputBubbles, withSessionInputDeadline, type HostPendingRow, type SessionInput } from '../../../../apps/desktop/src/lib/sessionInputOutbox'
 
 describe('native session input persistence', () => {
-  it('sends an older attachment caption with an omission count and does not block the following input', async () => {
+  it('preserves stored runtime attachment references and does not block the following input', async () => {
     const storage = await openSessionInputStorage(new IDBFactory())
     const received: SessionInput[] = []
-    const legacy = { id: 'older-input', accountId: 'owner', deviceId: 'host', sessionId: 'agent', text: 'read the image', createdAt: 1,
-      attachments: [{ type: 'attachment', id: 'old-image' }] }
+    const legacy: SessionInput = { id: 'older-input', accountId: 'owner', deviceId: 'host', sessionId: 'agent', text: 'read the image', createdAt: 1,
+      attachments: [{ type: 'attachment', id: 'old-image', mimeType: 'image/png' }] }
     await storage.put(legacy)
     const queue = new SessionInputOutbox('owner', storage, async input => { received.push(input) }, () => true)
     await queue.enqueue({ deviceId: 'host', sessionId: 'agent', text: 'following input' })
     await queue.flush()
-    expect(received.map(input => input.text)).toEqual([expect.stringMatching(/^read the image\n\n.*1/), 'following input'])
-    expect(received[0]).not.toHaveProperty('attachments')
+    expect(received.map(input => input.text)).toEqual(['read the image', 'following input'])
+    expect(received[0].attachments).toEqual(legacy.attachments)
     expect(await queue.list()).toEqual([])
   })
   it('survives an offline restart and delivers in order automatically with the same identities', async () => {

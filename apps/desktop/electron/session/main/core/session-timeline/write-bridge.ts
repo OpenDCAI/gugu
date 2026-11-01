@@ -124,14 +124,10 @@ export async function deliverSessionText(
   target: SessionWriteTarget,
   text: string,
   clientMessageId?: string,
-  files?: import('@gugu/session-core/session-record/contract').SessionpageSessionSendRequest['files']
-): Promise<{ accepted: 'started' | 'queued'; failedFiles?: number }> {
-  // 附件(P3)= 这个 agent 私聊文件夹里的文件:正文后面接上与收件箱同一格式的那几行(终端任务就是一条路径);
-  // ACP 收得下的图另外内联。
-  const turn = files?.length ? await turnFileText(target.id, files, target.runtime === 'acp') : null;
-  const body = [text.trim(), turn?.text ?? ''].filter(Boolean).join('\n\n');
-  const attachments = turn?.images.length ? turn.images : undefined;
-  if (!body) throw new SessionWriteError('empty_text', '消息是空的');
+  files?: import('@gugu/session-core/session-record/contract').SessionpageSessionSendRequest['files'],
+  attachments?: import('@gugu/session-core/acp/client').PromptAttachment[]
+): Promise<{ accepted: 'started' | 'queued' }> {
+  if (!text.trim() && !files?.length && !attachments?.length) throw new SessionWriteError('empty_text', '消息是空的');
 
 
   // `runtime === null` 就是 pty:终端腿是默认形态,建会话时那一列常常没写。
@@ -148,12 +144,15 @@ export async function deliverSessionText(
   // refetch after a lost reply finds the existing row), the sender's outbox copy ends here.
   if (target.runtime === 'acp') {
     sessionLife().enqueue({
-      sessionId: target.id, messageId: clientMessageId ?? crypto.randomUUID(), text: body, kind: 'session-direct',
-      delivery: { queue: true, origin: 'manual', ...(attachments?.length ? { attachments } : {}) },
+      sessionId: target.id, messageId: clientMessageId ?? crypto.randomUUID(), text: text.trim(), kind: 'session-direct',
+      delivery: { queue: true, origin: 'manual', ...(files?.length ? { files } : {}), ...(attachments?.length ? { attachments } : {}) },
     });
     return { accepted: 'queued' };
   }
   if (target.runtime === 'pty' || target.runtime === null) {
+    if (attachments?.length) throw new SessionWriteError('unsupported_runtime', '终端任务不能回放图片附件');
+    const turn = files?.length ? await turnFileText(target.id, files, false) : null;
+    const body = [text.trim(), turn?.text].filter(Boolean).join('\n\n');
     const params = {
       projectId: target.projectId,
       sessionId: target.id,
@@ -167,7 +166,7 @@ export async function deliverSessionText(
     if (result.status === 'outcome-unknown') {
       throw new SessionWriteError('session_not_live', '这条会话没有接住这条消息(投递结果未知)');
     }
-    return { accepted: result.status === 'queued' ? 'queued' : 'started', ...(turn?.failedFiles ? { failedFiles: turn.failedFiles } : {}) };
+    return { accepted: result.status === 'queued' ? 'queued' : 'started' };
   }
 
   throw new SessionWriteError(

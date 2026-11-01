@@ -35,7 +35,6 @@ import { commandToken } from '@gugu/session-core/acp/commands';
 import { permissionWaitKind } from '@gugu/session-core/acp/models/permissions';
 import type { AgentState, LiveSettingResult, PermissionWaitKind } from '@gugu/session-core/acp';
 import { errorDetail } from '@gugu/session-shared';
-import { WireError, type BlobSource } from '@gugu/session-wire';
 import { action, computed, makeObservable, observable, reaction, runInAction, when } from 'mobx';
 import { endSessionLife, forkSessionLife, readSessionLife, sessionLifeView, startSessionLife, stopSessionLife } from '../stores/session-life-views';
 import { ACP_START_FAILED, lifeIsStarting, type LifeView } from '@shared/core/sessions/session-life';
@@ -651,7 +650,7 @@ export class AcpChatStore {
     if (!await this.revertMessage(itemId, false) || this.session !== session) return;
     runInAction(() => { this.messageEdit = null; });
     // History is already cut back: a send that fails keeps the edited words in the draft.
-    await this.submitPrompt(edit.text, attachments).catch(() => this.setDraftText([edit.text, this.draftText].filter(Boolean).join('\n')));
+    await this.submitPrompt(edit.text, attachments, item.files).catch(() => this.setDraftText([edit.text, this.draftText].filter(Boolean).join('\n')));
   }
 
   async revertMessage(itemId: string, restoreDraft = true): Promise<boolean> {
@@ -1303,7 +1302,7 @@ export class AcpChatStore {
     const existing = session.sessionState.current().queuedPrompts.find((prompt) => prompt.id === id);
     if (!existing) return false;
     const input: PromptInput = {
-      text: editedConversationQueueText(existing.text, text), hiddenContext: existing.hiddenContext, attachments: existing.attachments,
+      text: editedConversationQueueText(existing.text, text), hiddenContext: existing.hiddenContext, attachments: existing.attachments, files: existing.files,
       ...(existing.origin ? { origin: existing.origin } : {}),
     };
     try {
@@ -2679,6 +2678,7 @@ function queuedPromptTurn(prompt: QueuedPrompt): TranscriptTurn {
         seq: 0,
         role: 'user',
         text: prompt.text,
+        ...(prompt.files?.length ? { files: prompt.files } : {}),
         ...(prompt.attachments?.length
           ? {
               attachments: prompt.attachments.map((attachment, index) => ({

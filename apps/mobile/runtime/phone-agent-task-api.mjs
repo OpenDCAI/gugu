@@ -43,12 +43,9 @@ export function createPhoneTaskApi({ ownerId, store, models, timelines, actions,
       const fingerprint = stableId('phone-task-input-body', JSON.stringify([input.text.trim(), files.map((file) => [file.itemId, file.version])]))
       const existing = store.state.jobs[id]
       if (existing && existing.inputFingerprint !== fingerprint) throw failure('invalid_args', '同一个发送请求不能更换任务内容，请先重试原消息')
-      // 附件(P3)= 这个 agent 私聊文件夹里的文件;正文后面接上与桌面同一格式的那几行。重试同一请求不再取第二遍。
-      const attached = !existing && files.length ? await turnFiles(agent, files, source.signal) : null
-      const prompt = [input.text.trim(), attached?.text].filter(Boolean).join('\n\n')
-      const failedFiles = existing?.failedFiles ?? attached?.failedFiles ?? 0
-      await admit({ id, agentUserId: agent.agentUserId, inputFingerprint: fingerprint, prompt, ...(failedFiles ? { failedFiles } : {}), route: { kind: 'task', senderUserId: ownerId } })
-      value = { accepted: true, messageId: id, ...(failedFiles ? { failedFiles } : {}) }
+      // Admission keeps the person's words; files are resolved only when this queued job reaches the model.
+      await admit({ id, agentUserId: agent.agentUserId, inputFingerprint: fingerprint, prompt: input.text.trim(), ...(files.length ? { files } : {}), route: { kind: 'task', senderUserId: ownerId } })
+      value = { accepted: true, messageId: id }
     } else if (method === 'sessionOptions') value = await options(agent)
     else {
       if (agent.status === 'working' || Object.values(store.state.jobs).some((job) => job.agentUserId === agent.agentUserId && job.status === 'queued')) throw failure('session_busy', '手机任务正在运行，请结束或取消后再更换模型')

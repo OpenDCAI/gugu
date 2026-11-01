@@ -1,10 +1,12 @@
 import { join } from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { TurnFileRef } from '@gugu/session-core/session-record/contract';
+import { openRuntimeFork, forkStore } from '../sessions/session-life-forks';
 
 const mocks = vi.hoisted(() => ({
-  resolveAccountFile: vi.fn(), saveFileHandle: vi.fn(), agentOf: vi.fn(), deviceId: vi.fn(), stat: vi.fn(),
+  resolveAccountFile: vi.fn(), saveFileHandle: vi.fn(), agentOf: vi.fn(), deviceId: vi.fn(), stat: vi.fn(), warn: vi.fn(),
 }));
+vi.mock('@main/lib/logger', () => ({ log: { warn: mocks.warn } }));
 vi.mock('node:fs/promises', () => ({ stat: mocks.stat }));
 vi.mock('@main/core/extensions/account-token', () => ({ resolveAccountFile: mocks.resolveAccountFile }));
 vi.mock('@gugu/core/local/files/fileSnapshots', () => ({ saveFileHandle: mocks.saveFileHandle }));
@@ -22,14 +24,16 @@ const resolved = (source: 'local' | 'managed-object', host_device_id = 'this-dev
   dispose: vi.fn(async () => {}),
 });
 
+beforeEach(() => {
+  mocks.stat.mockReset().mockResolvedValue({ isFile: () => true });
+  mocks.resolveAccountFile.mockReset();
+  mocks.saveFileHandle.mockReset().mockResolvedValue({ file_path: '/home/agent/.gugu/attachments/fetched' });
+  mocks.agentOf.mockReset().mockResolvedValue('agent-1');
+  mocks.deviceId.mockReset().mockResolvedValue('this-device');
+});
+
 describe('turnFileText (P3 task turn attachments)', () => {
-  beforeEach(() => {
-    mocks.stat.mockReset().mockResolvedValue({ isFile: () => true });
-    mocks.resolveAccountFile.mockReset();
-    mocks.saveFileHandle.mockReset().mockResolvedValue({ file_path: '/home/agent/.gugu/attachments/fetched' });
-    mocks.agentOf.mockReset().mockResolvedValue('agent-1');
-    mocks.deviceId.mockReset().mockResolvedValue('this-device');
-  });
+
 
   it('prefetches as the agent and reuses the saved path for the same session, item and version', async () => {
     mocks.resolveAccountFile.mockResolvedValue(resolved('managed-object'));
@@ -37,7 +41,7 @@ describe('turnFileText (P3 task turn attachments)', () => {
     mocks.resolveAccountFile.mockClear();
     mocks.saveFileHandle.mockClear();
     const turn = await turnFileText('prefetched-task', [doc], false);
-    expect(turn.failedFiles).toBe(0);
+    expect(turn.files?.[0]?.promptText).toBe(turn.text);
     expect(turn.text).toContain('/home/agent/.gugu/attachments/fetched');
     expect(mocks.resolveAccountFile).not.toHaveBeenCalled();
     expect(mocks.saveFileHandle).not.toHaveBeenCalled();
@@ -60,7 +64,7 @@ describe('turnFileText (P3 task turn attachments)', () => {
     mocks.stat.mockRejectedValueOnce(Object.assign(new Error('gone'), { code: 'ENOENT' }));
     mocks.resolveAccountFile.mockResolvedValue({ status: 'gone' });
     const turn = await turnFileText('deleted-cache', [doc], false);
-    expect(turn.failedFiles).toBe(1);
+    expect(mocks.warn).toHaveBeenCalledWith('Task attachment could not be saved', { sessionId: 'deleted-cache', itemId: doc.itemId, reason: 'File is no longer available' });
     expect(turn.text).toContain('[File not saved: File is no longer available]');
   });
 
@@ -70,7 +74,7 @@ describe('turnFileText (P3 task turn attachments)', () => {
       { itemId: doc.itemId, ok: false, error: 'Cloud transfer is disabled for this file (transfer_disabled)', code: 'transfer_disabled' },
     ]);
     mocks.resolveAccountFile.mockResolvedValue(resolved('managed-object'));
-    expect((await turnFileText('retry-prefetch', [doc], false)).failedFiles).toBe(0);
+    expect((await turnFileText('retry-prefetch', [doc], false)).text).not.toContain('not saved');
   });
 
   it("reads as the session's agent; kept on this device: the placed file itself, in the inbox line format", async () => {
@@ -133,4 +137,21 @@ describe('turnFileText (P3 task turn attachments)', () => {
     expect(pty.images).toEqual([]);
     expect(pty.text).toContain('[Image attached at local path: /Users/me/shot.png]');
   });
+});
+
+it('replays an existing runtime image once while retaining its file context', async () => {
+  mocks.resolveAccountFile.mockResolvedValue(resolved('local'));
+  const turn = await turnFileText('image-replay', [png], true, [{ type: 'attachment', id: 'runtime-image', name: png.name, mimeType: 'image/png' }]);
+  expect(turn.images).toEqual([]);
+  expect(turn.files?.[0]).toMatchObject({ itemId: png.itemId, promptText: expect.stringContaining('shot.png') });
+});
+
+it('a side chat reads as its parent agent while keeping its own download directory', async () => {
+  openRuntimeFork({ forkId: 'file-fork', parentId: 'parent-task', forkFromProviderSessionId: 'provider-parent' });
+  mocks.resolveAccountFile.mockResolvedValue(resolved('managed-object'));
+  try {
+    await turnFileText('file-fork', [doc], false);
+    expect(mocks.agentOf).toHaveBeenLastCalledWith('parent-task', expect.anything());
+    expect(mocks.saveFileHandle).toHaveBeenLastCalledWith(expect.anything(), expect.stringContaining(join('attachments', 'file-fork')), doc.name);
+  } finally { forkStore.remove('file-fork'); }
 });

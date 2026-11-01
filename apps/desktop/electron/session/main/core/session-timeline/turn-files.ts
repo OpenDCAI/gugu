@@ -1,4 +1,6 @@
 import { join } from 'node:path';
+import { log } from '@main/lib/logger';
+import { runtimeFork } from '../sessions/session-life-forks';
 import { attachmentMimeTypeSchema, type PromptAttachment } from '@gugu/session-core/acp/client';
 import type { TurnFileRef } from '@gugu/session-core/session-record/contract';
 import { turnAttachmentText } from '@gugu/core/shared/attachmentFolderLine';
@@ -36,11 +38,11 @@ export async function prefetchFiles(input: { conversationId: string; files: Turn
  * (`path`), never on the version itself; elsewhere the version is fetched once (the resolver's own SSH, then a temporary
  * transfer) into the directory agents' downloads land in.
  */
-export async function turnFileText(sessionId: string, files: readonly TurnFileRef[], inlineImages: boolean): Promise<{ text: string; images: PromptAttachment[]; failedFiles: number }> {
-  const agent = await guguAgentUserIdForSession(sessionId, process.env);
+export async function turnFileText(sessionId: string, files: readonly TurnFileRef[], inlineImages: boolean, replayImages: readonly PromptAttachment[] = []): Promise<{ text: string; images: PromptAttachment[]; files: import('@gugu/session-core/acp/client').PromptInput['files'] }> {
+  const agent = await guguAgentUserIdForSession(runtimeFork(sessionId)?.parentId ?? sessionId, process.env);
   const parts: string[] = [];
   const images: PromptAttachment[] = [];
-  let failedFiles = 0;
+  const prepared: NonNullable<import('@gugu/session-core/acp/client').PromptInput['files']> = [];
   for (const file of files) {
     let saved: Parameters<typeof turnAttachmentText>[1];
     try {
@@ -48,15 +50,17 @@ export async function turnFileText(sessionId: string, files: readonly TurnFileRe
       saved = { localPath: await localPathOf(file, agent, sessionId) };
     } catch (error) {
       saved = { failure: attachmentFailureReason(error) };
-      failedFiles++;
+      log.warn('Task attachment could not be saved', { sessionId, itemId: file.itemId, reason: saved.failure });
     }
-    parts.push(turnAttachmentText(file, saved));
+    const promptText = turnAttachmentText(file, saved);
+    parts.push(promptText);
+    prepared.push({ ...file, promptText });
     const inline = attachmentMimeTypeSchema.safeParse(file.mimeType);
-    if (inlineImages && 'localPath' in saved && inline.success) {
+    if (inlineImages && 'localPath' in saved && inline.success && !replayImages.some(image => image.name === file.name)) {
       images.push({ type: 'local-file', originalPath: saved.localPath, mimeType: inline.data, name: file.name });
     }
   }
-  return { text: parts.join('\n\n'), images, failedFiles };
+  return { text: parts.join('\n\n'), images, files: prepared };
 }
 
 async function localPathOf(file: TurnFileRef, agent: string, sessionId: string): Promise<string> {
@@ -70,7 +74,7 @@ async function localPathOf(file: TurnFileRef, agent: string, sessionId: string):
     ]);
     const row = db.select({ workspace: workspaces.path, project: projects.path }).from(sessions)
       .innerJoin(workspaces, eq(sessions.workspaceId, workspaces.id)).innerJoin(projects, eq(sessions.projectId, projects.id))
-      .where(eq(sessions.id, sessionId)).get();
+      .where(eq(sessions.id, runtimeFork(sessionId)?.parentId ?? sessionId)).get();
     if (!row) throw new Error('The task workspace is not available');
     const path = await inWorkspace(row.workspace ?? row.project, file.workspacePath);
     const info = await stat(path);

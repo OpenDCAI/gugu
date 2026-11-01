@@ -30,7 +30,7 @@ export function firstUtteranceOf(facts: SessionCreationFacts): string | undefine
     facts.origin?.kind === 'create' ? facts.origin.firstUtterance.trim() || undefined : undefined;
   const payload =
     facts.initialPrompt?.trim() ||
-    facts.initialQueue?.map((prompt) => prompt.text.trim()).find(Boolean);
+    facts.initialQueue?.map((prompt) => prompt.text.trim() || prompt.files?.map(file => file.name).join(', ')).find(Boolean);
   return declared ?? payload;
 }
 

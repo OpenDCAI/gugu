@@ -81,6 +81,9 @@ export function normalizeMessage(item: ChatMessage, deliveredMessage?: (id: stri
   // 送达,那是**传输方式**;用户看的是「我附了这个」,两条路该长成同一个样子。只对用户消息做
   // —— 附件条本来就只长在用户卡上(measureMessage 的 `aH` 也只在那一支)。
   if (normalized.role !== 'user') return normalized;
+  const imageNames = new Set(normalized.attachments?.map(file => file.name) ?? []);
+  const files = (item.files ?? []).filter(file => !imageNames.has(file.name)).map(file => ({ id: `${file.itemId}:${file.version}`, name: file.name, kind: 'file' as const }));
+  if (files.length) normalized.attachments = [...(normalized.attachments ?? []), ...files];
   const split = splitAttachmentMentions(normalized.text);
   if (split.attachments.length === 0) return normalized;
   // ⚠️ 刚发出去的那一轮**两样都有**:上传那条路给的附件(带着现成的 previewUrl),以及正文里

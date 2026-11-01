@@ -5196,6 +5196,7 @@ app.whenReady().then(async () => {
       knownChatId: string | null | undefined
       messageId: string
       text: string
+      files?: import('@gugu/session-core/session-record/contract').TurnFileRef[]
       /** gugu-dev#181 派任务:首句落成这个对话里的一张任务卡(task-card-first-turn.ts),❌ 进 agent 私聊。 */
       taskChatId?: string
       projectId: string
@@ -5217,6 +5218,7 @@ app.whenReady().then(async () => {
           chatId: input.taskChatId,
           messageId: input.messageId,
           text: content,
+          files: input.files,
           deviceId,
           machineLabel: (await getLocalDeviceSelfSnapshot())?.label || hostname(),
           senderIdentities: await envelopeSenderIdentities(auth.userId, auth.accessToken),
@@ -5568,6 +5570,7 @@ app.whenReady().then(async () => {
           messageId: info.initialMessageId,
           text: chatPageFirstTurnText,
           taskChatId: info.taskChatId,
+          files: info.initialMessageFiles,
           projectId: info.projectId,
         })
         provisionedChatId = delivered.chatId

@@ -1668,7 +1668,13 @@ export function InitialSessionField({
           } finally {
             await projects.releaseProjectWorkspace(projectId, workspaceId);
           }
-        })().catch(error => toast({ title: translate('composer.attachmentUploadFailed'), description: String(error), variant: 'destructive' }));
+        })().catch(error => {
+          log.warn('New task folder placement failed', { error: String(error) });
+          const code = (error as { code?: string })?.code;
+          toast({ title: translate('composer.attachmentUploadFailed'), description: translate(code === 'folder_too_large'
+            ? 'composer.attachmentFolderTooLarge' : code === 'host_update_required' ? 'composer.attachmentHostUpdateRequired'
+              : 'composer.attachmentUploadFailed'), variant: 'destructive' });
+        });
         return;
       }
       for (const file of files) {

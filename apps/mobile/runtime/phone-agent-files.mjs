@@ -40,7 +40,7 @@ export async function registerArtifact({ store, agent, file, groups }) {
  * the owner — read as the agent (like any file it reads), fetched into this agent's downloads, registered as its artifacts, and read in the same lines
  * as a desktop agent reads them (`attachmentLocationLines`). The phone's prompt is text: an image is its path.
  */
-export function phoneTurnFiles({ store, cloud }) {
+export function phoneTurnFiles({ store, cloud, warn = console.warn }) {
   const files = createNodeFileResolver(join(store.directory, 'file-cache'), () => cloud.attachmentEndpoint())
   const cached = new Map()
   const keyOf = (agent, ref) => JSON.stringify([agent.sessionId, ref.itemId, ref.version])
@@ -58,15 +58,17 @@ export function phoneTurnFiles({ store, cloud }) {
   }
   const turn = async (agent, refs, signal) => {
     const parts = []
-    let failed = 0
     for (const ref of refs) {
       let saved
       try {
         saved = { localPath: await localPathOf(agent, ref, signal) }
-      } catch (error) { failed++; saved = { failure: error instanceof Error ? error.message : String(error) } }
+      } catch (error) {
+        saved = { failure: error instanceof Error ? error.message : String(error) }
+        warn(`Task attachment could not be saved: sessionId=${agent.sessionId} itemId=${ref.itemId} reason=${saved.failure}`)
+      }
       parts.push(turnAttachmentText(ref, saved))
     }
-    return { text: parts.join('\n\n'), failedFiles: failed }
+    return { text: parts.join('\n\n') }
   }
   turn.prefetch = (agent, refs, signal) => Promise.all(refs.map(async ref => {
     try { await localPathOf(agent, ref, signal); return { itemId: ref.itemId, ok: true } }

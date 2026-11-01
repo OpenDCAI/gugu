@@ -13,10 +13,11 @@ export const sessionCreateController = createRPCController({
     return getProjectWorkspaces(projectId);
   },
   // The desktop task page's launch of the session it just created: workspace first, then its creation turns.
-  async provisionWorkspace(sessionId: string) {
+  async provisionWorkspace(sessionId: string, options?: { deferFirstTurn?: boolean }) {
     const result = await sessionService.provisionWorkspace(sessionId);
-    if (result.success) await admitFirstMessages(sessionId);
+    if (result.success && !options?.deferFirstTurn) await admitFirstMessages(sessionId);
     return result;
   },
+  admitFirstMessages,
   generateSessionName,
 });

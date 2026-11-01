@@ -7,6 +7,8 @@ import { randomUUID } from 'node:crypto'
 import { EventEmitter } from 'node:events'
 import { buildSessionDirectEnvelope } from '../../../packages/core/src/local/agent/deliveryEnvelope.ts'
 import { startPhoneAgentHost } from './phone-agent-host.mjs'
+import { openPhoneAgentStore } from './phone-agent-store.mjs'
+import { createPhoneTimelineRuntime } from './phone-agent-timeline.mjs'
 import { bindAgentEntry, createAgentEntry } from './agent-entry.mjs'
 import { createPhoneProvisioner } from './phone-agent-provision.mjs'
 import { createPhoneActionRuntime } from './phone-actions.mjs'
@@ -348,6 +350,7 @@ async function recordTurn(command, hooks, text) {
   const lines = [user, answer].map((entry) => `${JSON.stringify(entry)}\n`).join('')
   if (previous) await appendFile(path, lines)
   else await writeFile(path, `${JSON.stringify({ type: 'session', version: 3, id: command.sessionId, cwd: directory, timestamp: new Date(at).toISOString() })}\n${lines}`)
+  hooks.emit({ type: 'pi_live', kind: 'committed', id: `phone-input:${command.jobId}`, recordId: userId })
 }
 
 test('a local create runs its first input directly and reads the actual Pi result without any DM messages', async () => {
@@ -1547,3 +1550,41 @@ test('the conversation queue reserves edits across entry points and resumes the 
     assert.deepEqual((await snapshot()).queuedPrompts, [])
   } finally { releaseFirst(); await fx.close() }
 })
+
+test('resolves files at run time, warns without blocking later text, and persists the public input projection beyond jobs', async () => {
+  const prompts = [];
+  const ref = { itemId: randomUUID(), version: 1, name: 'missing.txt', mimeType: 'text/plain', sizeBytes: 3 };
+  const fx = await fixture(async (command, hooks) => {
+    prompts.push(command.prompt);
+    await recordTurn(command, hooks, '文件没能读取，请重新发送');
+    return { status: 'done', text: '文件没能读取，请重新发送' };
+  }, { prepare: ({ cloud }) => {
+    cloud.attachmentEndpoint = async () => ({ supabaseUrl: 'https://files.invalid', anonKey: 'public', token: 'test', fetch: async () => new Response(JSON.stringify({ status: 'gone', sha256: null }), { status: 200, headers: { 'Content-Type': 'application/json' } }) });
+  } });
+  try {
+    const created = await fx.host.invoke('sessionTimeline.sessionCreate', [{ harness: 'pi', prompt: 'initial plain input' }], randomUUID());
+    await until(() => prompts.length === 1 && fx.host.state().sessions[0]?.lastJobStatus === 'done', fx.events);
+    let journal = JSON.parse(await readFile(join(fx.root, 'hosts', ownerId, 'host.json'), 'utf8'));
+    assert.equal(Object.values(journal.agents)[0].fileInputs, undefined);
+    await fx.host.invoke('sessionTimeline.sessionSend', [{ conversationId: created.conversationId, text: 'original caption', files: [ref], clientRequestId: randomUUID() }], randomUUID());
+    await until(() => prompts.length === 2 && fx.host.state().sessions[0]?.lastJobStatus === 'done', fx.events);
+    assert.match(prompts[1], /^original caption\n\n/);
+    assert.match(prompts[1], /File not saved/);
+    assert.ok(fx.events.some(event => event.type === 'host_log' && event.level === 'warn' && event.message.includes(ref.itemId) && event.message.includes(created.conversationId)));
+    await fx.host.invoke('sessionTimeline.sessionSend', [{ conversationId: created.conversationId, text: 'following text', clientRequestId: randomUUID() }], randomUUID());
+    await until(() => prompts.length === 3 && fx.host.state().sessions[0]?.lastJobStatus === 'done', fx.events);
+    assert.equal(prompts[2], 'following text');
+    await fx.host.close();
+    const reopened = await openPhoneAgentStore(fx.root, ownerId), agent = Object.values(reopened.state.agents)[0];
+    assert.equal(Object.keys(agent.fileInputs).length, 1);
+    reopened.state.jobs = {}; await reopened.save();
+    const timeline = createPhoneTimelineRuntime({ root: fx.root, store: reopened, authorize: async () => {} });
+    try {
+      const snapshot = await timeline.snapshot(agent, {});
+      const item = snapshot.turns.flatMap(turn => turn.items).find(item => item.kind === 'message' && item.role === 'user' && item.files?.length);
+      assert.equal(item.text, 'original caption');
+      assert.deepEqual(item.files, [ref]);
+      assert.doesNotMatch(JSON.stringify(item), /not saved|promptText/);
+    } finally { await timeline.close(); }
+  } finally { await fx.close(); }
+});

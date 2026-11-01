@@ -102,7 +102,7 @@ describe('#3500 发送只走 custody', () => {
       });
       expect(store.affordances.canSubmit).toBe(true);
       store.submitPrompt('wait for sign-in');
-      expect(custody).toHaveBeenCalledWith(store, 'wait for sign-in', []);
+      expect(custody).toHaveBeenCalledWith(store, 'wait for sign-in', [], []);
       runInAction(() => { store.loadError = { kind: 'harness_not_installed', message: 'install first' }; });
       expect(store.affordances.canSubmit).toBe(false);
       expect(seen).toEqual([true, false]);

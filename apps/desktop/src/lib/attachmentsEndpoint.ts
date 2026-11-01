@@ -5,7 +5,7 @@ import type { TurnFileRef } from '@gugu/session-core/session-record/contract'
 import { isHeicLikeFile, mustCopyRatherThanReference } from '@renderer/lib/pty/terminal-image-paths'
 import { getRendererAccessToken } from './sessionPublication'
 import { i18n } from '../i18n'
-import { prefetchTaskFiles, pushTaskFiles, taskAttachmentUsesSsh, type TaskAttachmentTarget } from './taskAttachmentTarget'
+import { prefetchTaskFiles, pushTaskFiles, taskAttachmentUsesSsh, taskAttachmentWorkspacePath, type TaskAttachmentTarget } from './taskAttachmentTarget'
 
 // 令牌只读会话协调器已发布的那一份,和数据客户端(supabase.ts 的 accessToken)同一个来源:数据客户端没有自己的 auth 会话,
 // 在它身上 auth.getSession() 直接抛(「configured with the accessToken option」)。
@@ -103,9 +103,9 @@ export async function placeTaskAttachment(file: File, prepared: TurnFileRef | nu
         signal?.throwIfAborted()
         source = await fetch(copy.dataUrl, { signal }).then(response => response.blob())
       }
-      const directory = await pushTaskFiles(to, prepared.itemId, [{ segments: [prepared.name], size: source.size,
+      await pushTaskFiles(to, prepared.itemId, [{ segments: [prepared.name], size: source.size,
         slice: async (start, end) => new Uint8Array(await source.slice(start, end).arrayBuffer()) }], onProgress, signal)
-      return { ...prepared, path: undefined, workspacePath: `${directory}/${prepared.name}` }
+      return { ...prepared, path: undefined, workspacePath: taskAttachmentWorkspacePath(prepared.itemId, prepared.name) }
     }
     if (to.deviceId) await prefetchTaskFiles(to, [prepared], signal)
     signal?.throwIfAborted()

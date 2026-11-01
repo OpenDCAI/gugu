@@ -11,7 +11,6 @@ import { platform } from '@/platform'
 import { SessionInputFailureError, SessionInputOutbox, openSessionInputStorage, withoutQueuedAttachments, type SessionInput } from '@/lib/sessionInputOutbox'
 import { translateSessionMessage } from '@renderer/localization/locale-store'
 import { rendererLogger } from '@/lib/log'
-import { toast } from '@renderer/lib/hooks/use-toast'
 import { liveDeviceSessions } from '@/session/shared/remote-sessions/session-directory'
 
 /** Runs with the signed-in shell, including while the conversation itself is closed. */
@@ -59,25 +58,20 @@ export function SessionInputOutboxHost({ accountId }: { accountId: string }) {
           const summary = liveDeviceSessions()[remoteId]?.sessions.find(session => session.conversationId === input.sessionId)
           if (summary?.nativeInputVersion !== 1 && summary?.nativeInputVersion !== 2) throw new SessionInputFailureError({ code: 'host-not-ready' })
         }
-        let failedFiles = 0
         if (device && isPhoneDevice(device)) {
           const { invokePhoneHost } = await import('@/mobile/local-agent/phoneHostRpc')
-          const result = await invokePhoneHost<{ accepted?: boolean; failedFiles?: number }>(device.device_id, 'sessionTimeline.sessionSend', [{ conversationId: input.sessionId, text: input.text, clientRequestId: input.id, ...(input.files?.length ? { files: input.files } : {}), ...(input.attachments?.length ? { attachments: input.attachments } : {}) }], input.id)
-          failedFiles = result.failedFiles ?? 0
+          const result = await invokePhoneHost<{ accepted?: boolean }>(device.device_id, 'sessionTimeline.sessionSend', [{ conversationId: input.sessionId, text: input.text, clientRequestId: input.id, ...(input.files?.length ? { files: input.files } : {}), ...(input.attachments?.length ? { attachments: input.attachments } : {}) }], input.id)
           if (!result.accepted) throw new SessionInputFailureError({ code: 'phone-unconfirmed' })
         } else if (platform.kind === 'electron') {
           const { rpcOn } = await import('@/session/renderer/lib/ipc')
           const result = await rpcOn(remoteId).sessionTimeline.sessionSend({ conversationId: input.sessionId, text: input.text, clientMessageId: input.id, ...(input.files?.length ? { files: input.files } : {}), ...(input.attachments?.length ? { attachments: input.attachments } : {}) })
           if (!result.ok) throw new Error(result.error.message)
-          failedFiles = result.value.failedFiles ?? 0
           if (result.value.clientMessageId !== input.id) throw new Error('Session host acknowledged another input')
         } else {
           const { sendSessionText } = await import('@/mobile/agent-watch/sessionpage-rpc')
           if (!input.deviceId) throw new Error('Remote session input has no device')
-          const result = await sendSessionText(input.deviceId, input.sessionId, input.text, input.id, input.files)
-          failedFiles = result.failedFiles ?? 0
+          await sendSessionText(input.deviceId, input.sessionId, input.text, input.id, input.files, input.attachments)
         }
-        if (failedFiles) toast({ title: translateSessionMessage('acpFailure.sendMessage'), description: translateSessionMessage('composer.attachmentsUnavailable', { count: failedFiles }), variant: 'destructive' })
       }, valid, () => { void refresh().catch(report) }, input => {
         if (oldAttachmentHost(input)) throw new Error(translateSessionMessage('composer.attachmentHostUpdateRequired'))
       })

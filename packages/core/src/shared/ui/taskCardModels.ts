@@ -1,3 +1,5 @@
+import { transcriptFileRefSchema } from '@gugu/session-core/acp/client'
+
 /**
  * The cards a person's composer drops into a chat (gugu-dev#181「派任务」): a `content_type='card'` message whose
  * content is one of these JSON shapes. The card is the person's own message — it names no recipient and wakes nobody
@@ -11,6 +13,7 @@
 export interface TaskCard {
   v: 1
   type: 'task'
+  files?: Array<import('@gugu/session-core/session-record/contract').TurnFileRef>
   /** The person's words, verbatim. */
   text: string
   agentUserId: string
@@ -75,6 +78,11 @@ export function parseComposerCard(content: string | null | undefined): ComposerC
   const card = raw as Record<string, unknown>
   if (card.v !== 1 || !isText(card.text) || !isText(card.deviceId) || typeof card.machineLabel !== 'string') return null
   if (card.type === 'task' && isText(card.agentUserId) && isText(card.agentName) && isText(card.sessionId) && isText(card.projectId)) {
+    if (card.files !== undefined) {
+      const files = transcriptFileRefSchema.array().safeParse(card.files)
+      if (!files.success) return null
+      return { ...card, files: files.data } as unknown as TaskCard
+    }
     return card as unknown as TaskCard
   }
   if (card.type === 'schedule' && isText(card.automationId) && isText(card.scheduleLabel)) {
@@ -93,7 +101,7 @@ export function parseComposerCard(content: string | null | undefined): ComposerC
  */
 export function serializeComposerCard(card: ComposerCard): string {
   const { v, type, text, ...rest } = card
-  return JSON.stringify({ v, type, text, ...rest })
+  return JSON.stringify({ v, type, text, ...rest, ...(card.type === 'task' && card.files ? { files: card.files.map(file => transcriptFileRefSchema.parse(file)) } : {}) })
 }
 
 // Whole escapes only: a cut that lands inside one (`\`, `\u12`) ends the words just before it.

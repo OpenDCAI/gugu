@@ -66,6 +66,7 @@ export interface EmdashSessionStartInfo {
   startupOrigin?: 'chat-page' | 'session-page';
   initialMessageId?: string;
   initialMessageText?: string;
+  initialMessageFiles?: import('@gugu/session-core/session-record/contract').TurnFileRef[];
   /** gugu-dev#181: the chat whose composer dispatched this task — its first turn lands there as a task card. */
   taskChatId?: string;
   /** Provider session recorded on the conversation row; `null` = never started (first spawn / restart). */

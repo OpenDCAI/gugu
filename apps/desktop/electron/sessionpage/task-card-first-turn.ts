@@ -25,6 +25,7 @@ export interface TaskCardFirstTurnInput {
   chatId: string
   messageId: string
   text: string
+  files?: import('@gugu/session-core/session-record/contract').TurnFileRef[]
   deviceId: string
   machineLabel: string
   senderIdentities: Map<string, GuguIdentity>
@@ -70,6 +71,7 @@ export async function landTaskCardFirstTurn(input: TaskCardFirstTurnInput): Prom
       v: 1,
       type: 'task',
       text,
+      ...(input.files?.length ? { files: input.files } : {}),
       agentUserId: input.agentUserId,
       agentName: agent.name,
       agentType: agent.agent_type,

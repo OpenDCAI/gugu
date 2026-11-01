@@ -219,7 +219,7 @@ export function decide(
         : acpErr.invalidState('The queued message is no longer available for editing');
       // Acquiring/updating an edit never replaces the committed prompt with a stale client echo.
       const input = cmd.queueEdit ? { text: prompt.text, origin: prompt.origin,
-        hiddenContext: prompt.hiddenContext, attachments: prompt.attachments, coalesceKey: prompt.coalesceKey } : cmd.input;
+        hiddenContext: prompt.hiddenContext, attachments: prompt.attachments, files: prompt.files, coalesceKey: prompt.coalesceKey } : cmd.input;
       const queueEdit = cmd.queueEdit && !prompt.queueEdit ? { ...cmd.queueEdit, draftText: prompt.text } : cmd.queueEdit;
       return ok([{ type: 'QueuedPromptEdited', id: cmd.id, input, updatedAt: cmd.updatedAt,
         ...(queueEdit !== undefined ? { queueEdit } : {}) }]);
@@ -622,7 +622,7 @@ function dequeuePromptEffects(queuedPrompts: readonly QueuedPrompt[]): {
 type MergeKind = 'alone' | 'typed' | 'envelope';
 
 function mergeKind(prompt: QueuedPrompt): MergeKind {
-  if (prompt.origin === 'manual' || prompt.attachments?.length) return 'alone';
+  if (prompt.origin === 'manual' || prompt.attachments?.length || prompt.files?.length) return 'alone';
   return prompt.origin === 'typed' ? 'typed' : 'envelope';
 }
 
@@ -645,6 +645,8 @@ export function mergeTypedPrompts(sources: readonly QueuedPrompt[]): QueuedPromp
     origin: 'typed',
     text: join(sources.map((prompt) => prompt.text)),
     ...(hiddenContext ? { hiddenContext } : {}),
+    ...(sources.some(prompt => prompt.files?.length) ? { files: sources.flatMap(prompt => prompt.files ?? []) } : {}),
+    ...(sources.some(prompt => prompt.attachments?.length) ? { attachments: sources.flatMap(prompt => prompt.attachments ?? []) } : {}),
     createdAt: head.createdAt,
     updatedAt: Math.max(...sources.map((prompt) => prompt.updatedAt)),
   };

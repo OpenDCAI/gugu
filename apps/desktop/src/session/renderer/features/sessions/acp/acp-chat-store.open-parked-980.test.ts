@@ -290,7 +290,7 @@ describe('#980 打开一条没在跑的会话', () => {
 
     runInAction(() => store.submitPrompt('接着上次的来'));
 
-    expect(custody).toHaveBeenCalledWith(store, '接着上次的来', []);
+    expect(custody).toHaveBeenCalledWith(store, '接着上次的来', [], []);
     expect(life.start).not.toHaveBeenCalled();
     expect(create).not.toHaveBeenCalled();
     expect(host.storedReads.filter((read) => read.fromSeq === undefined).length).toBe(readsBefore);

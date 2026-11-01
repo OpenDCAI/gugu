@@ -43,13 +43,13 @@ test('turn prefetch registers the canonical artifact path and sends the same ver
     await writeFile(artifact.file_path, 'edited by agent A')
     const other = { ...agent, sessionId: '11111111-1111-4111-8111-111111111111' }
     const next = await turn(other, [ref])
-    assert.equal(next.failedFiles, 0)
+    assert.doesNotMatch(next.text, /not saved/)
     assert.equal((await readFile(artifact.file_path)).toString(), 'edited by agent A')
     const otherArtifact = Object.values(store.state.artifacts).find(row => row.sessionId === other.sessionId)
     assert.notEqual(otherArtifact.file_path, artifact.file_path)
     await rm(otherArtifact.file_path)
     const beforeRetry = routes.length
-    assert.equal((await turn(other, [ref])).failedFiles, 0)
+    assert.doesNotMatch((await turn(other, [ref])).text, /not saved/)
     assert.equal(routes.length > beforeRetry, true)
     assert.deepEqual(await readFile(otherArtifact.file_path), bytes)
   } finally {

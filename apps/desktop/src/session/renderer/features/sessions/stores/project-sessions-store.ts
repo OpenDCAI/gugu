@@ -348,7 +348,7 @@ export class ProjectSessionsStore {
     return this._loadPromise;
   }
 
-  async createSession(params: CreateSessionParams) {
+  async createSession(params: CreateSessionParams, options?: { deferFirstTurn?: boolean }) {
     const ic = params.sessionConfig.initialSession;
     if (!ic) throw new Error('createSession: a session is created together with its initial agent config');
     const id = ic.id;
@@ -445,10 +445,10 @@ export class ProjectSessionsStore {
 
     this._settingsStore.pageData.invalidate();
 
-    await this.provisionSession(id);
+    await this.provisionSession(id, options);
   }
 
-  async provisionSession(sessionId: string): Promise<void> {
+  async provisionSession(sessionId: string, options?: { deferFirstTurn?: boolean }): Promise<void> {
     try {
       await getProjectManagerStore().mountProject(this.projectId);
       await this.loadSessions();
@@ -468,7 +468,7 @@ export class ProjectSessionsStore {
       session.phase = 'provision';
     });
 
-    const promise = this._doProvision(sessionId).finally(() => {
+    const promise = this._doProvision(sessionId, options).finally(() => {
       this._provisionPromises.delete(sessionId);
     });
 
@@ -476,7 +476,7 @@ export class ProjectSessionsStore {
     return promise;
   }
 
-  private async _doProvision(sessionId: string): Promise<void> {
+  private async _doProvision(sessionId: string, options?: { deferFirstTurn?: boolean }): Promise<void> {
     const session = this.sessions.get(sessionId);
     if (!session || !isUnprovisioned(session)) return;
 
@@ -486,7 +486,7 @@ export class ProjectSessionsStore {
     if (wsId) workspaceRegistry.setBootstrapState(this.projectId, wsId, { kind: 'resolving' });
     let result: Awaited<ReturnType<typeof rpc.sessionCreate.provisionWorkspace>>;
     try {
-      result = await rpc.sessionCreate.provisionWorkspace(sessionId);
+      result = await rpc.sessionCreate.provisionWorkspace(sessionId, options);
     } catch (error) {
       // #6264 这一问没答回来(别的机器上的会话:连接此刻断了 / 连不上)。❌ 停在「正在准备文件…」一直转:
       // 落成失败态,界面给「重试」,话是连接那一层给的人话(「此刻连不上 Linux 2」)。

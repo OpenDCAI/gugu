@@ -75,3 +75,11 @@ describe('question card (gugu-dev#181 ⑨)', () => {
     expect(parseComposerCard(JSON.stringify({ ...question, options: [1] }))).toBeNull()
   })
 })
+
+test('task card files retain only public version metadata in both serialization and parsing', () => {
+  const ref = { itemId: 'brief', version: 1, name: 'brief.txt', mimeType: 'text/plain', sizeBytes: 3 };
+  const raw = serializeComposerCard({ ...task, files: [{ ...ref, path: '/private/source', workspacePath: '.gugu/attachments/c/brief.txt', promptText: 'private model context' } as never] });
+  expect(parseComposerCard(raw)).toMatchObject({ files: [ref] });
+  expect(raw).not.toMatch(/private|workspacePath|promptText/);
+  expect(parseComposerCard(JSON.stringify({ ...task, files: [{ ...ref, version: 0 }] }))).toBeNull();
+});

@@ -215,8 +215,8 @@ export function unsubscribeSession(deviceId: string, subscriptionId: string): Pr
   return rpc(deviceId).sessionTimeline.sessionUnsubscribe({ subscriptionId })
 }
 
-export async function sendSessionText(deviceId: string, sessionId: string, text: string, clientMessageId?: string, files?: import('@gugu/session-core/session-record/contract').TurnFileRef[]): Promise<{ failedFiles?: number }> {
-  const receipt = await value(rpc(deviceId).sessionTimeline.sessionSend({ conversationId: sessionId, text, ...(clientMessageId ? { clientMessageId } : {}), ...(files?.length ? { files } : {}) }))
+export async function sendSessionText(deviceId: string, sessionId: string, text: string, clientMessageId?: string, files?: import('@gugu/session-core/session-record/contract').TurnFileRef[], attachments?: import('@gugu/session-core/acp/client').PromptAttachment[]) {
+  const receipt = await value(rpc(deviceId).sessionTimeline.sessionSend({ conversationId: sessionId, text, ...(clientMessageId ? { clientMessageId } : {}), ...(files?.length ? { files } : {}), ...(attachments?.length ? { attachments } : {}) }))
   if (clientMessageId && receipt.clientMessageId !== clientMessageId) throw new Error('会话尚未确认接收这条消息，稍后自动重试')
   return receipt
 }

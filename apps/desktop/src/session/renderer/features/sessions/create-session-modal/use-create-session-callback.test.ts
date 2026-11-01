@@ -8,6 +8,7 @@ import type { CreateSessionState } from './use-create-session-state';
 
 const mocks = vi.hoisted(() => ({
   createSession: vi.fn(),
+  admit: vi.fn(),
   localSendMessage: vi.fn(),
   logError: vi.fn(),
   logWarn: vi.fn(),
@@ -19,10 +20,14 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('@renderer/features/sessions/stores/session-selectors', () => ({
   getSessionManagerStore: () => ({ createSession: mocks.createSession }),
+  getSessionPageStore: () => ({ workspaceId: 'workspace' }),
+  asProvisioned: (value: unknown) => value,
 }));
 vi.mock('@renderer/lib/ipc', () => ({
   rpc: { sessions: { sendMessage: mocks.localSendMessage } },
+  rpcOn: () => ({ sessionCreate: { admitFirstMessages: mocks.admit } }),
 }));
+vi.mock('@/lib/taskAttachmentTarget', () => ({ taskAttachmentUsesSsh: () => false, taskAttachmentWorkspacePath: (id: string, name: string) => `.gugu/attachments/${id}/${name}` }));
 vi.mock('@renderer/utils/logger', () => ({ log: { error: mocks.logError, warn: mocks.logWarn } }));
 vi.mock('@renderer/lib/hooks/use-toast', () => ({ toast: mocks.toast }));
 
@@ -328,4 +333,29 @@ describe('useCreateSessionCallback ordinary messaging', () => {
     // 留在会话页:导航到这条会话,它的 id 就是附件落盘时预留的那个。
     expect(mocks.navigate).toHaveBeenCalledWith('session', { projectId: 'project-1', sessionId: mocks.createSession.mock.calls[0]![0].sessionConfig.initialSession.id });
   });
+  it.each([true, false])('keeps the first turn deferred until attachment placement finishes (placed=%s)', async placed => {
+    const ref = { itemId: 'brief', version: 1, name: 'brief.txt', mimeType: 'text/plain', sizeBytes: 3 };
+    let finish!: (value: typeof ref[] | null) => void;
+    initialSession.promptCapability = { kind: 'none', startupDelivery: 'startup-prompt' };
+    initialSession.attachments = [{ id: 'file', name: ref.name, kind: 'file' }];
+    initialSession.prepareAttachments = async () => [ref];
+    initialSession.placeAttachments = () => new Promise(resolve => { finish = resolve; });
+    mocks.admit.mockReset().mockResolvedValue(undefined);
+    await act(async () => root.render(React.createElement(Probe)));
+    try {
+      await act(async () => latest?.handleCreateSession());
+      expect(mocks.createSession.mock.calls.at(-1)?.[1]).toEqual({ deferFirstTurn: true });
+      const initial = mocks.createSession.mock.calls.at(-1)?.[0].sessionConfig.initialSession;
+      expect(initial.initialQueue[0]).toMatchObject({ text: 'make one task', files: [ref] });
+      expect(mocks.admit).not.toHaveBeenCalled();
+      await act(async () => finish(placed ? [ref] : null));
+      expect(mocks.admit).toHaveBeenCalledExactlyOnceWith(initial.id);
+      expect(mocks.onClose).toHaveBeenCalled();
+    } finally {
+      initialSession.attachments = [];
+      initialSession.prepareAttachments = async () => [];
+      initialSession.placeAttachments = async () => [];
+    }
+  });
+
 });

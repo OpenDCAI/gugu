@@ -457,6 +457,7 @@ export default {
     "reactWith": "回应 {{emoji}}"
   },
   "forward": {
+    "fileFailed": "{{name}} 没能一起转发",
     "batchPreview": "转发 {{count}} 条消息",
     "batchPreview_one": "转发 {{count}} 条消息",
     "batchPreview_other": "转发 {{count}} 条消息",

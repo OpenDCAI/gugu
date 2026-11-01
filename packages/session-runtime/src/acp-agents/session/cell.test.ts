@@ -2525,7 +2525,8 @@ describe('SessionCell idle turns and queue commands', () => {
     const active = cell.prompt({ text: 'working' });
     await Promise.resolve();
     const input = { text: 'original queued', origin: 'manual' as const, hiddenContext: 'keep context',
-      attachments: [{ type: 'attachment' as const, id: 'a1', mimeType: 'image/png' as const }] };
+      attachments: [{ type: 'attachment' as const, id: 'a1', mimeType: 'image/png' as const }],
+      files: [{ itemId: 'doc', version: 1, name: 'a.txt', mimeType: 'text/plain', sizeBytes: 1, promptText: 'prepared file context' }] };
     cell.queuePrompt(input);
     const original = cell.sessionState.queuedPrompts[0];
     expect(cell.editQueuedPrompt(original.id, input, { draftText: 'unfinished', originalDraftText: 'keep my draft' }).success).toBe(true);
@@ -2540,6 +2541,7 @@ describe('SessionCell idle turns and queue commands', () => {
     expect(agent.prompt).toHaveBeenCalledTimes(2);
     expect(JSON.stringify(agent.prompt.mock.calls[1])).toContain('saved edit');
     expect(JSON.stringify(agent.prompt.mock.calls[1])).toContain('image-bytes');
+    expect(JSON.stringify(agent.prompt.mock.calls[1])).toContain('prepared file context');
     expect(resolveAttachment).toHaveBeenCalledOnce();
     expect(cell.promptDraft?.text).toBe('keep my draft');
     expect(cell.sessionState.queuedPrompts).toEqual([]);
@@ -3088,5 +3090,24 @@ describe('native in-place conversation revert', () => {
     expect(await cell.revertSession('native')).toMatchObject({ success: false, error: { type: 'session_busy' } });
     expect(agent.extMethod).not.toHaveBeenCalled();
     finish({ stopReason: 'end_turn' }); await running;
+  });
+});
+
+describe('task file context stays separate from the person words', () => {
+  it('sends file lines for manual input while the transcript keeps only caption and public references', async () => {
+    const { cell, agent } = makeCell();
+    agent.prompt = vi.fn().mockResolvedValue({ stopReason: 'end_turn' });
+    cell.push({ kind: 'commands', commands: [{ name: 'review', description: '' }] });
+    const ref = { itemId: 'brief', version: 1, name: 'brief.txt', mimeType: 'text/plain', sizeBytes: 3 };
+    try {
+      await cell.prompt({ text: '/review', origin: 'manual', hiddenContext: 'still omitted', files: [{ ...ref, path: '/private/brief.txt', promptText: '[File saved at local path: /private/brief.txt]' }] });
+      expect(agent.prompt.mock.calls[0][0].prompt).toEqual([
+        { type: 'text', text: '/review' }, { type: 'text', text: '[File saved at local path: /private/brief.txt]' },
+      ]);
+      const item = cell.history().committed[0].items[0];
+      expect(item).toMatchObject({ kind: 'message', role: 'user', text: '/review', files: [ref] });
+      expect(JSON.stringify(item)).not.toContain('/private');
+      expect(JSON.stringify(item)).not.toContain('promptText');
+    } finally { cell.dispose(); }
   });
 });

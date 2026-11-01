@@ -387,6 +387,7 @@ export async function withEmdashMcpInjection<T extends { input: { sessionId: str
   facts: SessionInjectionFacts,
   identity: EmdashSessionIdentity | null,
   firstTurnText?: string,
+  firstTurnFiles?: import('@gugu/session-core/session-record/contract').TurnFileRef[],
 ): Promise<{
   command: T;
   mcpServers?: EmdashSessionCapabilityInjection['mcpServers'];
@@ -435,6 +436,7 @@ export async function withEmdashMcpInjection<T extends { input: { sessionId: str
     initialMessageId: input.input.initialMessageId,
     taskChatId: input.input.taskChatId,
     initialMessageText: firstTurnText,
+    initialMessageFiles: firstTurnFiles,
     // @@@5004 行上有没有 provider session 是「首次 spawn / 重来」与「重开」的分水岭;注入器据此判
     // 「sessionId 为空却没带首句载荷」这种不一致,❌ 不再拿 lifecycle=fresh 当首次 spawn 用。
     //

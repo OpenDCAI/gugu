@@ -1,11 +1,13 @@
 import { z } from 'zod';
 import { promptAttachmentSchema } from './attachments';
+import { promptFileSchema } from './turn-files';
 export type { PromptAttachment } from './attachments';
 
 export const promptInputSchema = z.object({
   text: z.string(),
   hiddenContext: z.string().optional(),
   attachments: z.array(promptAttachmentSchema).optional(),
+  files: z.array(promptFileSchema).optional(),
   /**
    * Where this message came from.
    *
