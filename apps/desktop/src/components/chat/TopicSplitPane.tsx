@@ -8,7 +8,7 @@ import { ChevronLeft, X } from '@/lib/icons'
 import type { MessageItem } from '@gugu/core/shared/types/chat'
 import { visibleDeliveryMessages } from '@gugu/core/shared/ui/systemNotice'
 import { projectTurnFailureMessages } from '../../lib/projectTurnFailureMessages'
-import { useQueuedMessageIds } from '../../hooks/useQueuedMessageIds'
+import { useDeliveryWaits } from '../../hooks/useDeliveryWaits'
 import { composerCardPreview } from '@gugu/core/shared/ui/taskCardModels'
 import type { GroupRosterCandidate } from '@/lib/mention'
 import type { AgentStatusById } from './agentMentionStatusModels'
@@ -257,7 +257,7 @@ export function TopicSplitPane({ viewportKey = 'topic', navigationTarget = false
   // 已读环有 —— 水位由 useChatConversation 按**这条话题**自己拉,拉不到时是空表(空表就不出环)。
   const search = useChatSearch(topic.chatId, visible !== false, messages, paneRef, viewportKey)
   const { searchMode, searchQuery, isFiltering, displayedMessages } = search
-  const queuedIds = useQueuedMessageIds(messages, memberReadSeqs)
+  const deliveryWaits = useDeliveryWaits(messages, memberReadSeqs)
   const rows = useMemo<ChatListRowItem[]>(
     () => (isFiltering ? visibleDeliveryMessages(displayedMessages) : projectTurnFailureMessages(visibleDeliveryMessages(displayedMessages))).map((message) => ({ type: 'message' as const, message })),
     [displayedMessages, isFiltering],
@@ -295,7 +295,7 @@ export function TopicSplitPane({ viewportKey = 'topic', navigationTarget = false
     messages,
     isFiltering,
     mobile,
-    memberReadSeqs, queuedIds,
+    memberReadSeqs, deliveryWaits,
     // 话题是多人线 ⇒ 与群同口径,收到的气泡上方显发送者名。
     isGroupChat: true,
     memberProfiles,
@@ -321,7 +321,7 @@ export function TopicSplitPane({ viewportKey = 'topic', navigationTarget = false
     onToggleSelect: noop,
     onEnterSelectMode: undefined,
     flashMessageId,
-  }), [showMessage, rows, messages, mobile, memberReadSeqs, queuedIds, memberProfiles, onOpenMemberProfile, onOpenAttachment, onShowReadReceipt, onReaction, onForward, onDelete, onQuote, flashMessageId, history, visible, isFiltering, searchQuery])
+  }), [showMessage, rows, messages, mobile, memberReadSeqs, deliveryWaits, memberProfiles, onOpenMemberProfile, onOpenAttachment, onShowReadReceipt, onReaction, onForward, onDelete, onQuote, flashMessageId, history, visible, isFiltering, searchQuery])
 
   useBackLayer(onClose, mobile && !inTab)
   const headerTitle = <TopicBreadcrumb topicName={topic.name} sourceMessagePreview={sourceMessagePreview} />

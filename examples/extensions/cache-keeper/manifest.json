@@ -4,7 +4,7 @@
   "author": "咕咕",
   "categories": ["dev-tools"],
   "version": "0.2.0",
-  "apiVersion": 24,
+  "apiVersion": 25,
   "defaultLocale": "zh-CN",
   "subtitle": "闲着的会话给提示缓存保温",
   "platforms": ["desktop"],

@@ -1139,10 +1139,12 @@ export function ChatRoot(props: ChatRootProps) {
 
   const writeScrollTop = (top: number) => {
     if (!scrollEl) return;
-    // Clamp arithmetically: projectAnchor already wrote canvasEl.style.height =
-    // contentH() before calling us, so maxScrollTop() matches what the browser
-    // would compute. Avoiding the read-back (scrollEl.scrollTop after the write)
-    // eliminates the forced layout reflow that the read-back caused. Safe because
+    // Synchronously update canvas height so scrollTop is never clamped: every
+    // caller may be running before this frame's commit() has grown the canvas.
+    if (canvasEl) canvasEl.style.height = `${contentH()}px`;
+    // Clamp arithmetically: the canvas now has contentH(), so maxScrollTop()
+    // matches what the browser would compute. Avoiding the read-back (scrollEl.scrollTop
+    // after the write) eliminates the forced layout reflow that the read-back caused. Safe because
     // USER_SCROLL_EPSILON filters any sub-pixel divergence in readPhase.
     const clamped = Math.max(0, Math.min(top, maxScrollTop()));
     scrollEl.scrollTop = clamped;
@@ -1180,13 +1182,11 @@ export function ChatRoot(props: ChatRootProps) {
     return i;
   }
 
-  // The ONE function that writes scrollTop. Flush canvas height first so the
-  // browser never clamps scrollTop to a stale (outgoing) canvas height — this
-  // is the root cause of "open at top after tab switch".
+  // The ONE function that writes scrollTop. writeScrollTop flushes canvas height
+  // first so the browser never clamps scrollTop to a stale (outgoing) canvas
+  // height — this is the root cause of "open at top after tab switch".
   const projectAnchor = (m: ScrollMode) => {
     if (!scrollEl) return;
-    // Synchronously update canvas height so scrollTop is never clamped.
-    if (canvasEl) canvasEl.style.height = `${contentH()}px`;
 
     if (m.kind === 'anchor') {
       const i = unitIndexOf(m.itemId, m.edge);
@@ -1266,7 +1266,6 @@ export function ChatRoot(props: ChatRootProps) {
     const live = scrollEl.scrollTop;
     const unread = live - expectedScrollTop;
     const carried = aboveResidue;
-    if (canvasEl) canvasEl.style.height = `${contentH()}px`;
     writeScrollTop(live + aboveDelta + carried);
     const stored = scrollEl.scrollTop;
     aboveResidue = expectedScrollTop - stored;

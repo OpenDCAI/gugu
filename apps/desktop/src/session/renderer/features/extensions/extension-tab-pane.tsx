@@ -1,3 +1,5 @@
+import { projectWorkspace, sessionWorkspace } from '@shared/extensions/app-runtime-protocol';
+import { useTaskConversation } from '@/lib/taskConversation';
 import { useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { PageShownContext } from '@renderer/app/recent-session-pages';
 import { rpc } from '@renderer/lib/ipc';
@@ -59,6 +61,12 @@ export function ExtensionTabPane({
   itemId?: string;
 }) {
   const { translate } = useSessionMessages();
+  // Where it is (`AppWhere`): a chat's tab is in that chat, a session's in the person's private chat with its agent.
+  const taskConversation = useTaskConversation(chatId ? null : sessionId);
+  // Read when it binds (a ref: the chat list coming in later must not re-attach the webview).
+  const conversationRef = useRef<string | null>(null);
+  conversationRef.current = chatId ?? taskConversation;
+  const workspace = sessionId ? sessionWorkspace(sessionId) : projectId && filePath ? projectWorkspace(projectId) : null;
   const [surface, setSurface] = useState<ExtensionSurface | null>(null);
   const [failure, setFailure] = useState<SurfaceFailure | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -176,12 +184,11 @@ export function ExtensionTabPane({
           .bindSurface({
             webContentsId: element.getWebContentsId(),
             extensionId,
-            ...(sessionId ? { sessionId } : {}),
+            workspace,
+            conversation: conversationRef.current,
             tabId,
             tabKind,
             ...(filePath ? { filePath } : {}),
-            ...(projectId ? { projectId } : {}),
-            ...(chatId ? { chatId } : {}),
             ...(itemId ? { itemId } : {}),
           })
           .then((result) => {

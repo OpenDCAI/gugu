@@ -1,9 +1,11 @@
 import { openedFilePath, openedOutputLook, type OpenedOutput } from '@gugu/session-chat-ui/opened-outputs'
 import {
+  OPENED_FILE_MAX_BYTES,
   REMOTE_WORKSPACE_CHUNK_BYTES,
   type SessionpageOpenedFileChunk,
   type SessionpageOpenedFileReadRequest,
 } from '@gugu/session-core/session-record/contract'
+import { SessionpageRpcError } from './sessionpage-rpc'
 import { base64ToBytes } from '@renderer/lib/base64'
 import { classifyDocumentPreview, type DocumentPreviewKind } from '@/components/chat/documentPreview'
 import { isRenderableImage, mimeTypeFromName } from '@gugu/core/shared/imageMime.mjs'
@@ -64,6 +66,7 @@ export async function readWholeOpenedFile({
   do {
     signal?.throwIfAborted()
     const chunk = await read({ conversationId, path, offset, length: REMOTE_WORKSPACE_CHUNK_BYTES })
+    if (chunk.size > OPENED_FILE_MAX_BYTES) throw new SessionpageRpcError('too_large', 'File exceeds the phone preview limit')
     if (etag !== null && chunk.etag !== etag) throw new OpenedFileChangedError()
     etag = chunk.etag
     size = chunk.size

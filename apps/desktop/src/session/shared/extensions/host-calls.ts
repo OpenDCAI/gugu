@@ -84,6 +84,7 @@ export const HOST_CALLS = {
   'appFiles.reopen': { verb: 'filesReopen' },
   'appFiles.close': { verb: 'filesClose' },
   'appFiles.list': { verb: 'filesList' },
+  'appFiles.read': { verb: 'filesRead' },
   'appFiles.search': { verb: 'filesSearch' },
   'appFiles.recent': { verb: 'filesRecent' },
   'appFiles.create': { verb: 'filesCreate' },

@@ -31,7 +31,6 @@ vi.mock('@main/core/extensions/extension-notifications', () => ({ showExtensionN
 vi.mock('@main/core/extensions/app-files', () => ({ resourceChatOf: async (id: string) => id }));
 vi.mock('@main/core/extensions/extension-programs', () => ({ onExtensionProgramNotification: () => () => {} }));
 vi.mock('@main/core/extensions/file-sync', () => ({ fileSync: {} }));
-vi.mock('@main/core/extensions/extension-file-events', () => ({ watchWorkspaceForSurface: vi.fn() }));
 vi.mock('@main/core/extensions/extension-projection-bridge', () => ({ extensionProjections: { isCleanup: () => false } }));
 vi.mock('@main/lib/logger', () => ({ log: { warn: vi.fn(), error: vi.fn(), info: vi.fn() } }));
 

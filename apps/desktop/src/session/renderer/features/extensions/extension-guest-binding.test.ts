@@ -8,7 +8,7 @@ const pending = () => {
   return { promise, resolve };
 };
 
-const target = { tabId: 'tab', sessionId: 'session' };
+const target = { tabId: 'tab', workspace: 'session:session', conversation: null };
 
 describe('App guest binding belongs to the live webContents (#7514)', () => {
   it('carries the one-shot opening in the existing bind and does not replay it on a later move', async () => {

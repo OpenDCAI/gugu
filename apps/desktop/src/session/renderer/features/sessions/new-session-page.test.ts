@@ -447,8 +447,7 @@ describe('NewSessionPage', () => {
       'side-session',
       'review',
       'terminal',
-      'browser',
-      'files'
+      'browser'
     ]);
   });
 
@@ -464,7 +463,7 @@ describe('NewSessionPage', () => {
       projectId === 'on-tunnel' ? remote(false) : projectId === 'on-ssh' ? remote(true) : null
     );
     try {
-      const full = ['side-session', 'review', 'terminal', 'browser', 'ports', 'files'];
+      const full = ['side-session', 'review', 'terminal', 'browser', 'ports'];
       expect(getSessionWorkspaceActionOrder('on-tunnel')).toEqual(full);
       expect(getSessionWorkspaceActionOrder('on-ssh')).toEqual(full);
       expect(full.filter((id) => sessionWorkspaceActionBlocked('on-tunnel', id as never))).toEqual([
