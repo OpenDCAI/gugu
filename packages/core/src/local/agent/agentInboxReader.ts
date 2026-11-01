@@ -348,11 +348,29 @@ export function disclosureMessageId(key: string): string {
 }
 
 /**
- * 披露:稳定 id 直插 system 行(#2935 幂等;409 = 已披露过,幂等命中)。无 command lease。原因编在 client_message_id(systemNotice.ts)。
+ * The failure notice's row, the one shape a failure takes in a chat (desktop and phone alike): a system row with a stable
+ * id (#2935 幂等), the reason's fixed text and its marker (systemNotice.ts), in the source's thread. It addresses no one
+ * (a reply target or a recipient wakes that member) and carries no raw error: that stays in the task's own state.
+ */
+export function deliveryDisclosureMessage(input: DisclosureRow) {
+  const id = disclosureMessageId(input.key)
+  return {
+    id,
+    chat_id: input.chatId,
+    sender_user_id: input.agentUserId,
+    content: FAILURE_CONTENT[input.reason],
+    content_type: 'system' as const,
+    client_message_id: turnFailureMarker(id, input.reason),
+    thread_root_id: input.threadRootId,
+    is_thread_root: false,
+  }
+}
+
+/**
+ * 披露:稳定 id 直插 system 行(409 = 已披露过,幂等命中)。无 command lease。
  * 也是 [[device-command-runtime]] 对「无人持有的 agent」终态显形(#5041)用的同一条写口——聊天里对用户可见的失败只有这一种形状。
  */
 export async function postDeliveryDisclosureRow(input: DisclosureRow, accessToken: string): Promise<void> {
-  const id = disclosureMessageId(input.key)
   const response = await fetch(`${getSupabaseUrl().replace(/\/+$/, '')}/rest/v1/messages`, {
     method: 'POST',
     headers: {
@@ -362,16 +380,7 @@ export async function postDeliveryDisclosureRow(input: DisclosureRow, accessToke
       'Accept-Profile': 'chat',
       'Content-Profile': 'chat',
     },
-    body: JSON.stringify({
-      id,
-      chat_id: input.chatId,
-      sender_user_id: input.agentUserId,
-      content: FAILURE_CONTENT[input.reason],
-      content_type: 'system',
-      client_message_id: turnFailureMarker(id, input.reason),
-      thread_root_id: input.threadRootId,
-      is_thread_root: false,
-    }),
+    body: JSON.stringify(deliveryDisclosureMessage(input)),
   })
   if (response.ok || response.status === 409) return
   throw new Error(`turn-failure disclosure insert failed: HTTP ${response.status} ${await response.text().catch(() => '')}`)
