@@ -11,6 +11,7 @@ import { topicService, type CreateTopicInput, type CreatedTopic } from '../lib/t
 // 不闭包捕获发送时的组件状态(恢复投递没有那个闭包)。
 
 import type { SetStateAction } from 'react'
+import type { ChatContextValue } from './chatContext'
 import type { ToastType } from '../components/toastContext'
 import type { ChatItem, MessageContentType, MessageItem } from '@gugu/core/shared/types/chat'
 import { upsertMessageById } from '@gugu/core/shared/ui/messageListModels'
@@ -79,6 +80,24 @@ export interface OutboxWiring {
   injectThreadOutboxRows(chatId: string, rootId: string): void
   retrySend(clientMessageId: string): void
   discardSend(clientMessageId: string): void
+}
+
+/** Bind context actions here so the provider only owns the current account and wiring ref. */
+export function bindOutboxActions(
+  ref: { current: OutboxWiring | null }, senderUserId: string | null,
+): Pick<ChatContextValue, 'forwardMessage' | 'createTopic' | 'retrySend' | 'discardSend'> {
+  return {
+    forwardMessage: async (source, targetChatId) => {
+      if (!ref.current || !senderUserId) throw new Error('Not authenticated')
+      await ref.current.forward(source, targetChatId, senderUserId)
+    },
+    createTopic: async (input) => {
+      if (!ref.current || !senderUserId) throw new Error('Not authenticated')
+      return ref.current.createTopic(input, senderUserId)
+    },
+    retrySend: (id) => { ref.current?.retrySend(id) },
+    discardSend: (id) => { ref.current?.discardSend(id) },
+  }
 }
 
 // 乐观行从 outbox 记录重建(恢复路径)/首建(发送路径)共用一个构造,字段口径一处定。

@@ -24,7 +24,7 @@ import { createChatListProjectionLedger, useChatProjectionBinding } from './chat
 import { adoptOptimisticChatRow } from '../lib/optimisticChatIdentity'
 import { applyMessageWindowRevalidation } from '../lib/chatMessageRevalidation'
 import { platform } from '../platform'
-import { createOutboxWiring, type OutboxWiring } from './chatOutboxWiring'
+import { bindOutboxActions, createOutboxWiring, type OutboxWiring } from './chatOutboxWiring'
 import { markLatestThreadRead, markManualUnreadAndRefresh } from '../lib/chatUnreadLocator'
 import { useChatUnreadStreamNavigation } from '../lib/chatUnreadStreamNavigation'
 import { ChatStoreProvider, type SendMessageOptions, type SendAttachmentOptions, useDraftAttachmentsStore, useDraftMentionsStore, useTextDraftStore, type RefreshChatsOptions } from './chatContext'
@@ -220,10 +220,8 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
     [cache, getImRepository],
   )
 
-  // @@@send-outbox (#1762 洞③/#1941) — 发送 outbox 接线。io 依赖全经 outboxDepsRef 惰性委托:wiring
-  // 单例首次 render 构造,而 patchChat 等定义在本文件更靠后(直接闭包会 TDZ)——
-  // depsRef 在每次 render 末尾(provider return 前)刷新为最新身份,回调只在事件时刻解引用。
-  // retrySend/discardSend 经 context 供 MessageSendStatus 直连,无 props 钻孔(冻结文件零增行)。
+  // @@@send-outbox (#1762 洞③/#1941) — 账号级接线在 effect 中创建;io 经 outboxDepsRef 惰性委托。
+  // depsRef 在每次 render 末尾刷新;context 操作经同一 wiring ref 调用。
   const userRef = useRef(user)
   userRef.current = user
   const outboxDepsRef = useRef<{
@@ -738,9 +736,7 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
     [userId, cache, setMessagesAndCache, setThreadMessagesFor, loadHistoryPage],
   )
 
-  // @@@send-outbox — failed 态的重试/丢弃(MessageSendStatus 经 context 直连)。
-  const retrySend = useCallback((messageId: string) => { outboxRef.current?.retrySend(messageId) }, [])
-  const discardSend = useCallback((messageId: string) => { outboxRef.current?.discardSend(messageId) }, [])
+  const outboxActions = useMemo(() => bindOutboxActions(outboxRef, userId), [userId])
 
   const toggleReaction = useCallback(
     async (messageId: string, emoji: string, chatId = activeChatIdRef.current) => {
@@ -920,16 +916,7 @@ export function ChatProvider({ children, active = true }: { children: React.Reac
         setActiveChatId,
         sendMessageToChat,
         sendAttachmentsToChat,
-        forwardMessage: async (source, targetChatId) => {
-          if (!outboxRef.current || !userId) throw new Error('Not authenticated')
-          await outboxRef.current.forward(source, targetChatId, userId)
-        },
-        createTopic: async (input) => {
-          if (!outboxRef.current || !userId) throw new Error('Not authenticated')
-          return outboxRef.current.createTopic(input, userId)
-        },
-        retrySend,
-        discardSend,
+        ...outboxActions,
         refreshChats: loadChats,
         createGroupChat,
         upsertChat,
