@@ -30,9 +30,9 @@ require('node:readline').createInterface({ input: process.stdin }).on('line', li
   const connection = v2.client({ name: 'fixture' }).onNotification(v2.methods.client.session.update, ({ params }) => { updates.push(params.update); }).connect(
     v2.ndJsonStream(Writable.toWeb(child.stdin) as WritableStream<Uint8Array>, Readable.toWeb(child.stdout) as ReadableStream<Uint8Array>),
   );
-  await connection.agent.request(v2.methods.agent.initialize, { protocolVersion: 2, info: { name: 'fixture', version: '1' } });
+  const initialized = await connection.agent.request(v2.methods.agent.initialize, { protocolVersion: 2, info: { name: 'fixture', version: '1' } });
   await connection.agent.request(v2.methods.agent.session.new, { cwd: dir, mcpServers: [] });
-  return { child, updates, agent: connection.agent, close: async () => {
+  return { child, updates, initialized, agent: connection.agent, close: async () => {
     if (child.exitCode === null && child.signalCode === null) {
       const exited = once(child, 'exit'); child.kill('SIGTERM'); await exited;
     }
@@ -123,5 +123,50 @@ it('an older native completion cannot report idle for the new foreground cycle',
       { sessionUpdate: 'state_update', state: 'running' },
       { sessionUpdate: 'state_update', state: 'running' },
     ]);
+  } finally { await p.close(); }
+});
+
+it('steering admits later inputs without an echo, suppresses its echoes and preserves other clients', async () => {
+  const p = await fixture(`
+ if (m.method === 'turn/start') {
+  out({ method: 'turn/started', params: { threadId: 'thread', turn: { id: 'turn' } } })
+  out({ method: 'item/started', params: { item: { type: 'userMessage', id: 'start', clientId: m.params.clientUserMessageId, content: m.params.input } } })
+  return out({ id: m.id, result: { turn: { id: 'turn' } } })
+ }
+ if (m.method === 'turn/steer') {
+  inputs.push(m)
+  out({ id: m.id, result: { turnId: 'turn' } })
+  if (inputs.length === 2) {
+   for (const request of inputs) out({ method: 'item/started', params: { item: { type: 'userMessage', id: 'steer-' + request.id, clientId: request.params.clientUserMessageId, content: request.params.input } } })
+   out({ method: 'item/started', params: { item: { type: 'userMessage', id: 'other-client', clientId: 'other', content: [{ type: 'text', text: 'external' }] } } })
+  }
+  return
+ }`);
+  const prompt = (text: string) => ({ sessionId: 'thread', prompt: [{ type: 'text' as const, text }] });
+  try {
+    expect(p.initialized._meta).toMatchObject({ steering: { supported: true } });
+    expect(await p.agent.request('_session/steering', prompt('idle'))).toEqual({ outcome: 'promptRequired' });
+    expect(await p.agent.request(v2.methods.agent.session.prompt, prompt('start'))).toEqual({ messageId: 'start' });
+    for (const text of ['first', 'second']) expect(await p.agent.request('_session/steering', prompt(text))).toEqual({ outcome: 'injected' });
+    await awaitFact('unsolicited user echo after both suppressed echoes', () => p.updates.some(update => update.sessionUpdate === 'user_message' && update.messageId === 'other-client') ? true : undefined, { producer: p.child });
+    expect(p.updates.filter(update => update.sessionUpdate === 'user_message').map(update => update.messageId)).toEqual(['start', 'other-client']);
+  } finally { await p.close(); }
+});
+
+it.each([false, true])('only a steer rejected because its turn ended asks the host to prompt (other error: %s)', async otherError => {
+  const p = await fixture(`
+ if (m.method === 'turn/start') {
+  out({ method: 'turn/started', params: { threadId: 'thread', turn: { id: 'turn' } } })
+  out({ method: 'item/started', params: { item: { type: 'userMessage', id: 'start', clientId: m.params.clientUserMessageId, content: m.params.input } } })
+  return out({ id: m.id, result: { turn: { id: 'turn' } } })
+ }
+ if (m.method === 'turn/steer') return out({ id: m.id, error: { code: -32600, message: ${JSON.stringify(otherError ? 'input must not be empty' : 'no active turn to steer')} } })`);
+  const params = { sessionId: 'thread', prompt: [{ type: 'text' as const, text: 'input' }] };
+  try {
+    await p.agent.request(v2.methods.agent.session.prompt, params);
+    const steering = p.agent.request('_session/steering', params);
+    if (otherError) await expect(steering).rejects.toMatchObject({ message: 'input must not be empty' });
+    else expect(await steering).toEqual({ outcome: 'promptRequired' });
+    expect(p.updates.filter(update => update.sessionUpdate === 'user_message')).toHaveLength(1);
   } finally { await p.close(); }
 });

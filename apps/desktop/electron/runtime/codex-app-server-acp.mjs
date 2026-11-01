@@ -933,6 +933,7 @@ function forgetPromptInsertion(acpId) {
   for (const [clientId, entry] of promptInsertions) if (entry.acpId === acpId) promptInsertions.delete(clientId)
 }
 function insertedUserMessage(item) {
+  if (item.clientId?.startsWith('gugu-steer:')) return // The cell records admitted steering itself.
   // app-server echoes the explicit clientUserMessageId as userMessage.clientId.
   // Unsolicited messages never claim an outstanding RPC, even in the same native turn.
   const entry = promptInsertions.get(item.clientId)
@@ -2183,6 +2184,7 @@ async function handleAcpRequest(message) {
     respond(id, {
       protocolVersion: 2,
       capabilities: { session: { prompt: { image: {} }, mcp: { http: {} }, fork: {} } },
+      _meta: { steering: { supported: true } },
       info: { name: 'codex-app-server', version: 'local' },
     })
     return
@@ -2429,15 +2431,28 @@ async function handleAcpRequest(message) {
     void publishAvailableCommands(params.cwd, params.additionalDirectories)
     return
   }
+  if (method === '_session/steering') {
+    let outcome = 'promptRequired'
+    const turnId = activeCycle?.turnId
+    if (turnId) {
+      try {
+        await appRequest('turn/steer', { threadId: sessionId, input: promptInputItems(params.prompt),
+          expectedTurnId: turnId, clientUserMessageId: `gugu-steer:${id}` })
+        outcome = 'injected'
+      } catch (error) {
+        if (error.code !== -32600 || error.message !== 'no active turn to steer') throw error
+      }
+    }
+    respond(id, { outcome })
+    return
+  }
   if (method === 'session/prompt') {
     if (revertingHistory) throw new Error('Conversation revert is in progress')
     if (!sessionId) throw new Error('no local Codex session')
     const input = promptInputItems(params.prompt)
     const insertion = expectPromptInsertion(id, params.prompt)
-    const cycle = activeCycle
-    const activeTurnId = cycle?.turnId ?? null
     if (joinPromptText(params.prompt).trim() === '/compact') {
-      if (cycle || compactInsertion) throw new Error('local Codex cannot compact while foreground work is active')
+      if (activeCycle || compactInsertion) throw new Error('local Codex cannot compact while foreground work is active')
       compactInsertion = insertion
       try {
         await appRequest('thread/compact/start', { threadId: sessionId })
@@ -2446,21 +2461,6 @@ async function handleAcpRequest(message) {
         if (compactInsertion === insertion) compactInsertion = null
       }
       return
-    }
-    if (activeTurnId) {
-      try {
-        await appRequest('turn/steer', { threadId: sessionId, input, expectedTurnId: activeTurnId,
-          clientUserMessageId: insertion.clientId })
-        await receipt(id, insertion)
-        return
-      } catch (error) {
-        throwIfInsertionCancelled(insertion)
-        if (insertion.messageId !== null) { await receipt(id, insertion); return }
-        // A native cycle can end between observing it and the steer RPC. Wait only for that
-        // specific cycle before submitting a new one; a receipt is never an end-of-work signal.
-        process.stderr.write(`[codex-app-server-acp] turn/steer failed; retrying as turn/start: ${error?.message ?? error}\n`)
-        if (activeCycle === cycle) await cycle.completion
-      }
     }
     throwIfInsertionCancelled(insertion)
     const started = await appRequest('turn/start', { threadId: sessionId, input,
