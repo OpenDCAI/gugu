@@ -1,11 +1,11 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createHash } from 'node:crypto'
 import { openPhoneAgentStore } from './phone-agent-store.mjs'
-import { receivePhoneArtifact, phoneFileTools, phoneInboxAttachmentRow, registerArtifact } from './phone-agent-files.mjs'
+import { receivePhoneArtifact, phoneFileTools, phoneInboxAttachmentRow, phoneTurnFiles, registerArtifact } from './phone-agent-files.mjs'
 
 const ownerId = '68a158dd-1832-4671-ac02-ebde330d3d7a'
 const agent = { agentUserId: '558fcc98-9d61-4054-8a18-900d969b1849', sessionId: '13226587-813a-4e58-a023-dc419aeab890' }
@@ -14,6 +14,50 @@ const proof = { permissions: ['READ_MEDIA_IMAGES'], mediaRefs: [{ kind: 'image',
 const bytes = Buffer.from('phone media bytes must not become model text')
 const chunk = { phone_file_chunk: { offset: 0, total_size: bytes.length, version: 'v1', name: 'image.jpg', mime_type: 'image/jpeg', data_base64: bytes.toString('base64'), eof: true } }
 const json = (value) => new Response(JSON.stringify(value), { status: 200, headers: { 'Content-Type': 'application/json' } })
+
+test('turn prefetch registers the canonical artifact path and sends the same version without another request', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'gugu-phone-turn-'))
+  try {
+    await mkdir(join(root, 'actual'))
+    await symlink(join(root, 'actual'), join(root, 'alias'))
+    const store = { directory: join(root, 'alias'), state: { ownerId, artifacts: {} }, save: async () => {} }
+    const ref = { itemId: 'f8928aa1-88d0-4709-a62b-111c8f93090a', version: 1, name: 'brief.txt', mimeType: 'text/plain', sizeBytes: bytes.length }
+    const revision = { source: 'managed-object', item_id: ref.itemId, version: ref.version, file_name: ref.name, content_type: ref.mimeType,
+      size_bytes: bytes.length, sha256: createHash('sha256').update(bytes).digest('hex') }
+    const routes = []
+    const turn = phoneTurnFiles({ store, cloud: { attachmentEndpoint: async () => ({ supabaseUrl: 'https://files.invalid', anonKey: 'public', token: 'test',
+      fetch: async url => {
+        routes.push(String(url))
+        if (String(url).endsWith('/file-resolve')) return json({ status: 'ready', ...revision })
+        if (String(url).endsWith('/file-download')) return json({ status: 'ready', url: 'https://objects.invalid/file', download_id: 'file', size_bytes: bytes.length, sha256: revision.sha256 })
+        if (String(url) === 'https://objects.invalid/file') return new Response(bytes)
+        throw new Error('Unexpected file request')
+      } }) } })
+    assert.deepEqual(await turn.prefetch(agent, [ref]), [{ itemId: ref.itemId, ok: true }])
+    const requests = routes.length, artifact = Object.values(store.state.artifacts)[0]
+    assert.equal(artifact.file_path, await realpath(artifact.file_path))
+    assert.equal(artifact.file_path.includes('/alias/'), false)
+    assert.equal((await turn(agent, [ref])).text.includes(artifact.file_path), true)
+    assert.equal(routes.length, requests)
+    assert.deepEqual(await readFile(artifact.file_path), bytes)
+    await writeFile(artifact.file_path, 'edited by agent A')
+    const other = { ...agent, sessionId: '11111111-1111-4111-8111-111111111111' }
+    const next = await turn(other, [ref])
+    assert.equal(next.failedFiles, 0)
+    assert.equal((await readFile(artifact.file_path)).toString(), 'edited by agent A')
+    const otherArtifact = Object.values(store.state.artifacts).find(row => row.sessionId === other.sessionId)
+    assert.notEqual(otherArtifact.file_path, artifact.file_path)
+    await rm(otherArtifact.file_path)
+    const beforeRetry = routes.length
+    assert.equal((await turn(other, [ref])).failedFiles, 0)
+    assert.equal(routes.length > beforeRetry, true)
+    assert.deepEqual(await readFile(otherArtifact.file_path), bytes)
+  } finally {
+    console.log('Removing own phone turn fixture:', root)
+    assert.equal(root.startsWith(join(tmpdir(), 'gugu-phone-turn-')), true)
+    await rm(root, { recursive: true, force: true })
+  }
+})
 
 test('inbox attachment metadata retains the authoritative message reference without image bytes, URLs or unregistered paths', () => {
   const row = { id: '4f6dac4f-a3f2-48da-9876-d3a4567d8b64', contentType: 'attachment', content: '[附件] calendar.png (image/png)\n[URL] https://files.invalid/storage/v1/object/public/chat-media/calendar.png\n[Size] 42\n[Kind] image\n[Caption]\n请把这个图片转发给我', fileItemId: null, fileVersion: null, fileBlobId: null }

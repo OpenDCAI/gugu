@@ -64,17 +64,10 @@ const initialSession = {
   issueMentionContexts: {},
   attachments: [],
   attachmentEditSeq: 0,
-  // path-mention 附件(#5269)。这些用例不带附件,所以恒空 —— 但**必须在场**:
-  // 这份替身用 `as unknown as` 断言成完整的 state,少一个成员编译期不会说话,运行期才炸。
-  pathAttachmentMentions: () => [],
-  pathAttachmentsUnsettled: () => false,
-  waitForPathAttachments: async () => true,
-  enqueuePathAttachments: async () => {},
-  // 任务 id 由 composer 先定下来:path-mention 的附件在**创建之前**就按它落进了
-  // `<userData>/task-attachments/<会话 id>/`(#5269)。替身给一个稳定值,好让「重试用同一个
-  // 已创建任务的 id」那条断言仍然读得出「同一个 id」。
-  reserveSessionId: () => 'reserved-task-id',
-  pathAttachmentEntries: () => [],
+  prepareAttachments: async () => [],
+  placeAttachments: async () => [],
+  pendingAttachmentFiles: () => [],
+  dropAttachment: () => {},
   rememberStartedConfiguration: vi.fn(async () => {}),
   setPrompt: vi.fn(),
 } as unknown as InitialSessionState;
@@ -141,23 +134,24 @@ describe('useCreateSessionCallback ordinary messaging', () => {
   });
 
   it('#6264 附件还在传:点创建先等它传完再建;有一件没成就不建', async () => {
-    let finish: (ok: boolean) => void = () => {};
-    initialSession.pathAttachmentsUnsettled = () => true;
-    initialSession.waitForPathAttachments = () => new Promise<boolean>((resolve) => (finish = resolve));
+    let finish: (refs: [] | null) => void = () => {};
+    initialSession.attachments = [{ id: 'file', name: 'brief.txt', kind: 'file' }];
+    initialSession.prepareAttachments = () => new Promise((resolve) => (finish = resolve));
+    await act(async () => root.render(React.createElement(Probe)));
     try {
       act(() => latest?.handleCreateSession());
       await act(async () => {});
       expect(mocks.createSession).not.toHaveBeenCalled();
-      await act(async () => finish(true));
+      await act(async () => finish([]));
       expect(mocks.createSession).toHaveBeenCalledTimes(1);
 
       mocks.createSession.mockClear();
       act(() => latest?.handleCreateSession());
-      await act(async () => finish(false));
+      await act(async () => finish(null));
       expect(mocks.createSession).not.toHaveBeenCalled();
     } finally {
-      initialSession.pathAttachmentsUnsettled = () => false;
-      initialSession.waitForPathAttachments = async () => true;
+      initialSession.attachments = [];
+      initialSession.prepareAttachments = async () => [];
     }
   });
 
@@ -332,6 +326,6 @@ describe('useCreateSessionCallback ordinary messaging', () => {
       text: 'make one task',
     }));
     // 留在会话页:导航到这条会话,它的 id 就是附件落盘时预留的那个。
-    expect(mocks.navigate).toHaveBeenCalledWith('session', { projectId: 'project-1', sessionId: 'reserved-task-id' });
+    expect(mocks.navigate).toHaveBeenCalledWith('session', { projectId: 'project-1', sessionId: mocks.createSession.mock.calls[0]![0].sessionConfig.initialSession.id });
   });
 });

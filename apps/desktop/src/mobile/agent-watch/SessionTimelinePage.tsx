@@ -99,7 +99,7 @@ export const SessionTimelinePage = observer(function SessionTimelinePage({
   } =
     useAgentWatchSession(device.device_id, session.conversationId, online, firstPrompt, phoneHost, local)
 
-  const native = !phoneHost && session.runtime === 'acp' && session.nativeInputVersion === 1
+  const native = !phoneHost && session.runtime === 'acp' && (session.nativeInputVersion === 1 || session.nativeInputVersion === 2)
   const nativeRecord = useNativeSessionRecord(device.device_id, session.conversationId, native, online, local)
   // The directory says a crashed / unplugged machine is online until its lease runs out (about two minutes): its not
   // answering is the earlier fact. Same note as offline; the reads keep trying and the page comes back by itself.
@@ -244,7 +244,7 @@ export const SessionTimelinePage = observer(function SessionTimelinePage({
           sessionRuntime={session.runtime}
           respondingItemId={respondingItemId}
           onRespond={respond}
-          onSend={async (text, attachments) => { await enqueueSessionInput({ deviceId: device.device_id, sessionId: session.conversationId, text, ...(attachments?.length ? { attachments } : {}) }); if (native) nativeRecord.followTail() }}
+          onSend={async (text, files) => { await enqueueSessionInput({ deviceId: device.device_id, sessionId: session.conversationId, text, ...(files?.length ? { files } : {}) }); if (native) nativeRecord.followTail() }}
           pendingSends={pendingSends}
           sending={sending}
           agentWorking={attention === 'running'}

@@ -28,6 +28,7 @@ import {
 import { createRPCController, withSender } from '@shared/lib/ipc/rpc';
 import * as create from './create-session';
 import * as service from './service';
+import { prefetchFiles } from './turn-files';
 import { markNativeConversationVisible, nativeConversationUnread } from '../sessions/session-conversation-read';
 import { readTaskExchanges, watchTaskExchanges, unwatchTaskExchanges } from './task-exchanges';
 import type { TaskExchangeRequest } from '@shared/core/sessions/task-collaboration';
@@ -76,6 +77,7 @@ function trimmed<T>(result: service.SessionTimelineResult<T>, trim: boolean | un
 }
 
 export const sessionTimelineController = createRPCController({
+  prefetchFiles,
   taskExchanges: (input: TaskExchangeRequest) => readTaskExchanges(input),
   taskExchangesSubscribe: withSender(async (sender: number, input: TaskExchangeRequest & { subscriptionId: string }) => {
     const page = readTaskExchanges(input);
@@ -138,7 +140,7 @@ export const sessionTimelineController = createRPCController({
   sessionBackgroundTasks: (input: { conversationId: string }) => service.backgroundTasks(input),
   sessionStopBackgroundTask: (input: { conversationId: string; stopId: string }) => service.stopBackgroundTask(input),
   sessionQueue: (input: Parameters<typeof service.changeQueue>[0]) => service.changeQueue(input),
-  sessionSend: (input: SessionpageSessionSendRequest) => service.send(input.conversationId, input.text, input.clientMessageId, input.attachments),
+  sessionSend: (input: SessionpageSessionSendRequest) => service.send(input.conversationId, input.text, input.clientMessageId, input.files),
   sessionRespond: (input: SessionpageSessionRespondRequest) => service.respond(input),
   sessionCancel: (input: SessionpageSessionCancelRequest) => service.cancel(input.conversationId),
   sessionUpdate: (input: SessionpageSessionUpdateRequest) => service.updateSession(input),

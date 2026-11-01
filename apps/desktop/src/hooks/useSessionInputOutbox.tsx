@@ -4,11 +4,14 @@ import { ChatSummariesHost } from '@/components/chat/ChatSummariesHost'
 import { useLocalSessionDirectory } from './useLocalSessionDirectory'
 import { useEffect, useRef } from 'react'
 import { isPhoneDevice } from '@gugu/core/cloud/devices'
+import { REMOTE_PROTOCOL_VERSION } from '@gugu/core/cloud/serverMachineHealth'
 import { useDevicesStore } from '@/store/devicesContext'
 import { getRendererSession } from '@/lib/sessionPublication'
 import { platform } from '@/platform'
-import { SessionInputFailureError, SessionInputOutbox, openSessionInputStorage } from '@/lib/sessionInputOutbox'
+import { SessionInputFailureError, SessionInputOutbox, openSessionInputStorage, withoutQueuedAttachments, type SessionInput } from '@/lib/sessionInputOutbox'
+import { translateSessionMessage } from '@renderer/localization/locale-store'
 import { rendererLogger } from '@/lib/log'
+import { toast } from '@renderer/lib/hooks/use-toast'
 import { liveDeviceSessions } from '@/session/shared/remote-sessions/session-directory'
 
 /** Runs with the signed-in shell, including while the conversation itself is closed. */
@@ -24,6 +27,14 @@ export function SessionInputOutboxHost({ accountId }: { accountId: string }) {
     own.rows = EMPTY
     const valid = () => active && own.accountId === accountId && getRendererSession()?.user.id === accountId
     own.valid = valid
+    const oldAttachmentHost = (input: Pick<SessionInput, 'deviceId' | 'sessionId' | 'files'>) => {
+      if (!input.files?.length || !input.deviceId) return false
+      const device = hosts.current.find(row => row.device_id === input.deviceId)
+      if (!device?.is_online || device.is_current_device) return false
+      const version = device.capabilities.remote_protocol
+      const native = liveDeviceSessions()[input.deviceId]?.sessions.find(row => row.conversationId === input.sessionId)?.nativeInputVersion
+      return typeof version === 'number' && version < REMOTE_PROTOCOL_VERSION || !isPhoneDevice(device) && native !== undefined && native !== 2
+    }
     let queue: SessionInputOutbox | null = null
     const refresh = async () => {
       const rows = await queue?.list()
@@ -36,25 +47,40 @@ export function SessionInputOutboxHost({ accountId }: { accountId: string }) {
         // This computer is named either way (no device id, or its own id); either way its own host answers over IPC.
         const remoteId = !input.deviceId || device?.is_current_device ? null : input.deviceId
         if (remoteId && device && !device.is_online) throw new SessionInputFailureError({ code: 'host-offline' })
+        if (oldAttachmentHost(input)) {
+          const caption = withoutQueuedAttachments(input, input.files!.length)
+          input.text = caption.text
+          delete input.files
+          delete input.failure
+          await storage.put(input)
+        }
         if (remoteId && !(device && isPhoneDevice(device))) {
           const summary = liveDeviceSessions()[remoteId]?.sessions.find(session => session.conversationId === input.sessionId)
-          if (summary?.nativeInputVersion !== 1) throw new SessionInputFailureError({ code: 'host-not-ready' })
+          if (summary?.nativeInputVersion !== 1 && summary?.nativeInputVersion !== 2) throw new SessionInputFailureError({ code: 'host-not-ready' })
         }
+        if (input.files?.length && remoteId && device?.capabilities.remote_protocol === undefined) throw new Error('Task host attachment support is not known yet')
+        let failedFiles = 0
         if (device && isPhoneDevice(device)) {
           const { invokePhoneHost } = await import('@/mobile/local-agent/phoneHostRpc')
-          const result = await invokePhoneHost<{ accepted?: boolean }>(device.device_id, 'sessionTimeline.sessionSend', [{ conversationId: input.sessionId, text: input.text, clientRequestId: input.id }], input.id)
+          const result = await invokePhoneHost<{ accepted?: boolean; failedFiles?: number }>(device.device_id, 'sessionTimeline.sessionSend', [{ conversationId: input.sessionId, text: input.text, clientRequestId: input.id, ...(input.files?.length ? { files: input.files } : {}), ...(input.attachments?.length ? { attachments: input.attachments } : {}) }], input.id)
+          failedFiles = result.failedFiles ?? 0
           if (!result.accepted) throw new SessionInputFailureError({ code: 'phone-unconfirmed' })
         } else if (platform.kind === 'electron') {
           const { rpcOn } = await import('@/session/renderer/lib/ipc')
-          const result = await rpcOn(remoteId).sessionTimeline.sessionSend({ conversationId: input.sessionId, text: input.text, clientMessageId: input.id, ...(input.attachments?.length ? { attachments: input.attachments } : {}) })
+          const result = await rpcOn(remoteId).sessionTimeline.sessionSend({ conversationId: input.sessionId, text: input.text, clientMessageId: input.id, ...(input.files?.length ? { files: input.files } : {}), ...(input.attachments?.length ? { attachments: input.attachments } : {}) })
           if (!result.ok) throw new Error(result.error.message)
+          failedFiles = result.value.failedFiles ?? 0
           if (result.value.clientMessageId !== input.id) throw new Error('Session host acknowledged another input')
         } else {
           const { sendSessionText } = await import('@/mobile/agent-watch/sessionpage-rpc')
           if (!input.deviceId) throw new Error('Remote session input has no device')
-          await sendSessionText(input.deviceId, input.sessionId, input.text, input.id, input.attachments)
+          const result = await sendSessionText(input.deviceId, input.sessionId, input.text, input.id, input.files)
+          failedFiles = result.failedFiles ?? 0
         }
-      }, valid, () => { void refresh().catch(report) })
+        if (failedFiles) toast({ title: translateSessionMessage('acpFailure.sendMessage'), description: translateSessionMessage('composer.attachmentsUnavailable', { count: failedFiles }), variant: 'destructive' })
+      }, valid, () => { void refresh().catch(report) }, input => {
+        if (oldAttachmentHost(input)) throw new Error(translateSessionMessage('composer.attachmentHostUpdateRequired'))
+      })
       void refresh().catch(report)
       return queue
     })

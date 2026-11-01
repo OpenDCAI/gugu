@@ -1,3 +1,4 @@
+import { turnFileText } from './turn-files';
 import { questionAnswerError } from '@gugu/session-core/session-record';
 import { getAcpRuntimeClient } from '@main/core/acp/runtime-process/host';
 import { readAcpSessionSummaries } from '@main/core/acp/session-summary-reader';
@@ -123,11 +124,14 @@ export async function deliverSessionText(
   target: SessionWriteTarget,
   text: string,
   clientMessageId?: string,
-  attachments?: import('@gugu/session-core/session-record/contract').SessionpageSessionSendRequest['attachments']
-): Promise<{ accepted: 'started' | 'queued' }> {
-  if (attachments?.length && target.runtime !== 'acp') throw new SessionWriteError('unsupported_runtime', '此会话不支持图片输入');
-  const body = text.trim();
-  if (!body && !attachments?.length) throw new SessionWriteError('empty_text', '消息是空的');
+  files?: import('@gugu/session-core/session-record/contract').SessionpageSessionSendRequest['files']
+): Promise<{ accepted: 'started' | 'queued'; failedFiles?: number }> {
+  // 附件(P3)= 这个 agent 私聊文件夹里的文件:正文后面接上与收件箱同一格式的那几行(终端任务就是一条路径);
+  // ACP 收得下的图另外内联。
+  const turn = files?.length ? await turnFileText(target.id, files, target.runtime === 'acp') : null;
+  const body = [text.trim(), turn?.text ?? ''].filter(Boolean).join('\n\n');
+  const attachments = turn?.images.length ? turn.images : undefined;
+  if (!body) throw new SessionWriteError('empty_text', '消息是空的');
 
 
   // `runtime === null` 就是 pty:终端腿是默认形态,建会话时那一列常常没写。
@@ -163,7 +167,7 @@ export async function deliverSessionText(
     if (result.status === 'outcome-unknown') {
       throw new SessionWriteError('session_not_live', '这条会话没有接住这条消息(投递结果未知)');
     }
-    return { accepted: result.status === 'queued' ? 'queued' : 'started' };
+    return { accepted: result.status === 'queued' ? 'queued' : 'started', ...(turn?.failedFiles ? { failedFiles: turn.failedFiles } : {}) };
   }
 
   throw new SessionWriteError(

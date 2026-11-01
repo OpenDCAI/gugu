@@ -218,7 +218,7 @@ export function normalizeSessionDigest(value: unknown): DeviceSessionSummary[] {
     const title = typeof row.title === 'string' ? row.title : ''
     if (!sessionId || !title) continue
     out.push({
-      ...(row.nativeInputVersion === 1 ? { nativeInputVersion: 1 as const } : {}),
+      ...((row.nativeInputVersion === 1 || row.nativeInputVersion === 2) ? { nativeInputVersion: row.nativeInputVersion } : {}),
       ...(row.runtime === 'acp' || row.runtime === 'pty' || row.runtime === 'unknown' ? { runtime: row.runtime } : {}),
       conversationId: sessionId,
       projectId: typeof row.projectId === 'string' ? row.projectId : '',

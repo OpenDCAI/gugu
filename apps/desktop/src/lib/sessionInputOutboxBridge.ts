@@ -14,7 +14,7 @@ export const state = (): State => {
 export const changed = () => { for (const listener of state().listeners) listener() }
 export const sessionInputOutboxAvailable = (): boolean => Boolean(state().queue && state().valid())
 
-export async function enqueueSessionInput(target: Pick<SessionInput, 'deviceId' | 'sessionId' | 'text' | 'attachments'>): Promise<SessionInput> {
+export async function enqueueSessionInput(target: Pick<SessionInput, 'deviceId' | 'sessionId' | 'text' | 'files'>): Promise<SessionInput> {
   const own = state()
   if (!own.queue || !own.valid()) throw new Error('Session input outbox is not available for this account')
   const queue = await own.queue

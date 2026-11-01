@@ -242,15 +242,9 @@ export async function openExternalFilePath(
   rawFilePath: string,
   opts?: { beside?: boolean }
 ): Promise<void> {
-  // 消息里那条 mention 指着**用户自己那个文件**(agent 要改的就是它),但点开不能跟着走它:
-  // 原路径依赖「文件还在不在」与「在不在 home 里」,而 home 之外 `openPath` 直接判死 ——
-  // 那正是 #5269 最初那个「打不开」。我们自己留了副本就打开副本;工作区文件查不到副本,
-  // 照旧原路径打开(那是对的:用户就是要打开工作区里那个文件)。
-  const resolved = await rpc.sessionCreate.resolveAttachmentPath(sessionId, rawFilePath).catch(() => null);
   // `~/` 展开在这条路同样要做:终端链接检测把 `~/` 前缀标成 external 走到这儿,
   // 不展开的话会拿字面 `~` 开外部页签,而 readExternalFile 只收绝对路径 —— 必然坏页签。
-  // (副本命中时 resolved.data 已是绝对真实路径,展开是 no-op。)
-  const filePath = await expandHomeTildePath(resolved?.success ? resolved.data : rawFilePath);
+  const filePath = await expandHomeTildePath(rawFilePath);
   const provisioned = asProvisioned(getSessionPageStore(projectId, sessionId));
   // 工作区外的绝对路径先问一句「它是什么」:缺失 → 明确 toast(❌ 不是开出永远 Loading 的
   // 外部 tab);目录 → 系统文件管理器开它本身。stat 不可用(工作区已不在等)按原路由走,

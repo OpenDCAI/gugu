@@ -17,7 +17,8 @@
 //     客户端读到宿主 hello 里的号比自己小,就把那台机器标成「版本太旧」(machine-clients.ts),❌ 在某个动作上半截失败。
 // 4 = PR-2 改名:宿主的方法与参数跟着会话的名字改(`tasks.*` → `sessionCreate.*`、`conversations.*` → `sessions.*`、
 //     `conversationId` → `sessionId`)。
-export const HOST_WS_PROTOCOL_VERSION = 4
+// 5 = task turns carry file references and expose prefetchFiles; older hosts must not silently drop them.
+export const HOST_WS_PROTOCOL_VERSION = 5
 
 export type HostWsClientMessage =
   | { t: 'invoke'; id: number; channel: string; args: unknown[] }

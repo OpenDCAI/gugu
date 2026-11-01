@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, readFile, readdir, rm, symlink, writeFile } from 'node:
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { createProjectFilePublisher } from '../../../../apps/desktop/electron/projectFilePublication'
+import { createProjectFilePublisher, writeTaskCopy } from '../../../../apps/desktop/electron/projectFilePublication'
 import { DEFAULT_FILE_STORAGE } from '@gugu/core/shared/fileStorage'
 import { readProjectFile, rememberProjectGroupId } from '../../../../apps/desktop/electron/sessionpage/sessionpage-project-groups'
 const copyFault = vi.hoisted(() => ({ mode: '' }))
@@ -28,6 +28,15 @@ beforeEach(async () => {
 })
 
 describe('external selections become durable project-owned copies through the same publisher', () => {
+  it('allocates a fresh pasted working copy without replacing another agent’s edits', async () => {
+    const first = await writeTaskCopy(join(home, 'working'), 'brief.txt', data, 'text/plain')
+    await writeFile(first.path, 'agent edit')
+    const second = await writeTaskCopy(join(home, 'working'), 'brief.txt', data, 'text/plain')
+    expect(second.path).not.toBe(first.path)
+    expect(second.name).toBe('brief.txt')
+    expect(await readFile(first.path, 'utf8')).toBe('agent edit')
+    expect(await readFile(second.path)).toEqual(Buffer.from(data))
+  })
   const selected = () => ({ name: file.name, path: join(home, 'selected.bin'), size: data.length, contentType: file.contentType })
   it('copies into a unique fenced directory, never overwrites a same-name original, and survives original deletion', async () => {
     const f = fixture(); await writeFile(selected().path, data)

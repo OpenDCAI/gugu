@@ -137,7 +137,6 @@ import {
   cleanupLegacyBrowserPartitions,
   migrateLegacyBrowserPartitionDirs,
 } from '@main/core/browser/browser-partition-cleanup'
-import { sweepOrphanSessionAttachmentDirectories } from '@main/core/sessions/attachments/session-attachment-store'
 import { projectSettingsService } from '@main/core/projects/settings/project-settings-service'
 import { getProjectById, getProjects } from '@main/core/projects/operations/getProjects'
 import { resolveAgentSessionProject } from '@main/core/projects/operations/resolve-agent-session-project'
@@ -620,14 +619,6 @@ export async function bootSessionHostCore(options: SessionHostBootOptions): Prom
   searchService.initialize()
   workspaceFileIndexService.initialize()
   void editorBufferService.pruneStale()
-  // 附件目录:既不是一条还在的会话、也没有任何一行附件落在里面 ⇒ 孤儿(创建失败、或者删会话时没清成)。
-  // ⚠️ 只在这里跑:运行中跑会误删一个正在被新建页攒着、会话还没建出来的草稿目录(#5269)。
-  void sweepOrphanSessionAttachmentDirectories().then(
-    (removed) => {
-      if (removed > 0) log.info('task-attachments: swept orphan directories', { removed })
-    },
-    (error: unknown) => log.warn('task-attachments: sweep failed', { error: String(error) })
-  )
   // 依赖体检的 `<bin> --version` 是 detached 起的(不然只杀得掉直接子进程)，收尾在 finally 里 ——
   // 那一半只在我们还活着时有效。被强杀时子进程活下来，stdio 管道读端却没了，不处理 SIGPIPE 的
   // 程序就在写失败上空转：mac1 实测两个 `amp --version` 各占满一核，清掉两个半小时后又长出两个。
@@ -2391,7 +2382,7 @@ export { captureSessionpageProjectionViewer } from './core/extensions/extension-
  * 迟早对不上。这里只保证「最近动过的排在前面」。
  */
 export function sessionpageSessionDigest(): Array<{
-  nativeInputVersion?: 1
+  nativeInputVersion?: 1 | 2
   runtime?: 'acp' | 'pty' | 'unknown'
   conversationId: string
   projectId: string

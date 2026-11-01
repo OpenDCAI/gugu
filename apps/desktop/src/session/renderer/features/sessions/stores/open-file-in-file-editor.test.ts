@@ -19,7 +19,6 @@ const mocks = vi.hoisted(() => ({
   showPage: vi.fn(),
   registerBrowser: vi.fn(),
   ensurePage: vi.fn(),
-  resolveAttachmentPath: vi.fn(),
   registeredKinds: new Set<string>(),
   /** The kinds of the tabs already open in the session's panes. */
   openKinds: [] as string[],
@@ -59,7 +58,6 @@ vi.mock('@renderer/lib/ipc', () => ({
   rpc: {
     browser: { registerSession: mocks.registerBrowser, ensureAgentPage: mocks.ensurePage },
     app: { getHomeDirectory: mocks.getHomeDirectory, openPath: mocks.openPath, openIn: mocks.openIn },
-    sessionCreate: { resolveAttachmentPath: mocks.resolveAttachmentPath },
     extensions: { sessionFilePlace: mocks.sessionFilePlace },
     workspace: {
       files: { fileExists: mocks.fileExists, statExternalFile: mocks.statExternalFile },
@@ -147,38 +145,9 @@ describe('task file preview routing', () => {
     mocks.getHomeDirectory.mockResolvedValue('/Users/tester');
     mocks.openPath.mockResolvedValue({ success: true });
     mocks.openIn.mockResolvedValue({ success: true });
-    // 默认:查不到副本就原样返回 —— 与主进程 `resolveAttachmentPath` 的兜底一致。
-    mocks.resolveAttachmentPath.mockImplementation((_sessionId: string, target: string) =>
-      Promise.resolve({ success: true, data: target })
-    );
   });
 
-  /**
-   * 消息里那条 mention 指着**用户自己那个文件**(agent 要改的就是它),点开却不能跟着走它:
-   * 它同时押在「文件还在不在」和「在不在 home 里」两件事上,而 home 之外 `openPath` 直接判死。
-   * 存过副本就开副本 —— 这正是 #5269 最初那个「点了没反应」。
-   */
-  it('附件存过副本就打开副本,❌ 不打开 home 之外那条原路径', async () => {
-    mocks.resolveAttachmentPath.mockResolvedValue({
-      success: true,
-      data: '/u/task-attachments/session-1/a1-report.pdf',
-    });
-
-    await openFileInSessionEditor('project-1', 'session-1', '/Volumes/SSD/report.pdf');
-
-    // PDF 开在文件 tab 里(那张表里有它自己的渲染器),而路径指的是**副本**。
-    await vi.waitFor(() =>
-      expect(mocks.activePaneOpen).toHaveBeenCalledWith(
-        'file',
-        { path: '/u/task-attachments/session-1/a1-report.pdf', external: true },
-        { preview: false }
-      )
-    );
-    expect(mocks.openPath).not.toHaveBeenCalled();
-  });
-
-  it('❌ 查不到副本就照旧指原路径 —— 工作区外的普通文件本来就该开它自己', async () => {
-    // 阴控:上一条若是把所有路径都改写成副本,这一条会红。
+  it('工作区外的普通文件照原路径打开', async () => {
     await openFileInSessionEditor('project-1', 'session-1', '/Volumes/SSD/report.pdf');
 
     await vi.waitFor(() =>

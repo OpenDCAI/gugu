@@ -1,5 +1,6 @@
 import { sha256 } from '@noble/hashes/sha2.js'
 import { anySignal } from './anySignal'
+import { copyVerifiedFile, type FileSink } from './fileCipher'
 
 /** One read-only entry point. Providers own byte acquisition; callers never select URLs or transports. */
 export type FileRef = { item_id: string; version?: number } | { message_id: string } | { attachment_id: string }
@@ -66,7 +67,9 @@ export type ResolvedFile = Exclude<FileMetadata, { status: 'ready' }> | {
   read(offset: number, length: number): Promise<Uint8Array>
   stream(): AsyncIterable<Uint8Array>
   dispose(): Promise<void>
+  saveTo?(directory: string, name: string): Promise<SavedFile>
 }
+export type SavedFile = { file_path: string; file_name: string; size_bytes: number; sha256: string; content_type: string }
 /** Display-only pixels/playback never confer a capability to download, open or re-upload the original. */
 export type FileHandle = Extract<ResolvedFile, { status: 'ready' }>
 export type FilePreviewContent = Blob | { url: string; expiresAt: number }
@@ -74,8 +77,10 @@ export type ResolvedPreview = Exclude<FileMetadata, { status: 'ready' }> | {
   status: 'ready'; purpose: 'preview'; revision: FileRevision
   content(): Promise<FilePreviewContent>; dispose(): Promise<void>
 }
-export type FileContext = { ref: FileRef; actor: FileActor; signal?: AbortSignal }
+export type FileContext = { ref: FileRef; actor: FileActor; signal?: AbortSignal; download?: true }
 export interface FileProviders {
+  saveTo?(revision: FileRevision, context: FileContext, directory: string, name: string): Promise<SavedFile>
+  download?(revision: FileRevision, context: FileContext, sink: import('./fileCipher').FileSink): Promise<FileBytes>
   /** Must check the current account, device and project binding locally, before any cloud lookup. */
   local(context: FileContext): Promise<{ revision: FileRevision; open(): Promise<FileBytes> } | null>
   metadata(context: FileContext): Promise<FileMetadata>
@@ -121,6 +126,30 @@ export function parseFileMetadata(value: unknown, ref?: FileRef): FileMetadata {
 }
 
 /** Resolving metadata never signs or reads. The first byte read opens exactly one authorized snapshot. */
+const sameRevision = (a: FileRevision, b: FileRevision) => a.item_id === b.item_id && a.version === b.version && a.sha256 === b.sha256 && a.size_bytes === b.size_bytes
+
+/** Authorization is already resolved; this is the sole local / held SSH / object-store byte selection. */
+export async function openFileBytes(providers: FileProviders, revision: FileRevision, context: FileContext,
+  local?: Awaited<ReturnType<FileProviders['local']>>, destination?: FileSink): Promise<FileBytes> {
+  const consume = async (source: FileBytes) => {
+    if (!destination) return source
+    try { return await copyVerifiedFile(revision, source, destination, context.signal) }
+    finally { await source.dispose() }
+  }
+  if (local) return consume(await local.open())
+  if (revision.source !== 'managed-object' && context.actor.accountId === revision.host_account_id) {
+    const own = { ...context, actor: Object.freeze({ accountId: context.actor.accountId, actorId: context.actor.accountId }) }
+    const here = await providers.local(own)
+    if (here && sameRevision(here.revision, revision)) return consume(await here.open())
+    context.signal?.throwIfAborted()
+    const ssh = await providers.ssh(revision, own)
+    if (ssh) return consume(ssh)
+  }
+  if (revision.source === 'local' && !revision.temporary_transfer) throw Object.assign(new Error('Cloud transfer is disabled for this file'), { code: 'transfer_disabled' })
+  if (destination && providers.download) return providers.download(revision, context, destination)
+  return consume(await (revision.source === 'managed-object' ? providers.managed(revision, context) : providers.temporary(revision, context)))
+}
+
 export function createFileResolver(providers: FileProviders) {
   function resolveFile(ref: FileRef, actor: FileActor, options: { localOnly: true; purpose?: 'file'; signal?: AbortSignal }): Promise<ResolvedFile | null>
   function resolveFile(ref: FileRef, actor: FileActor, options: { purpose: 'preview'; metadata?: FileMetadata; signal?: AbortSignal }): Promise<ResolvedPreview>
@@ -151,16 +180,7 @@ export function createFileResolver(providers: FileProviders) {
       context.signal?.throwIfAborted()
       if (disposed) throw new Error('File handle is disposed')
     }
-    const open = async (): Promise<FileBytes> => {
-      if (local) return local.open()
-      if (revision.source === 'managed-object') return providers.managed(revision, context)
-      if (context.actor.accountId === revision.host_account_id && context.actor.actorId === context.actor.accountId) {
-        const ownSsh = await providers.ssh(revision, context)
-        if (ownSsh) return ownSsh
-      }
-      if (!revision.temporary_transfer) throw new Error('Cloud transfer is disabled for this file')
-      return providers.temporary(revision, context)
-    }
+    const open = () => openFileBytes(providers, revision, context, local);
     const get = () => opened ??= open().then(async file => {
       try {
         check()
@@ -194,6 +214,11 @@ export function createFileResolver(providers: FileProviders) {
       } }
     }
     return { status: 'ready', purpose: 'file', reader: context.actor, revision, read, dispose,
+      ...(providers.saveTo ? { saveTo: async (directory: string, name: string) => {
+        check()
+        try { return await providers.saveTo!(revision, context, directory, name) }
+        finally { await dispose() }
+      } } : {}),
       async *stream() {
         check()
         await get() // Empty files still authenticate their final frame when deliberately opened.

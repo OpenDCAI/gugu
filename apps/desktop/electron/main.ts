@@ -11,6 +11,7 @@ import { renderFirstTurn, type FirstTurnRender } from '@gugu/core/local/agent/fi
 import { createDesktopFileAccess } from './desktopFileAccess'
 import { createNativeFileHost, registerNativeFileIpc } from './nativeFileHost'
 import { uploadSessionFiles } from '@gugu/core/local/agent/sessionFileHandoff'
+import { writeTaskCopy } from './projectFilePublication'
 import { resourceMonitorWindow } from './resource-monitor-window'
 import { linkProjectDevice } from './session/main/core/projects/project-device-link'
 import {
@@ -2383,7 +2384,8 @@ function drainProjectFiles() { void desktopFiles.drain().catch(error => createLo
 const nativeFiles = createNativeFileHost({ root: remoteFileTempRoot,
   owner: async () => (await desktopAuthProvider().getAuth())?.userId ?? null,
   alive: scope => !!webContents.fromId(scope) && !webContents.fromId(scope)!.isDestroyed(),
-  local: desktopFiles.providers.local, ssh: desktopFiles.providers.ssh, publish: (chat, file, actor, message) => desktopFiles.publish(chat, file, null, actor, undefined, { message }), publication: desktopFiles.publish.local,
+  local: desktopFiles.providers.local, ssh: desktopFiles.providers.ssh, publish: (chat, file, actor, message, task) => desktopFiles.publish(chat, file, null, actor, undefined, { message, ...(task ? { task: true, itemId: task.itemId } : {}) }),
+  taskCopy: (name, bytes, mimeType) => writeTaskCopy(join(resolveGuguHome(process.env), 'attachments'), name, bytes, mimeType), publication: desktopFiles.publish.local,
   openPath: path => shell.openPath(path), published: directory => trackRemoteFileDirectory(remoteFileOpenDirectories, directory),
 })
 registerNativeFileIpc(ipcMain, nativeFiles, error => createLogger('files').warn({ error: String(error) }, 'Native file operation failed'))

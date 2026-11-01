@@ -5,6 +5,19 @@ import { buildSessionDirectEnvelope } from '@gugu/core/local/agent/deliveryEnvel
 import { openSessionInputStorage, SessionInputOutbox, sessionInputBubbles, withSessionInputDeadline, type HostPendingRow, type SessionInput } from '../../../../apps/desktop/src/lib/sessionInputOutbox'
 
 describe('native session input persistence', () => {
+  it('sends an older attachment caption with an omission count and does not block the following input', async () => {
+    const storage = await openSessionInputStorage(new IDBFactory())
+    const received: SessionInput[] = []
+    const legacy = { id: 'older-input', accountId: 'owner', deviceId: 'host', sessionId: 'agent', text: 'read the image', createdAt: 1,
+      attachments: [{ type: 'attachment', id: 'old-image' }] }
+    await storage.put(legacy)
+    const queue = new SessionInputOutbox('owner', storage, async input => { received.push(input) }, () => true)
+    await queue.enqueue({ deviceId: 'host', sessionId: 'agent', text: 'following input' })
+    await queue.flush()
+    expect(received.map(input => input.text)).toEqual([expect.stringMatching(/^read the image\n\n.*1/), 'following input'])
+    expect(received[0]).not.toHaveProperty('attachments')
+    expect(await queue.list()).toEqual([])
+  })
   it('survives an offline restart and delivers in order automatically with the same identities', async () => {
     const storage = await openSessionInputStorage(new IDBFactory())
     let online = false
@@ -55,13 +68,13 @@ it('keeps an image and its caption in one durable request across a reopened data
   const factory = new IDBFactory()
   const storage = await openSessionInputStorage(factory)
   const queue = new SessionInputOutbox('owner', storage, async () => { throw new Error('offline') }, () => true)
-  const attachments = [{ type: 'attachment' as const, id: 'image-ref', mimeType: 'image/png' as const, name: 'image.png' }]
-  const input = await queue.enqueue({ deviceId: 'host', sessionId: 'agent', text: 'look at this', attachments })
+  const files = [{ itemId: 'image-item', version: 1, name: 'image.png', mimeType: 'image/png', sizeBytes: 4 }]
+  const input = await queue.enqueue({ deviceId: 'host', sessionId: 'agent', text: 'look at this', files })
   await queue.flush()
   const received: SessionInput[] = []
   const restored = new SessionInputOutbox('owner', await openSessionInputStorage(factory), async input => { received.push(input) }, () => true)
   await restored.flush()
-  expect(received).toEqual([expect.objectContaining({ id: input.id, text: 'look at this', attachments })])
+  expect(received).toEqual([expect.objectContaining({ id: input.id, text: 'look at this', files })])
   expect(await restored.list()).toEqual([])
 })
 

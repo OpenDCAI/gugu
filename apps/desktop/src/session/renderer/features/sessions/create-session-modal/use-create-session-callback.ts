@@ -1,21 +1,24 @@
 import { translateSessionMessage } from '@renderer/localization/locale-store';
 import { messageForUser } from '@/lib/userFacingError';
 import { useCallback, useRef, useState } from 'react';
-import { getSessionManagerStore } from '@renderer/features/sessions/stores/session-selectors';
+import { getSessionPageStore, asProvisioned, getSessionManagerStore } from '@renderer/features/sessions/stores/session-selectors';
 import {
   SessionCreationFailedError,
   type SessionFailure,
 } from '@renderer/features/sessions/stores/session-failure';
 import type { InitialSessionState } from '@renderer/features/sessions/session-config/initial-session-section';
 import { rpc, rpcOn } from '@renderer/lib/ipc';
+import { getRendererSession } from '@/lib/sessionPublication';
 import { machineRegistry } from '@renderer/lib/machine-routing';
 import type { NavigateFnTyped } from '@renderer/lib/layout/navigation-provider';
 import { log } from '@renderer/utils/logger';
+import { shellPort } from '@renderer/lib/shell-port';
 import { toast } from '@renderer/lib/hooks/use-toast';
 import { buildInitialSession } from './build-create-session-params';
 import { firstTurnTransportOf } from './first-turn-transport';
+import type { TurnFileRef } from '@gugu/session-core/session-record/contract';
+import { turnAttachmentText } from '@gugu/core/shared/attachmentFolderLine';
 import type { CreateSessionState } from './use-create-session-state';
-import { afterPathAttachmentsSettle } from './after-path-attachments-settle';
 
 interface CreatedSession {
   projectId: string;
@@ -39,7 +42,7 @@ interface UseCreateSessionCallbackParams {
   birthChatId?: string;
   /**
    * gugu-dev#181 派任务:这一轮由哪个对话的输入框派出。首句由宿主落成那里的一张任务卡(task-card-first-turn.ts),
-   * 结果回那里。只对会话页那一面成立:首句是 spawn 的启动载荷,附件是会话内的路径 mention。
+   * 结果回那里。只对会话页那一面成立:首句是 spawn 的启动载荷(装不下附件引用,带附件就不建,见下)。
    */
   taskChatId?: string;
   /**
@@ -133,7 +136,7 @@ export function useCreateSessionCallback({
     }
   }, []);
 
-  const createSessionNow = useCallback(() => {
+  const createSessionNow = useCallback((named: readonly TurnFileRef[]) => {
     if (creatingRef.current) return;
 
     const retry = pendingMessageRef.current;
@@ -166,24 +169,30 @@ export function useCreateSessionCallback({
     if (!selectedProjectId) return;
     const sessionManager = getSessionManagerStore(selectedProjectId);
     if (!sessionManager) return;
-    // 权限档的默认已经由 useInitialSessionState 解析进 `initialSession.permissionMode`,
-    // 所以 composer 上显示的就是落库的(@@@5597-draft-decides)。
-    // ⚠️ id 不在这里现造:path-mention 通道的附件在用户点「创建」**之前**就已经按这个 id
-    // 落进了 `<userData>/task-attachments/<conversationId>/`,首轮正文里那条 mention 指的就是那儿
-    // (#5269)。这里另造一个的话,字节和会话当场分家。没有附件时它就是一个普通的新 UUID。
-    const sessionId = initialSession.reserveSessionId();
+    // 权限档不在这里分面:聊天页那一面的**默认**已经由 useInitialSessionState 解析进
+    // `initialSession.permissionMode`,所以 composer 上显示的就是落库的(@@@5597-draft-decides)。
+    const sessionId = crypto.randomUUID();
     const baseSession = buildInitialSession(initialSession, {
       startupOrigin: 'session-page',
       id: sessionId,
     });
     if (!baseSession) return;
-    // path-mention 通道的附件在屏幕上是 chip,到达 agent 的路是**这一句正文里的绝对路径**
-    // (#5269)。拼在这里而不是在用户打字时插进编辑器:composer 上不该出现传输用的路径 pill。
-    const text = [initialSession.prompt.trim(), ...initialSession.pathAttachmentMentions()]
-      .filter((part) => part.length > 0)
-      .join('\n');
+    // path-mention 的附件(P3)写在首轮正文里,与这条会话之后每一轮、与收件箱同一个格式(turnAttachmentText):
+    // 名字是建任务之前定的(它们放进私聊文件夹之后的 id),所以启动载荷照旧在这里写好,transport 不因附件而变。
+    // 任务在别的机器上:文件在这台上,那台要等首启之后才取得到 —— 本机路径那一行写成「没存下」那一支,
+    // agent 按上面那条文件夹引用去取。
+    const elsewhere = machineRegistry.machineOf(selectedProjectId) != null;
+    const text = [
+      initialSession.prompt.trim(),
+      ...named.map((ref) => turnAttachmentText(ref, elsewhere || !ref.path
+        ? { failure: 'kept on the computer it was attached from — open the folder file above' }
+        : { localPath: ref.path })),
+    ].filter((part) => part.length > 0).join('\n');
+    // startup 的意思是**把这一轮的首句交给 spawn**。纯附件的一轮没有首句可交:它的第一条消息就是那条
+    // attachment 行,而 attachment 行本来就是一条普通 DM 行、由读者在会话 live 之后投递。所以这一轮
+    // 不该认领那个例外 —— 认领了就会既发不出附件(startup 分支不走普通发送)、又让注入器等一份不存在的
+    // 载荷(`chat-page first spawn … without its first-turn payload`),结果是**建出一个起不来的 agent**。
     const transport = firstTurnTransport;
-    // 派出去的任务首句同样是一条真的咕咕消息(那张卡),要稳定 id;没有首句可交(纯附件)就没有卡。
     const initialMessageId = transport === 'startup' && taskChatId && text ? crypto.randomUUID() : undefined;
     const startupSession = transport === 'startup'
       ? (() => {
@@ -252,15 +261,22 @@ export function useCreateSessionCallback({
         log.error('remember the started configuration failed', { error: error instanceof Error ? error.message : String(error) });
         toast({ title: translateSessionMessage('task.newSessionMemoryNotSaved'), description: messageForUser(error), tier: 'warning' });
       });
-      // 字节早就落好了,库里那一行要等会话真的存在(外键)。补登记失败不阻断这一轮:附件照样
-      // 到得了 agent(mention 指的是盘上那个真文件),只是少一行记录 —— 那种目录下次启动会被
-      // `sweepOrphanSessionAttachmentDirectories` 按「库里有没有这条会话」判成有主,不会被误清。
-      const stagedAttachments = initialSession.pathAttachmentEntries();
-      if (stagedAttachments.length > 0) {
-        const recorded = await rpc.sessionCreate.recordAttachments(sessionId, stagedAttachments);
-        if (!recorded.success) {
-          log.warn('record session attachments failed', { sessionId, error: recorded.error });
+      // 建任务 → 开私聊 → 放文件 → 首启(P3):正文里那几个引用这时才有对应的文件。放不成在 chip 上说;同一台机器上
+      // agent 用的是本机那个文件,不等它。
+      if (named.length > 0) {
+        const placed = await initialSession.placeAttachments(async () => {
+          const owner = getRendererSession()?.user.id;
+          if (!owner) throw new Error('attachments: not signed in');
+          return { chatId: (await shellPort().ensureAgentAddress({ projectId: selectedProjectId, sessionId })).chatId, owner, sessionId,
+            deviceId: machineRegistry.machineOf(selectedProjectId), projectId: selectedProjectId,
+            workspaceId: asProvisioned(getSessionPageStore(selectedProjectId, sessionId))?.workspaceId };
+        });
+        // ❌ 不 throw:任务已经建好,重试那条路会再建一个。没放成的那几件在日志与提示里说出来。
+        if (!placed) {
+          log.warn('new task attachments were not all placed in the agent folder', { sessionId });
+          toast({ title: translateSessionMessage('composer.attachmentUploadFailed'), tier: 'warning' });
         }
+        for (const { id } of initialSession.pendingAttachmentFiles()) initialSession.dropAttachment(id);
       }
       if (message) {
         pendingMessageRef.current = message;
@@ -309,8 +325,29 @@ export function useCreateSessionCallback({
   ]);
 
   const handleCreateSession = useCallback(() => {
-    if (!creatingRef.current) afterPathAttachmentsSettle(initialSession, creatingRef, setIsCreating, createSessionNow);
-  }, [initialSession, createSessionNow]);
+    if (creatingRef.current) return;
+    const pathAttachments = !pendingMessageRef.current && pendingAttachmentCount > 0;
+    if (!pathAttachments) { createSessionNow([]); return; }
+    // 先给附件定名(首轮正文要写它们),再建。定不了名(不是桌面)就不建,原因说出来。
+    creatingRef.current = true;
+    setIsCreating(true);
+    void initialSession.prepareAttachments().then(
+      (named) => {
+        creatingRef.current = false;
+        setIsCreating(false);
+        if (!named) {
+          setDeliveryError({ kind: 'raw', detail: 'Attachments of a new task are placed from a desktop' });
+          return;
+        }
+        createSessionNow(named);
+      },
+      (error: unknown) => {
+        creatingRef.current = false;
+        setIsCreating(false);
+        setDeliveryError({ kind: 'raw', detail: error instanceof Error ? error.message : String(error) });
+      },
+    );
+  }, [createSessionNow, initialSession, pendingAttachmentCount]);
 
   return { handleCreateSession, canCreate, deliveryError };
 }

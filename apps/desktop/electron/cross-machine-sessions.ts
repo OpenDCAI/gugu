@@ -28,7 +28,6 @@ import {
   type SessionpageSessionsListResult,
 } from '@gugu/session-core/session-record/contract'
 import { SESSION_HOST_RPC } from '@shared/lib/ipc/session-host-device-frames'
-import { FILE_PATCH_PROTOCOL, protocol14FileChanges } from '@gugu/session-core/session-record/contract'
 import { REMOTE_PROTOCOL_VERSION } from '@gugu/core/cloud/serverMachineHealth'
 import { dispatchCallOf } from '@shared/extensions/app-dispatch-core'
 import type { OtherMachines } from './session/main/core/sessions/session-family'
@@ -218,8 +217,7 @@ export function createCrossMachineSessions(deps: CrossMachineDeps) {
     // 对端的工具错误原样带回(那台机器上同一个工具会说的那句话),前面点名是哪台机器。
     if (response.error) throw new CrossMachineError(response.error.code || 'SESSION_REMOTE_ERROR', `on ${describe(device)}: ${response.error.message}`)
     const result = response.result as { value?: unknown; protocol?: number } | undefined
-    // A host before protocol 15 does not say its protocol here (protocol14FileChanges, delete on next bump).
-    return protocol14FileChanges(result?.value, result?.protocol ?? FILE_PATCH_PROTOCOL - 1, 'from-peer')
+    return result?.value
   }
 
   /**

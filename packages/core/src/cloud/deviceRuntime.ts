@@ -139,7 +139,7 @@ export type DeviceIdCacheWriter = (
  * 「内容不在手机落库」那条边界没有放开。
  */
 export type DeviceSessionDigestEntry = {
-  nativeInputVersion?: 1
+  nativeInputVersion?: 1 | 2
   runtime?: 'acp' | 'pty' | 'unknown'
   conversationId: string
   projectId: string

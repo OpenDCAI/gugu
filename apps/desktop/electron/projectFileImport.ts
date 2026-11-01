@@ -30,7 +30,9 @@ export async function importProjectFile(root: string, file: { path: string; name
   await mkdir(directory, { mode: 0o700 })
   const target = join(directory, sanitizeRemoteFileName(file.name))
   try {
-    await copyFile(file.path, target, constants.COPYFILE_EXCL)
+    // A clone where the filesystem has copy-on-write (APFS, btrfs, XFS), a copy elsewhere: the version keeps its bytes when
+    // the original is edited afterwards (an agent handed that original as its input), without a second full write.
+    await copyFile(file.path, target, constants.COPYFILE_EXCL | constants.COPYFILE_FICLONE)
     await unchanged()
     if (await digest(target) !== sha) throw new Error('Imported file changed')
     return target

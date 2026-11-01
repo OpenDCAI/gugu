@@ -23,10 +23,9 @@ import { startPhoneAgentRpc } from './phone-agent-rpc.mjs'
 import { phoneCommunicationTools, deliverPhoneOutbox } from './phone-agent-tools.mjs'
 import { phoneCalendarEventView } from '../../desktop/src/mobile/phone-device/phoneCalendarView.ts'
 import { phoneChatReadTools } from './phone-agent-chat.mjs'
-import { phoneFileTools, phoneInboxAttachmentRow, registerArtifact } from './phone-agent-files.mjs'
+import { phoneFileTools, phoneInboxAttachmentRow, phoneTurnFiles } from './phone-agent-files.mjs'
 import { phoneWebTool } from './phone-agent-web.mjs'
 import { phoneMemoryTools } from './phone-agent-memory.mjs'
-import { createPhoneAttachmentApi } from './phone-agent-attachments.mjs'
 import { createPhoneSessionTools } from './phone-agent-sessions.mjs'
 import { createPhoneActionRuntime } from './phone-actions.mjs'
 import { createPhoneProvisioner } from './phone-agent-provision.mjs'
@@ -528,8 +527,7 @@ export async function startPhoneAgentHost(initialConfig, { runTurn, cancelTurn, 
     const inputs = Object.values(store.state.jobs).filter((job) => job.agentUserId === agent.agentUserId && (!job.contextEpoch || job.contextEpoch === agent.contextEpoch)).map((job) => job.inputDataProof).filter(Boolean)
     await authorizeReply([...new Set([...proof.groups, ...(current?.usedGroups ?? []), ...inputs.flatMap((input) => input.groups)])], { sessionId: agent.sessionId, permissionRequirements: uniqueProofs(proof.permissionRequirements, current?.permissionRequirements, ...inputs.map((input) => input.permissionRequirements)) })
   } })
-  const taskApi = createPhoneTaskApi({ ownerId, store, models, timelines, actions: () => actions, findSession, verifyAgent, admit, publish: () => { publish(); void drain().catch(error => warn(error.message)) }, interrupt: async agent => { if (activeJob?.agentUserId === agent.agentUserId) await cancel(agent, { jobId: activeJob.id }) } })
-  const attachments = createPhoneAttachmentApi({ ownerId, store, findSession, verifyAgent, registerArtifact })
+  const taskApi = createPhoneTaskApi({ ownerId, store, models, timelines, actions: () => actions, findSession, verifyAgent, admit, publish: () => { publish(); void drain().catch(error => warn(error.message)) }, interrupt: async agent => { if (activeJob?.agentUserId === agent.agentUserId) await cancel(agent, { jobId: activeJob.id }) }, turnFiles: phoneTurnFiles({ store, cloud }) })
   const skills = createPhoneSkillsRuntime({ ownerId, deviceId, store, findSession, verifyAgent,
     isRunning: (agent) => activeJob?.agentUserId === agent.agentUserId,
     onChanged: () => { publish() },
@@ -546,8 +544,6 @@ export async function startPhoneAgentHost(initialConfig, { runTurn, cancelTurn, 
     if(channel==='assistantWork.deliver') return work.receive(args[0],source.signal)
     const configuredSkills = await skills.invoke(channel, args, requestId, source)
     if (configuredSkills) return configuredSkills.value
-    const attached = await attachments.invoke(channel, args)
-    if (attached) return attached.value
     const task = await taskApi(channel, args, requestId, source)
     if (task) return task.value
     const [caller, action] = args

@@ -24,12 +24,21 @@ const state = vi.hoisted(() => ({
   warnings: [] as unknown[],
   /** session-life's queue entry: what an ACP reply hands over. */
   enqueued: [] as unknown[],
+  failedFiles: 0,
 }));
 vi.mock('@main/core/sessions/session-life', () => ({
   sessionLife: () => ({ enqueue: (input: unknown) => { state.enqueued.push(input); return { seq: 1, state: 'queued' }; } }),
 }));
 vi.mock('@main/lib/logger', () => ({ log: { warn: (_msg: string, data: unknown) => state.warnings.push(data), info: () => {}, error: () => {} } }));
 
+// 附件那几行由 turn-files 拼(它自己的测试钉格式);这里只看它们怎么接进这一轮。
+vi.mock('./turn-files', () => ({
+  turnFileText: async (_sessionId: string, _files: unknown, inline: boolean) => ({
+    text: state.failedFiles ? '[File not saved: File is no longer available]' : '[Image attached: a.png]',
+    images: inline ? [{ type: 'local-file', originalPath: '/agent/a.png', mimeType: 'image/png', name: 'a.png' }] : [],
+    failedFiles: state.failedFiles,
+  }),
+}));
 vi.mock('@main/core/acp/runtime-process/host', () => ({
   getAcpRuntimeClient: async () => ({
     promptDetached: async () => { throw new Error('Mobile text must use the session message router'); },
@@ -82,6 +91,7 @@ beforeEach(() => {
   state.sendStatus = 'accepted';
   state.warnings = [];
   state.enqueued = [];
+  state.failedFiles = 0;
   state.cancelResult = { success: true, data: { written: 1 } };
   bridge.setSessionWake(null);
 });

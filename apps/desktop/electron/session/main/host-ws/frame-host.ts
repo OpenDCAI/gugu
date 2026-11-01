@@ -6,7 +6,6 @@
 //   · WebSocket(浏览器形态 / dev 口,host-ws/server.ts)
 //   · 设备连接(别的桌面经 SSH 或咕咕云连进来,host-ws/device-session-host.ts)
 // 两种都只实现 FrameSocket;请求分发、wire 端口、事件订阅只有这一份。
-import { protocol14FileChanges } from '@gugu/session-core/session-record/contract';
 import type { MessagePortMainLike } from '@gugu/session-wire/api';
 import {
   decodeHostWsMessage,
@@ -131,8 +130,6 @@ class Connection {
     private readonly host: FrameSessionHost,
     /** 这条线往外发的每一帧先过它(别的电脑经设备连接时:终端输出合帧限速,remote-pty-pacer.ts)。 */
     private readonly outgoing?: RemotePtyPacer,
-    /** 对端开窗时报的协议;差一档时线上降级(protocol14FileChanges,协议下次升级时删掉)。缺席 = 同版。 */
-    private readonly peerProtocol?: number,
   ) {
     this.sender = {
       id,
@@ -168,8 +165,7 @@ class Connection {
 
   private write(message: HostWsServerMessage): void {
     try {
-      const wire = this.peerProtocol === undefined ? message : protocol14FileChanges(message, this.peerProtocol, 'to-peer');
-      this.socket.send(encodeHostWsMessage(wire));
+      this.socket.send(encodeHostWsMessage(message));
     } catch (error) {
       log.warn('[session-host] send failed', { sender: this.id, error: String(error) });
     }
@@ -300,10 +296,10 @@ export class FrameSessionHost implements HostIpc {
   }
 
   /** 接上一条线。返回断开它的函数。 */
-  attach(socket: FrameSocket, options: { remote?: string; policy?: FrameInvokePolicy; outgoing?: RemotePtyPacer; peerProtocol?: number } = {}): () => void {
+  attach(socket: FrameSocket, options: { remote?: string; policy?: FrameInvokePolicy; outgoing?: RemotePtyPacer } = {}): () => void {
     const remote = options.remote ?? '?';
     const label = this.options.label ?? 'task-host';
-    const connection = new Connection(nextSenderId++, socket, this, options.outgoing, options.peerProtocol);
+    const connection = new Connection(nextSenderId++, socket, this, options.outgoing);
     this.connections.add(connection);
     log.info(`[${label}] client connected`, { sender: connection.id, remote });
     connection.send({

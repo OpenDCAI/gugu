@@ -1,7 +1,6 @@
 import type { ComposerAttachment } from '@gugu/session-ui/react/components';
-import type { UploadSource } from './acp/composer-file-upload';
 
-/** 创建页切换的待发附件:保留原始字节,新目标重新上传,不复用旧机器的路径。 */
+/** 创建页切换的待发附件:chip 只握着原始文件,建好任务之后才放(P3),换目标不带走任何已放好的东西。 */
 export type ComposerAttachmentDraft = {
-  uploads: Array<{ chip: ComposerAttachment; source: UploadSource }>;
+  pending: Array<{ chip: ComposerAttachment; file: File }>;
 };
