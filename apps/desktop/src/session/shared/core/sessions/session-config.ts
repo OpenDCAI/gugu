@@ -18,6 +18,7 @@ const initialQueuePromptSchema = z.object({
   hiddenContext: z.string().optional(),
   // Absent only on text stored without one (rows from before #6823, 「重来」's replay); the row reader fills it.
   origin: promptInputSchema.shape.origin,
+  kind: z.literal('session-direct').optional(),
 });
 
 const sessionMessageSchema = z.object({

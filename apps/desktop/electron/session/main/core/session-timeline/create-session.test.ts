@@ -18,6 +18,21 @@ const state = vi.hoisted(() => ({
   failures: new Map<string, string>(),
   startInputs: [] as Array<Record<string, unknown>>,
   hydrateError: null as Error | null,
+  /** session-life (owner of ACP sessions): creation turns become pending rows; an empty creation queue is a start. */
+  lifeEnqueued: [] as Array<Record<string, unknown>>,
+  lifeEnqueueError: null as Error | null,
+}));
+
+vi.mock('@main/core/sessions/session-life', () => ({
+  sessionLife: () => ({
+    enqueue: (input: Record<string, unknown>) => {
+      state.calls.push('life.enqueue');
+      if (state.lifeEnqueueError) throw state.lifeEnqueueError;
+      state.lifeEnqueued.push(input);
+      return { seq: state.lifeEnqueued.length, state: 'queued' };
+    },
+    start: () => { state.calls.push('life.start'); },
+  }),
 }));
 
 vi.mock('./start-failures', () => ({
@@ -129,8 +144,12 @@ vi.mock('@main/core/sessions/session-orchestration', () => ({
 
 vi.mock('@main/embedded-boot', () => ({ acpStartInputFor: () => ({}) }));
 
+// The row maps back to a session carrying the creation facts createSession wrote (initialSession config).
 vi.mock('@main/core/sessions/getSessions', () => ({
-  getSessions: async () => [{ id: currentSessionId() }],
+  getSessions: async () => [{
+    id: currentSessionId(),
+    ...((state.createParams.at(-1) as { sessionConfig?: { initialSession?: Record<string, unknown> } } | undefined)?.sessionConfig?.initialSession ?? {}),
+  }],
 }));
 
 vi.mock('@main/core/sessions/hydrateSession', () => ({
@@ -240,6 +259,8 @@ describe('createSession:所选 harness 在这台机器上还没装', () => {
     state.acpStart = { success: true };
     state.warnings = [];
     state.warned = Promise.withResolvers<void>();
+    state.lifeEnqueued = [];
+    state.lifeEnqueueError = null;
   });
 
   // #639 后续(owner 10-28):「终端」开关只管终端入口显不显示,新任务没说展示时永远走通用 —— 群里「新任务」卡片交给
@@ -247,8 +268,16 @@ describe('createSession:所选 harness 在这台机器上还没装', () => {
   it('没说展示:走通用(acp),❌ 跟终端开关进编程', async () => {
     const result = await createSession({ projectId: 'proj-1', harness: 'codex', prompt: 'hi' }, { ensureAgentInstalled: async () => {} });
     expect(result.ok).toBe(true);
-    expect(state.calls).toContain('acp.startSession');
+    // The ACP leg: the first sentence is the session's first pending row; session-life starts it (no direct runtime start).
+    expect(state.calls).toContain('life.enqueue');
+    expect(state.calls).not.toContain('acp.startSession');
     expect(state.calls).not.toContain('hydrateSession');
+    expect(state.lifeEnqueued).toEqual([{
+      sessionId: currentSessionId(), messageId: `${currentSessionId()}:creation:0`, text: 'hi', kind: 'ordinary',
+      turn: { kind: 'prompt', origin: 'manual' },
+    }]);
+    // Its startup outcome is the session's own lifecycle, not this call's answer.
+    expect(result.ok && result.value).not.toHaveProperty('startFailure');
   });
 
   for (const sessionView of ['general', 'code'] as const) {
@@ -265,7 +294,7 @@ describe('createSession:所选 harness 在这台机器上还没装', () => {
       expect(state.calls).toEqual([
         'ensureAgentInstalled',
         'prepareCreateSession',
-        sessionView === 'general' ? 'acp.startSession' : 'hydrateSession',
+        sessionView === 'general' ? 'life.enqueue' : 'hydrateSession',
       ]);
     });
   }
@@ -299,6 +328,10 @@ describe('createSession:所选 harness 在这台机器上还没装', () => {
       birthGroup: { chatId: 'chat-project-1', asTask: true },
       sessionConfig: { initialSession: { taskChatId: 'chat-project-1', initialMessageId: taskMessageId, startupOrigin: 'session-page' } },
     });
+    // The task's first sentence is admitted under the card's stable id, typed so its gugu message lands first.
+    expect(state.lifeEnqueued).toEqual([expect.objectContaining({
+      messageId: taskMessageId, text: '修好登录页', turn: { kind: 'chat-page-first-turn' },
+    })]);
   });
 
   it('不派任务:不铸卡的 id,回执里也没有这一格', async () => {
@@ -360,13 +393,17 @@ describe('createSession:会话行写下之后 agent 没起来(#6264 会话照样
     state.warned = Promise.withResolvers<void>();
     state.failures.clear();
     state.hydrateError = null;
+    state.lifeEnqueued = [];
+    state.lifeEnqueueError = null;
   });
 
+  // Retargeted to the terminal leg (sessionView code → hydrate): an ACP startup failure is now session-life's failed
+  // state and never comes back through createSession; the classification still applies where the start is synchronous.
   it('适配器模块解析不到:照常返回会话(带原因码 harness_runtime_missing),原因码记在这台机器上,原文只进日志', async () => {
     const raw = "Cannot find module '@agentclientprotocol/claude-agent-acp/dist/index.js'\nRequire stack:\n- /home/a/.gugu-server/versions/0.2.113/app/dist-electron/registry-x.js";
-    state.acpStart = { success: false, error: { type: 'spawn_failed', message: raw } };
+    state.hydrateError = new Error(raw);
     const result = await createSession(
-      { projectId: 'proj-1', harness: 'codex', prompt: 'hi', sessionView: 'general' },
+      { projectId: 'proj-1', harness: 'codex', prompt: 'hi', sessionView: 'code' },
       { ensureAgentInstalled: async () => {} }
     );
     expect(result).toMatchObject({ ok: true, value: { conversationId: currentSessionId(), startFailure: 'harness_runtime_missing' } });
@@ -379,17 +416,18 @@ describe('createSession:会话行写下之后 agent 没起来(#6264 会话照样
 
   it('选了咕咕提供的模型、签平台额度那一趟连不上:原因码 platform_model_unreachable,❌ 把网关那句原文回给发起方', async () => {
     const raw = 'error sending request for url (http://gugu-newapi:3000/api/status): client error (Connect): dns error';
-    state.acpStart = { success: false, error: { type: 'spawn_failed', message: raw } };
+    state.hydrateError = new Error(raw);
     const result = await createSession(
-      { projectId: 'proj-1', harness: 'codex', prompt: 'hi', sessionView: 'general', model: 'platform:gpt-x' },
+      { projectId: 'proj-1', harness: 'codex', prompt: 'hi', sessionView: 'code', model: 'platform:gpt-x' },
       { ensureAgentInstalled: async () => {} }
     );
     expect(result).toMatchObject({ ok: true, value: { startFailure: 'platform_model_unreachable' } });
     expect(JSON.stringify(result)).not.toContain('gugu-newapi');
   });
 
+  // ACP: the only synchronous start failure left is session-life refusing the admission itself.
   it('别的起不来原因:照常返回会话,原因码 session_start_failed', async () => {
-    state.acpStart = { success: false, error: { type: 'spawn_failed', message: 'spawn EACCES' } };
+    state.lifeEnqueueError = new Error('spawn EACCES');
     const result = await createSession(
       { projectId: 'proj-1', harness: 'codex', prompt: 'hi', sessionView: 'general' },
       { ensureAgentInstalled: async () => {} }

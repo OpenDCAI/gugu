@@ -230,6 +230,8 @@ export interface AgentRuntimeBridge {
   injectAgentInbox?(input: AgentInboxInjectionInput): Promise<AgentInboxInjectionResult>
   /** Local session-direct outbox projected into the common inbox reader. */
   fetchLocalSessionDirectInbox?(agentUserId: string): Promise<AgentInboxUnreadRow[]>
+  /** Inbox rows this agent's session queue already holds (see AgentInboxReaderDeps.claimedSources). */
+  claimedInboxSources?(agentUserId: string, messageIds: readonly string[]): ReadonlyMap<string, boolean>
   /** A local session-direct row is acknowledged only after common-reader acceptance. */
   markLocalSessionDirectRead?(input: { agentUserId: string; sessionId: string; messageId: string }): Promise<void>
   /** 冷会话唤醒踢一脚——不 await(收信方开机代价记在收信方头上,#4320)。 */
@@ -742,6 +744,9 @@ export function agentInboxDepsFromBridge(input: {
     fetchForumUnread: (agentUserId: string) => fetchForumUnreadViaRpc(agentUserId, input.accessToken),
     ...(bridge.fetchLocalSessionDirectInbox
       ? { fetchLocalUnread: (agentUserId: string) => bridge.fetchLocalSessionDirectInbox!(agentUserId) }
+      : {}),
+    ...(bridge.claimedInboxSources
+      ? { claimedSources: (agentUserId: string, ids: readonly string[]) => bridge.claimedInboxSources!(agentUserId, ids) }
       : {}),
     ...(bridge.markLocalSessionDirectRead
       ? { markLocalRead: (input: { agentUserId: string; sessionId: string; messageId: string }) => bridge.markLocalSessionDirectRead!(input) }

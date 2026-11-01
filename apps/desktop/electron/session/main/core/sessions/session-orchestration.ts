@@ -15,9 +15,8 @@ import { isLibraryAgentAction, runLibraryAgentAction, type LibraryAgentAction } 
 import { randomUUID } from 'node:crypto';
 import { sessionDirectMessageId } from './session-direct-identity';
 import { parseGuguLink } from '@gugu/core/shared/ui/guguLink';
-import { resolveSessionPermissionMode, type SessionSummary } from '@gugu/session-core/acp';
+import type { SessionSummary } from '@gugu/session-core/acp';
 import { and, eq, inArray } from 'drizzle-orm';
-import { getAcpRuntimeClient } from '@main/core/acp/controller';
 import type { MessagePreviewEntry, MessagePreviewProjection } from '@gugu/session-core/session-record/message-preview';
 import { readSessionPreview } from '@main/core/session-timeline/preview-rpc';
 import {
@@ -43,6 +42,11 @@ import { rememberBirthGroup } from '@main/core/sessions/birth-groups';
 import type { BirthGroup } from '@shared/core/sessions/create-session';
 import { rememberedProviderOf, resolveSessionProviderSelection, sessionpageLegFor } from '@shared/core/sessions/provider-selection';
 import type { NewSessionMemory } from '@shared/core/app-settings';
+import { sessionLife } from './session-life';
+import { displayStatus } from '@shared/core/sessions/session-life';
+import { admitCreationTurns, bindIdentityThenCreate } from './session-life-creation';
+import { provisionStartIdentity } from '@main/core/acp/runtime-process/host';
+import { unbindSessionAgent } from '@main/core/sessionpage/sessionpage-session-agent';
 import { createStageLedger } from '@main/lib/stage-ledger';
 import { events } from '@main/lib/events';
 import {
@@ -434,7 +438,7 @@ function snapshot(
     provider_id: row.provider ?? 'unknown',
     model,
     transport,
-    status: sessionStatus(row, runtime),
+    status: sessionStatus(row),
     detail: parseAgentStatusDetail(row.agentStatusDetail, status),
     pinned: row.isPinned === 1,
     last_active_at: row.lastInteractedAt ?? null,
@@ -456,30 +460,28 @@ function activeMs(at: string | null): number {
 
 /**
  * 一条会话在工具里的状态 = 运行时这一轴压过活动这一轴(spec agent-status-writer):
- *  - 运行时:ACP 报 lost / 起动中、spawn 起动门还开着;
+ *  - 运行时:ACP 读 session-life 的投影(displayStatus);终端腿是 spawn 起动门还开着;
  *  - 否则是状态写入者写下的那一句,用 core 的词原样给(侧栏、session_peers、手机读的是同一份)——
  *    两种腿同一个来源,❌ 从 ACP 摘要再推一遍活动,❌ 另起一套词。没有状态源就是 `null`,❌ 猜一个终态。
  * 进程在不在不是一种状态(#6546):停掉、没起的会话照样收得进 `session_message`(发送方按原会话唤醒它),
  * 所以 ❌ 由「没有运行时」推出一个 `closed`。
  */
-function sessionStatus(row: SessionRow, runtime: SessionSummary | null): SessionSnapshot['status'] {
+function sessionStatus(row: SessionRow): SessionSnapshot['status'] {
   // 归档 = 离开会话列表、只在会话历史里(#6720):行照列,状态说它已经收起,❌ 从列表里滤掉。
   if (row.archivedAt) return 'archived';
-  if (runtime?.lifecycle === 'lost') return 'error';
-  if (runtime?.lifecycle === 'starting' || runtime?.lifecycle === 'replaying') return 'starting';
+  // ACP: session-life's projection is the lifecycle axis (contract §3, the one composition point).
+  if (transportOf(row) === 'acp') return displayStatus(sessionLife().status(row.id), parseAgentStatus(row.agentStatus));
   if (row.config?.spawnStartupState === 'starting') return 'starting';
   return parseAgentStatus(row.agentStatus);
 }
 
-function runtimeError(result: { error: { type: string; message?: string } }): Error {
-  return new Error(result.error.message ?? result.error.type);
-}
+/** Why a session stops: a person, the idle reclaimer, or a restart for new configuration (no stop barrier). */
+export type SessionStopReason = 'user-stop' | 'idle-reap' | 'version-switch';
 
-async function stopSessionTransport(target: SessionRow, onlyIfIdle = false): Promise<void> {
+async function stopSessionTransport(target: SessionRow, reason: SessionStopReason = 'user-stop'): Promise<void> {
   if (transportOf(target) === 'acp') {
-    const result = await (await getAcpRuntimeClient()).stopSession({ sessionId: target.id, ...(onlyIfIdle ? { onlyIfIdle: true } : {}) });
-    if (!result.success && result.error.type === 'stop_pending') throw Object.assign(new Error('stop_pending: executor is still stopping; check session_get before reporting it stopped'), { code: 'stop_pending' });
-    if (!result.success) throw runtimeError(result);
+    // session-life owns the stop: an idle-reap is declined by Life itself when the session is not free.
+    await sessionLife().interrupt(target.id, { k: 'interrupt', reason });
     // 状态桥要等下一次摘要推送才看得到这条会话没了;回执 ❌ 抢在它前面读到旧的 working(#6095 的 ACP 面)。
     // 停这一端自己把「被打断」交给写入者(与终端腿 stopSession 同一个写口),桥随后那一次是空操作。
     await agentStatusWriter.settleSessionExited({ sessionId: target.id, projectId: target.projectId });
@@ -551,6 +553,12 @@ async function startSpawnedSession(input: {
   transport: SessionRuntime;
   initialPrompt?: string;
 }): Promise<void> {
+  // ACP: the creation turns are the session's first pending rows and session-life starts it. A startup failure is
+  // the session's failed state with its stage and cause — the person's session is never archived for it.
+  if (input.transport === 'acp') {
+    admitCreationTurns(input.session);
+    return;
+  }
   let transportStarted = false;
   const ledger = createStageLedger({
     scope: 'sessionpage/session-spawn',
@@ -560,49 +568,19 @@ async function startSpawnedSession(input: {
   });
   const mark = (stage: string, extra?: Record<string, unknown>) => ledger.mark(stage, extra);
   try {
-    if (input.transport === 'acp') {
-      const acpClient = await getAcpRuntimeClient();
-      mark('runtime-client-ready');
-      const result = await acpClient.startSession({
-        input: {
-          sessionId: input.session.id,
-          projectId: input.projectId,
-          providerId: input.session.providerId,
-          workspaceId: input.targetWorkspaceId,
-          cwd: input.targetWorkspacePath,
-          providerSessionId: null,
-          ...(input.session.initialQueue?.length
-            ? { initialQueue: input.session.initialQueue }
-            : {}),
-          ...(input.session.startupOrigin
-            ? { startupOrigin: input.session.startupOrigin }
-            : {}),
-          ...(input.session.initialMessageId
-            ? { initialMessageId: input.session.initialMessageId }
-            : {}),
-          ...(input.session.taskChatId ? { taskChatId: input.session.taskChatId } : {}),
-          model: input.session.model ?? null,
-          permissionMode: resolveSessionPermissionMode(input.session),
-        },
-      });
-      if (!result.success) throw runtimeError(result);
-      transportStarted = true;
-      mark('transport-started');
-    } else {
-      await sessionService.ensureSessionMounted(input.session.id);
-      mark('session-mounted');
-      const mounted = resolveSession(input.projectId, input.session.id);
-      if (!mounted) throw new Error('spawned session workspace is not mounted');
-      await mounted.sessions.startSession(
-        input.session,
-        undefined,
-        false,
-        input.initialPrompt,
-        undefined,
-      );
-      transportStarted = true;
-      mark('transport-started');
-    }
+    await sessionService.ensureSessionMounted(input.session.id);
+    mark('session-mounted');
+    const mounted = resolveSession(input.projectId, input.session.id);
+    if (!mounted) throw new Error('spawned session workspace is not mounted');
+    await mounted.sessions.startSession(
+      input.session,
+      undefined,
+      false,
+      input.initialPrompt,
+      undefined,
+    );
+    transportStarted = true;
+    mark('transport-started');
 
     await setSpawnStartupState(input.session.id, 'ready');
     mark('startup-state-ready');
@@ -646,14 +624,14 @@ async function startSpawnedSession(input: {
 export async function stopExactSessionpageSession(target: {
   projectId: string;
   sessionId: string;
-  onlyIfIdle?: boolean;
+  reason?: SessionStopReason;
 }): Promise<boolean> {
   const rows = await projectSessionRows(target.projectId);
   const session = rows.find((row) =>
     row.id === target.sessionId && row.projectId === target.projectId
   );
   if (!session) return false;
-  await stopSessionTransport(session, target.onlyIfIdle);
+  await stopSessionTransport(session, target.reason);
   return true;
 }
 
@@ -1005,6 +983,8 @@ function envelopeOf(sender: EnvelopeSender): DeliveryEnvelope {
  * 会话行 + 挂载 → 首句 → 起引擎。
  */
 async function createChildSession(input: {
+  /** ACP creation that needs its identity at once (an App spawn): bind it before the row exists. */
+  bindIdentityFirst?: boolean;
   ledger: ReturnType<typeof createStageLedger>;
   projectId: string;
   /** child 在哪个工作区里干活。 */
@@ -1087,7 +1067,7 @@ async function createChildSession(input: {
   // a working child as "The engine could not start" (real Electron on dev: 4/4; the guard fired 37 ms
   // before the first turn began).
   const initialQueue = !intent && transport === 'acp'
-    ? [{ text: input.envelope(messageId, prompt), origin: 'communication' as const }]
+    ? [{ text: input.envelope(messageId, prompt), origin: 'communication' as const, kind: 'session-direct' as const }]
     : undefined;
   signal?.throwIfAborted();
   // Providers whose declared prompt capability consumes the startup prompt (argv/stdin, not
@@ -1099,7 +1079,7 @@ async function createChildSession(input: {
   // 落行放在所有校验之后:任何一道校验抛了都不该留下一条会话。行落下之后当场挂载(挂不上就撤掉这一行再抛)。
   // Born in a chat: its identity joins it when first minted (birth-groups.ts).
   if (input.birthGroup) rememberBirthGroup(sessionId, input.birthGroup);
-  const session = await attachAgentToSession({
+  const attach = () => attachAgentToSession({
     id: sessionId,
     projectId,
     workspaceId: input.workspaceId,
@@ -1117,7 +1097,19 @@ async function createChildSession(input: {
     ...(initialQueue ? { startupOrigin: 'session-page' as const, initialMessageId: messageId } : {}),
     runtime: transport,
     deferStart: true,
-  }, db, input.relations).catch((error: unknown) => {
+  }, db, input.relations);
+  const created = input.bindIdentityFirst && transport === 'acp'
+    ? bindIdentityThenCreate(
+      async () => {
+        const cwd = resolveWorkspace(projectId, input.workspaceId)?.path;
+        if (!cwd) throw new Error(`workspace ${input.workspaceId} is unknown`);
+        const identity = await provisionStartIdentity({ sessionId, providerId: provider, projectId, cwd }, 'fresh', { agentDisplayName: title || undefined });
+        if (!identity) throw new Error(`session ${sessionId} could not be given an identity`);
+      },
+      attach,
+      () => unbindSessionAgent(sessionId, process.env))
+    : attach();
+  const session = await created.catch((error: unknown) => {
     ledger.settle({ outcome: 'failed' });
     throw error;
   });
@@ -1125,7 +1117,8 @@ async function createChildSession(input: {
   try {
     signal?.throwIfAborted();
     if (input.sourceLink) await rememberActivitySource(sessionId, input.sourceLink);
-    await setSpawnStartupState(sessionId, 'starting');
+    // ACP startup is session-life's own projection; only other runtimes keep this config flag (until ⑤).
+    if (transport !== 'acp') await setSpawnStartupState(sessionId, 'starting');
   } catch (error) {
     await archiveSession(projectId, sessionId, { skipTransportStop: true, removeSocialIdentity: false });
     ledger.settle({ outcome: 'failed' });
@@ -1156,13 +1149,14 @@ async function createChildSession(input: {
       ledger.settle({ outcome: 'failed' });
       throw error;
     }
-  } else {
+  } else if (!initialQueue) {
     // Native argv/stdin delivery replaces the outbox transport, but the child conversation still
     // needs the durable entity row used by the chat/task transcript. Recording it is independent
-    // from provider startup, so a failed spawn never erases what the caller sent.
+    // from provider startup, so a failed spawn never erases what the caller sent. An ACP child's first
+    // turn gets that row from its pending row (admitted below, with the same id): one writer only.
     recordDeliveredSessionDirectMessage(
       { sessionId },
-      { id: messageId, text: initialPrompt ?? initialQueue![0]!.text },
+      { id: messageId, text: initialPrompt! },
     );
   }
   if (!initialPrompt && !initialQueue) mark('delegation-enqueued', { sessionId });
@@ -1311,6 +1305,7 @@ export async function spawnSessionForApp(input: AppSessionSpawnInput): Promise<S
     platformModel: selection.kind === 'gugu' ? { modelId: selection.modelId } : requestedHarness || requestedModel || last ? null : undefined,
     ...(input.chat ? { birthGroup: { chatId: input.chat, asTask: false } } : {}),
     awaitStart: true,
+    bindIdentityFirst: true,
     relations: {
       ...(input.bySession ? (await spawnedBy({ localSessionId: input.bySession })).relations : { parentSessionId: null }),
       spawnedByExtensionId: input.extensionId,
@@ -1716,8 +1711,11 @@ export async function revealExtensionTabInSession(target: {
 export type SessionDirectRecipientResult = {
   /** Typed recipient address, exactly as the caller may reuse it. */
   to: string;
-  /** `deferred`: kept, to be sent when the target next starts working (delivery "defer"). */
-  status: 'delivered' | 'deferred' | 'failed';
+  /**
+   * `deferred`: kept, to be sent when the target next starts working (delivery "defer").
+   * `queued`: durably in the target's queue (its session takes it when it runs); it is not resent, so do not resend it.
+   */
+  status: 'delivered' | 'queued' | 'deferred' | 'failed';
   message_id?: string;
   error?: { code: string; message: string };
 };
@@ -1836,11 +1834,15 @@ async function sendSessionMessage(
         ...(plan && 'queue' in plan ? { delivery: plan.queue } : {}),
       });
       const admitted = result.status === 'delivered' || (action.client_message_id !== undefined && result.status === 'accepted');
+      // The receipt is the recipient queue's own: a durably queued message is queued, never a failure (a failure invites a
+      // resend, and a resend without a stable id is one more copy). A caller with its own stable id (the cloud's
+      // client_message_id) keeps its protocol: it holds the message pending until accepted and its resends dedupe here.
+      const queued = !admitted && result.status === 'queued' && action.client_message_id === undefined;
       recipients.push({
         to: encodeTypedId('session', target.id),
-        status: admitted ? 'delivered' : 'failed',
+        status: admitted ? 'delivered' : queued ? 'queued' : 'failed',
         message_id: result.id,
-        ...(admitted
+        ...(admitted || queued
           ? {}
           : {
               error: result.status === 'outcome-unknown'

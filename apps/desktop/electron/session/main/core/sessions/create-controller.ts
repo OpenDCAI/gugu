@@ -18,6 +18,7 @@ import {
   type AttachmentCommit,
 } from './attachments/attachment-upload';
 import { sessionService } from './session-service';
+import { admitFirstMessages } from './session-life-creation';
 
 /** 按块收附件的失败:带原因码(界面按码说人话),原文进日志。 */
 function uploadFailure(verb: string, sessionId: string, e: unknown) {
@@ -85,8 +86,11 @@ export const sessionCreateController = createRPCController({
   async getProjectWorkspaces(projectId: string) {
     return getProjectWorkspaces(projectId);
   },
+  // The desktop task page's launch of the session it just created: workspace first, then its creation turns.
   async provisionWorkspace(sessionId: string) {
-    return sessionService.provisionWorkspace(sessionId);
+    const result = await sessionService.provisionWorkspace(sessionId);
+    if (result.success) await admitFirstMessages(sessionId);
+    return result;
   },
   generateSessionName,
 });

@@ -133,37 +133,6 @@ describe('AcpRuntime session manager', () => {
     expect(h.agent.prompt).not.toHaveBeenCalled();
   });
 
-  it('creates the starting machine when queuePrompt wins the startSession race', async () => {
-    const h = makeAcpHarness();
-    const rt = new AcpRuntime(h.deps);
-    let resolveNewSession!: (value: { sessionId: string }) => void;
-    h.agent.newSession.mockImplementationOnce(
-      () => new Promise<{ sessionId: string }>((resolve) => { resolveNewSession = resolve; })
-    );
-    const startInput = makeStartInput({ sessionId: 'conv-queue-wins-race' });
-
-    const queued = rt.queuePrompt(
-      'conv-queue-wins-race',
-      { text: 'second', origin: 'manual' },
-      startInput,
-    );
-    await untilSessionSummary(rt, 'conv-queue-wins-race', 'the prompt is queued on the starting machine', (summary) => (summary?.queuedPromptCount ?? 0) >= 1);
-    expect(rt.sessionsListLiveModel().states.list.snapshot().data['conv-queue-wins-race']?.queuedPromptCount).toBe(1);
-    await expect(queued).resolves.toEqual({ success: true, data: { queued: true } });
-    expect(rt.getSessionState('conv-queue-wins-race').queuedPrompts.map((prompt) => prompt.text))
-      .toEqual(['second']);
-
-    await h.agent.called('newSession');
-    expect(h.agent.newSession).toHaveBeenCalledTimes(1);
-    resolveNewSession({ sessionId: 'session-queue-wins-race' });
-    await h.agent.whenCalled('the queued prompt is sent to the new session', () =>
-      h.agent.prompt.mock.calls.some(([request]) =>
-        (request as { sessionId?: string } | undefined)?.sessionId === 'session-queue-wins-race'));
-    expect(h.agent.prompt).toHaveBeenCalledWith(expect.objectContaining({
-      sessionId: 'session-queue-wins-race',
-    }));
-  });
-
   it('backfills connection image capability on the starting machine', async () => {
     const h = makeAcpHarness();
     const rt = new AcpRuntime(h.deps);
@@ -200,40 +169,6 @@ describe('AcpRuntime session manager', () => {
     expect(rt.sessionsListLiveModel().states.list.snapshot().data[sessionId]?.canLoadSession).toBe(loadSession);
   });
 
-  it('keeps a reload prompt in the starting machine while session/load is pending', async () => {
-    const h = makeAcpHarness();
-    const rt = new AcpRuntime(h.deps);
-    let resolveLoad!: (value: Record<string, never>) => void;
-    h.agent.loadSession.mockImplementationOnce(
-      () => new Promise<Record<string, never>>((resolve) => { resolveLoad = resolve; })
-    );
-    const startInput = makeStartInput({
-      sessionId: 'conv-load-queue-race',
-      providerSessionId: 'provider-session',
-    });
-
-    const queued = rt.queuePrompt(
-      'conv-load-queue-race',
-      { text: 'after reload', origin: 'manual' },
-      startInput,
-    );
-    await untilSessionSummary(rt, 'conv-load-queue-race', 'the prompt is queued on the starting machine', (summary) => (summary?.queuedPromptCount ?? 0) >= 1);
-    expect(rt.sessionsListLiveModel().states.list.snapshot().data['conv-load-queue-race']?.queuedPromptCount).toBe(1);
-    await expect(queued).resolves.toEqual({ success: true, data: { queued: true } });
-    await h.agent.called('loadSession');
-    expect(h.agent.loadSession).toHaveBeenCalledTimes(1);
-    expect(rt.getSessionState('conv-load-queue-race').queuedPrompts.map((prompt) => prompt.text))
-      .toEqual(['after reload']);
-
-    resolveLoad({});
-    await h.agent.called('prompt');
-    expect(h.agent.prompt).toHaveBeenCalledTimes(1);
-  });
-
-  /**
-   * #6762 聊天面还没挂上会话时发的话,主进程在会话已活着时转成纯 `queuePrompt`(`forward-live`)。
-   * 会话此刻空闲 ⇒ 这一句必须当场开轮;从前它停在空闲会话的队列里,再没有任何边界来抽干。
-   */
   it('queuePrompt on a ready idle session starts the turn instead of parking it (#6762)', async () => {
     const h = makeAcpHarness();
     const rt = new AcpRuntime(h.deps);

@@ -11,10 +11,14 @@ export type PendingPrompt = {
   text: string;
   attachments?: ChatAttachment[];
   /**
-   * 发出的时刻。只用来定这一句落在哪一天(日期分隔):真的那一轮开出时也带着时刻,有了它两边上下文一样,
-   * 交接时那句话不跳。❌ 不是这一轮的计时起点 —— 这时时间头是占位(`placeholderTurnHeader`),不数秒。
+   * 发出的时刻:这一轮唯一的计时起点。真的那一轮开出时带着同一个时刻(`PromptInput.sentAt`),交接时计时不回跳、
+   * 那句话也不跳(同一天)。
    */
   sentAt?: number;
+  /** A host queue row: new history (a seed while the session attaches) does not take it, only its own turn does. */
+  held?: boolean;
+  /** Its session is still starting (the lifecycle's own state): the live line says so instead of the working label. */
+  starting?: boolean;
 };
 
 /** 乐观行画成的那一轮:只有人说的那一句。 */
