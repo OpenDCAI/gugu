@@ -103,6 +103,7 @@ export interface ProvisionedSessionpageAgentOneTrip {
    * none | active | archived | missing | foreign —— 映射里那个群在服务端看来的状态。
    * foreign = 那个 id 不是调用者所在的群(别人的群 / 非群);服务端不往里加人,改建新群(同 archived)。
    * pending_approval = 群开了「Agent 加入需审批」而调用者不是管理员:进了待审请求,groupChatId 为 ''。
+   * join_failed = 入群失败,身份仍已创建,groupChatId 为 ''。
    */
   priorGroupState: string
 }
