@@ -107,7 +107,7 @@ export function outboxRecordToMessage(
     delivery_status: null,
     local_send_state: record.state === 'failed' ? 'failed' : 'sending',
     local_send_error: record.lastError,
-    local_send_retryable: !record.dependencyDiscarded && record.operation?.kind !== 'upload',
+    local_send_retryable: !record.dependencyDiscarded && record.operation?.kind !== 'upload' && record.operation?.kind !== 'nativeAttachment',
     ...(record.operation?.kind === 'forward' && record.operation.source.kind === 'message' ? { forwarded_from_message_id: record.operation.source.id } : {}),
   }
 }
@@ -152,7 +152,7 @@ export function createOutboxWiring(io: OutboxWiringIo): OutboxWiring {
     if (!active) return
     const state = record.state === 'failed' ? 'failed' : 'sending'
     const patchRow = (m: MessageItem) =>
-      m.id === record.clientMessageId ? { ...m, local_send_state: state as MessageItem['local_send_state'], local_send_error: record.lastError, local_send_retryable: !record.dependencyDiscarded && record.operation?.kind !== 'upload' } : m
+      m.id === record.clientMessageId ? { ...m, local_send_state: state as MessageItem['local_send_state'], local_send_error: record.lastError, local_send_retryable: !record.dependencyDiscarded && record.operation?.kind !== 'upload' && record.operation?.kind !== 'nativeAttachment' } : m
     if (record.payload.threadRootId) {
       io.setThreadMessages((prev) => prev.map(patchRow), record.chatId)
     } else {
@@ -265,21 +265,7 @@ export function createOutboxWiring(io: OutboxWiringIo): OutboxWiring {
         const timing = attachmentTimings.get(record.clientMessageId) ?? attachmentSendTiming(record.clientMessageId, record.chatId)
         raw = await timing.stage('commit', record.attempts + 1, async () => commitAttachment(await attachmentsEndpoint(), operation.commit))
       }
-      if (operation?.kind === 'nativeAttachment') {
-        const publish = nativeCommits.get(record.clientMessageId)
-        if (publish) {
-          // Publish native bytes at most once. A lost IPC acknowledgement is
-          // reconciled by the same message id on a later attempt.
-          nativeCommits.delete(record.clientMessageId)
-          const result = await publish()
-          return result
-        } else {
-          const timing = attachmentTimings.get(record.clientMessageId) ?? attachmentSendTiming(record.clientMessageId, record.chatId)
-          const existing = await timing.stage('readback', record.attempts + 1, () => chatService.getMessageById(record.clientMessageId, record.senderUserId))
-          if (existing) return existing
-          throw new Error(i18n.t('outbox.selectFileAgain', { ns: 'messaging' }))
-        }
-      }
+      if (operation?.kind === 'nativeAttachment') throw new Error('Native publication must remain outside the delivery lane')
       if (operation?.kind === 'forward' && operation.source.kind === 'file') {
         raw = await shareAttachment(await attachmentsEndpoint(), {
           item_id: operation.source.id, version: operation.source.version, message_id: record.clientMessageId,
@@ -308,7 +294,7 @@ export function createOutboxWiring(io: OutboxWiringIo): OutboxWiring {
     onSent: (record, acknowledged) => {
       if (record.operation?.kind === 'topic') {
         const topic = acknowledged as CreatedTopic
-        openTopicTab(record.chatId, { topicChatId: topic.chat_id, name: topic.name })
+        if (!topicResults.has(record.clientMessageId)) openTopicTab(record.chatId, { topicChatId: topic.chat_id, name: topic.name })
         removeRow(record)
         return
       }
@@ -331,6 +317,8 @@ export function createOutboxWiring(io: OutboxWiringIo): OutboxWiring {
         ? { kind: 'attachment', commit: { ...commit, staging_key: prepared.staging_key } }
         : { kind: 'nativeAttachment', commit }
       if ('local' in prepared) nativeCommits.set(message.id, async () => {
+        const source = outboxRecordForMessage(message, operation).dependsOn
+        if (source) await outbox.delivered(source)
         const row = await settleAttachmentSend({ endpoint: await attachmentsEndpoint(), prepared, commit, timing,
           observeMessage: io.observeMessage?.(commit.sender_user_id, message.chat_id),
           onLateMessage: row => { if (active) void outbox.confirm(message.id, row) },
@@ -338,7 +326,13 @@ export function createOutboxWiring(io: OutboxWiringIo): OutboxWiring {
         if (!row) throw new Error(i18n.t('outbox.sendFailed', { ns: 'messaging' }))
         return row
       })
-      if (!await outbox.commitUpload(outboxRecordForMessage(message, operation))) nativeCommits.delete(message.id)
+      if (!await outbox.commitUpload(outboxRecordForMessage(message, operation))) { nativeCommits.delete(message.id); return }
+      const publish = nativeCommits.get(message.id)
+      if (publish) {
+        nativeCommits.delete(message.id)
+        void publish().then(row => active ? outbox.confirm(message.id, row) : undefined,
+          error => active ? outbox.failUpload(message.id, error) : undefined)
+      }
     },
     async forward(source, targetChatId, senderUserId) {
       const file = 'itemId' in source
@@ -422,6 +416,16 @@ export function createOutboxWiring(io: OutboxWiringIo): OutboxWiring {
         const user = io.user()
         if (!user) return
         for (const record of records) {
+          if (record.operation?.kind === 'nativeAttachment') {
+            const timing = attachmentSendTiming(record.clientMessageId, record.chatId)
+            const commit = record.operation.commit
+            void settleAttachmentSend({ commit, timing,
+              observeMessage: io.observeMessage?.(record.senderUserId, record.chatId),
+            }).then(row => {
+              if (!active) return
+              return row ? outbox.confirm(record.clientMessageId, row) : outbox.failUpload(record.clientMessageId, new Error('Native receipt not found'))
+            }, error => active ? outbox.failUpload(record.clientMessageId, error) : undefined)
+          }
           if (record.payload.threadRootId) continue // 话题行在 openThread 时经 injectThreadOutboxRows 注入
           const row = outboxRecordToMessage(record, user)
           io.setMessagesAndCache((prev) => upsertMessageById(prev, row), record.chatId)

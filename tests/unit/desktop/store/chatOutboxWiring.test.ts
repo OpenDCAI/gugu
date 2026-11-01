@@ -1,4 +1,6 @@
 // @vitest-environment jsdom
+import * as attachmentRecovery from '../../../../apps/desktop/src/lib/attachmentSendRecovery'
+import * as attachmentEndpoint from '../../../../apps/desktop/src/lib/attachmentsEndpoint'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { MessageItem } from '@gugu/core/shared/types/chat'
 import { upsertMessageById } from '@gugu/core/shared/ui/messageListModels'
@@ -290,9 +292,30 @@ it('reconciles a restored native commit before asking the user to select bytes a
     payload: { content: 'native.txt', contentType: 'attachment', toUserIds: [], replyToMessageId: null, threadRootId: null, isThreadRoot: false, isWhisper: false },
     operation: { kind: 'nativeAttachment', commit: { message_id: persisted.id, chat_id: 'chat-1', sender_user_id: 'owner-1', file_name: 'native.txt', to_user_ids: [] } },
     state: 'sending', attempts: 0, lastError: null, enqueuedAt: now, updatedAt: now })
-  await f.wiring.outbox.restore()
-  await vi.waitFor(() => expect(f.appendMessage).toHaveBeenCalledWith(persisted))
+  const stop = f.wiring.restoreAndWatch()
+  await vi.waitFor(() => expect(f.appendMessage).toHaveBeenCalledWith(expect.objectContaining(persisted)))
   expect(read).toHaveBeenCalledWith(persisted.id, 'owner-1')
+  expect((await f.repository).snapshot().outbox).toEqual([])
+  stop()
+  f.wiring.dispose()
+})
+
+it('publishes a native file outside the lane so later text can finish first', async () => {
+  const f = wiringHarness('native-slow')
+  const publication = deferred<MessageItem | null>()
+  const publish = vi.spyOn(attachmentRecovery, 'settleAttachmentSend').mockReturnValue(publication.promise)
+  vi.spyOn(attachmentEndpoint, 'attachmentsEndpoint').mockResolvedValue({ supabaseUrl: 'https://db.test', anonKey: 'anon', token: 'token' })
+  const send = vi.spyOn(chatService, 'sendMessage').mockImplementation(async (_chat, _sender, _content, id) => persistedMessage(id!))
+  const native = { ...optimisticMessage('native-slow'), content_type: 'attachment' as const }
+  await f.wiring.stageAttachment(native)
+  await f.wiring.commitAttachment(native, { local: new File(['bytes'], 'large.txt') }, {
+    message_id: native.id, chat_id: native.chat_id, sender_user_id: 'owner-1', file_name: 'large.txt', to_user_ids: [] })
+  await f.wiring.enqueue(enqueueInput('later-text'))
+  await vi.waitFor(() => expect(send).toHaveBeenCalledOnce())
+  expect(publish).toHaveBeenCalledOnce()
+  expect((await f.repository).snapshot().outbox.map(row => row.value)).toEqual([expect.objectContaining({ clientMessageId: 'native-slow', state: 'uploading' })])
+  publication.resolve({ ...persistedMessage(native.id), content_type: 'attachment' })
+  await vi.waitFor(() => expect((f.messages()).find(row => row.id === native.id)?.seq).toBe(42))
   expect((await f.repository).snapshot().outbox).toEqual([])
   f.wiring.dispose()
 })

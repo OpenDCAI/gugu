@@ -172,6 +172,7 @@ export function createChatOutbox(deps: OutboxDeps): ChatOutbox {
         if (!isActive(operationEpoch) || !records.has(record.clientMessageId)) return
         deps.onState(failed)
         rejectWaiter(failed.clientMessageId, failed.lastError ?? i18n.t('outbox.sendFailed', { ns: 'messaging' }))
+        kick()
       } catch (persistError) {
         outboxLog.error({ error: persistError }, 'durable ack failure could not be persisted')
       }
@@ -204,6 +205,7 @@ export function createChatOutbox(deps: OutboxDeps): ChatOutbox {
           if (!isActive(operationEpoch)) return
           deps.onState(record)
           rejectWaiter(record.clientMessageId, record.lastError!)
+          kick()
           continue
         }
         for (let attempt = 1; attempt <= backoffMs.length + 1; attempt += 1) {
@@ -298,13 +300,13 @@ export function createChatOutbox(deps: OutboxDeps): ChatOutbox {
     has(id) { return records.has(id) },
     async confirm(id, delivered) {
       const record = records.get(id)
-      if (record && !disposed) await settleSent(record, delivered, epoch)
+      if (record && !disposed) settleSentInBackground(record, delivered, epoch)
     },
     async commitUpload(record) {
       const source = records.get(record.clientMessageId)
       if (disposed || source?.state !== 'uploading') return false
       const operationEpoch = epoch
-      const ready: OutboxRecord = { ...record, enqueuedAt: source.enqueuedAt, state: 'pending', attempts: 0, lastError: null }
+      const ready: OutboxRecord = { ...record, enqueuedAt: source.enqueuedAt, state: record.operation?.kind === 'nativeAttachment' ? 'uploading' : 'pending', attempts: 0, lastError: null }
       await deps.save(ready)
       if (!isActive(operationEpoch)) return false
       // Discard may have happened while persistence was in flight. Never revive it.
@@ -338,7 +340,7 @@ export function createChatOutbox(deps: OutboxDeps): ChatOutbox {
       if (disposed) return
       const operationEpoch = epoch
       const record = records.get(clientMessageId)
-      if (!record || record.state !== 'failed' || record.dependencyDiscarded || record.operation?.kind === 'upload') return
+      if (!record || record.state !== 'failed' || record.dependencyDiscarded || (record.operation?.kind === 'upload' || record.operation?.kind === 'nativeAttachment')) return
       const next = await persist(record, 'pending', { attempts: 0, lastError: null }, operationEpoch)
       if (!isActive(operationEpoch)) return
       deps.onState(next)
@@ -374,7 +376,7 @@ export function createChatOutbox(deps: OutboxDeps): ChatOutbox {
       if (disposed) return
       const operationEpoch = epoch
       for (const record of records.values()) {
-        if (record.state === 'failed' && !record.dependencyDiscarded && record.operation?.kind !== 'upload') {
+        if (record.state === 'failed' && !record.dependencyDiscarded && record.operation?.kind !== 'upload' && record.operation?.kind !== 'nativeAttachment') {
           const next = await persist(record, 'pending', { attempts: 0, lastError: null }, operationEpoch)
           if (!isActive(operationEpoch)) return
           deps.onState(next)
@@ -391,8 +393,8 @@ export function createChatOutbox(deps: OutboxDeps): ChatOutbox {
       for (const row of rows) {
         lastEnqueuedAt = Math.max(lastEnqueuedAt, Date.parse(row.enqueuedAt))
         // 死在投递中的 'sending' 行视同 pending 重投(幂等键兜底,双发机制性不可能)
-        const interrupted = row.state === 'uploading'
-        const state = interrupted ? 'failed' : row.state === 'sending' ? 'pending' : row.state
+        const interrupted = row.state === 'uploading' && row.operation?.kind !== 'nativeAttachment'
+        const state = interrupted ? 'failed' : row.operation?.kind === 'nativeAttachment' && row.state !== 'failed' ? 'uploading' : row.state === 'sending' ? 'pending' : row.state
         const record: OutboxRecord = { ...row, state, ...(interrupted ? { operation: { kind: 'upload' }, lastError: i18n.t('outbox.selectFileAgain', { ns: 'messaging' }) } : {}) }
         if (state !== row.state) await deps.save(record)
         if (!isActive(operationEpoch)) return []

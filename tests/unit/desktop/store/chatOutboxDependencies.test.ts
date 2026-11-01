@@ -7,9 +7,10 @@ function record(id: string, chatId = 'A', dependsOn?: string): OutboxRecord {
     payload: { content: id, contentType: 'text', toUserIds: null, replyToMessageId: null, threadRootId: null, isThreadRoot: false, isWhisper: false },
     state: 'pending', attempts: 0, lastError: null, enqueuedAt: '2026-11-01T00:00:00Z', updatedAt: '2026-11-01T00:00:00Z' }
 }
-function fixture(saved = new Map<string, OutboxRecord>(), beforeSave: (record: OutboxRecord) => Promise<void> = async () => {}) {
+function fixture(saved = new Map<string, OutboxRecord>(), beforeSave: (record: OutboxRecord) => Promise<void> = async () => {}, ack?: (record: OutboxRecord) => Promise<void>) {
   const send = vi.fn(async (_row: OutboxRecord): Promise<void> => {})
   const outbox = createChatOutbox({ load: async () => [...saved.values()], save: async r => { await beforeSave(r); saved.set(r.clientMessageId, structuredClone(r)) },
+    ...(ack ? { ack: async (row: OutboxRecord) => { await ack(row); saved.delete(row.clientMessageId) } } : {}),
     remove: async id => { saved.delete(id) }, deliver: send, onSent: vi.fn(), onDiscarded: vi.fn(), onState: vi.fn(), backoffMs: [] })
   return { saved, send, outbox }
 }
@@ -212,7 +213,8 @@ describe('creation order prevents lane/dependency cycles', () => {
     for (let seed = 1; seed <= 30; seed++) {
       let randomState = seed
       const random = () => { randomState = (Math.imul(randomState, 1664525) + 1013904223) >>> 0; return randomState }
-      let f = fixture()
+      const ack = async (row: OutboxRecord) => { if (row.clientMessageId === 'ack-final') throw new Error('ack failed') }
+      let f = fixture(new Map(), async () => {}, ack)
       const configure = () => f.send.mockImplementation(async row => { if (Number(row.clientMessageId.slice(1)) % 7 === 0) throw new Error('offline') })
       configure()
       const ids: string[] = []
@@ -229,12 +231,70 @@ describe('creation order prevents lane/dependency cycles', () => {
           if (uploading) await f.outbox.commitUpload({ ...uploading, operation: undefined })
         }
         await flush()
-        if (n === 12) { f.outbox.dispose(); f = fixture(f.saved); configure(); await f.outbox.restore(); await flush() }
+        if (n === 12) { f.outbox.dispose(); f = fixture(f.saved, async () => {}, ack); configure(); await f.outbox.restore(); await flush() }
       }
       for (const row of [...f.saved.values()]) if (row.state === 'uploading') await f.outbox.commitUpload({ ...row, operation: undefined })
       await flush()
       expect([...f.saved.values()].filter(row => row.state !== 'failed'), `seed ${seed}`).toEqual([])
+      // No subsequent enqueue may conceal a missing failure-settlement kick.
+      await f.outbox.stageUpload({ ...record('last-upload', 'A'), operation: { kind: 'upload' } })
+      await f.outbox.enqueue(record('last-forward', 'B', 'last-upload'))
+      await f.outbox.enqueue(record('last-chain', 'C', 'last-forward'))
+      await flush()
+      await f.outbox.failUpload('last-upload', new Error('offline'))
+      await flush()
+      expect([...f.saved.values()].filter(row => row.state !== 'failed'), `upload-last seed ${seed}`).toEqual([])
+      await f.outbox.enqueue(record('ack-final', 'A'))
+      await f.outbox.enqueue(record('ack-forward', 'B', 'ack-final'))
+      await f.outbox.enqueue(record('ack-chain', 'C', 'ack-forward'))
+      await flush()
+      expect([...f.saved.values()].filter(row => row.state !== 'failed'), `ack-last seed ${seed}`).toEqual([])
       f.outbox.dispose()
     }
   })
+})
+
+it('propagates the last upload failure through multiple lanes without another external kick', async () => {
+  vi.useFakeTimers()
+  const f = fixture()
+  await f.outbox.stageUpload({ ...record('s', 'A'), operation: { kind: 'upload' } })
+  await f.outbox.enqueue(record('f1', 'B', 's'))
+  await f.outbox.enqueue(record('f2', 'C', 'f1'))
+  await f.outbox.enqueue(record('later', 'C'))
+  await flush()
+  await f.outbox.failUpload('s', new Error('refused'))
+  await flush()
+  expect(f.send.mock.calls.map(([row]) => row.clientMessageId)).toEqual(['later'])
+  expect([...f.saved.values()].map(row => row.state)).toEqual(['failed', 'failed', 'failed'])
+  f.outbox.dispose()
+})
+it('propagates the last durable ack failure to a dependent without another external kick', async () => {
+  vi.useFakeTimers()
+  const saved = new Map<string, OutboxRecord>()
+  const send = vi.fn(async () => {})
+  const outbox = createChatOutbox({ load: async () => [], save: async row => { saved.set(row.clientMessageId, structuredClone(row)) },
+    remove: async id => { saved.delete(id) }, ack: async () => { throw new Error('local write failed') }, deliver: send,
+    onSent: vi.fn(), onDiscarded: vi.fn(), onState: vi.fn(), backoffMs: [] })
+  await outbox.enqueue(record('s', 'A'))
+  await outbox.enqueue(record('f', 'B', 's'))
+  await flush()
+  expect(send).toHaveBeenCalledOnce()
+  expect([...saved.values()].map(row => row.state)).toEqual(['failed', 'failed'])
+  outbox.dispose()
+})
+it('native publication remains outside the lane and is confirmed through the same durable ack', async () => {
+  vi.useFakeTimers()
+  const f = fixture()
+  await f.outbox.stageUpload({ ...record('native'), operation: { kind: 'upload' } })
+  await f.outbox.commitUpload({ ...record('native'), operation: { kind: 'nativeAttachment', commit: { message_id: 'native', chat_id: 'A', sender_user_id: 'user', file_name: 'large.txt', to_user_ids: [] } } })
+  await f.outbox.enqueue(record('text'))
+  await f.outbox.enqueue(record('forward', 'B', 'native'))
+  await flush()
+  expect(f.send.mock.calls.map(([row]) => row.clientMessageId)).toEqual(['text'])
+  expect(f.saved.get('native')?.state).toBe('uploading')
+  await f.outbox.confirm('native', undefined)
+  await flush()
+  expect(f.send.mock.calls.map(([row]) => row.clientMessageId)).toEqual(['text', 'forward'])
+  expect([...f.saved.values()]).toEqual([])
+  f.outbox.dispose()
 })
