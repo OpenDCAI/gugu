@@ -75,6 +75,35 @@ describe('ImagePreviewProvider', () => {
     await waitForCondition(() => release.mock.calls.length === 1, 'viewer-owned URLs were not released')
   })
 
+  it.each(['File preview HTTP 503', 'File has no media preview'])('still displays the original when the thumbnail fails: %s', async (failure) => {
+    const full = vi.fn(async () => 'blob:original'), toast = vi.fn()
+    await openViewer({ toast, images: [{ url: '', alt: 'original available', preview: async () => { throw new Error(failure) }, full }] })
+    await waitForCondition(() => document.querySelector('img.pswp__img[src="blob:original"]') !== null, 'available original was not displayed')
+    expect(full).toHaveBeenCalledTimes(1)
+    expect(toast).not.toHaveBeenCalled()
+  })
+
+  it('does not start the original when the thumbnail fails after closing', async () => {
+    let failThumbnail!: (error: Error) => void
+    const thumbnail = new Promise<string>((_resolve, reject) => { failThumbnail = reject })
+    const full = vi.fn(async () => 'blob:original'), toast = vi.fn()
+    await openViewer({ toast, images: [{ url: '', alt: 'closed', preview: () => thumbnail, full }] })
+    await clickElement(byTestId(AUTOMATION_TEST_IDS.imagePreviewClose)!)
+    await waitForCondition(() => byTestId(AUTOMATION_TEST_IDS.imagePreviewOverlay) === null, 'viewer did not close')
+    await act(async () => failThumbnail(new Error('File preview HTTP 503')))
+    expect(full).not.toHaveBeenCalled()
+    expect(toast).not.toHaveBeenCalled()
+    expect(byTestId(AUTOMATION_TEST_IDS.imagePreviewOverlay)).toBeNull()
+  })
+
+  it('reports the file error when both the thumbnail and original fail', async () => {
+    const full = vi.fn(async () => { throw new Error('original unavailable') }), toast = vi.fn()
+    await openViewer({ toast, images: [{ url: '', alt: 'unavailable', preview: async () => { throw new Error('File preview HTTP 503') }, full }] })
+    await waitForCondition(() => toast.mock.calls.length > 0, 'file error was not reported')
+    expect(full).toHaveBeenCalledTimes(1)
+    expect(document.querySelector('.pswp__error-msg')).not.toBeNull()
+  })
+
   it('closing while the thumbnail is pending never loads the original or reopens the viewer', async () => {
     let finish!: (url: string) => void
     const thumbnail = new Promise<string>(resolve => { finish = resolve }), full = vi.fn()

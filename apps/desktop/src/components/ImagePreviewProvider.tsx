@@ -164,7 +164,14 @@ function wireViewer(pswp: PhotoSwipe, dialogLabel: string, onFileError: (item: I
       pswp.refreshSlideContent(index)
     }
     void (async () => {
-      if (data.item.preview) { replace(await data.item.preview()); if (pswp.isDestroying || !pswp.isOpen) return }
+      if (data.item.preview) {
+        try { replace(await data.item.preview()) }
+        catch (error) {
+          if (!data.item.full) throw error
+          log.warn({ error: String(error) }, 'image preview unavailable')
+        }
+        if (pswp.isDestroying || !pswp.isOpen) return
+      }
       if (data.item.full) replace(await data.item.full())
     })().catch((error: unknown) => {
       if (pswp.isDestroying || !pswp.isOpen) return
