@@ -8,7 +8,7 @@ import { readMemberRosterRevision, type AccountRevisionEvent, type AccountRevisi
 // (那一维正是 owner 2026-09-11 报的「群里工作中、单聊空闲」的来源)。
 //
 // 一个 agent 的状态有三根互相独立的轴(spec agent-status-vocabulary):
-//   · 可达 —— 云端那一行(账号 / 设备 / 意图 / runtime),跨设备、可回源
+//   · 可达 —— 云端那一行(账号 / 设备 / 意图 / runtime);本机再核命令队列同源的持有事实
 //   · 读数 —— 跑这个 agent 的宿主的状态写入者写下的那一句(基础态 + 附属态)
 //   · 未读 —— 看的人自己的
 // 读数只有一个写入者,走两条路:这台机器就是它的宿主时读本机流(宿主按 agent 的流,同一个写入者、路更短),
@@ -130,6 +130,7 @@ export function setPresenceBusContext(ctx: { currentUserId: string | null }): vo
       }
       entry.state = neverObservedAgentPresence(entry.agentUserId)
       entry.local = null
+      entry.holding = null
       entry.dirty = false
       notify(entry)
     }
@@ -203,7 +204,7 @@ export function setLocalAgentStatus(agentUserId: string, local: LocalAgentStatus
   if (!entry || sameLocal(entry.local, local)) return
   const bindingChanged = entry.local?.sessionId !== local?.sessionId
   entry.local = local
-  if (bindingChanged) void fetchSnapshot(entry)
+  if (bindingChanged && entry.holding !== null) void fetchSnapshot(entry)
   const projected = projectState(entry.state, Date.now(), entry.local, entry.holding)
   if (projected === entry.state) return
   entry.state = projected
