@@ -764,6 +764,11 @@ export default {
       "sending": "发送中"
     },
     "showQuoted": "跳到被引用的消息",
+    "svgFigure": {
+      "invalid": "这段 SVG 无法显示：不是格式正确的 SVG 文档",
+      "noViewbox": "这段 SVG 无法显示：根元素缺少 viewBox",
+      "tooLarge": "这段 SVG 无法显示：超过 64 KB"
+    },
     "taskCard": {
       "task": "新任务",
       "schedule": "已安排",
@@ -792,11 +797,7 @@ export default {
     "whisperBoth": "悄悄话 · 仅你与对方可见",
     "whisperOnlyYou": "悄悄话 · 仅你可见",
     "whisperTo": "悄悄话给 {{name}} · 仅你与对方可见",
-    "widget": "[Widget]",
-    "widgetCard": {
-      "empty": "无内容",
-      "loading": "加载中"
-    }
+    "widget": "[Widget]"
   },
   "outbox": {
     "deliveryTimeout": "投递超时 {{seconds}}s（网络挂起）",

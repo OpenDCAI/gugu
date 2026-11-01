@@ -765,6 +765,11 @@ export default {
       "sending": "Sending"
     },
     "showQuoted": "Go to the quoted message",
+    "svgFigure": {
+      "invalid": "This SVG could not be drawn: it is not a well-formed SVG document",
+      "noViewbox": "This SVG could not be drawn: its root needs a viewBox",
+      "tooLarge": "This SVG could not be drawn: it is larger than 64 KB"
+    },
     "taskCard": {
       "task": "New task",
       "schedule": "Scheduled",
@@ -793,11 +798,7 @@ export default {
     "whisperBoth": "Whisper · only visible to you both",
     "whisperOnlyYou": "Whisper · only visible to you",
     "whisperTo": "Whisper to {{name}} · only visible to you both",
-    "widget": "[Widget]",
-    "widgetCard": {
-      "empty": "No content",
-      "loading": "Loading"
-    }
+    "widget": "[Widget]"
   },
   "outbox": {
     "deliveryTimeout": "Delivery timed out after {{seconds}}s because the network stopped responding",

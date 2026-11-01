@@ -2,7 +2,7 @@
  * Geometry types produced by the projected layout engine.
  *
  * These are plain data structures (no React, no MobX).
- * Leaf block layout types (Html, Code, Mermaid, Math) are consumed by their
+ * Leaf block layout types (Html, Code, Mermaid, Svg, Math) are consumed by their
  * block renderers and by BlockFrame for positioning.
  * They are also extended with a `raw` back-reference in BlockLeafLayout
  * (Project.tsx) so renderBlockLeaf can access source block data without a
@@ -30,7 +30,7 @@ export type CodeLaidOut = {
 // Produced by `measureBlockCached` in `core/layout/block-stack.ts`.
 // Used by `renderBlockLeaf` and `BlockStackView` to render without a lookup.
 
-import type { CodeBlock, HtmlBlock, MathBlock, MermaidBlock } from '@session-chat/core/markdown/document';
+import type { CodeBlock, HtmlBlock, MathBlock, MermaidBlock, SvgBlock } from '@session-chat/core/markdown/document';
 
 /** Html block: its box was read from the DOM (components/rows/markdown/html/layout.ts). */
 export type HtmlLeafLayout = {
@@ -58,6 +58,16 @@ export type MermaidLaidOut = {
 
 export type MermaidLeafLayout = MermaidLaidOut & { raw: MermaidBlock };
 
+/** Layout for a ```svg figure — its viewBox aspect at the row's width, never wider than the viewBox. */
+export type SvgLeafLayout = {
+  kind: 'svg';
+  id: string;
+  top: number;
+  height: number;
+  contentWidth: number;
+  raw: SvgBlock;
+};
+
 /**
  * Layout for a display-math block — height comes from typesetting the formula
  * offscreen, so the reserved box and the painted box are the same measurement.
@@ -78,4 +88,4 @@ export type MathLaidOut = {
 
 export type MathLeafLayout = MathLaidOut & { raw: MathBlock };
 
-export type BlockLeafLayout = HtmlLeafLayout | CodeLeafLayout | MermaidLeafLayout | MathLeafLayout;
+export type BlockLeafLayout = HtmlLeafLayout | CodeLeafLayout | MermaidLeafLayout | SvgLeafLayout | MathLeafLayout;
