@@ -14,12 +14,16 @@ const h = vi.hoisted(() => ({
   /** The in-memory registry: empty until something mounts the session (e.g. right after a restart). */
   registered: true,
   identityCwd: null as string | null,
+  startSession: vi.fn(),
 }));
 
 vi.mock('./agent-status-bridge', () => ({
   acpAgentStatusBridge: { watch: (id: string, cb: (summary: Summary | undefined) => void) => { h.watchers.set(id, cb); return () => h.watchers.delete(id); } },
 }));
 vi.mock('./runtime-process/host', () => ({
+  callSessionStart: (start: () => Promise<unknown>) => start(),
+  persistProviderSessionMissing: vi.fn(),
+  persistReturnedProviderSessionId: vi.fn(),
   acpWorkerLease: async () => ({ client: h.client, onGone: (cb: (cause: string) => void) => { h.gone = cb; return () => { h.gone = null; }; } }),
   stopAcpSessionAndSettle: h.stopAndSettle,
   readSessionInjectionFacts: async () => ({ agentDisplayName: undefined }),
@@ -118,6 +122,24 @@ describe('session-life ACP leg', () => {
     h.inject.mockRejectedValueOnce(new Error('Session not found'));
     // The prompt may have reached the worker before it broke: not a lost channel, whatever the session reads after.
     await expect(adapter.dispatch({} as StageOut, row, ctx())).rejects.toThrow('Session not found');
+  });
+
+  it('a session that closes while its start is out is that start\'s typed failure, never a bare exit that beats it', async () => {
+    const adapter = await boundAdapter();
+    const process = { ...(await processLease()), client: { startSession: h.startSession } } as unknown as ProcessLease;
+    const exits: ExitFact[] = [];
+    adapter.onExit({ process }, exit => exits.push(exit));
+    let answer!: (value: unknown) => void;
+    h.startSession.mockImplementationOnce(() => new Promise((resolve) => { answer = resolve; }));
+    const have = { process, cli: { command: { input: { projectId: 'p' } } }, platform: { injected: false }, capabilities: {} } as never;
+    const channel = adapter.run('channel', have, ctx());
+    // The resume of a record the engine no longer has: the runtime session closes, then the start answers why.
+    h.watchers.get('s')!({ lifecycle: 'starting' });
+    h.watchers.get('s')!({ lifecycle: 'closed' });
+    answer({ success: false, error: { type: 'provider_session_missing', message: 'Resource not found' } });
+    await expect(channel).rejects.toMatchObject({ name: 'AcpStartFailed', data: expect.stringContaining('provider_session_missing') });
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(exits).toEqual([]);
   });
 
   it('#552: an exit seen while a missing dispatch is out is subsumed by the lost channel', async () => {

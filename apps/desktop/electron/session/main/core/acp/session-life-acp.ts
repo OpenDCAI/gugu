@@ -79,6 +79,10 @@ export function createAcpLegAdapter(sessionId: string, fork: RuntimeFork | null)
   let row: Row | null = null;
   let facts: Facts | null = null;
   let identity: EmdashSessionIdentity | null = null;
+  // The start call while it is out: true once it admitted the channel, false when it failed. A session that closes
+  // while the start is out (a resume of a record the engine no longer has closes as it refuses) is that start's
+  // failure, reported by the start with its typed reason, never a bare exit that beats it.
+  let starting: Promise<boolean> | null = null;
 
   const known = (): Row => { if (!row) throw new Error('ACP stage ran before identity'); return row; };
 
@@ -155,28 +159,34 @@ export function createAcpLegAdapter(sessionId: string, fork: RuntimeFork | null)
       return lease<Worker>(await acpWorkerLease()) as ProcessLease;
     },
     async channel(have, _signal, gen): Promise<AdmittedChannel> {
-      const worker = read<Worker>(have.process);
-      const { command } = read<Cli>(have.cli);
-      const result = await callSessionStart(() => worker.client.startSession(command), sessionId, read<Platform>(have.platform).injected);
-      await persistAcpStartResult(command.input, result, {
-        persistReturnedProviderSessionId, persistProviderSessionMissing, recordRuntimeForkOwnership,
-      });
-      // The runtime's typed reason travels whole (in `data`): the task page turns it back into its specific
-      // remedies (sign in, install, update, pick another model), the same as when a page started the runtime itself.
-      if (!result.success) {
-        throw Object.assign(new Error(`ACP session ${sessionId} did not start: ${result.error.message ?? result.error.type}`),
-          { name: ACP_START_FAILED, data: JSON.stringify(result.error) });
-      }
-      const { injection, facts: f } = read<Capabilities>(have.capabilities);
-      void import('../asks/human-tool-wait').then(({ restoreHumanToolResults }) =>
-        restoreHumanToolResults(sessionId, command.input.projectId, true))
-        .catch(error => log.error('Human tool results could not resume', { sessionId, error: String(error) }));
-      void persistSessionMcpServers(sessionId, command.input.providerId, command.input.cwd, f.mcpDisabledServers, injection.extensionDelivery);
-      const previous = fork ? null : known().providerSessionId ?? null;
-      const nativeSession = previous === null ? null : result.data.providerSessionId === previous ? 'preserved' : 'replaced';
-      return lease({ gen, timing: 'next-tool-call', nativeSession }) as AdmittedChannel;
+      const admitted = admitChannel(have, gen);
+      starting = admitted.then(() => true, () => false);
+      return admitted;
     },
   };
+
+  async function admitChannel(have: Have<'channel'>, gen: Gen): Promise<AdmittedChannel> {
+    const worker = read<Worker>(have.process);
+    const { command } = read<Cli>(have.cli);
+    const result = await callSessionStart(() => worker.client.startSession(command), sessionId, read<Platform>(have.platform).injected);
+    await persistAcpStartResult(command.input, result, {
+      persistReturnedProviderSessionId, persistProviderSessionMissing, recordRuntimeForkOwnership,
+    });
+    // The runtime's typed reason travels whole (in `data`): the task page turns it back into its specific
+    // remedies (sign in, install, update, pick another model), the same as when a page started the runtime itself.
+    if (!result.success) {
+      throw Object.assign(new Error(`ACP session ${sessionId} did not start: ${result.error.message ?? result.error.type}`),
+        { name: ACP_START_FAILED, data: JSON.stringify(result.error) });
+    }
+    const { injection, facts: f } = read<Capabilities>(have.capabilities);
+    void import('../asks/human-tool-wait').then(({ restoreHumanToolResults }) =>
+      restoreHumanToolResults(sessionId, command.input.projectId, true))
+      .catch(error => log.error('Human tool results could not resume', { sessionId, error: String(error) }));
+    void persistSessionMcpServers(sessionId, command.input.providerId, command.input.cwd, f.mcpDisabledServers, injection.extensionDelivery);
+    const previous = fork ? null : known().providerSessionId ?? null;
+    const nativeSession = previous === null ? null : result.data.providerSessionId === previous ? 'preserved' : 'replaced';
+    return lease({ gen, timing: 'next-tool-call', nativeSession }) as AdmittedChannel;
+  }
 
   async function admit(have: StageOut, pending: PendingRow): ReturnType<LegAdapter['dispatch']> {
     const delivery = pending.message.delivery;
@@ -242,6 +252,10 @@ export function createAcpLegAdapter(sessionId: string, fork: RuntimeFork | null)
       // already restarts this run (#552). The worker going away never waits: its transport closing rejects every call
       // still out (session-wire's onDisconnect), so that dispatch ends on its own.
       const exit = (fact: ExitFact) => {
+        if (starting) void starting.then(admitted => { if (admitted) afterStart(fact); });
+        else afterStart(fact);
+      };
+      const afterStart = (fact: ExitFact) => {
         if (admitting) void admitting.then(lost => { if (!lost) settle(fact); });
         else settle(fact);
       };
