@@ -40,6 +40,7 @@ import java.util.regex.Pattern;
 public class GuguPreviewOrigins extends Plugin {
     private static final String TAG = "GuguPreviewOrigins";
     private static final Pattern HOST = Pattern.compile("^([0-9a-f]{32})\\.preview\\.gugu\\.invalid$");
+    private static final Pattern RANGE = Pattern.compile("^bytes=(\\d*)-(\\d*)$");
     /** As long as the desktop's handler waits for one answer (PREVIEW_REQUEST_DEADLINE_MS). */
     private static final long DEADLINE_SECONDS = 90;
     private static final Map<String, CompletableFuture<JSONObject>> waiting = new ConcurrentHashMap<>();
@@ -65,7 +66,7 @@ public class GuguPreviewOrigins extends Plugin {
             String range = header(request.getRequestHeaders(), "Range");
             asked.put("range", range == null ? JSONObject.NULL : range);
             bridge.triggerWindowJSEvent("guguPreviewRequest", asked.toString());
-            return responseOf(answer.get(DEADLINE_SECONDS, TimeUnit.SECONDS));
+            return responseOf(answer.get(DEADLINE_SECONDS, TimeUnit.SECONDS), range);
         } catch (Exception error) {
             Log.w(TAG, "a preview request had no answer: " + error);
             return new WebResourceResponse("text/plain", "utf-8", 504, "Gateway Timeout", Collections.emptyMap(), new ByteArrayInputStream(new byte[0]));
@@ -83,7 +84,12 @@ public class GuguPreviewOrigins extends Plugin {
         call.resolve();
     }
 
-    private static WebResourceResponse responseOf(JSONObject answer) throws JSONException {
+    /**
+     * A `Range` (a video being sought) is answered the way Capacitor's own server answers one (WebViewLocalServer): 206
+     * and the range's Content-Range over the whole file, which the WebView then cuts itself. A body that is only the range
+     * is read by WebView 113 as the file's start, and it asks for the same range again and again.
+     */
+    private static WebResourceResponse responseOf(JSONObject answer, String range) throws JSONException {
         int status = answer.getInt("status");
         Map<String, String> headers = new HashMap<>();
         JSONObject given = answer.optJSONObject("headers");
@@ -97,6 +103,14 @@ public class GuguPreviewOrigins extends Plugin {
         String mime = contentType.split(";", 2)[0].trim();
         String charset = contentType.contains("charset=") ? contentType.substring(contentType.indexOf("charset=") + 8).trim() : null;
         byte[] body = answer.isNull("body") ? new byte[0] : Base64.decode(answer.getString("body"), Base64.DEFAULT);
+        Matcher ranged = range == null ? null : RANGE.matcher(range.trim());
+        if (status == 200 && ranged != null && ranged.matches() && !ranged.group(1).isEmpty() && body.length > 0) {
+            long from = Long.parseLong(ranged.group(1));
+            long to = ranged.group(2).isEmpty() ? body.length - 1 : Math.min(Long.parseLong(ranged.group(2)), body.length - 1);
+            status = 206;
+            headers.remove("Content-Length");
+            headers.put("Content-Range", "bytes " + from + "-" + to + "/" + body.length);
+        }
         return new WebResourceResponse(mime, charset, status, reason(status), headers, new ByteArrayInputStream(body));
     }
 

@@ -137,7 +137,8 @@ async function answerFor(request: PhoneRequest): Promise<PreviewAnswer> {
   try {
     const found = await pending;
     if (found?.kind !== 'file') preview.beside.delete(path);
-    const answer = await answerBesideDocument(found, { path, range: request.range, copy: preview.copy, csp: preview.csp });
+    // The whole file, never a piece: the WebView applies a range to an intercepted response itself (GuguPreviewOrigins.java).
+    const answer = await answerBesideDocument(found, { path, range: null, copy: preview.copy, csp: preview.csp });
     if (answer.offline) preview.onOffline(answer.offline);
     return answer;
   } catch {
