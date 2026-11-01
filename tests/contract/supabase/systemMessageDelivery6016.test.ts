@@ -11,6 +11,7 @@ import { createRequire } from 'node:module'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import {
   pullAgentInbox,
+  unreadRowFromRpc,
   resetAgentInboxReaderStateForTests,
   type AgentInboxUnreadRow,
 } from '@gugu/core/local/agent/agentInboxReader'
@@ -110,18 +111,8 @@ async function pull(room: Room, agent: string, chat = room.group): Promise<Agent
   await db.query('SET LOCAL role TO authenticated')
   await db.query(`SELECT set_config('request.jwt.claims', $1, true)`, [JSON.stringify({ sub: room.owner, role: 'authenticated' })])
   try {
-    const { rows } = await db.query<AgentInboxUnreadRow>(`SELECT
-      chat_id AS "chatId", chat_kind AS "chatKind", chat_public_id AS "chatPublicId",
-      chat_name AS "chatName", chat_creator_user_id AS "chatCreatorUserId", listen_mode AS "listenMode",
-      notification_level AS "notificationLevel", last_read_seq::float8 AS "lastReadSeq",
-      id, seq::float8 AS seq, sender_user_id AS "senderUserId", sender_type AS "senderType",
-      sender_display_name AS "senderDisplayName", sender_gugu_number AS "senderGuguNumber", content,
-      content_type AS "contentType", to_user_ids AS "toUserIds", is_whisper AS "isWhisper",
-      reply_to_message_id AS "replyToMessageId", reply_to_sender_user_id AS "replyToSenderUserId",
-      reply_to_content AS "replyToContent", thread_root_id AS "threadRootId", is_thread_root AS "isThreadRoot",
-      created_at::text AS "createdAt", scan_max_ingest_seq::float8 AS "scanFence"
-      FROM identity.pull_agent_inbox_v2($1,$2)`, [agent, chat])
-    return rows
+    const { rows } = await db.query<{ row: Record<string, unknown> }>(`SELECT to_jsonb(p) AS row FROM identity.pull_agent_inbox_v2($1,$2) p`, [agent, chat])
+    return rows.map(({ row }) => unreadRowFromRpc(row))
   } finally { await db.query('RESET role') }
 }
 async function readOnce(room: Room, agent: string, chat = room.group): Promise<string[]> {
