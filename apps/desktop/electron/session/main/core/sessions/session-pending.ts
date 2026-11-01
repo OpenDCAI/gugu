@@ -28,7 +28,7 @@ function metadata(raw: string | null): PendingMetadata {
 
 function pendingRow(row: { pending: typeof sessionPending.$inferSelect; message: typeof messages.$inferSelect }): PendingRow {
   const meta = metadata(row.message.metadata);
-  return { seq: row.pending.seq as Seq, sessionId: row.pending.sessionId, kind: row.pending.kind, state: row.pending.state,
+  return { seq: row.pending.seq as Seq, sessionId: row.pending.sessionId, sentAt: Date.parse(row.pending.enqueuedAt), kind: row.pending.kind, state: row.pending.state,
     failure: row.pending.failure ? JSON.parse(row.pending.failure) as SerializedError : null,
     message: { id: row.message.id, text: row.message.content,
       ...(row.pending.kind === 'session-direct' ? { kind: 'session-direct' as const } : {}),
@@ -74,7 +74,7 @@ export function enqueuePending(input: EnqueuePending): { inserted: boolean; seq:
       metadata: JSON.stringify({ kind: input.kind === 'ordinary' ? 'ordinary-message' : input.kind,
         ...(input.delivery ? { delivery: input.delivery } : {}), ...(input.sources ? { sources: input.sources } : {}),
         ...(input.turn ? { turn: input.turn } : {}) }) }).run();
-    const pending = tx.insert(sessionPending).values({ sessionId: input.sessionId, messageId: input.messageId, kind: input.kind, state: 'queued' }).returning().get();
+    const pending = tx.insert(sessionPending).values({ sessionId: input.sessionId, messageId: input.messageId, kind: input.kind, state: 'queued', enqueuedAt: new Date().toISOString() }).returning().get();
     for (const source of input.sources ?? []) tx.insert(sessionPendingSource).values({ seq: pending.seq, sessionId: input.sessionId, sourceMessageId: source.row.id }).run();
     return { inserted: true, seq: pending.seq as Seq, state: pending.state };
   });

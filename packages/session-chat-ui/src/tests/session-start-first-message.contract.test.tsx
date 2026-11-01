@@ -20,9 +20,9 @@ afterEach(() => {
   while (teardown.length) teardown.pop()?.()
 })
 
-function mount(preset: ChatLayoutPreset, opts: { pinUserMessages?: boolean } = {}) {
+function mount(preset: ChatLayoutPreset, { agentConversation, ...opts }: { pinUserMessages?: boolean; agentConversation?: boolean } = {}) {
   const context = createChatContext({ locale: () => 'en-US', theme: DEFAULT_THEME })
-  context.setLayout({ preset, userGutter: 96 })
+  context.setLayout({ preset, userGutter: 96, ...(agentConversation ? { agentConversation } : {}) })
   const state = createChatState(context)
   const host = document.createElement('div')
   host.style.cssText = 'position:fixed;inset:0;width:640px;height:600px'
@@ -110,6 +110,18 @@ describe('session start with a first message', () => {
       })
     }
   )
+
+  it('a queued first message says Starting, stays through a history seed, and keeps its clock', async () => {
+    const { state, host } = mount('double', { agentConversation: true })
+    const sentAt = Date.now() - 3000
+    state.session.setPendingPrompt({ id: 'row', text: FIRST, sentAt, starting: true, held: true })
+    await until('the state line says Starting with seconds', () => /Starting · [3-9]s/.test(host.textContent ?? ''))
+
+    state.transcript.history.seed([])
+    await until('a later render', () => state.session.state.pendingPrompt?.id === 'row')
+    expect(state.session.state.pendingPrompt, 'a seed is not its turn').toMatchObject({ id: 'row', held: true })
+    expect(host.textContent).toContain(FIRST)
+  })
 
   it('a required sign-in shows under the held first message, which no longer runs', async () => {
     const { state, host } = mount('double')

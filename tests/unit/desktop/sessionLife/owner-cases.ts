@@ -51,7 +51,7 @@ function rig(options: { block?: StageName; delayReceipt?: boolean; dispatchThrow
       const existing = [...rows.values()].find(row => row.sessionId === input.sessionId && row.message.id === input.messageId);
       if (existing) return { inserted: false, seq: existing.seq, state: existing.state };
       const s = seq(++counter);
-      rows.set(s, { seq: s, sessionId: input.sessionId, kind: input.kind, state: 'queued', failure: null, message: { id: input.messageId, text: input.text }, sources: [], turn: input.turn ?? { kind: 'prompt' } });
+      rows.set(s, { seq: s, sessionId: input.sessionId, sentAt: 0, kind: input.kind, state: 'queued', failure: null, message: { id: input.messageId, text: input.text }, sources: [], turn: input.turn ?? { kind: 'prompt' } });
       return { inserted: true, seq: s, state: 'queued' };
     },
     commit(id, effects) {
@@ -102,7 +102,7 @@ function rig(options: { block?: StageName; delayReceipt?: boolean; dispatchThrow
   const owner = new SessionLife(ports);
   function session(id = 's', account: string | null = 'A') { records.set(id, { owner: account, hold: null, archived: false }); }
   function fork(id: string, parent = 's') { forks.set(id, parent); records.set(id, { owner: null, hold: null, archived: false }); }
-  function enqueue(id = 's') { const s = seq(++counter); rows.set(s, { seq: s, sessionId: id, kind: 'ordinary', state: 'queued', failure: null, message: { id: `m${s}`, text: `input ${s}` }, sources: [], turn: { kind: 'prompt' } }); return s; }
+  function enqueue(id = 's') { const s = seq(++counter); rows.set(s, { seq: s, sessionId: id, sentAt: 0, kind: 'ordinary', state: 'queued', failure: null, message: { id: `m${s}`, text: `input ${s}` }, sources: [], turn: { kind: 'prompt' } }); return s; }
   const send = (id = 's', messageId = `user-${++counter}`) => owner.enqueue({ sessionId: id, messageId, text: messageId, kind: 'ordinary' });
   return { owner, records, rows, active, views, removed, dispatched, failures, marked, trace, blocked, dispatchStarted, receipt, exitCallbacks, session, fork, enqueue, send, store };
 }

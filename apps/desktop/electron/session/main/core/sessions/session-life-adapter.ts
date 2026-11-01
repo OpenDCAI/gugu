@@ -17,6 +17,8 @@ export type PendingTurn =
 export interface PendingRow {
   readonly seq: import('@gugu/core/local/session-life/types').Seq;
   readonly sessionId: string;
+  /** When it was queued: the send, the clock origin of the turn it opens. */
+  readonly sentAt: number;
   readonly kind: 'ordinary' | 'session-direct' | 'inbox-batch';
   readonly state: 'queued' | 'dispatching' | 'accepted' | 'failed' | 'unknown';
   /** Why a failed row failed; on a queued / dispatching row, why its channel was lost once already (#552). */

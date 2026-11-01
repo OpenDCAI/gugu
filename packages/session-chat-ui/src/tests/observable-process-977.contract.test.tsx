@@ -32,7 +32,7 @@ describe('observable conversation process', () => {
     const v = mount([pending], { kind, ...(kind === 'delivery' ? { chatIds: ['977'] } : {}) });
     await until('live process appears', () => !!v.host.querySelector('[data-conversation-process]'));
     const header = v.host.querySelector('[data-conversation-process]')!;
-    expect(header.textContent).toBe('Thinking and working · 21s · 1 step›');
+    expect(header.textContent).toBe('Thinking · 21s · 1 step›');
   });
 
   it('includes an unfinished send in the same semantic summary, without a raw tool row', async () => {

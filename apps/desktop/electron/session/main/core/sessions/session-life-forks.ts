@@ -78,7 +78,7 @@ export const forkStore: LifeStore = {
       return { inserted: false, seq: existing.seq, state: existing.state };
     }
     const seq = ++nextSeq as Seq;
-    fork.rows.set(seq, { readSettled: false, row: { seq, sessionId: input.sessionId, kind: input.kind, state: 'queued', failure: null,
+    fork.rows.set(seq, { readSettled: false, row: { seq, sessionId: input.sessionId, sentAt: Date.now(), kind: input.kind, state: 'queued', failure: null,
       message: { id: input.messageId, text: input.text, ...(input.delivery ? { delivery: input.delivery } : {}) },
       sources: [], turn: input.turn ?? { kind: 'prompt' } } });
     return { inserted: true, seq, state: 'queued' as const };

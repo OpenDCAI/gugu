@@ -210,6 +210,7 @@ export function createAcpLegAdapter(sessionId: string, fork: RuntimeFork | null)
         const steerIfBusy = !backlog && !delivery?.queue && !isHumanDmDelivery(pending.message.text)
           && declaredInjectionTiming(resolveSessionpageSessionIntegration(known().providerId, 'acp')) === 'next-tool-call';
         sent = await injectEmdashPromptDetached(sessionId, pending.message.text, {
+          sentAt: pending.sentAt,
           ...(origin ? { origin } : {}),
           ...(steerIfBusy ? { steerIfBusy: true } : {}),
           ...(pending.turn.hiddenContext ? { hiddenContext: pending.turn.hiddenContext } : {}),
@@ -222,7 +223,7 @@ export function createAcpLegAdapter(sessionId: string, fork: RuntimeFork | null)
         const render = read<Capabilities>(have.capabilities).injection.firstTurn;
         if (!render) throw new Error(`Session ${sessionId}: the first turn's gugu message did not land in this attempt`);
         const turn = renderFirstTurn(pending.message.text, render);
-        sent = await injectEmdashPromptDetached(sessionId, turn.text, { origin: turn.origin, ...attachments });
+        sent = await injectEmdashPromptDetached(sessionId, turn.text, { origin: turn.origin, sentAt: pending.sentAt, ...attachments });
         break;
       }
     }

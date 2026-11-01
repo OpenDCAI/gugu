@@ -51,7 +51,7 @@ const life = vi.hoisted(() => ({
   viewed: new Set<string>(),
 }));
 type Failure = { at: string; message: string; cause: { name: string; message: string; data?: string } };
-type PendingRow = { seq: number; messageId: string; preview: string; text: string; kind: 'ordinary'; state: 'queued' | 'dispatching' | 'accepted' | 'failed' | 'unknown'; failure: string | null };
+type PendingRow = { seq: number; messageId: string; preview: string; text: string; kind: 'ordinary'; sentAt: number; state: 'queued' | 'dispatching' | 'accepted' | 'failed' | 'unknown'; failure: string | null };
 vi.mock('../stores/session-life-views', async () => {
   const { observable, runInAction } = await import('mobx');
   type View = { kind: string; version: number; failure: Failure | null; pending: { items: PendingRow[] } };
@@ -375,7 +375,7 @@ describe('#980 照旧当场起的', () => {
 
 describe('the first message keeps one place while its session starts', () => {
   const row = (state: PendingRow['state']): PendingRow =>
-    ({ seq: 1, messageId: 'm-first', preview: '说一句你好', text: '说一句你好', kind: 'ordinary', state, failure: state === 'failed' ? 'boom' : null });
+    ({ seq: 1, messageId: 'm-first', preview: '说一句你好', text: '说一句你好', kind: 'ordinary', sentAt: 5000, state, failure: state === 'failed' ? 'boom' : null });
 
   it('the transcript draws the queued head as its next turn from the start, not the tray above the composer', async () => {
     const { store } = storeFor({ providerId: 'claude', initialQueue: [{ text: '说一句你好', origin: 'manual' }] });
@@ -384,6 +384,7 @@ describe('the first message keeps one place while its session starts', () => {
     await vi.waitFor(() => expect(store.chatState.session.state.pendingPrompt?.id).toBe('m-first'));
     expect(store.chatState.session.state.pendingPrompt?.text).toBe('说一句你好');
     expect(store.transcriptPendingId, 'the tray leaves it out').toBe('m-first');
+    expect(store.chatState.session.state.pendingPrompt, 'its clock is the send; its label the lifecycle').toMatchObject({ sentAt: 5000, starting: true });
     expect(store.isEmpty).toBe(false);
 
     // A history seed drops it (the transcript clears pendingPrompt on new committed turns): it is drawn again.
@@ -391,8 +392,13 @@ describe('the first message keeps one place while its session starts', () => {
     store.transcriptRevision += 1;
     await vi.waitFor(() => expect(store.chatState.session.state.pendingPrompt?.id).toBe('m-first'));
 
+    life.pend(store.sessionId, 'ready', [row('dispatching')]);
+    await vi.waitFor(() => expect(store.chatState.session.state.pendingPrompt?.starting).toBe(false));
+    expect(store.chatState.session.state.pendingPrompt?.sentAt, 'the same origin').toBe(5000);
+
     life.pend(store.sessionId, 'ready', [row('accepted')]);
     await vi.waitFor(() => expect(store.transcriptPendingId).toBeNull());
+    expect(store.chatState.session.state.pendingPrompt, 'kept until its turn lands: no empty frame').toMatchObject({ id: 'm-first', starting: false, held: false });
   });
 
   it('a row that fails goes back to the tray, where its failure and retry are', async () => {

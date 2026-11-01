@@ -10,7 +10,6 @@ import { takeTaskReveal } from '@/hooks/useSourceMessageReveal';
 import { UI_EVENTS } from '@/lib/uiEvents';
 import { SessionInputQueue } from '@/components/chat/SessionInputQueue';
 import { sessionLifeView } from '../stores/session-life-views';
-import type { LifeView } from '@shared/core/sessions/session-life';
 import { NeedsYouSlot } from '@/components/needsYou/NeedsYouSlot';
 import { takeComposerCarry, useComposerVerb } from '@/lib/composerVerbBridge';
 import { useSessionMessageQuotes } from './use-session-message-quotes';
@@ -1680,10 +1679,10 @@ const ComposerForStore = observer(function ComposerForStore({
         </div>
       ) : null}
       <NeedsYouSlot />
-      {/* While the page is empty its loading overlay carries the stage instead; a drawn next turn carries its own placeholder. */}
-      {life?.stage && !(store.historyLoading && store.isEmpty) && !store.transcriptPendingId ? (
-        <div className="flex justify-center px-3 py-1 text-xs text-foreground-muted" data-life-stage={life.stage.at}>
-          <LoadingIndicator ariaLabel={lifeStageLabel(life.stage, translate)} label={lifeStageLabel(life.stage, translate)} />
+      {/* Starting with no message drawn (a drawn one's live line says it): the lifecycle's state, nothing more. */}
+      {life?.kind === 'starting' && !store.transcriptPendingId ? (
+        <div className="flex justify-center px-3 py-1 text-xs text-foreground-muted" data-life-stage={life.stage?.at}>
+          <LoadingIndicator ariaLabel={translate('transcript.starting')} label={translate('transcript.starting')} />
         </div>
       ) : null}
       {life?.nativeSession ? (
@@ -1966,7 +1965,6 @@ export const AcpChatPanel = observer(function AcpChatPanel({
   const agent = agents?.find((candidate) => candidate.id === providerId) ?? null;
   const startupNotice = agent?.capabilities.acp.startup?.noticeKey;
   const startupNoticeKey = declaredMessageKey(startupNotice);
-  const lifeStage = store ? sessionLifeView(store.runtimeSessionId)?.stage ?? null : null;
   // 与 composer、抽屉的「账号」行共用同一份判据(#6100)—— ❌ 不在这里再抄一个 find。
   // 聊天面板跑的是 `acp` 那条腿的程序(#6335):两条腿是两个程序的家,这里登的是聊天面板那个。
   const cliAuthMethod = resolveSignInTarget(agent, 'acp')?.method ?? null;
@@ -2054,7 +2052,7 @@ export const AcpChatPanel = observer(function AcpChatPanel({
    * ⚠️ 它 ❌ 不进转录条目:条件消失这一行就该消失(装好引擎之后不许还留着一句「没装」),
    * 所以写的是视图那一格 `session.setCondition`,不是 `transcript`。
    */
-  // 会话还在起这件事 ❌ 不进这一格(behavior session-page「打开速度」):首条消息带着「处理中」上屏,那就是在跑;
+  // 会话还在起这件事 ❌ 不进这一格(behavior session-page「打开速度」):首条消息下面那一行自己写「启动中」,计时从发出算;
   // 「正在打开引擎会话」一类的启动步骤对用户不存在。要人做的事(登录、会员)照常在下面说。
   // 「重来」在途:按钮停下,❌ 连点各投一遍首轮。
   const [restarting, setRestarting] = useState(false);
@@ -2542,8 +2540,7 @@ export const AcpChatPanel = observer(function AcpChatPanel({
             <LoadingIndicator
               ariaLabel={translate('chat.loading')}
               label={
-                lifeStage ? lifeStageLabel(lifeStage, translate)
-                  : startupNoticeKey ? translate(startupNoticeKey) : translate('chat.loading')
+                startupNoticeKey ? translate(startupNoticeKey) : translate('chat.loading')
               }
               data-testid="acp-chat-history-loading"
             />
@@ -2620,9 +2617,4 @@ export const AcpChatPanel = observer(function AcpChatPanel({
 function eventComposedPathContains(event: Event, element: HTMLElement): boolean {
   if (event.composedPath().includes(element)) return true;
   return event.target instanceof Node && element.contains(event.target);
-}
-
-/** Step index/total and the stage's name while session-life starts the session. */
-function lifeStageLabel(stage: NonNullable<LifeView['stage']>, translate: ReturnType<typeof useSessionMessages>['translate']): string {
-  return translate('chat.lifeStarting', { index: stage.index, total: stage.total, stage: translate(`chat.lifeStage.${stage.at}`) });
 }

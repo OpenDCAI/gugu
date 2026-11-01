@@ -777,16 +777,30 @@ export class AcpChatStore {
     const bubbles = view ? sessionInputBubbles([], view.pending.items, view.kind) : [];
     const head = bubbles[0]?.state === 'sending' ? bubbles[0] : null;
     runInAction(() => {
-      // Gone (its turn took it) or no longer on its way (failed / held): it is not the transcript's any more.
       if (drawn && head?.id !== drawn) {
         this.transcriptPendingId = null;
-        if (session.state.pendingPrompt?.id === drawn) { session.setPendingPrompt(null); this._syncMessageCount(); }
+        const shown = session.state.pendingPrompt;
+        const row = view?.pending.items.find(item => item.messageId === drawn);
+        if (shown?.id === drawn) {
+          // Accepted: its turn is on its way to this page, and takes the row over when it lands (no empty frame between).
+          // Failed / held: the tray says why.
+          if (!row || row.state === 'accepted') session.setPendingPrompt({ ...shown, starting: false, held: false });
+          else { session.setPendingPrompt(null); this._syncMessageCount(); }
+        }
       }
       if (!head || this.chatState.transcript.state.activeTurnSnapshot) return;
       if (session.state.pendingPrompt && session.state.pendingPrompt.id !== head.id) return;
       this.transcriptPendingId = head.id;
-      if (session.state.pendingPrompt) return;
-      session.setPendingPrompt({ id: head.id, text: head.text, sentAt: Date.now() });
+      const starting = view?.kind !== 'ready';
+      const shown = session.state.pendingPrompt;
+      if (shown) {
+        if (shown.starting !== starting) session.setPendingPrompt({ ...shown, starting });
+        return;
+      }
+      // Same origin as the turn that takes this row over (`SessionCell`): the send, or the end of the turn it waited behind.
+      const row = view!.pending.items.find(item => item.messageId === head.id)!;
+      const sentAt = Math.max(row.sentAt, this.chatState.transcript.state.committedTurns.at(-1)?.endedAt ?? 0);
+      session.setPendingPrompt({ id: head.id, text: head.text, sentAt, starting, held: true });
       this._syncMessageCount();
     });
   }
@@ -810,7 +824,7 @@ export class AcpChatStore {
       this.historyLoading = false;
       this._syncMessageCount();
     }, { fireImmediately: true });
-    // A history seed may drop the drawn row (the transcript clears `pendingPrompt` on new committed turns): redraw it.
+    // A reconciled history may drop the drawn row (`_refreshHistory`): redraw it.
     this._unwatchLifeHead = reaction(() => [sessionLifeView(this.runtimeSessionId), this.transcriptRevision] as const,
       ([view]) => this._drawLifeHead(view), { fireImmediately: true });
     void this._open();

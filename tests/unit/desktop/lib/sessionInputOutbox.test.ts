@@ -81,7 +81,7 @@ describe('a bubble reads the one custody owner of its messageId', () => {
   const sender = (id: string, createdAt: number, extra: Partial<SessionInput> = {}): SessionInput =>
     ({ id, accountId: 'owner', deviceId: null, sessionId: 'agent', text: `sender ${id}`, createdAt, ...extra })
   const host = (seq: number, messageId: string, state: HostPendingRow['state'], over: Partial<HostPendingRow> = {}): HostPendingRow =>
-    ({ seq, messageId, preview: `host ${messageId}`.slice(0, 4), text: `host ${messageId}`, kind: 'session-direct', state, failure: null, ...over })
+    ({ seq, messageId, preview: `host ${messageId}`.slice(0, 4), text: `host ${messageId}`, kind: 'session-direct', sentAt: 0, state, failure: null, ...over })
 
   it('sender row until the host row exists, the host row until accepted, then nothing (the transcript has it)', () => {
     expect(sessionInputBubbles([sender('m', 1)], [], 'ready')).toEqual([{ id: 'm', text: 'sender m', state: 'sending' }])
