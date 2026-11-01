@@ -158,7 +158,7 @@ it('file preview: rejects a 100 MB file after one chunk and shows the existing s
   await clickElement(h.container.querySelector('button')!)
   await waitForCondition(() => q('message-file-preview-panel')?.textContent?.includes('20') === true, 'phone size warning')
   expect(read).toHaveBeenCalledOnce()
-  expect(q('message-file-preview-panel').textContent).toContain('The file is too large.')
+  expect(q('message-file-preview-panel').textContent).toContain('文件太大，手机上最多看')
   expect(q('message-file-preview-panel').textContent).toContain('20')
   expect(URL.createObjectURL).not.toHaveBeenCalled()
 })
