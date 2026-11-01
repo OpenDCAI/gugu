@@ -83,6 +83,9 @@ export function createAcpLegAdapter(sessionId: string, fork: RuntimeFork | null)
   // while the start is out (a resume of a record the engine no longer has closes as it refuses) is that start's
   // failure, reported by the start with its typed reason, never a bare exit that beats it.
   let starting: Promise<boolean> | null = null;
+  // The rows already waiting when this run's channel was admitted (a backlog: a recovery, a start after a failure).
+  // Each is a turn of its own, as the person sent it; only input arriving into a running turn steers it.
+  let backlogThrough: number | null = null;
 
   const known = (): Row => { if (!row) throw new Error('ACP stage ran before identity'); return row; };
 
@@ -188,6 +191,8 @@ export function createAcpLegAdapter(sessionId: string, fork: RuntimeFork | null)
     void persistSessionMcpServers(sessionId, command.input.providerId, command.input.cwd, f.mcpDisabledServers, injection.extensionDelivery);
     const previous = fork ? null : known().providerSessionId ?? null;
     const nativeSession = previous === null ? null : result.data.providerSessionId === previous ? 'preserved' : 'replaced';
+    const waiting = (fork ? forkStore : lifeStore).pending(sessionId);
+    backlogThrough = Math.max(-1, ...waiting.queued, ...waiting.dispatching);
     return lease({ gen, timing: 'next-tool-call', nativeSession }) as AdmittedChannel;
   }
 
@@ -201,7 +206,8 @@ export function createAcpLegAdapter(sessionId: string, fork: RuntimeFork | null)
         const origin = pending.turn.origin ?? delivery?.origin;
         // A delivery into a harness that takes input at its next tool call steers the running turn, unless the
         // sender asked to queue or it is a person's own DM (moved here from the old ACP delivery target, #4708).
-        const steerIfBusy = !delivery?.queue && !isHumanDmDelivery(pending.message.text)
+        const backlog = backlogThrough !== null && pending.seq <= backlogThrough;
+        const steerIfBusy = !backlog && !delivery?.queue && !isHumanDmDelivery(pending.message.text)
           && declaredInjectionTiming(resolveSessionpageSessionIntegration(known().providerId, 'acp')) === 'next-tool-call';
         sent = await injectEmdashPromptDetached(sessionId, pending.message.text, {
           ...(origin ? { origin } : {}),

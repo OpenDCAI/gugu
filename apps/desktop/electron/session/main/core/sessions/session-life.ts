@@ -189,7 +189,14 @@ export class SessionLife {
   enqueue(input: EnqueuePending): { seq: Seq; state: PendingRow['state'] } {
     const result = this.ports.store(input.sessionId).enqueue(input);
     const sessionId = input.sessionId;
-    if (result.inserted) this.deliver(sessionId, result.seq);
+    if (result.inserted) {
+      const before = this.entries.get(sessionId)?.version;
+      this.deliver(sessionId, result.seq);
+      // A new row is part of the projection whatever the state did with it (a failed or busy session keeps it queued
+      // without a transition): the page's pending items follow the queue, not only state changes.
+      const entry = this.entries.get(sessionId);
+      if (entry && entry.version === before) this.publish(sessionId, entry);
+    }
     else if (result.state === 'accepted') this.reconcileRead(sessionId, result.seq);
     else if (result.state === 'queued') {
       const life = this.entries.get(sessionId)?.life;

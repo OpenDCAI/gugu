@@ -190,10 +190,14 @@ export const ownerCases: readonly { name: string; run: () => Promise<void> }[] =
     const rows = [r.send().seq];
     await r.owner.quiescent('s');
     assert.equal(r.owner.read('s').kind, 'failed');
-    // Deliveries after the failure: queued, the session is not started again for them.
+    // Deliveries after the failure: queued, the session is not started again for them, and each new row is published
+    // (the page's pending items follow the queue even when the state does not move).
+    const published = r.views.length;
     rows.push(r.send().seq); await r.owner.quiescent('s');
     rows.push(r.send().seq); await r.owner.quiescent('s');
     assert.equal(r.owner.read('s').kind, 'failed');
+    assert.equal(r.views.length, published + 2);
+    assert.equal(r.views.at(-1)!.pending.count, 3);
     assert.equal(r.trace.filter(line => line.endsWith(':identity')).length, 1);
     for (const row of rows) assert.equal(r.rows.get(row)!.state, 'queued');
     r.owner.start('s', 'retry'); await r.owner.quiescent('s');

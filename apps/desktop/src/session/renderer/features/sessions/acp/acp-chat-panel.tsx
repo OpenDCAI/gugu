@@ -2158,26 +2158,26 @@ export const AcpChatPanel = observer(function AcpChatPanel({
           return {
             code: 'provider-session-missing',
             detail: error.message,
-            ...(canRestartSession
-              ? {
-                  actions: [
-                    {
-                      label: translate('transcript.condition.startFresh'),
-                      pending: restarting,
-                      run: () => {
-                        if (restarting) return;
-                        setRestarting(true);
-                        void sessionRegistry
-                          .get(store.sessionId)
-                          ?.restartSession(store.sessionId)
-                          .then(() => store.retry())
-                          .catch(() => {})
-                          .finally(() => setRestarting(false));
-                      },
+            actions: [
+              // The original engine session again (its record may be back): a person's action, never automatic.
+              { label: translate('transcript.condition.reconnectOriginal'), run: () => store.retry() },
+              ...(canRestartSession
+                ? [{
+                    label: translate('transcript.condition.startFresh'),
+                    pending: restarting,
+                    run: () => {
+                      if (restarting) return;
+                      setRestarting(true);
+                      void sessionRegistry
+                        .get(store.sessionId)
+                        ?.restartSession(store.sessionId)
+                        .then(() => store.retry())
+                        .catch(() => {})
+                        .finally(() => setRestarting(false));
                     },
-                  ],
-                }
-              : {}),
+                  }]
+                : []),
+            ],
           };
         case 'adapter_lost':
           return {

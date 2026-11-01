@@ -1752,7 +1752,10 @@ export class AcpChatStore {
       const session = sessionRegistry
         .get(this.sessionId)
         ?.sessions.get(this.sessionId)?.data;
-      if (session?.providerSessionState === 'missing') {
+      // Opening a session whose engine record is gone only shows why; the person's retry (reconnect to the original
+      // engine session) goes on to session-life, which loads the recorded id again and fails the same way if it is
+      // still gone.
+      if (session?.providerSessionState === 'missing' && options?.retry !== true) {
         // provider 那侧的会话引用永久失效了。会话**照常打开**,库里那份记录照常上屏 ——
         // 失效的是「接着聊」这件事,不是「看看我说过什么」。
         //

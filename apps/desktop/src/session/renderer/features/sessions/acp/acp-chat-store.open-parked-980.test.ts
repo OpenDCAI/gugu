@@ -524,4 +524,12 @@ describe('#980 打开那一下读不到会话表', () => {
 
     expect(life.start).not.toHaveBeenCalled();
   });
+  it('the engine no longer has the session: opening only says why; the person\'s 「Try again (reconnect)」 asks the host to load it again', async () => {
+    const { store } = storeFor({ providerId: 'claude', providerSessionId: 'prov-1', providerSessionState: 'missing' });
+    await (store as unknown as { _runBootstrap(options?: { retry?: boolean }): Promise<void> })._runBootstrap();
+    expect(store.loadError?.kind).toBe('provider_session_missing');
+    expect(life.start).not.toHaveBeenCalled();
+    store.retry();
+    await vi.waitFor(() => expect(life.start).toHaveBeenCalledWith(store.sessionId));
+  });
 });

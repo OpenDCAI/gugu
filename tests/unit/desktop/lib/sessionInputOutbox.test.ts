@@ -95,8 +95,8 @@ describe('a bubble reads the one custody owner of its messageId', () => {
     expect(sessionInputBubbles([], [host(1, 'm', 'accepted')], 'ready')).toEqual([])
   })
 
-  it('an inbox batch is the agent\'s mail, never drawn as the person\'s bubble; a failed host row says the host\'s reason', () => {
-    expect(sessionInputBubbles([], [host(1, 'mail', 'queued', { kind: 'inbox-batch' })], 'ready')).toEqual([])
+  it('a queued inbox batch is a pending row like any other (one projection); a failed host row says the host\'s reason', () => {
+    expect(sessionInputBubbles([], [host(1, 'mail', 'queued', { kind: 'inbox-batch' })], 'ready')).toEqual([{ id: 'mail', text: 'host mail', state: 'sending' }])
     expect(sessionInputBubbles([], [host(1, 'f', 'failed', { failure: 'The session stopped before dispatch' })], 'ready'))
       .toEqual([{ id: 'f', text: 'host f', state: 'failed', failure: null, hostReason: 'The session stopped before dispatch' }])
   })

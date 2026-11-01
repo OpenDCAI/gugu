@@ -15,6 +15,8 @@ const h = vi.hoisted(() => ({
   registered: true,
   identityCwd: null as string | null,
   startSession: vi.fn(),
+  /** The session's queue as the channel stage reads it when it is admitted. */
+  pending: { queued: [] as number[], dispatching: [] as number[] },
 }));
 
 vi.mock('./agent-status-bridge', () => ({
@@ -24,6 +26,7 @@ vi.mock('./runtime-process/host', () => ({
   callSessionStart: (start: () => Promise<unknown>) => start(),
   persistProviderSessionMissing: vi.fn(),
   persistReturnedProviderSessionId: vi.fn(),
+  persistSessionMcpServers: vi.fn(async () => undefined),
   acpWorkerLease: async () => ({ client: h.client, onGone: (cb: (cause: string) => void) => { h.gone = cb; return () => { h.gone = null; }; } }),
   stopAcpSessionAndSettle: h.stopAndSettle,
   readSessionInjectionFacts: async () => ({ agentDisplayName: undefined }),
@@ -37,6 +40,7 @@ vi.mock('@main/core/projects/utils', () => ({ resolveWorkspace: () => (h.registe
 vi.mock('@main/core/sessions/getSessions', () => ({ getSessions: async () => [{ id: 's', runtime: 'acp', providerId: 'claude', projectId: 'p', workspaceId: 'w', providerSessionId: null }] }));
 vi.mock('@main/core/sessions/session-service', () => ({ sessionService: {} }));
 vi.mock('./runtime-process/resume-history', () => ({ resumeHistoryFacts: vi.fn() }));
+vi.mock('../sessions/session-pending', () => ({ lifeStore: { pending: () => h.pending, unaccepted: () => [] } }));
 vi.mock('./runtime-process/session-persistence-policy', () => ({ persistAcpStartResult: vi.fn() }));
 
 import { acpWorkerLease } from './runtime-process/host';
@@ -181,6 +185,22 @@ describe('session-life ACP leg', () => {
     expect(h.inject).toHaveBeenLastCalledWith('s', 'hi', { steerIfBusy: true });
     await adapter.dispatch({} as StageOut, { ...(row as object), message: { id: 'm', text: 'hi', delivery: { queue: true } } } as never, ctx());
     expect(h.inject).toHaveBeenLastCalledWith('s', 'hi', {});
+  });
+
+  it('a backlog waiting when the channel was admitted goes out turn by turn; only later input steers the running turn', async () => {
+    const adapter = await boundAdapter();
+    const process = { ...(await processLease()), client: { startSession: h.startSession } } as unknown as ProcessLease;
+    h.startSession.mockResolvedValueOnce({ success: true, data: { providerSessionId: 'native-s' } });
+    h.pending = { queued: [1, 2], dispatching: [] };
+    const have = { process, cli: { command: { input: { projectId: 'p', providerId: 'claude', cwd: '/repo' } } }, platform: { injected: false },
+      capabilities: { injection: {}, facts: { mcpDisabledServers: [] } } } as never;
+    await adapter.run('channel', have, ctx());
+    h.inject.mockResolvedValue({ outcome: 'started', completion: Promise.resolve(), turnId: 't' });
+    await adapter.dispatch({} as StageOut, { ...(row as object), seq: 2 } as never, ctx());
+    expect(h.inject).toHaveBeenLastCalledWith('s', 'hi', {});
+    await adapter.dispatch({} as StageOut, { ...(row as object), seq: 3 } as never, ctx());
+    expect(h.inject).toHaveBeenLastCalledWith('s', 'hi', { steerIfBusy: true });
+    h.pending = { queued: [], dispatching: [] };
   });
 
   it('teardown uses the one ACP stop; without a process it only settles the ticket; a failed stop fails loudly', async () => {

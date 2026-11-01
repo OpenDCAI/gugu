@@ -33,8 +33,8 @@ export type SessionInputBubble = { id: string; text: string; from?: string | nul
 export function sessionInputBubbles(sender: readonly SessionInput[], host: readonly HostPendingRow[], lifeKind: LifeView['kind'] | null): SessionInputBubble[] {
   const hosted = new Set(host.map(row => row.messageId))
   return [
-    // An inbox batch is the agent's mail, not the person's input: the transcript shows it once the agent takes it.
-    ...[...host].filter(row => row.kind !== 'inbox-batch').sort((a, b) => a.seq - b.seq).flatMap((row): SessionInputBubble[] => {
+    // Every pending row, whatever wrote it (the person, another task, the inbox): one projection of the queue.
+    ...[...host].sort((a, b) => a.seq - b.seq).flatMap((row): SessionInputBubble[] => {
       const delivered = readDeliveryEnvelope(row.text)
       const base = delivered ? { id: row.messageId, text: delivered.body, from: delivered.segments[0]?.facts?.from ?? null } : { id: row.messageId, text: row.text }
       switch (row.state) {
