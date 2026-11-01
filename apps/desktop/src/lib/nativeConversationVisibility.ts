@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from 'react'
 
-export type NativeConversationVisibility = { sessionId: string; visible: readonly string[]; aliases: ReadonlyMap<string, readonly string[]> }
+export type NativeConversationVisibility = { sessionId: string; visible: readonly string[]; dmIds: ReadonlyMap<string, readonly string[]> }
 type ReadState = { chatId: string; firstUnreadId: string | null; confirmedSeq: number; loaded: readonly string[]; visible: readonly string[]; pendingSeqs: readonly number[] }
 type State = { entries: ReadonlyMap<string, NativeConversationVisibility>; listeners: Set<() => void>; readers?: Map<string, ReadState> }
 const KEY = '__GUGU_NATIVE_CONVERSATION_VISIBILITY__'

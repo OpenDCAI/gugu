@@ -9,17 +9,30 @@ import { SessionInputQueue } from '../../../../apps/desktop/src/components/chat/
 import { updateDeviceSessions } from '../../../../apps/desktop/src/session/shared/remote-sessions/session-directory'
 import { messageQuoteText, readMessageQuote } from '@gugu/core/shared/ui/messageQuote'
 
-const scope = vi.hoisted(() => ({ owner: 'account-a', devices: [{ device_id: 'host-a', is_online: false, capabilities: {} }], received: new Map<string, string>(), send: vi.fn() }))
+const scope = vi.hoisted(() => ({ owner: 'account-a', devices: [{ device_id: 'host-a', is_online: false, capabilities: {} }], received: new Map<string, string>(), send: vi.fn(), machines: [] as (string | null)[] }))
 vi.mock('../../../../apps/desktop/src/lib/sessionPublication', () => ({ getRendererSession: () => ({ user: { id: scope.owner } }) }))
 vi.mock('../../../../apps/desktop/src/store/devicesContext', () => ({ useDevicesStore: () => ({ devices: scope.devices, phones: [] }) }))
 vi.mock('../../../../apps/desktop/src/platform', () => ({ platform: { kind: 'electron' } }))
-vi.mock('../../../../apps/desktop/src/session/renderer/lib/ipc', () => ({ rpcOn: () => ({ sessionTimeline: { sessionSend: scope.send } }) }))
+vi.mock('../../../../apps/desktop/src/session/renderer/lib/ipc', () => ({ rpcOn: (machine: string | null) => ({ sessionTimeline: { sessionSend: (request: unknown) => { scope.machines.push(machine); return scope.send(request) } } }) }))
+// This computer's own session list sync is another subject; these cases read only what the outbox sends.
+vi.mock('../../../../apps/desktop/src/hooks/useLocalSessionDirectory', () => ({ useLocalSessionDirectory: () => undefined }))
 vi.mock('../../../../apps/desktop/src/session/renderer/localization/locale-store', () => ({ translateSessionMessage: () => 'Waiting for host; sends automatically' }))
 let harness: ReturnType<typeof createReactHarness>
 beforeEach(() => { harness = createReactHarness() })
-afterEach(() => { harness.cleanup(); scope.owner = 'account-a'; scope.devices = [{ device_id: 'host-a', is_online: false, capabilities: {} }]; scope.received.clear(); scope.send.mockReset() })
+afterEach(() => { harness.cleanup(); scope.owner = 'account-a'; scope.devices = [{ device_id: 'host-a', is_online: false, capabilities: {} }]; scope.received.clear(); scope.send.mockReset(); scope.machines = [] })
 
 describe('native input shell lifecycle', () => {
+  // A session on this computer may be named by this computer's own device id (the assistant task pane does): its own
+  // host answers over IPC, even while the cloud presence row says offline and without a remote input advertisement.
+  it('sends to this computer over IPC when the input names its own device id', async () => {
+    scope.owner = 'account-own-id'
+    scope.devices = [{ device_id: 'this-computer', is_online: false, is_current_device: true, capabilities: {} } as never]
+    scope.send.mockImplementation(async (request: { clientMessageId: string }) => ({ ok: true, value: { accepted: 'started', clientMessageId: request.clientMessageId } }))
+    await harness.render(<SessionInputOutboxHost accountId={scope.owner} />)
+    await act(async () => { await enqueueSessionInput({ deviceId: 'this-computer', sessionId: 'session-own', text: 'Only reply OK' }) })
+    await vi.waitFor(() => expect(scope.send).toHaveBeenCalledTimes(1))
+    expect(scope.machines).toEqual([null])
+  })
   it('does not display another message box while online inputs wait for native acknowledgement', async () => {
     scope.owner = 'account-online'
     scope.devices = [{ device_id: 'host-a', is_online: true, capabilities: {} }]

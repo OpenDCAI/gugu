@@ -1297,7 +1297,7 @@ function InnerLayout({
           挂最后 ht=1、点最小化窗口收起。❌ 别把它移回上面去。 */}
       <WindowControls activeTab={activeTab} mobile={mobile} activeChatId={activeChatId} chats={chats} sessionHostAvailable={sessionHostAvailable} onSelectTab={selectTab} onOpenChat={(chatId) => { if (!chatId || !openChatBlock(chatId)) setActiveChatId(chatId) }} onNewAgent={openAgentCreateDraftFromContacts} onOpenSettings={openSettingsSection} />
       {/* #7199 「助理」App 在壳这一侧的那一半:发布云电脑 / 个人助理,把壳的组件画进 App 留的格子(lib/assistantShellBridge.ts)。 */}
-      <AssistantTaskChatOpener visible={mobile ? activeTab === 'assistant' : activeTab === 'tasks'} onOpenUserChat={handleOpenProfileChat} onOpenSessionpageAgentFile={handleOpenSessionpageAgentFile} />
+      <AssistantTaskChatOpener visible={mobile ? activeTab === 'assistant' : activeTab === 'tasks'} />
       <FeedbackHost />
       {/* #7350 关闭咕咕只有一份确认:设置、通讯录、agent 设置都只发一声(lib/assistantClose),这里按它住哪画。 */}
       <AssistantCloseHost />

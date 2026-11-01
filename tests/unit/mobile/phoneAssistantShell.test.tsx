@@ -13,7 +13,7 @@ vi.mock('../../../apps/desktop/src/store/chatLineScope', () => ({ ChatLineScope:
 vi.mock('../../../apps/desktop/src/components/assistant/AssistantConversationProgress', () => ({ AssistantConversationProgress: ({ children }: { children: React.ReactNode }) => children }))
 vi.mock('../../../apps/desktop/src/components/assistant/AssistantComposerEntries', () => ({ AssistantComposerEntries: () => null }))
 vi.mock('../../../apps/desktop/src/components/assistant/useAssistantTyping', () => ({ useAssistantTyping: () => null }))
-vi.mock('../../../apps/desktop/src/components/ChatAreaPanel', () => ({ ChatAreaPanel: ({ assistantChat }: { assistantChat?: boolean }) => <div data-testid="retained-chat" data-assistant-chat={assistantChat}><input defaultValue="draft" /></div> }))
+vi.mock('../../../apps/desktop/src/components/ChatAreaPanel', () => ({ ChatAreaPanel: () => <div data-testid="retained-chat"><input defaultValue="draft" /></div> }))
 vi.mock('../../../apps/desktop/src/components/chat/filePreviewHost', () => ({ FilePreviewHost: { Provider: ({ children }: { children: React.ReactNode }) => children } }))
 vi.mock('../../../apps/desktop/src/lib/onScreenChat', () => ({ useReportChatOnScreen: (id: string | null) => id }))
 vi.mock('../../../apps/desktop/src/lib/assistantSetupState', () => ({ useCustomizeCardOffered: () => false }))
@@ -50,7 +50,6 @@ it('changes internal pages without transitioning or replacing the shared header,
   await h.render(<MobileAssistantApp {...props} />)
   const header = find('mobile-assistant-header')
   const chat = find('retained-chat')
-  expect(chat.getAttribute('data-assistant-chat')).toBe('true')
   const input = chat.querySelector('input')!
   const search = find('mobile-assistant-search') as HTMLButtonElement
   const lane = search.parentElement

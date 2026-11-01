@@ -1,3 +1,4 @@
+import { rendererLogger } from './log'
 export type SessionInput = {
   id: string; accountId: string; deviceId: string | null; sessionId: string; text: string; createdAt: number
   attachments?: import('@gugu/session-core/session-record/contract').SessionpageSessionSendRequest['attachments']
@@ -56,6 +57,7 @@ export class SessionInputOutbox {
         await this.storage.remove(this.accountId, input.id)
       } catch (error) {
         blocked.add(target)
+        rendererLogger('session/input-outbox').warn({ deviceId: input.deviceId, sessionId: input.sessionId, error: String(error) }, 'Native input not delivered; it stays queued')
         await this.storage.put({ ...input, error: error instanceof Error ? error.message : String(error) })
       }
       this.changed()

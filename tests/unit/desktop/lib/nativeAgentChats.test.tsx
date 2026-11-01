@@ -9,7 +9,7 @@ let harness: ReturnType<typeof createReactHarness>
 beforeEach(() => { harness = createReactHarness() })
 let remove: (() => void) | undefined
 afterEach(() => { harness.cleanup(); remove?.(); removeDeviceSessions('host'); publishDirectoryDevices([]) })
-it('keeps the agent and project rows separate, and updates only the agent counter from the host journal', async () => {
+it('keeps the badge on the DM counter: unseen native replies never add to it', async () => {
   remove = installOwnedAgentEntry({ open: () => true, owns: id => id === 'own-agent' })
   publishDirectoryDevices([{ device_id: 'host', is_online: true, capabilities: {} } as Device])
   const chats = [{ id: 'dm', kind: 'dm', peer_user_id: 'own-agent', unread_count: 2 }, { id: 'project', kind: 'group', unread_count: 8 }] as ChatItem[]
@@ -17,10 +17,7 @@ it('keeps the agent and project rows separate, and updates only the agent counte
   updateDeviceSessions('host', { cached: false, sessions: [session as never] })
   function Fixture() { return <div>{useNativeAgentChats(chats).map(chat => `${chat.id}:${chat.unread_count}`).join('|')}</div> }
   await harness.render(<Fixture />)
-  expect(harness.container.textContent).toBe('dm:5|project:8')
-  updateDeviceSessions('host', { cached: false, sessions: [{ ...session, nativeUnreadKeys: ['msg_covered'] } as never] })
-  await harness.render(<Fixture />)
-  expect(harness.container.textContent).toBe('dm:3|project:8')
+  expect(harness.container.textContent).toBe('dm:2|project:8')
 })
 it('uses newer native activity for the same agent row and keeps newer IM activity authoritative', async () => {
   remove = installOwnedAgentEntry({ open: () => true, owns: id => id === 'own-agent' })
