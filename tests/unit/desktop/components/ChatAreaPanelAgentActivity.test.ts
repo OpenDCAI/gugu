@@ -80,7 +80,6 @@ vi.mock('../../../../apps/desktop/src/lib/chat', () => ({
         humans: [],
         agents: groupMock.agents,
         tasks: [],
-        outputs: [],
       },
       // 名册与身份同源同出(#5610):写入侧断言要求名册成员都带身份,这里按 groupMock 给全。
       identities: (groupMock.agents as Array<{ id: string; display_name: string; avatar?: string | null; owner_user_id?: string | null }>).map((agent) => ({

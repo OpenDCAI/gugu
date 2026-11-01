@@ -49,7 +49,7 @@ vi.mock('../../../../apps/desktop/src/lib/chat', () => ({
     getMessages: vi.fn(async () => []),
     getOtherMembersReadSeqs: vi.fn(async () => ({})),
     getGroupCollab: vi.fn(async () => ({
-      snapshot: { scheduler: null, humans: [], agents: [], tasks: [], outputs: [] },
+      snapshot: { scheduler: null, humans: [], agents: [], tasks: [] },
       identities: [],
     })),
     getThreadMessages: vi.fn(async () => []),

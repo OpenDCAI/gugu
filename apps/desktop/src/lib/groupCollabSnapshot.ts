@@ -24,7 +24,7 @@ export function reconcileCollabMembers<T extends GroupMemberItem>(prev: T[], nex
 }
 
 // @@@2247 - snapshot-level allow-shrink reconcile for the authoritative full load: shrinks the member sets
-// to the authoritative truth, and replaces the single-fetch scheduler / tasks / outputs state fresh.
+// to the authoritative truth, and replaces the single-fetch scheduler / tasks state fresh.
 export function reconcileGroupCollabSnapshot(
   prev: GroupCollabSnapshot,
   next: GroupCollabSnapshot,
@@ -32,7 +32,6 @@ export function reconcileGroupCollabSnapshot(
   return {
     scheduler: next.scheduler,
     tasks: next.tasks,
-    outputs: next.outputs,
     humans: reconcileCollabMembers(prev.humans, next.humans),
     agents: reconcileCollabMembers(prev.agents, next.agents),
   }

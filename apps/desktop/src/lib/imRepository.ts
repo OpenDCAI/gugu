@@ -477,7 +477,7 @@ export function readGroupRoster(repository: AccountImRepository, chatId: string)
       })
     } else humans.push(base)
   }
-  return { scheduler: emptyScheduler(chatId), humans, agents, tasks: [], outputs: [] }
+  return { scheduler: emptyScheduler(chatId), humans, agents, tasks: [] }
 }
 
 export function readOutboxRecords(repository: AccountImRepository): OutboxRecord[] {

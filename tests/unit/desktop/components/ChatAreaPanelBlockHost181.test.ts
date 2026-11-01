@@ -43,7 +43,7 @@ vi.mock('../../../../apps/desktop/src/lib/chat', () => ({
           { id: 'user-1', role: 'owner', type: 'human', account_status: null },
           { id: 'user-2', role: 'member', type: 'human', account_status: null },
         ],
-        agents: [], tasks: [], outputs: [],
+        agents: [], tasks: [],
       },
       identities: [],
     })),

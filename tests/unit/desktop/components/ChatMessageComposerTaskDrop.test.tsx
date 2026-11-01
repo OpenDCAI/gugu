@@ -25,7 +25,7 @@ const member = { id: 'member-agent', name: 'Member', type: 'agent' as const }
 const outside = contact({ id: 'outside-agent', display_name: 'Task agent', type: 'agent', owner_user_id: 'owner-1' })
 const snapshot = (): GroupCollabSnapshot => ({
   scheduler: { chat_id: 'chat', paused: false, queue_count: 0, blocked_count: 0, summary: null, updated_at: '2026-01-01T00:00:00Z' },
-  humans: [{ id: 'owner-1', role: 'member', type: 'human', account_status: null }], agents: [], tasks: [], outputs: [],
+  humans: [{ id: 'owner-1', role: 'member', type: 'human', account_status: null }], agents: [], tasks: [],
 })
 // The viewer's authority is the server projection (group_info_as), not the roster role.
 const settings = (over: Partial<GroupChatSettings> = {}) => ({

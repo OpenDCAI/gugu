@@ -16,7 +16,7 @@ vi.mock('../../../../apps/desktop/src/lib/topics', () => ({ topicService: {
 } }))
 vi.mock('../../../../apps/desktop/src/lib/chat', () => ({ chatService: {
   getMessages: async () => [], getOtherMembersReadSeqs: async () => ({}),
-  getGroupCollab: async () => ({ snapshot: { scheduler: null, humans: [], agents: [], tasks: [], outputs: [] }, identities: [] }),
+  getGroupCollab: async () => ({ snapshot: { scheduler: null, humans: [], agents: [], tasks: [] }, identities: [] }),
   getGroupChatSettings: async () => ({ id: 'g1', my_role: 'member', can_manage: false, can_dissolve: false, can_archive_topic: false, allow_member_invite: false }),
 } }))
 

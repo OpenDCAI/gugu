@@ -107,7 +107,7 @@ describe('dark informational text contrast (#916)', () => {
       scheduler: { chat_id: 'group', paused: false, queue_count: 0, blocked_count: 0, summary: null, updated_at: '2026-10-29T10:00:00Z' },
       humans: [{ id: 'owner', role: 'owner', type: 'human', account_status: null }],
       agents: [{ id: 'helper', role: 'member', type: 'agent', account_status: 'active', client: 'Codex', model_source: 'Test model', tools: [], permission_scope: null, current_task_id: null, current_task_title: null, last_action: null, last_active_at: null, listen_mode: 'active' }],
-      tasks: [], outputs: [],
+      tasks: [],
     };
     await renderWithAppProviders(harness, createNode(MemberListPanel, {
       chatId: 'group', chatKind: 'group', snapshot, onReload: vi.fn(async () => {}),
