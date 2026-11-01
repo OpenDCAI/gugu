@@ -21,6 +21,7 @@ vi.mock('./restart-session', () => ({ restartSession: vi.fn() }));
 vi.mock('./setSessionPinned', () => ({ setSessionPinned: vi.fn() }));
 vi.mock('./switch-session-runtime', () => ({ switchSessionRuntime: vi.fn() }));
 vi.mock('./sendMessage', () => ({ sendMessage: vi.fn() }));
+vi.mock('./session-orchestration', () => ({ stopSessionByPerson: vi.fn() }));
 vi.mock('./platform-recovery-gate', () => ({ ensurePlatformSessionReady: vi.fn() }));
 vi.mock('./record-live-session-setting', () => ({ recordLiveSessionSetting: vi.fn() }));
 vi.mock('./live-model-switch', () => ({ recordLiveModelSwitch: vi.fn() }));

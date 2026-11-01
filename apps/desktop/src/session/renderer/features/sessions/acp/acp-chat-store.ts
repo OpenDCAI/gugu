@@ -4,7 +4,7 @@ import type {
   ChatView,
   TranscriptTurn,
 } from '@gugu/session-chat-ui';
-import { connectSession, createChatState, pinTopMode, runningBackgroundTaskIds } from '@gugu/session-chat-ui';
+import { connectSession, createChatState, pinTopMode, runningBackgroundTaskIds, turnDiscardedId } from '@gugu/session-chat-ui';
 import {
   attachmentRefSchema,
   permissionTitle,
@@ -870,11 +870,11 @@ export class AcpChatStore {
     void startSessionLife(this.runtimeSessionId).catch((error: unknown) => this._toastError('acpFailure.sendMessage', error));
   }
 
-  /** Only the person's own words can be taken back here; a delivery has a sender to answer to. */
+  /** What the host says can be taken back (`discardable`): an older host says nothing, so it offers no discard. */
   canDiscardTurn(turnId: string): boolean {
     const id = this.stoppedRowId;
     if (!id || turnId !== stoppedTurnId(id)) return true;
-    return sessionLifeView(this.runtimeSessionId)?.pending.items.find(item => item.messageId === id)?.kind === 'ordinary';
+    return sessionLifeView(this.runtimeSessionId)?.pending.items.find(item => item.messageId === id)?.discardable === true;
   }
 
   /** 「丢弃」 on a message stopped before it went: gone from the queue, and the words back in the composer. */
@@ -883,8 +883,13 @@ export class AcpChatStore {
     if (!id || turnId !== stoppedTurnId(id)) return;
     const row = sessionLifeView(this.runtimeSessionId)?.pending.items.find(item => item.messageId === id);
     void discardSessionLifeRow(this.runtimeSessionId, id).then(() => runInAction(() => {
-      if (row && !this.draftText.trim()) this.setDraftText(row.text);
-    })).catch((error: unknown) => this._toastError('acpFailure.sendMessage', error));
+      if (row) this.setDraftText([row.text, this.draftText.trim()].filter(Boolean).join('\n'));
+    })).catch((error: unknown) => {
+      // The click already folded the turn away: it did not go, so it comes back into view.
+      const folded = turnDiscardedId(turnId);
+      if (this.chatState.viewState.isCollapsed(folded)) this.chatState.viewState.toggleCollapsed(folded);
+      this._toastError('acpFailure.sendMessage', error);
+    });
   }
 
   private _lifeFailure(): LifeView['failure'] {
@@ -2106,9 +2111,9 @@ export class AcpChatStore {
     await startSessionLife(id);
     await when(() => {
       const view = sessionLifeView(id)!;
-      return this._disposed || (view.version > before.version && (view.kind === 'ready' || view.kind === 'failed'));
+      return view.version > before.version && (view.kind === 'ready' || view.kind === 'failed');
     });
-    return !this._disposed && sessionLifeView(id)!.kind === 'ready';
+    return sessionLifeView(id)!.kind === 'ready';
   }
 
   private _queuedPromptModels(): QueuedPrompt[] {

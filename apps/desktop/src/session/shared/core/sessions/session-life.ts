@@ -13,7 +13,7 @@ export interface LifeView {
   readonly pending: {
     readonly count: number;
     /** kind: who wrote the row (the person's own input is ordinary / session-direct; inbox-batch is the agent's mail). */
-    readonly items: readonly { seq: number; messageId: string; preview: string; text: string; kind: 'ordinary' | 'session-direct' | 'inbox-batch'; /** Absent from a host older than this client. */ sentAt?: number; state: Receipt['state']; failure: string | null }[];
+    readonly items: readonly { seq: number; messageId: string; preview: string; text: string; kind: 'ordinary' | 'session-direct' | 'inbox-batch'; /** Absent from a host older than this client. */ sentAt?: number; discardable?: boolean; state: Receipt['state']; failure: string | null }[];
   };
   readonly hold: Hold['reason'] | null;
   /** at = the failed startup stage; null = an effect fault outside any stage. cause = what the leg reported. */

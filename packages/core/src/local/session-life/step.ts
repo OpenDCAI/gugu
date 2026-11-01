@@ -390,9 +390,11 @@ function stepArchived(state: Extract<Life, { kind: 'archived' }>, event: Rowless
 /** Decide and emit effects only. The owner commits receipt/hold effects before doing external IO. */
 export function step(state: Life, event: Event, q: PendingView, ctx: StepContext): Transition {
   if (event.k === 'discard-row') {
-    // Only a row a person's stop holds: anything else is still on its way, or not theirs to take back here.
-    if (state.kind !== 'dormant' || state.hold?.reason !== 'user-stop' || !q.queued.includes(event.seq)) return protocol(state, event)
-    return [seal({ ...state }), [{ e: 'delete-row', seq: event.seq }]]
+    // Only a queued row a person's stop holds, also while that stop is still tearing down: anything else is on its way.
+    const stopped = state.kind === 'dormant' ? state.hold?.reason === 'user-stop'
+      : state.kind === 'stopping' && state.destination.kind === 'held' && state.destination.hold.reason === 'user-stop'
+    if (!stopped || !q.queued.includes(event.seq)) return protocol(state, event)
+    return [state, [{ e: 'delete-row', seq: event.seq }]]
   }
   if ('gen' in event) {
     if (state.kind === 'dormant' || state.kind === 'failed' || state.kind === 'archived' || !sameGen(state.gen, event.gen)) return unchanged(state)

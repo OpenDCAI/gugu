@@ -127,8 +127,11 @@ export const lifeStore: LifeStore = {
       for (const effect of effects) {
         if (effect.e === 'write-hold') tx.update(sessions).set({ lifeHold: effect.hold }).where(eq(sessions.id, sessionId)).run();
         if (effect.e === 'delete-row') {
-          const deleted = tx.delete(sessionPending).where(and(eq(sessionPending.sessionId, sessionId), eq(sessionPending.seq, effect.seq))).run();
-          if (deleted.changes !== 1) throw new Error(`Discard ${effect.seq} has no pending row`);
+          const pending = tx.select({ messageId: sessionPending.messageId }).from(sessionPending)
+            .where(and(eq(sessionPending.sessionId, sessionId), eq(sessionPending.seq, effect.seq))).get();
+          if (!pending) throw new Error(`Discard ${effect.seq} has no pending row`);
+          // The message goes, and its row with it (foreign key): nothing is left to draw or send.
+          tx.delete(messages).where(eq(messages.id, pending.messageId)).run();
           // Creation turns are all queued together and re-admitted from this list while it stands: a discarded one must not come back.
           const row = tx.select({ config: sessions.config }).from(sessions).where(eq(sessions.id, sessionId)).get();
           if (row?.config?.type === 'acp' && row.config.initialQueue) {

@@ -68,6 +68,14 @@ interface Entry {
 function same(a: Gen, b: Gen): boolean { return a.auth === b.auth && a.attempt === b.attempt; }
 function terminal(life: Life): boolean { return life.kind === 'dormant' || life.kind === 'failed' || life.kind === 'archived'; }
 /**
+ * A person's own words only. A delivery has a sender to answer to, and a chat-page first turn is the session's reason
+ * to exist: its landed message is what the run renders, so without it the session could not start again.
+ */
+function discardable(row: PendingRow): boolean {
+  return row.kind === 'ordinary' && row.turn.kind === 'prompt';
+}
+
+/**
  * The sole session lifecycle owner. Decisions and receipt/hold commits are synchronous;
  * external IO is ordered per session, while interrupts can abort a pending stage immediately.
  */
@@ -232,7 +240,7 @@ export class SessionLife {
   discardRow(sessionId: string, messageId: string): void {
     const row = this.ports.store(sessionId).unaccepted(sessionId).find(item => item.message.id === messageId);
     if (!row) throw new Error(`Session ${sessionId} holds no pending row for ${messageId}`);
-    if (row.kind !== 'ordinary') throw new Error(`Pending ${row.seq} of session ${sessionId} came from elsewhere: it cannot be discarded here`);
+    if (!discardable(row)) throw new Error(`Pending ${row.seq} of session ${sessionId} cannot be discarded`);
     this.send(sessionId, { k: 'discard-row', seq: row.seq });
   }
 
@@ -418,7 +426,7 @@ export class SessionLife {
     return { sessionId, version: entry.version, kind: life.kind,
       stage: stageOf(entry),
       pending: { count: rows.filter(row => row.state === 'queued' || row.state === 'dispatching').length,
-        items: rows.map(row => ({ seq: row.seq, messageId: row.message.id, preview: row.message.text.slice(0, 160), text: row.message.text, kind: row.kind, sentAt: row.sentAt,
+        items: rows.map(row => ({ seq: row.seq, messageId: row.message.id, preview: row.message.text.slice(0, 160), text: row.message.text, kind: row.kind, sentAt: row.sentAt, discardable: discardable(row),
           state: row.state, failure: row.state === 'failed' ? row.failure?.message ?? null : null })) },
       hold: hold?.reason ?? null,
       failure: life.kind === 'failed' ? { at: life.hold.reason === 'start-failed' ? life.hold.stage : null, message: life.hold.cause.message, cause: life.hold.cause } : null,
