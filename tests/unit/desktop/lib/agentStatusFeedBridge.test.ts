@@ -22,9 +22,11 @@ let pendingSnapshot: Promise<unknown> | null = null
 }
 
 const written: Array<[string, string | null]> = []
+const lives: unknown[] = []
 vi.mock('@/lib/agentPresenceStore', () => ({
-  setLocalAgentStatus: (agentUserId: string, local: { reading: { status: string } | null } | null) => {
+  setLocalAgentStatus: (agentUserId: string, local: { reading: { status: string } | null; life: unknown } | null) => {
     written.push([agentUserId, local ? local.reading?.status ?? 'no-source' : null])
+    if (local) lives.push(local.life)
   },
 }))
 
@@ -42,6 +44,7 @@ const entry = (agentUserId: string, status: string | null) => ({
   unseen: false,
   reviewGate: null,
   providerBlocker: null,
+  life: null,
 })
 const emit = (payload: unknown) => {
   for (const cb of events.get(AGENT_STATUS_FEED_EVENT) ?? []) cb(payload)
@@ -52,6 +55,7 @@ const flush = async () => {
 
 beforeEach(() => {
   written.length = 0
+  lives.length = 0
   events.clear()
   snapshot = { entries: [], version: 0 }
   pendingSnapshot = null
@@ -112,6 +116,21 @@ describe('agentStatusFeedBridge', () => {
     expect(() => emit({ agentUserId: 'agent-a', entry: { ...entry('agent-a', 'working'), unseen: 'no' }, version: 9 }))
       .toThrow('unseen')
     expect(() => emit({ agentUserId: 'agent-a', entry: entry('agent-a', 'online'), version: 9 })).toThrow('unknown agent status')
+    const { life: _life, ...withoutLife } = entry('agent-a', 'working')
+    expect(() => emit({ agentUserId: 'agent-a', entry: withoutLife, version: 9 })).toThrow('malformed life')
+    expect(() => emit({ agentUserId: 'agent-a', entry: { ...entry('agent-a', 'working'), life: { kind: 'booting', stage: null } }, version: 9 }))
+      .toThrow('malformed life')
+    expect(() => emit({ agentUserId: 'agent-a', entry: { ...entry('agent-a', 'working'), life: { kind: 'starting', stage: { at: 'cli', index: 4, total: 6, since: 1 } } }, version: 9 }))
+      .toThrow('malformed life stage')
     expect(written).toEqual([])
+  })
+
+  it('carries the bound session\'s lifecycle through', async () => {
+    installAgentStatusFeedBridge()
+    await flush()
+    const stage = { at: 'process', index: 5, total: 7, since: 42 }
+    emit({ agentUserId: 'agent-a', entry: { ...entry('agent-a', 'idle'), life: { kind: 'starting', stage } }, version: 2 })
+    emit({ agentUserId: 'agent-a', entry: entry('agent-a', 'idle'), version: 3 })
+    expect(lives).toEqual([{ kind: 'starting', stage }, null])
   })
 })

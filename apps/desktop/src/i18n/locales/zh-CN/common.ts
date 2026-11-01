@@ -40,6 +40,7 @@ export default {
     "archived": "已归档",
     "removed": "已移除",
     "pending": "确认中",
+    "starting": "启动中",
     "none": "状态不可用"
   },
   "agentShare": {

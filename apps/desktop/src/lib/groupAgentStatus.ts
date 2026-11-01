@@ -7,7 +7,7 @@ export type GroupAgentStatusMember = string | {
   account_status?: string | null
 }
 
-// 一格里只能放一个 agent 时,放最需要人看的那个:需要你 > 出错 > 在跑 > 后台在跑 > 在线 > 确认中 > 不在线 > 已移除。
+// 一格里只能放一个 agent 时,放最需要人看的那个:需要你 > 出错 > 在跑 > 后台在跑 > 启动中 > 在线 > 确认中 > 不在线 > 已移除。
 // 与会话页侧栏、手机的「最需要你」同一个次序(core agentStatusUrgency:needs_user > error > working > idle)。
 const GROUP_AGENT_STATUS_RANK: Record<AgentDisplayStatus, number> = {
   removed: 0,
@@ -15,10 +15,11 @@ const GROUP_AGENT_STATUS_RANK: Record<AgentDisplayStatus, number> = {
   archived: 1,
   pending: 2,
   idle: 3,
-  parked: 4,
-  working: 5,
-  error: 6,
-  needs_user: 7,
+  starting: 4,
+  parked: 5,
+  working: 6,
+  error: 7,
+  needs_user: 8,
 }
 
 export function groupAgentDisplayStatus(

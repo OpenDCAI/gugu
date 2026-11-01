@@ -127,12 +127,8 @@ export class AcpRuntime {
     });
   }
 
-  queuePrompt(
-    sessionId: string,
-    prompt: PromptInput,
-    startInput?: AcpStartInput,
-  ): Promise<Result<{ queued: boolean }, AcpQueuePromptError>> {
-    return this.manager.queuePrompt({ sessionId, prompt }, startInput);
+  queuePrompt(sessionId: string, prompt: PromptInput): Promise<Result<{ queued: boolean }, AcpQueuePromptError>> {
+    return this.manager.queuePrompt({ sessionId, prompt });
   }
 
   editQueuedPrompt(

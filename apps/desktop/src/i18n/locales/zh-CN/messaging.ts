@@ -88,6 +88,7 @@ export default {
       "close": "关闭",
       "generic": "Agent 本次回复出错，未能完成",
       "notAdmitted": "消息已保留，助理就绪后回复。",
+      "outcomeUnknown": "投递结果未知：消息可能已经送到助理，没有重投。",
       "undelivered": "消息暂未送达：没有运行中的咕咕实例持有这个 Agent，打开那个实例后会由它读取。",
       "offline": "设备连接中断，本次回复未完成",
       "retry": "重试",
@@ -759,6 +760,7 @@ export default {
       "title": "已读回执"
     },
     "retracted": "消息已撤回",
+    "deliveredFrom": "来自 {{name}}",
     "sendStatus": {
       "unknown": "状态待确认",
       "unknownHint": "正在等待发布结果，消息到达后会自动更新，无需重发。",
@@ -767,7 +769,16 @@ export default {
       "failedActions": "未送达消息操作",
       "failedHint": "未送达，点击重试或丢弃",
       "queued": "发送中，助理就绪后回复",
-      "sending": "发送中"
+      "sending": "发送中",
+      "held": "等待重试",
+      "stopped": "已停止，下一句发出时一起发送",
+      "unknownNotResent": "结果未知，没有重发",
+      "failure": {
+        "hostOffline": "这个任务所在的电脑现在不在线，它上线后会自动发出",
+        "hostNotReady": "这个任务所在的电脑还没准备好接收消息，稍后点重试",
+        "phoneUnconfirmed": "手机还没确认收到这条消息，稍后点重试",
+        "noAcknowledgement": "任务没有回应，稍后点重试"
+      }
     },
     "showQuoted": "跳到被引用的消息",
     "svgFigure": {

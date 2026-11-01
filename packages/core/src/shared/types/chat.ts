@@ -173,7 +173,7 @@ export type AgentActivityStatus = 'idle' | 'running'
  * pending(spec agent-status)。「进程在不在内存」不让用户感知:没有活 runtime 但可达 = idle,会话正在起 = working。
  * 它是 `presentAgentStatus` 的输出折出来的(`displayStatusOf`),❌ 另有推导;文案与颜色读完整的 presentation。
  */
-export type AgentDisplayStatus = 'pending' | 'idle' | 'working' | 'parked' | 'needs_user' | 'offline' | 'archived' | 'removed' | 'error'
+export type AgentDisplayStatus = 'pending' | 'starting' | 'idle' | 'working' | 'parked' | 'needs_user' | 'offline' | 'archived' | 'removed' | 'error'
 export type AgentConversationActivityStatus =
   | Extract<AgentRuntimeStatus, 'starting'>
   | AgentActivityStatus

@@ -33,6 +33,7 @@ function isDeliveryRejectedBeforeAdmission(error: unknown): boolean {
   return (error as { deliveryRejectedBeforeAdmission?: unknown } | null)?.deliveryRejectedBeforeAdmission === true;
 }
 import { events } from '@main/lib/events';
+import { sessionLife } from './session-life';
 import { sessionDeliveryFailedChannel } from '@shared/core/sessions/sessionEvents';
 import type { SessionMessageDelivery } from '@shared/core/sessions/sessions';
 
@@ -319,10 +320,7 @@ function persistAcceptedMessage(
       ))
       .run();
   });
-  if (pending.kind === 'session-direct') {
-    taskExchangeRecorded(params.sessionId);
-    recordDeliveryActivity(params.sessionId, pending);
-  }
+  if (pending.kind === 'session-direct') sessionDirectAccepted(params.sessionId, pending);
 }
 
 function persistFailedMessage(
@@ -395,8 +393,13 @@ function persistDeliveredSessionDirect(
       metadata: messageMetadata('session-direct', 'accepted', nativeReceiptId),
     }).run();
   });
-  taskExchangeRecorded(params.sessionId);
-  recordDeliveryActivity(params.sessionId, message);
+  sessionDirectAccepted(params.sessionId, message);
+}
+
+/** A session-direct message its recipient accepted: the task exchange views and the delivery activity hear of it. */
+export function sessionDirectAccepted(sessionId: string, message: { id: string; text: string }): void {
+  taskExchangeRecorded(sessionId);
+  recordDeliveryActivity(sessionId, message);
 }
 
 function recordDeliveryActivity(sessionId: string, message: { id: string; text: string }): void {
@@ -470,6 +473,8 @@ async function drain(params: {
 }): Promise<void> {
   for (;;) {
     const row = await readSession(params);
+    // The old outbox must never see an ACP session: its only queue is session_pending.
+    if (row.runtime === 'acp') throw new Error(`ACP session ${params.sessionId} is owned by session-life; the legacy outbox must not touch it`);
     const pending = nextPendingSessionMessage(
       row.config,
       (message) => message.kind !== 'session-direct',
@@ -486,8 +491,7 @@ async function drain(params: {
       | { status: 'not-ready' }
       | { status: 'accepted'; messageId: string; nativeReceiptId?: string };
     try {
-      const surface = row.runtime === 'acp' ? 'acp' : 'tui';
-      const integration = resolveSessionpageSessionIntegration(row.provider, surface);
+      const integration = resolveSessionpageSessionIntegration(row.provider, 'tui');
       if (integration.messageTransport === 'none') {
         throw new Error(
           `session ${params.sessionId} does not declare a session message transport`,
@@ -541,8 +545,30 @@ async function drain(params: {
  * retain the existing durable outbox behavior.
  */
 const directAdmissions = new Map<string, { signature: string; flight: Promise<SendSessionMessageResult> }>();
+/** session-life owns ACP sessions (②); other runtimes keep this module's outbox until their own PR (③④⑤). */
+function runtimeOf(sessionId: string): string | null {
+  const row = db.select({ runtime: sessions.runtime }).from(sessions).where(eq(sessions.id, sessionId)).get();
+  if (!row) throw new Error('session not found');
+  return row.runtime;
+}
+
+function enqueueIntoLife(params: SendSessionMessageParams): SendSessionMessageResult {
+  const receipt = sessionLife().enqueue({
+    sessionId: params.sessionId, messageId: params.clientMessageId, text: params.text,
+    kind: params.kind === 'session-direct' ? 'session-direct' : 'ordinary',
+    ...(params.delivery ? { delivery: params.delivery } : {}),
+  });
+  switch (receipt.state) {
+    case 'queued': case 'dispatching': return { id: params.clientMessageId, status: 'queued' };
+    case 'accepted': return { id: params.clientMessageId, status: 'delivered' };
+    case 'unknown': return { id: params.clientMessageId, status: 'outcome-unknown' };
+    case 'failed': throw new SessionDirectDeliveryError(params.sessionId, `message ${params.clientMessageId} already failed`);
+  }
+}
+
 export async function sendMessage(params: SendSessionMessageParams): Promise<SendSessionMessageResult> {
   params.signal?.throwIfAborted();
+  if (runtimeOf(params.sessionId) === 'acp') return enqueueIntoLife(params);
   if (params.kind !== 'session-direct' || params.queuedStartupDelegation) return sendMessageOnce(params);
   const key = params.clientMessageId.trim();
   const signature = JSON.stringify([params.projectId, params.sessionId, sessionDirectMessageIdentity(params.text.trim(),key), params.delivery ?? null]);
@@ -571,8 +597,7 @@ async function sendMessageOnce(
   // exact message in the existing outbox until the coordinator's retry kicks the common reader.
   if (params.kind === 'session-direct' && !params.queuedStartupDelegation) {
     const row = await readSession(params);
-    const surface = row.runtime === 'acp' ? 'acp' : 'tui';
-    const integration = resolveSessionpageSessionIntegration(row.provider, surface);
+    const integration = resolveSessionpageSessionIntegration(row.provider, 'tui');
     if (integration.messageTransport === 'none') {
       throw new Error(
         `session ${params.sessionId} does not declare a session message transport`,
@@ -642,8 +667,7 @@ async function sendMessageOnce(
 
   const status = await serialize(enqueueOperations, params.sessionId, async (): Promise<SendSessionMessageResult['status']> => {
     const row = await readSession(params);
-    const surface = row.runtime === 'acp' ? 'acp' : 'tui';
-    const integration = resolveSessionpageSessionIntegration(row.provider, surface);
+    const integration = resolveSessionpageSessionIntegration(row.provider, 'tui');
     if (integration.messageTransport === 'none') {
       recordLocalSessionDeliveryFailureForTest({
         sessionId: params.sessionId,
@@ -767,6 +791,8 @@ export async function drainSessionMessageOutboxById(sessionId: string): Promise<
   const [row] = db.select().from(sessions).where(eq(sessions.id, sessionId)).limit(1).all();
   // ❌ 不静默 return：查不到会话说明调用方拿着一个不存在的 id，那是要修的 bug，不是空活。
   if (!row) throw new Error(`session ${sessionId} not found for outbox drain`);
+  // An ACP session's queue is session-life's (session_pending), as in drainAll: the session-live kick has nothing here.
+  if (row.runtime === 'acp') return;
   await drainSessionMessageOutbox({
     projectId: row.projectId,
     sessionId,
@@ -780,10 +806,11 @@ export async function drainAllSessionMessageOutboxes(): Promise<void> {
       id: sessions.id,
       projectId: sessions.projectId,
       archivedAt: sessions.archivedAt,
+      runtime: sessions.runtime,
     })
     .from(sessions)
     .all();
-  const targets = rows.filter((row) => !row.archivedAt);
+  const targets = rows.filter((row) => !row.archivedAt && row.runtime !== 'acp');
   await Promise.all(targets.map((row) => sessionBootTasks.run('outbox-drain', row.id, async () => {
     try {
       const task = db.select({ config: sessions.config }).from(sessions).where(eq(sessions.id, row.id)).get();

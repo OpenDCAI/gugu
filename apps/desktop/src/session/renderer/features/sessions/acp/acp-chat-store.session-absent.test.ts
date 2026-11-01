@@ -1,27 +1,12 @@
 // @vitest-environment jsdom
 /**
- * #3500 —— 会话不在时，用户的输入不许被静默丢弃。
+ * #3500 / #3507 —— 会话不在时，有副作用的动作不许静默无操作。
  *
  * 落在 `session-main`（`apps/desktop/src/session/**\/*.test.ts`，**进 CI 闸**），
  * 用 jsdom pragma 换到 DOM（先例：`lib/theme/host-theme.test.ts`）。
  *
- * ## 修复前是什么样
- *
- * `submitPrompt` 先把乐观消息塞进 `pendingPrompt`，再 `void this.session?.sendPrompt(...)`。
- * 会话对象不在时整条可选链短路 ⇒ **不发、不报错、连 `.then(… && toast)` 都一起消失**，
- * 而那条消息停在屏幕上。用户以为发出去了。
- *
- * ## 为什么必须三条一起验
- *
- * 1. **乐观行被回滚** —— 只验这条会被"什么都不做"的实现满足：消息本来就在，
- *    区分不出"回滚了"和"从没插入过"
- * 2. **用户看到了错误** —— 只验这条会被"消息留着、旁边弹个错"满足：用户仍以为发出去过
- * 3. **文字被还回输入框** —— ⚠️ 这一条是票面没写、但不加就会**修出比原来更糟的结果**的：
- *    `acp-chat-panel.tsx:304-307` 在调用 `submitPrompt` **之前**就 `editor.clear()` 了，
- *    所以只做 1+2 会让用户输入的内容在**屏幕和输入框里同时消失**——
- *    修之前它至少还以气泡形式留着。
- *
- * 三条合起来才描述**「用户知道自己需要重发，并且还能重发」**，那才是真正的验收对象。
+ * 发送不在此列:不论挂没挂上,发送与排队都只走 custody(发送方 outbox → 宿主 session_pending),
+ * 没收下时还字、报错的是 `sendThroughCustody` 自己。
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { translateSessionMessage } from '@renderer/localization/locale-store';
@@ -29,10 +14,8 @@ import { reaction, runInAction } from 'mobx';
 import { WireError } from '@gugu/session-wire';
 import { log } from '@renderer/utils/logger';
 
-const startupQueue = vi.fn().mockResolvedValue({ success: true, data: { queued: true } });
-vi.mock('@renderer/lib/acp/runtime-client', () => ({
-  getAcpRuntimeClient: async () => ({ queuePrompt: startupQueue }),
-}));
+const custody = vi.fn(async (..._args: unknown[]) => {});
+vi.mock('./queue-native-input', () => ({ sendThroughCustody: custody, canQueueNativeInput: () => false }));
 
 const toasts: Array<{ title: string; description?: string; variant?: string }> = [];
 vi.mock('@renderer/lib/hooks/use-toast', () => ({
@@ -90,209 +73,41 @@ function makeStore(): InstanceType<StoreCtor> {
 
 beforeEach(() => {
   toasts.length = 0;
+  custody.mockClear();
 });
 
-// #7103 同一次失败只说一次:这一轮已经以失败结算时,转录里「回合失败」那一行就是它 —— ❌ 角落再弹一条
-// 「Failed to send message」+ 未打码的原文。没结算成一轮的失败照旧弹,标题跟界面语言,正文按原因表说。
-describe('#7103 发送失败只说一次', () => {
-  function liveStore(error: unknown): { store: InstanceType<StoreCtor>; answered: Promise<void> } {
+describe('#3500 发送只走 custody', () => {
+  it('发送不论挂没挂上都交给 custody(在跑时由宿主排在后面),❌ 直接发给运行时', () => {
     const store = makeStore();
-    const answered = Promise.withResolvers<void>();
+    store.submitPrompt('现在发送');
+    store.submitPrompt('稍后发送');
+    // 挂上了也一样:句柄上没有发送的口子,一旦被调到就会抛。
     store.session = {
-      sessionState: {
-        current: () => ({ lifecycle: 'ready', pendingPermissions: [], activeTurnId: null, queuedPrompts: [] }),
-      },
-      sendPrompt: async () => {
-        queueMicrotask(() => answered.resolve());
-        return { success: false, error };
-      },
-    } as never;
-    return { store, answered: answered.promise };
-  }
-
-  it('这一轮以失败结算(prompt_failed):不弹', async () => {
-    const { store, answered } = liveStore({ type: 'prompt_failed', cause: { name: 'Error', message: 'boom at 127.0.0.1:4242' } });
-    store.submitPrompt('hi');
-    await answered;
-    await Promise.resolve();
+      sessionState: { current: () => ({ isGenerating: false, pendingPermissions: [] }) },
+      // oxlint-disable-next-line typescript/no-explicit-any -- 测试替身边界
+    } as any;
+    store.submitPrompt('挂上之后');
+    expect(custody.mock.calls.map(([, text]) => text)).toEqual(['现在发送', '稍后发送', '挂上之后']);
     expect(toasts).toEqual([]);
   });
 
-  it('shows a sanitized reason for a runtime refusal that did not settle a turn', async () => {
-    const { store, answered } = liveStore({ type: 'invalid_state', message: 'session is closing in /Users/someone/runtime\n    at close' });
-    store.submitPrompt('hi');
-    await answered;
-    await Promise.resolve();
-    expect(toasts).toHaveLength(1);
-    expect(toasts[0]?.title).toBe(translateSessionMessage('acpFailure.sendMessage'));
-    expect(toasts[0]?.description).toBe('session is closing in [path]');
-  });
-
-  // #4657 / #7103 D1:拒绝方是 agent 自己(ACP 那侧带病因)时递它的原话 —— 一行,去掉本机路径。
-  it('agent 拒的(带病因)递它的原话一行,❌ 换成「咕咕这边出错了」', async () => {
-    const { store, answered } = liveStore({
-      type: 'provider_session_missing',
-      cause: { name: 'Error', message: 'Session not found in /Users/someone/.codex/sessions\n    at resume' },
-    });
-    store.submitPrompt('hi');
-    await answered;
-    await Promise.resolve();
-    expect(toasts).toHaveLength(1);
-    expect(toasts[0]?.description).toBe('Session not found in [path]');
-  });
-});
-
-describe('#3500 会话不在时的 submitPrompt', () => {
-  it('exposes and uses the same submit capability after recoverable startup failure', async () => {
+  it('exposes the submit capability after a recoverable startup failure, not after a terminal one', () => {
     const store = makeStore();
-    const internal = store as unknown as { _bootstrapped: boolean; _startInput: () => unknown };
-    internal._startInput = () => ({ sessionId: store.sessionId });
     const seen: boolean[] = [];
     const dispose = reaction(() => store.affordances.canSubmit, value => seen.push(value), { fireImmediately: true });
     try {
       runInAction(() => {
-        internal._bootstrapped = true;
         store.historyLoading = false;
         store.loadError = { kind: 'auth_required', message: 'sign in' };
       });
       expect(store.affordances.canSubmit).toBe(true);
-      const queued = Promise.withResolvers<unknown>();
-      startupQueue.mockImplementationOnce(async (request: unknown) => {
-        queued.resolve(request);
-        return { success: true, data: { queued: true } };
-      });
       store.submitPrompt('wait for sign-in');
-      expect(await queued.promise).toMatchObject({ prompt: { text: 'wait for sign-in' } });
+      expect(custody).toHaveBeenCalledWith(store, 'wait for sign-in', []);
       runInAction(() => { store.loadError = { kind: 'harness_not_installed', message: 'install first' }; });
       expect(store.affordances.canSubmit).toBe(false);
-      expect(seen).toEqual([false, true, false]);
+      expect(seen).toEqual([true, false]);
     } finally { dispose(); }
   });
-
-  it('阳性对照：store 造得出来、且此时确实没有会话', () => {
-    const store = makeStore();
-    expect(store.session, '会话不为 null，被测场景就不成立，后面每条读数作废').toBeNull();
-    expect(store.affordances.isWorking, '没有会话时应当不是 working —— 否则走不到乐观分支').toBe(
-      false,
-    );
-  });
-
-  it('① 乐观消息被回滚（不是从没插入）', () => {
-    const store = makeStore();
-    store.submitPrompt('把 README 的安装步骤更新一下');
-    expect(
-      store.chatState.session.state.pendingPrompt,
-      '乐观消息还停在屏幕上 —— 用户会以为发出去了',
-    ).toBeNull();
-  });
-
-  it('② 用户看到了错误', () => {
-    const store = makeStore();
-    store.submitPrompt('把 README 的安装步骤更新一下');
-    expect(toasts.length, '一个字节没发，却什么都没告诉用户').toBeGreaterThan(0);
-    expect(toasts[0]?.variant).toBe('destructive');
-    expect(toasts[0]?.title).toBe(translateSessionMessage('acpFailure.sendMessage'));
-  });
-
-  it('③ 文字被还回输入框（只做①②会让内容彻底消失）', () => {
-    const store = makeStore();
-    const text = '把 README 的安装步骤更新一下';
-    store.submitPrompt(text);
-    expect(
-      store.draftText,
-      'composer 在 submitPrompt 之前就 clear() 过了 —— 不还回去，用户输入的内容两处都没了',
-    ).toBe(text);
-  });
-
-  it('不覆盖用户在这期间新键入的内容', () => {
-    const store = makeStore();
-    store.setDraftText('我已经在打下一句了');
-    store.submitPrompt('这一条没发出去');
-    expect(store.draftText, '把用户正在打的字覆盖掉，比丢一条消息更糟').toBe('我已经在打下一句了');
-  });
-
-  it('queuePrompt 同样不静默丢弃（composer 也是先 clear 再调）', () => {
-    const store = makeStore();
-    store.queuePrompt('排队的这一条');
-    expect(toasts.some((t) => t.title === translateSessionMessage('acpFailure.sendMessage'))).toBe(true);
-    expect(store.draftText).toBe('排队的这一条');
-  });
-
-  it('stop 同样不静默无操作', () => {
-    const store = makeStore();
-    store.stop();
-    expect(toasts.some((t) => t.title === translateSessionMessage('acpFailure.stop')), '按了停止却什么都没发生').toBe(
-      true,
-    );
-  });
-
-  it('判据能判假：有会话时不该走这条路（不误报）', () => {
-    const store = makeStore();
-    const sent: Array<{ text: string; origin?: string }> = [];
-    // 只实现被测路径需要的那一个方法；其余保持缺失，一旦被调到就会抛，而不是静默通过。
-    store.session = {
-      sendPrompt: (arg: { text: string; origin?: string }) => {
-        sent.push(arg);
-        return Promise.resolve({ success: true as const, data: { queued: false } });
-      },
-      sessionState: { current: () => ({ isGenerating: false, pendingPermissions: [] }) },
-      // 测试替身边界
-    } as any;
-    store.submitPrompt('这一条应该真的发出去');
-    expect(sent, '有会话时反而没发出去 —— 那说明修复把正常路径也堵了').toEqual([
-      { text: '这一条应该真的发出去', origin: 'manual' },
-    ]);
-    expect(toasts.length, '正常路径不该弹错误').toBe(0);
-  });
-
-  it('task composer submit 与 queue 都只写 manual 来源', () => {
-    const store = makeStore();
-    const sent: Array<{ text: string; origin?: string }> = [];
-    const queued: Array<{ text: string; origin?: string }> = [];
-    store.session = {
-      sendPrompt: (arg: { text: string; origin?: string }) => {
-        sent.push(arg);
-        return Promise.resolve({ success: true as const, data: { queued: false } });
-      },
-      queuePrompt: (arg: { text: string; origin?: string }) => {
-        queued.push(arg);
-        return Promise.resolve({ success: true as const, data: { queued: true } });
-      },
-      sessionState: { current: () => ({ isGenerating: false, pendingPermissions: [] }) },
-      // 测试替身边界
-    } as any;
-
-    store.submitPrompt('现在发送');
-    store.queuePrompt('稍后发送');
-
-    expect(sent).toEqual([{ text: '现在发送', origin: 'manual' }]);
-    expect(queued).toEqual([{ text: '稍后发送', origin: 'manual' }]);
-  });
-
-  it('问题 13:扩展转来的选区是咕咕包好的信封,submit 与 queue 都按投递(communication)送', () => {
-    const store = makeStore();
-    const sent: Array<{ text: string; origin?: string }> = [];
-    const queued: Array<{ text: string; origin?: string }> = [];
-    store.session = {
-      sendPrompt: (arg: { text: string; origin?: string }) => {
-        sent.push(arg);
-        return Promise.resolve({ success: true as const, data: { queued: false } });
-      },
-      queuePrompt: (arg: { text: string; origin?: string }) => {
-        queued.push(arg);
-        return Promise.resolve({ success: true as const, data: { queued: true } });
-      },
-      sessionState: { current: () => ({ isGenerating: false, pendingPermissions: [] }) },
-      // 测试替身边界
-    } as any;
-
-    store.submitPrompt('<gugu_delivery route="extension">现在</gugu_delivery>', [], undefined, 'communication');
-    store.queuePrompt('<gugu_delivery route="extension">稍后</gugu_delivery>', [], undefined, 'communication');
-
-    expect(sent).toEqual([{ text: '<gugu_delivery route="extension">现在</gugu_delivery>', origin: 'communication' }]);
-    expect(queued).toEqual([{ text: '<gugu_delivery route="extension">稍后</gugu_delivery>', origin: 'communication' }]);
-  });
-
 });
 
 describe('#3507 会话不在时的其余副作用', () => {
@@ -334,18 +149,6 @@ describe('#3507 会话不在时的其余副作用', () => {
     const store = makeStore();
     await expect(store.setModel('model-1')).resolves.toEqual({ kind: 'restart-required', requestedValue: 'model-1' });
     expect(toasts.some((entry) => entry.title === translateSessionMessage('acpFailure.changeSetting'))).toBe(false);
-  });
-
-  it('draft sync fails loudly when the session disappears before the timer fires', () => {
-    vi.useFakeTimers();
-    try {
-      const store = makeStore();
-      store.setDraftText('draft after disconnect');
-      vi.advanceTimersByTime(300);
-      expect(toasts.some((entry) => entry.title === translateSessionMessage('acpFailure.syncDraft'))).toBe(true);
-    } finally {
-      vi.useRealTimers();
-    }
   });
 
   it('history refresh fails loudly while still releasing its retained frame', async () => {
