@@ -19,7 +19,7 @@ vi.mock('@gugu/session-chat-ui', () => ({
     body.dataset.fakeView = 'true'
     parent.appendChild(body)
     created.push(parent)
-    return { dispose: () => body.remove(), setModel: () => {}, setContentPadding: () => {}, setCommands: () => {} }
+    return { dispose: () => body.remove(), setModel: () => {}, setContentPadding: () => {}, setCommands: () => {}, setShown: () => {} }
   },
 }))
 
