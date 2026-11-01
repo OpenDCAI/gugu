@@ -22,10 +22,12 @@ Element.prototype.scrollIntoView ??= () => {}
 
 const GROUP = '0b1e7c1a-0000-4000-8000-000000000001'
 const OTHER = '0b1e7c1a-0000-4000-8000-000000000002'
+const NEW = '0b1e7c1a-0000-4000-8000-0000000000aa'
+const OLD = '0b1e7c1a-0000-4000-8000-0000000000bb'
 const turn: TaskTurnHit = { sessionId: 's1', projectId: 'p1', title: '发布排查', archived: false, itemId: 's1:turn:s3:m', role: 'assistant', excerpt: '已经把回滚开关打开了', at: '2026-10-31 08:00:00' }
 const rows = [
-  { id: 'm-new', chat_id: GROUP, sender_user_id: 'u1', sender_name: '阿威', content: '收到，回滚脚本已经演练过', created_at: '2026-10-31T09:00:00Z', file_item_id: null },
-  { id: 'm-old', chat_id: OTHER, sender_user_id: 'u2', sender_name: '小林', content: '回滚方案.pdf', created_at: '2026-10-30T09:00:00Z', file_item_id: 'f1' },
+  { id: NEW, chat_id: GROUP, sender_user_id: 'u1', sender_name: '阿威', content: '收到，回滚脚本已经演练过', created_at: '2026-10-31T09:00:00Z', file_item_id: null },
+  { id: OLD, chat_id: OTHER, sender_user_id: 'u2', sender_name: '小林', content: '回滚方案.pdf', created_at: '2026-10-30T09:00:00Z', file_item_id: 'f1' },
 ]
 
 let host: HTMLDivElement
@@ -109,7 +111,7 @@ describe('global search panel', () => {
     const input = host.querySelector<HTMLInputElement>('[data-testid=global-search-input]')!
     await act(async () => { input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })) })
     expect(closed).toBe(1)
-    expect(remote.opened).toEqual([conversationLink(GROUP, 'm-new')])
+    expect(remote.opened).toEqual([conversationLink(GROUP, NEW)])
     await act(async () => options()[1]!.click())
     expect(remote.opened[1]).toEqual({ kind: 'session', sessionId: 's1', projectId: 'p1' })
     expect(takeTaskReveal('s1')).toBe(messageQuoteLink({ kind: 'session', sessionId: 's1', itemId: 's1:turn:s3:m' }))
