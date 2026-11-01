@@ -1,4 +1,6 @@
 import { recordPresenceBatch } from './perfCounters'
+import { desktopIpc } from '../platform/desktopIpc'
+import type { DeviceCommandHolding } from '@gugu/core/cloud/deviceCommands'
 import { readMemberRosterRevision, type AccountRevisionEvent, type AccountRevisionListener } from './accountRevisionCoordinator'
 // 渲染层**唯一**的那张 agent 状态表:键是 agentId,值是「关于这个 agent 我观测到什么」。
 // 会话列表、标题栏、头像、群成员、群汇总、会话里的运行条、composer 忙态 —— 全部读它,读法只有一种。
@@ -95,6 +97,7 @@ type Entry = {
   // @@@1947 in-flight 快照去重改存 promise:并发调用共享同一次拉取且**可等待**(权威对账要在快照
   // 落地后读 entry.state,布尔式去重会让后到的调用者拿不到完成时机)。
   snapshotPromise: Promise<void> | null
+  holding: DeviceCommandHolding | null
   // @@@3839 离屏期间收到的权威变更:只记「该重问」,不当场发请求 —— 没人在看的 agent 不值得占网络,
   // 而重新订阅时先推缓存值再对账,所以这条延后不会让任何人看见 pending。
   dirty: boolean
@@ -198,8 +201,10 @@ export function setLocalAgentStatus(agentUserId: string, local: LocalAgentStatus
   if (!agentUserId) throw new Error('local agent status has no agent id')
   const entry = local ? ensureEntry(agentUserId) : entries.get(agentUserId)
   if (!entry || sameLocal(entry.local, local)) return
+  const bindingChanged = entry.local?.sessionId !== local?.sessionId
   entry.local = local
-  const projected = projectState(entry.state, Date.now(), entry.local)
+  if (bindingChanged) void fetchSnapshot(entry)
+  const projected = projectState(entry.state, Date.now(), entry.local, entry.holding)
   if (projected === entry.state) return
   entry.state = projected
   notify(entry)
@@ -290,6 +295,7 @@ function createEntry(agentUserId: string): Entry {
     listeners: new Set(),
     refCount: 0,
     snapshotPromise: null,
+    holding: null,
     dirty: false,
     cooledAt: null,
     local: null,
@@ -360,11 +366,12 @@ function projectState(
   state: AgentPresenceState,
   now: number,
   local: LocalAgentStatus | null,
+  holding: DeviceCommandHolding | null,
 ): AgentPresenceState {
   const payload = state.payload
   const reading = readingOf(payload, local)
   const deviceOnline = payload ? computeDeviceOnline(payload) : state.deviceOnline
-  const presentation = payload ? presentationOf(payload, deviceOnline, reading, local) : state.presentation
+  const presentation = payload ? presentationOf(payload, deviceOnline && holding !== 'unheld', reading, local) : state.presentation
   const unchanged = samePresentation(presentation, state.presentation) && deviceOnline === state.deviceOnline
     && sameLocal(state.local, local) && sameView(state.reading, reading)
   if (unchanged) return state
@@ -496,6 +503,7 @@ async function runSnapshotBatch(waiters: BatchWaiter[]): Promise<void> {
       for (const waiter of waiters) settleWaiter(waiter, 'Invalid agent presence batch snapshot')
       return
     }
+    const ready: Array<{ waiter: BatchWaiter; payload: AgentPresencePayload }> = []
     for (const waiter of waiters) {
       const agentUserId = waiter.entry.agentUserId
       // 身份校验:批次在飞的时候 entry 可能已被换号清空或淘汰,那份答案不再属于任何人。
@@ -528,7 +536,16 @@ async function runSnapshotBatch(waiters: BatchWaiter[]): Promise<void> {
         settleWaiter(waiter, 'Invalid agent presence snapshot')
         continue
       }
-      applyPayload(waiter.entry, payload, 'snapshot')
+      ready.push({ waiter, payload })
+    }
+    const api = desktopIpc()
+    const holdings = api && ready.length ? await api.invoke('agent-status-feed:holding', ready.map(({ payload }) => ({ agentUserId: payload.agentUserId, deviceId: payload.deviceId }))) as Record<string, DeviceCommandHolding> : {}
+    if (Object.values(holdings).some(value => value !== 'held' && value !== 'held-elsewhere' && value !== 'unheld')) throw new Error('Invalid local agent holding response')
+    for (const { waiter, payload } of ready) {
+      if (entries.get(payload.agentUserId) === waiter.entry && shouldApplyAgentPresencePayload(waiter.entry.state.payload, payload)) {
+        waiter.entry.holding = holdings[payload.agentUserId] ?? null
+        applyPayload(waiter.entry, payload, 'snapshot')
+      }
       waiter.resolve()
     }
   } catch (err) {
@@ -552,7 +569,7 @@ function applyPayload(
   const now = Date.now()
   const deviceOnline = computeDeviceOnline(payload)
   const reading = readingOf(payload, entry.local)
-  const presentation = presentationOf(payload, deviceOnline, reading, entry.local)
+  const presentation = presentationOf(payload, deviceOnline && entry.holding !== 'unheld', reading, entry.local)
   const status = displayStatusOf(presentation.tone)
   const prev = entry.state
   // Heartbeats arrive far more often than the dot actually changes. Only the derived

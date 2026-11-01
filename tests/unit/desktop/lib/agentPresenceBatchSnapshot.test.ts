@@ -7,12 +7,14 @@ import { readPerfCounters } from '@/lib/perfCounters'
 //
 // ⚠️ 这条改动是**客户端 ↔ 数据库的契约变更**,合并前无法对 devdb 自测(DDL 只能由
 // deploy-migrations 施加)。所以这一层必须把能在本地判的都判掉,合并后再补真库读数。
-const { rpcMock } = vi.hoisted(() => ({ rpcMock: vi.fn() }))
+const { rpcMock, ipcMock, host } = vi.hoisted(() => ({ rpcMock: vi.fn(), ipcMock: vi.fn(), host: { enabled: false } }))
+vi.mock('@/platform/desktopIpc', () => ({ desktopIpc: () => host.enabled ? { invoke: ipcMock } : null }))
 vi.mock('@/lib/supabase', () => ({ dataClient: { schema: vi.fn(() => ({ rpc: rpcMock })) } }))
 import {
   getAgentPresenceSnapshot,
   prewarmAgentPresence,
   setPresenceBusContext,
+  setLocalAgentStatus,
   subscribeAgentPresence,
 } from '@/lib/agentPresenceStore'
 function presenceEntry(agentUserId: string, activityStatus = 'idle') {
@@ -50,12 +52,37 @@ function watch(agentUserId: string, listener: (state: AgentPresenceState) => voi
   return off
 }
 beforeEach(() => {
-  rpcMock.mockReset()
+  rpcMock.mockReset(); ipcMock.mockReset(); host.enabled = false
   setPresenceBusContext({ currentUserId: `owner-${++seq}` })
 })
 afterEach(() => {
   while (openSubscriptions.length) openSubscriptions.pop()?.()
 })
+it('uses local holding for local contacts while leaving remote reachability and dormant sessions intact', async () => {
+  host.enabled = true
+  ipcMock.mockResolvedValue({ missing: 'unheld', dormant: 'held', sibling: 'held-elsewhere' })
+  rpcMock.mockImplementation(answerAll())
+  for (const id of ['missing', 'dormant', 'sibling', 'remote']) watch(id)
+  await settle()
+  expect(ipcMock).toHaveBeenCalledTimes(1)
+  expect(getAgentPresenceSnapshot('missing')?.status).toBe('offline')
+  expect(getAgentPresenceSnapshot('missing')?.deviceOnline).toBe(true)
+  for (const id of ['dormant', 'sibling', 'remote']) expect(getAgentPresenceSnapshot(id)?.status).toBe('idle')
+  ipcMock.mockResolvedValue({ missing: 'held' })
+  setLocalAgentStatus('missing', { sessionId: 'restored', reading: null, unseen: false, reviewGate: null, providerBlocker: null, statusSourceFault: null, life: null })
+  await settle()
+  expect(getAgentPresenceSnapshot('missing')?.status).toBe('idle')
+})
+it('reports a failed holding read without declaring a missing local agent', async () => {
+  host.enabled = true
+  ipcMock.mockRejectedValue(new Error('holding read failed'))
+  rpcMock.mockImplementation(answerAll())
+  watch('unmeasured')
+  await settle()
+  expect(getAgentPresenceSnapshot('unmeasured')?.error).toContain('holding read failed')
+  expect(getAgentPresenceSnapshot('unmeasured')?.status).toBe('pending')
+})
+
 describe('#3841 presence 批量快照', () => {
   it('同一 tick 的 N 个订阅合成一次 RPC —— 这就是这一票要买的东西', async () => {
     rpcMock.mockImplementation(answerAll())

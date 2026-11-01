@@ -185,6 +185,7 @@ import {
 } from './sessionpage/session-injection'
 import {
   agentInboxDepsFromBridge,
+  createDeviceCommandHoldingResolver,
   resolveGuguIds as resolveGuguIdsForInbox,
   type AgentRosterRemovalReason,
 } from '@gugu/core/local/agent/deviceCommandRuntime'
@@ -4119,6 +4120,27 @@ ipcMain.handle('sessionpage:retry-platform-recovery', async (_event, sessionId: 
 })
 
 // (重)连接时的那一次对账:这台机器上每个 agent 此刻的条目。之后渲染层只吃 `agent-status-feed`。
+// Local reachability uses the command queue's holding fact, including live sibling instances.
+ipcMain.handle('agent-status-feed:holding', async (_event, agents: unknown) => {
+  if (!Array.isArray(agents)) throw new Error('Agent holding request must be an array')
+  const deviceId = await localDeviceId()
+  if (!deviceId) throw new Error('This computer is not identified')
+  const local = agents.filter(row => row?.deviceId === deviceId)
+  if (!local.length) return {}
+  const lease = deviceRuntimeHost?.getRuntimeLease()
+  const auth = await desktopAuthProvider().getAuth()
+  if (!lease || lease.deviceId !== deviceId || !auth || auth.userId !== lease.ownerId) throw new Error('Local agent host is not ready')
+  const resolve = createDeviceCommandHoldingResolver({
+    client: makeIdentityClient(auth.accessToken) as unknown as DeviceRuntimeIdentityClient,
+    deviceId, instanceId: lease.runtimeInstanceId, env: process.env,
+  })
+  const holdings = await Promise.all(local.map(async row => {
+    const id = requiredSessionpageAgentId(row.agentUserId)
+    return [id, await resolve({ type: 'agent.deliver', payload: { agent_user_id: id } })] as const
+  }))
+  if (deviceRuntimeHost?.getRuntimeLease()?.ownerId !== auth.userId) throw new Error('Agent holding owner changed')
+  return Object.fromEntries(holdings)
+})
 ipcMain.handle('agent-status-feed:snapshot', () => agentStatusFeed.snapshot())
 
 ipcMain.handle('sessionpage:open-agent-file', async (
