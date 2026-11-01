@@ -1,7 +1,7 @@
 /**
  * #6264 桌面经 SSH 调的命令(`link`)要用**正在跑的那个账号进程的版本**来跑。
  *
- * 桌面敲的是 `~/.local/bin/gugu-server` → current 软链。current 与在跑的进程并不总是同一版:
+ * 桌面敲的是 `~/.local/bin/gugu-server`(Beta 是 `gugu-server-beta`,见 server-names.ts)→ current。current 与在跑的进程并不总是同一版:
  *  · 重新执行安装命令时,install.sh 先切 current、再让 service install 把旧进程换下来 —— 中间最长 75 秒;
  *  · 自动升级等空闲才切,切完到新进程起来也有几秒;
  *  · 看门狗回滚、孤儿进程,都可能让两边差一版。

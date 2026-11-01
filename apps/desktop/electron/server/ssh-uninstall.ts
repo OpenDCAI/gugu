@@ -18,13 +18,14 @@ import type {
 import type { ServerSshInstallPrompt } from '../../src/lib/serverSshInstall'
 import { buildSshArgs, classifySshFailure, lastLines, type SshTarget } from './ssh-install/logic'
 import type { SpawnSsh, SshRunResult } from './ssh-install/runner'
+import { desktopServerChannel, remoteServerPaths, serverNames } from './server-names'
 
 export const INSPECT_BEGIN = '__GUGU_UNINSTALL_PROBE_BEGIN__'
 export const INSPECT_END = '__GUGU_UNINSTALL_PROBE_END__'
 export const UNINSTALLED_MARK = '__GUGU_UNINSTALLED__'
 
-const SERVER_HOME = '"${GUGU_SERVER_HOME:-$HOME/.gugu-server}"'
-const SERVER_BIN = '"$HOME/.local/bin/gugu-server"'
+/** 卸的是这台桌面那条通道的 server(server-names.ts),同一个用户下别的通道的那份不碰。 */
+const { home: SERVER_HOME, bin: SERVER_BIN } = remoteServerPaths(desktopServerChannel())
 
 /** 看一眼:装没装、哪个版本、登着哪些账号(账号 id、有没有登录态、邮箱)。输出夹在两行标记之间。 */
 export function inspectScript(): string {
@@ -116,11 +117,13 @@ export function uninstallScript(options: { keepUserId?: string | null } = {}): s
     'for d in "$H"/accounts/*/; do',
     '  [ -d "$d" ] || continue',
     '  id="$(basename "$d")"',
-    '  "$T" -L "gugu-server-$(printf %s "$id" | cut -c1-8)" kill-server >/dev/null 2>&1',
+    `  "$T" -L "${serverNames(desktopServerChannel()).bin}-$(printf %s "$id" | cut -c1-8)" kill-server >/dev/null 2>&1`,
     'done',
     'for l in "$B" "$HOME/.local/bin/node"; do',
     '  if [ -L "$l" ]; then case "$(readlink "$l")" in "$H"/*) rm -f "$l" ;; esac; fi',
     'done',
+    // 命令是一行启动脚本(install.sh 写的):里面钉着的正是这个目录才删。
+    'if [ -f "$B" ] && [ ! -L "$B" ] && grep -qF "GUGU_SERVER_HOME=\\"$H\\"" "$B"; then rm -f "$B"; fi',
     'rm -rf "$H"',
     'if [ -e "$H" ]; then echo "卸载失败:删不掉 $H" >&2; exit 1; fi',
     `echo ${UNINSTALLED_MARK}`,

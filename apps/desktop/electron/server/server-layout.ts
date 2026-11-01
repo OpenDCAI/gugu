@@ -13,6 +13,7 @@
  * 一个人退出登录不影响另一个。登录态存在即「这个账号在这台机器上」。
  */
 import { execFile } from '@gugu/core/local/childProcess'
+import { ownServerNames } from './server-names'
 import fs from 'node:fs'
 import path from 'node:path'
 import { promisify } from 'node:util'
@@ -133,7 +134,8 @@ export function applyAccountEnv(userId: string, env: NodeJS.ProcessEnv = process
   env.GUGU_TMUX_SOCKET_LABEL = `${ACCOUNT_TMUX_LABEL_PREFIX}${userId.slice(0, 8)}`
 }
 
-const ACCOUNT_TMUX_LABEL_PREFIX = 'gugu-server-'
+/** 与桌面 main.ts 的标签同一条规则:各通道的 server 不共用 tmux 服务端(同一个账号 id 也撞不上)。 */
+const ACCOUNT_TMUX_LABEL_PREFIX = `${ownServerNames().bin}-`
 
 /**
  * 账号被主人从「设置 → 设备」移除:结束这个账号的 tmux 服务端,里面还在跑的 agent 与终端一并结束。

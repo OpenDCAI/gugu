@@ -8,6 +8,7 @@ import type { SshSignInState } from '../../src/lib/serverSshMachines'
 import type { SshTarget } from './ssh-install/logic'
 import { parseStatusJson, type StatusReport } from './server-status'
 import { sshBatchArgs } from './ssh-batch'
+import { desktopServerChannel, remoteServerPaths } from './server-names'
 
 export function signInStateFrom(report: StatusReport | null, userId: string): SshSignInState {
   if (!report) return { state: 'unknown' }
@@ -27,7 +28,7 @@ export function sshSignInState(options: {
   timeoutMs?: number
   spawnSsh?: SpawnStatusSsh
 }): Promise<SshSignInState> {
-  const args = sshBatchArgs(options.target, 'exec ~/.local/bin/gugu-server status --json', options.controlPath)
+  const args = sshBatchArgs(options.target, `exec ${remoteServerPaths(desktopServerChannel()).binTilde} status --json`, options.controlPath)
   return new Promise((resolve) => {
     const child = (options.spawnSsh ?? ((a) => spawn('ssh', a, { stdio: ['pipe', 'pipe', 'pipe'] })))(args)
     let stdout = ''

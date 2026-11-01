@@ -1,4 +1,4 @@
-export { guguLinkScheme } from './linkScheme.mjs'
+export { guguLinkScheme, tierSuffix } from './linkScheme.mjs'
 
 export type LinkPlace = { chat: string } | { session: string }
 

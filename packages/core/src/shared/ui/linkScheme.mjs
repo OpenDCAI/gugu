@@ -1,4 +1,13 @@
 /**
+ * What a build tier or release channel adds to every name it must not share with the installed
+ * production app: home dirs, tmux labels, link schemes, gugu-server names. Production (the `stable`
+ * channel) adds nothing.
+ */
+export function tierSuffix(name) {
+  return name === 'production' || name === 'stable' ? '' : `-${name}`;
+}
+
+/**
  * The URL scheme this build answers to. Refs #6387.
  *
  * One per build channel, because production and Beta live side by side on one machine
@@ -12,5 +21,5 @@
 export function guguLinkScheme(input) {
   if (input.devLaunch) return 'gugu-dev';
   const tier = (input.tier ?? 'production').toLowerCase().replace(/[^a-z0-9-]/g, '-');
-  return tier === 'production' ? 'gugu' : `gugu-${tier}`;
+  return `gugu${tierSuffix(tier)}`;
 }
