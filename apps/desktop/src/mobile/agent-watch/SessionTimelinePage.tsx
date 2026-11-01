@@ -112,8 +112,9 @@ export const SessionTimelinePage = observer(function SessionTimelinePage({
   // Identified agents share the group/avatar reading; transport only governs timeline access.
   const shownStatus = useShownAgentStatus()
   const agentUserId = agent?.agentUserId ?? session.agent?.userId
-  const presentation = !agentUserId && !reachable ? null
-    : shownStatus.presentation(agentUserId, sessionPresentation(session, reachable, agentUserId))
+  // A machine that does not answer: its own reading, offline — ❌ the agent's presence, which outlives it as long as its lease.
+  const presentation = !reachable ? (agentUserId ? sessionPresentation(session, false, agentUserId) : null)
+    : shownStatus.presentation(agentUserId, sessionPresentation(session, true, agentUserId))
   const statusColor = presentation ? agentStatusColorVar(presentation.tone) : null
   const statusStyle: CSSProperties | undefined = statusColor ? { color: statusColor } : undefined
   const distinctAgentName = agent && agent.displayName !== session.title ? agent.displayName : null
@@ -217,7 +218,7 @@ export const SessionTimelinePage = observer(function SessionTimelinePage({
         offlineNotice
       ) : null}
 
-      {networkOnline && !hostSilent && (error || nativeRecord.error) ? (
+      {reachable && (error || nativeRecord.error) ? (
         <AgentWatchNote
           title={t('agentWatch.timeline.loadFailed')}
           detail={nativeRecord.error ?? error ?? undefined}
