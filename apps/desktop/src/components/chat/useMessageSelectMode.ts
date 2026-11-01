@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState, type Dispatch, type SetStateAction } 
 import type { MessageItem } from '@gugu/core/shared/types/chat'
 import { useBackLayer } from '../ui/sheetStack'
 import { rendererLogger } from '../../lib/log'
+import { isServerMessage } from '@gugu/core/shared/ui/messageState'
 
 const selectLog = rendererLogger('chat/multi-select')
 
@@ -40,7 +41,7 @@ export function useMessageSelectMode({ activeChatId, mobile, messages, deleteMes
 
   // 批量转发：把选中的消息送进 ForwardMessageDialog（onForward 走 handleForwardTo 扇出）。
   const handleBatchForward = useCallback(() => {
-    const selected = messages.filter((m) => selectedIds.has(m.id))
+    const selected = messages.filter((m) => selectedIds.has(m.id) && isServerMessage(m))
     if (selected.length === 0) return
     setForwardMessages(selected)
   }, [messages, selectedIds, setForwardMessages])

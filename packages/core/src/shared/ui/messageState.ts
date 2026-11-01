@@ -137,6 +137,14 @@ export function isReadByRecipientsPrecise(
   return recipients.every((id) => readers.has(id))
 }
 
+/**
+ * The server holds this row. An optimistic row (no seq yet, or still sending / failed / unknown) does not exist there,
+ * so nothing that names it to the server (forward, open a topic) may start from it.
+ */
+export function isServerMessage(message: Pick<MessageItem, 'seq' | 'local_send_state'>): boolean {
+  return !(message.seq < 0 || message.local_send_state)
+}
+
 export function deriveMessageSendState(
   message: MessageItem,
   memberReadSeqs: MemberReadSeqs,

@@ -201,6 +201,14 @@ describe('MessageBubble touch menu', () => {
     expect(document.querySelector('[data-testid="message-action-copyLink"]')).toBeNull()
     expect(document.querySelector('[data-testid="message-action-openLink"]')).toBeNull()
   })
+  // A just-sent row the server has not stored yet (an image still uploading) cannot be forwarded: the forward looks it up
+  // by id on the server, so offering it there only produced 'Source message not found'.
+  it.each([{ seq: -1, local_send_state: 'sending' }, { seq: 4, local_send_state: 'unknown' }, { seq: 4, local_send_state: 'failed' }] as const)(
+    'offers no Forward on a row the server has not confirmed (%o)', async (pending) => {
+      await renderMessage(undefined, false, vi.fn(), { isMine: true, pending })
+      await contextMenu()
+      expect(actionKeys()).not.toContain('forward')
+    })
   it('replies from the desktop context menu through the existing quote action', async () => {
     const onQuote = vi.fn()
     await renderMessage(undefined, false, vi.fn(), { onQuote, onEnterSelectMode: vi.fn(), onOpenTopic: vi.fn() })
@@ -555,6 +563,7 @@ async function renderMessage(
     onQuote?: (msg: unknown) => void
     onEnterSelectMode?: () => void
     onOpenTopic?: (messageId: string) => void
+    pending?: Pick<import('@gugu/core/shared/types/chat').MessageItem, 'seq' | 'local_send_state'>
   } = {},
 ) {
   const isMine = options.isMine ?? false
@@ -568,6 +577,7 @@ async function renderMessage(
         is_mine: isMine,
         sender_user_id: 'sender-1',
         created_at: '2026-05-24T00:00:00.000Z',
+        ...options.pending,
       }),
       onReaction,
       memberReadSeqs: {},

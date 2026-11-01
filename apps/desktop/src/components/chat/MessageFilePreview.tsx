@@ -17,6 +17,7 @@ import { useToast } from '../toastContext'
 import { MessageFilePreviewPanel } from './MessageFilePreviewPanel'
 import { classifyDocumentPreview, documentPreviewNeedsFetch, type DocumentPreviewKind } from './documentPreview'
 import { savedFileName } from '../../session/shared/extensions/app-runtime-protocol'
+import { isServerMessage } from '@gugu/core/shared/ui/messageState'
 
 const fileOpenLog = rendererLogger('chat/file-open')
 
@@ -152,7 +153,7 @@ export function MessageFilePreview({ file, mobile = false, fill = false, tabbed 
       fileOpenLog.error({ error }, 'preview file download failed'); toast(t('chatArea.downloadFailed'), 'error', messageForUser(error))
     })
   }
-  const actions = messageActionItems({ isRetracted: !!message?.retracted_at, content: message?.content ?? null, onForward: message && onForward ? () => onForward(message) : undefined, onDownload: missing ? undefined : download }, t)
+  const actions = messageActionItems({ isRetracted: !!message?.retracted_at, content: message?.content ?? null, onForward: message && onForward && isServerMessage(message) ? () => onForward(message) : undefined, onDownload: missing ? undefined : download }, t)
   if (kind === 'image' && !read?.error) return null
   return <MessageFilePreviewPanel viewerRef={viewerRef} fill={fill} tabbed={tabbed} mobile={mobile} file={file} kind={kind} content={read?.content ?? null} videoUrl={read?.videoUrl} onVideoError={renewVideo} loading={kind !== 'unsupported' && read === null} error={read?.error} onBack={onBack} onClose={onClose} actions={actions} onOpenExternal={missing || kind === 'unsupported' || file.document ? undefined : openExternal} />
 }

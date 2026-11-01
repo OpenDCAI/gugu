@@ -29,7 +29,7 @@ import { parseComposerCard } from '@gugu/core/shared/ui/taskCardModels'
 import { HoverActionBar, MessageHoverRegion, MessageHoverTrigger } from './HoverActionBar'
 import { DeferredEmojiQuickPicker } from './messageActionModules'
 import { MsgMoreMenu } from './MsgMoreMenu'
-import { canSourceTopic } from './topicSplitModels' // @@@5856 与顶栏那颗按钮共用同一个判据,❌ 不再写第二份
+import { isServerMessage } from '@gugu/core/shared/ui/messageState'; import { canSourceTopic } from './topicSplitModels' // @@@5856 与顶栏那颗按钮共用同一个判据,❌ 不再写第二份
 import { highlightText } from './highlightText'
 import { SystemMessageNotice } from './SystemMessageNotice'
 import { BubbleSender, BubbleTime } from './MessageBubbleChrome'; import { fmtMsgTime } from './messageRowTime'
@@ -267,7 +267,7 @@ export const MessageBubble = memo(function MessageBubble({
     onQuoteSelection: selectedText && msg.content_type === 'text' ? () => { onQuote({ ...msg, content: selectedText }, { originalContent: msg.content }); close() } : undefined,
     onCopy: (content = selectedText || undefined) => { void handleCopyText(content); close() },
     onCopyLink: menuLink ? () => { void handleCopyText(menuLink.href); close() } : undefined, onOpenLink: menuLink ? () => { menuLink.click(); close() } : undefined,
-    onForward: () => { onForward(msg); close() }, onKeep: keepAction({ id: msg.id, mine: msg.is_mine, live: !!mediaAttachment && mediaAttachment.source.kind !== 'gone' }, close, toast, t),
+    onForward: isServerMessage(msg) ? () => { onForward(msg); close() } : undefined, onKeep: keepAction({ id: msg.id, mine: msg.is_mine, live: !!mediaAttachment && mediaAttachment.source.kind !== 'gone' }, close, toast, t),
     onDownload: mediaAttachment && mediaAttachment.source.kind !== 'gone' ? () => { void downloadAttachment(mediaAttachment.source, mediaAttachment.fileName).catch((error) => toast(t('chatArea.downloadFailed'), 'error', safeFailureLine(String((error as Error)?.message ?? error)))); close() } : undefined,
     onDelete: () => { onDelete(msg.id); close() },
     onSelect: onEnterSelectMode ? () => { onEnterSelectMode(msg); close() } : undefined,
