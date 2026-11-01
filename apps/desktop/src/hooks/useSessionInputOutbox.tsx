@@ -32,8 +32,9 @@ export function SessionInputOutboxHost({ accountId }: { accountId: string }) {
       const device = hosts.current.find(row => row.device_id === input.deviceId)
       if (!device?.is_online || device.is_current_device) return false
       const version = device.capabilities.remote_protocol
+      if (isPhoneDevice(device)) return typeof version !== 'number' || version < REMOTE_PROTOCOL_VERSION
       const native = liveDeviceSessions()[input.deviceId]?.sessions.find(row => row.conversationId === input.sessionId)?.nativeInputVersion
-      return typeof version === 'number' && version < REMOTE_PROTOCOL_VERSION || !isPhoneDevice(device) && native !== undefined && native !== 2
+      return native === 1
     }
     let queue: SessionInputOutbox | null = null
     const refresh = async () => {
@@ -58,7 +59,6 @@ export function SessionInputOutboxHost({ accountId }: { accountId: string }) {
           const summary = liveDeviceSessions()[remoteId]?.sessions.find(session => session.conversationId === input.sessionId)
           if (summary?.nativeInputVersion !== 1 && summary?.nativeInputVersion !== 2) throw new SessionInputFailureError({ code: 'host-not-ready' })
         }
-        if (input.files?.length && remoteId && device?.capabilities.remote_protocol === undefined) throw new Error('Task host attachment support is not known yet')
         let failedFiles = 0
         if (device && isPhoneDevice(device)) {
           const { invokePhoneHost } = await import('@/mobile/local-agent/phoneHostRpc')

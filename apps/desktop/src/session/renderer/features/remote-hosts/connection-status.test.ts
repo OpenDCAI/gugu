@@ -33,8 +33,8 @@ describe('connection-status(#6264 侧栏的点 / 聊天末尾那一行)', () => 
     expect(hostConnectionState({ ...base, sshLink: 'unreachable' })).toBe('reconnecting');
     expect(hostStatusLabel('updating', 'd22', null, NOW, zh)).toBe('d22 上的咕咕 server 版本太旧，正在更新…');
     expect(hostStatusLabel('update-failed', 'd22', null, NOW, zh)).toBe('d22 上的咕咕 server 版本太旧，更新没成功');
-    // 远程隧道的机器(桌面或 server):请更新那台;是 server 的话它空闲时会自动更新
-    expect(hostStatusLabel('outdated', 'd22', null, NOW, zh)).toBe('d22 上的咕咕版本太旧，请更新那台机器上的咕咕（咕咕 server 会在空闲时自动更新）');
+    // 远程隧道的机器可能是桌面或 server，统一指向那台机器上的咕咕。
+    expect(hostStatusLabel('outdated', 'd22', null, NOW, zh)).toBe('d22 上的咕咕版本太旧，请更新那台机器上的咕咕');
   });
 
   it('#6264 新建框选着一台太旧的机器:说「版本太旧，正在更新」,❌「d22 离线」', () => {
@@ -85,10 +85,10 @@ describe('connection-status(#6264 侧栏的点 / 聊天末尾那一行)', () => 
     expect(chatLinkRow({ ...base, phase: { kind: 'connected' } })).toBeNull();
   });
 
-  it('放弃之后:说清为什么;太旧那一句写明空闲时会自动更新', () => {
+  it('放弃之后:说清为什么;版本太旧时指出要更新哪台机器', () => {
     const base = { device: 'Linux 1', online: true, lastSeenAt: null, now: NOW, translate: zh, phase: { kind: 'gave-up' } as const };
     const tooOld = chatLinkRow({ ...base, errorCode: 'unknown_method' });
-    expect(tooOld?.label).toBe('Linux 1 上的咕咕版本太旧，请更新那台机器上的咕咕（咕咕 server 会在空闲时自动更新）');
+    expect(tooOld?.label).toBe('Linux 1 上的咕咕版本太旧，请更新那台机器上的咕咕');
     expect(tooOld?.action).toEqual({ label: '重新连接', kind: 'reconnect' });
     expect(chatLinkRow({ ...base, errorCode: null })?.label).toBe('连不上 Linux 1，已停止重连');
     expect(isRetryableRemoteError('unknown_method')).toBe(false);

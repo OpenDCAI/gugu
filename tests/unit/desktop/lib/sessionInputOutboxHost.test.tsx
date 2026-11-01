@@ -12,20 +12,29 @@ import { REMOTE_PROTOCOL_VERSION } from '@gugu/core/cloud/serverMachineHealth'
 
 const toast = vi.hoisted(() => vi.fn())
 vi.mock('../../../../apps/desktop/src/session/renderer/lib/hooks/use-toast', () => ({ toast }))
-const scope = vi.hoisted(() => ({ owner: 'account-a', devices: [{ device_id: 'host-a', is_online: false, capabilities: {} }], received: new Map<string, string>(), send: vi.fn(), machines: [] as (string | null)[] }))
+const scope = vi.hoisted(() => ({ owner: 'account-a', platform: 'electron', phones: [] as Array<{ device_id: string; is_online: boolean; capabilities: { host_kind: string; remote_protocol?: number } }>, devices: [{ device_id: 'host-a', is_online: false, capabilities: {} }], received: new Map<string, string>(), send: vi.fn(), machines: [] as (string | null)[] }))
 vi.mock('../../../../apps/desktop/src/lib/sessionPublication', () => ({ getRendererSession: () => ({ user: { id: scope.owner } }) }))
-vi.mock('../../../../apps/desktop/src/store/devicesContext', () => ({ useDevicesStore: () => ({ devices: scope.devices, phones: [] }) }))
-vi.mock('../../../../apps/desktop/src/platform', () => ({ platform: { kind: 'electron' } }))
+vi.mock('../../../../apps/desktop/src/store/devicesContext', () => ({ useDevicesStore: () => ({ devices: scope.devices, phones: scope.phones }) }))
+vi.mock('../../../../apps/desktop/src/platform', () => ({ platform: { get kind() { return scope.platform } } }))
 vi.mock('../../../../apps/desktop/src/session/renderer/lib/ipc', () => ({ rpcOn: (machine: string | null) => ({ sessionTimeline: { sessionSend: (request: unknown) => { scope.machines.push(machine); return scope.send(request) } } }) }))
+vi.mock('../../../../apps/desktop/src/mobile/agent-watch/sessionpage-rpc', () => ({ sendSessionText: async (_device: string, sessionId: string, text: string, clientMessageId: string, files?: unknown[]) => {
+  const reply = await scope.send({ conversationId: sessionId, text, clientMessageId, ...(files?.length ? { files } : {}) })
+  if (!reply.ok) throw new Error(reply.error.message)
+  return reply.value
+} }))
+vi.mock('../../../../apps/desktop/src/mobile/local-agent/phoneHostRpc', () => ({ invokePhoneHost: async (_device: string, _channel: string, [request]: [{ conversationId: string; text: string; clientRequestId: string; files?: unknown[] }]) => {
+  await scope.send(request)
+  return { accepted: true }
+} }))
 // This computer's own session list sync is another subject; these cases read only what the outbox sends.
 vi.mock('../../../../apps/desktop/src/hooks/useLocalSessionDirectory', () => ({ useLocalSessionDirectory: () => undefined }))
 vi.mock('../../../../apps/desktop/src/session/renderer/localization/locale-store', () => ({ translateSessionMessage: (key: string, values?: { count: number }) => key === 'composer.attachmentHostUpdateRequired' ? 'Update the task host to send attachments' : key === 'composer.attachmentsNotSent' ? `(${values!.count} attachments could not be included after the upgrade. Please send them again.)` : key === 'composer.attachmentsUnavailable' ? `${values!.count} attachments unavailable; text sent` : 'Waiting for host; sends automatically' }))
 let harness: ReturnType<typeof createReactHarness>
 beforeEach(() => { toast.mockClear(); harness = createReactHarness() })
-afterEach(() => { harness.cleanup(); scope.owner = 'account-a'; scope.devices = [{ device_id: 'host-a', is_online: false, capabilities: {} }]; scope.received.clear(); scope.send.mockReset(); scope.machines = [] })
+afterEach(() => { harness.cleanup(); scope.owner = 'account-a'; scope.platform = 'electron'; scope.phones = []; scope.devices = [{ device_id: 'host-a', is_online: false, capabilities: {} }]; scope.received.clear(); scope.send.mockReset(); scope.machines = [] })
 
 describe('native input shell lifecycle', () => {
-  it.each([[1, REMOTE_PROTOCOL_VERSION], [2, REMOTE_PROTOCOL_VERSION - 1]])('refuses enqueue when the online host advertises input %s and protocol %s', async (version, protocol) => {
+  it.each([[1, REMOTE_PROTOCOL_VERSION]])('refuses enqueue when the online host advertises input %s and protocol %s', async (version, protocol) => {
     scope.owner = `attachment-version-${version}-${protocol}`
     scope.devices = [{ device_id: 'host-a', is_online: true, capabilities: { remote_protocol: protocol } }]
     updateDeviceSessions('host-a', { cached: false, sessions: [{ conversationId: 'attachment-session', nativeInputVersion: version } as never] })
@@ -33,6 +42,67 @@ describe('native input shell lifecycle', () => {
     await act(async () => { await expect(enqueueSessionInput({ deviceId: 'host-a', sessionId: 'attachment-session', text: 'read the file', files: [{ itemId: 'file', version: 1, name: 'brief.txt', mimeType: 'text/plain', sizeBytes: 3 }] })).rejects.toThrow('Update the task host to send attachments') })
     expect(await (await state().queue)!.list()).toEqual([])
     expect(scope.send).not.toHaveBeenCalled()
+  })
+
+  it.each(['electron', 'web'])('sends desktop files with explicit input v2 despite missing or stale heartbeat protocol (%s)', async platform => {
+    scope.platform = platform
+    scope.owner = `desktop-files-${platform}`
+    scope.devices = [{ device_id: 'host-a', is_online: true, capabilities: {} }]
+    scope.send.mockImplementation(async (request: { clientMessageId: string }) => ({ ok: true, value: { accepted: 'started', clientMessageId: request.clientMessageId } }))
+    updateDeviceSessions('host-a', { cached: false, sessions: [{ conversationId: 'desktop-files', nativeInputVersion: 2 } as never] })
+    await harness.render(<SessionInputOutboxHost accountId={scope.owner} />)
+    const files = [{ itemId: 'file', version: 1, name: 'brief.txt', mimeType: 'text/plain', sizeBytes: 3 }]
+    await act(async () => {
+      await enqueueSessionInput({ deviceId: 'host-a', sessionId: 'desktop-files', text: 'caption', files })
+      await enqueueSessionInput({ deviceId: 'host-a', sessionId: 'desktop-files', text: 'following text' })
+      await (await state().queue)!.flush()
+    })
+    expect(scope.send.mock.calls.map(([request]) => request.text)).toEqual(['caption', 'following text'])
+    expect(scope.send.mock.calls[0][0].files).toEqual(files)
+    expect(await (await state().queue)!.list()).toEqual([])
+    scope.devices = [{ device_id: 'host-a', is_online: true, capabilities: { remote_protocol: REMOTE_PROTOCOL_VERSION - 1 } }]
+    await harness.render(<SessionInputOutboxHost accountId={scope.owner} />)
+    await act(async () => { await enqueueSessionInput({ deviceId: 'host-a', sessionId: 'desktop-files', text: 'after host upgrade', files }); await (await state().queue)!.flush() })
+    expect(scope.send.mock.calls[2][0].files).toEqual(files)
+  })
+
+  it('waits for the desktop input advertisement, then drains files and later text when v2 arrives', async () => {
+    scope.owner = 'desktop-input-advertisement'
+    scope.devices = [{ device_id: 'host-a', is_online: true, capabilities: {} }]
+    scope.send.mockImplementation(async (request: { clientMessageId: string }) => ({ ok: true, value: { accepted: 'started', clientMessageId: request.clientMessageId } }))
+    updateDeviceSessions('host-a', { cached: false, sessions: [] })
+    await harness.render(<SessionInputOutboxHost accountId={scope.owner} />)
+    const files = [{ itemId: 'file', version: 1, name: 'brief.txt', mimeType: 'text/plain', sizeBytes: 3 }]
+    await act(async () => {
+      await enqueueSessionInput({ deviceId: 'host-a', sessionId: 'unknown-input', text: 'caption', files })
+      await enqueueSessionInput({ deviceId: 'host-a', sessionId: 'unknown-input', text: 'following text' })
+      await (await state().queue)!.flush()
+    })
+    expect(scope.send).not.toHaveBeenCalled()
+    updateDeviceSessions('host-a', { cached: false, sessions: [{ conversationId: 'unknown-input', nativeInputVersion: 2 } as never] })
+    await act(async () => { await (await state().queue)!.flush() })
+    expect(scope.send.mock.calls.map(([request]) => request.text)).toEqual(['caption', 'following text'])
+    expect(scope.send.mock.calls[0][0].files).toEqual(files)
+    expect(await (await state().queue)!.list()).toEqual([])
+  })
+
+  it.each([undefined, REMOTE_PROTOCOL_VERSION - 1])('drains queued files as caption plus count when a phone returns with protocol %s', async protocol => {
+    scope.owner = `old-phone-${protocol}`
+    scope.devices = []
+    scope.phones = [{ device_id: 'phone', is_online: false, capabilities: { host_kind: 'phone' } }]
+    scope.send.mockResolvedValue(undefined)
+    await harness.render(<SessionInputOutboxHost accountId={scope.owner} />)
+    await act(async () => {
+      await enqueueSessionInput({ deviceId: 'phone', sessionId: 'phone-task', text: 'phone caption', files: [{ itemId: 'file', version: 1, name: 'brief.txt', mimeType: 'text/plain', sizeBytes: 3 }] })
+      await enqueueSessionInput({ deviceId: 'phone', sessionId: 'phone-task', text: 'following text' })
+    })
+    scope.phones = [{ device_id: 'phone', is_online: true, capabilities: { host_kind: 'phone', ...(protocol !== undefined ? { remote_protocol: protocol } : {}) } }]
+    await harness.render(<SessionInputOutboxHost accountId={scope.owner} />)
+    await act(async () => { await (await state().queue)!.flush() })
+    expect(scope.send.mock.calls[0][0].text).toMatch(/^phone caption\n\n.*1 attachments/)
+    expect(scope.send.mock.calls[0][0]).not.toHaveProperty('files')
+    expect(scope.send.mock.calls[1][0].text).toBe('following text')
+    expect(await (await state().queue)!.list()).toEqual([])
   })
 
   it('acknowledges unavailable files after reconnect, reports their count and drains later text', async () => {
@@ -62,7 +132,7 @@ describe('native input shell lifecycle', () => {
       await enqueueSessionInput({ deviceId: 'host-a', sessionId: 'reconnected-task', text: 'following text' })
     })
     expect(scope.send).not.toHaveBeenCalled()
-    scope.devices = [{ device_id: 'host-a', is_online: true, capabilities: { remote_protocol: REMOTE_PROTOCOL_VERSION - 1 } }]
+    scope.devices = [{ device_id: 'host-a', is_online: true, capabilities: {} }]
     updateDeviceSessions('host-a', { cached: false, sessions: [{ conversationId: 'reconnected-task', nativeInputVersion: 1 } as never] })
     await harness.render(<SessionInputOutboxHost accountId={scope.owner} />)
     await vi.waitFor(() => expect(scope.send).toHaveBeenCalledTimes(2))
