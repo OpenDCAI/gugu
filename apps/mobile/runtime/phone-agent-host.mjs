@@ -441,10 +441,12 @@ export async function startPhoneAgentHost(initialConfig, { runTurn, cancelTurn, 
       agent.status = error.cancelled ? 'idle' : 'error'; agent.lastError = error.cancelled && error.code !== 'execution_unknown' ? null : job.error
       emit({ type: 'turn_failed', ownerId, sessionId: agent.sessionId, agentUserId: agent.agentUserId, status: job.status, code: job.errorCode, error: job.error })
       const failureText = explanation ?? `手机任务${error.cancelled ? '已取消' : error.interrupted ? '已中断' : '执行失败'}${!error.cancelled || error.code === 'execution_unknown' ? `：${error.message}` : ''}`
-      // Failure is visible in the source chat even if the model never reached a communication tool.
+      // Failure is visible in the source chat even if the model never reached a communication tool. It addresses no one, as the
+      // desktop's turn-failure notice: a reply target or a recipient wakes that member, and two failing agents then woke
+      // each other in turn. So it is not a whisper either (a whisper needs its recipient).
       if (job.route?.kind === 'chat' && !job.sent?.length) {
         const id = stableId('phone-failure', job.id)
-        store.state.outbox[id] ??= { id, chatId: job.route.chatId, agentUserId: agent.agentUserId, toUserIds: job.route.senderUserId ? [job.route.senderUserId] : null, content: failureText, replyToMessageId: job.route.sourceMessageId ?? null, threadRootId: job.route.threadRootId ?? null, isWhisper: job.route.whisper === true, status: 'pending', createdAt: new Date().toISOString() }
+        store.state.outbox[id] ??= { id, chatId: job.route.chatId, agentUserId: agent.agentUserId, toUserIds: null, content: failureText, replyToMessageId: null, threadRootId: job.route.threadRootId ?? null, isWhisper: false, status: 'pending', createdAt: new Date().toISOString() }
         await store.save(); await deliverPhoneOutbox(cloud, store, id).catch((failure) => warn(failure.message))
       }
       if (job.route?.kind === 'session-direct' && !job.sent?.length && !stopped && !signingOut) {

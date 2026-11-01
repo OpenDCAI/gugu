@@ -593,6 +593,26 @@ test('a local initial message enters the shared inbox envelope and replies with 
   } finally { await fx.close() }
 })
 
+test('a failed chat turn says so in the chat without addressing anyone, so two failing agents do not wake each other', async () => {
+  const fx = await fixture(async (command) => {
+    if (!command.prompt.includes('gugu_delivery')) return { status: 'done', text: '[NO_REPLY]' }
+    return { status: 'failed', text: '', error: 'simulated model failure' }
+  })
+  const messageId = randomUUID()
+  fx.inboxRows.push({ chat_id: chatId, chat_kind: 'dm', chat_public_id: null, id: messageId, seq: 1, sender_user_id: ownerId, sender_type: 'human', sender_display_name: '主人', content: '你好', content_type: 'text', to_user_ids: [agentId], is_whisper: false, file_item_id: null, file_version: null, file_blob_id: null, created_at: new Date().toISOString() })
+  try {
+    await fx.host.invoke('sessionTimeline.sessionCreate', [{ harness: 'pi', model: 'platform:free', prompt: '你好' }], 'failing-chat-turn')
+    await until(() => fx.messages.some((message) => message.p_sender_user_id === agentId), fx.events)
+    const [notice, ...more] = fx.messages.filter((message) => message.p_sender_user_id === agentId)
+    assert.equal(more.length, 0)
+    assert.equal(notice.p_chat_id, chatId)
+    // A reply target or a recipient wakes that member: the failure stays in the chat and addresses no one.
+    assert.equal(notice.p_reply_to_message_id, null)
+    assert.equal(notice.p_to_user_ids, null)
+    assert.equal(notice.p_is_whisper, false)
+  } finally { await fx.close() }
+})
+
 test('an image attachment is durably admitted as safe metadata and acknowledged without fetching bytes during inbox delivery', async () => {
   let prompt
   const fx = await fixture(async (command, hooks) => {
