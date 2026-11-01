@@ -6,7 +6,7 @@
 //      原来跳进设置抽屉的「群管理 → 入群申请」,一按返回就落到了群管理)。
 //   ③ 普通成员:没有申请入口;点一行打开的资料卡没有角色 / 移出控件。带正例:群主看得到。
 //   ④ 群主的 ⋯ 快捷菜单真的调到移出成员,并重读名册。
-//   ⑤ 主动 / 被动归 agent 的主人(owner 10-17):主人改得动、能让它退群;群主改不动别人的 agent,改得动自己的。
+//   ⑤ Agent owners and source-group managers may edit listen mode; role/removal protection stays separate.
 import { act, Fragment, type ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { GroupChatSettings, GroupAgentItem, GroupCollabSnapshot, GroupMemberItem } from '../../../packages/core/src/shared/types/chat'
@@ -307,7 +307,7 @@ describe('#6418 群成员面板 —— 资料卡与管理', () => {
   })
 })
 
-describe('主动 / 被动归 agent 的主人', () => {
+describe('Agent owner and source-group listen-mode controls', () => {
   // 点击都包在 act 里冲刷过(见 click):mutation 在 onClick 里同步发出、菜单与资料卡随那次渲染出来,直接断言,不等墙钟。
   const toggle = (agentId: string) => q(`[data-member-row="${agentId}"] [data-listen-mode-toggle]`) as HTMLElement | null
   const menuItems = () => [...document.querySelectorAll('[role="menuitem"]')].map((item) => item.textContent)
@@ -322,32 +322,32 @@ describe('主动 / 被动归 agent 的主人', () => {
     expect(setListenMode.mock.calls).toEqual([['chat-1', 'codex', 'active']])
   })
 
-  it('群主改不动别人的 agent;同一个人改自己的 agent 照样改得动', async () => {
+  it('lets a group owner change both another member’s agent and their own', async () => {
     await renderPanel('owner-1')
     await click(toggle('codex'))
-    expect(setListenMode).not.toHaveBeenCalled()
+    expect(setListenMode.mock.calls).toEqual([['chat-1', 'codex', 'active']])
     await click(toggle('claude'))
-    expect(setListenMode.mock.calls).toEqual([['chat-1', 'claude', 'active']])
+    expect(setListenMode.mock.calls).toEqual([['chat-1', 'codex', 'active'], ['chat-1', 'claude', 'active']])
   })
 
-  it('群主打开别人 agent 的资料卡:档位分段只读,角色与移出还在;打开自己 agent 的就能改', async () => {
+  it('lets a group owner edit another member’s agent from the profile while preserving other controls', async () => {
     await renderPanel('owner-1')
     await click(q('[data-member-row="codex"]'))
     expect(card()).not.toBeNull()
     await click(segment('主动') ?? null)
-    expect(setListenMode).not.toHaveBeenCalled()
+    expect(setListenMode.mock.calls).toEqual([['chat-1', 'codex', 'active']])
     expect(q('[data-testid="group-member-profile-menu"] select')).not.toBeNull()
     expect(q('[data-profile-remove-button="codex"]')?.textContent).toBe('移出群聊')
     // 阳控:同一张卡、同一个分段,换成群主自己的 agent 就真的改了。
     await click(q('[data-member-row="claude"]'))
     await click(segment('主动') ?? null)
-    expect(setListenMode.mock.calls).toEqual([['chat-1', 'claude', 'active']])
+    expect(setListenMode.mock.calls).toEqual([['chat-1', 'codex', 'active'], ['chat-1', 'claude', 'active']])
   })
 
-  it('群主的 ⋯ 对别人的 agent 没有改档位那一项', async () => {
+  it('includes listen-mode editing in a group owner’s menu for another agent', async () => {
     await renderPanel('owner-1')
     await click(q('[data-member-row="codex"] button[aria-label^="管理"]'))
-    expect(menuItems()).toEqual(['设为管理员', '移出群聊'])
+    expect(menuItems()).toEqual(['设为管理员', '改为主动', '移出群聊'])
   })
 
   it('普通成员只在自己的 agent 上有 ⋯:改档位、让它退出群聊', async () => {
@@ -432,7 +432,7 @@ describe('topic participant controls project server authority', () => {
     await act(async () => { input!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })) })
     expect(renameAgent).toHaveBeenCalledWith('codex', 'New canonical name')
   })
-  it('a source manager without a topic seat can manage participants but cannot edit another owner’s listen mode', async () => {
+  it('lets a source-group manager change a topic agent’s mode without a topic seat', async () => {
     await renderTopic('owner-1', true, { ...SNAPSHOT, humans: SNAPSHOT.humans.filter((human) => human.id !== 'owner-1') })
     expect(q('[data-testid="topic-name-edit"] [data-testid="group-name-edit"]')).not.toBeNull()
     expect(q('[data-testid="member-list-invite"]')).toBeNull()
@@ -441,7 +441,7 @@ describe('topic participant controls project server authority', () => {
     expect(q('[data-profile-role-select="codex"]')).toBeNull()
     const active = [...document.querySelectorAll<HTMLElement>('.gg-pop-lmseg-btn')].find((element) => element.textContent === '主动')
     await click(active!)
-    expect(setListenMode).not.toHaveBeenCalled()
+    expect(setListenMode).toHaveBeenCalledWith('topic-1', 'codex', 'active')
   })
   it('protects the main-group owner’s group seat without treating their topic participation as ownership', async () => {
     await renderTopic('member-2', true)
@@ -463,5 +463,47 @@ describe('topic participant controls project server authority', () => {
     expect(leave?.textContent).toBe('离开群组')
     await click(leave)
     expect(removeMember).toHaveBeenCalledWith('topic-1', 'member-2')
+  })
+})
+
+
+describe('group administrator agent listen mode', () => {
+  it.each(['row', 'profile', 'menu'] as const)('lets an administrator change the group owner’s agent through %s', async (surface) => {
+    getSettings.mockResolvedValue({ ...authority(true), my_role: 'admin', can_dissolve: false })
+    await renderWithAppProviders(harness, createNode(ControlledMemberListPanel, {
+      chatId: 'chat-1', chatKind: 'group', head, snapshot: SNAPSHOT, onReload: vi.fn(async () => {}),
+    }), { auth: { id: 'member-2' }, chat: { identitiesById: Object.fromEntries(IDENTITIES.map((identity) => [identity.id, identity])) }, contacts: { contacts: [] } })
+    if (surface === 'row') {
+      await click(q('[data-member-row="claude"] [data-listen-mode-toggle]'))
+    } else if (surface === 'profile') {
+      await click(q('[data-member-row="claude"]'))
+      const active = [...document.querySelectorAll<HTMLElement>('.gg-pop-lmseg-btn')].find((element) => element.textContent === '主动')
+      expect(active).toBeDefined()
+      await click(active!)
+    } else {
+      await click(q('[data-member-row="claude"] button[aria-label^="管理"]'))
+      const active = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((element) => element.textContent === '改为主动')
+      expect(active).toBeDefined()
+      await click(active!)
+    }
+    expect(setListenMode.mock.calls).toEqual([['chat-1', 'claude', 'active']])
+  })
+})
+
+describe('source-group listen-mode authority boundaries', () => {
+  it.each([
+    { name: 'a revoked administrator', my_role: 'admin', can_manage: false, kind: 'group' },
+    { name: 'a private-topic creator', my_role: 'member', can_manage: true, kind: 'topic' },
+  ] as const)('does not borrow listen-mode authority for $name', async ({ my_role, can_manage, kind }) => {
+    getSettings.mockResolvedValue({ ...authority(), my_role, can_manage })
+    await renderWithAppProviders(harness, createNode(ControlledMemberListPanel, {
+      chatId: 'chat-1', chatKind: kind, head, snapshot: SNAPSHOT, onReload: vi.fn(async () => {}),
+    }), { auth: { id: 'member-2' }, chat: { identitiesById: Object.fromEntries(IDENTITIES.map((identity) => [identity.id, identity])) }, contacts: { contacts: [] } })
+    await click(q('[data-member-row="claude"] [data-listen-mode-toggle]'))
+    await click(q('[data-member-row="claude"]'))
+    const active = [...document.querySelectorAll<HTMLElement>('.gg-pop-lmseg-btn')].find((element) => element.textContent === '主动')
+    expect(active).toBeDefined()
+    await click(active!)
+    expect(setListenMode).not.toHaveBeenCalled()
   })
 })

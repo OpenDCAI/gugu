@@ -38,6 +38,7 @@ import { useShownAgentStatus } from './chat/useAgentsOnCloudComputer'
 import { MemberProfilePopover } from './MemberProfilePopover'
 import { ReadReceiptPopover } from './ReadReceiptPopover'
 import { useListenModeEditControls } from './chat/useListenModeEditControls'
+import { groupRoleRevision, useGroupChatSettings } from './chat/useGroupChatSettings'
 import { RightPanel } from './chat/RightPanel'
 import {
   buildMemberProfileMap,
@@ -494,9 +495,8 @@ function ChatAreaSurface({ viewportKey = 'chats', imPage = false, navigationTarg
     chatId: activeChatId, messages: displayedMessages, memberReadSeqs, memberProfiles: messageMemberProfiles,
   })
 
-  // @@@1241 — wire listen-mode editing into the message-area avatar popover (agent owner → own agent).
-  const messageListenEditControlsFor = useListenModeEditControls({ chatId: activeChat?.id ?? null, currentUserId: user?.id ?? null, onReload: loadGroupCollab })
-  // 从话题分栏点开的名片:档位读写话题自己那行,❌ 不是来源群的(见 hook 头注)。
+  const { settings: messageGroupSettings } = useGroupChatSettings(isRoomChatSurface ? activeChatId : null, groupRoleRevision(groupCollabSnapshot))
+  const messageListenEditControlsFor = useListenModeEditControls({ chatId: isRoomChatSurface ? activeChatId : null, currentUserId: user?.id ?? null, settings: messageGroupSettings, onReload: loadGroupCollab })
   const shownMessageProfile = useTopicScopedMemberProfile({ profile: renderedActiveMessageProfile, topicChatId: topicSurface.splitTopic?.chatId ?? null, currentUserId: user?.id ?? null, groupEditControlsFor: messageListenEditControlsFor })
   const drawerMemberProfiles = useMemo(() => Object.values(messageMemberProfiles).filter((profile) => profile.membership !== 'former'), [messageMemberProfiles])
 

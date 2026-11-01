@@ -5,18 +5,19 @@
 // 判据都带反例:主线点开的名片必须原样走群那一套,否则「一律用话题」也能过。
 import { act } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { GroupAgentItem, GroupCollabSnapshot, GroupMemberItem } from '../../../packages/core/src/shared/types/chat'
+import type { GroupAgentItem, GroupChatSettings, GroupCollabSnapshot, GroupMemberItem } from '../../../packages/core/src/shared/types/chat'
 import type { MemberProfileCardModel } from '../../../apps/desktop/src/components/MemberProfileCard'
 import type { ActiveMemberProfile } from '../../../apps/desktop/src/components/memberProfileModels'
 import { createNode, createReactHarness } from '../../support/testHarness'
 
 vi.mock('../../../apps/desktop/src/lib/chat', () => ({
-  chatService: { getGroupCollab: vi.fn(), setAgentListenMode: vi.fn(async () => {}) },
+  chatService: { getGroupCollab: vi.fn(), getGroupChatSettings: vi.fn(), setAgentListenMode: vi.fn(async () => {}) },
 }))
 
 const { chatService } = await import('../../../apps/desktop/src/lib/chat')
 const { useTopicScopedMemberProfile } = await import('../../../apps/desktop/src/hooks/useTopicScopedMemberProfile')
 const getGroupCollab = vi.mocked(chatService.getGroupCollab)
+const getSettings = vi.mocked(chatService.getGroupChatSettings)
 const setAgentListenMode = vi.mocked(chatService.setAgentListenMode)
 
 function agentItem(id: string, listen_mode: GroupAgentItem['listen_mode']): GroupAgentItem {
@@ -53,7 +54,10 @@ async function render(profile: ActiveMemberProfile | null, topicChatId: string |
   await act(async () => { await Promise.resolve(); await Promise.resolve() })
 }
 
-beforeEach(() => { harness = createReactHarness() })
+beforeEach(() => {
+  harness = createReactHarness()
+  getSettings.mockResolvedValue({ id: 'topic-1', my_role: 'member', can_manage: false } as GroupChatSettings)
+})
 afterEach(() => { harness.cleanup(); vi.clearAllMocks() })
 
 describe('useTopicScopedMemberProfile', () => {
@@ -82,7 +86,17 @@ describe('useTopicScopedMemberProfile', () => {
     expect(result?.editControls).toBeUndefined()
   })
 
-  it('话题里看别人的 agent:即使是话题的 owner,档位也只读', async () => {
+  it('lets a source-group manager edit a topic agent while keeping the topic write scope', async () => {
+    getSettings.mockResolvedValue({ id: 'topic-1', my_role: 'admin', can_manage: true } as GroupChatSettings)
+    getGroupCollab.mockResolvedValue({ snapshot: collab([agentItem('a1', 'passive')], [humanItem('owner-1', 'member')]), identities: [] })
+    await render({ ...opened('aside'), member: { ...groupMember, ownerUserId: 'member-9' } })
+    expect(getSettings).toHaveBeenCalledWith('topic-1')
+    expect(result?.profile.member.listenMode).toBe('passive')
+    await act(async () => { await result?.editControls?.onChangeListenMode?.('active') })
+    expect(setAgentListenMode).toHaveBeenCalledWith('topic-1', 'a1', 'active')
+  })
+
+  it('does not infer source-group management from a topic-local owner seat', async () => {
     getGroupCollab.mockResolvedValue({ snapshot: collab([agentItem('a1', 'passive')], [humanItem('owner-1', 'owner')]), identities: [] })
     await render({ ...opened('aside'), member: { ...groupMember, ownerUserId: 'member-9' } })
     expect(result?.profile.member.listenMode).toBe('passive')

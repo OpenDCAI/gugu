@@ -4,6 +4,7 @@ import { chatService } from '../lib/chat'
 import type { MemberProfileCardModel, MemberProfileEditControls } from '../components/MemberProfileCard'
 import type { ActiveMemberProfile } from '../components/memberProfileModels'
 import { useListenModeEditControls } from '../components/chat/useListenModeEditControls'
+import { groupRoleRevision, useGroupChatSettings } from '../components/chat/useGroupChatSettings'
 import { EMPTY_GROUP_COLLAB } from './useGroupCollabLoader'
 
 /**
@@ -17,7 +18,7 @@ import { EMPTY_GROUP_COLLAB } from './useGroupCollabLoader'
  *
  * 做法:分栏开着就预读一次话题名册(权威 getGroupCollab(topicId)),名片每次打开再重读一次;
  * 从分栏打开的名片用话题名册里的 listen_mode / role 覆盖,编辑控件用同一个
- * useListenModeEditControls 但 chatId = 话题(谁能改照旧:agent 的主人)。
+ * useListenModeEditControls 但 chatId = 话题,管理能力来自该话题的服务端来源群投影。
  * 名册还没到、或这个 agent 不在话题名册里(看得见但不是参与者)⇒ 名片退成单人卡,不画档位
  * —— ❌ 不拿群的档位顶上(那正是这个 bug),也❌ 不画一个默认「主动」冒充读数。
  */
@@ -48,9 +49,11 @@ export function useTopicScopedMemberProfile(opts: {
   useEffect(() => { void load() }, [load, openedMemberId])
 
   const topicSnapshot = roster && roster.chatId === topicChatId ? roster.snapshot : null
+  const { settings } = useGroupChatSettings(topicChatId, topicSnapshot ? groupRoleRevision(topicSnapshot) : undefined)
   const topicEditControlsFor = useListenModeEditControls({
     chatId: topicChatId,
     currentUserId,
+    settings,
     onReload: load,
   })
 

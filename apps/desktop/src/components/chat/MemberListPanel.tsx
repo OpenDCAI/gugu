@@ -292,10 +292,11 @@ export function MemberListPanel({ chatId, chatKind, head, chatName, snapshot, er
   const mobile = useMobileShell()
   useEffect(() => { setQuery('') }, [chatId])
 
-  // 只有 agent 的主人拿得到可交互的档位控件 —— 判断与 mutation 都在这个现成 hook 里,这里不复制一份。
+  // The row and profile use the same owner/source-group permission and mutation hook.
   const resolveEditControls = useListenModeEditControls({
     chatId,
     currentUserId: user?.id ?? null,
+    settings,
     onReload: load,
   })
 
