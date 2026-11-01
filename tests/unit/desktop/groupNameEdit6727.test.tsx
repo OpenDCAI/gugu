@@ -43,7 +43,7 @@ const human = (id: string, role: GroupMemberItem['role']): GroupMemberItem => ({
 const SNAPSHOT: GroupCollabSnapshot = {
   scheduler: { chat_id: 'chat-1', paused: false, queue_count: 0, blocked_count: 0, summary: null, updated_at: '2026-09-28T00:00:00.000Z' },
   humans: [human('owner-1', 'owner'), human('member-1', 'member')],
-  agents: [], tasks: [], outputs: [],
+  agents: [], tasks: [],
 }
 
 let harness: ReturnType<typeof createReactHarness>
