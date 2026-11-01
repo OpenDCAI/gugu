@@ -44,6 +44,7 @@ const mocks = vi.hoisted(() => ({
   listLocalPlatformModels: vi.fn(),
   assertLocalHarnessLaunchable: vi.fn(async (_pluginId: string, _transport: string) => {}),
   resolveProjectWorkspace: vi.fn(),
+  resolveCreateEffort: vi.fn(),
   /** The new-session box's two reads (`useEffectiveProvider`): the listed agents and which are installed. */
   listAgents: vi.fn(),
   listInstalled: vi.fn(),
@@ -122,7 +123,7 @@ vi.mock('@main/core/sessionpage/sessionpage-session-agent', () => ({
   localAgentForSession: mocks.localAgentForSession,
 }));
 // 点名项目 → 项目根工作区那一步(登记 / 打开项目)由 create-session 自己的测试判;这里只看编排把谁交给它、落在哪。
-vi.mock('../session-timeline/create-session', () => ({ resolveProjectWorkspace: mocks.resolveProjectWorkspace }));
+vi.mock('../session-timeline/create-session', () => ({ resolveProjectWorkspace: mocks.resolveProjectWorkspace, resolveCreateEffort: mocks.resolveCreateEffort }));
 vi.mock('@main/core/session-timeline/preview-rpc', () => ({ readSessionPreview: mocks.readSessionPreview }));
 vi.mock('../extensions/extensions-root', () => ({
   extensionsService: () => ({
@@ -255,6 +256,7 @@ describe('session orchestration', () => {
     mocks.sessionpageProjectGroupForSession.mockImplementation(async () => mocks.sessionpageProjectGroup);
     mocks.mounted.clear();
     mocks.resolveProjectWorkspace.mockReset();
+    mocks.resolveCreateEffort.mockReset();
     mocks.resolveProjectWorkspace.mockImplementation(async (input: unknown) => ({
       ok: false,
       error: { code: 'project_not_found', message: `unexpected project resolution ${JSON.stringify(input)}` },
@@ -660,6 +662,16 @@ describe('session orchestration', () => {
       const row = fixture.sqlite.prepare('SELECT config FROM sessions WHERE id = ?').get(sessionId) as { config: string | null };
       return row.config ? (JSON.parse(row.config) as Record<string, unknown>) : {};
     }
+
+    it('uses the target machine model catalog to validate thinking and persists the accepted level', async () => {
+      project2Root();
+      mocks.resolveCreateEffort.mockResolvedValueOnce({ ok: true, value: 'native-level' });
+      const result = await runRemoteSessionAction({ ...remoteCaller, model: 'native-model' }, {
+        action: 'spawn', prompt: 'inspect', project_id: 'project-2', thinking: 'native-level',
+      }) as { session_id: string };
+      expect(mocks.resolveCreateEffort).toHaveBeenCalledWith({ harness: 'codex', sessionView: 'general', model: 'native-model', effort: 'native-level' });
+      expect(configOf(result.session_id)).toMatchObject({ effort: 'native-level' });
+    });
 
     it('prepares one stable dormant account-work seat without delivering or starting its first turn', async () => {
       project2Root();
@@ -1341,6 +1353,21 @@ describe('session orchestration', () => {
       spawn_model_id: modelId,
     });
     await expect(sessionPlatformModel(result.session_id)).resolves.toBeNull();
+  });
+
+  it('validates thinking before creating a local child and persists it through the existing effort field', async () => {
+    mocks.resolveCreateEffort.mockResolvedValueOnce({ ok: true, value: 'native-level' });
+    const result = await runSessionAction(context, { action: 'spawn', prompt: 'inspect', thinking: 'native-level' }) as { session_id: string };
+    expect(mocks.resolveCreateEffort).toHaveBeenCalledWith({ harness: 'codex', sessionView: 'general', model: undefined, effort: 'native-level' });
+    const row = fixture.sqlite.prepare('SELECT config FROM sessions WHERE id = ?').get(result.session_id) as { config: string };
+    expect(JSON.parse(row.config)).toMatchObject({ effort: 'native-level' });
+  });
+
+  it('rejects unsupported thinking without leaving a child row', async () => {
+    mocks.resolveCreateEffort.mockResolvedValueOnce({ ok: false, error: { code: 'effort_rejected', message: 'native-model offers only native-level' } });
+    await expect(runSessionAction(context, { action: 'spawn', prompt: 'inspect', thinking: 'unoffered' })).rejects.toThrow(/effort_rejected: native-model/);
+    expect(childRows()).toEqual([]);
+    expect(mocks.startSession).not.toHaveBeenCalled();
   });
 
   it('refuses a harness the launch gate refuses before creating a child, with the gate\'s own words', async () => {

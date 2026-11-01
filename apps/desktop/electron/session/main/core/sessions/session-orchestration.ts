@@ -161,6 +161,7 @@ export type SessionAction =
       harness?: string;
       /** A model id returned by session_list_models — `platform:<id>` for a Gugu model, otherwise harness-native. */
       model?: string;
+      thinking?: string;
       /** A group of the owner's the child is born in — joined once its identity is minted (birth-groups.ts). */
       chat_id?: string;
     }
@@ -903,6 +904,7 @@ async function spawnSession(
     transport,
     prompt,
     title: action.title,
+    thinking: action.thinking,
     sourceLink: action.source_link,
     assistantWork: action.assistant_work,
     envelope: envelopeOf(await localEnvelopeSender(caller)),
@@ -1016,6 +1018,7 @@ async function createChildSession(input: {
   /** The first turn's envelope: the sending session's, or the App's. */
   envelope: DeliveryEnvelope;
   model: string | undefined;
+  thinking?: string;
   platformModel: { modelId: string } | null | undefined;
   inheritPlatformModelFrom?: string;
   /** The chat it is born in (`chat_id`, an App's `chat`): joined when its identity is minted. */
@@ -1026,6 +1029,20 @@ async function createChildSession(input: {
   signal?: AbortSignal;
 }): Promise<SessionRow> {
   const { ledger, projectId, provider, transport, signal } = input;
+  let effort: string | undefined;
+  if (input.thinking !== undefined) {
+    const platform = input.platformModel ?? (input.platformModel === undefined && input.inheritPlatformModelFrom
+      ? await sessionPlatformModel(input.inheritPlatformModelFrom) : null);
+    const { resolveCreateEffort } = await import('../session-timeline/create-session');
+    const resolved = await resolveCreateEffort({
+      harness: provider,
+      sessionView: transport === 'pty' ? 'code' : 'general',
+      model: platform ? platformOptionId(platform.modelId) : input.model,
+      effort: input.thinking,
+    });
+    if (!resolved.ok) throw new Error(`${resolved.error.code}: ${resolved.error.message}`);
+    effort = resolved.value ?? undefined;
+  }
   const prompt = withActivitySource(input.prompt, input.sourceLink);
   const mark = (stage: string, extra?: Record<string, unknown>) => ledger.mark(stage, extra);
   const title = input.title?.trim() || undefined;
@@ -1091,6 +1108,7 @@ async function createChildSession(input: {
     agentDisplayName: title,
     permissionMode: UNATTENDED_SESSION_PERMISSION_MODE,
     model: input.model,
+    effort,
     platformModel: input.platformModel,
     ...(input.inheritPlatformModelFrom ? { inheritPlatformModelFrom: input.inheritPlatformModelFrom } : {}),
     origin: { kind: 'create', firstUtterance: prompt },
@@ -2240,6 +2258,7 @@ async function spawnForRemoteCaller(
     transport,
     prompt,
     title: action.title,
+    thinking: action.thinking,
     sourceLink: action.source_link,
     assistantWork: action.assistant_work,
     envelope: envelopeOf(remoteEnvelopeSender(caller)),

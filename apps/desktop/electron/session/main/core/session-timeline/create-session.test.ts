@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 /*
  * 设备 RPC 建会话在一台还没装所选 harness 的机器上(#6264 product spec 第 6 条):
@@ -122,7 +122,9 @@ vi.mock('@main/core/acp/controller', () => ({
 
 vi.mock('@main/core/sessions/session-orchestration', () => ({
   resolveCreateModelChoice: async (_provider: string, _runtime: string, model: string) =>
-    ({ model: null, platformModel: { modelId: model.replace(/^platform:/, '') } }),
+    model.startsWith('platform:')
+      ? { model: null, platformModel: { modelId: model.slice('platform:'.length) } }
+      : { model, platformModel: null },
 }));
 
 vi.mock('@main/embedded-boot', () => ({ acpStartInputFor: () => ({}) }));
@@ -158,19 +160,25 @@ function currentSessionId(): string {
 const probe = vi.hoisted(() => ({
   auth: { success: true, data: { kind: 'unauthenticated' } } as unknown,
   authThrows: false,
+  efforts: [] as string[],
+  modelEfforts: {} as Record<string, string[]>,
 }));
 vi.mock('@main/core/agents/session-discovery', () => ({
   listLocalModels: async () => ({
     harness_id: 'codex',
     transport: 'acp',
-    models: [{ id: 'gpt-6-astra', name: 'GPT-6-Astra', source: 'harness' }],
+    models: [
+      { id: 'gpt-6-astra', name: 'GPT-6-Astra', source: 'harness' },
+      { id: 'platform:deep', name: 'Deep', source: 'gugu', reasoning_efforts: ['high'] },
+      { id: 'platform:shallow', name: 'Shallow', source: 'gugu', reasoning_efforts: ['low'] },
+    ],
     selected: 'gpt-6-astra',
     efforts: [],
     selected_effort: null,
     harness_catalog: { source: 'live-acp', state: 'ready' },
     gugu_catalog: { available: true },
   }),
-  probeHarnessCatalogState: async () => ({ kind: 'ready', models: [], selected: null, efforts: [], selectedEffort: null }),
+  probeHarnessCatalogState: async (_harness: string, _transport: string, model?: string) => ({ kind: 'ready', models: [], selected: model ?? null, efforts: (model && probe.modelEfforts[model] || probe.efforts).map(id => ({ id, name: id })), selectedEffort: null }),
 }));
 vi.mock('@main/core/agent-config/runtime-process/host', () => ({
   getAgentConfigRuntimeClient: async () => ({ modelCredential: async () => ({ success: true, data: 'unknown' }) }),
@@ -186,6 +194,43 @@ const readAuth = async () => {
 
 const { createSession, createModels, startSession } = await import('./create-session');
 const { AgentInstallFailedError } = await import('@main/core/agents/ensure-agent-installed');
+
+describe('createSession reasoning effort validation', () => {
+  beforeEach(() => { state.agentStatus = 'available'; state.calls = []; state.createParams = []; probe.efforts = []; probe.modelEfforts = {}; });
+  afterEach(() => { probe.efforts = []; probe.modelEfforts = {}; });
+
+  it('keeps a harness-advertised level, including names outside any static list', async () => {
+    probe.efforts = ['native-level'];
+    const result = await createSession({ projectId: 'proj-1', harness: 'codex', model: 'gpt-6-astra', prompt: 'hi', effort: 'native-level' });
+    expect(result.ok).toBe(true);
+    expect(state.createParams[0]).toMatchObject({ sessionConfig: { initialSession: { effort: 'native-level' } } });
+  });
+
+  it.each([{ offered: [] }, { offered: ['low'] }])('rejects an unoffered level before creating a row (offered=$offered)', async ({ offered }) => {
+    probe.efforts = offered;
+    const result = await createSession({ projectId: 'proj-1', harness: 'codex', prompt: 'hi', effort: 'high' });
+    expect(result).toMatchObject({ ok: false, error: { code: 'effort_rejected', message: expect.stringContaining("'high'") } });
+    expect(state.createParams).toEqual([]);
+    expect(state.calls).not.toContain('acp.startSession');
+  });
+
+  it('validates the selected platform model rather than another model\'s levels', async () => {
+    probe.efforts = ['low', 'high'];
+    expect((await createSession({ projectId: 'proj-1', harness: 'codex', model: 'platform:deep', prompt: 'hi', effort: 'high' })).ok).toBe(true);
+    expect(await createSession({ projectId: 'proj-1', harness: 'codex', model: 'platform:shallow', prompt: 'hi', effort: 'high' }))
+      .toMatchObject({ ok: false, error: { code: 'effort_rejected' } });
+    expect(state.createParams).toHaveLength(1);
+  });
+
+  it('validates a non-default native model against its own live axis', async () => {
+    probe.efforts = ['low', 'high'];
+    probe.modelEfforts = { 'native-shallow': ['low'], 'native-deep': ['native-level'] };
+    expect(await createSession({ projectId: 'proj-1', harness: 'codex', model: 'native-shallow', prompt: 'hi', effort: 'high' }))
+      .toMatchObject({ ok: false, error: { code: 'effort_rejected' } });
+    expect((await createSession({ projectId: 'proj-1', harness: 'codex', model: 'native-deep', prompt: 'hi', effort: 'native-level' })).ok).toBe(true);
+    expect(state.createParams).toHaveLength(1);
+  });
+});
 
 describe('createSession:所选 harness 在这台机器上还没装', () => {
   beforeEach(() => {
