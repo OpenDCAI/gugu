@@ -24,7 +24,7 @@ it('recovers an initial read automatically without preparing or updating an exec
   expect(native.matchServerVersion).not.toHaveBeenCalled()
 })
 it.each([
-  ['unprepared','unprepared','quiet'],['42501','accessFailed','danger'],['stale','stale','danger'],['40001','changed','danger'],
+  ['unprepared','unprepared','quiet'],['42501','accessFailed','danger'],['stale','stale','danger'],['PT409','changed','danger'],
   ['collection-unavailable','collectionFailed','danger'],['application-failed','applicationFailed','danger'],['unknown_method','collectionFailed','danger'],
 ])('explains %s without displaying a raw service error', async (code,key,tone) => {
   await show(Object.assign(new Error('SQL /private/file'),{ code }))
