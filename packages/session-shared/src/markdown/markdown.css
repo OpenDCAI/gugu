@@ -272,6 +272,9 @@
   letter-spacing: normal;
 }
 .gg-md .gg-md-plain { white-space: pre-wrap; }
+/* A ```svg figure (session-chat-ui `svgFigure`): its viewBox is its natural size, never wider than the column. */
+.gg-md .gg-md-svg { display: block; max-width: 100%; height: auto; margin: var(--md-gap) 0; }
+.gg-md .gg-md-svg-failed { margin-top: var(--md-gap); font-size: 0.86em; color: var(--text-secondary); }
 .gg-md .gg-md-mention {
   display: inline-flex;
   align-items: center;

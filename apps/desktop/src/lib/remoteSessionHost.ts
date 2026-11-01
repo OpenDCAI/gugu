@@ -11,7 +11,7 @@ import { protocol14FileChanges } from '@gugu/session-core/session-record/contrac
 import { decodeHostWsMessage, encodeHostWsMessage } from '../session/shared/lib/ipc/host-ws-protocol'
 import { desktopReportId, helloProtocol, MIN_SERVER_PROTOCOL, REMOTE_PROTOCOL_VERSION } from '@gugu/core/cloud/serverMachineHealth'
 import type { DesktopHello } from '@gugu/core/cloud/serverDesktopVersions'
-import { DeviceRpcTimeoutError } from '@gugu/core/cloud/deviceRpcRequester'
+import { DeviceRpcChannelError, DeviceRpcTimeoutError } from '@gugu/core/cloud/deviceRpcRequester'
 import { callDeviceRpc, subscribeDeviceRpcEvents } from './deviceRpc'
 import { desktopMatchVersion, isSshMachine, requestSshServerUpgrade, usesDeviceLink, waitForTunnel } from './sshLinkChannel'
 import { rendererLogger } from './log'
@@ -253,6 +253,12 @@ export function openRemoteSessionHostPipe(
         if (deps.isSshMachine(deviceId)) void deps.requestUpgrade(deviceId)
         else void deps.requestCloudUpgrade?.(deviceId)
         throw new SessionHostTooOldError()
+      }
+      // No answer to the open (or to the attach before it) within its bound: that machine is not there, whatever the
+      // directory still says (its lease outlives a crash or a cut network by minutes). Say so by code, so a page does not
+      // show a spinner meanwhile.
+      if (error instanceof DeviceRpcTimeoutError || (error instanceof DeviceRpcChannelError && error.reason === 'unreachable')) {
+        throw Object.assign(error, { code: 'timeout' })
       }
       throw error
     }

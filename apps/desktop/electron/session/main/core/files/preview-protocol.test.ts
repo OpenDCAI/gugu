@@ -17,6 +17,27 @@ const bus = vi.hoisted(() => {
 vi.mock('electron', () => ({ protocol: { isProtocolHandled: () => false, handle: vi.fn() } }));
 vi.mock('@main/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
 vi.mock('../projects/utils', () => ({ resolveWorkspace: vi.fn(() => null) }));
+// The chat folder a document is in, as the signed-in person reads it (app-files.ts): one document and the files beside it.
+const folder = vi.hoisted(() => ({
+  files: new Map<string, { kind: 'file'; bytes: Uint8Array; type: string } | { kind: 'text'; text: string; type: string } | { kind: 'offline'; machine: string }>(),
+  read: [] as string[],
+}));
+vi.mock('@main/core/extensions/app-files', () => ({
+  chatDocumentPlace: async (itemId: string) => (itemId === 'doc-1' ? { chatId: 'chat-1', path: '设计/证据/page.html' } : null),
+  besideChatDocument: async (chatId: string, path: string) => {
+    folder.read.push(`${chatId}:${path}`);
+    const found = folder.files.get(path);
+    if (!found) return null;
+    if (found.kind === 'offline') return { kind: 'offline', machine: found.machine, deviceId: 'dev-9' };
+    if (found.kind === 'text') return { kind: 'text', text: found.text, contentType: found.type };
+    const bytes = found.bytes;
+    return {
+      kind: 'file',
+      contentType: found.type,
+      file: { revision: { size_bytes: bytes.byteLength, content_type: found.type }, read: async (offset: number, length: number) => bytes.slice(offset, offset + length), dispose: async () => undefined },
+    };
+  },
+}));
 vi.mock('@main/lib/events', () => ({
   events: {
     on: (channel: { name: string }, cb: (data: unknown) => void) => {
@@ -30,7 +51,7 @@ vi.mock('@main/lib/events', () => ({
 }));
 
 import { remotePreviewReadChannel, remotePreviewReadResultChannel } from '@shared/events/appEvents';
-import { REMOTE_CHUNK_TIMEOUT_MS, createDocumentPreview, createPreview, createRemotePreview, handlePreviewRequest, previewAssetsChanged, releasePreview, setPreviewDocument } from './preview-protocol';
+import { REMOTE_CHUNK_TIMEOUT_MS, createChatFolderPreview, createDocumentPreview, createPreview, createRemotePreview, handlePreviewRequest, previewAssetsChanged, releasePreview, setPreviewDocument } from './preview-protocol';
 import { resolveWorkspace } from '../projects/utils';
 import { previewDocumentHtml } from '@shared/preview/preview-link-script';
 
@@ -471,4 +492,63 @@ it('cancels a timed-out served remote stream and removes its pending reply liste
       expect(await scan).toBe(true);
     } finally { stop(); }
   } finally { releasePreview(preview.previewId); }
+});
+
+describe('a chat folder document previewed with its folder', () => {
+  const copy = { unavailable: '这个文件现在取不到。', outside: '只能取到这份文档所在文件夹里的文件。', offline: '在「{machine}」上，未连接', palette: { surface: 'white', border: 'gray', text: 'black' } };
+  const get = (url: string, headers: Record<string, string> = {}) => handlePreviewRequest(new Request(url, { headers }), 'pane');
+
+  it('gives the document its folder: the files beside it are served, a video by ranges, nothing above the folder', async () => {
+    folder.files.clear();
+    folder.files.set('设计/证据/shot.png', { kind: 'file', bytes: new Uint8Array([1, 2, 3, 4]), type: 'image/png' });
+    folder.files.set('设计/证据/clips/a.mp4', { kind: 'file', bytes: new Uint8Array(Array.from({ length: 100 }, (_, i) => i)), type: 'video/mp4' });
+    const created = await createChatFolderPreview('doc-1', '<img src="shot.png"><video src="clips/a.mp4">', copy);
+    expect(created?.url).toMatch(/^gugu-preview:\/\/[0-9a-f]{32}\/page\.html$/);
+    const base = created!.url.replace(/page\.html$/, '');
+
+    const page = await get(created!.url);
+    expect(page.status).toBe(200);
+    expect(page.headers.get('Content-Security-Policy')).toContain("'self'");
+    expect(await page.text()).toContain('<img src="shot.png">');
+
+    const shot = await get(`${base}shot.png`);
+    expect(shot.status).toBe(200);
+    expect(new Uint8Array(await shot.arrayBuffer())).toEqual(new Uint8Array([1, 2, 3, 4]));
+    expect(folder.read).toContain('chat-1:设计/证据/shot.png');
+
+    const piece = await get(`${base}clips/a.mp4`, { Range: 'bytes=10-19' });
+    expect(piece.status).toBe(206);
+    expect(piece.headers.get('Content-Range')).toBe('bytes 10-19/100');
+    expect([...new Uint8Array(await piece.arrayBuffer())]).toEqual([10, 11, 12, 13, 14, 15, 16, 17, 18, 19]);
+    expect((await get(`${base}clips/a.mp4`, { Range: 'bytes=200-' })).status).toBe(416);
+
+    folder.read.length = 0;
+    const above = await get(`${base}..%2Fsecret.png`);
+    expect(above.status).toBe(403);
+    expect(folder.read).toEqual([]);
+
+    expect((await get(`${base}missing.png`)).status).toBe(404);
+    releasePreview(created!.url.slice('gugu-preview://'.length, 'gugu-preview://'.length + 32));
+  });
+
+  it('a file on a machine that is off is said where it would be, and the page around it is told which machine', async () => {
+    folder.files.clear();
+    folder.files.set('设计/证据/shot.png', { kind: 'offline', machine: 'mac1' });
+    folder.files.set('设计/证据/a.mp4', { kind: 'offline', machine: 'mac1' });
+    bus.reset();
+    const created = await createChatFolderPreview('doc-1', '<img src="shot.png">', copy);
+    const base = created!.url.replace(/page\.html$/, '');
+    const picture = await get(`${base}shot.png`);
+    expect(picture.status).toBe(200);
+    expect(picture.headers.get('Content-Type')).toBe('image/svg+xml');
+    expect(await picture.text()).toContain('在「mac1」上，未连接');
+    expect(bus.emitted.map((event) => event.name)).toContain('session:preview-holder-offline');
+    const video = await get(`${base}a.mp4`);
+    expect(video.status).toBe(503);
+    expect(await video.text()).toBe('在「mac1」上，未连接');
+  });
+
+  it('a document someone may not read gets no preview', async () => {
+    expect(await createChatFolderPreview('doc-2', '<p>x</p>', copy)).toBeNull();
+  });
 });

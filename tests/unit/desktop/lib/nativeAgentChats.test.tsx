@@ -32,3 +32,12 @@ it('uses newer native activity for the same agent row and keeps newer IM activit
   await harness.render(<Fixture />)
   expect(harness.container.textContent).toBe('Newer MCP reply|2026-10-29T12:00:00Z')
 })
+it('keeps the agent row listed from the heartbeat summary while its machine is away', async () => {
+  remove = installOwnedAgentEntry({ open: () => true, owns: id => id === 'own-agent' })
+  const digest = [{ conversationId: 'session', title: 'Task', harness: 'codex', runtime: 'acp', agentStatus: 'idle', lastInteractedAt: '2026-10-31T09:00:00Z', supported: true, nativeInputVersion: 1, agentUserId: 'own-agent' }]
+  publishDirectoryDevices([{ device_id: 'host', is_online: false, capabilities: {}, session_digest: digest } as unknown as Device])
+  const chats = [{ id: 'dm', kind: 'dm', peer_user_id: 'own-agent', unread_count: 0, last_message_at: null }] as unknown as ChatItem[]
+  function Fixture() { return <div>{useNativeAgentChats(chats)[0]!.last_message_at}</div> }
+  await harness.render(<Fixture />)
+  expect(harness.container.textContent).toBe('2026-10-31T09:00:00Z')
+})

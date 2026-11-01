@@ -11,11 +11,11 @@ import { translateSessionMessage } from '@renderer/localization/locale-store'
 import { AgentConversationComposer } from '@renderer/lib/chat/agent-conversation-view'
 import { messageForUser } from '@/lib/userFacingError'
 
-export type ConversationTarget = { deviceId: string; sessionId: string; local: boolean; phoneHost?: boolean }
+export type ConversationTarget = { deviceId: string; sessionId: string; local: boolean; phoneHost?: boolean; /** false while that machine is away: nothing to ask; asked again once it is back. */ reachable?: boolean }
 
 /** Adapts the host facts through the project page's model, effort and permission assemblers. */
 export function useConversationOptions(target: ConversationTarget | null) {
-  const deviceId = target?.deviceId, sessionId = target?.sessionId, local = target?.local, phoneHost = target?.phoneHost
+  const deviceId = target?.deviceId, sessionId = target?.sessionId, local = target?.local, phoneHost = target?.phoneHost, reachable = target?.reachable !== false
   const key = target ? `${deviceId}/${sessionId}/${local}/${phoneHost}` : ''
   const [read, setRead] = useState<{ key: string; options: SessionpageSessionOptionsWithMenu } | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -23,11 +23,12 @@ export function useConversationOptions(target: ConversationTarget | null) {
   const [restart, setRestart] = useState<{ modelId: string; label: string; source: 'platform' | 'own' } | null>(null)
   const options = read?.key === key ? read.options : null
   useEffect(() => {
-    if (!deviceId || !sessionId || local === undefined) return
+    setError(null)
+    if (!deviceId || !sessionId || local === undefined || !reachable) return
     let live = true
     void conversationOptionClient({ deviceId, sessionId, local, phoneHost }).read().then(options => { if (live) setRead({ key, options }) }, cause => { if (live) setError(messageForUser(cause)) })
     return () => { live = false }
-  }, [key, deviceId, sessionId, local, phoneHost])
+  }, [key, deviceId, sessionId, local, phoneHost, reachable])
   const pick = async (dimension: SessionOptionDimension, value: string) => {
     if (!target || options?.[dimension]?.selected === value) return
     setPending(true)

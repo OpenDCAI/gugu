@@ -5,32 +5,36 @@
       "id": "pi",
       "kind": "npm",
       "license": "MIT",
-      "revision": "71023aec1546d6d677a65669c5665c0927ce0dd0",
-      "tag": "v1.3.0",
+      "revision": "4a080252f06caf63a525d7873c5d94d3c23887e0",
+      "tag": "v1.4.0",
       "packages": [
         {
           "name": "@earendil-works/pi-coding-agent",
-          "version": "1.3.0"
+          "version": "1.4.0"
         },
         {
           "name": "@earendil-works/pi-ai",
-          "version": "1.3.0"
+          "version": "1.4.0"
         },
         {
           "name": "@earendil-works/pi-agent-core",
-          "version": "1.3.0"
+          "version": "1.4.0"
         },
         {
           "name": "@earendil-works/pi-tui",
-          "version": "1.3.0"
+          "version": "1.4.0"
         },
         {
           "name": "@earendil-works/pi-codemode",
-          "version": "1.3.0"
+          "version": "1.4.0"
         },
         {
           "name": "@earendil-works/pi-mcp",
-          "version": "1.3.0"
+          "version": "1.4.0"
+        },
+        {
+          "name": "@earendil-works/pi-telemetry",
+          "version": "1.4.0"
         }
       ],
       "files": [
@@ -38,7 +42,7 @@
           "path": "pi/LICENSE",
           "sha256": "0457f5bcec3b3b211605dfb5d1a49042fd638f3686a410fe099c24a25af13c48",
           "source": {
-            "url": "https://raw.githubusercontent.com/earendil-works/pi/71023aec1546d6d677a65669c5665c0927ce0dd0/LICENSE",
+            "url": "https://raw.githubusercontent.com/earendil-works/pi/4a080252f06caf63a525d7873c5d94d3c23887e0/LICENSE",
             "sha256": "0457f5bcec3b3b211605dfb5d1a49042fd638f3686a410fe099c24a25af13c48"
           }
         }

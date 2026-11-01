@@ -20,7 +20,6 @@ import { COLOR_MUTED, readReceiptLabel } from './chatPresentation'
 import { MessageSendStatus } from './MessageSendStatus'; import { safeFailureLine } from '@/session/renderer/features/sessions/gugu-reason'; import { keepAction } from './messageKeep'
 import { Markdown } from '../markdown/Markdown'; import { classifyFileLink } from '@gugu/core/shared/ui/guguLink'
 import { buildBubbleStyle } from './messageBubbleStyle'
-import { WidgetCard, type Widget } from './WidgetCard'
 import { ComposerCardView } from './ComposerCardView'
 import { QuestionCardView } from './QuestionCardView'
 import { parseQuotedContent, partialQuotedContent, type QuoteSelection } from './messageQuoteContent'
@@ -483,23 +482,9 @@ export const MessageBubble = memo(function MessageBubble({
                   <QuestionCardView card={card} chatId={msg.chat_id} messageId={msg.id} agentUserId={msg.sender_user_id ?? ''} time={replyQuote ? <>{replyQuote}{fmtMsgTime(msg.created_at)}</> : fmtMsgTime(msg.created_at)} />
                 ) : card ? (
                   <ComposerCardView card={card} isMine={msg.is_mine} isGroup={isGroup} chatId={msg.chat_id} senderName={avatarName} time={replyQuote ? <>{replyQuote}{fmtMsgTime(msg.created_at)}</> : fmtMsgTime(msg.created_at)} memberProfiles={memberProfiles} onOpenTopic={compactMobile && onOpenTopic && card.type === 'task' ? () => onOpenTopic(msg.id) : undefined} />
-                ) : msg.content_type === 'widget' ? (() => {
-                  // Widget: parse JSON from msg.content, fall back to plain bubble on failure
-                  let widget: Widget | null = null
-                  try {
-                    const parsed = JSON.parse(msg.content ?? '{}') as { id?: string; title?: string; html?: string; url?: string }
-                    if (parsed.id && parsed.title) {
-                      widget = { id: parsed.id, title: parsed.title, html: parsed.html, url: parsed.url }
-                    }
-                  } catch {
-                    // parse failure → fallback below
-                  }
-                  if (widget) {
-                    return <WidgetCard widget={widget} />
-                  }
-                  // fallback: show raw content as text
-                  return <span style={{ color: 'var(--text-secondary)', fontStyle: 'italic' }}>{t('message.widget')}</span>
-                })() : msg.content_type === 'attachment' ? (
+                ) : msg.content_type === 'widget' ? (
+                  <span style={{ color: 'var(--text-secondary)', fontStyle: 'italic' }}>{t('message.widget')}</span>
+                ) : msg.content_type === 'attachment' ? (
                   voiceAttachment ? (
                     <VoiceAttachmentBubble
                       fileName={voiceAttachment.fileName}

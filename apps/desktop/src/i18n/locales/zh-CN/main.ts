@@ -200,8 +200,9 @@ export default {
     "offline": {
       "phoneTitle": "手机未连接 Agent 宿主",
       "phoneBody": "会话记录保存在这台手机上。重新连接并启用 Agent 后，可以查看记录、继续任务。",
-      "title": "机器离线，打不开时间线",
+      "title": "「{{machine}}」未连接",
       "body": "时间线要从这台机器上实时读取，它不在线时读不到。把它开机并登录同一账号后再回来。",
+      "sendLater": "现在发送的消息会在它重新连接后送达。",
       "lastSeen": "最后在线：{{time}}"
     },
     "output": {

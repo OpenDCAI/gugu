@@ -9,7 +9,8 @@ import { join } from 'node:path'
 import { processPendingDeviceCommandsOnce, reportRuntimeInstanceHeartbeat, recoverOrphanedDeviceCommands } from '../../../packages/core/src/cloud/deviceCommands.ts'
 import { createAgentRuntimeStateReporter } from '../../../packages/core/src/cloud/agentRuntimeStateReporter.ts'
 import { handleAgentCreateDeviceCommand, resolveGuguIds } from '../../../packages/core/src/local/agent/deviceCommandRuntime.ts'
-import { pullAgentInbox, unreadRowFromRpc } from '../../../packages/core/src/local/agent/agentInboxReader.ts'
+import { deliveryDisclosureMessage, pullAgentInbox, unreadRowFromRpc } from '../../../packages/core/src/local/agent/agentInboxReader.ts'
+import { agentFailureNeedsModelChoice, agentFailureReason } from '../../../packages/core/src/shared/agentQuotaReason.ts'
 import { buildSessionDirectEnvelope, readDeliveryEnvelope, formatDeliveryTimestamp } from '../../../packages/core/src/local/agent/deliveryEnvelope.ts'
 import { setCoreLoggerFactory } from '../../../packages/core/src/log.ts'
 import { REMOTE_PROTOCOL_VERSION, MIN_CLIENT_PROTOCOL } from '../../../packages/core/src/cloud/serverMachineHealth.ts'
@@ -441,11 +442,19 @@ export async function startPhoneAgentHost(initialConfig, { runTurn, cancelTurn, 
       agent.status = error.cancelled ? 'idle' : 'error'; agent.lastError = error.cancelled && error.code !== 'execution_unknown' ? null : job.error
       emit({ type: 'turn_failed', ownerId, sessionId: agent.sessionId, agentUserId: agent.agentUserId, status: job.status, code: job.errorCode, error: job.error })
       const failureText = explanation ?? `手机任务${error.cancelled ? '已取消' : error.interrupted ? '已中断' : '执行失败'}${!error.cancelled || error.code === 'execution_unknown' ? `：${error.message}` : ''}`
-      // Failure is visible in the source chat even if the model never reached a communication tool.
-      if (job.route?.kind === 'chat' && !job.sent?.length) {
-        const id = stableId('phone-failure', job.id)
-        store.state.outbox[id] ??= { id, chatId: job.route.chatId, agentUserId: agent.agentUserId, toUserIds: job.route.senderUserId ? [job.route.senderUserId] : null, content: failureText, replyToMessageId: job.route.sourceMessageId ?? null, threadRootId: job.route.threadRootId ?? null, isWhisper: job.route.whisper === true, status: 'pending', createdAt: new Date().toISOString() }
-        await store.save(); await deliverPhoneOutbox(cloud, store, id).catch((failure) => warn(failure.message))
+      // A failed chat turn is said in its chat the way the desktop says it (agentInboxReader's notice): the reason's fixed text,
+      // addressing no one (a reply target or a recipient wakes that member: two failing agents woke each other in turn), and
+      // never the raw error, which stays in this task's own state. A quota or model failure stays out of the chat, as there.
+      if (job.route?.kind === 'chat' && !job.sent?.length && !error.cancelled) {
+        const reason = agentFailureReason(error.message) ?? 'generic'
+        if (!agentFailureNeedsModelChoice(reason)) {
+          const notice = deliveryDisclosureMessage({ agentUserId: agent.agentUserId, chatId: job.route.chatId, threadRootId: job.route.threadRootId ?? null, key: `turn-failure:phone:${job.id}`, reason })
+          // Durable before it is said (a crash after the notice leaves the job failed, not interrupted). A disk that refuses
+          // does not silence the chat: the notice has a stable id, so saying it again is harmless.
+          await store.save().catch((failure) => warn(failure.message))
+          const { error: posting } = await cloud.chat.from('messages').insert(notice)
+          if (posting && posting.code !== '23505') warn(`turn-failure notice not posted; the failure stays in the task: ${posting.message}`)
+        }
       }
       if (job.route?.kind === 'session-direct' && !job.sent?.length && !stopped && !signingOut) {
         // Ordinary session messages retain their existing receipt. Correlated work uses only the cloud queue.

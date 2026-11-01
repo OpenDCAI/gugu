@@ -729,6 +729,8 @@
   --listen-mode-active-fg: var(--fg);
   --listen-mode-active-shadow: none; /* @@@shadow-lift —— 分段控件不是浮层 */
   --green: #16a34a;
+  /* 图表的分类色(agent 的 ```svg 图用 var(--c1)…var(--c6)):固定顺序,按这一侧的底色取档,色觉异常可分。 */
+  --chart-1: #3987e5; --chart-2: #d95926; --chart-3: #199e70; --chart-4: #c98500; --chart-5: #d55181; --chart-6: #008300;
   /* @@@chrome-is-ink (Refs #6104) — design.md 的 Reject 列表逐字点名「icons dropped into tinted tiles」。
      团队分组原来是三个色相(H=55.5 / 281.1 / 154.3)的彩底 + 彩图标;现在三组都是同一层前景密度底,
      要区分靠**名字与字重**,不靠色相。名字留着是因为消费点在别的区,取值已经不带色相了。 */
@@ -924,6 +926,7 @@
   --listen-mode-active-fg: var(--fg);
   --listen-mode-active-shadow: none; /* @@@shadow-lift —— 分段控件不是浮层,浅色侧也不给 */
   --green: #16a34a;
+  --chart-1: #2a78d6; --chart-2: #eb6834; --chart-3: #1baf7a; --chart-4: #eda100; --chart-5: #e87ba4; --chart-6: #008300;
   /* @@@chrome-is-ink — 与暗色侧同一条式子,见 :root 那段。 */
   --team-peach: color-mix(in oklab, var(--fg) 4%, transparent);   --team-peach-ico: color-mix(in oklab, var(--fg) 8%, transparent);
   --team-lav:   color-mix(in oklab, var(--fg) 4%, transparent);   --team-lav-ico:   color-mix(in oklab, var(--fg) 8%, transparent);
@@ -1152,6 +1155,9 @@ input::placeholder {
     background: var(--text-tertiary);
   }
 }
+
+/* The search panel's loading line: a short bar crossing under its filter row. */
+@keyframes gs-scan { from { transform: translateX(-100%); } to { transform: translateX(300%); } }
 
 @keyframes spin {
   to { transform: rotate(360deg); }
@@ -1878,6 +1884,17 @@ body.barcode-scanner-active #root {
     transition-duration: var(--mobile-motion-duration);
     transition-timing-function: var(--mobile-motion-ease);
   }
+}
+/* 文件预览上方一行:页面里有文件此刻取不到(存它的电脑离线),说清是哪台。 */
+.gg-file-preview-notice {
+  margin: 0 18px 10px;
+  padding: 8px 12px;
+  border-radius: var(--radius-document);
+  background: color-mix(in oklab, var(--warn) 14%, transparent);
+  color: var(--text-primary);
+  font-size: var(--font-caption);
+  line-height: 1.5;
+  flex-shrink: 0;
 }
 /* 细进度条(手机附件卡从那台电脑取文件):原生 <progress>,读屏自带进度;颜色同更新下载那条。 */
 .gg-progress {

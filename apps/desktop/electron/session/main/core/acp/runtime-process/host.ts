@@ -53,6 +53,7 @@ import {
   closeRuntimeForkOwnershipForRuntimeSession,
 } from '@main/core/sessions/runtime-fork-ownership';
 import { events } from '@main/lib/events';
+import { recordAcpForkHandshake } from '@main/core/agents/fork-legs';
 import { log } from '@main/lib/logger';
 import { sessionStartStageChannel } from '@shared/core/sessions/sessionEvents';
 import { desktopWorkerPath } from '@main/worker-manifest';
@@ -248,6 +249,11 @@ const acpWorker = lazyWorker(
             void import('../../asks/human-tool-wait').then(({ yieldHumanToolWaits }) => yieldHumanToolWaits(sessionId))
               .catch(error => log.error('Human tool steering notification failed', { sessionId, error: String(error) }));
           },
+        })
+      );
+      handle.scope.add(
+        await handle.client.forkHandshake.subscribe(undefined, {
+          onEvent: ({ providerId, fork }) => recordAcpForkHandshake(providerId, fork),
         })
       );
       handle.scope.add(

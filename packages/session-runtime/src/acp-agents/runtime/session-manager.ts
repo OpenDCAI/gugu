@@ -677,6 +677,7 @@ export class SessionManager implements InboundRouter {
     record.cell.setAcceptsImagePrompts(connection.supportsImagePrompt);
     record.cell.setSupportsSteering(connection.supportsSteering);
     record.cell.setSupportsLoadSession(connection.supportsLoadSession);
+    this.deps.onForkHandshake?.(input.providerId, connection.supportsForkSession);
 
     try {
       // Provider-specific runtime forks may need a control plane outside ACP. The provider owns

@@ -146,6 +146,11 @@ export const acpRuntimeApiContract = defineContract({
       platformAccessSessionId: z.string().min(1).optional(),
     }),
   }),
+  /** What a provider's ACP `initialize` reported for `sessionCapabilities.fork`, on every connection. */
+  forkHandshake: eventStream({
+    key: z.void(),
+    event: z.object({ providerId: z.string().min(1), fork: z.boolean() }),
+  }),
   /** Only actual admitted steering, never ordinary queued input. */
   promptSteered: eventStream({
     key: z.void(),

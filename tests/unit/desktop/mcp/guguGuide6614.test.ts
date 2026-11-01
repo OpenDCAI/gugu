@@ -112,6 +112,9 @@ describe('扩展指南与源码对得上 (#6614)', () => {
     process.stdout.write(`[guide-topic-bytes] ${JSON.stringify(sizes)}\n`)
     expect(oversized(EXTENSION_GUIDE_TOPICS)).toEqual([])
     expect(GUIDE_TOPICS.map(({ topic }) => topic)).toEqual(expect.arrayContaining(EXTENSION_GUIDE_TOPICS.map(({ topic }) => topic)))
+    // The figures guide (visuals-guide.ts) is the platform's own, read only by a session about to draw: same ceiling.
+    expect(GUIDE_TOPICS.map(({ topic }) => topic)).toContain('visuals')
+    expect(oversized(GUIDE_TOPICS)).toEqual([])
     // 阳控:一篇超上限的必须被点名。
     expect(oversized([{ topic: 'fat', text: 'x'.repeat(GUIDE_TOPIC_BYTE_BUDGET + 1) }]))
       .toEqual([`fat: ${GUIDE_TOPIC_BYTE_BUDGET + 1} bytes > ${GUIDE_TOPIC_BYTE_BUDGET}`])
