@@ -3,6 +3,10 @@ import { resolveProvisionedProjectGroup } from '../../../../apps/desktop/electro
 
 describe('resolveProvisionedProjectGroup', () => {
   const job = { groupName: 'Project', groupChatId: 'g-mapped' }
+  it('does not retain the mapped group when enrollment failed', () => {
+    expect(resolveProvisionedProjectGroup(job, { groupChatId: '', priorGroupState: 'join_failed:member_limit_reached' }))
+      .toEqual({ kind: 'not-joined', groupChatId: '' })
+  })
   it('需审批 ⇒ 这次不在群里(名册不记群),映射不动', () => {
     expect(resolveProvisionedProjectGroup(job, { groupChatId: '', priorGroupState: 'pending_approval' }))
       .toEqual({ kind: 'pending-approval', groupChatId: '' })

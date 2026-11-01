@@ -881,7 +881,30 @@ describe('#6396 序号只增不减', () => {
       oneTripCalls.length = 0
       serverLift = 0
     })
-    // 第 19 条(10-12):开户失败(项目群满了),#5419 撤掉这次铸的身份;会话照跑,手里还是发给它的 gugu MCP 卡。
+    it('入群失败仍使身份就绪,清空名册群,不撤身份或项目群映射', async () => {
+      await provisionFresh('conv-seed', { projectId: 'proj-alpha' })
+      const group = groups[0]!
+      const calls: string[] = []
+      const fullGroup = {
+        ...oneTripDeps,
+        provisionOneTrip: async (input: { agentId: string; displayName: string; priorGroupChatId?: string | null }) => {
+          calls.push(input.priorGroupChatId ?? '')
+          return { agentId: input.agentId, displayName: input.displayName, groupChatId: '', groupCreated: false, priorGroupState: 'join_failed:member_limit_reached' }
+        },
+      }
+      const first = await provisionFresh('conv-no-seat', { projectId: 'proj-alpha' }, fullGroup)
+      const { awaitSessionpageCloudIdentity } = await import(SUT)
+      await expect(awaitSessionpageCloudIdentity(first.guguAgentUserId)).resolves.toBeUndefined()
+      expect(roster.find((r) => r.gugu_user_id === first.guguAgentUserId)?.cache).toMatchObject({
+        sessionpage_cloud_identity_state: 'ready', sessionpage_group_chat_id: '',
+      })
+      expect(group.members).not.toContain(first.guguAgentUserId)
+      expect(calls).toEqual([group.chatId])
+      await provisionFresh('conv-next', { projectId: 'proj-alpha' }, fullGroup)
+      expect(calls).toEqual([group.chatId, group.chatId])
+      expect(tombstones).toEqual([])
+    })
+    // 第 19 条(10-12):开户本身失败,#5419 撤掉这次铸的身份;会话照跑,手里还是发给它的 gugu MCP 卡。
     // 这条会话再起来要铸新身份 —— 先收旧身份的卡,host 才肯给新身份发卡(同一条会话不许换主体)。撤行那一刻 ❌ 收:
     // 照跑的会话会当场没了 gugu MCP。别的会话不动;落了地的身份重开是复用,什么也不收。
     it('开户失败撤掉的身份:这条会话下次铸身份之前先收它的卡,撤行那一刻不收', async () => {
