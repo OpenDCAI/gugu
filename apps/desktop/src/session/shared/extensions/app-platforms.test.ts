@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { APP_PLATFORMS_API_VERSION, appPlatformProblems, PHONE_CAPABILITIES, PHONE_CAPABILITY_SUPPORT, requireAppPlatform } from './app-platforms';
-import { EXTENSION_API_VERSION, EXTENSION_CAPABILITIES, safeParseExtensionManifest } from './manifest';
+import { EXTENSION_API_VERSION, EXTENSION_API_VERSION_MIN_SUPPORTED, EXTENSION_CAPABILITIES, safeParseExtensionManifest } from './manifest';
 import { marketEntriesFrom, marketHistoryFrom, marketUpdatesFrom } from './market-entries';
 import { currentMarketHost, type MarketIndexApp } from './market';
 
@@ -19,7 +19,7 @@ const app = (versions: MarketIndexApp['versions']): MarketIndexApp => ({ id: 're
 describe('App platform boundaries', () => {
   it('reads an App that declares no platforms but refuses it as a new installation', () => {
     expect(safeParseExtensionManifest(manifest())).toMatchObject({ ok: true });
-    expect(currentMarketHost('0.2.58', 'desktop')).toMatchObject({ apiVersionMin: EXTENSION_API_VERSION, apiVersionMax: EXTENSION_API_VERSION });
+    expect(currentMarketHost('0.2.58', 'desktop')).toMatchObject({ apiVersionMin: EXTENSION_API_VERSION_MIN_SUPPORTED, apiVersionMax: EXTENSION_API_VERSION });
     expect(() => requireAppPlatform(manifest(), 'desktop')).toThrow('declare desktop, phone, or both');
   });
 

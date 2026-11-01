@@ -714,6 +714,8 @@ export function hostAppFrame(
         return files.remove(surface(), { ref: chatRef(args.ref) })
       case 'filesReplace':
         return files.replace(surface(), { ref: chatRef(args.ref), file: args.file as AppFileUpload, expectedVersion: (args.expectedVersion ?? null) as number | null })
+      case 'filesCanDelete':
+        return files.canDelete(surface(), { refs: (Array.isArray(args.refs) ? args.refs : []).map(chatRef) })
       case 'filesVersions':
         return files.versions(surface(), { ref: chatRef(args.ref) })
       case 'filesReadVersion':

@@ -1375,14 +1375,31 @@ function gridItem(entry, now) {
 }
 
 // File rows and grid cells use the page's existing menu, with the same actions and permission checks.
-function rowMenu(li, entry) {
+// Whether this person may delete a file, asked as its menu opens (a list does not carry it: a whole folder's answer cost
+// seconds before its first row). One answer per version of the entry: a change to it is a new version, asked again.
+const deletable = new Map() // `${id}:${version}` → Promise<boolean>
+const deletableSaid = new Map() // the same key → the answer, once it is back
+const deletableKey = (entry) => `${entry.id}:${entry.version}`
+function mayDelete(entry) {
+  if (!canWrite() || entry.systemRole) return Promise.resolve(false)
+  const key = deletableKey(entry)
+  if (!deletable.has(key)) {
+    deletable.set(key, gugu.files.canDelete([entry]).then(([yes]) => {
+      deletableSaid.set(key, yes === true)
+      return yes === true
+    }, () => { deletable.delete(key); return false }))
+  }
+  return deletable.get(key)
+}
+
+function rowMenu(li, entry, canDelete = false) {
   const t = state.t
   const folder = isFolder(entry)
   const open = { text: t.open, run: () => folder ? enterFolder(entry.id) : openFile(entry) }
   const openWith = { text: t.openWith, run: () => openInHost(entry, true) }
   const change = canWrite() && !entry.systemRole
     ? [{ text: t.rename, run: () => startRename(li, entry) }, { text: t.move, run: () => showMoveDialog(entry) }] : []
-  const remove = canWrite() && !entry.systemRole && entry.canDelete
+  const remove = canWrite() && !entry.systemRole && canDelete
     ? [{ text: t.remove, run: () => removeFile(entry), ask: folder && under(entry.id).length ? fmt(t.confirmRemoveFolder, { n: under(entry.id).length }) : t.confirmRemove }] : []
   const groups = [[open]]
   if (folder) groups.push(change)
@@ -1415,9 +1432,19 @@ function rowMenu(li, entry) {
 
 function fileMenu(li, open, entry) {
   const show = (point) => {
-    const items = !isFolder(entry) && state.picked.size
-      ? [...pickedActions(), { separator: true }, { text: state.t.pickCancel, run: clearPicks }] : rowMenu(li, entry)
-    toggleMenu(open, items, { point, entry: state.picked.size && !isFolder(entry) ? null : entry, selection: state.picked.size && !isFolder(entry) })
+    const picked = !isFolder(entry) && state.picked.size
+    const context = { point, entry: picked ? null : entry, selection: picked }
+    if (picked) return toggleMenu(open, [...pickedActions(), { separator: true }, { text: state.t.pickCancel, run: clearPicks }], context)
+    // The menu opens at once; 删除 joins it when the answer is back and says yes (at once, when it is already known).
+    const said = deletableSaid.get(deletableKey(entry))
+    toggleMenu(open, rowMenu(li, entry, said === true), context)
+    if (said === undefined) {
+      void mayDelete(entry).then((yes) => {
+        if (!yes || state.menuAnchor !== open) return
+        closeMenu()
+        toggleMenu(open, rowMenu(li, entry, true), context)
+      })
+    }
   }
   let timer = null
   let held = false
@@ -1439,10 +1466,13 @@ function fileMenu(li, open, entry) {
       show()
     } else if (state.picked.size <= 1 && canWrite() && !entry.systemRole) {
       if (event.key === 'F2') { event.preventDefault(); startRename(li, entry) }
-      if (event.key === 'Delete' && entry.canDelete) {
+      if (event.key === 'Delete') {
         event.preventDefault()
-        const remove = rowMenu(li, entry).find((item) => item.ask)
-        toggleMenu(open, [{ ...remove, text: remove.ask }], { entry })
+        void mayDelete(entry).then((yes) => {
+          if (!yes) return
+          const remove = rowMenu(li, entry, true).find((item) => item.ask)
+          toggleMenu(open, [{ ...remove, text: remove.ask }], { entry })
+        })
       }
     }
   })

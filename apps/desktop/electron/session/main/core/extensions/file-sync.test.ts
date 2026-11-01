@@ -130,7 +130,7 @@ const buffer = (bytes: Uint8Array) => bytes.slice().buffer;
 describe('app file sync relay', () => {
   it('reads entry decorations once, only when that granted page requests them', async () => {
     const p = openPage();
-    const entry = { id: 'decorated', version: 1, canDelete: true } as AppFileEntry;
+    const entry = { id: 'decorated', version: 1, size: 3 } as AppFileEntry;
     const details = vi.fn(async () => entry);
     fileSync.grant(p.page, { docName: 'decorated@0', itemId: 'decorated', access: 'rw', needs: null, details });
     expect(details).not.toHaveBeenCalled();

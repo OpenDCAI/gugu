@@ -12,7 +12,7 @@ it('requests decoration after two frames and updates the entry without a documen
   }>();
   const opened = fileOpened('text');
   opened.entry.detailsPending = true;
-  opened.entry.canDelete = false;
+  opened.entry.createdBy = { id: 'u1', name: 'u1', kind: 'human' };
   host.appFiles.open.mockResolvedValueOnce(opened);
   const messages = vi.spyOn(service, 'fromPage');
   const file = await open();
@@ -24,8 +24,8 @@ it('requests decoration after two frames and updates the entry without a documen
   frames.shift()!(0);
   await until(() => messages.mock.calls.some(([m]) => (m as { t?: string }).t === 'entry'));
   const { detailsPending: _pending, ...entry } = opened.entry;
-  service.toPage!({ data: { t: 'entry', docName: opened.docName, entry: { ...entry, canDelete: true } } });
-  expect(file.entry.canDelete).toBe(true);
+  service.toPage!({ data: { t: 'entry', docName: opened.docName, entry: { ...entry, createdBy: { id: 'u1', name: 'Ann', kind: 'human' } } } });
+  expect(file.entry.createdBy?.name).toBe('Ann');
   expect(file.entry).not.toHaveProperty('detailsPending');
   expect(file.text).toBe('');
   expect(changed).toHaveBeenCalledExactlyOnceWith({ local: false, entry: true });

@@ -47,6 +47,8 @@ const gugu = {
   onLink: vi.fn(() => () => {}),
   showMessage: vi.fn(async (_id: string) => {}),
   files: {
+    // Asked as a row's menu opens (a list carries no delete answer); the rig answers from its fixtures.
+    canDelete: vi.fn(async (files: unknown) => [files].flat().map((file) => (file as { canDelete?: boolean }).canDelete === true)),
     viewPreferences: vi.fn(async () => ({ showAppData: false })),
     list: vi.fn(async () => entries),
     onChanged: vi.fn((_place: unknown, fn: typeof filesChanged) => { filesChanged = fn; return () => {} }),
@@ -220,10 +222,13 @@ describe('workspace App: what the old workspace panel did', () => {
     contextChanged({ ...context })
     await vi.waitFor(() => expect($('new-doc').hidden).toBe(false))
     rowMore('cfg').click()
-    expect(offered()).toEqual(['打开', '用别的 App 打开', '下载', '复制链接', '改名', '移动到…', '选择', '详情', '删除'])
+    // 删除 joins the open menu once the folder answers for this file (asked as the menu opens, never with the list).
+    await vi.waitFor(() => expect(offered()).toEqual(['打开', '用别的 App 打开', '下载', '复制链接', '改名', '移动到…', '选择', '详情', '删除']))
     pressEscape()
-    // owner 10-18: delete is offered only where the folder says this person may (entry.canDelete) — 'old' does not say so.
+    // owner 10-18: delete is offered only where the folder says this person may — for 'old' it says no.
     rowMore('old').click()
+    await vi.waitFor(() => expect(gugu.files.canDelete).toHaveBeenCalledWith([expect.objectContaining({ id: 'old' })]))
+    await new Promise((settled) => setTimeout(settled, 0))
     expect(offered()).toEqual(['打开', '用别的 App 打开', '下载', '复制链接', '改名', '移动到…', '选择', '详情'])
     pressEscape()
   })
@@ -278,7 +283,7 @@ describe('workspace App as a file manager: the host picks the App', () => {
     await vi.waitFor(() => expect(document.querySelector('.rename-input')).toBe(null))
     gugu.files.remove.mockClear()
     key('Delete')
-    expect(offered()).toEqual(['确认删除'])
+    await vi.waitFor(() => expect(offered()).toEqual(['确认删除']))
     expect(gugu.files.remove).not.toHaveBeenCalled()
     pressEscape()
     contextChanged({ ...context, capabilities: ['files:read'] })

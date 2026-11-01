@@ -196,6 +196,7 @@ function pageCaller(binding: SurfaceBinding, webContentsId: number): BridgeCalle
     pageId: webContentsId,
     extensionId: binding.extensionId,
     handed: handedFileOf(binding),
+    boundChat: binding.chatId,
     ...(binding.operator.kind === 'agent' ? { asAgent: binding.operator.id.replace(/^user:/, '') } : {}),
   });
   return {
@@ -457,7 +458,7 @@ async function watchFiles(caller: BridgeCaller, watchId: string, place: AppPlace
     return;
   }
   watching = fileWatchesFor(caller.pageId);
-  const resource = 'chat' in place ? { chat: await resourceChatOf(place.chat, { asAgent: caller.callingAgent ?? caller.filePage({ place }, true).asAgent ?? null }) } : place;
+  const resource = 'chat' in place ? { chat: await resourceChatFor(caller, place.chat) } : place;
   if (pageWatches.get(caller.pageId) !== watching) return;
   asCallingAgent(caller, caller.filePage({ place: resource }, true), { place });
   if (watching.has(watchId)) throw Object.assign(new Error('This file watch is already registered'), { code: 'invalid' });
@@ -1067,6 +1068,12 @@ export async function bringSessionUp(session: { sessionId: string; projectId: st
  */
 const chatsDrawnIn = new Map<string, { chat: ExtensionChat | null; members: NonNullable<ExtensionHostContext['chat']>['members'] }>();
 
+/** A page's own chat is bound as its resource container (`surfaceResourceChat`); any other is looked up, as whoever works the call. */
+function resourceChatFor(caller: BridgeCaller, chat: string): Promise<string> {
+  const asAgent = caller.callingAgent ?? caller.filePage({ place: { chat } }, true).asAgent ?? null;
+  return !asAgent && caller.binding?.chatId === chat ? Promise.resolve(chat) : resourceChatOf(chat, { asAgent });
+}
+
 /** A person's live chat context already names its resource container. Agent membership is checked as that agent. */
 async function surfaceResourceChat(chatId: string | undefined, operator?: ExtensionOperator): Promise<string | null> {
   if (!chatId) return null;
@@ -1083,6 +1090,13 @@ async function readChatMembers(chatId: string): Promise<void> {
   const files = await import('@main/core/extensions/app-files');
   const [members, chat] = await Promise.all([files.chatMembersOf(chatId), files.surfaceChatOf(chatId)]);
   chatsDrawnIn.set(chatId, { chat, members });
+}
+/** Pages of a chat not read yet wait on the one read under way, not a read each (a folder's page asks three ways at once). */
+const chatsBeingRead = new Map<string, Promise<void>>();
+function chatRead(chatId: string): Promise<void> {
+  const reading = chatsBeingRead.get(chatId) ?? readChatMembers(chatId).finally(() => chatsBeingRead.delete(chatId));
+  chatsBeingRead.set(chatId, reading);
+  return reading;
 }
 const unread = (chatId: string) => (error: unknown) =>
   log.warn('The chat could not be read', { chatId, message: error instanceof Error ? error.message : String(error) });
@@ -1217,7 +1231,7 @@ export function pushContext(webContentsId: number): void {
   const chatId = binding.chatId;
   if (chatId && !chatsDrawnIn.has(chatId)) {
     // Never pushed without its chat: no `chat` would read as not in a chat. Unread, `getContext` says so.
-    void readChatMembers(chatId).then(() => chatsDrawnIn.has(chatId) && pushContext(webContentsId), unread(chatId));
+    void chatRead(chatId).then(() => chatsDrawnIn.has(chatId) && pushContext(webContentsId), unread(chatId));
     return;
   }
   const send = (session: ExtensionSession | undefined) => {
@@ -1557,7 +1571,7 @@ async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, arg
       if (!binding) return contextOutside(extensionId);
       // In a chat, the members and the chat come with the first answer (not a moment later). The chat unread is said (the
       // files API's own error), never left out: no `chat` would tell the App it is not in one.
-      if (binding.chatId && !chatsDrawnIn.has(binding.chatId)) await readChatMembers(binding.chatId);
+      if (binding.chatId && !chatsDrawnIn.has(binding.chatId)) await chatRead(binding.chatId);
       return contextFor(binding, await sessionOf(binding));
 
     case 'getAppState':
@@ -1808,6 +1822,7 @@ async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, arg
     case 'filesCreate':
     case 'filesRemove':
     case 'filesReplace':
+    case 'filesCanDelete':
     case 'filesVersions':
     case 'filesReadVersion':
     case 'filesRename':
@@ -1833,6 +1848,7 @@ async function dispatch(caller: BridgeCaller, method: ExtensionBridgeMethod, arg
         filesMkdir: 'makeAppFolder',
         filesMove: 'moveAppFile',
         filesReplace: 'replaceAppFile',
+        filesCanDelete: 'appFilesCanDelete',
         filesVersions: 'appFileVersions',
         filesReadVersion: 'readAppFileVersion',
       } as const satisfies Record<typeof method, keyof typeof files>;
