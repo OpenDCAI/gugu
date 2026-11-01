@@ -144,7 +144,7 @@ export interface ExtensionInstallConsentRequest {
   sourceDir: string;
   manifest: ExtensionManifest;
   manifestDigest: string;
-  installed?: ExtensionManifest;
+  installed?: Pick<ExtensionManifest, 'version' | 'permissions'>;
   revokedPermissions: string[];
   /**
    * A package from a chat: who sent it. `replaces` (摩擦单 F66): the one installed came from someone else — their name

@@ -145,7 +145,7 @@ export function describePermissions(
  * plain variant rather than the red one it defaults to.
  */
 export function consentPrompt(
-  installed: ExtensionManifest | undefined,
+  installed: Pick<ExtensionManifest, 'version' | 'permissions'> | undefined,
   revokedPermissions: readonly string[],
   candidate: ExtensionManifest,
   translate: SessionTranslate,
