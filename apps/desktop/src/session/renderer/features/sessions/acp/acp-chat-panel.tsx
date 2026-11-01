@@ -1881,7 +1881,7 @@ export const AcpChatPanel = observer(function AcpChatPanel({
     setHeroSlot(null);
     setOverlaySlot(null);
   }, [bindGoneView]);
-  // A message found by search (the command palette) is revealed once this task's view is on screen, now or when it opens.
+  // A message found by the global search panel is revealed once this task's view is on screen, now or when it opens.
   const sessionId = store?.sessionId;
   const revealSearched = sourceMessage.reveal;
   useEffect(() => {
