@@ -2,9 +2,6 @@ import type { ContextMentionProvider, MentionItem } from '@gugu/session-ui/react
 import { AT_BARE_PATTERN } from '@gugu/session-shared/markdown';
 import type { LocalAgentCreationTool } from '@/lib/agentCreationTools';
 import { filterMentionCandidates } from '@/lib/mentionMatch';
-import { sessionRegistry } from '@renderer/features/sessions/stores/session-registry';
-import { formatSessionTitleForDisplay } from '@renderer/features/sessions/session-title-utils';
-import { getProjectManagerStore } from '@renderer/features/projects/stores/project-selectors';
 import { remoteHostsStore } from '@renderer/features/remote-hosts/remote-hosts-store';
 import { shellPort } from '@renderer/lib/shell-port';
 import { translateSessionMessage } from '@renderer/localization/locale-store';
@@ -13,7 +10,6 @@ import {
   registerLocalSessionMentions,
   type LocalSessionMention,
 } from './chat-mention-provider';
-import { resolveSessionDisplayName } from '@shared/core/sessions/session-display-name';
 import { log } from '@renderer/utils/logger';
 
 type MentionCandidate = LocalSessionMention & { number: string; sessionId?: string; session_archived_at?: string | null };
@@ -25,25 +21,6 @@ export type LocalSessionMentionOptions = {
   creationToolsByEngine?: ReadonlyMap<string, MentionTool>;
 };
 
-/**
- * Find a peer conversation like the sidebar does: a mounted one by its store; one on another machine that is not
- * mounted by its row in the session directory (listing never mounts).
- */
-function findSessionForMention(
-  sessionId: string
-): { agentDisplayName?: string | null; providerId: string; title: string } | undefined {
-  for (const project of getProjectManagerStore().projects.values()) {
-    const sessions = project.mountedProject?.sessionManager?.sessions;
-    if (!sessions) continue;
-    for (const page of sessions.values()) {
-      const session = sessionRegistry.get(page.data.id)?.sessions.get(sessionId);
-      if (session) return session.data;
-    }
-  }
-  const listed = remoteHostsStore.findListedSession(sessionId);
-  return listed ? { providerId: listed.harness, title: listed.title } : undefined;
-}
-
 function candidatesFromRows(
   rows: readonly SessionShellPeer[],
   options: LocalSessionMentionOptions,
@@ -51,26 +28,15 @@ function candidatesFromRows(
   return rows.flatMap((peer) => {
     if (peer.sessionId === options.excludeSessionId) return [];
     const users = peer.identity.users;
-    const session = findSessionForMention(peer.sessionId);
-    const name = resolveSessionDisplayName({
-      identityName: users.display_name,
-      explicitName: session?.agentDisplayName,
-      providerId: session?.providerId,
-      title: session?.title,
-    });
-    if (!name) return [];
-
     const engine = peer.engine;
     const iconUrl = engine ? options.creationToolsByEngine?.get(engine)?.icon?.trim() || '' : '';
     return [{
       id: users.id,
       sessionId: peer.sessionId,
-      name,
+      // The task's one name, as its host projects it (the same name its sidebar row shows).
+      name: peer.title,
       ...(users.session_archived_at != null ? { session_archived_at: users.session_archived_at } : {}),
       number: users.gugu_number == null ? '' : String(users.gugu_number),
-      title: session
-        ? formatSessionTitleForDisplay(session.providerId, session.title).trim() || undefined
-        : undefined,
       engine: engine || undefined,
       iconUrl: iconUrl || undefined,
     }];
@@ -81,13 +47,12 @@ function mentionItemsFromLocalSessionCandidates(
   candidates: readonly MentionCandidate[],
   query: string,
 ): MentionItem[] {
-  // 与群聊 @ 同一套匹配:拼音全拼/首字母/混拼、咕咕号全等或前缀,标题当备注比。
+  // 与群聊 @ 同一套匹配:拼音全拼/首字母/混拼、咕咕号全等或前缀。
   const searchable = candidates.map((candidate) => ({
     candidate,
     name: candidate.name,
     type: 'agent' as const,
     session_archived_at: candidate.session_archived_at,
-    alias: candidate.title,
     guguNumber: candidate.number ? Number(candidate.number) : null,
   }));
   return filterMentionCandidates(searchable, query)
@@ -100,7 +65,6 @@ function mentionItemsFromLocalSessionCandidates(
       kind: 'custom' as const,
       role: 'agent' as const,
       engine: candidate.engine,
-      description: candidate.title,
     }));
 }
 

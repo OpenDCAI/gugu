@@ -28,8 +28,8 @@ describe('navigation restore: "not in this table" is not "deleted"', () => {
     mocks.db = fixture.db;
     fixture.sqlite.exec(`
       INSERT INTO projects (id, name, path) VALUES ('local-project', 'Project', '/repo');
-      INSERT INTO sessions (id, project_id, title, provider, runtime, archived_at)
-        VALUES ('archived', 'local-project', 'Archived', 'claude', 'pty', '2026-10-22T00:00:00Z');
+      INSERT INTO sessions (id, project_id, provider, runtime, archived_at)
+        VALUES ('archived', 'local-project', 'claude', 'pty', '2026-10-22T00:00:00Z');
     `);
   });
 

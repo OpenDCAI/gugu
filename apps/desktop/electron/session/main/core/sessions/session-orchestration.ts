@@ -1,3 +1,4 @@
+import { taskName } from './task-name';
 import { assistantWorkIntentSchema,type AssistantWorkIntent } from '@gugu/core/shared/assistantWorkIntent';
 import { SessionArchivedError } from '@gugu/core/shared/sessionArchival';
 import { assistantWorkLedgerContext } from '../../../../sessionpage/assistant-work-ledger';
@@ -45,7 +46,6 @@ import type { NewSessionMemory } from '@shared/core/app-settings';
 import { createStageLedger } from '@main/lib/stage-ledger';
 import { events } from '@main/lib/events';
 import {
-  MAX_SESSION_TITLE_LENGTH,
   sessionpageLegOfView,
   type Session,
   type SessionRuntime,
@@ -84,7 +84,6 @@ import {
   type AgentProviderId,
 } from '@gugu/session-plugins/agents';
 import { providerConsumesStartupPrompt } from '@gugu/session-core/agents/plugins';
-import { resolveSessionDisplayName } from '@shared/core/sessions/session-display-name';
 import type { SessionMessageDelivery } from '@shared/core/sessions/sessions';
 import { flushDeferredMessages, sessionIsWorking, storeDeferredMessage } from './session-deferred-messages';
 import { childHarnessDefault } from './child-harness-default';
@@ -364,16 +363,7 @@ function resolveSessionRow(rows: SessionRow[], sessionId: string): SessionRow {
 type EnvelopeSender = { sessionId: string; title: string | null };
 
 async function localEnvelopeSender(caller: SessionRow): Promise<EnvelopeSender> {
-  const identity = await localAgentForSession(caller.id, process.env);
-  // The roster identity is the canonical name for unnamed parent sessions; an explicit
-  // session_spawn title is the same persisted identity for named children. Do not use
-  // `sessions.title` here: a title derived from the first prompt is indistinguishable
-  // from a custom title in that column and would put prompt text in the sender pill.
-  const title = resolveSessionDisplayName({
-    identityName: identity?.name,
-    explicitName: caller.config?.agentDisplayName,
-  }) ?? providerDisplayName(caller.provider);
-  return { sessionId: caller.id, title };
+  return { sessionId: caller.id, title: taskName(caller) };
 }
 
 /** 别的机器上的发信人:名字后面带上机器名 —— 收信的 agent 与看转录的人都要知道这句话从哪台机器来。 */
@@ -439,7 +429,7 @@ function snapshot(
     ...(!row.spawnedBySessionId && remoteSpawner ? { spawned_by_device_id: remoteSpawner.deviceId } : {}),
     parent_session_id: sessionParentId(row),
     project_id: row.projectId,
-    title: row.title,
+    title: taskName(row),
     provider_id: row.provider ?? 'unknown',
     model,
     transport,
@@ -478,14 +468,6 @@ function sessionStatus(row: SessionRow, runtime: SessionSummary | null): Session
   if (runtime?.lifecycle === 'starting' || runtime?.lifecycle === 'replaying') return 'starting';
   if (row.config?.spawnStartupState === 'starting') return 'starting';
   return parseAgentStatus(row.agentStatus);
-}
-
-function defaultTitle(prompt: string): string {
-  const firstLine = prompt
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .find(Boolean);
-  return (firstLine || 'Child session').slice(0, MAX_SESSION_TITLE_LENGTH);
 }
 
 function runtimeError(result: { error: { type: string; message?: string } }): Error {
@@ -1105,11 +1087,8 @@ async function createChildSession(input: {
     projectId,
     workspaceId: input.workspaceId,
     provider,
-    title: (title || defaultTitle(input.prompt)).slice(0, MAX_SESSION_TITLE_LENGTH),
-    // spec session-graph: explicit title is also the addressable agent name.
+    // spec session-graph: an explicit title is the task's addressable name; absent = the engine default.
     agentDisplayName: title,
-    // 派活的一方显式起了名 ⇒ harness 自己拟的名不盖它;没起名 ⇒ 首轮兜底,等 harness 起名。
-    ...(title ? { titleSource: 'manual' as const } : {}),
     permissionMode: UNATTENDED_SESSION_PERMISSION_MODE,
     model: input.model,
     platformModel: input.platformModel,

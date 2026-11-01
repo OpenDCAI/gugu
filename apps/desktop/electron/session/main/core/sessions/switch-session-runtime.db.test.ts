@@ -72,14 +72,14 @@ describe('switchSessionRuntime', () => {
     };
     fixture.sqlite.exec(`
       INSERT INTO projects (id, name, path) VALUES ('project-1', 'Project', '/repo');
-      INSERT INTO sessions (id, project_id, title, provider, runtime, config, provider_session_id)
-        VALUES ('chat', 'project-1', 'hi', 'claude', 'acp',
+      INSERT INTO sessions (id, project_id, provider, runtime, config, provider_session_id)
+        VALUES ('chat', 'project-1', 'claude', 'acp',
                 '{"version":"1","type":"acp","model":"claude-sonnet-5","initialQueue":[{"text":"hi"}],' ||
                 '"mcpDisabledServers":["a"],"mcpToggleDecided":true,"mcpSessionServers":["b"],' ||
                 '"firstUtterance":"hi"}',
                 'provider-session-1');
-      INSERT INTO sessions (id, project_id, title, provider, runtime, config, provider_session_id)
-        VALUES ('term', 'project-1', 'yo', 'claude', 'pty',
+      INSERT INTO sessions (id, project_id, provider, runtime, config, provider_session_id)
+        VALUES ('term', 'project-1', 'claude', 'pty',
                 '{"version":"1","type":"pty","model":"claude-sonnet-5","initialPrompt":"yo",' ||
                 '"providerSessionEndpoint":"http://127.0.0.1:1234/","firstUtterance":"yo"}',
                 'provider-session-2');

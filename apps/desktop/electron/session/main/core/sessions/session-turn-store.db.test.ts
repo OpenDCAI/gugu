@@ -58,7 +58,7 @@ describe('conversation-turn-store', () => {
     mocks.db = fixture.db;
     fixture.sqlite.exec(`
       INSERT INTO projects (id, name, path) VALUES ('p1', 'P', '/repo');
-      INSERT INTO sessions (id, project_id, title) VALUES ('c1', 'p1', 'C');
+      INSERT INTO sessions (id, project_id) VALUES ('c1', 'p1');
     `);
   });
 
@@ -434,7 +434,7 @@ describe('conversation-turn-store · 跨重启的 id', () => {
     mocks.db = fixture.db;
     fixture.sqlite.exec(`
       INSERT INTO projects (id, name, path) VALUES ('p1', 'P', '/repo');
-      INSERT INTO sessions (id, project_id, title) VALUES ('c1', 'p1', 'C');
+      INSERT INTO sessions (id, project_id) VALUES ('c1', 'p1');
     `);
   });
 
@@ -494,7 +494,7 @@ describe('conversation-turn-store · 对账读法', () => {
     mocks.db = fixture.db;
     fixture.sqlite.exec(`
       INSERT INTO projects (id, name, path) VALUES ('p1', 'P', '/repo');
-      INSERT INTO sessions (id, project_id, title) VALUES ('c1', 'p1', 'C');
+      INSERT INTO sessions (id, project_id) VALUES ('c1', 'p1');
     `);
   });
 

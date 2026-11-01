@@ -36,8 +36,8 @@ describe('the boot sweep wakes a terminal session that holds a pending ordinary 
     mocks.db = fixture.db;
     fixture.sqlite.exec(`
       INSERT INTO projects (id, name, path) VALUES ('project-1', 'Project', '/repo');
-      INSERT INTO sessions (id, project_id, title, provider, runtime, config)
-        VALUES ('conv-tui', 'project-1', 'Terminal', 'codex', 'pty', '{"version":"1","type":"pty"}');
+      INSERT INTO sessions (id, project_id, provider, runtime, config)
+        VALUES ('conv-tui', 'project-1', 'codex', 'pty', '{"version":"1","type":"pty"}');
     `);
   });
 
@@ -80,8 +80,8 @@ describe('the boot sweep wakes a terminal session that holds a pending ordinary 
   }
 
   it('continues boot with archived pending data preserved and active delivery still eligible', async () => {
-    fixture.sqlite.exec(`INSERT INTO sessions (id,project_id,title,provider,runtime,config)
-      VALUES ('archived','project-1','Archived','codex','pty','{"version":"1","type":"pty"}');`);
+    fixture.sqlite.exec(`INSERT INTO sessions (id,project_id,provider,runtime,config)
+      VALUES ('archived','project-1','codex','pty','{"version":"1","type":"pty"}');`);
     await holdMessage('archived', 'archived-held');
     await holdMessage(target.sessionId, 'active-held');
     fixture.sqlite.prepare('UPDATE sessions SET archived_at=? WHERE id=?').run('2026-10-29T00:00:00Z', 'archived');
@@ -125,8 +125,8 @@ describe('the boot sweep wakes a terminal session that holds a pending ordinary 
     await expect(drainSessionMessageOutbox(target)).rejects.toBe(failure);
   });
   it('isolates a pending task with missing provider metadata and still drains the valid task', async () => {
-    fixture.sqlite.exec(`INSERT INTO sessions (id,project_id,title,provider,runtime,config)
-      VALUES ('invalid','project-1','Invalid',NULL,'pty','{"version":"1","type":"pty","messageOutbox":[{"id":"bad-message","text":"pending","state":"pending"}]}');`);
+    fixture.sqlite.exec(`INSERT INTO sessions (id,project_id,provider,runtime,config)
+      VALUES ('invalid','project-1',NULL,'pty','{"version":"1","type":"pty","messageOutbox":[{"id":"bad-message","text":"pending","state":"pending"}]}');`);
     await holdMessage(target.sessionId, 'valid-held');
     const deliver = vi.fn(async () => ({ status: 'not-ready' as const }));
     setSessionMessageRouter(deliver);
@@ -136,8 +136,8 @@ describe('the boot sweep wakes a terminal session that holds a pending ordinary 
   });
 
   it.each(['dispatch-recovery', 'deferred-recovery'])('isolates a real SQLite refusal in %s and recovers another task', (operation) => {
-    fixture.sqlite.exec(`INSERT INTO sessions (id,project_id,title,provider,runtime,config)
-      VALUES ('bad','project-1','Bad','codex','pty','{"version":"1","type":"pty"}');`);
+    fixture.sqlite.exec(`INSERT INTO sessions (id,project_id,provider,runtime,config)
+      VALUES ('bad','project-1','codex','pty','{"version":"1","type":"pty"}');`);
     for (const id of ['bad', target.sessionId]) {
       const messageId = `${id}-receipt`;
       fixture.sqlite.prepare('INSERT INTO messages (id,session_id,content,sender,metadata) VALUES (?,?,?,?,?)')

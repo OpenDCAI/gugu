@@ -96,14 +96,14 @@ describe('落库', () => {
     fixture.sqlite.exec(`INSERT INTO projects (id, name, path) VALUES ('project-1', 'Project', '/repo');`);
     fixture.sqlite
       .prepare(
-        `INSERT INTO sessions (id, project_id, title, provider, runtime, provider_session_id, config)
-         VALUES (?, 'project-1', 't', 'codex', ?, ?, ?)`
+        `INSERT INTO sessions (id, project_id, provider, runtime, provider_session_id, config)
+         VALUES (?, 'project-1', 'codex', ?, ?, ?)`
       )
       .run('acp-1', 'acp', 'native-1', config());
     fixture.sqlite
       .prepare(
-        `INSERT INTO sessions (id, project_id, title, provider, runtime, provider_session_id, config)
-         VALUES (?, 'project-1', 't', 'codex', ?, ?, ?)`
+        `INSERT INTO sessions (id, project_id, provider, runtime, provider_session_id, config)
+         VALUES (?, 'project-1', 'codex', ?, ?, ?)`
       )
       .run('pty-1', 'pty', 'native-9', JSON.stringify({ version: '1', type: 'pty' }));
   });

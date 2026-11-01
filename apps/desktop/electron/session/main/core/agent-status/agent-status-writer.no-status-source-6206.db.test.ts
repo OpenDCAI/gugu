@@ -69,8 +69,8 @@ describe('#6206 没有状态源的终端会话不写派生活动', () => {
   const seed = (id: string, provider: string, runtime: 'pty' | 'acp', agentStatus: string | null) =>
     fixture.sqlite
       .prepare(
-        `INSERT INTO sessions (id, project_id, title, provider, runtime, agent_status, agent_status_seen)
-         VALUES (?, 'p1', 'C', ?, ?, ?, 1)`
+        `INSERT INTO sessions (id, project_id, provider, runtime, agent_status, agent_status_seen)
+         VALUES (?, 'p1', ?, ?, ?, 1)`
       )
       .run(id, provider, runtime, agentStatus);
   const deliver = async (e: AgentEvent) => {

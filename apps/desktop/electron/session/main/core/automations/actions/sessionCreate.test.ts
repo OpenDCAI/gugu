@@ -364,7 +364,6 @@ describe('executeSessionCreate', () => {
         origin: { kind: 'create', firstUtterance: 'Check things' },
         initialQueue: [{ text: 'Check things', origin: 'manual' }],
         title: 'Daily follow-up',
-        titleSource: 'manual',
       })
     );
     expect(session?.model).toBeUndefined();

@@ -100,8 +100,8 @@ describe('#6377 回合结束但后台任务还在 ⇒ 仍在工作,后台做完�
     fixture.sqlite.prepare(`INSERT INTO projects (id, name, path) VALUES ('p1', 'P', '/repo')`).run();
     fixture.sqlite
       .prepare(
-        `INSERT INTO sessions (id, project_id, title, provider, runtime, agent_status, agent_status_seen)
-         VALUES (?, 'p1', 'C', 'claude', 'pty', 'idle', 1)`
+        `INSERT INTO sessions (id, project_id, provider, runtime, agent_status, agent_status_seen)
+         VALUES (?, 'p1', 'claude', 'pty', 'idle', 1)`
       )
       .run(cid);
     off = agentStatusWriter.on('agent:status', ({ reading }) => {

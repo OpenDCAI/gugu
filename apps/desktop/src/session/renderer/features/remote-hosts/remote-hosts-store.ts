@@ -29,7 +29,7 @@ import {
 import { projectGroupsStore } from '@renderer/features/projects/stores/project-groups-store';
 import { aliasFixedId, machineCodec, machineRegistry } from '@renderer/lib/machine-routing';
 import { appState, sidebarStore } from '@renderer/lib/stores/app-state';
-import { sessionAgentNames } from '@renderer/features/sessions/stores/session-agent-names';
+import { sessionAgentBindings } from '@renderer/features/sessions/stores/session-agent-bindings';
 import { pageSessions } from '@renderer/features/sessions/stores/session-selectors';
 import { log } from '@renderer/utils/logger';
 import { hostConnectionState, type HostConnectionState } from './connection-status';
@@ -193,7 +193,7 @@ export class RemoteHostsStore {
           if (machineRegistry.machineOf(project.id)) return [];
           return [...(project.mountedProject?.sessionManager.sessions.values() ?? [])].flatMap((page) =>
             'archivedAt' in page.data && page.data.archivedAt ? [] : pageSessions(page).filter((session) => !session.data.archivedAt).map((session) => ({
-              projectId: project.id, sessionId: session.data.id, agentUserId: sessionAgentNames.identityFor(session.data.id)?.agentUserId,
+              projectId: project.id, sessionId: session.data.id, agentUserId: sessionAgentBindings.bindingFor(session.data.id)?.agentUserId,
             })));
         }),
         ...this.allListedSessions().map(({ summary }) => ({ projectId: summary.projectId, sessionId: summary.conversationId, agentUserId: summary.agent?.userId })),
@@ -389,6 +389,7 @@ export class RemoteHostsStore {
       }
       return [{
         sessionId: session.conversationId,
+        title: session.title,
         identity: { users: { id, display_name: identity.display_name, gugu_number: identity.gugu_number,
           ...(identity.session_archived_at != null ? { session_archived_at: identity.session_archived_at } : {}) } },
         engine: engineOf(session.harness),

@@ -9,6 +9,7 @@ import { db } from '@main/db/client';
 import { sessions } from '@main/db/schema';
 import { log } from '@main/lib/logger';
 import { sessionAgentNotificationCopy } from './notification-copy';
+import { taskName } from '@main/core/sessions/task-name';
 
 const activeNotifications = new Set<Notification>();
 
@@ -41,11 +42,11 @@ function getNotificationBody(reading: AgentStatusView): string {
 
 async function getSessionLabel(sessionId: string): Promise<{ title: string | null; provider: string | null }> {
   const [row] = await db
-    .select({ title: sessions.title, provider: sessions.provider })
+    .select({ id: sessions.id, config: sessions.config, provider: sessions.provider })
     .from(sessions)
     .where(eq(sessions.id, sessionId))
     .limit(1);
-  return { title: row?.title || null, provider: row?.provider ?? null };
+  return { title: row ? taskName(row) : null, provider: row?.provider ?? null };
 }
 
 function getProviderName(providerId: string): string {
