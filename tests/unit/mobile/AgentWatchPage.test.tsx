@@ -35,8 +35,6 @@ vi.mock('../../../apps/desktop/src/session/shared/remote-sessions/session-direct
   // The real rules (rowOpens) — only the live reads are stood in for.
   ...(await original<typeof import('../../../apps/desktop/src/session/shared/remote-sessions/session-directory')>()),
   useLiveDeviceSessions: vi.fn(() => ({})),
-  useAgentNames: () => new Map(),
-  agentOfSession: () => undefined,
 }))
 vi.mock('../../../apps/desktop/src/mobile/agent-watch/MachinesPage', async () => {
   const React = await vi.importActual<typeof import('react')>('react')

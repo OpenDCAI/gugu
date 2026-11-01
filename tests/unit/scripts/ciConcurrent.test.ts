@@ -2,7 +2,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, test } from 'vitest'
-import { parseJobs, runConcurrent, summarize } from '../../../scripts/ci-concurrent.mts'
+import { parseJobs, runConcurrent, summarize } from '../../../scripts/ci/ci-concurrent.mts'
 
 // #6270:session-db 把几段互不依赖的测试并到一个 step 里并发跑。并发只能换墙钟,
 // ❌ 不能换来更松的判定或更少的信息 —— 这几条钉的就是这个。

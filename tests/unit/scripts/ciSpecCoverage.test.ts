@@ -15,7 +15,7 @@ import {
   declaresTestCase,
   parsePlaywrightList,
   workflowRunsForPullRequest,
-} from '../../../scripts/ci-spec-coverage.mts'
+} from '../../../scripts/ci/ci-spec-coverage.mts'
 
 const roots: string[] = []
 
@@ -166,7 +166,7 @@ describe('CI e2e/integration spec coverage', () => {
       workflows: [{
         path: 'ci.yml',
         workflow: workflowWith(
-          "node scripts/ci-concurrent.mts 'db=pnpm session:test:db' 'browser=pnpm exec vitest run --project session-browser'",
+          "node scripts/ci/ci-concurrent.mts 'db=pnpm session:test:db' 'browser=pnpm exec vitest run --project session-browser'",
         ),
       }],
       changedPaths: [],
@@ -177,7 +177,7 @@ describe('CI e2e/integration spec coverage', () => {
       ['vitest', '--project', 'session-browser'],
     ])
     expect(() => collectAutomaticRunnerCommands({
-      workflows: [{ path: 'ci.yml', workflow: workflowWith("node scripts/ci-concurrent.mts 'pnpm exec vitest run'") }],
+      workflows: [{ path: 'ci.yml', workflow: workflowWith("node scripts/ci/ci-concurrent.mts 'pnpm exec vitest run'") }],
       changedPaths: [],
       packageScripts: {},
     })).toThrow(/label=command/)
@@ -216,12 +216,12 @@ describe('CI e2e/integration spec coverage', () => {
   it('runs unconditionally on the required policy path', () => {
     const workflow = YAML.parse(readFileSync('.github/workflows/ci.yml', 'utf8'))
     const step = workflow.jobs.policy.steps.find(
-      (candidate: { run?: string }) => candidate.run?.includes('node scripts/ci-spec-coverage.mts'),
+      (candidate: { run?: string }) => candidate.run?.includes('node scripts/ci/ci-spec-coverage.mts'),
     )
 
     expect(step.run).toContain('--base FETCH_HEAD --head HEAD')
     expect(step.run).toContain('--event-action "${{ github.event.action }}"')
-    expect(step.run).toContain('node scripts/ci-spec-coverage.mts "${args[@]}"')
+    expect(step.run).toContain('node scripts/ci/ci-spec-coverage.mts "${args[@]}"')
     expect(step.if).toBeUndefined()
     expect(step['continue-on-error']).toBeUndefined()
     expect(workflow.jobs.gate.name).toBe('Typecheck, lint, and test')

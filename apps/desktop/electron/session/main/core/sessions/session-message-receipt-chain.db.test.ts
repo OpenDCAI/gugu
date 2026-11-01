@@ -32,10 +32,10 @@ describe('real MCP SDK to durable native/DOM receipt chain', () => {
     mocks.db = fixture.db;
     fixture.sqlite.exec(`
       INSERT INTO projects (id, name, path) VALUES ('project-1', 'Project', '/repo');
-      INSERT INTO sessions (id, project_id, title, provider, runtime, config)
-        VALUES ('parent-session', 'project-1', 'Parent', 'codex', NULL, '{"version":"1","type":"pty"}');
-      INSERT INTO sessions (id, project_id, title, provider, runtime, config)
-        VALUES ('acp-session', 'project-1', 'ACP', 'codex', 'acp', '{"version":"1","type":"acp"}');
+      INSERT INTO sessions (id, project_id, provider, runtime, config)
+        VALUES ('parent-session', 'project-1', 'codex', NULL, '{"version":"1","type":"pty"}');
+      INSERT INTO sessions (id, project_id, provider, runtime, config)
+        VALUES ('acp-session', 'project-1', 'codex', 'acp', '{"version":"1","type":"acp"}');
     `);
     mocks.enqueue.mockClear();
   });

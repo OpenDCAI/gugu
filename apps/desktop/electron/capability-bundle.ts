@@ -1059,12 +1059,12 @@ function guguToolNamingLine(
   const names = mcpToolNamesOn(mcp.toolNames, surface === 'tui' ? 'tui' : 'acp')
   switch (names.kind) {
     case 'listed':
-      return `Your harness lists each 咕咕 tool as \`${names.prefix}<tool>\` (e.g. \`${names.prefix}message_send\`); follow that tool definition's invocation form.\n`
+      return `Your harness lists each 咕咕 tool as \`${names.prefix}<tool>\` (e.g. \`${names.prefix}message_send\`).\n`
     case 'proxied':
       return `Your harness does not list 咕咕 tools one by one: call them through its \`${names.proxyTool}\` tool, naming the tool \`${names.prefix}<tool>\` (e.g. \`${names.prefix}message_send\`).\n`
     case 'namespaced':
       // Codex advertises the native name or an exec declaration, depending on its model tool mode.
-      return `Your harness exposes 咕咕 tools under \`${names.namespace}\`; follow each tool definition's advertised invocation form.\n`
+      return `Your harness exposes 咕咕 tools under \`${names.namespace}\`.\n`
     case 'server-proxied':
       // server 名就是咕咕那台 server 注册时用的名字 —— 与写进配置的键同一个常量,❌ 别另写一个字面量。
       return `Your harness does not list 咕咕 tools one by one: call them through its \`${names.proxyTool}\` tool with \`${names.serverArg}\` set to \`${GUGU_MCP_SERVER_NAME}\` and \`${names.toolArg}\` set to the bare tool name (e.g. \`message_send\`).\n`
@@ -1184,7 +1184,7 @@ export function guguAppsBlock(apps: readonly ExtensionAgentApp[], skills: readon
   if (apps.some((app) => app.computerUse)) parts.push(COMPUTER_USE_LINE)
   const catalogApps = apps.filter((app) => !app.computerUse)
   if (catalogApps.length > 0) {
-    parts.push(['Apps available in this session (use their listed tools, or catalog_list / catalog_call):', ...appLines(catalogApps)].join('\n'))
+    parts.push(['Apps available in this session:', ...appLines(catalogApps)].join('\n'))
   }
   if (skills.length > 0) {
     const lines = skills.map((skill) => `- ${skill.name} (App ${skill.extensionId}): ${skill.description}\n  ${join(skill.dir, 'SKILL.md')}`)

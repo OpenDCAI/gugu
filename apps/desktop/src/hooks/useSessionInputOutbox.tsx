@@ -33,9 +33,11 @@ export function SessionInputOutboxHost({ accountId }: { accountId: string }) {
       queue = new SessionInputOutbox(accountId, storage, async input => {
         if (!valid()) throw new Error('Session input account changed')
         const device = hosts.current.find(device => device.device_id === input.deviceId)
-        if (device && !device.is_online) throw new SessionInputFailureError({ code: 'host-offline' })
-        if (input.deviceId && !device?.is_current_device && !(device && isPhoneDevice(device))) {
-          const summary = liveDeviceSessions()[input.deviceId]?.sessions.find(session => session.conversationId === input.sessionId)
+        // This computer is named either way (no device id, or its own id); either way its own host answers over IPC.
+        const remoteId = !input.deviceId || device?.is_current_device ? null : input.deviceId
+        if (remoteId && device && !device.is_online) throw new SessionInputFailureError({ code: 'host-offline' })
+        if (remoteId && !(device && isPhoneDevice(device))) {
+          const summary = liveDeviceSessions()[remoteId]?.sessions.find(session => session.conversationId === input.sessionId)
           if (summary?.nativeInputVersion !== 1) throw new SessionInputFailureError({ code: 'host-not-ready' })
         }
         if (device && isPhoneDevice(device)) {
@@ -44,7 +46,7 @@ export function SessionInputOutboxHost({ accountId }: { accountId: string }) {
           if (!result.accepted) throw new SessionInputFailureError({ code: 'phone-unconfirmed' })
         } else if (platform.kind === 'electron') {
           const { rpcOn } = await import('@/session/renderer/lib/ipc')
-          const result = await rpcOn(input.deviceId).sessionTimeline.sessionSend({ conversationId: input.sessionId, text: input.text, clientMessageId: input.id, ...(input.attachments?.length ? { attachments: input.attachments } : {}) })
+          const result = await rpcOn(remoteId).sessionTimeline.sessionSend({ conversationId: input.sessionId, text: input.text, clientMessageId: input.id, ...(input.attachments?.length ? { attachments: input.attachments } : {}) })
           if (!result.ok) throw new Error(result.error.message)
           if (result.value.clientMessageId !== input.id) throw new Error('Session host acknowledged another input')
         } else {

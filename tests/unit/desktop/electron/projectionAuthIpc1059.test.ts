@@ -33,7 +33,8 @@ describe('actual auth IPC revokes projection before persistence', () => {
       writeHumanAuthSession: async () => { entered.resolve(); await disk.promise; },
       clearHumanAuthSession: async () => { entered.resolve(); await disk.promise; },
       nativeFiles: { ownerChanged: async () => {} }, refreshElectronSupabaseAuth: async () => {},
-      deviceRuntimeHost: null, deviceProjectsPublisher: null, localDeviceId() {}, handOffWechatIfAny() {}, refreshPlatformCredentials() {},
+      deviceRuntimeHost: null, deviceProjectsPublisher: null, emdashBridgeModule: null,
+      humanAuthUserId: () => (typeof context.pushedHumanAuth === 'object' ? (context.pushedHumanAuth as { userId?: string } | null)?.userId ?? null : null), localDeviceId() {}, handOffWechatIfAny() {}, refreshPlatformCredentials() {},
       // session-life's account transition around the credential change (its own ordering is the owner's tests).
       sessionLifeLeaveIfChanging: async () => {}, sessionLifeEnter: async () => {},
     });

@@ -1131,6 +1131,8 @@ export function ChatRoot(props: ChatRootProps) {
   // Last scrollTop we wrote. Seeded to 0; adopted from browser-clamped value
   // after each write so clamped positions are never counted as user movement.
   let expectedScrollTop = 0;
+  // The last frame found the scroller skipped, not drawn (@@@skipped-scroller).
+  let skipped = false;
   // Sub-pixel remainder of the last above-size compensation that the browser's
   // pixel grid did not store; carried into the next one (see @@@above-compensation).
   let aboveResidue = 0;
@@ -1354,6 +1356,18 @@ export function ChatRoot(props: ChatRootProps) {
   const readPhase = () => {
     const el = scrollEl;
     if (!el) return;
+    // @@@skipped-scroller — a retained page behind another view is skipped (content-visibility, lib/retainedSurface.ts in
+    // the desktop app), and its scroller keeps the geometry of its last layout while the model grows. The frame neither
+    // reads nor writes it then: its frozen scrollTop against the grown model would read as the reader scrolling up, and
+    // the tail would turn into an anchor at the spot they left. No reader input reaches a skipped scroller, so the first
+    // drawn frame takes the browser's scrollTop as written and projects the intent the reader had.
+    const wasSkipped = skipped;
+    skipped = !el.checkVisibility();
+    if (skipped) return;
+    if (wasSkipped) {
+      expectedScrollTop = el.scrollTop;
+      needsProject = true;
+    }
     for (const id of pendingBubbleMeasures) {
       const index = unitIndexOf(id);
       if (index >= 0) measureUnitAt(index);
@@ -1465,6 +1479,7 @@ export function ChatRoot(props: ChatRootProps) {
   }
 
   const writePhase = (): boolean => {
+    if (skipped) return false; // @@@skipped-scroller
     if (totalDirty) {
       totalDirty = false;
       setTotalHeight(virt.total());
@@ -1861,10 +1876,7 @@ export function ChatRoot(props: ChatRootProps) {
       props.controls.onMounted?.();
     }
 
-    const onScroll = () => {
-      if (el.offsetParent === null) return;
-      scheduler.request();
-    };
+    const onScroll = () => scheduler.request();
     el.addEventListener('scroll', onScroll, { passive: true });
     onCleanup(() => {
       el.removeEventListener('scroll', onScroll);
@@ -1986,6 +1998,13 @@ export function ChatRoot(props: ChatRootProps) {
       document.addEventListener('visibilitychange', onVisibilityChange);
       onCleanup(() => document.removeEventListener('visibilitychange', onVisibilityChange));
     }
+    // Drawn again after being skipped (@@@skipped-scroller): content-visibility moves no ResizeObserver, so this is
+    // the wake for a page whose stream ended while it was away.
+    const drawn = new IntersectionObserver((entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) scheduler.request();
+    });
+    drawn.observe(el);
+    onCleanup(() => drawn.disconnect());
 
     // Attach to the initial model: load its persisted scroll intent and project
     // it onto the DOM. Flushes canvas height first so scrollTop is never clamped.

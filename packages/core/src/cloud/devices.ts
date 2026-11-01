@@ -220,7 +220,6 @@ export function normalizeSessionDigest(value: unknown): DeviceSessionSummary[] {
     out.push({
       ...(row.nativeInputVersion === 1 ? { nativeInputVersion: 1 as const } : {}),
       ...(row.runtime === 'acp' || row.runtime === 'pty' || row.runtime === 'unknown' ? { runtime: row.runtime } : {}),
-      ...(typeof row.nativeUnreadCount === 'number' && Number.isSafeInteger(row.nativeUnreadCount) && row.nativeUnreadCount >= 0 ? { nativeUnreadCount: row.nativeUnreadCount } : {}),
       conversationId: sessionId,
       projectId: typeof row.projectId === 'string' ? row.projectId : '',
       projectName: !isImplicitSessionHomeProjectId(typeof row.projectId === 'string' ? row.projectId : null) && typeof row.projectName === 'string' ? row.projectName : '',

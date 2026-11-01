@@ -24,7 +24,7 @@ export { UPGRADE_PENDING_FILE, readUpgradeMarker, writeUpgradeMarker, clearUpgra
  *
  * 开销:只在换版后的最多 10 分钟里存在;每 15 秒读几个几十字节的小文件。
  */
-import { spawn } from 'node:child_process'
+import { spawn } from '@gugu/core/local/childProcess'
 import fs from 'node:fs'
 import path from 'node:path'
 import { SERVER_ROLLBACK_FILE, SUPERVISOR_HEALTH_FILE } from '@gugu/core'

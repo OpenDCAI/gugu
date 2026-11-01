@@ -297,10 +297,17 @@
       "breakpoints": true
     },
     {
-      "idx": 42,
+      "idx": 43,
       "version": "6",
-      "when": 1792586255145,
-      "tag": "0042_session_pending",
+      "when": 1793440000000,
+      "tag": "0043_task_name",
+      "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "6",
+      "when": 1793440000001,
+      "tag": "0044_session_pending",
       "breakpoints": true
     }
   ]

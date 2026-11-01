@@ -1,4 +1,4 @@
-const buttonStyleDebt = require('./scripts/button-style-debt-baseline.json')
+const buttonStyleDebt = require('./scripts/checks/button-style-debt-baseline.json')
 
 // @@@spawnsync-input (#3766) —— 这段是这条缺陷在本仓的**唯一**完整说明,别处只留一行指回这里。
 //
@@ -34,6 +34,21 @@ const noSyncSpawnInput = {
   message:
     "同步 spawn 的 `input` 在 macOS 上会间歇性挂死到超时(#3766，详见 .eslintrc.cjs 顶部 @@@spawnsync-input)。改成:参数传值 / 从文件喂 stdin(stdio:[fd,…]) / 空 stdin 用 stdio:['ignore',…] / 需要管道语义的改异步 spawn。"
 }
+
+const radixImportGate = {
+  group: ['radix-ui', 'radix-ui/*', '@radix-ui/*'],
+  message:
+    'radix-ui 只允许出现在 apps/desktop/src/session/renderer/lib/ui/assistant-ui/(vendored assistant-ui Elements，#3334 记的有界例外)。产品代码的原语一律用 Base UI —— 见 design-system spec 的「组件模板只有一套」。'
+}
+
+// Windows 上 GUI 进程起控制台子进程不带 windowsHide 就弹一个黑框;逐个调用点记着写总有漏的。
+// 起子进程一律经 @gugu/core/local/childProcess(windowsHide 默认 true);类型照旧从 node:child_process 导。
+const childProcessImportGate = ['node:child_process', 'child_process'].map((name) => ({
+  name,
+  importNames: ['spawn', 'spawnSync', 'exec', 'execSync', 'execFile', 'execFileSync', 'fork'],
+  message:
+    '起子进程用 @gugu/core/local/childProcess:同一套 API,windowsHide 默认 true(Windows 上不弹黑框)。要人看见窗口的(「用 X 打开」)显式写 windowsHide: false。'
+}))
 
 module.exports = {
   root: true,
@@ -173,18 +188,26 @@ module.exports = {
       files: ['**/*.{ts,tsx,js,jsx,cjs,mjs}'],
       excludedFiles: ['apps/desktop/src/session/renderer/lib/ui/assistant-ui/**'],
       rules: {
-        'no-restricted-imports': [
-          'error',
-          {
-            patterns: [
-              {
-                group: ['radix-ui', 'radix-ui/*', '@radix-ui/*'],
-                message:
-                  'radix-ui 只允许出现在 apps/desktop/src/session/renderer/lib/ui/assistant-ui/(vendored assistant-ui Elements，#3334 记的有界例外)。产品代码的原语一律用 Base UI —— 见 design-system spec 的「组件模板只有一套」。'
-              }
-            ]
-          }
-        ]
+        'no-restricted-imports': ['error', { patterns: [radixImportGate], paths: childProcessImportGate }]
+      }
+    },
+    {
+      // 构建脚本、测试与公共模块本身照旧直接用 node:child_process(它们不在 GUI 进程里起子进程)。
+      // 同名规则在 override 里是整条替换:这里只把 radix 那一半原样留下。
+      files: [
+        'packages/core/src/local/childProcess.ts',
+        'scripts/**',
+        'tests/**',
+        '**/*.test.*',
+        '**/*.node-test.*',
+        '**/test-support/**',
+        '**/fixtures/**',
+        'packages/session-plugins/tooling/**',
+        'electron-builder.cjs',
+        'playwright.config.mts'
+      ],
+      rules: {
+        'no-restricted-imports': ['error', { patterns: [radixImportGate] }]
       }
     },
     {
@@ -216,7 +239,7 @@ module.exports = {
     },
     {
       // @@@mjs-lint (#3766) —— `.mjs`/`.mts` 此前根本不在 lint 的 --ext 里,而 #3766 那个会让 CI
-      // 挂死的写法恰恰住在 scripts/git-tree-blobs.mts。闸装在漏掉事发地的位置等于没装,所以纳进来。
+      // 挂死的写法恰恰住在 scripts/checks/git-tree-blobs.mts。闸装在漏掉事发地的位置等于没装,所以纳进来。
       //
       // 纳进来点亮的存量**已经就地清掉**,不是靠在这里整片关规则换绿灯:未用变量 6 处按仓库既有的
       // `_` 前缀约定改掉、正则里的连续空格 2 处改成 {N}、一处 `catch (e) { throw e }` 直接拆掉。
@@ -247,6 +270,12 @@ module.exports = {
   ],
   rules: {
     'no-restricted-syntax': ['error', noSyncSpawnInput],
+    // Android System WebView before 116 has no AbortSignal.any: calling it threw before the request was sent (images
+    // could not load). One function owns the native call and its fallback; everything else combines signals through it.
+    'no-restricted-properties': ['error', {
+      object: 'AbortSignal', property: 'any',
+      message: 'Use anySignal from @gugu/core/shared/anySignal: AbortSignal.any is missing on Android WebView before 116.'
+    }],
     'react-refresh/only-export-components': ['warn', { allowConstantExport: true }],
     '@typescript-eslint/no-explicit-any': 'warn',
     // @@@task-fusion (#2802) — vars/caughtErrors 也认 `_` 前缀:会话页用 `const _x = ...` 表示

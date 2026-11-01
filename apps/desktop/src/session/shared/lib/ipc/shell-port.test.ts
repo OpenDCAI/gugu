@@ -18,8 +18,6 @@ describe('createSessionShellPort', () => {
           // #6092 少 agent id 的行不占一格:半条身份画不出一张完整的卡。
           { conversationId: 'conv-2', displayName: 'ghost' },
         ];
-      if (channel === SESSION_SHELL_CHANNELS.renameAgent)
-        return { conversationId: 'conv-1', displayName: 'Codex 9', agentUserId: 'u1' };
       if (channel === SESSION_SHELL_CHANNELS.shareAgent) return true;
       if (channel === SESSION_SHELL_CHANNELS.ensureAgentAddress) return { chatId: 'c1', agentUserId: 'u1' };
       return undefined;
@@ -30,11 +28,6 @@ describe('createSessionShellPort', () => {
     await expect(port.agentNames()).resolves.toEqual([
       { conversationId: 'conv-1', displayName: 'Codex 8', agentUserId: 'u1' },
     ]);
-    await expect(port.renameAgent({ sessionId: 'conv-1', name: 'Codex 9' })).resolves.toEqual({
-      conversationId: 'conv-1',
-      displayName: 'Codex 9',
-      agentUserId: 'u1',
-    });
     await expect(port.shareAgent('conv-1')).resolves.toBe(true);
     await expect(
       port.ensureAgentAddress({ projectId: 'p', sessionId: 'conv-1' }),
@@ -44,7 +37,6 @@ describe('createSessionShellPort', () => {
     expect(invoke.mock.calls).toEqual([
       [SESSION_SHELL_CHANNELS.agentCard, 'conv-1'],
       [SESSION_SHELL_CHANNELS.agentNames],
-      [SESSION_SHELL_CHANNELS.renameAgent, { sessionId: 'conv-1', name: 'Codex 9' }],
       [SESSION_SHELL_CHANNELS.shareAgent, 'conv-1'],
       [SESSION_SHELL_CHANNELS.ensureAgentAddress, { projectId: 'p', sessionId: 'conv-1' }],
       [SESSION_SHELL_CHANNELS.fatalBoot, 'boom'],
@@ -56,8 +48,6 @@ describe('createSessionShellPort', () => {
       channel === SESSION_SHELL_CHANNELS.agentCard ? { displayName: 'ghost' } : { chatId: 'c1' },
     );
     await expect(port.agentCard('conv')).resolves.toBeNull();
-    // 改名回执残缺 = 没改成,❌ 把它当成功往侧栏上写。
-    await expect(port.renameAgent({ sessionId: 'conv', name: 'x' })).rejects.toThrow(/renamed agent/);
     await expect(
       port.ensureAgentAddress({ projectId: 'p', sessionId: 'conv' }),
     ).rejects.toThrow(/exact agent address/);

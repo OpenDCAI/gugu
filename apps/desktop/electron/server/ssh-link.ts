@@ -19,7 +19,8 @@
  * 成本:每台用到的机器一个 ssh 子进程(复用共享连接,不另握手);存活靠 ssh 自己的心跳(ServerAliveInterval=5,
  * 连丢 3 次即断),这里 ❌ 轮询。断了不自己重连 —— 由渲染层按「还有没有人在听推送」决定(见 deviceRpc.ts)。
  */
-import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
+import type { ChildProcessWithoutNullStreams } from 'node:child_process'
+import { spawn } from '@gugu/core/local/childProcess'
 import {
   encodeJsonFrame,
   FRAME,
@@ -104,7 +105,7 @@ export type SshLinkMachine = { target: SshTarget; accountUserId: string; via?: '
 
 export type SpawnLinkSsh = (args: string[]) => ChildProcessWithoutNullStreams
 
-const systemSpawn: SpawnLinkSsh = (args) => spawn('ssh', args, { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true })
+const systemSpawn: SpawnLinkSsh = (args) => spawn('ssh', args, { stdio: ['pipe', 'pipe', 'pipe'] })
 
 type Link = {
   child: ChildProcessWithoutNullStreams

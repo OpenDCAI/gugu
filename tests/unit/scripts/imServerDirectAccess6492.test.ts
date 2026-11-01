@@ -7,7 +7,7 @@ import {
   DIRECT_REST_ALLOWLIST,
   IM_SERVER_PATH,
   findImServerDirectAccessViolations,
-} from '../../../scripts/check-im-server-direct-access.mts'
+} from '../../../scripts/checks/check-im-server-direct-access.mts'
 
 const rules = (source: string) => findImServerDirectAccessViolations(source).map((v) => v.rule)
 

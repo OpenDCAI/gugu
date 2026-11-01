@@ -13,7 +13,7 @@ function storedRow(config: Record<string, unknown>) {
     createdAt: '2026-09-20T00:00:00.000Z', updatedAt: '2026-09-20T00:00:00.000Z', lastInteractedAt: null,
     isInitialSession: false, agentStatus: null, agentStatusSeen: 1, agentStatusDetail: null, isPinned: 0,
     archivedAt: null, parentSessionId: null, spawnedBySessionId: null, spawnedByExtensionId: null,
-    config: { version: '1', type: 'acp', ...config },
+    config: { version: '1', type: 'acp', agentDisplayName: 'T', ...config },
   } as never;
 }
 

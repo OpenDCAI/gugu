@@ -2,6 +2,7 @@ import { and, eq, gt, sql, inArray } from 'drizzle-orm';
 import { db } from '@main/db/client';
 import { messages, sessionPending, sessions } from '@main/db/schema';
 import { log } from '@main/lib/logger';
+import { taskName } from '@main/core/sessions/task-name';
 import { taskExchangeFromRow, type TaskExchangePage, type TaskExchangeRequest } from '@shared/core/sessions/task-collaboration';
 
 const PAGE_SIZE = 200;
@@ -53,7 +54,7 @@ export function readAssistantWorkReceipts(after=0,retry:number[]=[]) {
   if(!Number.isSafeInteger(after)||after<0||retry.length>32||retry.some(value=>!Number.isSafeInteger(value)||value<=0)) throw new Error('Invalid historical receipt cursor')
   const position=sql<number>`${messages}.rowid`
   const read=()=>db.select({id:messages.id,position,sessionId:messages.sessionId,content:messages.content,timestamp:messages.timestamp,
-    receipt,title:sessions.title,config:sessions.config,spawnedBySessionId:sessions.spawnedBySessionId})
+    receipt,config:sessions.config,spawnedBySessionId:sessions.spawnedBySessionId})
     .from(messages).innerJoin(sessions,eq(sessions.id,messages.sessionId)).leftJoin(sessionPending,ownPendingRow)
   const kind=sql`CASE WHEN json_valid(${messages.metadata}) THEN json_extract(${messages.metadata}, '$.kind') END = 'session-direct'`
   const scanned=read().where(and(kind,gt(position,after))).orderBy(position).limit(PAGE_SIZE).all()
@@ -63,6 +64,6 @@ export function readAssistantWorkReceipts(after=0,retry:number[]=[]) {
   const pending:number[]=[]
   return {entries:rows.flatMap(({config,receipt:state,...row})=>{
     if(state==='queued'||state==='dispatching')pending.push(row.position)
-    return state==='accepted' ? [{...row,spawnedByRemote:config?.spawnedByRemote??null}] : []
+    return state==='accepted' ? [{...row,title:taskName({id:row.sessionId,config}),spawnedByRemote:config?.spawnedByRemote??null}] : []
   }),cursor,hasMore:scanned.length===PAGE_SIZE,pending}
 }

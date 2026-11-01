@@ -17,7 +17,7 @@ import { EMDASH_EXTERNAL } from '../apps/desktop/electron/sessionpage/sessionpag
 import {
   assertPtySymbolOutput,
   readPtyGlobalSymbols,
-} from './native-addon-symbols.mjs'
+} from './build/native-addon-symbols.mjs'
 
 const [releaseDir, archListRaw] = process.argv.slice(2)
 if (!releaseDir || !archListRaw) {
@@ -57,7 +57,7 @@ const resourcesDir = process.argv[2]
 const expectedElectron = process.argv[3]
 const expectedArch = process.argv[4]
 const bridgeExternals = process.argv[5].split(',').filter(Boolean)
-// @@@probe-steps (#4357) — 同 scripts/verify-dev-native-probe.cjs:每步开始前往 stderr 报一行,
+// @@@probe-steps (#4357) — 同 scripts/build/verify-dev-native-probe.cjs:每步开始前往 stderr 报一行,
 // 不设墙钟预算;真挂住由最外层(job 的 timeout-minutes)收场,日志最后一行 step= 就是卡住的位置。
 let currentStep = 'start'
 function step(label, name) {
@@ -124,7 +124,7 @@ async function probeAnchor(label, req) {
   // 于 node-pty 加载,复现生产主进程的 native-addon 顺序并锁住跨-addon symbol interposition 回归。
   step(label, 'load-watcher')
   const watcher = req('@parcel/watcher')
-  // @@@probe-watch-scope — 同 scripts/verify-dev-native-probe.cjs:订阅当场新建的空目录。
+  // @@@probe-watch-scope — 同 scripts/build/verify-dev-native-probe.cjs:订阅当场新建的空目录。
   // subscribe 恒为递归,拿 os.tmpdir() 当根会把「验 addon 能不能加载」变成「扫整个系统临时目录」,
   // 在 16 槽共享该目录的 CI 机上开销不设上限,是假红来源。空目录不减证明力,代价是常数。
   const watchRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'gugu-packaged-probe-'))

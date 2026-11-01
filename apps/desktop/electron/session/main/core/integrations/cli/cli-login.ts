@@ -1,4 +1,5 @@
-import { spawn } from 'node:child_process';
+import { spawnOwnedChild } from '@gugu/session-core/exec';
+import { spawn } from '@gugu/core/local/childProcess';
 import { existsSync } from 'node:fs';
 import fs from 'node:fs/promises';
 import {
@@ -58,22 +59,18 @@ export function startCliLogin(recipe: CliToolRecipe, installed: InstalledCliTool
   args?: string[];
   parsePrompt?: (output: string) => Promise<CliLoginPrompt | null>;
 }): CliLoginRun {
-  const child = spawn(installed.binPath, options?.args ?? recipe.loginArgs(work), {
+  let output = '';
+  const owned = spawnOwnedChild(installed.binPath, options?.args ?? recipe.loginArgs(work), {
     env: cliToolEnv(recipe, installed),
     cwd: work,
     stdio: ['ignore', 'pipe', 'pipe'],
-    // 自成一个进程组:取消 / 超时时连它起的子进程一起结束 —— 只结束它自己,子进程攥着输出管道,
+    // 取消 / 超时时连它起的子进程一起结束 —— 只结束它自己,子进程攥着输出管道,
     // 「结束了」要等到子进程自己退(单测里实撞:取消等了 30 秒)。
     detached: true,
+    onError: (error) => (output += `\n${error.message}`),
   });
-  const stop = () => {
-    try {
-      if (child.pid) process.kill(-child.pid, 'SIGTERM');
-    } catch {
-      child.kill('SIGTERM');
-    }
-  };
-  let output = '';
+  const child = owned.child;
+  const stop = () => owned.kill('SIGTERM');
   let settled: CliLoginOutcome['kind'] | null = null;
   child.stdout.setEncoding('utf8').on('data', (chunk: string) => (output += chunk));
   child.stderr.setEncoding('utf8').on('data', (chunk: string) => (output += chunk));
@@ -88,10 +85,7 @@ export function startCliLogin(recipe: CliToolRecipe, installed: InstalledCliTool
       const kind = settled ?? 'exited';
       resolve(kind === 'exited' ? { kind, code, output } : { kind, output });
     };
-    child.once('error', (error) => {
-      output += `\n${error.message}`;
-      finish(null);
-    });
+    child.once('error', () => finish(null));
     child.once('close', (code) => finish(code));
   });
 

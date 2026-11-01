@@ -2,7 +2,7 @@
  * #6264 端口转发(port-forward.ts)的生产装配 + 渲染层那几问。
  * 连法问的是直连终端同一个宿主(DirectTerminalResolver,purpose = forward),文案由渲染层写。
  */
-import { spawn } from 'node:child_process';
+import { spawn } from '@gugu/core/local/childProcess';
 import net from 'node:net';
 import { err, ok } from '@gugu/session-shared';
 import { events } from '@main/lib/events';
@@ -47,7 +47,7 @@ function canConnect(port: number): Promise<boolean> {
 }
 
 function spawnSsh(command: string, args: string[], env: Record<string, string>): ForwardChild {
-  const child = spawn(command, args, { env, stdio: ['ignore', 'ignore', 'pipe'], windowsHide: true });
+  const child = spawn(command, args, { env, stdio: ['ignore', 'ignore', 'pipe'] });
   return {
     onExit: (handler) => {
       child.once('exit', (code, signal) => handler({ exitCode: code, signal }));

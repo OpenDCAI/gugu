@@ -8,9 +8,20 @@ export function formatNumber(value: number, options: Intl.NumberFormatOptions | 
   return new Intl.NumberFormat(locale, options).format(value);
 }
 
+// One formatter per locale, options and time zone: every message row formats its time, and building an
+// Intl.DateTimeFormat per call was a measurable part of switching chats. A formatter fixes the zone it was built in,
+// so the key carries the current UTC offset: a zone change (travel, DST) gets a fresh one.
+const dateFormats = new Map<string, Intl.DateTimeFormat>();
+
 export function formatDate(value: DateValue, options: Intl.DateTimeFormatOptions | undefined, locale: string): string {
-  return new Intl.DateTimeFormat(locale, options).format(value instanceof Date ? value : new Date(value));
+  const key = `${locale}|${new Date().getTimezoneOffset()}|${JSON.stringify(options ?? {})}`;
+  let format = dateFormats.get(key);
+  if (!format) dateFormats.set(key, format = new Intl.DateTimeFormat(locale, options));
+  return format.format(value instanceof Date ? value : new Date(value));
 }
+
+// 12/24 小时跟 locale 默认走(❌ 指定 hourCycle):统一的是日期怎么写,不是几点怎么写。
+const CLOCK: Intl.DateTimeFormatOptions = { hour: '2-digit', minute: '2-digit' };
 
 export function formatCalendarDate(
   value: DateValue,
@@ -21,7 +32,7 @@ export function formatCalendarDate(
   const year = includeYear || date.getFullYear() !== now.getFullYear() ? 'numeric' : undefined;
   const day = formatDate(date, { year, month: 'short', day: 'numeric' }, locale).replaceAll(', ', ' ');
   if (!includeTime) return day;
-  const clock = formatDate(date, { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }, locale);
+  const clock = formatDate(date, CLOCK, locale);
   return `${day}${locale.startsWith('zh') ? ' ' : ', '}${clock}`;
 }
 
@@ -34,6 +45,25 @@ export function differenceInCalendarDays(later: Date | number, earlier: Date | n
     return utc.getTime();
   };
   return Math.round((calendarDay(later) - calendarDay(earlier)) / 86_400_000);
+}
+
+/**
+ * 列表、公告、消息分隔这类日历时间,唯一实现:今天只写时刻;昨天写「昨天」;更早写日期,与聊天日界同一种写法
+ * (同年「10月31日」,跨年「2025年10月31日」,英文「Oct 31」)。`withTime` 时昨天与更早也带时刻。
+ * 无效时间如实画成「Invalid Date」,❌ 静默成空串:上游数据坏了要看得见。
+ */
+export function formatCalendarDay(value: DateValue, locale: string, { withTime = false, now = new Date() }: { withTime?: boolean; now?: Date } = {}): string {
+  const date = value instanceof Date ? value : new Date(value);
+  if (!Number.isFinite(date.getTime())) return String(date);
+  const days = differenceInCalendarDays(now, date);
+  if (days === 0) return formatDate(date, CLOCK, locale);
+  if (days === 1) {
+    // 英文 Intl 给小写「yesterday」;它常单独当标签用,首字母大写(中文不受影响)。
+    const word = new Intl.RelativeTimeFormat(locale, { numeric: 'auto' }).format(-1, 'day');
+    const yesterday = word.charAt(0).toLocaleUpperCase(locale) + word.slice(1);
+    return withTime ? `${yesterday} ${formatDate(date, CLOCK, locale)}` : yesterday;
+  }
+  return formatCalendarDate(date, locale, { includeTime: withTime, now });
 }
 
 /** datetime-local uses local wire fields, without UTC conversion or localized display text. */

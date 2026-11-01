@@ -37,7 +37,7 @@ describe('restartSession on a session-life session', () => {
     mocks.calls = []; mocks.enqueued = [];
     fixture = await openFixture('empty');
     mocks.db = fixture.db;
-    const config = JSON.stringify({ version: '1', type: 'acp', firstUtterance: '把测试跑一遍', initialQueue: [{ text: '把测试跑一遍', origin: 'manual' }] });
+    const config = JSON.stringify({ version: '1', type: 'acp', agentDisplayName: 'T', firstUtterance: '把测试跑一遍', initialQueue: [{ text: '把测试跑一遍', origin: 'manual' }] });
     fixture.sqlite.exec(`
       INSERT INTO workspaces (id, type, kind, location, path, key) VALUES ('root', 'local', 'project-root', 'local', '/repo', 'root');
       INSERT INTO projects (id, name, path, repository_workspace_id) VALUES ('p', 'P', '/repo', 'root');

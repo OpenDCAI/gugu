@@ -186,14 +186,12 @@ class AcpAgentStatusBridge {
    * 显式命名的会话不动,首轮兜底与 harness 上一次的名会被盖掉。
    */
   private applyTitle(summary: SessionSummary): void {
-    try {
-      applyHarnessTitle(summary.sessionId, summary.title ?? '');
-    } catch (error) {
+    void applyHarnessTitle(summary.sessionId, summary.title ?? '').catch((error: unknown) => {
       log.warn('ACP agent status bridge failed to apply the harness session title', {
         sessionId: summary.sessionId,
         error: String(error),
       });
-    }
+    });
   }
 
   /** 一轮落定时把最后那份上下文读数记进会话记录,换了模型就作废 —— 判据在 `contextUsageChange`。 */

@@ -1,4 +1,5 @@
 import { archiveIdentity } from '@gugu/core/cloud/agentIdentityRemoval'
+import { getLocaleSnapshot } from '@/i18n'
 import { identityDb, getCurrentAuthUserId } from './supabase'
 import { chatService } from './chat'
 import { listDevicesOnceIdentified } from './listDevicesOnceIdentified'
@@ -50,7 +51,6 @@ export async function startProvisionOperation(
   deviceId: string,
   blueprint: AgentProvisionBlueprint,
   memoryContent?: Record<string, AgentMemoryContentInput>,
-  initialMessage?: { messageId: string; text: string },
   choice?: AgentCreateChoice,
 ): Promise<AgentProvisionOperation> {
   const { data, error } = await identityDb.rpc('start_agent_provision_operation', {
@@ -59,10 +59,8 @@ export async function startProvisionOperation(
     p_blueprint: blueprint,
     // Raw cloud memory bytes travel SEPARATELY (never in the blueprint/hash); {member_key:{source:content}}.
     p_memory_content: memoryContent ?? null,
-    // 库里的契约是 {text, client_message_id}(20260831110000_chat_initial_prompt_argv_4567.sql),多一个键都整条拒绝。
-    // 之前原样传 {messageId, text},带首条消息的创建(Codex 这类从启动参数读首条的)恒报
-    // 「initial message must contain non-empty text and client_message_id」(#6264 实测撞到)。
-    p_initial_message: initialMessage ? { text: initialMessage.text, client_message_id: initialMessage.messageId } : null,
+    // 首句不随建 agent 走:这里的建法(会话页、派任务)首句都在会话里。库里这个参数留给老客户端。
+    p_initial_message: null,
     // 创建框里选的模型 / 思考强度 / 权限模式(#6264,gugu-supabase 20260924050100_agent_create_model_choice_6264.sql):
     // 记在成员行上、准备时写进 agent.create 命令,由目标机器解释。没选 = null。
     // 键名要能被 release-contract-gate 静态读出,❌ 条件展开。
@@ -317,7 +315,6 @@ export interface ProvisionRuntimeDeps {
   commandTimeoutMs?: number
   // Injectable for tests; defaults to the real import_agent_provision_history RPC wrapper.
   importHistory?: (provisionId: string, payload: AgentHistoryImportInput) => Promise<string>
-  initialMessage?: { messageId: string; text: string }
   /** 创建框里选的模型(`platform:` 前缀 = 咕咕平台模型)。重放时照传,库里按「与已记录的一致」校验。 */
   model?: string | null
   /** 思考强度档位 id(如 high)。同上。 */
@@ -744,7 +741,7 @@ function buildBlueprintMember(
 export function buildSingleBlueprint(
   member: AgentProvisionMemberInput & { provisionId: string },
 ): SingleAgentProvisionBlueprint {
-  return { kind: 'single', concurrency_limit: 1, members: [buildBlueprintMember(member, false)] }
+  return { kind: 'single', concurrency_limit: 1, locale: getLocaleSnapshot().resolvedLocale, members: [buildBlueprintMember(member, false)] }
 }
 
 export function buildTeamBlueprint(input: {
@@ -760,6 +757,7 @@ export function buildTeamBlueprint(input: {
     team_name: input.teamName,
     group_prompt: input.groupPrompt,
     concurrency_limit: input.concurrencyLimit ?? 2,
+    locale: getLocaleSnapshot().resolvedLocale,
     members: input.members.map((m) => buildBlueprintMember(m, true)),
   }
 }
@@ -1018,7 +1016,6 @@ async function driveSingleProvision(
         record.deviceId,
         record.blueprint,
         runtime.memoryContentMap,
-        deps.initialMessage,
         choice,
       )
   deps.onOperationAcknowledged?.(record)

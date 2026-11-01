@@ -8,7 +8,7 @@ import { deriveMessageSendState, deriveReadReceipt } from '@gugu/core/shared/ui/
 import { AUTOMATION_TEST_IDS } from '@/lib/automationDom'
 import { OPEN_AT_LATEST, useRowAboveViewport } from '@/lib/listLanding'
 import { useFlowList, type FlowListHandle, type ListLanding } from '@/lib/flowList'
-import { formatCalendarDayTime } from '@/lib/calendarTime'
+import { formatCalendarDay } from '@/i18n/format'
 import type { MemberProfileCardModel } from '../MemberProfileCard'
 import type { MemberProfileSide } from '../memberProfileModels'
 import { Button } from '../ui/Button'
@@ -277,7 +277,7 @@ const MessageListRow = memo(function MessageListRow({
         /* @@@ui-ruler 时间分隔 = Chip(小标签的唯一实现:18px 药丸、caption 字号、muted 底)。
            原来是这里自己拍的 10px 圆角 + 2/10 内距 + 裸 11px。 */
         <div style={{ textAlign: 'center', margin: 'var(--spacing-sm) 0 var(--spacing-xs)', userSelect: 'none' }}>
-          <Chip>{formatCalendarDayTime(msg.created_at)}</Chip>
+          <Chip>{formatCalendarDay(msg.created_at, { withTime: true })}</Chip>
         </div>
       )}
       {/* @@@multi-select (#988) — 多选态：行首勾选框 + 整行点击切换选中；内层气泡 pointer-events:none

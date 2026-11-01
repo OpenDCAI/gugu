@@ -268,7 +268,6 @@ export default {
     "clearSearch": "清除搜索",
     "create": "新建",
     "createTask": "新建任务",
-    "createAgent": "新建 Agent",
     "createGroup": "新建群聊",
     "createGroupMobile": "发起群聊",
     "newProject": "新项目",

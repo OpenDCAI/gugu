@@ -25,7 +25,6 @@ import { queryClient } from '@renderer/lib/query-client';
 import {
   InitialSessionField,
   resolvePlatformModel,
-  sessionpageLegForCreation,
   terminalLegUnstartableForCreation,
   useInitialSessionState,
   type InitialSessionState,
@@ -610,7 +609,6 @@ function FieldProbe({
   placeholder,
   enableMentions,
   provider,
-  creationSurface,
 }: {
   linkedIssue?: LinkedIssue;
   includeIssueContextByDefault?: boolean;
@@ -618,13 +616,10 @@ function FieldProbe({
   enableMentions?: boolean;
   /** 换一家 harness 来渲染 —— 登录那条链只在具体某一家身上才成立。 */
   provider?: string;
-  creationSurface?: 'chat-page' | 'session-page';
 }) {
   const state = useInitialSessionState(
     'project-1',
     provider as Parameters<typeof useInitialSessionState>[1],
-    undefined,
-    { creationSurface }
   );
   latestState = state;
   return React.createElement(InitialSessionField, {
@@ -1001,27 +996,6 @@ describe('useInitialSessionState', () => {
     });
   });
 
-  it('scopes the inbound-none fallback to chat-page first turns', () => {
-    const kimiSessionpage = {
-      'acp': { identity: 'addressable' as const, messageTransport: 'router' as const },
-      'tui': {
-        identity: 'addressable' as const,
-        messageTransport: 'local-session' as const,
-        inbound: 'none' as const,
-      },
-    };
-
-    const legFrom = (creationSurface: 'session-page' | 'chat-page') => sessionpageLegForCreation({
-      sessionpage: kimiSessionpage,
-      preferred: 'tui',
-      terminalUnstartable: terminalLegUnstartableForCreation({
-        sessionpage: kimiSessionpage, prompt: { kind: 'argv' }, creationSurface, dispatchesToChat: false,
-      }),
-    });
-    expect(legFrom('session-page')).toBe('tui');
-    expect(legFrom('chat-page')).toBe('acp');
-  });
-
   // 派进群里的任务(项目里的新任务)首句是任务卡:终端腿要有吃得下消息首句的启动通道,
   // 与主进程起 pty 时那道闸同一个函数(providerTakesMessageStartupInPty)。
   it('locks Terminal for a dispatched task when the terminal leg cannot take the task card at startup', () => {
@@ -1033,7 +1007,7 @@ describe('useInitialSessionState', () => {
       prompt: { kind: 'argv', startupDelivery: 'delivery-bridge' as const },
     };
     const unstartable = (prompt: typeof codexLike.prompt | { kind: string }, dispatchesToChat: boolean) =>
-      terminalLegUnstartableForCreation({ sessionpage: codexLike.sessionpage, prompt, creationSurface: 'session-page', dispatchesToChat });
+      terminalLegUnstartableForCreation({ sessionpage: codexLike.sessionpage, prompt, dispatchesToChat });
 
     expect(unstartable(codexLike.prompt, true)).toBe(true);
     expect(unstartable({ kind: 'argv' }, true)).toBe(false);
@@ -1204,54 +1178,6 @@ describe('useInitialSessionState', () => {
     // 只断言它的话,这条用例在档位退化回二值时照样绿。
     expect(latestState?.permissionMode).toBe('read-only');
     expect(latestState?.autoApprove).toBe(false);
-  });
-
-  // ⭐ #5597 —— 「草稿上显示的档 = 落库的档」在**聊天页**那一面。
-  //
-  // 之前这一面的决定不在 state 里:`buildInitialSession` 拿 `unattended` 无条件覆盖成
-  // full-access,于是草稿显示只读、会话开出 bypassPermissions,而且不报错。
-  // 现在这一面只保留一个**默认值**,选中值一律照选中的走。
-  describe('聊天页草稿的权限档(#5597)', () => {
-    it('默认是无人值守那一档 —— 那一面没有人守着答权限弹窗', async () => {
-      // autoApproveByDefault=false:会话页此刻的默认是 edit ⇒ 读到 full-access 只可能来自
-      // 聊天页那条分支,❌ 不可能是全局默认碰巧同值(否则这条用例证明不了任何事)。
-      await renderProbe('project-1', { creationSurface: 'chat-page' }, false);
-
-      expect(latestState?.permissionMode).toBe('full-access');
-      expect(latestState?.autoApprove).toBe(true);
-    });
-
-    // 阴控:同一把判据在会话页那一面必须读到**别的**值。少了它,上一条在
-    // 「creationSurface 整个没接上、两面都回落到同一个常量」时照样绿。
-    it('阴控:同一份设置下任务页那一面不是 full-access', async () => {
-      await renderProbe('project-1', { creationSurface: 'session-page' }, false);
-
-      expect(latestState?.permissionMode).toBe('edit');
-    });
-
-    // 只列这家 fixture **真声明过**的档(claude 没声明 plan ⇒ 选 plan 会被既有的降档钳夹成
-    // edit,那是另一条不变量,❌ 不要在这里混进来把判据搞成两件事)。
-    it.each(['read-only', 'edit'] as const)(
-      '在草稿上选 %s ⇒ state 就是它,❌ 不被无人值守默认顶掉',
-      async (mode) => {
-        await renderProbe('project-1', { creationSurface: 'chat-page' }, false);
-
-        await act(async () => latestState?.setPermissionMode(mode));
-
-        expect(latestState?.permissionMode).toBe(mode);
-        expect(latestState?.autoApprove).toBe(false);
-      },
-    );
-
-    // 聊天页不继承会话页那份「上次启动记住的档」:那是会话页的偏好(应用设置 newSessionMemory),
-    // 让它决定一个无人值守面的默认值,等于用一次无关的选择改掉这一面的产品默认。
-    it('不继承任务页记住的档', async () => {
-      remember({ provider: 'claude', permissionMode: 'read-only' });
-
-      await renderProbe('project-1', { creationSurface: 'chat-page' }, false);
-
-      expect(latestState?.permissionMode).toBe('full-access');
-    });
   });
 
   // 「已安排」到点自己开,也没人守着。它的表单不摆权限控件、主进程又只收无人值守那一档 ——
@@ -1435,6 +1361,7 @@ describe('InitialSessionField', () => {
           {
             sessionId: 'codex-conversation',
             engine: 'codex',
+            title: 'Codex 1',
             identity: { users: { id: userId, display_name: 'Codex 1', gugu_number: null } },
           },
         ]);
@@ -1511,6 +1438,7 @@ describe('InitialSessionField', () => {
           {
             sessionId: 'codex-conversation',
             engine: 'codex',
+            title: 'ENG-123 helper',
             identity: { users: { id: userId, display_name: 'ENG-123 helper', gugu_number: null } },
           },
         ]);

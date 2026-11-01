@@ -9,7 +9,7 @@ import type { ServerVersionLifecycle } from './server-version-lifecycle'
  * 切换方式:改 current → 退出。有系统服务(systemd/launchd)时由它按 current 拉起新版本;
  * 兜底模式(没有服务管)就自己先起一个新版本的进程,让它等旧进程退干净再启动。
  */
-import { execFileSync } from 'node:child_process'
+import { execFileSync } from '@gugu/core/local/childProcess'
 import { createHash } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'

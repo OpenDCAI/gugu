@@ -20,7 +20,7 @@ describe('saved task exchange read and push', () => {
     fixture = await openFixture('empty');
     state.db = fixture.db;
     fixture.sqlite.exec(`INSERT INTO projects (id,name,path) VALUES ('p','Project','/repo');
-      INSERT INTO sessions (id,project_id,title,provider,runtime,config) VALUES ('task','p','Task','codex','acp','{"version":"1","type":"acp"}');`);
+      INSERT INTO sessions (id,project_id,provider,runtime,config) VALUES ('task','p','codex','acp','{"version":"1","type":"acp","agentDisplayName":"Task"}');`);
   });
   afterEach(() => { unwatchTaskExchanges('test'); fixture.close(); state.db = undefined; });
   const write = (id: string, sender: string, receipt = 'accepted') => {

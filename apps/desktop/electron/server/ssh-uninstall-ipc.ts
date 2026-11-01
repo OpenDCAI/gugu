@@ -6,7 +6,7 @@
  * 渲染层只给设备 id,❌ 不能让界面指定任意地址去执行删除脚本。
  */
 import crypto from 'node:crypto'
-import { spawn } from 'node:child_process'
+import { spawn } from '@gugu/core/local/childProcess'
 import type { BrowserWindow, IpcMain } from 'electron'
 import {
   SERVER_SSH_MACHINES_CHANNELS,

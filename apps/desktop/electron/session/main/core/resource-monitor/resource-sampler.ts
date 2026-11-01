@@ -1,4 +1,4 @@
-import { execFile } from 'node:child_process';
+import { execFile } from '@gugu/core/local/childProcess';
 import { randomUUID } from 'node:crypto';
 import os from 'node:os';
 import { app, BrowserWindow } from 'electron';

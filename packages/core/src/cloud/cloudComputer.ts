@@ -14,6 +14,7 @@
  * 不碰 node / electron:渲染层(设置 → 设备、「在哪跑」)和主进程(agent 的 session_* 跨机器)共用这一份。
  */
 import type { CloudComputerPresence } from '../shared/types/deviceHost'
+import { anySignal } from '../shared/anySignal'
 
 export type { CloudComputerPresence }
 
@@ -109,7 +110,8 @@ export function cloudComputerErrorFromResponse(status: number, body: string): Cl
  */
 export type CloudComputerProvisionInput = {
   assistant?:
-    | { name: string; avatar: string | null; ownerProfile: string }
+    /** locale: the UI language at setup; the assistant's welcome line is written in it. */
+    | { name: string; avatar: string | null; ownerProfile: string; locale: string }
     /**
      * 搬家(本机 → 云上):接过一位已有的助理 —— 复用它的身份与私聊、不发欢迎语、不派初始化任务,
      * 文件由客户端随后逐项拷过去。name / avatar / ownerProfile 此时不带。
@@ -170,7 +172,7 @@ export function createCloudComputerClient(options: {
         method,
         headers,
         body: body === undefined ? undefined : JSON.stringify(body),
-        signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
+        signal: anySignal([signal, timeout]),
       })
       raw = await response.text()
     } catch (error) {

@@ -1,4 +1,4 @@
-import { execFile } from 'node:child_process';
+import { execFile } from '@gugu/core/local/childProcess';
 import { existsSync } from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';

@@ -223,6 +223,8 @@ import {
 import { connectionConfigRoot } from '@main/core/agents/harness-connections'
 import { setSessionCancel, setSessionWake } from '@main/core/session-timeline/write-bridge'
 import { setOtherMachines } from '@main/core/sessions/session-family'
+import { hasPendingTaskNames, loadTaskNames, setTaskNamer, setTaskNameOwner } from '@main/core/sessions/task-name'
+import { adoptLegacyTaskNames } from '@main/core/sessions/renameSession'
 import { setAgentSessionHost } from '@main/core/sessions/agent-session-controller'
 import { answerAppMessage } from '@main/core/extensions/extension-send'
 import { answerAppReadFile } from '@main/core/extensions/app-files-elsewhere'
@@ -247,6 +249,10 @@ export {
 export {
   localSessionIds,
   setOtherMachines,
+  setTaskNamer,
+  setTaskNameOwner,
+  hasPendingTaskNames,
+  adoptLegacyTaskNames,
   runRemoteSessionAction,
   runSessionAction,
   sessionCallerFacts,
@@ -563,6 +569,9 @@ export async function bootSessionHostCore(options: SessionHostBootOptions): Prom
     failed: (sessionId, error) => log.error('session-life: failure', { sessionId, error: String(error) }),
     now: Date.now,
   })
+  // Task names: a bound task is named by its roster identity (task-name.ts). The roster keys were just
+  // renamed above, and every reader of a name below (search backfill first) needs the projection.
+  await loadTaskNames()
   // #6892 起任何 agent / worker 之前问一次系统代理,只补给 agent 与安装器(utils/systemProxyEnv.ts)。
   log.info('[session-host] system proxy for agent processes', await resolveSystemProxy((url) => electronSession.defaultSession.resolveProxy(url)))
 
@@ -1915,9 +1924,8 @@ async function startSessionpageAgentSessionClaimed(
       projectId: project.id,
       workspaceId: repositoryWorkspaceId,
       provider,
-      title: input.displayName,
-      // 这条会话就是这个 agent 的运行时,标题 = 它在通讯录里的名字 —— 显式命名,harness 起的名不盖它。
-      titleSource: 'manual',
+      // 这条会话就是这个 agent 的运行时:它的名字就是这个 agent 在通讯录里的名字。
+      agentDisplayName: input.displayName,
       permissionMode,
       ...(effort ? { effort } : {}),
       // 不带首句 = 常驻,等主人的第一条消息:出生 idle(#7199;从前记一句占位当首轮,一出生就「在干活」,云电脑永远不闲)。
@@ -2397,7 +2405,7 @@ export function sessionpageSessionDigest(): Array<{
   isPinned: boolean
   unseen: boolean
   parentConversationId: string | null
-  agentUserId?: string | null; nativeUnreadCount?: number
+  agentUserId?: string | null
 }> {
   refreshDigestAgents()
   const agents = digestAgents
@@ -2417,7 +2425,7 @@ export function sessionpageSessionDigest(): Array<{
       agentStatus: session.agentStatus,
       status: parseAgentStatusView(session.status ?? null),
       lastInteractedAt: session.lastInteractedAt,
-      supported: session.supported, nativeUnreadCount: session.nativeUnreadKeys?.length,
+      supported: session.supported,
       // 离线时手机看的就是这份。少了这三项,离线的会话列表会把置顶画成没置顶、
       // 未读画成已读、子 agent 画成平级 —— 那不是「信息少一点」,是画错。
       // 这里三项都读得到(本地库就在手边),所以给确定值;❌ 不写 `?? false` 之类的兜底,

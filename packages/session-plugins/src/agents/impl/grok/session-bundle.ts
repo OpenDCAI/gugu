@@ -56,11 +56,8 @@ export const grokSessionBundleDescriptor = {
     //    (units 四维全 unverified)。留着 local-session 的后果是 A 读数里那条:聊天页新建 grok
     //    发送后,createSession 成功 → 首句 sendMessage 成功路径走完(正文清空)→ 物化在 hydration 阶段
     //    throw → 界面零错误、draft 永不 hide(#4602 comment 5488865132 记的静默假死)。
-    //    置 none 后 `firstTurnTransportOf` 给出 `'none'`,`use-create-session-callback` 的
-    //    `messageTransportError` 当场亮红、建按钮禁用并写出「Provider 'grok' has no … message
-    //    transport」—— 把静默假死换成一句响亮的诚实错误。这是**如实的延迟**,不是能力回退:
-    //    终端腿的首句通道要等 #4653 链把语义定下来再开(边界 ②)。
-    //    `reason` 把这句「为什么」原样接到那条红字后面(#4658 ②):裸英文,与邻行文风一致。
+    //    置 none 是**如实的延迟**,不是能力回退:终端腿的首句通道要等 #4653 链把语义定下来再开(边界 ②)。
+    //    `reason` 记着这句「为什么」(#4658 ②)。
     'tui': {
       identity: 'none',
       messageTransport: 'none',

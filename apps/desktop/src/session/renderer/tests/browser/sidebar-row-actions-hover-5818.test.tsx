@@ -3,7 +3,7 @@ vi.mock('@renderer/lib/hooks/use-toast', async (importOriginal) => ({ ...await i
 /**
  * #5818 侧栏会话行:行尾的置顶 / 归档**只认指针与真焦点** —— 真 Chromium、真 CSS、真组件。
  * 下半部分是 #6092 的身份卡:指针停在行上弹出这条会话是谁,取代了 #5818 那次标题翻转;#7334 起卡上只有
- * 任务名 / agent 名,点一行复制「标签：值」,会话 ID 挪到右键「复制会话 ID」。
+ * 任务名(就是 agent 名,一个任务一个名字)/ 设备 / 文件夹,点一行复制「标签：值」,会话 ID 挪到右键「复制会话 ID」。
  *
  * 守的是一次回归:#5643 为了修「看不见却能 Enter 触发归档」(#5642),把「这一行是键盘光标」
  * 也加进了显形判据;而点一行,主区就到了这一行、键盘光标就在这一行,于是**选中的那一行
@@ -30,21 +30,27 @@ import { until } from '../../../../../../../tests/support/awaitCondition'
 // 这一行真正要判的是 CSS,所以把它周围的宿主依赖换成同形的替身:store 树、导航、归档链路都会在
 // import 期拉起整个应用状态(要 IPC),与本条无关。❌ 别连组件一起替 —— 那就变成在测一份抄件。
 // ⚠️ 工厂里不能引用文件顶层的变量(vi.mock 被提升到最前,那些变量此刻还在 TDZ 里)—— 所以就地写。
+// `loaded` 给某个 id 换一份 data(fork 那条用例摆父会话);null = 这条会话没挂上。没列的 id 都是同一条默认会话。
+const registry = vi.hoisted(() => ({ loaded: new Map<string, Record<string, unknown> | null>() }))
 vi.mock('@renderer/features/sessions/stores/session-registry', () => ({
   sessionRegistry: {
-    get: () => ({
-      sessions: {
-        get: () => ({
-          data: {
-            providerId: 'claude',
-            title: '我们目前的软件更新蛮奇怪的,谈了很多更新提示',
-            isPinned: false,
-            lastInteractedAt: new Date(Date.now() - 22 * 60_000).toISOString(),
-          },
-          status: 'idle',
-        }),
-      },
-    }),
+    get: (id: string) => {
+      const data = registry.loaded.has(id) ? registry.loaded.get(id) : {}
+      return data === null ? undefined : {
+        sessions: {
+          get: () => ({
+            data: {
+              providerId: 'claude',
+              title: '我们目前的软件更新蛮奇怪的,谈了很多更新提示',
+              isPinned: false,
+              lastInteractedAt: new Date(Date.now() - 22 * 60_000).toISOString(),
+              ...data,
+            },
+            status: 'idle',
+          }),
+        },
+      }
+    },
   },
 }))
 /**
@@ -98,7 +104,7 @@ vi.mock('@renderer/lib/layout/navigation-provider', () => ({
 }))
 
 import { requestArchiveSession } from '@renderer/features/sessions/archive-session-flow'
-import { sessionAgentNames } from '@renderer/features/sessions/stores/session-agent-names'
+import { sessionAgentBindings } from '@renderer/features/sessions/stores/session-agent-bindings'
 import { SidebarSessionItem } from '@renderer/features/sidebar/sidebar-session-item'
 import { sidebarIdentityCard } from '@renderer/features/sidebar/sidebar-identity-card'
 import { SessionLocalizationProvider } from '@renderer/localization/localization-provider'
@@ -126,7 +132,8 @@ afterEach(() => {
   root.unmount()
   host.remove()
   // store 是模块单例:上一条 note 进去的身份会跨用例留着,而「没有身份」正是另一条要判的状态。
-  sessionAgentNames.identities.clear()
+  sessionAgentBindings.bindings.clear()
+  registry.loaded.clear()
   sidebarIdentityCard.close(sidebarIdentityCard.activeSessionId ?? '')
 })
 
@@ -297,13 +304,13 @@ function stubClipboard() {
 }
 
 /**
- * 复制出去的那一段。测试进程的语言随机器走,两种文案都算;要判的是「标签：值」这个形状、
- * 标签是哪一行的、值是什么 —— 中文「任务名：X」「Agent 名：Y」,英文「Task: X」「Agent: Y」。
+ * 复制出去的那一段。测试进程的语言随机器走,两种文案都算;要判的是「标签：值」这个形状与值 ——
+ * 中文「任务名：X」,英文「Task: X」。
  */
 function pairOf(text: string): [string, string] {
-  const m = /^(任务名|Agent 名)：(.*)$/.exec(text) ?? /^(Task|Agent): (.*)$/.exec(text)
+  const m = /^任务名：(.*)$/.exec(text) ?? /^Task: (.*)$/.exec(text)
   expect(m, `复制出去的不是「标签：值」的形状:${JSON.stringify(text)}`).not.toBeNull()
-  return [/^(任务名|Task)$/.test(m![1]) ? 'session' : 'agent', m![2]]
+  return ['session', m![1]]
 }
 
 /** 停够开卡的时长,等卡渲出来。 */
@@ -316,10 +323,10 @@ async function openCard(row: HTMLElement): Promise<HTMLElement> {
   return identityCard()!
 }
 
-it('#7334 指针停在行上,右侧弹出身份卡:任务名 / agent 名 / 设备 / 文件夹四行,不摆两枚 ID;卡上没有多余的线', async () => {
+it('#7334 指针停在行上,右侧弹出身份卡:任务名 / 设备 / 文件夹三行(任务名就是 agent 名,不另摆一行),不摆两枚 ID;卡上没有多余的线', async () => {
   // 卡开在行右侧要有地方放:默认视口太窄时定位系统会翻到左边再贴边,那量到的就不是「右侧」这一格了。
   await page.viewport(1024, 768)
-  sessionAgentNames.note('conv-1', 'Claude 3', AGENT_USER_ID)
+  sessionAgentBindings.note('conv-1', AGENT_USER_ID)
   const clipboard = stubClipboard()
   mount()
   await mounted()
@@ -340,14 +347,13 @@ it('#7334 指针停在行上,右侧弹出身份卡:任务名 / agent 名 / 设�
   const card = identityCard()!
 
   const keys = Array.from(card.querySelectorAll<HTMLElement>('[data-identity-row]')).map((el) => el.dataset.identityRow)
-  expect(keys).toEqual(['sessionName', 'agentName', 'device', 'folder'])
+  expect(keys).toEqual(['sessionName', 'device', 'folder'])
   // 在哪(owner 2026-10-28):本机会话写「这台电脑」;这里项目没挂上、也没有工作区 ⇒ 文件夹「未知」,且不可复制。
   expect(card.querySelector('[data-identity-row="device"]')!.textContent).toMatch(/这台电脑|This computer/)
   expect(card.querySelector('[data-identity-row="folder"]')!.textContent).toMatch(/未知|Unknown/)
   expect(card.querySelector('[data-identity-row="folder"]')!.tagName).not.toBe('BUTTON')
   expect(card.querySelector('[data-identity-row="sessionName"]')!.textContent).toContain('软件更新')
-  expect(card.querySelector('[data-identity-row="agentName"]')!.textContent).toContain('Claude 3')
-  // 两枚 ID 不在卡上 —— 连前缀也没有。阳性对照:同一张卡的文字里确实读得到 agent 名(上一句),读法没坏。
+  // 两枚 ID 不在卡上 —— 连前缀也没有。阳性对照:同一张卡的文字里确实读得到任务名(上一句),读法没坏。
   expect(card.textContent).not.toContain(AGENT_USER_ID.slice(0, 8))
   expect(card.textContent).not.toContain('conv-1')
   expect(card.textContent).not.toMatch(/Session ID|Agent ID/)
@@ -369,21 +375,16 @@ it('#7334 指针停在行上,右侧弹出身份卡:任务名 / agent 名 / 设�
     expect(cs.borderBottomWidth).toBe('0px')
   }
 
-  // 两行各是一枚复制按钮,各复制各的(owner 2026-10-16:「复制任务名就是复制任务名」)。
+  // 任务名那一行是一枚复制按钮(owner 2026-10-16:「复制任务名就是复制任务名」)。
   const sessionRow = card.querySelector<HTMLElement>('[data-identity-row="sessionName"]')!
-  const agentRow = card.querySelector<HTMLElement>('[data-identity-row="agentName"]')!
   expect(sessionRow.tagName).toBe('BUTTON')
-  expect(agentRow.tagName).toBe('BUTTON')
 
   // 点一行只复制这一行,带上它的标签;复制不关卡、不打开会话(click 被拦在行内)。
-  await userEvent.click(agentRow)
-  expect(clipboard).toHaveBeenCalledTimes(1)
-  expect(pairOf(clipboard.mock.calls[0][0])).toEqual(['agent', 'Claude 3'])
-  await until('the copied row says so', () => agentRow.dataset.copyState === 'copied')
-  expect(sessionRow.dataset.copyState, '只有被点的那一行说「已复制」').toBe('idle')
-  expect(identityCard()).not.toBeNull()
   await userEvent.click(sessionRow)
-  expect(pairOf(clipboard.mock.calls[1][0])).toEqual(['session', TITLE])
+  expect(clipboard).toHaveBeenCalledTimes(1)
+  expect(pairOf(clipboard.mock.calls[0][0])).toEqual(['session', TITLE])
+  await until('the copied row says so', () => sessionRow.dataset.copyState === 'copied')
+  expect(identityCard()).not.toBeNull()
 
   // 收卡不等(owner 2026-10-08:「应该是立即消失,而不是过一会儿才消失」)。时钟冻着:收不靠任何定时器到点,
   // 离开的那一下就收 —— 一个「宽限 0ms」的定时器在这里也会读成还开着。
@@ -406,27 +407,8 @@ it('#7334 指针停在行上,右侧弹出身份卡:任务名 / agent 名 / 设�
   await until('identity card is gone', () => identityCard() === null)
 })
 
-it('#6092 花名册里没有这条会话时,agent 那一行写「未分配」且不可复制;任务名那一行照常复制', async () => {
-  const clipboard = stubClipboard()
-  mount()
-  await mounted()
-  const row = host.querySelector<HTMLElement>('[data-session-id="conv-1"]')!
-  await clickThenPark(row)
-  const card = await openCard(row)
-  // 测试进程的语言随机器走,两种文案都算;要判的是「不是标题」。
-  expect(card.querySelector('[data-identity-row="agentName"]')!.textContent).toMatch(/未分配|Not assigned/)
-  // ❌ 不拿标题冒充人名。
-  expect(card.querySelector('[data-identity-row="agentName"]')!.textContent).not.toContain('软件更新')
-
-  // ❌ 把「未分配」当成一个值粘出去:那一行不是按钮。
-  expect(card.querySelector('[data-identity-row="agentName"]')!.tagName).not.toBe('BUTTON')
-  await userEvent.click(card.querySelector<HTMLElement>('[data-identity-row="sessionName"]')!)
-  expect(clipboard).toHaveBeenCalledTimes(1)
-  expect(pairOf(clipboard.mock.calls[0][0])).toEqual(['session', TITLE])
-})
-
 it('#7334 右键「复制会话 ID」:复制完整的会话 ID', async () => {
-  sessionAgentNames.note('conv-1', 'Claude 3', AGENT_USER_ID)
+  sessionAgentBindings.note('conv-1', AGENT_USER_ID)
   const clipboard = stubClipboard()
   mount()
   await mounted()
@@ -443,7 +425,7 @@ it('#7334 右键「复制会话 ID」:复制完整的会话 ID', async () => {
 
 it('#6092 设置里关掉之后,悬浮不再弹卡 —— 开关是真的接着这一行的', async () => {
   const { sidebarStore } = await import('@renderer/lib/stores/app-state')
-  sessionAgentNames.note('conv-1', 'Claude 3', AGENT_USER_ID)
+  sessionAgentBindings.note('conv-1', AGENT_USER_ID)
   const store = sidebarStore as { agentNameOnHoverEnabled: boolean }
   store.agentNameOnHoverEnabled = false
   try {
@@ -464,7 +446,7 @@ it('#6092 设置里关掉之后,悬浮不再弹卡 —— 开关是真的接着�
 })
 
 it('点击不是悬浮:进行就点、停够了再点,点完都没有卡;离开再回来才重新弹', async () => {
-  sessionAgentNames.note('conv-1', 'Claude 3', AGENT_USER_ID)
+  sessionAgentBindings.note('conv-1', AGENT_USER_ID)
   mount()
   await mounted()
   const row = host.querySelector<HTMLElement>('[data-session-id="conv-1"]')!
@@ -508,7 +490,7 @@ it('点击不是悬浮:进行就点、停够了再点,点完都没有卡;离开�
 
 it('shows the sanitized clipboard refusal in the existing identity row', async () => {
   const clipboard = stubClipboard().mockRejectedValue(new Error('Clipboard denied /Users/test/private sk-synthetic-secret\nstack detail'))
-  sessionAgentNames.note('conv-1', 'Claude 3', AGENT_USER_ID)
+  sessionAgentBindings.note('conv-1', AGENT_USER_ID)
   mount()
   await mounted()
   const card = await openCard(host.querySelector<HTMLElement>('[data-session-id="conv-1"]')!)
@@ -531,4 +513,29 @@ it('shows the sanitized clipboard refusal when copying the session ID', async ()
   await userEvent.click(item)
   await until('session id copy was attempted', () => clipboard.mock.calls.length > 0)
   expect(notice).toHaveBeenCalledWith({ title: expect.stringMatching(/复制失败|Copy failed/), description: 'Clipboard denied [path] [redacted token]', variant: 'destructive' })
+})
+
+it('fork 来源写父会话此刻的名字(从父会话自己的 store 读,❌ 存一份副本);父会话没挂上就不写名字', async () => {
+  registry.loaded.set('conv-1', { forkedFrom: { sessionId: 'parent-1' } })
+  registry.loaded.set('parent-1', { title: '母会话改过的名字' })
+  mount()
+  await mounted()
+  const fork = host.querySelector<HTMLElement>('[data-testid="sidebar-forked-from"]')
+  expect(fork, 'fork 会话该挂 fork 图标').not.toBeNull()
+  await userEvent.hover(fork!)
+  await until('fork lineage tooltip renders', () => document.querySelector('[data-slot="tooltip-content"]') !== null)
+  expect(document.querySelector('[data-slot="tooltip-content"]')!.textContent).toMatch(/^(fork 自|forked from) 母会话改过的名字$/)
+  await userEvent.hover(park())
+  await until('tooltip closes', () => document.querySelector('[data-slot="tooltip-content"]') === null)
+
+  root.unmount()
+  root = createRoot(host)
+  registry.loaded.set('parent-1', null)
+  mount()
+  await mounted()
+  const orphan = host.querySelector<HTMLElement>('[data-testid="sidebar-forked-from"]')
+  expect(orphan, '父会话没挂上,图标照挂').not.toBeNull()
+  await userEvent.hover(orphan!)
+  await until('fork lineage tooltip renders', () => document.querySelector('[data-slot="tooltip-content"]') !== null)
+  expect(document.querySelector('[data-slot="tooltip-content"]')!.textContent).not.toContain('母会话')
 })

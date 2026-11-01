@@ -47,11 +47,10 @@ describe('conversation message SQLite outbox', () => {
     mocks.db = fixture.db;
     fixture.sqlite.exec(`
       INSERT INTO projects (id, name, path) VALUES ('project-1', 'Project', '/repo');
-      INSERT INTO sessions (id, project_id, title, provider, runtime, config)
+      INSERT INTO sessions (id, project_id, provider, runtime, config)
         VALUES (
           'conversation-1',
           'project-1',
-          'Conversation',
           'codex',
           NULL,
           '{"version":"1","type":"pty"}'

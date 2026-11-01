@@ -269,7 +269,6 @@ export default {
     "clearSearch": "Clear search",
     "create": "New",
     "createTask": "New task",
-    "createAgent": "New Agent",
     "createGroup": "New group chat",
     "createGroupMobile": "New group chat",
     "newProject": "New project",

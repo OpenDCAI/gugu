@@ -95,7 +95,7 @@ describe('desktop agent banners follow the status reading, whatever path it came
     cid = `c${clock}`;
     fixture.sqlite.prepare(`INSERT INTO projects (id, name, path) VALUES ('p1', 'P', '/repo')`).run();
     fixture.sqlite
-      .prepare(`INSERT INTO sessions (id, project_id, title, provider, runtime, agent_status, agent_status_seen) VALUES (?, 'p1', 'Fix it', 'codex', 'acp', 'idle', 1)`)
+      .prepare(`INSERT INTO sessions (id, project_id, provider, runtime, agent_status, agent_status_seen, config) VALUES (?, 'p1', 'codex', 'acp', 'idle', 1, json_object('version', '1', 'type', 'acp', 'agentDisplayName', 'Fix it'))`)
       .run(cid);
   });
   afterEach(() => {

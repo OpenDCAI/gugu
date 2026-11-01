@@ -1,6 +1,6 @@
 import type { DeviceActionsCapability } from '../shared/deviceActions'
 import { createHash, randomUUID } from 'node:crypto'
-import { execFile } from 'node:child_process'
+import { execFile } from '../local/childProcess'
 import { access, link, mkdir, readFile, unlink, writeFile } from 'node:fs/promises'
 import { hostname, platform } from 'node:os'
 import { dirname, join } from 'node:path'
@@ -161,7 +161,7 @@ export type DeviceSessionDigestEntry = {
   unseen?: boolean
   parentConversationId?: string | null
   /** 这条会话的 agent id(#7199,见 `DeviceSessionSummary.agentUserId`);宿主还没读到花名册时不带。 */
-  agentUserId?: string | null; nativeUnreadCount?: number
+  agentUserId?: string | null
 }
 
 /** 摘要由宿主提供（会话在它手里）。缺省 = 这台机器不报摘要，列写 `[]`。 */

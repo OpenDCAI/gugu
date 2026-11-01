@@ -14,7 +14,7 @@
 //
 // 环境 ❌ 进命令行(里面有 MCP 授权、平台中转口令):写进一份 0600 的启动脚本,由 `env -i /bin/sh <脚本>` 读完即删,
 // 而且 `env -i` 先把 tmux 服务器自己的全局环境清空 —— 那是第一次起服务器那条会话的环境,不是这一条的。
-import { execFile } from 'node:child_process'
+import { execFile } from '@gugu/core/local/childProcess'
 import crypto from 'node:crypto'
 import { closeSync, openSync, readSync, fstatSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'

@@ -69,10 +69,10 @@ describe('run-interval-recorder', () => {
     mocks.warnings = [];
     fixture.sqlite.exec(`
       INSERT INTO projects (id, name, path) VALUES ('p1', 'P', '/repo');
-      INSERT INTO sessions (id, project_id, title, provider, created_at, updated_at)
-        VALUES ('c1', 'p1', 'C', 'claude', '2026-01-01 00:00:00', '2026-01-01 00:00:00');
-      INSERT INTO sessions (id, project_id, title, provider, created_at, updated_at)
-        VALUES ('c2', 'p1', 'D', 'codex', '2026-01-01 00:00:00', '2026-01-01 00:00:00');
+      INSERT INTO sessions (id, project_id, provider, created_at, updated_at)
+        VALUES ('c1', 'p1', 'claude', '2026-01-01 00:00:00', '2026-01-01 00:00:00');
+      INSERT INTO sessions (id, project_id, provider, created_at, updated_at)
+        VALUES ('c2', 'p1', 'codex', '2026-01-01 00:00:00', '2026-01-01 00:00:00');
     `);
     clock = at(23, 10);
     recorder = new RunIntervalRecorder(() => clock);
@@ -132,8 +132,8 @@ describe('run-interval-recorder', () => {
     const createdAt = new Date(clock + 20_000).toISOString();
     fixture.sqlite
       .prepare(
-        `INSERT INTO sessions (id, project_id, title, provider, agent_status, created_at, updated_at)
-         VALUES ('c3', 'p1', 'E', 'claude', 'working', ?, ?)`
+        `INSERT INTO sessions (id, project_id, provider, agent_status, created_at, updated_at)
+         VALUES ('c3', 'p1', 'claude', 'working', ?, ?)`
       )
       .run(createdAt, createdAt);
     clock += MIN;
@@ -285,8 +285,8 @@ describe('buildLocalUsageSnapshot / usage.localDaily', () => {
       INSERT INTO projects (id, name, path) VALUES ('p1', 'P', '/repo');
     `);
     const addSession = fixture.sqlite.prepare(
-      `INSERT INTO sessions (id, project_id, title, provider, provider_session_id, created_at, archived_at)
-       VALUES (?, 'p1', 'x', ?, ?, ?, ?)`
+      `INSERT INTO sessions (id, project_id, provider, provider_session_id, created_at, archived_at)
+       VALUES (?, 'p1', ?, ?, ?, ?)`
     );
     addSession.run('c1', 'claude', 'sid-claude', createdUtc(at(23, 9)), null);
     addSession.run('c2', 'codex', '01a0ce35-43e0-7db2-b762-49dd6f882b08', createdUtc(at(23, 9, 30)), '2026-09-23 12:00:00'); // 已归档也算
@@ -372,7 +372,7 @@ describe('buildLocalUsageSnapshot / usage.localDaily', () => {
   it('还开着的区间算到 now 为止', async () => {
     fixture.sqlite.exec(`
       INSERT INTO projects (id, name, path) VALUES ('p1', 'P', '/repo');
-      INSERT INTO sessions (id, project_id, title, provider, agent_status) VALUES ('c1', 'p1', 'x', 'claude', 'working');
+      INSERT INTO sessions (id, project_id, provider, agent_status) VALUES ('c1', 'p1', 'claude', 'working');
     `);
     fixture.sqlite
       .prepare(`INSERT INTO session_run_intervals (session_id, provider, started_at, ended_at, last_seen_at) VALUES ('c1', 'claude', ?, NULL, ?)`)

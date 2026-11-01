@@ -10,6 +10,7 @@ import {
 import type { AcpMcpServer } from './acp-engine-utils'
 import { GuguMcpHost, type GuguMcpHostPersistence } from './gugu-mcp-host'
 import { createLogger } from './lib/logger'
+import { anySignal } from '@gugu/core/shared/anySignal'
 
 const log = createLogger('integration-mcp-bridge')
 
@@ -84,7 +85,7 @@ export function createIntegrationMcpHost(persistence?: GuguMcpHostPersistence): 
       )
       server.server.setRequestHandler(ListToolsRequestSchema, async (_request, extra) => {
         const { upstream } = getContext()
-        const signal = AbortSignal.any([grantSignal, extra.signal])
+        const signal = anySignal([grantSignal, extra.signal])
         return trackRequest(
           upstream.kind === 'local'
             ? upstream.tools.list(signal).then((tools) => ({ tools }))
@@ -94,7 +95,7 @@ export function createIntegrationMcpHost(persistence?: GuguMcpHostPersistence): 
       })
       server.server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
         const { upstream } = getContext()
-        const signal = AbortSignal.any([grantSignal, extra.signal])
+        const signal = anySignal([grantSignal, extra.signal])
         return trackRequest(
           upstream.kind === 'local'
             ? upstream.tools.call(request.params.name, request.params.arguments ?? {}, signal)

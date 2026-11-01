@@ -1,4 +1,4 @@
-// #6264 一套工作台:「在别的机器上新建」的那一截。会话页新建页与对话页创建草稿共用这一份 ——
+// #6264 一套工作台:「在别的机器上新建」的那一截。新建页、项目页、对话里派任务共用这一份 ——
 // 那台机器上的项目就是项目表里那台机器名下的项目;选了一个还不是项目的文件夹,就在那台机器上把它加成
 // 项目(与本机「打开文件夹」同一步);没选文件夹 = 那台机器的主目录项目「~」(behavior gugu-server:别的机器上的
 // 会话一律属于那台机器上的某个项目;已有同路径项目就复用,没有就建)。输入框、agent 选择、
@@ -10,7 +10,6 @@ import { cloudWakeFailureText, TOO_OLD_CODES } from '@renderer/features/remote-h
 import { machineNotice, useMachineNotice } from '@renderer/features/remote-hosts/machine-notice';
 import { remoteErrorCode } from '@renderer/features/remote-hosts/remote-failure-copy';
 import { remoteHostsStore } from '@renderer/features/remote-hosts/remote-hosts-store';
-import { localMachineChoice, machineChoiceFromHost, type MachineChoice } from '@renderer/features/remote-hosts/machine-choice';
 import { machineLibraryHost, type LibraryHost } from '@renderer/features/library/library-host';
 import { machineRegistry } from '@renderer/lib/machine-routing';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
@@ -154,31 +153,6 @@ export function useMachineCreateContext(target: MachineCreateTarget | null): Mac
     }),
     machine: { deviceId: target.deviceId, label },
   };
-}
-
-/**
- * 对话页创建草稿(composer-embed-root):宿主报来的设备行 → 机器选择器的行,与新建任务、导入、资源库同一个样子 ——
- * 这台电脑叫「本机」,别的机器带连法与连接状况(❌ 本机那行写设备名,macOS 上常常是个 IP);
- * 所选那台不是本机时,还给出它的创建目标(宿主记着的是那台机器上的目录路径)。须在 observer 组件里调用。
- */
-export function useComposerMachines(
-  devices: readonly MachineChoice[],
-  selectedDeviceId: string | null,
-  projectPath: string | null,
-  localProjectPicker: ReactElement,
-  onSelectPath: (path: string | null) => void
-): { machines: MachineChoice[]; machineContext: MachineCreateContext | null; projectPicker: ReactElement } {
-  const { translate } = useSessionMessages();
-  useEffect(() => remoteHostsStore.start(), []);
-  const machines = devices.map((device) => {
-    if (device.isLocal) return localMachineChoice(device.id, translate('task.deviceLocal'));
-    const host = remoteHostsStore.device(device.id);
-    return host ? machineChoiceFromHost(host, remoteHostsStore.connectionState(device.id)) : device;
-  });
-  const selected = devices.find((device) => device.id === selectedDeviceId);
-  const target = selected && !selected.isLocal ? { deviceId: selected.id, projectPath } : null;
-  const projectPicker = target ? <MachineProjectPicker target={target} onSelect={onSelectPath} /> : localProjectPicker;
-  return { machines, machineContext: useMachineCreateContext(target), projectPicker };
 }
 
 /** #7199 叫醒那台云电脑没成时,新建框里那一句(积分用完 / 等满了 / 管家原话);没在叫 / 叫醒了 = null。 */

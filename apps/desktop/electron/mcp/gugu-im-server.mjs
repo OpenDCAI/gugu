@@ -36,6 +36,7 @@ import { GUGU_MCP_SERVER_NAME } from './gugu-mcp-name.mjs'
 import { chatActivityTool } from './chat-activity.mjs'
 import { createLogger } from '../lib/logger'
 import { effectiveGroupRules, groupRulesLedgerAt, groupRulesVersion } from '../../../../packages/core/src/local/agent/groupRulesDelivery'
+import { anySignal } from '@gugu/core/shared/anySignal'
 
 const log = createLogger('gugu-mcp-host')
 
@@ -638,7 +639,7 @@ async function currentAuthUserId(deps) {
 // created_by 写 agent。❌ 以主人的 JWT 直读直写 workspace_items —— 那是主人的可见域,agent 不在的群也读得到。
 // 读写文件本身是群文件夹 App 的工具(preinstalled-apps/workspace/folder.mjs);这里只剩 App 平台以 agent 身份做的两件事:
 // app_install 的数据文件(groupDataFileOf)、app_check 的范围(extensionCheckScopeOf)。
-// CI 闸 scripts/check-im-server-direct-access.mts 钉着:本文件不许出现 workspace_items 的 REST 路径。
+// CI 闸 scripts/checks/check-im-server-direct-access.mts 钉着:本文件不许出现 workspace_items 的 REST 路径。
 async function workspaceRpcRows(deps, name, body, label) {
   const rows = await deps.restRpc(name, { ...body, p_as_user_id: deps.context.agentId })
   if (!Array.isArray(rows)) throw new Error(`${label}: ${name} returned a non-list result`)
@@ -2304,7 +2305,7 @@ const toUserIdsSchema = z.preprocess(normalizeRecipientInput, z.array(
 // 正文的规矩只在 message_send 上写一次(P5);别的工具拒收时,报错原话会说清楚。
 const CHAT_MESSAGE_TEXT_RULES = 'Message body in Markdown. Visible escaped line breaks and malformed math are rejected.'
 const chatMessageTextSchema = z.string()
-const chatRecipientsSchema = toUserIdsSchema.describe(`Who you address and notify; multiple recipients allowed. ${RECIPIENT_ADDRESS_FORMS} Plain names in text address nobody; @mentions must match this list.`)
+const chatRecipientsSchema = toUserIdsSchema.describe(`Who you address and notify; multiple recipients allowed. ${RECIPIENT_ADDRESS_FORMS} @mentions must match this list.`)
 // 话题里点名 = 把人拉进来,所以收件人**必填**:一条谁也没点名的邀请消息拉不进任何人,是静默的空动作。
 // 地址形态与 chatRecipientsSchema 同一份契约(RECIPIENT_ADDRESS_FORMS),只是去掉 optional。
 const topicInviteeIdsSchema = z.preprocess(normalizeRecipientInput, z.array(recipientIdSchema).min(1)).describe(
@@ -2514,7 +2515,7 @@ export const TOOL_DEFS = [
   },
   {
     name: 'topic_list',
-    description: 'The topics of one chat; is_participant: whether you are in it (only participants are notified). Check here before opening a second line for a question.',
+    description: 'The topics of one chat; is_participant: whether you are in it.',
     schema: z.object({
       chat_id: chatIdSchema.describe('The source chat.'),
       ...listWindowShape,
@@ -2671,7 +2672,7 @@ export const TOOL_DEFS = [
   // ── profile_ ── 自己的资料 + 咕咕号解析
   {
     name: 'profile_whoami',
-    description: 'Your profile, owner, and groups with your role and listen_mode. Your name can change: read it here.',
+    description: 'Your profile, owner, and groups with your role and listen_mode.',
     schema: z.object({}),
     handler: (args, deps) => handleProfile({ ...args, action: 'whoami' }, deps),
   },
@@ -2799,9 +2800,7 @@ export function createGuguImServer(getContext, deps = {}) {
   for (const def of TOOL_DEFS) {
     const permissive = MESSAGE_WRITER_TOOLS.has(def.name)
     registerGuguTool(server, { ...def, permissive, preflight: permissive ? preflightGuguMessageArgs : undefined }, async (toolArgs, requestSignal) => {
-      const signal = deps.signal
-        ? AbortSignal.any([deps.signal, requestSignal])
-        : requestSignal
+      const signal = anySignal([deps.signal, requestSignal])
       const current = getContext()
       const context = {
         ...current,

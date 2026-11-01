@@ -48,7 +48,7 @@ describe('creation turns: one row per creation entry, however often it is reache
 
   const insertSession = (id: string, config: Record<string, unknown>) => fixture.sqlite
     .prepare("INSERT INTO sessions (id, project_id, workspace_id, title, runtime, config) VALUES (?, 'p', 'root', 'T', 'acp', ?)")
-    .run(id, JSON.stringify({ version: '1', type: 'acp', firstUtterance: FIRST, ...config }));
+    .run(id, JSON.stringify({ version: '1', type: 'acp', agentDisplayName: id, firstUtterance: FIRST, ...config }));
   const rows = (id: string) => ({
     pending: fixture.sqlite.prepare('SELECT message_id AS id FROM session_pending WHERE session_id = ?').all(id),
     messages: fixture.sqlite.prepare('SELECT id, content FROM messages WHERE session_id = ?').all(id),

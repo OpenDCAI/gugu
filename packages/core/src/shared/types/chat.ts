@@ -323,7 +323,6 @@ export interface Device {
 export interface DeviceSessionSummary {
   nativeInputVersion?: 1
   runtime?: 'acp' | 'pty' | 'unknown'
-  nativeUnreadCount?: number
   conversationId: string
   projectId: string
   projectName: string

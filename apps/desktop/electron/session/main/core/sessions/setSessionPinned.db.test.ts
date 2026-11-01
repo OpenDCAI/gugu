@@ -31,8 +31,8 @@ describe('setSessionPinned', () => {
     mocks.emit.mockReset();
     fixture.sqlite.exec(`
       INSERT INTO projects (id, name, path) VALUES ('project-1', 'Project', '/repo');
-      INSERT INTO sessions (id, project_id, title, provider, runtime)
-        VALUES ('conv-1', 'project-1', 'Session', 'codex', 'acp');
+      INSERT INTO sessions (id, project_id, provider, runtime)
+        VALUES ('conv-1', 'project-1', 'codex', 'acp');
     `);
   });
 
