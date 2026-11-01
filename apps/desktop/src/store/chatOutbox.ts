@@ -344,7 +344,9 @@ export function createChatOutbox(deps: OutboxDeps): ChatOutbox {
       const operationEpoch = epoch
       const record = records.get(clientMessageId)
       if (!record) return
-      // Persist the terminal dependency before deleting its source; reload must not mistake it for delivery.
+      // Stop in-memory transitions immediately, then persist dependency failure
+      // before deleting the durable source so reload cannot mistake discard for delivery.
+      records.delete(clientMessageId)
       for (const dependent of records.values()) {
         if (dependent.dependsOn !== clientMessageId) continue
         const failed = await persist(dependent, 'failed', {
@@ -355,7 +357,6 @@ export function createChatOutbox(deps: OutboxDeps): ChatOutbox {
         deps.onState(failed)
         rejectWaiter(failed.clientMessageId, failed.lastError!)
       }
-      records.delete(clientMessageId)
       await deps.remove(clientMessageId)
       if (!isActive(operationEpoch)) return
       rejectWaiter(clientMessageId, i18n.t('outbox.discarded', { ns: 'messaging' }))

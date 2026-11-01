@@ -7,9 +7,9 @@ function record(id: string, chatId = 'A', dependsOn?: string): OutboxRecord {
     payload: { content: id, contentType: 'text', toUserIds: null, replyToMessageId: null, threadRootId: null, isThreadRoot: false, isWhisper: false },
     state: 'pending', attempts: 0, lastError: null, enqueuedAt: '2026-11-01T00:00:00Z', updatedAt: '2026-11-01T00:00:00Z' }
 }
-function fixture(saved = new Map<string, OutboxRecord>()) {
+function fixture(saved = new Map<string, OutboxRecord>(), beforeSave: (record: OutboxRecord) => Promise<void> = async () => {}) {
   const send = vi.fn(async (_row: OutboxRecord): Promise<void> => {})
-  const outbox = createChatOutbox({ load: async () => [...saved.values()], save: async r => { saved.set(r.clientMessageId, structuredClone(r)) },
+  const outbox = createChatOutbox({ load: async () => [...saved.values()], save: async r => { await beforeSave(r); saved.set(r.clientMessageId, structuredClone(r)) },
     remove: async id => { saved.delete(id) }, deliver: send, onSent: vi.fn(), onDiscarded: vi.fn(), onState: vi.fn(), backoffMs: [] })
   return { saved, send, outbox }
 }
@@ -147,6 +147,25 @@ it('discard during byte upload cannot be undone by its eventual ready commit', a
   expect(await outbox.commitUpload(record('upload'))).toBe(false)
   await flush()
   expect(saved.has('upload')).toBe(false)
+  expect(send).not.toHaveBeenCalled()
+  outbox.dispose()
+})
+
+it('discard wins over upload completion while dependent failure is being persisted', async () => {
+  vi.useFakeTimers()
+  let release!: () => void
+  const gate = new Promise<void>(resolve => { release = resolve })
+  const { outbox, send } = fixture(new Map(), async r => {
+    if (r.clientMessageId === 'forward' && r.dependencyDiscarded) await gate
+  })
+  await outbox.stageUpload({ ...record('upload'), operation: { kind: 'upload' } })
+  await outbox.enqueue(record('forward', 'B', 'upload'))
+  await flush()
+  const discard = outbox.discard('upload')
+  expect(await outbox.commitUpload(record('upload'))).toBe(false)
+  release()
+  await discard
+  await flush()
   expect(send).not.toHaveBeenCalled()
   outbox.dispose()
 })
