@@ -252,7 +252,10 @@ export function createCrossMachineSessions(deps: CrossMachineDeps) {
     const sessionCaller = 'kind' in caller ? null : caller
     // Older hosts understand default/spawner and root through nest. The new parent field stays authoritative.
     const wire = sessionCaller && action.action === 'spawn' ? { ...action, nest: action.parent_session_id !== null } : action
-    const result = await request(await reachable(deviceId, !!sessionCaller, signal, action.action === 'message' || action.action === 'spawn'), action.action === 'spawn' && action.assistant_work ? 'assistantWork.prepare' : `agentSession.${action.action}`, [caller, wire], remoteActionTimeoutMs(action), action.action, signal)
+    // A separate method makes old hosts reject thinking before they can silently discard it.
+    const channel = action.action === 'spawn' && action.thinking !== undefined ? 'agentSession.spawnWithThinking'
+      : action.action === 'spawn' && action.assistant_work ? 'assistantWork.prepare' : `agentSession.${action.action}`
+    const result = await request(await reachable(deviceId, !!sessionCaller, signal, action.action === 'message' || action.action === 'spawn'), channel, [caller, wire], remoteActionTimeoutMs(action), action.action, signal)
     if (sessionCaller && action.action === 'spawn' && typeof action.parent_session_id === 'string'
       && action.parent_session_id !== sessionCaller.sessionId) {
       const created = result as { session_id: string; parent_session_id?: string | null }

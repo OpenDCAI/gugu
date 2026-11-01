@@ -12,12 +12,20 @@ export function setAgentSessionHost(next: AgentSessionHost | null): void {
 }
 
 /** agent 的 session_* 跨机器:另一台机器经 `taskhost.call` 交给这台执行的动作,一个动作一个方法。 */
-export const agentSessionController = createRPCController(
-  Object.fromEntries(AGENT_SESSION_ACTIONS.map((name) => [name, (caller: unknown, action: unknown) => {
+export const agentSessionController = createRPCController({
+  ...Object.fromEntries(AGENT_SESSION_ACTIONS.map((name) => [name, (caller: unknown, action: unknown) => {
     if (!host) throw Object.assign(new Error('the task page on that machine has not finished starting; try again shortly'), { code: 'host_not_ready' });
     return host(name, caller, action);
   }])) as Record<AgentSessionActionName, (caller: unknown, action: unknown) => Promise<unknown>>,
-);
+  spawnWithThinking(caller: unknown, raw: unknown) {
+    const action = raw as Record<string, unknown> | null;
+    if (!action || action.action !== 'spawn' || typeof action.thinking !== 'string' || !action.thinking.trim()
+      || (caller as { kind?: unknown })?.kind === 'app') throw new Error('Thinking requires an agent spawn with a non-empty reasoning level');
+    if (action.assistant_work !== undefined) assistantWorkIntentSchema.parse(action.assistant_work);
+    if (!host) throw Object.assign(new Error('Task host is not ready'), { code: 'host_not_ready' });
+    return host('spawn', caller, action);
+  },
+});
 
 
 /** Separate capability: an older host must reject before accidentally starting an executor. */
