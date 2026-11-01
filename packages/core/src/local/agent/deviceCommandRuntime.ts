@@ -660,7 +660,7 @@ export async function handleAgentDeliverDeviceCommand(
     const disclosed = text(payload.source) === 'forum'
       ? await discloseForumUndeliverable({ agentUserId: guguUserId, postId: text(payload.post_id) }, options)
       : await discloseUndeliverable(
-        { agentUserId: guguUserId, chatId, messageId, threadRootId: text(payload.thread_root_id) || null },
+        { agentUserId: guguUserId, chatId, messageId, threadRootId: text(payload.thread_root_id) || null, isWhisper: payload.is_whisper === true },
         options,
       )
     throw new UndeliverableAgentCommandError(guguUserId, disclosed)
@@ -1103,9 +1103,11 @@ async function discloseForumUndeliverable(
 }
 
 async function discloseUndeliverable(
-  input: { agentUserId: string; chatId: string; messageId: string; threadRootId: string | null },
+  input: { agentUserId: string; chatId: string; messageId: string; threadRootId: string | null; isWhisper: boolean },
   options: HandleAgentDeliverDeviceCommandOptions,
 ): Promise<boolean> {
+  // This row is public: saying it about a whisper would tell the chat who was whispered to. The command error stays private.
+  if (input.isWhisper) return false
   if (!input.chatId || !input.messageId) {
     log.error(
       { agentUserId: input.agentUserId, chatId: input.chatId || null, messageId: input.messageId || null },

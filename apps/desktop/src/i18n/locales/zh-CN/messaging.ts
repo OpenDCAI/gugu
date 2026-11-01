@@ -769,6 +769,7 @@ export default {
       "failedActions": "未送达消息操作",
       "failedHint": "未送达，点击重试或丢弃",
       "queued": "发送中，助理就绪后回复",
+      "undelivered": "所在实例未运行、未送达",
       "sending": "发送中",
       "held": "等待重试",
       "stopped": "已停止，下一句发出时一起发送",
