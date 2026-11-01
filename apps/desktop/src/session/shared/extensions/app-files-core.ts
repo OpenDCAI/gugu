@@ -440,9 +440,30 @@ async function entryDetails(token: string, entries: readonly AppFileEntry[], ide
   }));
 }
 
+/** Rows a `workspace_list_as` answer holds at most: the gateway's own cap (db-max-rows) is a page, never the whole list. */
+export const LIST_PAGE = 1000;
+
+/**
+ * Every row a `workspace_list_as` read names, page by page until its `total`: one answer stops at the gateway's row cap,
+ * and a list cut there was shown as the whole folder (a 1416-item chat missed its oldest 416, folders among them).
+ */
+async function listedRows(token: string, args: Record<string, unknown>): Promise<ItemRow[]> {
+  const rows: ItemRow[] = [];
+  for (;;) {
+    const page = await agentRows(token, 'workspace_list_as', { ...args, p_offset: rows.length, p_limit: LIST_PAGE });
+    rows.push(...page);
+    const said = (page[0] as { total?: unknown } | undefined)?.total;
+    const total = typeof said === 'number' || (typeof said === 'string' && said !== '') ? Number(said) : NaN;
+    if (page.length === 0 || (Number.isFinite(total) ? rows.length >= total : page.length < LIST_PAGE)) {
+      // A file added between two pages moves the last row of the first onto the second.
+      return [...new Map(rows.map((row) => [row.id, row])).values()];
+    }
+  }
+}
+
 /** Every row of a chat, newest first, as `actor` (the person, or the agent a program works for) sees them. */
 function rowsOfChat(token: string, chatId: string, actor: string): Promise<ItemRow[]> {
-  return agentRows(token, 'workspace_list_as', { p_chat_id: chatId, p_as_user_id: actor });
+  return listedRows(token, { p_chat_id: chatId, p_as_user_id: actor });
 }
 
 /** The folder's codes (子文件夹, gugu-supabase 20261016012659): its refusals carry one in `hint`, its message is for people. */
@@ -756,7 +777,7 @@ export function createAppFiles(platform: FilesPlatform) {
     const { token, userId } = await platform.account();
     const actor = as.asAgent ?? userId;
     if (as.folder !== undefined) {
-      return listedEntriesOf(token, await agentRows(token, 'workspace_list_as', { p_chat_id: chatId, p_as_user_id: actor, p_folder: as.folder.replace(/^\/+|\/+$/g, '') }), platform, actor);
+      return listedEntriesOf(token, await listedRows(token, { p_chat_id: chatId, p_as_user_id: actor, p_folder: as.folder.replace(/^\/+|\/+$/g, '') }), platform, actor);
     }
     // Acting for an agent (A2): what the agent sees, by its own membership — never the person's chats (#6492).
     return listedEntriesOf(token, await rowsOfChat(token, chatId, actor), platform, actor);
