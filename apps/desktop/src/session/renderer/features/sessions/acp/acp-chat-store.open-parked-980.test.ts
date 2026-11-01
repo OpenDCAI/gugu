@@ -424,16 +424,45 @@ describe('the first message keeps one place while its session starts', () => {
     await vi.waitFor(() => expect(store.chatState.session.state.pendingPrompt).toBeNull());
   });
 
-  it('stopped mid-start: never again says Starting; the composer could stop it, and the tray has it', async () => {
+  it('stopped mid-start: stays where it was as a stopped turn; continuing puts it back as the next turn, once', async () => {
     const { store } = storeFor({ providerId: 'claude', initialQueue: [{ text: '说一句你好', origin: 'manual' }] });
     store.bootstrap();
     life.pend(store.sessionId, 'starting', [row('queued')]);
     await vi.waitFor(() => expect(store.affordances.isWorking).toBe(true));
     expect(store.affordances.canCancel).toBe(true);
+
     life.pend(store.sessionId, 'dormant', [row('queued')], 'user-stop');
-    await vi.waitFor(() => expect(store.transcriptPendingId).toBeNull());
+    await vi.waitFor(() => expect(store.stoppedRowId).toBe('m-first'));
+    expect(store.transcriptPendingId, 'never again says Starting').toBeNull();
     expect(store.chatState.session.state.pendingPrompt).toBeNull();
     expect(store.affordances.isWorking).toBe(false);
+    const stopped = () => store.chatState.transcript.state.committedTurns.filter(t => t.id === 'm-first:stopped');
+    await vi.waitFor(() => expect(stopped()).toHaveLength(1)); // The opening's history seed may land first: drawn again after it.
+    expect(stopped()[0]).toMatchObject({ startedAt: 5000, outcome: { kind: 'cancelled' }, items: [{ id: 'm-first', text: '说一句你好' }] });
+
+    // A reconciled history drops it while it is still stopped: drawn again, once.
+    runInAction(() => { store.chatState.transcript.history.seed([]); store.transcriptRevision += 1; });
+    await vi.waitFor(() => expect(stopped()).toHaveLength(1));
+
+    // The person continues: the hold is gone and the same row is on its way again.
+    life.pend(store.sessionId, 'starting', [row('queued')]);
+    await vi.waitFor(() => expect(store.chatState.session.state.pendingPrompt?.id).toBe('m-first'));
+    expect(stopped(), 'the same words once').toHaveLength(0);
+    expect(store.stoppedRowId).toBeNull();
+  });
+
+  it('reopening a session the person stopped does not start it: the stop holds until they continue', async () => {
+    create.mockImplementation(async () => liveSession());
+    const { store } = storeFor({ providerId: 'claude', initialQueue: [{ text: '说一句你好', origin: 'manual' }] });
+    life.pend(store.sessionId, 'dormant', [row('queued')], 'user-stop');
+    store.bootstrap();
+    await vi.waitFor(() => expect(store.stoppedRowId).toBe('m-first'));
+    await vi.waitFor(() => expect(store.chatState.transcript.state.committedTurns.some(t => t.id === 'm-first:stopped')).toBe(true));
+    expect(life.start, 'opening never undoes a stop').not.toHaveBeenCalled();
+    expect(create).not.toHaveBeenCalled();
+
+    life.pend(store.sessionId, 'ready', [row('dispatching')]);
+    await vi.waitFor(() => expect(store.session).not.toBeNull());
   });
 
   it('stopping says nothing false and an older host (no sentAt) has no clock rather than a NaN', async () => {

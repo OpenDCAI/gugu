@@ -1692,7 +1692,7 @@ const ComposerForStore = observer(function ComposerForStore({
         </div>
       ) : null}
       {/* Every send of a task page is in custody until the transcript has it, so its bubbles always show here. */}
-      <SessionInputQueue sessionId={store.runtimeSessionId} waitingForConnection life={life} inTranscript={store.transcriptPendingId} />
+      <SessionInputQueue sessionId={store.runtimeSessionId} waitingForConnection life={life} inTranscript={store.transcriptPendingId ?? store.stoppedRowId} />
       <SessionHostQuestion sessionId={store.runtimeSessionId} session={hostSession} />
       <ChatComposer
         className={schedules.length > 0 ? sessionComposerFrameLiftClassName : undefined}
