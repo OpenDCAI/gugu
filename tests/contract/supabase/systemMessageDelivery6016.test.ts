@@ -14,7 +14,7 @@ import {
   resetAgentInboxReaderStateForTests,
   type AgentInboxUnreadRow,
 } from '@gugu/core/local/agent/agentInboxReader'
-import { memoryGroupRulesLedger, type ChatFactsRow } from '@gugu/core/local/agent/groupRulesDelivery'
+import { memoryGroupRulesLedger } from '@gugu/core/local/agent/groupRulesDelivery'
 
 interface DatabaseClient {
   connect(): Promise<void>
@@ -128,7 +128,6 @@ async function readOnce(room: Room, agent: string, chat = room.group): Promise<s
   const seen: string[] = []
   await pullAgentInbox(agent, {
     accessToken: 'owner-authorized-sql-fixture',
-    fetchChatFacts: (chatId, asUserId) => chatFactsAs(room.owner, chatId, asUserId),
     groupRulesLedger: memoryGroupRulesLedger(),
     fetchUnread: () => pull(room, agent, chat),
     inject: async ({ messageId, text }) => {
@@ -145,14 +144,6 @@ async function readOnce(room: Room, agent: string, chat = room.group): Promise<s
 }
 
 // #3641 读者每批按 agent 身份现读群规(chat.chat_facts);契约测试走同一个 SQL 函数,已送达记录放内存。
-async function chatFactsAs(owner: string, chatId: string, asUserId: string): Promise<ChatFactsRow | null> {
-  await db.query('SET LOCAL role TO authenticated')
-  await db.query(`SELECT set_config('request.jwt.claims', $1, true)`, [JSON.stringify({ sub: owner, role: 'authenticated' })])
-  try {
-    const { rows } = await db.query<ChatFactsRow>('SELECT kind, source_chat_id, group_prompt FROM chat.chat_facts($1,$2)', [chatId, asUserId])
-    return rows[0] ?? null
-  } finally { await db.query('RESET role') }
-}
 
 describe('#6016 system delivery follows event-time listening state; #6860 unaddressed server events wake no agent', () => {
   it.each(['group', 'topic'] as const)('an unaddressed system event wakes no agent in %s; a named one reaches its target in any mode', async (kind) => rollback(async () => {

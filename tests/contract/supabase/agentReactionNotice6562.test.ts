@@ -11,7 +11,7 @@ import {
   resetAgentInboxReaderStateForTests,
   type AgentInboxUnreadRow,
 } from '@gugu/core/local/agent/agentInboxReader'
-import { memoryGroupRulesLedger, type ChatFactsRow } from '@gugu/core/local/agent/groupRulesDelivery'
+import { memoryGroupRulesLedger } from '@gugu/core/local/agent/groupRulesDelivery'
 import { REACTIONS } from '@gugu/core/shared/ui/reactionCatalog'
 
 interface DatabaseClient {
@@ -95,17 +95,10 @@ async function pull(room: Room, agent: string): Promise<AgentInboxUnreadRow[]> {
     return rows
   })
 }
-async function chatFactsAs(owner: string, chatId: string, asUserId: string): Promise<ChatFactsRow | null> {
-  return as(owner, async () => {
-    const { rows } = await db.query<ChatFactsRow>('SELECT kind, source_chat_id, group_prompt FROM chat.chat_facts($1,$2)', [chatId, asUserId])
-    return rows[0] ?? null
-  })
-}
 async function deliver(room: Room, agent: string): Promise<string[]> {
   const texts: string[] = []
   await pullAgentInbox(agent, {
     accessToken: 'owner-authorized-sql-fixture',
-    fetchChatFacts: (chatId, asUserId) => chatFactsAs(room.owner, chatId, asUserId),
     groupRulesLedger: memoryGroupRulesLedger(),
     fetchUnread: () => pull(room, agent),
     inject: async ({ text }) => { texts.push(text); return 'accepted' },

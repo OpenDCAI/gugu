@@ -9,7 +9,7 @@ import {
   pullAgentInbox,
   resetAgentInboxReaderStateForTests,
 } from '@gugu/core/local/agent/agentInboxReader'
-import { memoryGroupRulesLedger, type ChatFactsRow } from '@gugu/core/local/agent/groupRulesDelivery'
+import { memoryGroupRulesLedger } from '@gugu/core/local/agent/groupRulesDelivery'
 
 interface DatabaseClient {
   connect(): Promise<void>
@@ -113,14 +113,6 @@ async function pulled(room: Room, message: string): Promise<string[]> {
 const sorted = (...ids: string[]): string[] => [...ids].sort()
 
 // #3641 读者每批按 agent 身份现读群规(chat.chat_facts);契约测试走同一个 SQL 函数,已送达记录放内存。
-async function chatFactsAs(owner: string, chatId: string, asUserId: string): Promise<ChatFactsRow | null> {
-  await db.query('SET LOCAL role TO authenticated')
-  await db.query(`SELECT set_config('request.jwt.claims', $1, true)`, [JSON.stringify({ sub: owner, role: 'authenticated' })])
-  try {
-    const { rows } = await db.query<ChatFactsRow>('SELECT kind, source_chat_id, group_prompt FROM chat.chat_facts($1,$2)', [chatId, asUserId])
-    return rows[0] ?? null
-  } finally { await db.query('RESET role') }
-}
 
 describe('#6077 chat.message_wakes_agent 真值表(纯谓词,无夹具)', () => {
   // 列序 = 谓词参数序:agent, listen_mode, level, kind, sender, sender_is_agent, sender_is_creator, to, whisper, reply_target
@@ -338,7 +330,6 @@ describe('#6077 场景(话题里两个 active agent,人只 @A)经真 reader', ()
     const seen: string[] = []
     await pullAgentInbox(agent, {
       accessToken: 'owner-authorized-sql-fixture',
-      fetchChatFacts: (chatId, asUserId) => chatFactsAs(room.owner, chatId, asUserId),
       groupRulesLedger: memoryGroupRulesLedger(),
       fetchUnread: async () => {
         await db.query('SET LOCAL role TO authenticated')

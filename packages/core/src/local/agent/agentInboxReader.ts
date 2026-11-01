@@ -36,10 +36,7 @@ import { markAgentDeliveredMessageRead, type AgentDeliveredMessageRead } from '.
 import { buildThreadBootstrapBody, type ThreadMessageRow } from './threadBootstrap'
 import {
   decideGroupRulesDelivery,
-  effectiveGroupRules,
-  fetchChatFactsViaRpc,
   groupRulesLedgerFor,
-  type ChatFactsRow,
   type DeliveredGroupRules,
   type GroupRulesLedger,
 } from './groupRulesDelivery'
@@ -84,6 +81,13 @@ export interface AgentInboxUnreadRow {
   fileVersion?: number | null
   /** 悄悄话的附件:消息直接指字节(不进群文件夹)。 */
   fileBlobId?: string | null
+  /**
+   * The rules in force on a group or topic line ('' when none; a topic without its own takes its source group's), read
+   * with the message by pull_agent_inbox_v2. null off rooms.
+   */
+  groupRules?: string | null
+  /** Everyone the envelope names besides the sender (recipients, the quoted sender), read with the message. */
+  namedIdentities?: ReadonlyMap<string, GuguIdentity>
   replyToMessageId: string | null
   replyToSenderUserId: string | null
   replyToContent: string | null
@@ -181,8 +185,6 @@ export interface AgentInboxReaderDeps {
    * 缺席或回 null = 宿主报不出,按同一段处理。
    */
   deliveryContextKey?: (agentUserId: string) => string | null | Promise<string | null>
-  /** injectable:按 agent 身份读一条线的基本事实(默认 chat.chat_facts)。群规由此现取。 */
-  fetchChatFacts?: (chatId: string, asUserId: string) => Promise<ChatFactsRow | null>
   /** injectable:群规已送达记录(默认落盘在 GUGU_HOME)。 */
   groupRulesLedger?: GroupRulesLedger
   /** #2175 异常计数灯:喂灯点从命令结果迁到读者注入结果。 */
@@ -309,6 +311,23 @@ export function unreadRowFromRpc(raw: Record<string, unknown>): AgentInboxUnread
     scanFence: raw.scan_max_ingest_seq === null || raw.scan_max_ingest_seq === undefined
       ? undefined
       : Number(raw.scan_max_ingest_seq),
+    ...deliveryContextOf(raw),
+  }
+}
+
+/** pull_agent_inbox_v2 returns the line's rules and the named identities with each row; absent = the database is older. */
+function deliveryContextOf(raw: Record<string, unknown>): { groupRules: string | null; namedIdentities: Map<string, GuguIdentity> } {
+  if (!('group_rules' in raw) || !('named_identities' in raw)) {
+    throw new Error('pull_agent_inbox_v2 row has no group_rules / named_identities: the database is older than this client')
+  }
+  const named = raw.named_identities && typeof raw.named_identities === 'object' ? raw.named_identities as Record<string, Record<string, unknown>> : {}
+  return {
+    groupRules: typeof raw.group_rules === 'string' ? raw.group_rules : null,
+    namedIdentities: new Map(Object.entries(named).map(([id, row]) => [id, {
+      guguNumber: typeof row.gugu_number === 'number' ? row.gugu_number : null,
+      displayName: typeof row.display_name === 'string' && row.display_name.trim() ? row.display_name.trim() : null,
+      isAgent: row.type === 'agent',
+    }])),
   }
 }
 
@@ -599,12 +618,12 @@ async function planGroupRules(
   const plan: GroupRulesPlan = new Map()
   const chatIds = [...new Set(rows.filter((row) => !row.localSessionDirect && ROOM_KINDS.has(row.chatKind)).map((row) => row.chatId))]
   if (chatIds.length === 0) return plan
-  const readFacts = deps.fetchChatFacts
-    ?? ((chatId: string, asUserId: string) => fetchChatFactsViaRpc(chatId, asUserId, deps.accessToken))
   const ledger = deps.groupRulesLedger ?? groupRulesLedgerFor(env)
   const contextKey = (await deps.deliveryContextKey?.(agentUserId)) ?? null
   for (const chatId of chatIds) {
-    const rules = await effectiveGroupRules(chatId, (id) => readFacts(id, agentUserId))
+    // Read with the message (pull_agent_inbox_v2), as current as the message itself.
+    const rules = rows.find((row) => row.chatId === chatId)?.groupRules
+    if (typeof rules !== 'string') throw new Error(`inbox row of room ${chatId} carries no group rules`)
     const decision = decideGroupRulesDelivery({ rules, delivered: await ledger.read(agentUserId, chatId), contextKey })
     plan.set(chatId, { ...decision, contextKey })
   }
@@ -661,9 +680,9 @@ async function injectBatch(
     await advanceCursor(agentUserId, skipped, deps)
     return { injected: 0, verdict: 'accepted' }
   }
-  const rulesPlan = await planGroupRules(agentUserId, rows, deps, env)
   const prepared: PreparedMessage[] = []
   try {
+    const rulesPlan = await planGroupRules(agentUserId, rows, deps, env)
     for (const row of rows) {
       const planned = row.localSessionDirect ? undefined : rulesPlan.get(row.chatId)
       // 原文只随这一批里该线的第一条投递附一次;其余同线投递只带版本号。
@@ -759,7 +778,7 @@ async function injectBatch(
     for (const member of unit.members) reach.set(member.row.chatId, Math.max(reach.get(member.row.chatId) ?? -Infinity, member.row.seq))
     const passed = skipped.filter((entry) => entry.row.seq < (reach.get(entry.row.chatId) ?? -Infinity))
     for (const entry of passed) skipped.splice(skipped.indexOf(entry), 1)
-    await advanceCursor(agentUserId, [...passed, ...unit.members], deps)
+    await advanceCursor(agentUserId, [...passed, ...unit.members], deps, Date.now())
     deps.onOutcome?.({ agentUserId, ok: true })
     for (const member of unit.members) {
       if (member.bootstrapKey) threadBootstrapped.add(member.bootstrapKey)
@@ -802,9 +821,9 @@ async function prepareMessage(
   const namedIds = [...new Set(
     [...(row.toUserIds ?? []), row.replyToSenderUserId].filter((id): id is string => !!id && id !== row.senderUserId && id !== '*'),
   )]
-  if (namedIds.length && deps.resolveGuguIds) {
-    const named = await deps.resolveGuguIds(namedIds, deps.accessToken)
-    for (const [id, identity] of named) identities.set(id, identity)
+  for (const id of namedIds) {
+    const identity = row.namedIdentities?.get(id)
+    if (identity) identities.set(id, identity)
   }
   // #1531:thread root 消息让 agent 的回复进它自身的 thread。
   const effectiveThreadRoot = row.threadRootId ?? (row.isThreadRoot ? row.id : null)
@@ -940,6 +959,8 @@ async function advanceCursor(
   agentUserId: string,
   members: PreparedMessage[],
   deps: AgentInboxReaderDeps,
+  /** When the session admitted these rows: the read receipt the sender waits for is timed from here. */
+  admittedAt?: number,
 ): Promise<void> {
   const markRead = deps.markRead
     ?? ((input: AgentDeliveredMessageRead) => markAgentDeliveredMessageRead(input, { accessToken: deps.accessToken }))
@@ -965,6 +986,9 @@ async function advanceCursor(
           })
         } else {
           await markRead({ chatId, messageId: member.row.id, agentUserId })
+          if (admittedAt !== undefined) {
+            log.debug({ agentUserId, chatId, messageId: member.row.id, sinceAdmissionMs: Date.now() - admittedAt }, 'agent read receipt written')
+          }
         }
       } catch (error) {
         log.error(
