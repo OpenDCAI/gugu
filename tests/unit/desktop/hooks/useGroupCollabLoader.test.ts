@@ -24,7 +24,6 @@ const snapshot: GroupCollabSnapshot = {
   humans: [{ id: 'owner-1', role: 'owner', type: 'human', account_status: null }],
   agents: [{ id: 'agent-1', role: 'member', type: 'agent', account_status: null, client: null, model_source: null, tools: [], permission_scope: null, current_task_id: null, current_task_title: null, last_action: null, last_active_at: null, listen_mode: 'active' }],
   tasks: [],
-  outputs: [],
 }
 let load: (() => Promise<void>) | undefined
 let chatKind: string | undefined

@@ -29,7 +29,7 @@ function agentItem(id: string, listen_mode: GroupAgentItem['listen_mode']): Grou
 const humanItem = (id: string, role: GroupMemberItem['role']): GroupMemberItem => ({ id, role, type: 'human', account_status: null })
 const collab = (agents: GroupAgentItem[], humans: GroupMemberItem[]): GroupCollabSnapshot => ({
   scheduler: { chat_id: 'topic-1', paused: false, queue_count: 0, blocked_count: 0, summary: null, updated_at: '2026-09-24T00:00:00.000Z' },
-  humans, agents, tasks: [], outputs: [],
+  humans, agents, tasks: [],
 })
 
 // 群名册里 a1 是「主动」—— 这正是名片过去在话题里显示的那个数。

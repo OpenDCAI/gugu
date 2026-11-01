@@ -307,7 +307,6 @@ export class ProjectSessionsStore {
     store.workspaceGit = git;
     this.sessions.set(session.id, store);
     sessionRegistry.acquire(session.id, this.projectId, [session]);
-    terminalRegistry.acquire(session.id, this.projectId);
   }
 
   /**
