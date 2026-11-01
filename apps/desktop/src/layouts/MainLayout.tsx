@@ -207,7 +207,8 @@ function InnerLayout({
     writeDraft,
     draftAttachments,
     setDraftAttachments,
-  } = useChatStore('chats', 'activeChatId', 'setActiveChatId', 'refreshChats', 'upsertChat', 'writeDraft', 'draftAttachments', 'setDraftAttachments')
+    identitiesById, setDraftQuote,
+  } = useChatStore('chats', 'activeChatId', 'setActiveChatId', 'refreshChats', 'upsertChat', 'writeDraft', 'draftAttachments', 'setDraftAttachments', 'identitiesById', 'setDraftQuote')
   // A compose's images join the attachments already queued for its chat.
   const draftAttachmentsRef = useRef(draftAttachments)
   draftAttachmentsRef.current = draftAttachments
@@ -648,8 +649,11 @@ function InnerLayout({
       if (openOwnedAgent(detail.chatId, undefined, {
         text: [detail.text, ...(detail.refs ?? []).map(filePillText)].filter(Boolean).join('\n'),
         files: detail.images?.map(image => new File([image.bytes], image.name, { type: image.type })), append: true,
-      })) return
+      })) { setDraftQuote(detail.chatId, null); return }
       const placed = (chatId: string) => {
+        if (detail.quote) setDraftQuote(chatId, { messageId: detail.quote.id, source: detail.quote,
+          senderName: identitiesById[detail.quote.sender_user_id ?? '']?.display_name ?? '',
+          content: detail.quote.content_type === 'attachment' ? t('chatArea.attachment', { ns: 'messaging' }) : detail.quote.content ?? '' })
         const text = [detail.text, ...(detail.refs ?? []).map(filePillText)].filter(Boolean).join('\n')
         if (text) writeDraft(chatId, { at: 'end', text })
         if (detail.images?.length) {
@@ -693,7 +697,7 @@ function InnerLayout({
       window.removeEventListener(APP_OPEN_IN_CHAT_EVENT, onOpenInChat)
       window.removeEventListener(UI_EVENTS.openApp, onOpenInChat)
     }
-  }, [focusComposerForUserEntry, openOwnedAgent, openChatTarget, writeDraft, setDraftAttachments, t, toast, user.id])
+  }, [focusComposerForUserEntry, openOwnedAgent, openChatTarget, writeDraft, setDraftAttachments, setDraftQuote, identitiesById, t, toast, user.id])
 
 
   // 选中变化 ⇒ shell 让位(收草稿面、移动壳下钻)。这条集中反应兜住只写得到 store 的入口(App 层的宿主),
