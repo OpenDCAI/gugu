@@ -1,8 +1,9 @@
 import { useCallback, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import type { ListenMode } from '@gugu/core/shared/types/chat'
+import type { GroupChatSettings, ListenMode } from '@gugu/core/shared/types/chat'
 import { chatService } from '../../lib/chat'
 import { rendererLogger } from '../../lib/log'
+import { canEditAgentListenMode } from '../../lib/groupMemberPermissions'
 import type { MemberProfileCardModel, MemberProfileEditControls } from '../MemberProfileCard'
 
 const listenLog = rendererLogger('chat/listen-mode')
@@ -11,8 +12,8 @@ const listenLog = rendererLogger('chat/listen-mode')
  * @@@1241 — listen-mode edit wiring for the member-profile popovers users actually open
  * (message-area avatar + right-rail + 成员行上的档位钮).
  *
- * 谁能改:这个 agent 的主人,❌ 群主 / 管理员(owner 10-17:每个人调自己的 agent,管理员不管别人的)。
- * 库里同一条规则(members_update_own + guard_member_listen_mode_change),这里只决定画不画成能点。
+ * The agent owner and current source-group managers may edit listen mode.
+ * The database enforces the same rule through set_agent_listen_mode_as.
  *
  * Scope is intentionally listen-only: role/remove editing is NOT surfaced from these
  * message-area / right-rail popovers. The full admin form (群角色/移出) lives in the group member
@@ -22,9 +23,11 @@ const listenLog = rendererLogger('chat/listen-mode')
 export function useListenModeEditControls(opts: {
   chatId: string | null
   currentUserId: string | null
+  settings: Pick<GroupChatSettings, 'my_role' | 'can_manage'> | null
+  onAuthorityReload?: () => void
   onReload: () => Promise<void> | void
 }): (profile: MemberProfileCardModel) => MemberProfileEditControls | undefined {
-  const { chatId, currentUserId, onReload } = opts
+  const { chatId, currentUserId, settings, onReload, onAuthorityReload } = opts
   const { t } = useTranslation('messaging')
   const [busy, setBusy] = useState(false)
   // 上一次没改成,记在「这个群里的这个 agent」名下:只在它的卡 / 行上显示,下一次点击先清掉。
@@ -42,19 +45,19 @@ export function useListenModeEditControls(opts: {
     } catch (error) {
       listenLog.error({ error, ...target }, 'set listen mode failed')
       setFailed(target)
+      onAuthorityReload?.()
     } finally {
       setBusy(false)
     }
-  }, [onReload])
+  }, [onReload, onAuthorityReload])
 
   return useCallback((profile: MemberProfileCardModel): MemberProfileEditControls | undefined => {
-    // 只有主人看自己的 agent 时档位能点;其余人看到的是只读镜像(editControls 不给)。
-    if (!chatId || !currentUserId || profile.type !== 'agent' || profile.ownerUserId !== currentUserId) return undefined
+    if (!chatId || !canEditAgentListenMode(profile, currentUserId, settings)) return undefined
     return {
       onChangeListenMode: (mode: ListenMode) =>
         runMutation({ chatId, agentId: profile.id }, () => chatService.setAgentListenMode(chatId, profile.id, mode)),
       busy,
       editError: failed?.chatId === chatId && failed.agentId === profile.id ? t('chatService.errors.setListenModeFailed') : null,
     }
-  }, [busy, chatId, currentUserId, failed, runMutation, t])
+  }, [busy, chatId, currentUserId, failed, runMutation, settings, t])
 }

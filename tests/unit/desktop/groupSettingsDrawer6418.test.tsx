@@ -34,6 +34,7 @@ vi.mock('../../../apps/desktop/src/lib/topics', () => ({
 
 const { chatService } = await import('../../../apps/desktop/src/lib/chat')
 const { GroupMembersSection } = await import('../../../apps/desktop/src/components/chat/GroupMembersSection')
+const { useGroupChatSettings } = await import('../../../apps/desktop/src/components/chat/useGroupChatSettings')
 const { NATIVE_BACK_EVENT } = await import('../../../apps/desktop/src/components/ui/sheetStack')
 const getSettings = vi.mocked(chatService.getGroupChatSettings)
 const updateSettings = vi.mocked(chatService.updateGroupChatSettings)
@@ -186,6 +187,84 @@ describe('settings follow the viewer authority, not roster object identity', () 
     const props = await renderDrawer('owner-1', { snapshot: { ...SNAPSHOT, humans: [] } })
     await renderSection('owner-1', { ...props, snapshot: SNAPSHOT })
     expect(getSettings).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('settings held above the panel (the chat area): opening the panel reads', () => {
+  // As ChatAreaPanel: the hook stays mounted with the chat, the panel comes and goes with its tab.
+  function Host({ open, ...props }: { open: boolean } & Record<string, unknown>) {
+    const settingsState = useGroupChatSettings('chat-1')
+    return open ? createNode(GroupMembersSection, { ...props, settingsState } as never) : null
+  }
+  const baseProps = {
+    chat: chat({ id: 'chat-1', kind: 'group', name: '产品组' }), snapshot: SNAPSHOT, currentUserId: 'owner-1',
+    onReload: vi.fn(async () => {}), onClose: vi.fn(), onOpenSearch: vi.fn(), onSetNotificationLevel: vi.fn(async () => {}),
+    onTogglePinned: vi.fn(async () => {}), onClearMessages: vi.fn(async () => {}), onLeaveGroup: vi.fn(async () => {}),
+  }
+  const renderHost = (open: boolean) => renderWithAppProviders(harness, createNode(Host, { ...baseProps, open } as never), {
+    auth: { id: 'owner-1' },
+    chat: { identitiesById: {}, getImRepository: async () => ({ putIdentities: vi.fn(async () => {}) }) as never },
+    contacts: { contacts: [] },
+  })
+  const rules = () => q('[data-testid="group-settings-rules"]')?.textContent ?? ''
+
+  it('a failed first read recovers when the panel opens, and its error line goes', async () => {
+    getSettings.mockRejectedValueOnce(new Error('offline'))
+    await renderHost(false)
+    await waitForCondition(() => getSettings.mock.calls.length === 1, 'the read on entering the chat')
+    await renderHost(true)
+    await waitForCondition(() => rules().includes('先写 spec'), 'read again on opening')
+    expect(q('[role="alert"]')).toBeNull()
+  })
+
+  it('reopening shows what another manager changed meanwhile', async () => {
+    await renderHost(true)
+    await waitForCondition(() => rules().includes('先写 spec'), 'first open')
+    await renderHost(false)
+    getSettings.mockResolvedValue(settingsRow({ group_prompt: '另一位管理员改的' }))
+    await renderHost(true)
+    await waitForCondition(() => rules().includes('另一位管理员改的'), 'the new value on reopening')
+  })
+
+  it('a read that started before a write does not put the old value back', async () => {
+    await renderHost(true)
+    await waitForCondition(() => rules().includes('先写 spec'), 'first open')
+    await renderHost(false)
+    let finishRead!: (row: GroupChatSettings) => void
+    const readsBefore = getSettings.mock.calls.length
+    getSettings.mockImplementationOnce(() => new Promise((resolve) => { finishRead = resolve }))
+    updateSettings.mockImplementation(async () => settingsRow({ allow_member_invite: true }))
+    await renderHost(true)
+    await waitForCondition(() => typeof finishRead === 'function', 'the read on opening is in flight')
+    await click(q('[data-testid="group-settings-manage"]'))
+    await click(switchByLabel('允许普通成员邀请联系人'))
+    await waitForCondition(() => updateSettings.mock.calls.length === 1, 'the write went out')
+    getSettings.mockResolvedValue(settingsRow({ allow_member_invite: true }))
+    await act(async () => { finishRead(settingsRow()); await Promise.resolve(); await Promise.resolve() })
+    expect(switchByLabel('允许普通成员邀请联系人')?.getAttribute('aria-checked')).toBe('true')
+    // The opening read, the manage page's own (AgentFloodThresholdSetting), and the one read again after the dropped read.
+    await waitForCondition(() => getSettings.mock.calls.length === readsBefore + 3, 'the dropped read is read again')
+  })
+
+  it('a read that starts while a write is in flight is dropped, then read again when the write returns', async () => {
+    await renderHost(true)
+    await waitForCondition(() => rules().includes('先写 spec'), 'first open')
+    let finishWrite!: (row: GroupChatSettings) => void
+    updateSettings.mockImplementation(() => new Promise((resolve) => { finishWrite = resolve }))
+    await click(q('[data-testid="group-settings-manage"]'))
+    await click(switchByLabel('允许普通成员邀请联系人'))
+    await waitForCondition(() => typeof finishWrite === 'function', 'the write is in flight')
+    const readsBefore = getSettings.mock.calls.length
+    let finishRead!: (row: GroupChatSettings) => void
+    getSettings.mockImplementationOnce(() => new Promise((resolve) => { finishRead = resolve }))
+    await renderHost(false)
+    await renderHost(true)
+    await waitForCondition(() => typeof finishRead === 'function', 'the read started during the write')
+    getSettings.mockResolvedValue(settingsRow({ allow_member_invite: true }))
+    await act(async () => { finishRead(settingsRow()); await Promise.resolve(); await Promise.resolve() })
+    expect(getSettings.mock.calls.length).toBe(readsBefore + 1)
+    await act(async () => { finishWrite(settingsRow({ allow_member_invite: true })); await Promise.resolve(); await Promise.resolve() })
+    await waitForCondition(() => getSettings.mock.calls.length === readsBefore + 2, 'read again after the write')
   })
 })
 

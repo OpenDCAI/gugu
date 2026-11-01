@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { readComposer } from '../../../support/composerEditor'
-import { createElement } from 'react'
+import { act, createElement } from 'react'
 import { ChatAreaPanel } from '../../../../apps/desktop/src/components/ChatAreaPanel'
 import { AUTOMATION_TEST_IDS } from '../../../../apps/desktop/src/lib/automationDom'
 import type { Device, MessageItem } from '@gugu/core/shared/types/chat'
@@ -260,6 +260,39 @@ describe('ChatAreaPanel agent activity placement', () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+
+  it('re-reads topic settings for a source-group membership revision, ignoring other groups', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      let onChange: AccountRevisionListener = () => {}
+      const subscribeAccountRevision = (event: string | readonly string[], listener: AccountRevisionListener) => {
+        if (event === 'chat_members_changed') onChange = listener
+        return () => undefined
+      }
+      await renderWithAppProviders(harness, createNode(ChatAreaPanel, {}), {
+        auth: { id: 'viewer-1' },
+        chat: { getImRepository: getImRepositoryMock, subscribeAccountRevision, setActiveChatId: vi.fn(), activeChatId: 'topic-1', activeChat: chat({ id: 'topic-1', kind: 'topic', source_chat_id: 'source-1' }), messages: [] },
+      })
+      const settings = vi.mocked(chatService.getGroupChatSettings)
+      const before = settings.mock.calls.length
+      await act(async () => {
+        onChange([{ revision: '1', event: 'chat_members_changed', payload: { chat_id: 'other-group' } }])
+        await vi.advanceTimersByTimeAsync(350)
+      })
+      expect(settings).toHaveBeenCalledTimes(before)
+      await act(async () => {
+        onChange([{ revision: 'other-reader', event: 'chat_members_changed', payload: { chat_id: 'source-1', user_id: 'another-user', last_read_seq: 42 } }])
+        await vi.advanceTimersByTimeAsync(350)
+      })
+      expect(settings).toHaveBeenCalledTimes(before)
+      await act(async () => {
+        onChange([{ revision: '2', event: 'chat_members_changed', payload: { chat_id: 'source-1', user_id: 'viewer-1' } }])
+        await vi.advanceTimersByTimeAsync(350)
+      })
+      expect(settings).toHaveBeenCalledTimes(before + 1)
+      expect(settings).toHaveBeenLastCalledWith('topic-1')
+    } finally { vi.useRealTimers() }
   })
 
   it('uses public Gugu numbers in direct chat message profile popovers', async () => {
