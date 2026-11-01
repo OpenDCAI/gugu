@@ -1,7 +1,7 @@
 import { parseConversationLink } from '@gugu/core/shared/ui/guguLink';
 import type { TranscriptItem, TranscriptTurn } from '../acp/models/turns/turn';
 import { isGuguServer } from '../acp/models/turns/opened-outputs';
-import type { McpToolCall, ToolCallItem } from '../acp/models/turns/tool-calls';
+import { catalogCall, type McpToolCall, type ToolCallItem } from '../acp/models/turns/tool-calls';
 import { readDeliveryEnvelope, type DeliveryReadFacts } from '@gugu/core/local/agent/deliveryEnvelope';
 
 export type ReplyProcess = { thinkingMs: number; thoughts: number; tools: number; commands: number };
@@ -39,7 +39,13 @@ function isRootGuguTool(item: ToolCallItem, tool: string): item is McpToolCall {
 }
 
 function isRootSend(item: ToolCallItem): item is McpToolCall {
-  return isRootGuguTool(item, 'message_send') || isRootGuguTool(item, 'widget_send');
+  if (item.kind !== 'mcp-tool-call' || !isGuguServer(item.server) || item.parentToolCallId) return false;
+  const tool = catalogCall(item.tool, item.rawInput)?.tool ?? item.tool;
+  return tool === 'message_send' || tool === 'widget_send';
+}
+
+function sendArgs(item: McpToolCall): Record<string, unknown> {
+  return (catalogCall(item.tool, item.rawInput)?.args ?? JSON.parse(item.rawInput ?? '')) as Record<string, unknown>;
 }
 
 /** Where an agent's own send went, as the session timeline names it. */
@@ -110,7 +116,7 @@ export function agentSendOf(item: TranscriptItem, turn?: TranscriptTurn): AgentS
   if (!relay && !isRootSend(item)) return null;
   let args: Record<string, unknown>;
   try {
-    args = JSON.parse(item.rawInput ?? '') as Record<string, unknown>;
+    args = sendArgs(item);
   } catch { return null; }
   if (!args || typeof args.text !== 'string' || !args.text.trim()) return null;
   if (relay) return { text: args.text, to: { kind: 'session', count: Array.isArray(args.to) ? args.to.length : 0 } };
@@ -121,7 +127,7 @@ export function agentSendOf(item: TranscriptItem, turn?: TranscriptTurn): AgentS
 export function replySend(item: ToolCallItem, facts: DeliveryReadFacts): { text: string; replyToMessageId?: string } | null {
   if (!isRootSend(item) || !item.rawInput) return null;
   try {
-    const args = JSON.parse(item.rawInput) as Record<string, unknown>;
+    const args = sendArgs(item);
     if (!sourceChatMatches(facts, args.chat_id) || typeof args.text !== 'string' || args.whisper === true) return null;
     if (args.reply_to_message_id !== undefined && (typeof args.reply_to_message_id !== 'string'
       || args.reply_to_message_id.replace(/^msg:/, '') !== facts.messageId?.replace(/^msg:/, ''))) return null;
@@ -135,7 +141,7 @@ export function successfulMessageSend(item: ToolCallItem): { text: string; id: s
   const id = sentMessageId(item);
   if (!id) return null;
   try {
-    const args = JSON.parse(item.rawInput) as Record<string, unknown>;
+    const args = sendArgs(item);
     if (!(typeof args.chat_id === 'string' && args.chat_id && typeof args.text === 'string')) return null;
     const replyTo = typeof args.reply_to_message_id === 'string' ? args.reply_to_message_id.replace(/^msg:/, '') : '';
     return replyTo ? { id, text: args.text, chat: args.chat_id, replyTo } : { id, text: args.text, chat: args.chat_id };
@@ -237,9 +243,6 @@ export function filterTurnsForChat(turns: readonly TranscriptTurn[], chatId: str
         (segment) => segment.facts?.route === 'chat' && sourceChatMatches(segment.facts, chatId),
       );
     }
-    if (!('toolCallId' in item) || !successfulMessageSend(item) || !item.rawInput) return false;
-    try {
-      return (JSON.parse(item.rawInput) as { chat_id?: unknown }).chat_id === chatId;
-    } catch { return false; }
+    return 'toolCallId' in item && successfulMessageSend(item)?.chat === chatId;
   }));
 }
