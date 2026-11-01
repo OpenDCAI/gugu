@@ -125,5 +125,9 @@
   "apps/desktop/src/hooks/useNativeConversationChat.ts::useNativeConversationChat": {
     "how": "derived",
     "why": "The current workspace session resolves its owned agent and canonical DM from current account snapshots, with no remembered selection from an earlier workspace."
+  },
+  "apps/desktop/src/hooks/useRoomAuthorityRevision.ts::useRoomAuthorityRevision": {
+    "how": "no-own-state",
+    "why": "State is only a monotonic invalidation counter, not a permission or roster reading. Consumers reload settings for their current chat; subscriptions and pending timers are replaced when the chat, source group, or viewer changes."
   }
 }
