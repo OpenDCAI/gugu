@@ -1458,7 +1458,7 @@ export class SessionCell {
     }
     if (outcome.kind !== 'cancelled' || outcome.reason === 'interrupted_for_message') {
       this.pendingNativeSteers = [];
-    }
+    } else this.returnPendingNativeSteers();
     // 任何一次落定都先把「可改口」收回:只有紧接着的 prompt-边界分类会再把它打开。
     // ❌ 不许让上一次的暂定状态活过这一次 —— 那就又变回一个时间窗了。
     this.lastFailureProvisional = false;
@@ -2114,6 +2114,7 @@ export class SessionCell {
         content: promptRequest.prompt,
       });
       if (nativeSteer) {
+        const admissionGeneration = this.nativeAdmissionGeneration;
         let outcome: 'injected' | 'promptRequired';
         try {
           outcome = await this.requestSteering(promptRequest, { requestId, message: submittedMessage });
@@ -2156,7 +2157,10 @@ export class SessionCell {
         // The adapter has the input before a released human tool creates its next boundary.
         this.deps.callbacks?.onPromptSteered?.();
         // A stop can race the admission receipt; it must retain that accepted input too.
-        if (this.closeRequested) this.returnPendingNativeSteers();
+        if (this.closeRequested || admissionGeneration !== this.nativeAdmissionGeneration) {
+          this.returnPendingNativeSteers();
+          this.releaseDispatch();
+        }
         confirmPreparation();
         admit();
         // Admission records this input; the primary ACP stream still owns foreground completion.
