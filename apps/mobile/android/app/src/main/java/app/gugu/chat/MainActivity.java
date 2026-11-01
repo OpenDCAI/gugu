@@ -21,6 +21,7 @@ public class MainActivity extends BridgeActivity {
             setIntent(new Intent(Intent.ACTION_MAIN));
         }
         registerPlugin(GuguAuthStoragePlugin.class);
+        registerPlugin(GuguPreviewOrigins.class);
         registerPlugin(GuguAppUpdatePlugin.class);
         registerPlugin(GuguSharePlugin.class);
         registerPlugin(GuguAppStorePlugin.class);
