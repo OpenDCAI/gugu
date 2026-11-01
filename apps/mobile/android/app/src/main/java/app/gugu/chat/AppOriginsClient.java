@@ -30,8 +30,11 @@ import java.util.Map;
 public class AppOriginsClient extends BridgeWebViewClient {
     private static final String TAG = "GuguAppOrigins";
 
+    private final Bridge bridge;
+
     public AppOriginsClient(Bridge bridge) {
         super(bridge);
+        this.bridge = bridge;
     }
 
     @Override
@@ -47,6 +50,9 @@ public class AppOriginsClient extends BridgeWebViewClient {
                 return AppOrigins.empty(204, Collections.emptyMap());
             }
         }
+        // A chat folder's HTML document and the files beside it (GuguPreviewOrigins): answered by the gugu page.
+        String previewId = GuguPreviewOrigins.previewOf(host);
+        if (previewId != null && "https".equals(url.getScheme())) return GuguPreviewOrigins.serve(bridge, previewId, request);
         String appId = AppOrigins.appOf(host);
         if (appId != null && "https".equals(url.getScheme())) return AppOrigins.serve(view.getContext(), appId, url.getPath());
         return super.shouldInterceptRequest(view, request);

@@ -1,6 +1,6 @@
 import type { MessageItem } from '@gugu/core/shared/types/chat'
 import { messageActionItems } from './messageActionItems'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { bindFileViewerMenu } from '../preview/file-viewer-menu'
 import { quoteChatFile, selectedTextQuote } from '../preview/quote-preview-file'
 import type { ParsedAttachment } from '@gugu/core/shared/ui/attachmentModels'
@@ -17,6 +17,7 @@ import { useToast } from '../toastContext'
 import { MessageFilePreviewPanel } from './MessageFilePreviewPanel'
 import { classifyDocumentPreview, documentPreviewNeedsFetch, type DocumentPreviewKind } from './documentPreview'
 import { savedFileName } from '../../session/shared/extensions/app-runtime-protocol'
+import { chatFolderPreview } from '../preview/chat-folder-preview-registration'
 
 const fileOpenLog = rendererLogger('chat/file-open')
 
@@ -86,6 +87,8 @@ export function MessageFilePreview({ file, mobile = false, fill = false, tabbed 
     // eslint-disable-next-line react-hooks/exhaustive-deps -- source identity retains the menu snapshot across unrelated renders
   }, [key, file.fileName, message?.id, kind, mobile, toast])
   const [read, setRead] = useState<PreviewRead | null>(null)
+  // A chat folder's HTML document is given its folder: the files its page names beside it are shown (preview-protocol).
+  const [besideOffline, setBesideOffline] = useState<{ machine: string; deviceId: string } | null>(null)
   // The machine a failed read waits for: when the device list sees it go from off to on, the file is read again by itself.
   const [waitingFor, setWaitingFor] = useState<string | null>(null)
   const [attempt, setAttempt] = useState(0)
@@ -95,8 +98,19 @@ export function MessageFilePreview({ file, mobile = false, fill = false, tabbed 
     if (!waitingFor) { seenOff.current = false; return }
     const online = devices.some((device) => device.device_id === waitingFor && isDeviceOnline(device.status))
     if (!online) { seenOff.current = true; return }
-    if (seenOff.current) { seenOff.current = false; setWaitingFor(null); setAttempt((n) => n + 1) }
+    if (seenOff.current) { seenOff.current = false; setWaitingFor(null); setBesideOffline(null); setAttempt((n) => n + 1) }
   }, [devices, waitingFor])
+  const itemId = file.source.kind === 'item' ? file.source.itemId : null
+  const registerHtml = useMemo(() => {
+    if (itemId === null) return undefined
+    const style = getComputedStyle(document.documentElement)
+    return chatFolderPreview(itemId, {
+      unavailable: t('attachmentView.besideUnavailable'),
+      outside: t('attachmentView.besideOutside'),
+      offline: t('attachmentView.besideOffline'),
+      palette: { surface: style.getPropertyValue('--bg-secondary').trim(), border: style.getPropertyValue('--border-strong').trim(), text: style.getPropertyValue('--text-secondary').trim() },
+    }, (holder) => { setBesideOffline(holder); setWaitingFor(holder.deviceId) })
+  }, [itemId, t])
   useEffect(() => {
     activeKey.current = key
     let live = true, release: PreviewRead['release']
@@ -154,5 +168,7 @@ export function MessageFilePreview({ file, mobile = false, fill = false, tabbed 
   }
   const actions = messageActionItems({ isRetracted: !!message?.retracted_at, content: message?.content ?? null, onForward: message && onForward ? () => onForward(message) : undefined, onDownload: missing ? undefined : download }, t)
   if (kind === 'image' && !read?.error) return null
-  return <MessageFilePreviewPanel viewerRef={viewerRef} fill={fill} tabbed={tabbed} mobile={mobile} file={file} kind={kind} content={read?.content ?? null} videoUrl={read?.videoUrl} onVideoError={renewVideo} loading={kind !== 'unsupported' && read === null} error={read?.error} onBack={onBack} onClose={onClose} actions={actions} onOpenExternal={missing || kind === 'unsupported' || file.document ? undefined : openExternal} />
+  const notice = besideOffline ? t('attachmentView.besideOfflineNotice', { machine: besideOffline.machine || t('attachmentView.holderMachine') }) : undefined
+  // `key`: a read again (the machine back) gives the HTML preview a new registration, so its files are asked for again.
+  return <MessageFilePreviewPanel key={attempt} notice={notice} registerHtml={registerHtml} viewerRef={viewerRef} fill={fill} tabbed={tabbed} mobile={mobile} file={file} kind={kind} content={read?.content ?? null} videoUrl={read?.videoUrl} onVideoError={renewVideo} loading={kind !== 'unsupported' && read === null} error={read?.error} onBack={onBack} onClose={onClose} actions={actions} onOpenExternal={missing || kind === 'unsupported' || file.document ? undefined : openExternal} />
 }
