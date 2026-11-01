@@ -1,4 +1,4 @@
-import { guguLinkScheme } from '@gugu/core/shared/ui/guguLink';
+import { FILE_LINK_IN_TEXT, guguLinkScheme, parseGroupFileLink } from '@gugu/core/shared/ui/guguLink';
 /**
  * The one markdown dialect of Gugu.
  *
@@ -58,7 +58,7 @@ export function normalizeMarkdownSourceWithLines(text: string): { text: string; 
 
 // CJK sentence punctuation ends a bare URL: GFM autolinks would otherwise swallow `。` / `，` into the link.
 const CJK_URL_STOPS = new Set('。．，、？！：；（）【】「」『』〈〉《》');
-const BARE_URL = /^(https?:\/\/|mailto:|www\.)/i;
+const BARE_URL = /^(https?:\/\/|mailto:|www\.|gugu-file:\/\/)/i;
 
 function remarkCjkAutolinkBoundary() {
   return (tree: Root) => {
@@ -83,6 +83,40 @@ function remarkCjkAutolinkBoundary() {
   };
 }
 
+/**
+ * A bare group file link in prose is a link, the same node `[…](gugu-file://…)` parses to: the tools hand agents the
+ * link bare, and GFM autolinks only `http(s)://`, `www.` and mail. Trailing sentence punctuation stays prose, as GFM
+ * leaves it out of an autolink; CJK punctuation is cut by the autolink boundary that runs next.
+ */
+function remarkBareFileLinks() {
+  return (tree: Root) => {
+    const visit = (parent: Parent) => {
+      parent.children = parent.children.flatMap((child) => {
+        const node = child as Nodes;
+        if (node.type === 'text') return bareFileLinks(node) as RootContent[];
+        if ('children' in node && node.type !== 'link' && node.type !== 'linkReference') visit(node as Parent);
+        return [child];
+      });
+    };
+    visit(tree);
+  };
+}
+
+function bareFileLinks(node: Text): Array<Text | Link> {
+  const out: Array<Text | Link> = [];
+  let at = 0;
+  for (const match of node.value.matchAll(FILE_LINK_IN_TEXT)) {
+    const url = match[0].replace(/[.,:;!?]+$/, '');
+    if (!parseGroupFileLink(url)) continue;
+    if (match.index > at) out.push({ type: 'text', value: node.value.slice(at, match.index) });
+    out.push({ type: 'link', url, children: [{ type: 'text', value: url }] });
+    at = match.index + url.length;
+  }
+  if (out.length === 0) return [node];
+  if (at < node.value.length) out.push({ type: 'text', value: node.value.slice(at) });
+  return out;
+}
+
 function isBareUrl(link: Link): boolean {
   const only = link.children[0];
   return link.children.length === 1 && only?.type === 'text' && only.value === link.url && BARE_URL.test(link.url);
@@ -98,6 +132,7 @@ const GRAMMAR: PluggableList = [
   remarkCjkFriendly,
   [remarkGfm, { singleTilde: false }],
   [remarkCjkFriendlyGfmStrikethrough, { singleTilde: false }],
+  remarkBareFileLinks,
   remarkCjkAutolinkBoundary,
   [remarkMath, { singleDollarTextMath: true }],
   remarkPandocDollarMath,
