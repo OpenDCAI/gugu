@@ -41,6 +41,7 @@ import { action, computed, makeObservable, observable, reaction, runInAction, wh
 import { endSessionLife, forkSessionLife, readSessionLife, sessionLifeView, startSessionLife, stopSessionLife } from '../stores/session-life-views';
 import { ACP_START_FAILED, type LifeView } from '@shared/core/sessions/session-life';
 import { sendThroughCustody } from './queue-native-input';
+import { sessionInputBubbles } from '@/lib/sessionInputOutbox';
 import { batch } from 'solid-js';
 import { AcpLiveSession, AcpStartError, asValueSource } from '@renderer/lib/acp/acp-live-session';
 import { getAcpRuntimeClient } from '@renderer/lib/acp/runtime-client';
@@ -136,6 +137,12 @@ export class AcpChatStore {
   /** Life views up to this version answered an earlier attempt: a retry does not show them again. */
   private _lifeRetriedVersion = 0;
   private _unwatchLife: (() => void) | null = null;
+  private _unwatchLifeHead: (() => void) | null = null;
+  /**
+   * The custody row the transcript draws as the next turn (`pendingPrompt`), while it waits for that turn: from the
+   * send on it sits where its turn will be, ❌ first in the tray above the composer and then up in the transcript.
+   */
+  transcriptPendingId: string | null = null;
   /**
    * #6552 在飞的开场(`_runBootstrap`)数。>0 且还没挂上会话 = 引擎会话在起:这段里模型 / 强度照样能选 ——
    * 选择交给运行时,由启动在 `session/new` 之后设模型/强度那一步采用。计数而不是布尔:重挂 / 重试会在
@@ -300,6 +307,7 @@ export class AcpChatStore {
       historyLoading: observable,
       _loadError: observable.ref,
       _lifeRetriedVersion: observable,
+      transcriptPendingId: observable,
       loadError: computed,
       _bootstrapsInFlight: observable,
       starting: computed,
@@ -762,6 +770,27 @@ export class AcpChatStore {
     this._loadError = error;
   }
 
+  /** The queue's head, still on its way, is the next turn: the transcript draws it (and its placeholder header) there. */
+  private _drawLifeHead(view: LifeView | null): void {
+    const session = this.chatState.session;
+    const drawn = this.transcriptPendingId;
+    const bubbles = view ? sessionInputBubbles([], view.pending.items, view.kind) : [];
+    const head = bubbles[0]?.state === 'sending' ? bubbles[0] : null;
+    runInAction(() => {
+      // Gone (its turn took it) or no longer on its way (failed / held): it is not the transcript's any more.
+      if (drawn && head?.id !== drawn) {
+        this.transcriptPendingId = null;
+        if (session.state.pendingPrompt?.id === drawn) { session.setPendingPrompt(null); this._syncMessageCount(); }
+      }
+      if (!head || this.chatState.transcript.state.activeTurnSnapshot) return;
+      if (session.state.pendingPrompt && session.state.pendingPrompt.id !== head.id) return;
+      this.transcriptPendingId = head.id;
+      if (session.state.pendingPrompt) return;
+      session.setPendingPrompt({ id: head.id, text: head.text, sentAt: Date.now() });
+      this._syncMessageCount();
+    });
+  }
+
   private _lifeFailure(): LifeView['failure'] {
     const view = sessionLifeView(this.runtimeSessionId);
     return view?.kind === 'failed' && view.version > this._lifeRetriedVersion ? view.failure : null;
@@ -781,6 +810,9 @@ export class AcpChatStore {
       this.historyLoading = false;
       this._syncMessageCount();
     }, { fireImmediately: true });
+    // A history seed may drop the drawn row (the transcript clears `pendingPrompt` on new committed turns): redraw it.
+    this._unwatchLifeHead = reaction(() => [sessionLifeView(this.runtimeSessionId), this.transcriptRevision] as const,
+      ([view]) => this._drawLifeHead(view), { fireImmediately: true });
     void this._open();
   }
 
@@ -1394,6 +1426,8 @@ export class AcpChatStore {
     this._unsubs.splice(0).forEach((unsub) => unsub());
     this._unwatchLife?.();
     this._unwatchLife = null;
+    this._unwatchLifeHead?.();
+    this._unwatchLifeHead = null;
     this._setParkWatch(null);
     this._unwatchMachineLink?.();
     this._unwatchMachineLink = null;

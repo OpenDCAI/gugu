@@ -14,13 +14,16 @@ import { messageForUser } from '@/lib/userFacingError'
  * The person's inputs not yet in the transcript, each drawn from its one custody owner (`sessionInputBubbles`):
  * the sender outbox row (shown while `waitingForConnection`), then the host's session_pending row of the session's `life`.
  */
-export function SessionInputQueue({ sessionId, waitingForConnection, life = null }: {
+export function SessionInputQueue({ sessionId, waitingForConnection, life = null, inTranscript = null }: {
   sessionId: string; waitingForConnection: boolean; life?: LifeView | null
+  /** The row the transcript already draws as its next turn: one place per message. */
+  inTranscript?: string | null
 }) {
   const pending = useQueuedSessionInputs(sessionId)
   const { t } = useTranslation('messaging')
   const [retryError, setRetryError] = useState<string | null>(null)
   const bubbles = sessionInputBubbles(waitingForConnection ? pending : [], life?.pending.items ?? [], life?.kind ?? null)
+    .filter(bubble => bubble.id !== inTranscript)
   if (!bubbles.length && !retryError) return null
   const retry = async () => {
     setRetryError(null)

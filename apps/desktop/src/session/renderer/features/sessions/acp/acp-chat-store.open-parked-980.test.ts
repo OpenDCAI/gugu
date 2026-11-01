@@ -45,20 +45,25 @@ const life = vi.hoisted(() => ({
   fork: vi.fn(async (_fork: unknown) => {}),
   end: vi.fn(async (_forkId: string) => {}),
   settle: (_sessionId: string, _kind: 'ready' | 'failed', _failure?: Failure) => {},
+  /** The host's view while it starts the session, with its custody rows. */
+  pend: (_sessionId: string, _kind: 'starting' | 'ready' | 'failed', _items: PendingRow[]) => {},
   /** Sessions whose view the page asked for (the real mirror reads the host on the first ask). */
   viewed: new Set<string>(),
 }));
 type Failure = { at: string; message: string; cause: { name: string; message: string; data?: string } };
+type PendingRow = { seq: number; messageId: string; preview: string; text: string; kind: 'ordinary'; state: 'queued' | 'dispatching' | 'accepted' | 'failed' | 'unknown'; failure: string | null };
 vi.mock('../stores/session-life-views', async () => {
   const { observable, runInAction } = await import('mobx');
-  type View = { kind: string; version: number; failure: Failure | null };
+  type View = { kind: string; version: number; failure: Failure | null; pending: { items: PendingRow[] } };
   const views = observable.map<string, View>();
   life.settle = (sessionId, kind, failure) => runInAction(() =>
-    views.set(sessionId, { kind, version: (views.get(sessionId)?.version ?? 0) + 1, failure: failure ?? null }));
+    views.set(sessionId, { kind, version: (views.get(sessionId)?.version ?? 0) + 1, failure: failure ?? null, pending: { items: [] } }));
+  life.pend = (sessionId, kind, items) => runInAction(() =>
+    views.set(sessionId, { kind, version: (views.get(sessionId)?.version ?? 0) + 1, failure: null, pending: { items } }));
   return {
     sessionLifeView: (sessionId: string) => { life.viewed.add(sessionId); return views.get(sessionId) ?? null; },
     readSessionLife: async (sessionId: string) => {
-      if (!views.has(sessionId)) runInAction(() => views.set(sessionId, { kind: 'dormant', version: 0, failure: null }));
+      if (!views.has(sessionId)) runInAction(() => views.set(sessionId, { kind: 'dormant', version: 0, failure: null, pending: { items: [] } }));
       return views.get(sessionId)!;
     },
     startSessionLife: (sessionId: string) => life.start(sessionId),
@@ -365,6 +370,39 @@ describe('#980 照旧当场起的', () => {
     life.settle(store.sessionId, 'ready');
     await vi.waitFor(() => expect(store.session).not.toBeNull());
     expect(create).toHaveBeenCalledWith(store.sessionId);
+  });
+});
+
+describe('the first message keeps one place while its session starts', () => {
+  const row = (state: PendingRow['state']): PendingRow =>
+    ({ seq: 1, messageId: 'm-first', preview: '说一句你好', text: '说一句你好', kind: 'ordinary', state, failure: state === 'failed' ? 'boom' : null });
+
+  it('the transcript draws the queued head as its next turn from the start, not the tray above the composer', async () => {
+    const { store } = storeFor({ providerId: 'claude', initialQueue: [{ text: '说一句你好', origin: 'manual' }] });
+    store.bootstrap();
+    life.pend(store.sessionId, 'starting', [row('queued')]);
+    await vi.waitFor(() => expect(store.chatState.session.state.pendingPrompt?.id).toBe('m-first'));
+    expect(store.chatState.session.state.pendingPrompt?.text).toBe('说一句你好');
+    expect(store.transcriptPendingId, 'the tray leaves it out').toBe('m-first');
+    expect(store.isEmpty).toBe(false);
+
+    // A history seed drops it (the transcript clears pendingPrompt on new committed turns): it is drawn again.
+    runInAction(() => store.chatState.session.setPendingPrompt(null));
+    store.transcriptRevision += 1;
+    await vi.waitFor(() => expect(store.chatState.session.state.pendingPrompt?.id).toBe('m-first'));
+
+    life.pend(store.sessionId, 'ready', [row('accepted')]);
+    await vi.waitFor(() => expect(store.transcriptPendingId).toBeNull());
+  });
+
+  it('a row that fails goes back to the tray, where its failure and retry are', async () => {
+    const { store } = storeFor({ providerId: 'claude', initialQueue: [{ text: '说一句你好', origin: 'manual' }] });
+    store.bootstrap();
+    life.pend(store.sessionId, 'starting', [row('dispatching')]);
+    await vi.waitFor(() => expect(store.transcriptPendingId).toBe('m-first'));
+    life.pend(store.sessionId, 'starting', [row('failed')]);
+    await vi.waitFor(() => expect(store.transcriptPendingId).toBeNull());
+    expect(store.chatState.session.state.pendingPrompt).toBeNull();
   });
 });
 

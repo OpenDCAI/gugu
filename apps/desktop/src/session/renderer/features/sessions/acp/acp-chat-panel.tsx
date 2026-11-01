@@ -1680,8 +1680,8 @@ const ComposerForStore = observer(function ComposerForStore({
         </div>
       ) : null}
       <NeedsYouSlot />
-      {/* While the page is empty its loading overlay carries the stage instead. */}
-      {life?.stage && !(store.historyLoading && store.isEmpty) ? (
+      {/* While the page is empty its loading overlay carries the stage instead; a drawn next turn carries its own placeholder. */}
+      {life?.stage && !(store.historyLoading && store.isEmpty) && !store.transcriptPendingId ? (
         <div className="flex justify-center px-3 py-1 text-xs text-foreground-muted" data-life-stage={life.stage.at}>
           <LoadingIndicator ariaLabel={lifeStageLabel(life.stage, translate)} label={lifeStageLabel(life.stage, translate)} />
         </div>
@@ -1692,7 +1692,7 @@ const ComposerForStore = observer(function ComposerForStore({
         </div>
       ) : null}
       {/* Every send of a task page is in custody until the transcript has it, so its bubbles always show here. */}
-      <SessionInputQueue sessionId={store.runtimeSessionId} waitingForConnection life={life} />
+      <SessionInputQueue sessionId={store.runtimeSessionId} waitingForConnection life={life} inTranscript={store.transcriptPendingId} />
       <SessionHostQuestion sessionId={store.runtimeSessionId} session={hostSession} />
       <ChatComposer
         className={schedules.length > 0 ? sessionComposerFrameLiftClassName : undefined}
