@@ -1,7 +1,9 @@
 // @vitest-environment jsdom
 //
 // spec agent-status「附属态」:后台运行中(回合已结束、只剩后台 / 定时)= 同一枚转圈字形、动画停。
-// 判的是字形本身:animate=false 不起计时器(时间走多久都是同一帧),且那一帧就是转圈里本来就有的字形。
+// 转动在 CSS 里(.cli-spinner 字形条,合成器位移):这里判组件的契约 —— 永远不起计时器;整套字形都在条上;
+// 看不见(窗口、文档、所在页面、视口)就把暂停开关打开,看得见就关上。真实的动画时钟在浏览器用例里判
+// (tests/browser/running-motion.test.tsx)。
 import { createElement, act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -10,6 +12,8 @@ import { ANIMATION_WINDOW_SEEN_EVENT } from '@gugu/session-shared/animation-visi
 import { PageShownContext } from '@renderer/app/recent-session-pages';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
+const FRAMES_1 = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 
 let container: HTMLDivElement;
 let root: Root;
@@ -33,62 +37,54 @@ afterEach(() => {
 function render(props: { variant?: '1' | '2'; animate?: boolean }): void {
   act(() => root.render(createElement(CLISpinner, props)));
 }
+const spinner = () => container.querySelector<HTMLElement>('.cli-spinner');
+const paused = () => spinner()?.style.getPropertyValue('--chat-shimmer-viewport-paused') === 'paused';
 
-/** 连续取样 `ticks` 个 80ms 帧,返回看到过的所有字形。 */
-function sample(ticks: number): string[] {
-  const seen: string[] = [];
-  for (let i = 0; i < ticks; i += 1) {
-    seen.push(container.textContent ?? '');
-    act(() => vi.advanceTimersByTime(80));
-  }
-  return seen;
-}
-
-describe('CLISpinner animate', () => {
-  it.each(['1', '2'] as const)('variant %s: native minimize stops the timer and restore resumes it', (variant) => {
+describe('CLISpinner', () => {
+  it.each(['1', '2'] as const)('variant %s: the strip carries every frame and no timer ever runs', (variant) => {
     render({ variant });
-    expect(new Set(sample(3)).size).toBeGreaterThan(1);
-    act(() => window.dispatchEvent(new CustomEvent(ANIMATION_WINDOW_SEEN_EVENT, { detail: false })));
-    const paused = container.textContent;
+    const strip = container.querySelector('.cli-spinner__strip')!;
+    expect(strip.children.length).toBe(variant === '1' ? 10 : 24);
+    expect(spinner()!.style.getPropertyValue('--cli-spinner-frames')).toBe(String(strip.children.length));
+    act(() => vi.advanceTimersByTime(5000));
     expect(vi.getTimerCount()).toBe(0);
-    expect(new Set(sample(30))).toEqual(new Set([paused]));
-    act(() => window.dispatchEvent(new CustomEvent(ANIMATION_WINDOW_SEEN_EVENT, { detail: true })));
-    expect(vi.getTimerCount()).toBe(1);
-    expect(new Set(sample(3)).size).toBeGreaterThan(1);
+    expect(paused()).toBe(false);
   });
 
-  it('does not start while its native window is hidden, including on remount', () => {
+  it('native minimize pauses it and restore resumes it, including on remount', () => {
     render({});
     act(() => window.dispatchEvent(new CustomEvent(ANIMATION_WINDOW_SEEN_EVENT, { detail: false })));
+    expect(paused()).toBe(true);
     render({ variant: '2' });
-    expect(vi.getTimerCount()).toBe(0);
+    expect(paused()).toBe(true);
     act(() => window.dispatchEvent(new CustomEvent(ANIMATION_WINDOW_SEEN_EVENT, { detail: true })));
-    expect(new Set(sample(3)).size).toBeGreaterThan(1);
+    expect(paused()).toBe(false);
+    expect(vi.getTimerCount()).toBe(0);
   });
 
-  it('stops on document visibility changes and resumes when visible', () => {
+  it('pauses on document visibility changes and resumes when visible', () => {
     let hidden = false;
     vi.spyOn(document, 'hidden', 'get').mockImplementation(() => hidden);
     render({});
     hidden = true;
     act(() => document.dispatchEvent(new Event('visibilitychange')));
-    expect(vi.getTimerCount()).toBe(0);
+    expect(paused()).toBe(true);
     hidden = false;
     act(() => document.dispatchEvent(new Event('visibilitychange')));
-    expect(new Set(sample(3)).size).toBeGreaterThan(1);
+    expect(paused()).toBe(false);
   });
 
-  it('uses the existing retained page visibility and resumes on return', () => {
+  it('uses the retained page visibility and resumes on return', () => {
     const page = (shown: boolean) => createElement(PageShownContext.Provider, { value: shown }, createElement(CLISpinner));
     act(() => root.render(page(true)));
-    expect(new Set(sample(3)).size).toBeGreaterThan(1);
+    expect(paused()).toBe(false);
     act(() => root.render(page(false)));
-    expect(vi.getTimerCount()).toBe(0);
+    expect(paused()).toBe(true);
     act(() => root.render(page(true)));
-    expect(new Set(sample(3)).size).toBeGreaterThan(1);
+    expect(paused()).toBe(false);
   });
 
-  it('uses the shared viewport observer to stop and restart offscreen motion', () => {
+  it('uses the shared viewport observer to pause and restart offscreen motion', () => {
     const iframe = document.createElement('iframe');
     document.body.append(iframe);
     const doc = iframe.contentDocument!;
@@ -102,71 +98,45 @@ describe('CLISpinner animate', () => {
       unobserve = unobserve;
     } });
     render({});
-    const target = container.firstElementChild!;
-    expect(vi.getTimerCount()).toBe(0);
-    const visible = (isIntersecting: boolean) => act(() => intersect([{ target, isIntersecting } as IntersectionObserverEntry], {} as IntersectionObserver));
-    visible(true);
-    expect(new Set(sample(3)).size).toBeGreaterThan(1);
+    const target = spinner()!;
+    const visible = (isIntersecting: boolean) => act(() => intersect([{ target, isIntersecting } as unknown as IntersectionObserverEntry], {} as IntersectionObserver));
     visible(false);
-    expect(vi.getTimerCount()).toBe(0);
+    expect(paused()).toBe(true);
     visible(true);
-    expect(vi.getTimerCount()).toBe(1);
+    expect(paused()).toBe(false);
     act(() => root.render(null));
     expect(unobserve).toHaveBeenCalledWith(target);
-    expect(vi.getTimerCount()).toBe(0);
     document.body.append(container);
     iframe.remove();
   });
 
-  it('uses its portal document rather than the hidden main document', () => {
-    render({});
+  it('follows its portal document rather than the hidden main document', () => {
     act(() => window.dispatchEvent(new CustomEvent(ANIMATION_WINDOW_SEEN_EVENT, { detail: false })));
     const iframe = document.createElement('iframe');
     document.body.append(iframe);
     const portalDoc = iframe.contentDocument!;
     vi.spyOn(portalDoc, 'hidden', 'get').mockReturnValue(false);
-    const timer = vi.spyOn(portalDoc.defaultView!, 'setInterval').mockImplementation(window.setInterval.bind(window));
-    vi.spyOn(portalDoc.defaultView!, 'clearInterval').mockImplementation(window.clearInterval.bind(window));
-    act(() => root.render(null));
     portalDoc.body.append(container);
     render({});
-    expect(new Set(sample(3)).size).toBeGreaterThan(1);
-    expect(timer).toHaveBeenCalled();
+    expect(paused()).toBe(false);
     act(() => portalDoc.defaultView!.dispatchEvent(new CustomEvent(ANIMATION_WINDOW_SEEN_EVENT, { detail: false })));
-    expect(vi.getTimerCount()).toBe(0);
+    expect(paused()).toBe(true);
     act(() => portalDoc.defaultView!.dispatchEvent(new CustomEvent(ANIMATION_WINDOW_SEEN_EVENT, { detail: true })));
-    expect(new Set(sample(3)).size).toBeGreaterThan(1);
+    expect(paused()).toBe(false);
     act(() => root.render(null));
     document.body.append(container);
     iframe.remove();
   });
 
-  it.each(['1', '2'] as const)('variant %s: animate=false 画同一帧、不起计时器', (variant) => {
+  it.each(['1', '2'] as const)('variant %s: animate=false draws one still glyph from the running set', (variant) => {
     render({ variant, animate: false });
-    expect(vi.getTimerCount(), '静止的字形不该有计时器').toBe(0);
-    const seen = sample(30);
-    expect(new Set(seen).size).toBe(1);
-    expect(container.querySelector('[data-animate="false"]')).not.toBeNull();
+    expect(container.querySelector('.cli-spinner')).toBeNull();
+    expect(container.querySelector('[data-animate="false"]')!.textContent).toBe('⠋');
+    expect(FRAMES_1).toContain(container.textContent);
+    expect(vi.getTimerCount()).toBe(0);
   });
 
-  it.each(['1', '2'] as const)('variant %s: 静止的那一帧是转圈本来就会画的字形(同一枚字形)', (variant) => {
-    render({ variant, animate: true });
-    // 阳控:在动的时候确实会换帧 —— 否则上面「只有一帧」的判据平凡为真。
-    const animated = sample(30);
-    expect(new Set(animated).size).toBeGreaterThan(1);
-    expect(container.querySelector('[data-animate]')).toBeNull();
-
-    render({ variant, animate: false });
-    const paused = container.textContent ?? '';
-    expect(animated).toContain(paused);
-  });
-
-  it('默认仍在动(没有附属态的 working = 基础态画法)', () => {
-    render({ variant: '2' });
-    expect(new Set(sample(30)).size).toBeGreaterThan(1);
-  });
-
-  it.each([true, false])('animate=%s: 字形不上状态色(owner 2026-09-26:转圈回到墨色)', (animate) => {
+  it.each([true, false])('animate=%s: the glyph keeps the ink colour (owner 2026-09-26)', (animate) => {
     render({ variant: '2', animate });
     const glyph = container.firstElementChild as HTMLElement;
     expect(glyph.className).toContain('text-foreground/60');

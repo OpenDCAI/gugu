@@ -78,6 +78,25 @@ export function subscribeChatSummaries(listener: () => void): () => void {
   return () => window.removeEventListener(EVENT, listener)
 }
 
+/**
+ * 会话页:对话的名字变了(名字、备注、公开号,chat-name.ts 认的就这三样)。预览、未读每条消息都在变,只看它们
+ * 不通知 —— 每个对话记录都按名字重排版,一条消息让全部对话记录重排一遍。
+ */
+export function subscribeChatNames(listener: () => void): () => void {
+  let seen = chatNamesKey(read())
+  return subscribeChatSummaries(() => {
+    const next = chatNamesKey(read())
+    if (next === seen) return
+    seen = next
+    listener()
+  })
+}
+
+function chatNamesKey(summaries: Summaries | null): string {
+  if (!summaries) return ''
+  return [...summaries].map(([id, chat]) => `${id}\u0000${chat.name ?? ''}\u0000${chat.alias ?? ''}\u0000${chat.publicId ?? ''}`).join('\u0001')
+}
+
 /** 会话页(不在渲染里):这个对话的摘要;壳还没告诉过 = null,壳的列表里没有它 = 没有过消息、不知道名字。 */
 export function readChatSummary(chatId: string): ChatSummary | null {
   const summaries = read()
