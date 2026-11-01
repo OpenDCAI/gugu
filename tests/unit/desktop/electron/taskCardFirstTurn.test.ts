@@ -120,8 +120,8 @@ describe('task card first turn (gugu-dev#181)', () => {
   })
 
   it('a full group without a pending request never claims that approval will let the agent in', async () => {
-    chats.set('full', { kind: 'group', public_id: 8, name: 'Full group', members: ['owner-1'] })
-    const turn = await land('full')
+    chats.set('00000000-0000-4000-8000-000000000005', { kind: 'group', public_id: 8, name: 'Full group', members: ['owner-1'] })
+    const turn = await land('00000000-0000-4000-8000-000000000005')
     expect(turn.firstTurn).toContain(TASK_CARD_NOT_MEMBER_HINT)
     expect(turn.firstTurn).not.toContain('等待群管理员同意')
     expect(turn.firstTurn).not.toContain('要等群主同意')
