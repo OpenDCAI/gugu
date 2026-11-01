@@ -44,13 +44,11 @@ export function storedAgentRecoveries(rows: unknown[], agentIds: readonly string
   return recovered
 }
 
-export async function readStoredAgentTurnFailures(userId: string, chatId: string, threadRootId: string | null, agentIds: readonly string[]) {
-  let query = identityDb.from('gugu_device_commands')
-    .select('id,status,error,result,payload,created_at,completed_at')
-    .eq('user_id', userId).eq('type', 'agent.deliver').eq('payload->>chat_id', chatId)
-    .in('payload->>agent_user_id', [...agentIds])
-  query = threadRootId ? query.eq('payload->>thread_root_id', threadRootId) : query.is('payload->>thread_root_id', null)
-  const { data, error } = await query.order('created_at', { ascending: false }).limit(50)
+export async function readStoredAgentTurnFailures(chatId: string, threadRootId: string | null, agentIds: readonly string[]) {
+  const { data, error } = await identityDb.rpc('read_agent_turn_outcomes', {
+    p_chat_id: chatId,
+    p_thread_root_id: threadRootId,
+  })
   if (error) throw new Error(error.message)
   return { failures: storedAgentTurnFailures(data ?? [], agentIds), recovered: storedAgentRecoveries(data ?? [], agentIds) }
 }
