@@ -1156,6 +1156,9 @@ input::placeholder {
   }
 }
 
+/* The search panel's loading line: a short bar crossing under its filter row. */
+@keyframes gs-scan { from { transform: translateX(-100%); } to { transform: translateX(300%); } }
+
 @keyframes spin {
   to { transform: rotate(360deg); }
 }
