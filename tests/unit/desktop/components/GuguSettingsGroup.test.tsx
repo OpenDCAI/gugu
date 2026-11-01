@@ -108,6 +108,7 @@ describe('咕咕组 · 资料', () => {
     const open = vi.fn()
     await render(createNode(AssistantSection, { available: ['connectors', 'devices'], onOpenSection: open }), awake)
     expect(q('settings-assistant-open-channels')).toBeNull()
+    expect(q('settings-assistant-model')?.querySelector('.gg-settings-row-leading svg')).not.toBeNull()
     await clickElement(q('settings-assistant-open-connectors')!)
     await clickElement(q('settings-assistant-open-devices')!)
     expect(open.mock.calls.map((c) => c[0])).toEqual(['connectors', 'devices'])
