@@ -3,12 +3,14 @@ import { useSessionInputAccount } from '@/lib/sessionInputOutboxBridge';
 import { appendToDraft } from '@/store/chatContext';
 import { registerNativeComposer } from '@/lib/nativeComposerHandoff';
 import { useSessionSourceMessage } from './use-session-source-message';
-import { canQueueNativeInput, queueNativeInput } from './queue-native-input';
+import { canQueueNativeInput } from './queue-native-input';
 import { useConversationVisibility } from '@/components/chat/useConversationVisibility';
 import { useNativeConversationRead } from '@/hooks/useNativeConversationRead';
 import { takeTaskReveal } from '@/hooks/useSourceMessageReveal';
 import { UI_EVENTS } from '@/lib/uiEvents';
 import { SessionInputQueue } from '@/components/chat/SessionInputQueue';
+import { sessionLifeView } from '../stores/session-life-views';
+import { lifeIsStarting } from '@shared/core/sessions/session-life';
 import { NeedsYouSlot } from '@/components/needsYou/NeedsYouSlot';
 import { takeComposerCarry, useComposerVerb } from '@/lib/composerVerbBridge';
 import { useSessionMessageQuotes } from './use-session-message-quotes';
@@ -425,6 +427,7 @@ const ComposerForStore = observer(function ComposerForStore({
   onScrollToBottom?: () => void;
 }) {
   const { translate } = useSessionMessages();
+  const life = sessionLifeView(store.runtimeSessionId);
   // 这个任务给自己排的定时:有就在输入框上沿挂一条托盘放那颗芯片,输入框往上压住它的下沿(与芯片读同一份缓存)。
   const scheduleMachine = machineRegistry.machineOf(store.projectId);
   const schedules = useSessionSchedules(scheduleMachine, store.sessionId);
@@ -534,14 +537,13 @@ const ComposerForStore = observer(function ComposerForStore({
   );
 
   const handleSubmit = useCallback(
-    (value: string) => sendWhenReady(value, async (text, attachments) => { if (!await queueNativeInput(store, text, attachments)) store.submitPrompt(text, attachments); }),
+    // The store's one send entry (custody; it toasts a failure); a send that cannot be kept goes back in the draft below.
+    (value: string) => sendWhenReady(value, (text, attachments) => store.submitPrompt(text, attachments)),
     [store, sendWhenReady]
   );
 
-  const handleSubmitWhileWorking = useCallback(
-    (value: string) => sendWhenReady(value, async (text, attachments) => { if (!await queueNativeInput(store, text, attachments)) store.queuePrompt(text, attachments); }),
-    [store, sendWhenReady]
-  );
+  // While a turn runs the host queues the input behind it: the same custody path, nothing page-side.
+  const handleSubmitWhileWorking = handleSubmit;
 
   const handleStop = useCallback(() => {
     onScrollToBottom?.();
@@ -1678,7 +1680,19 @@ const ComposerForStore = observer(function ComposerForStore({
         </div>
       ) : null}
       <NeedsYouSlot />
-      <SessionInputQueue sessionId={store.runtimeSessionId} waitingForConnection={canQueueNativeInput(store)} />
+      {/* Starting with no message drawn (a drawn one's live line says it): the lifecycle's state, nothing more. */}
+      {life && lifeIsStarting(life) && !store.transcriptPendingId ? (
+        <div className="flex justify-center px-3 py-1 text-xs text-foreground-muted" data-life-stage={life.stage?.at}>
+          <LoadingIndicator ariaLabel={translate('transcript.starting')} label={translate('transcript.starting')} />
+        </div>
+      ) : null}
+      {life?.nativeSession ? (
+        <div className="px-3 py-1 text-center text-xs text-foreground-muted" role="status" data-native-session={life.nativeSession}>
+          {translate(life.nativeSession === 'preserved' ? 'chat.reloadPreserved' : 'chat.reloadReplaced')}
+        </div>
+      ) : null}
+      {/* Every send of a task page is in custody until the transcript has it, so its bubbles always show here. */}
+      <SessionInputQueue sessionId={store.runtimeSessionId} waitingForConnection life={life} inTranscript={store.transcriptPendingId} />
       <SessionHostQuestion sessionId={store.runtimeSessionId} session={hostSession} />
       <ChatComposer
         className={schedules.length > 0 ? sessionComposerFrameLiftClassName : undefined}
@@ -2039,8 +2053,10 @@ export const AcpChatPanel = observer(function AcpChatPanel({
    * ⚠️ 它 ❌ 不进转录条目:条件消失这一行就该消失(装好引擎之后不许还留着一句「没装」),
    * 所以写的是视图那一格 `session.setCondition`,不是 `transcript`。
    */
-  // 会话还在起这件事 ❌ 不进这一格(behavior session-page「打开速度」):首条消息带着「处理中」上屏,那就是在跑;
+  // 会话还在起这件事 ❌ 不进这一格(behavior session-page「打开速度」):首条消息下面那一行自己写「启动中」,计时从发出算;
   // 「正在打开引擎会话」一类的启动步骤对用户不存在。要人做的事(登录、会员)照常在下面说。
+  // 「重来」在途:按钮停下,❌ 连点各投一遍首轮。
+  const [restarting, setRestarting] = useState(false);
   useEffect(() => {
     if (!store) return;
     // 有没有可重来的首轮,**进这一行之前就知道**(同 ProviderSessionMissingView 的判据)。
@@ -2155,22 +2171,26 @@ export const AcpChatPanel = observer(function AcpChatPanel({
           return {
             code: 'provider-session-missing',
             detail: error.message,
-            ...(canRestartSession
-              ? {
-                  actions: [
-                    {
-                      label: translate('transcript.condition.startFresh'),
-                      run: () => {
-                        void sessionRegistry
-                          .get(store.sessionId)
-                          ?.restartSession(store.sessionId)
-                          .then(() => store.retry())
-                          .catch(() => {});
-                      },
+            actions: [
+              // The original engine session again (its record may be back): a person's action, never automatic.
+              { label: translate('transcript.condition.reconnectOriginal'), run: () => store.retry() },
+              ...(canRestartSession
+                ? [{
+                    label: translate('transcript.condition.startFresh'),
+                    pending: restarting,
+                    run: () => {
+                      if (restarting) return;
+                      setRestarting(true);
+                      void sessionRegistry
+                        .get(store.sessionId)
+                        ?.restartSession(store.sessionId)
+                        .then(() => store.retry())
+                        .catch(() => {})
+                        .finally(() => setRestarting(false));
                     },
-                  ],
-                }
-              : {}),
+                  }]
+                : []),
+            ],
           };
         case 'adapter_lost':
           return {
@@ -2192,7 +2212,9 @@ export const AcpChatPanel = observer(function AcpChatPanel({
           const membership = reason !== null && guguReasonCopy(reason).action === 'join-membership';
           const text = failureText(error.message, translate, membership ? membershipLock?.modelName : null);
           if (!reason) {
-            return { code: 'start-failed', label: `${translate('transcript.condition.startFailed')}: ${text}`, detail: text, actions: [retry] };
+            const at = sessionLifeView(store.runtimeSessionId)?.failure?.at;
+            const lead = at ? translate('chat.lifeStageFailed', { stage: translate(`chat.lifeStage.${at}`) }) : translate('transcript.condition.startFailed');
+            return { code: 'start-failed', label: `${lead}: ${text}`, detail: text, actions: [retry] };
           }
           return {
             code: membership ? 'membership-required' : 'start-failed',
@@ -2212,7 +2234,7 @@ export const AcpChatPanel = observer(function AcpChatPanel({
       }
     })();
     setCondition(condition);
-  }, [store, store?.loadError, providerId, cliAuthMethod, openAgentAccount, translate, navigate, signInExpired, signInMissing, signInAgain, agent?.name, membershipLock, interruptedBy]);
+  }, [store, store?.loadError, providerId, cliAuthMethod, openAgentAccount, translate, navigate, signInExpired, signInMissing, signInAgain, agent?.name, membershipLock, interruptedBy, restarting]);
 
   /**
    * 还在跑的后台命令与子智能体 → 消息列表末尾那一行(owner 2026-10-27:去掉右上角「摘要」卡,后台任务放进主对话)。
@@ -2279,7 +2301,8 @@ export const AcpChatPanel = observer(function AcpChatPanel({
   );
   const handleSelectSuggestion = useCallback(
     (suggestion: ThreadSuggestion) => {
-      store?.submitPrompt(suggestion.prompt);
+      // submitPrompt toasts a failure; the suggestion stays on screen to click again.
+      void store?.submitPrompt(suggestion.prompt).catch(() => undefined);
     },
     [store]
   );

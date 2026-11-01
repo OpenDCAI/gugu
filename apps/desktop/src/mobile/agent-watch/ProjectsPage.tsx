@@ -69,7 +69,7 @@ const ALL_OPEN = { has: () => true }
  */
 function MachineNote({ device, error }: { device: Device; error?: string | null }): ReactNode {
   if (device.cloud_computer === 'asleep' || device.cloud_computer === 'waking') return null
-  if (!device.is_online) return <OfflineNote lastSeenAt={device.last_seen_at} phone={isPhoneDevice(device)} />
+  if (!device.is_online) return <OfflineNote device={device} />
   // 在线却此刻读不到(那台机器一时连不上):下面画的是它上报过的那份,照实说一句,❌ 红框(红框留给一行都拿不出来)。
   return error ? (
     <div className="gg-aw-offline" data-testid="agent-watch-unreachable">

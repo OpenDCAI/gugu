@@ -5,6 +5,7 @@
 // 一直顶在 agent 身上。读数只有一个来源:状态写入者的输出(`onAgentStatus` / `agentStatusSnapshot`)。
 
 import type { AgentStatusReading } from '@gugu/core/shared/agentStatus'
+import type { LifeStatus, LifeView } from '@shared/core/sessions/session-life'
 import {
   sessionInScope,
   type AgentStatusChange,
@@ -16,15 +17,19 @@ import { guguAgentUserIdForSession } from './sessionpage-session-agent'
 
 const log = createLogger('sessionpage/agent-status-feed')
 
-export type AgentStatusFeedEntry = Omit<AgentStatusChange, 'reading'> & {
+export type AgentStatusFeedEntry = Omit<AgentStatusChange, 'reading' | 'projectId'> & {
   agentUserId: string
   reading: AgentStatusReading | null
+  /** The bound session's lifecycle; null = session-life does not own it (terminal legs). */
+  life: LifeStatus | null
 }
 
 export interface AgentStatusFeedSource {
   onAgentStatus(cb: (change: AgentStatusChange) => void): () => void
   agentStatusSnapshot(): Promise<AgentStatusChange[]>
   onSessionsGone(cb: (scope: SessionScope) => void): () => void
+  onSessionLifeView(cb: (view: LifeView) => void): () => void
+  sessionLifeStatusOf(sessionId: string): LifeStatus | null
 }
 
 /**
@@ -45,6 +50,9 @@ export class AgentStatusFeed {
   private readonly entries = new Map<string, AgentStatusFeedEntry>()
   private readonly listeners = new Set<Listener>()
   private readonly disposers: Array<() => void> = []
+  private lifeOf: (sessionId: string) => LifeStatus | null = () => {
+    throw new Error('agent status feed is not attached')
+  }
   private version = 0
 
   get(agentUserId: string): AgentStatusFeedEntry | null {
@@ -70,8 +78,13 @@ export class AgentStatusFeed {
    */
   attach(source: AgentStatusFeedSource, deps: { env: NodeJS.ProcessEnv; warn?: (message: string) => void }): void {
     this.dispose()
+    this.lifeOf = (sessionId) => source.sessionLifeStatusOf(sessionId)
     this.disposers.push(
       source.onAgentStatus((change) => void this.observe(change, deps)),
+      source.onSessionLifeView((view) => {
+        const agentUserId = this.agentOf.get(view.sessionId)
+        if (agentUserId) this.publish(agentUserId)
+      }),
       source.onSessionsGone((scope) => this.forget(scope)),
       onSessionpageAgentProvisioned((event) => this.bind(event.agentUserId, event.sessionId)),
     )
@@ -142,7 +155,13 @@ export class AgentStatusFeed {
     const sessionId = this.sessionOf.get(agentUserId)
     const change = sessionId ? this.changes.get(sessionId) : undefined
     const previous = this.entries.get(agentUserId) ?? null
-    const next: AgentStatusFeedEntry | null = change ? { ...change, agentUserId } : null
+    const life = sessionId ? this.lifeOf(sessionId) : null
+    // The lifecycle stands on its own: a session that is starting (or failed) before its first status reading shows so.
+    const next: AgentStatusFeedEntry | null = sessionId && (change || life)
+      ? { sessionId, agentUserId, reading: change?.reading ?? null, unseen: change?.unseen ?? false, reviewGate: change?.reviewGate ?? null,
+        providerBlocker: change?.providerBlocker ?? null, statusSourceFault: change?.statusSourceFault ?? null,
+        life: life ? { kind: life.kind, stage: life.stage } : null }
+      : null
     if (previous === null && next === null) return
     if (previous && next && sameEntry(previous, next)) return
     if (next) this.entries.set(agentUserId, next)
@@ -167,6 +186,7 @@ function sameEntry(a: AgentStatusFeedEntry, b: AgentStatusFeedEntry): boolean {
     && a.providerBlocker?.message === b.providerBlocker?.message
     && a.statusSourceFault === b.statusSourceFault
     && JSON.stringify(a.reading) === JSON.stringify(b.reading)
+    && JSON.stringify(a.life) === JSON.stringify(b.life)
   )
 }
 

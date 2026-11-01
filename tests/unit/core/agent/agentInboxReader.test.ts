@@ -20,6 +20,8 @@ import {
   __pullOnceUnguardedForTests,
   kickAgentInboxPull,
   pullAgentInbox,
+  markInboxRowsRead,
+  discloseInboxRowsFailed,
   resetAgentInboxReaderStateForTests,
   type AgentInboxFetchInput,
   type AgentInboxInjectionVerdict,
@@ -285,6 +287,78 @@ describe('archived session admission', () => {
     const { deps, injections } = makeDeps(cloud, { sessionArchival: () => ({ ...restored, revision: 0, intervals: [] }) })
     expect(await pullAgentInbox(AGENT, deps)).toMatchObject({ injected: 1 })
     expect(injections).toHaveLength(1)
+  })
+})
+
+describe('an enqueuing host (session-life)', () => {
+  const chat = '00000000-0000-4000-8000-000000000075'
+  const row = (seq: number): CloudRow => ({ chatId: chat, id: `20000000-0000-4000-8000-${String(seq).padStart(12, '0')}`, seq,
+    senderUserId: HUMAN, senderType: 'human', content: `Queued ${seq}`, createdAt: '2026-10-31T09:00:00Z' })
+  const cloudWith = (...seqs: number[]) => {
+    const cloud = new FakeCloud(); cloud.addChat(chat, 'dm'); cloud.join(chat, AGENT)
+    for (const seq of seqs) cloud.post(row(seq))
+    return cloud
+  }
+
+  it('hands each unit over with the rows it settles and leaves them unread until the host marks them', async () => {
+    const cloud = cloudWith(1, 2)
+    const handed: AgentInboxInjectionInput[] = []
+    const { deps } = makeDeps(cloud, { inject: async (input) => { handed.push(input); return 'enqueued' } })
+    expect(await pullAgentInbox(AGENT, deps)).toMatchObject({ pulled: 2, injected: 2, verdict: 'enqueued' })
+    expect(handed.flatMap((input) => (input.sources ?? []).map((source) => source.row.id))).toEqual([row(1).id, row(2).id])
+    expect(cloud.markReadCalls).toEqual([])
+    await markInboxRowsRead(AGENT, handed.flatMap((input) => input.sources ?? []), deps)
+    expect(cloud.markReadCalls).toEqual([{ chatId: chat, messageId: row(1).id }, { chatId: chat, messageId: row(2).id }])
+  })
+
+  it('a skipped row waits while queued rows ahead of it are unread, on this pull and the next', async () => {
+    const cloud = cloudWith(1, 2)
+    cloud.post({ ...row(3), id: `msg:${row(3).id}` })
+    const held = new Set<string>()
+    const marked: string[] = []
+    const { deps } = makeDeps(cloud, {
+      inject: async (input) => { for (const source of input.sources ?? []) held.add(source.row.id); return 'enqueued' },
+      markRead: async ({ messageId }) => { marked.push(messageId) },
+      claimedSources: (_agent, ids) => new Map(ids.filter((id) => held.has(id)).map((id) => [id, true])),
+    })
+    await pullAgentInbox(AGENT, deps)
+    await pullAgentInbox(AGENT, deps)
+    expect(marked).toEqual([])
+  })
+
+  it('an unknown outcome is said truthfully, then settled; a retained one is said and stays unread', async () => {
+    const cloud = cloudWith(1, 2)
+    const said: Array<{ reason: string }> = []
+    const marked: string[] = []
+    const { deps } = makeDeps(cloud, { postDisclosure: async (row) => { said.push({ reason: row.reason }) }, markRead: async ({ messageId }) => { marked.push(messageId) } })
+    const source = (seq: number) => ({ row: { ...row(seq), chatKind: 'dm', chatPublicId: null, chatName: null, chatCreatorUserId: null, listenMode: 'active',
+      notificationLevel: 'all', lastReadSeq: 0, senderType: 'human', senderDisplayName: null, senderGuguNumber: null, contentType: 'text', toUserIds: null,
+      isWhisper: false, replyToMessageId: null, replyToSenderUserId: null, replyToContent: null, threadRootId: null, isThreadRoot: false } as AgentInboxUnreadRow })
+    await discloseInboxRowsFailed(AGENT, [source(1)], deps, { kind: 'unknown' })
+    await discloseInboxRowsFailed(AGENT, [source(2)], deps, { kind: 'retained' })
+    expect(said.map((entry) => entry.reason)).toEqual(['outcomeUnknown', 'notAdmitted'])
+    expect(marked).toEqual([row(1).id])
+  })
+
+  it('a claimed row that already ended (failed / unknown) does not hold back a skipped row behind it', async () => {
+    const cloud = cloudWith(1)
+    cloud.post({ ...row(2), id: `msg:${row(2).id}` })
+    const marked: string[] = []
+    const { deps } = makeDeps(cloud, { inject: async () => 'enqueued', markRead: async ({ messageId }) => { marked.push(messageId) },
+      claimedSources: (_agent, ids) => new Map(ids.filter((id) => id === row(1).id).map((id) => [id, false])) })
+    await pullAgentInbox(AGENT, deps)
+    expect(marked).toEqual([`msg:${row(2).id}`])
+  })
+
+  it('leaves rows the host already holds out of every later unit (frozen batches never overlap)', async () => {
+    const cloud = cloudWith(1, 2)
+    const handed: AgentInboxInjectionInput[] = []
+    const { deps } = makeDeps(cloud, {
+      inject: async (input) => { handed.push(input); return 'enqueued' },
+      claimedSources: (_agent, ids) => new Map(ids.filter((id) => id === row(1).id).map((id) => [id, true])),
+    })
+    await pullAgentInbox(AGENT, deps)
+    expect(handed.flatMap((input) => (input.sources ?? []).map((source) => source.row.id))).toEqual([row(2).id])
   })
 })
 

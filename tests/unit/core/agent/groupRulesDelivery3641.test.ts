@@ -13,6 +13,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeEach, describe, expect, it } from 'vitest'
 import {
+  markInboxRowsRead,
   pullAgentInbox,
   resetAgentInboxReaderStateForTests,
   type AgentInboxInjectionInput,
@@ -224,5 +225,19 @@ describe('信封里的群规格子', () => {
       .toContain('<group_rules version="none" removed="true"/>')
     const text = renderDeliveryEnvelope({ ...base, groupRules: { version: 'v', text: 'a]]>b' } })
     expect(text).toContain('<![CDATA[a]]]]><![CDATA[>b]]>')
+  })
+})
+
+describe('an enqueuing host records delivered rules at acceptance, never at enqueue', () => {
+  it('leaves the ledger untouched until the host marks the unit accepted', async () => {
+    const ledger = memoryGroupRulesLedger()
+    const { deps, unread, injected } = harness({ facts: { [GROUP]: group('规矩A') }, ledger })
+    deps.inject = async (input) => { injected.push(input); return 'enqueued' }
+    unread.push(row('a', 1))
+    await pullAgentInbox(AGENT, deps)
+    expect(injected[0]!.text).toContain('规矩A')
+    expect(await ledger.read(AGENT, GROUP)).toBeNull()
+    await markInboxRowsRead(AGENT, injected[0]!.sources ?? [], deps)
+    expect(await ledger.read(AGENT, GROUP)).not.toBeNull()
   })
 })

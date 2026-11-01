@@ -25,7 +25,7 @@ import { onSessionpageAgentProvisioned } from './emdash-agent-provisioning'
 import { createSessionpageIdentityHost, type SessionpageIdentityAuthSnapshot } from './sessionpage-identity-host'
 import { createLocalDeviceIdResolver, detectDeviceCapabilities, type DeviceCapabilities, type DeviceHeartbeatTableClient } from '@gugu/core/cloud/deviceRuntime'
 import { makeIdentityClient } from '../supabase'
-import { setEmdashMcpInjector } from '../session/main/core/acp/emdash-mcp-injector'
+import { setEmdashIdentityProvisioner, setEmdashMcpInjector } from '../session/main/core/acp/emdash-mcp-injector'
 import { setSessionIdentityHost } from '../session/main/core/sessions/session-identity-host'
 import { setPlatformModelCatalogResolver } from '../session/main/core/agents/platform-model-catalog-hook'
 import {
@@ -109,19 +109,8 @@ export function wireHeadlessSessionpageIdentity(hostIpc: HostIpc): { dispose(): 
 
   // 会话启动即开账号。两处都只落身份、不改启动参数:ACP 不注入 MCP(返回空表),PTY 不接管命令(返回 null)。
   // 供给失败按 fail-loud 抛出 —— 一条没有身份的会话在网页版就是一条坏会话(owner 定的产品预期:每个会话都是一个 agent)。
-  setEmdashMcpInjector(async (info) => {
-    await identity.provisionSessionStart({
-      sessionId: info.sessionId,
-      sourceSessionId: info.sourceSessionId,
-      providerId: info.providerId,
-      surface: 'acp',
-      cwd: info.cwd,
-      projectId: info.projectId,
-      displayName: info.agentDisplayName,
-      lifecycle: info.lifecycle,
-    })
-    return { mcpServers: [] }
-  })
+  setEmdashIdentityProvisioner(request => identity.provisionSessionStart({ ...request, surface: 'acp' }))
+  setEmdashMcpInjector(async () => ({ mcpServers: [] }))
   setEmdashPtySessionpageHook(async (info) => {
     await identity.provisionSessionStart({
       sessionId: info.sessionId,
@@ -221,6 +210,7 @@ export function wireHeadlessSessionpageIdentity(hostIpc: HostIpc): { dispose(): 
       setProjectGroupHost(null)
       setSessionIdentityHost(null)
       setEmdashMcpInjector(null)
+      setEmdashIdentityProvisioner(null)
       setEmdashPtySessionpageHook(null)
       setEmdashPtySessionpageTeardown(null)
       setEmdashPlatformInjector(null)

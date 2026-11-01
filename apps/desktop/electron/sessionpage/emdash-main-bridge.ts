@@ -114,6 +114,9 @@ export {
   onAgentStatus,
   agentStatusSnapshot,
   onSessionsGone,
+  // The pill's lifecycle: each session-life transition, and a session's current view.
+  onSessionLifeView,
+  sessionLifeStatusOf,
   // TEST-ONLY (host exposes env-gated) — feed a real AgentEvent into the real pipeline for the otty e2e.
   emitSessionpageAgentEventForTest,
   emitSessionpageAgentEvent,
@@ -124,6 +127,11 @@ export {
   // 宿主的界面语言的注入口(见 host-locale.ts)。
   setSessionHostLocale,
   setEmdashMcpInjector,
+  setEmdashIdentityProvisioner,
+  // session-life: the ACP lifecycle owner, and the host's cloud-source hooks for its pending rows.
+  sessionLife,
+  setSessionLifeSourceHost,
+  claimedSessionSources,
   // @@@2503 平台额度:给走咕咕模型的 Chat UI(ACP)会话按会话签发中转令牌并随 `_meta` 送进适配器。
   setEmdashPlatformInjector,
   setPlatformRecoveryReadyGate,
@@ -155,7 +163,6 @@ export {
   sessionpageVersionSwitchActivity,
   sessionpageBootFailures,
   onSessionpageAuthorizationActivityChange,
-  setSessionLiveNotifier,
   listPendingSessionDirectMessages,
   acceptPendingSessionDirectMessage,
   recordFailedSessionDirectMessage,

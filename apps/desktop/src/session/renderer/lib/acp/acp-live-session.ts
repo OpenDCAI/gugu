@@ -25,11 +25,7 @@ import { machineRegistry } from '../machine-routing';
 import { ReplicaState, type BlobSource, type LiveClientHandle } from '@gugu/session-wire';
 import { createImmutableMobxStore } from '@gugu/session-wire/util/mobx';
 import { z } from 'zod';
-import {
-  getAcpRuntimeClient,
-  type AcpRuntimeRpcClient,
-  type StartSessionInput,
-} from './runtime-client';
+import { getAcpRuntimeClient, type AcpRuntimeRpcClient } from './runtime-client';
 
 export interface LiveValueSource<T> {
   getSnapshot(): T;
@@ -92,21 +88,12 @@ export class AcpLiveSession {
     );
   }
 
-  static async create(sessionId: string, input?: StartSessionInput): Promise<AcpLiveSession> {
+  /** Attach to a session its host's session-life already runs; a page never starts, resumes or stops one. */
+  static async create(sessionId: string): Promise<AcpLiveSession> {
     const client = await getAcpRuntimeClient(machineRegistry.machineOf(sessionId));
-    if (input) {
-      // @@@6183 等的是启动的**结果**,❌ 墙钟。这里曾有 60s(opencode 120s)的客户端预算:负载下
-      // mimocode 冷启动实测 52s,离它只差一口气 —— 而超时之后引擎其实还在起,界面却已宣布失败。
-      // 等待在界面上就是首条消息那一轮的「处理中」(behavior session-page「打开速度」),不需要替用户猜一个上限。
-      const result = await client.startSession({ input });
-      if (!result.success) {
-        throw new AcpStartError(result.error);
-      }
-    }
     const session = new AcpLiveSession(sessionId, client);
     try {
-      // Like startSession above, model attachment waits for its result. A busy
-      // runtime delivering snapshots slowly has not failed to start the engine.
+      // Attachment waits for its result. A busy runtime delivering snapshots slowly has not failed.
       await Promise.all([
         session.sessionState.ready,
         session.config.ready,
@@ -123,31 +110,6 @@ export class AcpLiveSession {
       throw error;
     }
     return session;
-  }
-
-  async start(input: StartSessionInput): Promise<Result<{ providerSessionId: string }, unknown>> {
-    return this.client.startSession({ input });
-  }
-
-  stop(): Promise<Result<void, unknown>> {
-    return this.client.stopSession({ sessionId: this.sessionId });
-  }
-
-  async resume(
-    input: StartSessionInput & { providerSessionId: string }
-  ): Promise<Result<HistoryPage, unknown>> {
-    const result = await this.client.resumeSession({ input });
-    if (!result.success) return result;
-    return {
-      success: true,
-      data: {
-        turns: result.data.turns,
-        nextCursor: result.data.nextCursor,
-        cursor: result.data.cursor,
-        reset: result.data.reset,
-        count: result.data.count,
-      },
-    };
   }
 
   /** `changedSince`:只要这个改动游标之后新增或改过的回合(@@@history-change-cursor),忽略 before / limit。 */
@@ -212,14 +174,6 @@ export class AcpLiveSession {
 
   revertSession(anchor: string) {
     return this.client.revertSession({ sessionId: this.sessionId, anchor });
-  }
-
-  sendPrompt(prompt: PromptInput): Promise<Result<{ queued: boolean }, unknown>> {
-    return this.client.sendPrompt({ sessionId: this.sessionId, prompt });
-  }
-
-  queuePrompt(prompt: PromptInput): Promise<Result<{ queued: boolean }, unknown>> {
-    return this.client.queuePrompt({ sessionId: this.sessionId, prompt });
   }
 
   editQueuedPrompt(id: string, input: PromptInput, queueEdit?: QueuedPromptEdit | null): Promise<Result<void, unknown>> {

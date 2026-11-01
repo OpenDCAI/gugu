@@ -1972,6 +1972,8 @@ export class SessionCell {
         && item.role === 'user'
         && (item.id === prompt.id || item.id.includes(prompt.id))
       ));
+    // Waiting behind an earlier turn is not this turn's time: its clock starts when that one ended.
+    const sentAt = prompt.sentAt === undefined ? undefined : Math.max(prompt.sentAt, this.transcript.history.at(-1)?.endedAt ?? 0);
     const submittedMessage: Extract<NormalizedEvent, { kind: 'message' }> = {
         kind: 'message',
         role: 'user',
@@ -1980,7 +1982,7 @@ export class SessionCell {
         content: [{ type: 'text', text: prompt.text }],
         contentMode: 'replace',
         attachmentsMode: 'replace',
-        ...(steered ? { steering: true } : { trigger: promptTrigger(prompt) }),
+        ...(steered ? { steering: true } : { trigger: promptTrigger(prompt), ...(sentAt !== undefined ? { sentAt } : {}) }),
         ...(prompt.attachments?.length
           ? {
               attachments: prompt.attachments.flatMap((attachment, index) => attachment.type === 'attachment' ? [{

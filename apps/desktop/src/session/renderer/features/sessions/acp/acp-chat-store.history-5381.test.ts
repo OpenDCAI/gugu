@@ -13,6 +13,8 @@ import type { TranscriptTurn } from '@gugu/session-core/acp';
 import type { HistoryCursor } from '@gugu/session-core/acp/client';
 
 vi.mock('@renderer/lib/hooks/use-toast', () => ({ toast: () => {} }));
+const custody = vi.hoisted(() => vi.fn(async (..._args: unknown[]) => {}));
+vi.mock('./queue-native-input', () => ({ sendThroughCustody: custody, canQueueNativeInput: () => false }));
 let resumeSession: unknown = null;
 vi.mock('@renderer/lib/acp/acp-live-session', async (original) => ({
   ...(await original<typeof import('@renderer/lib/acp/acp-live-session')>()),
@@ -98,8 +100,6 @@ type Internals = {
   _refreshHistory: () => Promise<void>;
   _runBootstrap: (options: { attachOnly: boolean }) => Promise<void>;
   _resetHistoryState: () => void;
-  _applyDraftSnapshot: (draft: null) => void;
-  _pendingDraftRev: number | null;
   loadOlderHistory: () => Promise<TranscriptTurn[]>;
 };
 
@@ -115,6 +115,7 @@ const committedIds = (store: InstanceType<typeof AcpChatStore>) =>
 
 beforeEach(() => {
   storedPage = null;
+  custody.mockClear();
 });
 afterEach(() => vi.restoreAllMocks());
 
@@ -158,7 +159,6 @@ describe('#7304 原地回退后的历史对账', () => {
         storedPage = { turns: turns.slice(0, 1), originTurnIds: ['s0'], nextCursor: null };
         return { success: true as const, data: { providerSessionId: 'unchanged' } };
       }),
-      sendPrompt: vi.fn(async (_input: unknown) => ({ success: true as const, data: undefined })),
     };
     internals.session = session;
     return { store, internals, session, turns };
@@ -209,7 +209,7 @@ describe('#7304 原地回退后的历史对账', () => {
     expect(committedIds(store)).toEqual(['s0', 's1', 's2']);
     expect(store.draftText).toBe('main composer draft');
     expect(session.revertSession).not.toHaveBeenCalled();
-    expect(session.sendPrompt).not.toHaveBeenCalled();
+    expect(custody).not.toHaveBeenCalled();
   });
 
   it('发送编辑先原地回退再发送修改内容,保留原附件和主输入框草稿', async () => {
@@ -220,9 +220,11 @@ describe('#7304 原地回退后的历史对账', () => {
     store.changeMessageEdit('m1', 'edited B');
     await store.sendMessageEdit('m1');
     expect(session.revertSession).toHaveBeenCalledExactlyOnceWith('native-1');
-    expect(session.sendPrompt).toHaveBeenCalledExactlyOnceWith({ text: 'edited B', origin: 'manual',
-      attachments: [{ type: 'attachment', id: 'image-1', name: 'photo.png', mimeType: 'image/png' }] });
-    expect(session.revertSession.mock.invocationCallOrder[0]).toBeLessThan(session.sendPrompt.mock.invocationCallOrder[0]!);
+    expect(custody).toHaveBeenCalledTimes(1);
+    expect(custody.mock.calls[0]![0]).toBe(store);
+    expect(custody.mock.calls[0]!.slice(1)).toEqual(['edited B',
+      [{ ref: { type: 'attachment', id: 'image-1', name: 'photo.png', mimeType: 'image/png' } }]]);
+    expect(session.revertSession.mock.invocationCallOrder[0]).toBeLessThan(custody.mock.invocationCallOrder[0]!);
     expect(committedIds(store)).toEqual(['s0']);
     expect(store.messageEdit).toBeNull();
     expect(store.draftText).toBe('main composer draft');
@@ -235,22 +237,10 @@ describe('#7304 原地回退后的历史对账', () => {
     await store.sendMessageEdit('m1');
     expect(store.messageEdit?.text).toBe('edited B');
     expect(committedIds(store)).toEqual(['s0', 's1', 's2']);
-    expect(session.sendPrompt).not.toHaveBeenCalled();
+    expect(custody).not.toHaveBeenCalled();
     await store.sendMessageEdit('m1');
-    expect(session.sendPrompt).toHaveBeenCalledExactlyOnceWith({ text: 'edited B', origin: 'manual' });
-  });
-
-  it('编辑发送引起的运行时草稿清空不会擦掉已同步的主输入框草稿', async () => {
-    const { store, internals, session } = setup();
-    store.setDraftText('already synced draft');
-    internals._pendingDraftRev = null;
-    session.sendPrompt.mockImplementation(async () => {
-      internals._applyDraftSnapshot(null);
-      return { success: true, data: undefined };
-    });
-    store.beginMessageEdit('m1'); store.changeMessageEdit('m1', 'edited B');
-    await store.sendMessageEdit('m1');
-    expect(store.draftText).toBe('already synced draft');
+    expect(custody).toHaveBeenCalledTimes(1);
+    expect(custody.mock.calls[0]!.slice(1)).toEqual(['edited B', []]);
   });
 
   it('发送时重新检查忙态与空文本,双击发送只回退一次', async () => {
@@ -267,7 +257,7 @@ describe('#7304 原地回退后的历史对账', () => {
     await store.sendMessageEdit('m1');
     await first;
     expect(session.revertSession).toHaveBeenCalledTimes(1);
-    expect(session.sendPrompt).toHaveBeenCalledTimes(1);
+    expect(custody).toHaveBeenCalledTimes(1);
   });
 });
 
