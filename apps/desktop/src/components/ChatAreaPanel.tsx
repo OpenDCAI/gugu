@@ -17,6 +17,7 @@ import { useUnreadLocatorNavigation } from '../hooks/useUnreadLocatorNavigation'
 import { useSourceMessageReveal } from '../hooks/useSourceMessageReveal'
 import { useChatHistoryPagination } from './chat/useChatHistoryPagination'
 import { useGroupCollabLoader, EMPTY_GROUP_COLLAB } from '../hooks/useGroupCollabLoader'
+import { useRoomAuthorityRevision } from '../hooks/useRoomAuthorityRevision'
 import { useTopicScopedMemberProfile } from '../hooks/useTopicScopedMemberProfile'
 import { ForwardMessageDialog } from './chat/ForwardMessageDialog'
 import { AUTOMATION_TEST_IDS } from '../lib/automationDom'
@@ -135,7 +136,6 @@ function ChatAreaSurface({ viewportKey = 'chats', imPage = false, navigationTarg
   const [mentionToInsert, setMentionToInsert] = useState<{ id: string; name: string } | null>(null)
   // @@@whisper (#820) — 悄悄话目标：设置后 ChatMessageComposer 进入悄悄话模式，发送强制 isWhisper+toUserIds。
   const [whisperTarget, setWhisperTarget] = useState<{ userId: string; displayName: string } | null>(null)
-  const [authorityRevision, setAuthorityRevision] = useState(0)
   const [groupCollabSnapshot, setGroupCollabSnapshot] = useState<GroupCollabSnapshot>(EMPTY_GROUP_COLLAB)
   const [activeMessageProfile, setActiveMessageProfile] = useState<ActiveMemberProfile | null>(null)
   const peerIdentity = identitiesById[activeChat?.peer_user_id ?? '']
@@ -220,45 +220,7 @@ function ChatAreaSurface({ viewportKey = 'chats', imPage = false, navigationTarg
     openSettings: handleOpenSettingsDrawer,
   })
 
-  useEffect(() => {
-    if (!activeChatId || !isRoomChatSurface || !user?.id) return
-    const refreshTimers = new Set<number>()
-    // @@@ collab-refetch-coalesce (#597) — see git history for full context.
-    let pendingReload: number | null = null
-    let refreshAuthority = false
-    const handleCollabChange = (authorityChanged = false) => {
-      refreshAuthority ||= authorityChanged
-      if (pendingReload !== null) return
-      pendingReload = window.setTimeout(() => {
-        refreshTimers.delete(pendingReload as number)
-        pendingReload = null
-        if (refreshAuthority) setAuthorityRevision((n) => n + 1)
-        refreshAuthority = false
-        loadGroupCollab()
-      }, 300)
-      refreshTimers.add(pendingReload)
-    }
-    const handleRevision = (operations: readonly { payload: unknown }[]) => {
-      const relevant = operations.filter((operation) => {
-        const id = (operation.payload as { chat_id?: unknown })?.chat_id
-        return id === activeChatId || (!!activeChat?.source_chat_id && id === activeChat.source_chat_id)
-      })
-      if (relevant.length) handleCollabChange(relevant.some((operation) => (operation.payload as { user_id?: unknown })?.user_id === user.id))
-    }
-    const unsubscribeGroup = subscribeAccountRevision('group_collab_changed', handleRevision)
-    const unsubscribeMembers = subscribeAccountRevision('chat_members_changed', handleRevision)
-    const handleLocalCollabChange = (event: Event) => {
-      const detail = (event as CustomEvent<{ chatId?: string }>).detail
-      if (detail?.chatId === activeChatId || (!!activeChat?.source_chat_id && detail?.chatId === activeChat.source_chat_id)) handleCollabChange()
-    }
-    window.addEventListener(UI_EVENTS.groupCollabChanged, handleLocalCollabChange)
-    return () => {
-      refreshTimers.forEach((timer) => window.clearTimeout(timer))
-      window.removeEventListener(UI_EVENTS.groupCollabChanged, handleLocalCollabChange)
-      unsubscribeGroup()
-      unsubscribeMembers()
-    }
-  }, [activeChatId, activeChat?.source_chat_id, isRoomChatSurface, loadGroupCollab, subscribeAccountRevision, user?.id])
+  const authorityRevision = useRoomAuthorityRevision({ chatId: activeChatId ?? null, sourceChatId: activeChat?.source_chat_id ?? null, isRoom: isRoomChatSurface, userId: user?.id ?? null, loadGroupCollab, subscribeAccountRevision })
 
   const openMessageMemberProfile = useCallback((
     member: MemberProfileCardModel,

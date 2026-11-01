@@ -13,7 +13,7 @@ import { useAgentLookPostersVersion } from '../agentAvatar/posters'
 import { SharePosterDialog } from '../SharePosterDialog'
 import { buildUnifiedMembers } from './groupMemberModels'
 import { chatService } from '../../lib/chat'
-import { useToast } from '../toastContext'
+import { useGroupAvatarUpload } from './useGroupAvatarUpload'
 import { useChatStore } from '../../store/chatContext'
 import { ChatManagementActions } from './ChatManagementActions'
 import { GroupSettingsManagePage } from './GroupSettingsManagePage'
@@ -105,7 +105,6 @@ export function GroupMembersSection({
   const chatId = chat.id
   const { t } = useTranslation('messaging')
   const { identitiesById } = useChatStore('identitiesById')
-  const { toast } = useToast()
   const mobileShell = useMobileShell()
   const { page, push, pop } = useSettingsPages(chatId, initialPage)
 
@@ -117,7 +116,7 @@ export function GroupMembersSection({
   const [busy, setBusy] = useState(false)
   const [actionError, setActionError] = useState<string | null>(null)
   const [confirmExit, setConfirmExit] = useState(false)
-  const [avatarUploading, setAvatarUploading] = useState(false)
+  const { avatarUploading, handleAvatarFile } = useGroupAvatarUpload({ chatId, viewerIsManager, setAvatarUrl, setActionError })
   const [avatarDragOver, setAvatarDragOver] = useState(false)
   const avatarInputRef = useRef<HTMLInputElement>(null)
   const [showSharePoster, setShowSharePoster] = useState(false)
@@ -137,23 +136,6 @@ export function GroupMembersSection({
   // @@@445/#2470 海报 canvas 不走 React Avatar → 按同一口径预解析成员头像;小鸟的定格画好了会重渲染,这里跟着重读(海报按 URL 串判变)。
   useAgentLookPostersVersion()
   const posterMemberUrls = groupAvatarMembers.map((m) => identitiesById[m.id] ? displayAvatarUrl(m.avatar, m.id, `poster member "${m.name || m.id}"`, identitiesById[m.id].type) : null)
-
-  // @@@group-avatar (#1164 G1) manager 选/拖图 → 校验(image/* + ≤5MB) → 上传 → 即时换头像。
-  const handleAvatarFile = useCallback(async (file: File | null | undefined) => {
-    if (!viewerIsManager || avatarUploading || !file) return
-    if (!file.type.startsWith('image/')) { setActionError(t('group.settings.imageRequired')); return }
-    if (file.size > 5 * 1024 * 1024) { setActionError(t('group.settings.imageTooLarge')); return }
-    setAvatarUploading(true)
-    setActionError(null)
-    try {
-      setAvatarUrl(await chatService.uploadGroupAvatar(chatId, file))
-      toast(t('group.settings.avatarUpdated'), 'success')
-    } catch (err) {
-      setActionError(t('group.settings.avatarUploadFailed', { reason: String((err as Error)?.message ?? err) }))
-    } finally {
-      setAvatarUploading(false)
-    }
-  }, [avatarUploading, chatId, setAvatarUrl, t, toast, viewerIsManager])
 
   // @@@2070 群名就地编辑:只写 name。写失败要抛给 GroupNameInlineEdit —— 它据此留在编辑态并标出失败,
   // ❌ 当作改好了把输入框关掉(原因已由 update 放进错误行)。
