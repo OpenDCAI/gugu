@@ -847,11 +847,13 @@ export async function extensionAttachmentOf(context, messageId, injected = {}) {
 export async function widgetCheckScopeOf(context, messageId, injected = {}) {
   const deps = createDeps(context, injected)
   const unreadable = () => new Error(`app_check: there is no widget message ${messageId} you can read`)
+  if (typeof messageId !== 'string' || !UUID_RE.test(messageId)) throw unreadable()
   const [message] = await deps.restGet(`messages?id=eq.${enc(messageId)}&select=id,chat_id,content,content_type,sender_user_id`)
   if (!message || !(await agentCanSee(deps, message))) throw unreadable()
   const members = await memberRowsOfMyChat(message.chat_id, deps)
   if (!members.some((row) => String(row.user_id) === context.agentId)) throw unreadable()
-  if (/^gugu-widget:\/\/\S+$/.test(message.content ?? '')) throw new Error('app_check: this message is a widget reference; pass its widget_id')
+  const references = (message.content ?? '').split(/\r?\n/).map(line => line.trim()).filter(Boolean)
+  if (references.length > 0 && references.length <= 4 && references.every(line => /^gugu-widget:\/\/\S+$/.test(line))) throw new Error('app_check: this message is a widget reference; pass its widget_id')
   const widget = message.content_type === 'widget' ? parseWidgetMessage(message.content) : null
   if (!widget) throw unreadable()
   const { wid } = JSON.parse(message.content)
