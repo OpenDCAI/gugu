@@ -2081,6 +2081,7 @@ export const AcpChatPanel = observer(function AcpChatPanel({
       // 被它掩护着看不出来。⇒ 这里补上；同时 UserMessageCard 改成没接回调就不渲染。
       canRevertMessage: (itemId) => historyActionsEnabled && (store?.canRevertMessage(itemId) ?? false),
       onEditMessage: ({ itemId }) => store?.beginMessageEdit(itemId),
+      onRetrySend: () => store?.retryPendingInput(),
       editingMessage: messageEdit ? {
         ...messageEdit,
         pending: messageEditPending,

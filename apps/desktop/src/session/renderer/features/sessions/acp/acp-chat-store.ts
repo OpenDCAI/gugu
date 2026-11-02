@@ -5,7 +5,7 @@ import type {
   ChatView,
   TranscriptTurn,
 } from '@gugu/session-chat-ui';
-import { connectSession, createChatState, pinTopMode, runningBackgroundTaskIds, turnDiscardedId } from '@gugu/session-chat-ui';
+import { connectSession, createChatState, pendingPromptLanded, pinTopMode, runningBackgroundTaskIds, turnDiscardedId } from '@gugu/session-chat-ui';
 import {
   attachmentRefSchema,
   permissionTitle,
@@ -34,12 +34,14 @@ import { toolImageUrl } from '@gugu/session-core/acp/client';
 import { commandToken } from '@gugu/session-core/acp/commands';
 import { permissionWaitKind } from '@gugu/session-core/acp/models/permissions';
 import type { AgentState, LiveSettingResult, PermissionWaitKind } from '@gugu/session-core/acp';
-import { errorDetail } from '@gugu/session-shared';
+import { errorDetail, isDeepEqual } from '@gugu/session-shared';
 import { action, computed, makeObservable, observable, reaction, runInAction, when } from 'mobx';
 import { discardSessionLifeRow, endSessionLife, forkSessionLife, readSessionLife, sessionLifeView, startSessionLife, stopSessionLife } from '../stores/session-life-views';
 import { ACP_START_FAILED, lifeHoldIsFailure, lifeIsStarting, type LifeView } from '@shared/core/sessions/session-life';
 import { sendThroughCustody } from './queue-native-input';
 import { sessionInputBubbles } from '@/lib/sessionInputOutbox';
+import { queuedSessionInputs, retrySessionInputs, subscribeSessionInputs } from '@/lib/sessionInputOutboxBridge';
+import { projectSessionPendingInput } from '@/lib/pendingSessionInput';
 import { batch } from 'solid-js';
 import { AcpLiveSession, AcpStartError, asValueSource } from '@renderer/lib/acp/acp-live-session';
 import { getAcpRuntimeClient } from '@renderer/lib/acp/runtime-client';
@@ -144,6 +146,7 @@ export class AcpChatStore {
   private _lifeRetriedVersion = 0;
   private _unwatchLife: (() => void) | null = null;
   private _unwatchLifeHead: (() => void) | null = null;
+  private _unwatchSenderInputs: (() => void) | null = null;
   /** Opened on a stopped session: nothing to attach to until it runs again. */
   private _attachWhenReady = false;
   /**
@@ -733,7 +736,8 @@ export class AcpChatStore {
     // Not attached: input goes to the host's custody outbox, which holds it until session-life runs the session —
     // unless the start failed terminally (the engine is not there), when queueing waits for something that never happens.
     // Starting with its message drawn is running: the composer stops it (`stop` asks the host), as in any turn.
-    const startingDrawn = !state && this.transcriptPendingId !== null;
+    const deliveryState = this.chatState.session.state.pendingPrompt?.delivery?.state;
+    const startingDrawn = !state && this.transcriptPendingId !== null && deliveryState !== 'failed' && deliveryState !== 'unknown';
     return {
       isWorking: agentWorking || startingDrawn,
       isBusy: state?.isGenerating ?? false,
@@ -799,6 +803,25 @@ export class AcpChatStore {
       void this._open();
     }
     const session = this.chatState.session;
+    const sender = queuedSessionInputs(this.runtimeSessionId);
+    const prior = session.state.pendingPrompt;
+    const newOrdinaryInput = sender.some(row => row.queued === false && !view?.pending.items.some(host => host.messageId === row.id));
+    const stoppedOnHost = view?.hold === 'user-stop' && view.pending.items.some(row => row.messageId === prior?.id);
+    if ((!stoppedOnHost || newOrdinaryInput) && (prior?.delivery || sender.some(row => row.queued === false))) {
+      const transcript = this.chatState.transcript.state;
+      const pending = projectSessionPendingInput(prior, sender, view?.pending.items ?? [],
+        [...transcript.committedTurns, ...(transcript.activeTurnSnapshot ? [transcript.activeTurnSnapshot] : [])]);
+      runInAction(() => {
+        this.transcriptPendingId = pending?.id ?? sender.find(row => row.queued === false)?.id ?? null;
+        const next = pending ? { ...pending, starting: view !== null && lifeIsStarting(view),
+          ...(view?.kind === 'failed' && view.failure ? { delivery: { state: 'failed' as const, error: view.failure.message } } : {}) } : null;
+        if (!isDeepEqual(prior, next)) {
+          session.setPendingPrompt(next);
+          this._syncMessageCount();
+        }
+      });
+      return;
+    }
     const drawn = this.transcriptPendingId;
     const bubbles = view ? sessionInputBubbles([], view.pending.items, view.hold) : [];
     const record = this._sessionRecord();
@@ -939,7 +962,16 @@ export class AcpChatStore {
     // Loaded or reconciled history replaces what is drawn from the queue: redraw it.
     this._unwatchLifeHead = reaction(() => [sessionLifeView(this.runtimeSessionId), this.transcriptRevision, this.historyLoading] as const,
       ([view]) => this._drawLifeHead(view), { fireImmediately: true });
+    this._unwatchSenderInputs = subscribeSessionInputs(() => this._drawLifeHead(sessionLifeView(this.runtimeSessionId)));
     void this._open();
+  }
+
+  retryPendingInput(): void {
+    void retrySessionInputs().then(() => {
+      if (sessionLifeView(this.runtimeSessionId)?.kind === 'failed') {
+        return startSessionLife(this.runtimeSessionId);
+      }
+    }).catch((error: unknown) => this._toastError('acpFailure.sendMessage', error));
   }
 
   /**
@@ -1531,6 +1563,8 @@ export class AcpChatStore {
     this._unwatchLife = null;
     this._unwatchLifeHead?.();
     this._unwatchLifeHead = null;
+    this._unwatchSenderInputs?.();
+    this._unwatchSenderInputs = null;
     this._setParkWatch(null);
     this._unwatchMachineLink?.();
     this._unwatchMachineLink = null;
@@ -2691,7 +2725,8 @@ export class AcpChatStore {
           this.chatState.transcript.activeTurn.set(liveFrame);
         }
         // Do not clear a prompt that was admitted after this reconciliation started.
-        if (this.chatState.session.state.pendingPrompt === retainedPending) {
+        if (this.chatState.session.state.pendingPrompt === retainedPending
+          && (!retainedPending?.delivery || pendingPromptLanded(retainedPending, this._composedHistory()))) {
           this.chatState.session.setPendingPrompt(null);
         }
       }

@@ -7,6 +7,10 @@ export type SessionInput = {
   attachments?: import('@gugu/session-core/session-record/contract').SessionpageSessionSendRequest['attachments']
   files?: import('@gugu/session-core/session-record/contract').TurnFileRef[]
   failure?: SessionInputFailure
+  /** Presentation only: an explicitly queued input remains in the composer queue. */
+  queued?: boolean
+  baseline?: string[]
+  afterTurnId?: string
 }
 /** Failures the sender itself names; any other send error keeps the host's own words. */
 export type SessionInputFailure =
@@ -76,7 +80,7 @@ export class SessionInputOutbox {
     private readonly changed: () => void = () => {},
     private readonly beforeEnqueue: (input: Pick<SessionInput, 'deviceId' | 'sessionId' | 'text' | 'files' | 'attachments'>) => void = () => {}) {}
 
-  async enqueue(target: Pick<SessionInput, 'deviceId' | 'sessionId' | 'text' | 'files' | 'attachments'>): Promise<SessionInput> {
+  async enqueue(target: Pick<SessionInput, 'deviceId' | 'sessionId' | 'text' | 'files' | 'attachments' | 'queued' | 'baseline' | 'afterTurnId'>): Promise<SessionInput> {
     if (!this.current()) throw new Error('Session input account changed')
     const written = this.writing.catch(() => undefined).then(async () => {
       if (!this.current()) throw new Error('Session input account changed')
@@ -111,6 +115,11 @@ export class SessionInputOutbox {
       const target = `${input.deviceId ?? 'local'}/${input.sessionId}`
       if (blocked.has(target)) continue
       try {
+        if (input.failure) {
+          delete input.failure
+          await this.storage.put(input)
+          this.changed()
+        }
         await withSessionInputDeadline(this.send(input))
         await this.storage.remove(this.accountId, input.id)
       } catch (error) {

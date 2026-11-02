@@ -46,6 +46,7 @@ import type {
   TranscriptTurn,
 } from '../model';
 import { createTranscript } from './transcript';
+import { pendingPromptLanded } from './pending-prompt';
 import type { DeliveryMessagePresentation } from './delivery-presentation';
 import type { TranscriptApi } from './transcript';
 import { createViewState } from './view-state';
@@ -392,7 +393,8 @@ export function connectSession(
 
   const syncActiveTurn = (): void => {
     const turn = source.activeTurn.getSnapshot() ?? null;
-    if (turn) state.session.setPendingPrompt(null);
+    const pending = state.session.state.pendingPrompt;
+    if (turn && pending && (!pending.delivery || pendingPromptLanded(pending, [turn]))) state.session.setPendingPrompt(null);
     if (activeTurnId !== null && activeTurnId !== (turn?.id ?? null)) {
       // ❌ 别在这里就把刚讲完的那一轮抹掉。调用方收到这个回调后要去后端对账（实测一次往返 ~100ms），
       // 而已提交列表只由对账结果 seed 填充 —— 先抹掉就等于让画面整段空掉一百毫秒：transcript 消失、

@@ -14,7 +14,7 @@ export const state = (): State => {
 export const changed = () => { for (const listener of state().listeners) listener() }
 export const sessionInputOutboxAvailable = (): boolean => Boolean(state().queue && state().valid())
 
-export async function enqueueSessionInput(target: Pick<SessionInput, 'deviceId' | 'sessionId' | 'text' | 'files'>): Promise<SessionInput> {
+export async function enqueueSessionInput(target: Pick<SessionInput, 'deviceId' | 'sessionId' | 'text' | 'files' | 'attachments' | 'queued' | 'baseline' | 'afterTurnId'>): Promise<SessionInput> {
   const own = state()
   if (!own.queue || !own.valid()) throw new Error('Session input outbox is not available for this account')
   const queue = await own.queue
@@ -34,6 +34,17 @@ export function useQueuedSessionInputs(sessionId: string): readonly SessionInput
   const rows = useSyncExternalStore(listener => { state().listeners.add(listener); return () => { state().listeners.delete(listener) } }, () => state().rows, () => EMPTY)
   const ownerId = state().valid() ? state().accountId : null
   return useMemo(() => rows.filter(row => row.sessionId === sessionId && row.accountId === ownerId), [rows, sessionId, ownerId])
+}
+
+/** Non-React transcript stores observe the same account-scoped sender rows as the phone. */
+export function queuedSessionInputs(sessionId: string): readonly SessionInput[] {
+  const own = state()
+  return own.valid() ? own.rows.filter(row => row.sessionId === sessionId && row.accountId === own.accountId) : EMPTY
+}
+
+export function subscribeSessionInputs(listener: () => void): () => void {
+  state().listeners.add(listener)
+  return () => { state().listeners.delete(listener) }
 }
 
 

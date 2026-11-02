@@ -105,7 +105,7 @@ function SessionTranscriptContent({
     activeTurn.set(active, active ? 'generating' : undefined)
   }, [model, turns, activeTurnId])
 
-  useEffect(() => { model?.state.session.setPendingPrompt(pendingPrompt ?? null) }, [model, pendingPrompt])
+  useLayoutEffect(() => { model?.state.session.setPendingPrompt(pendingPrompt ?? null) }, [model, pendingPrompt])
 
   useEffect(() => {
     model?.state.session.setBackgroundTasks(backgroundTasks ?? NO_BACKGROUND_TASKS)

@@ -71,7 +71,7 @@ import { unitContainsItem, unitItemIds, unitReservedHeight } from './core/units'
 import { Virtualizer } from './core/virtualizer';
 import type { ChatItem, ChatMessage, TranscriptTurn } from './model';
 import type { ChatState, ScrollMode } from './state/chat-state';
-import { pendingPromptTurn } from './state/pending-prompt';
+import { activeTurnWithPending, pendingPromptLanded } from './state/pending-prompt';
 import { isEmptyAgentTurn, joinsFoldRunAt } from './state/turn-fold';
 import {
   flattenTier, lastConversationMessage,
@@ -651,8 +651,9 @@ export function ChatRoot(props: ChatRootProps) {
         if (!condition && !withBackground) return [] as ReturnType<typeof flattenTier>;
         return flattenTier([], ctx, SEGMENTERS, UNIT_REGISTRY, prevKind, committedDayKey, lastConversationMessage(committedUnitsArr));
       }
-      const activeTurn = at ?? pendingPromptTurn(pendingPrompt!);
-      return flattenTier([activeTurn], ctx, SEGMENTERS, UNIT_REGISTRY, prevKind, committedDayKey, lastConversationMessage(committedUnitsArr));
+      const activeTurn = activeTurnWithPending(at, pendingPrompt)!;
+      const pendingOnly = !at && pendingPrompt?.delivery && !pendingPrompt.starting;
+      return flattenTier([activeTurn], pendingOnly ? { ...ctx, active: false } : ctx, SEGMENTERS, UNIT_REGISTRY, prevKind, committedDayKey, lastConversationMessage(committedUnitsArr));
     };
     const units = build(false);
     if (!background) return { units, backgroundOwner: null as string | null };
@@ -687,7 +688,9 @@ export function ChatRoot(props: ChatRootProps) {
     const pendingPrompt = s.session.state.pendingPrompt;
     const committedTurns = s.transcript.state.committedTurns;
     const hasActiveTurn = s.transcript.state.activeTurnSnapshot !== null;
-    if (pendingPrompt && (hasActiveTurn || (!pendingPrompt.held && committedTurns !== pendingPromptCommittedTurns))) {
+    if (pendingPrompt && (pendingPrompt.delivery
+      ? pendingPromptLanded(pendingPrompt, [...committedTurns, ...(s.transcript.state.activeTurnSnapshot ? [s.transcript.state.activeTurnSnapshot] : [])])
+      : hasActiveTurn || (!pendingPrompt.held && committedTurns !== pendingPromptCommittedTurns))) {
       s.session.setPendingPrompt(null);
     }
     pendingPromptCommittedTurns = committedTurns;
@@ -957,7 +960,7 @@ export function ChatRoot(props: ChatRootProps) {
       const s = state();
       const pending = s.session.state.pendingPrompt;
       const active =
-        s.transcript.state.activeTurnSnapshot ?? (pending ? pendingPromptTurn(pending) : null);
+        activeTurnWithPending(s.transcript.state.activeTurnSnapshot, pending);
       if (!active) return userTurns();
       const base = committedUnitsArr.length;
       const inActive = collectUserTurnUnits(
@@ -991,7 +994,7 @@ export function ChatRoot(props: ChatRootProps) {
       committedUnitsVersion();
       const s = state();
       const pending = s.session.state.pendingPrompt;
-      const active = s.transcript.state.activeTurnSnapshot ?? (pending ? pendingPromptTurn(pending) : null);
+      const active = activeTurnWithPending(s.transcript.state.activeTurnSnapshot, pending);
       const committed = collectUserTurnUnits(s.transcript.state.committedTurns, makeUnitsView(committedUnitsArr, NO_ACTIVE_UNITS), { delivered: true });
       const base = committedUnitsArr.length;
       const ends = active

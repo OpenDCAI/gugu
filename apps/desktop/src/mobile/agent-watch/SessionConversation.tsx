@@ -42,6 +42,9 @@ import { nativeUserAttachmentCommands } from './native-user-attachments'
 import { usePhoneSessionQuotes } from './use-phone-session-quotes'
 import { EngineIcon } from '@/components/AgentHarnessIdentity'
 import { engineLabel } from '@/lib/usage/engineLabel'
+import { useQueuedSessionInputs, retrySessionInputs } from '@/lib/sessionInputOutboxBridge'
+import { projectSessionPendingInput } from '@/lib/pendingSessionInput'
+import type { PendingPrompt } from '@gugu/session-chat-ui'
 
 /** The phone supplies session data and RPC actions to the same project conversation UI. */
 export function SessionConversation({ timeline, deviceId, sessionId, agentName, agentUserId, harness, draft, onDraftApplied, startupPrompt, phoneHost = false, local = false, nativeRecord = false, hostReachable = true,
@@ -170,6 +173,11 @@ export function SessionConversation({ timeline, deviceId, sessionId, agentName, 
     readFileChunk: local ? input => readConversationFile(true, deviceId, input) : undefined })
   const background = usePhoneBackgroundTasks(deviceId, sessionId, timeline.turns, dismissals, !phoneHost, localClient?.fetchBackgroundTasks)
   const turns = timeline.turns
+  const senderInputs = useQueuedSessionInputs(sessionId)
+  const pendingInput = useRef<{ sessionId: string; prompt: PendingPrompt | null }>({ sessionId, prompt: null })
+  const pendingPrompt = projectSessionPendingInput(pendingInput.current.sessionId === sessionId ? pendingInput.current.prompt : null,
+    senderInputs, [], turns)
+  pendingInput.current = { sessionId, prompt: pendingPrompt }
   const attachmentTurns = useRef(turns)
   attachmentTurns.current = turns
   const userAttachments = useMemo(() => nativeUserAttachmentCommands({
@@ -190,6 +198,7 @@ export function SessionConversation({ timeline, deviceId, sessionId, agentName, 
     onError: error => setBackgroundError(messageForUser(error)),
   }), [deviceId, sessionId, local, outputs.openFile])
   const commands: ChatCommands = {
+    onRetrySend: () => { void retrySessionInputs().catch(error => toast({ title: translateSessionMessage('acpFailure.sendMessage'), description: messageForUser(error), variant: 'destructive' })) },
     ...(nativeRecord && !phoneHost ? userAttachments : {}),
     classifyLink: classifyFileLink, onOpenLink: followConversationLink, onOpenSender: openMessageSender,
     conversationAgentSession: () => sessionId, conversationAgentUserId: () => agentUserId ?? null,
@@ -219,7 +228,7 @@ export function SessionConversation({ timeline, deviceId, sessionId, agentName, 
       toolbarExtra={<><ComposerAttachButton disabled={sending} mobile onPickFile={() => input.current?.click()} /></>} />
   </>
   return <ThemeProvider theme={theme} target="documentElement"><MessageProvider locale={resolvedLocale} translate={translateSessionMessage}>
-    <div ref={visibility.ref} className="relative flex min-h-0 flex-1 flex-col"><SessionTranscriptView uri={sessionId} turns={turns} pendingPrompt={startupPrompt ?? pendingSends[0] ?? null} mobile commands={commands} backgroundTasks={background}
+    <div ref={visibility.ref} className="relative flex min-h-0 flex-1 flex-col"><SessionTranscriptView uri={sessionId} turns={turns} pendingPrompt={pendingPrompt ?? startupPrompt ?? pendingSends[0] ?? null} mobile commands={commands} backgroundTasks={background}
       onReachStart={() => { void quotes.loadOlder() }} composerContent={composer} shown={visibility.shown} onAtBottomChange={atBottom => { if (atBottom) onAtBottom?.() }} onVisibleItems={reading.onVisibleItems} onReady={ready => { view.current = ready; reading.onReady(ready) }} className="relative min-h-0 flex-1" />
     {turns.length === 0 ? emptyNote : null}</div>{outputs.panel}{options.confirmation}
   </MessageProvider></ThemeProvider>

@@ -4,6 +4,7 @@ import type { MeasureCtx } from '@session-chat/core/define';
 import { layoutBlockStack } from '@session-chat/core/layout/block-stack';
 import type { ChatMessage } from '@session-chat/model';
 import { isMessageEditing, messageEditorMetrics } from './message-editor-metrics';
+import { inputSendStatusHeight } from './InputSendStatus';
 import {
   attachStripHeight, effectiveMessageVars, userAvailableWidth, userInnerWidth,
   userMessageActionsHeight, type MessageVars,
@@ -13,7 +14,7 @@ import {
 export function measureUserMessage(item: ChatMessage, ctx: MeasureCtx, baseVars: MessageVars): number {
   const vars = effectiveMessageVars(baseVars, ctx.theme.layout);
   const available = userAvailableWidth(ctx.width, ctx.theme.layout);
-  const attachments = attachStripHeight(item.attachments?.length ?? 0, available, vars);
+  const attachments = attachStripHeight(item.attachments?.length ?? 0, available, vars) + inputSendStatusHeight(item);
   if (!item.guguDelivery && isMessageEditing(item.id, ctx)) {
     return attachments + messageEditorMetrics(ctx.editingMessage!.text, ctx).height;
   }
@@ -32,7 +33,7 @@ export function measureUserMessage(item: ChatMessage, ctx: MeasureCtx, baseVars:
 export function estimateUserMessage(item: ChatMessage, ctx: MeasureCtx, baseVars: MessageVars): number {
   const vars = effectiveMessageVars(baseVars, ctx.theme.layout);
   const available = userAvailableWidth(ctx.width, ctx.theme.layout);
-  const attachments = attachStripHeight(item.attachments?.length ?? 0, available, vars);
+  const attachments = attachStripHeight(item.attachments?.length ?? 0, available, vars) + inputSendStatusHeight(item);
   if (!item.guguDelivery && isMessageEditing(item.id, ctx)) {
     return attachments + messageEditorMetrics(ctx.editingMessage!.text, ctx).height;
   }

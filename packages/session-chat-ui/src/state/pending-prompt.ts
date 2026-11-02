@@ -19,7 +19,36 @@ export type PendingPrompt = {
   held?: boolean;
   /** Its session is still starting (the lifecycle's own state): the live line says so instead of the working label. */
   starting?: TurnProcessItem['starting'];
+  /** Ordinary sender custody, kept here until this exact input is visible in the transcript. */
+  delivery?: { state: 'sending' | 'accepted' | 'failed' | 'unknown'; error?: string; retryable?: boolean };
+  /** Existing user identities cannot acknowledge this input when older history is loaded. */
+  baselineMessageIds?: readonly string[];
+  afterTurnId?: string;
 };
+
+/** A new history seed or an unrelated active turn is not a receipt for this input. */
+export function pendingPromptLanded(prompt: PendingPrompt, turns: readonly TranscriptTurn[]): boolean {
+  const anchor = turns.findIndex(turn => turn.id === prompt.afterTurnId);
+  const baseline = new Set(prompt.baselineMessageIds ?? []);
+  const flat = (text: string) => text.replace(/\s+/g, ' ').trim();
+  return turns.some((turn, index) => turn.items.some(item => {
+    if (item.kind !== 'message' || item.role !== 'user' || baseline.has(item.id)) return false;
+    if (item.id === prompt.id || (prompt.id.length >= 16 && item.id.includes(prompt.id))) return true;
+    if (flat(item.text) !== flat(prompt.text)) return false;
+    if (anchor >= 0 && index <= anchor) return false;
+    if (prompt.sentAt !== undefined && turn.startedAt !== undefined) return turn.startedAt >= prompt.sentAt;
+    return anchor >= 0 && index > anchor;
+  }));
+}
+
+/** Keep the input visible when a native turn starts before its user-message echo arrives. */
+export function activeTurnWithPending(turn: TranscriptTurn | null, prompt: PendingPrompt | null): TranscriptTurn | null {
+  if (!prompt) return turn;
+  if (!turn) return pendingPromptTurn(prompt);
+  if (!prompt.delivery || pendingPromptLanded(prompt, [turn])) return turn;
+  if (turn.items.some(item => item.kind === 'message' && item.role === 'user')) return turn;
+  return { ...turn, items: [...pendingPromptTurn(prompt).items, ...turn.items] };
+}
 
 /** 乐观行画成的那一轮:只有人说的那一句。 */
 export function pendingPromptTurn(prompt: PendingPrompt): TranscriptTurn {
@@ -36,6 +65,7 @@ export function pendingPromptTurn(prompt: PendingPrompt): TranscriptTurn {
         role: 'user',
         text: prompt.text,
         attachments: prompt.attachments,
+        ...(prompt.delivery ? { sendStatus: prompt.delivery } : {}),
       } as TranscriptTurn['items'][number],
     ],
   } satisfies TranscriptTurn;

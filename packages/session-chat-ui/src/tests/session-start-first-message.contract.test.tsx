@@ -41,6 +41,41 @@ function mount(preset: ChatLayoutPreset, { agentConversation, ...opts }: { pinUs
 const FIRST = 'Look at this project.'
 const header = (host: HTMLElement) => host.querySelector<HTMLElement>('[data-slot="turn-process"]')
 
+describe('ordinary sending stays in the transcript', () => {
+  it.each(['single', 'double'] as ChatLayoutPreset[])('keeps one bubble through acknowledgement, history and native echo (%s)', async preset => {
+    const { state, host } = mount(preset, { agentConversation: true, pinUserMessages: true })
+    const sentAt = Date.now()
+    const pending = { id: 'send', text: FIRST, sentAt, held: true, delivery: { state: 'sending' as const } }
+    state.session.setPendingPrompt(pending)
+    await until('the pending input is drawn', () => host.querySelectorAll('[data-user-card]').length === 1 && !!host.querySelector('[data-send-state="sending"]'))
+    const top = host.querySelector('[data-user-card]')!.getBoundingClientRect().top
+    state.transcript.history.seed([])
+    state.session.setPendingPrompt({ ...pending, delivery: { state: 'accepted' } })
+    await until('accepted input stays without its spinner', () => host.querySelectorAll('[data-user-card]').length === 1 && !host.querySelector('[data-send-state="sending"]'))
+    expect(Math.abs(host.querySelector('[data-user-card]')!.getBoundingClientRect().top - top)).toBeLessThanOrEqual(1)
+    state.transcript.activeTurn.set({ id: 'native', seq: 1, initiator: 'user', startedAt: sentAt, items: [] })
+    await until('an early native turn does not hide the input', () => !!host.querySelector('[data-user-card="send"]'))
+    state.transcript.activeTurn.set({ id: 'native', seq: 1, initiator: 'user', startedAt: sentAt,
+      items: [{ kind: 'message', id: 'echo', seq: 0, role: 'user', text: FIRST }] })
+    await until('its native echo replaces the pending projection once', () => !!host.querySelector('[data-user-card="echo"]') && host.querySelectorAll('[data-user-card]').length === 1)
+    expect(Math.abs(host.querySelector('[data-user-card]')!.getBoundingClientRect().top - top)).toBeLessThanOrEqual(1)
+  })
+
+  it('keeps the failed input and a working retry action in place', async () => {
+    const { state, host, view } = mount('double', { agentConversation: true })
+    const retry = vi.fn()
+    view.setCommands({ onRetrySend: retry })
+    state.session.setPendingPrompt({ id: 'send', text: FIRST, held: true,
+      delivery: { state: 'failed', error: 'connection refused' } })
+    await until('failed input exposes retry', () => !!host.querySelector('[data-send-state="failed"] button'))
+    expect(host.querySelectorAll('[data-user-card]')).toHaveLength(1)
+    expect(host.querySelector('[data-send-state="failed"]')?.getAttribute('title')).toBe('connection refused')
+    expect(host.querySelector('[data-live="true"]')).toBeNull()
+    host.querySelector<HTMLButtonElement>('[data-send-state="failed"] button')!.click()
+    expect(retry).toHaveBeenCalledWith('send')
+  })
+})
+
 describe('session start with a first message', () => {
   it.each(['single', 'double'] as ChatLayoutPreset[])(
     'shows the first message as already running while the session is set up ($0 layout)',

@@ -17,6 +17,7 @@ import { MoreHorizontal } from '@/lib/icons'
 import { AgentWatchNote, AgentWatchScreen } from './AgentWatchChrome'
 import { SessionConversation } from './SessionConversation'
 import { enqueueSessionInput, useQueuedSessionInputs } from '@/lib/sessionInputOutboxBridge'
+import { sessionInputBaseline } from '@/lib/pendingSessionInput'
 import { SessionInputQueue } from '@/components/chat/SessionInputQueue'
 import { SessionAvatar } from './StatusGlyph'
 import { OfflineNote } from './OfflineNote'
@@ -247,7 +248,8 @@ export const SessionTimelinePage = observer(function SessionTimelinePage({
           sessionRuntime={session.runtime}
           respondingItemId={respondingItemId}
           onRespond={respond}
-          onSend={async (text, files) => { await enqueueSessionInput({ deviceId: device.device_id, sessionId: session.conversationId, text, ...(files?.length ? { files } : {}) }); if (native) nativeRecord.followTail() }}
+          onSend={async (text, files) => { await enqueueSessionInput({ deviceId: device.device_id, sessionId: session.conversationId, text,
+            queued: attention === 'running' || queuedInputs.some(input => !input.queued), ...sessionInputBaseline(conversation.turns), ...(files?.length ? { files } : {}) }); if (native) nativeRecord.followTail() }}
           pendingSends={pendingSends}
           startupPrompt={recovery.pendingPrompt}
           sending={sending}
