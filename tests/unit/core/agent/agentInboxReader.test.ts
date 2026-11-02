@@ -390,26 +390,25 @@ describe('inbox batch request budgets', () => {
   it('t1: fetches one seed for three idle admissions and attaches it only to the first', async () => {
     const d = batch([1, 1, 1])
     expect(await pullAgentInbox(AGENT, d.deps)).toMatchObject({ injected: 3, verdict: 'accepted' })
-    expect(d.fetchThreadMessages).toHaveBeenCalledTimes(1)
-    expect(d.resolveGuguIds).toHaveBeenCalledTimes(1)
-    expect(d.injections.map((entry) => entry.text.includes(seed))).toEqual([true, false, false])
+    expect({ fetches: d.fetchThreadMessages.mock.calls.length, identities: d.resolveGuguIds.mock.calls.length,
+      contexts: d.injections.map((entry) => entry.text.includes(seed)) })
+      .toEqual({ fetches: 1, identities: 1, contexts: [true, false, false] })
   })
 
   it('t2: attaches one seed when the three rows share a next-tool-call unit', async () => {
     const d = batch([1, 1, 1], 'next-tool-call')
     await pullAgentInbox(AGENT, d.deps)
-    expect(d.fetchThreadMessages).toHaveBeenCalledTimes(1)
-    expect(d.resolveGuguIds).toHaveBeenCalledTimes(1)
     expect(d.injections).toHaveLength(1)
-    expect(d.injections[0]!.text.split(seed)).toHaveLength(2)
+    expect({ fetches: d.fetchThreadMessages.mock.calls.length, identities: d.resolveGuguIds.mock.calls.length,
+      contexts: d.injections[0]!.text.split(seed).length - 1 }).toEqual({ fetches: 1, identities: 1, contexts: 1 })
   })
 
   it('t3: fetches one seed for each of two threads in the same batch', async () => {
     const d = batch([1, 1, 2, 2])
     await pullAgentInbox(AGENT, d.deps)
-    expect(d.fetchThreadMessages).toHaveBeenCalledTimes(2)
-    expect(d.resolveGuguIds).toHaveBeenCalledTimes(2)
-    expect(d.injections.map((entry) => entry.text.includes(seed))).toEqual([true, false, true, false])
+    expect({ fetches: d.fetchThreadMessages.mock.calls.length, identities: d.resolveGuguIds.mock.calls.length,
+      contexts: d.injections.map((entry) => entry.text.includes(seed)) })
+      .toEqual({ fetches: 2, identities: 2, contexts: [true, false, true, false] })
   })
 
   it('t4: a settled thread needs no seed requests in the next batch', async () => {
@@ -430,31 +429,30 @@ describe('inbox batch request budgets', () => {
     const inject = d.deps.inject
     d.deps.inject = async () => { throw new Error('admission rejected') }
     await expect(pullAgentInbox(AGENT, d.deps)).rejects.toThrow('admission rejected')
-    expect(d.fetchThreadMessages).toHaveBeenCalledTimes(1)
+    const first = { fetches: d.fetchThreadMessages.mock.calls.length, identities: d.resolveGuguIds.mock.calls.length }
     d.fetchThreadMessages.mockClear()
     d.resolveGuguIds.mockClear()
     d.deps.inject = inject
     await pullAgentInbox(AGENT, d.deps)
-    expect(d.fetchThreadMessages).toHaveBeenCalledTimes(1)
-    expect(d.resolveGuguIds).toHaveBeenCalledTimes(1)
-    expect(d.injections.map((entry) => entry.text.includes(seed))).toEqual([true, false, false])
+    expect({ first, second: { fetches: d.fetchThreadMessages.mock.calls.length, identities: d.resolveGuguIds.mock.calls.length },
+      contexts: d.injections.map((entry) => entry.text.includes(seed)) })
+      .toEqual({ first: { fetches: 1, identities: 1 }, second: { fetches: 1, identities: 1 }, contexts: [true, false, false] })
   })
 
   it('t6: a failed fetch is tried once this batch and retried for the next batch', async () => {
     const d = batch([1, 1, 1])
     d.fetchThreadMessages.mockRejectedValue(new Error('thread unavailable'))
     await pullAgentInbox(AGENT, d.deps)
-    expect(d.fetchThreadMessages).toHaveBeenCalledTimes(1)
-    expect(d.resolveGuguIds).not.toHaveBeenCalled()
-    expect(d.injections.map((entry) => entry.text.includes(seed))).toEqual([false, false, false])
+    const first = { fetches: d.fetchThreadMessages.mock.calls.length, identities: d.resolveGuguIds.mock.calls.length,
+      contexts: d.injections.map((entry) => entry.text.includes(seed)) }
     d.fetchThreadMessages.mockClear()
     d.fetchThreadMessages.mockResolvedValue([{ senderUserId: HUMAN, content: seed, createdAt: '2026-08-29T00:00:00Z' }])
     d.injections.length = 0
     d.append(4, 1)
     await pullAgentInbox(AGENT, d.deps)
-    expect(d.fetchThreadMessages).toHaveBeenCalledTimes(1)
-    expect(d.resolveGuguIds).toHaveBeenCalledTimes(1)
-    expect(d.injections[0]!.text).toContain(seed)
+    expect({ first, second: { fetches: d.fetchThreadMessages.mock.calls.length, identities: d.resolveGuguIds.mock.calls.length,
+      contexts: d.injections.map((entry) => entry.text.includes(seed)) } })
+      .toEqual({ first: { fetches: 1, identities: 0, contexts: [false, false, false] }, second: { fetches: 1, identities: 1, contexts: [true] } })
   })
 
   function forumBatch(timing: AgentInboxDeliveryTiming) {
