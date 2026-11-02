@@ -5,7 +5,7 @@ import { readCachedDeviceId } from '@gugu/core/cloud/deviceRuntime'
 import { attachmentRequest, configuredEndpoint } from '@gugu/core/cloud/attachmentsApi'
 import { createFileMetadataLoader } from '@gugu/core/cloud/fileMetadata'
 import { cloudFileProviders } from '@gugu/core/cloud/fileProviders'
-import { createFileChunkCache, createFileSink, saveFileHandle } from '@gugu/core/local/files/fileSnapshots'
+import { createFileChunkCache, createFileSink, createFileSaver, saveFileHandle } from '@gugu/core/local/files/fileSnapshots'
 import { attachmentStage } from '@gugu/core/local/files/attachmentDiagnostics'
 import { DEVICE_STORE, createFileResolver, type FileContext, type FileRef, type FileRevision } from '@gugu/core/shared/fileResolver'
 import { parseFileStorage } from '@gugu/core/shared/fileStorage'
@@ -59,7 +59,7 @@ export function createDesktopFileAccess(deps: {
       const links = deps.links(); return links ? ownSshFileProvider(links, deps.tempRoot)(...args) : null
     },
   }
-  const resolve = createFileResolver(providers)
+  const resolve = createFileResolver({ ...providers, saveTo: createFileSaver(providers) })
   const drain = createProjectTransferHost({ identity, endpoint, read: async request => read(request, (await identity()).accountId), tempRoot: deps.tempRoot, env: deps.env, later })
   const resolveAccount: Parameters<typeof setAccountFileResolver>[0] = async (ref, actor, options) => {
     const { accountId, deviceId } = await identity()

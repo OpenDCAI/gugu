@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { readStoredAgentTurnFailures, type StoredAgentTurnFailure } from '../lib/storedAgentTurnFailures'
+import { readStoredAgentTurnFailures, type StoredAgentTurnFailure, type StoredFailureScope } from '../lib/storedAgentTurnFailures'
 import { readAgentTurnFailureDismissals, writeAgentTurnFailureDismissals, type AgentTurnFailureDismissals } from '../lib/agentTurnFailureDismissals'
 import { subscribePrivateUserEventBus, unsubscribePrivateUserEventBus } from '../lib/realtimeChannel'
 import { rendererLogger } from '../lib/log'
@@ -22,10 +22,11 @@ function loadDismissals(userId: string | undefined): AgentTurnFailureDismissals 
 export const AGENT_DELIVER_CHANGED = 'agent_deliver_changed'
 
 /** 宿主本机事件之外，从同一条命令的持久结果读失败；私有广播只提示失效，不广播错误原文。 */
-export function useStoredAgentTurnFailure(chatId: string | null, threadRootId: string | null, agentIds: readonly string[]) {
+export function useStoredAgentTurnFailure(scope: StoredFailureScope | null, agentIds: readonly string[]) {
   const { user } = useAuth()
   const ids = [...new Set(agentIds)].sort().join(',')
-  const subject = JSON.stringify([user?.id, chatId, threadRootId, ids])
+  const scopeKey = scope === null ? null : JSON.stringify(scope)
+  const subject = JSON.stringify([user?.id, scopeKey, ids])
   const [snapshot, setSnapshot] = useState<{ subject: string; rows: StoredAgentTurnFailure[]; readFailed: boolean }>({ subject: '', rows: [], readFailed: false })
   const [attempt, setAttempt] = useState(0)
   // 关掉记在本机存储里（按命令、按那一版），❌ 只记在组件里：切走再回来、重开 App 都还认得（owner 10-28 Codex 91）。
@@ -43,12 +44,13 @@ export function useStoredAgentTurnFailure(chatId: string | null, threadRootId: s
     setDismissals({ userId: user.id, value: next })
   }, [user?.id])
   useEffect(() => {
-    if (!user?.id || !chatId || !ids) return
+    if (!user?.id || scopeKey === null || !ids) return
+    const where = JSON.parse(scopeKey) as StoredFailureScope
     let live = true
     let generation = 0
     const refresh = () => {
       const current = ++generation
-      void readStoredAgentTurnFailures(chatId, threadRootId, ids.split(',')).then(({ failures: rows }) => {
+      void readStoredAgentTurnFailures(where, ids.split(',')).then(({ failures: rows }) => {
         if (!live || current !== generation) return
         changeDismissals((now) => {
           const pending = rows.filter((row) => now[row.commandId]?.revision === null)
@@ -57,14 +59,14 @@ export function useStoredAgentTurnFailure(chatId: string | null, threadRootId: s
         setSnapshot({ subject, rows, readFailed: false })
       }).catch((error: unknown) => {
         if (!live || current !== generation) return
-        log.error({ chatId, error: String(error) }, 'could not read agent reply outcome')
+        log.error({ scope: where, error: String(error) }, 'could not read agent reply outcome')
         setSnapshot((previous) => ({ subject, rows: previous.subject === subject ? previous.rows : [], readFailed: true }))
       })
     }
     const handle = subscribePrivateUserEventBus(user.id, AGENT_DELIVER_CHANGED, (raw) => {
       if (!raw || typeof raw !== 'object') return
       const event = raw as Record<string, unknown>
-      if (event.chat_id !== chatId || (event.thread_root_id || null) !== threadRootId) return
+      if (where !== 'any-chat' && (event.chat_id !== where.chatId || (event.thread_root_id || null) !== where.threadRootId)) return
       if (typeof event.agent_user_id !== 'string' || !ids.split(',').includes(event.agent_user_id)) return
       const settled = typeof event.id === 'string' && event.status !== 'error' ? event.id : null
       if (settled) changeDismissals((now) => {
@@ -87,7 +89,7 @@ export function useStoredAgentTurnFailure(chatId: string | null, threadRootId: s
       window.removeEventListener('online', refresh)
       document.removeEventListener('visibilitychange', visible)
     }
-  }, [user?.id, chatId, threadRootId, ids, subject, attempt, changeDismissals])
+  }, [user?.id, scopeKey, ids, subject, attempt, changeDismissals])
 
   const rows = snapshot.subject === subject ? snapshot.rows : EMPTY
   const dismiss = useCallback((commandId: string) => {

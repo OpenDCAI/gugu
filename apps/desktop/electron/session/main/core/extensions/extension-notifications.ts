@@ -32,6 +32,7 @@ export interface ExtensionNotifierDeps {
   locale(): string;
   /** Settings → Notifications, the same two switches agent banners obey. */
   notificationSettings(): Promise<{ enabled: boolean; sound: boolean }>;
+  systemUsable(): Promise<boolean>;
   /**
    * `shown` settles when the system answers: resolved once the banner is actually on screen,
    * rejected with the reason when the system refuses it (e.g. gugu is not allowed to notify).
@@ -77,11 +78,12 @@ export function admitBanner(source: string, now: number): void {
 
 /** The main-process device action and its user-pressed probe share the task preferences. */
 export async function showDeviceNotification(title: string, body: string, options?: { probe: boolean }): Promise<{ shown: boolean }> {
-  const [{ Notification }, { appSettingsService }, { log }] = await Promise.all([
+  const [{ Notification }, { appSettingsService }, { log }, { systemNotificationsUsable }] = await Promise.all([
     import('electron'), import('@main/core/settings/settings-service'), import('@main/lib/logger'),
+    import('../agent-hooks/system-notifications'),
   ]);
   const { enabled, sound } = await appSettingsService.get('notifications');
-  if (!enabled || !Notification.isSupported()) return { shown: false };
+  if (!enabled || !(await systemNotificationsUsable())) return { shown: false };
   if (!options?.probe) admitBanner('device-action', Date.now());
   await showSystemBanner(Notification, log, 'device', { title, body, silent: !sound }).shown;
   return { shown: true };
@@ -158,6 +160,7 @@ export function createExtensionNotifier(deps: ExtensionNotifierDeps) {
     if (!enabled) {
       throw new Error('system notifications are turned off in gugu settings');
     }
+    if (!(await deps.systemUsable())) throw new Error('this computer has no system notification service running');
     admitBanner(`app:${input.extensionId}`, deps.now());
 
     const tagKey = parsed.tag === undefined ? null : `${input.extensionId}\u0000${parsed.tag}`;
@@ -256,7 +259,7 @@ let notifier: ReturnType<typeof createExtensionNotifier> | null = null;
 /** The live path: the bridge's `notify` verb lands here. */
 export async function showExtensionNotification(input: { extensionId: string; request: Record<string, unknown> }): Promise<{ shown: true }> {
   if (!notifier) {
-    const [electron, { extensionsService }, { appSettingsService }, { focusAppFromNotification }, bridge, orchestration, { log }, { agentSessionContext }, { actInWindow }, files] =
+    const [electron, { extensionsService }, { appSettingsService }, { focusAppFromNotification }, bridge, orchestration, { log }, { agentSessionContext }, { actInWindow }, files, { systemNotificationsUsable }] =
       await Promise.all([
         import('electron'),
         import('./extensions-root'),
@@ -268,6 +271,7 @@ export async function showExtensionNotification(input: { extensionId: string; re
         import('./extension-agent-context'),
         import('./extension-bridge-relay'),
         import('./app-files'),
+        import('../agent-hooks/system-notifications'),
       ]);
     const projectOf = async (sessionId: string) => {
       const projectId = (await agentSessionContext(sessionId))?.projectId;
@@ -279,8 +283,9 @@ export async function showExtensionNotification(input: { extensionId: string; re
       locale: sessionHostLocale,
       notificationSettings: async () => {
         const { enabled, sound } = await appSettingsService.get('notifications');
-        return { enabled: enabled && electron.Notification.isSupported(), sound };
+        return { enabled, sound };
       },
+      systemUsable: systemNotificationsUsable,
       show: (banner) => showSystemBanner(electron.Notification, log, 'extension', banner),
       focusApp: () => {
         focusAppFromNotification();

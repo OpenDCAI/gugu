@@ -1,5 +1,4 @@
 import type { MessageItem } from '@gugu/core/shared/types/chat'
-import { agentStreamKey } from '../lib/agentStreamState'
 
 /**
  * #1577 M3 — ThreadScope 单一对象。
@@ -8,8 +7,7 @@ import { agentStreamKey } from '../lib/agentStreamState'
  * 「用哪份消息列表 / 哪个复合 key」的判断收敛到这里一处,杜绝新增路径只读了 rootId 却忘了配套的 scope 列表
  * / key → 漂移 bug(#1575「话题运行中卡死」即此类:清活动只查了 messages 没查 threadMessages)。
  *
- * 故意只覆盖 thread 维度:activeChatId 是独立成熟字段、不在漂移问题内,不并进来;streamKey 用独立纯函数
- * (`threadScopeStreamKey`)而非塞进对象,避免 context 里函数引用身份抖动。
+ * 故意只覆盖 thread 维度:activeChatId 是独立成熟字段、不在漂移问题内,不并进来。
  */
 export interface ThreadScope {
   /** = activeThreadRootId;null = 主时间线。 */
@@ -43,12 +41,4 @@ export function deriveThreadScope(input: {
     messages: isOpen ? input.threadMessages : input.messages,
     loading: isOpen ? (input.loadingThread ?? false) : (input.loadingMessages ?? false),
   }
-}
-
-/**
- * 该作用域的 (chat, thread) 复合 key —— activity / stream 同款。唯一派生入口,杜绝各处自己拼
- * `agentStreamKey(chatId, rootId)` 时漏带 rootId。chatId 为空(无活动会话)→ null。
- */
-export function threadScopeStreamKey(chatId: string | null, scope: ThreadScope): string | null {
-  return chatId ? agentStreamKey(chatId, scope.rootId) : null
 }

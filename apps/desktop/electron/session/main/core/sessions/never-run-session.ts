@@ -33,7 +33,7 @@ export async function isResidentNeverRun(sessionId: string): Promise<boolean> {
   const config = row?.config;
   if (!config) return false;
   if ((turns?.n ?? 0) > 0) return false;
-  if (config.type === 'acp' && config.initialQueue?.some((prompt) => prompt.text.trim())) return false;
+  if (config.type === 'acp' && config.initialQueue?.some((prompt) => prompt.text.trim() || prompt.files?.length)) return false;
   if (config.initialPrompt?.trim()) return false;
   const said = config.firstUtterance?.trim();
   return !said || said === RESIDENT_AGENT_FIRST_UTTERANCE;
