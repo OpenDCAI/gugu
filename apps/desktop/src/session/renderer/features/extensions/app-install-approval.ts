@@ -26,7 +26,10 @@ export async function answerAppInstall(input: {
 }): Promise<unknown> {
   if (input.optionId !== APP_INSTALL_OPTION) return input.respond({ optionId: APP_INSTALL_DECLINE_OPTION });
   const parsed = safeParseExtensionManifest(input.ask.request.manifest);
-  if (!parsed.ok) throw new Error('This install asks about a manifest this build cannot read');
+  if (!parsed.ok) {
+    await input.respond({ optionId: APP_INSTALL_DECLINE_OPTION });
+    throw new Error('This install asks about a manifest this build cannot read');
+  }
   // Installed on the computer the session runs on: when that is not this one, the sheet names it — its agents, its files.
   const machine = input.ask.request.machine ?? input.machine;
   const request = { ...input.ask.request, ...(machine ? { machine } : {}) };
