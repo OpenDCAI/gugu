@@ -1,8 +1,23 @@
 import type { ChatComposerProps, PromptEditorRef } from '@gugu/session-ui/react/components';
+import { observer } from 'mobx-react-lite';
+import { composerDrafts } from '../composer-drafts';
+import { useCreateSessionCallback } from '../create-session-modal/use-create-session-callback';
+import type { CreateSessionState } from '../create-session-modal/use-create-session-state';
 import { JSDOM } from 'jsdom';
 import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+vi.mock('@renderer/features/sessions/stores/session-selectors', () => ({
+  getSessionManagerStore: () => ({ createSession: mocks.createSession }),
+  getSessionPageStore: () => ({ workspaceId: 'workspace' }),
+  asProvisioned: (value: unknown) => value,
+}));
+vi.mock('@/lib/sessionPublication', async original => ({ ...(await original<object>()), getRendererSession: () => ({ user: { id: 'fixture-owner' } }) }));
+vi.mock('@renderer/lib/shell-port', async original => {
+  const actual = await original<typeof import('@renderer/lib/shell-port')>();
+  return { ...actual, shellPort: () => ({ ...actual.shellPort(), ensureAgentAddress: async () => ({ chatId: 'fixture-chat' }) }) };
+});
 
 vi.mock('@/lib/supabase', () => ({
   dataClient: () => { throw new Error('Initial composer tests must not access the cloud'); },
@@ -36,6 +51,9 @@ import { effortSourceFor, platformEffortFacts, resolveCreateEfforts, resolveEffo
 ).IS_REACT_ACT_ENVIRONMENT = true;
 
 const mocks = vi.hoisted(() => ({
+  createSession: vi.fn(),
+  sendMessage: vi.fn(),
+  created: vi.fn(),
   setProviderOverride: vi.fn(),
   invoke: vi.fn(),
   /** 访达拖进来的那条真路径;粘贴进来的是空串(Chromium 给不出路径)。 */
@@ -455,6 +473,9 @@ vi.mock('@renderer/lib/ipc', () => {
     on: vi.fn(() => () => {}),
   },
   rpc: {
+    sessions: { sendMessage: mocks.sendMessage },
+    sessionTimeline: { sessionStart: async () => ({ ok: true }) },
+    sessionCreate: { admitFirstMessages: async () => {} },
     issues: {
       searchIssues: vi.fn(),
       getIssueContext: vi.fn(),
@@ -474,7 +495,7 @@ vi.mock('@renderer/lib/ipc', () => {
 vi.mock('@/lib/attachmentsEndpoint', () => ({ placeTaskAttachment: mocks.placeTaskAttachment, prepareTaskAttachment: mocks.prepareTaskAttachment }));
 
 vi.mock('@renderer/utils/logger', () => ({
-  log: { warn: vi.fn() },
+  log: { warn: vi.fn(), error: vi.fn() },
 }));
 
 // 新建会话的记忆在应用设置 `newSessionMemory`(这台设备一份,主进程的 spawnAgent 读同一份 —— L11 复核 58)。
@@ -570,6 +591,35 @@ function Probe({
   );
   return null;
 }
+
+let latestCreation: ReturnType<typeof useCreateSessionCallback> | undefined;
+const creationState = {
+  isValid: true, linkedType: null, linkedIssue: null,
+  sessionName: { effectiveSessionName: 'fixture-task' },
+  workspaceConfig: { resolvedConfig: { version: '2' } },
+} as unknown as CreateSessionState;
+const CreationProbe = observer(function CreationProbe({ draftKey, local = false }: { draftKey: string; local?: boolean }) {
+  const draft = React.useMemo(() => composerDrafts.forKey?.(draftKey), [draftKey]);
+  const state = useInitialSessionState('project-1', undefined, false, {
+    resetPromptOnProjectChange: false,
+    initialPrompt: draft ? undefined : composerDrafts.get(draftKey),
+    draft,
+  });
+  state.promptCapability = local ? undefined : { kind: 'none', startupDelivery: 'startup-prompt' };
+  // PromptEditor.setText emits onChange even for a programmatic state synchronization.
+  React.useEffect(() => state.setPrompt(state.prompt), [state.prompt, state.setPrompt]);
+  latestState = state;
+  latestCreation = useCreateSessionCallback({
+    selectedProjectId: 'project-1', state: creationState, initialSession: state,
+    navigate: mocks.navigate, onClose: () => {}, onCreated: mocks.created, openAfterCreate: false,
+  });
+  return React.createElement(React.Fragment, null,
+    React.createElement('textarea', { value: state.prompt, readOnly: true, 'data-draft-input': true }),
+    React.createElement('button', { disabled: !latestCreation.canCreate, onClick: latestCreation.handleCreateSession }, 'Send'),
+    React.createElement('span', { 'data-files': true }, state.attachments.map(chip => chip.name).join(',')),
+    React.createElement('span', { role: 'alert' }, JSON.stringify(latestCreation.deliveryError)),
+  );
+});
 
 function FieldProbe({
   linkedIssue,
@@ -795,6 +845,264 @@ describe('useInitialSessionState', () => {
       latestState?.setPrompt(prompt);
     });
   }
+
+  async function renderCreation(draftKey: string, local = false) {
+    await act(async () => root.render(React.createElement(CreationProbe, { draftKey, local })));
+  }
+  async function remountCreation(draftKey: string, local = false) {
+    await act(async () => root.render(null));
+    await renderCreation(draftKey, local);
+  }
+  function deferCreation() {
+    let resolve!: () => void;
+    let reject!: (error: Error) => void;
+    mocks.createSession.mockReset();
+    mocks.sendMessage.mockReset().mockResolvedValue({ status: 'queued' });
+    mocks.created.mockReset();
+    mocks.createSession.mockImplementationOnce(() => new Promise<void>((yes, no) => { resolve = yes; reject = no; }));
+    return { resolve: () => resolve(), reject: () => reject(new Error('fixture-create-failed')) };
+  }
+
+  it('a remounted creation stays empty and cannot submit the in-flight first turn twice', async () => {
+    const key = 'remount-empty';
+    composerDrafts.set(key, 'submitted first turn');
+    const pending = deferCreation();
+    await renderCreation(key);
+    await act(async () => latestState?.enqueueAttachments([new File(['original'], 'original.txt')]));
+    await act(async () => latestCreation?.handleCreateSession());
+    expect(mocks.createSession).toHaveBeenCalledOnce();
+    await remountCreation(key);
+    expect(container.querySelector('textarea')?.value).toBe('');
+    expect(latestState?.attachments).toEqual([]);
+    expect(container.querySelector('button')?.disabled).toBe(true);
+    await act(async () => latestCreation?.handleCreateSession());
+    expect(mocks.createSession).toHaveBeenCalledOnce();
+    await act(async () => pending.resolve());
+    expect(container.querySelector('textarea')?.value).toBe('');
+    expect(composerDrafts.get(key)).toBe('');
+    expect(mocks.created).toHaveBeenCalledOnce();
+  });
+
+  it('a successful old instance retains the newer mounted text and file draft', async () => {
+    const key = 'remount-new-input';
+    composerDrafts.set(key, 'submitted first turn');
+    const pending = deferCreation();
+    await renderCreation(key);
+    await act(async () => latestCreation?.handleCreateSession());
+    await remountCreation(key);
+    await act(async () => latestState?.setPrompt('newer input'));
+    const file = new File(['new bytes'], 'new.txt');
+    await act(async () => latestState?.enqueueAttachments([file]));
+    await act(async () => pending.resolve());
+    expect(container.querySelector('textarea')?.value).toBe('newer input');
+    expect(composerDrafts.get(key)).toBe('newer input');
+    expect(latestState?.pendingAttachmentFiles()).toEqual([expect.objectContaining({ file })]);
+    expect(mocks.created).toHaveBeenCalledOnce();
+    expect(mocks.createSession).toHaveBeenCalledOnce();
+  });
+
+  it('a moved in-flight draft keeps its lock and returns both captions after unmounted failure', async () => {
+    const key = 'moving-creation';
+    const destination = 'moving-destination';
+    composerDrafts.set(key, 'original');
+    composerDrafts.set(destination, '');
+    const pending = deferCreation();
+    await renderCreation(key);
+    await act(async () => latestCreation?.handleCreateSession());
+    await act(async () => composerDrafts.moveToEmpty(key, destination));
+    await remountCreation(destination);
+    await act(async () => latestState?.setPrompt('new words'));
+    expect(latestCreation?.canCreate).toBe(false);
+    await act(async () => latestCreation?.handleCreateSession());
+    expect(mocks.createSession).toHaveBeenCalledOnce();
+    await act(async () => pending.reject());
+    expect(container.querySelector('textarea')?.value).toBe('original\nnew words');
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain('fixture-create-failed');
+    expect(latestCreation?.canCreate).toBe(true);
+    await act(async () => latestState?.setPrompt('edited after failure'));
+    expect(latestCreation?.deliveryError).toBeNull();
+  });
+
+  it('a remounted sender cannot create a second task even if send is invoked directly', async () => {
+    const key = 'remount-duplicate';
+    composerDrafts.set(key, 'one task');
+    const pending = deferCreation();
+    await renderCreation(key);
+    await act(async () => latestCreation?.handleCreateSession());
+    await remountCreation(key);
+    await act(async () => latestState?.setPrompt('next task draft'));
+    await act(async () => latestCreation?.handleCreateSession());
+    expect(mocks.createSession).toHaveBeenCalledOnce();
+    await act(async () => pending.resolve());
+  });
+
+  it('pre-create failure returns submitted files before newer files without revoking the submitted preview', async () => {
+    const key = 'remount-file-failure';
+    composerDrafts.set(key, 'original caption');
+    const pending = deferCreation();
+    const revoke = vi.spyOn(URL, 'revokeObjectURL');
+    await renderCreation(key);
+    const original = new File(['original'], 'original.png', { type: 'image/png' });
+    await act(async () => latestState?.enqueueAttachments([original]));
+    const preview = latestState?.attachments[0]?.previewUrl;
+    await act(async () => latestCreation?.handleCreateSession());
+    await remountCreation(key);
+    expect(container.querySelector('[data-files]')?.textContent).toBe('');
+    expect(revoke).not.toHaveBeenCalledWith(preview);
+    await act(async () => latestState?.setPrompt('new caption'));
+    const newer = new File(['new'], 'new.txt');
+    await act(async () => latestState?.enqueueAttachments([newer]));
+    await act(async () => pending.reject());
+    expect(container.querySelector('textarea')?.value).toBe('original caption\nnew caption');
+    expect(latestState?.pendingAttachmentFiles().map(({ file }) => file)).toEqual([original, newer]);
+    expect(latestState?.attachments.map(({ name }) => name)).toEqual(['original.png', 'new.txt']);
+    expect(revoke).not.toHaveBeenCalledWith(preview);
+    await act(async () => latestState?.setAttachments([]));
+    expect(revoke).toHaveBeenCalledWith(preview);
+    revoke.mockRestore();
+  });
+
+  it('post-create send failure returns only text and a remounted retry sends once without recreating', async () => {
+    const key = 'remount-local-retry';
+    composerDrafts.set(key, 'original caption');
+    const pending = deferCreation();
+    mocks.sendMessage.mockRejectedValueOnce(new Error('fixture-send-failed'));
+    await renderCreation(key, true);
+    await act(async () => latestState?.enqueueAttachments([new File(['original'], 'original.txt')]));
+    await act(async () => latestCreation?.handleCreateSession());
+    await remountCreation(key, true);
+    await act(async () => latestState?.setPrompt('new caption'));
+    await act(async () => pending.resolve());
+    expect(latestState?.prompt).toBe('original caption\nnew caption');
+    expect(latestState?.attachments).toEqual([]);
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain('fixture-send-failed');
+    await remountCreation(key, true);
+    await act(async () => latestCreation?.handleCreateSession());
+    expect(mocks.createSession).toHaveBeenCalledOnce();
+    expect(mocks.sendMessage).toHaveBeenCalledTimes(2);
+    expect(mocks.sendMessage.mock.calls.map(([message]) => message.text)).toEqual(['original caption', 'original caption']);
+    expect(mocks.sendMessage.mock.calls[1]?.[0].delivery.files).toHaveLength(1);
+    expect(latestState?.prompt).toBe('new caption');
+    expect(mocks.created).toHaveBeenCalledOnce();
+  });
+
+  it('a pure attachment send failure keeps its retry until added text resends to the same task', async () => {
+    const key = 'attachment-only-retry';
+    composerDrafts.set(key, '');
+    const pending = deferCreation();
+    mocks.sendMessage.mockRejectedValueOnce(new Error('fixture-send-failed'));
+    await renderCreation(key, true);
+    await act(async () => latestState?.enqueueAttachments([new File(['image'], 'image.png', { type: 'image/png' })]));
+    await act(async () => latestCreation?.handleCreateSession());
+    await act(async () => pending.resolve());
+    expect(latestState?.prompt).toBe('');
+    expect(latestState?.attachments).toEqual([]);
+    expect(composerDrafts.forKey(key).pendingMessage?.files).toHaveLength(1);
+    await remountCreation(key, true);
+    await act(async () => latestState?.setPrompt('retry this image'));
+    await act(async () => latestCreation?.handleCreateSession());
+    expect(mocks.createSession).toHaveBeenCalledOnce();
+    expect(mocks.sendMessage).toHaveBeenCalledTimes(2);
+    expect(mocks.sendMessage.mock.calls[1]?.[0].sessionId).toBe(mocks.sendMessage.mock.calls[0]?.[0].sessionId);
+    expect(mocks.sendMessage.mock.calls[1]?.[0].delivery.files).toHaveLength(1);
+    expect(latestState?.prompt).toBe('retry this image');
+  });
+
+  it('discarding a failed task retry lets a reopened composer create a different task', async () => {
+    const key = 'discard-retry';
+    composerDrafts.set(key, 'old task caption');
+    const pending = deferCreation();
+    mocks.sendMessage.mockRejectedValueOnce(new Error('fixture-send-failed'));
+    await renderCreation(key, true);
+    await act(async () => latestCreation?.handleCreateSession());
+    await act(async () => pending.resolve());
+    expect(latestCreation?.deliveryError).not.toBeNull();
+    await act(async () => composerDrafts.discard(key));
+    await remountCreation(key, true);
+    await act(async () => latestState?.setPrompt('a different task'));
+    mocks.createSession.mockResolvedValueOnce(undefined);
+    await act(async () => latestCreation?.handleCreateSession());
+    expect(mocks.createSession).toHaveBeenCalledTimes(2);
+    expect(mocks.sendMessage.mock.calls.map(([message]) => message.text)).toEqual(['old task caption', 'a different task']);
+    expect(mocks.sendMessage.mock.calls[1]?.[0].sessionId).not.toBe(mocks.sendMessage.mock.calls[0]?.[0].sessionId);
+    expect(latestState?.prompt).toBe('');
+  });
+
+  it('clearing an idle failed retry abandons it only after its last chip is removed', async () => {
+    const key = 'clear-idle-retry';
+    composerDrafts.set(key, 'old task caption');
+    const pending = deferCreation();
+    mocks.sendMessage.mockRejectedValueOnce(new Error('fixture-send-failed'));
+    await renderCreation(key, true);
+    await act(async () => latestCreation?.handleCreateSession());
+    await act(async () => pending.resolve());
+    await act(async () => latestState?.enqueueAttachments([new File(['new'], 'new.txt')]));
+    await act(async () => latestState?.setPrompt(''));
+    expect(composerDrafts.forKey(key).pendingMessage).not.toBeNull();
+    await act(async () => latestState?.setAttachments([]));
+    expect(composerDrafts.forKey(key).pendingMessage).toBeNull();
+    await act(async () => latestState?.setPrompt('a different task'));
+    mocks.createSession.mockResolvedValueOnce(undefined);
+    await act(async () => latestCreation?.handleCreateSession());
+    expect(mocks.createSession).toHaveBeenCalledTimes(2);
+    expect(mocks.sendMessage.mock.calls.map(([message]) => message.text)).toEqual(['old task caption', 'a different task']);
+  });
+
+  it('an external draft writer only changes the unsubmitted input during creation', async () => {
+    const key = 'external-during-creation';
+    composerDrafts.set(key, 'original caption');
+    const pending = deferCreation();
+    await renderCreation(key);
+    await act(async () => latestCreation?.handleCreateSession());
+    await act(async () => composerDrafts.set(key, 'external next draft'));
+    expect(container.querySelector('textarea')?.value).toBe('external next draft');
+    await act(async () => pending.resolve());
+    expect(mocks.createSession.mock.calls[0]?.[0].sessionConfig.initialSession.initialQueue[0].text).toBe('original caption');
+    expect(latestState?.prompt).toBe('external next draft');
+    expect(composerDrafts.get(key)).toBe('external next draft');
+  });
+
+  it('a completed request releases its preview once and cannot restore sent input after a callback error', async () => {
+    const key = 'success-once';
+    composerDrafts.set(key, 'original caption');
+    const pending = deferCreation();
+    const revoke = vi.spyOn(URL, 'revokeObjectURL');
+    mocks.created.mockImplementationOnce(() => { throw new Error('fixture-callback-failed'); });
+    await renderCreation(key);
+    await act(async () => latestState?.enqueueAttachments([new File(['image'], 'sent.png', { type: 'image/png' })]));
+    const preview = latestState?.attachments[0]?.previewUrl;
+    await act(async () => latestCreation?.handleCreateSession());
+    await remountCreation(key);
+    await act(async () => pending.resolve());
+    expect(latestState?.prompt).toBe('');
+    expect(latestState?.attachments).toEqual([]);
+    expect(mocks.createSession).toHaveBeenCalledOnce();
+    expect(mocks.created).toHaveBeenCalledOnce();
+    expect(revoke.mock.calls.filter(([url]) => url === preview)).toHaveLength(1);
+    expect(latestCreation?.deliveryError).toBeNull();
+    revoke.mockRestore();
+  });
+
+  it('discarding an in-flight task releases submitted previews on later failure without restoring the new draft', async () => {
+    const key = 'discard-pending';
+    composerDrafts.set(key, 'in-flight caption');
+    const pending = deferCreation();
+    const revoke = vi.spyOn(URL, 'revokeObjectURL');
+    await renderCreation(key);
+    await act(async () => latestState?.enqueueAttachments([new File(['image'], 'sent.png', { type: 'image/png' })]));
+    const preview = latestState?.attachments[0]?.previewUrl;
+    await act(async () => latestCreation?.handleCreateSession());
+    await act(async () => composerDrafts.discard(key));
+    await remountCreation(key);
+    await act(async () => latestState?.setPrompt('a different task'));
+    await act(async () => pending.reject());
+    expect(latestState?.prompt).toBe('a different task');
+    expect(latestState?.attachments).toEqual([]);
+    expect(latestCreation?.deliveryError).toBeNull();
+    expect(revoke.mock.calls.filter(([url]) => url === preview)).toHaveLength(1);
+    expect(mocks.createSession).toHaveBeenCalledOnce();
+    revoke.mockRestore();
+  });
 
   it('an explicit effort reset does not inherit the remembered level again', async () => {
     remember({

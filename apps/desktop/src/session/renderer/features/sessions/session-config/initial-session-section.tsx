@@ -118,7 +118,7 @@ import { useSessionMentionDrop } from '@renderer/lib/chat/use-session-mention-dr
 import { remoteHostsStore } from '@renderer/features/remote-hosts/remote-hosts-store';
 import { useComposerFileUploads, type TaskAttachmentTarget } from '@renderer/features/sessions/acp/use-composer-file-uploads';
 import type { TurnFileRef } from '@gugu/session-core/session-record/contract';
-import type { ComposerAttachmentDraft } from '../composer-attachment-draft';
+import type { ComposerDraft, SubmittedComposerDraft } from '../composer-drafts';
 import {
   guguCatalogNotice,
   usePlatformModelCatalog,
@@ -296,10 +296,12 @@ export type InitialSessionState = {
   retryAttachment: (id: string) => void;
   /** 用户在 composer 上增删附件后的同步入口(chip 的 × 走它)。 */
   setAttachments: (next: ComposerAttachment[]) => void;
-  captureAttachmentDraft: () => ComposerAttachmentDraft;
+  draft?: ComposerDraft;
+  takeDraft?: () => SubmittedComposerDraft;
 };
 
 interface InitialSessionStateOptions {
+  draft?: ComposerDraft;
   resetPromptOnProjectChange?: boolean;
   /**
    * 这条会话开出来时**没人守着**(「已安排」到点自己跑)。默认档因此是无人值守那一档,且❌ 不继承会话页
@@ -312,7 +314,6 @@ interface InitialSessionStateOptions {
    * 但用户已经写好的话要跟着走 —— ❌ 换一台机器就把草稿清空。
    */
   initialPrompt?: string;
-  initialAttachmentDraft?: ComposerAttachmentDraft;
   /** 这个框把首句派成群里的一张任务卡(`taskChatId`):首句是一条真的咕咕消息,见 `terminalLegUnstartableForCreation`。 */
   dispatchesToChat?: boolean;
 }
@@ -469,6 +470,7 @@ export function useInitialSessionState(
     resetPromptOnProjectChange = true,
     unattended = false,
     initialPrompt = '',
+    draft,
     dispatchesToChat = false,
   } = options;
   const { translate } = useSessionMessages();
@@ -504,7 +506,12 @@ export function useInitialSessionState(
     rememberedProviderOf(memory)
   );
   const { data: agents } = useAgents();
-  const [prompt, setPrompt] = useState(initialPrompt);
+  const [localPrompt, setLocalPrompt] = useState(initialPrompt);
+  const prompt = draft ? draft.prompt : localPrompt;
+  const setPrompt: Dispatch<SetStateAction<string>> = useCallback((next) => {
+    if (draft) draft.setPrompt(typeof next === 'function' ? next(draft.prompt) : next);
+    else setLocalPrompt(next);
+  }, [draft]);
   const [mentionContext, setMentionContext] = useState<string | undefined>();
   const [issueContext, setIssueContext] = useState<string | null>(null);
   const [permissionModeOverride, setPermissionModeOverride] = useState<GuguPermissionMode | null>(
@@ -522,8 +529,16 @@ export function useInitialSessionState(
   const [issueMentionContexts, setIssueMentionContexts] = useState<Record<string, string>>({});
   // #4325 —— 待发队列(两条通道共用)。composer 是这些文件的唯一保管者:一件真的送达了才
   // 把它移走,所以「屏幕上还剩什么」逐字等于「重试还要发什么」,不需要第二份快照。
-  const initialAttachmentDraft = useRef(options.initialAttachmentDraft).current;
-  const [attachments, setAttachmentsState] = useState<ComposerAttachment[]>([]);
+  const [localAttachments, setLocalAttachments] = useState<ComposerAttachment[]>([]);
+  const attachments = draft ? draft.attachments : localAttachments;
+  const setAttachmentsState: Dispatch<SetStateAction<ComposerAttachment[]>> = useCallback((next) => {
+    if (!draft) { setLocalAttachments(next); return; }
+    const chips = typeof next === 'function' ? next(draft.attachments) : next;
+    draft.setPending(chips.flatMap(chip => {
+      const source = draft.pending.find(entry => entry.chip.id === chip.id);
+      return source ? [{ chip, file: source.file }] : [];
+    }));
+  }, [draft]);
   // 用户**自己**动过附件多少次(见 use-create-session-callback 的 deliveryErrorSubject)。
   const [attachmentEditSeq, setAttachmentEditSeq] = useState(0);
   // path-mention 通道:同一个队列,只是送达在任务建好之后 —— 放进这个 agent 私聊的文件夹(P3),进度在 chip 上,
@@ -534,10 +549,11 @@ export function useInitialSessionState(
   const placements = useComposerFileUploads({ to: () => placeTarget.current(), setAttachments: setAttachmentsState, translate });
   const placeAttachments = useCallback(async (to: () => Promise<TaskAttachmentTarget>) => {
     placeTarget.current = to;
-    const ids = [...pendingAttachmentFilesRef.current.keys()];
-    for (const id of ids) {
+    const sources = [...pendingAttachmentFilesRef.current].map(([id, file]) => ({ id, file }));
+    const ids = sources.map(({ id }) => id);
+    for (const { id, file } of sources) {
       const chip = attachmentsRef.current.find((attachment) => attachment.id === id);
-      if (chip && !placements.has(id)) void placements.add(chip, pendingAttachmentFilesRef.current.get(id)!);
+      if (chip && !placements.has(id)) void placements.add(chip, file);
     }
     if (!(await placements.waitForUploads())) return null;
     return placements.files(ids);
@@ -546,18 +562,11 @@ export function useInitialSessionState(
     () => placements.prepare([...pendingAttachmentFilesRef.current].map(([id, file]) => ({ id, file }))),
     [placements]
   );
-  const restoredAttachmentDraft = useRef(false);
-  useEffect(() => {
-    if (restoredAttachmentDraft.current) return;
-    restoredAttachmentDraft.current = true;
-    for (const { chip, file } of initialAttachmentDraft?.pending ?? []) pendingAttachmentFilesRef.current.set(chip.id, file);
-    setAttachmentsState(initialAttachmentDraft?.pending.map(({ chip }) => chip) ?? []);
-  }, [initialAttachmentDraft]);
   const enqueueAttachments = useCallback(async (files: File[]) => {
     const queued = await Promise.all(
       files.map(async (file) => {
         const id = crypto.randomUUID();
-        pendingAttachmentFilesRef.current.set(id, file);
+        if (!draft) pendingAttachmentFilesRef.current.set(id, file);
         const image = file.type.toLowerCase().startsWith('image/');
         // chip 点开看的内容,入列时就得在手上(#5269)。
         const preview = image ? undefined : await readAttachmentPreviewText(file);
@@ -572,15 +581,16 @@ export function useInitialSessionState(
         };
       })
     );
-    setAttachmentsState((current) => [...current, ...queued]);
+    if (draft) draft.setPending([...draft.pending, ...queued.map((chip, index) => ({ chip, file: files[index]! }))]);
+    else setAttachmentsState((current) => [...current, ...queued]);
     setAttachmentEditSeq((seq) => seq + 1);
-  }, []);
+  }, [draft, setAttachmentsState]);
   const setAttachments = useCallback((next: ComposerAttachment[]) => {
     // ChatComposer 是从它手上那份(可能已经过期的)props 算出 next 的。发送中途点掉某个 chip 时,
     // 那份快照里可能还留着刚刚送达、已被 dropAttachment 移走的那一件 —— 原样写回去会把它**复活**成
     // 一个没有 File 撑着的 chip:发不出去、又让 hasTurnContent 恒真。所以只允许做减法:
     // 交集 = 用户还留着的 ∩ 确实还有 File 的。
-    const kept = next.filter((attachment) => pendingAttachmentFilesRef.current.has(attachment.id));
+    const kept = next.filter((attachment) => draft ? draft.pending.some(({ chip }) => chip.id === attachment.id) : pendingAttachmentFilesRef.current.has(attachment.id));
     const live = new Set(kept.map((attachment) => attachment.id));
     placements.keepOnly(live);
     setAttachmentsState((current) => {
@@ -589,11 +599,11 @@ export function useInitialSessionState(
       }
       return kept;
     });
-    for (const id of [...pendingAttachmentFilesRef.current.keys()]) {
+    if (!draft) for (const id of [...pendingAttachmentFilesRef.current.keys()]) {
       if (!live.has(id)) pendingAttachmentFilesRef.current.delete(id);
     }
     setAttachmentEditSeq((seq) => seq + 1);
-  }, [placements]);
+  }, [draft, placements, setAttachmentsState]);
   const dropAttachment = useCallback((id: string) => {
     pendingAttachmentFilesRef.current.delete(id);
     placements.forget(id);
@@ -602,34 +612,29 @@ export function useInitialSessionState(
       if (going) releaseAttachmentPreview(going);
       return current.filter((attachment) => attachment.id !== id);
     });
-  }, [placements]);
+  }, [placements, setAttachmentsState]);
   const pendingAttachmentFiles = useCallback(
-    () => [...pendingAttachmentFilesRef.current].map(([id, file]) => ({ id, file })),
-    []
+    () => draft ? draft.pending.map(({ chip, file }) => ({ id: chip.id, file })) : [...pendingAttachmentFilesRef.current].map(([id, file]) => ({ id, file })),
+    [draft]
   );
   // chip 的 ×、送达都各自 revoke 了;唯独整棵子树被卸走时没人收 —— 那会把每张
   // 排过队的图的字节钉在 renderer 里直到进程退出。
-  const transferredPreviews = useRef(new Set<string>());
   useEffect(() => {
     attachmentsRef.current = attachments;
   }, [attachments]);
   useEffect(() => () => {
+    // Keyed previews belong to the draft or its submitted request, across page lifetimes.
+    if (draft) return;
     for (const attachment of attachmentsRef.current) {
-      if (!attachment.previewUrl || !transferredPreviews.current.has(attachment.previewUrl)) releaseAttachmentPreview(attachment);
+      releaseAttachmentPreview(attachment);
     }
-  }, []);
-  const captureAttachmentDraft = useCallback((): ComposerAttachmentDraft => {
-    const snapshot: ComposerAttachmentDraft = { pending: [] };
-    for (const chip of attachmentsRef.current) {
-      const file = pendingAttachmentFilesRef.current.get(chip.id);
-      if (!file) throw new Error(`Missing attachment source: ${chip.id}`);
-      snapshot.pending.push({ chip: { ...chip }, file });
-      // blob 预览的所有权一并交给目标草稿;卸载旧页不能把新页的图撤掉。
-      if (chip.previewUrl) transferredPreviews.current.add(chip.previewUrl);
-    }
-    placements.keepOnly(new Set());
-    return snapshot;
-  }, [placements]);
+  }, [draft]);
+  const takeDraft = useCallback(() => {
+    if (!draft) throw new Error('No shared creation draft');
+    const submitted = draft.take();
+    attachmentsRef.current = [];
+    return submitted;
+  }, [draft]);
   const [prevProjectId, setPrevProjectId] = useState(projectId);
   const projectChanged = projectId !== prevProjectId;
 
@@ -1254,7 +1259,8 @@ export function useInitialSessionState(
     prepareAttachments,
     retryAttachment: placements.retry,
     setAttachments,
-    captureAttachmentDraft,
+    draft,
+    takeDraft: draft ? takeDraft : undefined,
     issueMentionContexts,
     setIssueMentionContext: (token, context) =>
       setIssueMentionContexts((current) => {

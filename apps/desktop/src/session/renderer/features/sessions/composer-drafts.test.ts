@@ -17,13 +17,13 @@ describe('creation draft handoff', () => {
     const snapshot: ComposerAttachmentDraft = {
       pending: [{ chip: { id: 'attachment', name: 'note.txt', kind: 'file' }, file: new File(['abc'], 'note.txt') }],
     };
-    const unregister = composerDrafts.registerAttachments('attachment-home', () => snapshot);
+    const draft = composerDrafts.forKey('attachment-home');
+    draft.setPending(snapshot.pending);
     composerDrafts.moveToEmpty('attachment-home', 'attachment-project');
-    unregister();
-    expect(composerDrafts.attachments('attachment-home')).toBeUndefined();
-    expect(composerDrafts.attachments('attachment-project')).toBe(snapshot);
-    composerDrafts.consumeAttachments('attachment-project');
-    expect(composerDrafts.attachments('attachment-project')).toBeUndefined();
+    expect(composerDrafts.forKey('attachment-project')).toBe(draft);
+    expect(draft.pending).toBe(snapshot.pending);
+    composerDrafts.forKey('attachment-project').take();
+    expect(draft.pending).toEqual([]);
   });
 
   it('keeps both drafts when the destination already has unsent text', () => {
