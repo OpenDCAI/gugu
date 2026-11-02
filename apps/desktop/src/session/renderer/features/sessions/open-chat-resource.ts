@@ -1,4 +1,4 @@
-import { panelTabOf } from '../chats/chat-tabs/chat-layouts';
+import { ownedAgentResourceTabs } from '@/lib/ownedAgentResources';
 import { prepareSessionPane } from './session-pane-ready';
 import { asProvisioned, getSessionPageStore } from './stores/session-selectors';
 
@@ -8,7 +8,7 @@ export async function openChatResource(target: { projectId: string; sessionId: s
   await prepareSessionPane(projectId, sessionId, { reviveArchived: false });
   const view = asProvisioned(getSessionPageStore(projectId, sessionId))?.viewModel;
   if (!view) throw new Error('The agent session is unavailable for this resource');
-  const panel = panelTabOf(chatId, sourceTabId);
+  const panel = ownedAgentResourceTabs().read(chatId, sourceTabId);
   if (!panel) throw new Error('The authorized chat resource is no longer open');
   view.paneLayout.open('chat-resource', { chatId, sourceTabId, item: panel.item }, { beside: true });
 }

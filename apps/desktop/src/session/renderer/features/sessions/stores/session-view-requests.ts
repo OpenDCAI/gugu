@@ -15,6 +15,7 @@ export interface SessionViewRequestBridge {
    */
   /** Resource requests follow the same conversation destination and are hosted beside the owned session. */
   openChat(chatId: string, beside: boolean, purpose?: 'resource'): void;
+  openChatResource?(target: { projectId: string; sessionId: string; chatId: string; sourceTabId: string }): Promise<void>;
   /** Desktop group-name entry: preserve the group and let the session page own the single auxiliary pane. */
   openGroupChat?(sourceChatId: string, chatId: string): void;
   prepareGroupSession?(sourceChatId: string, target: { projectId: string; sessionId: string }): import('@renderer/features/chats/group-participant-requests').GroupParticipantRequest;

@@ -66,6 +66,7 @@ import { setEmbedVisible, setPortalContainer } from './lib/portal-container';
 import { setEmbedView, type EmbedView } from './lib/stores/embed-view';
 import { installSessionStartupFailureBridge } from './features/sessions/stores/session-startup-failures';
 import { installSessionViewRequestBridge } from './features/sessions/stores/session-view-requests';
+import { openChatResource } from './features/sessions/open-chat-resource';
 import { openChatOnScreen } from './features/chats/open-chat';
 import { showGroupParticipant } from './features/chats/group-participant-actions';
 import { groupParticipantRequests } from './features/chats/group-participant-requests';
@@ -153,6 +154,7 @@ async function bootstrap() {
   // gugu-dev#181 壳要打开一条对话:对话是这屏的一块(项目群开项目块)(session-view-requests.ts)。同上,热更新前装。
   installSessionViewRequestBridge(window, {
     openChat: openChatOnScreen,
+    openChatResource,
     openGroupChat: (sourceChatId, chatId) => showGroupParticipant(sourceChatId, { kind: 'chat', chatId }),
     prepareGroupSession: (sourceChatId, target) => groupParticipantRequests.prepare(sourceChatId, target),
   });

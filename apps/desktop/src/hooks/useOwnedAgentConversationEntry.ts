@@ -1,4 +1,4 @@
-import { hostOwnedAgentResources } from '@/lib/ownedAgentResources'
+import { hostOwnedAgentResources, suspendOwnedAgentResources } from '@/lib/ownedAgentResources'
 import { readAssistantShellBridge } from '@/lib/assistantShellBridge'
 import type { NativeComposerDraft } from '@/lib/nativeComposerHandoff'
 import { appendToDraft, useChatStore } from '@/store/chatContext'
@@ -40,6 +40,7 @@ export function useOwnedAgentConversationEntry(input: {
     const peer = state.chats.find(chat => chat.id === chatId && (chat.kind === 'dm' || chat.kind === 'ai'))?.peer_user_id ?? peerId
     const contact = state.contacts.find(one => one.id === peer) ?? (peer ? state.identitiesById[peer] : undefined)
     if (!contact || !isOwnedAgent(contact, state.ownerId) || contact.id === readAssistantShellBridge()?.getSnapshot()?.assistant?.id) return false
+    if (purpose && chatId && !state.mobile) suspendOwnedAgentResources(state.ownerId, chatId)
     const old = draftState.current
     const incoming: NativeComposerDraft | undefined = typeof draft === 'string' ? { text: draft } : draft
     const text = incoming ? incoming.append ? appendToDraft(chatId ? old.drafts?.[chatId] ?? '' : '', incoming.text) : incoming.text : chatId ? old.drafts?.[chatId] ?? '' : ''

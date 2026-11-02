@@ -1,7 +1,7 @@
 import { makeAutoObservable, runInAction } from 'mobx';
 import { beforeEach, expect, it, vi } from 'vitest';
-const state = vi.hoisted(() => ({ panel: vi.fn(), close: vi.fn() }));
-vi.mock('../chats/chat-tabs/chat-layouts', () => ({ panelTabOf: state.panel, closeChatTab: state.close, openPanelItem: vi.fn() }));
+const state = vi.hoisted(() => ({ panel: vi.fn(), close: vi.fn(), open: vi.fn() }));
+vi.mock('@/lib/ownedAgentResources', () => ({ ownedAgentResourceTabs: () => ({ read: state.panel, close: state.close, open: state.open }), requestOwnedAgentResourceHost: vi.fn() }));
 vi.mock('@/lib/icons', () => ({ Paperclip: () => null }));
 vi.mock('../tabs/tab-bar/generic-tab-item', () => ({ GenericTabDragPreview: () => null, GenericTabItem: () => null }));
 import { chatResourceTabProvider } from './chat-resource-tab-provider';
@@ -24,5 +24,15 @@ it('closes the native tab when the file page closes itself, without creating a c
   const resource = chatResourceTabProvider.initialize(entry, { close } as never, {} as never);
   runInAction(() => { source.exists = false; });
   expect(close).toHaveBeenCalledExactlyOnceWith({ force: true });
+  resource.dispose();
+});
+it('restores a persistent App beside its original conversation without restoring an IM tab', () => {
+  const restored = structuredClone(entry);
+  state.panel.mockReturnValueOnce(null).mockReturnValue({ item: restored.state.item });
+  state.open.mockReturnValue('restored-source');
+  const resource = chatResourceTabProvider.initialize(restored, { close: vi.fn() } as never, {} as never);
+  expect(state.open).toHaveBeenCalledExactlyOnceWith('owned-dm', restored.state.item);
+  expect(restored.state.sourceTabId).toBe('restored-source');
+  expect(resource.title).toBe('receipt.html');
   resource.dispose();
 });

@@ -2,7 +2,7 @@ import { beforeEach, expect, it, vi } from 'vitest';
 const state = vi.hoisted(() => ({ prepare: vi.fn(), session: vi.fn(), open: vi.fn() }));
 vi.mock('./session-pane-ready', () => ({ prepareSessionPane: state.prepare }));
 vi.mock('./stores/session-selectors', () => ({ getSessionPageStore: state.session, asProvisioned: (value: unknown) => value }));
-vi.mock('../chats/chat-tabs/chat-layouts', () => ({ panelTabOf: () => ({ item: { kind: 'workspace.main', itemId: 'file', title: 'receipt.html' } }) }));
+vi.mock('@/lib/ownedAgentResources', () => ({ ownedAgentResourceTabs: () => ({ read: () => ({ item: { kind: 'workspace.main', itemId: 'file', title: 'receipt.html' } }) }) }));
 import { openChatResource } from './open-chat-resource';
 const target = { projectId: 'project', sessionId: 'native-session', chatId: 'owned-dm', sourceTabId: 'authorized-file' };
 beforeEach(() => { vi.resetAllMocks(); });

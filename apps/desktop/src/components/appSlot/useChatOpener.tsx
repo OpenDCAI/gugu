@@ -41,10 +41,12 @@ function noteOpened(itemId: string): void {
  * claims the file, the one kept for its kind (「始终用它」), or the person picks — and it opens as a tab beside the chat
  * (`openPanelItem`). The pick, an App's several files and a file that cannot open are said over the chat (`overlay`).
  */
-export function useChatOpener(chatId: string | null, onShow?: (chatId: string, tabId: string) => void): { overlay: ReactNode; openWith: (detail: AppOpenWithDetail, returnTo?: string) => void } {
+export function useChatOpener(chatId: string | null, onShow?: (chatId: string, tabId: string) => void, canTake?: () => boolean): { overlay: ReactNode; openWith: (detail: AppOpenWithDetail, returnTo?: string) => void } {
   const { t } = useTranslation('messaging')
   const mobile = useMobileShell()
   const asking = useRef(0)
+  const canTakeRef = useRef(canTake)
+  canTakeRef.current = canTake
   const [prompt, setPrompt] = useState<(AppOpenWithDetail & OpenFrom) | null>(null)
   /** 摩擦单 F51: the files of the App whose card was opened, when there are several. */
   const [appFiles, setAppFiles] = useState<{ chatId: string; appName: string; files: { itemId: string; displayName: string }[] } | null>(null)
@@ -129,6 +131,7 @@ export function useChatOpener(chatId: string | null, onShow?: (chatId: string, t
     if (!chatId || !appsHere) return undefined
     let live = true
     const take = () => {
+      if (canTakeRef.current && !canTakeRef.current()) return
       const ask = takeChatAsk(chatId)
       if (!ask) return
       // A page beside the chat asked: the tab on screen is the 上一页 of what it opens (owner 10-24).
