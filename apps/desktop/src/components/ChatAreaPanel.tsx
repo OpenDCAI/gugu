@@ -74,7 +74,9 @@ import { useMessageSelectMode } from './chat/useMessageSelectMode'
 import { IconButton } from './ui/IconButton'
 import { ChatTailNotice } from './chat/ChatTailNotice'
 import { ChatSearchControls } from './chat/ChatSearch'
-import { useChatSearch } from './chat/useChatSearch'; import { useMessageFind } from './chat/useMessageFind'; import { FindBar } from '@renderer/lib/ui/find-bar'
+import { useChatSearch } from './chat/useChatSearch'
+import { useMessageFind } from './chat/useMessageFind'
+import { FindBar } from '@renderer/lib/ui/find-bar'
 export { ChatNotificationLevelControl } from './chat/ChatNotificationLevelControl'
 import { ChatSettingsPanel } from './chat/ChatSettingsPanel'
 import { useChatSlotProjectName } from '../lib/shellSlots'
@@ -463,7 +465,6 @@ function ChatAreaSurface({ viewportKey = 'chats', imPage = false, navigationTarg
   const { readReceiptPanel, onShowReadReceipt: handleShowReadReceipt, onCloseReadReceipt } = useReadReceiptPanel({
     chatId: activeChatId, messages: displayedMessages, memberReadSeqs, memberProfiles: messageMemberProfiles,
   })
-
   const groupSettings = useGroupChatSettings(isRoomChatSurface ? activeChatId : null, groupRoleRevision(groupCollabSnapshot), authorityRevision)
   const messageListenEditControlsFor = useListenModeEditControls({ chatId: isRoomChatSurface ? activeChatId : null, currentUserId: user?.id ?? null, settings: groupSettings.settings, onAuthorityReload: groupSettings.reload, onReload: loadGroupCollab })
   const shownMessageProfile = useTopicScopedMemberProfile({ profile: renderedActiveMessageProfile, authorityRevision, topicChatId: topicSurface.splitTopic?.chatId ?? null, currentUserId: user?.id ?? null, groupEditControlsFor: messageListenEditControlsFor })
@@ -471,12 +472,11 @@ function ChatAreaSurface({ viewportKey = 'chats', imPage = false, navigationTarg
 
   // #2098 owner 定:已读回执逐条显示 → 去掉原「只挂末条」的 lastOwnMessageId/threadLastOwnMessageId 计算。
   // 每条本人消息独立按 is_mine 显环;sending/failed/retracted/read=0 由气泡内既有门(MessageBubble)逐条滤除。
-
   const rowProps = useMemo<MessageListRowProps>(() => ({
     rows: chatListRows,
     messages: listedMessages,
     threeParty,
-    isFiltering, find.isOpen,
+    isFiltering,
     mobile,
     highlight: isFiltering ? searchQuery : undefined,
     flashMessageId,
