@@ -21,7 +21,7 @@ describe('widget messages', () => {
     const input = { ...widget, height }
     expect(parseWidgetMessage(serializeWidgetMessage(input))).toEqual(input)
   })
-  it.each([20, 63, 521, 900, 300.5, null, '480', {}, []])('drops invalid height %s only when reading a message', height => {
+  it.each([20, 63, 521, 900, 300.5, null, '480', {}, []].map(height => ({ height })))('drops invalid height $height only when reading a message', ({ height }) => {
     const input = { ...widget, height }
     expect(widgetMessageError(input)).toMatch(/height.*64.*520/)
     expect(parseWidgetMessage(JSON.stringify(input))).toEqual(widget)
