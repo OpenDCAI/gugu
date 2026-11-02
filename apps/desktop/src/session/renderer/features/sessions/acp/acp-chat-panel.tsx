@@ -1938,6 +1938,13 @@ export const AcpChatPanel = observer(function AcpChatPanel({
             detail: error.message,
             actions: [retry],
           };
+        case 'history_unavailable':
+          return {
+            code: 'history-unavailable',
+            label: `${translate('transcript.condition.historyFailed')}: ${error.message}`,
+            detail: error.message,
+            actions: [retry],
+          };
         default: {
           // 咕咕这一侧的失败按原因表说、给原因表的按钮(#7103);咕咕以外的(harness / provider)递它的原话(#4657)+ 重试。
           const reason = failureReason(error.message);
@@ -2268,9 +2275,7 @@ export const AcpChatPanel = observer(function AcpChatPanel({
           ❌ 这里不再有任何错误分支:失败一律是消息列表末尾的一行(session-condition),
           见本文件 useEffect「把加载失败翻成列表里的一行」。 */}
       {overlaySlot &&
-        store.historyLoading &&
-        store.loadError === null &&
-        store.isEmpty &&
+        store.showHistoryLoading &&
         createPortal(
           <div
             className="pointer-events-none absolute inset-0 flex items-center justify-center bg-background-secondary-1 text-sm text-foreground-muted"

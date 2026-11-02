@@ -41,6 +41,7 @@ const LABEL_KEY: Record<SessionConditionItem['code'], string> = {
   'provider-session-missing': 'transcript.condition.providerSessionMissing',
   'adapter-lost': 'transcript.condition.adapterLost',
   'start-failed': 'transcript.condition.startFailed',
+  'history-unavailable': 'transcript.condition.historyFailed',
   'machine-unreachable': 'transcript.condition.machineUnreachable',
   'machine-attention': 'transcript.condition.machineAttention',
   'membership-required': 'transcript.condition.membershipRequired',
