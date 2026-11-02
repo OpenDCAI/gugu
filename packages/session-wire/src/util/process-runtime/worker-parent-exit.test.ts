@@ -5,7 +5,7 @@ import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { build } from 'esbuild';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { defineContract } from '../../api/define';
 import { createStubLogger } from '../../testing';
 import { killAllWorkersSync, spawnWorker } from '../../worker';
@@ -14,6 +14,17 @@ import { createScope } from '../scope';
 describe('forked workers follow their host', () => {
   let dir: string;
   let entry: string;
+  const children = new Set<ChildProcess>();
+  afterEach(async () => {
+    await Promise.all([...children].map(async child => {
+      if (child.exitCode === null && child.signalCode === null) {
+        const exited = once(child, 'exit');
+        child.kill('SIGKILL');
+        await exited;
+      }
+      children.delete(child);
+    }));
+  });
   beforeAll(async () => {
     dir = mkdtempSync(join(tmpdir(), 'gugu-worker-parent-'));
     entry = join(dir, 'worker.cjs');
@@ -49,6 +60,7 @@ describe('forked workers follow their host', () => {
   it('exits after IPC and the stderr reader disappear, without disposing active sessions', async () => {
     const marker = join(dir, 'disposed');
     const child: ChildProcess = fork(entry, [], { silent: true, execArgv: [], env: { ...process.env, DISPOSE_MARKER: marker } });
+    children.add(child);
     try {
       await once(child, 'message');
       child.stderr!.destroy();

@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { openFixture } from '@tooling/utils/db';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AppDb } from '@main/db/client';
+import { sessionDirectMessageId, stableUuid } from './session-direct-identity';
 
 const mocks = vi.hoisted(() => ({
   db: undefined as AppDb | undefined,
@@ -230,4 +231,3 @@ describe('ACP sessions: sendMessage hands the message to session-life', () => {
     fixture.sqlite.prepare("UPDATE sessions SET config = ? WHERE id = 'acp-1'").run('{"version":"1","type":"acp"}');
   });
 });
-import { sessionDirectMessageId, stableUuid } from './session-direct-identity';
