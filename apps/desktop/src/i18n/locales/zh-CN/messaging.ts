@@ -787,6 +787,7 @@ export default {
       "tooLarge": "这段 SVG 无法显示：超过 64 KB"
     },
     "taskCard": {
+      "naming": "正在起名…",
       "task": "新任务",
       "schedule": "已安排",
       "handedTo": "交给",

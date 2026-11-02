@@ -14,6 +14,8 @@
  * record. A correct `floor` just means the name a session starts with is the name it keeps.
  */
 import { coreLogger } from '../log'
+import { normalizeAgentType } from '../agentTypes'
+import { getAgentTypeLabel } from './enums/agentTypeModels'
 export type OwnedAgentLike = { display_name: string }
 
 function escapeRegExp(text: string): string {
@@ -24,6 +26,11 @@ function escapeRegExp(text: string): string {
 export function agentNameSerial(name: string, label: string): number | null {
   const match = new RegExp(`^${escapeRegExp(label)}\\s+(\\d{1,9})$`).exec(name.trim())
   return match ? Number(match[1]) : null
+}
+
+/** The same engine-default identity name used by automatic naming and task cards. */
+export function isAgentDefaultName(name: string, agentType: string | null | undefined): boolean {
+  return agentNameSerial(name, getAgentTypeLabel(normalizeAgentType(agentType))) !== null
 }
 
 export function nextAgentDefaultName(

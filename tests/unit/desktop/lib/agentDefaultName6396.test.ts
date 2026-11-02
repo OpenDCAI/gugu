@@ -1,7 +1,17 @@
 import { describe, expect, it, vi } from 'vitest'
-import { agentNameSerial, nextAgentDefaultName, resolveAgentDefaultName } from '@gugu/core/shared/agentDefaultName'
+import { agentNameSerial, isAgentDefaultName, nextAgentDefaultName, resolveAgentDefaultName } from '@gugu/core/shared/agentDefaultName'
 
 const owned = (...names: string[]) => names.map((display_name) => ({ display_name }))
+
+it('shares the identity default-name definition across naming and presentation', () => {
+  expect(isAgentDefaultName('Codex 158', 'codex')).toBe(true)
+  expect(isAgentDefaultName('Claude 28', 'cc')).toBe(true)
+  expect(isAgentDefaultName('Claude 28', null)).toBe(true)
+  expect(isAgentDefaultName('Gemini CLI 3', 'gemini-cli')).toBe(true)
+  expect(isAgentDefaultName('Named at spawn', 'codex')).toBe(false)
+  expect(isAgentDefaultName('Claude (3)', 'claude-code')).toBe(false)
+  expect(isAgentDefaultName('Codex 158', 'claude-code')).toBe(false)
+})
 
 describe('#6396 默认序号 = 用过的最大号 + 1', () => {
   it('不填空:现存 4 / 28 ⇒ 29(旧规则「数量 + 1」给 3)', () => {

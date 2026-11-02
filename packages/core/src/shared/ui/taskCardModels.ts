@@ -3,10 +3,10 @@
  * content is one of these JSON shapes. The card is the person's own message — it names no recipient and wakes nobody
  * (the cloud delivery trigger skips cards); the agent it hands the words to gets them from the host as its first turn.
  *
- * Who took the task — the agent's name, its type and its look — is a snapshot taken when the card is posted. Everyone
- * who sees the card draws it from these, never from what they can look up about that agent: archiving the session
- * removes the agent from the group, and a colleague may not see an agent that is still waiting to be let in, yet the
- * card still has to say who took the task.
+ * Who took the task — the agent's name, its type and its look — is a snapshot taken when the card is posted.
+ * The owner displays the current identity's name and avatar when available, keeping the snapshot as a fallback
+ * when the identity cannot be read. The engine mark always uses the posted type: a colleague may not see an agent
+ * that is still waiting to be let in, yet the card still has to identify its engine.
  */
 export interface TaskCard {
   v: 1
