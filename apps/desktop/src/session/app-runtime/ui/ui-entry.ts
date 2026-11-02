@@ -53,12 +53,18 @@ function context(): Promise<Context> {
     .then((value) => value ?? {});
   return current;
 }
-let requestedMembers: { chatId: string; read: Promise<ExtensionMember[]> } | null = null;
-async function chatMembers(): Promise<ExtensionMember[] | undefined> {
+let requestedMembers: { chatId: string; read: Promise<ExtensionMember[]>; members?: ExtensionMember[] } | null = null;
+async function chatMembers(user: string | null): Promise<ExtensionMember[] | undefined> {
   const chat = (await context()).chat;
   if (apiVersion <= 25) return chat?.members;
   if (!chat) return undefined;
-  if (requestedMembers?.chatId !== chat.id) requestedMembers = { chatId: chat.id, read: host()!.chats!.members({ chat: chat.id }).then(({ members }) => members) };
+  if (requestedMembers?.chatId !== chat.id || (requestedMembers.members && !requestedMembers.members.some((member) => member.id === user))) {
+    const reading: NonNullable<typeof requestedMembers> = { chatId: chat.id, read: host()!.chats!.members({ chat: chat.id }).then(({ members }) => members) };
+    requestedMembers = reading;
+    void reading.read.then((members) => { reading.members = members; }, () => {
+      if (requestedMembers === reading) requestedMembers = null;
+    });
+  }
   return requestedMembers.read;
 }
 function setTheme(themeMode: Context['themeMode']): void {
@@ -142,7 +148,8 @@ export class GuguAvatar extends HTMLElement {
     const turn = ++this.turn;
     const root = this.shadowRoot ?? this.attachShadow({ mode: 'open' });
     root.adoptedStyleSheets = [avatarSheet];
-    const members = apiVersion >= 26 && !this.getAttribute('user') ? undefined : await chatMembers();
+    const user = this.getAttribute('user');
+    const members = apiVersion >= 26 && !user ? undefined : await chatMembers(user).catch(() => undefined);
     if (turn !== this.turn) return;
     // Only the chat's members are known here (with their uploaded face or the default face from the stable id).
     // Anyone else is drawn as a neutral figure, named by `label`.
