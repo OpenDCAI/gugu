@@ -7,8 +7,6 @@ import { ChatComposer } from '@gugu/session-ui/react/components'
 import { SessionLocalizationProvider } from '@renderer/localization/localization-provider'
 import { composerModelOptions } from '@renderer/features/sessions/session-config/platform-model-options'
 import { modelProviderIcon } from '@renderer/features/sessions/session-config/model-provider-icon'
-import { publishDefaultTaskAgent } from '@/lib/composerVerbBridge'
-import type { AgentIconAsset } from '@shared/core/agents/agent-payload'
 import { icon as codexIcon } from '../../../../../../../packages/session-plugins/src/agents/impl/codex/icon'
 // 主题层与同目录 composer-narrow-pane-7052 同一套。
 import '@gugu/session-ui/styles/global'
@@ -62,7 +60,6 @@ beforeEach(async () => {
   container.className = 'gugu-skin'
   document.body.appendChild(container)
   root = createRoot(container)
-  publishDefaultTaskAgent({ id: 'codex', icon: codexIcon as AgentIconAsset })
 })
 
 afterEach(async () => {
@@ -70,7 +67,6 @@ afterEach(async () => {
   container?.remove()
   root = null
   container = null
-  publishDefaultTaskAgent(null)
   await i18n.changeLanguage(previousLanguage)
 })
 
@@ -114,7 +110,7 @@ async function renderComposer(width: number, { tag }: { tag: boolean }) {
 }
 
 describe('窄框里宿主塞进来的「新任务」收成标', () => {
-  it('会话底排 213px:「新任务」只剩 agent 的标,不压模型图形和发送键', async () => {
+  it('会话底排 213px:「新任务」只剩它那枚笔,不压模型图形和发送键', async () => {
     await renderComposer(213, { tag: false })
     const verb = document.querySelector('[data-testid="session-verb-task"]')!
     expect(verb.getAttribute('aria-label')).toBe(verb.getAttribute('title'))
@@ -136,12 +132,12 @@ describe('窄框里宿主塞进来的「新任务」收成标', () => {
     expect(shown(document.querySelector('[data-testid="session-verb-task"] [data-slot="composer-foldable-label"]'))).toBe(true)
   })
 
-  it('没有默认 agent(没有标):字不收,❌ 收成一颗空按钮', async () => {
-    publishDefaultTaskAgent(null)
-    await renderComposer(213, { tag: false })
+  it('「新任务」上的标是它自己的笔,❌ agent / harness 的标(那是模型那一格的事)', async () => {
+    await renderComposer(640, { tag: false })
     const verb = document.querySelector('[data-testid="session-verb-task"]')!
-    expect(verb.querySelector('[data-slot="composer-foldable-label"]')).toBeNull()
-    expect(verb.textContent).toContain('新任务')
+    // agent 的标(PluginIcon)是包在一层 span 里的插件 svg;笔是按钮直接带的那枚 svg。
+    expect(verb.querySelectorAll('svg, img')).toHaveLength(1)
+    expect(verb.querySelector(':scope > svg')).not.toBeNull()
   })
 
   it('输入行最前那枚「新任务 ×」在窄框里只剩标和 ×,编辑区不被挤没', async () => {

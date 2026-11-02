@@ -5,7 +5,6 @@ import { CommandShortcutBinder } from '@renderer/lib/commands/command-shortcut-b
 import { AppKeyboardShortcuts } from '@renderer/lib/components/app-keyboard-shortcuts';
 import { BrowserAppShortcutEvents } from '@renderer/lib/components/browser-app-shortcut-events';
 import { MonacoKeyboardBridge } from '@renderer/lib/components/monaco-keyboard-bridge';
-import { DefaultTaskAgentPublisher } from '@renderer/features/sessions/session-verb-dock';
 import { useTheme } from '@renderer/lib/hooks/useTheme';
 import {
   useWorkspaceSlots,
@@ -66,7 +65,6 @@ export function Workspace() {
           :has() rules and restyled the whole page (~130 ms at 1000 chat rows). */}
       <div data-region={SESSION_NAV_FOCUS_REGION} tabIndex={-1} aria-hidden="true" style={{ position: 'fixed', width: 0, height: 0, opacity: 0, outline: 'none' }} />
       <MonacoKeyboardBridge />
-      <DefaultTaskAgentPublisher />
       <WorkspaceLayout
         sidebarHidden={withoutSessionSidebar}
         leftSidebar={<LeftSidebar />}

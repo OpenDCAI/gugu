@@ -1,9 +1,7 @@
 import { observer } from 'mobx-react-lite';
 import { useEffect, useState } from 'react';
-import { PluginIcon } from '@renderer/lib/components/plugin-icon';
-import { useAgentIcon } from '@renderer/lib/stores/use-agents';
-import { useDefaultTaskProvider } from './use-default-task-provider';
-import { publishDefaultTaskAgent, setComposerVerb, takeComposerCarry, useDefaultTaskAgent, type ComposerVerb } from '@/lib/composerVerbBridge';
+import { SquarePen } from '@/lib/icons';
+import { setComposerVerb, takeComposerCarry, type ComposerVerb } from '@/lib/composerVerbBridge';
 import { showBesideOnScreen } from '@renderer/app/screen-layout-actions';
 import { ProjectTaskComposer } from '@renderer/features/projects/components/main-panel/project-home';
 import { useProjectFolderStage } from '@renderer/features/projects/components/main-panel/project-folder-stage';
@@ -28,36 +26,20 @@ export function SessionComposerVerbs({ sessionId, draft, onCarried }: {
   onCarried: () => void;
 }) {
   const { translate } = useSessionMessages();
-  const agent = useDefaultTaskAgent();
   const label = translate('taskDispatch.task');
   const pick = (verb: ComposerVerb) => {
     setComposerVerb(sessionVerbKey(sessionId), verb, draft);
     if (draft.trim()) onCarried();
   };
-  // 窄到底排最后一档时字收掉、只剩那枚标(chat-composer.css 的 composer-foldable-label);没有标就不收。
+  // 标是「新任务」这件事本身(同侧栏「新建任务」那枚笔),❌ 画 agent / harness 的标:那是模型那一格的事。
+  // 窄到底排最后一档时字收掉、只剩这枚标(chat-composer.css 的 composer-foldable-label)。
   return (
     <>
       <Button variant="ghost" size="sm" data-testid="session-verb-task" aria-label={label} title={label} onClick={() => pick('task')}>
-        <DefaultTaskAgentMark /><span data-slot={agent ? 'composer-foldable-label' : undefined}>{label}</span>
+        <SquarePen size={14} /><span data-slot="composer-foldable-label">{label}</span>
       </Button>
     </>
   );
-}
-
-/** 「新任务」按钮上那枚标:新任务的框会默认选中的那个 agent 的标(没有就不画)。 */
-export function DefaultTaskAgentMark() {
-  const agent = useDefaultTaskAgent();
-  return agent ? <PluginIcon id={agent.id} icon={agent.icon} size={14} /> : null;
-}
-
-/** 把新任务的框会默认选中的那个 agent 和它的标交给壳:群输入框上的「新任务」按钮画它(composerVerbBridge)。 */
-export function DefaultTaskAgentPublisher() {
-  const id = useDefaultTaskProvider();
-  const icon = useAgentIcon(id ?? '');
-  useEffect(() => {
-    publishDefaultTaskAgent(id && icon ? { id, icon } : null);
-  }, [id, icon]);
-  return null;
 }
 
 /**
