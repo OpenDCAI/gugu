@@ -57,13 +57,18 @@ export class TerminalOutput {
     const bytes = Buffer.byteLength(text);
     this.chunks.set(String(this.nextId++), { text, bytes });
     this.retained += bytes;
-    while (this.retained > this.limit && this.chunks.size) {
+    this.trimTo(this.limit);
+    this.cached = undefined;
+  }
+
+  trimTo(limit: number): void {
+    while (this.retained > limit && this.chunks.size) {
       const key = this.chunks.keys().next().value!;
       this.retained -= this.chunks.get(key)!.bytes;
       this.chunks.delete(key);
       this.truncated = true;
+      this.cached = undefined;
     }
-    this.cached = undefined;
   }
 
   snapshot(): Record<string, string> {

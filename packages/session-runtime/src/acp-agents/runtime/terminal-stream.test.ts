@@ -22,6 +22,23 @@ const send = (registry: TerminalLiveRegistry, data: string) =>
   });
 
 describe('bounded terminal streaming', () => {
+  it('bounds the combined live bytes of many terminals, keeping their complete archives', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'terminal-session-budget-'));
+    try {
+      const registry = new TerminalLiveRegistry(undefined, new LocalTerminalOutputArchive(directory));
+      const chunk = Buffer.alloc(1024 * 1024, 65).toString('base64');
+      for (let n = 0; n < 10; n++) registry.accept('s', 'scope', {
+        kind: 'terminal_chunk', terminal: { terminalId: String(n), data: chunk },
+      });
+      const states = registry.snapshotSession('s', true);
+      expect(states.reduce((sum, state) => sum + Buffer.byteLength(terminalPresentation(state).output), 0)).toBe(TERMINAL_OUTPUT_BYTE_LIMIT);
+      expect(Buffer.byteLength(JSON.stringify(states))).toBeLessThan(5 * 1024 * 1024);
+      expect(states[0]).toMatchObject({ truncated: true, outputBytes: 1024 * 1024 });
+      expect(terminalPresentation(states[0]).output).toBe('');
+      for (const state of states) expect(registry.readOutput('s', state.terminalId, 0, 1).bytes).toBe(1024 * 1024);
+    } finally { rmSync(directory, { recursive: true, force: true }); }
+  });
+
   it('archives all 25 MiB, sends incremental chunks, and preserves the tail when completion is truncated', () => {
     const directory = mkdtempSync(join(tmpdir(), 'terminal-stream-'));
     try {

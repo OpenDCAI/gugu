@@ -1,4 +1,4 @@
-import { LEGACY_TERMINAL_OUTPUT_BYTE_LIMIT, terminalEntityId, patchEntityMeta, type NormalizedEvent, type TerminalState } from '@gugu/session-core/acp';
+import { LEGACY_TERMINAL_OUTPUT_BYTE_LIMIT, TERMINAL_OUTPUT_BYTE_LIMIT, terminalEntityId, patchEntityMeta, type NormalizedEvent, type TerminalState } from '@gugu/session-core/acp';
 import type { AgentTerminalHooks } from '../agent-ports/terminal-manager';
 import { TerminalOutput, type TerminalOutputArchive } from './terminal-output';
 
@@ -23,6 +23,7 @@ export class TerminalLiveRegistry {
   private readonly snapshots = new Map<string, TerminalState[]>();
   private readonly wireSnapshots = new Map<string, TerminalState[]>();
   private readonly legacySnapshots = new Map<string, TerminalState[]>();
+  private readonly outputBudgets = new Map<string, { bytes: number; recent: Map<TerminalRecord, number> }>();
 
   constructor(private readonly onSessionChanged?: (sessionId: string) => void, private readonly archive?: TerminalOutputArchive) {}
 
@@ -46,6 +47,7 @@ export class TerminalLiveRegistry {
     const bytes = Buffer.from(chunk);
     this.archive?.append(sessionId, terminalId, bytes);
     record.output.append(bytes);
+    this.boundOutput(sessionId, record);
     const { output: _output, ...state } = snapshot;
     record.state = { ...state, terminalId, truncated: state.truncated || record.output.truncated };
     this.invalidate(sessionId, record);
@@ -65,6 +67,7 @@ export class TerminalLiveRegistry {
     }
     record.state = { ...state, terminalId, truncated: state.truncated || record.output.truncated };
     if (state.exitStatus) record.output.finish();
+    this.boundOutput(sessionId, record);
     this.invalidate(sessionId, record);
     this.onSessionChanged?.(sessionId);
   }
@@ -104,10 +107,34 @@ export class TerminalLiveRegistry {
       record.state = { ...record.state, _meta: patchEntityMeta(record.state._meta, update._meta) };
     }
     if (record.state.exitStatus) record.output.finish();
+    this.boundOutput(sessionId, record);
     record.state = { ...record.state, truncated: record.output.truncated };
     session.set(terminalId, record);
     this.invalidate(sessionId, record);
     if (event.kind !== 'terminal_chunk') this.onSessionChanged?.(sessionId);
+  }
+
+  /** Many completed commands must not turn one subscription snapshot into an unbounded IPC frame. */
+  private boundOutput(sessionId: string, record: TerminalRecord): void {
+    let budget = this.outputBudgets.get(sessionId);
+    if (!budget) this.outputBudgets.set(sessionId, (budget = { bytes: 0, recent: new Map() }));
+    budget.bytes -= budget.recent.get(record) ?? 0;
+    budget.recent.delete(record);
+    if (record.output.retainedBytes) {
+      budget.recent.set(record, record.output.retainedBytes);
+      budget.bytes += record.output.retainedBytes;
+    }
+    const limit = TERMINAL_OUTPUT_BYTE_LIMIT;
+    while (budget.bytes > limit) {
+      const [oldest, bytes] = budget.recent.entries().next().value!;
+      oldest.output.trimTo(Math.max(0, bytes - (budget.bytes - limit)));
+      const retained = oldest.output.retainedBytes;
+      budget.bytes -= bytes - retained;
+      if (retained) budget.recent.set(oldest, retained);
+      else budget.recent.delete(oldest);
+      oldest.state = { ...oldest.state, truncated: true };
+      this.invalidate(sessionId, oldest);
+    }
   }
 
   private invalidate(sessionId: string, record: TerminalRecord): void {
@@ -154,6 +181,7 @@ export class TerminalLiveRegistry {
     this.snapshots.delete(sessionId);
     this.wireSnapshots.delete(sessionId);
     this.legacySnapshots.delete(sessionId);
+    this.outputBudgets.delete(sessionId);
   }
 
   readOutput(sessionId: string, terminalId: string, offset: number, limit: number) {

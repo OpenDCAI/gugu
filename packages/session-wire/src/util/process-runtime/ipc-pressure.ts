@@ -1,13 +1,25 @@
 const HIGH_WATER_BYTES = 8 * 1024 * 1024;
 const MAX_IN_FLIGHT_BYTES = 32 * 1024 * 1024;
 
+function stringBytes(value: string): number {
+  let bytes = Buffer.byteLength(value) + 2;
+  for (let i = 0; i < value.length; i++) {
+    const code = value.charCodeAt(i);
+    if (code === 34 || code === 92) bytes++;
+    else if (code < 32) bytes += code === 8 || code === 9 || code === 10 || code === 12 || code === 13 ? 1 : 5;
+    else if (code >= 0xd800 && code <= 0xdbff && value.charCodeAt(i + 1) >= 0xdc00 && value.charCodeAt(i + 1) <= 0xdfff) i++;
+    else if (code >= 0xd800 && code <= 0xdfff) bytes += 3;
+  }
+  return bytes;
+}
+
 /** Byte accounting does not stringify entire messages or retain another serialized copy. */
 export function messageBytes(value: unknown): number {
-  if (typeof value === 'string') return new TextEncoder().encode(value).byteLength + 8;
-  if (ArrayBuffer.isView(value)) return value.byteLength + 16;
+  if (typeof value === 'string') return stringBytes(value);
+  if (ArrayBuffer.isView(value)) return value.byteLength * 6 + 32;
   if (value === null || typeof value !== 'object') return 8;
   let bytes = 16;
-  for (const [key, child] of Object.entries(value)) bytes += key.length * 2 + messageBytes(child);
+  for (const [key, child] of Object.entries(value)) bytes += stringBytes(key) + messageBytes(child) + 2;
   return bytes;
 }
 

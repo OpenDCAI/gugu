@@ -1,7 +1,13 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createIpcPressureSender } from './ipc-pressure';
+import { createIpcPressureSender, messageBytes } from './ipc-pressure';
 
 describe('IPC byte pressure', () => {
+  it('accounts for escaped control characters and unpaired surrogates without serializing a second copy', () => {
+    for (const text of ['a\n\u0000"\\中🙂', '\ud800', '\udc00']) {
+      const value = { data: text };
+      expect(messageBytes(value)).toBeGreaterThanOrEqual(Buffer.byteLength(JSON.stringify(value)));
+    }
+  });
   it('pauses producers at a byte budget and resumes only after sends complete', () => {
     const completions: Array<(error: Error | null) => void> = [];
     const pressure = vi.fn();
