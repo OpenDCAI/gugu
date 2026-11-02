@@ -42,13 +42,13 @@ afterEach(() => {
 })
 
 describe('installation backend and package ownership', () => {
-  it('initializes a never-used whole home created by an older account boot checker', () => {
+  it.each(['server', 'controller'] as const)('initializes a never-used whole home created by an older account boot checker (%s)', updateOwner => {
     for (const id of ['first', 'second']) {
       const directory = path.join(home, 'accounts', id)
       fs.mkdirSync(path.join(directory, 'data'), { recursive: true })
       fs.writeFileSync(path.join(directory, 'account.json'), '{}')
     }
-    expect(prepareInstallation(home, identity())).toEqual({ ...identity(), updateOwner: 'server' })
+    expect(prepareInstallation(home, identity(), { updateOwner })).toEqual({ ...identity(), updateOwner })
   })
 
   it.each(['home entry', 'another account data', 'account entry', 'account metadata'])('keeps rejecting an unverified installation with a skeleton and %s', extra => {

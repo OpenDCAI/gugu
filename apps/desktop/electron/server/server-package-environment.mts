@@ -118,7 +118,7 @@ export function prepareInstallation(home: string, identity: ServerPackageIdentit
   // nor another self-update marker proves the original account environment; the controller must migrate it first.
   const accounts = path.join(home, 'accounts')
   if (!existing && options.updateOwner === 'controller' && !options.migrateFrom
-    && fs.existsSync(accounts) && fs.readdirSync(accounts).length) {
+    && fs.existsSync(accounts) && fs.readdirSync(accounts).length && !unusedAccountHome(home, accounts)) {
     throw new Error('Legacy managed server requires an explicit verified migration source')
   }
   const backend = existing?.backendUrl ?? legacyBackend(home, options.migrateFrom)
