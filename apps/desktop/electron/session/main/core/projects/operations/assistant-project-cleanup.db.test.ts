@@ -131,7 +131,7 @@ describe('assistant project registration removal', () => {
     state.mounted = true;
     await migrateAssistantProject({ ...candidate(), ownerConfirmed: { projectId: 'old', path } });
     noteAssistantProjectCandidate(candidate());
-    expect((await getAssistantProjectCleanupReport()).retained[0].ownerConfirmed).toMatchObject({ projectId: 'old', path });
+    expect((await getAssistantProjectCleanupReport()).retained[0]).toMatchObject({ ownerConfirmed: { projectId: 'old', path } });
   });
 
   it('invalidates a queued owner confirmation when the person claims the project before restart', async () => {
@@ -141,13 +141,13 @@ describe('assistant project registration removal', () => {
     await runPendingAssistantProjectCleanup(true);
     expect(readProjects().some(row => row.id === 'old')).toBe(true);
     expect((await getAssistantProjectCleanupReport()).retained[0]).toMatchObject({ reason: 'confirmation-stale' });
-    expect((await getAssistantProjectCleanupReport()).retained[0].ownerConfirmed).toBeUndefined();
+    expect((await getAssistantProjectCleanupReport()).retained[0]).not.toHaveProperty('ownerConfirmed');
   });
 
   it('does not carry an approval across a changed assistant binding', async () => {
     state.mounted = true;
     await migrateAssistantProject({ ...candidate(), ownerConfirmed: { projectId: 'old', path } });
     noteAssistantProjectCandidate({ ...candidate(), assistantId: 'replacement-agent' });
-    expect((await getAssistantProjectCleanupReport()).retained[0].ownerConfirmed).toBeUndefined();
+    expect((await getAssistantProjectCleanupReport()).retained[0]).not.toHaveProperty('ownerConfirmed');
   });
 });
