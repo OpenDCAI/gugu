@@ -303,7 +303,7 @@ describe('hidden widget checks', () => {
     const continued = await check({ caller: 's1', page: report.page!, steps: GO, look: false });
     expect(continued.steps?.[0]).toMatchObject({ ok: true, did: 'clicked button "Go"' });
     expect(continued.widget).toEqual(report.widget);
-    expect(continued.pictures).toBeUndefined();
+    expect(continued.pictures ?? []).toHaveLength(0);
     expect(windows).toHaveLength(1);
     await expect(check({ widget: { ...widget, messageId: 'm2' }, caller: 's1', page: report.page! })).rejects.toThrow('different widget message');
   });

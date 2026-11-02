@@ -23,13 +23,13 @@ describe('app_check resolves widgets before native dispatch', () => {
     const result = await callback({ message_id: 'msg:m1' }, { signal: new AbortController().signal })
     expect(result.isError).not.toBe(true)
     expect(scope).toHaveBeenCalledWith(context, 'm1')
-    expect(run).toHaveBeenCalledWith({ action: 'check', tab_kind: 'vote.poll', chat_id: 'chat-1', widget })
+    expect(run).toHaveBeenCalledWith({ action: 'check', tab_kind: 'vote.poll', chat_id: 'chat-1', widget }, undefined)
   })
   it.each(['message_id', 'widget_id'])('infers the view for %s', async target => {
     const run = vi.fn(async (action: unknown) => action)
     await runAppAction({ action: 'check', [target]: target === 'message_id' ? 'm1' : 'msg:m1', look: false }, context, run, undefined)
     expect(scope).toHaveBeenCalledWith(context, 'm1')
-    expect(run).toHaveBeenCalledWith({ action: 'check', tab_kind: 'vote.poll', chat_id: 'chat-1', widget, look: false })
+    expect(run).toHaveBeenCalledWith({ action: 'check', tab_kind: 'vote.poll', chat_id: 'chat-1', widget, look: false }, undefined)
   })
   it('does not dispatch after denial or view mismatch', async () => {
     const run = vi.fn()
