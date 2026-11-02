@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -42,7 +42,7 @@ function removeFixture(path: string): void {
 /** Every route the corpus tries, in order. The gate's own refusals say `gugu:`; Node's permission model says its own words. */
 const FS_ROUTES = ['readOutside', 'listHome', 'writeOutside', 'symlinkOut', 'hardlinkOut'] as const;
 const PROCESS_ROUTES = ['spawn', 'execve', 'dlopen', 'binding', 'inspector', 'wasi'] as const;
-const GATE_ROUTES = ['sqliteImport', 'sqliteRequire', 'evalWorker', 'workerFromPrototype', 'protoRewrite'] as const;
+const GATE_ROUTES = ['sqliteImport', 'sqliteRequire', 'sqliteGetBuiltin', 'evalWorker', 'workerFromPrototype', 'protoRewrite'] as const;
 /** Unconfined there is nothing up the chain to escape to, so it has no control; confined it must stay unreachable. */
 const CHAIN_ROUTE = 'workerFromChain';
 const NET_ROUTES = ['net', 'getBuiltinNet', 'requireNet', 'subclassSocket', 'tls', 'http', 'http2', 'fetch', 'websocket', 'udp', 'dns', 'unixSocket', 'listen', 'fileWorkerNet', 'fileWorkerNetEmptyEnv', 'fileWorkerNetAfterDeleteEnv'] as const;
@@ -83,6 +83,7 @@ await t('wasi', async () => new (await import('node:wasi')).WASI({ version: 'pre
 
 await t('sqliteImport', async () => new (await import('node:sqlite')).DatabaseSync(outside + '/db.sqlite'));
 await t('sqliteRequire', () => new (require('node:sqlite').DatabaseSync)(outside + '/db2.sqlite'));
+await t('sqliteGetBuiltin', () => new (process.getBuiltinModule('node:sqlite').DatabaseSync)(outside + '/db3.sqlite').exec('create table proof(value)'));
 const evalSource = "require('worker_threads').parentPort.postMessage('ran')";
 const ranWorker = (w) => new Promise((ok, no) => { w.on('message', () => { w.terminate(); ok() }); w.on('error', no) });
 await t('evalWorker', () => ranWorker(new Worker(evalSource, { eval: true })));
@@ -178,7 +179,7 @@ function confinement(hosts: string[] = []): ProgramConfinement {
 }
 
 /** The corpus's verdicts, started as main starts a program; `confine` null = today's unconfined launch (the control). */
-async function runCorpus(confine: ProgramConfinement | null): Promise<Record<string, string>> {
+async function runCorpus(confine: ProgramConfinement | null, launchRoot = dir): Promise<Record<string, string>> {
   // Each run starts from the same files: what the last one wrote (the control writes everywhere) is gone.
   for (const d of [data, outside]) { removeFixture(d); mkdirSync(d) }
   writeFileSync(join(outside, 'secret'), 'not yours');
@@ -187,15 +188,16 @@ async function runCorpus(confine: ProgramConfinement | null): Promise<Record<str
   Object.assign(env, { PROBE_PORT: String(port), PROBE_OUTSIDE: outside, PROBE_DATA: data,
     ...(process.env.A5_PROBE_PORT ? { PROBE_LISTEN_PORT: String(port + 1), PROBE_INSPECTOR_PORT: String(port + 2) } : {}) },
   confine ? confinedEnv(confine) : { PROBE_CONTROL: '1' });
-  const args = [...(confine ? confinedNodeArgs(confine, join(dir, 'runtime')) : []), '--import', pathToFileURL(runtime).href, join(bundle, 'app.mjs')];
+  const args = [...(confine ? confinedNodeArgs(confine, join(launchRoot, 'runtime')) : []), '--import', pathToFileURL(join(launchRoot, 'runtime', 'gugu-program.mjs')).href, join(launchRoot, 'bundle', 'app.mjs')];
   const said = await new Promise<{ stdout: string; stderr: string }>((resolve, reject) => {
-    const child = spawn(process.execPath, args, { cwd: bundle, env, stdio: ['pipe', 'pipe', 'pipe', 'ipc'], serialization: 'advanced' });
+    const child = spawn(process.execPath, args, { cwd: join(launchRoot, 'bundle'), env, stdio: ['pipe', 'pipe', 'pipe', 'ipc'], serialization: 'advanced' });
     let stdout = '';
     let stderr = '';
     child.stdout!.on('data', (chunk: Buffer) => (stdout += chunk.toString()));
     child.stderr!.on('data', (chunk: Buffer) => (stderr += chunk.toString()));
     child.on('error', reject);
-    child.on('close', () => resolve({ stdout, stderr }));
+    child.on('close', (code, signal) => code === 0 ? resolve({ stdout, stderr })
+      : reject(new Error(`corpus exit ${code ?? signal}: ${stderr}`)));
   });
   const line = said.stdout.trim().split('\n').pop() ?? '';
   try {
@@ -233,6 +235,22 @@ describe('an App tools program runs within what it declared (apiVersion 29)', ()
     expect(connections).toBe(0);
     // Nothing was written outside the data folder.
     expect(readdirSync(outside).sort()).toEqual(['secret']);
+  }, 60_000);
+
+  it('loads a symlinked bundle and runtime while keeping the same file and network boundaries', async () => {
+    const alias = join(dir, 'linked-root');
+    symlinkSync(dir, alias, 'dir');
+    try {
+      connections = 0;
+      const out = await runCorpus({ fsRead: [join(alias, 'bundle'), join(alias, 'data')], fsWrite: [join(alias, 'data')], hosts: [] }, alias);
+      for (const route of ALLOWED) expect.soft(out[route], route).toBe('ok');
+      for (const route of [...FS_ROUTES, 'sqliteGetBuiltin', ...NET_ROUTES]) expect.soft(out[route], route).toBe('ERR_ACCESS_DENIED');
+      expect(connections).toBe(0);
+      expect(readdirSync(outside).sort()).toEqual(['secret']);
+    } finally {
+      process.stderr.write(`Remove own fixture link: ${alias}\n`);
+      rmSync(alias);
+    }
   }, 60_000);
 
   it('declared hosts: a declared name passes the gate; any other name and every IP literal stays refused', async () => {

@@ -86,6 +86,15 @@ function ConfinedWorker(source: string | URL, options: WorkerOptions = {}) {
 Object.defineProperty(ConfinedWorker, 'prototype', { value: Worker.prototype });
 lock(Worker.prototype, 'constructor', ConfinedWorker);
 lock(threads, 'Worker', ConfinedWorker);
+// getBuiltinModule bypasses module hooks; lock both that entrance and the underlying CJS constructor.
+const getBuiltinModule = process.getBuiltinModule;
+function denySqlite(): never { return deny('cannot use node:sqlite; use its data folder or Gugu files'); }
+const sqlite = getBuiltinModule('node:sqlite');
+if (sqlite) lock(sqlite, 'DatabaseSync', denySqlite);
+lock(process, 'getBuiltinModule', (id: string) => {
+  if (id === 'node:sqlite' || id === 'sqlite') return denySqlite();
+  return getBuiltinModule(id);
+});
 registerHooks({ resolve(specifier, context, next) {
   if (specifier === 'node:sqlite' || specifier === 'sqlite') {
     return { url: 'gugu-denied:sqlite', shortCircuit: true };

@@ -791,8 +791,8 @@ export const extensionsController = createRPCController({
       const service = extensionsService();
       service.setPermissionGranted(args.extensionId, args.permission, args.granted);
       const installed = service.get(args.extensionId);
-      if (!args.granted && (args.permission === 'agents:tools' || installed.manifest.permissions?.network?.includes(args.permission))) {
-        void revokeExtensionPrograms(args.extensionId).catch((error: unknown) => log.warn('App program did not stop after permission withdrawal:', error));
+      if ((!args.granted && args.permission === 'agents:tools') || installed.manifest.permissions?.network?.includes(args.permission)) {
+        void revokeExtensionPrograms(args.extensionId).catch((error: unknown) => log.warn('App program did not stop after permission change:', error));
       }
       configureExtensionSession({
         extensionId: installed.manifest.id,

@@ -5,11 +5,12 @@ import { join } from 'node:path';
 export interface ProgramConfinement { fsRead: string[]; fsWrite: string[]; hosts: string[] }
 export const CONFINE_HOSTS_ENV = 'GUGU_APP_NETWORK_HOSTS';
 
-/** One translation to Node flags, with real paths on every platform. No native extensions or subprocesses. */
+/** Node checks both the supplied path and its real path, including macOS /var aliases. */
 export function confinedNodeArgs(confine: ProgramConfinement, runtimeDir: string): string[] {
+  const paths = (dirs: string[]) => [...new Set(dirs.flatMap((dir) => [dir, realpathSync(dir)]))];
   return ['--permission', '--allow-worker', '--disable-warning=SecurityWarning',
-    ...[...new Set([...confine.fsRead, runtimeDir].map((dir) => realpathSync(dir)))].map((dir) => `--allow-fs-read=${dir}`),
-    ...confine.fsWrite.map((dir) => `--allow-fs-write=${realpathSync(dir)}`)];
+    ...paths([...confine.fsRead, runtimeDir]).map((dir) => `--allow-fs-read=${dir}`),
+    ...paths(confine.fsWrite).map((dir) => `--allow-fs-write=${dir}`)];
 }
 export function confinedEnv(confine: ProgramConfinement): Record<string, string> {
   return { NODE_OPTIONS: '', [CONFINE_HOSTS_ENV]: JSON.stringify(confine.hosts), TMPDIR: join(realpathSync(confine.fsWrite[0]!), '.tmp') };

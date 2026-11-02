@@ -537,7 +537,7 @@ process.stdin.on('end', () => process.exit(0));
     expect(configured.at(-1)?.networkHosts).toEqual(['b.example.com']);
   });
 
-  it('network withdrawal retires the programs; granting it again does not claim to revoke them', async () => {
+  it('network withdrawal and regrant both retire programs so the next launch has the current hosts', async () => {
     await installViaController(['a.example.com']);
     const retire = vi.spyOn(appPrograms, 'revokeExtensionPrograms').mockResolvedValue();
     try {
@@ -545,8 +545,9 @@ process.stdin.on('end', () => process.exit(0));
       expect(result.success, result.error).toBe(true);
       expect(retire).toHaveBeenCalledExactlyOnceWith(EXTENSION_ID);
       retire.mockClear();
-      await extensionsController.setPermissionGranted({ extensionId: EXTENSION_ID, permission: 'a.example.com', granted: true });
-      expect(retire).not.toHaveBeenCalled();
+      const restored = await extensionsController.setPermissionGranted({ extensionId: EXTENSION_ID, permission: 'a.example.com', granted: true });
+      expect(restored.success, restored.error).toBe(true);
+      expect(retire).toHaveBeenCalledExactlyOnceWith(EXTENSION_ID);
     } finally { retire.mockRestore(); }
   });
 
