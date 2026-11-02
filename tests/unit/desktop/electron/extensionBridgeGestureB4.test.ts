@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { BRIDGE_VERBS, gestureRefusal } from '../../../../apps/desktop/src/session/shared/extensions/bridge-protocol'
+import { BRIDGE_VERBS, EXTENSION_BRIDGE_EVENT_CHANNEL, gestureRefusal } from '../../../../apps/desktop/src/session/shared/extensions/bridge-protocol'
 
 /**
  * L11 B4: which verbs need the person's gesture is a column of `BRIDGE_VERBS`, checked once — where the preload's
@@ -10,15 +10,19 @@ import { BRIDGE_VERBS, gestureRefusal } from '../../../../apps/desktop/src/sessi
 const electron = vi.hoisted(() => ({
   exposed: {} as Record<string, unknown>,
   invoke: vi.fn(async (_channel: string, _request: unknown) => ({ ok: true, value: 'done' })),
+  on: vi.fn(),
 }))
 vi.mock('electron', () => ({
   contextBridge: { exposeInMainWorld: (name: string, api: unknown) => void (electron.exposed[name] = api) },
-  ipcRenderer: { invoke: electron.invoke, on: () => undefined, removeListener: () => undefined, sendSync: () => 'light' },
+  ipcRenderer: { invoke: electron.invoke, on: electron.on, removeListener: () => undefined, sendSync: () => 'light' },
 }))
 
 const activation = { isActive: false }
 Object.defineProperty(navigator, 'userActivation', { value: activation, configurable: true })
+const addedListeners = vi.spyOn(window, 'addEventListener')
 await import('../../../../apps/desktop/electron/extension-bridge-preload')
+const initialWheelListeners = addedListeners.mock.calls.filter(([type]) => type === 'wheel').length
+addedListeners.mockRestore()
 
 type Host = {
   getContext(): Promise<unknown>
@@ -55,6 +59,25 @@ const gestureCalls: Record<string, () => Promise<unknown>> = {
 const methodsSent = () => electron.invoke.mock.calls.map(([, request]) => (request as { method: string }).method)
 
 describe('a verb that needs a gesture is refused at the one entry, in one sentence (L11 B4)', () => {
+  it('only registers a non-passive wheel listener while the trusted context names a message view', () => {
+    const receive = electron.on.mock.calls.find(([channel]) => channel === EXTENSION_BRIDGE_EVENT_CHANNEL)![1] as (event: unknown, payload: unknown) => void
+    const add = vi.spyOn(window, 'addEventListener'), remove = vi.spyOn(window, 'removeEventListener')
+    try {
+      expect(initialWheelListeners).toBe(0)
+      receive(null, { type: 'context', context: {} })
+      expect(add).not.toHaveBeenCalled()
+      receive(null, { type: 'context', context: { widget: { messageId: 'message-1' } } })
+      expect(add).toHaveBeenCalledExactlyOnceWith('wheel', expect.any(Function), { capture: true, passive: false })
+      const listener = add.mock.calls[0]![1]
+      receive(null, { type: 'context', context: { widget: { messageId: 'message-1' } } })
+      expect(add).toHaveBeenCalledTimes(1)
+      receive(null, { type: 'context', context: { widget: {}, modal: { data: null } } })
+      expect(remove).toHaveBeenCalledExactlyOnceWith('wheel', listener, true)
+    } finally {
+      add.mockRestore(); remove.mockRestore()
+    }
+  })
+
   beforeEach(() => {
     electron.invoke.mockClear()
   })

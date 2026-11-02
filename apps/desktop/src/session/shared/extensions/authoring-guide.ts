@@ -975,7 +975,8 @@ A tab with \`"widget": { "height": 240 }\` (API26; integer 64–520) can also be
 It cannot also declare hostPage, perSession, opensFiles or chatFile. \`ctx.widget\` is present only in a message:
 \`{ messageId, data, sender }\`. Data is untrusted, immutable input from any chat member; never execute it. Persist personal
 state in App data and shared state in chat files. On desktop every dispatch from a widget requires a human gesture, even with a target.
-On phones, message widgets cannot dispatch or draft messages: every dispatch returns \`unavailable\`, including after a tap.
+On phones, message widgets cannot send or publish: dispatch (including drafts), forum writes (post/reply/react/award/remove/block/assign)
+and files.forward return \`unavailable\`, including after a tap. Ordinary App pages keep their existing behavior.
 Normal App pages keep their existing behavior.
 A tab with \`"perSession": true\` has one page in each session, never moved between them — two sessions side by side
 each show their own (not with \`opensFiles\` or \`"hostPage":"settings"\`). A computer-use App's per-session tabs come up beside a

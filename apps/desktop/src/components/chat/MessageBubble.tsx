@@ -26,6 +26,7 @@ import { WidgetBubble } from './WidgetBubble'
 import { parseQuotedContent, partialQuotedContent, type QuoteSelection } from './messageQuoteContent'
 import { DirectMessageQuote, MessageQuote } from './MessageQuote'
 import { parseComposerCard } from '@gugu/core/shared/ui/taskCardModels'
+import { parseWidgetMessage } from '@gugu/core/shared/ui/widgetModels'
 import { HoverActionBar, MessageHoverRegion, MessageHoverTrigger } from './HoverActionBar'
 import { DeferredEmojiQuickPicker } from './messageActionModules'
 import { MsgMoreMenu } from './MsgMoreMenu'
@@ -220,7 +221,8 @@ export const MessageBubble = memo(function MessageBubble({
 }: BubbleProps) {
   const { t } = useTranslation('messaging')
   const { toast } = useToast()
-  const handleCopyText = async (content = msg.content ?? '') => {
+  const copyText = msg.content_type === 'widget' ? parseWidgetMessage(msg.content)?.text ?? '[Widget]' : msg.content ?? ''
+  const handleCopyText = async (content = copyText) => {
     try {
       await platform.writeClipboardText(content)
       toast(t('message.copied'), 'success')
@@ -244,7 +246,6 @@ export const MessageBubble = memo(function MessageBubble({
   const mediaAttachment = msg.content_type === 'attachment' && !voiceAttachment
     ? parseAttachmentContent(msg.content, msg)
     : null
-
   useEffect(() => {
     if (!showMenu && !showMoreMenu && !showEmojiPicker) return
     const closeFromSharedEvent = () => {
@@ -258,9 +259,8 @@ export const MessageBubble = memo(function MessageBubble({
       document.removeEventListener(UI_EVENTS.closeContextMenus, closeFromSharedEvent as EventListener)
     }
   }, [showMenu, showMoreMenu, showEmojiPicker])
-
   const messageActions = (close: () => void, selectedText = menuSelection) => ({
-    isRetracted: !!msg.retracted_at, content: msg.content, hasHoverBar: !compactMobile, hasSelection: !compactMobile && !!selectedText, onClose: close,
+    isRetracted: !!msg.retracted_at, content: copyText, hasHoverBar: !compactMobile, hasSelection: !compactMobile && !!selectedText, onClose: close,
     onReply: () => { onQuote(msg); close() },
     onReact: (emoji: string) => { onReaction(msg.id, emoji); close() },
     onQuoteSelection: selectedText && msg.content_type === 'text' ? () => { onQuote({ ...msg, content: selectedText }, { originalContent: msg.content }); close() } : undefined,

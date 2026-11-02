@@ -123,6 +123,14 @@ const gestureCalls: Record<string, Record<string, unknown>> = {
 }
 
 describe('the phone refuses a verb outside the gesture it needs, in the same sentence as the desktop (L11 B4)', () => {
+  it.each([false, true])('message widgets cannot publish or forward with outer activation %s', async active => {
+    start(['chat:relay', 'files:read', 'files:write'], { messageId: 'message-1', data: {}, senderId: 'sender-1' })
+    activation.isActive = active
+    for (const method of ['forumPost', 'forumReply', 'forumReact', 'forumAward', 'forumRemove', 'forumBlock', 'forumAssign', 'filesForward']) {
+      expect(await call(method, gestureCalls[method]!)).toMatchObject({ ok: false, code: 'unavailable', message: 'Widgets on the phone cannot publish or forward content' })
+    }
+  })
+
   it.each([false, true])('message widgets cannot dispatch with outer activation %s, including drafts and named recipients', async (active) => {
     start(['chat:relay'], { messageId: 'message-1', data: {}, senderId: 'sender-1' })
     activation.isActive = active

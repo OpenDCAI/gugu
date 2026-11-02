@@ -493,7 +493,9 @@ export function hostAppFrame(
 
   /** `gesture` was read when the call arrived: the frame's tap activates this page too (L1, WebView 113/133). */
   const answer = async (method: string, args: Record<string, unknown>, gesture: boolean): Promise<unknown> => {
-    if (method === 'dispatch' && hosted.binding.widget) refused('unavailable', 'Widgets on the phone cannot send messages');
+    if (hosted.binding.widget && ['dispatch', 'forumPost', 'forumReply', 'forumReact', 'forumAward', 'forumRemove', 'forumBlock', 'forumAssign', 'filesForward'].includes(method)) {
+      refused('unavailable', method === 'dispatch' ? 'Widgets on the phone cannot send messages' : 'Widgets on the phone cannot publish or forward content');
+    }
     // Once, from the verb's row (BRIDGE_VERBS), in the words every host says it — a phone frame is a page.
     const refusal = callRefusal(method, args, { kind: 'page', has: (capability) => hosted.binding.capabilities.includes(capability), gesture })
     if (refusal) refused(refusal.code, refusal.message)
