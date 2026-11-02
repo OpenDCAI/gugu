@@ -219,7 +219,9 @@ export function resolveDeviceHostInfo(env: NodeJS.ProcessEnv = process.env, deps
     const text = readText(join(home, 'data', SERVER_UPDATE_STATE_FILE))
     const activityText = accountDir ? readText(join(accountDir, 'activity.json')) : null
     const accountUpdate = accountText ? parseServerUpdateState(accountText, nowMs, activityText) : null
-    const update = accountUpdate ?? (text ? parseServerUpdateState(text, nowMs) : null)
+    const supervisorUpdate = text ? parseServerUpdateState(text, nowMs) : null
+    const update = accountUpdate ?? (supervisorUpdate?.state === 'ready' && supervisorUpdate.version === env.GUGU_APP_VERSION
+      ? null : supervisorUpdate)
     if (update) info.server_update = { ...update, scope: accountUpdate ? 'account' : 'supervisor' }
     try {
       const health = JSON.parse(readText(join(home, 'data', SUPERVISOR_HEALTH_FILE)) ?? '{}') as { confirmedRestart?: unknown; at?: unknown }

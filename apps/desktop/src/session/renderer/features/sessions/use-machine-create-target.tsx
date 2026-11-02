@@ -130,6 +130,7 @@ export function useMachineCreateContext(target: MachineCreateTarget | null): Mac
           wakeFailure: wakeFailureLine(target.deviceId, label, translate),
           signInExpiredAt: device?.signInExpiredAt,
           notices: device?.notices,
+          serverUpdate: device?.serverUpdate,
           translate,
         })
       : null,

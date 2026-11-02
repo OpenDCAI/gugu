@@ -31,7 +31,8 @@ import {
   LINK_READY_MARK,
   parseJson,
 } from '../session/main/core/pty/attach/attach-protocol'
-import { serverProtocolTooOld } from '@gugu/core/cloud/serverMachineHealth'
+import { SERVER_UPDATE_CONTROL_RPCS, serverProtocolTooOld } from '@gugu/core/cloud/serverMachineHealth'
+import { createDeviceRpcReplyEnvelope, parseDeviceRpcRequest } from '@gugu/core/cloud/deviceRpcProtocol'
 import type { SshLinkFailure } from '../../src/lib/sshLink'
 import { classifySshFailure, unknownCommandLine, type SshTarget } from './ssh-install/logic'
 import { sshBatchArgs } from './ssh-batch'
@@ -112,6 +113,7 @@ type Link = {
   child: ChildProcessWithoutNullStreams
   ready: Promise<{ ok: true } | { ok: false; reason: SshLinkFailure; detail: string }>
   open: boolean
+  protocol: number | null
 }
 
 export type SshLinkManager = {
@@ -152,7 +154,7 @@ export function createSshLinkManager(options: {
       })
     } catch (error) {
       const failed = Promise.resolve({ ok: false as const, reason: 'unreachable' as const, detail: (error as Error).message })
-      return { child: null as unknown as ChildProcessWithoutNullStreams, ready: failed, open: false }
+      return { child: null as unknown as ChildProcessWithoutNullStreams, ready: failed, open: false, protocol: null }
     }
     const child = (options.spawnSsh ?? systemSpawn)(args)
     let stderr = ''
@@ -162,7 +164,7 @@ export function createSshLinkManager(options: {
     const ready = new Promise<Awaited<Link['ready']>>((resolve) => {
       settleReady = resolve
     })
-    const link: Link = { child, ready, open: false }
+    const link: Link = { child, ready, open: false, protocol: null }
     let readySettled = false
     const finishReady = (value: Awaited<Link['ready']>) => {
       if (readySettled) return
@@ -202,13 +204,8 @@ export function createSshLinkManager(options: {
         }
         return
       }
-      // 报了协议号、而且低于这台桌面要求的:明确的版本信号,当太旧收掉(不报 = 老版本,不知道,照常接)。
-      const protocol = linkProtocolFromPreamble(preamble.subarray(0, preamble.length - rest.length))
-      if (serverProtocolTooOld(protocol, { unknownIsTooOld: false })) {
-        finishReady({ ok: false, reason: 'outdated', detail: `server protocol ${String(protocol)}` })
-        child.kill('SIGTERM')
-        return
-      }
+      // Keep the authenticated link available for the controls that repair a version mismatch.
+      link.protocol = linkProtocolFromPreamble(preamble.subarray(0, preamble.length - rest.length))
       preamble = null
       finishReady({ ok: true })
       if (rest.length) takeFrames(rest)
@@ -254,6 +251,14 @@ export function createSshLinkManager(options: {
     send(deviceId, message) {
       const link = links.get(deviceId)
       if (!link?.open) return false
+      const request = parseDeviceRpcRequest(message)
+      if (request && serverProtocolTooOld(link.protocol, { unknownIsTooOld: false })
+        && !SERVER_UPDATE_CONTROL_RPCS.has(request.type)) {
+        options.onMessage(deviceId, { type: 'broadcast', event: 'broadcast', payload: createDeviceRpcReplyEnvelope(request.type, request.request_id, {
+          error: { code: 'server_outdated', message: '请更新那台机器上的咕咕' },
+        }) })
+        return true
+      }
       link.child.stdin.write(encodeJsonFrame(FRAME.message, message))
       return true
     },

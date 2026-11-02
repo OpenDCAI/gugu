@@ -33,7 +33,7 @@ import {
 import { classifySignInExit } from '../../../../apps/desktop/electron/server/ssh-link-ipc'
 import { writeServerConnectVia, type ServerAccount } from '../../../../apps/desktop/electron/server/server-layout'
 import { readServerConnectVia, serverDeviceLabel } from '../../../../packages/core/src/cloud/serverConnectVia'
-import { REMOTE_PROTOCOL_VERSION } from '../../../../packages/core/src/cloud/serverMachineHealth'
+import { REMOTE_PROTOCOL_VERSION, SERVER_UPDATE_CONTROL_RPCS } from '../../../../packages/core/src/cloud/serverMachineHealth'
 
 const flush = () => new Promise((resolve) => setTimeout(resolve, 5))
 
@@ -440,12 +440,13 @@ describe('桌面主进程:每台机器一条设备连接', () => {
     expect(links.openDeviceIds()).toEqual([])
   })
 
-  it('接上前报的协议号低于这台桌面要求的 → 太旧(明确的版本信号);报得够 / 老版本不报 → 照常接上', async () => {
+  it('keeps update controls on an old link while refusing ordinary requests on that same link', async () => {
     const children: ReturnType<typeof fakeChild>[] = []
+    const onMessage = vi.fn()
     const links = createSshLinkManager({
       machineFor: async () => ({ target, accountUserId: ACCOUNT }),
       controlPath: () => null,
-      onMessage: () => undefined,
+      onMessage,
       onClosed: () => undefined,
       spawnSsh: () => {
         const child = fakeChild()
@@ -456,8 +457,21 @@ describe('桌面主进程:每台机器一条设备连接', () => {
     const old = links.open('old')
     await flush()
     children[0]!.stdout.write(`rc banner\n${LINK_PROTOCOL_MARK} 0\n${LINK_READY_MARK}\n`)
-    expect(await old).toMatchObject({ ok: false, reason: 'outdated' })
-    expect(children[0]!.killed).toEqual(['SIGTERM'])
+    expect(await old).toEqual({ ok: true })
+    expect(children[0]!.killed).toEqual([])
+    const envelope = (type: string, id: string) => asBroadcast({ type, request_id: id, user_id: ACCOUNT, payload: {} })
+    const writes: Buffer[] = []
+    children[0]!.stdin.on('data', chunk => writes.push(Buffer.from(chunk)))
+    expect(links.send('old', envelope('taskhost.call', 'ordinary'))).toBe(true)
+    expect(onMessage).toHaveBeenCalledWith('old', expect.objectContaining({ payload: expect.objectContaining({
+      type: 'taskhost.call:reply', request_id: 'ordinary', error: { code: 'server_outdated', message: '请更新那台机器上的咕咕' },
+    }) }))
+    for (const type of SERVER_UPDATE_CONTROL_RPCS) expect(links.send('old', envelope(type, type))).toBe(true)
+    expect(links.send('old', envelope('file.get', 'file'))).toBe(true)
+    await flush()
+    const frames = new FrameDecoder().push(Buffer.concat(writes))
+    expect(frames.map(frame => JSON.parse(frame.payload.toString()).payload.type)).toEqual([...SERVER_UPDATE_CONTROL_RPCS])
+    expect(onMessage).toHaveBeenCalledTimes(2)
 
     const fine = links.open('fine')
     await flush()

@@ -477,9 +477,11 @@ function DeviceRow({
   // 「有新版本」在等空闲:人可以「现在重启更新」(先说清会中断正在跑的 agent,再点一次才发)。点过就收起,心跳报回新版本时这颗标签自己没了。
   const [updateNow, setUpdateNow] = useState<'ask' | { version: string; deadline: number; fromFailed: boolean } | null>(null)
   const restarting = updateNow !== null && typeof updateNow === 'object' ? updateNow : null
-  // 账号这一级的更新都能「现在重启更新」。旧版本账号进程既不报 server_confirmed_restart(走旧的 retry RPC)也不报 scope:
-  // 新进程总带 scope,所以没有 scope 只会是旧账号进程报的。
-  const canRestart = model.update?.scope === 'account' || (model.update?.scope === undefined && !serverSupportsConfirmedRestart(device.capabilities))
+  // A supervisor-ready target can use the same confirmed, account-only restart.
+  // An absent scope on a modern host remains unknown.
+  const canRestart = model.update?.scope === 'account'
+    || (model.update?.scope === 'supervisor' && model.update.state === 'ready' && serverSupportsConfirmedRestart(device.capabilities))
+    || (model.update?.scope === undefined && !serverSupportsConfirmedRestart(device.capabilities))
   // 起不来的那一版只有确认重启能再试(普通「重试」解不开它的冷却):失败行给「现在重启更新」,❌ 给一颗按了没用的「重试」。
   const bootFailed = model.update?.state === 'failed' && model.update.reason === 'boot-failed'
   const restartable = canRestart && (model.update?.state === 'ready' || bootFailed)

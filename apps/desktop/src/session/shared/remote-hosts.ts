@@ -8,7 +8,7 @@
 // 会话本身走那台机器的整套会话页宿主(`openSessionHost`,一套工作台),与本机同一套界面。
 import type { DeviceSessionSummary } from '@gugu/core/shared/types/chat';
 import type { ServerMachineNotice } from '@gugu/core/cloud/serverMachineHealth';
-import type { CloudComputerPresence } from '@gugu/core/shared/types/deviceHost';
+import type { CloudComputerPresence, DeviceServerUpdate } from '@gugu/core/shared/types/deviceHost';
 import type { DeviceProject } from '@gugu/core/shared/types/deviceProject';
 import type { SessionHostPipeOpener } from './lib/ipc/session-host-client';
 
@@ -64,10 +64,10 @@ export type RemoteHostDevice = {
    */
   sshLink?: 'signInRequired' | 'unreachable' | 'outdated' | 'updating' | null;
   /**
-   * #7403 那台咕咕 server 换版本走到哪了(心跳的 `capabilities.server_update`):downloading / ready = 正在换,
-   * failed = 换成和桌面匹配的那一版没成。不是 server / 没在换 = 缺席。
+   * The existing heartbeat update, including its target and scope. Ready is awaiting restart,
+   * downloading is in progress, failed is an unsuccessful update. Absent means no reported update.
    */
-  serverUpdate?: 'downloading' | 'ready' | 'failed';
+  serverUpdate?: DeviceServerUpdate;
   /**
    * #7199 这台是这个账号的云电脑时,它此刻的样子:asleep = 休眠中(有事会自动醒),waking = 正在唤醒,awake = 运行中。
    * 睡着时 `isOnline` 照实为 false,但 ❌ 按离线处理(❌ 灰掉、❌ 拒收):在它上面开会话 / 打开它上面的会话先叫醒它

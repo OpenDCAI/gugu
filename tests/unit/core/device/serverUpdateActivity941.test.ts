@@ -51,4 +51,15 @@ describe('server update activity reported by the account that is waiting', () =>
     expect(resolveDeviceHostInfo(env, deps).server_confirmed_restart).toBeUndefined()
   })
 
+  it('clears only the supervisor-ready notice for the version this account already runs', () => {
+    const env = { GUGU_SERVER_MODE: '1', GUGU_SERVER_HOME: '/srv', GUGU_APP_VERSION: '0.2.58-beta.1057.1' }
+    let update = ready
+    const deps = { nowMs: () => now, readText: (file: string) => file === '/srv/data/server-update.json' ? update : null, uid: () => 1000 }
+    expect(resolveDeviceHostInfo(env, deps).server_update).toBeUndefined()
+    update = JSON.stringify({ state: 'ready', version: '0.2.58-beta.1058.1', at: now })
+    expect(resolveDeviceHostInfo(env, deps).server_update).toMatchObject({ state: 'ready', version: '0.2.58-beta.1058.1', scope: 'supervisor' })
+    update = JSON.stringify({ state: 'failed', version: env.GUGU_APP_VERSION, at: now })
+    expect(resolveDeviceHostInfo(env, deps).server_update).toMatchObject({ state: 'failed', version: env.GUGU_APP_VERSION, scope: 'supervisor' })
+  })
+
 })

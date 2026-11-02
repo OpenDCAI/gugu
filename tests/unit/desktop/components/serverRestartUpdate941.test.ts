@@ -62,8 +62,18 @@ describe('confirmed server update feedback', () => {
     expect(retry).not.toHaveBeenCalled()
   })
 
-  it('never offers an account restart for a supervisor update or an unknown update owner', async () => {
+  it('confirms the displayed supervisor-ready target using the account restart capability', async () => {
     await render(server({ state: 'ready', version: target, scope: 'supervisor' }))
+    await click('update-now')
+    expect(restart).not.toHaveBeenCalled()
+    await click('update-now-yes')
+    expect(restart).toHaveBeenCalledExactlyOnceWith('remote', target, true)
+  })
+
+  it('requires explicit capability for a supervisor target and keeps modern unknown scope unknown', async () => {
+    const withoutCapability = server({ state: 'ready', version: target, scope: 'supervisor' })
+    delete withoutCapability.capabilities.server_confirmed_restart
+    await render(withoutCapability)
     expect(node('update-now')).toBeNull()
     await render(server({ state: 'ready', version: target, scope: undefined }))
     expect(node('update-now')).toBeNull()

@@ -151,6 +151,11 @@ export const VERSION_RETRY_RPC = 'server.versionMatch.retryWhenIdle'
 export const LEGACY_VERSION_RETRY_RPC = 'server.versionMatch.retry'
 export const VERSION_RESTART_RPC = 'server.versionMatch.restartConfirmed'
 
+/** Version-independent controls implemented by the server's existing update handlers. */
+export const SERVER_UPDATE_CONTROL_RPCS: ReadonlySet<string> = new Set([
+  VERSION_RETRY_RPC, LEGACY_VERSION_RETRY_RPC, VERSION_RESTART_RPC,
+])
+
 /**
  * #6264 报给那台机器的「这是哪一台桌面」:设备编号 + 版本。设备编号跟着硬件走,同一台电脑上的正式版、Beta、
  * 开发实例是同一个编号 —— 只按编号记,两个版本会互相覆盖,账号在两版之间来回切(实测 d22 每十几秒切一次)。
