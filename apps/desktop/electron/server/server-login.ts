@@ -32,6 +32,8 @@ import { adoptDeviceName, type DeviceLabelClient } from '@gugu/core/cloud/device
 import { createGuguSupabaseClient } from '@gugu/core/cloud/supabase'
 import { getSupabaseAnonKey, getSupabaseUrl } from '@gugu/core/cloud/config'
 import { writeStoredServerSession } from './server-auth'
+import { assertAccountLogin } from './server-startup'
+import { EXIT_CONFIG } from './server-exit'
 import { accountDataDir, applyAccountEnv, clearSignedOutMark, emailFromAccessToken, listAccounts, writeAccountMeta, writeServerConnectVia } from './server-layout'
 
 type StartResponse = { device_code: string; user_code: string; expires_in: number; interval: number }
@@ -197,6 +199,8 @@ async function pollUntilDone(
       const tokens = await exchangeTokenHash(polled.data.token_hash, String(polled.data.type ?? 'magiclink'))
       const userId = userIdFromSupabaseAccessToken(tokens.accessToken)
       if (!userId) throw new Error('登录令牌里没有用户 id(sub)')
+      try { assertAccountLogin(listAccounts(), userId) }
+      catch (error) { out(error instanceof Error ? error.message : String(error)); return EXIT_CONFIG }
       const email = emailFromAccessToken(tokens.accessToken)
       const others = listAccounts().filter((account) => account.signedIn && account.userId !== userId)
       // 知道是谁之后才把数据目录指到这个账号自己的目录,再落登录态(替身的 userData 第一次读到就缓存住)。

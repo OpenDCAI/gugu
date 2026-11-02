@@ -17,7 +17,7 @@ import type { ChildProcess } from 'node:child_process'
 import { spawn } from '@gugu/core/local/childProcess'
 import fs from 'node:fs'
 import path from 'node:path'
-import { isOwnProcessAlive, SERVER_PROCESS_MARK } from './process-alive'
+import { acquireHomeLock } from './server-startup'
 import { applyLoginShell, clearStopped, liveKeeperPid, markStopped, startKeeper, SUPERVISOR_EXIT_ALREADY_RUNNING } from './server-keeper'
 import { noteExitReason } from '../lib/exit-reason'
 import { removeLegacyBrowserLogins } from '../lib/remove-legacy-browser-logins'
@@ -59,52 +59,9 @@ export function createSupervisorLog(): SupervisorLog {
   return { info: (m, f) => write('INFO ', m, f), warn: (m, f) => write('WARN ', m, f) }
 }
 
-/** 守护进程自己的单实例锁:同一个数据目录只能有一个守护进程。进程已死的旧锁直接接管。 */
-function acquireLock(): (() => void) | null {
-  const lockPath = path.join(supervisorDataDir(), 'server.lock')
-  fs.mkdirSync(path.dirname(lockPath), { recursive: true })
-  const tryAcquire = (): boolean => {
-    let fd: number
-    try {
-      fd = fs.openSync(lockPath, 'wx', 0o600)
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
-      return false
-    }
-    try {
-      fs.writeSync(fd, String(process.pid))
-    } catch {
-      // #6264 磁盘满:锁文件建出来了(占的是目录项),进程号写不进去。锁照样算拿到 ——
-      // 抛出去会让守护进程秒退、systemd 每 3 秒重来一次,整台机器因为「写不进 5 个字节」下线。
-    } finally {
-      fs.closeSync(fd)
-    }
-    return true
-  }
-  if (!tryAcquire()) {
-    let holder = 0
-    try {
-      holder = Number(fs.readFileSync(lockPath, 'utf8').trim())
-    } catch {
-      holder = 0
-    }
-    // #6264 只认「活着且真是咕咕 server」的持有者:进程号被别的进程复用时,这把锁不能永远没人敢接。
-    if (isOwnProcessAlive(holder, SERVER_PROCESS_MARK)) return null
-    fs.rmSync(lockPath, { force: true })
-    if (!tryAcquire()) return null
-  }
-  return () => {
-    try {
-      if (Number(fs.readFileSync(lockPath, 'utf8').trim()) === process.pid) fs.rmSync(lockPath, { force: true })
-    } catch {
-      // 锁已经不在了
-    }
-  }
-}
-
 export async function runSupervisor(): Promise<void> {
   const log = createSupervisorLog()
-  const release = acquireLock()
+  const release = acquireHomeLock(serverHome())
   if (!release) {
     process.stderr.write(`[server] 这台机器上已经有一个咕咕 server 在跑(${supervisorDataDir()})\n`)
     // 专门的退出码:看门人见到它就收手,❌ 两个一直互相顶(server-keeper.ts)。
