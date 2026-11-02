@@ -63,6 +63,26 @@ describe('#6264 设备行上报「这是台什么机器」', () => {
     expect(readText).not.toHaveBeenCalledWith('/srv/gugu/data/server-update.json')
   })
 
+  it('reports a ready supervisor separately from the current account version and activity count', () => {
+    const now = 1_000_000
+    const target = '0.3.1-beta.1128'
+    const files: Record<string, string> = {
+      '/srv/gugu/data/supervisor-health.json': JSON.stringify({ version: '0.3.1-beta.1126', at: now }),
+      '/srv/gugu/data/server-update.json': JSON.stringify({ state: 'ready', version: target, at: now }),
+      '/srv/gugu/accounts/u/data/activity.json': JSON.stringify({ busyAgents: 12, at: now }),
+    }
+    const env = { GUGU_SERVER_MODE: '1', GUGU_SERVER_HOME: '/srv/gugu', GUGU_TASK_HOST_USER_DATA: '/srv/gugu/accounts/u/data' }
+    const deps = { nowMs: () => now, uid: () => 1000, readText: (path: string) => files[path] ?? null }
+    const capabilities = { app_version: target, ...resolveDeviceHostInfo(env, deps) }
+    expect(normalizeDeviceRow({ device_id: 'remote', label: 'Remote', hostname: 'remote', platform: 'linux', status: 'online',
+      last_seen_at: '2026-11-02T06:11:00Z', capabilities }).capabilities).toMatchObject({
+      app_version: target, server_update: { state: 'ready', version: target, scope: 'supervisor' },
+    })
+    expect(capabilities.server_update).not.toHaveProperty('busy_agents')
+    delete files['/srv/gugu/accounts/u/data/activity.json']
+    expect(resolveDeviceHostInfo(env, deps).server_update).toEqual({ state: 'ready', version: target, scope: 'supervisor' })
+  })
+
   it('远程 SSH / 远程隧道随心跳报(账号目录里记的那一条);没记的不报(= 远程隧道);桌面不报;设备行按形状收', () => {
     const files: Record<string, string> = {
       '/srv/gugu/accounts/u1/data/connect-via.json': JSON.stringify({ via: 'ssh', at: '2026-09-25T00:00:00Z' }),

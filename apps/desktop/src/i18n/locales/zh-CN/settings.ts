@@ -789,6 +789,7 @@ export default {
       "ready": "新版本已就绪",
       "readyCount_one": "新版本已就绪，{{count}} 个任务在运行",
       "readyCount_other": "新版本已就绪，{{count}} 个任务在运行",
+      "supervisorReady": "服务进程 {{version}} 已就绪，空闲后自动切换",
       "readyHint": "{{version}} 已下载。为了不打断任务，不会自己重启；点「现在重启更新」切换。",
       "updateNow": "现在重启更新",
       "updateNowConfirm": "现在重启「{{name}}」上的咕咕？正在运行的任务会被中断。",
