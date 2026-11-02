@@ -60,7 +60,7 @@ describe('serverNames:正式版不带后缀,其余通道加 -<通道>', () => {
 function fakePackage(root: string, version: string): { file: string; sha256: string } {
   const stage = path.join(root, 'stage', `gugu-server-${version}`)
   fs.mkdirSync(path.join(stage, 'bin'), { recursive: true })
-  fs.writeFileSync(path.join(stage, 'bin', 'gugu-server'), '#!/bin/sh\necho "home=$GUGU_SERVER_HOME"\n', { mode: 0o755 })
+  fs.writeFileSync(path.join(stage, 'bin', 'gugu-server'), '#!/bin/sh\nif [ "$1" = help ]; then echo prepare-install; else echo "home=$GUGU_SERVER_HOME"; fi\n', { mode: 0o755 })
   fs.writeFileSync(path.join(stage, 'version'), version)
   const file = path.join(root, `gugu-server-${version}.tar.gz`)
   execFileSync('tar', ['-czf', file, '-C', path.dirname(stage), path.basename(stage)])

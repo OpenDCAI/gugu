@@ -365,7 +365,7 @@ function fakeReleaseSite(): { root: string; base: string; version: string; sha25
   const arch = os.arch() === 'arm64' ? 'arm64' : 'x64'
   const stage = path.join(root, 'stage', `gugu-server-${version}-${osName}-${arch}`)
   fs.mkdirSync(path.join(stage, 'bin'), { recursive: true })
-  fs.writeFileSync(path.join(stage, 'bin', 'gugu-server'), '#!/bin/sh\necho "gugu-server help --grant-stdin"\n', { mode: 0o755 })
+  fs.writeFileSync(path.join(stage, 'bin', 'gugu-server'), '#!/bin/sh\necho "gugu-server help prepare-install --grant-stdin"\n', { mode: 0o755 })
   fs.writeFileSync(path.join(stage, 'version'), version)
   fs.mkdirSync(path.join(root, version))
   const tarball = path.join(root, version, `gugu-server-${version}-${osName}-${arch}.tar.gz`)
@@ -457,6 +457,7 @@ function fakePackage(root: string, version: string): { tarball: string; sha256: 
       '#!/bin/sh',
       `echo "${version} $*" >> "$HOME/calls.log"`,
       'case "$1" in',
+      '  help) echo prepare-install ;;',
       `  service) [ -n "$FAKE_SERVICE_FAIL" ] && exit 1; echo "咕咕 server ${version} 已在运行(进程 4242)。" ;;`,
       '  status) echo "登录的账号:无(执行 gugu-server login)" ;;',
       'esac',
