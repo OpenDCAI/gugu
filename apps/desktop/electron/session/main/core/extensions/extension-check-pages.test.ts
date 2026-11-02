@@ -18,6 +18,7 @@ const watchers = new Map<number, (message: string, level: 'error' | 'hint') => v
 const readings = new Map<number, CheckReadings>();
 const shown = { width: null as number | null };
 const pictured: string[][] = [];
+const navigation: string[] = [];
 const TREE = { nodes: [{ nodeId: '1', role: { value: 'RootWebArea' }, childIds: ['2'] }, { nodeId: '2', parentId: '1', role: { value: 'button' }, name: { value: 'Go' }, backendDOMNodeId: 5 }] };
 const counts = (writes: number): CheckReadings => ({ writes, writesPerSecond: 0, presenceSets: 0, presencePerSecond: 0, opens: 1, opensSettled: 1, shown: [] });
 
@@ -51,6 +52,7 @@ vi.mock('electron', () => ({
       };
     }
     loadURL = async () => {
+      navigation.push(`loaded:${this.record.id}`);
       this.record.loads += 1;
       for (const listener of this.record.listeners.get('did-finish-load') ?? []) listener();
     };
@@ -89,7 +91,7 @@ vi.mock('./extension-look-picture', async (importOriginal) => ({
   ...(await importOriginal<typeof import('./extension-look-picture')>()),
   keepPainting: async () => undefined,
   endPictures: () => undefined,
-  showAtSize: async () => undefined,
+  showAtSize: async (contents: { id: number }) => { navigation.push(`sized:${contents.id}`); },
   pictureOf: async (_contents: unknown, _size: unknown, label: string) => ({ label, mimeType: 'image/jpeg', data: 'AAAA' }),
   picturesOf: async (_contents: unknown, sizes: { says: string }[]) => {
     pictured.push(sizes.map((size) => size.says));
@@ -130,6 +132,7 @@ beforeEach(() => {
   windows.length = 0;
   binds.length = 0;
   pictured.length = 0;
+  navigation.length = 0;
   readings.clear();
   shown.width = null;
 });
@@ -299,6 +302,8 @@ describe('hidden widget checks', () => {
     expect(windows[0]!.size).toEqual({ width: 420, height: 240 });
     expect(report).toMatchObject({ rendered: true, text: 'Dinner', locale: 'en-US', themeMode: 'dark', widget: { id: 'w1', message_id: 'm1', chat_id: 'chat-1', app_version: '1.2.3', size: { w: 420, h: 240 } } });
     expect(report.pictures).toHaveLength(1);
+    // Navigation must finish before emulation attaches to the hidden page.
+    expect(navigation.slice(0, 2)).toEqual(['loaded:100', 'sized:100']);
     expect(pictured).toHaveLength(0);
     const continued = await check({ caller: 's1', page: report.page!, steps: GO, look: false });
     expect(continued.steps?.[0]).toMatchObject({ ok: true, did: 'clicked button "Go"' });

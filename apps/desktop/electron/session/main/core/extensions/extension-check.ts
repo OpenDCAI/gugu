@@ -156,7 +156,6 @@ export async function checkExtensionSurface(request: ExtensionCheckRequest): Pro
         operator: request.operator,
         ...(widget ? { widget: { messageId: widget.messageId, data: widget.data, senderId: widget.senderId } } : {}),
       });
-      if (widget) await showAtSize(contents, page.size);
       const entry = tab.entry ?? installed.manifest.entry;
       if (!entry) throw new Error('This App tab has no HTML entry');
       const url = extensionResourceUrl(installed.manifest.id, entry);
