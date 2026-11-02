@@ -723,8 +723,6 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
     const entries: SidebarSessionEntry[] = [];
     for (const page of sessions) {
       const sessionId = page.data.id;
-      // #7199 住在这台电脑上的个人助理:它自己的会话不进任务区(与别的机器上的同一条规矩,见 remoteEntries)。
-      if (this.assistantAgentId && sessionAgentBindings.bindingFor(sessionId)?.agentUserId === this.assistantAgentId) continue;
       for (const session of pageSessions(page)) {
         entries.push({
           id: session.data.id,
@@ -748,14 +746,13 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
     this.assistantAgentId = id;
   }
 
-  /** 别的机器上一个项目的会话:来自会话目录(列出不挂载),新的在前。个人助理自己的那条不在内(它的子 agent 就成了根)。 */
+  /** 别的机器上一个项目的会话:来自会话目录(列出不挂载),新的在前；助理也保留在任务里。 */
   private remoteEntries(projectId: string, machine: string): SidebarSessionEntry[] {
     const listed = this.machines?.sessionsOf?.(machine);
     if (!listed) return [];
     const entries: SidebarSessionEntry[] = [];
     for (const session of listed.sessions) {
       if (session.projectId !== projectId) continue;
-      if (isAssistantSession(session, this.assistantAgentId)) continue;
       entries.push({
         id: session.conversationId,
         projectId,

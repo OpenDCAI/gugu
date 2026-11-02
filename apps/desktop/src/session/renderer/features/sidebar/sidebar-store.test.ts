@@ -520,10 +520,11 @@ describe('SidebarStore project ordering', () => {
       (manager.projects.get(home) as unknown as { data: { kind?: string } }).data = { kind: 'workspace' };
       const store = new SidebarStore(manager);
       store.setAssistantAgentId('assistant');
+      store.expandedSessionIds.add('own');
       store.expandedSessionIds.add('executor');
       expect(store.orderedProjects.map((p) => p.id)).toEqual(['business']);
       expect(store.standaloneSessionEntries.map((r) => [r.sessionId, r.depth])).toEqual([
-        ['executor', 0], ['grandchild', 1], ['other', 0],
+        ['own', 0], ['executor', 1], ['grandchild', 2], ['other', 0],
       ]);
       expect(store.rowOfSession(home, 'executor')).toBeNull();
       expect(store.navChain.some((r) => r.kind === 'conversation' && r.sessionId === 'executor')).toBe(true);
@@ -859,6 +860,7 @@ describe('SidebarStore: 别的机器上的会话归到那台机器的项目下',
     store.machines = { ...machines, isAssistantHome: () => true, label: () => 'Renamed assistant',
       sessionsOf: () => ({ sessions: [...listed.values()], live }) };
     store.setAssistantAgentId('assistant-id');
+    store.expandedSessionIds.add('rc-assistant');
     store.expandedSessionIds.add('rc-executor');
     store.expandAllProjects();
     try {
@@ -867,7 +869,7 @@ describe('SidebarStore: 别的机器上的会话归到那台机器的项目下',
       expect(store.projectLabel('d22-home')).toBeNull();
       expect(store.projectLabel('d22-business')).toBe('Business');
       expect(store.standaloneSessionEntries.map((e) => [e.sessionId, e.depth])).toEqual([
-        ['rc-executor', 0], ['rc-grandchild', 1],
+        ['rc-assistant', 0], ['rc-executor', 1], ['rc-grandchild', 2],
       ]);
       expect(store.rowOfSession('d22-home', 'rc-executor')).toBeNull();
       expect(store.navChain.some((r) => r.kind === 'conversation' && r.sessionId === 'rc-executor')).toBe(true);
@@ -910,7 +912,7 @@ describe('SidebarStore: 别的机器上的会话归到那台机器的项目下',
     sessionRegistry.release('rt-g');
   });
 
-  it('#7199 个人助理自己的会话不进任务区;它派的照常在、成了根,并认得出是它派的', () => {
+  it('keeps the assistant and its child tasks visible after moving them to the task workspace', () => {
     acquire('rt-asst', REMOTE_SESSION_HOME, 'rc-asst');
     acquire('rt-kid', REMOTE_SESSION_HOME, 'rc-kid', 'rc-asst');
     acquire('rt-other', REMOTE_SESSION_HOME, 'rc-other');
@@ -928,12 +930,12 @@ describe('SidebarStore: 别的机器上的会话归到那台机器的项目下',
     expect(store.launchedByAssistant(REMOTE_SESSION_HOME, 'rc-kid')).toBe(false);
 
     store.setAssistantAgentId('u-asst');
-    expect(shown()).toEqual(['rc-kid@0', 'rc-other@0']);
+    expect(shown()).toEqual(['rc-asst@0', 'rc-kid@1', 'rc-other@0']);
     expect(store.launchedByAssistant(REMOTE_SESSION_HOME, 'rc-kid')).toBe(true);
     expect(store.launchedByAssistant(REMOTE_SESSION_HOME, 'rc-other')).toBe(false);
-    // 认的是 agent 身份:换成别人的 id,它那条就回来。
+    // 身份只供派生关系判断使用，不再把个人助理从任务中滤掉。
     store.setAssistantAgentId('u-kid');
-    expect(shown()).toEqual(['rc-asst@0', 'rc-other@0']);
+    expect(shown()).toEqual(['rc-asst@0', 'rc-kid@1', 'rc-other@0']);
     for (const id of ['rt-asst', 'rt-kid', 'rt-other']) sessionRegistry.release(id);
   });
 
