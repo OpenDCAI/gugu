@@ -58,6 +58,37 @@ function updater(isBusy: () => boolean, verifyBoot: (binary: string) => Promise<
 }
 
 describe('server self-upgrade resolves its target at the moment it switches', () => {
+  it('refuses a confirmed bad target and does not republish it as restartable on the next check', async () => {
+    published = '0.2.53-beta.62.1'; stage(published)
+    const { control, shutdown, stop } = updater(() => true)
+    await vi.advanceTimersByTimeAsync(60_000)
+    fs.writeFileSync(path.join(home, 'data/bad-versions.json'), JSON.stringify({ [published]: Date.now() }))
+    fs.writeFileSync(path.join(home, 'data/server-update.json'), JSON.stringify({ state: 'failed', version: published,
+      cause: 'boot', at: Date.now(), lastOutcome: { kind: 'rolledBack', bad: published, back: '0.2.53-beta.59.1', at: Date.now(), request: 42 } }))
+    expect(await serverUpdateRpcHandlers()[VERSION_RESTART_RPC]({ version: published, confirmed: true }, {} as never))
+      .toMatchObject({ error: { code: 'invalid_payload' } })
+    expect(control.retryWhenIdle()).toBe(true)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(shutdown).not.toHaveBeenCalled()
+    expect(readPendingVerify(home)).toBeNull()
+    expect(fs.readlinkSync(path.join(home, 'current'))).toBe('versions/0.2.53-beta.59.1')
+    expect(JSON.parse(fs.readFileSync(path.join(home, 'data/server-update.json'), 'utf8')))
+      .toMatchObject({ state: 'idle', version: '0.2.53-beta.59.1' })
+    stop()
+  })
+
+  it('still retries a boot failure that has not been marked bad', async () => {
+    published = '0.2.53-beta.62.1'; stage(published)
+    const verify = vi.fn(async () => undefined).mockRejectedValueOnce(new Error('temporary boot environment failure'))
+    const { control, shutdown, stop } = updater(() => false, verify)
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(shutdown).not.toHaveBeenCalled()
+    expect(control.retryWhenIdle()).toBe(true)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(shutdown).toHaveBeenCalledOnce()
+    stop()
+  })
+
   it('pauses outgoing reports before committing a switch, and resumes them if activation fails', async () => {
     stage('0.2.53-beta.62.1')
     published = '0.2.53-beta.62.1'

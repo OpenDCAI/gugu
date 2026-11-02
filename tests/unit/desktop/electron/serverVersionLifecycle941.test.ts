@@ -23,6 +23,18 @@ const layout = () => ({ home, versions: path.join(home, 'versions'), version: '3
 
 
 describe('one installation version lifecycle', () => {
+  it('rechecks bad versions at the shared activation commit even after successful staging', async () => {
+    const lifecycle = createServerVersionLifecycle({ verifyBoot: async () => undefined, layout: layout() })
+    await lifecycle.stage('4.0.0', async () => {})
+    fs.mkdirSync(path.join(home, 'data'))
+    fs.writeFileSync(path.join(home, 'data/bad-versions.json'), JSON.stringify({ '4.0.0': now }))
+    const beforeSwitch = vi.fn()
+    expect(() => lifecycle.switchSupervisor({ from: '3.0.0', to: '4.0.0', fromDir: path.join(home, 'versions/3.0.0'),
+      toDir: path.join(home, 'versions/4.0.0'), switchedAt: now }, beforeSwitch)).toThrow('previously failed')
+    expect(beforeSwitch).not.toHaveBeenCalled()
+    expect(readPendingVerify(home)).toBeNull()
+    expect(fs.realpathSync(path.join(home, 'current'))).toBe(path.join(home, 'versions/3.0.0'))
+  })
   it('retains actual current, explicit previous, live processes and a staging lease; reclaims only unowned directories', async () => {
     createServerUpdateStateWriter(home).set('idle', '3.0.0', undefined, { previous: '2.0.0' })
     const lifecycle = createServerVersionLifecycle({ verifyBoot: async () => undefined, layout: layout(), running: () => ['1.0.0'] })
