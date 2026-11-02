@@ -63,7 +63,7 @@ export function PhoneTabBar({ activeTab, onTabChange, pendingContactsCount, barR
           </Button>
         })}
       </div>
-      <Button variant="ghost" className="gg-phone-nav-search" data-testid="phone-list-search" aria-label={mt('chatList.search')} onClick={() => window.dispatchEvent(new CustomEvent(UI_EVENTS.openPhoneListSearch, { detail: activeTab }))}><Search /></Button>
+      <Button variant="ghost" className="gg-phone-nav-search" data-testid="phone-list-search" aria-label={mt('chatList.search')} onPointerDown={(event) => event.preventDefault()} onClick={() => window.dispatchEvent(new CustomEvent(UI_EVENTS.openPhoneListSearch, { detail: activeTab }))}><Search /></Button>
     </nav>
   )
 }

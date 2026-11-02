@@ -967,7 +967,7 @@ function InnerLayout({
       data-phone-shell={mobile ? '' : undefined}
       data-gugu-shell-phase={effectsActive ? 'active' : 'committed-inert'}
       data-desktop-shell={mobile ? undefined : ''}
-      // 手机全线一个底:咕咕页那套渐变 + 玻璃(owner 10-26),壳上挂 data-ta-scope 让 --ta-* 处处可用。
+      // 手机全线一个中性纯色底,壳上挂 data-ta-scope 让 --ta-* 处处可用。
       data-ta-scope={mobile ? '' : undefined}
       style={{
         display: 'flex',
