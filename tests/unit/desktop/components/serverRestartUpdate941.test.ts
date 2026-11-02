@@ -43,6 +43,17 @@ afterEach(() => {
 })
 
 describe('confirmed server update feedback', () => {
+  it('shows a rollback outcome without offering another restart into the failed release', async () => {
+    const device = server()
+    delete device.capabilities.server_update
+    device.capabilities.server_update_outcome = { kind: 'rolledBack', request: 42 }
+    device.capabilities.server_rollback = { version: target, restored: current }
+    await render(device)
+    expect(node('notice')!.textContent).toContain('更新失败')
+    expect(node('update-now')).toBeNull()
+    expect(node('match-restart-now')).toBeNull()
+    expect(restart).not.toHaveBeenCalled()
+  })
   it.each(['zh-CN', 'en-US'] as const)('renders the counted confirmation in %s for zero and multiple running tasks', async locale => {
     setLocalePreference(locale)
     for (const count of [0, 2]) {

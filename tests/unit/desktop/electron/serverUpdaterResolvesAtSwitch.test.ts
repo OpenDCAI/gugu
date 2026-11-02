@@ -73,7 +73,7 @@ describe('server self-upgrade resolves its target at the moment it switches', ()
     expect(readPendingVerify(home)).toBeNull()
     expect(fs.readlinkSync(path.join(home, 'current'))).toBe('versions/0.2.53-beta.59.1')
     expect(JSON.parse(fs.readFileSync(path.join(home, 'data/server-update.json'), 'utf8')))
-      .toMatchObject({ state: 'idle', version: '0.2.53-beta.59.1' })
+      .toMatchObject({ state: 'idle', version: '0.2.53-beta.59.1', lastOutcome: { kind: 'rolledBack', request: 42 } })
     stop()
   })
 

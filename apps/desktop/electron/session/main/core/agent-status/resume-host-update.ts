@@ -8,7 +8,7 @@ export async function resumeHostUpdate(sessionIds: readonly string[], lastExit: 
   if (lastExit.reason !== 'update' || sessionIds.length === 0) return;
   const { messageSessionFrom } = await import('../sessions/session-orchestration');
   const at = formatDeliveryTimestamp(new Date(lastExit.at).toISOString());
-  const text = `Your work was interrupted at ${at} because Gugu on this machine restarted to update to ${version}. Commands that were running did not report back; check their state, then continue from where you stopped. If a tool was awaiting approval, the restart cancelled that request; the user did not reject it. Request approval again if it is still needed.`;
+  const text = `Your work was interrupted at ${at} because Gugu on this machine restarted to update to ${version}. Commands that were running did not report back; check their state, then continue from where you stopped. If a tool call immediately before this notice says it was rejected or interrupted by the user, that was this restart cancelling the request, not a refusal by the user. If you still need the same operation, request approval for it again.`;
   await Promise.all(sessionIds.map(sessionId => sessionBootTasks.run('update-resume', sessionId, () => messageSessionFrom(
     (messageId, content) => buildSystemNoticeEnvelope({ messageId, content, at }),
     sessionId, text, { keyScope: 'host:update', receipt: {
