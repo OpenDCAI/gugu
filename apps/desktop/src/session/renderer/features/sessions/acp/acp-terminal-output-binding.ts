@@ -1,4 +1,4 @@
-import type { TerminalState } from '@gugu/session-core/acp/client';
+import { terminalPresentation, type TerminalState } from '@gugu/session-core/acp/client';
 
 type TerminalSession = {
   terminals: {
@@ -12,7 +12,7 @@ export function bindSessionTerminalOutputs(
   session: TerminalSession,
   setTerminals: (terminals: readonly TerminalState[]) => void
 ): () => void {
-  const sync = () => setTerminals(session.terminals.current());
+  const sync = () => setTerminals(session.terminals.current().map(terminalPresentation));
   sync();
   return session.terminals.onChange(sync);
 }

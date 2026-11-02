@@ -22,3 +22,13 @@ it('a session the account shell does not open comes up as gugu.showSession finds
  await expect(openLink('gugu://session/on-this-computer')).resolves.toMatchObject({kind:'opened'});
  expect(mocks.bringUp).toHaveBeenCalledWith({projectId:'project-here',sessionId:'on-this-computer'});
 });
+it.each([
+ {kind:'session' as const,sessionId:'assistant-task',projectId:'removed-assistant-project'},
+ 'gugu-beta://session/assistant-task',
+])('opens a migrated assistant from a notification target or deep link using its current task project: %j',async target=>{
+ const tasks='00000000-0000-4000-8000-000000000001';
+ mocks.act.mockResolvedValueOnce(undefined);
+ mocks.here.mockResolvedValueOnce(tasks);
+ await expect(openLink(target)).resolves.toMatchObject({kind:'opened'});
+ expect(mocks.bringUp).toHaveBeenLastCalledWith({projectId:tasks,sessionId:'assistant-task'});
+});

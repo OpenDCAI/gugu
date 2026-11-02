@@ -18,6 +18,7 @@ import { ensureProjectRepository } from './create-project-utils';
 import { ensureRepositoryWorkspace } from './ensure-repository-workspace';
 import { getLocalProjectByPath } from './getProjects';
 import { attachProjectFolder, getProjectOwningAttachedFolder } from './project-folders';
+import { recordProjectRegistration } from './project-registration-origin';
 
 export type CreateLocalProjectParams = {
   id?: string;
@@ -58,6 +59,7 @@ export async function createLocalProject(
   // #609 人亲手加的目录原来是替人登记的 workspace(~ 上的,或迁移降下来的)⇒ 从此是项目(owner 10-28)。
   if (!params.automatic) {
     const kept = await getLocalProjectByPath(params.path);
+    if (kept) recordProjectRegistration({ projectId: kept.id, path: kept.path, createdAt: kept.createdAt, source: 'person' });
     if (kept?.kind === 'workspace' && !isImplicitSessionHomeProjectId(kept.id)) {
       db.update(projects).set({ kind: 'project', archivedAt: null, updatedAt: sql`CURRENT_TIMESTAMP` }).where(eq(projects.id, kept.id)).run();
       const { kind: _workspace, archivedAt: _archived, ...claimed } = kept;
@@ -118,6 +120,9 @@ export async function createLocalProject(
   const attachedOwner = await getProjectOwningAttachedFolder(gitInfo.rootPath);
   const detachedRoot = await getLocalProjectByPath(gitInfo.rootPath);
   const existing = attachedOwner ?? detachedRoot;
+  if (existing && !params.automatic) {
+    recordProjectRegistration({ projectId: existing.id, path: existing.path, createdAt: existing.createdAt, source: 'person' });
+  }
   if (existing?.archivedAt && !params.automatic) {
     if (!attachedOwner && existing.rootFolderDetached) {
       const attached = await attachProjectFolder(existing.id, gitInfo.rootPath);
@@ -161,6 +166,7 @@ export async function createLocalProject(
         kind: isImplicitSessionHomeProjectId(projectId) || (params.automatic && isAppKeptDirectory(gitInfo.rootPath)) ? 'workspace' : 'project',
         updatedAt: sql`CURRENT_TIMESTAMP`,
       }).returning().get();
+      recordProjectRegistration({ projectId, path: row.path, createdAt: row.createdAt, source: params.automatic ? 'automatic' : 'person' }, tx);
       const created: LocalProject = {
         type: 'local',
         id: row.id,

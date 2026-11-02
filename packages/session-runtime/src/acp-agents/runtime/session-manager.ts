@@ -192,6 +192,7 @@ interface SessionRecordBase {
     activeTurn?: TranscriptTurn | null;
     draft?: PromptDraft | null;
     terminals?: TerminalState[];
+    terminalChunks?: TerminalState[];
   };
 }
 
@@ -1822,8 +1823,12 @@ export class SessionManager implements InboundRouter {
     const record = this.cells.get(sessionId);
     if (!record) return;
     const terminals = this.getTerminals(sessionId);
-    publishLiveModelState(record.live.states.terminals, terminals, record.lastSynced.terminals);
-    record.lastSynced.terminals = terminals;
+    const wireTerminals = this.terminalLiveRegistry.snapshotSession(sessionId, true);
+    publishLiveModelState(record.live.states.terminalChunks, wireTerminals, record.lastSynced.terminalChunks);
+    record.lastSynced.terminalChunks = wireTerminals;
+    const legacyTerminals = this.terminalLiveRegistry.snapshotSession(sessionId, 'legacy');
+    publishLiveModelState(record.live.states.terminals, legacyTerminals, record.lastSynced.terminals);
+    record.lastSynced.terminals = legacyTerminals;
     this.emitCommittedTurns(record, terminals);
   }
 

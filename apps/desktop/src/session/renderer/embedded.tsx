@@ -49,7 +49,7 @@ import { setupViewCommandProvider } from '@renderer/lib/commands/view-command-pr
 import { wireCommitHistoryInvalidation } from '@renderer/lib/commit-history-invalidation';
 import { wireExternalLinkRequests } from '@renderer/lib/external-link-requests';
 import { wireSessionsOnScreenReport } from '@renderer/app/sessions-on-screen';
-import { rpc } from '@renderer/lib/ipc';
+import { rpc, rpcOn } from '@renderer/lib/ipc';
 import { wireModelRegistryInvalidation } from '@renderer/lib/monaco/invalidation-bridges';
 import { monacoBootstrap } from '@renderer/lib/monaco/monaco-bootstrap';
 import { modelRegistry } from '@renderer/lib/monaco/monaco-model-registry';
@@ -73,6 +73,7 @@ import { groupParticipantRequests } from './features/chats/group-participant-req
 import { wireGroupParticipantAccount } from './features/chats/group-participant-account';
 import { installSessionTabViews, prewarmSessionTabViews } from './features/sessions/session-tab-views';
 import { appState } from './lib/stores/app-state';
+import { restoreSavedScreenSessionLocations, savedScreenSessionIds } from './features/sessions/restore-session-projects';
 import { SessionLocalizationProvider } from './localization/localization-provider';
 import { reportSessionRendererBootFailure } from '@/session/shared/lib/session-renderer-boot';
 
@@ -252,7 +253,7 @@ async function bootstrap() {
   const results = await Promise.allSettled([
     settleOptional(rpc.viewState.get('navigation') as Promise<NavigationSnapshot> | null),
     settleOptional(rpc.viewState.get('sidebar')),
-    settleOptional(rpc.viewState.getAll()),
+    settleOptional(rpcOn(null).viewState.getForRestore(savedScreenSessionIds())),
     settleOptional(prefetchAppSettingsKey('interface')),
     settleOptional(prefetchAppSettingsKey('browser')),
   ]);
@@ -260,16 +261,14 @@ async function bootstrap() {
   for (const result of results) {
     if (result.status === 'rejected') log.warn('Renderer bootstrap optional state failed:', result.reason);
   }
-  const navResult = navState.status === 'fulfilled' ? (navState.value as NavigationSnapshot) : null;
+  const savedNav = navState.status === 'fulfilled' ? (navState.value as NavigationSnapshot) : null;
   const sidebarResult = sidebarState.status === 'fulfilled' ? sidebarState.value : null;
-  const allViewState = allViewStateResult.status === 'fulfilled' && allViewStateResult.value
-    ? (allViewStateResult.value as Record<string, unknown>)
-    : {};
-
-  viewStateCache.populate(allViewState);
+  const restoreState = allViewStateResult.status === 'fulfilled' ? allViewStateResult.value : null;
+  restoreSavedScreenSessionLocations(restoreState?.locations ?? []);
+  viewStateCache.populate(restoreState?.views ?? {});
 
   setupNavigationGuards();
-  if (navResult) appState.navigation.restoreSnapshot(navResult);
+  if (savedNav) appState.navigation.restoreSnapshot(savedNav);
   setupAppCommandProvider();
   setupExtensionCommandProvider();
   setupViewCommandProvider();

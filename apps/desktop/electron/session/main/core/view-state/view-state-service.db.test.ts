@@ -12,6 +12,7 @@ vi.mock('@main/db/client', () => ({
 }));
 
 import { viewStateService } from './view-state-service';
+import { readViewStateForRestore } from './restore-state';
 
 const lastViewed = (projectId: string, sessionId: string) => ({
   currentViewId: 'session',
@@ -54,5 +55,13 @@ describe('navigation restore: "not in this table" is not "deleted"', () => {
   it('an archived session still falls back', async () => {
     await viewStateService.save('navigation', lastViewed('local-project', 'archived'));
     expect(await viewStateService.get('navigation')).toMatchObject({ currentViewId: 'project' });
+  });
+
+  it('returns normal view state and only referenced session locations in the same restore read', async () => {
+    await viewStateService.save('sidebar', { selected: 'user-project' });
+    const restored = await readViewStateForRestore(['archived', 'not-here']);
+    expect(restored.views).toMatchObject({ sidebar: { selected: 'user-project' } });
+    expect(restored.locations).toEqual([{ conversationId: 'archived', projectId: 'local-project' }]);
+    expect(await viewStateService.getAll()).toEqual(restored.views);
   });
 });
