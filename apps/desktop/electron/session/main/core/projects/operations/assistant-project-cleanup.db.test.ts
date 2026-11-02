@@ -17,6 +17,7 @@ import { getAssistantProjectCleanupReport, migrateAssistantProject, noteAssistan
 import { recordProjectRegistration } from './project-registration-origin';
 import { readProjects } from './getProjects';
 import { resolveAssistantSessionWorkspace } from './task-directory-workspace';
+import { sessionHere } from '../../extensions/extension-show-session';
 
 const TASKS = '00000000-0000-4000-8000-000000000001';
 describe('assistant project registration removal', () => {
@@ -58,6 +59,8 @@ describe('assistant project registration removal', () => {
     const result = await migrateAssistantProject(candidate());
     expect(result.status).toBe('removed'); expect(result.taskProjectId).toBe(TASKS);
     expect(readProjects().map(row => row.id)).toEqual([TASKS]);
+    // Notifications and OS session links resolve this canonical row, not a stale project hint.
+    expect(await sessionHere('assistant')).toBe(TASKS);
     expect(fixture.sqlite.prepare('SELECT id,project_id,workspace_id,provider_session_id,parent_session_id,archived_at FROM sessions ORDER BY id').all()).toEqual([
       { id: 'assistant', project_id: TASKS, workspace_id: 'cwd', provider_session_id: 'native-history', parent_session_id: null, archived_at: null },
       { id: 'child', project_id: TASKS, workspace_id: 'cwd', provider_session_id: null, parent_session_id: 'assistant', archived_at: null },
