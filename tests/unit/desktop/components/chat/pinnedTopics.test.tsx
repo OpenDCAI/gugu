@@ -38,7 +38,7 @@ beforeEach(() => {
 afterEach(() => { harness.cleanup(); queryClient.clear() })
 
 describe('rich Topics menu', () => {
-  it('renders pin and unpin icons inside their action buttons', async () => {
+  it('renders distinct pin and unpin icons inside their action buttons', async () => {
     save(['old'])
     await renderWithAppProviders(harness, createNode(Menu, { x: 0, y: 0 }, createNode(GroupTopicsMenuItem, { chatId: 'g' })), options())
     await clickElement(document.querySelector<HTMLElement>('[data-testid="group-menu-topics"]')!)
@@ -49,6 +49,8 @@ describe('rich Topics menu', () => {
       expect(icon?.getAttribute('width')).toBe('14')
       expect(icon?.getAttribute('height')).toBe('14')
     }
+    const iconBody = (id: string) => document.querySelector(`[data-topic-id="${id}"] [data-testid="group-topic-pin"] svg`)?.innerHTML
+    expect(iconBody('old')).not.toBe(iconBody('new'))
   })
 
   it('shows activity, preview and muted unread counts, and pins without closing or opening a topic', async () => {
