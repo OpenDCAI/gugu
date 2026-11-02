@@ -2119,7 +2119,10 @@ function startDeviceRuntimeWhenRendererReady(): void {
     makeIdentityClient: (accessToken) =>
       makeIdentityClient(accessToken) as unknown as DeviceRuntimeIdentityClient,
     subscribeCommandWake: createDesktopDeviceCommandWakeSubscription({ supabase }),
-    subscribeOwnedAgentChanges: createDesktopOwnedAgentChangesSubscription({ supabase }),
+    subscribeOwnedAgentChanges: createDesktopOwnedAgentChangesSubscription({
+      supabase,
+      warn: message => createLogger('device-runtime').warn({}, message),
+    }),
     onOwnedAgentsChanged: async () => {
       void adoptCloudTaskNames?.()
       try {

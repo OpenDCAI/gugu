@@ -6,13 +6,13 @@ type OwnedAgentChannel = ElectronManagedRealtimeChannel & {
   on: (kind: 'broadcast', filter: { event: string }, callback: () => void) => unknown
 }
 
-export function createDesktopOwnedAgentChangesSubscription<TChannel>({ supabase, warn = console.warn }: {
+export function createDesktopOwnedAgentChangesSubscription<TChannel>({ supabase, warn }: {
   supabase: {
     realtime: { setAuth: () => unknown | Promise<unknown> }
     channel: (topic: string, options: { config: { private: boolean; broadcast: { self: boolean; ack: boolean } } }) => TChannel
     removeChannel: (channel: TChannel) => unknown
   }
-  warn?: (message: string) => void
+  warn: (message: string) => void
 }): SubscribeOwnedAgentChanges {
   return async ({ ownerUserId, onChanged }) => {
     let active = true
