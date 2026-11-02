@@ -274,11 +274,20 @@ vi.mock('../../../../apps/desktop/src/store/contactsContext', async () => {
 })
 // gugu-dev#181 桌面上打开一条对话 = 请会话页摆出它那块(会话页装的那座桥,这里装一份假的、只记下请求)。
 const sessionPageViewRequests = { openChat: vi.fn(), openSession: vi.fn() }
+const notificationClicks = vi.hoisted(() => ({
+  listener: null as ((click: { chatId: string | null }) => void) | null,
+  unsubscribe: vi.fn(),
+}))
 const { platformMock, chatStoreMock, chatServiceMock, draftValues } = vi.hoisted(() => ({
   platformMock: {
     kind: 'electron',
     capabilities: { notifications: false, appUpdates: false, sessionHost: true },
     showNotification: vi.fn(),
+    subscribeNotificationClicks: vi.fn((listener: (click: { chatId: string | null }) => void) => {
+      let active = true
+      notificationClicks.listener = (click) => { if (active) listener(click) }
+      return () => { active = false; notificationClicks.unsubscribe() }
+    }),
     installUpdate: vi.fn()
   },
   chatStoreMock: {
@@ -335,6 +344,9 @@ beforeEach(() => {
   activationProbe.prewarm.mockReset()
   platformMock.kind = 'electron'
   platformMock.capabilities.sessionHost = true
+  notificationClicks.listener = null
+  notificationClicks.unsubscribe.mockClear()
+  platformMock.subscribeNotificationClicks.mockClear()
   chatStoreMock.chats = []
   chatStoreMock.activeChatId = null
   chatStoreMock.setActiveChatId.mockReset()
@@ -369,12 +381,13 @@ afterEach(() => {
   vi.unstubAllGlobals()
   vi.useRealTimers()
 })
-async function renderMainLayoutWithToast(toast = vi.fn()) {
+async function renderMainLayoutWithToast(toast = vi.fn(), effectsActive = true) {
   await harness.render(createNode(
     ToastContext.Provider,
     { value: { toast } },
     createNode(MainLayout, {
       user: { id: 'user-1', email: 'user@example.com', nickname: 'User' },
+      effectsActive,
     }),
   ))
   return { toast }
@@ -1066,6 +1079,7 @@ describe('MainLayout: opening a topic on the desktop', () => {
   const ways: Array<[string, () => void, string]> = [
     ['a conversation link', () => { clickLink(conversationLink(TOPIC)) }, SRC],
     ['a notification', () => { window.dispatchEvent(new CustomEvent(UI_EVENTS.notificationClicked, { detail: { chatId: TOPIC } })) }, TOPIC],
+    ['a phone notification', () => { notificationClicks.listener!({ chatId: TOPIC }) }, TOPIC],
     ['an App naming it', () => { window.dispatchEvent(new CustomEvent(APP_OPEN_WITH_EVENT, { detail: { chatId: TOPIC, itemId: 'F1', name: 'F1.md', typedName: 'F1.md', choice: { kind: 'none' } } })) }, SRC],
   ]
   it.each(ways)('from %s, through the one door', async (_way, open, target) => {
@@ -1078,6 +1092,64 @@ describe('MainLayout: opening a topic on the desktop', () => {
     expect(sessionPageViewRequests.openChat).toHaveBeenCalledWith(target, false)
     if (_way === 'a conversation link') expect(drainTopicSplitRequest(SRC)).toMatchObject({ chatId: TOPIC, sourceChatId: SRC })
     else expect(drainTopicSplitRequest(SRC)).toBeNull()
+  })
+  it('unsubscribes notification clicks when MainLayout unmounts', async () => {
+    await renderMainLayoutWithToast()
+    expect(platformMock.subscribeNotificationClicks).toHaveBeenCalled()
+    notificationClicks.unsubscribe.mockClear()
+    await harness.render(null)
+    expect(notificationClicks.unsubscribe).toHaveBeenCalledOnce()
+  })
+  it('keeps one phone notification subscription across startup rerenders', async () => {
+    platformMock.kind = 'capacitor'
+    platformMock.capabilities.sessionHost = false
+    await renderMainLayoutWithToast(vi.fn(), false)
+    for (const effectsActive of [true, false, true]) {
+      phoneAssistantMock.state.available = effectsActive
+      phoneAssistantMock.state.chatId = effectsActive ? 'assistant-chat' : null
+      await renderMainLayoutWithToast(vi.fn(), effectsActive)
+    }
+    expect(platformMock.subscribeNotificationClicks).toHaveBeenCalledOnce()
+    expect(notificationClicks.unsubscribe).not.toHaveBeenCalled()
+    await harness.render(null)
+    expect(notificationClicks.unsubscribe).toHaveBeenCalledOnce()
+  })
+  it('delivers the retained cold tap to the latest open and still handles warm clicks', async () => {
+    platformMock.kind = 'capacitor'
+    platformMock.capabilities.sessionHost = false
+    await renderMainLayoutWithToast(vi.fn(), false)
+    // The plugin consumes its retained tap for the first listener, even if JS receives it later.
+    const coldClick = notificationClicks.listener!
+    const initialOpen = chatStoreMock.setActiveChatId
+    chatStoreMock.setActiveChatId = vi.fn()
+    for (const effectsActive of [true, false, true]) {
+      await renderMainLayoutWithToast(vi.fn(), effectsActive)
+    }
+    await act(async () => { coldClick({ chatId: 'cold-chat' }) })
+    expect(chatStoreMock.setActiveChatId).toHaveBeenCalledExactlyOnceWith('cold-chat')
+    expect(initialOpen).not.toHaveBeenCalled()
+    chatStoreMock.setActiveChatId.mockClear()
+    await act(async () => { notificationClicks.listener!({ chatId: 'warm-chat' }) })
+    expect(chatStoreMock.setActiveChatId).toHaveBeenCalledExactlyOnceWith('warm-chat')
+    chatStoreMock.setActiveChatId.mockClear()
+    await act(async () => {
+      window.dispatchEvent(new CustomEvent(UI_EVENTS.notificationClicked, { detail: { chatId: 'window-chat' } }))
+    })
+    expect(chatStoreMock.setActiveChatId).toHaveBeenCalledExactlyOnceWith('window-chat')
+    await harness.render(null)
+    chatStoreMock.setActiveChatId.mockClear()
+    await act(async () => { coldClick({ chatId: 'after-unmount' }) })
+    expect(chatStoreMock.setActiveChatId).not.toHaveBeenCalled()
+  })
+  it('does not navigate for a phone notification without a chatId', async () => {
+    platformMock.kind = 'capacitor'
+    platformMock.capabilities.sessionHost = false
+    await renderMainLayoutWithToast()
+    chatStoreMock.setActiveChatId.mockClear()
+    sessionPageViewRequests.openChat.mockClear()
+    await act(async () => { notificationClicks.listener!({ chatId: null }) })
+    expect(chatStoreMock.setActiveChatId).not.toHaveBeenCalled()
+    expect(sessionPageViewRequests.openChat).not.toHaveBeenCalled()
   })
 })
 
