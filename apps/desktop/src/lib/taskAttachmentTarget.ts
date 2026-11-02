@@ -1,6 +1,7 @@
 import { reaction } from 'mobx'
 import { ATTACHMENT_UPLOAD_PROTOCOL, TASK_ATTACHMENT_PROTOCOL, MAX_ATTACHMENT_BYTES, MAX_ATTACHMENT_FOLDER_FILES, type TurnFileRef } from '@gugu/session-core/session-record/contract'
 import { resumeTaskAttachment, type AttachmentUploadContext } from './taskAttachmentUpload'
+import { isSshMachine, sshMachinesReady } from './sshLinkChannel'
 import { machineCodec } from '@/session/renderer/lib/machine-routing'
 import { REMOTE_PROTOCOL_VERSION } from '@gugu/core/cloud/serverMachineHealth'
 import { readCachedDevices } from '@/store/devicesCache'
@@ -121,6 +122,9 @@ export async function prefetchTaskFiles(to: TaskAttachmentTarget, files: TurnFil
 export async function pushTaskAttachment(to: TaskAttachmentTarget, file: TurnFileRef, source: Blob, context: AttachmentUploadContext,
   onProgress?: (sent: number, total: number) => void, signal?: AbortSignal, onPhase?: (phase: 'uploading' | 'resuming' | 'confirming') => void): Promise<string> {
   signal?.throwIfAborted()
+  await sshMachinesReady()
+  signal?.throwIfAborted()
+  if (!to.deviceId || !isSshMachine(to.deviceId)) throw new Error('This computer has no SSH connection to the task host')
   if (!to.deviceId || !taskAttachmentUsesSsh(to.deviceId) || !to.projectId || !to.workspaceId) throw new Error('The SSH task workspace is not available')
   const protocol = readCachedDevices().find(row => row.device_id === to.deviceId)?.capabilities?.remote_protocol ?? 0
   if (protocol < ATTACHMENT_UPLOAD_PROTOCOL) throw Object.assign(new Error('Update the task host to resume attachments'), { code: 'host_update_required' })
