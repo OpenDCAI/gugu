@@ -99,7 +99,8 @@ describe('ACP inbox delivery goes into session-life', () => {
   afterEach(() => { emdashAgentRegistry.setBridge(null); unregisterEmdashAgent('agent-1') })
 
   const rig = () => {
-    const enqueue = vi.fn()
+    let seq = 0
+    const enqueue = vi.fn(() => ({ seq: ++seq }))
     emdashAgentRegistry.setBridge({ sessionLife: () => ({ enqueue }), emdashSessionSummaries: async () => [] })
     registerEmdashAgent({ guguAgentUserId: 'agent-1', sessionId: 'conv-1' })
     return { enqueue }
@@ -112,6 +113,29 @@ describe('ACP inbox delivery goes into session-life', () => {
     await expect(router.injectForAgent('agent-1', { id: 'm1', text: 'envelope', sources: [row('m1'), row('m2')] })).resolves.toBe('enqueued')
     expect(enqueue).toHaveBeenCalledExactlyOnceWith({ sessionId: 'conv-1', messageId: 'm1', text: 'envelope', kind: 'inbox-batch',
       sources: [{ agentUserId: 'agent-1', ...(row('m1') as object) }, { agentUserId: 'agent-1', ...(row('m2') as object) }] })
+  })
+
+  // The delivery command that brought a unit waits for its row: accepted completes it, a disclosed failure fails it with
+  // that failure (the command records its reason), a retained row leaves it waiting.
+  it('the unit completes when session-life settles its row, and fails with the failure the host disclosed', async () => {
+    rig()
+    const router = new SessionpageLocalDeliveryRouter([emdashAgentRegistry])
+    const accepted = await router.injectForAgentWithCompletion('agent-1', { id: 'm1', text: 'a', sources: [row('m1')] })
+    const failed = await router.injectForAgentWithCompletion('agent-1', { id: 'm2', text: 'b', sources: [row('m2')] })
+    if (typeof accepted === 'string' || typeof failed === 'string') throw new Error('expected a completion')
+    expect(accepted.verdict).toBe('enqueued')
+    const failure = new Error('disclosed')
+    emdashAgentRegistry.settleInbox([{ sessionId: 'conv-1', seq: 1 }])
+    emdashAgentRegistry.settleInbox([{ sessionId: 'conv-1', seq: 2 }], failure)
+    await expect(accepted.completion).resolves.toBeUndefined()
+    await expect(failed.completion).rejects.toBe(failure)
+  })
+
+  it('a unit without cloud sources has nothing to wait for', async () => {
+    rig()
+    const result = await new SessionpageLocalDeliveryRouter([emdashAgentRegistry]).injectForAgentWithCompletion('agent-1', { id: 'm1', text: 'rename', sources: [] })
+    if (typeof result === 'string') throw new Error('expected a completion')
+    await expect(result.completion).resolves.toBeUndefined()
   })
 
   it('nothing injects into an ACP session directly', async () => {

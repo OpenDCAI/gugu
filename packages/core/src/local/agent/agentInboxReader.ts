@@ -734,7 +734,7 @@ async function injectBatch(
     // Nothing of this batch was admitted yet: a row that cannot be prepared fails the batch the same way an
     // injection does — disclosed to its chats with the error rethrown as it was, ❌ a pull that just stops.
     deps.onOutcome?.({ agentUserId, ok: false })
-    throw saidIfDisclosed(error, await discloseBatchFailure(agentUserId, rows.map((row) => ({ row })), deps))
+    throw new DisclosedFailure(error, await discloseBatchFailure(agentUserId, rows.map((row) => ({ row })), deps))
   }
   // Queue-backed (idle-only) rows stay one per admission so the queue can merge at drain. A
   // next-tool-call transport has no queue boundary: the admission itself is the delivery boundary,
@@ -791,11 +791,11 @@ async function injectBatch(
       } else {
         unitVerdict = result.verdict
         completion = result.completion?.catch(async (error: unknown) => {
-          if (isSaidInChat(error)) throw error
+          if (error instanceof DisclosedFailure) throw error
           deps.onOutcome?.({ agentUserId, ok: false })
           // Admission already advanced the cursor. Report provider failure here, where the exact
           // source rows are still known, including pulls started without a device command.
-          throw saidIfDisclosed(error, await discloseBatchFailure(agentUserId, unit.members, deps, error))
+          throw new DisclosedFailure(error, await discloseBatchFailure(agentUserId, unit.members, deps, error))
         })
       }
     } catch (error) {
@@ -803,7 +803,7 @@ async function injectBatch(
       // The pull is still the failure disclosure boundary: include this failed unit and every
       // later row that was not admitted, but do not re-report rows already accepted above it.
       const unadmitted = units.slice(unitIndex).flatMap((remaining) => remaining.members)
-      throw saidIfDisclosed(error, await discloseBatchFailure(agentUserId, unadmitted, deps))
+      throw new DisclosedFailure(error, await discloseBatchFailure(agentUserId, unadmitted, deps))
     }
     if (unitVerdict !== 'accepted' && unitVerdict !== 'enqueued') {
       if (unitVerdict === 'not-live') deps.wake?.(agentUserId)
@@ -1009,16 +1009,16 @@ export function markInboxRowsRead(agentUserId: string, sources: readonly AgentIn
  * after admission is; otherwise (a start that failed, retried later) they stay unread for that delivery.
  */
 export async function discloseInboxRowsFailed(agentUserId: string, sources: readonly AgentInboxSource[], deps: AgentInboxReaderDeps,
-  outcome: { kind: 'retained' } | { kind: 'failed'; cause: unknown } | { kind: 'unknown' }): Promise<void> {
+  outcome: { kind: 'retained' } | { kind: 'failed'; cause: unknown } | { kind: 'unknown' }): Promise<Disclosure> {
   deps.onOutcome?.({ agentUserId, ok: false })
-  switch (outcome.kind) {
-    // A start that failed keeps its rows queued for the retry: said as retained, left unread for that delivery.
-    case 'retained': await discloseBatchFailure(agentUserId, sources, deps); return
-    case 'failed': await discloseBatchFailure(agentUserId, sources, deps, outcome.cause); break
-    // Handed over, never resent, outcome unknown: said truthfully, then settled like a final failure.
-    case 'unknown': await discloseBatchFailure(agentUserId, sources, deps, undefined, 'outcomeUnknown'); break
-  }
+  // A start that failed keeps its rows queued for the retry: said as retained, left unread for that delivery.
+  if (outcome.kind === 'retained') return discloseBatchFailure(agentUserId, sources, deps)
+  // Handed over, never resent, outcome unknown: said truthfully, then settled like a final failure.
+  const said = outcome.kind === 'failed'
+    ? await discloseBatchFailure(agentUserId, sources, deps, outcome.cause)
+    : await discloseBatchFailure(agentUserId, sources, deps, undefined, 'outcomeUnknown')
   await advanceCursor(agentUserId, sources.map((source) => ({ ...source, envelope: '' })), deps)
+  return said
 }
 
 /**
@@ -1069,7 +1069,7 @@ async function advanceCursor(
         // recoverable skip. Disclose the affected tail and rethrow so the kick caller observes failure;
         // leaving the cursor untouched is deliberate and keeps the cloud row eligible for a later pull.
         deps.onOutcome?.({ agentUserId, ok: false })
-        throw saidIfDisclosed(error, await discloseBatchFailure(agentUserId, chatMembers, deps))
+        throw new DisclosedFailure(error, await discloseBatchFailure(agentUserId, chatMembers, deps))
       }
     }
   }
@@ -1087,7 +1087,7 @@ async function discloseBatchFailure(
   deps: AgentInboxReaderDeps,
   completionError?: unknown,
   reason: AgentFailureReason = failureReason(completionError),
-): Promise<boolean> {
+): Promise<Disclosure> {
   const post = deps.postDisclosure ?? ((input: DisclosureRow) => postDeliveryDisclosureRow(input, deps.accessToken))
   const byChat = new Map<string, Pick<PreparedMessage, 'row'>[]>()
   const byPost = new Set<string>()
@@ -1162,7 +1162,7 @@ async function discloseBatchFailure(
       )
     }
   }
-  return said
+  return { said, reason }
 }
 
 async function answeredBeforeFailure(
@@ -1181,35 +1181,40 @@ async function answeredBeforeFailure(
   }
 }
 
+/** An error's message, also for a serialized one (session-life reports `{ name, message }`, not an Error). */
 function errorText(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
+  if (error instanceof Error) return error.message
+  const message = error && typeof error === 'object' && 'message' in error ? error.message : null
+  return typeof message === 'string' ? message : String(error)
 }
 
 /** 失败的原因(聊天里的披露行与论坛指派上的投递状态同一个):没受理是咕咕这边的错;受理后那一轮失败按上游的原因说。 */
 function failureReason(completionError: unknown): AgentFailureReason {
   if (completionError === undefined) return 'notAdmitted'
-  return agentFailureReason(completionError instanceof Error ? completionError.message : String(completionError)) ?? 'generic'
+  return agentFailureReason(errorText(completionError)) ?? 'generic'
 }
 
+/** What a batch failure's disclosure did: whether its row is in the chat, and the reason it was told with. */
+export type Disclosure = { said: boolean; reason: AgentFailureReason }
+
 /**
- * 编号 17 (10-12 片场试演): a batch's failure once its row is in the chat (`discloseBatchFailure`) — the host puts up no second
- * notice for it (#7125 同一次失败只说一次): the unread stays on the cloud cursor and the next trigger pulls it again, so a Retry
- * adds nothing, and nothing took that notice down once the agent was back. One per failure, wrapping what was thrown (its
- * message kept): the same error object thrown for two batches is not the same failure (148 评审).
+ * A batch's failure once the host has disclosed it (编号 17): whether its row went into the chat (#7125 同一次失败只说一次 —
+ * the host puts up no second notice for a said failure), and the reason it was classified with, so the delivery command
+ * records that same reason and nothing downstream classifies the raw error again. One per failure, wrapping what was
+ * thrown (its message kept): the same error object thrown for two batches is not the same failure (148 评审).
  */
-export class SaidInChatError extends Error {
-  readonly disclosedInChat = true
-  constructor(failure: unknown) {
-    super(failure instanceof Error ? failure.message : String(failure), { cause: failure })
-    this.name = 'SaidInChatError'
+export class DisclosedFailure extends Error {
+  readonly disclosedInChat: boolean
+  readonly reason: AgentFailureReason
+  constructor(failure: unknown, disclosure: Disclosure) {
+    super(errorText(failure), { cause: failure })
+    this.name = 'DisclosedFailure'
+    this.disclosedInChat = disclosure.said
+    this.reason = disclosure.reason
   }
 }
 
-function saidIfDisclosed(error: unknown, said: boolean): unknown {
-  return said ? new SaidInChatError(error) : error
-}
-
-/** This turn failure was said in the chat it came from: the host shows nothing more for it. */
+/** This failure was said in the chat it came from: the host shows nothing more for it. */
 export function isSaidInChat(failure: unknown): boolean {
-  return failure instanceof SaidInChatError
+  return failure instanceof DisclosedFailure && failure.disclosedInChat
 }

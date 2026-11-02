@@ -3,7 +3,7 @@
  * 库回「JWT expired」;改写 error 用的是同一个 client,照样失败 ⇒ 命令永远停在 running,各端一直以为这台机器在忙。
  * 判据:落终态的写在**写的那一刻**现取 client(resolveSettleClient),抛错按退避重试;写不进去 ❌ 冒充回合失败。
  */
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { setCoreLoggerFactory } from '@gugu/core/log'
 import {
   deferDeviceCommand,
@@ -13,6 +13,10 @@ import {
 import { RuntimeAuthExpiredError } from '@gugu/core/cloud/runtimeAuthProvider'
 import { deviceCommandRow, MemoryDeviceCommandClient } from '../../../support/deviceRuntimeHarness'
 import { until } from '../../../support/awaitCondition'
+import { DisclosedFailure } from '@gugu/core/local/agent/agentInboxReader'
+
+vi.mock('../../../../apps/desktop/src/lib/supabase', () => ({ identityDb: {} }))
+const { storedAgentTurnFailures } = await import('../../../../apps/desktop/src/lib/storedAgentTurnFailures')
 
 const DEVICE = 'dev-1'
 const NOW = '2026-10-15T12:24:32.000Z'
@@ -91,6 +95,23 @@ describe('落终态用写那一刻有效的令牌', () => {
       expect(db.row('a8f47c6e').result).toEqual({ reply_notice: 'context', reason })
     }
   })
+  // #1264 评审①: a session-page agent's unit is enqueued and its delivery waits for session-life. When the host disclosed the
+  // failure without a public row (a whisper, a quota reason), the same command row records it and the owner's composer reads it.
+  it('一个排队的单元失败了:同一条命令落 context 与原因,owner 的 composer 读得到', async () => {
+    const { db, tickClient } = setup()
+    const unit = deferred<object>()
+    await processPendingDeviceCommandsOnce(tickClient, DEVICE, {
+      'agent.deliver': () => deferDeviceCommand({ delivered: true }, unit.promise),
+    }, { nowIso: () => NOW, sleep: noSleep })
+    expect(db.row('a8f47c6e').status).toBe('running')
+    unit.reject(new DisclosedFailure({ name: 'Error', message: "You've hit your weekly limit" }, { said: false, reason: 'weeklyQuota' }))
+    await until('命令落成 error', () => db.row('a8f47c6e').status === 'error')
+    const row = db.row('a8f47c6e')
+    expect(row.result).toEqual({ reply_notice: 'context', reason: 'weeklyQuota' })
+    const agent = (row.payload as { agent_user_id: string }).agent_user_id
+    expect(storedAgentTurnFailures([row], [agent])).toMatchObject([{ agentUserId: agent, commandId: 'a8f47c6e', reason: 'weeklyQuota' }])
+  })
+
   it('一轮跑到令牌过期之后才结束:done 照样写进去', async () => {
     const { db, tickClient, freshClient, expireTickToken } = setup()
     const turn = deferred<object>()

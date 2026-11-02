@@ -192,6 +192,7 @@ import {
 } from '@gugu/core/local/agent/deviceCommandRuntime'
 import {
   discloseInboxRowsFailed,
+  DisclosedFailure,
   kickAgentInboxPull,
   markInboxRowsRead,
   readAgentInboxBatchAuditForTest,
@@ -4976,12 +4977,21 @@ app.whenReady().then(async () => {
     // mapped offline target is queued, while transport errors remain fail-loud. Never a pty write.
     emdashAgentRegistry.setBridge(emdash)
     emdash.setSessionLifeSourceHost({
-      markRead: row => settleSessionLifeSources([row], markInboxRowsRead),
-      // By the row's state: failed and unknown are final (Life never redelivers them); a start failure's rows stay queued.
+      // The agent accepted the row: its unit's delivery succeeded, whether or not the read receipt then lands.
+      markRead: async (row) => {
+        emdashAgentRegistry.settleInbox([row])
+        await settleSessionLifeSources([row], markInboxRowsRead)
+      },
+      // By the row's state: failed and unknown are final (Life never redelivers them) and fail the unit's delivery with what
+      // was disclosed, so its command records it; a start failure's rows stay queued and their units wait for the retry.
       reportFailure: async (rows, cause) => {
-        await settleSessionLifeSources(rows.filter(row => row.state === 'failed'), (agent, sources, deps) => discloseInboxRowsFailed(agent, sources, deps, { kind: 'failed', cause }))
-        await settleSessionLifeSources(rows.filter(row => row.state === 'unknown'), (agent, sources, deps) => discloseInboxRowsFailed(agent, sources, deps, { kind: 'unknown' }))
-        await settleSessionLifeSources(rows.filter(row => row.state === 'queued'), (agent, sources, deps) => discloseInboxRowsFailed(agent, sources, deps, { kind: 'retained' }))
+        for (const [state, outcome] of [['failed', { kind: 'failed', cause }], ['unknown', { kind: 'unknown' }], ['queued', { kind: 'retained' }]] as const) {
+          const settled = rows.filter(row => row.state === state)
+          await settleSessionLifeSources(settled, async (agent, sources, deps) => {
+            const disclosure = await discloseInboxRowsFailed(agent, sources, deps, outcome)
+            if (state !== 'queued') emdashAgentRegistry.settleInbox(settled.filter(row => row.sources.some(source => source.agentUserId === agent)), new DisclosedFailure(cause, disclosure))
+          })
+        }
       },
     })
     // @@@sessionpage TASKPAGE-FUSION — re-map every persisted session-page agent binding at boot so it stays

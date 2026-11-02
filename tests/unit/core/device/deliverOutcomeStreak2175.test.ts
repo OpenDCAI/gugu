@@ -266,7 +266,7 @@ describe('#2175 deliver 回合结局接线(tick 级,S2b 读者注入结局)', ()
         outcomes,
       )
       expect(result.commands).toMatchObject([{ commandId: FENCED_COMMAND_ID, status: 'error' }])
-      expect(commandClient.row(FENCED_COMMAND_ID)).toMatchObject({ result: { reply_notice: replyNotice, reason: 'generic' } })
+      expect(commandClient.row(FENCED_COMMAND_ID)).toMatchObject({ result: { reply_notice: replyNotice, reason: 'notAdmitted' } })
       expect(outcomes.filter((outcome) => !outcome.ok)).toHaveLength(2)
       vi.unstubAllGlobals()
     }
