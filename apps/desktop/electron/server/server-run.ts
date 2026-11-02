@@ -32,6 +32,11 @@ export async function runSingleServer(prepare: () => void, runAccount: (userId: 
     if (restart) process.exit(restart)
   } catch (error) { return exitConfig(error instanceof Error ? error.message : String(error)) }
   prepare()
+  const layout = managedLayout()
+  if (layout) {
+    try { fs.rmSync(path.join(home, 'versions/.prepared', path.basename(layout.running)), { force: true }) }
+    catch (error) { warn(`Could not release the installation lease: ${String(error)}`) }
+  }
   repairServiceDefinition(warn)
   try { repairLegacyServerLaunchers(home) } catch (error) { warn(`Could not repair the legacy command: ${String(error)}`) }
   clearStopped(home)
@@ -51,7 +56,7 @@ export async function runSingleServer(prepare: () => void, runAccount: (userId: 
   let account
   try { account = onlySignedInAccount(listAccounts()) }
   catch (error) { return exitConfig(error instanceof Error ? error.message : String(error)) }
-  if (!process.env.GUGU_SERVER_SUPERVISED && managedLayout() && liveKeeperPid(home) === null) {
+  if (!process.env.GUGU_SERVER_SUPERVISED && layout && liveKeeperPid(home) === null) {
     startKeeper({ home, logFile: path.join(supervisorDataDir(), 'logs/service.log'), adoptPid: process.pid })
   }
   if (!account) {

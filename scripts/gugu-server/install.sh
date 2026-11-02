@@ -137,11 +137,10 @@ fi
 
 TARGET="$SERVER_HOME/versions/$VERSION"
 # Hand the prepared target to the supervisor's one lifecycle owner. The lease precedes publication,
-# including --keep-current's gap before a desktop reports/adopts this version.
-if [ "$KEEP_CURRENT" = 1 ]; then
-  mkdir -p "$SERVER_HOME/versions/.prepared"
-  : > "$SERVER_HOME/versions/.prepared/$VERSION"
-fi
+# Every installation is published by a different process from the running pruner. Keep this
+# lease until the new run owns the home lock, including a pruner already holding an old keep set.
+mkdir -p "$SERVER_HOME/versions/.prepared"
+: > "$SERVER_HOME/versions/.prepared/$VERSION"
 # 切换前在用的那个版本:留着(它可能正在跑,也是回退的去处)。
 PREV="$(readlink "$SERVER_HOME/current" 2>/dev/null | sed 's#^versions/##')"
 # Bootstrap stages packages only. The running supervisor owns all reclamation and rollback pointers.

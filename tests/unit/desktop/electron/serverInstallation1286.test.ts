@@ -42,6 +42,24 @@ afterEach(() => {
 })
 
 describe('installation backend and package ownership', () => {
+  it('publishes a lease before another process can see an installed version, even without keep-current', () => {
+    const version = '1.0.0'
+    const source = path.join(home, 'source', `gugu-server-${version}`)
+    fs.mkdirSync(path.join(source, 'bin'), { recursive: true })
+    fs.writeFileSync(path.join(source, 'bin/gugu-server'), `#!/bin/sh\ncase "$1" in\nhelp) echo selftest;;\nselftest) test -f "$GUGU_SERVER_HOME/versions/.prepared/${version}";;\nesac\n`, { mode: 0o755 })
+    const archive = path.join(home, 'package.tar.gz')
+    execFileSync('tar', ['-czf', archive, '-C', path.dirname(source), path.basename(source)])
+    const sha = createHash('sha256').update(fs.readFileSync(archive)).digest('hex')
+    const installation = path.join(home, 'installation')
+    const result = spawnSync('sh', [path.resolve('scripts/gugu-server/install.sh'), '--package', archive,
+      '--version', version, '--sha256', sha, '--no-service', '--no-login'], {
+      env: { ...process.env, HOME: path.join(home, 'user'), GUGU_SERVER_HOME: installation }, encoding: 'utf8',
+    })
+    expect(result.status, result.stderr).toBe(0)
+    expect(fs.existsSync(path.join(installation, 'versions/.prepared', version))).toBe(true)
+    expect(fs.realpathSync(path.join(installation, 'current'))).toBe(path.join(installation, 'versions', version))
+  })
+
   it.each(['server', 'controller'] as const)('initializes a never-used whole home created by an older account boot checker (%s)', updateOwner => {
     for (const id of ['first', 'second']) {
       const directory = path.join(home, 'accounts', id)
