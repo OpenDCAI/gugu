@@ -1,8 +1,16 @@
 import { describe, expect, it, vi } from 'vitest';
 import { observable, runInAction } from 'mobx';
 
-const opened = vi.hoisted(() => ({ calls: [] as unknown[], tabs: 0, views: [] as string[], provisioned: true, archived: false, provision: vi.fn(), reason: null as string | null, machineReason: null as string | null }));
+const opened = vi.hoisted(() => ({ calls: [] as unknown[], tabs: 0, views: [] as string[], provisioned: true, archived: false, provision: vi.fn(), reason: null as string | null, machineReason: null as string | null, deviceId: 'host' as string | null, cloud: false }));
 const ready = observable.box(true);
+const listed = vi.hoisted(() => ({ nativeInputVersion: undefined as number | undefined }));
+
+vi.mock('@renderer/features/remote-hosts/remote-hosts-store', () => ({
+  remoteHostsStore: {
+    cloudScope: () => opened.cloud ? { state: 'asleep' } : null,
+    findListedSession: () => { throw new Error('Input eligibility must not read the directory'); },
+  },
+}));
 
 vi.mock('@renderer/features/sessions/stores/session-selectors', () => {
   const paneLayout = {
@@ -26,6 +34,7 @@ vi.mock('@renderer/features/projects/stores/project-selectors', () => ({ getProj
 vi.mock('./stores/session-registry', () => ({
   sessionRegistry: { get: () => ({ sessions: { get: () => ({ data: { runtime: 'pty' } }) } }) },
 }));
+vi.mock('@renderer/lib/machine-routing', () => ({ machineRegistry: { machineOf: () => opened.deviceId } }));
 vi.mock('@renderer/lib/hooks/use-toast', () => ({ toast: vi.fn() }));
 vi.mock('@renderer/localization/locale-store', () => ({ translateSessionMessage: (k: string) => k }));
 
@@ -34,6 +43,7 @@ vi.mock('./machine-unavailable-label', () => ({ machineUnavailableLabel: () => o
 
 import { toast } from '@renderer/lib/hooks/use-toast';
 import { openSessionInSessionWhenReady } from './open-session-in-session';
+import * as preparation from './session-pane-ready';
 
 describe('给屏上一块空着的会话补上对话(onlyIfNoTabs)', () => {
   it('一枚页签都没有:开它的对话', () => {
@@ -67,13 +77,46 @@ describe('给屏上一块空着的会话补上对话(onlyIfNoTabs)', () => {
 });
 
 describe('task entry keeps the workspace failure reason', () => {
-  it('names the offline machine when a cold project has no workspace status yet', async () => {
+  it.each([undefined, 1, 2])('opens an offline task with native version %s without preparing or waiting for its workspace', async (version) => {
+    await Promise.resolve();
+    await Promise.resolve();
+    opened.provision.mockClear();
+    vi.useFakeTimers();
+    vi.mocked(toast).mockClear();
+    opened.calls = [];
+    opened.provisioned = false;
+    opened.machineReason = 'Remote host is offline';
+    listed.nativeInputVersion = version;
+    const onReady = vi.fn();
+    const prepare = vi.spyOn(preparation, 'sessionPaneReady');
+    const dispose = openSessionInSessionWhenReady({ projectId: 'p', sessionId: 's', onReady });
+    try {
+      expect(onReady).toHaveBeenCalledOnce();
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(opened.provision).not.toHaveBeenCalled();
+      expect(prepare).not.toHaveBeenCalled();
+      expect(opened.calls).toEqual([]);
+      expect(vi.getTimerCount()).toBe(0);
+      expect(toast).not.toHaveBeenCalled();
+    } finally {
+      dispose();
+      prepare.mockRestore();
+      opened.provisioned = true;
+      opened.machineReason = null;
+      listed.nativeInputVersion = undefined;
+      vi.useRealTimers();
+    }
+  });
+
+  it('keeps the original unavailable reason when the target machine id is missing', async () => {
     vi.useFakeTimers();
     const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
     vi.mocked(toast).mockClear();
     opened.provisioned = false;
     opened.reason = null;
-    opened.machineReason = 'mac1 is offline. Resumes when it is back';
+    opened.machineReason = 'Remote host is offline. Resumes when it is back';
+    opened.deviceId = null;
     const dispose = openSessionInSessionWhenReady({ projectId: 'p', sessionId: 's' });
     try {
       await vi.advanceTimersByTimeAsync(10_000);
@@ -84,6 +127,7 @@ describe('task entry keeps the workspace failure reason', () => {
       dispose();
       opened.provisioned = true;
       opened.machineReason = null;
+      opened.deviceId = 'host';
       logged.mockRestore();
       vi.useRealTimers();
     }
@@ -166,4 +210,27 @@ it('does not revive an archived task while waiting to open it', async () => {
     opened.archived = false;
     runInAction(() => ready.set(true));
   }
+});
+
+it('keeps cloud wake on the ordinary workspace preparation path', () => {
+  opened.cloud = true;
+  opened.machineReason = 'Cloud host is asleep';
+  const prepare = vi.spyOn(preparation, 'sessionPaneReady');
+  const dispose = openSessionInSessionWhenReady({ projectId: 'p', sessionId: 's', host: { projectId: 'beside', sessionId: 'owner' } });
+  try { expect(prepare).toHaveBeenCalledOnce(); }
+  finally { dispose(); prepare.mockRestore(); opened.cloud = false; opened.machineReason = null; }
+});
+
+it('accepts missing-version beside navigation without waiting for either workspace', () => {
+  opened.provisioned = false;
+  opened.machineReason = 'Remote host offline';
+  opened.calls = [];
+  const prepare = vi.spyOn(preparation, 'sessionPaneReady');
+  const onReady = vi.fn();
+  const dispose = openSessionInSessionWhenReady({ projectId: 'p', sessionId: 's', host: { projectId: 'beside', sessionId: 'owner' }, onReady });
+  try {
+    expect(onReady).toHaveBeenCalledOnce();
+    expect(prepare).not.toHaveBeenCalled();
+    expect(opened.calls).toEqual([]);
+  } finally { dispose(); prepare.mockRestore(); opened.provisioned = true; opened.machineReason = null; }
 });

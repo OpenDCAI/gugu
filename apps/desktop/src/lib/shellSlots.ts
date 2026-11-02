@@ -14,7 +14,9 @@ export const SHELL_SLOTS_KEY = '__GUGU_SHELL_SLOTS__' as const
 
 export interface ShellSlots {
   /** 会话页:这一格的 DOM 节点挂上 / 摘掉(null)。 */
-  setSlot(key: string, element: HTMLElement | null): void
+  setSlot(key: string, element: HTMLElement | null, label?: string): void
+  /** Presentation text updates through the existing slot notification, without replacing its identity. */
+  getSlotLabel?(key: string): string | undefined
   getSlots(): ReadonlyMap<string, HTMLElement>
   subscribeSlots(listener: () => void): () => void
 }
@@ -22,18 +24,22 @@ export interface ShellSlots {
 type SlotsWindow = Window & { [SHELL_SLOTS_KEY]?: ShellSlots }
 
 let slots = new Map<string, HTMLElement>()
+const labels = new Map<string, string>()
 const listeners = new Set<() => void>()
 
 const registry: ShellSlots = {
-  setSlot: (key, element) => {
-    if ((slots.get(key) ?? null) === element) return
+  setSlot: (key, element, label) => {
+    if ((slots.get(key) ?? null) === element && labels.get(key) === label) return
     const next = new Map(slots)
     if (element) next.set(key, element)
     else next.delete(key)
+    if (element && label !== undefined) labels.set(key, label)
+    else labels.delete(key)
     slots = next
     for (const listener of listeners) listener()
   },
   getSlots: () => slots,
+  getSlotLabel: key => labels.get(key),
   subscribeSlots: (listener) => {
     listeners.add(listener)
     return () => {
@@ -56,6 +62,9 @@ export function readShellSlots(w: Window = window): ShellSlots | null {
 /** 画一个对话的那种格子(项目块里的项目群、对话块):壳那边 components/ChatSlotHost.tsx 认这个前缀。 */
 export const CHAT_SLOT_PREFIX = 'chat:'
 export const chatSlotKey = (chatId: string) => `${CHAT_SLOT_PREFIX}${chatId}`
+
+/** The offline task gate leaves the shared timeline in the shell's account context. */
+export const OFFLINE_SESSION_SLOT_PREFIX = 'session-offline:'
 
 /**
  * 同一个对话在块的页签条上的几格(gugu-dev#181:块里没有群聊头,头上那些东西挪到页签条):
