@@ -51,6 +51,13 @@ describe('SearchService · retired SSH projects', () => {
     expect(ids).not.toContain('session-ssh');
   });
 
+  it('returns the interaction timestamp used to order local and remote recents', () => {
+    fixtureRef.current!.sqlite.prepare('UPDATE sessions SET last_interacted_at = ? WHERE id = ?')
+      .run('2026-11-02T06:00:00.000Z', 'session-local');
+    expect(searchService.search({ query: '' }).find(item => item.id === 'session-local'))
+      .toMatchObject({ lastInteractedAt: '2026-11-02T06:00:00.000Z' });
+  });
+
   it('does not backfill archived projects and restores the project search entry with its task', async () => {
     const { db, sqlite } = fixtureRef.current!;
     sqlite.exec("UPDATE projects SET archived_at='2026-10-30' WHERE id='proj-local'; UPDATE sessions SET archived_at='2026-10-30' WHERE id='session-local'; DELETE FROM search_index;");
