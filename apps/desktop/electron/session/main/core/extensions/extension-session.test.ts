@@ -239,6 +239,15 @@ describe('configureExtensionSession', () => {
       expect(served).toContain(v2);
       expect(served, 'the previous version must stop being reachable').not.toContain(`${v1}/`);
     });
+
+    it('stamps the page declaration rather than the host version, including after an upgrade', async () => {
+      const rootDir = mkdtempSync(join(tmpdir(), 'gugu-ext-page-version-'));
+      writeFileSync(join(rootDir, 'index.html'), '<!doctype html>');
+      for (const apiVersion of [25, 26, 27]) {
+        configureExtensionSession({ ...bundle([], rootDir), apiVersion });
+        expect(await (await serve(`gugu-ext://${EXTENSION_ID}/index.html`)).text()).toContain(`data-gugu-api-version="${apiVersion}"`);
+      }
+    });
   });
 
   // 这一段补的是审计点名的空白:把 CORS 那三个 handler 整段删掉,此前**没有任何测试会红**

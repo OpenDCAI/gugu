@@ -260,10 +260,7 @@ export default {
       "recentUnsupported": "没做成：这台电脑做不了",
       "computerBar": {
         "drivingApp": "{{name}} 正在操作",
-        "drivingComputer": "{{name}} 正在查看这台电脑",
         "pausedApp": "{{name}} 已暂停操作",
-        "pausedComputer": "{{name}} 已停下，不会再动这台电脑",
-        "someApp": "某个 App",
         "stop": "停止",
         "resume": "继续",
         "someone": "助理"

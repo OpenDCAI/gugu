@@ -54,7 +54,7 @@ const phone = (picked: unknown = null) => {
 };
 
 describe('the verb row: what a call needs', () => {
-  it('this build is 26', () => expect(EXTENSION_API_VERSION).toBe(26));
+  it('this build is 27', () => expect(EXTENSION_API_VERSION).toBe(27));
 
   it('the person picks, or only a draft goes down: no capability, but their gesture; a named target: what its delivery needed', () => {
     expect(dispatchNeeds({})).toBeNull();
@@ -150,6 +150,18 @@ describe('dispatchFromApp (the shared answer)', () => {
     const before = rpcs.length;
     await expect(dispatchFromApp(platform, 'x', { text: 'hi' }, { chat, preselect: null })).resolves.toEqual({ cancelled: true });
     expect(rpcs.length).toBe(before);
+  });
+
+  it('a lazy roster is read only for the picker, and the person is still excluded', async () => {
+    const { platform, asked } = phone(null);
+    const readMembers = vi.fn(async () => chat.members);
+    const here = { chat: { ...chat, members: [] }, preselect: null, readMembers };
+    await dispatchFromApp(platform, 'x', { text: 'hi' }, here);
+    expect(readMembers).toHaveBeenCalledOnce();
+    expect((asked.at(-1) as { chat: { members: { id: string }[] } }).chat.members.map((member) => member.id)).toEqual([`user:${AGENT}`]);
+    readMembers.mockClear();
+    await dispatchFromApp(platform, 'x', { text: 'hi', to: { chat: GROUP, member: `user:${AGENT}` } }, here);
+    expect(readMembers).not.toHaveBeenCalled();
   });
 
   it('a draft into a chat: the chat shell takes it, nothing is sent', async () => {

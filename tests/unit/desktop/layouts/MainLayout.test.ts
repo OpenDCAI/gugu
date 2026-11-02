@@ -20,6 +20,7 @@ import { rememberAssistantTaskChat } from '../../../../apps/desktop/src/lib/assi
 import { installAssistantShellBridge, publishAssistantShell } from '../../../../apps/desktop/src/lib/assistantShellBridge'
 import { appState } from '../../../../apps/desktop/src/session/renderer/lib/stores/app-state'
 import { MOBILE_TABS } from '@gugu/core/shared/enums/sidebarTabModels'
+import * as needsYouTasks from '../../../../apps/desktop/src/components/needsYou/useNeedsYouTasks'
 const taskRoute = vi.hoisted(() => ({ contacts: [] as unknown[], remote: false }))
 vi.mock('../../../../apps/desktop/src/lib/ownedAgentConversation', async original => {
   const actual = await original<typeof import('../../../../apps/desktop/src/lib/ownedAgentConversation')>()
@@ -813,6 +814,17 @@ describe('MainLayout', () => {
     expect(pages.map((page) => page.dataset.mobileTabPage)).toEqual(MOBILE_TABS)
     expect(harness.container.querySelector(`[data-testid="${AUTOMATION_TEST_IDS.mobileAssistantNav}"]`)).toBeNull()
     expect(harness.container.querySelector('[data-testid="mock-assistant-tab"]')).toBeNull()
+  })
+  it.each(['error', 'needs_user', null] as const)('keeps the attention list slot with no assistant (attention=%s, #1165)', async attention => {
+    platformMock.kind = 'capacitor'
+    platformMock.capabilities.sessionHost = false
+    const read = vi.spyOn(needsYouTasks, 'useNeedsYouTasks').mockReturnValue({ tasks: [], attention, error: null })
+    try {
+      await harness.render(createNode(MainLayout, { user: { id: 'user-1', email: 'user@example.com', nickname: 'User' } }))
+      const slot = harness.container.querySelector('[data-mobile-tab-page="chats"] [data-needs-you-list-slot]')
+      expect(slot !== null).toBe(attention !== null)
+      expect(harness.container.querySelector(`[data-testid="${AUTOMATION_TEST_IDS.mobileAssistantNav}"]`)).toBeNull()
+    } finally { read.mockRestore() }
   })
   // #446 列表底栏不因聚焦收放;键盘是否遮住它只认原生 IME 信号。
   it('keeps the root tab bar mounted when an editable control gains focus without a keyboard signal', async () => {

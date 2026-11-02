@@ -503,11 +503,13 @@ async function buildAppRuntime(outDir: string): Promise<void> {
  * not take that module): the same tag, right after the doctype, once. app-runtime-protocol.test.ts
  * pins the tag's form, so a change there fails a test instead of drifting from here.
  */
-function injectAppRuntimeTag(html: string): string {
+function injectAppRuntimeTag(html: string, apiVersion: number): string {
   const tag = `<script src="/_gugu/${appRuntimeVersion()}/gugu.js"></script>`
-  if (html.includes(tag)) return html
+  const declared = tag.replace('></script>', ` data-gugu-api-version="${apiVersion}"></script>`)
+  if (html.includes(declared)) return html
+  if (html.includes(tag)) return html.replace(tag, declared)
   const doctype = /^(\uFEFF?\s*<!doctype[^>]*>)/i.exec(html)
-  return doctype ? doctype[1] + tag + html.slice(doctype[1]!.length) : tag + html
+  return doctype ? doctype[1] + declared + html.slice(doctype[1]!.length) : declared + html
 }
 
 /**
@@ -552,9 +554,9 @@ function phoneAppsPlugin(outDir: string) {
         const target = resolve(appsDir, entry.name)
         // The whole bundle, README.md included: the App's details read it from the installed package.
         cpSync(resolve(shipped, entry.name), target, { recursive: true })
-        const manifest = JSON.parse(readFileSync(resolve(target, 'manifest.json'), 'utf-8')) as { entry?: string }
+        const manifest = JSON.parse(readFileSync(resolve(target, 'manifest.json'), 'utf-8')) as { entry?: string; apiVersion: number }
         const page = resolve(target, manifest.entry ?? 'index.html')
-        writeFileSync(page, injectAppRuntimeTag(readFileSync(page, 'utf-8')))
+        writeFileSync(page, injectAppRuntimeTag(readFileSync(page, 'utf-8'), manifest.apiVersion))
         shippedManifests.push(manifest)
       }
       // What the phone has installed: the outer page reads it for each App's grants and for 「用 X 打开」.

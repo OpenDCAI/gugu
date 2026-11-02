@@ -204,6 +204,7 @@ export function resolveDeviceHostInfo(env: NodeJS.ProcessEnv = process.env, deps
   if (isServer && (deps.uid ?? (() => process.getuid?.()))() === 0) info.runs_as_root = true
   // #7199 个人助理住的那台自己报一声:各端设备行一出现就认得它(❌ 等问到管家才知道,那之前会把机器名露给人)。
   if (isServer && env.GUGU_CLOUD_COMPUTER === '1') info.assistant_home = true
+  if (isServer && env.GUGU_CLOUD_COMPUTER !== '1' && platform === 'linux' && (info.arch === 'x64' || info.arch === 'arm64')) info.assistant_home_setup = 1
   const home = env.GUGU_SERVER_HOME?.trim()
   if (isServer && home) {
     const nowMs = (deps.nowMs ?? Date.now)()

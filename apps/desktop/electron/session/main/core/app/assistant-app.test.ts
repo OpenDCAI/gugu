@@ -17,7 +17,7 @@ vi.mock('@gugu/core/cloud/supabase', () => ({ createGuguSupabaseClient: () => ({
     then: (resolve: (result: unknown) => unknown) => {
       if (state.swapDuringQuery) state.owner = 'other';
       return Promise.resolve(resolve({ data: state.role && filters.get('member_key') === 'assistant' && filters.get('owner_user_id') === 'owner'
-        ? [{ agent_user_id: 'assistant', device_id: 'home', member_key: 'assistant', phase: 'completed', created_at: '2026-10-21' }] : [],
+        ? [{ agent_user_id: 'assistant', agent: { removed_at: null }, device_id: 'home', member_key: 'assistant', phase: 'completed', created_at: '2026-10-21' }] : [],
         error: state.queryError ? new Error('unavailable') : null }));
     } };
   return query;

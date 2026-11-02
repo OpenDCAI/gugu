@@ -25,6 +25,7 @@ import { rendererCommandEventName } from './lib/rendererCommandProtocol'
 import { sessionCoordinator } from './lib/sessionCoordinator'
 import { publishSelfIdentity } from './lib/selfIdentityBridge'
 import { installAssistantPanelHost } from './components/assistant/assistant-panel-host'
+import { usePhoneImeDismiss } from './mobile/usePhoneImeDismiss'
 
 import { platform } from './platform'
 import { type RendererRpcHandlers, useRendererRpcHandlers } from './rpc-renderer/rendererRpc'
@@ -79,6 +80,7 @@ function AuthenticatedProduct({ user }: { user: AuthUser }) {
 }
 
 export default function App() {
+  usePhoneImeDismiss()
 
   const session = useSyncExternalStore(
     sessionCoordinator.subscribe,

@@ -1,3 +1,4 @@
+import { useCommandProvider } from '@renderer/lib/commands/use-command-provider';
 import { useAppDetailRequest } from '@renderer/features/apps/use-app-detail-request';
 import type { AppDetailLink } from '@gugu/core/shared/ui/guguLink';
 import { messageForUser } from '@/lib/userFacingError';
@@ -164,6 +165,13 @@ export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard({
   const [justInstalled, setJustInstalled] = useState<string | null>(null);
   // 进产品页从顶上看起;回清单回到刚才滚到的地方(照 Mac App Store 的返回)。滚的是外面那一层页面。
   const rootRef = useRef<HTMLDivElement | null>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
+  useCommandProvider({
+    scopeId: 'session-sub',
+    isActive: (element) => !!element && !!rootRef.current?.contains(element),
+    getCommands: () => !searchRef.current?.isConnected ? [] : [{ id: 'app.find', hideFromPalette: true, execute: () => searchRef.current?.focus() }],
+  });
+
   const listScroll = useRef(0);
   const scroller = () => {
     let node = rootRef.current?.parentElement ?? null;
@@ -1213,6 +1221,7 @@ export const ExtensionsSettingsCard = observer(function ExtensionsSettingsCard({
 
   const search = (
     <SearchInput
+      ref={searchRef}
       type="search"
       containerClassName="w-56"
       placeholder={searchPlaceholder}

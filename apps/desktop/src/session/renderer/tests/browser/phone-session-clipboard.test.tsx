@@ -4,6 +4,8 @@ import { page } from 'vitest/browser';
 import { SessionConversation } from '@/mobile/agent-watch/SessionConversation';
 import { emptyAgentWatchTimeline } from '@/mobile/agent-watch/agent-watch-store';
 import { platform } from '@/platform';
+import { getLocaleSnapshot, setLocalePreference } from '@/i18n';
+import { translateSessionMessage } from '@renderer/localization/locale-store';
 import { notify } from '@/lib/notices';
 import { createReactHarness, renderWithAppProviders, deferred } from '../../../../../../../tests/support/testHarness';
 import { until } from '../../../../../../../tests/support/awaitCondition';
@@ -22,7 +24,8 @@ vi.mock('@/mobile/agent-watch/sessionpage-rpc', async original => ({
 const CODE = 'const message = "中文剪贴板";\nconsole.log(message);';
 const TEXT = `\`\`\`javascript\n${CODE}\n\`\`\``;
 let harness: ReturnType<typeof createReactHarness>;
-afterEach(() => { harness?.cleanup(); vi.restoreAllMocks(); vi.mocked(notify).mockClear(); });
+const previousLocale = getLocaleSnapshot().preference;
+afterEach(() => { harness?.cleanup(); vi.restoreAllMocks(); vi.mocked(notify).mockClear(); setLocalePreference(previousLocale); });
 
 async function mountCopy() {
   await page.viewport(390, 844);
@@ -36,46 +39,50 @@ async function mountCopy() {
   await renderWithAppProviders(harness, <SessionConversation timeline={timeline} deviceId="device" sessionId="copy-task" agentName="Agent" nativeRecord
     sessionRuntime="acp" respondingItemId={null} onRespond={vi.fn()} onSend={vi.fn()} pendingSends={[]} sending={false} agentWorking={false}
     onStop={vi.fn()} stopping={false} onLoadOlder={vi.fn()} />, { contacts: {} });
-  const copySelector = '[data-user-message-actions="code"] button[aria-label="Copy"]';
+  const copySelector = '[data-user-message-actions="code"] button[data-slot="message-copy"]';
   await until('conversation reply exposes its message copy action', () => !!harness.container.querySelector(copySelector));
   return harness.container.querySelector<HTMLButtonElement>(copySelector)!;
 }
 
-it('copies the complete multiline Chinese reply through the host while the WebView refuses writes', async () => {
+it.each(['en-US', 'zh-CN'] as const)('copies the complete multiline Chinese reply through the host while the WebView refuses writes (%s)', async (locale) => {
+  await act(async () => { setLocalePreference(locale); });
   const browser = vi.spyOn(navigator.clipboard, 'writeText').mockRejectedValue(new Error('WebView clipboard denied'));
   const write = vi.spyOn(platform, 'writeClipboardText').mockResolvedValue();
   const button = await mountCopy();
   button.click();
-  await until('reply copied feedback follows host success', () => button.getAttribute('aria-label') === 'Copied');
+  await until('reply copied feedback follows host success', () => button.getAttribute('aria-label') === translateSessionMessage('transcript.copied'));
   expect(write).toHaveBeenCalledExactlyOnceWith(TEXT);
   expect(browser).not.toHaveBeenCalled();
 });
 
-it('offers a separate code-block action that copies raw code', async () => {
+it.each(['en-US', 'zh-CN'] as const)('offers a separate code-block action that copies raw code (%s)', async (locale) => {
+  await act(async () => { setLocalePreference(locale); });
   const browser = vi.spyOn(navigator.clipboard, 'writeText').mockRejectedValue(new Error('WebView clipboard denied'));
   const write = vi.spyOn(platform, 'writeClipboardText').mockResolvedValue();
   await mountCopy();
-  await until('code copy action mounts', () => !!harness.container.querySelector('button[aria-label="Copy code"]'));
-  harness.container.querySelector<HTMLButtonElement>('button[aria-label="Copy code"]')!.click();
+  await until('code copy action mounts', () => !!harness.container.querySelector(`button[aria-label="${translateSessionMessage('transcript.copyCode')}"]`));
+  harness.container.querySelector<HTMLButtonElement>(`button[aria-label="${translateSessionMessage('transcript.copyCode')}"]`)!.click();
   await until('raw code is copied', () => write.mock.calls.length > 0);
   expect(write).toHaveBeenCalledExactlyOnceWith(CODE);
   expect(browser).not.toHaveBeenCalled();
 });
 
-it('waits for the native write before showing copied feedback', async () => {
+it.each(['en-US', 'zh-CN'] as const)('waits for the native write before showing copied feedback (%s)', async (locale) => {
+  await act(async () => { setLocalePreference(locale); });
   const browser = vi.spyOn(navigator.clipboard, 'writeText').mockRejectedValue(new Error('WebView clipboard denied'));
   const pending = deferred<void>();
   const write = vi.spyOn(platform, 'writeClipboardText').mockReturnValue(pending.promise);
   const button = await mountCopy();
   button.click();
   expect(write).toHaveBeenCalledExactlyOnceWith(TEXT);
-  expect(button.getAttribute('aria-label')).not.toContain('Copied');
+  expect(button.getAttribute('aria-label')).not.toContain(translateSessionMessage('transcript.copied'));
   await act(async () => pending.resolve());
-  await until('copy success is shown', () => button.getAttribute('aria-label') === 'Copied');
+  await until('copy success is shown', () => button.getAttribute('aria-label') === translateSessionMessage('transcript.copied'));
   expect(browser).not.toHaveBeenCalled();
 });
 
-it('reports a native refusal without copied feedback or browser fallback', async () => {
+it.each(['en-US', 'zh-CN'] as const)('reports a native refusal without copied feedback or browser fallback (%s)', async (locale) => {
+  await act(async () => { setLocalePreference(locale); });
   const browser = vi.spyOn(navigator.clipboard, 'writeText').mockRejectedValue(new Error('WebView clipboard denied'));
   const error = new Error('Native clipboard refused');
   const write = vi.spyOn(platform, 'writeClipboardText').mockRejectedValue(error);
@@ -85,6 +92,6 @@ it('reports a native refusal without copied feedback or browser fallback', async
   await until('copy failure reaches the host error outlet', () => vi.mocked(notify).mock.calls.some(([notice]) => notice.tier === 'error'));
   expect(write).toHaveBeenCalledExactlyOnceWith(TEXT);
   expect(notify).toHaveBeenCalledWith(expect.objectContaining({ tier: 'error', description: expect.stringContaining(error.message) }));
-  expect(button.getAttribute('aria-label')).not.toContain('Copied');
+  expect(button.getAttribute('aria-label')).not.toContain(translateSessionMessage('transcript.copied'));
   expect(browser).not.toHaveBeenCalled();
 });

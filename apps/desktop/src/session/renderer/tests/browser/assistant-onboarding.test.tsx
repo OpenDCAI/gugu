@@ -24,7 +24,7 @@ let harness: ReturnType<typeof createReactHarness>;
 afterEach(() => { harness?.cleanup(); vi.clearAllMocks(); });
 
 // Keep the real first-run provider tree and onboarding steps; only account/native reads are replaced.
-it.each(['web', 'capacitor'] as const)('continues to home choices on %s outside the session page', async kind => {
+it.each(['web', 'capacitor'] as const)('preserves cloud home choices on %s without offering server setup', async kind => {
   services.kind = kind;
   await page.viewport(390, 844);
   harness = createReactHarness();
@@ -39,5 +39,7 @@ it.each(['web', 'capacitor'] as const)('continues to home choices on %s outside 
   await clickElement(next);
   await expect.element(page.getByTestId('assistant-setup-home-nocomputer')).toBeVisible();
   await expect.element(page.getByTestId('assistant-setup-member')).toBeVisible();
+  expect(harness.container.querySelector('[data-testid="assistant-setup-choose-server"]')).toBeNull();
+  expect(harness.container.querySelector('[data-testid="assistant-setup-install-here"]')).toBeNull();
   expect(services.membership).toHaveBeenCalled();
 });

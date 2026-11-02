@@ -282,6 +282,13 @@ function bundleOf(
   }
   let manifest = overlay(existing ?? {}, template ? { platforms: template.platforms, contributes: { tabs: template.tabs } } : {}) as Json;
   manifest = overlay(manifest, own) as Json;
+  const permissions = manifest.permissions;
+  if (template && (permissions === undefined || isObject(permissions))) {
+    const capabilities = permissions?.capabilities;
+    if (capabilities === undefined || Array.isArray(capabilities)) {
+      manifest.permissions = { ...permissions, capabilities: [...new Set([...template.capabilities, ...(capabilities ?? [])])] };
+    }
+  }
   const contributes = (manifest.contributes ?? {}) as Json;
   const tabs = ((contributes.tabs ?? []) as Json[]).map((tab) => tab.hostPage ? tab : ({ entry: `${String(tab.name)}.html`, ...tab }));
   // 摩擦单 F114 (S23: {"session":["TODO.md"]} on group-json also kept the template's group claim) It is the claim, whole.

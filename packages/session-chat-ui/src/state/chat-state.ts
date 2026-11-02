@@ -46,6 +46,7 @@ import type {
   TranscriptTurn,
 } from '../model';
 import { createTranscript } from './transcript';
+import { pendingPromptLanded } from './pending-prompt';
 import type { DeliveryMessagePresentation } from './delivery-presentation';
 import type { TranscriptApi } from './transcript';
 import { createViewState } from './view-state';
@@ -83,6 +84,7 @@ export type ChatSessionState = {
   setPermissions(permissions: readonly AcpPermissionRequest[]): void;
   setPlan(plan: SessionPlans | null): void;
   setPendingPrompt(prompt: PendingPrompt | null): void;
+  setPendingMessages(messages: readonly PendingPrompt[]): void;
   setTerminals(terminals: readonly TerminalState[]): void;
   setGenerating(generating: boolean): void;
   /** 写这条会话此刻的状态；null = 没有条件要说。 */
@@ -100,6 +102,7 @@ export type ChatSessionSnapshot = {
   readonly plan: SessionPlans | null;
   readonly pendingToolCallIds: Set<string>;
   readonly pendingPrompt: PendingPrompt | null;
+  readonly pendingMessages: readonly PendingPrompt[];
   /**
    * 会话还在忙(#4981):在流式、agent 自发的 cycle 没收口、或还有后台子智能体在跑。
    * 与宿主上停止键亮不亮是**同一个**读数(runtime 的 `isGenerating`)。转录靠它判
@@ -314,6 +317,7 @@ function createSessionState(transcript: TranscriptApi): ChatSessionState {
   const [permissions, setPermissions] = createSignal<readonly AcpPermissionRequest[]>([]);
   const [plan, setPlan] = createSignal<SessionPlans | null>(null);
   const [pendingPrompt, setPendingPrompt] = createSignal<PendingPrompt | null>(null);
+  const [pendingMessages, setPendingMessages] = createSignal<readonly PendingPrompt[]>([]);
   const [generating, setGenerating] = createSignal(false);
   const [condition, setCondition] = createSignal<SessionCondition | null>(null);
   // 宿主每来一条消息都会重算一遍花名册;内容没变就别惊动转录(那会重排最后一档)。
@@ -345,6 +349,7 @@ function createSessionState(transcript: TranscriptApi): ChatSessionState {
     get pendingPrompt() {
       return pendingPrompt();
     },
+    get pendingMessages() { return pendingMessages(); },
     get generating() {
       return generating();
     },
@@ -365,6 +370,7 @@ function createSessionState(transcript: TranscriptApi): ChatSessionState {
     setPermissions: (next) => setPermissions([...next]),
     setPlan,
     setPendingPrompt,
+    setPendingMessages,
     setGenerating,
     setCondition,
     setBackgroundTasks,
@@ -392,7 +398,8 @@ export function connectSession(
 
   const syncActiveTurn = (): void => {
     const turn = source.activeTurn.getSnapshot() ?? null;
-    if (turn) state.session.setPendingPrompt(null);
+    const pending = state.session.state.pendingPrompt;
+    if (turn && pending && (!pending.delivery || pendingPromptLanded(pending, [turn]))) state.session.setPendingPrompt(null);
     if (activeTurnId !== null && activeTurnId !== (turn?.id ?? null)) {
       // ❌ 别在这里就把刚讲完的那一轮抹掉。调用方收到这个回调后要去后端对账（实测一次往返 ~100ms），
       // 而已提交列表只由对账结果 seed 填充 —— 先抹掉就等于让画面整段空掉一百毫秒：transcript 消失、

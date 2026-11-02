@@ -7,6 +7,7 @@
 // 手机与网页里没有主进程 ⇒ 清单恒为空、没有设备连接:远程 SSH 的机器在那里经咕咕云用(owner 2026-10-08 选 B)。
 
 import { SERVER_SSH_MACHINES_CHANNELS } from './serverSshMachines'
+import { rendererLogger } from './log'
 import { TUNNEL_MACHINES_CHANNELS, type TunnelState, type TunnelWant } from './tunnelMachines'
 import {
   SSH_LINK_CHANNELS,
@@ -35,6 +36,9 @@ function bridge(): ElectronBridge | null {
 let machineIds: ReadonlySet<string> = new Set()
 const machineListeners = new Set<(ids: ReadonlySet<string>) => void>()
 let registryReady: Promise<void> | null = null
+let registryListening = false
+let registryVersion = 0
+const registryLog = rendererLogger('ssh-registry')
 
 function applyIds(value: unknown): void {
   if (!Array.isArray(value)) return
@@ -44,26 +48,50 @@ function applyIds(value: unknown): void {
   for (const listener of [...machineListeners]) listener(machineIds)
 }
 
-/**
- * 清单读好了没有。第一次调用时去主进程取、并订阅之后的变化(装上一台 / 移除一台 / 换了账号)。
- * 取不到(没有主进程、IPC 出错)按空清单算 —— ❌ 挂住调用方。
- */
-export function sshMachinesReady(): Promise<void> {
-  if (registryReady) return registryReady
-  const electron = bridge()
-  if (!electron) return (registryReady = Promise.resolve())
-  electron.eventOn(SERVER_SSH_MACHINES_CHANNELS.changed, applyIds)
-  registryReady = electron.invoke(SERVER_SSH_MACHINES_CHANNELS.list).then(applyIds, () => undefined)
-  return registryReady
+function listenForRegistryChanges(electron: ElectronBridge): void {
+  if (registryListening) return
+  registryListening = true
+  electron.eventOn(SERVER_SSH_MACHINES_CHANNELS.changed, value => {
+    registryVersion += 1
+    applyIds(value)
+    registryReady = Promise.resolve()
+  })
 }
 
-/** 换了账号:清单按新账号重取(主进程只给此刻登着的人装上的那些)。 */
+function readSshMachines(electron: ElectronBridge): void {
+  const version = ++registryVersion
+  registryReady = Promise.resolve().then(() => electron.invoke(SERVER_SSH_MACHINES_CHANNELS.list)).then(value => {
+    if (version !== registryVersion) return
+    if (!Array.isArray(value)) throw new Error('Invalid SSH machine registry response')
+    applyIds(value)
+    registryLog.info({ count: machineIds.size }, 'SSH machine registry refreshed')
+  }).catch((error: unknown) => {
+    if (version === registryVersion) registryReady = null
+    registryLog.warn({ error: error instanceof Error ? error.message : String(error) }, 'SSH machine registry read failed; the next request will retry')
+    throw error
+  })
+}
+
+/** Failed IPC reads reject and remain retryable; a pre-login empty result is refreshed after the host accepts auth. */
+export async function sshMachinesReady(): Promise<void> {
+  if (!registryReady) {
+    const electron = bridge()
+    if (!electron) return
+    listenForRegistryChanges(electron)
+    readSshMachines(electron)
+  }
+  const ready = registryReady
+  await ready
+  if (registryReady && registryReady !== ready) await sshMachinesReady()
+}
+
+/** Called after main acknowledges an auth mirror, including startup restore and token renewal. */
 export function refreshSshMachines(): Promise<void> {
   const electron = bridge()
   if (!electron) return Promise.resolve()
-  if (!registryReady) return sshMachinesReady()
-  registryReady = electron.invoke(SERVER_SSH_MACHINES_CHANNELS.list).then(applyIds, () => undefined)
-  return registryReady
+  listenForRegistryChanges(electron)
+  readSshMachines(electron)
+  return sshMachinesReady()
 }
 
 export function isSshMachine(deviceId: string): boolean {
@@ -75,7 +103,7 @@ export function currentSshMachineIds(): ReadonlySet<string> {
 }
 
 export function subscribeSshMachineIds(listener: (ids: ReadonlySet<string>) => void): () => void {
-  void sshMachinesReady()
+  void sshMachinesReady().catch(() => undefined)
   machineListeners.add(listener)
   return () => {
     machineListeners.delete(listener)
@@ -84,6 +112,7 @@ export function subscribeSshMachineIds(listener: (ids: ReadonlySet<string>) => v
 
 /** 测试用:换一份清单(并通知订阅者)。 */
 export function _setSshMachineIdsForTesting(ids: readonly string[]): void {
+  registryVersion += 1
   registryReady = Promise.resolve()
   applyIds([...ids])
 }

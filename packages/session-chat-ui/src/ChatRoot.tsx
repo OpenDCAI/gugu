@@ -71,7 +71,7 @@ import { unitContainsItem, unitItemIds, unitReservedHeight } from './core/units'
 import { Virtualizer } from './core/virtualizer';
 import type { ChatItem, ChatMessage, TranscriptTurn } from './model';
 import type { ChatState, ScrollMode } from './state/chat-state';
-import { pendingPromptTurn } from './state/pending-prompt';
+import { activeTurnWithInputs, pendingPromptLanded, projectPendingMessages, type PendingMessageProjectionCache } from './state/pending-prompt';
 import { isEmptyAgentTurn, joinsFoldRunAt } from './state/turn-fold';
 import {
   flattenTier, lastConversationMessage,
@@ -319,6 +319,13 @@ export function ChatRoot(props: ChatRootProps) {
   // are wrapped in a stable closure that never changes its value.
   const state: () => ChatState =
     typeof props.state === 'function' ? props.state : () => props.state as ChatState;
+  const pendingMessageCache: PendingMessageProjectionCache = new WeakMap();
+  const projectedInputs = createMemo(() => {
+    const s = state();
+    return projectPendingMessages(s.transcript.state.committedTurns, s.transcript.state.activeTurnSnapshot, s.session.state.pendingMessages, pendingMessageCache);
+  });
+  const projectedCommitted = createMemo(() => projectedInputs().committed, undefined,
+    { equals: (a, b) => a.length === b.length && a.every((turn, index) => turn === b[index]) });
 
   // Assemble the full ChatCaches bundle from context (shared) + state (parse).
   // Leaf components (Code.tsx, Diff.tsx) consume this via useCaches().
@@ -538,7 +545,7 @@ export function ChatRoot(props: ChatRootProps) {
   // rebuild from the incoming model — all within the same synchronous run.
   createEffect(() => {
     const s = state();
-    const next = s.transcript.state.committedTurns;
+    const next = projectedCommitted();
 
     if (s !== lastState) {
       itemScrollGeneration++;
@@ -636,8 +643,9 @@ export function ChatRoot(props: ChatRootProps) {
 
   const activeLayout = createMemo(() => {
     committedUnitsVersion();
-    const at = state().transcript.state.activeTurnSnapshot;
+    const at = projectedInputs().active;
     const pendingPrompt = state().session.state.pendingPrompt;
+    const pendingMessages = projectedInputs().waiting;
     // ⚠️ 有「当前状态」要说时这一档不能空手返回 —— 那一行就贴在这一档的末尾。
     // 没有活动轮也没有待发提示时，它是这一档**唯一**的一行（会话起不来时正是这种情形）。
     const condition = state().session.state.condition;
@@ -650,12 +658,18 @@ export function ChatRoot(props: ChatRootProps) {
     const build = (withBackground: boolean) => {
       const full = segmentCtx(true);
       const ctx = withBackground ? full : { ...full, backgroundTasks: () => null };
-      if (!at && !pendingPrompt) {
+      if (!at && !pendingPrompt && !pendingMessages.length) {
         if (!condition && !withBackground) return [] as ReturnType<typeof flattenTier>;
         return flattenTier([], ctx, SEGMENTERS, UNIT_REGISTRY, prevKind, committedDayKey, lastConversationMessage(committedUnitsArr));
       }
-      const activeTurn = at ?? pendingPromptTurn(pendingPrompt!);
-      return flattenTier([activeTurn], ctx, SEGMENTERS, UNIT_REGISTRY, prevKind, committedDayKey, lastConversationMessage(committedUnitsArr));
+      const activeTurn = activeTurnWithInputs(at, pendingPrompt, pendingMessages)!;
+      // Reserve the same process row from send to startup: adding it at acknowledgement scrolls a long transcript.
+      const pending = [...(pendingPrompt ? [pendingPrompt] : []), ...pendingMessages];
+      const failedPending = !at && pending.length > 0 && pending.every(input => input.stopped || input.delivery?.state === 'failed' || input.delivery?.state === 'unknown');
+      const body = flattenTier([activeTurn], failedPending ? { ...ctx, active: false } : ctx, SEGMENTERS, UNIT_REGISTRY, prevKind, committedDayKey, lastConversationMessage(committedUnitsArr));
+      // A held input has no running process row, but it cannot hide the host's compression/stop/failure state.
+      if (!failedPending) return body;
+      return [...body, ...flattenTier([], ctx, SEGMENTERS, UNIT_REGISTRY, body.at(-1)?.kind ?? prevKind, committedDayKey, lastConversationMessage(body))];
     };
     const units = build(false);
     if (!background) return { units, backgroundOwner: null as string | null };
@@ -690,7 +704,9 @@ export function ChatRoot(props: ChatRootProps) {
     const pendingPrompt = s.session.state.pendingPrompt;
     const committedTurns = s.transcript.state.committedTurns;
     const hasActiveTurn = s.transcript.state.activeTurnSnapshot !== null;
-    if (pendingPrompt && (hasActiveTurn || (!pendingPrompt.held && committedTurns !== pendingPromptCommittedTurns))) {
+    if (pendingPrompt && (pendingPrompt.delivery
+      ? pendingPromptLanded(pendingPrompt, [...committedTurns, ...(s.transcript.state.activeTurnSnapshot ? [s.transcript.state.activeTurnSnapshot] : [])])
+      : hasActiveTurn || (!pendingPrompt.held && committedTurns !== pendingPromptCommittedTurns))) {
       s.session.setPendingPrompt(null);
     }
     pendingPromptCommittedTurns = committedTurns;
@@ -960,7 +976,7 @@ export function ChatRoot(props: ChatRootProps) {
       const s = state();
       const pending = s.session.state.pendingPrompt;
       const active =
-        s.transcript.state.activeTurnSnapshot ?? (pending ? pendingPromptTurn(pending) : null);
+        activeTurnWithInputs(projectedInputs().active, pending, projectedInputs().waiting);
       if (!active) return userTurns();
       const base = committedUnitsArr.length;
       const inActive = collectUserTurnUnits(
@@ -994,7 +1010,7 @@ export function ChatRoot(props: ChatRootProps) {
       committedUnitsVersion();
       const s = state();
       const pending = s.session.state.pendingPrompt;
-      const active = s.transcript.state.activeTurnSnapshot ?? (pending ? pendingPromptTurn(pending) : null);
+      const active = activeTurnWithInputs(projectedInputs().active, pending, projectedInputs().waiting);
       const committed = collectUserTurnUnits(s.transcript.state.committedTurns, makeUnitsView(committedUnitsArr, NO_ACTIVE_UNITS), { delivered: true });
       const base = committedUnitsArr.length;
       const ends = active

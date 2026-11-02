@@ -3,9 +3,10 @@ import type {
   ChatContext,
   ChatState,
   ChatView,
+  PendingPrompt,
   TranscriptTurn,
 } from '@gugu/session-chat-ui';
-import { connectSession, createChatState, pinTopMode, runningBackgroundTaskIds, turnDiscardedId } from '@gugu/session-chat-ui';
+import { connectSession, createChatState, pendingPromptLanded, pinTopMode, runningBackgroundTaskIds, turnDiscardedId } from '@gugu/session-chat-ui';
 import {
   attachmentRefSchema,
   permissionTitle,
@@ -34,12 +35,15 @@ import { toolImageUrl } from '@gugu/session-core/acp/client';
 import { commandToken } from '@gugu/session-core/acp/commands';
 import { permissionWaitKind } from '@gugu/session-core/acp/models/permissions';
 import type { AgentState, LiveSettingResult, PermissionWaitKind } from '@gugu/session-core/acp';
-import { errorDetail } from '@gugu/session-shared';
+import { errorDetail, isDeepEqual } from '@gugu/session-shared';
 import { action, computed, makeObservable, observable, reaction, runInAction, when } from 'mobx';
 import { discardSessionLifeRow, endSessionLife, forkSessionLife, readSessionLife, sessionLifeView, startSessionLife, stopSessionLife } from '../stores/session-life-views';
 import { ACP_START_FAILED, lifeHoldIsFailure, lifeIsStarting, type LifeView } from '@shared/core/sessions/session-life';
 import { sendThroughCustody } from './queue-native-input';
 import { sessionInputBubbles } from '@/lib/sessionInputOutbox';
+import { queuedSessionInputs, retrySessionInputs, subscribeSessionInputs } from '@/lib/sessionInputOutboxBridge';
+import { projectSessionPendingInput } from '@/lib/pendingSessionInput';
+import { isTranscriptDelivery, loadPendingDeliveryHistory, projectSessionPendingDeliveries } from '@/lib/pendingSessionDeliveries';
 import { batch } from 'solid-js';
 import { AcpLiveSession, AcpStartError, asValueSource } from '@renderer/lib/acp/acp-live-session';
 import { getAcpRuntimeClient } from '@renderer/lib/acp/runtime-client';
@@ -144,6 +148,7 @@ export class AcpChatStore {
   private _lifeRetriedVersion = 0;
   private _unwatchLife: (() => void) | null = null;
   private _unwatchLifeHead: (() => void) | null = null;
+  private _unwatchSenderInputs: (() => void) | null = null;
   /** Opened on a stopped session: nothing to attach to until it runs again. */
   private _attachWhenReady = false;
   /**
@@ -188,6 +193,9 @@ export class AcpChatStore {
 
   private _view: ChatView | null = null;
   private _bootstrapped = false;
+  private _incomingHistoryResolved = new Set<string>();
+  private _incomingHistoryReading = false;
+  private _incomingHistoryRequest = 0;
   /** 转录已放掉(`releaseTranscript`),下一次上屏时重读。 */
   private _transcriptReleased = false;
   /**
@@ -733,9 +741,10 @@ export class AcpChatStore {
     // Not attached: input goes to the host's custody outbox, which holds it until session-life runs the session —
     // unless the start failed terminally (the engine is not there), when queueing waits for something that never happens.
     // Starting with its message drawn is running: the composer stops it (`stop` asks the host), as in any turn.
-    const startingDrawn = !state && this.transcriptPendingId !== null;
+    const deliveryState = this.chatState.session.state.pendingPrompt?.delivery?.state;
+    const startingDrawn = !state && this.transcriptPendingId !== null && deliveryState !== 'failed' && deliveryState !== 'unknown';
     return {
-      isWorking: agentWorking || startingDrawn,
+      isWorking: agentWorking || startingDrawn || deliveryState === 'sending' || deliveryState === 'accepted',
       isBusy: state?.isGenerating ?? false,
       hasPendingPermission: (state?.pendingPermissions.length ?? 0) > 0,
       canSubmit: !this.reverting && !this.messageEdit && (state?.canSubmit ?? !(this.loadError && isTerminalLoadError(this.loadError))),
@@ -799,12 +808,52 @@ export class AcpChatStore {
       void this._open();
     }
     const session = this.chatState.session;
-    const drawn = this.transcriptPendingId;
-    const bubbles = view ? sessionInputBubbles([], view.pending.items, view.hold) : [];
     const record = this._sessionRecord();
     const resumes = !!(record?.providerSessionId || record?.forkFromProviderSessionId || this.runtimeView?.forkFromProviderSessionId);
-    const starting = view !== null && lifeIsStarting(view) ? (resumes ? 'restoring' : 'starting') : undefined;
-    const head = bubbles[0]?.state === 'sending' && (starting || view?.kind === 'ready') ? bubbles[0] : null;
+    const starting: PendingPrompt['starting'] = view !== null && lifeIsStarting(view) ? (resumes ? 'restoring' : 'starting') : undefined;
+    const transcriptState = this.chatState.transcript.state;
+    const turns = [...transcriptState.committedTurns, ...(transcriptState.activeTurnSnapshot ? [transcriptState.activeTurnSnapshot] : [])];
+    const projections = new Set([...(this.stoppedRowId ? [stoppedTurnId(this.stoppedRowId)] : []), ...this.failedRowIds.map(failedTurnId)]);
+    const nativeTurns = turns.filter(turn => !projections.has(turn.id));
+    const projected = projectSessionPendingDeliveries(session.state.pendingMessages, view, nativeTurns, starting);
+    const unresolved = projected.filter(input => {
+      if (input.delivery?.state !== 'unknown' || this._incomingHistoryResolved.has(input.id)) return false;
+      if (session.state.pendingMessages.some(previous => previous.id === input.id) || pendingPromptLanded(input, turns)) {
+        this._incomingHistoryResolved.add(input.id);
+        return false;
+      }
+      return true;
+    });
+    if (!this.historyLoading && unresolved.length && !this._incomingHistoryReading) void this._resolveIncomingHistory(unresolved);
+    const incoming = projected.filter(input => !unresolved.some(held => held.id === input.id));
+    if (!isDeepEqual(session.state.pendingMessages, incoming)) runInAction(() => {
+      session.setPendingMessages(incoming);
+      this._syncMessageCount();
+    });
+    const sender = queuedSessionInputs(this.runtimeSessionId);
+    const prior = session.state.pendingPrompt;
+    const newOrdinaryInput = sender.some(row => row.queued === false && !view?.pending.items.some(host => host.messageId === row.id));
+    const stoppedOnHost = view?.hold === 'user-stop' && view.pending.items.some(row => row.messageId === prior?.id);
+    if ((!stoppedOnHost || newOrdinaryInput) && (prior?.delivery || sender.some(row => row.queued === false))) {
+      const transcript = this.chatState.transcript.state;
+      const pending = projectSessionPendingInput(prior, sender, view?.pending.items ?? [],
+        [...transcript.committedTurns, ...(transcript.activeTurnSnapshot ? [transcript.activeTurnSnapshot] : [])]);
+      runInAction(() => {
+        this.transcriptPendingId = pending?.id ?? sender.find(row => row.queued === false)?.id ?? null;
+        const next = pending ? { ...pending, starting,
+          ...(view?.kind === 'failed' && view.failure && view.pending.items.some(row => row.messageId === pending.id)
+            ? { delivery: { state: 'failed' as const, error: view.failure.message } } : {}) } : null;
+        if (!isDeepEqual(prior, next)) {
+          session.setPendingPrompt(next);
+          this._syncMessageCount();
+        }
+      });
+      return;
+    }
+    const drawn = this.transcriptPendingId;
+    const bubbles = view ? sessionInputBubbles([], view.pending.items, view.hold) : [];
+    const head = bubbles[0]?.state === 'sending' && view?.pending.items.some(row => row.messageId === bubbles[0]?.id && !isTranscriptDelivery(row))
+      && (starting || view?.kind === 'ready') ? bubbles[0] : null;
     runInAction(() => {
       if (drawn && head?.id !== drawn) {
         this.transcriptPendingId = null;
@@ -839,6 +888,40 @@ export class AcpChatStore {
       session.setPendingPrompt({ id: head.id, text: head.text, ...(sentAt !== undefined ? { sentAt } : {}), starting, held: true });
       this._syncMessageCount();
     });
+  }
+
+  /** Only unresolved legacy receipts read older pages. The ordinary first-page path never waits for this work. */
+  private async _resolveIncomingHistory(inputs: readonly PendingPrompt[]): Promise<void> {
+    this._incomingHistoryReading = true;
+    const request = ++this._incomingHistoryRequest;
+    const alive = () => !this._disposed && request === this._incomingHistoryRequest;
+    try {
+      const newest = this.chatState.transcript.state.committedTurns;
+      const cursor = this._olderSource === 'stored' && typeof this._olderCursor === 'number' ? this._olderCursor : null;
+      const result = await loadPendingDeliveryHistory(newest, cursor, inputs,
+        before => rpc.sessions.getStoredHistory({ sessionId: this.sessionId, before, limit: 100 }), alive);
+      if (!alive()) return;
+      if (result.turns.length) runInAction(() => {
+        const byId = new Map([...this._olderHistoryTurns, ...result.turns].map(turn => [turn.id, turn]));
+        this._olderHistoryTurns = [...byId.values()].sort((a, b) => a.seq - b.seq);
+        this._olderCursor = this._olderCursor === null || result.cursor === null ? null
+          : Math.min(this._olderCursor ?? result.cursor, result.cursor);
+        const live = this.chatState.transcript.state.activeTurnSnapshot;
+        batch(() => {
+          this.chatState.transcript.history.seed(this._composedHistory());
+          if (live) this.chatState.transcript.activeTurn.set(live);
+        });
+        this._syncMessageCount();
+      });
+    } catch (error) {
+      if (alive()) this._toastError('acpFailure.refreshHistory', error);
+    } finally {
+      if (alive()) {
+        for (const input of inputs) this._incomingHistoryResolved.add(input.id);
+        this._incomingHistoryReading = false;
+        this._drawLifeHead(sessionLifeView(this.runtimeSessionId));
+      }
+    }
   }
 
   /**
@@ -897,6 +980,8 @@ export class AcpChatStore {
 
   /** What the host says can be taken back (`discardable`): an older host says nothing, so it offers no discard. */
   canDiscardTurn(turnId: string): boolean {
+    const incoming = this.chatState.session.state.pendingMessages.find(input => input.stopped && turnId === `pending:${input.id}:turn`);
+    if (incoming) return sessionLifeView(this.runtimeSessionId)?.pending.items.find(item => item.messageId === incoming.id)?.discardable === true;
     const id = this.stoppedRowId;
     if (!id || turnId !== stoppedTurnId(id)) return true;
     return sessionLifeView(this.runtimeSessionId)?.pending.items.find(item => item.messageId === id)?.discardable === true;
@@ -904,10 +989,12 @@ export class AcpChatStore {
 
   /** 「丢弃」 on a message stopped before it went: gone from the queue, and the words back in the composer. */
   discardStoppedTurn(turnId: string): void {
-    const id = this.stoppedRowId;
-    if (!id || turnId !== stoppedTurnId(id)) return;
+    const incoming = this.chatState.session.state.pendingMessages.find(input => input.stopped && turnId === `pending:${input.id}:turn`);
+    const id = incoming?.id ?? this.stoppedRowId;
+    if (!id || (!incoming && turnId !== stoppedTurnId(id))) return;
     const row = sessionLifeView(this.runtimeSessionId)?.pending.items.find(item => item.messageId === id);
     void discardSessionLifeRow(this.runtimeSessionId, id).then(() => runInAction(() => {
+      if (incoming) this.chatState.session.setPendingMessages(this.chatState.session.state.pendingMessages.filter(input => input.id !== id));
       if (row) this.setDraftText([row.text, this.draftText.trim()].filter(Boolean).join('\n'));
     })).catch((error: unknown) => {
       // The click already folded the turn away: it did not go, so it comes back into view.
@@ -939,7 +1026,16 @@ export class AcpChatStore {
     // Loaded or reconciled history replaces what is drawn from the queue: redraw it.
     this._unwatchLifeHead = reaction(() => [sessionLifeView(this.runtimeSessionId), this.transcriptRevision, this.historyLoading] as const,
       ([view]) => this._drawLifeHead(view), { fireImmediately: true });
+    this._unwatchSenderInputs = subscribeSessionInputs(() => this._drawLifeHead(sessionLifeView(this.runtimeSessionId)));
     void this._open();
+  }
+
+  retryPendingInput(): void {
+    void retrySessionInputs().then(() => {
+      if (sessionLifeView(this.runtimeSessionId)?.kind === 'failed') {
+        return startSessionLife(this.runtimeSessionId);
+      }
+    }).catch((error: unknown) => this._toastError('acpFailure.sendMessage', error));
   }
 
   /**
@@ -969,6 +1065,7 @@ export class AcpChatStore {
       return;
     }
     this._transcriptReleased = true;
+    this.chatState.session.setPendingMessages([]);
     this._resetHistoryState();
     const activeTurn = this.chatState.transcript.state.activeTurnSnapshot;
     this.chatState.transcript.history.seed([]);
@@ -1531,6 +1628,8 @@ export class AcpChatStore {
     this._unwatchLife = null;
     this._unwatchLifeHead?.();
     this._unwatchLifeHead = null;
+    this._unwatchSenderInputs?.();
+    this._unwatchSenderInputs = null;
     this._setParkWatch(null);
     this._unwatchMachineLink?.();
     this._unwatchMachineLink = null;
@@ -1551,6 +1650,9 @@ export class AcpChatStore {
    * 库页之间会断档(中间又聊了几轮),游标重置后再往上翻又和旧页重叠 —— 同一批回合出现两遍。
    */
   private _resetHistoryState(): void {
+    this._incomingHistoryRequest++;
+    this._incomingHistoryReading = false;
+    this._incomingHistoryResolved.clear();
     this._historyGeneration += 1;
     this._storedHistoryTurns = [];
     this._storedOrigins = [];
@@ -2700,7 +2802,8 @@ export class AcpChatStore {
           this.chatState.transcript.activeTurn.set(liveFrame);
         }
         // Do not clear a prompt that was admitted after this reconciliation started.
-        if (this.chatState.session.state.pendingPrompt === retainedPending) {
+        if (this.chatState.session.state.pendingPrompt === retainedPending
+          && (!retainedPending?.delivery || pendingPromptLanded(retainedPending, this._composedHistory()))) {
           this.chatState.session.setPendingPrompt(null);
         }
       }
@@ -2722,7 +2825,7 @@ export class AcpChatStore {
       0
     );
     const activeCount = state.activeTurnSnapshot?.items.length ?? 0;
-    const pendingPromptCount = this.chatState.session.state.pendingPrompt ? 1 : 0;
+    const pendingPromptCount = (this.chatState.session.state.pendingPrompt ? 1 : 0) + this.chatState.session.state.pendingMessages.length;
     this.messageCount = committedCount + activeCount + pendingPromptCount;
     this.transcriptRevision += 1;
   }

@@ -36,7 +36,7 @@ import { ptySessionRegistry } from '../core/pty/pty-session-registry';
  * 以及只在桌面那一侧才有意义的 SSH 直连 / 端口转发。挡在这里还有一层用处:渲染层把本该留在本机的调用
  * 错发过来时,当场报错而不是悄悄在这台机器上执行。
  */
-const REMOTE_DENIED_NAMESPACES = new Set(['browser', 'remotePorts', 'viewState']);
+const REMOTE_DENIED_NAMESPACES = new Set(['browser', 'remotePorts', 'viewState', 'assistantHome']);
 const REMOTE_ALLOWED_APP = new Set([
   'app.getAppVersion',
   'app.getPlatform',
@@ -66,8 +66,12 @@ export const remoteInvokePolicy: FrameInvokePolicy = (channel) => {
 /** Read recovery entries, or explicitly clear them, from an owner-bound remote App page.
  * This is not a grant to the whole App dispatcher. The handler additionally checks the
  * expected owner against its current authenticated account before reading or writing. */
-export function remoteInvokePolicyForCaller(callerId: string | undefined): FrameInvokePolicy {
+export function remoteInvokePolicyForCaller(callerId: string | undefined, desktop: DesktopHello | null = null): FrameInvokePolicy {
   return (channel, args) => {
+    if (channel.startsWith('assistantHome.')) {
+      const input = args?.[0] as { ownerUserId?: unknown } | null
+      return !!desktop && !!callerId && args?.length === 1 && input?.ownerUserId === callerId
+    }
     if (channel !== 'app.assistantAppCall') return remoteInvokePolicy(channel, args);
     if (!callerId || args?.length !== 3 || args[0] !== 'callProgram' || args[2] !== callerId) return false;
     const input = args[1];
@@ -207,7 +211,7 @@ export function createSessionHostDeviceRpcHandlers(options: { host?: () => Frame
     log.warn('[session-host-device] client opened', { client, desktop: desktop?.id ?? null });
     frameHost.attach(socket, {
       remote: `device:${client.slice(0, 8)}`,
-      policy: remoteInvokePolicyForCaller(callerId),
+      policy: remoteInvokePolicyForCaller(callerId, desktop),
       outgoing: createRemotePtyPacer({ screenSnapshot: (id) => ptySessionRegistry.screenSnapshot(id) }),
     });
   };
@@ -252,12 +256,12 @@ export function createSessionHostDeviceRpcHandlers(options: { host?: () => Frame
     [SESSION_HOST_RPC.call]: async (payload, ctx) => {
       const frameHost = host();
       if (!frameHost) return { error: { code: 'unavailable', message: 'session host is not running on this machine' } };
-      const body = (payload ?? {}) as { channel?: unknown; args?: unknown; protocol?: unknown };
+      const body = (payload ?? {}) as { channel?: unknown; args?: unknown; protocol?: unknown; desktop?: unknown };
       if (typeof body.channel !== 'string' || !Array.isArray(body.args)) {
         return { error: { code: 'invalid_payload', message: 'channel 与 args 是必填的' } };
       }
       try {
-        const value = (await frameHost.invokeOnce(body.channel, body.args, remoteInvokePolicyForCaller(ctx.request?.user_id))) ?? null;
+        const value = (await frameHost.invokeOnce(body.channel, body.args, remoteInvokePolicyForCaller(ctx.request?.user_id, parseDesktopHello(body.desktop)))) ?? null;
         return { result: { value, protocol: REMOTE_PROTOCOL_VERSION } };
       } catch (error) {
         const failed = serializeHostWsError(error);

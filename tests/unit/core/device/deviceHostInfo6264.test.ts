@@ -51,6 +51,7 @@ describe('#6264 设备行上报「这是台什么机器」', () => {
     const deps = { platform: () => 'linux', release: () => '6.1', arch: () => 'arm64', readText, nowMs: () => 6_000, uid: () => 1000, homedir: () => '/home/ubuntu' }
     expect(resolveDeviceHostInfo({ GUGU_SERVER_MODE: '1', GUGU_SERVER_HOME: '/srv/gugu' }, deps)).toEqual({
       host_kind: 'server',
+      assistant_home_setup: 1,
       arch: 'arm64',
       os_name: 'Ubuntu 22.04.5 LTS',
       home_dir: '/home/ubuntu',

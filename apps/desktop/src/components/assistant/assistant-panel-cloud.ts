@@ -1,6 +1,6 @@
 import { createAssistantPanelClient, AssistantPanelError } from '@gugu/core/cloud/assistantPanel'
 import { createAssistantPanelOutbox } from '@gugu/core/cloud/assistantPanelOutbox'
-import { pickAssistant, type AssistantProvisionRow } from '@gugu/core/shared/assistantProvision'
+import { ASSISTANT_PROVISION_SELECT, pickAssistant, type AssistantProvisionRow } from '@gugu/core/shared/assistantProvision'
 import { identityDb, chatDb } from '@/lib/supabase'
 import { getRendererSession, observeRendererSession } from '@/lib/sessionPublication'
 import { rendererLogger } from '@/lib/log'
@@ -18,7 +18,7 @@ export function assertAssistantPanelOwner(expectedOwner: string | null): asserts
 
 export async function personalAssistant(owner: string): Promise<string | null> {
   assertAssistantPanelOwner(owner)
-  const { data,error,status } = await identityDb.from('agent_provisions').select('agent_user_id,device_id,member_key,phase,created_at')
+  const { data,error,status } = await identityDb.from('agent_provisions').select(ASSISTANT_PROVISION_SELECT)
     .eq('owner_user_id',owner).eq('member_key','assistant').abortSignal(AbortSignal.timeout(10_000))
   assertAssistantPanelOwner(owner)
   if (error) throw new AssistantPanelError(error.code,'Could not read the personal assistant',undefined,undefined,status)
