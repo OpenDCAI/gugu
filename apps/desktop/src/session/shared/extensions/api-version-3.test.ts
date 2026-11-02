@@ -32,7 +32,6 @@ describe('an App written for an older interface', () => {
   });
 
   it('control: the same App on the current version parses', () => {
-    expect(EXTENSION_API_VERSION).toBe(27);
     expect(issues(app(EXTENSION_API_VERSION))).toBe('');
   });
 

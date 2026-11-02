@@ -438,7 +438,7 @@ Use \`resource.close()\` to release the source and \`view.close()\` to remove th
 
 export const EXTENSION_GUIDE_PROGRAMS = `# Giving agents your own tools
 
-Local programs/skills. Configuration: \`apps-settings\`; page calls: \`apps-page\`.
+Programs/skills: \`apps-settings\`; pages: \`apps-page\`.
 
 Needs \`agents:tools\`:
 
@@ -459,21 +459,18 @@ export const follow = {
 }
 \`\`\`
 
-  — and the page, when that card changes, \`gugu.dispatch\`es to each follower of it. \`agent\` is the calling
-  agent's \`user:<uuid>\`, stamped by gugu: no agent can fake it, so never ask for it in an argument.
-  \`session\`, \`workspaceRoot\`, \`model\`: the calling session, absolute working-copy path and host-chosen model, stamped
-  like agent; absent if unknown. Keep session for \`showSession\`; \`listAgents\` gives the same model.
+  The page uses \`gugu.dispatch\` for followers when the card changes. gugu stamps \`agent\` (\`user:<uuid>\`),
+  \`session\`, \`workspaceRoot\` (absolute) and \`model\`; unknown fields are absent. Never accept agent ids as arguments.
+  Keep session for \`showSession\`; \`listAgents\` gives the same model.
   API 21: run receives non-enumerable \`signal\` (AbortSignal). Pass it to drivers; abort queued actions, never replay unknown results.
-  Return human steps immediately; the agent asks via existing questions/messages, then retries.
-  run returns a string verbatim or JSON; a throw is the error the agent reads. A non-tool export stops the module,
-  naming it. Keep helpers unexported or in imported bundle files. Node built-ins follow the restrictions below; \`node_modules\` does not work.
-- From API ${EXTENSION_TOOL_CONFINEMENT_API_VERSION}, tools modules read only their bundle/runtime/data folders and write only their data folder
-  (TMPDIR is its .tmp). Other files go through gugu.files and declared files:read/write. Network is limited to granted
-  permissions.network hosts; IP literals, listeners, subprocesses, native addons, WASI, inspector, sqlite and eval workers
-  are refused. Bundle file workers inherit the same restrictions. This is a permission model, not an OS security sandbox.
-  Older tools modules and command programs retain the person's full rights and the broad consent. Use command form
-  when a program needs those rights. Another owner must install the App to give its agent
-  these tools; never have agents write their ids into your data.
+  Return human steps immediately; the agent asks via questions/messages, then retries.
+  run returns a string verbatim or JSON; a throw is the agent's error. Non-tool exports stop the module and name it.
+  Keep helpers unexported or in bundle imports; \`node_modules\` does not work. Built-ins follow the limits below.
+- API ${EXTENSION_TOOL_CONFINEMENT_API_VERSION} tools read bundle/runtime/data; write only data (TMPDIR=data/.tmp).
+  Files: gugu.files + files:read/write. Network: granted permissions.network hosts.
+  No IPs/listeners/subprocesses/addons/WASI/inspector/sqlite/eval workers; bundle workers inherit limits.
+  Not an OS sandbox. Older tools/commands retain full rights.
+  Other owners must install the App to give their agents tools; never store agent ids.
 - Another language, or an existing MCP server: \`{ "name", "command", "args"? }\`, MCP over stdio.
   \`command\` \`node\` runs on gugu's own runtime; \`./x\` is a program in your bundle; anything else
   is found on PATH (\`npx\`, \`uvx\`, \`python3\`). An argument naming a file in your bundle is passed
