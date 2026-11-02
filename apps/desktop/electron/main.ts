@@ -4258,6 +4258,7 @@ function loadEmdashBridge(): EmdashBridgeModule | null {
     // @@@5301 同理,加载即注入:会话页 agent 通知的正文。不注入的后果是所有人收到英文兜底,
     // 而且不报错 —— 与上面那条 webview 策略同一类「失败时静默退化」的坑。
     publishSessionHostLocale()
+    emdashBridge.setSystemNotificationsUsable(() => notificationGate.usable())
     // @@@2374 — 同理,加载即注入:扩展的宿主动作(改标题/角标、开浏览器 tab、报错、投进对话)
     // 全要走宿主这个 renderer 通道,而通道的实现住在 main.js。传函数不传值,所以此刻窗口还没建
     // 也没关系——调用时才读。

@@ -123,6 +123,7 @@ export {
   // the gugu MCP send tool + gugu identity at session start (enables the target agent to reply).
   // @@@5301 会话页 agent 通知正文的注入口(见 notification-copy.ts)。
   setSessionAgentNotificationCopy,
+  setSystemNotificationsUsable,
   // 宿主的界面语言的注入口(见 host-locale.ts)。
   setSessionHostLocale,
   setEmdashMcpInjector,
