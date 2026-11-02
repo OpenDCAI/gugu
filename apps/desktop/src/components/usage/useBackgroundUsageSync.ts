@@ -4,8 +4,7 @@ import { rendererLogger } from '../../lib/log'
 
 const log = rendererLogger('usage/background-sync')
 
-const FIRST_DELAY_MS = 30_000
-const INTERVAL_MS = 30 * 60_000
+import { USAGE_FIRST_DELAY_MS, USAGE_SYNC_INTERVAL_MS } from '@gugu/core/shared/usage/sync'
 
 /**
  * 桌面端后台把本机用量送上云端(product spec「跨设备」):启动 30 秒后一次,之后每 30 分钟一次。
@@ -16,8 +15,8 @@ export function useBackgroundUsageSync(userId: string | null, active: boolean): 
   useEffect(() => {
     if (!userId || !active || !canSyncLocalUsage()) return
     const run = () => { syncLocalUsage().catch((e: unknown) => log.warn({ error: e instanceof Error ? e.message : String(e) }, 'background sync failed')) }
-    const first = window.setTimeout(run, FIRST_DELAY_MS)
-    const timer = window.setInterval(run, INTERVAL_MS)
+    const first = window.setTimeout(run, USAGE_FIRST_DELAY_MS)
+    const timer = window.setInterval(run, USAGE_SYNC_INTERVAL_MS)
     return () => { window.clearTimeout(first); window.clearInterval(timer) }
   }, [userId, active])
 }

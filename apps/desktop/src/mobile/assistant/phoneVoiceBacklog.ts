@@ -1,6 +1,7 @@
 // #7199 手机录的语音笔记在传到它家里之前先留在手机上(IndexedDB):它在休息 / 断网时不替人叫醒,录音也不能只活在内存里 ——
 // 安卓随时可能把后台的咕咕杀掉。桌面没有这一层(桌面的录音只在内存里,关了 App 靠列表里点重试),手机的进程命短,多一道。
 // 只存「还没传上去的段」与每条笔记的进度;传完的段当场删(手机的终点就是「传上去」)。读写都是尽力而为:存不下不能挡住录音与上传。
+import { createIndexedDbHandle } from '@/lib/indexedDbHandle'
 
 export type BacklogSegment = {
   /** 相对这条笔记的文件夹,如 `audio/000.wav`。 */
@@ -53,10 +54,9 @@ function done(tx: IDBTransaction): Promise<void> {
 
 /** 真的 IndexedDB(Android WebView 有)。库开不起来(隐私模式、被禁)= 每个调用抛,上层按「存不下」处理。 */
 export function createIndexedDbBacklog(factory: IDBFactory | undefined = typeof indexedDB === 'undefined' ? undefined : indexedDB): VoiceBacklog {
-  let opened: Promise<IDBDatabase> | null = null
-  const db = (): Promise<IDBDatabase> => {
+  const handle = createIndexedDbHandle(() => {
     if (!factory) return Promise.reject(new Error('indexeddb unavailable'))
-    opened ??= new Promise<IDBDatabase>((resolve, reject) => {
+    return new Promise<IDBDatabase>((resolve, reject) => {
       const open = factory.open(DB_NAME, 1)
       open.onupgradeneeded = () => {
         open.result.createObjectStore(JOBS, { keyPath: 'id' })
@@ -65,12 +65,8 @@ export function createIndexedDbBacklog(factory: IDBFactory | undefined = typeof 
       open.onsuccess = () => resolve(open.result)
       open.onerror = () => reject(open.error ?? new Error('indexeddb open failed'))
     })
-    // 开失败了下次再试,❌ 把失败的那个 promise 留着。
-    opened.catch(() => {
-      opened = null
-    })
-    return opened
-  }
+  })
+  const db = () => handle.get()
   const key = (jobId: string, file: string) => `${jobId}/${file}`
   return {
     async list() {

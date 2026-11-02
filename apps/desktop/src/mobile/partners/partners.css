@@ -172,7 +172,6 @@
 .gg-project-avatar {
   flex: none;
   display: block;
-  --gg-project-avatar-edge: color-mix(in oklab, var(--fg) 14%, transparent);
   --gg-project-avatar-hi: color-mix(in oklab, var(--bg) 90%, transparent);
 }
 

@@ -260,10 +260,7 @@ export default {
       "recentUnsupported": "Not done: this computer can't do this",
       "computerBar": {
         "drivingApp": "{{name}} is working",
-        "drivingComputer": "{{name}} is looking at this computer",
         "pausedApp": "{{name}} has paused here",
-        "pausedComputer": "{{name}} has stopped using this computer",
-        "someApp": "an app",
         "stop": "Stop",
         "resume": "Continue",
         "someone": "An assistant"
