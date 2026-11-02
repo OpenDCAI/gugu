@@ -15,7 +15,7 @@ const mocks = vi.hoisted(() => {
       },
       activeTurn: { set: vi.fn((turn: { id: string } | null, status?: string) => ops.push(`active:${turn?.id ?? 'none'}:${status ?? ''}`)) },
     },
-    session: { setBackgroundTasks: vi.fn(), setPendingPrompt: vi.fn() },
+    session: { setBackgroundTasks: vi.fn(), setPendingPrompt: vi.fn(), setPendingMessages: vi.fn() },
     dispose: vi.fn(),
   })
   return {
@@ -83,4 +83,14 @@ it('hands the background tasks to the transcript and disposes its state and cont
   await harness.render(createElement(SessionTranscriptView, { uri: 's2', turns: [] }))
   expect(mocks.states[0]!.dispose).toHaveBeenCalled()
   expect(mocks.contexts[0]!.dispose).toHaveBeenCalled()
+})
+
+
+it('passes incoming delivery custody to the shared transcript and clears it when the receipt settles', async () => {
+  const pendingMessages = [{ id: 'incoming', text: 'Incoming instruction', received: true, delivery: { state: 'unknown' as const, retryable: false } }]
+  await harness.render(createElement(SessionTranscriptView, { uri: 's1', turns: [], pendingMessages }))
+  await flush()
+  expect(mocks.states[0]!.session.setPendingMessages).toHaveBeenLastCalledWith(pendingMessages)
+  await harness.render(createElement(SessionTranscriptView, { uri: 's1', turns: [] }))
+  expect(mocks.states[0]!.session.setPendingMessages).toHaveBeenLastCalledWith([])
 })

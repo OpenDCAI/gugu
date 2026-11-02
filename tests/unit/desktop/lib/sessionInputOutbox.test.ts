@@ -5,6 +5,31 @@ import { buildSessionDirectEnvelope } from '@gugu/core/local/agent/deliveryEnvel
 import { openSessionInputStorage, SessionInputOutbox, sessionInputBubbles, withSessionInputDeadline, type HostPendingRow, type SessionInput } from '../../../../apps/desktop/src/lib/sessionInputOutbox'
 
 describe('native session input persistence', () => {
+  it('keeps a failure visible through automatic retry and clears it when a manual retry actually begins', async () => {
+    const storage = await openSessionInputStorage(new IDBFactory())
+    let finish: (() => void) | undefined
+    let sending = false
+    const queue = new SessionInputOutbox('owner', storage, async () => {
+      sending = true
+      await new Promise<void>(resolve => { finish = resolve })
+      throw new Error('still offline')
+    }, () => true)
+    const input = await queue.enqueue({ deviceId: null, sessionId: 'agent', text: 'retry me' })
+    await storage.put({ ...input, failure: { code: 'send-failed', message: 'offline' } })
+    const automatic = queue.flush()
+    await expect.poll(() => sending).toBe(true)
+    expect((await queue.list())[0].failure).toEqual({ code: 'send-failed', message: 'offline' })
+    finish!()
+    await automatic
+    sending = false
+    const manual = queue.flush(true)
+    await expect.poll(() => sending).toBe(true)
+    expect((await queue.list())[0].failure).toBeUndefined()
+    finish!()
+    await manual
+    expect((await queue.list())[0].failure).toEqual({ code: 'send-failed', message: 'still offline' })
+  })
+
   it('preserves stored runtime attachment references and does not block the following input', async () => {
     const storage = await openSessionInputStorage(new IDBFactory())
     const received: SessionInput[] = []
