@@ -563,20 +563,18 @@ Each call names a file: an entry, \`ctx.file\`, or \`{ chat | workspace, name }\
 \`{ chat: ctx.chat.id }\` / \`{ workspace: ctx.workspace.id }\`. A session tab has both.
 \`gugu.projects.list()\` → \`{ projects: [{ id, name, workspace }] }\`.
 
-- The file you were opened for (\`ctx.file\`) — the host picked your App by its claim
-  (\`opensFiles\`, e.g. \`{ "chat": [".vote.json"] }\`; most specific wins) or picked via "open with".
-  No capability; a session's claims go under \`"session"\`.
-- \`"chatFile": "x.board.json"\` on it (API 14): opened in a chat, \`ctx.file\` is that top-level file, \`{}\` at first: fill it.
-- \`"sideWidth": 480\` (API 16): a tab's px beside a chat; none: half.
-- A name claims that one file (\`"session": ["TODO.md"]\`); a suffix is for a format of your own. Keep what your App
-  does not understand as is. Changing course, remove the topics and files you made, or ask. A session file
-  in a folder the search index skips hears the disk only when written.
+- \`ctx.file\`: no capability. The host picked your claim (\`opensFiles\`, e.g. \`{"chat":[".vote.json"]}\`, most
+  specific wins) or "open with". Session claims: \`"session"\`.
+- \`"chatFile": "x.board.json"\` (API 14): in chat, \`ctx.file\` is this top-level file, initially \`{}\`: fill it.
+- \`"sideWidth": 480\` (API 16): chat-side tab width in px; default: half.
+- A name claims one file (\`"session":["TODO.md"]\`); suffixes: your own format. Preserve unknown data.
+  Changing course, remove your topics/files or ask. Session files in search-skipped folders hear disk changes on write only.
 - Any other file (a chat you are in, a folder here): \`files:write\`, or \`files:read\` (read-only).
 - Another machine's working copy: list and \`f.read\` work; open whole/download need \`files:read:all-machines\`.
 - \`gugu.files.list(place)\`: \`files:read\`; \`gugu.files.create({...place,name},content)\`, \`gugu.files.rename(entry,name)\`,
   \`gugu.files.remove(entry)\`: \`files:write\`. JSON: objects, not \`JSON.stringify\` strings.
-- \`gugu.files.search({ query, suffixes, limit })\` (\`files:read\`): all the reader's chats' files by part of the
-  path, with \`chatName\`; \`gugu.files.recent({ limit })\`: those this person opened last (\`openedAt\`).
+- \`gugu.files.search({ query, suffixes, limit })\` (\`files:read\`): path search across the reader's chats, with
+  \`chatName\`. \`gugu.files.recent({ limit })\`: last opened (\`openedAt\`).
 - A chat's subfolders: \`gugu.files.list({ chat, folder })\` lists one (path or id, \`''\` the top; none: all;
   \`'folder'\` entries: list only);
   create and upload take \`folder\` too (made if missing); \`gugu.files.mkdir({ chat, path })\`,
