@@ -57,10 +57,11 @@ const turns = (count: number): TimelineTurn[] =>
  * 挂上去 + 等几何**稳定**。⚠️ 不能只等两帧:轨高是 ResizeObserver 量出来的,量到之后
  * React 还要带着 2000 张预览卡重渲一遍,慢于两帧(实测那一刻量到的是首帧的 flex 挤压态)。
  */
-async function render(count: number): Promise<HTMLElement[]> {
+async function render(count: number | TimelineTurn[], currentTurnId?: string): Promise<HTMLElement[]> {
+  const list = typeof count === 'number' ? turns(count) : count;
   root.render(
     <SessionLocalizationProvider>
-      <SessionTimelineRail turns={turns(count)} currentTurnId={`t${count - 1}`} onJump={() => {}} />
+      <SessionTimelineRail turns={list} currentTurnId={currentTurnId ?? `t${list.length - 1}`} onJump={() => {}} />
     </SessionLocalizationProvider>
   );
   let last = '';
@@ -145,5 +146,34 @@ describe('minimap 长会话几何 (#4874)', () => {
     expect(getComputedStyle(rail).pointerEvents).toBe('none');
     const tick = column.querySelector<HTMLElement>('[data-tick-index]')!;
     expect(getComputedStyle(tick).pointerEvents).toBe('auto');
+  });
+
+  it('owner 10-28 方案 A:你的刻度满墨加长,投递短而淡,连续 3 条以上的投递合成更粗的一段', async () => {
+    // m = 你说的;a/b = 两个来源投递进来的
+    const list: TimelineTurn[] = [...'mamabmababam'].map((c, i) => ({
+      id: `t${i}`, anchorItemId: `u${i}`, itemIds: [`u${i}`], prompt: `第 ${i + 1} 轮`, reply: '',
+      ...(c === 'm' ? {} : { sender: { kind: 'session' as const, name: c === 'a' ? 'Codex 3' : 'Claude 2' } }),
+    }));
+    // 阅读线压在第 1 轮(你的),其余都不是「正在读」—— 颜色只比静止的。
+    const ticks = await render(list, 't0');
+    expect(ticks.map((t) => `${t.dataset.tickKind}:${t.dataset.tickSpan}`)).toEqual([
+      'mine:1-1', 'delivery:2-2', 'mine:3-3', 'delivery:4-4', 'delivery:5-5', 'mine:6-6', 'run:7-11', 'mine:12-12',
+    ]);
+    const pill = (tick: HTMLElement) => tick.querySelector<HTMLElement>('[data-slot="tick"]')!.getBoundingClientRect();
+    const ink = (tick: HTMLElement) => getComputedStyle(tick.querySelector<HTMLElement>('[data-slot="tick"]')!).backgroundColor;
+    const [, delivery, mine, , , , run] = ticks;
+    expect(pill(mine).width).toBeCloseTo(18, 0);
+    expect(pill(delivery).width).toBeCloseTo(8, 0);
+    expect(pill(run).width).toBeCloseTo(8, 0);
+    expect(pill(mine).height).toBeCloseTo(2, 1);
+    expect(pill(run).height).toBeCloseTo(4, 1);
+    // 你的满墨,投递与合并段是别的(更淡的)墨;合并段比单条投递还淡。
+    expect(ink(mine)).not.toBe(ink(delivery));
+    expect(ink(run)).not.toBe(ink(delivery));
+    // 正在读的那一格只换颜色,长度照旧(看得出是谁的)。
+    const current = ticks.find((t) => t.dataset.tickCurrent === 'true')!;
+    expect(current.dataset.tickKind).toBe('mine');
+    expect(pill(current).width).toBeCloseTo(18, 0);
+    expect(ink(current)).not.toBe(ink(mine));
   });
 });

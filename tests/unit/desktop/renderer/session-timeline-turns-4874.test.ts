@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { TranscriptTurn } from '@gugu/session-chat-ui';
-import { timelineTurnsFromTranscript } from '../../../../apps/desktop/src/session/renderer/features/sessions/view/session-timeline-turns';
+import { DELIVERY_RUN_MIN, ticksFromTurns, timelineTurnsFromTranscript, type TimelineTurn } from '../../../../apps/desktop/src/session/renderer/features/sessions/view/session-timeline-turns';
 
 const msg = (id: string, role: 'user' | 'assistant', text: string) =>
   ({ kind: 'message', id, seq: 0, role, text }) as TranscriptTurn['items'][number];
@@ -86,5 +86,60 @@ describe('delivered turns (#6822)', () => {
       { prompt: '看一下', sender: { kind: 'group', name: 'Ada', chatId: '3f2a9c1e-0000-4000-8000-000000000007' } },
       { prompt: '派活', sender: { kind: 'session', name: 'session:parent' } },
     ]);
+  });
+});
+
+describe('owner 2026-10-28: your turns stand out, runs of deliveries merge', () => {
+  // m = your own turn, a/b = deliveries from two senders
+  const seq = (pattern: string): TimelineTurn[] => [...pattern].map((c, i) => ({
+    id: `t${i}`, anchorItemId: `u${i}`, itemIds: [`u${i}`], prompt: `p${i}`, reply: '',
+    ...(c === 'm' ? {} : { sender: { kind: 'session' as const, name: c === 'a' ? 'Codex 3' : 'Claude 2' } }),
+  }));
+  const shape = (ticks: ReturnType<typeof ticksFromTurns>) => ticks.map((t) => `${t.mine ? 'M' : t.deliveries >= DELIVERY_RUN_MIN ? 'R' : 'd'}${t.from}-${t.to}`);
+
+  it(`merges ${DELIVERY_RUN_MIN}+ consecutive deliveries into one tick; one or two stay one tick each`, () => {
+    expect(DELIVERY_RUN_MIN).toBe(3);
+    expect(shape(ticksFromTurns(seq('mamabmababam'), 0))).toEqual(['M1-1', 'd2-2', 'M3-3', 'd4-4', 'd5-5', 'M6-6', 'R7-11', 'M12-12']);
+  });
+
+  it('a merged run jumps to its first delivery and names each sender once, in order', () => {
+    const run = ticksFromTurns(seq('mabaabm'), 0)[1]!;
+    expect(run).toMatchObject({ from: 2, to: 6, mine: false, deliveries: 5 });
+    expect(run.turn.anchorItemId).toBe('u1');
+    expect(run.senders.map((s) => (s.kind === 'gugu' ? 'gugu' : s.name))).toEqual(['Codex 3', 'Claude 2']);
+  });
+
+  it('when one tick covers several segments, any turn of yours makes it yours (and it jumps to your turn)', () => {
+    // 6 segments into 3 ticks: [a-run][m] [a][m] [b][b]  → stride 2
+    const ticks = ticksFromTurns(seq('aaamambb'), 3);
+    expect(shape(ticks)).toEqual(['M1-4', 'M5-6', 'd7-8']);
+    expect(ticks[0]!).toMatchObject({ mine: true, deliveries: 3 });
+    expect(ticks[0]!.turn.anchorItemId).toBe('u3');
+  });
+
+  it('every turn still belongs to exactly one tick', () => {
+    const turns = seq('mabbbamaaaaaaambabm'.repeat(20));
+    for (const capacity of [0, 7, 30, 1000]) {
+      const ticks = ticksFromTurns(turns, capacity);
+      expect(ticks[0]!.from).toBe(1);
+      expect(ticks.at(-1)!.to).toBe(turns.length);
+      for (let i = 1; i < ticks.length; i += 1) expect(ticks[i]!.from).toBe(ticks[i - 1]!.to + 1);
+      if (capacity) expect(ticks.length).toBeLessThanOrEqual(capacity);
+    }
+  });
+
+  it('what you sent it yourself from a chat counts as yours on the rail (still named, never mixed into a run)', () => {
+    const env = (from: string, id: string, body: string) =>
+      `<gugu_delivery route="chat" from="${from}" from_id="${id}" chat="7" chat_kind="group"><![CDATA[${body}]]></gugu_delivery>`;
+    const self = { userId: 'owner-1', displayName: 'Owner', guguNumber: null };
+    const turns = timelineTurnsFromTranscript([
+      turn('t1', 'user', [msg('u1', 'user', env('Ada', 'user:ada', '一'))]),
+      turn('t2', 'user', [msg('u2', 'user', env('Ada', 'user:ada', '二'))]),
+      turn('t3', 'user', [msg('u3', 'user', env('Owner', 'user:owner-1', '我在群里说的'))]),
+      turn('t4', 'user', [msg('u4', 'user', env('Ada', 'user:ada', '三'))]),
+    ], self);
+    expect(turns.map((t) => t.fromSelf ?? false)).toEqual([false, false, true, false]);
+    // Without the self turn those four deliveries would be one merged run; with it, Ada's stay single ticks around yours.
+    expect(shape(ticksFromTurns(turns, 0))).toEqual(['d1-1', 'd2-2', 'M3-3', 'd4-4']);
   });
 });

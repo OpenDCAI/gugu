@@ -19,6 +19,13 @@ export const MAGNIFICATION = 3;
 const LENS_RANGE = 3;
 /** Pill thickness. */
 export const PILL_WIDTH = 2;
+/**
+ * 静止时的药丸长度按来源分(owner 2026-10-28 定方案 A):你的话满墨加长,投递的短 —— 一眼找到「我说过的话」。
+ * 连续投递合成的那一段更粗(PILL_WIDTH × 2)、更淡,长度同投递。
+ */
+export const OWN_PILL_LENGTH = 18;
+export const DELIVERY_PILL_LENGTH = 8;
+export const RUN_PILL_WIDTH = PILL_WIDTH * 2;
 /** The reading line: px below the viewport top; the first row crossing it names「the turn being read」. */
 export const READING_LINE = 24;
 /** Synthetic rows flattenTier mints per turn (`${turnId}:<suffix>`), so they map back to their turn too. */
@@ -44,10 +51,11 @@ export function turnsPerTick(count: number, capacity: number): number {
 }
 
 // Adapted from Mantine Lens Select (MIT), via the vivid-layer Chat Minimap.
-export function markerWidth(index: number, hoveredIndex: number | null): number {
-  if (hoveredIndex === null) return ITEM_SIZE;
+/** 透镜给各格加同样的长度(中心 +ITEM_SIZE×(MAGNIFICATION−1)),从各自的静止长度 `base` 起:长短关系保留,放大后伸进 transcript 的距离与从前一样。 */
+export function markerWidth(index: number, hoveredIndex: number | null, base: number = ITEM_SIZE): number {
+  if (hoveredIndex === null) return base;
   const distance = Math.abs(index - hoveredIndex);
-  if (distance >= LENS_RANGE) return ITEM_SIZE;
+  if (distance >= LENS_RANGE) return base;
   const factor = (1 + Math.cos((Math.PI * distance) / LENS_RANGE)) / 2;
-  return ITEM_SIZE + (ITEM_SIZE * MAGNIFICATION - ITEM_SIZE) * factor;
+  return base + (ITEM_SIZE * MAGNIFICATION - ITEM_SIZE) * factor;
 }
