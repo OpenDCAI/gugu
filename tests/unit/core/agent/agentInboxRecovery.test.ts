@@ -33,33 +33,31 @@ beforeEach(() => { resetAgentInboxReaderStateForTests(); vi.useFakeTimers() })
 afterEach(() => { resetAgentInboxReaderStateForTests(); vi.useRealTimers() })
 
 describe('inbox recovery without another incoming message', () => {
-  it('keeps the desktop no-observer delivery and coalescing contract unchanged', async () => {
-    for (const observe of [false, true]) {
-      resetAgentInboxReaderStateForTests()
-      const { deps, inject } = inbox()
-      const scanned = vi.fn()
-      if (observe) deps.onScanComplete = scanned
-      let release!: () => void
-      const gate = new Promise<void>(resolve => { release = resolve })
-      const read = deps.fetchUnread!
-      deps.fetchUnread = vi.fn(async input => { await gate; return read(input) })
-      const first = pullAgentInbox(AGENT, deps)
-      const second = pullAgentInbox(AGENT, deps)
-      expect(second).toBe(first)
-      expect(scanned).not.toHaveBeenCalled()
-      release()
-      expect(await first).toEqual({ pulled: 1, injected: 1, verdict: 'accepted' })
-      expect(await second).toEqual({ pulled: 1, injected: 1, verdict: 'accepted' })
-      expect(deps.fetchUnread).toHaveBeenCalledTimes(2)
-      expect(inject).toHaveBeenCalledTimes(1)
-      expect(inject.mock.calls[0]![0].sourceMessageId).toBe(MESSAGE)
-      expect(deps.markRead).toHaveBeenCalledTimes(1)
-      expect(deps.markRead).toHaveBeenCalledWith({ agentUserId: AGENT, chatId: CHAT, messageId: MESSAGE })
-      expect(scanned).toHaveBeenCalledTimes(observe ? 1 : 0)
-      if (observe) expect(scanned).toHaveBeenCalledWith({ pulled: 1, injected: 1, verdict: 'accepted' })
-      await vi.advanceTimersByTimeAsync(120_000)
-      expect(deps.fetchUnread).toHaveBeenCalledTimes(2)
-    }
+  it.each([false, true])('keeps desktop delivery and coalescing unchanged (completion observer: %s)', async observe => {
+    resetAgentInboxReaderStateForTests()
+    const { deps, inject } = inbox()
+    const scanned = vi.fn()
+    if (observe) deps.onScanComplete = scanned
+    let release!: () => void
+    const gate = new Promise<void>(resolve => { release = resolve })
+    const read = deps.fetchUnread!
+    deps.fetchUnread = vi.fn(async input => { await gate; return read(input) })
+    const first = pullAgentInbox(AGENT, deps)
+    const second = pullAgentInbox(AGENT, deps)
+    expect(second).toBe(first)
+    expect(scanned).not.toHaveBeenCalled()
+    release()
+    expect(await first).toEqual({ pulled: 1, injected: 1, verdict: 'accepted' })
+    expect(await second).toEqual({ pulled: 1, injected: 1, verdict: 'accepted' })
+    expect(deps.fetchUnread).toHaveBeenCalledTimes(2)
+    expect(inject).toHaveBeenCalledTimes(1)
+    expect(inject.mock.calls[0]![0].sourceMessageId).toBe(MESSAGE)
+    expect(deps.markRead).toHaveBeenCalledTimes(1)
+    expect(deps.markRead).toHaveBeenCalledWith({ agentUserId: AGENT, chatId: CHAT, messageId: MESSAGE })
+    expect(scanned).toHaveBeenCalledTimes(observe ? 1 : 0)
+    if (observe) expect(scanned).toHaveBeenCalledWith({ pulled: 1, injected: 1, verdict: 'accepted' })
+    await vi.advanceTimersByTimeAsync(120_000)
+    expect(deps.fetchUnread).toHaveBeenCalledTimes(2)
   })
 
   it('observes existing automatic retry success once without another external trigger', async () => {
