@@ -140,6 +140,23 @@ describe('窄框里宿主塞进来的「新任务」收成标', () => {
     expect(verb.querySelector(':scope > svg')).not.toBeNull()
   })
 
+  it('会话底排宽:锁着的 harness 标在模型左边、不灰,模型那格不再画厂商图形', async () => {
+    await renderComposer(640, { tag: false })
+    const harness = document.querySelector<HTMLElement>(`${TOOLBAR} button[disabled][aria-label]:has(svg)`)!
+    expect(shown(harness), 'harness 标在').toBe(true)
+    expect(getComputedStyle(harness).opacity).toBe('1')
+    const model = document.querySelector('[data-testid="composer-model-trigger"]')!
+    expect(harness.getBoundingClientRect().right).toBeLessThanOrEqual(model.getBoundingClientRect().left)
+    expect(shown(model.querySelector('[role="img"]')), '厂商图形收掉').toBe(false)
+  })
+
+  it('会话底排 213px:harness 标让位,模型只剩厂商图形', async () => {
+    await renderComposer(213, { tag: false })
+    const model = document.querySelector('[data-testid="composer-model-trigger"]')!
+    expect(shown(model.querySelector('[role="img"]')), '厂商图形回来').toBe(true)
+    expect(shown(document.querySelector(`${TOOLBAR} button[disabled][aria-label]:has(svg)`))).toBe(false)
+  })
+
   it('输入行最前那枚「新任务 ×」在窄框里只剩标和 ×,编辑区不被挤没', async () => {
     await renderComposer(192, { tag: true })
     const tag = document.querySelector('[data-testid="tag-verb"]')!
