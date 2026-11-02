@@ -66,7 +66,7 @@ describe('avatar members use the page\'s declared API, independently of the host
     expect(modern.calls).toEqual(['chat'])
     roster = [member, joined]
     const joinedAvatars = [0, 1].map(() => {
-      const avatar = modern.document.createElement('gugu-avatar') as Element & { draw(): Promise<void> }
+      const avatar = modern.document.createElement('gugu-avatar') as HTMLElement & { draw(): Promise<void> }
       avatar.setAttribute('user', joined.id)
       avatar.setAttribute('name', '')
       modern.document.body.appendChild(avatar)
