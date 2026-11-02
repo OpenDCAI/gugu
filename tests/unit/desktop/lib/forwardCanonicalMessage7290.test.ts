@@ -13,7 +13,7 @@ vi.mock('@gugu/core/cloud/attachmentsApi', async original => ({ ...await origina
 vi.mock('../../../../apps/desktop/src/lib/attachmentSendRecovery', async original => ({ ...await original<typeof import('../../../../apps/desktop/src/lib/attachmentSendRecovery')>(), settleAttachmentSend: nativeSend }))
 vi.mock('../../../../apps/desktop/src/lib/fileAccess', () => ({ resolveFile, fileReader: (actorId: string) => ({ accountId: 'me', actorId }), fileReadSignal: () => new AbortController().signal }))
 vi.mock('@gugu/core/shared/fileResolver', async original => ({ ...await original<typeof import('@gugu/core/shared/fileResolver')>(), snapshotBlob: async () => new Blob(['abc']) }))
-vi.mock('../../../../apps/desktop/src/lib/readWriter', () => ({ writeRead: vi.fn(async () => {}) }))
+vi.mock('../../../../apps/desktop/src/lib/readWriter', async original => ({ ...await original<typeof import('../../../../apps/desktop/src/lib/readWriter')>(), writeRead: vi.fn(async () => {}) }))
 beforeEach(() => {
   vi.clearAllMocks()
   vi.stubGlobal('URL', class extends URL {
