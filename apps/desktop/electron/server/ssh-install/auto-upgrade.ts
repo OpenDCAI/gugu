@@ -29,7 +29,7 @@ export type RunUpgrade = (
   deviceId: string,
   onState: (state: ServerSshInstallState) => void,
   options?: { now?: boolean },
-) => Promise<ServerSshInstallState | null>
+) => Promise<(ServerSshInstallState & { unconfirmed?: { request: number; reportedVersion: string | null; update: DeviceCapabilities['server_update'] | null } }) | null>
 
 /** 下载那一步此刻的百分比(不知道总量 = null)。纯函数。 */
 export function upgradePercent(state: ServerSshInstallState): number | null {
@@ -68,6 +68,13 @@ export function createSshAutoUpgrader(options: {
       })
       .then((final) => {
         running.delete(deviceId)
+        if (final?.unconfirmed) {
+          // Stop this click's observer without inventing a terminal host outcome or reconnecting.
+          failedAt.set(deviceId, now())
+          log('ssh restart remains unconfirmed', { deviceId, ...final.unconfirmed })
+          options.emit({ deviceId, phase: 'unconfirmed', ...final.unconfirmed })
+          return
+        }
         // 升好 = 下载装了新的,或装着的已够新、把在跑的旧进程当场切了过去(service 那一步真的换了)。
         // 「装着的并不旧、在跑的也就是它」(什么也没装、什么也没换)算没升成:否则重连 → 又说太旧 → 又「升好了」,转圈。
         const finishedClean = !!final && final.finished && !final.failure
@@ -162,8 +169,10 @@ export function sshServerUpgradeRunner(options: {
       const now = options.now ?? Date.now
       const sleep = options.sleep ?? (ms => new Promise(resolve => setTimeout(resolve, ms)))
       const deadline = now() + 10 * 60_000
+      let reported: DeviceCapabilities | null = capabilities
       while (now() < deadline) {
-        const outcome = (await options.readCapabilities(deviceId))?.server_update?.lastOutcome
+        reported = await options.readCapabilities(deviceId).catch(() => null)
+        const outcome = reported?.server_update?.lastOutcome
         if (outcome?.request === receipt.at && outcome.kind !== 'waiting') {
           if (outcome.kind !== 'switched') return fail('serviceFailed', `Server update ${outcome.kind}`)
           run.setStep('download', { status: 'skipped', skippedBecause: 'alreadyInstalled', version: update.version })
@@ -174,7 +183,7 @@ export function sshServerUpgradeRunner(options: {
         }
         await sleep(2_000)
       }
-      return fail('serviceFailed', 'Timed out waiting for this server restart request to finish')
+      return { ...run.snapshot(), unconfirmed: { request: receipt.at, reportedVersion: reported?.app_version ?? null, update: reported?.server_update ?? null } }
     }
     const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'gugu-server-upgrade-'))
     const controlPath = options.controlPath()

@@ -174,6 +174,16 @@ describe('confirmed server update feedback', () => {
     expect(node('restarting')).not.toBeNull()
   })
 
+  it('continues to display a host-written pending request after the click observer has ended', async () => {
+    await render(server({ state: 'ready', version: target, lastOutcome: { kind: 'waiting', request: 42 } }))
+    expect(node('restarting')).not.toBeNull()
+    expect(node('update-now')).toBeNull()
+    expect(restart).not.toHaveBeenCalled()
+    await render(server({ state: 'idle', version: target, lastOutcome: { kind: 'switched', request: 42 } }, target))
+    expect(node('restarting')).toBeNull()
+    expect(toast).not.toHaveBeenCalled()
+  })
+
   const legacyChanges = [
     { name: 'ready to failure', before: { state: 'ready', version: target }, after: { state: 'failed', version: target } },
     { name: 'another failed target', before: { state: 'ready', version: target }, after: { state: 'failed', version: '0.3.1' } },

@@ -344,6 +344,13 @@ export function sshReinstallCommand(deviceId: string): string | null {
   return reinstallCommands.get(deviceId) ?? null
 }
 const upgradeListeners = new Set<(upgrades: ReadonlyMap<string, number | null>) => void>()
+const upgradeEventListeners = new Set<(event: SshUpgradeEvent) => void>()
+
+/** Presentation of one update event; this does not start an observer or send requests. */
+export function subscribeSshUpgradeEvents(listener: (event: SshUpgradeEvent) => void): () => void {
+  upgradeEventListeners.add(listener)
+  return () => { upgradeEventListeners.delete(listener) }
+}
 
 function publishUpgrades(): void {
   const snapshot = new Map(upgrades)
@@ -354,6 +361,7 @@ function publishUpgrades(): void {
 export function applyUpgradeEvent(event: SshUpgradeEvent | null): void {
   if (!event || typeof event.deviceId !== 'string') return
   const { deviceId } = event
+  for (const listener of [...upgradeEventListeners]) listener(event)
   if (event.phase === 'failed' && event.reinstall) reinstallCommands.set(deviceId, event.reinstall)
   else reinstallCommands.delete(deviceId)
   if (event.phase === 'updating') {
@@ -362,7 +370,7 @@ export function applyUpgradeEvent(event: SshUpgradeEvent | null): void {
   } else if (event.phase === 'waitingIdle') {
     upgrades.delete(deviceId)
     setLinkProblem(deviceId, 'waitingIdle')
-  } else if (event.phase === 'desktopTooOld') {
+  } else if (event.phase === 'desktopTooOld' || event.phase === 'unconfirmed') {
     // 连接本身没毛病;「请更新这台电脑上的咕咕」由那台机器报的协议窗口说(serverMachineNotices)。
     upgrades.delete(deviceId)
     setLinkProblem(deviceId, null)

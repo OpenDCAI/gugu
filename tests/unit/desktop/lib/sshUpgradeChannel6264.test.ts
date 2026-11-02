@@ -8,6 +8,7 @@ import {
   onSshMachineSignedIn,
   subscribeSshLinkProblems,
   subscribeSshUpgrades,
+  subscribeSshUpgradeEvents,
 } from '../../../../apps/desktop/src/lib/sshLinkChannel'
 import type { SshLinkFailure } from '../../../../apps/desktop/src/lib/sshLink'
 
@@ -40,5 +41,18 @@ describe('替它升级的每一步 → 设备连接的状况', () => {
     offProblems()
     offUpgrades()
     offSignedIn()
+  })
+
+  it('an unconfirmed observation stops local progress without claiming a switch or reconnecting', () => {
+    const events: string[] = []
+    let upgrades: ReadonlyMap<string, number | null> = new Map()
+    const offEvents = subscribeSshUpgradeEvents(event => events.push(event.phase))
+    const offUpgrades = subscribeSshUpgrades(next => { upgrades = next })
+    const offSignedIn = onSshMachineSignedIn(() => events.push('reconnected'))
+    applyUpgradeEvent({ deviceId: 'pending', phase: 'updating' })
+    applyUpgradeEvent({ deviceId: 'pending', phase: 'unconfirmed', request: 42, reportedVersion: '1.0.0' })
+    expect(upgrades.has('pending')).toBe(false)
+    expect(events).toEqual(['updating', 'unconfirmed'])
+    offEvents(); offUpgrades(); offSignedIn()
   })
 })

@@ -793,6 +793,7 @@ export default {
       "confirmRestart": "Restart",
       "restarting": "Restarting…",
       "restartFailed": "Couldn't confirm the restart on {{name}}. Check its connection and try again.",
+      "restartUnconfirmed": "The restart on {{name}} has not been confirmed. Its last reported version is {{version}}. Check Settings → Devices for the result.",
       "restartTimeout": "{{name}} hasn't reported {{version}} yet. Check the device before trying again."
     },
     "versionUnknown": "Version unknown",

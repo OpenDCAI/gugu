@@ -5,7 +5,7 @@ import { createSshAutoUpgrader, sshServerUpgradeRunner } from '../../../../apps/
 
 const caps = (value: Partial<DeviceCapabilities>): DeviceCapabilities => ({ terminals: [], runtimes: [], ...value })
 const ready = caps({ server_confirmed_restart: true, server_update: { state: 'ready', version: '2.0.0' } })
-const state = (request: number, kind: 'waiting' | 'switched' | 'failed' | 'refused' | 'rolledBack'): DeviceCapabilities => caps({ server_update: { state: 'idle', version: '2.0.0', lastOutcome: { request, kind } } })
+const state = (request: number, kind: 'waiting' | 'switched' | 'failed' | 'refused' | 'rolledBack'): DeviceCapabilities => caps({ app_version: '1.0.0', server_update: { state: 'idle', version: '2.0.0', lastOutcome: { request, kind } } })
 function fixture(initial: DeviceCapabilities = ready, next: DeviceCapabilities[] = [state(42, 'switched')]) {
   let reads = 0
   let clock = 0
@@ -43,9 +43,20 @@ describe('SSH prepared updates share installation controls and A7 outcomes', () 
     expect((await f.run())?.failure?.reason).toBe('serviceFailed')
     expect(f.readCapabilities).toHaveBeenCalledOnce()
   })
-  it('a different request cannot complete the update', async () => {
+  it('ends the observer as unconfirmed with the last host report, without inventing an outcome or retrying', async () => {
     const f = fixture(ready, [])
-    expect((await f.run())?.failure).toMatchObject({ reason: 'serviceFailed', detail: expect.stringContaining('Timed out') })
+    const result = await f.run()
+    expect(result).toMatchObject({ failure: null, finished: false, unconfirmed: {
+      request: 42, reportedVersion: '1.0.0', update: { lastOutcome: { kind: 'switched', request: 41 } },
+    } })
+    expect(f.call).toHaveBeenCalledOnce()
+    expect(f.readCapabilities).toHaveBeenCalledTimes(301)
+  })
+  it('an unavailable report after acknowledgement is unknown rather than a failed restart', async () => {
+    const f = fixture()
+    f.readCapabilities.mockReset().mockResolvedValueOnce(ready).mockRejectedValue(new Error('offline'))
+    expect(await f.run()).toMatchObject({ failure: null, finished: false, unconfirmed: { request: 42, reportedVersion: null, update: null } })
+    expect(f.call).toHaveBeenCalledOnce()
   })
   it('a released account host uses its legacy control without inventing a receipt', async () => {
     const f = fixture(caps({ server_update: { scope: 'account', state: 'ready', version: '2.0.0' } }))

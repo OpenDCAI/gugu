@@ -793,6 +793,7 @@ export default {
       "confirmRestart": "重启",
       "restarting": "正在重启…",
       "restartFailed": "未能确认「{{name}}」已开始重启，请检查连接后重试。",
+      "restartUnconfirmed": "尚未确认「{{name}}」的重启结果，宿主最后上报的版本是 {{version}}。请在设置 → 设备中查看后续结果。",
       "restartTimeout": "「{{name}}」尚未报告 {{version}}，请先检查那台设备再重试。"
     },
     "versionUnknown": "版本未知",

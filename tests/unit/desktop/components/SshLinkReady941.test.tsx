@@ -3,8 +3,11 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { createReactHarness, device, clickElement } from '../../../support/testHarness'
 import type { Device } from '@gugu/core/shared/types/chat'
 import { translateSessionMessage } from '../../../../apps/desktop/src/session/renderer/localization/locale-store'
+import { act } from 'react'
+import { ToastContext } from '@/components/toastContext'
+import type { SshUpgradeEvent } from '@/lib/sshLink'
 
-const state = vi.hoisted(() => ({ devices: [] as Device[], ssh: false, calls: [] as unknown[][] }))
+const state = vi.hoisted(() => ({ devices: [] as Device[], ssh: false, calls: [] as unknown[][], onUpgrade: null as ((event: SshUpgradeEvent) => void) | null }))
 vi.mock('@/lib/deviceRpc', () => ({ callDeviceRpc: async (...args: unknown[]) => { state.calls.push(args); return { result: { requested: true } } } }))
 vi.mock('@/store/devicesContext', () => ({ useDevicesStore: () => ({ devices: state.devices }) }))
 vi.mock('@/lib/sshLinkChannel', () => ({
@@ -14,6 +17,10 @@ vi.mock('@/lib/sshLinkChannel', () => ({
     return () => {}
   },
   subscribeSshSignInPrompts: () => () => {},
+  subscribeSshUpgradeEvents: (listener: (event: SshUpgradeEvent) => void) => {
+    state.onUpgrade = listener
+    return () => { state.onUpgrade = null }
+  },
   answerSshSignInPrompt: vi.fn(), requestSshServerUpgrade: vi.fn(), signInSshMachine: vi.fn(), sshReinstallCommand: vi.fn(),
 }))
 import { SshLinkSignIn } from '@/components/SshLinkSignIn'
@@ -52,6 +59,15 @@ it('leaves the existing SSH upgrader waiting branch unchanged', async () => {
   await harness.render(<SshLinkSignIn />)
   expect(document.body.textContent).toContain('空闲')
   expect(document.body.textContent).not.toContain(target)
+})
+
+it('reports an expired observer neutrally with the actual host version', async () => {
+  const toast = vi.fn()
+  state.devices = [server(undefined, true)]
+  await harness.render(<ToastContext.Provider value={{ toast }}><SshLinkSignIn /></ToastContext.Provider>)
+  await act(async () => { state.onUpgrade?.({ deviceId: 'remote', phase: 'unconfirmed', request: 42, reportedVersion: '1.0.0' }) })
+  expect(toast).toHaveBeenCalledWith(expect.stringContaining('1.0.0'), 'info')
+  expect(toast.mock.calls[0]?.[0]).not.toMatch(/失败|成功|failed|succeeded/)
 })
 
 async function confirmRestart() {

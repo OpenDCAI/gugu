@@ -484,6 +484,7 @@ function DeviceRow({
   const bootFailed = model.update?.state === 'failed' && model.update.reason === 'boot-failed'
   const restartable = canRestart && (model.update?.state === 'ready' || bootFailed)
   const outcome = model.update?.lastOutcome
+  const hostWaiting = outcome?.kind === 'waiting'
   // New hosts answer this exact request. Old ACKs have no identity: yield to a changed host fact.
   const answered = restarting && (model.update?.scope !== restarting.before.scope || (typeof restarting.request === 'number'
     ? outcome?.request === restarting.request && outcome.kind !== 'waiting'
@@ -536,8 +537,8 @@ function DeviceRow({
           <div className="flex min-w-0 flex-wrap items-center gap-[7px]">
             <span className="truncate text-[length:var(--font-body)] font-semibold text-[var(--fg)]">{device.label}</span>
             {model.kind === 'this' && <Chip tone="accent">{t('devices.current')}</Chip>}
-            {restarting && <Chip tone="accent" data-testid="settings-device-restarting">{t('devices.update.restarting')}</Chip>}
-            {!restarting && (model.update?.state === 'ready' || model.update?.state === 'downloading') && (
+            {(restarting || hostWaiting) && <Chip tone="accent" data-testid="settings-device-restarting">{t('devices.update.restarting')}</Chip>}
+            {!restarting && !hostWaiting && (model.update?.state === 'ready' || model.update?.state === 'downloading') && (
               <Chip
                 tone={model.update.state === 'ready' && !supervisorReady ? 'accent' : 'default'}
                 title={supervisorReady ? readyText : t(model.update.state === 'ready' ? 'devices.update.readyHint' : 'devices.update.downloadingHint', { version: model.update.version })}
@@ -548,7 +549,7 @@ function DeviceRow({
                   : t('devices.update.downloading', { version: model.update.version })}
               </Chip>
             )}
-            {model.update?.state === 'ready' && canRestart && onRestartVersionNow && updateNow === null && (
+            {model.update?.state === 'ready' && !hostWaiting && canRestart && onRestartVersionNow && updateNow === null && (
               <Button size="sm" onClick={() => setUpdateNow('ask')} data-testid="settings-device-update-now">{t('devices.update.updateNow')}</Button>
             )}
             {model.notices

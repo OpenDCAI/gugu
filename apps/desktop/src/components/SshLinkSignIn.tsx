@@ -13,6 +13,7 @@ import {
   sshReinstallCommand,
   subscribeSshLinkProblems,
   subscribeSshSignInPrompts,
+  subscribeSshUpgradeEvents,
 } from '../lib/sshLinkChannel'
 import type { SshPrompt } from '../session/shared/ssh-prompt'
 import { useDevicesStore } from '../store/devicesContext'
@@ -24,6 +25,7 @@ import { Button } from './ui/Button'
 import { InlineAction } from './settings/addServer/InlineAction'
 import { CommandBlock } from './settings/addServer/CommandBlock'
 import { LoadingIndicator } from '@/lib/loading/LoadingIndicator'
+import { useToast } from './toastContext'
 
 // #6264 远程 SSH 的机器:这台电脑与它之间只走 SSH(product spec「两种连法，处处能用」)。
 // 连不上时 ❌ 退回咕咕云,各个模块照常报「问不到」;「怎么修」只在这一处说 —— 一张浮在窗口顶部中间的卡片
@@ -40,6 +42,7 @@ export function SshLinkSignIn() {
   const { t } = useTranslation('settings')
   const { translate } = useSessionMessages()
   const { devices } = useDevicesStore()
+  const { toast } = useToast()
   const [problems, setProblems] = useState<ReadonlyMap<string, SshLinkFailure>>(() => new Map())
   const [dismissed, setDismissed] = useState<ReadonlyMap<string, SshLinkFailure>>(() => new Map())
   const [signingIn, setSigningIn] = useState<string | null>(null)
@@ -48,6 +51,13 @@ export function SshLinkSignIn() {
   const [confirmRestart, setConfirmRestart] = useState<string | null>(null)
 
   useEffect(() => subscribeSshLinkProblems(setProblems), [])
+  useEffect(() => subscribeSshUpgradeEvents(event => {
+    if (event.phase !== 'unconfirmed') return
+    toast(t('devices.update.restartUnconfirmed', {
+      name: devices.find(device => device.device_id === event.deviceId)?.label ?? event.deviceId,
+      version: event.reportedVersion ?? t('devices.versionUnknown'),
+    }), 'info')
+  }), [devices, t, toast])
   useEffect(
     () =>
       subscribeSshSignInPrompts((event) => {
