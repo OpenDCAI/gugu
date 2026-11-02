@@ -20,10 +20,12 @@ export type TaskExchangePage = { entries: TaskExchange[]; cursor: number; hasMor
 
 export function taskExchangeFromRow(row: {
   id: string; position: number; sessionId: string; content: string; timestamp: string; metadata: string | null;
+  /** The message's one receipt (session-life's pending row, or the legacy outbox's for legs not on it yet). */
+  receipt: string | null;
 }, fromSessionId: string): TaskExchange | null {
-  let metadata: { kind?: string; state?: string };
+  let metadata: { kind?: string };
   try { metadata = JSON.parse(row.metadata ?? 'null'); } catch { return null; }
-  if (metadata?.kind !== 'session-direct' || metadata.state !== 'accepted') return null;
+  if (metadata?.kind !== 'session-direct' || row.receipt !== 'accepted') return null;
   const reading = readDeliveryEnvelope(row.content);
   if (!reading || reading.segments.length !== 1) return null;
   const segment = reading.segments[0]!;

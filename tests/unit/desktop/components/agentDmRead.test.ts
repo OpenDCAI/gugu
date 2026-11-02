@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest'
-import { AgentDmReadCursor, dmTranscriptItem, visibleDmMessageIds } from '../../../../apps/desktop/src/components/chat/agent-dm-read'
+import { AgentDmReadCursor, visibleDmMessageIds } from '../../../../apps/desktop/src/components/chat/agent-dm-read'
 import { message } from '../../../support/testHarness'
 
 const rows = Array.from({ length: 8 }, (_, index) => message({ id: `reply-${index + 1}`, seq: index + 1, is_mine: false }))
@@ -19,9 +19,6 @@ it('waits for a first unread outside the loaded window and uses only canonical r
   const cursor = new AgentDmReadCursor('reply-1', 0)
   expect(cursor.visible(['reply-8'], rows.slice(4))).toEqual([])
   expect(cursor.canFollow(rows.slice(4))).toBe(false)
-  const aliases = new Map([['call:sent:reply-1', ['reply-1']], ['reply-1', ['reply-1']]])
-  expect(dmTranscriptItem('reply-1', aliases)).toBe('call:sent:reply-1')
-  expect(dmTranscriptItem('missing', aliases)).toBeNull()
 })
 
 it('does not let a resolved hidden delivery notice block the following visible reply', () => {
@@ -82,4 +79,23 @@ it('reads a newly projected receipt after its IM row arrived before the transcri
   cursor.acknowledge(2)
   expect(cursor.visible([rows[1].id], rows.slice(0, 3))).toEqual([])
   expect(cursor.canFollow(rows.slice(0, 3))).toBe(false)
+})
+
+it('reads DM ids off the record: one per batched delivery row, and the agent message_send receipt', async () => {
+  const { dmMessageIdsByItem } = await import('../../../../apps/desktop/src/components/chat/agent-dm-read')
+  const { renderDeliveryEnvelope } = await import('@gugu/core/local/agent/deliveryEnvelope')
+  const envelope = (id: string) => renderDeliveryEnvelope({ route: 'chat', from: 'Me', fromId: 'user:me', fromType: 'human', messageId: `msg:${id}`,
+    at: '2026-10-31T00:00:00Z', chat: 'dm', chatKind: 'ai', content: 'OK' })
+  const sent = '6417511d-8f36-4cbc-8cbb-81ce9f97df71'
+  const turns = [
+    { id: 'in', seq: 0, initiator: 'user', items: [{ kind: 'message', id: 'batch', seq: 0, role: 'user', text: `${envelope('m1')}\n${envelope('m2')}` }] },
+    { id: 'out', seq: 1, initiator: 'agent', items: [{ kind: 'mcp-tool-call', id: 'call', toolCallId: 'call', seq: 1, title: 'Send', server: 'plugin_gugu-product_gugu',
+      status: 'done', tool: 'message_send', rawInput: JSON.stringify({ chat_id: 'dm', text: 'Done' }), outputText: JSON.stringify({ message_id: sent }) }] },
+  ] as unknown as import('@gugu/session-core/acp/client').TranscriptTurn[]
+  const ids = dmMessageIdsByItem(turns)
+  expect(ids.get('batch')).toEqual(['m1', 'm2'])
+  expect(ids.get('batch:batch-0')).toEqual(['m1'])
+  expect(ids.get('batch:batch-1')).toEqual(['m2'])
+  expect(ids.get(`call:sent:${sent}`)).toEqual([sent])
+  expect(ids.has('m1')).toBe(false)
 })

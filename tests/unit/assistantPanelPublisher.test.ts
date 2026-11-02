@@ -40,7 +40,7 @@ function transport() {
         removeBeforeCommit = false
         rows.set(key,{ ...old!,revision: String(++revision),deleted_at: '2026-10-26',data: {},body_item_id: null,body_sha256: null })
       }
-      if ((rows.get(key)?.revision ?? '0') !== change.expectedRevision) throw new AssistantPanelError('40001','changed')
+      if ((rows.get(key)?.revision ?? '0') !== change.expectedRevision) throw new AssistantPanelError('PT409','changed')
       const receipt = { operationId: change.operationId,revision: String(++revision),status: 'applied' as const }
       rows.set(key,{ assistant_user_id: 'assistant',owner_user_id: 'owner',domain: change.domain,resource_key: change.key,
         revision: receipt.revision,device_id: change.deviceId ?? null,data: change.data ?? {},body_item_id: change.body?.itemId ?? null,
@@ -251,7 +251,7 @@ it('records a rejected first publication as error even when the error marker los
     if (change.operation === 'error' && conflict) {
       conflict = false
       await original(assistant,{ ...change,operationId: 'concurrent-marker',operation: 'prepared',data: { state: 'ready',schemaVersion: 1,itemCount: 0 } })
-      throw new AssistantPanelError('40001','Marker changed')
+      throw new AssistantPanelError('PT409','Marker changed')
     }
     return original(assistant,change)
   })

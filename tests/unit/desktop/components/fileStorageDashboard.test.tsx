@@ -17,6 +17,7 @@ const overview = {
   groups: [{ chat_id: 'g1', name: 'Design', project: false, bytes: 3000, count: 3 }, { chat_id: 'g2', name: 'Alpha', project: false, bytes: 3000, count: 3 }],
   expiring: [file('f.pdf', 1, 600), file('b.zip', 2, 900, 'g2'), file('c.txt', 3, 100), file('d.md', 4, 700), file('e.png', 5, 300), file('a.key', 6, 800), file('g.csv', 7, 200)],
   machines: [{ device_id: 'd1', label: 'Studio Mac', files: 4, bytes: 5000, temporary_copy_bytes: 0 }],
+  expiry: { large_file_bytes: 1024 * 1024, idle_seconds: 30 * 86_400 },
 }
 
 describe('the 「文件存储与读取」 dashboard (owner 10-28 design): the caller\'s own cloud copies', () => {
@@ -42,6 +43,23 @@ describe('the 「文件存储与读取」 dashboard (owner 10-28 design): the ca
     expect(document.querySelector('canvas, svg[data-chart]')).toBeNull()
     expect($('file-storage-machine')!.textContent).toContain('Studio Mac')
     expect($('file-storage-machine')!.textContent).toContain('fileStorage.dashboard.machineHintNone')
+  })
+
+  it('states the kept files\' rule beside them, with the threshold and days the deployment sets', async () => {
+    const open = async () => {
+      const trigger = document.querySelector<HTMLElement>('[data-testid="file-storage-legend-kept"] [aria-label="fileStorage.dashboard.keptRuleLabel"]')!
+      await act(async () => { trigger.click() })
+      await vi.waitFor(() => expect(document.body.textContent).toContain('fileStorage.dashboard.keptRule'))
+    }
+    await ready()
+    expect(document.querySelectorAll('[aria-label="fileStorage.dashboard.keptRuleLabel"]')).toHaveLength(1)
+    await open()
+    expect(document.body.textContent).toContain('fileStorage.dashboard.keptRule {"size":"1 MB","days":30}')
+    harness.cleanup(); harness = createReactHarness()
+    f.overview.mockResolvedValue({ ...overview, expiry: null })
+    await ready()
+    await open()
+    expect(document.body.textContent).toContain('fileStorage.dashboard.keptRuleNoExpiry')
   })
 
   it('deletes cloud copies only after a second confirmation, of the classes ticked there (temporary by default)', async () => {

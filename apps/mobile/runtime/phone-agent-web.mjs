@@ -2,6 +2,7 @@ import { lookup } from 'node:dns/promises'
 import { request } from 'node:https'
 import { BlockList, isIP } from 'node:net'
 import { createHash } from 'node:crypto'
+import { anySignal } from '../../../packages/core/src/shared/anySignal.ts'
 
 const fail = (code, message) => Object.assign(new Error(message), { code })
 const MAX_BYTES = 2 * 1024 * 1024
@@ -87,7 +88,7 @@ export function readableWebText(body, html) {
 
 export async function fetchPhoneWebPage(value, { signal, resolve = lookup, requestPage = request } = {}) {
   const deadline = AbortSignal.timeout(25_000)
-  const abort = signal ? AbortSignal.any([signal, deadline]) : deadline
+  const abort = anySignal([signal, deadline])
   let url = publicWebUrl(value)
   for (let redirects = 0; redirects <= 5; redirects += 1) {
     abort.throwIfAborted()

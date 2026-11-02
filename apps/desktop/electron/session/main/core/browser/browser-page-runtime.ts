@@ -1,4 +1,5 @@
 import type { BrowserWindow, NativeImage, Rectangle, WebContents, WebContentsView } from 'electron';
+import { anySignal } from '@gugu/core/shared/anySignal';
 
 export type BrowserPageLease = {
   ready: Promise<void>;
@@ -190,7 +191,7 @@ export class BrowserPageRuntime {
     if (this.closed || this.contents.isDestroyed()) return Promise.reject(new Error('the browser tab was closed'));
     const token = {};
     this.users.add(token);
-    const signal = consumer ? AbortSignal.any([this.lifetime.signal, consumer]) : this.lifetime.signal;
+    const signal = anySignal([this.lifetime.signal, consumer]);
     let started = false;
     const run = async () => {
       started = true;

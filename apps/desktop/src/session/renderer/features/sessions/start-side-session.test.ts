@@ -64,11 +64,12 @@ function nextCall(mock: ReturnType<typeof vi.fn>): Promise<void> {
   return called.promise;
 }
 
-function agent(fork: 'supported' | 'none'): AgentPayload {
+function agent(fork: 'supported' | 'none' | 'pty-only'): AgentPayload {
+  const legs = { supported: ['pty', 'acp'], none: [], 'pty-only': ['pty'] }[fork];
   return {
     id: 'codex',
     name: 'Codex',
-    capabilities: { sessions: { fork } },
+    capabilities: { sessions: { fork: legs } },
   } as unknown as AgentPayload;
 }
 
@@ -103,9 +104,19 @@ describe('runtime-only side chat entry', () => {
     expect(mocks.askedMachines).toEqual([null, 'dev-d22']);
   });
 
-  it('gates the entry on the provider sessions.fork capability', () => {
+  it('gates the entry on the ACP leg fork capability', () => {
     expect(canStartSideSession('project-1', 'task-1', [agent('supported')])).toBe(true);
     expect(canStartSideSession('project-1', 'task-1', [agent('none')])).toBe(false);
+  });
+
+  it('a CLI-only fork (pi --fork) does not offer side chat, whatever the source runtime', async () => {
+    expect(canStartSideSession('project-1', 'task-1', [agent('pty-only')])).toBe(false);
+    mocks.source.runtime = 'pty';
+    expect(canStartSideSession('project-1', 'task-1', [agent('pty-only')])).toBe(false);
+    mocks.getAgent.mockResolvedValueOnce(agent('pty-only'));
+    startSideSession('project-1', 'task-1');
+    await vi.waitFor(() => expect(mocks.toast).toHaveBeenCalled());
+    expect(mocks.open).not.toHaveBeenCalled();
   });
 
   it('does not treat unresolved agent metadata as unsupported', () => {

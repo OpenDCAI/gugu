@@ -186,7 +186,6 @@ export function sessionListFromDigest(digest: readonly DeviceSessionSummary[] | 
     }
     sessions.push({
       ...(entry.nativeInputVersion === 1 ? { nativeInputVersion: 1 as const } : {}),
-      ...(entry.nativeUnreadCount !== undefined ? { nativeUnreadCount: entry.nativeUnreadCount } : {}),
       conversationId: entry.conversationId,
       projectId: entry.projectId,
       title: entry.title,

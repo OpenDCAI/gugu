@@ -6,7 +6,7 @@
     "productivity"
   ],
   "version": "0.1.0",
-  "apiVersion": 24,
+  "apiVersion": 25,
   "defaultLocale": "zh-CN",
   "subtitle": "代码里的 TODO 扫成看板",
   "platforms": ["desktop"],

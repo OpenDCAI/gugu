@@ -15,8 +15,8 @@ export const sessionChangedChannel = defineEvent<{
   sessionId: string;
   projectId: string;
   changes: {
-    /** Native personal replies still unseen; independent of the project attention flag. */
-    nativeUnreadCount?: number;
+    /** The host read journal changed; list subscribers reread the unseen reply keys. */
+    nativeUnreadKeys?: true;
     /** The host's native preview changed; list subscribers reread the canonical summary. */
     nativeLastMessage?: true;
     /**
@@ -130,3 +130,6 @@ export const sessionStartStageChannel = defineEvent<{
   /** 这一步开始的时刻(ms);`stage` 为 null 时省略。 */
   since?: number;
 }>('session:start-stage');
+
+/** session-life: the single lifecycle projection of an ACP session, published after every transition. */
+export const sessionLifeViewChannel = defineEvent<import('./session-life').LifeView>('session:life-view');

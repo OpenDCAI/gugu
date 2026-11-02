@@ -12,13 +12,13 @@ import { until } from '../../../../../../../../tests/support/awaitCondition';
 // hand, and the download site asked behind it (`marketRefresh`); an index that came back different is read again in place.
 const h = vi.hoisted(() => {
   const item = (id: string, version = '1.0.0') => ({
-    manifest: { id, name: `App ${id}`, version, apiVersion: 24, defaultLocale: 'en', entry: 'index.html', contributes: { tabs: [{ name: 'main', title: id }] } },
+    manifest: { id, name: `App ${id}`, version, apiVersion: 25, defaultLocale: 'en', entry: 'index.html', contributes: { tabs: [{ name: 'main', title: id }] } },
     ref: { extensionId: id, version },
     cloud: {
       version,
       bundleSha256: 'a'.repeat(64),
       bundleBytes: 10,
-      apiVersion: 24,
+      apiVersion: 25,
       minAppVersion: '0.1.0',
       releaseNotes: '',
       publishedAt: '2026-10-01T00:00:00Z',
@@ -132,8 +132,9 @@ describe('the App page market: the index in hand at once, the download site behi
   }
 
   beforeEach(() => {
-    dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>');
+    dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', { url: 'http://localhost/' });
     vi.stubGlobal('window', dom.window);
+    vi.stubGlobal('localStorage', dom.window.localStorage);
     vi.stubGlobal('document', dom.window.document);
     vi.stubGlobal('HTMLElement', dom.window.HTMLElement);
     vi.stubGlobal('Event', dom.window.Event);
@@ -176,6 +177,39 @@ describe('the App page market: the index in hand at once, the download site behi
     await open();
     expect(tiles()).toHaveLength(0);
     expect(skeleton()).not.toBeNull();
+  });
+
+  /**
+   * The first frame after a restart is drawn from the shelf the last client kept (kept-shelf.ts). A client from before the App
+   * model v2 (#1188) kept manifests of its own shape — no `defaultLocale` — and drawing them threw (beta 1119: the whole App
+   * page 「Cannot read properties of undefined (reading 'split')」). Such a shelf is no shelf: the page waits for the market.
+   */
+  it('a shelf kept by an older client (manifests of its shape) is not drawn — ❌ a crash, the market answer is drawn', async () => {
+    const kept = (manifest: Record<string, unknown>) => {
+      const { ref, cloud } = h.item('one');
+      localStorage.setItem(`gugu.appsShelf.v1:${h.host.key}`, JSON.stringify({
+        items: [{ manifest, ref, cloud }],
+        ids: { featured: [], remaining: ['one'], newest: ['one'], popular: null },
+        extra: { invalid: [], total: 1, page: 0 },
+      }));
+    };
+    const answer = deferred<unknown>();
+    h.api.market.mockReturnValue(answer.promise);
+    // Control: a shelf kept by this client is drawn at once, before the market answers.
+    kept({ ...h.item('one').manifest, name: 'Kept one' });
+    await open();
+    expect(tileIds()).toEqual(['one']);
+    await close();
+    // As a client before #1188 wrote it: `description`, an older apiVersion, no `defaultLocale`.
+    h.host.key = `local-${Math.random()}`;
+    const { defaultLocale: _gone, ...before } = h.item('one').manifest;
+    kept({ ...before, apiVersion: 23, description: 'One. An App.' });
+    await open();
+    expect(doc().body.textContent).not.toMatch(/reading 'split'/);
+    expect(tiles()).toHaveLength(0);
+    await act(async () => answer.resolve(h.listing(['one', 'two'], T1)));
+    await until('the market answer drawn', tileIds, (ids) => ids.length > 0);
+    expect(tileIds()).toEqual(['one', 'two']);
   });
 
   it('opening asks the download site once; nothing changed → the market is not read again', async () => {

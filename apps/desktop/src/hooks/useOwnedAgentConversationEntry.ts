@@ -39,19 +39,21 @@ export function useOwnedAgentConversationEntry(input: {
     const peer = state.chats.find(chat => chat.id === chatId && (chat.kind === 'dm' || chat.kind === 'ai'))?.peer_user_id ?? peerId
     const contact = state.contacts.find(one => one.id === peer) ?? (peer ? state.identitiesById[peer] : undefined)
     if (!contact || !isOwnedAgent(contact, state.ownerId) || contact.id === readAssistantShellBridge()?.getSnapshot()?.assistant?.id) return false
-    if (!sourceChatId && chatId) state.setActiveChatId(chatId)
     const old = draftState.current
     const incoming: NativeComposerDraft | undefined = typeof draft === 'string' ? { text: draft } : draft
     const text = incoming ? incoming.append ? appendToDraft(chatId ? old.drafts?.[chatId] ?? '' : '', incoming.text) : incoming.text : chatId ? old.drafts?.[chatId] ?? '' : ''
     const carried = [...(chatId ? old.draftAttachments?.[chatId] ?? [] : []), ...(incoming?.files ?? []).map(file => ({ id: crypto.randomUUID(), file, kind: file.type.startsWith('image/') ? 'image' as const : 'file' as const }))]
     if (incoming && chatId) { old.writeDraft(chatId, text); old.setDraftAttachments(chatId, carried) }
-    if (!sourceChatId) state.onOpen()
     const api = desktopIpc()
     void ownedAgentConversation(contact.id, {
       rows: directoryRows([...devices, ...(phones ?? [])], liveDeviceSessions()),
       localContext: async () => api ? parseSessionpageAgentContext(await api.invoke('sessionpage:agent-context', contact.id)) : null,
     }).then(async target => {
       if (asked !== generation.current || current.current.ownerId !== state.ownerId) return
+      if (!sourceChatId) {
+        if (chatId) state.setActiveChatId(chatId)
+        state.onOpen()
+      }
       let groupParticipantRequestId: string | undefined
       if (sourceChatId && !state.mobile) {
         const bridge = readSessionpageViewRequestBridge()

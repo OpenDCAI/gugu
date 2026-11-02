@@ -18,13 +18,13 @@ export function assistantPanelRoutines(panel: AssistantPanelFiles) {
     },
     async setEnabled(id: string, enabled: boolean, expectedRevision?: string) {
       const item = (await items()).find(row => row.resource_key === id)
-      if (!item || expectedRevision && expectedRevision !== item.revision) throw new AssistantPanelError('40001','PANEL_RESOURCE_CHANGED')
+      if (!item || expectedRevision && expectedRevision !== item.revision) throw new AssistantPanelError('PT409','PANEL_RESOURCE_CHANGED')
       await panel.change(item,enabled ? 'enable' : 'disable')
     },
     async remove(id: string, expectedRevision?: string) {
       const item = (await items()).find(row => row.resource_key === id)
       if (!item) return
-      if (expectedRevision && item.revision !== expectedRevision) throw new AssistantPanelError('40001','PANEL_RESOURCE_CHANGED')
+      if (expectedRevision && item.revision !== expectedRevision) throw new AssistantPanelError('PT409','PANEL_RESOURCE_CHANGED')
       await panel.change(item,'remove')
     },
     async next(id: string) {

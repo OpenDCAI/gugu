@@ -35,6 +35,7 @@ import { serverProtocolTooOld } from '@gugu/core/cloud/serverMachineHealth'
 import type { SshLinkFailure } from '../../src/lib/sshLink'
 import { classifySshFailure, unknownCommandLine, type SshTarget } from './ssh-install/logic'
 import { sshBatchArgs } from './ssh-batch'
+import { desktopServerChannel, remoteServerPaths } from './server-names'
 
 const ACCOUNT_ID = /^[A-Za-z0-9_-]{1,128}$/
 
@@ -55,7 +56,7 @@ export function sshLinkArgs(
   // --adopt-ssh:老机器第一次被装它的那台桌面经 SSH 接上时补记「远程 SSH」。经远程隧道的中转连过去的 ❌ 带它
   // (那会把一台远程隧道的机器记成远程 SSH,设备列表标错、机器上限数错)。
   const adopt = options.adoptSsh === false ? '' : ' --adopt-ssh'
-  return sshBatchArgs(target, `exec ~/.local/bin/gugu-server link --account ${options.accountUserId}${adopt}`, options.controlPath)
+  return sshBatchArgs(target, `exec ${remoteServerPaths(desktopServerChannel()).binTilde} link --account ${options.accountUserId}${adopt}`, options.controlPath)
 }
 
 /** 还没接上就结束了:为什么(退出码 + 标准错误最后几行)。纯函数。 */

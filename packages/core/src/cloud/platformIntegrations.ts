@@ -27,6 +27,7 @@
  * 不碰 node / electron。
  */
 import { CloudComputerError, cloudComputerErrorFromResponse, isCloudComputerNotOpen } from './cloudComputer'
+import { anySignal } from '../shared/anySignal'
 
 export type PlatformIntegrationAccount = {
   accountId: string
@@ -233,7 +234,7 @@ export function createPlatformIntegrationsClient(options: {
         method,
         headers: init,
         body: body === undefined ? undefined : JSON.stringify(body),
-        signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
+        signal: anySignal([signal, timeout]),
       })
       raw = await response.text()
     } catch (error) {

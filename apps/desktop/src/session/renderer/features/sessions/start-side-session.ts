@@ -6,7 +6,7 @@ import { rpcOn } from '@renderer/lib/ipc';
 import { machineRegistry } from '@renderer/lib/machine-routing';
 import { translateSessionMessage } from '@renderer/localization/locale-store';
 import { log } from '@renderer/utils/logger';
-import type { AgentPayload } from '@shared/core/agents/agent-payload';
+import { agentForksOn, type AgentPayload } from '@shared/core/agents/agent-payload';
 import { activeChatSessionId } from './view/session-pane-policy';
 
 /**
@@ -25,8 +25,7 @@ export function canStartSideSession(
     // Agent metadata is loaded asynchronously. An unresolved list is not evidence that
     // the provider lacks fork support; startSideSession performs the authoritative check.
     (agents === undefined ||
-      agents.find((agent) => agent.id === candidate.source.providerId)?.capabilities.sessions.fork ===
-        'supported')
+      agentForksOn(agents.find((agent) => agent.id === candidate.source.providerId)?.capabilities, 'acp'))
   );
 }
 
@@ -53,7 +52,8 @@ export function startSideSession(projectId: string, sessionId: string): void {
   void rpcOn(machineRegistry.machineOf(source.id))
     .agents.get(source.providerId)
     .then((agent) => {
-      if (agent?.capabilities.sessions.fork !== 'supported') {
+      // Side chat is an ACP runtime tab whatever the source's runtime: it needs the ACP leg's fork.
+      if (!agentForksOn(agent?.capabilities, 'acp')) {
         throw new Error(
           translateSessionMessage('chat.forkUnsupported', {
             name: agent?.name ?? source.providerId,

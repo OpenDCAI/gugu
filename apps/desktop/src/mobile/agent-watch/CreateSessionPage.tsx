@@ -380,7 +380,7 @@ export function CreateSessionPage({
     >
       {!online ? device.cloud_computer === 'asleep' || device.cloud_computer === 'waking'
         ? <CloudComputerNote device={device} issue={wakeIssue} dropped={wakeDropped} onRetry={retryWake} />
-        : <OfflineNote lastSeenAt={device.last_seen_at} phone={phone} /> : null}
+        : <OfflineNote device={device} /> : null}
         <AssistantRuntimeProvider runtime={runtime}>
           <div className="gg-aw-thread-host" data-testid="agent-watch-create-thread">
             <ComposerExtrasProvider

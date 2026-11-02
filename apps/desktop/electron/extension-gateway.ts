@@ -26,6 +26,7 @@ import {
   type ExtensionProgram,
   type ExtensionPrograms,
 } from './session/main/core/extensions/extension-programs'
+import { anySignal } from '@gugu/core/shared/anySignal'
 
 /**
  * The extension gateway (Refs #6615): sessions reach extension programs only through here; gugu runs
@@ -335,7 +336,7 @@ export function createExtensionGatewayHost(
         if (!access.ok) return refused(access.next)
         const current = installed(entry)
         if (!current) return refused(`App ${entry.extensionId} no longer ships program ${entry.server}`)
-        return trackRequest(callProgram(programs(), current, { agentId, agentUserId: subjectId }, name, args, extra, AbortSignal.any([grantSignal, extra.signal]), readers), name)
+        return trackRequest(callProgram(programs(), current, { agentId, agentUserId: subjectId }, name, args, extra, anySignal([grantSignal, extra.signal]), readers), name)
       })
       return server
     },

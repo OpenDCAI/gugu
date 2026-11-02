@@ -41,7 +41,6 @@ vi.mock('@renderer/lib/monaco/monaco-model-registry', () => ({
     registerModel: mocks.registerModel,
     unregisterModel: mocks.unregisterModel,
     toDiskUri: (uri: string) => uri.replace(/^file:\/\//, 'disk://'),
-    toGitUri: (uri: string) => uri.replace(/^file:\/\//, 'git://'),
     diskVersion: (workspaceId: string, path: string) => mocks.diskVersions.get(`${workspaceId}:${path}`) ?? 0,
   },
 }));
@@ -84,7 +83,7 @@ describe('FileModelManager', () => {
       success: true,
       data: { success: true, dataUrl: 'data:image/svg+xml;base64,ignored' },
     });
-    const registered = registeredTimes(3, 'file://root/art.svg');
+    const registered = registeredTimes(2, 'file://root/art.svg');
 
     const resource = {
       setImageContent: vi.fn(),
@@ -100,11 +99,10 @@ describe('FileModelManager', () => {
     manager.acquire('art.svg', resource as never);
 
     await registered;
-    expect(mocks.registerModel).toHaveBeenCalledTimes(3);
+    expect(mocks.registerModel).toHaveBeenCalledTimes(2);
     expect(mocks.readImage).not.toHaveBeenCalled();
     expect(mocks.registerModel.mock.calls.map(([, , , , , type]) => type)).toEqual([
       'disk',
-      'git',
       'buffer',
     ]);
     expect(resource.setImageContent).not.toHaveBeenCalled();
@@ -173,8 +171,6 @@ describe('FileModelManager', () => {
 
     await registered;
     expect(mocks.registerModel).toHaveBeenCalledTimes(2);
-    // Disk to render it, buffer to edit it — but no git side: nothing tracks a file
-    // outside every workspace, so there is no revision to diff against.
     expect(mocks.registerModel.mock.calls.map(([, , , , , type]) => type)).toEqual([
       'disk',
       'buffer',
@@ -183,12 +179,12 @@ describe('FileModelManager', () => {
     expect(mocks.readFile).not.toHaveBeenCalled();
   });
 
-  it('keeps a workspace file on the workspace root and all three models', async () => {
+  it('keeps a workspace file on the workspace root', async () => {
     mocks.readFile.mockResolvedValue({
       success: true,
       data: { content: 'a,b', binary: false, truncated: false, totalSize: 3 },
     });
-    const registered = registeredTimes(3, 'file://workspace:workspace-1/data.csv');
+    const registered = registeredTimes(2, 'file://workspace:workspace-1/data.csv');
 
     const manager = new FileModelManager({
       projectId: 'project-1',
@@ -199,11 +195,27 @@ describe('FileModelManager', () => {
     manager.acquire('data.csv', { isExternal: false } as never);
 
     await registered;
-    expect(mocks.registerModel).toHaveBeenCalledTimes(3);
+    expect(mocks.registerModel).toHaveBeenCalledTimes(2);
     expect(mocks.registerModel.mock.calls.map(([, , root]) => root)).toEqual([
       'workspace:workspace-1',
       'workspace:workspace-1',
-      'workspace:workspace-1',
     ]);
+  });
+
+  // 文件页签不读 git 那一侧:非 git 工作区的 git 读取只会失败,不能挡住正文。
+  it('registers no git model, so a workspace without git still shows the file', async () => {
+    const registered = registeredTimes(2, 'file://workspace:workspace-1/notes.txt');
+    const manager = new FileModelManager({
+      projectId: 'project-1',
+      workspaceId: 'workspace-1',
+      modelRootPath: 'workspace:workspace-1',
+    });
+
+    manager.acquire('notes.txt', { isExternal: false } as never);
+
+    await registered;
+    expect(mocks.registerModel.mock.calls.map(([, , , , , type]) => type)).toEqual(['disk', 'buffer']);
+    manager.dispose();
+    expect(mocks.unregisterModel.mock.calls.flat().some((uri) => String(uri).startsWith('git://'))).toBe(false);
   });
 });

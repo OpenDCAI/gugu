@@ -14,6 +14,8 @@ export type { WorkReport, PendingAssistantWork } from '../../src/session/shared/
 type WorkSource = Pick<PendingAssistantWork, 'source_link' | 'source_message_id' | 'source_summary'>
 export type AssistantWorkBinding = { sessionId: string; memoryDir: string; agentId?: string; currentInput?: () => Promise<WorkSource | undefined> }
 const listeners = new Set<() => void>()
+/** A message's recipients that hold it: admitted, or durably queued in their session (it is not resent). */
+const handedOver = new Set(['delivered', 'accepted', 'queued'])
 export function onAssistantWorkChanged(listener: () => void): () => void { listeners.add(listener); return () => { listeners.delete(listener) } }
 const empty = (): { version: 1; items: PendingAssistantWork[]; settled?: PendingAssistantWork[] } => ({ version: 1, items: [] })
 /** How many finished works stay reopenable; older ones are only in the account ledger. */
@@ -265,8 +267,8 @@ export async function coordinateAssistantAction(binding: AssistantWorkBinding, a
     }
     const out = result as { session_id?: string; recipients?: Array<{ to: string; session_id?: string; status: string; message_id?: string }>; state?: string; question_id?: string }
     if (record.action === 'spawn' && out?.session_id) store.confirm(id, [out.session_id.startsWith('session:') ? out.session_id : `session:${out.session_id}`], [])
-    else if (record.action === 'message' && out?.recipients?.some(recipient => recipient.status === 'delivered' || recipient.status === 'accepted')) {
-      const delivered = out.recipients.filter(recipient => recipient.status === 'delivered' || recipient.status === 'accepted')
+    else if (record.action === 'message' && out?.recipients?.some(recipient => handedOver.has(recipient.status))) {
+      const delivered = out.recipients.filter(recipient => handedOver.has(recipient.status))
       store.confirm(id, delivered.map(recipient => recipient.session_id ?? recipient.to), delivered.flatMap(recipient => recipient.message_id ? [recipient.message_id] : []))
     } else if (out?.state === 'pending' && out.question_id) store.confirm(id, [], [], out.question_id)
     else store.uncertain(id)

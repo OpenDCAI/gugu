@@ -1,5 +1,5 @@
 import type { ToolImage, ToolNode, TranscriptItem, TranscriptTurn } from '@gugu/session-core/acp/client'
-import type { RecordCursor, Settlement } from '@gugu/session-core/session-record/contract'
+import type { NativeSessionRecord, RecordCursor, Settlement } from '@gugu/session-core/session-record/contract'
 import type { AgentWatchTimeline } from './agent-watch-store'
 import { emptyAgentWatchTimeline } from './agent-watch-store'
 import { getAgentWatchStore, type AgentWatchLocalStore, type LocalRow } from '@/session/shared/remote-sessions/local-store'
@@ -205,7 +205,43 @@ function sizeOf(value: TranscriptTurn): number {
   }
 }
 
-async function persist(entry: CachedEntry): Promise<void> {
+/**
+ * An ACP task's record (useNativeSessionRecord) kept the same way: the last page this phone read, so the page is not
+ * blank while that machine is away. Same store, index and limits as the timelines; only the shape differs.
+ */
+const nativeMemory = new Map<string, NativeSessionRecord>()
+const nativeKeyOf = (key: TimelineCacheKey) => `native:${keyOf(key)}`
+
+export function readCachedNativeRecord(key: TimelineCacheKey): NativeSessionRecord | null {
+  return nativeMemory.get(nativeKeyOf(key)) ?? null
+}
+
+export async function hydrateCachedNativeRecord(key: TimelineCacheKey): Promise<NativeSessionRecord | null> {
+  const id = nativeKeyOf(key)
+  const known = nativeMemory.get(id)
+  if (known) return known
+  try {
+    const row = await (await getAgentWatchStore()).read('timeline', id)
+    const record = row?.record as NativeSessionRecord | undefined
+    if (!record || !Array.isArray(record.turns)) return null
+    nativeMemory.set(id, record)
+    return record
+  } catch {
+    return null
+  }
+}
+
+export function writeCachedNativeRecord(key: TimelineCacheKey, record: NativeSessionRecord): void {
+  if (record.turns.length === 0 && !record.activeTurn) return
+  const id = nativeKeyOf(key)
+  let bytes: number
+  try { bytes = JSON.stringify(record).length } catch { return }
+  if (bytes > MAX_ENTRY_BYTES) return
+  nativeMemory.set(id, record)
+  void persist({ key: id, savedAt: Date.now(), record, bytes })
+}
+
+async function persist(entry: CachedEntry | { key: string; savedAt: number; record: NativeSessionRecord; bytes: number }): Promise<void> {
   try {
     const store = await getAgentWatchStore()
     await store.put('timeline', entry as unknown as LocalRow)
@@ -233,7 +269,7 @@ async function readIndex(store: AgentWatchLocalStore): Promise<IndexRow[]> {
   return Array.isArray(items) ? (items as IndexRow[]) : []
 }
 
-async function noteInIndex(store: AgentWatchLocalStore, entry: CachedEntry): Promise<void> {
+async function noteInIndex(store: AgentWatchLocalStore, entry: Pick<CachedEntry, 'key' | 'savedAt' | 'bytes'>): Promise<void> {
   const rest = (await readIndex(store)).filter((one) => one.key !== entry.key)
   const next = [{ key: entry.key, savedAt: entry.savedAt, bytes: entry.bytes }, ...rest]
   await store.put('meta', { key: INDEX_KEY, savedAt: Date.now(), items: next })
@@ -261,6 +297,7 @@ async function pruneIfDue(store: AgentWatchLocalStore): Promise<void> {
       continue
     }
     memory.delete(row.key)
+    nativeMemory.delete(row.key)
     await store.delete('timeline', row.key)
   }
   if (kept.length !== rows.length) {
@@ -271,6 +308,7 @@ async function pruneIfDue(store: AgentWatchLocalStore): Promise<void> {
 /** 测试与收尾用：内存与库一起清。 */
 export async function clearTimelineCache(): Promise<void> {
   memory.clear()
+  nativeMemory.clear()
   lastPruneAt = 0
   try {
     await (await getAgentWatchStore()).clear()
@@ -287,4 +325,5 @@ export async function clearTimelineCache(): Promise<void> {
  */
 export function forgetInMemoryTimelines(): void {
   memory.clear()
+  nativeMemory.clear()
 }

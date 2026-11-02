@@ -2,6 +2,7 @@ import { createClient } from '@supabase/supabase-js'
 import { uuid } from './phone-agent-store.mjs'
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { phoneRequestFailure, phoneRequestOperation } from './phone-agent-network.mjs'
+import { anySignal } from '../../../packages/core/src/shared/anySignal.ts'
 
 export function jwtClaims(token) {
   try { return JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString('utf8')) } catch { throw new Error('owner access token is malformed') }
@@ -34,7 +35,7 @@ export function createPhoneAgentCloud(config, onSession, fetcher = fetch, { onRe
     // Timers created during issuance (for example model renewal) outlive preparation.
     const scope = context?.active ? context : null
     const timeout = scope ? Math.max(1, Math.min(12_000, scope.deadline - Date.now())) : 30_000
-    const signal = AbortSignal.any([init.signal, scope?.signal, AbortSignal.timeout(timeout)].filter(Boolean))
+    const signal = anySignal([init.signal, scope?.signal, AbortSignal.timeout(timeout)])
     const operation = phoneRequestOperation(input, init)
     try {
       signal.throwIfAborted()

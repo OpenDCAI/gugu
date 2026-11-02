@@ -1,3 +1,4 @@
+import { openRuntimeFork, runtimeFork, type RuntimeFork } from './session-life-forks';
 import { createRPCController } from '@shared/lib/ipc/rpc';
 import { archiveSession, restoreSession } from './archiveSession';
 import { dehydrateSession } from './dehydrateSession';
@@ -16,6 +17,7 @@ import { setSessionPinned } from './setSessionPinned';
 import { setSessionParent } from './session-family';
 import { switchSessionRuntime } from './switch-session-runtime';
 import { sendMessage } from './sendMessage';
+import { sessionLife } from './session-life';
 import { ensurePlatformSessionReady } from './platform-recovery-gate';
 import { recordLiveSessionSetting } from './record-live-session-setting';
 import { recordLiveModelSwitch } from './live-model-switch';
@@ -70,5 +72,17 @@ export const sessionController = createRPCController({
   // 屏上的会话由渲染层报(主进程看不见界面),闲置回收据此不停人正看着的会话(renderer/app/sessions-on-screen.ts)。
   reportSessionsOnScreen: async (sessionIds: string[]) => {
     setSessionsOnScreen(sessionIds);
+  },
+  // session-life: the ACP lifecycle projection (later changes arrive on sessionLifeViewChannel) and the person's
+  // explicit start — the only way a page brings an ACP session up.
+  lifeView: async (sessionId: string) => sessionLife().read(sessionId),
+  lifeStart: async (sessionId: string) => { sessionLife().start(sessionId, 'user-open'); },
+  lifeStop: (sessionId: string) => sessionLife().interrupt(sessionId, { k: 'interrupt', reason: 'user-stop' }),
+  // A side chat is a fork entry of Life: opened by its page, fed through the same custody send, ended when the
+  // page closes it or its session ends.
+  lifeFork: async (fork: RuntimeFork) => openRuntimeFork(fork),
+  lifeEnd: (forkId: string) => {
+    if (!runtimeFork(forkId)) throw new Error(`Session ${forkId} is not a side chat; it ends by archive or delete`);
+    return sessionLife().interrupt(forkId, { k: 'interrupt', reason: 'delete' });
   },
 });

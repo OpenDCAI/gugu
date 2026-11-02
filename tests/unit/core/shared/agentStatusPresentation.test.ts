@@ -53,6 +53,15 @@ describe('presentAgentStatus — the one table', () => {
     }
   })
 
+  it('a session-life lifecycle word answers before the reading, after reachability', () => {
+    for (const lifecycle of ['starting', 'archived'] as const) {
+      expect(presentAgentStatus({ reading: r('working', 'running'), reachability: 'online', lifecycle })).toMatchObject({ tone: lifecycle, label: lifecycle, animate: false })
+    }
+    expect(presentAgentStatus({ reading: null, reachability: 'removed', lifecycle: 'starting' }).tone).toBe('removed')
+    expect(agentStatusColorVar('starting')).toBe('var(--agent-tone-muted)')
+    expect(labelOfDisplayStatus('starting')).toBe('starting')
+  })
+
   it('colors come from the --agent-tone-* tokens: orange / yellow / red', () => {
     expect(agentStatusColorVar('running')).toBe('var(--agent-tone-running)')
     expect(agentStatusColorVar('parked')).toBe('var(--agent-tone-running)')
@@ -75,7 +84,7 @@ describe('chat folds the presentation into its coarse status', () => {
     expect(displayStatusOf('needs_user')).toBe('needs_user')
     expect(displayStatusOf('error')).toBe('error')
     for (const tone of ['done', 'idle', 'online', 'none'] as const) expect(displayStatusOf(tone)).toBe('idle')
-    for (const tone of ['offline', 'removed', 'pending'] as const) expect(displayStatusOf(tone)).toBe(tone)
+    for (const tone of ['offline', 'removed', 'pending', 'starting'] as const) expect(displayStatusOf(tone)).toBe(tone)
   })
 
   it('coarse label and color agree with the table', () => {

@@ -89,7 +89,6 @@ function collab(agents: GroupAgentItem[], humans: GroupMemberItem[] = []): Group
     humans,
     agents,
     tasks: [],
-    outputs: [],
   }
 }
 

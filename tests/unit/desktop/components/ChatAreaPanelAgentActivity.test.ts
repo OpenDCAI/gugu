@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { readComposer } from '../../../support/composerEditor'
-import { createElement } from 'react'
+import { act, createElement } from 'react'
 import { ChatAreaPanel } from '../../../../apps/desktop/src/components/ChatAreaPanel'
 import { AUTOMATION_TEST_IDS } from '../../../../apps/desktop/src/lib/automationDom'
 import type { Device, MessageItem } from '@gugu/core/shared/types/chat'
@@ -18,9 +18,6 @@ import { chatDisplayName } from '@gugu/core/shared/ui/chatModels'
 import { drainTopicSplitRequest } from '../../../../apps/desktop/src/lib/topicSplitRequest'
 
 
-vi.mock('../../../../apps/desktop/src/components/chat/AgentDmConversation', () => ({
-  AgentDmConversation: ({ chat }: { chat: { peer_user_id?: string } }) => createElement('div', { 'data-testid': 'agent-dm-conversation', 'data-agent-user-id': chat.peer_user_id }),
-}))
 
 // @@@store-status-mock - Overridable so tests can flip the store's reported status independently of the
 const presenceMock = vi.hoisted(() => ({
@@ -83,7 +80,6 @@ vi.mock('../../../../apps/desktop/src/lib/chat', () => ({
         humans: [],
         agents: groupMock.agents,
         tasks: [],
-        outputs: [],
       },
       // 名册与身份同源同出(#5610):写入侧断言要求名册成员都带身份,这里按 groupMock 给全。
       identities: (groupMock.agents as Array<{ id: string; display_name: string; avatar?: string | null; owner_user_id?: string | null }>).map((agent) => ({
@@ -136,11 +132,11 @@ describe('ChatAreaPanel agent activity placement', () => {
   // @@@1506 - owner: running 状态轻量浮动文字、在输入框上方（不再是消息列表内的最后一行 #1102）。
   // DM 的「运行中」从 in-list 移到 composer 上方的 agent-running-status 浮动条；流式正文仍留消息流。
   // 它显不显、显什么,只看那张 agent 表说这个 agent 在不在跑 —— ❌ 没有第二个来源可以让它单独亮或单独灭。
-  it('routes agent DMs to the unified conversation instead of the IM list', async () => {
+  // Owned agents open their task page before reaching here; an agent DM that still arrives (another owner's
+  // agent from before #509) is an ordinary IM conversation.
+  it('shows an agent DM that reaches the chat surface as an ordinary IM list', async () => {
     await renderChatArea({ activeChat: chat({ id: 'chat-1', kind: 'ai', name: 'Agent', peer_user_id: 'agent-1' }), messages: [mineMessage({})] })
-    expect(harness.container.querySelector('[data-testid="agent-dm-conversation"]')?.getAttribute('data-agent-user-id')).toBe('agent-1')
-    expect(harness.container.querySelector('[data-testid="agent-running-status"]')).toBeNull()
-    expect(harness.container.querySelector(`[data-testid="${AUTOMATION_TEST_IDS.chatMessageList}"]`)).toBeNull()
+    expect(harness.container.querySelector(`[data-testid="${AUTOMATION_TEST_IDS.chatMessageList}"]`)).not.toBeNull()
   })
 
   // 对话头的名字与对话列表、⌘K 面板、「来自 X」同一个函数(chatDisplayName):私聊写对方,备注优先。
@@ -263,6 +259,39 @@ describe('ChatAreaPanel agent activity placement', () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+
+  it('re-reads topic settings for a source-group membership revision, ignoring other groups', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      let onChange: AccountRevisionListener = () => {}
+      const subscribeAccountRevision = (event: string | readonly string[], listener: AccountRevisionListener) => {
+        if (event === 'chat_members_changed') onChange = listener
+        return () => undefined
+      }
+      await renderWithAppProviders(harness, createNode(ChatAreaPanel, {}), {
+        auth: { id: 'viewer-1' },
+        chat: { getImRepository: getImRepositoryMock, subscribeAccountRevision, setActiveChatId: vi.fn(), activeChatId: 'topic-1', activeChat: chat({ id: 'topic-1', kind: 'topic', source_chat_id: 'source-1' }), messages: [] },
+      })
+      const settings = vi.mocked(chatService.getGroupChatSettings)
+      const before = settings.mock.calls.length
+      await act(async () => {
+        onChange([{ revision: '1', event: 'chat_members_changed', payload: { chat_id: 'other-group' } }])
+        await vi.advanceTimersByTimeAsync(350)
+      })
+      expect(settings).toHaveBeenCalledTimes(before)
+      await act(async () => {
+        onChange([{ revision: 'other-reader', event: 'chat_members_changed', payload: { chat_id: 'source-1', user_id: 'another-user', last_read_seq: 42 } }])
+        await vi.advanceTimersByTimeAsync(350)
+      })
+      expect(settings).toHaveBeenCalledTimes(before)
+      await act(async () => {
+        onChange([{ revision: '2', event: 'chat_members_changed', payload: { chat_id: 'source-1', user_id: 'viewer-1' } }])
+        await vi.advanceTimersByTimeAsync(350)
+      })
+      expect(settings).toHaveBeenCalledTimes(before + 1)
+      expect(settings).toHaveBeenLastCalledWith('topic-1')
+    } finally { vi.useRealTimers() }
   })
 
   it('uses public Gugu numbers in direct chat message profile popovers', async () => {

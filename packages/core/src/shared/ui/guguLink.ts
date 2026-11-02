@@ -1,4 +1,4 @@
-export { guguLinkScheme } from './linkScheme.mjs'
+export { guguLinkScheme, tierSuffix } from './linkScheme.mjs'
 
 export type LinkPlace = { chat: string } | { session: string }
 
@@ -25,6 +25,12 @@ const UUID = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'
 // The file, then anything after `?` and `#`: a link is read for what it names and the rest is let be (155 10-15 — a
 // parser anchored on the whole link read every later addition as no link at all; dev to 0.2.54 did).
 const GROUP_FILE_LINK = new RegExp(`^gugu-file://(${UUID})/?(?:\\?([^#]*))?(?:#(.*))?$`, 'is')
+
+/**
+ * A group file's link as it stands in text (a message, an App's words): it ends where markdown or prose would end it
+ * — `groupFileLink` escapes all of these inside one. What it found is read by `parseGroupFileLink`.
+ */
+export const FILE_LINK_IN_TEXT = /gugu-file:\/\/[^\s()[\]<>"'`]+/gi
 
 /**
  * `gugu-file://<itemId>[?v=<version>][#<place>]` — a file of a group's (or a topic's) workspace, as the MCP tools and

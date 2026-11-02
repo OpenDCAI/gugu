@@ -162,7 +162,7 @@ describe('one agent status source for React and MobX', () => {
     await settle()
     setLocalAgentStatus('local-source-agent', {
       sessionId: 'local-task', reading: { status: 'working', detail: 'running', running: true, background: null },
-      unseen: false, reviewGate: null, providerBlocker: null, statusSourceFault: null,
+      unseen: false, reviewGate: null, providerBlocker: null, statusSourceFault: null, life: null,
     })
     expect(snapshot).toBe(getAgentPresenceSnapshot('local-source-agent'))
     expect(getAgentPresenceSnapshot('local-source-agent')?.presentation).toMatchObject({ tone: 'running', animate: true })

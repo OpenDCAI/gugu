@@ -7,7 +7,7 @@ function registerAccess(extensionId: string, parent?: AbortSignal) {
   own.add(controller);
   active.set(extensionId, own);
   return {
-    signal: parent ? AbortSignal.any([parent, controller.signal]) : controller.signal,
+    signal: anySignal([parent, controller.signal]),
     revoked: controller.signal,
     release() {
       own.delete(controller);
@@ -56,3 +56,5 @@ export async function withExtensionProgramAccess<T>(extensionId: string, parent:
     access.release();
   }
 }
+
+import { anySignal } from '@gugu/core/shared/anySignal'

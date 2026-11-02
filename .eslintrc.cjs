@@ -270,6 +270,12 @@ module.exports = {
   ],
   rules: {
     'no-restricted-syntax': ['error', noSyncSpawnInput],
+    // Android System WebView before 116 has no AbortSignal.any: calling it threw before the request was sent (images
+    // could not load). One function owns the native call and its fallback; everything else combines signals through it.
+    'no-restricted-properties': ['error', {
+      object: 'AbortSignal', property: 'any',
+      message: 'Use anySignal from @gugu/core/shared/anySignal: AbortSignal.any is missing on Android WebView before 116.'
+    }],
     'react-refresh/only-export-components': ['warn', { allowConstantExport: true }],
     '@typescript-eslint/no-explicit-any': 'warn',
     // @@@task-fusion (#2802) — vars/caughtErrors 也认 `_` 前缀:会话页用 `const _x = ...` 表示

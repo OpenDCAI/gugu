@@ -42,6 +42,8 @@ export function presentationOfDisplayStatus(status: AgentDisplayStatus): AgentSt
     case 'removed':
     case 'pending':
       return presentAgentStatus({ reading: null, reachability: status })
+    case 'starting':
+      return presentAgentStatus({ reading: null, reachability: 'online', lifecycle: 'starting' })
   }
 }
 

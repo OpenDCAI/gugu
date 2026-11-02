@@ -10,6 +10,7 @@ import { useShowModal } from '@renderer/lib/modal/modal-provider';
 
 export function AppKeyboardShortcuts() {
   const showCommandPalette = useShowModal('commandPaletteModal');
+  const showGlobalSearch = useShowModal('globalSearchModal');
   const { exitZenMode, toggleLeft, toggleZenMode } = useWorkspaceLayoutContext();
 
   const { currentView } = useWorkspaceSlots();
@@ -34,6 +35,8 @@ export function AppKeyboardShortcuts() {
     getCommands: () => [
       { id: 'app.quickSwitcher', execute: () => openPalette('') },
       { id: 'app.commandPalette', execute: () => openPalette('> ') },
+      // Mod+Shift+F reopens the last search; the other entry points set their query first (openGlobalSearch).
+      { id: 'app.globalSearch', execute: () => showGlobalSearch({}) },
       { id: 'app.toggleLeftSidebar', execute: toggleLeft },
       { id: 'app.zenMode', execute: () => toggleZenMode(zenFilePanel()) },
     ],

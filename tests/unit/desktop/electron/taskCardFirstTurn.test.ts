@@ -3,6 +3,7 @@
 // 和人的私聊 = 原话(agent 进不去私聊)。项目群与普通群同一套:卡在群里、agent 的座位不动、不开话题。
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { parseComposerCard } from '../../../../packages/core/src/shared/ui/taskCardModels'
+import { renderFirstTurn } from '../../../../packages/core/src/local/agent/firstTurnRender'
 
 const roster = [{ name: 'Claude 7', gugu_user_id: 'agent-7', agent_type: 'claude-code', path: '', prompt: '', created_at: 0 }]
 const LOOK = 'https://storage.test/avatars/agent-look/v1/agent-7.json'
@@ -95,11 +96,12 @@ describe('task card first turn (gugu-dev#181)', () => {
       agentType: 'claude-code', agentAvatar: LOOK,
       sessionId: 'session-1', projectId: 'project-1', deviceId: 'device-1', machineLabel: 'Mac Studio',
     })
-    expect(turn.envelope).toBe(true)
+    const rendered = renderFirstTurn('登录页闪一下，看看为什么', turn.render)
+    expect(rendered.origin).toBe('communication')
     expect(turn.chatId).toBe('00000000-0000-4000-8000-000000000001')
-    expect(turn.firstTurn).toContain('msg:00000000-0000-4000-8000-000000000004')
-    expect(turn.firstTurn).toContain('登录页闪一下，看看为什么')
-    expect(turn.firstTurn).not.toContain(TASK_CARD_NOT_MEMBER_HINT)
+    expect(rendered.text).toContain('msg:00000000-0000-4000-8000-000000000004')
+    expect(rendered.text).toContain('登录页闪一下，看看为什么')
+    expect(rendered.text).not.toContain(TASK_CARD_NOT_MEMBER_HINT)
     // A group (project group or not) keeps the agent's seat as it is and opens no topic.
     expect(rpcs).toEqual([])
   })
@@ -108,15 +110,17 @@ describe('task card first turn (gugu-dev#181)', () => {
     chats.set('00000000-0000-4000-8000-000000000002', { kind: 'group', public_id: 7, name: '别人的群', members: ['owner-1'] })
     const turn = await land('00000000-0000-4000-8000-000000000002')
     expect(writes).toHaveLength(1)
-    expect(turn.envelope).toBe(true)
-    expect(turn.firstTurn).toContain(TASK_CARD_NOT_MEMBER_HINT)
+    const rendered = renderFirstTurn('登录页闪一下，看看为什么', turn.render)
+    expect(rendered.origin).toBe('communication')
+    expect(rendered.text).toContain(TASK_CARD_NOT_MEMBER_HINT)
   })
 
   it('in a direct chat with a person the card stays there and the agent gets the plain words', async () => {
     chats.set('00000000-0000-4000-8000-000000000003', { kind: 'dm', public_id: null, name: null, members: ['owner-1', 'friend-1'] })
     const turn = await land('00000000-0000-4000-8000-000000000003')
     expect(writes).toHaveLength(1)
-    expect(turn).toEqual({ chatId: '00000000-0000-4000-8000-000000000003', firstTurn: '登录页闪一下，看看为什么', envelope: false })
+    expect(turn).toEqual({ chatId: '00000000-0000-4000-8000-000000000003', render: { kind: 'plain' } })
+    expect(renderFirstTurn('登录页闪一下，看看为什么', turn.render)).toEqual({ text: '登录页闪一下，看看为什么', origin: 'manual' })
   })
 
   it('fails loud when the chat is not visible to the owner, before writing anything', async () => {

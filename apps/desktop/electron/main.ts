@@ -7,6 +7,7 @@ import { createAssistantWorkAvailabilityNotifier } from '@gugu/core/cloud/assist
 import { registerFileViewerMenus } from './file-viewer-context-menu'
 import { registerContentContextMenus } from './content-context-menu'
 import { configuredEndpoint } from '@gugu/core/cloud/attachmentsApi'
+import { renderFirstTurn, type FirstTurnRender } from '@gugu/core/local/agent/firstTurnRender'
 import { createDesktopFileAccess } from './desktopFileAccess'
 import { createNativeFileHost, registerNativeFileIpc } from './nativeFileHost'
 import { uploadSessionFiles } from '@gugu/core/local/agent/sessionFileHandoff'
@@ -125,6 +126,7 @@ import { deviceRpcAskerLimitsFromEnv } from './device-rpc-askers'
 import type { MessagePreviewHostDeps } from './session/main/core/session-timeline/preview-rpc'
 import { MESSAGE_PREVIEW_EVENT } from '@gugu/session-core/session-record/message-preview'
 import { createDeviceLinkHost } from './server/device-link-host'
+import { desktopServerChannel } from './server/server-names'
 import { serverDeviceLabel } from '@gugu/core/cloud/serverConnectVia'
 import {
   noteTunnelActivity,
@@ -184,17 +186,23 @@ import {
 } from './sessionpage/session-injection'
 import {
   agentInboxDepsFromBridge,
+  createDeviceCommandHoldingResolver,
   resolveGuguIds as resolveGuguIdsForInbox,
   type AgentRosterRemovalReason,
 } from '@gugu/core/local/agent/deviceCommandRuntime'
 import {
+  discloseInboxRowsFailed,
   kickAgentInboxPull,
+  markInboxRowsRead,
   readAgentInboxBatchAuditForTest,
+  type AgentInboxReaderDeps,
+  type AgentInboxSource,
 } from '@gugu/core/local/agent/agentInboxReader'
+import type { PendingRow as SessionLifePendingRow } from './session/main/core/sessions/session-life-adapter'
+import { displayStatus } from '@shared/core/sessions/session-life'
 import { fetchThreadMessagesViaRest } from '@gugu/core/cloud/threadMessagesRest'
 // #4280 —— 壳的唯一 producer 住在这里,三条渠道都从它出字节。
 import {
-  buildAgentDeliveryEnvelope,
   formatDeliveryTimestamp,
   type GuguIdentity,
 } from '@gugu/core/local/agent/deliveryEnvelope'
@@ -413,7 +421,7 @@ import { EXTENSION_SCHEME } from '../src/session/shared/extensions/scheme'
 import { previewSchemePrivilege } from '../src/session/shared/preview/preview-url'
 import { setExtensionCheckAvailable } from './mcp/gugu-extension-tool'
 import { setGuideLookPicture } from './mcp/gugu-guide-tool'
-import { guguLinkScheme } from '@gugu/core/shared/ui/guguLink'
+import { guguLinkScheme, tierSuffix } from '@gugu/core/shared/ui/guguLink'
 import { agentAppsOf, extensionAgentPrograms } from './extension-session-mcp'
 // 仅类型:编译期擦除,不会把会话页主进程图提升到 app.setPath 之前(运行时加载见 whenReady 里的动态 import)。
 import type { SessionAction } from './sessionpage/emdash-main-bridge'
@@ -673,8 +681,6 @@ registerFileViewerMenus(app, () => currentHostCatalog().fileViewerMenu, (error) 
 // @@@gugu-tier - inlined at build time by vite (define in vite.config.mts), default 'production'.
 declare const __GUGU_TIER__: string
 declare const __GUGU_BUILD_DISTRIBUTION__: string
-// 给别的机器装哪条通道的 server,构建时按连的库定(vite.config.mts → scripts/build/build-env-preflight.mts serverChannelForDb)。
-declare const __GUGU_SERVER_CHANNEL__: 'stable' | 'beta'
 
 // @@@home-unify - one account home shared by desktop, CLI, and runtime host. The DEFAULT instance's
 if (!process.env.GUGU_HOME) {
@@ -684,7 +690,7 @@ if (!process.env.GUGU_HOME) {
     const home =
       __GUGU_TIER__ === 'production'
         ? resolveGuguHome(process.env)
-        : join(homedir(), `.gugu-${__GUGU_TIER__}`)
+        : join(homedir(), `.gugu${tierSuffix(__GUGU_TIER__)}`)
     const legacy = join(app.getPath('userData'), 'gugu-home')
     if (legacy !== home && existsSync(legacy) && !existsSync(home)) {
       mkdirSync(dirname(home), { recursive: true })
@@ -695,7 +701,7 @@ if (!process.env.GUGU_HOME) {
 }
 // @@@tmux-socket-isolation - Gugu must not share tmux's default socket with a user's own Homebrew tmux
 if (!process.env.GUGU_TMUX_SOCKET_LABEL) {
-  process.env.GUGU_TMUX_SOCKET_LABEL = __GUGU_TIER__ === 'production' ? 'gugu' : `gugu-${__GUGU_TIER__}`
+  process.env.GUGU_TMUX_SOCKET_LABEL = `gugu${tierSuffix(__GUGU_TIER__)}`
 }
 // @@@spawn-tmux-bin - Prefer the self-contained tmux built by build:tmux in both packaged
 // and source-launched app instances. Source-launched Electron does not inherit the user's
@@ -918,6 +924,11 @@ function createDeviceSessionpageBridge() {
     retireAgent: retireSessionpageAgent,
     ensureSessionReady: ensureSessionpageSessionReady,
     providerSessionIdForSession,
+    claimedSessionSources: (sessionId, messageIds) => {
+      const emdash = loadEmdashBridge()
+      if (!emdash) throw new Error('session-life: the session page module is not loaded')
+      return emdash.claimedSessionSources(sessionId, messageIds)
+    },
     applyAgentModelSelection: applyAgentModelSelectionOnDevice,
     // #6264 远端建 agent:目标机器(比如刚装好的咕咕 server)还没装这个 agent 时先装上,再进启动预算。
     ensureAgentInstalled: async (agentType, signal) => {
@@ -2585,18 +2596,42 @@ function handOffWechatIfAny(): void {
 // F33 渲染进程的协调器每接受一次会话(登录、每次续期)都写这份镜像,登出 / 会话永久丢失时清掉 ——
 // 这就是它把令牌推给主进程的那一条路,主进程记下来,平时的 getAuth 就不再问渲染进程。
 // 先记再写盘:落盘失败也不该让主进程继续用续期前的那份。
+// session-life runs for exactly one account. Its sign-out tears sessions down with the old credentials, so it is
+// awaited before they are replaced or cleared (contract v3.1 #10); a renewal of the same account changes nothing.
+let sessionLifeBooted = false
+/** Booted ⇒ the bridge is loaded; a missing bridge here is a broken boot, said loudly. */
+function bootedSessionLife() {
+  const bridge = loadEmdashBridge()
+  if (!bridge) throw new Error('session-life: the session page module is not loaded')
+  return bridge.sessionLife()
+}
+function pushedUserId(): string | null {
+  return typeof pushedHumanAuth === 'object' ? pushedHumanAuth?.userId ?? null : null
+}
+async function sessionLifeLeaveIfChanging(nextUserId: string | null): Promise<void> {
+  const current = pushedUserId()
+  if (sessionLifeBooted && current && current !== nextUserId) await bootedSessionLife().signOut()
+}
+async function sessionLifeEnter(): Promise<void> {
+  const userId = pushedUserId()
+  if (sessionLifeBooted && userId) await bootedSessionLife().signIn(userId)
+}
 ipcMain.handle('human-auth-session:write', async (_event, session: unknown) => {
+  const mirror = session as Parameters<typeof writeHumanAuthSession>[0]
+  const next = runtimeAuthFromSupabaseTokens({ accessToken: mirror.access_token, refreshToken: mirror.refresh_token })
+  await sessionLifeLeaveIfChanging(next?.userId ?? null)
   try {
-    const mirror = session as Parameters<typeof writeHumanAuthSession>[0]
     pushedHumanAuth = undefined
-    pushedHumanAuth = runtimeAuthFromSupabaseTokens({ accessToken: mirror.access_token, refreshToken: mirror.refresh_token })
+    pushedHumanAuth = next
     projectionDeviceRuntime.invalidate() // Revoke the old identity before awaiting persistence.
     return await writeHumanAuthSession(mirror)
   } finally {
     onHumanAuthSessionChanged()
+    await sessionLifeEnter()
   }
 })
 ipcMain.handle('human-auth-session:clear', async (_event, reason: unknown) => {
+  await sessionLifeLeaveIfChanging(null)
   try {
     pushedHumanAuth = reason === 'lost' ? 'lost' : null
     projectionDeviceRuntime.invalidate() // Disk deletion must not extend the old account's authority.
@@ -2748,7 +2783,7 @@ const updateFeedConfig = updateFeedOptions(updateChannel, process.platform)
 
 // #6264「从桌面用 SSH 一步装好」(设置 → 设备 → 添加一台机器)。server 模式没有窗口、也没人在界面上点,不挂。
 // 装哪条通道跟这台桌面连的库走:连生产库装正式版,别的库装 Beta(❌ 跟 tier 走:开发构建的 tier 也是 production)。
-const serverChannel = __GUGU_SERVER_CHANNEL__
+const serverChannel = desktopServerChannel()
 // #6264「别的机器上的编程只给用 SSH 装上的机器」:这台桌面上用 SSH 装上的机器(本机映射,不上云)。
 const sshMachineStore = SERVER_MODE ? null : createSshMachineStore(defaultSshMachinesFile(app.getPath('userData')))
 // 这台桌面到远程 SSH 机器的设备连接,一台机器一条:窗口(经 ssh-link-ipc)与主进程(agent 的 session_* 跨机器)共用。
@@ -3691,31 +3726,46 @@ function kickInboxForAgent(agentUserId: string, trigger: string, bootTaskId = ''
     onFailure: trigger === 'boot-scan' ? error => loadEmdashBridge()?.sessionBootTasks.record('inbox-wake', bootTaskId, error) : undefined,
     getAuth: () => authProvider?.getAuth(),
     log: createLogger('agent-inbox'),
-    kick: (auth) => {
-      const accessToken = auth.accessToken
-      const deps = agentInboxDepsFromBridge({
-        accessToken,
-        ownerUserId: auth.userId,
-        env: process.env,
-        runtimeBridge: createDeviceSessionpageBridge(),
-        resolveGuguIds: resolveGuguIdsForInbox,
-        fetchThreadMessages: (chatId, threadRootId) => fetchThreadMessagesViaRest(chatId, threadRootId, accessToken),
-        overrides: {
-          onBatch: ({ agentUserId: batchAgentUserId, rows, units }) => {
-            if (process.env.GUGU_SESSION_TEST_HOOKS === '1') {
-              createLogger('agent-inbox').info({
-                agentUserId: batchAgentUserId,
-                rows,
-                units,
-                trigger,
-              }, 'injectBatch')
-            }
-          },
-        },
-      })
-      kickAgentInboxPull(agentUserId, deps, trigger)
+    kick: (auth) => kickAgentInboxPull(agentUserId, inboxDepsFor(auth, trigger), trigger),
+  })
+}
+
+/** The reader's deps for one signed-in account, assembled fresh each time (tokens rotate). */
+function inboxDepsFor(auth: { accessToken: string; userId: string }, trigger: string) {
+  const accessToken = auth.accessToken
+  return agentInboxDepsFromBridge({
+    accessToken,
+    ownerUserId: auth.userId,
+    env: process.env,
+    runtimeBridge: createDeviceSessionpageBridge(),
+    resolveGuguIds: resolveGuguIdsForInbox,
+    fetchThreadMessages: (chatId, threadRootId) => fetchThreadMessagesViaRest(chatId, threadRootId, accessToken),
+    overrides: {
+      onBatch: ({ agentUserId: batchAgentUserId, rows, units }) => {
+        if (process.env.GUGU_SESSION_TEST_HOOKS === '1') {
+          createLogger('agent-inbox').info({
+            agentUserId: batchAgentUserId,
+            rows,
+            units,
+            trigger,
+          }, 'injectBatch')
+        }
+      },
     },
   })
+}
+
+/**
+ * session-life's pending inbox batches settle their cloud rows here, through the reader's own settle and disclosure:
+ * marked read once the agent accepted the batch, told in their chats once it could not be delivered.
+ */
+async function settleSessionLifeSources(rows: readonly SessionLifePendingRow[], settle: (agentUserId: string, sources: AgentInboxSource[], deps: AgentInboxReaderDeps) => Promise<void>): Promise<void> {
+  if (!rows.some(row => row.sources.length)) return
+  const auth = await authProvider?.getAuth()
+  if (!auth?.accessToken) throw new Error('session-life: the inbox rows of a pending batch cannot be settled while signed out')
+  const byAgent = new Map<string, AgentInboxSource[]>()
+  for (const { agentUserId, ...source } of rows.flatMap(row => row.sources)) byAgent.set(agentUserId, [...byAgent.get(agentUserId) ?? [], source])
+  for (const [agentUserId, sources] of byAgent) await settle(agentUserId, sources, inboxDepsFor(auth, 'session-life'))
 }
 
 const inheritedOwnerTimeZone = ownerTimeZoneFromEnvironment()
@@ -4069,6 +4119,27 @@ ipcMain.handle('sessionpage:retry-platform-recovery', async (_event, sessionId: 
 })
 
 // (重)连接时的那一次对账:这台机器上每个 agent 此刻的条目。之后渲染层只吃 `agent-status-feed`。
+// Local reachability uses the command queue's holding fact, including live sibling instances.
+ipcMain.handle('agent-status-feed:holding', async (_event, agents: unknown) => {
+  if (!Array.isArray(agents)) throw new Error('Agent holding request must be an array')
+  const deviceId = await localDeviceId()
+  if (!deviceId) throw new Error('This computer is not identified')
+  const local = agents.filter(row => row?.deviceId === deviceId)
+  if (!local.length) return {}
+  const lease = deviceRuntimeHost?.getRuntimeLease()
+  const auth = await desktopAuthProvider().getAuth()
+  if (!lease || lease.deviceId !== deviceId || !auth || auth.userId !== lease.ownerId) throw new Error('Local agent host is not ready')
+  const resolve = createDeviceCommandHoldingResolver({
+    client: makeIdentityClient(auth.accessToken) as unknown as DeviceRuntimeIdentityClient,
+    deviceId, instanceId: lease.runtimeInstanceId, env: process.env,
+  })
+  const holdings = await Promise.all(local.map(async row => {
+    const id = requiredSessionpageAgentId(row.agentUserId)
+    return [id, await resolve({ type: 'agent.deliver', payload: { agent_user_id: id } })] as const
+  }))
+  if (deviceRuntimeHost?.getRuntimeLease()?.ownerId !== auth.userId) throw new Error('Agent holding owner changed')
+  return Object.fromEntries(holdings)
+})
 ipcMain.handle('agent-status-feed:snapshot', () => agentStatusFeed.snapshot())
 
 ipcMain.handle('sessionpage:open-agent-file', async (
@@ -4606,26 +4677,6 @@ app.whenReady().then(async () => {
       }
     }
     emdash.setSessionMessageRouter(sessionMessageRouter)
-    // ACP 腿的 live 转换 = 运行时登记好这条会话(启动成功)。与 codex / claude 的 onLive 同一个形状。
-    emdash.setSessionLiveNotifier((sessionId) => {
-      // @@@4629 conversation → agent 走 roster(那份 cache 就是这层绑定的 SSOT,见 agent-provisioning)。
-      void guguAgentUserIdForSession(sessionId, process.env).then(
-        (agentUserId) => {
-          if (agentUserId) return onSessionpageSessionLive(agentUserId, sessionId, 'acp-started')
-          // ❌ 不静默丢:排着的消息要等下一个触发。
-          createLogger('sessionpage/deliver').warn(
-            { sessionId },
-            'ACP 会话已起,却无处可投:这条会话在 roster 上没有 agent(还没 provision / 已被 reap)',
-          )
-        },
-        (error: unknown) => {
-          createLogger('sessionpage/deliver').error(
-            { sessionId, err: error instanceof Error ? error.message : String(error) },
-            'ACP 会话已起,解析不出它的 agent(未读留在本机 outbox,等下一个触发)',
-          )
-        },
-      )
-    })
     const senderBinding = async (context: LocalSessionBridgeContext, ownerUserId: string | null) => {
       return resolveSessionpageSenderBinding(context.sessionId, {
         listRoster: () => listAgents(process.env, { includeGuests: true }),
@@ -4876,7 +4927,9 @@ app.whenReady().then(async () => {
         return ids.flatMap<{ agentUserId: string; status: string | null; detail: string | null }>((agentUserId) => {
           const entry = agentStatusFeed.get(agentUserId)
           const archived = getSessionpageLocalDelivery().sessionArchivalForAgent(agentUserId)?.archivedAt
-          return archived ? [{ agentUserId, status: 'archived', detail: null }] : entry ? [{ agentUserId, status: entry.reading?.status ?? null, detail: entry.reading?.detail ?? null }] : []
+          // A session-life session composes its lifecycle first, the same displayStatus as session_get and the pill.
+          const status = entry?.life ? displayStatus(entry.life, entry.reading?.status ?? null) : entry?.reading?.status ?? null
+          return archived ? [{ agentUserId, status: 'archived', detail: null }] : entry ? [{ agentUserId, status, detail: entry.reading?.detail ?? null }] : []
         })
       }
       if (record.action === 'message') return unifiedSessionMessage(auth, context, record, signal)
@@ -4912,7 +4965,6 @@ app.whenReady().then(async () => {
             : emdash.runRemoteSessionAction(caller, action as never, signal),
         app: (caller, action) => emdash.answerAppMessage(caller, action),
         appSpawn: (caller, action) => emdash.spawnAgentForExtension({ extensionId: caller.extensionId, extensionName: caller.extensionName, prompt: action.prompt, ...action.spawn }),
-        appReadFile: (caller, action) => emdash.answerAppReadFile(caller, action),
         appCall: (caller, action) => emdash.answerAppCall(caller, action),
       })
     })
@@ -4924,7 +4976,6 @@ app.whenReady().then(async () => {
       sessions: (since, options) => crossMachine().sessionsElsewhere(since, options),
       archive: (deviceId, sessionId, removeSocialIdentity) => crossMachine().archiveOn(deviceId, sessionId, removeSocialIdentity),
       appMessage: (app, deviceId, sessionId, text, how) => crossMachine().appMessage(app, deviceId, sessionId, text, how),
-      appReadFile: (app, deviceId, action) => crossMachine().appReadFile(app, deviceId, action),
       appCall: (app, deviceId, action) => crossMachine().appCall(app, deviceId, action),
     })
     // 打开会话只有一条路(gugu-links.openLink):agent 的会话先看本机映射,再到它所在的机器上找;本机会话打开前先做平台恢复。
@@ -4949,9 +5000,15 @@ app.whenReady().then(async () => {
     // surface, so an agent.deliver addressed to a live session-page agent injects a new ACP turn; a
     // mapped offline target is queued, while transport errors remain fail-loud. Never a pty write.
     emdashAgentRegistry.setBridge(emdash)
-    // 编号 5: the reconnect a delivery kicked for a lost session ended (up, failed, or over budget): pull its inbox again —
-    // up, the batch goes in; not, it fails in its chat. The same shape as the claude TUI leg's onOverdue.
-    emdashAgentRegistry.setReconnectSettledHook((agentUserId) => kickInboxForAgent(agentUserId, 'reconnect-settled'))
+    emdash.setSessionLifeSourceHost({
+      markRead: row => settleSessionLifeSources([row], markInboxRowsRead),
+      // By the row's state: failed and unknown are final (Life never redelivers them); a start failure's rows stay queued.
+      reportFailure: async (rows, cause) => {
+        await settleSessionLifeSources(rows.filter(row => row.state === 'failed'), (agent, sources, deps) => discloseInboxRowsFailed(agent, sources, deps, { kind: 'failed', cause }))
+        await settleSessionLifeSources(rows.filter(row => row.state === 'unknown'), (agent, sources, deps) => discloseInboxRowsFailed(agent, sources, deps, { kind: 'unknown' }))
+        await settleSessionLifeSources(rows.filter(row => row.state === 'queued'), (agent, sources, deps) => discloseInboxRowsFailed(agent, sources, deps, { kind: 'retained' }))
+      },
+    })
     // @@@sessionpage TASKPAGE-FUSION — re-map every persisted session-page agent binding at boot so it stays
     // addressable BEFORE its session-page session reopens: a deliver to a mapped-but-not-live agent becomes
     // ordered local debt instead of silently passing through to a gugu-native engine spawn.
@@ -5159,7 +5216,7 @@ app.whenReady().then(async () => {
       /** gugu-dev#181 派任务:首句落成这个对话里的一张任务卡(task-card-first-turn.ts),❌ 进 agent 私聊。 */
       taskChatId?: string
       projectId: string
-    }): Promise<{ chatId: string; firstTurn: string; envelope: boolean }> => {
+    }): Promise<{ chatId: string; render: FirstTurnRender }> => {
       const content = input.text.trim()
       if (!content) {
         throw new Error(`chat-page first turn for ${input.sessionId} has no text`)
@@ -5189,20 +5246,14 @@ app.whenReady().then(async () => {
         auth.accessToken,
         process.env,
       )
-      const envelope = buildAgentDeliveryEnvelope(
-        {
-          guguUserId: input.guguAgentUserId,
-          chatId,
-          messageId: input.messageId,
-          senderUserId: auth.userId,
-          content,
-          replyTo: null,
-          threadRootId: null,
-        },
-        await envelopeSenderIdentities(auth.userId, auth.accessToken),
-        { publicId: null, name: null, kind: 'dm' },
-        formatDeliveryTimestamp(new Date().toISOString()),
-      )
+      // The row's own text is rendered later (renderFirstTurn); landing fixes the chat facts it renders with.
+      const render: FirstTurnRender = {
+        kind: 'envelope',
+        envelope: { guguUserId: input.guguAgentUserId, chatId, messageId: input.messageId, senderUserId: auth.userId, replyTo: null, threadRootId: null },
+        identities: await envelopeSenderIdentities(auth.userId, auth.accessToken),
+        chat: { publicId: null, name: null, kind: 'dm' },
+        timestamp: formatDeliveryTimestamp(new Date().toISOString()),
+      }
       const { error: messageError } = await makeChatClient(auth.accessToken).rpc('send_message_idempotent', {
         p_message_id: input.messageId,
         p_chat_id: chatId,
@@ -5222,7 +5273,7 @@ app.whenReady().then(async () => {
         p_user_id: input.guguAgentUserId,
       })
       if (readError) throw new Error(`chat-page initial message read mark failed: ${readError.message}`)
-      return { chatId, firstTurn: envelope, envelope: true }
+      return { chatId, render }
     }
     ipcMain.removeHandler(SESSION_SHELL_CHANNELS.ensureAgentAddress)
     handleShellChannel(SESSION_SHELL_CHANNELS.ensureAgentAddress, (_event, input: unknown) =>
@@ -5260,24 +5311,13 @@ app.whenReady().then(async () => {
       sessionpageLocalSessionSource = createHostLocalSessionSource(app.getPath('userData'))
       emdash.setEmdashLocalSessionSource(sessionpageLocalSessionSource)
     }
-    emdash.setEmdashMcpInjector(async (info) => {
+    // 运行时分叉(侧边聊天)递自己的 view id + 来源会话:它没有会话页身份,provisioning 据此
+    // 返回 null,归属与绑定一格都不动(见 SessionpageSessionInfo.sourceConversationId)。
+    // spec agent-provisioning:显式命名过的会话用那个名字开户;缺席才落到「<引擎 label> <序号>」。
+    emdash.setEmdashIdentityProvisioner(request =>
+      provisionSessionpageAgentForSession({ ...request, surface: 'acp' }, sessionpageIdentityDeps))
+    emdash.setEmdashMcpInjector(async (info, provisioned) => {
       const persistedSessionId = info.sourceSessionId ?? info.sessionId
-      const provisioned = await provisionSessionpageAgentForSession(
-        {
-          // 运行时分叉(侧边聊天)递自己的 view id + 来源会话:它没有会话页身份,provisioning 据此
-          // 返回 null,归属与绑定一格都不动(见 SessionpageSessionInfo.sourceConversationId)。
-          sessionId: info.sessionId,
-          sourceSessionId: info.sourceSessionId,
-          providerId: info.providerId,
-          surface: 'acp',
-          cwd: info.cwd,
-          projectId: info.projectId,
-          // spec agent-provisioning:显式命名过的会话用那个名字开户;缺席才落到「<引擎 label> <序号>」。
-          displayName: info.agentDisplayName,
-          lifecycle: info.lifecycle,
-        },
-        sessionpageIdentityDeps,
-      )
       if (!provisioned) {
         if (!authProvider) throw new Error('[sessionpage] MCP injector: runtime auth provider not ready')
         if (!primaryGuguMcpHost) throw new Error('[sessionpage] MCP injector: Gugu MCP host not ready')
@@ -5495,7 +5535,7 @@ app.whenReady().then(async () => {
             : {}),
         }
       }
-      let startupQueue: Array<{ text: string; origin: 'communication' | 'manual' }> | undefined
+      let firstTurn: FirstTurnRender | undefined
       let provisionedChatId = provisioned.chatId
       if (info.initialMessageId && !info.startupOrigin) {
         throw new Error(`startup first turn for ${info.sessionId} requires an explicit creation surface`)
@@ -5548,7 +5588,7 @@ app.whenReady().then(async () => {
           projectId: info.projectId,
         })
         provisionedChatId = delivered.chatId
-        startupQueue = [{ text: delivered.firstTurn, origin: delivered.envelope ? 'communication' : 'manual' }]
+        firstTurn = delivered.render
       }
       // #5323 能力注入这一段过去是个黑盒(真机实测 1.5 s,是 gugu 侧最大的一块)。逐步计时,
       // 才判得出哪一步真的必须挡在用户前面。
@@ -5719,7 +5759,7 @@ app.whenReady().then(async () => {
         return {
           mcpServers: mapped,
           extensionDelivery: sessionExtensionDelivery(bundle),
-          ...(startupQueue ? { initialQueue: startupQueue } : {}),
+          ...(firstTurn ? { firstTurn } : {}),
           spawnEnv: capabilities.spawnEnv,
           spawnArgs: capabilities.extraArgs,
           sessionMeta: capabilities.sessionNewPatch?.meta,
@@ -5961,7 +6001,8 @@ app.whenReady().then(async () => {
         taskChatId: request.taskChatId,
         projectId: request.projectId,
       })
-      return delivered.firstTurn
+      // The terminal leg is not in session-life yet (⑤): its first turn is rendered here, once.
+      return renderFirstTurn(request.text.trim(), delivered.render).text
     })
     // Dispose host-owned native inference transports whenever stopSession tears down the PTY.
     // A controlled platform restart uses this same boundary: the replacement must not reuse an
@@ -6078,6 +6119,12 @@ app.whenReady().then(async () => {
       .then(() => { adoptCloudTaskNames = adoptTaskNames; return adoptTaskNames() })
       .catch((error: unknown) => createLogger('sessionpage/task-names').error({ error: String(error) }, 'Adopting task names failed'))
     refreshPlatformCredentials()
+    // session-life signs in once the backend that owns it is up; later account changes come through the auth IPC.
+    void emdashBoot.then(async () => {
+      sessionLifeBooted = true
+      const auth = await desktopAuthProvider().getAuth()
+      if (auth?.userId) await bootedSessionLife().signIn(auth.userId)
+    }).catch((error: unknown) => createLogger('session-life').error({ error: String(error) }, 'session-life could not sign in at boot'))
     void emdashBoot.then(() => {
       emdash.onAgentStatus(change => {
         if (change.reading?.status !== 'working') void assistantPanel.publish(change.sessionId).catch(() => {
@@ -6359,6 +6406,8 @@ app.whenReady().then(async () => {
             onAgentStatus: (cb) => emdash.onAgentStatus(cb),
             agentStatusSnapshot: () => emdash.agentStatusSnapshot(),
             onSessionsGone: (cb) => emdash.onSessionsGone(cb),
+            onSessionLifeView: (cb) => emdash.onSessionLifeView(cb),
+            sessionLifeStatusOf: (sessionId) => emdash.sessionLifeStatusOf(sessionId),
           },
           { env: process.env, warn: (message) => sessionpageActivityLogger.warn(message) },
         )

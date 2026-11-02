@@ -15,6 +15,7 @@ import { resolveMiseDistribution, type MiseTarget } from './mise-distribution';
 import { miseProgress, runMiseProcess } from './mise-process';
 import { startInstallProgressMeter } from './install-progress-meter';
 import { buildAgentEnv } from '@main/core/pty/pty-env';
+import { anySignal } from '@gugu/core/shared/anySignal';
 
 const IDLE_MS = 60_000;
 /** 装到一半时多久往日志里记一笔进度:卡住时日志里要看得出停在哪一步(#7199 那次 2.5 分钟一行都没有)。 */
@@ -147,7 +148,7 @@ export async function runMiseOperation(context: InstallCommandContext, preparati
   const mise = bundledMisePath();
   const started = Date.now();
   const abort = new AbortController();
-  const signal = context.signal ? AbortSignal.any([context.signal, abort.signal]) : abort.signal;
+  const signal = anySignal([context.signal, abort.signal]);
   let releaseLock: (() => Promise<void>) | undefined;
   let meter: ReturnType<typeof startInstallProgressMeter> | undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -196,7 +197,7 @@ export async function runMiseOperation(context: InstallCommandContext, preparati
   const run = (args: string[], cancellable = true, onOutput?: (line: string) => void) => {
     const deadline = args[0] === 'install' ? undefined : AbortSignal.timeout(cancellable && args[0] === 'uninstall' ? 60_000 : 15_000);
     const signals = [...(cancellable ? [signal] : []), ...(deadline ? [deadline] : [])];
-    return runMiseProcess(mise, args, { cwd: work, env, ...(signals.length ? { signal: AbortSignal.any(signals) } : {}), onOutput });
+    return runMiseProcess(mise, args, { cwd: work, env, ...(signals.length ? { signal: anySignal(signals) } : {}), onOutput });
   };
   const inventory = async (toolName: string = tool): Promise<Array<{ version: string; install_path: string; installed: boolean }>> => {
     const output = await run(['ls', '--json', toolName]);

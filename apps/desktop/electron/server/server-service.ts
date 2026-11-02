@@ -23,10 +23,15 @@ import { recordLoginShell, startKeeper } from './server-keeper'
 import { activityProof, listAccounts, supervisorDataDir } from './server-layout'
 import { SERVICE_UMASK } from './server-permissions'
 import { spawnUpgradeGuard, writeUpgradeMarker } from './server-upgrade-guard'
+import { ownServerNames } from './server-names'
 
-const UNIT_NAME = 'gugu-server.service'
-const LAUNCHD_LABEL = 'space.nextmind.gugu-server'
-const CRON_MARK = '# gugu-server'
+/** 这一份 server 的通道名字(server-names.ts):正式版 `gugu-server.service`,Beta `gugu-server-beta.service`,其余同理。 */
+const NAMES = ownServerNames()
+const UNIT_NAME = NAMES.systemdUnit
+const LAUNCHD_LABEL = NAMES.launchdLabel
+const CRON_MARK = NAMES.cronMark
+/** crontab 里属于这条通道的那一行:按行尾的标记整串比(`# gugu-server` 是 `# gugu-server-beta` 的前缀,❌ includes)。 */
+const isCronLine = (line: string): boolean => line.trimEnd().endsWith(` ${CRON_MARK}`)
 
 type Out = (line: string) => void
 
@@ -227,9 +232,10 @@ function writeCrontab(lines: string[]): void {
 function removeCronEntry(): void {
   if (!hasCrontab()) return
   const existing = tryRun('crontab', ['-l'])
-  if (!existing.ok || !existing.out.includes(CRON_MARK)) return
+  const lines = existing.ok ? existing.out.split('\n') : []
+  if (!lines.some(isCronLine)) return
   try {
-    writeCrontab(existing.out.split('\n').filter((l) => l && !l.includes(CRON_MARK)))
+    writeCrontab(lines.filter((l) => l && !isCronLine(l)))
   } catch {
     // 删不掉只是开机时多起一个,它会撞在单实例锁上自己退出
   }
@@ -241,7 +247,7 @@ function registerCron(executable: string, home: string): boolean {
   // #6264 开机起的是看门人(`keep`),不是守护进程本身:之后崩了也有人拉起。路径照 crontab 的规矩转义(空格、引号、%)。
   const line = `@reboot umask 022; GUGU_SERVER_HOME=${cronQuote(home)} ${cronQuote(executable)} keep >> ${cronQuote(logFile())} 2>&1 ${CRON_MARK}`
   const existing = tryRun('crontab', ['-l'])
-  const kept = (existing.ok ? existing.out : '').split('\n').filter((l) => l && !l.includes(CRON_MARK))
+  const kept = (existing.ok ? existing.out : '').split('\n').filter((l) => l && !isCronLine(l))
   try {
     writeCrontab([...kept, line])
     return true
@@ -533,6 +539,6 @@ export function describeService(): string {
     return `systemd 用户服务,${active},${linger}`
   }
   const cron = hasCrontab() ? tryRun('crontab', ['-l']) : { ok: false, out: '' }
-  if (cron.ok && cron.out.includes(CRON_MARK)) return 'crontab @reboot 自启(无 systemd 用户会话)'
+  if (cron.ok && cron.out.split('\n').some(isCronLine)) return 'crontab @reboot 自启(无 systemd 用户会话)'
   return '未注册常驻服务(执行 gugu-server service install)'
 }

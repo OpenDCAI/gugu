@@ -25,6 +25,7 @@ describe('agent status words: the task page reads the one table', () => {
       done: '做完了',
       idle: '空闲',
       online: '在线',
+      starting: '启动中',
     });
     expect(enUSCommon.agentStatus).toMatchObject({
       running: 'Running',
@@ -36,6 +37,7 @@ describe('agent status words: the task page reads the one table', () => {
       error: 'Error',
       done: 'Done',
       online: 'Online',
+      starting: 'Starting',
     });
   });
 

@@ -6,14 +6,14 @@ import type { SessionpageSessionSummary } from '@gugu/session-core/session-recor
 import { clickElement, createReactHarness, renderWithAppProviders, device } from '../../../support/testHarness'
 import '../../../../apps/desktop/src/i18n/registerAssistantCatalog'
 
-const mocks = vi.hoisted(() => ({ devices: [] as Device[], phones: [] as Device[], rows: [] as { deviceId: string; summary: SessionpageSessionSummary; live: boolean }[], localWorker: false, transport: vi.fn(), dm: vi.fn(), identities: vi.fn(),work:vi.fn(),wake:vi.fn(),refresh:null as null|(()=>void) }))
+const mocks = vi.hoisted(() => ({ devices: [] as Device[], phones: [] as Device[], rows: [] as { deviceId: string; summary: SessionpageSessionSummary; live: boolean }[], localWorker: false, listed: true, transport: vi.fn(), identities: vi.fn(),work:vi.fn(),wake:vi.fn(),refresh:null as null|(()=>void) }))
 vi.mock('../../../../apps/desktop/src/hooks/useWakeCloudComputer',()=>({useCloudComputerWake:(target:unknown)=>{mocks.wake(target);return {issue:null,dropped:false,retry:vi.fn()}}}))
 vi.mock('../../../../apps/desktop/src/lib/assistantWork',()=>({assistantWorkCloud:{get:mocks.work},watchAssistantWork:(_o:string,_a:string,refresh:()=>void)=>{mocks.refresh=refresh;return ()=>{}}}))
 vi.mock('../../../../apps/desktop/src/components/assistant/TaskExchangeBubble',()=>({TaskExchangeBubble:({message}:{message:{content:string}})=><div>{message.content}</div>}))
 vi.mock('../../../../apps/desktop/src/lib/identityReadAdapter', async original => ({ ...await original<object>(), readRequiredDisplayIdentities: mocks.identities }))
-vi.mock('../../../../apps/desktop/src/components/assistant/useAssistantDm', () => ({ useAssistantDm: mocks.dm }))
-vi.mock('../../../../apps/desktop/src/components/ChatAreaPanel', () => ({ ChatAreaPanel: ({ viewportKey,chrome }: { viewportKey: string;chrome?:{runtimeReady?:boolean} }) => <div data-testid="task-chat-panel" data-viewport-key={viewportKey} data-runtime-ready={chrome?.runtimeReady} /> }))
-vi.mock('../../../../apps/desktop/src/components/assistant/TaskChatScope', () => ({ TaskChatScope: ({ chatId, children }: { chatId: string; children: React.ReactNode }) => <div data-chat-id={chatId}>{children}</div> }))
+// The window shows the task's session through the phone task page (PeekSessionTimeline); its own reads are covered there.
+vi.mock('../../../../apps/desktop/src/mobile/agent-watch/PeekSessionTimeline', () => ({ PeekSessionTimeline: ({ sessionId, local, onBack, fallback }: { sessionId: string; local?: boolean; onBack: () => void; fallback?: React.ReactNode }) =>
+  mocks.listed ? <div data-testid="task-chat-panel" data-session-id={sessionId} data-local={String(!!local)}><button type="button" data-testid="assistant-task-chat-close" onClick={onBack} /></div> : <>{fallback}</> }))
 vi.mock('../../../../apps/desktop/src/store/devicesContext', () => ({ useDevicesStore: () => ({ devices: mocks.devices.map((device) => device.device_id === 'worker' ? { ...device, is_current_device: device.is_current_device || mocks.localWorker } : device), phones: mocks.phones }) }))
 vi.mock('../../../../apps/desktop/src/components/assistant/taskExchangeTransport', () => ({ taskExchangeTransport: mocks.transport }))
 vi.mock('../../../../apps/desktop/src/session/renderer/features/remote-hosts/remote-hosts-store', () => ({ remoteHostsStore: { allListedSessions: () => mocks.rows, device: () => ({ label: 'Worker' }) } }))
@@ -38,9 +38,9 @@ beforeEach(() => {
   installShellSlots()
   showAssistantTaskChat(null)
   mocks.localWorker = false
+  mocks.listed = true
   mocks.identities.mockReset()
   mocks.work.mockReset();mocks.wake.mockReset();mocks.refresh=null
-  mocks.dm.mockReset().mockReturnValue({ chatId: 'task-dm', failed: false, retry: vi.fn() })
   mocks.transport.mockReset().mockResolvedValue({
     read: async () => ({ entries: [], cursor: 0, hasMore: false }),
     subscribe: async () => ({ entries: [], cursor: 0, hasMore: false }),
@@ -75,7 +75,7 @@ describe('assistant task rows open the task chat on both shells', () => {
     expect(mocks.identities).not.toHaveBeenCalled()
     expect(mocks.transport).not.toHaveBeenCalled()
   })
-  it('keeps cloud content available while waking a sleeping host and enables live reads only after awake',async()=>{
+  it('opens a sleeping cloud computer task as its session, waking the host',async()=>{
     const work={work_id:'sleeping-work',title:'Sleeping task',assistant_user_id:'assistant',owner_user_id:'user-1',outcome:'completed',executor_outcomes:{},executors:[{session_id:'task-session',device_id:'worker',agent_user_id:'task-agent'}],coordinator_session_id:'main',coordinator_device_id:'home'}
     mocks.work.mockResolvedValue({work,events:[]})
     mocks.devices=[device('worker',[],{is_online:true,cloud_computer:'asleep'})]
@@ -83,11 +83,10 @@ describe('assistant task rows open the task chat on both shells', () => {
     await renderWithAppProviders(harness,<><section ref={node=>readShellSlots()?.setSlot('assistant:task-chat',node)}/><AssistantTaskChatOpener visible/></>,{contacts:{contacts}})
     const request={workId:work.work_id,title:work.title,assistantId:'assistant',taskAgentId:'task-agent',task:{sessionId:'task-session',deviceId:'worker'},assistants:[{sessionId:'main',deviceId:'home'}]}
     await act(async()=>{window.dispatchEvent(new CustomEvent(OPEN_ASSISTANT_TASK_CHAT,{detail:request}))})
-    await vi.waitFor(()=>expect(document.querySelector('[data-testid="task-chat-panel"]')?.getAttribute('data-runtime-ready')).toBe('false'))
+    await vi.waitFor(()=>expect(document.querySelector('[data-testid="task-chat-panel"]')?.getAttribute('data-session-id')).toBe('task-session'))
     expect(mocks.wake).toHaveBeenCalledWith(expect.objectContaining({device_id:'worker',cloud_computer:'asleep'}))
-    expect(document.querySelector('[data-testid="assistant-task-chat-window"]')?.textContent).toContain('Sleeping task')
-    await act(async()=>{mocks.devices=[device('worker',[],{is_online:true,cloud_computer:'awake'})];showAssistantTaskChat({ownerId:'user-1',request,name:work.title})})
-    await vi.waitFor(()=>expect(document.querySelector('[data-testid="task-chat-panel"]')?.getAttribute('data-runtime-ready')).toBe('true'))
+    // A cloud computer is another machine: its session is read over device RPC, never as this computer's.
+    expect(document.querySelector('[data-testid="task-chat-panel"]')?.getAttribute('data-local')).toBe('false')
   })
   it('shows a prepared account task immediately, then connects when its real agent is admitted',async()=>{
     let finish!:(value:unknown)=>void
@@ -99,13 +98,11 @@ describe('assistant task rows open the task chat on both shells', () => {
     const pane=document.querySelector('[data-testid="assistant-task-chat-window"]')
     expect(pane?.textContent).toContain('Preparing task')
     expect(pane?.textContent).toContain('正在开始')
-    expect(mocks.dm).not.toHaveBeenCalled()
     const work={work_id:'new-work',title:'Preparing task',assistant_user_id:'assistant',owner_user_id:'user-1',outcome:'active',executor_outcomes:{},executors:[{session_id:'prepared',device_id:'sleeping',agent_user_id:null}],coordinator_session_id:'main',coordinator_device_id:'home'}
     await act(async()=>finish({work,events:[]}))
     mocks.work.mockResolvedValue({work:{...work,executors:[{session_id:'prepared',device_id:'sleeping',agent_user_id:'task-agent'}]},events:[]})
     await act(async()=>{mocks.refresh?.()})
-    await vi.waitFor(()=>expect(document.querySelector('[data-testid="task-chat-panel"]')).not.toBeNull())
-    expect(mocks.dm).toHaveBeenCalledWith('task-agent')
+    await vi.waitFor(()=>expect(document.querySelector('[data-testid="task-chat-panel"]')?.getAttribute('data-session-id')).toBe('prepared'))
     expect(toast).not.toHaveBeenCalled()
     expect(mocks.transport).not.toHaveBeenCalled()
   })
@@ -115,26 +112,41 @@ describe('assistant task rows open the task chat on both shells', () => {
   it('opens the task chat inside its pane without a modal or shell navigation, and returns to the same draft', async () => {
     const open = vi.fn()
     const contacts = [assistant, { id: 'task-agent', display_name: '报告任务', avatar: null }].map((contact) => ({ ...contact, bio: null, type: 'agent' as const, owner_user_id: 'user-1' }))
-    await renderWithAppProviders(harness, <><input data-testid="assistant-draft" defaultValue="未发完的交代" /><section data-testid="task-pane" ref={(node) => readShellSlots()?.setSlot('assistant:task-chat', node)} /><AssistantTaskChatOpener visible onOpenUserChat={open} /></>, { contacts: { contacts } })
+    await renderWithAppProviders(harness, <><input data-testid="assistant-draft" defaultValue="未发完的交代" /><section data-testid="task-pane" ref={(node) => readShellSlots()?.setSlot('assistant:task-chat', node)} /><AssistantTaskChatOpener visible /></>, { contacts: { contacts } })
     act(() => openAssistantTaskChat('assistant', mocks.rows[1]!, mocks.rows))
     expect(open).not.toHaveBeenCalled()
     const popup = document.querySelector<HTMLElement>('[data-testid="assistant-task-chat-window"]')!
     expect(harness.container.querySelector('[data-testid="task-pane"]')?.contains(popup)).toBe(true)
     expect(document.querySelector('[role="dialog"], [aria-modal="true"], [data-slot="sheet-backdrop"]')).toBeNull()
-    expect(popup?.textContent).toContain('报告任务')
-    expect(popup?.querySelector('[data-testid="task-chat-panel"]')?.parentElement?.getAttribute('data-chat-id')).toBe('task-dm')
-    expect(popup?.querySelector('[data-testid="task-chat-panel"]')?.getAttribute('data-viewport-key')).toBe('assistant:task-chat')
-    expect(mocks.dm).toHaveBeenCalledWith('task-agent')
+    expect(popup?.querySelector('[data-testid="task-chat-panel"]')?.getAttribute('data-session-id')).toBe('task-session')
+    expect(popup?.querySelector('[data-testid="task-chat-panel"]')?.getAttribute('data-local')).toBe('false')
     expect(readAssistantTaskChat('user-1', 'task-agent')?.task.sessionId).toBe('task-session')
     expect(readAssistantTaskChat('different-owner', 'task-agent')).toBeNull()
     await clickElement(popup.querySelector<HTMLElement>('[data-testid="assistant-task-chat-close"]')!)
     expect(document.querySelector('[data-testid="assistant-task-chat-window"]')).toBeNull()
     expect(harness.container.querySelector<HTMLInputElement>('[data-testid="assistant-draft"]')?.value).toBe('未发完的交代')
   })
+  it('reads a task on this computer over IPC, the way the assistant progress footnote does', async () => {
+    mocks.localWorker = true
+    const contacts = [assistant, { id: 'task-agent', display_name: '本机任务', avatar: null }].map((contact) => ({ ...contact, bio: null, type: 'agent' as const, owner_user_id: 'user-1' }))
+    await renderWithAppProviders(harness, <><section ref={(node) => readShellSlots()?.setSlot('assistant:task-chat', node)} /><AssistantTaskChatOpener visible /></>, { contacts: { contacts } })
+    act(() => openAssistantTaskChat('assistant', mocks.rows[1]!, mocks.rows))
+    expect(document.querySelector('[data-testid="task-chat-panel"]')?.getAttribute('data-local')).toBe('true')
+  })
+  it('keeps its own header and a loading state until the task session is listed', async () => {
+    mocks.listed = false
+    const contacts = [assistant, { id: 'task-agent', display_name: '报告任务', avatar: null }].map((contact) => ({ ...contact, bio: null, type: 'agent' as const, owner_user_id: 'user-1' }))
+    await renderWithAppProviders(harness, <><section ref={(node) => readShellSlots()?.setSlot('assistant:task-chat', node)} /><AssistantTaskChatOpener visible /></>, { contacts: { contacts } })
+    act(() => openAssistantTaskChat('assistant', mocks.rows[1]!, mocks.rows))
+    const pane = document.querySelector<HTMLElement>('[data-testid="assistant-task-chat-window"]')!
+    expect(pane.textContent).toContain('报告任务')
+    await clickElement(pane.querySelector<HTMLElement>('[data-testid="assistant-task-chat-close"]')!)
+    expect(document.querySelector('[data-testid="assistant-task-chat-window"]')).toBeNull()
+  })
   it('refuses an agent owned by another person', async () => {
     const open = vi.fn(), toast = vi.fn()
     const contacts = [assistant, { id: 'task-agent', display_name: 'Someone else', avatar: null }].map((contact) => ({ ...contact, bio: null, type: 'agent' as const, owner_user_id: contact.id === 'assistant' ? 'user-1' : 'different-owner' }))
-    await renderWithAppProviders(harness, <AssistantTaskChatOpener visible onOpenUserChat={open} />, { contacts: { contacts }, toast })
+    await renderWithAppProviders(harness, <AssistantTaskChatOpener visible />, { contacts: { contacts }, toast })
     act(() => openAssistantTaskChat('assistant', mocks.rows[1]!, mocks.rows))
     expect(open).not.toHaveBeenCalled()
     expect(toast).toHaveBeenCalledWith(expect.any(String), 'error', 'Task identity is not owned by the signed-in account')
@@ -149,7 +161,7 @@ describe('assistant task rows open the task chat on both shells', () => {
     expect(mocks.identities).toHaveBeenCalledOnce()
     expect(mocks.identities).toHaveBeenCalledWith(['task-agent'])
     await act(async () => { finish([{ id: 'task-agent', display_name: '新调研', avatar: null, bio: null, type: 'agent', owner_user_id: 'user-1' }]) })
-    expect(document.querySelector('[data-testid="assistant-task-chat-window"]')?.textContent).toContain('新调研')
+    expect(document.querySelector('[data-testid="task-chat-panel"]')?.getAttribute('data-session-id')).toBe('task-session')
     expect(toast).not.toHaveBeenCalled()
   })
   it('does not use a freshly read identity owned by someone else', async () => {

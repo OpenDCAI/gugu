@@ -124,6 +124,7 @@ function artifactBlock(node: RootContent, id: BlockId): Block {
   if (node.type !== 'code') throw new Error(`not an artifact node: ${node.type}`);
   const lang = node.lang?.toLowerCase();
   if (lang === 'mermaid' || lang === 'mmd') return { kind: 'mermaid', id, source: node.value };
+  if (lang === 'svg') return { kind: 'svg', id, source: node.value };
   return { kind: 'code', id, code: node.value, lang: node.lang ?? undefined };
 }
 

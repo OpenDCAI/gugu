@@ -55,11 +55,11 @@ describe('assistant panel account data', () => {
   })
 
   it('preserves storage failures and supports superseded receipts without dispatching to a host', async () => {
-    const transport = vi.fn().mockResolvedValueOnce({ data: null,error: { code: '40001',message: 'Read it again' } })
+    const transport = vi.fn().mockResolvedValueOnce({ data: null,error: { code: 'PT409',message: 'Read it again' } })
       .mockResolvedValueOnce({ data: { operationId: 'old',revision: '17',status: 'superseded' },error: null })
       .mockResolvedValueOnce({ data: { operationId: 'notice',revision: '18',status: 'pending' },error: null })
     const client = createAssistantPanelClient(transport,() => 'owner')
-    await expect(client.snapshot('assistant')).rejects.toMatchObject({ code: '40001',message: 'Read it again' })
+    await expect(client.snapshot('assistant')).rejects.toMatchObject({ code: 'PT409',message: 'Read it again' })
     expect(await client.ack('assistant','runtime','old')).toMatchObject({ status: 'superseded' })
     await client.notice('assistant',{ operationId: 'notice',resource: 'projects',operation: 'edited',id: 'project' })
     expect(transport.mock.calls.map(call => call[0])).toEqual(['assistant_panel_snapshot','assistant_panel_ack','assistant_panel_notice'])

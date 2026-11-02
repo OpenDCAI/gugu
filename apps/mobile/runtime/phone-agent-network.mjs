@@ -1,4 +1,5 @@
 import { setTimeout as delay } from 'node:timers/promises'
+import { anySignal } from '../../../packages/core/src/shared/anySignal.ts'
 
 const transportCodes = new Map([
   ['ENOTFOUND', 'dns'], ['EAI_AGAIN', 'dns'],
@@ -57,7 +58,7 @@ export function phonePreparationFailureText(error) {
 /** One deadline across verification, status reporting and model access; never replays a tool action. */
 export function createPhonePreparation({ signal, run = (action) => action(), record = () => undefined, budgetMs = 45_000, retryDelayMs = 500, now = Date.now, wait = delay, random = Math.random, recoveryProbe = false }) {
   const deadline = now() + budgetMs
-  const bounded = AbortSignal.any([signal, AbortSignal.timeout(budgetMs)])
+  const bounded = anySignal([signal, AbortSignal.timeout(budgetMs)])
   return async (operation, action) => {
     let lastError
     try {

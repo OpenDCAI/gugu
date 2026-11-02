@@ -3,7 +3,7 @@
  *
  * Text of every kind is an `html` block: sanitized markup from the shared dialect
  * (@gugu/session-shared/markdown/dialect), styled by the shared `.gg-md` typography
- * and measured in the DOM. Code, display math and mermaid keep kinds of their
+ * and measured in the DOM. Code, display math, mermaid and svg keep kinds of their
  * own because their boxes are their own (highlighter rows, a typeset formula, a
  * fixed-aspect diagram).
  *
@@ -51,6 +51,17 @@ export type MermaidBlock = {
 };
 
 /**
+ * A fenced SVG figure (` ```svg `), drawn as an image at its viewBox size
+ * (core/svg/figure.ts); one that cannot be drawn is painted as code.
+ */
+export type SvgBlock = {
+  kind: 'svg';
+  id: BlockId;
+  /** Raw SVG source text. */
+  source: string;
+};
+
+/**
  * A display LaTeX block (`$$…$$`), typeset by KaTeX in display mode.
  *
  * Like Mermaid, its height cannot be derived from a formula — it depends on the
@@ -65,4 +76,4 @@ export type MathBlock = {
   tex: string;
 };
 
-export type Block = HtmlBlock | CodeBlock | MermaidBlock | MathBlock;
+export type Block = HtmlBlock | CodeBlock | MermaidBlock | SvgBlock | MathBlock;

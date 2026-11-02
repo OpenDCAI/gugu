@@ -1,13 +1,13 @@
 import { Search } from '@/lib/icons'
-import { commandRegistry } from '@renderer/lib/commands/registry';
 import { BoundShortcut } from '@renderer/lib/ui/shortcut';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
 import { cn } from '@renderer/utils/utils';
+import { openGlobalSearch } from '@renderer/features/global-search/search-session';
 import { sidebarRowContentInsetX, sidebarRowShortcutClass } from './sidebar-primitives';
 
 /**
- * 侧栏顶上的「搜索…」:与 Mod+O 共用快速切换入口;命令由同一个面板的 > 前缀筛选。
- * 侧栏自己不再就地筛 —— 搜索只有一个地方。
+ * 侧栏顶上的「搜索…」:打开搜索面板(搜聊天和任务里说过的话,Mod+Shift+F 同一个)。按名字跳转是 Mod+O,
+ * 它的最后一行把打的字交给这里 —— 两个入口,各管一件事。
  */
 export function SidebarSearchTrigger() {
   const { translate } = useSessionMessages();
@@ -16,7 +16,7 @@ export function SidebarSearchTrigger() {
     // 底色和别处的搜索框同一个输入面(--em-surface-input,#132):它长得就是一个搜索框。
     <button
       type="button"
-      onClick={() => commandRegistry.dispatch('app.quickSwitcher')}
+      onClick={() => openGlobalSearch()}
       aria-label={translate('sidebar.searchConversations')}
       data-testid="sidebar-search-trigger"
       className={cn(
@@ -26,7 +26,7 @@ export function SidebarSearchTrigger() {
     >
       <Search className="h-5 w-5 shrink-0 sm:h-4 sm:w-4" />
       <span className="min-w-0 flex-1 truncate text-left">{translate('sidebar.searchPlaceholder')}</span>
-      <BoundShortcut commandId="app.quickSwitcher" variant="keycaps" className={sidebarRowShortcutClass} />
+      <BoundShortcut commandId="app.globalSearch" variant="keycaps" className={sidebarRowShortcutClass} />
     </button>
   );
 }

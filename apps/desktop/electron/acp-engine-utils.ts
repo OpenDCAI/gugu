@@ -33,6 +33,7 @@ import type { McpServerOwner } from '@gugu/session-core/mcp'
 import { startupDiscovery } from './sessionpage/startup-discovery'
 import type { FileActor, FileRef, ResolvedFile } from '@gugu/core/shared/fileResolver'
 import type { GuguMcpRequestTracker } from './gugu-mcp-host'
+import { anySignal } from '@gugu/core/shared/anySignal'
 
 export type AcpMcpServer =
   | {
@@ -236,7 +237,7 @@ export function createDesktopGuguMcpHost(persistence?: GuguMcpHostPersistence): 
           ? (action, requestSignal) => {
               const run = getContext().runSessionAction
               if (!run) throw new Error('session_* tools are unavailable for this grant')
-              const dispatch = (input: unknown) => run(input, AbortSignal.any([grantSignal, requestSignal]))
+              const dispatch = (input: unknown) => run(input, anySignal([grantSignal, requestSignal]))
               const work = initial.personalAssistant ? assistantExecutionAction(action) : action
               return initial.personalAssistant && initial.assistantWork ? coordinateAssistantAction(initial.assistantWork, work, dispatch) : dispatch(work)
             }
@@ -251,7 +252,7 @@ export function createDesktopGuguMcpHost(persistence?: GuguMcpHostPersistence): 
             await context.getAccessToken(grantSignal)
             return context.expectedOwnerUserId
           },
-          run: (action, signal) => sessionDispatcher(action, AbortSignal.any([grantSignal, signal])),
+          run: (action, signal) => sessionDispatcher(action, anySignal([grantSignal, signal])),
           ...(initial.readAssistantResources ? { localSources: () => {
             const read = getContext().readAssistantResources
             if (!read) throw new Error('Personal assistant context is unavailable')
@@ -267,7 +268,7 @@ export function createDesktopGuguMcpHost(persistence?: GuguMcpHostPersistence): 
             ? (action, requestSignal) => {
                 const run = getContext().runExtensionAction
                 if (!run) throw new Error('app_* tools are unavailable for this grant')
-                const signal = AbortSignal.any([grantSignal, requestSignal])
+                const signal = anySignal([grantSignal, requestSignal])
                 const runSession = getContext().runSessionAction
                 return runAppAction(
                   action,
@@ -287,7 +288,7 @@ export function createDesktopGuguMcpHost(persistence?: GuguMcpHostPersistence): 
         run: (query, signal) => {
           const latest = getContext().webSearch
           if (!latest) throw new Error('Web search is unavailable for this session')
-          return latest.run(query, AbortSignal.any([grantSignal, signal]))
+          return latest.run(query, anySignal([grantSignal, signal]))
         },
       }, trackRequest)
       // 侧边聊天(分叉)不带扩展,与原生条目同一条规矩。

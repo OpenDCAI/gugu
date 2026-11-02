@@ -1,5 +1,3 @@
-import type { InitialQueuePrompt } from '@shared/core/sessions/sessions';
-
 export type LaunchOutcome =
   | { ok: true }
   | { ok: false; code: 'provision_failed' | 'session_start_failed'; detail: string };
@@ -20,7 +18,6 @@ export async function launchCreatedSession(input: {
   sessionId: string;
   projectId: string;
   runtime: 'acp' | 'pty';
-  initialQueue: InitialQueuePrompt[] | undefined;
   launchWorkspace: () => Promise<
     { success: true; data: { workspaceId: string; path: string } } | { success: false; error: unknown }
   >;
@@ -34,23 +31,16 @@ export async function launchCreatedSession(input: {
   if (!provision.success) return { ok: false, code: 'provision_failed', detail: JSON.stringify(provision.error) };
 
   if (input.runtime === 'acp') {
-    const [{ getAcpRuntimeClient }, { acpStartInputFor }, { getSessions }] = await Promise.all([
-      import('@main/core/acp/controller'),
-      import('@main/embedded-boot'),
+    const [{ admitCreationTurns }, { getSessions }] = await Promise.all([
+      import('@main/core/sessions/session-life-creation'),
       import('@main/core/sessions/getSessions'),
     ]);
     const session = (await getSessions()).find((candidate) => candidate.id === input.sessionId);
     if (!session) return { ok: false, code: 'session_start_failed', detail: '会话行落库后读不回来' };
+    // session-life starts it: the creation turns are its first pending rows; startup progress and failure are
+    // the session's own lifecycle facts from here on.
     try {
-      const initialQueue = input.initialQueue ?? [];
-      const acp = await getAcpRuntimeClient();
-      const started = await acp.startSession({
-        input: {
-          ...acpStartInputFor(session, provision.data.workspaceId, provision.data.path),
-          ...(initialQueue.length > 0 ? { initialQueue } : {}),
-        },
-      });
-      if (!started.success) return { ok: false, code: 'session_start_failed', detail: JSON.stringify(started.error) };
+      admitCreationTurns(session);
     } catch (error) {
       return { ok: false, code: 'session_start_failed', detail: (error as Error)?.message ?? String(error) };
     }

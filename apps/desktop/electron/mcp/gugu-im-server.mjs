@@ -36,6 +36,7 @@ import { GUGU_MCP_SERVER_NAME } from './gugu-mcp-name.mjs'
 import { chatActivityTool } from './chat-activity.mjs'
 import { createLogger } from '../lib/logger'
 import { effectiveGroupRules, groupRulesLedgerAt, groupRulesVersion } from '../../../../packages/core/src/local/agent/groupRulesDelivery'
+import { anySignal } from '@gugu/core/shared/anySignal'
 
 const log = createLogger('gugu-mcp-host')
 
@@ -2799,9 +2800,7 @@ export function createGuguImServer(getContext, deps = {}) {
   for (const def of TOOL_DEFS) {
     const permissive = MESSAGE_WRITER_TOOLS.has(def.name)
     registerGuguTool(server, { ...def, permissive, preflight: permissive ? preflightGuguMessageArgs : undefined }, async (toolArgs, requestSignal) => {
-      const signal = deps.signal
-        ? AbortSignal.any([deps.signal, requestSignal])
-        : requestSignal
+      const signal = anySignal([deps.signal, requestSignal])
       const current = getContext()
       const context = {
         ...current,

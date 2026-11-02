@@ -62,7 +62,7 @@ describe('assistant panel admission', () => {
     const world = fixture()
     world.application.apply.mockImplementation(async row => { if (row.operation === 'save') throw new Error('BODY_READ_FAILED') })
     world.cloud.reject.mockResolvedValueOnce({ operationId: 'save',revision: '1',status: 'superseded' })
-    world.cloud.admit.mockRejectedValueOnce({ code: '40001' })
+    world.cloud.admit.mockRejectedValueOnce({ code: 'PT409' })
     world.cloud.pending.mockResolvedValueOnce({ revision: '1',changes: [change],notices: [] })
       .mockResolvedValueOnce({ revision: '2',changes: [{ ...change,operation_id: 'remove',operation: 'remove',revision: '2' }],notices: [] })
     expect((await prepareAssistantPanelAdmission(world.input)).text).toContain('hello')

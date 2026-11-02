@@ -13,6 +13,7 @@ import { callDeviceRpc } from '@/lib/deviceRpc'
 import { openPhoneSessionHostPipe } from '@/lib/remoteSessionHost'
 import { SESSION_HOST_RPC } from '@/session/shared/lib/ipc/session-host-device-frames'
 import { createRPCClient } from '@/session/shared/lib/ipc/rpc'
+import { rpcOn } from '@/session/renderer/lib/ipc'
 import { linkChangesOf } from '@/session/shared/remote-sessions/session-list-sync'
 import {
   createSessionHostClient,
@@ -126,8 +127,9 @@ function rpc(deviceId: string) {
  * #7199 手机助理 App 问云电脑(读记忆、列已安排):同一条线、同一张路由表上的别的动词 —— 与桌面 `rpcOn` 一样的那组,
  * ❌ 为它另开协议。
  */
-export function machineRpc(deviceId: string) {
-  return rpc(deviceId)
+/** `local`: the session lives on this computer, so its own host answers over IPC (assistant task pane on the desktop). */
+export function machineRpc(deviceId: string, local = false) {
+  return local ? rpcOn(null) : rpc(deviceId)
 }
 
 /**
@@ -222,13 +224,13 @@ export async function sendSessionText(deviceId: string, sessionId: string, text:
 }
 
 /** 输入框附件:桌面输入框同三条(`sessionCreate.*`),问的是会话所在的那台机器。 */
-export function sessionAttachmentRpc(deviceId: string, phoneHost = false): AttachmentUploadRpc {
+export function sessionAttachmentRpc(deviceId: string, phoneHost = false, local = false): AttachmentUploadRpc {
   if (phoneHost) return {
     writeAttachmentChunk: (chunk) => invokePhoneHost(deviceId, 'sessionCreate.writeAttachmentChunk', [{ ...chunk, data: Array.from(chunk.data) }]),
     commitAttachmentUpload: (commit) => invokePhoneHost(deviceId, 'sessionCreate.commitAttachmentUpload', [commit]),
     discardAttachmentUpload: (input) => invokePhoneHost(deviceId, 'sessionCreate.discardAttachmentUpload', [input]),
   }
-  return rpc(deviceId).sessionCreate
+  return machineRpc(deviceId, local).sessionCreate
 }
 
 /** 附件卡(#7193):这条会话打开给人看的那份文件,读一段(那台机器核对它真的打开过)。 */

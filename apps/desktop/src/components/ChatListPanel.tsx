@@ -1,7 +1,7 @@
 import { useNativeAgentChats } from '@/hooks/useNativeAgentChats'
 import { useState, useEffect, useMemo, useRef, useCallback, type KeyboardEventHandler, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
-import { BellOff, Checklist, ChevronDown, ChevronRight, FolderClosed, MessageCircle, MessageSquare, Plus, SquarePen, UserRound, Users, X, Zap } from '@/lib/icons'
+import { BellOff, Checklist, ChevronDown, ChevronRight, FolderClosed, MessageCircle, MessageSquare, Plus, Search, SquarePen, UserRound, Users, X, Zap } from '@/lib/icons'
 import { Sheet } from './ui/Sheet'
 import { DropdownMenu, MenuItem } from './ui/Menu'
 import { PaneEmptyState } from './ui/PaneEmptyState'
@@ -38,6 +38,8 @@ import { useLongPress } from '../hooks/useLongPress'
 import { useRowContextMenu } from '../hooks/useRowContextMenu'
 import { useAgentDisplayStatuses } from '../hooks/useAgentDisplayStatus'
 import { useShellTabIs } from '../lib/shellTab'
+import { resetSearchSession } from '../session/renderer/features/global-search/search-session'
+import { PhoneMessageSearch } from '@/mobile/chat/PhoneMessageSearch'
 import { useShownAgentStatus, type ShownAgentStatus } from './chat/useAgentsOnCloudComputer'
 import { AgentHostStaleBadge } from './AgentHostStaleBadge'
 import { aggregateGroupAgentStatus } from '../lib/groupAgentStatus'
@@ -546,6 +548,8 @@ export function ChatListPanel({
   }, [inSidebar])
   const [showPlusMenu, setShowPlusMenu] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
+  // 手机:会话名之外,打的字还能去搜说过的话 —— 列表最后一行打开全屏的搜索页(桌面是侧栏搜索框与 Mod+O 的最后一行)。
+  const [messageSearch, setMessageSearch] = useState(false)
   const [focusedChatId, setFocusedChatId] = useState<string | null>(activeChatId)
   const [collapsedTopicSources, setCollapsedTopicSources] = useState<ReadonlySet<string>>(() => new Set())
   const [expandedTopicSources, setExpandedTopicSources] = useState<ReadonlySet<string>>(() => new Set())
@@ -902,10 +906,17 @@ export function ChatListPanel({
       {/* Normal chats */}
       {!loadingChats && normalRows}
 
+      {mobile && hasSearchQuery && (
+        <ListRow mobile role="button" tabIndex={0} data-testid="chat-list-search-messages" leading={<Search size={20} color="var(--text-tertiary)" />}
+          title={t('chatList.searchMessages', { query: listQuery.trim() })}
+          onClick={() => { resetSearchSession({ text: listQuery.trim() }); setMessageSearch(true) }} />
+      )}
+
     </div>
   )
   const dialogs = (
     <>
+      {mobile && <PhoneMessageSearch open={messageSearch} onClose={() => setMessageSearch(false)} />}
       <Sheet open={showAddFriendModal} onClose={() => setShowAddFriendModal(false)} desktopWidth="360px" desktopMaxHeight="480px" ariaLabel={t('chatList.addContact')}>
         {showAddFriendModal ? <AddFriendContent onClose={() => setShowAddFriendModal(false)} /> : null}
       </Sheet>

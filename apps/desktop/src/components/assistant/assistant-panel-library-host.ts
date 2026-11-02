@@ -6,6 +6,7 @@ import { translateSessionMessage } from '@/session/renderer/localization/locale-
 import { waitForAssistantControl } from '@/lib/assistantControlReady'
 import { isAssistantActionRefusal } from '@/lib/assistantActionRefusal'
 import { rendererLogger } from '@/lib/log'
+import { anySignal } from '@gugu/core/shared/anySignal'
 
 const log = rendererLogger('assistant/authorization')
 
@@ -46,7 +47,7 @@ export function assistantPanelLibraryHost(base: LibraryHost, panel: AssistantPan
     const pending = pendingPreparations.get(provider) ?? new Set<AbortController>()
     pending.add(controller); pendingPreparations.set(provider, pending)
     try {
-      const active = signal ? AbortSignal.any([signal, controller.signal]) : controller.signal
+      const active = anySignal([signal, controller.signal])
       await prepareAction(active)
       if ((authorizationVersions.get(provider) ?? 0) !== version) throw new Error(translateSessionMessage('integrations.authorizationCancelled'))
       return await action(active)

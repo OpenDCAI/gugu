@@ -14,6 +14,7 @@ import { codeBlockDef } from '@session-chat/components/rows/markdown/code/code.d
 import { htmlBlockDef } from '@session-chat/components/rows/markdown/html/html.def'
 import { mathBlockDef } from '@session-chat/components/rows/markdown/math/math.def'
 import { mermaidBlockDef } from '@session-chat/components/rows/markdown/mermaid/mermaid.def'
+import { svgBlockDef } from '@session-chat/components/rows/markdown/svg/svg.def'
 import { messageUnitDef } from '@session-chat/components/rows/message/message.def'
 import { srOnly } from '@session-chat/components/rows/message/message.css'
 import { resourceLinkUnitDef } from '@session-chat/components/rows/resource-link/resource-link.def'
@@ -231,6 +232,30 @@ const blocks = [
     }
   },
   {
+    label: 'svg figure wider than the row',
+    block: {
+      kind: 'svg',
+      id: 'inner-block#3',
+      source: '<svg viewBox="0 0 1600 400"><rect width="1600" height="400" fill="var(--c1)"/></svg>'
+    }
+  },
+  {
+    label: 'svg figure at its own size',
+    block: {
+      kind: 'svg',
+      id: 'inner-block#4',
+      source: '<svg viewBox="0 0 120 90"><circle cx="60" cy="45" r="40" fill="var(--accent)"/></svg>'
+    }
+  },
+  {
+    label: 'svg that cannot be drawn reads as code',
+    block: {
+      kind: 'svg',
+      id: 'inner-block#5',
+      source: '<svg><rect/></svg>'
+    }
+  },
+  {
     label: 'text run with a rule',
     block: textRun('inner-rule', 'Above.\n\n---\n\nBelow.')
   },
@@ -329,6 +354,8 @@ const markdownCases: MarkdownCase[] = blocks.map(({ label, block }) => {
       return { label, block, inspect: inspectCode }
     case 'mermaid':
       return { label, block, inspect: inspectMermaid }
+    case 'svg':
+      return { label, block, inspect: (host) => (host.querySelector('img') ? inspectFillBlock(host) : inspectCode(host)) }
     case 'math':
       return { label, block, inspect: inspectMath }
   }
@@ -347,6 +374,9 @@ describe('markdown BlockFrames hold their real-rendered leaf geometry', () => {
         break
       case 'mermaid':
         reading = await renderAndMeasureBlock(mermaidBlockDef, block, ctx, inspect)
+        break
+      case 'svg':
+        reading = await renderAndMeasureBlock(svgBlockDef, block, ctx, inspect)
         break
       case 'math':
         reading = await renderAndMeasureBlock(mathBlockDef, block, ctx, inspect)

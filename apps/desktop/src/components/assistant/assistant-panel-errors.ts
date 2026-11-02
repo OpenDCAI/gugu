@@ -6,7 +6,7 @@ export function assistantPanelFailure(error: unknown, t: (key: string, values?: 
   const key = code === 'read-timeout' ? 'readTimedOut'
     : code === 'unprepared' ? 'unprepared' : code === 'stale' ? 'stale'
     : code === 'application-failed' ? 'applicationFailed'
-      : code === '40001' || code === 'exists' ? 'changed'
+      : code === 'PT409' || code === 'exists' ? 'changed'
         : ['42501','signed-out','account-changed'].includes(code ?? '') ? 'accessFailed'
           : code === 'missing-home' || code === 'missing-identity' ? 'identityFailed'
             : code === 'invalid-path' || code === '22023' ? 'invalidResource'
