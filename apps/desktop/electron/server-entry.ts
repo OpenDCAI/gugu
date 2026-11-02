@@ -22,7 +22,6 @@ import {
   writeSignedOutMark,
 } from './server/server-layout'
 import * as serverShim from './server/server-electron-shim'
-import { runWithRunningVersion } from './server/server-version-match'
 import { REMOTE_PROTOCOL_VERSION } from '@gugu/core/cloud/serverMachineHealth'
 import { ensurePrivateDir, summarizeChanges, tightenServerTree } from './server/server-permissions'
 import { assertRuntimeBackend, ownPackageIdentity, packageBackend, packageIdentity, prepareInstallation } from './server/server-package-environment.mts'
@@ -166,16 +165,6 @@ function tightenOwnTree(): void {
   } catch (error) {
     stderr(`[server] 收紧数据目录权限失败:${error instanceof Error ? error.message : String(error)}`)
   }
-}
-
-/**
- * #6264 桌面经 SSH 调的命令用「正在跑的那个账号进程」那一版来跑(server-version-match.ts):
- * 换版窗口里 current 已经是新版、账号进程还是旧版时,❌ 让新旧两版对话被协议版本拒掉。
- * 返回那一版的退出码;不需要换(版本一致 / 读不到 / 盘上没有那一版)返回 null,由本进程照常跑。
- */
-function runningVersionFirst(command: string, args: string[], account: { dataDir: string } | { error: string }): number | null {
-  if ('error' in account) return null
-  return runWithRunningVersion({ home: serverHome, accountPid: lockHolder(account.dataDir), command, args })
 }
 
 function prepareRuntimeInstallation(): void {
@@ -373,11 +362,7 @@ async function runCommand(command: string | undefined, args: string[]): Promise<
       return process.exit(0)
     }
     case 'link': {
-      const { parseLinkArgs, runLink } = await import('./server/link-cli')
-      const { pickAttachAccount } = await import('./server/account-call')
-      const parsed = parseLinkArgs(args)
-      const matched = 'error' in parsed ? null : runningVersionFirst(command, args, pickAttachAccount(listAccounts(), parsed.account))
-      if (matched !== null) return process.exit(matched)
+      const { runLink } = await import('./server/link-cli')
       return process.exit(await runLink(args))
     }
     case 'selftest': {
@@ -402,7 +387,7 @@ async function runCommand(command: string | undefined, args: string[]): Promise<
     }
     case 'match-version': {
       const { runMatchVersion } = await import('./server/match-version-cli')
-      const { runningVersionOf } = await import('./server/server-version-match')
+      const { runningVersionOf } = await import('./server/server-account-runtime')
       const read = (file: string): string | null => {
         try {
           return fs.readFileSync(file, 'utf8')

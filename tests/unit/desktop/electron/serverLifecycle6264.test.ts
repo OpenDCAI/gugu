@@ -5,7 +5,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { rotateByCopyTruncate, rotateByRename } from '../../../../apps/desktop/electron/server/server-log-rotate'
-import { chooseVersionBinary, runningVersionOf } from '../../../../apps/desktop/electron/server/server-version-match'
+import { runningVersionOf } from '../../../../apps/desktop/electron/server/server-account-runtime'
 import { runChecks } from '../../../../apps/desktop/electron/server/server-selftest'
 import { pruneVersions } from '../../../../apps/desktop/electron/server/server-account-versions'
 import { isOwnProcessAlive } from '../../../../apps/desktop/electron/server/process-alive'
@@ -69,23 +69,7 @@ describe('reclamation preserves explicit live and rollback ownership', () => {
   })
 })
 
-describe('SSH 命令用在跑的那一版', () => {
-  const exists = (files: string[]) => (file: string) => files.includes(file)
-
-  it('current 已经是新版、账号进程还是旧版:换成旧版的可执行文件', () => {
-    expect(chooseVersionBinary({ ownVersion: '0.2.140', runningVersion: '0.2.139', versionsDir: '/h/versions', exists: exists(['/h/versions/0.2.139/bin/gugu-server']), alreadySwitched: false })).toBe('/h/versions/0.2.139/bin/gugu-server')
-  })
-
-  it('版本一致 / 读不到 / 盘上没有那一版 / 已经换过一次:就用自己', () => {
-    const base = { versionsDir: '/h/versions', exists: () => true, alreadySwitched: false }
-    expect(chooseVersionBinary({ ...base, ownVersion: '0.2.140', runningVersion: '0.2.140' })).toBeNull()
-    expect(chooseVersionBinary({ ...base, ownVersion: '0.2.140', runningVersion: null })).toBeNull()
-    expect(chooseVersionBinary({ ...base, ownVersion: undefined, runningVersion: '0.2.139' })).toBeNull()
-    expect(chooseVersionBinary({ ...base, ownVersion: '0.2.140', runningVersion: '0.2.139', exists: () => false })).toBeNull()
-    expect(chooseVersionBinary({ ...base, ownVersion: '0.2.140', runningVersion: '0.2.139', alreadySwitched: true })).toBeNull()
-    expect(chooseVersionBinary({ ...base, ownVersion: '0.2.140', runningVersion: '../../etc' })).toBeNull()
-  })
-
+describe('live process package identity', () => {
   it('在跑的版本从进程环境读,读不到退回命令行里的 versions/<版本>/', () => {
     const read = (files: Record<string, string>) => (file: string) => files[file] ?? null
     expect(runningVersionOf(9, read({ '/proc/9/environ': 'A=1\0GUGU_TASK_HOST_VERSION=0.2.139\0B=2' }))).toBe('0.2.139')

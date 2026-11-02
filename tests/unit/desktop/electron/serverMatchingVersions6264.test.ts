@@ -16,16 +16,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   compareServerVersions,
   desktopProtocolOutsideWindow,
-  DESKTOP_REPORT_REFRESH_MS,
-  DESKTOP_REPORT_TTL_MS,
-  noteDesktopHello,
   parseDesktopHello,
-  pickTargetVersion,
-  readDesktopReports,
-  readVersionSwitchRequest,
-  recordDesktopReport,
   reportedDesktopVersion,
-  VERSION_SWITCH_FILE,
 } from '../../../../packages/core/src/cloud/serverDesktopVersions'
 import { parseServerUpdateState } from '../../../../packages/core/src/cloud/deviceHostInfo'
 import { normalizeDeviceCapabilities } from '../../../../packages/core/src/cloud/devices'
@@ -65,22 +57,7 @@ function installVersion(version: string, mtimeMs = NOW): void {
   fs.writeFileSync(path.join(bin, 'gugu-server'), '#!/bin/sh\n')
   fs.utimesSync(path.join(home, 'versions', version), mtimeMs / 1000, mtimeMs / 1000)
 }
-const report = (userId: string, id: string, version: string, protocol: number | null = REMOTE_PROTOCOL_VERSION, at = NOW) =>
-  recordDesktopReport(dataDir(userId), { id, version, protocol }, at)
-
-describe('目标版本:用这台机器的桌面里最新的那一台', () => {
-  it('同一账号两台桌面版本不同 ⇒ 取新的(选 A);报告过期不算', () => {
-    const reports = {
-      mbp: { version: '0.2.160', protocol: 2, at: NOW },
-      office: { version: '0.2.158', protocol: 2, at: NOW },
-      oldLaptop: { version: '0.2.170', protocol: 2, at: NOW - DESKTOP_REPORT_TTL_MS - 1 },
-    }
-    expect(pickTargetVersion(reports, NOW)).toBe('0.2.160')
-    expect(pickTargetVersion({}, NOW)).toBeNull()
-    // 下载站上没有的那一版让位给次新的。
-    expect(pickTargetVersion(reports, NOW, undefined, (v) => v === '0.2.160')).not.toBe('0.2.160')
-  })
-
+describe('server version and released protocol parsing', () => {
   it('版本号逐段比,正式版比同号的预发版新', () => {
     expect(compareServerVersions('0.2.50', '0.2.49')).toBeGreaterThan(0)
     expect(compareServerVersions('0.3.0', '0.2.999')).toBeGreaterThan(0)
@@ -106,32 +83,6 @@ describe('目标版本:用这台机器的桌面里最新的那一台', () => {
     expect(parseDesktopHello({ id: 'dev-1', version: '0.2.160', protocol: 'x' })).toEqual({ id: 'dev-1', version: '0.2.160', protocol: null })
   })
 
-  it('账号进程收到报告:记下;协议在窗口外 = 版本信号,留「当场换」请求;桌面自己什么也不记', () => {
-    const env = { GUGU_SERVER_MODE: '1', GUGU_TASK_HOST_USER_DATA: dataDir(U1) }
-    expect(noteDesktopHello(env, { id: 'mbp', version: '0.2.160', protocol: REMOTE_PROTOCOL_VERSION }, NOW)).toEqual({ recorded: true, switchRequested: false })
-    expect(readVersionSwitchRequest(dataDir(U1), NOW)).toBeNull()
-    expect(noteDesktopHello(env, { id: 'next', version: '0.3.0', protocol: REMOTE_PROTOCOL_VERSION + 1 }, NOW)).toEqual({ recorded: true, switchRequested: true })
-    expect(readVersionSwitchRequest(dataDir(U1), NOW)).not.toBeNull()
-    expect(Object.keys(readDesktopReports(dataDir(U1))).sort()).toEqual(['mbp', 'next'])
-    expect(noteDesktopHello({ GUGU_TASK_HOST_USER_DATA: dataDir(U2) }, { id: 'x', version: '0.2.1', protocol: 2 }, NOW).recorded).toBe(false)
-  })
-
-  it('记着的已是同一件事(同一版、同一协议、还没到续报的时候):不写、不再留换版请求;变了才写', () => {
-    const env = { GUGU_SERVER_MODE: '1', GUGU_TASK_HOST_USER_DATA: dataDir(U1) }
-    // 窗口下沿之外的老桌面(窗口可以不止一格宽,❌ 拿「当前协议减一」当窗口外)。
-    const old = { id: 'old', version: '0.2.51', protocol: MIN_CLIENT_PROTOCOL - 1 }
-    expect(noteDesktopHello(env, old, NOW)).toEqual({ recorded: true, switchRequested: true })
-    fs.rmSync(path.join(dataDir(U1), VERSION_SWITCH_FILE))
-    expect(noteDesktopHello(env, old, NOW + 6_000)).toEqual({ recorded: true, switchRequested: false })
-    expect(readDesktopReports(dataDir(U1)).old!.at).toBe(NOW)
-    expect(readVersionSwitchRequest(dataDir(U1), NOW + 6_000)).toBeNull()
-    // 报的协议变了 = 新的事实,当场写。
-    expect(noteDesktopHello(env, { ...old, protocol: REMOTE_PROTOCOL_VERSION }, NOW + 7_000).recorded).toBe(true)
-    expect(readDesktopReports(dataDir(U1)).old).toMatchObject({ protocol: REMOTE_PROTOCOL_VERSION, at: NOW + 7_000 })
-    // 同一件事过了续报的时候:照开着的窗口那样续一次,报告才不会过期。
-    noteDesktopHello(env, { ...old, protocol: REMOTE_PROTOCOL_VERSION }, NOW + 7_000 + DESKTOP_REPORT_REFRESH_MS)
-    expect(readDesktopReports(dataDir(U1)).old!.at).toBe(NOW + 7_000 + DESKTOP_REPORT_REFRESH_MS)
-  })
 })
 
 describe('reclamation uses explicit ownership only', () => {
@@ -418,16 +369,5 @@ describe('同一台电脑上两个版本的咕咕(正式版 + Beta / 开发实�
     expect(desktopReportDevice('legacy-desktop')).toBe('legacy-desktop')
   })
 
-  it('报告标识带版本;两条都在时取最新那一版,不随上报顺序来回变', async () => {
-    const { desktopReportId } = await import('@gugu/core/cloud/serverMachineHealth')
-    const { pickTargetVersion } = await import('@gugu/core/cloud/serverDesktopVersions')
-    const now = Date.now()
-    const a = desktopReportId('dev-1', '0.2.162')
-    const b = desktopReportId('dev-1', '0.2.170')
-    expect(a).not.toBe(b)
-    const first = { [a]: { version: '0.2.162', protocol: 2, at: now - 1000 }, [b]: { version: '0.2.170', protocol: 2, at: now - 2000 } }
-    const second = { [a]: { version: '0.2.162', protocol: 2, at: now - 3000 }, [b]: { version: '0.2.170', protocol: 2, at: now - 500 } }
-    expect(pickTargetVersion(first, now)).toBe('0.2.170')
-    expect(pickTargetVersion(second, now)).toBe('0.2.170')
-  })
+
 })

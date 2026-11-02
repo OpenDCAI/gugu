@@ -12,7 +12,6 @@ vi.mock('../../../../apps/desktop/electron/server/server-layout', () => ({
   listAccounts: mocks.accounts, supervisorDataDir: () => '/supervisor/data',
 }))
 vi.mock('../../../../apps/desktop/electron/server/server-electron-shim', () => ({ default: {} }))
-vi.mock('../../../../apps/desktop/electron/server/server-version-match', () => ({ runWithRunningVersion: () => null }))
 
 const argv = process.argv
 const loader = Module as unknown as { _load: unknown }

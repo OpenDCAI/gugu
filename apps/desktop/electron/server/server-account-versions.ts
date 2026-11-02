@@ -1,22 +1,9 @@
-/**
- * #6264 每个账号跑和自己桌面匹配的那一份咕咕 server(product spec 第 5 条例外;照 VS Code
- * `~/.vscode-server/bin/<commit>` 多份并存、Zed `zed-remote-server-<版本>` 与客户端完全一致)。
- *
- *   versions/<版本>/          好几份并存:在用的 + 明确记录的上一版(VS Code 的做法,microsoft/vscode-remote-release#969)
- *   versions/.incoming/       上不了网的机器:桌面经 SSH 放进来的包 `<版本>.tar.gz` + 它的清单行 `<版本>.txt`,
- *                             守护进程装它而 ❌ 下载(装的仍只有守护进程一个,见 server-account-driver.ts)
- *   current                   守护进程自己跑的那一份;没有桌面报过版本的账号也跑它
- *   accounts/<id>/data/
- *     desktop-versions.json   用这台机器的各台桌面报的版本(core/cloud/serverDesktopVersions.ts)
- *     version-switch.json     换版请求(CLI / 设备 RPC 写,守护进程作答后删)
- *     server-update.json      这个账号的版本状态机(server-account-machine.ts):跑哪一版、在做什么、上次请求的结论
- */
+/** Package paths, explicit reclamation and read-only compatibility with deployed version pins. */
 import fs from 'node:fs'
 import path from 'node:path'
 import { isServerVersion } from '@gugu/core/cloud/serverDesktopVersions'
 
-/** 守护进程自己的版本指针(看门狗确认过的 to/from);账号的版本记在它的状态文件里(server-account-machine.ts),
- *  旧布局的账号目录里也有一份,守护进程第一次读到就并进状态文件。 */
+/** Deployed supervisors wrote this pin; new runs retain its rollback package during migration. */
 export const VERSION_PIN_FILE = 'server-version.json'
 /** `gugu-server match-version` 打给桌面看的机器可读行(ssh-install/logic.ts 读)。 */
 export const MATCH_MARK = '__GUGU_MATCH__'
