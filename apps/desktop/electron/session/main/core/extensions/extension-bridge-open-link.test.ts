@@ -53,7 +53,7 @@ const { EXTENSION_BRIDGE_CHANNEL } = await import('@shared/extensions/bridge-pro
 
 registerExtensionBridge();
 const handle = handlers.get(EXTENSION_BRIDGE_CHANNEL)!;
-const open = (sender: number, url: unknown) => handle({ sender: { id: sender, session: {} } }, { method: 'openLink', args: { url } });
+const open = (sender: number, url: unknown) => handle({ sender: { id: sender, session: {} } }, { method: 'openLink', args: { url }, gesture: true });
 
 const LINK = 'gugu-dev://ext/radar/radar?gugu.session=0d000000-0000-4000-8000-000000000001';
 

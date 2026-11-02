@@ -61,7 +61,7 @@ const { EXTENSION_BRIDGE_CHANNEL } = await import('@shared/extensions/bridge-pro
 registerExtensionBridge();
 const handle = handlers.get(EXTENSION_BRIDGE_CHANNEL)!;
 const call = (sender: number, method: string, args: Record<string, unknown> = {}) =>
-  handle({ sender: { id: sender, session: {} } }, { method, args }) as Promise<{ ok: boolean; value?: unknown; code?: string }>;
+  handle({ sender: { id: sender, session: {} } }, { method, args, gesture: true }) as Promise<{ ok: boolean; value?: unknown; code?: string }>;
 
 const AGENT = '0a000000-0000-4000-8000-000000000069';
 
