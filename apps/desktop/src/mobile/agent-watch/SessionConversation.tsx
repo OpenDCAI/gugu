@@ -44,7 +44,7 @@ import { EngineIcon } from '@/components/AgentHarnessIdentity'
 import { engineLabel } from '@/lib/usage/engineLabel'
 
 /** The phone supplies session data and RPC actions to the same project conversation UI. */
-export function SessionConversation({ timeline, deviceId, sessionId, agentName, agentUserId, harness, draft, onDraftApplied, phoneHost = false, local = false, nativeRecord = false, hostReachable = true,
+export function SessionConversation({ timeline, deviceId, sessionId, agentName, agentUserId, harness, draft, onDraftApplied, startupPrompt, phoneHost = false, local = false, nativeRecord = false, hostReachable = true,
   machineLabel, sessionRuntime, respondingItemId, onRespond, onSend, pendingSends, sending, agentWorking,
   onStop, stopping, footerNotice, onLoadOlder, onAtBottom, emptyNote,
 }: {
@@ -54,6 +54,7 @@ export function SessionConversation({ timeline, deviceId, sessionId, agentName, 
   draft?: { text: string }; onDraftApplied?: () => void; phoneHost?: boolean
   /** The session is on this computer: read it over IPC (see `machineRpc`). */
   local?: boolean; nativeRecord?: boolean; hostReachable?: boolean; machineLabel?: string
+  startupPrompt?: import('@gugu/session-chat-ui').PendingPrompt | null
   sessionRuntime: SessionpageSessionSummary['runtime']; respondingItemId: string | null
   onRespond: (input: SettlementResponse) => Promise<SessionpageSessionRespondResult>; onSend: (text: string, files?: TurnFileRef[]) => Promise<void>
   pendingSends: readonly PendingSend[]; sending: boolean; agentWorking: boolean
@@ -218,7 +219,7 @@ export function SessionConversation({ timeline, deviceId, sessionId, agentName, 
       toolbarExtra={<><ComposerAttachButton disabled={sending} mobile onPickFile={() => input.current?.click()} /></>} />
   </>
   return <ThemeProvider theme={theme} target="documentElement"><MessageProvider locale={resolvedLocale} translate={translateSessionMessage}>
-    <div ref={visibility.ref} className="relative flex min-h-0 flex-1 flex-col"><SessionTranscriptView uri={sessionId} turns={turns} pendingPrompt={pendingSends[0] ?? null} mobile commands={commands} backgroundTasks={background}
+    <div ref={visibility.ref} className="relative flex min-h-0 flex-1 flex-col"><SessionTranscriptView uri={sessionId} turns={turns} pendingPrompt={startupPrompt ?? pendingSends[0] ?? null} mobile commands={commands} backgroundTasks={background}
       onReachStart={() => { void quotes.loadOlder() }} composerContent={composer} shown={visibility.shown} onAtBottomChange={atBottom => { if (atBottom) onAtBottom?.() }} onVisibleItems={reading.onVisibleItems} onReady={ready => { view.current = ready; reading.onReady(ready) }} className="relative min-h-0 flex-1" />
     {turns.length === 0 ? emptyNote : null}</div>{outputs.panel}{options.confirmation}
   </MessageProvider></ThemeProvider>
