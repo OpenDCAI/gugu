@@ -440,7 +440,7 @@ export class AcpChatStore {
       variant: 'info',
       title: 'Permission mode queued',
       message:
-        'The selected permission mode will apply on the next turn. The current turn continues with its existing mode.',
+        'The selected permission mode will apply to the next reply. The reply in progress keeps its existing mode.',
     };
   }
 
