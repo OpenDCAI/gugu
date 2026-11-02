@@ -18,6 +18,7 @@ export function createAssistantServerPreparation(deps: {
   read(): Promise<ServerPreparationRecord | null>
   write(record: ServerPreparationRecord): Promise<void>
   validate(input: AssistantServerOperation, starting: boolean): Promise<void>
+  retired(input: AssistantServerOperation): Promise<boolean>
   prepare(id: string, signal: AbortSignal): Promise<PreparedAssistantRuntime>
   cleanup(id: string, keepRuntime: boolean): Promise<void>
   wipe(): Promise<WipeLocalHomeResult>
@@ -107,7 +108,11 @@ export function createAssistantServerPreparation(deps: {
       return serial(async () => {
         await deps.validate(input, true)
         await load()
-        if (journal && journal.operationId !== input.operationId && journal.state.phase !== 'cancelled') return fail('preparation_busy')
+        if (journal && journal.operationId !== input.operationId && journal.state.phase !== 'cancelled') {
+          // A governed-removed identity is authoritative retirement evidence.
+          // This also lets a fresh setup finish cleanup after an interrupted close.
+          if (active || !await deps.retired(journal)) return fail('preparation_busy')
+        }
         if (journal?.operationId === input.operationId) {
           if (journal.ownerUserId !== input.ownerUserId || journal.deviceId !== input.deviceId || journal.ownerProfile !== input.ownerProfile) return fail('input_mismatch')
           if (active || journal.state.phase === 'prepared' || journal.state.phase === 'cancelled') return { ...journal.state }
