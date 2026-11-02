@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { and, asc, eq, inArray, isNull } from 'drizzle-orm';
 import type { Receipt, Seq, SerializedError } from '@gugu/core/local/session-life/types';
 import { db } from '@main/db/client';
@@ -12,15 +13,19 @@ interface PendingMetadata {
   turn?: PendingTurn;
 }
 
-export interface EnqueuePending {
+interface PendingInput {
   readonly sessionId: string;
-  readonly messageId: string;
   readonly text: string;
-  readonly kind: PendingRow['kind'];
   readonly delivery?: PendingRow['message']['delivery'];
   readonly sources?: readonly PendingSource[];
   readonly turn?: PendingTurn;
+  /** A rejected inbox item is durable and visible, but must never enter provider admission. */
+  readonly failure?: SerializedError;
 }
+export type EnqueuePending = PendingInput & (
+  | { readonly kind: 'inbox-batch'; readonly sources: readonly PendingSource[]; readonly messageId?: never }
+  | { readonly kind: 'ordinary' | 'session-direct'; readonly messageId: string }
+);
 
 function metadata(raw: string | null): PendingMetadata {
   return raw ? JSON.parse(raw) as PendingMetadata : { kind: 'ordinary-message' };
@@ -47,9 +52,14 @@ export function readPending(sessionId: string, seq: Seq): PendingRow {
 /** Insert the body, queue row and frozen source membership in one transaction. */
 export function enqueuePending(input: EnqueuePending): { inserted: boolean; seq: Seq; state: Receipt['state'] } {
   return db.transaction(tx => {
-    const existing = tx.select().from(sessionPending)
-      .where(and(eq(sessionPending.sessionId, input.sessionId), eq(sessionPending.messageId, input.messageId))).get();
-    if (existing) return { inserted: false, seq: existing.seq as Seq, state: existing.state };
+    if (input.kind !== 'inbox-batch') {
+      const existing = tx.select({ pending: sessionPending, message: messages }).from(sessionPending).innerJoin(messages, eq(messages.id, sessionPending.messageId))
+        .where(and(eq(sessionPending.sessionId, input.sessionId), eq(sessionPending.messageId, input.messageId))).get();
+      if (existing) {
+        if (existing.message.content !== input.text || existing.message.sender !== 'user') throw new Error(`Message ${input.messageId} conflicts with its persisted content`);
+        return { inserted: false, seq: existing.pending.seq as Seq, state: existing.pending.state };
+      }
+    }
     const ids = input.sources?.map(source => source.row.id) ?? [];
     if (ids.length !== new Set(ids).size) throw new Error('An inbox batch repeats a source message');
     if (ids.length) {
@@ -64,18 +74,27 @@ export function enqueuePending(input: EnqueuePending): { inserted: boolean; seq:
         if (claimed.length !== ids.length || members !== ids.length) throw new Error(`Inbox batch overlaps claimed sources for session ${input.sessionId}`);
         const owner = tx.select().from(sessionPending).where(eq(sessionPending.seq, claimed[0]!.seq)).get();
         if (!owner) throw new Error('Source membership has no pending owner');
+        const body = tx.select().from(messages).where(eq(messages.id, owner.messageId)).get();
+        const frozen = metadata(body?.metadata ?? null).sources ?? [];
+        if ((input.sources ?? []).some(source => frozen.find(member => member.row.id === source.row.id)?.row.content !== source.row.content)) {
+          throw new Error(`Inbox source for session ${input.sessionId} conflicts with its persisted content`);
+        }
         return { inserted: false, seq: owner.seq as Seq, state: owner.state };
       }
     }
-    const existingMessage = tx.select().from(messages).where(eq(messages.id, input.messageId)).get();
+    // Inbox identity belongs to (recipient session, source messages), above. A cloud ID is never a local row ID.
+    const messageId = input.kind === 'inbox-batch' ? randomUUID() : input.messageId;
+    const existingMessage = tx.select().from(messages).where(eq(messages.id, messageId)).get();
     if (existingMessage && (existingMessage.sessionId !== input.sessionId || existingMessage.content !== input.text || existingMessage.sender !== 'user')) {
       throw new Error(`Message ${input.messageId} conflicts with its persisted content`);
     }
-    if (!existingMessage) tx.insert(messages).values({ id: input.messageId, sessionId: input.sessionId, content: input.text, sender: 'user',
+    if (!existingMessage) tx.insert(messages).values({ id: messageId, sessionId: input.sessionId, content: input.text, sender: 'user',
       metadata: JSON.stringify({ kind: input.kind === 'ordinary' ? 'ordinary-message' : input.kind,
         ...(input.delivery ? { delivery: input.delivery } : {}), ...(input.sources ? { sources: input.sources } : {}),
         ...(input.turn ? { turn: input.turn } : {}) }) }).run();
-    const pending = tx.insert(sessionPending).values({ sessionId: input.sessionId, messageId: input.messageId, kind: input.kind, state: 'queued', enqueuedAt: new Date().toISOString() }).returning().get();
+    const pending = tx.insert(sessionPending).values({ sessionId: input.sessionId, messageId, kind: input.kind,
+      state: input.failure ? 'failed' : 'queued', failure: input.failure ? JSON.stringify(input.failure) : null,
+      settledAt: input.failure ? new Date().toISOString() : null, enqueuedAt: new Date().toISOString() }).returning().get();
     for (const source of input.sources ?? []) tx.insert(sessionPendingSource).values({ seq: pending.seq, sessionId: input.sessionId, sourceMessageId: source.row.id }).run();
     return { inserted: true, seq: pending.seq as Seq, state: pending.state };
   });
@@ -83,7 +102,7 @@ export function enqueuePending(input: EnqueuePending): { inserted: boolean; seq:
 
 /**
  * The sources this session's queue already holds, with whether their row is still open (queued / dispatching). The reader
- * leaves every one out of a new batch (frozen batches never overlap); only open ones hold back a skipped row behind them.
+ * leaves every one out of a new batch (frozen batches never overlap), including terminal failures without read receipts.
  */
 export function claimedSessionSources(sessionId: string, sourceMessageIds: readonly string[]): ReadonlyMap<string, boolean> {
   if (!sourceMessageIds.length) return new Map();

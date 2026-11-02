@@ -30,6 +30,8 @@ import {
   drainAllSessionMessageOutboxes,
   drainSessionMessageOutbox,
   sendMessage,
+  rejectPendingSessionDirectMessage,
+  listPendingSessionDirectMessages,
 } from './sendMessage';
 import { setSessionMessageRouter } from './session-message-router';
 
@@ -64,6 +66,18 @@ describe('conversation message SQLite outbox', () => {
     setSessionMessageRouter(null);
     fixture.close();
     mocks.db = undefined;
+  });
+
+  it('a reader rejection replaces a retained local message with a failed receipt, never an accepted one', async () => {
+    setSessionMessageRouter(async () => ({ status: 'not-ready', preserve: true, reason: 'not ready' }));
+    const input = { ...target, clientMessageId: 'rejected-local', text: 'invalid input', kind: 'session-direct' as const };
+    await expect(sendMessage(input)).rejects.toThrow(/kept/);
+    expect(listPendingSessionDirectMessages(target.sessionId)).toHaveLength(1);
+    rejectPendingSessionDirectMessage(target.sessionId, input.clientMessageId, new Error('invalid payload'));
+    expect(listPendingSessionDirectMessages(target.sessionId)).toEqual([]);
+    expect(fixture.sqlite.prepare("SELECT json_extract(metadata, '$.state') AS state FROM messages WHERE id = ?").get(input.clientMessageId)).toEqual({ state: 'failed' });
+    expect(() => rejectPendingSessionDirectMessage(target.sessionId, input.clientMessageId, new Error('invalid payload'))).not.toThrow();
+    await expect(sendMessage(input)).rejects.toThrow(/previously failed/);
   });
 
   it('records a live session-direct only in the recipient timeline', async () => {

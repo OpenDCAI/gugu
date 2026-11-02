@@ -62,18 +62,20 @@ type Waiting = { message: WaitLine; agentId: string; rowSeq: number; wait: Deliv
 
 /** My messages an agent with a pending-delivery row in their line has not read yet (its precise read row or watermark). */
 function waitingOn(messages: readonly WaitLine[], memberReadSeqs: Readonly<Record<string, number>>): Waiting[] {
-  const rowsByThread = new Map<string | null, Map<string, { seq: number; wait: DeliveryWait }>>()
+  const rowsByThread = new Map<string | null, Map<string, { seq: number; wait: DeliveryWait | null }>>()
   for (const msg of messages) {
-    if (!msg.sender_user_id || !isPendingDelivery(msg)) continue
-    const rows = rowsByThread.get(msg.thread_root_id ?? null) ?? new Map<string, { seq: number; wait: DeliveryWait }>()
+    const reason = turnFailureReason(msg)
+    if (!msg.sender_user_id || !reason) continue
+    const rows = rowsByThread.get(msg.thread_root_id ?? null) ?? new Map<string, { seq: number; wait: DeliveryWait | null }>()
     // The agent's newest row is what is true of it now.
-    if ((rows.get(msg.sender_user_id)?.seq ?? 0) < msg.seq) rows.set(msg.sender_user_id, { seq: msg.seq, wait: turnFailureReason(msg) === 'undelivered' ? 'undelivered' : 'queued' })
+    if ((rows.get(msg.sender_user_id)?.seq ?? 0) < msg.seq) rows.set(msg.sender_user_id, { seq: msg.seq, wait: reason === 'undelivered' ? 'undelivered' : reason === 'notAdmitted' ? 'queued' : null })
     rowsByThread.set(msg.thread_root_id ?? null, rows)
   }
   const waiting: Waiting[] = []
   for (const message of messages) {
     if (!message.is_mine || message.seq <= 0 || message.retracted_at || message.content_type === 'system') continue
     for (const [agentId, row] of rowsByThread.get(message.thread_root_id ?? null) ?? []) {
+      if (row.wait === null) continue
       if (message.readers?.includes(agentId) || (memberReadSeqs[agentId] ?? 0) >= message.seq) continue
       if (message.delivery_blocks?.some((block) => block.agent_user_id === agentId)) continue
       waiting.push({ message, agentId, rowSeq: row.seq, wait: row.wait })
