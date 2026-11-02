@@ -18,6 +18,7 @@ import { mapSessionRowToSession } from '../sessions/utils';
 import { taskName } from '../sessions/task-name';
 import { projectEvents } from '../projects/project-events';
 import { workspaceFileIndexService } from './workspace-file-index-service';
+import { taskTurnIndexStatus } from '@main/db/search-backfill-state';
 
 type FtsRow = {
   item_type: string;
@@ -61,6 +62,7 @@ export function textCondition(text: string, ftsTable: string, likeColumns: reado
 }
 
 class SearchService {
+  taskTurnIndexStatus() { return taskTurnIndexStatus(sqlite); }
   initialize(): void {
     projectEvents.on('project:created', (project) => this.upsertProject(project));
     projectEvents.on('project:deleted', (projectId) => this.removeByType('project', projectId));

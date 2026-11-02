@@ -3,6 +3,10 @@ import { fileURLToPath } from 'node:url';
 import { GUGU_MCP_STDIO_RELAY_ENTRY_ENV } from '@gugu/session-plugins/agents';
 
 export const desktopWorkers = {
+  'turn-text-backfill': {
+    entry: 'main/db/turn-text-backfill-worker.ts',
+    file: 'turn-text-backfill.js',
+  },
   acp: {
     entry: 'src/main/core/acp/runtime-process/entry.ts',
     file: 'acp-runtime.js',
@@ -61,4 +65,3 @@ export function registerGuguMcpStdioRelayEntry(): void {
   if (process.env[GUGU_MCP_STDIO_RELAY_ENTRY_ENV]?.trim()) return;
   process.env[GUGU_MCP_STDIO_RELAY_ENTRY_ENV] = guguMcpStdioRelayEntryPath();
 }
-
