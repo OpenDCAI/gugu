@@ -1,4 +1,4 @@
-import { AccountBootRejectedError, createServerVersionLifecycle, type ServerVersionLifecycle } from './server-version-lifecycle'
+import { AccountBootRejectedError, createServerVersionLifecycle, isServerPackageBad, type ServerVersionLifecycle } from './server-version-lifecycle'
 /**
  * 咕咕 server 自己升级(product spec 第 5 条):后台悄悄下好、校验、解开,
  * **这台机器上没有 agent 在跑的时候**才切过去;切的时候终端会话(tmux)不受影响。
@@ -24,7 +24,7 @@ import { serverDownloadBase } from './server-download'
 import { downloadServerPackage, DownloadSiteUnreachableError } from './server-package-download'
 export { DownloadSiteUnreachableError } from './server-package-download'
 import { touchVersion, versionManifestUrl } from './server-account-versions'
-import { legacyGuardActive, readBadVersions } from './server-startup'
+import { legacyGuardActive } from './server-startup'
 import { controllerOwnsUpdates, readInstallation } from './server-package-environment.mts'
 
 /**
@@ -242,7 +242,7 @@ export function startServerUpdater(deps: ServerUpdaterDeps): ServerUpdater {
       return true
     },
     restartConfirmed(target, confirmed) {
-      if (!layout || stopped || confirmed !== true || !isServerVersion(target)) return false
+      if (!layout || stopped || confirmed !== true || !isServerVersion(target) || isServerPackageBad(layout.home, target)) return false
       // A platform controller can prepare the same state file from another process.
       record = readUpdateRecord(layout.home) ?? record
       if (!record || record.version !== target || (record.state !== 'ready' && !(record.state === 'failed' && record.cause === 'boot'))) return false
@@ -294,17 +294,17 @@ export function startServerUpdater(deps: ServerUpdaterDeps): ServerUpdater {
       resolved = true
       target = manifest.version
       if (stopped || request !== received) return
+      if (isServerPackageBad(layout!.home, target)) {
+        publish({ state: 'idle', version: layout!.version,
+          ...(received?.confirmed ? { lastOutcome: { kind: 'refused', target, cause: 'boot', at: Date.now(), request: received.at } as Outcome } : {}) })
+        if (request === received) request = null
+        return
+      }
       // A failure cools down its target, not subsequently published releases.
       if (!received && record?.state === 'failed' && record.version === target && typeof record.until === 'number' && record.until > Date.now()) return
       if (target === layout!.version || (!received?.confirmed && compareServerVersions(target, layout!.version) <= 0)) {
         publish({ state: 'idle', version: layout!.version,
           ...(received ? { lastOutcome: { kind: 'switched', target: layout!.version, at: Date.now(), request: received.at } as Outcome } : {}) })
-        if (request === received) request = null
-        return
-      }
-      if (!received?.confirmed && readBadVersions(layout!.home)[target] !== undefined) {
-        publish({ state: 'failed', version: target, cause: 'boot', until: Date.now() + FAILURE_COOLDOWN_MS,
-          ...(received ? { lastOutcome: { kind: 'refused', target, cause: 'boot', at: Date.now(), request: received.at } as Outcome } : {}) })
         if (request === received) request = null
         return
       }

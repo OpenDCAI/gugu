@@ -13,6 +13,8 @@ import { createServerUpdateStateWriter, readUpdateRecord } from './server-update
 export class AccountBootRejectedError extends Error {}
 export class ServerPackageDeferredError extends Error {}
 
+export const isServerPackageBad = (home: string, version: string): boolean => readBadVersions(home)[version] !== undefined
+
 export type ServerTransition = { from: string; to: string; fromDir: string; toDir: string; switchedAt: number; request?: number }
 const dataDir = (home: string) => path.join(home, 'data')
 
@@ -79,6 +81,7 @@ export function createServerVersionLifecycle(options: {
       }
     },
     switchSupervisor(marker: ServerTransition, beforeSwitch: () => void): void {
+      if (isServerPackageBad(layout.home, marker.to)) throw new ServerPackageDeferredError('Server package previously failed and was rolled back; waiting for another release')
       requireBoot(marker.to)
       assertPackageEnvironment(layout.home, marker.toDir)
       writePendingVerify(layout.home, { from: marker.from, to: marker.to, attempts: 0,
@@ -107,7 +110,7 @@ export async function activateServerPackage(home: string, directory: string, opt
   const versions = fs.realpathSync(path.join(home, 'versions'))
   const target = fs.realpathSync(directory)
   if (path.dirname(target) !== versions) throw new Error('Candidate is outside the installation')
-  if (readBadVersions(home)[path.basename(target)] !== undefined) {
+  if (isServerPackageBad(home, path.basename(target))) {
     throw new ServerPackageDeferredError('Server package previously failed and was rolled back; waiting for another release')
   }
   const current = path.join(home, 'current')
