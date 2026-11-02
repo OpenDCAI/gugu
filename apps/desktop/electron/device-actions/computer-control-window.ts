@@ -95,20 +95,20 @@ export function createComputerControlWindow(input: {
       const matched = target
         ? (result?.isError ? null : resolveComputerWindow(result?.structuredContent, target))
         : await input.readForegroundWindow(intent.abort.signal)
-      if (current !== intent) return
+      if (current !== intent) return false
       const native = matched?.bounds
       // Windows reports physical window pixels; Electron places windows in DIP.
       const rect = native && (process.platform === 'win32' ? screen.screenToDipRect(null, native) : native)
       const bounds = rect && computerBarBounds(rect, screen.getDisplayMatching(rect).workArea)
       if (!bounds) {
         win?.hide()
-        return
+        return false
       }
       const attachment = bounds.y < rect!.y ? 'above' : 'inside'
-      if (current !== intent) return
+      if (current !== intent) return false
       const { w, ready } = ensure()
       await ready
-      if (current !== intent || w.isDestroyed()) return
+      if (current !== intent || w.isDestroyed()) return false
       const view = intent.view
       const s = input.strings()
       const agentName = view.callerName?.trim() || s.someone
@@ -118,14 +118,16 @@ export function createComputerControlWindow(input: {
         ? { state: 'driving', text: s.driving(name), button: s.stop, action: 'stop' }
         : { state: 'paused', text: s.paused(name), button: s.resume, action: 'resume' }
       await w.webContents.executeJavaScript(`window.render(${JSON.stringify({ ...payload, agentName, taskTitle, attachment })})`)
-      if (current !== intent || w.isDestroyed()) return
+      if (current !== intent || w.isDestroyed()) return false
       w.setBounds(bounds)
       if (!w.isVisible()) w.showInactive()
       w.moveAbove(`window:${matched!.windowId}:0`)
+      return true
     } catch (error) {
-      if (current !== intent) return
+      if (current !== intent) return false
       win?.hide()
       input.log?.warn({ err: String(error) }, 'computer control indicator could not follow its window')
+      return false
     } finally {
       if (current === intent) {
         timer = setTimeout(() => { timer = null; void refresh(intent) }, 250)
@@ -137,14 +139,15 @@ export function createComputerControlWindow(input: {
   return {
     show(view) {
       // Unknown App acts attach to the foreground window, never the desktop.
-      if (current && current.view.app?.pid === view.app?.pid && current.view.app?.windowId === view.app?.windowId) {
-        current.view = view
+      const sameTarget = current && current.view.app?.pid === view.app?.pid && current.view.app?.windowId === view.app?.windowId
+      if (sameTarget && view.app) {
+        current!.view = view
         return
       }
       cancel()
-      win?.hide()
+      if (!sameTarget) win?.hide()
       current = { view, abort: new AbortController() }
-      void refresh(current)
+      return refresh(current)
     },
     hide() {
       cancel()

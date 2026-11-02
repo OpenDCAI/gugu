@@ -98,6 +98,35 @@ describe('window-relative computer indicator', () => {
     control.dispose()
   })
 
+  it('refuses unresolved App input before the driver runs when no foreground Stop control can be attached', async () => {
+    const bar = createComputerControlWindow({ readForegroundWindow: async () => null, readWindows: async () => result(), strings, onStop: vi.fn(), onResume: vi.fn() })
+    const control = createComputerControl({ view: bar })
+    const callTool = vi.fn()
+    const ctx = { deps: { platform: 'darwin', computerControl: control, cua: () => ({ callTool }) }, signal: new AbortController().signal, note: vi.fn() } as unknown as ActionRunContext
+    const family = createComputerFamily(null)
+    expect(await family.actions.find(a => a.name === 'computer.type_text')!.run({ app: 'Notes', text: 'test' }, ctx)).toHaveProperty('code', 'execution_failed')
+    expect(callTool).not.toHaveBeenCalled()
+    expect(native.windows).toHaveLength(0)
+    control.dispose()
+  })
+
+  it('waits for the foreground indicator to finish loading before unresolved App input reaches the driver', async () => {
+    let loaded!: () => void
+    native.load = new Promise<void>((resolve) => { loaded = resolve })
+    const bar = createComputerControlWindow({ readForegroundWindow: async () => ({ pid: 7, windowId: 11, bounds: window().bounds }), readWindows: async () => result(), strings, onStop: vi.fn(), onResume: vi.fn() })
+    const control = createComputerControl({ view: bar })
+    const callTool = vi.fn(async () => { expect(native.windows[0]!.visible).toBe(true); return result() })
+    const ctx = { deps: { platform: 'darwin', computerControl: control, cua: () => ({ callTool }) }, signal: new AbortController().signal, note: vi.fn() } as unknown as ActionRunContext
+    const family = createComputerFamily(null)
+    const pending = family.actions.find(a => a.name === 'computer.type_text')!.run({ app: 'Notes', text: 'test' }, ctx)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(callTool).not.toHaveBeenCalled()
+    loaded()
+    expect(await pending).toHaveProperty('ok', true)
+    expect(callTool).toHaveBeenCalledOnce()
+    control.dispose()
+  })
+
   it('creates only the attached indicator during an operation and keeps its Stop/Continue navigation', async () => {
     const readWindows = vi.fn(async () => result(window()))
     const bar = createComputerControlWindow({ readForegroundWindow: async () => null, readWindows, strings, onStop: () => control.stop(), onResume: () => control.resume() })

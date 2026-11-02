@@ -11,7 +11,7 @@
 
 /** 窗口附着提示(main 用一个不抢焦点、不进截图的小窗实现;测试换成记录器)。没有 app 时附着前台窗口。 */
 export interface ComputerControlView {
-  show(view: { state: 'driving' | 'paused'; callerName?: string; taskTitle?: string; app?: { pid: number; name?: string; windowId?: number } }): void
+  show(view: { state: 'driving' | 'paused'; callerName?: string; taskTitle?: string; app?: { pid: number; name?: string; windowId?: number } }): void | Promise<boolean>
   hide(): void
 }
 
@@ -24,7 +24,7 @@ export interface ComputerCall {
   appName?: string
 }
 
-export type ComputerCallHandle = { refused: string } | { signal: AbortSignal; end(): void }
+export type ComputerCallHandle = { refused: string } | { signal: AbortSignal; ready?: Promise<boolean>; end(): void }
 
 export interface ComputerControl {
   /** 动作开始前:这个 App(或整个电脑控制)被人停了 → 回拒绝原因;否则登记,回这一下的中止信号(人按停止时触发)与收尾。 */
@@ -77,7 +77,7 @@ export function createComputerControl(input: { view: ComputerControlView; linger
   const show = (next: NonNullable<typeof shown>) => {
     shown = next
     clearHide()
-    input.view.show({
+    return input.view.show({
       state: next.state,
       ...(next.callerName ? { callerName: next.callerName } : {}),
       ...(next.taskTitle ? { taskTitle: next.taskTitle } : {}),
@@ -106,10 +106,11 @@ export function createComputerControl(input: { view: ComputerControlView; linger
       // Every begin is an act. Untargeted input must replace an old App's
       // identity too, so Stop aborts this subject instead of the previous App.
       const windowId = call.windowId
-      show({ subject, ...identity, ...(call.appName ? { appName: call.appName } : {}), ...(windowId !== undefined ? { windowId } : {}), state: 'driving' })
+      const ready = show({ subject, ...identity, ...(call.appName ? { appName: call.appName } : {}), ...(windowId !== undefined ? { windowId } : {}), state: 'driving' })
       let ended = false
       return {
         signal: controller.signal,
+        ...(ready ? { ready } : {}),
         end() {
           if (ended) return
           ended = true
