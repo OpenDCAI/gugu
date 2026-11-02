@@ -618,7 +618,7 @@ export const LegacyOverlapCrash: Story = {
 // Verifies that:
 //   1. The pin is instant (no wait for an IPC echo).
 //   2. A short transcript clamps the pin to its real scroll range.
-//   3. The pin transitions to 'tail' when the "turn" completes.
+//   3. The harness explicitly switches the pin to 'tail' after committing the turn.
 
 function SendAndPinHarness() {
   const ctx = createChatContext({ locale: () => 'en-US', theme: DEFAULT_THEME, mentionProvider: mockMentionProvider });
