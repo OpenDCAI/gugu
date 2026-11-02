@@ -7,6 +7,7 @@ import type {
   ResolvedCli, StageName, StageOut, WorkspaceLease,
 } from '@gugu/core/local/session-life/types';
 import { persistedWorkspacePath, resolveWorkspace } from '@main/core/projects/utils';
+import { RETIRED_REMOTE_WORKSPACE_MESSAGE } from '@main/core/workspaces/resolve-workspace-kind';
 import { getSessions } from '@main/core/sessions/getSessions';
 import { sessionService } from '@main/core/sessions/session-service';
 import { recordRuntimeForkOwnership } from '@main/core/sessions/runtime-fork-ownership';
@@ -122,7 +123,7 @@ export function createAcpLegAdapter(sessionId: string, fork: RuntimeFork | null)
       // persisted record. The in-memory registry holds it only once mounted: after a restart, a session no page has
       // opened is first started by a delivery, before anything mounted it.
       const cwd = persistedWorkspacePath(row.workspaceId);
-      if (!cwd) throw new Error(`Session ${sessionId} workspace ${row.workspaceId} has no path`);
+      if (!cwd) throw new Error(RETIRED_REMOTE_WORKSPACE_MESSAGE);
       facts = await readSessionInjectionFacts({ sessionId });
       identity = await provisionStartIdentity({ sessionId, providerId: row.providerId, projectId: row.projectId, cwd }, lifecycleOf(row, null), facts);
       // A persisted session is never a runtime fork: no identity here means tombstoned or not provisionable.
