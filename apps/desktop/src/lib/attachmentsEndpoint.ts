@@ -5,7 +5,6 @@ import type { TurnFileRef } from '@gugu/session-core/session-record/contract'
 import { isHeicLikeFile, mustCopyRatherThanReference } from '@renderer/lib/pty/terminal-image-paths'
 import { getRendererAccessToken } from './sessionPublication'
 import { i18n } from '../i18n'
-import { sshMachinesReady } from './sshLinkChannel'
 import type { AttachmentUploadContext } from './taskAttachmentUpload'
 import { prefetchTaskFiles, pushTaskFiles, pushTaskAttachment, taskAttachmentUsesSsh, taskAttachmentWorkspacePath, type TaskAttachmentTarget } from './taskAttachmentTarget'
 
@@ -96,7 +95,6 @@ export async function placeTaskAttachment(file: File, prepared: TurnFileRef | nu
       if (!row || row.id !== prepared.itemId || row.version !== prepared.version) throw new Error('Task attachment was not published as named')
       placement.published = prepared
     }
-    if (to.deviceId) await sshMachinesReady()
     signal?.throwIfAborted()
     if (to.deviceId && taskAttachmentUsesSsh(to.deviceId)) {
       let source: Blob = file
