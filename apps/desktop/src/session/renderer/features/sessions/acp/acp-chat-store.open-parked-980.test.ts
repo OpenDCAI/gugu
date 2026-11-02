@@ -270,6 +270,35 @@ describe('sender custody uses the ordinary transcript row', () => {
     expect(store.affordances.isWorking).toBe(false);
     store.dispose();
   });
+
+  it('queues a follow-up while an attached idle host has not yet echoed the first input', async () => {
+    const { store } = storeFor();
+    create.mockImplementation(async () => liveSession());
+    running.set(store.sessionId, 'running');
+    life.settle(store.sessionId, 'ready');
+    store.bootstrap();
+    await vi.waitFor(() => expect(store.session).not.toBeNull());
+    Object.assign(inputState(), { accountId: 'test-owner', valid: () => true, rows: [{ id: 'in-flight',
+      sessionId: store.runtimeSessionId, accountId: 'test-owner', deviceId: null, text: 'hello', createdAt: 5000, queued: false }] });
+    inputsChanged();
+    expect(store.affordances.isWorking).toBe(true);
+    inputState().rows = [];
+    inputsChanged();
+    expect(store.affordances.isWorking).toBe(true);
+    store.dispose();
+  });
+
+  it('does not label a new unacknowledged input with a previous attempt failure', async () => {
+    const { store } = storeFor();
+    life.settle(store.sessionId, 'failed', { at: 'cli', message: 'Previous start failed', cause: { name: 'Error', message: 'Previous start failed' } });
+    store.bootstrap();
+    await parked(store);
+    Object.assign(inputState(), { accountId: 'test-owner', valid: () => true, rows: [{ id: 'new-input',
+      sessionId: store.runtimeSessionId, accountId: 'test-owner', deviceId: null, text: 'new attempt', createdAt: 5000, queued: false }] });
+    inputsChanged();
+    expect(store.chatState.session.state.pendingPrompt).toMatchObject({ id: 'new-input', delivery: { state: 'sending' } });
+    store.dispose();
+  });
 });
 
 beforeEach(() => {

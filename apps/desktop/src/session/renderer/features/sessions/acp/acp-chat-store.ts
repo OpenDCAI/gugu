@@ -739,7 +739,7 @@ export class AcpChatStore {
     const deliveryState = this.chatState.session.state.pendingPrompt?.delivery?.state;
     const startingDrawn = !state && this.transcriptPendingId !== null && deliveryState !== 'failed' && deliveryState !== 'unknown';
     return {
-      isWorking: agentWorking || startingDrawn,
+      isWorking: agentWorking || startingDrawn || deliveryState === 'sending' || deliveryState === 'accepted',
       isBusy: state?.isGenerating ?? false,
       hasPendingPermission: (state?.pendingPermissions.length ?? 0) > 0,
       canSubmit: !this.reverting && !this.messageEdit && (state?.canSubmit ?? !(this.loadError && isTerminalLoadError(this.loadError))),
@@ -814,7 +814,8 @@ export class AcpChatStore {
       runInAction(() => {
         this.transcriptPendingId = pending?.id ?? sender.find(row => row.queued === false)?.id ?? null;
         const next = pending ? { ...pending, starting: view !== null && lifeIsStarting(view),
-          ...(view?.kind === 'failed' && view.failure ? { delivery: { state: 'failed' as const, error: view.failure.message } } : {}) } : null;
+          ...(view?.kind === 'failed' && view.failure && view.pending.items.some(row => row.messageId === pending.id)
+            ? { delivery: { state: 'failed' as const, error: view.failure.message } } : {}) } : null;
         if (!isDeepEqual(prior, next)) {
           session.setPendingPrompt(next);
           this._syncMessageCount();
