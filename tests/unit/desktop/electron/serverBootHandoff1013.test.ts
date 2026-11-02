@@ -23,7 +23,7 @@ function realSignalExit() {
   const file = ts.createSourceFile('main.ts', fs.readFileSync(path.resolve(__dirname, '../../../../apps/desktop/electron/main.ts'), 'utf8'), ts.ScriptTarget.Latest, true)
   const owner = file.statements.find(node => ts.isVariableStatement(node) && node.declarationList.declarations.some(decl => decl.name.getText(file) === 'exitOnSignal'))!
   const signal = file.statements.find(node => ts.isExpressionStatement(node) && node.getText(file).startsWith("process.on('SIGTERM'"))!
-  return ts.transpileModule(`const app={getPath:()=>''}, noteExitReason=()=>{}, killEnginesOnCrash=()=>{}, deviceRuntimeHost=null, SERVER_MODE=true; let signalStopping=false; ${owner.getText(file)}; ${signal.getText(file)}`, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText
+  return ts.transpileModule(`const app={getPath:()=>''}, noteExitReason=()=>{}, killEnginesOnCrash=()=>{}, deviceRuntimeHost=null, SERVER_MODE=true, isSingleServerRun=()=>false; let signalStopping=false; ${owner.getText(file)}; ${signal.getText(file)}`, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText
 }
 
 describe.runIf(process.platform !== 'win32')('real-binary boot smoke: a package is admitted only after a real account process serves', () => {

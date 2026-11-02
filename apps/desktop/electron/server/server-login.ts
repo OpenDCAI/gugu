@@ -202,7 +202,6 @@ async function pollUntilDone(
       try { assertAccountLogin(listAccounts(), userId) }
       catch (error) { out(error instanceof Error ? error.message : String(error)); return EXIT_CONFIG }
       const email = emailFromAccessToken(tokens.accessToken)
-      const others = listAccounts().filter((account) => account.signedIn && account.userId !== userId)
       // 知道是谁之后才把数据目录指到这个账号自己的目录,再落登录态(替身的 userData 第一次读到就缓存住)。
       applyAccountEnv(userId)
       writeAccountMeta(userId, email)
@@ -223,16 +222,16 @@ async function pollUntilDone(
           `${LOGIN_RESULT_MARK}${JSON.stringify({
             userId,
             email,
-            others: others.map((account) => account.email ?? account.userId),
+            others: [],
             deviceId,
           })}`,
         )
       }
       out(`已登录 ${email ?? userId}。`)
-      if (others.length > 0) {
-        out(`同时登录:${others.map((account) => account.email ?? account.userId).join('、')}`)
-      }
-      out('上线后会出现在咕咕的设备列表里。未在后台运行时,执行 gugu-server service install。')
+      const { restartServerAfterLogin } = await import('./server-service')
+      try { restartServerAfterLogin(out) }
+      catch (error) { out(`Signed in, but the server could not be started: ${String(error)}. Run gugu-server start.`) }
+      out('上线后会出现在咕咕的设备列表里。')
       return 0
     }
     const error = String(polled.data.error ?? '')

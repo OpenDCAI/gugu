@@ -24,6 +24,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { isProcessAlive, readProcCmdline } from './process-alive'
 import { quoteShellArg } from '../session/main/utils/shellEscape'
+import { EXIT_CONFIG, EXIT_RESTART, EXIT_SIGNED_OUT } from './server-exit'
 
 /** 守护进程发现锁被另一个活着的守护进程占着时的退出码:看门人见到它就收手。 */
 export const SUPERVISOR_EXIT_ALREADY_RUNNING = 4
@@ -63,6 +64,7 @@ export function keeperScript(home: string, options: { adoptPid?: number; waitPid
     '  [ -f "$D/stopped" ] && break',
     '  mine || break',
     `  [ "$code" = ${SUPERVISOR_EXIT_ALREADY_RUNNING} ] && break`,
+    `  case "$code" in 0|143|${EXIT_CONFIG}|${EXIT_SIGNED_OUT}) break;; ${EXIT_RESTART}) continue;; esac`,
     `  sleep ${KEEPER_RESTART_DELAY_S}`,
     'done',
     'if mine; then rm -f "$D/keeper.pid"; fi',
@@ -80,6 +82,7 @@ export function startKeeper(input: {
   env?: NodeJS.ProcessEnv
 }): number | undefined {
   fs.mkdirSync(path.join(input.home, 'data'), { recursive: true })
+  fs.mkdirSync(path.dirname(input.logFile), { recursive: true })
   // 新的看门人就是「要它跑」:以前 stop 留下的记号作废。
   fs.rmSync(stopFlagFile(input.home), { force: true })
   const fd = fs.openSync(input.logFile, 'a')

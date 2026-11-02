@@ -6,6 +6,7 @@ import {
   cronQuote,
   systemdQuote,
   systemdUnit,
+  launchdPlist,
   describeProcess,
   installServiceWith,
   type InstallServiceDeps,
@@ -14,6 +15,20 @@ import {
 } from '../../../../apps/desktop/electron/server/server-service'
 
 type Proc = { pid: number; version: string; supervisedBy: RunningServer['supervisedBy']; alive: boolean; waitFor?: number }
+
+it('keeps intentional stops out of the systemd restart loop and lets update exit 75 restart', () => {
+  const unit = systemdUnit('/home/user/server/current/bin/gugu-server', '/home/user/server')
+  expect(unit).toContain('Restart=on-failure\nSuccessExitStatus=143\nRestartForceExitStatus=75\nRestartPreventExitStatus=78 79\n')
+  expect(unit).toContain('KillMode=process')
+})
+
+it('launchd restarts failed updates but exits successfully when stopped before starting the server', () => {
+  const plist = launchdPlist('/home/user/server/current/bin/gugu-server', '/home/user/server', '/home/user/server.log')
+  expect(plist).toContain('<key>SuccessfulExit</key><false/>')
+  expect(plist).toContain('data/stopped')
+  expect(plist).toContain('exec "$1" run')
+  expect(plist).toContain('<key>AbandonProcessGroup</key><true/>')
+})
 
 /**
  * 一台假机器:进程表 + 单实例锁 + 一个按 Restart=always / KeepAlive 行事的服务管理器。

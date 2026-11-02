@@ -40,14 +40,14 @@ export type ServerAccount = {
  * 照 VS Code Tunnels / Tailscale:离线的机器要说清是「没开机」还是「登录没了」,后者告诉人去那台机器上重新登录。
  * `gugu-server status` 打出来,桌面经 SSH 读它;重新登录成功即删掉。
  */
-export type SignedOutMark = { reason: 'expired' | 'removed'; at: string }
+export type SignedOutMark = { reason: 'expired' | 'removed' | 'logout'; at: string }
 
 export const SIGNED_OUT_FILE = 'signed-out.json'
 
 export function readSignedOutMark(dataDir: string): SignedOutMark | null {
   try {
     const value = JSON.parse(fs.readFileSync(path.join(dataDir, SIGNED_OUT_FILE), 'utf8')) as Partial<SignedOutMark>
-    if ((value.reason === 'expired' || value.reason === 'removed') && typeof value.at === 'string') {
+    if ((value.reason === 'expired' || value.reason === 'removed' || value.reason === 'logout') && typeof value.at === 'string') {
       return { reason: value.reason, at: value.at }
     }
   } catch {

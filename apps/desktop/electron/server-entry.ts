@@ -19,6 +19,7 @@ import {
   applyAccountEnv,
   listAccounts,
   supervisorDataDir,
+  writeSignedOutMark,
 } from './server/server-layout'
 import * as serverShim from './server/server-electron-shim'
 import { runWithRunningVersion } from './server/server-version-match'
@@ -55,12 +56,9 @@ moduleInternals._load = function patchedLoad(this: unknown, request: string, ...
 process.env.GUGU_SERVER_MODE = '1'
 // 设备 id 按 tier 派生(deviceRuntime.resolveTier)。main.ts 顶层也设同一个值;这里提前设,是因为
 // `login` 不加载 main.ts,却要报出账号进程上线后的设备 id(#6264 SSH 直连终端认机器靠它)。
-// 守护进程(`run` / 不带命令)不设:tier 是构建的属性,它拉起的账号进程可能是另一版构建(#6264 账号跟着桌面换版),
-// 环境里有了守护进程这一版的 tier,账号进程就不用自己的 —— 同一台机器按另一个 tier 认成新设备(10-28 Linux 3)。
 // 人显式设的 GUGU_TIER(开发覆盖)照旧原样传下去。
 declare const __GUGU_TIER__: string
-const supervisorCommand = process.argv[2] === undefined || process.argv[2] === 'run'
-if (!process.env.GUGU_TIER && !supervisorCommand) process.env.GUGU_TIER = __GUGU_TIER__
+if (!process.env.GUGU_TIER) process.env.GUGU_TIER = __GUGU_TIER__
 const serverHome = resolveServerHome()
 process.env.GUGU_SERVER_HOME = serverHome
 // 数据目录的根只归本人(0700):里面的登录态、密钥、会话记录,以及运行期后来再建的一切,别人都够不着。
@@ -77,13 +75,14 @@ try {
 const USAGE = `用法:
   gugu-server                    运行咕咕 server(常驻;一般由系统服务拉起)
   gugu-server login              ${REMOTE_TUNNEL_OPEN ? '在这台服务器上登录一个咕咕账号(链接 + 短码,不需要浏览器)' : '远程隧道暂未开放:在咕咕桌面用远程 SSH 添加这台机器'}
-                                 一台服务器可以登录好几个人,互不影响
+                                 一个系统用户只能登录一个咕咕账号;另一个账号请使用另一个系统用户
   gugu-server login --grant-stdin 用咕咕桌面经 SSH 递来的一次性凭证登录(桌面自动调用,不用手敲)
   gugu-server login [--name 名字] 这台机器在设备列表里的默认名(两种登法都认;桌面带上人填的 SSH 别名)
   gugu-server logout [邮箱]      退出登录(登录了好几个人时写上是谁)
   gugu-server status [--json]    看看版本、登录了谁、在不在跑、数据放在哪;登录失效 / 被移除的账号也列出来
   gugu-server --version          只打出这份咕咕 server 的版本号
   gugu-server service install    注册常驻服务:SSH 断开不停、重启自己起来(不要 root)
+  gugu-server start              启动已安装的 server 或重新登录后恢复运行
   gugu-server service uninstall  移除常驻服务
   gugu-server stop               停掉正在运行的 server(连同各账号的进程)
   gugu-server selftest           检查这份咕咕 server 在这台机器上能不能跑(原生模块、自带的 tmux)
@@ -179,14 +178,26 @@ function runningVersionFirst(command: string, args: string[], account: { dataDir
   return runWithRunningVersion({ home: serverHome, accountPid: lockHolder(account.dataDir), command, args })
 }
 
+function prepareRuntimeInstallation(): void {
+  const identity = ownPackageIdentity()
+  assertRuntimeBackend(identity, getSupabaseUrl())
+  prepareInstallation(serverHome, identity, {
+    updateOwner: process.env.GUGU_CLOUD_COMPUTER === '1' ? 'controller' : undefined,
+  })
+}
+
+/** Both run and the deployed supervisor's boot probe enter this exact account body. */
+async function runAccount(userId: string): Promise<void> {
+  if (!listAccounts().some(account => account.userId === userId)) throw new Error(`Account not found: ${userId}`)
+  applyAccountEnv(userId)
+  ensureCaBundleForChildren(accountDataDir(userId))
+  await import('./main')
+}
+
 async function runCommand(command: string | undefined, args: string[]): Promise<void> {
-  if (command === undefined || ['run', 'run-account', 'login', 'logout', 'unregister', 'resume', 'match-version'].includes(command)
+  if (['start', 'run-account', 'login', 'logout', 'unregister', 'resume', 'match-version'].includes(command ?? '')
     || (command === 'service' && args[0] === 'install')) {
-    const identity = ownPackageIdentity()
-    assertRuntimeBackend(identity, getSupabaseUrl())
-    prepareInstallation(serverHome, identity, {
-      updateOwner: process.env.GUGU_CLOUD_COMPUTER === '1' ? 'controller' : undefined,
-    })
+    prepareRuntimeInstallation()
   }
   switch (command) {
     case 'prepare-install': {
@@ -234,38 +245,26 @@ async function runCommand(command: string | undefined, args: string[]): Promise<
       const waitPid = Number(process.env.GUGU_SERVER_WAIT_PID)
       delete process.env.GUGU_SERVER_WAIT_PID
       if (Number.isInteger(waitPid) && waitPid > 0) await waitForPidExit(waitPid)
-      process.env.GUGU_TASK_HOST_USER_DATA = supervisorDataDir()
       // 旧版本按宽松 umask 建过的目录与文件:每次启动收一遍(升级换版后的第一次启动就把老机器修好)。
       tightenOwnTree()
-      // 系统没有 CA 证书时给子进程(mise、agent)一份 Node 自带的,见 server-ca-bundle.ts;账号进程继承这个环境。
-      ensureCaBundleForChildren(supervisorDataDir())
-      const { runSupervisor } = await import('./server/server-supervisor')
-      await runSupervisor()
+      const { runSingleServer } = await import('./server/server-run')
+      await runSingleServer(prepareRuntimeInstallation, runAccount)
       return
     }
     case 'run-account': {
-      // 守护进程拉起的某个账号的进程:桌面同一份主进程,数据全在这个账号自己的目录里。
+      // Compatibility for already deployed supervisors: no home lock, the same main and account lock.
       const userId = args[0]
       if (!userId || !listAccounts().some((account) => account.userId === userId)) {
         stderr(`没有这个账号:${userId ?? '(未指定)'}`)
         process.exit(2)
       }
-      applyAccountEnv(userId)
-      ensureCaBundleForChildren(accountDataDir(userId))
-      // #6264 守护进程没了(被 kill -9 / OOM)就跟着正常退出:❌ 留下攥着账号锁、跑着旧版本、谁也停不掉的孤儿。
-      const { watchParent } = await import('./server/server-parent-watch')
-      watchParent({
-        expectedParent: process.ppid,
-        currentParent: () => process.ppid,
-        onOrphaned: ({ expected, now }) => {
-          stderr(`[server] 守护进程(${expected})已经不在了(现在的父进程是 ${now}),这个账号进程随之退出`)
-          process.kill(process.pid, 'SIGTERM')
-          // 正常收尾卡住时的兜底:30 秒后强制退出。
-          setTimeout(() => process.exit(0), 30_000).unref()
-        },
-      })
-      await import('./main')
+      await runAccount(userId)
       return
+    }
+    case 'start': {
+      const { restartServerAfterLogin } = await import('./server/server-service')
+      restartServerAfterLogin(out)
+      return process.exit(0)
     }
     case 'login': {
       const { runServerLogin } = await import('./server/server-login')
@@ -287,9 +286,10 @@ async function runCommand(command: string | undefined, args: string[]): Promise<
       }
       // 只删登录态,这个账号的会话记录、任务库留着:同一个人再登录,东西都还在。
       fs.rmSync(path.join(target.dataDir, 'server-session.enc'), { force: true })
-      // 自己退出的:不留「登录失效 / 被移除」那句解释。
-      fs.rmSync(path.join(target.dataDir, 'signed-out.json'), { force: true })
-      out(`已退出 ${target.email ?? target.userId}。正在运行的 server 会在几秒内停掉这个账号的进程。`)
+      writeSignedOutMark(target.dataDir, 'logout')
+      const pid = lockHolder(target.dataDir)
+      if (pid) try { process.kill(pid, 'SIGTERM') } catch { /* Already stopped. */ }
+      out(`已退出 ${target.email ?? target.userId}。server 已请求停止;账号数据保留。`)
       return process.exit(0)
     }
     case 'status': {
@@ -303,6 +303,8 @@ async function runCommand(command: string | undefined, args: string[]): Promise<
       const { formatAccountLines, formatStatusJson, statusAccounts } = await import('./server/server-status')
       const { readAccountRuntime, installedPackageVersion } = await import('./server/server-account-runtime')
       const all = listAccounts()
+      const { onlySignedInAccount } = await import('./server/server-startup')
+      try { onlySignedInAccount(all) } catch (error) { out(String(error)) }
       const runtimes = new Map(all.map((account) => [account.userId, readAccountRuntime(account.dataDir)]))
       const pidOf = (userId: string) => {
         return runtimes.get(userId)?.pid ?? null

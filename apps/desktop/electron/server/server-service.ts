@@ -19,13 +19,14 @@ import os from 'node:os'
 import path from 'node:path'
 import { isProcessAlive } from './process-alive'
 import { readAccountRuntime } from './server-account-runtime'
-import { liveKeeperPid, recordLoginShell, startKeeper } from './server-keeper'
+import { clearStopped, liveKeeperPid, recordLoginShell, startKeeper } from './server-keeper'
 import { activityProof, listAccounts, supervisorDataDir } from './server-layout'
 import { SERVICE_UMASK } from './server-permissions'
 import { assertPackageEnvironment, controllerOwnsUpdates } from './server-package-environment.mts'
 import { spawnUpgradeGuard, writeUpgradeMarker } from './server-upgrade-guard'
 import { readUpgradeMarker } from './server-version-lifecycle'
 import { installationServerNames } from './server-installation'
+import { EXIT_RESTART, EXIT_CONFIG, EXIT_SIGNED_OUT } from './server-exit'
 
 /** 这一份 server 的通道名字(server-names.ts):正式版 `gugu-server.service`,Beta `gugu-server-beta.service`,其余同理。 */
 const names = (home = process.env.GUGU_SERVER_HOME ?? '') => installationServerNames(home)
@@ -118,7 +119,10 @@ Environment=GUGU_SERVER_SUPERVISED=systemd
 # 不写的话继承用户管理器的 umask(Ubuntu 每用户同名组的系统上是 0002,组可写)。0022 = 跟登录 shell 一样:
 # agent 与编程终端在项目里建的文件照常是 0644;server 自己的数据目录另由 0700 的根保证私有。
 UMask=0${SERVICE_UMASK.toString(8).padStart(3, '0')}
-Restart=always
+Restart=on-failure
+SuccessExitStatus=143
+RestartForceExitStatus=${EXIT_RESTART}
+RestartPreventExitStatus=${EXIT_CONFIG} ${EXIT_SIGNED_OUT}
 RestartSec=3
 # 只停 server 本身:tmux 里的终端会话要活过重启和升级。
 KillMode=process
@@ -135,14 +139,14 @@ export function launchdPlist(executable: string, home: string, log: string): str
 <plist version="1.0">
 <dict>
   <key>Label</key><string>${names(home).launchdLabel}</string>
-  <key>ProgramArguments</key><array><string>${esc(executable)}</string><string>run</string></array>
+  <key>ProgramArguments</key><array><string>/bin/sh</string><string>-c</string><string>${esc(`[ -f "$GUGU_SERVER_HOME/data/stopped" ] && exit 0; exec "$1" run`)}</string><string>gugu-server-launcher</string><string>${esc(executable)}</string></array>
   <key>EnvironmentVariables</key><dict>
     <key>GUGU_SERVER_HOME</key><string>${esc(home)}</string>
     <key>GUGU_SERVER_SUPERVISED</key><string>launchd</string>
   </dict>
   <key>Umask</key><integer>${SERVICE_UMASK}</integer>
   <key>RunAtLoad</key><true/>
-  <key>KeepAlive</key><true/>
+  <key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>
   <key>AbandonProcessGroup</key><true/>
   <key>StandardOutPath</key><string>${esc(log)}</string>
   <key>StandardErrorPath</key><string>${esc(log)}</string>
@@ -157,6 +161,40 @@ function unitPath(): string {
 
 function plistPath(): string {
   return path.join(os.homedir(), 'Library', 'LaunchAgents', `${names().launchdLabel}.plist`)
+}
+
+/** Upgrade an existing unit in place; reloading its definition must not restart this process. */
+export function repairServiceDefinition(warn: Out): void {
+  if (process.platform !== 'linux' || !fs.existsSync(unitPath())) return
+  try {
+    const content = systemdUnit(serviceExecutable(), serverHome())
+    if (fs.readFileSync(unitPath(), 'utf8') !== content) writeSystemdDefinition(content)
+    if (!reachSystemdUserSession()) throw new Error('The systemd user session is unavailable')
+    const result = tryRun('systemctl', ['--user', 'daemon-reload'])
+    if (!result.ok) throw new Error(result.out)
+  } catch (error) { warn(`Could not update the service definition: ${String(error)}`) }
+}
+
+/** A renewed login wakes the existing manager; a live server discovers it in its login wait. */
+export function restartServerAfterLogin(out: Out): void {
+  if (!process.env.GUGU_SERVER_HOME) return
+  const home = serverHome()
+  clearStopped(home)
+  if (readRunningServer()) return
+  let result: { ok: boolean; out: string }
+  if (process.platform === 'linux' && fs.existsSync(unitPath())) {
+    result = reachSystemdUserSession()
+      ? tryRun('systemctl', ['--user', 'start', names().systemdUnit])
+      : { ok: false, out: 'The systemd user session is unavailable' }
+  } else if (process.platform === 'darwin' && fs.existsSync(plistPath())) {
+    const uid = os.userInfo().uid
+    result = tryRun('launchctl', ['kickstart', `gui/${uid}/${names().launchdLabel}`])
+    if (!result.ok) result = tryRun('launchctl', ['kickstart', `user/${uid}/${names().launchdLabel}`])
+  } else {
+    if (liveKeeperPid(home)) return
+    result = { ok: Boolean(startDetached(serviceExecutable())), out: 'The background server could not be started' }
+  }
+  if (!result.ok) out(`Signed in, but the server could not be started: ${result.out}. Run gugu-server start.`)
 }
 
 function lingerEnabled(user: string): boolean {
@@ -192,9 +230,13 @@ export function startDetached(executable: string, extraEnv: NodeJS.ProcessEnv = 
 }
 
 /** 写用户服务并 `restart`(没在跑就是启动)。只说注册了什么;在跑的是不是新版本,由调用方看锁里那个进程再报。 */
-function registerSystemd(out: Out, executable: string, home: string): void {
+function writeSystemdDefinition(content: string): void {
   fs.mkdirSync(path.dirname(unitPath()), { recursive: true })
-  fs.writeFileSync(unitPath(), systemdUnit(executable, home))
+  fs.writeFileSync(unitPath(), content)
+}
+
+function registerSystemd(out: Out, executable: string, home: string): void {
+  writeSystemdDefinition(systemdUnit(executable, home))
   const steps: Array<[string, string[]]> = [
     ['systemctl', ['--user', 'daemon-reload']],
     ['systemctl', ['--user', 'enable', names().systemdUnit]],

@@ -478,7 +478,9 @@ import {
 import { createPushedRuntimeAuthProvider, type PushedRuntimeAuth } from './runtime-auth-provider'
 import { createServerAuthProvider, type ServerAuthProvider } from './server/server-auth'
 import { ensureUtf8Locale } from './server/server-locale'
-import { killAccountTmuxServer } from './server/server-layout'
+import { killAccountTmuxServer, SESSION_FILE } from './server/server-layout'
+import { EXIT_RESTART, EXIT_SIGNED_OUT, isSingleServerRun } from './server/server-exit'
+import { markStopped } from './server/server-keeper'
 import { registerServerSshInstallIpc } from './server/ssh-install/ipc'
 import { registerServerSshUninstallIpc } from './server/ssh-uninstall-ipc'
 import { registerSshLinkIpc } from './server/ssh-link-ipc'
@@ -3347,6 +3349,10 @@ const killEnginesOnCrash = (label: string): void => {
 const SERVER_SIGNAL_STOP_TIMEOUT_MS = 5_000
 let signalStopping = false
 const exitOnSignal = (label: 'SIGINT' | 'SIGTERM', code: number): void => {
+  if (isSingleServerRun()) {
+    if (code === 143 && !existsSync(join(app.getPath('userData'), SESSION_FILE))) code = EXIT_SIGNED_OUT
+    if (code !== EXIT_RESTART && process.env.GUGU_SERVER_SUPERVISED !== 'systemd') markStopped(process.env.GUGU_SERVER_HOME!)
+  }
   // 有人要它停(stop / systemd / 守护进程收账号进程):留一句,开机收残据此说「重启打断了这一轮」(守护进程换版时先写了 update,不改)。
   noteExitReason(app.getPath('userData'), 'restart')
   const finish = (): void => {
@@ -6497,6 +6503,7 @@ app.whenReady().then(async () => {
     // 忙闲写给守护进程(server-supervisor.ts、server-account-converge.ts):有会话或集成授权会被换版打断时才等空闲。
     // tmux 里的终端会话不随账号进程重启断,不拦换版(busyForVersionSwitch)。
     const activityFile = join(app.getPath('userData'), 'activity.json')
+    const { markServerReady } = await import('./server/server-startup')
     // #6264 同一份读数也是升级看门狗判「新版本站稳了没有」的依据(server-upgrade-guard.ts):带上自己的版本与起始时刻。
     const activityStartedAt = Date.now()
     const reportActivity = (): void => {
@@ -6511,6 +6518,7 @@ app.whenReady().then(async () => {
           pid: process.pid,
           startedAt: activityStartedAt,
         }))
+        if (isSingleServerRun()) markServerReady(process.env.GUGU_SERVER_HOME!)
       } catch (error) {
         createLogger('server').warn({ err: error }, '忙闲写不进去')
       }

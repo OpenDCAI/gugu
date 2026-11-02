@@ -66,6 +66,8 @@ export function formatAccountLines(accounts: readonly StatusAccount[], pidOf: (u
       lines.push(`  ${who}  ${pid ? `在运行(进程 ${pid})` : '没在运行'}`)
     } else if (account.signedOut?.reason === 'removed') {
       lines.push(`  ${who}  已从账号移除(${account.signedOut.at.slice(0, 16).replace('T', ' ')}),重新登录:${SERVER_LOGIN_ACTION}`)
+    } else if (account.signedOut?.reason === 'logout') {
+      lines.push(`  ${who}  已退出登录,重新登录:${SERVER_LOGIN_ACTION}`)
     } else if (account.signedOut) {
       lines.push(`  ${who}  登录已失效(${account.signedOut.at.slice(0, 16).replace('T', ' ')} 起),重新登录:${SERVER_LOGIN_ACTION}`)
     }
