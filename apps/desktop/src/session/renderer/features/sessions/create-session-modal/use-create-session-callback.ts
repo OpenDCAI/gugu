@@ -18,7 +18,8 @@ import { buildInitialSession } from './build-create-session-params';
 import { firstTurnTransportOf } from './first-turn-transport';
 import type { TurnFileRef } from '@gugu/session-core/session-record/contract';
 import { turnAttachmentText } from '@gugu/core/shared/attachmentFolderLine';
-import { taskAttachmentUsesSsh, taskAttachmentWorkspacePath } from '@/lib/taskAttachmentTarget';
+import { assertTaskAttachmentProtocol, taskAttachmentUsesSsh, taskAttachmentWorkspacePath } from '@/lib/taskAttachmentTarget';
+import { readCachedDevices } from '@/store/devicesCache';
 import type { CreateSessionState } from './use-create-session-state';
 
 interface CreatedSession {
@@ -283,7 +284,10 @@ export function useCreateSessionCallback({
         toast({ title: translateSessionMessage('composer.attachmentUploadFailed'), tier: 'warning' });
       } finally {
         // Placement errors still admit the caption; the host gives the agent a not-saved line for each missing file.
-        if (deferFirstTurn) await rpcOn(deviceId ?? null).sessionCreate.admitFirstMessages(sessionId);
+        if (deferFirstTurn) {
+          try { await rpcOn(deviceId ?? null).sessionCreate.admitFirstMessages(sessionId); }
+          catch (error) { log.warn('admit the first task turn failed', { sessionId, error: String(error) }); }
+        }
       }
       if (message) {
         pendingMessageRef.current = message;
@@ -335,6 +339,15 @@ export function useCreateSessionCallback({
     if (creatingRef.current) return;
     const pathAttachments = !pendingMessageRef.current && pendingAttachmentCount > 0;
     if (!pathAttachments) { createSessionNow([]); return; }
+    // New-task chips only name files: reject an older host before a task exists.
+    const deviceId = selectedProjectId ? machineRegistry.machineOf(selectedProjectId) : null;
+    if (deviceId) {
+      try { assertTaskAttachmentProtocol(readCachedDevices().find(device => device.device_id === deviceId)?.capabilities?.remote_protocol); }
+      catch {
+        setDeliveryError({ kind: 'raw', detail: translateSessionMessage('composer.attachmentHostUpdateRequired') });
+        return;
+      }
+    }
     // 先给附件定名(首轮正文要写它们),再建。定不了名(不是桌面)就不建,原因说出来。
     creatingRef.current = true;
     setIsCreating(true);
@@ -354,7 +367,7 @@ export function useCreateSessionCallback({
         setDeliveryError({ kind: 'raw', detail: error instanceof Error ? error.message : String(error) });
       },
     );
-  }, [createSessionNow, initialSession, pendingAttachmentCount]);
+  }, [createSessionNow, initialSession, pendingAttachmentCount, selectedProjectId]);
 
   return { handleCreateSession, canCreate, deliveryError };
 }

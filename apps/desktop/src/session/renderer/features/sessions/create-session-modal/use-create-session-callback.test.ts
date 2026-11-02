@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { InitialSessionState } from '@renderer/features/sessions/session-config/initial-session-section';
 import type { NavigateFnTyped } from '@renderer/lib/layout/navigation-provider';
 import type { CreateSessionState } from './use-create-session-state';
+import { machineRegistry } from '@renderer/lib/machine-routing';
 
 const mocks = vi.hoisted(() => ({
   createSession: vi.fn(),
@@ -16,7 +17,9 @@ const mocks = vi.hoisted(() => ({
   navigate: vi.fn(),
   onClose: vi.fn(),
   onCreated: vi.fn(),
+  assertProtocol: vi.fn(),
 }));
+const devices = vi.hoisted(() => [] as Array<{ device_id: string; capabilities: { remote_protocol?: number } }>);
 
 vi.mock('@renderer/features/sessions/stores/session-selectors', () => ({
   getSessionManagerStore: () => ({ createSession: mocks.createSession }),
@@ -27,7 +30,8 @@ vi.mock('@renderer/lib/ipc', () => ({
   rpc: { sessions: { sendMessage: mocks.localSendMessage } },
   rpcOn: () => ({ sessionCreate: { admitFirstMessages: mocks.admit } }),
 }));
-vi.mock('@/lib/taskAttachmentTarget', () => ({ taskAttachmentUsesSsh: () => false, taskAttachmentWorkspacePath: (id: string, name: string) => `.gugu/attachments/${id}/${name}` }));
+vi.mock('@/lib/taskAttachmentTarget', () => ({ assertTaskAttachmentProtocol: mocks.assertProtocol, taskAttachmentUsesSsh: () => false, taskAttachmentWorkspacePath: (id: string, name: string) => `.gugu/attachments/${id}/${name}` }));
+vi.mock('@/store/devicesCache', () => ({ readCachedDevices: () => devices }));
 vi.mock('@renderer/utils/logger', () => ({ log: { error: mocks.logError, warn: mocks.logWarn } }));
 vi.mock('@renderer/lib/hooks/use-toast', () => ({ toast: mocks.toast }));
 
@@ -97,6 +101,17 @@ function Probe({
   return null;
 }
 
+function attachFirstFile() {
+  const ref = { itemId: 'brief', version: 1, name: 'brief.txt', mimeType: 'text/plain', sizeBytes: 3 };
+  const chip = { id: 'file', name: ref.name, kind: 'file' as const };
+  initialSession.promptCapability = { kind: 'none', startupDelivery: 'startup-prompt' };
+  initialSession.attachments = [chip];
+  initialSession.prepareAttachments = vi.fn(async () => [ref]);
+  initialSession.placeAttachments = vi.fn(async () => [ref]);
+  initialSession.dropAttachment = vi.fn();
+  return { ref, chip };
+}
+
 describe('useCreateSessionCallback ordinary messaging', () => {
   let dom: JSDOM;
   let root: Root;
@@ -105,6 +120,11 @@ describe('useCreateSessionCallback ordinary messaging', () => {
     for (const mock of Object.values(mocks)) mock.mockReset();
     mocks.createSession.mockResolvedValue(undefined);
     mocks.localSendMessage.mockResolvedValue({ id: 'local-id', status: 'queued' });
+    devices.length = 0;
+    initialSession.attachments = [];
+    initialSession.prepareAttachments = async () => [];
+    initialSession.placeAttachments = async () => [];
+    initialSession.dropAttachment = () => {};
     initialSession.prompt = 'make one task';
     initialSession.mentionContext = undefined;
     // ⚠️ 这个替身是模块级共享对象:改过档位的用例不复位,后面每一条都继承它 ——
@@ -134,8 +154,64 @@ describe('useCreateSessionCallback ordinary messaging', () => {
 
   afterEach(() => {
     act(() => root.unmount());
+    machineRegistry.forgetMachine('remote-host');
     vi.unstubAllGlobals();
     dom.window.close();
+  });
+
+  it.each([15, undefined])('keeps the file chip and draft without creating on remote attachment protocol %s', async protocol => {
+    machineRegistry.register('remote-host', ['project-1']);
+    devices.push({ device_id: 'remote-host', capabilities: { remote_protocol: protocol } });
+    mocks.assertProtocol.mockImplementationOnce(() => { throw new Error('Update the task host to send attachments'); });
+    const { chip } = attachFirstFile();
+    await act(async () => root.render(React.createElement(Probe)));
+    await act(async () => latest?.handleCreateSession());
+    expect(mocks.assertProtocol).toHaveBeenCalledWith(protocol);
+    expect(mocks.createSession).not.toHaveBeenCalled();
+    expect(initialSession.prepareAttachments).not.toHaveBeenCalled();
+    expect(initialSession.placeAttachments).not.toHaveBeenCalled();
+    expect(initialSession.dropAttachment).not.toHaveBeenCalled();
+    expect(initialSession.attachments).toEqual([chip]);
+    expect(initialSession.prompt).toBe('make one task');
+    expect(latest?.deliveryError).toEqual({ kind: 'raw', detail: 'Update the task host to send attachments' });
+    expect(mocks.navigate).not.toHaveBeenCalled();
+
+    initialSession.attachments = [];
+    initialSession.attachmentEditSeq += 1;
+    await act(async () => root.render(React.createElement(Probe)));
+    await act(async () => latest?.handleCreateSession());
+    expect(mocks.createSession).toHaveBeenCalledOnce();
+    expect(latest?.deliveryError).toBeNull();
+    expect(mocks.navigate).toHaveBeenCalled();
+  });
+
+  it.each([null, 'remote-host'])('creates an attached task on a local or protocol-16 host (machine=%s)', async machine => {
+    if (machine) machineRegistry.register(machine, ['project-1']);
+    devices.push({ device_id: 'remote-host', capabilities: { remote_protocol: machine ? 16 : 15 } });
+    const { ref } = attachFirstFile();
+    await act(async () => root.render(React.createElement(Probe)));
+    await act(async () => latest?.handleCreateSession());
+    if (machine) expect(mocks.assertProtocol).toHaveBeenCalledWith(16);
+    else expect(mocks.assertProtocol).not.toHaveBeenCalled();
+    expect(mocks.createSession).toHaveBeenCalledOnce();
+    expect(mocks.createSession.mock.calls[0]?.[0].sessionConfig.initialSession.initialQueue[0].files).toEqual([ref]);
+    expect(mocks.admit).toHaveBeenCalledOnce();
+    expect(latest?.deliveryError).toBeNull();
+    expect(mocks.navigate).toHaveBeenCalled();
+  });
+
+  it('still navigates to the created task when the first-turn admission RPC fails', async () => {
+    attachFirstFile();
+    mocks.admit.mockRejectedValueOnce(new Error('[machine] internal-device runs an older host without sessionCreate.admitFirstMessages'));
+    await act(async () => root.render(React.createElement(Probe)));
+    await act(async () => latest?.handleCreateSession());
+    expect(mocks.createSession).toHaveBeenCalledOnce();
+    expect(mocks.admit).toHaveBeenCalledOnce();
+    expect(latest?.deliveryError).toBeNull();
+    expect(mocks.logWarn).toHaveBeenCalledWith('admit the first task turn failed', expect.objectContaining({ error: expect.stringContaining('admitFirstMessages') }));
+    expect(mocks.logError).not.toHaveBeenCalled();
+    expect(mocks.navigate).toHaveBeenCalledWith('session', expect.objectContaining({ projectId: 'project-1' }));
+    expect(mocks.onClose).toHaveBeenCalled();
   });
 
   it('#6264 附件还在传:点创建先等它传完再建;有一件没成就不建', async () => {

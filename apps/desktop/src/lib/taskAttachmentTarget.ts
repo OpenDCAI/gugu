@@ -22,7 +22,7 @@ export function taskAttachmentUsesSsh(deviceId: string): boolean {
   return findRemoteHostsBridge()?.listDevices().find(device => device.id === deviceId)?.connectVia === 'ssh'
 }
 
-function assertTaskAttachmentProtocol(protocol: number | undefined): void {
+export function assertTaskAttachmentProtocol(protocol: number | undefined): void {
   if ((protocol ?? 0) < REMOTE_PROTOCOL_VERSION) throw Object.assign(new Error('Update the task host to send attachments'), { code: 'host_update_required' })
 }
 
