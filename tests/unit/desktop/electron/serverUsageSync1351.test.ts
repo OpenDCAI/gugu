@@ -81,6 +81,15 @@ describe('headless device usage sync', () => {
     expect(snapshot).toHaveBeenCalledTimes(1)
     expect(cloud.replace).not.toHaveBeenCalled()
   })
+  it('reports an unavailable identity and leaves local/cloud data untouched', async () => {
+    const { options, snapshot } = setup()
+    stop!()
+    stop = startServerUsageSync({ ...options, identity: async () => null })
+    await vi.advanceTimersByTimeAsync(USAGE_FIRST_DELAY_MS)
+    expect(options.report).toHaveBeenCalledWith('unsupported')
+    expect(snapshot).not.toHaveBeenCalled()
+    expect(cloud.replace).not.toHaveBeenCalled()
+  })
   it('a different account/device receives its own full checkpoint', async () => {
     const { options, requests } = setup()
     await vi.advanceTimersByTimeAsync(USAGE_FIRST_DELAY_MS)

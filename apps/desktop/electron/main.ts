@@ -1,6 +1,6 @@
-import { startServerUsageSync } from './server/usage-sync'
 import './browser-user-agent-bootstrap'
 import './page-navigation-bootstrap'
+import { startServerUsageSync } from './server/usage-sync'
 import { noteExitReason } from './lib/exit-reason'
 import {assistantWorkHistoryPosition} from './assistant-work-history-position'
 import { createDesktopWorkReportIds } from './assistant-work-report-ids'
@@ -6486,8 +6486,11 @@ app.whenReady().then(async () => {
       identity: async () => {
         const auth = await serverAuth?.getAuth()
         const deviceId = await localDeviceId()
-        return auth?.userId && auth.userId === process.env.GUGU_SERVER_ACCOUNT && deviceId
-          ? { userId: auth.userId, deviceId } : null
+        const reason = !auth?.userId ? 'signed-out'
+          : auth.userId !== process.env.GUGU_SERVER_ACCOUNT ? 'account-mismatch'
+            : !deviceId ? 'device-unavailable' : null
+        if (reason) { usageLog.info({ reason }, 'Usage sync deferred'); return null }
+        return { userId: auth!.userId, deviceId: deviceId! }
       },
       snapshot: request => {
         const bridge = loadEmdashBridge()
