@@ -67,6 +67,62 @@ final class AppOrigins {
         return matcher.matches() ? matcher.group(1) : null;
     }
 
+    /**
+     * @@@app-gate - Each App's gate origin, https://<appId>.gate.gugu.invalid (appOrigin.ts `gateOrigin`): the gugu page
+     * frames an App's pages in its gate, which frames them in the App's origin and stamps each of the App's calls with its
+     * own user activation (gate-entry.ts). The origin serves the gate page from this build and nothing else.
+     */
+    static final String GATE_DOMAIN = ".gate.gugu.invalid";
+    private static final Pattern GATE_HOST = Pattern.compile("^([a-z0-9][a-z0-9-]{1,63})" + Pattern.quote(GATE_DOMAIN) + "$");
+    private static final Pattern GATE_PATH = Pattern.compile("^" + Pattern.quote(RUNTIME_PREFIX) + "[0-9A-Za-z][0-9A-Za-z.-]*/gate\\.(html|js)$");
+
+    /** The App id a gate origin's host names, or null for any other host. */
+    static String gateOf(String host) {
+        if (host == null) return null;
+        Matcher matcher = GATE_HOST.matcher(host.toLowerCase(Locale.ROOT));
+        return matcher.matches() ? matcher.group(1) : null;
+    }
+
+    /** Whether `path` is the gate page or its script, under any runtime version: the only paths a gate origin serves. */
+    static boolean isGatePath(String path) {
+        return path != null && GATE_PATH.matcher(path).matches();
+    }
+
+    /** The gate's policy: its own script only, framing only the App's origin, framed only by the gugu page (`pageOrigin`). */
+    static String gateCsp(String appId, String pageOrigin) {
+        return "default-src 'none'; script-src 'self'; frame-src https://" + appId + DOMAIN
+                + "; frame-ancestors " + pageOrigin + "; base-uri 'none'; form-action 'none'; object-src 'none'";
+    }
+
+    /**
+     * Whether a frame's document request may go from the page at host `from` (its Referer's; null when it sent none) to
+     * host `to`. An App's frame stays in its own origin, and so does a frame with no Referer; an App's gate frames that App's
+     * pages and nothing else. A frame the gugu page opens (its own Referer) is not this rule's.
+     */
+    static boolean frameMayGo(String from, String to) {
+        if (from == null || appOf(from) != null) return to != null && to.equalsIgnoreCase(from);
+        String gateApp = gateOf(from);
+        if (gateApp != null) return to != null && to.equalsIgnoreCase(gateApp + DOMAIN);
+        return true;
+    }
+
+    /**
+     * The gate page of App `appId` (`gateCsp`). A gate for an App that is not served here, and any other path, is 404:
+     * there is nothing else at a gate origin.
+     */
+    static WebResourceResponse serveGate(Context context, String appId, String path, String pageOrigin) {
+        Map<String, String> headers = new HashMap<>();
+        headers.put("Content-Security-Policy", gateCsp(appId, pageOrigin));
+        headers.put("Cache-Control", "no-cache");
+        if (served(context).get(appId) == null || !isGatePath(path)) return empty(404, headers);
+        try {
+            String mime = mimeOf(path);
+            return new WebResourceResponse(mime, "utf-8", 200, "OK", headers, context.getAssets().open("public" + path));
+        } catch (IOException error) {
+            return empty(404, headers);
+        }
+    }
+
     static String readIndex(Context context) {
         File file = new File(root(context), "index.json");
         try {

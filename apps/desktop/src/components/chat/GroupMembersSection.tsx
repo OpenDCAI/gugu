@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { CSSProperties, ReactNode } from 'react'
 import { buildGroupInviteShareUrl } from '../../lib/groupInviteShareUrl'
@@ -13,13 +13,13 @@ import { useAgentLookPostersVersion } from '../agentAvatar/posters'
 import { SharePosterDialog } from '../SharePosterDialog'
 import { buildUnifiedMembers } from './groupMemberModels'
 import { chatService } from '../../lib/chat'
-import { useToast } from '../toastContext'
+import { useGroupAvatarUpload } from './useGroupAvatarUpload'
 import { useChatStore } from '../../store/chatContext'
 import { ChatManagementActions } from './ChatManagementActions'
 import { GroupSettingsManagePage } from './GroupSettingsManagePage'
 import { MemberListPanel, type MemberListPanelProps } from './MemberListPanel'
 import { AnnouncementDrawer } from './AnnouncementDrawer'
-import { groupRoleRevision, useGroupChatSettings } from './useGroupChatSettings'
+import { groupRoleRevision, useGroupChatSettings, type GroupChatSettingsState } from './useGroupChatSettings'
 import { useSettingsPages } from './useSettingsPages'
 import { MemberInviteLink, SettingsNavRow, SettingsPageFrame, SettingsPageHead } from './groupSettingsUi'
 import {
@@ -69,6 +69,7 @@ export function GroupMembersSection({
   initialPage,
   snapshot,
   snapshotError,
+  settingsState,
   currentUserId,
   onReload,
   onClose,
@@ -85,6 +86,7 @@ export function GroupMembersSection({
   /** Opened at the members' list or the announcement (the info tab's members button); back: the first page. */
   initialPage?: 'main' | 'members' | 'announcement'
   snapshot: GroupCollabSnapshot
+  settingsState?: GroupChatSettingsState
   snapshotError?: MemberListPanelProps['error']
   currentUserId: string | null
   onReload: () => Promise<void>
@@ -103,18 +105,21 @@ export function GroupMembersSection({
   const chatId = chat.id
   const { t } = useTranslation('messaging')
   const { identitiesById } = useChatStore('identitiesById')
-  const { toast } = useToast()
   const mobileShell = useMobileShell()
   const { page, push, pop } = useSettingsPages(chatId, initialPage)
 
-  const { settings, error: settingsError, setError: setSettingsError, update, setAvatarUrl } = useGroupChatSettings(chatId, groupRoleRevision(snapshot))
+  const ownSettings = useGroupChatSettings(settingsState ? null : chatId, groupRoleRevision(snapshot))
+  const { settings, error: settingsError, setError: setSettingsError, update, setAvatarUrl } = settingsState ?? ownSettings
+  // A shared hook outlives this panel: opening the panel reads again (ownSettings has just read on its own mount).
+  const reloadShared = settingsState?.reload
+  useEffect(() => { reloadShared?.() }, [reloadShared])
   const viewerRole = settings?.my_role ?? null
   const viewerIsManager = settings?.can_manage === true
 
   const [busy, setBusy] = useState(false)
   const [actionError, setActionError] = useState<string | null>(null)
   const [confirmExit, setConfirmExit] = useState(false)
-  const [avatarUploading, setAvatarUploading] = useState(false)
+  const { avatarUploading, handleAvatarFile } = useGroupAvatarUpload({ chatId, viewerIsManager, setAvatarUrl, setActionError })
   const [avatarDragOver, setAvatarDragOver] = useState(false)
   const avatarInputRef = useRef<HTMLInputElement>(null)
   const [showSharePoster, setShowSharePoster] = useState(false)
@@ -134,23 +139,6 @@ export function GroupMembersSection({
   // @@@445/#2470 海报 canvas 不走 React Avatar → 按同一口径预解析成员头像;小鸟的定格画好了会重渲染,这里跟着重读(海报按 URL 串判变)。
   useAgentLookPostersVersion()
   const posterMemberUrls = groupAvatarMembers.map((m) => identitiesById[m.id] ? displayAvatarUrl(m.avatar, m.id, `poster member "${m.name || m.id}"`, identitiesById[m.id].type) : null)
-
-  // @@@group-avatar (#1164 G1) manager 选/拖图 → 校验(image/* + ≤5MB) → 上传 → 即时换头像。
-  const handleAvatarFile = useCallback(async (file: File | null | undefined) => {
-    if (!viewerIsManager || avatarUploading || !file) return
-    if (!file.type.startsWith('image/')) { setActionError(t('group.settings.imageRequired')); return }
-    if (file.size > 5 * 1024 * 1024) { setActionError(t('group.settings.imageTooLarge')); return }
-    setAvatarUploading(true)
-    setActionError(null)
-    try {
-      setAvatarUrl(await chatService.uploadGroupAvatar(chatId, file))
-      toast(t('group.settings.avatarUpdated'), 'success')
-    } catch (err) {
-      setActionError(t('group.settings.avatarUploadFailed', { reason: String((err as Error)?.message ?? err) }))
-    } finally {
-      setAvatarUploading(false)
-    }
-  }, [avatarUploading, chatId, setAvatarUrl, t, toast, viewerIsManager])
 
   // @@@2070 群名就地编辑:只写 name。写失败要抛给 GroupNameInlineEdit —— 它据此留在编辑态并标出失败,
   // ❌ 当作改好了把输入框关掉(原因已由 update 放进错误行)。
@@ -203,7 +191,7 @@ export function GroupMembersSection({
   const subHead = (title: ReactNode, action?: ReactNode) => <SettingsPageHead title={title} action={action} onBack={pop} onClose={mobileShell ? onClose : undefined} mobile={mobileShell} />
   let content: ReactNode
   if (page === 'members') {
-    content = <MemberListPanel chatId={chatId} chatKind="group" snapshot={snapshot} error={snapshotError} onReload={onReload} onOpenUserChat={onOpenUserChat} onWhisper={onWhisper} head={subHead} />
+    content = <MemberListPanel settingsState={settingsState ?? ownSettings} chatId={chatId} chatKind="group" snapshot={snapshot} error={snapshotError} onReload={onReload} onOpenUserChat={onOpenUserChat} onWhisper={onWhisper} head={subHead} />
   } else if (page === 'announcement') {
     content = <AnnouncementDrawer chatId={chatId} isAdmin={viewerIsManager} head={subHead} />
   } else if (page === 'manage' && settings) {

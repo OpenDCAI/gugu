@@ -43,7 +43,7 @@ export async function openPhoneAgentStore(root, ownerId) {
     if (job.status === 'running') {
       job.status = 'interrupted'
       job.finishedAt = new Date().toISOString()
-      job.error = '手机运行进程中断，这轮执行结果尚未确认；请检查结果后重新发起任务。'
+      job.error = '手机运行进程中断，执行结果尚未确认；请检查结果后重新发起任务。'
       const agent = state.agents[job.agentUserId]
       if (agent) { agent.status = 'error'; agent.lastError = job.error }
     }

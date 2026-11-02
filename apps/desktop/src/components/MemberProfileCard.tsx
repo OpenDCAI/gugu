@@ -386,9 +386,8 @@ export function MemberProfileCard({
       ) : null}
 
       {/* ── 倾听模式 segmented control (prototype .lm/.lmseg, lines 453-457)
-          Agent-only, group scope. @@@1208 (#857 收尾): agent 的主人看它时父级经 editControls.onChangeListenMode
-          提供回调,控件可交互(点击改档→真 mutation chat_members.listen_mode);其余人(含群主 / 管理员)
-          是只读镜像(cursor default)。 ── */}
+          Agent-only, room scope. The parent supplies onChangeListenMode for the agent owner
+          or a current source-group manager. Other viewers retain the read-only projection. ── */}
       {showListenMode ? (
         <div className={profileListenClass}>
           <div className={profileListenLabelClass}>{t('profile.listenModeDescription')}</div>
