@@ -13,6 +13,7 @@ import { rpc } from '@renderer/lib/ipc';
 import { useNavigate } from '@renderer/lib/layout/navigation-provider';
 import type { BaseModalProps } from '@renderer/lib/modal/modal-provider';
 import { Shortcut } from '@renderer/lib/ui/shortcut';
+import { Kbd } from '@renderer/lib/ui/kbd';
 import { COMMANDS } from '@shared/commands';
 import type { SessionMessageKey } from '@renderer/localization/messages';
 import { useSessionMessages } from '@renderer/localization/use-session-messages';
@@ -141,7 +142,7 @@ function Palette({ initialQuery = '', onClose }: CommandPaletteProps & BaseModal
       </Command.List>
       <PaletteFooter>
         {translate(commandsMode ? 'palette.removePrefix' : 'palette.typePrefix')}
-        <Shortcut hotkey=">" variant="keycaps" />
+        <Kbd className="h-5 min-w-5 border border-border/60 px-1 text-tiny">&gt;</Kbd>
         {translate(commandsMode ? 'palette.switchHint' : 'palette.commandsHint')}
       </PaletteFooter>
     </Command>
