@@ -122,6 +122,38 @@ describe('taskhost.open 带来的桌面版本', () => {
 });
 
 describe('taskhost.call(一问一答,不开窗口)', () => {
+  it('binds assistant home requests to the authenticated remote account', async () => {
+    const frameHost = new FrameSessionHost();
+    const prepare = vi.fn(() => ({ phase: 'runtime' }));
+    frameHost.ipcMain.handle('assistantHome.start', prepare);
+    const { handlers } = createSessionHostDeviceRpcHandlers({ host: () => frameHost });
+    const request = { channel: 'assistantHome.start', args: [{ ownerUserId: 'owner' }], desktop: { id: 'desktop', version: '0.3.1', protocol: REMOTE_PROTOCOL_VERSION } };
+    expect(await handlers['taskhost.call']!(request, ctx)).toMatchObject({ result: { value: { phase: 'runtime' } } });
+    expect(await handlers['taskhost.call']!({ ...request, args: [{ ownerUserId: 'another' }] }, ctx)).toMatchObject({ error: { message: expect.stringContaining('No handler registered') } });
+    expect(await handlers['taskhost.call']!(request, { ...ctx, request: { ...ctx.request, user_id: '' } })).toMatchObject({ error: { message: expect.stringContaining('No handler registered') } });
+    expect(prepare).toHaveBeenCalledOnce();
+  });
+  it('refuses a same-account direct assistant start without a valid desktop identity', async () => {
+    const frameHost = new FrameSessionHost();
+    const prepare = vi.fn(() => ({ phase: 'runtime' }));
+    frameHost.ipcMain.handle('assistantHome.start', prepare);
+    const { handlers } = createSessionHostDeviceRpcHandlers({ host: () => frameHost });
+    for (const desktop of [undefined, { id: 'phone' }, { id: 'phone', version: '' }]) {
+      expect(await handlers['taskhost.call']!({ channel: 'assistantHome.start', args: [{ ownerUserId: 'owner' }], desktop }, ctx))
+        .toMatchObject({ error: { message: expect.stringContaining('No handler registered') } });
+    }
+    expect(prepare).not.toHaveBeenCalled();
+  });
+  it('keeps desktop admission per window instead of granting it to a phone window opened by the same owner', async () => {
+    const attach = vi.fn();
+    const { handlers, dispose } = createSessionHostDeviceRpcHandlers({ host: () => ({ attach }) as unknown as FrameSessionHost });
+    await handlers['taskhost.open']!({ client: 'desktop01', desktop: { id: 'desktop', version: '0.3.1', protocol: REMOTE_PROTOCOL_VERSION } }, ctx);
+    await handlers['taskhost.open']!({ client: 'phone0001', protocol: REMOTE_PROTOCOL_VERSION }, ctx);
+    const args = [{ ownerUserId: 'owner' }];
+    expect(attach.mock.calls[0]![1].policy('assistantHome.start', args)).toBe(true);
+    expect(attach.mock.calls[1]![1].policy('assistantHome.start', args)).toBe(false);
+    dispose();
+  });
   it('can read and edit the host books while window controls and unlisted app calls remain refused', async () => {
     const frameHost = new FrameSessionHost();
     const entry = { id: 'phone-trial', content: 'old' };
