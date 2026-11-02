@@ -9,10 +9,10 @@ let nativeJson: Database.Database;
 const sqlite = () => fixture.sqlite;
 const rows = () => sqlite().prepare('SELECT seq, item_id, role, text FROM turn_text_rows ORDER BY seq, item_id').all();
 
-function turn(seq: number, messages = 12): string {
+function turn(seq: number, messages = 12, payload = 'unsearchable payload '.repeat(100)): string {
   const id = `a:turn:${seq}`;
   return JSON.stringify({ id, referenceId: `source:${seq}`, items: [
-    { kind: 'tool-call', id: `${id}:tool:0`, output: 'unsearchable payload '.repeat(100) },
+    { kind: 'tool-call', id: `${id}:tool:0`, output: payload },
     ...Array.from({ length: messages }, (_, i) => ({
       kind: 'message', id: `${id}:message:${i}`, role: 'assistant', text: `unique text ${seq} ${i}`,
     })),
@@ -26,6 +26,20 @@ function insert(seq: number, data: string): void {
 
 function resetBackfill(): void {
   sqlite().exec("DELETE FROM turn_text_rows; DELETE FROM kv WHERE key IN ('turn_text_backfilled','turn_text_backfill_cursor')");
+}
+
+async function intervalEnds(): Promise<number[]> {
+  const ends: number[] = [];
+  sqlite().function('record_backfill_cursor', (value: string) => {
+    ends.push((JSON.parse(value) as [string, number])[1]);
+    return null;
+  });
+  sqlite().exec(`CREATE TRIGGER record_cursor AFTER INSERT ON kv WHEN NEW.key='turn_text_backfill_cursor'
+    BEGIN SELECT record_backfill_cursor(NEW.value); END`);
+  let tick = 0;
+  vi.spyOn(performance, 'now').mockImplementation(() => tick += 50);
+  await backfillTurnText(sqlite());
+  return ends;
 }
 
 beforeEach(async () => {
@@ -111,7 +125,7 @@ describe('turn-text extraction work and identity', () => {
   });
 
   it('commits and yields when row work reaches the transaction budget rather than a fixed turn count', async () => {
-    for (let seq = 0; seq < 41; seq++) insert(seq, turn(seq, 2));
+    for (let seq = 0; seq < 130; seq++) insert(seq, turn(seq, 2));
     resetBackfill();
     let work = 0;
     sqlite().function('record_row_work', () => { work++; return null; });
@@ -122,11 +136,48 @@ describe('turn-text extraction work and identity', () => {
     try {
       await setImmediate();
       expect(work).toBeGreaterThanOrEqual(50);
-      // At most one four-turn interval (two messages per turn) can exceed the budget.
-      expect(work).toBeLessThanOrEqual(50 + 4 * 2);
-      expect(rows().length).toBeLessThan(82);
+      // At most one 64-turn interval (two messages per turn) can exceed the budget.
+      expect(work).toBeLessThanOrEqual(50 + 64 * 2);
+      expect(rows().length).toBeLessThan(260);
       expect(sqlite().prepare("SELECT value FROM kv WHERE key='turn_text_backfill_cursor'").get()).toBeDefined();
     } finally { await filling; }
-    expect(rows()).toHaveLength(82);
+    expect(rows()).toHaveLength(260);
+  });
+
+  it('groups small turns into intervals of at most 64 and resumes the final partial interval', async () => {
+    for (let seq = 0; seq < 130; seq++) insert(seq, turn(seq, 2, ''));
+    resetBackfill();
+    expect(await intervalEnds()).toEqual([63, 127, 129]);
+    expect(rows()).toHaveLength(260);
+  });
+
+  it('keeps a single oversized turn whole in its own interval', async () => {
+    insert(0, turn(0, 2, 'x'.repeat(1024 * 1024)));
+    insert(1, turn(1, 2, ''));
+    insert(2, turn(2, 2, ''));
+    resetBackfill();
+    expect(await intervalEnds()).toEqual([0, 2]);
+    expect(rows()).toHaveLength(6);
+  });
+
+  it('includes the turn that first crosses one MiB of stored UTF-8 bytes', async () => {
+    const first = turn(0, 2, '界'.repeat(200_000));
+    const second = turn(1, 2, '界'.repeat(200_000));
+    expect(first.length + second.length).toBeLessThan(1024 * 1024);
+    expect(Buffer.byteLength(first) + Buffer.byteLength(second)).toBeGreaterThan(1024 * 1024);
+    insert(0, first);
+    insert(1, second);
+    insert(2, turn(2, 2, ''));
+    insert(3, turn(3, 2, ''));
+    resetBackfill();
+    expect(await intervalEnds()).toEqual([1, 3]);
+    expect(rows()).toHaveLength(8);
+  });
+
+  it('uses the last available turn when fewer than 64 remain below one MiB', async () => {
+    for (let seq = 0; seq < 7; seq++) insert(seq, turn(seq, 2, ''));
+    resetBackfill();
+    expect(await intervalEnds()).toEqual([6]);
+    expect(rows()).toHaveLength(14);
   });
 });
