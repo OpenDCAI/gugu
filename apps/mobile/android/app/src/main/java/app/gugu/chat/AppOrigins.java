@@ -67,6 +67,40 @@ final class AppOrigins {
         return matcher.matches() ? matcher.group(1) : null;
     }
 
+    /**
+     * @@@app-gate - Each App's gate origin, https://<appId>.gate.gugu.invalid (appOrigin.ts `gateOrigin`): the gugu page
+     * frames an App's pages in its gate, which frames them in the App's origin and stamps each of the App's calls with its
+     * own user activation (gate-entry.ts). The origin serves the gate page from this build and nothing else.
+     */
+    static final String GATE_DOMAIN = ".gate.gugu.invalid";
+    private static final Pattern GATE_HOST = Pattern.compile("^([a-z0-9][a-z0-9-]{1,63})" + Pattern.quote(GATE_DOMAIN) + "$");
+    private static final Pattern GATE_PATH = Pattern.compile("^" + Pattern.quote(RUNTIME_PREFIX) + "[0-9A-Za-z.-]+/gate\\.(html|js)$");
+
+    /** The App id a gate origin's host names, or null for any other host. */
+    static String gateOf(String host) {
+        if (host == null) return null;
+        Matcher matcher = GATE_HOST.matcher(host.toLowerCase(Locale.ROOT));
+        return matcher.matches() ? matcher.group(1) : null;
+    }
+
+    /**
+     * The gate page of App `appId`, framed only by the gugu page (`pageOrigin`) and framing only the App's own origin. A
+     * gate for an App that is not served here, and any other path, is 404: there is nothing else at a gate origin.
+     */
+    static WebResourceResponse serveGate(Context context, String appId, String path, String pageOrigin) {
+        Map<String, String> headers = new HashMap<>();
+        headers.put("Content-Security-Policy", "default-src 'none'; script-src 'self'; frame-src https://" + appId + DOMAIN
+                + "; frame-ancestors " + pageOrigin + "; base-uri 'none'; form-action 'none'; object-src 'none'");
+        headers.put("Cache-Control", "no-cache");
+        if (served(context).get(appId) == null || path == null || !GATE_PATH.matcher(path).matches()) return empty(404, headers);
+        try {
+            String mime = mimeOf(path);
+            return new WebResourceResponse(mime, "utf-8", 200, "OK", headers, context.getAssets().open("public" + path));
+        } catch (IOException error) {
+            return empty(404, headers);
+        }
+    }
+
     static String readIndex(Context context) {
         File file = new File(root(context), "index.json");
         try {

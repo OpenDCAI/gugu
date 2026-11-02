@@ -17,12 +17,26 @@ export function appOrigin(appId: string): string {
   return `https://${appId}.${APPS_DOMAIN}`
 }
 
+/**
+ * @@@app-gate - Where an App's gate runs (gate-entry.ts): a third origin of the App's own, https://<appId>.gate.gugu.invalid,
+ * which the shell answers with gugu's gate page and nothing else (AppOrigins.java). Every App frame on this page is drawn
+ * inside its gate. The browser tells a frame's ancestors of the person's input in it and nobody else — not another App's
+ * frames, not frames below the page that was touched — so the gate's own activation is exactly "the person's input landed
+ * in this App", which neither this page's (any tap anywhere) nor the App's (its own script reports it) can be.
+ */
+export const GATES_DOMAIN = 'gate.gugu.invalid'
+
+export function gateOrigin(appId: string): string {
+  if (!isValidExtensionId(appId)) throw new Error(`not an App id: ${appId}`)
+  return `https://${appId}.${GATES_DOMAIN}`
+}
+
 /** As much of an iframe as talking to it takes. */
 type AppFrame = Pick<HTMLIFrameElement, 'src'> & { readonly contentWindow: Pick<Window, 'postMessage'> | null }
 
 /**
- * Messages between this page and an App's frame (L3 review): only ever with the document of the App's own origin — the
- * origin its `src` names. What goes in carries the file bytes (the sync port) and the answers of the host; a frame whose
+ * Messages between this page and an App's frame (L3 review): only ever with the document of the origin its `src` names —
+ * the App's gate for a page of the App (which passes them on to the App's own document), the App's origin for the forget page. What goes in carries the file bytes (the sync port) and the answers of the host; a frame whose
  * document is anything else (were a navigation ever to get past the shell's rule) is given nothing — the browser drops a
  * message whose target origin is not the document's — and is not listened to.
  */

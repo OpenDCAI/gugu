@@ -32,8 +32,6 @@ vi.mock('../../../../apps/desktop/src/session/shared/extensions/app-files-core',
     createAppFiles: () => ({ downloadSource: async () => ({ name: '季度报告.pdf', kind: 'file', file: await verifiedFileHandle(new TextEncoder().encode(`bytes of ${CDN}`), { file_name: '季度报告.pdf' }) }) }),
   }
 })
-const activation = { isActive: true }
-Object.defineProperty(navigator, 'userActivation', { value: activation, configurable: true })
 
 const { hostAppFrame } = await import('../../../../apps/desktop/src/components/appSlot/phoneAppHost')
 const { APP_FRAME_MARKER } = await import('../../../../apps/desktop/src/session/shared/extensions/app-runtime-protocol')
@@ -62,7 +60,7 @@ afterEach(() => {
 
 async function call(method: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
   const id = Date.now()
-  window.dispatchEvent(new MessageEvent('message', { data: { m: APP_FRAME_MARKER, t: 'call', id, method, args }, source: frame.contentWindow, origin: ORIGIN }))
+  window.dispatchEvent(new MessageEvent('message', { data: { m: APP_FRAME_MARKER, t: 'call', id, method, args, gesture: true }, source: frame.contentWindow, origin: ORIGIN }))
   await vi.waitFor(() => expect(posted.mock.calls.some(([message]) => (message as { id?: number }).id === id)).toBe(true))
   return posted.mock.calls.map(([message]) => message as Record<string, unknown>).find((message) => message.id === id)!
 }

@@ -126,6 +126,8 @@ interface HostedFrame {
 const frames = new Map<number, HostedFrame>()
 const phoneModals = new AppModalSessions<PhoneAppBinding>((modal) => { closeAppModal(modal.id) })
 let nextPageId = 1
+/** How long the browser keeps a transient activation (Chromium's `kActivationLifespan`): a command's gesture, the same. */
+const ACTIVATION_LIFETIME_MS = 5000
 
 /** A frame's binding as kept here: its granted words with the narrower ones they cover, so a check for those finds them. */
 const granted = (binding: PhoneAppBinding): PhoneAppBinding => ({ ...binding, capabilities: withCoveredCapabilities(binding.capabilities) })
@@ -489,7 +491,7 @@ export function hostAppFrame(
     layout: { visible: true, fullscreen: Boolean(hosted.binding.modal), width: frame.clientWidth, height: frame.clientHeight },
   })
 
-  /** `gesture` was read when the call arrived: the frame's tap activates this page too (L1, WebView 113/133). */
+  /** `gesture`: whether the person's input landed in this App (its gate's reading, or its command just tapped). */
   const answer = async (method: string, args: Record<string, unknown>, gesture: boolean): Promise<unknown> => {
     // Once, from the verb's row (BRIDGE_VERBS), in the words every host says it — a phone frame is a page.
     const refusal = callRefusal(method, args, { kind: 'page', has: (capability) => hosted.binding.capabilities.includes(capability), gesture })
@@ -808,6 +810,10 @@ export function hostAppFrame(
     }
   }
 
+  // @@@command-gesture - The App's commands are drawn by this page (the slot's header), on the App's behalf: a tap on one is
+  // the person's input in this App, as main gives the page a gesture for it on the desktop (invokeExtensionCommand). Held
+  // as long as the browser holds an activation (Chromium: 5 s), for this App's frame only.
+  let commandGestureUntil = 0
   let documentStarted = false
   const onMessage = (messageEvent: MessageEvent) => {
     if (!channel.accepts(messageEvent)) return
@@ -838,8 +844,9 @@ export function hostAppFrame(
       return
     }
     if (message.t !== 'call') return
-    // Read now, not after anything is queued: the activation lasts ~5 s (L1).
-    const gesture = (navigator as Navigator & { userActivation?: { isActive: boolean } }).userActivation?.isActive === true
+    // The App's gate read it as the call left the App (gate-entry.ts) — never this page's own activation, which any tap
+    // anywhere on the screen gives. Or the person tapped one of the App's commands in its header just now (`command`).
+    const gesture = message.gesture === true || performance.now() < commandGestureUntil
     let result: Promise<unknown>
     try {
       result = answer(message.method, (message.args ?? {}) as Record<string, unknown>, gesture)
@@ -904,6 +911,7 @@ export function hostAppFrame(
     },
     /** One of the tab's declared toolbar / menu entries, picked on the slot's header (摩擦单 F13). */
     command(commandId) {
+      commandGestureUntil = performance.now() + ACTIVATION_LIFETIME_MS
       event({ type: 'command', commandId })
     },
     /** owner 10-16 The App's program on the session's computer sent a notification (`onProgramNotification`). */

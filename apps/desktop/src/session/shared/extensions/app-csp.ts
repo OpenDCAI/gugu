@@ -16,8 +16,8 @@
  * style-src keeps 'unsafe-inline': inline styles execute no code, and every
  * mainstream UI toolkit emits them.
  *
- * `framedBy` is the one origin that may embed the page: on the desktop the App's own (it is the top of its webview);
- * on the phone the gugu page whose iframe it runs in.
+ * `framedBy` is who may embed the page: on the desktop the App's own origin (it is the top of its webview); on the phone
+ * the gugu page and the App's gate between them (appOrigin.ts `gateOrigin`) — frame-ancestors checks every ancestor.
  */
 export function extensionContentSecurityPolicy(framedBy: string, networkHosts: readonly string[]): string {
   // Mirrors what the session actually permits, or the header would refuse
