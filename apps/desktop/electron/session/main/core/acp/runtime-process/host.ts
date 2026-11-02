@@ -355,6 +355,12 @@ export async function peekAcpWorkerClient(): Promise<AcpRuntimeProcessClient | n
   return handle ? handle.client as AcpRuntimeProcessClient : null;
 }
 
+/** Resource observation never initializes an idle worker. */
+export async function peekAcpResourceHandle() {
+  const handle = await acpWorker.peek();
+  return handle ? { pid: handle.process.pid, client: handle.client as AcpRuntimeProcessClient } : null;
+}
+
 export async function peekAcpRuntimeClient(): Promise<AcpRuntimeClient | null> {
   const handle = await acpWorker.peek();
   return handle ? decorateAcpRuntimeHandle(handle).client : null;

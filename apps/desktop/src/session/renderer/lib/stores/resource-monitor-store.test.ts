@@ -1,16 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { resourceSnapshotChannel } from '@shared/events/resourceEvents';
+import { resourceSnapshotChannel, type ResourceMonitorUpdate } from '@shared/events/resourceEvents';
 import type { ResourceSnapshot } from '@shared/resource-monitor';
 
 const setOpen = vi.fn();
 const getSnapshot = vi.fn();
-let snapshotHandler: ((snap: ResourceSnapshot | null) => void) | null = null;
+let snapshotHandler: ((snap: ResourceMonitorUpdate) => void) | null = null;
 const offSnapshot = vi.fn(() => { snapshotHandler = null; });
 
 vi.mock('@renderer/lib/ipc', () => ({
   rpc: { resourceMonitor: { setOpen, getSnapshot } },
   events: {
-    on: vi.fn((channel: typeof resourceSnapshotChannel, cb: (snap: ResourceSnapshot | null) => void) => {
+    on: vi.fn((channel: typeof resourceSnapshotChannel, cb: (snap: ResourceMonitorUpdate) => void) => {
       if (channel === resourceSnapshotChannel) snapshotHandler = cb;
       return offSnapshot;
     }),
@@ -58,7 +58,21 @@ describe('ResourceMonitorStore', () => {
     };
     snapshotHandler?.(snap);
     expect(store.totalCpuPercent).toBe(4);
-    expect(formatReport(snap, []).split('\n')).toEqual(['CPU (100% = one core) 4.0% Memory 0 B', 'Main 4.0% 0 B (pid=1)']);
+    expect(formatReport(snap, []).split('\n')).toEqual(['CPU (100% = one core) 4.0% Memory (RSS) 0 B', 'Main 4.0% 0 B (pid=1)']);
+  });
+  it('includes shared runtime and session children in the live totals and report', async () => {
+    const { ResourceMonitorStore } = await import('./resource-monitor-store');
+    const { formatReport } = await import('@renderer/features/command-palette/resource-monitor-utils');
+    const store = new ResourceMonitorStore(); store.watch();
+    const snap: ResourceSnapshot = { ...snapshot(10), app: { memoryBytes: 20, cpuPercent: 2 }, processGroups: [{
+      id: 'session:a', kind: 'session', sessionId: 'a', label: 'Build', memory: 90, cpu: 7,
+      processes: [{ pid: 42, ppid: 10, name: 'tsgo', memory: 90, cpu: 7 }],
+    }] };
+    snapshotHandler?.(snap);
+    expect(store.totalMemoryBytes).toBe(110);
+    expect(store.totalCpuPercent).toBe(9);
+    expect(store.entryCount).toBe(1);
+    expect(formatReport(snap, [])).toContain('tsgo 7.0% 90 B (pid=42 ppid=10)');
   });
   beforeEach(() => {
     vi.resetAllMocks();
@@ -163,6 +177,26 @@ describe('ResourceMonitorStore', () => {
     await flushPromises();
     expect(store.isLoadingInitialSnapshot).toBe(false);
     expect(store.snapshot).toBeNull();
+  });
+
+  it('marks retained data stale on a failed process list and clears the status only on a later valid sample', async () => {
+    const { ResourceMonitorStore } = await import('./resource-monitor-store');
+    const store = new ResourceMonitorStore(); store.start();
+    snapshotHandler?.({ samplingError: { timestamp: 1, reason: 'process-list-read-failed' } });
+    expect(store.isLoadingInitialSnapshot).toBe(false);
+    expect(store.snapshot).toBeNull();
+    expect(store.samplingFailure?.timestamp).toBe(1);
+    snapshotHandler?.(snapshot(2));
+    expect(store.samplingFailure).toBeNull();
+    snapshotHandler?.({ samplingError: { timestamp: 4, reason: 'process-list-read-failed' } });
+    expect(store.snapshot?.timestamp).toBe(2);
+    expect(store.samplingFailure?.timestamp).toBe(4);
+    snapshotHandler?.(snapshot(3)); // A manual refresh started before the failure.
+    expect(store.samplingFailure?.timestamp).toBe(4);
+    snapshotHandler?.(snapshot(5));
+    expect(store.samplingFailure).toBeNull();
+    snapshotHandler?.({ samplingError: { timestamp: 4, reason: 'sample-failed' } });
+    expect(store.samplingFailure).toBeNull();
   });
 
   it('ignores old sample callbacks and subscription failures after reopen', async () => {
