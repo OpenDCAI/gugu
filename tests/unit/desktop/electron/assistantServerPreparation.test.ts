@@ -1,23 +1,88 @@
 import { describe, expect, it, vi } from 'vitest'
+import { mkdtemp, mkdir, access, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import type { AssistantServerOperation, AssistantServerPreparation } from '../../../../apps/desktop/src/lib/assistantServerSetupTypes'
 import { createAssistantServerPreparation, type ServerPreparationRecord } from '../../../../apps/desktop/electron/assistant-server-preparation'
 import { assistantServerFailure, AssistantServerSetupError } from '../../../../apps/desktop/src/lib/assistantServerSetupTypes'
 
 const input = { ownerUserId: 'owner', deviceId: 'server', operationId: 'operation', ownerProfile: 'Owner' }
 function fixture(initial: ServerPreparationRecord | null = null) {
   let disk = initial ? structuredClone(initial) : null
+  const cancellations = new Map<string, AssistantServerPreparation>()
   const runtime = { commit: vi.fn(async () => {}), dispose: vi.fn(async () => {}) }
   const deps = {
     read: vi.fn(async () => disk ? structuredClone(disk) : null),
     write: vi.fn(async (record: ServerPreparationRecord) => { disk = structuredClone(record) }),
-    validate: vi.fn(async () => {}), retired: vi.fn(async () => false), prepare: vi.fn(async (_id: string, _signal: AbortSignal) => runtime), cleanup: vi.fn(async () => {}),
+    readCancellation: vi.fn(async (operation: AssistantServerOperation) => cancellations.get(operation.operationId) ?? null),
+    writeCancellation: vi.fn(async (operation: AssistantServerOperation, state: AssistantServerPreparation) => { cancellations.set(operation.operationId, structuredClone(state)) }),
+    validate: vi.fn(async () => {}), retired: vi.fn(async () => false), prepare: vi.fn(async (_id: string, _signal: AbortSignal) => runtime), cleanup: vi.fn(async (_id: string, _keepRuntime: boolean) => {}),
     wipe: vi.fn(async () => ({ workdir: '/account/assistant', existed: true })), install: vi.fn(async () => ({ home: '/account', workdir: '/account/assistant' })), log: vi.fn(),
   }
   const service = createAssistantServerPreparation(deps)
   const wait = async (phase: string) => { await vi.waitFor(async () => expect((await service.status(input)).phase).toBe(phase)); return service.status(input) }
-  return { service, deps, runtime, wait, disk: () => structuredClone(disk) }
+  return { service, deps, runtime, wait, restart: () => createAssistantServerPreparation(deps), disk: () => structuredClone(disk) }
 }
 
 describe('durable account-host assistant preparation', () => {
+  it('persists cancellation before start is received and rejects a late start after restart and a newer operation', async () => {
+    const f = fixture()
+    await expect(f.service.cancel(input)).resolves.toMatchObject({ cancelled: true, state: { phase: 'cancelled' } })
+    expect(f.deps.writeCancellation).toHaveBeenCalledOnce()
+    const restarted = f.restart()
+    expect(await restarted.start(input)).toMatchObject({ phase: 'cancelled' })
+    expect(f.deps.prepare).not.toHaveBeenCalled()
+    await restarted.start({ ...input, operationId: 'new' })
+    await vi.waitFor(() => expect(f.disk()?.state.phase).toBe('prepared'))
+    expect(await f.restart().start(input)).toMatchObject({ phase: 'cancelled' })
+    expect(f.deps.prepare).toHaveBeenCalledOnce()
+    expect(f.disk()?.operationId).toBe('new')
+  })
+  it.each(['runtime', 'cancelled'] as const)('cleans persisted staging after host restart, including a legacy %s record', async phase => {
+    const root = await mkdtemp(join(tmpdir(), 'assistant-interrupted-cancel-'))
+    const staged = join(root, `${input.operationId}-7`)
+    await mkdir(staged)
+    try {
+      const f = fixture({ ...input, version: 1, attempt: 7, freshCleared: false,
+        state: { operationId: input.operationId, phase, installationStarted: false, cancellable: phase !== 'cancelled' } })
+      f.deps.cleanup.mockImplementation(async id => { await rm(join(root, id), { recursive: true, force: true }) })
+      expect(await f.service.cancel(input)).toMatchObject({ cancelled: true })
+      expect(f.deps.cleanup).toHaveBeenCalledWith(`${input.operationId}-7`, false)
+      await expect(access(staged)).rejects.toMatchObject({ code: 'ENOENT' })
+      expect(await f.restart().start(input)).toMatchObject({ phase: 'cancelled' })
+      expect(f.deps.prepare).not.toHaveBeenCalled()
+    } finally { await rm(root, { recursive: true, force: true }) }
+  })
+  it('does not confirm interrupted cancellation when cleanup fails, and retries that same attempt', async () => {
+    const f = fixture({ ...input, version: 1, attempt: 3, freshCleared: false,
+      state: { operationId: input.operationId, phase: 'runtime', installationStarted: false, cancellable: true } })
+    f.deps.cleanup.mockRejectedValueOnce(new Error('cannot remove staging'))
+    await expect(f.service.cancel(input)).rejects.toMatchObject({ code: 'cleanup_failed' })
+    expect(f.deps.writeCancellation).not.toHaveBeenCalled()
+    expect(await f.service.status(input)).toMatchObject({ phase: 'failed', error: { code: 'cleanup_failed' } })
+    expect(await f.restart().cancel(input)).toMatchObject({ cancelled: true })
+    expect(f.deps.cleanup.mock.calls).toEqual([[`${input.operationId}-3`, false], [`${input.operationId}-3`, false]])
+  })
+  it('does not acknowledge cancellation until the cancellation record is durable', async () => {
+    const f = fixture()
+    f.deps.writeCancellation.mockRejectedValueOnce(new Error('disk unavailable'))
+    await expect(f.service.cancel(input)).rejects.toThrow('disk unavailable')
+    expect(await f.deps.readCancellation(input)).toBeNull()
+    expect(await f.service.cancel(input)).toMatchObject({ cancelled: true })
+  })
+  it('cancels an unreceived operation without aborting a different active preparation', async () => {
+    const f = fixture()
+    f.deps.prepare.mockImplementationOnce(() => new Promise(() => {}))
+    await f.service.start(input)
+    await f.wait('runtime')
+    const other = { ...input, operationId: 'never-received' }
+    expect(await f.service.cancel(other)).toMatchObject({ cancelled: true })
+    expect(f.deps.prepare.mock.calls[0]![1].aborted).toBe(false)
+    expect(f.disk()?.operationId).toBe(input.operationId)
+    expect(f.deps.cleanup).not.toHaveBeenCalled()
+    expect(await f.service.start(other)).toMatchObject({ phase: 'cancelled' })
+    expect(f.deps.prepare).toHaveBeenCalledOnce()
+  })
   it('publishes real phases and only reports prepared after runtime and home succeed', async () => {
     const f = fixture()
     await f.service.start(input)

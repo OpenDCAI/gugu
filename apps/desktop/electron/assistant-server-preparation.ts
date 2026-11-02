@@ -17,6 +17,8 @@ export type ServerPreparationRecord = AssistantServerStart & {
 export function createAssistantServerPreparation(deps: {
   read(): Promise<ServerPreparationRecord | null>
   write(record: ServerPreparationRecord): Promise<void>
+  readCancellation(input: AssistantServerOperation): Promise<AssistantServerPreparation | null>
+  writeCancellation(input: AssistantServerOperation, state: AssistantServerPreparation): Promise<void>
   validate(input: AssistantServerOperation, starting: boolean): Promise<void>
   retired(input: AssistantServerOperation): Promise<boolean>
   prepare(id: string, signal: AbortSignal): Promise<PreparedAssistantRuntime>
@@ -48,7 +50,6 @@ export function createAssistantServerPreparation(deps: {
     loaded = true
   }
   async function requireRecord(input: AssistantServerOperation) {
-    await deps.validate(input, false)
     await load()
     if (!journal || journal.operationId !== input.operationId) return fail('preparation_not_found')
     if (journal.ownerUserId !== input.ownerUserId || journal.deviceId !== input.deviceId) return fail('target_not_owned')
@@ -102,12 +103,17 @@ export function createAssistantServerPreparation(deps: {
         // One serial transaction with start: a late close cannot wipe a newly
         // prepared home after an earlier close already completed.
         const result = await deps.wipe()
-        await save(journal, { ...journal.state, phase: 'cancelled', cancellable: false })
+        const state: AssistantServerPreparation = { ...journal.state, phase: 'cancelled', cancellable: false }
+        await deps.writeCancellation(journal, state)
+        await save(journal, state)
         return result
       })
     },
     start(input: AssistantServerStart) {
       return serial(async () => {
+        await deps.validate(input, false)
+        const cancelled = await deps.readCancellation(input)
+        if (cancelled) return cancelled
         await deps.validate(input, true)
         await load()
         if (journal && journal.operationId !== input.operationId && journal.state.phase !== 'cancelled') {
@@ -142,6 +148,9 @@ export function createAssistantServerPreparation(deps: {
     },
     status(input: AssistantServerOperation) {
       return serial(async () => {
+        await deps.validate(input, false)
+        const cancelled = await deps.readCancellation(input)
+        if (cancelled) return cancelled
         const record = await requireRecord(input)
         if (!active && !['prepared', 'failed', 'cancelled'].includes(record.state.phase)) {
           await save(record, { ...record.state, phase: 'failed', error: assistantServerFailure('interrupted') })
@@ -151,16 +160,33 @@ export function createAssistantServerPreparation(deps: {
     },
     cancel(input: AssistantServerOperation) {
       return serial(async () => {
+        await deps.validate(input, false)
+        const cancelled = await deps.readCancellation(input)
+        if (cancelled) return { cancelled: true, state: cancelled }
+        await load()
+        const state: AssistantServerPreparation = { operationId: input.operationId, phase: 'cancelled', installationStarted: false, cancellable: false }
+        if (!journal || journal.operationId !== input.operationId) {
+          // The start may still be in transit. Retain its cancellation separately
+          // from the current journal so a later operation cannot erase this fence.
+          await deps.writeCancellation(input, state)
+          return { cancelled: true, state }
+        }
         const record = await requireRecord(input)
         if (record.state.installationStarted) return { cancelled: false, state: { ...record.state } }
-        if (record.state.phase === 'cancelled') return { cancelled: true, state: { ...record.state } }
         active?.abort.abort(new Error('Assistant preparation cancelled'))
         await active?.work
-        if (record.state.error?.code === 'cleanup_failed') {
+        if (record.attempt > 0) {
+          // A restarted host has no runtime handle to dispose. The persisted
+          // attempt is the authority for its operation-owned staging directory.
           try { await deps.cleanup(`${record.operationId}-${record.attempt}`, false) }
-          catch (error) { deps.log(error, record.operationId); return fail('cleanup_failed') }
+          catch (error) {
+            deps.log(error, record.operationId)
+            await save(record, { ...record.state, phase: 'failed', error: assistantServerFailure('cleanup_failed') })
+            return fail('cleanup_failed')
+          }
         }
-        await save(record, { operationId: record.operationId, phase: 'cancelled', installationStarted: false, cancellable: false })
+        await deps.writeCancellation(input, state)
+        await save(record, state)
         return { cancelled: true, state: { ...record.state } }
       })
     },
