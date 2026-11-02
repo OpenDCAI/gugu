@@ -41,7 +41,7 @@ export function AssistantSetupIdentity({ draft, onChange, onBack, onContinue }: 
         <Button variant="secondary" size="lg" className="rounded-full flex-1" onClick={onBack}>{t('setup.back')}</Button>
         <Button variant="primary" size="lg" className="rounded-full flex-1" disabled={!draft.name.trim()} onClick={onContinue}>{t('setup.continue')}</Button>
       </div>
-      <Sheet open={editing} onClose={() => setEditing(false)} desktopWidth="min(880px, 100%)" desktopMaxHeight="calc(100dvh - 32px)" fullScreenMobile ariaLabel={t('setup.customizeLook')}>
+      <Sheet open={editing} onClose={() => setEditing(false)} desktopWidth="min(880px, 100%)" desktopMaxHeight="calc(100dvh - 32px)" fullScreenMobile ariaLabel={t('setup.customizeLook')} zIndex="var(--z-settings-modal)">
         <div className="ta-onb-workshop">
           <header className="ta-onb-look-header">
             <h2>{t('setup.customizeLook')}</h2>

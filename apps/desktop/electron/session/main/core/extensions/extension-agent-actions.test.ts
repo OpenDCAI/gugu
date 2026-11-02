@@ -122,6 +122,12 @@ const ownTab = (tab: Record<string, unknown> = {}) => ({
 });
 
 describe('app_* 的动作分派', () => {
+  it.each([null, 'chat:read', [], { capabilities: 'chat:read' }])('a template keeps invalid permissions invalid (%j)', async (permissions) => {
+    const target = path.join(workDir, 'invalid-permissions');
+    await expect(runExtensionAgentAction({ action: 'create', target_dir: target, id: 'invalid-permissions', name: 'Invalid', template: 'group-json', manifest: { permissions } })).rejects.toThrow();
+    expect(existsSync(path.join(target, 'manifest.json'))).toBe(false);
+  });
+
   it('认领、菜单、工具栏一路走到 manifest —— 改名漏一个就等于没声明', async () => {
     const created = (await runExtensionAgentAction({
       action: 'create',
@@ -1121,7 +1127,7 @@ describe('app_check', () => {
 
 // 摩擦单 F11:群里多人用的 App 从模板起 —— 投票这种 App,agent 只写几十行。
 describe('app_create { template: "group-json" }', () => {
-  it('writes a group App: claims the group\'s .<id>.json files, asks for nothing, page + style + app.js skeleton', async () => {
+  it('writes a group App with its explicit roster permission, page, style and app.js skeleton', async () => {
     const created = (await runExtensionAgentAction({
       action: 'create',
       target_dir: path.join(workDir, 'vote'),
@@ -1131,7 +1137,7 @@ describe('app_create { template: "group-json" }', () => {
     })) as { source_dir: string; tabs: string[]; next: string };
 
     const manifest = manifestAt(created.source_dir) as ScaffoldedManifest & { permissions?: unknown };
-    expect(manifest.permissions, '不要任何能力:装的时候不弹框').toBeUndefined();
+    expect(manifest.permissions).toEqual({ capabilities: ['chat:read'] });
     expect(manifest.contributes.tabs).toEqual([
       { name: 'main', title: 'Dinner <vote>', entry: 'main.html', opensFiles: { chat: ['.dinner-vote.json'] } },
     ]);
@@ -1260,7 +1266,7 @@ describe('app_create { template: "group-json" }', () => {
       files: { 'bg.html': '<!doctype html>' },
     })) as { source_dir: string; next: string };
     const manifest = manifestAt(created.source_dir) as ScaffoldedManifest & { background?: unknown };
-    expect(manifest.permissions).toEqual({ capabilities: ['chat:relay'] });
+    expect(manifest.permissions).toEqual({ capabilities: ['chat:read', 'chat:relay'] });
     expect(manifest.background).toEqual({ entry: 'bg.html' });
     expect(manifest.contributes.tabs[0]?.opensFiles).toEqual({ chat: ['.chess.json'] });
     expect(created.next, 'asks the person at install').toMatch(/chat:relay/);

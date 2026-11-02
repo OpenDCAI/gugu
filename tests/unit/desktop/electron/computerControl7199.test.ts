@@ -1,5 +1,5 @@
 // #7199 电脑控制的「正在操作 · 停止」小条与人接管 —— 按 App 算(owner 10-15:「不接管电脑,只接管这个 App」):
-// agent 动哪个 App,小条就写哪个 App;没指定 App 的动作是「查看这台电脑」,不把亮着的 App 盖掉;做完半分钟收起。
+// begin 只登记 act;没指定 App 的动作附着前台窗口,停止覆盖整个电脑控制。只读调用不进入控制器。
 // 「停止」只停小条上那个 App:它在途的一下被撤、之后再动它一律拒,直到「让它继续」;别的 App 照常。
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { COMPUTER_STOPPED, appStopped, createComputerControl } from '../../../../apps/desktop/electron/device-actions/computer-control'
@@ -27,7 +27,7 @@ function setup() {
 
 const calc = { callerName: '云端助理', pid: 77, appName: '计算器' }
 const notes = { callerName: '云端助理', pid: 88, appName: '备忘录' }
-const look = { callerName: '云端助理' }
+const untargetedAct = { callerName: '云端助理' }
 
 function begun(handle: ReturnType<ReturnType<typeof createComputerControl>['begin']>) {
   if ('refused' in handle) throw new Error(`refused: ${handle.refused}`)
@@ -48,9 +48,9 @@ describe('小条', () => {
     const show = vi.fn()
     const control = createComputerControl({ view: { show, hide: vi.fn() } })
     begun(control.begin({ ...calc, taskTitle: 'Task A', windowId: 501 })).end()
-    begun(control.begin({ callerName: 'Another Agent', taskTitle: 'Desktop look' })).end()
+    begun(control.begin({ callerName: 'Another Agent', taskTitle: 'Unresolved input' })).end()
     control.stop()
-    expect(show).toHaveBeenLastCalledWith({ state: 'paused', callerName: calc.callerName, taskTitle: 'Task A', app: { pid: 77, name: '计算器', windowId: 501 } })
+    expect(show).toHaveBeenLastCalledWith({ state: 'paused', callerName: 'Another Agent', taskTitle: 'Unresolved input' })
     control.resume()
     begun(control.begin({ ...notes, callerName: 'Agent B' })).end()
     expect(show).toHaveBeenLastCalledWith({ state: 'driving', callerName: 'Agent B', app: { pid: 88, name: '备忘录' } })
@@ -71,18 +71,18 @@ describe('小条', () => {
     control.dispose()
   })
 
-  it('写 agent 正在操作的那个 App;只是查看电脑(没指定 App)不把它盖掉;做完半分钟没有下一个才收起', () => {
+  it('shows the latest act subject, including unresolved input, until the last act finishes', () => {
     const { control, views } = setup()
-    begun(control.begin(look)).end()
+    begun(control.begin(untargetedAct)).end()
     expect(views).toEqual(['driving:云端助理:-'])
     const a = begun(control.begin(calc))
     expect(views.at(-1)).toBe('driving:云端助理:计算器')
-    const b = begun(control.begin(look))
-    expect(views.at(-1)).toBe('driving:云端助理:计算器')
+    const b = begun(control.begin(untargetedAct))
+    expect(views.at(-1)).toBe('driving:云端助理:-')
     a.end()
     b.end()
     vi.advanceTimersByTime(29_000)
-    expect(views.at(-1)).toBe('driving:云端助理:计算器')
+    expect(views.at(-1)).toBe('driving:云端助理:-')
     vi.advanceTimersByTime(2_000)
     expect(views.at(-1)).toBe('hide')
   })
@@ -107,13 +107,13 @@ describe('停止只停这个 App', () => {
     expect(control.begin(calc)).toEqual({ refused: appStopped('计算器') })
     // 只看计算器也不行:人把它接过去了。
     expect(control.begin({ pid: 77 })).toEqual({ refused: appStopped('计算器') })
-    // 别的 App、只是查看电脑:照常。
+    // 别的 App、未解析出 App 的 act:照常。
     const inNotes = begun(control.begin(notes))
     expect(inNotes.signal.aborted).toBe(false)
     expect(views.at(-1)).toBe('driving:云端助理:备忘录')
     inNotes.end()
-    begun(control.begin(look)).end()
-    expect(views.at(-1)).toBe('driving:云端助理:备忘录')
+    begun(control.begin(untargetedAct)).end()
+    expect(views.at(-1)).toBe('driving:云端助理:-')
 
     // agent 又去动计算器:暂停的小条重新亮出来,人点「让它继续」。
     expect('refused' in control.begin(calc)).toBe(true)
@@ -123,13 +123,18 @@ describe('停止只停这个 App', () => {
     begun(control.begin(calc)).end()
   })
 
-  it('停下之后 agent 接着只是查看电脑:暂停的条留着(「让它继续」点得到),❌ 换成「正在查看这台电脑 · 停止」', () => {
+  it('lets unresolved input be stopped after an App pause without clearing that App pause', () => {
     const { control, views } = setup()
     begun(control.begin(calc))
     control.stop()
-    begun(control.begin(look)).end()
-    expect(views.at(-1)).toBe('paused:云端助理:计算器')
+    const unresolved = begun(control.begin(untargetedAct))
+    expect(views.at(-1)).toBe('driving:云端助理:-')
+    control.stop()
+    expect(unresolved.signal.aborted).toBe(true)
     control.resume()
+    expect(control.begin(calc)).toHaveProperty('refused')
+    control.resume()
+    unresolved.end()
     begun(control.begin(calc)).end()
   })
 
@@ -142,14 +147,16 @@ describe('停止只停这个 App', () => {
     expect(inNotes.signal.aborted).toBe(false)
   })
 
-  it('小条上是「查看这台电脑」时按停止 = 整个电脑控制停下,直到「让它继续」', () => {
+  it('stops unresolved input even when an earlier App act still has a visible indicator', () => {
     const { control, views } = setup()
-    const looking = begun(control.begin(look))
+    const previous = begun(control.begin(calc))
+    const looking = begun(control.begin(untargetedAct))
     control.stop()
     expect(looking.signal.reason).toBe(COMPUTER_STOPPED)
+    expect(previous.signal.reason).toBe(COMPUTER_STOPPED)
     expect(views.at(-1)).toBe('paused:云端助理:-')
     expect(control.begin(calc)).toEqual({ refused: COMPUTER_STOPPED })
-    expect(control.begin(look)).toEqual({ refused: COMPUTER_STOPPED })
+    expect(control.begin(untargetedAct)).toEqual({ refused: COMPUTER_STOPPED })
     control.resume()
     begun(control.begin(calc)).end()
   })

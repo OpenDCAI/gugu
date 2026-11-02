@@ -13,24 +13,21 @@ import type { ComputerControlView } from './computer-control'
 import type { CuaToolResult } from './native/cua-client'
 import { COMPUTER_HEAD_HEIGHT, COMPUTER_HEAD_WIDTH, computerBarBounds, resolveComputerWindow } from './computer-control-placement'
 import { COMPUTER_CONTROL_PAGE } from './computer-control-page'
+import type { ComputerForegroundWindow } from './computer-control-foreground'
 
 export interface ComputerBarStrings {
-  /** app 缺省 = 没指定 App(查看这台电脑)。 */
-  driving(name: string, app?: string): string
-  paused(name: string, app?: string): string
-  /** 认不出名字的 App 写成这个。 */
-  someApp: string
+  driving(name: string): string
+  paused(name: string): string
   stop: string
   resume: string
   someone: string
 }
 
-const WIDTH = 460
 const HEIGHT = COMPUTER_HEAD_HEIGHT
-const BOTTOM = 28
 
 export function createComputerControlWindow(input: {
   readWindows(pid: number, signal: AbortSignal): Promise<CuaToolResult>
+  readForegroundWindow(signal: AbortSignal): Promise<ComputerForegroundWindow | null>
   strings(): ComputerBarStrings
   onStop(): void
   onResume(): void
@@ -41,11 +38,6 @@ export function createComputerControlWindow(input: {
   type View = Parameters<ComputerControlView['show']>[0]
   let current: { view: View; abort: AbortController } | null = null
   let timer: ReturnType<typeof setTimeout> | null = null
-
-  const desktopBounds = () => {
-    const area = screen.getPrimaryDisplay().workArea
-    return { x: Math.round(area.x + (area.width - WIDTH) / 2), y: Math.round(area.y + area.height - HEIGHT - BOTTOM), width: WIDTH, height: HEIGHT }
-  }
 
   const ensure = (): { w: BrowserWindow; ready: Promise<void> } => {
     if (win && !win.isDestroyed() && loaded) return { w: win, ready: loaded }
@@ -97,50 +89,45 @@ export function createComputerControlWindow(input: {
   }
 
   const refresh = async (intent: NonNullable<typeof current>) => {
+    const target = intent.view.app
     try {
-      const target = intent.view.app
-      let bounds = desktopBounds()
-      let mediaSourceId: string | null = null
-      let attachment: 'above' | 'inside' | 'floating' = 'floating'
-      if (target) {
-        const result = await input.readWindows(target.pid, intent.abort.signal)
-        if (current !== intent) return
-        const matched = result.isError ? null : resolveComputerWindow(result.structuredContent, target)
-        const native = matched?.bounds
-        // Windows reports physical window pixels; Electron places windows in DIP.
-        const rect = native && (process.platform === 'win32' ? screen.screenToDipRect(null, native) : native)
-        const placed = rect && computerBarBounds(rect, screen.getDisplayMatching(rect).workArea)
-        if (!placed) {
-          win?.hide()
-          return
-        }
-        bounds = placed
-        attachment = placed.y < rect!.y ? 'above' : 'inside'
-        mediaSourceId = `window:${matched!.windowId}:0`
+      const result = target ? await input.readWindows(target.pid, intent.abort.signal) : null
+      const matched = target
+        ? (result?.isError ? null : resolveComputerWindow(result?.structuredContent, target))
+        : await input.readForegroundWindow(intent.abort.signal)
+      if (current !== intent) return false
+      const native = matched?.bounds
+      // Windows reports physical window pixels; Electron places windows in DIP.
+      const rect = native && (process.platform === 'win32' ? screen.screenToDipRect(null, native) : native)
+      const bounds = rect && computerBarBounds(rect, screen.getDisplayMatching(rect).workArea)
+      if (!bounds) {
+        win?.hide()
+        return false
       }
-      if (current !== intent) return
+      const attachment = bounds.y < rect!.y ? 'above' : 'inside'
+      if (current !== intent) return false
       const { w, ready } = ensure()
       await ready
-      if (current !== intent || w.isDestroyed()) return
+      if (current !== intent || w.isDestroyed()) return false
       const view = intent.view
       const s = input.strings()
       const agentName = view.callerName?.trim() || s.someone
       const taskTitle = view.taskTitle?.trim() === agentName ? undefined : view.taskTitle?.trim()
       const name = taskTitle ? `${agentName} · ${taskTitle}` : agentName
-      const app = view.app ? view.app.name || s.someApp : undefined
       const payload = view.state === 'driving'
-        ? { state: 'driving', text: s.driving(name, app), button: s.stop, action: 'stop' }
-        : { state: 'paused', text: s.paused(name, app), button: s.resume, action: 'resume' }
+        ? { state: 'driving', text: s.driving(name), button: s.stop, action: 'stop' }
+        : { state: 'paused', text: s.paused(name), button: s.resume, action: 'resume' }
       await w.webContents.executeJavaScript(`window.render(${JSON.stringify({ ...payload, agentName, taskTitle, attachment })})`)
-      if (current !== intent || w.isDestroyed()) return
+      if (current !== intent || w.isDestroyed()) return false
       w.setBounds(bounds)
-      if (w.isAlwaysOnTop() !== !target) w.setAlwaysOnTop(!target, 'screen-saver')
       if (!w.isVisible()) w.showInactive()
-      if (mediaSourceId) w.moveAbove(mediaSourceId)
+      w.moveAbove(`window:${matched!.windowId}:0`)
+      return true
     } catch (error) {
-      if (current !== intent) return
+      if (current !== intent) return false
       win?.hide()
       input.log?.warn({ err: String(error) }, 'computer control indicator could not follow its window')
+      return false
     } finally {
       if (current === intent) {
         timer = setTimeout(() => { timer = null; void refresh(intent) }, 250)
@@ -151,14 +138,16 @@ export function createComputerControlWindow(input: {
 
   return {
     show(view) {
-      if (current && current.view.app?.pid === view.app?.pid && current.view.app?.windowId === view.app?.windowId) {
-        current.view = view
+      // Unknown App acts attach to the foreground window, never the desktop.
+      const sameTarget = current && current.view.app?.pid === view.app?.pid && current.view.app?.windowId === view.app?.windowId
+      if (sameTarget && view.app) {
+        current!.view = view
         return
       }
       cancel()
-      win?.hide()
+      if (!sameTarget) win?.hide()
       current = { view, abort: new AbortController() }
-      void refresh(current)
+      return refresh(current)
     },
     hide() {
       cancel()
