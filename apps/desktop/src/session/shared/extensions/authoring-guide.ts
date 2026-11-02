@@ -588,6 +588,10 @@ Each call names its file or place. A file: an entry (from \`list\`) or \`ctx.fil
 - \`gugu.files.openWith(entry)\` (a click or key) uses the most specific claim or "always use". \`{ ask: true }\`: they pick among all;
   \`{ at }\`: a place, the opener's \`link\`. Unclaimed: gugu's preview, or details and download.
   \`{ peek: true }\`: beside your page; always for project files. \`not-found\`: gone or unreadable.
+- \`gugu.files.openWith(entry, { tab: 'explore' })\`: a chat file in your own App's named tab, which must claim it
+  in \`opensFiles.chat\`; no picker or "always use" lookup/update. \`at\` and \`peek\` still apply. Empty/invalid tab,
+  missing/unclaimed tab, \`tab\` with \`ask\`, or a workspace/local file: \`invalid\`; read permissions and gesture
+  requirements still apply. Older hosts ignore \`tab\` and use their ordinary opener; no feature detection is needed.
 - \`gugu.files.upload(place)\` (\`files:write\`, a click or key) opens the picker → the new entries (\`[]\`);
   a File: uploaded (≤ 25 MB, else \`too-large\`). \`gugu.files.download(entry)\` (a click or key) asks where
   to save → \`true\` saved; \`gugu.files.forward(entry|[…])\`: the forward page.

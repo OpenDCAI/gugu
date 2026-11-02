@@ -223,6 +223,36 @@ export function openerChoice(
   return ask ? askOpener(openers) : chooseOpener(openers, (suffix) => remembered(openWithKey(context, suffix)));
 }
 
+/** A page continuing in its own claiming tab, without consulting the person's default opener. */
+export function ownTabChoice(
+  fileName: string,
+  apps: readonly ExtensionManifest[],
+  context: FileOpenContext,
+  extensionId: string,
+  tab: string,
+): Extract<OpenerChoice, { kind: 'one' }> | null {
+  const candidate = fileOpenersFor(fileName, apps, context).find((entry) => entry.tabKind === `${extensionId}.${tab}`);
+  return candidate ? { kind: 'one', candidate } : null;
+}
+
+/** The same claim refusal on desktop and phone; the caller's identity comes from its trusted binding. */
+export function requireOwnTabChoice(
+  fileName: string,
+  apps: readonly ExtensionManifest[],
+  context: FileOpenContext,
+  extensionId: string,
+  tab: string,
+): Extract<OpenerChoice, { kind: 'one' }> {
+  const choice = ownTabChoice(fileName, apps, context, extensionId, tab);
+  if (choice) return choice;
+  const declared = apps.find((app) => app.id === extensionId)?.contributes.tabs.find((entry) => entry.name === tab);
+  const claims = declared ? claimedSuffixes(declared, context) : [];
+  const message = declared
+    ? `${tab} does not open this file: in a ${context} it opens ${claims.join(', ') || 'no files'}`
+    : `This App has no tab named ${tab}`;
+  throw Object.assign(new Error(message), { code: 'invalid' });
+}
+
 /**
  * The App a file is shown as belonging to (摩擦单 F39): the one a tap opens — or, when the person would pick, the first
  * in line. Null when no App here opens it.

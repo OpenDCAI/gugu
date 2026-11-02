@@ -140,9 +140,9 @@ export function createGugu(
           download: (files: unknown) => (Array.isArray(files) ? withRefs(files, (refs) => download({ refs })) : withRef(files, (ref) => download({ ref }))),
           // `{ ask: true }`: 「用别的 App 打开」 — every App that opens it, the person picks. `{ at }`: the place in it (a pill's).
           // `{ peek: true }`: beside this page, which stays as it is (G1).
-          openWith: (file: unknown, options?: { ask?: boolean; at?: Record<string, string>; peek?: boolean }) =>
+          openWith: (file: unknown, options?: { ask?: boolean; at?: Record<string, string>; peek?: boolean; tab?: string }) =>
             withRef(file, (ref) =>
-              openWith({ ref, ...(options?.ask === true ? { ask: true } : {}), ...(options?.at ? { at: options.at } : {}), ...(options?.peek === true ? { peek: true } : {}) })),
+              openWith({ ref, ...(options?.ask === true ? { ask: true } : {}), ...(options?.at ? { at: options.at } : {}), ...(options?.peek === true ? { peek: true } : {}), ...(Object.hasOwn(options ?? {}, 'tab') ? { tab: options?.tab } : {}) })),
         }
       : {}),
     // API 23: 「转发」 — one file or several, the host's forward page; resolves once it is up (what is sent is the person's).
