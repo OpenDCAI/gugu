@@ -15,6 +15,8 @@ const mocks = vi.hoisted(() => ({
   navigate: vi.fn(),
   onClose: vi.fn(),
   onCreated: vi.fn(),
+  installAgent: vi.fn(),
+  stopInstallProgress: vi.fn(),
 }));
 
 vi.mock('@renderer/features/sessions/stores/session-selectors', () => ({
@@ -22,11 +24,20 @@ vi.mock('@renderer/features/sessions/stores/session-selectors', () => ({
 }));
 vi.mock('@renderer/lib/ipc', () => ({
   rpc: { sessions: { sendMessage: mocks.localSendMessage } },
+  rpcOn: () => ({ agents: { install: mocks.installAgent } }),
+  onMachineEvent: () => mocks.stopInstallProgress,
+}));
+vi.mock('@renderer/lib/stores/use-agents', () => ({
+  useAgents: () => ({ data: [{ id: 'codex', name: 'Codex', reading: 'not-detected' }] }),
+}));
+vi.mock('@renderer/localization/use-session-messages', () => ({
+  useSessionMessages: () => ({ translate: (key: string, params?: Record<string, unknown>) => `${key} ${Object.values(params ?? {}).join(' ')}`.trim() }),
 }));
 vi.mock('@renderer/utils/logger', () => ({ log: { error: mocks.logError, warn: mocks.logWarn } }));
 vi.mock('@renderer/lib/hooks/use-toast', () => ({ toast: mocks.toast }));
 
 const { useCreateSessionCallback } = await import('./use-create-session-callback');
+const { useRemoteInstallBeforeCreate } = await import('../remote-install-before-create');
 
 type HookResult = ReturnType<typeof useCreateSessionCallback>;
 let latest: HookResult | undefined;
@@ -82,10 +93,13 @@ const initialSession = {
 function Probe({
   birthChatId,
   taskChatId,
+  remoteInstall = false,
 }: {
   birthChatId?: string
   taskChatId?: string
+  remoteInstall?: boolean
 }) {
+  const { beforeCreate } = useRemoteInstallBeforeCreate(remoteInstall ? { deviceId: 'remote-1', label: 'Remote' } : null, initialSession.provider);
   latest = useCreateSessionCallback({
     selectedProjectId: 'project-1',
     state: sessionState,
@@ -95,6 +109,7 @@ function Probe({
     onCreated: mocks.onCreated,
     birthChatId,
     taskChatId,
+    beforeCreate,
   });
   return null;
 }
@@ -107,8 +122,10 @@ describe('useCreateSessionCallback ordinary messaging', () => {
     for (const mock of Object.values(mocks)) mock.mockReset();
     mocks.createSession.mockResolvedValue(undefined);
     mocks.localSendMessage.mockResolvedValue({ id: 'local-id', status: 'queued' });
+    mocks.installAgent.mockResolvedValue({ success: true });
     initialSession.prompt = 'make one task';
     initialSession.mentionContext = undefined;
+    initialSession.attachments = [];
     // ⚠️ 这个替身是模块级共享对象:改过档位的用例不复位,后面每一条都继承它 ——
     //    而那读起来像「产品把档改了」。复位回替身抬头的那一档。
     initialSession.permissionMode = 'full-access';
@@ -138,6 +155,48 @@ describe('useCreateSessionCallback ordinary messaging', () => {
     act(() => root.unmount());
     vi.unstubAllGlobals();
     dom.window.close();
+  });
+
+  it.each([
+    [{ type: 'no-install-command', id: 'codex' }, 'agentsPage.errNoInstallCommand codex'],
+    [{ type: 'unsupported-host', message: 'No installer here' }, 'agentsPage.errUnsupportedHost'],
+    [{ type: 'command-failed', message: 'npm failed', output: 'npm error code EACCES', stage: 'install' }, 'EACCES'],
+  ] as const)('a failed remote install leaves its reason in deliveryError without creating or clearing the draft: %j', async (error, reason) => {
+    const chips = [{ id: 'kept-chip' }] as never;
+    initialSession.attachments = chips;
+    mocks.installAgent.mockResolvedValue({ success: false, error });
+    await act(async () => root.render(React.createElement(Probe, { remoteInstall: true })));
+    act(() => latest?.handleCreateSession());
+    await act(async () => {});
+    expect(mocks.installAgent).toHaveBeenCalledExactlyOnceWith('codex');
+    expect(mocks.createSession).not.toHaveBeenCalled();
+    expect(latest?.deliveryError).toMatchObject({ kind: 'raw', detail: expect.stringContaining(reason) });
+    if (typeof error === 'object' && 'output' in error) expect(latest?.deliveryError).toMatchObject({ detail: expect.stringContaining('Failed at stage: install') });
+    expect(initialSession.prompt).toBe('make one task');
+    expect(initialSession.attachments).toBe(chips);
+    expect(mocks.stopInstallProgress).toHaveBeenCalledTimes(1);
+    expect(mocks.onClose).not.toHaveBeenCalled();
+  });
+
+  it.each([undefined, null, {}, { success: 'true' }, { success: false }])('an invalid remote install result blocks creation and says so: %j', async (result) => {
+    mocks.installAgent.mockResolvedValue(result);
+    await act(async () => root.render(React.createElement(Probe, { remoteInstall: true })));
+    act(() => latest?.handleCreateSession());
+    await act(async () => {});
+    expect(mocks.createSession).not.toHaveBeenCalled();
+    expect(latest?.deliveryError).toMatchObject({ kind: 'raw', detail: expect.stringContaining('Invalid agents.install result') });
+    expect(initialSession.prompt).toBe('make one task');
+    expect(mocks.stopInstallProgress).toHaveBeenCalledTimes(1);
+  });
+
+  it('a successful remote install continues through the existing create path', async () => {
+    await act(async () => root.render(React.createElement(Probe, { remoteInstall: true })));
+    act(() => latest?.handleCreateSession());
+    await act(async () => {});
+    expect(mocks.installAgent).toHaveBeenCalledExactlyOnceWith('codex');
+    expect(mocks.createSession).toHaveBeenCalledTimes(1);
+    expect(latest?.deliveryError).toBeNull();
+    expect(mocks.onClose).toHaveBeenCalledTimes(1);
   });
 
   it('#6264 附件还在传:点创建先等它传完再建;有一件没成就不建', async () => {
