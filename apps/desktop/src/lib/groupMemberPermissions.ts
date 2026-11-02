@@ -9,6 +9,18 @@ export function isGroupManagerRole(role: string | null | undefined): boolean {
   return role === 'owner' || role === 'admin'
 }
 
+/** Agent ownership and current source-group authority are independent listen-mode rights. */
+export function canEditAgentListenMode(
+  profile: { type: 'human' | 'agent'; ownerUserId?: string | null },
+  currentUserId: string | null,
+  settings: { my_role: string | null; can_manage: boolean } | null,
+): boolean {
+  return !!currentUserId && profile.type === 'agent' && (
+    profile.ownerUserId === currentUserId ||
+    (settings?.can_manage === true && isGroupManagerRole(settings.my_role))
+  )
+}
+
 /** Reads the server's projection of the viewer (group_info_as), never a locally held roster role. */
 export function canInviteHumansToGroup(settings: {
   my_role: string | null

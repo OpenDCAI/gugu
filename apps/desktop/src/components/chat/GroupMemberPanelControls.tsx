@@ -6,7 +6,7 @@ import { chatService } from '../../lib/chat'
 import { UI_EVENTS } from '../../lib/uiEvents'
 import { groupAgentDisplayStatus } from '../../lib/groupAgentStatus'
 import { useShownAgentStatus } from './useAgentsOnCloudComputer'
-import { canInviteHumansToGroup, isProjectGroupChat } from '../../lib/groupMemberPermissions'
+import { canEditAgentListenMode, canInviteHumansToGroup, isProjectGroupChat } from '../../lib/groupMemberPermissions'
 import type { DisplayIdentity } from '../../lib/displayIdentity'
 import { MemberProfilePopover } from '../MemberProfilePopover'
 import type { MemberProfileCardModel, MemberProfileChatTarget, MemberProfileEditControls } from '../MemberProfileCard'
@@ -85,10 +85,13 @@ export function useGroupMemberPanelControls({ chatId, chatKind, settings, snapsh
   const canManage = useCallback((profile: MemberProfileCardModel) => (
     viewerIsManager && (!isGroup || profile.role !== 'owner') && profile.id !== currentUserId
   ), [currentUserId, isGroup, viewerIsManager])
-  // 自己的 agent:档位只有主人能改(群主 / 管理员也不行),主人也能让它退群。库里同一条规则。
+  // Owners retain agent departure rights; listen-mode management is a separate permission.
   const ownsAgent = useCallback((profile: MemberProfileCardModel) => (
     !!currentUserId && profile.type === 'agent' && profile.ownerUserId === currentUserId
   ), [currentUserId])
+  const canEditListenMode = useCallback((profile: MemberProfileCardModel) => (
+    canEditAgentListenMode(profile, currentUserId, settings)
+  ), [currentUserId, settings])
   const isSelfLeaving = useCallback((profile: MemberProfileCardModel) => (
     chatKind === 'topic' && profile.id === currentUserId
   ), [chatKind, currentUserId])
@@ -107,19 +110,18 @@ export function useGroupMemberPanelControls({ chatId, chatKind, settings, snapsh
     const manageable = canManage(profile)
     const owned = ownsAgent(profile)
     const self = isSelfLeaving(profile)
-    if (!manageable && !owned && !self) return undefined
+    if (!manageable && !owned && !self && !canEditListenMode(profile)) return undefined
     return {
       canChangeRole: isGroup && manageable,
       onChangeRole: isGroup && manageable ? (role) => { void setRole(profile, role) } : undefined,
-      // @@@1208 倾听模式:只有 agent 的主人能改,与消息头像卡同一口径。
-      onChangeListenMode: owned ? (mode) => { void setListenMode(profile, mode) } : undefined,
+      onChangeListenMode: canEditListenMode(profile) ? (mode) => { void setListenMode(profile, mode) } : undefined,
       canRemove: manageable || owned || self,
       removeLabel: self ? t('group.settings.leave') : undefined,
       onRemove: () => remove(profile),
       busy,
       editError: error,
     }
-  }, [busy, canManage, error, isGroup, isSelfLeaving, ownsAgent, remove, setListenMode, setRole, t])
+  }, [busy, canEditListenMode, canManage, error, isGroup, isSelfLeaving, ownsAgent, remove, setListenMode, setRole, t])
 
   const openProfile = useCallback((memberId: string, anchor: Element) => {
     const profile = profileOf(memberId)
@@ -164,7 +166,7 @@ export function useGroupMemberPanelControls({ chatId, chatKind, settings, snapsh
 
   const rowActions = useCallback((memberId: string): ReactNode => {
     const profile = profileOf(memberId)
-    if (!profile || (!canManage(profile) && !ownsAgent(profile) && !isSelfLeaving(profile))) return null
+    if (!profile || (!canManage(profile) && !ownsAgent(profile) && !isSelfLeaving(profile) && !canEditListenMode(profile))) return null
     return (
       // 有 hover 的设备:行悬停/聚焦时才显形,隐藏时连点击一起关掉(看不见的钮不许点得到)。
       // 没有 hover 的触屏:一直显示 —— 否则管理者在手机上永远找不到它。
@@ -178,7 +180,7 @@ export function useGroupMemberPanelControls({ chatId, chatKind, settings, snapsh
         </IconButton>
       </span>
     )
-  }, [canManage, isSelfLeaving, menu?.memberId, ownsAgent, profileOf, t])
+  }, [canEditListenMode, canManage, isSelfLeaving, menu?.memberId, ownsAgent, profileOf, t])
 
   const errorLine: ReactNode = error && !activeProfile
     ? <div role="alert" style={errorStyle}>{error}</div>
@@ -193,14 +195,16 @@ export function useGroupMemberPanelControls({ chatId, chatKind, settings, snapsh
               {menuProfile.role === 'admin' ? t('group.memberList.revokeAdmin') : t('group.memberList.makeAdmin')}
             </MenuItem>
           ) : null}
-          {ownsAgent(menuProfile) ? (
+          {canEditListenMode(menuProfile) ? (
             <MenuItem onClick={() => { setMenu(null); void setListenMode(menuProfile, menuProfile.listenMode === 'active' ? 'passive' : 'active') }}>
               {menuProfile.listenMode === 'active' ? t('group.memberList.setPassive') : t('group.memberList.setActive')}
             </MenuItem>
           ) : null}
-          <MenuItem danger onClick={() => { setMenu(null); void remove(menuProfile) }}>
-            {isSelfLeaving(menuProfile) ? t('group.settings.leave') : ownsAgent(menuProfile) ? t('group.memberList.agentLeave') : t('group.settings.removeMemberTitle')}
-          </MenuItem>
+          {canManage(menuProfile) || ownsAgent(menuProfile) || isSelfLeaving(menuProfile) ? (
+            <MenuItem danger onClick={() => { setMenu(null); void remove(menuProfile) }}>
+              {isSelfLeaving(menuProfile) ? t('group.settings.leave') : ownsAgent(menuProfile) ? t('group.memberList.agentLeave') : t('group.settings.removeMemberTitle')}
+            </MenuItem>
+          ) : null}
         </Menu>
       ) : null}
       {renderedProfile ? (
