@@ -433,7 +433,6 @@ export default {
         "zh-CN": "简体中文"
       },
       "light": "浅色",
-      "plain-white": "素白",
       "notifications": "通知",
       "notificationsChat": "聊天消息通知",
       "notificationsChatAria": "开启聊天消息通知",
