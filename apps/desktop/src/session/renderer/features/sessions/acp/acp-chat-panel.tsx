@@ -1,3 +1,4 @@
+import { isTranscriptDelivery } from '@/lib/pendingSessionDeliveries';
 import { resolveDeliveredAttachment } from '@renderer/lib/chat/delivered-message-presentation';
 import { readNativeOfflineDraft, writeNativeOfflineDraft } from '@/lib/nativeOfflineDraft';
 import { useSessionInputAccount } from '@/lib/sessionInputOutboxBridge';
@@ -1435,7 +1436,7 @@ const ComposerForStore = observer(function ComposerForStore({
       {/* This task's agent's failed deliveries (the shell draws the same bar a chat's composer shows). */}
       {agentUserId ? <AgentFailureSlot agentUserId={agentUserId} /> : null}
       {/* Starting with no message drawn (a drawn one's live line says it): the lifecycle's state, nothing more. */}
-      {life && lifeIsStarting(life) && !store.transcriptPendingId ? (
+      {life && lifeIsStarting(life) && !store.transcriptPendingId && !store.chatState.session.state.pendingMessages.length ? (
         <div className="flex justify-center px-3 py-1 text-xs text-foreground-muted" data-life-stage={life.stage?.at}>
           <LoadingIndicator ariaLabel={translate('transcript.starting')} label={translate('transcript.starting')} />
         </div>
@@ -1447,7 +1448,7 @@ const ComposerForStore = observer(function ComposerForStore({
       ) : null}
       {/* Every send of a task page is in custody until the transcript has it, so its bubbles always show here. */}
       <SessionInputQueue sessionId={store.runtimeSessionId} waitingForConnection life={life}
-        inTranscript={[store.transcriptPendingId, store.stoppedRowId, ...store.failedRowIds].filter((id): id is string => id !== null)} />
+        inTranscript={[store.transcriptPendingId, store.stoppedRowId, ...store.failedRowIds, ...life?.pending.items.filter(input => isTranscriptDelivery(input)).map(input => input.messageId) ?? []].filter((id): id is string => id !== null)} />
       <SessionHostQuestion sessionId={store.runtimeSessionId} session={hostSession} />
       <ChatComposer
         className={schedules.length > 0 ? sessionComposerFrameLiftClassName : undefined}
@@ -2081,6 +2082,7 @@ export const AcpChatPanel = observer(function AcpChatPanel({
       // 被它掩护着看不出来。⇒ 这里补上；同时 UserMessageCard 改成没接回调就不渲染。
       canRevertMessage: (itemId) => historyActionsEnabled && (store?.canRevertMessage(itemId) ?? false),
       onEditMessage: ({ itemId }) => store?.beginMessageEdit(itemId),
+      onRetrySend: () => store?.retryPendingInput(),
       editingMessage: messageEdit ? {
         ...messageEdit,
         pending: messageEditPending,
@@ -2099,7 +2101,7 @@ export const AcpChatPanel = observer(function AcpChatPanel({
       onRestorePrompt: quotes.restorePrompt,
       onContinueTurn: () => {
         // A message stopped before it went has nothing to continue from: it just goes now.
-        if (store?.stoppedRowId) store.continueStoppedRow();
+        if (store?.stoppedRowId || store?.chatState.session.state.pendingMessages.some(input => input.stopped)) store.continueStoppedRow();
         else continueSessionTurn(store, translate('transcript.continueTurnPrompt'));
       },
       onDiscardTurn: ({ turnId }) => store?.discardStoppedTurn(turnId),

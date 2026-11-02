@@ -22,6 +22,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { reaction, runInAction } from 'mobx';
 import type { TranscriptTurn } from '@gugu/session-core/acp';
 import type { Session } from '@shared/core/sessions/sessions';
+import { state as inputState, changed as inputsChanged, EMPTY as NO_INPUTS } from '@/lib/sessionInputOutboxBridge';
 
 const records = vi.hoisted(() => new Map<string, Partial<Session>>());
 const link = vi.hoisted(() => ({
@@ -54,6 +55,7 @@ vi.mock('./queue-native-input', () => ({ sendThroughCustody: custody, canQueueNa
 
 /** session-life 的桩:`lifeStart` 记下,LifeView 由用例推(`life.settle`)。 */
 const life = vi.hoisted(() => ({
+  reads: 0,
   start: vi.fn(async (_sessionId: string) => {}),
   discard: vi.fn(async (_sessionId: string, _messageId: string) => {}),
   stop: vi.fn(async (_sessionId: string) => {}),
@@ -78,6 +80,7 @@ vi.mock('../stores/session-life-views', async () => {
   return {
     sessionLifeView: (sessionId: string) => { life.viewed.add(sessionId); return views.get(sessionId) ?? null; },
     readSessionLife: async (sessionId: string) => {
+      life.reads++;
       if (!views.has(sessionId)) runInAction(() => views.set(sessionId, { kind: 'dormant', hold: null, version: 0, failure: null, pending: { items: [], count: 0 } } as View));
       return views.get(sessionId)!;
     },
@@ -228,7 +231,102 @@ const parked = (store: Store) => vi.waitFor(() => {
   expect(host.sync).toHaveBeenCalledWith(store.sessionId);
 });
 
+describe('sender custody uses the ordinary transcript row', () => {
+  it('keeps the normal first page to one history request without a fresh lifecycle read', async () => {
+    const { store } = storeFor();
+    host.storedPages = [{ turns: [turn('normal', 1)], originTurnIds: ['normal'], nextCursor: 1 }];
+    life.reads = 0;
+    store.bootstrap();
+    await parked(store);
+    expect(host.storedReads).toHaveLength(1);
+    expect(life.reads).toBe(0);
+    expect(store.chatState.session.state.pendingMessages).toEqual([]);
+  });
+
+  it('uses restoring while an ordinary input is still sending into a resumed session', async () => {
+    const { store } = storeFor({ providerId: 'claude', providerSessionId: 'prov-existing' });
+    store.bootstrap();
+    await parked(store);
+    Object.assign(inputState(), { accountId: 'test-owner', valid: () => true, rows: [{ id: 'restoring-send',
+      sessionId: store.runtimeSessionId, accountId: 'test-owner', deviceId: null, text: 'hello', createdAt: 5000, queued: false }] });
+    inputsChanged();
+    life.pend(store.sessionId, 'starting', []);
+    expect(store.chatState.session.state.pendingPrompt).toMatchObject({ id: 'restoring-send', starting: 'restoring', delivery: { state: 'sending' } });
+  });
+
+  it('shows an unacknowledged input before a host lifecycle row exists, then keeps its accepted projection', async () => {
+    const { store } = storeFor();
+    store.bootstrap();
+    await parked(store);
+    life.pend(store.sessionId, 'dormant', [], 'user-stop');
+    Object.assign(inputState(), { accountId: 'test-owner', valid: () => true, rows: [{ id: 'sender-input',
+      sessionId: store.runtimeSessionId, accountId: 'test-owner', deviceId: null, text: 'hello', createdAt: 5000,
+      queued: false, baseline: ['s0-m', 's1-m'], afterTurnId: 's1' }] });
+    inputsChanged();
+    expect(store.chatState.session.state.pendingPrompt).toMatchObject({ id: 'sender-input', delivery: { state: 'sending' } });
+    const revision = store.transcriptRevision;
+    inputsChanged();
+    expect(store.transcriptRevision).toBe(revision);
+    inputState().rows = [];
+    inputsChanged();
+    expect(store.chatState.session.state.pendingPrompt).toMatchObject({ id: 'sender-input', delivery: { state: 'accepted' } });
+    store.chatState.transcript.history.seed([...store.chatState.transcript.state.committedTurns, turn('extra-history', 2)]);
+    runInAction(() => { store.transcriptRevision++; });
+    expect(store.chatState.session.state.pendingPrompt?.id).toBe('sender-input');
+    const echo = { ...turn('echo', 3), startedAt: 5001,
+      items: [{ kind: 'message' as const, id: 'native-user', seq: 0, role: 'user' as const, text: 'hello' }] };
+    store.chatState.transcript.activeTurn.set(echo);
+    runInAction(() => { store.transcriptRevision++; });
+    inputsChanged();
+    await vi.waitFor(() => expect(store.chatState.session.state.pendingPrompt).toBeNull());
+    store.dispose();
+  });
+
+  it('keeps a sender failure in the same row without claiming the agent is working', async () => {
+    const { store } = storeFor();
+    store.bootstrap();
+    await parked(store);
+    Object.assign(inputState(), { accountId: 'test-owner', valid: () => true, rows: [{ id: 'failed-input',
+      sessionId: store.runtimeSessionId, accountId: 'test-owner', deviceId: null, text: 'hello', createdAt: 5000,
+      queued: false, failure: { code: 'send-failed', message: 'connection refused' } }] });
+    inputsChanged();
+    expect(store.chatState.session.state.pendingPrompt).toMatchObject({ id: 'failed-input', delivery: { state: 'failed' } });
+    expect(store.affordances.isWorking).toBe(false);
+    store.dispose();
+  });
+
+  it('queues a follow-up while an attached idle host has not yet echoed the first input', async () => {
+    const { store } = storeFor();
+    create.mockImplementation(async () => liveSession());
+    running.set(store.sessionId, 'running');
+    life.settle(store.sessionId, 'ready');
+    store.bootstrap();
+    await vi.waitFor(() => expect(store.session).not.toBeNull());
+    Object.assign(inputState(), { accountId: 'test-owner', valid: () => true, rows: [{ id: 'in-flight',
+      sessionId: store.runtimeSessionId, accountId: 'test-owner', deviceId: null, text: 'hello', createdAt: 5000, queued: false }] });
+    inputsChanged();
+    expect(store.affordances.isWorking).toBe(true);
+    inputState().rows = [];
+    inputsChanged();
+    expect(store.affordances.isWorking).toBe(true);
+    store.dispose();
+  });
+
+  it('does not label a new unacknowledged input with a previous attempt failure', async () => {
+    const { store } = storeFor();
+    life.settle(store.sessionId, 'failed', { at: 'cli', message: 'Previous start failed', cause: { name: 'Error', message: 'Previous start failed' } });
+    store.bootstrap();
+    await parked(store);
+    Object.assign(inputState(), { accountId: 'test-owner', valid: () => true, rows: [{ id: 'new-input',
+      sessionId: store.runtimeSessionId, accountId: 'test-owner', deviceId: null, text: 'new attempt', createdAt: 5000, queued: false }] });
+    inputsChanged();
+    expect(store.chatState.session.state.pendingPrompt).toMatchObject({ id: 'new-input', delivery: { state: 'sending' } });
+    store.dispose();
+  });
+});
+
 beforeEach(() => {
+  Object.assign(inputState(), { accountId: null, rows: NO_INPUTS, valid: () => false });
   toasts.length = 0;
   running.phases.clear();
   running.watchers.clear();

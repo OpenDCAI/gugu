@@ -9,7 +9,8 @@ import { membershipSettingsSection } from '../../lib/billing/settingsDestination
 import { rendererLogger } from '../../lib/log'
 import { UI_EVENTS } from '../../lib/uiEvents'
 import { getMoveState, startMove, startPreview, subscribeMove } from '@renderer/features/assistant/assistant-move-controller'
-import { pendingMove, type MoveEnv } from '@renderer/features/assistant/assistant-move-wire'
+import { pendingMove, recoverPendingMove, type MoveEnv } from '@renderer/features/assistant/assistant-move-wire'
+import type { MoveJournal } from '@renderer/features/assistant/assistant-move'
 import '../../i18n/registerAssistantCatalog'
 
 const log = rendererLogger('assistant/move')
@@ -40,11 +41,26 @@ export function AssistantMoveGroup({ ownerUserId, assistantId, assistantName, ho
   const [member, setMember] = useState<boolean | null>(null)
   const [membershipFailed, setMembershipFailed] = useState<string | null>(null)
   const [membershipAttempt, setMembershipAttempt] = useState(0)
+  const [recovered, setRecovered] = useState<MoveJournal | null>(null)
+  const [recoveryFailed, setRecoveryFailed] = useState(false)
+  const [recoveryAttempt, setRecoveryAttempt] = useState(0)
   // 一次搬的状态是模块级的:搬着时这一组被换位置重挂,照样读得到;每次状态变都重渲染、重读日志
   // (搬完 / 搬断了「接着搬」那一行才跟着变;读日志只是一次 localStorage)。
   const move = useSyncExternalStore(subscribeMove, getMoveState)
   const busy = move.phase.kind === 'preparing' || move.phase.kind === 'moving'
-  const pending = pendingMove(ownerUserId, assistantId)
+  const pending = move.phase.kind === 'done' ? null : pendingMove(ownerUserId, assistantId) ?? (recovered?.assistantId === assistantId ? recovered : null)
+
+  useEffect(() => {
+    if (!localDeviceId || busy) return
+    let cancelled = false
+    void recoverPendingMove(ownerUserId, assistantId).then(journal => {
+      if (!cancelled) { setRecovered(journal); setRecoveryFailed(false) }
+    }, error => {
+      log.error({ error: String(error) }, 'move recovery could not be read')
+      if (!cancelled) setRecoveryFailed(true)
+    })
+    return () => { cancelled = true }
+  }, [ownerUserId, assistantId, localDeviceId, busy, move.phase.kind, recoveryAttempt])
 
   useEffect(() => {
     let cancelled = false
@@ -74,6 +90,7 @@ export function AssistantMoveGroup({ ownerUserId, assistantId, assistantName, ho
         control={<span className="gg-settings-row-value">{t('move.currentHome')}</span>}
         data-testid="assistant-move-current-home"
       /> : null}
+      {recoveryFailed ? <SettingsRow title={t('move.recoveryUnreadable')} control={<Button size="sm" onClick={() => setRecoveryAttempt(attempt => attempt + 1)}>{t('setup.retry')}</Button>} /> : null}
       {membershipFailed ? <SettingsRow title={t('setup.membershipUnreadable')} description={membershipFailed} control={<Button size="sm" onClick={() => setMembershipAttempt((attempt) => attempt + 1)}>{t('setup.retry')}</Button>} /> : null}
       {pending && env ? (
         <SettingsRow
@@ -105,7 +122,7 @@ export function AssistantMoveGroup({ ownerUserId, assistantId, assistantName, ho
           title={t('move.toComputerTitle')}
           description={t('move.toComputerBody')}
           control={
-            <Button size="sm" disabled={busy} onClick={() => void startPreview(env, 'to-computer', i18n.language)} data-testid="assistant-move-to-computer">
+            <Button size="sm" disabled={busy || !!pending || recoveryFailed} onClick={() => void startPreview(env, 'to-computer', i18n.language)} data-testid="assistant-move-to-computer">
               {t('move.toComputerAction')}
             </Button>
           }
@@ -125,7 +142,7 @@ export function AssistantMoveGroup({ ownerUserId, assistantId, assistantName, ho
             ) : (
               <Button
                 size="sm"
-                disabled={busy || member === null || !cloudAvailable}
+                disabled={busy || !!pending || recoveryFailed || member === null || !cloudAvailable}
                 onClick={() => void startPreview(env, 'to-cloud', i18n.language)}
                 data-testid="assistant-move-to-cloud"
               >

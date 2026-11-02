@@ -243,6 +243,7 @@ export default {
     "expiredBody": "Its home in the cloud is still there, nothing was deleted. Renew and {{name}} keeps handling messages in the cloud, or move it back to your own computer.",
     "renew": "Renew",
     "resumeTitle": "The last move didn't finish",
+    "recoveryUnreadable": "Move recovery could not be read. Please retry.",
     "resumeBody": "What already moved won't be redone. Just carry on.",
     "resumeAction": "Carry on",
     "preparing": "Looking at what's in {{name}}'s home…",
@@ -295,6 +296,10 @@ export default {
     "failedIntact": "{{name}} is still in its old home. Nothing changed.",
     "failedResume": "What already moved won't be redone; you can carry on.",
     "failedReason": {
+      "schedules_unsupported": "The new home's version cannot restore schedules. Update it, then choose Resume move.",
+      "conflict": "A same-name file changed at the new home: {{path}}. Save the newer content separately and move that file aside, then choose Resume move.",
+      "schedules": "The original schedules are not restored. Reconnect both homes and retry. If the recovery record is missing, recover it before continuing.",
+      "restart": "The assistant may still be offline. Once the connection recovers, choose Resume move to confirm it is back online.",
       "plan_required": "Moving to the cloud needs a membership.",
       "credits_exhausted": "Out of credits, so a cloud home can't be opened right now.",
       "already_exists": "The cloud still has a previous home; moving straight into it isn't supported yet.",
