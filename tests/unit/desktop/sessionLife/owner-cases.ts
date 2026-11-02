@@ -122,7 +122,7 @@ export const ownerCases: readonly { name: string; run: () => Promise<void> }[] =
 
     const archived = rig(); archived.session();
     const stranded = archived.send();
-    await archived.owner.interrupt('s', 'archive');
+    await archived.owner.interrupt('s', { k: 'interrupt', reason: 'archive' });
     assert.equal(archived.rows.get(stranded.seq)!.state, 'failed');
     assert.deepEqual(archived.store.pending('s'), { queued: [], dispatching: [] });
   } },
