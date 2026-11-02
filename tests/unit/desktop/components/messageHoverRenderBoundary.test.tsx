@@ -81,7 +81,7 @@ describe('message hover rendering', () => {
     expect(renderCounts()).toEqual(before)
   })
 
-  it.each(['release', 'move'] as const)('a waiting row takes over when the owner releases or the pointer leaves the corridor (%s)', async (action) => {
+  it.each(['release', 'move', 'leave-window'] as const)('resolves waiting ownership after movement, window exit, or owner release (%s)', async (action) => {
     const [upper, lower] = await renderPair()
     vi.spyOn(upper, 'getBoundingClientRect').mockReturnValue(new DOMRect(100, 100, 600, 80))
     vi.spyOn(lower, 'getBoundingClientRect').mockReturnValue(new DOMRect(100, 200, 600, 80))
@@ -92,10 +92,11 @@ describe('message hover rendering', () => {
     expect(lower.hasAttribute('data-popup-open')).toBe(true)
     expect(upper.hasAttribute('data-popup-open')).toBe(false)
     await act(async () => {
-      if (action === 'release') releaseHoverOwner(readHoverOwner()!.id)
+      if (action === 'leave-window') upper.dispatchEvent(new MouseEvent('pointerleave', { relatedTarget: null }))
+      if (action !== 'move') releaseHoverOwner(readHoverOwner()!.id)
       else upper.dispatchEvent(new MouseEvent('pointermove', { bubbles: true, clientX: 110, clientY: 180 }))
     })
-    expect(upper.hasAttribute('data-popup-open')).toBe(true)
+    expect(upper.hasAttribute('data-popup-open')).toBe(action !== 'leave-window')
     expect(lower.hasAttribute('data-popup-open')).toBe(false)
   })
 

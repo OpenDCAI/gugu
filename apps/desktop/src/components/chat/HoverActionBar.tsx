@@ -43,14 +43,20 @@ export function MessageHoverRegion({ enabled, forceOpen, style, children, action
   // Only a waiting row listens to movement. Leaving the corridor takes over; leaving this row cancels its request.
   useEffect(() => {
     if (hovered !== 'waiting') return
-    const document = elements.trigger?.ownerDocument
+    const trigger = elements.trigger
+    const document = trigger?.ownerDocument
+    const leave = () => setHovered('closed')
     const move = (event: PointerEvent) => {
       if (!elements.trigger?.contains(event.target as Node)) { setHovered('closed'); return }
       point.current = { x: event.clientX, y: event.clientY }
       if (claimHoverOwner(id, false, elements, point.current)) setHovered('open')
     }
     document?.addEventListener('pointermove', move)
-    return () => document?.removeEventListener('pointermove', move)
+    trigger?.addEventListener('pointerleave', leave)
+    return () => {
+      document?.removeEventListener('pointermove', move)
+      trigger?.removeEventListener('pointerleave', leave)
+    }
   }, [hovered, id, elements])
   useEffect(() => () => releaseHoverOwner(id), [id])
   const onOpenChange: NonNullable<ComponentProps<typeof PreviewCard.Root>['onOpenChange']> = (open, details) => {
