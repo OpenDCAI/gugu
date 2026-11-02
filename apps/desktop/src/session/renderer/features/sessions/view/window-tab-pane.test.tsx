@@ -31,7 +31,7 @@ vi.mock('../titlebar-actions', () => ({ TabBarActionRow: ({ children }: { childr
 vi.mock('../view/session-main-column', () => ({ SessionMainColumn: () => null }));
 vi.mock('../session-tab-registry', () => ({ sessionTabView: { TabLayoutProvider: ({ children }: { children: React.ReactNode }) => <>{children}</> } }));
 vi.mock('../use-cloud-computer-gate', () => ({ useCloudComputerGate: () => null }));
-vi.mock('@renderer/features/remote-hosts/remote-hosts-store', () => ({ remoteHostsStore: { findListedSession: () => undefined } }));
+vi.mock('@renderer/features/remote-hosts/remote-hosts-store', () => ({ remoteHostsStore: {} }));
 vi.mock('@renderer/features/remote-hosts/connection-status', () => ({ cloudWakeFailureText: () => '' }));
 vi.mock('@renderer/features/projects/stores/project-selectors', () => ({ getProjectManagerStore: () => ({ ensureMounted: () => Promise.resolve() }) }));
 vi.mock('@renderer/features/sessions/leave-session-view', () => ({ leaveSessionView: vi.fn() }));
