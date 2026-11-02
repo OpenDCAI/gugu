@@ -95,11 +95,13 @@ describe('confirmed server update feedback', () => {
     expect(restart).not.toHaveBeenCalled()
   })
 
-  it.each(['zh-CN', 'en-US'] as const)('explains the ready supervisor in %s when the account is already current', async (locale) => {
+  it.each(['zh-CN', 'en-US'] as const)('explains the legacy ready supervisor in %s when confirmation is unavailable', async (locale) => {
     setLocalePreference(locale)
     const version = '0.3.1-beta.1128'
     for (const count of [1, 12, 0, undefined]) {
-      await render(server({ state: 'ready', version, scope: 'supervisor', busy_agents: count }, version))
+      const waiting = server({ state: 'ready', version, scope: 'supervisor', busy_agents: count }, version)
+      delete waiting.capabilities.server_confirmed_restart
+      await render(waiting)
       const expected = locale === 'zh-CN'
         ? `服务进程 ${version} 已就绪，空闲后自动切换`
         : `Service process ${version} is ready; switches automatically when idle`
