@@ -87,10 +87,26 @@ function legacyBackend(home: string, migrateFrom?: string): string | null {
   }
   const current = path.join(home, 'current')
   if (fs.existsSync(current)) return packageBackend(fs.realpathSync(current))
-  if (fs.existsSync(path.join(home, 'accounts')) && fs.readdirSync(path.join(home, 'accounts')).length) {
+  const accounts = path.join(home, 'accounts')
+  if (fs.existsSync(accounts) && fs.readdirSync(accounts).length && !unusedAccountHome(home, accounts)) {
     throw new Error('Existing account environment cannot be verified; explicit migration is required')
   }
   return null
+}
+
+/** Older boot checkers create empty account skeletons before starting a package for the first time. */
+function unusedAccountHome(home: string, accounts: string): boolean {
+  if (!fs.lstatSync(accounts).isDirectory() || fs.readdirSync(home).some(name => name !== 'accounts')) return false
+  return fs.readdirSync(accounts, { withFileTypes: true }).every(account => {
+    if (!account.isDirectory()) return false
+    const directory = path.join(accounts, account.name)
+    const entries = fs.readdirSync(directory, { withFileTypes: true })
+    if (entries.length !== 2 || !entries.some(entry => entry.name === 'account.json' && entry.isFile())
+      || !entries.some(entry => entry.name === 'data' && entry.isDirectory())) return false
+    const metadata: unknown = JSON.parse(fs.readFileSync(path.join(directory, 'account.json'), 'utf8'))
+    return metadata !== null && typeof metadata === 'object' && !Array.isArray(metadata)
+      && Object.keys(metadata).length === 0 && fs.readdirSync(path.join(directory, 'data')).length === 0
+  })
 }
 
 /** Bootstrap and startup share the same contract. Explicit legacy migration names a verified old package. */
