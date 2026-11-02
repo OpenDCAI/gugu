@@ -34,8 +34,8 @@ describe.runIf(process.platform !== 'win32')('real-binary boot smoke: a package 
     const target = '0.2.58-beta.101.1'
     binary(previous, 'process.exit(0)')
     const readings = path.join(home, 'boot-processes.jsonl')
-    const record = `require('node:fs').appendFileSync(${JSON.stringify(readings)}, JSON.stringify({pid:process.pid, home:process.env.GUGU_SERVER_HOME, args:process.argv.slice(2)})+'\\n');`
-    binary(target, `${record}process.exit(1)`)
+    const record = (fields = '') => `require('node:fs').appendFileSync(${JSON.stringify(readings)}, JSON.stringify({pid:process.pid, home:process.env.GUGU_SERVER_HOME, args:process.argv.slice(2),${fields}})+'\\n');`
+    binary(target, `${record()}process.exit(1)`)
     pointCurrent(home, path.join(home, 'versions', previous))
     const lifecycle = createServerVersionLifecycle({ layout: { home, versions: path.join(home, 'versions'), version: previous } })
     const staged = vi.fn(async () => {}) // Cached directory already exists; no download is needed.
@@ -44,8 +44,12 @@ describe.runIf(process.platform !== 'win32')('real-binary boot smoke: a package 
     expect(() => lifecycle.switchSupervisor({ from: previous, to: target,
       fromDir: path.join(home!, 'versions', previous), toDir: path.join(home!, 'versions', target), switchedAt: 1 }, () => {})).toThrow('boot verification')
     expect(fs.readlinkSync(path.join(home, 'current'))).toBe(`versions/${previous}`)
-    binary(target, `${record}${realSignalExit()}const d=process.env.GUGU_TASK_HOST_USER_DATA;require('node:fs').mkdirSync(d,{recursive:true});const startedAt=Date.now();const reportActivity=()=>require('node:fs').writeFileSync(require('node:path').join(d,'activity.json'),JSON.stringify({pid:process.pid,startedAt,at:Date.now(),busy:false,runtimeOwned:true}));reportActivity();setInterval(reportActivity,10_000)`)
-    await lifecycle.stage(target, staged)
+    binary(target, `${realSignalExit()}let activityWrites=0;process.on('exit',()=>{${record('activityWrites')}});const d=process.env.GUGU_TASK_HOST_USER_DATA;require('node:fs').mkdirSync(d,{recursive:true});const startedAt=Date.now();const reportActivity=()=>{require('node:fs').writeFileSync(require('node:path').join(d,'activity.json'),JSON.stringify({pid:process.pid,startedAt,at:Date.now(),busy:false,runtimeOwned:true}));activityWrites++};reportActivity();setInterval(reportActivity,10_000)`)
+    try {
+      await lifecycle.stage(target, staged)
+    } finally {
+      console.info('Boot smoke process readings:', fs.readFileSync(readings, 'utf8'))
+    }
     expect(lifecycle.ready(target)).toBe(true)
     const rows = fs.readFileSync(readings, 'utf8').trim().split('\n').map(line => JSON.parse(line) as { pid: number; home: string; args: string[] })
     expect(rows).toHaveLength(2)
