@@ -1,5 +1,4 @@
 import { useLayoutEffect, useRef, type ReactNode } from 'react'
-import { MESSAGE_BUBBLE_LAYOUT as layout } from '@gugu/core/shared/ui/messageBubbleLayout'
 
 /** 组首那条消息的头像占位带这个标记;组尾的头像层往上找到它为止。 */
 const GROUP_TOP_ATTR = 'data-avatar-group-top'
@@ -11,12 +10,12 @@ const GROUP_TOP_ATTR = 'data-avatar-group-top'
  * 头像永远不越出自己这组气泡的纵向范围。行是文档流里的兄弟节点、没有组容器,层的上下沿在布局后量。
  */
 export function GroupAvatarSlot({ wide, groupedWithPrev, groupedWithNext, children }: { wide: boolean; groupedWithPrev: boolean; groupedWithNext: boolean; children: ReactNode }) {
-  const width = wide ? layout.avatar.phone : layout.avatar.desktop // 手机 44(触控目标)、桌面 32,与头像按钮同宽
-  if (groupedWithNext) return <div aria-hidden="true" {...(groupedWithPrev ? {} : { [GROUP_TOP_ATTR]: '' })} className="shrink-0" style={{ width }} />
+  const width = wide ? 'w-[44px]' : 'w-[32px]' // 手机 44(触控目标)、桌面 32,与头像按钮同宽
+  if (groupedWithNext) return <div aria-hidden="true" {...(groupedWithPrev ? {} : { [GROUP_TOP_ATTR]: '' })} className={`${width} shrink-0`} />
   return <StickyGroupAvatar width={width} continuesGroup={groupedWithPrev}>{children}</StickyGroupAvatar>
 }
 
-function StickyGroupAvatar({ width, continuesGroup, children }: { width: number; continuesGroup: boolean; children: ReactNode }) {
+function StickyGroupAvatar({ width, continuesGroup, children }: { width: string; continuesGroup: boolean; children: ReactNode }) {
   const slotRef = useRef<HTMLDivElement | null>(null)
   const layerRef = useRef<HTMLDivElement | null>(null)
   useLayoutEffect(() => {
@@ -41,7 +40,7 @@ function StickyGroupAvatar({ width, continuesGroup, children }: { width: number;
     return () => observer.disconnect()
   }, [continuesGroup])
   return (
-    <div ref={slotRef} className="relative shrink-0 self-stretch" style={{ width }}>
+    <div ref={slotRef} className={`${width} relative shrink-0 self-stretch`}>
       <div ref={layerRef} className="pointer-events-none absolute inset-x-0 flex flex-col justify-end">
         <div className="pointer-events-auto sticky bottom-[calc(var(--chat-dock-avatar-h,0px)+var(--spacing)*1.5)]">{children}</div>
       </div>

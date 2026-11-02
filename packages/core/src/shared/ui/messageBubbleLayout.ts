@@ -2,7 +2,6 @@
 export const MESSAGE_BUBBLE_LAYOUT = {
   rowPadX: 14, avatarGap: 11,
   column: { phone: 0.78, desktop: 0.70 },
-  avatar: { phone: 44, desktop: 32 },
   bubblePadX: { phone: 16, desktop: 12 },
 } as const
 
@@ -10,6 +9,7 @@ export const MESSAGE_BUBBLE_LAYOUT = {
 export function phoneWidgetWidth(viewportWidth: number): number {
   const layout = MESSAGE_BUBBLE_LAYOUT
   const row = viewportWidth - 2 * layout.rowPadX
-  const column = Math.min(row * layout.column.phone, row - layout.avatar.phone - layout.avatarGap)
+  // At the check's 412px phone viewport the 78% column fits beside the avatar and gap without shrinking.
+  const column = row * layout.column.phone
   return Math.floor(Math.min(420, column - 2 * layout.bubblePadX.phone))
 }
