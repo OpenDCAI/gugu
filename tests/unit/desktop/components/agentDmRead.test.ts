@@ -99,3 +99,15 @@ it('reads DM ids off the record: one per batched delivery row, and the agent mes
   expect(ids.get(`call:sent:${sent}`)).toEqual([sent])
   expect(ids.has('m1')).toBe(false)
 })
+
+it('maps every grouped file receipt across native replay prefixes, gated by authorized IM rows', async () => {
+  const { dmMessageIdsByItem } = await import('../../../../apps/desktop/src/components/chat/agent-dm-read')
+  const first = '6417511d-8f36-4cbc-8cbb-81ce9f97df71', second = '7417511d-8f36-4cbc-8cbb-81ce9f97df71'
+  const items = [first, second].map((id, index) => ({ kind: 'mcp-tool-call', id: `call-${index}`, seq: index, toolCallId: `call-${index}`, title: 'Send file', server: 'gugu', tool: 'message_send_file', status: 'done', rawInput: JSON.stringify({ chat_id: 'dm', file_name: 'proof.png' }), outputText: JSON.stringify({ message_id: id, file_name: 'proof.png' }) }))
+  const turns = [{ id: 'turn', seq: 0, initiator: 'user', items }] as import('@gugu/session-core/acp/client').TranscriptTurn[]
+  const aliases = dmMessageIdsByItem(turns)
+  expect(aliases.get(`call-0:sent:${first}`)).toEqual([first, second])
+  const authorized = [first, second].map(id => message({ id }))
+  expect(visibleDmMessageIds([`different-prefix:call-0:sent:${first}`], aliases, authorized)).toEqual([first, second])
+  expect(visibleDmMessageIds([`call-0:sent:${first}`], aliases, authorized.slice(0, 1))).toEqual([first])
+})
