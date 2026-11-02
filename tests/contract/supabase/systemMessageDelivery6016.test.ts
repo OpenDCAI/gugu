@@ -137,6 +137,58 @@ async function readOnce(room: Room, agent: string, chat = room.group): Promise<s
 // #3641 读者每批按 agent 身份现读群规(chat.chat_facts);契约测试走同一个 SQL 函数,已送达记录放内存。
 
 describe('#6016 system delivery follows event-time listening state; #6860 unaddressed server events wake no agent', () => {
+  it('a rejected item keeps its agent unread while the next item gets a precise receipt; the owner can clear their own unread count', async () => rollback(async () => {
+    const room = await seed()
+    const agent = room.agents[0]!
+    await join(room.group, agent)
+    await db.query(`SELECT set_config('request.jwt.claims',$1,true)`, [JSON.stringify({ sub: room.owner })])
+    const baseline = await db.query<{ seq: number }>('SELECT max(seq)::int AS seq FROM chat.messages WHERE chat_id=$1', [room.group])
+    await db.query('SELECT chat.mark_read($1,$2)', [room.group, baseline.rows[0]!.seq])
+    const bad = await say(room.group, room.owner)
+    const good = await say(room.group, room.owner)
+    const before = await db.query<{ last_read_seq: string }>('SELECT last_read_seq FROM chat.chat_members WHERE chat_id=$1 AND user_id=$2', [room.group, agent])
+    const failed = new Set<string>()
+    const injected: string[] = []
+    const deps = {
+      accessToken: 'owner-authorized-sql-fixture', groupRulesLedger: memoryGroupRulesLedger(), queuesInbox: () => true,
+      fetchUnread: () => pull(room, agent),
+      claimedSources: (_agent: string, ids: readonly string[]) => new Map(ids.filter(id => failed.has(id)).map(id => [id, false])),
+      inject: async (input: import('@gugu/core/local/agent/agentInboxReader').AgentInboxInjectionInput) => {
+        if (input.sourceMessageId === bad) throw new Error('invalid recipient payload')
+        injected.push(input.sourceMessageId!)
+        return 'accepted' as const
+      },
+      recordFailure: async (input: import('@gugu/core/local/agent/agentInboxReader').AgentInboxInjectionInput) => {
+        for (const source of input.sources ?? []) failed.add(source.row.id)
+      },
+      postDisclosure: async () => {
+        const id = randomUUID()
+        await db.query(`INSERT INTO chat.messages (id,chat_id,sender_user_id,content,content_type,client_message_id)
+          VALUES ($1,$2,$3,'Message not delivered','system',$4)`, [id, room.group, agent, `turn-failure:${id}:deliveryRejected`])
+      },
+      markRead: async ({ messageId }: { messageId: string }) => {
+        await db.query('SELECT identity.mark_read_on_deliver($1,$2,$3)', [room.group, messageId, agent])
+      },
+    }
+    await expect(pullAgentInbox(agent, deps)).rejects.toThrow('invalid recipient payload')
+    expect(injected).toEqual([good])
+    const after = await db.query<{ last_read_seq: string }>('SELECT last_read_seq FROM chat.chat_members WHERE chat_id=$1 AND user_id=$2', [room.group, agent])
+    expect(after.rows).toEqual(before.rows) // The gap-safe watermark must not pretend the failed item was read.
+    const receipts = await db.query<{ message_id: string }>("SELECT message_id FROM chat.message_deliveries WHERE device_id=$1 AND status='read' AND message_id=ANY($2::text[])", [`gugu-agent:${agent}`, [bad, good]])
+    expect(receipts.rows.map(row => row.message_id)).toEqual([good])
+    expect((await pull(room, agent)).map(row => row.id)).toEqual([bad])
+    resetAgentInboxReaderStateForTests()
+    await expect(pullAgentInbox(agent, deps)).resolves.toMatchObject({ injected: 0 })
+    const beforeOpen = await db.query<{ unread_count: string }>('SELECT unread_count FROM chat.count_unread_per_chat() WHERE chat_id=$1', [room.group])
+    expect(Number(beforeOpen.rows[0]?.unread_count ?? 0)).toBe(1) // The real failure notice, not either of the owner's own messages.
+    const tail = await db.query<{ seq: number }>('SELECT max(seq)::int AS seq FROM chat.messages WHERE chat_id=$1', [room.group])
+    await db.query('SELECT chat.mark_read($1,$2)', [room.group, tail.rows[0]!.seq])
+    const ownerUnread = await db.query<{ unread_count: string }>('SELECT unread_count FROM chat.count_unread_per_chat() WHERE chat_id=$1', [room.group])
+    expect(Number(ownerUnread.rows[0]?.unread_count ?? 0)).toBe(0)
+    const ownerLocators = await db.query('SELECT * FROM chat.list_unread_locators($1)', [room.group])
+    expect(ownerLocators.rows).toEqual([])
+  }))
+
   it.each(['group', 'topic'] as const)('an unaddressed system event wakes no agent in %s; a named one reaches its target in any mode', async (kind) => rollback(async () => {
     const room = await seed()
     const chat = room[kind]

@@ -159,6 +159,8 @@ export interface AgentInboxReaderDeps {
   inject: (input: AgentInboxInjectionInput) => Promise<AgentInboxInjectionResult>
   /** Persist a terminal pre-admission failure in the recipient's queue; cloud disclosure stays with this reader. */
   recordFailure?: (input: AgentInboxInjectionInput, cause: unknown) => Promise<void>
+  /** Whether this recipient admits individual rows into a durable queue (which owns batching at drain). */
+  queuesInbox?: (agentUserId: string) => boolean
   /** 冷会话唤醒踢一脚——不 await(收信方开机代价不进任何调用方的 round-trip)。 */
   wake?: (agentUserId: string) => void
   deliveryToolNames?: (agentUserId: string) => AgentDeliveryToolNames | null
@@ -683,7 +685,6 @@ type PreparedUnit = {
 function undeliverableRowReason(row: AgentInboxUnreadRow): string | null {
   if (row.localSessionDirect || row.forum) return null
   try {
-    if (ROOM_KINDS.has(row.chatKind) && typeof row.groupRules !== 'string') throw new Error(`inbox row of room ${row.chatId} carries no group rules`)
     encodeTypedId('msg', row.id)
     encodeTypedId('chat', row.chatId)
     if (row.senderUserId) encodeTypedId('user', row.senderUserId)
@@ -704,8 +705,12 @@ async function injectBatch(
 ): Promise<{ injected: number; verdict: AgentInboxInjectionVerdict; completion?: Promise<void> }> {
   const env = deps.env ?? process.env
   const toolNames = deps.deliveryToolNames?.(agentUserId) ?? undefined
+  const queueBacked = deps.queuesInbox?.(agentUserId) ?? false
+  const threadSeeds = new Map<string, Promise<string | null>>()
+  const threadSeedCache = new Map<string, Promise<string | null>>()
   const failures: DisclosedFailure[] = []
   const reject = async (members: PreparedMessage[], text: string, error: unknown): Promise<void> => {
+    for (const member of members) if (member.bootstrapKey) threadSeeds.delete(member.bootstrapKey)
     const sources = members.map(({ row, rulesDelivered, bootstrapKey }) => ({ row, ...(rulesDelivered ? { rulesDelivered } : {}), ...(bootstrapKey ? { bootstrapKey } : {}) }))
     log.error({ agentUserId, messageIds: members.map(member => member.row.id), err: errorText(error) }, 'inbox item rejected; later items will still be processed')
     let recorded = false
@@ -726,9 +731,7 @@ async function injectBatch(
   }
   const rulesPlan = await planGroupRules(agentUserId, rows.filter(row => undeliverableRowReason(row) === null), deps, env)
   // Preparation precedes admission: remember this batch's attempts without committing a thread as bootstrapped.
-  const threadSeeds = new Map<string, Promise<string | null>>()
-  const prepared: PreparedMessage[] = []
-  for (const row of rows) {
+  const prepare = async (row: AgentInboxUnreadRow): Promise<PreparedMessage> => {
     try {
       const reason = undeliverableRowReason(row)
       if (reason !== null) throw new Error(reason)
@@ -737,22 +740,25 @@ async function injectBatch(
       const groupRules = planned && (planned.version !== 'none' || planned.text !== null)
         ? { version: planned.version, text: planned.text }
         : null
-      const message = await prepareMessage(agentUserId, row, deps, toolNames, env, threadSeeds, groupRules)
-      if (planned) planned.text = null
+      const message = await prepareMessage(agentUserId, row, deps, toolNames, env, threadSeeds, groupRules, threadSeedCache)
+      if (planned && !queueBacked) planned.text = null
       if (groupRules && groupRules.text !== null) {
         message.rulesDelivered = { chatId: row.chatId, entry: { version: groupRules.version, contextKey: planned!.contextKey } }
       }
-      prepared.push(message)
+      return message
     } catch (error) {
-      prepared.push({ row, envelope: row.content, preparationError: error })
+      return { row, envelope: row.content, preparationError: error }
     }
   }
+  // A rejected queued item must not consume the group rules or thread seed its next sibling needs.
+  const prepared: PreparedMessage[] = []
+  for (const row of rows) prepared.push(queueBacked ? { row, envelope: '' } : await prepare(row))
   // Queue-backed rows stay one per admission so a rejection is isolated and the queue can merge at drain. A
   // next-tool-call transport has no queue boundary: the admission itself is the delivery boundary,
   // so merge the rows there with the same core producer. Attachments remain one admission each.
   const timing = await deps.deliveryTiming?.(agentUserId)
   const framed = prepared.filter((entry) => !entry.attachments && !('preparationError' in entry))
-  const mergedText = !deps.claimedSources && timing === 'next-tool-call' && framed.length > 0
+  const mergedText = !queueBacked && timing === 'next-tool-call' && framed.length > 0
     ? mergeDeliveryEnvelopes(framed.map((entry) => entry.envelope))
     : null
   let merged = false
@@ -778,7 +784,12 @@ async function injectBatch(
   let enqueued = false
   const completions: Promise<void>[] = []
   for (let unitIndex = 0; unitIndex < units.length; unitIndex += 1) {
-    const unit = units[unitIndex]!
+    let unit = units[unitIndex]!
+    if (queueBacked) {
+      const entry = await prepare(unit.members[0]!.row)
+      unit = { text: entry.envelope, members: [entry], ...(entry.attachments ? { attachments: entry.attachments } : {}),
+        ...('preparationError' in entry ? { preparationError: entry.preparationError } : {}) }
+    }
     const archival = await deps.sessionArchival?.(agentUserId) ?? null
     if (archival?.archivedAt || (await Promise.all(unit.members.map(({ row }) => refusesArchivedRow(agentUserId, row, archival, deps)))).some(Boolean)) {
       return { injected, verdict: 'not-now', ...(completions.length ? { completion: Promise.all(completions).then(() => undefined) } : {}) }
@@ -820,6 +831,9 @@ async function injectBatch(
       }
     }
     injected += unit.members.length
+    for (const member of unit.members) {
+      if (member.rulesDelivered) rulesPlan.get(member.rulesDelivered.chatId)!.text = null
+    }
     if (completion) completions.push(completion)
     // Enqueued: the host's queue owns these rows now; acceptance settles them (markInboxRowsRead).
     if (unitVerdict === 'enqueued') enqueued = true
@@ -845,6 +859,7 @@ async function prepareMessage(
   env: NodeJS.ProcessEnv,
   threadSeeds: Map<string, Promise<string | null>>,
   groupRules: { version: string; text: string | null } | null = null,
+  threadSeedCache: Map<string, Promise<string | null>> = threadSeeds,
 ): Promise<PreparedMessage> {
   if (row.localSessionDirect) {
     return { row, envelope: row.localSessionDirect.envelope }
@@ -875,7 +890,7 @@ async function prepareMessage(
   if (effectiveThreadRoot && fetchThreadMessages) {
     const key = `${agentUserId}:${row.chatId}:${effectiveThreadRoot}`
     if (!threadBootstrapped.has(key) && !threadSeeds.has(key)) {
-      const seed = (async () => {
+      const seed = threadSeedCache.get(key) ?? (async () => {
         try {
           const threadRows = await fetchThreadMessages(row.chatId, effectiveThreadRoot)
           const senders = [...new Set(threadRows.map((entry) => entry.senderUserId))]
@@ -889,7 +904,6 @@ async function prepareMessage(
             selfAgentUserId: agentUserId,
             labelFor: (id) => identityShown(labels, id) ?? encodeTypedId('user', id),
           })
-          bootstrapKey = key
           return context
         } catch (error) {
           // A failed attempt belongs to this batch only; the next pull can try again.
@@ -900,8 +914,10 @@ async function prepareMessage(
           return null
         }
       })()
+      threadSeedCache.set(key, seed)
       threadSeeds.set(key, seed)
       threadContext = await seed
+      if (threadContext !== null) bootstrapKey = key
     }
   }
   const attachment = parseAttachmentContent(row.content, { id: row.id, file_item_id: row.fileItemId, file_version: row.fileVersion, file_blob_id: row.fileBlobId })

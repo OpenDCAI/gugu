@@ -425,6 +425,10 @@ export class SessionpageLocalDeliveryRouter {
     return this.injectForAgentResult(agentUserId, message)
   }
 
+  queuesInbox(agentUserId: string): boolean {
+    return !!this.deliveryTargetFor(agentUserId)?.enqueueInbox
+  }
+
   private async injectForAgentResult(
     agentUserId: string,
     message: InboxUnitMessage,
@@ -518,6 +522,7 @@ export function createSessionpageDeliveryBridge(
         return sessionId ? options.claimedSessionSources!(sessionId, messageIds) : new Map()
       },
     } : {}),
+    queuesAgentInbox: (agentUserId: string) => localDelivery.queuesInbox(agentUserId),
     injectAgentInbox: async (input: AgentInboxInjectionInput): Promise<AgentInboxInjectionResult> => {
       await localDelivery.waitUntilReady()
       const sessionId = localDelivery.sessionIdForAgent(input.agentUserId)

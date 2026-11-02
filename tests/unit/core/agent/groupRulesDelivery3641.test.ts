@@ -76,6 +76,41 @@ function harness(opts: {
 
 const group = (prompt: string | null): ChatFactsRow => ({ kind: 'group', source_chat_id: null, group_prompt: prompt })
 
+it('a rejected first queued item cannot consume the rules needed by the next item', async () => {
+  const h = harness({ facts: { [GROUP]: group('Keep this group rule') } })
+  h.unread.push(row('bad', 1), row('good', 2), row('after', 3))
+  h.deps.claimedSources = () => new Map()
+  h.deps.queuesInbox = () => true
+  h.deps.recordFailure = async () => {}
+  h.deps.postDisclosure = async () => {}
+  h.deps.inject = async input => {
+    if (input.sources?.[0]?.row.seq === 1) throw new Error('bad item')
+    h.injected.push(input)
+    return 'enqueued'
+  }
+  await expect(pullAgentInbox(AGENT, h.deps)).rejects.toThrow('bad item')
+  expect(h.injected).toHaveLength(2)
+  expect(h.injected[0]!.text).toContain('Keep this group rule')
+  expect(h.injected[0]!.sources?.[0]?.rulesDelivered).toBeDefined()
+  expect(h.injected[1]!.text).not.toContain('Keep this group rule')
+})
+
+it('missing group rules remains retryable and never creates a terminal failed source', async () => {
+  const h = harness({ facts: { [GROUP]: group('Rules recovered') } })
+  const record: unknown[] = []
+  let available = false
+  h.deps.fetchUnread = async () => [row('retry', 1, { groupRules: available ? 'Rules recovered' : null })]
+  h.deps.queuesInbox = () => true
+  h.deps.claimedSources = () => new Map()
+  h.deps.recordFailure = async input => { record.push(input) }
+  await expect(pullAgentInbox(AGENT, h.deps)).rejects.toThrow('carries no group rules')
+  expect(record).toEqual([])
+  expect(h.injected).toEqual([])
+  available = true
+  await expect(pullAgentInbox(AGENT, h.deps)).resolves.toMatchObject({ injected: 1 })
+  expect(h.injected[0]!.text).toContain('Rules recovered')
+})
+
 beforeEach(() => {
   resetAgentInboxReaderStateForTests()
   resetGroupRulesLedgersForTests()

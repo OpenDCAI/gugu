@@ -229,6 +229,7 @@ export interface AgentRuntimeBridge {
    */
   injectAgentInbox?(input: AgentInboxInjectionInput): Promise<AgentInboxInjectionResult>
   rejectAgentInbox?(input: AgentInboxInjectionInput, cause: unknown): Promise<void>
+  queuesAgentInbox?(agentUserId: string): boolean
   /** Local session-direct outbox projected into the common inbox reader. */
   fetchLocalSessionDirectInbox?(agentUserId: string): Promise<AgentInboxUnreadRow[]>
   /** Inbox rows this agent's session queue already holds (see AgentInboxReaderDeps.claimedSources). */
@@ -742,6 +743,7 @@ export function agentInboxDepsFromBridge(input: {
     ...(input.env ? { env: input.env } : {}),
     inject: (injection) => bridge.injectAgentInbox!(injection),
     ...(bridge.rejectAgentInbox ? { recordFailure: (injection: AgentInboxInjectionInput, cause: unknown) => bridge.rejectAgentInbox!(injection, cause) } : {}),
+    ...(bridge.queuesAgentInbox ? { queuesInbox: (agentUserId: string) => bridge.queuesAgentInbox!(agentUserId) } : {}),
     // 论坛来源:被指派到帖子上的事,与聊天同一个读者、同一批触发。
     fetchForumUnread: (agentUserId: string) => fetchForumUnreadViaRpc(agentUserId, input.accessToken),
     ...(bridge.fetchLocalSessionDirectInbox

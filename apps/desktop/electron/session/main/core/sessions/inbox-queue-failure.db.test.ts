@@ -36,6 +36,7 @@ it('persists one rejected item, discloses a terminal failure, and admits the fol
     accessToken: 'fixture', groupRulesLedger: memoryGroupRulesLedger(), deliveryTiming: () => 'next-tool-call',
     fetchUnread: async () => cloudRows.filter(message => !read.has(message.id)),
     claimedSources: (_agent, ids) => claimedSessionSources('s', ids),
+    queuesInbox: () => true,
     inject: async input => {
       if (input.sources?.some(source => source.row.id === cloudRows[0]!.id)) throw new Error('invalid payload');
       enqueuePending({ sessionId: 's', text: input.text, kind: 'inbox-batch', sources: input.sources!.map(source => ({ ...source, agentUserId: AGENT })) });

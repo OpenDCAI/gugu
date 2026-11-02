@@ -236,6 +236,7 @@ function assertPerMessageAttribution(text: string, ids: string[]): void {
 
 // Model the host's durable failed-source membership without writing a false agent read.
 function installTerminalRejections(deps: AgentInboxReaderDeps) {
+  deps.queuesInbox ??= () => true
   const rejected = new Map<string, Set<string>>()
   const previous = deps.claimedSources
   const record = deps.recordFailure
@@ -494,6 +495,20 @@ describe('inbox batch request budgets', () => {
     expect({ first, second: { fetches: d.fetchThreadMessages.mock.calls.length, identities: d.resolveGuguIds.mock.calls.length },
       contexts: d.injections.map((entry) => entry.text.includes(seed)) })
       .toEqual({ first: { fetches: 1, identities: 1 }, second: { fetches: 1, identities: 1 }, contexts: [true] })
+  })
+
+  it('a rejected first queued item passes the uncommitted thread seed to the next item without refetching', async () => {
+    const d = batch([1, 1, 1])
+    installTerminalRejections(d.deps)
+    const inject = d.deps.inject
+    d.deps.inject = async input => {
+      if (input.sources?.[0]?.row.seq === 1) throw new Error('bad first item')
+      return inject(input)
+    }
+    await expect(pullAgentInbox(AGENT, d.deps)).rejects.toThrow('bad first item')
+    expect(d.injections.map(entry => entry.text.includes(seed))).toEqual([true, false])
+    expect(d.fetchThreadMessages).toHaveBeenCalledTimes(1)
+    expect(d.resolveGuguIds).toHaveBeenCalledTimes(1)
   })
 
   it('t6: a failed fetch is tried once this batch and retried for the next batch', async () => {
@@ -1084,7 +1099,7 @@ describe('P-E4 离线追赶:未读行逐条受理,由队列 drain 合批', () =>
     expect(parsed.namedIdentities?.get(AGENT)).toEqual({ guguNumber: 7, displayName: 'Claude 1', isAgent: true })
   })
 
-  it('next-tool-call rows merge at steer admission while idle-only rows stay per-entry', async () => {
+  it.each([false, true])('next-tool-call rows merge only for a direct transport (queue-backed=%s)', async queueBacked => {
     const cloud = new FakeCloud()
     cloud.addChat('00000000-0000-4000-8000-00000000000f', 'group')
     cloud.join('00000000-0000-4000-8000-00000000000f', AGENT, { listenMode: 'active' })
@@ -1096,13 +1111,15 @@ describe('P-E4 离线追赶:未读行逐条受理,由队列 drain 合批', () =>
     const { deps, injections } = makeDeps(cloud, {
       onBatch: (batch) => batches.push(batch),
       deliveryTiming: async (): Promise<AgentInboxDeliveryTiming> => 'next-tool-call',
+      claimedSources: () => new Map(), // A source ledger exists on native transports too; it is not an admission capability.
+      queuesInbox: () => queueBacked,
     })
 
     await expect(pullAgentInbox(AGENT, deps)).resolves.toMatchObject({ pulled: 3, injected: 3, verdict: 'accepted' })
-    expect(batches).toEqual([{ agentUserId: AGENT, rows: 3, units: 1 }])
-    expect(injections).toHaveLength(1)
-    expect(injections[0]!.text).toContain('<gugu_deliveries count="3"')
-    for (const id of ['10000000-0000-4000-8000-00000000001b', '10000000-0000-4000-8000-00000000001c', '10000000-0000-4000-8000-00000000001d']) expect(injections[0]!.text).toContain(`msg="msg:${id}"`)
+    expect(batches).toEqual([{ agentUserId: AGENT, rows: 3, units: queueBacked ? 3 : 1 }])
+    expect(injections).toHaveLength(queueBacked ? 3 : 1)
+    if (!queueBacked) expect(injections[0]!.text).toContain('<gugu_deliveries count="3"')
+    assertPerMessageAttribution(injections.map(entry => entry.text).join('\n'), ['10000000-0000-4000-8000-00000000001b', '10000000-0000-4000-8000-00000000001c', '10000000-0000-4000-8000-00000000001d'])
   })
 
   it('必失败对照:段级断言能判假 —— 吞掉一段/抹掉一格都必须红', () => {
