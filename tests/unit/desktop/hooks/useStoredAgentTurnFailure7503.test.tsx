@@ -41,7 +41,7 @@ describe('其他设备的额度通知由命令结果驱动', () => {
     read.mockResolvedValue([failure()])
     await ui.render(createNode(Probe, {}))
     expect(current()).toBe('cmd')
-    expect(read).toHaveBeenCalledWith('owner', 'chat', null, ['agent'])
+    expect(read).toHaveBeenCalledWith('chat', null, ['agent'])
     await emit({ thread_root_id: 'other' }); await emit({ chat_id: 'other' }); await emit({ agent_user_id: 'other' })
     expect(read).toHaveBeenCalledTimes(1)
     await act(async () => bus.onSubscribed?.())
