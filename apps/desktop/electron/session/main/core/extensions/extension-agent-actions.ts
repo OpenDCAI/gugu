@@ -140,7 +140,7 @@ function forAgentsNote(installed: { manifest: ExtensionManifest; rootDir: string
     parts.push(appLine({ extensionId: manifest.id, name: manifest.name, instructions: manifest.contributes.instructions }));
   }
   if (manifest.contributes.skills) {
-    parts.push(...readExtensionSkills(manifest.id, path.join(rootDir, manifest.contributes.skills), (message) => console.warn(message)).map(skillLine));
+    parts.push(...readExtensionSkills(manifest.id, path.join(rootDir, manifest.contributes.skills), () => {}).map(skillLine));
   }
   if (servers.length > 0) {
     // #6634 问题 16: nothing has asked its programs for their tools yet, so this does not promise they are there —
