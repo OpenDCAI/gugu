@@ -1,5 +1,5 @@
 import { describe, expect, test, vi } from 'vitest'
-import { createDeviceRuntimeHostLoop, type RuntimeAuth } from '@gugu/core'
+import { createDeviceRuntimeHostLoop, type DeviceRuntimeIdentityClient, type RuntimeAuth } from '@gugu/core'
 import { isolatedGuguEnv, pollOnlyRuntimeIdentityClient } from '../../../support/deviceRuntimeHarness'
 import { awaitPending } from '../../../support/awaitFact'
 
@@ -13,7 +13,7 @@ describe('owned-agent events follow the runtime owner', () => {
       env,
       authProvider: { getAuth: async () => auth },
       machineIdentifier: () => 'owned-agents-machine',
-      makeIdentityClient: () => pollOnlyRuntimeIdentityClient([], 'owned agents owner'),
+      makeIdentityClient: () => pollOnlyRuntimeIdentityClient([], 'owned agents owner') as unknown as DeviceRuntimeIdentityClient,
       subscribeOwnedAgentChanges: ({ ownerUserId, onChanged }) => {
         const stop = vi.fn()
         subscriptions.push({ ownerUserId, onChanged, stop })
@@ -68,7 +68,7 @@ describe('owned-agent events follow the runtime owner', () => {
       env,
       authProvider: { getAuth: async () => ({ userId: 'owner-a', accessToken: 'token-a' }) },
       machineIdentifier: () => 'owned-agents-stop',
-      makeIdentityClient: () => pollOnlyRuntimeIdentityClient([], 'owned agents stop'),
+      makeIdentityClient: () => pollOnlyRuntimeIdentityClient([], 'owned agents stop') as unknown as DeviceRuntimeIdentityClient,
       subscribeOwnedAgentChanges: ({ onChanged }) => {
         callback.current = onChanged
         entered()
