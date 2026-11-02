@@ -8,6 +8,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, Fragment } from 'react'
 import { CommandShortcutBinder } from '@renderer/lib/commands/command-shortcut-binder'
+import { commandRegistry } from '@renderer/lib/commands/registry'
+import { resetSearchSession, useSearchSession } from '@renderer/features/global-search/search-session'
 import { ChatAreaPanel } from '../../../../apps/desktop/src/components/ChatAreaPanel'
 import { AUTOMATION_TEST_IDS } from '../../../../apps/desktop/src/lib/automationDom'
 import { chat, createNode, createReactHarness, displayIdentity, message, renderWithAppProviders, typeInto } from '../../../support/testHarness'
@@ -55,12 +57,14 @@ beforeEach(async () => {
 afterEach(() => {
   repository.close()
   harness.cleanup()
+  resetSearchSession()
 })
 
 const PEER_MESSAGE = message({ id: 'peer-msg-1', chat_id: 'chat-1', seq: 7, sender_user_id: 'peer-1', content: '隐藏期间到达的一条' })
+function SearchSnapshot() { return createNode('output', { 'data-search-session': true }, JSON.stringify(useSearchSession())) }
 
 async function renderPanel(activeTab: 'chats' | 'tasks', markMessageVisible = vi.fn()) {
-  await renderWithAppProviders(harness, createNode(Fragment, null, createNode(CommandShortcutBinder), createNode(ChatAreaPanel, { imPage: true, openNonce: 0 })), {
+  await renderWithAppProviders(harness, createNode(Fragment, null, createNode(CommandShortcutBinder), createNode(ChatAreaPanel, { imPage: true, openNonce: 0 }), createNode(SearchSnapshot)), {
     shellTab: activeTab,
     chat: {
       getImRepository: getImRepositoryMock,
@@ -164,7 +168,10 @@ describe('ChatAreaPanel retained while hidden on another tab (#6158)', () => {
     } finally { vi.unstubAllGlobals() }
   })
 
-  it('k1/k8 opens find without filtering and hands its keyword to the existing chat search', async () => {
+  it('k1/k8 opens find without filtering and hands its keyword and conversation scope to global search', async () => {
+    const openPanel = vi.fn()
+    const unregister = commandRegistry.register({ scopeId: 'app', getCommands: () => [{ id: 'app.globalSearch', execute: openPanel }] })
+    try {
     await renderPanel('chats')
     await pressFind()
     expect(headerSearchInput()).toBeNull()
@@ -176,6 +183,11 @@ describe('ChatAreaPanel retained while hidden on another tab (#6158)', () => {
     expect(all).toBeDefined()
     await act(async () => all.click())
     expect(searchInput()).toBeNull()
-    expect((headerSearchInput() as HTMLInputElement).value).toBe('loaded keyword')
+    expect(headerSearchInput()).toBeNull()
+    expect(openPanel).toHaveBeenCalledTimes(1)
+    const state = JSON.parse(harness.container.querySelector('[data-search-session]')!.textContent!)
+    expect(state.text).toBe('loaded keyword')
+    expect(state.chips).toEqual([{ kind: 'in', chatId: 'chat-1' }])
+    } finally { await act(async () => { unregister() }) }
   })
 })
