@@ -77,6 +77,10 @@ export const remoteInvokePolicy: FrameInvokePolicy = (channel) => {
  * expected owner against its current authenticated account before reading or writing. */
 export function remoteInvokePolicyForCaller(callerId: string | undefined): FrameInvokePolicy {
   return (channel, args) => {
+    if (channel.startsWith('assistantHome.')) {
+      const input = args?.[0] as { ownerUserId?: unknown } | null
+      return !!callerId && args?.length === 1 && input?.ownerUserId === callerId
+    }
     if (channel !== 'app.assistantAppCall') return remoteInvokePolicy(channel, args);
     if (!callerId || args?.length !== 3 || args[0] !== 'callProgram' || args[2] !== callerId) return false;
     const input = args[1];

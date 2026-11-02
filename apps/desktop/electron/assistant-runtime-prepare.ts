@@ -13,6 +13,15 @@ export function discardAssistantPreparation(id: string): Promise<void> {
   return rm(path.join(managedAgentPrefix(), 'prepared', id), { recursive: true, force: true })
 }
 
+/** A crash may leave a published launcher pointing into this tree. Once the
+ * write fence was crossed, preserve the runtime and remove only staging/cache. */
+export async function cleanupAssistantRuntimePreparation(id: string, keepRuntime: boolean): Promise<void> {
+  if (!keepRuntime) return discardAssistantPreparation(id)
+  const root = path.join(managedAgentPrefix(), 'prepared', id)
+  await rm(path.join(root, 'entrypoints'), { recursive: true, force: true })
+  await rm(path.join(root, 'runtime', 'cache'), { recursive: true, force: true })
+}
+
 /** Download, unpack and verify in an operation-owned tree. Existing launchers,
  * shared mise config and installations are never modified by preparation. */
 export async function prepareAssistantRuntime(id: string, signal: AbortSignal): Promise<PreparedAssistantRuntime> {

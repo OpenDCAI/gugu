@@ -57,7 +57,7 @@ export function draftAvatarUrl(draft: AgentLook): string {
   return contactsService.agentLookAvatarUrl({ color: draft.color, rest: draft.rest, wear: draft.wear })
 }
 
-function cleanDraft(draft: AssistantSetupDraft) {
+export function cleanAssistantSetupDraft(draft: AssistantSetupDraft) {
   const name = draft.name.trim()
   if (!name || name.length > ASSISTANT_NAME_MAX) throw new Error(`assistant name must be 1–${ASSISTANT_NAME_MAX} characters`)
   const preferredName = draft.owner.preferredName.trim()
@@ -67,7 +67,7 @@ function cleanDraft(draft: AssistantSetupDraft) {
 
 /** 会员一键领取:管家开它的宿主、在上面建它(要几分钟;进度看管家的 /state,界面在 CloudComputerProvisionPanel 那三步)。 */
 export async function claimCloudAssistant(draft: AssistantSetupDraft): Promise<void> {
-  await provisionCloudComputer({ assistant: { ...cleanDraft(draft), locale: getLocaleSnapshot().resolvedLocale } })
+  await provisionCloudComputer({ assistant: { ...cleanAssistantSetupDraft(draft), locale: getLocaleSnapshot().resolvedLocale } })
 }
 
 /** 助理的续建记录另放一份:❌ 被启动时「收掉没建完的单 agent」那一扫当成普通 agent 撤掉(见 createResumeStore)。 */
@@ -92,7 +92,7 @@ export function setupStillStarting(error: unknown): boolean {
   return error instanceof AssistantSetupError && error.kind === 'still-starting'
 }
 
-function settled(result: Awaited<ReturnType<typeof provisionSingleAgent>>): CreateAgentOnDeviceResult {
+export function completedAssistantSetup(result: Awaited<ReturnType<typeof provisionSingleAgent>>): CreateAgentOnDeviceResult {
   if (result.outcome.member.phase === 'awaiting_terminal') throw new AssistantSetupError('still-starting', 'assistant is still starting on this computer')
   if (result.outcome.member.phase === 'failed') throw new AssistantSetupError('failed', result.outcome.member.error ?? 'agent.create failed')
   return completedSingleProvisionSession(result)
@@ -128,7 +128,7 @@ export function setUpAssistantOnThisComputer(draft: AssistantSetupDraft, localDe
 async function setUpHere(draft: AssistantSetupDraft, localDeviceId: string, options: { signal?: AbortSignal; onInstalling?: () => void }): Promise<CreateAgentOnDeviceResult> {
   const ipc = desktopIpc()
   if (!ipc) throw new AssistantSetupError('not-desktop', 'only the desktop app can host the assistant')
-  const clean = cleanDraft(draft)
+  const clean = cleanAssistantSetupDraft(draft)
   // 开通的是全新的一位:上一位留在这台电脑上的家先清掉(#7350,别处删掉的 / 关到一半的),❌ 带着上一位的记忆和性格。
   const home = await prepareLocalAssistantSetup(ipc, { ownerProfile: clean.ownerProfile, fresh: true }, options)
   const result = await provisionSingleAgent(
@@ -144,7 +144,7 @@ async function setUpHere(draft: AssistantSetupDraft, localDeviceId: string, opti
     },
     await startDeps(),
   )
-  return settled(result)
+  return completedAssistantSetup(result)
 }
 
 /** 接着建上次没建完的那一个(同一个 agent,❌ 再建一个);这台电脑上正有一次在推,就接上那一次。 */
@@ -172,8 +172,14 @@ export function resumeLocalAssistant(record: ProvisionResumeRecord): Promise<Cre
     }
     const ipc = desktopIpc()
     if (!ipc) throw new AssistantSetupError('not-desktop', 'only the desktop app can host the assistant')
+    const local = (await import('../platform')).platform
+    const self = await local.getLocalDeviceSelfSnapshot?.()
+    if (local.getLocalDeviceSelfSnapshot && self?.device_id !== record.deviceId) {
+      const { resumeServerAssistantProvision } = await import('./assistantServerSetup')
+      return resumeServerAssistantProvision(record)
+    }
     await ipc.invoke(ASSISTANT_HOME_CHANNELS.prepare, {})
-    return settled(await resumeSingleAgent(record, await startDeps()))
+    return completedAssistantSetup(await resumeSingleAgent(record, await startDeps()))
   })
 }
 
