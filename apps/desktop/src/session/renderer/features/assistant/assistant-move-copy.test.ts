@@ -101,6 +101,24 @@ function memoryDisk(initial: Record<string, string | Uint8Array | 'dir' | 'symli
 }
 
 describe('助理搬家拷文件 (#7199)', () => {
+  it('does not record a target baseline if its revision changes during inspection', async () => {
+    const old = memoryDisk({ '/o': 'dir', '/o/a.md': 'SOURCE' });
+    const target = memoryDisk({ '/n': 'dir', '/n/r': 'dir', '/n/r/a.md': 'BEFORE' });
+    let probes = 0;
+    target.fs.revision = async () => {
+      if (++probes === 1) return 'v1';
+      target.nodes.set('/n/r/a.md', { kind: 'file', bytes: new TextEncoder().encode('NEW-AT-TARGET') });
+      return 'v2';
+    };
+    const checkpoint: CopyCheckpoint = { files: {}, resuming: false, save: async () => {} };
+    const args = { from: old.fs, fromRoot: '/o', to: target.fs, toBase: '/n', toRoot: '/n/r', plan: await planTree(old.fs, '/o'), checkpoint };
+    await expect(copyTree(args)).rejects.toMatchObject({ code: 'conflict' });
+    expect(checkpoint.files).toEqual({});
+    checkpoint.resuming = true;
+    await expect(copyTree(args)).rejects.toMatchObject({ code: 'conflict' });
+    expect(target.text('/n/r/a.md')).toBe('NEW-AT-TARGET');
+    expect(target.writes).toEqual([]);
+  });
   it('retains the pre-upload baseline when copying is interrupted before the first write', async () => {
     const old = memoryDisk({ '/o': 'dir', '/o/a.md': 'OLD' });
     const target = memoryDisk({ '/n': 'dir' });

@@ -90,9 +90,10 @@ async function targetSnapshot(fs: HomeFs, path: string): Promise<{ hash: string 
   const revision = await fs.revision?.(path);
   const slash = path.lastIndexOf('/');
   const entry = (await fs.list(path.slice(0, slash))).find(file => file.name === path.slice(slash + 1));
-  if (!entry) return { hash: null, revision };
-  if (entry.type !== 'file' || entry.size > COPY_MAX_FILE_BYTES) throw new MoveCopyError('conflict', `${path} cannot be safely replaced`, path);
-  return { hash: await contentHash(fs, path, entry.size), revision };
+  if (entry && (entry.type !== 'file' || entry.size > COPY_MAX_FILE_BYTES)) throw new MoveCopyError('conflict', `${path} cannot be safely replaced`, path);
+  const hash = entry ? await contentHash(fs, path, entry.size) : null;
+  if (revision !== await fs.revision?.(path)) throw new MoveCopyError('conflict', `${path} changed while checking its baseline`, path);
+  return { hash, revision };
 }
 
 async function prepareCopy(to: HomeFs, path: string, hash: string, checkpoint: CopyCheckpoint,
