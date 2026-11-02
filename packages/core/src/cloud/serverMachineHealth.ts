@@ -82,9 +82,9 @@ export const REMOTE_PROTOCOL_VERSION = 17
  * 老宿主见到更高的号会当成版本信号、要求当场换版,有 agent 在跑也照换。差两档以上才说「太旧」。
  * 下一次加一时,两个下沿跟着抬到新号减一,并删掉上一档的降级。
  */
-export const MIN_CLIENT_PROTOCOL = 15
+export const MIN_CLIENT_PROTOCOL = 16
 /** 桌面 / 手机自己的要求:那台机器报的协议版本低于它 = 那台机器上的咕咕太旧(同样向下兼容一档)。 */
-export const MIN_SERVER_PROTOCOL = 15
+export const MIN_SERVER_PROTOCOL = 16
 
 /** 开窗时报给那台机器的协议:它比这台低、但还在兼容的一档里,就照它的报(见上);说不出 = 报自己的。纯函数。 */
 export function helloProtocol(serverProtocol: number | null | undefined, own = REMOTE_PROTOCOL_VERSION, minServer = MIN_SERVER_PROTOCOL): number {
