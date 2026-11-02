@@ -62,6 +62,11 @@ describe('the listed gugu tools stay within their always-paid budget (#7335)', (
     expect(new Set(tools.map((tool) => tool.name))).toEqual(GUGU_LISTED_TOOLS)
     const perTool = tools.map((tool) => ({ name: tool.name, tokens: cost([tool]) })).sort((a, b) => b.tokens - a.tokens)
     const total = cost(tools)
+    const bytes = Buffer.byteLength(JSON.stringify(tools), 'utf8')
+    const spawn = tools.find(tool => tool.name === 'session_spawn')!
+    const before = structuredClone(tools)
+    delete before.find(tool => tool.name === 'session_spawn')!.inputSchema.properties!.thinking
+    process.stdout.write(`[thinking-schema-bytes] ${JSON.stringify({ total: bytes, spawn: Buffer.byteLength(JSON.stringify(spawn), 'utf8'), added: bytes - Buffer.byteLength(JSON.stringify(before), 'utf8') })}\n`)
     process.stdout.write(`[listed-tools-budget] ${total}/${GUGU_LISTED_TOOLS_TOKEN_BUDGET} ${JSON.stringify(perTool)}\n`)
     expect(total, `listed tools cost ${total}; delete words before adding any`).toBeLessThanOrEqual(GUGU_LISTED_TOOLS_TOKEN_BUDGET)
   })

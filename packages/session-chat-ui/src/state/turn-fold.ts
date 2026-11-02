@@ -610,13 +610,14 @@ export function pendingTurnHeader(
  * 一个会少报的计时器比没有计时器更糟。
  */
 export function turnProcessLabel(
-  process: { live?: boolean; placeholder?: boolean; startedAt?: number; endedAt?: number },
+  process: { live?: boolean; placeholder?: boolean; starting?: boolean; startedAt?: number; endedAt?: number },
   now: number,
   translate: (key: string, vars?: Record<string, string>) => string
 ): string {
   const { live, startedAt, endedAt } = process;
   if (live) {
     // 占位(还没有可折的过程)与「在跑、但这一段不知道从哪开始」是两件事,两句话(#124 review)。
+    if (process.starting) return translate('transcript.starting');
     if (process.placeholder) return translate('transcript.turnPlaceholder');
     if (startedAt === undefined) return translate('transcript.working');
     return translate('transcript.turnElapsed', { elapsed: formatElapsed(Math.max(0, now - startedAt)) });

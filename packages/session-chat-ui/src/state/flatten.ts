@@ -412,7 +412,7 @@ export function flattenTier(
         const output = conversationOutput(block.items, block.live);
         const ops = planRows(outsideProcess(output.rest));
         const process = { id: block.id, ...(block.live ? { live: true } : {}),
-          startedAt: block.startedAt, endedAt: block.endedAt, ...(block.idleMs ? { idleMs: block.idleMs } : {}), steps: output.steps.length,
+          startedAt: block.startedAt, endedAt: block.endedAt, ...(block.idleMs && !block.live ? { idleMs: block.idleMs } : {}), ...(block.live && ctx.pendingStarting?.() ? { starting: true } : {}), steps: output.steps.length,
           ...(ops.length ? {} : { empty: true }) };
         const expanded = ctx.revealAllFolds || turnProcessExpanded(block.live, ctx.isTurnProcessExpanded?.(block.id) ?? false);
         const steps = () => {
@@ -497,7 +497,7 @@ export function flattenTier(
       const pending = pendingTurnHeader(turns[turnIndex] as TranscriptTurn, ctx.active, ctx.foldTurnProcess === true);
       if (pending) {
         emitOps(planRows(outsideProcess(items.slice(0, pending.at))), turn.id);
-        processItem({ kind: 'turn-process', ...pending.header, turnId: turn.id,
+        processItem({ kind: 'turn-process', ...pending.header, turnId: turn.id, ...(ctx.pendingStarting?.() ? { starting: true } : {}),
           ...(pending.at < items.length ? { withBody: true } : {}) });
         emitOps(planRows(outsideProcess(items.slice(pending.at))), turn.id);
       } else if (!ctx.active && turn.id === latestTurnId && isEmptyAgentTurn(turn)) {

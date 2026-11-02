@@ -1076,7 +1076,7 @@ function reduceState(s: ParserState, input: ReducerInput, deps: ReducerDeps): Pa
   if (event.kind === 'message' && event.role === 'user' && event.steering !== true) {
     if (isNewUserMessage(t.active, event, segment)) {
       t = closeActive(t, input.at, undefined, openedAt);
-      t = openTurn(t, deps, 'user', openedAt, event.trigger);
+      t = openTurn(t, deps, 'user', s.replaying ? undefined : event.sentAt ?? openedAt, event.trigger);
       segment = initialSegment();
     }
   }

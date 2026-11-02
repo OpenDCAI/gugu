@@ -3,10 +3,11 @@ export type AgentQuotaReason = 'weekly' | 'monthly' | 'exhausted' | 'rate-limite
 /**
  * Why an agent reply failed, as the host records it on the failure row (see `shared/ui/systemNotice.ts`) and on a forum
  * assignment. Each one is also the key of its line under `agent.turnFailure` in the messaging i18n namespace.
- * notAdmitted = Gugu never handed the batch to the agent; undelivered = no running Gugu instance holds the agent.
+ * notAdmitted = Gugu never handed the batch to the agent; undelivered = no running Gugu instance holds the agent;
+ * outcomeUnknown = Gugu handed it over but cannot know whether the agent took it, and does not resend it.
  */
 export const AGENT_FAILURE_REASONS = [
-  'weeklyQuota', 'monthlyQuota', 'quota', 'rateLimited', 'modelUnavailable', 'authentication', 'network', 'timeout', 'generic', 'notAdmitted', 'undelivered',
+  'weeklyQuota', 'monthlyQuota', 'quota', 'rateLimited', 'modelUnavailable', 'authentication', 'network', 'timeout', 'generic', 'notAdmitted', 'undelivered', 'outcomeUnknown',
 ] as const
 export type AgentFailureReason = (typeof AGENT_FAILURE_REASONS)[number]
 

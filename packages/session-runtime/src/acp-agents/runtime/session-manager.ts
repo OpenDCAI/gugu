@@ -1148,30 +1148,9 @@ export class SessionManager implements InboundRouter {
     });
   }
 
-  async queuePrompt(
-    input: SendPromptInput,
-    startInput?: AcpStartInput,
-  ): Promise<Result<{ queued: boolean }, AcpQueuePromptError>> {
+  async queuePrompt(input: SendPromptInput): Promise<Result<{ queued: boolean }, AcpQueuePromptError>> {
     let record = this.cells.get(input.sessionId);
     if (record?.closing) return acpErr.invalidState('Session is closing; resume it after teardown');
-    if ((!record || record.phase === 'lost') && startInput) {
-      if (startInput.sessionId !== input.sessionId) {
-        return acpErr.invalidState(
-          `Queue prompt session ${input.sessionId} does not match startup session ${startInput.sessionId}`
-        );
-      }
-      const started = this.start(startInput);
-      record = this.cells.get(input.sessionId);
-      if (!record) {
-        const result = await started;
-        if (!result.success) {
-          return acpErr.invalidState(
-            `Cannot queue prompt while session startup failed: ${result.error.message ?? result.error.type}`
-          );
-        }
-        record = this.cells.get(input.sessionId);
-      }
-    }
     if (!record) {
       const starting = this.startingSessions.get(input.sessionId);
       if (starting) {

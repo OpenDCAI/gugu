@@ -145,6 +145,8 @@ export type SegmentCtx = {
    * 只有**最后一档**（active 档）读它 —— 它是贴在列表末尾的一行，不是历史。
    */
   condition?: () => SessionCondition | null;
+  /** The pending prompt's session is still starting: its live line says so. */
+  pendingStarting?: () => boolean;
   /**
    * 此刻还在跑的后台任务,连同那张单子展开着没有。同样只有**最后一档**读它 —— 它贴在列表末尾,不是历史。
    * 一条都没有 ⇒ null。

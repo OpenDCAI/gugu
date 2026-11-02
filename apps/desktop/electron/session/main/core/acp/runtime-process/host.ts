@@ -25,7 +25,6 @@ import { resolveLocalAgentRunContext } from '@main/core/agents/agent-run-context
 import { setProviderSessionId } from '@main/core/sessions/set-session-id';
 import { persistCommittedTurn, storedRevertBoundary, truncateStoredHistory } from '@main/core/sessions/session-turn-store';
 import { createHistoryReverter } from './history-revert';
-import { resumeHistoryFacts } from './resume-history';
 import { connectNativePromptPreparation } from './native-prompt-preparation';
 import { applyTurnToAuthExpiry, type AuthExpiryWriter } from '@main/core/agent-config/auth-expiry-from-turns';
 import { clearProviderSessionMissing, markProviderSessionMissing } from '@main/core/sessions/mark-provider-session-missing';
@@ -37,6 +36,8 @@ import { GUGU_MCP_SERVER_NAME } from '../../../../../mcp/gugu-mcp-name.mjs';
 import { getSessions } from '@main/core/sessions/getSessions';
 import {
   getEmdashMcpInjector,
+  getEmdashIdentityProvisioner,
+  type EmdashSessionIdentity,
   type EmdashSessionCapabilityInjection,
   type SessionPromptDelivery,
 } from '@main/core/acp/emdash-mcp-injector';
@@ -50,24 +51,18 @@ import {
 } from '@main/core/sessions/platform-model-selection';
 import {
   closeRuntimeForkOwnershipForRuntimeSession,
-  recordRuntimeForkOwnership,
 } from '@main/core/sessions/runtime-fork-ownership';
 import { events } from '@main/lib/events';
 import { recordAcpForkHandshake } from '@main/core/agents/fork-legs';
 import { log } from '@main/lib/logger';
-import { createStageLedger } from '@main/lib/stage-ledger';
 import { sessionStartStageChannel } from '@shared/core/sessions/sessionEvents';
 import { desktopWorkerPath } from '@main/worker-manifest';
 import { stripUntrustedSessionAuthority, trustedPlatformInputPatch } from './session-meta';
-import { persistAcpStartResult } from './session-persistence-policy';
-import { notifySessionLive } from '@main/core/sessions/session-message-router';
 
 export { mergeTrustedSessionMeta, stripUntrustedSessionAuthority } from './session-meta';
 
 const ACP_WIRE_CHANNEL = 'acp-wire';
 
-/** #4320 —— 启动比这更久就把分段耗时整份 warn 出来（沿用 #4181 的 30s 节拍）。 */
-const ACP_START_BUDGET_MS = 30_000;
 
 /**
  * 两个注入器都要的、只有这一侧读得到的两个会话事实：composer 当初选的模型来源，以及**显式**给过的名字。
@@ -129,7 +124,7 @@ type SessionInjectionFacts = {
   };
 };
 
-async function readSessionInjectionFacts(input: {
+export async function readSessionInjectionFacts(input: {
   sessionId: string;
   sourceSessionId?: string;
 }): Promise<SessionInjectionFacts> {
@@ -326,12 +321,38 @@ export async function getAcpRuntimeClient(): Promise<AcpRuntimeClient> {
 }
 
 /**
+ * The ACP worker as a session-life process lease: its raw client (no start-owning wrapper) and the two facts
+ * that end every session it hosts — a restart, or an exit without restart.
+ */
+export async function acpWorkerLease(): Promise<{
+  client: AcpRuntimeProcessClient;
+  onGone(listener: (cause: string) => void): () => void;
+}> {
+  rendererWireDispose ??= exposeRendererWire();
+  const handle = await acpWorker.get();
+  return {
+    client: handle.client as AcpRuntimeProcessClient,
+    onGone(listener) {
+      const restarted = handle.onRestarted(() => listener('ACP runtime restarted'));
+      const exited = handle.process.onExit(exit => { if (!exit.willRestart) listener('ACP runtime exited'); });
+      return () => { restarted(); exited(); };
+    },
+  };
+}
+
+/**
  * ACP 运行时**如果已经起着**的 client,否则 `null` —— 不顺手把它叫起来。
  *
  * 收尾路径专用(#4467):worker 没起 ⇒ 这个界面上一条 ACP 会话都不存在 ⇒ 没有令牌、没有 0600 文档、
  * 没有续期定时器要收。这时用 `getAcpRuntimeClient()` 会**为了收尾而先起一个进程**,那是收尾自己
  * 制造出要收的东西。
  */
+/** The raw worker client only if the worker is up (#4467: cleanup never spawns a worker to clean up). */
+export async function peekAcpWorkerClient(): Promise<AcpRuntimeProcessClient | null> {
+  const handle = await acpWorker.peek();
+  return handle ? handle.client as AcpRuntimeProcessClient : null;
+}
+
 export async function peekAcpRuntimeClient(): Promise<AcpRuntimeClient | null> {
   const handle = await acpWorker.peek();
   return handle ? decorateAcpRuntimeHandle(handle).client : null;
@@ -348,7 +369,7 @@ export async function disposeAcpRuntimeProcess(): Promise<void> {
 }
 
 function decorateAcpRuntimeHandle(handle: AcpRuntimeProcessHandle): AcpRuntimeHandle {
-  return { ...handle, client: withProviderSessionIdPersistence(handle.client) };
+  return { ...handle, client: decorateRuntimeClient(handle.client) };
 }
 
 // @@@sessionpage TASKPAGE-FUSION — run the gugu-registered MCP injector at the MAIN-process ACP start
@@ -360,10 +381,12 @@ function decorateAcpRuntimeHandle(handle: AcpRuntimeProcessHandle): AcpRuntimeHa
 // servers, but still carries trusted session metadata and keeps the same host-selected permission mode.
 // 合并说明:`effort`(本 PR,起始推理档)与 `startupOrigin`/`initialMessageId`/`initialQueue`
 // (dev #4612,聊天页首轮走信封)是两侧各自的纯新增,没有语义冲突 —— 取并集,❌ 别二选一。
-async function withEmdashMcpInjection<T extends { input: { sessionId: string; sourceSessionId?: string; projectId: string; workspaceId: string; providerId: string; cwd: string; providerSessionId?: string | null; permissionMode?: GuguPermissionMode; effort?: string | null; startupOrigin?: 'chat-page' | 'session-page'; initialMessageId?: string; taskChatId?: string; initialQueue?: Array<{ text: string; hiddenContext?: string }> } }>(
+export async function withEmdashMcpInjection<T extends { input: { sessionId: string; sourceSessionId?: string; projectId: string; workspaceId: string; providerId: string; cwd: string; providerSessionId?: string | null; permissionMode?: GuguPermissionMode; effort?: string | null; startupOrigin?: 'chat-page' | 'session-page'; initialMessageId?: string; taskChatId?: string; initialQueue?: Array<{ text: string; hiddenContext?: string }> } }>(
   input: T,
   lifecycle: 'fresh' | 'fork' | 'resume',
   facts: SessionInjectionFacts,
+  identity: EmdashSessionIdentity | null,
+  firstTurnText?: string,
 ): Promise<{
   command: T;
   mcpServers?: EmdashSessionCapabilityInjection['mcpServers'];
@@ -375,6 +398,7 @@ async function withEmdashMcpInjection<T extends { input: { sessionId: string; so
   platformModel?: string;
   platformAccessSessionId?: string;
   extensionDelivery?: SessionExtensionDelivery;
+  firstTurn?: EmdashSessionCapabilityInjection['firstTurn'];
 }> {
   const injector = getEmdashMcpInjector();
   // ⚠️ 档位必须在**调注入器之前**解析：会话包是在 spawn 那一刻物化的，晚一步递过去
@@ -410,7 +434,7 @@ async function withEmdashMcpInjection<T extends { input: { sessionId: string; so
     startupOrigin: input.input.startupOrigin,
     initialMessageId: input.input.initialMessageId,
     taskChatId: input.input.taskChatId,
-    initialMessageText: input.input.initialQueue?.[0]?.text,
+    initialMessageText: firstTurnText,
     // @@@5004 行上有没有 provider session 是「首次 spawn / 重来」与「重开」的分水岭;注入器据此判
     // 「sessionId 为空却没带首句载荷」这种不一致,❌ 不再拿 lifecycle=fresh 当首次 spawn 用。
     //
@@ -420,7 +444,7 @@ async function withEmdashMcpInjection<T extends { input: { sessionId: string; so
     // 要不要再投一次 ⇒ 读错的后果是**开场白重投**或**启动被误拒**,而两者都不会指向真因。
     // 同一次 start 的两级注入必须看同一个值,❌ 不许一级读记录、另一级读渲染端。
     providerSessionId: facts.providerSessionId,
-  });
+  }, identity);
   if (process.env.GUGU_DEBUG_AUTONOMY === '1') {
     log.warn('autonomy-debug: ACP start input', {
       sessionId: input.input.sessionId,
@@ -436,9 +460,9 @@ async function withEmdashMcpInjection<T extends { input: { sessionId: string; so
       input: {
         ...input.input,
         permissionMode,
-        ...(injection.initialQueue ? { initialQueue: injection.initialQueue } : {}),
       },
     },
+    firstTurn: injection.firstTurn,
     mcpServers: injection.mcpServers,
     capabilitySpawnEnv: injection.spawnEnv,
     capabilitySpawnArgs: injection.spawnArgs,
@@ -461,7 +485,24 @@ async function withEmdashMcpInjection<T extends { input: { sessionId: string; so
 // 而积分早已按平台会话预留。首轮完全正常,只在重开时发作。
 //
 // 钩子抛错就让 startSession 抛出去:选了平台模型却签不出令牌,这条会话本来就不该开。
-async function withEmdashPlatformInjection<T extends { input: { sessionId: string; sourceSessionId?: string; forkFromProviderSessionId?: string; projectId: string; workspaceId: string; providerId: string; cwd: string; effort?: string | null; providerSessionId?: string | null } }>(
+/** The one identity step of an ACP start; the capability injector only consumes its result. */
+export function provisionStartIdentity(
+  input: { sessionId: string; sourceSessionId?: string; providerId: string; projectId: string; cwd: string },
+  lifecycle: 'fresh' | 'fork' | 'resume',
+  facts: Pick<SessionInjectionFacts, 'agentDisplayName'>,
+): Promise<EmdashSessionIdentity | null> {
+  return getEmdashIdentityProvisioner()({
+    sessionId: input.sessionId,
+    sourceSessionId: input.sourceSessionId,
+    providerId: input.providerId,
+    projectId: input.projectId,
+    cwd: input.cwd,
+    displayName: facts.agentDisplayName,
+    lifecycle,
+  });
+}
+
+export async function withEmdashPlatformInjection<T extends { input: { sessionId: string; sourceSessionId?: string; forkFromProviderSessionId?: string; projectId: string; workspaceId: string; providerId: string; cwd: string; effort?: string | null; providerSessionId?: string | null } }>(
   input: T,
   lifecycle: 'fresh' | 'fork' | 'resume',
   facts: SessionInjectionFacts,
@@ -568,304 +609,63 @@ function reportUnpinnedPlatformModel<C extends { input: { sessionId: string; pro
   return command;
 }
 
-// 一个 worker client 只配一个包装:下面的启动属主状态属于**这个 worker**,不属于某次 `getAcpRuntimeClient()`
-// 调用。每次调用各包一层 = 各有一份在途表,并入同一次启动就只在同一调用方之内成立。
-// worker 重启会换 client ⇒ 状态随之清空,正对上「重启后的 worker 没有任何会话」。
-const runtimeClients = new WeakMap<ContractClient<AcpRuntimeApiContract>, AcpRuntimeClient>();
-
-function withProviderSessionIdPersistence(client: ContractClient<AcpRuntimeApiContract>): AcpRuntimeClient {
-  const existing = runtimeClients.get(client);
-  if (existing) return existing;
-  const wrapped = createStartOwningClient(client);
-  runtimeClients.set(client, wrapped);
-  return wrapped;
+async function closeAcpBrowserToolsBestEffort(sessionId: string): Promise<void> {
+  const { stopHumanToolWaits } = await import('../../asks/human-tool-wait');
+  stopHumanToolWaits(sessionId);
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let active = true;
+  try {
+    await Promise.race([
+      import('../../../../../browser-agent-mcp').then(module => active ? module.closeSessionBrowserTools(sessionId) : undefined),
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => reject(new Error('Browser tool cleanup timed out after 1000ms')), 1_000);
+      }),
+    ]);
+  } catch (error) {
+    log.warn('acp stop: browser tool cleanup failed', { sessionId, error: String(error) });
+  } finally { active = false; if (timer) clearTimeout(timer); }
 }
 
-export function createStartOwningClient(client: ContractClient<AcpRuntimeApiContract>): AcpRuntimeClient {
+/** The worker's stop has its own deadline: a stop that does not answer in 12 s is a failed stop. */
+async function stopAcpWorkerSession(
+  client: ContractClient<AcpRuntimeApiContract>,
+  input: Parameters<ContractClient<AcpRuntimeApiContract>['stopSession']>[0],
+  meta?: Parameters<ContractClient<AcpRuntimeApiContract>['stopSession']>[1],
+) {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      client.stopSession(input, meta as never),
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => reject(new Error('ACP worker stop timed out after 12000ms')), 12_000);
+      }),
+    ]);
+  } catch (error) {
+    log.warn('acp stop: worker teardown failed', { sessionId: input.sessionId, error: String(error) });
+    return acpErr.stopFailed({ name: 'StopFailed', message: String(error) });
+  } finally { if (timer) clearTimeout(timer); }
+}
+
+/**
+ * The one ACP session stop: worker stop (with its deadline) and browser tools, then — only once the worker no longer
+ * owns the process — fork ownership and the platform ticket. Throws while the worker still owns the process.
+ */
+export async function stopAcpSessionAndSettle(client: ContractClient<AcpRuntimeApiContract>, sessionId: string): Promise<void> {
+  const [result] = await Promise.all([stopAcpWorkerSession(client, { sessionId }), closeAcpBrowserToolsBestEffort(sessionId)]);
+  if (!result.success && await (client as AcpRuntimeProcessClient).adapterProvenance({ sessionId }) !== null) {
+    throw new Error(`ACP session ${sessionId} did not stop: ${result.error.message ?? result.error.type}`);
+  }
+  await closeRuntimeForkOwnershipForRuntimeSession(sessionId);
+  await releaseEmdashPlatformSession(sessionId);
+}
+
+/**
+ * The host's decoration of the worker client: the turn-side operations the host owns too (human-tool waits and
+ * browser tools on cancel, stored history on revert). Starting and stopping a session is not here: session-life is
+ * the only start owner and stopper, for persisted sessions and side chats alike.
+ */
+function decorateRuntimeClient(client: ContractClient<AcpRuntimeApiContract>): AcpRuntimeClient {
   const detachedClient = client as AcpRuntimeProcessClient;
-  type StartCall = Parameters<AcpRuntimeClient['startSession']>;
-  type StartResult = Awaited<ReturnType<AcpRuntimeClient['startSession']>>;
-  type PreparedStart = Awaited<ReturnType<typeof prepareStart>>;
-  /** `stopped`:准备还没做完就被停了 —— 准备一完 ❌ 再交给 worker(见下面 `startOnce`)。 */
-  type StartOperation = {
-    prepared: Promise<PreparedStart>;
-    result: Promise<StartResult>;
-    stopped: boolean;
-    projectId: string;
-  };
-
-  /**
-   * 准备(注入)途中被停掉的那次启动:❌ 交给 worker。那时 worker 里还没有这条会话,停止递过去扑空 ——
-   * 准备一完照样起,用户按了停止、会话却起来了(behavior session-page「打开速度」:会话建立途中能停)。
-   * 准备里签出的平台票在这里结清:停止那一刻的结清可能早于签票。
-   */
-  async function settleStoppedStart(sessionId: string, projectId: string): Promise<void> {
-    try {
-      // 用时再 import(同 agent-hook-service 的做法):❌ 让宿主一起来就把状态写入那一整套拉进来。
-      const { agentStatusWriter } = await import('@main/core/agent-status/agent-status-writer');
-      await agentStatusWriter.interrupt({ sessionId, projectId });
-    } catch (error) {
-      log.warn('acp stop: could not settle the status of a stopped start', { sessionId, error: String(error) });
-    }
-  }
-
-  async function stoppedBeforeWorker(start: PreparedStart): Promise<StartResult> {
-    const sessionId = start.injected.input.sessionId;
-    start.ledger.settle({ success: false });
-    await releaseEmdashPlatformSession(sessionId);
-    log.info('acp start: stopped before it reached the worker', { sessionId });
-    return acpErr.invalidState(`Session ${sessionId} was stopped before its start reached the runtime`);
-  }
-
-  // A failed stop remains owned by its old process until actual teardown completes.
-  async function finishClosingProcess(sessionId: string): Promise<void> {
-    const owner = await detachedClient.adapterProvenance({ sessionId });
-    if (!owner?.closing) return;
-    const stopped = await stopWorker({ sessionId }, undefined as never);
-    if (!stopped.success) throw new Error(`ACP process teardown did not complete: ${stopped.error.message ?? stopped.error.type}`);
-    await closeRuntimeForkOwnershipForRuntimeSession(sessionId);
-    await releaseEmdashPlatformSession(sessionId);
-  }
-
-  // 主进程这一段做三件互相独立的事(能力注入 / 平台注入 / 定 CLI),产出的是 worker 该拿去起会话的那份输入。
-  async function prepareStart(input: StartCall[0]) {
-    const lifecycle = input.input.forkFromProviderSessionId ? 'fork' : 'fresh';
-    // #4320 —— ACP 启动边界的分段账本。过去这三件事合成一个不透明的 await：一次 69.6s 的 spawn 里，
-    // 日志说不出是哪一件慢。预算取 #4181 报 still-running 的同一个 30s 节拍。
-    const ledger = createStageLedger({
-      scope: 'sessionpage/acp-start',
-      what: 'acp session start',
-      fields: {
-        sessionId: input.input.sessionId,
-        providerId: input.input.providerId,
-        lifecycle,
-      },
-      budgetMs: ACP_START_BUDGET_MS,
-    });
-    const mark = (stage: string, extra?: Record<string, unknown>) => ledger.mark(stage, extra);
-    // 准备这一段抛出(例如平台签发被网关 429 拒掉)时,账本里要有这一格:否则日志停在上一段,
-    // 读起来像「还在跑」,而错误本身只以 `HANDLER_ERROR` 的形状到渲染层,原因丢了。
-    try {
-      await finishClosingProcess(input.input.sessionId);
-      const facts = await readSessionInjectionFacts(input.input);
-      mark('session-facts-read');
-      const capabilityInjection = await withEmdashMcpInjection(input, lifecycle, facts);
-      mark('capability-injected');
-      const platformInjection = await withEmdashPlatformInjection(
-        capabilityInjection.command,
-        lifecycle,
-        facts,
-        capabilityInjection.mcpServers,
-        capabilityInjection.sessionPrompt,
-        capabilityInjection.sessionMeta,
-        capabilityInjection.capabilitySpawnEnv,
-        capabilityInjection.capabilitySpawnArgs,
-        capabilityInjection.platformConfigured,
-        capabilityInjection.platformAccessSessionId,
-        capabilityInjection.platformModel,
-      );
-      mark('platform-injected', { injected: platformInjection.injected });
-      const resolved = await withHostResolvedCli(platformInjection.command);
-      mark('run-context-resolved', { resolved: resolved.input.runContext.cli.kind === 'resolved' });
-      const resumeHistory = await resumeHistoryFacts(resolved.input, {});
-      mark('resume-history-read', { replay: resumeHistory.replayHistory !== false });
-      const injected = { ...resolved, input: { ...resolved.input, ...resumeHistory } };
-      if (injected.input.sourceSessionId && injected.input.forkFromProviderSessionId) {
-        log.info('acp runtime fork source injected', {
-          sessionId: injected.input.sessionId,
-          sourceSessionId: injected.input.sourceSessionId,
-          sourceProviderSessionId: injected.input.forkFromProviderSessionId,
-          sourceProviderSessionEndpoint: facts.sourceSession?.providerSessionEndpoint,
-        });
-      }
-      return {
-        injected,
-        platformInjected: platformInjection.injected,
-        facts,
-        ledger,
-        mark,
-        extensionDelivery: capabilityInjection.extensionDelivery,
-      };
-    } catch (error) {
-      mark('preparation-failed', { error: error instanceof Error ? error.message : String(error) });
-      log.error('session/acp-start: preparation failed', {
-        sessionId: input.input.sessionId,
-        providerId: input.input.providerId,
-        error,
-      });
-      throw error;
-    }
-  }
-
-  async function finishStart(start: PreparedStart, meta: StartCall[1]): Promise<StartResult> {
-    const { injected, facts, ledger, mark, extensionDelivery } = start;
-    let result: StartResult;
-    try {
-      result = await callSessionStart(
-        () => client.startSession(injected, meta),
-        injected.input.sessionId,
-        start.platformInjected
-      );
-    } catch (error) {
-      log.error('session/acp-start: worker call failed', {
-        sessionId: injected.input.sessionId,
-        providerId: injected.input.providerId,
-        error,
-      });
-      throw error;
-    }
-    mark('worker-start-returned', { success: result.success });
-    await persistAcpStartResult(injected.input, result, {
-      persistReturnedProviderSessionId,
-      persistProviderSessionMissing,
-      recordRuntimeForkOwnership,
-    });
-    if (result.success) {
-      // 运行时此刻登记了这条会话:ACP 腿真正可投递的边界(复用路径上身份更早就绪,那一脚被拒,靠这里补上)。
-      notifySessionLive(injected.input.sessionId);
-      void import('../../asks/human-tool-wait').then(({ restoreHumanToolResults }) =>
-        restoreHumanToolResults(injected.input.sessionId, injected.input.projectId, true))
-        .catch(error => log.error('Human tool results could not resume', { sessionId: injected.input.sessionId, error: String(error) }));
-      // ⚠️ ❌ **不 await** —— 它是一份 best-effort 的记录,而这里是会话启动的**响应路径**。
-      //    await 它等于把「面板下次显示得准不准」挡在「用户能不能开始说话」前面:
-      //    里面那次 `listForAgent` 只要慢一下,RPC 的响应就被推迟,而渲染层等的正是它,
-      //    表现是**后端好好的、agent 能回话,而界面一直 Loading / 一条气泡都没有**。
-      //    (它失败本来就只 warn ⇒ 更没有理由让它拖住启动。)
-      void persistSessionMcpServers(
-        injected.input.sessionId,
-        injected.input.providerId,
-        injected.input.cwd,
-        facts.mcpDisabledServers,
-        extensionDelivery
-      );
-    }
-    ledger.settle({ success: result.success });
-    return result;
-  }
-
-  // @@@one-start-owner (#5233) —— 一条会话的启动在主进程只有**一个**属主。
-  //
-  // 启动有两个入口:`startSession`,以及启动途中排队的那一句(`queuePrompt` 带 `startInput`,
-  // worker 在会话还不存在时拿它直接起会话)。worker 按 conversationId 去重、**先到的那份赢**,
-  // 后到的整份输入被丢掉。从前只有 `startSession` 做会话事实 / 能力 / 平台三步注入,排队那条只补 CLI ——
-  // 于是编辑器一出现就发的那一句只要先到 worker,会话就以「无平台凭据、无咕咕 MCP、无系统块」起来:
-  // claude 落回本机自家账号(mac1 实测 403),而界面照旧写着咕咕的模型。
-  //
-  // ⇒ 两个入口都加入**同一个**在途启动:注入只做一次(平台令牌只签一张),交给 worker 的是同一份输入,
-  //    谁先到 worker 都无所谓。排队那一句只等「输入准备好」,不等会话起完 —— 它照旧进 runtime 的启动队列。
-  // ❌ 别让排队那条再各自准备一份:那是第二次签令牌,输掉的那张在 worker 里没有主人。
-  //    会话此刻在 worker 里活着时,排队那一句不再带启动输入 —— 会话在,就交给它的排队入口:那里按到达那一刻
-  //    判,空闲就当场开一轮(#6762)。聊天面还没挂上会话时发的话多半就走这支,「只是排队」会让它停在空闲会话里。
-  //    「活着」只问 worker(`adapterProvenance`,只对 ready 记录非空),宿主 ❌ 不另记一份:
-  //    适配器异常退出时宿主收不到「停」,自记的那份就会说「在」,把启动输入剥掉,
-  //    而 worker 手里只剩一条 lost 记录 —— 那句话被拒,会话也没重起(#5233 评审,单测 A 实测)。
-  //    停会话先撤掉在途启动:停之后的下一次启动必须是新的一次,❌ 并入一个刚被停掉的启动
-  //    (它的结果是「起来了」,它手里那张平台票已经被停会话结清)。
-  const startsInFlight = new Map<string, StartOperation>();
-  const stopsInFlight = new Map<string, ReturnType<typeof client.stopSession>>();
-  const conditionalStops = new Set<string>();
-  async function closeBrowserToolsBestEffort(sessionId: string): Promise<void> {
-    const { stopHumanToolWaits } = await import('../../asks/human-tool-wait');
-    stopHumanToolWaits(sessionId);
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    let active = true;
-    try {
-      await Promise.race([
-        import('../../../../../browser-agent-mcp').then(module => active ? module.closeSessionBrowserTools(sessionId) : undefined),
-        new Promise<never>((_resolve, reject) => {
-          timer = setTimeout(() => reject(new Error('Browser tool cleanup timed out after 1000ms')), 1_000);
-        }),
-      ]);
-    } catch (error) {
-      log.warn('acp stop: browser tool cleanup failed', { sessionId, error: String(error) });
-    } finally { active = false; if (timer) clearTimeout(timer); }
-  }
-  async function stopWorker(input: Parameters<typeof client.stopSession>[0], meta: Parameters<typeof client.stopSession>[1]) {
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    try {
-      return await Promise.race([
-        client.stopSession(input, meta),
-        new Promise<never>((_resolve, reject) => {
-          timer = setTimeout(() => reject(new Error('ACP worker stop timed out after 12000ms')), 12_000);
-        }),
-      ]);
-    } catch (error) {
-      log.warn('acp stop: worker teardown failed', { sessionId: input.sessionId, error: String(error) });
-      return acpErr.stopFailed({ name: 'StopFailed', message: String(error) });
-    } finally { if (timer) clearTimeout(timer); }
-  }
-  async function waitForStop(sessionId: string): Promise<void> {
-    const stopping = stopsInFlight.get(sessionId);
-    if (!stopping) return;
-    const result = await stopping;
-    if (!result.success && (await detachedClient.adapterProvenance({ sessionId }))?.closing) {
-      throw new Error(`ACP process teardown did not complete: ${result.error.message ?? result.error.type}`);
-    }
-  }
-  const startOnce = async (input: StartCall[0], meta: StartCall[1]): Promise<StartOperation> => {
-    const sessionId = input.input.sessionId;
-    // Teardown owns credentials too: do not prepare a replacement while its old stop can revoke it.
-    while (stopsInFlight.has(sessionId)) await waitForStop(sessionId);
-    const inFlight = startsInFlight.get(sessionId);
-    if (inFlight) return inFlight;
-    const prepared = prepareStart(input);
-    const operation: StartOperation = {
-      prepared,
-      result: Promise.resolve() as never,
-      stopped: false,
-      projectId: input.input.projectId,
-    };
-    operation.result = prepared.then((start) =>
-      operation.stopped ? stoppedBeforeWorker(start) : finishStart(start, meta));
-    startsInFlight.set(sessionId, operation);
-    const clear = (): void => {
-      if (startsInFlight.get(sessionId) === operation) startsInFlight.delete(sessionId);
-    };
-    void operation.result.then(clear, clear);
-    return operation;
-  };
-
-  const stopSession: typeof client.stopSession = (input, meta) => {
-    const pending = stopsInFlight.get(input.sessionId);
-    if (pending) {
-      // An unconditional user stop must still run when idle reclamation declines.
-      if (!input.onlyIfIdle && conditionalStops.has(input.sessionId)) {
-        return pending.then(() => stopSession(input, meta));
-      }
-      return pending;
-    }
-    const inFlight = startsInFlight.get(input.sessionId);
-    if (!input.onlyIfIdle && inFlight) inFlight.stopped = true;
-    if (input.onlyIfIdle) conditionalStops.add(input.sessionId);
-    const operation = Promise.resolve().then(async () => {
-      const idleStop = input.onlyIfIdle ? await stopWorker(input, meta) : null;
-      if (idleStop && !idleStop.success) {
-        if (await detachedClient.adapterProvenance({ sessionId: input.sessionId }) === null) {
-          await closeRuntimeForkOwnershipForRuntimeSession(input.sessionId);
-          await releaseEmdashPlatformSession(input.sessionId);
-        }
-        return idleStop;
-      }
-      if (inFlight) inFlight.stopped = true;
-      if (startsInFlight.get(input.sessionId) === inFlight) startsInFlight.delete(input.sessionId);
-      const [result] = await Promise.all([idleStop ?? stopWorker(input, meta), closeBrowserToolsBestEffort(input.sessionId)]);
-      // Lost replies do not retain credentials after the worker proves the process is gone.
-      if (!result.success && await detachedClient.adapterProvenance({ sessionId: input.sessionId }) !== null) return result;
-      await closeRuntimeForkOwnershipForRuntimeSession(input.sessionId);
-      await releaseEmdashPlatformSession(input.sessionId);
-      if (inFlight) await settleStoppedStart(input.sessionId, inFlight.projectId);
-      return result;
-    });
-    stopsInFlight.set(input.sessionId, operation);
-    const clear = (): void => {
-      if (stopsInFlight.get(input.sessionId) !== operation) return;
-      stopsInFlight.delete(input.sessionId);
-      conditionalStops.delete(input.sessionId);
-    };
-    void operation.then(clear, clear);
-    return operation;
-  };
-
   return {
     ...client,
     cancelTurn: async (input, meta) => {
@@ -887,98 +687,7 @@ export function createStartOwningClient(client: ContractClient<AcpRuntimeApiCont
     adapterProvenance: (input) => detachedClient.adapterProvenance(input),
     promptDetached: (input) => detachedClient.promptDetached(input),
     waitPromptDetached: (input) => detachedClient.waitPromptDetached(input),
-    announceSession: async (input) => {
-      // #7103 取票被拒只对**进行中的那一轮**有意义(还在起的会话没有这一轮,cell 不收),而回绝取票在等它送到:
-      // ❌ 等启动 —— 那会把要票的那一家一起卡住。
-      if (input.credentialRefusal !== undefined) return detachedClient.announceSession(input);
-      // 这条会话正在起 ⇒ 只等到它交给 worker(注入做完、startSession 已发出),❌ 不等它起完:
-      // 首句在起完那一刻就发出去了,等到那时再递,agent 的首轮就还用着旧名字(#6396 实机撞到)。
-      // worker 在 start 被调用的那一拍就建了记录,起到一半递进去的,随首轮进去。
-      const inFlight = startsInFlight.get(input.sessionId);
-      await inFlight?.prepared.catch(() => undefined);
-      const delivered = await detachedClient.announceSession(input);
-      if (delivered.delivered || !inFlight) return delivered;
-      // 万一告知赶在 startSession 之前到了 worker:等这次启动落定再问一次,会话起来了就还能画上那一行。
-      await inFlight.result.catch(() => undefined);
-      return detachedClient.announceSession(input);
-    },
-    queuePrompt: async (input, meta) => {
-      const { startInput: rendererStartInput, ...queued } = input;
-      if (!rendererStartInput) return client.queuePrompt(queued, meta);
-      const sessionId = rendererStartInput.sessionId;
-      if (!startsInFlight.has(sessionId)) {
-        const owner = await detachedClient.adapterProvenance({ sessionId });
-        if (owner !== null && !owner.closing) {
-          log.info('acp queue-with-start: forwarded to a live session', { sessionId, branch: 'forward-live' });
-          return client.queuePrompt(queued, meta);
-        }
-      }
-      // 哪一支由这一行说 —— 「排队首句走了哪条路」否则只能从症状倒推。
-      log.info('acp queue-with-start: joins the session start', {
-        sessionId,
-        branch: startsInFlight.has(sessionId) ? 'join-in-flight' : 'start',
-      });
-      // 要续哪个 provider 会话(#5869)、跑哪一份 CLI(#5681)、带哪张平台票,都由同一次启动准备定 ——
-      // ❌ 不用渲染进程递来的那份输入。准备失败(例如选了平台模型却签不出票)就原样抛给渲染层。
-      const operation = await startOnce({ input: rendererStartInput }, meta);
-      const { injected } = await operation.prepared;
-      // 加入的那次启动在准备途中被停了:❌ 带着启动输入去 worker —— 那会把刚停掉的会话又起起来。
-      if (operation.stopped) {
-        return acpErr.invalidState(`Session ${sessionId} was stopped before its start reached the runtime`);
-      }
-      return client.queuePrompt({ ...queued, startInput: injected.input }, meta);
-    },
-    // #6552 会话还在起的时候用户选了模型 / 强度:worker 在启动的「设模型/强度」那一步采用它。
-    // 这条会话的启动还在主进程准备(注入)的话,worker 那边还没有它 ⇒ 等到启动交给 worker 再递 ——
-    // 与上面 announceSession 同一个等法;❌ 不等启动起完(那一步早过了,选择就成了第二次热切)。
-    setModelOption: async (input, meta) => {
-      await startsInFlight.get(input.sessionId)?.prepared.catch(() => undefined);
-      return client.setModelOption(input, meta);
-    },
-    startSession: async (input, meta) => (await startOnce(input, meta)).result,
-    stopSession,
-    resumeSession: async (input, meta) => {
-      while (stopsInFlight.has(input.input.sessionId)) await waitForStop(input.input.sessionId);
-      await finishClosingProcess(input.input.sessionId);
-      // 重开同样要带注入 —— 见 withEmdashPlatformInjection 抬头那段:漏在这里,首轮正常、重开翻车。
-      const resumeFacts = await readSessionInjectionFacts(input.input);
-      const capabilityInjection = await withEmdashMcpInjection(input, 'resume', resumeFacts);
-      const platformInjection = await withEmdashPlatformInjection(
-        capabilityInjection.command,
-        'resume',
-        resumeFacts,
-        capabilityInjection.mcpServers,
-        capabilityInjection.sessionPrompt,
-        capabilityInjection.sessionMeta,
-        capabilityInjection.capabilitySpawnEnv,
-        capabilityInjection.capabilitySpawnArgs,
-        capabilityInjection.platformConfigured,
-        capabilityInjection.platformAccessSessionId,
-        capabilityInjection.platformModel,
-      );
-      const injected = await withHostResolvedCli(platformInjection.command);
-      const result = await callSessionStart(
-        () => client.resumeSession(injected, meta),
-        injected.input.sessionId,
-        platformInjection.injected
-      );
-      if (result.success) {
-        await persistReturnedProviderSessionId(injected.input.sessionId, result.data.providerSessionId);
-        // 重开这条路**同样要写**:`/mcp` 的开关正是经重开生效的 ——
-        // 只在 fresh 那条写,用户每关掉一台之后看到的都还是上一次的事实。
-        // ⚠️ 同样❌不 await,理由见上面那一处。
-        void persistSessionMcpServers(
-          injected.input.sessionId,
-          injected.input.providerId,
-          injected.input.cwd,
-          resumeFacts.mcpDisabledServers,
-          capabilityInjection.extensionDelivery
-        );
-      } else if (result.error.type === 'provider_session_missing') {
-        await persistProviderSessionMissing(injected.input.sessionId, injected.input.providerSessionId);
-      }
-      return result;
-    },
+    announceSession: (input) => detachedClient.announceSession(input),
   };
 }
 
@@ -992,7 +701,7 @@ export function createStartOwningClient(client: ContractClient<AcpRuntimeApiCont
  * 解析失败不在这里抛:它作为 `unresolved` 带着解析器的诊断原文进 worker,由会话边界照常报成
  * 「起不来」—— 与从前 worker 自己找不到时用户看到的是同一条路,只是消息换成了真正的原因。
  */
-async function withHostResolvedCli<T extends { input: { providerId: string; sessionId: string; sourceSessionId?: string } }>(
+export async function withHostResolvedCli<T extends { input: { providerId: string; sessionId: string; sourceSessionId?: string } }>(
   command: T
 ): Promise<T & { input: T['input'] & { runContext: AgentRunContext } }> {
   const sessionId = command.input.sessionId;
@@ -1018,7 +727,7 @@ async function withHostResolvedCli<T extends { input: { providerId: string; sess
   return { ...command, input: { ...command.input, runContext } };
 }
 
-async function callSessionStart<T extends { success: boolean }>(
+export async function callSessionStart<T extends { success: boolean }>(
   start: () => Promise<T>,
   sessionId: string,
   platformInjected: boolean
@@ -1048,7 +757,7 @@ async function callSessionStart<T extends { success: boolean }>(
  * 失败只 warn:它跑在启动成功之后,抛出去会把一次成功的启动变成失败,而写丢了只是
  * 面板这一次退回用意图算,下次重开自愈。代价不对称。
  */
-async function persistSessionMcpServers(
+export async function persistSessionMcpServers(
   sessionId: string,
   providerId: string,
   cwd: string,
@@ -1073,7 +782,7 @@ async function persistSessionMcpServers(
   }
 }
 
-async function persistReturnedProviderSessionId(sessionId: string, providerSessionId: string): Promise<void> {
+export async function persistReturnedProviderSessionId(sessionId: string, providerSessionId: string): Promise<void> {
   const result = await setProviderSessionId(sessionId, providerSessionId);
   if (!result.success) {
     log.warn('ACP runtime failed to persist returned session id', {
@@ -1088,7 +797,7 @@ async function persistReturnedProviderSessionId(sessionId: string, providerSessi
   }
 }
 
-async function persistProviderSessionMissing(
+export async function persistProviderSessionMissing(
   sessionId: string,
   providerSessionId: string
 ): Promise<void> {
@@ -1114,7 +823,7 @@ function exposeRendererWire(): () => void {
     },
     () => acpWorker.get(),
     (handle) =>
-      withValidation(acpApiContract, forwardController(acpApiContract, withProviderSessionIdPersistence(handle.client)), runtimeWireValidationPolicy()),
+      withValidation(acpApiContract, forwardController(acpApiContract, decorateRuntimeClient(handle.client)), runtimeWireValidationPolicy()),
     { channel: ACP_WIRE_CHANNEL }
   );
 }

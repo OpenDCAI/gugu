@@ -1,3 +1,4 @@
+import { workspaceSession } from '@shared/extensions/app-runtime-protocol';
 import type { BridgeCaller } from './extension-bridge';
 import type { ExtensionProjections } from './extension-projections';
 
@@ -16,11 +17,11 @@ export class ProjectionMediaAccess {
   constructor(private readonly resources: ExtensionProjections, private readonly epochOf: (pageId: number) => number) {}
 
   open(caller: BridgeCaller, sourceId: string) {
-    if (caller.kind !== 'page' || !caller.binding?.sessionId) throw new Error('Projection media needs a bound task page');
-    const { extensionId, pageId } = caller, sessionId = caller.binding.sessionId, epoch = this.epochOf(pageId);
+    if (caller.kind !== 'page' || !workspaceSession(caller.binding)) throw new Error('Projection media needs a bound task page');
+    const { extensionId, pageId } = caller, sessionId = workspaceSession(caller.binding)!, epoch = this.epochOf(pageId);
     return this.openBinding({ extensionId, sessionId, pageId, epoch, assertCurrent: () => {
       if (caller.kind !== 'page' || caller.extensionId !== extensionId || caller.pageId !== pageId
-        || caller.binding?.sessionId !== sessionId || this.epochOf(pageId) !== epoch) {
+        || workspaceSession(caller.binding) !== sessionId || this.epochOf(pageId) !== epoch) {
         throw new Error('Projection media page binding changed');
       }
     } }, sourceId);

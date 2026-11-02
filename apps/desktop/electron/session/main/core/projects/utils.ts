@@ -1,3 +1,6 @@
+import { eq } from 'drizzle-orm';
+import { db } from '@main/db/client';
+import { workspaces } from '@main/db/schema';
 import { workspaceRegistry } from '@main/core/workspaces/workspace-registry';
 import { sessionWorkspaceManager } from '../sessions/session-workspace-manager';
 
@@ -8,6 +11,11 @@ export function resolveSession(_projectId: string, sessionId: string) {
 
 export function resolveWorkspace(_projectId: string, workspaceId: string) {
   return workspaceRegistry.get(workspaceId) ?? null;
+}
+
+/** A workspace's path from its persisted record: the path mounting it uses, known before (or without) mounting it. */
+export function persistedWorkspacePath(workspaceId: string): string | null {
+  return db.select({ path: workspaces.path }).from(workspaces).where(eq(workspaces.id, workspaceId)).get()?.path ?? null;
 }
 
 export class TimeoutSignal extends Error {

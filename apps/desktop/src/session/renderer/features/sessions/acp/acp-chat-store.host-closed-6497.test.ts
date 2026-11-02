@@ -12,8 +12,8 @@
  * ## 现在的合同
  *
  * 运行时在 dispose 之前最后发一次 `lifecycle: 'closed'`(见 session-manager.test.ts 同号用例)。
- * 这一侧收到它:退订、`session` 置空,记录留在屏上,**不**当场重起;下一句按首次打开那条路重新起来
- * (开场 + 启动队列同时发出,主进程把两者并成一次启动)。句柄留着:它的副本跟着会话 id 走,
+ * 这一侧收到它:退订、`session` 置空,记录留在屏上,**不**当场重起;下一句经 custody 交给宿主,由宿主的
+ * session-life 起它(页面从不自己起)。句柄留着:它的副本跟着会话 id 走,
  * 宿主自己把会话再拉起来(定时、投递、重开)时重新 seed,这一侧随即重挂(10-19)。
  *
  * ## 判据能判假吗
@@ -25,10 +25,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { translateSessionMessage } from '@renderer/localization/locale-store';
 import { runInAction } from 'mobx';
 
-const startupQueue = vi.fn().mockResolvedValue({ success: true, data: { queued: true } });
-vi.mock('@renderer/lib/acp/runtime-client', () => ({
-  getAcpRuntimeClient: async () => ({ queuePrompt: startupQueue }),
-}));
+const custody = vi.fn(async () => {});
+vi.mock('./queue-native-input', () => ({ sendThroughCustody: custody, canQueueNativeInput: () => false }));
 
 const toasts: Array<{ title: string }> = [];
 vi.mock('@renderer/lib/hooks/use-toast', () => ({
@@ -115,7 +113,6 @@ function fakeSession() {
 type Internal = {
   _bootstrapped: boolean;
   _bootstrapsInFlight: number;
-  _startInput: () => unknown;
   _subscribeLiveSession: (session: unknown) => void;
   _runBootstrap: () => Promise<void>;
 };
@@ -125,7 +122,6 @@ function attachedStore() {
   seq += 1;
   const store = new AcpChatStore(`conv-6497-${seq}`, 'proj-1');
   const internal = store as unknown as Internal;
-  internal._startInput = () => ({ sessionId: store.sessionId });
   // 与真开场一样,进门头一件事是记下「开场在路上」(见 `_runBootstrap`);这里不往下跑 —— 用例要的就是
   // 「开场还在路上」那一段。少了这一笔,桩会让 store 以为没有开场在跑。
   const boot = vi.spyOn(internal, '_runBootstrap').mockImplementation(async () => {
@@ -145,11 +141,11 @@ function attachedStore() {
 
 beforeEach(() => {
   toasts.length = 0;
-  startupQueue.mockClear();
+  custody.mockClear();
 });
 
 describe('#6497 宿主停掉会话之后的聊天面', () => {
-  it('makes a lost executor resumable by the next prompt through the same startup queue', async () => {
+  it('makes a lost executor resumable by the next prompt through the custody send', async () => {
     const { store, session, boot, sendPrompt } = attachedStore();
     session.sessionState.push({ ...readyState, lifecycle: 'lost', failure: { message: 'executor exited' } });
     expect(store.session).toBeNull();
@@ -162,9 +158,9 @@ describe('#6497 宿主停掉会话之后的聊天面', () => {
     expect(store.affordances.canSubmit).toBe(true);
     expect(boot).not.toHaveBeenCalled();
     store.submitPrompt('resume the original conversation');
-    await vi.waitFor(() => expect(startupQueue).toHaveBeenCalledTimes(1));
+    expect(custody).toHaveBeenCalledWith(store, 'resume the original conversation', []);
     expect(sendPrompt).not.toHaveBeenCalled();
-    expect(boot).toHaveBeenCalledTimes(1);
+    expect(boot, 'the host starts it; the page attaches when it is ready').not.toHaveBeenCalled();
   });
 
   it('收到 closed:session 置空、界面订阅摘掉,记录留着,不当场重起', () => {
@@ -184,34 +180,14 @@ describe('#6497 宿主停掉会话之后的聊天面', () => {
     expect(boot, '停是宿主的本意,聊天面不许自己把它拉起来').not.toHaveBeenCalled();
   });
 
-  it('停了之后的第一句:与首次打开同一条路 —— 开场一次 + 排进启动队列;第二句不再开场', async () => {
+  it('停了之后发的每一句都经 custody 交给宿主;页面不自己开场', () => {
     const { store, session, sendPrompt, boot } = attachedStore();
     session.sessionState.push(closedState);
-    // 排进启动队列要先异步取运行时客户端:两句各在排进去的那一刻告诉用例。
-    const queued = [Promise.withResolvers<void>(), Promise.withResolvers<void>()];
-    for (const each of queued) {
-      startupQueue.mockImplementationOnce(async () => {
-        each.resolve();
-        return { success: true, data: { queued: true } };
-      });
-    }
-
     store.submitPrompt('再加 1 等于多少');
-    await queued[0]!.promise;
-    expect(startupQueue).toHaveBeenCalledWith(
-      expect.objectContaining({
-        prompt: expect.objectContaining({ text: '再加 1 等于多少' }),
-        startInput: expect.objectContaining({ sessionId: store.sessionId }),
-      })
-    );
-    expect(boot).toHaveBeenCalledTimes(1);
-    expect(sendPrompt, '❌ 发给那个已经停掉的句柄').not.toHaveBeenCalled();
-
-    // 开场还在路上时又发了一句:照样排队,❌ 再开场一次(那是第二次签令牌)。
     store.submitPrompt('还有吗');
-    await queued[1]!.promise;
-    expect(startupQueue).toHaveBeenCalledTimes(2);
-    expect(boot).toHaveBeenCalledTimes(1);
+    expect((custody.mock.calls as unknown as [unknown, string][]).map(([, text]) => text)).toEqual(['再加 1 等于多少', '还有吗']);
+    expect(boot).not.toHaveBeenCalled();
+    expect(sendPrompt, '❌ 发给那个已经停掉的句柄').not.toHaveBeenCalled();
     expect(toasts.map((t) => t.title)).not.toContain(translateSessionMessage('acpFailure.sendMessage'));
   });
 
@@ -242,17 +218,6 @@ describe('#6497 宿主停掉会话之后的聊天面', () => {
     expect(boot).toHaveBeenCalledTimes(1);
     expect(boot).toHaveBeenCalledWith({ attachOnly: true });
     expect(disposed.value, '重挂时还掉留着的句柄').toBe(true);
-  });
-
-  it('用户那一句已经在开场:宿主那边起来时不再挂第二次', () => {
-    const { store, session, boot } = attachedStore();
-    session.sessionState.push(closedState);
-    store.submitPrompt('接着来');
-    expect(boot).toHaveBeenCalledTimes(1);
-
-    session.sessionState.push({ ...readyState, lifecycle: 'ready' }, { kind: 'seed' });
-
-    expect(boot).toHaveBeenCalledTimes(1);
   });
 
   it('旧句柄上迟到的 closed 不动当前这一个(已经换过句柄的 store)', () => {

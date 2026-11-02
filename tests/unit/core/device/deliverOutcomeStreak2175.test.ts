@@ -59,6 +59,8 @@ function unreadRow(overrides: Record<string, unknown> = {}) {
     file_item_id: null,
     file_version: null,
     file_blob_id: null,
+    group_rules: '',
+    named_identities: {},
     ...overrides,
   }
 }

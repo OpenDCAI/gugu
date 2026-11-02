@@ -1,10 +1,10 @@
 import { defineContract, eventStream, procedure } from '@gugu/session-wire';
 import { z } from 'zod';
 import { agentRunContextSchema } from '../../agents/agent-run-context';
-import { acpStartInputSchema, queuePromptCommandSchema } from './commands';
+import { acpStartInputSchema } from './commands';
 import { promptInputSchema } from '../models/prompt';
 import { sessionNoticeCodeSchema, transcriptTurnSchema } from '../models/turns';
-import { acpApiContract } from './contract';
+import { acpApiContract, acpSessionLifecycleProcedures } from './contract';
 
 /**
  * Process-level platform credentials for an ACP adapter.
@@ -130,22 +130,14 @@ const detachedPromptWaitInputSchema = z.object({ requestId: z.string() });
 /** Internal ACP process contract. The Electron renderer is exposed acpApiContract, never this one. */
 export const acpRuntimeApiContract = defineContract({
   ...acpApiContract,
+  ...acpSessionLifecycleProcedures,
   startSession: procedure({
     input: z.object({ input: acpRuntimeStartInputSchema }),
-    output: acpApiContract.startSession.output,
+    output: acpSessionLifecycleProcedures.startSession.output,
   }),
   resumeSession: procedure({
     input: z.object({ input: acpRuntimeStartInputSchema.extend({ providerSessionId: z.string() }) }),
-    output: acpApiContract.resumeSession.output,
-  }),
-  /**
-   * 启动还在路上时排队的那一句会带着 `startInput`;会话还不存在时 worker 就用它**直接起**会话。
-   * ⇒ 它也是一个 start 边界:宿主必须交给 worker 与 `startSession` **同一份**注入完的输入
-   *   (会话事实、能力、平台凭据、`runContext`,#5681/#5233),❌ 让它走 renderer 那份输入。
-   */
-  queuePrompt: procedure({
-    input: queuePromptCommandSchema.extend({ startInput: acpRuntimeStartInputSchema.optional() }),
-    output: acpApiContract.queuePrompt.output,
+    output: acpSessionLifecycleProcedures.resumeSession.output,
   }),
   platformSessionClosed: eventStream({
     key: z.void(),

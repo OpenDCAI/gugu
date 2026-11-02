@@ -23,6 +23,8 @@ export const promptInputSchema = z.object({
    * one turn per click. Only a prompt still waiting is replaced; one already sent is history.
    */
   coalesceKey: z.string().optional(),
+  /** When the person sent it: the one clock origin of the turn it opens, whatever it waited for before. */
+  sentAt: z.number().optional(),
   /** Runtime admission intent retained while waiting; absent entries keep next-turn semantics. */
   queueTiming: z.literal('next-tool-call').optional(),
 });

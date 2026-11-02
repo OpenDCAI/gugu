@@ -47,6 +47,14 @@ function fakeDevice(reply: (call: Call) => Reply, options: { ssh?: boolean } = {
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0))
 
 describe('remote task host pipe over device RPC', () => {
+  it('says by code that the machine did not answer the open or the attach before it', async () => {
+    for (const failure of [new DeviceRpcTimeoutError('no reply to taskhost.open within 15000 ms'), new DeviceRpcChannelError('no answer to taskhost.attach within 12000 ms', 'unreachable')]) {
+      const device = fakeDevice(() => { throw failure })
+      await expect(openRemoteSessionHostPipe('dev', device.deps)({ onFrame: () => undefined, onClose: () => undefined }))
+        .rejects.toMatchObject({ code: 'timeout' })
+    }
+  })
+
   it('waits for the tunnel event before subscribing or starting the taskhost.open RPC budget', async () => {
     vi.useFakeTimers()
     try {

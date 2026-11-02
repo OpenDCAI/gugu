@@ -19,6 +19,8 @@ vi.mock('@main/lib/events', () => ({ events: { emit: vi.fn() } }));
 const { initializeDatabase } = await import('@main/db/initialize');
 const { searchService, textCondition } = await import('./search-service');
 const { persistCommittedTurn, truncateStoredHistory, withStoredTurns, appendRecordTurnNow } = await import('../sessions/session-turn-store');
+const { resolveConversationMessageReference } = await import('../../../../../../../packages/session-chat-ui/src/state/conversation-messages');
+const { messageQuoteLink } = await import('@gugu/core/shared/ui/messageQuote');
 
 function turn(id: string, items: TranscriptTurn['items'], seq = 0): TranscriptTurn {
   return { id, seq, initiator: 'user', items } as TranscriptTurn;
@@ -86,6 +88,58 @@ describe('task content search (turn_text, fed by session_turns triggers)', () =>
     expect(hit).toMatchObject({ sessionId: 's1', projectId: 'p1', title: 'Task one', role: 'user', archived: false });
     const stored = JSON.parse((fixture().sqlite.prepare('SELECT data FROM session_turns').get() as { data: string }).data) as TranscriptTurn;
     expect(hit!.itemId).toBe(stored.items[0]!.id);
+  });
+
+  describe('a hit reveals the message it came from', () => {
+    const sourced = (id: string, itemId: string, text: string) => ({ ...turn(id, [said(itemId, 'user', text)]), referenceId: 'source:real-turn' });
+    /** What the task's reveal does with a hit: its one link, resolved against the transcript on screen. */
+    const reveal = (query: string, transcript: TranscriptTurn) => {
+      const [hit] = searchService.searchTaskTurns(query);
+      return resolveConversationMessageReference([transcript], messageQuoteLink({ kind: 'session', sessionId: 's1', itemId: hit!.itemId }), 's1');
+    };
+    const insertStored = (seq: number, data: unknown) => fixture().sqlite.prepare(
+      'INSERT INTO session_turns (id, session_id, seq, turn_id, data) VALUES (?, ?, ?, ?, ?)',
+    ).run(`s1:${seq}`, 's1', seq, 't', JSON.stringify(data));
+
+    it('a live turn persisted through the store, on its runtime ids and on what was stored', async () => {
+      const live = sourced('s1:turn:12', 's1:turn:12:message:0', 'renumbered on the way to disk');
+      await persistCommittedTurn({ sessionId: 's1', source: 'live', turn: live });
+      const stored = JSON.parse((fixture().sqlite.prepare('SELECT data FROM session_turns').get() as { data: string }).data) as TranscriptTurn;
+      expect(stored.items[0]!.id).toBe('s1:turn:s0:message:0');
+      expect(searchService.searchTaskTurns('renumbered')[0]!.itemId).toBe('source:real-turn:message:0');
+      expect(reveal('renumbered', live)).toBe('s1:turn:12:message:0');
+      expect(reveal('renumbered', stored)).toBe('s1:turn:s0:message:0');
+    });
+
+    it('a turn stored far down the history, written by the trigger and rewritten by a revision', () => {
+      const stored = sourced('s1:turn:s90', 's1:turn:s90:message:0', 'ninety turns back');
+      insertStored(90, stored);
+      expect(reveal('ninety', stored)).toBe('s1:turn:s90:message:0');
+      expect(reveal('ninety', sourced('s1:turn:12', 's1:turn:12:message:0', 'ninety turns back'))).toBe('s1:turn:12:message:0');
+      fixture().sqlite.prepare('UPDATE session_turns SET data = ? WHERE seq = 90').run(JSON.stringify(sourced('s1:turn:s90', 's1:turn:s90:message:0', 'revised, still ninety')));
+      expect(searchService.searchTaskTurns('revised')[0]!.itemId).toBe('source:real-turn:message:0');
+    });
+
+    it('a turn from before referenceId keeps its stored id, which is what the reveal compares', () => {
+      const old = turn('s1:turn:s3', [said('s1:turn:s3:message:0', 'user', 'older than references')]);
+      insertStored(3, old);
+      expect(reveal('older than', old)).toBe('s1:turn:s3:message:0');
+    });
+
+    it('a numeric turn id has no durable source: searchable, never a guessed anchor', () => {
+      const old = turn('s1:turn:5', [said('s1:turn:5:message:0', 'user', 'restarted counter')]);
+      insertStored(5, old);
+      expect(searchService.searchTaskTurns('restarted')[0]!.itemId).toBe('s1:turn:5:message:0');
+      expect(reveal('restarted', old)).toBeNull();
+    });
+
+    it('turns indexed by an older version are rebuilt with their source identity', async () => {
+      const stored = sourced('s1:turn:s90', 's1:turn:s90:message:0', 'indexed long ago');
+      insertStored(90, stored);
+      fixture().sqlite.exec("UPDATE turn_text_rows SET item_id = 's1:turn:s90:message:0'; UPDATE kv SET value = '7' WHERE key = 'fts_version'");
+      await initializeDatabase(fixture().sqlite);
+      expect(reveal('long ago', stored)).toBe('s1:turn:s90:message:0');
+    });
   });
 
   it('indexes what a delivery said, not its envelope, and never the silence marker', async () => {
@@ -171,7 +225,7 @@ describe('search_index writes', () => {
       INSERT INTO search_index (item_type, item_id, project_id, title, keywords) VALUES ('session', 's1', 'p1', 'old shown title', '');
       UPDATE kv SET value = '6' WHERE key = 'fts_version'`);
     await initializeDatabase(sqlite);
-    expect(sqlite.prepare("SELECT value FROM kv WHERE key = 'fts_version'").get()).toEqual({ value: '7' });
+    expect(sqlite.prepare("SELECT value FROM kv WHERE key = 'fts_version'").get()).toEqual({ value: '8' });
     expect(sqlite.prepare('SELECT count(*) AS n FROM search_index').get()).toEqual({ n: 0 });
     searchService.initialize(); // boot backfills the rebuilt index
     expect(sqlite.prepare("SELECT title FROM search_index WHERE item_id = 's1'").all()).toEqual([{ title: 'Task one' }]);

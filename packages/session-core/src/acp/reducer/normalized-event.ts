@@ -54,6 +54,8 @@ export type NormalizedEvent =
       attachmentsMode?: 'replace';
       /** What started the turn this user message opens (ignored on a steering message). */
       trigger?: TranscriptTurnTrigger;
+      /** When that turn's clock starts, if the message was sent before it could open. */
+      sentAt?: number;
     }
   | {
       kind: 'thinking';

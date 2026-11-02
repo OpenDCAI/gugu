@@ -40,7 +40,7 @@ export function recordWaitDelay(code: string | null, elapsedMs: number): number 
  * @param attempt 这是第几次失败(第一次失败传 1)。
  * @returns 下次重试等多久;null = 别重试了,按错误处理。
  */
-export const TRANSIENT_LOAD_CODES = new Set(['record_unreadable', 'timeline_failed', 'empty_reply'])
+export const TRANSIENT_LOAD_CODES = new Set(['record_unreadable', 'timeline_failed', 'empty_reply', 'timeout'])
 export const LOAD_RETRY_DELAYS_MS = [600, 1_500, 3_000]
 
 export function loadRetryDelay(input: {

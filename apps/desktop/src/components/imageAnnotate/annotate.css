@@ -23,14 +23,9 @@
 .ia-note-chips { display: flex; flex: 0 0 auto; overflow-x: auto; gap: 8px; padding: 8px 12px; }
 .ia-note-chips > button { max-width: 240px; overflow: hidden; text-overflow: ellipsis; flex-shrink: 0; }
 .ia-note-sheet,.ia-completion-sheet { padding: 16px; }
+.ia-completion-actions { display: flex; align-items: center; gap: 4px; }
 .ia-completion-sheet { display: flex; flex-direction: column; gap: 12px; }
-.ia-sendbar { display: flex; align-items: end; flex-wrap: wrap; gap: 12px; padding: 12px 16px; border-top: 1px solid var(--border); }
-.ia-caption { flex: 1 1 160px; }
-.ia-include { display: flex; align-items: center; align-self: center; gap: 8px; color: var(--muted-fg); }
-.ia-send-buttons { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
-.ia-shortcut { margin-left: 4px; opacity: .65; }
-.ia-error { flex: 1 0 100%; margin: 0; padding: 8px 12px; color: var(--danger-fg); white-space: pre-wrap; overflow-wrap: anywhere; }
-.ia-source-note { color: var(--muted-fg); margin: 0; }
+.ia-error { flex: 0 0 auto; margin: 0; padding: 8px 12px; color: var(--danger-fg); white-space: pre-wrap; overflow-wrap: anywhere; }
 .ia-hint { flex: 0 0 auto; color: var(--muted-fg); font-size: var(--font-caption); text-align: center; margin: 0; padding: 0 12px 8px; }
 .ia-text-editor { position: absolute; left: var(--ia-text-x); top: var(--ia-text-y); width: var(--ia-text-width); font-size: var(--ia-text-size); z-index: var(--z-raised); }
 .ia-text-editor [data-slot="field-control"] { font-size: inherit; line-height: 1.3; resize: none; background: var(--card); }
@@ -44,7 +39,3 @@
 .ia-editor[data-mobile] .ia-style-tools > button,.ia-editor[data-mobile] .ia-colors > button { width: 32px; min-width: 32px; height: 36px; }
 .ia-editor[data-mobile] .ia-widths > button { min-height: 36px; padding: 0 8px; }
 .ia-editor[data-mobile] .ia-hint { padding-bottom: calc(env(safe-area-inset-bottom) + 8px); }
-.ia-completion-sheet .ia-sendbar { flex-direction: column; align-items: stretch; padding: 0; border: 0; }
-.ia-completion-sheet .ia-caption { flex: none; }
-.ia-completion-sheet .ia-send-buttons { flex-direction: column-reverse; align-items: stretch; }
-.ia-completion-sheet .ia-shortcut { display: none; }

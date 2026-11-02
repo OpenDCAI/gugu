@@ -17,6 +17,7 @@ vi.mock('./idle-reclaim', async (original) => {
   } };
 });
 vi.mock('@main/core/acp/agent-status-bridge', () => ({ acpAgentStatusBridge: { current: () => new Map() } }));
+vi.mock('./session-life', () => ({ sessionLife: () => ({ running: () => [] }) }));
 vi.mock('@main/core/extensions/extension-bridge', () => ({ currentOrLastSession: () => null }));
 vi.mock('@main/core/execution-context/local-execution-context', () => ({ LocalExecutionContext: class {} }));
 vi.mock('@main/core/pty/pty-session-registry', () => ({ ptySessionRegistry: { listActiveSessions: () => state.ptys } }));
@@ -73,7 +74,7 @@ describe('idle reclaim resource enumeration', () => {
     const target = { projectId: 'p', sessionId: 'idle' };
     vi.mocked(stopExactSessionpageSession).mockClear();
     await state.deps!.stop(target, 'acp');
-    expect(stopExactSessionpageSession).toHaveBeenCalledWith({ ...target, onlyIfIdle: true });
+    expect(stopExactSessionpageSession).toHaveBeenCalledWith({ ...target, reason: 'idle-reap' });
     expect(state.closeBrowser).toHaveBeenCalledWith('idle');
   });
 

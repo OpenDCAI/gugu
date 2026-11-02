@@ -29,15 +29,7 @@ export default {
     "note": "说明",
     "notePlaceholder": "说说这个编号…",
     "deleteMarker": "删除编号{{number}}",
-    "message": "消息",
-    "messagePlaceholder": "说点什么，或 @ 群成员…",
-    "includeNotes": "附上编号说明",
-    "compose": "放进输入框",
-    "sendTo": "发送到「{{name}}」",
-    "sendWhisperTo": "悄悄话发送给 {{name}}",
-    "whisperRecipient": "对方",
-    "replyToOriginal": "回复原图",
-    "sourceChat": "来源对话",
+    "export": "复制或保存图片",
     "copy": "复制图片",
     "save": "保存到本机",
     "saveFolder": "存进群文件夹",
@@ -45,8 +37,8 @@ export default {
     "saved": "图片已保存",
     "savedToFolder": "已存进群文件夹",
     "noSource": "这张图没有来源对话，可以复制或保存到本机。",
-    "notSignedIn": "请先登录后发送图片",
-    "originalUnavailable": "原图消息已无法读取",
+    "notSignedIn": "请先登录后将图片放进对话",
+    "originalUnavailable": "原消息已不可用，无法回复。",
     "canvas": "标注画布",
     "keyboardHint": "R 框 · A 箭头 · N 编号 · P 画笔 · T 文字 · M 马赛克 · C 裁剪 · 空格加拖动平移 · ⌘ +/− 缩放",
     "touchHint": "单指绘制 · 双指缩放、平移 · 长按标注选择"
@@ -200,8 +192,9 @@ export default {
     "offline": {
       "phoneTitle": "手机未连接 Agent 宿主",
       "phoneBody": "会话记录保存在这台手机上。重新连接并启用 Agent 后，可以查看记录、继续任务。",
-      "title": "机器离线，打不开时间线",
+      "title": "「{{machine}}」未连接",
       "body": "时间线要从这台机器上实时读取，它不在线时读不到。把它开机并登录同一账号后再回来。",
+      "sendLater": "现在发送的消息会在它重新连接后送达。",
       "lastSeen": "最后在线：{{time}}"
     },
     "output": {

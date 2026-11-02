@@ -52,7 +52,7 @@ export function agentContactTone(status: AgentDisplayStatus): Pick<AgentContactP
 export function agentContactRowToneColorClass(tone: AgentContactTone): string {
   if (tone === 'working' || tone === 'parked') return 'bg-[var(--agent-tone-running)]'
   if (tone === 'idle') return 'bg-[var(--agent-tone-online)]'
-  if (tone === 'offline' || tone === 'archived' || tone === 'pending') return 'bg-[var(--agent-tone-muted)]'
+  if (tone === 'offline' || tone === 'archived' || tone === 'pending' || tone === 'starting') return 'bg-[var(--agent-tone-muted)]'
   if (tone === 'needs_user') return 'bg-[var(--agent-tone-needs-user)]'
   if (tone === 'error') return 'bg-[var(--agent-tone-error)]'
   return 'bg-[var(--agent-tone-removed)]'

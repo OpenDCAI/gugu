@@ -29,15 +29,7 @@ export default {
     "note": "Note",
     "notePlaceholder": "Describe this number…",
     "deleteMarker": "Delete number {{number}}",
-    "message": "Message",
-    "messagePlaceholder": "Say something or @ a member…",
-    "includeNotes": "Include numbered notes",
-    "compose": "Put in composer",
-    "sendTo": "Send to “{{name}}”",
-    "sendWhisperTo": "Whisper to {{name}}",
-    "whisperRecipient": "the other person",
-    "replyToOriginal": "Reply to original image",
-    "sourceChat": "source chat",
+    "export": "Copy or save image",
     "copy": "Copy image",
     "save": "Save to device",
     "saveFolder": "Save to chat folder",
@@ -45,8 +37,8 @@ export default {
     "saved": "Image saved",
     "savedToFolder": "Saved to chat folder",
     "noSource": "This image has no source chat. Copy it or save it to your device.",
-    "notSignedIn": "Sign in to send an image",
-    "originalUnavailable": "The original message is no longer available",
+    "notSignedIn": "Sign in to put the image in a chat",
+    "originalUnavailable": "The original message is no longer available to reply to.",
     "canvas": "Annotation canvas",
     "keyboardHint": "R rectangle · A arrow · N number · P pen · T text · M mosaic · C crop · Space + drag to pan · ⌘ +/− zoom",
     "touchHint": "Draw with one finger · Pan and zoom with two fingers · Hold a mark to select it"
@@ -206,8 +198,9 @@ export default {
     "offline": {
       "phoneTitle": "Phone Agent host disconnected",
       "phoneBody": "Task records stay on this phone. Reconnect and enable its Agent host to read the records and continue.",
-      "title": "Machine offline — the timeline cannot be opened",
+      "title": "{{machine}} is not connected",
       "body": "The timeline is read live from this machine, so it is unreachable while the machine is offline. Turn it on, sign in with the same account, then come back.",
+      "sendLater": "Messages sent now are delivered when it reconnects.",
       "lastSeen": "Last seen: {{time}}"
     },
     "output": {

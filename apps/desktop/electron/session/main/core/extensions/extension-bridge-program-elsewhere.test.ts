@@ -1,3 +1,4 @@
+import { sessionWorkspace } from '@shared/extensions/app-runtime-protocol';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 /**
@@ -90,10 +91,10 @@ beforeEach(async () => {
   elsewhere.callOnSessionMachine.mockClear();
   local.read.mockClear();
   local.write.mockClear();
-  await bindExtensionSurface({ webContentsId: HERE, extensionId: 'spexcode', tabId: 'a', tabKind: 'spexcode.spec', sessionId: 's-here' });
-  await bindExtensionSurface({ webContentsId: THERE, extensionId: 'spexcode', tabId: 'b', tabKind: 'spexcode.spec', sessionId: 's-there' });
-  await bindExtensionSurface({ webContentsId: OTHER, extensionId: 'spexcode', tabId: 'c', tabKind: 'spexcode.spec', sessionId: 's-other' });
-  await bindExtensionSurface({ webContentsId: CHAT_PAGE, extensionId: 'spexcode', tabId: 'd', tabKind: 'spexcode.spec', chatId: '0b000000-0000-4000-8000-0000000000aa' });
+  await bindExtensionSurface({ webContentsId: HERE, extensionId: 'spexcode', tabId: 'a', tabKind: 'spexcode.spec', workspace: sessionWorkspace('s-here') });
+  await bindExtensionSurface({ webContentsId: THERE, extensionId: 'spexcode', tabId: 'b', tabKind: 'spexcode.spec', workspace: sessionWorkspace('s-there') });
+  await bindExtensionSurface({ webContentsId: OTHER, extensionId: 'spexcode', tabId: 'c', tabKind: 'spexcode.spec', workspace: sessionWorkspace('s-other') });
+  await bindExtensionSurface({ webContentsId: CHAT_PAGE, extensionId: 'spexcode', tabId: 'd', tabKind: 'spexcode.spec', conversation: '0b000000-0000-4000-8000-0000000000aa' });
 });
 
 describe('a page calls its program where its session is (owner 10-16)', () => {
@@ -131,10 +132,10 @@ describe('a page calls its program where its session is (owner 10-16)', () => {
   it('its context says the session is on that machine, and gives no path there', async () => {
     const answer = await call(THERE, 'getContext');
     expect(answer).toMatchObject({ ok: true });
-    const context = answer.value as { session: Record<string, unknown> };
-    expect(context.session).toEqual({ id: 's-there', agentId: 'user:0a000000-0000-4000-8000-0000000000b2', projectId: 'p-there', deviceId: 'dev-server', deviceLabel: 'server' });
-    const here = (await call(HERE, 'getContext')).value as { session: Record<string, unknown> };
-    expect(here.session).not.toHaveProperty('deviceId');
+    const context = answer.value as { workspace: Record<string, unknown> };
+    expect(context.workspace).toEqual({ id: 'session:s-there', sessionId: 's-there', agentId: 'user:0a000000-0000-4000-8000-0000000000b2', projectId: 'p-there', deviceId: 'dev-server', deviceLabel: 'server' });
+    const here = (await call(HERE, 'getContext')).value as { workspace: Record<string, unknown> };
+    expect(here.workspace).not.toHaveProperty('deviceId');
   });
 });
 

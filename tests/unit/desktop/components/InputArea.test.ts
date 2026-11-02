@@ -84,6 +84,27 @@ describe('ChatMessageComposer', () => {
     await clickSend()
     expect(onSend).toHaveBeenCalledWith('> [Ada]: Beta paragraph\n> \n> First item\n\nPlease explain this part.', expect.objectContaining({ replyToMessageId: 'source-1' }))
   })
+  it.each([false, true])('sends an image-only reply with its source message ID (phone=%s)', async mobile => {
+    mobileShellState.enabled = mobile
+    const onSend = vi.fn(async () => {})
+    const onSendAttachments = vi.fn(async () => {})
+    const onQuoteConsumed = vi.fn()
+    await act(async () => {
+      root.render(createElement(ChatMessageComposer, { onSend, onSendAttachments, onQuoteConsumed,
+        chatId: 'group-1', isGroupChat: true, currentUserId: 'me',
+        quoteContent: { messageId: 'source-image', senderName: 'Ada', content: '[Attachment]', source: message({ id: 'source-image' }) },
+      }))
+    })
+    const image = new File(['png'], 'annotated.png', { type: 'image/png' })
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement
+    Object.defineProperty(input, 'files', { configurable: true, value: [image] })
+    await act(async () => { input.dispatchEvent(new Event('change', { bubbles: true })) })
+    await clickSend()
+    expect(onSendAttachments).toHaveBeenCalledExactlyOnceWith([image], expect.objectContaining({ replyToMessageId: 'source-image', isWhisper: false }))
+    expect(onSend).not.toHaveBeenCalled()
+    expect(onQuoteConsumed).toHaveBeenCalledOnce()
+    expect(container.querySelectorAll('[data-slot="composer-attachment"]')).toHaveLength(0)
+  })
   it('keeps touch Enter for a new line and sends only through the visible control', async () => {
     mobileShellState.enabled = true
     const onSend = vi.fn<(content: string) => Promise<void>>(async () => {})

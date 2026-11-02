@@ -13,7 +13,7 @@ import { ChatLineScope } from '../store/chatLineScope'
 import { useAuth } from '../store/auth'
 import type { AgentConversationActivity, GroupCollabSnapshot, MessageItem } from '@gugu/core/shared/types/chat'
 import { chatService } from '../lib/chat'
-import { useUnreadLocatorNavigation } from '../hooks/useUnreadLocatorNavigation'; import { useQueuedMessageIds } from '../hooks/useQueuedMessageIds'
+import { useUnreadLocatorNavigation } from '../hooks/useUnreadLocatorNavigation'; import { useDeliveryWaits } from '../hooks/useDeliveryWaits'
 import { useSourceMessageReveal } from '../hooks/useSourceMessageReveal'
 import { useChatHistoryPagination } from './chat/useChatHistoryPagination'
 import { useGroupCollabLoader, EMPTY_GROUP_COLLAB } from '../hooks/useGroupCollabLoader'
@@ -57,7 +57,7 @@ import { ChatHeaderActions } from './chat/ChatHeaderActions'
 import { useFollowingTail, useTailPinning } from './chat/useFollowingTail'
 import { useConversationScrollMemory } from './chat/useConversationScrollMemory'
 import { sessionComposerDockBandClassName } from '../session/renderer/features/sessions/session-composer-styles'
-import { GroupTabContent } from './appSlot/GroupTabContent'; import { useChatOpener } from './appSlot/useChatOpener'; import { ChatPlusMenu, ChatTabPage, ChatTabPortals } from './appSlot/ChatTabHosts'; import { useTabsReading } from './appSlot/useTabsReading'
+import { GroupTabContent } from './appSlot/GroupTabContent'; import { useChatOpener } from './appSlot/useChatOpener'; import { ChatTabPage, ChatTabPortals } from './appSlot/ChatTabHosts'; import { TabBarAddMenu } from '../session/renderer/features/sessions/tab-bar-actions'; import { useTabsReading } from './appSlot/useTabsReading'
 import { folderItem, isFolderItem } from '../session/renderer/features/chats/chat-tabs/chat-panel-item'; import { closeChatTab, closeInfoTab, focusedChatTab, infoTabOf, openInfoTab, openPanelItem, panelFull, panelTabsOf, setPanelFull, showChatOnly, type ChatPanelTab } from '../session/renderer/features/chats/chat-tabs/chat-layouts'
 import { useTopicSurface } from '@/hooks/useTopicSurface'
 import { chatDisplayName, isRoomChat } from '@gugu/core/shared/ui/chatModels'
@@ -199,7 +199,6 @@ function ChatAreaSurface({ viewportKey = 'chats', imPage = false, navigationTarg
     // opener 走同一 SSOT helper;下方冗余的第二个 reset effect 一并删除。
     closeRightSurfaces()
     setShowHeaderMenu(false)
-    setQuoteText(null)
     isAtBottomRef.current = true
     // @@@2169/@@@group-collab-swr - invalidate 在途加载 + 取消后台重试 + 按 in-memory cache 重铺首帧,细节见 useGroupCollabLoader。
     resetGroupCollabForChat()
@@ -207,7 +206,7 @@ function ChatAreaSurface({ viewportKey = 'chats', imPage = false, navigationTarg
     setWhisperTarget(null)
     // @@@chat-open-nonce (#461) - also reset on mobile reopen of the SAME chat (openNonce bump), where
     // activeChatId is unchanged — so isAtBottomRef doesn't stay stale-false from a prior scroll-up.
-  }, [activeChatId, isRoomChatSurface, openNonce, closeRightSurfaces, resetGroupCollabForChat, setQuoteText])
+  }, [activeChatId, isRoomChatSurface, openNonce, closeRightSurfaces, resetGroupCollabForChat])
 
   // @@@chat-open-nonce (#461) - reload on openNonce too, symmetric with the reset effect (which clears
   useEffect(() => {
@@ -383,7 +382,7 @@ function ChatAreaSurface({ viewportKey = 'chats', imPage = false, navigationTarg
     })
   }, [deleteMessage])
 
-  const { rows: chatListRows, listedMessages, notice: taskChatNotice, threeParty } = useTaskChatRows(displayedMessages, user?.id, activeChat?.peer_user_id, surfaceVisible, isFiltering ? searchQuery : ''); const queuedIds = useQueuedMessageIds(messages, memberReadSeqs)
+  const { rows: chatListRows, listedMessages, notice: taskChatNotice, threeParty } = useTaskChatRows(displayedMessages, user?.id, activeChat?.peer_user_id, surfaceVisible, isFiltering ? searchQuery : ''); const deliveryWaits = useDeliveryWaits(messages, memberReadSeqs)
   const chatResetKey = `${activeChatId ?? ''}#${openNonce ?? 0}#${messageWindow?.viewVersion ?? 0}`
   const { scrollerEl, scrollerRef, setScrollerRef, prepareForSavedPosition, isPreservingPosition, forgetSavedPosition, openLocation, revealMessage } = useConversationScrollMemory({
     chatId: activeChatId, viewportKey, activationKey: activeChatId ?? '', enabled: !isFiltering, discardSaved: !!unreadEntry,
@@ -482,7 +481,7 @@ function ChatAreaSurface({ viewportKey = 'chats', imPage = false, navigationTarg
     mobile,
     highlight: isFiltering ? searchQuery : undefined,
     flashMessageId,
-    memberReadSeqs, queuedIds,
+    memberReadSeqs, deliveryWaits,
     isGroupChat: isRoomChatSurface,
     memberProfiles: messageMemberProfiles,
     onReaction: handleReaction,
@@ -514,7 +513,7 @@ function ChatAreaSurface({ viewportKey = 'chats', imPage = false, navigationTarg
     isFiltering,
     mobile,
     searchQuery,
-    memberReadSeqs, queuedIds,
+    memberReadSeqs, deliveryWaits,
     isRoomChatSurface,
     messageMemberProfiles,
     handleReaction,
@@ -566,7 +565,7 @@ function ChatAreaSurface({ viewportKey = 'chats', imPage = false, navigationTarg
   }
 
   // 块的页签条最后那枚之后的「+」(gugu-dev#181 第 ⑥ 步);页签本身由会话页的页签引擎画(chat-tabs)。
-  const blockTabs = blockHost?.tabs && activeChatId ? createPortal(<ChatPlusMenu chatId={activeChatId} />, blockHost.tabs) : null
+  const blockTabs = blockHost?.tabs && activeChatId ? createPortal(<TabBarAddMenu chatId={activeChatId} />, blockHost.tabs) : null
   const roomMemberTotal = isRoomChatSurface ? groupCollabSnapshot.humans.length + groupCollabSnapshot.agents.length : 0
   const headerActions = (
     <>

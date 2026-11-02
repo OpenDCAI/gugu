@@ -120,19 +120,6 @@ type GroupCollabAgentStateRow = {
   last_active_at: string | null
 }
 
-type GroupCollabOutputRow = {
-  id: string
-  chat_id: string
-  task_id: string | null
-  name: string
-  file_type: string | null
-  asset_id: string | null
-  url: string | null
-  produced_by_user_id: string | null
-  size_label: string | null
-  created_at: string
-}
-
 function normalizeGroupAgentType(
   value: string | null | undefined
 ): GroupChatSettings['default_agent_type'] {
@@ -617,7 +604,7 @@ export const chatService = {
     const collabChatDb = dataClient.schema('chat')
 
     const fetchSnapshotRows = async () => {
-      const [schedulerResult, membersResult, tasksResult, agentStatesResult, outputsResult] =
+      const [schedulerResult, membersResult, tasksResult, agentStatesResult] =
         await Promise.all([
           collabChatDb
             .from('group_scheduler_states')
@@ -638,18 +625,10 @@ export const chatService = {
             .select(
               'chat_id, agent_user_id, client, runtime, model_source, tools, permission_scope, current_task_id, last_action, last_active_at, updated_at'
             )
-            .eq('chat_id', chatId),
-          collabChatDb
-            .from('group_outputs')
-            .select(
-              'id, chat_id, task_id, name, file_type, asset_id, url, produced_by_user_id, size_label, created_at'
-            )
             .eq('chat_id', chatId)
-            .order('created_at', { ascending: false })
-            .limit(8)
         ])
 
-      // 每一张表读失败都照实抛:附属表(调度 / 任务 / agent 状态 / 产出)读错不再当成「空」画出来。
+      // 每一张表读失败都照实抛:附属表(调度 / 任务 / agent 状态)读错不再当成「空」画出来。
       // 读不到的这一次,界面留着缓存的名册(useGroupCollabLoader);下一条成员 / 修订事件再读。
       const read = <T>(label: string, result: { data: T; error: { message: string } | null }) => {
         if (result.error) throw new Error(`${label}: ${result.error.message}`)
@@ -658,17 +637,16 @@ export const chatService = {
       const members = (read('active_members', membersResult) ?? []) as GroupCollabMemberRow[]
       const tasksRaw = (read('group_tasks', tasksResult) ?? []) as GroupCollabTaskRow[]
       const agentStatesRaw = (read('group_agent_states', agentStatesResult) ?? []) as GroupCollabAgentStateRow[]
-      const outputsRaw = (read('group_outputs', outputsResult) ?? []) as GroupCollabOutputRow[]
       const schedulerRow = read('group_scheduler_states', schedulerResult) as GroupSchedulerState | null
 
       const usersById = await readGroupMemberIdentities(members)
 
-      return { schedulerRow, members, tasksRaw, agentStatesRaw, outputsRaw, usersById }
+      return { schedulerRow, members, tasksRaw, agentStatesRaw, usersById }
     }
 
     const snapshot = await fetchSnapshotRows()
 
-    const { schedulerRow, members, tasksRaw, agentStatesRaw, outputsRaw, usersById } = snapshot
+    const { schedulerRow, members, tasksRaw, agentStatesRaw, usersById } = snapshot
     if (members.length === 0) {
       // @@@5856 找茬第八轮:话题里这是稳态不是故障(见 GroupCollabEmptyError)。当成抖动重试的话,
       // 界面会一边说「名单没加载出来,关掉再打开一次」,一边在锚点卡上写着「N 条 · M 人」——两句都不真。
@@ -689,7 +667,7 @@ export const chatService = {
     const agents = mapGroupCollabAgents(baseMembers, agentStatesRaw, tasksRaw, listenModeByUserId)
     const scheduler = buildGroupCollabScheduler(schedulerRow, chatId, tasksRaw)
     // 名册连同身份一起出门(与 replaceChatRowsAndIdentities 同构):从前 usersById 只用来推 type 就丢掉,下游没有任何写入方。
-    return { snapshot: { scheduler, humans, agents, tasks: tasksRaw, outputs: outputsRaw }, identities: [...usersById.values()] }
+    return { snapshot: { scheduler, humans, agents, tasks: tasksRaw }, identities: [...usersById.values()] }
   },
 
   async getGroupChatSettings(chatId: string): Promise<GroupChatSettings> {
