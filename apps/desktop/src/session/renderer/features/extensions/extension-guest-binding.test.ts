@@ -11,6 +11,18 @@ const pending = () => {
 const target = { tabId: 'tab', workspace: 'session:session', conversation: null };
 
 describe('App guest binding belongs to the live webContents (#7514)', () => {
+  it('keeps two messages of the same App view on separate guests with their own immutable input', async () => {
+    const bind = vi.fn().mockResolvedValue({ success: true });
+    const first = new ExtensionGuestBinding({ bind, retarget: vi.fn() });
+    const second = new ExtensionGuestBinding({ bind, retarget: vi.fn() });
+    first.ready(1); second.ready(2);
+    const one = { ...target, tabId: 'widget:one', widget: { messageId: 'one', data: { count: 1 }, senderId: 'sender' } };
+    const two = { ...target, tabId: 'widget:two', widget: { messageId: 'two', data: { count: 2 }, senderId: 'sender' } };
+    await Promise.all([first.aim(one), second.aim(two)]);
+    expect(bind.mock.calls).toEqual([[1, one], [2, two]]);
+    await first.aim(one);
+    expect(bind).toHaveBeenCalledTimes(2);
+  });
   it('carries the one-shot opening in the existing bind and does not replay it on a later move', async () => {
     const bind = vi.fn().mockResolvedValue({ success: true });
     const retarget = vi.fn().mockResolvedValue({ success: true });

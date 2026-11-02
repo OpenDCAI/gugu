@@ -22,6 +22,7 @@ export interface AppSearchHit extends AppSearchRecord {
   next?: string
   /** An App that is on: its tabs' tab_kind (session_open_in_tab, app_check). */
   tabs?: string[]
+  widgetViews?: { view: string; height: number }[]
 }
 /** The Apps this session reaches, read at every call; null where Apps do not reach the session (a side chat). */
 export type AppSearchSource = () => Promise<{ apps: AppSearchHit[]; market?: string }> | null
@@ -72,6 +73,7 @@ export function registerGuguAppSearchTool(server: McpServer, source: AppSearchSo
       ...(hit.publishedAt ? { updated: hit.publishedAt.slice(0, 10) } : {}),
       ...(hit.next ? { next: hit.next } : {}),
       ...(hit.tabs ? { tabs: hit.tabs } : {}),
+      ...(hit.widgetViews?.length ? { widgetViews: hit.widgetViews } : {}),
     }))
     const result = { ...describeWindow(window, items.length, page.length), items: page, facets, ...(market ? { market } : {}),
       note: 'If none fits and the person wants one made: guide_read apps → app_create (chat: group-json) → app_install(chat_id, data) → app_check. For a missing feature in an existing App: ask to fork (guide_read apps-fork).',

@@ -22,9 +22,11 @@ import { Markdown } from '../markdown/Markdown'; import { classifyFileLink } fro
 import { buildBubbleStyle } from './messageBubbleStyle'
 import { ComposerCardView } from './ComposerCardView'
 import { QuestionCardView } from './QuestionCardView'
+import { WidgetBubble } from './WidgetBubble'
 import { parseQuotedContent, partialQuotedContent, type QuoteSelection } from './messageQuoteContent'
 import { DirectMessageQuote, MessageQuote } from './MessageQuote'
 import { parseComposerCard } from '@gugu/core/shared/ui/taskCardModels'
+import { parseWidgetMessage } from '@gugu/core/shared/ui/widgetModels'
 import { HoverActionBar, MessageHoverRegion, MessageHoverTrigger } from './HoverActionBar'
 import { DeferredEmojiQuickPicker } from './messageActionModules'
 import { MsgMoreMenu } from './MsgMoreMenu'
@@ -33,8 +35,7 @@ import { highlightText } from './highlightText'
 import { SystemMessageNotice } from './SystemMessageNotice'
 import { BubbleSender, BubbleTime } from './MessageBubbleChrome'; import { fmtMsgTime } from './messageRowTime'
 
-// @@@send-outbox (#1762 洞③) — 传输瞬态指示(sending/failed)整体搬去 MessageSendStatus.tsx:
-// failed 从纯装饰红圈升级为「未送达」可见文字 + 重试/丢弃 popover(#1941 fail-loud)。
+// Sending/failed state and its retry/discard menu live in MessageSendStatus.
 
 // @@@1345 已读进度圆环：环填充比例=read/total。空环=已发出无人读(#5649 起渲染)；部分=进度弧；满=实心 + 对比色勾。@@@live-accent (Refs #6105) 弧与满环从 --accent(#fff/#000)改到 --live:「已读完成」是 live 态,画的是真实读数不是装饰灯。
 function ReadReceiptRing({ read, total }: { read: number; total: number }) {
@@ -220,7 +221,8 @@ export const MessageBubble = memo(function MessageBubble({
 }: BubbleProps) {
   const { t } = useTranslation('messaging')
   const { toast } = useToast()
-  const handleCopyText = async (content = msg.content ?? '') => {
+  const copyText = msg.content_type === 'widget' ? parseWidgetMessage(msg.content)?.text ?? '[Widget]' : msg.content ?? ''
+  const handleCopyText = async (content = copyText) => {
     try {
       await platform.writeClipboardText(content)
       toast(t('message.copied'), 'success')
@@ -244,7 +246,6 @@ export const MessageBubble = memo(function MessageBubble({
   const mediaAttachment = msg.content_type === 'attachment' && !voiceAttachment
     ? parseAttachmentContent(msg.content, msg)
     : null
-
   useEffect(() => {
     if (!showMenu && !showMoreMenu && !showEmojiPicker) return
     const closeFromSharedEvent = () => {
@@ -258,9 +259,8 @@ export const MessageBubble = memo(function MessageBubble({
       document.removeEventListener(UI_EVENTS.closeContextMenus, closeFromSharedEvent as EventListener)
     }
   }, [showMenu, showMoreMenu, showEmojiPicker])
-
   const messageActions = (close: () => void, selectedText = menuSelection) => ({
-    isRetracted: !!msg.retracted_at, content: msg.content, hasHoverBar: !compactMobile, hasSelection: !compactMobile && !!selectedText, onClose: close,
+    isRetracted: !!msg.retracted_at, content: copyText, hasHoverBar: !compactMobile, hasSelection: !compactMobile && !!selectedText, onClose: close,
     onReply: () => { onQuote(msg); close() },
     onReact: (emoji: string) => { onReaction(msg.id, emoji); close() },
     onQuoteSelection: selectedText && msg.content_type === 'text' ? () => { onQuote({ ...msg, content: selectedText }, { originalContent: msg.content }); close() } : undefined,
@@ -483,7 +483,7 @@ export const MessageBubble = memo(function MessageBubble({
                 ) : card ? (
                   <ComposerCardView card={card} isMine={msg.is_mine} isGroup={isGroup} chatId={msg.chat_id} senderName={avatarName} time={replyQuote ? <>{replyQuote}{fmtMsgTime(msg.created_at)}</> : fmtMsgTime(msg.created_at)} memberProfiles={memberProfiles} onOpenTopic={compactMobile && onOpenTopic && card.type === 'task' ? () => onOpenTopic(msg.id) : undefined} />
                 ) : msg.content_type === 'widget' ? (
-                  <span style={{ color: 'var(--text-secondary)', fontStyle: 'italic' }}>{t('message.widget')}</span>
+                  <WidgetBubble message={msg} />
                 ) : msg.content_type === 'attachment' ? (
                   voiceAttachment ? (
                     <VoiceAttachmentBubble

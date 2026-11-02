@@ -16,13 +16,13 @@ describe('device-targeted App API boundaries', () => {
   })
 
   it('requires all-history for external transcripts and all-machines-control for named remote spawns', () => {
-    const own = { kind: 'page' as const, gesture: true, has: (word: string) => word === 'agents:history' || word === 'agents:control' }
+    const own = { kind: 'page' as const, widget: false, gesture: true, has: (word: string) => word === 'agents:history' || word === 'agents:control' }
     expect(callRefusal('sessionsIndex', {}, own)).toMatchObject({ code: 'denied' })
     expect(callRefusal('sessionsRead', {}, own)).toMatchObject({ code: 'denied' })
     const args = { text: 'inspect', to: { new: true }, spawn: { device: 'device:target' } }
     expect(dispatchCallOf(args).spawn.device).toBe('device:target')
     expect(callRefusal('dispatch', args, own)).toMatchObject({ code: 'denied' })
-    expect(callRefusal('dispatch', args, { kind: 'page', gesture: true, has: (word) => word === 'agents:control:all-machines' })).toBeNull()
+    expect(callRefusal('dispatch', args, { kind: 'page', widget: false, gesture: true, has: (word) => word === 'agents:control:all-machines' })).toBeNull()
     expect(() => dispatchCallOf({ ...args, spawn: { device: 'session:wrong-kind' } })).toThrow(/device/)
   })
 })

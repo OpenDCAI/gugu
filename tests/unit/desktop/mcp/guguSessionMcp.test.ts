@@ -32,7 +32,7 @@ const EXTENSION_TOOL_NAMES = ['app_manage', 'app_create', 'app_pack', 'app_insta
 // #7221 给自己排的已安排:与 session_* 同一个分派器、同一份 grant。
 const SCHEDULE_TOOL_NAMES = ['schedule_create', 'schedule_list', 'schedule_cancel'] as const
 // #6614 每条 grant 都有的两个域:guide_* 与渐进披露的 catalog_*。
-const ALWAYS_TOOL_NAMES = ['guide_topics', 'guide_read', 'catalog_list', 'catalog_describe', 'catalog_call', 'app_search'] as const
+const ALWAYS_TOOL_NAMES = ['guide_topics', 'guide_read', 'catalog_list', 'catalog_describe', 'catalog_call', 'app_search', 'widget_send'] as const
 
 const clients: Client[] = []
 const hosts: DesktopGuguMcpHost[] = []
