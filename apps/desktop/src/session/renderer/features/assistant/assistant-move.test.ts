@@ -232,16 +232,20 @@ describe('助理搬家编排 (#7199)', () => {
   it.each(['to-cloud', 'to-computer'] as const)('restores retired schedules after controller cache loss (%s)', async (direction) => {
     const events: string[] = [];
     const source = direction === 'to-cloud' ? localSide(events, { schedules: [SCHEDULE] }) : cloudSide(events, { schedules: [SCHEDULE] });
+    source.workdir = '/original-assistant';
     const target = direction === 'to-cloud' ? cloudSide(events) : localSide(events);
     let raw: string | null = null;
     const storage = { read: async () => raw, write: async (value: string) => { raw = value; }, clear: async () => { raw = null; } };
     let adopted = false;
     const deps = baseDeps({ direction, source, openTarget: async () => target,
+      model: { source: 'platform', modelId: 'original-model', protocol: 'anthropic-messages' },
       journal: await durableMoveJournal(journalStore(), storage),
       isAdopted: async () => adopted,
       adopt: async () => { adopted = true; source.sched.length = 0; throw new Error('adoption response lost'); },
     }, events);
     await expect(runMove(deps)).rejects.toMatchObject({ step: 'adopt' });
+    expect(JSON.parse(raw!).sourceWorkdir).toBe('/original-assistant');
+    expect(JSON.parse(raw!).model.modelId).toBe('original-model');
     source.schedules.list = async () => null;
     // A new controller/store instance has no localStorage but reloads the native recovery file.
     deps.journal = await durableMoveJournal(journalStore(), storage);

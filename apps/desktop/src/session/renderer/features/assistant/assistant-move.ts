@@ -14,6 +14,7 @@
 //   · 旧家的助理在搬的这段时间里还在写东西:搬上云是接过之后才拷(旧家已停,数两遍),搬回本机是接过之后再补一遍变了的;
 //   · 每一步可重来:拷贝同路径覆盖、账号 upsert、重排按「同一条已在」去重、接过先问「已经在新家了吗」。
 import type { IntegrationMoveExport, IntegrationMoveImport, MovableIntegrationAccount, MoveSkipped } from '@shared/core/integrations/integration-move';
+import type { AgentModelSelection } from '@gugu/core/shared/agentModelSelection';
 import {
   assertPlanFits,
   assertTotalFits,
@@ -46,6 +47,8 @@ export type MoveSide = {
   label: string;
   /** 这一头的设备 id(核对「旧家 ≠ 新家」用);单测里不给 = 不核。 */
   deviceId?: string | null;
+  /** Retained before retirement removes the source session used to discover this path. */
+  workdir?: string;
   fs: HomeFs;
   /** 这一头「它的家」目录之上已经存在的那一级(拷贝时往下逐层建目录用)。 */
   base: string;
@@ -76,6 +79,8 @@ export type MoveJournal = {
   source: MoveHomeRef | null;
   targetDeviceId?: string;
   copies?: CopyCheckpoint['files'];
+  sourceWorkdir?: string;
+  model?: AgentModelSelection;
 };
 
 export type MoveProgress = {
@@ -112,6 +117,7 @@ export interface MoveDeps {
   source: MoveSide;
   /** 旧家是哪台:新开一次搬时记进日志;接着搬时必须与日志里那一份一致。 */
   sourceHome: MoveHomeRef;
+  model?: AgentModelSelection;
   /** 搬回本机时目标那一头在「接过」之前就要备好;搬上云时目标要等管家接过之后才有。 */
   openTarget(): Promise<MoveSide>;
   /** 把助理接到目标上,等到库里落定(users.device_id 已是新家)。 */
@@ -194,7 +200,11 @@ export async function runMove(deps: MoveDeps): Promise<MoveReport> {
     done: [],
     schedules: null,
     source: deps.sourceHome,
+    sourceWorkdir: deps.source.workdir,
+    model: deps.model,
   };
+  journal.sourceWorkdir ??= deps.source.workdir;
+  journal.model ??= deps.model;
   const progress = (step: MoveStep, bytes?: MoveProgress['bytes']) => deps.onProgress?.({ step, bytes });
   const finish = async (step: MoveStep) => {
     if (!journal.done.includes(step)) journal.done.push(step);

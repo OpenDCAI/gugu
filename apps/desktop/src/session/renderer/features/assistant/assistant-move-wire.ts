@@ -167,11 +167,12 @@ async function assistantSessionOn(target: string | null, assistantId: string, wa
  * `base` = 这一头「它的家」目录之上已经存在的那一级,拷贝往下逐层建目录:云上是主目录(整台都是它的家,工作区就是主目录项目),
  * 本机是它的工作目录(它的一切都在这一个目录里;工作区只圈这一个目录,往上建会被拦)。
  */
-function sideOf(machine: AssistantMachine, label: string, assistantId: string, base: string, deviceId: string): MoveSide {
+function sideOf(machine: AssistantMachine, label: string, assistantId: string, base: string, deviceId: string, workdir: string): MoveSide {
   const target = machine.target === undefined ? machine.deviceId : machine.target;
   return {
     label,
     deviceId,
+    workdir,
     fs: machineFs(machine),
     base,
     paths: {
@@ -312,22 +313,22 @@ async function homeDeviceOf(assistantId: string): Promise<string | null> {
 }
 
 /** 旧家那一头(只读)。`sourceHome` 来自日志或此刻它住的地方,❌ 在这里再读一次「它住哪」。 */
-export async function openSource(env: MoveEnv, direction: MoveDirection, sourceHome: MoveHomeRef = sourceHomeFor(env, direction)): Promise<MoveSide> {
+export async function openSource(env: MoveEnv, direction: MoveDirection, sourceHome: MoveHomeRef = sourceHomeFor(env, direction), savedWorkdir?: string): Promise<MoveSide> {
   if (direction === 'to-cloud') {
     if (sourceHome.kind !== 'computer' || sourceHome.deviceId !== env.localDeviceId) throw new Error('the source home is not this computer');
     // 本机上的家:工作目录就是它在这台电脑上的那个(只问不写:人还没确认,旧家一个字节都不动)。
     const prepared = await prepareLocalHome(true);
     const home: AssistantHomePlace = { kind: 'computer', deviceId: env.localDeviceId, thisDevice: true, label: null, online: true, known: true };
     const machine = await openAssistantMachine(home, prepared.workdir);
-    return sideOf(machine, '这台电脑', env.assistantId, prepared.workdir, env.localDeviceId);
+    return sideOf(machine, '这台电脑', env.assistantId, prepared.workdir, env.localDeviceId, prepared.workdir);
   }
   // 搬回本机:云上的家要先醒着(管家有家就放行,会员到期也行、不计费)。
   const deviceId = sourceHome.deviceId;
   await wakeCloudComputer({ purpose: 'move_out' });
   await cloudDeviceReady(deviceId);
-  const workdir = await cloudWorkdir(deviceId, env.assistantId);
+  const workdir = savedWorkdir ?? await cloudWorkdir(deviceId, env.assistantId);
   const machine = await openAssistantMachine({ kind: 'cloud', deviceId }, workdir);
-  return sideOf(machine, '云上', env.assistantId, machine.home, deviceId);
+  return sideOf(machine, '云上', env.assistantId, machine.home, deviceId, workdir);
 }
 
 export function buildMoveDeps(
@@ -380,7 +381,7 @@ export function buildMoveDeps(
         await cloudDeviceReady(deviceId);
         const workdir = await cloudWorkdir(deviceId, env.assistantId);
         const machine = await openAssistantMachine({ kind: 'cloud', deviceId }, workdir);
-        return sideOf(machine, '云上', env.assistantId, machine.home, deviceId);
+        return sideOf(machine, '云上', env.assistantId, machine.home, deviceId, workdir);
       },
       restart: () => restartAssistant(env.assistantId),
     };
@@ -400,7 +401,7 @@ export function buildMoveDeps(
       const prepared = await prepareLocalHome();
       localWorkdir = prepared.workdir;
       const home: AssistantHomePlace = { kind: 'computer', deviceId: env.localDeviceId, thisDevice: true, label: null, online: true, known: true };
-      return sideOf(await openAssistantMachine(home, prepared.workdir), '这台电脑', env.assistantId, prepared.workdir, env.localDeviceId);
+      return sideOf(await openAssistantMachine(home, prepared.workdir), '这台电脑', env.assistantId, prepared.workdir, env.localDeviceId, prepared.workdir);
     },
     async adopt() {
       const workdir = localWorkdir ?? (await prepareLocalHome()).workdir;
@@ -462,24 +463,26 @@ export async function previewMove(env: MoveEnv, direction: MoveDirection) {
 
 export async function runAssistantMove(env: MoveEnv, direction: MoveDirection, onProgress?: MoveDeps['onProgress']): Promise<MoveReport> {
   const journal = await recoveryJournalStore(env.ownerUserId);
-  const savedJournal = journal.load();
-  if (savedJournal?.assistantId === env.assistantId && savedJournal.direction !== direction) {
+  const recorded = journal.load();
+  if (recorded?.assistantId === env.assistantId && recorded.direction !== direction) {
     throw new MoveError('preflight', new Error('Resume the unfinished move before starting another direction'), false);
   }
+  const savedJournal = recorded?.assistantId === env.assistantId && recorded.direction === direction ? recorded : null;
   const sourceHome = savedJournal?.assistantId === env.assistantId && savedJournal.direction === direction && savedJournal.source
     ? savedJournal.source : sourceHomeFor(env, direction);
-  const source = await openSource(env, direction, sourceHome);
+  const source = await openSource(env, direction, sourceHome, savedJournal?.sourceWorkdir);
   const saved = await readAgentModelSelection(env.assistantId);
   const target = direction === 'to-cloud' ? null : sourceHome.deviceId;
-  const own = direction !== 'to-cloud' && saved.desired.source === 'default' ? await assistantSessionOn(target, env.assistantId, SESSION_WAIT_MS) : null;
+  const own = !savedJournal?.model && direction !== 'to-cloud' && saved.desired.source === 'default' ? await assistantSessionOn(target, env.assistantId, SESSION_WAIT_MS) : null;
   const options = own ? await rpcOn(target).sessionTimeline.sessionOptions({ conversationId: own.conversationId }) : null;
   if (options && !options.ok) throw new Error(options.error.message);
   const protocol = platformProtocolForAgentType('claude-code');
   if (!protocol) throw new Error('The assistant harness has no model protocol');
-  const model = direction === 'to-cloud' ? cloudMoveModel(saved.desired, protocol)
-    : moveModelSelection(saved.desired, options?.ok ? options.value : {}, protocol);
+  const model = savedJournal?.model ?? (direction === 'to-cloud' ? cloudMoveModel(saved.desired, protocol)
+    : moveModelSelection(saved.desired, options?.ok ? options.value : {}, protocol));
   const deps = buildMoveDeps(env, direction, source, sourceHome, onProgress, model);
   deps.journal = journal;
+  deps.model = model;
   deps.configure = async () => {
     const outcome = await setAgentModelSelection(env.assistantId, model);
     if (!outcome.ok) throw new Error(outcome.error);
