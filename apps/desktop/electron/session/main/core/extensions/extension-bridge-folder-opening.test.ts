@@ -136,6 +136,52 @@ describe('opening the folder: API compatibility and one-use preloads', () => {
     expect(routeNames().filter((route) => route === 'rpc/workspace_list_as')).toEqual(['rpc/workspace_list_as']);
   });
 
+  it.each([25, 26])('API %i reopens the same folder without requests', async (apiVersion) => {
+    fixture.apiVersion = apiVersion;
+    await bind(); await call('getContext');
+    await Promise.all([call('filesList', { place: place() }), call('filesViewPreferences', { place: place() })]);
+    fixture.routes.length = 0;
+    await bridge.retargetExtensionSurface({ webContentsId: 21, tabId: 'folder-reopened', conversation: fixture.chat, resourceChat: fixture.chat });
+    await call('getContext');
+    await setImmediate();
+    expect(routeNames()).toEqual([]);
+  });
+
+  it('retargeting the same folder before its first call preserves the original preload', async () => {
+    fixture.held = true;
+    const { waves } = await finish((async () => {
+      await bind();
+      await bridge.retargetExtensionSurface({ webContentsId: 21, tabId: 'folder', conversation: fixture.chat, resourceChat: fixture.chat });
+      await call('getContext');
+      await Promise.all([call('filesList', { place: place() }), call('filesViewPreferences', { place: place() })]);
+    })());
+    expect(waves.length, JSON.stringify(waves)).toBeLessThanOrEqual(2);
+    expect(routeNames().sort()).toEqual(['chats', 'rpc/workspace_list_as', 'user_settings', 'users'].sort());
+  });
+
+  it('retargeting another chat preloads that chat once', async () => {
+    await bind(); await call('getContext');
+    const nextChat = '0b000000-0000-4000-8000-000000000022';
+    fixture.routes.length = 0;
+    await bridge.retargetExtensionSurface({ webContentsId: 21, tabId: 'folder', conversation: nextChat, resourceChat: nextChat });
+    await call('getContext');
+    await Promise.all([call('filesList', { place: { chat: nextChat } }), call('filesViewPreferences', { place: { chat: nextChat } })]);
+    const reads = fixture.routes.filter(({ route }) => route === 'rpc/workspace_list_as');
+    expect(reads).toHaveLength(1);
+    expect(reads[0]!.args.p_chat_id).toBe(nextChat);
+  });
+
+  it('returning from a file to the folder starts a fresh preload', async () => {
+    await bind(); await call('getContext');
+    await bridge.retargetExtensionSurface({ webContentsId: 21, tabId: 'folder', conversation: fixture.chat, resourceChat: fixture.chat,
+      itemId: '0f000000-0000-4000-8000-000000000021' });
+    fixture.routes.length = 0;
+    await bridge.retargetExtensionSurface({ webContentsId: 21, tabId: 'folder', conversation: fixture.chat, resourceChat: fixture.chat });
+    await Promise.all([call('filesList', { place: place() }), call('filesViewPreferences', { place: place() })]);
+    expect(routeNames().filter((route) => route === 'rpc/workspace_list_as')).toHaveLength(1);
+    expect(routeNames().filter((route) => route === 'user_settings')).toHaveLength(1);
+  });
+
   it('p3: API 25 includes members in its first answer', async () => {
     fixture.apiVersion = 25;
     await bind();

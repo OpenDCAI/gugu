@@ -831,14 +831,17 @@ export async function retargetExtensionSurface(input: {
     fileSync.revoke(input.webContentsId, 'unbound');
   }
   const was = fileOf(binding);
+  const folderChanged = binding.conversation !== conversation || binding.itemId !== (input.itemId ?? null);
   binding.workspace = workspace;
   binding.conversation = conversation;
   binding.tabId = input.tabId;
   binding.filePath = filePath;
   binding.itemId = input.itemId ?? null;
   binding.opening = input.opening;
-  openingFolders.delete(binding);
-  preloadFolder(binding, input.webContentsId);
+  if (folderChanged) {
+    openingFolders.delete(binding);
+    preloadFolder(binding, input.webContentsId);
+  }
   bindingChanges.delete(input.webContentsId);
   pushContext(input.webContentsId);
   // Moved to a file a pill or a link is waiting to open: its place is this page's now.
