@@ -86,6 +86,25 @@ it('the assistant name also keeps one failed save when Enter dismisses its edito
   expect(input.getAttribute('aria-invalid')).toBe('true')
   expect(document.activeElement).toBe(document.body)
 })
+it.each([
+  ['group', { isComposing: true }], ['group', { keyCode: 229 }],
+  ['assistant', { isComposing: true }], ['assistant', { keyCode: 229 }],
+] as const)('%s rename leaves composition Enter alone (%j)', async (editor, init) => {
+  const commit = vi.fn().mockResolvedValue(undefined)
+  await h.render(<Owner>{editor === 'group'
+    ? <InlineNameInput name="Old" onCommit={commit} onClose={vi.fn()} />
+    : <AssistantNameInline name="Old" onCommit={commit} />}</Owner>)
+  if (editor === 'assistant') await clickElement(h.container.querySelector('button')!)
+  const input = h.container.querySelector('input')!
+  await typeInto(input, 'New')
+  await act(async () => {
+    input.focus()
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true, ...init }))
+    await new Promise(resolve => setTimeout(resolve, 10))
+  })
+  expect(commit).not.toHaveBeenCalled()
+  expect(document.activeElement).toBe(input)
+})
 it('desktop rename Enter keeps the input focused while saving', async () => {
   Object.defineProperty(platform, 'kind', { configurable: true, value: 'electron' })
   const commit = vi.fn(() => new Promise<void>(() => {}))
