@@ -1,12 +1,14 @@
 import { useCallback, useMemo, type RefObject } from 'react'
 import { useFindBar } from '@renderer/lib/ui/use-find-bar'
+import { openGlobalSearch } from '@renderer/features/global-search/search-session'
 import type { MessageItem } from '@gugu/core/shared/types/chat'
 import type { FlowListHandle } from '@/lib/flowList'
 import type { ScrollableRow } from '@/lib/sourceMessageScroll'
 import type { useChatSearch } from './useChatSearch'
 import { createMessageFind } from './messageFind'
 
-export function useMessageFind({ messages, rows, rootRef, listRef, scrollerRef, enabled, search }: {
+export function useMessageFind({ chatId, messages, rows, rootRef, listRef, scrollerRef, enabled, search }: {
+  chatId: string | null
   messages: readonly MessageItem[]
   rows: readonly ScrollableRow[]
   rootRef: RefObject<HTMLElement | null>
@@ -23,6 +25,6 @@ export function useMessageFind({ messages, rows, rootRef, listRef, scrollerRef, 
   const find = useFindBar({ rootRef, backend, enabled, onOpen: closeSearch,
     isActive: (element) => element.closest('[data-chat-surface]') === rootRef.current,
   })
-  const searchAll = () => { const query = find.searchQuery; find.onClose(); search.open(query) }
+  const searchAll = chatId ? () => { const text = find.searchQuery; find.onClose(); openGlobalSearch({ text, chips: [{ kind: 'in', chatId }] }) } : undefined
   return { ...find, searchAll }
 }

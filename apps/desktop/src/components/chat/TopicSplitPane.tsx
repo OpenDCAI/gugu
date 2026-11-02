@@ -276,7 +276,7 @@ export function TopicSplitPane({ viewportKey = 'topic', navigationTarget = false
     chatId: topic.chatId, viewportKey, activationKey: topic.chatId, enabled: visible !== false && !isFiltering, discardSaved: !!history.unreadEntry,
     messageIds: rows.map((row) => row.message.id), isAtBottomRef, setFollowingTail, loadMessageAnchor,
   })
-  const find = useMessageFind({ messages, rows, rootRef: paneRef, listRef, scrollerRef, enabled: visible !== false && !mobile, search })
+  const find = useMessageFind({ chatId: topic.chatId, messages, rows, rootRef: paneRef, listRef, scrollerRef, enabled: visible !== false && !mobile, search })
   const onHistoryError = useCallback((error: unknown) => toast(error instanceof Error ? error.message : String(error), 'error'), [toast])
   const unreadNavigationPending = useUnreadLocatorNavigation({ revealMessage, activeChatId: topic.chatId, enabled: visible !== false && !isFiltering,
     onNavigate: () => search.setSearchMode(false), scrollerRef, setFlashMessageId, flashTimerRef })
