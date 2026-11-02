@@ -1143,6 +1143,13 @@ async function discloseBatchFailure(
       log.warn({ agentUserId, chatId, messageIds: ids, reason }, 'quota/model turn failure kept out of the chat; shown as the agent state')
       continue
     }
+    // The row is public: saying it about whispers alone would tell the chat who was whispered to (the rule
+    // `discloseUndeliverable` follows). Left unsaid, the command records reply_notice=context and the owner sees it at the composer.
+    if (chatMembers.every((member) => member.row.isWhisper)) {
+      said = false
+      log.warn({ agentUserId, chatId, messageIds: ids, reason }, 'turn failure on whispers kept out of the public chat; shown to the owner')
+      continue
+    }
     const key = `turn-failure:batch:${createHash('sha256').update([agentUserId, ...ids].join(',')).digest('hex').slice(0, 32)}`
     try {
       await post({ agentUserId, chatId, threadRootId: chatMembers[0]!.row.threadRootId, key, reason })

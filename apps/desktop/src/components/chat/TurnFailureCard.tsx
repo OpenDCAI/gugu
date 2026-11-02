@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { turnFailurePresentation, type TurnFailureReason } from '@gugu/core/shared/turnFailurePresentation'
+import { turnFailurePresentation } from '@gugu/core/shared/turnFailurePresentation'
+import type { AgentFailureReason } from '@gugu/core/shared/agentQuotaReason'
 import { AlertTriangle, X } from '@/lib/icons'
 import { formatCalendarDay } from '@/i18n/format'
 import { Avatar } from '../Avatar'
@@ -9,7 +10,7 @@ import { Sheet } from '../ui/Sheet'
 import './turn-failure-card.css'
 
 type TurnFailureCardProps = {
-  reason: TurnFailureReason
+  reason: AgentFailureReason
   displayName: string
   agentId?: string | null
   avatar?: string | null

@@ -129,7 +129,6 @@ async function runDeliverTick(
     commandCreatedAt?: string
     recordDeliverOutcome?: (o: AgentDeliverOutcomeInput) => Promise<unknown>
     withoutAccessToken?: boolean
-    onAgentDeliverFailure?: (failure: { commandId: string; chatId: string }) => void
   } = {},
 ) {
   const commandId = options.commandId ?? FENCED_COMMAND_ID
@@ -170,7 +169,6 @@ async function runDeliverTick(
           outcomes.push(o)
           return 0
         }),
-      ...(options.onAgentDeliverFailure ? { onAgentDeliverFailure: options.onAgentDeliverFailure } : {}),
     },
     env,
   )
@@ -253,24 +251,22 @@ describe('#2175 deliver 回合结局接线(tick 级,S2b 读者注入结局)', ()
 
   // 编号 17 (10-12 片场试演):群里那一行就是这次失败的唯一说明 —— 落下了,宿主就不再叠失败条(那条条在 agent 恢复以后
   // 从来没人收);计数照记。那一行没落下(POST 被拒),失败条照常出,不让失败无声。
-  test('批注入失败且披露行落下 → 不出失败条、计数照记;披露行落不下 → 照常出条', async () => {
-    for (const [disclosureStatus, bars] of [[201, 0], [500, 1]] as const) {
+  test('批注入失败且披露行落下 → 命令记 in-chat、计数照记;披露行落不下 → 记 context,交给 composer 槽', async () => {
+    for (const [disclosureStatus, replyNotice] of [[201, 'in-chat'], [500, 'context']] as const) {
       resetAgentInboxReaderStateForTests()
       const env = await isolatedGuguEnv(`gugu-17-said-${disclosureStatus}-`)
       await seedAgent(env)
       stubNetwork({ unreadRows: () => [unreadRow()], disclosureStatus })
       const outcomes: AgentDeliverOutcomeInput[] = []
-      const failures: { commandId: string; chatId: string }[] = []
-      const { result } = await runDeliverTick(
+      const { result, commandClient } = await runDeliverTick(
         env,
         async () => {
           throw new Error('engine exploded')
         },
         outcomes,
-        { onAgentDeliverFailure: (failure) => failures.push(failure) },
       )
       expect(result.commands).toMatchObject([{ commandId: FENCED_COMMAND_ID, status: 'error' }])
-      expect(failures.map((failure) => failure.chatId)).toEqual(Array(bars).fill(FENCED_CHAT_ID))
+      expect(commandClient.row(FENCED_COMMAND_ID)).toMatchObject({ result: { reply_notice: replyNotice, reason: 'generic' } })
       expect(outcomes.filter((outcome) => !outcome.ok)).toHaveLength(2)
       vi.unstubAllGlobals()
     }

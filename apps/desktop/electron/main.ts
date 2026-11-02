@@ -508,7 +508,6 @@ import { createLocalDeviceIdResolver, type DeviceHeartbeatTableClient } from '@g
 import { announceLocalDeviceIdentity } from './local-device-identity'
 import { createDeviceProjectsPublisher, type DeviceProjectsPublisher } from '@gugu/core/cloud/deviceProjectsPublisher'
 import type { DeviceProjectsRpcClient } from '@gugu/core/cloud/deviceProjects'
-import type { AgentStreamPayload } from '@gugu/core/shared/types/agentStream'
 import { emdashPlatformReleaseIntent } from './session/main/core/acp/emdash-platform-injector'
 import type {
   EmdashSessionStartInfo as EmdashStartInfo,
@@ -2164,30 +2163,6 @@ function startDeviceRuntimeWhenRendererReady(): void {
     warn: (message) => console.warn(message),
     onAuthExpired: (message) => { void showAuthExpiredNotification(message) },
     ...(serverAuth ? { onDeviceRemoved: serverDeviceRemovedHandler(serverAuth) } : {}),
-    onAgentDeliverFailure: (failure) => {
-      console.error(
-        `[agent-turn] deliver ${failure.commandId} failed terminally (agent=${failure.agentUserId} chat=${failure.chatId} thread=${failure.threadRootId ?? 'main'}): ${failure.error}`
-        + (failure.cause ? ` (cause: ${failure.cause})` : '')
-      )
-      sendUiEvent(MAIN_UI_EVENTS.agentStream, {
-        agentUserId: failure.agentUserId,
-        conversationId: failure.chatId,
-        threadRootId: failure.threadRootId,
-        event: { type: 'error', message: failure.error, commandId: failure.commandId }
-      } satisfies AgentStreamPayload)
-      // @@@no-auto-dm — 判据是「这个 agent 是不是会话页 agent」,那是 liveSessionIdByAgent 的
-      // 定义(非 null = 投递归会话页)。曾经拿 chatIdForAgent 顶替:私聊一律在 provision 时开,于是
-      // 「有 chatId」恰好等价于「是会话页 agent」—— 现在私聊只找不建,没开过私聊的会话页 agent
-      // chatId 就是 null,再按它判就会把该报给会话页的投递失败**静默吞掉**。
-      const sessionpageSessionId = emdashAgentRegistry.liveSessionIdByAgent(failure.agentUserId)
-      if (sessionpageSessionId) {
-        sendUiEvent(MAIN_UI_EVENTS.sessionpageDeliverFailed, {
-          agentUserId: failure.agentUserId,
-          messageId: failure.messageId,
-          error: failure.error,
-        })
-      }
-    },
   })
   // server 没有窗口可等:登录态在主进程手里,设备循环直接起。
   if (SERVER_MODE || !mainWindow) {

@@ -665,7 +665,7 @@ test('a failed chat turn still posts its notice when saving the failure fails', 
   } finally { await fx.close() }
 })
 
-test('a failed turn on a whispered message posts only the fixed notice: no raw error reaches the chat', async () => {
+test('a failed turn on a whispered message posts no public notice: it would tell the chat who was whispered to', async () => {
   const fx = await fixture(async (command) => {
     if (!command.prompt.includes('gugu_delivery')) return { status: 'done', text: '[NO_REPLY]' }
     return { status: 'failed', text: '', error: 'simulated model failure with private detail' }
@@ -674,9 +674,8 @@ test('a failed turn on a whispered message posts only the fixed notice: no raw e
   fx.inboxRows.push({ chat_id: chatId, chat_kind: 'dm', chat_public_id: null, id: messageId, seq: 1, sender_user_id: ownerId, sender_type: 'human', sender_display_name: '主人', content: '悄悄话', content_type: 'text', to_user_ids: [agentId], is_whisper: true, file_item_id: null, file_version: null, file_blob_id: null, group_rules: null, named_identities: {}, created_at: new Date().toISOString() })
   try {
     await fx.host.invoke('sessionTimeline.sessionCreate', [{ harness: 'pi', model: 'platform:free', prompt: '悄悄话' }], 'failing-whisper-turn')
-    await until(() => fx.notices.length > 0, fx.events)
-    assert.equal(fx.notices.length, 1)
-    assert.doesNotMatch(JSON.stringify(fx.notices), /private detail|simulated/)
+    await until(async () => JSON.parse(await readFile(join(fx.root, 'hosts', ownerId, 'host.json'), 'utf8')).jobs[messageId]?.status === 'failed', fx.events)
+    assert.deepEqual(fx.notices, [])
     assert.equal(fx.messages.some((message) => message.p_sender_user_id === agentId), false)
   } finally { await fx.close() }
 })

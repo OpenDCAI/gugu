@@ -1,7 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { clickElement, createNode, createReactHarness } from '../../../support/testHarness'
-import { agentTurnFailureUserMessage } from '../../../../apps/desktop/src/lib/agentTurnFailure'
 
 vi.mock('../../../../apps/desktop/src/store/contactsContext', () => ({ useContactsStore: () => ({ contacts: [{ id: 'agent-1', type: 'agent' }] }) }))
 vi.mock('../../../../apps/desktop/src/components/agentsettings/AgentSettingsModal', () => ({ AgentSettingsModal: ({ agent, initialTab }: { agent: { id: string }; initialTab: string }) => <div data-model-settings={agent.id} data-model-tab={initialTab} /> }))
@@ -13,13 +12,10 @@ vi.mock('../../../../apps/desktop/src/lib/supabase', () => ({
   requeueErroredDeviceCommand: vi.fn(async () => false)
 }))
 vi.mock('../../../../apps/desktop/src/platform', () => ({ platform: {} }))
-vi.mock('../../../../apps/desktop/src/hooks/useStoredAgentTurnFailure', () => ({ useStoredAgentTurnFailure: () => ({ failure: null, readFailed: false, dismiss: vi.fn(), retry: vi.fn() }) }))
-vi.mock('../../../../apps/desktop/src/hooks/useAgentTurnFailure', () => ({
-  useAgentTurnFailure: () => ({
-    failure: { agentUserId: 'agent-1', commandId: 'command-1', at: 1, rawMessage: 'deliver failed' },
-    dismiss: vi.fn(),
-  }),
-}))
+vi.mock('../../../../apps/desktop/src/hooks/useStoredAgentTurnFailure', () => ({ useStoredAgentTurnFailure: () => ({
+  failure: { agentUserId: 'agent-1', commandId: 'command-1', at: 1, reason: 'generic', revision: 'r1' },
+  readFailed: false, dismiss: vi.fn(), retry: vi.fn(),
+}) }))
 
 import { AgentConversationNoticeSlot, AgentTurnFailureBar } from '../../../../apps/desktop/src/components/AgentTurnFailureBar'
 
@@ -29,7 +25,8 @@ import { SystemMessageNotice } from '../../../../apps/desktop/src/components/cha
 const baseFailure = {
   agentUserId: 'agent-1',
   commandId: 'command-1',
-  at: 1
+  at: 1,
+  reason: 'generic' as const,
 }
 
 let harness: ReturnType<typeof createReactHarness>
@@ -54,73 +51,27 @@ describe('AgentConversationNoticeSlot', () => {
   })
 })
 
-describe('AgentTurnFailureBar error details', () => {
-  it('shows a weekly quota notification in context without exposing the provider payload', async () => {
-    const rawMessage = "You've hit your weekly limit. Internal trace x123; resets October 21"
-    await harness.render(createNode(AgentTurnFailureBar, { failure: { ...baseFailure, rawMessage }, displayName: '咕咕', avatar: null, onDismiss: vi.fn(), onOpenModel: vi.fn() }))
+// The renderer never sees the raw error (the command row is read without it): it says the reason the host recorded.
+describe('AgentTurnFailureBar reason', () => {
+  it('says a weekly limit and offers a model change', async () => {
+    await harness.render(createNode(AgentTurnFailureBar, { failure: { ...baseFailure, reason: 'weeklyQuota' }, displayName: '咕咕', avatar: null, onDismiss: vi.fn(), onOpenModel: vi.fn() }))
     expect(harness.container.querySelector('[role="status"]')?.textContent).toContain('周限额度不足')
-    expect(harness.container.innerHTML).not.toContain('Internal trace')
-    expect(harness.container.innerHTML).not.toContain('October 21')
     expect(harness.container.querySelector('[data-testid="agent-turn-failure-model"]')).not.toBeNull()
   })
-  it('keeps the human summary visible without exposing raw errors in hover or accessibility text', async () => {
-    const rawMessage =
-      'stream disconnected before completion: stream closed before response.completed'
-    await harness.render(
-      createNode(AgentTurnFailureBar, {
-        failure: { ...baseFailure, rawMessage },
-        displayName: 'Gugu',
-        avatar: null,
-        onDismiss: vi.fn()
-      })
-    )
-
-    const message = harness.container.querySelector('.tfc-reason')
-    expect(message?.textContent).toBe(agentTurnFailureUserMessage(rawMessage))
-    expect(message?.getAttribute('title')).toBeNull()
-    expect(message?.getAttribute('aria-label')).toBe(
-      agentTurnFailureUserMessage(rawMessage)
-    )
-  })
-
-  it('does not create an empty tooltip when the raw error is blank', async () => {
-    await harness.render(
-      createNode(AgentTurnFailureBar, {
-        failure: { ...baseFailure, rawMessage: '  ' },
-        displayName: 'Gugu',
-        avatar: null,
-        onDismiss: vi.fn()
-      })
-    )
-
-    const message = harness.container.querySelector('.tfc-reason')
-    expect(message?.getAttribute('title')).toBeNull()
-    expect(message?.getAttribute('aria-label')).toBe(agentTurnFailureUserMessage('  '))
-  })
-})
-
-
-describe('model account quota', () => {
-  it('explains the actual weekly limit and opens model selection instead of only saying generic failure', async () => {
-    const onOpenModel = vi.fn()
-    await harness.render(createNode(AgentTurnFailureBar, {
-      failure: { ...baseFailure, rawMessage: "Internal error: You've hit your weekly limit · resets Oct 21 at 4am (Asia/Shanghai)" },
-      displayName: 'Gugu', avatar: null, onDismiss: vi.fn(), onOpenModel,
-    }))
-    expect(harness.container.querySelector('.tfc-reason')?.textContent).toContain('额度')
-    harness.container.querySelector<HTMLButtonElement>('[data-testid="agent-turn-failure-model"]')?.click()
-    expect(onOpenModel).toHaveBeenCalledOnce()
-  })
-  it('does not label a network timeout as exhausted quota', () => {
-    expect(agentTurnFailureUserMessage('request timed out')).not.toBe(agentTurnFailureUserMessage("You've hit your weekly limit"))
-  })
-  it('offers a model change when the gateway rejects a listed but unavailable model', async () => {
-    await harness.render(createNode(AgentTurnFailureBar, {
-      failure: { ...baseFailure, rawMessage: 'Internal error: API Error: 400 Model zoe/kimi-k3 is not available' },
-      displayName: 'Gugu', avatar: null, onDismiss: vi.fn(), onOpenModel: vi.fn(),
-    }))
+  it('offers a model change when the model is unavailable', async () => {
+    await harness.render(createNode(AgentTurnFailureBar, { failure: { ...baseFailure, reason: 'modelUnavailable' }, displayName: 'Gugu', avatar: null, onDismiss: vi.fn(), onOpenModel: vi.fn() }))
     expect(harness.container.querySelector('.tfc-reason')?.textContent).toContain('模型服务')
     expect(harness.container.querySelector('[data-testid="agent-turn-failure-model"]')).not.toBeNull()
+  })
+  it('says an undelivered message without a retry that would resend it to nobody', async () => {
+    await harness.render(createNode(AgentTurnFailureBar, { failure: { ...baseFailure, reason: 'undelivered' }, displayName: 'Gugu', avatar: null, onDismiss: vi.fn() }))
+    expect(harness.container.querySelector('.tfc-reason')?.textContent).toContain('没有运行中的咕咕实例')
+    expect(harness.container.querySelector('[data-testid="agent-turn-failure-retry"]')).toBeNull()
+    expect(harness.container.querySelector('[data-testid="agent-turn-failure-dismiss"]')).not.toBeNull()
+  })
+  it('[positive control] a generic failure offers retry', async () => {
+    await harness.render(createNode(AgentTurnFailureBar, { failure: baseFailure, displayName: 'Gugu', avatar: null, onDismiss: vi.fn() }))
+    expect(harness.container.querySelector('[data-testid="agent-turn-failure-retry"]')).not.toBeNull()
   })
 })
 
@@ -203,7 +154,7 @@ describe('shared failure card behavior', () => {
   it('retries the existing failed command and dismisses only after requeue succeeds', async () => {
     const onDismiss = vi.fn()
     vi.mocked(requeueErroredDeviceCommand).mockResolvedValueOnce(true)
-    await harness.render(createNode(AgentTurnFailureBar, { failure: { ...baseFailure, rawMessage: 'fetch failed' },
+    await harness.render(createNode(AgentTurnFailureBar, { failure: { ...baseFailure, reason: 'network' },
       displayName: 'Codex', avatar: null, onDismiss }))
     expect(onDismiss).not.toHaveBeenCalled()
     await clickElement(harness.container.querySelector<HTMLButtonElement>('[data-testid="agent-turn-failure-retry"]')!)
@@ -214,7 +165,7 @@ describe('shared failure card behavior', () => {
     const onDismiss = vi.fn()
     vi.mocked(requeueErroredDeviceCommand).mockRejectedValueOnce(new Error('offline'))
     const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {})
-    await harness.render(createNode(AgentTurnFailureBar, { failure: { ...baseFailure, rawMessage: 'fetch failed' },
+    await harness.render(createNode(AgentTurnFailureBar, { failure: { ...baseFailure, reason: 'network' },
       displayName: 'Codex', avatar: null, onDismiss }))
     await clickElement(harness.container.querySelector<HTMLButtonElement>('[data-testid="agent-turn-failure-retry"]')!)
     expect(onDismiss).not.toHaveBeenCalled()

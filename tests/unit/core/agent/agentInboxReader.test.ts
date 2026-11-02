@@ -340,6 +340,20 @@ describe('an enqueuing host (session-life)', () => {
     expect(marked).toEqual([row(1).id])
   })
 
+  // A failure row is public: about whispers alone it would tell the chat who was whispered to (the #1247 rule for undelivered).
+  it('a failed batch of whispers posts no public row and is left to the owner; a batch with a public message still says it', async () => {
+    const cloud = cloudWith(1, 2)
+    const said: Array<{ reason: string }> = []
+    const { deps } = makeDeps(cloud, { postDisclosure: async (row) => { said.push({ reason: row.reason }) } })
+    const source = (seq: number, isWhisper: boolean) => ({ row: { ...row(seq), chatKind: 'group', chatPublicId: null, chatName: null, chatCreatorUserId: null, listenMode: 'active',
+      notificationLevel: 'all', lastReadSeq: 0, senderType: 'human', senderDisplayName: null, senderGuguNumber: null, contentType: 'text', toUserIds: [AGENT],
+      isWhisper, replyToMessageId: null, replyToSenderUserId: null, replyToContent: null, threadRootId: null, isThreadRoot: false } as AgentInboxUnreadRow })
+    await discloseInboxRowsFailed(AGENT, [source(1, true)], deps, { kind: 'failed', cause: new Error('fetch failed') })
+    expect(said).toEqual([])
+    await discloseInboxRowsFailed(AGENT, [source(1, true), source(2, false)], deps, { kind: 'failed', cause: new Error('fetch failed') })
+    expect(said).toEqual([{ reason: 'network' }])
+  })
+
   it('a claimed row that already ended (failed / unknown) does not hold back a skipped row behind it', async () => {
     const cloud = cloudWith(1)
     cloud.post({ ...row(2), id: `msg:${row(2).id}` })

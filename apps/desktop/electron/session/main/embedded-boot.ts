@@ -851,7 +851,7 @@ export function disposeEmdashModule(): Promise<void> {
 // The gugu host uses these to make one session-page codex session message another: a gugu `agent.deliver`
 // for a session-page agent is fulfilled by injecting a new ACP turn into that agent's live session-page
 // conversation — NOT by pty writes. FAIL-LOUD: if the conversation is not a live session-page session, `sendPrompt` returns an error and
-// we THROW (surfaced by gugu's onAgentDeliverFailure). A busy-but-live session returning {queued:true}
+// we THROW (the failed agent.deliver command records it; its chat or composer says it). A busy-but-live session returning {queued:true}
 // is not inbox admission; detached callers surface it as an error instead of marking delivery complete.
 
 /**

@@ -645,9 +645,6 @@ export default {
       "shareNoGuguNumber": "{{name}} 还没有咕咕号，暂时无法生成名片",
       "shareUnavailable": "这个会话还没有可分享的 agent 身份",
       "taskCreated": "会话已创建",
-      "taskDeliverFailed": "消息未送达 {{name}}。",
-      "taskDeliverFailedCount_one": "{{name}} 有 {{count}} 条消息未送达。",
-      "taskDeliverFailedCount_other": "{{name}} 有 {{count}} 条消息未送达。",
       "unownedAgentDm": "他人的 Agent 不能私聊，请在共享群聊中与它协作"
     },
     "update": {

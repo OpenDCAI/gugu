@@ -1,6 +1,6 @@
-import { agentQuotaReason, agentTurnFailureNeedsModelChoice, type AgentTurnFailure } from './agentTurnFailure'
+import { AGENT_FAILURE_REASONS } from '@gugu/core/shared/agentQuotaReason'
+import type { AgentTurnFailure } from './agentTurnFailure'
 import { identityDb } from './supabase'
-import { agentTurnFailureMuteKind } from './agentTurnFailureMute'
 
 export type StoredAgentTurnFailure = AgentTurnFailure & { revision: string }
 
@@ -17,13 +17,12 @@ export function storedAgentTurnFailures(rows: unknown[], agentIds: readonly stri
     seen.add(id)
     if (row.status !== 'error' || typeof row.id !== 'string') continue
     const result = row.result && typeof row.result === 'object' ? row.result as Record<string, unknown> : null
-    const rawMessage = typeof row.error === 'string' ? row.error : ''
-    // 额度/模型类是 agent 的状态位（#7685），旧宿主就算也在聊天里写了一行，状态位照样要亮。
-    if (result?.reply_notice === 'in-chat' && !agentTurnFailureMuteKind(rawMessage)) continue
-    // 老宿主没记披露位置：只补明确的额度/模型原因，避免把已在聊天披露的其他旧失败又叠一层。
-    if (result?.reply_notice !== 'context' && !agentQuotaReason(rawMessage) && !agentTurnFailureNeedsModelChoice(rawMessage)) continue
+    // 宿主在聊天里说过的（in-chat）由聊天说；只认它留给 composer 的（context），原因是宿主落的码。
+    // 没记原因的旧宿主行不显示：宿主升级后它的新失败自然带上。
+    const reason = AGENT_FAILURE_REASONS.find((known) => known === result?.reason)
+    if (result?.reply_notice !== 'context' || !reason) continue
     const revision = typeof row.completed_at === 'string' ? row.completed_at : String(row.created_at ?? '')
-    failures.push({ agentUserId: id, commandId: row.id, rawMessage, at: Date.parse(revision), revision })
+    failures.push({ agentUserId: id, commandId: row.id, reason, at: Date.parse(revision), revision })
   }
   return failures
 }

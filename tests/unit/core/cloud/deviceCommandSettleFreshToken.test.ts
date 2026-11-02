@@ -78,7 +78,18 @@ describe('落终态用写那一刻有效的令牌', () => {
     await processPendingDeviceCommandsOnce(tickClient, DEVICE, {
       'agent.deliver': async () => { throw Object.assign(new Error('weekly limit reached'), { disclosedInChat }) },
     }, { nowIso: () => NOW, sleep: noSleep })
-    expect(db.row('a8f47c6e').result).toEqual({ reply_notice: disclosedInChat ? 'in-chat' : 'context' })
+    expect(db.row('a8f47c6e').result).toEqual({ reply_notice: disclosedInChat ? 'in-chat' : 'context', reason: 'weeklyQuota' })
+  })
+  it('落库的原因:失败自带的原因优先(无人持有 = undelivered),否则按原文分一次类,分不出是 generic', async () => {
+    for (const [thrown, reason] of [
+      [Object.assign(new Error('Local agent not found for agent'), { reason: 'undelivered' }), 'undelivered'],
+      [new Error('fetch failed'), 'network'],
+      [new Error('something odd'), 'generic'],
+    ] as const) {
+      const { db, tickClient } = setup()
+      await processPendingDeviceCommandsOnce(tickClient, DEVICE, { 'agent.deliver': async () => { throw thrown } }, { nowIso: () => NOW, sleep: noSleep })
+      expect(db.row('a8f47c6e').result).toEqual({ reply_notice: 'context', reason })
+    }
   })
   it('一轮跑到令牌过期之后才结束:done 照样写进去', async () => {
     const { db, tickClient, freshClient, expireTickToken } = setup()
