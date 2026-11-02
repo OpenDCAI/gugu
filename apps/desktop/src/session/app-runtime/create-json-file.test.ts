@@ -8,7 +8,7 @@ const setup = () => {
     { appFiles: { create, watch: vi.fn(async () => undefined) } } as never,
     { files: () => import('./files-entry') as never },
   );
-  return { create, files: gugu.files };
+  return { create, files: gugu.files as { create(target: unknown, content: string | object, options?: { contentType?: string }): Promise<unknown> } };
 };
 
 describe('files.create JSON names', () => {
