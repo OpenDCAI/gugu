@@ -829,7 +829,7 @@ export class AcpChatStore {
   }
 
   /**
-   * A stop before the message went ends it like any stopped turn: it stays where it was, with 「你停止了这一轮」 and its
+   * A stop before the message went ends it like any stopped turn: it stays where it was, with its stopped line and its
    * actions. The row itself stays queued, and goes first when the person continues or sends again; then this turn leaves
    * and the row draws as the next turn, ❌ the same words twice.
    */
