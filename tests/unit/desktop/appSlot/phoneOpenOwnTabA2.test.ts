@@ -4,18 +4,16 @@ import { hostAppFrame } from '../../../../apps/desktop/src/components/appSlot/ph
 import { phoneApps } from '../../../../apps/desktop/src/components/appSlot/phoneApps'
 import { APP_FRAME_MARKER } from '../../../../apps/desktop/src/session/shared/extensions/app-runtime-protocol'
 import { EXTENSION_API_VERSION, parseExtensionManifest } from '../../../../apps/desktop/src/session/shared/extensions/manifest'
-import { rpcQuery } from '../../../support/rpcQuery'
 
 /**
  * A2 (data-lens 评审), the phone's half: `files.openWith(file, { tab })` from a page on the phone opens the chat file in
  * its own App's tab that claims it — the same answer as the desktop's main (`ownTabChoice`, file-openers.ts): no
  * 「打开方式」, the person's 「始终用它」 (`phoneApps.remembered`) neither read nor written. Without `tab`, as before.
- * Harness as phoneGestureB4.test.ts: the real host, the App's calls as its gate posts them.
+ * Harness as phoneGestureB4.test.ts: the real host, the App's calls as its gate posts them; only `openTarget` stubbed.
  */
 
 const ORIGIN = 'https://data-lens.acct.apps.gugu.invalid'
-const CHAT = '0b000000-0000-4000-8000-0000000000c2'
-const SALES = '0c000000-0000-4000-8000-0000000000c2'
+const { CHAT, SALES } = vi.hoisted(() => ({ CHAT: '0b000000-0000-4000-8000-0000000000c2', SALES: '0c000000-0000-4000-8000-0000000000c2' }))
 const apps = vi.hoisted(() => ({ manifests: [] as unknown[] }))
 vi.mock('../../../../apps/desktop/src/session/renderer/features/extensions/installed-extensions-store', () => ({
   installedExtensionsStore: {
@@ -26,30 +24,24 @@ vi.mock('../../../../apps/desktop/src/session/renderer/features/extensions/insta
     manifestFor: (id: string) => (apps.manifests as { id: string }[]).find((manifest) => manifest.id === id),
   },
 }))
-const auth = vi.hoisted(() => ({ token: `h.${Buffer.from(JSON.stringify({ sub: '0a000000-0000-4000-8000-0000000000c2' })).toString('base64url')}.s` }))
 vi.mock('../../../../apps/desktop/src/store/devicesCache', () => ({ readCachedDevices: () => [] }))
 vi.mock('../../../../apps/desktop/src/mobile/agent-watch/sessionpage-rpc', () => ({ fetchSessionsList: vi.fn() }))
-vi.mock('../../../../apps/desktop/src/lib/sessionPublication', () => ({ getRendererAccessToken: () => auth.token }))
-vi.mock('@gugu/core/cloud/supabase', () => ({
-  createGuguSupabaseClient: () => {
-    const row = { id: SALES, chat_id: CHAT, kind: 'file', filename: 'sales.xlsx', version: 2, parent_id: null, system_role: null, path: 'sales.xlsx' }
-    const query = {
-      select: () => query,
-      eq: () => query,
-      maybeSingle: async () => ({ data: { id: CHAT }, error: null }),
-      in: async () => ({ data: [{ id: SALES, chat_id: CHAT, filename: 'sales.xlsx', version: 2 }], error: null }),
-    }
-    const rpc = rpcQuery(async (name: string, args: Record<string, unknown>) =>
-      name === 'chat_facts'
-        ? { data: [{ id: args.p_chat_id, kind: 'group', source_chat_id: null }], error: null }
-        : name === 'workspace_deletable_as'
-        ? { data: args.p_item_ids, error: null }
-        : name === 'file_resolve_as'
-        ? { data: { status: 'ready', source: 'managed-object' }, error: null }
-        : { data: [row], error: null })
-    return { from: () => query, rpc }
-  },
-}))
+// Where the file is and whether this page may read it are `openTarget`'s, unchanged by A2 (its own tests): here it
+// answers the chat's sales.xlsx; who opens it is the host's real answer over the Apps on this phone.
+vi.mock('../../../../apps/desktop/src/session/shared/extensions/app-files-core', async (importOriginal) => {
+  const core = await importOriginal<typeof import('../../../../apps/desktop/src/session/shared/extensions/app-files-core')>()
+  return {
+    ...core,
+    createAppFiles: (...args: Parameters<typeof core.createAppFiles>) => {
+      const files = core.createAppFiles(...args)
+      return new Proxy(files, {
+        get: (target, key, receiver) => key === 'openTarget'
+          ? async () => ({ chatId: CHAT, itemId: SALES, name: 'sales.xlsx', typedName: 'sales.xlsx', file: { document: false, contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', version: 2, size: 4096 } })
+          : Reflect.get(target, key, receiver),
+      })
+    },
+  }
+})
 
 const dataLens = parseExtensionManifest({
   id: 'data-lens', name: 'Data Lens', version: '1.0.0', apiVersion: EXTENSION_API_VERSION, defaultLocale: 'en', entry: 'index.html',

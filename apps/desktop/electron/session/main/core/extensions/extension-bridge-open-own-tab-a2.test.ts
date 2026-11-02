@@ -54,7 +54,7 @@ vi.mock('@main/core/extensions/app-files', async () => {
       contributes: { tabs: [{ name: 'sheet', title: 'Office', entry: 'sheet.html', opensFiles: { chat: ['.xlsx'] } }] },
     }),
   ];
-  const own = (openers as unknown as { ownTabChoice?: (...args: unknown[]) => unknown }).ownTabChoice;
+  const own = (openers as unknown as { requireOwnTabChoice?: (...args: unknown[]) => unknown }).requireOwnTabChoice;
   return {
     AppFileError: core.AppFileError,
     resourceChatOf: vi.fn(async (chatId: string) => chatId),
@@ -123,6 +123,12 @@ describe('openWith(file, { tab }): its own tab, no 「打开方式」 (A2 T3/T4)
 });
 
 describe('only its own tab, and only one that claims the file (A2 T6)', () => {
+  it('still refuses an unreadable chat file before choosing its own tab', async () => {
+    vi.mocked(openWithTarget).mockRejectedValueOnce(Object.assign(new Error('Unreadable file'), { code: 'denied' }));
+    expect(await openWith({ ref, tab: 'explore' })).toMatchObject({ ok: false, code: 'denied' });
+    expect(actions()).toEqual([]);
+  });
+
   it.each([
     ['its own tab that does not claim .xlsx', { tab: 'card' }],
     ['a tab it does not have', { tab: 'nope' }],
