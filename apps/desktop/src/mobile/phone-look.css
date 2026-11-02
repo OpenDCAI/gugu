@@ -25,6 +25,11 @@
   --phone-nav-selected-fx: var(--shadow-composer);
 }
 
+/* 灵感的悬浮底也保持中性;只覆盖这颗按钮,不改头像和选中项的助理身份色。 */
+[data-phone-shell] .ta-ideas-pill {
+  --ta-tint-soft: var(--ta-tint-wash);
+}
+
 /* ── 玻璃:底栏、搜索框 ── */
 
 [data-phone-shell] [data-phone-tabbar] {
