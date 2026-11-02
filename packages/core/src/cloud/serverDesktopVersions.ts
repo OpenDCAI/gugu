@@ -34,20 +34,3 @@ export function desktopProtocolOutsideWindow(
   if (protocol === null) return false
   return protocol < window.min || protocol > window.max
 }
-
-/**
- * 这台桌面报给咕咕 server 的「我是哪一版」。正式发版时桌面与 server 同一个版本号,报的就是自己的版本(GUGU_APP_VERSION)。
- * 开发 / 测试:桌面(pnpm dev,package.json 的版本)与测试 server 包(GUGU_SERVER_VERSION 另打的号)对不上,
- * 按「严格等于桌面版本」会去找一个不存在的 server 包 —— GUGU_SERVER_MATCH_VERSION 覆盖它,
- * 但只在没打包(开发)或用了自定义下载源(测试站)时生效;打包出的正式版走正式下载站,一律忽略。
- * 不是发布流水线出的包(GUGU_BUILD_DISTRIBUTION=local:开发实例、本机打的测试包)不覆盖就 ❌ 报:它的版本号
- * (多半是 package.json 那个不带后缀的号)从没发布过 server 包,却按「正式版比同号 Beta 新」压过所有真桌面。
- */
-export function reportedDesktopVersion(env: NodeJS.ProcessEnv, options: { packaged: boolean; published: boolean }): string | null {
-  const override = env.GUGU_SERVER_MATCH_VERSION?.trim()
-  const testing = !options.packaged || Boolean(env.GUGU_SERVER_DOWNLOAD_BASE?.trim())
-  if (override && testing && isServerVersion(override)) return override
-  if (!options.published) return null
-  const own = env.GUGU_APP_VERSION?.trim()
-  return isServerVersion(own) ? own : null
-}

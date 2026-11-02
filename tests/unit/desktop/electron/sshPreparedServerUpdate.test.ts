@@ -3,8 +3,9 @@ import type { DeviceCapabilities } from '@gugu/core/shared/types/chat'
 import { VERSION_RESTART_RPC, VERSION_RETRY_RPC, LEGACY_VERSION_RETRY_RPC } from '@gugu/core/cloud/serverMachineHealth'
 import { createSshAutoUpgrader, sshServerUpgradeRunner } from '../../../../apps/desktop/electron/server/ssh-install/auto-upgrade'
 
-const ready: DeviceCapabilities = { server_confirmed_restart: true, server_update: { state: 'ready', version: '2.0.0' } }
-const state = (request: number, kind: 'waiting' | 'switched' | 'failed' | 'refused' | 'rolledBack'): DeviceCapabilities => ({ server_update: { state: 'idle', version: '2.0.0', lastOutcome: { request, kind } } })
+const caps = (value: Partial<DeviceCapabilities>): DeviceCapabilities => ({ terminals: [], runtimes: [], ...value })
+const ready = caps({ server_confirmed_restart: true, server_update: { state: 'ready', version: '2.0.0' } })
+const state = (request: number, kind: 'waiting' | 'switched' | 'failed' | 'refused' | 'rolledBack'): DeviceCapabilities => caps({ server_update: { state: 'idle', version: '2.0.0', lastOutcome: { request, kind } } })
 function fixture(initial: DeviceCapabilities = ready, next: DeviceCapabilities[] = [state(42, 'switched')]) {
   let reads = 0
   let clock = 0
@@ -39,7 +40,7 @@ describe('SSH prepared updates share installation controls and A7 outcomes', () 
   it('does not accept an acknowledgement as a successful switch', async () => {
     const f = fixture()
     f.call.mockResolvedValue({ result: { requested: true, at: Number.NaN } })
-    expect((await f.run())?.failure?.reason).toBe('agentsRunning')
+    expect((await f.run())?.failure?.reason).toBe('serviceFailed')
     expect(f.readCapabilities).toHaveBeenCalledOnce()
   })
   it('a different request cannot complete the update', async () => {
@@ -47,13 +48,13 @@ describe('SSH prepared updates share installation controls and A7 outcomes', () 
     expect((await f.run())?.failure).toMatchObject({ reason: 'serviceFailed', detail: expect.stringContaining('Timed out') })
   })
   it('a released account host uses its legacy control without inventing a receipt', async () => {
-    const f = fixture({ server_update: { scope: 'account', state: 'ready', version: '2.0.0' } })
+    const f = fixture(caps({ server_update: { scope: 'account', state: 'ready', version: '2.0.0' } }))
     f.call.mockResolvedValue({ result: { requested: true, at: Number.NaN } })
     expect((await f.run())?.failure?.reason).toBe('agentsRunning')
     expect(f.call).toHaveBeenCalledExactlyOnceWith('device', LEGACY_VERSION_RETRY_RPC, {}, { timeoutMs: 15_000 })
   })
   it('a supervisor without confirmation support continues to wait', async () => {
-    const f = fixture({ server_update: { scope: 'supervisor', state: 'ready', version: '2.0.0' } })
+    const f = fixture(caps({ server_update: { scope: 'supervisor', state: 'ready', version: '2.0.0' } }))
     expect((await f.run())?.failure?.reason).toBe('agentsRunning')
     expect(f.call).not.toHaveBeenCalled(); expect(f.spawnSsh).not.toHaveBeenCalled()
   })

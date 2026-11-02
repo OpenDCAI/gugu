@@ -21,9 +21,7 @@ import type { DirectTerminalReason } from '../../../src/session/shared/direct-te
 import { MACHINE_LIMIT_ERROR, parseMachineLimitRefusal, type MachineLimitRefusal } from '@gugu/core/cloud/machineLimit'
 import { serverProtocolTooOld } from '@gugu/core/cloud/serverMachineHealth'
 import { isIpLikeLabel } from '@gugu/core/shared/ipLikeLabel'
-import { isServerVersion } from '@gugu/core/cloud/serverDesktopVersions'
 import { quoteShellArg } from '../../session/main/utils/shellEscape'
-import { INCOMING_DIR, MATCH_MARK, versionManifestUrl } from '../server-account-versions'
 import { desktopServerChannel, remoteServerPaths } from '../server-names'
 
 // ── 用户填的地址 ───────────────────────────────────────────────────────────────
@@ -474,8 +472,6 @@ export function probeScript(): string {
     'if [ -x "$B" ]; then',
     '  echo "installed=$(cat "$H/current/version" 2>/dev/null || echo unknown)"',
     '  if "$B" help 2>/dev/null | grep -q -- "--grant-stdin"; then echo grant=1; fi',
-    // #6264 认得 match-version = 每个账号能各跑各的版本(换版只重启那一个账号);不认得的老 server 只能整台换。
-    '  if "$B" help 2>/dev/null | grep -q -- "match-version"; then echo match=1; fi',
     // 这份说哪一版桌面↔server 协议。分清三种:报出来了 / 老版本明确不认这条命令(退出码 2 + 「不认识的命令」)/
     // 其它失败(崩溃、超时、权限)—— 只有前两种能判「太旧」,第三种照实报失败,❌ 当太旧去重装(installedServerTooOld)。
     '  if command -v timeout >/dev/null 2>&1; then PO="$(timeout 20 "$B" protocol 2>&1)"; else PO="$("$B" protocol 2>&1)"; fi',
@@ -517,8 +513,6 @@ export type ProbeResult = {
   libc: string
   installedVersion: string | null
   supportsGrant: boolean
-  /** 装着的那份认得 `match-version`(每个账号各跑各的版本)。 */
-  supportsMatch: boolean
   /** 装着的那份说的桌面↔server 协议版本;没报出来(不认这条命令 / 命令失败 / 没装)= null。 */
   installedProtocol: number | null
   /**
@@ -576,7 +570,6 @@ export function parseProbeOutput(stdout: string): ProbeResult | null {
     libc: fields.get('libc') ?? '',
     installedVersion: fields.get('installed') || null,
     supportsGrant: fields.get('grant') === '1',
-    supportsMatch: fields.get('match') === '1',
     installedProtocol,
     protocolCheck,
     protocolError: protocolCheck === 'failed' ? `exit ${fields.get('protocol_exit') ?? '?'}: ${fields.get('protocol_err') ?? ''}`.trim() : null,
@@ -662,11 +655,6 @@ export function manifestUrl(base: string, channel: string, probe: Pick<ProbeResu
  */
 export function installScriptUrl(base: string, channel: string): string {
   return `${base}/${channel}/install.sh`
-}
-
-/** 某一版的清单(钉在这一版上):`<根>/<版本>/<系统>-<架构>.txt`。 */
-export function versionedManifestUrl(base: string, version: string, probe: Pick<ProbeResult, 'os' | 'arch'>): string {
-  return versionManifestUrl(base, version, `${platformFromUname(probe.os)}-${archFromUname(probe.arch)}`)
 }
 
 /**
@@ -762,71 +750,6 @@ export function oneLineInstallCommand(downloadBase: string, channel: string, fet
   return fetcher === 'wget'
     ? `wget -qO- ${downloadBase}/install.sh | ${pipe}`
     : `curl -fsSL ${downloadBase}/install.sh | ${pipe}`
-}
-
-// ── #6264 换成和这台桌面匹配的那一版(那台机器认得 match-version 时)─────────────────────────
-
-const ACCOUNT_RE = /^[A-Za-z0-9_-]{1,128}$/
-const DESKTOP_RE = /^[A-Za-z0-9:_-]{1,128}$/
-
-/** 报这台桌面是哪一版、问这个账号的目标版本(同一账号几台桌面取最新)。 */
-export function matchReportScript(options: { accountUserId: string; desktopId: string; version: string; protocol: number }): string {
-  if (!ACCOUNT_RE.test(options.accountUserId) || !DESKTOP_RE.test(options.desktopId) || !isServerVersion(options.version)) {
-    throw new Error('账号 / 桌面 / 版本的形状不对')
-  }
-  return `${SERVER_BIN} match-version --account ${options.accountUserId} --desktop ${options.desktopId} --version ${options.version} --protocol ${Math.max(0, Math.floor(options.protocol))} </dev/null\n`
-}
-
-/**
- * 请守护进程把这一个账号换到这一版,等它真的换过去。没装由它自己装(下载,或用 incomingUploadCommand 放进去的包),
- * 桌面 ❌ 再装一份:换版装东西的只有那台机器上的守护进程(server-account-converge.ts)。
- */
-export function matchApplyScript(options: { accountUserId: string; version: string; now?: boolean }): string {
-  if (!ACCOUNT_RE.test(options.accountUserId) || !isServerVersion(options.version)) throw new Error('账号 / 版本的形状不对')
-  return `${SERVER_BIN} match-version --account ${options.accountUserId} --apply ${options.version}${options.now ? ' --now' : ''} </dev/null\n`
-}
-
-/**
- * 连不上下载站的机器:本机下好的包经 SSH 放进那台机器的 `versions/.incoming/<版本>.tar.gz`(server-account-versions.ts
- * incomingPackage),守护进程装它而 ❌ 下载。包先写成 `.part`,写完才改名。
- */
-export function incomingUploadCommand(version: string): string {
-  if (!isServerVersion(version)) throw new Error('版本号格式不对')
-  const dir = `${SERVER_HOME}/versions/${INCOMING_DIR}`
-  return `mkdir -p ${dir} && cat > ${dir}/${version}.tar.gz.part && mv ${dir}/${version}.tar.gz.part ${dir}/${version}.tar.gz`
-}
-
-/** 再写那一版的清单行(版本 sha256 来源):守护进程看到它才去装,所以在包传完之后写。 */
-export function incomingManifestScript(version: string, sha256: string): string {
-  if (!isServerVersion(version)) throw new Error('版本号格式不对')
-  if (!/^[0-9a-f]{64}$/.test(sha256)) throw new Error('校验值格式不对')
-  const dir = `${SERVER_HOME}/versions/${INCOMING_DIR}`
-  return `printf '%s\\n' '${version} ${sha256} desktop-upload' > ${dir}/${version}.txt.part && mv ${dir}/${version}.txt.part ${dir}/${version}.txt\n`
-}
-
-export type MatchReport = { target: string; running: string | null; installed: boolean; supervisor: boolean }
-
-/** 读 match-version 打的那一行(之前可能夹着对方 rc 打的字)。认不出 = null。 */
-export function parseMatchOutput(stdout: string): Record<string, string> | null {
-  const at = stdout.lastIndexOf(`${MATCH_MARK} `)
-  if (at < 0) return null
-  const fields: Record<string, string> = {}
-  for (const pair of (stdout.slice(at + MATCH_MARK.length + 1).split(/\r?\n/)[0] ?? '').trim().split(/\s+/)) {
-    const eq = pair.indexOf('=')
-    if (eq > 0) fields[pair.slice(0, eq)] = pair.slice(eq + 1)
-  }
-  return fields
-}
-
-export function parseMatchReport(stdout: string): MatchReport | null {
-  const fields = parseMatchOutput(stdout)
-  if (!fields || !isServerVersion(fields.target)) return null
-  return {
-    target: fields.target,
-    running: isServerVersion(fields.running) ? fields.running : null,
-    installed: fields.installed === '1',
-    supervisor: fields.supervisor === '1',
-  }
 }
 
 /** 第四步:注册常驻服务。 */

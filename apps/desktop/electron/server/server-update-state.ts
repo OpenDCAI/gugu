@@ -7,7 +7,7 @@ import type { FailureCause, Outcome } from '@gugu/core/shared/serverVersionOutco
 import { writeJson } from './server-startup'
 
 export type ServerUpdateStateWriter = {
-  /** reason 'unreachable' = 连不上下载站(桌面经 SSH 读到它就把包的字节传过来,见 match-version-cli.ts)。 */
+  /** Download-site failures remain visible in the existing device update status. */
   set: (state: ServerUpdateRecord['state'], version: string, reason?: 'unreachable', fields?: Partial<ServerUpdateRecord>) => void
   clear: () => void
 }

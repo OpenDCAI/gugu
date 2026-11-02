@@ -619,7 +619,7 @@ describe('读远端输出', () => {
     const out = probeLines(['distro=Ubuntu 22.04.4 LTS', 'libc=glibc 2.35', 'installed=0.2.49', 'grant=1', 'running=1', 'account=u1 a@b.c', 'account=u2 ', 'fetcher=curl', 'freekb=1048576', 'exec=1'])
     expect(parseProbeOutput(out)).toEqual({
       os: 'Linux', arch: 'aarch64', user: 'alice', hostname: 'ip-172-31-1-2', distro: 'Ubuntu 22.04.4 LTS', libc: 'glibc 2.35',
-      installedVersion: '0.2.49', supportsGrant: true, supportsMatch: false, installedProtocol: null, protocolCheck: 'failed', protocolError: 'exit ?:', running: true, fetcher: 'curl', freeKb: 1048576, writable: true, exec: true,
+      installedVersion: '0.2.49', supportsGrant: true, installedProtocol: null, protocolCheck: 'failed', protocolError: 'exit ?:', running: true, fetcher: 'curl', freeKb: 1048576, writable: true, exec: true,
       accounts: [{ userId: 'u1', email: 'a@b.c' }, { userId: 'u2', email: null }],
     })
     expect(parseProbeOutput('no markers')).toBeNull()

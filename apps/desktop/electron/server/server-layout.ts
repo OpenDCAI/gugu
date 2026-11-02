@@ -1,16 +1,9 @@
 /**
- * 咕咕 server 的目录布局(product spec 第 7 条:一台服务器多人各自登录,含共用同一个 Linux 账号)。
- *
- *   <GUGU_SERVER_HOME>/                 默认 ~/.gugu-server
- *     versions/<版本>/  current  channel   安装与升级(install.sh / server-updater.ts)
- *     data/                              守护进程自己的:日志、单实例锁、CA 证书兜底
- *     accounts/<咕咕账号 id>/
- *       account.json                     明文的「这是谁」(给 status 看,不含任何凭据)
- *       data/                            这个账号的全部状态:登录态(加密)、任务库、日志
- *       home/                            这个账号的 GUGU_HOME:agent 名册、影子 agent home
- *
- * 每个账号一个独立进程、独立目录:两个人共用一个 Linux 用户,他们的会话、agent、任务库互不相见;
- * 一个人退出登录不影响另一个。登录态存在即「这个账号在这台机器上」。
+ * One system user signs in to one Gugu account and runs one server process.
+ * Installation state lives under <GUGU_SERVER_HOME>/data; account data remains
+ * under accounts/<id>/{data,home} for compatibility and signed-out retention.
+ * A historical installation containing multiple signed-in accounts is rejected
+ * without deleting data; the operator chooses which account to sign out.
  */
 import { execFile } from '@gugu/core/local/childProcess'
 import { installationServerNames } from './server-installation'

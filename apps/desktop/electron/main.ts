@@ -2868,7 +2868,6 @@ if (sshMachineStore) {
     log: (message, fields) => createLogger('server/ssh-link').info(fields ?? {}, message),
     // 那台机器的 server 太旧、连不上:当场替它升级(与添加时装同一条通道);#6264 换成和这台桌面(按设备 id 报)匹配的那一版。
     upgradeChannel: serverChannel,
-    published: parseBuildDistribution(__GUGU_BUILD_DISTRIBUTION__) === 'published',
     readCapabilities: async deviceId => {
       const auth = await desktopAuthProvider().getAuth()
       if (!auth?.userId || !auth.accessToken) throw new Error('This desktop is not signed in')

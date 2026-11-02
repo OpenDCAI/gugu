@@ -5,7 +5,7 @@ import { isServerVersion } from '@gugu/core/cloud/serverDesktopVersions'
 
 /** Deployed supervisors wrote this pin; new runs retain its rollback package during migration. */
 export const VERSION_PIN_FILE = 'server-version.json'
-/** `gugu-server match-version` 打给桌面看的机器可读行(ssh-install/logic.ts 读)。 */
+/** `gugu-server match-version` 为已发布桌面保留的机器可读行。 */
 export const MATCH_MARK = '__GUGU_MATCH__'
 
 export type VersionPin = { version: string; previous: string | null; at: number }
@@ -24,22 +24,7 @@ export function readVersionPin(dataDir: string): VersionPin | null {
   }
 }
 
-export function writeVersionPin(dataDir: string, pin: VersionPin): void {
-  fs.mkdirSync(dataDir, { recursive: true })
-  const file = path.join(dataDir, VERSION_PIN_FILE)
-  const tmp = `${file}.${process.pid}.tmp`
-  fs.writeFileSync(tmp, `${JSON.stringify(pin)}\n`, { mode: 0o600 })
-  fs.renameSync(tmp, file)
-}
-
 export const versionBinary = (versionsDir: string, version: string): string => path.join(versionsDir, version, 'bin', 'gugu-server')
-
-/** 桌面经 SSH 放进来的那一版的包与清单行(上不了网的机器;以 `.` 开头,清旧版本时不算一版)。 */
-export const INCOMING_DIR = '.incoming'
-export const incomingPackage = (versionsDir: string, version: string): { archive: string; manifest: string } => ({
-  archive: path.join(versionsDir, INCOMING_DIR, `${version}.tar.gz`),
-  manifest: path.join(versionsDir, INCOMING_DIR, `${version}.txt`),
-})
 
 /**
  * versions/ 下留哪些:正在被任一账号(以及守护进程自己)用的 + 明确传入的上一版(按目录的修改时刻,

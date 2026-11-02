@@ -196,8 +196,7 @@ export function openRemoteSessionHostPipe(
       void request?.then((late) => {
         if (!late.error) void deps.call(deviceId, SESSION_HOST_RPC.close, { client }, { timeoutMs: FRAME_TIMEOUT_MS }).catch(() => undefined)
       }, () => undefined)
-      // The device attach can refuse the protocol before taskhost.open reaches
-      // its desktop report. Use the same SSH match-version path in that case.
+      // The attach can refuse the protocol before taskhost.open. Use the same installation upgrade path.
       if ((error as { code?: unknown } | null)?.code === 'server_outdated') {
         if (deps.isSshMachine(deviceId)) void deps.requestUpgrade(deviceId)
         else void deps.requestCloudUpgrade?.(deviceId)

@@ -33,8 +33,6 @@ export const SSH_LINK_CHANNELS = {
   upgrade: 'ssh-link:upgrade',
   /** 主进程 → 渲染层:替它升级走到哪了(event,SshUpgradeEvent)。 */
   upgradeState: 'ssh-link:upgrade-state',
-  /** #6264 这台桌面报给咕咕 server 的版本(invoke → string | null;测试可覆盖,见 core reportedDesktopVersion)。 */
-  desktopVersion: 'ssh-link:desktop-version',
 } as const
 
 /**

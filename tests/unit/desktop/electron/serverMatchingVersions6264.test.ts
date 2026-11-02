@@ -17,7 +17,6 @@ import {
   compareServerVersions,
   desktopProtocolOutsideWindow,
   parseDesktopHello,
-  reportedDesktopVersion,
 } from '../../../../packages/core/src/cloud/serverDesktopVersions'
 import { parseServerUpdateState } from '../../../../packages/core/src/cloud/deviceHostInfo'
 import { normalizeDeviceCapabilities } from '../../../../packages/core/src/cloud/devices'
@@ -148,24 +147,6 @@ describe('「更新没成功」随心跳报到设备行', () => {
   })
 })
 
-describe('测试环境:桌面报给 server 的版本可覆盖', () => {
-  it('正式版报自己的版本;开发(没打包)或用测试下载站时 GUGU_SERVER_MATCH_VERSION 覆盖;打包的正式版忽略它', () => {
-    const env = { GUGU_APP_VERSION: '0.2.50', GUGU_SERVER_MATCH_VERSION: '0.2.161' }
-    const published = true
-    expect(reportedDesktopVersion({ GUGU_APP_VERSION: '0.2.160' }, { packaged: true, published })).toBe('0.2.160')
-    expect(reportedDesktopVersion(env, { packaged: false, published })).toBe('0.2.161')
-    expect(reportedDesktopVersion({ ...env, GUGU_SERVER_DOWNLOAD_BASE: 'http://203.0.113.10:30027' }, { packaged: true, published })).toBe('0.2.161')
-    expect(reportedDesktopVersion(env, { packaged: true, published })).toBe('0.2.50')
-    expect(reportedDesktopVersion({ ...env, GUGU_SERVER_MATCH_VERSION: '../x' }, { packaged: false, published })).toBe('0.2.50')
-  })
-  it('不是发布流水线出的包(开发实例、本地打的测试包):❌ 报自己的版本号 —— 那个号下载站上从来没有;显式覆盖照旧', () => {
-    const published = false
-    expect(reportedDesktopVersion({ GUGU_APP_VERSION: '0.2.58' }, { packaged: true, published })).toBeNull()
-    expect(reportedDesktopVersion({ GUGU_APP_VERSION: '0.2.58' }, { packaged: false, published })).toBeNull()
-    expect(reportedDesktopVersion({ GUGU_APP_VERSION: '0.2.58', GUGU_SERVER_MATCH_VERSION: '0.2.58-beta.1042.1' }, { packaged: false, published })).toBe('0.2.58-beta.1042.1')
-  })
-})
-
 // The download-site manifest backfill script and its case belong to the official release tooling, not this repository.
 describe('测试下载站补「钉在这一版上的清单」', () => {
   it('fetchVersionManifest:先读钉在这一版上的清单;没有时通道清单正好是这一版也认;都不是就说没有', async () => {
@@ -199,16 +180,4 @@ describe('测试下载站补「钉在这一版上的清单」', () => {
     if (prev === undefined) delete process.env.GUGU_SERVER_DOWNLOAD_BASE
     else process.env.GUGU_SERVER_DOWNLOAD_BASE = prev
   })
-})
-
-describe('同一台电脑上两个版本的咕咕(正式版 + Beta / 开发实例)不互相覆盖(#6264 实测 d22 来回切版本)', () => {
-  it('recovers the stable device from versioned, truncated and legacy report IDs', async () => {
-    const { desktopReportDevice, desktopReportId } = await import('@gugu/core/cloud/serverMachineHealth')
-    for (const version of ['1.0.0', '3.0.0:preview', 'v'.repeat(160)]) {
-      expect(desktopReportDevice(desktopReportId('device:desktop', version))).toBe('device:desktop')
-    }
-    expect(desktopReportDevice('legacy-desktop')).toBe('legacy-desktop')
-  })
-
-
 })

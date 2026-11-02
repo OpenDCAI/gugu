@@ -403,21 +403,6 @@ export function subscribeSshSignInPrompts(listener: (event: SshLinkPromptEvent) 
 }
 
 /**
- * #6264 这台桌面报给咕咕 server 的版本(主进程算,开发 / 测试可覆盖)。null = 主进程说 ❌ 报(不是发布流水线出的包,
- * 见 core reportedDesktopVersion);undefined = 没有主进程 / 问不到(调用方退回自己的版本)。
- */
-export async function desktopMatchVersion(): Promise<string | null | undefined> {
-  const electron = bridge()
-  if (!electron) return undefined
-  try {
-    const value = await electron.invoke(SSH_LINK_CHANNELS.desktopVersion)
-    return typeof value === 'string' && value ? value : null
-  } catch {
-    return undefined
-  }
-}
-
-/**
  * 建 agent 之前的在线判定,在添加这台机器的电脑上:远程 SSH 的机器只看设备连接(与侧栏、顶上卡片同一个说法),
  * 已知要先登录 / 那台机器上没登 → 当场抛。返回 true = 它是这台电脑用远程 SSH 添加的(调用方跳过心跳判定)。
  */

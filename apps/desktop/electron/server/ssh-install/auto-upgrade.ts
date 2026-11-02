@@ -153,9 +153,10 @@ export function sshServerUpgradeRunner(options: {
         confirmed && modern ? { version: update.version, confirmed: true } : {}, { timeoutMs: 15_000 })
       const receipt = reply.result as { requested?: unknown; at?: unknown } | undefined
       if (reply.error || receipt?.requested !== true) return fail('serviceFailed', reply.error?.message ?? 'Server did not acknowledge the update request')
-      if (!confirmed || typeof receipt.at !== 'number' || !Number.isFinite(receipt.at)) {
+      if (!confirmed || !modern) {
         return fail('agentsRunning', 'The server was asked to update when idle; no confirmed restart receipt was issued')
       }
+      if (typeof receipt.at !== 'number' || !Number.isFinite(receipt.at)) return fail('serviceFailed', 'Server did not provide a restart receipt')
       // Use the same request-correlated heartbeat result as the device page. An RPC acknowledgement is not a switch.
       run.setStep('service', { status: 'running', version: update.version })
       const now = options.now ?? Date.now

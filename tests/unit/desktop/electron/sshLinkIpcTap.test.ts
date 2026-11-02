@@ -16,7 +16,6 @@ function register() {
     getWindow: () => null,
     store: { list: () => [], onChange: () => () => undefined } as never,
     currentUserId: async () => 'owner-1',
-    published: true,
   })
   return { links, handlers }
 }
@@ -28,7 +27,7 @@ describe('ssh-link-ipc tap: an active close reaches whoever listens on that link
     const request = vi.fn(() => { updating = true; return true })
     const links = registerSshLinkIpc({
       ipcMain: { handle: (channel: string, fn: (event: unknown, ...args: unknown[]) => unknown) => handlers.set(channel, fn) } as never,
-      getWindow: () => null, currentUserId: async () => 'owner-1', published: true,
+      getWindow: () => null, currentUserId: async () => 'owner-1',
       store: { list: () => [{ deviceId: 'old', ownerUserId: 'owner-1' }], onChange: () => () => undefined } as never,
       upgrader: { request, upgrading: () => updating } as never,
     })
@@ -54,7 +53,7 @@ describe('ssh-link-ipc tap: an active close reaches whoever listens on that link
       ipcMain: { handle: () => undefined } as never, getWindow: () => null,
       store: { list: () => machines, onChange: () => () => undefined } as never,
       currentUserId: async () => current,
-      published: true,
+
       tunnels: { linkMachine: vi.fn(() => ({ target: { destination: 'tunnel', display: 'tunnel' }, accountUserId: 'owner-1' })), reportBroken: vi.fn() },
     })
     const open = vi.spyOn(links, 'open')
