@@ -632,6 +632,7 @@ export type SessionConditionCode =
   | 'provider-session-missing'
   | 'adapter-lost'
   | 'start-failed'
+  | 'history-unavailable'
   /** 会话在**别的机器**上,而那台机器此刻问不到(离线 / 没回话)(#6264)。 */
   | 'machine-unreachable'
   /** 那台机器连得上,但有件事要人知道:磁盘快满了、两边版本对不上(#6264)。宿主总是给 label。 */

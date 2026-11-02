@@ -205,9 +205,11 @@ export function createSessionHostClient(open: SessionHostPipeOpener, options: Se
   }
 
   const failAll = (reason: string) => {
-    for (const { reject } of pending.values()) reject(new Error(reason))
+    // Keep the transport failure structured: callers can retry after the host reconnects.
+    const disconnected = () => Object.assign(new Error(reason), { code: 'unreachable' })
+    for (const { reject } of pending.values()) reject(disconnected())
     pending.clear()
-    for (const { reject } of awaitingPorts.values()) reject(new Error(reason))
+    for (const { reject } of awaitingPorts.values()) reject(disconnected())
     awaitingPorts.clear()
     for (const port of pagePorts.values()) port.close()
     pagePorts.clear()

@@ -262,6 +262,7 @@ const fallbackMessages = {
     'The engine no longer has this session — everything above is still here',
   'transcript.condition.adapterLost': 'Lost the connection to the engine',
   'transcript.condition.startFailed': 'The engine could not start',
+  'transcript.condition.historyFailed': 'Could not load the conversation history',
   'transcript.condition.machineUnreachable': "Can't reach the machine this task runs on",
   'transcript.condition.machineAttention': 'The machine this task runs on needs attention',
   'transcript.condition.membershipRequired': 'This Gugu model needs a membership',
