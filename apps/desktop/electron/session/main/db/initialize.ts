@@ -153,7 +153,7 @@ function ensureSearchIndex(connection: BetterSqlite3.Database): void {
  * it arrived, not what was said; read by the envelope module's one reader), nothing for the silence marker. Registered on
  * the connection before migrations, because the session_turns triggers call it on every turn write.
  */
-function registerSearchText(connection: BetterSqlite3.Database): void {
+export function registerSearchText(connection: BetterSqlite3.Database): void {
   connection.function('search_text', { deterministic: true }, (text: unknown) => {
     if (typeof text !== 'string' || isGuguSilence(text)) return null;
     return readDeliveryEnvelope(text)?.body ?? text;

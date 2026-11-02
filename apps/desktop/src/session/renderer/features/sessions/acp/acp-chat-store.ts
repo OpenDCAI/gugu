@@ -801,7 +801,9 @@ export class AcpChatStore {
     const session = this.chatState.session;
     const drawn = this.transcriptPendingId;
     const bubbles = view ? sessionInputBubbles([], view.pending.items, view.hold) : [];
-    const starting = view !== null && lifeIsStarting(view);
+    const record = this._sessionRecord();
+    const resumes = !!(record?.providerSessionId || record?.forkFromProviderSessionId || this.runtimeView?.forkFromProviderSessionId);
+    const starting = view !== null && lifeIsStarting(view) ? (resumes ? 'restoring' : 'starting') : undefined;
     const head = bubbles[0]?.state === 'sending' && (starting || view?.kind === 'ready') ? bubbles[0] : null;
     runInAction(() => {
       if (drawn && head?.id !== drawn) {
@@ -811,7 +813,7 @@ export class AcpChatStore {
         if (shown?.id === drawn) {
           // Accepted: its turn is on its way to this page, and takes the row over when it lands (no empty frame between).
           // A failed start is drawn below as a transcript turn; other host row failures remain in the tray.
-          if (!row || row.state === 'accepted') session.setPendingPrompt({ ...shown, starting: false, held: false });
+          if (!row || row.state === 'accepted') session.setPendingPrompt({ ...shown, starting: undefined, held: false });
           else { session.setPendingPrompt(null); this._syncMessageCount(); }
         }
       }

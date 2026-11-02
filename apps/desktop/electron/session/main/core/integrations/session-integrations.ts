@@ -48,10 +48,7 @@ export function integrationGivesSessionTools(integrationId: string): boolean {
 }
 
 /**
- * 新开一条会话时,哪些集成该递给 agent。
- *
- * 判据只有两条:这家能以工具交出去(托管 MCP / 邮箱),且**当下真的连着**。❌ 别把「装了这个插件」当成连着 ——
- * 那会给 agent 一台连不上的 server,而工具清单一旦进了模型前缀就改不了了。
+ * Current connected integrations. The permanent MCP re-reads this on tools/list and tools/call.
  */
 export async function connectedSessionIntegrations(
   platform: PlatformCredentialService = platformCredentials
@@ -59,7 +56,7 @@ export async function connectedSessionIntegrations(
   const entries: SessionIntegration[] = [];
   // #921 平台保管的那几家:按这台设备上已照抄下来的平台答复给,❌ 开会话等网络。平台在后台问(开 App、换登录、
   // 资源库 / 面板来看、这里顺手一次)。代价:别处刚断开的,这条会话可能还拿着工具(一调转发口就说「没连」,请他重连);
-  // 别处刚连上的,下一条会话才有。
+  // 平台答复变化会通知常驻 MCP,正在运行的会话会重新列工具。
   if (integrationPluginRegistry.getAll().some((plugin) => platform.isPlatformProvider(plugin.metadata.id))) {
     void platform.refresh();
   }
@@ -120,7 +117,7 @@ export async function connectedSessionIntegrations(
             // 断开连接 / 记录坏掉 ⇒ 让这一次调用**明确失败**,❌ 不返回空令牌让对方回 401 去猜。
             throw new Error(`${integrationId} is not connected in Gugu any more; reconnect it.`);
           }
-          return { url: serverUrl, headers: { Authorization: `Bearer ${parsed.data.tokens.access_token}` } };
+          return { url: serverUrl, transport: parsed.data.transport, headers: { Authorization: `Bearer ${parsed.data.tokens.access_token}` } };
         },
       },
     });

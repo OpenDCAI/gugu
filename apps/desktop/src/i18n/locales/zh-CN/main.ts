@@ -480,6 +480,7 @@ export default {
       "account": "我的",
       "preferences": "偏好",
       "work": "工作",
+      "diagnostics": "诊断",
       "about": "关于"
     },
     "nav": {

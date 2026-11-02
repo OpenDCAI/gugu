@@ -7,4 +7,10 @@ describe('process line words', () => {
     expect(zhCNMessages['transcript.thinkingLive']).toBe('执行中');
     expect(enUSMessages['transcript.thinkingLive']).toBe('Thinking and working');
   });
+
+  it('names cold recovery in the existing process line without changing a new start', () => {
+    expect(zhCNMessages['transcript.restoring']).toBe('恢复中');
+    expect(enUSMessages['transcript.restoring']).toBe('Restoring');
+    expect(zhCNMessages['transcript.starting']).toBe('启动中');
+  });
 });

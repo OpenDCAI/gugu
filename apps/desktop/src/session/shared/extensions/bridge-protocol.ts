@@ -79,7 +79,8 @@ export const EXTENSION_THEME_CHANNEL = 'gugu-ext:theme';
 // `store/` listing (app-listing.ts). No earlier manifest runs here any more (EXTENSION_API_VERSION_MIN_SUPPORTED, owner 10-31).
 // 25: `files.canDelete(file | files)`, a page's — whether this person may delete each, asked as a file's menu opens; a listed entry
 // no longer carries `canDelete` (answering it for every file held the whole list).
-export const EXTENSION_API_VERSION = 25;
+// 26: declared App views in messages, with immutable per-message context and bounded viewport lifetimes.
+export const EXTENSION_API_VERSION = 26;
 
 /**
  * The page `app_check` runs is started with this argument (摩擦单 F5, F69): it says how often it wrote, set presence and
@@ -194,6 +195,8 @@ export interface ExtensionHostContext {
    * file an App that asked for nothing may open. Absent is a real answer: opened for its own sake.
    */
   file?: AppFileRef & { id: string };
+  /** API26: untrusted, immutable initial data from the sender of a message. */
+  widget?: { messageId: string; data: Record<string, unknown>; sender: string | null };
   /** Who is working this page (`user:<uuid>` for an agent). Absent on a page nobody draws — the background page, a program. */
   operator?: ExtensionOperator;
   /** BCP-47 tag of the interface language the user is reading. */
@@ -935,7 +938,7 @@ export const CALLER_WORDS = { page: 'a page', background: 'the background page',
  * document, the App frame's parent in an origin of its own (gate.ts). Every host reads it there and hands it here.
  */
 export type CallRefusalCaller =
-  | { kind: 'page'; has: (capability: ExtensionCapability) => boolean; gesture: boolean }
+  | { kind: 'page'; has: (capability: ExtensionCapability) => boolean; gesture: boolean; widget: boolean }
   | { kind: 'background' | 'program'; has: (capability: ExtensionCapability) => boolean };
 
 /**
@@ -956,7 +959,8 @@ export function callRefusal(
   const needs = capabilityNeeded(facts, args);
   if (needs !== null && !caller.has(needs)) return { code: 'denied', message: `Not permitted: this App does not have "${needs}"` };
   // Only a page has a gesture: the background page and a program never make a call that needs one.
-  if ((caller.kind !== 'page' || !caller.gesture) && needsGesture(method, args)) return gestureRefusal(method);
+  if ((caller.kind !== 'page' || !caller.gesture)
+    && (needsGesture(method, args) || (caller.kind === 'page' && caller.widget && method === 'dispatch'))) return gestureRefusal(method);
   return null;
 }
 

@@ -486,6 +486,7 @@ export default {
       "account": "Me",
       "preferences": "Preferences",
       "work": "Work",
+      "diagnostics": "Diagnostics",
       "about": "About"
     },
     "nav": {

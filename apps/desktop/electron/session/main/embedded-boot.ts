@@ -103,7 +103,8 @@ import {
   syncExtensionBackgrounds,
 } from '@main/core/extensions/extension-background'
 import { rpcRouter } from '@main/rpc' // ← the complete router, every controller
-import { backfillTurnText, initializeDatabase } from '@main/db/initialize'
+import { initializeDatabase } from '@main/db/initialize'
+import { startTurnTextBackfillWorker, stopTurnTextBackfillWorker, type SearchBackfillLogger } from '@main/db/turn-text-backfill-runner'
 import { migrateProjectKind } from '@main/core/projects/operations/migrate-project-kind'
 import { closeDatabase, db, sqlite } from '@main/db/client'
 import { resolveDatabasePath } from '@main/db/path'
@@ -437,6 +438,11 @@ export async function bootEmdashModule(ipcMain: IpcMain, discovery?: Pick<Sessio
   })
 }
 
+/** Host service readiness, rather than module initialization, starts the optional index work. */
+export function startSessionpageSearchBackfill(logger: SearchBackfillLogger): void {
+  startTurnTextBackfillWorker(logger)
+}
+
 async function maybeStartDevWsHost(): Promise<HostIpc | null> {
   if (app.isPackaged || process.env.GUGU_TASK_HOST_WS !== '1') return null
   const { startSessionHostWsServer } = await import('./host-ws/server')
@@ -619,9 +625,6 @@ export async function bootSessionHostCore(options: SessionHostBootOptions): Prom
     sessionBootTasks.runSync('deferred-sweep', '', claimInterruptedDeferredMessages)
   }
   searchService.initialize()
-  void backfillTurnText(sqlite).catch((error: unknown) =>
-    log.error('Turn-text backfill failed; retrying next start', { error: String(error) })
-  )
   workspaceFileIndexService.initialize()
   void editorBufferService.pruneStale()
   // 依赖体检的 `<bin> --version` 是 detached 起的(不然只杀得掉直接子进程)，收尾在 finally 里 ——
@@ -796,6 +799,7 @@ let disposeEmdashModulePromise: Promise<void> | null = null
 let stopPtyRecordSync: () => void = () => {}
 
 async function disposeEmdashModuleOnce(): Promise<void> {
+  stopTurnTextBackfillWorker()
   const failures: unknown[] = []
   const runPhase = async (phase: string, action: () => void | Promise<void>): Promise<void> => {
     const startedAt = performance.now()
