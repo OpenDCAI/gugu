@@ -10,6 +10,7 @@
 // 帧就是会话页宿主协议(host-ws-protocol)的帧,装进 JSON 信封(frameToCarrier);超过 PIECE_CHARS 的帧分片。
 //
 // 成本:每条连接双向各一拍心跳(20s);一条帧的往返 = 一次设备 RPC(同一微任务里的帧合成一条)。
+import { SERVER_TRANSITION_HEALTH_RPC } from '@gugu/core/cloud/serverTransition';
 import {
   createPieceJoiner,
   createSeqOrderer,
@@ -304,6 +305,7 @@ export function createSessionHostDeviceRpcHandlers(options: { host?: () => Frame
       }
     },
     // #6264 设备行「更新没成功 · 重试」:请守护进程不看冷却、再试一次换成和桌面匹配的那一版。
+    [SERVER_TRANSITION_HEALTH_RPC]: () => ({ result: { pid: process.pid, version: process.env.GUGU_TASK_HOST_VERSION ?? null } }),
     [VERSION_RESTART_RPC]: (payload) => {
       const request = payload as { version?: unknown; confirmed?: unknown } | null;
       return requestConfirmedVersionRestart(process.env, request?.version, request?.confirmed)

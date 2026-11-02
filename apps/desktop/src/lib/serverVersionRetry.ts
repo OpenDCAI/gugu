@@ -3,6 +3,9 @@
 // 那台机器收到后留一个比失败更晚的换版请求,守护进程下一轮就重新下载 / 换过去;结果随它的心跳回到设备行。
 import { LEGACY_VERSION_RETRY_RPC, VERSION_RETRY_RPC, VERSION_RESTART_RPC } from '@gugu/core/cloud/serverMachineHealth'
 import { callDeviceRpc } from './deviceRpc'
+import { readServerUpdate } from './serverUpdateReadings'
+import { desktopIpc } from '../platform/desktopIpc'
+import { SERVER_SSH_MACHINES_CHANNELS } from './serverSshMachines'
 
 export async function retryServerVersionMatch(deviceId: string): Promise<boolean> {
   const reply = await callDeviceRpc<{ requested?: boolean }>(deviceId, VERSION_RETRY_RPC, {}, { timeoutMs: 15_000 })
@@ -12,9 +15,12 @@ export async function retryServerVersionMatch(deviceId: string): Promise<boolean
 
 /** 旧版本的账号进程只认旧的 retry RPC(它写的就是一个确认,守护进程把它算作对眼下目标的确认)。 */
 export async function restartServerVersionNow(deviceId: string, version: string, supportsConfirmedRestart: boolean): Promise<boolean> {
+  await readServerUpdate(deviceId, { force: true, pending: true })
   const reply = await callDeviceRpc<{ requested?: boolean }>(deviceId,
     supportsConfirmedRestart ? VERSION_RESTART_RPC : LEGACY_VERSION_RETRY_RPC,
     supportsConfirmedRestart ? { version, confirmed: true } : {}, { timeoutMs: 15_000 })
   if (reply.error) throw new Error(reply.error.message)
-  return reply.result?.requested === true
+  const requested = reply.result?.requested === true
+  if (!requested) await desktopIpc()?.invoke(SERVER_SSH_MACHINES_CHANNELS.updateCancelPending, deviceId)
+  return requested
 }

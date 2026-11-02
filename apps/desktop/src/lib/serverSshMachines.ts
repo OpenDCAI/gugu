@@ -8,8 +8,14 @@
 // 忘掉(forget)、以及「从这台机器上卸载咕咕 server」(uninstall*,经同一条 SSH 连过去停服务、删安装)。
 
 import type { ServerSshInstallFailureReason, ServerSshInstallPrompt } from './serverSshInstall'
+import type { DeviceServerTransition } from '@gugu/core/shared/types/deviceHost'
+
+export type ServerUpdateReading = { transition: DeviceServerTransition | null; reachable: boolean; pending: boolean; after?: number; revision?: number; supported?: boolean }
 
 export const SERVER_SSH_MACHINES_CHANNELS = {
+  updateRead: 'server-ssh-machines:update-read',
+  updateChanged: 'server-ssh-machines:update-changed',
+  updateCancelPending: 'server-ssh-machines:update-cancel-pending',
   /** 这台桌面上用 SSH 装上的机器的设备 id(invoke,回 string[])。 */
   list: 'server-ssh-machines:list',
   /** 同上,带给人看的地址(invoke,回 SshMachineSummary[])。 */

@@ -793,6 +793,8 @@ export default {
       "updateNow": "Restart and update now",
       "updateNowConfirm": "Restart Gugu on {{name}} now? Tasks running there will be interrupted.",
       "confirmRestart": "Restart",
+      "phase": {"accepted": "Received", "stopping": "Stopping old version", "starting": "Starting new version", "migrating": "Upgrading data {{done}}/{{total}}", "connecting": "Connecting", "connected": "Connected", "failed": "Update failed", "rolledBack": "Rolled back"},
+      "searchPreparing": "Preparing search {{percent}}%",
       "restarting": "Restarting…",
       "restartFailed": "Couldn't confirm the restart on {{name}}. Check its connection and try again.",
       "restartTimeout": "{{name}} hasn't reported {{version}} yet. Check the device before trying again."

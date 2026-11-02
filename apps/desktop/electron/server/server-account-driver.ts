@@ -24,6 +24,8 @@ import {
   type ChildState,
 } from './server-account-machine'
 import { DownloadSiteUnreachableError, fetchVersionManifest, parseManifest, stageVersion, VersionNotPublishedError } from './server-updater'
+import { readServerBootProgress } from '@gugu/core/cloud/serverBootProgress'
+import { accountTransition, withBootProgress } from './account-transition'
 import { assertPackageEnvironment } from './server-package-environment.mts'
 
 type Layout = { home: string; versions: string; version: string }
@@ -102,7 +104,14 @@ export function createAccountDriver(options: {
   }
 
   const drive = (account: ServerAccount, event: AccountEvent): void => {
-    const { state, effects } = step(load(account.userId), event)
+    const previous = load(account.userId)
+    const { state, effects } = step(previous, event)
+    state.transition = accountTransition(previous, state, event)
+    const child = options.child(account.userId)
+    if (child && !child.restarting && state.transition && state.transition.pid === child.pid) {
+      const progress = readServerBootProgress(account.dataDir, child, state.version ?? layout.version, now())
+      if (progress) state.transition = withBootProgress(state.transition, progress, now())
+    }
     persist(account.userId, state)
     for (const effect of effects) run(account, effect)
   }
@@ -124,6 +133,7 @@ export function createAccountDriver(options: {
         fs.rmSync(path.join(account.dataDir, VERSION_SWITCH_FILE), { force: true })
         return
       case 'restart':
+        if (load(userId).transition) persist(userId, { ...load(userId), transition: { ...load(userId).transition!, phase: 'stopping', at: now() } })
         options.restart(userId)
         return
       case 'stage':
@@ -187,6 +197,12 @@ export function createAccountDriver(options: {
     },
     childExited(account: ServerAccount, quick: boolean): void {
       drive(account, { type: 'childExited', now: now(), quick })
+    },
+    childStarted(userId: string, pid: number | undefined): void {
+      const state = load(userId)
+      if (state.phase.kind === 'booting' && state.transition && pid) {
+        persist(userId, { ...state, transition: { ...state.transition, phase: 'starting', pid, at: now(), done: undefined, total: undefined, search: undefined } })
+      }
     },
     proofOf,
     /** 各账号在用 / 记着的版本(清旧版本时留着)。 */

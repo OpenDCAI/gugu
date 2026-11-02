@@ -52,6 +52,18 @@ export interface DeviceServerUpdate {
   reason?: 'boot-failed'
 }
 
+/** A supervisor-owned account switch. `ready` is backend readiness, not a desktop connection. */
+export interface DeviceServerTransition {
+  request: number
+  target: string
+  phase: 'accepted' | 'stopping' | 'starting' | 'migrating' | 'ready' | 'failed' | 'rolledBack'
+  at: number
+  pid?: number
+  done?: number
+  total?: number
+  search?: { state: 'running' | 'complete' | 'failed'; done: number; total: number }
+}
+
 export interface DeviceHostInfo {
   host_kind: DeviceHostKind
   os_name?: string
@@ -65,6 +77,7 @@ export interface DeviceHostInfo {
   server_confirmed_restart?: true
   server_boot_failures?: SessionBootFailure[]
   server_update?: DeviceServerUpdate
+  server_transition?: DeviceServerTransition
   /** 这台咕咕 server 以 root 身份运行(智能体能改整台机器);不是 = 缺席。 */
   runs_as_root?: true
   server_disk?: DeviceServerDisk

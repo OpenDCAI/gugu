@@ -12,6 +12,7 @@ export { readAssistantWorkOwnerReceipts } from '../session/main/core/sessions/as
 export { archiveSession } from '../session/main/core/sessions/archiveSession'
 export {
   bootEmdashModule,
+  startSessionpageSearchBackfill,
   startNativeConversationInboxHost,
   setSessionAdmissionPreparation,
   assistantPanelLocal,

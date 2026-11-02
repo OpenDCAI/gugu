@@ -292,6 +292,10 @@ async function runCommand(command: string | undefined, args: string[]): Promise<
       out(`已退出 ${target.email ?? target.userId}。正在运行的 server 会在几秒内停掉这个账号的进程。`)
       return process.exit(0)
     }
+    case 'update-status': {
+      const { runUpdateStatus } = await import('./server/update-status-cli')
+      return process.exit(await runUpdateStatus(args, listAccounts(), out))
+    }
     case 'status': {
       const { describeService, readRunningServer } = await import('./server/server-service')
       const running = readRunningServer()
@@ -308,6 +312,8 @@ async function runCommand(command: string | undefined, args: string[]): Promise<
         return runtimes.get(userId)?.pid ?? null
       }
       const accounts = statusAccounts(all, (account) => pidOf(account.userId) !== null, (account) => runtimes.get(account.userId)?.version ?? null)
+      const { updateSnapshot } = await import('./server/update-status-cli')
+      for (const account of accounts) account.transition = updateSnapshot(all.find(a => a.userId === account.userId)!).transition
       for (const line of formatAccountLines(accounts, pidOf)) out(line)
       // 咕咕桌面经 SSH 读的那一份(机器显示离线时,问清是没开机还是登录没了)。
       if (args.includes('--json')) {

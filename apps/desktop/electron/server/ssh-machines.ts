@@ -36,6 +36,7 @@ import {
 import { createTerminalAskpass } from './ssh-prompts'
 import { installGuguKeyWithPassword, withGuguIdentity, type SshKeyInstallOutcome } from './ssh-key-install'
 import { sshSignInState } from './ssh-sign-in-state'
+import { createSshUpdateMonitor } from './ssh-update-monitor'
 
 export type SshMachine = {
   deviceId: string
@@ -404,6 +405,25 @@ export function registerSshMachinesIpc(options: {
     const userId = (await options.currentUserId?.().catch(() => null)) ?? null
     return userId ? findSshMachine(options.store.list(), deviceId, userId) : null
   }
+  const updates = createSshUpdateMonitor({
+    machine: async (id) => { const machine = await machineFor(id); return machine ? { ownerUserId: machine.ownerUserId, target: sshTargetOf(machine) } : null },
+    controlPath: terminalControlPath,
+    emit: (deviceId, reading) => {
+      void machineFor(deviceId).then(machine => {
+        const win = options.getWindow()
+        if (machine && win && !win.isDestroyed()) win.webContents.send(SERVER_SSH_MACHINES_CHANNELS.updateChanged, { deviceId, reading })
+        else updates.stop(deviceId)
+      })
+    },
+  })
+  options.ipcMain.handle(SERVER_SSH_MACHINES_CHANNELS.updateRead, async (_event, value: unknown) => {
+    const { deviceId, force, pending } = (value ?? {}) as { deviceId?: unknown; force?: unknown; pending?: unknown }
+    if (typeof deviceId !== 'string' || !ID.test(deviceId) || !(await machineFor(deviceId))) return null
+    return updates.read(deviceId, force === true, pending === true)
+  })
+  options.ipcMain.handle(SERVER_SSH_MACHINES_CHANNELS.updateCancelPending, async (_event, deviceId: unknown) => {
+    if (typeof deviceId === 'string' && await machineFor(deviceId)) updates.cancelPending(deviceId)
+  })
   // 设置页与会话页侧栏可能同时来问同一台:在途的并成一次,答案留一分钟(❌ 每个面各连一次 SSH)。
   const signInAsked = new Map<string, { at: number; answer: Promise<SshSignInState> }>()
   options.ipcMain.handle(SERVER_SSH_MACHINES_CHANNELS.signInState, async (_event, deviceId: unknown): Promise<SshSignInState> => {

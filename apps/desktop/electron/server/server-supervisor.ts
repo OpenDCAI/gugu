@@ -167,6 +167,7 @@ export async function runSupervisor(): Promise<void> {
       : spawn(process.execPath, [serverScript, 'run-account', userId], { env: accountProcessEnv(process.env), stdio: ['ignore', 'inherit', 'inherit'] })
     const version = pinned?.version ?? process.env.GUGU_TASK_HOST_VERSION ?? null
     children.set(userId, { process: child, startedAt: Date.now(), version })
+    versions?.childStarted(userId, child.pid)
     log.info('账号进程已启动', { account: userId, pid: child.pid, version })
     // 起不来(可执行文件没了、fd 用尽)时 Node 只发 'error' 不发 'exit':没人接会把守护进程带崩,
     // 接了但不收尾,这个账号会一直挂着一条死记录、再也不重启。两条路走同一个收尾。

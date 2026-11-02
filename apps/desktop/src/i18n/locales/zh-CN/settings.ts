@@ -793,6 +793,8 @@ export default {
       "updateNow": "现在重启更新",
       "updateNowConfirm": "现在重启「{{name}}」上的咕咕？正在运行的任务会被中断。",
       "confirmRestart": "重启",
+      "phase": {"accepted": "已收到", "stopping": "停止旧版本", "starting": "启动新版本", "migrating": "升级数据 {{done}}/{{total}}", "connecting": "连接中", "connected": "已连上", "failed": "更新失败", "rolledBack": "已退回"},
+      "searchPreparing": "准备搜索 {{percent}}%",
       "restarting": "正在重启…",
       "restartFailed": "未能确认「{{name}}」已开始重启，请检查连接后重试。",
       "restartTimeout": "「{{name}}」尚未报告 {{version}}，请先检查那台设备再重试。"

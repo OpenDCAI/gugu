@@ -1,4 +1,5 @@
 import { parseSessionBootFailures } from '../shared/sessionBootTasks'
+import { parseServerTransition } from './serverTransition'
 /**
  * #6264「设置 → 设备」每一行要写清楚的那几件事:这是一台什么机器(桌面 / 咕咕 server)、什么系统、
  * 什么架构、它自己的升级走到哪一步了。由那台机器自己随心跳报(心跳是 gugu_devices 行的唯一写者),
@@ -219,6 +220,12 @@ export function resolveDeviceHostInfo(env: NodeJS.ProcessEnv = process.env, deps
     const text = readText(join(home, 'data', SERVER_UPDATE_STATE_FILE))
     const activityText = accountDir ? readText(join(accountDir, 'activity.json')) : null
     const accountUpdate = accountText ? parseServerUpdateState(accountText, nowMs, activityText) : null
+    if (accountText) {
+      try {
+        const transition = parseServerTransition(JSON.parse(accountText)?.account?.transition, nowMs)
+        if (transition) info.server_transition = transition
+      } catch { /* Optional supervisor progress must not gate liveness. */ }
+    }
     const update = accountUpdate ?? (text ? parseServerUpdateState(text, nowMs) : null)
     if (update) info.server_update = { ...update, scope: accountUpdate ? 'account' : 'supervisor' }
     try {

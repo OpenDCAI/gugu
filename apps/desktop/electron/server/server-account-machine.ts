@@ -19,6 +19,8 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { isServerVersion } from '@gugu/core/cloud/serverDesktopVersions'
 import { SERVER_UPDATE_STATE_FILE } from '@gugu/core/cloud/deviceHostInfo'
+import type { DeviceServerTransition } from '@gugu/core/shared/types/deviceHost'
+import { parseServerTransition } from '@gugu/core/cloud/serverTransition'
 
 export const ACCOUNT_STATE_FILE = SERVER_UPDATE_STATE_FILE
 /** 一版失败之后多久不再自己试。 */
@@ -58,6 +60,7 @@ export type AccountState = {
   failures: Record<string, Failure>
   child: ChildState
   lastOutcome: Outcome | null
+  transition?: DeviceServerTransition
 }
 export const INITIAL_ACCOUNT_STATE: AccountState = { version: null, supervisor: null, previous: null, phase: { kind: 'running' }, failures: {}, child: 'none', lastOutcome: null }
 
@@ -245,6 +248,7 @@ export function parseAccountState(text: string | null): AccountState | null {
       failures: value.failures && typeof value.failures === 'object' ? value.failures : {},
       child: value.child === 'running' || value.child === 'restarting' ? value.child : 'none',
       lastOutcome: value.lastOutcome ?? null,
+      ...(value.transition ? { transition: parseServerTransition(value.transition, value.transition.at) ?? undefined } : {}),
     }
   } catch {
     return null

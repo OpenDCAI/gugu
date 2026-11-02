@@ -1,5 +1,6 @@
 import './browser-user-agent-bootstrap'
 import './page-navigation-bootstrap'
+import { reportServerBoot } from '@gugu/core/cloud/serverBootProgress'
 import { noteExitReason } from './lib/exit-reason'
 import {assistantWorkHistoryPosition} from './assistant-work-history-position'
 import { createDesktopWorkReportIds } from './assistant-work-report-ids'
@@ -6440,7 +6441,10 @@ app.whenReady().then(async () => {
       },
     )
   }
-  if (!SERVER_MODE) loadMainWindowContents()
+  if (!SERVER_MODE) {
+    loadMainWindowContents()
+    loadEmdashBridge()?.startSessionpageSearchBackfill()
+  }
   startDeviceRuntimeWhenRendererReady()
   // server 的升级另有一套(后台下好、没有 agent 在跑时切换),❌ 走桌面这套弹界面的更新器。
   if (!SERVER_MODE) {
@@ -6488,6 +6492,8 @@ app.whenReady().then(async () => {
     }
     loadEmdashBridge()?.onSessionpageAuthorizationActivityChange?.(reportActivity)
     reportActivity()
+    reportServerBoot({ phase: 'ready', done: 3, total: 3 })
+    loadEmdashBridge()?.startSessionpageSearchBackfill()
     setInterval(reportActivity, 10_000).unref()
     return
   }

@@ -38,7 +38,8 @@ export function bundledMigrations(): PendingMigration[] {
  */
 export function applyMigrations(
   connection: BetterSqlite3.Database,
-  migrations: readonly PendingMigration[]
+  migrations: readonly PendingMigration[],
+  onMigration?: (tag: string, elapsedMs: number | null) => void
 ): void {
   connection.exec(`
     CREATE TABLE IF NOT EXISTS __drizzle_migrations (
@@ -71,6 +72,8 @@ export function applyMigrations(
     connection.transaction(() => {
       const before = violations();
       for (const migration of pending) {
+        const started = performance.now();
+        onMigration?.(migration.tag, null);
         for (const stmt of migration.sql.split('--> statement-breakpoint')) {
           const trimmed = stmt.trim();
           if (trimmed) connection.exec(trimmed);
@@ -78,6 +81,7 @@ export function applyMigrations(
         connection
           .prepare('INSERT INTO __drizzle_migrations (hash, created_at) VALUES (?, ?)')
           .run(createHash('sha256').update(migration.sql).digest('hex'), migration.when);
+        onMigration?.(migration.tag, Math.round(performance.now() - started));
       }
       const introduced = [...violations()]
         .filter(([pair, n]) => n > (before.get(pair) ?? 0))
@@ -150,7 +154,7 @@ function ensureSearchIndex(connection: BetterSqlite3.Database): void {
  * it arrived, not what was said; read by the envelope module's one reader), nothing for the silence marker. Registered on
  * the connection before migrations, because the session_turns triggers call it on every turn write.
  */
-function registerSearchText(connection: BetterSqlite3.Database): void {
+export function registerSearchText(connection: BetterSqlite3.Database): void {
   connection.function('search_text', { deterministic: true }, (text: unknown) => {
     if (typeof text !== 'string' || isGuguSilence(text)) return null;
     return readDeliveryEnvelope(text)?.body ?? text;
@@ -302,15 +306,24 @@ function ensureFileIndex(connection: BetterSqlite3.Database): void {
  * Returns the connection that was used.
  */
 export async function initializeDatabase(
-  connection?: BetterSqlite3.Database
+  connection?: BetterSqlite3.Database,
+  onProgress?: (progress: { done: number; total: number; task: string; elapsedMs: number | null }) => void
 ): Promise<BetterSqlite3.Database> {
   // Lazily import the app singleton only when no explicit connection is given.
   // This keeps the module importable in non-Electron environments (Vitest).
   const conn = connection ?? (await import('./client')).sqlite;
   conn.pragma('foreign_keys = ON');
   registerSearchText(conn);
-  applyMigrations(conn, bundledMigrations());
-  ensureSearchIndex(conn);
-  ensureFileIndex(conn);
+  const phases = [
+    ['migrations', () => applyMigrations(conn, bundledMigrations(), (tag, elapsedMs) => onProgress?.({ done: 0, total: 3, task: tag, elapsedMs }))],
+    ['search-schema', () => ensureSearchIndex(conn)],
+    ['file-schema', () => ensureFileIndex(conn)],
+  ] as const;
+  for (const [index, [task, run]] of phases.entries()) {
+    const started = performance.now();
+    onProgress?.({ done: index, total: 3, task, elapsedMs: null });
+    run();
+    onProgress?.({ done: index + 1, total: 3, task, elapsedMs: Math.round(performance.now() - started) });
+  }
   return conn;
 }

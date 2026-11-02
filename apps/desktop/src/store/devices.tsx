@@ -21,6 +21,7 @@ import { useSshLinkProblems, useSshMachineIds } from '../hooks/useSshLinkProblem
 import { desktopIpc } from '../platform/desktopIpc'
 import { platform } from '../platform'
 import { SERVER_SSH_MACHINES_CHANNELS } from '../lib/serverSshMachines'
+import { clearServerUpdateReadings, readServerUpdate } from '../lib/serverUpdateReadings'
 import { reportAssistantAppChange } from '../components/assistant/assistant-app-client'
 import { useMyAssistant } from '../lib/myAssistant'
 import { machineRpc } from '../mobile/agent-watch/sessionpage-rpc'
@@ -234,6 +235,11 @@ export function DevicesProvider({ children, active = true }: { children: React.R
   const thisPhoneId = useMemo(() => (platform.kind === 'capacitor' && userId ? thisPhoneDeviceId(userId) : null), [userId])
   const { machines, phones } = useMemo(() => partitionPhones(listedHere, thisPhoneId), [listedHere, thisPhoneId])
   const directoryDevices = useMemo(() => [...machines, ...phones], [machines, phones])
+  useEffect(() => { clearServerUpdateReadings(); return clearServerUpdateReadings }, [userId])
+  const updateWatchIds = [...sshMachineIds].sort().join('|')
+  useEffect(() => {
+    if (userId) for (const id of updateWatchIds.split('|').filter(Boolean)) void readServerUpdate(id).catch(() => undefined)
+  }, [userId, updateWatchIds])
   useEffect(() => { publishDirectoryDevices(directoryDevices) }, [directoryDevices])
 
   // 开通、唤醒途中每 3 秒问一次管家(它的进度只在 /state 上),连设备列表一起刷。

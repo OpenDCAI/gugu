@@ -7,6 +7,9 @@ import { ToastContext } from '@/components/toastContext'
 import { DevicesContext, type DevicesContextValue } from '@/store/devicesContext'
 import type { Device } from '@gugu/core/shared/types/chat'
 
+const readings = vi.hoisted(() => ({ value: new Map<string, import('@/lib/serverUpdateReadings').ServerUpdateView>() }))
+vi.mock('@/lib/serverUpdateReadings', () => ({ useServerUpdateReadings: () => readings.value, readServerUpdate: vi.fn(async () => undefined) }))
+
 const retry = vi.hoisted(() => vi.fn(async (_deviceId: string) => true))
 const restart = vi.hoisted(() => vi.fn(async (_deviceId: string, _version: string, _confirmedRpc: boolean) => true))
 vi.mock('@/lib/serverVersionRetry', () => ({ retryServerVersionMatch: retry, restartServerVersionNow: restart }))
@@ -32,6 +35,8 @@ async function click(id: string) {
   await act(async () => { node(id)!.click() })
 }
 beforeEach(() => {
+  readings.value = new Map()
+  ;(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
   restart.mockReset().mockResolvedValue(true)
   retry.mockReset().mockResolvedValue(true)
   toast.mockReset()
@@ -70,17 +75,21 @@ describe('confirmed server update feedback', () => {
     expect(restart).not.toHaveBeenCalled()
   })
 
-  it('confirms once, keeps Restarting after the RPC ack, and finishes on the new version heartbeat', async () => {
-    await render()
-    await click('update-now')
-    expect(retry).not.toHaveBeenCalled()
-    await click('update-now-yes')
+  it('confirms once and displays the durable operation; a matching heartbeat alone cannot claim a connection', async () => {
+    await render(); await click('update-now'); await click('update-now-yes')
     expect(restart).toHaveBeenCalledExactlyOnceWith('remote', target, true)
-    expect(retry).not.toHaveBeenCalled()
-    expect(node('restarting')!.textContent).toBe('正在重启…')
+    readings.value.set('remote', { reachable: true, pending: false, transition: { request: 7, target, phase: 'migrating', at: Date.now(), pid: 22, done: 2, total: 3 } })
+    await render()
+    expect(node('restarting')!.textContent).toBe('升级数据 2/3')
     expect(node('update-now')).toBeNull()
     await render(server(undefined, target))
-    expect(node('restarting')).toBeNull()
+    expect(node('restarting')!.textContent).toBe('升级数据 2/3')
+    readings.value.set('remote', { reachable: true, pending: false, connected: false, transition: { request: 7, target, phase: 'ready', at: Date.now(), pid: 22 } })
+    await render(server(undefined, target))
+    expect(node('restarting')!.textContent).toBe('连接中')
+    readings.value.set('remote', { ...readings.value.get('remote')!, connected: true })
+    await render(server(undefined, target))
+    expect(node('restarting')!.textContent).toBe('已连上')
     expect(toast).not.toHaveBeenCalled()
   })
 
@@ -93,15 +102,26 @@ describe('confirmed server update feedback', () => {
     expect(toast).toHaveBeenCalledWith(expect.stringContaining('未能确认'), 'error', failure === 'rejected' ? expect.any(String) : undefined)
   })
 
-  it('bounds the wait for a confirming heartbeat and allows an explicit retry', async () => {
-    await render()
-    vi.useFakeTimers()
-    await click('update-now'); await click('update-now-yes')
+  it('keeps an active operation through the old timeout and a settings remount without offering another restart', async () => {
+    readings.value.set('remote', { reachable: false, pending: false, transition: { request: 7, target, phase: 'stopping', at: Date.now() } })
+    await render(); vi.useFakeTimers()
     await act(async () => { await vi.advanceTimersByTimeAsync(120_000) })
-    expect(node('restarting')).toBeNull()
-    expect(node('update-now')).not.toBeNull()
-    expect(toast).toHaveBeenCalledWith(expect.stringContaining(target), 'error')
-    expect(restart).toHaveBeenCalledTimes(1)
+    expect(node('restarting')!.textContent).toBe('停止旧版本')
+    await act(async () => root.unmount()); root = createRoot(container); await render()
+    expect(node('restarting')!.textContent).toBe('停止旧版本')
+    expect(node('update-now')).toBeNull()
+    expect(toast).not.toHaveBeenCalled()
+    expect(restart).not.toHaveBeenCalled()
+  })
+  it('shows true search progress beside the restored connection and removes it when complete', async () => {
+    const transition = { request: 7, target, phase: 'ready' as const, at: Date.now(), pid: 22, search: { state: 'running' as const, done: 42, total: 100 } }
+    readings.value.set('remote', { reachable: true, pending: false, connected: true, transition })
+    await render()
+    expect(node('restarting')!.textContent).toBe('已连上')
+    expect(node('search-preparing')!.textContent).toBe('准备搜索 42%')
+    readings.value.set('remote', { reachable: true, pending: false, connected: true, transition: { ...transition, search: { state: 'complete', done: 100, total: 100 } } })
+    await render()
+    expect(node('search-preparing')).toBeNull()
   })
   it('shows a task boot failure while keeping the online device usable', async () => {
     const device = server()

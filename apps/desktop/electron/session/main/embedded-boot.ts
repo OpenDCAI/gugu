@@ -103,7 +103,9 @@ import {
   syncExtensionBackgrounds,
 } from '@main/core/extensions/extension-background'
 import { rpcRouter } from '@main/rpc' // ← the complete router, every controller
-import { backfillTurnText, initializeDatabase } from '@main/db/initialize'
+import { initializeDatabase } from '@main/db/initialize'
+import { startTurnTextBackfillWorker, stopTurnTextBackfillWorker } from '@main/db/turn-text-backfill-runner'
+import { reportServerBoot } from '@gugu/core/cloud/serverBootProgress'
 import { migrateProjectKind } from '@main/core/projects/operations/migrate-project-kind'
 import { closeDatabase, db, sqlite } from '@main/db/client'
 import { resolveDatabasePath } from '@main/db/path'
@@ -436,6 +438,11 @@ export async function bootEmdashModule(ipcMain: IpcMain, discovery?: Pick<Sessio
   })
 }
 
+/** The host calls this only after its actual account/RPC service is ready. */
+export function startSessionpageSearchBackfill(): void {
+  startTurnTextBackfillWorker()
+}
+
 async function maybeStartDevWsHost(): Promise<HostIpc | null> {
   if (app.isPackaged || process.env.GUGU_TASK_HOST_WS !== '1') return null
   const { startSessionHostWsServer } = await import('./host-ws/server')
@@ -529,7 +536,10 @@ export async function bootSessionHostCore(options: SessionHostBootOptions): Prom
   // 那次 tmux 后台清扫落定(改名改到一半被它看见会收掉后台)。段 2 失败不拦启动:不写 .done、下次重试,失败项响亮记下。
   await backupBeforeTaskToSession(sqlite, resolveDatabasePath())
   await backupBeforeSessionNaming(sqlite, resolveDatabasePath())
-  await initializeDatabase()
+  await initializeDatabase(undefined, (progress) => {
+    reportServerBoot({ phase: 'migrating', done: progress.done, total: progress.total })
+    log.info('Database initialization progress', progress)
+  })
   // #609 已有的、登记在 ~ / task-home / GUGU_HOME 底下的项目改成 workspace(会话随之列进「任务」);幂等,失败不拦启动。
   try {
     const demoted = migrateProjectKind(path.join(app.getPath('userData'), 'project-kind-migration.json'))
@@ -618,9 +628,6 @@ export async function bootSessionHostCore(options: SessionHostBootOptions): Prom
     sessionBootTasks.runSync('deferred-sweep', '', claimInterruptedDeferredMessages)
   }
   searchService.initialize()
-  void backfillTurnText(sqlite).catch((error: unknown) =>
-    log.error('Turn-text backfill failed; retrying next start', { error: String(error) })
-  )
   workspaceFileIndexService.initialize()
   void editorBufferService.pruneStale()
   // 依赖体检的 `<bin> --version` 是 detached 起的(不然只杀得掉直接子进程)，收尾在 finally 里 ——
@@ -795,6 +802,7 @@ let disposeEmdashModulePromise: Promise<void> | null = null
 let stopPtyRecordSync: () => void = () => {}
 
 async function disposeEmdashModuleOnce(): Promise<void> {
+  stopTurnTextBackfillWorker()
   const failures: unknown[] = []
   const runPhase = async (phase: string, action: () => void | Promise<void>): Promise<void> => {
     const startedAt = performance.now()

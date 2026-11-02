@@ -1,5 +1,6 @@
 import { permanentlyRemove } from './agentIdentityRemoval'
 import { parseSessionBootFailures } from '../shared/sessionBootTasks'
+import { parseServerTransition } from './serverTransition'
 import { isImplicitSessionHomeProjectId } from '../shared/sessionProject'
 import { normalizeDeviceActionsSummary, type DeviceActionsSummary } from '../shared/deviceActions'
 import { parseMachineLimitRefusal, type MachineLimitRefusal } from './machineLimit'
@@ -280,6 +281,7 @@ export function normalizeDeviceCapabilities(value: unknown): DeviceCapabilities 
     ...(row.server_confirmed_restart === true ? { server_confirmed_restart: true as const } : {}),
     ...(parseSessionBootFailures(row.server_boot_failures).length ? { server_boot_failures: parseSessionBootFailures(row.server_boot_failures) } : {}),
     ...normalizeServerUpdate(row.server_update),
+    ...(parseServerTransition(row.server_transition) ? { server_transition: parseServerTransition(row.server_transition)! } : {}),
     ...normalizeServerDisk(row.server_disk),
     ...normalizeServerRollback(row.server_rollback),
     ...(isPositiveInt(row.remote_protocol) ? { remote_protocol: row.remote_protocol } : {}),

@@ -45,7 +45,7 @@ it('status --json wires installation, live supervisor, and live account identiti
   await vi.waitFor(() => expect(exit).toHaveBeenCalledWith(0), { timeout: 2_000 })
   const json = JSON.parse(stdout.split('__GUGU_STATUS_BEGIN__\n')[1]!.split('\n__GUGU_STATUS_END__')[0]!)
   expect(json).toMatchObject({ version: 'cli-package', installedVersion: 'installed-package', supervisorVersion: 'actual-supervisor', accounts: [{ userId: 'u1', running: true, version: 'actual-account' }] })
-  expect(mocks.installed).toHaveBeenCalledWith(home)
+  expect(mocks.installed).toHaveBeenCalledWith(fs.realpathSync(home))
   expect(mocks.runtime).toHaveBeenCalledWith('/accounts/u1/data')
   expect(exit).toHaveBeenCalledTimes(1)
 })

@@ -8,6 +8,7 @@
  */
 import { SERVER_LOGIN_ACTION } from '@gugu/core/cloud/remoteTunnel'
 import type { ServerAccount } from './server-layout'
+import type { DeviceServerTransition } from '@gugu/core/shared/types/deviceHost'
 
 export const STATUS_JSON_BEGIN = '__GUGU_STATUS_BEGIN__'
 export const STATUS_JSON_END = '__GUGU_STATUS_END__'
@@ -19,6 +20,7 @@ export type StatusAccount = {
   running: boolean
   /** 实际活进程的包;读不到时为 null,不拿 pin 冒充。 */
   version?: string | null
+  transition?: DeviceServerTransition | null
   signedOut: ServerAccount['signedOut']
 }
 
