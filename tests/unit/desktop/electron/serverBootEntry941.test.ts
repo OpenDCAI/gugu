@@ -36,7 +36,7 @@ async function boot(fail: string, fatal = false) {
     '@main/db/client': { db: { select: () => ({ from: (table: { name: string }) => ({
       where: () => ({ all: () => rows[table.name] }),
     }) }) } },
-    electron: { app: { getPath: () => home, isPackaged: true }, session: { defaultSession: { resolveProxy: () => 'DIRECT' } } },
+    electron: { app: { getPath: () => home, getVersion: () => '0.3.1-fixture', isPackaged: true }, session: { defaultSession: { resolveProxy: () => 'DIRECT' } } },
     '@main/db/initialize': { initializeDatabase: async () => { if (fatal) throw new Error('database init failed') } },
     '../../migrations/task-to-session': { runTaskToSessionOnce: async () => null },
     '../../migrations/session-naming': { runSessionNamingOnce: async () => null },
