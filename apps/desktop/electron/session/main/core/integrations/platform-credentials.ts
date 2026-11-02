@@ -4,6 +4,7 @@ import {
   PlatformCredentialRejectedError,
   type PlatformIntegrationProvider,
   type PlatformIntegrationsClient,
+  type PlatformMcpEndpoint,
 } from '@gugu/core/cloud/platformIntegrations';
 import {
   integrationPluginRegistry,
@@ -16,7 +17,6 @@ import type {
   ProviderAccountRegistry,
 } from '@main/core/provider-accounts/provider-account-registry';
 import { PLATFORM_CREDENTIAL_SOURCE, REJECTED_KEY_SOURCE } from '@shared/core/provider-accounts/provider-account-meta';
-import type { IntegrationEndpoint } from '../../../../integration-mcp-bridge';
 import { DEFAULT_INTEGRATION_ACCOUNT_ID } from './integration-credential-store';
 
 /**
@@ -38,19 +38,21 @@ export type PlatformCustodyProvider = {
   id: string;
   name: string;
   fields: readonly { id: string; secret: boolean; required: boolean }[];
+  oauth?: true;
 };
 
 /** 注册表里表单连接方式标了 `custody: 'platform'` 的那几家。 */
 export function platformCustodyProviders(): PlatformCustodyProvider[] {
   return integrationPluginRegistry.getAll().flatMap((plugin) => {
     const form = plugin.capabilities.auth.methods.find(
-      (method) => method.kind === 'form' && method.custody === 'platform'
+      (method) => (method.kind === 'form' || method.kind === 'mcp-oauth') && method.custody === 'platform'
     );
-    if (form?.kind !== 'form') return [];
+    if (!form || (form.kind !== 'form' && form.kind !== 'mcp-oauth')) return [];
     return [{
       id: plugin.metadata.id,
       name: plugin.metadata.name,
-      fields: form.fields.map(({ id, secret, required }) => ({ id, secret, required })),
+      fields: form.kind === 'form' ? form.fields.map(({ id, secret, required }) => ({ id, secret, required })) : [],
+      ...(form.kind === 'mcp-oauth' ? { oauth: true as const } : {}),
     }];
   });
 }
@@ -165,9 +167,30 @@ function connectFailure(error: unknown, name: string, secrets: readonly string[]
 }
 
 export class PlatformCredentialService {
+  private readonly connectionListeners = new Set<() => void>();
+  private connectionSignature = '';
+
+  onConnectionChanged(listener: () => void): () => void {
+    this.connectionListeners.add(listener);
+    return () => { this.connectionListeners.delete(listener); };
+  }
+
+  private reportConnections(): void {
+    const signature = JSON.stringify([...(this.snapshot ?? [])].map(([id, accounts]) =>
+      [id, [...accounts].sort(([left], [right]) => left.localeCompare(right))]
+    ).sort(([left], [right]) => String(left).localeCompare(String(right))));
+    if (signature === this.connectionSignature) return;
+    this.connectionSignature = signature;
+    for (const listener of this.connectionListeners) {
+      try { listener(); }
+      catch { this.deps.log.warn('Integration connection observer failed'); }
+    }
+  }
   /** absent = 这个安装压根没有这项服务(唯一把凭据留在本机的情况);unknown = 还没问到过。 */
   private availability: 'unknown' | 'present' | 'absent' = 'unknown';
   private snapshot: Snapshot | null = null;
+  private versions = new Map<string, Map<string, string | null>>();
+  private readonly rejectedVersions = new Map<string, Map<string, string | null>>();
   private fetchedAt = 0;
   /** 上一次没问到的时刻:之后一阵子「看一眼」的读不再等平台(开会话的那一次照样现问)。 */
   private failedAt = 0;
@@ -222,6 +245,7 @@ export class PlatformCredentialService {
    */
   custody(integrationId: string): 'platform' | 'local' | null {
     if (!this.isPlatformProvider(integrationId)) return null;
+    if (this.provider(integrationId)?.oauth) return 'platform';
     return this.availability === 'absent' || !this.client() ? 'local' : 'platform';
   }
 
@@ -237,6 +261,7 @@ export class PlatformCredentialService {
     }
     this.availability = 'absent';
     this.snapshot = null;
+    this.reportConnections();
     this.fetchedAt = this.now();
     this.failedAt = 0;
     this.lastFailure = null;
@@ -316,6 +341,15 @@ export class PlatformCredentialService {
     }
     // 问的时候登录已经换了:这是上一个人的答复,❌ 照抄、❌ 拿它的 key 去传。
     if (generation !== this.generation) return false;
+    const versions = new Map(listed.map((provider) => [provider.provider,
+      new Map(provider.accounts.map((account) => [account.accountId, account.updatedAt])),
+    ]));
+    // A list response about the same credential version cannot undo an observed rejection.
+    for (const [id, rejected] of this.rejectedVersions) {
+      for (const [account, version] of rejected) {
+        if (versions.get(id)?.get(account) === version) snapshot.get(id)?.set(account, false);
+      }
+    }
     for (const provider of providers) {
       try {
         await this.moveLocalKeys(client, provider, listed.find((row) => row.provider === provider.id), snapshot.get(provider.id)!);
@@ -326,9 +360,16 @@ export class PlatformCredentialService {
           code: failureOf(error).code,
         });
       }
+      if (generation !== this.generation) return false;
     }
     this.availability = 'present';
     this.snapshot = snapshot;
+    this.versions = versions;
+    for (const [id, rejected] of this.rejectedVersions) {
+      for (const [account, version] of rejected) if (versions.get(id)?.get(account) !== version) rejected.delete(account);
+      if (rejected.size === 0) this.rejectedVersions.delete(id);
+    }
+    this.reportConnections();
     this.fetchedAt = this.now();
     this.failedAt = 0;
     this.lastFailure = null;
@@ -356,6 +397,7 @@ export class PlatformCredentialService {
     listed: PlatformIntegrationProvider | undefined,
     known: Map<string, boolean>
   ): Promise<void> {
+    if (provider.oauth) return;
     for (const row of await this.deps.accounts.listAccounts(provider.id)) {
       // #649 只存过默认那一个账号;别的本机行不是它存的,原样不动。
       if (keptByPlatform(row) || row.accountId !== DEFAULT_INTEGRATION_ACCOUNT_ID) continue;
@@ -582,6 +624,7 @@ export class PlatformCredentialService {
 
   /** 表单交给平台;平台验过、存下了,本机只记一行(没有密钥)。`editing`:「编辑凭据」—— 本机没有存着的可沿用,留空就是缺。 */
   connect(integrationId: string, input: IntegrationCredentials, options: { editing?: boolean } = {}): Promise<PlatformConnectResult> {
+    if (this.provider(integrationId)?.oauth) return this.confirmOAuth(integrationId);
     return this.serialize(async () => {
       const provider = this.provider(integrationId);
       if (!provider) return { success: false, error: `Unknown integration: ${integrationId}` };
@@ -646,9 +689,74 @@ export class PlatformCredentialService {
         await this.deps.accounts.upsertAccount({ providerId: integrationId, accountId: row.accountId, meta: platformMeta(row) });
       }
       this.snapshot?.set(integrationId, new Map([[DEFAULT_INTEGRATION_ACCOUNT_ID, true]]));
+      this.reportConnections();
       this.clearBackOff(integrationId);
       return { success: true };
     });
+  }
+
+  /** The broker has already stored the grant; the device only mirrors its status. */
+  private async confirmOAuth(integrationId: string): Promise<Exclude<PlatformConnectResult, { keepHere: true }>> {
+    if (!(await this.refresh({ maxAgeMs: 0 })) || !(await this.isConnected(integrationId))) {
+      return { success: false, ...serviceUnavailable(this.provider(integrationId)?.name ?? integrationId) };
+    }
+    return { success: true };
+  }
+
+  async authorizeOAuth(integrationId: string, signal: AbortSignal, openExternal: (url: string) => Promise<void>): Promise<void> {
+    const client = this.client();
+    if (!client?.beginOAuth || !client.oauthStatus || !client.cancelOAuth) {
+      throw new Error('This Gugu installation does not provide browser authorization for this app.');
+    }
+    const attempt = await client.beginOAuth(integrationId, signal);
+    try {
+      signal.throwIfAborted();
+      await openExternal(attempt.authorizationUrl);
+      while (Date.now() < attempt.expiresAt) {
+        signal.throwIfAborted();
+        const result = await client.oauthStatus(integrationId, attempt.attemptId, signal);
+        if (result.state === 'connected') {
+          const confirmed = await this.confirmOAuth(integrationId);
+          if (!confirmed.success) throw new Error(confirmed.error);
+          return;
+        }
+        if (result.state === 'failed') throw new Error(result.error ?? 'Authorization failed.');
+        await new Promise<void>((resolve, reject) => {
+          const done = () => { signal.removeEventListener('abort', cancel); resolve(); };
+          const timer = setTimeout(done, 1000);
+          const cancel = () => { clearTimeout(timer); signal.removeEventListener('abort', cancel); reject(signal.reason); };
+          signal.addEventListener('abort', cancel, { once: true });
+          if (signal.aborted) cancel();
+        });
+      }
+      throw new Error('Authorization timed out. Try again.');
+    } finally {
+      await client.cancelOAuth(integrationId, attempt.attemptId).catch((error: unknown) =>
+        this.deps.log.warn('Could not discard the finished OAuth attempt', { code: failureOf(error).code }));
+    }
+  }
+
+  async beginOAuth(integrationId: string) {
+    const client = this.client();
+    if (!this.provider(integrationId)?.oauth || !client?.beginOAuth) throw new Error('Browser authorization is not available for this app.');
+    return client.beginOAuth(integrationId);
+  }
+
+  async oauthStatus(integrationId: string, attemptId: string) {
+    const client = this.client();
+    if (!this.provider(integrationId)?.oauth || !client?.oauthStatus) throw new Error('Browser authorization is not available for this app.');
+    const result = await client.oauthStatus(integrationId, attemptId);
+    if (result.state === 'connected') {
+      const confirmed = await this.confirmOAuth(integrationId);
+      if (!confirmed.success) throw new Error(confirmed.error);
+    }
+    return result;
+  }
+
+  async cancelOAuth(integrationId: string, attemptId: string) {
+    const client = this.client();
+    if (!this.provider(integrationId)?.oauth || !client?.cancelOAuth) return;
+    await client.cancelOAuth(integrationId, attemptId);
   }
 
   /** 平台上删掉(所有设备一起断),再删本机这一行。平台没删成 = 本机也不动,卡片还在「已连接」、还能再点。 */
@@ -669,6 +777,7 @@ export class PlatformCredentialService {
       }
       await this.deps.accounts.removeAllAccounts(integrationId);
       this.snapshot?.set(integrationId, new Map());
+      this.reportConnections();
       this.clearBackOff(integrationId);
       return { success: true };
     });
@@ -678,21 +787,33 @@ export class PlatformCredentialService {
    * 会话里这一家那台 MCP 每次调用现取的转发口:平台的地址 + 本人此刻的会话令牌,凭据由平台挂上。
    * 转发口说没存 / 存着的被拒了 → 这一次调用明确失败,本机也跟着去问一次平台。
    */
-  async mcpEndpoint(integrationId: string, signal?: AbortSignal): Promise<IntegrationEndpoint> {
+  async mcpEndpoint(integrationId: string, signal?: AbortSignal): Promise<PlatformMcpEndpoint> {
     signal?.throwIfAborted();
     const client = this.client();
     if (!client) throw new Error(`${integrationId} is kept on this computer here; there is no platform forwarder.`);
+    const versions = new Map(this.versions.get(integrationId));
     const endpoint = await client.mcpEndpoint(integrationId, {
       onNotConnected: () => this.heard(integrationId, false),
-      onCredentialRejected: () => this.heard(integrationId, true),
+      onCredentialRejected: () => this.heard(integrationId, true, versions),
     });
     signal?.throwIfAborted();
     return endpoint;
   }
 
-  private heard(integrationId: string, stillStored: boolean): void {
+  private heard(integrationId: string, stillStored: boolean, versions?: Map<string, string | null>): void {
+    if (stillStored && this.provider(integrationId)?.oauth && versions) {
+      // Endpoint creation does not identify the grant consumed by a reused endpoint.
+      // Do not mark a newer grant from this old version, but always reconcile with the server.
+      if ([...versions].some(([id, version]) => this.versions.get(integrationId)?.get(id) !== version)) {
+        this.invalidate();
+        void this.refresh({ maxAgeMs: 0 });
+        return;
+      }
+      this.rejectedVersions.set(integrationId, new Map(versions));
+    }
     const accounts = this.snapshot?.get(integrationId);
     this.snapshot?.set(integrationId, new Map(stillStored ? [...(accounts?.keys() ?? [])].map((id) => [id, false] as const) : []));
+    this.reportConnections();
     this.invalidate();
     void this.refresh({ maxAgeMs: 0 });
   }

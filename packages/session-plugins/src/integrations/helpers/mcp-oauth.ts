@@ -11,6 +11,7 @@ import type { IntegrationError } from '../types';
  */
 export const mcpOAuthCredentialsSchema = z.object({
   serverUrl: z.string().min(1),
+  transport: z.enum(['streamable-http', 'sse']).optional(),
   redirectUrl: z.string().min(1),
   clientInformation: z.looseObject({
     client_id: z.string().min(1),

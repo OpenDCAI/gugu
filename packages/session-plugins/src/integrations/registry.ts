@@ -1,6 +1,7 @@
 import { createPluginRegistry } from '@gugu/session-shared/plugins';
 import { provider as amap } from './impl/amap';
 import { provider as asana } from './impl/asana';
+import { provider as baiduPan } from './impl/baidu-pan';
 import { provider as dida } from './impl/dida';
 import { provider as dingtalk } from './impl/dingtalk';
 import { provider as enterpriseMail } from './impl/enterprise-mail';
@@ -41,6 +42,7 @@ for (const provider of [
   // 国产平台的官方云端 MCP(#7210):只给 agent 用,不是 issue 系统。
   feishu,
   tencentDocs,
+  baiduPan,
   tencentMeeting,
   dida,
   // 用户自己的 Key 拼进地址的托管 MCP。

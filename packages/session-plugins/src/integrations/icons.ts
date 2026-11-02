@@ -2,6 +2,7 @@
 import type { PluginIconAsset } from '@gugu/session-shared/plugins';
 import { icon as icon_amap } from './impl/amap/icon';
 import { icon as icon_asana } from './impl/asana/icon';
+import { icon as icon_baidu_pan } from './impl/baidu-pan/icon';
 import { icon as icon_dida } from './impl/dida/icon';
 import { icon as icon_dingtalk } from './impl/dingtalk/icon';
 import { icon as icon_enterprise_mail } from './impl/enterprise-mail/icon';
@@ -26,6 +27,7 @@ import { icon as icon_wecom } from './impl/wecom/icon';
 export const integrationIcons: Readonly<Record<string,PluginIconAsset>> = {
   'amap': icon_amap,
   'asana': icon_asana,
+  'baidu-pan': icon_baidu_pan,
   'dida': icon_dida,
   'dingtalk': icon_dingtalk,
   'enterprise-mail': icon_enterprise_mail,

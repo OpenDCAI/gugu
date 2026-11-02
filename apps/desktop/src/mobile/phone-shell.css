@@ -106,6 +106,35 @@
   line-height: var(--lh-prose);
 }
 
+/* A row's leading content must not set the title column. Pending tasks are
+   portalled into the list, so apply the same slot below their slot host too. */
+[data-phone-shell] [data-phone-root-list='chats'] .gg-list-row > .gg-list-row-leading,
+.gg-phone-message-avatar {
+  width: 48px;
+  height: 48px;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+}
+[data-phone-shell] [data-phone-root-list='chats'] .gg-list-row > .gg-list-row-leading > *,
+.gg-phone-message-avatar > :not(.gg-phone-message-avatar-badge) {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+.gg-phone-message-avatar { display: inline-flex; position: relative; }
+/* Match the visible centre of Avatar's 48px status corner (5px in from its edges). */
+.gg-phone-message-avatar-badge {
+  position: absolute;
+  top: 1px;
+  right: 1px;
+  width: 8px;
+  height: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
 [data-phone-shell] .gg-settings-nav-pane[data-mobile] .gg-settings-nav-item {
   min-height: 56px;
   border: 0;
