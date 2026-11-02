@@ -7,7 +7,7 @@ import type { ParsedAttachment } from '@gugu/core/shared/ui/attachmentModels'
 import { useTranslation } from 'react-i18next'
 import type { TFunction } from 'i18next'
 import { downloadBlob } from '../../lib/download'
-import { attachmentBytes, attachmentPreview, openAttachmentImage, openAttachmentInSystemApp, sourceKeyOf } from '../../lib/attachmentBytes'
+import { attachmentBytes, attachmentPreview, openAttachmentInSystemApp, sourceKeyOf } from '../../lib/attachmentBytes'
 import { rendererLogger } from '../../lib/log'
 import { offlineHolder } from '../../lib/fileHost'
 import { useDevicesStore } from '../../store/devicesContext'
@@ -116,9 +116,8 @@ export function MessageFilePreview({ file, mobile = false, fill = false, tabbed 
     let live = true, release: PreviewRead['release']
     setRead(null)
     const source = file.source
-    const quoteImage = source.kind === 'item' ? () => quoteChatFile(source.itemId, source.version, null) : undefined
-    if (kind !== 'unsupported') void (kind === 'image' ? openAttachmentImage(source, file.fileName, () => live, quoteImage, message ? { chatId: message.chat_id, messageId: message.id } : undefined) : readPreview(file, kind)).then(
-      (done) => { release = done?.release; if (!live) { void release?.(); return } if (kind === 'image') (onBack ?? onClose)(); else if (done) setRead(done) },
+    if (kind !== 'unsupported') void readPreview(file, kind).then(
+      (done) => { release = done.release; if (!live) { void release?.(); return } setRead(done) },
       async (error) => {
         // A project file kept on a machine that is off now says so, from a fresh read of where it is kept.
         const offline = source.kind === 'item' ? await offlineHolder(source.itemId, source.version) : null
@@ -167,7 +166,6 @@ export function MessageFilePreview({ file, mobile = false, fill = false, tabbed 
     })
   }
   const actions = messageActionItems({ isRetracted: !!message?.retracted_at, content: message?.content ?? null, onForward: message && onForward ? () => onForward(message) : undefined, onDownload: missing ? undefined : download }, t)
-  if (kind === 'image' && !read?.error) return null
   const notice = besideOffline ? t('attachmentView.besideOfflineNotice', { machine: besideOffline.machine || t('attachmentView.holderMachine') }) : undefined
   // `key`: a read again (the machine back) gives the HTML preview a new registration, so its files are asked for again.
   return <MessageFilePreviewPanel key={attempt} notice={notice} registerHtml={registerHtml} viewerRef={viewerRef} fill={fill} tabbed={tabbed} mobile={mobile} file={file} kind={kind} content={read?.content ?? null} videoUrl={read?.videoUrl} onVideoError={renewVideo} loading={kind !== 'unsupported' && read === null} error={read?.error} onBack={onBack} onClose={onClose} actions={actions} onOpenExternal={missing || kind === 'unsupported' || file.document ? undefined : openExternal} />

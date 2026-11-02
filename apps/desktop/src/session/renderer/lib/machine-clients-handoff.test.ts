@@ -14,12 +14,15 @@ import type { SessionHostPipeOpener } from '@shared/lib/ipc/session-host-client'
 
 type Handlers = Parameters<SessionHostPipeOpener>[0];
 const windows = vi.hoisted(() => [] as Array<{ onFrame(frame: string | Uint8Array): void; onClose(reason: string, options?: { handoff?: boolean }): void }>);
+const sent = vi.hoisted(() => [] as string[]);
+const peerProtocol = vi.hoisted(() => ({ value: null as number | null }));
 
 vi.mock('@shared/remote-hosts', async (importOriginal) => {
   const opener = Object.assign(
     (handlers: Handlers) => {
       windows.push(handlers);
-      return Promise.resolve({ send: () => undefined, close: () => undefined });
+      if (peerProtocol.value !== null) handlers.onFrame(JSON.stringify({ t: 'hello', v: peerProtocol.value, sender: 0 }));
+      return Promise.resolve({ send: (frame: string | Uint8Array) => { if (typeof frame === 'string') sent.push(frame); }, close: () => undefined });
     },
     { watchPeerRestart: () => () => undefined }
   );
@@ -44,6 +47,33 @@ const { closeMachineClient, machineClient, machineLinkHandingOff, machineLinkSta
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 describe('到那台机器的线:计划内换线', () => {
+  it('keeps a protocol-4 host open and delivers plain text through its existing methods', async () => {
+    windows.length = 0;
+    sent.length = 0;
+    peerProtocol.value = 4;
+    const client = machineClient('d22')!;
+    try {
+      await client.connect();
+      expect(machineLinkState('d22')).toBe('open');
+      const input = { conversationId: 'session', text: 'plain text', clientRequestId: 'text-input' };
+      const delivered = client.api.invoke('sessionTimeline.sessionSend', input);
+      await flush();
+      const request = sent.map(frame => JSON.parse(frame)).find(frame => frame.t === 'invoke');
+      expect(request).toMatchObject({ channel: 'sessionTimeline.sessionSend', args: [input] });
+      windows[0].onFrame(JSON.stringify({ t: 'result', id: request.id, ok: true, value: { id: 'text-input' } }));
+      await expect(delivered).resolves.toEqual({ id: 'text-input' });
+    } finally { closeMachineClient('d22'); peerProtocol.value = null; }
+  });
+
+  it('still rejects protocol-3 method names', async () => {
+    windows.length = 0;
+    peerProtocol.value = 3;
+    try {
+      await machineClient('d22')!.connect();
+      expect(machineLinkState('d22')).toBe('tooOld');
+    } finally { closeMachineClient('d22'); peerProtocol.value = null; }
+  });
+
   it('换线这一段对外一直是 open;新窗口开好算一次变通', async () => {
     windows.length = 0;
     await machineClient('d22')!.connect();

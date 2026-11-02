@@ -1,3 +1,4 @@
+import type { TurnFileRef } from '@gugu/session-core/session-record/contract';
 import type {
   ChatContext,
   ChatState,
@@ -9,8 +10,6 @@ import {
   attachmentRefSchema,
   permissionTitle,
   permissionDescription,
-  type AttachmentMimeType,
-  type AttachmentRef,
   type HistoryCursor,
   type GuguPermissionMode,
   isDestructivePermissionMode,
@@ -36,7 +35,6 @@ import { commandToken } from '@gugu/session-core/acp/commands';
 import { permissionWaitKind } from '@gugu/session-core/acp/models/permissions';
 import type { AgentState, LiveSettingResult, PermissionWaitKind } from '@gugu/session-core/acp';
 import { errorDetail } from '@gugu/session-shared';
-import { WireError, type BlobSource } from '@gugu/session-wire';
 import { action, computed, makeObservable, observable, reaction, runInAction, when } from 'mobx';
 import { discardSessionLifeRow, endSessionLife, forkSessionLife, readSessionLife, sessionLifeView, startSessionLife, stopSessionLife } from '../stores/session-life-views';
 import { ACP_START_FAILED, lifeIsStarting, type LifeView } from '@shared/core/sessions/session-life';
@@ -352,6 +350,7 @@ export class AcpChatStore {
       bootstrap: action,
       releaseTranscript: action,
       isEmpty: computed,
+      showHistoryLoading: computed,
       submitPrompt: action,
       stop: action,
       setModel: action,
@@ -661,7 +660,7 @@ export class AcpChatStore {
     if (!await this.revertMessage(itemId, false) || this.session !== session) return;
     runInAction(() => { this.messageEdit = null; });
     // History is already cut back: a send that fails keeps the edited words in the draft.
-    await this.submitPrompt(edit.text, attachments).catch(() => this.setDraftText([edit.text, this.draftText].filter(Boolean).join('\n')));
+    await this.submitPrompt(edit.text, attachments, item.files).catch(() => this.setDraftText([edit.text, this.draftText].filter(Boolean).join('\n')));
   }
 
   async revertMessage(itemId: string, restoreDraft = true): Promise<boolean> {
@@ -766,6 +765,11 @@ export class AcpChatStore {
    */
   get isEmpty(): boolean {
     return !this.historyLoading && this.messageCount === 0 && !this.hasPriorContext;
+  }
+
+  /** A persisted conversation can have prior context while its first visible page is still loading. */
+  get showHistoryLoading(): boolean {
+    return this.historyLoading && this.messageCount === 0 && this.loadError === null;
   }
 
   /**
@@ -965,15 +969,20 @@ export class AcpChatStore {
     // 没有活会话(宿主停了它 / 打开时就没在跑 / 起不来):只重读库里那份,停着的就让它停着 —— 下一次发消息才起
     // (#6497、#980)。切回来等于重新打开:agent 自己的记录里新有的那几轮照打开时一样补进来。
     this.historyLoading = true;
+    this.loadError = null;
     this._resetHistoryState();
     const generation = this._historyGeneration;
-    void this._loadStoredFirstPage(generation).finally(() => {
+    const openingAtStart = this._linkOpenings;
+    void this._loadStoredFirstPage(generation, true).then(() => {
+      if (this._disposed || generation !== this._historyGeneration) return;
       runInAction(() => {
-        if (generation !== this._historyGeneration) return;
         this.historyLoading = false;
         this._syncMessageCount();
       });
       void this._syncStoredHistoryFromRecord(generation);
+    }, (error: unknown) => {
+      if (this._disposed || generation !== this._historyGeneration) return;
+      void this._openFailed(error, generation, openingAtStart, true);
     });
   }
 
@@ -1076,23 +1085,6 @@ export class AcpChatStore {
     this.messageCount = turns.reduce((count, turn) => count + turn.items.length, 0);
   }
 
-  async uploadAttachment(input: {
-    uploadId?: string;
-    data?: Uint8Array;
-    source?: BlobSource;
-    size?: number;
-    mimeType: AttachmentMimeType;
-    name?: string;
-    originalPath?: string;
-    signal?: AbortSignal;
-    onProgress?: (progress: { sent: number; total?: number }) => void;
-  }): Promise<AttachmentRef | null> {
-    const result = await this.session?.uploadAttachment(input);
-    if (!result) throw new WireError('DISCONNECTED', 'ACP session is not connected');
-    if (!result.success) throw result.error;
-    return result.data;
-  }
-
   async resolveToolImage(itemId: string, index: number): Promise<string | null> {
     const generation = this._historyGeneration;
     const stored = findToolItem(this._storedHistoryTurns, itemId)
@@ -1119,17 +1111,6 @@ export class AcpChatStore {
     } catch (error) {
       log.warn('Failed to fetch tool image', { error });
       return null;
-    }
-  }
-
-  async deleteAttachment(id: string): Promise<void> {
-    const session = this._requireSession('acpFailure.attachment');
-    if (!session) return;
-    try {
-      const result = await session.deleteAttachment(id);
-      if (!result.success) this._toastError('acpFailure.attachment', result.error);
-    } catch (error) {
-      this._toastError('acpFailure.attachment', error);
     }
   }
 
@@ -1194,10 +1175,10 @@ export class AcpChatStore {
    * Both sends take the one custody path (sender outbox → host session_pending), persisted session or side chat;
    * the host decides whether the input runs now or queues.
    */
-  async submitPrompt(text: string, attachments: AcpPromptAttachment[] = []): Promise<void> {
+  async submitPrompt(text: string, attachments: AcpPromptAttachment[] = [], files: TurnFileRef[] = []): Promise<void> {
     try {
       if (this.reverting || this.messageEdit) throw new Error('A message is being edited; send or cancel the edit first');
-      await sendThroughCustody(this, text, attachments);
+      await sendThroughCustody(this, text, attachments, files);
     } catch (error) {
       // The one toast of a failed send; the caller keeps its words.
       this._toastError('acpFailure.sendMessage', error);
@@ -1410,7 +1391,7 @@ export class AcpChatStore {
     const existing = session.sessionState.current().queuedPrompts.find((prompt) => prompt.id === id);
     if (!existing) return false;
     const input: PromptInput = {
-      text: editedConversationQueueText(existing.text, text), hiddenContext: existing.hiddenContext, attachments: existing.attachments,
+      text: editedConversationQueueText(existing.text, text), hiddenContext: existing.hiddenContext, attachments: existing.attachments, files: existing.files,
       ...(existing.origin ? { origin: existing.origin } : {}),
     };
     try {
@@ -1673,15 +1654,21 @@ export class AcpChatStore {
     this._opening += 1;
     // 会话表那份是几页共用的:别的页订着时,这边还在等的这一刻它也会响 —— 那时还没有句柄,不理。
     let watch: RunningSessionWatch | null = null;
+    let historyFailed = false;
     try {
       // 两件事并行:库里那份读到就地上屏(`_loadStoredFirstPage`),不等「在不在跑」。
-      const storedReady = this._loadStoredFirstPage(generation);
+      // Observe a rejected read immediately, even while the runtime-list watch is still opening.
+      // An idle session has no replay to replace a failed stored page.
+      const storedReady = this._loadStoredFirstPage(generation, true).then(
+        () => null, (error: unknown) => ({ error })
+      );
       const opened = await watchRunningSession(this.runtimeSessionId, {
         onChange: () => { if (watch) this._onRunningChange(watch); },
         onGone: () => { if (watch) this._onRunningGone(watch); },
       });
       watch = opened;
-      await storedReady;
+      const storedFailure = await storedReady;
+      if (storedFailure) { historyFailed = true; throw storedFailure.error; }
       // 这期间有人发了一句(那一句已经把它起起来了)、页关了、重新开了场:这次打开作废。
       if (this._disposed || generation !== this._historyGeneration || this._visualEvidenceOverride) {
         opened.dispose();
@@ -1696,7 +1683,7 @@ export class AcpChatStore {
     } catch (error) {
       watch?.dispose();
       if (this._disposed || generation !== this._historyGeneration) return;
-      await this._openFailed(error, generation, openingAtStart);
+      await this._openFailed(error, generation, openingAtStart, historyFailed);
     } finally {
       this._opening -= 1;
     }
@@ -1706,8 +1693,10 @@ export class AcpChatStore {
    * 读不到「它在不在跑」= 到那台机器 / 运行时的线不通。与开场失败同一个说法与去路:线断了先在宽限里悄悄等,
    * 回来了就再打开一次;等满了才是失败那一行,线回来时(或点「再试一次」)再**打开**一次 —— ❌ 借机起它。
    */
-  private async _openFailed(error: unknown, generation: number, openingAtStart: number): Promise<void> {
-    const loadError = this._loadErrorOf(error, openingAtStart);
+  private async _openFailed(error: unknown, generation: number, openingAtStart: number, historyFailed = false): Promise<void> {
+    const failure = this._loadErrorOf(error, openingAtStart);
+    const loadError: AcpLoadError = historyFailed && failure.kind === 'generic'
+      ? { kind: 'history_unavailable', message: failure.message } : failure;
     if (loadError.kind === 'connection_lost') {
       const back = await this._awaitMachineLink(loadError.deviceId, openingAtStart);
       if (this._disposed || generation !== this._historyGeneration) return;
@@ -1716,7 +1705,7 @@ export class AcpChatStore {
         return;
       }
     }
-    log.warn('ACP chat could not tell whether the session is running', { sessionId: this.sessionId, error });
+    log.warn('ACP chat could not open its history or watch the running session', { sessionId: this.sessionId, error });
     runInAction(() => {
       this.historyLoading = false;
       this.loadError = loadError;
@@ -2331,8 +2320,8 @@ export class AcpChatStore {
     return bindSessionTerminalOutputs(session, terminals => this.chatState.session.setTerminals(terminals));
   }
 
-  /** 库里最新那一页(100 轮),读到就地上屏。读失败只记日志 —— 历史退回由重放供给(见开场处的注释)。 */
-  private _loadStoredFirstPage(generation: number): Promise<void> {
+  /** Read the newest stored page. Only a live bootstrap can replace a failed read with replay; idle opens must report it. */
+  private _loadStoredFirstPage(generation: number, failOnError = false): Promise<void> {
     return rpc.sessions
       .getStoredHistory({ sessionId: this.sessionId, limit: 100 })
       .then(async (stored) => {
@@ -2354,6 +2343,7 @@ export class AcpChatStore {
         });
       })
       .catch((error: unknown) => {
+        if (failOnError) throw error;
         log.warn('stored session history unavailable; falling back to replay', {
           sessionId: this.sessionId,
           error,
@@ -2795,6 +2785,7 @@ function queuedPromptTurn(prompt: QueuedPrompt): TranscriptTurn {
         seq: 0,
         role: 'user',
         text: prompt.text,
+        ...(prompt.files?.length ? { files: prompt.files } : {}),
         ...(prompt.attachments?.length
           ? {
               attachments: prompt.attachments.map((attachment, index) => ({

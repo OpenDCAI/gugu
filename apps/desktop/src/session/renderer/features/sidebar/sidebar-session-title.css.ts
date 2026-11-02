@@ -37,6 +37,8 @@ export const viewport = style({
 
 export const content = style({
   display: 'block', width: 'max-content', minWidth: '100%',
+  // Remeasuring replaces this track; keep pointer input on its stable viewport.
+  pointerEvents: 'none',
   '@media': {
     '(prefers-reduced-motion: no-preference)': {
       selectors: {

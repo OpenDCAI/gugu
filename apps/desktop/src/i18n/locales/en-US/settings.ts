@@ -707,13 +707,13 @@ export default {
     "noMatch": "No matching machines.",
     "notice": {
       "desktopTooOld": "Update Gugu",
-      "desktopTooOldHint": "Gugu server there is newer; some features won't work.",
+      "desktopTooOldHint": "Gugu on that machine is newer; some features won't work.",
       "diskLow": "Almost out of disk space",
       "diskLowHint": "Only {{free}} free; updates and saves may fail.",
       "rolledBack": "Update rolled back",
       "rolledBackHint": "{{version}} failed to run; rolled back to {{restored}}.",
       "serverTooOld": "Needs an update",
-      "serverTooOldHint": "Too old; some features won't work. Updates automatically when idle."
+      "serverTooOldHint": "Update Gugu on that machine to use these features."
     },
     "offline": "Offline",
     "online": "Online",
