@@ -124,23 +124,26 @@ export function createAccountRevisionRuntime(
     cursor = String(BigInt(cursor) - 1n)
     const through = BigInt(readCursor())
     const signal = abortController!.signal
-    await repository.transaction(async (transaction) => {
-      while (BigInt(cursor) < through) {
-        const page = await source.syncSince(cursor, pageSize, signal)
-        signal.throwIfAborted()
-        validatePage(page, cursor)
-        if (page.operations.length === 0) throw new Error('account revision replay is empty before the committed cursor')
+    while (active && generation === runGeneration && BigInt(cursor) < through) {
+      const page = await source.syncSince(cursor, pageSize, signal)
+      signal.throwIfAborted()
+      validatePage(page, cursor)
+      if (page.operations.length === 0) throw new Error('account revision replay is empty before the committed cursor')
+      const lastRevision = page.operations[page.operations.length - 1]!.revision
+      await repository.transaction((transaction) => {
+        if (!active || generation !== runGeneration) return
         for (const operation of page.operations) {
           if (BigInt(operation.revision) <= through && events.has(operation.event)) {
             handlers.get(operation.event)!(operation, transaction)
           }
         }
-        cursor = page.operations[page.operations.length - 1]!.revision
-      }
-      if (!active || generation !== runGeneration) return
-      const remaining = Object.fromEntries(Object.entries(readSkipped()).filter(([event]) => !events.has(event)))
-      transaction.putSyncState(ACCOUNT_REVISION_SKIPPED_KEY, remaining)
-    })
+        if (BigInt(lastRevision) >= through) {
+          const remaining = Object.fromEntries(Object.entries(readSkipped()).filter(([event]) => !events.has(event)))
+          transaction.putSyncState(ACCOUNT_REVISION_SKIPPED_KEY, remaining)
+        }
+      })
+      cursor = lastRevision
+    }
   }
 
   const applyPage = async (
